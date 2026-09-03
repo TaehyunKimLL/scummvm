@@ -25,6 +25,7 @@
 #include "common/str-enc.h"
 #include "common/fs.h"
 #include "common/hashmap.h"
+#include "common/formats/ini-file.h"
 #include "common/config-manager.h"
 #include "scumm/charset.h"
 #include "scumm/file.h"
@@ -281,37 +282,112 @@ void ScummEngine::loadKorFont() {
  * occupies roughly the same space as the original, just with m times more
  * detail.
  */
+
+namespace {
+
+enum KoreanTtfRole {
+	kKorTtfDefaultRole = 0,
+	kKorTtfBoldRole = 1,
+	kKorTtfTitleRole = 2
+};
+
+int getKoreanTtfRoleFromName(const Common::String &name) {
+	if (name.equalsIgnoreCase("title"))
+		return kKorTtfTitleRole;
+	if (name.equalsIgnoreCase("bold"))
+		return kKorTtfBoldRole;
+	return kKorTtfDefaultRole;
+}
+
+} // End of anonymous namespace
+
 void ScummEngine::loadKorTtfFont() {
 #ifdef USE_FREETYPE2
-	if (!ConfMan.hasKey("korean_ttf_font"))
+	_korTtfHeightRoles.clear();
+
+	Common::Path mapPath;
+	if (ConfMan.hasKey("korean_ttf_map"))
+		mapPath = Common::Path(ConfMan.getPath("korean_ttf_map"));
+
+	if (!mapPath.empty())
+		loadKorTtfMap(mapPath);
+
+	// Backward-compatible fallback: if no map file supplied a default font,
+	// keep accepting the earlier per-role config keys.
+	if (_korTtfPath.empty() && ConfMan.hasKey("korean_ttf_font"))
+		_korTtfPath = Common::Path(ConfMan.getPath("korean_ttf_font"));
+	if (_korTtfBoldPath.empty()) {
+		if (ConfMan.hasKey("korean_ttf_bold_font"))
+			_korTtfBoldPath = Common::Path(ConfMan.getPath("korean_ttf_bold_font"));
+		else
+			_korTtfBoldPath = _korTtfPath;
+	}
+	if (_korTtfTitlePath.empty()) {
+		if (ConfMan.hasKey("korean_ttf_title_font"))
+			_korTtfTitlePath = Common::Path(ConfMan.getPath("korean_ttf_title_font"));
+		else
+			_korTtfTitlePath = _korTtfPath;
+	}
+
+	if (_korTtfPath.empty())
 		return;
 
-	Common::Path fontPath(ConfMan.getPath("korean_ttf_font"));
-	if (fontPath.empty())
-		return;
-
-	// The path is an arbitrary absolute/relative location on disk, so go
-	// through an FSNode rather than Common::File (which only searches the
-	// registered game/search paths).
-	Common::FSNode fontNode(fontPath);
+	Common::FSNode fontNode(_korTtfPath);
 	if (!fontNode.exists() || fontNode.isDirectory()) {
-		warning("SCUMM::Font: Korean TTF font not found: '%s'", fontPath.toString().c_str());
+		warning("SCUMM::Font: Korean TTF font not found: '%s'", _korTtfPath.toString().c_str());
 		return;
 	}
 
-	Common::SeekableReadStream *probe = fontNode.createReadStream();
-	if (!probe) {
-		warning("SCUMM::Font: Could not open Korean TTF font '%s'", fontPath.toString().c_str());
-		return;
-	}
-	delete probe;
-
-	_korTtfPath = fontPath;
 	_korTtfEnabled = true;
+
+	// Default map when no explicit [map] was provided: large 12px bitmap
+	// fonts are title/credit style; compact 8px fonts become bold at 3x
+	// because their line box is exactly 24px.
+	if (_korTtfHeightRoles.empty()) {
+		_korTtfHeightRoles[8] = kKorTtfBoldRole;
+		_korTtfHeightRoles[12] = kKorTtfTitleRole;
+	}
 
 	// Preload the font for the charset that is active right now; further
 	// sizes are created lazily as the game switches charsets.
 	selectKorTtfFont(_2byteHeight * _koreanHiResScale);
+#endif
+}
+
+void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
+#ifdef USE_FREETYPE2
+	Common::FSNode mapNode(mapPath);
+	Common::SeekableReadStream *stream = mapNode.createReadStream();
+	if (!stream) {
+		warning("SCUMM::Font: Could not open Korean TTF map '%s'", mapPath.toString().c_str());
+		return;
+	}
+
+	Common::INIFile map;
+	map.requireKeyValueDelimiter();
+	if (!map.loadFromStream(*stream)) {
+		delete stream;
+		warning("SCUMM::Font: Could not parse Korean TTF map '%s'", mapPath.toString().c_str());
+		return;
+	}
+	delete stream;
+
+	Common::String value;
+	if (map.getKey("default", "fonts", value))
+		_korTtfPath = Common::Path(value);
+	if (map.getKey("bold", "fonts", value))
+		_korTtfBoldPath = Common::Path(value);
+	if (map.getKey("title", "fonts", value))
+		_korTtfTitlePath = Common::Path(value);
+
+	const Common::INIFile::SectionKeyList keys = map.getKeys("map");
+	for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
+		if (it->key.hasPrefix("height_")) {
+			const int height = atoi(it->key.c_str() + 7);
+			if (height > 0)
+				_korTtfHeightRoles[height] = getKoreanTtfRoleFromName(it->value);
+		}
+	}
 #endif
 }
 
@@ -328,19 +404,35 @@ void ScummEngine::selectKorTtfFont(int lineBox) {
 	if (!_korTtfEnabled || lineBox <= 0)
 		return;
 
-	// Fast path: same line box as the last call.
-	if (lineBox == _korTtfCurLineBox)
+	int role = kKorTtfDefaultRole;
+	if (_korTtfHeightRoles.contains(_2byteHeight))
+		role = _korTtfHeightRoles[_2byteHeight];
+	else if (_2byteHeight >= 12)
+		role = kKorTtfTitleRole;
+	else if (lineBox >= 24)
+		role = kKorTtfBoldRole;
+
+	Common::Path fontPath = _korTtfPath;
+	if (role == kKorTtfTitleRole && !_korTtfTitlePath.empty())
+		fontPath = _korTtfTitlePath;
+	else if (role == kKorTtfBoldRole && !_korTtfBoldPath.empty())
+		fontPath = _korTtfBoldPath;
+
+	const int cacheKey = lineBox + role * 10000;
+
+	// Fast path: same line box / font family as the last call.
+	if (cacheKey == _korTtfCurLineBox)
 		return;
 
-	if (_korTtfFonts.contains(lineBox)) {
-		_korTtfCurLineBox = lineBox;
-		_korTtfFont = _korTtfFonts[lineBox];
+	if (_korTtfFonts.contains(cacheKey)) {
+		_korTtfCurLineBox = cacheKey;
+		_korTtfFont = _korTtfFonts[cacheKey];
 		if (_korTtfFont)
 			_korTtfYOffset = (lineBox - _korTtfFont->getFontHeight()) / 2;
 		return;
 	}
 
-	Common::FSNode fontNode(_korTtfPath);
+	Common::FSNode fontNode(fontPath);
 
 	// The engine advances to the next line using the *bitmap* metrics, and
 	// several games squeeze lines tighter than the nominal glyph box (MI1
@@ -379,9 +471,9 @@ void ScummEngine::selectKorTtfFont(int lineBox) {
 	}
 
 	// Cache negative results too, so a failing size is not retried endlessly.
-	_korTtfFonts[lineBox] = result;
+	_korTtfFonts[cacheKey] = result;
 	_korTtfFont = result;
-	_korTtfCurLineBox = lineBox;
+	_korTtfCurLineBox = cacheKey;
 
 	if (!result) {
 		warning("SCUMM::Font: Could not fit Korean TTF font into a %d pixel line box", lineBox);
@@ -390,8 +482,8 @@ void ScummEngine::selectKorTtfFont(int lineBox) {
 
 	_korTtfYOffset = (lineBox - result->getFontHeight()) / 2;
 
-	debug(1, "Korean TTF font: size %d (height %d, lineBox %d, yOffset %d)",
-		  size, result->getFontHeight(), lineBox, _korTtfYOffset);
+	debug(1, "Korean TTF font: role %d size %d (height %d, lineBox %d, yOffset %d)",
+		  role, size, result->getFontHeight(), lineBox, _korTtfYOffset);
 #endif
 }
 

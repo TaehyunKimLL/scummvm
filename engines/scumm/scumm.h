@@ -1784,7 +1784,11 @@ public:
 	int _korTtfCurLineBox = -1;
 	bool _korTtfEnabled = false;
 	Common::Path _korTtfPath;
+	Common::Path _korTtfBoldPath;
+	Common::Path _korTtfTitlePath;
+	Common::HashMap<int, int> _korTtfHeightRoles;
 	void loadKorTtfFont();
+	void loadKorTtfMap(const Common::Path &mapPath);
 	void selectKorTtfFont(int lineBox);
 	bool drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int y, byte color, byte shadowColor);
 
