@@ -575,7 +575,12 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 	// script without going through setCurID(), so the charset switch hook is
 	// not enough: re-check the current line box for every glyph. This is
 	// cheap because selectKorTtfFont() hits the cache on the common path.
-	selectKorTtfFont(_2byteHeight * _koreanHiResScale);
+	//
+	// Single byte characters are excluded: _2byteHeight describes the Hangul
+	// metrics and is not updated for them, so re-selecting here would pick a
+	// different size mid-line and break the shared baseline.
+	if (chr >= 256)
+		selectKorTtfFont(_2byteHeight * _koreanHiResScale);
 
 	if (!_korTtfFont)
 		return false;
@@ -591,6 +596,7 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 		return false;
 
 	const int ty = y + _korTtfYOffset;
+
 
 	// Alpha path: rasterise the glyph once with anti-aliasing, then store the
 	// colour in the text surface and the coverage in the companion channel.
