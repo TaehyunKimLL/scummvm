@@ -1312,7 +1312,14 @@ void ScummEngine::restoreBackground(Common::Rect rect, byte backColor) {
 			} else
 #endif
 			{
-				byte *mask = (byte *)_textSurface.getBasePtr(rect.left, rect.top - _screenTop);
+				// Korean hi-res mode keeps the text in a scaled surface, so
+				// both the offset and the extent have to be scaled. The
+				// original addressing (no topline, unscaled offset) is kept
+				// for every other configuration.
+				byte *mask = isKoreanHiRes()
+					? (byte *)_textSurface.getBasePtr(rect.left * _textSurfaceMultiplier,
+							(vs->topline + rect.top - _screenTop) * _textSurfaceMultiplier)
+					: (byte *)_textSurface.getBasePtr(rect.left, rect.top - _screenTop);
 				fill(mask, _textSurface.pitch, CHARSET_MASK_TRANSPARENCY, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
 			}
 		}
@@ -1327,6 +1334,16 @@ void ScummEngine::restoreBackground(Common::Rect rect, byte backColor) {
 
 		if (_macScreen) {
 			byte *mask = (byte *)_textSurface.getBasePtr(rect.left * _textSurfaceMultiplier, (rect.top + vs->topline) * _textSurfaceMultiplier);
+			fill(mask, _textSurface.pitch, CHARSET_MASK_TRANSPARENCY, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+		}
+
+		// Korean hi-res mode routes all double-byte text into the scaled
+		// text surface, including the single-buffered screens (the verb
+		// area). Those glyphs have to be erased here as well, or they would
+		// linger after the background beneath them was repainted.
+		if (isKoreanHiRes()) {
+			byte *mask = (byte *)_textSurface.getBasePtr(rect.left * _textSurfaceMultiplier,
+					(vs->topline + rect.top - _screenTop) * _textSurfaceMultiplier);
 			fill(mask, _textSurface.pitch, CHARSET_MASK_TRANSPARENCY, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
 		}
 

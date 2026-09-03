@@ -100,6 +100,19 @@ public:
 	virtual void printChar(int chr, bool ignoreCharsetMask) = 0;
 	virtual void drawChar(int chr, Graphics::Surface &s, int x, int y) {}
 
+	// Character currently being drawn, needed by the Korean
+	// TrueType path (the bitmap code only passes raw bitmaps around).
+	uint16 _curKorChar = 0;
+
+	/**
+	 * Optional override for engines which draw CJK glyphs with their own
+	 * renderer (e.g. Korean TrueType hi-res text) rather than from a bitmap.
+	 * Returning true means "handled".
+	 */
+	virtual bool drawHiResKorChar(Graphics::Surface &s, int x, int y, int drawTop, uint16 chr) { return false; }
+	
+	void setCurKorChar(uint16 c) { _curKorChar = c; }
+
 	virtual int getStringWidth(int arg, const byte *text);
 	void addLinebreaks(int a, byte *str, int pos, int maxwidth);
 	void translateColor();
@@ -135,6 +148,8 @@ public:
 	void setCurID(int32 id) override;
 
 	int getFontHeight() const override;
+
+	bool drawHiResKorChar(Graphics::Surface &s, int x, int y, int drawTop, uint16 chr) override;
 
 protected:
 	const byte *_fontPtr;

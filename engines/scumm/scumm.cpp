@@ -506,6 +506,11 @@ ScummEngine::~ScummEngine() {
 
 	if (_2byteFontPtr && !_useMultiFont)
 		delete[] _2byteFontPtr;
+	// _korTtfFont only aliases an entry of _korTtfFonts, so free the cache.
+	_korTtfFont = nullptr;
+	for (Common::HashMap<int, Graphics::Font *>::iterator it = _korTtfFonts.begin(); it != _korTtfFonts.end(); ++it)
+		delete it->_value;
+	_korTtfFonts.clear();
 	for (int i = 0; i < 20; i++)
 		if (_2byteMultiFontPtr[i])
 			delete _2byteMultiFontPtr[i];

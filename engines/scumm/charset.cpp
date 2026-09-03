@@ -20,6 +20,12 @@
  */
 
 #include "graphics/font.h"
+#include "graphics/fonts/ttf.h"
+#include "graphics/surface.h"
+#include "common/str-enc.h"
+#include "common/fs.h"
+#include "common/hashmap.h"
+#include "common/config-manager.h"
 #include "scumm/charset.h"
 #include "scumm/file.h"
 #include "scumm/scumm.h"
@@ -259,10 +265,192 @@ void ScummEngine::loadKorFont() {
 		} else {
 			_textSurfaceMultiplier = _koreanHiResScale;
 			debug(1, "Korean hi-res text mode enabled (scale %d)", _koreanHiResScale);
+			loadKorTtfFont();
 		}
 	}
 
 	return;
+}
+
+/**
+ * Load the TrueType font used to replace the bitmap glyphs in Korean hi-res
+ * mode. This is entirely optional: if no font is configured or FreeType2 is
+ * not available, we silently fall back to the scaled bitmap fonts.
+ *
+ * The point size is derived from the bitmap font height so that the TTF text
+ * occupies roughly the same space as the original, just with m times more
+ * detail.
+ */
+void ScummEngine::loadKorTtfFont() {
+#ifdef USE_FREETYPE2
+	if (!ConfMan.hasKey("korean_ttf_font"))
+		return;
+
+	Common::Path fontPath(ConfMan.getPath("korean_ttf_font"));
+	if (fontPath.empty())
+		return;
+
+	// The path is an arbitrary absolute/relative location on disk, so go
+	// through an FSNode rather than Common::File (which only searches the
+	// registered game/search paths).
+	Common::FSNode fontNode(fontPath);
+	if (!fontNode.exists() || fontNode.isDirectory()) {
+		warning("SCUMM::Font: Korean TTF font not found: '%s'", fontPath.toString().c_str());
+		return;
+	}
+
+	Common::SeekableReadStream *probe = fontNode.createReadStream();
+	if (!probe) {
+		warning("SCUMM::Font: Could not open Korean TTF font '%s'", fontPath.toString().c_str());
+		return;
+	}
+	delete probe;
+
+	_korTtfPath = fontPath;
+	_korTtfEnabled = true;
+
+	// Preload the font for the charset that is active right now; further
+	// sizes are created lazily as the game switches charsets.
+	selectKorTtfFont(_2byteHeight * _koreanHiResScale);
+#endif
+}
+
+/**
+ * Pick (and, if needed, build) the TrueType instance matching a given line box.
+ *
+ * The Korean multi-font system swaps _2byteHeight whenever the game changes
+ * charset -- 12 pixels for dialogue, 8 for the verb/inventory interface, and
+ * so on. Each of those needs its own TTF size, otherwise text drawn for the
+ * small charsets would overflow its line and collide with the next one.
+ */
+void ScummEngine::selectKorTtfFont(int lineBox) {
+#ifdef USE_FREETYPE2
+	if (!_korTtfEnabled || lineBox <= 0)
+		return;
+
+	// Fast path: same line box as the last call.
+	if (lineBox == _korTtfCurLineBox)
+		return;
+
+	if (_korTtfFonts.contains(lineBox)) {
+		_korTtfCurLineBox = lineBox;
+		_korTtfFont = _korTtfFonts[lineBox];
+		if (_korTtfFont)
+			_korTtfYOffset = (lineBox - _korTtfFont->getFontHeight()) / 2;
+		return;
+	}
+
+	Common::FSNode fontNode(_korTtfPath);
+
+	// The engine advances to the next line using the *bitmap* metrics, and
+	// several games squeeze lines tighter than the nominal glyph box (MI1
+	// draws its inventory straight from script with a hardcoded pitch).
+	// Leave a little headroom so descenders never bleed into the next line.
+	int size = lineBox - _koreanHiResScale;
+	if (ConfMan.hasKey("korean_ttf_size"))
+		size = CLIP<int>(ConfMan.getInt("korean_ttf_size"), 6, 128);
+
+	Graphics::Font *result = nullptr;
+
+	// Monochrome rendering keeps the CLUT8 text surface (and its 0xFD
+	// transparency mask) working exactly as before: a glyph pixel is either
+	// fully set or not set at all.
+	//
+	// The engine lays out lines using the bitmap font metrics, so a TTF whose
+	// cell height exceeds that box would make consecutive lines overlap.
+	// Shrink the requested size until the rendered height fits.
+	for (int attempt = 0; attempt < 16 && size >= 6; ++attempt) {
+		Common::SeekableReadStream *stream = fontNode.createReadStream();
+		if (!stream)
+			break;
+
+		Graphics::Font *font = Graphics::loadTTFFont(stream, DisposeAfterUse::YES, size,
+						Graphics::kTTFSizeModeCell, 0, 0, Graphics::kTTFRenderModeMonochrome);
+		if (!font)
+			break;
+
+		if (font->getFontHeight() <= lineBox - _koreanHiResScale || ConfMan.hasKey("korean_ttf_size")) {
+			result = font;
+			break;
+		}
+
+		delete font;
+		--size;
+	}
+
+	// Cache negative results too, so a failing size is not retried endlessly.
+	_korTtfFonts[lineBox] = result;
+	_korTtfFont = result;
+	_korTtfCurLineBox = lineBox;
+
+	if (!result) {
+		warning("SCUMM::Font: Could not fit Korean TTF font into a %d pixel line box", lineBox);
+		return;
+	}
+
+	_korTtfYOffset = (lineBox - result->getFontHeight()) / 2;
+
+	debug(1, "Korean TTF font: size %d (height %d, lineBox %d, yOffset %d)",
+		  size, result->getFontHeight(), lineBox, _korTtfYOffset);
+#endif
+}
+
+/**
+ * Render one CP949 double-byte character with the TrueType font.
+ *
+ * The engine stores the two bytes of a Korean character byte-swapped in a
+ * single int (low byte first, see printString()), so they have to be put back
+ * in order before the shared CP949 -> Unicode table can be used. That table
+ * lives in common/str-enc.cpp and is backed by encoding.dat, so no external
+ * iconv dependency is involved.
+ *
+ * Returns false when the character cannot be rendered, in which case the
+ * caller should fall back to the bitmap glyph.
+ */
+bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int y, byte color, byte shadowColor) {
+#ifdef USE_FREETYPE2
+	if (!_korTtfEnabled)
+		return false;
+	// Some games (MI1 for instance) draw parts of their UI straight from
+	// script without going through setCurID(), so the charset switch hook is
+	// not enough: re-check the current line box for every glyph. This is
+	// cheap because selectKorTtfFont() hits the cache on the common path.
+	selectKorTtfFont(_2byteHeight * _koreanHiResScale);
+
+	if (!_korTtfFont)
+		return false;
+
+	// chr == (low << 8) | high, undo that to get the original CP949 pair.
+	const uint8 hi = chr & 0xFF;
+	const uint8 lo = chr >> 8;
+
+	const uint16 unicode = Common::convertUHCToUCS(hi, lo);
+	if (!unicode)
+		return false;
+
+	const int ty = y + _korTtfYOffset;
+
+	// The glyph is rendered at the requested cell size; center it
+	// horizontally in the (scaled) advance box so text doesn't drift.
+	const int adv = _2byteWidth * _koreanHiResScale;
+	const int gw = _korTtfFont->getCharWidth(unicode);
+	int tx = x;
+	if (gw > 0 && gw < adv)
+		tx += (adv - gw) / 2;
+
+	// Monochrome TTF draws only set pixels, leaving the 0xFD transparency
+	// mask untouched everywhere else, so the background shows through.
+	if (shadowColor != color) {
+		_korTtfFont->drawChar(&dest, unicode, tx + 2, ty + 2, shadowColor);
+		_korTtfFont->drawChar(&dest, unicode, tx + 2, ty, shadowColor);
+		_korTtfFont->drawChar(&dest, unicode, tx, ty + 2, shadowColor);
+	}
+
+	_korTtfFont->drawChar(&dest, unicode, tx, ty, color);
+	return true;
+#else
+	return false;
+#endif
 }
 
 byte *ScummEngine::get2byteCharPtr(int idx) {
@@ -415,6 +603,10 @@ void CharsetRendererCommon::setCurID(int32 id) {
 			_vm->_2byteHeight = _vm->_2byteMultiHeight[nearest];
 			_vm->_2byteShadow = _vm->_2byteMultiShadow[nearest];
 		}
+
+		// The line box changed with the charset, so the TrueType instance
+		// used for Korean hi-res text has to follow it.
+		_vm->selectKorTtfFont(_vm->_2byteHeight * _vm->_koreanHiResScale);
 	}
 }
 
@@ -460,6 +652,10 @@ void CharsetRendererV3::setCurID(int32 id) {
 			_vm->_2byteHeight = _vm->_2byteMultiHeight[nearest];
 			_vm->_2byteShadow = _vm->_2byteMultiShadow[nearest];
 		}
+
+		// The line box changed with the charset, so the TrueType instance
+		// used for Korean hi-res text has to follow it.
+		_vm->selectKorTtfFont(_vm->_2byteHeight * _vm->_koreanHiResScale);
 	}
 }
 
@@ -489,6 +685,16 @@ int CharsetRendererClassic::getCharWidth(uint16 chr) const {
 		spacing = _fontPtr[offs] + (signed char)_fontPtr[offs + 2];
 
 	return spacing;
+}
+
+// CharsetRenderer hook: draw a Korean glyph with the engine's TrueType font
+// directly into the scaled hi-res text surface. Returns false when the TTF
+// path doesn't apply, so the caller falls back to the bitmap renderer.
+bool CharsetRendererCommon::drawHiResKorChar(Graphics::Surface &s, int x, int y, int drawTop, uint16 chr) {
+	if (!_vm->isKoreanHiRes() || !_vm->_korTtfFont || chr < 256 || !_vm->_useCJKMode)
+		return false;
+
+	return _vm->drawKorTtfChar(s, chr, x, y, _color, _shadowColor);
 }
 
 int CharsetRenderer::getStringWidth(int arg, const byte *text) {
@@ -967,6 +1173,7 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 		return;
 
 	if (_vm->isScummvmKorTarget()) {
+		_curKorChar = is2byte ? static_cast<uint16>(chr) : 0;
 		if (is2byte) {
 			charPtr = _vm->get2byteCharPtr(chr);
 			width = _vm->_2byteWidth;
@@ -1025,7 +1232,9 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	else if (_vm->_game.platform == Common::kPlatformFMTowns && vs->number == kBannerVirtScreen)
 		drawBits1(*vs, _left * _vm->_textSurfaceMultiplier, drawTop * _vm->_textSurfaceMultiplier, charPtr, drawTop, origWidth, origHeight);
 #endif
-	else
+	else if (!drawHiResKorChar(_vm->_textSurface,
+			_left * _vm->_textSurfaceMultiplier,
+			_top * _vm->_textSurfaceMultiplier, drawTop, static_cast<uint16>(chr)))
 		drawBits1(_vm->_textSurface, _left * _vm->_textSurfaceMultiplier, _top * _vm->_textSurfaceMultiplier, charPtr, drawTop, origWidth, origHeight);
 
 	if (is2byte) {
@@ -1070,6 +1279,8 @@ void CharsetRendererV3::drawChar(int chr, Graphics::Surface &s, int x, int y) {
 		height = getDrawHeightIntern(chr);
 	}
 	setDrawCharIntern(chr);
+	if (is2byte && drawHiResKorChar(s, x, y, y, static_cast<uint16>(chr)))
+		return;
 	drawBits1(s, x, y, charPtr, y, width, height);
 }
 
@@ -1141,6 +1352,7 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	translateColor();
 
 	_vm->_charsetColorMap[1] = _color;
+	_curKorChar = (_vm->isScummvmKorTarget() && is2byte) ? (uint16)chr : 0;
 	if (_vm->isScummvmKorTarget() && is2byte) {
 		setShadowMode(kNormalShadowType);
 		_charPtr = _vm->get2byteCharPtr(chr);
@@ -1332,16 +1544,32 @@ void CharsetRendererClassic::printCharIntern(bool is2byte, const byte *charPtr, 
 		if (is2byte && _vm->_game.platform != Common::kPlatformFMTowns) {
 			int dx = (ignoreCharsetMask || !vs->hasTwoBuffers) ? _left + vs->xstart : _left;
 			int dy = drawTop;
-			// When rendering into the (scaled) text surface, the glyph
-			// position has to be scaled as well.
-			if (dstSurface.getPixels() == _vm->_textSurface.getPixels() && _vm->isKoreanHiRes()) {
-				dx *= _vm->_textSurfaceMultiplier;
-				dy *= _vm->_textSurfaceMultiplier;
+
+			// Korean hi-res mode: double-byte glyphs always go into the
+			// scaled text surface, even for virtual screens which normally
+			// receive text directly (the verb area, for instance). That is
+			// the only buffer with enough resolution to hold them, and
+			// drawStripToScreen() composites it over the upscaled graphics.
+			//
+			// The text surface is addressed in full screen coordinates, so
+			// the vertical offset is derived from _top rather than drawTop.
+			if (_vm->isKoreanHiRes()) {
+				const int m = _vm->_textSurfaceMultiplier;
+				const int tx = (_left + vs->xstart) * m;
+				const int ty = (_top - _vm->_screenTop) * m;
+
+				if (drawHiResKorChar(_vm->_textSurface, tx, ty, drawTop, _curKorChar))
+					goto charDrawn;
+
+				drawBits1(_vm->_textSurface, tx, ty, charPtr, ty, origWidth, origHeight);
+				goto charDrawn;
 			}
+
 			drawBits1(dstSurface, dx, dy, charPtr, dy, origWidth, origHeight);
 		} else {
 			drawBitsN(dstSurface, dstPtr, charPtr, *_fontPtr, drawTop, origWidth, origHeight);
 		}
+charDrawn:
 
 		if (_blitAlso && vs->hasTwoBuffers) {
 			// FIXME: Revisiting this code, I think the _blitAlso mode is likely broken

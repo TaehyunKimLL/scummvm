@@ -69,6 +69,7 @@ class SeekableWriteStream;
 }
 namespace Graphics {
 class FontSJIS;
+class Font;
 }
 
 /**
@@ -1773,6 +1774,19 @@ public:
 	// Korean hi-res text mode: scale factor for the text surface (1 = off).
 	int _koreanHiResScale = 1;
 	bool isKoreanHiRes() const { return _koreanHiResScale > 1; }
+
+	// Optional TrueType font used to render the Korean text in hi-res mode.
+	// The multi-font system swaps _2byteHeight per charset, so TTF instances
+	// are cached per line-box height and selected on demand.
+	Common::HashMap<int, Graphics::Font *> _korTtfFonts;
+	Graphics::Font *_korTtfFont = nullptr;
+	int _korTtfYOffset = 0;
+	int _korTtfCurLineBox = -1;
+	bool _korTtfEnabled = false;
+	Common::Path _korTtfPath;
+	void loadKorTtfFont();
+	void selectKorTtfFont(int lineBox);
+	bool drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int y, byte color, byte shadowColor);
 
 	int _2byteHeight = 0;
 	int _2byteWidth = 0;
