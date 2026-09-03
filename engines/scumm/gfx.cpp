@@ -704,6 +704,13 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 			return;
 		} else
 #endif
+		// Korean hi-res text mode: the game graphics are still at their
+		// original resolution, so scale them up by nearest neighbour while
+		// compositing the (already hi-res) text surface on top. FM-Towns and
+		// Macintosh have dedicated code paths for this and never get here.
+		if (isKoreanHiRes()) {
+			compositeHiResText(src, vs->pitch, x, y, width, height);
+		} else
 		// Compose the text over the game graphics
 		if (_outputPixelFormat.bytesPerPixel == 2) {
 			const byte *srcPtr = (const byte *)src;
@@ -794,7 +801,8 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 					_system->copyRectToScreen(blackbuf, 16, 0, 0, 16, 240); // Fix left strip
 				}
 			}
-		} else if (_useCJKMode && m == 2) {
+		} else if (_useCJKMode && m > 1) {
+			// The composite buffer holds the already upscaled image
 			pitch *= m;
 			x *= m;
 			y *= m;
@@ -817,6 +825,58 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 	} else {
 		// Finally blit the whole thing to the screen
 		_system->copyRectToScreen(src, pitch, x, y, width, height);
+	}
+}
+
+/**
+ * Composite the hi-res text surface over an upscaled copy of the game
+ * graphics, writing the result into _compositeBuf.
+ *
+ * The game graphics live at the original (low) resolution while the text
+ * surface is _textSurfaceMultiplier times larger in each direction. Each
+ * source pixel is replicated m x m times; wherever the text surface holds
+ * something other than CHARSET_MASK_TRANSPARENCY, the text pixel wins.
+ * This is the DOS/VGA counterpart to what TownsScreen and _macScreen do
+ * for the FM-Towns and Macintosh versions.
+ */
+void ScummEngine::compositeHiResText(const void *src, int srcPitch, int x, int y, int width, int height) {
+	const int m = _textSurfaceMultiplier;
+	const int dstPitch = width * m;
+
+	const byte *srcRow = (const byte *)src;
+	const byte *textRow = (const byte *)_textSurface.getBasePtr(x * m, y * m);
+	byte *dstRow = _compositeBuf;
+
+	for (int h = 0; h < height; ++h) {
+		// Build the first of the m identical output rows for this source row.
+		const byte *textPtr = textRow;
+		byte *dst = dstRow;
+
+		for (int w = 0; w < width; ++w) {
+			const byte color = srcRow[w];
+			for (int sx = 0; sx < m; ++sx) {
+				const byte t = *textPtr++;
+				*dst++ = (t == CHARSET_MASK_TRANSPARENCY) ? color : t;
+			}
+		}
+
+		// The remaining m-1 rows repeat the same background pixels but must
+		// still pick up their own text scanline.
+		for (int sy = 1; sy < m; ++sy) {
+			const byte *tp = textRow + sy * _textSurface.pitch;
+			byte *d = dstRow + sy * dstPitch;
+			for (int w = 0; w < width; ++w) {
+				const byte color = srcRow[w];
+				for (int sx = 0; sx < m; ++sx) {
+					const byte t = *tp++;
+					*d++ = (t == CHARSET_MASK_TRANSPARENCY) ? color : t;
+				}
+			}
+		}
+
+		srcRow += srcPitch;
+		textRow += _textSurface.pitch * m;
+		dstRow += dstPitch * m;
 	}
 }
 

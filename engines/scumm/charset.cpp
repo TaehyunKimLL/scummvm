@@ -242,6 +242,26 @@ void ScummEngine::loadKorFont() {
 			error("Couldn't load any font: %s", fp.getName());
 		}
 	}
+
+	// Hi-res text mode for the Korean fan translations. This works like the
+	// FM-Towns/PC98 Japanese modes: the game graphics stay at their original
+	// low resolution and get scaled up on output, while the text overlay is
+	// kept at the higher resolution, so that the glyphs can be rendered with
+	// much more detail than the 320x200 framebuffer would ever allow.
+	if (_koreanHiResScale > 1) {
+		if (_game.platform == Common::kPlatformFMTowns || _game.platform == Common::kPlatformPCEngine ||
+			_game.platform == Common::kPlatformSegaCD || _game.platform == Common::kPlatformNES ||
+			_game.platform == Common::kPlatformMacintosh || _game.platform == Common::kPlatformC64 ||
+			_game.platform == Common::kPlatformApple2GS) {
+			// These platforms already own the text surface / do their own scaling.
+			debug(1, "Korean hi-res mode not available on this platform, disabling");
+			_koreanHiResScale = 1;
+		} else {
+			_textSurfaceMultiplier = _koreanHiResScale;
+			debug(1, "Korean hi-res text mode enabled (scale %d)", _koreanHiResScale);
+		}
+	}
+
 	return;
 }
 
@@ -845,21 +865,35 @@ void CharsetRendererPC::drawBits1Kor(Graphics::Surface &dest, int x1, int y1, co
 	const byte *origSrc = src;
 	byte *origDst = dst;
 
+	// In Korean hi-res mode the destination surface is scaled up, so every
+	// glyph pixel becomes an m x m block and the shadow/stroke offsets have
+	// to be scaled along with it. m == 1 leaves the original behaviour.
+	// NB: callers pass a by-value copy of _textSurface, so identify it by the
+	// pixel buffer rather than by object address.
+	const int m = (dest.getPixels() == _vm->_textSurface.getPixels()) ? _vm->_textSurfaceMultiplier : 1;
+
 	for (; i < 14; i++) {
 		src = origSrc;
 		dst = origDst;
 
-		for (y = 0; y < height && y + drawTop + offsetY[i] < dest.h; y++) {
-			for (x = 0; x < width && x + x1 + offsetX[i] < dest.w; x++) {
+		const int offX = offsetX[i] * m;
+		const int offY = offsetY[i] * m;
+
+		for (y = 0; y < height && (y * m) + drawTop + offY < dest.h; y++) {
+			for (x = 0; x < width && (x * m) + x1 + offX < dest.w; x++) {
 				if ((x % 8) == 0)
 					bits = *src++;
-				if ((bits & revBitMask(x % 8)) && y + drawTop + offsetY[i] >= 0 && x + x1 + offsetX[i] >= 0) {
-					*(dst + (dest.pitch * offsetY[i]) + offsetX[i]) = cTable[i];
+				if ((bits & revBitMask(x % 8)) && (y * m) + drawTop + offY >= 0 && (x * m) + x1 + offX >= 0) {
+					byte *p = dst + (dest.pitch * offY) + offX;
+					for (int sy = 0; sy < m; ++sy) {
+						for (int sx = 0; sx < m; ++sx)
+							p[sy * dest.pitch + sx] = cTable[i];
+					}
 				}
-				dst++;
+				dst += m;
 			}
 
-			dst += dest.pitch - width;
+			dst += dest.pitch * m - width * m;
 		}
 	}
 }
@@ -1295,10 +1329,19 @@ void CharsetRendererClassic::printCharIntern(bool is2byte, const byte *charPtr, 
 			drawTop = _top - _vm->_screenTop;
 		}
 
-		if (is2byte && _vm->_game.platform != Common::kPlatformFMTowns)
-			drawBits1(dstSurface, (ignoreCharsetMask || !vs->hasTwoBuffers) ? _left + vs->xstart : _left, drawTop, charPtr, drawTop, origWidth, origHeight);
-		else
+		if (is2byte && _vm->_game.platform != Common::kPlatformFMTowns) {
+			int dx = (ignoreCharsetMask || !vs->hasTwoBuffers) ? _left + vs->xstart : _left;
+			int dy = drawTop;
+			// When rendering into the (scaled) text surface, the glyph
+			// position has to be scaled as well.
+			if (dstSurface.getPixels() == _vm->_textSurface.getPixels() && _vm->isKoreanHiRes()) {
+				dx *= _vm->_textSurfaceMultiplier;
+				dy *= _vm->_textSurfaceMultiplier;
+			}
+			drawBits1(dstSurface, dx, dy, charPtr, dy, origWidth, origHeight);
+		} else {
 			drawBitsN(dstSurface, dstPtr, charPtr, *_fontPtr, drawTop, origWidth, origHeight);
+		}
 
 		if (_blitAlso && vs->hasTwoBuffers) {
 			// FIXME: Revisiting this code, I think the _blitAlso mode is likely broken
@@ -1402,7 +1445,12 @@ void CharsetRendererClassic::drawBitsN(const Graphics::Surface &s, byte *dst, co
 	int color;
 	byte numbits, bits;
 
-	int pitch = s.pitch - width;
+	// In Korean hi-res mode the text surface is scaled up; replicate every
+	// glyph pixel into an m x m block so that Latin text stays the same
+	// apparent size as before. NB: callers pass a by-value copy of
+	// _textSurface, so identify it by the pixel buffer, not by address.
+	const int m = (s.getPixels() == _vm->_textSurface.getPixels()) ? _vm->_textSurfaceMultiplier : 1;
+	int pitch = s.pitch - width * m;
 
 	assert(bpp == 1 || bpp == 2 || bpp == 4 || bpp == 8);
 	bits = *src++;
@@ -1420,17 +1468,18 @@ void CharsetRendererClassic::drawBitsN(const Graphics::Surface &s, byte *dst, co
 			amigaMap = _vm->_roomPalette;
 	}
 
-	for (y = 0; y < height && y + drawTop < s.h; y++) {
+	for (y = 0; y < height && (y * m) + drawTop < s.h; y++) {
 		for (x = 0; x < width; x++) {
 			color = (bits >> (8 - bpp)) & 0xFF;
 
-			if (color && y + drawTop >= 0) {
-				if (amigaMap)
-					*dst = amigaMap[cmap[color]];
-				else
-					*dst = cmap[color];
+			if (color && (y * m) + drawTop >= 0) {
+				const byte c = amigaMap ? amigaMap[cmap[color]] : cmap[color];
+				for (int sy = 0; sy < m; ++sy) {
+					for (int sx = 0; sx < m; ++sx)
+						dst[sy * s.pitch + sx] = c;
+				}
 			}
-			dst++;
+			dst += m;
 			bits <<= bpp;
 			numbits -= bpp;
 			if (numbits == 0) {
@@ -1438,7 +1487,7 @@ void CharsetRendererClassic::drawBitsN(const Graphics::Surface &s, byte *dst, co
 				numbits = 8;
 			}
 		}
-		dst += pitch;
+		dst += pitch + s.pitch * (m - 1);
 	}
 }
 

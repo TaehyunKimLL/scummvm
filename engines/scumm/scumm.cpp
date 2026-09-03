@@ -436,6 +436,12 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
 	}
 #endif
 
+	// Korean hi-res text mode. Only meaningful for the Korean fan translations,
+	// loadKorFont() does the final validation and may switch it back off.
+	ConfMan.registerDefault("korean_hires_scale", 1);
+	if (ConfMan.hasKey("korean_hires_scale"))
+		_koreanHiResScale = CLIP<int>(ConfMan.getInt("korean_hires_scale"), 1, 3);
+
 	_bytesPerPixel = (_game.features & GF_16BIT_COLOR) ? 2 : 1;
 	uint8 sizeMult = _bytesPerPixel;
 

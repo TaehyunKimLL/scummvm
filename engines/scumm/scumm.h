@@ -1523,6 +1523,7 @@ protected:
 
 	const byte *postProcessDOSGraphics(VirtScreen *vs, int &pitch, int &x, int &y, int &width, int &height) const;
 	const byte *ditherVGAtoEGA(int &pitch, int &x, int &y, int &width, int &height) const;
+	void compositeHiResText(const void *src, int srcPitch, int x, int y, int width, int height);
 
 public:
 	VirtScreen *findVirtScreen(int y);
@@ -1768,6 +1769,10 @@ public:
 	int _numLoadedFont = 0;
 	int _2byteShadow = 0;
 	bool _force2ByteCharHeight = false;
+
+	// Korean hi-res text mode: scale factor for the text surface (1 = off).
+	int _koreanHiResScale = 1;
+	bool isKoreanHiRes() const { return _koreanHiResScale > 1; }
 
 	int _2byteHeight = 0;
 	int _2byteWidth = 0;
