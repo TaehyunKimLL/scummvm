@@ -388,18 +388,24 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 	//   [sizes]
 	//   title=32          ; render at exactly 32px
 	//   bold=16x2         ; render at 32px, then downscale by 2 to fit 16px
+	//   default=12pt      ; 12 points at the current scale, i.e. 12 * scale px
 	//
 	// The "NxM" form supersamples: the glyph is rasterised M times larger and
 	// box-filtered back down, which keeps a pixel font on its native grid
-	// while still fitting a line box that is not a multiple of it.
+	// while still fitting a line box that is not a multiple of it. The "pt"
+	// suffix is resolution independent: the size follows korean_hires_scale,
+	// so the same map looks the same at 2x and 3x.
 	static const char *const roleNames[] = { "default", "bold", "title" };
 	for (int r = 0; r < ARRAYSIZE(roleNames); ++r) {
 		if (!map.getKey(roleNames[r], "sizes", value))
 			continue;
 
 		const char *sep = strchr(value.c_str(), 'x');
-		const int size = atoi(value.c_str());
+		int size = atoi(value.c_str());
 		const int super = sep ? atoi(sep + 1) : 1;
+
+		if (strstr(value.c_str(), "pt"))
+			size *= _koreanHiResScale;
 
 		if (size > 0)
 			_korTtfRoleSizes[r] = size;
@@ -421,6 +427,8 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 		_korTtfLatin = (value.equalsIgnoreCase("true") || atoi(value.c_str()) != 0);
 	if (map.getKey("font", "latin", value))
 		_korTtfLatinPath = Common::Path(value);
+	if (map.getKey("metrics", "latin", value))
+		_korTtfMetrics = value.equalsIgnoreCase("ttf");
 
 	const Common::INIFile::SectionKeyList keys = map.getKeys("map");
 	for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
@@ -595,6 +603,19 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 	if (!unicode)
 		return false;
 
+	int tx = x;
+
+	// With TTF metrics the caller's x was rounded down to a game pixel;
+	// re-derive it from the accumulated sub-pixel pen instead. The pen is
+	// reset whenever the caller jumps somewhere else (a new line, say).
+	if (_korTtfMetrics) {
+		if (_korTtfPenLeft != x)
+			_korTtfPenX = x;
+		tx = _korTtfPenX;
+		_korTtfPenX += _korTtfFont->getCharWidth(unicode) / _korTtfSupersample;
+		_korTtfPenLeft = (_korTtfPenX / _koreanHiResScale) * _koreanHiResScale;
+	}
+
 	const int ty = y + _korTtfYOffset;
 
 
@@ -617,10 +638,13 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 		cov.fillRect(Common::Rect(0, 0, gw, gh), 0);
 		_korTtfFont->drawAlphaChar(&cov, unicode, 0, 0, covFmt.ARGBToColor(0xFF, 0xFF, 0xFF, 0xFF));
 
-		const int adv = _2byteWidth * _koreanHiResScale;
-		int tx = x;
-		if (gw < adv)
-			tx += (adv - gw) / 2;
+		// Without TTF metrics the glyph is centred in the game's own advance
+		// box; with them the pen already carries the exact position.
+		if (!_korTtfMetrics) {
+			const int adv = _2byteWidth * _koreanHiResScale;
+			if (gw < adv)
+				tx += (adv - gw) / 2;
+		}
 
 		const int shadowOff = _koreanHiResScale;
 
@@ -722,8 +746,7 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 	// horizontally in the (scaled) advance box so text doesn't drift.
 	const int adv = _2byteWidth * _koreanHiResScale;
 	const int gw = _korTtfFont->getCharWidth(unicode);
-	int tx = x;
-	if (gw > 0 && gw < adv)
+	if (!_korTtfMetrics && gw > 0 && gw < adv)
 		tx += (adv - gw) / 2;
 
 	// Monochrome TTF draws only set pixels, leaving the 0xFD transparency
@@ -965,6 +988,14 @@ int CharsetRendererCommon::getFontHeight() const {
 int CharsetRendererClassic::getCharWidth(uint16 chr) const {
 	int spacing = 0;
 
+	// With TTF metrics enabled the advance comes from the font itself, so
+	// the spacing follows the glyphs instead of the original bitmap grid.
+	// This reflows the text: line breaks computed by the game no longer
+	// match, which is the trade-off for a consistent typeface.
+	const int ttfWidth = _vm->getKorTtfCharWidth(chr);
+	if (ttfWidth >= 0)
+		return ttfWidth;
+
 	if (_vm->_useCJKMode && chr >= 0x80)
 		return _vm->_2byteWidth / 2;
 
@@ -973,6 +1004,41 @@ int CharsetRendererClassic::getCharWidth(uint16 chr) const {
 		spacing = _fontPtr[offs] + (signed char)_fontPtr[offs + 2];
 
 	return spacing;
+}
+
+/**
+ * Advance width for one character, taken from the TrueType font.
+ *
+ * Returns -1 when the caller should fall back to the game's own metrics,
+ * which is the default: replacing the advance reflows every line, so the
+ * word wrapping the game computed for its bitmap font no longer holds.
+ * Enabled with "metrics=ttf" in the [latin] section of the font map.
+ */
+int ScummEngine::getKorTtfCharWidth(uint16 chr) {
+#ifdef USE_FREETYPE2
+	if (!_korTtfMetrics || !_korTtfEnabled || !isKoreanHiRes())
+		return -1;
+
+	// Hangul keeps driving the font size; see drawKorTtfChar().
+	if (chr >= 256)
+		selectKorTtfFont(_2byteHeight * _koreanHiResScale);
+
+	if (!_korTtfFont)
+		return -1;
+
+	const uint16 unicode = (chr < 256) ? chr : Common::convertUHCToUCS(chr & 0xFF, chr >> 8);
+	if (!unicode)
+		return -1;
+
+	// The renderer works in scaled coordinates, the layout in game ones.
+	// getCharWidth() is in scaled pixels; the layout works in game pixels.
+	// Round to nearest instead of truncating, otherwise the accumulated
+	// error pulls the glyphs apart over a line.
+	const int w = _korTtfFont->getCharWidth(unicode) / _korTtfSupersample;
+	return MAX(1, (w + _koreanHiResScale / 2) / _koreanHiResScale);
+#else
+	return -1;
+#endif
 }
 
 // CharsetRenderer hook: draw a Korean glyph with the engine's TrueType font
@@ -1242,6 +1308,10 @@ void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth) {
 int CharsetRendererV3::getCharWidth(uint16 chr) const {
 	int spacing = 0;
 
+	const int ttfWidth = _vm->getKorTtfCharWidth(chr);
+	if (ttfWidth >= 0)
+		return ttfWidth;
+
 	if (_vm->_useCJKMode && (chr & 0x80))
 		spacing = _vm->_2byteWidth / 2;
 
@@ -1474,6 +1544,12 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 			charPtr = _vm->get2byteCharPtr(chr);
 			width = _vm->_2byteWidth;
 			height = _vm->_2byteHeight;
+
+			// With TTF metrics the advance follows the font, not the
+			// fixed double byte cell.
+			const int ttfWidth = _vm->getKorTtfCharWidth(chr);
+			if (ttfWidth >= 0)
+				width = ttfWidth;
 		} else {
 			charPtr = _fontPtr + chr * 8;
 			width = getDrawWidthIntern(chr);
@@ -1533,7 +1609,9 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 			_top * _vm->_textSurfaceMultiplier, drawTop, static_cast<uint16>(chr)))
 		drawBits1(_vm->_textSurface, _left * _vm->_textSurfaceMultiplier, _top * _vm->_textSurfaceMultiplier, charPtr, drawTop, origWidth, origHeight);
 
-	if (is2byte) {
+	// getKorTtfCharWidth() already returns game pixels, so the double byte
+	// down-scaling below would apply it twice.
+	if (is2byte && !_vm->_korTtfMetrics) {
 		origWidth /= _vm->_textSurfaceMultiplier;
 		height /= _vm->_textSurfaceMultiplier;
 	}
@@ -1564,6 +1642,12 @@ void CharsetRendererV3::drawChar(int chr, Graphics::Surface &s, int x, int y) {
 			charPtr = _vm->get2byteCharPtr(chr);
 			width = _vm->_2byteWidth;
 			height = _vm->_2byteHeight;
+
+			// With TTF metrics the advance follows the font, not the
+			// fixed double byte cell.
+			const int ttfWidth = _vm->getKorTtfCharWidth(chr);
+			if (ttfWidth >= 0)
+				width = ttfWidth;
 		} else {
 			charPtr = _fontPtr + chr * 8;
 			width = getDrawWidthIntern(chr);
@@ -1655,6 +1739,12 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_width = _vm->_2byteWidth;
 		_height = _vm->_2byteHeight;
 		_offsX = _offsY = 0;
+
+		// With TTF metrics the advance follows the font, not the fixed
+		// double byte cell.
+		const int ttfWidth = _vm->getKorTtfCharWidth(chr);
+		if (ttfWidth >= 0)
+			_width = ttfWidth;
 	} else {
 		if (!prepareDraw(chr))
 			return;

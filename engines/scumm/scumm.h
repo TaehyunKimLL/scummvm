@@ -1792,12 +1792,19 @@ public:
 	Common::Path _korTtfTitlePath;
 	Common::Path _korTtfLatinPath;
 	bool _korTtfLatin = false;
+	bool _korTtfMetrics = false;
+	// Sub-pixel pen for TTF metrics: _left advances in game pixels, which
+	// loses up to (scale - 1) pixels per glyph. Track the exact scaled
+	// position alongside it so the glyphs stay evenly spaced.
+	int _korTtfPenX = 0;
+	int _korTtfPenLeft = -1;
 	Common::HashMap<int, int> _korTtfHeightRoles;
 	Common::HashMap<int, int> _korTtfRoleSizes;
 	Common::HashMap<int, int> _korTtfRoleSupersample;
 	void loadKorTtfFont();
 	void loadKorTtfMap(const Common::Path &mapPath);
 	void selectKorTtfFont(int lineBox);
+	int getKorTtfCharWidth(uint16 chr);
 	bool drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int y, byte color, byte shadowColor);
 
 	int _2byteHeight = 0;
