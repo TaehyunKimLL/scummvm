@@ -619,12 +619,23 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 	const int ty = y + _korTtfYOffset;
 
 
+
+
 	// Alpha path: rasterise the glyph once with anti-aliasing, then store the
 	// colour in the text surface and the coverage in the companion channel.
 	// compositeHiResText() blends the two against the upscaled background.
 	if (_koreanAlphaText && _korAlphaSurface.getPixels()) {
-		const int gw = _korTtfFont->getCharWidth(unicode);
-		const int gh = _korTtfFont->getFontHeight();
+		// Glyphs are not confined to the advance box: descenders reach
+		// below the baseline, commas and parentheses stick out further
+		// than the nominal line height, and italics can overhang on the
+		// sides. Size the scratch from the glyph's own bounding box and
+		// remember where its origin ended up, so nothing is clipped and
+		// the piece still lands at the right place on screen.
+		const Common::Rect gbox = _korTtfFont->getBoundingBox(unicode);
+		const int originX = MIN(0, (int)gbox.left);
+		const int originY = MIN(0, (int)gbox.top);
+		const int gw = MAX((int)gbox.right, _korTtfFont->getCharWidth(unicode)) - originX;
+		const int gh = MAX((int)gbox.bottom, _korTtfFont->getFontHeight()) - originY;
 		if (gw <= 0 || gh <= 0)
 			return false;
 
@@ -636,7 +647,7 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 		Graphics::Surface cov;
 		cov.create(gw, gh, covFmt);
 		cov.fillRect(Common::Rect(0, 0, gw, gh), 0);
-		_korTtfFont->drawAlphaChar(&cov, unicode, 0, 0, covFmt.ARGBToColor(0xFF, 0xFF, 0xFF, 0xFF));
+		_korTtfFont->drawAlphaChar(&cov, unicode, -originX, -originY, covFmt.ARGBToColor(0xFF, 0xFF, 0xFF, 0xFF));
 
 		// Without TTF metrics the glyph is centred in the game's own advance
 		// box; with them the pen already carries the exact position.
@@ -647,6 +658,13 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 		}
 
 		const int shadowOff = _koreanHiResScale;
+
+		// The scratch was shifted by the glyph origin; undo that here so
+		// the parts that reach outside the advance box still land where
+		// the font intended.
+		const int dx = tx + originX;
+		const int dy = ty + originY;
+
 
 		for (int gy = 0; gy < gh; ++gy) {
 			const uint32 *covRow = (const uint32 *)cov.getBasePtr(0, gy);
@@ -660,8 +678,8 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 
 				// Drop shadow first, at reduced coverage.
 				if (shadowColor != color) {
-					const int sxp = tx + gx + shadowOff;
-					const int syp = ty + gy + shadowOff;
+					const int sxp = dx + gx + shadowOff;
+					const int syp = dy + gy + shadowOff;
 					if (sxp >= 0 && syp >= 0 && sxp < dest.w && syp < dest.h) {
 						byte *aDst = (byte *)_korAlphaSurface.getBasePtr(sxp, syp);
 						if (*aDst < a) {
@@ -671,8 +689,8 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 					}
 				}
 
-				const int px = tx + gx;
-				const int py = ty + gy;
+				const int px = dx + gx;
+				const int py = dy + gy;
 				if (px < 0 || py < 0 || px >= dest.w || py >= dest.h)
 					continue;
 
@@ -1146,10 +1164,20 @@ int CharsetRenderer::getStringWidth(int arg, const byte *text) {
 						width += _vm->_2byteWidth;
 					}
 				} else {
-					width += _vm->_2byteWidth;
-					// Original keeps glyph width and character dimensions separately
-					if (_vm->_language == Common::KO_KOR || _vm->_language == Common::ZH_TWN) {
-						width++;
+					// With TTF metrics the string width has to agree with
+					// what printChar() will actually advance, otherwise the
+					// game wraps a line at the wrong place and the last
+					// glyph spills onto the next one.
+					const uint16 pair = (uint16)((text[pos] << 8) | chr);
+					const int ttfWidth = _vm->getKorTtfCharWidth(pair);
+					if (ttfWidth >= 0) {
+						width += ttfWidth;
+					} else {
+						width += _vm->_2byteWidth;
+						// Original keeps glyph width and character dimensions separately
+						if (_vm->_language == Common::KO_KOR || _vm->_language == Common::ZH_TWN) {
+							width++;
+						}
 					}
 				}
 
@@ -1242,11 +1270,21 @@ void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth) {
 					chr = (int8)str[pos++] | (chr << 8);
 				curw += getCharWidth(chr);
 			} else if (chr & 0x80) {
+				// The wrapper walks the bytes one at a time; rebuild the
+				// pair the way printChar() sees it so the TTF advance
+				// matches what will be drawn.
+				const uint16 pair = (uint16)((str[pos] << 8) | chr);
 				pos++;
-				curw += _vm->_2byteWidth;
-				// Original keeps glyph width and character dimensions separately
-				if (_vm->_language == Common::KO_KOR || _vm->_language == Common::ZH_TWN) {
-					curw++;
+
+				const int ttfWidth = _vm->getKorTtfCharWidth(pair);
+				if (ttfWidth >= 0) {
+					curw += ttfWidth;
+				} else {
+					curw += _vm->_2byteWidth;
+					// Original keeps glyph width and character dimensions separately
+					if (_vm->_language == Common::KO_KOR || _vm->_language == Common::ZH_TWN) {
+						curw++;
+					}
 				}
 			} else if (chr != _vm->_newLineCharacter) {
 				curw += getCharWidth(chr);
@@ -1798,7 +1836,15 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_left += _origWidth;
 		return;
 	} else {
-		_vm->markRectAsDirty(vs->number, _left, _left + _width, drawTop, drawTop + _height);
+		int dirtyHeight = _height;
+
+		// TrueType glyphs are not bound by the game's cell: a comma sits
+		// below the baseline and would fall outside the rectangle that
+		// gets composited, so it would never reach the screen.
+		if (_vm->isKoreanHiRes() && _vm->_korTtfFont)
+			dirtyHeight += _vm->_2byteHeight;
+
+		_vm->markRectAsDirty(vs->number, _left, _left + _width, drawTop, drawTop + dirtyHeight);
 	}
 
 	// This check for kPlatformFMTowns and kMainVirtScreen is at least required for the chat with
@@ -2035,6 +2081,14 @@ bool CharsetRendererClassic::prepareDraw(uint16 chr) {
 
 	_width = _origWidth = _charPtr[0];
 	_height = _origHeight = _charPtr[1];
+
+	// Single byte characters take their width from the bitmap font here,
+	// bypassing getCharWidth(); with TTF metrics that would leave the
+	// punctuation advancing on the old grid while the glyph is drawn on
+	// the new one.
+	const int ttfWidth = _vm->getKorTtfCharWidth(chr);
+	if (ttfWidth >= 0)
+		_width = _origWidth = ttfWidth;
 
 	if (_disableOffsX) {
 		_offsX = 0;
