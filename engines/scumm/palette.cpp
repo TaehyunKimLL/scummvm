@@ -1769,6 +1769,22 @@ void ScummEngine::updatePalette() {
 			paletteColors[i] = levels[(paletteColors[i] >> 5) & 0x07];
 	}
 
+	// In Korean alpha-text mode the output surface is 32bpp, so the backend
+	// has no palette to set: we do the palette lookup ourselves when the
+	// composite buffer is built. Keep a local copy instead.
+	if (_koreanAlphaText) {
+		for (int i = 0; i < num; ++i) {
+			_korAlphaPalette[first + i] = _outputPixelFormat.RGBToColor(
+					paletteColors[i * 3 + 0],
+					paletteColors[i * 3 + 1],
+					paletteColors[i * 3 + 2]);
+		}
+
+		if (_macGui)
+			_macGui->setPaletteDirty();
+		return;
+	}
+
 	_system->getPaletteManager()->setPalette(paletteColors, first, num);
 
 	if (_macGui)

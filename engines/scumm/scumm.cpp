@@ -439,6 +439,7 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
 	// Korean hi-res text mode. Only meaningful for the Korean fan translations,
 	// loadKorFont() does the final validation and may switch it back off.
 	ConfMan.registerDefault("korean_hires_scale", 1);
+	ConfMan.registerDefault("korean_alpha_text", false);
 	if (ConfMan.hasKey("korean_hires_scale"))
 		_koreanHiResScale = CLIP<int>(ConfMan.getInt("korean_hires_scale"), 1, 3);
 
@@ -506,6 +507,7 @@ ScummEngine::~ScummEngine() {
 
 	if (_2byteFontPtr && !_useMultiFont)
 		delete[] _2byteFontPtr;
+	_korAlphaSurface.free();
 	// _korTtfFont only aliases an entry of _korTtfFonts, so free the cache.
 	_korTtfFont = nullptr;
 	for (Common::HashMap<int, Graphics::Font *>::iterator it = _korTtfFonts.begin(); it != _korTtfFonts.end(); ++it)
@@ -1275,6 +1277,29 @@ Common::Error ScummEngine::init() {
 	if (_filenamePattern.genMethod == kGenDiskNumSteam || _filenamePattern.genMethod == kGenRoomNumSteam)
 		_game.platform = Common::kPlatformDOS;
 
+	// Korean alpha-text mode needs a true colour output surface, and the
+	// decision has to be made before loadCJKFont() builds the TTF instances:
+	// the glyph renderer differs (anti-aliased vs monochrome).
+	//
+	// Only the availability check happens here; initGraphics() further down
+	// does the actual mode set and may still turn this back off.
+	if (isKoreanHiRes() && ConfMan.getBool("korean_alpha_text")) {
+#ifdef USE_RGB_COLOR
+		Common::List<Graphics::PixelFormat> supported = _system->getSupportedFormats();
+		for (Common::List<Graphics::PixelFormat>::const_iterator g = supported.begin(); g != supported.end(); ++g) {
+			if (g->bytesPerPixel == 4) {
+				_koreanAlphaText = true;
+				break;
+			}
+		}
+
+		if (!_koreanAlphaText)
+			warning("SCUMM: no 32bpp output available, Korean alpha text disabled");
+#else
+		warning("SCUMM: build lacks RGB colour support, Korean alpha text disabled");
+#endif
+	}
+
 	// Load CJK font, if present
 	// Load it earlier so _useCJKMode variable could be set
 	loadCJKFont();
@@ -1525,7 +1550,34 @@ Common::Error ScummEngine::init() {
 		if (_game.platform == Common::kPlatformFMTowns && _game.version == 5)
 			return Common::Error(Common::kUnsupportedColorMode, "This game requires dual graphics layer support which is disabled in this build");
 #endif
-			initGraphics(screenWidth, screenHeight);
+			// Korean hi-res mode can composite the text with alpha blending,
+			// which needs a true colour output surface. The game graphics stay
+			// paletted; only the final composite is done in 32bpp.
+			// _koreanAlphaText was already probed before loadCJKFont().
+			if (_koreanAlphaText) {
+#ifdef USE_RGB_COLOR
+				Common::List<Graphics::PixelFormat> supported = _system->getSupportedFormats();
+				Common::List<Graphics::PixelFormat> tryModes;
+				for (Common::List<Graphics::PixelFormat>::const_iterator g = supported.begin(); g != supported.end(); ++g) {
+					if (g->bytesPerPixel == 4)
+						tryModes.push_back(*g);
+				}
+				tryModes.push_back(Graphics::PixelFormat::createFormatCLUT8());
+
+				initGraphics(screenWidth, screenHeight, tryModes);
+
+				if (_system->getScreenFormat().bytesPerPixel != 4) {
+					warning("SCUMM: no 32bpp output available (got %s), Korean alpha text disabled",
+							_system->getScreenFormat().toString().c_str());
+					_koreanAlphaText = false;
+				} else {
+					debug(1, "SCUMM: Korean alpha text enabled, output format %s",
+						  _system->getScreenFormat().toString().c_str());
+				}
+#endif
+			} else {
+				initGraphics(screenWidth, screenHeight);
+			}
 
 			if (_game.platform == Common::kPlatformNES)
 				_system->fillScreen(0x1d);
@@ -1723,6 +1775,15 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 
 	// Create and clear the text surface
 	_textSurface.create(_screenWidth * _textSurfaceMultiplier, _screenHeight * _textSurfaceMultiplier, Graphics::PixelFormat::createFormatCLUT8());
+
+	// Companion coverage channel for the text surface, used only when the
+	// Korean text is composited with alpha blending.
+	if (_koreanAlphaText) {
+		_korAlphaSurface.create(_screenWidth * _textSurfaceMultiplier,
+								_screenHeight * _textSurfaceMultiplier,
+								Graphics::PixelFormat::createFormatCLUT8());
+		_korAlphaSurface.fillRect(Common::Rect(0, 0, _korAlphaSurface.w, _korAlphaSurface.h), 0);
+	}
 	clearTextSurface();
 
 	// Create the costume renderer

@@ -1782,11 +1782,17 @@ public:
 	Graphics::Font *_korTtfFont = nullptr;
 	int _korTtfYOffset = 0;
 	int _korTtfCurLineBox = -1;
+	int _korTtfSupersample = 1;
+	bool _koreanAlphaText = false;
+	uint32 _korAlphaPalette[256] = {};
+	Graphics::Surface _korAlphaSurface;
 	bool _korTtfEnabled = false;
 	Common::Path _korTtfPath;
 	Common::Path _korTtfBoldPath;
 	Common::Path _korTtfTitlePath;
 	Common::HashMap<int, int> _korTtfHeightRoles;
+	Common::HashMap<int, int> _korTtfRoleSizes;
+	Common::HashMap<int, int> _korTtfRoleSupersample;
 	void loadKorTtfFont();
 	void loadKorTtfMap(const Common::Path &mapPath);
 	void selectKorTtfFont(int lineBox);

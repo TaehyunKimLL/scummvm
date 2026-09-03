@@ -380,6 +380,33 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 	if (map.getKey("title", "fonts", value))
 		_korTtfTitlePath = Common::Path(value);
 
+	// Optional [sizes] section: pin a role to an exact pixel size instead of
+	// letting the auto-fit pick one. Pixel fonts only render cleanly at
+	// integer multiples of their design grid (16px for Neo Dunggeunmo, for
+	// instance), and the scaled line boxes rarely land on such a multiple.
+	//
+	//   [sizes]
+	//   title=32          ; render at exactly 32px
+	//   bold=16x2         ; render at 32px, then downscale by 2 to fit 16px
+	//
+	// The "NxM" form supersamples: the glyph is rasterised M times larger and
+	// box-filtered back down, which keeps a pixel font on its native grid
+	// while still fitting a line box that is not a multiple of it.
+	static const char *const roleNames[] = { "default", "bold", "title" };
+	for (int r = 0; r < ARRAYSIZE(roleNames); ++r) {
+		if (!map.getKey(roleNames[r], "sizes", value))
+			continue;
+
+		const char *sep = strchr(value.c_str(), 'x');
+		const int size = atoi(value.c_str());
+		const int super = sep ? atoi(sep + 1) : 1;
+
+		if (size > 0)
+			_korTtfRoleSizes[r] = size;
+		if (super > 1)
+			_korTtfRoleSupersample[r] = super;
+	}
+
 	const Common::INIFile::SectionKeyList keys = map.getKeys("map");
 	for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
 		if (it->key.hasPrefix("height_")) {
@@ -427,8 +454,10 @@ void ScummEngine::selectKorTtfFont(int lineBox) {
 	if (_korTtfFonts.contains(cacheKey)) {
 		_korTtfCurLineBox = cacheKey;
 		_korTtfFont = _korTtfFonts[cacheKey];
+		_korTtfSupersample = _korTtfRoleSupersample.contains(role)
+			? CLIP<int>(_korTtfRoleSupersample[role], 1, 8) : 1;
 		if (_korTtfFont)
-			_korTtfYOffset = (lineBox - _korTtfFont->getFontHeight()) / 2;
+			_korTtfYOffset = (lineBox - _korTtfFont->getFontHeight() / _korTtfSupersample) / 2;
 		return;
 	}
 
@@ -439,8 +468,29 @@ void ScummEngine::selectKorTtfFont(int lineBox) {
 	// draws its inventory straight from script with a hardcoded pitch).
 	// Leave a little headroom so descenders never bleed into the next line.
 	int size = lineBox - _koreanHiResScale;
-	if (ConfMan.hasKey("korean_ttf_size"))
+	bool pinned = false;
+
+	// A per-role size from the font map wins over the auto-fit, and the
+	// global korean_ttf_size overrides everything.
+	if (_korTtfRoleSizes.contains(role)) {
+		size = _korTtfRoleSizes[role];
+		pinned = true;
+	}
+	if (ConfMan.hasKey("korean_ttf_size")) {
 		size = CLIP<int>(ConfMan.getInt("korean_ttf_size"), 6, 128);
+		pinned = true;
+	}
+
+	// Supersampling: rasterise the glyphs N times larger than the size we
+	// actually want, then let drawKorTtfChar() box-filter them down. This
+	// keeps a pixel font on an integer multiple of its design grid even when
+	// the target line box is not one.
+	int supersample = 1;
+	if (_korTtfRoleSupersample.contains(role))
+		supersample = CLIP<int>(_korTtfRoleSupersample[role], 1, 8);
+
+	if (supersample > 1)
+		size *= supersample;
 
 	Graphics::Font *result = nullptr;
 
@@ -457,33 +507,36 @@ void ScummEngine::selectKorTtfFont(int lineBox) {
 			break;
 
 		Graphics::Font *font = Graphics::loadTTFFont(stream, DisposeAfterUse::YES, size,
-						Graphics::kTTFSizeModeCell, 0, 0, Graphics::kTTFRenderModeMonochrome);
+						Graphics::kTTFSizeModeCell, 0, 0,
+						_koreanAlphaText ? Graphics::kTTFRenderModeLight
+										 : Graphics::kTTFRenderModeMonochrome);
 		if (!font)
 			break;
 
-		if (font->getFontHeight() <= lineBox - _koreanHiResScale || ConfMan.hasKey("korean_ttf_size")) {
+		if (font->getFontHeight() / supersample <= lineBox - _koreanHiResScale || pinned) {
 			result = font;
 			break;
 		}
 
 		delete font;
-		--size;
+		size -= supersample;
 	}
 
 	// Cache negative results too, so a failing size is not retried endlessly.
 	_korTtfFonts[cacheKey] = result;
 	_korTtfFont = result;
 	_korTtfCurLineBox = cacheKey;
+	_korTtfSupersample = supersample;
 
 	if (!result) {
 		warning("SCUMM::Font: Could not fit Korean TTF font into a %d pixel line box", lineBox);
 		return;
 	}
 
-	_korTtfYOffset = (lineBox - result->getFontHeight()) / 2;
+	_korTtfYOffset = (lineBox - result->getFontHeight() / supersample) / 2;
 
-	debug(1, "Korean TTF font: role %d size %d (height %d, lineBox %d, yOffset %d)",
-		  role, size, result->getFontHeight(), lineBox, _korTtfYOffset);
+	debug(1, "Korean TTF font: role %d size %d ss %d (height %d, lineBox %d, yOffset %d)",
+		  role, size, supersample, result->getFontHeight(), lineBox, _korTtfYOffset);
 #endif
 }
 
@@ -521,6 +574,126 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 		return false;
 
 	const int ty = y + _korTtfYOffset;
+
+	// Alpha path: rasterise the glyph once with anti-aliasing, then store the
+	// colour in the text surface and the coverage in the companion channel.
+	// compositeHiResText() blends the two against the upscaled background.
+	if (_koreanAlphaText && _korAlphaSurface.getPixels()) {
+		const int gw = _korTtfFont->getCharWidth(unicode);
+		const int gh = _korTtfFont->getFontHeight();
+		if (gw <= 0 || gh <= 0)
+			return false;
+
+		// Rasterise into a 32bpp scratch surface: drawAlphaChar() writes the
+		// glyph colour with the coverage in the alpha channel, and for a
+		// CLUT8 destination it would have nothing meaningful to write. We
+		// draw opaque white and recover the coverage from the alpha byte.
+		const Graphics::PixelFormat covFmt(4, 8, 8, 8, 8, 24, 16, 8, 0);
+		Graphics::Surface cov;
+		cov.create(gw, gh, covFmt);
+		cov.fillRect(Common::Rect(0, 0, gw, gh), 0);
+		_korTtfFont->drawAlphaChar(&cov, unicode, 0, 0, covFmt.ARGBToColor(0xFF, 0xFF, 0xFF, 0xFF));
+
+		const int adv = _2byteWidth * _koreanHiResScale;
+		int tx = x;
+		if (gw < adv)
+			tx += (adv - gw) / 2;
+
+		const int shadowOff = _koreanHiResScale;
+
+		for (int gy = 0; gy < gh; ++gy) {
+			const uint32 *covRow = (const uint32 *)cov.getBasePtr(0, gy);
+
+			for (int gx = 0; gx < gw; ++gx) {
+				uint8 ca, cr, cg, cb;
+				covFmt.colorToARGB(covRow[gx], ca, cr, cg, cb);
+				const byte a = ca;
+				if (!a)
+					continue;
+
+				// Drop shadow first, at reduced coverage.
+				if (shadowColor != color) {
+					const int sxp = tx + gx + shadowOff;
+					const int syp = ty + gy + shadowOff;
+					if (sxp >= 0 && syp >= 0 && sxp < dest.w && syp < dest.h) {
+						byte *aDst = (byte *)_korAlphaSurface.getBasePtr(sxp, syp);
+						if (*aDst < a) {
+							*(byte *)dest.getBasePtr(sxp, syp) = shadowColor;
+							*aDst = a;
+						}
+					}
+				}
+
+				const int px = tx + gx;
+				const int py = ty + gy;
+				if (px < 0 || py < 0 || px >= dest.w || py >= dest.h)
+					continue;
+
+				*(byte *)dest.getBasePtr(px, py) = color;
+				*(byte *)_korAlphaSurface.getBasePtr(px, py) = a;
+			}
+		}
+
+		cov.free();
+		return true;
+	}
+
+	// Supersampled path: render the glyph into a scratch surface at N times
+	// the target size, then box-filter it down. A source block counts as set
+	// when at least half of its pixels are, which keeps pixel-font strokes
+	// crisp instead of smearing them.
+	if (_korTtfSupersample > 1) {
+		const int ss = _korTtfSupersample;
+		const int bigW = _korTtfFont->getCharWidth(unicode);
+		const int bigH = _korTtfFont->getFontHeight();
+		if (bigW <= 0 || bigH <= 0)
+			return false;
+
+		Graphics::Surface tmp;
+		tmp.create(bigW, bigH, Graphics::PixelFormat::createFormatCLUT8());
+		tmp.fillRect(Common::Rect(0, 0, bigW, bigH), 0);
+		_korTtfFont->drawChar(&tmp, unicode, 0, 0, 1);
+
+		const int outW = bigW / ss;
+		const int outH = bigH / ss;
+		const int adv = _2byteWidth * _koreanHiResScale;
+		int tx = x;
+		if (outW > 0 && outW < adv)
+			tx += (adv - outW) / 2;
+
+		const int threshold = (ss * ss + 1) / 2;
+
+		// Two passes so the drop shadow never paints over glyph pixels that
+		// a later block would have set.
+		for (int pass = 0; pass < 2; ++pass) {
+			if (pass == 0 && shadowColor == color)
+				continue;
+
+			for (int oy = 0; oy < outH; ++oy) {
+				for (int ox = 0; ox < outW; ++ox) {
+					int hits = 0;
+					for (int sy = 0; sy < ss; ++sy) {
+						const byte *row = (const byte *)tmp.getBasePtr(ox * ss, oy * ss + sy);
+						for (int sx = 0; sx < ss; ++sx)
+							hits += row[sx] ? 1 : 0;
+					}
+
+					if (hits < threshold)
+						continue;
+
+					const int px = tx + ox + (pass == 0 ? _koreanHiResScale : 0);
+					const int py = ty + oy + (pass == 0 ? _koreanHiResScale : 0);
+					if (px < 0 || py < 0 || px >= dest.w || py >= dest.h)
+						continue;
+
+					*(byte *)dest.getBasePtr(px, py) = (pass == 0) ? shadowColor : color;
+				}
+			}
+		}
+
+		tmp.free();
+		return true;
+	}
 
 	// The glyph is rendered at the requested cell size; center it
 	// horizontally in the (scaled) advance box so text doesn't drift.

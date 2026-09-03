@@ -808,6 +808,11 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 			y *= m;
 			width *= m;
 			height *= m;
+
+			// In Korean alpha-text mode the composite buffer is 32bpp, so its
+			// pitch is derived from the output width rather than the source's.
+			if (_koreanAlphaText)
+				pitch = width * _outputPixelFormat.bytesPerPixel;
 		} else if (_enableEGADithering) {
 			// EGA mode for certain VGA versions (MI2, LOOM Talkie)
 			src = ditherVGAtoEGA(pitch, x, y, width, height);
@@ -845,6 +850,56 @@ void ScummEngine::compositeHiResText(const void *src, int srcPitch, int x, int y
 
 	const byte *srcRow = (const byte *)src;
 	const byte *textRow = (const byte *)_textSurface.getBasePtr(x * m, y * m);
+
+	// 32bpp path: the text surface carries an alpha channel, so glyph edges
+	// can be blended into the (upscaled) background instead of being keyed
+	// out. The game graphics stay paletted; the lookup happens here.
+	if (_koreanAlphaText) {
+		const byte *alphaRow = (const byte *)_korAlphaSurface.getBasePtr(x * m, y * m);
+		uint32 *dst32Row = (uint32 *)_compositeBuf;
+
+		for (int h = 0; h < height; ++h) {
+			for (int sy = 0; sy < m; ++sy) {
+				const byte *tp = textRow + sy * _textSurface.pitch;
+				const byte *ap = alphaRow + sy * _korAlphaSurface.pitch;
+				uint32 *d = dst32Row + sy * dstPitch;
+
+				for (int w = 0; w < width; ++w) {
+					const uint32 bg = _korAlphaPalette[srcRow[w]];
+
+					for (int sx = 0; sx < m; ++sx) {
+						const byte t = *tp++;
+						const byte a = *ap++;
+
+						if (t == CHARSET_MASK_TRANSPARENCY || a == 0) {
+							*d++ = bg;
+						} else if (a == 0xFF) {
+							*d++ = _korAlphaPalette[t];
+						} else {
+							// Blend the glyph colour over the background.
+							const uint32 fg = _korAlphaPalette[t];
+							uint8 fr, fg2, fb, br, bg2, bb;
+							_outputPixelFormat.colorToRGB(fg, fr, fg2, fb);
+							_outputPixelFormat.colorToRGB(bg, br, bg2, bb);
+
+							*d++ = _outputPixelFormat.RGBToColor(
+									(fr * a + br * (255 - a)) / 255,
+									(fg2 * a + bg2 * (255 - a)) / 255,
+									(fb * a + bb * (255 - a)) / 255);
+						}
+					}
+				}
+			}
+
+			srcRow += srcPitch;
+			textRow += _textSurface.pitch * m;
+			alphaRow += _korAlphaSurface.pitch * m;
+			dst32Row += dstPitch * m;
+		}
+
+		return;
+	}
+
 	byte *dstRow = _compositeBuf;
 
 	for (int h = 0; h < height; ++h) {
@@ -1321,6 +1376,11 @@ void ScummEngine::restoreBackground(Common::Rect rect, byte backColor) {
 							(vs->topline + rect.top - _screenTop) * _textSurfaceMultiplier)
 					: (byte *)_textSurface.getBasePtr(rect.left, rect.top - _screenTop);
 				fill(mask, _textSurface.pitch, CHARSET_MASK_TRANSPARENCY, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+				if (_korAlphaSurface.getPixels()) {
+					byte *aMask = (byte *)_korAlphaSurface.getBasePtr(rect.left * _textSurfaceMultiplier,
+							(vs->topline + rect.top - _screenTop) * _textSurfaceMultiplier);
+					fill(aMask, _korAlphaSurface.pitch, 0, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, 1);
+				}
 			}
 		}
 	} else {
@@ -1345,6 +1405,11 @@ void ScummEngine::restoreBackground(Common::Rect rect, byte backColor) {
 			byte *mask = (byte *)_textSurface.getBasePtr(rect.left * _textSurfaceMultiplier,
 					(vs->topline + rect.top - _screenTop) * _textSurfaceMultiplier);
 			fill(mask, _textSurface.pitch, CHARSET_MASK_TRANSPARENCY, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+			if (_korAlphaSurface.getPixels()) {
+				byte *aMask = (byte *)_korAlphaSurface.getBasePtr(rect.left * _textSurfaceMultiplier,
+						(vs->topline + rect.top - _screenTop) * _textSurfaceMultiplier);
+				fill(aMask, _korAlphaSurface.pitch, 0, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, 1);
+			}
 		}
 
 		if (_game.features & GF_16BIT_COLOR)
@@ -1415,6 +1480,9 @@ void ScummEngine::clearTextSurface() {
 		_game.platform == Common::kPlatformFMTowns ? 0 :
 #endif
 		CHARSET_MASK_TRANSPARENCY,  _textSurface.w, _textSurface.h, _textSurface.format.bytesPerPixel);
+
+	if (_korAlphaSurface.getPixels())
+		_korAlphaSurface.fillRect(Common::Rect(0, 0, _korAlphaSurface.w, _korAlphaSurface.h), 0);
 }
 
 byte *ScummEngine::getMaskBuffer(int x, int y, int z) {
