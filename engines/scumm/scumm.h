@@ -1790,6 +1790,8 @@ public:
 	Common::Path _korTtfPath;
 	Common::Path _korTtfBoldPath;
 	Common::Path _korTtfTitlePath;
+	Common::Path _korTtfLatinPath;
+	bool _korTtfLatin = false;
 	Common::HashMap<int, int> _korTtfHeightRoles;
 	Common::HashMap<int, int> _korTtfRoleSizes;
 	Common::HashMap<int, int> _korTtfRoleSupersample;

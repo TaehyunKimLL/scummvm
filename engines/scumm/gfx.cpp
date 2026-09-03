@@ -871,9 +871,13 @@ void ScummEngine::compositeHiResText(const void *src, int srcPitch, int x, int y
 						const byte t = *tp++;
 						const byte a = *ap++;
 
-						if (t == CHARSET_MASK_TRANSPARENCY || a == 0) {
+						if (t == CHARSET_MASK_TRANSPARENCY) {
 							*d++ = bg;
-						} else if (a == 0xFF) {
+						} else if (a == 0 || a == 0xFF) {
+							// Characters drawn through the regular bitmap
+							// path (Latin letters, punctuation) leave the
+							// coverage channel untouched, so a zero there
+							// means "opaque", not "invisible".
 							*d++ = _korAlphaPalette[t];
 						} else {
 							// Blend the glyph colour over the background.

@@ -407,6 +407,21 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 			_korTtfRoleSupersample[r] = super;
 	}
 
+	// Optional [latin] section: route the single byte characters (Latin
+	// letters, digits, punctuation) through the TrueType renderer as well,
+	// so a line does not mix TTF Hangul with the original bitmap glyphs.
+	//
+	//   [latin]
+	//   enabled=true      ; render 1 byte characters with the TTF too
+	//   font=<path>       ; optional, defaults to the Korean font
+	//
+	// The advance width still comes from the game's own font, so the text
+	// keeps its original layout and line breaks.
+	if (map.getKey("enabled", "latin", value))
+		_korTtfLatin = (value.equalsIgnoreCase("true") || atoi(value.c_str()) != 0);
+	if (map.getKey("font", "latin", value))
+		_korTtfLatinPath = Common::Path(value);
+
 	const Common::INIFile::SectionKeyList keys = map.getKeys("map");
 	for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
 		if (it->key.hasPrefix("height_")) {
@@ -569,7 +584,9 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 	const uint8 hi = chr & 0xFF;
 	const uint8 lo = chr >> 8;
 
-	const uint16 unicode = Common::convertUHCToUCS(hi, lo);
+	// Single byte characters are already their own code point; only the
+	// double byte ones need the CP949 -> Unicode conversion.
+	const uint16 unicode = (chr < 256) ? chr : Common::convertUHCToUCS(hi, lo);
 	if (!unicode)
 		return false;
 
@@ -956,7 +973,13 @@ int CharsetRendererClassic::getCharWidth(uint16 chr) const {
 // directly into the scaled hi-res text surface. Returns false when the TTF
 // path doesn't apply, so the caller falls back to the bitmap renderer.
 bool CharsetRendererCommon::drawHiResKorChar(Graphics::Surface &s, int x, int y, int drawTop, uint16 chr) {
-	if (!_vm->isKoreanHiRes() || !_vm->_korTtfFont || chr < 256 || !_vm->_useCJKMode)
+	if (!_vm->isKoreanHiRes() || !_vm->_korTtfFont || !_vm->_useCJKMode)
+		return false;
+
+	// Single byte characters normally keep the game's own bitmap font. With
+	// [latin] enabled they go through the TrueType renderer too, so a mixed
+	// line does not show two different typefaces.
+	if (chr < 256 && !_vm->_korTtfLatin)
 		return false;
 
 	return _vm->drawKorTtfChar(s, chr, x, y, _color, _shadowColor);
@@ -1438,7 +1461,9 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 		return;
 
 	if (_vm->isScummvmKorTarget()) {
-		_curKorChar = is2byte ? static_cast<uint16>(chr) : 0;
+		// Keep the code point even for single byte characters: with [latin]
+		// enabled they are rendered with the TrueType font as well.
+		_curKorChar = (is2byte || _vm->_korTtfLatin) ? static_cast<uint16>(chr) : 0;
 		if (is2byte) {
 			charPtr = _vm->get2byteCharPtr(chr);
 			width = _vm->_2byteWidth;
@@ -1544,7 +1569,7 @@ void CharsetRendererV3::drawChar(int chr, Graphics::Surface &s, int x, int y) {
 		height = getDrawHeightIntern(chr);
 	}
 	setDrawCharIntern(chr);
-	if (is2byte && drawHiResKorChar(s, x, y, y, static_cast<uint16>(chr)))
+	if ((is2byte || _vm->_korTtfLatin) && drawHiResKorChar(s, x, y, y, static_cast<uint16>(chr)))
 		return;
 	drawBits1(s, x, y, charPtr, y, width, height);
 }
@@ -1617,7 +1642,7 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	translateColor();
 
 	_vm->_charsetColorMap[1] = _color;
-	_curKorChar = (_vm->isScummvmKorTarget() && is2byte) ? (uint16)chr : 0;
+	_curKorChar = (_vm->isScummvmKorTarget() && (is2byte || _vm->_korTtfLatin)) ? (uint16)chr : 0;
 	if (_vm->isScummvmKorTarget() && is2byte) {
 		setShadowMode(kNormalShadowType);
 		_charPtr = _vm->get2byteCharPtr(chr);
@@ -1806,7 +1831,7 @@ void CharsetRendererClassic::printCharIntern(bool is2byte, const byte *charPtr, 
 			drawTop = _top - _vm->_screenTop;
 		}
 
-		if (is2byte && _vm->_game.platform != Common::kPlatformFMTowns) {
+		if ((is2byte || (_vm->_korTtfLatin && _vm->isKoreanHiRes())) && _vm->_game.platform != Common::kPlatformFMTowns) {
 			int dx = (ignoreCharsetMask || !vs->hasTwoBuffers) ? _left + vs->xstart : _left;
 			int dy = drawTop;
 
@@ -1825,6 +1850,13 @@ void CharsetRendererClassic::printCharIntern(bool is2byte, const byte *charPtr, 
 
 				if (drawHiResKorChar(_vm->_textSurface, tx, ty, drawTop, _curKorChar))
 					goto charDrawn;
+
+				// Single byte characters have no double byte bitmap to fall
+				// back on, so let the regular renderer handle them.
+				if (!is2byte) {
+					drawBitsN(dstSurface, dstPtr, charPtr, *_fontPtr, drawTop, origWidth, origHeight);
+					goto charDrawn;
+				}
 
 				drawBits1(_vm->_textSurface, tx, ty, charPtr, ty, origWidth, origHeight);
 				goto charDrawn;
