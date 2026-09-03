@@ -480,6 +480,9 @@ void ScummEngine::selectKorTtfFont(int lineBox) {
 		_korTtfSupersample = _korTtfRoleSupersample.contains(role)
 			? CLIP<int>(_korTtfRoleSupersample[role], 1, 8) : 1;
 		if (_korTtfFont)
+			// A font taller than the line box centres on it and overhangs
+			// both ways; the dirty rectangle carries a cell of slack on
+			// each side so the parts outside still get composited.
 			_korTtfYOffset = (lineBox - _korTtfFont->getFontHeight() / _korTtfSupersample) / 2;
 		return;
 	}
@@ -617,6 +620,7 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 	}
 
 	const int ty = y + _korTtfYOffset;
+
 
 
 
@@ -1625,7 +1629,18 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 
 	int drawTop = _top - vs->topline;
 
-	_vm->markRectAsDirty(vs->number, _left, _left + width, drawTop, drawTop + height);
+	int dirtyTop = drawTop;
+	int dirtyHeight = height;
+
+	// See the note in CharsetRendererClassic::printChar(): TTF glyphs need
+	// room above and below the game's cell.
+	if (_vm->isKoreanHiRes() && _vm->_korTtfFont) {
+		const int slack = _vm->_2byteHeight;
+		dirtyTop = MAX(0, dirtyTop - slack);
+		dirtyHeight += slack * 2;
+	}
+
+	_vm->markRectAsDirty(vs->number, _left, _left + width, dirtyTop, dirtyTop + dirtyHeight);
 
 	if (!ignoreCharsetMask) {
 		_hasMask = true;
@@ -1836,15 +1851,21 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_left += _origWidth;
 		return;
 	} else {
+		int dirtyTop = drawTop;
 		int dirtyHeight = _height;
 
-		// TrueType glyphs are not bound by the game's cell: a comma sits
-		// below the baseline and would fall outside the rectangle that
-		// gets composited, so it would never reach the screen.
-		if (_vm->isKoreanHiRes() && _vm->_korTtfFont)
-			dirtyHeight += _vm->_2byteHeight;
+		// TrueType glyphs are not confined to the game's cell the way the
+		// original bitmaps are: ascenders reach above it, commas and
+		// parentheses hang below. Only what falls inside the dirty
+		// rectangle gets composited, so give the line a cell of slack on
+		// each side rather than clipping the font to the old grid.
+		if (_vm->isKoreanHiRes() && _vm->_korTtfFont) {
+			const int slack = _vm->_2byteHeight;
+			dirtyTop = MAX(0, dirtyTop - slack);
+			dirtyHeight += slack * 2;
+		}
 
-		_vm->markRectAsDirty(vs->number, _left, _left + _width, drawTop, drawTop + dirtyHeight);
+		_vm->markRectAsDirty(vs->number, _left, _left + _width, dirtyTop, dirtyTop + dirtyHeight);
 	}
 
 	// This check for kPlatformFMTowns and kMainVirtScreen is at least required for the chat with
