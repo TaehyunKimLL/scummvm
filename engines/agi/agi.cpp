@@ -526,6 +526,7 @@ void AgiEngine::initialize() {
 	// exactly as before, matching only exact WORDS.TOK entries.
 	_semantic = new SemanticParser();
 	_roomWordsLogic = -1;
+	_parseTestDelay = 0;
 	{
 		Common::Path semPath("agisem.dat");
 		if (ConfMan.hasKey("agi_semantic_data"))
@@ -641,8 +642,12 @@ void AgiEngine::updateRoomWords(int16 logicNr) {
 		return;
 
 	const AgiLogic &logic = _game.logics[logicNr];
-	if (!logic.data || logic.size <= 2)
+	if (!logic.data || logic.size <= 2) {
+		debugC(2, kDebugLevelScripts,
+		       "room words: logic %d not loaded (data %p, size %d)",
+		       logicNr, (const void *)logic.data, logic.size);
 		return;
+	}
 
 	// logic.size covers the code section only; the first two bytes hold the
 	// offset of the message section and are not code.
@@ -661,55 +666,69 @@ Common::Error AgiBase::init() {
 	return Common::kNoError;
 }
 
-Common::Error AgiEngine::go() {
-	// Developer aid: run a list of phrases through the parser at startup and
-	// print what each resolved to, then quit. Lets the semantic fallback be
-	// verified against the real engine without driving the GUI.
+void AgiEngine::runParseTest() {
+	// Developer aid: run a list of phrases through the real parser and print
+	// what each resolved to. Called once the game has reached a room, so the
+	// logic resource is loaded and its said() list is available.
 	//   agi_parse_test=문 열어|살펴봐|open door
-	if (ConfMan.hasKey("agi_parse_test")) {
-		Common::String spec = ConfMan.get("agi_parse_test");
-		Common::String phrase;
-		warning("=== parse test: semantic parser %s ===",
-		        (_semantic && _semantic->isLoaded()) ? "loaded" : "NOT loaded");
-		for (uint i = 0; i <= spec.size(); ++i) {
-			if (i < spec.size() && spec[i] != '|') {
-				phrase += spec[i];
-				continue;
-			}
-			if (!phrase.empty()) {
-				updateRoomWords(getVar(VM_VAR_CURRENT_ROOM));
-				_words->parseUsingDictionary(phrase.c_str());
-				const uint16 n = _words->getEgoWordCount();
-				Common::String line = Common::String::format(
-				    "PARSE \"%s\" room=%d verbs=%u nouns=%u ->",
-				    phrase.c_str(), getVar(VM_VAR_CURRENT_ROOM),
-				    (uint)_roomVerbs.size(), (uint)_roomNouns.size());
-				if (!n) {
-					line += " (no match)";
-				} else {
-					for (uint16 k = 0; k < n; ++k) {
-						const uint16 id = _words->getEgoWordId(k);
-						if (!id) {
-							line += Common::String::format(" [%s=UNKNOWN]",
-							        _words->getEgoWord(k));
-							continue;
-						}
-						Common::String name;
-						if (_semantic && _semantic->isLoaded())
-							name = _semantic->groupName(id);
-						line += Common::String::format(" [%s=%u%s%s]",
-						        _words->getEgoWord(k), id,
-						        name.empty() ? "" : ":", name.c_str());
-					}
-				}
-				warning("%s", line.c_str());
-			}
-			phrase.clear();
-		}
-		warning("=== parse test done ===");
-		return Common::kNoError;
+	if (!ConfMan.hasKey("agi_parse_test"))
+		return;
+
+	const Common::String spec = ConfMan.get("agi_parse_test");
+
+	// agi_parse_room forces a specific logic to be used as the room context,
+	// so the said() filter can be exercised on a room that has said() calls.
+	int16 room = getVar(VM_VAR_CURRENT_ROOM);
+	if (ConfMan.hasKey("agi_parse_room")) {
+		room = (int16)ConfMan.getInt("agi_parse_room");
+		if (loadResource(RESOURCETYPE_LOGIC, room) != errOK)
+			warning("parse test: could not load logic %d", room);
 	}
 
+	warning("=== parse test: semantic parser %s, room %d ===",
+	        (_semantic && _semantic->isLoaded()) ? "loaded" : "NOT loaded", room);
+
+	Common::String phrase;
+	for (uint i = 0; i <= spec.size(); ++i) {
+		if (i < spec.size() && spec[i] != '|') {
+			phrase += spec[i];
+			continue;
+		}
+		if (!phrase.empty()) {
+			updateRoomWords(room);
+			_words->parseUsingDictionary(phrase.c_str());
+			const uint16 n = _words->getEgoWordCount();
+			Common::String line = Common::String::format(
+			    "PARSE \"%s\" room=%d verbs=%u nouns=%u ->",
+			    phrase.c_str(), room,
+			    (uint)_roomVerbs.size(), (uint)_roomNouns.size());
+			if (!n) {
+				line += " (no match)";
+			} else {
+				for (uint16 k = 0; k < n; ++k) {
+					const uint16 id = _words->getEgoWordId(k);
+					if (!id) {
+						line += Common::String::format(" [%s=UNKNOWN]",
+						        _words->getEgoWord(k));
+						continue;
+					}
+					Common::String name;
+					if (_semantic && _semantic->isLoaded())
+						name = _semantic->groupName(id);
+					line += Common::String::format(" [%s=%u%s%s]",
+					        _words->getEgoWord(k), id,
+					        name.empty() ? "" : ":", name.c_str());
+				}
+			}
+			warning("%s", line.c_str());
+		}
+		phrase.clear();
+	}
+	warning("=== parse test done ===");
+	quitGame();
+}
+
+Common::Error AgiEngine::go() {
 	if (_game.mouseEnabled) {
 		CursorMan.showMouse(true);
 	}

@@ -747,6 +747,10 @@ public:
 	/** Recompute _roomVerbs/_roomNouns for the given logic. */
 	void updateRoomWords(int16 logicNr);
 
+	/** Developer aid driven by the agi_parse_test config key. */
+	void runParseTest();
+	int _parseTestDelay;
+
 	SavedGameSlotIdArray getSavegameSlotIds();
 	bool getSavegameInformation(int16 slotId, Common::String &saveDescription, uint32 &saveDate, uint32 &saveTime, bool &saveIsValid);
 

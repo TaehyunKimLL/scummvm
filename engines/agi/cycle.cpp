@@ -85,6 +85,11 @@ void AgiEngine::newRoom(int16 newRoomNr) {
 
 	loadResource(RESOURCETYPE_LOGIC, newRoomNr);
 
+	// Collect the word groups this room tests with said(), so the semantic
+	// parser can narrow its search to commands this room understands. Done
+	// here because the logic resource has just been loaded.
+	updateRoomWords(newRoomNr);
+
 	// Reposition ego in the new room
 	switch (getVar(VM_VAR_BORDER_TOUCH_EGO)) {
 	case 1:
@@ -433,6 +438,11 @@ void AgiEngine::playGame() {
 			setFlag(VM_FLAG_SAID_ACCEPTED_INPUT, false);
 			setVar(VM_VAR_WORD_NOT_FOUND, 0);
 			setVar(VM_VAR_KEY, 0);
+
+			// Once the game has settled into a room, optionally run the
+			// parser self-test and quit.
+			if (++_parseTestDelay == 60)
+				runParseTest();
 		}
 
 	} while (!(shouldQuit() || _restartGame));

@@ -410,10 +410,6 @@ bool Words::parseUsingSemantics(const Common::String &userInput) {
 	if (!sem || !sem->isLoaded() || userInput.empty())
 		return false;
 
-	// The room's said() list is what narrows the candidates. Refresh it here,
-	// where the current room's logic is guaranteed to be loaded.
-	_vm->updateRoomWords(_vm->getVar(VM_VAR_CURRENT_ROOM));
-
 	// Split on spaces.
 	Common::Array<Common::String> tokens;
 	Common::String cur;
