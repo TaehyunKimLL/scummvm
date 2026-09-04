@@ -303,13 +303,6 @@ int getKoreanTtfRoleFromName(const Common::String &name) {
 
 void ScummEngine::loadKorTtfFont() {
 #ifdef USE_FREETYPE2
-	// v0-v2 lay their text out on a fixed 8 pixel cell and the scripts count
-	// on it, so a proportional face cannot be fitted into it without the
-	// glyphs colliding. Those games keep the bitmap font, which the hi-res
-	// mode still scales up by 2x or 3x.
-	if (_game.version <= 2)
-		return;
-
 	_korTtfHeightRoles.clear();
 
 	Common::Path mapPath;
@@ -338,6 +331,12 @@ void ScummEngine::loadKorTtfFont() {
 
 	if (_korTtfPath.empty())
 		return;
+
+	// v0-v2 place every glyph in a fixed cell that the scripts rely on.
+	// Run-at-a-time rendering spaces the glyphs by the font's own advance
+	// and drifts off that grid, so keep those games per-character.
+	if (_game.version <= 2)
+		_korTtfStringMode = false;
 
 	Common::FSNode fontNode(_korTtfPath);
 	if (!fontNode.exists() || fontNode.isDirectory()) {
@@ -1187,6 +1186,12 @@ int CharsetRendererClassic::getCharWidth(uint16 chr) const {
 int ScummEngine::getKorTtfCharWidth(uint16 chr) {
 #ifdef USE_FREETYPE2
 	if (!_korTtfMetrics || !_korTtfEnabled || !isKoreanHiRes())
+		return -1;
+
+	// v0-v2 lay their text out on a fixed cell and the scripts depend on it.
+	// Those games are meant to be used with a pixel font that matches the
+	// cell, so keep the grid and only take the glyphs from the font.
+	if (_game.version <= 2)
 		return -1;
 
 	// Hangul keeps driving the font size; see drawKorTtfChar().
