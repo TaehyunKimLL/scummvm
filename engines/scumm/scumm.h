@@ -1840,6 +1840,14 @@ public:
 	// own metrics and its line breaks, true takes them from the font.
 	bool _svfnLatinMetrics = false;
 
+	// The area of the hi-res text surface that currently holds glyphs.
+	// The engine's own charset mask (_charset->_hasMask) only covers text
+	// it expects to take down itself; text drawn with ignoreCharsetMask
+	// set, or left over from a previous room, is invisible to it. This
+	// rectangle is what the hi-res surface actually has on it, so it can
+	// be cleared without waiting for the charset to admit ownership.
+	Common::Rect _hiResTextDirty;
+
 	// Outline and drop shadow for the hi-res paths. The game's own value
 	// (_2byteShadow) only reaches the built-in bitmap blitter, so without
 	// this a TrueType or SVFN glyph comes out flat no matter what the
@@ -1862,6 +1870,7 @@ public:
 	int getSvfnWidth(uint16 chr) const;
 	bool parseSvfnHeader(const byte *buf, uint32 size, SvfnFont &out) const;
 	const byte *getSvfnGlyph(const SvfnFont &font, int idx) const;
+	void noteHiResTextDrawn(int x, int y, int w, int h);
 	bool drawSvfnGlyph(Graphics::Surface &dest, const SvfnFont &font, int idx,
 					   int x, int y, byte color, byte shadowColor);
 	// Translation bundle name, when it is not the default korean.trs.
