@@ -1859,7 +1859,7 @@ public:
 	int hiResShadowOffset() const;
 	int get2byteCharIndex(int chr) const;
 	void loadSvfnLatin();
-	int getSvfnLatinWidth(uint16 chr) const;
+	int getSvfnWidth(uint16 chr) const;
 	bool parseSvfnHeader(const byte *buf, uint32 size, SvfnFont &out) const;
 	const byte *getSvfnGlyph(const SvfnFont &font, int idx) const;
 	bool drawSvfnGlyph(Graphics::Surface &dest, const SvfnFont &font, int idx,
