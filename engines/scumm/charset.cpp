@@ -1788,7 +1788,13 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 		_textScreenID = vs->number;
 	}
 
-	if ((ignoreCharsetMask || !vs->hasTwoBuffers)
+	// Korean hi-res text always goes to the scaled text surface, even for
+	// the virtual screens that normally receive text directly (the verb
+	// area): that is the only buffer with the resolution to hold it.
+	const bool korTtfTarget = _vm->isKoreanHiRes() && _vm->_korTtfFont
+			&& (is2byte || _vm->_korTtfLatin);
+
+	if ((ignoreCharsetMask || !vs->hasTwoBuffers) && !korTtfTarget
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 		&& (_vm->_game.platform != Common::kPlatformFMTowns)
 #endif
