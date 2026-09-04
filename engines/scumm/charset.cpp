@@ -391,38 +391,187 @@ bool ScummEngine::drawSvfnGlyph(Graphics::Surface &dest, const SvfnFont &font, i
 	const bool alpha = (font.bpp == 8) && _korAlphaSurface.getPixels();
 	const int rowBytes = (font.bpp == 1) ? (font.cellW + 7) / 8 : font.cellW;
 
-	for (int gy = 0; gy < font.cellH; ++gy) {
-		const byte *row = glyph + gy * rowBytes;
-		const int py = y + gy;
+	// Where the shadow goes, relative to the glyph. The outline forms are
+	// drawn first and in full, so that a later pixel of the same glyph --
+	// or the next character along -- cannot paint over a stroke already
+	// laid down.
+	static const int8 dropX[]    = { 1 };
+	static const int8 dropY[]    = { 1 };
+	static const int8 outlineX[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
+	static const int8 outlineY[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
+	static const int8 strokeX[]  = { -1, 0, 1, -1, 1, -1, 0, 1, -1, -1, -2 };
+	static const int8 strokeY[]  = { -1, -1, -1, 0, 0, 1, 1, 1, 2, 1, 0 };
 
-		if (py < 0 || py >= dest.h)
-			continue;
+	const int8 *offX = nullptr;
+	const int8 *offY = nullptr;
+	int offCount = 0;
 
-		for (int gx = 0; gx < font.cellW; ++gx) {
-			byte cov;
+	switch (hiResShadowMode()) {
+	case kHiResShadowDrop:
+		offX = dropX; offY = dropY; offCount = ARRAYSIZE(dropX);
+		break;
+	case kHiResShadowOutline:
+		offX = outlineX; offY = outlineY; offCount = ARRAYSIZE(outlineX);
+		break;
+	case kHiResShadowStroke:
+		offX = strokeX; offY = strokeY; offCount = ARRAYSIZE(strokeX);
+		break;
+	default:
+		break;
+	}
 
-			if (font.bpp == 1)
-				cov = (row[gx >> 3] & (0x80 >> (gx & 7))) ? 0xFF : 0;
-			else
-				cov = row[gx];
+	const byte shadow = _hiResShadowColorSet ? _hiResShadowColor : shadowColor;
+	const int step = hiResShadowOffset();
 
-			if (!cov)
-				continue;
+	// The shadow is pointless when it cannot be told apart from the text.
+	if (shadow == color)
+		offCount = 0;
 
-			const int px = x + gx;
-			if (px < 0 || px >= dest.w)
-				continue;
+	for (int pass = (offCount ? 0 : 1); pass < 2; ++pass) {
+		const int copies = pass ? 1 : offCount;
 
-			*(byte *)dest.getBasePtr(px, py) = color;
+		for (int c = 0; c < copies; ++c) {
+			const int ox = pass ? 0 : offX[c] * step;
+			const int oy = pass ? 0 : offY[c] * step;
+			const byte ink = pass ? color : shadow;
 
-			if (alpha && px < _korAlphaSurface.w && py < _korAlphaSurface.h)
-				*(byte *)_korAlphaSurface.getBasePtr(px, py) = cov;
+			for (int gy = 0; gy < font.cellH; ++gy) {
+				const byte *row = glyph + gy * rowBytes;
+				const int py = y + gy + oy;
 
+				if (py < 0 || py >= dest.h)
+					continue;
+
+				for (int gx = 0; gx < font.cellW; ++gx) {
+					byte cov;
+
+					if (font.bpp == 1)
+						cov = (row[gx >> 3] & (0x80 >> (gx & 7))) ? 0xFF : 0;
+					else
+						cov = row[gx];
+
+					if (!cov)
+						continue;
+
+					const int px = x + gx + ox;
+					if (px < 0 || px >= dest.w)
+						continue;
+
+					// The outline must not eat into the glyph body, and at
+					// 8bpp a fainter pixel must not replace a stronger one
+					// that is already there.
+					if (!pass && alpha
+							&& px < _korAlphaSurface.w && py < _korAlphaSurface.h) {
+						if (*(const byte *)_korAlphaSurface.getBasePtr(px, py) >= cov)
+							continue;
+					}
+
+					*(byte *)dest.getBasePtr(px, py) = ink;
+
+					if (alpha && px < _korAlphaSurface.w && py < _korAlphaSurface.h)
+						*(byte *)_korAlphaSurface.getBasePtr(px, py) = cov;
+				}
+			}
 		}
 	}
 
-
 	return true;
+}
+
+/**
+ * Load the single byte companion font named by [latin] bitmap=.
+ *
+ * Its glyphs are indexed by character code, not through a code page, so
+ * entry 65 is 'A'. Everything else about it -- depth, cell size, optional
+ * per-glyph advance -- follows the same header as the Hangul font.
+ */
+/**
+ * Which outline or shadow the hi-res glyphs should get.
+ *
+ * The engine's own _2byteShadow is only consulted by the bitmap blitter,
+ * and it describes what the game's .fnt was drawn for. A replacement font
+ * is a different shape entirely, so the map gets to override it; without
+ * an override we follow the game so nothing changes by accident.
+ */
+int ScummEngine::hiResShadowMode() const {
+	if (_hiResShadowMode != kHiResShadowGame)
+		return _hiResShadowMode;
+
+	// _2byteShadow: 1 = none, 2 = drop, 3 = stroke, anything else = outline.
+	switch (_2byteShadow) {
+	case 1:
+		return kHiResShadowNone;
+	case 2:
+		return kHiResShadowDrop;
+	case 3:
+		return kHiResShadowStroke;
+	default:
+		return kHiResShadowOutline;
+	}
+}
+
+/**
+ * How far the shadow sits from the glyph, in scaled pixels.
+ *
+ * The original fonts carry a one pixel shadow at 320x200, so following the
+ * scale keeps the same weight on a 2x or 3x surface. A map can pin it when
+ * its font wants something tighter.
+ */
+int ScummEngine::hiResShadowOffset() const {
+	if (_hiResShadowOffset > 0)
+		return _hiResShadowOffset;
+
+	return MAX(1, _koreanHiResScale);
+}
+
+void ScummEngine::loadSvfnLatin() {
+	if (_svfnLatinName.empty() || _svfnLatin.valid)
+		return;
+
+	Common::File fp;
+	if (!fp.open(Common::Path(_svfnLatinName))) {
+		warning("SCUMM::Font: Could not open Latin bitmap font '%s'", _svfnLatinName.c_str());
+		return;
+	}
+
+	const uint32 size = (uint32)fp.size();
+	byte *raw = new byte[size];
+	fp.seek(0);
+	fp.read(raw, size);
+	fp.close();
+
+	if (!parseSvfnHeader(raw, size, _svfnLatin)) {
+		warning("SCUMM::Font: '%s' is not in the extended bitmap format", _svfnLatinName.c_str());
+		delete[] raw;
+		return;
+	}
+
+	_svfnLatinData = raw;
+	debug(1, "SVFN Latin font: %dx%d %dbpp, %d glyphs%s",
+		  _svfnLatin.cellW, _svfnLatin.cellH, _svfnLatin.bpp, _svfnLatin.glyphs,
+		  _svfnLatin.variable ? ", variable width" : "");
+}
+
+/**
+ * The advance for a single byte character, in game pixels.
+ *
+ * Returns -1 to mean "no opinion", which leaves the game's own charset
+ * width in charge and keeps the original line breaks. That is the default:
+ * taking the width from the font lays the glyphs out more evenly but moves
+ * where lines wrap, which not every translation wants.
+ */
+int ScummEngine::getSvfnLatinWidth(uint16 chr) const {
+	if (!_svfnLatinMetrics || !_svfnLatin.valid || !_svfnLatin.variable)
+		return -1;
+	if (chr >= (uint16)_svfnLatin.glyphs || !_svfnLatin.metrics)
+		return -1;
+
+	const int div = _koreanHiResScale > 0 ? _koreanHiResScale : 1;
+	const int advance = _svfnLatin.metrics[chr * 4];
+
+	// Round to nearest: truncating loses up to a pixel per character and
+	// the error piles up across a line.
+	return (advance + div / 2) / div;
 }
 
 void ScummEngine::loadKorFont() {
@@ -549,6 +698,8 @@ void ScummEngine::loadKorFont() {
 	// The font map is read first: it may name a font, which implies hi-res
 	// mode, and it may pin the scale outright.
 	loadKorTtfConfig();
+
+	loadSvfnLatin();
 
 	if (_koreanHiResScale > 1) {
 		if (_game.platform == Common::kPlatformFMTowns || _game.platform == Common::kPlatformPCEngine ||
@@ -814,8 +965,6 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 	//
 	// The advance width still comes from the game's own font, so the text
 	// keeps its original layout and line breaks.
-	if (getKorTtfMapKey(map, "enabled", "latin", value))
-		_korTtfLatin = (value.equalsIgnoreCase("true") || atoi(value.c_str()) != 0);
 	if (getKorTtfMapKey(map, "font", "latin", value))
 		_korTtfLatinPath = resolveKorTtfPath(value, mapPath.getParent());
 	if (getKorTtfMapKey(map, "metrics", "latin", value))
@@ -827,6 +976,52 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 		_korTtfStringMode = value.equalsIgnoreCase("string");
 
 #endif
+
+	if (getKorTtfMapKey(map, "enabled", "latin", value))
+		_korTtfLatin = (value.equalsIgnoreCase("true") || atoi(value.c_str()) != 0);
+
+	// [latin] bitmap= names a font for the single byte range in the same
+	// extended format as the Hangul one. Without it a line drawn from an
+	// 8bpp font still shows pixel-doubled Latin letters, since those keep
+	// coming from the game's own 1bpp charset.
+	//
+	//   [latin]
+	//   enabled=true
+	//   bitmap=latin24.fnt
+	//   metrics=bitmap        ; or "game" to keep the original layout
+	if (getKorTtfMapKey(map, "bitmap", "latin", value)) {
+		_svfnLatinName = value;
+		_korTtfLatin = true;
+	}
+	if (getKorTtfMapKey(map, "metrics", "latin", value))
+		_svfnLatinMetrics = value.equalsIgnoreCase("bitmap");
+
+	// [shadow] forces an outline or drop shadow on the hi-res glyphs. The
+	// engine's own setting describes the game's bitmap font, which a
+	// replacement font has no reason to match.
+	//
+	//   [shadow]
+	//   mode=outline      ; none | drop | outline | stroke | game
+	//   offset=2          ; scaled pixels; omit to follow the scale
+	//   color=0           ; palette index; omit to use the game's
+	if (getKorTtfMapKey(map, "mode", "shadow", value)) {
+		if (value.equalsIgnoreCase("none"))
+			_hiResShadowMode = kHiResShadowNone;
+		else if (value.equalsIgnoreCase("drop"))
+			_hiResShadowMode = kHiResShadowDrop;
+		else if (value.equalsIgnoreCase("outline"))
+			_hiResShadowMode = kHiResShadowOutline;
+		else if (value.equalsIgnoreCase("stroke"))
+			_hiResShadowMode = kHiResShadowStroke;
+		else
+			_hiResShadowMode = kHiResShadowGame;
+	}
+	if (getKorTtfMapKey(map, "offset", "shadow", value))
+		_hiResShadowOffset = atoi(value.c_str());
+	if (getKorTtfMapKey(map, "color", "shadow", value)) {
+		_hiResShadowColor = (byte)atoi(value.c_str());
+		_hiResShadowColorSet = true;
+	}
 
 	// [hires] scale pins the text surface multiplier from the map, so a
 	// translation can pick the resolution its font was drawn for without
@@ -1175,7 +1370,7 @@ void ScummEngine::korTtfRunFlush() {
 		_korTtfFont->drawString(&cov, _korTtfRun, 0, padY, rw,
 								covFmt.ARGBToColor(0xFF, 0xFF, 0xFF, 0xFF));
 
-		const int shadowOff = _koreanHiResScale;
+		const int shadowOff = hiResShadowOffset();
 
 		for (int gy = 0; gy < rh; ++gy) {
 			const uint32 *covRow = (const uint32 *)cov.getBasePtr(0, gy);
@@ -1189,7 +1384,8 @@ void ScummEngine::korTtfRunFlush() {
 				const int px = _korTtfRunX + gx;
 				const int py = ty + gy - padY;
 
-				if (_korTtfRunShadow != _korTtfRunColor) {
+				const byte runShadowInk = _hiResShadowColorSet ? _hiResShadowColor : _korTtfRunShadow;
+				if (hiResShadowMode() != kHiResShadowNone && runShadowInk != _korTtfRunColor) {
 					const int sxp = px + shadowOff;
 					const int syp = py + shadowOff;
 					// The coverage channel is a separate surface: check it
@@ -1198,7 +1394,7 @@ void ScummEngine::korTtfRunFlush() {
 							&& sxp < _korAlphaSurface.w && syp < _korAlphaSurface.h) {
 						byte *aDst = (byte *)_korAlphaSurface.getBasePtr(sxp, syp);
 						if (*aDst < ca) {
-							*(byte *)dest.getBasePtr(sxp, syp) = _korTtfRunShadow;
+							*(byte *)dest.getBasePtr(sxp, syp) = runShadowInk;
 							*aDst = ca;
 						}
 					}
@@ -1215,10 +1411,12 @@ void ScummEngine::korTtfRunFlush() {
 
 		cov.free();
 	} else {
-		if (_korTtfRunShadow != _korTtfRunColor) {
-			_korTtfFont->drawString(&dest, _korTtfRun, _korTtfRunX + 2, ty + 2, dest.w, _korTtfRunShadow);
-			_korTtfFont->drawString(&dest, _korTtfRun, _korTtfRunX + 2, ty, dest.w, _korTtfRunShadow);
-			_korTtfFont->drawString(&dest, _korTtfRun, _korTtfRunX, ty + 2, dest.w, _korTtfRunShadow);
+		const byte runShadow = _hiResShadowColorSet ? _hiResShadowColor : _korTtfRunShadow;
+		if (hiResShadowMode() != kHiResShadowNone && runShadow != _korTtfRunColor) {
+			const int d = hiResShadowOffset();
+			_korTtfFont->drawString(&dest, _korTtfRun, _korTtfRunX + d, ty + d, dest.w, runShadow);
+			_korTtfFont->drawString(&dest, _korTtfRun, _korTtfRunX + d, ty, dest.w, runShadow);
+			_korTtfFont->drawString(&dest, _korTtfRun, _korTtfRunX, ty + d, dest.w, runShadow);
 		}
 		_korTtfFont->drawString(&dest, _korTtfRun, _korTtfRunX, ty, dest.w, _korTtfRunColor);
 	}
@@ -1312,7 +1510,7 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 				tx += (adv - gw) / 2;
 		}
 
-		const int shadowOff = _koreanHiResScale;
+		const int shadowOff = hiResShadowOffset();
 
 		// The scratch was shifted by the glyph origin; undo that here so
 		// the parts that reach outside the advance box still land where
@@ -1332,14 +1530,15 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 					continue;
 
 				// Drop shadow first, at reduced coverage.
-				if (shadowColor != color) {
+				const byte shadowInk = _hiResShadowColorSet ? _hiResShadowColor : shadowColor;
+				if (hiResShadowMode() != kHiResShadowNone && shadowInk != color) {
 					const int sxp = dx + gx + shadowOff;
 					const int syp = dy + gy + shadowOff;
 					if (sxp >= 0 && syp >= 0 && sxp < dest.w && syp < dest.h
 							&& sxp < _korAlphaSurface.w && syp < _korAlphaSurface.h) {
 						byte *aDst = (byte *)_korAlphaSurface.getBasePtr(sxp, syp);
 						if (*aDst < a) {
-							*(byte *)dest.getBasePtr(sxp, syp) = shadowColor;
+							*(byte *)dest.getBasePtr(sxp, syp) = shadowInk;
 							*aDst = a;
 						}
 					}
@@ -1426,10 +1625,12 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 
 	// Monochrome TTF draws only set pixels, leaving the 0xFD transparency
 	// mask untouched everywhere else, so the background shows through.
-	if (shadowColor != color) {
-		_korTtfFont->drawChar(&dest, unicode, tx + 2, ty + 2, shadowColor);
-		_korTtfFont->drawChar(&dest, unicode, tx + 2, ty, shadowColor);
-		_korTtfFont->drawChar(&dest, unicode, tx, ty + 2, shadowColor);
+	const byte monoShadow = _hiResShadowColorSet ? _hiResShadowColor : shadowColor;
+	if (hiResShadowMode() != kHiResShadowNone && monoShadow != color) {
+		const int d = hiResShadowOffset();
+		_korTtfFont->drawChar(&dest, unicode, tx + d, ty + d, monoShadow);
+		_korTtfFont->drawChar(&dest, unicode, tx + d, ty, monoShadow);
+		_korTtfFont->drawChar(&dest, unicode, tx, ty + d, monoShadow);
 	}
 
 	_korTtfFont->drawChar(&dest, unicode, tx, ty, color);
@@ -1738,6 +1939,15 @@ int CharsetRendererClassic::getCharWidth(uint16 chr) const {
  * Enabled with "metrics=ttf" in the [latin] section of the font map.
  */
 int ScummEngine::getKorTtfCharWidth(uint16 chr) {
+	// The Latin bitmap answers first when it was told to: it is the font
+	// actually drawing those glyphs, so its advance is the one that keeps
+	// them evenly spaced.
+	if (chr < 256) {
+		const int w = getSvfnLatinWidth(chr);
+		if (w >= 0)
+			return w;
+	}
+
 #ifdef USE_FREETYPE2
 	if (!_korTtfMetrics || !_korTtfEnabled || !isKoreanHiRes())
 		return -1;
@@ -1790,6 +2000,12 @@ bool CharsetRendererCommon::drawHiResKorChar(Graphics::Surface &s, int x, int y,
 	if (chr >= 256 && _vm->_svfn.valid) {
 		const int idx = _vm->get2byteCharIndex(chr);
 		if (_vm->drawSvfnGlyph(s, _vm->_svfn, idx, x, y, _color, _shadowColor))
+			return true;
+	}
+
+	// Latin letters have a font of their own, indexed by character code.
+	if (chr < 256 && _vm->_svfnLatin.valid) {
+		if (_vm->drawSvfnGlyph(s, _vm->_svfnLatin, chr, x, y, _color, _shadowColor))
 			return true;
 	}
 
@@ -2180,18 +2396,26 @@ void CharsetRendererPC::drawBits1Kor(Graphics::Surface &dest, int x1, int y1, co
 						_shadowColor, _shadowColor, _color};
 	int i = 0;
 
-	switch (_vm->_2byteShadow) {
-	case 1: // No shadow
+	// The map can force a different outline for every font, including this
+	// one: a translation that replaced the .fnt has no reason to keep the
+	// decoration the original was drawn with.
+	switch (_vm->hiResShadowMode()) {
+	case ScummEngine::kHiResShadowNone:
 		i = 13;
 		break;
-	case 2: // SE direction shadow
+	case ScummEngine::kHiResShadowDrop:
 		i = 12;
 		break;
-	case 3: // Stroke & SW direction shadow ("Monkey2", "Indy4")
+	case ScummEngine::kHiResShadowStroke:
 		i = 0;
 		break;
-	default: // Stroke
+	default: // outline
 		i = 5;
+	}
+
+	if (_vm->_hiResShadowColorSet) {
+		for (int c = 0; c < 13; ++c)
+			cTable[c] = _vm->_hiResShadowColor;
 	}
 
 	const byte *origSrc = src;
