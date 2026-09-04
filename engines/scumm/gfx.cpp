@@ -1478,7 +1478,11 @@ void ScummEngine::restoreCharsetBg() {
 			}
 		}
 
-		if (vs->hasTwoBuffers || _macScreen) {
+		// The hi-res text lives in its own surface, so wiping the video
+		// buffer above does not touch it. Single buffered games (v0-v2)
+		// never reach the branch below and would keep every line ever
+		// drawn, one on top of the next.
+		if (vs->hasTwoBuffers || _macScreen || isKoreanHiRes()) {
 			// Clean out the charset mask
 			clearTextSurface();
 		}
