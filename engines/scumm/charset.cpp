@@ -553,21 +553,33 @@ void ScummEngine::loadSvfnLatin() {
 }
 
 /**
- * The advance for a single byte character, in game pixels.
+ * The advance a font in the extended format wants for this character, in
+ * game pixels, or -1 when it has no opinion.
  *
- * Returns -1 to mean "no opinion", which leaves the game's own charset
- * width in charge and keeps the original line breaks. That is the default:
- * taking the width from the font lays the glyphs out more evenly but moves
- * where lines wrap, which not every translation wants.
+ * -1 leaves the game's own charset width in charge and keeps the original
+ * line breaks, which is the default. Taking the width from the font lays
+ * the glyphs out the way they were drawn, but moves where lines wrap, and
+ * not every translation wants that.
+ *
+ * v0-v2 never get here: CharsetRendererV2::getCharWidth() returns a fixed
+ * 8 because the scripts lay their screens out on that grid.
  */
-int ScummEngine::getSvfnLatinWidth(uint16 chr) const {
-	if (!_svfnLatinMetrics || !_svfnLatin.valid || !_svfnLatin.variable)
+int ScummEngine::getSvfnWidth(uint16 chr) const {
+	if (!_svfnLatinMetrics)
 		return -1;
-	if (chr >= (uint16)_svfnLatin.glyphs || !_svfnLatin.metrics)
+
+	// Single byte characters come from the Latin font, double byte ones
+	// from whichever CJK font the current charset selected.
+	const SvfnFont &font = (chr < 256) ? _svfnLatin : _svfn;
+	if (!font.valid || !font.variable || !font.metrics)
+		return -1;
+
+	const int idx = (chr < 256) ? chr : get2byteCharIndex(chr);
+	if (idx < 0 || idx >= font.glyphs)
 		return -1;
 
 	const int div = _koreanHiResScale > 0 ? _koreanHiResScale : 1;
-	const int advance = _svfnLatin.metrics[chr * 4];
+	const int advance = font.metrics[idx * 4];
 
 	// Round to nearest: truncating loses up to a pixel per character and
 	// the error piles up across a line.
@@ -1939,11 +1951,11 @@ int CharsetRendererClassic::getCharWidth(uint16 chr) const {
  * Enabled with "metrics=ttf" in the [latin] section of the font map.
  */
 int ScummEngine::getKorTtfCharWidth(uint16 chr) {
-	// The Latin bitmap answers first when it was told to: it is the font
-	// actually drawing those glyphs, so its advance is the one that keeps
-	// them evenly spaced.
-	if (chr < 256) {
-		const int w = getSvfnLatinWidth(chr);
+	// A bitmap font answers first when it was told to: it is the one
+	// actually drawing the glyph, so its advance is what keeps the line
+	// evenly spaced.
+	{
+		const int w = getSvfnWidth(chr);
 		if (w >= 0)
 			return w;
 	}
