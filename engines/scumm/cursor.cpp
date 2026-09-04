@@ -1294,7 +1294,13 @@ void ScummEngine_v5::setBuiltinCursor(int idx) {
 
 	int sclW = (_renderMode == Common::kRenderHercA || _renderMode == Common::kRenderHercG || _enableEGADithering) ? 2 : _textSurfaceMultiplier;
 	int sclH = (_renderMode == Common::kRenderHercA || _renderMode == Common::kRenderHercG) ? 1 : (_enableEGADithering ? 2 : _textSurfaceMultiplier);
-	int sclW2 = _outputPixelFormat.bytesPerPixel * sclW;
+	// The built-in cursor is always palette indices. In Korean alpha-text
+	// mode the output format is 32bpp, but updateCursor() hands the data to
+	// the backend as CLUT8, so it has to be packed one byte per pixel here
+	// too - otherwise the glyph is spread over four times the width and the
+	// gaps show up as the 0xFF fill above.
+	const int cursorBpp = _koreanAlphaText ? 1 : _outputPixelFormat.bytesPerPixel;
+	int sclW2 = cursorBpp * sclW;
 
 	_cursor.hotspotX = _cursorHotspots[2 * _currentCursor] * sclW;
 	_cursor.hotspotY = _cursorHotspots[2 * _currentCursor + 1] * sclH;
@@ -1306,7 +1312,7 @@ void ScummEngine_v5::setBuiltinCursor(int idx) {
 			if (src[i] & (1 << j)) {
 				byte *dst1 = _grabbedCursor + 16 * sclW2 * i * sclH + (15 - j) * sclW2;
 				byte *dst2 = (sclH == 2) ? dst1 + 16 * sclW2 : dst1;
-				if (_outputPixelFormat.bytesPerPixel == 2) {
+				if (cursorBpp == 2) {
 					for (int b = 0; b < sclW; b++) {
 						*((uint16 *)dst1) = *((uint16 *)dst2) = color;
 						dst1 += 2;
