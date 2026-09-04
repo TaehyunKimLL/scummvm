@@ -29,6 +29,7 @@
 #include "graphics/paletteman.h"
 
 #include "scumm/resource.h"
+#include "graphics/cursorman.h"
 #include "scumm/scumm.h"
 #include "scumm/scumm_v6.h"
 #include "scumm/scumm_v8.h"
@@ -1779,6 +1780,10 @@ void ScummEngine::updatePalette() {
 					paletteColors[i * 3 + 1],
 					paletteColors[i * 3 + 2]);
 		}
+
+		// The mouse cursor is still drawn from palette indices, so it
+		// needs the colours the backend is no longer being given.
+		CursorMan.replaceCursorPalette(paletteColors, first, num);
 
 		if (_macGui)
 			_macGui->setPaletteDirty();

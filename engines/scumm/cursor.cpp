@@ -429,6 +429,17 @@ void ScummEngine::updateCursor() {
 		mac_scaleCursor(cursor, hotspotX, hotspotY, width, height);
 
 	Graphics::PixelFormat format = _system->getScreenFormat();
+
+	// In Korean alpha-text mode the screen is 32bpp, but the cursor data is
+	// still palette indices - the engine only converts when it builds the
+	// composite buffer. Declaring it as the screen format would make the
+	// backend read the indices as true colour, and since setPalette() is
+	// skipped in this mode the cursor also needs its own copy.
+	if (_koreanAlphaText) {
+		format = Graphics::PixelFormat::createFormatCLUT8();
+		CursorMan.replaceCursorPalette(_currentPalette, 0, 256);
+	}
+
 	if (_game.heversion == 70) {
 		// Windows HE 70 games render the game scaled to 640x400, but
 		// leave the cursor unscaled.
