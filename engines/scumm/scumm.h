@@ -1829,7 +1829,7 @@ public:
 	// String level TTF output: characters are collected into a run and
 	// rendered together, so the font controls the spacing within a line
 	// instead of each glyph being fitted into the game's own cell.
-	void korTtfRunAppend(uint16 chr, Graphics::Surface &dest, int x, int y, byte color, byte shadowColor);
+	bool korTtfRunAppend(uint16 chr, Graphics::Surface &dest, int x, int y, byte color, byte shadowColor);
 	void korTtfRunFlush();
 
 	Common::U32String _korTtfRun;

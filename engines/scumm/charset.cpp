@@ -85,10 +85,21 @@ bool ScummEngine::isHiResTextTarget() {
 		return false;
 	}
 
-	// Only opt in when a map was actually pointed at, either explicitly or
-	// by the conventional name in the game folder.
-	if (ConfMan.hasKey("korean_ttf_map"))
-		return true;
+	// Only opt in when a map is actually there. A configured but missing
+	// path must not divert these targets away from the engine's own CJK
+	// loaders, which is what they would otherwise fall back to.
+	if (ConfMan.hasKey("korean_ttf_map")) {
+		Common::Path mapPath(ConfMan.getPath("korean_ttf_map"));
+		if (!mapPath.empty()) {
+			if (Common::FSNode(mapPath).exists())
+				return true;
+
+			// Relative names are resolved against the game folder.
+			Common::FSNode rel(ConfMan.getPath("path").join(mapPath));
+			if (rel.exists())
+				return true;
+		}
+	}
 
 	Common::FSNode probe(ConfMan.getPath("path").appendComponent("korean_ttf.map"));
 	return probe.exists();
@@ -227,6 +238,53 @@ void ScummEngine::loadCJKFont() {
 	}
 }
 
+/**
+ * Build the name of the i-th bitmap font file from the pattern in the map.
+ *
+ * The pattern comes from a user supplied file, so it cannot be handed to
+ * snprintf() as a format string: a stray "%s" or "%n" in the map would be
+ * read as a conversion and make the call read arbitrary memory. Accept a
+ * single integer conversion, "%d" with an optional zero padded width, and
+ * treat every other percent sequence as a literal.
+ */
+static Common::String buildCJKFontName(const Common::String &pattern, int index) {
+	Common::String out;
+
+	for (uint i = 0; i < pattern.size(); ++i) {
+		if (pattern[i] != '%') {
+			out += pattern[i];
+			continue;
+		}
+
+		// Collect an optional zero padded width, e.g. "%02d".
+		uint j = i + 1;
+		int width = 0;
+		bool pad = false;
+
+		if (j < pattern.size() && pattern[j] == '0') {
+			pad = true;
+			++j;
+		}
+		while (j < pattern.size() && pattern[j] >= '0' && pattern[j] <= '9') {
+			width = width * 10 + (pattern[j] - '0');
+			++j;
+		}
+
+		if (j < pattern.size() && pattern[j] == 'd') {
+			Common::String num = Common::String::format("%d", index);
+			while (pad && num.size() < (uint)width)
+				num = Common::String("0") + num;
+			out += num;
+			i = j;
+		} else {
+			// Not a conversion we support: keep the percent verbatim.
+			out += '%';
+		}
+	}
+
+	return out;
+}
+
 void ScummEngine::loadKorFont() {
 	Common::File fp;
 
@@ -238,8 +296,8 @@ void ScummEngine::loadKorFont() {
 	// The map may point at another translation's fonts; the glyph count has
 	// to follow the code page, since it decides how large each file is.
 	int numChar = _cjkFontGlyphs > 0 ? _cjkFontGlyphs : 2350;
-	const char *const multiPattern = _cjkFontPattern.empty()
-		? "korean%02d.fnt" : _cjkFontPattern.c_str();
+	const Common::String multiPattern = _cjkFontPattern.empty()
+		? Common::String("korean%02d.fnt") : _cjkFontPattern;
 	_useCJKMode = true;
 
 	if (_game.version < 7 || _game.id == GID_FT)
@@ -252,8 +310,7 @@ void ScummEngine::loadKorFont() {
 		_2byteWidth = 0;
 		_2byteHeight = 0;
 		for (int i = 0; i < 20; i++) {
-			char fontFile[256];
-			snprintf(fontFile, sizeof(fontFile), multiPattern, i);
+			Common::Path fontFile(buildCJKFontName(multiPattern, i));
 			_2byteMultiFontPtr[i] = nullptr;
 			if (fp.open(fontFile)) {
 				_numLoadedFont++;
@@ -851,14 +908,21 @@ uint16 ScummEngine::ttfCharToUnicode(uint16 chr) const {
  * per-character colour changes still come out right - they just split the
  * line into several runs.
  */
-void ScummEngine::korTtfRunAppend(uint16 chr, Graphics::Surface &dest, int x, int y, byte color, byte shadowColor) {
+bool ScummEngine::korTtfRunAppend(uint16 chr, Graphics::Surface &dest, int x, int y, byte color, byte shadowColor) {
 #ifdef USE_FREETYPE2
 	if (!_korTtfFont)
-		return;
+		return false;
+
+	// A run is flushed later, from drawDirtyScreenParts(). Only the text
+	// surface is guaranteed to still be alive by then; callers that draw
+	// into a surface of their own are refused here and fall back to the
+	// immediate per-character path.
+	if (&dest != &_textSurface)
+		return false;
 
 	const uint16 unicode = ttfCharToUnicode(chr);
 	if (!unicode)
-		return;
+		return false;
 
 	// Continue the current run when this character picks up exactly where
 	// the last one left off, in the same colour and on the same line.
@@ -888,6 +952,9 @@ void ScummEngine::korTtfRunAppend(uint16 chr, Graphics::Surface &dest, int x, in
 	}
 
 	_korTtfRun += (Common::u32char_type_t)unicode;
+	return true;
+#else
+	return false;
 #endif
 }
 
@@ -935,7 +1002,10 @@ void ScummEngine::korTtfRunFlush() {
 				if (_korTtfRunShadow != _korTtfRunColor) {
 					const int sxp = px + shadowOff;
 					const int syp = py + shadowOff;
-					if (sxp >= 0 && syp >= 0 && sxp < dest.w && syp < dest.h) {
+					// The coverage channel is a separate surface: check it
+					// against its own bounds, not the destination's.
+					if (sxp >= 0 && syp >= 0 && sxp < dest.w && syp < dest.h
+							&& sxp < _korAlphaSurface.w && syp < _korAlphaSurface.h) {
 						byte *aDst = (byte *)_korAlphaSurface.getBasePtr(sxp, syp);
 						if (*aDst < ca) {
 							*(byte *)dest.getBasePtr(sxp, syp) = _korTtfRunShadow;
@@ -944,7 +1014,8 @@ void ScummEngine::korTtfRunFlush() {
 					}
 				}
 
-				if (px < 0 || py < 0 || px >= dest.w || py >= dest.h)
+				if (px < 0 || py < 0 || px >= dest.w || py >= dest.h
+						|| px >= _korAlphaSurface.w || py >= _korAlphaSurface.h)
 					continue;
 
 				*(byte *)dest.getBasePtr(px, py) = _korTtfRunColor;
@@ -985,10 +1056,6 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 	if (!_korTtfFont)
 		return false;
 
-	// chr == (low << 8) | high, undo that to get the original CP949 pair.
-	const uint8 hi = chr & 0xFF;
-	const uint8 lo = chr >> 8;
-
 	// Single byte characters are already their own code point; only the
 	// double byte ones need the CP949 -> Unicode conversion.
 	const uint16 unicode = ttfCharToUnicode(chr);
@@ -997,10 +1064,8 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 
 	// String mode: hand the character to the run collector and let the
 	// font lay the line out; korTtfRunFlush() does the actual drawing.
-	if (_korTtfStringMode) {
-		korTtfRunAppend(chr, dest, x, y, color, shadowColor);
+	if (_korTtfStringMode && korTtfRunAppend(chr, dest, x, y, color, shadowColor))
 		return true;
-	}
 
 	int tx = x;
 
@@ -1080,7 +1145,8 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 				if (shadowColor != color) {
 					const int sxp = dx + gx + shadowOff;
 					const int syp = dy + gy + shadowOff;
-					if (sxp >= 0 && syp >= 0 && sxp < dest.w && syp < dest.h) {
+					if (sxp >= 0 && syp >= 0 && sxp < dest.w && syp < dest.h
+							&& sxp < _korAlphaSurface.w && syp < _korAlphaSurface.h) {
 						byte *aDst = (byte *)_korAlphaSurface.getBasePtr(sxp, syp);
 						if (*aDst < a) {
 							*(byte *)dest.getBasePtr(sxp, syp) = shadowColor;
@@ -1091,7 +1157,8 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 
 				const int px = dx + gx;
 				const int py = dy + gy;
-				if (px < 0 || py < 0 || px >= dest.w || py >= dest.h)
+				if (px < 0 || py < 0 || px >= dest.w || py >= dest.h
+						|| px >= _korAlphaSurface.w || py >= _korAlphaSurface.h)
 					continue;
 
 				*(byte *)dest.getBasePtr(px, py) = color;
@@ -1211,7 +1278,12 @@ byte *ScummEngine::get2byteCharPtr(int idx) {
 			break;
 		}
 
-		if (idx < 0)
+		// The index is derived from bytes in the game's own data, so a
+		// character outside the code page's assigned range would reach
+		// past the loaded font. Bound it by the glyph count the map
+		// declared for this file.
+		const int numChar = _cjkFontGlyphs > 0 ? _cjkFontGlyphs : 2350;
+		if (idx < 0 || idx >= numChar)
 			return nullptr;
 
 		return _2byteFontPtr + ((_2byteWidth + 7) / 8) * _2byteHeight * idx;
