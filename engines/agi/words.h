@@ -70,6 +70,16 @@ private:
 	void  cleanUpInput(const char *userInput, Common::String &cleanInput);
 	int16 findWordInDictionary(const Common::String &userInputLowercase, uint16 userInputLen, uint16 userInputPos, uint16 &foundWordLen);
 
+	/**
+	 * Fuzzy fallback for input the exact dictionary lookup could not resolve.
+	 *
+	 * Splits the phrase into words and asks the semantic parser to rank word
+	 * groups for each, restricting the search to the groups the current room
+	 * tests with said() when that information is available. Returns true when
+	 * it produced a usable parse, in which case _egoWords has been filled in.
+	 */
+	bool parseUsingSemantics(const Common::String &userInput);
+
 	bool handleSpeedCommands(const Common::String &userInputLowercase);
 	static void convertRussianUserInput(Common::String &userInputLowercase);
 };

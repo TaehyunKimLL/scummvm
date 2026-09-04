@@ -53,6 +53,9 @@ static const char *const kEndings[] = {
 	"\xED\x95\x98\xEB\x8B\xA4",             // 하다
 	"\xED\x95\x9C\xEB\x8B\xA4",             // 한다
 	"\xEB\xB3\xB4\xEC\x9E\x90",             // 보자
+	"\xEC\x99\x80",                         // 와
+	"\xEC\x9B\x8C",                         // 워
+	"\xEB\xB4\x90",                         // 봐
 	"\xEC\x9E\x90",                         // 자
 	"\xEB\x8B\xA4",                         // 다
 	"\xEC\x96\xB4",                         // 어
@@ -351,6 +354,13 @@ void SemanticParser::rankToken(const Common::String &token, bool wantVerb,
 	Common::HashMap<uint16, float> best;
 	for (uint e = 0; e < _entries.size(); ++e) {
 		const Entry &ent = _entries[e];
+
+		// Group 0 is AGI's ignore list (articles, prepositions, particles).
+		// Its members are short and match almost anything as a prefix, so a
+		// nonsense word would otherwise resolve to it. It is never a useful
+		// parse result.
+		if (ent.gid == 0)
+			continue;
 
 		if (!allowed.empty()) {
 			bool found = false;

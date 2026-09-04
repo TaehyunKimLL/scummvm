@@ -42,6 +42,8 @@
 #include "agi/font.h"
 #include "agi/graphics.h"
 #include "agi/inv.h"
+#include "agi/saidscan.h"
+#include "agi/semantic.h"
 #include "agi/loader.h"
 #include "agi/sprite.h"
 #include "agi/text.h"
@@ -519,6 +521,18 @@ void AgiEngine::initialize() {
 
 	setDebugger(new Console(this));
 	_words = new Words(this);
+
+	// The semantic parser is optional: without agisem.dat the engine behaves
+	// exactly as before, matching only exact WORDS.TOK entries.
+	_semantic = new SemanticParser();
+	_roomWordsLogic = -1;
+	{
+		Common::Path semPath("agisem.dat");
+		if (ConfMan.hasKey("agi_semantic_data"))
+			semPath = Common::Path(ConfMan.get("agi_semantic_data"));
+		if (_semantic->load(semPath))
+			debug(1, "AGI: semantic parser enabled (%s)", semPath.toString().c_str());
+	}
 	_font = new GfxFont(this);
 	_gfx = new GfxMgr(this, _font);
 	_sound = new SoundMgr(this, _mixer);
@@ -610,6 +624,33 @@ AgiEngine::~AgiEngine() {
 	delete _gfx;
 	delete _font;
 	delete _words;
+	delete _semantic;
+}
+
+void AgiEngine::updateRoomWords(int16 logicNr) {
+	if (logicNr == _roomWordsLogic)
+		return;
+
+	_roomWordsLogic = logicNr;
+	_roomVerbs.clear();
+	_roomNouns.clear();
+
+	if (!_semantic || !_semantic->isLoaded())
+		return;
+	if (logicNr < 0 || logicNr >= MAX_DIRECTORY_ENTRIES)
+		return;
+
+	const AgiLogic &logic = _game.logics[logicNr];
+	if (!logic.data || logic.size <= 2)
+		return;
+
+	// logic.size covers the code section only; the first two bytes hold the
+	// offset of the message section and are not code.
+	SaidScanner::scan(logic.data + 2, logic.size - 2,
+	                  _opCodes, _opCodesCond, _roomVerbs, _roomNouns);
+
+	debugC(2, kDebugLevelScripts, "room words: logic %d -> %u verbs, %u nouns",
+	       logicNr, (uint)_roomVerbs.size(), (uint)_roomNouns.size());
 }
 
 Common::Error AgiBase::init() {
@@ -621,6 +662,54 @@ Common::Error AgiBase::init() {
 }
 
 Common::Error AgiEngine::go() {
+	// Developer aid: run a list of phrases through the parser at startup and
+	// print what each resolved to, then quit. Lets the semantic fallback be
+	// verified against the real engine without driving the GUI.
+	//   agi_parse_test=문 열어|살펴봐|open door
+	if (ConfMan.hasKey("agi_parse_test")) {
+		Common::String spec = ConfMan.get("agi_parse_test");
+		Common::String phrase;
+		warning("=== parse test: semantic parser %s ===",
+		        (_semantic && _semantic->isLoaded()) ? "loaded" : "NOT loaded");
+		for (uint i = 0; i <= spec.size(); ++i) {
+			if (i < spec.size() && spec[i] != '|') {
+				phrase += spec[i];
+				continue;
+			}
+			if (!phrase.empty()) {
+				updateRoomWords(getVar(VM_VAR_CURRENT_ROOM));
+				_words->parseUsingDictionary(phrase.c_str());
+				const uint16 n = _words->getEgoWordCount();
+				Common::String line = Common::String::format(
+				    "PARSE \"%s\" room=%d verbs=%u nouns=%u ->",
+				    phrase.c_str(), getVar(VM_VAR_CURRENT_ROOM),
+				    (uint)_roomVerbs.size(), (uint)_roomNouns.size());
+				if (!n) {
+					line += " (no match)";
+				} else {
+					for (uint16 k = 0; k < n; ++k) {
+						const uint16 id = _words->getEgoWordId(k);
+						if (!id) {
+							line += Common::String::format(" [%s=UNKNOWN]",
+							        _words->getEgoWord(k));
+							continue;
+						}
+						Common::String name;
+						if (_semantic && _semantic->isLoaded())
+							name = _semantic->groupName(id);
+						line += Common::String::format(" [%s=%u%s%s]",
+						        _words->getEgoWord(k), id,
+						        name.empty() ? "" : ":", name.c_str());
+					}
+				}
+				warning("%s", line.c_str());
+			}
+			phrase.clear();
+		}
+		warning("=== parse test done ===");
+		return Common::kNoError;
+	}
+
 	if (_game.mouseEnabled) {
 		CursorMan.showMouse(true);
 	}

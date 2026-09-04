@@ -551,6 +551,7 @@ class TextMgr;
 class GfxMenu;
 class SystemUI;
 class Words;
+class SemanticParser;
 struct AGIGameDescription;
 
 // Image stack support
@@ -590,6 +591,12 @@ protected:
 
 public:
 	Words *_words;
+
+	/**
+	 * Optional semantic parser, enabled when agisem.dat is present. It lets
+	 * the player type Korean, or reword a command, and still be understood.
+	 */
+	SemanticParser *_semantic;
 
 	GfxFont *_font;
 	GfxMgr  *_gfx;
@@ -727,6 +734,18 @@ private:
 
 public:
 	Common::Array<AgiObject> _objects;    // objects in the game
+
+	/**
+	 * Word groups the current room tests with said(), used to narrow the
+	 * semantic search. Rebuilt when the room changes; empty means "unknown",
+	 * in which case the whole dictionary is searched.
+	 */
+	Common::Array<uint16> _roomVerbs;
+	Common::Array<uint16> _roomNouns;
+	int16 _roomWordsLogic;
+
+	/** Recompute _roomVerbs/_roomNouns for the given logic. */
+	void updateRoomWords(int16 logicNr);
 
 	SavedGameSlotIdArray getSavegameSlotIds();
 	bool getSavegameInformation(int16 slotId, Common::String &saveDescription, uint32 &saveDate, uint32 &saveTime, bool &saveIsValid);

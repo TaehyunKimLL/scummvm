@@ -23,6 +23,8 @@
 #include "agi/opcodes.h"
 #include "agi/graphics.h"
 #include "agi/loader.h"
+#include "agi/semantic.h"
+#include "agi/words.h"
 
 #include "agi/preagi/preagi.h"
 #include "agi/preagi/mickey.h"
@@ -43,6 +45,7 @@ Console::Console(AgiEngine *vm) : GUI::Debugger() {
 	registerCmd("logic0",          WRAP_METHOD(Console, Cmd_Logic0));
 	registerCmd("objs",            WRAP_METHOD(Console, Cmd_Objs));
 	registerCmd("runopcode",       WRAP_METHOD(Console, Cmd_RunOpcode));
+	registerCmd("parse",           WRAP_METHOD(Console, Cmd_Parse));
 	registerCmd("opcode",          WRAP_METHOD(Console, Cmd_Opcode));
 	registerCmd("step",            WRAP_METHOD(Console, Cmd_Step));
 	registerCmd("trigger",         WRAP_METHOD(Console, Cmd_Trigger));
@@ -316,6 +319,52 @@ bool Console::Cmd_Opcode(int argc, const char **argv) {
 	}
 
 	_vm->_debug.opcodes = !strcmp(argv[1], "on");
+
+	return true;
+}
+
+bool Console::Cmd_Parse(int argc, const char **argv) {
+	if (argc < 2) {
+		debugPrintf("Usage: %s <phrase>\n", argv[0]);
+		debugPrintf("Runs the phrase through the parser and shows the result.\n");
+		return true;
+	}
+
+	// Rejoin the arguments; the debugger splits on spaces.
+	Common::String phrase;
+	for (int i = 1; i < argc; ++i) {
+		if (i > 1)
+			phrase += ' ';
+		phrase += argv[i];
+	}
+
+	AgiEngine *vm = (AgiEngine *)_vm;
+	SemanticParser *sem = vm->_semantic;
+	debugPrintf("input: \"%s\"\n", phrase.c_str());
+	debugPrintf("semantic parser: %s\n",
+	            (sem && sem->isLoaded()) ? "loaded" : "NOT loaded");
+
+	vm->updateRoomWords(vm->getVar(VM_VAR_CURRENT_ROOM));
+	debugPrintf("room %d: %u said() verbs, %u nouns\n",
+	            vm->getVar(VM_VAR_CURRENT_ROOM),
+	            (uint)vm->_roomVerbs.size(), (uint)vm->_roomNouns.size());
+
+	vm->_words->parseUsingDictionary(phrase.c_str());
+
+	const uint16 count = vm->_words->getEgoWordCount();
+	debugPrintf("parsed %u word(s)\n", count);
+	for (uint16 i = 0; i < count; ++i) {
+		const uint16 id = vm->_words->getEgoWordId(i);
+		Common::String name;
+		if (sem && sem->isLoaded())
+			name = sem->groupName(id);
+		debugPrintf("  [%u] \"%s\" -> id %u%s%s\n", i,
+		            vm->_words->getEgoWord(i), id,
+		            name.empty() ? "" : " = ", name.c_str());
+	}
+	if (!count)
+		debugPrintf("  (no match; VM_VAR_WORD_NOT_FOUND = %d)\n",
+		            vm->getVar(VM_VAR_WORD_NOT_FOUND));
 
 	return true;
 }

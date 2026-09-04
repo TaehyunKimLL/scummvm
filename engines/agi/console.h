@@ -54,6 +54,7 @@ private:
 	bool Cmd_Vars(int argc, const char **argv);
 	bool Cmd_Objs(int argc, const char **argv);
 	bool Cmd_Opcode(int argc, const char **argv);
+	bool Cmd_Parse(int argc, const char **argv);
 	bool Cmd_Logic0(int argc, const char **argv);
 	bool Cmd_Trigger(int argc, const char **argv);
 	bool Cmd_Step(int argc, const char **argv);

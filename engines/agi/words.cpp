@@ -20,6 +20,7 @@
  */
 
 #include "agi/agi.h"
+#include "agi/semantic.h"
 #include "agi/words.h"
 
 #include "common/textconsole.h"
@@ -348,6 +349,7 @@ void Words::parseUsingDictionary(const char *rawUserInput) {
 	uint16 userInputPos = 0;
 	uint16 userInputLen = userInput.size();
 	const char *userInputPtr = userInput.c_str();
+	bool sawUnknownWord = false;
 	while (userInputPos < userInputLen) {
 		// Skip trailing space
 		if (userInput[userInputPos] == ' ')
@@ -363,6 +365,10 @@ void Words::parseUsingDictionary(const char *rawUserInput) {
 			if (foundWordId != DICTIONARY_RESULT_UNKNOWN) {
 				// known word
 				_egoWords[wordCount].id = foundWordId;
+			} else {
+				// Unknown word. Clear the id so a stale value from a previous
+				// parse cannot be mistaken for a match.
+				_egoWords[wordCount].id = 0;
 			}
 
 			_egoWords[wordCount].word = Common::String(userInputPtr + foundWordPos, foundWordLen);
@@ -372,11 +378,20 @@ void Words::parseUsingDictionary(const char *rawUserInput) {
 			if (foundWordId == DICTIONARY_RESULT_UNKNOWN) {
 				// unknown word
 				_vm->setVar(VM_VAR_WORD_NOT_FOUND, wordCount);
+				sawUnknownWord = true;
 				break; // and exit now
 			}
 		}
 
 		userInputPos += foundWordLen;
+	}
+
+	// The exact dictionary lookup could not place every word. Before giving
+	// up, let the semantic parser try: it understands Korean and rewordings
+	// that WORDS.TOK has no entry for. An exact parse is never overridden.
+	if (sawUnknownWord && parseUsingSemantics(userInput)) {
+		_vm->setVar(VM_VAR_WORD_NOT_FOUND, 0);
+		return;
 	}
 
 	_egoWordCount = wordCount;
@@ -388,6 +403,126 @@ void Words::parseUsingDictionary(const char *rawUserInput) {
 		_vm->setFlag(VM_FLAG_ENTERED_CLI, false);
 	}
 	_vm->setFlag(VM_FLAG_SAID_ACCEPTED_INPUT, false);
+}
+
+bool Words::parseUsingSemantics(const Common::String &userInput) {
+	SemanticParser *sem = _vm->_semantic;
+	if (!sem || !sem->isLoaded() || userInput.empty())
+		return false;
+
+	// The room's said() list is what narrows the candidates. Refresh it here,
+	// where the current room's logic is guaranteed to be loaded.
+	_vm->updateRoomWords(_vm->getVar(VM_VAR_CURRENT_ROOM));
+
+	// Split on spaces.
+	Common::Array<Common::String> tokens;
+	Common::String cur;
+	for (uint i = 0; i < userInput.size(); ++i) {
+		if (userInput[i] == ' ') {
+			if (!cur.empty()) {
+				tokens.push_back(cur);
+				cur.clear();
+			}
+		} else {
+			cur += userInput[i];
+		}
+	}
+	if (!cur.empty())
+		tokens.push_back(cur);
+	if (tokens.empty())
+		return false;
+
+	// Korean puts the verb last ("문 열어" = door open) while English puts it
+	// first ("open door"). Rather than assuming an order, score every token
+	// both ways and let the best verb score decide which one is the verb.
+	const float kMinScore = 0.55f;
+
+	struct TokenScore {
+		uint16 verbGid;
+		float verbScore;
+		uint16 nounGid;
+		float nounScore;
+	};
+	Common::Array<TokenScore> scores;
+	scores.resize(tokens.size());
+
+	for (uint i = 0; i < tokens.size(); ++i) {
+		TokenScore &ts = scores[i];
+		ts.verbGid = ts.nounGid = 0;
+		ts.verbScore = ts.nounScore = -1.0f;
+
+		for (int pass = 0; pass < 2; ++pass) {
+			const bool wantVerb = (pass == 0);
+			const Common::Array<uint16> &allowed = wantVerb ? _vm->_roomVerbs
+			                                                : _vm->_roomNouns;
+			Common::Array<SemanticParser::Match> matches;
+			sem->rankToken(tokens[i], wantVerb, allowed, matches, 1);
+
+			// A room list can be empty or simply miss the word; fall back to
+			// the whole dictionary before giving up.
+			if ((matches.empty() || matches[0].score < kMinScore) && !allowed.empty()) {
+				Common::Array<uint16> none;
+				sem->rankToken(tokens[i], wantVerb, none, matches, 1);
+			}
+			if (matches.empty())
+				continue;
+
+			if (wantVerb) {
+				ts.verbGid = matches[0].gid;
+				ts.verbScore = matches[0].score;
+			} else {
+				ts.nounGid = matches[0].gid;
+				ts.nounScore = matches[0].score;
+			}
+		}
+	}
+
+	// The token with the strongest verb reading becomes the verb - but only if
+	// it really reads as a verb. "열쇠" (key) scores 0.80 as a verb and 1.45 as
+	// a noun; without this check a lone noun would be forced into the verb
+	// slot and the actual verb would be lost.
+	int verbIndex = -1;
+	float bestVerb = kMinScore;
+	for (uint i = 0; i < scores.size(); ++i) {
+		if (scores[i].verbScore <= bestVerb)
+			continue;
+		if (scores[i].nounScore > scores[i].verbScore)
+			continue;   // reads better as a noun, leave it alone
+		bestVerb = scores[i].verbScore;
+		verbIndex = (int)i;
+	}
+
+	uint16 wordCount = 0;
+	if (verbIndex >= 0) {
+		_egoWords[wordCount].id = scores[verbIndex].verbGid;
+		_egoWords[wordCount].word = tokens[verbIndex];
+		debugC(2, kDebugLevelScripts, "semantic verb: \"%s\" -> %s (id %d, %.3f)",
+		       tokens[verbIndex].c_str(),
+		       sem->groupName(scores[verbIndex].verbGid).c_str(),
+		       scores[verbIndex].verbGid, scores[verbIndex].verbScore);
+		wordCount++;
+	}
+
+	for (uint i = 0; i < tokens.size() && wordCount < MAX_WORDS; ++i) {
+		if ((int)i == verbIndex)
+			continue;
+		if (scores[i].nounScore < kMinScore)
+			continue;
+		_egoWords[wordCount].id = scores[i].nounGid;
+		_egoWords[wordCount].word = tokens[i];
+		debugC(2, kDebugLevelScripts, "semantic noun: \"%s\" -> %s (id %d, %.3f)",
+		       tokens[i].c_str(), sem->groupName(scores[i].nounGid).c_str(),
+		       scores[i].nounGid, scores[i].nounScore);
+		wordCount++;
+	}
+
+	if (!wordCount)
+		return false;
+
+	_egoWordCount = wordCount;
+	_vm->setFlag(VM_FLAG_ENTERED_CLI, true);
+	_vm->setFlag(VM_FLAG_SAID_ACCEPTED_INPUT, false);
+	return true;
 }
 
 uint16 Words::getEgoWordCount() const {
