@@ -303,6 +303,13 @@ int getKoreanTtfRoleFromName(const Common::String &name) {
 
 void ScummEngine::loadKorTtfFont() {
 #ifdef USE_FREETYPE2
+	// v0-v2 lay their text out on a fixed 8 pixel cell and the scripts count
+	// on it, so a proportional face cannot be fitted into it without the
+	// glyphs colliding. Those games keep the bitmap font, which the hi-res
+	// mode still scales up by 2x or 3x.
+	if (_game.version <= 2)
+		return;
+
 	_korTtfHeightRoles.clear();
 
 	Common::Path mapPath;
@@ -1809,9 +1816,11 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 			(_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier, drawTop, static_cast<uint16>(chr)))
 		drawBits1(_vm->_textSurface, _left * _vm->_textSurfaceMultiplier, _top * _vm->_textSurfaceMultiplier, charPtr, drawTop, origWidth, origHeight);
 
-	// getKorTtfCharWidth() already returns game pixels, so the double byte
-	// down-scaling below would apply it twice.
-	if (is2byte && !_vm->_korTtfMetrics) {
+	// The double byte advance is expressed in the scaled coordinates the
+	// original CJK modes set up, so it gets divided back down here. Korean
+	// hi-res mode drives the multiplier itself and keeps _2byteWidth in game
+	// pixels, so dividing would shrink the advance to a fraction of the cell.
+	if (is2byte && !_vm->isKoreanHiRes()) {
 		origWidth /= _vm->_textSurfaceMultiplier;
 		height /= _vm->_textSurfaceMultiplier;
 	}
