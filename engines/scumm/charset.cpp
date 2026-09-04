@@ -430,6 +430,11 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 	if (map.getKey("metrics", "latin", value))
 		_korTtfMetrics = value.equalsIgnoreCase("ttf");
 
+	// [render] mode=string draws whole runs at once instead of one glyph
+	// at a time, letting the font place the characters within a line.
+	if (map.getKey("mode", "render", value))
+		_korTtfStringMode = value.equalsIgnoreCase("string");
+
 	const Common::INIFile::SectionKeyList keys = map.getKeys("map");
 	for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
 		if (it->key.hasPrefix("height_")) {
@@ -578,6 +583,135 @@ void ScummEngine::selectKorTtfFont(int lineBox) {
  * Returns false when the character cannot be rendered, in which case the
  * caller should fall back to the bitmap glyph.
  */
+/**
+ * Collect characters into a run and draw them with one TTF call.
+ *
+ * Drawing a glyph at a time forces every character onto the game's own
+ * grid: the advance is rounded to a game pixel, punctuation ends up on a
+ * baseline of its own, and the dirty rectangle has to be widened by hand.
+ * Handing whole runs to the font instead lets it place the glyphs, which
+ * is what the metrics were designed for.
+ *
+ * A run ends when the caller moves somewhere else or changes colour, so
+ * per-character colour changes still come out right - they just split the
+ * line into several runs.
+ */
+void ScummEngine::korTtfRunAppend(uint16 chr, Graphics::Surface &dest, int x, int y, byte color, byte shadowColor) {
+#ifdef USE_FREETYPE2
+	if (!_korTtfFont)
+		return;
+
+	const uint16 unicode = (chr < 256) ? chr : Common::convertUHCToUCS(chr & 0xFF, chr >> 8);
+	if (!unicode)
+		return;
+
+	// Continue the current run when this character picks up exactly where
+	// the last one left off, in the same colour and on the same line.
+	// The caller's x is where the game would have put the character on its
+	// own grid; inside a run the font decides the spacing instead, so only
+	// the accumulated drift matters. Allow a cell of it before breaking:
+	// rounding the advance to game pixels leaves a pixel or two per glyph.
+	const int expectedX = _korTtfRunX + _korTtfFont->getStringWidth(_korTtfRun);
+	const int drift = ABS(expectedX - x);
+	const int tolerance = _2byteWidth * _koreanHiResScale;
+
+	const bool contiguous = _korTtfRunActive
+			&& _korTtfRunDest == &dest
+			&& _korTtfRunY == y
+			&& _korTtfRunColor == color
+			&& _korTtfRunShadow == shadowColor
+			&& drift <= tolerance;
+
+	if (!contiguous) {
+		korTtfRunFlush();
+		_korTtfRunDest = &dest;
+		_korTtfRunX = x;
+		_korTtfRunY = y;
+		_korTtfRunColor = color;
+		_korTtfRunShadow = shadowColor;
+		_korTtfRunActive = true;
+	}
+
+	_korTtfRun += (Common::u32char_type_t)unicode;
+#endif
+}
+
+void ScummEngine::korTtfRunFlush() {
+#ifdef USE_FREETYPE2
+	if (!_korTtfRunActive || _korTtfRun.empty() || !_korTtfFont || !_korTtfRunDest) {
+		_korTtfRun.clear();
+		_korTtfRunActive = false;
+		return;
+	}
+
+	Graphics::Surface &dest = *_korTtfRunDest;
+	const int ty = _korTtfRunY + _korTtfYOffset;
+
+	if (_koreanAlphaText && _korAlphaSurface.getPixels()) {
+		// Rasterise the whole run into a scratch surface, then transfer the
+		// colour to the text surface and the coverage to its companion.
+		const int rw = _korTtfFont->getStringWidth(_korTtfRun) + _korTtfFont->getFontHeight();
+		const int rh = _korTtfFont->getFontHeight() * 2;
+
+		const Graphics::PixelFormat covFmt(4, 8, 8, 8, 8, 24, 16, 8, 0);
+		Graphics::Surface cov;
+		cov.create(rw, rh, covFmt);
+		cov.fillRect(Common::Rect(0, 0, rw, rh), 0);
+
+		// Draw a quarter of the way down so ascenders have room too.
+		const int padY = _korTtfFont->getFontHeight() / 4;
+		_korTtfFont->drawString(&cov, _korTtfRun, 0, padY, rw,
+								covFmt.ARGBToColor(0xFF, 0xFF, 0xFF, 0xFF));
+
+		const int shadowOff = _koreanHiResScale;
+
+		for (int gy = 0; gy < rh; ++gy) {
+			const uint32 *covRow = (const uint32 *)cov.getBasePtr(0, gy);
+
+			for (int gx = 0; gx < rw; ++gx) {
+				uint8 ca, cr, cg, cb;
+				covFmt.colorToARGB(covRow[gx], ca, cr, cg, cb);
+				if (!ca)
+					continue;
+
+				const int px = _korTtfRunX + gx;
+				const int py = ty + gy - padY;
+
+				if (_korTtfRunShadow != _korTtfRunColor) {
+					const int sxp = px + shadowOff;
+					const int syp = py + shadowOff;
+					if (sxp >= 0 && syp >= 0 && sxp < dest.w && syp < dest.h) {
+						byte *aDst = (byte *)_korAlphaSurface.getBasePtr(sxp, syp);
+						if (*aDst < ca) {
+							*(byte *)dest.getBasePtr(sxp, syp) = _korTtfRunShadow;
+							*aDst = ca;
+						}
+					}
+				}
+
+				if (px < 0 || py < 0 || px >= dest.w || py >= dest.h)
+					continue;
+
+				*(byte *)dest.getBasePtr(px, py) = _korTtfRunColor;
+				*(byte *)_korAlphaSurface.getBasePtr(px, py) = ca;
+			}
+		}
+
+		cov.free();
+	} else {
+		if (_korTtfRunShadow != _korTtfRunColor) {
+			_korTtfFont->drawString(&dest, _korTtfRun, _korTtfRunX + 2, ty + 2, dest.w, _korTtfRunShadow);
+			_korTtfFont->drawString(&dest, _korTtfRun, _korTtfRunX + 2, ty, dest.w, _korTtfRunShadow);
+			_korTtfFont->drawString(&dest, _korTtfRun, _korTtfRunX, ty + 2, dest.w, _korTtfRunShadow);
+		}
+		_korTtfFont->drawString(&dest, _korTtfRun, _korTtfRunX, ty, dest.w, _korTtfRunColor);
+	}
+
+	_korTtfRun.clear();
+	_korTtfRunActive = false;
+#endif
+}
+
 bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int y, byte color, byte shadowColor) {
 #ifdef USE_FREETYPE2
 	if (!_korTtfEnabled)
@@ -605,6 +739,13 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 	const uint16 unicode = (chr < 256) ? chr : Common::convertUHCToUCS(hi, lo);
 	if (!unicode)
 		return false;
+
+	// String mode: hand the character to the run collector and let the
+	// font lay the line out; korTtfRunFlush() does the actual drawing.
+	if (_korTtfStringMode) {
+		korTtfRunAppend(chr, dest, x, y, color, shadowColor);
+		return true;
+	}
 
 	int tx = x;
 
@@ -1659,7 +1800,7 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 #endif
 	else if (!drawHiResKorChar(_vm->_textSurface,
 			_left * _vm->_textSurfaceMultiplier,
-			_top * _vm->_textSurfaceMultiplier, drawTop, static_cast<uint16>(chr)))
+			(_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier, drawTop, static_cast<uint16>(chr)))
 		drawBits1(_vm->_textSurface, _left * _vm->_textSurfaceMultiplier, _top * _vm->_textSurfaceMultiplier, charPtr, drawTop, origWidth, origHeight);
 
 	// getKorTtfCharWidth() already returns game pixels, so the double byte
@@ -2009,7 +2150,20 @@ void CharsetRendererClassic::printCharIntern(bool is2byte, const byte *charPtr, 
 			if (_vm->isKoreanHiRes()) {
 				const int m = _vm->_textSurfaceMultiplier;
 				const int tx = (_left + vs->xstart) * m;
-				const int ty = (_top - _vm->_screenTop) * m;
+				int top = _top;
+
+				// The game positions single byte characters against the
+				// ascii font and double byte ones against the CJK font,
+				// which lined up while each had its own bitmaps. A single
+				// TrueType face draws both, so pin the single byte
+				// characters to the same line the Hangul uses - otherwise
+				// the punctuation sits on a baseline of its own.
+				if (_vm->_korTtfLatin && _vm->_korTtfFont && !is2byte)
+					top = _korTtfLineTop;
+				else
+					_korTtfLineTop = _top;
+
+				const int ty = (top - _vm->_screenTop) * m;
 
 				if (drawHiResKorChar(_vm->_textSurface, tx, ty, drawTop, _curKorChar))
 					goto charDrawn;

@@ -533,6 +533,10 @@ void ScummEngine::markRectAsDirty(VirtScreenNumber virt, int left, int right, in
  * code in the backend is controlled from here.
  */
 void ScummEngine::drawDirtyScreenParts() {
+	// Any text still being collected has to reach the text surface before
+	// the dirty rectangles are composited.
+	korTtfRunFlush();
+
 	// Update verbs
 	updateDirtyScreen(kVerbVirtScreen);
 
@@ -1478,6 +1482,10 @@ void ScummEngine::clearCharsetMask() {
 }
 
 void ScummEngine::clearTextSurface() {
+	// Drop any half-collected run: its destination is about to be wiped.
+	_korTtfRun.clear();
+	_korTtfRunActive = false;
+
 	towns_fillTopLayerRect(0, 0, _textSurface.w, _textSurface.h, 0);
 	fill((byte *)_textSurface.getPixels(), _textSurface.pitch,
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE

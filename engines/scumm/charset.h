@@ -104,6 +104,9 @@ public:
 	// TrueType path (the bitmap code only passes raw bitmaps around).
 	uint16 _curKorChar = 0;
 
+	// Baseline shared by both character widths when one TTF draws them.
+	int _korTtfLineTop = 0;
+
 	/**
 	 * Optional override for engines which draw CJK glyphs with their own
 	 * renderer (e.g. Korean TrueType hi-res text) rather than from a bitmap.

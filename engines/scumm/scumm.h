@@ -1793,6 +1793,7 @@ public:
 	Common::Path _korTtfLatinPath;
 	bool _korTtfLatin = false;
 	bool _korTtfMetrics = false;
+	bool _korTtfStringMode = false;
 	// Sub-pixel pen for TTF metrics: _left advances in game pixels, which
 	// loses up to (scale - 1) pixels per glyph. Track the exact scaled
 	// position alongside it so the glyphs stay evenly spaced.
@@ -1805,6 +1806,20 @@ public:
 	void loadKorTtfMap(const Common::Path &mapPath);
 	void selectKorTtfFont(int lineBox);
 	int getKorTtfCharWidth(uint16 chr);
+
+	// String level TTF output: characters are collected into a run and
+	// rendered together, so the font controls the spacing within a line
+	// instead of each glyph being fitted into the game's own cell.
+	void korTtfRunAppend(uint16 chr, Graphics::Surface &dest, int x, int y, byte color, byte shadowColor);
+	void korTtfRunFlush();
+
+	Common::U32String _korTtfRun;
+	Graphics::Surface *_korTtfRunDest = nullptr;
+	int _korTtfRunX = 0;
+	int _korTtfRunY = 0;
+	byte _korTtfRunColor = 0;
+	byte _korTtfRunShadow = 0;
+	bool _korTtfRunActive = false;
 	bool drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int y, byte color, byte shadowColor);
 
 	int _2byteHeight = 0;
