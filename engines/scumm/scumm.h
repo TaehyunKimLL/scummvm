@@ -66,6 +66,7 @@ namespace Common {
 class SeekableReadStream;
 class WriteStream;
 class SeekableWriteStream;
+class INIFile;
 }
 namespace Graphics {
 class FontSJIS;
@@ -1804,6 +1805,8 @@ public:
 	Common::HashMap<int, int> _korTtfRoleSupersample;
 	void loadKorTtfFont();
 	void loadKorTtfMap(const Common::Path &mapPath);
+	bool getKorTtfMapKey(const Common::INIFile &map, const Common::String &key,
+						 const Common::String &section, Common::String &value) const;
 	void selectKorTtfFont(int lineBox);
 	int getKorTtfCharWidth(uint16 chr);
 

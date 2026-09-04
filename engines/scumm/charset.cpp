@@ -299,18 +299,46 @@ int getKoreanTtfRoleFromName(const Common::String &name) {
 	return kKorTtfDefaultRole;
 }
 
+// Resolve a path read out of the config or the map file. Relative paths are
+// taken to be relative to baseDir - the game folder for the map itself, the
+// map's own folder for the fonts it names - so a translation can ship its
+// fonts alongside the game and stay movable. Absolute paths are used as is.
+static Common::Path resolveKorTtfPath(const Common::String &value, const Common::Path &baseDir) {
+	if (value.empty())
+		return Common::Path();
+
+	const char first = value[0];
+	const bool absolute = (first == '/' || first == '\\') ||
+						  (value.size() > 2 && value[1] == ':');
+	if (absolute)
+		return Common::Path(value);
+
+	return baseDir.join(Common::Path(value));
+}
+
 } // End of anonymous namespace
 
 void ScummEngine::loadKorTtfFont() {
 #ifdef USE_FREETYPE2
 	_korTtfHeightRoles.clear();
 
+	// The map may be given as an absolute path, or relative to the game
+	// folder so that a translation can ship its own fonts and stay movable.
+	// With no key at all we still look for a conventionally named file in
+	// the game folder, which makes the feature work without any config.
 	Common::Path mapPath;
 	if (ConfMan.hasKey("korean_ttf_map"))
-		mapPath = Common::Path(ConfMan.getPath("korean_ttf_map"));
+		mapPath = resolveKorTtfPath(ConfMan.get("korean_ttf_map"), ConfMan.getPath("path"));
+	else
+		mapPath = ConfMan.getPath("path").appendComponent("korean_ttf.map");
 
-	if (!mapPath.empty())
-		loadKorTtfMap(mapPath);
+	if (!mapPath.empty()) {
+		Common::FSNode probe(mapPath);
+		if (probe.exists())
+			loadKorTtfMap(mapPath);
+		else if (ConfMan.hasKey("korean_ttf_map"))
+			warning("SCUMM::Font: Korean TTF map not found: '%s'", mapPath.toString().c_str());
+	}
 
 	// Backward-compatible fallback: if no map file supplied a default font,
 	// keep accepting the earlier per-role config keys.
@@ -360,6 +388,26 @@ void ScummEngine::loadKorTtfFont() {
 #endif
 }
 
+// Look a key up in a section, letting a more specific section override the
+// generic one. Sections are tried from the most specific to the least:
+//
+//   [fonts:maniac]   this game only        (game id)
+//   [fonts:v2]       this SCUMM version    (engine version)
+//   [fonts]          everything
+//
+// so one map file can carry the settings for several games and versions
+// without them stepping on each other.
+bool ScummEngine::getKorTtfMapKey(const Common::INIFile &map, const Common::String &key,
+								  const Common::String &section, Common::String &value) const {
+	if (map.getKey(key, Common::String::format("%s:%s", section.c_str(), _game.gameid), value))
+		return true;
+
+	if (map.getKey(key, Common::String::format("%s:v%d", section.c_str(), _game.version), value))
+		return true;
+
+	return map.getKey(key, section, value);
+}
+
 void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 #ifdef USE_FREETYPE2
 	Common::FSNode mapNode(mapPath);
@@ -379,12 +427,12 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 	delete stream;
 
 	Common::String value;
-	if (map.getKey("default", "fonts", value))
-		_korTtfPath = Common::Path(value);
-	if (map.getKey("bold", "fonts", value))
-		_korTtfBoldPath = Common::Path(value);
-	if (map.getKey("title", "fonts", value))
-		_korTtfTitlePath = Common::Path(value);
+	if (getKorTtfMapKey(map, "default", "fonts", value))
+		_korTtfPath = resolveKorTtfPath(value, mapPath.getParent());
+	if (getKorTtfMapKey(map, "bold", "fonts", value))
+		_korTtfBoldPath = resolveKorTtfPath(value, mapPath.getParent());
+	if (getKorTtfMapKey(map, "title", "fonts", value))
+		_korTtfTitlePath = resolveKorTtfPath(value, mapPath.getParent());
 
 	// Optional [sizes] section: pin a role to an exact pixel size instead of
 	// letting the auto-fit pick one. Pixel fonts only render cleanly at
@@ -403,7 +451,7 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 	// so the same map looks the same at 2x and 3x.
 	static const char *const roleNames[] = { "default", "bold", "title" };
 	for (int r = 0; r < ARRAYSIZE(roleNames); ++r) {
-		if (!map.getKey(roleNames[r], "sizes", value))
+		if (!getKorTtfMapKey(map, roleNames[r], "sizes", value))
 			continue;
 
 		const char *sep = strchr(value.c_str(), 'x');
@@ -429,24 +477,35 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 	//
 	// The advance width still comes from the game's own font, so the text
 	// keeps its original layout and line breaks.
-	if (map.getKey("enabled", "latin", value))
+	if (getKorTtfMapKey(map, "enabled", "latin", value))
 		_korTtfLatin = (value.equalsIgnoreCase("true") || atoi(value.c_str()) != 0);
-	if (map.getKey("font", "latin", value))
-		_korTtfLatinPath = Common::Path(value);
-	if (map.getKey("metrics", "latin", value))
+	if (getKorTtfMapKey(map, "font", "latin", value))
+		_korTtfLatinPath = resolveKorTtfPath(value, mapPath.getParent());
+	if (getKorTtfMapKey(map, "metrics", "latin", value))
 		_korTtfMetrics = value.equalsIgnoreCase("ttf");
 
 	// [render] mode=string draws whole runs at once instead of one glyph
 	// at a time, letting the font place the characters within a line.
-	if (map.getKey("mode", "render", value))
+	if (getKorTtfMapKey(map, "mode", "render", value))
 		_korTtfStringMode = value.equalsIgnoreCase("string");
 
-	const Common::INIFile::SectionKeyList keys = map.getKeys("map");
-	for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
-		if (it->key.hasPrefix("height_")) {
-			const int height = atoi(it->key.c_str() + 7);
-			if (height > 0)
-				_korTtfHeightRoles[height] = getKoreanTtfRoleFromName(it->value);
+	// The height map is merged rather than overridden: the generic section
+	// provides the defaults and the specific ones refine individual heights.
+	const Common::String mapVer = Common::String::format("map:v%d", _game.version);
+	const Common::String mapGame = Common::String::format("map:%s", _game.gameid);
+	const char *const sections[] = { "map", mapVer.c_str(), mapGame.c_str() };
+
+	for (int s = 0; s < ARRAYSIZE(sections); ++s) {
+		if (!map.hasSection(sections[s]))
+			continue;
+
+		const Common::INIFile::SectionKeyList keys = map.getKeys(sections[s]);
+		for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
+			if (it->key.hasPrefix("height_")) {
+				const int height = atoi(it->key.c_str() + 7);
+				if (height > 0)
+					_korTtfHeightRoles[height] = getKoreanTtfRoleFromName(it->value);
+			}
 		}
 	}
 #endif
