@@ -105,8 +105,10 @@ void ScummEngine::loadCJKFont() {
 	if (_game.id == GID_REBEL1 && _game.platform == Common::kPlatformSegaCD)
 		return;
 
-	// Special case for Korean
-	if (isScummvmKorTarget()) {
+	// The fan translation path: Korean always, and any other CJK language
+	// that ships a font map. Loads the .fnt bitmaps and, when configured,
+	// the TrueType replacement on top.
+	if (isHiResTextTarget()) {
 		loadKorFont();
 
 		return;
@@ -227,21 +229,31 @@ void ScummEngine::loadCJKFont() {
 
 void ScummEngine::loadKorFont() {
 	Common::File fp;
-	int numChar = 2350;
+
+	// Read the map first: it can name the bitmap fonts and the glyph count,
+	// both of which this function needs. It is idempotent, so the call later
+	// on for the hi-res settings is harmless.
+	loadKorTtfConfig();
+
+	// The map may point at another translation's fonts; the glyph count has
+	// to follow the code page, since it decides how large each file is.
+	int numChar = _cjkFontGlyphs > 0 ? _cjkFontGlyphs : 2350;
+	const char *const multiPattern = _cjkFontPattern.empty()
+		? "korean%02d.fnt" : _cjkFontPattern.c_str();
 	_useCJKMode = true;
 
 	if (_game.version < 7 || _game.id == GID_FT)
 		_useMultiFont = true;
 
 	if (_useMultiFont) {
-		debug("Loading Korean Multi Font System");
+		debug("Loading CJK Multi Font System");
 		_numLoadedFont = 0;
 		_2byteFontPtr = nullptr;
 		_2byteWidth = 0;
 		_2byteHeight = 0;
 		for (int i = 0; i < 20; i++) {
 			char fontFile[256];
-			snprintf(fontFile, sizeof(fontFile), "korean%02d.fnt", i);
+			snprintf(fontFile, sizeof(fontFile), multiPattern, i);
 			_2byteMultiFontPtr[i] = nullptr;
 			if (fp.open(fontFile)) {
 				_numLoadedFont++;
@@ -272,8 +284,10 @@ void ScummEngine::loadKorFont() {
 	}
 
 	if (!_useMultiFont) {
-		debug("Loading Korean Single Font System");
-		if (fp.open("korean.fnt")) {
+		debug("Loading CJK Single Font System");
+		const char *const singleName = _cjkFontSingle.empty()
+			? "korean.fnt" : _cjkFontSingle.c_str();
+		if (fp.open(singleName)) {
 			fp.seek(2, SEEK_CUR);
 			_2byteWidth = fp.readByte();
 			_2byteHeight = fp.readByte();
@@ -605,6 +619,34 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 		else
 			warning("SCUMM::Font: unknown TTF code page '%s', keeping the default", value.c_str());
 	}
+
+	// [bitmap] names the engine's own bitmap fonts, for translations that do
+	// not follow the Korean naming. The glyph count has to match the code
+	// page's character set: 2350 for KS X 1001, 6879 for Shift-JIS and so on.
+	//
+	//   [bitmap]
+	//   multi=japanese%02d.fnt   ; numbered set, one per charset
+	//   single=japanese.fnt      ; fallback when no numbered file is found
+	//   glyphs=6879
+	if (getKorTtfMapKey(map, "multi", "bitmap", value))
+		_cjkFontPattern = value;
+	if (getKorTtfMapKey(map, "single", "bitmap", value))
+		_cjkFontSingle = value;
+	if (getKorTtfMapKey(map, "glyphs", "bitmap", value)) {
+		const int glyphs = atoi(value.c_str());
+		if (glyphs > 0)
+			_cjkFontGlyphs = glyphs;
+		else
+			warning("SCUMM::Font: bad glyph count '%s', keeping the default", value.c_str());
+	}
+
+	// [translation] names the runtime translation bundle when it is not the
+	// default korean.trs. The format is the same either way.
+	//
+	//   [translation]
+	//   file=japanese.trs
+	if (getKorTtfMapKey(map, "file", "translation", value))
+		_cjkTrsName = value;
 
 	// The height map is merged rather than overridden: the generic section
 	// provides the defaults and the specific ones refine individual heights.
@@ -1143,6 +1185,37 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 byte *ScummEngine::get2byteCharPtr(int idx) {
 	if (!isScummvmKorTarget() && (_game.platform == Common::kPlatformFMTowns || _game.platform == Common::kPlatformPCEngine))
 		return nullptr;
+
+	// A fan translation supplies its own .fnt files, so the glyph order is
+	// the code page's rather than whatever the original release used. Take
+	// that route whenever the map named a bitmap font.
+	if (!_cjkFontPattern.empty() || !_cjkFontSingle.empty()) {
+		const uint8 hi = idx % 256;
+		const uint8 lo = idx / 256;
+
+		switch (_ttfCodePage) {
+		case Common::kWindows949:
+			idx = (hi - 0xb0) * 94 + lo - 0xa1;
+			break;
+		case Common::kWindows932:
+			// Shift-JIS: two contiguous lead byte ranges, 188 trail slots.
+			idx = ((hi < 0xe0 ? hi - 0x81 : hi - 0xc1) * 188)
+				+ (lo < 0x7f ? lo - 0x40 : lo - 0x41);
+			break;
+		case Common::kWindows936:
+		case Common::kWindows950:
+			idx = (hi - 0x81) * 191 + lo - 0x40;
+			break;
+		default:
+			idx = (hi - 0xb0) * 94 + lo - 0xa1;
+			break;
+		}
+
+		if (idx < 0)
+			return nullptr;
+
+		return _2byteFontPtr + ((_2byteWidth + 7) / 8) * _2byteHeight * idx;
+	}
 
 	switch (_language) {
 	case Common::KO_KOR:

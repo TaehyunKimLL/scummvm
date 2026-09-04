@@ -2331,13 +2331,17 @@ void ScummEngine_v7::translateText(const byte *text, byte *trans_buff, int trans
 #endif
 
 void ScummEngine::loadLanguageBundle() {
-	if (!isScummvmKorTarget()) {
+	if (!isHiResTextTarget()) {
 		_existLanguageFile = false;
 		return;
 	}
 
+	// The map is read here too, since it may rename the bundle. Korean
+	// translations keep the historical korean.trs without saying anything.
+	loadKorTtfConfig();
+
 	ScummFile file(this);
-	openFile(file, "korean.trs");
+	openFile(file, _cjkTrsName.empty() ? "korean.trs" : _cjkTrsName.c_str());
 
 	if (!file.isOpen()) {
 		_existLanguageFile = false;

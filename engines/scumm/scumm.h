@@ -1802,6 +1802,14 @@ public:
 	// needs no [encoding] section at all.
 	Common::CodePage _ttfCodePage = Common::kWindows949;
 	uint16 ttfCharToUnicode(uint16 chr) const;
+	// Bitmap font override from the map: pattern such as "japanese%02d.fnt"
+	// plus the number of glyphs the file holds. Empty means the built-in
+	// Korean naming and the 2350 glyph KS X 1001 set.
+	Common::String _cjkFontPattern;
+	Common::String _cjkFontSingle;
+	int _cjkFontGlyphs = 0;
+	// Translation bundle name, when it is not the default korean.trs.
+	Common::String _cjkTrsName;
 	// Sub-pixel pen for TTF metrics: _left advances in game pixels, which
 	// loses up to (scale - 1) pixels per glyph. Track the exact scaled
 	// position alongside it so the glyphs stay evenly spaced.
