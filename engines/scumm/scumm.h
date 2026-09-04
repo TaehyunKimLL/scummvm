@@ -1776,6 +1776,9 @@ public:
 	// Korean hi-res text mode: scale factor for the text surface (1 = off).
 	int _koreanHiResScale = 1;
 	bool isKoreanHiRes() const { return _koreanHiResScale > 1; }
+	// Whether a font that renders into the scaled text surface is loaded,
+	// be it TrueType or one in the extended bitmap format.
+	bool hasHiResFont() const { return _korTtfFont != nullptr || _svfn.valid; }
 
 	// Optional TrueType font used to render the Korean text in hi-res mode.
 	// The multi-font system swaps _2byteHeight per charset, so TTF instances
@@ -1808,6 +1811,29 @@ public:
 	Common::String _cjkFontPattern;
 	Common::String _cjkFontSingle;
 	int _cjkFontGlyphs = 0;
+
+	// SVFN: the extended bitmap font format. Unlike the original .fnt it
+	// can hold 8bpp coverage and a per-glyph advance, so anti-aliased text
+	// works in a build without FreeType. See docs/FONT_FORMAT.md.
+	struct SvfnFont {
+		bool valid = false;
+		int bpp = 1;
+		int cellW = 0;
+		int cellH = 0;
+		int ascent = 0;
+		int glyphs = 0;
+		int stride = 0;
+		bool variable = false;
+		const byte *metrics = nullptr;   // 4 bytes per glyph, or null
+		const byte *data = nullptr;
+	};
+	SvfnFont _svfn;
+	SvfnFont _svfnMulti[20];
+	int get2byteCharIndex(int chr) const;
+	bool parseSvfnHeader(const byte *buf, uint32 size, SvfnFont &out) const;
+	const byte *getSvfnGlyph(const SvfnFont &font, int idx) const;
+	bool drawSvfnGlyph(Graphics::Surface &dest, const SvfnFont &font, int idx,
+					   int x, int y, byte color, byte shadowColor);
 	// Translation bundle name, when it is not the default korean.trs.
 	Common::String _cjkTrsName;
 	// Sub-pixel pen for TTF metrics: _left advances in game pixels, which

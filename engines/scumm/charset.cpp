@@ -285,6 +285,146 @@ static Common::String buildCJKFontName(const Common::String &pattern, int index)
 	return out;
 }
 
+/**
+ * Recognise the extended bitmap font format and fill in its geometry.
+ *
+ * The original .fnt has no signature: it opens with a four byte header
+ * whose first byte happens to always be 2, and everything else about the
+ * file -- how many glyphs, which encoding -- has to be inferred from its
+ * size. SVFN starts with a magic instead and says all of it outright,
+ * which is what lets it carry 8bpp coverage and per-glyph advances.
+ *
+ * Returns false for anything that is not SVFN, including the old format,
+ * so the caller can fall back to reading it the original way.
+ */
+bool ScummEngine::parseSvfnHeader(const byte *buf, uint32 size, SvfnFont &out) const {
+	if (!buf || size < 32)
+		return false;
+	if (READ_BE_UINT32(buf) != MKTAG('S', 'V', 'F', 'N'))
+		return false;
+
+	const uint16 version = READ_LE_UINT16(buf + 4);
+	if (version != 1) {
+		warning("SCUMM::Font: SVFN version %d is newer than this build understands", version);
+		return false;
+	}
+
+	const uint16 flags = READ_LE_UINT16(buf + 6);
+	const int bpp = buf[8];
+	const int glyphs = READ_LE_UINT16(buf + 12);
+	const int cellW = buf[14];
+	const int cellH = buf[15];
+	const uint32 metricsOff = READ_LE_UINT32(buf + 20);
+	const uint32 dataOff = READ_LE_UINT32(buf + 24);
+	const uint32 dataSize = READ_LE_UINT32(buf + 28);
+
+	if (bpp != 1 && bpp != 8) {
+		warning("SCUMM::Font: SVFN has unsupported depth %d", bpp);
+		return false;
+	}
+	if (cellW <= 0 || cellH <= 0 || glyphs <= 0) {
+		warning("SCUMM::Font: SVFN has an empty glyph box");
+		return false;
+	}
+
+	const int stride = (bpp == 1) ? ((cellW + 7) / 8) * cellH : cellW * cellH;
+
+	// Everything the header points at has to be inside the file: this is
+	// data a translation ships, so it cannot be taken on trust.
+	if (dataOff > size || dataSize > size - dataOff) {
+		warning("SCUMM::Font: SVFN glyph data runs past the end of the file");
+		return false;
+	}
+	if ((uint32)stride * (uint32)glyphs > dataSize) {
+		warning("SCUMM::Font: SVFN declares %d glyphs but only holds room for fewer", glyphs);
+		return false;
+	}
+
+	out.valid = true;
+	out.bpp = bpp;
+	out.cellW = cellW;
+	out.cellH = cellH;
+	out.ascent = buf[16];
+	out.glyphs = glyphs;
+	out.stride = stride;
+	out.variable = (flags & 1) != 0;
+	out.data = buf + dataOff;
+	out.metrics = nullptr;
+
+	if (out.variable) {
+		if (metricsOff > size || (uint32)glyphs * 4 > size - metricsOff) {
+			warning("SCUMM::Font: SVFN metrics table runs past the end of the file");
+			out.variable = false;
+		} else {
+			out.metrics = buf + metricsOff;
+		}
+	}
+
+	return true;
+}
+
+const byte *ScummEngine::getSvfnGlyph(const SvfnFont &font, int idx) const {
+	if (!font.valid || idx < 0 || idx >= font.glyphs)
+		return nullptr;
+
+	return font.data + (uint32)idx * (uint32)font.stride;
+}
+
+/**
+ * Draw one glyph of an extended bitmap font into the text surface.
+ *
+ * At 8bpp the stored value is coverage, and it goes into the companion
+ * alpha channel exactly like a rasterised TrueType glyph would, so the
+ * composite step blends it against the upscaled background. That is the
+ * point of the format: anti-aliased text without FreeType in the build.
+ *
+ * The glyph is drawn at its stored size. Unlike the original 1bpp path
+ * there is no pixel doubling, because the font was baked for the scaled
+ * surface in the first place.
+ */
+bool ScummEngine::drawSvfnGlyph(Graphics::Surface &dest, const SvfnFont &font, int idx,
+								int x, int y, byte color, byte shadowColor) {
+	const byte *glyph = getSvfnGlyph(font, idx);
+	if (!glyph)
+		return false;
+
+	const bool alpha = (font.bpp == 8) && _korAlphaSurface.getPixels();
+	const int rowBytes = (font.bpp == 1) ? (font.cellW + 7) / 8 : font.cellW;
+
+	for (int gy = 0; gy < font.cellH; ++gy) {
+		const byte *row = glyph + gy * rowBytes;
+		const int py = y + gy;
+
+		if (py < 0 || py >= dest.h)
+			continue;
+
+		for (int gx = 0; gx < font.cellW; ++gx) {
+			byte cov;
+
+			if (font.bpp == 1)
+				cov = (row[gx >> 3] & (0x80 >> (gx & 7))) ? 0xFF : 0;
+			else
+				cov = row[gx];
+
+			if (!cov)
+				continue;
+
+			const int px = x + gx;
+			if (px < 0 || px >= dest.w)
+				continue;
+
+			*(byte *)dest.getBasePtr(px, py) = color;
+
+			if (alpha && px < _korAlphaSurface.w && py < _korAlphaSurface.h)
+				*(byte *)_korAlphaSurface.getBasePtr(px, py) = cov;
+
+		}
+	}
+
+
+	return true;
+}
+
 void ScummEngine::loadKorFont() {
 	Common::File fp;
 
@@ -314,21 +454,47 @@ void ScummEngine::loadKorFont() {
 			_2byteMultiFontPtr[i] = nullptr;
 			if (fp.open(fontFile)) {
 				_numLoadedFont++;
-				fp.readByte();
-				_2byteMultiShadow[i] = fp.readByte();
-				_2byteMultiWidth[i] = fp.readByte();
-				_2byteMultiHeight[i] = fp.readByte();
 
-				int fontSize = ((_2byteMultiWidth[i] + 7) / 8) * _2byteMultiHeight[i] * numChar;
-				_2byteMultiFontPtr[i] = new byte[fontSize];
-				warning("#%d, size %d, height =%d", i, fontSize, _2byteMultiHeight[i]);
-				fp.read(_2byteMultiFontPtr[i], fontSize);
+				// Read the whole file: the extended format is described by
+				// a header we have to look at before we know how big the
+				// glyph data is, and the old one is small enough that
+				// slurping it costs nothing.
+				const uint32 fileSize = (uint32)fp.size();
+				byte *raw = new byte[fileSize];
+				fp.seek(0);
+				fp.read(raw, fileSize);
 				fp.close();
+
+				if (parseSvfnHeader(raw, fileSize, _svfnMulti[i])) {
+					_2byteMultiFontPtr[i] = raw;
+					// The font was baked for the scaled surface, but the
+					// game lays text out in its own 320x200 coordinates:
+					// report the cell in those, or every glyph advances by
+					// the scale factor twice over.
+					const int div = _koreanHiResScale > 0 ? _koreanHiResScale : 1;
+					_2byteMultiWidth[i] = _svfnMulti[i].cellW / div;
+					_2byteMultiHeight[i] = _svfnMulti[i].cellH / div;
+					_2byteMultiShadow[i] = 1;   // the format carries coverage instead
+					debug(1, "SVFN font #%d: %dx%d %dbpp, %d glyphs",
+						  i, _svfnMulti[i].cellW, _svfnMulti[i].cellH,
+						  _svfnMulti[i].bpp, _svfnMulti[i].glyphs);
+				} else {
+					_2byteMultiShadow[i] = raw[1];
+					_2byteMultiWidth[i] = raw[2];
+					_2byteMultiHeight[i] = raw[3];
+
+					int fontSize = ((_2byteMultiWidth[i] + 7) / 8) * _2byteMultiHeight[i] * numChar;
+					_2byteMultiFontPtr[i] = new byte[fontSize];
+					memcpy(_2byteMultiFontPtr[i], raw + 4,
+						   MIN<uint32>((uint32)fontSize, fileSize > 4 ? fileSize - 4 : 0));
+					delete[] raw;
+				}
 				if (_2byteFontPtr == nullptr) {	// for non-initialized Smushplayer drawChar
 					_2byteFontPtr = _2byteMultiFontPtr[i];
 					_2byteWidth = _2byteMultiWidth[i];
 					_2byteHeight = _2byteMultiHeight[i];
 					_2byteShadow = _2byteMultiShadow[i];
+					_svfn = _svfnMulti[i];
 				}
 			}
 		}
@@ -345,12 +511,30 @@ void ScummEngine::loadKorFont() {
 		const char *const singleName = _cjkFontSingle.empty()
 			? "korean.fnt" : _cjkFontSingle.c_str();
 		if (fp.open(singleName)) {
-			fp.seek(2, SEEK_CUR);
-			_2byteWidth = fp.readByte();
-			_2byteHeight = fp.readByte();
-			_2byteFontPtr = new byte[((_2byteWidth + 7) / 8) * _2byteHeight * numChar];
-			fp.read(_2byteFontPtr, ((_2byteWidth + 7) / 8) * _2byteHeight * numChar);
+			const uint32 fileSize = (uint32)fp.size();
+			byte *raw = new byte[fileSize];
+			fp.seek(0);
+			fp.read(raw, fileSize);
 			fp.close();
+
+			if (parseSvfnHeader(raw, fileSize, _svfn)) {
+				_2byteFontPtr = raw;
+				const int div = _koreanHiResScale > 0 ? _koreanHiResScale : 1;
+				_2byteWidth = _svfn.cellW / div;
+				_2byteHeight = _svfn.cellH / div;
+				_2byteShadow = 1;
+				debug(1, "SVFN font: %dx%d %dbpp, %d glyphs",
+					  _svfn.cellW, _svfn.cellH, _svfn.bpp, _svfn.glyphs);
+			} else {
+				_2byteWidth = raw[2];
+				_2byteHeight = raw[3];
+
+				const int fontSize = ((_2byteWidth + 7) / 8) * _2byteHeight * numChar;
+				_2byteFontPtr = new byte[fontSize];
+				memcpy(_2byteFontPtr, raw + 4,
+					   MIN<uint32>((uint32)fontSize, fileSize > 4 ? fileSize - 4 : 0));
+				delete[] raw;
+			}
 		} else {
 			error("Couldn't load any font: %s", fp.getName());
 		}
@@ -1255,6 +1439,31 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 #endif
 }
 
+/**
+ * Where a double byte character sits in a fan translation's font file.
+ *
+ * The glyph order follows the code page rather than whatever the original
+ * release used, since the .fnt was generated from that code page's chart.
+ * The engine hands us the pair byte-swapped, hence the shuffling.
+ */
+int ScummEngine::get2byteCharIndex(int chr) const {
+	const uint8 hi = chr % 256;
+	const uint8 lo = chr / 256;
+
+	switch (_ttfCodePage) {
+	case Common::kWindows932:
+		// Shift-JIS: two contiguous lead byte ranges, 188 trail slots.
+		return ((hi < 0xe0 ? hi - 0x81 : hi - 0xc1) * 188)
+			+ (lo < 0x7f ? lo - 0x40 : lo - 0x41);
+	case Common::kWindows936:
+	case Common::kWindows950:
+		return (hi - 0x81) * 191 + lo - 0x40;
+	case Common::kWindows949:
+	default:
+		return (hi - 0xb0) * 94 + lo - 0xa1;
+	}
+}
+
 byte *ScummEngine::get2byteCharPtr(int idx) {
 	if (!isScummvmKorTarget() && (_game.platform == Common::kPlatformFMTowns || _game.platform == Common::kPlatformPCEngine))
 		return nullptr;
@@ -1262,32 +1471,19 @@ byte *ScummEngine::get2byteCharPtr(int idx) {
 	// A fan translation supplies its own .fnt files, so the glyph order is
 	// the code page's rather than whatever the original release used. Take
 	// that route whenever the map named a bitmap font.
-	if (!_cjkFontPattern.empty() || !_cjkFontSingle.empty()) {
-		const uint8 hi = idx % 256;
-		const uint8 lo = idx / 256;
-
-		switch (_ttfCodePage) {
-		case Common::kWindows949:
-			idx = (hi - 0xb0) * 94 + lo - 0xa1;
-			break;
-		case Common::kWindows932:
-			// Shift-JIS: two contiguous lead byte ranges, 188 trail slots.
-			idx = ((hi < 0xe0 ? hi - 0x81 : hi - 0xc1) * 188)
-				+ (lo < 0x7f ? lo - 0x40 : lo - 0x41);
-			break;
-		case Common::kWindows936:
-		case Common::kWindows950:
-			idx = (hi - 0x81) * 191 + lo - 0x40;
-			break;
-		default:
-			idx = (hi - 0xb0) * 94 + lo - 0xa1;
-			break;
-		}
+	if (!_cjkFontPattern.empty() || !_cjkFontSingle.empty() || _svfn.valid) {
+		idx = get2byteCharIndex(idx);
 
 		// The index is derived from bytes in the game's own data, so a
 		// character outside the code page's assigned range would reach
 		// past the loaded font. Bound it by the glyph count the map
 		// declared for this file.
+		// The extended format keeps its own geometry, and its glyphs are
+		// not a plain 1bpp grid, so callers that want to blit raw bits
+		// must not be handed one.
+		if (_svfn.valid)
+			return const_cast<byte *>(getSvfnGlyph(_svfn, idx));
+
 		const int numChar = _cjkFontGlyphs > 0 ? _cjkFontGlyphs : 2350;
 		if (idx < 0 || idx >= numChar)
 			return nullptr;
@@ -1578,13 +1774,26 @@ int ScummEngine::getKorTtfCharWidth(uint16 chr) {
 // directly into the scaled hi-res text surface. Returns false when the TTF
 // path doesn't apply, so the caller falls back to the bitmap renderer.
 bool CharsetRendererCommon::drawHiResKorChar(Graphics::Surface &s, int x, int y, int drawTop, uint16 chr) {
-	if (!_vm->isKoreanHiRes() || !_vm->_korTtfFont || !_vm->_useCJKMode)
+	if (!_vm->isKoreanHiRes() || !_vm->_useCJKMode)
 		return false;
 
 	// Single byte characters normally keep the game's own bitmap font. With
 	// [latin] enabled they go through the TrueType renderer too, so a mixed
 	// line does not show two different typefaces.
 	if (chr < 256 && !_vm->_korTtfLatin)
+		return false;
+
+	// A font in the extended bitmap format was baked for this resolution
+	// already, coverage and all, so it is drawn straight rather than going
+	// through the scaling blitter. This is the path that gives anti-aliased
+	// text in a build with no FreeType at all.
+	if (chr >= 256 && _vm->_svfn.valid) {
+		const int idx = _vm->get2byteCharIndex(chr);
+		if (_vm->drawSvfnGlyph(s, _vm->_svfn, idx, x, y, _color, _shadowColor))
+			return true;
+	}
+
+	if (!_vm->_korTtfFont)
 		return false;
 
 	return _vm->drawKorTtfChar(s, chr, x, y, _color, _shadowColor);
@@ -2155,7 +2364,7 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 
 	// See the note in CharsetRendererClassic::printChar(): TTF glyphs need
 	// room above and below the game's cell.
-	if (_vm->isKoreanHiRes() && _vm->_korTtfFont) {
+	if (_vm->isKoreanHiRes() && _vm->hasHiResFont()) {
 		const int slack = _vm->_2byteHeight;
 		dirtyTop = MAX(0, dirtyTop - slack);
 		dirtyHeight += slack * 2;
@@ -2171,7 +2380,7 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	// Korean hi-res text always goes to the scaled text surface, even for
 	// the virtual screens that normally receive text directly (the verb
 	// area): that is the only buffer with the resolution to hold it.
-	const bool korTtfTarget = _vm->isKoreanHiRes() && _vm->_korTtfFont
+	const bool korTtfTarget = _vm->isKoreanHiRes() && _vm->hasHiResFont()
 			&& (is2byte || _vm->_korTtfLatin);
 
 	if ((ignoreCharsetMask || !vs->hasTwoBuffers) && !korTtfTarget
@@ -2388,7 +2597,7 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		// parentheses hang below. Only what falls inside the dirty
 		// rectangle gets composited, so give the line a cell of slack on
 		// each side rather than clipping the font to the old grid.
-		if (_vm->isKoreanHiRes() && _vm->_korTtfFont) {
+		if (_vm->isKoreanHiRes() && _vm->hasHiResFont()) {
 			const int slack = _vm->_2byteHeight;
 			dirtyTop = MAX(0, dirtyTop - slack);
 			dirtyHeight += slack * 2;
