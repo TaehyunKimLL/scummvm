@@ -875,7 +875,13 @@ void ScummEngine::compositeHiResText(const void *src, int srcPitch, int x, int y
 						const byte t = *tp++;
 						const byte a = *ap++;
 
-						if (t == CHARSET_MASK_TRANSPARENCY) {
+						// A pixel counts as text when the surface carries
+						// something other than the colour key. Index zero
+						// with no coverage is neither: that is a spot the
+						// text surface was cleared to instead of the key,
+						// and painting palette entry 0 there would darken
+						// the background.
+						if (t == CHARSET_MASK_TRANSPARENCY || (t == 0 && a == 0)) {
 							*d++ = bg;
 						} else if (a == 0 || a == 0xFF) {
 							// Characters drawn through the regular bitmap
@@ -904,6 +910,8 @@ void ScummEngine::compositeHiResText(const void *src, int srcPitch, int x, int y
 			alphaRow += _korAlphaSurface.pitch * m;
 			dst32Row += dstPitch * m;
 		}
+
+
 
 		return;
 	}
