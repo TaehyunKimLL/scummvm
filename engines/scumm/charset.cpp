@@ -382,8 +382,25 @@ const byte *ScummEngine::getSvfnGlyph(const SvfnFont &font, int idx) const {
  * there is no pixel doubling, because the font was baked for the scaled
  * surface in the first place.
  */
+/**
+ * Record that the hi-res text surface now has ink at this spot.
+ *
+ * The charset renderer's own mask only covers text it means to erase
+ * itself. Anything drawn with ignoreCharsetMask set - the verb area, the
+ * sentence line - never enters it, so nothing would ever clear those
+ * glyphs off the scaled surface and they survive into the next room.
+ */
+void ScummEngine::noteHiResTextDrawn(int x, int y, int w, int h) {
+	const Common::Rect r(x, y, x + w, y + h);
+	if (_hiResTextDirty.isEmpty())
+		_hiResTextDirty = r;
+	else
+		_hiResTextDirty.extend(r);
+}
+
 bool ScummEngine::drawSvfnGlyph(Graphics::Surface &dest, const SvfnFont &font, int idx,
 								int x, int y, byte color, byte shadowColor) {
+
 	const byte *glyph = getSvfnGlyph(font, idx);
 	if (!glyph)
 		return false;
@@ -474,6 +491,10 @@ bool ScummEngine::drawSvfnGlyph(Graphics::Surface &dest, const SvfnFont &font, i
 			}
 		}
 	}
+
+	// Remember what the hi-res surface now holds so it can be taken down
+	// later: the engine's charset mask does not track this text.
+	noteHiResTextDrawn(x, y, font.cellW, font.cellH);
 
 	return true;
 }
@@ -1646,6 +1667,12 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 	}
 
 	_korTtfFont->drawChar(&dest, unicode, tx, ty, color);
+
+	// Same bookkeeping as the bitmap path: the charset mask will not
+	// account for this text, so remember it here.
+	noteHiResTextDrawn(x, y, _2byteWidth * _koreanHiResScale,
+					   _2byteHeight * _koreanHiResScale);
+
 	return true;
 #else
 	return false;
@@ -2522,6 +2549,7 @@ void CharsetRendererPCE::setColor(byte color, bool) {
 #endif
 
 void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
+
 	// WORKAROUND for bug #2703: Indy3 Mac does not show black
 	// characters (such as in the grail diary) if ignoreCharsetMask
 	// is true. See also bug #8759.
@@ -2623,16 +2651,19 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 		&& (_vm->_game.platform != Common::kPlatformFMTowns)
 #endif
-		)
+		) {
 		drawBits1(*vs, _left + vs->xstart, drawTop, charPtr, drawTop, origWidth, origHeight);
+	}
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	else if (_vm->_game.platform == Common::kPlatformFMTowns && vs->number == kBannerVirtScreen)
 		drawBits1(*vs, _left * _vm->_textSurfaceMultiplier, drawTop * _vm->_textSurfaceMultiplier, charPtr, drawTop, origWidth, origHeight);
 #endif
-	else if (!drawHiResKorChar(_vm->_textSurface,
-			_left * _vm->_textSurfaceMultiplier,
-			(_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier, drawTop, static_cast<uint16>(chr)))
-		drawBits1(_vm->_textSurface, _left * _vm->_textSurfaceMultiplier, _top * _vm->_textSurfaceMultiplier, charPtr, drawTop, origWidth, origHeight);
+	else {
+		if (!drawHiResKorChar(_vm->_textSurface,
+				_left * _vm->_textSurfaceMultiplier,
+				(_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier, drawTop, static_cast<uint16>(chr)))
+			drawBits1(_vm->_textSurface, _left * _vm->_textSurfaceMultiplier, _top * _vm->_textSurfaceMultiplier, charPtr, drawTop, origWidth, origHeight);
+	}
 
 	// The double byte advance is expressed in the scaled coordinates the
 	// original CJK modes set up, so it gets divided back down here. Korean

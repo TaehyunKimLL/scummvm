@@ -31,6 +31,7 @@
 #include "scumm/scumm_v3.h"
 #include "scumm/scumm_v7.h"
 #include "scumm/sound.h"
+#include "scumm/usage_bits.h"
 #include "scumm/util.h"
 
 namespace Scumm {
@@ -51,6 +52,29 @@ void ScummEngine::startScene(int room, Actor *a, int objectNr) {
 #endif
 
 	stopTalk();
+
+	// The hi-res text sits in its own surface, which the room change does
+	// not otherwise touch: the video buffer is repainted from the new room
+	// but the text layer is composited on top of it untouched. Without this
+	// the last lines of the old room stay on screen, and once the new room
+	// draws its own text the two pile up on each other.
+	//
+	// stopTalk() above already took down the actor speech; this covers the
+	// rest, including text drawn by scripts that never set the charset mask.
+	if (isKoreanHiRes()) {
+		clearTextSurface();
+
+		// Clearing the surface is only half of it. The verb strip is drawn
+		// once and then left alone - it only reaches the screen again when
+		// something marks it dirty - so the text we just wiped would stay
+		// visible there. Mark every screen dirty so the cleared surface is
+		// actually composited over the new room.
+		for (int i = 0; i < 3; ++i) {
+			VirtScreen *v = &_virtscr[i];
+			if (v->h)
+				markRectAsDirty((VirtScreenNumber)i, Common::Rect(v->w, v->h), USAGE_BIT_RESTORED);
+		}
+	}
 
 	fadeOut(_switchRoomEffect2);
 	_newEffect = _switchRoomEffect;
