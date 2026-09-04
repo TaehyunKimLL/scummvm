@@ -8,6 +8,7 @@ MODULE_OBJS := \
 	disk_image.o \
 	font.o \
 	global.o \
+	hangul.o \
 	graphics.o \
 	inv.o \
 	keyboard.o \
@@ -30,7 +31,9 @@ MODULE_OBJS := \
 	op_test.o \
 	picture.o \
 	picture_gal.o \
+	saidscan.o \
 	saveload.o \
+	semantic.o \
 	sound.o \
 	sound_2gs.o \
 	sound_a2.o \
