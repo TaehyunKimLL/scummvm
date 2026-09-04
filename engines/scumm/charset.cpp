@@ -255,6 +255,11 @@ void ScummEngine::loadKorFont() {
 	// low resolution and get scaled up on output, while the text overlay is
 	// kept at the higher resolution, so that the glyphs can be rendered with
 	// much more detail than the 320x200 framebuffer would ever allow.
+	//
+	// The font map is read first: it may name a font, which implies hi-res
+	// mode, and it may pin the scale outright.
+	loadKorTtfConfig();
+
 	if (_koreanHiResScale > 1) {
 		if (_game.platform == Common::kPlatformFMTowns || _game.platform == Common::kPlatformPCEngine ||
 			_game.platform == Common::kPlatformSegaCD || _game.platform == Common::kPlatformNES ||
@@ -318,8 +323,19 @@ static Common::Path resolveKorTtfPath(const Common::String &value, const Common:
 
 } // End of anonymous namespace
 
-void ScummEngine::loadKorTtfFont() {
+/**
+ * Read the font map and the related config keys. This runs before hi-res mode
+ * is decided, because the map is allowed to ask for a scale itself: a
+ * translation can then ship a single map file and need no config at all.
+ */
+void ScummEngine::loadKorTtfConfig() {
 #ifdef USE_FREETYPE2
+	// Called from both setupScumm() and loadCJKFont(); the first one settles
+	// the scale and the alpha mode, the second finds the state already there.
+	if (_korTtfConfigLoaded || !isScummvmKorTarget())
+		return;
+	_korTtfConfigLoaded = true;
+
 	_korTtfHeightRoles.clear();
 
 	// The map may be given as an absolute path, or relative to the game
@@ -357,6 +373,16 @@ void ScummEngine::loadKorTtfFont() {
 			_korTtfTitlePath = _korTtfPath;
 	}
 
+	// A TrueType font is only worth having at a higher resolution, so having
+	// one configured implies hi-res mode. korean_hires_scale still wins if it
+	// was set explicitly, then the map's own [hires] scale, then this.
+	if (!ConfMan.hasKey("korean_hires_scale") && !_korTtfPath.empty() && _koreanHiResScale < 2)
+		_koreanHiResScale = 2;
+#endif
+}
+
+void ScummEngine::loadKorTtfFont() {
+#ifdef USE_FREETYPE2
 	if (_korTtfPath.empty())
 		return;
 
@@ -488,6 +514,24 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 	// at a time, letting the font place the characters within a line.
 	if (getKorTtfMapKey(map, "mode", "render", value))
 		_korTtfStringMode = value.equalsIgnoreCase("string");
+
+	// [hires] scale pins the text surface multiplier from the map, so a
+	// translation can pick the resolution its font was drawn for without
+	// the user having to add a config key. An explicit korean_hires_scale
+	// still wins.
+	//
+	//   [hires]
+	//   scale=2         ; 1 disables the mode, 3 is the maximum
+	//   alpha=true      ; 32 bit anti-aliased text, needs an RGB backend
+	if (!ConfMan.hasKey("korean_hires_scale") && getKorTtfMapKey(map, "scale", "hires", value)) {
+		const int scale = atoi(value.c_str());
+		if (scale >= 1 && scale <= 3)
+			_koreanHiResScale = scale;
+		else
+			warning("SCUMM::Font: Korean TTF map asks for scale %d, ignoring", scale);
+	}
+	if (!ConfMan.hasKey("korean_alpha_text") && getKorTtfMapKey(map, "alpha", "hires", value))
+		ConfMan.setBool("korean_alpha_text", value.equalsIgnoreCase("true") || atoi(value.c_str()) != 0);
 
 	// The height map is merged rather than overridden: the generic section
 	// provides the defaults and the specific ones refine individual heights.

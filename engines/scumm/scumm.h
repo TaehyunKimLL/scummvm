@@ -1795,6 +1795,7 @@ public:
 	bool _korTtfLatin = false;
 	bool _korTtfMetrics = false;
 	bool _korTtfStringMode = false;
+	bool _korTtfConfigLoaded = false;
 	// Sub-pixel pen for TTF metrics: _left advances in game pixels, which
 	// loses up to (scale - 1) pixels per glyph. Track the exact scaled
 	// position alongside it so the glyphs stay evenly spaced.
@@ -1803,6 +1804,7 @@ public:
 	Common::HashMap<int, int> _korTtfHeightRoles;
 	Common::HashMap<int, int> _korTtfRoleSizes;
 	Common::HashMap<int, int> _korTtfRoleSupersample;
+	void loadKorTtfConfig();
 	void loadKorTtfFont();
 	void loadKorTtfMap(const Common::Path &mapPath);
 	bool getKorTtfMapKey(const Common::INIFile &map, const Common::String &key,

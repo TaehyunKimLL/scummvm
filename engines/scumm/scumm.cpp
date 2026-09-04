@@ -1281,6 +1281,11 @@ Common::Error ScummEngine::init() {
 	// decision has to be made before loadCJKFont() builds the TTF instances:
 	// the glyph renderer differs (anti-aliased vs monochrome).
 	//
+	// The font map can request both the scale and the alpha mode, so it has
+	// to be read before either is examined. loadCJKFont() calls this again
+	// later; it is idempotent.
+	loadKorTtfConfig();
+
 	// Only the availability check happens here; initGraphics() further down
 	// does the actual mode set and may still turn this back off.
 	if (isKoreanHiRes() && ConfMan.getBool("korean_alpha_text")) {
