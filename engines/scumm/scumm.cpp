@@ -508,6 +508,8 @@ ScummEngine::~ScummEngine() {
 	if (_2byteFontPtr && !_useMultiFont)
 		delete[] _2byteFontPtr;
 	_korAlphaSurface.free();
+	delete[] _svfnLatinData;
+	_svfnLatinData = nullptr;
 	// _korTtfFont only aliases an entry of _korTtfFonts, so free the cache.
 	_korTtfFont = nullptr;
 	for (Common::HashMap<int, Graphics::Font *>::iterator it = _korTtfFonts.begin(); it != _korTtfFonts.end(); ++it)

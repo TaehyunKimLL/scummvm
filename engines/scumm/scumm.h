@@ -528,6 +528,7 @@ class ScummEngine : public Engine, public Common::Serializable {
 	friend class ScummDebugger;
 	friend class CharsetRenderer;
 	friend class CharsetRendererClassic;
+	friend class CharsetRendererPC;
 	friend class CharsetRendererTownsClassic;
 	friend class ResourceManager;
 	friend class MacGuiImpl;
@@ -1778,7 +1779,7 @@ public:
 	bool isKoreanHiRes() const { return _koreanHiResScale > 1; }
 	// Whether a font that renders into the scaled text surface is loaded,
 	// be it TrueType or one in the extended bitmap format.
-	bool hasHiResFont() const { return _korTtfFont != nullptr || _svfn.valid; }
+	bool hasHiResFont() const { return _korTtfFont != nullptr || _svfn.valid || _svfnLatin.valid; }
 
 	// Optional TrueType font used to render the Korean text in hi-res mode.
 	// The multi-font system swaps _2byteHeight per charset, so TTF instances
@@ -1829,7 +1830,36 @@ public:
 	};
 	SvfnFont _svfn;
 	SvfnFont _svfnMulti[20];
+	// Separate font for the single byte range, so a line does not mix an
+	// anti-aliased Hangul glyph with a pixel-doubled Latin one. Indexed by
+	// character code rather than through a code page.
+	SvfnFont _svfnLatin;
+	byte *_svfnLatinData = nullptr;
+	Common::String _svfnLatinName;
+	// Where the advance for Latin text comes from: false keeps the game's
+	// own metrics and its line breaks, true takes them from the font.
+	bool _svfnLatinMetrics = false;
+
+	// Outline and drop shadow for the hi-res paths. The game's own value
+	// (_2byteShadow) only reaches the built-in bitmap blitter, so without
+	// this a TrueType or SVFN glyph comes out flat no matter what the
+	// original font did. -1 leaves the game's choice alone.
+	enum HiResShadow {
+		kHiResShadowGame = -1,
+		kHiResShadowNone = 0,
+		kHiResShadowDrop = 1,    // one offset copy, to the south east
+		kHiResShadowOutline = 2, // all eight neighbours
+		kHiResShadowStroke = 3   // outline plus a south west drop
+	};
+	int _hiResShadowMode = kHiResShadowGame;
+	int _hiResShadowOffset = 0;   // 0 = follow the text scale
+	byte _hiResShadowColor = 0;
+	bool _hiResShadowColorSet = false;
+	int hiResShadowMode() const;
+	int hiResShadowOffset() const;
 	int get2byteCharIndex(int chr) const;
+	void loadSvfnLatin();
+	int getSvfnLatinWidth(uint16 chr) const;
 	bool parseSvfnHeader(const byte *buf, uint32 size, SvfnFont &out) const;
 	const byte *getSvfnGlyph(const SvfnFont &font, int idx) const;
 	bool drawSvfnGlyph(Graphics::Surface &dest, const SvfnFont &font, int idx,
