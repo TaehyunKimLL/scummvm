@@ -32,6 +32,7 @@
 #include "common/mutex.h"
 #include "common/random.h"
 #include "common/rect.h"
+#include "common/str-enc.h"
 #include "common/rendermode.h"
 #include "common/str.h"
 #include "common/textconsole.h"
@@ -1795,7 +1796,12 @@ public:
 	bool _korTtfLatin = false;
 	bool _korTtfMetrics = false;
 	bool _korTtfStringMode = false;
-	bool _korTtfConfigLoaded = false;
+	bool _ttfConfigLoaded = false;
+	// Code page the double byte characters are in. Defaults to the one the
+	// engine's own CJK mode uses for this language, so a Korean translation
+	// needs no [encoding] section at all.
+	Common::CodePage _ttfCodePage = Common::kWindows949;
+	uint16 ttfCharToUnicode(uint16 chr) const;
 	// Sub-pixel pen for TTF metrics: _left advances in game pixels, which
 	// loses up to (scale - 1) pixels per glyph. Track the exact scaled
 	// position alongside it so the glyphs stay evenly spaced.
@@ -1834,6 +1840,7 @@ public:
 	byte *get2byteCharPtr(int idx);
 
 	bool isScummvmKorTarget();
+	bool isHiResTextTarget();
 	bool hasLocalizer();
 
 //protected:

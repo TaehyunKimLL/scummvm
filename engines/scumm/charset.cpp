@@ -59,6 +59,41 @@ bool ScummEngine::isScummvmKorTarget() {
 	return false;
 }
 
+/**
+ * Whether the hi-res TrueType text path applies to this target.
+ *
+ * The Korean fan translations were the first users and still get in on the
+ * language alone, since the engine has special cases for them elsewhere.
+ * Any other CJK translation joins by shipping a font map: that keeps the
+ * default behaviour untouched for the Japanese and Chinese releases that
+ * already render fine through the engine's own CJK mode.
+ */
+bool ScummEngine::isHiResTextTarget() {
+	if (isScummvmKorTarget())
+		return true;
+
+	if (_game.version >= 7 && _game.id != GID_FT)
+		return false;
+
+	switch (_language) {
+	case Common::JA_JPN:
+	case Common::ZH_CHN:
+	case Common::ZH_TWN:
+	case Common::KO_KOR:
+		break;
+	default:
+		return false;
+	}
+
+	// Only opt in when a map was actually pointed at, either explicitly or
+	// by the conventional name in the game folder.
+	if (ConfMan.hasKey("korean_ttf_map"))
+		return true;
+
+	Common::FSNode probe(ConfMan.getPath("path").appendComponent("korean_ttf.map"));
+	return probe.exists();
+}
+
 void ScummEngine::loadCJKFont() {
 	_useCJKMode = false;
 	_textSurfaceMultiplier = 1;
@@ -332,9 +367,26 @@ void ScummEngine::loadKorTtfConfig() {
 #ifdef USE_FREETYPE2
 	// Called from both setupScumm() and loadCJKFont(); the first one settles
 	// the scale and the alpha mode, the second finds the state already there.
-	if (_korTtfConfigLoaded || !isScummvmKorTarget())
+	if (_ttfConfigLoaded || !isHiResTextTarget())
 		return;
-	_korTtfConfigLoaded = true;
+	_ttfConfigLoaded = true;
+
+	// Default the code page to whatever the language implies; the map can
+	// still override it for a translation that ships in another encoding.
+	switch (_language) {
+	case Common::JA_JPN:
+		_ttfCodePage = Common::kWindows932;
+		break;
+	case Common::ZH_CHN:
+		_ttfCodePage = Common::kWindows936;
+		break;
+	case Common::ZH_TWN:
+		_ttfCodePage = Common::kWindows950;
+		break;
+	default:
+		_ttfCodePage = Common::kWindows949;
+		break;
+	}
 
 	_korTtfHeightRoles.clear();
 
@@ -533,6 +585,27 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 	if (!ConfMan.hasKey("korean_alpha_text") && getKorTtfMapKey(map, "alpha", "hires", value))
 		ConfMan.setBool("korean_alpha_text", value.equalsIgnoreCase("true") || atoi(value.c_str()) != 0);
 
+	// [encoding] names the code page the double byte characters are in, for
+	// translations that are not Korean. The default follows the language, so
+	// this only has to be set when the two disagree.
+	//
+	//   [encoding]
+	//   codepage=cp932      ; sjis | gbk | big5 | uhc | johab
+	if (getKorTtfMapKey(map, "codepage", "encoding", value)) {
+		if (value.equalsIgnoreCase("cp932") || value.equalsIgnoreCase("sjis"))
+			_ttfCodePage = Common::kWindows932;
+		else if (value.equalsIgnoreCase("cp936") || value.equalsIgnoreCase("gbk"))
+			_ttfCodePage = Common::kWindows936;
+		else if (value.equalsIgnoreCase("cp949") || value.equalsIgnoreCase("uhc"))
+			_ttfCodePage = Common::kWindows949;
+		else if (value.equalsIgnoreCase("cp950") || value.equalsIgnoreCase("big5"))
+			_ttfCodePage = Common::kWindows950;
+		else if (value.equalsIgnoreCase("johab"))
+			_ttfCodePage = Common::kJohab;
+		else
+			warning("SCUMM::Font: unknown TTF code page '%s', keeping the default", value.c_str());
+	}
+
 	// The height map is merged rather than overridden: the generic section
 	// provides the defaults and the specific ones refine individual heights.
 	const Common::String mapVer = Common::String::format("map:v%d", _game.version);
@@ -693,6 +766,37 @@ void ScummEngine::selectKorTtfFont(int lineBox) {
  * caller should fall back to the bitmap glyph.
  */
 /**
+ * Map a game character to Unicode so the TrueType font can be asked for a
+ * glyph. Single byte values pass through: the fan translations keep ASCII
+ * where the original had it. Double byte pairs go through the code page the
+ * font map named, which defaults to the one the engine's own CJK mode uses.
+ *
+ * The engine packs the pair byte-swapped, hence the shuffling below.
+ */
+uint16 ScummEngine::ttfCharToUnicode(uint16 chr) const {
+	if (chr < 256)
+		return chr;
+
+	const uint8 hi = chr & 0xFF;
+	const uint8 lo = chr >> 8;
+
+	if (_ttfCodePage == Common::kWindows949)
+		return Common::convertUHCToUCS(hi, lo);
+
+	// The other code pages have no single character entry point, so convert
+	// a two byte string and take the first code point.
+	const char pair[3] = { (char)hi, (char)lo, 0 };
+	const Common::U32String out = Common::convertToU32String(pair, _ttfCodePage);
+	return out.empty() ? 0 : (uint16)out[0];
+}
+
+/**
+ * Append a character to the current run instead of drawing it straight away.
+ * A run is flushed when the pen jumps, the colour changes or the frame ends;
+ * per-character colour changes still come out right - they just split the
+ * line into several runs.
+ */
+/**
  * Collect characters into a run and draw them with one TTF call.
  *
  * Drawing a glyph at a time forces every character onto the game's own
@@ -710,7 +814,7 @@ void ScummEngine::korTtfRunAppend(uint16 chr, Graphics::Surface &dest, int x, in
 	if (!_korTtfFont)
 		return;
 
-	const uint16 unicode = (chr < 256) ? chr : Common::convertUHCToUCS(chr & 0xFF, chr >> 8);
+	const uint16 unicode = ttfCharToUnicode(chr);
 	if (!unicode)
 		return;
 
@@ -845,7 +949,7 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 
 	// Single byte characters are already their own code point; only the
 	// double byte ones need the CP949 -> Unicode conversion.
-	const uint16 unicode = (chr < 256) ? chr : Common::convertUHCToUCS(hi, lo);
+	const uint16 unicode = ttfCharToUnicode(chr);
 	if (!unicode)
 		return false;
 
@@ -1304,7 +1408,7 @@ int ScummEngine::getKorTtfCharWidth(uint16 chr) {
 	if (!_korTtfFont)
 		return -1;
 
-	const uint16 unicode = (chr < 256) ? chr : Common::convertUHCToUCS(chr & 0xFF, chr >> 8);
+	const uint16 unicode = ttfCharToUnicode(chr);
 	if (!unicode)
 		return -1;
 
