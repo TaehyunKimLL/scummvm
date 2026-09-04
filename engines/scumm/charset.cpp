@@ -435,7 +435,6 @@ static Common::Path resolveKorTtfPath(const Common::String &value, const Common:
  * translation can then ship a single map file and need no config at all.
  */
 void ScummEngine::loadKorTtfConfig() {
-#ifdef USE_FREETYPE2
 	// Called from both setupScumm() and loadCJKFont(); the first one settles
 	// the scale and the alpha mode, the second finds the state already there.
 	if (_ttfConfigLoaded || !isHiResTextTarget())
@@ -481,6 +480,7 @@ void ScummEngine::loadKorTtfConfig() {
 
 	// Backward-compatible fallback: if no map file supplied a default font,
 	// keep accepting the earlier per-role config keys.
+#ifdef USE_FREETYPE2
 	if (_korTtfPath.empty() && ConfMan.hasKey("korean_ttf_font"))
 		_korTtfPath = Common::Path(ConfMan.getPath("korean_ttf_font"));
 	if (_korTtfBoldPath.empty()) {
@@ -558,7 +558,6 @@ bool ScummEngine::getKorTtfMapKey(const Common::INIFile &map, const Common::Stri
 }
 
 void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
-#ifdef USE_FREETYPE2
 	Common::FSNode mapNode(mapPath);
 	Common::SeekableReadStream *stream = mapNode.createReadStream();
 	if (!stream) {
@@ -576,6 +575,11 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 	delete stream;
 
 	Common::String value;
+
+	// The TrueType sections only mean something in a FreeType build. The
+	// rest of the map -- the code page, the bitmap font names and the
+	// translation bundle -- drives the CLUT8 path and is read either way.
+#ifdef USE_FREETYPE2
 	if (getKorTtfMapKey(map, "default", "fonts", value))
 		_korTtfPath = resolveKorTtfPath(value, mapPath.getParent());
 	if (getKorTtfMapKey(map, "bold", "fonts", value))
@@ -637,6 +641,8 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 	// at a time, letting the font place the characters within a line.
 	if (getKorTtfMapKey(map, "mode", "render", value))
 		_korTtfStringMode = value.equalsIgnoreCase("string");
+
+#endif
 
 	// [hires] scale pins the text surface multiplier from the map, so a
 	// translation can pick the resolution its font was drawn for without
@@ -724,7 +730,7 @@ void ScummEngine::loadKorTtfMap(const Common::Path &mapPath) {
 			}
 		}
 	}
-#endif
+
 }
 
 /**
@@ -1996,15 +2002,25 @@ void CharsetRendererPC::drawBits1Kor(Graphics::Surface &dest, int x1, int y1, co
 		const int offX = offsetX[i] * m;
 		const int offY = offsetY[i] * m;
 
-		for (y = 0; y < height && (y * m) + drawTop + offY < dest.h; y++) {
-			for (x = 0; x < width && (x * m) + x1 + offX < dest.w; x++) {
+		for (y = 0; y < height; y++) {
+			for (x = 0; x < width; x++) {
 				if ((x % 8) == 0)
 					bits = *src++;
-				if ((bits & revBitMask(x % 8)) && (y * m) + drawTop + offY >= 0 && (x * m) + x1 + offX >= 0) {
-					byte *p = dst + (dest.pitch * offY) + offX;
-					for (int sy = 0; sy < m; ++sy) {
-						for (int sx = 0; sx < m; ++sx)
-							p[sy * dest.pitch + sx] = cTable[i];
+
+				if (bits & revBitMask(x % 8)) {
+					// Where this glyph pixel's m x m block lands. The
+					// whole block has to be inside the surface, not just
+					// its top left corner, or the last row and column of
+					// a glyph at the edge write past the end.
+					const int bx = (x * m) + x1 + offX;
+					const int by = (y * m) + y1 + offY;
+
+					if (bx >= 0 && by >= 0 && bx + m <= dest.w && by + m <= dest.h) {
+						byte *p = dst + (dest.pitch * offY) + offX;
+						for (int sy = 0; sy < m; ++sy) {
+							for (int sx = 0; sx < m; ++sx)
+								p[sy * dest.pitch + sx] = cTable[i];
+						}
 					}
 				}
 				dst += m;
@@ -2690,11 +2706,18 @@ void CharsetRendererClassic::drawBitsN(const Graphics::Surface &s, byte *dst, co
 			amigaMap = _vm->_roomPalette;
 	}
 
-	for (y = 0; y < height && (y * m) + drawTop < s.h; y++) {
+	// The caller hands us a pointer rather than coordinates, so recover the
+	// column from it: an m x m block must not be written past the right or
+	// bottom edge, and only the top left pixel of it was ever checked.
+	const byte *const surfaceStart = (const byte *)s.getPixels();
+	const int startX = s.pitch ? (int)((dst - surfaceStart) % s.pitch) : 0;
+
+	for (y = 0; y < height && (y * m) + drawTop + m <= s.h; y++) {
 		for (x = 0; x < width; x++) {
 			color = (bits >> (8 - bpp)) & 0xFF;
 
-			if (color && (y * m) + drawTop >= 0) {
+			if (color && (y * m) + drawTop >= 0
+					&& startX + (x * m) + m <= s.pitch) {
 				const byte c = amigaMap ? amigaMap[cmap[color]] : cmap[color];
 				for (int sy = 0; sy < m; ++sy) {
 					for (int sx = 0; sx < m; ++sx)
