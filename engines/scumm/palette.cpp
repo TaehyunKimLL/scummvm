@@ -1785,6 +1785,19 @@ void ScummEngine::updatePalette() {
 		// needs the colours the backend is no longer being given.
 		CursorMan.replaceCursorPalette(paletteColors, first, num);
 
+		// A paletted backend can brighten an already copied frame by changing
+		// its palette. Korean alpha-text mode outputs true-color pixels, so a
+		// palette fade only changes our lookup table; every affected pixel has
+		// to be recomposited. Otherwise only later dirty rectangles (typically
+		// a subtitle line) appear in the new colours while the rest of the
+		// screen stays black. MI2's intro island after the LucasFilm logo hits
+		// exactly that path.
+		for (int i = 0; i < 3; ++i) {
+			VirtScreen *vs = &_virtscr[i];
+			if (vs->h)
+				markRectAsDirty((VirtScreenNumber)i, Common::Rect(vs->w, vs->h));
+		}
+
 		if (_macGui)
 			_macGui->setPaletteDirty();
 		return;
