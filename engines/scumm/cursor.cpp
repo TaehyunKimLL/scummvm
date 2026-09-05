@@ -1311,17 +1311,22 @@ void ScummEngine_v5::setBuiltinCursor(int idx) {
 	for (i = 0; i < 16; i++) {
 		for (j = 0; j < 16; j++) {
 			if (src[i] & (1 << j)) {
+				// Replicate the pixel into an sclW x sclH block. The old
+				// code only knew a second row for sclH == 2, so at the
+				// 3x hi-res scale two of every three rows stayed
+				// transparent and the cursor came out striped.
 				byte *dst1 = _grabbedCursor + 16 * sclW2 * i * sclH + (15 - j) * sclW2;
-				byte *dst2 = (sclH == 2) ? dst1 + 16 * sclW2 : dst1;
-				if (cursorBpp == 2) {
-					for (int b = 0; b < sclW; b++) {
-						*((uint16 *)dst1) = *((uint16 *)dst2) = color;
-						dst1 += 2;
-						dst2 += 2;
+				for (int r = 0; r < sclH; r++) {
+					byte *dst = dst1 + r * 16 * sclW2;
+					if (cursorBpp == 2) {
+						for (int b = 0; b < sclW; b++) {
+							*((uint16 *)dst) = color;
+							dst += 2;
+						}
+					} else {
+						for (int b = 0; b < sclW; b++)
+							*dst++ = color;
 					}
-				} else {
-					for (int b = 0; b < sclW; b++)
-						*dst1++ = *dst2++ = color;
 				}
 			}
 		}
