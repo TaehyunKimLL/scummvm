@@ -1164,6 +1164,34 @@ void ScummEngine_v2::setSnailCursor() {
 }
 
 void ScummEngine_v2::adaptCursorToVideoMode() {
+	// The Korean hi-res mode asks the backend for a screen
+	// _textSurfaceMultiplier times the game's own, so a cursor handed over
+	// at its native size shows up a half or a third as big as it should.
+	// Replicate every pixel into an m x m block, working backwards so the
+	// source is never overwritten before it is read.
+	if (isKoreanHiRes() && _textSurfaceMultiplier > 1
+			&& _renderMode != Common::kRenderHercA && _renderMode != Common::kRenderHercG
+			&& _renderMode != Common::kRenderCGA_BW) {
+		const int m = _textSurfaceMultiplier;
+		const int w = _cursor.width, h = _cursor.height;
+		if (w * m * h * m <= (int)sizeof(_grabbedCursor)) {
+			for (int y = h - 1; y >= 0; --y) {
+				const byte *src = &_grabbedCursor[y * w];
+				for (int r = m - 1; r >= 0; --r) {
+					byte *dst = &_grabbedCursor[(y * m + r) * w * m];
+					for (int x = w - 1; x >= 0; --x)
+						for (int c = 0; c < m; ++c)
+							dst[x * m + c] = src[x];
+				}
+			}
+			_cursor.width = w * m;
+			_cursor.height = h * m;
+			_cursor.hotspotX *= m;
+			_cursor.hotspotY *= m;
+		}
+		return;
+	}
+
 	if (_renderMode != Common::kRenderHercA && _renderMode != Common::kRenderHercG && _renderMode != Common::kRenderCGA_BW)
 		return;
 
