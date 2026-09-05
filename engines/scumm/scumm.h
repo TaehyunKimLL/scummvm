@@ -749,6 +749,10 @@ protected:
 	byte *_tempTextSurface = nullptr;
 	byte *_tempMainSurface = nullptr;
 	byte *_tempVerbSurface = nullptr;
+	// Companion coverage for _tempTextSurface: the alpha-text mode keeps the
+	// glyph coverage in a second surface, so restoring only the colours would
+	// leave the two disagreeing and the text invisible.
+	byte *_tempKorAlphaSurface = nullptr;
 	bool _postGUICharMask = false;
 
 	// Saved cursor pre and post GUI

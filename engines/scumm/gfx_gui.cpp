@@ -1454,12 +1454,30 @@ void ScummEngine::saveSurfacesPreGUI() {
 	if (_tempTextSurface) {
 		memcpy(_tempTextSurface, _textSurface.getBasePtr(0, 0), _textSurface.pitch * _textSurface.h);
 
+		// The alpha-text mode carries the glyph coverage in a parallel
+		// surface. Saving only the colour plane would restore text that
+		// composites with whatever coverage the menu left behind.
+		if (_korAlphaSurface.getPixels()) {
+			const int aSize = _korAlphaSurface.pitch * _korAlphaSurface.h;
+			_tempKorAlphaSurface = (byte *)malloc(aSize);
+			if (_tempKorAlphaSurface)
+				memcpy(_tempKorAlphaSurface, _korAlphaSurface.getBasePtr(0, 0), aSize);
+		}
+
 		// For each v4-v6 game (except for LOOM VGA which does its own thing), we take the text surface
 		// and stamp it on top of the main screen: this is done to ensure that the GUI is drawn on top
 		// of possible subtitle texts instead of having the latters being deleted or being drawn on top
 		// of the GUI...
+		//
+		// This indexes the text surface as if it were the same size as the
+		// game screen. In Korean hi-res mode it is _textSurfaceMultiplier
+		// times bigger, so the arithmetic would read the wrong rows and
+		// stamp fragments of scaled glyphs onto the 320 wide picture. That
+		// mode composites the text surface over the upscaled graphics in
+		// drawStripToScreen() anyway, so the copy is not needed there.
 		if (!(_game.version == 4 && _game.id == GID_LOOM) &&
-			!(_game.version == 5 && _game.platform == Common::kPlatformFMTowns)) {
+			!(_game.version == 5 && _game.platform == Common::kPlatformFMTowns) &&
+			!isKoreanHiRes()) {
 			for (int y = 0; y < _screenHeight; y++) {
 				for (int x = 0; x < _screenWidth; x++) {
 					// Only draw non transparent pixels
@@ -1492,6 +1510,13 @@ void ScummEngine::restoreSurfacesPostGUI() {
 
 	if (_tempTextSurface) {
 		memcpy(_textSurface.getBasePtr(0, 0), _tempTextSurface, _textSurface.pitch * _textSurface.h);
+
+		if (_tempKorAlphaSurface && _korAlphaSurface.getPixels()) {
+			memcpy(_korAlphaSurface.getBasePtr(0, 0), _tempKorAlphaSurface,
+				   _korAlphaSurface.pitch * _korAlphaSurface.h);
+			free(_tempKorAlphaSurface);
+			_tempKorAlphaSurface = nullptr;
+		}
 
 		// Signal the restoreCharsetBg() function that there's text
 		// on the text surface, so it gets deleted the next time another
@@ -2689,6 +2714,8 @@ void ScummEngine::showMainMenu() {
 	} else {
 		free(_tempTextSurface);
 		_tempTextSurface = nullptr;
+		free(_tempKorAlphaSurface);
+		_tempKorAlphaSurface = nullptr;
 		free(_tempMainSurface);
 		_tempMainSurface = nullptr;
 		free(_tempVerbSurface);
