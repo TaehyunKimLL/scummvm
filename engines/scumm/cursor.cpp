@@ -437,7 +437,8 @@ void ScummEngine::updateCursor() {
 	// skipped in this mode the cursor also needs its own copy.
 	if (_koreanAlphaText) {
 		format = Graphics::PixelFormat::createFormatCLUT8();
-		CursorMan.replaceCursorPalette(_currentPalette, 0, 256);
+		// Reuse the displayed colours, not the untransformed source palette.
+		CursorMan.replaceCursorPalette(_korAlphaPaletteRGB, 0, 256);
 	}
 
 	if (_game.heversion == 70) {

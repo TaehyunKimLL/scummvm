@@ -1694,10 +1694,13 @@ void ScummEngine::updatePalette() {
 		bool noirMode = (_game.id == GID_SAMNMAX && readVar(0x8000));
 		int i;
 
-		first = _palDirtyMin;
-		num = _palDirtyMax - first + 1;
+		// Dirty indices can name either source RGB colours or remapped output
+		// slots. In v3/v4 a changed source can feed slots outside that range,
+		// so rebuild the whole effective palette when global remapping is on.
+		first = _shadowPalRemap ? 0 : _palDirtyMin;
+		num = _shadowPalRemap ? 256 : _palDirtyMax - first + 1;
 
-		for (i = _palDirtyMin; i <= _palDirtyMax; i++) {
+		for (i = first; i < first + num; i++) {
 			byte *data;
 
 			if (_shadowPalRemap)
@@ -1774,6 +1777,7 @@ void ScummEngine::updatePalette() {
 	// has no palette to set: we do the palette lookup ourselves when the
 	// composite buffer is built. Keep a local copy instead.
 	if (_koreanAlphaText) {
+		memcpy(_korAlphaPaletteRGB + first * 3, paletteColors, num * 3);
 		for (int i = 0; i < num; ++i) {
 			_korAlphaPalette[first + i] = _outputPixelFormat.RGBToColor(
 					paletteColors[i * 3 + 0],
@@ -1782,8 +1786,9 @@ void ScummEngine::updatePalette() {
 		}
 
 		// The mouse cursor is still drawn from palette indices, so it
-		// needs the colours the backend is no longer being given.
-		CursorMan.replaceCursorPalette(paletteColors, first, num);
+		// needs the colours the backend is no longer being given. Keep the
+		// complete palette in CursorMan too, for restoration after a GUI.
+		CursorMan.replaceCursorPalette(_korAlphaPaletteRGB, 0, 256);
 
 		// A paletted backend can brighten an already copied frame by changing
 		// its palette. Korean alpha-text mode outputs true-color pixels, so a

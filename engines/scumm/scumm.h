@@ -1790,6 +1790,8 @@ public:
 	int _korTtfCurLineBox = -1;
 	int _korTtfSupersample = 1;
 	bool _koreanAlphaText = false;
+	// Effective RGB after palette remapping/transforms, also used by the cursor.
+	byte _korAlphaPaletteRGB[3 * 256] = {};
 	uint32 _korAlphaPalette[256] = {};
 	Graphics::Surface _korAlphaSurface;
 	bool _korTtfEnabled = false;
