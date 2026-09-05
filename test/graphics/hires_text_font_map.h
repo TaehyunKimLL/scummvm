@@ -133,6 +133,21 @@ public:
 		TS_ASSERT_EQUALS(M::parseCodePage("klingon"), Common::kCodePageInvalid);
 	}
 
+	void test_non_dbcs_encoding_selection() {
+		typedef Graphics::HiResFontMap M;
+		TS_ASSERT_EQUALS(M::parseCodePage("CP1252"), Common::kWindows1252);
+		TS_ASSERT_EQUALS(M::parseCodePage("cp1251"), Common::kWindows1251);
+		TS_ASSERT_EQUALS(M::parseCodePage("latin1"), Common::kISO8859_1);
+		TS_ASSERT_EQUALS(M::parseCodePage("macroman"), Common::kMacRoman);
+		TS_ASSERT_EQUALS(M::parseCodePage("cp850"), Common::kDos850);
+		TS_ASSERT_EQUALS(M::parseCodePage("ascii"), Common::kASCII);
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[encoding]\ncodepage=cp1252\n", cfg));
+		TS_ASSERT_EQUALS(cfg.encoding, Common::kWindows1252);
+		TS_ASSERT(cfg.encodingFromMap);
+		TS_ASSERT(!cfg.legacy.latinEnabled);
+	}
+
 	void test_encoding_section() {
 		Graphics::HiResTextConfig cfg;
 		TS_ASSERT(parse("[encoding]\ncodepage=utf8\n", cfg));

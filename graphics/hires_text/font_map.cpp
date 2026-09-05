@@ -90,6 +90,33 @@ int HiResFontMap::parseRole(const Common::String &name) {
 }
 
 Common::CodePage HiResFontMap::parseCodePage(const Common::String &name) {
+	static const struct {
+		const char *name;
+		Common::CodePage page;
+	} singleBytePages[] = {
+		{ "cp1250", Common::kWindows1250 },
+		{ "cp1251", Common::kWindows1251 },
+		{ "cp1252", Common::kWindows1252 },
+		{ "cp1253", Common::kWindows1253 },
+		{ "cp1254", Common::kWindows1254 },
+		{ "cp1255", Common::kWindows1255 },
+		{ "cp1256", Common::kWindows1256 },
+		{ "cp1257", Common::kWindows1257 },
+		{ "iso-8859-1", Common::kISO8859_1 },
+		{ "latin1", Common::kISO8859_1 },
+		{ "iso-8859-2", Common::kISO8859_2 },
+		{ "iso-8859-5", Common::kISO8859_5 },
+		{ "macroman", Common::kMacRoman },
+		{ "maccentraleurope", Common::kMacCentralEurope },
+		{ "cp850", Common::kDos850 },
+		{ "cp862", Common::kDos862 },
+		{ "cp866", Common::kDos866 },
+		{ "ascii", Common::kASCII }
+	};
+	for (uint i = 0; i < ARRAYSIZE(singleBytePages); ++i) {
+		if (name.equalsIgnoreCase(singleBytePages[i].name))
+			return singleBytePages[i].page;
+	}
 	if (name.equalsIgnoreCase("cp932") || name.equalsIgnoreCase("sjis"))
 		return Common::kWindows932;
 	if (name.equalsIgnoreCase("cp936") || name.equalsIgnoreCase("gbk"))

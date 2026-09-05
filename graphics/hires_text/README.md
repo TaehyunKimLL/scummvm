@@ -35,7 +35,9 @@ height_12=default
 ```
 
 `codepage` records an adapter's source encoding choice, not a renderer gate.
-Supported names: cp932/sjis, cp936/gbk, cp949/uhc, cp950/big5, johab, utf8/utf-8.
+Supported names: cp932/sjis, cp936/gbk, cp949/uhc, cp950/big5, johab, utf8/utf-8;
+also cp1250..cp1257, iso-8859-1/latin1, iso-8859-2, iso-8859-5, macroman,
+maccentraleurope, cp850, cp862, cp866 and ascii.
 ksc5601/euc-kr select the CP949 decoder (a compatible superset, not strict EUC-KR
 validation). UTF-16 input and engine control-token handling are later stages.
 
