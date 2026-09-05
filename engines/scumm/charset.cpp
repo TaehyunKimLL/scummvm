@@ -2685,10 +2685,15 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	}
 
 	// The double byte advance is expressed in the scaled coordinates the
-	// original CJK modes set up, so it gets divided back down here. Korean
-	// hi-res mode drives the multiplier itself and keeps _2byteWidth in game
-	// pixels, so dividing would shrink the advance to a fraction of the cell.
-	if (is2byte && !_vm->isKoreanHiRes()) {
+	// original CJK modes set up, so it gets divided back down here. That
+	// only holds when _2byteWidth itself carries the multiplier, which is
+	// true for the FM-Towns Kanji ROM (16 = 8 * 2) but not for a Korean
+	// fan translation: loadCJKFont() reads its width straight out of the
+	// .fnt header, so dividing advanced half a cell and the glyphs piled
+	// up on each other. getStringWidth() adds the full _2byteWidth, so the
+	// two have to agree. Korean hi-res mode drives the multiplier itself
+	// and likewise keeps _2byteWidth in game pixels.
+	if (is2byte && !_vm->isKoreanHiRes() && !_vm->isScummvmKorTarget()) {
 		origWidth /= _vm->_textSurfaceMultiplier;
 		height /= _vm->_textSurfaceMultiplier;
 	}
