@@ -246,6 +246,16 @@ void ScummEngine::parseEvent(Common::Event event) {
 				_mouse.y = _mouse.y * 4 / 7;
 			}
 
+		} else if (isKoreanHiRes() && _textSurfaceMultiplier > 1) {
+			// The hi-res text mode asks the backend for a screen
+			// _textSurfaceMultiplier times the game's own, so the position
+			// arrives in those coordinates while the scripts work in the
+			// original ones. Anything but a plain halving is needed here:
+			// the scale is 2 or 3, and at 3 the shift below would leave
+			// every click at one and a half times its real position, which
+			// puts most of the screen out of reach.
+			_mouse.x /= _textSurfaceMultiplier;
+			_mouse.y /= _textSurfaceMultiplier;
 		} else if ((_textSurfaceMultiplier == 2 || _macScreen) || _renderMode == Common::kRenderCGA_BW || _enableEGADithering) {
 			_mouse.x >>= 1;
 			_mouse.y >>= 1;
