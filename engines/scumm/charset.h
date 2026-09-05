@@ -57,6 +57,9 @@ static inline bool checkSJISCode(byte c) {
 	return false;
 }
 
+// Shared by the classic renderers (string.cpp) and the v7/v8 text renderer
+// (string_v7.cpp); both already include this header. Kept as one definition so
+// the two paths cannot drift apart.
 static inline bool is2ByteCharacter(Common::Language lang, byte c) {
 	if (lang == Common::JA_JPN)
 		return (c >= 0x80 && c <= 0x9F) || (c >= 0xE0 && c <= 0xFD);
