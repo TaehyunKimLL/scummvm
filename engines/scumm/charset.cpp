@@ -3028,7 +3028,8 @@ void CharsetRendererClassic::printCharIntern(bool is2byte, const byte *charPtr, 
 				// it when the transient layer is cleared.
 				_vm->_hiResTextBurnIn = ignoreCharsetMask;
 				const int m = _vm->_textSurfaceMultiplier;
-				const int tx = (_left + vs->xstart) * m;
+				// The hi-res overlay is screen-relative, not room-relative.
+				const int tx = _left * m;
 				int top = _top;
 
 				// The game positions single byte characters against the

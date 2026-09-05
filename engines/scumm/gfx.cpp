@@ -1490,8 +1490,9 @@ void ScummEngine::restoreCharsetBg() {
 		// never reach the branch below and would keep every line ever
 		// drawn, one on top of the next.
 		if (vs->hasTwoBuffers || _macScreen || isKoreanHiRes()) {
-			// Clean out the charset mask
-			clearTextSurface();
+			// Only erase the screen owning this dialogue. Hi-res verbs and
+			// sentence text share the overlay but have independent lifetimes.
+			clearTextSurface(isKoreanHiRes() ? vs : nullptr);
 		}
 	}
 }
@@ -1500,15 +1501,28 @@ void ScummEngine::clearCharsetMask() {
 	memset(getResourceAddress(rtBuffer, 9), 0, _gdi->_imgBufOffs[1]);
 }
 
-void ScummEngine::clearTextSurface() {
+void ScummEngine::clearTextSurface(const VirtScreen *vs) {
+	Common::Rect area(_textSurface.w, _textSurface.h);
+	if (vs) {
+		// Finish pending runs on other screens before clearing this one.
+		korTtfRunFlush();
+		area = Common::Rect(0, vs->topline * _textSurfaceMultiplier,
+				_textSurface.w, (vs->topline + vs->h) * _textSurfaceMultiplier);
+		area.clip(Common::Rect(_textSurface.w, _textSurface.h));
+	}
+	if (area.isEmpty())
+		return;
 	// Text the game burned into the picture has to survive: nothing will
 	// draw it a second time. Save that band, wipe everything, put it back.
 	Graphics::Surface keep;
+	Graphics::Surface keepAlpha;
 	Common::Rect keepRect;
 	if (!_hiResTextKeep.isEmpty() && _textSurface.getPixels()) {
 		keepRect = _hiResTextKeep;
-		keepRect.clip(Common::Rect(_textSurface.w, _textSurface.h));
+		keepRect.clip(area);
 		if (!keepRect.isEmpty()) {
+			if (_korAlphaSurface.getPixels())
+				keepAlpha.copyFrom(_korAlphaSurface.getSubArea(keepRect));
 			keep.create(keepRect.width(), keepRect.height(), _textSurface.format);
 			for (int yy = 0; yy < keepRect.height(); ++yy)
 				memcpy(keep.getBasePtr(0, yy),
@@ -1521,18 +1535,19 @@ void ScummEngine::clearTextSurface() {
 	_korTtfRun.clear();
 	_korTtfRunActive = false;
 
-	// Nothing is left on the surface after this.
-	_hiResTextDirty = Common::Rect();
+	// Other screens still own their text after a scoped clear.
+	if (!vs)
+		_hiResTextDirty = Common::Rect();
 
-	towns_fillTopLayerRect(0, 0, _textSurface.w, _textSurface.h, 0);
-	fill((byte *)_textSurface.getPixels(), _textSurface.pitch,
+	towns_fillTopLayerRect(area.left, area.top, area.width(), area.height(), 0);
+	fill((byte *)_textSurface.getBasePtr(area.left, area.top), _textSurface.pitch,
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 		_game.platform == Common::kPlatformFMTowns ? 0 :
 #endif
-		CHARSET_MASK_TRANSPARENCY,  _textSurface.w, _textSurface.h, _textSurface.format.bytesPerPixel);
+		CHARSET_MASK_TRANSPARENCY, area.width(), area.height(), _textSurface.format.bytesPerPixel);
 
 	if (_korAlphaSurface.getPixels())
-		_korAlphaSurface.fillRect(Common::Rect(0, 0, _korAlphaSurface.w, _korAlphaSurface.h), 0);
+		_korAlphaSurface.fillRect(area, 0);
 
 	if (keep.getPixels()) {
 		for (int yy = 0; yy < keepRect.height(); ++yy)
@@ -1540,7 +1555,11 @@ void ScummEngine::clearTextSurface() {
 				   keep.getBasePtr(0, yy),
 				   keepRect.width() * _textSurface.format.bytesPerPixel);
 		keep.free();
-		_hiResTextDirty = _hiResTextKeep;
+		if (keepAlpha.getPixels()) {
+			_korAlphaSurface.copyRectToSurface(keepAlpha, keepRect.left, keepRect.top, Common::Rect(keepAlpha.w, keepAlpha.h));
+			keepAlpha.free();
+		}
+		_hiResTextDirty.extend(_hiResTextKeep);
 	}
 }
 
