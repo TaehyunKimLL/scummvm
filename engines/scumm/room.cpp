@@ -64,7 +64,18 @@ void ScummEngine::startScene(int room, Actor *a, int objectNr) {
 	if (isKoreanHiRes()) {
 		// A new room means the old picture is gone, burned-in text with it.
 		_hiResTextKeep = Common::Rect();
-		clearTextSurface();
+
+		// The verb strip does not belong to the room: it is drawn once when
+		// the interface appears and then left alone, so nothing repaints it
+		// on a room change. Clearing the whole overlay here therefore wiped
+		// the verbs permanently (MI2 bridge). Only take down the screens the
+		// room actually owns and leave the verb band intact.
+		for (int i = 0; i < 3; ++i) {
+			VirtScreen *v = &_virtscr[i];
+			if (!v->h || v->number == kVerbVirtScreen)
+				continue;
+			clearTextSurface(v);
+		}
 
 		// Clearing the surface is only half of it. The verb strip is drawn
 		// once and then left alone - it only reaches the screen again when
