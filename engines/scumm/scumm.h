@@ -1728,7 +1728,7 @@ protected:
 
 	void restoreCharsetBg();
 	void clearCharsetMask();
-	void clearTextSurface();
+	void clearTextSurface(const VirtScreen *vs = nullptr);
 
 	virtual void initCharset(int charset);
 
