@@ -63,6 +63,34 @@ translation names remain opaque adapter data. Never pass a bitmap template as
 an unchecked printf format. The parser performs no allocations based on glyph
 count and does not open referenced font or translation files.
 
+## Bitmap fonts (G2)
+
+`HiResBitmapFont` reads the "SVFN" bitmap font format: 1bpp stencil or 8bpp
+coverage, optional per-glyph metrics. The 8bpp form carries anti-aliased shapes
+baked by a tool, so a build without FreeType renders the same glyphs; that makes
+it the primary format rather than a fallback.
+
+Lookup is by Unicode code point. Files written so far order their glyphs by a
+code page named in the header (949 for the Korean sets, 0 for the single byte
+sets); the loader builds a code point map for that block by decoding it, so
+existing files keep working. Version 2 files carry their own code point table
+and need no code page.
+
+The CJK block decoding uses ScummVM's shared conversion tables, so
+`encoding.dat` must be reachable at run time. Without it every CJK lookup
+returns -1 and the engine already warns "Support for CJK is disabled".
+Single byte fonts do not depend on it.
+
+These fonts hold only their double byte block: ASCII resolves to -1 in a Korean
+font and belongs to a separate single byte font. Header offsets are all checked
+against the file, `load` bounds its allocation with a caller-supplied limit, and
+a metrics table that does not fit is dropped without losing the glyphs.
+
+Verified against the shipped fonts inside a running engine (MI2 and Indy3
+Korean targets): U+AC00 maps to glyph 0 and U+D79D to glyph 2349 in the 2350
+glyph Korean sets, 'A' maps to glyph 65 in the Latin sets, and the engine's own
+legacy `.fnt` files are rejected so the caller can fall back.
+
 Tests: `test/graphics/hires_text_font_map.h`, included by `make test`. Both
 FreeType-enabled and no-engine/no-FreeType configurations must pass. G2 adds
 actual glyph metrics and SVFN loading; G3 adds coverage rendering.
