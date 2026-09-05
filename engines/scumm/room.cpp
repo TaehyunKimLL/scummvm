@@ -62,6 +62,8 @@ void ScummEngine::startScene(int room, Actor *a, int objectNr) {
 	// stopTalk() above already took down the actor speech; this covers the
 	// rest, including text drawn by scripts that never set the charset mask.
 	if (isKoreanHiRes()) {
+		// A new room means the old picture is gone, burned-in text with it.
+		_hiResTextKeep = Common::Rect();
 		clearTextSurface();
 
 		// Clearing the surface is only half of it. The verb strip is drawn

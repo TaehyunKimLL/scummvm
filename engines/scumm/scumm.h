@@ -1847,6 +1847,14 @@ public:
 	// rectangle is what the hi-res surface actually has on it, so it can
 	// be cleared without waiting for the charset to admit ownership.
 	Common::Rect _hiResTextDirty;
+	// Glyphs drawn with ignoreCharsetMask belong to the picture rather than
+	// to the transient text layer: nothing will draw them a second time, so
+	// clearing the text surface must leave them alone.
+	Common::Rect _hiResTextKeep;
+	// Set for the duration of one glyph so the low level drawing helpers,
+	// which never see the charset renderer's flags, can tell whether what
+	// they are about to draw belongs to the picture.
+	bool _hiResTextBurnIn = false;
 
 	// Outline and drop shadow for the hi-res paths. The game's own value
 	// (_2byteShadow) only reaches the built-in bitmap blitter, so without
@@ -1870,7 +1878,7 @@ public:
 	int getSvfnWidth(uint16 chr) const;
 	bool parseSvfnHeader(const byte *buf, uint32 size, SvfnFont &out) const;
 	const byte *getSvfnGlyph(const SvfnFont &font, int idx) const;
-	void noteHiResTextDrawn(int x, int y, int w, int h);
+	void noteHiResTextDrawn(int x, int y, int w, int h, bool keep = false);
 	bool drawSvfnGlyph(Graphics::Surface &dest, const SvfnFont &font, int idx,
 					   int x, int y, byte color, byte shadowColor);
 	// Translation bundle name, when it is not the default korean.trs.
