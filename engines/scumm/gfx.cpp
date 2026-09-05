@@ -5017,6 +5017,102 @@ void ScummEngine::scrollEffect(int dir) {
 		delay *= 10;
 	}
 
+	if (isKoreanHiRes()) {
+		// The virtual screen is still CLUT8 at the game's resolution. Scaling
+		// only its pitch/rectangle neither enlarges the source nor converts it
+		// to the alpha-text output format. Also, incoming strips have different
+		// source and destination coordinates, unlike drawStripToScreen().
+		if (dir < 0 || dir > 3)
+			return;
+		const int m = _textSurfaceMultiplier;
+		const int width = MIN<int>(vs->w, _screenWidth);
+		const int height = MIN<int>(vs->h - _screenTop, _screenHeight - vs->topline);
+		if (width <= 0 || height <= 0)
+			return;
+		// A special render mode may own a different-sized/paletted backend.
+		// Reject unsupported combinations before composing or touching it; the
+		// legacy scroll path cannot scale/convert these pixels safely either.
+		if (m < 2 || _screenTop < 0 || vs->topline < 0 ||
+				vs->format != Graphics::PixelFormat::createFormatCLUT8() ||
+				_system->getScreenFormat() != _outputPixelFormat ||
+				_system->getWidth() < _screenWidth * m || _system->getHeight() < _screenHeight * m ||
+				(_koreanAlphaText ? _outputPixelFormat.bytesPerPixel != 4 :
+				 _outputPixelFormat != Graphics::PixelFormat::createFormatCLUT8())) {
+			warning("Hi-res scroll requires a matching screen size and pixel format");
+			return;
+		}
+		const Common::Rect area(0, vs->topline * m, width * m, (vs->topline + height) * m);
+		const auto validScreen = [&](const Graphics::Surface *screen) {
+			return screen && screen->getPixels() && screen->w >= area.right && screen->h >= area.bottom &&
+					screen->format == _outputPixelFormat && screen->pitch >= screen->w * screen->format.bytesPerPixel;
+		};
+		Graphics::Surface *screen = _system->lockScreen();
+		const bool supported = validScreen(screen);
+		if (screen)
+			_system->unlockScreen();
+		if (!supported) {
+			warning("Hi-res scroll requires a matching lockable screen surface");
+			return;
+		}
+
+		korTtfRunFlush();
+		compositeHiResText(vs->getPixels(0, _screenTop), vs->pitch,
+				0, vs->topline, width, height);
+		Graphics::Surface incoming;
+		incoming.create(width * m, height * m, _outputPixelFormat);
+		incoming.copyRectToSurface(_compositeBuf, incoming.pitch, 0, 0, incoming.w, incoming.h);
+
+		// Palette changes must reach areas not participating in the transition,
+		// without revealing the incoming main screen before the scroll.
+		updateDirtyScreen(kTextVirtScreen);
+		updateDirtyScreen(kVerbVirtScreen);
+		const int extent = (dir < 2) ? height : width;
+		for (int progress = 0; progress < extent && !shouldQuit(); progress += step) {
+			const int amount = MIN(step, extent - progress) * m;
+			screen = _system->lockScreen();
+			if (!validScreen(screen)) {
+				if (screen)
+					_system->unlockScreen();
+				warning("Hi-res scroll screen surface changed during the transition");
+				break;
+			}
+			Graphics::Surface stage = screen->getSubArea(area);
+			const int bpp = stage.format.bytesPerPixel;
+			// Surface::move() assumes tightly packed rows. A backend can have
+			// padding, so copy only the pixels belonging to the stage.
+			if (dir < 2) {
+				for (int row = 0; row < stage.h - amount; ++row) {
+					const int dstY = dir == 0 ? row : stage.h - 1 - row;
+					const int srcY = dir == 0 ? dstY + amount : dstY - amount;
+					memmove(stage.getBasePtr(0, dstY), stage.getBasePtr(0, srcY), stage.w * bpp);
+				}
+			} else {
+				for (int row = 0; row < stage.h; ++row)
+					memmove(stage.getBasePtr(dir == 2 ? 0 : amount, row),
+							stage.getBasePtr(dir == 2 ? amount : 0, row), (stage.w - amount) * bpp);
+			}
+			_system->unlockScreen();
+
+			int sx = 0, sy = 0, dx = 0, dy = area.top;
+			int w = incoming.w, h = incoming.h;
+			if (dir < 2) {
+				h = amount;
+				sy = dir == 0 ? progress * m : incoming.h - progress * m - amount;
+				if (dir == 0)
+					dy += incoming.h - amount;
+			} else {
+				w = amount;
+				sx = dir == 2 ? progress * m : incoming.w - progress * m - amount;
+				if (dir == 2)
+					dx = incoming.w - amount;
+			}
+			_system->copyRectToScreen(incoming.getBasePtr(sx, sy), incoming.pitch, dx, dy, w, h);
+			waitForTimer(delay, true);
+		}
+		incoming.free();
+		return;
+	}
+
 	const byte *src;
 	int m = _textSurfaceMultiplier;
 
