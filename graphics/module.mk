@@ -12,6 +12,7 @@ MODULE_OBJS := \
 	dirtyrects.o \
 	font.o \
 	fontman.o \
+	hires_text/font_map.o \
 	fonts/amigafont.o \
 	fonts/bdf.o \
 	fonts/bgifont.o \
