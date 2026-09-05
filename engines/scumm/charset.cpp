@@ -2577,6 +2577,7 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 
 	// Indy3 / Zak256 / Loom
 	int width, height, origWidth = 0, origHeight;
+	int advanceExtra = 0;
 	VirtScreen *vs;
 	const byte *charPtr;
 	int is2byte = (chr >= 256 && _vm->_useCJKMode) ? 1 : 0;
@@ -2600,11 +2601,21 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 			width = _vm->_2byteWidth;
 			height = _vm->_2byteHeight;
 
+			// getStringWidth() adds one pixel of side bearing for Korean,
+			// because the original keeps the glyph box and the advance
+			// apart. printChar() has to advance by the same amount or the
+			// glyphs sit exactly one cell apart with no gap at all and
+			// touch each other - and the line breaks the game computed
+			// from getStringWidth() land in the wrong place.
+			advanceExtra = 1;
+
 			// With TTF metrics the advance follows the font, not the
 			// fixed double byte cell.
 			const int ttfWidth = _vm->getKorTtfCharWidth(chr);
-			if (ttfWidth >= 0)
+			if (ttfWidth >= 0) {
 				width = ttfWidth;
+				advanceExtra = 0;
+			}
 		} else {
 			charPtr = _fontPtr + chr * 8;
 			width = getDrawWidthIntern(chr);
@@ -2701,7 +2712,7 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	if (_str.left > _left)
 		_str.left = _left;
 
-	_left += origWidth;
+	_left += origWidth + advanceExtra;
 
 	if (_str.right < _left) {
 		_str.right = _left;
