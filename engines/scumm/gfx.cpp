@@ -1501,6 +1501,22 @@ void ScummEngine::clearCharsetMask() {
 }
 
 void ScummEngine::clearTextSurface() {
+	// Text the game burned into the picture has to survive: nothing will
+	// draw it a second time. Save that band, wipe everything, put it back.
+	Graphics::Surface keep;
+	Common::Rect keepRect;
+	if (!_hiResTextKeep.isEmpty() && _textSurface.getPixels()) {
+		keepRect = _hiResTextKeep;
+		keepRect.clip(Common::Rect(_textSurface.w, _textSurface.h));
+		if (!keepRect.isEmpty()) {
+			keep.create(keepRect.width(), keepRect.height(), _textSurface.format);
+			for (int yy = 0; yy < keepRect.height(); ++yy)
+				memcpy(keep.getBasePtr(0, yy),
+					   _textSurface.getBasePtr(keepRect.left, keepRect.top + yy),
+					   keepRect.width() * _textSurface.format.bytesPerPixel);
+		}
+	}
+
 	// Drop any half-collected run: its destination is about to be wiped.
 	_korTtfRun.clear();
 	_korTtfRunActive = false;
@@ -1517,6 +1533,15 @@ void ScummEngine::clearTextSurface() {
 
 	if (_korAlphaSurface.getPixels())
 		_korAlphaSurface.fillRect(Common::Rect(0, 0, _korAlphaSurface.w, _korAlphaSurface.h), 0);
+
+	if (keep.getPixels()) {
+		for (int yy = 0; yy < keepRect.height(); ++yy)
+			memcpy(_textSurface.getBasePtr(keepRect.left, keepRect.top + yy),
+				   keep.getBasePtr(0, yy),
+				   keepRect.width() * _textSurface.format.bytesPerPixel);
+		keep.free();
+		_hiResTextDirty = _hiResTextKeep;
+	}
 }
 
 byte *ScummEngine::getMaskBuffer(int x, int y, int z) {

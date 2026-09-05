@@ -390,12 +390,23 @@ const byte *ScummEngine::getSvfnGlyph(const SvfnFont &font, int idx) const {
  * sentence line - never enters it, so nothing would ever clear those
  * glyphs off the scaled surface and they survive into the next room.
  */
-void ScummEngine::noteHiResTextDrawn(int x, int y, int w, int h) {
+void ScummEngine::noteHiResTextDrawn(int x, int y, int w, int h, bool keep) {
 	const Common::Rect r(x, y, x + w, y + h);
 	if (_hiResTextDirty.isEmpty())
 		_hiResTextDirty = r;
 	else
 		_hiResTextDirty.extend(r);
+
+	// Glyphs the game means to burn into the picture must survive the next
+	// clear: it will not draw them again. MI2's difficulty screen puts its
+	// whole text up that way and then loses it the moment an ordinary,
+	// masked glyph triggers restoreCharsetBg().
+	if (keep) {
+		if (_hiResTextKeep.isEmpty())
+			_hiResTextKeep = r;
+		else
+			_hiResTextKeep.extend(r);
+	}
 }
 
 bool ScummEngine::drawSvfnGlyph(Graphics::Surface &dest, const SvfnFont &font, int idx,
@@ -494,7 +505,7 @@ bool ScummEngine::drawSvfnGlyph(Graphics::Surface &dest, const SvfnFont &font, i
 
 	// Remember what the hi-res surface now holds so it can be taken down
 	// later: the engine's charset mask does not track this text.
-	noteHiResTextDrawn(x, y, font.cellW, font.cellH);
+	noteHiResTextDrawn(x, y, font.cellW, font.cellH, _hiResTextBurnIn);
 
 	return true;
 }
@@ -1671,7 +1682,7 @@ bool ScummEngine::drawKorTtfChar(Graphics::Surface &dest, uint16 chr, int x, int
 	// Same bookkeeping as the bitmap path: the charset mask will not
 	// account for this text, so remember it here.
 	noteHiResTextDrawn(x, y, _2byteWidth * _koreanHiResScale,
-					   _2byteHeight * _koreanHiResScale);
+					   _2byteHeight * _koreanHiResScale, _hiResTextBurnIn);
 
 	return true;
 #else
@@ -3012,6 +3023,10 @@ void CharsetRendererClassic::printCharIntern(bool is2byte, const byte *charPtr, 
 			// The text surface is addressed in full screen coordinates, so
 			// the vertical offset is derived from _top rather than drawTop.
 			if (_vm->isKoreanHiRes()) {
+				// Tell the drawing helpers whether this glyph is meant to
+				// become part of the picture, so the text surface can keep
+				// it when the transient layer is cleared.
+				_vm->_hiResTextBurnIn = ignoreCharsetMask;
 				const int m = _vm->_textSurfaceMultiplier;
 				const int tx = (_left + vs->xstart) * m;
 				int top = _top;
@@ -3048,6 +3063,7 @@ void CharsetRendererClassic::printCharIntern(bool is2byte, const byte *charPtr, 
 			drawBitsN(dstSurface, dstPtr, charPtr, *_fontPtr, drawTop, origWidth, origHeight);
 		}
 charDrawn:
+		_vm->_hiResTextBurnIn = false;
 
 		if (_blitAlso && vs->hasTwoBuffers) {
 			// FIXME: Revisiting this code, I think the _blitAlso mode is likely broken
