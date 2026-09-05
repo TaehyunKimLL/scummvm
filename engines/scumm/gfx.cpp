@@ -701,8 +701,13 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 
 		// The values x, width, etc. are all multiples of 8 at this point,
 		// so loop unrolloing might be a good idea...
-		assert(IS_ALIGNED(text, 4));
-		assert(0 == (width & 3));
+		// Both asserts guard the four-pixels-at-a-time compositing loop
+		// further down. compositeHiResText() works a pixel at a time and
+		// needs neither an aligned pointer nor an aligned width, so let it
+		// through -- Loom CD dissolves the screen one pixel at a time and
+		// would trip these otherwise.
+		assert(isKoreanHiRes() || IS_ALIGNED(text, 4));
+		assert(isKoreanHiRes() || 0 == (width & 3));
 
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 		if (_game.platform == Common::kPlatformFMTowns) {
