@@ -1989,6 +1989,14 @@ int CharsetRendererClassic::getCharWidth(uint16 chr) const {
  * Enabled with "metrics=ttf" in the [latin] section of the font map.
  */
 int ScummEngine::getKorTtfCharWidth(uint16 chr) {
+	// Callers switch _useCJKMode off when they want the original bitmap
+	// font exactly as shipped - Loom builds its cursor by drawing a charset
+	// glyph into a 1x buffer that way. The replacement font's advance
+	// would make drawBitsN() unpack that 8 pixel wide bitmap 9 bits per
+	// row and shear the glyph.
+	if (!_useCJKMode)
+		return -1;
+
 	// A bitmap font answers first when it was told to: it is the one
 	// actually drawing the glyph, so its advance is what keeps the line
 	// evenly spaced.
