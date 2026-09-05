@@ -1705,7 +1705,13 @@ void ScummEngine::saveLoadWithSerializer(Common::Serializer &s) {
 			x *= 2;
 			x += (kHercWidth - _screenWidth * 2) / 2;
 			y = y * 7 / 4;
-		} else if (_textSurfaceMultiplier == 2 || _renderMode == Common::kRenderCGA_BW || _enableEGADithering) {
+		} else if (_textSurfaceMultiplier > 1) {
+			// Hi-res text mode scales the display by this factor, so the
+			// saved game coordinates have to follow. Anything other than
+			// two would fall through untouched otherwise.
+			x *= _textSurfaceMultiplier;
+			y *= _textSurfaceMultiplier;
+		} else if (_renderMode == Common::kRenderCGA_BW || _enableEGADithering) {
 			x *= 2;
 			y *= 2;
 		} else if (_macScreen) {
