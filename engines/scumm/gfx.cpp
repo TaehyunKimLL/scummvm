@@ -1926,7 +1926,13 @@ void ScummEngine::drawLine(int x1, int y1, int x2, int y2, int color) {
 
 void ScummEngine::drawPixel(VirtScreen *vs, int x, int y, int16 color, bool useBackbuffer) {
 	int factor = _isIndy4Jap ? 0 : 8;
-	int wScale = (vs->number == kBannerVirtScreen && _textSurfaceMultiplier == 2) ? 2 : 1;
+	// The banner virtual screen is only allocated at twice the width for the
+	// FM-Towns hi-res mode, which is what this doubling was written for. The
+	// Korean hi-res mode also raises _textSurfaceMultiplier but keeps the
+	// banner at the game's own width, so testing the multiplier here wrote
+	// past the end of its buffer and corrupted the heap. Ask the screen how
+	// wide it actually is instead.
+	int wScale = (vs->number == kBannerVirtScreen && vs->w >= _screenWidth * 2) ? 2 : 1;
 	if (x >= 0 && y >= 0 && _screenWidth + factor > x && _screenHeight > y) {
 		if (useBackbuffer) {
 			*(vs->getBackPixels(x, y + _screenTop - vs->topline)) = color;
