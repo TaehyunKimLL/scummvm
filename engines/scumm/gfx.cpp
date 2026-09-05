@@ -4901,7 +4901,13 @@ void ScummEngine::dissolveEffect(int width, int height) {
 			towns_drawStripToScreen(vs, x, y + vs->topline, x, y, width, height);
 		else
 #endif
-		if (IS_ALIGNED(width, 4))
+		// The unaligned path below writes to the display buffer directly,
+		// which is the game's own resolution. In hi-res text mode the
+		// display is _textSurfaceMultiplier times that, so those writes
+		// land as an unscaled patch in the corner of the screen. Take the
+		// composite path instead, the same way the FM-Towns dual layer
+		// mode has its own routine above.
+		if (IS_ALIGNED(width, 4) || isKoreanHiRes())
 			drawStripToScreen(vs, x, width, y, y + height);
 		else {
 			const byte *src = vs->getPixels(x, y);
