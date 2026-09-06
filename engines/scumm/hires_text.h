@@ -109,6 +109,21 @@ struct ScummHiResText {
 
 	/// The cached palette as RGB triples, for the cursor, which stays paletted.
 	const byte *paletteRGB() const { return _paletteRGB; }
+
+	/**
+	 * The format to declare a cursor in.
+	 *
+	 * Cursor data is palette indices whatever the screen is. When blending is
+	 * active the screen is true colour, and declaring the cursor in the screen
+	 * format would have the backend read one index byte per channel - the
+	 * cursor comes out as noise smeared across four times its width. Keep
+	 * saying CLUT8, and let the cursor palette carry the colours.
+	 *
+	 * @param screenFormat  what the backend reports for the screen
+	 */
+	Graphics::PixelFormat cursorFormat(const Graphics::PixelFormat &screenFormat) const;
+
+
 	Common::CodePage encoding() const { return _config.encoding; }
 
 	const Graphics::HiResTextConfig &config() const { return _config; }

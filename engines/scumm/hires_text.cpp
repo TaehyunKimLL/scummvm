@@ -267,6 +267,12 @@ void ScummHiResText::updatePaletteCache(const Graphics::PixelFormat &format,
 	}
 }
 
+Graphics::PixelFormat ScummHiResText::cursorFormat(const Graphics::PixelFormat &screenFormat) const {
+	if (_alphaActive)
+		return Graphics::PixelFormat::createFormatCLUT8();
+	return screenFormat;
+}
+
 void ScummHiResText::createCoverage(int w, int h) {
 	freeCoverage();
 
