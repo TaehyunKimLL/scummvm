@@ -58,6 +58,18 @@ struct ScummHiResText {
 	void loadConfig(const Common::Path &gameDir, const Common::String &gameId,
 					int version, Common::Language language);
 
+	/**
+	 * Settle the scale once the game's own font size is known.
+	 *
+	 * Only the simple, map-less form needs this: its fonts name no scale,
+	 * so it is read off the smallest font's cell against the game's font.
+	 * With a map, or a user setting, this is a no-op.
+	 *
+	 * @param gameFontHeight  the height of the game's own CJK font, in game
+	 *                        pixels; 0 when it has none
+	 */
+	void resolveScale(int gameFontHeight);
+
 	void reset();
 
 	/**
@@ -294,6 +306,9 @@ struct ScummHiResText {
 
 private:
 	bool _enabled;
+	bool _simpleFonts = false;      ///< fonts found by name, with no map
+	int _simpleCellHeight = 0;      ///< smallest cell among them, for the scale
+	bool _scaleFromUser = false;
 	Graphics::HiResTextConfig _config;
 	Graphics::Surface _coverage;
 
@@ -324,6 +339,8 @@ private:
 	// Optional running log of what is being drawn, for working out which
 	// scenes exercise which fonts. Off unless hires_text_log is set.
 	bool _logText = false;
+
+	bool probeSimpleFonts(const Common::Path &gameDir);
 	void noteDrawn(int charsetId, const Graphics::HiResBitmapFont *font, int chr) const;
 	void flushTextLog() const;
 

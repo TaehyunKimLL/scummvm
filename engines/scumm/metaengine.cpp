@@ -970,7 +970,17 @@ bool ScummMetaEngine::targetHasHiResText(const Common::String &target) {
 	if (gameDir.empty())
 		return false;
 
-	return Common::FSNode(gameDir.appendComponent("hires_text.map")).exists();
+	// A map, or the map-less form: fonts under the conventional names.
+	// hires00.fnt is not required to exist - a set may start at 1 - so
+	// check the few names a translation would plausibly ship first.
+	static const char *const names[] = {
+		"hires_text.map", "hires.fnt", "hires00.fnt", "hires01.fnt", "hires02.fnt"
+	};
+	for (uint i = 0; i < ARRAYSIZE(names); ++i) {
+		if (Common::FSNode(gameDir.appendComponent(names[i])).exists())
+			return true;
+	}
+	return false;
 }
 
 const ExtraGuiOptions ScummMetaEngine::getExtraGuiOptions(const Common::String &target) const {

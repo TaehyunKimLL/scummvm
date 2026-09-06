@@ -1273,6 +1273,10 @@ Common::Error ScummEngine::init() {
 	// Load it earlier so _useCJKMode variable could be set
 	loadCJKFont();
 
+	// Map-less fonts name no scale; now that the game's own font size is
+	// known it can be read off them.
+	_hiResText.resolveScale(_useCJKMode ? _2byteHeight : 0);
+
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	if (_game.platform == Common::kPlatformFMTowns && _forceFMTownsHiResMode)
 		_textSurfaceMultiplier = 2;
