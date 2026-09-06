@@ -126,6 +126,9 @@ void ScummHiResText::reset() {
 	for (int i = 0; i < kMaxFonts; ++i)
 		_fonts[i].free();
 	_singleFont.free();
+	_latinFont.free();
+	for (int i = 0; i < kMaxFonts; ++i)
+		_latinFonts[i].free();
 }
 
 bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
@@ -133,6 +136,9 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 	for (int i = 0; i < kMaxFonts; ++i)
 		_fonts[i].free();
 	_singleFont.free();
+	_latinFont.free();
+	for (int i = 0; i < kMaxFonts; ++i)
+		_latinFonts[i].free();
 
 	if (!_enabled)
 		return false;
@@ -196,6 +202,67 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 		}
 	}
 
+	// Latin companions, for the letters the double-byte sets do not carry.
+	// The menu, the location titles and much of the dialogue mix scripts, so
+	// without these the two halves of a line are drawn at different qualities.
+	//
+	// The name may be a pattern, exactly like the CJK one, because a game can
+	// use a different cell per charset - MI2 has five - and a Latin face at
+	// the wrong cell sits on a different baseline from the Hangul beside it.
+	if (!_config.legacy.latinBitmapName.empty()) {
+		const Common::String &latinName = _config.legacy.latinBitmapName;
+		const bool latinPattern = latinName.contains('%');
+
+		if (latinPattern) {
+			for (int i = 0; i < kMaxFonts; ++i) {
+				Common::String name = Common::String::format(latinName.c_str(), i);
+				Common::FSNode node(gameDir.appendComponent(name));
+				if (!node.exists())
+					continue;
+
+				Common::SeekableReadStream *stream = node.createReadStream();
+				if (!stream)
+					continue;
+
+				if (_latinFonts[i].load(*stream)) {
+					_fontsLoaded = true;
+					debug(1, "SCUMM: hi-res Latin font %d <- %s: %dx%d cell, "
+							 "%d bpp, %d glyphs, %s",
+						  i, name.c_str(),
+						  _latinFonts[i].cellWidth(), _latinFonts[i].cellHeight(),
+						  _latinFonts[i].bpp(), _latinFonts[i].glyphCount(),
+						  _latinFonts[i].isProportional() ? "proportional" : "fixed width");
+				} else {
+					warning("SCUMM: %s is not a usable hi-res font", name.c_str());
+				}
+				delete stream;
+			}
+		} else {
+			Common::FSNode node(gameDir.appendComponent(latinName));
+			if (node.exists()) {
+				Common::SeekableReadStream *stream = node.createReadStream();
+				if (stream) {
+					if (_latinFont.load(*stream)) {
+						_fontsLoaded = true;
+						debug(1, "SCUMM: hi-res Latin font <- %s: %dx%d cell, "
+								 "%d bpp, %d glyphs, %s",
+							  latinName.c_str(),
+							  _latinFont.cellWidth(), _latinFont.cellHeight(),
+							  _latinFont.bpp(), _latinFont.glyphCount(),
+							  _latinFont.isProportional() ? "proportional" : "fixed width");
+					} else {
+						warning("SCUMM: %s is not a usable hi-res font",
+								latinName.c_str());
+					}
+					delete stream;
+				}
+			} else {
+				warning("SCUMM: hi-res Latin font not found: %s",
+						latinName.c_str());
+			}
+		}
+	}
+
 	if (!_fontsLoaded)
 		warning("SCUMM: hi-res text is configured but no replacement font loaded");
 
@@ -206,9 +273,18 @@ bool ScummHiResText::hasFonts() const {
 	return _fontsLoaded;
 }
 
-const Graphics::HiResBitmapFont *ScummHiResText::fontFor(int charsetId) const {
+const Graphics::HiResBitmapFont *ScummHiResText::fontFor(int charsetId, bool latin) const {
 	if (!_fontsLoaded)
 		return nullptr;
+
+	// A single-byte character has no glyph in a CP949-indexed set, so it must
+	// come from a Latin font or not at all. Prefer the one baked for this
+	// charset's cell, so it shares a baseline with the Hangul around it.
+	if (latin) {
+		if (charsetId >= 0 && charsetId < kMaxFonts && _latinFonts[charsetId].isLoaded())
+			return &_latinFonts[charsetId];
+		return _latinFont.isLoaded() ? &_latinFont : nullptr;
+	}
 
 	if (charsetId >= 0 && charsetId < kMaxFonts && _fonts[charsetId].isLoaded())
 		return &_fonts[charsetId];
@@ -252,7 +328,7 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	// Which font can hold this character is decided by how the game encoded
 	// it, not by the code point: a CP949-indexed set has no Latin glyphs even
 	// for characters that exist in Unicode.
-	const Graphics::HiResBitmapFont *font = fontFor(charsetId);
+	const Graphics::HiResBitmapFont *font = fontFor(charsetId, chr < 256);
 	if (!font)
 		return false;
 
@@ -331,7 +407,7 @@ int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
 	// slightly loose text rather than characters drawn on top of each other.
 	const bool fontMetrics = (_config.metricsSource == Graphics::kHiResMetricsFont);
 
-	const Graphics::HiResBitmapFont *font = fontFor(charsetId);
+	const Graphics::HiResBitmapFont *font = fontFor(charsetId, chr < 256);
 	if (!font)
 		return gameWidth;
 

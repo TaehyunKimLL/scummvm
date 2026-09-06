@@ -225,7 +225,7 @@ struct ScummHiResText {
 	 * @param charsetId  the game's own charset number
 	 * @return null when nothing covers it, i.e. draw it the original way
 	 */
-	const Graphics::HiResBitmapFont *fontFor(int charsetId) const;
+	const Graphics::HiResBitmapFont *fontFor(int charsetId, bool latin = false) const;
 
 	/// Whether any replacement font is loaded.
 	bool hasFonts() const;
@@ -279,6 +279,16 @@ private:
 	Graphics::HiResBitmapFont _fonts[kMaxFonts];
 	Graphics::HiResBitmapFont _singleFont;
 
+	// Latin text goes through the same printChar() path as CJK, so it can have
+	// a hi-res font too - the game's own 8px letters look coarse next to a
+	// scaled replacement. A separate font because the CJK sets index by a
+	// double-byte code page and carry no Latin glyphs.
+	Graphics::HiResBitmapFont _latinFont;
+
+	// Per-charset Latin faces, when the map names a pattern. A game can use a
+	// different cell per charset - MI2 has five - and a Latin face at the
+	// wrong cell sits on a different baseline from the Hangul beside it.
+	Graphics::HiResBitmapFont _latinFonts[kMaxFonts];
 	bool _fontsLoaded;
 
 	/// Decode one of the game's characters and look it up; -1 when absent.
