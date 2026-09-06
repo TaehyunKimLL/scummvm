@@ -5,22 +5,30 @@ lives here; the font handling itself is in `graphics/hires_text` and has no
 engine dependency, so a second engine can reuse it without inheriting SCUMM's
 screen model.
 
-## Current state
+## What it does
 
-`ScummHiResText` holds the configuration and decides whether the hi-res path
-applies at all. Nothing else reads it yet: fonts are not loaded, strings are not
-decoded and nothing is drawn differently. This step is deliberately inert, so
-that any rendering difference it causes is a bug rather than a feature.
+A CJK translation ships bitmap fonts drawn on the game's 320x200 grid. This
+layer lets it ship larger ones instead: the text surface is enlarged by an
+integer factor (1-3), the translation's fonts are replaced by anti-aliased
+`.fnt` files baked at that size, and the result is composited over the
+unscaled game. Game graphics are untouched; only text is drawn differently.
+
+`ScummHiResText` owns the configuration, the loaded fonts and the drawing
+entry points that `CharsetRenderer` calls into. When it is not enabled the
+engine never reaches this code, which is the guarantee that every game we do
+not touch stays untouched.
 
 ## Configuration
 
 Per target, in `scummvm.ini`:
 
-```ini
-hires_text_scale=3        ; 1-3, 1 disables
-hires_text_alpha=true     ; keep a coverage surface for blending
-hires_text_map=/path/to/hires_text.map
-```
+| key | values | default | meaning |
+|---|---|---|---|
+| `hires_text_map` | path | *(none)* | map file; relative paths resolve against the game folder |
+| `hires_text_scale` | 1-3 | from map, else 1 | text surface multiplier; outranks the map |
+| `hires_text_alpha` | bool | from map, else false | keep a coverage surface and blend, instead of stencilling |
+| `hires_text_metrics` | `game` / `font` | `game` | whose advances lay the line out (see below) |
+| `hires_text_log` | bool | false | print one `HRTEXT` line per string drawn, with charset and font |
 
 The older `korean_hires_scale` and `korean_alpha_text` keys are still read,
 so an existing install keeps working. The new names win when both are present.
@@ -30,12 +38,29 @@ maps are in the TrueType-era format; honouring them let the legacy loader draw
 the text while this layer supplied only the scale, and the mismatch showed up
 as click drift in Loom. A configured `korean_ttf_map` produces a warning.
 
-With no map key at all, `hires_text.map` is looked for in the game folder,
-which lets a translation ship one and need no setup.
+None of these keys can be passed on the command line; ScummVM rejects unknown
+options there. They go in the target's section.
+
+### Where the map comes from
+
+1. `hires_text_map` in the target section, if set. A missing file is a warning
+   and the layer stays off.
+2. Otherwise `hires_text.map` in the game folder, if one is there. This is how
+   a translation ships hi-res text and needs no setup.
+3. Otherwise the layer is off.
 
 Map sections may be narrowed by game id or by SCUMM version, most specific
 first - `[fonts:monkey2]`, then `[fonts:v5]`, then `[fonts]`. Those strings are
 the engine's business; the parser treats them as opaque qualifiers.
+
+### There is no "off" switch yet
+
+`enabled()` is true whenever a map loaded *and* it asks for something - a
+scale above 1, or a replacement bitmap font. With a `hires_text.map` in the
+game folder there is currently no ini key that turns the layer off short of
+removing the file: `hires_text_scale=1` only drops the scale, the replacement
+fonts still apply. A `hires_text=false` master switch is the planned fix and
+the natural thing to bind a GUI checkbox to.
 
 ## Ordering
 
@@ -43,13 +68,12 @@ the engine's business; the parser treats them as opaque qualifiers.
 rest of the setup works from. A user setting outranks the map, so logical font
 sizes (`12pt`) are only resolved afterwards, by `resolvedFontSize()`.
 
-## Enabling
-
-`enabled()` is false unless a map actually loaded *and* it asks for something -
-a scale above 1, or a replacement bitmap font. Being asked for is not the same
-as being usable: without a map there is nothing naming the fonts, so the engine
-stays on its original path. Every game we do not touch has to stay untouched,
-and this is the switch that guarantees it.
+`loadFonts()` runs after the charsets are known. The map names a numbered set
+(`multi=hr%02d.fnt`, one file per charset the game uses) or a single file
+(`single=`) standing in for all of them; a charset without a file of its own
+falls back to the nearest loaded one. Latin companions (`[latin] bitmap=`) are
+loaded the same way, because a double-byte set carries no ASCII and a Latin
+face at the wrong cell sits on a different baseline from the Hangul beside it.
 
 The default source encoding follows the detected language (CP949 for Korean,
 CP932 for Japanese, CP936/CP950 for Chinese) and is otherwise left unset - a
@@ -117,10 +141,32 @@ The cost is real: an FM-Towns game cannot use a hi-res scale. Removing that
 limit means reworking the Towns layer path, which is deliberately out of scope
 here - it would touch every SCUMM platform at once.
 
+v7 games (Full Throttle, The Dig) blit their own screen and are not enlarged
+either; they take replacement fonts at scale 1 only, and SMUSH subtitles still
+go through `NutRenderer` untouched.
+
+## Diagnostics
+
+Run with `-d1` and read the log:
+
+| line | meaning |
+|---|---|
+| `hi-res map read: '...' (from the config / found in the game folder)` | which map was used and why |
+| `hi-res map REJECTED` | the parser refused it; see `graphics/hires_text/README.md` for the limits |
+| `'...' names no [bitmap] fonts; if this is an older TrueType map ...` | a stale map; regenerate it |
+| `hi-res text enabled: scale N, alpha ..., fonts ...` | the layer is on |
+| `hi-res font N <- file: WxH cell, bpp, glyphs, ...` | one line per font actually loaded |
+| `... is not a usable hi-res font` | a named file exists but is not SVFN |
+| `HRTEXT charset=N font=M cell=WxH "..."` | with `hires_text_log=true`, every string drawn |
+
+No `hi-res text enabled` line means the engine is on its original path,
+whatever the ini says.
+
 ## Verification
 
-There is no unit test: SCUMM is not registered with the test runner, and this
-code reads ConfMan and the filesystem. It is verified by the regression harness
-instead (`~/games/regress.sh` + `rgdiff.py`), which must report **zero** changed
-targets against the previous commit - the whole point of this step is that
-nothing renders differently yet.
+There is no unit test for this file: SCUMM is not registered with the test
+runner, and this code reads ConfMan and the filesystem. It is verified by the
+regression harness instead (`~/games/regress.sh` + `rgdiff.py`), which must
+report **zero** changed targets for any commit that is not meant to change
+rendering. Font map parsing and bitmap font loading have unit tests under
+`test/graphics/`.
