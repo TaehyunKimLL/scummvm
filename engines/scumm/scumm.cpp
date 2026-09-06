@@ -1746,6 +1746,11 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 	// paletted surface, so it gets one of its own alongside.
 	_hiResText.createCoverage(_textSurface.w, _textSurface.h);
 
+	// The replacement fonts themselves. Failing to load leaves the engine on
+	// its original path rather than showing nothing.
+	_hiResText.loadFonts(ConfMan.getPath("path"));
+
+
 	// Create the costume renderer
 	setupCostumeRenderer();
 

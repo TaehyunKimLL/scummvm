@@ -25,6 +25,8 @@
 #include "common/language.h"
 #include "common/path.h"
 #include "common/rect.h"
+#include "graphics/hires_text/glyph_renderer.h"
+#include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/font_map.h"
 #include "graphics/surface.h"
 
@@ -115,6 +117,48 @@ struct ScummHiResText {
 	 *
 	 * @param w, h  size of the text surface it accompanies
 	 */
+	/**
+	 * Load the replacement fonts the map named.
+	 *
+	 * @param gameDir  where a relative font name is looked for
+	 * @return false when nothing usable loaded, leaving the engine on its
+	 *         original path
+	 */
+	bool loadFonts(const Common::Path &gameDir);
+
+	/**
+	 * The replacement font for one of the game's charsets.
+	 *
+	 * A game swaps charset in the middle of a scene - dialogue, the verb
+	 * line and a title card are different sizes - so the map names a
+	 * numbered set and each entry is baked for one of them.
+	 *
+	 * @param charsetId  the game's own charset number
+	 * @return null when nothing covers it, i.e. draw it the original way
+	 */
+	const Graphics::HiResBitmapFont *fontFor(int charsetId) const;
+
+	/// Whether any replacement font is loaded.
+	bool hasFonts() const;
+
+	/**
+	 * Draw one character with the replacement font.
+	 *
+	 * @param dest       the surface the engine would have drawn to
+	 * @param chr        the character, in the game's own encoding
+	 * @param charsetId  the game's current charset number
+	 * @param x, y       where the glyph goes, in destination pixels
+	 * @param color      palette index for the glyph body
+	 * @param shadowColor  palette index for the decoration
+	 * @param gameShadow the engine's own shadow style, followed when the map
+	 *                   did not override it
+	 * @param dirty      if not null, extended by the area written
+	 * @return false when nothing was drawn and the caller must fall back
+	 */
+	bool drawChar(Graphics::Surface &dest, int chr, int charsetId,
+				  int x, int y, byte color, byte shadowColor,
+				  int gameShadow, Common::Rect *dirty = nullptr);
+
 	void createCoverage(int w, int h);
 
 	void freeCoverage();
@@ -139,6 +183,13 @@ private:
 	bool _enabled;
 	Graphics::HiResTextConfig _config;
 	Graphics::Surface _coverage;
+
+	// The numbered set the map names, indexed by the game's charset id, plus
+	// the single one used when no numbered file matched.
+	static const int kMaxFonts = 20;
+	Graphics::HiResBitmapFont _fonts[kMaxFonts];
+	Graphics::HiResBitmapFont _singleFont;
+	bool _fontsLoaded;
 };
 
 } // End of namespace Scumm

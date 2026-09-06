@@ -24,6 +24,7 @@
 #include "common/config-manager.h"
 #include "common/fs.h"
 #include "common/rect.h"
+#include "common/stream.h"
 #include "common/textconsole.h"
 #include "common/ustr.h"
 
@@ -37,14 +38,214 @@ static const char *const kDefaultMapName = "hires_text.map";
 // an existing install keeps working.
 static const char *const kLegacyMapName = "korean_ttf.map";
 
+/**
+ * Expand a numbered font name, e.g. "korean%02d.fnt" with 3 -> "korean03.fnt".
+ *
+ * The template comes from a map file, so it must not be handed to printf: a
+ * hand-edited map could otherwise name any conversion it liked, including one
+ * that reads a pointer off the stack. Only a single integer field is
+ * understood, with an optional zero-padded width.
+ */
+static Common::String expandFontPattern(const Common::String &pattern, int index) {
+	const char *percent = strchr(pattern.c_str(), '%');
+	if (!percent)
+		return Common::String();
+
+	Common::String out(pattern.c_str(), percent);
+	const char *p = percent + 1;
+
+	bool zeroPad = false;
+	if (*p == '0') {
+		zeroPad = true;
+		++p;
+	}
+
+	int width = 0;
+	while (*p >= '0' && *p <= '9') {
+		width = width * 10 + (*p - '0');
+		if (width > 8)
+			return Common::String();
+		++p;
+	}
+
+	if (*p != 'd')
+		return Common::String();
+	++p;
+
+	Common::String number = Common::String::format("%d", index);
+	while (zeroPad && (int)number.size() < width)
+		number = Common::String("0") + number;
+
+	out += number;
+	out += p;
+	return out;
+}
+
 ScummHiResText::ScummHiResText() {
 	reset();
 }
 
 void ScummHiResText::reset() {
 	_enabled = false;
+	_fontsLoaded = false;
 	_config.clear();
 	freeCoverage();
+
+	for (int i = 0; i < kMaxFonts; ++i)
+		_fonts[i].free();
+	_singleFont.free();
+}
+
+bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
+	_fontsLoaded = false;
+	for (int i = 0; i < kMaxFonts; ++i)
+		_fonts[i].free();
+	_singleFont.free();
+
+	if (!_enabled)
+		return false;
+
+	// A game changes charset mid-scene - dialogue, the verb line and a title
+	// card are different sizes - so a map names a numbered set, one file per
+	// charset the game uses.
+	if (!_config.bitmapPattern.empty()) {
+		for (int i = 0; i < kMaxFonts; ++i) {
+			const Common::String name = expandFontPattern(_config.bitmapPattern, i);
+			if (name.empty())
+				break;
+
+			Common::FSNode node(gameDir.appendComponent(name));
+			if (!node.exists())
+				continue;
+
+			Common::SeekableReadStream *stream = node.createReadStream();
+			if (!stream)
+				continue;
+
+			if (_fonts[i].load(*stream)) {
+				_fontsLoaded = true;
+				debug(1, "SCUMM: hi-res font %d: %dx%d %dbpp, %d glyphs%s",
+					  i, _fonts[i].cellWidth(), _fonts[i].cellHeight(), _fonts[i].bpp(),
+					  _fonts[i].glyphCount(), _fonts[i].isProportional() ? ", proportional" : "");
+			}
+			delete stream;
+		}
+	}
+
+	// One file standing in for every charset, which is what a translation with
+	// a single font size ships.
+	if (!_config.bitmapSingle.empty()) {
+		Common::FSNode node(gameDir.appendComponent(_config.bitmapSingle));
+		if (node.exists()) {
+			Common::SeekableReadStream *stream = node.createReadStream();
+			if (stream) {
+				if (_singleFont.load(*stream)) {
+					_fontsLoaded = true;
+					debug(1, "SCUMM: hi-res font (single): %dx%d %dbpp, %d glyphs",
+						  _singleFont.cellWidth(), _singleFont.cellHeight(),
+						  _singleFont.bpp(), _singleFont.glyphCount());
+				}
+				delete stream;
+			}
+		}
+	}
+
+	if (!_fontsLoaded)
+		warning("SCUMM: hi-res text is configured but no replacement font loaded");
+
+	return _fontsLoaded;
+}
+
+bool ScummHiResText::hasFonts() const {
+	return _fontsLoaded;
+}
+
+const Graphics::HiResBitmapFont *ScummHiResText::fontFor(int charsetId) const {
+	if (!_fontsLoaded)
+		return nullptr;
+
+	if (charsetId >= 0 && charsetId < kMaxFonts && _fonts[charsetId].isLoaded())
+		return &_fonts[charsetId];
+
+	if (_singleFont.isLoaded())
+		return &_singleFont;
+
+	return nullptr;
+}
+
+/**
+ * Which decoration the replacement glyphs get.
+ *
+ * The engine's own shadow setting describes the shape of the game's bitmap
+ * font, which a replacement has no reason to match, so a map may override it.
+ * Without an override we follow the game and nothing changes by accident.
+ */
+static Graphics::HiResShadowMode resolveShadow(Graphics::HiResShadowMode fromMap, int gameShadow) {
+	if (fromMap != Graphics::kHiResShadowGame)
+		return fromMap;
+
+	// _2byteShadow: 1 = none, 2 = drop, 3 = stroke, anything else outline.
+	switch (gameShadow) {
+	case 1:
+		return Graphics::kHiResShadowNone;
+	case 2:
+		return Graphics::kHiResShadowDrop;
+	case 3:
+		return Graphics::kHiResShadowStroke;
+	default:
+		return Graphics::kHiResShadowOutline;
+	}
+}
+
+bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
+							  int x, int y, byte color, byte shadowColor,
+							  int gameShadow, Common::Rect *dirty) {
+	if (!_enabled || !_fontsLoaded)
+		return false;
+
+	const Graphics::HiResBitmapFont *font = fontFor(charsetId);
+	if (!font)
+		return false;
+
+	// How a double byte character is packed is decided by arithmetic in the
+	// caller rather than by how bytes sit in memory, so this is endian
+	// independent. charset.cpp builds the pair as (first << 8) | second while
+	// scanning the string, but printChar() is handed it with the halves the
+	// other way round, so the LOW half is the lead byte. Feeding the decoder
+	// the other order yields plausible but wrong characters - Hanja in the
+	// middle of Korean dialogue - rather than an outright failure, so it is
+	// worth stating which way round this is.
+	byte bytes[2];
+	int len;
+	if (chr < 256) {
+		bytes[0] = (byte)chr;
+		len = 1;
+	} else {
+		bytes[0] = (byte)(chr & 0xFF);
+		bytes[1] = (byte)(chr >> 8);
+		len = 2;
+	}
+
+	const byte *p = bytes;
+	const uint32 codepoint = decodeNext(p, bytes + len);
+
+	// U+FFFD means the conversion table was missing or the pair is not valid
+	// in this code page; either way there is nothing to look up.
+	if (!codepoint || codepoint == 0xFFFD)
+		return false;
+
+	const int index = font->glyphIndex(codepoint);
+	if (index < 0)
+		return false;
+
+	Graphics::GlyphStyle style;
+	style.color = color;
+	style.shadowColor = _config.shadowColorSet ? _config.shadowColor : shadowColor;
+	style.shadowMode = resolveShadow(_config.shadowMode, gameShadow);
+	style.shadowOffset = (_config.shadowOffset >= 0) ? _config.shadowOffset : 1;
+
+	return Graphics::HiResGlyphRenderer::drawGlyph(dest, coverage(), *font, index,
+												   x, y, style, dirty);
 }
 
 void ScummHiResText::createCoverage(int w, int h) {

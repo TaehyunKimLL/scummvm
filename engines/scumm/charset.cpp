@@ -981,7 +981,16 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 		_textScreenID = vs->number;
 	}
 
-	if ((ignoreCharsetMask || !vs->hasTwoBuffers)
+	// Hi-res text goes to the scaled overlay whatever the virtual screen would
+	// normally do, because that is the only surface with the resolution to
+	// hold it. Falling through to the original path keeps a character the
+	// replacement font does not cover looking exactly as it did.
+	if (_vm->_hiResText.drawChar(_vm->_textSurface, chr, _curId,
+								 _left * _vm->_textSurfaceMultiplier,
+								 _top * _vm->_textSurfaceMultiplier,
+								 _color, _shadowColor, _vm->_2byteShadow)) {
+		// drawn
+	} else if ((ignoreCharsetMask || !vs->hasTwoBuffers)
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 		&& (_vm->_game.platform != Common::kPlatformFMTowns)
 #endif
@@ -1202,7 +1211,14 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_cjkSpacing = japWidthCorrection - 16;
 	}
 
-	printCharIntern(is2byte, _charPtr, _origWidth, _origHeight, _width, _height, vs, ignoreCharsetMask);
+	// Hi-res text goes to the scaled overlay, which is the only surface with
+	// the resolution to hold it. A character the replacement font does not
+	// cover falls through and is drawn exactly as it was before.
+	if (!_vm->_hiResText.drawChar(_vm->_textSurface, chr, _curId,
+								  _left * _vm->_textSurfaceMultiplier,
+								  (_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier,
+								  _color, _shadowColor, _vm->_2byteShadow))
+		printCharIntern(is2byte, _charPtr, _origWidth, _origHeight, _width, _height, vs, ignoreCharsetMask);
 
 	// Original keeps glyph width and character dimensions separately
 	if ((_vm->_language == Common::ZH_TWN || _vm->_language == Common::KO_KOR) && is2byte)
