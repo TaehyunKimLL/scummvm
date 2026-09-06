@@ -24,6 +24,7 @@
 #include "common/config-manager.h"
 #include "common/fs.h"
 #include "common/textconsole.h"
+#include "common/ustr.h"
 
 namespace Scumm {
 
@@ -135,6 +136,86 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 
 	if (_enabled)
 		debug(1, "SCUMM: hi-res text enabled, scale %d, alpha %d", _config.scale, _config.alpha);
+}
+
+/**
+ * How many bytes the character starting at @p lead takes, in @p page.
+ *
+ * Returns 1 for anything that is not a lead byte, so a caller always makes
+ * progress and never splits a string mid-character.
+ */
+static int charLength(Common::CodePage page, const byte *p, const byte *end) {
+	const byte lead = *p;
+
+	switch (page) {
+	case Common::kUtf8:
+		if (lead < 0x80)
+			return 1;
+		if ((lead & 0xE0) == 0xC0)
+			return 2;
+		if ((lead & 0xF0) == 0xE0)
+			return 3;
+		if ((lead & 0xF8) == 0xF0)
+			return 4;
+		return 1;   // a stray continuation byte
+
+	case Common::kWindows932:
+		// Shift-JIS: two lead byte ranges. Everything between them, including
+		// half-width katakana at 0xA1..0xDF, is a single byte character - a
+		// reminder that byte width says nothing about which script it is.
+		return ((lead >= 0x81 && lead <= 0x9F) || (lead >= 0xE0 && lead <= 0xFC)) ? 2 : 1;
+
+	case Common::kWindows936:
+	case Common::kWindows950:
+		return (lead >= 0x81 && lead <= 0xFE) ? 2 : 1;
+
+	case Common::kWindows949:
+		return (lead >= 0x81 && lead <= 0xFE) ? 2 : 1;
+
+	case Common::kJohab:
+		return (lead >= 0x84 && lead <= 0xF9) ? 2 : 1;
+
+	default:
+		// A single byte page, or none named at all.
+		return 1;
+	}
+
+	(void)end;
+}
+
+uint32 ScummHiResText::decodeNext(const byte *&p, const byte *end) const {
+	if (!p || p >= end)
+		return 0;
+
+	const Common::CodePage page = _config.encoding;
+
+	// With no encoding named, the game's text is single byte in whatever the
+	// game itself defines. Passing it through unchanged keeps the code point
+	// equal to the byte, which is what the original bitmap path assumed.
+	if (page == Common::kCodePageInvalid) {
+		return *p++;
+	}
+
+	int len = charLength(page, p, end);
+	if (p + len > end) {
+		// A truncated character at the end of the string: consume one byte so
+		// the caller still terminates.
+		len = 1;
+	}
+
+	// ASCII is ASCII in every page here, and asking the shared decoder for it
+	// would need the CJK conversion tables loaded.
+	if (len == 1 && *p < 0x80)
+		return *p++;
+
+	const Common::String bytes((const char *)p, len);
+	const Common::U32String decoded(bytes, page);
+	p += len;
+
+	if (decoded.empty())
+		return 0;
+
+	return decoded[0];
 }
 
 int ScummHiResText::resolvedFontSize(int role) const {

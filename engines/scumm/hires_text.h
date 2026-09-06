@@ -87,6 +87,34 @@ struct ScummHiResText {
 
 	int supersample(int role) const;
 
+	/**
+	 * Decode the next character of a game string.
+	 *
+	 * This is the only place that knows how many bytes a character takes, so
+	 * everything past it works on Unicode code points and no longer has to
+	 * assume "one byte is Latin, two bytes are CJK". That assumption is false
+	 * in both directions: an accented Latin letter is multi-byte in UTF-8,
+	 * and half-width katakana is single-byte in Shift-JIS.
+	 *
+	 * The caller is expected to have dealt with the engine's own control
+	 * codes already. This must not be handed a byte that SCUMM treats as an
+	 * escape, because a trail byte can have the same value as one.
+	 *
+	 * @param p    read pointer, advanced past the character consumed
+	 * @param end  one past the last readable byte
+	 * @return the code point, or 0 when nothing could be decoded
+	 */
+	uint32 decodeNext(const byte *&p, const byte *end) const;
+
+	/**
+	 * How the engine's own strings are encoded.
+	 *
+	 * Set from the detected language unless a map overrides it. Invalid means
+	 * the game's text is single byte in an encoding nothing has named, which
+	 * is the safe assumption for the games we do not touch.
+	 */
+	void setEncoding(Common::CodePage page) { _config.encoding = page; }
+
 private:
 	bool _enabled;
 	Graphics::HiResTextConfig _config;
