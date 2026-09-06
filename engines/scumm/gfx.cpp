@@ -1386,9 +1386,17 @@ void ScummEngine::restoreCharsetBg() {
 			}
 		}
 
-		if (vs->hasTwoBuffers || _macScreen) {
-			// Clean out the charset mask
-			clearTextSurface();
+		// Single-buffered screens (v0-v2, and the verb area everywhere) never
+		// reached this branch, so nothing ever cleared the hi-res surface for
+		// them and every line stayed behind - in Zak two speakers piled up on
+		// one row. The built-in fonts do not need it because they draw into
+		// the buffer that was just wiped above; hi-res text lives in a surface
+		// of its own.
+		if (vs->hasTwoBuffers || _macScreen || _hiResText.enabled()) {
+			// Only the screen that owns this text: verbs and dialogue share
+			// the surface but are retired independently, and verbs are drawn
+			// once and never repainted.
+			clearTextSurface(_hiResText.enabled() ? vs : nullptr);
 
 			// The dirty marking above happened while the glyphs were still
 			// there, so it describes the area to repaint - but the repaint
@@ -1410,17 +1418,38 @@ void ScummEngine::clearCharsetMask() {
 	memset(getResourceAddress(rtBuffer, 9), 0, _gdi->_imgBufOffs[1]);
 }
 
-void ScummEngine::clearTextSurface() {
-	towns_fillTopLayerRect(0, 0, _textSurface.w, _textSurface.h, 0);
-	fill((byte *)_textSurface.getPixels(), _textSurface.pitch,
+void ScummEngine::clearTextSurface(const VirtScreen *vs) {
+	// Scoped to one virtual screen when asked. The verb strip and the
+	// dialogue share this surface but not their lifetimes: verbs are drawn
+	// once when the interface appears and never repainted, so wiping the whole
+	// surface to retire a line of dialogue loses them for good.
+	int top = 0;
+	int height = _textSurface.h;
+	if (vs) {
+		top = vs->topline * _textSurfaceMultiplier;
+		height = vs->h * _textSurfaceMultiplier;
+
+		if (top < 0) {
+			height += top;
+			top = 0;
+		}
+		if (top >= _textSurface.h)
+			return;
+		height = MIN(height, _textSurface.h - top);
+		if (height <= 0)
+			return;
+	}
+
+	towns_fillTopLayerRect(0, top, _textSurface.w, height, 0);
+	fill((byte *)_textSurface.getBasePtr(0, top), _textSurface.pitch,
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 		_game.platform == Common::kPlatformFMTowns ? 0 :
 #endif
-		CHARSET_MASK_TRANSPARENCY,  _textSurface.w, _textSurface.h, _textSurface.format.bytesPerPixel);
+		CHARSET_MASK_TRANSPARENCY,  _textSurface.w, height, _textSurface.format.bytesPerPixel);
 
 	// The coverage has to go with it: left behind, it would blend the shape
 	// of the previous frame's glyphs into whatever is drawn next.
-	_hiResText.clearCoverage();
+	_hiResText.clearCoverage(top, height);
 }
 
 byte *ScummEngine::getMaskBuffer(int x, int y, int z) {

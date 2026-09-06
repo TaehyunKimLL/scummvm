@@ -375,9 +375,11 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	// Which font can hold this character is decided by how the game encoded
 	// it, not by the code point: a CP949-indexed set has no Latin glyphs even
 	// for characters that exist in Unicode.
-	const Graphics::HiResBitmapFont *font = fontFor(charsetId, chr < 256);
+	const bool wantLatin = (chr < 256);
+	const Graphics::HiResBitmapFont *font = fontFor(charsetId, wantLatin);
 	if (!font)
 		return false;
+
 
 	const int index = glyphIndexFor(*font, chr);
 	if (index < 0)
@@ -541,9 +543,24 @@ void ScummHiResText::freeCoverage() {
 	_coverage.free();
 }
 
-void ScummHiResText::clearCoverage() {
-	if (_coverage.getPixels())
-		_coverage.fillRect(Common::Rect(0, 0, _coverage.w, _coverage.h), 0);
+
+
+void ScummHiResText::clearCoverage(int top, int height) {
+	if (!_coverage.getPixels())
+		return;
+
+	if (height < 0)
+		height = _coverage.h - top;
+
+	if (top < 0) {
+		height += top;
+		top = 0;
+	}
+	if (top >= _coverage.h || height <= 0)
+		return;
+	height = MIN(height, _coverage.h - top);
+
+	_coverage.fillRect(Common::Rect(0, top, _coverage.w, top + height), 0);
 }
 
 /// The code page a language's text is in, when the map does not say.
@@ -629,6 +646,9 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 
 	// A user setting outranks the map, which is why logical font sizes are
 	// only resolved once this is settled.
+	// A running log of what is drawn and with which font, so a scene can be
+	// matched against the fonts it exercises without guessing.
+
 	if (ConfMan.hasKey("hires_text_scale"))
 		_config.scale = ConfMan.getInt("hires_text_scale");
 	else if (ConfMan.hasKey("korean_hires_scale"))

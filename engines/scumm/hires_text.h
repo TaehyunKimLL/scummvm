@@ -272,7 +272,13 @@ struct ScummHiResText {
 	const Graphics::Surface *coverage() const { return _coverage.getPixels() ? &_coverage : nullptr; }
 
 	/// Wipe the coverage, so nothing of the previous frame's text blends in.
-	void clearCoverage();
+	/**
+	 * Clear the coverage, or one horizontal band of it.
+	 *
+	 * The band matches a scoped clearTextSurface(): the verb strip and the
+	 * dialogue live on the same surface but are retired at different times.
+	 */
+	void clearCoverage(int top = 0, int height = -1);
 
 	/**
 	 * How the engine's own strings are encoded.
@@ -311,6 +317,7 @@ private:
 	int _charsetHeights[kMaxFonts] = {};
 
 	int nearestFont(int charsetId) const;
+
 	bool _fontsLoaded;
 
 	/// Decode one of the game's characters and look it up; -1 when absent.
