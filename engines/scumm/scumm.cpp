@@ -4506,6 +4506,28 @@ void ScummEngine::pauseEngineIntern(bool pause) {
 #endif
 		_shakeNextTick = _shakeTickCounter = 0;
 
+		// The ScummVM GUI sets its own cursor palette while it is open. In
+		// blended mode the backend is never handed the game palette - the
+		// lookup happens when the composite buffer is built - so nothing else
+		// puts the game's colours back and the cursor would keep the GUI's.
+		//
+		// This is only for the ScummVM GUI. A game's own menu (the default for
+		// SCUMM, isUsingOriginalGUI()) is drawn by game script and changes the
+		// palette through setPalColor()/updatePalette(), which already goes
+		// through the blended path in setPalette().
+		if (_hiResText.alphaActive()) {
+			CursorMan.replaceCursorPalette(_hiResText.paletteRGB(), 0, 256);
+
+			// The screen behind the dialog has to be composited again for the
+			// same reason: a paletted backend would simply be handed the
+			// palette back, but here every pixel carries its colour already.
+			for (int i = 0; i < 3; ++i) {
+				VirtScreen *vs = &_virtscr[i];
+				if (vs->h)
+					markRectAsDirty((VirtScreenNumber)i, Common::Rect(vs->w, vs->h));
+			}
+		}
+
 		// Update the screen to make it less likely that the player will see a
 		// brief cursor palette glitch when the GUI is disabled.
 		_system->updateScreen();
