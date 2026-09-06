@@ -91,6 +91,32 @@ Korean targets): U+AC00 maps to glyph 0 and U+D79D to glyph 2349 in the 2350
 glyph Korean sets, 'A' maps to glyph 65 in the Latin sets, and the engine's own
 legacy `.fnt` files are rejected so the caller can fall back.
 
+## Glyph rendering (G3)
+
+`HiResGlyphRenderer::drawGlyph` draws one glyph of a `HiResBitmapFont` onto a
+CLUT8 surface. A paletted surface cannot hold coverage, so the colour goes to
+the text surface and the coverage to a parallel 8bpp one that the caller blends
+against the background. The coverage surface is optional: without it an 8bpp
+font still draws as a stencil, so a backend with no alpha path is not left
+blank. A 1bpp font writes no coverage at all - it has none to record.
+
+Decoration (`none`, `drop`, `outline`, `stroke`) is drawn in a full pass before
+the body, and a pixel is never overwritten by one with less coverage. Both rules
+exist so the outline of one glyph cannot erode the stroke of its neighbour. A
+decoration in the text colour is skipped. `shadowOffset` is in destination
+pixels, so a font baked for a larger surface keeps its decoration proportional.
+
+Nothing here scales: a font is baked at the size it is drawn. The optional dirty
+rectangle is extended, not replaced, and includes the decoration, since the
+engine's own charset mask does not track text on this surface.
+
+Verified with the shipped fonts: MI2 `svfn00.fnt` glyphs 0/1/2 render as the
+Hangul syllables 가/각/간 (the KS X 1001 order the loader reports), Indy3
+`latin24.fnt` renders `H e l o !` with visibly narrower ink for `l` and `!`, and
+coverage carries 249 distinct levels - real anti-aliasing, with no FreeType in
+the build. Coverage rises monotonically across the decoration modes
+(278/361/481/544 pixels) and the letter body stays intact in every one.
+
 Tests: `test/graphics/hires_text_font_map.h`, included by `make test`. Both
 FreeType-enabled and no-engine/no-FreeType configurations must pass. G2 adds
 actual glyph metrics and SVFN loading; G3 adds coverage rendering.
