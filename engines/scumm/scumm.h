@@ -43,6 +43,7 @@
 #include "scumm/file.h"
 #include "scumm/gfx.h"
 #include "scumm/detection.h"
+#include "scumm/hires_text.h"
 #include "scumm/script.h"
 #include "scumm/serializer.h"
 
@@ -1688,6 +1689,14 @@ public:
 	 */
 	Graphics::Surface _textSurface;
 	int _textSurfaceMultiplier = 0;
+
+	/**
+	 * State of the hi-res text layer.
+	 *
+	 * Nothing reads this yet beyond its own configuration; it is wired into
+	 * the render path in later steps.
+	 */
+	ScummHiResText _hiResText;
 
 	bool _isModernMacVersion = false;
 	bool _useGammaCorrection = true;

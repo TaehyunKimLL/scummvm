@@ -1264,6 +1264,10 @@ Common::Error ScummEngine::init() {
 	if (_filenamePattern.genMethod == kGenDiskNumSteam || _filenamePattern.genMethod == kGenRoomNumSteam)
 		_game.platform = Common::kPlatformDOS;
 
+	// Read the hi-res text configuration before the fonts, since the map may
+	// name the scale the rest of the setup works from.
+	_hiResText.loadConfig(ConfMan.getPath("path"), _game.gameid, _game.version, _language);
+
 	// Load CJK font, if present
 	// Load it earlier so _useCJKMode variable could be set
 	loadCJKFont();
