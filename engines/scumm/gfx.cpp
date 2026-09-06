@@ -1338,6 +1338,10 @@ void ScummEngine::clearTextSurface() {
 		_game.platform == Common::kPlatformFMTowns ? 0 :
 #endif
 		CHARSET_MASK_TRANSPARENCY,  _textSurface.w, _textSurface.h, _textSurface.format.bytesPerPixel);
+
+	// The coverage has to go with it: left behind, it would blend the shape
+	// of the previous frame's glyphs into whatever is drawn next.
+	_hiResText.clearCoverage();
 }
 
 byte *ScummEngine::getMaskBuffer(int x, int y, int z) {

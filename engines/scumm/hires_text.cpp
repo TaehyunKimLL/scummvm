@@ -23,6 +23,7 @@
 
 #include "common/config-manager.h"
 #include "common/fs.h"
+#include "common/rect.h"
 #include "common/textconsole.h"
 #include "common/ustr.h"
 
@@ -43,6 +44,26 @@ ScummHiResText::ScummHiResText() {
 void ScummHiResText::reset() {
 	_enabled = false;
 	_config.clear();
+	freeCoverage();
+}
+
+void ScummHiResText::createCoverage(int w, int h) {
+	freeCoverage();
+
+	if (!_enabled || !_config.alpha || w <= 0 || h <= 0)
+		return;
+
+	_coverage.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+	_coverage.fillRect(Common::Rect(0, 0, w, h), 0);
+}
+
+void ScummHiResText::freeCoverage() {
+	_coverage.free();
+}
+
+void ScummHiResText::clearCoverage() {
+	if (_coverage.getPixels())
+		_coverage.fillRect(Common::Rect(0, 0, _coverage.w, _coverage.h), 0);
 }
 
 /// The code page a language's text is in, when the map does not say.

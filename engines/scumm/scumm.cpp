@@ -516,6 +516,7 @@ ScummEngine::~ScummEngine() {
 	delete _costumeRenderer;
 
 	_textSurface.free();
+	_hiResText.freeCoverage();
 
 	free(_shadowPalette);
 	free(_verbPalette);
@@ -1277,6 +1278,29 @@ Common::Error ScummEngine::init() {
 		_textSurfaceMultiplier = 2;
 #endif
 
+	// The hi-res text layer draws its glyphs into a larger text surface and
+	// lets the compositing step scale the picture up to meet it.
+	//
+	// This must stay the last word on the multiplier, because loadCJKFont()
+	// resets it to 1 for the resource-font path and the platform cases above
+	// set their own values.
+	//
+	// A platform that already scales the text surface keeps its own factor
+	// rather than having ours applied on top: the two are not the same idea.
+	// FM-Towns doubling is an emulation of a second hardware text layer -
+	// _townsScreen, drawn through towns_fillTopLayerRect() - not simply a
+	// bigger surface, and multiplying the two would produce a size neither
+	// path knows how to composite. The cost is that those platforms cannot
+	// use a hi-res scale of their own; lifting that needs the Towns layer
+	// path itself reworked, which is a separate piece of work.
+	if (_hiResText.enabled()) {
+		if (_textSurfaceMultiplier <= 1)
+			_textSurfaceMultiplier = _hiResText.scale();
+		else if (_hiResText.scale() > 1 && _hiResText.scale() != _textSurfaceMultiplier)
+			warning("SCUMM: this platform already scales text by %d; ignoring the hi-res scale of %d",
+					_textSurfaceMultiplier, _hiResText.scale());
+	}
+
 	Common::Path macResourceFile;
 
 	if (_game.platform == Common::kPlatformMacintosh && _game.heversion == 0) {
@@ -1717,6 +1741,10 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 	// Create and clear the text surface
 	_textSurface.create(_screenWidth * _textSurfaceMultiplier, _screenHeight * _textSurfaceMultiplier, Graphics::PixelFormat::createFormatCLUT8());
 	clearTextSurface();
+
+	// The coverage that makes hi-res glyphs anti-aliased cannot live in a
+	// paletted surface, so it gets one of its own alongside.
+	_hiResText.createCoverage(_textSurface.w, _textSurface.h);
 
 	// Create the costume renderer
 	setupCostumeRenderer();

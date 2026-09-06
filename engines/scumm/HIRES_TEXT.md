@@ -52,6 +52,38 @@ CP932 for Japanese, CP936/CP950 for Chinese) and is otherwise left unset - a
 single byte game defines its own, and the adapter must be told explicitly
 before assuming anything else.
 
+## Scaling, and platforms that already scale
+
+`_textSurfaceMultiplier` decides both the text surface size and the resolution
+the backend is asked for. Several places set it, in this order:
+
+1. `loadCJKFont()` — resets it to 1 for the resource-font path, 2 for the
+   FM-Towns and PC-Engine font ROMs
+2. the FM-Towns `_forceFMTownsHiResMode` case
+3. the Macintosh case for Indy3, Loom and Maniac
+4. **the hi-res text layer** — last, so nothing later resets it
+
+The factors are **not multiplied**. When a platform already scales the surface,
+its value stands and the hi-res scale is ignored with a warning. Measured with
+`~/games/multcheck.sh`:
+
+| target | forced hi-res scale | backend |
+|---|---|---|
+| `ja-mi2` (FM-Towns) | none | 640x400 |
+| `ja-mi2` (FM-Towns) | 3 | 640x400 — ignored |
+| `en-mi1towns` (FM-Towns) | 3 | 640x400 — ignored |
+| `mi2-svfn` (PC, Korean) | none | 960x600 |
+
+The reason is not caution about arithmetic. FM-Towns doubling emulates a second
+hardware text layer: `_townsScreen`, cleared per layer and written through
+`towns_fillTopLayerRect()`, with its own branch in `drawStripToScreen()`. The
+hi-res layer instead draws into one larger surface and composites. Multiplying
+the two would ask for a size neither path knows how to composite.
+
+The cost is real: an FM-Towns game cannot use a hi-res scale. Removing that
+limit means reworking the Towns layer path, which is deliberately out of scope
+here - it would touch every SCUMM platform at once.
+
 ## Verification
 
 There is no unit test: SCUMM is not registered with the test runner, and this

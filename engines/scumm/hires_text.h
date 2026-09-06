@@ -107,6 +107,26 @@ struct ScummHiResText {
 	uint32 decodeNext(const byte *&p, const byte *end) const;
 
 	/**
+	 * Allocate the coverage surface, if this configuration wants one.
+	 *
+	 * The colour of a glyph goes to the engine's own text surface; a paletted
+	 * surface has nowhere to put the coverage that makes it anti-aliased, so
+	 * that goes here and the compositing step blends the two.
+	 *
+	 * @param w, h  size of the text surface it accompanies
+	 */
+	void createCoverage(int w, int h);
+
+	void freeCoverage();
+
+	/// The coverage surface, or null when this configuration has none.
+	Graphics::Surface *coverage() { return _coverage.getPixels() ? &_coverage : nullptr; }
+	const Graphics::Surface *coverage() const { return _coverage.getPixels() ? &_coverage : nullptr; }
+
+	/// Wipe the coverage, so nothing of the previous frame's text blends in.
+	void clearCoverage();
+
+	/**
 	 * How the engine's own strings are encoded.
 	 *
 	 * Set from the detected language unless a map overrides it. Invalid means
@@ -118,6 +138,7 @@ struct ScummHiResText {
 private:
 	bool _enabled;
 	Graphics::HiResTextConfig _config;
+	Graphics::Surface _coverage;
 };
 
 } // End of namespace Scumm
