@@ -1293,12 +1293,22 @@ Common::Error ScummEngine::init() {
 	// path knows how to composite. The cost is that those platforms cannot
 	// use a hi-res scale of their own; lifting that needs the Towns layer
 	// path itself reworked, which is a separate piece of work.
-	if (_hiResText.enabled()) {
+	//
+	// v7 and later are excluded for a different reason: drawStripToScreen()
+	// blits their screen straight out, with none of the compositing and
+	// scaling the older path does ("For The Dig, FT and COMI, we just blit
+	// everything to the screen at once"). Enlarging the backend without that
+	// path left The Dig drawing its 320x200 picture into the top-left corner
+	// of a 640x400 window.
+	if (_hiResText.enabled() && _game.version < 7) {
 		if (_textSurfaceMultiplier <= 1)
 			_textSurfaceMultiplier = _hiResText.scale();
 		else if (_hiResText.scale() > 1 && _hiResText.scale() != _textSurfaceMultiplier)
 			warning("SCUMM: this platform already scales text by %d; ignoring the hi-res scale of %d",
 					_textSurfaceMultiplier, _hiResText.scale());
+	} else if (_hiResText.enabled() && _hiResText.scale() > 1) {
+		warning("SCUMM: hi-res text cannot be scaled in this game: its screen "
+				"is blitted without the compositing step that would enlarge it");
 	}
 
 	Common::Path macResourceFile;
