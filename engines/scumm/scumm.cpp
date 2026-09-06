@@ -1552,7 +1552,12 @@ Common::Error ScummEngine::init() {
 			// starts, with blending quietly turned off - the glyphs then draw
 			// as solid colour, which is what the map asked for minus the
 			// smoothing.
-			if (_hiResText.enabled() && _hiResText.wantsAlpha()) {
+			// v7 and later drive the backend palette from places the text
+			// layer does not own: SMUSH sets it directly per frame while a
+			// cutscene plays (smush_player.cpp), and it asserts if the screen
+			// has no palette to set. Blending needs a 32bpp screen, so the two
+			// cannot both be had - keep the palette and drop the blending.
+			if (_hiResText.enabled() && _hiResText.wantsAlpha() && _game.version < 7) {
 #ifdef USE_RGB_COLOR
 				Common::List<Graphics::PixelFormat> tryModes;
 				Common::List<Graphics::PixelFormat> supported = _system->getSupportedFormats();
@@ -1581,6 +1586,16 @@ Common::Error ScummEngine::init() {
 #endif
 			} else {
 				initGraphics(screenWidth, screenHeight);
+
+				// Either the map did not ask for blending, or this game keeps
+				// the backend palette for itself. Both mean the screen is
+				// paletted, so make sure nothing later tries to composite
+				// true-colour text into it.
+				if (_hiResText.wantsAlpha()) {
+					_hiResText.setAlphaActive(false);
+					warning("SCUMM: hi-res text will not be blended: this game "
+							"drives the backend palette itself");
+				}
 			}
 
 			if (_game.platform == Common::kPlatformNES)
