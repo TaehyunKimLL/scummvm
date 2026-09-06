@@ -117,6 +117,32 @@ coverage carries 249 distinct levels - real anti-aliasing, with no FreeType in
 the build. Coverage rises monotonically across the decoration modes
 (278/361/481/544 pixels) and the letter body stays intact in every one.
 
+## Glyph sources (G4)
+
+`HiResGlyphSource` is what makes a build without FreeType behave like one with
+it: the renderer and the engine adapters only ever see this interface, and a
+baked bitmap font satisfies it exactly as a rasteriser does. A `GlyphBitmap` is
+coverage plus an origin relative to the pen, so descenders and overhangs are
+placed correctly whichever produced them.
+
+`HiResBitmapGlyphSource` adds no rasterising and no allocation - glyphs are
+handed out as they sit in the file. `HiResTtfGlyphSource` (only compiled with
+`USE_FREETYPE2`) wraps a face loaded by `Graphics::loadTTFFont`. ScummVM's TTF
+wrapper writes coverage into an alpha channel that a CLUT8 destination cannot
+hold, so this rasterises into a 32bpp scratch in opaque white and reads the
+coverage back out of the alpha byte. It caches the last glyph, bounds the box a
+face may ask for, and can box-filter a supersampled raster back down, which
+keeps a pixel font on its native grid when the line box is not a multiple of it.
+
+TrueType is a convenience: everything it produces can be baked ahead of time,
+which is what a build without FreeType uses. It exists so a translation can
+point at a .ttf during development without baking first.
+
+Verified with a real face (NanumJangMiCe at 36px): U+AC00/AC01/AC04 and A/i/W
+all render correctly through the same call, with 233 distinct coverage levels
+and per-glyph advances (28/25/25/14/6/27). Supersampling 2 at 18px gives the
+same advances as supersampling 1.
+
 Tests: `test/graphics/hires_text_font_map.h`, included by `make test`. Both
 FreeType-enabled and no-engine/no-FreeType configurations must pass. G2 adds
 actual glyph metrics and SVFN loading; G3 adds coverage rendering.

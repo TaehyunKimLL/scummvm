@@ -51,13 +51,41 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 								   const HiResBitmapFont &font, int index,
 								   int x, int y, const GlyphStyle &style,
 								   Common::Rect *dirty) {
-	const byte *glyph = font.glyphData(index);
-	if (!glyph)
+	const byte *pixels = font.glyphData(index);
+	if (!pixels)
 		return false;
 
-	// The coverage surface only makes sense for a font that has coverage to
+	GlyphBitmap glyph;
+	glyph.pixels = pixels;
+	glyph.pitch = font.glyphPitch();
+	glyph.width = font.cellWidth();
+	glyph.height = font.cellHeight();
+	glyph.bpp = font.bpp();
+
+	return drawGlyph(dest, coverage, glyph, x, y, style, dirty);
+}
+
+bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
+								   const HiResGlyphSource &source, uint32 codepoint,
+								   int x, int y, const GlyphStyle &style,
+								   Common::Rect *dirty) {
+	GlyphBitmap glyph;
+	if (!source.glyph(codepoint, glyph))
+		return false;
+
+	return drawGlyph(dest, coverage, glyph, x, y, style, dirty);
+}
+
+bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
+								   const GlyphBitmap &glyph,
+								   int x, int y, const GlyphStyle &style,
+								   Common::Rect *dirty) {
+	if (!glyph.pixels || glyph.width <= 0 || glyph.height <= 0)
+		return false;
+
+	// The coverage surface only makes sense for a glyph that has coverage to
 	// record, and only where it is large enough to hold it.
-	Surface *cov = (coverage && font.bpp() == 8 && coverage->getPixels()) ? coverage : nullptr;
+	Surface *cov = (coverage && glyph.bpp == 8 && coverage->getPixels()) ? coverage : nullptr;
 
 	const int8 *offX = nullptr;
 	const int8 *offY = nullptr;
@@ -82,10 +110,10 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 	if (style.shadowColor == style.color)
 		copies = 0;
 
-	const int cellW = font.cellWidth();
-	const int cellH = font.cellHeight();
-	const int pitch = font.glyphPitch();
-	const int bpp = font.bpp();
+	// A rasteriser hands back a glyph placed relative to the pen; a baked
+	// bitmap font has no offset of its own.
+	const int baseX = x + glyph.originX;
+	const int baseY = y + glyph.originY;
 	const int step = style.shadowOffset;
 
 	// The decoration is laid down in full before the body, so that a later
@@ -99,19 +127,19 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 			const int oy = pass ? 0 : offY[c] * step;
 			const byte ink = pass ? style.color : style.shadowColor;
 
-			for (int gy = 0; gy < cellH; ++gy) {
-				const int py = y + gy + oy;
+			for (int gy = 0; gy < glyph.height; ++gy) {
+				const int py = baseY + gy + oy;
 				if (py < 0 || py >= dest.h)
 					continue;
 
-				const byte *row = glyph + gy * pitch;
+				const byte *row = glyph.pixels + gy * glyph.pitch;
 
-				for (int gx = 0; gx < cellW; ++gx) {
-					const byte cv = glyphCoverage(row, gx, bpp);
+				for (int gx = 0; gx < glyph.width; ++gx) {
+					const byte cv = glyphCoverage(row, gx, glyph.bpp);
 					if (!cv)
 						continue;
 
-					const int px = x + gx + ox;
+					const int px = baseX + gx + ox;
 					if (px < 0 || px >= dest.w)
 						continue;
 
@@ -138,8 +166,9 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 		// The decoration reaches beyond the cell, so the caller is told about
 		// the whole area that may have changed.
 		const int margin = copies ? step * 2 : 0;
-		const Common::Rect touched(x - margin, y - margin,
-								   x + cellW + margin, y + cellH + margin);
+		const Common::Rect touched(baseX - margin, baseY - margin,
+								   baseX + glyph.width + margin,
+								   baseY + glyph.height + margin);
 		if (dirty->isEmpty())
 			*dirty = touched;
 		else

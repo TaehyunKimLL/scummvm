@@ -25,11 +25,11 @@
 #include "common/rect.h"
 #include "common/scummsys.h"
 #include "graphics/hires_text/font_map.h"
+#include "graphics/hires_text/glyph_source.h"
 
 namespace Graphics {
 
 struct Surface;
-class HiResBitmapFont;
 
 /**
  * How a glyph is decorated, and with what.
@@ -77,6 +77,29 @@ public:
 	 */
 	static bool drawGlyph(Surface &dest, Surface *coverage,
 						  const HiResBitmapFont &font, int index,
+						  int x, int y, const GlyphStyle &style,
+						  Common::Rect *dirty = nullptr);
+
+	/**
+	 * Draw a glyph that has already been rasterised.
+	 *
+	 * This is the form that does not care where the pixels came from, so a
+	 * baked bitmap font and a TrueType face are drawn by exactly the same
+	 * code. @p x and @p y are the pen position; the glyph's own origin is
+	 * applied on top of them.
+	 */
+	static bool drawGlyph(Surface &dest, Surface *coverage,
+						  const GlyphBitmap &glyph,
+						  int x, int y, const GlyphStyle &style,
+						  Common::Rect *dirty = nullptr);
+
+	/**
+	 * Draw a code point from any glyph source.
+	 *
+	 * @return false when the source has no glyph for it
+	 */
+	static bool drawGlyph(Surface &dest, Surface *coverage,
+						  const HiResGlyphSource &source, uint32 codepoint,
 						  int x, int y, const GlyphStyle &style,
 						  Common::Rect *dirty = nullptr);
 };
