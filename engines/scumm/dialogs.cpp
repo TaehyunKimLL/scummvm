@@ -37,6 +37,7 @@
 #include "gui/ThemeEval.h"
 
 #include "scumm/dialogs.h"
+#include "scumm/metaengine.h"
 #include "scumm/sound.h"
 #include "scumm/scumm.h"
 #include "scumm/imuse/imuse.h"
@@ -1207,6 +1208,30 @@ GUI::CheckboxWidget *ScummOptionsContainerWidget::createOriginalGUICheckbox(GuiO
 	);
 }
 
+GUI::CheckboxWidget *ScummOptionsContainerWidget::createHiResTextCheckbox(GuiObject *boss, const Common::String &name) {
+	if (!ScummMetaEngine::targetHasHiResText(_domain))
+		return nullptr;
+
+	return new GUI::CheckboxWidget(boss, name,
+		_("Hi-res text"),
+		_("Draw text with the larger fonts a translation ships in the game folder (hires_text.map). Has no effect when there are none.")
+	);
+}
+
+void ScummOptionsContainerWidget::loadHiResTextCheckbox(GUI::CheckboxWidget *checkbox) const {
+	if (!checkbox)
+		return;
+	bool on = true;
+	if (ConfMan.hasKey("hires_text", _domain))
+		on = ConfMan.getBool("hires_text", _domain);
+	checkbox->setState(on);
+}
+
+void ScummOptionsContainerWidget::saveHiResTextCheckbox(GUI::CheckboxWidget *checkbox) const {
+	if (checkbox)
+		ConfMan.setBool("hires_text", checkbox->getState(), _domain);
+}
+
 GUI::CheckboxWidget *ScummOptionsContainerWidget::createGammaCorrectionCheckbox(GuiObject *boss, const Common::String &name) {
 	return new GUI::CheckboxWidget(boss, name,
 		_("Enable gamma correction"),
@@ -1617,6 +1642,7 @@ LoomVgaGameOptionsWidget::LoomVgaGameOptionsWidget(GuiObject *boss, const Common
 #ifdef USE_TTS
 	_enableTTSCheckbox = createEnableTTSCheckbox(widgetsBoss(), "LoomVgaGameOptionsDialog.EnableTTS");
 #endif
+	_hiResTextCheckbox = createHiResTextCheckbox(widgetsBoss(), "LoomVgaGameOptionsDialog.HiResText");
 }
 
 void LoomVgaGameOptionsWidget::load() {
@@ -1634,6 +1660,7 @@ void LoomVgaGameOptionsWidget::load() {
 #ifdef USE_TTS
 	_enableTTSCheckbox->setState(ConfMan.getBool("tts_enabled", _domain));
 #endif
+	loadHiResTextCheckbox(_hiResTextCheckbox);
 }
 
 bool LoomVgaGameOptionsWidget::save() {
@@ -1643,6 +1670,7 @@ bool LoomVgaGameOptionsWidget::save() {
 #ifdef USE_TTS
 	ConfMan.setBool("tts_enabled", _enableTTSCheckbox->getState(), _domain);
 #endif
+	saveHiResTextCheckbox(_hiResTextCheckbox);
 	return true;
 }
 
@@ -1657,6 +1685,8 @@ void LoomVgaGameOptionsWidget::defineLayout(GUI::ThemeEval &layouts, const Commo
 #ifdef USE_TTS
 	layouts.addWidget("EnableTTS", "Checkbox");
 #endif
+	if (_hiResTextCheckbox)
+		layouts.addWidget("HiResText", "Checkbox");
 
 	addEnhancementsLayout(layouts)
 			.closeLayout()

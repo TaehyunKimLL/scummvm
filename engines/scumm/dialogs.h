@@ -239,6 +239,11 @@ protected:
 	void createEnhancementsWidget(GuiObject *boss, const Common::String &name);
 	GUI::ThemeEval &addEnhancementsLayout(GUI::ThemeEval &layouts) const;
 	GUI::CheckboxWidget *createOriginalGUICheckbox(GuiObject *boss, const Common::String &name);
+	// Returns nullptr when the target has no hi-res fonts, so a dialog can add
+	// the row only where it does something; load()/save() tolerate the null.
+	GUI::CheckboxWidget *createHiResTextCheckbox(GuiObject *boss, const Common::String &name);
+	void loadHiResTextCheckbox(GUI::CheckboxWidget *checkbox) const;
+	void saveHiResTextCheckbox(GUI::CheckboxWidget *checkbox) const;
 	GUI::CheckboxWidget *createGammaCorrectionCheckbox(GuiObject *boss, const Common::String &name);
 	GUI::CheckboxWidget *createSegaShadowModeCheckbox(GuiObject *boss, const Common::String &name);
 	GUI::CheckboxWidget *createSegaCdWaitCursorWhenPausedCheckbox(GuiObject *boss, const Common::String &name);
@@ -360,6 +365,8 @@ private:
 #ifdef USE_TTS
 	GUI::CheckboxWidget *_enableTTSCheckbox = nullptr;
 #endif
+
+	GUI::CheckboxWidget *_hiResTextCheckbox = nullptr;
 
 	GUI::SliderWidget *_playbackAdjustmentSlider = nullptr;
 	GUI::StaticTextWidget *_playbackAdjustmentValue = nullptr;

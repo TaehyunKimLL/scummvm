@@ -25,6 +25,7 @@
 #include "common/config-manager.h"
 #include "common/translation.h"
 #include "common/md5.h"
+#include "common/fs.h"
 
 #include "gui/dialog.h"
 #include "gui/message.h"
@@ -947,6 +948,31 @@ const ExtraGuiOption enableRebel1NoDamage = {
 	0
 };
 
+static const ExtraGuiOption enableHiResText = {
+	_s("Hi-res text"),
+	_s("Draw text with the larger fonts a translation ships in the game folder (hires_text.map). Has no effect when there are none."),
+	"hires_text",
+	true,
+	0,
+	0
+};
+
+/**
+ * Whether a target has hi-res fonts to switch: either a map is configured or
+ * one sits in the game folder. Checked here so the checkbox only appears where
+ * it does something; for every other game the dialog is unchanged.
+ */
+bool ScummMetaEngine::targetHasHiResText(const Common::String &target) {
+	if (ConfMan.hasKey("hires_text_map", target))
+		return true;
+
+	const Common::Path gameDir = ConfMan.getPath("path", target);
+	if (gameDir.empty())
+		return false;
+
+	return Common::FSNode(gameDir.appendComponent("hires_text.map")).exists();
+}
+
 const ExtraGuiOptions ScummMetaEngine::getExtraGuiOptions(const Common::String &target) const {
 	ExtraGuiOptions options;
 	// Query the GUI options
@@ -966,6 +992,9 @@ const ExtraGuiOptions ScummMetaEngine::getExtraGuiOptions(const Common::String &
 	}
 	if (target.empty() || guiOptions.contains(GAMEOPTION_COPY_PROTECTION)) {
 		options.push_back(enableCopyProtection);
+	}
+	if (target.empty() || targetHasHiResText(target)) {
+		options.push_back(enableHiResText);
 	}
 	if (target.empty() || guiOptions.contains(GAMEOPTION_ENHANCEMENTS)) {
 		options.push_back(enableEnhancements);

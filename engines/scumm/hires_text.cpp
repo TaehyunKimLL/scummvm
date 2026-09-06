@@ -762,6 +762,15 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	_enabled = haveMap && (_config.scale > 1 || !_config.bitmapPattern.empty() ||
 						   !_config.bitmapSingle.empty());
 
+	// The user's switch outranks everything above. A map in the game folder
+	// is the translation's intent; this is the player's, and it is the one
+	// the options dialog binds to. Only an explicit false turns the layer
+	// off, so an ini without the key behaves as before.
+	if (_enabled && ConfMan.hasKey("hires_text") && !ConfMan.getBool("hires_text")) {
+		debug(1, "SCUMM: hi-res text switched off by the user (hires_text=false)");
+		_enabled = false;
+	}
+
 	if (_enabled)
 		debug(1, "SCUMM: hi-res text enabled: scale %d, alpha %s, metrics %s, "
 				 "source encoding %s, fonts %s",
