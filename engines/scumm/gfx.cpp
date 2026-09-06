@@ -1389,6 +1389,19 @@ void ScummEngine::restoreCharsetBg() {
 		if (vs->hasTwoBuffers || _macScreen) {
 			// Clean out the charset mask
 			clearTextSurface();
+
+			// The dirty marking above happened while the glyphs were still
+			// there, so it describes the area to repaint - but the repaint
+			// reads the text surface, which has only now been wiped. Mark it
+			// again so the cleared state is what reaches the screen.
+			//
+			// The keyed paths get away without this because a cleared text
+			// surface is the transparency key, and the strip they redraw
+			// already covers it. The blended path composites the text surface
+			// into true colour, so a stale glyph stays on screen until
+			// something else happens to redraw that band.
+			if (_hiResText.alphaActive())
+				markRectAsDirty(vs->number, Common::Rect(vs->w, vs->h), USAGE_BIT_RESTORED);
 		}
 	}
 }
