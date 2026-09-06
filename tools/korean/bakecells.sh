@@ -7,10 +7,10 @@
 # by the next character, and a narrower one leaves gaps.
 #
 # So the needed cell is height * scale, once per distinct height in the game's
-# own korean*.fnt set. tools/korean/fontplan.py lists them; this bakes them.
+# own korean*.fnt set. ~/games/fontplan.py lists them; this bakes them.
 #
 #   bakecells.sh <game-folder> <scale> [face.ttf] [latin.ttf]
-#   bakecells.sh tools/korean/indy3kor 2
+#   bakecells.sh ~/games/indy3kor 2
 #
 # Output goes into the game folder as hr<cell>_<index>.fnt plus a Latin
 # companion, and makemaps.py will pick them up.
@@ -26,9 +26,39 @@ MKFONT=$HOME/src/scummvm-korean-ttf/scripts/mkfont.py
 FONTDIR=$HOME/.local/sysroot/usr/share/fonts/truetype/nanum
 
 FOLDER=${1:?usage: bakecells.sh <game-folder> <scale> [face.ttf] [latin.ttf]}
+FOLDER_ARG=$FOLDER
 SCALE=${2:?scale (2 or 3)}
 FACE=${3:-$FONTDIR/NanumGothic.ttf}
-LATIN=${4:-$FACE}
+
+# The Latin companion defaults to the Hangul face, whose Latin is half-width
+# with padding: at a 16px cell the ink comes out around 8px and the line looks
+# thin and gappy. That is right for v3+, which lays Latin out proportionally.
+#
+# v0-v2 are different. CharsetRendererV2::getCharWidth() returns a hard-coded
+# 8, so every character - Latin included - gets one 8px cell, and only a truly
+# full-width design fills it. unifont_jp has one; Korean faces do not. Render
+# it at twice the cell so its 16-unit advance lands on the 16px grid.
+FULLWIDTH=/usr/share/fonts/opentype/unifont/unifont_jp.otf
+# Detect it rather than asking: a v0-v2 game ships exactly one korean00.fnt
+# with an 8x8 cell, because that is the only grid its renderer has.
+V0V2=0
+if [ -f "$FOLDER_ARG/korean00.fnt" ] && [ ! -f "$FOLDER_ARG/korean01.fnt" ]; then
+	read -r kw kh < <(python3 -c "
+import sys
+d = open(sys.argv[1], 'rb').read(4)
+print(d[2], d[3])
+" "$FOLDER_ARG/korean00.fnt" 2>/dev/null)
+	[ "${kw:-0}" = "8" ] && [ "${kh:-0}" = "8" ] && V0V2=1
+fi
+
+LATIN=${4:-}
+if [ -z "$LATIN" ]; then
+	if [ "$V0V2" = "1" ] && [ -f "$FULLWIDTH" ]; then
+		LATIN=$FULLWIDTH
+	else
+		LATIN=$FACE
+	fi
+fi
 
 FOLDER=$(cd "$FOLDER" && pwd)
 
@@ -143,8 +173,14 @@ for entry in "${PLAN[@]}"; do
 	# Latin faces do report per-glyph advances, so use them directly. The cell
 	# only bounds them; the advance comes from the metrics table.
 	rm -f "$out"
+	# A full-width face has to be rendered at twice the cell for its advance to
+	# match the grid: unifont_jp at 16px gives 8px ink (half-width), at 32px it
+	# gives 16px ink with a fixed 16 advance.
+	latin_size=$cellh
+	[ "$LATIN" = "$FULLWIDTH" ] && latin_size=$((cellh * 2))
+
 	if python3 "$MKFONT" "$LATIN" "$out" \
-		--size "$cellh" --cell "$cellh" --width "$cellw" \
+		--size "$latin_size" --cell "$cellh" --width "$cellw" \
 		--bpp 8 --latin --variable > "$ERRLOG" 2>&1 && [ -s "$out" ]; then
 		printf '  %-14s cell %2dx%-2d (Latin)\n' \
 			"$(basename "$out")" "$cellw" "$cellh"
@@ -163,4 +199,4 @@ if [ "$FAILED" -gt 0 ]; then
 	echo "    fix those before regenerating the map"
 	exit 1
 fi
-echo "now regenerate the map:  python3 tools/korean/makemaps.py $FOLDER"
+echo "now regenerate the map:  python3 ~/games/makemaps.py $FOLDER"
