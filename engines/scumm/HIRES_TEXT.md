@@ -22,12 +22,16 @@ hires_text_alpha=true     ; keep a coverage surface for blending
 hires_text_map=/path/to/hires_text.map
 ```
 
-The older `korean_hires_scale`, `korean_alpha_text` and `korean_ttf_map` keys
-are still read, so an existing install keeps working. The new names win when
-both are present.
+The older `korean_hires_scale` and `korean_alpha_text` keys are still read,
+so an existing install keeps working. The new names win when both are present.
 
-With no map key at all, `hires_text.map` and then `korean_ttf.map` are looked
-for in the game folder, which lets a translation ship one and need no setup.
+`korean_ttf_map` and the `korean_ttf.map` file name are **not** read. Those
+maps are in the TrueType-era format; honouring them let the legacy loader draw
+the text while this layer supplied only the scale, and the mismatch showed up
+as click drift in Loom. A configured `korean_ttf_map` produces a warning.
+
+With no map key at all, `hires_text.map` is looked for in the game folder,
+which lets a translation ship one and need no setup.
 
 Map sections may be narrowed by game id or by SCUMM version, most specific
 first - `[fonts:monkey2]`, then `[fonts:v5]`, then `[fonts]`. Those strings are

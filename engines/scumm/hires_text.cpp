@@ -33,11 +33,13 @@ namespace Scumm {
 
 // A map file with this name in the game folder is picked up with no config key
 // at all, so a translation can ship one and need no setup.
+//
+// The older "korean_ttf.map" (and the korean_ttf_map config key) are
+// deliberately NOT read any more. Those files are in the TrueType-era format:
+// the legacy loader would draw the text while this layer supplied only the
+// scale, and the two disagreed on the layout grid - which surfaced as click
+// drift in Loom. A stale map must fail loudly, not half-work.
 static const char *const kDefaultMapName = "hires_text.map";
-
-// The name the Korean translations have been shipping. Still honoured so that
-// an existing install keeps working.
-static const char *const kLegacyMapName = "korean_ttf.map";
 
 /**
  * A readable name for a code page, for logs.
@@ -684,22 +686,17 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 		mapPath = Graphics::HiResFontMap::resolvePath(ConfMan.get("hires_text_map"), gameDir);
 		explicitMap = true;
 	} else if (ConfMan.hasKey("korean_ttf_map")) {
-		mapPath = Graphics::HiResFontMap::resolvePath(ConfMan.get("korean_ttf_map"), gameDir);
-		explicitMap = true;
+		// Say so rather than silently ignoring it: the user thinks a map is
+		// configured, and the symptom otherwise is "hi-res text does nothing".
+		warning("SCUMM: 'korean_ttf_map' is no longer read; use 'hires_text_map' "
+				"with a hires_text.map generated for this build");
 	}
 
 	if (!explicitMap) {
-		const Common::Path candidates[] = {
-			gameDir.appendComponent(kDefaultMapName),
-			gameDir.appendComponent(kLegacyMapName)
-		};
-		for (int i = 0; i < ARRAYSIZE(candidates); ++i) {
-			Common::FSNode probe(candidates[i]);
-			if (probe.exists()) {
-				mapPath = candidates[i];
-				break;
-			}
-		}
+		const Common::Path candidate = gameDir.appendComponent(kDefaultMapName);
+		Common::FSNode probe(candidate);
+		if (probe.exists())
+			mapPath = candidate;
 	}
 
 	bool haveMap = false;
