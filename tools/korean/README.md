@@ -1,88 +1,123 @@
-# Korean hi-res text: font tools
+# Korean hi-res text: tools
 
 Scripts for preparing replacement fonts for the Korean fan translations of the
-SCUMM games, and for checking that the engine is really using them.
+SCUMM games, and for checking that what reaches the screen is what was
+intended.
 
-Everything here runs on stock Debian with `python3-pil` and `fonts-nanum`; no
-part of the engine needs these at runtime.
+Everything runs on Linux with Python 3 and Pillow. Baking needs FreeType
+through Pillow; the engine does not.
 
-## The one thing that decides everything: cell size
-
-The game lays text out on **its own** font's grid. Indy3 reports
-`_2byteWidth = 8` for a Hangul syllable, so each character gets 8 game pixels
-and `8 * scale` on screen. A replacement font whose cell is wider than that is
-overlapped by the next character; narrower, and the text has gaps.
-
-    cell = the game font's width x scale
-
-That is not a preference, and getting it wrong looks exactly like a bug in the
-rendering code. A 24px font at scale 2 has 16 pixels of room and loses 8.
-
-## Quick start
+## Preparing fonts
 
 ```sh
-# What does this game need?
-python3 tools/korean/fontplan.py /path/to/gamedir
-
-# Bake it, at scale 2 (or 3)
-tools/korean/bakecells.sh /path/to/gamedir 2
-
-# Write the map the engine reads
-python3 tools/korean/makemaps.py /path/to/gamedir
+tools/korean/fontplan.py   ~/games/mi2kor          # what cells are needed
+tools/korean/bakecells.sh  ~/games/mi2kor 2        # bake them
+tools/korean/makemaps.py   ~/games/mi2kor          # write hires_text.map
 ```
 
-Then point the target at the map, in `~/.config/scummvm/scummvm.ini`:
+### The cell size is decided by the game
 
-```ini
-[my-korean-game]
-hires_text_map=/path/to/gamedir/hires_text.map
+The game lays text out on its own font's grid, so a replacement only fits
+when
+
+    cell = the original korean<NN>.fnt height * scale
+
+Exceed it and glyphs overlap - Indy3 gives an 8px font a 16px box at 2x, and
+a 24px replacement overlapped by 8. The header is
+`[version, shadow, width, height]` and width and height are independent: MI2's
+`korean00.fnt` is 11x12, The Dig's `korean.fnt` is 10x9. A square cell either
+clips the glyph or overruns the line.
+
+### v0-v2 need a full-width Latin face
+
+`CharsetRendererV2::getCharWidth()` returns a hard-coded 8, so every
+character - Latin included - occupies one 8px cell. A Korean face's Latin is
+half-width with padding, so it fills about half the cell and the line looks
+thin and gappy. `bakecells.sh` detects these games (one `korean00.fnt`, 8x8)
+and switches to `unifont_jp`, rendered at twice the cell so its 16-unit
+advance lands on the grid.
+
+### Hangul is proportional too
+
+CJK faces report one advance per syllable because they are drawn on a square
+em - NanumGothic says 15.05 for 가, 이 and 무 alike - while their ink is 14,
+12 and 15 wide. `--variable` alone therefore bakes a font that is
+proportional in name only, and one pixel too narrow everywhere, so syllables
+touch. `--ink-advance` measures the ink instead.
+
+## Checking the result
+
+```sh
+tools/korean/fontcheck.sh mi2-svfn-hr      # which font system drew this?
+tools/korean/textlog.sh   mi2-svfn-hr 1 30 # what text, in which font?
+tools/korean/coverrun.sh  mi2-svfn-hr      # which fonts are never used?
 ```
 
-and make sure `encoding.dat` can be found, or every Korean character silently
-becomes U+FFFD:
+`fontcheck.sh` matters because the legacy `loadKorFont()` runs for every
+Korean target whatever the hi-res settings say. Two systems can be live at
+once and a fault may belong to either; the giveaway is a scale with zero
+hi-res fonts loaded.
 
-```ini
-[scummvm]
-extrapath=/path/to/scummvm/dists/engine-data
+Loading a font is not using it: MI2 loads nine and draws with four, so the
+rest are untested until some scene nobody captured reaches them.
+
+## Comparing against the original
+
+The control is the game's **own** rendering, not an earlier build of this
+feature - that only shows which build regressed, never whether either is
+correct.
+
+```sh
+tools/korean/findscene.sh mi2-svfn-hr      # which save actually shows text?
+tools/korean/sceneab.sh   mi2-svfn-hr 2    # capture that scene both ways
+tools/korean/abrank.py    /tmp/sab_mi2-svfn-hr
 ```
 
-## The scripts
+`hires_text_scale=1` does **not** turn the feature off: the map in the game
+folder is still found, the replacement fonts still load, and the glyphs are
+drawn at 1x and magnified by the backend. The capture then shows big
+anti-aliased text that is ours, not the game's. `shot.sh NOHIRES=1` and
+`sceneab.sh` point the game at a copy of the folder with the map and the
+baked fonts removed.
 
-| script | what it does |
-|---|---|
-| `fontplan.py` | reads the game's own fonts and prints which cells are needed, per scale |
-| `bakecells.sh` | bakes a replacement for each charset at the right cell, plus a Latin companion |
-| `mkfont.py` | TrueType to SVFN; `bakecells.sh` drives it, but it is usable directly |
-| `makemaps.py` | writes `hires_text.map` from whatever fonts are present |
-| `fontcheck.sh` | runs a target and reports which font system actually drew the text |
-| `textlog.sh` | logs each run of text with the font that drew it, while you play |
-| `fontmetrics.py` | dumps a font's cell, advances and ink widths |
-| `advancecheck.py` | how many glyphs would collide at a given scale |
-| `carrycheck.py` | spacing error from rounding advances up versus carrying the remainder |
-| `inifix.py` | patches a throwaway ini for a test run |
+Most saves sit on a cutscene and draw nothing, which reads as a broken
+renderer when the game simply had nothing to say - Loom's slots 0-2 were like
+that and only slot 5 spoke. `findscene.sh` asks the engine rather than
+guessing.
 
-## Things that cost hours to work out
+`abrank.py` ranks frame pairs by where they differ. A pair differing only in
+the text band is evidence; one differing everywhere caught the two runs at
+different moments, which happens whenever a character is walking.
 
-**A CJK face reports one advance for every syllable.** They are designed on a
-square em, so NanumGothic says 15.05 for 가, 이 and 무 alike - while their ink
-is 14, 12 and 15 wide. Baking `--variable` from those advances gives a font
-that is proportional in name only. `mkfont.py --ink-advance` measures the ink
-instead, which is what `bakecells.sh` uses.
+## Regression against another build
 
-**Fonts are not always square.** MI2's `korean00.fnt` is 11x12 and The Dig's
-`korean.fnt` is 10x9. The width sets the advance and the height sets the line
-box, so a square replacement either clips the glyph or overruns the line.
+```sh
+tools/korean/fbdump.sh    /tmp/out target 600 ./scummvm
+tools/korean/fbcompare.sh ./old ./new 600 ja-mi2 ja-zak en-dig
+tools/korean/noisefloor.sh ./new ./new 600 3 en-dig
+```
 
-**`;` is not a comment in a ScummVM ini.** `scale=3   ; because` parses as the
-literal string `"3   ; because"`, fails the integer check, and is silently
-dropped - the map then looks like it was ignored.
+These dump the engine's own surfaces through GDB at a chosen frame, which is
+reproducible in a way that timed screenshots are not.
 
-**Charset 6 is a broken resource in MI1 CD, MI2 and DOTT.** It has 123
-characters where the others have 256, and the engine remaps it to font 0
-(`charset.cpp`, "HACK: Fix monkey1cd/monkey2/dott font error"). A charset-6
-replacement therefore has to be baked at font 0's cell, not at charset 6's own
-nominal size. `bakecells.sh` does this.
+Measure the noise floor before believing a difference: The Dig plays a SMUSH
+cutscene at start-up whose timeline the frame counter does not pin, so the
+same binary against itself differs by 0 to 3.3 kB between runs.
 
-**Some games use one font, not several.** `loadKorFont()` takes the multi-font
-path only for `version < 7` (plus Full Throttle); The Dig loads a single
-`korean.fnt`. `makemaps.py` writes `single=` rather than `multi=` for those.
+## Pitfalls
+
+1. `Common::INIFile` does not treat `;` as a comment - `scale=3  ; why` is
+   read as the string `"3  ; why"` and silently ignored.
+2. SDL takes the X11 window class from `argv[0]`, so a binary copied to
+   `/tmp/svm-work` has class `svm-work` and a search for `scummvm` finds
+   nothing. `xvfb.sh` looks up the first mapped child of the root instead.
+3. `extrapath` must point at `dists/engine-data` or `encoding.dat` is not
+   found and every Korean character decodes to U+FFFD - which looks like a
+   font bug rather than a configuration one.
+4. Xvfb needs to be at least as large as the window; a 3x window is 960x600
+   and a smaller server drops the game to a scaled mode.
+5. `autosave_period` defaults to 20 seconds and overwrites slot 0 mid-run.
+   `inifix.py` forces it to 0.
+6. A fixed X display number or a fixed temp file lets two runs capture each
+   other's output. `xvfb.sh` allocates a free display; use `mktemp` for
+   anything written per run.

@@ -18,6 +18,28 @@ import sys
 ENGDATA = os.path.expanduser("~/src/scummvm/dists/engine-data")
 
 
+def set_global(text, key, value):
+    """Force key=value in [scummvm], replacing any existing setting."""
+    line = key + "=" + value
+    out, seen, inside = [], False, False
+    for row in text.splitlines(keepends=True):
+        if row.startswith("["):
+            if inside and not seen:
+                out.append(line + "\n")
+                seen = True
+            inside = row.strip() == "[scummvm]"
+        elif inside and row.split("=")[0].strip() == key:
+            row = line + "\n"
+            seen = True
+        out.append(row)
+    if inside and not seen:
+        out.append(line + "\n")
+        seen = True
+    if not seen:
+        return "[scummvm]\n" + line + "\n\n" + text
+    return "".join(out)
+
+
 def add_global(text, line):
     """Add a key to [scummvm], replacing it there if already present.
 
@@ -85,6 +107,11 @@ def main():
 
     if os.path.exists(os.path.join(ENGDATA, "encoding.dat")):
         text = add_global(text, "extrapath=" + ENGDATA)
+
+    # The autosave fires every 20 seconds by default and writes over slot 0.
+    # During a scripted play-through that both interrupts the game and
+    # destroys the save the run was started from.
+    text = set_global(text, "autosave_period", "0")
 
     if args.target:
         wanted = []

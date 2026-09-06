@@ -33,7 +33,7 @@ OUT=/tmp/textlog_$TARGET.txt
 
 D=$(mktemp -d /tmp/textlog.XXXXXX)
 cp "$HOME/.config/scummvm/scummvm.ini" "$D/t.ini"
-python3 "$(dirname "$0")/inifix.py" "$D/t.ini" "$TARGET" --log || {
+python3 "$HOME/games/inifix.py" "$D/t.ini" "$TARGET" --log || {
 	echo "inifix 실패 - 설정이 적용되지 않았다" >&2
 	exit 1
 }
