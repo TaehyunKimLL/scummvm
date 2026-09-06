@@ -227,6 +227,21 @@ struct ScummHiResText {
 	 */
 	const Graphics::HiResBitmapFont *fontFor(int charsetId, bool latin = false) const;
 
+	/**
+	 * Tell the layer which grid the engine settled on for this charset.
+	 *
+	 * Call it after the engine has resolved its own font, so the values are
+	 * the ones text is actually laid out on. They may not be the charset's
+	 * nominal size: upstream remaps charset 6 to font 0 to work around a data
+	 * error in MI1 CD, MI2 and DOTT, so charset 6 asks for a 14px font and is
+	 * given an 11x12 one.
+	 *
+	 * The hi-res layer needs this to choose a stand-in that fits the same
+	 * grid; guessing from the charset's nominal height picks a font that is
+	 * too big and the glyphs overlap.
+	 */
+	void setCharsetGrid(int charsetId, int width, int height);
+
 	/// Whether any replacement font is loaded.
 	bool hasFonts() const;
 
@@ -289,6 +304,13 @@ private:
 	// different cell per charset - MI2 has five - and a Latin face at the
 	// wrong cell sits on a different baseline from the Hangul beside it.
 	Graphics::HiResBitmapFont _latinFonts[kMaxFonts];
+
+	// The grid the engine settled on per charset, so a charset with no
+	// replacement of its own can fall back to a font that fits it.
+	int _charsetWidths[kMaxFonts] = {};
+	int _charsetHeights[kMaxFonts] = {};
+
+	int nearestFont(int charsetId) const;
 	bool _fontsLoaded;
 
 	/// Decode one of the game's characters and look it up; -1 when absent.

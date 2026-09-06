@@ -370,6 +370,7 @@ void CharsetRendererCommon::setCurID(int32 id) {
 	_fontHeight = _fontPtr[1];
 	_numChars = READ_LE_UINT16(_fontPtr + 2);
 
+
 	if (_vm->_useMultiFont) {
 		if (id == 6)    // HACK: Fix monkey1cd/monkey2/dott font error
 			id = 0;
@@ -396,6 +397,11 @@ void CharsetRendererCommon::setCurID(int32 id) {
 			_vm->_2byteShadow = _vm->_2byteMultiShadow[nearest];
 		}
 	}
+
+	// After the engine has settled on a font: these are the values text is
+	// actually laid out on, and charset 6 is remapped to font 0 above, so
+	// reading them here is the only way to know the real grid.
+	_vm->_hiResText.setCharsetGrid(_curId, _vm->_2byteWidth, _vm->_2byteHeight);
 }
 
 void CharsetRendererV3::setCurID(int32 id) {
@@ -441,6 +447,11 @@ void CharsetRendererV3::setCurID(int32 id) {
 			_vm->_2byteShadow = _vm->_2byteMultiShadow[nearest];
 		}
 	}
+
+	// After the engine has settled on a font: these are the values text is
+	// actually laid out on, and charset 6 is remapped to font 0 above, so
+	// reading them here is the only way to know the real grid.
+	_vm->_hiResText.setCharsetGrid(_curId, _vm->_2byteWidth, _vm->_2byteHeight);
 }
 
 int CharsetRendererCommon::getFontHeight() const {

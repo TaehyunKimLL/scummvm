@@ -292,7 +292,54 @@ const Graphics::HiResBitmapFont *ScummHiResText::fontFor(int charsetId, bool lat
 	if (_singleFont.isLoaded())
 		return &_singleFont;
 
+	// A charset can have no replacement of its own - MI2 draws its verb line
+	// with charset 6, for which the games ship no korean06.fnt, and upstream
+	// remaps that to 0 for its own lookup while leaving _curId at 6. The
+	// engine additionally falls back to the nearest set by height, so do the
+	// same here: otherwise these characters silently keep the original bitmap
+	// font while everything around them is replaced.
+	const int nearest = nearestFont(charsetId);
+	if (nearest >= 0)
+		return &_fonts[nearest];
+
 	return nullptr;
+}
+
+void ScummHiResText::setCharsetGrid(int charsetId, int width, int height) {
+	if (charsetId >= 0 && charsetId < kMaxFonts) {
+		_charsetWidths[charsetId] = width;
+		_charsetHeights[charsetId] = height;
+	}
+}
+
+int ScummHiResText::nearestFont(int charsetId) const {
+	// Match the grid the engine actually gave this charset, not the charset's
+	// nominal size. The width is what sets the advance, so that is what has to
+	// fit; a font matched on the nominal height would be too wide and the
+	// glyphs would run into each other.
+	const int want = (charsetId >= 0 && charsetId < kMaxFonts)
+					 ? _charsetWidths[charsetId] : 0;
+	if (want <= 0)
+		return -1;
+
+	const int m = scale() > 0 ? scale() : 1;
+
+	int best = -1;
+	int bestDelta = 0;
+	for (int i = 0; i < kMaxFonts; ++i) {
+		if (!_fonts[i].isLoaded())
+			continue;
+
+		// The replacement was baked at the game width times the scale, so undo
+		// that to compare like with like.
+		const int delta = ABS(_fonts[i].cellWidth() / m - want);
+		if (best < 0 || delta < bestDelta) {
+			best = i;
+			bestDelta = delta;
+		}
+	}
+
+	return best;
 }
 
 /**
