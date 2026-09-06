@@ -380,6 +380,8 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	if (!font)
 		return false;
 
+	if (_logText)
+		noteDrawn(charsetId, font, chr);
 
 	const int index = glyphIndexFor(*font, chr);
 	if (index < 0)
@@ -543,7 +545,86 @@ void ScummHiResText::freeCoverage() {
 	_coverage.free();
 }
 
+void ScummHiResText::noteDrawn(int charsetId, const Graphics::HiResBitmapFont *font,
+							   int chr) const {
+	int which = -1;
+	for (int i = 0; i < kMaxFonts; ++i) {
+		if (font == &_fonts[i] || font == &_latinFonts[i]) {
+			which = i;
+			break;
+		}
+	}
 
+	// One line per glyph is unreadable and one line per run is what you want
+	// to match against a screenshot, so accumulate until the font changes.
+	if (charsetId != _logCharset || which != _logFont) {
+		flushTextLog();
+		_logCharset = charsetId;
+		_logFont = which;
+	}
+
+	// chr is the game's own encoding - a CP949 pair for Korean, not a code
+	// point - so it has to go through the same decoder the glyph lookup uses.
+	// Encoding it directly as UTF-8 produces plausible-looking but wrong
+	// syllables, which is worse than failing outright because the log then
+	// disagrees with a screen that is perfectly correct.
+	byte bytes[2];
+	int len;
+	if (chr < 256) {
+		bytes[0] = (byte)chr;
+		len = 1;
+	} else {
+		bytes[0] = (byte)(chr & 0xFF);
+		bytes[1] = (byte)(chr >> 8);
+		len = 2;
+	}
+
+	const byte *p = bytes;
+	const uint32 cp = decodeNext(p, bytes + len);
+	if (!cp || cp == 0xFFFD) {
+		_logRun += '?';
+		return;
+	}
+
+	// UTF-8, so the line can be read directly out of the log.
+	if (cp < 0x80) {
+		_logRun += (char)cp;
+	} else if (cp < 0x800) {
+		_logRun += (char)(0xC0 | (cp >> 6));
+		_logRun += (char)(0x80 | (cp & 0x3F));
+	} else if (cp < 0x10000) {
+		_logRun += (char)(0xE0 | (cp >> 12));
+		_logRun += (char)(0x80 | ((cp >> 6) & 0x3F));
+		_logRun += (char)(0x80 | (cp & 0x3F));
+	} else {
+		_logRun += (char)(0xF0 | (cp >> 18));
+		_logRun += (char)(0x80 | ((cp >> 12) & 0x3F));
+		_logRun += (char)(0x80 | ((cp >> 6) & 0x3F));
+		_logRun += (char)(0x80 | (cp & 0x3F));
+	}
+}
+
+void ScummHiResText::flushTextLog() const {
+	if (_logRun.empty())
+		return;
+
+	const Graphics::HiResBitmapFont *font = nullptr;
+	if (_logFont >= 0 && _logFont < kMaxFonts) {
+		if (_fonts[_logFont].isLoaded())
+			font = &_fonts[_logFont];
+		else if (_latinFonts[_logFont].isLoaded())
+			font = &_latinFonts[_logFont];
+	} else if (_singleFont.isLoaded()) {
+		font = &_singleFont;
+	}
+
+	debug("HRTEXT charset=%d font=%d cell=%dx%d \"%s\"",
+		  _logCharset, _logFont,
+		  font ? font->cellWidth() : 0, font ? font->cellHeight() : 0,
+		  _logRun.c_str());
+
+	_logRun.clear();
+}
 
 void ScummHiResText::clearCoverage(int top, int height) {
 	if (!_coverage.getPixels())
@@ -648,6 +729,7 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	// only resolved once this is settled.
 	// A running log of what is drawn and with which font, so a scene can be
 	// matched against the fonts it exercises without guessing.
+	_logText = ConfMan.hasKey("hires_text_log") && ConfMan.getBool("hires_text_log");
 
 	if (ConfMan.hasKey("hires_text_scale"))
 		_config.scale = ConfMan.getInt("hires_text_scale");

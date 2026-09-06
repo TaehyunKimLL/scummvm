@@ -242,6 +242,9 @@ struct ScummHiResText {
 	 */
 	void setCharsetGrid(int charsetId, int width, int height);
 
+	/** Finish and print any partially accumulated text-log line. */
+	void endTextRun() const { if (_logText) flushTextLog(); }
+
 	/// Whether any replacement font is loaded.
 	bool hasFonts() const;
 
@@ -318,6 +321,15 @@ private:
 
 	int nearestFont(int charsetId) const;
 
+	// Optional running log of what is being drawn, for working out which
+	// scenes exercise which fonts. Off unless hires_text_log is set.
+	bool _logText = false;
+	void noteDrawn(int charsetId, const Graphics::HiResBitmapFont *font, int chr) const;
+	void flushTextLog() const;
+
+	mutable Common::String _logRun;
+	mutable int _logCharset = -1;
+	mutable int _logFont = -1;
 	bool _fontsLoaded;
 
 	/// Decode one of the game's characters and look it up; -1 when absent.

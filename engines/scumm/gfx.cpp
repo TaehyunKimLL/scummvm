@@ -533,6 +533,10 @@ void ScummEngine::markRectAsDirty(VirtScreenNumber virt, int left, int right, in
  * code in the backend is controlled from here.
  */
 void ScummEngine::drawDirtyScreenParts() {
+	// A frame boundary: whatever text was drawn this frame is complete, so
+	// print the accumulated log line rather than one line per glyph.
+	_hiResText.endTextRun();
+
 	// Update verbs
 	updateDirtyScreen(kVerbVirtScreen);
 
