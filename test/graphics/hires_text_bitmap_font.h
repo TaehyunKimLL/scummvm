@@ -230,7 +230,9 @@ public:
 		// any mix of scripts in any order.
 		const int glyphs = 3;
 		const int cellW = 16, cellH = 16;
-		const uint32 cmapOff = 32;
+		// The version 2 header is 36 bytes: the table offset sits after
+		// the version 1 fields, not on top of the ascent.
+		const uint32 cmapOff = 36;
 		const uint32 dataOff = cmapOff + glyphs * 8;
 		const uint32 dataSize = cellW * cellH * glyphs;
 
@@ -246,7 +248,7 @@ public:
 		b[14] = cellW;
 		b[15] = cellH;
 		b[16] = 12;
-		put32(b, 16, cmapOff);
+		put32(b, 32, cmapOff);
 		put32(b, 24, dataOff);
 		put32(b, 28, dataSize);
 
@@ -264,6 +266,10 @@ public:
 		TS_ASSERT_EQUALS(font.glyphIndex(0xAC00), 1);
 		TS_ASSERT_EQUALS(font.glyphIndex(0x20AC), 0);   // euro sign
 		TS_ASSERT_EQUALS(font.glyphIndex(0x42), -1);
+
+		// The ascent survives, which it could not while the table offset
+		// was written over it.
+		TS_ASSERT_EQUALS(font.ascent(), 12);
 	}
 
 	void test_rejects_glyph_data_past_the_end_of_the_file() {
@@ -337,7 +343,7 @@ public:
 
 	void test_rejects_a_code_point_table_pointing_outside_the_font() {
 		const int glyphs = 2;
-		const uint32 cmapOff = 32;
+		const uint32 cmapOff = 36;
 		const uint32 dataOff = cmapOff + glyphs * 8;
 		const uint32 dataSize = 16 * 16 * glyphs;
 
@@ -352,7 +358,7 @@ public:
 		put16(b, 12, glyphs);
 		b[14] = 16;
 		b[15] = 16;
-		put32(b, 16, cmapOff);
+		put32(b, 32, cmapOff);
 		put32(b, 24, dataOff);
 		put32(b, 28, dataSize);
 

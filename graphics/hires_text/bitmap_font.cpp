@@ -37,7 +37,10 @@ static const int kHeaderSize = 32;
 
 // Version 1 orders its glyphs by a code page named in the header. Version 2
 // adds a table mapping code points to glyphs, for fonts that do not follow any
-// code page's order.
+// code page's order. The offset of that table does not fit in the 32 byte
+// header - byte 16 is the ascent - so a version 2 header is four bytes longer.
+static const int kHeaderSizeV2 = 36;
+static const int kCmapOffField = 32;
 static const uint16 kMaxVersion = 2;
 
 enum {
@@ -115,6 +118,11 @@ bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit)
 		delete[] raw;
 		return false;
 	}
+	if (version >= 2 && size < (uint32)kHeaderSizeV2) {
+		warning("HiResText: version 2 font is too short for its header");
+		delete[] raw;
+		return false;
+	}
 
 	const uint16 flags = READ_LE_UINT16(raw + 6);
 	const int bpp = raw[8];
@@ -171,7 +179,7 @@ bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit)
 	// to follow the order of any code page.
 	Common::HashMap<uint32, int> cmap;
 	if (version >= 2) {
-		const uint32 cmapOff = READ_LE_UINT32(raw + 16);
+		const uint32 cmapOff = READ_LE_UINT32(raw + kCmapOffField);
 		const uint32 cmapSize = (uint32)glyphs * kCmapEntrySize;
 		if (cmapOff == 0 || cmapOff > size || cmapSize > size - cmapOff) {
 			warning("HiResText: font code point table runs past the end of the file");
