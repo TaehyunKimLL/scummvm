@@ -438,5 +438,103 @@ public:
 		TS_ASSERT(!cfg.legacy.latinEnabled);
 		TS_ASSERT(!cfg.scaleFromMap);
 		TS_ASSERT_EQUALS(cfg.heightRoles.size(), 0u);
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0u);
+		TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides.size(), 0u);
+	}
+
+	// --- [glyphs] --------------------------------------------------------
+	//
+	// A game's own font is not a character set: LucasArts titles draw an
+	// ellipsis where Latin-1 has '^' and arrows where it has '_' and DEL.
+
+	void test_glyphs_keep_and_remap() {
+		const char *map =
+			"[glyphs]\n"
+			"0x5e = keep\n"
+			"0x7f = u+2192\n"
+			"100 = keep\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(map, cfg));
+
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(cfg.glyphOverride(0x5e, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+
+		TS_ASSERT(cfg.glyphOverride(0x7f, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(o.codepoint, 0x2192u);
+
+		// Decimal keys are accepted too.
+		TS_ASSERT(cfg.glyphOverride(100, o));
+
+		// Anything not listed is an ordinary character.
+		TS_ASSERT(!cfg.glyphOverride(0x41, o));
+	}
+
+	void test_glyphs_scope_refines_common_table() {
+		// 0x5F is an arrow in the dialogue charset and a real underscore in
+		// the others, so a scoped entry must not leak into the common table.
+		const char *map =
+			"[glyphs]\n"
+			"0x5e = keep\n"
+			"[glyphs:cs1]\n"
+			"0x5f = keep\n";
+
+		Common::Array<Common::String> scopes;
+		scopes.push_back("cs0");
+		scopes.push_back("cs1");
+
+		Common::MemoryReadStream stream((const byte *)map, strlen(map));
+		Common::Array<Common::String> qualifiers;
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(Graphics::HiResFontMap::loadFromStream(
+			stream, Common::Path("/games/demo"), qualifiers, cfg, &scopes));
+
+		Graphics::HiResGlyphOverride o;
+		// Common entries apply to every scope, and to no scope at all.
+		TS_ASSERT(cfg.glyphOverride(0x5e, o, 0));
+		TS_ASSERT(cfg.glyphOverride(0x5e, o, 1));
+		TS_ASSERT(cfg.glyphOverride(0x5e, o));
+
+		// The scoped one applies only where it was written.
+		TS_ASSERT(cfg.glyphOverride(0x5f, o, 1));
+		TS_ASSERT(!cfg.glyphOverride(0x5f, o, 0));
+		TS_ASSERT(!cfg.glyphOverride(0x5f, o));
+	}
+
+	void test_glyphs_rejects_nonsense() {
+		const char *map =
+			"[glyphs]\n"
+			"0x5e = maybe\n"
+			"notacode = keep\n"
+			"0xzz = keep\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(map, cfg));
+		// Every line is unusable, so nothing is recorded and nothing crashes.
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0u);
+	}
+
+	void test_glyphs_code_out_of_range_is_rejected() {
+		Graphics::HiResTextConfig cfg;
+		// Above the Unicode range there is nothing to name. The key is
+		// written in hex because the INI reader does not allow '+' in a key
+		// name - see test_glyphs_key_may_not_use_u_plus_form().
+		TS_ASSERT(parse("[glyphs]\n0x110000 = keep\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0u);
+
+		// The same limit applies to a remap target, which is a value and so
+		// may use either form.
+		TS_ASSERT(parse("[glyphs]\n0x5e = u+110000\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0u);
+	}
+
+	void test_glyphs_key_may_not_use_u_plus_form() {
+		// Common::INIFile only accepts alphanumerics, '-', '_', '.', ' ' and
+		// ':' in a key, and rejects the whole file when it sees anything
+		// else. A map is therefore unusable in its entirety if a translation
+		// writes the left hand side as "u+5e", so the failure is worth
+		// pinning down rather than discovering in a game.
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(!parse("[glyphs]\nu+5e = keep\n", cfg));
 	}
 };

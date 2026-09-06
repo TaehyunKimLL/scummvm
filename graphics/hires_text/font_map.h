@@ -75,6 +75,30 @@ enum HiResMetricsSource {
 	kHiResMetricsFont       ///< use the replacement font's own advance
 };
 
+/**
+ * What to do with a character code the game repurposed.
+ *
+ * A game's own font is not a character set: LucasArts titles draw an ellipsis
+ * at 0x5E, where Latin-1 has '^', and solid arrows at 0x5F and 0x7F, where it
+ * has '_' and a control code. A replacement font baked from Latin-1 has a
+ * caret, an underscore and nothing at those indices, so the picture the game
+ * meant is lost - and because the hi-res layer reports the character as drawn,
+ * the original is not drawn either.
+ */
+enum HiResGlyphAction {
+	kHiResGlyphKeep = 0, ///< leave it to the game's own font
+	kHiResGlyphRemap     ///< draw a different code point from the replacement
+};
+
+/** One entry of the [glyphs] table. */
+struct HiResGlyphOverride {
+	HiResGlyphOverride() : action(kHiResGlyphKeep), codepoint(0) {}
+	HiResGlyphOverride(HiResGlyphAction a, uint32 cp) : action(a), codepoint(cp) {}
+
+	HiResGlyphAction action;
+	uint32 codepoint;    ///< for kHiResGlyphRemap; unused otherwise
+};
+
 /** Compatibility data for old maps; not generic character classification. */
 struct LegacyFontMapOptions {
 	bool latinEnabled;
@@ -122,6 +146,22 @@ struct HiResTextConfig {
 	HiResMetricsSource metricsSource; ///< [render] metrics=game|font, for all text
 	LegacyFontMapOptions legacy;      ///< old [latin] keys; interpreted by adapters only
 
+	/// [glyphs] exceptions, keyed by the game's own character code.
+	///
+	/// Games reuse punctuation slots for pictograms, and which slots differ
+	/// between a game's own charsets: 0x5F is a left arrow in the dialogue
+	/// font but a real underscore elsewhere. So the common table below is
+	/// refined by per-scope ones, a scope being whatever the caller names in
+	/// `scopes` - the SCUMM adapter passes "cs0", "cs1", ... for its charsets.
+	Common::HashMap<uint32, HiResGlyphOverride> glyphOverrides;
+
+	/// Per-scope refinements, in the order the caller listed its scopes.
+	Common::Array<Common::HashMap<uint32, HiResGlyphOverride> > scopedGlyphOverrides;
+
+	/// Look up an override, preferring @p scope's table over the common one.
+	/// A negative or unknown scope consults only the common table.
+	bool glyphOverride(uint32 code, HiResGlyphOverride &out, int scope = -1) const;
+
 	// --- decoration -----------------------------------------------------
 	HiResShadowMode shadowMode;
 	int shadowOffset;                     ///< scaled pixels; -1 = follow the scale
@@ -167,7 +207,8 @@ public:
 	 */
 	static bool load(const Common::Path &mapPath,
 					 const Common::Array<Common::String> &qualifiers,
-					 HiResTextConfig &out);
+					 HiResTextConfig &out,
+					 const Common::Array<Common::String> *scopes = nullptr);
 
 	/**
 	 * Parse a map that has already been opened.
@@ -181,7 +222,8 @@ public:
 	static bool loadFromStream(Common::SeekableReadStream &stream,
 							   const Common::Path &baseDir,
 							   const Common::Array<Common::String> &qualifiers,
-							   HiResTextConfig &out);
+							   HiResTextConfig &out,
+							   const Common::Array<Common::String> *scopes = nullptr);
 
 	/**
 	 * Resolve a path named inside a map file.

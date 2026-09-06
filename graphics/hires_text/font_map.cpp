@@ -72,6 +72,28 @@ void HiResTextConfig::clear() {
 
 	translationName.clear();
 	heightRoles.clear();
+	glyphOverrides.clear();
+	scopedGlyphOverrides.clear();
+}
+
+bool HiResTextConfig::glyphOverride(uint32 code, HiResGlyphOverride &out, int scope) const {
+	// The scope's own table wins, so a charset that draws an arrow where the
+	// others draw an underscore can say so without disturbing them.
+	if (scope >= 0 && scope < (int)scopedGlyphOverrides.size()) {
+		Common::HashMap<uint32, HiResGlyphOverride>::const_iterator s =
+			scopedGlyphOverrides[scope].find(code);
+		if (s != scopedGlyphOverrides[scope].end()) {
+			out = s->_value;
+			return true;
+		}
+	}
+
+	Common::HashMap<uint32, HiResGlyphOverride>::const_iterator it =
+		glyphOverrides.find(code);
+	if (it == glyphOverrides.end())
+		return false;
+	out = it->_value;
+	return true;
 }
 
 int HiResTextConfig::roleForHeight(int height) const {
@@ -198,11 +220,110 @@ bool parseMapBool(const Common::String &value, bool &out) {
 	return true;
 }
 
+/**
+ * A character code written as "0x5e", "u+2192" or plain decimal.
+ *
+ * Both sides of a [glyphs] entry are codes - the game's own character on the
+ * left, a Unicode code point on the right - so one parser serves both. Hex is
+ * bounded the same way the decimal one is, since these strings ship with a
+ * translation and are not the engine's own data.
+ */
+bool parseCodeValue(const Common::String &value, uint32 &out) {
+	if (value.empty())
+		return false;
+
+	const char *p = value.c_str();
+	int base = 10;
+	if (value.hasPrefixIgnoreCase("u+")) {
+		p += 2;
+		base = 16;
+	} else if (value.hasPrefixIgnoreCase("0x")) {
+		p += 2;
+		base = 16;
+	}
+
+	if (!*p)
+		return false;
+
+	// Above the Unicode range there is nothing to name, and the cap keeps the
+	// accumulation from overflowing.
+	const uint32 maxValue = 0x10FFFF;
+	uint32 n = 0;
+	for (; *p; ++p) {
+		int digit;
+		if (*p >= '0' && *p <= '9')
+			digit = *p - '0';
+		else if (base == 16 && *p >= 'a' && *p <= 'f')
+			digit = *p - 'a' + 10;
+		else if (base == 16 && *p >= 'A' && *p <= 'F')
+			digit = *p - 'A' + 10;
+		else
+			return false;
+
+		if (n > (maxValue - (uint32)digit) / (uint32)base)
+			return false;
+		n = n * (uint32)base + (uint32)digit;
+	}
+
+	out = n;
+	return true;
+}
+
+/**
+ * Read one [glyphs] style section into a table.
+ *
+ * Qualified section names are tried before the bare one, exactly as getKey()
+ * does for single keys, so a map may carry per-game exception lists.
+ */
+void readGlyphSection(const Common::INIFile &ini,
+					  const Common::Array<Common::String> &qualifiers,
+					  const char *section,
+					  Common::HashMap<uint32, HiResGlyphOverride> &out) {
+	// Least specific first, so a qualified entry overwrites the bare one.
+	Common::Array<Common::String> names;
+	names.push_back(section);
+	for (int i = (int)qualifiers.size() - 1; i >= 0; --i) {
+		if (!qualifiers[i].empty())
+			names.push_back(Common::String::format("%s:%s", section, qualifiers[i].c_str()));
+	}
+
+	for (uint s = 0; s < names.size(); ++s) {
+		if (!ini.hasSection(names[s]))
+			continue;
+
+		const Common::INIFile::SectionKeyList keys = ini.getKeys(names[s]);
+		for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin();
+			 it != keys.end(); ++it) {
+			uint32 code;
+			if (!parseCodeValue(it->key, code)) {
+				warning("HiResText: '%s' is not a character code, ignoring",
+						it->key.c_str());
+				continue;
+			}
+
+			if (it->value.equalsIgnoreCase("keep")) {
+				out[code] = HiResGlyphOverride(kHiResGlyphKeep, 0);
+				continue;
+			}
+
+			uint32 target;
+			if (parseCodeValue(it->value, target)) {
+				out[code] = HiResGlyphOverride(kHiResGlyphRemap, target);
+				continue;
+			}
+
+			warning("HiResText: glyph %s: '%s' is neither 'keep' nor a code point, ignoring",
+					it->key.c_str(), it->value.c_str());
+		}
+	}
+}
+
 } // End of anonymous namespace
 
 bool HiResFontMap::load(const Common::Path &mapPath,
 						const Common::Array<Common::String> &qualifiers,
-						HiResTextConfig &out) {
+						HiResTextConfig &out,
+						const Common::Array<Common::String> *scopes) {
 	Common::FSNode mapNode(mapPath);
 	Common::SeekableReadStream *stream = mapNode.createReadStream();
 	if (!stream) {
@@ -210,7 +331,7 @@ bool HiResFontMap::load(const Common::Path &mapPath,
 		return false;
 	}
 
-	const bool ok = loadFromStream(*stream, mapPath.getParent(), qualifiers, out);
+	const bool ok = loadFromStream(*stream, mapPath.getParent(), qualifiers, out, scopes);
 	delete stream;
 
 	if (!ok)
@@ -222,7 +343,8 @@ bool HiResFontMap::load(const Common::Path &mapPath,
 bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 								  const Common::Path &baseDir,
 								  const Common::Array<Common::String> &qualifiers,
-								  HiResTextConfig &out) {
+								  HiResTextConfig &out,
+								  const Common::Array<Common::String> *scopes) {
 	Common::INIFile ini;
 	ini.requireKeyValueDelimiter();
 	if (!ini.loadFromStream(stream) || stream.err())
@@ -451,6 +573,31 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 			int height;
 			if (parseInteger(it->key.c_str() + 7, 65535, height) && height > 0)
 				out.heightRoles[height] = parseRole(it->value);
+		}
+	}
+
+	// [glyphs] lists character codes the game did not use for what the code
+	// page says. Which slots are repurposed depends on the game's own font:
+	// 0x5F is a left arrow in a dialogue charset and a plain underscore in
+	// the others, so the common table is refined per scope rather than
+	// merged into one.
+	//
+	//   [glyphs]
+	//   0x5e = keep        ; an ellipsis, not a caret
+	//   [glyphs:cs1]
+	//   0x5f = keep        ; left arrow in this charset only
+	//   0x7f = u+2192      ; drawn from the replacement at another code point
+	readGlyphSection(ini, qualifiers, "glyphs", out.glyphOverrides);
+
+	if (scopes) {
+		out.scopedGlyphOverrides.resize(scopes->size());
+		for (uint i = 0; i < scopes->size(); ++i) {
+			if ((*scopes)[i].empty())
+				continue;
+			const Common::String section =
+				Common::String::format("glyphs:%s", (*scopes)[i].c_str());
+			readGlyphSection(ini, qualifiers, section.c_str(),
+							 out.scopedGlyphOverrides[i]);
 		}
 	}
 

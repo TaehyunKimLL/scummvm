@@ -391,6 +391,18 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	if (!_enabled || !_fontsLoaded)
 		return false;
 
+	// A code the game repurposed. Returning false here rather than further
+	// down is the whole point: the caller draws the original glyph when this
+	// layer declines, so an ellipsis stored at '^' or an arrow at '_' stays
+	// the picture the game meant instead of becoming Latin punctuation.
+	int lookup = chr;
+	Graphics::HiResGlyphOverride override;
+	if (_config.glyphOverride((uint32)chr, override, charsetId)) {
+		if (override.action == Graphics::kHiResGlyphKeep)
+			return false;
+		lookup = (int)override.codepoint;
+	}
+
 	// Which font can hold this character is decided by how the game encoded
 	// it, not by the code point: a CP949-indexed set has no Latin glyphs even
 	// for characters that exist in Unicode.
@@ -402,7 +414,10 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	if (_logText)
 		noteDrawn(charsetId, font, chr);
 
-	const int index = glyphIndexFor(*font, chr);
+	// A remap names a Unicode code point outright, so it skips the code page
+	// step that turns the game's bytes into one.
+	const int index = (lookup == chr) ? glyphIndexFor(*font, chr)
+									  : font->glyphIndex((uint32)lookup);
 	if (index < 0)
 		return false;
 
@@ -477,11 +492,23 @@ int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
 	// slightly loose text rather than characters drawn on top of each other.
 	const bool fontMetrics = (_config.metricsSource == Graphics::kHiResMetricsFont);
 
+	// A code this layer declines to draw is laid out by the game as it always
+	// was; asking the replacement font for its advance would space the
+	// original glyph by a character it is not.
+	int lookup = chr;
+	Graphics::HiResGlyphOverride override;
+	if (_config.glyphOverride((uint32)chr, override, charsetId)) {
+		if (override.action == Graphics::kHiResGlyphKeep)
+			return gameWidth;
+		lookup = (int)override.codepoint;
+	}
+
 	const Graphics::HiResBitmapFont *font = fontFor(charsetId, chr < 256);
 	if (!font)
 		return gameWidth;
 
-	const int index = glyphIndexFor(*font, chr);
+	const int index = (lookup == chr) ? glyphIndexFor(*font, chr)
+									  : font->glyphIndex((uint32)lookup);
 	if (index < 0)
 		return gameWidth;
 
@@ -839,6 +866,27 @@ bool ScummHiResText::bakeTtfFonts(const Common::Path &gameDir) {
 		const int cellW = _gameFontW[i] * m;
 		const int cellH = _gameFontH[i] * m;
 
+		// The map decides which codes this font is responsible for, and it
+		// decides per charset: a code kept by the game in one charset is an
+		// ordinary character in another. Baking the same set for every font
+		// would either drop a glyph one charset needs or bake one no charset
+		// will ask for.
+		Common::Array<uint32> cjkSet = cjk;
+		Common::Array<uint32> latinSet = latin;
+		if (!_config.glyphOverrides.empty() || !_config.scopedGlyphOverrides.empty()) {
+			Common::HashMap<uint32, Graphics::HiResGlyphOverride> merged =
+				_config.glyphOverrides;
+			if (i < (int)_config.scopedGlyphOverrides.size()) {
+				const Common::HashMap<uint32, Graphics::HiResGlyphOverride> &scoped =
+					_config.scopedGlyphOverrides[i];
+				for (Common::HashMap<uint32, Graphics::HiResGlyphOverride>::const_iterator it =
+						 scoped.begin(); it != scoped.end(); ++it)
+					merged[it->_key] = it->_value;
+			}
+			Graphics::HiResFontBaker::applyGlyphOverrides(merged, cjkSet);
+			Graphics::HiResFontBaker::applyGlyphOverrides(merged, latinSet);
+		}
+
 		// One face per size; the wrapper takes the stream per instance.
 		Common::SeekableReadStream *stream = node.createReadStream();
 		if (!stream)
@@ -851,7 +899,7 @@ bool ScummHiResText::bakeTtfFonts(const Common::Path &gameDir) {
 		}
 
 		Common::Array<byte> baked;
-		if (Graphics::HiResFontBaker::bake(*face, cjk, cellW, cellH, true, baked)) {
+		if (Graphics::HiResFontBaker::bake(*face, cjkSet, cellW, cellH, true, baked)) {
 			// Debug aid: write the baked file out so it can be inspected
 			// with the same tools as a shipped one.
 			if (ConfMan.hasKey("hires_text_dump_baked") && ConfMan.getBool("hires_text_dump_baked")) {
@@ -868,7 +916,7 @@ bool ScummHiResText::bakeTtfFonts(const Common::Path &gameDir) {
 		}
 
 		Common::Array<byte> bakedLatin;
-		if (Graphics::HiResFontBaker::bake(*face, latin, cellW, cellH, true, bakedLatin)) {
+		if (Graphics::HiResFontBaker::bake(*face, latinSet, cellW, cellH, true, bakedLatin)) {
 			Common::MemoryReadStream ms(bakedLatin.data(), bakedLatin.size());
 			if (_latinFonts[i].load(ms))
 				debug(1, "SCUMM: hi-res Latin font %d <- %s baked at %dx%d",
@@ -945,7 +993,13 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	if (!mapPath.empty()) {
 		Common::FSNode probe(mapPath);
 		if (probe.exists()) {
-			haveMap = Graphics::HiResFontMap::load(mapPath, qualifiers, _config);
+			// Name each charset as a scope, so a map can say that 0x5F is an
+			// arrow in the dialogue font and a real underscore in the rest.
+			Common::Array<Common::String> scopes;
+			for (int i = 0; i < kMaxFonts; ++i)
+				scopes.push_back(Common::String::format("cs%d", i));
+
+			haveMap = Graphics::HiResFontMap::load(mapPath, qualifiers, _config, &scopes);
 			debug(1, "SCUMM: hi-res map %s: '%s'%s",
 				  haveMap ? "read" : "REJECTED", mapPath.toString().c_str(),
 				  explicitMap ? " (from the config)" : " (found in the game folder)");
