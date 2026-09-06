@@ -26,6 +26,7 @@
 #include "common/rect.h"
 #include "common/stream.h"
 #include "common/textconsole.h"
+#include "common/textconsole.h"
 #include "common/ustr.h"
 
 namespace Scumm {
@@ -88,6 +89,9 @@ ScummHiResText::ScummHiResText() {
 void ScummHiResText::reset() {
 	_enabled = false;
 	_fontsLoaded = false;
+	_alphaActive = false;
+	memset(_paletteCache, 0, sizeof(_paletteCache));
+	memset(_paletteRGB, 0, sizeof(_paletteRGB));
 	_config.clear();
 	freeCoverage();
 
@@ -246,6 +250,21 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 
 	return Graphics::HiResGlyphRenderer::drawGlyph(dest, coverage(), *font, index,
 												   x, y, style, dirty);
+}
+
+void ScummHiResText::updatePaletteCache(const Graphics::PixelFormat &format,
+										const byte *rgb, uint first, uint num) {
+	if (first >= 256)
+		return;
+	if (first + num > 256)
+		num = 256 - first;
+
+	memcpy(_paletteRGB + first * 3, rgb, num * 3);
+	for (uint i = 0; i < num; ++i) {
+		_paletteCache[first + i] = format.RGBToColor(rgb[i * 3 + 0],
+													 rgb[i * 3 + 1],
+													 rgb[i * 3 + 2]);
+	}
 }
 
 void ScummHiResText::createCoverage(int w, int h) {

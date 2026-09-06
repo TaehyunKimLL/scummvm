@@ -704,7 +704,73 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 			return;
 		} else
 #endif
-		// Compose the text over the game graphics
+		// Compose the text over the game graphics.
+		//
+		// Blended hi-res text takes its own path: the game graphics stay
+		// paletted, and the palette lookup happens here rather than in the
+		// backend, so that partially covered glyph pixels can be mixed with
+		// the background behind them. The regular paths below key the text in
+		// or out, which cannot express a half-covered pixel.
+		if (_hiResText.alphaActive() && _hiResText.coverage()) {
+			const byte *srcPtr = (const byte *)src;
+			const byte *textPtr = (const byte *)_textSurface.getBasePtr(x * m, y * m);
+			const byte *covPtr = (const byte *)_hiResText.coverage()->getBasePtr(x * m, y * m);
+			uint32 *dstPtr = (uint32 *)_compositeBuf;
+
+			const int srcPitch = vs->pitch - width;
+			const int textPitch = _textSurface.pitch - width * m;
+			const int covPitch = _hiResText.coverage()->pitch - width * m;
+
+			for (int h = 0; h < height * m; ++h) {
+				// The game buffer is at the unscaled size, so each of its
+				// pixels is read m times across and m times down.
+				const byte *srcRow = srcPtr + (h / m) * (width + srcPitch);
+
+				for (int w = 0; w < width * m; ++w) {
+					const byte t = *textPtr++;
+					const byte a = *covPtr++;
+					const uint32 bg = _hiResText.paletteColor(srcRow[w / m]);
+
+					if (t == CHARSET_MASK_TRANSPARENCY || (t == 0 && a == 0)) {
+						// No text here. Index zero with no coverage is not
+						// text either: that is a spot the surface was cleared
+						// to rather than keyed, and painting palette entry 0
+						// there would punch a hole in the background.
+						*dstPtr++ = bg;
+					} else if (a == 0 || a == 0xFF) {
+						// Fully covered, or drawn by a path that leaves the
+						// coverage channel alone - a zero there means opaque,
+						// not invisible.
+						*dstPtr++ = _hiResText.paletteColor(t);
+					} else {
+						const uint32 fg = _hiResText.paletteColor(t);
+						uint8 fr, fgc, fb, br, bgc, bb;
+						_outputPixelFormat.colorToRGB(fg, fr, fgc, fb);
+						_outputPixelFormat.colorToRGB(bg, br, bgc, bb);
+
+						*dstPtr++ = _outputPixelFormat.RGBToColor(
+								(fr * a + br * (255 - a)) / 255,
+								(fgc * a + bgc * (255 - a)) / 255,
+								(fb * a + bb * (255 - a)) / 255);
+					}
+				}
+
+				textPtr += textPitch;
+				covPtr += covPitch;
+			}
+
+			// The composite buffer holds width*m pixels per row, not width:
+			// the loop above wrote every source pixel m times across. Handing
+			// the backend the unscaled pitch makes it read each row a third of
+			// the way into the next one, which tiles the picture sideways and
+			// shears it - the giveaway that this is a stride bug rather than a
+			// blending one.
+			_system->copyRectToScreen(_compositeBuf,
+									  width * m * _outputPixelFormat.bytesPerPixel,
+									  x * m, y * m, width * m, height * m);
+			return;
+		}
+
 		if (_outputPixelFormat.bytesPerPixel == 2) {
 			const byte *srcPtr = (const byte *)src;
 			const byte *textPtr = (byte *)_textSurface.getBasePtr(x * m, y * m);

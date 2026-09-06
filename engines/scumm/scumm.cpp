@@ -1542,7 +1542,46 @@ Common::Error ScummEngine::init() {
 		if (_game.platform == Common::kPlatformFMTowns && _game.version == 5)
 			return Common::Error(Common::kUnsupportedColorMode, "This game requires dual graphics layer support which is disabled in this build");
 #endif
-			initGraphics(screenWidth, screenHeight);
+			// Blended hi-res text needs a true-colour screen to composite
+			// into, because the blend produces colours that are not in the
+			// game's palette. Ask for one by capability rather than by
+			// backend: several backends can manage 32bpp, and which formats
+			// they offer depends on the display they are running on.
+			//
+			// CLUT8 stays in the list so a display that cannot do it still
+			// starts, with blending quietly turned off - the glyphs then draw
+			// as solid colour, which is what the map asked for minus the
+			// smoothing.
+			if (_hiResText.enabled() && _hiResText.wantsAlpha()) {
+#ifdef USE_RGB_COLOR
+				Common::List<Graphics::PixelFormat> tryModes;
+				Common::List<Graphics::PixelFormat> supported = _system->getSupportedFormats();
+				for (Common::List<Graphics::PixelFormat>::const_iterator g = supported.begin();
+					 g != supported.end(); ++g) {
+					if (g->bytesPerPixel == 4)
+						tryModes.push_back(*g);
+				}
+				tryModes.push_back(Graphics::PixelFormat::createFormatCLUT8());
+
+				initGraphics(screenWidth, screenHeight, tryModes);
+
+				const Graphics::PixelFormat chosen = _system->getScreenFormat();
+				if (chosen.bytesPerPixel == 4) {
+					_hiResText.setAlphaActive(true);
+					debug(1, "SCUMM: hi-res text blending into %s", chosen.toString().c_str());
+				} else {
+					_hiResText.setAlphaActive(false);
+					warning("SCUMM: no 32bpp screen available (got %s); hi-res text will not be blended",
+							chosen.toString().c_str());
+				}
+#else
+				initGraphics(screenWidth, screenHeight);
+				_hiResText.setAlphaActive(false);
+				warning("SCUMM: built without RGB colour support; hi-res text will not be blended");
+#endif
+			} else {
+				initGraphics(screenWidth, screenHeight);
+			}
 
 			if (_game.platform == Common::kPlatformNES)
 				_system->fillScreen(0x1d);
@@ -1841,6 +1880,7 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 
 	free(_compositeBuf);
 	_compositeBuf = (byte *)malloc(_screenWidth * _textSurfaceMultiplier * _screenHeight * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel);
+
 
 	// MI2 NI DOS Demo, load demo.rec playback file if present
 	if ((_game.id == GID_MONKEY2) && (_game.features & GF_DEMO) && (_game.platform == Common::kPlatformDOS) && !ConfMan.getBool("disable_mi2_ni_demo"))

@@ -26,6 +26,7 @@
 #include "common/path.h"
 #include "common/rect.h"
 #include "graphics/hires_text/glyph_renderer.h"
+#include "graphics/pixelformat.h"
 #include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/font_map.h"
 #include "graphics/surface.h"
@@ -69,6 +70,45 @@ struct ScummHiResText {
 
 	int scale() const { return _config.scale; }
 	bool wantsAlpha() const { return _config.alpha; }
+
+	/**
+	 * Whether glyphs are being blended into a true-colour screen.
+	 *
+	 * Distinct from wantsAlpha(): the map may ask for blending and not get it,
+	 * because the backend could not provide a 32bpp screen. Only this says
+	 * what is actually happening.
+	 */
+	bool alphaActive() const { return _alphaActive; }
+
+	/**
+	 * Record whether the negotiated screen can carry blended text.
+	 *
+	 * Called once the backend has answered, so a map asking for alpha on a
+	 * paletted-only display quietly falls back instead of drawing nothing.
+	 */
+	void setAlphaActive(bool active) { _alphaActive = active; }
+
+	/**
+	 * Refresh the cached true-colour palette.
+	 *
+	 * In alpha mode the engine stops handing the backend a palette, so the
+	 * lookup happens here instead: the game's graphics stay paletted and are
+	 * converted when the composite buffer is built. Every palette change has
+	 * to reach this cache or the screen and the table disagree.
+	 *
+	 * @param format  the negotiated screen format
+	 * @param rgb     RGB triples, @p num of them
+	 * @param first   first palette entry the triples describe
+	 * @param num     how many entries
+	 */
+	void updatePaletteCache(const Graphics::PixelFormat &format, const byte *rgb,
+							uint first, uint num);
+
+	/// The cached colour for a palette index; valid only in alpha mode.
+	uint32 paletteColor(byte index) const { return _paletteCache[index]; }
+
+	/// The cached palette as RGB triples, for the cursor, which stays paletted.
+	const byte *paletteRGB() const { return _paletteRGB; }
 	Common::CodePage encoding() const { return _config.encoding; }
 
 	const Graphics::HiResTextConfig &config() const { return _config; }
@@ -190,6 +230,12 @@ private:
 	Graphics::HiResBitmapFont _fonts[kMaxFonts];
 	Graphics::HiResBitmapFont _singleFont;
 	bool _fontsLoaded;
+
+	// In alpha mode the backend is given no palette, so we keep our own: the
+	// packed colour for compositing, and the RGB triples the cursor needs.
+	bool _alphaActive;
+	uint32 _paletteCache[256];
+	byte _paletteRGB[3 * 256];
 };
 
 } // End of namespace Scumm
