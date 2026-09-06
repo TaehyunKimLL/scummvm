@@ -52,6 +52,35 @@ CP932 for Japanese, CP936/CP950 for Chinese) and is otherwise left unset - a
 single byte game defines its own, and the adapter must be told explicitly
 before assuming anything else.
 
+## Metrics: whose advances to use
+
+```
+hires_text_metrics=game     ; default - the game's own advances
+hires_text_metrics=font     ; the replacement font's advances
+```
+
+The game decides line breaks and speech-bubble sizes from the widths of its
+own font, so a replacement that advances differently can wrap text in the wrong
+place or push it out of a bubble. The default therefore keeps the original
+spacing and merely draws a better glyph in the same box.
+
+`metrics=font` is for a proportional replacement that should space itself.
+Only fonts with a metrics table (SVFN header flags bit 0) are affected;
+a fixed-width replacement advances by its cell whatever this says.
+
+Measured on Indy3's proportional `vj00.fnt` at scale 2:
+
+| character | font advance | scaled to game px | game said |
+|---|---|---|---|
+| U+D0B9 | 18 | 9 | 4 |
+| U+E2B1 | 20 | 10 | 4 |
+| U+E7B4 | 21 | 11 | 4 |
+| U+B8BA | 19 | 10 | 4 |
+
+Note the game advanced every character by 4 regardless; the replacement varies
+per glyph, which is the point. With `metrics=game` the code is not consulted at
+all - the probe recorded zero calls - so existing layouts cannot shift.
+
 ## Scaling, and platforms that already scale
 
 `_textSurfaceMultiplier` decides both the text surface size and the resolution

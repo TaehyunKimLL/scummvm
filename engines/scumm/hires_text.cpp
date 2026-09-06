@@ -40,6 +40,34 @@ static const char *const kDefaultMapName = "hires_text.map";
 static const char *const kLegacyMapName = "korean_ttf.map";
 
 /**
+ * A readable name for a code page, for logs.
+ *
+ * Which code page a font is indexed by decides whether a game's bytes reach
+ * its glyphs at all, so it is worth saying out loud rather than leaving the
+ * reader to infer it from a number.
+ */
+static const char *codePageName(Common::CodePage cp) {
+	switch (cp) {
+	case Common::kWindows949:
+		return "CP949/Korean";
+	case Common::kWindows932:
+		return "CP932/Japanese";
+	case Common::kWindows936:
+		return "CP936/Simplified Chinese";
+	case Common::kWindows950:
+		return "CP950/Traditional Chinese";
+	case Common::kWindows1252:
+		return "CP1252/Latin";
+	case Common::kUtf8:
+		return "UTF-8";
+	case Common::kCodePageInvalid:
+		return "none (Unicode indices)";
+	default:
+		return "other";
+	}
+}
+
+/**
  * Expand a numbered font name, e.g. "korean%02d.fnt" with 3 -> "korean03.fnt".
  *
  * The template comes from a map file, so it must not be handed to printf: a
@@ -128,9 +156,16 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 
 			if (_fonts[i].load(*stream)) {
 				_fontsLoaded = true;
-				debug(1, "SCUMM: hi-res font %d: %dx%d %dbpp, %d glyphs%s",
-					  i, _fonts[i].cellWidth(), _fonts[i].cellHeight(), _fonts[i].bpp(),
-					  _fonts[i].glyphCount(), _fonts[i].isProportional() ? ", proportional" : "");
+				debug(1, "SCUMM: hi-res font %d <- %s: %dx%d cell, %d bpp, %d glyphs, "
+						 "%s, codepage %s%s",
+					  i, name.c_str(),
+					  _fonts[i].cellWidth(), _fonts[i].cellHeight(), _fonts[i].bpp(),
+					  _fonts[i].glyphCount(),
+					  _fonts[i].isProportional() ? "proportional" : "fixed width",
+					  codePageName(_fonts[i].codePage()),
+					  _fonts[i].bpp() == 8 ? ", anti-aliased" : ", stencil");
+			} else {
+				warning("SCUMM: %s is not a usable hi-res font", name.c_str());
 			}
 			delete stream;
 		}
@@ -145,9 +180,16 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 			if (stream) {
 				if (_singleFont.load(*stream)) {
 					_fontsLoaded = true;
-					debug(1, "SCUMM: hi-res font (single): %dx%d %dbpp, %d glyphs",
+					debug(1, "SCUMM: hi-res font (single) <- %s: %dx%d cell, %d bpp, "
+							 "%d glyphs, %s, codepage %s",
+						  _config.bitmapSingle.c_str(),
 						  _singleFont.cellWidth(), _singleFont.cellHeight(),
-						  _singleFont.bpp(), _singleFont.glyphCount());
+						  _singleFont.bpp(), _singleFont.glyphCount(),
+						  _singleFont.isProportional() ? "proportional" : "fixed width",
+						  codePageName(_singleFont.codePage()));
+				} else {
+					warning("SCUMM: %s is not a usable hi-res font",
+							_config.bitmapSingle.c_str());
 				}
 				delete stream;
 			}
@@ -211,34 +253,7 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	if (!font)
 		return false;
 
-	// How a double byte character is packed is decided by arithmetic in the
-	// caller rather than by how bytes sit in memory, so this is endian
-	// independent. charset.cpp builds the pair as (first << 8) | second while
-	// scanning the string, but printChar() is handed it with the halves the
-	// other way round, so the LOW half is the lead byte. Feeding the decoder
-	// the other order yields plausible but wrong characters - Hanja in the
-	// middle of Korean dialogue - rather than an outright failure, so it is
-	// worth stating which way round this is.
-	byte bytes[2];
-	int len;
-	if (chr < 256) {
-		bytes[0] = (byte)chr;
-		len = 1;
-	} else {
-		bytes[0] = (byte)(chr & 0xFF);
-		bytes[1] = (byte)(chr >> 8);
-		len = 2;
-	}
-
-	const byte *p = bytes;
-	const uint32 codepoint = decodeNext(p, bytes + len);
-
-	// U+FFFD means the conversion table was missing or the pair is not valid
-	// in this code page; either way there is nothing to look up.
-	if (!codepoint || codepoint == 0xFFFD)
-		return false;
-
-	const int index = font->glyphIndex(codepoint);
+	const int index = glyphIndexFor(*font, chr);
 	if (index < 0)
 		return false;
 
@@ -265,6 +280,75 @@ void ScummHiResText::updatePaletteCache(const Graphics::PixelFormat &format,
 													 rgb[i * 3 + 1],
 													 rgb[i * 3 + 2]);
 	}
+}
+
+int ScummHiResText::glyphIndexFor(const Graphics::HiResBitmapFont &font, int chr) const {
+	// How a double byte character is packed is decided by arithmetic in the
+	// caller rather than by how bytes sit in memory, so this is endian
+	// independent. charset.cpp builds the pair as (first << 8) | second while
+	// scanning the string, but printChar() is handed it with the halves the
+	// other way round, so the LOW half is the lead byte. Feeding the decoder
+	// the other order yields plausible but wrong characters - Hanja in the
+	// middle of Korean dialogue - rather than an outright failure, so it is
+	// worth stating which way round this is.
+	byte bytes[2];
+	int len;
+	if (chr < 256) {
+		bytes[0] = (byte)chr;
+		len = 1;
+	} else {
+		bytes[0] = (byte)(chr & 0xFF);
+		bytes[1] = (byte)(chr >> 8);
+		len = 2;
+	}
+
+	const byte *p = bytes;
+	const uint32 codepoint = decodeNext(p, bytes + len);
+
+	// U+FFFD means the conversion table was missing or the pair is not valid
+	// in this code page; either way there is nothing to look up.
+	if (!codepoint || codepoint == 0xFFFD)
+		return -1;
+
+	return font.glyphIndex(codepoint);
+}
+
+int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth) const {
+	if (!_enabled || !_fontsLoaded || _config.metricsSource != Graphics::kHiResMetricsFont)
+		return gameWidth;
+
+	const Graphics::HiResBitmapFont *font = fontFor(charsetId);
+	if (!font || !font->isProportional())
+		return gameWidth;
+
+	const int index = glyphIndexFor(*font, chr);
+	if (index < 0)
+		return gameWidth;
+
+	Graphics::GlyphMetrics metrics;
+	if (!font->glyphMetrics(index, metrics))
+		return gameWidth;
+
+	int advance = metrics.advance;
+	if (advance <= 0)
+		return gameWidth;
+
+	// Some glyphs are baked with ink reaching one pixel past their advance -
+	// 38 of 2350 in Indy3's vj00.fnt. Left alone they collide with whatever
+	// follows, so widen the step to clear the ink.
+	const int reach = metrics.bearingX + metrics.width;
+	if (reach > advance)
+		advance = reach;
+
+	// Font metrics are in the scaled font's pixels; the engine lays text out
+	// in unscaled game pixels and multiplies the position back up, so the
+	// division here is lossy. Round UP: rounding down loses up to (scale - 1)
+	// pixels per character, and since ink can fill the whole advance that puts
+	// the next glyph on top of this one - 747 of 2350 glyphs at scale 2.
+	// Rounding up costs at most one game pixel of extra spacing and cannot
+	// overlap.
+	const int m = scale();
+	return (m > 1) ? (advance + m - 1) / m : advance;
 }
 
 Graphics::PixelFormat ScummHiResText::cursorFormat(const Graphics::PixelFormat &screenFormat) const {
@@ -353,10 +437,24 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	bool haveMap = false;
 	if (!mapPath.empty()) {
 		Common::FSNode probe(mapPath);
-		if (probe.exists())
+		if (probe.exists()) {
 			haveMap = Graphics::HiResFontMap::load(mapPath, qualifiers, _config);
-		else if (explicitMap)
+			debug(1, "SCUMM: hi-res map %s: '%s'%s",
+				  haveMap ? "read" : "REJECTED", mapPath.toString().c_str(),
+				  explicitMap ? " (from the config)" : " (found in the game folder)");
+
+			// A map naming no bitmap fonts is almost always one written for
+			// the older TrueType loader, which understands a different set of
+			// sections. Left unsaid, the symptom is that the legacy system
+			// draws the text while this one supplies only the scale - two
+			// systems laying out one screen.
+			if (haveMap && _config.bitmapPattern.empty() && _config.bitmapSingle.empty())
+				warning("SCUMM: '%s' names no [bitmap] fonts; if this is an older "
+						"TrueType map, the hi-res text layer will not use it",
+						mapPath.toString().c_str());
+		} else if (explicitMap) {
 			warning("SCUMM: hi-res text map not found: '%s'", mapPath.toString().c_str());
+		}
 	}
 
 	// A user setting outranks the map, which is why logical font sizes are
@@ -376,13 +474,35 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	else if (ConfMan.hasKey("korean_alpha_text"))
 		_config.alpha = ConfMan.getBool("korean_alpha_text");
 
+	// Whose advances to use. The default follows the game, because scripts
+	// size speech bubbles and choose line breaks from the original widths; a
+	// proportional replacement only gets to space itself when asked.
+	if (ConfMan.hasKey("hires_text_metrics")) {
+		const Common::String value = ConfMan.get("hires_text_metrics");
+		if (value.equalsIgnoreCase("font"))
+			_config.metricsSource = Graphics::kHiResMetricsFont;
+		else if (value.equalsIgnoreCase("game"))
+			_config.metricsSource = Graphics::kHiResMetricsGame;
+		else
+			warning("SCUMM: hires_text_metrics should be 'game' or 'font', not '%s'",
+					value.c_str());
+	}
+
 	// Being asked for is not the same as being usable: without a map there is
 	// nothing naming the fonts, so the engine stays on its original path.
 	_enabled = haveMap && (_config.scale > 1 || !_config.bitmapPattern.empty() ||
 						   !_config.bitmapSingle.empty());
 
 	if (_enabled)
-		debug(1, "SCUMM: hi-res text enabled, scale %d, alpha %d", _config.scale, _config.alpha);
+		debug(1, "SCUMM: hi-res text enabled: scale %d, alpha %s, metrics %s, "
+				 "source encoding %s, fonts %s",
+			  _config.scale,
+			  _config.alpha ? "on" : "off",
+			  _config.metricsSource == Graphics::kHiResMetricsFont ? "font" : "game",
+			  codePageName(_config.encoding),
+			  !_config.bitmapPattern.empty() ? _config.bitmapPattern.c_str()
+					: (!_config.bitmapSingle.empty() ? _config.bitmapSingle.c_str()
+													 : "(none named)"));
 }
 
 /**

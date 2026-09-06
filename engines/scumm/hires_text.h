@@ -111,6 +111,23 @@ struct ScummHiResText {
 	const byte *paletteRGB() const { return _paletteRGB; }
 
 	/**
+	 * How far the pen should move after drawing a character.
+	 *
+	 * The game decides line breaks and speech-bubble sizes from the widths of
+	 * its own font, so a replacement that advances differently can push text
+	 * out of a bubble or wrap it in the wrong place. The map therefore chooses:
+	 * metrics=game keeps the original advance and merely draws a better glyph
+	 * in the same box, metrics=font lets a proportional replacement space
+	 * itself properly.
+	 *
+	 * @param chr        the character, in the game's own encoding
+	 * @param charsetId  the game's current charset number
+	 * @param gameWidth  what the engine's own font would have advanced
+	 * @return the advance to use, in unscaled game pixels
+	 */
+	int advanceFor(int chr, int charsetId, int gameWidth) const;
+
+	/**
 	 * The format to declare a cursor in.
 	 *
 	 * Cursor data is palette indices whatever the screen is. When blending is
@@ -245,6 +262,9 @@ private:
 	Graphics::HiResBitmapFont _fonts[kMaxFonts];
 	Graphics::HiResBitmapFont _singleFont;
 	bool _fontsLoaded;
+
+	/// Decode one of the game's characters and look it up; -1 when absent.
+	int glyphIndexFor(const Graphics::HiResBitmapFont &font, int chr) const;
 
 	// In alpha mode the backend is given no palette, so we keep our own: the
 	// packed colour for compositing, and the RGB triples the cursor needs.

@@ -462,13 +462,14 @@ int CharsetRendererClassic::getCharWidth(uint16 chr) const {
 	int spacing = 0;
 
 	if (_vm->_useCJKMode && chr >= 0x80)
-		return _vm->_2byteWidth / 2;
+		return _vm->_hiResText.advanceFor(chr, _curId, _vm->_2byteWidth / 2);
 
 	int offs = READ_LE_UINT32(_fontPtr + chr * 4 + 4);
 	if (offs)
 		spacing = _fontPtr[offs] + (signed char)_fontPtr[offs + 2];
 
-	return spacing;
+	// Measuring and drawing have to agree - see CharsetRendererV3 above.
+	return _vm->_hiResText.advanceFor(chr, _curId, spacing);
 }
 
 int CharsetRenderer::getStringWidth(int arg, const byte *text) {
@@ -728,7 +729,11 @@ int CharsetRendererV3::getCharWidth(uint16 chr) const {
 	if (!spacing)
 		spacing = *(_widthTable + chr);
 
-	return spacing;
+	// Measuring and drawing have to agree. getStringWidth() adds these up to
+	// decide line breaks and to centre a line, so if a proportional
+	// replacement font draws wider than this says, a centred subtitle drifts
+	// off the edge of the screen.
+	return _vm->_hiResText.advanceFor(chr, _curId, spacing);
 }
 
 void CharsetRendererPC::setShadowMode(ShadowType mode) {
@@ -1011,6 +1016,10 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	if (_str.left > _left)
 		_str.left = _left;
 
+	// A proportional replacement font may advance by its own glyph width;
+	// metrics=game, the default, keeps the game's own spacing.
+	origWidth = _vm->_hiResText.advanceFor(chr, _curId, origWidth);
+
 	_left += origWidth;
 
 	if (_str.right < _left) {
@@ -1223,6 +1232,12 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	// Original keeps glyph width and character dimensions separately
 	if ((_vm->_language == Common::ZH_TWN || _vm->_language == Common::KO_KOR) && is2byte)
 		_origWidth++;
+
+	// A proportional replacement font may want to advance by its own glyph
+	// width rather than the game's. Only metrics=font asks for that; the
+	// default leaves the game's layout alone, because scripts size speech
+	// bubbles and choose line breaks from the original widths.
+	_origWidth = _vm->_hiResText.advanceFor(chr, _curId, _origWidth);
 
 	_left += _origWidth;
 	if (is2byte)
