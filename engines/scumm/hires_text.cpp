@@ -27,7 +27,12 @@
 #include "common/stream.h"
 #include "common/textconsole.h"
 #include "common/textconsole.h"
+#include "common/file.h"
+#include "common/memstream.h"
 #include "common/ustr.h"
+#include "graphics/font.h"
+#include "graphics/fonts/ttf.h"
+#include "graphics/hires_text/font_baker.h"
 
 namespace Scumm {
 
@@ -121,6 +126,9 @@ void ScummHiResText::reset() {
 	_simpleFonts = false;
 	_simpleCellHeight = 0;
 	_scaleFromUser = false;
+	_ttfPath.clear();
+	for (int i = 0; i < kMaxFonts; ++i)
+		_gameFontW[i] = _gameFontH[i] = 0;
 	_fontsLoaded = false;
 	_alphaActive = false;
 	memset(_paletteCache, 0, sizeof(_paletteCache));
@@ -206,6 +214,12 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 			}
 		}
 	}
+
+	// A face is only baked when no bitmap font came in: a shipped .fnt is the
+	// primary form, and a face names only what to draw with when there is
+	// nothing baked.
+	if (!_fontsLoaded && bakeTtfFonts(gameDir))
+		_fontsLoaded = true;
 
 	// Latin companions, for the letters the double-byte sets do not carry.
 	// The menu, the location titles and much of the dialogue mix scripts, so
@@ -765,6 +779,115 @@ void ScummHiResText::resolveScale(int gameFontHeight) {
 		  scale, _simpleCellHeight, gameFontHeight);
 }
 
+void ScummHiResText::setGameFontCell(int charsetId, int width, int height) {
+	if (charsetId >= 0 && charsetId < kMaxFonts) {
+		_gameFontW[charsetId] = width;
+		_gameFontH[charsetId] = height;
+	}
+}
+
+/**
+ * Bake a TrueType face into the same bitmap fonts a translation would ship.
+ *
+ * One font per charset the game has a CJK font for, each at that charset's
+ * cell times the scale, so the result is exactly what the offline tool would
+ * have produced for this game - and everything after this point (fallback,
+ * metrics, logging, the no-FreeType build) sees only bitmap fonts.
+ *
+ * A face is a convenience for a translator who has not baked yet; it costs
+ * a rasterising pass at start-up, which a shipped .fnt does not.
+ */
+bool ScummHiResText::bakeTtfFonts(const Common::Path &gameDir) {
+#ifdef USE_FREETYPE2
+	if (_ttfPath.empty())
+		return false;
+
+	Common::FSNode node(_ttfPath);
+	if (!node.exists()) {
+		warning("SCUMM: hi-res TrueType font not found: '%s'", _ttfPath.toString().c_str());
+		return false;
+	}
+
+	Common::Array<uint32> cjk;
+	switch (_config.encoding) {
+	case Common::kWindows949:
+		Graphics::HiResFontBaker::hangulSyllables(cjk);
+		break;
+	case Common::kWindows932:
+		Graphics::HiResFontBaker::jisX0208(cjk);
+		break;
+	case Common::kWindows936:
+		Graphics::HiResFontBaker::chineseCodePage(936, cjk);
+		break;
+	case Common::kWindows950:
+		Graphics::HiResFontBaker::chineseCodePage(950, cjk);
+		break;
+	default:
+		warning("SCUMM: hi-res TrueType font: no glyph set for this language");
+		return false;
+	}
+
+	Common::Array<uint32> latin;
+	Graphics::HiResFontBaker::latin1(latin);
+
+	const int m = _config.scale;
+	bool any = false;
+	for (int i = 0; i < kMaxFonts; ++i) {
+		if (_gameFontW[i] <= 0 || _gameFontH[i] <= 0)
+			continue;
+
+		const int cellW = _gameFontW[i] * m;
+		const int cellH = _gameFontH[i] * m;
+
+		// One face per size; the wrapper takes the stream per instance.
+		Common::SeekableReadStream *stream = node.createReadStream();
+		if (!stream)
+			continue;
+		Graphics::Font *face = Graphics::loadTTFFont(stream, DisposeAfterUse::YES, cellH,
+													 Graphics::kTTFSizeModeCell);
+		if (!face) {
+			warning("SCUMM: cannot load '%s' at %dpx", _ttfPath.toString().c_str(), cellH);
+			return false;
+		}
+
+		Common::Array<byte> baked;
+		if (Graphics::HiResFontBaker::bake(*face, cjk, cellW, cellH, true, baked)) {
+			// Debug aid: write the baked file out so it can be inspected
+			// with the same tools as a shipped one.
+			if (ConfMan.hasKey("hires_text_dump_baked") && ConfMan.getBool("hires_text_dump_baked")) {
+				Common::DumpFile df;
+				if (df.open(Common::Path(Common::String::format("baked%02d.fnt", i))))
+					df.write(baked.data(), baked.size());
+			}
+			Common::MemoryReadStream ms(baked.data(), baked.size());
+			if (_fonts[i].load(ms)) {
+				any = true;
+				debug(1, "SCUMM: hi-res font %d <- %s baked at %dx%d, %d glyphs",
+					  i, _ttfPath.baseName().c_str(), cellW, cellH, _fonts[i].glyphCount());
+			}
+		}
+
+		Common::Array<byte> bakedLatin;
+		if (Graphics::HiResFontBaker::bake(*face, latin, cellW, cellH, true, bakedLatin)) {
+			Common::MemoryReadStream ms(bakedLatin.data(), bakedLatin.size());
+			if (_latinFonts[i].load(ms))
+				debug(1, "SCUMM: hi-res Latin font %d <- %s baked at %dx%d",
+					  i, _ttfPath.baseName().c_str(), cellW, cellH);
+		}
+
+		delete face;
+	}
+
+	if (any)
+		_config.legacy.latinEnabled = true;
+	return any;
+#else
+	if (!_ttfPath.empty())
+		warning("SCUMM: hi-res TrueType fonts need a build with FreeType; bake the font instead");
+	return false;
+#endif
+}
+
 /// The code page a language's text is in, when the map does not say.
 static Common::CodePage defaultEncodingFor(Common::Language language) {
 	switch (language) {
@@ -853,6 +976,24 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	if (!haveMap && mapPath.empty())
 		haveMap = probeSimpleFonts(gameDir);
 
+	// A TrueType face, from the config or the map, baked at start-up. The
+	// config key wins, since it is the one a user reaches for.
+	if (ConfMan.hasKey("hires_text_font"))
+		_ttfPath = Graphics::HiResFontMap::resolvePath(ConfMan.get("hires_text_font"), gameDir);
+	else if (!_config.ttfPath[Graphics::kHiResRoleDefault].empty())
+		_ttfPath = _config.ttfPath[Graphics::kHiResRoleDefault];
+
+	bool haveTtf = false;
+	if (!_ttfPath.empty()) {
+		haveTtf = true;
+		if (!haveMap) {
+			// Nothing else says what this is for; a face on its own means
+			// "draw the text twice as large", the common case.
+			_config.scale = 2;
+			_config.alpha = true;
+		}
+	}
+
 	_scaleFromUser = false;
 	if (ConfMan.hasKey("hires_text_scale")) {
 		_config.scale = ConfMan.getInt("hires_text_scale");
@@ -888,8 +1029,9 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 
 	// Being asked for is not the same as being usable: without a map there is
 	// nothing naming the fonts, so the engine stays on its original path.
-	_enabled = haveMap && (_config.scale > 1 || !_config.bitmapPattern.empty() ||
-						   !_config.bitmapSingle.empty());
+	_enabled = (haveMap || haveTtf) &&
+			   (_config.scale > 1 || !_config.bitmapPattern.empty() ||
+				!_config.bitmapSingle.empty() || haveTtf);
 
 	// The user's switch outranks everything above. A map in the game folder
 	// is the translation's intent; this is the player's, and it is the one

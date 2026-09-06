@@ -13,6 +13,7 @@ MODULE_OBJS := \
 	font.o \
 	fontman.o \
 	hires_text/bitmap_font.o \
+	hires_text/font_baker.o \
 	hires_text/font_map.o \
 	hires_text/glyph_renderer.o \
 	hires_text/glyph_source.o \

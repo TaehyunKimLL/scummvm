@@ -1815,7 +1815,15 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 	_hiResText.createCoverage(_textSurface.w, _textSurface.h);
 
 	// The replacement fonts themselves. Failing to load leaves the engine on
-	// its original path rather than showing nothing.
+	// its original path rather than showing nothing. A TrueType face is
+	// baked per charset, at the cell the game draws that charset at.
+	if (_useMultiFont) {
+		for (int i = 0; i < 20; ++i)
+			if (_2byteMultiFontPtr[i])
+				_hiResText.setGameFontCell(i, _2byteMultiWidth[i], _2byteMultiHeight[i]);
+	} else if (_useCJKMode) {
+		_hiResText.setGameFontCell(0, _2byteWidth, _2byteHeight);
+	}
 	_hiResText.loadFonts(ConfMan.getPath("path"));
 
 

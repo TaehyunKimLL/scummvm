@@ -963,7 +963,7 @@ static const ExtraGuiOption enableHiResText = {
  * it does something; for every other game the dialog is unchanged.
  */
 bool ScummMetaEngine::targetHasHiResText(const Common::String &target) {
-	if (ConfMan.hasKey("hires_text_map", target))
+	if (ConfMan.hasKey("hires_text_map", target) || ConfMan.hasKey("hires_text_font", target))
 		return true;
 
 	const Common::Path gameDir = ConfMan.getPath("path", target);

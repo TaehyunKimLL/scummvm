@@ -70,6 +70,15 @@ struct ScummHiResText {
 	 */
 	void resolveScale(int gameFontHeight);
 
+	/**
+	 * Tell the layer the cell of the game's own CJK font for one charset.
+	 *
+	 * Needed by the TrueType path, which bakes a face to the size the game
+	 * draws each charset at. Call once per loaded game font, before
+	 * loadFonts().
+	 */
+	void setGameFontCell(int charsetId, int width, int height);
+
 	void reset();
 
 	/**
@@ -341,6 +350,11 @@ private:
 	bool _logText = false;
 
 	bool probeSimpleFonts(const Common::Path &gameDir);
+	bool bakeTtfFonts(const Common::Path &gameDir);
+
+	Common::Path _ttfPath;          ///< face to bake at run time, if any
+	int _gameFontW[kMaxFonts] = {};
+	int _gameFontH[kMaxFonts] = {};
 	void noteDrawn(int charsetId, const Graphics::HiResBitmapFont *font, int chr) const;
 	void flushTextLog() const;
 
