@@ -775,6 +775,30 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 			return;
 		}
 
+		// The same, on a screen that stays paletted: the text is keyed in,
+		// not blended, and each game pixel is repeated m times across and
+		// down. The generic loop below cannot do this - it walks the game
+		// buffer at the text surface's size, which for m > 1 runs off the
+		// end of it.
+		if (_hiResText.enabled() && m > 1 && _outputPixelFormat.bytesPerPixel == 1) {
+			const byte *srcPtr = (const byte *)src;
+			const byte *textPtr = (const byte *)_textSurface.getBasePtr(x * m, y * m);
+			byte *dstPtr = _compositeBuf;
+			const int textPitch = _textSurface.pitch - width * m;
+
+			for (int h = 0; h < height * m; ++h) {
+				const byte *srcRow = srcPtr + (h / m) * vs->pitch;
+				for (int w = 0; w < width * m; ++w) {
+					const byte t = *textPtr++;
+					*dstPtr++ = (t == CHARSET_MASK_TRANSPARENCY) ? srcRow[w / m] : t;
+				}
+				textPtr += textPitch;
+			}
+
+			_system->copyRectToScreen(_compositeBuf, width * m, x * m, y * m, width * m, height * m);
+			return;
+		}
+
 		if (_outputPixelFormat.bytesPerPixel == 2) {
 			const byte *srcPtr = (const byte *)src;
 			const byte *textPtr = (byte *)_textSurface.getBasePtr(x * m, y * m);
