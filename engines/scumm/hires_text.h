@@ -125,7 +125,24 @@ struct ScummHiResText {
 	 * @param gameWidth  what the engine's own font would have advanced
 	 * @return the advance to use, in unscaled game pixels
 	 */
-	int advanceFor(int chr, int charsetId, int gameWidth) const;
+	/**
+	 * How far to step after drawing a character, in game pixels.
+	 *
+	 * A proportional replacement font measures in the scaled surface's pixels
+	 * while the engine positions text in game pixels, so the division is lossy:
+	 * at 2x an advance of 5 has to become 2 or 3. Rounding every character up
+	 * costs up to (scale - 1) pixels each and visibly loosens a line.
+	 *
+	 * Pass @p carry - zeroed at the start of each run - and the remainder is
+	 * spent on the following characters instead, so the run as a whole keeps
+	 * the font's own metrics and only its last character can be short.
+	 *
+	 * @param gameWidth  the game's own advance, returned unchanged when there
+	 *                   is no replacement glyph or metrics=game leaves the
+	 *                   layout alone
+	 */
+	int advanceFor(int chr, int charsetId, int gameWidth,
+				   int *carry = nullptr) const;
 
 	/**
 	 * The format to declare a cursor in.
@@ -261,6 +278,7 @@ private:
 	static const int kMaxFonts = 20;
 	Graphics::HiResBitmapFont _fonts[kMaxFonts];
 	Graphics::HiResBitmapFont _singleFont;
+
 	bool _fontsLoaded;
 
 	/// Decode one of the game's characters and look it up; -1 when absent.

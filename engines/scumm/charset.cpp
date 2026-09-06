@@ -482,6 +482,14 @@ int CharsetRenderer::getStringWidth(int arg, const byte *text) {
 	// getStringWidth method and they do add 1 to the width. So that seems to have been introduced with version 4.
 	int width = (_vm->_game.version < 4 || _vm->_game.id == GID_FT) ? 0 : 1;
 
+	// Measuring has to reproduce what drawing will do, including the way a
+	// proportional replacement font carries its sub-game-pixel remainder from
+	// one character to the next. Summing individually rounded widths instead
+	// would put a centred line a few pixels off and would break line breaking
+	// wherever the difference crosses a word boundary.
+	const int savedCarry = _hiResCarry;
+	_hiResCarry = 0;
+
 	int chr;
 	int oldID = getCurID();
 	int code = (_vm->_game.heversion >= 80) ? 127 : 64;
@@ -576,6 +584,7 @@ int CharsetRenderer::getStringWidth(int arg, const byte *text) {
 	}
 
 	setCurID(oldID);
+	_hiResCarry = savedCarry;
 
 	return width;
 }
@@ -733,7 +742,7 @@ int CharsetRendererV3::getCharWidth(uint16 chr) const {
 	// decide line breaks and to centre a line, so if a proportional
 	// replacement font draws wider than this says, a centred subtitle drifts
 	// off the edge of the screen.
-	return _vm->_hiResText.advanceFor(chr, _curId, spacing);
+	return _vm->_hiResText.advanceFor(chr, _curId, spacing, &_hiResCarry);
 }
 
 void CharsetRendererPC::setShadowMode(ShadowType mode) {
@@ -954,6 +963,11 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	}
 	setDrawCharIntern(chr);
 
+	// Drawing has to step by the same amount getCharWidth() reported, or a
+	// centred line drifts and glyphs land on each other.
+	if (is2byte)
+		width = _vm->_hiResText.advanceFor(chr, _curId, width);
+
 	origWidth = width;
 	origHeight = height;
 
@@ -975,6 +989,7 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 		_str.right = _left;
 		_str.bottom = _top;
 		_firstChar = false;
+		_hiResCarry = 0;
 	}
 
 	int drawTop = _top - vs->topline;
@@ -1016,9 +1031,12 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	if (_str.left > _left)
 		_str.left = _left;
 
-	// A proportional replacement font may advance by its own glyph width;
-	// metrics=game, the default, keeps the game's own spacing.
-	origWidth = _vm->_hiResText.advanceFor(chr, _curId, origWidth);
+	// A proportional replacement font advances by its own glyph width. Its
+	// metrics are in surface pixels while _left is in game pixels, so carry
+	// the remainder between characters rather than rounding each one and
+	// letting the error accumulate across the line.
+	origWidth = _vm->_hiResText.advanceFor(chr, _curId, origWidth,
+										   &_hiResCarry);
 
 	_left += origWidth;
 

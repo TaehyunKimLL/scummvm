@@ -249,6 +249,9 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	if (!_enabled || !_fontsLoaded)
 		return false;
 
+	// Which font can hold this character is decided by how the game encoded
+	// it, not by the code point: a CP949-indexed set has no Latin glyphs even
+	// for characters that exist in Unicode.
 	const Graphics::HiResBitmapFont *font = fontFor(charsetId);
 	if (!font)
 		return false;
@@ -313,44 +316,88 @@ int ScummHiResText::glyphIndexFor(const Graphics::HiResBitmapFont &font, int chr
 	return font.glyphIndex(codepoint);
 }
 
-int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth) const {
-	if (!_enabled || !_fontsLoaded || _config.metricsSource != Graphics::kHiResMetricsFont)
+int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
+							   int *carry) const {
+	if (!_enabled || !_fontsLoaded)
 		return gameWidth;
 
+	// metrics=game keeps the game's own advances, which is what preserves the
+	// original line breaks and is the default.
+	//
+	// It still needs a floor. The game lays text out on its own font's grid -
+	// Indy3 reports _2byteWidth = 8 for a Hangul syllable - and the
+	// replacement only fits if the cell is no wider than 8 * scale. Picking
+	// the scale to match is the map's job, but a mismatched map should show
+	// slightly loose text rather than characters drawn on top of each other.
+	const bool fontMetrics = (_config.metricsSource == Graphics::kHiResMetricsFont);
+
 	const Graphics::HiResBitmapFont *font = fontFor(charsetId);
-	if (!font || !font->isProportional())
+	if (!font)
 		return gameWidth;
 
 	const int index = glyphIndexFor(*font, chr);
 	if (index < 0)
 		return gameWidth;
 
-	Graphics::GlyphMetrics metrics;
-	if (!font->glyphMetrics(index, metrics))
-		return gameWidth;
+	int advance = 0;
 
-	int advance = metrics.advance;
+	Graphics::GlyphMetrics metrics;
+	if (font->isProportional() && font->glyphMetrics(index, metrics)) {
+		advance = metrics.advance;
+
+		// Some glyphs are baked with ink reaching one pixel past their
+		// advance - 38 of 2350 in Indy3's vj00.fnt, 4 of 256 in its Latin
+		// companion. Left alone they collide with whatever follows, so widen
+		// the step to clear the ink.
+		const int reach = metrics.bearingX + metrics.width;
+		if (reach > advance)
+			advance = reach;
+	} else {
+		// A fixed-width set has no metrics table, so the cell is the advance.
+		advance = font->cellWidth();
+	}
+
 	if (advance <= 0)
 		return gameWidth;
 
-	// Some glyphs are baked with ink reaching one pixel past their advance -
-	// 38 of 2350 in Indy3's vj00.fnt. Left alone they collide with whatever
-	// follows, so widen the step to clear the ink.
-	const int reach = metrics.bearingX + metrics.width;
-	if (reach > advance)
-		advance = reach;
+	// metrics=game keeps the game's own advance and only needs a floor, so it
+	// must not disturb the carry: the remainder belongs to the font's own
+	// spacing and spending it here would shift a layout we are meant to leave
+	// exactly as the game had it.
+	if (!fontMetrics) {
+		const int m = scale();
+		const int fit = (m > 1) ? (advance + m - 1) / m : advance;
+		return MAX(fit, gameWidth);
+	}
 
-	// Font metrics are in the scaled font's pixels; the engine lays text out
-	// in unscaled game pixels and multiplies the position back up, so the
-	// division here is lossy. Round UP: rounding down loses up to (scale - 1)
-	// pixels per character, and since ink can fill the whole advance that puts
-	// the next glyph on top of this one - 747 of 2350 glyphs at scale 2.
-	// Rounding up costs at most one game pixel of extra spacing and cannot
-	// overlap.
+	// Font metrics are in the scaled surface's pixels; the engine lays text
+	// out in game pixels and multiplies the position back up.
 	const int m = scale();
-	return (m > 1) ? (advance + m - 1) / m : advance;
-}
+	if (m > 1) {
+		if (carry) {
+			// Spend what earlier characters could not, so a run of narrow
+			// glyphs keeps the font's spacing instead of gaining a pixel each.
+			const int total = advance + *carry;
+			int whole = total / m;
+			*carry = total - whole * m;
 
+			// Two glyphs at one position is worse than a pixel of slack.
+			if (whole < 1) {
+				whole = 1;
+				*carry = 0;
+			}
+			advance = whole;
+		} else {
+			// No remainder to carry, so round up: rounding down loses up to
+			// (scale - 1) pixels per character and, since ink can fill the
+			// whole advance, puts the next glyph on top of this one - 747 of
+			// 2350 glyphs at scale 2.
+			advance = (advance + m - 1) / m;
+		}
+	}
+
+	return advance;
+}
 Graphics::PixelFormat ScummHiResText::cursorFormat(const Graphics::PixelFormat &screenFormat) const {
 	if (_alphaActive)
 		return Graphics::PixelFormat::createFormatCLUT8();
