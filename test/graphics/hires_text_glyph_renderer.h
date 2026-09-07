@@ -414,6 +414,262 @@ public:
 		cov.free();
 	}
 
+	// --- the decoration matrix -------------------------------------------
+	//
+	// Every mode, at every offset the map allows, at both pixel depths.
+	// Rather than asserting an exact pixel layout per combination - which
+	// would be a transcription of the implementation - each case checks the
+	// properties a decoration must have whatever its shape.
+
+	/// The modes a map can ask for, with whether they put ink outside the cell.
+	struct DecorCase {
+		Graphics::HiResShadowMode mode;
+		const char *name;
+		bool spreads;
+	};
+
+	/**
+	 * A decoration must never reduce what is drawn.
+	 *
+	 * Whatever the mode and offset, adding a decoration can only add ink:
+	 * the body still lands, and the stroke goes around it. A mode that came
+	 * out with less ink than the plain glyph would be eating the letterform,
+	 * which is what the pre-dilation implementation did when two glyphs
+	 * overlapped.
+	 */
+	void test_every_mode_and_offset_only_adds_ink() {
+		static const DecorCase cases[] = {
+			{ Graphics::kHiResShadowNone,    "none",    false },
+			{ Graphics::kHiResShadowDrop,    "drop",    true  },
+			{ Graphics::kHiResShadowOutline, "outline", true  },
+			{ Graphics::kHiResShadowStroke,  "stroke",  true  },
+		};
+
+		for (int bpp = 1; bpp <= 8; bpp += 7) {
+			Common::Array<byte> bytes = makeFont(bpp, 1, 4, 4);
+			for (int y = 1; y < 3; ++y)
+				for (int x = 1; x < 3; ++x) {
+					if (bpp == 1)
+						setPixel1(bytes, 0, 4, 4, x, y);
+					else
+						setPixel8(bytes, 0, 4, 4, x, y, 0xFF);
+				}
+
+			Graphics::HiResBitmapFont font;
+			TS_ASSERT(loadFont(font, bytes));
+
+			int plain = 0;
+			for (uint c = 0; c < ARRAYSIZE(cases); ++c) {
+				for (int offset = 1; offset <= 3; ++offset) {
+					Graphics::Surface dest;
+					dest.create(20, 20, Graphics::PixelFormat::createFormatCLUT8());
+
+					Graphics::GlyphStyle style;
+					style.color = 7;
+					style.shadowColor = 1;
+					style.shadowMode = cases[c].mode;
+					style.shadowOffset = offset;
+
+					TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(
+						dest, nullptr, font, 0, 8, 8, style));
+
+					const int ink = inkCount(dest);
+					if (c == 0 && offset == 1)
+						plain = ink;
+
+					// The body is always there.
+					TSM_ASSERT(cases[c].name, ink >= plain);
+
+					// And a decoration that spreads must actually spread.
+					if (cases[c].spreads)
+						TSM_ASSERT(cases[c].name, ink > plain);
+
+					dest.free();
+				}
+			}
+		}
+	}
+
+	/**
+	 * A larger offset never draws less than a smaller one.
+	 *
+	 * offset is the thickness a map asks for, so it has to be monotonic -
+	 * otherwise a map author tuning it would see the decoration flicker
+	 * between weights instead of growing.
+	 */
+	void test_a_bigger_offset_draws_at_least_as_much() {
+		Common::Array<byte> bytes = makeFont(8, 1, 4, 4);
+		setPixel8(bytes, 0, 4, 4, 1, 1, 0xFF);
+		setPixel8(bytes, 0, 4, 4, 2, 2, 0xFF);
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		int previous = -1;
+		for (int offset = 1; offset <= 3; ++offset) {
+			Graphics::Surface dest;
+			dest.create(24, 24, Graphics::PixelFormat::createFormatCLUT8());
+
+			Graphics::GlyphStyle style;
+			style.color = 7;
+			style.shadowColor = 1;
+			style.shadowMode = Graphics::kHiResShadowOutline;
+			style.shadowOffset = offset;
+
+			TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(
+				dest, nullptr, font, 0, 10, 10, style));
+
+			const int ink = inkCount(dest);
+			TS_ASSERT(ink >= previous);
+			previous = ink;
+
+			dest.free();
+		}
+	}
+
+	/**
+	 * A decoration is opaque in the coverage plane, at every mode and depth.
+	 *
+	 * This is the fix that made outlines visible. A stroke that inherited the
+	 * body's coverage was semi-transparent exactly where it should hide the
+	 * background, so it blended away - invisible at 8bpp while looking
+	 * correct at 1bpp, where coverage is all-or-nothing anyway.
+	 */
+	void test_decoration_coverage_is_always_solid() {
+		static const Graphics::HiResShadowMode modes[] = {
+			Graphics::kHiResShadowDrop,
+			Graphics::kHiResShadowOutline,
+			Graphics::kHiResShadowStroke,
+		};
+
+		for (uint m = 0; m < ARRAYSIZE(modes); ++m) {
+			// A glyph whose every pixel is a faint edge: if the stroke took
+			// its coverage from the body, nothing here would be solid.
+			Common::Array<byte> bytes = makeFont(8, 1, 4, 4);
+			setPixel8(bytes, 0, 4, 4, 1, 1, 0x20);
+			setPixel8(bytes, 0, 4, 4, 2, 1, 0x20);
+
+			Graphics::HiResBitmapFont font;
+			TS_ASSERT(loadFont(font, bytes));
+
+			Graphics::Surface dest, cov;
+			dest.create(20, 20, Graphics::PixelFormat::createFormatCLUT8());
+			cov.create(20, 20, Graphics::PixelFormat::createFormatCLUT8());
+
+			Graphics::GlyphStyle style;
+			style.color = 7;
+			style.shadowColor = 1;
+			style.shadowMode = modes[m];
+			style.shadowOffset = 1;
+
+			TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(
+				dest, &cov, font, 0, 8, 8, style));
+
+			// Find a pixel that is decoration, and check it is fully covered.
+			bool sawSolidDecoration = false;
+			for (int y = 0; y < cov.h && !sawSolidDecoration; ++y)
+				for (int x = 0; x < cov.w; ++x)
+					if (at(dest, x, y) == 1) {
+						TS_ASSERT_EQUALS(at(cov, x, y), 0xFF);
+						sawSolidDecoration = true;
+						break;
+					}
+			TS_ASSERT(sawSolidDecoration);
+
+			// The body keeps its own faint coverage.
+			TS_ASSERT_EQUALS(at(cov, 9, 9), 0x20);
+
+			dest.free();
+			cov.free();
+		}
+	}
+
+	/**
+	 * A decoration in the text colour is skipped, in every mode.
+	 *
+	 * Correct - it would be invisible - but it is why asking for colour 4 on
+	 * FM-Towns produced nothing at all: that platform draws its text in 4.
+	 * Pinned here so the behaviour is a decision rather than a surprise.
+	 */
+	void test_a_same_colour_decoration_is_skipped_in_every_mode() {
+		static const Graphics::HiResShadowMode modes[] = {
+			Graphics::kHiResShadowDrop,
+			Graphics::kHiResShadowOutline,
+			Graphics::kHiResShadowStroke,
+		};
+
+		Common::Array<byte> bytes = makeFont(8, 1, 4, 4);
+		setPixel8(bytes, 0, 4, 4, 1, 1, 0xFF);
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		for (uint m = 0; m < ARRAYSIZE(modes); ++m) {
+			Graphics::Surface plain, same;
+			plain.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
+			same.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
+
+			Graphics::GlyphStyle none;
+			none.color = 7;
+			TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(
+				plain, nullptr, font, 0, 6, 6, none));
+
+			Graphics::GlyphStyle style;
+			style.color = 7;
+			style.shadowColor = 7;      // the same
+			style.shadowMode = modes[m];
+			style.shadowOffset = 1;
+			TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(
+				same, nullptr, font, 0, 6, 6, style));
+
+			TS_ASSERT_EQUALS(inkCount(plain), inkCount(same));
+
+			plain.free();
+			same.free();
+		}
+	}
+
+	/**
+	 * Both transparency conventions survive a decoration.
+	 *
+	 * The engine keys text out with CHARSET_MASK_TRANSPARENCY on most
+	 * platforms and with 0 on FM-Towns. A decoration colour that collides
+	 * with either is drawn but then read back as 'nothing here', which is
+	 * exactly how a black outline vanished on FM-Towns. The renderer cannot
+	 * know the platform, so what it must guarantee is narrower: it writes
+	 * the colour it was given, unchanged.
+	 */
+	void test_the_decoration_colour_is_written_verbatim() {
+		Common::Array<byte> bytes = makeFont(8, 1, 4, 4);
+		setPixel8(bytes, 0, 4, 4, 1, 1, 0xFF);
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		static const byte colours[] = { 0, 1, 8, 0xFD, 0xFF };
+		for (uint i = 0; i < ARRAYSIZE(colours); ++i) {
+			Graphics::Surface dest;
+			dest.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
+			// Fill with something neither colour, so a written pixel shows.
+			dest.fillRect(Common::Rect(16, 16), 0x55);
+
+			Graphics::GlyphStyle style;
+			style.color = 7;
+			style.shadowColor = colours[i];
+			style.shadowMode = Graphics::kHiResShadowOutline;
+			style.shadowOffset = 1;
+
+			TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(
+				dest, nullptr, font, 0, 6, 6, style));
+
+			// The pixel diagonally out from the body is stroke, and holds
+			// precisely the requested index - including 0 and 0xFD.
+			TS_ASSERT_EQUALS(at(dest, 6, 6), colours[i]);
+
+			dest.free();
+		}
+	}
+
 	void test_reports_the_area_it_touched() {
 		Common::Array<byte> bytes = makeFont(8, 1, 4, 4);
 		setPixel8(bytes, 0, 4, 4, 0, 0, 0xFF);
