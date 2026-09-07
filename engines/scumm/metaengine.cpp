@@ -957,6 +957,15 @@ static const ExtraGuiOption enableHiResText = {
 	0
 };
 
+static const ExtraGuiOption enableHiResTextAlpha = {
+	_s("Smooth the hi-res text"),
+	_s("Blend the replacement glyphs into the picture. Turn this off for hard-edged text, which suits a pixelated game and costs nothing to draw."),
+	"hires_text_alpha",
+	true,
+	0,
+	0
+};
+
 /**
  * Whether a target has hi-res fonts to switch: either a map is configured or
  * one sits in the game folder. Checked here so the checkbox only appears where
@@ -1005,6 +1014,7 @@ const ExtraGuiOptions ScummMetaEngine::getExtraGuiOptions(const Common::String &
 	}
 	if (target.empty() || targetHasHiResText(target)) {
 		options.push_back(enableHiResText);
+		options.push_back(enableHiResTextAlpha);
 	}
 	if (target.empty() || guiOptions.contains(GAMEOPTION_ENHANCEMENTS)) {
 		options.push_back(enableEnhancements);

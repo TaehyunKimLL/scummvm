@@ -91,10 +91,29 @@ Measured, one row per way in:
 | `hires00.fnt` … | fonts probed, layer on | nothing probed |
 | `hires_text_font=` | face baked, layer on | nothing baked |
 
-In the ScummVM game options this is the **"Use hi-res fonts from the game
-folder"** checkbox. It appears only for a target that has something to switch
-— a map or font in the game folder, or one of the keys set — so every other
-game's options dialog is unchanged.
+### In the game options
+
+Two checkboxes, shown only for a target that has something to switch — a map
+or font in the game folder, or one of the keys set. Every other game's dialog
+is unchanged.
+
+| checkbox | key | off means |
+|---|---|---|
+| **Use hi-res fonts from the game folder** | `hires_text` | the map, the fonts and any face are ignored entirely |
+| **Smooth the hi-res text** | `hires_text_alpha` | the same fonts, drawn with hard edges |
+
+Measured on English MI2, distinct colours in the subtitle band:
+
+| | colours | what it looks like |
+|---|---|---|
+| first box off | 4 | the game's original font |
+| both on | 189 | blended edges |
+| smoothing off | 3 | hi-res shapes, no intermediate tones |
+
+3 is fewer than the original's 4, which looks alarming and is not: the count
+drops because antialiasing is what produced the intermediate tones. The
+glyphs are the replacement ones either way — checked on screen, not inferred
+from the number.
 
 **`hires_text_log` needs `-d1`** on the command line. Every diagnostic in this
 layer is `debug(1, ...)`, so without it the log is silent and the feature
