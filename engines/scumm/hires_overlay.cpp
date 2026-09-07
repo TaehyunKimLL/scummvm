@@ -84,6 +84,42 @@ void HiResOverlay::clear(const Common::Rect &r, byte transparent) {
 		_coverage.fillRect(area, 0);
 }
 
+void HiResOverlay::createCoverage(int w, int h) {
+	if (!_index.getPixels())
+		return;
+
+	// Sized from the index plane: two planes of different sizes is exactly
+	// the failure this class exists to prevent, so a disagreeing argument
+	// loses rather than being honoured.
+	(void)w;
+	(void)h;
+	_coverage.free();
+	_coverage.create(_index.w, _index.h, Graphics::PixelFormat::createFormatCLUT8());
+	_coverage.fillRect(Common::Rect(0, 0, _index.w, _index.h), 0);
+}
+
+void HiResOverlay::freeCoverage() {
+	_coverage.free();
+	_savedCoverage.free();
+}
+
+void HiResOverlay::clearCoverage(int top, int height) {
+	if (!_coverage.getPixels())
+		return;
+
+	if (top < 0) {
+		height += top;
+		top = 0;
+	}
+	if (top >= _coverage.h)
+		return;
+	height = MIN(height, _coverage.h - top);
+	if (height <= 0)
+		return;
+
+	_coverage.fillRect(Common::Rect(0, top, _coverage.w, top + height), 0);
+}
+
 void HiResOverlay::saveState() {
 	dropState();
 	if (!_index.getPixels())

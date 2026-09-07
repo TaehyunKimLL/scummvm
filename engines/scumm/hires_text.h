@@ -31,6 +31,8 @@
 #include "graphics/hires_text/font_map.h"
 #include "graphics/surface.h"
 
+#include "scumm/hires_overlay.h"
+
 namespace Scumm {
 
 /**
@@ -283,13 +285,16 @@ struct ScummHiResText {
 				  int x, int y, byte color, byte shadowColor,
 				  int gameShadow, Common::Rect *dirty = nullptr);
 
+	/// Point the layer at the engine's overlay. Must precede any drawing.
+	void useOverlay(HiResOverlay *overlay) { _overlay = overlay; }
+
 	void createCoverage(int w, int h);
 
 	void freeCoverage();
 
 	/// The coverage surface, or null when this configuration has none.
-	Graphics::Surface *coverage() { return _coverage.getPixels() ? &_coverage : nullptr; }
-	const Graphics::Surface *coverage() const { return _coverage.getPixels() ? &_coverage : nullptr; }
+	Graphics::Surface *coverage() { return _overlay ? _overlay->coverage() : nullptr; }
+	const Graphics::Surface *coverage() const { return _overlay ? _overlay->coverage() : nullptr; }
 
 	/// Wipe the coverage, so nothing of the previous frame's text blends in.
 	/**
@@ -315,7 +320,14 @@ private:
 	int _simpleCellHeight = 0;      ///< smallest cell among them, for the scale
 	bool _scaleFromUser = false;
 	Graphics::HiResTextConfig _config;
-	Graphics::Surface _coverage;
+	/**
+	 * The overlay whose coverage plane this layer draws into.
+	 *
+	 * Borrowed, not owned: the engine holds the overlay, and the two
+	 * planes are allocated together there so neither can outlive the
+	 * other. Null until the engine hands one over.
+	 */
+	HiResOverlay *_overlay = nullptr;
 
 	// The numbered set the map names, indexed by the game's charset id, plus
 	// the single one used when no numbered file matched.

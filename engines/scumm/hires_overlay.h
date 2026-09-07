@@ -94,6 +94,23 @@ public:
 	Graphics::Surface *coverage() { return _coverage.getPixels() ? &_coverage : nullptr; }
 	const Graphics::Surface *coverage() const { return _coverage.getPixels() ? &_coverage : nullptr; }
 
+	/**
+	 * Add a coverage plane to an overlay that has none.
+	 *
+	 * Antialiasing is decided after the index plane is already up - a map is
+	 * read, a screen format is negotiated - so the second plane arrives late.
+	 * It is sized from the index plane rather than from its own arguments
+	 * where they disagree, because two planes of different sizes is the
+	 * failure this class exists to prevent.
+	 */
+	void createCoverage(int w, int h);
+
+	/// Drop the coverage plane, leaving the index plane alone.
+	void freeCoverage();
+
+	/// Zero a band of coverage without touching the index plane.
+	void clearCoverage(int top, int height);
+
 	bool created() const { return _index.getPixels() != nullptr; }
 
 	/**

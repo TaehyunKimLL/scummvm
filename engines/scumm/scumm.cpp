@@ -1827,6 +1827,7 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 	// index plane alone until that moves too.
 	_overlay.create(_screenWidth * _textSurfaceMultiplier,
 					_screenHeight * _textSurfaceMultiplier, false);
+	_hiResText.useOverlay(&_overlay);
 	clearTextSurface();
 
 	// The coverage that makes hi-res glyphs anti-aliased cannot live in a

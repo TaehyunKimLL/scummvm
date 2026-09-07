@@ -597,12 +597,15 @@ void ScummHiResText::createCoverage(int w, int h) {
 	if (!_enabled || !_config.alpha || w <= 0 || h <= 0)
 		return;
 
-	_coverage.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
-	_coverage.fillRect(Common::Rect(0, 0, w, h), 0);
+	// The overlay allocates both planes together; this only asks for the
+	// coverage one to be present.
+	if (_overlay)
+		_overlay->createCoverage(w, h);
 }
 
 void ScummHiResText::freeCoverage() {
-	_coverage.free();
+	if (_overlay)
+		_overlay->freeCoverage();
 }
 
 void ScummHiResText::noteDrawn(int charsetId, const Graphics::HiResBitmapFont *font,
@@ -687,21 +690,16 @@ void ScummHiResText::flushTextLog() const {
 }
 
 void ScummHiResText::clearCoverage(int top, int height) {
-	if (!_coverage.getPixels())
+	if (!_overlay)
 		return;
 
-	if (height < 0)
-		height = _coverage.h - top;
-
-	if (top < 0) {
-		height += top;
-		top = 0;
+	if (height < 0) {
+		const Graphics::Surface *cov = _overlay->coverage();
+		if (!cov)
+			return;
+		height = cov->h - top;
 	}
-	if (top >= _coverage.h || height <= 0)
-		return;
-	height = MIN(height, _coverage.h - top);
-
-	_coverage.fillRect(Common::Rect(0, top, _coverage.w, top + height), 0);
+	_overlay->clearCoverage(top, height);
 }
 
 // The conventional file names of the map-less form. A translation that
