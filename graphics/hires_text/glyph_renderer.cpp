@@ -66,17 +66,6 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 }
 
 bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
-								   const HiResGlyphSource &source, uint32 codepoint,
-								   int x, int y, const GlyphStyle &style,
-								   Common::Rect *dirty) {
-	GlyphBitmap glyph;
-	if (!source.glyph(codepoint, glyph))
-		return false;
-
-	return drawGlyph(dest, coverage, glyph, x, y, style, dirty);
-}
-
-bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 								   const GlyphBitmap &glyph,
 								   int x, int y, const GlyphStyle &style,
 								   Common::Rect *dirty) {

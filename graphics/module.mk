@@ -16,7 +16,6 @@ MODULE_OBJS := \
 	hires_text/font_baker.o \
 	hires_text/font_map.o \
 	hires_text/glyph_renderer.o \
-	hires_text/glyph_source.o \
 	fonts/amigafont.o \
 	fonts/bdf.o \
 	fonts/bgifont.o \

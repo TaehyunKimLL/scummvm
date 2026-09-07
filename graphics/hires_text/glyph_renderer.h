@@ -25,11 +25,33 @@
 #include "common/rect.h"
 #include "common/scummsys.h"
 #include "graphics/hires_text/font_map.h"
-#include "graphics/hires_text/glyph_source.h"
 
 namespace Graphics {
 
 struct Surface;
+class HiResBitmapFont;
+
+/**
+ * One glyph's pixels, in the form the renderer draws from.
+ *
+ * Coverage, one byte per pixel: 0 where the glyph is absent and 0xFF where it
+ * is solid. A 1bpp stencil is accepted too, and read through the same path.
+ */
+struct GlyphBitmap {
+	GlyphBitmap() : pixels(nullptr), pitch(0), width(0), height(0), bpp(8), originX(0), originY(0) {}
+
+	const byte *pixels;  ///< coverage, or a 1bpp stencil when bpp is 1
+	int pitch;           ///< bytes between rows
+	int width;
+	int height;
+	int bpp;             ///< 1 or 8
+
+	/// Where the top left of these pixels sits relative to the pen position.
+	/// Glyphs are not confined to their advance box - descenders drop below
+	/// the baseline and italics overhang - so this can be negative.
+	int originX;
+	int originY;
+};
 
 /**
  * How a glyph is decorated, and with what.
@@ -90,16 +112,6 @@ public:
 	 */
 	static bool drawGlyph(Surface &dest, Surface *coverage,
 						  const GlyphBitmap &glyph,
-						  int x, int y, const GlyphStyle &style,
-						  Common::Rect *dirty = nullptr);
-
-	/**
-	 * Draw a code point from any glyph source.
-	 *
-	 * @return false when the source has no glyph for it
-	 */
-	static bool drawGlyph(Surface &dest, Surface *coverage,
-						  const HiResGlyphSource &source, uint32 codepoint,
 						  int x, int y, const GlyphStyle &style,
 						  Common::Rect *dirty = nullptr);
 };
