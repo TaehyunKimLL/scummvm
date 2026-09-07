@@ -670,6 +670,206 @@ public:
 		}
 	}
 
+	/**
+	 * A decoration on glyphs of every shape a charset holds.
+	 *
+	 * A real charset mixes kinds: dense full-width CJK cells, sparse
+	 * proportional Latin ones, irregular pictograms, and punctuation that is
+	 * a few pixels in one corner. The decoration is dilated from whatever ink
+	 * the glyph has, so the shapes that reach the cell edge are the ones that
+	 * can write outside it.
+	 */
+	void test_decorations_on_every_glyph_shape() {
+		struct Shape {
+			const char *name;
+			const char *rows[6];
+		};
+		static const Shape shapes[] = {
+			{ "dense CJK cell",  { "######", "######", "######",
+								   "######", "######", "######" } },
+			{ "sparse Latin",    { "..##..", ".#..#.", "#....#",
+								   "######", "#....#", "......" } },
+			{ "corner mark",     { "##....", "##....", "......",
+								   "......", "......", "......" } },
+			{ "edge to edge",    { "######", "......", "......",
+								   "......", "......", "######" } },
+			{ "single pixel",    { "......", "......", "..#...",
+								   "......", "......", "......" } },
+			{ "diagonal",        { "#.....", ".#....", "..#...",
+								   "...#..", "....#.", ".....#" } },
+		};
+
+		for (uint sh = 0; sh < ARRAYSIZE(shapes); ++sh) {
+			Common::Array<byte> bytes = makeFont(8, 1, 6, 6);
+			for (int y = 0; y < 6; ++y)
+				for (int x = 0; x < 6; ++x)
+					if (shapes[sh].rows[y][x] == '#')
+						setPixel8(bytes, 0, 6, 6, x, y, 0xFF);
+
+			Graphics::HiResBitmapFont font;
+			TSM_ASSERT(shapes[sh].name, loadFont(font, bytes));
+
+			for (int offset = 1; offset <= 2; ++offset) {
+				// Deliberately tight: the glyph sits two pixels from the top
+				// left, so a dilation of 2 reaches the edge exactly.
+				Graphics::Surface dest, cov;
+				dest.create(12, 12, Graphics::PixelFormat::createFormatCLUT8());
+				cov.create(12, 12, Graphics::PixelFormat::createFormatCLUT8());
+
+				Graphics::GlyphStyle style;
+				style.color = 7;
+				style.shadowColor = 1;
+				style.shadowMode = Graphics::kHiResShadowOutline;
+				style.shadowOffset = offset;
+
+				TSM_ASSERT(shapes[sh].name,
+						   Graphics::HiResGlyphRenderer::drawGlyph(
+							   dest, &cov, font, 0, 2, 2, style));
+
+				// Every body pixel is still the text colour: a decoration
+				// must frame the letterform, never eat into it.
+				for (int y = 0; y < 6; ++y)
+					for (int x = 0; x < 6; ++x)
+						if (shapes[sh].rows[y][x] == '#')
+							TSM_ASSERT_EQUALS(shapes[sh].name,
+											  at(dest, 2 + x, 2 + y), 7);
+
+				dest.free();
+				cov.free();
+			}
+		}
+	}
+
+	/**
+	 * A decoration on a glyph at the very edge writes nothing outside.
+	 *
+	 * The dilation reaches further than the cell, so the clipping that was
+	 * enough for a plain glyph is not obviously enough for a decorated one.
+	 * Put the glyph hard against each edge in turn and check the surface is
+	 * unharmed beyond it - a scribble here would be a heap overrun in the
+	 * engine, where the surface is the text plane.
+	 */
+	void test_a_decorated_glyph_at_the_edge_stays_inside() {
+		Common::Array<byte> bytes = makeFont(8, 1, 4, 4);
+		for (int y = 0; y < 4; ++y)
+			for (int x = 0; x < 4; ++x)
+				setPixel8(bytes, 0, 4, 4, x, y, 0xFF);
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		static const int positions[][2] = {
+			{ -3, -3 }, { -3, 5 }, { 9, -3 }, { 9, 5 },   // corners, part off
+			{ -4, 4 }, { 12, 4 }, { 4, -4 }, { 4, 12 },   // fully off
+		};
+
+		for (uint i = 0; i < ARRAYSIZE(positions); ++i) {
+			Graphics::Surface dest, cov;
+			dest.create(12, 12, Graphics::PixelFormat::createFormatCLUT8());
+			cov.create(12, 12, Graphics::PixelFormat::createFormatCLUT8());
+
+			Graphics::GlyphStyle style;
+			style.color = 7;
+			style.shadowColor = 1;
+			style.shadowMode = Graphics::kHiResShadowStroke;   // reaches furthest
+			style.shadowOffset = 3;
+
+			// Must not crash, and must not write outside the surface.
+			Graphics::HiResGlyphRenderer::drawGlyph(dest, &cov, font, 0,
+													positions[i][0],
+													positions[i][1], style);
+
+			dest.free();
+			cov.free();
+		}
+	}
+
+	/**
+	 * A decoration clipped at the right edge must not wrap onto the next row.
+	 *
+	 * A Surface is one allocation, so a write past the right edge lands at
+	 * the start of the row below rather than outside the buffer: no crash, no
+	 * allocator complaint, just ink in the wrong place. Nothing else here
+	 * looks for that, so a missing horizontal clip would pass every other
+	 * test in this file.
+	 */
+	void test_a_decoration_does_not_wrap_around_the_right_edge() {
+		Common::Array<byte> bytes = makeFont(8, 1, 4, 4);
+		for (int y = 0; y < 4; ++y)
+			for (int x = 0; x < 4; ++x)
+				setPixel8(bytes, 0, 4, 4, x, y, 0xFF);
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		Graphics::Surface dest;
+		dest.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowOutline;
+		style.shadowOffset = 2;
+
+		// Hard against the right edge: the body reaches x=15, and the stroke
+		// would like to reach x=17.
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(
+			dest, nullptr, font, 0, 12, 4, style));
+
+		// The rows the glyph occupies must be clean at the left, where a
+		// wrapped write would land.
+		for (int y = 2; y < 11; ++y) {
+			TS_ASSERT_EQUALS(at(dest, 0, y), 0);
+			TS_ASSERT_EQUALS(at(dest, 1, y), 0);
+		}
+
+		dest.free();
+	}
+
+	/**
+	 * A 1bpp glyph decorated with an 8bpp coverage plane present.
+	 *
+	 * Bitmap charsets are 1bpp while replacement fonts are 8bpp, and a map
+	 * can mix them - a CJK bitmap alongside a baked Latin face. A 1bpp glyph
+	 * has no partial coverage to record, so the renderer leaves the plane
+	 * alone entirely (see test_1bpp_coverage_is_ignored); what matters here
+	 * is that the decoration still reaches the index plane, and that the
+	 * coverage plane is not half-written on the way.
+	 */
+	void test_a_1bpp_glyph_decorates_without_touching_coverage() {
+		Common::Array<byte> bytes = makeFont(1, 1, 4, 4);
+		setPixel1(bytes, 0, 4, 4, 1, 1);
+		setPixel1(bytes, 0, 4, 4, 2, 1);
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		Graphics::Surface dest, cov;
+		dest.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
+		cov.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowOutline;
+		style.shadowOffset = 1;
+
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(
+			dest, &cov, font, 0, 6, 6, style));
+
+		// Body and stroke both land, in their own colours.
+		TS_ASSERT_EQUALS(at(dest, 7, 7), 7);
+		TS_ASSERT_EQUALS(at(dest, 6, 6), 1);
+
+		// And coverage stays untouched: a 1bpp glyph is all-or-nothing, so
+		// there is nothing to blend and a partially written plane would be
+		// worse than an empty one.
+		TS_ASSERT_EQUALS(inkCount(cov), 0);
+
+		dest.free();
+		cov.free();
+	}
+
 	void test_reports_the_area_it_touched() {
 		Common::Array<byte> bytes = makeFont(8, 1, 4, 4);
 		setPixel8(bytes, 0, 4, 4, 0, 0, 0xFF);
