@@ -462,6 +462,10 @@ void CharsetRendererV3::setCurID(int32 id) {
 	// actually laid out on, and charset 6 is remapped to font 0 above, so
 	// reading them here is the only way to know the real grid.
 	_vm->_hiResText.setCharsetGrid(_curId, _vm->_2byteWidth, _vm->_2byteHeight);
+
+	// And the game's own cell, which V3 stores in a different header slot -
+	// the bake needs this, not the double-byte grid above.
+	_vm->_hiResText.noteGameCharset(_curId, _fontHeight, _fontHeight);
 }
 
 int CharsetRendererCommon::getFontHeight() const {

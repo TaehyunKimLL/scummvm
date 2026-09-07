@@ -764,9 +764,25 @@ public:
 		};
 
 		for (uint i = 0; i < ARRAYSIZE(positions); ++i) {
-			Graphics::Surface dest, cov;
-			dest.create(12, 12, Graphics::PixelFormat::createFormatCLUT8());
-			cov.create(12, 12, Graphics::PixelFormat::createFormatCLUT8());
+			// A guard band around the surface: the renderer is told the
+			// surface is 12x12, and anything it writes beyond that lands
+			// here, where it can be seen. Without this the check is only
+			// "it did not crash", and a Surface is one allocation, so an
+			// overrun usually does not.
+			const int kGuard = 8;
+			Graphics::Surface backing, cbacking;
+			backing.create(12 + 2 * kGuard, 12 + 2 * kGuard,
+						   Graphics::PixelFormat::createFormatCLUT8());
+			cbacking.create(12 + 2 * kGuard, 12 + 2 * kGuard,
+							Graphics::PixelFormat::createFormatCLUT8());
+			backing.fillRect(Common::Rect(backing.w, backing.h), 0xAA);
+			cbacking.fillRect(Common::Rect(cbacking.w, cbacking.h), 0xAA);
+
+			// A 12x12 view onto the middle of it, sharing the same rows.
+			Graphics::Surface dest = backing.getSubArea(
+				Common::Rect(kGuard, kGuard, kGuard + 12, kGuard + 12));
+			Graphics::Surface cov = cbacking.getSubArea(
+				Common::Rect(kGuard, kGuard, kGuard + 12, kGuard + 12));
 
 			Graphics::GlyphStyle style;
 			style.color = 7;
@@ -774,13 +790,23 @@ public:
 			style.shadowMode = Graphics::kHiResShadowStroke;   // reaches furthest
 			style.shadowOffset = 3;
 
-			// Must not crash, and must not write outside the surface.
 			Graphics::HiResGlyphRenderer::drawGlyph(dest, &cov, font, 0,
 													positions[i][0],
 													positions[i][1], style);
 
-			dest.free();
-			cov.free();
+			// Every byte outside the 12x12 view must still be the fill.
+			for (int y = 0; y < backing.h; ++y) {
+				for (int x = 0; x < backing.w; ++x) {
+					if (x >= kGuard && x < kGuard + 12 &&
+						y >= kGuard && y < kGuard + 12)
+						continue;
+					TS_ASSERT_EQUALS(at(backing, x, y), 0xAA);
+					TS_ASSERT_EQUALS(at(cbacking, x, y), 0xAA);
+				}
+			}
+
+			backing.free();
+			cbacking.free();
 		}
 	}
 
@@ -868,6 +894,50 @@ public:
 
 		dest.free();
 		cov.free();
+	}
+
+	/**
+	 * A decoration must not eat the previous glyph's body, at 1bpp either.
+	 *
+	 * The guard that protects body ink reads the coverage plane, and coverage
+	 * is deliberately not written for a 1bpp font - so on that path the guard
+	 * has nothing to consult. Reported by review; this is the test that says
+	 * whether it matters.
+	 *
+	 * Two glyphs are drawn close enough that the second's stroke reaches into
+	 * the first's body.
+	 */
+	void test_a_1bpp_decoration_does_not_eat_the_previous_glyph() {
+		Common::Array<byte> bytes = makeFont(1, 1, 4, 4);
+		for (int y = 1; y < 3; ++y)
+			for (int x = 1; x < 3; ++x)
+				setPixel1(bytes, 0, 4, 4, x, y);
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		Graphics::Surface dest;
+		dest.create(24, 12, Graphics::PixelFormat::createFormatCLUT8());
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowOutline;
+		style.shadowOffset = 1;
+
+		// First glyph, then a second one four pixels along - close enough
+		// that its outline overlaps where the first one's body sits.
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(
+			dest, nullptr, font, 0, 2, 2, style));
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(
+			dest, nullptr, font, 0, 6, 2, style));
+
+		// The first glyph's body must still be its own colour.
+		for (int y = 3; y < 5; ++y)
+			for (int x = 3; x < 5; ++x)
+				TS_ASSERT_EQUALS(at(dest, x, y), 7);
+
+		dest.free();
 	}
 
 	void test_reports_the_area_it_touched() {

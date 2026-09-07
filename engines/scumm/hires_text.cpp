@@ -341,16 +341,22 @@ void ScummHiResText::noteGameCharset(int charsetId, int width, int height) {
 	if (charsetId < 0 || charsetId >= kMaxFonts || width <= 0 || height <= 0)
 		return;
 
-	// Nothing to do once this charset has a font, and nothing to do at all
-	// unless a face was named: a translation shipping baked .fnt files has
-	// its sizes decided already.
+	// The size is already what it was: nothing has changed, so nothing to do.
 	if (_gameFontW[charsetId] == width && _gameFontH[charsetId] == height)
 		return;
 
 	_gameFontW[charsetId] = width;
 	_gameFontH[charsetId] = height;
 
-	if (_ttfPath.empty() || _fonts[charsetId].glyphCount() > 0)
+	// Nothing to do once this charset has a font, and nothing to do at all
+	// unless a face was named: a translation shipping baked .fnt files has
+	// its sizes decided already.
+	//
+	// Both arrays have to be consulted. A CJK game fills _fonts, a European
+	// one only _latinFonts, so testing _fonts alone would let every charset
+	// re-selection rasterise the face again.
+	if (_ttfPath.empty() ||
+		_fonts[charsetId].glyphCount() > 0 || _latinFonts[charsetId].glyphCount() > 0)
 		return;
 
 	if (bakeCharset(charsetId))
