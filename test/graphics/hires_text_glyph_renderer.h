@@ -1063,4 +1063,75 @@ public:
 
 		dest.free();
 	}
+
+	/**
+	 * Two fonts of the same cell but different ascents, drawn at one y.
+	 *
+	 * A Latin face does not fill its cell - measured on the shipped MI2 set,
+	 * 'H' occupies rows 2..19 of a 24 row cell while Hangul fills 0..21 - so
+	 * the two are only on one baseline if something aligns them. Nothing
+	 * did: bitmap_font never set originY and ascent() had no callers at all,
+	 * so every glyph went down cell-top aligned.
+	 *
+	 * The rule this pins: shifting by the difference of the ascents puts the
+	 * two baselines on the same row. Here the cells are equal and the
+	 * ascents differ by 4, so the shallower font must move down 4.
+	 */
+	void test_ascent_difference_is_the_baseline_shift() {
+		const int cellW = 8, cellH = 16;
+
+		// One pixel sitting exactly on each font's baseline row.
+		Common::Array<byte> tall = makeFont(8, 1, cellW, cellH);
+		tall[16] = 14;                                  // ascent
+		setPixel8(tall, 0, cellW, cellH, 0, 14, 0xFF);  // ink on the baseline
+
+		Common::Array<byte> shallow = makeFont(8, 1, cellW, cellH);
+		shallow[16] = 10;                               // ascent, 4 rows higher
+		setPixel8(shallow, 0, cellW, cellH, 0, 10, 0xFF);
+
+		Graphics::HiResBitmapFont tallFont, shallowFont;
+		TS_ASSERT(loadFont(tallFont, tall));
+		TS_ASSERT(loadFont(shallowFont, shallow));
+
+		TS_ASSERT_EQUALS(tallFont.ascent(), 14);
+		TS_ASSERT_EQUALS(shallowFont.ascent(), 10);
+
+		// Drawn at the same y, the two inks land on different rows.
+		Graphics::Surface a, b;
+		a.create(16, 32, Graphics::PixelFormat::createFormatCLUT8());
+		b.create(16, 32, Graphics::PixelFormat::createFormatCLUT8());
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowMode = Graphics::kHiResShadowNone;
+
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(a, nullptr, tallFont, 0, 0, 0, style));
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(b, nullptr, shallowFont, 0, 0, 0, style));
+
+		TS_ASSERT_EQUALS(*(byte *)a.getBasePtr(0, 14), 7);
+		TS_ASSERT_EQUALS(*(byte *)b.getBasePtr(0, 10), 7);
+		TS_ASSERT_EQUALS(*(byte *)b.getBasePtr(0, 14), 0);   // NOT aligned
+
+		// Shifted by the ascent difference, they agree.
+		Graphics::Surface c;
+		c.create(16, 32, Graphics::PixelFormat::createFormatCLUT8());
+		const int shift = tallFont.ascent() - shallowFont.ascent();
+		TS_ASSERT_EQUALS(shift, 4);
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(c, nullptr, shallowFont, 0, 0, shift, style));
+		TS_ASSERT_EQUALS(*(byte *)c.getBasePtr(0, 14), 7);
+
+		a.free();
+		b.free();
+		c.free();
+	}
+
+	/// A font with no ascent recorded must not be shifted by a wild amount.
+	void test_a_missing_ascent_asks_for_no_shift() {
+		Common::Array<byte> bytes = makeFont(8, 1, 8, 16);
+		bytes[16] = 0;                                  // nothing recorded
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+		TS_ASSERT_EQUALS(font.ascent(), 0);
+	}
 };

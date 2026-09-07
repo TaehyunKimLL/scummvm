@@ -461,6 +461,22 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	if (index < 0)
 		return false;
 
+	// Baseline alignment. The two slots can carry fonts of different ascents
+	// - a Latin face leaves room above its capitals and below for descenders
+	// while Hangul fills its cell - and drawing both at one y would put them
+	// on two different baselines. Measured on the shipped MI2 set: Hangul
+	// occupies rows 0..21 of a 24 row cell, 'H' rows 2..19.
+	//
+	// The reference is the CJK font of this charset, because that is what the
+	// game's line spacing was laid out against. A font that records no ascent
+	// asks for no shift rather than for a wild one.
+	int baselineShift = 0;
+	if (wantLatin && font->ascent() > 0) {
+		const Graphics::HiResBitmapFont *ref = fontFor(charsetId, false);
+		if (ref && ref != font && ref->ascent() > 0)
+			baselineShift = ref->ascent() - font->ascent();
+	}
+
 	Graphics::GlyphStyle style;
 	style.color = color;
 	style.shadowColor = _config.shadowColorSet ? _config.shadowColor : shadowColor;
@@ -468,7 +484,7 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	style.shadowOffset = (_config.shadowOffset >= 0) ? _config.shadowOffset : 1;
 
 	return Graphics::HiResGlyphRenderer::drawGlyph(dest, coverage(), *font, index,
-												   x, y, style, dirty);
+												   x, y + baselineShift, style, dirty);
 }
 
 void ScummHiResText::updatePaletteCache(const Graphics::PixelFormat &format,
@@ -854,16 +870,36 @@ void ScummHiResText::resolveScale(int gameFontHeight) {
 	if (!_enabled || !_simpleFonts || _scaleFromUser)
 		return;
 
-	// A 16px cell over an 8px game font is 2x; anything fractional rounds
-	// to the nearest whole factor, since the surface can only be enlarged
-	// by an integer. Out of range means the fonts were baked for something
-	// else, and the layer stays at 1 rather than guess.
+	// Policy: a bitmap font is accepted only at a whole multiple of the
+	// game's own cell. The surface can only be enlarged by an integer, so a
+	// font baked at 1.8x has no scale that draws it correctly - rounding it
+	// to 2 would stretch every glyph by a ninth. Rejecting is honest where
+	// rounding is not.
+	//
+	// The measurement is the CELL, never the ink. A Latin face deliberately
+	// leaves room above its capitals and below for descenders - measured on
+	// the shipped MI2 set, 'H' fills 18 rows of a 24 row cell - so ink
+	// height would reject a perfectly good font.
 	int scale = 1;
-	if (gameFontHeight > 0 && _simpleCellHeight > 0)
-		scale = (_simpleCellHeight + gameFontHeight / 2) / gameFontHeight;
+	if (gameFontHeight > 0 && _simpleCellHeight > 0) {
+		if (_simpleCellHeight % gameFontHeight != 0) {
+			warning("SCUMM: hi-res fonts are %dpx for a %dpx game font, which is "
+					"not a whole multiple; ignoring them. Bake them at %dpx or %dpx",
+					_simpleCellHeight, gameFontHeight,
+					gameFontHeight * 2, gameFontHeight * 3);
+			// Refusing the scale is not enough on its own. The fonts are
+			// loaded by this point, so leaving the layer on would draw
+			// 20px glyphs on a 1x layout - overlapping, clipped text that
+			// looks far worse than the original. The whole layer goes.
+			reset();
+			return;
+		}
+		scale = _simpleCellHeight / gameFontHeight;
+	}
 	if (scale < 1 || scale > 3) {
-		warning("SCUMM: hi-res fonts are %dpx for a %dpx game font; cannot pick a scale, using 1",
-				_simpleCellHeight, gameFontHeight);
+		warning("SCUMM: hi-res fonts are %dpx for a %dpx game font, a scale of "
+				"%d; only 1 to 3 are supported, using 1",
+				_simpleCellHeight, gameFontHeight, scale);
 		scale = 1;
 	}
 	_config.scale = scale;
