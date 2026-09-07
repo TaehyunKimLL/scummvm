@@ -32,6 +32,10 @@ default=12pt
 
 [map]
 height_12=default
+
+[glyphs]
+0x5e=keep
+0x7f=u+2192
 ```
 
 `codepage` records an adapter's source encoding choice, not a renderer gate.
@@ -62,6 +66,25 @@ TTF paths are resolved relative to the map. Legacy bitmap templates and
 translation names remain opaque adapter data. Never pass a bitmap template as
 an unchecked printf format. The parser performs no allocations based on glyph
 count and does not open referenced font or translation files.
+
+`[glyphs]` records per-character exceptions: `keep` for a code the caller
+should not draw from a replacement font at all, or a code point value to draw
+in its place. Both sides accept `0x5e`, decimal, or `u+2192`; values above
+0x10FFFF and trailing junk are rejected, and a rejected entry is skipped
+rather than failing the map. The parser attaches no meaning to either action -
+what "keep" does is the adapter's business.
+
+Sections may also be narrowed by a caller-supplied **scope**, passed to
+`load()` as an array of names. `[glyphs:cs1]` fills
+`scopedGlyphOverrides[1]` when the caller listed `"cs1"` second, and
+`glyphOverride(code, out, scope)` prefers a scope's table over the common one.
+Scopes exist because which characters are repurposed can differ per font
+within one game; the parser treats the names as opaque, exactly as it does
+qualifiers.
+
+Note `Common::INIFile` restricts **key** names to alphanumerics, `-`, `_`,
+`.`, `:` and space, and rejects the entire file on anything else - so a
+`u+XXXX` form is usable as a value but not as a key.
 
 ## Bitmap fonts (G2)
 

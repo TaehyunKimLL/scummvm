@@ -373,7 +373,15 @@ static Graphics::HiResShadowMode resolveShadow(Graphics::HiResShadowMode fromMap
 		return fromMap;
 
 	// _2byteShadow: 1 = none, 2 = drop, 3 = stroke, anything else outline.
+	//
+	// Zero is not one of those values: it is the field's initial state, and it
+	// keeps that value in any game that never loads a CJK font, since only
+	// loadCJKFont() and the charset switch ever assign it. Treating zero as
+	// "outline" there wrapped every glyph in shadowColor - which is also zero
+	// - so English text was drawn black-on-black and vanished. A game that
+	// asked for nothing gets nothing.
 	switch (gameShadow) {
+	case 0:
 	case 1:
 		return Graphics::kHiResShadowNone;
 	case 2:

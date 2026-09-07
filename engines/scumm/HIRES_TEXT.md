@@ -30,6 +30,9 @@ Per target, in `scummvm.ini`:
 | `hires_text_metrics` | `game` / `font` | `game` | whose advances lay the line out (see below) |
 | `hires_text_log` | bool | false | print one `HRTEXT` line per string drawn, with charset and font |
 
+Codes a game repurposed for pictograms are named in the map's `[glyphs]`
+section rather than by an ini key; see below.
+
 The older `korean_hires_scale` and `korean_alpha_text` keys are still read,
 so an existing install keeps working. The new names win when both are present.
 
@@ -80,8 +83,49 @@ CP932 for Japanese, CP936/CP950 for Chinese) and is otherwise left unset - a
 single byte game defines its own, and the adapter must be told explicitly
 before assuming anything else.
 
-## Metrics: whose advances to use
+## Glyphs a game drew itself
 
+A game's own font is not a character set. LucasArts titles store an ellipsis
+where Latin-1 has `^`, solid arrows where it has `_` and DEL, and Monkey
+Island 2 puts a skull-and-crossbones dialogue bullet at `0x07`, which no Latin
+face has anything for at all. Left alone, the layer routes every single byte
+code to the replacement font and reports it as drawn - so the picture is not
+merely wrong, the fallback that would have drawn the original never runs and
+the character disappears.
+
+`[glyphs]` names the exceptions:
+
+```ini
+[glyphs]
+0x5e = keep        ; an ellipsis, not a caret
+0x07 = keep        ; the dialogue bullet
+0x7f = u+2192      ; drawn from the replacement at another code point
+
+[glyphs:cs1]       ; charset 1 only
+0x5f = keep
+```
+
+`keep` declines before a font is chosen, which is what lets the existing
+fallback draw the game's own glyph; `advanceFor()` declines in step, so the
+line still measures as the game laid it out. A `u+XXXX` value draws that code
+point from the replacement instead.
+
+Scopes matter because the repurposed slots differ per charset: `0x5F` is a
+left arrow in a dialogue font and a genuine underscore in the others. The
+adapter names each charset `cs0`, `cs1`, ... and a scoped entry overrides the
+common table for that charset only.
+
+Baking honours the same table. The run-time TrueType path bakes a fixed
+Latin-1 block, so without this a remap would name a code point the font was
+never given; the set is filtered per charset before baking, dropping `keep`
+codes and adding remap targets.
+
+Keys are parsed as `0x5e`, `94` or `u+2192`, but note that `Common::INIFile`
+only allows alphanumerics, `-`, `_`, `.`, `:` and space in a **key**, and
+rejects the whole map on anything else. So `u+2192` is fine as a value while a
+key must be written `0x7f`.
+
+## Metrics: whose advances to use
 ```
 hires_text_metrics=game     ; default - the game's own advances
 hires_text_metrics=font     ; the replacement font's advances

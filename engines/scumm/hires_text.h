@@ -266,6 +266,9 @@ struct ScummHiResText {
 	/** Finish and print any partially accumulated text-log line. */
 	void endTextRun() const { if (_logText) flushTextLog(); }
 
+	/** Whether HRTEXT diagnostics are on, for callers that log too. */
+	bool logText() const { return _logText; }
+
 	/// Whether any replacement font is loaded.
 	bool hasFonts() const;
 
