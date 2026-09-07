@@ -881,6 +881,8 @@ bool ScummHiResText::bakeCharset(int charsetId) {
 		Graphics::HiResFontBaker::chineseCodePage(950, cjk);
 		break;
 	default:
+		debug(1, "SCUMM: hi-res TrueType font: no CJK block for this language, "
+				 "baking Latin only");
 		break;
 	}
 
@@ -959,6 +961,11 @@ bool ScummHiResText::bakeCharset(int charsetId) {
 	return any;
 #else
 	(void)charsetId;
+	// Named a face but cannot rasterise one: say so, or the only symptom is
+	// the generic "no replacement font loaded" from loadFonts.
+	if (!_ttfPath.empty())
+		warning("SCUMM: hi-res TrueType fonts need a build with FreeType; "
+				"bake the font to .fnt instead");
 	return false;
 #endif
 }
