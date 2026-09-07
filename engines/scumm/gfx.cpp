@@ -1379,13 +1379,23 @@ void ScummEngine::restoreBackground(Common::Rect rect, byte backColor) {
 		if (vs->number == kMainVirtScreen && _charset->_hasMask) {
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 			if (_game.platform == Common::kPlatformFMTowns) {
-				byte *mask = (byte *)_textSurface.getBasePtr(rect.left * _textSurfaceMultiplier, (rect.top + vs->topline) * _textSurfaceMultiplier);
-				fill(mask, _textSurface.pitch, 0, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+				// Both planes: coverage left behind here is not merely
+				// stale, it is composited. The FM-Towns path blends on
+				// (index, coverage) as a pair, so an orphaned partial
+				// coverage byte mixes palette entry 0 into the picture -
+				// a ghost of the glyph edges that were just erased.
+				_overlay.clear(Common::Rect(rect.left * _textSurfaceMultiplier,
+											(rect.top + vs->topline) * _textSurfaceMultiplier,
+											(rect.left + width) * _textSurfaceMultiplier,
+											(rect.top + vs->topline + height) * _textSurfaceMultiplier),
+							   CHARSET_MASK_TRANSPARENCY_TOWNS);
 			} else
 #endif
 			{
-				byte *mask = (byte *)_textSurface.getBasePtr(rect.left, rect.top - _screenTop);
-				fill(mask, _textSurface.pitch, CHARSET_MASK_TRANSPARENCY, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+				_overlay.clear(Common::Rect(rect.left, rect.top - _screenTop,
+											rect.left + width * _textSurfaceMultiplier,
+											rect.top - _screenTop + height * _textSurfaceMultiplier),
+							   CHARSET_MASK_TRANSPARENCY);
 			}
 		}
 	} else {
@@ -1394,12 +1404,25 @@ void ScummEngine::restoreBackground(Common::Rect rect, byte backColor) {
 			backColor |= (backColor << 4);
 			byte *mask = (byte *)_textSurface.getBasePtr(rect.left * _textSurfaceMultiplier, (rect.top + vs->topline) * _textSurfaceMultiplier);
 			fill(mask, _textSurface.pitch, backColor, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+
+			// The index here is a colour rather than the transparency key, so
+			// the overlay's clear does not fit - but the coverage still has to
+			// go, or this band composites the old glyph edges over the new
+			// fill.
+			if (Graphics::Surface *cov = _overlay.coverage())
+				cov->fillRect(Common::Rect(rect.left * _textSurfaceMultiplier,
+										   (rect.top + vs->topline) * _textSurfaceMultiplier,
+										   (rect.left + width) * _textSurfaceMultiplier,
+										   (rect.top + vs->topline + height) * _textSurfaceMultiplier), 0);
 		}
 #endif
 
 		if (_macScreen) {
-			byte *mask = (byte *)_textSurface.getBasePtr(rect.left * _textSurfaceMultiplier, (rect.top + vs->topline) * _textSurfaceMultiplier);
-			fill(mask, _textSurface.pitch, CHARSET_MASK_TRANSPARENCY, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+			_overlay.clear(Common::Rect(rect.left * _textSurfaceMultiplier,
+										(rect.top + vs->topline) * _textSurfaceMultiplier,
+										(rect.left + width) * _textSurfaceMultiplier,
+										(rect.top + vs->topline + height) * _textSurfaceMultiplier),
+						   CHARSET_MASK_TRANSPARENCY);
 		}
 
 		if (_game.features & GF_16BIT_COLOR)
