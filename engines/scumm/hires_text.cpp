@@ -1013,15 +1013,17 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 								int version, Common::Language language) {
 	reset();
 
-	// The player's switch, before anything is read. A disabled feature that
-	// still parses a map still complains about it - an older TrueType map, a
-	// font that fails to load - and someone who turned this off to stop it
-	// complaining should stop hearing from it.
+	// The player's switch, before anything is read - so turning it off skips
+	// the map, the fonts named beside it, and any TrueType face, not merely
+	// the drawing. A disabled feature that still parses a map still complains
+	// about it, and someone who turned this off to stop it complaining should
+	// stop hearing from it.
 	//
 	// Only an explicit false turns the layer off, so an ini without the key
 	// behaves exactly as before.
 	if (ConfMan.hasKey("hires_text") && !ConfMan.getBool("hires_text")) {
-		debug(1, "SCUMM: hi-res text switched off by the user (hires_text=false)");
+		debug(1, "SCUMM: hi-res text off (hires_text=false): the map, the fonts "
+				 "in the game folder and any TrueType face are all ignored");
 		return;
 	}
 

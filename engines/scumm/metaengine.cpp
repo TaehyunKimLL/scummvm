@@ -949,8 +949,8 @@ const ExtraGuiOption enableRebel1NoDamage = {
 };
 
 static const ExtraGuiOption enableHiResText = {
-	_s("Hi-res text"),
-	_s("Draw text with the larger fonts a translation ships in the game folder (hires_text.map). Has no effect when there are none."),
+	_s("Use hi-res fonts from the game folder"),
+	_s("Read hires_text.map and the font files beside it. Turn this off to ignore them and draw text exactly as the original game did."),
 	"hires_text",
 	true,
 	0,

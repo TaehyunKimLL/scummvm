@@ -1213,8 +1213,8 @@ GUI::CheckboxWidget *ScummOptionsContainerWidget::createHiResTextCheckbox(GuiObj
 		return nullptr;
 
 	return new GUI::CheckboxWidget(boss, name,
-		_("Hi-res text"),
-		_("Draw text with the larger fonts a translation ships in the game folder (hires_text.map). Has no effect when there are none.")
+		_("Use hi-res fonts from the game folder"),
+		_("Read hires_text.map and the font files beside it. Turn this off to ignore them and draw text exactly as the original game did.")
 	);
 }
 

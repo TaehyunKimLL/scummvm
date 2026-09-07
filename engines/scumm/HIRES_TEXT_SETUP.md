@@ -63,7 +63,7 @@ hires_text=false                  ; the off switch
 
 | key | type | what it does |
 |---|---|---|
-| `hires_text` | bool | set `false` to disable the layer entirely |
+| `hires_text` | bool | the master switch — see below |
 | `hires_text_map` | path | which map to read; otherwise `hires_text.map` in the game folder |
 | `hires_text_font` | path | a TrueType face, baked at start-up |
 | `hires_text_scale` | 1–3 | text surface multiplier |
@@ -74,6 +74,27 @@ hires_text=false                  ; the off switch
 
 **A user key beats the map.** That is deliberate: the map is the translator's
 intent, the ini is the person running it.
+
+### The master switch
+
+`hires_text=false` is checked **before anything is read**, so it does not
+merely stop the drawing — the map, the fonts named beside it and any TrueType
+face are all ignored, and the game runs exactly as it would with none of them
+present. A disabled feature that still parsed its map would still complain
+about it, which is not what someone who turned it off wants.
+
+Measured, one row per way in:
+
+| available | `hires_text` unset | `hires_text=false` |
+|---|---|---|
+| `hires_text.map` | map read, layer on | nothing read |
+| `hires00.fnt` … | fonts probed, layer on | nothing probed |
+| `hires_text_font=` | face baked, layer on | nothing baked |
+
+In the ScummVM game options this is the **"Use hi-res fonts from the game
+folder"** checkbox. It appears only for a target that has something to switch
+— a map or font in the game folder, or one of the keys set — so every other
+game's options dialog is unchanged.
 
 **`hires_text_log` needs `-d1`** on the command line. Every diagnostic in this
 layer is `debug(1, ...)`, so without it the log is silent and the feature
