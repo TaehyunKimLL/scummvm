@@ -43,6 +43,7 @@
 #include "scumm/file.h"
 #include "scumm/gfx.h"
 #include "scumm/detection.h"
+#include "scumm/hires_overlay.h"
 #include "scumm/hires_text.h"
 #include "scumm/script.h"
 #include "scumm/serializer.h"
@@ -1687,7 +1688,24 @@ public:
 	 * All text is normally rendered into this overlay surface. Then later
 	 * drawStripToScreen() composits it over the game graphics.
 	 */
-	Graphics::Surface _textSurface;
+	/**
+	 * The two planes text is drawn into.
+	 *
+	 * Held together so they cannot drift apart: they must agree on size,
+	 * lifetime and contents, and a path that touched one without the other
+	 * used to be a silent corruption.
+	 */
+	HiResOverlay _overlay;
+
+	/**
+	 * The index plane, under its historical name.
+	 *
+	 * The charset renderers and the platform compositors write through this in
+	 * dozens of places; a reference keeps them working while the memory moves
+	 * into the overlay, so a rendering regression here would be the move
+	 * itself rather than a mass edit.
+	 */
+	Graphics::Surface &_textSurface;
 	int _textSurfaceMultiplier = 0;
 
 	/**

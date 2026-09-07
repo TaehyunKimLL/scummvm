@@ -139,7 +139,8 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
 	  _game(dr.game),
 	  _filenamePattern(dr.fp),
 	  _language(dr.language),
-	  _rnd("scumm")
+	  _rnd("scumm"),
+	  _textSurface(_overlay.index())
 {
 
 #ifdef USE_RGB_COLOR
@@ -515,7 +516,7 @@ ScummEngine::~ScummEngine() {
 	delete _costumeLoader;
 	delete _costumeRenderer;
 
-	_textSurface.free();
+	_overlay.free();
 	_hiResText.freeCoverage();
 
 	free(_shadowPalette);
@@ -1822,7 +1823,10 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 	setupCharsetRenderer(macFontFile);
 
 	// Create and clear the text surface
-	_textSurface.create(_screenWidth * _textSurfaceMultiplier, _screenHeight * _textSurfaceMultiplier, Graphics::PixelFormat::createFormatCLUT8());
+	// Coverage still belongs to the hi-res layer, so the overlay carries the
+	// index plane alone until that moves too.
+	_overlay.create(_screenWidth * _textSurfaceMultiplier,
+					_screenHeight * _textSurfaceMultiplier, false);
 	clearTextSurface();
 
 	// The coverage that makes hi-res glyphs anti-aliased cannot live in a
