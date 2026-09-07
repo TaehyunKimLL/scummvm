@@ -232,6 +232,48 @@ public:
 		ov.free();
 	}
 
+	/**
+	 * The GUI's exact sequence: save, stamp over both planes, restore.
+	 *
+	 * The engine used to memcpy the index plane into a malloc'd buffer and
+	 * copy it back afterwards, leaving coverage untouched throughout. After
+	 * a menu closed, coverage still described glyphs the index plane no
+	 * longer had - stale antialiasing around whatever was drawn next.
+	 */
+	void test_a_gui_round_trip_keeps_the_planes_together() {
+		Scumm::HiResOverlay ov;
+		ov.create(6, 6, true);
+
+		// Two glyph pixels: one solid, one on an antialiased edge.
+		*(byte *)ov.index().getBasePtr(1, 1) = 4;
+		*(byte *)ov.coverage()->getBasePtr(1, 1) = 0xFF;
+		*(byte *)ov.index().getBasePtr(2, 1) = 4;
+		*(byte *)ov.coverage()->getBasePtr(2, 1) = 0x60;
+
+		ov.saveState();
+
+		// The GUI paints its own thing over the whole overlay.
+		ov.clear(0, 6, 0xFD);
+		for (int x = 0; x < 6; ++x) {
+			*(byte *)ov.index().getBasePtr(x, 3) = 15;
+			*(byte *)ov.coverage()->getBasePtr(x, 3) = 0xFF;
+		}
+
+		ov.restoreState();
+
+		// Both planes are back, including the partial edge.
+		TS_ASSERT_EQUALS(at(ov.index(), 1, 1), 4);
+		TS_ASSERT_EQUALS(at(*ov.coverage(), 1, 1), 0xFF);
+		TS_ASSERT_EQUALS(at(ov.index(), 2, 1), 4);
+		TS_ASSERT_EQUALS(at(*ov.coverage(), 2, 1), 0x60);
+
+		// And the GUI's own marks are gone from both.
+		TS_ASSERT_EQUALS(at(ov.index(), 0, 3), 0);
+		TS_ASSERT_EQUALS(at(*ov.coverage(), 0, 3), 0);
+
+		ov.free();
+	}
+
 	/// free() on an untouched overlay must be safe.
 	void test_free_without_create() {
 		Scumm::HiResOverlay ov;

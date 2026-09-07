@@ -1454,6 +1454,13 @@ void ScummEngine::saveSurfacesPreGUI() {
 	if (_tempTextSurface) {
 		memcpy(_tempTextSurface, _textSurface.getBasePtr(0, 0), _textSurface.pitch * _textSurface.h);
 
+		// The raw copy above is also the source the stamping loop below reads
+		// from, so it stays. But it covers the index plane only: without this
+		// the coverage plane would keep describing glyphs that the GUI is
+		// about to paint over, and closing the menu would restore indices
+		// under stale antialiasing.
+		_overlay.saveState();
+
 		// For each v4-v6 game (except for LOOM VGA which does its own thing), we take the text surface
 		// and stamp it on top of the main screen: this is done to ensure that the GUI is drawn on top
 		// of possible subtitle texts instead of having the latters being deleted or being drawn on top
@@ -1478,8 +1485,11 @@ void ScummEngine::saveSurfacesPreGUI() {
 			int yBegin = _virtscr[kMainVirtScreen].topline;
 			int yEnd = _virtscr[kMainVirtScreen].topline + _virtscr[kMainVirtScreen].h;
 			for (int y = yBegin; y < yEnd; y++) {
-				memset(_textSurface.getBasePtr(0, y), 0xFD, _virtscr[kMainVirtScreen].w);
+				memset(_textSurface.getBasePtr(0, y), CHARSET_MASK_TRANSPARENCY,
+					   _virtscr[kMainVirtScreen].w);
 			}
+			// Coverage goes with the indices it describes.
+			_hiResText.clearCoverage(yBegin, yEnd - yBegin);
 		}
 	}
 }
@@ -1492,6 +1502,9 @@ void ScummEngine::restoreSurfacesPostGUI() {
 
 	if (_tempTextSurface) {
 		memcpy(_textSurface.getBasePtr(0, 0), _tempTextSurface, _textSurface.pitch * _textSurface.h);
+
+		// And the coverage that belongs with them.
+		_overlay.restoreState();
 
 		// Signal the restoreCharsetBg() function that there's text
 		// on the text surface, so it gets deleted the next time another
