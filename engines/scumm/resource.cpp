@@ -601,6 +601,55 @@ void ScummEngine::nukeCharset(int i) {
 	_res->nukeResource(rtCharset, i);
 }
 
+int ScummEngine::peekGameCharsetHeight() {
+	// v0-v2 do not keep a font in the game files at all: the glyphs are a
+	// byte array compiled into ScummVM and CharsetRendererV2 sets
+	// _fontHeight = 8 outright (charset-fontdata.cpp). Its setCurID() is an
+	// empty override, so noteGameCharset() never fires and the hi-res layer
+	// would otherwise be told nothing. The height is not read here - it is
+	// the same constant that renderer uses.
+	if (_game.version <= 2)
+		return 8;
+
+	// v4 to v7 keep their charsets in the game container, behind the index.
+	// v3 is left out because it uses a different charset layout and its
+	// games are CJK here, so _2byteHeight answers first anyway.
+	if (_game.version < 4 || _game.version > 7)
+		return 0;
+
+	// readIndexFile() opens with closeRoom(); openRoom(0), and
+	// allocResTypeData() clears and resizes each list, so calling it twice
+	// is something the engine already supports - it is what restarting a
+	// game does. The state it leaves behind is put back below.
+	const int savedLastRoom = _lastLoadedRoom;
+	int height = 0;
+
+	readIndexFile();
+
+	// Charset 1 alone: the scale is one number for the whole game, and this
+	// is the charset the engine itself loads first. Charset 0 does not exist
+	// for v5 and its directory entry points at the head of the file, where
+	// the loader finds 'RNAM' and calls error().
+	if (_res->_types[rtCharset].size() > 1) {
+		const uint32 offs = _res->_types[rtCharset][1]._roomoffs;
+		if (offs != 0 && offs != RES_INVALID_OFFSET) {
+			const byte *ptr = getResourceAddress(rtCharset, 1);
+			if (ptr) {
+				// Past the resource header, where setCurID() reads it from.
+				const byte *fontPtr = ptr + (_game.version == 4 ? 17 : 29);
+				height = fontPtr[1];
+			}
+		}
+	}
+
+	closeRoom();
+	_lastLoadedRoom = savedLastRoom;
+
+	if (height > 0)
+		debug(1, "SCUMM: the game's own charset 1 is %dpx", height);
+	return height;
+}
+
 void ScummEngine::ensureResourceLoaded(ResType type, ResId idx) {
 	Common::StackLock lock(_resourceAccessMutex);
 

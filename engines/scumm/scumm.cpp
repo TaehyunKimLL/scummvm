@@ -1276,7 +1276,16 @@ Common::Error ScummEngine::init() {
 
 	// Map-less fonts name no scale; now that the game's own font size is
 	// known it can be read off them.
-	_hiResText.resolveScale(_useCJKMode ? _2byteHeight : 0);
+	//
+	// A CJK game has that height already: loadCJKFont() reads an external
+	// file. A European game's charset is a game resource, not loaded until
+	// resetScumm(), which is long after the backend window and the text
+	// surface have both been sized from _textSurfaceMultiplier. So the
+	// height is peeked at here instead - see peekGameCharsetHeight().
+	int scaleFromHeight = _useCJKMode ? _2byteHeight : 0;
+	if (scaleFromHeight <= 0)
+		scaleFromHeight = peekGameCharsetHeight();
+	_hiResText.resolveScale(scaleFromHeight);
 
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	if (_game.platform == Common::kPlatformFMTowns && _forceFMTownsHiResMode)

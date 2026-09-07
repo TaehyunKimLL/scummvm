@@ -1210,6 +1210,17 @@ protected:
 	virtual void loadCharset(int i);
 	void nukeCharset(int i);
 
+	/**
+	 * The height of the game's own charset 1, read before the resources are
+	 * normally loaded, or 0 when it cannot be had.
+	 *
+	 * Only the hi-res scale needs this. A CJK game gets its height from
+	 * loadCJKFont(), which reads an external file early; a European game's
+	 * charset is a game resource and would otherwise not be known until
+	 * after the text surface has been sized.
+	 */
+	int peekGameCharsetHeight();
+
 	int _lastLoadedRoom = 0;
 public:
 	const byte *findResourceData(uint32 tag, const byte *ptr);
