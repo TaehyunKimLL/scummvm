@@ -726,8 +726,24 @@ public:
 						   Graphics::HiResGlyphRenderer::drawGlyph(
 							   dest, &cov, font, 0, 2, 2, style));
 
-				// Every body pixel is still the text colour: a decoration
-				// must frame the letterform, never eat into it.
+				// Every body pixel is still the text colour. On its own this
+				// is nearly tautological - the body is drawn after the
+				// decoration, so it lands on top - which is why the second
+				// glyph below is what gives this teeth.
+				for (int y = 0; y < 6; ++y)
+					for (int x = 0; x < 6; ++x)
+						if (shapes[sh].rows[y][x] == '#')
+							TSM_ASSERT_EQUALS(shapes[sh].name,
+											  at(dest, 2 + x, 2 + y), 7);
+
+				// A second glyph alongside, close enough that its decoration
+				// reaches back over the first. Nothing redraws the first
+				// glyph's body afterwards, so if the decoration does not
+				// yield to ink already present, this is where it shows.
+				TSM_ASSERT(shapes[sh].name,
+						   Graphics::HiResGlyphRenderer::drawGlyph(
+							   dest, &cov, font, 0, 2 + 5, 2, style));
+
 				for (int y = 0; y < 6; ++y)
 					for (int x = 0; x < 6; ++x)
 						if (shapes[sh].rows[y][x] == '#')
