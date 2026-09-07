@@ -1519,7 +1519,7 @@ void ScummEngine::clearTextSurface(const VirtScreen *vs) {
 	towns_fillTopLayerRect(0, top, _textSurface.w, height, 0);
 	fill((byte *)_textSurface.getBasePtr(0, top), _textSurface.pitch,
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
-		_game.platform == Common::kPlatformFMTowns ? 0 :
+		_game.platform == Common::kPlatformFMTowns ? CHARSET_MASK_TRANSPARENCY_TOWNS :
 #endif
 		CHARSET_MASK_TRANSPARENCY,  _textSurface.w, height, _textSurface.format.bytesPerPixel);
 

@@ -47,9 +47,9 @@ namespace Scumm {
  * compositor.
  *
  * @par The transparent value is the caller's
- * FM-Towns clears the plane to 0 and reads 0 back as transparent; every other
- * platform uses CHARSET_MASK_TRANSPARENCY. The overlay does not know which,
- * so clear() takes the key.
+ * FM-Towns clears the plane to CHARSET_MASK_TRANSPARENCY_TOWNS and reads that
+ * back as transparent; every other platform uses CHARSET_MASK_TRANSPARENCY.
+ * The overlay does not know which, so clear() takes the key.
  */
 class HiResOverlay {
 public:
@@ -69,8 +69,8 @@ public:
 	 * Clear a band of both planes.
 	 *
 	 * @param transparent  the value that means 'no text here' on this
-	 *                     platform - 0 on FM-Towns,
-	 *                     CHARSET_MASK_TRANSPARENCY elsewhere
+	 *                     platform - CHARSET_MASK_TRANSPARENCY_TOWNS on
+	 *                     FM-Towns, CHARSET_MASK_TRANSPARENCY elsewhere
 	 *
 	 * Coverage is cleared to zero regardless: left behind, it would blend the
 	 * shape of the previous frame's glyphs into whatever is drawn next.

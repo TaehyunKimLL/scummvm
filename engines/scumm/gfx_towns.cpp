@@ -103,9 +103,9 @@ void ScummEngine::towns_drawStripToScreen(VirtScreen *vs, int dstX, int dstY, in
 					const uint8 t = src2[w] & 0x0f;
 					const uint8 a = cov ? cov[w] : 0xFF;
 
-					if (!t && !a) {
+					if (t == CHARSET_MASK_TRANSPARENCY_TOWNS && !a) {
 						// Nothing drawn here: leave the layer transparent.
-						out[w] = lpal[0];
+						out[w] = lpal[CHARSET_MASK_TRANSPARENCY_TOWNS];
 					} else if (!a || a == 0xFF) {
 						out[w] = lpal[t];
 					} else {
@@ -444,10 +444,11 @@ void TownsScreen::setupLayer(int layer, int width, int height, int scaleW, int s
 	l->pitch = width * l->bpp;
 	l->palette = (uint8 *)pal;
 	l->hScroll = 0;
-	// Index 0 is the transparent one; for a 16 bit layer that has to be
-	// remembered as a colour, since the index is gone by blit time.
+	// CHARSET_MASK_TRANSPARENCY_TOWNS is the see-through index; for a 16 bit
+	// layer that has to be remembered as a colour, since the index is gone by
+	// blit time.
 	l->transparentColor = (l->bpp == 2 && pal)
-		? calc16BitColor((const uint8 *)pal) : 0;
+		? calc16BitColor((const uint8 *)pal + CHARSET_MASK_TRANSPARENCY_TOWNS * 3) : 0;
 
 	if (l->palette && _pixelFormat.bytesPerPixel == 1)
 		warning("TownsScreen::setupLayer(): Layer palette usage requires 16 bit graphics setting.\nLayer palette will be ignored.");
@@ -710,7 +711,7 @@ template<typename dstPixelType, typename srcPixelType, int scaleW, int scaleH, b
 			srcPixelType col = *in++;
 			if (sizeof(dstPixelType) == 2) {
 				if (sizeof(srcPixelType) == 1) {
-					if (col || l->onBottom) {
+					if (col != CHARSET_MASK_TRANSPARENCY_TOWNS || l->onBottom) {
 						if (srcCol4bit)
 							col = col & 0x0f;
 						dstPixelType col2 = l->bltTmpPal[col];
@@ -744,7 +745,7 @@ template<typename dstPixelType, typename srcPixelType, int scaleW, int scaleH, b
 						dst20a++;
 				}
 			} else {
-				if (col || l->onBottom) {
+				if (col != CHARSET_MASK_TRANSPARENCY_TOWNS || l->onBottom) {
 					if (srcCol4bit)
 						col = col & 0x0f;
 					*dst10a = col;

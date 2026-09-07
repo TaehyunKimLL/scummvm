@@ -289,6 +289,20 @@ struct StripTable;
 #define CHARSET_MASK_TRANSPARENCY	 0xFD
 #define CHARSET_MASK_TRANSPARENCY_32 0xFDFDFDFD
 
+/**
+ * The same thing, on FM-Towns.
+ *
+ * That platform composites text as a hardware layer rather than keying it
+ * into the picture, and its layer treats index 0 as see-through - so the text
+ * plane is cleared to 0 there instead. The value is not interchangeable with
+ * CHARSET_MASK_TRANSPARENCY: writing 0xFD would draw a visible pixel, and
+ * writing 0 anywhere else would punch a hole in the background.
+ *
+ * Named so the pair can be found together, and so a decoration asking for
+ * colour 0 on FM-Towns is recognisable as asking for transparency.
+ */
+#define CHARSET_MASK_TRANSPARENCY_TOWNS 0x00
+
 class Gdi {
 protected:
 	ScummEngine *_vm;
