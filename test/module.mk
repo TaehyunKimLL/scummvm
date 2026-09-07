@@ -42,8 +42,8 @@ endif
 TEST_LIBS +=	audio/libaudio.a math/libmath.a common/libcommon.a common/formats/libformats.a common/compression/libcompression.a common/libcommon.a image/libimage.a graphics/libgraphics.a
 
 ifeq ($(ENABLE_SCUMM), STATIC_PLUGIN)
-	# Header-only, so no engine library is needed to link these.
 	TESTS += $(srcdir)/test/engines/scumm/*.h
+	TEST_LIBS += engines/scumm/libscumm.a
 endif
 
 ifeq ($(ENABLE_WINTERMUTE), STATIC_PLUGIN)

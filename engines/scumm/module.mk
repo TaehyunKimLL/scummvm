@@ -23,6 +23,7 @@ MODULE_OBJS := \
 	gfx_nes.o \
 	gfx_towns.o \
 	gfx.o \
+	hires_overlay.o \
 	hires_text.o \
 	he/mixer_he.o \
 	he/resource_he.o \
