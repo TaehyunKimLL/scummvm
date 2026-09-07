@@ -41,6 +41,11 @@ endif
 # libcommon needs libformats and libformats needs libcommon: so libcommon is put twice
 TEST_LIBS +=	audio/libaudio.a math/libmath.a common/libcommon.a common/formats/libformats.a common/compression/libcompression.a common/libcommon.a image/libimage.a graphics/libgraphics.a
 
+ifeq ($(ENABLE_SCUMM), STATIC_PLUGIN)
+	# Header-only, so no engine library is needed to link these.
+	TESTS += $(srcdir)/test/engines/scumm/*.h
+endif
+
 ifeq ($(ENABLE_WINTERMUTE), STATIC_PLUGIN)
 	TESTS += $(srcdir)/test/engines/wintermute/*.h
 	TEST_LIBS += engines/wintermute/libwintermute.a
