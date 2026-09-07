@@ -402,6 +402,16 @@ void CharsetRendererCommon::setCurID(int32 id) {
 	// actually laid out on, and charset 6 is remapped to font 0 above, so
 	// reading them here is the only way to know the real grid.
 	_vm->_hiResText.setCharsetGrid(_curId, _vm->_2byteWidth, _vm->_2byteHeight);
+
+	// And the game's own cell for this charset, which is a different number:
+	// the grid above is the double-byte font's, while this is what the game
+	// draws its own glyphs at. A TrueType face is baked to fit this, here,
+	// because this is the first point at which it is known.
+	//
+	// A SCUMM charset is proportional - every glyph carries its own width -
+	// so there is no cell width to read; the height is the real measurement
+	// and the width only has to be an upper bound for the baked cell.
+	_vm->_hiResText.noteGameCharset(_curId, _fontHeight, _fontHeight);
 }
 
 void CharsetRendererV3::setCurID(int32 id) {

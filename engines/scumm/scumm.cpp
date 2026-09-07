@@ -1844,6 +1844,8 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 	} else if (_useCJKMode) {
 		_hiResText.setGameFontCell(0, _2byteWidth, _2byteHeight);
 	}
+	// A game with no CJK font measures its charsets as they are selected and
+	// bakes then, so nothing is guessed here.
 	_hiResText.loadFonts(ConfMan.getPath("path"));
 
 

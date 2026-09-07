@@ -80,7 +80,6 @@ struct ScummHiResText {
 	 * loadFonts().
 	 */
 	void setGameFontCell(int charsetId, int width, int height);
-
 	void reset();
 
 	/**
@@ -258,6 +257,17 @@ struct ScummHiResText {
 	 */
 	void setCharsetGrid(int charsetId, int width, int height);
 
+	/**
+	 * Tell the layer the cell the game's own font uses for this charset.
+	 *
+	 * Called when a charset is selected, which is the first moment the size
+	 * is knowable: the resources are read long after the hi-res layer is set
+	 * up. With a TrueType face this is also when it is baked, so a face is
+	 * rasterised at the size it will actually be drawn at, and only for the
+	 * charsets a game selects.
+	 */
+	void noteGameCharset(int charsetId, int width, int height);
+
 	/** Finish and print any partially accumulated text-log line. */
 	void endTextRun() const { if (_logText) flushTextLog(); }
 
@@ -352,6 +362,9 @@ private:
 
 	bool probeSimpleFonts(const Common::Path &gameDir);
 	bool bakeTtfFonts(const Common::Path &gameDir);
+
+	/// Bake the face for one charset, at that charset's own cell.
+	bool bakeCharset(int charsetId);
 
 	Common::Path _ttfPath;          ///< face to bake at run time, if any
 	int _gameFontW[kMaxFonts] = {};

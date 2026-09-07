@@ -337,6 +337,26 @@ void ScummHiResText::setCharsetGrid(int charsetId, int width, int height) {
 	}
 }
 
+void ScummHiResText::noteGameCharset(int charsetId, int width, int height) {
+	if (charsetId < 0 || charsetId >= kMaxFonts || width <= 0 || height <= 0)
+		return;
+
+	// Nothing to do once this charset has a font, and nothing to do at all
+	// unless a face was named: a translation shipping baked .fnt files has
+	// its sizes decided already.
+	if (_gameFontW[charsetId] == width && _gameFontH[charsetId] == height)
+		return;
+
+	_gameFontW[charsetId] = width;
+	_gameFontH[charsetId] = height;
+
+	if (_ttfPath.empty() || _fonts[charsetId].glyphCount() > 0)
+		return;
+
+	if (bakeCharset(charsetId))
+		_fontsLoaded = true;
+}
+
 int ScummHiResText::nearestFont(int charsetId) const {
 	// Match the grid the engine actually gave this charset, not the charset's
 	// nominal size. The width is what sets the advance, so that is what has to
@@ -813,6 +833,7 @@ void ScummHiResText::setGameFontCell(int charsetId, int width, int height) {
 	}
 }
 
+
 /**
  * Bake a TrueType face into the same bitmap fonts a translation would ship.
  *
@@ -824,9 +845,11 @@ void ScummHiResText::setGameFontCell(int charsetId, int width, int height) {
  * A face is a convenience for a translator who has not baked yet; it costs
  * a rasterising pass at start-up, which a shipped .fnt does not.
  */
-bool ScummHiResText::bakeTtfFonts(const Common::Path &gameDir) {
+bool ScummHiResText::bakeCharset(int charsetId) {
 #ifdef USE_FREETYPE2
-	if (_ttfPath.empty())
+	if (_ttfPath.empty() || charsetId < 0 || charsetId >= kMaxFonts)
+		return false;
+	if (_gameFontW[charsetId] <= 0 || _gameFontH[charsetId] <= 0)
 		return false;
 
 	Common::FSNode node(_ttfPath);
@@ -835,6 +858,8 @@ bool ScummHiResText::bakeTtfFonts(const Common::Path &gameDir) {
 		return false;
 	}
 
+	// The code points this game needs. A European game names no CJK block,
+	// which is not a failure - the Latin set is the whole of what it draws.
 	Common::Array<uint32> cjk;
 	switch (_config.encoding) {
 	case Common::kWindows949:
@@ -850,88 +875,105 @@ bool ScummHiResText::bakeTtfFonts(const Common::Path &gameDir) {
 		Graphics::HiResFontBaker::chineseCodePage(950, cjk);
 		break;
 	default:
-		warning("SCUMM: hi-res TrueType font: no glyph set for this language");
-		return false;
+		break;
 	}
 
 	Common::Array<uint32> latin;
 	Graphics::HiResFontBaker::latin1(latin);
 
-	const int m = _config.scale;
-	bool any = false;
-	for (int i = 0; i < kMaxFonts; ++i) {
-		if (_gameFontW[i] <= 0 || _gameFontH[i] <= 0)
-			continue;
-
-		const int cellW = _gameFontW[i] * m;
-		const int cellH = _gameFontH[i] * m;
-
-		// The map decides which codes this font is responsible for, and it
-		// decides per charset: a code kept by the game in one charset is an
-		// ordinary character in another. Baking the same set for every font
-		// would either drop a glyph one charset needs or bake one no charset
-		// will ask for.
-		Common::Array<uint32> cjkSet = cjk;
-		Common::Array<uint32> latinSet = latin;
-		if (!_config.glyphOverrides.empty() || !_config.scopedGlyphOverrides.empty()) {
-			Common::HashMap<uint32, Graphics::HiResGlyphOverride> merged =
-				_config.glyphOverrides;
-			if (i < (int)_config.scopedGlyphOverrides.size()) {
-				const Common::HashMap<uint32, Graphics::HiResGlyphOverride> &scoped =
-					_config.scopedGlyphOverrides[i];
-				for (Common::HashMap<uint32, Graphics::HiResGlyphOverride>::const_iterator it =
-						 scoped.begin(); it != scoped.end(); ++it)
-					merged[it->_key] = it->_value;
-			}
-			Graphics::HiResFontBaker::applyGlyphOverrides(merged, cjkSet);
-			Graphics::HiResFontBaker::applyGlyphOverrides(merged, latinSet);
+	// The map decides which codes this font is responsible for, and it
+	// decides per charset: a code kept by the game in one charset is an
+	// ordinary character in another.
+	if (!_config.glyphOverrides.empty() || !_config.scopedGlyphOverrides.empty()) {
+		Common::HashMap<uint32, Graphics::HiResGlyphOverride> merged =
+			_config.glyphOverrides;
+		if (charsetId < (int)_config.scopedGlyphOverrides.size()) {
+			const Common::HashMap<uint32, Graphics::HiResGlyphOverride> &scoped =
+				_config.scopedGlyphOverrides[charsetId];
+			for (Common::HashMap<uint32, Graphics::HiResGlyphOverride>::const_iterator it =
+					 scoped.begin(); it != scoped.end(); ++it)
+				merged[it->_key] = it->_value;
 		}
-
-		// One face per size; the wrapper takes the stream per instance.
-		Common::SeekableReadStream *stream = node.createReadStream();
-		if (!stream)
-			continue;
-		Graphics::Font *face = Graphics::loadTTFFont(stream, DisposeAfterUse::YES, cellH,
-													 Graphics::kTTFSizeModeCell);
-		if (!face) {
-			warning("SCUMM: cannot load '%s' at %dpx", _ttfPath.toString().c_str(), cellH);
-			return false;
-		}
-
-		Common::Array<byte> baked;
-		if (Graphics::HiResFontBaker::bake(*face, cjkSet, cellW, cellH, true, baked)) {
-			// Debug aid: write the baked file out so it can be inspected
-			// with the same tools as a shipped one.
-			if (ConfMan.hasKey("hires_text_dump_baked") && ConfMan.getBool("hires_text_dump_baked")) {
-				Common::DumpFile df;
-				if (df.open(Common::Path(Common::String::format("baked%02d.fnt", i))))
-					df.write(baked.data(), baked.size());
-			}
-			Common::MemoryReadStream ms(baked.data(), baked.size());
-			if (_fonts[i].load(ms)) {
-				any = true;
-				debug(1, "SCUMM: hi-res font %d <- %s baked at %dx%d, %d glyphs",
-					  i, _ttfPath.baseName().c_str(), cellW, cellH, _fonts[i].glyphCount());
-			}
-		}
-
-		Common::Array<byte> bakedLatin;
-		if (Graphics::HiResFontBaker::bake(*face, latinSet, cellW, cellH, true, bakedLatin)) {
-			Common::MemoryReadStream ms(bakedLatin.data(), bakedLatin.size());
-			if (_latinFonts[i].load(ms))
-				debug(1, "SCUMM: hi-res Latin font %d <- %s baked at %dx%d",
-					  i, _ttfPath.baseName().c_str(), cellW, cellH);
-		}
-
-		delete face;
+		Graphics::HiResFontBaker::applyGlyphOverrides(merged, cjk);
+		Graphics::HiResFontBaker::applyGlyphOverrides(merged, latin);
 	}
+
+	const int m = _config.scale;
+	const int cellW = _gameFontW[charsetId] * m;
+	const int cellH = _gameFontH[charsetId] * m;
+
+	Common::SeekableReadStream *stream = node.createReadStream();
+	if (!stream)
+		return false;
+	Graphics::Font *face = Graphics::loadTTFFont(stream, DisposeAfterUse::YES, cellH,
+												 Graphics::kTTFSizeModeCell);
+	if (!face) {
+		warning("SCUMM: cannot load '%s' at %dpx", _ttfPath.toString().c_str(), cellH);
+		return false;
+	}
+
+	bool any = false;
+
+	Common::Array<byte> baked;
+	if (!cjk.empty() &&
+		Graphics::HiResFontBaker::bake(*face, cjk, cellW, cellH, true, baked)) {
+		// Debug aid: write the baked file out so it can be inspected with
+		// the same tools as a shipped one.
+		if (ConfMan.hasKey("hires_text_dump_baked") && ConfMan.getBool("hires_text_dump_baked")) {
+			Common::DumpFile df;
+			if (df.open(Common::Path(Common::String::format("baked%02d.fnt", charsetId))))
+				df.write(baked.data(), baked.size());
+		}
+		Common::MemoryReadStream ms(baked.data(), baked.size());
+		if (_fonts[charsetId].load(ms)) {
+			any = true;
+			debug(1, "SCUMM: hi-res font %d <- %s baked at %dx%d, %d glyphs",
+				  charsetId, _ttfPath.baseName().c_str(), cellW, cellH,
+				  _fonts[charsetId].glyphCount());
+		}
+	}
+
+	Common::Array<byte> bakedLatin;
+	if (Graphics::HiResFontBaker::bake(*face, latin, cellW, cellH, true, bakedLatin)) {
+		Common::MemoryReadStream ms(bakedLatin.data(), bakedLatin.size());
+		if (_latinFonts[charsetId].load(ms)) {
+			// A European game bakes nothing else, so this is what makes the
+			// difference between a face that draws and one that is loaded
+			// and then silently unused.
+			any = true;
+			debug(1, "SCUMM: hi-res Latin font %d <- %s baked at %dx%d",
+				  charsetId, _ttfPath.baseName().c_str(), cellW, cellH);
+		}
+	}
+
+	delete face;
 
 	if (any)
 		_config.legacy.latinEnabled = true;
 	return any;
 #else
-	if (!_ttfPath.empty())
-		warning("SCUMM: hi-res TrueType fonts need a build with FreeType; bake the font instead");
+	(void)charsetId;
+	return false;
+#endif
+}
+
+bool ScummHiResText::bakeTtfFonts(const Common::Path &gameDir) {
+#ifdef USE_FREETYPE2
+	(void)gameDir;
+	if (_ttfPath.empty())
+		return false;
+
+	// Only the charsets whose cell is already known, which for a CJK game is
+	// every charset with a double-byte font. A game without one measures its
+	// charsets as they are selected, and bakes then - see noteGameCharset.
+	bool any = false;
+	for (int i = 0; i < kMaxFonts; ++i) {
+		if (_gameFontW[i] > 0 && _gameFontH[i] > 0 && bakeCharset(i))
+			any = true;
+	}
+	return any;
+#else
+	(void)gameDir;
 	return false;
 #endif
 }
