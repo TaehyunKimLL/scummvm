@@ -956,6 +956,55 @@ public:
 		dest.free();
 	}
 
+	/**
+	 * The stroke's left-hand arm reaches two steps, and must not wrap.
+	 *
+	 * The stroke table reaches two steps left and two steps down, unlike the
+	 * outline which stays within one. A mask sized for one step both overran
+	 * its allocation and wrapped the far-left offset onto the end of the
+	 * previous row - so the left arm drew on the right, one row up.
+	 *
+	 * test_a_decoration_does_not_wrap_around_the_right_edge uses the outline
+	 * mode, which cannot reach far enough to show this.
+	 */
+	void test_the_stroke_reaches_two_steps_left_without_wrapping() {
+		Common::Array<byte> bytes = makeFont(8, 1, 4, 4);
+		// Ink in the left column only, so the arms are easy to tell apart.
+		for (int y = 0; y < 4; ++y)
+			setPixel8(bytes, 0, 4, 4, 0, y, 0xFF);
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		Graphics::Surface dest;
+		dest.create(20, 20, Graphics::PixelFormat::createFormatCLUT8());
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowStroke;
+		style.shadowOffset = 2;
+
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(
+			dest, nullptr, font, 0, 8, 8, style));
+
+		// The glyph's ink column sits at x=8, and the stroke table reaches
+		// two steps left, so x=4 must carry stroke. Under the old sizing that
+		// arm wrapped to the end of the previous mask row and appeared at
+		// x=12 instead, leaving x=4 empty.
+		bool leftArm = false;
+		for (int y = 0; y < dest.h; ++y)
+			if (at(dest, 4, y) == 1)
+				leftArm = true;
+		TS_ASSERT(leftArm);
+
+		// And nothing at all beyond the rightmost legitimate offset: the
+		// glyph is 4 wide from x=8, plus one step, so x=13 onwards is clear.
+		for (int y = 0; y < dest.h; ++y)
+			for (int x = 13; x < dest.w; ++x)
+				TS_ASSERT_EQUALS(at(dest, x, y), 0);
+	}
+
 	void test_reports_the_area_it_touched() {
 		Common::Array<byte> bytes = makeFont(8, 1, 4, 4);
 		setPixel8(bytes, 0, 4, 4, 0, 0, 0xFF);

@@ -120,14 +120,32 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 	// stroke has an opacity of its own.
 	Common::Array<byte> mask;
 	if (copies) {
-		const int mw = glyph.width + 2 * step;
-		const int mh = glyph.height + 2 * step;
+		// The mask has to hold every offset the table actually uses, which is
+		// not symmetric: the stroke reaches two steps left and two steps down
+		// while the outline stays within one. Sizing for one step - as if
+		// every entry were in -1..1 - overruns the allocation for the stroke
+		// and wraps its left-hand arm onto the end of the previous row.
+		int minX = 0, maxX = 0, minY = 0, maxY = 0;
+		for (int c = 0; c < copies; ++c) {
+			minX = MIN<int>(minX, offX[c]);
+			maxX = MAX<int>(maxX, offX[c]);
+			minY = MIN<int>(minY, offY[c]);
+			maxY = MAX<int>(maxY, offY[c]);
+		}
+
+		// Where the glyph sits inside the mask, and how much room the
+		// decoration needs around it.
+		const int padL = -minX * step;
+		const int padT = -minY * step;
+		const int mw = glyph.width + padL + maxX * step;
+		const int mh = glyph.height + padT + maxY * step;
+
 		mask.resize(mw * mh);
 		memset(mask.begin(), 0, mw * mh);
 
 		for (int c = 0; c < copies; ++c) {
-			const int ox = offX[c] * step + step;
-			const int oy = offY[c] * step + step;
+			const int ox = offX[c] * step + padL;
+			const int oy = offY[c] * step + padT;
 
 			for (int gy = 0; gy < glyph.height; ++gy) {
 				const byte *row = glyph.pixels + gy * glyph.pitch;
@@ -148,7 +166,7 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 		// character would erase the tail of the one before it - including its
 		// antialiased edge, which is faint but still the letterform.
 		for (int my = 0; my < mh; ++my) {
-			const int py = baseY + my - step;
+			const int py = baseY + my - padT;
 			if (py < 0 || py >= dest.h)
 				continue;
 
@@ -156,7 +174,7 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 				if (!mask[my * mw + mx])
 					continue;
 
-				const int px = baseX + mx - step;
+				const int px = baseX + mx - padL;
 				if (px < 0 || px >= dest.w)
 					continue;
 
