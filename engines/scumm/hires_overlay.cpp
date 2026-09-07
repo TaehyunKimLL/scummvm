@@ -84,6 +84,25 @@ void HiResOverlay::clear(const Common::Rect &r, byte transparent) {
 		_coverage.fillRect(area, 0);
 }
 
+void HiResOverlay::fillIndices(const Common::Rect &r, byte index) {
+	if (!_index.getPixels())
+		return;
+
+	Common::Rect clipped = r;
+	clipped.clip(Common::Rect(_index.w, _index.h));
+	if (clipped.isEmpty())
+		return;
+
+	_index.fillRect(clipped, index);
+
+	// Not a mistake that this is zero rather than `index`: coverage says how
+	// much of a pixel a glyph covers, and a flat fill covers all of it by
+	// definition. Leaving the old values would blend the departed glyphs'
+	// edges against the new colour.
+	if (_coverage.getPixels())
+		_coverage.fillRect(clipped, 0);
+}
+
 void HiResOverlay::createCoverage(int w, int h) {
 	if (!_index.getPixels())
 		return;

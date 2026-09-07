@@ -83,12 +83,42 @@ public:
 	/**
 	 * The index plane.
 	 *
-	 * Deliberately public: the engine's charset renderers draw into it, and
-	 * hiding it behind accessors would only move the aliasing somewhere less
-	 * obvious.
+	 * Still public because the charset renderers draw glyphs into it pixel by
+	 * pixel, and routing that through a method would cost a call per pixel in
+	 * the hottest loop the text layer has.
+	 *
+	 * Everything that is not glyph drawing should use the methods below. The
+	 * comment here used to argue that hiding this would "only move the
+	 * aliasing somewhere less obvious"; three rounds of the same bug say
+	 * otherwise, every one of them a raw fill that forgot the coverage plane.
 	 */
 	Graphics::Surface &index() { return _index; }
 	const Graphics::Surface &index() const { return _index; }
+
+	/**
+	 * Fill a rectangle of the index plane with a colour, dropping coverage.
+	 *
+	 * For the callers that stamp a background colour into the plane rather
+	 * than clearing it: the index is a real colour, so clear() does not
+	 * express it, but the coverage still has to go. A hand-written index has
+	 * no antialiasing to describe, and coverage left over from the glyphs
+	 * that used to be there would be composited against the new fill.
+	 */
+	void fillIndices(const Common::Rect &r, byte index);
+
+	/// Width of the planes, or 0 when nothing is allocated.
+	int width() const { return _index.w; }
+
+	/// Height of the planes, or 0 when nothing is allocated.
+	int height() const { return _index.h; }
+
+	/// Bytes per row of the index plane.
+	int indexPitch() const { return _index.pitch; }
+
+	/// A row of the index plane, for reading.
+	const byte *indexRow(int y) const {
+		return (const byte *)_index.getBasePtr(0, y);
+	}
 
 	/// The coverage plane, or null when this overlay carries none.
 	Graphics::Surface *coverage() { return _coverage.getPixels() ? &_coverage : nullptr; }

@@ -280,4 +280,80 @@ public:
 		ov.free();
 		TS_ASSERT(!ov.created());
 	}
+
+	/**
+	 * fillIndices writes the colour it is given and drops the coverage.
+	 *
+	 * This is the shape that kept going wrong by hand: a caller stamps a
+	 * background colour into the index plane, which is not a transparency key
+	 * so clear() does not apply, and forgets that the coverage describing the
+	 * glyphs that used to be there is still sitting underneath.
+	 */
+	void test_fill_indices_takes_the_coverage_with_it() {
+		Scumm::HiResOverlay ov;
+		ov.create(16, 16, true);
+
+		// Some text: an index and a partial coverage, the antialiased edge
+		// that a bare fill would leave behind.
+		ov.index().fillRect(Common::Rect(2, 2, 10, 10), 7);
+		ov.coverage()->fillRect(Common::Rect(2, 2, 10, 10), 0x80);
+
+		ov.fillIndices(Common::Rect(0, 0, 12, 12), 3);
+
+		for (int y = 0; y < 12; ++y) {
+			for (int x = 0; x < 12; ++x) {
+				TS_ASSERT_EQUALS(*(const byte *)ov.index().getBasePtr(x, y), 3);
+				TS_ASSERT_EQUALS(*(const byte *)ov.coverage()->getBasePtr(x, y), 0);
+			}
+		}
+
+		// And nothing outside the rectangle moved.
+		TS_ASSERT_EQUALS(*(const byte *)ov.index().getBasePtr(13, 13), 0);
+
+		ov.free();
+	}
+
+	/// fillIndices clips rather than running off the plane.
+	void test_fill_indices_clips() {
+		Scumm::HiResOverlay ov;
+		ov.create(8, 8, true);
+
+		ov.fillIndices(Common::Rect(-4, -4, 20, 20), 5);
+
+		TS_ASSERT_EQUALS(*(const byte *)ov.index().getBasePtr(0, 0), 5);
+		TS_ASSERT_EQUALS(*(const byte *)ov.index().getBasePtr(7, 7), 5);
+
+		ov.free();
+	}
+
+	/// An overlay with no coverage plane still fills its indices.
+	void test_fill_indices_without_coverage() {
+		Scumm::HiResOverlay ov;
+		ov.create(8, 8, false);
+
+		ov.fillIndices(Common::Rect(0, 0, 4, 4), 9);
+
+		TS_ASSERT_EQUALS(*(const byte *)ov.index().getBasePtr(0, 0), 9);
+		TS_ASSERT(!ov.coverage());
+
+		ov.free();
+	}
+
+	/// The read accessors describe the plane that is actually there.
+	void test_the_accessors_report_the_plane() {
+		Scumm::HiResOverlay ov;
+		TS_ASSERT_EQUALS(ov.width(), 0);
+		TS_ASSERT_EQUALS(ov.height(), 0);
+
+		ov.create(24, 12, true);
+		TS_ASSERT_EQUALS(ov.width(), 24);
+		TS_ASSERT_EQUALS(ov.height(), 12);
+		TS_ASSERT_EQUALS(ov.indexPitch(), ov.index().pitch);
+
+		ov.index().fillRect(Common::Rect(0, 3, 24, 4), 6);
+		TS_ASSERT_EQUALS(ov.indexRow(3)[0], 6);
+		TS_ASSERT_EQUALS(ov.indexRow(2)[0], 0);
+
+		ov.free();
+	}
 };
