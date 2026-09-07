@@ -1484,12 +1484,12 @@ void ScummEngine::saveSurfacesPreGUI() {
 		if (_game.id == GID_LOOM && _game.version == 3 && _game.platform != Common::kPlatformFMTowns) {
 			int yBegin = _virtscr[kMainVirtScreen].topline;
 			int yEnd = _virtscr[kMainVirtScreen].topline + _virtscr[kMainVirtScreen].h;
-			for (int y = yBegin; y < yEnd; y++) {
-				memset(_textSurface.getBasePtr(0, y), CHARSET_MASK_TRANSPARENCY,
-					   _virtscr[kMainVirtScreen].w);
-			}
-			// Coverage goes with the indices it describes.
-			_hiResText.clearCoverage(yBegin, yEnd - yBegin);
+
+			// Deliberately not _overlay.clear(): that spans the full plane
+			// width, while this wipe is scoped to the main virtual screen,
+			// which can be narrower. Same reason the rect overload exists.
+			_overlay.clear(Common::Rect(0, yBegin, _virtscr[kMainVirtScreen].w, yEnd),
+						   textTransparency());
 		}
 	}
 }

@@ -1752,6 +1752,9 @@ protected:
 	void clearCharsetMask();
 	void clearTextSurface(const VirtScreen *vs = nullptr);
 
+	/// The value that means "no text here" on this platform.
+	byte textTransparency() const;
+
 	virtual void initCharset(int charset);
 
 	virtual void printString(int m, const byte *msg);

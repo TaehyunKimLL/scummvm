@@ -689,18 +689,6 @@ void ScummHiResText::flushTextLog() const {
 	_logRun.clear();
 }
 
-void ScummHiResText::clearCoverage(int top, int height) {
-	if (!_overlay)
-		return;
-
-	if (height < 0) {
-		const Graphics::Surface *cov = _overlay->coverage();
-		if (!cov)
-			return;
-		height = cov->h - top;
-	}
-	_overlay->clearCoverage(top, height);
-}
 
 // The conventional file names of the map-less form. A translation that
 // ships these and nothing else gets hi-res text with no configuration.

@@ -297,13 +297,6 @@ struct ScummHiResText {
 	const Graphics::Surface *coverage() const { return _overlay ? _overlay->coverage() : nullptr; }
 
 	/// Wipe the coverage, so nothing of the previous frame's text blends in.
-	/**
-	 * Clear the coverage, or one horizontal band of it.
-	 *
-	 * The band matches a scoped clearTextSurface(): the verb strip and the
-	 * dialogue live on the same surface but are retired at different times.
-	 */
-	void clearCoverage(int top = 0, int height = -1);
 
 	/**
 	 * How the engine's own strings are encoded.

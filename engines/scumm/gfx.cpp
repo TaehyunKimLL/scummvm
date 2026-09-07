@@ -1517,15 +1517,21 @@ void ScummEngine::clearTextSurface(const VirtScreen *vs) {
 	}
 
 	towns_fillTopLayerRect(0, top, _textSurface.w, height, 0);
-	fill((byte *)_textSurface.getBasePtr(0, top), _textSurface.pitch,
-#ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
-		_game.platform == Common::kPlatformFMTowns ? CHARSET_MASK_TRANSPARENCY_TOWNS :
-#endif
-		CHARSET_MASK_TRANSPARENCY,  _textSurface.w, height, _textSurface.format.bytesPerPixel);
 
-	// The coverage has to go with it: left behind, it would blend the shape
-	// of the previous frame's glyphs into whatever is drawn next.
-	_hiResText.clearCoverage(top, height);
+	// Both planes together: coverage left behind would blend the shape of the
+	// previous frame's glyphs into whatever is drawn next.
+	_overlay.clear(top, height, textTransparency());
+}
+
+byte ScummEngine::textTransparency() const {
+	// FM-Towns composites text as a hardware layer that reads index 0 as
+	// see-through; everywhere else text is keyed into the picture and 0 is a
+	// real colour.
+#ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
+	if (_game.platform == Common::kPlatformFMTowns)
+		return CHARSET_MASK_TRANSPARENCY_TOWNS;
+#endif
+	return CHARSET_MASK_TRANSPARENCY;
 }
 
 byte *ScummEngine::getMaskBuffer(int x, int y, int z) {
