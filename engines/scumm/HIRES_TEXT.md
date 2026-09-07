@@ -125,6 +125,35 @@ only allows alphanumerics, `-`, `_`, `.`, `:` and space in a **key**, and
 rejects the whole map on anything else. So `u+2192` is fine as a value while a
 key must be written `0x7f`.
 
+## Decorations: outline and shadow
+
+A map can ask for an outline or a drop shadow around every glyph:
+
+```ini
+[shadow]
+mode=outline     ; none | drop | outline | stroke | game
+offset=2         ; thickness in output pixels
+color=8          ; palette index of the stroke
+```
+
+The decoration is built as a dilation mask and laid down solid before the
+body, the way `FontSJISBase::drawChar` does it in `graphics/sjis.cpp` -
+drawing the glyph again at offsets would give the stroke the body's own
+antialiasing, and it would then blend into the background it exists to hide.
+
+Two traps are worth knowing before writing a map:
+
+- **`color=0` is not portable.** FM-Towns clears its text plane to 0 and
+  reads 0 back as transparent, so a stroke in colour 0 vanishes there. It
+  also skips any decoration drawn in the text colour, which is 4 on that
+  platform. Use 8.
+- **`offset` has to suit the replacement font's weight**, not the dark-pixel
+  count. At `offset=3` a thin face's outline closes the gaps between letters
+  even though the totals match the original.
+
+See `HIRES_TEXT_DECORATIONS.md` for the measurements behind both, why a
+baked-in stroke cannot work, and what the TTF path can carry.
+
 ## Metrics: whose advances to use
 ```
 hires_text_metrics=game     ; default - the game's own advances
