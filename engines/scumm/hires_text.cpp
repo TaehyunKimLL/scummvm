@@ -234,7 +234,13 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 
 		if (latinPattern) {
 			for (int i = 0; i < kMaxFonts; ++i) {
-				Common::String name = Common::String::format(latinName.c_str(), i);
+				// Through the same guard as the CJK names above: this string
+				// comes from a map file, and format() would let it name any
+				// conversion it liked - %n writes through a stack pointer.
+				const Common::String name = expandFontPattern(latinName, i);
+				if (name.empty())
+					break;
+
 				Common::FSNode node(gameDir.appendComponent(name));
 				if (!node.exists())
 					continue;
