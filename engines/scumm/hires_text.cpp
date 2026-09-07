@@ -1202,23 +1202,4 @@ uint32 ScummHiResText::decodeNext(const byte *&p, const byte *end) const {
 	return decoded[0];
 }
 
-int ScummHiResText::resolvedFontSize(int role) const {
-	if (role < 0 || role >= Graphics::kHiResRoleCount)
-		return 0;
-
-	const int size = _config.ttfSize[role];
-	if (size <= 0)
-		return 0;
-
-	// A logical size follows whatever scale ended up in force, so one map
-	// looks the same at 2x and at 3x.
-	return _config.ttfSizeRelative[role] ? size * _config.scale : size;
-}
-
-int ScummHiResText::supersample(int role) const {
-	if (role < 0 || role >= Graphics::kHiResRoleCount)
-		return 1;
-	return _config.ttfSupersample[role];
-}
-
 } // End of namespace Scumm

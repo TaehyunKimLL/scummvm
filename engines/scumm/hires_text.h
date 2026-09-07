@@ -183,22 +183,6 @@ struct ScummHiResText {
 
 	const Graphics::HiResTextConfig &config() const { return _config; }
 
-	/// Font role for one of the game's own line heights.
-	int roleForHeight(int height) const { return _config.roleForHeight(height); }
-
-	/**
-	 * The size to render a role at, resolved against the scale in force.
-	 *
-	 * A map may give a size in logical units that follow the scale, so this
-	 * cannot be worked out while parsing - an explicit user scale outranks
-	 * the map and is only known afterwards.
-	 *
-	 * @return 0 when the map did not pin a size, i.e. fit it to the line box
-	 */
-	int resolvedFontSize(int role) const;
-
-	int supersample(int role) const;
-
 	/**
 	 * Decode the next character of a game string.
 	 *
