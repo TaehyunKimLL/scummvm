@@ -1190,21 +1190,33 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	}
 
 	// Being asked for is not the same as being usable: without a map there is
-	// nothing naming the fonts, so the engine stays on its original path.
+	// nothing naming the fonts, so the engine stays on its original path. A
+	// Latin-only set counts as named fonts too - it is the whole of what a
+	// European game draws - or the layer would switch itself off for exactly
+	// the case the map-less form was added to serve.
+	const bool haveNamedFonts = !_config.bitmapPattern.empty() ||
+								!_config.bitmapSingle.empty() ||
+								!_config.legacy.latinBitmapName.empty();
 	_enabled = (haveMap || haveTtf) &&
-			   (_config.scale > 1 || !_config.bitmapPattern.empty() ||
-				!_config.bitmapSingle.empty() || haveTtf);
+			   (_config.scale > 1 || haveNamedFonts || haveTtf);
 
-	if (_enabled)
+	if (_enabled) {
+		const char *fontsNamed = "(none named)";
+		if (!_config.bitmapPattern.empty())
+			fontsNamed = _config.bitmapPattern.c_str();
+		else if (!_config.bitmapSingle.empty())
+			fontsNamed = _config.bitmapSingle.c_str();
+		else if (!_config.legacy.latinBitmapName.empty())
+			fontsNamed = _config.legacy.latinBitmapName.c_str();
+
 		debug(1, "SCUMM: hi-res text enabled: scale %d, alpha %s, metrics %s, "
 				 "source encoding %s, fonts %s",
 			  _config.scale,
 			  _config.alpha ? "on" : "off",
 			  _config.metricsSource == Graphics::kHiResMetricsFont ? "font" : "game",
 			  codePageName(_config.encoding),
-			  !_config.bitmapPattern.empty() ? _config.bitmapPattern.c_str()
-					: (!_config.bitmapSingle.empty() ? _config.bitmapSingle.c_str()
-													 : "(none named)"));
+			  fontsNamed);
+	}
 }
 
 /**

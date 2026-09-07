@@ -21,28 +21,40 @@ and nothing else. No map, no ini keys:
   hires07.fnt
 ```
 
-The layer measures the fonts against the game's own font and picks the scale
-itself. This is the *simple form* — it exists so a translation can ship files
-and no configuration.
+The layer reads each file's header and works out the rest: a font indexed by
+a code page goes to the double-byte slot, one baked for the single-byte range
+goes to the Latin slot, and the cell against the game's own font gives the
+scale. Both kinds may be present; the numbered set is whichever the headers
+say it is, and `hires_latin%02d.fnt` names a Latin companion alongside a CJK
+numbered set.
 
-**It only picks a scale for a CJK game.** The measurement compares the font's
-cell against the game's double-byte font height, and a game not in CJK mode
-has none — `scumm.cpp` passes 0 — so the scale stays 1 and the fonts are drawn
-at original size. Measured on English MI2:
+This is the *simple form* — it exists so a translation can ship files and no
+configuration.
+
+**The scale is only worked out for a CJK game.** The measurement compares the
+font's cell against the game's double-byte font height, and a game not in CJK
+mode has none — `scumm.cpp` passes 0 — so the scale stays 1 and the fonts are
+drawn at original size. Measured on English MI2:
 
 ```
 SCUMM: hi-res scale 1 from the fonts (16px cell over 0px game font)
 ```
 
-For a European game, say so explicitly instead:
+So a European game needs one key, and only one:
 
 ```ini
-[hires]
-scale=2
-alpha=true
+hires_text_scale=2
 ```
 
-Anything beyond the simple form needs a map.
+With that in place the map-less form works for it — measured on English MI2,
+distinct colours in the subtitle band: 4 without the fonts, 199 with them.
+
+**A game that repurposes its charset still needs a map.** MI2 draws an
+ellipsis at `0x5e` and a skull at `0x07`; a replacement font has ordinary
+letters at those codes and will draw them, because only `[glyphs]` can say
+otherwise. The simple form has nowhere to write that down.
+
+Anything beyond that needs a map.
 
 ## scummvm.ini
 
@@ -341,6 +353,7 @@ SCUMM: hi-res text enabled: scale 2, alpha on, metrics font,
 | symptom | cause |
 |---|---|
 | no `hi-res text enabled` line at all | the layer never started — check `-d1` is present, and that the config section has `engineid=scumm` |
+| fonts load, nothing is drawn | on a European game before this was fixed, a single-byte set filed under the numbered name went to the double-byte slot and was never consulted. The log now says `(single-byte, used as Latin)` when the set is routed by its header |
 | `source encoding other` | cosmetic. The log names only the four CJK pages, CP1252 and UTF-8; every other valid codepage — including `latin1` — prints as `other`. The map was parsed correctly |
 | `fonts (none named)` | no map was found and no fonts matched `hires%02d.fnt` |
 | `names no [bitmap] fonts` | a warning, not an error; the map is still used |
