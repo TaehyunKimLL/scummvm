@@ -706,6 +706,9 @@ protected:
 
 	// The followings are needed for MI1 FM-Towns
 	byte *_textSurfBannerMem = nullptr;
+
+	/// Coverage for the same band, saved alongside the indices above.
+	byte *_textSurfBannerCovMem = nullptr;
 	uint32 _textSurfBannerMemSize = 0;
 
 	InternalGUIControl _internalGUIControls[30];

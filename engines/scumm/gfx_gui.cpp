@@ -250,6 +250,18 @@ Common::KeyState ScummEngine::showBannerAndPause(int bannerId, int32 waitTime, c
 						_textSurfBannerMemSize);
 				}
 
+				// The coverage for the same band. Saving the indices alone
+				// leaves the banner's own antialiasing under the text that
+				// comes back when it is dismissed.
+				if (const Graphics::Surface *cov = _overlay.coverage()) {
+					_textSurfBannerCovMem = (byte *)malloc(_textSurfBannerMemSize);
+					if (_textSurfBannerCovMem)
+						memcpy(
+							_textSurfBannerCovMem,
+							&((const byte *)cov->getBasePtr(0, _screenTop * _textSurfaceMultiplier))[rowSize * _bannerSaveYStart],
+							_textSurfBannerMemSize);
+				}
+
 				// We're going to use these same values for saving the
 				// virtual screen surface, so let's un-multiply them...
 				rowSize /= _textSurfaceMultiplier;
@@ -628,6 +640,14 @@ void ScummEngine::clearBanner() {
 					_textSurfBannerMem,
 					_textSurfBannerMemSize);
 
+				if (_textSurfBannerCovMem) {
+					if (Graphics::Surface *cov = _overlay.coverage())
+						memcpy(
+							&((byte *)cov->getBasePtr(0, _screenTop * _textSurfaceMultiplier))[rowSize * startingPointY],
+							_textSurfBannerCovMem,
+							_textSurfBannerMemSize);
+				}
+
 				// We're going to use these same values for restoring the
 				// virtual screen surface, so let's un-multiply them...
 				rowSize /= _textSurfaceMultiplier;
@@ -650,6 +670,8 @@ void ScummEngine::clearBanner() {
 
 		free(_textSurfBannerMem);
 		_textSurfBannerMem = nullptr;
+		free(_textSurfBannerCovMem);
+		_textSurfBannerCovMem = nullptr;
 	}
 
 	// Restore shake effect

@@ -1404,18 +1404,11 @@ void ScummEngine::restoreBackground(Common::Rect rect, byte backColor) {
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 		if (_game.platform == Common::kPlatformFMTowns) {
 			backColor |= (backColor << 4);
-			byte *mask = (byte *)_textSurface.getBasePtr(rect.left * _textSurfaceMultiplier, (rect.top + vs->topline) * _textSurfaceMultiplier);
-			fill(mask, _textSurface.pitch, backColor, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
-
-			// The index here is a colour rather than the transparency key, so
-			// the overlay's clear does not fit - but the coverage still has to
-			// go, or this band composites the old glyph edges over the new
-			// fill.
-			if (Graphics::Surface *cov = _overlay.coverage())
-				cov->fillRect(Common::Rect(rect.left * _textSurfaceMultiplier,
-										   (rect.top + vs->topline) * _textSurfaceMultiplier,
-										   (rect.left + width) * _textSurfaceMultiplier,
-										   (rect.top + vs->topline + height) * _textSurfaceMultiplier), 0);
+			_overlay.fillIndices(Common::Rect(rect.left * _textSurfaceMultiplier,
+											  (rect.top + vs->topline) * _textSurfaceMultiplier,
+											  (rect.left + width) * _textSurfaceMultiplier,
+											  (rect.top + vs->topline + height) * _textSurfaceMultiplier),
+								 backColor);
 		}
 #endif
 
@@ -1822,18 +1815,11 @@ void ScummEngine::drawBox(int x, int y, int x2, int y2, int color) {
 					byte *mask = _virtscr[kBannerVirtScreen].getPixels(x, y);
 					fill(mask, vs->pitch, color, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, vs->format.bytesPerPixel);
 				} else {
-					byte *mask = (byte *)_textSurface.getBasePtr(x * _textSurfaceMultiplier, (y - _screenTop + vs->topline) * _textSurfaceMultiplier);
-					fill(mask, _textSurface.pitch, color, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
-
-					// A colour rather than the transparency key, so the
-					// overlay's clear does not apply - but the coverage has
-					// to go either way, or this band composites the old
-					// glyph edges over the new fill.
-					if (Graphics::Surface *cov = _overlay.coverage())
-						cov->fillRect(Common::Rect(x * _textSurfaceMultiplier,
-												   (y - _screenTop + vs->topline) * _textSurfaceMultiplier,
-												   (x + width) * _textSurfaceMultiplier,
-												   (y - _screenTop + vs->topline + height) * _textSurfaceMultiplier), 0);
+					_overlay.fillIndices(Common::Rect(x * _textSurfaceMultiplier,
+													  (y - _screenTop + vs->topline) * _textSurfaceMultiplier,
+													  (x + width) * _textSurfaceMultiplier,
+													  (y - _screenTop + vs->topline + height) * _textSurfaceMultiplier),
+										 color);
 				}
 
 				if (_game.id != GID_MONKEY && !(_game.version == 3 && vs->number == kTextVirtScreen))
