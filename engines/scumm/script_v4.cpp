@@ -124,7 +124,9 @@ void ScummEngine_v4::o4_oldRoomEffect() {
 
 		if (_game.platform == Common::kPlatformFMTowns && _game.version == 3) {
 			if (a == 4) {
-				_textSurface.fillRect(Common::Rect(0, 0, _textSurface.w * _textSurfaceMultiplier, _textSurface.h * _textSurfaceMultiplier), 0);
+				_overlay.clear(Common::Rect(0, 0, _textSurface.w * _textSurfaceMultiplier,
+										_textSurface.h * _textSurfaceMultiplier),
+						   CHARSET_MASK_TRANSPARENCY_TOWNS);
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 				if (_townsScreen)
 					_townsScreen->clearLayer(1);

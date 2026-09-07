@@ -4402,7 +4402,9 @@ void ScummEngine::restart() {
 
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	if (_townsScreen && _game.id == GID_MONKEY) {
-		_textSurface.fillRect(Common::Rect(0, 0, _textSurface.w * _textSurfaceMultiplier, _textSurface.h * _textSurfaceMultiplier), 0);
+		_overlay.clear(Common::Rect(0, 0, _textSurface.w * _textSurfaceMultiplier,
+									_textSurface.h * _textSurfaceMultiplier),
+					   CHARSET_MASK_TRANSPARENCY_TOWNS);
 		_townsScreen->clearLayer(1);
 	}
 #endif

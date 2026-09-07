@@ -354,7 +354,9 @@ void ScummEngine::initScreens(int b, int h) {
 			_townsScreen->clearLayer(0);
 
 		if (_game.id != GID_MONKEY) {
-			_textSurface.fillRect(Common::Rect(0, 0, _textSurface.w * _textSurfaceMultiplier, _textSurface.h * _textSurfaceMultiplier), 0);
+			_overlay.clear(Common::Rect(0, 0, _textSurface.w * _textSurfaceMultiplier,
+									_textSurface.h * _textSurfaceMultiplier),
+					   CHARSET_MASK_TRANSPARENCY_TOWNS);
 			_townsScreen->clearLayer(1);
 		}
 	}
@@ -1749,8 +1751,11 @@ void ScummEngine::drawBox(int x, int y, int x2, int y2, int color) {
 
 			blit(backbuff, vs->pitch, bgbuff, vs->pitch, width, height, vs->format.bytesPerPixel);
 			if (_charset->_hasMask) {
-				byte *mask = (byte *)_textSurface.getBasePtr(x * _textSurfaceMultiplier, (y - _screenTop) * _textSurfaceMultiplier);
-				fill(mask, _textSurface.pitch, CHARSET_MASK_TRANSPARENCY, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+				_overlay.clear(Common::Rect(x * _textSurfaceMultiplier,
+											(y - _screenTop) * _textSurfaceMultiplier,
+											(x + width) * _textSurfaceMultiplier,
+											(y - _screenTop + height) * _textSurfaceMultiplier),
+							   CHARSET_MASK_TRANSPARENCY);
 			}
 		}
 	} else if (_game.heversion >= 72) {
@@ -1819,6 +1824,16 @@ void ScummEngine::drawBox(int x, int y, int x2, int y2, int color) {
 				} else {
 					byte *mask = (byte *)_textSurface.getBasePtr(x * _textSurfaceMultiplier, (y - _screenTop + vs->topline) * _textSurfaceMultiplier);
 					fill(mask, _textSurface.pitch, color, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+
+					// A colour rather than the transparency key, so the
+					// overlay's clear does not apply - but the coverage has
+					// to go either way, or this band composites the old
+					// glyph edges over the new fill.
+					if (Graphics::Surface *cov = _overlay.coverage())
+						cov->fillRect(Common::Rect(x * _textSurfaceMultiplier,
+												   (y - _screenTop + vs->topline) * _textSurfaceMultiplier,
+												   (x + width) * _textSurfaceMultiplier,
+												   (y - _screenTop + vs->topline + height) * _textSurfaceMultiplier), 0);
 				}
 
 				if (_game.id != GID_MONKEY && !(_game.version == 3 && vs->number == kTextVirtScreen))
@@ -1827,8 +1842,11 @@ void ScummEngine::drawBox(int x, int y, int x2, int y2, int color) {
 #endif
 
 			if (_macScreen) {
-				byte *mask = (byte *)_textSurface.getBasePtr(x * _textSurfaceMultiplier, (y - _screenTop + vs->topline) * _textSurfaceMultiplier);
-				fill(mask, _textSurface.pitch, CHARSET_MASK_TRANSPARENCY, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+				_overlay.clear(Common::Rect(x * _textSurfaceMultiplier,
+											(y - _screenTop + vs->topline) * _textSurfaceMultiplier,
+											(x + width) * _textSurfaceMultiplier,
+											(y - _screenTop + vs->topline + height) * _textSurfaceMultiplier),
+							   CHARSET_MASK_TRANSPARENCY);
 			}
 
 			fill(backbuff, vs->pitch, color, width, height, vs->format.bytesPerPixel);
@@ -2563,7 +2581,11 @@ void Gdi::drawBitmap(const byte *ptr, VirtScreen *vs, int x, const int y, const 
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	if (_vm->_townsPaletteFlags & 2) {
 		int cx = (x - _vm->_screenStartStrip) << 3;
-		_vm->_textSurface.fillRect(Common::Rect(cx * _vm->_textSurfaceMultiplier, y * _vm->_textSurfaceMultiplier, (cx  + width - 1) * _vm->_textSurfaceMultiplier, (y + height - 1) * _vm->_textSurfaceMultiplier), 0);
+		_vm->_overlay.clear(Common::Rect(cx * _vm->_textSurfaceMultiplier,
+										 y * _vm->_textSurfaceMultiplier,
+										 (cx + width - 1) * _vm->_textSurfaceMultiplier,
+										 (y + height - 1) * _vm->_textSurfaceMultiplier),
+							CHARSET_MASK_TRANSPARENCY_TOWNS);
 	}
 #endif
 
@@ -4673,7 +4695,9 @@ void ScummEngine::fadeOut(int effect) {
 
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	if (_game.version == 3 && _game.platform == Common::kPlatformFMTowns)
-		_textSurface.fillRect(Common::Rect(0, vs->topline * _textSurfaceMultiplier, _textSurface.pitch, (vs->topline + vs->h) * _textSurfaceMultiplier), 0);
+		_overlay.clear(Common::Rect(0, vs->topline * _textSurfaceMultiplier, _textSurface.pitch,
+									(vs->topline + vs->h) * _textSurfaceMultiplier),
+					   CHARSET_MASK_TRANSPARENCY_TOWNS);
 #endif
 
 	// V0 wipes the text area before fading out
