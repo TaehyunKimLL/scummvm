@@ -128,6 +128,15 @@ struct ScummHiResText {
 	/// The cached colour for a palette index; valid only in alpha mode.
 	uint32 paletteColor(byte index) const { return _paletteCache[index]; }
 
+	/**
+	 * The whole index-to-colour table, for a compositor that resolves runs.
+	 *
+	 * Handing out the table rather than the colours keeps the promise the
+	 * overlay is built on: indices are what is stored, and a palette change
+	 * re-colours text that was drawn long before.
+	 */
+	const uint32 *paletteCache() const { return _paletteCache; }
+
 	/// The cached palette as RGB triples, for the cursor, which stays paletted.
 	const byte *paletteRGB() const { return _paletteRGB; }
 
