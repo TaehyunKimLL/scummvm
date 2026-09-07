@@ -1013,6 +1013,18 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 								int version, Common::Language language) {
 	reset();
 
+	// The player's switch, before anything is read. A disabled feature that
+	// still parses a map still complains about it - an older TrueType map, a
+	// font that fails to load - and someone who turned this off to stop it
+	// complaining should stop hearing from it.
+	//
+	// Only an explicit false turns the layer off, so an ini without the key
+	// behaves exactly as before.
+	if (ConfMan.hasKey("hires_text") && !ConfMan.getBool("hires_text")) {
+		debug(1, "SCUMM: hi-res text switched off by the user (hires_text=false)");
+		return;
+	}
+
 	_config.encoding = defaultEncodingFor(language);
 
 	// Sections may be narrowed by game or by SCUMM version, most specific
@@ -1141,15 +1153,6 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	_enabled = (haveMap || haveTtf) &&
 			   (_config.scale > 1 || !_config.bitmapPattern.empty() ||
 				!_config.bitmapSingle.empty() || haveTtf);
-
-	// The user's switch outranks everything above. A map in the game folder
-	// is the translation's intent; this is the player's, and it is the one
-	// the options dialog binds to. Only an explicit false turns the layer
-	// off, so an ini without the key behaves as before.
-	if (_enabled && ConfMan.hasKey("hires_text") && !ConfMan.getBool("hires_text")) {
-		debug(1, "SCUMM: hi-res text switched off by the user (hires_text=false)");
-		_enabled = false;
-	}
 
 	if (_enabled)
 		debug(1, "SCUMM: hi-res text enabled: scale %d, alpha %s, metrics %s, "
