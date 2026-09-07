@@ -1398,11 +1398,13 @@ void ScummEngine::restoreCharsetBg() {
 
 		byte *screenBuf = vs->getPixels(0, 0);
 
+		bool wipedGameBuffer = false;
 		if (vs->hasTwoBuffers && _currentRoom != 0 && isLightOn()) {
 			if (vs->number != kMainVirtScreen) {
 				// Restore from back buffer
 				const byte *backBuf = vs->getBackPixels(0, 0);
 				blit(screenBuf, vs->pitch, backBuf, vs->pitch, vs->w, vs->h, vs->format.bytesPerPixel);
+				wipedGameBuffer = true;
 			}
 		} else {
 			if (!(_game.version < 4 && _messageBannerActive && (getCurrentLights() & LIGHTMODE_flashlight_on))) {
@@ -1411,6 +1413,7 @@ void ScummEngine::restoreCharsetBg() {
 					memset(screenBuf, 0x1d, vs->h * vs->pitch);
 				else
 					memset(screenBuf, 0, vs->h * vs->pitch);
+				wipedGameBuffer = true;
 			}
 		}
 
@@ -1420,7 +1423,14 @@ void ScummEngine::restoreCharsetBg() {
 		// one row. The built-in fonts do not need it because they draw into
 		// the buffer that was just wiped above; hi-res text lives in a surface
 		// of its own.
-		if (vs->hasTwoBuffers || _macScreen || _hiResText.enabled()) {
+		//
+		// Only when that buffer really was wiped, though. The branches above
+		// both have conditions that skip it - MI2's boot menu is room 0, so
+		// the two-buffer branch is not taken and the game keeps its picture -
+		// and there the game does not repaint the text either. Clearing the
+		// overlay anyway retired glyphs the game still considered on screen,
+		// which is why English MI2 showed an empty menu box.
+		if (wipedGameBuffer && (vs->hasTwoBuffers || _macScreen || _hiResText.enabled())) {
 			// Only the screen that owns this text: verbs and dialogue share
 			// the surface but are retired independently, and verbs are drawn
 			// once and never repainted.
