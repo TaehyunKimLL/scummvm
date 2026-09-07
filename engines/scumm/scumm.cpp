@@ -1543,6 +1543,21 @@ Common::Error ScummEngine::init() {
 				if (_system->getScreenFormat().bytesPerPixel != 2)
 					return Common::kUnsupportedColorMode;
 			}
+
+			// This screen is 16 bit rather than paletted, which is all
+			// blending actually needs - the 32bpp request further down is
+			// about the DOS path, which starts from a paletted screen and has
+			// to ask for something better. A game that is already here can
+			// blend as it stands.
+			//
+			// v7 and later are excluded for the same reason as below: they
+			// drive the backend palette from places the text layer does not
+			// own.
+			if (_hiResText.enabled() && _hiResText.wantsAlpha() && _game.version < 7) {
+				_hiResText.setAlphaActive(true);
+				debug(1, "SCUMM: hi-res text blending into %s",
+					  _system->getScreenFormat().toString().c_str());
+			}
 #else
 			if (_game.platform == Common::kPlatformFMTowns && _game.version == 3) {
 				warning("Starting game without the required 16bit color support.\nYou may experience color glitches");
@@ -2163,7 +2178,12 @@ void ScummEngine::resetScumm() {
 		_scrollDestOffset = _scrollTimer = 0;
 		_townsScreen = new TownsScreen(_system);
 		_townsScreen->setupLayer(0, 512, _screenHeight, _textSurfaceMultiplier, _textSurfaceMultiplier, (_outputPixelFormat.bytesPerPixel == 2) ? 32767 : 256);
-		_townsScreen->setupLayer(1, _screenWidth * _textSurfaceMultiplier, _screenHeight * _textSurfaceMultiplier, 1, 1, 16, _textPalette);
+		// A 16 colour layer cannot hold a blended pixel. When hi-res text
+		// is antialiasing, give it a 16 bit layer instead; the layer keys
+		// on the colour index 0 maps to, so it stays see-through.
+		_townsScreen->setupLayer(1, _screenWidth * _textSurfaceMultiplier, _screenHeight * _textSurfaceMultiplier, 1, 1,
+			(_outputPixelFormat.bytesPerPixel == 2 && _hiResText.alphaActive())
+				? 32767 : 16, _textPalette);
 	}
 #endif
 

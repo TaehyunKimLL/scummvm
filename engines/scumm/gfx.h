@@ -589,6 +589,14 @@ public:
 	int getLayerWidth(int layer) const { assert (layer >= 0 && layer < 2); return _layers[layer].width; }
 	int getLayerHeight(int layer) const { assert (layer >= 0 && layer < 2); return _layers[layer].height; }
 	int getLayerBpp(int layer) const { assert (layer >= 0 && layer < 2); return _layers[layer].bpp; }
+
+	/**
+	 * A 16 bit layer's index-to-colour table.
+	 *
+	 * Handing out the table rather than resolved colours keeps text stored as
+	 * indices, so a palette change re-colours glyphs already on screen.
+	 */
+	const uint16 *getLayerPalette(int layer) const { assert (layer >= 0 && layer < 2); return _layers[layer].bltTmpPal; }
 	int getLayerScaleW(int layer) const { assert (layer >= 0 && layer < 2); return _layers[layer].scaleW; }
 	int getLayerScaleH(int layer) const { assert (layer >= 0 && layer < 2); return _layers[layer].scaleH; }
 
@@ -606,6 +614,9 @@ private:
 		uint8 scaleH = 0;
 		int scrollRemainder = 0;
 		bool onBottom = false;
+		/// For a 16 bit layer: the colour that index 0 resolves to, used
+		/// as the transparency key. An 8 bit layer keys on index 0 itself.
+		uint16 transparentColor = 0;
 		bool enabled = false;
 		bool ready = false;
 		uint16 *bltTmpPal= nullptr;

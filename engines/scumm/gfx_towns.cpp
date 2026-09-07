@@ -82,10 +82,54 @@ void ScummEngine::towns_drawStripToScreen(VirtScreen *vs, int dstX, int dstY, in
 			}
 		}
 
-		for (int h = 0; h < height * m; ++h) {
-			memcpy(dst2, src2, width * m);
-			src2 += _textSurface.pitch;
-			dst2 += lp1;
+		if (_townsScreen->getLayerBpp(1) == 2) {
+			// The layer is 16 bit because hi-res text is blending. Resolve
+			// each text index through the layer's own palette, mixing in the
+			// game picture where a glyph only partly covers it.
+			//
+			// Indices are resolved here rather than stored, so a later
+			// palette change re-colours text that was drawn long before.
+			const uint16 *lpal = _townsScreen->getLayerPalette(1);
+			const uint8 *cov = _hiResText.coverage()
+				? (const uint8 *)_hiResText.coverage()->getBasePtr(srcX * m, (srcY + vs->topline - _screenTop) * m)
+				: nullptr;
+			const int covPitch = _hiResText.coverage() ? _hiResText.coverage()->pitch : 0;
+			const uint8 *bg = vs->getPixels(srcX, srcY);
+
+			for (int h = 0; h < height * m; ++h) {
+				uint16 *out = (uint16 *)dst2;
+				const uint8 *bgRow = bg + (h / m) * vs->pitch;
+				for (int w = 0; w < width * m; ++w) {
+					const uint8 t = src2[w] & 0x0f;
+					const uint8 a = cov ? cov[w] : 0xFF;
+
+					if (!t && !a) {
+						// Nothing drawn here: leave the layer transparent.
+						out[w] = lpal[0];
+					} else if (!a || a == 0xFF) {
+						out[w] = lpal[t];
+					} else {
+						// Mix with the game picture showing through.
+						uint8 fr, fg, fb, br, bg2, bb;
+						_outputPixelFormat.colorToRGB(lpal[t], fr, fg, fb);
+						_outputPixelFormat.colorToRGB(_16BitPalette[bgRow[w / m]], br, bg2, bb);
+						out[w] = _outputPixelFormat.RGBToColor(
+							(fr * a + br * (255 - a)) / 255,
+							(fg * a + bg2 * (255 - a)) / 255,
+							(fb * a + bb * (255 - a)) / 255);
+					}
+				}
+				src2 += _textSurface.pitch;
+				if (cov)
+					cov += covPitch;
+				dst2 += lp1;
+			}
+		} else {
+			for (int h = 0; h < height * m; ++h) {
+				memcpy(dst2, src2, width * m);
+				src2 += _textSurface.pitch;
+				dst2 += lp1;
+			}
 		}
 
 	} else {
@@ -400,6 +444,10 @@ void TownsScreen::setupLayer(int layer, int width, int height, int scaleW, int s
 	l->pitch = width * l->bpp;
 	l->palette = (uint8 *)pal;
 	l->hScroll = 0;
+	// Index 0 is the transparent one; for a 16 bit layer that has to be
+	// remembered as a colour, since the index is gone by blit time.
+	l->transparentColor = (l->bpp == 2 && pal)
+		? calc16BitColor((const uint8 *)pal) : 0;
 
 	if (l->palette && _pixelFormat.bytesPerPixel == 1)
 		warning("TownsScreen::setupLayer(): Layer palette usage requires 16 bit graphics setting.\nLayer palette will be ignored.");
@@ -409,7 +457,11 @@ void TownsScreen::setupLayer(int layer, int width, int height, int scaleW, int s
 	assert(l->pixels);
 
 	delete[] l->bltTmpPal;
-	l->bltTmpPal = (l->bpp == 1 && _pixelFormat.bytesPerPixel == 2) ? new uint16[l->numCol] : nullptr;
+	// An 8 bit layer is looked up at blit time. A 16 bit layer normally
+	// holds colours already - but the blended text layer is filled from
+	// palette indices, so it needs the table as well.
+	l->bltTmpPal = (_pixelFormat.bytesPerPixel == 2 && pal)
+		? new uint16[MAX(l->numCol, 256)] : nullptr;
 
 	l->enabled = true;
 	_layers[0].onBottom = true;
@@ -626,7 +678,7 @@ void TownsScreen::update16BitPalette() {
 		if (!l->enabled || !l->ready)
 			continue;
 
-		if (_pixelFormat.bytesPerPixel == 2 && l->bpp == 1) {
+		if (_pixelFormat.bytesPerPixel == 2 && l->bltTmpPal) {
 			if (!l->palette)
 				error("void TownsScreen::update16BitPalette(): No palette assigned to 8 bit layer %d", i);
 			for (int ic = 0; ic < l->numCol; ic++)
@@ -674,13 +726,22 @@ template<typename dstPixelType, typename srcPixelType, int scaleW, int scaleH, b
 					if (scaleH == 2)
 						dst20a++;
 				} else {
-					*dst10a++ = col;
-					if (scaleW == 2)
-						*dst10a++ = col;
+					// A 16 bit layer used to write every pixel, which is
+					// right for the bottom layer but blanks the picture when
+					// an upper layer is only partly covered. Key it the same
+					// way the 8 bit path is keyed.
+					if (col != l->transparentColor || l->onBottom) {
+						*dst10a = col;
+						if (scaleW == 2)
+							*++dst10a = col;
+						if (scaleH == 2)
+							*dst20a = col;
+						if (scaleW == 2 && scaleH == 2)
+							*++dst20a = col;
+					}
+					dst10a++;
 					if (scaleH == 2)
-						*dst20a++ = col;
-					if (scaleW == 2 && scaleH == 2)
-						*dst20a++ = col;
+						dst20a++;
 				}
 			} else {
 				if (col || l->onBottom) {
