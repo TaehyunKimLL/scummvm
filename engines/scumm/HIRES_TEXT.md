@@ -20,6 +20,11 @@ not touch stays untouched.
 
 ## Configuration
 
+`HIRES_TEXT_SETUP.md` is the setup reference for people configuring a game:
+every ini key and map section with examples, how to bake the fonts, and what
+the diagnostics mean. What follows here is the same ground from the engine's
+side, kept because the rest of this document refers to it.
+
 Per target, in `scummvm.ini`:
 
 | key | values | default | meaning |
