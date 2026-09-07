@@ -105,48 +105,94 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 	const int baseY = y + glyph.originY;
 	const int step = style.shadowOffset;
 
-	// The decoration is laid down in full before the body, so that a later
-	// pixel of the same glyph - or of the next character along - cannot paint
-	// over a stroke that is already there.
-	for (int pass = copies ? 0 : 1; pass < 2; ++pass) {
-		const int passCopies = pass ? 1 : copies;
+	// The decoration is built as a mask first, the way FontSJISBase does it
+	// (graphics/sjis.cpp), rather than by re-blitting the glyph once per
+	// offset.
+	//
+	// Drawing the glyph repeatedly makes each copy carry the body's own
+	// antialiasing, so the stroke ends up semi-transparent exactly where it
+	// should be solid - it then blends with the background it is supposed to
+	// hide. The copies also overwrite each other, so the rule that stops a
+	// decoration eating the body ends up arbitrating between strokes.
+	//
+	// Dilating instead gives one solid mask: a pixel is stroke if any offset
+	// lands glyph ink on it. The shape still follows the letterform, but the
+	// stroke has an opacity of its own.
+	Common::Array<byte> mask;
+	if (copies) {
+		const int mw = glyph.width + 2 * step;
+		const int mh = glyph.height + 2 * step;
+		mask.resize(mw * mh);
+		memset(mask.begin(), 0, mw * mh);
 
-		for (int c = 0; c < passCopies; ++c) {
-			const int ox = pass ? 0 : offX[c] * step;
-			const int oy = pass ? 0 : offY[c] * step;
-			const byte ink = pass ? style.color : style.shadowColor;
+		for (int c = 0; c < copies; ++c) {
+			const int ox = offX[c] * step + step;
+			const int oy = offY[c] * step + step;
 
 			for (int gy = 0; gy < glyph.height; ++gy) {
-				const int py = baseY + gy + oy;
-				if (py < 0 || py >= dest.h)
-					continue;
-
 				const byte *row = glyph.pixels + gy * glyph.pitch;
+				byte *out = mask.begin() + (gy + oy) * mw + ox;
 
 				for (int gx = 0; gx < glyph.width; ++gx) {
-					const byte cv = glyphCoverage(row, gx, glyph.bpp);
-					if (!cv)
-						continue;
-
-					const int px = baseX + gx + ox;
-					if (px < 0 || px >= dest.w)
-						continue;
-
-					const bool inCoverage = cov && px < cov->w && py < cov->h;
-
-					// A decoration pixel must not eat into the body, and a
-					// fainter pixel must never replace a stronger one that is
-					// already down - otherwise the outline of one glyph
-					// erodes the stroke of its neighbour.
-					if (!pass && inCoverage &&
-						*(const byte *)cov->getBasePtr(px, py) >= cv)
-						continue;
-
-					*(byte *)dest.getBasePtr(px, py) = ink;
-
-					if (inCoverage)
-						*(byte *)cov->getBasePtr(px, py) = cv;
+					if (glyphCoverage(row, gx, glyph.bpp))
+						out[gx] = 0xFF;
 				}
+			}
+		}
+
+		// The stroke goes down solid and in one pass, before the body.
+		//
+		// Unlike sjis.cpp, which composes one glyph into a buffer of its own,
+		// this draws into a plane shared by every glyph on the line. A stroke
+		// must therefore yield to body ink that is already there, or each
+		// character would erase the tail of the one before it - including its
+		// antialiased edge, which is faint but still the letterform.
+		for (int my = 0; my < mh; ++my) {
+			const int py = baseY + my - step;
+			if (py < 0 || py >= dest.h)
+				continue;
+
+			for (int mx = 0; mx < mw; ++mx) {
+				if (!mask[my * mw + mx])
+					continue;
+
+				const int px = baseX + mx - step;
+				if (px < 0 || px >= dest.w)
+					continue;
+
+				if (cov && px < cov->w && py < cov->h) {
+					if (*(const byte *)cov->getBasePtr(px, py))
+						continue;
+					*(byte *)cov->getBasePtr(px, py) = 0xFF;
+				}
+
+				*(byte *)dest.getBasePtr(px, py) = style.shadowColor;
+			}
+		}
+	}
+
+	// The body, drawn over the stroke with its antialiasing intact.
+	{
+		for (int gy = 0; gy < glyph.height; ++gy) {
+			const int py = baseY + gy;
+			if (py < 0 || py >= dest.h)
+				continue;
+
+			const byte *row = glyph.pixels + gy * glyph.pitch;
+
+			for (int gx = 0; gx < glyph.width; ++gx) {
+				const byte cv = glyphCoverage(row, gx, glyph.bpp);
+				if (!cv)
+					continue;
+
+				const int px = baseX + gx;
+				if (px < 0 || px >= dest.w)
+					continue;
+
+				*(byte *)dest.getBasePtr(px, py) = style.color;
+
+				if (cov && px < cov->w && py < cov->h)
+					*(byte *)cov->getBasePtr(px, py) = cv;
 			}
 		}
 	}
