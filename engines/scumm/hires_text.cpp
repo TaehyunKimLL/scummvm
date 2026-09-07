@@ -726,16 +726,25 @@ static const char *const kSimpleLatinPattern = "hires_latin%02d.fnt";
  * Look for fonts under the conventional names and, if any are there, fill
  * in the configuration a map would have carried.
  *
- * The fonts describe themselves: an 8bpp file was baked for blending, and
- * the smallest cell against the game's own font gives the scale (settled
- * later, in resolveScale(), when that height is known). Encoding follows
- * the language, as it does with a map that does not say. What a map can
+ * The fonts describe themselves: an 8bpp file was baked for blending, the
+ * smallest cell against the game's own font gives the scale (settled later,
+ * in resolveScale(), when that height is known), and the code page in the
+ * header says which of the two slots the set belongs in. What a map can
  * express and a bare font cannot - a different glyph count, metrics=font,
  * a shadow style - keeps its default.
  */
+
+/// True for a font whose glyphs are indexed by a single byte, which is what
+/// decides the slot below.
+static bool isSingleByteFont(const Graphics::HiResBitmapFont &font) {
+	return font.codePage() == Common::kISO8859_1 ||
+		   font.codePage() == Common::kWindows1252;
+}
+
 bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir) {
 	int smallestCell = 0;
 	int found = 0;
+	int singleByte = 0;
 	bool anyCoverage = false;
 
 	// Open each file only far enough to read its header; the real load
@@ -750,8 +759,8 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir) {
 		if (!stream)
 			continue;
 		const bool ok = probe.load(*stream);
-		delete stream;
 		if (!ok) {
+			delete stream;
 			warning("SCUMM: %s is not a usable hi-res font", name.c_str());
 			continue;
 		}
@@ -759,10 +768,14 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir) {
 		if (smallestCell == 0 || probe.cellHeight() < smallestCell)
 			smallestCell = probe.cellHeight();
 		anyCoverage = anyCoverage || probe.bpp() == 8;
+		if (isSingleByteFont(probe))
+			++singleByte;
 		probe.free();
+		delete stream;
 	}
 
 	bool haveSingle = false;
+	bool singleIsLatin = false;
 	{
 		Common::FSNode node(gameDir.appendComponent(kSimpleFontSingle));
 		if (node.exists()) {
@@ -773,6 +786,7 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir) {
 					if (smallestCell == 0 || probe.cellHeight() < smallestCell)
 						smallestCell = probe.cellHeight();
 					anyCoverage = anyCoverage || probe.bpp() == 8;
+					singleIsLatin = isSingleByteFont(probe);
 					probe.free();
 				} else {
 					warning("SCUMM: %s is not a usable hi-res font", kSimpleFontSingle);
@@ -785,10 +799,32 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir) {
 	if (!found && !haveSingle)
 		return false;
 
-	if (found)
-		_config.bitmapPattern = kSimpleFontPattern;
-	if (haveSingle)
-		_config.bitmapSingle = kSimpleFontSingle;
+	// Which slot the set belongs in comes from the fonts, not from the file
+	// name. A European game emits only single-byte characters, and fontFor()
+	// sends those to the Latin slot - so a Latin set filed under the numbered
+	// name would load and then never be consulted, drawing nothing while
+	// reporting eight fonts loaded. The header already says which it is.
+	const bool numberedAreLatin = (found > 0 && singleByte == found);
+
+	if (found) {
+		if (numberedAreLatin)
+			_config.legacy.latinBitmapName = kSimpleFontPattern;
+		else
+			_config.bitmapPattern = kSimpleFontPattern;
+	}
+	if (haveSingle) {
+		// One field carries both forms; loadFonts() tells them apart by the
+		// conversion in the name, so a pattern must not be overwritten by
+		// the single name.
+		if (singleIsLatin) {
+			if (_config.legacy.latinBitmapName.empty())
+				_config.legacy.latinBitmapName = kSimpleFontSingle;
+		} else {
+			_config.bitmapSingle = kSimpleFontSingle;
+		}
+	}
+	if (numberedAreLatin || singleIsLatin)
+		_config.legacy.latinEnabled = true;
 	_config.alpha = anyCoverage;
 
 	// Latin companions are optional and follow the same convention. A game
@@ -806,8 +842,11 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir) {
 
 	_simpleFonts = true;
 	_simpleCellHeight = smallestCell;
-	debug(1, "SCUMM: hi-res fonts found by name (no map): %d numbered%s%s, smallest cell %d",
-		  found, haveSingle ? " + single" : "", haveLatin ? ", with Latin" : "", smallestCell);
+	debug(1, "SCUMM: hi-res fonts found by name (no map): %d numbered%s%s%s, "
+			 "smallest cell %d",
+		  found, haveSingle ? " + single" : "",
+		  numberedAreLatin ? " (single-byte, used as Latin)" : "",
+		  haveLatin ? ", with Latin" : "", smallestCell);
 	return true;
 }
 
