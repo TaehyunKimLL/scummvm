@@ -1702,19 +1702,6 @@ void CharsetRendererPCE::drawBits1(Graphics::Surface &dest, int x, int y, const 
 		uint16 col1 = _color;
 		uint16 col2 = _shadowColor;
 
-		// The replacement font first, as on FM-Towns: this path draws from
-		// the System Card font and returns, so the hi-res layer would never
-		// see a double-byte glyph.
-		//
-		// Only where the destination is paletted. The layer writes an index
-		// and keeps the colour for the compositing step, which is the whole
-		// reason palette effects still work; a 16-bit destination has no
-		// index to write and is left to the original path.
-		if (dest.format.bytesPerPixel == 1 &&
-			_vm->_hiResText.drawChar(dest, _sjisCurChar, _curId, x, y,
-									 (byte)col1, (byte)col2, _vm->_2byteShadow))
-			return;
-
 		if (dest.format.bytesPerPixel == 2) {
 			col1 = _vm->_16BitPalette[col1];
 			col2 = _vm->_16BitPalette[col2];
