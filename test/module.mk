@@ -44,6 +44,9 @@ TEST_LIBS +=	audio/libaudio.a math/libmath.a common/libcommon.a common/formats/l
 ifeq ($(ENABLE_SCUMM), STATIC_PLUGIN)
 	TESTS += $(srcdir)/test/engines/scumm/*.h
 	TEST_LIBS += engines/scumm/libscumm.a
+	# The hi-res hook census reads charset.h/charset.cpp back out of the tree
+	# the runner was built from, so it needs to know where that tree is.
+	SCUMM_TEST_DEFINES := -DSCUMM_HIRES_CENSUS_SRCDIR=\"$(srcdir)\"
 endif
 
 ifeq ($(ENABLE_WINTERMUTE), STATIC_PLUGIN)
@@ -69,6 +72,7 @@ TEST_CFLAGS  := $(CFLAGS) -I$(srcdir)/test/cxxtest
 TEST_LDFLAGS := $(LDFLAGS) $(LIBS)
 TEST_CXXFLAGS  := $(filter-out -Wglobal-constructors,$(CXXFLAGS))
 TEST_CXXFLAGS += -Wno-self-assign-overloaded
+TEST_CXXFLAGS += $(SCUMM_TEST_DEFINES)
 
 ifdef WIN32
 TEST_LDFLAGS := $(filter-out -mwindows,$(TEST_LDFLAGS))

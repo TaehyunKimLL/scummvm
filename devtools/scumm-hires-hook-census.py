@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Which charset renderers reach the hi-res layer, and which do not?
 
+The rule this measures is enforced by `make test`, in
+test/engines/scumm/hires_hook_census.h - that is what gates a commit. This
+script is the same census in a form you can read: it prints the whole table
+rather than only the failures, which is what you want when adding a renderer
+or deciding whether one needs a hook.
+
+The exemption list is parsed out of that test file, so the two cannot
+disagree. Edit the reasons there.
+
 The FM-Towns bug was not a wrong line of code - it was a renderer nobody
 had checked. Its fonts loaded, its log looked right, and every double-byte
 glyph came from the ROM regardless. It stayed that way for weeks because
-nothing measures which renderers are wired up.
-
-This is that measurement: every class deriving from CharsetRenderer, and
-whether its drawing path calls into _hiResText. A renderer that legitimately
-has no hook needs a reason recorded here, so the list is a decision rather
-than an oversight.
+nothing measured which renderers are wired up.
 
 Run it after touching charset.cpp. Exit code is non-zero when a renderer is
 unaccounted for.
@@ -25,35 +29,27 @@ if not (SRC / 'engines/scumm/charset.cpp').exists():
 HDR = (SRC / 'engines/scumm/charset.h').read_text()
 CPP = (SRC / 'engines/scumm/charset.cpp').read_text()
 
-# Renderers that draw no glyphs of their own, with the reason.
-EXEMPT = {
-    'CharsetRenderer':
-        'abstract base',
-    'CharsetRendererCommon':
-        'abstract; setCurID feeds the layer but draws nothing',
-    'CharsetRendererPC':
-        'abstract; drawBits1 is used through its subclasses',
-    'CharsetRendererV2':
-        'reaches CharsetRendererV3::printChar, but its font is compiled into '
-        'ScummVM at a fixed 8px rather than read from the game, so a '
-        'replacement is governed by the whole-multiple scale policy',
-    'CharsetRendererNES':
-        'NES tile font, single byte, no replacement path designed',
-    'CharsetRendererMac':
-        'draws every glyph twice and uses _textSurface as a stencil; '
-        'see the notes on the inverted Mac data flow',
-    'CharsetRendererPCE':
-        'inherits the CharsetRendererV3::printChar hook, which offers the '
-        'same character before drawBits1 runs; its own hook would be dead '
-        'code. Its 16bpp branch draws to the VirtScreen, and the layer '
-        'writes byte indices, so that path stays with the System Card font',
-    'CharsetRendererV7':
-        'overrides printChar with an error() stub - v7 text goes through '
-        'TextRenderer_v7 and lands in draw2byte/drawCharV7, neither hooked; '
-        'open work, and the reason FT/Dig have no hi-res text',
-    'CharsetRendererNut':
-        'v8/SMUSH NutRenderer; open',
-}
+# The exemptions live in the cxxtest case, which is what gates a commit; this
+# script parses them out rather than keeping a second copy that could drift.
+CENSUS_TEST = SRC / 'test/engines/scumm/hires_hook_census.h'
+if not CENSUS_TEST.exists():
+    sys.exit('%s not found - the exemption table lives there' % CENSUS_TEST)
+
+TEST = CENSUS_TEST.read_text()
+_table = re.search(r'\} kExempt\[\] = \{(.*?)^\};', TEST, re.S | re.M)
+if not _table:
+    sys.exit('cannot find the kExempt table in %s' % CENSUS_TEST)
+
+EXEMPT = {}
+for entry in re.finditer(r'\{\s*"(CharsetRenderer\w*)",\s*((?:"(?:[^"\\]|\\.)*"\s*)+)\}',
+                         _table.group(1)):
+    reason = ''.join(re.findall(r'"((?:[^"\\]|\\.)*)"', entry.group(2)))
+    EXEMPT[entry.group(1)] = reason.replace('\\"', '"')
+
+if not EXEMPT:
+    sys.exit('parsed no exemptions from %s - refusing to report a clean sheet'
+             % CENSUS_TEST)
+
 
 classes = re.findall(r'^class (CharsetRenderer\w*)\s*:?[^{]*\{', HDR, re.M)
 classes = ['CharsetRenderer'] + [c for c in classes if c != 'CharsetRenderer']
@@ -169,6 +165,8 @@ for cls in classes:
 print()
 print('%d renderers: %d reach the layer, %d exempt, %d unaccounted' %
       (len(classes), hooked, len(classes) - hooked - len(missing), len(missing)))
+print('(the same census runs under `make test`; edit the exemptions in')
+print(' test/engines/scumm/hires_hook_census.h)')
 
 if missing:
     print()
