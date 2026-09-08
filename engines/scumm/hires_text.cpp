@@ -949,9 +949,54 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir,
 	return true;
 }
 
+/**
+ * Does some font in a map-less set sit at exactly this multiple of the game's
+ * own cell?
+ *
+ * The set holds one font per charset, each at that charset's own cell - the
+ * Korean MI2 set is 24, 16, 18, 16, 24 for game charsets of 12, 8, 9, 8, 12 -
+ * while only one game height is known at this point. Dividing the smallest
+ * cell by that one height pairs a font with the wrong charset (16 over 12)
+ * and would refuse a set whose every charset is exactly 2x. So the question
+ * is whether SOME font matches, not whether the smallest one does.
+ *
+ * Static and taking its array, so the rule can be tested without a set of
+ * font files on disk: this is the one place both the automatic scale and the
+ * user-named scale ask their question, and a rule with no test is a rule that
+ * drifts.
+ */
+bool ScummHiResText::cellMatchesScale(const int *cells, int count,
+									  int gameFontHeight, int scale) {
+	if (!cells || count <= 0 || gameFontHeight <= 0 || scale <= 0)
+		return false;
+	for (int i = 0; i < count; ++i) {
+		if (cells[i] == gameFontHeight * scale)
+			return true;
+	}
+	return false;
+}
+
 void ScummHiResText::resolveScale(int gameFontHeight) {
-	if (!_enabled || !_simpleFonts || _scaleFromUser)
+	if (!_enabled || !_simpleFonts)
 		return;
+
+	// A scale the user named is honoured even when the set does not fit it:
+	// they asked for it explicitly, and refusing would leave them with no
+	// way to run a font this code cannot measure. But it is said out loud.
+	// Silently accepting a mismatch is what makes the result - glyphs drawn
+	// at 30px on a 16px grid - read as a rendering bug rather than as the
+	// font being baked at the wrong size.
+	if (_scaleFromUser) {
+		if (gameFontHeight > 0 && _simpleCellCount > 0 &&
+			!cellMatchesScale(_simpleCells, _simpleCellCount, gameFontHeight,
+							  _config.scale))
+			warning("SCUMM: hi-res fonts are %dpx, which is not %d times the "
+					"%dpx game font; drawing them anyway because the scale was "
+					"asked for. Bake them at %dpx to fit",
+					_simpleCellHeight, _config.scale, gameFontHeight,
+					gameFontHeight * _config.scale);
+		return;
+	}
 
 	// Policy: a bitmap font is accepted only at a whole multiple of the
 	// game's own cell. The surface can only be enlarged by an integer, so a
@@ -962,15 +1007,8 @@ void ScummHiResText::resolveScale(int gameFontHeight) {
 	// The measurement is the CELL, never the ink. A Latin face deliberately
 	// leaves room above its capitals and below for descenders - measured on
 	// the shipped MI2 set, 'H' fills 18 rows of a 24 row cell - so ink
-	// height would reject a perfectly good font.
-	//
-	// One game height is known here and the set holds a font per charset, at
-	// that charset's own cell: the Korean MI2 set is 24, 16, 18, 16, 24 for
-	// game charsets of 12, 8, 9, 8, 12. Dividing the smallest cell by the
-	// one known height pairs a font with the wrong charset - 16 over 12 -
-	// and refuses a set whose every charset is exactly 2x. So the test is
-	// whether SOME font in the set is exactly the known height times the
-	// scale.
+	// height would reject a perfectly good font. Which font in the set is
+	// allowed to match is cellMatchesScale()'s business.
 	//
 	// Smallest scale first, because a set spans several cells and a large
 	// one can satisfy a high multiple of a small charset by coincidence:
@@ -980,12 +1018,8 @@ void ScummHiResText::resolveScale(int gameFontHeight) {
 	if (gameFontHeight > 0 && _simpleCellCount > 0) {
 		int scale = 0;
 		for (int s = 1; s <= 3 && scale == 0; ++s) {
-			for (int i = 0; i < _simpleCellCount; ++i) {
-				if (_simpleCells[i] == gameFontHeight * s) {
-					scale = s;
-					break;
-				}
-			}
+			if (cellMatchesScale(_simpleCells, _simpleCellCount, gameFontHeight, s))
+				scale = s;
 		}
 
 		if (scale == 0) {
