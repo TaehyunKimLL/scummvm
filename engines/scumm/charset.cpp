@@ -1577,6 +1577,14 @@ void CharsetRendererTownsV3::drawBits1(Graphics::Surface &dest, int x, int y, co
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 #ifdef USE_RGB_COLOR
 	if (_sjisCurChar) {
+		// As in CharsetRendererTownsClassic::drawBitsN: the ROM font draws
+		// and returns, so the replacement gets its chance first. The
+		// coordinates are this path's own - v3 is handed a destination and
+		// a position rather than computing them from _left and _top.
+		if (_vm->_hiResText.drawChar(dest, _sjisCurChar, _curId, x, y,
+									 _color, _shadowColor, _vm->_2byteShadow))
+			return;
+
 		assert(_vm->_cjkFont);
 		_vm->_cjkFont->drawChar(dest, _sjisCurChar, x, y, _color, _shadowColor);
 		return;
@@ -2342,6 +2350,22 @@ int CharsetRendererTownsClassic::getFontHeight() const {
 
 void CharsetRendererTownsClassic::drawBitsN(const Graphics::Surface&, byte *dst, const byte *src, byte bpp, int drawTop, int width, int height) {
 	if (_sjisCurChar) {
+		// A replacement font first: this platform draws its double-byte
+		// glyphs from the font ROM and returns, so without a hook here the
+		// hi-res layer never sees them. It loads its fonts, reports them,
+		// and not one glyph is ever asked for - measured on the Japanese
+		// FM-Towns MI2, where only the ASCII characters reached drawChar().
+		//
+		// The colour is the one this path would have used, so a character
+		// the replacement font does not cover falls through and looks
+		// exactly as it did.
+		if (_vm->_hiResText.drawChar(_vm->_textSurface, _sjisCurChar, _curId,
+									 _left * _vm->_textSurfaceMultiplier,
+									 (_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier,
+									 _vm->_townsCharsetColorMap[1], _shadowColor,
+									 _vm->_2byteShadow))
+			return;
+
 		assert(_vm->_cjkFont);
 		_vm->_cjkFont->drawChar(_vm->_textSurface, _sjisCurChar, _left * _vm->_textSurfaceMultiplier, (_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier, _vm->_townsCharsetColorMap[1], _shadowColor);
 		return;
