@@ -808,7 +808,18 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 		// and survives only because the branch above returns into
 		// towns_drawStripToScreen first; the PC-Engine has no such return and
 		// dies before presenting a frame.
-		if (_hiResText.alphaActive() && _hiResText.coverage()) {
+		//
+		// The game's own buffer must be paletted as well. compositeText reads
+		// it as palette indices - that is the whole point of the overlay, so a
+		// later palette change recolours text drawn long ago - and a
+		// GF_16BIT_COLOR game (PC-Engine, FM-Towns v3) has 16-bit colour in
+		// there instead. Reading those as indices produces a black screen
+		// rather than a crash, which is why it outlived the overrun above.
+		// Such a game falls through to the keying loop below, which reads the
+		// source at its real width; blending against a true-colour background
+		// would need a sink that takes colours rather than indices.
+		if (_hiResText.alphaActive() && _hiResText.coverage() &&
+			vs->format.bytesPerPixel == 1) {
 			const byte *textPlane = (const byte *)_textSurface.getBasePtr(x * m, y * m);
 			const byte *covPlane = (const byte *)_hiResText.coverage()->getBasePtr(x * m, y * m);
 			const int textSkip = _textSurface.pitch - width * m;
