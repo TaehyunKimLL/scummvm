@@ -53,10 +53,6 @@ static const struct {
 	  "same character before drawBits1 runs; its own hook would be dead "
 	  "code. Its 16bpp branch draws to the VirtScreen, and the layer "
 	  "writes byte indices, so that path stays with the System Card font" },
-	{ "CharsetRendererV7",
-	  "overrides printChar with an error() stub - v7 text goes through "
-	  "TextRenderer_v7 and lands in draw2byte/drawCharV7, neither hooked; "
-	  "open work, and the reason FT/Dig have no hi-res text" },
 	{ "CharsetRendererNut",
 	  "v8/SMUSH NutRenderer; open" },
 };
@@ -527,6 +523,7 @@ public:
 			"CharsetRendererTownsClassic",  // drawBitsN
 			"CharsetRendererV3",            // printChar
 			"CharsetRendererTownsV3",       // drawBits1
+			"CharsetRendererV7",            // draw2byte + drawCharV7
 		};
 		for (uint i = 0; i < ARRAYSIZE(kHooked); i++) {
 			Renderer *r = find(Common::String(kHooked[i]));

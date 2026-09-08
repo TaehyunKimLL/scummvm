@@ -2079,12 +2079,54 @@ CharsetRendererV7::CharsetRendererV7(ScummEngine *vm) : CharsetRendererClassic(v
 	_newStyle(vm->_useCJKMode) {
 }
 
+/**
+ * Wrap the destination v7 hands its glyph drawers in a Graphics::Surface.
+ *
+ * v7 has no text surface of its own. TextRenderer_v7 is given a pointer into
+ * the main VirtScreen plus a pitch, and every glyph is written straight there;
+ * the hi-res layer draws through a Surface. Bridging here rather than adding a
+ * pointer-shaped entry point to the layer keeps one drawing interface.
+ *
+ * The size is taken from the clip rectangle, because that is the bound the
+ * loops being replaced use: drawCharV7 stops at clipRect.right/bottom and never
+ * consults the buffer's real extent. Sizing the wrapper the same way makes the
+ * shared renderer clip exactly where this code clipped before. Sizing it from
+ * _screenWidth instead would let a replacement glyph - which, unlike the game's
+ * own, is not guaranteed to be _2byteWidth wide - run past the text box.
+ */
+static Graphics::Surface wrapV7Dest(byte *buffer, const Common::Rect &clipRect, int pitch) {
+	Graphics::Surface dest;
+	dest.init(clipRect.right, clipRect.bottom, pitch, buffer,
+			  Graphics::PixelFormat::createFormatCLUT8());
+	return dest;
+}
+
 int CharsetRendererV7::draw2byte(byte *buffer, Common::Rect &clipRect, int x, int y, int pitch, int16 col, uint16 chr) {
 	// I am aware of not doing anything with the clipRect here, but I currently see no need to upgrade the old rendering with that.
-	const byte *src = _vm->get2byteCharPtr(chr);
-	buffer += (y * pitch + x);
 	_origWidth = _vm->_2byteWidth;
 	_origHeight = _vm->_2byteHeight;
+
+	// Offer the character to the hi-res layer before the game's own bitmap is
+	// unpacked. When the layer declines - no map, no glyph for this code
+	// point, or a kHiResGlyphKeep override - the loop below runs unchanged and
+	// the screen looks exactly as it did.
+	//
+	// The advance stays the game's own whatever the replacement measures.
+	// TextRenderer_v7 never asks getCharWidth() for a double-byte character:
+	// getStringWidth() adds a cached _2byteCharWidth + _spacing per character
+	// (string_v7.cpp), and that cached width is what every line was centred
+	// and wrapped by. Stepping the pen by a font metric here would move the
+	// drawing away from the measurement, which shows up as off-centre lines
+	// and wraps in the wrong place. Making both sides live is possible but is
+	// a change to the measuring side, not to this hook.
+	Graphics::Surface dest = wrapV7Dest(buffer, clipRect, pitch);
+	if (_vm->_hiResText.drawChar(dest, chr, _curId,
+								 x, y, (byte)col, _shadowColor, _vm->_2byteShadow,
+								 nullptr, false))
+		return _origWidth + _cjkSpacing;
+
+	const byte *src = _vm->get2byteCharPtr(chr);
+	buffer += (y * pitch + x);
 	uint8 bits = 0;
 	pitch -= _origWidth;
 	while (_origHeight--) {
@@ -2119,6 +2161,23 @@ int CharsetRendererV7::drawCharV7(byte *buffer, Common::Rect &clipRect, int x, i
 	// this could spiral in an infinite loop and bad memory accesses (see #15067)
 	if (height < 0)
 		height = 0;
+
+	// The single-byte path gets the same offer, on the same terms: the layer
+	// draws, or it declines and the original rasteriser below runs untouched.
+	//
+	// Here the advance may follow the replacement font, because
+	// TextRenderer_v7::getStringWidth() measures single-byte characters through
+	// getCharWidth() - the very call that produced _width above - so measuring
+	// and drawing move together. _width is already the layer's answer; MIN with
+	// the clip keeps the last glyph of a line from stepping past the box, which
+	// is what the original return does.
+	{
+		Graphics::Surface dest = wrapV7Dest(buffer, clipRect, pitch);
+		if (_vm->_hiResText.drawChar(dest, chr, _curId, x, y + _offsY,
+									 (byte)col, _shadowColor, _vm->_2byteShadow,
+									 nullptr, false))
+			return _direction * MIN(_width, clipRect.right - x);
+	}
 
 	_vm->_charsetColorMap[1] = col;
 	byte *cmap = _vm->_charsetColorMap;
@@ -2158,7 +2217,18 @@ int CharsetRendererV7::getCharWidth(uint16 chr) const {
 	// SCUMM7 does not use the "kerning" from _fontPtr[offs + 2] here (compare CharsetRendererClassic::getCharWidth()
 	// to see the difference. Verfied from disasm and comparison with DOSBox (hard to notice, but e. g. the 'a' character
 	// used to be too narrow by 1 pixel, so all lines containing that character were slightly off).
-	return offs ? _fontPtr[offs] : 0;
+	//
+	// A replacement glyph may be wider than the one it stands in for, so the
+	// layer gets the last word - as it does in every other renderer. Its
+	// default (metrics=game) hands back the width it was given, so a game with
+	// no map, or a map that does not ask for font metrics, measures exactly as
+	// it always did.
+	//
+	// The double-byte case above is deliberately left alone: nothing calls
+	// this for it (TextRenderer_v7 uses its own cached _2byteCharWidth), so
+	// routing it through the layer here would change the advance in draw2byte
+	// without changing the width the line was laid out by.
+	return _vm->_hiResText.advanceFor(chr, _curId, offs ? _fontPtr[offs] : 0);
 }
 
 CharsetRendererNut::CharsetRendererNut(ScummEngine *vm) : CharsetRenderer(vm) {
