@@ -888,7 +888,25 @@ void CharsetRendererPC::drawBits1Kor(Graphics::Surface &dest, int x1, int y1, co
 		src = origSrc;
 		dst = origDst;
 
-		for (y = 0; y < height && y + drawTop + offsetY[i] < dest.h; y++) {
+		// The row guard has to test the row the loop writes, not the row it
+		// is asked for. Callers pass y1 already scaled by
+		// _textSurfaceMultiplier when the destination is the scaled text
+		// surface (printChar's last fallback), while drawTop stays in game
+		// pixels, so guarding on drawTop alone lets the write run past the
+		// end of the surface. Take the tighter of the two bounds: at scale 1
+		// (which loadCJKFont pins upstream) y1 + height - 1 equals
+		// drawTop + height - 1 for every caller, so that limit is the same
+		// row the old guard stopped at; at a hi-res scale it is the only one
+		// that keeps y1 inside the allocation.
+		int maxRows = height;
+		if (y1 + maxRows + offsetY[i] >= dest.h)
+			maxRows = dest.h - offsetY[i] - y1;
+		if (maxRows > height)
+			maxRows = height;
+		if (maxRows < 0)
+			maxRows = 0;
+
+		for (y = 0; y < maxRows; y++) {
 			for (x = 0; x < width && x + x1 + offsetX[i] < dest.w; x++) {
 				if ((x % 8) == 0)
 					bits = *src++;
