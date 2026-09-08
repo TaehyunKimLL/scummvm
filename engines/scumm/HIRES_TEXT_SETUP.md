@@ -29,25 +29,15 @@ say it is, and `hires_latin%02d.fnt` names a Latin companion alongside a CJK
 numbered set.
 
 This is the *simple form* — it exists so a translation can ship files and no
-configuration.
+configuration. It works for a European game too: the scale comes from the
+game's own charset, whatever the language. Measured on English MI2 with
+eight 16px fonts and no ini key at all — 4 distinct colours in the subtitle
+band without them, 199 with.
 
-**The scale is only worked out for a CJK game.** The measurement compares the
-font's cell against the game's double-byte font height, and a game not in CJK
-mode has none — `scumm.cpp` passes 0 — so the scale stays 1 and the fonts are
-drawn at original size. Measured on English MI2:
-
-```
-SCUMM: hi-res scale 1 from the fonts (16px cell over 0px game font)
-```
-
-So a European game needs one key, and only one:
-
-```ini
-hires_text_scale=2
-```
-
-With that in place the map-less form works for it — measured on English MI2,
-distinct colours in the subtitle band: 4 without the fonts, 199 with them.
+**The fonts must be a whole multiple of the game's cell.** 16px over an 8px
+charset is 2x; 20px over 8px is refused outright and the game keeps its own
+font, because there is no integer scale that draws it correctly. The log
+names the sizes that would work — see "A whole multiple, or nothing" below.
 
 **A game that repurposes its charset still needs a map.** MI2 draws an
 ellipsis at `0x5e` and a skull at `0x07`; a replacement font has ordinary
@@ -329,6 +319,49 @@ The options that matter:
 cell; MI2's charset 7 is 14px, so its font at 2x is 28px. Run with
 `hires_text_log=true -d1` and the layer prints the cell it wants.
 
+**A whole multiple, or nothing.** The layer enlarges the picture by an
+integer, so a font baked at 1.5x or 2.5x has no scale that draws it
+correctly. Rather than round — which would stretch every glyph — a map-less
+set whose cell is not a whole multiple of the game's own is refused
+outright, and the game keeps its original font:
+
+```
+WARNING: hi-res fonts are 20px for a 8px game font, which is not a whole
+         multiple; ignoring them. Bake them at 16px or 24px
+```
+
+The whole set goes, not just the scale. Leaving the fonts loaded at scale 1
+would draw 20px glyphs on a layout computed for 8px — overlapping, clipped
+text that looks worse than the original.
+
+This applies to the map-less form, where the scale is worked out from the
+files. A map that says `scale=` is taken at its word.
+
+### Baselines
+
+A Latin face and a CJK face are aligned by their **ascent**, the row the
+baseline sits on, which `mkfont.py` writes into the header.
+
+They need it because the two fill their cells differently. Measured on the
+shipped MI2 set at charset 7, a 24px cell:
+
+| | ink rows | height |
+|---|---|---|
+| Hangul `가` | 0..21 | 22 |
+| Latin `H` | 2..19 | 18 |
+| Latin `x` | 7..19 | 13 |
+| Latin `g` | 7..23 | 17 |
+
+Latin ink is smaller **by design** — capitals leave headroom, `g` drops a
+descender below the baseline. A Latin font that filled its cell like Hangul
+would look wrong. So a Latin face is not "too small" when its ink is
+shorter; it is right when its *baseline* matches.
+
+The engine shifts the Latin glyph by the difference of the two ascents, so
+a set baked with matching ascents needs no shift at all. Bake both halves
+of a set with the same `--size` and `--cell` and this takes care of itself.
+A font with no ascent recorded is drawn unshifted.
+
 ## What cannot be baked into a font
 
 An outline needs two colours; a `.fnt` glyph stores one channel — coverage.
@@ -354,6 +387,8 @@ SCUMM: hi-res text enabled: scale 2, alpha on, metrics font,
 |---|---|
 | no `hi-res text enabled` line at all | the layer never started — check `-d1` is present, and that the config section has `engineid=scumm` |
 | fonts load, nothing is drawn | on a European game before this was fixed, a single-byte set filed under the numbered name went to the double-byte slot and was never consulted. The log now says `(single-byte, used as Latin)` when the set is routed by its header |
+| `not a whole multiple; ignoring them` | the fonts' cell is not an integer multiple of the game's charset. Rebake at one of the two sizes the warning names |
+| Latin letters sit higher or lower than the Hangul beside them | the two fonts record different ascents. Bake both halves of a set at the same `--size` and `--cell` |
 | `source encoding other` | cosmetic. The log names only the four CJK pages, CP1252 and UTF-8; every other valid codepage — including `latin1` — prints as `other`. The map was parsed correctly |
 | `fonts (none named)` | no map was found and no fonts matched `hires%02d.fnt` |
 | `names no [bitmap] fonts` | a warning, not an error; the map is still used |
