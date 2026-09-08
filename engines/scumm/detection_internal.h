@@ -239,6 +239,18 @@ static Common::Language detectLanguage(const Common::FSList &fslist, byte id, co
 			return Common::KO_KOR;
 		}
 
+		// The same translation bundle format is language neutral, so a fan
+		// translation into any other language can ship it as "<code>.trs"
+		// using the language codes ScummVM already knows.
+		for (const Common::LanguageDescription *l = Common::g_languages; l->code; ++l) {
+			if (l->id == Common::KO_KOR)
+				continue;
+			if (searchFSNode(fslist, Common::String(l->code) + ".trs", langFile)) {
+				debugC(0, kDebugGlobalDetection, "Fan translation bundle detected: %s.trs", l->code);
+				return l->id;
+			}
+		}
+
 		if (id == GID_REBEL2) {
 			Common::FSNode systmDir;
 			Common::FSList systmList;

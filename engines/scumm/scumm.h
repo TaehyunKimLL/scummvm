@@ -1830,6 +1830,14 @@ public:
 	bool isScummvmKorTarget();
 	bool hasLocalizer();
 
+	/**
+	 * True when a SCVMTRS translation bundle (korean.trs / <code>.trs) was
+	 * loaded by ScummEngine::loadLanguageBundle(). Subclasses shadow
+	 * _existLanguageFile for their own bundle formats, so they need this to
+	 * ask about the base one.
+	 */
+	bool hasTranslationBundle() const { return _existLanguageFile; }
+
 //protected:
 	byte *_2byteFontPtr = nullptr;
 	byte *_2byteMultiFontPtr[20];
