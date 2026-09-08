@@ -65,12 +65,29 @@ struct ScummHiResText {
 	 *
 	 * Only the simple, map-less form needs this: its fonts name no scale,
 	 * so it is read off the smallest font's cell against the game's font.
-	 * With a map, or a user setting, this is a no-op.
+	 * With a map this is a no-op. A scale the user named is kept as it
+	 * stands, but a set that does not fit it is warned about.
 	 *
 	 * @param gameFontHeight  the height of the game's own CJK font, in game
 	 *                        pixels; 0 when it has none
 	 */
 	void resolveScale(int gameFontHeight);
+
+	/**
+	 * Whether some font in a map-less set is exactly this multiple of the
+	 * game's own cell.
+	 *
+	 * Public and static so the scale rule can be tested directly: it is the
+	 * one question both the automatic scale and a user-named scale ask, and
+	 * reaching it through resolveScale() needs a set of font files on disk.
+	 *
+	 * @param cells           every cell height found in the set
+	 * @param count           how many
+	 * @param gameFontHeight  the game's own cell, in game pixels
+	 * @param scale           the multiple being tested
+	 */
+	static bool cellMatchesScale(const int *cells, int count,
+								 int gameFontHeight, int scale);
 
 	/**
 	 * Tell the layer the cell of the game's own CJK font for one charset.

@@ -43,7 +43,13 @@ TEST_LIBS +=	audio/libaudio.a math/libmath.a common/libcommon.a common/formats/l
 
 ifeq ($(ENABLE_SCUMM), STATIC_PLUGIN)
 	TESTS += $(srcdir)/test/engines/scumm/*.h
-	TEST_LIBS += engines/scumm/libscumm.a
+	# The engine libraries come after the general ones and pull more of them
+	# in: hires_text.o wants the font baker in libgraphics, whose TTF support
+	# in turn wants the zip reader in libcompression. The linker resolves left
+	# to right, so both are repeated here - the same reason libcommon is
+	# listed twice above.
+	TEST_LIBS += engines/scumm/libscumm.a graphics/libgraphics.a \
+		common/compression/libcompression.a common/libcommon.a
 	# The hi-res hook census reads charset.h/charset.cpp back out of the tree
 	# the runner was built from, so it needs to know where that tree is.
 	SCUMM_TEST_DEFINES := -DSCUMM_HIRES_CENSUS_SRCDIR=\"$(srcdir)\"
