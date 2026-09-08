@@ -22,6 +22,7 @@
 #include "common/system.h"
 #include "scumm/actor.h"
 #include "scumm/charset.h"
+#include "scumm/hires_scale.h"
 #include "scumm/hires_sinks.h"
 #ifdef ENABLE_HE
 #include "scumm/he/intern_he.h"
@@ -5066,6 +5067,108 @@ void ScummEngine::dissolveEffect(int width, int height) {
 	free(offsets);
 }
 
+// ---- B3 PROBE (measurement only; removed before commit) ----
+static int b3DumpIdx = 0;
+static int b3DumpDir = -1;
+void ScummEngine::b3DumpFrameBuffer() {
+	Graphics::Surface *s = _system->lockScreen();
+	if (!s)
+		return;
+	Common::String path = Common::String::format("/tmp/b3fb_d%d_%02d.ppm", b3DumpDir, b3DumpIdx++);
+	Common::DumpFile df;
+	if (df.open(Common::Path(path))) {
+		Common::String hdr = Common::String::format("P6\n%d %d\n255\n", s->w, s->h);
+		df.write(hdr.c_str(), hdr.size());
+		Graphics::PixelFormat fmt = _system->getScreenFormat();
+		for (int y = 0; y < s->h; ++y) {
+			for (int x = 0; x < s->w; ++x) {
+				byte r = 0, g = 0, b = 0;
+				if (fmt.bytesPerPixel == 1) {
+					byte i = *((const byte *)s->getBasePtr(x, y));
+					r = _currentPalette[i * 3];
+					g = _currentPalette[i * 3 + 1];
+					b = _currentPalette[i * 3 + 2];
+				} else if (fmt.bytesPerPixel == 2) {
+					fmt.colorToRGB(READ_UINT16(s->getBasePtr(x, y)), r, g, b);
+				} else {
+					fmt.colorToRGB(*(const uint32 *)s->getBasePtr(x, y), r, g, b);
+				}
+				byte px[3] = { r, g, b };
+				df.write(px, 3);
+			}
+		}
+		df.close();
+		debug("B3DUMP %s", path.c_str());
+	}
+	_system->unlockScreen();
+}
+// ---- end B3 PROBE ----
+
+bool ScummEngine::hiResBlitStrip(const byte *src, int srcPitch, int tx, int ty, int wd, int ht) {
+	const int m = _textSurfaceMultiplier;
+
+	// Only the enlarged screen needs this. At m == 1 the game's buffer is
+	// already the screen's size and format, and upstream's own blit is
+	// correct - taking this path there would be a second implementation of
+	// something that works.
+	if (!_hiResText.enabled() || m <= 1 || wd <= 0 || ht <= 0)
+		return false;
+
+	// The composition reads the game's buffer as palette indices; a game
+	// whose own buffer is 16bpp (PC-Engine, FM-Towns v3) holds colours
+	// there instead and would come out as noise.
+	if (_virtscr[kMainVirtScreen].format.bytesPerPixel != 1)
+		return false;
+
+	// EGA dithering has already rewritten the source into _compositeBuf at
+	// its own size, and the CGA/Hercules paths postprocess after this
+	// point. Neither has been measured at m > 1; leave them alone rather
+	// than composing over an assumption.
+	if (_enableEGADithering || _hercCGAScaleBuf)
+		return false;
+
+	const Graphics::PixelFormat outFmt = _system->getScreenFormat();
+	const int outBpp = outFmt.bytesPerPixel;
+
+	// A true-colour or 16-bit destination is reached through the layer's
+	// palette cache, which is only maintained while blending is active. On
+	// any other screen we have no table to resolve indices with.
+	if (outBpp != 1 && !_hiResText.alphaActive())
+		return false;
+	if (outBpp != 1 && outBpp != 2 && outBpp != 4)
+		return false;
+
+	// The destination has to fit the screen the backend actually gave us.
+	// getSubArea-style clipping would silently move the strip; a rectangle
+	// that does not fit means our idea of the screen is wrong, and the
+	// honest answer is to leave the caller on its own path.
+	const int dstX = tx * m, dstY = ty * m;
+	const int dstW = wd * m, dstH = ht * m;
+	if (dstX < 0 || dstY < 0 ||
+		dstX + dstW > (int)_system->getWidth() ||
+		dstY + dstH > (int)_system->getHeight())
+		return false;
+
+	// Scratch of its own: _compositeBuf is reused by the EGA dithering and
+	// CGA paths and by drawStripToScreen(), and an auxiliary redraw between
+	// two steps of the effect would find it holding this strip.
+	Common::Array<byte> buf((uint)(dstW * dstH * outBpp));
+
+	if (outBpp == 1) {
+		HiResIndexSink sink(buf.begin());
+		expandStrip(sink, src, srcPitch, wd, ht, m);
+	} else if (outBpp == 2) {
+		HiResPalette16Sink sink(buf.begin(), _hiResText.paletteCache(), outFmt);
+		expandStrip(sink, src, srcPitch, wd, ht, m);
+	} else {
+		HiResTrueColorSink sink((uint32 *)buf.begin(), _hiResText.paletteCache(), outFmt);
+		expandStrip(sink, src, srcPitch, wd, ht, m);
+	}
+
+	_system->copyRectToScreen(buf.begin(), dstW * outBpp, dstX, dstY, dstW, dstH);
+	return true;
+}
+
 void ScummEngine::scrollEffect(int dir) {
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	// The FM-Towns versions use smooth scrolling here, but only for left and right.
@@ -5102,6 +5205,22 @@ void ScummEngine::scrollEffect(int dir) {
 	if (m == 1 && _game.platform == Common::kPlatformMacintosh && _macScreen)
 		m = 2;
 
+	// ---- B3 PROBE ----
+	b3DumpDir = dir;
+	b3DumpIdx = 0;
+	debug("B3SCROLL dir=%d m=%d vs=%dx%d pitch=%d topline=%d vsBpp=%d outBpp=%d hires=%d alpha=%d ega=%d mac=%d towns=%d",
+		  dir, m, vs->w, vs->h, vs->pitch, vs->topline, vs->format.bytesPerPixel,
+		  _system->getScreenFormat().bytesPerPixel, _hiResText.enabled() ? 1 : 0,
+		  _hiResText.alphaActive() ? 1 : 0, _enableEGADithering ? 1 : 0,
+		  _macScreen ? 1 : 0,
+#ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
+		  _townsScreen ? 1 : 0
+#else
+		  0
+#endif
+		  );
+	// ---- end B3 PROBE ----
+
 	switch (dir) {
 	case 0:
 		//up
@@ -5129,10 +5248,17 @@ void ScummEngine::scrollEffect(int dir) {
 						src = ditherVGAtoEGA(vsPitch, tx, ty, wd, ht);
 					}
 
-					_system->copyRectToScreen(src, vsPitch * m, tx, ty * m, wd, ht * m);
+					// The scale has to be on the source as well as the
+					// destination. Where it is not - a 320-wide buffer
+					// declared as 960-wide - the backend samples every
+					// m-th row and covers only 1/m of the width.
+					debug("B3BLIT dir=0 srcPitch=%d realPitch=%d x=%d y=%d w=%d h=%d", vsPitch * m, vsPitch, tx, ty * m, wd, ht * m);
+					if (!hiResBlitStrip(src, vsPitch, tx, ty, wd, ht))
+						_system->copyRectToScreen(src, vsPitch * m, tx, ty * m, wd, ht * m);
 				}
 			}
 
+			b3DumpFrameBuffer();
 			waitForTimer(delay, true);
 			y += step;
 		}
@@ -5163,10 +5289,13 @@ void ScummEngine::scrollEffect(int dir) {
 						src = ditherVGAtoEGA(vsPitch, tx, ty, wd, ht);
 					}
 
-					_system->copyRectToScreen(src, vsPitch * m, 0, 0, wd * m, ht * m);
+					debug("B3BLIT dir=1 srcPitch=%d realPitch=%d x=0 y=0 w=%d h=%d", vsPitch * m, vsPitch, wd * m, ht * m);
+					if (!hiResBlitStrip(src, vsPitch, tx, ty, wd, ht))
+						_system->copyRectToScreen(src, vsPitch * m, 0, 0, wd * m, ht * m);
 				}
 			}
 
+			b3DumpFrameBuffer();
 			waitForTimer(delay, true);
 			y += step;
 		}
@@ -5200,9 +5329,12 @@ void ScummEngine::scrollEffect(int dir) {
 						src = ditherVGAtoEGA(vsPitch, tx, ty, wd, ht);
 					}
 
-					_system->copyRectToScreen(src, vsPitch * m, tx * m, 0, wd * m, ht * m);
+					debug("B3BLIT dir=2 srcPitch=%d realPitch=%d x=%d y=0 w=%d h=%d", vsPitch * m, vsPitch, tx * m, wd * m, ht * m);
+					if (!hiResBlitStrip(src, vsPitch, tx, ty, wd, ht))
+						_system->copyRectToScreen(src, vsPitch * m, tx * m, 0, wd * m, ht * m);
 				}
 			}
+			b3DumpFrameBuffer();
 			waitForTimer(delay, true);
 			x += step;
 		}
@@ -5236,10 +5368,13 @@ void ScummEngine::scrollEffect(int dir) {
 						src = ditherVGAtoEGA(vsPitch, tx, ty, wd, ht);
 					}
 
-					_system->copyRectToScreen(src, vsPitch * m, 0, 0, wd * m, ht * m);
+					debug("B3BLIT dir=3 srcPitch=%d realPitch=%d x=0 y=0 w=%d h=%d", vsPitch * m, vsPitch, wd * m, ht * m);
+					if (!hiResBlitStrip(src, vsPitch, tx, ty, wd, ht))
+						_system->copyRectToScreen(src, vsPitch * m, 0, 0, wd * m, ht * m);
 				}
 			}
 
+			b3DumpFrameBuffer();
 			waitForTimer(delay, true);
 			x += step;
 		}

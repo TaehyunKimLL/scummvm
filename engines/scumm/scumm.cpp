@@ -3479,6 +3479,18 @@ load_game:
 		updatePalette();
 		drawDirtyScreenParts();
 
+		// ---- B3 PROBE (measurement only; removed before commit) ----
+		if (_b3ForceDir < 0 && !_b3Fired && ConfMan.hasKey("b3_force_scroll")) {
+			_b3ForceDir = ConfMan.getInt("b3_force_scroll");
+			_b3ForceAt = ConfMan.hasKey("b3_force_scroll_at") ? ConfMan.getInt("b3_force_scroll_at") : 200;
+		}
+		if (_b3ForceDir >= 0 && !_b3Fired && ++_b3Frames >= _b3ForceAt) {
+			_b3Fired = true;
+			debug("B3FORCE firing scrollEffect(%d) at frame %d room=%d", _b3ForceDir, _b3Frames, _currentRoom);
+			scrollEffect(_b3ForceDir);
+		}
+		// ---- end B3 PROBE ----
+
 		// FIXME / TODO: Try to move the following to scummLoop_handleSound or
 		// scummLoop_handleActors (but watch out for regressions!)
 		if (_game.version <= 5)
