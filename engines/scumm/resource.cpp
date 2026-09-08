@@ -611,9 +611,16 @@ int ScummEngine::peekGameCharsetHeight() {
 	if (_game.version <= 2)
 		return 8;
 
+	// v3 keeps each charset in a standalone file rather than behind the
+	// index: ScummEngine_v3::loadCharset() opens (99 - id).LFL, and the
+	// index it does read (ScummEngine_v3old::readIndexFile) has no charset
+	// directory at all - readResTypeList(rtCharset) is never called and
+	// _numCharsets stays 0. So the file is opened here directly, exactly as
+	// the loader does, and there is nothing to restore afterwards.
+	if (_game.version == 3)
+		return peekV3CharsetHeight();
+
 	// v4 to v7 keep their charsets in the game container, behind the index.
-	// v3 is left out because it uses a different charset layout and its
-	// games are CJK here, so _2byteHeight answers first anyway.
 	if (_game.version < 4 || _game.version > 7)
 		return 0;
 
@@ -623,31 +630,95 @@ int ScummEngine::peekGameCharsetHeight() {
 	// game does. The state it leaves behind is put back below.
 	const int savedLastRoom = _lastLoadedRoom;
 	int height = 0;
+	int usedCharset = -1;
 
 	readIndexFile();
 
-	// Charset 1 alone: the scale is one number for the whole game, and this
-	// is the charset the engine itself loads first. Charset 0 does not exist
-	// for v5 and its directory entry points at the head of the file, where
-	// the loader finds 'RNAM' and calls error().
-	if (_res->_types[rtCharset].size() > 1) {
-		const uint32 offs = _res->_types[rtCharset][1]._roomoffs;
-		if (offs != 0 && offs != RES_INVALID_OFFSET) {
-			const byte *ptr = getResourceAddress(rtCharset, 1);
-			if (ptr) {
-				// Past the resource header, where setCurID() reads it from.
-				const byte *fontPtr = ptr + (_game.version == 4 ? 17 : 29);
-				height = fontPtr[1];
-			}
-		}
+	// One charset, not all of them: the scale is a single number for the
+	// whole game, so reading more of them buys nothing and each one costs a
+	// load. Charset 1 is the first choice because it is the one the engine
+	// itself loads first - but a game need not have it, so the search walks
+	// upwards to the lowest charset that is actually present.
+	//
+	// It never walks DOWN to charset 0. That charset does not exist for v5
+	// and its directory entry points at the head of the file, where the
+	// loader finds 'RNAM' and calls error().
+	for (uint id = 1; id < _res->_types[rtCharset].size() && height <= 0; ++id) {
+		const uint32 offs = _res->_types[rtCharset][id]._roomoffs;
+		if (offs == 0 || offs == RES_INVALID_OFFSET)
+			continue;
+
+		const byte *ptr = getResourceAddress(rtCharset, id);
+		if (!ptr)
+			continue;
+
+		// Past the resource header, where setCurID() reads it from.
+		const byte *fontPtr = ptr + (_game.version == 4 ? 17 : 29);
+		height = fontPtr[1];
+		usedCharset = id;
 	}
 
 	closeRoom();
 	_lastLoadedRoom = savedLastRoom;
 
+	// Which charset was read matters: the height differs between them, so a
+	// report naming charset 1 when charset 3 answered would send the reader
+	// looking at the wrong font.
 	if (height > 0)
-		debug(1, "SCUMM: the game's own charset 1 is %dpx", height);
+		debug(1, "SCUMM: the game's own charset %d is %dpx", usedCharset, height);
 	return height;
+}
+
+/**
+ * The game's own font height for a v3 game, read from the charset file.
+ *
+ * v3 charsets live one per file, so this needs no index and no resource
+ * manager: CharsetRendererV3::setCurID() takes the height from byte 5 of the
+ * resource, and ScummEngine_v3::loadCharset() places the resource 2 bytes into
+ * the file, past the leading uint16 size. Byte 7 of the file, therefore.
+ */
+int ScummEngine::peekV3CharsetHeight() {
+	// Charset 1 first, to match the choice made for v4 and up, then the rest
+	// in order. loadCharset() accepts 0..2 and the files are named
+	// backwards, so charset 0 is 99.LFL.
+	static const int kOrder[] = { 1, 0, 2 };
+
+	for (int i = 0; i < ARRAYSIZE(kOrder); ++i) {
+		const int id = kOrder[i];
+		Common::File file;
+		char buf[20];
+
+		Common::sprintf_s(buf, "%02d.LFL", 99 - id);
+		if (!file.open(buf))
+			continue;
+
+		// A charset file is a uint16 size followed by that many bytes. The
+		// header read below sits at file offset 6 and 7, so anything this
+		// short is not a charset and must not be indexed into.
+		//
+		// The prefix is checked against the file rather than trusted:
+		// Indy3 FM-Towns ships 98.LFL with a prefix of 2043 in a 2042-byte
+		// file, so a reader that seeks by the prefix walks off the end of a
+		// file the engine itself loads happily.
+		const uint32 size = file.readUint16LE();
+		if (size < 8 || file.size() < 8)
+			continue;
+
+		file.seek(6, SEEK_SET);
+		const int numChars = file.readByte();
+		const int height = file.readByte();
+
+		// A cell taller than the screen, or no glyphs at all, means the file
+		// is not what it was taken for - better to report nothing than to
+		// pick a scale from a misread byte.
+		if (numChars <= 0 || height <= 0 || height > 64)
+			continue;
+
+		debug(1, "SCUMM: the game's own charset %d is %dpx", id, height);
+		return height;
+	}
+
+	return 0;
 }
 
 void ScummEngine::ensureResourceLoaded(ResType type, ResId idx) {

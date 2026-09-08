@@ -1221,6 +1221,14 @@ protected:
 	 */
 	int peekGameCharsetHeight();
 
+	/**
+	 * The same, for v3, whose charsets are standalone files rather than
+	 * resources behind the index. Split out because it shares no code with
+	 * the container path: no index read, no resource manager, and so
+	 * nothing to put back afterwards.
+	 */
+	int peekV3CharsetHeight();
+
 	int _lastLoadedRoom = 0;
 public:
 	const byte *findResourceData(uint32 tag, const byte *ptr);
