@@ -1567,6 +1567,28 @@ protected:
 	void dissolveEffect(int width, int height);
 	void scrollEffect(int dir);
 
+	/**
+	 * Blit one strip of the game's own picture to a screen larger than it.
+	 *
+	 * The transition effects move pieces of the picture about the screen
+	 * without going through drawStripToScreen(): their source and destination
+	 * coordinates differ, which that function has no way to express. So they
+	 * hand the game's buffer to the backend themselves - and on a screen the
+	 * hi-res text layer has enlarged, that buffer is the wrong size and, in
+	 * alpha mode, the wrong format as well.
+	 *
+	 * This composes the strip into the output's own format and size first,
+	 * which is what makes the destination rectangle honest.
+	 *
+	 * @param src       the game's buffer, palette indices
+	 * @param srcPitch  its real row stride - the buffer's own, never scaled
+	 * @param tx, ty    where the strip goes, in game pixels
+	 * @param wd, ht    its size, in game pixels
+	 * @return false when this screen cannot be composed for, leaving the
+	 *         caller on its original path
+	 */
+	bool hiResBlitStrip(const byte *src, int srcPitch, int tx, int ty, int wd, int ht);
+
 	void updateScreenShakeEffect();
 
 public:
