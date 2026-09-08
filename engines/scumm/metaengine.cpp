@@ -982,8 +982,20 @@ bool ScummMetaEngine::targetHasHiResText(const Common::String &target) {
 	// A map, or the map-less form: fonts under the conventional names.
 	// hires00.fnt is not required to exist - a set may start at 1 - so
 	// check the few names a translation would plausibly ship first.
+	//
+	// Every language's double-byte name is listed, because this runs from
+	// the launcher where the target's language is not consulted, and hrlat
+	// is listed because a Latin-only translation ships nothing else: its
+	// fonts are the single-byte half by definition and the engine loads
+	// them on their own.
 	static const char *const names[] = {
-		"hires_text.map", "hires.fnt", "hires00.fnt", "hires01.fnt", "hires02.fnt"
+		"hires_text.map", "hires.fnt",
+		"hires00.fnt", "hires01.fnt", "hires02.fnt",
+		"hrkor00.fnt", "hrkor01.fnt",
+		"hrjpn00.fnt", "hrjpn01.fnt",
+		"hrchs00.fnt", "hrchs01.fnt",
+		"hrcht00.fnt", "hrcht01.fnt",
+		"hrlat00.fnt", "hrlat01.fnt", "hrlat02.fnt"
 	};
 	for (uint i = 0; i < ARRAYSIZE(names); ++i) {
 		if (Common::FSNode(gameDir.appendComponent(names[i])).exists())
