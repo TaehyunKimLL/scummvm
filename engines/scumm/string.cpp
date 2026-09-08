@@ -1588,7 +1588,7 @@ int ScummEngine::convertMessageToString(const byte *msg, byte *dst, int dstSize)
 		return 0;
 	}
 
-	if (_game.version >= 7 || isScummvmKorTarget()) {
+	if (_game.version >= 7 || _existLanguageFile) {
 		translateText(msg, transBuf, sizeof(transBuf));
 		src = transBuf;
 	} else {
@@ -2040,8 +2040,9 @@ static int indexCompare(const void *p1, const void *p2) {
 
 // Create an index of the language file.
 void ScummEngine_v7::loadLanguageBundle() {
-	if (isScummvmKorTarget()) {
-		// Support language bundle for FT
+	if (_game.id == GID_FT) {
+		// Full Throttle has no language.bnd/tab of its own; fan translations
+		// ship the SCVMTRS bundle handled by the base class.
 		ScummEngine::loadLanguageBundle();
 		return;
 	}
@@ -2213,8 +2214,9 @@ void ScummEngine_v7::playSpeech(const byte *ptr) {
 }
 
 void ScummEngine_v7::translateText(const byte *text, byte *trans_buff, int transBufferSize) {
-	if (isScummvmKorTarget()) {
-		// Support language bundle for FT
+	if (hasTranslationBundle()) {
+		// A SCVMTRS fan-translation bundle was loaded instead of the game's
+		// own language.bnd/language.tab (Full Throttle).
 		ScummEngine::translateText(text, trans_buff, transBufferSize);
 		return;
 	}
@@ -2331,18 +2333,36 @@ void ScummEngine_v7::translateText(const byte *text, byte *trans_buff, int trans
 #endif
 
 void ScummEngine::loadLanguageBundle() {
-	if (!isScummvmKorTarget()) {
-		_existLanguageFile = false;
+	_existLanguageFile = false;
+
+	// The bundle format itself is language neutral: a SCVMTRS header, a line
+	// index, room/script ranges and the string bodies. The Korean fan patches
+	// ship it as "korean.trs"; any other translation can ship "<code>.trs",
+	// using the language code ScummVM already knows (de.trs, fr.trs, ...).
+	Common::Path candidates[2];
+	int numCandidates = 0;
+
+	if (isScummvmKorTarget())
+		candidates[numCandidates++] = Common::Path("korean.trs");
+
+	const char *langCode = Common::getLanguageCode(_language);
+	if (langCode)
+		candidates[numCandidates++] = Common::Path(Common::String(langCode) + ".trs");
+
+	if (numCandidates == 0)
 		return;
-	}
 
 	ScummFile file(this);
-	openFile(file, "korean.trs");
-
-	if (!file.isOpen()) {
-		_existLanguageFile = false;
-		return;
+	int chosen = -1;
+	for (int i = 0; i < numCandidates; ++i) {
+		if (openFile(file, candidates[i])) {
+			chosen = i;
+			break;
+		}
 	}
+
+	if (chosen < 0 || !file.isOpen())
+		return;
 
 	_existLanguageFile = true;
 
@@ -2407,7 +2427,8 @@ void ScummEngine::loadLanguageBundle() {
 	file.read(_languageBuffer, size - bodyPos);
 	file.close();
 
-	debug(2, "loadLanguageBundle: Loaded %d entries", _numTranslatedLines);
+	debug(2, "loadLanguageBundle: Loaded %d entries from %s", _numTranslatedLines,
+		  candidates[chosen].toString(Common::Path::kNativeSeparator).c_str());
 }
 
 const byte *ScummEngine::searchTranslatedLine(const byte *text, const TranslationRange &range, bool useIndex) {
