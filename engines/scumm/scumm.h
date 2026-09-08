@@ -620,6 +620,12 @@ protected:
 	void setupCostumeRenderer();
 
 	virtual void loadLanguageBundle();
+	// The .trs bundle's name is derived from the game's language; empty when
+	// no language is set. Public so the v7 override can consult the same rule.
+	Common::Path getLanguageBundleFilename() const;
+	// True once a .trs bundle has been read and indexed. ScummEngine_v7 keeps
+	// its own flag for the .bnd/.tab formats and needs to know which one ran.
+	bool hasTranslationBundle() const { return _existLanguageFile; }
 	void loadCJKFont();
 	void loadKorFont();
 	void setupMusic(int midi);
