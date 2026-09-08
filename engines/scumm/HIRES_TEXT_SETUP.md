@@ -10,8 +10,7 @@ For what the decorations do and how they behave per platform, see
 
 ## The shortest thing that works
 
-Drop baked fonts named `hires00.fnt`, `hires01.fnt`, … into the game folder
-and nothing else. No map, no ini keys:
+Drop baked fonts into the game folder and nothing else. No map, no ini keys:
 
 ```
 ~/games/mi2kor/
@@ -21,12 +20,37 @@ and nothing else. No map, no ini keys:
   hires07.fnt
 ```
 
-The layer reads each file's header and works out the rest: a font indexed by
-a code page goes to the double-byte slot, one baked for the single-byte range
-goes to the Latin slot, and the cell against the game's own font gives the
-scale. Both kinds may be present; the numbered set is whichever the headers
-say it is, and `hires_latin%02d.fnt` names a Latin companion alongside a CJK
-numbered set.
+Two names, one per half of a line:
+
+| name | holds | for |
+|---|---|---|
+| `hires%02d.fnt` | the double-byte set | CJK — Hangul, kana, hanzi |
+| `hrlat%02d.fnt` | the single-byte set | Latin letters and punctuation |
+
+`HIRES00.FNT` is the CJK font. A Korean, Japanese or Chinese translation
+ships it for the glyphs the game's own charset cannot hold, and adds
+`HRLAT00.FNT` for the letters that set has no room for — without the second
+one, Latin characters keep the game's original font and a mixed line is
+drawn at two qualities.
+
+**A European translation ships `hrlat%02d.fnt` alone.** It has no
+double-byte half, so there is no `hires%02d.fnt` to write. That works by
+itself: the fonts are found, the scale is measured from them, and the
+game-options checkbox appears.
+
+Both names fit 8.3 — these files travel with game data that often sits on a
+FAT volume or inside an archive built by a DOS-era tool, and a name the
+filesystem truncates is a font that silently does not load.
+
+`hrlat%02d.fnt` is also what the `[latin] bitmap=` line of an existing map
+names, so a translation moving to the map-less form keeps the files it has.
+
+If a font is filed under the other name, the layer still places it correctly:
+the header records whether the glyphs are indexed by a code page or by a
+single byte, and that decides which half it draws. The names above are the
+convention, not a requirement.
+
+Also read, for a game that uses one font throughout: `hires.fnt`.
 
 This is the *simple form* — it exists so a translation can ship files and no
 configuration. It works for a European game too: the scale comes from the
