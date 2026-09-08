@@ -884,6 +884,17 @@ void CharsetRendererPC::drawBits1Kor(Graphics::Surface &dest, int x1, int y1, co
 	const byte *origSrc = src;
 	byte *origDst = dst;
 
+	// KDB1 PROBE -- temporary instrumentation, removed before commit.
+	{
+		const int m = (dest.getPixels() == _vm->_textSurface.getPixels()) ? _vm->_textSurfaceMultiplier : 1;
+		debug(1, "KDB1 call dest=%dx%d pitch=%d x1=%d y1=%d drawTop=%d w=%d h=%d shadow=%d isText=%d m=%d",
+			  dest.w, dest.h, (int)dest.pitch, x1, y1, drawTop, width, height,
+			  _vm->_2byteShadow, (int)(dest.getPixels() == _vm->_textSurface.getPixels()), m);
+	}
+	int kdbOob = 0, kdbWrap = 0, kdbWrites = 0;
+	const byte *kdbBase = (const byte *)dest.getPixels();
+	const int kdbLimit = dest.h * (int)dest.pitch;
+
 	for (; i < 14; i++) {
 		src = origSrc;
 		dst = origDst;
@@ -893,6 +904,26 @@ void CharsetRendererPC::drawBits1Kor(Graphics::Surface &dest, int x1, int y1, co
 				if ((x % 8) == 0)
 					bits = *src++;
 				if ((bits & revBitMask(x % 8)) && y + drawTop + offsetY[i] >= 0 && x + x1 + offsetX[i] >= 0) {
+					// KDB1 PROBE: where does this byte actually land?
+					{
+						const byte *p = dst + (dest.pitch * offsetY[i]) + offsetX[i];
+						const long off = (long)(p - kdbBase);
+						kdbWrites++;
+						if (off < 0 || off >= kdbLimit) {
+							if (kdbOob++ < 4)
+								debug(1, "KDB1 OOB off=%ld limit=%d i=%d x=%d y=%d x1=%d y1=%d dest=%dx%d",
+									  off, kdbLimit, i, x, y, x1, y1, dest.w, dest.h);
+						} else {
+							const int row = (int)(off / (long)dest.pitch);
+							const int col = (int)(off % (long)dest.pitch);
+							if (row != y1 + y + offsetY[i] || col != x1 + x + offsetX[i]) {
+								if (kdbWrap++ < 4)
+									debug(1, "KDB1 WRAP got=(%d,%d) want=(%d,%d) i=%d x=%d y=%d w=%d dest=%dx%d",
+										  col, row, x1 + x + offsetX[i], y1 + y + offsetY[i],
+										  i, x, y, width, dest.w, dest.h);
+							}
+						}
+					}
 					*(dst + (dest.pitch * offsetY[i]) + offsetX[i]) = cTable[i];
 				}
 				dst++;
@@ -901,6 +932,9 @@ void CharsetRendererPC::drawBits1Kor(Graphics::Surface &dest, int x1, int y1, co
 			dst += dest.pitch - width;
 		}
 	}
+
+	if (kdbOob || kdbWrap)
+		debug(1, "KDB1 result writes=%d oob=%d wrap=%d", kdbWrites, kdbOob, kdbWrap);
 }
 
 int CharsetRendererV3::getDrawWidthIntern(uint16 chr) {
