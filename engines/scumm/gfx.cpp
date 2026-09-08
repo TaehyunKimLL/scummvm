@@ -870,11 +870,27 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 		}
 
 		if (_outputPixelFormat.bytesPerPixel == 2) {
-			const byte *srcPtr = (const byte *)src;
+			const byte *srcRow = (const byte *)src;
 			const byte *textPtr = (byte *)_textSurface.getBasePtr(x * m, y * m);
 			byte *dstPtr = _compositeBuf;
 
+			// The text surface is m times the size of the game buffer, and
+			// this loop is driven by the text surface. Each game pixel
+			// therefore has to cover m columns and m rows: advancing the
+			// source once per output pixel reads width*m x height*m pixels
+			// out of a buffer holding width x height, running off the end
+			// of it partway down the first row.
+			//
+			// Nothing reached this loop with m > 1 until the hi-res layer
+			// started scaling on platforms whose game buffer is 16bpp, so
+			// the stride was never wrong before. The counters keep m == 1
+			// exactly as it was: the source then advances every pixel.
+			int xRepeat = 0, yRepeat = 0;
+
 			for (int h = 0; h < height * m; ++h) {
+				const byte *srcPtr = srcRow;
+				xRepeat = 0;
+
 				for (int w = 0; w < width * m; ++w) {
 					uint16 tmp = *textPtr++;
 					if (tmp == CHARSET_MASK_TRANSPARENCY) {
@@ -885,9 +901,17 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 					} else {
 						WRITE_UINT16(dstPtr, _16BitPalette[tmp]); dstPtr += 2;
 					}
-					srcPtr += vs->format.bytesPerPixel;
+
+					if (++xRepeat == m) {
+						xRepeat = 0;
+						srcPtr += vs->format.bytesPerPixel;
+					}
 				}
-				srcPtr += vsPitch;
+
+				if (++yRepeat == m) {
+					yRepeat = 0;
+					srcRow += vs->pitch;
+				}
 				textPtr += _textSurface.pitch - width * m;
 			}
 		} else {
