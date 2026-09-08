@@ -982,7 +982,15 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 					_system->copyRectToScreen(blackbuf, 16, 0, 0, 16, 240); // Fix left strip
 				}
 			}
-		} else if (_useCJKMode && m == 2) {
+		} else if (m == 2 && (_useCJKMode || _hiResText.enabled())) {
+			// The composite buffer holds width*m x height*m pixels, so the
+			// rectangle handed to the backend has to be the scaled one. The
+			// test used to be _useCJKMode alone, from a time when a doubled
+			// text surface only ever happened for a CJK game; the hi-res
+			// layer now doubles it for European games too, and those came
+			// out with the row stride short by half - each row starting
+			// mid-way through the previous one, and only the top half of
+			// the strip reaching the screen.
 			pitch *= m;
 			x *= m;
 			y *= m;
