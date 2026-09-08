@@ -67,39 +67,66 @@ private:
  * A 16-bit destination reached through a lookup table.
  *
  * The table is the engine's palette already converted to the screen format,
- * so this resolves indices per call and holds no colours of its own.
+ * so this resolves indices per call and holds no colours of its own. It is
+ * the same table the true-colour sink reads - the entries are screen-format
+ * values whatever that format's width is - which is why the pointer is
+ * uint32 for a destination that is two bytes wide.
+ *
+ * @par Why this exists separately
+ * The destination buffer is allocated at the screen's bytes per pixel. A
+ * sink that writes four bytes into a two-byte-per-pixel buffer runs off the
+ * end of it by the buffer's own size, which is a heap overrun rather than a
+ * wrong colour, and on a screen with no early return in front of it - the
+ * PC-Engine - it kills the process before a frame is ever presented.
  */
 class HiResPalette16Sink : public HiResSink {
 public:
-	HiResPalette16Sink(byte *dst, const uint16 *palette)
-		: _dst(dst), _pal(palette) {}
+	HiResPalette16Sink(byte *dst, const uint32 *palette,
+					   const Graphics::PixelFormat &format)
+		: _dst(dst), _pal(palette), _format(format) {}
 
 	void writeBackground(const byte *bg, int count) override {
 		for (int i = 0; i < count; ++i) {
-			WRITE_UINT16(_dst, _pal[bg[i]]);
+			WRITE_UINT16(_dst, (uint16)_pal[bg[i]]);
 			_dst += 2;
 		}
 	}
 
 	void writeOpaque(const byte *fg, int count) override {
 		for (int i = 0; i < count; ++i) {
-			WRITE_UINT16(_dst, _pal[fg[i]]);
+			WRITE_UINT16(_dst, (uint16)_pal[fg[i]]);
 			_dst += 2;
 		}
 	}
 
-	/// As for the paletted sink: a table entry cannot hold a mixture.
+	/**
+	 * Sixteen bits is still a colour rather than an index, so this blends
+	 * for real. The result is quantised to the screen's 5:5:5 or 5:6:5
+	 * channels, which is a coarser gradient than 8:8:8 gives - but it is a
+	 * gradient, where picking a side at 128 leaves a hard edge on every
+	 * glyph, which is the thing antialiasing was asked for.
+	 */
 	void writeBlended(const byte *fg, const byte *bg,
 					  const byte *coverage, int count) override {
 		for (int i = 0; i < count; ++i) {
-			WRITE_UINT16(_dst, _pal[(coverage[i] >= 128) ? fg[i] : bg[i]]);
+			const byte a = coverage[i];
+
+			uint8 fr, fg8, fb, br, bg8, bb;
+			_format.colorToRGB(_pal[fg[i]], fr, fg8, fb);
+			_format.colorToRGB(_pal[bg[i]], br, bg8, bb);
+
+			WRITE_UINT16(_dst, (uint16)_format.RGBToColor(
+									(fr * a + br * (255 - a)) / 255,
+									(fg8 * a + bg8 * (255 - a)) / 255,
+									(fb * a + bb * (255 - a)) / 255));
 			_dst += 2;
 		}
 	}
 
 private:
 	byte *_dst;
-	const uint16 *_pal;
+	const uint32 *_pal;
+	Graphics::PixelFormat _format;
 };
 
 /**

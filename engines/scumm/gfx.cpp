@@ -799,15 +799,34 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 		// backend, so that partially covered glyph pixels can be mixed with
 		// the background behind them. The regular paths below key the text in
 		// or out, which cannot express a half-covered pixel.
+		//
+		// The sink has to match the screen's width, not be assumed. The
+		// composite buffer is allocated at _outputPixelFormat.bytesPerPixel
+		// (scumm.cpp), so handing a 16-bit screen the true-colour sink writes
+		// four bytes per pixel into a two-byte-per-pixel allocation and runs
+		// off the end of it by the buffer's own size. FM-Towns is 16-bit here
+		// and survives only because the branch above returns into
+		// towns_drawStripToScreen first; the PC-Engine has no such return and
+		// dies before presenting a frame.
 		if (_hiResText.alphaActive() && _hiResText.coverage()) {
-			HiResTrueColorSink sink((uint32 *)_compositeBuf,
-									_hiResText.paletteCache(), _outputPixelFormat);
-			compositeText(sink, (const byte *)src, vs->pitch - width,
-						  (const byte *)_textSurface.getBasePtr(x * m, y * m),
-						  _textSurface.pitch - width * m,
-						  (const byte *)_hiResText.coverage()->getBasePtr(x * m, y * m),
-						  _hiResText.coverage()->pitch - width * m,
-						  width, height, m);
+			const byte *textPlane = (const byte *)_textSurface.getBasePtr(x * m, y * m);
+			const byte *covPlane = (const byte *)_hiResText.coverage()->getBasePtr(x * m, y * m);
+			const int textSkip = _textSurface.pitch - width * m;
+			const int covSkip = _hiResText.coverage()->pitch - width * m;
+
+			if (_outputPixelFormat.bytesPerPixel == 2) {
+				HiResPalette16Sink sink(_compositeBuf,
+										_hiResText.paletteCache(), _outputPixelFormat);
+				compositeText(sink, (const byte *)src, vs->pitch - width,
+							  textPlane, textSkip, covPlane, covSkip,
+							  width, height, m);
+			} else {
+				HiResTrueColorSink sink((uint32 *)_compositeBuf,
+										_hiResText.paletteCache(), _outputPixelFormat);
+				compositeText(sink, (const byte *)src, vs->pitch - width,
+							  textPlane, textSkip, covPlane, covSkip,
+							  width, height, m);
+			}
 
 			// The composite buffer holds width*m pixels per row, not width:
 			// the loop above wrote every source pixel m times across. Handing
