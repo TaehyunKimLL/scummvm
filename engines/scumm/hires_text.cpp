@@ -125,6 +125,7 @@ void ScummHiResText::reset() {
 	_enabled = false;
 	_simpleFonts = false;
 	_simpleCellHeight = 0;
+	_simpleCellCount = 0;
 	_scaleFromUser = false;
 	_ttfPath.clear();
 	for (int i = 0; i < kMaxFonts; ++i)
@@ -734,9 +735,43 @@ void ScummHiResText::flushTextLog() const {
 
 // The conventional file names of the map-less form. A translation that
 // ships these and nothing else gets hi-res text with no configuration.
-static const char *const kSimpleFontPattern = "hires%02d.fnt";
+//
+// The double-byte set is named for the language it holds - hrkor, hrjpn,
+// hrchs, hrcht - so a folder can carry more than one and the game's own
+// language setting picks. hrlat holds the single-byte half and is shared
+// by all of them, because that half is the same Latin alphabet whichever
+// CJK set sits beside it.
+//
+// hires%02d.fnt is the older, language-neutral name for the double-byte
+// set and is still read: it is what the first builds and the first version
+// of the setup document told people to ship.
+//
+// All of them fit 8.3. These files travel with game data that is often on
+// a FAT volume or inside an archive built by a DOS-era tool, and a name the
+// filesystem truncates is a font that silently does not load.
+//
+// hrlat%02d.fnt is also the name the existing maps already use for their
+// [latin] bitmap sets, so a translator moving to the map-less form keeps
+// the files they have.
+static const char *const kSimpleFontLegacy = "hires%02d.fnt";
 static const char *const kSimpleFontSingle = "hires.fnt";
-static const char *const kSimpleLatinPattern = "hires_latin%02d.fnt";
+static const char *const kSimpleLatinPattern = "hrlat%02d.fnt";
+
+/// The double-byte font name for a language, or null when it has none.
+static const char *simpleFontPatternFor(Common::Language language) {
+	switch (language) {
+	case Common::KO_KOR:
+		return "hrkor%02d.fnt";
+	case Common::JA_JPN:
+		return "hrjpn%02d.fnt";
+	case Common::ZH_CHN:
+		return "hrchs%02d.fnt";
+	case Common::ZH_TWN:
+		return "hrcht%02d.fnt";
+	default:
+		return nullptr;
+	}
+}
 
 /**
  * Look for fonts under the conventional names and, if any are there, fill
@@ -757,37 +792,55 @@ static bool isSingleByteFont(const Graphics::HiResBitmapFont &font) {
 		   font.codePage() == Common::kWindows1252;
 }
 
-bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir) {
+bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir,
+									  Common::Language language) {
 	int smallestCell = 0;
 	int found = 0;
 	int singleByte = 0;
 	bool anyCoverage = false;
 
+	// The name for this language, then the language-neutral one. A folder
+	// holding sets for several languages is the point of the first; the
+	// second is what was shipped before the names carried a language.
+	const char *cjkPattern = simpleFontPatternFor(language);
+	Common::String usedPattern;
+
 	// Open each file only far enough to read its header; the real load
 	// happens in loadFonts(), like the map path.
 	Graphics::HiResBitmapFont probe;
-	for (int i = 0; i < kMaxFonts; ++i) {
-		const Common::String name = expandFontPattern(kSimpleFontPattern, i);
-		Common::FSNode node(gameDir.appendComponent(name));
-		if (!node.exists())
+	for (int pass = 0; pass < 2 && found == 0; ++pass) {
+		const char *pattern = (pass == 0) ? cjkPattern : kSimpleFontLegacy;
+		if (!pattern)
 			continue;
-		Common::SeekableReadStream *stream = node.createReadStream();
-		if (!stream)
-			continue;
-		const bool ok = probe.load(*stream);
-		if (!ok) {
+
+		for (int i = 0; i < kMaxFonts; ++i) {
+			const Common::String name = expandFontPattern(pattern, i);
+			Common::FSNode node(gameDir.appendComponent(name));
+			if (!node.exists())
+				continue;
+			Common::SeekableReadStream *stream = node.createReadStream();
+			if (!stream)
+				continue;
+			const bool ok = probe.load(*stream);
+			if (!ok) {
+				delete stream;
+				warning("SCUMM: %s is not a usable hi-res font", name.c_str());
+				continue;
+			}
+			++found;
+			if (smallestCell == 0 || probe.cellHeight() < smallestCell)
+				smallestCell = probe.cellHeight();
+			anyCoverage = anyCoverage || probe.bpp() == 8;
+			if (_simpleCellCount < kMaxFonts)
+				_simpleCells[_simpleCellCount++] = probe.cellHeight();
+			if (isSingleByteFont(probe))
+				++singleByte;
+			probe.free();
 			delete stream;
-			warning("SCUMM: %s is not a usable hi-res font", name.c_str());
-			continue;
 		}
-		++found;
-		if (smallestCell == 0 || probe.cellHeight() < smallestCell)
-			smallestCell = probe.cellHeight();
-		anyCoverage = anyCoverage || probe.bpp() == 8;
-		if (isSingleByteFont(probe))
-			++singleByte;
-		probe.free();
-		delete stream;
+
+		if (found > 0)
+			usedPattern = pattern;
 	}
 
 	bool haveSingle = false;
@@ -812,7 +865,42 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir) {
 		}
 	}
 
-	if (!found && !haveSingle)
+	// Latin companions, under their own name. This is searched BEFORE the
+	// early return below, so a translation that ships only Latin fonts and
+	// names them hrlat%02d.fnt works on its own. Filing them under
+	// that name is the natural thing to do for a European game, and it used
+	// to do nothing at all: the search sat after a return that fired when no
+	// numbered font was found.
+	//
+	// Their cell counts towards the scale for the same reason - when they
+	// are the only fonts present, they are what the scale must come from.
+	bool haveLatin = false;
+	{
+		Graphics::HiResBitmapFont latinProbe;
+		for (int i = 0; i < kMaxFonts; ++i) {
+			const Common::String name = expandFontPattern(kSimpleLatinPattern, i);
+			Common::FSNode node(gameDir.appendComponent(name));
+			if (!node.exists())
+				continue;
+			Common::SeekableReadStream *stream = node.createReadStream();
+			if (!stream)
+				continue;
+			if (latinProbe.load(*stream)) {
+				haveLatin = true;
+				if (smallestCell == 0 || latinProbe.cellHeight() < smallestCell)
+					smallestCell = latinProbe.cellHeight();
+				if (_simpleCellCount < kMaxFonts)
+					_simpleCells[_simpleCellCount++] = latinProbe.cellHeight();
+				anyCoverage = anyCoverage || latinProbe.bpp() == 8;
+				latinProbe.free();
+			} else {
+				warning("SCUMM: %s is not a usable hi-res font", name.c_str());
+			}
+			delete stream;
+		}
+	}
+
+	if (!found && !haveSingle && !haveLatin)
 		return false;
 
 	// Which slot the set belongs in comes from the fonts, not from the file
@@ -824,9 +912,9 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir) {
 
 	if (found) {
 		if (numberedAreLatin)
-			_config.legacy.latinBitmapName = kSimpleFontPattern;
+			_config.legacy.latinBitmapName = usedPattern;
 		else
-			_config.bitmapPattern = kSimpleFontPattern;
+			_config.bitmapPattern = usedPattern;
 	}
 	if (haveSingle) {
 		// One field carries both forms; loadFonts() tells them apart by the
@@ -843,14 +931,8 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir) {
 		_config.legacy.latinEnabled = true;
 	_config.alpha = anyCoverage;
 
-	// Latin companions are optional and follow the same convention. A game
-	// whose single-byte range is not ASCII - DOTT's ellipsis at 0x5e - must
-	// simply not ship them.
-	bool haveLatin = false;
-	for (int i = 0; i < kMaxFonts && !haveLatin; ++i) {
-		Common::FSNode node(gameDir.appendComponent(expandFontPattern(kSimpleLatinPattern, i)));
-		haveLatin = node.exists();
-	}
+	// The dedicated name wins over a numbered set routed here by its header:
+	// someone who wrote out both meant the explicit one for the Latin half.
 	if (haveLatin) {
 		_config.legacy.latinEnabled = true;
 		_config.legacy.latinBitmapName = kSimpleLatinPattern;
@@ -858,9 +940,10 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir) {
 
 	_simpleFonts = true;
 	_simpleCellHeight = smallestCell;
-	debug(1, "SCUMM: hi-res fonts found by name (no map): %d numbered%s%s%s, "
+	debug(1, "SCUMM: hi-res fonts found by name (no map): %d %s%s%s%s, "
 			 "smallest cell %d",
-		  found, haveSingle ? " + single" : "",
+		  found, found ? usedPattern.c_str() : "numbered",
+		  haveSingle ? " + single" : "",
 		  numberedAreLatin ? " (single-byte, used as Latin)" : "",
 		  haveLatin ? ", with Latin" : "", smallestCell);
 	return true;
@@ -880,9 +963,32 @@ void ScummHiResText::resolveScale(int gameFontHeight) {
 	// leaves room above its capitals and below for descenders - measured on
 	// the shipped MI2 set, 'H' fills 18 rows of a 24 row cell - so ink
 	// height would reject a perfectly good font.
-	int scale = 1;
-	if (gameFontHeight > 0 && _simpleCellHeight > 0) {
-		if (_simpleCellHeight % gameFontHeight != 0) {
+	//
+	// One game height is known here and the set holds a font per charset, at
+	// that charset's own cell: the Korean MI2 set is 24, 16, 18, 16, 24 for
+	// game charsets of 12, 8, 9, 8, 12. Dividing the smallest cell by the
+	// one known height pairs a font with the wrong charset - 16 over 12 -
+	// and refuses a set whose every charset is exactly 2x. So the test is
+	// whether SOME font in the set is exactly the known height times the
+	// scale.
+	//
+	// Smallest scale first, because a set spans several cells and a large
+	// one can satisfy a high multiple of a small charset by coincidence:
+	// the 24px font of a 12px charset is also 8x3, and reading it as 3x
+	// draws every glyph half again too large. The smallest multiple that
+	// any font matches is the one the set was baked at.
+	if (gameFontHeight > 0 && _simpleCellCount > 0) {
+		int scale = 0;
+		for (int s = 1; s <= 3 && scale == 0; ++s) {
+			for (int i = 0; i < _simpleCellCount; ++i) {
+				if (_simpleCells[i] == gameFontHeight * s) {
+					scale = s;
+					break;
+				}
+			}
+		}
+
+		if (scale == 0) {
 			warning("SCUMM: hi-res fonts are %dpx for a %dpx game font, which is "
 					"not a whole multiple; ignoring them. Bake them at %dpx or %dpx",
 					_simpleCellHeight, gameFontHeight,
@@ -894,17 +1000,16 @@ void ScummHiResText::resolveScale(int gameFontHeight) {
 			reset();
 			return;
 		}
-		scale = _simpleCellHeight / gameFontHeight;
+
+		_config.scale = scale;
+		debug(1, "SCUMM: hi-res scale %d from the fonts (a %dpx cell over the "
+				 "%dpx game font)", scale, gameFontHeight * scale, gameFontHeight);
+		return;
 	}
-	if (scale < 1 || scale > 3) {
-		warning("SCUMM: hi-res fonts are %dpx for a %dpx game font, a scale of "
-				"%d; only 1 to 3 are supported, using 1",
-				_simpleCellHeight, gameFontHeight, scale);
-		scale = 1;
-	}
-	_config.scale = scale;
-	debug(1, "SCUMM: hi-res scale %d from the fonts (%dpx cell over %dpx game font)",
-		  scale, _simpleCellHeight, gameFontHeight);
+
+	_config.scale = 1;
+	debug(1, "SCUMM: hi-res scale 1 from the fonts (%dpx cell over %dpx game font)",
+		  _simpleCellHeight, gameFontHeight);
 }
 
 void ScummHiResText::setGameFontCell(int charsetId, int width, int height) {
@@ -1172,7 +1277,7 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	// translation, which ships files and nothing else. The fonts describe
 	// themselves well enough to stand in for a map.
 	if (!haveMap && mapPath.empty())
-		haveMap = probeSimpleFonts(gameDir);
+		haveMap = probeSimpleFonts(gameDir, language);
 
 	// A TrueType face, from the config or the map, baked at start-up. The
 	// config key wins, since it is the one a user reaches for.

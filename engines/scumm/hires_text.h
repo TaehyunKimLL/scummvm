@@ -335,6 +335,13 @@ private:
 	// The numbered set the map names, indexed by the game's charset id, plus
 	// the single one used when no numbered file matched.
 	static const int kMaxFonts = 20;
+
+	// Every cell in a map-less set, one per font found. The scale is worked
+	// out against these rather than against the smallest alone: a set holds
+	// one font per charset at that charset's own size, so the smallest
+	// belongs to a different charset from the one game height that is known.
+	int _simpleCells[kMaxFonts] = {};
+	int _simpleCellCount = 0;
 	Graphics::HiResBitmapFont _fonts[kMaxFonts];
 	Graphics::HiResBitmapFont _singleFont;
 
@@ -360,7 +367,7 @@ private:
 	// scenes exercise which fonts. Off unless hires_text_log is set.
 	bool _logText = false;
 
-	bool probeSimpleFonts(const Common::Path &gameDir);
+	bool probeSimpleFonts(const Common::Path &gameDir, Common::Language language);
 	bool bakeTtfFonts(const Common::Path &gameDir);
 
 	/// Bake the face for one charset, at that charset's own cell.
