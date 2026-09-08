@@ -306,11 +306,19 @@ struct ScummHiResText {
 	 * @param gameShadow the engine's own shadow style, followed when the map
 	 *                   did not override it
 	 * @param dirty      if not null, extended by the area written
+	 * @param withCoverage  whether to record per-pixel coverage alongside the
+	 *                   glyph. Only a caller whose surface is later composited
+	 *                   through the coverage plane wants this. v7 draws
+	 *                   straight into the VirtScreen, which the backend blits
+	 *                   out as it stands, so coverage recorded for it would
+	 *                   never be read - and never cleared either, so it would
+	 *                   go on suppressing later strokes at those pixels.
 	 * @return false when nothing was drawn and the caller must fall back
 	 */
 	bool drawChar(Graphics::Surface &dest, int chr, int charsetId,
 				  int x, int y, byte color, byte shadowColor,
-				  int gameShadow, Common::Rect *dirty = nullptr);
+				  int gameShadow, Common::Rect *dirty = nullptr,
+				  bool withCoverage = true);
 
 	/// Point the layer at the engine's overlay. Must precede any drawing.
 	void useOverlay(HiResOverlay *overlay) { _overlay = overlay; }

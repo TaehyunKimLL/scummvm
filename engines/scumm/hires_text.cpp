@@ -299,6 +299,48 @@ bool ScummHiResText::hasFonts() const {
 	return _fontsLoaded;
 }
 
+/**
+ * Whether a glyph carries any ink.
+ *
+ * The layer's contract with every renderer is "false means I drew nothing, so
+ * draw it yourself". A glyph that exists in the file but is empty breaks that
+ * promise the expensive way: the caller is told the character was handled, so
+ * the game's own picture is never drawn and the pixels simply go missing.
+ *
+ * That is not hypothetical. SCUMM games store small pictures in the control
+ * code range - The Dig's option sliders are a run of 0x0B with one 0x0C for
+ * the handle - and a Latin face baked from a TrueType font has 68 blank cells
+ * in exactly that range. Accepting them erased the slider tracks from the
+ * options menu while the labels around them rendered correctly.
+ *
+ * A space is blank too and is declined here as well, which costs nothing: the
+ * original draws nothing for it either, and it then advances by the game's own
+ * width like every other character the layer passes on.
+ */
+static bool glyphHasInk(const Graphics::HiResBitmapFont &font, int index) {
+	// A proportional font records the ink extent, so no scan is needed.
+	Graphics::GlyphMetrics metrics;
+	if (font.isProportional() && font.glyphMetrics(index, metrics))
+		return metrics.width > 0 && metrics.height > 0;
+
+	const byte *pixels = font.glyphData(index);
+	if (!pixels)
+		return false;
+
+	// A fixed-width set has no metrics table, so the cell has to be looked at.
+	// It is at most a few hundred bytes and only walked until the first ink.
+	const int pitch = font.glyphPitch();
+	const int bytes = (font.bpp() == 8) ? font.cellWidth() : (font.cellWidth() + 7) / 8;
+	for (int y = 0; y < font.cellHeight(); ++y) {
+		const byte *row = pixels + y * pitch;
+		for (int x = 0; x < bytes; ++x) {
+			if (row[x])
+				return true;
+		}
+	}
+	return false;
+}
+
 const Graphics::HiResBitmapFont *ScummHiResText::fontFor(int charsetId, bool latin) const {
 	if (!_fontsLoaded)
 		return nullptr;
@@ -428,7 +470,8 @@ static Graphics::HiResShadowMode resolveShadow(Graphics::HiResShadowMode fromMap
 
 bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 							  int x, int y, byte color, byte shadowColor,
-							  int gameShadow, Common::Rect *dirty) {
+							  int gameShadow, Common::Rect *dirty,
+							  bool withCoverage) {
 	if (!_enabled || !_fontsLoaded)
 		return false;
 
@@ -462,6 +505,12 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	if (index < 0)
 		return false;
 
+	// A glyph that exists but is empty must be declined, not drawn: see
+	// glyphHasInk(). Returning true for it would tell the caller the character
+	// was handled and suppress the game's own picture.
+	if (!glyphHasInk(*font, index))
+		return false;
+
 	// Baseline alignment. The two slots can carry fonts of different ascents
 	// - a Latin face leaves room above its capitals and below for descenders
 	// while Hangul fills its cell - and drawing both at one y would put them
@@ -484,7 +533,9 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	style.shadowMode = resolveShadow(_config.shadowMode, gameShadow);
 	style.shadowOffset = (_config.shadowOffset >= 0) ? _config.shadowOffset : 1;
 
-	return Graphics::HiResGlyphRenderer::drawGlyph(dest, coverage(), *font, index,
+	return Graphics::HiResGlyphRenderer::drawGlyph(dest,
+												   withCoverage ? coverage() : nullptr,
+												   *font, index,
 												   x, y + baselineShift, style, dirty);
 }
 
@@ -567,6 +618,13 @@ int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
 	const int index = (lookup == chr) ? glyphIndexFor(*font, chr)
 									  : font->glyphIndex((uint32)lookup);
 	if (index < 0)
+		return gameWidth;
+
+	// drawChar() declines an empty glyph so the game draws its own picture,
+	// so the advance has to be the game's too. Measuring by the replacement
+	// font here while the original is what lands on screen is exactly the
+	// measure/draw disagreement that shows up as text drifting out of its box.
+	if (!glyphHasInk(*font, index))
 		return gameWidth;
 
 	int advance = 0;
