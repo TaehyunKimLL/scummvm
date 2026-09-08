@@ -65,7 +65,9 @@ struct ScummHiResText {
 	 *
 	 * Only the simple, map-less form needs this: its fonts name no scale,
 	 * so it is read off the smallest font's cell against the game's font.
-	 * With a map, or a user setting, this is a no-op.
+	 * With a map this is a no-op. A user-named scale is kept as given, but
+	 * the fonts are still checked against the line box it produces and a
+	 * mismatch is warned about.
 	 *
 	 * @param gameFontHeight  the height of the game's own CJK font, in game
 	 *                        pixels; 0 when it has none
@@ -318,6 +320,11 @@ struct ScummHiResText {
 	void setEncoding(Common::CodePage page) { _config.encoding = page; }
 
 private:
+	/// The whole-multiple test over this object's own map-less set. Shared
+	/// by the automatic scale and the check on a user-named one; the rule
+	/// itself is Graphics::hiResCellsFitScale().
+	bool fontsFitScale(int gameFontHeight, int scale) const;
+
 	bool _enabled;
 	bool _simpleFonts = false;      ///< fonts found by name, with no map
 	int _simpleCellHeight = 0;      ///< smallest cell among them, for the scale

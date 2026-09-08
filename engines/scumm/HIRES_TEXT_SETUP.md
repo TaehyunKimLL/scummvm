@@ -412,6 +412,7 @@ SCUMM: hi-res text enabled: scale 2, alpha on, metrics font,
 | no `hi-res text enabled` line at all | the layer never started — check `-d1` is present, and that the config section has `engineid=scumm` |
 | fonts load, nothing is drawn | on a European game before this was fixed, a single-byte set filed under the numbered name went to the double-byte slot and was never consulted. The log now says `(single-byte, used as Latin)` when the set is routed by its header |
 | `not a whole multiple; ignoring them` | the fonts' cell is not an integer multiple of the game's charset. Rebake at one of the two sizes the warning names |
+| `does not fit the Npx line box … glyphs will be clipped` | `hires_text_scale` names a scale the fonts were not baked for. The setting is kept as given, so the glyphs are drawn into a box too small for them and the bottom of each is cut off. Rebake at the size the warning names, or drop the setting and let the fonts choose the scale |
 | Latin letters sit higher or lower than the Hangul beside them | the two fonts record different ascents. Bake both halves of a set at the same `--size` and `--cell` |
 | `source encoding other` | cosmetic. The log names only the four CJK pages, CP1252 and UTF-8; every other valid codepage — including `latin1` — prints as `other`. The map was parsed correctly |
 | `fonts (none named)` | no map was found and no fonts matched `hires%02d.fnt` |

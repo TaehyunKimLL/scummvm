@@ -604,4 +604,16 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 	return true;
 }
 
+bool hiResCellsFitScale(const int *cells, int count,
+						int gameCellHeight, int scale) {
+	if (!cells || count <= 0 || gameCellHeight <= 0 || scale <= 0)
+		return false;
+
+	for (int i = 0; i < count; ++i) {
+		if (cells[i] == gameCellHeight * scale)
+			return true;
+	}
+	return false;
+}
+
 } // End of namespace Graphics

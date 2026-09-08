@@ -242,6 +242,33 @@ public:
 	static int parseRole(const Common::String &name);
 };
 
+/**
+ * Whether a set of replacement font cells fits a scale over the game's cell.
+ *
+ * The whole-multiple policy, in one place. A text surface can only be
+ * enlarged by an integer, so a replacement lands on the original's grid only
+ * when some font in the set is exactly the game's own cell times the scale. A
+ * font baked at 1.8x has no scale that draws it correctly; rounding it to 2
+ * would stretch every glyph by a ninth, and a set too large for the line box
+ * it is given has the bottom of every glyph cut off.
+ *
+ * "Some font", not "the smallest": a set holds one font per charset at that
+ * charset's own cell, and only one of those cells is known to the caller.
+ * Dividing the smallest cell by that one height pairs a font with the wrong
+ * charset and refuses a set whose every charset is exactly 2x.
+ *
+ * "Exactly", not "no larger than": a font smaller than the box sits in it
+ * with a gap underneath, which is a different fault.
+ *
+ * @param cells           the set's cell heights, in scaled pixels
+ * @param count           how many of them
+ * @param gameCellHeight  the game's own cell, in game pixels; 0 when unknown
+ * @param scale           the multiplier to test
+ * @return false for an empty set, an unknown game cell, or no match
+ */
+bool hiResCellsFitScale(const int *cells, int count,
+						int gameCellHeight, int scale);
+
 } // End of namespace Graphics
 
 #endif

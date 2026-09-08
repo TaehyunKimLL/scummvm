@@ -949,9 +949,37 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir,
 	return true;
 }
 
+bool ScummHiResText::fontsFitScale(int gameFontHeight, int scale) const {
+	return Graphics::hiResCellsFitScale(_simpleCells, _simpleCellCount,
+										gameFontHeight, scale);
+}
+
 void ScummHiResText::resolveScale(int gameFontHeight) {
-	if (!_enabled || !_simpleFonts || _scaleFromUser)
+	if (!_enabled || !_simpleFonts)
 		return;
+
+	// A scale the user named is theirs to keep: this is the override, and
+	// silently overruling it would leave no way to ask for a size the
+	// heuristic below does not pick. But the fonts still have to fit the box
+	// that scale produces, so the fit is checked and reported. Left unsaid,
+	// a set baked at 20px over an 8px charset is drawn into a 16px line box
+	// and the bottom of every glyph is cut off - which reads as a broken
+	// font rather than as a scale that does not match it. Measured on a
+	// Maniac Mansion set baked at 20px: the ink band is 16 rows at scale 2
+	// and 21 rows at scale 3, i.e. the box, not the font, decides.
+	if (_scaleFromUser) {
+		if (gameFontHeight > 0 && _simpleCellCount > 0 &&
+			!fontsFitScale(gameFontHeight, _config.scale)) {
+			warning("SCUMM: hi-res fonts are %dpx, which does not fit the %dpx "
+					"line box that a scale of %d gives a %dpx game font; glyphs "
+					"will be clipped. Bake them at %dpx, or drop the scale "
+					"setting and let the fonts choose",
+					_simpleCellHeight, gameFontHeight * _config.scale,
+					_config.scale, gameFontHeight,
+					gameFontHeight * _config.scale);
+		}
+		return;
+	}
 
 	// Policy: a bitmap font is accepted only at a whole multiple of the
 	// game's own cell. The surface can only be enlarged by an integer, so a
@@ -980,11 +1008,9 @@ void ScummHiResText::resolveScale(int gameFontHeight) {
 	if (gameFontHeight > 0 && _simpleCellCount > 0) {
 		int scale = 0;
 		for (int s = 1; s <= 3 && scale == 0; ++s) {
-			for (int i = 0; i < _simpleCellCount; ++i) {
-				if (_simpleCells[i] == gameFontHeight * s) {
-					scale = s;
-					break;
-				}
+			if (fontsFitScale(gameFontHeight, s)) {
+				scale = s;
+				break;
 			}
 		}
 
