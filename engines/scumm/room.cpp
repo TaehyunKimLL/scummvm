@@ -81,6 +81,9 @@ void ScummEngine::startScene(int room, Actor *a, int objectNr) {
 	}
 
 	fadeOut(_switchRoomEffect2);
+	// B3PROBE: unconditional, removed before commit.
+	debug(1, "B3STARTROOM from=%d newEffect=%d (switchRoomEffect=%d/%d)",
+	      _currentRoom, _switchRoomEffect, _switchRoomEffect, _switchRoomEffect2);
 	_newEffect = _switchRoomEffect;
 
 	if (_currentScript != 0xFF) {

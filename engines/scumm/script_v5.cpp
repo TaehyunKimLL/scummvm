@@ -2525,6 +2525,9 @@ void ScummEngine_v5::o5_roomOps() {
 #endif // DISABLE_TOWNS_DUAL_LAYER_MODE
 			_switchRoomEffect = (byte)(a & 0xFF);
 			_switchRoomEffect2 = (byte)(a >> 8);
+			// B3PROBE: unconditional, removed before commit.
+			debug(1, "B3ROOMFADE room=%d word=0x%04x effect=%d effect2=%d",
+			      _currentRoom, a, _switchRoomEffect, _switchRoomEffect2);
 		} else {
 			fadeIn(_newEffect);
 		}

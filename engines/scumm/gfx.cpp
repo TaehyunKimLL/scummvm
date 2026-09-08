@@ -4679,6 +4679,8 @@ void ScummEngine::fadeIn(int effect) {
 	case 131:
 	case 132:
 	case 133:
+		// B3PROBE: unconditional, removed before commit.
+		debug(1, "B3FADEIN effect=%d -> scrollEffect(%d) room=%d", effect, 133 - effect, _currentRoom);
 		scrollEffect(133 - effect);
 		break;
 	case 134:
@@ -5035,6 +5037,11 @@ void ScummEngine::dissolveEffect(int width, int height) {
 }
 
 void ScummEngine::scrollEffect(int dir) {
+	// B3PROBE: unconditional, removed before commit.
+	debug(1, "B3SCROLL dir=%d m=%d vs=%dx%d topline=%d platform=%d ega=%d mac=%d towns=%d",
+	      dir, _textSurfaceMultiplier, _virtscr[kMainVirtScreen].w, _virtscr[kMainVirtScreen].h,
+	      _virtscr[kMainVirtScreen].topline, (int)_game.platform, (int)_enableEGADithering,
+	      _macScreen != nullptr, _townsScreen != nullptr);
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	// The FM-Towns versions use smooth scrolling here, but only for left and right.
 	if (_enableSmoothScrolling && dir > 1) {
