@@ -41,11 +41,11 @@ public:
 
 	virtual GuiResourceId getResourceId() { return 0; }
 	virtual byte getHeight() { return 0; }
-	virtual bool isDoubleByte(uint16 chr) { return false; }
-	virtual byte getCharWidth(uint16 chr) { return 0; }
-	virtual byte getCharHeight(uint16 chr) { return 0; }
-	virtual void draw(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput) {}
-	virtual void drawToBuffer(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 width, int16 height) {}
+	virtual bool isDoubleByte(uint32 chr) { return false; }
+	virtual byte getCharWidth(uint32 chr) { return 0; }
+	virtual byte getCharHeight(uint32 chr) { return 0; }
+	virtual void draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) {}
+	virtual void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 width, int16 height) {}
 };
 
 
@@ -60,16 +60,16 @@ public:
 
 	GuiResourceId getResourceId() override;
 	uint8 getHeight() override;
-	uint8 getCharWidth(uint16 chr) override;
-	void draw(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput) override;
+	uint8 getCharWidth(uint32 chr) override;
+	void draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) override;
 #ifdef ENABLE_SCI32
 	// SCI2/2.1 equivalent
-	void drawToBuffer(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 width, int16 height) override;
+	void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 width, int16 height) override;
 #endif
 
 private:
-	uint8 getCharHeight(uint16 chr) override;
-	SciSpan<const byte> getCharData(uint16 chr);
+	uint8 getCharHeight(uint32 chr) override;
+	SciSpan<const byte> getCharData(uint32 chr);
 
 	ResourceManager *_resMan;
 	GfxScreen *_screen;

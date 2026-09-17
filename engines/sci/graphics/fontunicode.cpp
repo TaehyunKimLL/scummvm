@@ -156,23 +156,23 @@ bool GfxFontUnicode::pixelSet(int glyph, int x, int y) const {
 	return ((row[x >> 2] >> (6 - ((x & 3) * 2))) & 3) != 0;
 }
 
-bool GfxFontUnicode::isDoubleByte(uint16 chr) {
+bool GfxFontUnicode::isDoubleByte(uint32 chr) {
 	const int g = findGlyph(chr);
 	return g >= 0 && _widths[g] == 2;
 }
 
-byte GfxFontUnicode::getCharWidth(uint16 chr) {
+byte GfxFontUnicode::getCharWidth(uint32 chr) {
 	const int g = findGlyph(chr);
 	if (g < 0)
 		return 0;
 	return _widths[g] == 2 ? _advanceWide : _advanceNarrow;
 }
 
-byte GfxFontUnicode::getCharHeight(uint16 chr) {
+byte GfxFontUnicode::getCharHeight(uint32 chr) {
 	return findGlyph(chr) >= 0 ? _cellHeight : 0;
 }
 
-void GfxFontUnicode::draw(uint16 chr, int16 top, int16 left, byte color,
+void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 						  bool greyedOutput) {
 	const int g = findGlyph(chr);
 	if (g < 0)
@@ -194,7 +194,7 @@ void GfxFontUnicode::draw(uint16 chr, int16 top, int16 left, byte color,
 	}
 }
 
-void GfxFontUnicode::drawToBuffer(uint16 chr, int16 top, int16 left, byte color,
+void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,
 								  bool greyedOutput, byte *buffer,
 								  int16 width, int16 height) {
 	const int g = findGlyph(chr);

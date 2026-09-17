@@ -50,7 +50,7 @@ GuiResourceId GfxFontSjis::getResourceId() {
 }
 
 // Returns true for first byte of double byte characters
-bool GfxFontSjis::isDoubleByte(uint16 chr) {
+bool GfxFontSjis::isDoubleByte(uint32 chr) {
 	if (((chr >= 0x81) && (chr <= 0x9F)) || ((chr >= 0xE0) && (chr <= 0xEF)))
 		return true;
 	return false;
@@ -61,11 +61,11 @@ byte GfxFontSjis::getHeight() {
 	return _commonFont->getFontHeight() >> 1;
 }
 
-byte GfxFontSjis::getCharWidth(uint16 chr) {
+byte GfxFontSjis::getCharWidth(uint32 chr) {
 	return _commonFont->getCharWidth(chr) >> 1;
 
 }
-void GfxFontSjis::draw(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput) {
+void GfxFontSjis::draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) {
 	// TODO: Check, if character fits on screen - if it doesn't we need to skip it
 	//  Normally SCI cuts the character and draws the part that fits, but the common SJIS doesn't support that
 

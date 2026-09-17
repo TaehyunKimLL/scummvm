@@ -47,7 +47,7 @@ GuiResourceId GfxFontKorean::getResourceId() {
 }
 
 // Returns true for first byte of double byte characters
-bool GfxFontKorean::isDoubleByte(uint16 chr) {
+bool GfxFontKorean::isDoubleByte(uint32 chr) {
 	uint16 ch = chr & 0xFF;
 	if ((ch >= 0xA1) && (ch <= 0xFE))
 		return true;
@@ -62,20 +62,20 @@ byte GfxFontKorean::getHeight() {
 		return _commonFont->getFontHeight() >> 1;
 }
 
-byte GfxFontKorean::getCharWidth(uint16 chr) {
+byte GfxFontKorean::getCharWidth(uint32 chr) {
 	if (getSciVersion() >= SCI_VERSION_2)
 		return _commonFont->getCharWidth(chr);
 	else
 		return _commonFont->getCharWidth(chr) >> 1;
 }
 
-void GfxFontKorean::draw(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput) {
+void GfxFontKorean::draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) {
 	// TODO: Check, if character fits on screen - if it doesn't we need to skip it
 	_screen->putHangulChar(_commonFont, left & 0xFFC, top, chr, color);
 }
 
 #ifdef ENABLE_SCI32
-void GfxFontKorean::drawToBuffer(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 bufWidth, int16 bufHeight) {
+void GfxFontKorean::drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 bufWidth, int16 bufHeight) {
 	byte *displayPtr = buffer + top * bufWidth + left;
 	// we don't use outline, so color 0 is actually not used
 	_commonFont->drawChar(displayPtr, chr, bufWidth, 1, color, 0, bufWidth - left, bufHeight - top);

@@ -61,12 +61,12 @@ public:
 	byte getHeight() override { return _cellHeight; }
 
 	/** True when this code point occupies two cells (East Asian W/F). */
-	bool isDoubleByte(uint16 chr) override;
+	bool isDoubleByte(uint32 chr) override;
 
-	byte getCharWidth(uint16 chr) override;
-	byte getCharHeight(uint16 chr) override;
-	void draw(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput) override;
-	void drawToBuffer(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput,
+	byte getCharWidth(uint32 chr) override;
+	byte getCharHeight(uint32 chr) override;
+	void draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) override;
+	void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput,
 	                  byte *buffer, int16 width, int16 height) override;
 
 	/** Does this font have a glyph for @p codepoint? */
