@@ -217,7 +217,11 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	}
 }
 
+namespace { }
+void m6ReportByteOps();
+
 SciEngine::~SciEngine() {
+	m6ReportByteOps();	// M6 PROBE
 #ifdef ENABLE_SCI32
 	delete _gfxControls32;
 	delete _gfxPaint32;
