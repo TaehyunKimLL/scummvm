@@ -46,6 +46,8 @@
 #endif
 #include "sci/engine/message.h"
 #include "sci/resource/resource.h"
+#include "sci/engine/taint.h" // M4 PROBE
+#include "sci/engine/seg_manager.h" // M4 PROBE
 
 namespace Sci {
 
@@ -1072,6 +1074,11 @@ reg_t kSave(EngineState *s, int argc, reg_t *argv) {
 #endif
 
 reg_t kSaveGame(EngineState *s, int argc, reg_t *argv) {
+	// M4 PROBE: save descriptions and filenames - script-built text, the
+	// canonical CLEAN case.
+	g_sciTaint.setPhase("save");
+	if (argc > 2)
+		g_sciTaint.sink(s->_segMan, "kSaveGame_desc", argv[2], 0, "save description");
 	// slot 0 is the ScummVM auto-save slot, which is not used by us, but is
 	// still reserved
 	enum {
@@ -1229,6 +1236,7 @@ reg_t kSaveGame(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kRestoreGame(EngineState *s, int argc, reg_t *argv) {
+	g_sciTaint.setPhase("restore"); // M4 PROBE
 	Common::String game_id = !argv[0].isNull() ? s->_segMan->getString(argv[0]) : "";
 	int16 savegameId = argv[1].toSint16();
 	bool pausedMusic = false;

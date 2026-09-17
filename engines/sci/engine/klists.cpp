@@ -23,6 +23,8 @@
 #include "sci/engine/state.h"
 #include "sci/engine/selector.h"
 #include "sci/engine/kernel.h"
+#include "sci/engine/taint.h" // M4 PROBE
+#include "sci/engine/seg_manager.h" // M4 PROBE
 
 namespace Sci {
 //#define CHECK_LISTS	// adds sanity checking for lists and errors out when problems are found
@@ -834,6 +836,7 @@ reg_t kArrayGetSize(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kArrayGetElement(EngineState *s, int argc, reg_t *argv) {
+	g_sciTaint.sink(s->_segMan, "kArrayGetElement", argv[0], 0, "SCI32"); // M4 PROBE
 	if (getSciVersion() == SCI_VERSION_2_1_LATE) {
 		return kStringGetChar(s, argc, argv);
 	}
@@ -843,6 +846,7 @@ reg_t kArrayGetElement(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kArraySetElements(EngineState *s, int argc, reg_t *argv) {
+	g_sciTaint.sink(s->_segMan, "kArraySetElements", argv[0], 0, "SCI32"); // M4 PROBE
 	SciArray &array = *s->_segMan->lookupArray(argv[0]);
 	array.setElements(argv[1].toUint16(), argc - 2, argv + 2);
 	return argv[0];
@@ -858,12 +862,16 @@ reg_t kArrayFree(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kArrayFill(EngineState *s, int argc, reg_t *argv) {
+	g_sciTaint.sink(s->_segMan, "kArrayFill", argv[0], 0, "SCI32"); // M4 PROBE
 	SciArray &array = *s->_segMan->lookupArray(argv[0]);
 	array.fill(argv[1].toUint16(), argv[2].toUint16(), argv[3]);
 	return argv[0];
 }
 
 reg_t kArrayCopy(EngineState *s, int argc, reg_t *argv) {
+	// M4 PROBE: offset-and-count copy - byte arithmetic in SCI32.
+	g_sciTaint.sink(s->_segMan, "kArrayCopy_dest", argv[0], 0, "SCI32");
+	g_sciTaint.sink(s->_segMan, "kArrayCopy_src", argv[2], 0, "SCI32");
 	SciArray &target = *s->_segMan->lookupArray(argv[0]);
 	const uint16 targetIndex = argv[1].toUint16();
 	const uint16 sourceIndex = argv[3].toUint16();
@@ -912,6 +920,9 @@ reg_t kArrayGetData(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kArrayByteCopy(EngineState *s, int argc, reg_t *argv) {
+	// M4 PROBE: explicit byte-level copy at script-chosen offsets.
+	g_sciTaint.sink(s->_segMan, "kArrayByteCopy_dest", argv[0], 0, "SCI32");
+	g_sciTaint.sink(s->_segMan, "kArrayByteCopy_src", argv[2], 0, "SCI32");
 	SciArray &target = *s->_segMan->lookupArray(argv[0]);
 	const uint16 targetOffset = argv[1].toUint16();
 	const SciArray &source = *s->_segMan->lookupArray(argv[2]);

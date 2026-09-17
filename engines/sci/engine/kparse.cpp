@@ -26,6 +26,8 @@
 #include "sci/engine/selector.h"
 #include "sci/engine/message.h"
 #include "sci/engine/kernel.h"
+#include "sci/engine/taint.h" // M4 PROBE
+#include "sci/engine/seg_manager.h" // M4 PROBE
 
 //#define DEBUG_PARSER
 
@@ -87,6 +89,10 @@ reg_t kSaid(EngineState *s, int argc, reg_t *argv) {
 reg_t kParse(EngineState *s, int argc, reg_t *argv) {
 	SegManager *segMan = s->_segMan;
 	reg_t stringpos = argv[0];
+	// M4 PROBE: the parser input buffer. This is the user-typed side of the
+	// fence, NOT translatable text - it is what the edit control produced.
+	g_sciTaint.setPhase("parser_submit");
+	g_sciTaint.sink(s->_segMan, "kParse", stringpos, 0, "typed input buffer");
 	Common::String string = s->_segMan->getString(stringpos);
 	char *error;
 	reg_t event = argv[1];

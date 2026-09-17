@@ -42,6 +42,7 @@
 #include "sci/engine/script_patches.h"
 #include "sci/engine/selector.h"	// for SELECTOR
 #include "sci/engine/scriptdebug.h"
+#include "sci/engine/taint.h" // M4 PROBE
 #include "sci/engine/tts.h"
 
 #include "sci/sound/audio.h"
@@ -218,6 +219,10 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 }
 
 SciEngine::~SciEngine() {
+	// M4 PROBE: final taint report.
+	g_sciTaint.setPhase("teardown");
+	g_sciTaint.report(true);
+
 #ifdef ENABLE_SCI32
 	delete _gfxControls32;
 	delete _gfxPaint32;
