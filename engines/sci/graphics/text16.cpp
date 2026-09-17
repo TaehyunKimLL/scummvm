@@ -195,7 +195,22 @@ static const uint16 text16_shiftJIS_punctuation_SCI01[] = {
 //                                              "Detective Ryan Hanrahan O'Riley" contains even more spaces (bug #5334)
 //  Conquests of the Longbow - talking with Lobb - one text box of the dialogue contains a longer word,
 //                                                 that will be broken into 2 lines (bug #5159)
+// M8 PROBE: log the character count, pixel width and target maxWidth of every
+// line the wrapping code produces, so a code-point rewrite can be proved to
+// wrap identically instead of assumed to. Wrapped rather than inlined because
+// the real function has three return points.
 int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId orgFontId) {
+	const char *start = textPtr;
+	const int16 n = GetLongestImpl(textPtr, maxWidth, orgFontId);
+	int16 w = 0, h = 0;
+	if (n > 0)
+		Width(start, 0, n, orgFontId, w, h, false);
+	Common::String sample(start, MIN<int>(n, 40));
+	debug("M8LINE\t%d\t%d\t%d\t%s", n, w, maxWidth, sample.c_str());
+	return n;
+}
+
+int16 GfxText16::GetLongestImpl(const char *&textPtr, int16 maxWidth, GuiResourceId orgFontId) {
 	uint16 curChar = 0;
 	const char *textStartPtr = textPtr;
 	const char *lastSpacePtr = nullptr;

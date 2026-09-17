@@ -58,6 +58,7 @@ public:
 #endif
 
 	int16 GetLongest(const char *&text, int16 maxWidth, GuiResourceId orgFontId);
+	int16 GetLongestImpl(const char *&text, int16 maxWidth, GuiResourceId orgFontId);
 	void Width(const char *text, int16 from, int16 len, GuiResourceId orgFontId, int16 &textWidth, int16 &textHeight, bool restoreFont);
 	void StringWidth(const Common::String &str, GuiResourceId orgFontId, int16 &textWidth, int16 &textHeight);
 #if 0
