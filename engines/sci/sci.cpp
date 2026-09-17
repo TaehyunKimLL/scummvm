@@ -27,6 +27,9 @@
 #include "engines/advancedDetector.h"
 #include "engines/util.h"
 
+#include "common/file.h"
+#include "graphics/sjis.h"
+
 #include "sci/sci.h"
 #include "sci/debug.h"
 #include "sci/console.h"
@@ -315,6 +318,76 @@ Common::Error SciEngine::run() {
 		if (_translation.load(lang))
 			debug(1, "SCI: SCITRS translation active: %u entries for '%s'",
 				  _translation.entryCount(), _translation.language().c_str());
+	}
+
+	// Dump the FM-TOWNS ROM font as a SCVMUNI-ready glyph table. The ROM is
+	// already 1bpp 16x16 - the exact shape SCVMUNI stores - so extracting it
+	// needs no threshold and no baseline guess, unlike rasterising a TTF.
+	// Uses the engine's own FontTowns via the public drawChar(), so the SJIS
+	// chunk arithmetic in getCharFMTChunk() is not reimplemented.
+	if (ConfMan.hasKey("dump_towns_font")) {
+		Graphics::FontSJIS *rom = Graphics::FontSJIS::createFont(Common::kPlatformFMTowns);
+		if (!rom) {
+			warning("dump_towns_font: FMT_FNT.ROM not found");
+		} else {
+			Common::DumpFile out;
+			if (!out.open("towns_font.bin")) {
+				warning("dump_towns_font: cannot open towns_font.bin");
+			} else {
+				const int cellH = rom->getFontHeight();
+				out.writeUint32BE(MKTAG('T','W','N','G'));
+				out.writeUint16LE(cellH);
+				const uint32 countPos = out.pos();
+				out.writeUint32LE(0);
+
+				byte canvas[32 * 16];
+				uint32 written = 0;
+				for (uint32 ch = 0x20; ch <= 0xFCFC; ch++) {
+					// Skip values that are not a valid single byte or a valid
+					// SJIS lead/trail pair.
+					const byte lead = ch & 0xFF;
+					const byte trail = (ch >> 8) & 0xFF;
+					if (ch > 0xFF) {
+						if (lead < 0x81 || (trail < 0x40))
+							continue;
+					}
+					const uint16 w = rom->getCharWidth(ch);
+					if (w == 0 || w > 32)
+						continue;
+
+					memset(canvas, 0, sizeof(canvas));
+					rom->drawChar(canvas, ch, 32, 1, 1, 0, -1, -1);
+
+					bool any = false;
+					for (uint i = 0; i < sizeof(canvas) && !any; i++)
+						any = canvas[i] != 0;
+					if (!any)
+						continue;
+
+					out.writeUint16LE((uint16)ch);
+					out.writeByte((byte)w);
+					// Pack to 1bpp, 4 bytes per row, so a 32px wide glyph fits
+					// one stride regardless of its own width.
+					for (int y = 0; y < cellH; y++) {
+						for (int xb = 0; xb < 4; xb++) {
+							byte bits = 0;
+							for (int b = 0; b < 8; b++) {
+								const int x = xb * 8 + b;
+								if (canvas[y * 32 + x])
+									bits |= 0x80 >> b;
+							}
+							out.writeByte(bits);
+						}
+					}
+					written++;
+				}
+				out.seek(countPos, SEEK_SET);
+				out.writeUint32LE(written);
+				out.finalize();
+				debug("dump_towns_font: %u glyphs, cell height %d", written, cellH);
+			}
+			delete rom;
+		}
 	}
 
 	// Dump every TEXT resource, tab separated, for building a SCITRS bundle:
