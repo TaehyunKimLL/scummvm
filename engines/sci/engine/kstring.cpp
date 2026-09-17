@@ -31,25 +31,6 @@
 
 namespace Sci {
 
-// M6 PROBE: count byte-level operations and how many touch non-ASCII bytes,
-// i.e. the high bytes of a double-byte translated character.
-static uint32 g_m6StrAt = 0, g_m6StrAtHigh = 0;
-static uint32 g_m6StrCmp = 0, g_m6StrCmpHigh = 0;
-static uint32 g_m6StrLen = 0, g_m6StrLenHigh = 0;
-
-static bool m6HasHighByte(const Common::String &s) {
-	for (uint i = 0; i < s.size(); i++)
-		if ((byte)s[i] >= 0x80)
-			return true;
-	return false;
-}
-
-void m6ReportByteOps() {
-	debug("M6: kStrAt=%u (high=%u) kStrCmp=%u (high=%u) kStrLen=%u (high=%u)",
-		  g_m6StrAt, g_m6StrAtHigh, g_m6StrCmp, g_m6StrCmpHigh,
-		  g_m6StrLen, g_m6StrLenHigh);
-}
-
 reg_t kStrEnd(EngineState *s, int argc, reg_t *argv) {
 	reg_t address = argv[0];
 	address.incOffset(s->_segMan->strlen(address));
@@ -79,9 +60,6 @@ reg_t kStrCat(EngineState *s, int argc, reg_t *argv) {
 reg_t kStrCmp(EngineState *s, int argc, reg_t *argv) {
 	Common::String s1 = s->_segMan->getString(argv[0]);
 	Common::String s2 = s->_segMan->getString(argv[1]);
-	g_m6StrCmp++;
-	if (m6HasHighByte(s1) || m6HasHighByte(s2))
-		g_m6StrCmpHigh++;
 
 	int result;
 	if (argc > 2) {
@@ -110,9 +88,6 @@ reg_t kStrCpy(EngineState *s, int argc, reg_t *argv) {
 
 
 reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
-	g_m6StrAt++;
-	if (m6HasHighByte(s->_segMan->getString(argv[0])))
-		g_m6StrAtHigh++;
 	if (argv[0] == SIGNAL_REG) {
 		warning("Attempt to perform kStrAt() on a signal reg");
 		return NULL_REG;
@@ -465,15 +440,6 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kStrLen(EngineState *s, int argc, reg_t *argv) {
-	g_m6StrLen++;
-	{
-		Common::String v = s->_segMan->getString(argv[0]);
-		if (m6HasHighByte(v))
-			g_m6StrLenHigh++;
-		debug("M6ORIGIN	kStrLen	%s	high=%d	%s",
-			  s->getCurrentCallOrigin().toString().c_str(),
-			  m6HasHighByte(v) ? 1 : 0, v.c_str());
-	}
 	return make_reg(0, s->_segMan->strlen(argv[0]));
 }
 
