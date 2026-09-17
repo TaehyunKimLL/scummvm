@@ -206,6 +206,33 @@ bool Translation::load(const Common::String &language) {
 	return false;
 }
 
+bool Translation::loadAny() {
+	// Read the first language entry's code straight out of the file, then go
+	// through the normal load path so every structural check still runs.
+	Common::File f;
+	static const char *const names[] = { "sci.trs", "translation.trs" };
+	bool opened = false;
+	for (uint i = 0; i < ARRAYSIZE(names) && !opened; i++)
+		opened = f.open(Common::Path(names[i]));
+	if (!opened)
+		return false;
+
+	byte head[kHeaderSize + kLangEntrySize];
+	if (f.read(head, sizeof(head)) != sizeof(head))
+		return false;
+	f.close();
+
+	if (memcmp(head, kMagic, 8) != 0 || READ_LE_UINT16(head + 10) == 0)
+		return false;
+
+	char code[9];
+	memcpy(code, head + kHeaderSize, 8);
+	code[8] = '\0';
+	if (!code[0])
+		return false;
+	return load(Common::String(code));
+}
+
 bool Translation::translate(const Common::String &source, Common::U32String &out,
                             uint16 resourceHint, uint16 indexHint) const {
 	if (!_loaded || source.empty())

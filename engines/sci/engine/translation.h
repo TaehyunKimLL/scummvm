@@ -55,6 +55,15 @@ public:
 	 */
 	bool load(const Common::String &language);
 
+	/**
+	 * Load whichever language the bundle declares first.
+	 *
+	 * A bundle names its own language, so requiring the caller to guess it
+	 * means a ja bundle silently does not load when the caller asked for ko.
+	 * Used when the user has expressed no preference.
+	 */
+	bool loadAny();
+
 	bool isLoaded() const { return _loaded; }
 
 	/**

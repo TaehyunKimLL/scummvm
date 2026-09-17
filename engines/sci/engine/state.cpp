@@ -314,6 +314,16 @@ kLanguage SciEngine::getSciLanguage() {
 			// (essentially disabling runtime language switching).
 			// Note: only a limited number of multilanguage games have been tested
 			// so far, so this information may not be 100% accurate.
+			// A SCITRS translation is applied in the engine, below the script
+			// layer: the game's own resources are untouched and the scripts
+			// have no localised content to select. Telling them the language
+			// changed makes them take paths their data does not support -
+			// measured on KQ1 with a ja bundle, the title menu stopped
+			// redrawing its highlighted entry and every button rendered
+			// blank, because the script branches on printLang.
+			if (g_sci->getTranslation().isLoaded())
+				return K_LANG_ENGLISH;
+
 			switch (getLanguage()) {
 			case Common::FR_FRA:
 				lang = K_LANG_FRENCH;

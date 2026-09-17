@@ -313,9 +313,13 @@ Common::Error SciEngine::run() {
 	// and language-neutral. It is loaded here for the same reason - the
 	// language-keyed graphics driver table runs during GfxScreen construction.
 	{
-		Common::String lang = ConfMan.hasKey("translation_language")
-			? ConfMan.get("translation_language") : Common::String("ko");
-		if (_translation.load(lang))
+		// With no explicit preference, take the language the bundle declares:
+		// hard-coding "ko" meant a Japanese bundle loaded its font and then
+		// never loaded its text.
+		const bool loaded = ConfMan.hasKey("translation_language")
+			? _translation.load(ConfMan.get("translation_language"))
+			: _translation.loadAny();
+		if (loaded)
 			debug(1, "SCI: SCITRS translation active: %u entries for '%s'",
 				  _translation.entryCount(), _translation.language().c_str());
 	}
@@ -965,6 +969,21 @@ Console *SciEngine::getSciDebugger() {
 
 const char *SciEngine::getGameIdStr() const {
 	return _gameDescription->gameId;
+}
+
+bool SciEngine::usesHiresDoubleByteText() const {
+	// A SCVMUNI bundle draws through the same hires text plane as the legacy
+	// CJK fonts, so it needs the identical treatment: update the display area
+	// before the text is printed, or the background composite erases it.
+	if (_translation.isLoaded())
+		return true;
+	if (_textOverlay.isLoaded())
+		return true;
+	if (getLanguage() == Common::KO_KOR)
+		return true;
+	if (getPlatform() == Common::kPlatformPC98 && getGameId() == GID_PQ2)
+		return true;
+	return false;
 }
 
 Common::CodePage SciEngine::getSciLanguageCodePage() const {

@@ -46,8 +46,13 @@ reg_t kStrCat(EngineState *s, int argc, reg_t *argv) {
 	//  see bug #5834
 	//  Verified for Police Quest 2 + Quest For Glory 1
 	//  However Space Quest 4 PC-9801 doesn't
+	// Not applied to a SCITRS translation: the split emulates what the
+	// Japanese PC-9801 interpreter did to text that shipped with those
+	// releases, and imposing it on a translated Western release corrupts
+	// strings the original interpreter never touched.
 	if ((g_sci->getLanguage() == Common::JA_JPN)
-		&& (getSciVersion() <= SCI_VERSION_01)) {
+		&& (getSciVersion() <= SCI_VERSION_01)
+		&& !g_sci->getTranslation().isLoaded()) {
 		s1 = g_sci->strSplit(s1.c_str(), nullptr);
 		s2 = g_sci->strSplit(s2.c_str(), nullptr);
 	}

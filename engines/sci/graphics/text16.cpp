@@ -580,7 +580,13 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 	else
 		fontId = previousFontId;
 
-	// Check for Korean text
+	// The legacy CJK path switches to the one font that holds double-byte
+	// glyphs AND sets doubleByteMode, and both halves matter: dropping the
+	// font switch alone made Korean text render thinner and then vanish
+	// (measured: white pixels in the button row fell from 2652 to 1234).
+	// So a bundle takes the same two steps - GfxCache hands back a
+	// Unicode-backed font for whatever id is requested, so the switch is
+	// harmless even when the game has no such font resource.
 	if (g_sci->getLanguage() == Common::KO_KOR) {
 		if (SwitchToFont1001OnKorean(curTextPos, languageSplitter)) {
 			doubleByteMode = true;
@@ -759,6 +765,19 @@ bool GfxText16::SwitchToFont900OnSjis(const char *text, uint16 languageSplitter)
 	byte firstChar = (*(const byte *)text++);
 	if (languageSplitter != 0x6a23) { // #j prefix as language splitter
 		if (((firstChar >= 0x81) && (firstChar <= 0x9F)) || ((firstChar >= 0xE0) && (firstChar <= 0xEF))) {
+			// The switch to font 900 exists because only that font holds
+			// double-byte glyphs. With a SCVMUNI bundle every font can draw
+			// them, so switching is unnecessary - and switching anyway aborts
+			// the engine on a game that has no font 900, which is the normal
+			// case outside the Japanese PC-98 releases. Measured: KQ1 has
+			// fonts 0, 4, 300 and 999 only.
+			//
+			// With a bundle loaded GfxCache returns a Unicode-backed font
+			// for any id, so switching to 900 works even on a game that has
+			// no font 900 resource - which is the normal case outside the
+			// Japanese PC-98 releases. Measured: KQ1 ships fonts 0, 4, 300
+			// and 999 only, and without the bundle this switch aborts the
+			// engine with "font resource 900 not found".
 			SetFont(900);
 			return true;
 		}

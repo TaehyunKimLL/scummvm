@@ -202,6 +202,22 @@ public:
 	Common::CodePage getSciLanguageCodePage() const;
 
 	/**
+	 * Does text rendering use hires double-byte glyphs on the text plane?
+	 *
+	 * This is the single predicate that separates the byte-oriented CJK
+	 * rendering path from the plain one, and it must be asked instead of
+	 * testing for a specific language. The engine previously spelled the same
+	 * question four different ways - KO_KOR here, JA_JPN there, a PC-98 +
+	 * PQ2 pair elsewhere - so adding a language meant finding every spelling,
+	 * and missing one produced text that was drawn at correct coordinates and
+	 * then composited away.
+	 *
+	 * True for: a loaded SCITRS/SCVMUNI translation, the Korean fan patches,
+	 * and PQ2 on PC-98.
+	 */
+	bool usesHiresDoubleByteText() const;
+
+	/**
 	 * Returns true if the game's language direction is Right To Left.
 	 * RTL support did not exist in the original SCI engine.
 	 * This is a ScummVM feature to support modern fan translations.

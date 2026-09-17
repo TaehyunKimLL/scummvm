@@ -31,6 +31,7 @@
 #include "sci/graphics/fontsjis.h"
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontunicode.h"
+#include "common/file.h"
 #include "sci/graphics/view.h"
 
 namespace Sci {
@@ -99,14 +100,28 @@ GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
 	// a bundle with partial coverage degrades to the old rendering instead of
 	// to blank space. The resource font is the fallback otherwise, which also
 	// keeps single-byte text pixel-identical to before.
+	// The legacy CJK fonts abort the engine when their font file is absent
+	// (GfxFontSjis calls error() on a missing SJIS.FNT), so they are only used
+	// as the fallback when that file is actually present. Otherwise the
+	// resource font serves, which is also what keeps single-byte text
+	// identical to the unmodified engine.
 	GfxFont *fallback = nullptr;
-	if (fontId == 1001 && g_sci->getLanguage() == Common::KO_KOR)
+	if (fontId == 1001 && g_sci->getLanguage() == Common::KO_KOR &&
+		Common::File::exists(Common::Path("korean.fnt")))
 		fallback = new GfxFontKorean(_screen, fontId);
-	else if (fontId == 900 && g_sci->getLanguage() == Common::JA_JPN)
+	else if (fontId == 900 && g_sci->getLanguage() == Common::JA_JPN &&
+			 Common::File::exists(Common::Path("SJIS.FNT")))
 		fallback = new GfxFontSjis(_screen, fontId);
-	else
+	else if (_resMan->testResource(ResourceId(kResourceTypeFont, fontId)))
 		fallback = new GfxFontFromResource(_resMan, _screen, fontId);
-	_ownedFonts.push_back(fallback);
+	// No fallback at all when the id names no resource. GfxText16 switches to
+	// the legacy CJK font id (1001/900) to get double-byte glyphs, and most
+	// games have no such resource - GfxFontFromResource would abort with
+	// "font resource N not found". The adapter copes with a null fallback;
+	// single-byte characters then have no glyph, which is correct, because
+	// the game only ever switches to that id for double-byte text.
+	if (fallback)
+		_ownedFonts.push_back(fallback);
 
 	return new GfxFontUnicodeAdapter(_unicodeFont, g_sci->getSciLanguageCodePage(),
 									 fallback, fontId);

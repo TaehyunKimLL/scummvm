@@ -282,13 +282,28 @@ byte GfxFontUnicodeAdapter::getHeight() {
 }
 
 bool GfxFontUnicodeAdapter::isDoubleByte(uint32 chr) {
-	// Answered from the ENCODING, not from the glyph: the renderer calls this
-	// with a single lead byte to decide whether to fetch a second one, long
-	// before a code point exists. Getting this from the font would break the
-	// byte walk.
-	if (_fallback)
-		return _fallback->isDoubleByte(chr);
-	return false;
+	// Answered from the CODE PAGE, not from the fallback font and not from
+	// glyph coverage. The renderer calls this with a single lead byte to
+	// decide whether to fetch a second one, long before a code point exists.
+	//
+	// Delegating to the fallback was wrong and visibly so: with a Japanese
+	// bundle the fallback is the game's own resource font, which reports
+	// false for everything, so "ゲーム開始" was walked one byte at a time and
+	// drawn as "?Q?[???J?n" - exactly the garbage that appeared on screen.
+	if (chr > 0xFF)
+		return true;	// already a packed pair
+	const byte b = chr & 0xFF;
+	switch (_codePage) {
+	case Common::kWindows932:	// Shift-JIS
+		return (b >= 0x81 && b <= 0x9F) || (b >= 0xE0 && b <= 0xFC);
+	case Common::kWindows949:	// EUC-KR / UHC
+		return b >= 0x81 && b <= 0xFE;
+	case Common::kWindows936:	// GBK
+	case Common::kWindows950:	// Big5
+		return b >= 0x81 && b <= 0xFE;
+	default:
+		return false;
+	}
 }
 
 byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {

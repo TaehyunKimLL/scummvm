@@ -592,7 +592,12 @@ reg_t GfxPaint16::kernelDisplay(const char *text, uint16 languageSplitter, int a
 	// To make sure that the hires font used by PQ2 PC-98 and by the Korean fan translations does not get overdrawn we update the
 	// display area before printing the text. The other (non-PQ2) PC-98 versions use a lowres font here, so this fix is only for
 	// PQ2 PC-98 and for the Korean fan translations.
-	bool needCJKFix = (g_sci->getLanguage() == Common::KO_KOR || (g_sci->getPlatform() == Common::kPlatformPC98 && g_sci->getGameId() == GID_PQ2));
+	// One predicate for every hires double-byte path; see
+	// SciEngine::usesHiresDoubleByteText(). Spelling this as a language test
+	// meant a Japanese SCITRS bundle skipped the pre-update and its glyphs
+	// were composited away - measured, 76 correct draw calls and a blank
+	// screen.
+	bool needCJKFix = g_sci->usesHiresDoubleByteText();
 	if (needCJKFix && !_screen->_picNotValid && bRedraw)
 		bitsShow(rect);
 

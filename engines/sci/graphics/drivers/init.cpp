@@ -93,6 +93,13 @@ static const GfxDriverInfo _gfxDriverInfos[] = {
 	{ Common::kRenderDefault, Common::kPlatformWindows, SCI_VERSION_1_1, SCI_VERSION_1_1, GID_KQ6, Common::UNK_LANG, kEnable, INITPROCS1(WindowsGfx256Colors), 1 },
 	{ Common::kRenderDefault, Common::kPlatformDOS, SCI_VERSION_1_1, SCI_VERSION_1_1, GID_KQ6, Common::UNK_LANG, kEnable, INITPROCS1(WindowsGfx256Colors), 1 },
 	{ Common::kRenderDefault, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_1, GID_ALL, Common::KO_KOR, kUnused, INITPROCS1(UpscaledGfx), 0 },
+	// Japanese needs the same upscaled driver as Korean: double-byte glyphs
+	// are drawn on the hires text plane, and the default driver's
+	// drawTextFontGlyph() is not implemented, so a Japanese translation on a
+	// DOS release dies with "I don't want to initialize, when not being in
+	// upscaled hires mode". The PC98 and FM-TOWNS entries above still win for
+	// those platforms, since they are matched on platform first.
+	{ Common::kRenderDefault, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_1, GID_ALL, Common::JA_JPN, kUnused, INITPROCS1(UpscaledGfx), 0 },
 	{ Common::kRenderDefault, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_0_LATE, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS1(GfxDefault), 0 },
 	{ Common::kRenderDefault, Common::kPlatformUnknown, SCI_VERSION_01, SCI_VERSION_1_1, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS1(GfxDefault), 1 }
 };
