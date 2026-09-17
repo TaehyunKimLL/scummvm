@@ -21,6 +21,7 @@
 
 #include "sci/graphics/fontunicode.h"
 #include "sci/graphics/screen.h"
+#include "sci/sci.h"
 
 #include "common/file.h"
 #include "common/textconsole.h"
@@ -181,6 +182,19 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 	const int cells = _widths[g];
 	const int w = _cellWidth * cells;
 
+	// Double-byte glyphs are drawn on the hires text plane at twice the lowres
+	// coordinates, exactly as GfxFontKorean does via putHangulChar. Writing
+	// lowres pixels here instead renders nothing visible: the upscaled
+	// background is composited over them. That was measured - the glyph draw
+	// calls arrived with correct code points and coordinates while the screen
+	// stayed blank.
+	//
+	// Expand to one byte per pixel with 0xff meaning "unset", the convention
+	// the driver expects.
+	_glyphScratch.resize((uint)w * _cellHeight);
+	byte *dst = _glyphScratch.begin();
+	memset(dst, 0xff, (uint)w * _cellHeight);
+
 	for (int y = 0; y < _cellHeight; y++) {
 		for (int x = 0; x < w; x++) {
 			if (!pixelSet(g, x, y))
@@ -189,9 +203,11 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 			// every other pixel so the glyph reads as disabled.
 			if (greyedOutput && ((top + y) % 2) == ((left + x) % 2))
 				continue;
-			_screen->putFontPixel(top, left + x, y, color);
+			dst[y * w + x] = color;
 		}
 	}
+
+	_screen->putHiresGlyph(dst, w, _cellHeight, left, top, color);
 }
 
 void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,
@@ -219,6 +235,110 @@ void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,
 			buffer[destY * width + destX] = color;
 		}
 	}
+}
+
+GfxFontUnicodeAdapter::GfxFontUnicodeAdapter(GfxFontUnicode *font,
+											 Common::CodePage codePage,
+											 GfxFont *fallback,
+											 GuiResourceId resourceId)
+	: _font(font), _fallback(fallback), _codePage(codePage),
+	  _resourceId(resourceId) {
+}
+
+GfxFontUnicodeAdapter::~GfxFontUnicodeAdapter() {
+	// Neither the wrapped font nor the fallback is owned: both live in the
+	// font cache, which deletes them.
+}
+
+uint32 GfxFontUnicodeAdapter::toCodePoint(uint32 packed) const {
+	if (packed < 0x80)
+		return packed;	// ASCII is the same in every code page we handle
+
+	Common::String bytes;
+	if (packed > 0xFF) {
+		// GfxText16 packs the LEAD byte in the low half and the trail byte in
+		// the high half - reversed relative to the encoding - so undo that
+		// here rather than anywhere else.
+		bytes += (char)(packed & 0xFF);
+		bytes += (char)((packed >> 8) & 0xFF);
+	} else {
+		bytes += (char)packed;
+	}
+
+	const Common::U32String decoded = bytes.decode(_codePage);
+	if (decoded.empty())
+		return 0;
+	return decoded[0];
+}
+
+byte GfxFontUnicodeAdapter::getHeight() {
+	// Halved below SCI2 for the same reason as getCharWidth: the glyph is
+	// drawn on the hires plane, so its lowres line height is half the cell.
+	// GfxFontKorean::getHeight does the identical `>> 1`.
+	const byte h = _font->getHeight();
+	return (getSciVersion() >= SCI_VERSION_2) ? h : (h >> 1);
+}
+
+bool GfxFontUnicodeAdapter::isDoubleByte(uint32 chr) {
+	// Answered from the ENCODING, not from the glyph: the renderer calls this
+	// with a single lead byte to decide whether to fetch a second one, long
+	// before a code point exists. Getting this from the font would break the
+	// byte walk.
+	if (_fallback)
+		return _fallback->isDoubleByte(chr);
+	return false;
+}
+
+byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
+	const uint32 cp = toCodePoint(chr);
+	if (cp && _font->hasGlyph(cp)) {
+		const byte w = _font->getCharWidth(cp);
+		// The glyph is drawn on the hires plane at twice the lowres
+		// coordinates, so its advance must be reported halved - exactly what
+		// GfxFontKorean::getCharWidth does with `>> 1` below SCI2. Reporting
+		// the full width makes text run past its box; that was measured, with
+		// the last two syllables of a menu entry spilling outside the button.
+		return (getSciVersion() >= SCI_VERSION_2) ? w : (w >> 1);
+	}
+	if (_fallback)
+		return _fallback->getCharWidth(chr);
+	return 0;
+}
+
+byte GfxFontUnicodeAdapter::getCharHeight(uint32 chr) {
+	const uint32 cp = toCodePoint(chr);
+	if (cp && _font->hasGlyph(cp)) {
+		const byte h = _font->getCharHeight(cp);
+		return (getSciVersion() >= SCI_VERSION_2) ? h : (h >> 1);
+	}
+	if (_fallback)
+		return _fallback->getCharHeight(chr);
+	return 0;
+}
+
+void GfxFontUnicodeAdapter::draw(uint32 chr, int16 top, int16 left, byte color,
+								 bool greyedOutput) {
+	const uint32 cp = toCodePoint(chr);
+	if (cp && _font->hasGlyph(cp)) {
+		_font->draw(cp, top, left, color, greyedOutput);
+		return;
+	}
+	// No glyph: fall back rather than drawing nothing, so a font with partial
+	// coverage degrades to the old rendering instead of to blank space.
+	if (_fallback)
+		_fallback->draw(chr, top, left, color, greyedOutput);
+}
+
+void GfxFontUnicodeAdapter::drawToBuffer(uint32 chr, int16 top, int16 left,
+										 byte color, bool greyedOutput,
+										 byte *buffer, int16 width, int16 height) {
+	const uint32 cp = toCodePoint(chr);
+	if (cp && _font->hasGlyph(cp)) {
+		_font->drawToBuffer(cp, top, left, color, greyedOutput, buffer, width, height);
+		return;
+	}
+	if (_fallback)
+		_fallback->drawToBuffer(chr, top, left, color, greyedOutput, buffer, width, height);
 }
 
 } // End of namespace Sci

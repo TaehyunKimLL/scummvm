@@ -124,6 +124,18 @@ public:
 	void putKanjiChar(Graphics::FontSJIS *commonFont, int16 x, int16 y, uint16 chr, byte color);
 	void putHangulChar(Graphics::FontKorean *commonFont, int16 x, int16 y, uint16 chr, byte color);
 
+	/**
+	 * Draw a pre-rendered 1bpp glyph onto the hires text plane.
+	 *
+	 * Double-byte text does not go through putFontPixel: it is drawn at twice
+	 * the lowres coordinates via the graphics driver, on top of the upscaled
+	 * background. A caller that writes lowres pixels instead is painted over
+	 * by the upscale and draws nothing visible.
+	 *
+	 * @param glyph  one byte per pixel, 0xff where the pixel is set
+	 */
+	void putHiresGlyph(const byte *glyph, int16 width, int16 height, int16 x, int16 y, byte color);
+
 	int bitsGetDataSize(Common::Rect rect, byte mask);
 	void bitsSave(Common::Rect rect, byte mask, byte *memoryPtr);
 	void bitsGetRect(const byte *memoryPtr, Common::Rect *destRect);

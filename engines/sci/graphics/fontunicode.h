@@ -24,6 +24,7 @@
 
 #include "common/array.h"
 #include "common/str.h"
+#include "common/str-enc.h"
 #include "sci/graphics/scifont.h"
 
 namespace Sci {
@@ -99,6 +100,58 @@ private:
 	byte _bitsPerPixel;
 	uint32 _rowBytes;
 	uint32 _bytesPerGlyph;
+
+	/** Scratch buffer for expanding a glyph to one byte per pixel. */
+	Common::Array<byte> _glyphScratch;
+};
+
+/**
+ * Presents a GfxFontUnicode to the byte-oriented text renderer.
+ *
+ * GfxText16 assembles a packed byte pair - lead byte in the low half, trail
+ * byte in the high half - and its line-wrapping arithmetic counts BYTES:
+ * GetLongest() returns a byte count that callers use to index the original
+ * string. Rewriting that contract would touch every SCI game the engine
+ * supports.
+ *
+ * So the byte string stays the transport and the conversion happens here, at
+ * the font boundary: this adapter accepts the packed pair the renderer already
+ * produces, decodes it to a Unicode code point using the game's code page, and
+ * delegates to GfxFontUnicode. Wrapping arithmetic, byte counts and the
+ * script-visible representation are all untouched - which is what M4's
+ * measurement requires, since a real SCI0 game walks dialogue bytes.
+ *
+ * Widths are reported from the wrapped font but clamped to the cell geometry
+ * the renderer assumes, so a code-point font cannot change where text wraps.
+ */
+class GfxFontUnicodeAdapter : public GfxFont {
+public:
+	GfxFontUnicodeAdapter(GfxFontUnicode *font, Common::CodePage codePage,
+	                      GfxFont *fallback, GuiResourceId resourceId);
+	~GfxFontUnicodeAdapter() override;
+
+	GuiResourceId getResourceId() override { return _resourceId; }
+	byte getHeight() override;
+	bool isDoubleByte(uint32 chr) override;
+	byte getCharWidth(uint32 chr) override;
+	byte getCharHeight(uint32 chr) override;
+	void draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) override;
+	void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput,
+	                  byte *buffer, int16 width, int16 height) override;
+
+private:
+	/**
+	 * Decode a packed byte pair into a Unicode code point.
+	 *
+	 * Returns 0 when the bytes do not form a character in this code page,
+	 * which the callers treat as "no glyph" rather than guessing.
+	 */
+	uint32 toCodePoint(uint32 packed) const;
+
+	GfxFontUnicode *_font;
+	GfxFont *_fallback;
+	Common::CodePage _codePage;
+	GuiResourceId _resourceId;
 };
 
 } // End of namespace Sci

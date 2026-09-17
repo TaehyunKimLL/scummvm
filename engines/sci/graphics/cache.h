@@ -57,6 +57,11 @@ private:
 	GfxPalette *_palette;
 
 	FontCache _cachedFonts;
+	/**
+	 * Fonts an adapter wraps but does not own. They are not in _cachedFonts
+	 * (only the adapter is), so the cache has to delete them separately.
+	 */
+	Common::Array<GfxFont *> _ownedFonts;
 	ViewCache _cachedViews;
 };
 

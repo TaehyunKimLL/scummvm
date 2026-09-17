@@ -493,6 +493,17 @@ void GfxScreen::putHangulChar(Graphics::FontKorean *commonFont, int16 x, int16 y
 	_gfxDrv->drawTextFontGlyph(_hiresGlyphBuffer, charWidth, x << 1, y << 1, charWidth, commonFont->getFontHeight(), 0xff, _paletteModsEnabled ? _paletteMods : nullptr, _paletteMapScreen);
 }
 
+void GfxScreen::putHiresGlyph(const byte *glyph, int16 width, int16 height,
+							  int16 x, int16 y, byte color) {
+	// Same path and the same coordinate doubling as putHangulChar: the glyph
+	// lands on the hires text plane through the driver, not in the lowres
+	// buffer. The driver expects 0xff for unset pixels, matching the memset
+	// putHangulChar does before rendering.
+	_gfxDrv->drawTextFontGlyph(glyph, width, x << 1, y << 1, width, height, 0xff,
+							   _paletteModsEnabled ? _paletteMods : nullptr,
+							   _paletteMapScreen);
+}
+
 void GfxScreen::putKanjiChar(Graphics::FontSJIS *commonFont, int16 x, int16 y, uint16 chr, byte color) {
 	// We put hires SJIS ROM chars onto upscaled background, so we need to adjust coordinates. Caller coordinates are
 	// low-res ones.

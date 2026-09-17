@@ -30,6 +30,7 @@
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/fontsjis.h"
 #include "sci/graphics/fontkorean.h"
+#include "sci/graphics/fontunicode.h"
 #include "sci/graphics/view.h"
 
 namespace Sci {
@@ -50,6 +51,13 @@ void GfxCache::purgeFontCache() {
 	}
 
 	_cachedFonts.clear();
+
+	// Fonts wrapped by an adapter are not in _cachedFonts, so they would
+	// otherwise leak - and must be deleted AFTER the adapters that point at
+	// them.
+	for (uint i = 0; i < _ownedFonts.size(); i++)
+		delete _ownedFonts[i];
+	_ownedFonts.clear();
 }
 
 void GfxCache::purgeViewCache() {
@@ -67,8 +75,24 @@ GfxFont *GfxCache::getFont(GuiResourceId fontId) {
 
 	if (!_cachedFonts.contains(fontId)) {
 		// Create special Korean font in korean games, when font 1001 is selected
-		if ((fontId == 1001) && (g_sci->getLanguage() == Common::KO_KOR))
-			_cachedFonts[fontId] = new GfxFontKorean(_screen, fontId);
+		if ((fontId == 1001) && (g_sci->getLanguage() == Common::KO_KOR)) {
+			// Prefer a SCVMUNI bundle when the game ships one: it is indexed
+			// by code point, so it can carry punctuation, hanja and jamo that
+			// the syllable-only SCVMSJIS font has no slot for. The legacy font
+			// stays as the fallback, so partial coverage degrades to the old
+			// rendering rather than to blank space.
+			GfxFontUnicode *uniFont = new GfxFontUnicode(_screen, fontId);
+			if (uniFont->load("korean.uni")) {
+				GfxFont *legacy = new GfxFontKorean(_screen, fontId);
+				_cachedFonts[fontId] = new GfxFontUnicodeAdapter(
+					uniFont, g_sci->getSciLanguageCodePage(), legacy, fontId);
+				_ownedFonts.push_back(uniFont);
+				_ownedFonts.push_back(legacy);
+			} else {
+				delete uniFont;
+				_cachedFonts[fontId] = new GfxFontKorean(_screen, fontId);
+			}
+		}
 		// Create special SJIS font in japanese games, when font 900 is selected
 		else if ((fontId == 900) && (g_sci->getLanguage() == Common::JA_JPN))
 			_cachedFonts[fontId] = new GfxFontSjis(_screen, fontId);
