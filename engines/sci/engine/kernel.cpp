@@ -27,7 +27,6 @@
 #include "sci/engine/kernel_tables.h"
 #include "sci/engine/state.h"
 #include "sci/engine/workarounds.h"
-#include "sci/engine/taint.h" // M4 PROBE
 
 #include "common/system.h"
 
@@ -934,12 +933,8 @@ Common::String Kernel::lookupText(reg_t address, int index) {
 		while (textlen-- && *seeker++)
 			;
 
-	if (textlen) {
-		// M4 PROBE: bytes of a TEXT resource entered the engine. A fan
-		// translation replaces exactly these bytes.
-		g_sciTaint.noteResourceText("TEXTres", (uint32)strlen(seeker));
+	if (textlen)
 		return seeker;
-	}
 
 	warning("Index %d out of bounds in text.%03d", _index, address.getOffset());
 	return "";

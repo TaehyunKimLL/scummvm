@@ -27,7 +27,6 @@
 #include "sci/engine/tts.h"
 #include "sci/engine/workarounds.h"
 #include "sci/util.h"
-#include "sci/engine/taint.h" // M4 PROBE
 
 namespace Sci {
 
@@ -505,10 +504,6 @@ Common::String MessageState::processString(const char *s, uint32 maxLength) {
 }
 
 void MessageState::outputString(reg_t buf, const Common::String &str) {
-	// M4 PROBE TAINT SOURCE: MESSAGE-resource text lands in a script buffer.
-	g_sciTaint.noteResourceText("MESSAGEres", str.size());
-	g_sciTaint.taint(_segMan, buf, str.size() + 1, "kMessage", str.c_str());
-
 #ifdef ENABLE_SCI32
 	if (getSciVersion() >= SCI_VERSION_2) {
 		SciArray *sciString = _segMan->lookupArray(buf);

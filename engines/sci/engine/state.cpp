@@ -31,7 +31,6 @@
 #include "sci/engine/vm.h"
 #include "sci/engine/script.h"
 #include "sci/engine/message.h"
-#include "sci/engine/taint.h" // M4 PROBE
 
 namespace Sci {
 

@@ -38,7 +38,6 @@
 #include "sci/engine/selector.h"
 #include "sci/engine/tts.h"
 #include "sci/engine/kernel.h"
-#include "sci/engine/taint.h" // M4 PROBE
 #include "sci/graphics/animate.h"
 #include "sci/graphics/cache.h"
 #include "sci/graphics/compare.h"
@@ -1089,10 +1088,6 @@ reg_t kEditControl(EngineState *s, int argc, reg_t *argv) {
 
 		switch (controlType) {
 		case SCI_CONTROLS_TYPE_TEXTEDIT:
-			// M4 PROBE: the edit control. Its buffer is user-typed text.
-			g_sciTaint.setPhase("editcontrol");
-			g_sciTaint.sink(s->_segMan, "kEditControl_text",
-				readSelector(s->_segMan, controlObject, SELECTOR(text)), 0, "edit buffer");
 			// Only process textedit controls in here
 			g_sci->_gfxControls16->kernelTexteditChange(controlObject, eventObject);
 			break;
@@ -1275,15 +1270,9 @@ reg_t kDisplay(EngineState *s, int argc, reg_t *argv) {
 	if (textp.getSegment()) {
 		argc--; argv++;
 		text = s->_segMan->getString(textp);
-		// M4 PROBE: kDisplay with a heap pointer. Is the text it draws
-		// resource-derived (i.e. would a translation change these bytes)?
-		g_sciTaint.sink(s->_segMan, "kDisplay_ptr", textp, 0, "text arg is heap pointer");
 	} else {
 		argc--; argc--; argv++; argv++;
 		text = g_sci->getKernel()->lookupText(textp, index);
-		// M4 PROBE: kDisplay straight from a TEXT resource id: translatable,
-		// but the script never held the bytes.
-		g_sciTaint.sinkVerdict("kDisplay_res", TV_IMMEDIATE, "text arg is TEXT resource id");
 	}
 
 	uint16 languageSplitter = 0;

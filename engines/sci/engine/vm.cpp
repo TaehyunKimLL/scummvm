@@ -36,7 +36,6 @@
 #include "sci/engine/gc.h"
 #include "sci/engine/workarounds.h"
 #include "sci/engine/scriptdebug.h"
-#include "sci/engine/taint.h" // M4 PROBE
 
 namespace Sci {
 
@@ -159,14 +158,6 @@ static reg_t read_var(EngineState *s, int type, int index) {
 				break;
 			}
 		}
-		// M4 PROBE: the raw VM path. A word read straight out of a global or
-		// local variable block - no kernel call. If the two bytes it reads
-		// overlap resource-derived text, a script is doing byte/word
-		// arithmetic on translatable text without any kernel op.
-		if (type == VAR_GLOBAL || type == VAR_LOCAL)
-			g_sciTaint.vmVar(s->_segMan, false, type, index,
-				(uint16)s->variablesSegment[type], (uint32)index * 2);
-
 		return s->variables[type][index];
 	} else
 		return s->r_acc;
@@ -181,17 +172,6 @@ static void write_var(EngineState *s, int type, int index, reg_t value) {
 		//  if we don't remove the segment, we would get false-positive uninitialized reads later
 		if (type == VAR_TEMP && value.getSegment() == kUninitializedSegment)
 			value.setSegment(0);
-
-		// M4 PROBE: a script writing the new-room global IS the scene
-		// transition in SCI0; EngineState::setRoomNumber() is a ScummVM
-		// helper the game scripts never call.
-		if (type == VAR_GLOBAL && index == kGlobalVarNewRoomNo)
-			g_sciTaint.noteRoom((int)value.toUint16());
-
-		// M4 PROBE: raw VM word write into a global/local variable block.
-		if (type == VAR_GLOBAL || type == VAR_LOCAL)
-			g_sciTaint.vmVar(s->_segMan, true, type, index,
-				(uint16)s->variablesSegment[type], (uint32)index * 2);
 
 		s->variables[type][index] = value;
 
@@ -338,20 +318,6 @@ static void addKernelCallToExecStack(EngineState *s, int kernelCallNr, int kerne
 
 static void callKernelFunc(EngineState *s, int kernelCallNr, int argc) {
 	Kernel *kernel = g_sci->getKernel();
-
-	// M4 PROBE: Cascade Quest hands kGetFarText a VM-STACK address as the
-	// destination buffer, and the VM stack is reused by every later frame.
-	// Drop taint at or above the live stack pointer before classifying this
-	// call, otherwise a dead frame's dialogue makes an unrelated later
-	// buffer look TAINTED. Without this the measurement over-reports.
-	{
-		static SegmentId m4StackSeg = 0;
-		if (!m4StackSeg)
-			m4StackSeg = s->_segMan->findSegmentByType(SEG_TYPE_STACK);
-		if (m4StackSeg && s->stack_base && s->xs)
-			g_sciTaint.pruneStack((uint16)m4StackSeg,
-				(uint32)((s->xs->sp - s->stack_base) * 2));
-	}
 
 	if (kernelCallNr >= (int)kernel->_kernelFuncs.size())
 		error("Invalid kernel function 0x%x requested", kernelCallNr);

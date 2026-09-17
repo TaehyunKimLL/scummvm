@@ -28,14 +28,11 @@
 #include "sci/engine/state.h"
 #include "sci/engine/selector.h"
 #include "sci/engine/tts.h"
-#include "sci/engine/taint.h" // M4 PROBE
-#include "sci/engine/seg_manager.h" // M4 PROBE
 
 namespace Sci {
 
 reg_t kStrEnd(EngineState *s, int argc, reg_t *argv) {
 	reg_t address = argv[0];
-	g_sciTaint.sink(s->_segMan, "kStrEnd", argv[0], 0, "arg0"); // M4 PROBE
 	address.incOffset(s->_segMan->strlen(address));
 
 	return address;
@@ -55,15 +52,6 @@ reg_t kStrCat(EngineState *s, int argc, reg_t *argv) {
 		s2 = g_sci->strSplit(s2.c_str(), nullptr);
 	}
 
-	// M4 PROBE: both operands are script-visible byte ranges; the result is
-	// written back over argv[0], so taint propagates src -> dest.
-	{
-		TaintVerdict v0 = g_sciTaint.sink(s->_segMan, "kStrCat", argv[0], 0, "dest/arg0");
-		TaintVerdict v1 = g_sciTaint.sink(s->_segMan, "kStrCat", argv[1], 0, "src/arg1");
-		if (v0 == TV_TAINTED || v1 == TV_TAINTED)
-			g_sciTaint.taint(s->_segMan, argv[0], s1.size() + s2.size() + 1, "propCat", s1.c_str());
-	}
-
 	s1 += s2;
 	s->_segMan->strcpy_(argv[0], s1.c_str());
 	return argv[0];
@@ -72,26 +60,6 @@ reg_t kStrCat(EngineState *s, int argc, reg_t *argv) {
 reg_t kStrCmp(EngineState *s, int argc, reg_t *argv) {
 	Common::String s1 = s->_segMan->getString(argv[0]);
 	Common::String s2 = s->_segMan->getString(argv[1]);
-
-	// M4 PROBE
-	{
-		TaintVerdict a = g_sciTaint.sink(s->_segMan, "kStrCmp", argv[0], 0, argc > 2 ? "arg0/ncmp" : "arg0");
-		TaintVerdict b = g_sciTaint.sink(s->_segMan, "kStrCmp", argv[1], 0, argc > 2 ? "arg1/ncmp" : "arg1");
-		Common::String o = s->getCurrentCallOrigin().toString();
-		g_sciTaint.noteOrigin("kStrCmp", a, o);
-		g_sciTaint.noteOrigin("kStrCmp", b, o);
-		// Which operand is the haystack is not knowable a priori, so record
-		// the SHORTER one as the needle - a scan compares a long tainted
-		// string against a short literal.
-		const bool aT = (a == TV_TAINTED), bT = (b == TV_TAINTED);
-		const int n = (argc > 2) ? argv[2].toSint16() : -1;
-		if (aT && s1.size() >= s2.size())
-			g_sciTaint.noteCompare(s2, n, true, o);
-		else if (bT && s2.size() >= s1.size())
-			g_sciTaint.noteCompare(s1, n, true, o);
-		else if (aT || bT)
-			g_sciTaint.noteCompare(aT ? s2 : s1, n, true, o);
-	}
 
 	int result;
 	if (argc > 2) {
@@ -104,23 +72,6 @@ reg_t kStrCmp(EngineState *s, int argc, reg_t *argv) {
 
 
 reg_t kStrCpy(EngineState *s, int argc, reg_t *argv) {
-	// M4 PROBE: the with-length form is the byte-arithmetic one (a script
-	// chooses a byte count, possibly mid-character).
-	{
-		const uint32 n = (argc > 2) ? (uint32)ABS(argv[2].toSint16()) : 0;
-		const char *note = (argc > 2) ? "3-arg/with-length" : "2-arg/whole-string";
-		Common::String o = s->getCurrentCallOrigin().toString();
-		g_sciTaint.noteOrigin("kStrCpy_dest",
-			g_sciTaint.sink(s->_segMan, "kStrCpy_dest", argv[0], n, note), o);
-		TaintVerdict vs = g_sciTaint.sink(s->_segMan, "kStrCpy_src", argv[1], n, note);
-		g_sciTaint.noteOrigin("kStrCpy_src", vs, o);
-		const uint32 copied = n ? n : (uint32)(s->_segMan->getString(argv[1]).size() + 1);
-		if (vs == TV_TAINTED)
-			g_sciTaint.taint(s->_segMan, argv[0], copied, "propCpy", s->_segMan->getString(argv[1]).c_str());
-		else
-			g_sciTaint.untaint(argv[0], copied);
-	}
-
 	if (argc > 2) {
 		int length = argv[2].toSint16();
 
@@ -153,20 +104,6 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 	uint16 offset = argv[1].toUint16();
 	if (argc > 2)
 		newvalue = argv[2].toSint16();
-
-	// M4 PROBE: this is the decisive sink. A script reads (argc==2) or writes
-	// (argc>2) ONE byte at a script-chosen offset. Classify the single byte.
-	{
-		reg_t at = argv[0];
-		at.incOffset(offset);
-		const char *nm = argc > 2 ? "kStrAt_write" : "kStrAt_read";
-		TaintVerdict v = g_sciTaint.sink(s->_segMan, nm, at, 1,
-			Common::String::format("base=%04x:%04x off=%u", PRINT_REG(argv[0]), offset).c_str());
-		Common::String o = s->getCurrentCallOrigin().toString();
-		g_sciTaint.noteOrigin(nm, v, o);
-		g_sciTaint.noteStrAtOffset(Common::String::format("%s %s", nm, o.c_str()),
-			offset, v == TV_TAINTED);
-	}
 
 	g_sci->_tts->setMessage(s->_segMan->getString(argv[0]));
 
@@ -218,7 +155,6 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 
 
 reg_t kReadNumber(EngineState *s, int argc, reg_t *argv) {
-	g_sciTaint.sink(s->_segMan, "kReadNumber", argv[0], 0, "arg0"); // M4 PROBE
 	Common::String source_str = s->_segMan->getString(argv[0]);
 	const char *source = source_str.c_str();
 
@@ -312,14 +248,6 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 	}
 
 	int index = (startarg == 3) ? argv[2].toUint16() : 0;
-	// M4 PROBE: a format string coming from a text resource (position.segment
-	// == 0) is itself translatable; from the heap it is whatever it was.
-	bool m4FormatFromRes = (position.getSegment() == 0);
-	if (m4FormatFromRes)
-		g_sciTaint.sinkVerdict("kFormat_fmt", TV_IMMEDIATE, "format string is a TEXT resource id");
-	else
-		g_sciTaint.sink(s->_segMan, "kFormat_fmt", position, 0, "format string is a heap pointer");
-
 	Common::String source_str = g_sci->getKernel()->lookupText(position, index);
 	const char* source = source_str.c_str();
 
@@ -381,20 +309,8 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 			case 's': { /* Copy string */
 				reg_t reg = argv[startarg + paramindex];
 
-				// M4 PROBE: %s operand. Segment 0 -> a TEXT resource id
-				// (translatable but never byte-addressed); otherwise a heap
-				// string that may hold resource text.
-				if (reg.getSegment() == 0)
-					g_sciTaint.sinkVerdict("kFormat_pcts", TV_IMMEDIATE, "%s from TEXT resource id");
-				else
-					g_sciTaint.sink(s->_segMan, "kFormat_pcts", reg, 0, "%s from heap pointer");
-
 				Common::String tempsource = g_sci->getKernel()->lookupText(reg,
 				                                  arguments[paramindex + 1]);
-				bool m4ArgTainted = (reg.getSegment() == 0) ||
-					(g_sciTaint.classify(s->_segMan, reg, 0) == TV_TAINTED);
-				if (m4ArgTainted)
-					m4FormatFromRes = true;
 				int slen = tempsource.size();
 				int extralen = strLength - slen;
 				assert((target - targetbuf) + extralen <= maxsize);
@@ -518,23 +434,12 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 
 	*target = 0; /* Terminate string */
 
-	// M4 PROBE TAINT SOURCE / PROPAGATION: the formatted result is written to
-	// a script buffer. If any ingredient was resource text, the result is too.
-	g_sciTaint.sink(s->_segMan, "kFormat_dest", dest, strlen(targetbuf) + 1, "dest/arg0");
-	if (m4FormatFromRes)
-		g_sciTaint.taint(s->_segMan, dest, strlen(targetbuf) + 1, "kFormat", targetbuf);
-	else
-		g_sciTaint.untaint(dest, strlen(targetbuf) + 1);
-
 	s->_segMan->strcpy_(dest, targetbuf);
 
 	return dest; /* Return target addr */
 }
 
 reg_t kStrLen(EngineState *s, int argc, reg_t *argv) {
-	// M4 PROBE
-	g_sciTaint.noteOrigin("kStrLen", g_sciTaint.sink(s->_segMan, "kStrLen", argv[0], 0, "arg0"),
-		s->getCurrentCallOrigin().toString());
 	return make_reg(0, s->_segMan->strlen(argv[0]));
 }
 
@@ -549,9 +454,6 @@ reg_t kGetFarText(EngineState *s, int argc, reg_t *argv) {
 	// scripts.
 	if (argv[2] == NULL_REG)
 		s->_segMan->allocDynmem(text.size() + 1, "Mac FarText", &argv[2]);
-
-	// M4 PROBE TAINT SOURCE: resource text is copied into a script buffer.
-	g_sciTaint.taint(s->_segMan, argv[2], text.size() + 1, "kGetFarText", text.c_str());
 
 	s->_segMan->strcpy_(argv[2], text.c_str()); // Copy the string and get return value
 	return argv[2];
@@ -705,16 +607,6 @@ reg_t kStrSplit(EngineState *s, int argc, reg_t *argv) {
 						PRINT_REG(argv[0]), str.size() + 1, str.c_str());
 		return NULL_REG;
 	}
-	// M4 PROBE
-	{
-		TaintVerdict vs = g_sciTaint.sink(s->_segMan, "kStrSplit_src", argv[1], 0, "arg1");
-		g_sciTaint.sink(s->_segMan, "kStrSplit_dest", argv[0], 0, "arg0");
-		if (vs == TV_TAINTED)
-			g_sciTaint.taint(s->_segMan, argv[0], str.size() + 1, "propSplit", str.c_str());
-		else
-			g_sciTaint.untaint(argv[0], str.size() + 1);
-	}
-
 	s->_segMan->strcpy_(argv[0], str.c_str());
 	return argv[0];
 }
@@ -736,12 +628,6 @@ reg_t kStringNew(EngineState *s, int argc, reg_t *argv) {
 
 reg_t kStringGetChar(EngineState *s, int argc, reg_t *argv) {
 	const uint16 index = argv[1].toUint16();
-	// M4 PROBE: SCI32 equivalent of kStrAt(read).
-	{
-		reg_t at = argv[0];
-		at.incOffset(index);
-		g_sciTaint.sink(s->_segMan, "kStringGetChar", at, 1, "SCI32");
-	}
 
 	// Game scripts may contain static raw string data
 	if (!s->_segMan->isArray(argv[0])) {
@@ -768,8 +654,6 @@ reg_t kStringFree(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kStringCompare(EngineState *s, int argc, reg_t *argv) {
-	g_sciTaint.sink(s->_segMan, "kStringCompare", argv[0], 0, "SCI32/arg0"); // M4 PROBE
-	g_sciTaint.sink(s->_segMan, "kStringCompare", argv[1], 0, "SCI32/arg1"); // M4 PROBE
 	const Common::String string1 = s->_segMan->getString(argv[0]);
 	const Common::String string2 = s->_segMan->getString(argv[1]);
 
@@ -784,7 +668,6 @@ reg_t kStringCompare(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kStringLength(EngineState *s, int argc, reg_t *argv) {
-	g_sciTaint.sink(s->_segMan, "kStringLength", argv[0], 0, "SCI32"); // M4 PROBE
 	return make_reg(0, s->_segMan->getString(argv[0]).size());
 }
 
@@ -919,18 +802,11 @@ reg_t kStringFormatAt(EngineState *s, int argc, reg_t *argv) {
 	if (s->_segMan->isObject(argv[1])) {
 		source = readSelector(s->_segMan, argv[1], SELECTOR(data));
 	}
-	// M4 PROBE
-	{
-		TaintVerdict vs = g_sciTaint.sink(s->_segMan, "kStringFormatAt", source, 0, "SCI32/src");
-		if (vs == TV_TAINTED)
-			g_sciTaint.taint(s->_segMan, stringHandle, 1, "propFmt32", "");
-	}
 	target->fromString(format(s->_segMan->getString(source), argc - 2, argv + 2));
 	return stringHandle;
 }
 
 reg_t kStringToInteger(EngineState *s, int argc, reg_t *argv) {
-	g_sciTaint.sink(s->_segMan, "kStringToInteger", argv[0], 0, "SCI32"); // M4 PROBE
 	Common::String string = s->_segMan->getString(argv[0]);
 	int16 result = (int16)atoi(string.c_str());
 	return make_reg(0, result);
@@ -945,7 +821,6 @@ reg_t kStringTrim(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kStringToUpperCase(EngineState *s, int argc, reg_t *argv) {
-	g_sciTaint.sink(s->_segMan, "kStringToUpperCase", argv[0], 0, "SCI32"); // M4 PROBE
 	Common::String string = s->_segMan->getString(argv[0]);
 	string.toUppercase();
 	s->_segMan->strcpy_(argv[0], string.c_str());
@@ -953,7 +828,6 @@ reg_t kStringToUpperCase(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kStringToLowerCase(EngineState *s, int argc, reg_t *argv) {
-	g_sciTaint.sink(s->_segMan, "kStringToLowerCase", argv[0], 0, "SCI32"); // M4 PROBE
 	Common::String string = s->_segMan->getString(argv[0]);
 	string.toLowercase();
 	s->_segMan->strcpy_(argv[0], string.c_str());
