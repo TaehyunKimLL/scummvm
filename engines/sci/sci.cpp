@@ -297,6 +297,15 @@ Common::Error SciEngine::run() {
 	_scriptPatcher = new ScriptPatcher();
 	SegManager *segMan = new SegManager(_resMan, _scriptPatcher);
 
+	// A Korean fan patch ships Text.MAP/Text.Res beside the game data. This
+	// must be loaded BEFORE the graphics stack: getLanguage() reports KO_KOR
+	// once an overlay is present, and both SciGfxDriver::getRenderMode() and
+	// the driver table keyed on language run during GfxScreen construction.
+	// Loading it later selects GfxDefaultDriver, whose drawTextFontGlyph() is
+	// not implemented, and the first line of Korean text aborts the engine.
+	if (_textOverlay.load())
+		debug(1, "SCI: Korean text overlay active (%u resources)", _textOverlay.size());
+
 	// Load the Mac executable and fonts if available
 	if (getSciVersion() < SCI_VERSION_2 && getPlatform() == Common::kPlatformMacintosh) {
 		loadMacExecutable();
@@ -832,6 +841,15 @@ const char *SciEngine::getGameIdStr() const {
 }
 
 Common::Language SciEngine::getLanguage() const {
+	// A Korean fan patch is a third-party overlay, so detection - which keys
+	// off the original resources - still reports the game's shipped language.
+	// The presence of a loaded Text.MAP/Text.Res IS the signal that the text
+	// being drawn is Korean, and the KO_KOR paths in GfxText16/GfxCache are
+	// what make it render. Without this the translation loads and then draws
+	// as blank boxes, because every Korean path is gated on KO_KOR.
+	if (_textOverlay.isLoaded())
+		return Common::KO_KOR;
+
 	return _gameDescription->language;
 }
 

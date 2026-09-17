@@ -146,9 +146,11 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
 	_gfxDrv = SciGfxDriver::create(renderMode, _displayWidth, _displayHeight + extraHeight);
 	assert(_gfxDrv);
 
-	// Buffer for rendering a single two-byte character
-	if (_gfxDrv->driverBasedTextRendering())
-		_hiresGlyphBuffer = new byte[16 * 16]();
+	// Buffer for rendering a single two-byte character.
+	// Always allocated: a Korean/Japanese fan patch can be added to any game,
+	// including ones whose driver does not do its own text rendering, and the
+	// double-byte draw paths use this buffer unconditionally. 256 bytes.
+	_hiresGlyphBuffer = new byte[16 * 16]();
 
 	_displayPixels = _displayWidth * _displayHeight;
 
@@ -477,6 +479,13 @@ void GfxScreen::putMacChar(const Graphics::Font *commonFont, int16 x, int16 y, u
 void GfxScreen::putHangulChar(Graphics::FontKorean *commonFont, int16 x, int16 y, uint16 chr, byte color) {
 	// We put hires Hangul chars onto upscaled background, so we need to adjust coordinates. Caller coordinates are
 	// low-res ones. Same magic as for the Japanese SJIS characters...
+
+	// Defensive: the buffer is allocated unconditionally by the constructor,
+	// but drawing nothing is preferable to dereferencing null if that ever
+	// changes.
+	if (!_hiresGlyphBuffer)
+		return;
+
 	memset(_hiresGlyphBuffer, 0xff, 256);
 	// we don't use outline, so color 0 is actually not used
 	uint16 charWidth = commonFont->getCharWidth(chr);

@@ -29,6 +29,7 @@
 #include "sci/engine/vm_types.h"	// for Selector
 #include "sci/debug.h"	// for DebugState
 #include "sci/detection.h" // Shared code between detection and engine
+#include "sci/engine/text_overlay.h"
 
 struct ADGameDescription;
 
@@ -184,6 +185,9 @@ public:
 	const SciGameId &getGameId() const { return _gameId; }
 	const char *getGameIdStr() const;
 	Common::Language getLanguage() const;
+
+	/** Korean fan-patch Text.MAP/Text.Res override; empty when absent. */
+	const TextOverlay &getTextOverlay() const { return _textOverlay; }
 
 	/**
 	 * Returns true if the game's language direction is Right To Left.
@@ -407,6 +411,7 @@ private:
 	const ADGameDescription *_gameDescription;
 	const SciGameId _gameId;
 	ResourceManager *_resMan; /**< The resource manager */
+	TextOverlay _textOverlay; /**< Korean fan-patch text override */
 	ScriptPatcher *_scriptPatcher; /**< The script patcher */
 	EngineState *_gamestate;
 	Kernel *_kernel;

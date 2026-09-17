@@ -890,6 +890,15 @@ Common::String Kernel::lookupText(reg_t address, int index) {
 	if (address.getSegment())
 		return _segMan->getString(address);
 
+	// A Korean fan patch ships its translation as a Text.MAP/Text.Res pair
+	// that replaces whole TEXT resources. Consult it before touching the
+	// real resource; a resource the patch does not cover falls through.
+	{
+		Common::String overridden;
+		if (g_sci->getTextOverlay().getText(address.getOffset(), index, overridden))
+			return overridden;
+	}
+
 	ResourceId resourceId = ResourceId(kResourceTypeText, address.getOffset());
 	if (g_sci->getGameId() == GID_HOYLE3 && g_sci->getPlatform() == Common::kPlatformAmiga) {
 		// WORKAROUND: In the Amiga version of Hoyle 3, texts are stored as
