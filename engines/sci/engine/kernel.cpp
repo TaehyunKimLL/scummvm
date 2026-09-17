@@ -942,8 +942,21 @@ Common::String Kernel::lookupText(reg_t address, int index) {
 		while (textlen-- && *seeker++)
 			;
 
-	if (textlen)
+	if (textlen) {
+		// A SCITRS bundle is keyed by the original text, so it is consulted
+		// AFTER the real string has been located. Unicode is converted back
+		// to the game's own encoding here, at the boundary: everything
+		// downstream still sees the byte representation SCI expects.
+		const Translation &trs = g_sci->getTranslation();
+		if (trs.isLoaded()) {
+			Common::U32String translated;
+			if (trs.translate(seeker, translated,
+							  (uint16)address.getOffset(), (uint16)_index)) {
+				return translated.encode(g_sci->getSciLanguageCodePage());
+			}
+		}
 		return seeker;
+	}
 
 	warning("Index %d out of bounds in text.%03d", _index, address.getOffset());
 	return "";

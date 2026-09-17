@@ -30,6 +30,7 @@
 #include "sci/debug.h"	// for DebugState
 #include "sci/detection.h" // Shared code between detection and engine
 #include "sci/engine/text_overlay.h"
+#include "sci/engine/translation.h"
 
 struct ADGameDescription;
 
@@ -188,6 +189,17 @@ public:
 
 	/** Korean fan-patch Text.MAP/Text.Res override; empty when absent. */
 	const TextOverlay &getTextOverlay() const { return _textOverlay; }
+
+	/** SCITRS Unicode translation bundle; empty when absent. */
+	const Translation &getTranslation() const { return _translation; }
+
+	/**
+	 * The code page SCI text is stored in for the active language. This is
+	 * the single place where "what bytes does this engine speak" is decided,
+	 * so a Unicode string can be handed to the byte-oriented engine at one
+	 * boundary instead of at every call site.
+	 */
+	Common::CodePage getSciLanguageCodePage() const;
 
 	/**
 	 * Returns true if the game's language direction is Right To Left.
@@ -412,6 +424,7 @@ private:
 	const SciGameId _gameId;
 	ResourceManager *_resMan; /**< The resource manager */
 	TextOverlay _textOverlay; /**< Korean fan-patch text override */
+	Translation _translation; /**< SCITRS Unicode translation bundle */
 	ScriptPatcher *_scriptPatcher; /**< The script patcher */
 	EngineState *_gamestate;
 	Kernel *_kernel;

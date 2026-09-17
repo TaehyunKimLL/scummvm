@@ -306,6 +306,40 @@ Common::Error SciEngine::run() {
 	if (_textOverlay.load())
 		debug(1, "SCI: Korean text overlay active (%u resources)", _textOverlay.size());
 
+	// A SCITRS bundle is the Unicode successor to that overlay: source-keyed
+	// and language-neutral. It is loaded here for the same reason - the
+	// language-keyed graphics driver table runs during GfxScreen construction.
+	{
+		Common::String lang = ConfMan.hasKey("translation_language")
+			? ConfMan.get("translation_language") : Common::String("ko");
+		if (_translation.load(lang))
+			debug(1, "SCI: SCITRS translation active: %u entries for '%s'",
+				  _translation.entryCount(), _translation.language().c_str());
+	}
+
+	// Dump every TEXT resource, tab separated, for building a SCITRS bundle:
+	// harness/i18n/m5mktrs.py consumes this to pair the original text with a
+	// translation. Off unless explicitly requested.
+	if (ConfMan.hasKey("dump_text_resources")) {
+		for (uint16 n = 0; n < 1000; n++) {
+			Resource *r = _resMan->findResource(ResourceId(kResourceTypeText, n), false);
+			if (!r)
+				continue;
+			const char *p = (const char *)r->getUnsafeDataAt(0);
+			uint32 left = r->size();
+			int idx = 0;
+			while (left > 1) {
+				uint32 l = strlen(p);
+				if (l + 1 > left)
+					break;
+				debug("M5DUMP	%u	%d	%s", n, idx, p);
+				p += l + 1;
+				left -= l + 1;
+				idx++;
+			}
+		}
+	}
+
 	// Load the Mac executable and fonts if available
 	if (getSciVersion() < SCI_VERSION_2 && getPlatform() == Common::kPlatformMacintosh) {
 		loadMacExecutable();
@@ -840,6 +874,28 @@ const char *SciEngine::getGameIdStr() const {
 	return _gameDescription->gameId;
 }
 
+Common::CodePage SciEngine::getSciLanguageCodePage() const {
+	switch (getLanguage()) {
+	case Common::KO_KOR:
+		return Common::kWindows949;	// EUC-KR / CP949
+	case Common::JA_JPN:
+		return Common::kWindows932;	// Shift-JIS
+	case Common::ZH_CHN:
+		return Common::kWindows936;
+	case Common::ZH_TWN:
+		return Common::kWindows950;
+	case Common::RU_RUS:
+		return Common::kDos866;
+	case Common::HE_ISR:
+		return Common::kWindows1255;
+	default:
+		// Western SCI games are code page 437 in DOS. Latin-1 is close enough
+		// for the printable range the games actually use and is what the rest
+		// of the engine already assumes.
+		return Common::kLatin1;
+	}
+}
+
 Common::Language SciEngine::getLanguage() const {
 	// A Korean fan patch is a third-party overlay, so detection - which keys
 	// off the original resources - still reports the game's shipped language.
@@ -848,6 +904,8 @@ Common::Language SciEngine::getLanguage() const {
 	// what make it render. Without this the translation loads and then draws
 	// as blank boxes, because every Korean path is gated on KO_KOR.
 	if (_textOverlay.isLoaded())
+		return Common::KO_KOR;
+	if (_translation.isLoaded() && _translation.language().equalsIgnoreCase("ko"))
 		return Common::KO_KOR;
 
 	return _gameDescription->language;
