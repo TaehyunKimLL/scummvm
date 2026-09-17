@@ -36,7 +36,8 @@
 namespace Sci {
 
 GfxCache::GfxCache(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palette)
-	: _resMan(resMan), _screen(screen), _palette(palette) {
+	: _resMan(resMan), _screen(screen), _palette(palette),
+	  _unicodeFont(nullptr), _unicodeFontTried(false) {
 }
 
 GfxCache::~GfxCache() {
@@ -58,6 +59,11 @@ void GfxCache::purgeFontCache() {
 	for (uint i = 0; i < _ownedFonts.size(); i++)
 		delete _ownedFonts[i];
 	_ownedFonts.clear();
+
+	// The shared bundle outlives individual adapters but not the cache.
+	delete _unicodeFont;
+	_unicodeFont = nullptr;
+	_unicodeFontTried = false;
 }
 
 void GfxCache::purgeViewCache() {
@@ -69,30 +75,64 @@ void GfxCache::purgeViewCache() {
 	_cachedViews.clear();
 }
 
+GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
+	// The bundle is loaded once and shared by every adapter: it is several
+	// hundred kilobytes and identical for all font ids.
+	if (!_unicodeFontTried) {
+		_unicodeFontTried = true;
+		GfxFontUnicode *f = new GfxFontUnicode(_screen, 0);
+		static const char *const names[] = { "sci.uni", "korean.uni", "towns.uni" };
+		bool ok = false;
+		for (uint i = 0; i < ARRAYSIZE(names) && !ok; i++)
+			ok = f->load(names[i]);
+		if (ok) {
+			_unicodeFont = f;
+		} else {
+			delete f;
+			_unicodeFont = nullptr;
+		}
+	}
+	if (!_unicodeFont)
+		return nullptr;
+
+	// The legacy CJK font, where the language has one, remains the fallback so
+	// a bundle with partial coverage degrades to the old rendering instead of
+	// to blank space. The resource font is the fallback otherwise, which also
+	// keeps single-byte text pixel-identical to before.
+	GfxFont *fallback = nullptr;
+	if (fontId == 1001 && g_sci->getLanguage() == Common::KO_KOR)
+		fallback = new GfxFontKorean(_screen, fontId);
+	else if (fontId == 900 && g_sci->getLanguage() == Common::JA_JPN)
+		fallback = new GfxFontSjis(_screen, fontId);
+	else
+		fallback = new GfxFontFromResource(_resMan, _screen, fontId);
+	_ownedFonts.push_back(fallback);
+
+	return new GfxFontUnicodeAdapter(_unicodeFont, g_sci->getSciLanguageCodePage(),
+									 fallback, fontId);
+}
+
 GfxFont *GfxCache::getFont(GuiResourceId fontId) {
 	if (_cachedFonts.size() >= MAX_CACHED_FONTS)
 		purgeFontCache();
 
 	if (!_cachedFonts.contains(fontId)) {
-		// Create special Korean font in korean games, when font 1001 is selected
-		if ((fontId == 1001) && (g_sci->getLanguage() == Common::KO_KOR)) {
-			// Prefer a SCVMUNI bundle when the game ships one: it is indexed
-			// by code point, so it can carry punctuation, hanja and jamo that
-			// the syllable-only SCVMSJIS font has no slot for. The legacy font
-			// stays as the fallback, so partial coverage degrades to the old
-			// rendering rather than to blank space.
-			GfxFontUnicode *uniFont = new GfxFontUnicode(_screen, fontId);
-			if (uniFont->load("korean.uni")) {
-				GfxFont *legacy = new GfxFontKorean(_screen, fontId);
-				_cachedFonts[fontId] = new GfxFontUnicodeAdapter(
-					uniFont, g_sci->getSciLanguageCodePage(), legacy, fontId);
-				_ownedFonts.push_back(uniFont);
-				_ownedFonts.push_back(legacy);
-			} else {
-				delete uniFont;
-				_cachedFonts[fontId] = new GfxFontKorean(_screen, fontId);
-			}
+		// A SCVMUNI bundle, when present, serves ANY font the game asks for.
+		//
+		// The legacy CJK fonts are reachable only through one hard-coded id
+		// each - 1001 for Korean, 900 for Shift-JIS - and a game that does not
+		// request that id never gets them. Measured: KQ5's Japanese FM-TOWNS
+		// release contains fonts 0, 1, 4, 8, 9, 69, 600 and 999 and NO font
+		// 900, all of them 128-glyph single-byte fonts, so the SJIS path is
+		// unreachable there by construction. Keying the Unicode font on the
+		// bundle rather than on a font number avoids that trap.
+		GfxFont *uniFont = createUnicodeFont(fontId);
+		if (uniFont) {
+			_cachedFonts[fontId] = uniFont;
 		}
+		// Create special Korean font in korean games, when font 1001 is selected
+		else if ((fontId == 1001) && (g_sci->getLanguage() == Common::KO_KOR))
+			_cachedFonts[fontId] = new GfxFontKorean(_screen, fontId);
 		// Create special SJIS font in japanese games, when font 900 is selected
 		else if ((fontId == 900) && (g_sci->getLanguage() == Common::JA_JPN))
 			_cachedFonts[fontId] = new GfxFontSjis(_screen, fontId);

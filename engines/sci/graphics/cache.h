@@ -23,10 +23,12 @@
 #define SCI_GRAPHICS_CACHE_H
 
 #include "common/hashmap.h"
+#include "common/array.h"
 
 namespace Sci {
 
 class GfxFont;
+class GfxFontUnicode;
 class GfxView;
 
 typedef Common::HashMap<int, GfxFont *> FontCache;
@@ -57,6 +59,18 @@ private:
 	GfxPalette *_palette;
 
 	FontCache _cachedFonts;
+
+	/**
+	 * Build a Unicode-backed font for @p fontId, or nullptr when the game
+	 * ships no SCVMUNI bundle. Keyed on the bundle rather than on a font
+	 * number, so a game that never requests the legacy CJK font id still
+	 * gets Unicode text.
+	 */
+	GfxFont *createUnicodeFont(GuiResourceId fontId);
+
+	/** The shared SCVMUNI bundle, loaded at most once. */
+	GfxFontUnicode *_unicodeFont;
+	bool _unicodeFontTried;
 	/**
 	 * Fonts an adapter wraps but does not own. They are not in _cachedFonts
 	 * (only the adapter is), so the cache has to delete them separately.

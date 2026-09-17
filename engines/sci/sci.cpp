@@ -320,6 +320,26 @@ Common::Error SciEngine::run() {
 				  _translation.entryCount(), _translation.language().c_str());
 	}
 
+	// List every FONT resource the game actually contains, so "does this
+	// Japanese release use the SJIS path" is answered from the data rather
+	// than inferred from which fonts a short run happened to request.
+	if (ConfMan.hasKey("list_fonts")) {
+		Common::List<ResourceId> ids = _resMan->listResources(kResourceTypeFont);
+		Common::String line;
+		for (Common::List<ResourceId>::const_iterator it = ids.begin(); it != ids.end(); ++it)
+			line += Common::String::format("%u ", it->getNumber());
+		debug("FONTLIST count=%u: %s", ids.size(), line.c_str());
+		for (Common::List<ResourceId>::const_iterator it = ids.begin(); it != ids.end(); ++it) {
+			Resource *r = _resMan->findResource(*it, false);
+			if (!r || r->size() < 6)
+				continue;
+			const uint16 numChars = r->getUint16LEAt(2);
+			const uint16 height = r->getUint16LEAt(4);
+			debug("FONTINFO	%u	chars=%u	height=%u	bytes=%u",
+				  it->getNumber(), numChars, height, (uint)r->size());
+		}
+	}
+
 	// Dump the FM-TOWNS ROM font as a SCVMUNI-ready glyph table. The ROM is
 	// already 1bpp 16x16 - the exact shape SCVMUNI stores - so extracting it
 	// needs no threshold and no baseline guess, unlike rasterising a TTF.
@@ -978,8 +998,23 @@ Common::Language SciEngine::getLanguage() const {
 	// as blank boxes, because every Korean path is gated on KO_KOR.
 	if (_textOverlay.isLoaded())
 		return Common::KO_KOR;
-	if (_translation.isLoaded() && _translation.language().equalsIgnoreCase("ko"))
-		return Common::KO_KOR;
+
+	// A SCITRS bundle names its own language, so honour it generally rather
+	// than special-casing Korean: the CJK paths in GfxText16/GfxCache are all
+	// gated on a language, and a bundle that loads without flipping the
+	// language renders as blank boxes.
+	if (_translation.isLoaded()) {
+		const Common::String &code = _translation.language();
+		if (code.equalsIgnoreCase("ko"))
+			return Common::KO_KOR;
+		if (code.equalsIgnoreCase("ja"))
+			return Common::JA_JPN;
+		if (code.equalsIgnoreCase("zh"))
+			return Common::ZH_CHN;
+		const Common::Language parsed = Common::parseLanguage(code);
+		if (parsed != Common::UNK_LANG)
+			return parsed;
+	}
 
 	return _gameDescription->language;
 }

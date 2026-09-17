@@ -272,9 +272,11 @@ uint32 GfxFontUnicodeAdapter::toCodePoint(uint32 packed) const {
 }
 
 byte GfxFontUnicodeAdapter::getHeight() {
-	// Halved below SCI2 for the same reason as getCharWidth: the glyph is
-	// drawn on the hires plane, so its lowres line height is half the cell.
-	// GfxFontKorean::getHeight does the identical `>> 1`.
+	// Line spacing must stay the wrapped game font's, otherwise every font the
+	// game uses collapses to one height. Measured: reporting the bundle's cell
+	// height made fonts of 12 and 9 both report 8.
+	if (_fallback)
+		return _fallback->getHeight();
 	const byte h = _font->getHeight();
 	return (getSciVersion() >= SCI_VERSION_2) ? h : (h >> 1);
 }
@@ -290,6 +292,14 @@ bool GfxFontUnicodeAdapter::isDoubleByte(uint32 chr) {
 }
 
 byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
+	// Single-byte characters stay with the game's own font. The Unicode
+	// bundle has Latin glyphs too, but using them would change the metrics of
+	// every English string in every font the game uses - measured, it made
+	// fonts of height 12 and 9 all report 8 and pushed menu text outside its
+	// button. The bundle is for characters the resource font cannot draw.
+	if (chr < 0x80 && _fallback)
+		return _fallback->getCharWidth(chr);
+
 	const uint32 cp = toCodePoint(chr);
 	if (cp && _font->hasGlyph(cp)) {
 		const byte w = _font->getCharWidth(cp);
@@ -306,6 +316,9 @@ byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
 }
 
 byte GfxFontUnicodeAdapter::getCharHeight(uint32 chr) {
+	if (chr < 0x80 && _fallback)
+		return _fallback->getCharHeight(chr);
+
 	const uint32 cp = toCodePoint(chr);
 	if (cp && _font->hasGlyph(cp)) {
 		const byte h = _font->getCharHeight(cp);
@@ -318,6 +331,11 @@ byte GfxFontUnicodeAdapter::getCharHeight(uint32 chr) {
 
 void GfxFontUnicodeAdapter::draw(uint32 chr, int16 top, int16 left, byte color,
 								 bool greyedOutput) {
+	// Keep single-byte text pixel-identical to the unmodified engine.
+	if (chr < 0x80 && _fallback) {
+		_fallback->draw(chr, top, left, color, greyedOutput);
+		return;
+	}
 	const uint32 cp = toCodePoint(chr);
 	if (cp && _font->hasGlyph(cp)) {
 		_font->draw(cp, top, left, color, greyedOutput);
@@ -332,6 +350,10 @@ void GfxFontUnicodeAdapter::draw(uint32 chr, int16 top, int16 left, byte color,
 void GfxFontUnicodeAdapter::drawToBuffer(uint32 chr, int16 top, int16 left,
 										 byte color, bool greyedOutput,
 										 byte *buffer, int16 width, int16 height) {
+	if (chr < 0x80 && _fallback) {
+		_fallback->drawToBuffer(chr, top, left, color, greyedOutput, buffer, width, height);
+		return;
+	}
 	const uint32 cp = toCodePoint(chr);
 	if (cp && _font->hasGlyph(cp)) {
 		_font->drawToBuffer(cp, top, left, color, greyedOutput, buffer, width, height);
