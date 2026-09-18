@@ -88,6 +88,18 @@ public:
 	void macDraw(const Common::String &text, Common::Rect rect, TextAlignment alignment, GuiResourceId sciFontId, GuiResourceId origSciFontId, int16 color);
 private:
 	void init();
+
+	/**
+	 * Read one character from @p text, advancing nothing.
+	 *
+	 * Returns the value the font is addressed by - a single byte, or a
+	 * double-byte pair packed lead-in-low / trail-in-high - and reports how
+	 * many bytes it spans in @p outBytes. Every site that walked the bytes
+	 * inline is routed through here so that the packed representation exists
+	 * in exactly one place; see docs/i18n/M10_FONTSET.md.
+	 */
+	uint32 readChar(const char *text, int &outBytes) const;
+
 	bool SwitchToFont1001OnKorean(const char *text, uint16 languageSplitter);
 	bool SwitchToFont900OnSjis(const char *text, uint16 languageSplitter);
 	static bool isJapaneseNewLine(int16 curChar, int16 nextChar);

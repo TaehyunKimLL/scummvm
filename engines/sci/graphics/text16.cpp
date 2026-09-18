@@ -211,9 +211,10 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 		return 0;
 
 	for (;;) {
-		curChar = (*(const byte *)textPtr);
-		if (_font->isDoubleByte(curChar)) {
-			curChar |= (*(const byte *)(textPtr + 1)) << 8;
+		int curCharBytes = 0;
+		curChar = readChar(textPtr, curCharBytes);
+		if (curCharBytes == 2) {
+			// nothing more to do; readChar packed the pair
 		} else if (escapedNewLine) {
 			escapedNewLine = false;
 			curChar = 0x0D;
@@ -310,10 +311,8 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 			if (( maxWidth - 1 ) > curWidth) {
 				curCharCount += 2; textPtr += 2;
 
-				curChar = (*(const byte *)textPtr);
-				if (_font->isDoubleByte(curChar)) {
-					curChar |= (*(const byte *)(textPtr + 1)) << 8;
-				}
+				int reReadBytes = 0;
+				curChar = readChar(textPtr, reReadBytes);
 			}
 
 			// But it also checked, if the current character is not inside a punctuation table and it even
@@ -390,9 +389,10 @@ void GfxText16::Width(const char *text, int16 from, int16 len, GuiResourceId org
 		bool escapedNewLine = false;
 		text += from;
 		while (len--) {
-			uint16 curChar = (*(const byte *)text++);
-			if (_font->isDoubleByte(curChar)) {
-				curChar |= (*(const byte *)text++) << 8;
+			int curCharBytes = 0;
+			uint16 curChar = readChar(text, curCharBytes);
+			text += curCharBytes;
+			if (curCharBytes == 2) {
 				len--;
 			} else if (escapedNewLine) {
 				escapedNewLine = false;
@@ -512,9 +512,10 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 	text += from;
 	bool escapedNewLine = false;
 	while (len--) {
-		uint16 curChar = (*(const byte *)text++);
-		if (_font->isDoubleByte(curChar)) {
-			curChar |= (*(const byte *)text++) << 8;
+		int curCharBytes = 0;
+		uint16 curChar = readChar(text, curCharBytes);
+		text += curCharBytes;
+		if (curCharBytes == 2) {
 			len--;
 		} else if (escapedNewLine) {
 			escapedNewLine = false;
@@ -741,6 +742,24 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 }
 
 // Check for Korean strings, and use font 1001 to render them
+uint32 GfxText16::readChar(const char *text, int &outBytes) const {
+	const uint32 lead = *(const byte *)text;
+	// The trail byte is NOT checked for being non-zero: the call sites this
+	// replaces did not check either, and GetLongest relies on a lone lead
+	// byte at end of string still packing to a double-byte value so that the
+	// two-byte advance below matches.
+	if (_font && _font->isDoubleByte(lead)) {
+		outBytes = 2;
+		// Lead byte in the low half, trail in the high half - reversed
+		// relative to the encoding itself, but this is the layout every
+		// existing comparison in this file was written against (0x9781 is
+		// SJIS 81 97, fullwidth @).
+		return lead | ((uint32)*(const byte *)(text + 1) << 8);
+	}
+	outBytes = 1;
+	return lead;
+}
+
 bool GfxText16::SwitchToFont1001OnKorean(const char *text, uint16 languageSplitter) {
 	const byte* ptr = (const byte *)text;
 	if (languageSplitter != 0x6b23) { // #k prefix as language splitter
