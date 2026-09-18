@@ -22,6 +22,8 @@
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
 
+#include "sci/sci.h"
+
 #include "common/textconsole.h"
 #include "common/ustr.h"
 
@@ -32,17 +34,21 @@ GfxFontSet::GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage)
 }
 
 GfxFontSet::~GfxFontSet() {
-	for (uint i = 0; i < _faces.size(); i++)
-		delete _faces[i].font;
+	for (uint i = 0; i < _faces.size(); i++) {
+		if (_faces[i].owned)
+			delete _faces[i].font;
+	}
 	_faces.clear();
 }
 
-void GfxFontSet::addFace(GfxFont *face, bool isCodePoint) {
+void GfxFontSet::addFace(GfxFont *face, FaceKind kind, bool owned, bool hiresPlane) {
 	if (!face)
 		return;
 	Face f;
 	f.font = face;
-	f.isCodePoint = isCodePoint;
+	f.kind = kind;
+	f.owned = owned;
+	f.hiresPlane = hiresPlane;
 	_faces.push_back(f);
 }
 
@@ -67,6 +73,35 @@ uint32 GfxFontSet::toCodePoint(uint32 packed) const {
 	return decoded[0];
 }
 
+bool GfxFontSet::legacyCovers(uint32 codePoint) const {
+	// The hangul syllable block, which is the whole of korean.fnt, and the
+	// ranges a Shift-JIS face holds. Anything else must fall through to the
+	// Unicode face.
+	if (!codePoint)
+		return false;
+	switch (_codePage) {
+	case Common::kWindows949:
+		return codePoint >= 0xAC00 && codePoint <= 0xD7A3;
+	case Common::kWindows932:
+		// Kana, CJK ideographs and the fullwidth forms an SJIS ROM carries.
+		return (codePoint >= 0x3040 && codePoint <= 0x30FF) ||
+		       (codePoint >= 0x4E00 && codePoint <= 0x9FFF) ||
+		       (codePoint >= 0xFF00 && codePoint <= 0xFFEF);
+	default:
+		return false;
+	}
+}
+
+byte GfxFontSet::toLowres(const Face &f, byte v) const {
+	// A face drawing on the hires text plane puts its glyph at twice the
+	// lowres coordinates, so it must report half the advance - the same `>> 1`
+	// GfxFontKorean applies below SCI2. Without it the glyphs are spaced at
+	// double width and the tail of a menu entry lands outside its button.
+	if (!f.hiresPlane || getSciVersion() >= SCI_VERSION_2)
+		return v;
+	return v >> 1;
+}
+
 const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 	if (_faces.empty())
 		return nullptr;
@@ -84,13 +119,23 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 
 	for (uint i = 0; i < _faces.size(); i++) {
 		const Face &f = _faces[i];
-		if (f.isCodePoint) {
-			if (!decoded) {
-				codePoint = toCodePoint(chr);
-				decoded = true;
-			}
-			if (!codePoint)
-				continue;
+
+		// The resource face holds only the game's own single-byte glyphs. It
+		// reports a width for a double-byte value anyway, so asking it by
+		// width let it swallow every Korean syllable before the Unicode face
+		// was reached - measured, 37 syllables drawn by the wrong face and
+		// the menu buttons came out blank.
+		if (f.kind == kFaceResource)
+			continue;
+
+		if (!decoded) {
+			codePoint = toCodePoint(chr);
+			decoded = true;
+		}
+		if (!codePoint)
+			continue;
+
+		if (f.kind == kFaceCodePoint) {
 			const GfxFontUnicode *uni = static_cast<const GfxFontUnicode *>(f.font);
 			if (!uni->hasGlyph(codePoint))
 				continue;
@@ -98,9 +143,13 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 			return &f;
 		}
 
-		// A byte-addressed face answers for what it has a width for; zero
-		// means no glyph. This is how the legacy CJK fonts report absence.
-		if (f.font->getCharWidth(chr) == 0)
+		// A legacy double-byte face is asked by CODE PAGE RANGE, since
+		// neither of its own predicates reports coverage: getCharWidth()
+		// returns a width for anything and isDoubleByte() only inspects the
+		// lead byte. korean.fnt indexes glyphs as `uc - 0xAC00` and holds
+		// 11184 of them, exactly the hangul syllable block, so that block is
+		// its real coverage and nothing else.
+		if (!legacyCovers(codePoint))
 			continue;
 		outChr = chr;
 		return &f;
@@ -143,13 +192,13 @@ bool GfxFontSet::isDoubleByte(uint32 chr) {
 byte GfxFontSet::getCharWidth(uint32 chr) {
 	uint32 c = 0;
 	const Face *f = faceFor(chr, c);
-	return f ? f->font->getCharWidth(c) : 0;
+	return f ? toLowres(*f, f->font->getCharWidth(c)) : 0;
 }
 
 byte GfxFontSet::getCharHeight(uint32 chr) {
 	uint32 c = 0;
 	const Face *f = faceFor(chr, c);
-	return f ? f->font->getCharHeight(c) : 0;
+	return f ? toLowres(*f, f->font->getCharHeight(c)) : 0;
 }
 
 void GfxFontSet::draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) {

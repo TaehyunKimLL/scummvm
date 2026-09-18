@@ -590,7 +590,10 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 	if (g_sci->getLanguage() == Common::KO_KOR) {
 		if (SwitchToFont1001OnKorean(curTextPos, languageSplitter)) {
 			doubleByteMode = true;
-			fontId = 1001;
+			// The id is only overridden when the switch actually happened;
+			// with a set the script's own id keeps drawing the text.
+			if (!_cache->fontIsSet(fontId))
+				fontId = 1001;
 		}
 	}
 
@@ -750,7 +753,14 @@ bool GfxText16::SwitchToFont1001OnKorean(const char *text, uint16 languageSplitt
 					return false;
 
 				if (ch >= 0xA1 && ch <= 0xFE) {
-					SetFont(1001);
+					// Stage 3 of docs/i18n/M10_FONTSET.md: the switch exists
+					// only because font 1001 was the one face holding Korean
+					// glyphs. A set covers them under whatever id the script
+					// chose, so switching would now throw that choice away -
+					// KQ1 uses faces of height 8, 9 and 12, and forcing 1001
+					// collapses them all to 8.
+					if (!_cache->fontIsSet(GetFontId()))
+						SetFont(1001);
 					return true;
 				}
 			}
@@ -778,7 +788,9 @@ bool GfxText16::SwitchToFont900OnSjis(const char *text, uint16 languageSplitter)
 			// Japanese PC-98 releases. Measured: KQ1 ships fonts 0, 4, 300
 			// and 999 only, and without the bundle this switch aborts the
 			// engine with "font resource 900 not found".
-			SetFont(900);
+			// Stage 3 of docs/i18n/M10_FONTSET.md: see the Korean case.
+			if (!_cache->fontIsSet(GetFontId()))
+				SetFont(900);
 			return true;
 		}
 	}

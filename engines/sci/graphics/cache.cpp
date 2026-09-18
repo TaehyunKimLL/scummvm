@@ -77,22 +77,53 @@ void GfxCache::purgeViewCache() {
 	_cachedViews.clear();
 }
 
+bool GfxCache::fontIsSet(GuiResourceId fontId) {
+	return dynamic_cast<GfxFontSet *>(getFont(fontId)) != nullptr;
+}
+
 GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
-	// Stage 1 of docs/i18n/M10_FONTSET.md: a set that holds only the game's
-	// own resource face. Behaviour is unchanged by construction - every call
-	// forwards to the same face the cache would have returned directly - and
-	// the glyph-request sequence is the gate that proves it.
-	if (!_resMan->testResource(ResourceId(kResourceTypeFont, fontId)))
+	// Stage 2 of docs/i18n/M10_FONTSET.md: the face the script asked for,
+	// followed by whatever else can cover characters it cannot. Order is the
+	// contract - the game's own face is first, so single-byte text is drawn
+	// by the glyphs the game shipped and keeps its metrics.
+	const bool haveResource = _resMan->testResource(ResourceId(kResourceTypeFont, fontId));
+	if (!haveResource)
 		return nullptr;
 
 	GfxFontSet *set = new GfxFontSet(fontId, g_sci->getSciLanguageCodePage());
-	set->addFace(new GfxFontFromResource(_resMan, _screen, fontId), false);
+	set->addFace(new GfxFontFromResource(_resMan, _screen, fontId), GfxFontSet::kFaceResource);
+
+	// The legacy double-byte faces, when the game ships their font file.
+	// GfxFontKorean and GfxFontSjis call error() on a missing file, so
+	// existence is checked rather than assumed.
+	switch (g_sci->getLanguage()) {
+	case Common::KO_KOR:
+		if (Common::File::exists(Common::Path("korean.fnt")))
+			// GfxFontKorean and GfxFontSjis already halve their own metrics below
+		// SCI2, so they must NOT be marked as hires-plane faces here - doing
+		// so halves twice and the glyphs pile up on top of each other.
+		set->addFace(new GfxFontKorean(_screen, 1001), GfxFontSet::kFaceLegacyDbcs);
+		break;
+	case Common::JA_JPN:
+		if (Common::File::exists(Common::Path("SJIS.FNT")))
+			set->addFace(new GfxFontSjis(_screen, 900), GfxFontSet::kFaceLegacyDbcs);
+		break;
+	default:
+		break;
+	}
+
+	// The Unicode bundle last: it is the widest, and being last means it only
+	// answers for characters nothing else covers.
+	if (GfxFontUnicode *uni = loadUnicodeFont())
+		set->addFace(uni, GfxFontSet::kFaceCodePoint, false, true);
+
 	return set;
 }
 
-GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
-	// The bundle is loaded once and shared by every adapter: it is several
-	// hundred kilobytes and identical for all font ids.
+GfxFontUnicode *GfxCache::loadUnicodeFont() {
+	// The bundle is loaded once and shared by every set that uses it: it is
+	// several hundred kilobytes and identical for all font ids. Ownership
+	// stays here, which is why sets take it as an unowned face.
 	if (!_unicodeFontTried) {
 		_unicodeFontTried = true;
 		GfxFontUnicode *f = new GfxFontUnicode(_screen, 0);
@@ -107,7 +138,11 @@ GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
 			_unicodeFont = nullptr;
 		}
 	}
-	if (!_unicodeFont)
+	return _unicodeFont;
+}
+
+GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
+	if (!loadUnicodeFont())
 		return nullptr;
 
 	// The legacy CJK font, where the language has one, remains the fallback so
@@ -155,24 +190,27 @@ GfxFont *GfxCache::getFont(GuiResourceId fontId) {
 		// 900, all of them 128-glyph single-byte fonts, so the SJIS path is
 		// unreachable there by construction. Keying the Unicode font on the
 		// bundle rather than on a font number avoids that trap.
-		GfxFont *uniFont = createUnicodeFont(fontId);
-		if (uniFont) {
-			_cachedFonts[fontId] = uniFont;
-		}
+		// A set is preferred whenever the id names a real font resource: it
+		// keeps the face the script chose and adds the others behind it.
+		GfxFont *font = createFontSet(fontId);
+
+		// Ids that name no resource are the legacy CJK ones the renderer
+		// switches to. They get the adapter, which copes with having no
+		// resource face at all.
+		if (!font)
+			font = createUnicodeFont(fontId);
+
 		// Create special Korean font in korean games, when font 1001 is selected
-		else if ((fontId == 1001) && (g_sci->getLanguage() == Common::KO_KOR))
-			_cachedFonts[fontId] = new GfxFontKorean(_screen, fontId);
+		if (!font && (fontId == 1001) && (g_sci->getLanguage() == Common::KO_KOR))
+			font = new GfxFontKorean(_screen, fontId);
 		// Create special SJIS font in japanese games, when font 900 is selected
-		else if ((fontId == 900) && (g_sci->getLanguage() == Common::JA_JPN))
-			_cachedFonts[fontId] = new GfxFontSjis(_screen, fontId);
-		else {
-			// Stage 1: a set holding only the resource face. Falls back to the
-			// bare font when the id names no resource, which the legacy CJK
-			// ids do on most games.
-			GfxFont *set = createFontSet(fontId);
-			_cachedFonts[fontId] = set ? set
-				: (GfxFont *)new GfxFontFromResource(_resMan, _screen, fontId);
-		}
+		if (!font && (fontId == 900) && (g_sci->getLanguage() == Common::JA_JPN))
+			font = new GfxFontSjis(_screen, fontId);
+
+		if (!font)
+			font = new GfxFontFromResource(_resMan, _screen, fontId);
+
+		_cachedFonts[fontId] = font;
 	}
 
 	return _cachedFonts[fontId];

@@ -68,18 +68,37 @@ public:
 	 * @param resourceId  the id the caller asked for; reported unchanged, so
 	 *                    a set is indistinguishable from the font it replaces.
 	 */
+	enum FaceKind {
+		kFaceResource,	///< the game's own font; single-byte only
+		kFaceLegacyDbcs,	///< korean.fnt / SJIS.FNT, addressed by byte pair
+		kFaceCodePoint	///< a SCVMUNI bundle, addressed by code point
+	};
+
 	GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage);
 	~GfxFontSet() override;
 
 	/**
-	 * Append a face. The set takes ownership. Faces are consulted in the order
-	 * they were added, so the game's own resource face must be added first.
+	 * Append a face. Faces are consulted in the order they were added, so the
+	 * game's own resource face must be added first.
 	 *
-	 * @param isCodePoint  true when this face is addressed by Unicode code
-	 *                     point, false when it takes the byte value (or
-	 *                     packed byte pair) the renderer produces.
+	 * @param kind         what the face is addressed by, and therefore how its
+	 *                     coverage is decided. The resource face is never
+	 *                     asked about double-byte characters: it has no such
+	 *                     glyphs, but reports a width for them anyway, so
+	 *                     letting it answer swallowed every Korean syllable
+	 *                     before the Unicode face was reached.
+	 * @param owned        true when the set should delete the face. The
+	 *                     Unicode bundle is shared by every set - it is
+	 *                     several hundred kilobytes - so it is passed
+	 *                     unowned and outlives them.
+	 * @param hiresPlane   true when the face draws on the hires text plane at
+	 *                     twice the lowres coordinates. Its advance and height
+	 *                     are then reported halved, which is what
+	 *                     GfxFontKorean does below SCI2. Reporting the full
+	 *                     width spaces the glyphs apart and pushes the tail of
+	 *                     a menu entry outside its button - measured.
 	 */
-	void addFace(GfxFont *face, bool isCodePoint);
+	void addFace(GfxFont *face, FaceKind kind, bool owned = true, bool hiresPlane = false);
 
 	bool isEmpty() const { return _faces.empty(); }
 	uint faceCount() const { return _faces.size(); }
@@ -96,7 +115,9 @@ public:
 private:
 	struct Face {
 		GfxFont *font;
-		bool isCodePoint;
+		FaceKind kind;
+		bool owned;
+		bool hiresPlane;
 	};
 
 	/**
@@ -109,6 +130,12 @@ private:
 
 	/** Decode a packed byte pair to a code point, or 0 when it is not one. */
 	uint32 toCodePoint(uint32 packed) const;
+
+	/** Halve a hires-plane face's metric into lowres coordinates. */
+	byte toLowres(const Face &f, byte v) const;
+
+	/** Whether the legacy double-byte face for this code page covers @p cp. */
+	bool legacyCovers(uint32 codePoint) const;
 
 	Common::Array<Face> _faces;
 	GuiResourceId _resourceId;

@@ -43,6 +43,14 @@ public:
 	~GfxCache();
 
 	GfxFont *getFont(GuiResourceId fontId);
+
+	/**
+	 * Whether @p fontId resolves to a GfxFontSet, i.e. whether that id can
+	 * already draw characters outside the game's own face. Callers use it to
+	 * skip the legacy switch to font 1001 / 900.
+	 */
+	bool fontIsSet(GuiResourceId fontId);
+
 	GfxView *getView(GuiResourceId viewId);
 
 	int16 kernelViewGetCelWidth(GuiResourceId viewId, int16 loopNo, int16 celNo);
@@ -67,6 +75,10 @@ private:
 	 * gets Unicode text.
 	 */
 	GfxFont *createUnicodeFont(GuiResourceId fontId);
+
+	/** The shared Unicode bundle, loaded on first use; nullptr when absent. */
+	GfxFontUnicode *loadUnicodeFont();
+
 
 	/**
 	 * Wrap the game's own font for @p fontId in a GfxFontSet, or nullptr when
