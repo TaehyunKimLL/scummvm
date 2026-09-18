@@ -2899,6 +2899,16 @@ static const struct ADGameDescription SciGameDescriptions[] = {
 		AD_LISTEND},
 		Common::RU_RUS, Common::kPlatformDOS, ADGF_NO_FLAGS, GUIO_STD16_UNDITHER	},
 
+	// Laura Bow - Korean fan translation, based on English DOS
+	// The patch rewrites the game's own resources in place and merges the ten
+	// volumes into one, so both the map and the volume differ from every
+	// English entry and the file list alone is already distinctive.
+	{"laurabow", "", {
+		{"resource.map", 0, "4670488f97c086c5b258a768bfbd6cae", 6414},
+		{"resource.001", 0, "4cafb94247ad4c113be5e9d1459b3db0", 2199792},
+		AD_LISTEND},
+		Common::KO_KOR, Common::kPlatformDOS, ADGF_NO_FLAGS, GUIO_STD16_UNDITHER	},
+
 	// Laura Bow - English DOS (from FRG)
 	// SCI interpreter version 0.000.631
 	{"laurabow", "", {
