@@ -75,6 +75,12 @@ public:
 
 	uint32 glyphCount() const { return _glyphCount; }
 
+	/**
+	 * The ISO language tag the font declares, or empty when it declares none.
+	 * Older fonts predate the field and are silently unset.
+	 */
+	const Common::String &language() const { return _language; }
+
 private:
 	/** Binary search of the sorted code point table; -1 when absent. */
 	int findGlyph(uint32 codepoint) const;
@@ -93,6 +99,7 @@ private:
 	const byte *_bitmaps;		// glyphCount x _bytesPerGlyph
 
 	uint32 _glyphCount;
+	Common::String _language;
 	byte _cellWidth;
 	byte _cellHeight;
 	byte _advanceNarrow;

@@ -1045,8 +1045,20 @@ Common::Language SciEngine::getLanguage() const {
 	// "missing glyph 189" - 268 such warnings in one boot, and the screen
 	// comes up with no text at all.
 	//
+	// A Unicode font may declare the language it was built to render. That
+	// is the only declaration such a patch can carry, since the font file is
+	// the only file it adds. Checked after the bundle - a bundle is the more
+	// specific statement - and before ConfMan, so shipping a font is enough
+	// and the user does not have to configure anything.
+	if (_gfxCache) {
+		const Common::Language declared =
+			Common::parseLanguage(_gfxCache->unicodeFontLanguage());
+		if (declared != Common::UNK_LANG)
+			return declared;
+	}
+
 	// Let the user say so. ConfMan is checked last, so it cannot override a
-	// bundle that actually declares its own language.
+	// bundle or a font that actually declares its own language.
 	if (ConfMan.hasKey("language")) {
 		const Common::Language forced = Common::parseLanguage(ConfMan.get("language"));
 		if (forced != Common::UNK_LANG)
