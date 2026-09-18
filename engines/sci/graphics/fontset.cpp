@@ -52,25 +52,21 @@ void GfxFontSet::addFace(GfxFont *face, FaceKind kind, bool owned, bool hiresPla
 	_faces.push_back(f);
 }
 
-uint32 GfxFontSet::toCodePoint(uint32 packed) const {
-	if (packed < 0x80)
-		return packed;
+uint32 GfxFontSet::toCodePoint(uint32 chr) const {
+	// GfxText16 now decodes as it walks, so what arrives here is already a
+	// code point. The only values that are not are the undecodable byte pairs
+	// readChar() passes through unchanged, and those have no glyph anywhere.
+	return chr;
+}
 
-	Common::String bytes;
-	if (packed > 0xFF) {
-		// GfxText16 packs the LEAD byte in the low half and the trail byte in
-		// the high half - reversed relative to the encoding - so undo that
-		// here rather than anywhere else.
-		bytes += (char)(packed & 0xFF);
-		bytes += (char)((packed >> 8) & 0xFF);
-	} else {
-		bytes += (char)packed;
-	}
-
-	const Common::U32String decoded = bytes.decode(_codePage);
-	if (decoded.empty())
+uint32 GfxFontSet::toEncodedPair(uint32 codePoint) const {
+	const char32_t cp = (char32_t)codePoint;
+	const Common::U32String one(&cp, 1);
+	const Common::String encoded = one.encode(_codePage);
+	if (encoded.size() != 2)
 		return 0;
-	return decoded[0];
+	// Lead byte low, trail byte high - the layout the legacy faces index by.
+	return (byte)encoded[0] | ((uint32)(byte)encoded[1] << 8);
 }
 
 bool GfxFontSet::legacyCovers(uint32 codePoint) const {
@@ -151,7 +147,14 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 		// its real coverage and nothing else.
 		if (!legacyCovers(codePoint))
 			continue;
-		outChr = chr;
+		// A legacy face is indexed by the encoded byte pair, not by a code
+		// point, so re-encode for it. GfxText16 hands out code points now;
+		// this is the one place that still needs the game's encoding, and it
+		// disappears when the legacy faces do.
+		const uint32 packed = toEncodedPair(codePoint);
+		if (!packed)
+			continue;
+		outChr = packed;
 		return &f;
 	}
 

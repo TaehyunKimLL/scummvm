@@ -128,8 +128,11 @@ private:
 	 */
 	const Face *faceFor(uint32 chr, uint32 &outChr) const;
 
-	/** Decode a packed byte pair to a code point, or 0 when it is not one. */
-	uint32 toCodePoint(uint32 packed) const;
+	/** Identity now that GfxText16 decodes; kept as the single seam. */
+	uint32 toCodePoint(uint32 chr) const;
+
+	/** Re-encode a code point to the byte pair a legacy face indexes by. */
+	uint32 toEncodedPair(uint32 codePoint) const;
 
 	/** Halve a hires-plane face's metric into lowres coordinates. */
 	byte toLowres(const Face &f, byte v) const;

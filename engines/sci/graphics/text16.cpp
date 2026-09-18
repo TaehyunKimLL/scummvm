@@ -210,8 +210,11 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 	if (!_font)
 		return 0;
 
+	// Declared outside the loop: the break-without-spaces path below inspects
+	// the last character read, after the loop has exited.
+	int curCharBytes = 0;
+
 	for (;;) {
-		int curCharBytes = 0;
 		curChar = readChar(textPtr, curCharBytes);
 		if (curCharBytes == 2) {
 			// nothing more to do; readChar packed the pair
@@ -246,9 +249,9 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 			// 'J'
 			// fall through
 		case 0xA:
-		case 0x9781: // this one is used by SQ4/japanese as line break as well (was added for SCI1/PC98)
+		case 0xFF20: // fullwidth @, used by SQ4/japanese as a line break (was added for SCI1/PC98)
 			curCharCount++; textPtr++;
-			if (curChar > 0xFF) {
+			if (curCharBytes == 2) {
 				// skip another byte in case char is double-byte (PC-98)
 				curCharCount++; textPtr++;
 			}
@@ -285,7 +288,7 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 
 		// go to next character
 		curCharCount++; textPtr++;
-		if (curChar > 0xFF) {
+		if (curCharBytes == 2) {
 			// Double-Byte
 			curCharCount++; textPtr++;
 		 }
@@ -303,7 +306,7 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 	} else {
 		// Break without spaces found, we split the very first word - may also be Kanji/Japanese
 
-		if (curChar > 0xFF) {
+		if (curCharBytes == 2) {
 			// current character is Japanese
 
 			// PC-9801 SCI actually added the last character, which shouldn't fit anymore, still onto the
@@ -352,7 +355,7 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 				curChar |= (*(const byte *)(textPtr + 1)) << 8;
 			}
 
-			if (curChar == 0x4081) {
+			if (curChar == 0x3000) {	// ideographic space
 				// Skip over alphabetic double-byte space
 				// This was introduced for SCI1
 				// Happens in Castle of Dr. Brain PC-98 in room 120, when looking inside the mirror
@@ -405,7 +408,7 @@ void GfxText16::Width(const char *text, int16 from, int16 len, GuiResourceId org
 			switch (curChar) {
 			case 0x0A:
 			case 0x0D:
-			case 0x9781: // this one is used by SQ4/japanese as line break as well
+			case 0xFF20: // fullwidth @, used by SQ4/japanese as a line break
 				textHeight = MAX<int16> (textHeight, _ports->_curPort->fontHeight);
 				break;
 			case 0x7C:
@@ -529,7 +532,7 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 		case 0x0A:
 		case 0x0D:
 		case 0:
-		case 0x9781: // this one is used by SQ4/japanese as line break as well
+		case 0xFF20: // fullwidth @, used by SQ4/japanese as a line break
 			break;
 		case 0x7C:
 			// pipe character is a control character in SCI1.1, otherwise treat as normal
@@ -745,16 +748,31 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 uint32 GfxText16::readChar(const char *text, int &outBytes) const {
 	const uint32 lead = *(const byte *)text;
 	// The trail byte is NOT checked for being non-zero: the call sites this
-	// replaces did not check either, and GetLongest relies on a lone lead
-	// byte at end of string still packing to a double-byte value so that the
-	// two-byte advance below matches.
+	// replaced did not check either, and GetLongest relies on a lone lead
+	// byte at end of string still consuming two bytes so that its advance
+	// matches.
 	if (_font && _font->isDoubleByte(lead)) {
 		outBytes = 2;
-		// Lead byte in the low half, trail in the high half - reversed
-		// relative to the encoding itself, but this is the layout every
-		// existing comparison in this file was written against (0x9781 is
-		// SJIS 81 97, fullwidth @).
-		return lead | ((uint32)*(const byte *)(text + 1) << 8);
+		const byte trail = *(const byte *)(text + 1);
+
+		// Decode to a code point rather than handing on the packed pair. A
+		// code point is what the text actually means; the packed form is an
+		// artefact of the encoding it arrived in, and it made every
+		// comparison in this file encoding-specific.
+		//
+		// The code page ceiling stays for now - this only moves where the
+		// bytes are decoded, from GfxFontSet back to here - but after this
+		// every value flowing through GfxText16 is Unicode, which is what
+		// lets the encode step in lookupText() eventually go away.
+		char bytes[3] = { (char)lead, (char)trail, 0 };
+		const Common::U32String decoded =
+			Common::String(bytes, 2).decode(g_sci->getSciLanguageCodePage());
+		if (!decoded.empty())
+			return decoded[0];
+
+		// Undecodable: keep the packed value so the character still advances
+		// and still reaches a font, rather than silently vanishing.
+		return lead | ((uint32)trail << 8);
 	}
 	outBytes = 1;
 	return lead;
