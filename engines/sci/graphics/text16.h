@@ -102,7 +102,7 @@ private:
 
 	bool SwitchToFont1001OnKorean(const char *text, uint16 languageSplitter);
 	bool SwitchToFont900OnSjis(const char *text, uint16 languageSplitter);
-	static bool isJapaneseNewLine(int16 curChar, int16 nextChar);
+	static bool isJapaneseNewLine(uint32 curChar, uint32 nextChar);
 	int16 macGetLongest(const Common::String &text, uint start, const Graphics::Font *font, int16 maxWidth, int16 *lineWidth);
 
 	GfxCache *_cache;

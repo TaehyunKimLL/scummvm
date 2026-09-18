@@ -196,7 +196,11 @@ static const uint16 text16_shiftJIS_punctuation_SCI01[] = {
 //  Conquests of the Longbow - talking with Lobb - one text box of the dialogue contains a longer word,
 //                                                 that will be broken into 2 lines (bug #5159)
 int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId orgFontId) {
-	uint16 curChar = 0;
+	// uint32, not uint16: readChar() returns a code point, and anything above
+	// U+FFFF would be silently truncated - U+1F600 becomes 0xF600, U+20000
+	// becomes 0. The code page cannot deliver those today, but the variable
+	// must not be the thing that stops it.
+	uint32 curChar = 0;
 	const char *textStartPtr = textPtr;
 	const char *lastSpacePtr = nullptr;
 	int16 lastSpaceCharCount = 0;
@@ -393,7 +397,7 @@ void GfxText16::Width(const char *text, int16 from, int16 len, GuiResourceId org
 		text += from;
 		while (len--) {
 			int curCharBytes = 0;
-			uint16 curChar = readChar(text, curCharBytes);
+			uint32 curChar = readChar(text, curCharBytes);
 			text += curCharBytes;
 			if (curCharBytes == 2) {
 				len--;
@@ -516,7 +520,7 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 	bool escapedNewLine = false;
 	while (len--) {
 		int curCharBytes = 0;
-		uint16 curChar = readChar(text, curCharBytes);
+		uint32 curChar = readChar(text, curCharBytes);
 		text += curCharBytes;
 		if (curCharBytes == 2) {
 			len--;
@@ -731,7 +735,7 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 	rect.top = _ports->_curPort->curTop;
 	rect.bottom = rect.top + _ports->_curPort->fontHeight;
 	while (textLen--) {
-		uint16 curChar = *text++;
+		uint32 curChar = *text++;
 		switch (curChar) {
 		case 0:
 			break;
@@ -840,7 +844,7 @@ bool GfxText16::SwitchToFont900OnSjis(const char *text, uint16 languageSplitter)
 // Instead, we detect the newline sequences during string processing loops and
 // apply the substitute characters on the fly. PQ2 is the only game known to use
 // this feature. "\n" appears in most of its Japanese strings.
-bool GfxText16::isJapaneseNewLine(int16 curChar, int16 nextChar) {
+bool GfxText16::isJapaneseNewLine(uint32 curChar, uint32 nextChar) {
 	return g_sci->getLanguage() == Common::JA_JPN &&
 		curChar == '\\' && (nextChar == 'n' || nextChar == 'N' || nextChar == 'r' || nextChar == 'R');
 }
