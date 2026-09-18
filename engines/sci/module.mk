@@ -51,6 +51,7 @@ MODULE_OBJS := \
 	graphics/coordadjuster.o \
 	graphics/cursor.o \
 	graphics/fontkorean.o \
+	graphics/fontset.o \
 	graphics/fontunicode.o \
 	graphics/fontsjis.o \
 	graphics/macfont.o \

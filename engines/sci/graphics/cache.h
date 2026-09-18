@@ -68,6 +68,12 @@ private:
 	 */
 	GfxFont *createUnicodeFont(GuiResourceId fontId);
 
+	/**
+	 * Wrap the game's own font for @p fontId in a GfxFontSet, or nullptr when
+	 * the id names no resource. See docs/i18n/M10_FONTSET.md.
+	 */
+	GfxFont *createFontSet(GuiResourceId fontId);
+
 	/** The shared SCVMUNI bundle, loaded at most once. */
 	GfxFontUnicode *_unicodeFont;
 	bool _unicodeFontTried;

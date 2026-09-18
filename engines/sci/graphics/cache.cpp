@@ -30,6 +30,7 @@
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/fontsjis.h"
 #include "sci/graphics/fontkorean.h"
+#include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
 #include "common/file.h"
 #include "sci/graphics/view.h"
@@ -74,6 +75,19 @@ void GfxCache::purgeViewCache() {
 	}
 
 	_cachedViews.clear();
+}
+
+GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
+	// Stage 1 of docs/i18n/M10_FONTSET.md: a set that holds only the game's
+	// own resource face. Behaviour is unchanged by construction - every call
+	// forwards to the same face the cache would have returned directly - and
+	// the glyph-request sequence is the gate that proves it.
+	if (!_resMan->testResource(ResourceId(kResourceTypeFont, fontId)))
+		return nullptr;
+
+	GfxFontSet *set = new GfxFontSet(fontId, g_sci->getSciLanguageCodePage());
+	set->addFace(new GfxFontFromResource(_resMan, _screen, fontId), false);
+	return set;
 }
 
 GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
@@ -151,8 +165,14 @@ GfxFont *GfxCache::getFont(GuiResourceId fontId) {
 		// Create special SJIS font in japanese games, when font 900 is selected
 		else if ((fontId == 900) && (g_sci->getLanguage() == Common::JA_JPN))
 			_cachedFonts[fontId] = new GfxFontSjis(_screen, fontId);
-		else
-			_cachedFonts[fontId] = new GfxFontFromResource(_resMan, _screen, fontId);
+		else {
+			// Stage 1: a set holding only the resource face. Falls back to the
+			// bare font when the id names no resource, which the legacy CJK
+			// ids do on most games.
+			GfxFont *set = createFontSet(fontId);
+			_cachedFonts[fontId] = set ? set
+				: (GfxFont *)new GfxFontFromResource(_resMan, _screen, fontId);
+		}
 	}
 
 	return _cachedFonts[fontId];
