@@ -1035,6 +1035,24 @@ Common::Language SciEngine::getLanguage() const {
 			return parsed;
 	}
 
+	// A resource-replacing fan patch - one that rewrites the game's own TEXT
+	// resources in place rather than shipping an overlay - leaves nothing for
+	// the two checks above to find, and detection still reports the shipped
+	// language because it keys off files the patch overwrote. The Korean
+	// Laura Bow 1 is like this: 3,085 hangul strings sit inside resource.001
+	// and the game ships korean.fnt, yet it is detected as DOS/English, so
+	// every double-byte lead byte goes to font.0 and is dropped with
+	// "missing glyph 189" - 268 such warnings in one boot, and the screen
+	// comes up with no text at all.
+	//
+	// Let the user say so. ConfMan is checked last, so it cannot override a
+	// bundle that actually declares its own language.
+	if (ConfMan.hasKey("language")) {
+		const Common::Language forced = Common::parseLanguage(ConfMan.get("language"));
+		if (forced != Common::UNK_LANG)
+			return forced;
+	}
+
 	return _gameDescription->language;
 }
 
