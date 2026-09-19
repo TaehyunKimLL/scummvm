@@ -29,7 +29,6 @@
 #include "sci/engine/guest_additions.h"
 #include "sci/engine/state.h"
 #include "sci/engine/kernel.h"
-#include "sci/engine/m11probe.h" // M11 PROBE
 #include "sci/engine/object.h"
 #include "sci/engine/script.h"
 #include "sci/engine/seg_manager.h"
@@ -630,47 +629,6 @@ void run_vm(EngineState *s) {
 		s->xs->addr.pc.incOffset(readPMachineInstruction(scr->getBuf(s->xs->addr.pc.getOffset()), extOpcode, opparams));
 		const byte opcode = extOpcode >> 1;
 		//debug("%s: %d, %d, %d, %d, acc = %04x:%04x, script %d, local script %d", opcodeNames[opcode], opparams[0], opparams[1], opparams[2], opparams[3], PRINT_REG(s->r_acc), scr->getScriptNumber(), local_script->getScriptNumber());
-
-		// M11 PROBE: classify what the next opcode does with a tainted acc.
-		// One site, before dispatch, so every opcode is covered without
-		// touching each case. Anything not listed below overwrites or ignores
-		// the acc, so the taint is dropped there.
-		if (g_m11.accTainted) {
-			const uint32 accNow = s->r_acc.getOffset();
-			switch (opcode) {
-			case op_add: g_m11.arithmetic("add", accNow); break;
-			case op_sub: g_m11.arithmetic("sub", accNow); break;
-			case op_mul: g_m11.arithmetic("mul", accNow); break;
-			case op_div: g_m11.arithmetic("div", accNow); break;
-			case op_mod: g_m11.arithmetic("mod", accNow); break;
-			case op_shl: g_m11.arithmetic("shl", accNow); break;
-			case op_shr: g_m11.arithmetic("shr", accNow); break;
-			case op_eq_: case op_ne_: case op_gt_: case op_ge_:
-			case op_lt_: case op_le_: case op_ugt_: case op_uge_:
-			case op_ult_: case op_ule_:
-				g_m11.compare(accNow); break;
-			case op_sag: case op_sal: case op_sat: case op_sap:
-				g_m11.store(accNow); break;
-			case op_push:
-				// Pushed onto the stack - likely a kernel or method arg. We
-				// cannot follow it further without stack taint; count it.
-				g_m11.kernelArg(accNow); break;
-			case op_bnot: case op_not: case op_neg:
-				g_m11.arithmetic("unary", accNow); break;
-			case op_bt: case op_bnt: case op_jmp: case op_toss: case op_dup:
-			case op_link: case op_pushi: case op_pprev: case op_pushSelf:
-				// Do not touch the acc. Keep following it.
-				break;
-			default:
-				// Everything else writes the acc (loads, calls, returns,
-				// selectors) or is a stale value we cannot vouch for. The
-				// value check in each sink rejects the latter anyway, but
-				// drop it here so the STALEREJECT count means "overwritten
-				// by something in this list", not "unknown".
-				g_m11.clearAcc();
-				break;
-			}
-		}
 
 #ifdef ABORT_ON_INFINITE_LOOP
 		if (prevOpcode != 0xFF) {

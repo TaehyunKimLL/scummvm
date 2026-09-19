@@ -39,7 +39,6 @@ MODULE_OBJS := \
 	engine/state.o \
 	engine/text_overlay.o \
 	engine/translation.o \
-	engine/m11probe.o \
 	engine/static_selectors.o \
 	engine/tts.o \
 	engine/vm.o \

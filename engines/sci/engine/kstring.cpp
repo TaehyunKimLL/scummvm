@@ -24,7 +24,6 @@
 #include "sci/resource/resource.h"
 #include "sci/engine/features.h"
 #include "sci/engine/kernel.h"
-#include "sci/engine/m11probe.h" // M11 PROBE
 #include "sci/engine/message.h"
 #include "sci/engine/state.h"
 #include "sci/engine/selector.h"
@@ -78,24 +77,6 @@ reg_t kStrCmp(EngineState *s, int argc, reg_t *argv) {
 
 
 reg_t kStrCpy(EngineState *s, int argc, reg_t *argv) {
-	// M11-2 PROBE: same question for a plain copy.
-	{
-		const Common::String src = s->_segMan->getString(argv[1]);
-		bool high = false;
-		for (uint i = 0; i < src.size() && !high; i++)
-			high = (byte)src[i] >= 0x80;
-		if (high) {
-			SegmentRef dr = s->_segMan->dereference(argv[0]);
-			const uint32 need = src.size() + 1;
-			g_m11.cpyTranslated++;
-			if (dr.isValid() && (uint32)dr.maxSize < need) {
-				g_m11.cpyOverflow++;
-				debug("M11OVERFLOW	kStrCpy	avail=%d	need=%u", dr.maxSize, need);
-			}
-			if (dr.isValid())
-				g_m11.noteFit("kStrCpy", dr.maxSize, need);
-		}
-	}
 	if (argc > 2) {
 		int length = argv[2].toSint16();
 
@@ -171,20 +152,6 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 				tmp.setOffset(tmpOffset);
 				tmp.setSegment(0);
 			}
-		}
-	}
-
-	// M11 PROBE: reads only (a write is the script's own data). Translated
-	// if the string holds any byte >= 0x80.
-	g_m11.strAtCalls++;
-	if (argc <= 2) {
-		const Common::String str = s->_segMan->getString(argv[0]);
-		bool high = false;
-		for (uint i = 0; i < str.size() && !high; i++)
-			high = (byte)str[i] >= 0x80;
-		if (high) {
-			g_m11.strAtTranslated++;
-			g_m11.taintAcc("kStrAt", value);
 		}
 	}
 
@@ -472,46 +439,13 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 
 	*target = 0; /* Terminate string */
 
-	// M11-2 PROBE: does the formatted text fit the script's buffer? The
-	// dereference gives the bytes available at dest; compare with what we
-	// are about to write. Only strings with a high byte (translated) count.
-	{
-		SegmentRef dr = s->_segMan->dereference(dest);
-		const uint32 need = strlen(targetbuf) + 1;
-		bool high = false;
-		for (const char *p = targetbuf; *p && !high; p++)
-			high = (byte)*p >= 0x80;
-		if (high) {
-			g_m11.fmtTranslated++;
-			if (dr.isValid() && (uint32)dr.maxSize < need) {
-				g_m11.fmtOverflow++;
-				debug("M11OVERFLOW	kFormat	avail=%d	need=%u", dr.maxSize, need);
-			}
-			if (dr.isValid())
-				g_m11.noteFit("kFormat", dr.maxSize, need);
-		}
-	}
 	s->_segMan->strcpy_(dest, targetbuf);
 
 	return dest; /* Return target addr */
 }
 
 reg_t kStrLen(EngineState *s, int argc, reg_t *argv) {
-	// M11 PROBE: is the string non-ASCII (i.e. translated)? Content, not
-	// address: an English game never has a byte >= 0x80 in text.
-	const uint32 len = s->_segMan->strlen(argv[0]);
-	g_m11.strLenCalls++;
-	{
-		const Common::String str = s->_segMan->getString(argv[0]);
-		bool high = false;
-		for (uint i = 0; i < str.size() && !high; i++)
-			high = (byte)str[i] >= 0x80;
-		if (high) {
-			g_m11.strLenTranslated++;
-			g_m11.taintAcc("kStrLen", len);
-		}
-	}
-	return make_reg(0, len);
+	return make_reg(0, s->_segMan->strlen(argv[0]));
 }
 
 
