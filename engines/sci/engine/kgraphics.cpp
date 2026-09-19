@@ -371,7 +371,7 @@ reg_t kTextSize(EngineState *s, int argc, reg_t *argv) {
 	}
 
 	uint16 languageSplitter = 0;
-	Common::String splitText = g_sci->strSplitLanguage(text.c_str(), &languageSplitter, separator);
+	Common::String splitText = g_sci->strSplitHeap(argv[1], text, &languageSplitter, separator);
 
 	int16 textWidth;
 	int16 textHeight;
@@ -916,10 +916,10 @@ void _k_GenericDrawControl(EngineState *s, reg_t controlObject, bool hilite) {
 	switch (type) {
 	case SCI_CONTROLS_TYPE_BUTTON:
 	case SCI_CONTROLS_TYPE_TEXTEDIT:
-		splitText = g_sci->strSplitLanguage(text.c_str(), &languageSplitter, nullptr);
+		splitText = g_sci->strSplitHeap(textReference, text, &languageSplitter, nullptr);
 		break;
 	case SCI_CONTROLS_TYPE_TEXT:
-		splitText = g_sci->strSplitLanguage(text.c_str(), &languageSplitter, g_sci->getGameId() == GID_PQ2 ? "\r" : "\r----------\r");
+		splitText = g_sci->strSplitHeap(textReference, text, &languageSplitter, g_sci->getGameId() == GID_PQ2 ? "\r" : "\r----------\r");
 		break;
 	default:
 		break;
@@ -1267,16 +1267,17 @@ reg_t kDisplay(EngineState *s, int argc, reg_t *argv) {
 
 	Common::String text;
 
+	Translation::Key key;
 	if (textp.getSegment()) {
 		argc--; argv++;
-		text = s->_segMan->getString(textp);
+		text = g_sci->getKernel()->lookupText(textp, 0, &key);
 	} else {
 		argc--; argc--; argv++; argv++;
-		text = g_sci->getKernel()->lookupText(textp, index);
+		text = g_sci->getKernel()->lookupText(textp, index, &key);
 	}
 
 	uint16 languageSplitter = 0;
-	Common::String splitText = g_sci->strSplitLanguage(text.c_str(), &languageSplitter, g_sci->getGameId() == GID_PQ2 ? "\r" : "\r----------\r");
+	Common::String splitText = g_sci->strSplitLanguage(text.c_str(), &languageSplitter, g_sci->getGameId() == GID_PQ2 ? "\r" : "\r----------\r", key);
 
 	return g_sci->_gfxPaint16->kernelDisplay(splitText.c_str(), languageSplitter, argc, argv);
 }

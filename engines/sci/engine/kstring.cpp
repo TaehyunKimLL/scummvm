@@ -83,18 +83,17 @@ reg_t kStrCpy(EngineState *s, int argc, reg_t *argv) {
 	// or kDrawControl, by which point nothing says where it came from.
 	// Measured on KQ1: "You are carrying nothing!" (script 995, string 4)
 	// and "Enter input" (996, 2) both arrive at kDrawControl as stack
-	// pointers. So translate at the copy, while the source is still keyed.
+	// pointers. So record, at the copy, which script string the buffer now
+	// holds; the display looks that up and translates there, in one place.
 	//
 	// Only the plain, full-length copy: a length-limited strncpy or a
 	// negative-length memcpy is the script moving bytes, not text.
 	if (argc <= 2 && g_sci->getTranslation().isLoaded()) {
-		const Translation::Key key = s->_segMan->stringKey(argv[1]);
+		Translation::Key key = s->_segMan->stringKey(argv[1]);
 		if (key.isSet()) {
-			Common::String translated;
-			if (g_sci->getTranslation().translate(s->_segMan->getString(argv[1]), translated, key)) {
-				s->_segMan->strcpy_(argv[0], translated.c_str());
-				return argv[0];
-			}
+			key.room = s->currentRoomNumber();
+			g_sci->getTranslation().tagBuffer(Translation::bufferId(argv[0].getSegment(), argv[0].getOffset()),
+			                                  key, s->_segMan->getString(argv[1]));
 		}
 	}
 	if (argc > 2) {
@@ -291,7 +290,12 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 	}
 
 	int index = (startarg == 3) ? argv[2].toUint16() : 0;
-	Common::String source_str = g_sci->getKernel()->lookupText(position, index);
+	// Translate the format string now, before the arguments go in: once
+	// "The %s looks like any other %s." has become "The rock looks like
+	// any other rock." it matches nothing in the bundle.
+	Translation::Key sourceKey;
+	Common::String source_str = g_sci->getKernel()->lookupText(position, index, &sourceKey);
+	source_str = g_sci->translated(source_str, sourceKey);
 	const char* source = source_str.c_str();
 
 	debugC(kDebugLevelStrings, "Formatting \"%s\"", source);
@@ -352,8 +356,10 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 			case 's': { /* Copy string */
 				reg_t reg = argv[startarg + paramindex];
 
+				Translation::Key argKey;
 				Common::String tempsource = g_sci->getKernel()->lookupText(reg,
-				                                  arguments[paramindex + 1]);
+				                                  arguments[paramindex + 1], &argKey);
+				tempsource = g_sci->translated(tempsource, argKey);
 				int slen = tempsource.size();
 				int extralen = strLength - slen;
 				assert((target - targetbuf) + extralen <= maxsize);

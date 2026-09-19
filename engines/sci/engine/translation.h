@@ -88,14 +88,17 @@ public:
 	 */
 	struct Key {
 		enum Kind { kNone = 0, kText = 1, kScript = 2 };
+		static const uint16 kAnyRoom = 0xFFFF;
+
 		Kind kind;
 		uint16 number;	///< resource or script number
 		uint16 index;	///< string index within it
+		uint16 room;	///< the room the string was displayed in, or kAnyRoom
 
-		Key() : kind(kNone), number(0xFFFF), index(0xFFFF) {}
-		Key(Kind k, uint16 n, uint16 i) : kind(k), number(n), index(i) {}
-		static Key text(uint16 res, uint16 idx) { return Key(kText, res, idx); }
-		static Key script(uint16 nr, uint16 id) { return Key(kScript, nr, id); }
+		Key() : kind(kNone), number(0xFFFF), index(0xFFFF), room(kAnyRoom) {}
+		Key(Kind k, uint16 n, uint16 i, uint16 r = kAnyRoom) : kind(k), number(n), index(i), room(r) {}
+		static Key text(uint16 res, uint16 idx, uint16 r = kAnyRoom) { return Key(kText, res, idx, r); }
+		static Key script(uint16 nr, uint16 id, uint16 r = kAnyRoom) { return Key(kScript, nr, id, r); }
 		bool isSet() const { return kind != kNone; }
 	};
 
@@ -113,6 +116,29 @@ public:
 	uint entryCount() const { return _entryCount; }
 	const Common::String &language() const { return _language; }
 
+	/**
+	 * Remember where a heap buffer's contents came from.
+	 *
+	 * A script string on its way to the screen is first kStrCpy'd into a
+	 * stack buffer, and the buffer is what kDisplay / kDrawControl are
+	 * handed - by then nothing says which script string it was. So the copy
+	 * records (buffer -> key, text, room) here, and the display looks it up.
+	 *
+	 * A buffer is reused freely, so the record carries the text that was
+	 * written and keyOf() returns nothing when the buffer no longer holds
+	 * it. Measured on KQ1: 28 display lookups, 0 stale.
+	 *
+	 * The buffer is identified by its raw (segment, offset) so this class
+	 * stays free of the VM: reg_t::getSegment() consults the SCI version,
+	 * which drags the engine into anything that links it (the unit tests).
+	 */
+	void tagBuffer(uint32 buffer, const Key &key, const Common::String &text);
+
+	/** The key recorded for @p buffer, if it still holds @p text. */
+	Key keyOf(uint32 buffer, const Common::String &text) const;
+
+	static uint32 bufferId(uint16 segment, uint16 offset) { return ((uint32)segment << 16) | offset; }
+
 	/** Whitespace normalisation applied to every key. Public for testing. */
 	static Common::String normalise(const Common::String &s);
 	static uint32 hash(const Common::String &normalised);
@@ -124,6 +150,7 @@ private:
 		uint32 dstOffset;
 		uint16 number;
 		uint16 index;
+		uint16 room;	///< Key::kAnyRoom when the entry does not care
 		byte kind;		///< Key::Kind; 0 in bundles written before it existed
 	};
 
@@ -134,6 +161,12 @@ private:
 	/** Sources already warned about for a hint miss; mutable because a
 	 *  lookup is logically const and the warning is a side channel. */
 	mutable Common::HashMap<uint32, bool> _warnedFallback;
+
+	struct BufferTag {
+		Key key;
+		Common::String text;
+	};
+	Common::HashMap<uint32, BufferTag> _bufferTags;	///< packed reg_t -> tag
 	Common::Array<byte> _data;
 	Common::Array<Entry> _entryTable;
 

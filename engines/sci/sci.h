@@ -192,6 +192,7 @@ public:
 
 	/** SCITRS Unicode translation bundle; empty when absent. */
 	const Translation &getTranslation() const { return _translation; }
+	Translation &getTranslation() { return _translation; }
 
 	/**
 	 * The code page SCI text is stored in for the active language. This is
@@ -327,16 +328,35 @@ public:
 	 *						If nullptr is passed then no subtitle will be added to the returned string.
 	 * @return				The processed string.
 	 */
-	Common::String strSplitLanguage(const char *str, uint16 *splitLanguage, const char *sep);
-	Common::String strSplit(const char *str, const char *sep) {
-		return strSplitLanguage(str, NULL, sep);
+	Common::String strSplitLanguage(const char *str, uint16 *splitLanguage, const char *sep,
+	                                const Translation::Key &key = Translation::Key());
+	Common::String strSplit(const char *str, const char *sep,
+	                        const Translation::Key &key = Translation::Key()) {
+		return strSplitLanguage(str, NULL, sep, key);
 	}
+
+	/**
+	 * strSplit() for a string that lives at @p ptr on the heap: recovers
+	 * where the string came from (a script's string block, or a buffer a
+	 * script string was copied into) so the translation can be keyed.
+	 */
+	Common::String strSplitHeap(reg_t ptr, const Common::String &str, uint16 *splitLanguage, const char *sep);
 
 	kLanguage getSciLanguage();
 	void setSciLanguage(kLanguage lang);
 	void setSciLanguage();
 
 	Common::String getSciLanguageString(const Common::String &str, kLanguage requestedLanguage, kLanguage *secondaryLanguage = nullptr, uint16 *languageSplitter = nullptr) const;
+
+	/**
+	 * @p str as the SCITRS bundle translates it, or @p str itself.
+	 *
+	 * The one place the bundle is consulted. getSciLanguageString() calls
+	 * it for every string on its way to the screen; kFormat calls it for a
+	 * format string before the arguments go in, because afterwards the
+	 * text no longer matches anything in the bundle.
+	 */
+	Common::String translated(const Common::String &str, const Translation::Key &key = Translation::Key()) const;
 
 	// Check if vocabulary needs to get switched (in multilingual parser games)
 	void checkVocabularySwitch();

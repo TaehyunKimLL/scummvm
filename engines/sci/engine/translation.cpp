@@ -180,10 +180,14 @@ bool Translation::loadFromMemory(const Common::Array<byte> &bytes, const Common:
 			ent.dstOffset = READ_LE_UINT32(p + 8);
 			ent.number = READ_LE_UINT16(p + 12);
 			ent.index = READ_LE_UINT16(p + 14);
-			// Byte 16 of the entry was reserved and written as zero until
-			// script strings joined the bundle; zero therefore means "a TEXT
-			// resource", which is what every older bundle contains.
+			// Bytes 16..19 of the entry were reserved and written as zero
+			// until script strings and rooms joined the bundle. Byte 16 is
+			// the kind - zero means "a TEXT resource", which is what every
+			// older bundle contains. Bytes 17..18 are the room, where zero
+			// means "any room" for the same reason.
 			ent.kind = p[16] ? p[16] : Key::kText;
+			const uint16 room = READ_LE_UINT16(p + 17);
+			ent.room = room ? room : Key::kAnyRoom;
 
 			if (ent.srcOffset >= poolLength || ent.dstOffset >= poolLength) {
 				warning("Translation: entry %u points outside the string pool", e);
@@ -247,6 +251,23 @@ bool Translation::loadAny() {
 	return load(Common::String(code));
 }
 
+void Translation::tagBuffer(uint32 buffer, const Key &key, const Common::String &text) {
+	BufferTag t;
+	t.key = key;
+	t.text = text;
+	_bufferTags[buffer] = t;
+}
+
+Translation::Key Translation::keyOf(uint32 buffer, const Common::String &text) const {
+	if (!_bufferTags.contains(buffer))
+		return Key();
+	const BufferTag &t = _bufferTags.getVal(buffer);
+	// The buffer has been reused for something else: the tag is stale.
+	if (t.text != text)
+		return Key();
+	return t.key;
+}
+
 bool Translation::translate(const Common::String &source, Common::String &out,
                             const Key &key) const {
 	if (!_loaded || source.empty())
@@ -264,6 +285,11 @@ bool Translation::translate(const Common::String &source, Common::String &out,
 	if (lo > hi || hi > _entryCount)
 		return false;
 
+	// Three grades of match, most specific first:
+	//   place AND room  - the entry names this room
+	//   place           - the entry names any room
+	//   source only     - the first entry with this text
+	const Entry *placeMatch = nullptr;
 	const Entry *fallback = nullptr;
 	for (uint32 i = lo; i < hi; i++) {
 		const Entry &e = _entries[i];
@@ -276,18 +302,28 @@ bool Translation::translate(const Common::String &source, Common::String &out,
 		if (!src || normalise(src) != norm)
 			continue;
 
-		// A matching key wins immediately; otherwise remember the first
-		// source match and keep looking for one whose key agrees.
 		if (key.isSet() && e.kind == key.kind && e.number == key.number &&
 		    e.index == key.index) {
-			const char *dst = poolString(e.dstOffset);
-			if (dst) {
-				out = dst;	// the pool is UTF-8; copy, do not transcode
-				return true;
+			if (e.room == key.room && key.room != Key::kAnyRoom) {
+				const char *dst = poolString(e.dstOffset);
+				if (dst) {
+					out = dst;	// the pool is UTF-8; copy, do not transcode
+					return true;
+				}
 			}
+			if (e.room == Key::kAnyRoom && !placeMatch)
+				placeMatch = &e;
 		}
 		if (!fallback)
 			fallback = &e;
+	}
+
+	if (placeMatch) {
+		const char *dst = poolString(placeMatch->dstOffset);
+		if (dst) {
+			out = dst;
+			return true;
+		}
 	}
 
 	if (fallback) {

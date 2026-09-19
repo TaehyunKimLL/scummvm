@@ -886,26 +886,19 @@ void Kernel::loadKernelNames(GameFeatures *features) {
 	mapFunctions(features);
 }
 
-Common::String Kernel::lookupText(reg_t address, int index) {
+Common::String Kernel::lookupText(reg_t address, int index, Translation::Key *key) {
+	if (key)
+		*key = Translation::Key();
+
 	if (address.getSegment()) {
-		// A heap address. When it points into a script's string block the
-		// string is one the bundle can key as (script, id), and this is the
-		// last moment that is knowable: kFormat copies the text into a
-		// stack buffer next, and from there it reaches the screen with no
-		// trace of where it came from. Measured on KQ1: "You are carrying
-		// nothing!" (script 995, string 4) arrived at kDrawControl as a
-		// stack pointer, unkeyed and untranslated.
-		const Common::String original = _segMan->getString(address);
-		const Translation &trs = g_sci->getTranslation();
-		if (trs.isLoaded()) {
-			const Translation::Key key = _segMan->stringKey(address);
-			if (key.isSet()) {
-				Common::String translated;
-				if (trs.translate(original, translated, key))
-					return translated;
-			}
+		// A heap address: a script string, or a buffer holding one.
+		const Common::String text = _segMan->getString(address);
+		if (key) {
+			*key = _segMan->stringKey(address);
+			if (!key->isSet())
+				*key = g_sci->getTranslation().keyOf(Translation::bufferId(address.getSegment(), address.getOffset()), text);
 		}
-		return original;
+		return text;
 	}
 
 	// A Korean fan patch ships its translation as a Text.MAP/Text.Res pair
@@ -961,23 +954,8 @@ Common::String Kernel::lookupText(reg_t address, int index) {
 			;
 
 	if (textlen) {
-		// A SCITRS bundle is keyed by the original text, so it is consulted
-		// AFTER the real string has been located.
-		//
-		// The translation goes to the heap as UTF-8, not re-encoded to the
-		// game's code page. The code page was a ceiling: any character it
-		// could not represent was dropped here, silently - a Thai letter
-		// with a glyph in the font never reached the renderer. With UTF-8
-		// in the heap the string ops count code points (kStrLen, kStrAt)
-		// and GfxText16 walks with the same decoder, so nothing downstream
-		// needs the encoding and nothing is lost on the way.
-		const Translation &trs = g_sci->getTranslation();
-		if (trs.isLoaded()) {
-			Common::String translated;
-			if (trs.translate(seeker, translated,
-			                  Translation::Key::text((uint16)address.getOffset(), (uint16)_index)))
-				return translated;
-		}
+		if (key)
+			*key = Translation::Key::text((uint16)address.getOffset(), (uint16)_index);
 		return seeker;
 	}
 

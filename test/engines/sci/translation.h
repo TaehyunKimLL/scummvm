@@ -89,6 +89,7 @@ public:
 		uint16 res;
 		uint16 idx;
 		byte kind;	///< Translation::Key::Kind; 0 = written by an older builder
+		uint16 room;	///< 0 = any room (what an older builder wrote)
 	};
 
 	static void put16(Common::Array<byte> &b, uint16 v) { b.push_back(v & 0xFF); b.push_back(v >> 8); }
@@ -147,7 +148,8 @@ public:
 			put16(out, pairs[i].res);
 			put16(out, pairs[i].idx);
 			out.push_back(pairs[i].kind); // byte 16: Key::Kind, 0 in old bundles
-			out.push_back(0); out.push_back(0); out.push_back(0);
+			put16(out, pairs[i].room);    // bytes 17-18: room, 0 in old bundles
+			out.push_back(0);
 		}
 
 		// Bucket table: bucket b spans [lo[b], lo[b+1]).
@@ -273,6 +275,45 @@ public:
 		TS_ASSERT_EQUALS((byte)out[0], 0xE0);
 		TS_ASSERT_EQUALS((byte)out[1], 0xB8);
 		TS_ASSERT_EQUALS((byte)out[2], 0x81);
+	}
+
+	void test_room_specific_entry_wins_in_its_room_only() {
+		// "The mirror" is one thing in room 5 and another in room 9; the
+		// entry that names the room wins there, the any-room entry elsewhere.
+		using Sci::Translation;
+		static const Pair pairs[] = {
+			{ "The mirror.", "거울이다.",        14, 2, Translation::Key::kText, 0 },
+			{ "The mirror.", "마법의 거울이다.", 14, 2, Translation::Key::kText, 5 },
+		};
+		Translation t;
+		TS_ASSERT(t.loadFromMemory(buildBundle(pairs, 2), "ko"));
+		Common::String out;
+		TS_ASSERT(t.translate("The mirror.", out, Translation::Key::text(14, 2, 5)));
+		TS_ASSERT_EQUALS(out, Common::String("마법의 거울이다."));
+		TS_ASSERT(t.translate("The mirror.", out, Translation::Key::text(14, 2, 9)));
+		TS_ASSERT_EQUALS(out, Common::String("거울이다."));
+		TS_ASSERT(t.translate("The mirror.", out, Translation::Key::text(14, 2)));
+		TS_ASSERT_EQUALS(out, Common::String("거울이다."));
+	}
+
+	void test_buffer_tag_survives_until_the_buffer_is_reused() {
+		// A script string copied into a stack buffer keeps its key as long
+		// as the buffer still holds it; once something else is written
+		// there the key is gone, never a wrong one.
+		using Sci::Translation;
+		Translation t;
+		const uint32 buf = Translation::bufferId(0x10, 0x2c2);
+		t.tagBuffer(buf, Translation::Key::script(995, 4, 1), "You are carrying nothing!");
+
+		Translation::Key k = t.keyOf(buf, "You are carrying nothing!");
+		TS_ASSERT(k.isSet());
+		TS_ASSERT_EQUALS(k.kind, Translation::Key::kScript);
+		TS_ASSERT_EQUALS(k.number, 995);
+		TS_ASSERT_EQUALS(k.index, 4);
+		TS_ASSERT_EQUALS(k.room, 1);
+
+		TS_ASSERT(!t.keyOf(buf, "Something else now").isSet());
+		TS_ASSERT(!t.keyOf(Translation::bufferId(0x10, 0x2c4), "You are carrying nothing!").isSet());
 	}
 
 	void test_unloaded_bundle_translates_nothing() {

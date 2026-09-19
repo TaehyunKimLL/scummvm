@@ -28,7 +28,8 @@
 #include "common/str-array.h"
 
 #include "sci/engine/selector.h"
-#include "sci/engine/vm_types.h"	// for reg_t
+#include "sci/engine/vm_types.h"
+#include "sci/engine/translation.h"	// for reg_t
 #include "sci/engine/vm.h"
 
 namespace Sci {
@@ -223,7 +224,13 @@ public:
 	 * @param index The relative index
 	 * @return The referenced text, or empty string on error.
 	 */
-	Common::String lookupText(reg_t address, int index);
+	/**
+	 * The text a script refers to as (resource, index), or the string at a
+	 * heap address. Untranslated: the caller hands it to strSplitLanguage(),
+	 * which is where every string is translated. @p key, when given, is set
+	 * to where the text came from so the caller can pass that on.
+	 */
+	Common::String lookupText(reg_t address, int index, Translation::Key *key = nullptr);
 
 	/**
 	 * Loads the kernel function names.

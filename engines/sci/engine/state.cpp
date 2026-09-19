@@ -226,6 +226,7 @@ Common::String SciEngine::getSciLanguageString(const Common::String &str, kLangu
 	if (secondaryLanguage) {
 		*secondaryLanguage = K_LANG_NONE;
 	}
+
 	byte curChar = 0;
 	byte curChar2 = 0;
 
@@ -368,12 +369,49 @@ void SciEngine::setSciLanguage() {
 	setSciLanguage(getSciLanguage());
 }
 
-Common::String SciEngine::strSplitLanguage(const char *str, uint16 *languageSplitter, const char *sep) {
+Common::String SciEngine::translated(const Common::String &str, const Translation::Key &key) const {
+	// The translation goes out as UTF-8, not the game's code page. The
+	// code page was a ceiling: a character it could not represent was
+	// dropped, silently. The string ops count code points and GfxText16
+	// walks UTF-8, so nothing downstream needs the encoding.
+	if (!_translation.isLoaded())
+		return str;
+	Common::String out;
+	if (_translation.translate(str, out, key))
+		return out;
+	return str;
+}
+
+Common::String SciEngine::strSplitHeap(reg_t ptr, const Common::String &str, uint16 *languageSplitter, const char *sep) {
+	Translation::Key key = _gamestate->_segMan->stringKey(ptr);
+	if (!key.isSet())
+		key = _translation.keyOf(Translation::bufferId(ptr.getSegment(), ptr.getOffset()), str);
+	return strSplitLanguage(str.c_str(), languageSplitter, sep, key);
+}
+
+Common::String SciEngine::strSplitLanguage(const char *str, uint16 *languageSplitter, const char *sep,
+                                           const Translation::Key &key) {
 	kLanguage activeLanguage = getSciLanguage();
 	kLanguage subtitleLanguage = K_LANG_NONE;
 
 	if (SELECTOR(subtitleLang) != -1)
 		subtitleLanguage = (kLanguage)readSelectorValue(_gamestate->_segMan, _gameObjectAddress, SELECTOR(subtitleLang));
+
+	// Every string on its way to the screen comes through here - kDisplay,
+	// kDrawControl, kTextSize, the menu bar, a window title - so this is
+	// where a SCITRS bundle is applied, keyed by where the string came
+	// from when the caller knows. A translated string has no %J/%G
+	// splitter to find, so it is returned as is.
+	//
+	// The two callers that go to getSciLanguageString() directly, asking
+	// for English by name - file.cpp for a filename, workarounds.cpp for
+	// an object name - want the English half of a multilingual string,
+	// which is an identifier, not display text. They never come here.
+	if (_translation.isLoaded()) {
+		Common::String t;
+		if (_translation.translate(str, t, key))
+			return t;
+	}
 
 	kLanguage foundLanguage;
 	Common::String retval = getSciLanguageString(str, activeLanguage, &foundLanguage, languageSplitter);
