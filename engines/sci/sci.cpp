@@ -524,6 +524,55 @@ Common::Error SciEngine::run() {
 	// Must be called after game_init(), as they use _features
 	_kernel->loadKernelNames(_features);
 
+	// Dump every string embedded in a SCRIPT resource, tab separated, as the
+	// companion to dump_text_resources above: a game's displayable text is
+	// split between TEXT resources and its scripts, and only the pair covers
+	// it. Measured on KQ1: 1,786 strings in TEXT resources, 258 in scripts.
+	//
+	// The id is the one identifyOffsets() assigns at load - first string in
+	// the script's string block is 1 - which is exactly what
+	// SegManager::stringKey() reports at runtime, so a bundle entry built
+	// from this dump is found by the engine without a second numbering.
+	//
+	// Loading the script here rather than reading the resource by hand is
+	// deliberate: the string block is found differently in SCI0, SCI1.1 and
+	// SCI3, and identifyOffsets() is the code that already knows how.
+	if (ConfMan.hasKey("dump_script_strings")) {
+		Common::List<ResourceId> ids = _resMan->listResources(kResourceTypeScript);
+		uint32 total = 0;
+		for (Common::List<ResourceId>::const_iterator it = ids.begin(); it != ids.end(); ++it) {
+			const uint16 n = it->getNumber();
+			// SCI1.1 through SCI2.1 keep the heap in its own resource and
+			// Script::load() treats a missing one as fatal. Skip rather than
+			// abort the dump: a script without a heap has no string block.
+			if (getSciVersion() >= SCI_VERSION_1_1 && getSciVersion() <= SCI_VERSION_2_1_LATE &&
+			    !_resMan->testResource(ResourceId(kResourceTypeHeap, n)))
+				continue;
+			Script scr;
+			scr.load(n, _resMan, _scriptPatcher);
+			const offsetLookupArrayType *offsets = scr.getOffsetArray();
+			for (offsetLookupArrayType::const_iterator e = offsets->begin(); e != offsets->end(); ++e) {
+				if (e->type != SCI_SCR_OFFSET_TYPE_STRING)
+					continue;
+				// The dump is one line per string, so a string containing a
+				// newline is escaped the way m5mktrs.py unescapes it.
+				Common::String text((const char *)scr.getBuf(e->offset));
+				Common::String escaped;
+				for (uint i = 0; i < text.size(); i++) {
+					if (text[i] == '\n' || text[i] == '\r')
+						escaped += "\\n";
+					else if (text[i] == '\t')
+						escaped += ' ';
+					else
+						escaped += text[i];
+				}
+				debug("SCRSTR	%u	%u	%s", n, e->id, escaped.c_str());
+				total++;
+			}
+		}
+		debug("SCRSTR-TOTAL	%u strings in %u scripts", total, ids.size());
+	}
+
 	// Initialize all graphics related subsystems
 	initGraphics();
 
