@@ -36,6 +36,7 @@
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/screen.h"
 #include "sci/graphics/text16.h"
+#include "sci/utf8.h"
 
 namespace Sci {
 
@@ -220,8 +221,8 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 
 	for (;;) {
 		curChar = readChar(textPtr, curCharBytes);
-		if (curCharBytes == 2) {
-			// nothing more to do; readChar packed the pair
+		if (curCharBytes > 1) {
+			// A multi-byte character is never an escape or a line break.
 		} else if (escapedNewLine) {
 			escapedNewLine = false;
 			curChar = 0x0D;
@@ -254,11 +255,9 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 			// fall through
 		case 0xA:
 		case 0xFF20: // fullwidth @, used by SQ4/japanese as a line break (was added for SCI1/PC98)
-			curCharCount++; textPtr++;
-			if (curCharBytes == 2) {
-				// skip another byte in case char is double-byte (PC-98)
-				curCharCount++; textPtr++;
-			}
+			// Advance past the whole character - two bytes for a PC-98
+			// pair, up to four for UTF-8.
+			curCharCount += curCharBytes; textPtr += curCharBytes;
 			// fall through
 		case 0:
 			SetFont(previousFontId);
@@ -290,12 +289,8 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 		// still fits, remember width
 		curWidth = tempWidth;
 
-		// go to next character
-		curCharCount++; textPtr++;
-		if (curCharBytes == 2) {
-			// Double-Byte
-			curCharCount++; textPtr++;
-		 }
+		// go to next character, however many bytes it took
+		curCharCount += curCharBytes; textPtr += curCharBytes;
 	}
 
 	if (lastSpaceCharCount) {
@@ -310,8 +305,13 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 	} else {
 		// Break without spaces found, we split the very first word - may also be Kanji/Japanese
 
-		if (curCharBytes == 2) {
-			// current character is Japanese
+		if (curCharBytes == 2 && !g_sci->heapStringsAreUtf8()) {
+			// current character is a PC-98 double-byte pair. This block is
+			// kinsoku (line-start punctuation) handling that walks backwards
+			// two bytes at a time and re-validates with isDoubleByte(); it
+			// is correct only for a fixed-width code page and is left
+			// exactly as it was for those releases. UTF-8 text takes the
+			// plain word-split below.
 
 			// PC-9801 SCI actually added the last character, which shouldn't fit anymore, still onto the
 			//  screen in case maxWidth wasn't fully reached with the last character
@@ -372,7 +372,7 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 			//  Fixes #10000 where the notebook in LB1 room 786 displays "INCOMPLETE" with
 			//  a width that's too short which would have otherwise wrapped the last "E".
 			if (_useEarlyGetLongestTextCalculations) {
-				curCharCount++; textPtr++;
+				curCharCount += curCharBytes; textPtr += curCharBytes;
 			}
 		}
 
@@ -395,12 +395,16 @@ void GfxText16::Width(const char *text, int16 from, int16 len, GuiResourceId org
 	if (_font) {
 		bool escapedNewLine = false;
 		text += from;
-		while (len--) {
+		// len counts BYTES - it is what GetLongest() returned - and each
+		// character consumes as many as it occupied, so a 3-byte UTF-8
+		// syllable and a 2-byte code page pair both come out right.
+		while (len > 0) {
 			int curCharBytes = 0;
 			uint32 curChar = readChar(text, curCharBytes);
 			text += curCharBytes;
-			if (curCharBytes == 2) {
-				len--;
+			len -= curCharBytes;
+			if (curCharBytes > 1) {
+				// multi-byte: never an escape or a line break
 			} else if (escapedNewLine) {
 				escapedNewLine = false;
 				curChar = 0x0D;
@@ -518,12 +522,14 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 	rect.bottom = rect.top + _ports->_curPort->fontHeight;
 	text += from;
 	bool escapedNewLine = false;
-	while (len--) {
+	// len counts BYTES, as in Width(): consume what each character took.
+	while (len > 0) {
 		int curCharBytes = 0;
 		uint32 curChar = readChar(text, curCharBytes);
 		text += curCharBytes;
-		if (curCharBytes == 2) {
-			len--;
+		len -= curCharBytes;
+		if (curCharBytes > 1) {
+			// multi-byte: never an escape or a line break
 		} else if (escapedNewLine) {
 			escapedNewLine = false;
 			curChar = 0x0D;
@@ -748,9 +754,18 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 	}
 }
 
-// Check for Korean strings, and use font 1001 to render them
+// Read one character and report how many bytes it occupied.
 uint32 GfxText16::readChar(const char *text, int &outBytes) const {
 	const uint32 lead = *(const byte *)text;
+
+	// A translated game holds UTF-8 in the heap, and this is the same
+	// decoder kStrLen and kStrAt count with, so the renderer and the string
+	// ops cannot disagree about where a character starts. Checked before
+	// the code page path: a UTF-8 lead byte (C2..F4) overlaps the cp949
+	// lead range, so asking the font first would split a syllable in two.
+	if (g_sci->heapStringsAreUtf8())
+		return decodeUtf8Char((const byte *)text, outBytes);
+
 	// The trail byte is NOT checked for being non-zero: the call sites this
 	// replaced did not check either, and GetLongest relies on a lone lead
 	// byte at end of string still consuming two bytes so that its advance
@@ -785,6 +800,24 @@ uint32 GfxText16::readChar(const char *text, int &outBytes) const {
 bool GfxText16::SwitchToFont1001OnKorean(const char *text, uint16 languageSplitter) {
 	const byte* ptr = (const byte *)text;
 	if (languageSplitter != 0x6b23) { // #k prefix as language splitter
+		// With UTF-8 in the heap the cp949 byte pattern below never
+		// matches - a hangul syllable is E1..ED followed by continuation
+		// bytes - so the line would be drawn without doubleByteMode and the
+		// hires plane would not be refreshed under it. Measured: every
+		// button on KQ1's title screen came up blank. Ask the decoder
+		// instead; "does this line hold a non-ASCII character" is what the
+		// question always meant. The font switch is not needed on this
+		// path: a set already covers the syllables under the script's id.
+		if (g_sci->heapStringsAreUtf8()) {
+			int bytes;
+			while (*ptr) {
+				if (decodeUtf8Char(ptr, bytes) >= 0x80)
+					return true;
+				ptr += bytes;
+			}
+			return false;
+		}
+
 		// Check if the text contains at least one Korean character
 		while (*ptr) {
 			byte ch = *ptr++;
@@ -820,6 +853,15 @@ bool GfxText16::SwitchToFont1001OnKorean(const char *text, uint16 languageSplitt
 bool GfxText16::SwitchToFont900OnSjis(const char *text, uint16 languageSplitter) {
 	byte firstChar = (*(const byte *)text++);
 	if (languageSplitter != 0x6a23) { // #j prefix as language splitter
+		// Same question as the Korean switch, asked of UTF-8 directly. The
+		// Shift-JIS test below happens to accept a UTF-8 kana lead byte
+		// (E3 falls in E0..EF) but not a Latin one (C3), so a line opening
+		// with an accented letter would lose doubleByteMode by accident.
+		if (g_sci->heapStringsAreUtf8()) {
+			int bytes;
+			return decodeUtf8Char((const byte *)text - 1, bytes) >= 0x80;
+		}
+
 		if (((firstChar >= 0x81) && (firstChar <= 0x9F)) || ((firstChar >= 0xE0) && (firstChar <= 0xEF))) {
 			// The switch to font 900 exists because only that font holds
 			// double-byte glyphs. With a SCVMUNI bundle every font can draw

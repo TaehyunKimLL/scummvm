@@ -944,15 +944,21 @@ Common::String Kernel::lookupText(reg_t address, int index) {
 
 	if (textlen) {
 		// A SCITRS bundle is keyed by the original text, so it is consulted
-		// AFTER the real string has been located. Unicode is converted back
-		// to the game's own encoding here, at the boundary: everything
-		// downstream still sees the byte representation SCI expects.
+		// AFTER the real string has been located.
+		//
+		// The translation goes to the heap as UTF-8, not re-encoded to the
+		// game's code page. The code page was a ceiling: any character it
+		// could not represent was dropped here, silently - a Thai letter
+		// with a glyph in the font never reached the renderer. With UTF-8
+		// in the heap the string ops count code points (kStrLen, kStrAt)
+		// and GfxText16 walks with the same decoder, so nothing downstream
+		// needs the encoding and nothing is lost on the way.
 		const Translation &trs = g_sci->getTranslation();
 		if (trs.isLoaded()) {
 			Common::U32String translated;
 			if (trs.translate(seeker, translated,
 							  (uint16)address.getOffset(), (uint16)_index)) {
-				return translated.encode(g_sci->getSciLanguageCodePage());
+				return translated.encode(Common::kUtf8);
 			}
 		}
 		return seeker;
