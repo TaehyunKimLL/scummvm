@@ -986,6 +986,10 @@ bool SciEngine::usesHiresDoubleByteText() const {
 	return false;
 }
 
+bool SciEngine::heapStringsAreUtf8() const {
+	return _translation.isLoaded();
+}
+
 Common::CodePage SciEngine::getSciLanguageCodePage() const {
 	switch (getLanguage()) {
 	case Common::KO_KOR:

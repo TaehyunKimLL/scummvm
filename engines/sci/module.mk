@@ -7,6 +7,7 @@ MODULE_OBJS := \
 	event.o \
 	metaengine.o \
 	sci.o \
+	utf8.o \
 	util.o \
 	engine/features.o \
 	engine/file.o \

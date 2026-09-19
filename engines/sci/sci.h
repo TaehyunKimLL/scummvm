@@ -218,6 +218,22 @@ public:
 	bool usesHiresDoubleByteText() const;
 
 	/**
+	 * Whether strings in the VM heap are UTF-8, so that the string ops that
+	 * index into text (kStrLen, kStrAt) count code points rather than bytes.
+	 *
+	 * True only when a SCITRS translation is loaded: the bundle is UTF-8 and
+	 * lookupText() hands it to the heap unencoded. An untranslated game keeps
+	 * byte semantics to the last op - measured in M11_STRING_OPS.md, its
+	 * scripts never see translated text anyway, so the gate is belt and
+	 * braces for the fan game that does scan bytes.
+	 *
+	 * Deliberately a separate question from usesHiresDoubleByteText(): that
+	 * one is about how glyphs reach the screen, this one is about what a
+	 * byte in the heap means.
+	 */
+	bool heapStringsAreUtf8() const;
+
+	/**
 	 * Returns true if the game's language direction is Right To Left.
 	 * RTL support did not exist in the original SCI engine.
 	 * This is a ScummVM feature to support modern fan translations.
