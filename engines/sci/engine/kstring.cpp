@@ -24,6 +24,7 @@
 #include "sci/resource/resource.h"
 #include "sci/engine/features.h"
 #include "sci/engine/kernel.h"
+#include "sci/utf8.h"
 #include "sci/engine/message.h"
 #include "sci/engine/state.h"
 #include "sci/engine/selector.h"
@@ -111,6 +112,24 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 		newvalue = argv[2].toSint16();
 
 	g_sci->_tts->setMessage(s->_segMan->getString(argv[0]));
+
+	// With UTF-8 in the heap, the index the script hands us counts code
+	// points, and a read returns the whole code point. A write cannot be
+	// done in place - replacing a 1-byte character with a 3-byte one would
+	// move every byte after it - so writes keep byte semantics and say so.
+	// Measured (M11_STRING_OPS.md): no shipped game writes into translated
+	// text through this op, so the warning is for the fan game that might.
+	if (g_sci->heapStringsAreUtf8() && argc <= 2) {
+		const Common::String str = s->_segMan->getString(argv[0]);
+		const byte *p = (const byte *)str.c_str();
+		const uint32 byteOff = utf8OffsetOf(p, offset);
+		if (byteOff >= str.size())
+			return NULL_REG;	// past the end, as a byte read past NUL would be
+		int bytes;
+		return make_reg(0, decodeUtf8Char(p + byteOff, bytes) & 0xFFFF);
+	}
+	if (g_sci->heapStringsAreUtf8() && argc > 2)
+		warning("kStrAt: byte write at %u into a UTF-8 string", offset);
 
 	// in kq5 this here gets called with offset 0xFFFF
 	//  (in the desert wheng getting the staff)
@@ -445,6 +464,13 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kStrLen(EngineState *s, int argc, reg_t *argv) {
+	// Code points, not bytes, once the heap holds UTF-8. A script that
+	// sizes an edit box or centres a caption by this value wants the
+	// number of characters it will see, and under UTF-8 those differ.
+	if (g_sci->heapStringsAreUtf8()) {
+		const Common::String str = s->_segMan->getString(argv[0]);
+		return make_reg(0, utf8Length((const byte *)str.c_str()));
+	}
 	return make_reg(0, s->_segMan->strlen(argv[0]));
 }
 
