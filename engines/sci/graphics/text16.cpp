@@ -800,6 +800,11 @@ bool GfxText16::SwitchToFont1001OnKorean(const char *text, uint16 languageSplitt
 					// chose, so switching would now throw that choice away -
 					// KQ1 uses faces of height 8, 9 and 12, and forcing 1001
 					// collapses them all to 8.
+					//
+					// The switch itself stays. It is the only route to
+					// korean.fnt for a game that ships that file and no
+					// SCVMUNI bundle - the original Korean releases - and
+					// removing it would break them to tidy the new path.
 					if (!_cache->fontIsSet(GetFontId()))
 						SetFont(1001);
 					return true;
@@ -830,6 +835,8 @@ bool GfxText16::SwitchToFont900OnSjis(const char *text, uint16 languageSplitter)
 			// and 999 only, and without the bundle this switch aborts the
 			// engine with "font resource 900 not found".
 			// Stage 3 of docs/i18n/M10_FONTSET.md: see the Korean case.
+			// Kept for the same reason as the Korean switch above: it is the
+			// only route to SJIS.FNT for a release that ships one.
 			if (!_cache->fontIsSet(GetFontId()))
 				SetFont(900);
 			return true;

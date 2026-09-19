@@ -1024,10 +1024,9 @@ Common::Language SciEngine::getLanguage() const {
 	// language renders as blank boxes.
 	if (_translation.isLoaded()) {
 		const Common::String &code = _translation.language();
-		if (code.equalsIgnoreCase("ko"))
-			return Common::KO_KOR;
-		if (code.equalsIgnoreCase("ja"))
-			return Common::JA_JPN;
+		// parseLanguage() already maps "ko" and "ja"; only "zh" needs a hand,
+		// because it parses to ZH_ANY and the code page switch wants a
+		// concrete one.
 		if (code.equalsIgnoreCase("zh"))
 			return Common::ZH_CHN;
 		const Common::Language parsed = Common::parseLanguage(code);
