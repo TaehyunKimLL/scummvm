@@ -86,15 +86,6 @@ bool GfxFontUnicode::load(const Common::String &filename) {
 	const uint32 wOff = READ_LE_UINT32(d + 24);
 	const uint32 bmOff = READ_LE_UINT32(d + 28);
 
-	// The language this font was built to render, as a NUL-padded ASCII tag.
-	// A fan patch that rewrites the game's own resources in place leaves no
-	// other trace of its language - detection keys off the very files it
-	// overwrote - so the font file is the only place left to say so. Older
-	// fonts have zeroes here and simply declare nothing.
-	_language.clear();
-	for (int i = 0; i < 4 && d[32 + i]; i++)
-		_language += (char)d[32 + i];
-
 	_bitsPerPixel = (flags & 1) ? 2 : 1;
 	// A wide glyph spans two cells and every glyph uses the same stride, so
 	// one row length serves both widths and the reader stays branch-free.

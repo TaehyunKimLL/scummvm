@@ -45,13 +45,6 @@ public:
 	GfxFont *getFont(GuiResourceId fontId);
 
 	/**
-	 * The language the Unicode font bundle declares, or empty when there is
-	 * no bundle or it declares none. Kept narrow on purpose: the caller wants
-	 * the declaration, not the font.
-	 */
-	Common::String unicodeFontLanguage();
-
-	/**
 	 * Whether @p fontId resolves to a GfxFontSet, i.e. whether that id can
 	 * already draw characters outside the game's own face. Callers use it to
 	 * skip the legacy switch to font 1001 / 900.

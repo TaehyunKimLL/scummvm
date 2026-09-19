@@ -120,12 +120,6 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 	return set;
 }
 
-Common::String GfxCache::unicodeFontLanguage() {
-	if (GfxFontUnicode *uni = loadUnicodeFont())
-		return uni->language();
-	return Common::String();
-}
-
 GfxFontUnicode *GfxCache::loadUnicodeFont() {
 	// The bundle is loaded once and shared by every set that uses it: it is
 	// several hundred kilobytes and identical for all font ids. Ownership
