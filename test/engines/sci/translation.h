@@ -88,6 +88,7 @@ public:
 		const char *dst;
 		uint16 res;
 		uint16 idx;
+		byte kind;	///< Translation::Key::Kind; 0 = written by an older builder
 	};
 
 	static void put16(Common::Array<byte> &b, uint16 v) { b.push_back(v & 0xFF); b.push_back(v >> 8); }
@@ -145,7 +146,8 @@ public:
 			put32(out, dstOff[i]);
 			put16(out, pairs[i].res);
 			put16(out, pairs[i].idx);
-			put32(out, 0);                // reserved, pads to 20
+			out.push_back(pairs[i].kind); // byte 16: Key::Kind, 0 in old bundles
+			out.push_back(0); out.push_back(0); out.push_back(0);
 		}
 
 		// Bucket table: bucket b spans [lo[b], lo[b+1]).
@@ -164,17 +166,17 @@ public:
 
 	void test_in_memory_bundle_round_trips() {
 		static const Pair pairs[] = {
-			{ "Save", "저장", 0, 0 },
-			{ "look", "보다", 1, 3 },
+			{ "Save", "저장", 0, 0, 0 },
+			{ "look", "보다", 1, 3, 0 },
 		};
 		Sci::Translation t;
 		TS_ASSERT(t.loadFromMemory(buildBundle(pairs, 2), "ko"));
 		TS_ASSERT(t.isLoaded());
 		TS_ASSERT_EQUALS(t.entryCount(), 2u);
-		Common::U32String out;
-		TS_ASSERT(t.translate("Save", out, 0, 0));
-		TS_ASSERT_EQUALS(out, Common::U32String("저장"));
-		TS_ASSERT(!t.translate("absent", out, 0, 0));
+		Common::String out;
+		TS_ASSERT(t.translate("Save", out, Sci::Translation::Key::text(0, 0)));
+		TS_ASSERT_EQUALS(out, Common::String("저장"));
+		TS_ASSERT(!t.translate("absent", out, Sci::Translation::Key::text(0, 0)));
 	}
 
 	void test_same_source_resolves_by_hint() {
@@ -182,19 +184,19 @@ public:
 		// translations. LB1's bundle has 86 such groups. The (resource,
 		// index) hint must pick the right one, not the first one.
 		static const Pair pairs[] = {
-			{ "You see a mirror.", "거울 A", 32, 15 },
-			{ "You see a mirror.", "거울 B", 34, 33 },
-			{ "You see a mirror.", "거울 C", 73, 47 },
+			{ "You see a mirror.", "거울 A", 32, 15, 0 },
+			{ "You see a mirror.", "거울 B", 34, 33, 0 },
+			{ "You see a mirror.", "거울 C", 73, 47, 0 },
 		};
 		Sci::Translation t;
 		TS_ASSERT(t.loadFromMemory(buildBundle(pairs, 3), "ko"));
-		Common::U32String out;
-		TS_ASSERT(t.translate("You see a mirror.", out, 34, 33));
-		TS_ASSERT_EQUALS(out, Common::U32String("거울 B"));
-		TS_ASSERT(t.translate("You see a mirror.", out, 73, 47));
-		TS_ASSERT_EQUALS(out, Common::U32String("거울 C"));
-		TS_ASSERT(t.translate("You see a mirror.", out, 32, 15));
-		TS_ASSERT_EQUALS(out, Common::U32String("거울 A"));
+		Common::String out;
+		TS_ASSERT(t.translate("You see a mirror.", out, Sci::Translation::Key::text(34, 33)));
+		TS_ASSERT_EQUALS(out, Common::String("거울 B"));
+		TS_ASSERT(t.translate("You see a mirror.", out, Sci::Translation::Key::text(73, 47)));
+		TS_ASSERT_EQUALS(out, Common::String("거울 C"));
+		TS_ASSERT(t.translate("You see a mirror.", out, Sci::Translation::Key::text(32, 15)));
+		TS_ASSERT_EQUALS(out, Common::String("거울 A"));
 	}
 
 	void test_unmatched_hint_falls_back_to_first_source_match() {
@@ -203,26 +205,74 @@ public:
 		// more often than returning nothing, and is what the engine does;
 		// the warning it emits is the visibility, not a refusal.
 		static const Pair pairs[] = {
-			{ "Two lamps.", "램프 둘", 43, 3 },
+			{ "Two lamps.", "램프 둘", 43, 3, 0 },
 		};
 		Sci::Translation t;
 		TS_ASSERT(t.loadFromMemory(buildBundle(pairs, 1), "ko"));
-		Common::U32String out;
-		TS_ASSERT(t.translate("Two lamps.", out, 999, 999));
-		TS_ASSERT_EQUALS(out, Common::U32String("램프 둘"));
+		Common::String out;
+		TS_ASSERT(t.translate("Two lamps.", out, Sci::Translation::Key::text(999, 999)));
+		TS_ASSERT_EQUALS(out, Common::String("램프 둘"));
 	}
 
 	void test_hint_is_matched_by_resource_and_index_together() {
 		// Same resource, different index must not be treated as a match.
 		static const Pair pairs[] = {
-			{ "Yes.", "네", 10, 1 },
-			{ "Yes.", "예", 10, 2 },
+			{ "Yes.", "네", 10, 1, 0 },
+			{ "Yes.", "예", 10, 2, 0 },
 		};
 		Sci::Translation t;
 		TS_ASSERT(t.loadFromMemory(buildBundle(pairs, 2), "ko"));
-		Common::U32String out;
-		TS_ASSERT(t.translate("Yes.", out, 10, 2));
-		TS_ASSERT_EQUALS(out, Common::U32String("예"));
+		Common::String out;
+		TS_ASSERT(t.translate("Yes.", out, Sci::Translation::Key::text(10, 2)));
+		TS_ASSERT_EQUALS(out, Common::String("예"));
+	}
+
+	void test_old_bundle_kind_zero_reads_as_text() {
+		// Bundles written before the kind byte existed have a zero there.
+		// They must keep matching a Key::text hint, not become unhintable.
+		static const Pair pairs[] = {
+			{ "Save", "저장 A", 5, 1, 0 },
+			{ "Save", "저장 B", 5, 2, 0 },
+		};
+		Sci::Translation t;
+		TS_ASSERT(t.loadFromMemory(buildBundle(pairs, 2), "ko"));
+		Common::String out;
+		TS_ASSERT(t.translate("Save", out, Sci::Translation::Key::text(5, 2)));
+		TS_ASSERT_EQUALS(out, Common::String("저장 B"));
+	}
+
+	void test_script_and_text_keys_are_distinct_namespaces() {
+		// Script 300 string 4 and text resource 300 index 4 are different
+		// places. A script key must not pick up the text entry and vice
+		// versa, even though the numbers coincide.
+		static const Pair pairs[] = {
+			{ "Look", "보다 (text)",   300, 4, Sci::Translation::Key::kText },
+			{ "Look", "보다 (script)", 300, 4, Sci::Translation::Key::kScript },
+		};
+		Sci::Translation t;
+		TS_ASSERT(t.loadFromMemory(buildBundle(pairs, 2), "ko"));
+		Common::String out;
+		TS_ASSERT(t.translate("Look", out, Sci::Translation::Key::script(300, 4)));
+		TS_ASSERT_EQUALS(out, Common::String("보다 (script)"));
+		TS_ASSERT(t.translate("Look", out, Sci::Translation::Key::text(300, 4)));
+		TS_ASSERT_EQUALS(out, Common::String("보다 (text)"));
+	}
+
+	void test_translation_is_returned_as_utf8_bytes() {
+		// The pool is UTF-8 and the caller gets those bytes untouched: no
+		// transcoding to a code page, which is where non-cp949 characters
+		// used to vanish. Thai ko kai is 3 bytes and has no cp949 form.
+		static const Pair pairs[] = {
+			{ "Begin", "\xE0\xB8\x81", 1, 1, 0 },
+		};
+		Sci::Translation t;
+		TS_ASSERT(t.loadFromMemory(buildBundle(pairs, 1), "ko"));
+		Common::String out;
+		TS_ASSERT(t.translate("Begin", out));
+		TS_ASSERT_EQUALS(out.size(), 3u);
+		TS_ASSERT_EQUALS((byte)out[0], 0xE0);
+		TS_ASSERT_EQUALS((byte)out[1], 0xB8);
+		TS_ASSERT_EQUALS((byte)out[2], 0x81);
 	}
 
 	void test_unloaded_bundle_translates_nothing() {
@@ -230,9 +280,9 @@ public:
 		// rather than returning an empty string.
 		Sci::Translation t;
 		TS_ASSERT(!t.isLoaded());
-		Common::U32String out("sentinel");
+		Common::String out("sentinel");
 		TS_ASSERT(!t.translate("Save", out));
-		TS_ASSERT_EQUALS(out, Common::U32String("sentinel"));
+		TS_ASSERT_EQUALS(out, Common::String("sentinel"));
 		TS_ASSERT_EQUALS(t.entryCount(), 0u);
 	}
 };

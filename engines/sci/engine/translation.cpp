@@ -32,7 +32,6 @@ static const uint16 kVersion = 1;
 static const uint32 kHeaderSize = 0x18;
 static const uint32 kLangEntrySize = 32;
 static const uint32 kFileEntrySize = 20;
-static const uint16 kNoHint = 0xFFFF;
 
 // Candidate bundle names, in order. A game-specific name wins over the
 // generic one so several games can share a directory.
@@ -179,8 +178,12 @@ bool Translation::loadFromMemory(const Common::Array<byte> &bytes, const Common:
 			ent.hash = READ_LE_UINT32(p);
 			ent.srcOffset = READ_LE_UINT32(p + 4);
 			ent.dstOffset = READ_LE_UINT32(p + 8);
-			ent.resource = READ_LE_UINT16(p + 12);
+			ent.number = READ_LE_UINT16(p + 12);
 			ent.index = READ_LE_UINT16(p + 14);
+			// Byte 16 of the entry was reserved and written as zero until
+			// script strings joined the bundle; zero therefore means "a TEXT
+			// resource", which is what every older bundle contains.
+			ent.kind = p[16] ? p[16] : Key::kText;
 
 			if (ent.srcOffset >= poolLength || ent.dstOffset >= poolLength) {
 				warning("Translation: entry %u points outside the string pool", e);
@@ -244,16 +247,16 @@ bool Translation::loadAny() {
 	return load(Common::String(code));
 }
 
-bool Translation::translate(const Common::String &source, Common::U32String &out,
-                            uint16 resourceHint, uint16 indexHint) const {
+bool Translation::translate(const Common::String &source, Common::String &out,
+                            const Key &key) const {
 	if (!_loaded || source.empty())
 		return false;
 
-	const Common::String key = normalise(source);
-	if (key.empty())
+	const Common::String norm = normalise(source);
+	if (norm.empty())
 		return false;
 
-	const uint32 h = hash(key);
+	const uint32 h = hash(norm);
 	const uint32 b = h & (_bucketCount - 1);
 	const uint32 lo = READ_LE_UINT32(&_buckets[b]);
 	const uint32 hi = READ_LE_UINT32(&_buckets[b + 1]);
@@ -270,16 +273,16 @@ bool Translation::translate(const Common::String &source, Common::U32String &out
 		// A hash match is not proof: compare the normalised source, so a
 		// collision costs a comparison and never a wrong answer.
 		const char *src = poolString(e.srcOffset);
-		if (!src || normalise(src) != key)
+		if (!src || normalise(src) != norm)
 			continue;
 
-		// A matching hint wins immediately; otherwise remember the first
-		// source match and keep looking for one whose hint agrees.
-		if (resourceHint != kNoHint && e.resource == resourceHint &&
-			(indexHint == kNoHint || e.index == indexHint)) {
+		// A matching key wins immediately; otherwise remember the first
+		// source match and keep looking for one whose key agrees.
+		if (key.isSet() && e.kind == key.kind && e.number == key.number &&
+		    e.index == key.index) {
 			const char *dst = poolString(e.dstOffset);
 			if (dst) {
-				out = Common::U32String(dst, Common::kUtf8);
+				out = dst;	// the pool is UTF-8; copy, do not transcode
 				return true;
 			}
 		}
@@ -288,23 +291,23 @@ bool Translation::translate(const Common::String &source, Common::U32String &out
 	}
 
 	if (fallback) {
-		// The hint did not match any entry with this source. That is
-		// expected when the bundle was built from another release of the
-		// game and the resource numbering moved, and the first match is the
-		// right answer far more often than none. But the same source can
-		// legitimately carry different translations in different places -
-		// LB1's bundle has 86 such groups, 277 entries - and returning the
-		// first one is then a wrong answer. Say so once per source, so that
-		// a bundle/game mismatch is visible instead of showing up as an
-		// oddly-worded line.
-		if (resourceHint != kNoHint && !_warnedFallback.contains(fallback->hash)) {
+		// The key matched no entry with this source. That is expected when
+		// the bundle was built from another release of the game and the
+		// numbering moved, and the first match is the right answer far more
+		// often than none. But the same source can legitimately carry
+		// different translations in different places - LB1's bundle has 86
+		// such groups, 277 entries - and returning the first one is then a
+		// wrong answer. Say so once per source, so that a bundle/game
+		// mismatch is visible instead of showing up as an oddly-worded line.
+		if (key.isSet() && !_warnedFallback.contains(fallback->hash)) {
 			_warnedFallback[fallback->hash] = true;
-			warning("SCITRS: no entry for text.%03u #%u matches \"%.40s\"; using the first source match",
-			        resourceHint, indexHint, key.c_str());
+			warning("SCITRS: no entry for %s %u #%u matches \"%.40s\"; using the first source match",
+			        key.kind == Key::kScript ? "script" : "text",
+			        key.number, key.index, norm.c_str());
 		}
 		const char *dst = poolString(fallback->dstOffset);
 		if (dst) {
-			out = Common::U32String(dst, Common::kUtf8);
+			out = dst;
 			return true;
 		}
 	}

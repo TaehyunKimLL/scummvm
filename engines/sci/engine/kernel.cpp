@@ -955,11 +955,10 @@ Common::String Kernel::lookupText(reg_t address, int index) {
 		// needs the encoding and nothing is lost on the way.
 		const Translation &trs = g_sci->getTranslation();
 		if (trs.isLoaded()) {
-			Common::U32String translated;
+			Common::String translated;
 			if (trs.translate(seeker, translated,
-							  (uint16)address.getOffset(), (uint16)_index)) {
-				return translated.encode(Common::kUtf8);
-			}
+			                  Translation::Key::text((uint16)address.getOffset(), (uint16)_index)))
+				return translated;
 		}
 		return seeker;
 	}

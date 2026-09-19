@@ -75,15 +75,40 @@ public:
 	bool isLoaded() const { return _loaded; }
 
 	/**
+	 * Where a string came from. The bundle is keyed by the source text, so
+	 * this is a hint, not the key: it picks between entries whose source is
+	 * the same but whose translation differs by place - LB1 has 86 such
+	 * groups - and a hint that matches nothing is simply ignored.
+	 *
+	 * Two kinds of place exist. A TEXT resource string is (resource, index)
+	 * and comes through lookupText(). A string embedded in a script - an
+	 * inventory description, a parser reply, the game's title - is
+	 * (script, string id), numbered by Script::identifyOffsets() at load.
+	 * KQ1 has 49 of the latter that appear in no TEXT resource.
+	 */
+	struct Key {
+		enum Kind { kNone = 0, kText = 1, kScript = 2 };
+		Kind kind;
+		uint16 number;	///< resource or script number
+		uint16 index;	///< string index within it
+
+		Key() : kind(kNone), number(0xFFFF), index(0xFFFF) {}
+		Key(Kind k, uint16 n, uint16 i) : kind(k), number(n), index(i) {}
+		static Key text(uint16 res, uint16 idx) { return Key(kText, res, idx); }
+		static Key script(uint16 nr, uint16 id) { return Key(kScript, nr, id); }
+		bool isSet() const { return kind != kNone; }
+	};
+
+	/**
 	 * Translate @p source. Returns false when this bundle has no entry, in
 	 * which case the caller must keep the original text.
 	 *
-	 * @p resourceHint and @p indexHint are optional fast-path hints; a hint
-	 * that does not match is ignored, so a stale hint can never produce a
-	 * wrong string.
+	 * @p out receives UTF-8 - the pool's own encoding, copied, never
+	 * transcoded. Everything downstream of this call reads UTF-8: the heap
+	 * holds it, the string ops count it, GfxText16 walks it.
 	 */
-	bool translate(const Common::String &source, Common::U32String &out,
-	               uint16 resourceHint = 0xFFFF, uint16 indexHint = 0xFFFF) const;
+	bool translate(const Common::String &source, Common::String &out,
+	               const Key &key = Key()) const;
 
 	uint entryCount() const { return _entryCount; }
 	const Common::String &language() const { return _language; }
@@ -97,8 +122,9 @@ private:
 		uint32 hash;
 		uint32 srcOffset;
 		uint32 dstOffset;
-		uint16 resource;
+		uint16 number;
 		uint16 index;
+		byte kind;		///< Key::Kind; 0 in bundles written before it existed
 	};
 
 	const char *poolString(uint32 offset) const;
