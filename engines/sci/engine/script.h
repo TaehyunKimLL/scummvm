@@ -289,6 +289,20 @@ public:
 	 * Get the offset array
 	 */
 	const offsetLookupArrayType *getOffsetArray() { return &_offsetLookupArray; };
+
+	/**
+	 * The string id identifyOffsets() gave the string that starts at, or
+	 * contains, @p offset - or 0 when no string does. This is the inverse
+	 * of the table above, so that a heap pointer into a script can be
+	 * turned back into "string N of script M", which is how a translation
+	 * bundle keys the strings embedded in scripts.
+	 *
+	 * @p offset may point INSIDE a string, not only at its start: scripts
+	 * do pointer arithmetic (str + 5) and kDisplay may receive the result.
+	 * The id is still that of the containing string; the caller decides
+	 * what an interior pointer means for its lookup.
+	 */
+	uint16 stringIdAtOffset(uint32 offset) const;
 	uint16 getOffsetObjectCount() { return _offsetLookupObjectCount; };
 	uint16 getOffsetStringCount() { return _offsetLookupStringCount; };
 	uint16 getOffsetSaidCount() { return _offsetLookupSaidCount; };

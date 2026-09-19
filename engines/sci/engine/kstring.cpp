@@ -78,6 +78,25 @@ reg_t kStrCmp(EngineState *s, int argc, reg_t *argv) {
 
 
 reg_t kStrCpy(EngineState *s, int argc, reg_t *argv) {
+	// A script string on its way to the screen passes through here first:
+	// the script copies it into a stack buffer and hands THAT to kDisplay
+	// or kDrawControl, by which point nothing says where it came from.
+	// Measured on KQ1: "You are carrying nothing!" (script 995, string 4)
+	// and "Enter input" (996, 2) both arrive at kDrawControl as stack
+	// pointers. So translate at the copy, while the source is still keyed.
+	//
+	// Only the plain, full-length copy: a length-limited strncpy or a
+	// negative-length memcpy is the script moving bytes, not text.
+	if (argc <= 2 && g_sci->getTranslation().isLoaded()) {
+		const Translation::Key key = s->_segMan->stringKey(argv[1]);
+		if (key.isSet()) {
+			Common::String translated;
+			if (g_sci->getTranslation().translate(s->_segMan->getString(argv[1]), translated, key)) {
+				s->_segMan->strcpy_(argv[0], translated.c_str());
+				return argv[0];
+			}
+		}
+	}
 	if (argc > 2) {
 		int length = argv[2].toSint16();
 

@@ -887,8 +887,26 @@ void Kernel::loadKernelNames(GameFeatures *features) {
 }
 
 Common::String Kernel::lookupText(reg_t address, int index) {
-	if (address.getSegment())
-		return _segMan->getString(address);
+	if (address.getSegment()) {
+		// A heap address. When it points into a script's string block the
+		// string is one the bundle can key as (script, id), and this is the
+		// last moment that is knowable: kFormat copies the text into a
+		// stack buffer next, and from there it reaches the screen with no
+		// trace of where it came from. Measured on KQ1: "You are carrying
+		// nothing!" (script 995, string 4) arrived at kDrawControl as a
+		// stack pointer, unkeyed and untranslated.
+		const Common::String original = _segMan->getString(address);
+		const Translation &trs = g_sci->getTranslation();
+		if (trs.isLoaded()) {
+			const Translation::Key key = _segMan->stringKey(address);
+			if (key.isSet()) {
+				Common::String translated;
+				if (trs.translate(original, translated, key))
+					return translated;
+			}
+		}
+		return original;
+	}
 
 	// A Korean fan patch ships its translation as a Text.MAP/Text.Res pair
 	// that replaces whole TEXT resources. Consult it before touching the

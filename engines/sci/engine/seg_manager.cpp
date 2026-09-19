@@ -873,6 +873,18 @@ size_t SegManager::strlen(reg_t str) {
 }
 
 
+Translation::Key SegManager::stringKey(reg_t pointer) const {
+	if (pointer.isNull())
+		return Translation::Key();
+	const Script *scr = getScriptIfLoaded(pointer.getSegment());
+	if (!scr)
+		return Translation::Key();
+	const uint16 id = scr->stringIdAtOffset(pointer.getOffset());
+	if (!id)
+		return Translation::Key();
+	return Translation::Key::script((uint16)scr->getScriptNumber(), id);
+}
+
 Common::String SegManager::getString(reg_t pointer) {
 	Common::String ret;
 	if (pointer.isNull())

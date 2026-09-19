@@ -228,6 +228,17 @@ void Script::load(int script_nr, ResourceManager *resMan, ScriptPatcher *scriptP
 	applySaidWorkarounds();
 }
 
+uint16 Script::stringIdAtOffset(uint32 offset) const {
+	for (uint i = 0; i < _offsetLookupArray.size(); i++) {
+		const offsetLookupArrayEntry &e = _offsetLookupArray[i];
+		if (e.type != SCI_SCR_OFFSET_TYPE_STRING)
+			continue;
+		if (offset >= e.offset && offset < e.offset + e.stringSize)
+			return e.id;
+	}
+	return 0;
+}
+
 void Script::identifyOffsets() {
 	offsetLookupArrayEntry arrayEntry;
 	SciSpan<const byte> scriptDataPtr;

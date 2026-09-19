@@ -28,6 +28,7 @@
 #include "sci/engine/vm.h"
 #include "sci/engine/vm_types.h"
 #include "sci/engine/segment.h"
+#include "sci/engine/translation.h"
 #ifdef ENABLE_SCI32
 #include "sci/graphics/celobj32.h" // kLowResX, kLowResY
 #endif
@@ -307,6 +308,16 @@ public:
 	 * entries were available.
 	 */
 	Common::String getString(reg_t pointer);
+
+	/**
+	 * Where a heap string lives, as a translation key: (kScript, script
+	 * number, string id) when @p pointer is into a script's string block,
+	 * an unset key otherwise. Dynamic strings - a kFormat result in a
+	 * script-allocated buffer, a save name, parser input - are not places
+	 * a bundle can name, and come back unset so the lookup falls back to
+	 * the source text alone.
+	 */
+	Translation::Key stringKey(reg_t pointer) const;
 
 
 	/**
