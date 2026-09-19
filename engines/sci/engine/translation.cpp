@@ -95,12 +95,23 @@ bool Translation::load(const Common::String &language) {
 		return false;
 	}
 
-	_data.resize(size);
-	if (f.read(&_data[0], size) != size) {
+	Common::Array<byte> bytes;
+	bytes.resize(size);
+	if (f.read(&bytes[0], size) != size) {
 		warning("Translation: could not read the bundle");
-		_data.clear();
 		return false;
 	}
+	return loadFromMemory(bytes, language);
+}
+
+bool Translation::loadFromMemory(const Common::Array<byte> &bytes, const Common::String &language) {
+	if (_loaded)
+		return true;
+	const uint32 size = bytes.size();
+	if (size < kHeaderSize + kLangEntrySize)
+		return false;
+
+	_data = bytes;
 	const byte *d = &_data[0];
 
 	if (memcmp(d, kMagic, 8) != 0) {
@@ -277,6 +288,20 @@ bool Translation::translate(const Common::String &source, Common::U32String &out
 	}
 
 	if (fallback) {
+		// The hint did not match any entry with this source. That is
+		// expected when the bundle was built from another release of the
+		// game and the resource numbering moved, and the first match is the
+		// right answer far more often than none. But the same source can
+		// legitimately carry different translations in different places -
+		// LB1's bundle has 86 such groups, 277 entries - and returning the
+		// first one is then a wrong answer. Say so once per source, so that
+		// a bundle/game mismatch is visible instead of showing up as an
+		// oddly-worded line.
+		if (resourceHint != kNoHint && !_warnedFallback.contains(fallback->hash)) {
+			_warnedFallback[fallback->hash] = true;
+			warning("SCITRS: no entry for text.%03u #%u matches \"%.40s\"; using the first source match",
+			        resourceHint, indexHint, key.c_str());
+		}
 		const char *dst = poolString(fallback->dstOffset);
 		if (dst) {
 			out = Common::U32String(dst, Common::kUtf8);

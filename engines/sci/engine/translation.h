@@ -23,6 +23,7 @@
 #define SCI_ENGINE_TRANSLATION_H
 
 #include "common/array.h"
+#include "common/hashmap.h"
 #include "common/str.h"
 #include "common/ustr.h"
 
@@ -54,6 +55,13 @@ public:
 	 * whole, because a half-indexed translation is worse than none.
 	 */
 	bool load(const Common::String &language);
+
+	/**
+	 * Parse an already-read bundle. What load() calls after opening the
+	 * file; public so a test can build a bundle in memory and exercise the
+	 * lookup without a data directory.
+	 */
+	bool loadFromMemory(const Common::Array<byte> &bytes, const Common::String &language);
 
 	/**
 	 * Load whichever language the bundle declares first.
@@ -97,6 +105,9 @@ private:
 
 	bool _loaded;
 	Common::String _language;
+	/** Sources already warned about for a hint miss; mutable because a
+	 *  lookup is logically const and the warning is a side channel. */
+	mutable Common::HashMap<uint32, bool> _warnedFallback;
 	Common::Array<byte> _data;
 	Common::Array<Entry> _entryTable;
 
