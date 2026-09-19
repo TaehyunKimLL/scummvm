@@ -31,6 +31,7 @@
 #include "graphics/sjis.h"
 
 #include "sci/sci.h"
+#include "sci/engine/m11probe.h" // M11 PROBE
 #include "sci/debug.h"
 #include "sci/console.h"
 #include "sci/event.h"
@@ -221,6 +222,7 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 }
 
 SciEngine::~SciEngine() {
+	g_m11.report(); // M11 PROBE
 #ifdef ENABLE_SCI32
 	delete _gfxControls32;
 	delete _gfxPaint32;
