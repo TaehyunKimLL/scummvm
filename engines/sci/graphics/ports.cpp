@@ -527,6 +527,17 @@ void GfxPorts::drawWindow(Window *pWnd) {
 
 void GfxPorts::removeWindow(Window *pWnd, bool reanimate) {
 	setPort(_wmgrPort);
+	// The window is going away, and with it any hires glyphs it drew. Forget
+	// them before the restore below repaints what was underneath, or the next
+	// lowres update would put the dismissed text back on screen.
+	//
+	// This is the right scope for the invalidation: a window's lifetime is
+	// exactly the text's lifetime. The two broader places that looked
+	// plausible - GfxPaint16::fillRect() and GfxScreen::bitsRestore() - are
+	// also the animation loop erasing and restoring each actor cel every
+	// frame, so clearing there wiped the glyphs of a box the actor merely
+	// walked past.
+	_screen->clearHiresTextPlane(pWnd->restoreRect);
 	_paint16->bitsRestore(pWnd->hSaved1);
 	pWnd->hSaved1 = NULL_REG;
 	_paint16->bitsRestore(pWnd->hSaved2);

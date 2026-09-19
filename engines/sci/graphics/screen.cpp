@@ -151,6 +151,7 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
 	// including ones whose driver does not do its own text rendering, and the
 	// double-byte draw paths use this buffer unconditionally. 256 bytes.
 	_hiresGlyphBuffer = new byte[16 * 16]();
+	_hiresTextPlane = nullptr;
 
 	_displayPixels = _displayWidth * _displayHeight;
 
@@ -212,6 +213,7 @@ GfxScreen::~GfxScreen() {
 	free(_paletteMapScreen);
 	delete[] _backupScreen;
 	delete[] _hiresGlyphBuffer;
+	free(_hiresTextPlane);
 	delete _gfxDrv;
 }
 
@@ -220,6 +222,19 @@ void GfxScreen::displayRect(const Common::Rect &rect, int x, int y) {
 	// Clipping is assumed to be done already.
 	_gfxDrv->copyRectToScreen(_activeScreen, rect.left, rect.top,
 		_displayWidth, x, y, rect.width(), rect.height(), _paletteModsEnabled ? _paletteMods : nullptr, _paletteMapScreen);
+
+	// That blit just overwrote whatever hires glyphs stood in this rectangle:
+	// they live only in the driver's scaled bitmap, not in _activeScreen. Put
+	// them back. This is the one funnel every lowres update goes through, so
+	// hooking it here covers the animation loop, kGraph redraws and window
+	// disposal alike, rather than each of them separately.
+	if (_hiresTextPlane) {
+		const int hiresX = x * _hiresScaleX;
+		const int hiresY = y * _hiresScaleY;
+		restoreHiresTextPlane(hiresX, hiresY,
+							  rect.width() * _hiresScaleX,
+							  rect.height() * _hiresScaleY);
+	}
 }
 
 
@@ -232,6 +247,7 @@ void GfxScreen::clearForRestoreGame() {
 	memset(_displayScreen, 0, _displayPixels);
 	memset(&_ditheredPicColors, 0, sizeof(_ditheredPicColors));
 	_fontIsUpscaled = false;
+	clearHiresTextPlane();
 	copyToScreen();
 }
 
@@ -490,7 +506,13 @@ void GfxScreen::putHangulChar(Graphics::FontKorean *commonFont, int16 x, int16 y
 	// we don't use outline, so color 0 is actually not used
 	uint16 charWidth = commonFont->getCharWidth(chr);
 	commonFont->drawChar(_hiresGlyphBuffer, chr, charWidth, 1, color, 0, -1, -1);
-	_gfxDrv->drawTextFontGlyph(_hiresGlyphBuffer, charWidth, x << 1, y << 1, charWidth, commonFont->getFontHeight(), 0xff, _paletteModsEnabled ? _paletteMods : nullptr, _paletteMapScreen);
+	// Through the persistent path, for the same reason the Unicode font
+	// takes it: the legacy Korean face lands on the same driver bitmap that
+	// every lowres update overwrites, and loses its glyphs to an actor
+	// walking past exactly the same way. Measured on KQ1's intro box with
+	// the SCITRS build: black pixels in the box's second row 2048 -> 1334
+	// over 60 frames, the same drain as before the plane existed.
+	putHiresGlyphPersistent(_hiresGlyphBuffer, charWidth, commonFont->getFontHeight(), x, y, color);
 }
 
 void GfxScreen::putHiresGlyph(const byte *glyph, int16 width, int16 height,
@@ -502,6 +524,114 @@ void GfxScreen::putHiresGlyph(const byte *glyph, int16 width, int16 height,
 	_gfxDrv->drawTextFontGlyph(glyph, width, x << 1, y << 1, width, height, 0xff,
 							   _paletteModsEnabled ? _paletteMods : nullptr,
 							   _paletteMapScreen);
+}
+
+void GfxScreen::putHiresGlyphPersistent(const byte *glyph, int16 width, int16 height,
+										int16 x, int16 y, byte color) {
+	rememberHiresGlyph(glyph, width, height, x, y);
+	putHiresGlyph(glyph, width, height, x, y, color);
+}
+
+void GfxScreen::rememberHiresGlyph(const byte *glyph, int16 width, int16 height,
+								   int16 x, int16 y) {
+	// Hires coordinates, matching what putHiresGlyph() hands the driver -
+	// including the driver's own x alignment, so the remembered pixels land
+	// exactly where the drawn ones did rather than a few columns off.
+	const int hiresW = _displayWidth * 2;
+	const int hiresH = _displayHeight * 2;
+
+	if (!_hiresTextPlane) {
+		_hiresTextPlane = (byte *)malloc((size_t)hiresW * hiresH);
+		if (!_hiresTextPlane)
+			return;
+		memset(_hiresTextPlane, 0xff, (size_t)hiresW * hiresH);
+	}
+
+	const int destX = (x << 1) & ~(kHiresTextAlignX - 1);
+	const int destY = y << 1;
+
+	for (int gy = 0; gy < height; gy++) {
+		const int py = destY + gy;
+		if (py < 0 || py >= hiresH)
+			continue;
+		const byte *src = glyph + (size_t)gy * width;
+		byte *dst = _hiresTextPlane + (size_t)py * hiresW;
+		for (int gx = 0; gx < width; gx++) {
+			if (src[gx] == 0xff)
+				continue;	// unset pixel, per the driver's convention
+			const int px = destX + gx;
+			if (px < 0 || px >= hiresW)
+				continue;
+			dst[px] = src[gx];
+		}
+	}
+}
+
+void GfxScreen::clearHiresTextPlane() {
+	if (_hiresTextPlane)
+		memset(_hiresTextPlane, 0xff,
+			   (size_t)(_displayWidth * 2) * (_displayHeight * 2));
+}
+
+void GfxScreen::clearHiresTextPlane(const Common::Rect &rect) {
+	if (!_hiresTextPlane)
+		return;
+
+	// A hires glyph cell can hang below the lowres rect that placed it: the
+	// window is sized from the font's lowres height (12 for KQ1's) while the
+	// double-byte cell is 16 hires rows = 8 lowres, and the last text line
+	// starts near the bottom edge. Measured on KQ1's intro box: after the
+	// window was disposed, rows 314..316 of the plane (three hires rows
+	// under the window's restoreRect) still held 218 glyph pixels and were
+	// painted back over the scene. So the clear reaches one cell past the
+	// rect on every side; a neighbouring box's glyphs that close are drawn
+	// again by that box's own next redraw.
+	const int hiresW = _displayWidth * 2;
+	const int hiresH = _displayHeight * 2;
+	const int slack = kHiresGlyphCellSize;
+	const int x0 = CLIP<int>((rect.left << 1) - slack, 0, hiresW);
+	const int x1 = CLIP<int>((rect.right << 1) + slack, 0, hiresW);
+	const int y0 = CLIP<int>((rect.top << 1) - slack, 0, hiresH);
+	const int y1 = CLIP<int>((rect.bottom << 1) + slack, 0, hiresH);
+
+	for (int y = y0; y < y1; y++)
+		memset(_hiresTextPlane + (size_t)y * hiresW + x0, 0xff, x1 - x0);
+}
+
+void GfxScreen::restoreHiresTextPlane(int hiresX, int hiresY, int w, int h) {
+	if (!_hiresTextPlane)
+		return;
+
+	const int hiresW = _displayWidth * 2;
+	const int hiresH = _displayHeight * 2;
+	const int x0 = CLIP<int>(hiresX, 0, hiresW);
+	const int x1 = CLIP<int>(hiresX + w, 0, hiresW);
+	const int y0 = CLIP<int>(hiresY, 0, hiresH);
+	const int y1 = CLIP<int>(hiresY + h, 0, hiresH);
+	if (x1 <= x0 || y1 <= y0)
+		return;
+
+	// Re-blit run by run: a row of the plane is mostly 0xff, and the driver
+	// call has per-call overhead, so sending whole spans of set pixels beats
+	// one call per glyph-shaped rectangle and stays correct when two glyphs
+	// abut.
+	const int rowW = x1 - x0;
+	_hiresRestoreRow.resize(rowW);
+	for (int y = y0; y < y1; y++) {
+		const byte *src = _hiresTextPlane + (size_t)y * hiresW + x0;
+		bool any = false;
+		for (int i = 0; i < rowW; i++) {
+			_hiresRestoreRow[i] = src[i];
+			if (src[i] != 0xff)
+				any = true;
+		}
+		if (!any)
+			continue;
+		_gfxDrv->drawTextFontGlyph(_hiresRestoreRow.begin(), rowW, x0, y,
+								   rowW, 1, 0xff,
+								   _paletteModsEnabled ? _paletteMods : nullptr,
+								   _paletteMapScreen);
+	}
 }
 
 void GfxScreen::putKanjiChar(Graphics::FontSJIS *commonFont, int16 x, int16 y, uint16 chr, byte color) {
@@ -626,6 +756,12 @@ void GfxScreen::bitsRestore(const byte *memoryPtr) {
 	memcpy((void *)&mask, memoryPtr, sizeof(mask)); memoryPtr += sizeof(mask);
 
 	if (mask & GFX_SCREEN_MASK_VISUAL) {
+		// Note: the glyph plane is NOT invalidated here. This is also the
+		// animation loop's per-cel underBits restore, called once per actor
+		// per frame, and the actor's cel rect overlaps a text box he walks
+		// past - clearing here erased the glyphs the plane exists to keep
+		// (measured: 576 clears in one intro, text still draining away).
+		// A window's dismissal invalidates in GfxPorts::removeWindow().
 		bitsRestoreScreen(rect, memoryPtr, _visualScreen, _width);
 		bitsRestoreDisplayScreen(rect, memoryPtr, _displayScreen);
 		if (_paletteMapScreen)

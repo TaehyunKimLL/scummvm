@@ -615,6 +615,15 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 	_codeRefRects.clear();
 	_codeRefTempRect.left = _codeRefTempRect.top = -1;
 
+	// Note: the glyph plane is deliberately NOT cleared here. A box redraw
+	// overwrites its own cells anyway, and any rect-scoped clear at this
+	// point also catches the neighbouring boxes the same frame redraws -
+	// measured: six menu boxes reissued every frame cleared the intro text's
+	// own rows, and the text still drained away.
+	// Invalidation happens where the text actually goes away: the window
+	// being disposed (GfxPorts::removeWindow), a new picture replacing the
+	// screen (kernelDrawPicture), and clearForRestoreGame().
+
 	maxTextWidth = 0;
 	while (*curTextPos) {
 		//  We need to check for Shift-JIS every line. Police Quest 2 PC-9801 often draws English + Japanese text into the same box.

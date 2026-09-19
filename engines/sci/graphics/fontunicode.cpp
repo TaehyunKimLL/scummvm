@@ -207,7 +207,13 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 		}
 	}
 
-	_screen->putHiresGlyph(dst, w, _cellHeight, left, top, color);
+	// Both planes, and both are needed. putHiresGlyphPersistent() draws the
+	// glyph now AND remembers it, so that a lowres update passing over the box
+	// re-applies it instead of erasing it. Measured on KQ1's intro box: with a
+	// plain putHiresGlyph(), an actor walking left across the box composited
+	// the text away one syllable at a time, right to left, tracking his dirty
+	// rect exactly.
+	_screen->putHiresGlyphPersistent(dst, w, _cellHeight, left, top, color);
 }
 
 void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,

@@ -92,8 +92,14 @@ void GfxPaint16::drawPicture(GuiResourceId pictureId, bool mirroredFlag, bool ad
 	doCustomPicPalette(_screen, pictureId);
 
 	// do we add to a picture? if not -> clear screen with white
-	if (!addToFlag)
+	if (!addToFlag) {
 		clearScreen(_screen->getColorWhite());
+		// A full new picture replaces everything on screen, so no hires glyph
+		// from the previous room survives it. Without this the title screen's
+		// menu entries stayed remembered and were painted back over the intro
+		// - measured as four stale menu lines across the first room.
+		_screen->clearHiresTextPlane();
+	}
 
 	// Draw the picture
 	GfxPicture picture(_resMan, _coordAdjuster, _ports, _screen, _palette, pictureId, _EGAdrawingVisualize);
