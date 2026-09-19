@@ -1671,6 +1671,22 @@ static const struct ADGameDescription SciGameDescriptions[] = {
 		AD_LISTEND},
 		Common::EN_ANY, Common::kPlatformDOS, ADGF_NO_FLAGS, GUIO_STD16_UNDITHER	},
 
+	// King's Quest 1 SCI Remake - English DOS with a Korean fan translation
+	// laid over it as UTF-8 text.NNN patch files. The volumes are the
+	// English ones; the patch file is what identifies the translation.
+	// It lists every file the English entry lists, plus the patch: the
+	// detector picks the entry that matches the most files, so an entry
+	// that is a strict superset of the English one wins when the patch
+	// is present and loses to it when the patch is absent.
+	{"kq1sci", "SCI", {
+		{"resource.map", 0, "7fe9399a0bec84ca5727309778d27f07", 5790},
+		{"resource.001", 0, "fed9e0072ffd511d248674e60dee2099", 555439},
+		{"resource.002", 0, "fed9e0072ffd511d248674e60dee2099", 714062},
+		{"resource.003", 0, "fed9e0072ffd511d248674e60dee2099", 717478},
+		{"text.000",     0, "29f3d02989208d9b54577380ea70e0d0", 8934},
+		AD_LISTEND},
+		Common::KO_KOR, Common::kPlatformDOS, ADGF_NO_FLAGS, GUIO_STD16_UNDITHER	},
+
 	// King's Quest 1 SCI Remake - English DOS (from the King's Quest Collection)
 	// Executable scanning reports "S.old.010", VERSION file reports "1.000.051"
 	// SCI interpreter version 0.000.999

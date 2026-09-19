@@ -1036,7 +1036,12 @@ bool SciEngine::usesHiresDoubleByteText() const {
 }
 
 bool SciEngine::heapStringsAreUtf8() const {
-	return _translation.isLoaded();
+	// Either a SCITRS bundle put UTF-8 there, or the game's own TEXT
+	// resources are a UTF-8 fan translation - identified the way every
+	// fan translation is, by the detection table's MD5 of a patched file.
+	if (_translation.isLoaded())
+		return true;
+	return getLanguage() == Common::KO_KOR && !_textOverlay.isLoaded();
 }
 
 Common::CodePage SciEngine::getSciLanguageCodePage() const {
