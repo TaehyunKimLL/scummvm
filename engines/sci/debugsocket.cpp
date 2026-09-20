@@ -884,6 +884,21 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 		_outBuf = objectsJson();
 		return true;
 	}
+	if (cmd == "get") {
+		// get <objName> <selector> -> raw value (or "obj" if pointer-valued)
+		if (a.size() < 2) { _outBuf = "usage: get <obj> <selector>"; return true; }
+		SegManager *sm = _engine->getEngineState()->_segMan;
+		reg_t o = objByName(a[0]);
+		if (o.isNull()) { _outBuf = "noobj"; return true; }
+		const int selId = _engine->getKernel()->findSelector(a[1].c_str());
+		if (selId < 0) { _outBuf = "nosel"; return true; }
+		reg_t v = readSelector(sm, o, selId);
+		if (v.getSegment() != 0)
+			_outBuf = Common::String::format("obj %04x:%04x", v.getSegment(), v.getOffset());
+		else
+			_outBuf = Common::String::format("%d", v.toUint16());
+		return true;
+	}
 	if (cmd == "save" || cmd == "load") {
 		if (a.size() < 1) { _outBuf = "usage: " + cmd + " <slot>"; return true; }
 		const int slot = atoi(a[0].c_str());
