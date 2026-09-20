@@ -702,7 +702,17 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 		// the `show` argument (only) for the SCI_CONTROLS_TYPE_TEXT, but then there is a separate code
 		// path for the SJIS characters, which will not get the screen surface update (since they get
 		// rendered directly into the video memory). We handle PQ2 the same way as the other PC-9801 targets.
-		if (show && !doubleByteMode) {
+		// In the hires-glyph paths (PC-98 SJIS, the Korean face, a UTF-8
+		// font set) the double-byte glyphs go straight to the driver and
+		// the single-byte ones into the lowres buffer, and only a bitsShow
+		// gets the latter on screen. The PC-98 interpreter skipped the
+		// show in double-byte mode because its ASCII went to video memory
+		// too; here that skip left every ASCII run in a Korean window
+		// unshown - measured on KQ1's "xyzzy" reply: the lowres buffer had
+		// the word, the screen a gap exactly its width. Show in both modes;
+		// the text plane re-applies the hires glyphs that the show's blit
+		// passes over, so nothing is lost the other way.
+		if (show) {
 			Show(curTextLine, 0, charCount, fontId, previousPenColor);
 		} else {
 			Draw(curTextLine, 0, charCount, fontId, previousPenColor);
