@@ -884,6 +884,15 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 		_outBuf = objectsJson();
 		return true;
 	}
+	if (cmd == "save" || cmd == "load") {
+		if (a.size() < 1) { _outBuf = "usage: " + cmd + " <slot>"; return true; }
+		const int slot = atoi(a[0].c_str());
+		Common::Error err = (cmd == "save")
+			? g_sci->saveGameState(slot, Common::String::format("dbg%d", slot))
+			: g_sci->loadGameState(slot);
+		_outBuf = (err.getCode() == Common::kNoError) ? "OK" : "FAIL";
+		return true;
+	}
 	if (cmd == "record") {
 		if (a.empty()) {
 			stopRecording();
