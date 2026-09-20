@@ -406,9 +406,9 @@ Common::Error SciEngine::run() {
 		}
 	}
 
-	// Dump every TEXT resource, tab separated, for building a SCITRS bundle:
-	// harness/i18n/m5mktrs.py consumes this to pair the original text with a
-	// translation. Off unless explicitly requested.
+	// Dump every TEXT resource, tab separated, for a translator to fill in:
+	// harness/i18n/m12mkpatch.py turns the filled-in TSV into UTF-8 text.NNN
+	// patch files. Off unless explicitly requested.
 	if (ConfMan.hasKey("dump_text_resources")) {
 		for (uint16 n = 0; n < 1000; n++) {
 			Resource *r = _resMan->findResource(ResourceId(kResourceTypeText, n), false);

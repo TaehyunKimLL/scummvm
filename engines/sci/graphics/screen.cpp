@@ -510,7 +510,7 @@ void GfxScreen::putHangulChar(Graphics::FontKorean *commonFont, int16 x, int16 y
 	// takes it: the legacy Korean face lands on the same driver bitmap that
 	// every lowres update overwrites, and loses its glyphs to an actor
 	// walking past exactly the same way. Measured on KQ1's intro box with
-	// the SCITRS build: black pixels in the box's second row 2048 -> 1334
+	// the legacy-face build: black pixels in the box's second row 2048 -> 1334
 	// over 60 frames, the same drain as before the plane existed.
 	putHiresGlyphPersistent(_hiresGlyphBuffer, charWidth, commonFont->getFontHeight(), x, y, color);
 }

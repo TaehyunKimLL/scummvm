@@ -600,9 +600,9 @@ reg_t GfxPaint16::kernelDisplay(const char *text, uint16 languageSplitter, int a
 	// PQ2 PC-98 and for the Korean fan translations.
 	// One predicate for every hires double-byte path; see
 	// SciEngine::usesHiresDoubleByteText(). Spelling this as a language test
-	// meant a Japanese SCITRS bundle skipped the pre-update and its glyphs
-	// were composited away - measured, 76 correct draw calls and a blank
-	// screen.
+	// meant a Japanese Unicode font set skipped the pre-update and its
+	// glyphs were composited away - measured, 76 correct draw calls and a
+	// blank screen.
 	bool needCJKFix = g_sci->usesHiresDoubleByteText();
 	if (needCJKFix && !_screen->_picNotValid && bRedraw)
 		bitsShow(rect);

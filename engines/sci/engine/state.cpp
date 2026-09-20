@@ -397,8 +397,8 @@ Common::String SciEngine::strSplitLanguage(const char *str, uint16 *languageSpli
 
 	// Every string on its way to the screen comes through here - kDisplay,
 	// kDrawControl, kTextSize, the menu bar, a window title - so this is
-	// where a SCITRS bundle is applied, keyed by where the string came
-	// from when the caller knows. A translated string has no %J/%G
+	// where the script-string table is applied, keyed by where the string
+	// came from when the caller knows. A translated string has no %J/%G
 	// splitter to find, so it is returned as is.
 	//
 	// The two callers that go to getSciLanguageString() directly, asking

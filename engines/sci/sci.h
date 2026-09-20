@@ -190,7 +190,7 @@ public:
 	/** Korean fan-patch Text.MAP/Text.Res override; empty when absent. */
 	const TextOverlay &getTextOverlay() const { return _textOverlay; }
 
-	/** SCITRS Unicode translation bundle; empty when absent. */
+	/** Translations of the strings embedded in scripts (sci-<lang>.str); empty when absent. */
 	const ScriptStrings &scriptStrings() const { return _scriptStrings; }
 	ScriptStrings &scriptStrings() { return _scriptStrings; }
 
@@ -213,8 +213,8 @@ public:
 	 * and missing one produced text that was drawn at correct coordinates and
 	 * then composited away.
 	 *
-	 * True for: a loaded SCITRS/SCVMUNI translation, the Korean fan patches,
-	 * and PQ2 on PC-98.
+	 * True for: the Korean fan patches (legacy Text.MAP or UTF-8 TEXT
+	 * resources, either drawn through a SCVMUNI font set), and PQ2 on PC-98.
 	 */
 	bool usesHiresDoubleByteText() const;
 
@@ -222,11 +222,12 @@ public:
 	 * Whether strings in the VM heap are UTF-8, so that the string ops that
 	 * index into text (kStrLen, kStrAt) count code points rather than bytes.
 	 *
-	 * True only when a SCITRS translation is loaded: the bundle is UTF-8 and
-	 * lookupText() hands it to the heap unencoded. An untranslated game keeps
-	 * byte semantics to the last op - measured in M11_STRING_OPS.md, its
-	 * scripts never see translated text anyway, so the gate is belt and
-	 * braces for the fan game that does scan bytes.
+	 * True when the game's TEXT resources are a UTF-8 fan translation (the
+	 * detection entry says so) and not the legacy code-page Text.MAP
+	 * overlay. An untranslated game keeps byte semantics to the last op -
+	 * measured in M11_STRING_OPS.md, its scripts never see translated text
+	 * anyway, so the gate is belt and braces for the fan game that does
+	 * scan bytes.
 	 *
 	 * Deliberately a separate question from usesHiresDoubleByteText(): that
 	 * one is about how glyphs reach the screen, this one is about what a
@@ -349,12 +350,12 @@ public:
 	Common::String getSciLanguageString(const Common::String &str, kLanguage requestedLanguage, kLanguage *secondaryLanguage = nullptr, uint16 *languageSplitter = nullptr) const;
 
 	/**
-	 * @p str as the SCITRS bundle translates it, or @p str itself.
+	 * @p str as the script-string table translates it, or @p str itself.
 	 *
-	 * The one place the bundle is consulted. getSciLanguageString() calls
+	 * The one place the table is consulted. getSciLanguageString() calls
 	 * it for every string on its way to the screen; kFormat calls it for a
 	 * format string before the arguments go in, because afterwards the
-	 * text no longer matches anything in the bundle.
+	 * text no longer matches anything in the table.
 	 */
 	Common::String translated(const Common::String &str, const ScriptStrings::Key &key = ScriptStrings::Key()) const;
 
