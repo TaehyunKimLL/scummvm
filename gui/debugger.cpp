@@ -51,6 +51,7 @@ namespace GUI {
 Debugger::Debugger() {
 	_frameCountdown = 0;
 	_isActive = false;
+	_outputSink = nullptr;
 	_firstTime = true;
 	_defaultCommandProcessor = nullptr;
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
@@ -125,12 +126,18 @@ int Debugger::debugPrintf(const char *format, ...) {
 
 	va_start(argptr, format);
 	int count;
+	if (_outputSink) {
+		Common::String s = Common::String::vformat(format, argptr);
+		_outputSink->write(s.c_str());
+		count = s.size();
+	} else {
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
 	count = _debuggerDialog->vprintFormat(1, format, argptr);
 #else
 	count = ::vprintf(format, argptr);
 	::fflush(stdout);
 #endif
+	}
 	va_end (argptr);
 	return count;
 }

@@ -47,6 +47,21 @@ public:
 
 	int debugPrintf(MSVC_PRINTF const char *format, ...) GCC_PRINTF(2, 3);
 
+	/**
+	 * Somewhere for debugPrintf() output to go besides the console dialog.
+	 * An engine that takes commands over a socket sets this so the reply
+	 * reaches the caller; null (the default) changes nothing.
+	 */
+	class OutputSink {
+	public:
+		virtual ~OutputSink() {}
+		virtual void write(const char *text) = 0;
+	};
+	void setOutputSink(OutputSink *sink) { _outputSink = sink; }
+
+	/** Run one command line as if typed at the console. */
+	bool runCommandLine(const char *line) { return parseCommand(line); }
+
 	void debugPrintColumns(const Common::StringArray &list);
 
 	/**
@@ -195,6 +210,7 @@ private:
 	 * a command or waiting for use input).
 	 */
 	bool _isActive;
+	OutputSink *_outputSink;
 
 	Common::String _errStr;
 
