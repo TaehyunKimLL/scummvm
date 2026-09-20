@@ -70,7 +70,7 @@ DebugSocket::DebugSocket(SciEngine *engine, Console *console) :
 #if defined(WIN32)
 	_pipe(nullptr), _connectOv(nullptr), _pipeConnected(false),
 #endif
-	_timeoutFrames(600), _frame(0), _getEventFrame(0), _getEventCount(0), _transitionPoll(0), _listenSince(0), _lastRoom(0xffff), _inputPoll(0), _haveRelease(false),
+	_timeoutFrames(600), _frame(0), _getEventFrame(0), _getEventCount(0), _transitionPoll(0), _listenSince(0), _lastRoom(0xffff), _recFile(nullptr), _inputPoll(0), _haveRelease(false),
 	_lastDisplayHash(0), _idleFrames(0), _idleSamples(0), _lastSampleMs(0) {
 	_wait.active = false;
 	_wait.anyOf = false;
@@ -82,6 +82,8 @@ DebugSocket::DebugSocket(SciEngine *engine, Console *console) :
 }
 
 DebugSocket::~DebugSocket() {
+	stopRecording();
+	g_system->getEventManager()->getEventDispatcher()->unregisterObserver(this);
 	g_system->getEventManager()->getEventDispatcher()->unregisterSource(&_events);
 #if defined(POSIX)
 	if (_clientFd >= 0)
@@ -178,6 +180,82 @@ void DebugSocket::dropClient() {
 		SetEvent(ov->hEvent);
 }
 #endif
+
+bool DebugSocket::startRecording(const Common::String &path) {
+	stopRecording();
+	_recFile = new Common::DumpFile();
+	if (!_recFile->open(Common::Path(path))) {
+		warning("DebugSocket: cannot write recording %s", path.c_str());
+		delete _recFile;
+		_recFile = nullptr;
+		return false;
+	}
+	// Priority above DefaultEventManager's (kEventManPriority = 0): that
+	// one queues every event and returns true, so an observer at or below
+	// it never sees anything - measured, 21 state lines and zero events.
+	// Nothing is eaten here; the manager still gets each event after us.
+	// The events the socket itself injects come through the dispatcher
+	// too, so a scripted run records exactly like a played one.
+	g_system->getEventManager()->getEventDispatcher()->registerObserver(this, 5, false);
+	debug(1, "DebugSocket: recording to %s", path.c_str());
+	return true;
+}
+
+void DebugSocket::stopRecording() {
+	if (!_recFile)
+		return;
+	g_system->getEventManager()->getEventDispatcher()->unregisterObserver(this);
+	_recFile->close();
+	delete _recFile;
+	_recFile = nullptr;
+}
+
+void DebugSocket::recordLine(char kind, const Common::String &payload) {
+	if (!_recFile)
+		return;
+	Common::String line = Common::String::format("%c\t%s\n", kind, payload.c_str());
+	_recFile->write(line.c_str(), line.size());
+	// Flushed per line: a recording is most wanted after the run that
+	// crashed, and DumpFile writes to <path>.tmp and renames on close, so
+	// a killed process leaves the .tmp - readable, but only if flushed.
+	_recFile->flush();
+}
+
+bool DebugSocket::notifyEvent(const Common::Event &ev) {
+	if (!_recFile)
+		return false;
+	// The state the event arrived in is what a generated script waits for;
+	// the event itself is what it then does. Mouse coordinates are the
+	// backend's, so they are mapped back to game space for the script.
+	Common::String what;
+	switch (ev.type) {
+	case Common::EVENT_KEYDOWN:
+		what = Common::String::format("key %d %d %d", ev.kbd.keycode, ev.kbd.ascii, ev.kbd.flags);
+		break;
+	case Common::EVENT_LBUTTONDOWN:
+	case Common::EVENT_RBUTTONDOWN: {
+		// The event's own coordinates, scaled down by the driver: asking
+		// the manager for getMousePos() here returns the position from
+		// BEFORE this event, which for a click with no preceding move is
+		// 0,0 - measured, every recorded click came out "click 0 0".
+		Common::Point p(ev.mouse);
+		GfxDriver *drv = _engine->_gfxScreen ? _engine->_gfxScreen->gfxDriver() : nullptr;
+		if (drv) {
+			const Common::Point probe = drv->mousePosToBackend(Common::Point(1000, 1000));
+			if (probe.x > 0 && probe.y > 0) {
+				p.x = p.x * 1000 / probe.x;
+				p.y = p.y * 1000 / probe.y;
+			}
+		}
+		what = Common::String::format("%s %d %d", ev.type == Common::EVENT_LBUTTONDOWN ? "click" : "rclick", p.x, p.y);
+		break;
+	}
+	default:
+		return false;	// movement, key-up, quit: not what a script replays
+	}
+	recordLine('E', what + "\t" + stateJson());
+	return false;		// never eat: the game must still get it
+}
 
 void DebugSocket::pollAccept() {
 #if defined(POSIX)
@@ -327,6 +405,30 @@ void DebugSocket::tick() {
 		}
 	}
 	sampleDisplay();
+	// One state line per tick while recording, skipping ticks where nothing
+	// a condition could test has changed. The key deliberately drops `frame`
+	// and `idle`, which move every tick: keeping them would write a line per
+	// tick, ~14,000 for a twenty-minute session, and none of the extra lines
+	// would tell a generated script anything.
+	if (_recFile) {
+		const Common::String s = stateJson();
+		Common::String key = s;
+		for (const char *field : { "\"frame\":", "\"idle\":" }) {
+			const char *at = strstr(key.c_str(), field);
+			if (!at)
+				continue;
+			const uint start = at - key.c_str() + strlen(field);
+			uint end = start;
+			while (end < key.size() && key[end] != ',' && key[end] != '}')
+				end++;
+			key = Common::String(key.c_str(), start) + Common::String(key.c_str() + end);
+		}
+		if (key != _recLastState) {
+			recordLine('S', s);
+			_recLastState = key;
+		}
+	}
+
 	pollWait();
 }
 
@@ -520,39 +622,83 @@ void DebugSocket::noteText(const char *text, const Common::Rect &rect) {
 
 // ---- commands -----------------------------------------------------------
 
-static Common::Array<Common::String> split(const Common::String &line) {
-	// Space-separated, with "..." grouping. Quotes are stripped.
+// A JSON string body: the state is parsed by the client, and a `seen`
+// condition is matched against the engine's own text, so the two must be
+// the same bytes. Replacing quotes with apostrophes to keep the JSON
+// valid - which an earlier version did - silently rewrote the text: the
+// game says "xyzzy." and the recording said 'xyzzy.', so a generated
+// script waited for a string that was never drawn.
+static Common::String jsonEscape(const Common::String &in) {
+	Common::String out;
+	for (uint i = 0; i < in.size(); i++) {
+		const char ch = in[i];
+		switch (ch) {
+		case '"':  out += "\\\""; break;
+		case '\\': out += "\\\\"; break;
+		case '\n': out += "\\n"; break;
+		case '\r': out += "\\r"; break;
+		case '\t': out += "\\t"; break;
+		default:
+			if ((byte)ch < 0x20)
+				out += Common::String::format("\\u%04x", ch);
+			else
+				out += ch;
+		}
+	}
+	return out;
+}
+
+// Space-separated, with "..." grouping; quotes are stripped. `tails`, when
+// given, receives for each token the UNSPLIT remainder of the line starting
+// at that token - what a condition like `seen` wants, since a game string
+// has spaces and quotes of its own and tokenising it leaves a fragment.
+static Common::Array<Common::String> split(const Common::String &line,
+                                           Common::Array<Common::String> *tails = nullptr) {
 	Common::Array<Common::String> out;
 	Common::String cur;
 	bool inQ = false, have = false;
+	uint tokenStart = 0;
 	for (uint i = 0; i < line.size(); i++) {
 		const char c = line[i];
 		if (c == '"') {
+			if (!have)
+				tokenStart = i;
 			inQ = !inQ;
 			have = true;
 		} else if (c == ' ' && !inQ) {
-			if (have)
+			if (have) {
 				out.push_back(cur);
+				if (tails)
+					tails->push_back(Common::String(line.c_str() + tokenStart));
+			}
 			cur.clear();
 			have = false;
 		} else {
+			if (!have)
+				tokenStart = i;
 			cur += c;
 			have = true;
 		}
 	}
-	if (have)
+	if (have) {
 		out.push_back(cur);
+		if (tails)
+			tails->push_back(Common::String(line.c_str() + tokenStart));
+	}
 	return out;
 }
 
 void DebugSocket::runCommand(const Common::String &line) {
-	Common::Array<Common::String> args = split(line);
+	Common::Array<Common::String> tails;
+	Common::Array<Common::String> args = split(line, &tails);
 	if (args.empty()) {
 		reply("");
 		return;
 	}
 	const Common::String cmd = args[0];
 	args.remove_at(0);
+	tails.remove_at(0);
+	_argTails = tails;
 
 	_outBuf.clear();
 	if (ownCommand(cmd, args)) {
@@ -594,7 +740,6 @@ bool DebugSocket::parseCond(const Common::Array<Common::String> &a, uint &i, Con
 	if (w == "ego.x") { c.kind = Cond::kEgoX; return opnum(c.a); }
 	if (w == "ego.y") { c.kind = Cond::kEgoY; return opnum(c.a); }
 	if (w == "ego" && i < a.size() && a[i] == "in") { i++; c.kind = Cond::kEgoIn; return num(c.a) && num(c.b) && num(c.c) && num(c.d); }
-	if (w == "text") { c.kind = Cond::kText; if (i >= a.size()) return false; c.text = a[i++]; return true; }
 	if (w == "windows") { c.kind = Cond::kWindows; return opnum(c.a); }
 	if (w == "global") { c.kind = Cond::kGlobal; return num(c.a) && opnum(c.b); }
 	if (w == "sel") { c.kind = Cond::kSel; if (i + 1 >= a.size()) return false; c.obj = a[i++]; c.sel = a[i++]; return opnum(c.a); }
@@ -603,7 +748,18 @@ bool DebugSocket::parseCond(const Common::Array<Common::String> &a, uint &i, Con
 	if (w == "input") { c.kind = Cond::kInput; return true; }
 	if (w == "noinput") { c.kind = Cond::kNoInput; return true; }
 	if (w == "listening") { c.kind = Cond::kListening; c.a = 0; if (i < a.size() && (a[i][0] >= '0' && a[i][0] <= '9')) num(c.a); return true; }
-	if (w == "seen") { c.kind = Cond::kSeen; if (i >= a.size()) return false; c.text = a[i++]; return true; }
+	// `seen` and `text` take the REST OF THE LINE, not one token: a game
+	// string contains spaces and often quotes of its own ("xyzzy."), and
+	// tokenising it meant a generated script waited on a fragment.
+	if (w == "seen" || w == "text") {
+		c.kind = (w == "seen") ? Cond::kSeen : Cond::kText;
+		if (i >= a.size())
+			return false;
+		// The rest of the line verbatim, quotes and all.
+		c.text = (i < _argTails.size()) ? _argTails[i] : a[i];
+		i = a.size();
+		return true;
+	}
 	if (w == "button") { c.kind = Cond::kButton; if (i >= a.size()) return false; c.text = a[i++]; return true; }
 	if (w == "inputText") { c.kind = Cond::kInputText; if (i >= a.size()) return false; c.text = a[i++]; return true; }
 	return false;
@@ -706,6 +862,16 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 	if (cmd == "dump") {
 		if (a.size() < 1) { _outBuf = "usage: dump <path-prefix>"; return true; }
 		_outBuf = dumpBuffers(a[0]) ? "OK" : "FAIL";
+		return true;
+	}
+
+	if (cmd == "record") {
+		if (a.empty()) {
+			stopRecording();
+			_outBuf = "OK";
+		} else {
+			_outBuf = startRecording(a[0]) ? "OK" : "FAIL";
+		}
 		return true;
 	}
 	if (cmd == "wait") {
@@ -862,26 +1028,19 @@ Common::String DebugSocket::stateJson() {
 		const uint from = _textLog.size() > 8 ? _textLog.size() - 8 : 0;
 		for (uint i = from; i < _textLog.size(); i++) {
 			if (i > from) texts += ",";
-			Common::String t = _textLog[i].text;
-			for (uint k = 0; k < t.size(); k++)
-				if (t[k] == '"' || t[k] == '\\') t.setChar('\'', k);
-				else if (t[k] == '\n' || t[k] == '\r') t.setChar(' ', k);
+			const Common::String t = jsonEscape(_textLog[i].text);
 			const Common::Rect &r = _textLog[i].rect;
 			texts += Common::String::format("[%u,\"%s\",%d,%d,%d,%d]", _textLog[i].frame, t.c_str(), r.left, r.top, r.right, r.bottom);
 		}
 	}
 	Common::String buttons;
 	for (uint i = 0; i < _buttons.size(); i++) {
-		Common::String l = _buttons[i].label;
-		for (uint k = 0; k < l.size(); k++)
-			if (l[k] == '"' || l[k] == '\\') l.setChar('\'', k);
+		const Common::String l = jsonEscape(_buttons[i].label);
 		if (!buttons.empty()) buttons += ",";
 		const Common::Rect &r = _buttons[i].rect;
 		buttons += Common::String::format("[\"%s\",%d,%d,%d,%d]", l.c_str(), r.left, r.top, r.right, r.bottom);
 	}
-	Common::String input = _inputText;
-	for (uint k = 0; k < input.size(); k++)
-		if (input[k] == '"' || input[k] == '\\') input.setChar('\'', k);
+	const Common::String input = jsonEscape(_inputText);
 	return Common::String::format(
 		"{\"frame\":%u,\"room\":%u,\"prevRoom\":%u,\"score\":%u,"
 		"\"ego\":{\"x\":%d,\"y\":%d,\"loop\":%d,\"cel\":%d,\"view\":%d},"

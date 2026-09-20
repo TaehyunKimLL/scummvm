@@ -285,9 +285,18 @@ void Console::attach(const char *entry) {
 
 void Console::onFrame() {
 	GUI::Debugger::onFrame();
-	if (!_socket && ConfMan.hasKey("debug_socket") && !ConfMan.hasKey("debug_socket_failed")) {
+	// Either key brings the object up: debug_socket to be driven from
+	// outside, debug_record to write what a player does. Recording alone
+	// needs no socket, so a human can just play the game.
+	if (!_socket && !ConfMan.hasKey("debug_socket_failed") &&
+	    (ConfMan.hasKey("debug_socket") || ConfMan.hasKey("debug_record"))) {
 		_socket = new DebugSocket(_engine, this);
-		if (!_socket->open(ConfMan.get("debug_socket"))) {
+		bool ok = true;
+		if (ConfMan.hasKey("debug_socket"))
+			ok = _socket->open(ConfMan.get("debug_socket"));
+		if (ok && ConfMan.hasKey("debug_record"))
+			ok = _socket->startRecording(ConfMan.get("debug_record"));
+		if (!ok) {
 			delete _socket;
 			_socket = nullptr;
 			ConfMan.setBool("debug_socket_failed", true);	// try once only

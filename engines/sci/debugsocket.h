@@ -27,6 +27,7 @@
 #include "common/array.h"
 #include "common/events.h"
 #include "common/rect.h"
+#include "common/file.h"
 #include "gui/debugger.h"
 #include "sci/engine/vm_types.h"
 
@@ -63,19 +64,38 @@ class Console;
  *                         Two conditions joined by && or ||. The reply is
  *                         OK or TIMEOUT (after `timeout N` frames, default
  *                         600).
+ *   record <path>           start writing a recording there; `record` with
+ *                         no argument stops. debug_record=<path> in the
+ *                         game's ini does the same without a socket, so a
+ *                         human can just play. The file is flushed per
+ *                         line; a run killed before it ends leaves
+ *                         <path>.tmp, which is the same content.
  *
  * Why: a driver script that sleeps N seconds after a click lands on a
  * different animation cel every run, and a comparison of two runs then
  * measures timing, not rendering. A script that waits for the state it
  * needs is deterministic.
  */
-class DebugSocket : public GUI::Debugger::OutputSink {
+class DebugSocket : public GUI::Debugger::OutputSink, public Common::EventObserver {
 public:
 	DebugSocket(SciEngine *engine, Console *console);
 	~DebugSocket() override;
 
 	/** Bind and listen. Returns false (and logs) when that fails. */
 	bool open(const Common::String &path);
+
+	/**
+	 * Start writing a recording to @p path: one line per game tick with the
+	 * state, one line per input event with the state it arrived in.
+	 * A human plays the game normally; harness/i18n/rec2script.py turns the
+	 * file into a driver script whose waits are conditions on the state the
+	 * player was actually in, not the seconds they took to get there.
+	 */
+	bool startRecording(const Common::String &path);
+	void stopRecording();
+
+	/** EventObserver: every event the dispatcher hands out, never eaten. */
+	bool notifyEvent(const Common::Event &ev) override;
 
 	/** Called often (VM loop, event poll): accepts a client, runs a command. */
 	void onFrame();
@@ -161,6 +181,8 @@ private:
 	void reply(const Common::String &text);
 	void runCommand(const Common::String &line);
 	bool ownCommand(const Common::String &cmd, const Common::Array<Common::String> &args);
+	/// For each argument, the unsplit remainder of the command line from it.
+	Common::Array<Common::String> _argTails;
 	bool parseCond(const Common::Array<Common::String> &args, uint &i, Cond &c);
 	bool cmp(int32 lhs, const Common::String &op, int32 rhs);
 
@@ -221,6 +243,10 @@ private:
 	uint32 _transitionPoll;		///< _getEventCount at the last transition
 	uint32 _listenSince;		///< frame of the last transition
 	uint16 _lastRoom;
+
+	Common::DumpFile *_recFile;	///< recording, or null
+	Common::String _recLastState;	///< last state line written, to skip repeats
+	void recordLine(char kind, const Common::String &payload);
 	uint32 _inputPoll;		///< _getEventCount when the edit control last reported
 	Common::String _inputText;	///< its content then
 
