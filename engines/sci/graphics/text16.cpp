@@ -26,6 +26,7 @@
 #include "graphics/primitives.h"
 
 #include "sci/sci.h"
+#include "sci/console.h"
 #include "sci/engine/features.h"
 #include "sci/engine/state.h"
 #include "sci/graphics/cache.h"
@@ -580,6 +581,8 @@ void GfxText16::Show(const char *text, int16 from, int16 len, GuiResourceId orgF
 
 // Draws a text in rect.
 void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const Common::Rect &rect, TextAlignment alignment, GuiResourceId fontId) {
+	if (g_sci->getSciDebugger())
+		g_sci->getSciDebugger()->noteText(text, rect);
 	int16 textWidth, maxTextWidth, textHeight;
 	int16 offset = 0;
 	int16 hline = 0;

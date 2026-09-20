@@ -647,6 +647,8 @@ void GfxAnimate::animateShowPic() {
 }
 
 void GfxAnimate::kernelAnimate(reg_t listReference, bool cycle, int argc, reg_t *argv) {
+	if (g_sci->getSciDebugger())
+		g_sci->getSciDebugger()->tick();
 	// If necessary, delay this kAnimate for a running PalVary.
 	// See delayForPalVaryWorkaround() for details.
 	if (_screen->_picNotValid)

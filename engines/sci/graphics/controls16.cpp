@@ -26,6 +26,7 @@
 #include "graphics/primitives.h"
 
 #include "sci/sci.h"
+#include "sci/console.h"
 #include "sci/event.h"
 #include "sci/engine/kernel.h"
 #include "sci/engine/state.h"
@@ -170,6 +171,8 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 	if (textReference.isNull())
 		error("kEditControl called on object that doesn't have a text reference");
 	text = _segMan->getString(textReference);
+	if (g_sci->getSciDebugger())
+		g_sci->getSciDebugger()->noteInput(text);
 
 	uint16 oldCursorPos = cursorPos;
 

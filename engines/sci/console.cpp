@@ -24,6 +24,7 @@
 #include "common/md5.h"
 #include "sci/sci.h"
 #include "sci/console.h"
+#include "common/config-manager.h"
 #include "sci/debug.h"
 #include "sci/event.h"
 #include "sci/resource/resource.h"
@@ -77,7 +78,7 @@ static int parse_reg_t(EngineState *s, const char *str, reg_t *dest);
 
 Console::Console(SciEngine *engine) : GUI::Debugger(),
 	_engine(engine), _debugState(engine->_debugState), _videoFrameDelay(0),
-	_gameFlagsGlobal(_engine->_features->getGameFlagsGlobal()) {
+	_gameFlagsGlobal(_engine->_features->getGameFlagsGlobal()), _socket(nullptr) {
 
 	assert(_engine);
 	assert(_engine->_gamestate);
@@ -270,6 +271,7 @@ Console::Console(SciEngine *engine) : GUI::Debugger(),
 }
 
 Console::~Console() {
+	delete _socket;
 }
 
 void Console::attach(const char *entry) {
@@ -279,6 +281,50 @@ void Console::attach(const char *entry) {
 	}
 
 	GUI::Debugger::attach(entry);
+}
+
+void Console::onFrame() {
+	GUI::Debugger::onFrame();
+	if (!_socket && ConfMan.hasKey("debug_socket") && !ConfMan.hasKey("debug_socket_failed")) {
+		_socket = new DebugSocket(_engine, this);
+		if (!_socket->open(ConfMan.get("debug_socket"))) {
+			delete _socket;
+			_socket = nullptr;
+			ConfMan.setBool("debug_socket_failed", true);	// try once only
+		}
+	}
+	if (_socket)
+		_socket->onFrame();
+}
+
+void Console::noteText(const char *text, const Common::Rect &rect) {
+	if (_socket)
+		_socket->noteText(text, rect);
+}
+
+void Console::tick() {
+	if (_socket)
+		_socket->tick();
+}
+
+void Console::noteInput(const Common::String &text) {
+	if (_socket)
+		_socket->noteInput(text);
+}
+
+void Console::noteGetEvent(uint16 mask) {
+	if (_socket)
+		_socket->noteGetEvent(mask);
+}
+
+void Console::noteTransition() {
+	if (_socket)
+		_socket->noteTransition();
+}
+
+void Console::noteButton(const Common::String &label, const Common::Rect &rect) {
+	if (_socket)
+		_socket->noteButton(label, rect);
 }
 
 void Console::preEnter() {

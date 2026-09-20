@@ -24,6 +24,7 @@
 #include "graphics/surface.h"
 
 #include "sci/sci.h"
+#include "sci/console.h"
 #include "sci/engine/state.h"
 #include "sci/graphics/drivers/gfxdriver.h"
 #include "sci/graphics/screen.h"
@@ -165,6 +166,8 @@ const GfxTransitionTranslateEntry *GfxTransitions::translateNumber (int16 number
 }
 
 void GfxTransitions::doit(Common::Rect picRect) {
+	if (g_sci->getSciDebugger())
+		g_sci->getSciDebugger()->noteTransition();
 	_picRect = picRect;
 
 	if (_translationTable) {

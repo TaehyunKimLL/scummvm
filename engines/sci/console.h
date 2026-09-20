@@ -23,6 +23,7 @@
 #define SCI_CONSOLE_H
 
 #include "gui/debugger.h"
+#include "sci/debugsocket.h"
 #include "sci/engine/vm.h"
 
 namespace Sci {
@@ -44,7 +45,35 @@ public:
 	 */
 	void attach(const char *entry = nullptr) override;
 
+	/**
+	 * Per frame: the debugger's own countdown, then the debug socket if
+	 * one is open (config key `debug_socket` = path).
+	 */
+	void onFrame() override;
+
+	/** For GfxText16::Box(): a text was drawn. No-op without a socket. */
+	void noteText(const char *text, const Common::Rect &rect);
+
+	/** For GfxAnimate::kernelAnimate(): one game tick. No-op without a socket. */
+	void tick();
+
+	/** For GfxControls16::kernelTexteditChange(): the parser line is live. */
+	void noteInput(const Common::String &text);
+
+	/** For kGetEvent(): the game polled for events with this mask. */
+	void noteGetEvent(uint16 mask);
+
+	/** For GfxTransitions::doit(): a screen transition ran (it drops queued input). */
+	void noteTransition();
+
+	/** For kDrawControl(): a button with this label was drawn at this rect (port-relative). */
+	void noteButton(const Common::String &label, const Common::Rect &rect);
+
+	/** Runs a console command line; for the socket. */
+	bool runLine(const char *line) { return runCommandLine(line); }
+
 private:
+	DebugSocket *_socket;
 	void preEnter() override;
 	void postEnter() override;
 

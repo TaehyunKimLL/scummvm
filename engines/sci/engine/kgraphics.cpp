@@ -29,6 +29,7 @@
 #include "gui/message.h"
 
 #include "sci/sci.h"
+#include "sci/console.h"
 #include "sci/event.h"
 #include "sci/resource/resource.h"
 #include "sci/engine/features.h"
@@ -928,6 +929,8 @@ void _k_GenericDrawControl(EngineState *s, reg_t controlObject, bool hilite) {
 	switch (type) {
 	case SCI_CONTROLS_TYPE_BUTTON:
 		debugC(kDebugLevelGraphics, "drawing button %04x:%04x to %d,%d", PRINT_REG(controlObject), x, y);
+		if (g_sci->getSciDebugger())
+			g_sci->getSciDebugger()->noteButton(splitText, rect);
 		g_sci->_gfxControls16->kernelDrawButton(rect, controlObject, splitText.c_str(), languageSplitter, fontId, style, hilite);
 		return;
 

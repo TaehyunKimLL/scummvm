@@ -67,6 +67,8 @@ public:
 	void setActiveWindowHasEditText() { _portIdWithEditText = (int16)getPort()->id; }
 
 	int16 isFrontWindow(Window *wnd);
+	/// Windows open right now, the picture window included.
+	uint windowCount() const { return _windowList.size(); }
 	void beginUpdate(Window *wnd);
 	void endUpdate(Window *wnd);
 	Window *addWindow(const Common::Rect &dims, const Common::Rect *restoreRect, const char *title, uint16 style, int16 priority, bool draw);

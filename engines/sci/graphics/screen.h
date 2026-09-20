@@ -155,6 +155,11 @@ public:
 	/// Forget every remembered hires glyph.
 	void clearHiresTextPlane();
 
+	/// The plane itself (hires, 0xff = no glyph), or null if never used.
+	const byte *hiresTextPlane() const { return _hiresTextPlane; }
+	const byte *displayScreen() const { return _displayScreen; }
+	uint displayPixels() const { return _displayPixels; }
+
 	int bitsGetDataSize(Common::Rect rect, byte mask);
 	void bitsSave(Common::Rect rect, byte mask, byte *memoryPtr);
 	void bitsGetRect(const byte *memoryPtr, Common::Rect *destRect);

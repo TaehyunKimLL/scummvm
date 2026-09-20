@@ -39,6 +39,7 @@ MODULE_OBJS := \
 	engine/segment.o \
 	engine/state.o \
 	engine/text_overlay.o \
+	debugsocket.o \
 	engine/translation.o \
 	engine/static_selectors.o \
 	engine/tts.o \

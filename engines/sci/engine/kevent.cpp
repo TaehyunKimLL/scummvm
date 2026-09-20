@@ -43,6 +43,8 @@ namespace Sci {
 
 reg_t kGetEvent(EngineState *s, int argc, reg_t *argv) {
 	SciEventType mask = (SciEventType)argv[0].toUint16();
+	if (g_sci->getSciDebugger())
+		g_sci->getSciDebugger()->noteGetEvent(mask);
 	reg_t obj = argv[1];
 	SciEvent curEvent;
 	uint16 modifiers = 0;
