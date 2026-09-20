@@ -743,23 +743,31 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 	else
 		str = Common::convertBiDiString(strOrig, g_sci->getLanguage());
 
-	const byte *text = (const byte *)str.c_str();
-	uint16 textLen = str.size();
+	const char *text = str.c_str();
+	int textLen = (int)str.size();
 	Common::Rect rect;
 
 	rect.top = _ports->_curPort->curTop;
 	rect.bottom = rect.top + _ports->_curPort->fontHeight;
-	while (textLen--) {
-		uint32 curChar = *text++;
-		switch (curChar) {
-		case 0:
-			break;
-		default: {
-			uint16 charWidth = _font->getCharWidth(curChar);
-			_font->draw(curChar, _ports->_curPort->top + _ports->_curPort->curTop, _ports->_curPort->left + _ports->_curPort->curLeft, _ports->_curPort->penClr, _ports->_curPort->greyedOutput);
-			_ports->_curPort->curLeft += charWidth;
-		}
-		}
+	while (textLen > 0) {
+		// A character, not a byte: with UTF-8 in the heap a hangul
+		// syllable is three bytes, and drawing them one at a time put
+		// three wrong glyphs on the status bar. Measured on KQ1 with a
+		// Korean script-string table, whose menu title is a script
+		// string: "킹스 퀘스트 I" rendered as mojibake here while the
+		// same text drawn by Draw() - which has always used readChar()
+		// - was correct. Only the multi-byte case is new; a one-byte
+		// character still takes the path it always did, KQ4's 0xA
+		// included.
+		int curCharBytes = 1;
+		uint32 curChar = readChar(text, curCharBytes);
+		text += curCharBytes;
+		textLen -= curCharBytes;
+		if (curChar == 0)
+			continue;
+		uint16 charWidth = _font->getCharWidth(curChar);
+		_font->draw(curChar, _ports->_curPort->top + _ports->_curPort->curTop, _ports->_curPort->left + _ports->_curPort->curLeft, _ports->_curPort->penClr, _ports->_curPort->greyedOutput);
+		_ports->_curPort->curLeft += charWidth;
 	}
 }
 
