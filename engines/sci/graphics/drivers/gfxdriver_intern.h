@@ -96,11 +96,13 @@ public:
 	void copyRectToScreen(const byte *src, int srcX, int srcY, int pitch, int destX, int destY, int w, int h, const PaletteMod *palMods, const byte *palModMapping) override;
 	void replaceCursor(const void *cursor, uint w, uint h, int hotspotX, int hotspotY, uint32 keycolor) override;
 	Common::Point getMousePos() const override;
+	Common::Point mousePosToBackend(const Common::Point &pos) const override;
 	void setMousePos(const Common::Point &pos) const override;
 	void setShakePos(int shakeXOffset, int shakeYOffset) const override;
 	void clearRect(const Common::Rect &r) const override;
 	Common::Point getRealCoords(Common::Point &pos) const override;
 	void drawTextFontGlyph(const byte *src, int pitch, int hiresDestX, int hiresDestY, int hiresW, int hiresH, int transpColor, const PaletteMod *palMods, const byte *palModMapping) override; // For HiRes fonts.
+	bool copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h) const override;
 	bool driverBasedTextRendering() const override { return true; }
 protected:
 	UpscaledGfxDriver(uint16 scaledW, uint16 scaledH, int16 textAlignX, bool scaleCursor, bool rgbRendering);
@@ -136,6 +138,7 @@ public:
 	void copyCurrentPalette(byte *dest, int start, int num) const override;
 	void drawTextFontGlyph(const byte*, int, int, int, int, int, int, const PaletteMod*, const byte*) override; // Only for HiRes fonts. Not implemented here.
 	Common::Point getMousePos() const override;
+	Common::Point mousePosToBackend(const Common::Point &pos) const override;
 	void setMousePos(const Common::Point &pos) const override;
 	void setShakePos(int shakeXOffset, int shakeYOffset) const override;
 	void clearRect(const Common::Rect &r) const override;

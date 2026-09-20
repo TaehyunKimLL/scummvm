@@ -202,6 +202,10 @@ void SCI1_EGADriver::drawTextFontGlyph(const byte*, int, int, int, int, int, int
 	error("SCI1_EGADriver::drawTextFontGlyph(): Not implemented");
 }
 
+Common::Point SCI1_EGADriver::mousePosToBackend(const Common::Point &pos) const {
+	return Common::Point(pos.x << 1, pos.y * _vScaleMult / _vScaleDiv);
+}
+
 Common::Point SCI1_EGADriver::getMousePos() const {
 	Common::Point res = GfxDriver::getMousePos();
 	res.x >>= 1;

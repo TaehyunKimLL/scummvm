@@ -127,6 +127,10 @@ Common::Point UpscaledGfxDriver::getMousePos() const {
 	return res;
 }
 
+Common::Point UpscaledGfxDriver::mousePosToBackend(const Common::Point &pos) const {
+	return Common::Point(pos.x * _hScaleMult, pos.y * _vScaleMult / _vScaleDiv);
+}
+
 void UpscaledGfxDriver::setMousePos(const Common::Point &pos) const {
 	g_system->warpMouse(pos.x * _hScaleMult, pos.y * _vScaleMult / _vScaleDiv);
 }
@@ -150,6 +154,15 @@ void UpscaledGfxDriver::drawTextFontGlyph(const byte *src, int pitch, int hiresD
 	byte *scb = _scaledBitmap + hiresDestY * _screenW * _srcPixelSize + hiresDestX * _srcPixelSize;
 	_renderGlyph(scb, _screenW, src, pitch, hiresW, hiresH, transpColor);
 	updateScreen(hiresDestX, hiresDestY, hiresW, hiresH, palMods, palModMapping);
+}
+
+bool UpscaledGfxDriver::copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h) const {
+	if (!_scaledBitmap || size < (uint32)_screenW * _screenH * _srcPixelSize)
+		return false;
+	memcpy(dest, _scaledBitmap, (uint32)_screenW * _screenH * _srcPixelSize);
+	w = _screenW;
+	h = _screenH;
+	return true;
 }
 
 void UpscaledGfxDriver::updateScreen(int destX, int destY, int w, int h, const PaletteMod *palMods, const byte *palModMapping) {

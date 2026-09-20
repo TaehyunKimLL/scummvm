@@ -52,9 +52,18 @@ public:
 	virtual void replaceMacCursor(const Graphics::Cursor *cursor) = 0;
 	virtual Common::Point getMousePos() const;
 	virtual void setMousePos(const Common::Point &pos) const;
+	/** The backend coordinate getMousePos() would map to this game coordinate: the inverse of its scaling. */
+	virtual Common::Point mousePosToBackend(const Common::Point &pos) const { return pos; }
 	virtual void setShakePos(int shakeXOffset, int shakeYOffset) const;
 	virtual void clearRect(const Common::Rect &r) const;
 	virtual void copyCurrentBitmap(byte *dest, uint32 size) const = 0;
+	/**
+	 * The composited output at the driver's own resolution, when the driver
+	 * keeps one (the upscaled CJK drivers do). For a harness that wants to
+	 * see exactly what reached the screen, hires glyphs included. Returns
+	 * false when there is no such buffer.
+	 */
+	virtual bool copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h) const { return false; }
 	virtual void copyCurrentPalette(byte *dest, int start, int num) const;
 	virtual void drawTextFontGlyph(const byte *src, int pitch, int hiresDestX, int hiresDestY, int hiresW, int hiresH, int transpColor, const PaletteMod *palMods, const byte *palModMapping) = 0;
 	virtual byte remapTextColor(byte color) const { return color; }
