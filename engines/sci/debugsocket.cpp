@@ -50,6 +50,16 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#elif defined(WIN32)
+// The Windows shape of the same thing is a named pipe: one server instance,
+// message-free byte mode, PIPE_NOWAIT so ConnectNamedPipe/ReadFile return
+// at once from the VM loop. The path given is used as \\.\pipe\<name>.
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+// windows.h defines ARRAYSIZE too; restore common/util.h's, which this
+// file uses for its key table.
+#undef ARRAYSIZE
+#define ARRAYSIZE(x) ((int)(sizeof(x) / sizeof(x[0])))
 #endif
 
 namespace Sci {
@@ -57,6 +67,9 @@ namespace Sci {
 DebugSocket::DebugSocket(SciEngine *engine, Console *console) :
 	_engine(engine), _console(console), _lastKeyMs(0), _sinceLastPoll(0),
 	_listenFd(-1), _clientFd(-1),
+#if defined(WIN32)
+	_pipe(nullptr), _connectOv(nullptr), _pipeConnected(false),
+#endif
 	_timeoutFrames(600), _frame(0), _getEventFrame(0), _getEventCount(0), _transitionPoll(0), _listenSince(0), _lastRoom(0xffff), _inputPoll(0), _haveRelease(false),
 	_lastDisplayHash(0), _idleFrames(0), _idleSamples(0), _lastSampleMs(0) {
 	_wait.active = false;
@@ -75,6 +88,17 @@ DebugSocket::~DebugSocket() {
 		::close(_clientFd);
 	if (_listenFd >= 0)
 		::close(_listenFd);
+#elif defined(WIN32)
+	if (_pipe) {
+		if (_pipeConnected)
+			DisconnectNamedPipe((HANDLE)_pipe);
+		CloseHandle((HANDLE)_pipe);
+	}
+	if (_connectOv) {
+		OVERLAPPED *ov = (OVERLAPPED *)_connectOv;
+		CloseHandle(ov->hEvent);
+		delete ov;
+	}
 #endif
 }
 
@@ -99,11 +123,61 @@ bool DebugSocket::open(const Common::String &path) {
 	::fcntl(_listenFd, F_SETFL, O_NONBLOCK);
 	debug(1, "DebugSocket: listening on %s", path.c_str());
 	return true;
+#elif defined(WIN32)
+	// A bare name or a full \\.\pipe\ path both work.
+	Common::String name = path;
+	if (!name.hasPrefix("\\\\"))
+		name = "\\\\.\\pipe\\" + name;
+	_pipeName = name;
+	if (!createPipe())
+		return false;
+	debug(1, "DebugSocket: listening on %s", name.c_str());
+	return true;
 #else
 	warning("DebugSocket: not supported on this platform");
 	return false;
 #endif
 }
+
+#if defined(WIN32)
+bool DebugSocket::createPipe() {
+	HANDLE h = CreateNamedPipeA(_pipeName.c_str(),
+	                            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+	                            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+	                            1, 64 * 1024, 64 * 1024, 0, nullptr);
+	if (h == INVALID_HANDLE_VALUE) {
+		warning("DebugSocket: CreateNamedPipe %s: error %lu", _pipeName.c_str(), (unsigned long)GetLastError());
+		return false;
+	}
+	_pipe = h;
+	// Start the asynchronous connect now; pollAccept() asks whether it
+	// completed.
+	OVERLAPPED *ov = new OVERLAPPED;
+	memset(ov, 0, sizeof(*ov));
+	ov->hEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+	_connectOv = ov;
+	if (!ConnectNamedPipe(h, ov)) {
+		const DWORD err = GetLastError();
+		if (err == ERROR_PIPE_CONNECTED)
+			SetEvent(ov->hEvent);
+		else if (err != ERROR_IO_PENDING)
+			warning("DebugSocket: ConnectNamedPipe: error %lu", (unsigned long)err);
+	}
+	_pipeConnected = false;
+	return true;
+}
+
+void DebugSocket::dropClient() {
+	DisconnectNamedPipe((HANDLE)_pipe);
+	_pipeConnected = false;
+	debug(1, "DebugSocket: client closed");
+	// Listen again for the next client.
+	OVERLAPPED *ov = (OVERLAPPED *)_connectOv;
+	ResetEvent(ov->hEvent);
+	if (!ConnectNamedPipe((HANDLE)_pipe, ov) && GetLastError() == ERROR_PIPE_CONNECTED)
+		SetEvent(ov->hEvent);
+}
+#endif
 
 void DebugSocket::pollAccept() {
 #if defined(POSIX)
@@ -116,6 +190,15 @@ void DebugSocket::pollAccept() {
 	_clientFd = fd;
 	_inBuf.clear();
 	debug(1, "DebugSocket: client connected");
+#elif defined(WIN32)
+	if (!_pipe || _pipeConnected)
+		return;
+	OVERLAPPED *ov = (OVERLAPPED *)_connectOv;
+	if (WaitForSingleObject(ov->hEvent, 0) == WAIT_OBJECT_0) {
+		_pipeConnected = true;
+		_inBuf.clear();
+		debug(1, "DebugSocket: client connected");
+	}
 #endif
 }
 
@@ -138,6 +221,37 @@ bool DebugSocket::readLine(Common::String &line) {
 		}
 		break;	// EAGAIN
 	}
+#elif defined(WIN32)
+	if (!_pipeConnected)
+		return false;
+	char buf[512];
+	for (;;) {
+		DWORD avail = 0;
+		if (!PeekNamedPipe((HANDLE)_pipe, nullptr, 0, nullptr, &avail, nullptr)) {
+			dropClient();	// ERROR_BROKEN_PIPE: the client went away
+			return false;
+		}
+		if (avail == 0)
+			break;
+		// Overlapped handle: a synchronous read needs an OVERLAPPED anyway,
+		// and with avail > 0 bytes waiting it completes at once.
+		OVERLAPPED ov;
+		memset(&ov, 0, sizeof(ov));
+		DWORD n = 0;
+		if (!ReadFile((HANDLE)_pipe, buf, MIN<DWORD>(avail, sizeof(buf)), &n, &ov)) {
+			if (GetLastError() != ERROR_IO_PENDING || !GetOverlappedResult((HANDLE)_pipe, &ov, &n, TRUE)) {
+				dropClient();
+				return false;
+			}
+		}
+		if (n == 0)
+			break;
+		_inBuf += Common::String(buf, n);
+	}
+#else
+	return false;
+#endif
+#if defined(POSIX) || defined(WIN32)
 	const uint nl = _inBuf.findFirstOf('\n');
 	if (nl == Common::String::npos)
 		return false;
@@ -146,8 +260,6 @@ bool DebugSocket::readLine(Common::String &line) {
 	if (!line.empty() && line.lastChar() == '\r')
 		line.deleteLastChar();
 	return true;
-#else
-	return false;
 #endif
 }
 
@@ -171,6 +283,28 @@ void DebugSocket::reply(const Common::String &text) {
 			if (errno == EAGAIN)
 				continue;
 			break;
+		}
+		p += n;
+		left -= n;
+	}
+#elif defined(WIN32)
+	if (!_pipeConnected)
+		return;
+	Common::String all = text;
+	if (!all.empty() && all.lastChar() != '\n')
+		all += '\n';
+	all += ".\n";
+	const char *p = all.c_str();
+	DWORD left = all.size();
+	while (left > 0) {
+		OVERLAPPED ov;
+		memset(&ov, 0, sizeof(ov));
+		DWORD n = 0;
+		if (!WriteFile((HANDLE)_pipe, p, left, &n, &ov)) {
+			if (GetLastError() != ERROR_IO_PENDING || !GetOverlappedResult((HANDLE)_pipe, &ov, &n, TRUE)) {
+				dropClient();
+				break;
+			}
 		}
 		p += n;
 		left -= n;
@@ -493,7 +627,7 @@ bool DebugSocket::Cond::eval(DebugSocket &ds) {
 	case kWindows: return ds.cmp(s.windows, op, a);
 	case kGlobal: {
 		EngineState *st = ds._engine->getEngineState();
-		if (!st || a < 0 || (uint)a >= st->variablesMax[VAR_GLOBAL])
+		if (!st || a < 0 || a >= st->variablesMax[VAR_GLOBAL])
 			return false;
 		return ds.cmp(st->variables[VAR_GLOBAL][a].toSint16(), op, b);
 	}

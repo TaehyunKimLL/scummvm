@@ -188,7 +188,15 @@ private:
 	// that often is all syscall and no progress.
 	static const uint kPollInstructions = 256;
 	uint _sinceLastPoll;
-	int _listenFd, _clientFd;
+	int _listenFd, _clientFd;		// POSIX
+#if defined(WIN32)
+	void *_pipe;				// HANDLE; a named pipe, one instance
+	void *_connectOv;			// OVERLAPPED for the pending ConnectNamedPipe
+	bool _pipeConnected;
+	Common::String _pipeName;
+	bool createPipe();
+	void dropClient();
+#endif
 	Common::String _inBuf, _outBuf;
 	Wait _wait;
 	uint32 _timeoutFrames;
