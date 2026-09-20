@@ -1267,7 +1267,7 @@ reg_t kDisplay(EngineState *s, int argc, reg_t *argv) {
 
 	Common::String text;
 
-	Translation::Key key;
+	ScriptStrings::Key key;
 	if (textp.getSegment()) {
 		argc--; argv++;
 		text = g_sci->getKernel()->lookupText(textp, 0, &key);

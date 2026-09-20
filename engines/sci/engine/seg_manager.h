@@ -317,7 +317,7 @@ public:
 	 * a bundle can name, and come back unset so the lookup falls back to
 	 * the source text alone.
 	 */
-	Translation::Key stringKey(reg_t pointer) const;
+	ScriptStrings::Key stringKey(reg_t pointer) const;
 
 
 	/**

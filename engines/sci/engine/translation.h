@@ -22,115 +22,99 @@
 #ifndef SCI_ENGINE_TRANSLATION_H
 #define SCI_ENGINE_TRANSLATION_H
 
-#include "common/array.h"
-#include "common/hashmap.h"
+#include "common/scummsys.h"
 #include "common/str.h"
-#include "common/ustr.h"
+#include "common/hashmap.h"
+
+namespace Common {
+class SeekableReadStream;
+}
 
 namespace Sci {
 
 /**
- * A SCITRS translation bundle: Unicode, source-keyed, language-neutral.
+ * Translations for the strings a fan translation cannot patch: the ones
+ * embedded in scripts.
  *
- * Unlike the legacy Text.MAP/Text.Res overlay (see TextOverlay), entries are
- * keyed by the ORIGINAL text rather than by resource number and index, so a
- * script patch that renumbers or reorders strings cannot silently mistranslate,
- * and an entry that is missing degrades to the original rather than to garbage.
+ * A fan translation replaces the game's TEXT resources with patch files
+ * (text.000, text.079, ...) - the way Sierra's own localisations and every
+ * existing fan patch work, and the way the engine has always loaded them.
+ * Those strings need no help from this class: the resource IS the
+ * translation.
  *
- * Strings are stored as UTF-8 and returned as Common::U32String, so the file
- * carries no byte encoding and one bundle format serves every language.
+ * What a patch cannot reach is a string inside a script's own string block:
+ * an inventory name, a parser reply, "You are carrying nothing!". The code
+ * refers to it by absolute offset (lofsa), so a longer translation would
+ * shift every string after it and every offset into them. KQ1 has 93 such
+ * strings that reach the screen and appear in no TEXT resource. They are
+ * translated at run time instead, from this table, keyed by where they
+ * live: (script number, string id), the id being the one
+ * Script::identifyOffsets() assigns at load and SegManager::stringKey()
+ * reports at display.
  *
- * The format is specified in docs/i18n/SCITRS_FORMAT.md and bundles are built
- * by harness/i18n/m5mktrs.py, which validates what it writes.
+ * The file is sci-<lang>.str next to the game, one entry per line:
+ *
+ *     script <TAB> id [<TAB> room] <TAB> text
+ *
+ * UTF-8, '#' comments, "\n" for a newline in the text. A room number makes
+ * the entry apply in that room only, for a line that means different things
+ * in different places; an entry without one applies anywhere and loses to
+ * one with a matching room. The language is not in the file: it is the
+ * language the game was detected as, which chooses the file.
  */
-class Translation {
+class ScriptStrings {
 public:
-	Translation() : _loaded(false), _entries(nullptr), _entryCount(0),
-		_buckets(nullptr), _bucketCount(0), _pool(nullptr), _poolLen(0) {}
-
-	/**
-	 * Look for a bundle in the game directory and index the requested
-	 * language. Returns true only if that language is present and the file
-	 * passes every structural check; a partially valid bundle is rejected
-	 * whole, because a half-indexed translation is worse than none.
-	 */
-	bool load(const Common::String &language);
-
-	/**
-	 * Parse an already-read bundle. What load() calls after opening the
-	 * file; public so a test can build a bundle in memory and exercise the
-	 * lookup without a data directory.
-	 */
-	bool loadFromMemory(const Common::Array<byte> &bytes, const Common::String &language);
-
-	/**
-	 * Load whichever language the bundle declares first.
-	 *
-	 * A bundle names its own language, so requiring the caller to guess it
-	 * means a ja bundle silently does not load when the caller asked for ko.
-	 * Used when the user has expressed no preference.
-	 */
-	bool loadAny();
-
-	bool isLoaded() const { return _loaded; }
-
-	/**
-	 * Where a string came from. The bundle is keyed by the source text, so
-	 * this is a hint, not the key: it picks between entries whose source is
-	 * the same but whose translation differs by place - LB1 has 86 such
-	 * groups - and a hint that matches nothing is simply ignored.
-	 *
-	 * Two kinds of place exist. A TEXT resource string is (resource, index)
-	 * and comes through lookupText(). A string embedded in a script - an
-	 * inventory description, a parser reply, the game's title - is
-	 * (script, string id), numbered by Script::identifyOffsets() at load.
-	 * KQ1 has 49 of the latter that appear in no TEXT resource.
-	 */
+	/** Where a string lives. */
 	struct Key {
-		enum Kind { kNone = 0, kText = 1, kScript = 2 };
 		static const uint16 kAnyRoom = 0xFFFF;
 
-		Kind kind;
-		uint16 number;	///< resource or script number
-		uint16 index;	///< string index within it
-		uint16 room;	///< the room the string was displayed in, or kAnyRoom
+		uint16 script;
+		uint16 id;
+		uint16 room;
 
-		Key() : kind(kNone), number(0xFFFF), index(0xFFFF), room(kAnyRoom) {}
-		Key(Kind k, uint16 n, uint16 i, uint16 r = kAnyRoom) : kind(k), number(n), index(i), room(r) {}
-		static Key text(uint16 res, uint16 idx, uint16 r = kAnyRoom) { return Key(kText, res, idx, r); }
-		static Key script(uint16 nr, uint16 id, uint16 r = kAnyRoom) { return Key(kScript, nr, id, r); }
-		bool isSet() const { return kind != kNone; }
+		Key() : script(0xFFFF), id(0xFFFF), room(kAnyRoom) {}
+		Key(uint16 s, uint16 i, uint16 r = kAnyRoom) : script(s), id(i), room(r) {}
+		bool isSet() const { return script != 0xFFFF; }
 	};
 
+	ScriptStrings() : _loaded(false) {}
+
 	/**
-	 * Translate @p source. Returns false when this bundle has no entry, in
-	 * which case the caller must keep the original text.
-	 *
-	 * @p out receives UTF-8 - the pool's own encoding, copied, never
-	 * transcoded. Everything downstream of this call reads UTF-8: the heap
-	 * holds it, the string ops count it, GfxText16 walks it.
+	 * Load sci-<lang>.str from the game directory, if the game ships one.
+	 * @p languageCode is the ScummVM code ("ko"), which the caller gets
+	 * from Common::getLanguageCode(); taking the string keeps this class
+	 * out of common/language's link dependencies for the unit tests.
 	 */
-	bool translate(const Common::String &source, Common::String &out,
-	               const Key &key = Key()) const;
+	bool load(const Common::String &languageCode);
 
-	uint entryCount() const { return _entryCount; }
-	const Common::String &language() const { return _language; }
+	/** Parse a table from a stream; what load() does once the file is open. */
+	bool loadFromStream(Common::SeekableReadStream &in);
+
+	bool isLoaded() const { return _loaded; }
+	uint entryCount() const { return _entries.size(); }
 
 	/**
-	 * Remember where a heap buffer's contents came from.
+	 * The translation for the string at @p key, or false to keep the
+	 * original. A room-specific entry wins in its room; an any-room entry
+	 * answers everywhere else. @p out receives UTF-8.
+	 */
+	bool lookup(const Key &key, Common::String &out) const;
+
+	/**
+	 * Remember that @p buffer now holds the script string at @p key.
 	 *
-	 * A script string on its way to the screen is first kStrCpy'd into a
-	 * stack buffer, and the buffer is what kDisplay / kDrawControl are
-	 * handed - by then nothing says which script string it was. So the copy
-	 * records (buffer -> key, text, room) here, and the display looks it up.
+	 * A script string reaches the screen as a stack buffer: the script
+	 * kStrCpy's it first, and the buffer is what kDisplay / kDrawControl are
+	 * handed - by then nothing says which string it was. So the copy records
+	 * (buffer -> key, text written) here, and the display looks it up.
 	 *
-	 * A buffer is reused freely, so the record carries the text that was
-	 * written and keyOf() returns nothing when the buffer no longer holds
-	 * it. Measured on KQ1: 28 display lookups, 0 stale.
+	 * The buffer is reused freely, so the record carries the text and
+	 * keyOf() answers only while the buffer still holds it. Measured on KQ1
+	 * through the inventory and two parser replies: 28 lookups, 0 stale.
 	 *
-	 * The buffer is identified by its raw (segment, offset) so this class
-	 * stays free of the VM: reg_t::getSegment() consults the SCI version,
-	 * which drags the engine into anything that links it (the unit tests).
+	 * @p buffer is bufferId(segment, offset) rather than a reg_t: reg_t's
+	 * accessors consult the SCI version, which would drag the engine into
+	 * anything that links this class (the unit tests).
 	 */
 	void tagBuffer(uint32 buffer, const Key &key, const Common::String &text);
 
@@ -139,43 +123,20 @@ public:
 
 	static uint32 bufferId(uint16 segment, uint16 offset) { return ((uint32)segment << 16) | offset; }
 
-	/** Whitespace normalisation applied to every key. Public for testing. */
-	static Common::String normalise(const Common::String &s);
-	static uint32 hash(const Common::String &normalised);
-
 private:
-	struct Entry {
-		uint32 hash;
-		uint32 srcOffset;
-		uint32 dstOffset;
-		uint16 number;
-		uint16 index;
-		uint16 room;	///< Key::kAnyRoom when the entry does not care
-		byte kind;		///< Key::Kind; 0 in bundles written before it existed
-	};
-
-	const char *poolString(uint32 offset) const;
+	/// (script, id, room) packed exactly; no two places share a value.
+	static uint64 placeId(uint16 script, uint16 id, uint16 room) {
+		return ((uint64)room << 32) | ((uint32)script << 16) | id;
+	}
 
 	bool _loaded;
-	Common::String _language;
-	/** Sources already warned about for a hint miss; mutable because a
-	 *  lookup is logically const and the warning is a side channel. */
-	mutable Common::HashMap<uint32, bool> _warnedFallback;
+	Common::HashMap<uint64, Common::String> _entries;
 
 	struct BufferTag {
 		Key key;
 		Common::String text;
 	};
-	Common::HashMap<uint32, BufferTag> _bufferTags;	///< packed reg_t -> tag
-	Common::Array<byte> _data;
-	Common::Array<Entry> _entryTable;
-
-	const Entry *_entries;
-	uint32 _entryCount;
-	const uint32 *_buckets;
-	uint32 _bucketCount;
-	const char *_pool;
-	uint32 _poolLen;
+	Common::HashMap<uint32, BufferTag> _bufferTags;
 };
 
 } // End of namespace Sci

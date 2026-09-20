@@ -230,7 +230,7 @@ public:
 	 * which is where every string is translated. @p key, when given, is set
 	 * to where the text came from so the caller can pass that on.
 	 */
-	Common::String lookupText(reg_t address, int index, Translation::Key *key = nullptr);
+	Common::String lookupText(reg_t address, int index, ScriptStrings::Key *key = nullptr);
 
 	/**
 	 * Loads the kernel function names.

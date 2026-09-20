@@ -191,8 +191,8 @@ public:
 	const TextOverlay &getTextOverlay() const { return _textOverlay; }
 
 	/** SCITRS Unicode translation bundle; empty when absent. */
-	const Translation &getTranslation() const { return _translation; }
-	Translation &getTranslation() { return _translation; }
+	const ScriptStrings &scriptStrings() const { return _scriptStrings; }
+	ScriptStrings &scriptStrings() { return _scriptStrings; }
 
 	/**
 	 * The code page SCI text is stored in for the active language. This is
@@ -329,9 +329,9 @@ public:
 	 * @return				The processed string.
 	 */
 	Common::String strSplitLanguage(const char *str, uint16 *splitLanguage, const char *sep,
-	                                const Translation::Key &key = Translation::Key());
+	                                const ScriptStrings::Key &key = ScriptStrings::Key());
 	Common::String strSplit(const char *str, const char *sep,
-	                        const Translation::Key &key = Translation::Key()) {
+	                        const ScriptStrings::Key &key = ScriptStrings::Key()) {
 		return strSplitLanguage(str, NULL, sep, key);
 	}
 
@@ -356,7 +356,7 @@ public:
 	 * format string before the arguments go in, because afterwards the
 	 * text no longer matches anything in the bundle.
 	 */
-	Common::String translated(const Common::String &str, const Translation::Key &key = Translation::Key()) const;
+	Common::String translated(const Common::String &str, const ScriptStrings::Key &key = ScriptStrings::Key()) const;
 
 	// Check if vocabulary needs to get switched (in multilingual parser games)
 	void checkVocabularySwitch();
@@ -476,7 +476,7 @@ private:
 	const SciGameId _gameId;
 	ResourceManager *_resMan; /**< The resource manager */
 	TextOverlay _textOverlay; /**< Korean fan-patch text override */
-	Translation _translation; /**< SCITRS Unicode translation bundle */
+	ScriptStrings _scriptStrings; /**< run-time translations for strings embedded in scripts */
 	ScriptPatcher *_scriptPatcher; /**< The script patcher */
 	EngineState *_gamestate;
 	Kernel *_kernel;

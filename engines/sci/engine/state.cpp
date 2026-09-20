@@ -315,14 +315,14 @@ kLanguage SciEngine::getSciLanguage() {
 			// (essentially disabling runtime language switching).
 			// Note: only a limited number of multilanguage games have been tested
 			// so far, so this information may not be 100% accurate.
-			// A SCITRS translation is applied in the engine, below the script
-			// layer: the game's own resources are untouched and the scripts
-			// have no localised content to select. Telling them the language
-			// changed makes them take paths their data does not support -
-			// measured on KQ1 with a ja bundle, the title menu stopped
-			// redrawing its highlighted entry and every button rendered
-			// blank, because the script branches on printLang.
-			if (g_sci->getTranslation().isLoaded())
+			// A UTF-8 fan translation replaces the text below the script
+			// layer: the scripts have no localised content to select and
+			// no %J/%G splitters to find. Telling them the language changed
+			// makes them take paths their data does not support - measured
+			// on KQ1 with a ja translation, the title menu stopped redrawing
+			// its highlighted entry and every button rendered blank, because
+			// the script branches on printLang.
+			if (g_sci->heapStringsAreUtf8())
 				return K_LANG_ENGLISH;
 
 			switch (getLanguage()) {
@@ -369,28 +369,26 @@ void SciEngine::setSciLanguage() {
 	setSciLanguage(getSciLanguage());
 }
 
-Common::String SciEngine::translated(const Common::String &str, const Translation::Key &key) const {
+Common::String SciEngine::translated(const Common::String &str, const ScriptStrings::Key &key) const {
 	// The translation goes out as UTF-8, not the game's code page. The
 	// code page was a ceiling: a character it could not represent was
 	// dropped, silently. The string ops count code points and GfxText16
 	// walks UTF-8, so nothing downstream needs the encoding.
-	if (!_translation.isLoaded())
-		return str;
 	Common::String out;
-	if (_translation.translate(str, out, key))
+	if (_scriptStrings.lookup(key, out))
 		return out;
 	return str;
 }
 
 Common::String SciEngine::strSplitHeap(reg_t ptr, const Common::String &str, uint16 *languageSplitter, const char *sep) {
-	Translation::Key key = _gamestate->_segMan->stringKey(ptr);
+	ScriptStrings::Key key = _gamestate->_segMan->stringKey(ptr);
 	if (!key.isSet())
-		key = _translation.keyOf(Translation::bufferId(ptr.getSegment(), ptr.getOffset()), str);
+		key = _scriptStrings.keyOf(ScriptStrings::bufferId(ptr.getSegment(), ptr.getOffset()), str);
 	return strSplitLanguage(str.c_str(), languageSplitter, sep, key);
 }
 
 Common::String SciEngine::strSplitLanguage(const char *str, uint16 *languageSplitter, const char *sep,
-                                           const Translation::Key &key) {
+                                           const ScriptStrings::Key &key) {
 	kLanguage activeLanguage = getSciLanguage();
 	kLanguage subtitleLanguage = K_LANG_NONE;
 
@@ -407,9 +405,9 @@ Common::String SciEngine::strSplitLanguage(const char *str, uint16 *languageSpli
 	// for English by name - file.cpp for a filename, workarounds.cpp for
 	// an object name - want the English half of a multilingual string,
 	// which is an identifier, not display text. They never come here.
-	if (_translation.isLoaded()) {
+	{
 		Common::String t;
-		if (_translation.translate(str, t, key))
+		if (_scriptStrings.lookup(key, t))
 			return t;
 	}
 

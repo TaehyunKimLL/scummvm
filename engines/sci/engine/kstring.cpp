@@ -47,13 +47,13 @@ reg_t kStrCat(EngineState *s, int argc, reg_t *argv) {
 	//  see bug #5834
 	//  Verified for Police Quest 2 + Quest For Glory 1
 	//  However Space Quest 4 PC-9801 doesn't
-	// Not applied to a SCITRS translation: the split emulates what the
+	// Not applied to a UTF-8 fan translation: the split emulates what the
 	// Japanese PC-9801 interpreter did to text that shipped with those
 	// releases, and imposing it on a translated Western release corrupts
 	// strings the original interpreter never touched.
 	if ((g_sci->getLanguage() == Common::JA_JPN)
 		&& (getSciVersion() <= SCI_VERSION_01)
-		&& !g_sci->getTranslation().isLoaded()) {
+		&& !g_sci->heapStringsAreUtf8()) {
 		s1 = g_sci->strSplit(s1.c_str(), nullptr);
 		s2 = g_sci->strSplit(s2.c_str(), nullptr);
 	}
@@ -88,11 +88,11 @@ reg_t kStrCpy(EngineState *s, int argc, reg_t *argv) {
 	//
 	// Only the plain, full-length copy: a length-limited strncpy or a
 	// negative-length memcpy is the script moving bytes, not text.
-	if (argc <= 2 && g_sci->getTranslation().isLoaded()) {
-		Translation::Key key = s->_segMan->stringKey(argv[1]);
+	if (argc <= 2 && g_sci->scriptStrings().isLoaded()) {
+		ScriptStrings::Key key = s->_segMan->stringKey(argv[1]);
 		if (key.isSet()) {
 			key.room = s->currentRoomNumber();
-			g_sci->getTranslation().tagBuffer(Translation::bufferId(argv[0].getSegment(), argv[0].getOffset()),
+			g_sci->scriptStrings().tagBuffer(ScriptStrings::bufferId(argv[0].getSegment(), argv[0].getOffset()),
 			                                  key, s->_segMan->getString(argv[1]));
 		}
 	}
@@ -293,7 +293,7 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 	// Translate the format string now, before the arguments go in: once
 	// "The %s looks like any other %s." has become "The rock looks like
 	// any other rock." it matches nothing in the bundle.
-	Translation::Key sourceKey;
+	ScriptStrings::Key sourceKey;
 	Common::String source_str = g_sci->getKernel()->lookupText(position, index, &sourceKey);
 	source_str = g_sci->translated(source_str, sourceKey);
 	const char* source = source_str.c_str();
@@ -356,7 +356,7 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 			case 's': { /* Copy string */
 				reg_t reg = argv[startarg + paramindex];
 
-				Translation::Key argKey;
+				ScriptStrings::Key argKey;
 				Common::String tempsource = g_sci->getKernel()->lookupText(reg,
 				                                  arguments[paramindex + 1], &argKey);
 				tempsource = g_sci->translated(tempsource, argKey);

@@ -309,20 +309,12 @@ Common::Error SciEngine::run() {
 	if (_textOverlay.load())
 		debug(1, "SCI: Korean text overlay active (%u resources)", _textOverlay.size());
 
-	// A SCITRS bundle is the Unicode successor to that overlay: source-keyed
-	// and language-neutral. It is loaded here for the same reason - the
-	// language-keyed graphics driver table runs during GfxScreen construction.
-	{
-		// With no explicit preference, take the language the bundle declares:
-		// hard-coding "ko" meant a Japanese bundle loaded its font and then
-		// never loaded its text.
-		const bool loaded = ConfMan.hasKey("translation_language")
-			? _translation.load(ConfMan.get("translation_language"))
-			: _translation.loadAny();
-		if (loaded)
-			debug(1, "SCI: SCITRS translation active: %u entries for '%s'",
-				  _translation.entryCount(), _translation.language().c_str());
-	}
+	// A UTF-8 fan translation replaces TEXT resources with patch files and
+	// is detected by their MD5 like any other; the strings it cannot patch
+	// - the ones embedded in scripts - come from a sci-<lang>.str table,
+	// named by the detected language.
+	if (_scriptStrings.load(Common::getLanguageCode(getLanguage())))
+		debug(1, "SCI: script string table active: %u entries", _scriptStrings.entryCount());
 
 	// List every FONT resource the game actually contains, so "does this
 	// Japanese release use the SJIS path" is answered from the data rather
@@ -1021,11 +1013,9 @@ const char *SciEngine::getGameIdStr() const {
 }
 
 bool SciEngine::usesHiresDoubleByteText() const {
-	// A SCVMUNI bundle draws through the same hires text plane as the legacy
+	// A SCVMUNI font draws through the same hires text plane as the legacy
 	// CJK fonts, so it needs the identical treatment: update the display area
 	// before the text is printed, or the background composite erases it.
-	if (_translation.isLoaded())
-		return true;
 	if (_textOverlay.isLoaded())
 		return true;
 	if (getLanguage() == Common::KO_KOR)
@@ -1036,11 +1026,9 @@ bool SciEngine::usesHiresDoubleByteText() const {
 }
 
 bool SciEngine::heapStringsAreUtf8() const {
-	// Either a SCITRS bundle put UTF-8 there, or the game's own TEXT
-	// resources are a UTF-8 fan translation - identified the way every
-	// fan translation is, by the detection table's MD5 of a patched file.
-	if (_translation.isLoaded())
-		return true;
+	// The game's TEXT resources are a UTF-8 fan translation - identified
+	// the way every fan translation is, by the detection table's MD5 of a
+	// patched file - unless they are the legacy code-page Text.MAP overlay.
 	return getLanguage() == Common::KO_KOR && !_textOverlay.isLoaded();
 }
 
@@ -1075,22 +1063,6 @@ Common::Language SciEngine::getLanguage() const {
 	// as blank boxes, because every Korean path is gated on KO_KOR.
 	if (_textOverlay.isLoaded())
 		return Common::KO_KOR;
-
-	// A SCITRS bundle names its own language, so honour it generally rather
-	// than special-casing Korean: the CJK paths in GfxText16/GfxCache are all
-	// gated on a language, and a bundle that loads without flipping the
-	// language renders as blank boxes.
-	if (_translation.isLoaded()) {
-		const Common::String &code = _translation.language();
-		// parseLanguage() already maps "ko" and "ja"; only "zh" needs a hand,
-		// because it parses to ZH_ANY and the code page switch wants a
-		// concrete one.
-		if (code.equalsIgnoreCase("zh"))
-			return Common::ZH_CHN;
-		const Common::Language parsed = Common::parseLanguage(code);
-		if (parsed != Common::UNK_LANG)
-			return parsed;
-	}
 
 	// A resource-replacing fan patch - one that rewrites the game's own TEXT
 	// resources in place rather than shipping an overlay - leaves nothing for

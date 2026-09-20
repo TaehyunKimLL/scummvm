@@ -886,9 +886,9 @@ void Kernel::loadKernelNames(GameFeatures *features) {
 	mapFunctions(features);
 }
 
-Common::String Kernel::lookupText(reg_t address, int index, Translation::Key *key) {
+Common::String Kernel::lookupText(reg_t address, int index, ScriptStrings::Key *key) {
 	if (key)
-		*key = Translation::Key();
+		*key = ScriptStrings::Key();
 
 	if (address.getSegment()) {
 		// A heap address: a script string, or a buffer holding one.
@@ -896,7 +896,7 @@ Common::String Kernel::lookupText(reg_t address, int index, Translation::Key *ke
 		if (key) {
 			*key = _segMan->stringKey(address);
 			if (!key->isSet())
-				*key = g_sci->getTranslation().keyOf(Translation::bufferId(address.getSegment(), address.getOffset()), text);
+				*key = g_sci->scriptStrings().keyOf(ScriptStrings::bufferId(address.getSegment(), address.getOffset()), text);
 		}
 		return text;
 	}
@@ -953,11 +953,8 @@ Common::String Kernel::lookupText(reg_t address, int index, Translation::Key *ke
 		while (textlen-- && *seeker++)
 			;
 
-	if (textlen) {
-		if (key)
-			*key = Translation::Key::text((uint16)address.getOffset(), (uint16)_index);
+	if (textlen)
 		return seeker;
-	}
 
 	warning("Index %d out of bounds in text.%03d", _index, address.getOffset());
 	return "";
