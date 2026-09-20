@@ -187,10 +187,18 @@ private:
 	bool cmp(int32 lhs, const Common::String &op, int32 rhs);
 
 	void sendKey(const Common::String &name);
+	/** Key hold: re-injects the keydown every few ticks the way SDL's
+	 * auto-repeat does, so SCI's ego controller walks continuously.
+	 * SCI stops on key-up, which a single press/release pair delivers
+	 * after one 4-pixel step. */
+	void holdKey(const Common::String &name, int ticks);
+	void releaseKey();
+	void holdTick();
 	void sendClick(int x, int y, bool right);
 	Common::Point toBackend(int x, int y) const;
 	void sendMove(int x, int y);
 	Common::String stateJson();
+	Common::String objectsJson();
 	bool dumpBuffers(const Common::String &path);
 
 	SciEngine *_engine;
@@ -205,6 +213,8 @@ private:
 	Common::Array<Common::String> _pendingKeys;
 	Common::Event _pendingRelease;	///< key-up for the last key-down sent
 	bool _haveRelease;
+	Common::String _holdName;		///< key being held down (empty = none)
+	int _holdTicks;			///< ticks left in the hold
 	uint32 _lastKeyMs;
 	// Console::onFrame() fires once per VM instruction; polling the socket
 	// that often is all syscall and no progress.

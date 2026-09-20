@@ -38,6 +38,7 @@
 #include "sci/engine/seg_manager.h"
 #include "sci/engine/selector.h"
 #include "sci/engine/state.h"
+#include "sci/engine/script.h"
 #include "sci/engine/vm.h"
 #include "sci/graphics/ports.h"
 #include "sci/graphics/screen.h"
@@ -394,6 +395,7 @@ void DebugSocket::reply(const Common::String &text) {
 
 void DebugSocket::tick() {
 	_frame++;
+	holdTick();
 
 	// Buttons belong to the screen they were drawn on; a room change or
 	// a transition (new picture) takes them with it.
@@ -865,6 +867,23 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 		return true;
 	}
 
+	if (cmd == "hold") {
+		if (a.size() < 1) { _outBuf = "usage: hold <name> [ticks]"; return true; }
+		const int ticks = a.size() > 1 ? atoi(a[1].c_str()) : 400;
+		holdKey(a[0], ticks);
+		_outBuf = "OK";
+		return true;
+	}
+	if (cmd == "release") {
+		releaseKey();
+		_outBuf = "OK";
+		return true;
+	}
+
+	if (cmd == "objs") {
+		_outBuf = objectsJson();
+		return true;
+	}
 	if (cmd == "record") {
 		if (a.empty()) {
 			stopRecording();
@@ -917,6 +936,15 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 
 // ---- input ---------------------------------------------------------------
 
+static bool keyNameEq(const Common::String &a, const char *b) {
+	if (a.size() != strlen(b))
+		return false;
+	for (uint i = 0; i < a.size(); i++)
+		if (tolower(a[i]) != tolower(b[i]))
+			return false;
+	return true;
+}
+
 static bool keyByName(const Common::String &name, Common::KeyCode &code, uint16 &ascii) {
 	struct { const char *n; Common::KeyCode k; uint16 a; } table[] = {
 		{ "Return", Common::KEYCODE_RETURN, 13 }, { "Enter", Common::KEYCODE_RETURN, 13 },
@@ -933,7 +961,7 @@ static bool keyByName(const Common::String &name, Common::KeyCode &code, uint16 
 		{ "F10", Common::KEYCODE_F10, 0 },
 	};
 	for (uint i = 0; i < ARRAYSIZE(table); i++)
-		if (name == table[i].n) { code = table[i].k; ascii = table[i].a; return true; }
+		if (keyNameEq(name, table[i].n)) { code = table[i].k; ascii = table[i].a; return true; }
 	if (name.size() == 1) {
 		const char c = name[0];
 		code = (Common::KeyCode)(c >= 'A' && c <= 'Z' ? c + 32 : c);
@@ -962,6 +990,68 @@ void DebugSocket::sendKey(const Common::String &name) {
 	ev.type = Common::EVENT_KEYUP;
 	_pendingRelease = ev;
 	_haveRelease = true;
+}
+
+void DebugSocket::holdKey(const Common::String &name, int ticks) {
+	releaseKey();
+	Common::KeyCode code;
+	uint16 ascii;
+	if (!keyByName(name, code, ascii)) {
+		warning("DebugSocket: unknown hold key '%s'", name.c_str());
+		return;
+	}
+	_holdName = name;
+	_holdTicks = ticks;
+	Common::Event ev;
+	ev.kbd.keycode = code;
+	ev.kbd.ascii = ascii;
+	ev.kbd.flags = 0;
+	ev.type = Common::EVENT_KEYDOWN;
+	_events.addEvent(ev);
+}
+
+void DebugSocket::releaseKey() {
+	if (_holdName.empty())
+		return;
+	Common::KeyCode code;
+	uint16 ascii;
+	if (keyByName(_holdName, code, ascii)) {
+		Common::Event ev;
+		ev.kbd.keycode = code;
+		ev.kbd.ascii = ascii;
+		ev.kbd.flags = 0;
+		ev.type = Common::EVENT_KEYUP;
+		_events.addEvent(ev);
+	}
+	_holdName = "";
+	_holdTicks = 0;
+}
+
+void DebugSocket::holdTick() {
+	if (_holdName.empty())
+		return;
+	if (--_holdTicks <= 0) {
+		releaseKey();
+		return;
+	}
+	// One repeat per 4 ticks sits near SDL's default auto-repeat rate.
+	if (_frame % 4)
+		return;
+	Common::KeyCode code;
+	uint16 ascii;
+	if (!keyByName(_holdName, code, ascii)) {
+		releaseKey();
+		return;
+	}
+	Common::Event ev;
+	ev.kbd.keycode = code;
+	ev.kbd.ascii = ascii;
+	ev.kbd.flags = 0;
+	ev.type = Common::EVENT_KEYDOWN;
+	_events.addEvent(ev);
+	// No pending release for repeats: the key stays logically down.
+	if (!_haveRelease)
+		;
 }
 
 // Mouse coordinates are given in game (320x200) space; the driver's
@@ -1019,6 +1109,65 @@ DebugSocket::Snapshot DebugSocket::snapshot() const {
 	return s;
 }
 
+// Where are the interactive things? The scripts know: every room builds
+// its scene out of Actor instances. SegManager can list them by class,
+// and each carries x/y/view — so `objs` answers "where is the door /
+// the rock / the tree" without any pixel guessing.
+Common::String DebugSocket::objectsJson() {
+	EngineState *s = _engine->getEngineState();
+	if (!s || !s->_segMan)
+		return "[]";
+	SegManager *segMan = s->_segMan;
+	Common::String out = "[";
+	// Every object in every script segment and clone table, following
+	// SegManager::findObjectsByName's own walk. Room scripts AddToRoom()
+	// what matters, so a room's interesting actors are the ones with a
+	// view and non-zero coords; the rest (zeroed template instances in
+	// script 0's object map) are filtered out below.
+	const Common::Array<SegmentObj *> &heap = segMan->getSegments();
+	for (uint seg = 1; seg < heap.size(); seg++) {
+		SegmentObj *mobj = heap[seg];
+		if (!mobj)
+			continue;
+		Common::Array<reg_t> addrs;
+		if (mobj->getType() == SEG_TYPE_SCRIPT) {
+			const Script *scr = (const Script *)mobj;
+			const ObjMap &objects = scr->getObjectMap();
+			for (ObjMap::const_iterator it = objects.begin(); it != objects.end(); ++it)
+				addrs.push_back(make_reg(seg, it->_value.getPos().getOffset()));
+		} else if (mobj->getType() == SEG_TYPE_CLONES) {
+			const CloneTable *ct = (const CloneTable *)mobj;
+			for (uint idx = 0; idx < ct->size(); ++idx) {
+				if (ct->isValidEntry(idx))
+					addrs.push_back(make_reg(seg, idx));
+			}
+		}
+		for (uint i = 0; i < addrs.size(); i++) {
+			const reg_t addr = addrs[i];
+			Object *o = segMan->getObject(addr);
+			if (!o || o->isFreed() || o->isClass())
+				continue;
+			const uint16 view = (uint16)readSelectorValue(segMan, addr, SELECTOR(view));
+			const uint16 x = (uint16)readSelectorValue(segMan, addr, SELECTOR(x));
+			const uint16 y = (uint16)readSelectorValue(segMan, addr, SELECTOR(y));
+			if (view == 0 || (x == 0 && y == 0))
+				continue;   // template instance or parked off-scene
+			const Common::String nm = segMan->getObjectName(addr);
+			if (nm == "ego")
+				continue;
+			if (out.size() > 1)
+				out += ",";
+			out += Common::String::format("{\"name\":\"%s\",\"seg\":%u,\"x\":%u,\"y\":%u,\"view\":%u,\"loop\":%u,\"cel\":%u}",
+				jsonEscape(nm).c_str(), (uint)seg, (uint)x, (uint)y,
+				(uint)view,
+				(uint)readSelectorValue(segMan, addr, SELECTOR(loop)),
+				(uint)readSelectorValue(segMan, addr, SELECTOR(cel)));
+		}
+	}
+	out += "]";
+	return out;
+}
+
 Common::String DebugSocket::stateJson() {
 	const Snapshot s = snapshot();
 	Common::String texts;
@@ -1074,6 +1223,32 @@ bool DebugSocket::dumpBuffers(const Common::String &prefix) {
 			f.write(scr->hiresTextPlane(), (uint32)w * h);
 			f.close();
 		}
+	}
+
+	// control-plane map: the picture's walkability flags, which is what a
+	// driver needs to know before it picks a click target. SCI0 control
+	// values: 0x00 water, 0x04 ignore, 0x08 special, 0x0f status line.
+	if (f.open(Common::Path(prefix + "_ctl.bin"))) {
+		const uint16 cw = scr->getWidth(), ch = scr->getHeight();
+		Common::Array<byte> ctl(cw * ch);
+		for (uint16 y = 0; y < ch; y++)
+			for (uint16 x = 0; x < cw; x++)
+				ctl[y * cw + x] = scr->getControl(x, y);
+		f.write(ctl.begin(), ctl.size());
+		f.close();
+	}
+
+	// priority plane: what an object standing in a walkable cell can still
+	// block - the guards in room 1 stop ego though every control byte
+	// along his row reads walkable.
+	if (f.open(Common::Path(prefix + "_pri.bin"))) {
+		const uint16 cw = scr->getWidth(), ch = scr->getHeight();
+		Common::Array<byte> pri(cw * ch);
+		for (uint16 y = 0; y < ch; y++)
+			for (uint16 x = 0; x < cw; x++)
+				pri[y * cw + x] = scr->getPriority(x, y);
+		f.write(pri.begin(), pri.size());
+		f.close();
 	}
 
 	// palette
