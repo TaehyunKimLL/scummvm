@@ -234,6 +234,15 @@ private:
 	uint32 _timeoutFrames;
 	uint32 _frame;
 
+	// Tick-level pause. `tick()` runs once per kAnimate, i.e. once per game
+	// tick, while `onFrame()` runs per VM instruction -- so parking the game
+	// inside tick() still leaves the socket responsive and commands land as
+	// usual. That is what lets a driver step the world one tick at a time and
+	// inspect between ticks: a walk can be stopped on the tick before the ego
+	// would enter a lethal cell, which polling every few frames cannot do.
+	bool _paused;			///< game ticks are held in tick()
+	uint32 _stepTicks;		///< ticks still owed by `step`, then re-park
+
 	// Every text drawn recently, with its frame; `wait text` looks for one
 	// drawn since the wait began, `state` reports the latest frame's.
 	struct TextEvent {

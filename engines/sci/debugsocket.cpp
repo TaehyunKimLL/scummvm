@@ -72,7 +72,8 @@ DebugSocket::DebugSocket(SciEngine *engine, Console *console) :
 	_pipe(nullptr), _connectOv(nullptr), _pipeConnected(false),
 #endif
 	_timeoutFrames(600), _frame(0), _getEventFrame(0), _getEventCount(0), _transitionPoll(0), _listenSince(0), _lastRoom(0xffff), _recFile(nullptr), _inputPoll(0), _haveRelease(false),
-	_lastDisplayHash(0), _idleFrames(0), _idleSamples(0), _lastSampleMs(0) {
+	_lastDisplayHash(0), _idleFrames(0), _idleSamples(0), _lastSampleMs(0),
+	_paused(false), _stepTicks(0) {
 	_wait.active = false;
 	_wait.anyOf = false;
 	_wait.deadline = 0;
@@ -396,6 +397,19 @@ void DebugSocket::reply(const Common::String &text) {
 void DebugSocket::tick() {
 	_frame++;
 	holdTick();
+
+	// Tick-level pause: park the game here, but keep servicing the socket
+	// from onFrame() so `state`, `dump`, `get` and `resume` still work. A
+	// driver can therefore advance the world one tick at a time and look
+	// between ticks -- the difference between stopping a walk on the tick
+	// before the ego steps onto a lethal cell and discovering the fall
+	// several frames later.
+	while (_paused && _stepTicks == 0 && !_engine->shouldQuit()) {
+		onFrame();
+		g_system->delayMillis(2);
+	}
+	if (_stepTicks > 0)
+		_stepTicks--;
 
 	// Buttons belong to the screen they were drawn on; a room change or
 	// a transition (new picture) takes them with it.
@@ -853,6 +867,30 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 	}
 	if (cmd == "state") {
 		_outBuf = stateJson();
+		return true;
+	}
+	if (cmd == "pause" || cmd == "resume" || cmd == "step") {
+		// Tick-level control. `tick()` runs once per game tick and parks
+		// there while paused, so the world stops between ticks while the
+		// socket stays live: a driver can advance one tick, read the state,
+		// and stop before the ego commits to a lethal cell.
+		if (cmd == "pause") {
+			// A frame-wait can never complete once ticks stop, so drop any
+			// pending wait rather than letting it strand the client.
+			_wait.active = false;
+			_paused = true;
+			_stepTicks = 0;
+			_outBuf = "paused";
+		} else if (cmd == "resume") {
+			_paused = false;
+			_stepTicks = 0;
+			_outBuf = "running";
+		} else {
+			const uint32 n = a.size() >= 1 ? (uint32)atoi(a[0].c_str()) : 1;
+			_paused = true;
+			_stepTicks = MAX<uint32>(1, n);
+			_outBuf = Common::String::format("step %u", _stepTicks);
+		}
 		return true;
 	}
 	if (cmd == "timeout") {
