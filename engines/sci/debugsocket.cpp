@@ -71,7 +71,7 @@ DebugSocket::DebugSocket(SciEngine *engine, Console *console) :
 #if defined(WIN32)
 	_pipe(nullptr), _connectOv(nullptr), _pipeConnected(false),
 #endif
-	_timeoutFrames(600), _frame(0), _getEventFrame(0), _getEventCount(0), _transitionPoll(0), _listenSince(0), _lastRoom(0xffff), _recFile(nullptr), _inputPoll(0), _haveRelease(false), _holdPending(false),
+	_timeoutFrames(600), _frame(0), _getEventFrame(0), _getEventCount(0), _transitionPoll(0), _listenSince(0), _lastRoom(0xffff), _recFile(nullptr), _inputPoll(0), _haveRelease(false), _holdPending(false), _holdMaxPx(0), _holdStartX(0), _holdStartY(0), _capPx(0), _capFrames(0),
 	_lastDisplayHash(0), _idleFrames(0), _idleSamples(0), _lastSampleMs(0),
 	_paused(false), _stepTicks(0) {
 	_wait.active = false;
@@ -574,6 +574,23 @@ reg_t DebugSocket::objByName(const Common::String &name) const {
 	return s->_segMan->findObjectByName(name);
 }
 
+// Ego position, for the hold distance limit below.
+bool DebugSocket::egoXY(int &x, int &y) const {
+	EngineState *s = _engine->getEngineState();
+	if (!s)
+		return false;
+	reg_t ego = s->variables[VAR_GLOBAL][kGlobalVarEgo];
+	if (ego.isNull())
+		return false;
+	const int xSel = _engine->getKernel()->findSelector("x");
+	const int ySel = _engine->getKernel()->findSelector("y");
+	if (xSel < 0 || ySel < 0)
+		return false;
+	x = readSelectorValue(s->_segMan, ego, xSel);
+	y = readSelectorValue(s->_segMan, ego, ySel);
+	return true;
+}
+
 void DebugSocket::noteGetEvent(uint16 mask) {
 	_getEventCount++;
 	if (mask & kSciEventKeyDown)
@@ -926,7 +943,8 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 	if (cmd == "hold") {
 		if (a.size() < 1) { _outBuf = "usage: hold <name> [ticks]"; return true; }
 		const int ticks = a.size() > 1 ? atoi(a[1].c_str()) : 400;
-		holdKey(a[0], ticks);
+		const int maxPx = a.size() > 2 ? atoi(a[2].c_str()) : 0;
+		holdKey(a[0], ticks, maxPx);
 		_outBuf = "OK";
 		return true;
 	}
@@ -1072,7 +1090,7 @@ void DebugSocket::sendKey(const Common::String &name) {
 	_haveRelease = true;
 }
 
-void DebugSocket::holdKey(const Common::String &name, int ticks) {
+void DebugSocket::holdKey(const Common::String &name, int ticks, int maxPx) {
 	releaseKey();
 	Common::KeyCode code;
 	uint16 ascii;
@@ -1082,6 +1100,12 @@ void DebugSocket::holdKey(const Common::String &name, int ticks) {
 	}
 	_holdName = name;
 	_holdTicks = ticks;
+	_holdMaxPx = maxPx;
+	_capName.clear();
+	if (!egoXY(_holdStartX, _holdStartY)) {
+		_holdStartX = _holdStartY = 0;
+		_holdMaxPx = 0;
+	}
 	// The opening KEYDOWN goes through the same listening() gate as
 	// `key`, instead of straight into the queue. A key handed over while
 	// the game is not polling is simply dropped (a pic transition's
@@ -1111,33 +1135,87 @@ void DebugSocket::releaseKey() {
 	Common::KeyCode code;
 	uint16 ascii;
 	if (keyByName(_holdName, code, ascii)) {
-		// A KEYUP does not stop an SCI0 walk -- the arrow key TOGGLES
-		// it, so the way to stop is to press the SAME key again. Queue
-		// that press through the listening() gate (as _pendingKeys, not
-		// straight into the event queue) so it cannot be dropped while
-		// the game is mid-transition; a dropped stop is what let the ego
-		// walk on into the moat. The KEYUP still goes out for anything
-		// that does track key state.
+		// KEYUP only. Do NOT queue another press of the same key here.
+		//
+		// That was added to "stop" a toggled SCI0 walk, but the distance
+		// cap in holdTick() already stops it, and a press arriving after
+		// the walk is stopped switches it back ON with nothing left to
+		// bound it. Measured: `hold KP_2 3 12` sent on its own moves the
+		// ego 0-2 px, while the same call followed by this release ran
+		// 49-57 px into the moat.
 		Common::Event ev;
 		ev.kbd.keycode = code;
 		ev.kbd.ascii = ascii;
 		ev.kbd.flags = 0;
 		ev.type = Common::EVENT_KEYUP;
 		_events.addEvent(ev);
-		_pendingKeys.push_back(_holdName);
 	}
 	_holdName = "";
 	_holdTicks = 0;
+	_holdMaxPx = 0;
 }
 
 void DebugSocket::holdTick() {
-	if (_holdName.empty())
+	if (_holdName.empty()) {
+		// The hold is over, but an SCI0 walk does not stop with the key:
+		// it is a toggle, and the ego keeps going. Traced with a 12 px
+		// cap in force, a pulse still covered 57 px because the cap died
+		// with the hold. Keep enforcing it until the ego stops moving.
+		if (_capName.empty())
+			return;
+		int cx, cy;
+		if (!egoXY(cx, cy)) {
+			_capName.clear();
+			return;
+		}
+		if (ABS(cx - _holdStartX) + ABS(cy - _holdStartY) >= _capPx) {
+			// Stop by toggling the key off. This is the ONE place a
+			// second press is correct: the walk is still running here,
+			// so the press ends it rather than restarting it.
+			Common::KeyCode code;
+			uint16 ascii;
+			if (keyByName(_capName, code, ascii)) {
+				Common::Event ev;
+				ev.kbd.keycode = code;
+				ev.kbd.ascii = ascii;
+				ev.kbd.flags = 0;
+				ev.type = Common::EVENT_KEYDOWN;
+				_events.addEvent(ev);
+			}
+			_capName.clear();
+		} else if (++_capFrames > 240) {
+			_capName.clear();		// gave up: it is not walking
+		}
 		return;
+	}
 	if (_holdPending)
 		return;		// the press has not reached the game yet
 	if (--_holdTicks <= 0) {
+		if (_holdMaxPx > 0) {
+			_capName = _holdName;	// keep watching past the release
+			_capPx = _holdMaxPx;
+			_capFrames = 0;
+		}
 		releaseKey();
 		return;
+	}
+	// Distance cap, checked by the ENGINE every tick.
+	//
+	// A caller cannot enforce this over the socket: the round trip is
+	// slower than the walk. Traced in KQ1 rm1, one 3-tick pulse moved the
+	// ego (86,102) -> (88,145), 43 px, clearing an 18 px hazard lookahead
+	// in a single unobserved step and drowning it in the moat. Here the
+	// check runs between ticks, so the walk stops within a pixel or two
+	// of the limit no matter what the socket is doing.
+	if (_holdMaxPx > 0) {
+		int ex, ey;
+		if (egoXY(ex, ey)) {
+			const int dx = ex - _holdStartX, dy = ey - _holdStartY;
+			if (ABS(dx) + ABS(dy) >= _holdMaxPx) {
+				releaseKey();
+				return;
+			}
+		}
 	}
 	// NO auto-repeat.
 	//

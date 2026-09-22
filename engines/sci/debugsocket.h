@@ -150,6 +150,7 @@ public:
 
 	/** "ego", "room", or any object name the segment manager knows. */
 	reg_t objByName(const Common::String &name) const;
+	bool egoXY(int &x, int &y) const;
 
 private:
 	struct Cond {
@@ -191,7 +192,7 @@ private:
 	 * auto-repeat does, so SCI's ego controller walks continuously.
 	 * SCI stops on key-up, which a single press/release pair delivers
 	 * after one 4-pixel step. */
-	void holdKey(const Common::String &name, int ticks);
+	void holdKey(const Common::String &name, int ticks, int maxPx = 0);
 	void releaseKey();
 	void holdTick();
 	void sendClick(int x, int y, bool right);
@@ -216,6 +217,11 @@ private:
 	Common::String _holdName;		///< key being held down (empty = none)
 	int _holdTicks;			///< ticks left in the hold
 	bool _holdPending;		///< opening KEYDOWN still waiting for listening()
+	int _holdMaxPx;			///< stop the walk after this many px (0 = no limit)
+	int _holdStartX, _holdStartY;	///< ego position when the hold began
+	Common::String _capName;	///< key whose walk is still being distance-capped
+	int _capPx;			///< that cap, in pixels
+	int _capFrames;			///< frames spent waiting for it to trip
 	uint32 _lastKeyMs;
 	// Console::onFrame() fires once per VM instruction; polling the socket
 	// that often is all syscall and no progress.
