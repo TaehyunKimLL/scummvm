@@ -394,6 +394,13 @@ void DebugSocket::reply(const Common::String &text) {
 
 // ---- per frame ----------------------------------------------------------
 
+// Called right after kAnimate has moved the actors: the walk budget has
+// to be judged on the positions the frame actually produced, not on the
+// ones it started from.
+void DebugSocket::postAnimate() {
+	holdTick();
+}
+
 void DebugSocket::tick() {
 	_frame++;
 	holdTick();
@@ -965,8 +972,16 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 			return true;
 		}
 		static const struct { const char *name; const char *key; } dirs[] = {
-			{ "north", "KP_8" }, { "south", "KP_2" },
-			{ "west",  "KP_4" }, { "east",  "KP_6" },
+			{ "north",     "KP_8" }, { "south",     "KP_2" },
+			{ "west",      "KP_4" }, { "east",      "KP_6" },
+			// SCI0 walks diagonals off the corner keys, and a route that
+			// can only move on the axes takes a staircase of tiny hops
+			// where one diagonal would do -- each hop another chance to
+			// stall against a wall it is sliding along.
+			{ "northwest", "KP_7" }, { "northeast", "KP_9" },
+			{ "southwest", "KP_1" }, { "southeast", "KP_3" },
+			{ "nw",        "KP_7" }, { "ne",        "KP_9" },
+			{ "sw",        "KP_1" }, { "se",        "KP_3" },
 		};
 		const char *key = nullptr;
 		for (uint i = 0; i < ARRAYSIZE(dirs); i++)
@@ -1207,7 +1222,15 @@ void DebugSocket::holdTick() {
 			_capName.clear();
 			return;
 		}
-		if (ABS(cx - _holdStartX) + ABS(cy - _holdStartY) >= _capPx) {
+		// Stop as soon as EITHER axis has covered the budget.
+		//
+		// Chebyshev (max of the two) looks right for a diagonal, but it
+		// keeps walking while one axis is pinned against a wall: a
+		// "southwest 20" measured -10 x and +35 y, sliding down the wall
+		// into the moat and drowning the ego. Taking the max of the two
+		// axes against the budget bounds BOTH, which is what a caller
+		// asking for a 20 px step means.
+		if (MAX(ABS(cx - _holdStartX), ABS(cy - _holdStartY)) >= _capPx) {
 			// Stop by toggling the key off. This is the ONE place a
 			// second press is correct: the walk is still running here,
 			// so the press ends it rather than restarting it.
@@ -1250,7 +1273,7 @@ void DebugSocket::holdTick() {
 		int ex, ey;
 		if (egoXY(ex, ey)) {
 			const int dx = ex - _holdStartX, dy = ey - _holdStartY;
-			if (ABS(dx) + ABS(dy) >= _holdMaxPx) {
+			if (MAX(ABS(dx), ABS(dy)) >= _holdMaxPx) {
 				// Toggle the walk off, the same way the post-hold watch
 				// below does. releaseKey() alone sends a KEYUP, which
 				// SCI0 ignores for a toggled walk -- the ego would carry

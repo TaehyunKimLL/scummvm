@@ -316,6 +316,11 @@ void Console::tick() {
 		_socket->tick();
 }
 
+void Console::postAnimate() {
+	if (_socket)
+		_socket->postAnimate();
+}
+
 void Console::noteInput(const Common::String &text) {
 	if (_socket)
 		_socket->noteInput(text);

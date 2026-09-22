@@ -711,6 +711,13 @@ void GfxAnimate::kernelAnimate(reg_t listReference, bool cycle, int argc, reg_t 
 
 	// Now trigger speed throttler
 	_s->_throttleTrigger = true;
+
+	// Check the debug socket's walk budget AFTER the actors have moved.
+	// tick() above runs before kAnimate updates positions, so a cap
+	// tested only there is always one frame stale -- measured as a
+	// "southwest 20" sliding 35 px down a wall into KQ1's moat.
+	if (g_sci->getSciDebugger())
+		g_sci->getSciDebugger()->postAnimate();
 }
 
 void GfxAnimate::addToPicSetPicNotValid() {

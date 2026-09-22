@@ -102,6 +102,7 @@ public:
 
 	/** Called once per game tick (kAnimate): the frame counter and waits. */
 	void tick();
+	void postAnimate();
 
 	// OutputSink
 	void write(const char *text) override;

@@ -56,6 +56,7 @@ public:
 
 	/** For GfxAnimate::kernelAnimate(): one game tick. No-op without a socket. */
 	void tick();
+	void postAnimate();
 
 	/** For GfxControls16::kernelTexteditChange(): the parser line is live. */
 	void noteInput(const Common::String &text);
