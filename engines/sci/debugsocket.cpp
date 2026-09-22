@@ -948,6 +948,45 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 		_outBuf = "OK";
 		return true;
 	}
+	if (cmd == "walk") {
+		// walk <north|south|east|west> <px> [maxframes]
+		//
+		// NOT called "step": that name is already the tick-stepper.
+		//
+		// Walk a bounded distance and stop, with the engine doing both.
+		// This is the primitive the harness actually wants: expressing
+		// "move east 50 px" as hold/poll/release over the socket cannot
+		// work, because the round trip is slower than the walk (a 3-tick
+		// pulse was traced covering 43 px between two samples, enough to
+		// cross a river bank and drown). Here the distance is measured
+		// between ticks, so the walk stops where it was told to.
+		if (a.size() < 2) {
+			_outBuf = "usage: walk <north|south|east|west> <px> [maxframes]";
+			return true;
+		}
+		static const struct { const char *name; const char *key; } dirs[] = {
+			{ "north", "KP_8" }, { "south", "KP_2" },
+			{ "west",  "KP_4" }, { "east",  "KP_6" },
+		};
+		const char *key = nullptr;
+		for (uint i = 0; i < ARRAYSIZE(dirs); i++)
+			if (a[0] == dirs[i].name || a[0] == dirs[i].key)
+				key = dirs[i].key;
+		if (!key) { _outBuf = "bad direction"; return true; }
+		const int px = atoi(a[1].c_str());
+		if (px <= 0) { _outBuf = "bad distance"; return true; }
+		const int frames = a.size() > 2 ? atoi(a[2].c_str()) : 240;
+		holdKey(key, frames, px);
+		// Report where the ego ends up; the caller waits on `stepped`.
+		_outBuf = "OK";
+		return true;
+	}
+	if (cmd == "walked") {
+		// True once no capped walk is outstanding.
+		_outBuf = (_holdName.empty() && _capName.empty() && !_holdPending)
+			? "yes" : "no";
+		return true;
+	}
 	if (cmd == "release") {
 		releaseKey();
 		_outBuf = "OK";
@@ -1212,6 +1251,20 @@ void DebugSocket::holdTick() {
 		if (egoXY(ex, ey)) {
 			const int dx = ex - _holdStartX, dy = ey - _holdStartY;
 			if (ABS(dx) + ABS(dy) >= _holdMaxPx) {
+				// Toggle the walk off, the same way the post-hold watch
+				// below does. releaseKey() alone sends a KEYUP, which
+				// SCI0 ignores for a toggled walk -- the ego would carry
+				// on past the budget with nothing watching.
+				Common::KeyCode code;
+				uint16 ascii;
+				if (keyByName(_holdName, code, ascii)) {
+					Common::Event ev;
+					ev.kbd.keycode = code;
+					ev.kbd.ascii = ascii;
+					ev.kbd.flags = 0;
+					ev.type = Common::EVENT_KEYDOWN;
+					_events.addEvent(ev);
+				}
 				releaseKey();
 				return;
 			}
