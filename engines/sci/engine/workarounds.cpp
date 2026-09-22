@@ -272,6 +272,29 @@ const SciWorkaroundEntry uninitializedReadForParamWorkarounds[] = {
 	SCI_WORKAROUNDENTRY_TERMINATOR
 };
 
+// Workaround for kNodeValue receiving a non-zero garbage integer instead of
+// a node or null. Root cause: `regions::eachElementDo` in script 999 reads
+// an uninitialized temp as its list argument (the engine already logs
+// "Uninitialized read for temp 0" from the sibling `sounds::eachElementDo`
+// call in the same script, room 3, harmlessly - by chance the garbage there
+// decoded to something kNodeValue's "[n0]" signature accepts). In room 14
+// the same uninitialized-temp pattern instead decodes to a nonzero integer
+// (measured: 0x00f7), which is neither a node pointer nor 0, so the [n0]
+// signature check itself fails before kNodeValue's body runs - this is a
+// latent bug in the original Sierra script, not a translation-specific one
+// (byte-identical script.999/resource.* between the English and Korean
+// bundles - confirmed by MD5 - so the same call executes either way; a
+// resource file mtime -> heap-layout ordering difference changes what
+// garbage ends up in the uninitialized temp, not the code). Treat any
+// non-node/non-zero value the same way the signature already treats 0:
+// answer NULL_REG and let the room's cutscene continue instead of hard
+// erroring into the debugger.
+//    gameID,           room,script,lvl,          object-name, method-name,       local-call-signature, index-range,  workaround
+const SciWorkaroundEntry kNodeValue_workarounds[] = {
+	{ GID_KQ1,             14,   999, -1,          "regions", "eachElementDo",                nullptr,     0,     0, { WORKAROUND_FAKE,   0 } }, // Climbing the tree in the meadow (rm14) - bug: uninitialized temp used as a list argument
+	SCI_WORKAROUNDENTRY_TERMINATOR
+};
+
 // Workarounds for uninitialized reads for temporary variables
 //    gameID,           room,script,lvl,          object-name, method-name,       local-call-signature, index-range,  workaround
 const SciWorkaroundEntry uninitializedReadWorkarounds[] = {

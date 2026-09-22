@@ -766,7 +766,7 @@ static SciKernelMapEntry s_kernelMap[] = {
 	{ MAP_CALL(NewWindow),         SIG_SCI1, SIGFOR_ALL,     "iiii[ir]i(i)(i)([ir])(i)(i)(i)(i)", NULL, NULL },
 	{ MAP_CALL(NewWindow),         SIG_SCI11, SIGFOR_ALL,    "iiiiiiii[r0]i(i)(i)(i)", NULL,           kNewWindow_workarounds },
 	{ MAP_CALL(NextNode),          SIG_EVERYWHERE,           "n",                     NULL,            NULL },
-	{ MAP_CALL(NodeValue),         SIG_EVERYWHERE,           "[n0]",                  NULL,            NULL },
+	{ MAP_CALL(NodeValue),         SIG_EVERYWHERE,           "[n0]",                  NULL,            kNodeValue_workarounds },
 	{ MAP_CALL(NumCels),           SIG_EVERYWHERE,           "o",                     NULL,            NULL },
 	{ MAP_CALL(NumLoops),          SIG_EVERYWHERE,           "o",                     NULL,            NULL },
 	{ MAP_CALL(OnControl),         SIG_EVERYWHERE,           "ii(i)(i)(i)",           NULL,            NULL },

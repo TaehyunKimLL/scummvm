@@ -95,6 +95,7 @@ extern const SciWorkaroundEntry kLock_workarounds[];
 extern const SciWorkaroundEntry kMemory_workarounds[];
 extern const SciWorkaroundEntry kMoveCursor_workarounds[];
 extern const SciWorkaroundEntry kNewWindow_workarounds[];
+extern const SciWorkaroundEntry kNodeValue_workarounds[];
 extern const SciWorkaroundEntry kPalVarySetVary_workarounds[];
 extern const SciWorkaroundEntry kPalVarySetPercent_workarounds[];
 extern const SciWorkaroundEntry kPalVarySetStart_workarounds[];
