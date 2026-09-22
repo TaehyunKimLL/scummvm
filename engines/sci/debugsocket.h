@@ -215,6 +215,7 @@ private:
 	bool _haveRelease;
 	Common::String _holdName;		///< key being held down (empty = none)
 	int _holdTicks;			///< ticks left in the hold
+	bool _holdPending;		///< opening KEYDOWN still waiting for listening()
 	uint32 _lastKeyMs;
 	// Console::onFrame() fires once per VM instruction; polling the socket
 	// that often is all syscall and no progress.

@@ -71,7 +71,7 @@ DebugSocket::DebugSocket(SciEngine *engine, Console *console) :
 #if defined(WIN32)
 	_pipe(nullptr), _connectOv(nullptr), _pipeConnected(false),
 #endif
-	_timeoutFrames(600), _frame(0), _getEventFrame(0), _getEventCount(0), _transitionPoll(0), _listenSince(0), _lastRoom(0xffff), _recFile(nullptr), _inputPoll(0), _haveRelease(false),
+	_timeoutFrames(600), _frame(0), _getEventFrame(0), _getEventCount(0), _transitionPoll(0), _listenSince(0), _lastRoom(0xffff), _recFile(nullptr), _inputPoll(0), _haveRelease(false), _holdPending(false),
 	_lastDisplayHash(0), _idleFrames(0), _idleSamples(0), _lastSampleMs(0),
 	_paused(false), _stepTicks(0) {
 	_wait.active = false;
@@ -477,7 +477,7 @@ void DebugSocket::sampleDisplay() {
 }
 
 void DebugSocket::pollWait() {
-	if (!_wait.active || !_pendingKeys.empty() || _haveRelease)
+	if (!_wait.active || !_pendingKeys.empty() || _haveRelease || _holdPending)
 		return;
 	bool done = _wait.anyOf ? false : true;
 	for (uint i = 0; i < _wait.conds.size(); i++) {
@@ -495,6 +495,9 @@ void DebugSocket::pollWait() {
 		reply("TIMEOUT " + stateJson());
 	}
 }
+
+// Defined below, next to the key table; needed by onFrame()'s hold gate.
+static bool keyByName(const Common::String &name, Common::KeyCode &code, uint16 &ascii);
 
 void DebugSocket::onFrame() {
 	// Called from the VM loop, once per instruction, which is what makes a
@@ -524,7 +527,22 @@ void DebugSocket::onFrame() {
 	{
 		const uint32 now = g_system->getMillis();
 		if (now - _lastKeyMs >= 40 && listening()) {
-			if (_haveRelease) {
+			if (_holdPending) {
+				// Opening press of a hold: same gate as `key`, so a
+				// toggled walk cannot lose its start or its stop.
+				Common::KeyCode code;
+				uint16 ascii;
+				if (keyByName(_holdName, code, ascii)) {
+					Common::Event ev;
+					ev.kbd.keycode = code;
+					ev.kbd.ascii = ascii;
+					ev.kbd.flags = 0;
+					ev.type = Common::EVENT_KEYDOWN;
+					_events.addEvent(ev);
+				}
+				_holdPending = false;
+				_lastKeyMs = now;
+			} else if (_haveRelease) {
 				_events.addEvent(_pendingRelease);
 				_haveRelease = false;
 				_lastKeyMs = now;
@@ -979,7 +997,7 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 		// still ends on the tick deadline and reports a real frame count.
 		_wait.deadlineMs = g_system->getMillis() + MAX<uint32>(5000, _timeoutFrames * 200);
 		_wait.active = true;
-		if (!_pendingKeys.empty() || _haveRelease)
+		if (!_pendingKeys.empty() || _haveRelease || _holdPending)
 			return true;	// evaluated from onFrame()/tick() once the keys are out
 		// Evaluate once now so a condition that already holds returns at once.
 		bool done = _wait.anyOf ? false : true;
@@ -1064,26 +1082,49 @@ void DebugSocket::holdKey(const Common::String &name, int ticks) {
 	}
 	_holdName = name;
 	_holdTicks = ticks;
-	Common::Event ev;
-	ev.kbd.keycode = code;
-	ev.kbd.ascii = ascii;
-	ev.kbd.flags = 0;
-	ev.type = Common::EVENT_KEYDOWN;
-	_events.addEvent(ev);
+	// The opening KEYDOWN goes through the same listening() gate as
+	// `key`, instead of straight into the queue. A key handed over while
+	// the game is not polling is simply dropped (a pic transition's
+	// updateScreen() drains the queue outright), and for a TOGGLED SCI0
+	// walk that is not a lost step but a lost STOP: the walk that the
+	// caller believes it ended keeps running. Measured in rm1 with an
+	// identical 6-tick pulse repeated from the same spot:
+	//     dy = [0, 0, 61, 0, 0, 0, 0, 0]
+	// The 61 px sample walked from y=82 into the moat at y=127..148 and
+	// drowned, purely because one KEYDOWN of the pair was eaten. Pacing
+	// the press to the game's own kGetEvent loop makes the pulse land
+	// every time.
+	_holdPending = true;
 }
 
 void DebugSocket::releaseKey() {
 	if (_holdName.empty())
 		return;
+	if (_holdPending) {
+		// The press never reached the game, so there is nothing to undo
+		// and sending a KEYUP alone would be a stray event.
+		_holdPending = false;
+		_holdName = "";
+		_holdTicks = 0;
+		return;
+	}
 	Common::KeyCode code;
 	uint16 ascii;
 	if (keyByName(_holdName, code, ascii)) {
+		// A KEYUP does not stop an SCI0 walk -- the arrow key TOGGLES
+		// it, so the way to stop is to press the SAME key again. Queue
+		// that press through the listening() gate (as _pendingKeys, not
+		// straight into the event queue) so it cannot be dropped while
+		// the game is mid-transition; a dropped stop is what let the ego
+		// walk on into the moat. The KEYUP still goes out for anything
+		// that does track key state.
 		Common::Event ev;
 		ev.kbd.keycode = code;
 		ev.kbd.ascii = ascii;
 		ev.kbd.flags = 0;
 		ev.type = Common::EVENT_KEYUP;
 		_events.addEvent(ev);
+		_pendingKeys.push_back(_holdName);
 	}
 	_holdName = "";
 	_holdTicks = 0;
@@ -1092,28 +1133,25 @@ void DebugSocket::releaseKey() {
 void DebugSocket::holdTick() {
 	if (_holdName.empty())
 		return;
+	if (_holdPending)
+		return;		// the press has not reached the game yet
 	if (--_holdTicks <= 0) {
 		releaseKey();
 		return;
 	}
-	// One repeat per 4 ticks sits near SDL's default auto-repeat rate.
-	if (_frame % 4)
-		return;
-	Common::KeyCode code;
-	uint16 ascii;
-	if (!keyByName(_holdName, code, ascii)) {
-		releaseKey();
-		return;
-	}
-	Common::Event ev;
-	ev.kbd.keycode = code;
-	ev.kbd.ascii = ascii;
-	ev.kbd.flags = 0;
-	ev.type = Common::EVENT_KEYDOWN;
-	_events.addEvent(ev);
-	// No pending release for repeats: the key stays logically down.
-	if (!_haveRelease)
-		;
+	// NO auto-repeat.
+	//
+	// SDL-style repeats are right for a game that walks while a key is
+	// physically down, and wrong for SCI0, where an arrow key TOGGLES
+	// the walk: every repeat flips it, so whether the ego ends up moving
+	// depends on whether an even or odd number of repeats happened to be
+	// emitted. Worse, the repeats bypassed the listening() gate that
+	// paces every other key, so the count was not even reproducible.
+	// Measured with an identical 6-tick pulse repeated from one spot:
+	//     dy = [0, 0, 26, 45, 0, ...]   then a 49 px run into the moat
+	// The long samples are not fast walks; they are walks whose "stop"
+	// was cancelled by a stray repeat. One press starts the walk, the
+	// release below stops it, and the caller polls in between.
 }
 
 // Mouse coordinates are given in game (320x200) space; the driver's
