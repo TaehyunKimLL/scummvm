@@ -1389,20 +1389,40 @@ Common::String DebugSocket::objectsJson() {
 
 	// Which objects are worth reporting.
 	//
-	// Deliberately not "which room owns them". Two candidate rules were
-	// measured and both failed. The room script's segment: `get room
-	// script` answers 0, because a SCI0 room is a script *segment* with no
-	// `script` property, so every actor -- including the rm3 rock that
-	// really does block the path -- compared as not-in-room. `isSaved`:
-	// zero objects in KQ1 have it set, because nothing calls `Save: self`,
-	// and the flag came back false for all of them.
+	// `objs` answers "where is the door / the rock / the elf" without
+	// pixel guessing, but it walks every loaded segment, and segments from
+	// rooms already visited stay loaded. Unfiltered, rm3 reported
+	// `monsterTail1 (186,172)` -- the moat serpent's artefact from rm1 --
+	// and the harness blamed a westward stall on an actor that was not in
+	// the room.
 	//
-	// What can be observed instead is coordinates. KQ1 leaves class
-	// templates and stale artefacts in the heap, and their x/y are either
-	// unset, off-screen, or garbage (birdie sat at x=65518, past any
-	// picture). A real standing actor has an on-screen position, and that
-	// is the only claim worth making here. Where an actor came from is
-	// something the caller has to check by name against the room script.
+	// Three provenance rules were implemented and measured; all three
+	// failed, so this reports position and nothing about ownership.
+	//
+	//   Room script segment. `get room script` answers 0: a SCI0 room is a
+	//   script *segment* and owns no `script` property. Comparing actor
+	//   segments against 0 classified every actor as not-in-room, the rm3
+	//   rock that really does block the path included.
+	//
+	//   isSaved. No KQ1 object has it set -- nothing calls `Save: self` --
+	//   so it came back false for all of them.
+	//
+	//   The object's own room. Objects answer `get <name> room` with
+	//   `nosel`; a SCI object carries no room back-pointer, so there is
+	//   nothing to compare against the current room.
+	//
+	// What survives is what can be seen. Class templates and artefacts of
+	// rooms already left sit at unset, off-screen or garbage coordinates
+	// (birdie answered x=65518), while an actor standing in the scene has a
+	// position on the picture. `inRoom` therefore means "on screen", and
+	// the name is a lie we cannot fix from here: it says nothing about
+	// which room. rm18's unspawned `elf` passes it at its class literal
+	// (100,150) -- spawn state is a separate question, answered by
+	// `signal` (0 while a cycler has not moved an actor).
+	//
+	// A caller that must know the room should read the room script and
+	// match names, not infer anything from this list.
+
 	// Every object in every script segment and clone table, following
 	// SegManager::findObjectsByName's own walk. Room scripts AddToRoom()
 	// what matters, so a room's interesting actors are the ones with a
