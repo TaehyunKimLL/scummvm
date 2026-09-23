@@ -1367,12 +1367,42 @@ DebugSocket::Snapshot DebugSocket::snapshot() const {
 // its scene out of Actor instances. SegManager can list them by class,
 // and each carries x/y/view — so `objs` answers "where is the door /
 // the rock / the tree" without any pixel guessing.
+//
+// The walk covers every loaded segment, and segments from rooms visited
+// earlier stay loaded, so an unfiltered answer mixes rooms and reads as
+// a blocking actor that is not in the room at all. Measured in rm3: objs
+// listed `monsterTail1 (186,172)`, which exists in no KQ1 room script --
+// it is the moat serpent's still-loaded artefact from rm1 -- and the
+// harness blamed a walk stall on it. Likewise rm18 reported `elf
+// (100,150)`, which is the class's literal x/y property on an object
+// that had not been spawned.
+//
+// So report the segment each object came from and mark the one the
+// current room owns, and skip template definitions whose coordinates are
+// just class defaults. Clones always belong to the live room.
 Common::String DebugSocket::objectsJson() {
 	EngineState *s = _engine->getEngineState();
 	if (!s || !s->_segMan)
 		return "[]";
 	SegManager *segMan = s->_segMan;
 	Common::String out = "[";
+
+	// Which objects are worth reporting.
+	//
+	// Deliberately not "which room owns them". Two candidate rules were
+	// measured and both failed. The room script's segment: `get room
+	// script` answers 0, because a SCI0 room is a script *segment* with no
+	// `script` property, so every actor -- including the rm3 rock that
+	// really does block the path -- compared as not-in-room. `isSaved`:
+	// zero objects in KQ1 have it set, because nothing calls `Save: self`,
+	// and the flag came back false for all of them.
+	//
+	// What can be observed instead is coordinates. KQ1 leaves class
+	// templates and stale artefacts in the heap, and their x/y are either
+	// unset, off-screen, or garbage (birdie sat at x=65518, past any
+	// picture). A real standing actor has an on-screen position, and that
+	// is the only claim worth making here. Where an actor came from is
+	// something the caller has to check by name against the room script.
 	// Every object in every script segment and clone table, following
 	// SegManager::findObjectsByName's own walk. Room scripts AddToRoom()
 	// what matters, so a room's interesting actors are the ones with a
@@ -1409,13 +1439,17 @@ Common::String DebugSocket::objectsJson() {
 			const Common::String nm = segMan->getObjectName(addr);
 			if (nm == "ego")
 				continue;
+			// On-screen means real: see the note above on why room
+			// ownership could not be decided from the heap.
+			const bool inRoom = (x < 800 && y < 600);
 			if (out.size() > 1)
 				out += ",";
-			out += Common::String::format("{\"name\":\"%s\",\"seg\":%u,\"x\":%u,\"y\":%u,\"view\":%u,\"loop\":%u,\"cel\":%u}",
+			out += Common::String::format("{\"name\":\"%s\",\"seg\":%u,\"x\":%u,\"y\":%u,\"view\":%u,\"loop\":%u,\"cel\":%u,\"inRoom\":%s}",
 				jsonEscape(nm).c_str(), (uint)seg, (uint)x, (uint)y,
 				(uint)view,
 				(uint)readSelectorValue(segMan, addr, SELECTOR(loop)),
-				(uint)readSelectorValue(segMan, addr, SELECTOR(cel)));
+				(uint)readSelectorValue(segMan, addr, SELECTOR(cel)),
+				inRoom ? "true" : "false");
 		}
 	}
 	out += "]";
