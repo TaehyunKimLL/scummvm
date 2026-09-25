@@ -106,7 +106,7 @@ public:
 	void drawTextFontGlyph(const byte *src, int pitch, int hiresDestX, int hiresDestY, int hiresW, int hiresH, int transpColor, const PaletteMod *palMods, const byte *palModMapping) override; // For HiRes fonts.
 	bool copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h) const override;
 	bool driverBasedTextRendering() const override { return true; }
-	void setTextLayer(const TextLayer *layer) override;
+	bool setTextLayer(const TextLayer *layer) override;
 	void refreshHiresRect(const Common::Rect &hires, const PaletteMod *palMods, const byte *palModMapping) override;
 protected:
 	UpscaledGfxDriver(uint16 scaledW, uint16 scaledH, int16 textAlignX, bool scaleCursor, bool rgbRendering);

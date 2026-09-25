@@ -190,7 +190,11 @@ void UpscaledGfxDriver::updateScreen(int destX, int destY, int w, int h, const P
 	// scaled bitmap, which itself never holds text. So any update of any
 	// rect re-derives text and picture together and nothing can erase one
 	// with the other (HIRES_COMPOSITOR_DESIGN.md D2).
-	if (_textLayer && !_textLayer->isEmpty()) {
+	// Clipped to the layer (defence in depth: setTextLayer() only accepts a
+	// layer the size of this screen).
+	const int textH = _textLayer ? MIN<int>(h, (int)_textLayer->height() - destY) : 0;
+	const int textW = _textLayer ? MIN<int>(w, (int)_textLayer->width() - destX) : 0;
+	if (_textLayer && !_textLayer->isEmpty() && destX >= 0 && destY >= 0 && textW > 0 && textH > 0) {
 		if (_pixelSize > 1) {
 			// When the converted buffer is the scaled bitmap itself (buff ==
 			// scb, i.e. _pixelSize == _srcPixelSize: the srcRGBFormat / Mac
@@ -203,10 +207,10 @@ void UpscaledGfxDriver::updateScreen(int destX, int destY, int w, int h, const P
 				buff = _stampBuffer.begin();
 				pitch = w * _pixelSize;
 			}
-			for (int y = 0; y < h; y++) {
+			for (int y = 0; y < textH; y++) {
 				if (!_textLayer->rowHasText(destY + y))
 					continue;
-				TextCompose::composeSpan(buff + y * pitch, _format, _textLayer->row(destY + y) + destX, w, _currentPalette);
+				TextCompose::composeSpan(buff + y * pitch, _format, _textLayer->row(destY + y) + destX, textW, _currentPalette);
 			}
 		} else {
 			// CLUT8 output: no room for a blend; stamp coverage >= 50%.
@@ -217,9 +221,9 @@ void UpscaledGfxDriver::updateScreen(int destX, int destY, int w, int h, const P
 				buff = _stampBuffer.begin();
 				pitch = w;
 			}
-			for (int y = 0; y < h; y++) {
+			for (int y = 0; y < textH; y++) {
 				if (_textLayer->rowHasText(destY + y))
-					TextCompose::stampSpan(buff + y * pitch, _textLayer->row(destY + y) + destX, w);
+					TextCompose::stampSpan(buff + y * pitch, _textLayer->row(destY + y) + destX, textW);
 			}
 		}
 	}
@@ -227,8 +231,21 @@ void UpscaledGfxDriver::updateScreen(int destX, int destY, int w, int h, const P
 	g_system->copyRectToScreen(buff, pitch, destX, destY, w, h);
 }
 
-void UpscaledGfxDriver::setTextLayer(const TextLayer *layer) {
+bool UpscaledGfxDriver::setTextLayer(const TextLayer *layer) {
+	// The layer is a plain 2x extension of the 320x200 visual plane. Only a
+	// driver that scales exactly 2x on both axes to a screen of the layer's
+	// size can blend it pixel for pixel; any other geometry (Win256's
+	// 640x440 at 11/5 vertically, its small 320x240 window) would read past
+	// the layer's rows.
+	if (layer && !(_hScaleMult == 2 && _vScaleMult == 2 && _vScaleDiv == 1 &&
+				   layer->width() == _screenW && layer->height() == _screenH)) {
+		warning("Upscaled graphics driver: hi-res text layer %dx%d refused, the driver scales to %dx%d (x%d, y%d/%d)",
+				layer->width(), layer->height(), _screenW, _screenH, _hScaleMult, _vScaleMult, _vScaleDiv);
+		_textLayer = nullptr;
+		return false;
+	}
 	_textLayer = layer;
+	return layer != nullptr;
 }
 
 void UpscaledGfxDriver::refreshHiresRect(const Common::Rect &hires, const PaletteMod *palMods, const byte *palModMapping) {

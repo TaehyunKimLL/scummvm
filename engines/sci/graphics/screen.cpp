@@ -522,7 +522,14 @@ void GfxScreen::putHiresGlyph(const byte *glyph, int16 width, int16 height,
 TextLayer *GfxScreen::ensureTextLayer() {
 	if (!_textLayer) {
 		_textLayer = new TextLayer(_displayWidth * 2, _displayHeight * 2, 2);
-		_gfxDrv->setTextLayer(_textLayer);
+		// Spec section 4: a driver that cannot composite falls back quietly -
+		// the glyphs are kept but not shown - and says so once in the log.
+		if (!_gfxDrv->setTextLayer(_textLayer)) {
+			const char *mode = Common::getRenderModeCode(SciGfxDriver::getRenderMode());
+			warning("Hi-res text: the graphics driver for this game (platform %s, render mode %s, %dx%d display, upscaled mode %d) does not composite the text layer; hi-res glyphs will not be shown",
+					Common::getPlatformDescription(g_sci->getPlatform()), mode ? mode : "default",
+					_displayWidth, _displayHeight, (int)_upscaledHires);
+		}
 	}
 	return _textLayer;
 }
