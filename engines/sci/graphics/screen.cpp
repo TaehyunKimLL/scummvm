@@ -350,7 +350,8 @@ void GfxScreen::vectorPutLinePixel(int16 x, int16 y, byte drawMask, byte color, 
 	putPixel(x, y, drawMask, color, priority, control);
 }
 
-// Special 480x300 Mac putPixel for vector line drawing, also draws an additional pixel below the actual one
+// Special 480x300 Mac putPixel for vector line drawing, also draws an additional pixel below the actual one.
+// Mac 480x300 only: no driver composites the text layer there, so it is not cleared.
 void GfxScreen::vectorPutLinePixel480x300(int16 x, int16 y, byte drawMask, byte color, byte priority, byte control) {
 	int offset = y * _width + x;
 
@@ -768,6 +769,16 @@ void GfxScreen::kernelShakeScreen(uint16 shakeCount, uint16 directions) {
 	}
 }
 
+// dither() finishes a picture draw: it only rewrites pixels that picture
+// ops just drew (a still-dithered colour has its high nibble set), whose
+// text the draw has already cleared. Clearing here too keeps the rule
+// "every draw into the visual plane clears the text over it" without
+// relying on that. Not on 480x300 Mac, where no driver composites the layer.
+void GfxScreen::clearTextUnderDither(int16 x, int16 y) {
+	if (_textLayer && !_textLayer->isEmpty() && _upscaledHires != GFX_SCREEN_UPSCALED_480x300)
+		_textLayer->clearLowresPixel(x, y);
+}
+
 void GfxScreen::dither(bool addToFlag) {
 	int y, x;
 	byte color;
@@ -783,6 +794,7 @@ void GfxScreen::dither(bool addToFlag) {
 				if (color & 0xF0) {
 					color ^= color << 4;
 					color = ((x^y) & 1) ? color >> 4 : color & 0x0F;
+					clearTextUnderDither(x, y);
 					switch (_upscaledHires) {
 					case GFX_SCREEN_UPSCALED_DISABLED:
 					case GFX_SCREEN_UPSCALED_480x300:
@@ -831,6 +843,7 @@ void GfxScreen::dither(bool addToFlag) {
 					}
 					color = ((x^y) & 1) ? color >> 4 : color & 0x0F;
 					*visualPtr = color;
+					clearTextUnderDither(x, y);
 				}
 				visualPtr++; displayPtr++; paletteMapPtr++;
 			}

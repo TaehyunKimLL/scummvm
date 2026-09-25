@@ -292,6 +292,7 @@ private:
 	 *  first hi-res glyph; a game that never draws one pays nothing. */
 	TextLayer *_textLayer;
 	TextLayer *ensureTextLayer();
+	void clearTextUnderDither(int16 x, int16 y);
 
 	/**
 	 * This here holds a translation for vertical+horizontal coordinates between native
@@ -348,6 +349,8 @@ public:
 		}
 	}
 
+	// Mac 480x300 only, a mode in which no driver composites the text layer,
+	// so it does not clear it.
 	void putPixel480x300(int16 x, int16 y, byte drawMask, byte color, byte priority, byte control) {
 		const int offset = ((y * 3) / 2 * _width) + ((x * 3) / 2);
 
@@ -392,6 +395,10 @@ public:
 
 		if (drawMask & GFX_SCREEN_MASK_VISUAL) {
 			_visualScreen[offset] = color;
+			// A picture line, fill or pattern pixel covers text like any
+			// other draw. (On 480x300 Mac no driver composites the layer.)
+			if (_textLayer && !_textLayer->isEmpty())
+				_textLayer->clearLowresPixel(x, y);
 			_displayScreen[offset] = color;
 			if (_paletteMapScreen)
 				_paletteMapScreen[offset] = _curPaletteMapValue;
@@ -446,6 +453,7 @@ public:
 			putPixelOnDisplay(x, actualY, color);
 		} else {
 			if (_upscaledHires == GFX_SCREEN_UPSCALED_480x300) {
+				// Mac 480x300 only: no driver composites the text layer there.
 				putPixel480x300(x, actualY, GFX_SCREEN_MASK_VISUAL, color, 0, 0);
 				return;
 			}
@@ -453,6 +461,9 @@ public:
 			int offset = actualY * _width + x;
 
 			_visualScreen[offset] = color;
+			// A low-res font pixel covers hi-res text like any other draw.
+			if (_textLayer && !_textLayer->isEmpty())
+				_textLayer->clearLowresPixel(x, actualY);
 			switch (_upscaledHires) {
 			case GFX_SCREEN_UPSCALED_DISABLED:
 				_displayScreen[offset] = color;
