@@ -187,6 +187,17 @@ void UpscaledGfxDriver::updateScreen(int destX, int destY, int w, int h, const P
 	// with the other (HIRES_COMPOSITOR_DESIGN.md D2).
 	if (_textLayer && !_textLayer->isEmpty()) {
 		if (_pixelSize > 1) {
+			// When the converted buffer is the scaled bitmap itself (buff ==
+			// scb, i.e. _pixelSize == _srcPixelSize: the srcRGBFormat / Mac
+			// hicolor path), compose into a private copy instead - text must
+			// never land in _scaledBitmap (HIRES_COMPOSITOR_DESIGN.md D2).
+			if (buff == scb) {
+				_stampBuffer.resize((uint32)w * h * _pixelSize);
+				for (int y = 0; y < h; y++)
+					memcpy(&_stampBuffer[y * w * _pixelSize], scb + y * _screenW * _pixelSize, w * _pixelSize);
+				buff = _stampBuffer.begin();
+				pitch = w * _pixelSize;
+			}
 			for (int y = 0; y < h; y++) {
 				if (!_textLayer->rowHasText(destY + y))
 					continue;
