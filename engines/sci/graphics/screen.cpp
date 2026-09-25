@@ -536,7 +536,8 @@ void GfxScreen::putHiresCoverageGlyph(const byte *coverage, int16 w, int16 h, in
 	l->putGlyph(x << 1, y << 1, coverage, w, h, color);
 	// Shown at once, as the old direct-to-driver draw was: callers that
 	// relied on that (kDisplay's Box) keep working unchanged.
-	_gfxDrv->refreshHiresRect(Common::Rect(x << 1, y << 1, (x << 1) + w, (y << 1) + h));
+	_gfxDrv->refreshHiresRect(Common::Rect(x << 1, y << 1, (x << 1) + w, (y << 1) + h),
+							  _paletteModsEnabled ? _paletteMods : nullptr, _paletteMapScreen);
 }
 
 void GfxScreen::clearTextLayer() {

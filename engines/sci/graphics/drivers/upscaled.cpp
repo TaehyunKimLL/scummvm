@@ -231,11 +231,11 @@ void UpscaledGfxDriver::setTextLayer(const TextLayer *layer) {
 	_textLayer = layer;
 }
 
-void UpscaledGfxDriver::refreshHiresRect(const Common::Rect &hires) {
+void UpscaledGfxDriver::refreshHiresRect(const Common::Rect &hires, const PaletteMod *palMods, const byte *palModMapping) {
 	Common::Rect r(hires);
 	r.clip(Common::Rect(0, 0, _screenW, _screenH));
 	if (!r.isEmpty())
-		updateScreen(r.left, r.top, r.width(), r.height(), nullptr, nullptr);
+		updateScreen(r.left, r.top, r.width(), r.height(), palMods, palModMapping);
 }
 
 void UpscaledGfxDriver::adjustCursorBuffer(uint16 newWidth, uint16 newHeight) {

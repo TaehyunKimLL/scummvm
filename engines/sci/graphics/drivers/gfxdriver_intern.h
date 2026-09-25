@@ -107,7 +107,7 @@ public:
 	bool copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h) const override;
 	bool driverBasedTextRendering() const override { return true; }
 	void setTextLayer(const TextLayer *layer) override;
-	void refreshHiresRect(const Common::Rect &hires) override;
+	void refreshHiresRect(const Common::Rect &hires, const PaletteMod *palMods, const byte *palModMapping) override;
 protected:
 	UpscaledGfxDriver(uint16 scaledW, uint16 scaledH, int16 textAlignX, bool scaleCursor, bool rgbRendering);
 	void updateScreen(int destX, int destY, int w, int h, const PaletteMod *palMods, const byte *palModMapping);
