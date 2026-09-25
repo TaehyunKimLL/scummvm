@@ -68,6 +68,14 @@ public:
 	void clearLowresRect(const Common::Rect &lowres);
 	void clearLowresPixel(int16 x, int16 y) { if (_any) clearLowresRect(Common::Rect(x, y, x + 1, y + 1)); }
 
+	/** An invert recolours text, it never removes it: inside the rect, a
+	 *  covered fg or outline index equal to a becomes b and vice versa.
+	 *  Coverage is untouched; applying it twice is the identity. */
+	void swapIndicesLowresRect(const Common::Rect &lowres, byte a, byte b);
+	/** The XOR invert: every covered fg or outline index inside the rect
+	 *  is XORed with mask. Applying it twice is the identity. */
+	void xorIndicesLowresRect(const Common::Rect &lowres, byte mask);
+
 	/** Upper bound of what save() writes for this rect. */
 	uint32 saveSize(const Common::Rect &lowres) const;
 	/** A flag byte, then the block's pixels if the flag is 1. */

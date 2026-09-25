@@ -80,6 +80,48 @@ void TextLayer::clearLowresRect(const Common::Rect &lowres) {
 			_pixels[(uint32)y * _width + x] = none;
 }
 
+void TextLayer::swapIndicesLowresRect(const Common::Rect &lowres, byte a, byte b) {
+	if (!_any || a == b)
+		return;
+	const Common::Rect r = toHires(lowres);
+	for (int y = r.top; y < r.bottom; y++) {
+		if (!rowHasText(y))
+			continue;
+		TextPixel *p = &_pixels[(uint32)y * _width];
+		for (int x = r.left; x < r.right; x++) {
+			if (p[x].fgCoverage) {
+				if (p[x].fgIndex == a)
+					p[x].fgIndex = b;
+				else if (p[x].fgIndex == b)
+					p[x].fgIndex = a;
+			}
+			if (p[x].outlineCoverage) {
+				if (p[x].outlineIndex == a)
+					p[x].outlineIndex = b;
+				else if (p[x].outlineIndex == b)
+					p[x].outlineIndex = a;
+			}
+		}
+	}
+}
+
+void TextLayer::xorIndicesLowresRect(const Common::Rect &lowres, byte mask) {
+	if (!_any || !mask)
+		return;
+	const Common::Rect r = toHires(lowres);
+	for (int y = r.top; y < r.bottom; y++) {
+		if (!rowHasText(y))
+			continue;
+		TextPixel *p = &_pixels[(uint32)y * _width];
+		for (int x = r.left; x < r.right; x++) {
+			if (p[x].fgCoverage)
+				p[x].fgIndex ^= mask;
+			if (p[x].outlineCoverage)
+				p[x].outlineIndex ^= mask;
+		}
+	}
+}
+
 uint32 TextLayer::saveSize(const Common::Rect &lowres) const {
 	const Common::Rect r = toHires(lowres);
 	return 1 + (uint32)r.width() * r.height() * sizeof(TextPixel);

@@ -118,4 +118,53 @@ public:
 		l.restore(r, rd);             // restores "no text"
 		TS_ASSERT_EQUALS(l.row(0)[0].fgCoverage, 0);
 	}
+
+	void test_swap_indices_recolours_only_matching_covered_pixels() {
+		Sci::TextLayer l(8, 4, 2);
+		const byte cov[4] = { 255, 255, 255, 255 };
+		l.putGlyph(0, 0, cov, 4, 1, 0);    // index 0 (pen) at hires x 0..3
+		l.putGlyph(4, 0, cov, 4, 1, 15);   // index 15 (back) at hires x 4..7
+		l.putGlyph(0, 1, cov, 4, 1, 7);    // index 7, neither colour
+		l.swapIndicesLowresRect(Common::Rect(0, 0, 3, 1), 0, 15);  // hires x 0..5
+		TS_ASSERT_EQUALS(l.row(0)[0].fgIndex, 15);
+		TS_ASSERT_EQUALS(l.row(0)[3].fgIndex, 15);
+		TS_ASSERT_EQUALS(l.row(0)[4].fgIndex, 0);
+		TS_ASSERT_EQUALS(l.row(0)[5].fgIndex, 0);
+		TS_ASSERT_EQUALS(l.row(0)[6].fgIndex, 15);   // outside the rect
+		TS_ASSERT_EQUALS(l.row(1)[0].fgIndex, 7);    // not one of the pair
+		TS_ASSERT_EQUALS(l.row(0)[0].fgCoverage, 255);  // text survives
+		TS_ASSERT_EQUALS(l.row(0)[4].fgCoverage, 255);
+		TS_ASSERT_EQUALS(l.row(2)[0].fgIndex, 0);    // uncovered: untouched
+		TS_ASSERT_EQUALS(l.row(2)[0].fgCoverage, 0);
+	}
+
+	void test_swap_indices_twice_is_identity() {
+		Sci::TextLayer l(8, 4, 2);
+		const byte cov[8] = { 10, 20, 30, 40, 50, 60, 70, 80 };
+		l.putGlyph(0, 0, cov, 4, 2, 3);
+		l.putGlyph(4, 0, cov, 4, 2, 9);
+		const Common::Rect r(0, 0, 4, 2);
+		l.swapIndicesLowresRect(r, 3, 9);
+		TS_ASSERT_EQUALS(l.row(1)[1].fgIndex, 9);
+		l.swapIndicesLowresRect(r, 3, 9);
+		for (int x = 0; x < 8; x++) {
+			TS_ASSERT_EQUALS(l.row(0)[x].fgIndex, x < 4 ? 3 : 9);
+			TS_ASSERT_EQUALS(l.row(1)[x].fgCoverage, cov[4 + (x & 3)]);
+		}
+	}
+
+	void test_xor_indices_changes_covered_pixels_only_and_twice_is_identity() {
+		Sci::TextLayer l(8, 4, 2);
+		const byte cov[4] = { 255, 0, 128, 255 };
+		l.putGlyph(0, 0, cov, 4, 1, 0x12);
+		const Common::Rect r(0, 0, 1, 1);   // hires x 0..1
+		l.xorIndicesLowresRect(r, 0x0f);
+		TS_ASSERT_EQUALS(l.row(0)[0].fgIndex, 0x1d);
+		TS_ASSERT_EQUALS(l.row(0)[1].fgIndex, 0);      // uncovered
+		TS_ASSERT_EQUALS(l.row(0)[2].fgIndex, 0x12);   // outside the rect
+		TS_ASSERT_EQUALS(l.row(0)[0].fgCoverage, 255);
+		l.xorIndicesLowresRect(r, 0x0f);
+		TS_ASSERT_EQUALS(l.row(0)[0].fgIndex, 0x12);
+		TS_ASSERT_EQUALS(l.row(0)[1].fgIndex, 0);
+	}
 };

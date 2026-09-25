@@ -160,6 +160,18 @@ public:
 	/// Forget every glyph in the text layer.
 	void clearTextLayer();
 
+	/// An invert recolours text: swap colours a and b in the text layer
+	/// inside this LOWRES rect, as the invert swaps them on the visual plane.
+	void swapTextLayerColors(const Common::Rect &lowres, byte a, byte b) {
+		if (_textLayer)
+			_textLayer->swapIndicesLowresRect(lowres, a, b);
+	}
+	/// The XOR invert's counterpart of swapTextLayerColors().
+	void xorTextLayerColors(const Common::Rect &lowres, byte mask) {
+		if (_textLayer)
+			_textLayer->xorIndicesLowresRect(lowres, mask);
+	}
+
 	const byte *displayScreen() const { return _displayScreen; }
 	uint displayPixels() const { return _displayPixels; }
 
@@ -297,7 +309,10 @@ private:
 
 	// pixel related code, in header so that it can be inlined for performance
 public:
-	void putPixel(int16 x, int16 y, byte drawMask, byte color, byte priority, byte control) {
+	/** clearText false: the visual write recolours the pixel without
+	 *  removing text over it (an invert, see GfxPaint16::fillRect()); the
+	 *  caller remaps the text layer's colours itself. */
+	void putPixel(int16 x, int16 y, byte drawMask, byte color, byte priority, byte control, bool clearText = true) {
 		if (_upscaledHires == GFX_SCREEN_UPSCALED_480x300) {
 			putPixel480x300(x, y, drawMask, color, priority, control);
 			return;
@@ -308,7 +323,7 @@ public:
 
 		if (drawMask & GFX_SCREEN_MASK_VISUAL) {
 			_visualScreen[offset] = color;
-			if (_textLayer && !_textLayer->isEmpty())
+			if (clearText && _textLayer && !_textLayer->isEmpty())
 				_textLayer->clearLowresPixel(x, y);
 			if (_paletteMapScreen)
 				_paletteMapScreen[offset] = _curPaletteMapValue;
