@@ -23,6 +23,7 @@
 #ifndef SCI_GRAPHICS_DRIVERS_GFXDRIVER_INTERN_H
 #define SCI_GRAPHICS_DRIVERS_GFXDRIVER_INTERN_H
 
+#include "common/array.h"
 #include "common/platform.h"
 #include "sci/graphics/drivers/gfxdriver.h"
 
@@ -104,6 +105,8 @@ public:
 	void drawTextFontGlyph(const byte *src, int pitch, int hiresDestX, int hiresDestY, int hiresW, int hiresH, int transpColor, const PaletteMod *palMods, const byte *palModMapping) override; // For HiRes fonts.
 	bool copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h) const override;
 	bool driverBasedTextRendering() const override { return true; }
+	void setTextLayer(const TextLayer *layer) override;
+	void refreshHiresRect(const Common::Rect &hires) override;
 protected:
 	UpscaledGfxDriver(uint16 scaledW, uint16 scaledH, int16 textAlignX, bool scaleCursor, bool rgbRendering);
 	void updateScreen(int destX, int destY, int w, int h, const PaletteMod *palMods, const byte *palModMapping);
@@ -123,6 +126,8 @@ private:
 	uint16 _cursorWidth;
 	uint16 _cursorHeight;
 	bool _needCursorBuffer;
+	const TextLayer *_textLayer;
+	Common::Array<byte> _stampBuffer;
 };
 
 class SCI1_EGADriver : public GfxDriver {

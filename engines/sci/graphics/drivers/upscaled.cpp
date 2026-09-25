@@ -23,6 +23,8 @@
 #include "common/system.h"
 #include "graphics/cursorman.h"
 #include "sci/graphics/drivers/gfxdriver_intern.h"
+#include "sci/graphics/textcompose.h"
+#include "sci/graphics/textlayer.h"
 
 namespace Sci {
 
@@ -32,7 +34,8 @@ UpscaledGfxDriver::UpscaledGfxDriver(int16 textAlignX, bool scaleCursor, bool rg
 
 UpscaledGfxDriver::UpscaledGfxDriver(uint16 scaledW, uint16 scaledH, int16 textAlignX, bool scaleCursor, bool rgbRendering) :
 	GfxDefaultDriver(scaledW, scaledH, false, rgbRendering), _textAlignX(textAlignX), _scaleCursor(scaleCursor), _needCursorBuffer(false),
-	_scaledBitmap(nullptr), _renderScaled(nullptr), _renderGlyph(nullptr), _cursorWidth(0), _cursorHeight(0), _hScaleMult(2), _vScaleMult(2), _vScaleDiv(1) {
+	_scaledBitmap(nullptr), _renderScaled(nullptr), _renderGlyph(nullptr), _cursorWidth(0), _cursorHeight(0), _hScaleMult(2), _vScaleMult(2), _vScaleDiv(1),
+	_textLayer(nullptr) {
 	_virtualW = 320;
 	_virtualH = 200;
 }
@@ -178,7 +181,45 @@ void UpscaledGfxDriver::updateScreen(int destX, int destY, int w, int h, const P
 		pitch = _screenW *_pixelSize;
 	}
 
+	// Hi-res text is blended here, over pixels just converted from the
+	// scaled bitmap, which itself never holds text. So any update of any
+	// rect re-derives text and picture together and nothing can erase one
+	// with the other (HIRES_COMPOSITOR_DESIGN.md D2).
+	if (_textLayer && !_textLayer->isEmpty()) {
+		if (_pixelSize > 1) {
+			for (int y = 0; y < h; y++) {
+				if (!_textLayer->rowHasText(destY + y))
+					continue;
+				TextCompose::composeSpan(buff + y * pitch, _format, _textLayer->row(destY + y) + destX, w, _currentPalette);
+			}
+		} else {
+			// CLUT8 output: no room for a blend; stamp coverage >= 50%.
+			if (buff == scb) {
+				_stampBuffer.resize((uint32)w * h);
+				for (int y = 0; y < h; y++)
+					memcpy(&_stampBuffer[y * w], scb + y * _screenW, w);
+				buff = _stampBuffer.begin();
+				pitch = w;
+			}
+			for (int y = 0; y < h; y++) {
+				if (_textLayer->rowHasText(destY + y))
+					TextCompose::stampSpan(buff + y * pitch, _textLayer->row(destY + y) + destX, w);
+			}
+		}
+	}
+
 	g_system->copyRectToScreen(buff, pitch, destX, destY, w, h);
+}
+
+void UpscaledGfxDriver::setTextLayer(const TextLayer *layer) {
+	_textLayer = layer;
+}
+
+void UpscaledGfxDriver::refreshHiresRect(const Common::Rect &hires) {
+	Common::Rect r(hires);
+	r.clip(Common::Rect(0, 0, _screenW, _screenH));
+	if (!r.isEmpty())
+		updateScreen(r.left, r.top, r.width(), r.height(), nullptr, nullptr);
 }
 
 void UpscaledGfxDriver::adjustCursorBuffer(uint16 newWidth, uint16 newHeight) {

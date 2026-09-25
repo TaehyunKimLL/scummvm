@@ -44,6 +44,7 @@
 #include "sci/graphics/screen.h"
 #include "sci/event.h"
 #include "sci/graphics/drivers/gfxdriver.h"
+#include "graphics/surface.h"
 
 #if defined(POSIX)
 #include <sys/socket.h>
@@ -1531,6 +1532,22 @@ bool DebugSocket::dumpBuffers(const Common::String &prefix) {
 			f.write(scr->hiresTextPlane(), (uint32)w * h);
 			f.close();
 		}
+	}
+
+	// What the player sees: the backend screen after the driver's composite.
+	if (Graphics::Surface *s = g_system->lockScreen()) {
+		if (f.open(Common::Path(prefix + "_out.bin"))) {
+			for (int y = 0; y < s->h; y++)
+				f.write((const byte *)s->getBasePtr(0, y), s->w * s->format.bytesPerPixel);
+			f.close();
+		} else ok = false;
+		const Graphics::PixelFormat &pf = s->format;
+		if (f.open(Common::Path(prefix + "_out.txt"))) {
+			f.writeString(Common::String::format("%d %d %d %d %d %d %d %d %d %d %d\n", s->w, s->h, pf.bytesPerPixel,
+				8 - pf.rLoss, 8 - pf.gLoss, 8 - pf.bLoss, 8 - pf.aLoss, pf.rShift, pf.gShift, pf.bShift, pf.aShift));
+			f.close();
+		}
+		g_system->unlockScreen();
 	}
 
 	// control-plane map: the picture's walkability flags, which is what a
