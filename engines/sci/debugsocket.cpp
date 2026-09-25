@@ -42,6 +42,7 @@
 #include "sci/engine/vm.h"
 #include "sci/graphics/ports.h"
 #include "sci/graphics/screen.h"
+#include "sci/graphics/textlayer.h"
 #include "sci/event.h"
 #include "sci/graphics/drivers/gfxdriver.h"
 #include "graphics/surface.h"
@@ -1528,9 +1529,12 @@ bool DebugSocket::dumpBuffers(const Common::String &prefix) {
 			f.write(buf.begin(), (uint32)w * h);
 			f.close();
 		} else ok = false;
-		if (scr->hiresTextPlane() && f.open(Common::Path(prefix + "_plane.bin"))) {
-			f.write(scr->hiresTextPlane(), (uint32)w * h);
-			f.close();
+		if (const TextLayer *tl = scr->textLayer()) {
+			if (f.open(Common::Path(prefix + "_layer.bin"))) {
+				for (uint16 y = 0; y < tl->height(); y++)
+					f.write(tl->row(y), (uint32)tl->width() * sizeof(TextPixel));
+				f.close();
+			}
 		}
 	}
 

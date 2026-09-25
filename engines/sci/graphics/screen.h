@@ -58,6 +58,7 @@ enum {
 };
 
 class GfxDriver;
+class TextLayer;
 
 /**
  * Screen class, actually creates 3 (4) screens internally:
@@ -137,26 +138,27 @@ public:
 	void putHiresGlyph(const byte *glyph, int16 width, int16 height, int16 x, int16 y, byte color);
 
 	/**
-	 * Draw a pre-rendered 1bpp glyph into the hires text plane AND on screen.
+	 * Draw a coverage glyph into the text layer AND show it at once.
 	 *
-	 * Same pixels as putHiresGlyph(), but also remembered, so that a later
-	 * lowres update of the same area re-applies the glyph instead of erasing
-	 * it. Use this for any glyph that has to survive an animation passing
-	 * underneath it.
+	 * Unlike putHiresGlyph(), the glyph is remembered in the text layer, so
+	 * that a later lowres update of the same area re-composites the glyph
+	 * instead of erasing it. Use this for any glyph that has to survive an
+	 * animation passing underneath it.
 	 *
-	 * @param glyph  one byte per pixel, 0xff where the pixel is unset
-	 * @param x, y   LOWRES coordinates, as for putHiresGlyph()
+	 * @param coverage  one byte per pixel, 0-255 coverage (0 leaves the pixel alone)
+	 * @param x, y      LOWRES coordinates, as for putHiresGlyph()
 	 */
-	void putHiresGlyphPersistent(const byte *glyph, int16 width, int16 height, int16 x, int16 y, byte color);
+	void putHiresCoverageGlyph(const byte *coverage, int16 w, int16 h, int16 x, int16 y, byte color);
 
-	/// Forget every remembered hires glyph inside this LOWRES rect.
-	void clearHiresTextPlane(const Common::Rect &rect);
+	/// The text layer itself, or null if never used.
+	const TextLayer *textLayer() const { return _textLayer; }
 
-	/// Forget every remembered hires glyph.
-	void clearHiresTextPlane();
+	/// Forget every glyph in the text layer inside this LOWRES rect.
+	void clearTextLayer(const Common::Rect &lowres);
 
-	/// The plane itself (hires, 0xff = no glyph), or null if never used.
-	const byte *hiresTextPlane() const { return _hiresTextPlane; }
+	/// Forget every glyph in the text layer.
+	void clearTextLayer();
+
 	const byte *displayScreen() const { return _displayScreen; }
 	uint displayPixels() const { return _displayPixels; }
 
@@ -273,44 +275,10 @@ private:
 	 */
 	byte *_hiresGlyphBuffer;
 
-	/**
-	 * Every hires glyph currently on screen, in hires (2x lowres) coordinates,
-	 * one byte per pixel with 0xff meaning "no glyph here".
-	 *
-	 * Double-byte text is handed straight to the graphics driver, which keeps
-	 * it only in the driver's own scaled bitmap. Nothing the engine owns
-	 * remembers it, so the next lowres update covering the same area - an
-	 * actor walking past a text box - composites the glyph away for good.
-	 * Measured on KQ1's intro box: the closing words vanished one syllable at
-	 * a time, right to left, tracking the actor's dirty rect exactly.
-	 *
-	 * This plane is that missing memory. Allocated on first use, so a game
-	 * that never draws a hires glyph pays nothing.
-	 */
-	byte *_hiresTextPlane;
-
-	/// Scratch row for restoreHiresTextPlane(), kept to avoid a per-row alloc.
-	Common::Array<byte> _hiresRestoreRow;
-
-	/**
-	 * Lowres -> hires scale of the glyph plane, i.e. how far a lowres display
-	 * coordinate moves in the driver's scaled bitmap. Two on every path that
-	 * can draw a hires glyph (UpscaledGfxDriver doubles both axes); kept as a
-	 * named constant rather than a literal 2 so the arithmetic reads as the
-	 * coordinate conversion it is.
-	 */
-	static const int _hiresScaleX = 2;
-	static const int _hiresScaleY = 2;
-
-	/// The driver's x alignment for glyph blits; see UpscaledGfxDriver.
-	static const int kHiresTextAlignX = 1;
-	/// The tallest hires glyph cell any face draws (Korean, SJIS, SCVMUNI: 16).
-	static const int kHiresGlyphCellSize = 16;
-
-	void rememberHiresGlyph(const byte *glyph, int16 width, int16 height, int16 x, int16 y);
-
-	/// Re-apply the hires glyph plane over a hires rect just sent to the driver.
-	void restoreHiresTextPlane(int hiresX, int hiresY, int w, int h);
+	/** Hi-res text, a hi-res extension of the visual plane. Allocated on the
+	 *  first hi-res glyph; a game that never draws one pays nothing. */
+	TextLayer *_textLayer;
+	TextLayer *ensureTextLayer();
 
 	/**
 	 * This here holds a translation for vertical+horizontal coordinates between native

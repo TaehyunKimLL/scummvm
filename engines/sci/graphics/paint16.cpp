@@ -98,7 +98,7 @@ void GfxPaint16::drawPicture(GuiResourceId pictureId, bool mirroredFlag, bool ad
 		// from the previous room survives it. Without this the title screen's
 		// menu entries stayed remembered and were painted back over the intro
 		// - measured as four stale menu lines across the first room.
-		_screen->clearHiresTextPlane();
+		_screen->clearTextLayer();
 	}
 
 	// Draw the picture

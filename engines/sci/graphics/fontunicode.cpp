@@ -186,38 +186,20 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 	const int cells = _widths[g];
 	const int w = _cellWidth * cells;
 
-	// Double-byte glyphs are drawn on the hires text plane at twice the lowres
+	// Double-byte glyphs are drawn on the text layer at twice the lowres
 	// coordinates, exactly as GfxFontKorean does via putHangulChar. Writing
 	// lowres pixels here instead renders nothing visible: the upscaled
 	// background is composited over them. That was measured - the glyph draw
 	// calls arrived with correct code points and coordinates while the screen
 	// stayed blank.
 	//
-	// Expand to one byte per pixel with 0xff meaning "unset", the convention
-	// the driver expects.
+	// Expand to one byte per pixel of coverage, the convention the text layer
+	// expects.
 	_glyphScratch.resize((uint)w * _cellHeight);
-	byte *dst = _glyphScratch.begin();
-	memset(dst, 0xff, (uint)w * _cellHeight);
-
-	for (int y = 0; y < _cellHeight; y++) {
-		for (int x = 0; x < w; x++) {
-			if (!pixelSet(g, x, y))
-				continue;
-			// Greying is the engine's existing checkerboard convention: skip
-			// every other pixel so the glyph reads as disabled.
-			if (greyedOutput && ((top + y) % 2) == ((left + x) % 2))
-				continue;
-			dst[y * w + x] = color;
-		}
-	}
-
-	// Both planes, and both are needed. putHiresGlyphPersistent() draws the
-	// glyph now AND remembers it, so that a lowres update passing over the box
-	// re-applies it instead of erasing it. Measured on KQ1's intro box: with a
-	// plain putHiresGlyph(), an actor walking left across the box composited
-	// the text away one syllable at a time, right to left, tracking his dirty
-	// rect exactly.
-	_screen->putHiresGlyphPersistent(dst, w, _cellHeight, left, top, color);
+	byte *cov = _glyphScratch.begin();
+	for (int y = 0; y < _cellHeight; y++)
+		TextCompose::expandGlyphRow(cov + y * w, coverageRow(g, y), w, _bitsPerPixel, greyedOutput, top + y, left);
+	_screen->putHiresCoverageGlyph(cov, w, _cellHeight, left, top, color);
 }
 
 void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,
