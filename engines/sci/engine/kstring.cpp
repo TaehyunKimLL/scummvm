@@ -292,7 +292,8 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 	int index = (startarg == 3) ? argv[2].toUint16() : 0;
 	// Translate the format string now, before the arguments go in: once
 	// "The %s looks like any other %s." has become "The rock looks like
-	// any other rock." it matches nothing in the bundle.
+	// any other rock." it is a fresh buffer that no script string key
+	// names, so nothing downstream could translate it.
 	ScriptStrings::Key sourceKey;
 	Common::String source_str = g_sci->getKernel()->lookupText(position, index, &sourceKey);
 	source_str = g_sci->translated(source_str, sourceKey);

@@ -310,12 +310,13 @@ public:
 	Common::String getString(reg_t pointer);
 
 	/**
-	 * Where a heap string lives, as a translation key: (kScript, script
-	 * number, string id) when @p pointer is into a script's string block,
-	 * an unset key otherwise. Dynamic strings - a kFormat result in a
+	 * Where a heap string lives, as a translation key: (script number,
+	 * string id) when @p pointer is into a script's string block, an unset
+	 * key otherwise. Dynamic strings - a kFormat result in a
 	 * script-allocated buffer, a save name, parser input - are not places
-	 * a bundle can name, and come back unset so the lookup falls back to
-	 * the source text alone.
+	 * the sci-<lang>.str table can name, and come back unset so the string
+	 * is shown as it is. The room is left as "any"; only kStrCpy's buffer
+	 * tag records one.
 	 */
 	ScriptStrings::Key stringKey(reg_t pointer) const;
 

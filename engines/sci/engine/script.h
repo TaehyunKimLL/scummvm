@@ -294,8 +294,9 @@ public:
 	 * The string id identifyOffsets() gave the string that starts at, or
 	 * contains, @p offset - or 0 when no string does. This is the inverse
 	 * of the table above, so that a heap pointer into a script can be
-	 * turned back into "string N of script M", which is how a translation
-	 * bundle keys the strings embedded in scripts.
+	 * turned back into "string N of script M", which is how the
+	 * sci-<lang>.str table (ScriptStrings) keys the strings embedded in
+	 * scripts.
 	 *
 	 * @p offset may point INSIDE a string, not only at its start: scripts
 	 * do pointer arithmetic (str + 5) and kDisplay may receive the result.
