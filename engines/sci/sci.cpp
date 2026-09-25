@@ -1029,8 +1029,13 @@ bool SciEngine::usesHiresDoubleByteText() const {
 bool SciEngine::heapStringsAreUtf8() const {
 	// The game's TEXT resources are a UTF-8 fan translation - identified
 	// the way every fan translation is, by the detection table's MD5 of a
-	// patched file - unless they are the legacy code-page Text.MAP overlay.
-	return getLanguage() == Common::KO_KOR && !_textOverlay.isLoaded();
+	// patched file, and marked UTF-8 on that entry - unless they are the
+	// legacy code-page Text.MAP overlay.
+	//
+	// Asked of the entry, not of the language: KO_KOR alone also covers
+	// the cp949 Korean translations (KQ5, KQ6, EcoQuest, Castle of Dr.
+	// Brain upstream; LB1 here), whose bytes must not be walked as UTF-8.
+	return (_gameDescription->flags & ADGF_UTF8I18N) && !_textOverlay.isLoaded();
 }
 
 Common::CodePage SciEngine::getSciLanguageCodePage() const {
