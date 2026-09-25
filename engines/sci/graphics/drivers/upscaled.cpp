@@ -38,6 +38,7 @@ UpscaledGfxDriver::UpscaledGfxDriver(uint16 scaledW, uint16 scaledH, int16 textA
 	_textLayer(nullptr) {
 	_virtualW = 320;
 	_virtualH = 200;
+	_preferTrueColor = true;
 }
 
 UpscaledGfxDriver::~UpscaledGfxDriver() {

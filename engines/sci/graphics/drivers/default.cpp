@@ -30,7 +30,7 @@
 namespace Sci {
 
 GfxDefaultDriver::GfxDefaultDriver(uint16 screenWidth, uint16 screenHeight, bool isSCI0, bool rgbRendering) : GfxDriver(screenWidth, screenHeight, 0), _cursorUsesScreenPalette(true),  _colorConv(nullptr), _colorConvMod(nullptr),
-	_srcPixelSize(1), _requestRGBMode(rgbRendering), _compositeBuffer(nullptr), _currentBitmap(nullptr), _internalPalette(nullptr), _currentPalette(nullptr), _virtualW(screenWidth), _virtualH(screenHeight), _alwaysCreateBmpBuffer(!isSCI0) {
+	_srcPixelSize(1), _requestRGBMode(rgbRendering), _compositeBuffer(nullptr), _currentBitmap(nullptr), _internalPalette(nullptr), _currentPalette(nullptr), _virtualW(screenWidth), _virtualH(screenHeight), _alwaysCreateBmpBuffer(!isSCI0), _preferTrueColor(false) {
 	switch (g_sci->getResMan()->getViewType()) {
 	case kViewEga:
 		_numColors = 16;	// QFG PC-98 with 8 colors also reports 16 here
@@ -107,7 +107,24 @@ bool GfxDefaultDriver::initScreen(const Graphics::PixelFormat *srcRGBFormat) {
 		formatList.push_back(format8bt);
 		initGraphics(_screenW, _screenH, formatList);
 	} else {
-		initGraphics(_screenW, _screenH, srcRGBFormat ? srcRGBFormat : (_requestRGBMode ? nullptr : &format8bt));
+		// Drivers that blend hi-res text (_preferTrueColor) want 8-bit
+		// channels: an 8-bit coverage value blended into a 5/6/5-style
+		// format throws away most of its precision. Ask the backend for its
+		// first true-color (32bpp) format when one is available; every other
+		// driver keeps today's behaviour (the backend's own default format).
+		const Graphics::PixelFormat *trueColorFormat = nullptr;
+		Graphics::PixelFormat trueColorFormatStorage;
+		if (!srcRGBFormat && _requestRGBMode && _preferTrueColor) {
+			Common::List<Graphics::PixelFormat> formats = g_system->getSupportedFormats();
+			for (Common::List<Graphics::PixelFormat>::const_iterator it = formats.begin(); it != formats.end(); ++it) {
+				if (it->bytesPerPixel == 4) {
+					trueColorFormatStorage = *it;
+					trueColorFormat = &trueColorFormatStorage;
+					break;
+				}
+			}
+		}
+		initGraphics(_screenW, _screenH, srcRGBFormat ? srcRGBFormat : (_requestRGBMode ? trueColorFormat : &format8bt));
 	}
 
 	Graphics::PixelFormat format = g_system->getScreenFormat();

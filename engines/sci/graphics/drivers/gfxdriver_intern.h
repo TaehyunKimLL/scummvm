@@ -57,6 +57,7 @@ protected:
 	bool _cursorUsesScreenPalette;
 	const bool _alwaysCreateBmpBuffer;
 	const bool _requestRGBMode;
+	bool _preferTrueColor;
 	typedef void (*ColorConvProc)(byte*, const byte*, int, int, int, const byte*);
 	ColorConvProc _colorConv;
 	typedef void (*ColorConvModProc)(byte*, const byte*, int, int, int, const byte*, const byte*, Graphics::PixelFormat&, const PaletteMod*, const byte*);
