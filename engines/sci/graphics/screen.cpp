@@ -519,17 +519,6 @@ void GfxScreen::putHangulChar(Graphics::FontKorean *commonFont, int16 x, int16 y
 	putHiresCoverageGlyph(cov, charWidth, gh, x, y, color);
 }
 
-void GfxScreen::putHiresGlyph(const byte *glyph, int16 width, int16 height,
-							  int16 x, int16 y, byte color) {
-	// Same path and the same coordinate doubling as putHangulChar: the glyph
-	// lands on the hires text plane through the driver, not in the lowres
-	// buffer. The driver expects 0xff for unset pixels, matching the memset
-	// putHangulChar does before rendering.
-	_gfxDrv->drawTextFontGlyph(glyph, width, x << 1, y << 1, width, height, 0xff,
-							   _paletteModsEnabled ? _paletteMods : nullptr,
-							   _paletteMapScreen);
-}
-
 TextLayer *GfxScreen::ensureTextLayer() {
 	if (!_textLayer) {
 		_textLayer = new TextLayer(_displayWidth * 2, _displayHeight * 2, 2);
@@ -561,11 +550,6 @@ void GfxScreen::putHiresCoverageGlyph(const byte *coverage, int16 w, int16 h, in
 void GfxScreen::clearTextLayer() {
 	if (_textLayer)
 		_textLayer->clear();
-}
-
-void GfxScreen::clearTextLayer(const Common::Rect &lowres) {
-	if (_textLayer)
-		_textLayer->clearLowresRect(lowres);
 }
 
 void GfxScreen::putKanjiChar(Graphics::FontSJIS *commonFont, int16 x, int16 y, uint16 chr, byte color) {

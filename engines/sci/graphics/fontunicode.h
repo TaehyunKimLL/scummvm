@@ -85,7 +85,7 @@ private:
 	/** Binary search of the sorted code point table; -1 when absent. */
 	int findGlyph(uint32 codepoint) const;
 
-	/** Is this pixel of the glyph set? Handles both 1bpp and 2bpp. */
+	/** Is this pixel of the glyph set (any non-zero coverage)? Handles 1, 2 or 8 bpp. */
 	bool pixelSet(int glyph, int x, int y) const;
 
 	GfxScreen *_screen;

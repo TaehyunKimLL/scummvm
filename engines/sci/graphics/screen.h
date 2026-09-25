@@ -127,35 +127,20 @@ public:
 	void putHangulChar(Graphics::FontKorean *commonFont, int16 x, int16 y, uint16 chr, byte color);
 
 	/**
-	 * Draw a pre-rendered 1bpp glyph onto the hires text plane.
-	 *
-	 * Double-byte text does not go through putFontPixel: it is drawn at twice
-	 * the lowres coordinates via the graphics driver, on top of the upscaled
-	 * background. A caller that writes lowres pixels instead is painted over
-	 * by the upscale and draws nothing visible.
-	 *
-	 * @param glyph  one byte per pixel, 0xff where the pixel is set
-	 */
-	void putHiresGlyph(const byte *glyph, int16 width, int16 height, int16 x, int16 y, byte color);
-
-	/**
 	 * Draw a coverage glyph into the text layer AND show it at once.
 	 *
-	 * Unlike putHiresGlyph(), the glyph is remembered in the text layer, so
-	 * that a later lowres update of the same area re-composites the glyph
-	 * instead of erasing it. Use this for any glyph that has to survive an
-	 * animation passing underneath it.
+	 * Double-byte text does not go through putFontPixel: it is drawn at twice
+	 * the lowres coordinates, over the upscaled background. The glyph is
+	 * remembered in the text layer, so that a later lowres update of the
+	 * same area re-composites the glyph instead of erasing it.
 	 *
 	 * @param coverage  one byte per pixel, 0-255 coverage (0 leaves the pixel alone)
-	 * @param x, y      LOWRES coordinates, as for putHiresGlyph()
+	 * @param x, y      LOWRES coordinates; the glyph lands at (2x, 2y) hires
 	 */
 	void putHiresCoverageGlyph(const byte *coverage, int16 w, int16 h, int16 x, int16 y, byte color);
 
 	/// The text layer itself, or null if never used.
 	const TextLayer *textLayer() const { return _textLayer; }
-
-	/// Forget every glyph in the text layer inside this LOWRES rect.
-	void clearTextLayer(const Common::Rect &lowres);
 
 	/// Forget every glyph in the text layer.
 	void clearTextLayer();
