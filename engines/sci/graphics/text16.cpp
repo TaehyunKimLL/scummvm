@@ -601,7 +601,7 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 	// glyphs AND sets doubleByteMode, and both halves matter: dropping the
 	// font switch alone made Korean text render thinner and then vanish
 	// (measured: white pixels in the button row fell from 2652 to 1234).
-	// So a bundle takes the same two steps - GfxCache hands back a
+	// So a SCVMUNI bundle takes the same two steps - GfxCache hands back a
 	// Unicode-backed font for whatever id is requested, so the switch is
 	// harmless even when the game has no such font resource.
 	if (g_sci->getLanguage() == Common::KO_KOR) {
@@ -809,10 +809,11 @@ uint32 GfxText16::readChar(const char *text, int &outBytes) const {
 		// artefact of the encoding it arrived in, and it made every
 		// comparison in this file encoding-specific.
 		//
-		// The code page ceiling stays for now - this only moves where the
-		// bytes are decoded, from GfxFontSet back to here - but after this
-		// every value flowing through GfxText16 is Unicode, which is what
-		// lets the encode step in lookupText() eventually go away.
+		// This moved where the bytes are decoded, from GfxFontSet back to
+		// here, so every value flowing through GfxText16 is Unicode. That is
+		// what let the encode step lookupText() once had go away (M11):
+		// UTF-8 text now reaches this function undecoded and takes the
+		// branch above, and only code-page text comes through here.
 		char bytes[3] = { (char)lead, (char)trail, 0 };
 		const Common::U32String decoded =
 			Common::String(bytes, 2).decode(g_sci->getSciLanguageCodePage());
