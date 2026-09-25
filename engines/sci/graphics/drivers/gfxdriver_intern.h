@@ -91,7 +91,7 @@ private:
 
 class UpscaledGfxDriver : public GfxDefaultDriver {
 public:
-	UpscaledGfxDriver(int16 textAlignX, bool scaleCursor, bool rgbRendering);
+	UpscaledGfxDriver(int16 textAlignX, bool scaleCursor, bool rgbRendering, bool preferTrueColor = false);
 	~UpscaledGfxDriver() override;
 	bool initScreen(const Graphics::PixelFormat *format) override;
 	void setPalette(const byte *colors, uint start, uint num, bool update, const PaletteMod *palMods, const byte *palModMapping) override;

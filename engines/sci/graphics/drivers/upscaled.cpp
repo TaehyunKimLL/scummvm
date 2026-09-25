@@ -28,8 +28,13 @@
 
 namespace Sci {
 
-UpscaledGfxDriver::UpscaledGfxDriver(int16 textAlignX, bool scaleCursor, bool rgbRendering) :
+UpscaledGfxDriver::UpscaledGfxDriver(int16 textAlignX, bool scaleCursor, bool rgbRendering, bool preferTrueColor) :
 	UpscaledGfxDriver(640, 400, textAlignX, scaleCursor, rgbRendering) {
+	// Only the KO/JA instance (UpscaledGfxDriver_create) blends hi-res text
+	// and asks for a 32-bit screen. The subclasses (Win256, PC-98) keep the
+	// backend's default format, so an untranslated game's output is
+	// unchanged.
+	_preferTrueColor = preferTrueColor;
 }
 
 UpscaledGfxDriver::UpscaledGfxDriver(uint16 scaledW, uint16 scaledH, int16 textAlignX, bool scaleCursor, bool rgbRendering) :
@@ -38,7 +43,6 @@ UpscaledGfxDriver::UpscaledGfxDriver(uint16 scaledW, uint16 scaledH, int16 textA
 	_textLayer(nullptr) {
 	_virtualW = 320;
 	_virtualH = 200;
-	_preferTrueColor = true;
 }
 
 UpscaledGfxDriver::~UpscaledGfxDriver() {
@@ -257,7 +261,7 @@ void UpscaledGfxDriver::renderBitmap(const byte *src, int pitch, int dx, int dy,
 }
 
 GfxDriver *UpscaledGfxDriver_create(int rgbRendering, ...) {
-	return new UpscaledGfxDriver(1, true, rgbRendering != 0);
+	return new UpscaledGfxDriver(1, true, rgbRendering != 0, true);
 }
 
 } // End of namespace Sci
