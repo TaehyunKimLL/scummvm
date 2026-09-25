@@ -523,8 +523,9 @@ Common::Error SciEngine::run() {
 	//
 	// The id is the one identifyOffsets() assigns at load - first string in
 	// the script's string block is 1 - which is exactly what
-	// SegManager::stringKey() reports at runtime, so a bundle entry built
-	// from this dump is found by the engine without a second numbering.
+	// SegManager::stringKey() reports at runtime, so a sci-<lang>.str entry
+	// built from this dump is found by the engine without a second
+	// numbering.
 	//
 	// Loading the script here rather than reading the resource by hand is
 	// deliberate: the string block is found differently in SCI0, SCI1.1 and
@@ -1066,7 +1067,7 @@ Common::Language SciEngine::getLanguage() const {
 
 	// A resource-replacing fan patch - one that rewrites the game's own TEXT
 	// resources in place rather than shipping an overlay - leaves nothing for
-	// the two checks above to find, and detection still reports the shipped
+	// the check above to find, and detection still reports the shipped
 	// language because it keys off files the patch overwrote. The Korean
 	// Laura Bow 1 is like this: 3,085 hangul strings sit inside resource.001
 	// and the game ships korean.fnt, yet it is detected as DOS/English, so
@@ -1074,8 +1075,10 @@ Common::Language SciEngine::getLanguage() const {
 	// "missing glyph 189" - 268 such warnings in one boot, and the screen
 	// comes up with no text at all.
 	//
-	// Let the user say so. ConfMan is checked last, so it cannot override a
-	// bundle that actually declares its own language.
+	// The detection table is the answer for a known patch: LB1 Korean has
+	// its own entry. For one not in the table yet, let the user say so.
+	// ConfMan comes after the overlay, whose presence is proof in itself,
+	// and before detection, which such a patch fools.
 	if (ConfMan.hasKey("language")) {
 		const Common::Language forced = Common::parseLanguage(ConfMan.get("language"));
 		if (forced != Common::UNK_LANG)
