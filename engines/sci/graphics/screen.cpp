@@ -599,6 +599,7 @@ int GfxScreen::bitsGetDataSize(Common::Rect rect, byte mask) {
 			if (_paletteMapScreen)
 				byteCount += rectHeight * rectWidth; // _paletteMapScreen (upscaled hires)
 		}
+		byteCount += _textLayer ? _textLayer->saveSize(rect) : 1;
 	}
 	if (mask & GFX_SCREEN_MASK_PRIORITY) {
 		byteCount += pixels; // _priorityScreen
@@ -618,6 +619,10 @@ void GfxScreen::bitsSave(Common::Rect rect, byte mask, byte *memoryPtr) {
 		bitsSaveDisplayScreen(rect, _displayScreen, memoryPtr);
 		if (_paletteMapScreen)
 			bitsSaveDisplayScreen(rect, _paletteMapScreen, memoryPtr);
+		if (_textLayer)
+			_textLayer->save(rect, memoryPtr);
+		else
+			*memoryPtr++ = 0;
 	}
 	if (mask & GFX_SCREEN_MASK_PRIORITY) {
 		bitsSaveScreen(rect, _priorityScreen, _width, memoryPtr);
@@ -671,16 +676,17 @@ void GfxScreen::bitsRestore(const byte *memoryPtr) {
 	memcpy((void *)&mask, memoryPtr, sizeof(mask)); memoryPtr += sizeof(mask);
 
 	if (mask & GFX_SCREEN_MASK_VISUAL) {
-		// Note: the glyph plane is NOT invalidated here. This is also the
-		// animation loop's per-cel underBits restore, called once per actor
-		// per frame, and the actor's cel rect overlaps a text box he walks
-		// past - clearing here erased the glyphs the plane exists to keep
-		// (measured: 576 clears in one intro, text still draining away).
-		// A window's dismissal invalidates in GfxPorts::removeWindow().
+		// The text layer is restored along with the pixels it belongs to:
+		// whatever underbits this save covered, the layer content saved
+		// alongside it comes back too.
 		bitsRestoreScreen(rect, memoryPtr, _visualScreen, _width);
 		bitsRestoreDisplayScreen(rect, memoryPtr, _displayScreen);
 		if (_paletteMapScreen)
 			bitsRestoreDisplayScreen(rect, memoryPtr, _paletteMapScreen);
+		if (_textLayer)
+			_textLayer->restore(rect, memoryPtr);
+		else
+			memoryPtr++;
 	}
 	if (mask & GFX_SCREEN_MASK_PRIORITY) {
 		bitsRestoreScreen(rect, memoryPtr, _priorityScreen, _width);

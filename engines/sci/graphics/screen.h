@@ -24,6 +24,7 @@
 
 #include "sci/sci.h"
 #include "sci/graphics/helpers.h"
+#include "sci/graphics/textlayer.h"
 #include "sci/graphics/view.h"
 
 #include "graphics/font.h"
@@ -307,6 +308,8 @@ public:
 
 		if (drawMask & GFX_SCREEN_MASK_VISUAL) {
 			_visualScreen[offset] = color;
+			if (_textLayer && !_textLayer->isEmpty())
+				_textLayer->clearLowresPixel(x, y);
 			if (_paletteMapScreen)
 				_paletteMapScreen[offset] = _curPaletteMapValue;
 
