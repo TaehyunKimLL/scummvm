@@ -75,6 +75,12 @@ public:
 
 	uint32 glyphCount() const { return _glyphCount; }
 
+	/** The packed row y of glyph g, for TextCompose::expandGlyphRow(). */
+	const byte *coverageRow(int glyph, int y) const {
+		return _bitmaps + (uint32)glyph * _bytesPerGlyph + (uint32)y * _rowBytes;
+	}
+	int bitsPerPixel() const { return _bitsPerPixel; }
+
 private:
 	/** Binary search of the sorted code point table; -1 when absent. */
 	int findGlyph(uint32 codepoint) const;

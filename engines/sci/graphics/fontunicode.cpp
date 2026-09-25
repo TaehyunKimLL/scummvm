@@ -21,6 +21,7 @@
 
 #include "sci/graphics/fontunicode.h"
 #include "sci/graphics/screen.h"
+#include "sci/graphics/textcompose.h"
 #include "sci/sci.h"
 
 #include "common/file.h"
@@ -86,7 +87,12 @@ bool GfxFontUnicode::load(const Common::String &filename) {
 	const uint32 wOff = READ_LE_UINT32(d + 24);
 	const uint32 bmOff = READ_LE_UINT32(d + 28);
 
-	_bitsPerPixel = (flags & 1) ? 2 : 1;
+	if ((flags & 3) == 3) {
+		warning("GfxFontUnicode: %s sets both 2bpp and 8bpp", filename.c_str());
+		_data.clear();
+		return false;
+	}
+	_bitsPerPixel = (flags & 2) ? 8 : ((flags & 1) ? 2 : 1);
 	// A wide glyph spans two cells and every glyph uses the same stride, so
 	// one row length serves both widths and the reader stays branch-free.
 	_rowBytes = ((uint32)_cellWidth * 2 * _bitsPerPixel + 7) / 8;
@@ -152,9 +158,7 @@ int GfxFontUnicode::findGlyph(uint32 codepoint) const {
 
 bool GfxFontUnicode::pixelSet(int glyph, int x, int y) const {
 	const byte *row = _bitmaps + (uint32)glyph * _bytesPerGlyph + (uint32)y * _rowBytes;
-	if (_bitsPerPixel == 1)
-		return (row[x >> 3] & (0x80 >> (x & 7))) != 0;
-	return ((row[x >> 2] >> (6 - ((x & 3) * 2))) & 3) != 0;
+	return TextCompose::expandCoverage(row, x, _bitsPerPixel) != 0;
 }
 
 bool GfxFontUnicode::isDoubleByte(uint32 chr) {
