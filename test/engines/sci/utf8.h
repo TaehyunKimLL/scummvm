@@ -91,9 +91,9 @@ public:
 	}
 
 	void test_legacy_cp949_bytes_do_not_look_like_utf8() {
-		// The bytes an untranslated Korean game holds. The gate keeps these
-		// away from the decoder, but if one ever reached it, every byte
-		// must come back as itself, one at a time - never a merged pair.
+		// The bytes a cp949 Korean game holds. The gate keeps these away
+		// from the decoder. Most, reaching it anyway, come back as
+		// themselves one byte at a time: 0xB0..0xC1 is not a UTF-8 lead.
 		int n = 0;
 		// '가' in cp949 is B0 A1
 		TS_ASSERT_EQUALS(decode("\xB0\xA1", n), 0xB0u);
@@ -101,6 +101,18 @@ public:
 		// '다' is B4 D9
 		TS_ASSERT_EQUALS(decode("\xB4\xD9", n), 0xB4u);
 		TS_ASSERT_EQUALS(n, 1);
+	}
+
+	void test_some_cp949_hangul_is_valid_utf8_so_the_gate_cannot_be_the_language() {
+		// But not all. A cp949 lead of 0xC2..0xC8 followed by a trail of
+		// 0xA1..0xBF is a well-formed 2-byte UTF-8 sequence - 217 hangul
+		// syllables - and decodes to a different character. So whether a
+		// heap is UTF-8 must come from the detection entry (ADGF_UTF8I18N),
+		// never from KO_KOR: upstream's Korean translations are cp949.
+		int n = 0;
+		// '징' in cp949 is C2 A1; as UTF-8 that is U+00A1.
+		TS_ASSERT_EQUALS(decode("\xC2\xA1", n), 0xA1u);
+		TS_ASSERT_EQUALS(n, 2);
 	}
 
 	void test_length_counts_code_points() {

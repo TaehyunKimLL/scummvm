@@ -222,9 +222,10 @@ public:
 	 * Whether strings in the VM heap are UTF-8, so that the string ops that
 	 * index into text (kStrLen, kStrAt) count code points rather than bytes.
 	 *
-	 * True when the game's TEXT resources are a UTF-8 fan translation (the
-	 * detection entry says so) and not the legacy code-page Text.MAP
-	 * overlay. An untranslated game keeps byte semantics to the last op -
+	 * True when the game's TEXT resources are a UTF-8 fan translation (its
+	 * detection entry carries ADGF_UTF8I18N) and not the legacy code-page
+	 * Text.MAP overlay. The language alone does not decide it: a KO_KOR
+	 * entry without the flag is cp949. An untranslated game keeps byte semantics to the last op -
 	 * measured in M11_STRING_OPS.md, its scripts never see translated text
 	 * anyway, so the gate is belt and braces for the fan game that does
 	 * scan bytes.

@@ -46,6 +46,24 @@ namespace Sci {
 #define GAMEOPTION_ENABLE_GMM_SAVE          GUIO_GAMEOPTIONS18
 #define GAMEOPTION_GK1_ENABLE_AUDIO_POPFIX	GUIO_GAMEOPTIONS19
 
+// Engine-specific detection flags. The low 16 bits of
+// ADGameDescription::flags belong to the engine (advancedDetector.h).
+enum SciGameFlags {
+	/**
+	 * The game's text is a UTF-8 fan translation: its TEXT resources come
+	 * as UTF-8 text.NNN patch files, and any sci-<lang>.str beside it is
+	 * UTF-8 too. Set on the detection entry that identifies the patch.
+	 *
+	 * This is a statement about the data, not the language. A Korean
+	 * entry without it is a code-page translation - cp949 resources, as
+	 * every upstream Korean fan patch is - and must keep byte semantics:
+	 * cp949 hangul decoded as UTF-8 comes out as stray bytes (a 0xB0..0xC1
+	 * lead is not a UTF-8 lead) or as the wrong character (0xC2..0xC8
+	 * followed by a 0xA1..0xBF trail is a valid 2-byte UTF-8 sequence).
+	 */
+	ADGF_UTF8I18N = (1u << 0)
+};
+
 enum SciGameId {
 	GID_ALL,
 	GID_ASTROCHICKEN,

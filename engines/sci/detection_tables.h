@@ -1685,7 +1685,7 @@ static const struct ADGameDescription SciGameDescriptions[] = {
 		{"resource.003", 0, "fed9e0072ffd511d248674e60dee2099", 717478},
 		{"text.000",     0, "29f3d02989208d9b54577380ea70e0d0", 8934},
 		AD_LISTEND},
-		Common::KO_KOR, Common::kPlatformDOS, ADGF_NO_FLAGS, GUIO_STD16_UNDITHER	},
+		Common::KO_KOR, Common::kPlatformDOS, ADGF_UTF8I18N, GUIO_STD16_UNDITHER	},
 
 	// King's Quest 1 SCI Remake - English DOS (from the King's Quest Collection)
 	// Executable scanning reports "S.old.010", VERSION file reports "1.000.051"
