@@ -246,6 +246,16 @@ void GfxScreen::copyToScreen() {
 }
 
 void GfxScreen::copyVideoFrameToScreen(const byte *buffer, int pitch, const Common::Rect &rect) {
+	// The original drew each movie frame straight into the framebuffer,
+	// over whatever text stood in the frame's rect; text outside it stayed.
+	// Do the same to the text layer before the frame is composited.
+	// rect is in display coordinates, the layer takes low-res ones.
+	if (_textLayer && !_textLayer->isEmpty()) {
+		Common::Rect lowres(rect);
+		if (_upscaledHires == GFX_SCREEN_UPSCALED_640x400)
+			lowres = Common::Rect(rect.left / 2, rect.top / 2, (rect.right + 1) / 2, (rect.bottom + 1) / 2);
+		_textLayer->clearLowresRect(lowres);
+	}
 	_gfxDrv->copyRectToScreen(buffer, 0, 0, pitch, rect.left, rect.top, rect.width(), rect.height(), _paletteModsEnabled ? _paletteMods : nullptr, _paletteMapScreen);
 }
 
