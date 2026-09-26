@@ -61,8 +61,9 @@ public:
 	const byte *row(uint32 cp, int y) override;
 	int advance(uint32 cp) override;       // the SVFN per-glyph advance, 0 without a metrics table
 	int bearingX(uint32 cp) const;         // SVFN bearingX, for proportional placement
-	/** The default metrics plus originX = max(0, -bearingX), bearingX read
-	 *  as the signed byte the SVFN format specifies. */
+	/** The default metrics with originX 0 (the stored row starts at the
+	 *  pen), plus the SVFN fields as data: bearingX (signed, as the format
+	 *  specifies), bearingY, width, height. */
 	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	uint32 glyphCount() const override;
 

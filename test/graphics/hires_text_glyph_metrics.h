@@ -60,10 +60,13 @@ void mPut32(Common::Array<byte> &b, uint pos, uint32 v) {
 }
 
 /**
- * A proportional 8bpp version 2 SVFN file, cell 8x8, of two glyphs:
- * U+0041 (advance 6, bearing +1) and U+0E48 (advance 0, bearing -3, stored
- * as the signed byte 0xFD the format specifies). Every pixel of column 0
- * carries ink, so the row read-back can be checked.
+ * A proportional 8bpp version 2 SVFN file, cell 8x8, of two glyphs, as
+ * HiResFontBaker (font_baker.cpp) writes one: the pen at column 0 of the
+ * cell, ink left of it clipped, and the face's bearing stored as a signed
+ * byte. U+0041: advance 6, bearing +1. U+0E48: advance 0, bearing -3
+ * (0xFD), i.e. the part of the mark left of the pen was lost at bake time;
+ * the surviving ink starts at column 0. Every pixel of column 0 carries ink,
+ * so the row read-back can be checked.
  */
 Common::Array<byte> makeSvfn() {
 	const int cellW = 8, cellH = 8, glyphs = 2;
@@ -209,7 +212,11 @@ public:
 		delete src;
 	}
 
-	void test_svfn_metrics_origin_from_negative_bearing() {
+	// Every existing SVFN producer puts the pen at column 0 of the stored
+	// row (font_baker.cpp) or shifts the pen so the ink starts at x >= 0
+	// (docs/scripts/mkfont.py), so the row starts at the pen: originX is 0
+	// even for a negative bearing, which stays available as data.
+	void test_svfn_metrics_origin_is_the_row_start() {
 		Common::Array<byte> bytes = makeSvfn();
 		Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
 		Common::MemoryReadStream stream(bytes.begin(), bytes.size());
@@ -219,14 +226,19 @@ public:
 		Graphics::GlyphMetrics m;
 		TS_ASSERT(src.metrics(0x0041, m));
 		TS_ASSERT_EQUALS(m.advance, 6);
-		TS_ASSERT_EQUALS(m.originX, 0);	// bearing +1: ink right of the origin
+		TS_ASSERT_EQUALS(m.originX, 0);
+		TS_ASSERT_EQUALS(m.bearingX, 1);
+		TS_ASSERT_EQUALS(m.width, 4);
 		TS_ASSERT(!m.combining);
 
 		TS_ASSERT(src.metrics(0x0E48, m));
 		TS_ASSERT_EQUALS(m.advance, 0);
-		TS_ASSERT_EQUALS(m.originX, 3);	// bearing -3
+		TS_ASSERT_EQUALS(m.originX, 0);		// the row starts at the pen
+		TS_ASSERT_EQUALS(m.bearingX, -3);	// signed, kept as data
 		TS_ASSERT(m.combining);
 		TS_ASSERT(!m.wide);
+		const byte *row = src.row(0x0E48, 0);
+		TS_ASSERT(row && row[0] == 200);	// surviving ink at column 0
 
 		TS_ASSERT(!src.metrics(0x0E01, m));
 	}
