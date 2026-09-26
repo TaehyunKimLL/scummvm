@@ -161,16 +161,32 @@ void CodePointSet::sample(uint n, Common::Array<uint32> &out) const {
 		}
 	} pick = { taken, count, n };
 
-	// 1. The first code point of every 128-block: non-ASCII blocks, then ASCII's.
+	// 1. The first code point of each 128-block. ASCII keeps one place; the
+	// non-ASCII blocks share the rest. When there are more blocks than
+	// places (Japanese kanji span ~160 blocks), evenly spaced blocks are
+	// taken, always including the first and the last, so the sample is not
+	// just the lowest blocks.
+	Common::Array<uint> blockFirsts;	///< index of the first cp of each non-ASCII block
 	uint32 prevBlock = 0xFFFFFFFF;
 	for (uint i = asciiCount; i < total; i++) {
 		const uint32 block = _cps[i] >> 7;
 		if (block != prevBlock)
-			pick.take(i);
+			blockFirsts.push_back(i);
 		prevBlock = block;
 	}
 	if (asciiCount > 0)
 		pick.take(0);
+	const uint places = n - count;
+	const uint blocks = blockFirsts.size();
+	if (blocks <= places) {
+		for (uint b = 0; b < blocks; b++)
+			pick.take(blockFirsts[b]);
+	} else if (places == 1) {
+		pick.take(blockFirsts[0]);
+	} else if (places > 1) {
+		for (uint k = 0; k < places; k++)
+			pick.take(blockFirsts[(uint)((uint64)k * (blocks - 1) / (places - 1))]);
+	}
 
 	// 2. Every size/n-th, non-ASCII then ASCII.
 	const uint nonAscii = total - asciiCount;

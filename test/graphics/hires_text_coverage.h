@@ -267,6 +267,46 @@ public:
 		TS_ASSERT(all.empty());
 	}
 
+	// A translation over more than n blocks (Japanese kanji span ~160):
+	// the block pass is strided across all of them, so the first, a middle
+	// and the last block are sampled, and ASCII keeps a place.
+	void test_code_point_set_sample_many_blocks() {
+		Graphics::CodePointSet set;
+		const uint32 base = 0x4E00;	// block 0x9C
+		for (uint32 b = 0; b < 200; b++) {
+			set.add(base + b * 128);
+			set.add(base + b * 128 + 5);
+		}
+		for (uint32 cp = 'a'; cp <= 'z'; cp++)
+			set.add(cp);
+		TS_ASSERT_EQUALS(set.size(), 426u);
+
+		Common::Array<uint32> s1, s2;
+		set.sample(64, s1);
+		set.sample(64, s2);
+		TS_ASSERT_EQUALS(s1.size(), 64u);
+		TS_ASSERT(s1 == s2);
+
+		bool first = false, middle = false, last = false;
+		uint ascii = 0;
+		for (uint i = 0; i < s1.size(); i++) {
+			if (s1[i] < 0x80) {
+				ascii++;
+				continue;
+			}
+			const uint32 b = (s1[i] - base) / 128;
+			first = first || b == 0;
+			middle = middle || (b >= 95 && b <= 105);
+			last = last || b == 199;
+		}
+		TS_ASSERT(first);
+		TS_ASSERT(middle);
+		TS_ASSERT(last);
+		TS_ASSERT(ascii >= 1);
+		TS_ASSERT(s1[0] >= 0x80);	// still non-ASCII first
+		TS_ASSERT(s1.back() < 0x80);
+	}
+
 	// --- checkCoverage / coverageWarning ------------------------------------
 
 	void test_check_coverage_missing() {
