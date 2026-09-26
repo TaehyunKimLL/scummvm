@@ -251,7 +251,11 @@ struct HiResTextConfig {
 /**
  * Reader for the ".map" font description file.
  *
- * Comments occupy their own lines; inline comments are not supported.
+ * A line starting with ';' or '#' is a comment. A ';' preceded by a space or
+ * a tab ends a value and starts a comment ("color=0 ; DOS" is 0); a ';' with
+ * anything else before it is part of the value ("single=my;font.fnt"), and a
+ * value that is only a comment ("single= ; none") is empty. '#' never starts
+ * an inline comment.
  * The file is an INI. Sections may carry a qualifier after a colon, and the
  * reader tries the qualifiers a caller supplies before falling back to the
  * bare section:
