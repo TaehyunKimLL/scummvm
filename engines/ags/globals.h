@@ -729,7 +729,6 @@ public:
 	TTFFontRenderer *_ttfRenderer;
 	WFNFontRenderer *_wfnRenderer;
 	SplitLines *_Lines;
-	const WFNChar _emptyChar; // a dummy character to substitute bad symbols
 	Shared::Bitmap _wputblock_wrapper; // [IKM] argh! :[
 
 	/**@}*/
