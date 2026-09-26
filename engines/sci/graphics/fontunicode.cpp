@@ -155,7 +155,7 @@ TextFaceKind GfxFontUnicodeAdapter::classify(uint32 chr) const {
 	const bool fallbackIsLegacy = _fallback &&
 		(dynamic_cast<GfxFontKorean *>(_fallback) || dynamic_cast<GfxFontSjis *>(_fallback));
 
-	if (chr < 0x80 && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode))
+	if (chr < 0x80 && _fallback && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode))
 		return fallbackIsLegacy ? kTextFaceLegacy : kTextFaceResource;
 
 	const uint32 cp = toCodePoint(chr);
