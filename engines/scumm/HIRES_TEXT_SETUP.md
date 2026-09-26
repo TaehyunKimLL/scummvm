@@ -306,6 +306,17 @@ A range covers many codes in one line:
   over the common table and every scope together. A range that would cross
   the limit is ignored whole, with one warning; ranges earlier in the file
   still apply.
+- **Caution — one baked font, one glyph cap:** every remap target is baked
+  into *every* charset's font, not just the one the range was written under
+  — both the CJK bake list and the Latin bake list get every remap applied
+  (`graphics/hires_text/font_baker.cpp` around line 82 and lines 238-248;
+  `engines/scumm/hires_text.cpp` around lines 1168-1178). A baked font holds
+  at most 65535 glyphs; if a map's ranges push a charset's kept-code count
+  past that, the bake fails outright (a warning is logged) and that charset
+  loses hi-res text entirely. Small ranges such as ASCII to fullwidth (94
+  codes) are nowhere near the limit; keep an eye on this only for ranges
+  large enough, or numerous enough across sections, to approach 65535 codes
+  in a single charset's bake.
 - The key is always a plain code range, never `u+21-u+7E`: `Common::INIFile`
   only allows alphanumerics, `-`, `_`, `.`, `:` and space in a key, so a `u+`
   key rejects the *whole map* — the same failure a single `u+`-keyed entry
