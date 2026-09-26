@@ -32,6 +32,9 @@ namespace AGS3 {
 
 using namespace AGS::Shared;
 
+// The string font_post_init() measures a font with when it reports no height
+static const char *HEIGHT_TEST_STRING = "ZHwypgfjqhkilIK";
+
 void WFNFontRenderer::AdjustYCoordinateForFont(int *ycoord, int fontNumber) {
 	// Do nothing
 }
@@ -108,6 +111,47 @@ static int RenderChar(Bitmap *ds, const int at_x, const int at_y, Rect clip,
 	return width * scale;
 }
 
+int WFNFontRenderer::GetFontHeight(int fontNumber) {
+	// 0 lets the caller measure a test string, as for any WFN font; with a
+	// Korean extension the Hangul glyphs may be taller than that.
+	const WFNFont *font = _fontData[fontNumber].Font;
+	const int ext_height = font->GetExtHeight();
+	if (ext_height == 0)
+		return 0;
+	const int base_height = GetTextHeight(HEIGHT_TEST_STRING, fontNumber);
+	return std::max(base_height, ext_height * _fontData[fontNumber].Params.SizeMultiplier);
+}
+
+// The Korean fan patches ship extfntN.wfn next to agsfntN.wfn: the KS X 1001
+// Hangul syllables for font N. Read it when present; when font N itself fell
+// back to agsfnt0.wfn and there is no extfntN.wfn, extfnt0.wfn. A file this
+// reader does not accept is ignored with one warning.
+void WFNFontRenderer::LoadExtension(WFNFont *font, int fontNumber, const String &base_name) {
+	String ext_name = String::FromFormat("extfnt%d.wfn", fontNumber);
+	Stream *in = _GP(AssetMgr)->OpenAsset(ext_name);
+	if (in == nullptr && fontNumber != 0 && base_name.CompareNoCase("agsfnt0.wfn") == 0) {
+		ext_name = "extfnt0.wfn";
+		in = _GP(AssetMgr)->OpenAsset(ext_name);
+	}
+	if (in == nullptr)
+		return;
+	const WFNError err = font->ReadExtFromFile(in);
+	delete in;
+	switch (err) {
+	case kWFNErr_NoError:
+		Debug::Printf(kDbgMsg_Info, "Korean font extension '%s': %u glyphs, height %d",
+			ext_name.GetCStr(), static_cast<unsigned>(font->GetExtCharCount()), font->GetExtHeight());
+		break;
+	case kWFNErr_HasBadCharacters:
+		Debug::Printf(kDbgMsg_Warn, "WARNING: font extension '%s' has bad characters, they are drawn empty", ext_name.GetCStr());
+		break;
+	default:
+		Debug::Printf(kDbgMsg_Warn, "WARNING: font extension '%s' is not a 2350-glyph KS X 1001 table (error %d), ignored",
+			ext_name.GetCStr(), static_cast<int>(err));
+		break;
+	}
+}
+
 bool WFNFontRenderer::LoadFromDisk(int fontNumber, int fontSize) {
 	return LoadFromDiskEx(fontNumber, fontSize, nullptr, nullptr, nullptr);
 }
@@ -142,6 +186,7 @@ bool WFNFontRenderer::LoadFromDiskEx(int fontNumber, int /*fontSize*/, String *s
 		delete font;
 		return false;
 	}
+	LoadExtension(font, fontNumber, file_name);
 	_fontData[fontNumber].Font = font;
 	_fontData[fontNumber].Params = params ? *params : FontRenderParams();
 	if (src_filename)
