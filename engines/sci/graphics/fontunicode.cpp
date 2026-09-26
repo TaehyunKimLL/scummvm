@@ -263,13 +263,16 @@ byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
 	const uint32 cp = toCodePoint(chr);
 	if (cp && _font->hasGlyph(cp)) {
 		const byte w = _font->getCharWidth(cp);
-		const int scale = (getSciVersion() >= SCI_VERSION_2) ? 1 : 2;
-		if (chr < 0x80 && _latinMode == kLatinProportional) {
+		if (_latinMode == kLatinProportional &&
+			TextCompose::asciiGoesToUnicodeFace(chr, _latinMode)) {
 			// hires_text_latin=proportional: the fallback (the game's font)
 			// sets the advance, or the face's own does (metrics=font). With
 			// no fallback, the narrow cell stands in for the game's width.
 			// draw() needs no counterpart: GfxText16 advances the pen by
 			// this, and the glyph's origin is at the start of its cell.
+			// The range is GfxFontSet::getCharWidth()'s: the ASCII routed
+			// to this face.
+			const int scale = (getSciVersion() >= SCI_VERSION_2) ? 1 : 2;
 			const int gameWidth = _fallback ? _fallback->getCharWidth(chr) : w / scale;
 			return (byte)latinAdvanceGamePx(_metrics, gameWidth, _font->advanceHires(cp), scale);
 		}

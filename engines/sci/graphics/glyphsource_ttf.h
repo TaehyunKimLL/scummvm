@@ -45,8 +45,9 @@ namespace Sci {
  * Cell width is never taken from the TTF advance: it comes from the Unicode
  * East Asian Width property (isWide()), which is the only thing that agrees with
  * SCVMUNI's cells()==1|2 convention across scripts. The advance is kept
- * alongside, for advance() (hires_text_latin=proportional, metrics=font). A code point's presence
- * in the face, on the other hand, cannot be asked for directly - TTFFont
+ * alongside, for advance() (hires_text_latin=proportional, metrics=font).
+ * A code point's presence in the face, on the other hand, cannot be asked
+ * for directly - TTFFont
  * exposes no "has glyph" query - so it is inferred from whether rendering it
  * leaves any ink (see ensure() for the exact rule and its exceptions).
  *

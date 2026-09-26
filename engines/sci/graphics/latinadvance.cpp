@@ -19,7 +19,6 @@
  *
  */
 
-
 #include "sci/graphics/latinadvance.h"
 
 #include "common/util.h"

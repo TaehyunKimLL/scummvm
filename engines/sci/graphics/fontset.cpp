@@ -244,7 +244,8 @@ byte GfxFontSet::getCharWidth(uint32 chr) {
 	// latin=off) or by the face's own advance (metrics=font). GfxText16
 	// moves the pen by this very value, and the glyph is drawn with its
 	// origin at the start of that box, so measuring and drawing agree.
-	if (chr < 0x80 && _latinMode == kLatinProportional && f->kind == kFaceCodePoint) {
+	if (_latinMode == kLatinProportional && TextCompose::asciiGoesToUnicodeFace(chr, _latinMode) &&
+		f->kind == kFaceCodePoint) {
 		GfxFontUnicode *uni = static_cast<GfxFontUnicode *>(f->font);
 		const int scale = (f->hiresPlane && getSciVersion() < SCI_VERSION_2) ? 2 : 1;
 		return (byte)latinAdvanceGamePx(_settings.metrics, _faces[0].font->getCharWidth(chr),

@@ -619,6 +619,10 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 			const uint32 glyph = glyphChar(curChar);
 			uint16 charWidth = _font->getCharWidth(glyph);
 			// clear char
+			// With hi-res text this erase also clears the text layer under
+			// the cell, which would clip the previous glyph's overhang into
+			// it. No SCI16 path sets penMode 1: kernelDisplay() resets it to
+			// 0 (paint16.cpp) and only the invert there sets 2.
 			if (_ports->_curPort->penMode == 1) {
 				rect.left = _ports->_curPort->curLeft;
 				rect.right = rect.left + charWidth;
@@ -902,8 +906,9 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 // untouched (their routing happens at the face-selection layer -
 // GfxFontSet::faceFor() and GfxFontUnicodeAdapter - and proportional's
 // advance in those fonts' getCharWidth(), which every measuring and drawing
-// site below reads, so the pen and the layout move alike). The mode is a plain field read: the current font's
-// own setting, copied by refreshLatinSettings() whenever _font changes.
+// site below reads, so the pen and the layout move alike). The mode is a
+// plain field read: the current font's own setting, copied by
+// refreshLatinSettings() whenever _font changes.
 // Latin-1 (U+00A0..U+00FF) is deliberately neither remapped nor routed: the
 // fullwidth-forms block has no counterpart for it, and it keeps the face it
 // had before hires_text_latin existed.

@@ -53,7 +53,8 @@ namespace Sci {
  *                     reads advance() from the same source cells() picks.
  *
  * Never constructed with kLatinOff - callers only wrap two sources once
- * hires_text_latin has resolved to half or fullwidth (see cache.cpp).
+ * hires_text_latin has resolved to half, fullwidth or proportional (see
+ * cache.cpp).
  *
  * Owns both sources unless constructed with DisposeAfterUse::NO (GfxCache
  * shares one TrueType source between every font id naming the same face at

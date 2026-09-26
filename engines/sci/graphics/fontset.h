@@ -86,8 +86,9 @@ public:
 	 *                  ASCII range past the resource face and into the faces
 	 *                  below (see faceFor()), and kLatinProportional gives
 	 *                  that ASCII the advance latinAdvanceGamePx() picks from
-	 *                  the metrics (see getCharWidth()). kLatinFullwidth needs no such routing - its
-	 *                  ASCII arrives already remapped past U+00FF by
+	 *                  the metrics (see getCharWidth()). kLatinFullwidth
+	 *                  needs no such routing - its ASCII arrives already
+	 *                  remapped past U+00FF by
 	 *                  GfxText16::glyphChar(), which reads latinMode() and
 	 *                  latinFullwidthSpace() from the current font.
 	 */
