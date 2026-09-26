@@ -19,14 +19,14 @@
  *
  */
 
-#ifndef SCI_GRAPHICS_GLYPHSOURCE_ROUTED_H
-#define SCI_GRAPHICS_GLYPHSOURCE_ROUTED_H
+#ifndef GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_ROUTED_H
+#define GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_ROUTED_H
 
 #include "common/types.h"
-#include "sci/graphics/glyphsource.h"
-#include "sci/graphics/textlatin.h"
+#include "graphics/hires_text/glyph_source.h"
+#include "graphics/hires_text/font_map.h"
 
-namespace Sci {
+namespace Graphics {
 
 /**
  * Routes a fixed range of code points to a second UnicodeGlyphSource - the
@@ -36,23 +36,23 @@ namespace Sci {
  * bitsPerPixel) is reported from the main source only, so a caller sizing
  * layout never needs to know a second face exists.
  *
- * Which code points route to the latin source depends on the LatinMode this
- * was constructed with (see textlatin.h):
+ * Which code points route to the latin source depends on the HiResLatinMode this
+ * was constructed with (see font_map.h; SCI mirrors it as Sci::LatinMode):
  *
- *   kLatinFullwidth - U+FF01..U+FF5E and U+3000, the fullwidth-forms range
+ *   kHiResLatinFullwidth - U+FF01..U+FF5E and U+3000, the fullwidth-forms range
  *                     GfxText16::glyphChar() remaps plain ASCII into via
  *                     TextCompose::latinFullwidth().
- *   kLatinHalf and
- *   kLatinProportional - U+0020..U+007E, plain ASCII left unremapped at the code
+ *   kHiResLatinHalf and
+ *   kHiResLatinProportional - U+0020..U+007E, plain ASCII left unremapped at the code
  *                     point level, routed here instead by
  *                     GfxFontSet/GfxFontUnicodeAdapter choosing the Unicode
  *                     face for it in the first place (see
  *                     TextCompose::asciiGoesToUnicodeFace()). The two route
  *                     alike; proportional differs only in the advance the
- *                     font set gives each character (latinadvance.h), which
+ *                     font set gives each character (latin_advance.h), which
  *                     reads advance() from the same source cells() picks.
  *
- * Never constructed with kLatinOff - callers only wrap two sources once
+ * Never constructed with kHiResLatinOff - callers only wrap two sources once
  * hires_text_latin has resolved to half, fullwidth or proportional (see
  * cache.cpp).
  *
@@ -62,7 +62,7 @@ namespace Sci {
  */
 class RoutedGlyphSource : public UnicodeGlyphSource {
 public:
-	RoutedGlyphSource(UnicodeGlyphSource *main, UnicodeGlyphSource *latin, LatinMode mode,
+	RoutedGlyphSource(UnicodeGlyphSource *main, UnicodeGlyphSource *latin, HiResLatinMode mode,
 					  DisposeAfterUse::Flag dispose = DisposeAfterUse::YES);
 	~RoutedGlyphSource() override;
 
@@ -103,10 +103,10 @@ public:
 private:
 	UnicodeGlyphSource *_main;
 	UnicodeGlyphSource *_latin;
-	LatinMode _mode;
+	HiResLatinMode _mode;
 	DisposeAfterUse::Flag _dispose;
 };
 
-} // End of namespace Sci
+} // End of namespace Graphics
 
 #endif

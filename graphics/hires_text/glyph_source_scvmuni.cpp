@@ -19,13 +19,13 @@
  *
  */
 
-#include "sci/graphics/glyphsource_scvmuni.h"
+#include "graphics/hires_text/glyph_source_scvmuni.h"
 
 #include "common/endian.h"
 #include "common/ptr.h"
 #include "common/util.h"
 
-namespace Sci {
+namespace Graphics {
 
 static const char kMagic[8] = { 'S', 'C', 'V', 'M', 'U', 'N', 'I', 0 };
 static const uint16 kVersion = 1;
@@ -145,4 +145,4 @@ const byte *ScvmuniGlyphSource::row(uint32 cp, int y) {
 	return _bitmaps + (uint32)g * _bytesPerGlyph + (uint32)y * _rowBytes;
 }
 
-} // End of namespace Sci
+} // End of namespace Graphics

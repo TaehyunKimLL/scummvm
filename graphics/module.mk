@@ -13,9 +13,16 @@ MODULE_OBJS := \
 	font.o \
 	fontman.o \
 	hires_text/bitmap_font.o \
+	hires_text/codepage_kr.o \
 	hires_text/font_baker.o \
 	hires_text/font_map.o \
 	hires_text/glyph_renderer.o \
+	hires_text/glyph_source_routed.o \
+	hires_text/glyph_source_scvmuni.o \
+	hires_text/glyph_source_svfn.o \
+	hires_text/glyph_source_ttf.o \
+	hires_text/latin_advance.o \
+	hires_text/text_compose.o \
 	fonts/amigafont.o \
 	fonts/bdf.o \
 	fonts/bgifont.o \

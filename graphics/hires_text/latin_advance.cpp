@@ -19,11 +19,11 @@
  *
  */
 
-#include "sci/graphics/latinadvance.h"
+#include "graphics/hires_text/latin_advance.h"
 
 #include "common/util.h"
 
-namespace Sci {
+namespace Graphics {
 
 int latinAdvanceGamePx(Graphics::HiResMetricsSource metrics, int gameWidth, int ttfAdvanceHires, int scale) {
 	if (metrics != Graphics::kHiResMetricsFont || ttfAdvanceHires <= 0 || scale <= 0)
@@ -32,4 +32,4 @@ int latinAdvanceGamePx(Graphics::HiResMetricsSource metrics, int gameWidth, int 
 	return MAX(1, (2 * ttfAdvanceHires + scale) / (2 * scale));
 }
 
-} // End of namespace Sci
+} // End of namespace Graphics

@@ -19,12 +19,12 @@
  *
  */
 
-#ifndef SCI_GRAPHICS_LATINADVANCE_H
-#define SCI_GRAPHICS_LATINADVANCE_H
+#ifndef GRAPHICS_HIRES_TEXT_LATIN_ADVANCE_H
+#define GRAPHICS_HIRES_TEXT_LATIN_ADVANCE_H
 
 #include "graphics/hires_text/font_map.h"
 
-namespace Sci {
+namespace Graphics {
 
 /**
  * hires_text_latin=proportional: the advance, in game (lowres) pixels, of one
@@ -43,6 +43,6 @@ namespace Sci {
  */
 int latinAdvanceGamePx(Graphics::HiResMetricsSource metrics, int gameWidth, int ttfAdvanceHires, int scale);
 
-} // End of namespace Sci
+} // End of namespace Graphics
 
 #endif
