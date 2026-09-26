@@ -88,6 +88,21 @@ public:
 	bool _hasMask;	// True if "removable" text is visible somewhere (should be called _hasText or so)
 	VirtScreenNumber _textScreenID;	// ID of the virtual screen on which the text is visible.
 
+	// Where the removable text went on the text surface, in its own (scaled)
+	// pixels. Only the hi-res layer needs it: there, text the game drew into
+	// its own buffer (ignoreCharsetMask) lands on the text surface too, so a
+	// restore that does not wipe the game buffer must clear just this area
+	// rather than the whole surface. Reset by restoreCharsetBg().
+	Common::Rect _maskedArea;
+	void noteMaskedArea(const Common::Rect &r) {
+		if (r.isEmpty())
+			return;
+		if (_maskedArea.isEmpty())
+			_maskedArea = r;
+		else
+			_maskedArea.extend(r);
+	}
+
 	bool _blitAlso;
 	bool _firstChar;
 

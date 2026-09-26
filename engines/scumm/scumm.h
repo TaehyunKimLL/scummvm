@@ -1749,6 +1749,38 @@ public:
 	HiResOverlay _overlay;
 
 	/**
+	 * Hi-res glyphs standing in for text the game drew for keeps.
+	 *
+	 * With ignoreCharsetMask the game draws text into its own buffer, not the
+	 * charset mask: restoreCharsetBg() leaves it alone, and it goes when the
+	 * game paints over that buffer - an object drawn on top (Indy4's credit
+	 * titles), a background strip redrawn, the picture behind an actor put
+	 * back. The hi-res layer can only draw on the overlay, so it records each
+	 * such glyph here, in overlay pixels, and retires it when the game paints
+	 * the same part of its buffer.
+	 */
+	struct KeptHiResGlyph {
+		Common::Rect area;
+		bool inBackBuffer; ///< drawn with _blitAlso, so survives a back-to-front copy
+	};
+	Common::Array<KeptHiResGlyph> _keptHiResGlyphs;
+
+	/// Record a hi-res glyph drawn for keeps on the main screen.
+	void noteKeptHiResGlyph(const Common::Rect &area, bool inBackBuffer);
+
+	/**
+	 * The game painted @p rect of @p vs (its own pixels, screen columns).
+	 * Clear the kept hi-res glyphs the paint covered.
+	 *
+	 * @param fromBackBuffer  the paint copied the back buffer to the front,
+	 *                        which does not reach text drawn with _blitAlso
+	 */
+	void retireKeptHiResText(const VirtScreen *vs, const Common::Rect &rect, bool fromBackBuffer);
+
+	/// Forget the kept glyphs inside @p area of the overlay, which was cleared.
+	void forgetKeptHiResGlyphs(const Common::Rect &area);
+
+	/**
 	 * The index plane, under its historical name.
 	 *
 	 * The charset renderers and the platform compositors write through this in
@@ -1802,6 +1834,8 @@ protected:
 	void restoreCharsetBg();
 	void clearCharsetMask();
 	void clearTextSurface(const VirtScreen *vs = nullptr);
+	/// Clear part of the text surface, in its own pixels.
+	void clearTextSurfaceRect(const Common::Rect &r);
 
 	/// The value that means "no text here" on this platform.
 	byte textTransparency() const;
