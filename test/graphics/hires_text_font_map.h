@@ -851,9 +851,15 @@ public:
 			"color=8            ; where 0 is transparent\n";
 		cfg.clear();
 		TS_ASSERT(parse(qualified, cfg, "fmtowns"));
-		// INIFile keeps a same-line "; ..." in the value, so neither colour
-		// parses as a number - the same result as before this parser grew.
-		TS_ASSERT(!cfg.shadowColorSet);
+		// Whitespace before ';' starts a comment, so both colours now parse
+		// as the guide says. Before inline comments the "; ..." stayed in
+		// the value and neither colour was set.
+		TS_ASSERT(cfg.shadowColorSet);
+		TS_ASSERT_EQUALS((int)cfg.shadowColor, 8);
+		cfg.clear();
+		TS_ASSERT(parse(qualified, cfg));
+		TS_ASSERT(cfg.shadowColorSet);
+		TS_ASSERT_EQUALS((int)cfg.shadowColor, 0);
 
 		// The simple [latin] shape keeps meaning what it meant.
 		cfg.clear();
@@ -987,5 +993,333 @@ public:
 		cfg.clear();
 		TS_ASSERT(parse("[FONT.7]\nsize=23\n", cfg));
 		TS_ASSERT(cfg.fontIdSettings(7) && cfg.fontIdSettings(7)->size == 23);
+	}
+
+	// --- Inline comments --------------------------------------------------
+	//
+	// Whitespace followed by ';' ends a value, on every key the parser reads.
+	// A ';' with no whitespace before it is part of the value.
+
+	/// parse(), with the scopes "cs0" and "cs1" that SCUMM passes for its charsets.
+	bool parseScoped(const char *text, Graphics::HiResTextConfig &out, const char *q0 = nullptr) {
+		Common::Array<Common::String> qualifiers;
+		if (q0)
+			qualifiers.push_back(q0);
+		Common::Array<Common::String> scopes;
+		scopes.push_back("cs0");
+		scopes.push_back("cs1");
+
+		Common::MemoryReadStream stream((const byte *)text, strlen(text));
+		return Graphics::HiResFontMap::loadFromStream(
+			stream, Common::Path("/games/demo"), qualifiers, out, &scopes);
+	}
+
+	void test_inline_comment_ends_a_value() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[shadow]\ncolor=0 ; DOS\n", cfg));
+		TS_ASSERT(cfg.shadowColorSet);
+		TS_ASSERT_EQUALS((int)cfg.shadowColor, 0);
+
+		// A tab counts as whitespace too.
+		cfg.clear();
+		TS_ASSERT(parse("[shadow]\ncolor=7\t; palette index\n", cfg));
+		TS_ASSERT(cfg.shadowColorSet);
+		TS_ASSERT_EQUALS((int)cfg.shadowColor, 7);
+
+		// No whitespace before ';': the value is "2;", which is not a scale.
+		cfg.clear();
+		TS_ASSERT(parse("[hires]\nscale=2;\n", cfg));
+		TS_ASSERT_EQUALS(cfg.scale, 1);
+		TS_ASSERT(!cfg.scaleFromMap);
+	}
+
+	void test_semicolon_without_whitespace_stays() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[bitmap]\nsingle=my;font.fnt\n", cfg));
+		TS_ASSERT_EQUALS(cfg.bitmapSingle, "my;font.fnt");
+
+		cfg.clear();
+		TS_ASSERT(parse("[fonts]\ndefault=a;b.ttf\n", cfg));
+		TS_ASSERT_EQUALS(cfg.ttfPath[Graphics::kHiResRoleDefault].toString('/'), "/games/demo/a;b.ttf");
+	}
+
+	void test_value_that_is_only_a_comment_is_empty() {
+		// INIFile trims the whitespace before the ';', so the value starts
+		// with it; that is a comment, and the value is empty.
+		Graphics::HiResTextConfig cfg;
+		cfg.bitmapSingle = "before";
+		TS_ASSERT(parse("[bitmap]\nsingle= ; none\n", cfg));
+		TS_ASSERT_EQUALS(cfg.bitmapSingle, "");
+
+		cfg.clear();
+		TS_ASSERT(parse("[shadow]\ncolor= ; x\n", cfg));
+		TS_ASSERT(!cfg.shadowColorSet);
+	}
+
+	void test_inline_comment_every_reader() {
+		const char *map =
+			"[hires]\n"
+			"scale=2 ; getKey\n"
+			"[latin]\n"
+			"face=latin ; getKeyEither\n"
+			"[fonts]\n"
+			"latin=AppleGothic.ttf ; the face table\n"
+			"[glyphs]\n"
+			"0x5e = keep ; an ellipsis, not a caret\n"
+			"[map]\n"
+			"height_12 = title ; the menu bar\n"
+			"[font.4]\n"
+			"size=16 ; pixels\n"
+			"latin=half ; narrow\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(map, cfg));
+
+		TS_ASSERT_EQUALS(cfg.scale, 2);
+		TS_ASSERT(cfg.scaleFromMap);
+
+		TS_ASSERT(cfg.latinFontSet);
+		TS_ASSERT_EQUALS(cfg.latinFont, "latin");
+
+		TS_ASSERT_EQUALS(cfg.resolveFace("latin"), "AppleGothic.ttf");
+
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(cfg.glyphOverride(0x5e, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+
+		TS_ASSERT_EQUALS(cfg.roleForHeight(12), (int)Graphics::kHiResRoleTitle);
+
+		const Graphics::HiResFontIdSettings *f4 = cfg.fontIdSettings(4);
+		TS_ASSERT(f4 != nullptr);
+		if (f4) {
+			TS_ASSERT(f4->sizeSet);
+			TS_ASSERT_EQUALS(f4->size, 16);
+			TS_ASSERT(f4->latinSet);
+			TS_ASSERT_EQUALS(f4->latin, Graphics::kHiResLatinHalf);
+		}
+	}
+
+	void test_scumm_doc_examples_now_parse_as_written() {
+		// engines/scumm/HIRES_TEXT.md (hires-text), verbatim.
+		const char *glyphs =
+			"[glyphs]\n"
+			"0x5e = keep        ; an ellipsis, not a caret\n"
+			"0x07 = keep        ; the dialogue bullet\n"
+			"0x7f = u+2192      ; drawn from the replacement at another code point\n"
+			"\n"
+			"[glyphs:cs1]       ; charset 1 only\n"
+			"0x5f = keep\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parseScoped(glyphs, cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 3u);
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(cfg.glyphOverride(0x5e, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+		TS_ASSERT(cfg.glyphOverride(0x07, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+		TS_ASSERT(cfg.glyphOverride(0x7f, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(o.codepoint, 0x2192u);
+		TS_ASSERT(cfg.glyphOverride(0x5f, o, 1));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+		TS_ASSERT(!cfg.glyphOverride(0x5f, o, 0));
+
+		// engines/scumm/HIRES_TEXT_DECORATIONS.md (hires-text), verbatim.
+		const char *shadow =
+			"[shadow]\n"
+			"mode=outline     ; none | drop | outline | stroke | game\n"
+			"offset=2         ; thickness in output pixels\n"
+			"color=8          ; palette index of the stroke\n";
+		cfg.clear();
+		TS_ASSERT(parse(shadow, cfg));
+		TS_ASSERT_EQUALS(cfg.shadowMode, Graphics::kHiResShadowOutline);
+		TS_ASSERT_EQUALS(cfg.shadowOffset, 2);
+		TS_ASSERT(cfg.shadowColorSet);
+		TS_ASSERT_EQUALS((int)cfg.shadowColor, 8);
+	}
+
+	// --- [glyphs] ranges ---------------------------------------------------
+
+	void test_glyph_range_offset() {
+		const char *maps[] = {
+			"[glyphs]\n0x21-0x7E=+0xFEE0\n",
+			"[glyphs]\n33-126=+65248\n",
+			"[glyphs]\n0x21 - 0x7E = +0xFEE0\n"
+		};
+		for (uint i = 0; i < ARRAYSIZE(maps); ++i) {
+			Graphics::HiResTextConfig cfg;
+			TS_ASSERT(parse(maps[i], cfg));
+			TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 94u);
+			Graphics::HiResGlyphOverride o;
+			TS_ASSERT(cfg.glyphOverride(0x21, o));
+			TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+			TS_ASSERT_EQUALS(o.codepoint, 0xFF01u);
+			TS_ASSERT(cfg.glyphOverride(0x7E, o));
+			TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+			TS_ASSERT_EQUALS(o.codepoint, 0xFF5Eu);
+			TS_ASSERT(!cfg.glyphOverride(0x20, o));
+			TS_ASSERT(!cfg.glyphOverride(0x7F, o));
+		}
+	}
+
+	void test_glyph_range_keep() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[glyphs]\n0x80-0x9F=keep\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 32u);
+		Graphics::HiResGlyphOverride o;
+		for (uint32 c = 0x80; c <= 0x9F; ++c) {
+			TS_ASSERT(cfg.glyphOverride(c, o));
+			TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+		}
+		TS_ASSERT(!cfg.glyphOverride(0x7F, o));
+		TS_ASSERT(!cfg.glyphOverride(0xA0, o));
+
+		// A one-code range, and +0 as an identity remap rather than keep.
+		cfg.clear();
+		TS_ASSERT(parse("[glyphs]\n0x41-0x41=+0\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 1u);
+		TS_ASSERT(cfg.glyphOverride(0x41, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(o.codepoint, 0x41u);
+	}
+
+	void test_glyph_single_offset() {
+		Graphics::HiResTextConfig a, b;
+		TS_ASSERT(parse("[glyphs]\n0x41=+0x20\n", a));
+		TS_ASSERT(parse("[glyphs]\n0x41=0x61\n", b));
+		Graphics::HiResGlyphOverride oa, ob;
+		TS_ASSERT(a.glyphOverride(0x41, oa));
+		TS_ASSERT(b.glyphOverride(0x41, ob));
+		TS_ASSERT_EQUALS(oa.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(oa.action, ob.action);
+		TS_ASSERT_EQUALS(oa.codepoint, ob.codepoint);
+		TS_ASSERT_EQUALS(a.glyphOverrides.size(), 1u);
+
+		// Decimal offsets work too; an offset past U+10FFFF does not.
+		a.clear();
+		TS_ASSERT(parse("[glyphs]\n0x41=+32\n0x10FFFF=+1\n", a));
+		TS_ASSERT_EQUALS(a.glyphOverrides.size(), 1u);
+		TS_ASSERT(a.glyphOverride(0x41, oa));
+		TS_ASSERT_EQUALS(oa.codepoint, 0x61u);
+	}
+
+	void test_glyph_single_beats_range_in_its_section() {
+		const char *maps[] = {
+			"[glyphs]\n0x5e=keep\n0x21-0x7E=+0xFEE0\n",
+			"[glyphs]\n0x21-0x7E=+0xFEE0\n0x5e=keep\n"
+		};
+		for (uint i = 0; i < ARRAYSIZE(maps); ++i) {
+			Graphics::HiResTextConfig cfg;
+			TS_ASSERT(parse(maps[i], cfg));
+			TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 94u);
+			Graphics::HiResGlyphOverride o;
+			TS_ASSERT(cfg.glyphOverride(0x5E, o));
+			TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+			TS_ASSERT(cfg.glyphOverride(0x5D, o));
+			TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+			TS_ASSERT_EQUALS(o.codepoint, 0xFF3Du);
+		}
+	}
+
+	void test_glyph_later_range_wins_overlap() {
+		Graphics::HiResTextConfig cfg;
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(parse("[glyphs]\n0x21-0x7E=+0xFEE0\n0x41-0x5A=keep\n", cfg));
+		TS_ASSERT(cfg.glyphOverride(0x41, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+		TS_ASSERT(cfg.glyphOverride(0x40, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+
+		cfg.clear();
+		TS_ASSERT(parse("[glyphs]\n0x41-0x5A=keep\n0x21-0x7E=+0xFEE0\n", cfg));
+		TS_ASSERT(cfg.glyphOverride(0x41, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(o.codepoint, 0xFF21u);
+	}
+
+	void test_glyph_qualified_range_beats_bare_single() {
+		const char *map =
+			"[glyphs]\n"
+			"0x41=keep\n"
+			"[glyphs:monkey2]\n"
+			"0x40-0x42=+0x20\n";
+		Graphics::HiResTextConfig cfg;
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(parse(map, cfg, "monkey2"));
+		TS_ASSERT(cfg.glyphOverride(0x41, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(o.codepoint, 0x61u);
+
+		// Without the qualifier, the bare single stands alone.
+		cfg.clear();
+		TS_ASSERT(parse(map, cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 1u);
+		TS_ASSERT(cfg.glyphOverride(0x41, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+	}
+
+	void test_glyph_range_in_scope() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parseScoped("[glyphs:cs1]\n0x21-0x2F=keep\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0u);
+		TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides.size(), 2u);
+		if (cfg.scopedGlyphOverrides.size() == 2) {
+			TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides[0].size(), 0u);
+			TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides[1].size(), 15u);
+		}
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(cfg.glyphOverride(0x21, o, 1));
+		TS_ASSERT(cfg.glyphOverride(0x2F, o, 1));
+		TS_ASSERT(!cfg.glyphOverride(0x30, o, 1));
+		TS_ASSERT(!cfg.glyphOverride(0x21, o, 0));
+		TS_ASSERT(!cfg.glyphOverride(0x21, o));
+	}
+
+	void test_glyph_range_bounds() {
+		const char *maps[] = {
+			"[glyphs]\n0x7E-0x21=keep\n",         // ends before it starts
+			"[glyphs]\n0x0-0x10000=keep\n",       // past 0xFFFF
+			"[glyphs]\n0xFFF0-0xFFFF=+0x100001\n", // end + offset past U+10FFFF
+			"[glyphs]\n0x21-0x7E=u+FF01\n",       // absolute target
+			"[glyphs]\n0x21-0x7E=+u+10\n",        // an offset is not a code point
+			"[glyphs]\n0x21-=keep\n",             // malformed halves
+			"[glyphs]\n-0x7E=keep\n",
+			"[glyphs]\n0x21-0x7E-0x80=keep\n",
+			"[glyphs]\n0xzz-0x7E=keep\n"
+		};
+		for (uint i = 0; i < ARRAYSIZE(maps); ++i) {
+			Graphics::HiResTextConfig cfg;
+			TS_ASSERT(parse(maps[i], cfg));
+			TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0u);
+		}
+	}
+
+	void test_glyph_range_limit() {
+		// Two full 0x0000-0xFFFF ranges fit; a third range, however small, does not.
+		const char *map =
+			"[glyphs]\n"
+			"0x0-0xFFFF=keep\n"
+			"[glyphs:cs0]\n"
+			"0x0-0xFFFF=keep\n"
+			"[glyphs:cs1]\n"
+			"0x41-0x41=keep\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parseScoped(map, cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0x10000u);
+		TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides.size(), 2u);
+		if (cfg.scopedGlyphOverrides.size() == 2) {
+			TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides[0].size(), 0x10000u);
+			TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides[1].size(), 0u);
+		}
+	}
+
+	void test_glyph_range_key_is_legal_ini() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[glyphs]\n0x21-0x7E=keep\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 94u);
+
+		// '+' is not a key character, so this rejects the whole map, exactly
+		// as test_glyphs_key_may_not_use_u_plus_form() pins for a single code.
+		cfg.clear();
+		TS_ASSERT(!parse("[glyphs]\nu+21-u+7E=keep\n", cfg));
 	}
 };
