@@ -1327,6 +1327,13 @@ void ScummHiResText::setGameFontCell(int charsetId, int width, int height) {
 	}
 }
 
+bool ScummHiResText::cjkTablesPresent() {
+	// Any double-byte page would do; CP949 is the one the patches use. The
+	// table-less conversion yields U+FFFD or nothing, never U+AC00.
+	const Common::U32String probe("\xb0\xa1", Common::kWindows949);
+	return probe.size() == 1 && probe[0] == 0xAC00;
+}
+
 bool ScummHiResText::mapNamesNoFonts(const Graphics::HiResTextConfig &config,
 									 const Common::Path &ttfPath) {
 	return config.bitmapPattern.empty() && config.bitmapSingle.empty() &&
@@ -1503,6 +1510,18 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 								!_config.legacy.latinBitmapName.empty();
 	_enabled = (haveMap || haveTtf) &&
 			   (_config.scale > 1 || haveNamedFonts || haveTtf);
+
+	// Every double-byte string is decoded through encoding.dat. Without it
+	// the layer quietly draws no CJK glyph at all - the game's own font
+	// shows instead - so say once what is missing and how to supply it.
+	if (_enabled) {
+		const Common::CodePage page = _config.encoding;
+		if ((page == Common::kWindows932 || page == Common::kWindows936 ||
+			 page == Common::kWindows949 || page == Common::kWindows950 ||
+			 page == Common::kJohab) && !cjkTablesPresent())
+			warning("SCUMM: encoding.dat not found (pass --extrapath to dists/engine-data); "
+					"CJK glyphs disabled");
+	}
 
 	if (_enabled) {
 		const char *fontsNamed = "(none named)";
