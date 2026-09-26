@@ -20,10 +20,9 @@
  */
 
 #include "common/endian.h"
-#include "sci/graphics/textcompose.h"
-#include "sci/graphics/textlayer.h"
+#include "graphics/hires_text/text_compose.h"
 
-namespace Sci {
+namespace Graphics {
 namespace TextCompose {
 
 byte expandCoverage(const byte *row, int x, int bpp) {
@@ -84,4 +83,4 @@ void stampSpan(byte *dstIndex, const TextPixel *text, int count) {
 }
 
 } // End of namespace TextCompose
-} // End of namespace Sci
+} // End of namespace Graphics

@@ -19,21 +19,19 @@
  *
  */
 
-#ifndef SCI_GRAPHICS_GLYPHSOURCE_TTF_H
-#define SCI_GRAPHICS_GLYPHSOURCE_TTF_H
+#ifndef GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_TTF_H
+#define GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_TTF_H
 
 #include "common/array.h"
 #include "common/hashmap.h"
 #include "common/str.h"
 #include "common/stream.h"
 #include "common/types.h"
-#include "sci/graphics/glyphsource.h"
+#include "graphics/hires_text/glyph_source.h"
 
 namespace Graphics {
-class Font;
-}
 
-namespace Sci {
+class Font;
 
 /**
  * A live TrueType face, read through FreeType and exposed as a
@@ -167,6 +165,6 @@ private:
 	Common::HashMap<uint32, Entry> _cache;
 };
 
-} // End of namespace Sci
+} // End of namespace Graphics
 
 #endif

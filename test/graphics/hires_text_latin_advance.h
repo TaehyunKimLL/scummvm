@@ -23,9 +23,9 @@
 #include <cxxtest/TestSuite.h>
 
 #include "graphics/hires_text/font_map.h"
-#include "sci/graphics/latinadvance.h"
+#include "graphics/hires_text/latin_advance.h"
 
-using Sci::latinAdvanceGamePx;
+using Graphics::latinAdvanceGamePx;
 
 /**
  * latinAdvanceGamePx(): hires_text_latin=proportional's advance for one ASCII

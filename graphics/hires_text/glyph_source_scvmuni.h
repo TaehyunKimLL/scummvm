@@ -19,14 +19,14 @@
  *
  */
 
-#ifndef SCI_GRAPHICS_GLYPHSOURCE_SCVMUNI_H
-#define SCI_GRAPHICS_GLYPHSOURCE_SCVMUNI_H
+#ifndef GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_SCVMUNI_H
+#define GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_SCVMUNI_H
 
 #include "common/array.h"
 #include "common/str.h"
-#include "sci/graphics/glyphsource.h"
+#include "graphics/hires_text/glyph_source.h"
 
-namespace Sci {
+namespace Graphics {
 
 /**
  * A parsed SCVMUNI bundle: glyphs addressed by Unicode code point, held in a
@@ -91,6 +91,6 @@ private:
 	int _cachedIndex = -1;
 };
 
-} // End of namespace Sci
+} // End of namespace Graphics
 
 #endif

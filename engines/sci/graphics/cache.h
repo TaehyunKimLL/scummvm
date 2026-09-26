@@ -29,12 +29,15 @@
 #include "sci/graphics/hirestextsettings.h"
 #include "sci/graphics/textlatin.h"
 
+namespace Graphics {
+class TtfGlyphSource;
+}
+
 namespace Sci {
 
 class GfxFont;
 class GfxFontUnicode;
 class GfxView;
-class TtfGlyphSource;
 
 typedef Common::HashMap<int, GfxFont *> FontCache;
 typedef Common::HashMap<int, GfxView *> ViewCache;
@@ -114,7 +117,7 @@ private:
 	 * (path, size, Hangul check) and shared; nullptr when it fails to open,
 	 * with one warning per such key (@p what names the setting in it).
 	 */
-	TtfGlyphSource *ttfSource(const Common::String &path, int size, bool requireHangul,
+	Graphics::TtfGlyphSource *ttfSource(const Common::String &path, int size, bool requireHangul,
 							  const char *what, const char *fallback);
 
 	/**
@@ -152,7 +155,7 @@ private:
 	Common::HashMap<int, bool> _latinNoFaceWarned;
 
 	/// TrueType sources by "path|size|hangul"; nullptr = failed (warned).
-	Common::HashMap<Common::String, TtfGlyphSource *> _ttfSources;
+	Common::HashMap<Common::String, Graphics::TtfGlyphSource *> _ttfSources;
 	/// Unicode bundles built on those sources, by their faces and routing.
 	Common::HashMap<Common::String, GfxFontUnicode *> _ttfBundles;
 	/// The .uni bundle.
