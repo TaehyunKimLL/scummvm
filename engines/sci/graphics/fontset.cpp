@@ -21,7 +21,7 @@
 
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
-#include "sci/graphics/latinadvance.h"
+#include "graphics/hires_text/latin_advance.h"
 
 #include "sci/sci.h"
 
@@ -248,7 +248,7 @@ byte GfxFontSet::getCharWidth(uint32 chr) {
 		f->kind == kFaceCodePoint) {
 		GfxFontUnicode *uni = static_cast<GfxFontUnicode *>(f->font);
 		const int scale = (f->hiresPlane && getSciVersion() < SCI_VERSION_2) ? 2 : 1;
-		return (byte)latinAdvanceGamePx(_settings.metrics, _faces[0].font->getCharWidth(chr),
+		return (byte)Graphics::latinAdvanceGamePx(_settings.metrics, _faces[0].font->getCharWidth(chr),
 										uni->advanceHires(c), scale);
 	}
 	return toLowres(*f, f->font->getCharWidth(c));

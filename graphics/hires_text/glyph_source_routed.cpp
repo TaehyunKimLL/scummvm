@@ -19,11 +19,11 @@
  *
  */
 
-#include "sci/graphics/glyphsource_routed.h"
+#include "graphics/hires_text/glyph_source_routed.h"
 
-namespace Sci {
+namespace Graphics {
 
-RoutedGlyphSource::RoutedGlyphSource(UnicodeGlyphSource *main, UnicodeGlyphSource *latin, LatinMode mode,
+RoutedGlyphSource::RoutedGlyphSource(UnicodeGlyphSource *main, UnicodeGlyphSource *latin, HiResLatinMode mode,
 									 DisposeAfterUse::Flag dispose)
 	: _main(main), _latin(latin), _mode(mode), _dispose(dispose) {
 }
@@ -36,15 +36,15 @@ RoutedGlyphSource::~RoutedGlyphSource() {
 }
 
 bool RoutedGlyphSource::routeToLatin(uint32 cp) const {
-	// kLatinProportional routes the same plain ASCII as kLatinHalf.
-	if (_mode == kLatinHalf || _mode == kLatinProportional)
+	// kHiResLatinProportional routes the same plain ASCII as kHiResLatinHalf.
+	if (_mode == kHiResLatinHalf || _mode == kHiResLatinProportional)
 		return cp >= 0x0020 && cp <= 0x007E;
-	// kLatinFullwidth: the only other mode this class is ever constructed
-	// with (see the class comment in glyphsource_routed.h). Latin-1
+	// kHiResLatinFullwidth: the only other mode this class is ever constructed
+	// with (see the class comment in glyph_source_routed.h). Latin-1
 	// (U+00A0..U+00FF) is deliberately not routed in either mode: it is not
 	// remapped (the fullwidth-forms block has no counterpart for it), and it
 	// keeps the face it had before hires_text_latin existed.
 	return (cp >= 0xFF01 && cp <= 0xFF5E) || cp == 0x3000;
 }
 
-} // End of namespace Sci
+} // End of namespace Graphics

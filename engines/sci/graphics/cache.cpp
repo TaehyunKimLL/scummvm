@@ -32,8 +32,8 @@
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
-#include "sci/graphics/glyphsource_routed.h"
-#include "sci/graphics/glyphsource_ttf.h"
+#include "graphics/hires_text/glyph_source_routed.h"
+#include "graphics/hires_text/glyph_source_ttf.h"
 #include "sci/graphics/textlatin.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
@@ -251,6 +251,22 @@ void GfxCache::resolveHiresText() {
 	}
 }
 
+/** Sci::LatinMode as the shared router in graphics/hires_text names it; the
+ *  two enums list the same modes (hirestextsettings.cpp maps the other way). */
+static Graphics::HiResLatinMode toHiResLatinMode(LatinMode mode) {
+	switch (mode) {
+	case kLatinHalf:
+		return Graphics::kHiResLatinHalf;
+	case kLatinFullwidth:
+		return Graphics::kHiResLatinFullwidth;
+	case kLatinProportional:
+		return Graphics::kHiResLatinProportional;
+	case kLatinOff:
+	default:
+		return Graphics::kHiResLatinOff;
+	}
+}
+
 FontSettings GfxCache::fontSettingsFor(GuiResourceId fontId) {
 	resolveHiresText();
 	if (!_hiresApplies)
@@ -258,7 +274,7 @@ FontSettings GfxCache::fontSettingsFor(GuiResourceId fontId) {
 	return resolveFontSettings(_hiresMap, _hiresMapLoaded, fontId, _hiresIni, _hiresMapDir);
 }
 
-TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int size, bool requireHangul,
+Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int size, bool requireHangul,
 									const char *what, const char *fallback) {
 	const Common::String key = Common::String::format("%s|%d|%d", path.c_str(), size, requireHangul ? 1 : 0);
 	if (_ttfSources.contains(key))
@@ -271,7 +287,7 @@ TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int size, bool r
 	}
 
 	Common::String error;
-	TtfGlyphSource *src = nullptr;
+	Graphics::TtfGlyphSource *src = nullptr;
 	Common::FSNode node(Common::Path(path, Common::Path::kNativeSeparator));
 	// Checked with exists() and isDirectory() before createReadStream():
 	// that call emits its own "FSNode::createReadStream: ..." warning for an
@@ -286,7 +302,7 @@ TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int size, bool r
 		error = "is a directory";
 	} else if (Common::SeekableReadStream *stream = node.createReadStream()) {
 		const uint32 startMs = g_system->getMillis();
-		src = TtfGlyphSource::create(stream, DisposeAfterUse::YES, size, error, requireHangul);
+		src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, size, error, requireHangul);
 		const uint32 elapsedMs = g_system->getMillis() - startMs;
 		if (src)
 			debug(1, "SCI: %s %s opened at %dpx in %u ms", what, path.c_str(), size, elapsedMs);
@@ -328,7 +344,7 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	// face: one that has none is refused, and the fallback serves instead.
 	const bool requireHangul = g_sci->getSciLanguageCodePage() == Common::kWindows949;
 	Common::String mainPath = s.facePath;
-	TtfGlyphSource *main = nullptr;
+	Graphics::TtfGlyphSource *main = nullptr;
 	if (!mainPath.empty()) {
 		// A face only this font id names ([font.N] face=) falls back to the
 		// face every other id gets (the ini key, else [hires] font=), then
@@ -375,7 +391,7 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	// Absent (or the same file), the main face draws that range too
 	// (glyphChar()/faceFor() send it code points the main face can already
 	// answer for, so no second source is needed).
-	TtfGlyphSource *latin = nullptr;
+	Graphics::TtfGlyphSource *latin = nullptr;
 	if (s.latin != kLatinOff && !s.latinFacePath.empty() && s.latinFacePath != mainPath) {
 		latin = ttfSource(s.latinFacePath, s.size, false, "hires_text_latin_font",
 						  "the main face draws Latin text");
@@ -395,7 +411,7 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	GfxFontUnicode *f = new GfxFontUnicode(_screen, 0);
 	if (latin) {
 		// The router owns neither face: both stay in _ttfSources, shared.
-		f->setSource(new RoutedGlyphSource(main, latin, s.latin, DisposeAfterUse::NO), mainPath);
+		f->setSource(new Graphics::RoutedGlyphSource(main, latin, toHiResLatinMode(s.latin), DisposeAfterUse::NO), mainPath);
 		debug(1, "SCI: font %d routes Latin text to %s", fontId, s.latinFacePath.c_str());
 	} else {
 		f->setSource(main, mainPath, DisposeAfterUse::NO);
@@ -429,7 +445,7 @@ GfxCache::~GfxCache() {
 		 it != _ttfBundles.end(); ++it)
 		delete it->_value;
 	_ttfBundles.clear();
-	for (Common::HashMap<Common::String, TtfGlyphSource *>::iterator it = _ttfSources.begin();
+	for (Common::HashMap<Common::String, Graphics::TtfGlyphSource *>::iterator it = _ttfSources.begin();
 		 it != _ttfSources.end(); ++it)
 		delete it->_value;
 	_ttfSources.clear();

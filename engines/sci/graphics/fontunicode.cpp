@@ -22,10 +22,10 @@
 #include "sci/graphics/fontunicode.h"
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontsjis.h"
-#include "sci/graphics/glyphsource_scvmuni.h"
-#include "sci/graphics/latinadvance.h"
+#include "graphics/hires_text/glyph_source_scvmuni.h"
+#include "graphics/hires_text/latin_advance.h"
 #include "sci/graphics/screen.h"
-#include "sci/graphics/textcompose.h"
+#include "graphics/hires_text/text_compose.h"
 #include "sci/graphics/textlatin.h"
 #include "sci/sci.h"
 
@@ -55,7 +55,7 @@ bool GfxFontUnicode::load(const Common::String &filename) {
 	}
 
 	Common::String error;
-	UnicodeGlyphSource *src = ScvmuniGlyphSource::create(Common::move(data), filename, error);
+	Graphics::UnicodeGlyphSource *src = Graphics::ScvmuniGlyphSource::create(Common::move(data), filename, error);
 	if (!src) {
 		warning("GfxFontUnicode: %s", error.c_str());
 		return false;
@@ -65,7 +65,7 @@ bool GfxFontUnicode::load(const Common::String &filename) {
 	return true;
 }
 
-void GfxFontUnicode::setSource(UnicodeGlyphSource *src, const Common::String &name,
+void GfxFontUnicode::setSource(Graphics::UnicodeGlyphSource *src, const Common::String &name,
 							   DisposeAfterUse::Flag dispose) {
 	_source.reset(src, dispose);
 	_loaded = true;
@@ -114,7 +114,7 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 	_glyphScratch.resize((uint)w * cellHeight);
 	byte *cov = _glyphScratch.begin();
 	for (int y = 0; y < cellHeight; y++)
-		TextCompose::expandGlyphRow(cov + y * w, coverageRow(chr, y), w, bpp, greyedOutput, top + y, left);
+		Graphics::TextCompose::expandGlyphRow(cov + y * w, coverageRow(chr, y), w, bpp, greyedOutput, top + y, left);
 	_screen->putHiresCoverageGlyph(cov, w, cellHeight, left, top, color);
 }
 
@@ -140,7 +140,7 @@ void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,
 			const int destX = left + x;
 			if (destX < 0 || destX >= width)
 				continue;
-			if (TextCompose::expandCoverage(row, x, bpp) == 0)
+			if (Graphics::TextCompose::expandCoverage(row, x, bpp) == 0)
 				continue;
 			if (greyedOutput && (destY % 2) == (destX % 2))
 				continue;
@@ -274,7 +274,7 @@ byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
 			// to this face.
 			const int scale = (getSciVersion() >= SCI_VERSION_2) ? 1 : 2;
 			const int gameWidth = _fallback ? _fallback->getCharWidth(chr) : w / scale;
-			return (byte)latinAdvanceGamePx(_metrics, gameWidth, _font->advanceHires(cp), scale);
+			return (byte)Graphics::latinAdvanceGamePx(_metrics, gameWidth, _font->advanceHires(cp), scale);
 		}
 		// The glyph is drawn on the hires plane at twice the lowres
 		// coordinates, so its advance must be reported halved - exactly what

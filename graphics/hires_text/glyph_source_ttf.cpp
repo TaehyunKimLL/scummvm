@@ -19,7 +19,7 @@
  *
  */
 
-#include "sci/graphics/glyphsource_ttf.h"
+#include "graphics/hires_text/glyph_source_ttf.h"
 
 #include "common/debug.h"
 #include "common/system.h"
@@ -32,7 +32,7 @@
 #include "graphics/fonts/ttf.h"
 #endif
 
-namespace Sci {
+namespace Graphics {
 
 namespace {
 
@@ -558,4 +558,4 @@ uint32 TtfGlyphSource::glyphCount() const {
 
 #endif // USE_FREETYPE2
 
-} // End of namespace Sci
+} // End of namespace Graphics
