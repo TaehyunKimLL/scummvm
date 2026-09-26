@@ -8,7 +8,10 @@ opaque qualifier strings in most-specific-first order. Keys fall back through
 qualified sections to the bare section. Height-role maps merge in the reverse
 order. The parser does not access engine types, ConfigManager or FreeType.
 
-Example (comments must occupy their own lines):
+Example (a value ends at a `;` with whitespace before it, e.g. `scale=3 ;
+comment`; without that whitespace the `;` stays part of the value, e.g.
+`single=my;font.fnt`; a line whose first character is `;` or `#` is a
+whole-line comment either way):
 
 ```ini
 [hires]
@@ -73,6 +76,21 @@ in its place. Both sides accept `0x5e`, decimal, or `u+2192`; values above
 0x10FFFF and trailing junk are rejected, and a rejected entry is skipped
 rather than failing the map. The parser attaches no meaning to either action -
 what "keep" does is the adapter's business.
+
+A key may also be a range, `<code>-<code>` (each half parsed the same as a
+single key, so `0x21 - 0x7E` works too): `<code>-<code>=keep`, or
+`<code>-<code>=+<n>` to remap every code in the range by the same offset
+(`<n>` is `0x..` or decimal, never `u+` - an offset is a distance, not a
+code point; an absolute target on a range is rejected, since it would draw
+every code in the range as one glyph). `+<n>` is also accepted on a single
+code. Within one section a single code always beats a range that covers it;
+between two ranges in one section the later one wins for the codes they
+share; a qualified section beats the bare one as usual. Bounds: a range must
+not end before it starts, its end is capped at `0xFFFF`, and `end + offset`
+at `U+10FFFF`; a bad range warns and is skipped, like a bad single entry.
+Ranges may add at most 131072 codes per load, summed across the common table
+and every scope - a range that would cross that limit is skipped whole, with
+one warning.
 
 Sections may also be narrowed by a caller-supplied **scope**, passed to
 `load()` as an array of names. `[glyphs:cs1]` fills

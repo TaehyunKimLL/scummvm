@@ -53,6 +53,9 @@ offset=2         ; thickness in output pixels
 color=8          ; palette index of the stroke
 ```
 
+These `; ...` comments parse as written: a `;` with whitespace before it ends
+the value (`HIRES_TEXT_SETUP.md`, "The map file", has the exact rule).
+
 - `mode=game` (the default) follows whatever the game asked for.
 - `drop` is one-sided, `outline` surrounds evenly, `stroke` is an outline
   weighted towards the lower left.

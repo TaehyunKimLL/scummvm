@@ -24,6 +24,7 @@
 
 #include "common/array.h"
 #include "common/hashmap.h"
+#include "common/hash-str.h"
 #include "common/path.h"
 #include "common/str.h"
 #include "common/str-enc.h"
@@ -76,6 +77,40 @@ enum HiResMetricsSource {
 };
 
 /**
+ * How a font's Latin (ASCII) range is drawn, for engines that route it to a
+ * replacement face ([latin] mode=, [font.N] latin=). SCUMM does not read it.
+ */
+enum HiResLatinMode {
+	kHiResLatinOff = 0,       ///< the game's own font draws Latin text
+	kHiResLatinHalf,          ///< routed to the replacement face, at its own code point
+	kHiResLatinFullwidth,     ///< remapped to the fullwidth-forms block
+	kHiResLatinProportional   ///< routed to the replacement face, advance per [metrics]
+};
+
+/**
+ * One [font.N] section: settings for one engine font id. Every field carries a
+ * "set" flag, so an adapter can tell "the map said so" from "the map is
+ * silent" and fall back to [latin]/[hires]. Face values are kept as written: a
+ * [fonts] name or a path, see HiResTextConfig::resolveFace().
+ */
+struct HiResFontIdSettings {
+	HiResFontIdSettings();
+
+	Common::String face;              ///< face=
+	bool faceSet;
+	int size;                         ///< size=, pixels
+	bool sizeSet;
+	HiResLatinMode latin;             ///< latin=
+	bool latinSet;
+	Common::String latinFont;         ///< latin_font= (or latin_face=)
+	bool latinFontSet;
+	bool latinFullwidthSpace;         ///< latin_space=fullwidth
+	bool latinSpaceSet;
+	HiResMetricsSource metrics;       ///< metrics=game|font
+	bool metricsSet;
+};
+
+/**
  * What to do with a character code the game repurposed.
  *
  * A game's own font is not a character set: LucasArts titles draw an ellipsis
@@ -101,7 +136,9 @@ struct HiResGlyphOverride {
 
 /** Compatibility data for old maps; not generic character classification. */
 struct LegacyFontMapOptions {
-	bool latinEnabled;
+	bool latinEnabled;              ///< enabled=, or implied by bitmap= (SCUMM's reading)
+	bool latinEnabledSet;           ///< an explicit enabled= parsed
+	bool latinEnabledValue;         ///< its literal value (bitmap= does not touch it)
 	Common::Path latinTtfPath;
 	Common::String latinBitmapName;
 	HiResMetricsSource latinTtfMetrics;
@@ -171,6 +208,39 @@ struct HiResTextConfig {
 	// --- translation bundle ---------------------------------------------
 	Common::String translationName;
 
+	// --- per-font settings (SCI; SCUMM ignores these) --------------------
+	// All optional: each has a "set" flag and is untouched by a map that does
+	// not name it. Face values are kept as written; see resolveFace().
+	Common::String hiresFace;         ///< [hires] font=, the face a [font.N] names none
+	bool hiresFaceSet;
+	int hiresSize;                    ///< [hires] size=, pixels
+	bool hiresSizeSet;
+	HiResLatinMode latinMode;         ///< [latin] mode=
+	bool latinModeSet;
+	bool latinFullwidthSpace;         ///< [latin] space=fullwidth
+	bool latinSpaceSet;
+	Common::String latinFont;         ///< [latin] font= (or face=), as written
+	bool latinFontSet;
+	HiResMetricsSource latinMetrics;  ///< [latin] metrics=game|font
+	bool latinMetricsSet;
+
+	/// [fonts] as a whole: every face name -> the path as written (relative
+	/// paths are left for the adapter to resolve). SCUMM's ttfPath[] roles are
+	/// filled as before; this table is in addition to them.
+	typedef Common::HashMap<Common::String, Common::String,
+							Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> FaceTable;
+	FaceTable fontFaces;
+
+	/// [font.N] and [font.N:<qualifier>] sections, keyed by font id.
+	Common::HashMap<int, HiResFontIdSettings> fontIds;
+
+	/// The [font.N] settings for @p id, or nullptr if the map has none.
+	const HiResFontIdSettings *fontIdSettings(int id) const;
+
+	/// The [fonts] entry for a face name, or @p nameOrPath itself when it is
+	/// not a name in the table (it is then a path).
+	Common::String resolveFace(const Common::String &nameOrPath) const;
+
 	/// Adapter-defined line height key -> font role (no scaling in this parser).
 	Common::HashMap<int, int> heightRoles;
 
@@ -181,7 +251,11 @@ struct HiResTextConfig {
 /**
  * Reader for the ".map" font description file.
  *
- * Comments occupy their own lines; inline comments are not supported.
+ * A line starting with ';' or '#' is a comment. A ';' preceded by a space or
+ * a tab ends a value and starts a comment ("color=0 ; DOS" is 0); a ';' with
+ * anything else before it is part of the value ("single=my;font.fnt"), and a
+ * value that is only a comment ("single= ; none") is empty. '#' never starts
+ * an inline comment.
  * The file is an INI. Sections may carry a qualifier after a colon, and the
  * reader tries the qualifiers a caller supplies before falling back to the
  * bare section:

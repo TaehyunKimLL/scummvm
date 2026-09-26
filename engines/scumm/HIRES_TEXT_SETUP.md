@@ -78,14 +78,24 @@ Per-game keys, in the game's own section:
 [mi2kor]
 gameid=monkey2
 path=/games/mi2kor
-hires_text_map=hires_text.map     ; relative to the game folder, or absolute
+# hires_text_map is relative to the game folder, or absolute
+hires_text_map=hires_text.map
 hires_text_font=/fonts/NanumGothic.ttf
 hires_text_scale=2
 hires_text_alpha=true
 hires_text_metrics=font
 hires_text_log=true
-hires_text=false                  ; the off switch
+# hires_text=false is the off switch
+hires_text=false
 ```
+
+**`scummvm.ini` has no inline comments.** It is read by `ConfigManager`, not
+by the map parser below, and a `;` after a value stays part of the value:
+`hires_text=false ; the off switch` sets `hires_text` to the literal string
+`false ; the off switch`, which is not the boolean `false`. Put a `; ...` or
+`# ...` comment on its own line instead, as above. (The inline-comment rule
+further down — whitespace before `;` ends a value — belongs to
+`hires_text.map`, a different file with a different reader.)
 
 | key | type | what it does |
 |---|---|---|
@@ -188,6 +198,18 @@ color=0
 file=strings.txt
 ```
 
+**Comments in a map value.** A `;` ends the value only when whitespace comes
+before it — `color=0 ; DOS` reads as `0`. Without that whitespace the `;`
+stays part of the value (`single=my;font.fnt` keeps the whole filename). A
+line whose first character is `;` or `#` is still a whole-line comment,
+exactly as before. This applies to every key the map parser reads, on both
+the SCUMM and SCI lines — it is the *map's* rule, not the ini's (see above).
+
+This changes behaviour for a shipped map that already had an inline `; ...`
+on a value line: it used to warn and leave that key at its default (see
+"Per-game sections" below); it now applies the value the comment was always
+sitting next to.
+
 ### `[hires]`
 
 | key | values | default |
@@ -214,7 +236,9 @@ a rasteriser would produce and need no FreeType at run time.
 
 - `multi` — a pattern, one font per charset, e.g. `korean%02d.fnt`
 - `single` — one font for every charset
-- `glyphs` — how many glyphs the file holds, for double-byte sets
+- `glyphs` — the shared parser reads this into `bitmapGlyphs`, but SCUMM
+  does not apply it: `engines/scumm/hires_text.cpp` never reads that field.
+  A `.fnt` file already carries its own glyph count in its header.
 
 ### `[latin]`
 
@@ -222,7 +246,10 @@ The single-byte half of a line, when the main font is double-byte. Without
 it, Latin letters keep the game's original glyphs and a mixed line is drawn
 at two different qualities.
 
-- `enabled`, `bitmap` (a pattern), `font` (a TTF), `metrics`
+- `enabled`, `bitmap` (a pattern) — read and applied by SCUMM.
+- `font` (a TTF), `metrics` — the shared parser reads these too, but SCUMM
+  does not apply them; they belong to SCI's Latin typeface path. On the
+  SCUMM line, `bitmap=` is the only way to give the Latin half its own face.
 
 ### `[render] metrics`
 
@@ -250,6 +277,51 @@ are drawn from the game's own font, not from a face that has a letter there.
 - `0x07=keep` — leave this code to the original font
 - `0x5e=0x2026` — draw this code using that Unicode code point instead
 
+A range covers many codes in one line:
+
+```ini
+[glyphs]
+0x21-0x7E=+0xFEE0    ; ASCII to the fullwidth forms block, all at once
+0x5e=keep            ; the caret in that range stays the game's own ellipsis
+0x80-0x9F=keep       ; a whole block left to the game's font
+0x41=+0x20           ; a single code, offset form - same as 0x41=0x61
+```
+
+- `<code>-<code>=+<n>` remaps every code in the range by the same offset
+  (`n` is `0x..` or decimal, never `u+` — an offset is a distance, not a
+  code point). `<code>-<code>=keep` leaves the whole range untouched.
+- `+<n>` also works on a single code: `0x41=+0x20` is the same as `0x41=0x61`.
+- **Precedence**, most specific wins: a qualified section (`[glyphs:cs1]`,
+  see below) beats the bare `[glyphs]` section for the codes it names; within
+  one section a single code always beats a range that covers it, whichever
+  line comes first — that is how `0x5e=keep` above punches a hole in the
+  `0x21-0x7E` range next to it; between two ranges in the same section, the
+  later line wins for the codes they share.
+- **Bounds**, each one warns and ignores just that one entry: a range must
+  not end before it starts, its end must not exceed `0xFFFF` (game codes are
+  at most double-byte), and `end + offset` must not exceed `U+10FFFF`. A
+  range cannot take an absolute target — `0x21-0x7E=u+FF01` is refused,
+  because it would draw 94 different codes as one glyph.
+- **Table limit:** ranges may add at most 131072 codes per map load, counted
+  over the common table and every scope together. A range that would cross
+  the limit is ignored whole, with one warning; ranges earlier in the file
+  still apply.
+- **Caution — one baked font, one glyph cap:** every remap target is baked
+  into *every* charset's font, not just the one the range was written under
+  — both the CJK bake list and the Latin bake list get every remap applied
+  (`graphics/hires_text/font_baker.cpp` around line 82 and lines 238-248;
+  `engines/scumm/hires_text.cpp` around lines 1168-1178). A baked font holds
+  at most 65535 glyphs; if a map's ranges push a charset's kept-code count
+  past that, the bake fails outright (a warning is logged) and that charset
+  loses hi-res text entirely. Small ranges such as ASCII to fullwidth (94
+  codes) are nowhere near the limit; keep an eye on this only for ranges
+  large enough, or numerous enough across sections, to approach 65535 codes
+  in a single charset's bake.
+- The key is always a plain code range, never `u+21-u+7E`: `Common::INIFile`
+  only allows alphanumerics, `-`, `_`, `.`, `:` and space in a key, so a `u+`
+  key rejects the *whole map* — the same failure a single `u+`-keyed entry
+  already causes.
+
 ### `[fonts]` and `[sizes]`
 
 A TrueType face named by the map rather than by the ini:
@@ -263,7 +335,22 @@ bold=/fonts/NanumGothic-Bold.ttf
 default=16
 ```
 
-Roles are `default`, `bold`, `title`.
+The shared table has three roles, `default`, `bold`, `title`, but **SCUMM
+applies only `default=`.** `bold=` and `title=` parse without error — they
+fill the same table — but nothing on the SCUMM line reads them; only SCI's
+typeface path uses more than the default role. `[sizes]` parses in full too,
+and SCUMM does not apply any of it: the size a TTF is baked at follows the
+game's own cell and `hires_text_scale`, never a value named in the map.
+
+### `[translation]`
+
+```ini
+[translation]
+file=strings.txt
+```
+
+The shared parser reads `file=` into its config, but SCUMM does not apply
+it. Translated text comes from the game's own resources, not from the map.
 
 ### Per-game sections
 
@@ -276,6 +363,25 @@ color=0            ; DOS
 [shadow:fmtowns]
 color=8            ; where 0 is transparent
 ```
+
+This now parses exactly as written — `color=0` on DOS, `color=8` on
+FM-Towns — by the comment rule above. Before it, both lines warned
+(`HiResText: invalid shadow color '0            ; DOS', ignoring`, and the
+same for FM-Towns) and `shadowColorSet` stayed false, so a map written this
+way silently kept the game's own outline colour. Check any map you already
+ship for this pattern: after upgrading, it will start drawing the colour it
+always looked like it named.
+
+### Shared with SCI
+
+SCUMM and the SCI engine read `hires_text.map` with the same parser. Some
+sections belong to SCI alone — `[font.N]`, `[font.N:<platform>]`,
+`[hires] font=`/`face=`/`size=` (`face=` is an alias for `font=`),
+`[latin] mode=`/`space=` — and parse without error in a SCUMM map, but SCUMM
+ignores every one of them. A badly-formed value in
+one of them still produces a warning: the parser has no way to know which
+engine will read the map before it reads it. See `HIRES_TEXT_MAP.md` in the
+docs repo for the full section-by-section list of what each engine applies.
 
 ## Using a TrueType face directly
 

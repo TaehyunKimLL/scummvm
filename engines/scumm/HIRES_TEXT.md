@@ -110,6 +110,11 @@ the character disappears.
 0x5f = keep
 ```
 
+Every `; ...` above parses as written: a `;` with whitespace before it ends
+the value, so it is a comment rather than part of it (`HIRES_TEXT_SETUP.md`,
+"The map file", has the exact rule, plus the range syntax `[glyphs]` also
+takes).
+
 `keep` declines before a font is chosen, which is what lets the existing
 fallback draw the game's own glyph; `advanceFor()` declines in step, so the
 line still measures as the game laid it out. A `u+XXXX` value draws that code
@@ -141,6 +146,9 @@ offset=2         ; thickness in output pixels
 color=8          ; palette index of the stroke
 ```
 
+These `; ...` comments parse as written, by the same whitespace-before-`;`
+rule as the `[glyphs]` example above.
+
 The decoration is built as a dilation mask and laid down solid before the
 body, the way `FontSJISBase::drawChar` does it in `graphics/sjis.cpp` -
 drawing the glyph again at offsets would give the stroke the body's own
@@ -160,9 +168,18 @@ See `HIRES_TEXT_DECORATIONS.md` for the measurements behind both, why a
 baked-in stroke cannot work, and what the TTF path can carry.
 
 ## Metrics: whose advances to use
+
+These are `scummvm.ini` keys, read by `ConfigManager`, which has no inline
+comments — the two lines below are shown separately, not as one file, for
+that reason:
+
 ```
-hires_text_metrics=game     ; default - the game's own advances
-hires_text_metrics=font     ; the replacement font's advances
+# default - the game's own advances
+hires_text_metrics=game
+```
+```
+# the replacement font's advances
+hires_text_metrics=font
 ```
 
 The game decides line breaks and speech-bubble sizes from the widths of its
@@ -242,9 +259,24 @@ whatever the ini says.
 
 ## Verification
 
-There is no unit test for this file: SCUMM is not registered with the test
-runner, and this code reads ConfMan and the filesystem. It is verified by the
-regression harness instead (`~/games/regress.sh` + `rgdiff.py`), which must
-report **zero** changed targets for any commit that is not meant to change
-rendering. Font map parsing and bitmap font loading have unit tests under
-`test/graphics/`.
+SCUMM is registered with the test runner: unit tests for the engine's own
+code live under `test/engines/scumm/`. This file (`hires_text.cpp`) still
+reads ConfMan and the filesystem, and is not itself unit-tested; it is
+verified by the regression harness instead (`~/games/regress.sh` +
+`rgdiff.py`), which must report **zero** changed targets for any commit that
+is not meant to change rendering.
+
+The map parser (`graphics/hires_text/font_map.{h,cpp}`) and bitmap font
+loading are unit-tested under `test/graphics/`. The parser is **shared, byte
+for byte, with the SCI engine** — the same two files and the same test file
+(`test/graphics/hires_text_font_map.h`) are used on both engine lines. Any
+change to it is made once and copied across; byte identity between the two
+copies is checked with:
+
+```bash
+git diff --exit-code wt/c5-parser wt/c5-scumm-map -- \
+    graphics/hires_text/font_map.h graphics/hires_text/font_map.cpp \
+    test/graphics/hires_text_font_map.h
+```
+
+which must print nothing and exit 0.
