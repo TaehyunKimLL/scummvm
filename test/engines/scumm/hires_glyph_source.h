@@ -316,6 +316,11 @@ public:
 		TS_ASSERT(inkCount(dest) > 0);
 		TS_ASSERT_EQUALS(hr.sourceCount(), 1);
 
+		// With metrics=game a full-width glyph keeps the game's own advance:
+		// the face is opened at the game cell times the scale, so its wide
+		// cell is exactly that, whatever FreeType's advance at this size.
+		TS_ASSERT_EQUALS(hr.advanceFor(kGaChr, 0, 8), 8);
+
 		// A charset on another cell opens the face again, at its own size.
 		hr.setGameFontCell(2, 12, 12);
 		Graphics::UnicodeGlyphSource *s2 = hr.sourceFor(2, false);
