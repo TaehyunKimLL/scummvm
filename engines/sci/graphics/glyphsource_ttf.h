@@ -42,9 +42,10 @@ namespace Sci {
  * point" miss), so create() never touches anything beyond the face itself
  * and the fixed probe set used to fit the baseline into the cell.
  *
- * Width is never taken from the TTF advance: it comes from the Unicode East
- * Asian Width property (isWide()), which is the only thing that agrees with
- * SCVMUNI's cells()==1|2 convention across scripts. A code point's presence
+ * Cell width is never taken from the TTF advance: it comes from the Unicode
+ * East Asian Width property (isWide()), which is the only thing that agrees with
+ * SCVMUNI's cells()==1|2 convention across scripts. The advance is kept
+ * alongside, for advance() (hires_text_latin=proportional, metrics=font). A code point's presence
  * in the face, on the other hand, cannot be asked for directly - TTFFont
  * exposes no "has glyph" query - so it is inferred from whether rendering it
  * leaves any ink (see ensure() for the exact rule and its exceptions).
@@ -87,6 +88,9 @@ public:
 	int bitsPerPixel() const override { return 8; }
 	int cells(uint32 cp) override;
 	const byte *row(uint32 cp, int y) override;
+	/** FreeType's advance for cp at the size in use (rounded up to whole
+	 *  pixels, as TTFFont reports it), or 0 when the face lacks cp. */
+	int advance(uint32 cp) override;
 	uint32 glyphCount() const override;
 
 	/** FreeType renders done so far (probes at create() time, plus one per
@@ -140,6 +144,7 @@ private:
 
 	struct Entry {
 		byte cells = 0;
+		int16 advance = 0;	///< FreeType's advance, in pixels; 0 for a miss
 		Common::Array<byte> cov;
 	};
 

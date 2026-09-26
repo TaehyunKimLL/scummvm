@@ -173,6 +173,10 @@ public:
 		return &_rowByte;
 	}
 	uint32 glyphCount() const override { return _glyphCount; }
+	// Ten times the tag, so a test can tell which fake gave the advance.
+	int advance(uint32 cp) override {
+		return cp == missingCp ? 0 : _tag * 10;
+	}
 
 	uint32 lastCellsCp = 0xFFFFFFFF;
 	uint32 lastRowCp = 0xFFFFFFFF;
@@ -537,6 +541,30 @@ public:
 		delete src;
 	}
 
+	// hires_text_latin=proportional, metrics=font: the face's own advance,
+	// narrow for 'i' and wide for 'm', and 0 for a code point it lacks.
+	void test_advance_is_the_faces_own() {
+		Common::SeekableReadStream *stream = openTestFont();
+		if (!stream)
+			return;
+
+		Common::String error;
+		TtfGlyphSource *src = TtfGlyphSource::create(stream, DisposeAfterUse::YES, 16, error);
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+
+		const int i = src->advance('i');
+		const int m = src->advance('m');
+		TS_ASSERT(i > 0);
+		TS_ASSERT(m > 0);
+		TS_ASSERT(i < m);
+		TS_ASSERT(m <= 2 * src->cellWidth());
+		TS_ASSERT_EQUALS(src->advance(0x10FFFD), 0);	// private use: no glyph
+
+		delete src;
+	}
+
 	// Out-of-range sizes are refused before the stream is even parsed, so a
 	// dummy stream is enough (and the no-FreeType stub refuses them anyway).
 	void test_create_rejects_out_of_range_size() {
@@ -628,6 +656,17 @@ public:
 		TS_ASSERT_EQUALS(src.cells(0x0041), 9);
 		TS_ASSERT_EQUALS(src.cells(0xFF01), 1);
 		TS_ASSERT_EQUALS(src.cells(0xAC00), 1);
+	}
+
+	// advance() comes from whichever source cells()/row() pick.
+	void test_proportional_advance_follows_the_route() {
+		TaggedFakeGlyphSource *main = makeMain();
+		TaggedFakeGlyphSource *latin = makeLatin();
+		latin->missingCp = 0x0042;
+		RoutedGlyphSource src(main, latin, Sci::kLatinProportional);
+		TS_ASSERT_EQUALS(src.advance(0x0041), 90);	// ASCII: the latin face
+		TS_ASSERT_EQUALS(src.advance(0x0042), 10);	// latin lacks it: main
+		TS_ASSERT_EQUALS(src.advance(0xAC00), 10);	// Hangul: main
 	}
 
 	void test_unowned_sources_outlive_the_router() {

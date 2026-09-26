@@ -551,7 +551,8 @@ GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
 		_ownedFonts.push_back(fallback);
 
 	return new GfxFontUnicodeAdapter(uni, g_sci->getSciLanguageCodePage(),
-									 fallback, fontId, settings.latin, settings.fullwidthSpace);
+									 fallback, fontId, settings.latin, settings.fullwidthSpace,
+									 settings.metrics);
 }
 
 GfxFont *GfxCache::getFont(GuiResourceId fontId) {

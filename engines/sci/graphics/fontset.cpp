@@ -21,6 +21,7 @@
 
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
+#include "sci/graphics/latinadvance.h"
 
 #include "sci/sci.h"
 
@@ -236,7 +237,20 @@ bool GfxFontSet::isDoubleByte(uint32 chr) {
 byte GfxFontSet::getCharWidth(uint32 chr) {
 	uint32 c = 0;
 	const Face *f = faceFor(chr, c);
-	return f ? toLowres(*f, f->font->getCharWidth(c)) : 0;
+	if (!f)
+		return 0;
+	// hires_text_latin=proportional: ASCII the Unicode face draws advances by
+	// the resource face's width for it (metrics=game: layout as with
+	// latin=off) or by the face's own advance (metrics=font). GfxText16
+	// moves the pen by this very value, and the glyph is drawn with its
+	// origin at the start of that box, so measuring and drawing agree.
+	if (chr < 0x80 && _latinMode == kLatinProportional && f->kind == kFaceCodePoint) {
+		GfxFontUnicode *uni = static_cast<GfxFontUnicode *>(f->font);
+		const int scale = (f->hiresPlane && getSciVersion() < SCI_VERSION_2) ? 2 : 1;
+		return (byte)latinAdvanceGamePx(_settings.metrics, _faces[0].font->getCharWidth(chr),
+										uni->advanceHires(c), scale);
+	}
+	return toLowres(*f, f->font->getCharWidth(c));
 }
 
 byte GfxFontSet::getCharHeight(uint32 chr) {

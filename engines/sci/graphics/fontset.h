@@ -81,11 +81,12 @@ public:
 	 *                  GfxCache (ini keys and hires_text.map, see
 	 *                  resolveFontSettings()) with the Latin mode already
 	 *                  forced off when the id has no live TrueType face.
-	 *                  Only its Latin mode changes anything here: kLatinHalf
-	 *                  (and, until proportional advances exist,
-	 *                  kLatinProportional) routes the printable ASCII range
-	 *                  past the resource face and into the faces below (see
-	 *                  faceFor()). kLatinFullwidth needs no such routing - its
+	 *                  Its Latin mode and metrics change things here:
+	 *                  kLatinHalf and kLatinProportional route the printable
+	 *                  ASCII range past the resource face and into the faces
+	 *                  below (see faceFor()), and kLatinProportional gives
+	 *                  that ASCII the advance latinAdvanceGamePx() picks from
+	 *                  the metrics (see getCharWidth()). kLatinFullwidth needs no such routing - its
 	 *                  ASCII arrives already remapped past U+00FF by
 	 *                  GfxText16::glyphChar(), which reads latinMode() and
 	 *                  latinFullwidthSpace() from the current font.

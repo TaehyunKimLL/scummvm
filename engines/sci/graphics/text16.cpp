@@ -898,9 +898,11 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 
 // The glyph character for an already-classified character (see text16.h).
 // hires_text_latin=fullwidth remaps ASCII into the fullwidth-forms block here
-// and only here; kLatinOff and kLatinHalf leave it untouched (half's routing
-// happens at the face-selection layer - GfxFontSet::faceFor() and
-// GfxFontUnicodeAdapter). The mode is a plain field read: the current font's
+// and only here; kLatinOff, kLatinHalf and kLatinProportional leave it
+// untouched (their routing happens at the face-selection layer -
+// GfxFontSet::faceFor() and GfxFontUnicodeAdapter - and proportional's
+// advance in those fonts' getCharWidth(), which every measuring and drawing
+// site below reads, so the pen and the layout move alike). The mode is a plain field read: the current font's
 // own setting, copied by refreshLatinSettings() whenever _font changes.
 // Latin-1 (U+00A0..U+00FF) is deliberately neither remapped nor routed: the
 // fullwidth-forms block has no counterpart for it, and it keeps the face it

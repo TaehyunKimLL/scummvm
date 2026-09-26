@@ -96,8 +96,8 @@ uint32 latinFullwidth(uint32 cp, LatinMode mode, bool fullwidthSpace);
  * (fontunicode.cpp).
  *
  * Only kLatinHalf and kLatinProportional redirect, and only the printable
- * range U+0020..U+007E. (Until proportional advances exist, a
- * kLatinProportional font draws exactly like kLatinHalf.)
+ * range U+0020..U+007E. The two differ only in the advance: half uses the
+ * face's narrow cell, proportional latinAdvanceGamePx() (latinadvance.h).
  * kLatinFullwidth needs no such override: its ASCII is already remapped past
  * U+00FF by latinFullwidth() before any chr < 0x80 check ever sees it.
  */

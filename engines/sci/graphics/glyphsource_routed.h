@@ -47,7 +47,10 @@ namespace Sci {
  *                     point level, routed here instead by
  *                     GfxFontSet/GfxFontUnicodeAdapter choosing the Unicode
  *                     face for it in the first place (see
- *                     TextCompose::asciiGoesToUnicodeFace()).
+ *                     TextCompose::asciiGoesToUnicodeFace()). The two route
+ *                     alike; proportional differs only in the advance the
+ *                     font set gives each character (latinadvance.h), which
+ *                     reads advance() from the same source cells() picks.
  *
  * Never constructed with kLatinOff - callers only wrap two sources once
  * hires_text_latin has resolved to half or fullwidth (see cache.cpp).
@@ -87,6 +90,10 @@ public:
 	}
 	const byte *row(uint32 cp, int y) override {
 		return useLatin(cp) ? _latin->row(cp, y) : _main->row(cp, y);
+	}
+	/** The advance of whichever source draws cp (the same choice as cells/row). */
+	int advance(uint32 cp) override {
+		return useLatin(cp) ? _latin->advance(cp) : _main->advance(cp);
 	}
 	uint32 glyphCount() const override {
 		return _main->glyphCount() + _latin->glyphCount();

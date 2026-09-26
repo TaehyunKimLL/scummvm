@@ -23,6 +23,7 @@
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontsjis.h"
 #include "sci/graphics/glyphsource_scvmuni.h"
+#include "sci/graphics/latinadvance.h"
 #include "sci/graphics/screen.h"
 #include "sci/graphics/textcompose.h"
 #include "sci/graphics/textlatin.h"
@@ -180,9 +181,11 @@ GfxFontUnicodeAdapter::GfxFontUnicodeAdapter(GfxFontUnicode *font,
 											 GfxFont *fallback,
 											 GuiResourceId resourceId,
 											 LatinMode latinMode,
-											 bool fullwidthSpace)
+											 bool fullwidthSpace,
+											 Graphics::HiResMetricsSource metrics)
 	: _font(font), _fallback(fallback), _codePage(codePage),
-	  _resourceId(resourceId), _latinMode(latinMode), _fullwidthSpace(fullwidthSpace) {
+	  _resourceId(resourceId), _latinMode(latinMode), _fullwidthSpace(fullwidthSpace),
+	  _metrics(metrics) {
 }
 
 GfxFontUnicodeAdapter::~GfxFontUnicodeAdapter() {
@@ -260,6 +263,16 @@ byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
 	const uint32 cp = toCodePoint(chr);
 	if (cp && _font->hasGlyph(cp)) {
 		const byte w = _font->getCharWidth(cp);
+		const int scale = (getSciVersion() >= SCI_VERSION_2) ? 1 : 2;
+		if (chr < 0x80 && _latinMode == kLatinProportional) {
+			// hires_text_latin=proportional: the fallback (the game's font)
+			// sets the advance, or the face's own does (metrics=font). With
+			// no fallback, the narrow cell stands in for the game's width.
+			// draw() needs no counterpart: GfxText16 advances the pen by
+			// this, and the glyph's origin is at the start of its cell.
+			const int gameWidth = _fallback ? _fallback->getCharWidth(chr) : w / scale;
+			return (byte)latinAdvanceGamePx(_metrics, gameWidth, _font->advanceHires(cp), scale);
+		}
 		// The glyph is drawn on the hires plane at twice the lowres
 		// coordinates, so its advance must be reported halved - exactly what
 		// GfxFontKorean::getCharWidth does with `>> 1` below SCI2. Reporting

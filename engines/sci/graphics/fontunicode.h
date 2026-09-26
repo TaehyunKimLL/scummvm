@@ -26,6 +26,7 @@
 #include "common/ptr.h"
 #include "common/str.h"
 #include "common/str-enc.h"
+#include "graphics/hires_text/font_map.h"
 #include "sci/graphics/glyphsource.h"
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/textlatin.h"
@@ -87,6 +88,10 @@ public:
 
 	uint32 glyphCount() const { return _source ? _source->glyphCount() : 0; }
 
+	/** The face's own advance for @p cp in hi-res pixels, 0 when unknown
+	 *  (see UnicodeGlyphSource::advance()). */
+	int advanceHires(uint32 cp) { return _source ? _source->advance(cp) : 0; }
+
 	/** The packed row y of cp's glyph, for TextCompose::expandGlyphRow(). */
 	const byte *coverageRow(uint32 cp, int y) { return _source ? _source->row(cp, y) : nullptr; }
 	int bitsPerPixel() const { return _source ? _source->bitsPerPixel() : 1; }
@@ -131,10 +136,14 @@ public:
 	 *                   chr < 0x80 checks below).
 	 * @param fullwidthSpace  kLatinFullwidth: whether GfxText16 remaps ' '
 	 *                   too; only carried, for GfxText16 to read.
+	 * @param metrics    kLatinProportional: whose advance ASCII gets - the
+	 *                   fallback font's (game) or the face's (font); see
+	 *                   latinAdvanceGamePx().
 	 */
 	GfxFontUnicodeAdapter(GfxFontUnicode *font, Common::CodePage codePage,
 	                      GfxFont *fallback, GuiResourceId resourceId,
-	                      LatinMode latinMode = kLatinOff, bool fullwidthSpace = false);
+	                      LatinMode latinMode = kLatinOff, bool fullwidthSpace = false,
+	                      Graphics::HiResMetricsSource metrics = Graphics::kHiResMetricsGame);
 
 	LatinMode latinMode() const { return _latinMode; }
 	bool latinFullwidthSpace() const { return _fullwidthSpace; }
@@ -171,6 +180,7 @@ private:
 	GuiResourceId _resourceId;
 	LatinMode _latinMode;
 	bool _fullwidthSpace;
+	Graphics::HiResMetricsSource _metrics;
 };
 
 } // End of namespace Sci
