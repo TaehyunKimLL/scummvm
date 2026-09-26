@@ -76,11 +76,13 @@ endif
 
 ifeq ($(ENABLE_AGS), STATIC_PLUGIN)
 	TESTS += $(srcdir)/test/engines/ags/*.h
-	# Only the EUC-KR text format: libags.a would pull in the whole engine
+	# Only the EUC-KR text format and the globals-free part of WFNFont
+	# (glyph lookup, extfntN.wfn): libags.a would pull in the whole engine
 	# (its globals, the metaengine, gui/), which the runner does not link.
-	# The format decodes through graphics/hires_text, so libgraphics and
-	# libcommon come again after it.
-	TEST_LIBS += engines/ags/lib/allegro/unicode_euckr.o graphics/libgraphics.a \
+	# Both use graphics/hires_text, so libgraphics and libcommon come again
+	# after them.
+	TEST_LIBS += engines/ags/lib/allegro/unicode_euckr.o \
+		engines/ags/shared/font/wfn_font_ext.o graphics/libgraphics.a \
 		common/libcommon.a
 endif
 

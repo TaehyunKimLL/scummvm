@@ -24,7 +24,6 @@
 #include "ags/shared/debugging/out.h"
 #include "ags/shared/util/memory.h"
 #include "ags/shared/util/stream.h"
-#include "ags/globals.h"
 
 namespace AGS3 {
 
@@ -33,27 +32,6 @@ using namespace AGS::Shared;
 static const char *WFN_FILE_SIGNATURE = "WGT Font File  ";
 static const size_t  WFN_FILE_SIG_LENGTH = 15;
 static const size_t  MinCharDataSize = sizeof(uint16_t) * 2;
-
-WFNChar::WFNChar()
-	: Width(0)
-	, Height(0)
-	, Data(nullptr) {
-}
-
-void WFNChar::RestrictToBytes(size_t bytes) {
-	if (bytes < GetRequiredPixelSize())
-		Height = static_cast<uint16_t>(bytes / GetRowByteCount());
-}
-
-const WFNChar &WFNFont::GetChar(uint16_t code) const {
-	return code < _refs.size() ? *_refs[code] : _G(emptyChar);
-}
-
-void WFNFont::Clear() {
-	_refs.clear();
-	_items.clear();
-	_pixelData.clear();
-}
 
 WFNError WFNFont::ReadFromFile(Stream *in, const soff_t data_size) {
 	Clear();
@@ -175,7 +153,7 @@ WFNError WFNFont::ReadFromFile(Stream *in, const soff_t data_size) {
 		const uint16_t off = offset_table[i];
 		// if bad character offset - reference empty character
 		if (off < raw_data_offset || (soff_t)(off + MinCharDataSize) > table_addr) {
-			_refs[i] = &_G(emptyChar);
+			_refs[i] = &_emptyChar;
 		} else {
 			// in usual case the offset table references items in strict order
 			if (i < _items.size() && offs[i] == off)
@@ -191,6 +169,17 @@ WFNError WFNFont::ReadFromFile(Stream *in, const soff_t data_size) {
 	}
 
 	return err;
+}
+
+WFNError WFNFont::ReadExtFromFile(Stream *in) {
+	ClearExt();
+	const soff_t len = in->GetLength();
+	if (len <= 0)
+		return kWFNErr_BadSignature;
+	std::vector<uint8_t> data;
+	data.resize(static_cast<size_t>(len));
+	const size_t read = in->Read(&data.front(), data.size());
+	return ReadExtFromData(&data.front(), read);
 }
 
 } // namespace AGS3

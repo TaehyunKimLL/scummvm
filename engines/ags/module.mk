@@ -49,6 +49,7 @@ MODULE_OBJS = \
 	shared/font/fonts.o \
 	shared/font/ttf_font_renderer.o \
 	shared/font/wfn_font.o \
+	shared/font/wfn_font_ext.o \
 	shared/font/wfn_font_renderer.o \
 	shared/game/custom_properties.o \
 	shared/game/interactions.o \
