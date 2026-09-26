@@ -100,6 +100,10 @@ struct TextUserData {
 	uint32 characters;
 	Color  color;
 	GLuint texture;
+	/** TrueType/SVFN text: one RGBA texture per line (colour + coverage
+	 *  alpha) and one quad per line in the text object's own VBO. */
+	Common::Array<GLuint> lineTextures;
+	bool alpha = false;
 };
 
 struct FontUserData {
@@ -1642,8 +1646,10 @@ void GfxOpenGLS::destroyFont(Font *font) {
 void GfxOpenGLS::createTextObject(TextObject *text) {
 	const Color &color = text->getFGColor();
 	const Font *f = text->getFont();
-	if (!f->is8Bit())
-		error("non-8bit fonts are not supported in GL shaders renderer");
+	if (!f->is8Bit()) {
+		createAlphaTextObject(text);
+		return;
+	}
 	const BitmapFont *font = static_cast<const BitmapFont *>(f);
 
 	const FontUserData *userData = (const FontUserData *)font->getUserData();
@@ -1715,12 +1721,92 @@ void GfxOpenGLS::createTextObject(TextObject *text) {
 	delete[] bufData;
 }
 
+void GfxOpenGLS::createAlphaTextObject(TextObject *text) {
+	const Color &color = text->getFGColor();
+	const Font *font = text->getFont();
+	const Common::String *lines = text->getLines();
+	const int numLines = text->getNumLines();
+	const Graphics::PixelFormat format = Graphics::PixelFormat::createFormatRGBA32();
+
+	TextUserData *td = new TextUserData;
+	td->characters = numLines;
+	// The texture already holds the text colour; the shader multiplies by white.
+	td->color = Color(255, 255, 255);
+	td->texture = 0;
+	td->alpha = true;
+
+	float *bufData = new float[MAX(numLines, 1) * 16];
+	for (int j = 0; j < numLines; ++j) {
+		Graphics::Surface buf;
+		if (!font->renderAlpha(buf, lines[j], format, color.getRed(), color.getGreen(), color.getBlue()))
+			error("non-8bit fonts without coverage are not supported in GL shaders renderer");
+
+		const int texW = nextHigher2(MAX<int>(buf.w, 1));
+		const int texH = nextHigher2(MAX<int>(buf.h, 1));
+		GLuint texture;
+		glGenTextures(1, &texture);
+		glBindTexture(GL_TEXTURE_2D, texture);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texW, texH, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+		if (buf.w > 0 && buf.h > 0)
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, buf.w, buf.h, GL_RGBA, GL_UNSIGNED_BYTE, buf.getPixels());
+		td->lineTextures.push_back(texture);
+
+		int y = text->getLineY(j);
+		if (g_grim->getGameType() == GType_MONKEY4) {
+			y -= font->getBaseOffsetY();
+			if (y < 0)
+				y = 0;
+		}
+		const float x0 = float(text->getLineX(j)) / _gameWidth;
+		const float y0 = float(y) / _gameHeight;
+		const float x1 = x0 + float(buf.w) / _gameWidth;
+		const float y1 = y0 + float(buf.h) / _gameHeight;
+		const float u = float(buf.w) / texW;
+		const float v = float(buf.h) / texH;
+		const float lineData[] = {
+			x0, y0, 0.f, 0.f,
+			x1, y0, u, 0.f,
+			x1, y1, u, v,
+			x0, y1, 0.f, v
+		};
+		memcpy(bufData + j * 16, lineData, sizeof(lineData));
+		buf.free();
+	}
+
+	GLuint vbo = OpenGL::Shader::createBuffer(GL_ARRAY_BUFFER, MAX(numLines, 1) * 16 * sizeof(float), bufData, GL_STATIC_DRAW);
+	delete[] bufData;
+
+	OpenGL::Shader *textShader = _textProgram->clone();
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	textShader->enableVertexAttribute("position", vbo, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
+	textShader->enableVertexAttribute("texcoord", vbo, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 2 * sizeof(float));
+	td->shader = textShader;
+	text->setUserData(td);
+}
+
 void GfxOpenGLS::drawTextObject(const TextObject *text) {
 	glEnable(GL_BLEND);
 	glDisable(GL_DEPTH_TEST);
 	const TextUserData * td = (const TextUserData *) text->getUserData();
 	assert(td);
 	td->shader->use();
+
+	if (td->alpha) {
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		td->shader->setUniform("color", Math::Vector3d(1.0f, 1.0f, 1.0f));
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, _quadEBO);
+		for (uint i = 0; i < td->lineTextures.size(); ++i) {
+			glBindTexture(GL_TEXTURE_2D, td->lineTextures[i]);
+			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, (const void *)(i * 6 * sizeof(unsigned short)));
+		}
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+		glEnable(GL_DEPTH_TEST);
+		return;
+	}
 
 	Math::Vector3d colors(float(td->color.getRed()) / 255.0f,
 	                      float(td->color.getGreen()) / 255.0f,
@@ -1735,9 +1821,11 @@ void GfxOpenGLS::drawTextObject(const TextObject *text) {
 
 void GfxOpenGLS::destroyTextObject(TextObject *text) {
 	const TextUserData * td = (const TextUserData *) text->getUserData();
-	if (!text->isBlastDraw()) {
+	if (!text->isBlastDraw() || td->alpha) {
 		glDeleteBuffers(1, &td->shader->getAttributeAt(0)._vbo);
 	}
+	for (uint i = 0; i < td->lineTextures.size(); ++i)
+		glDeleteTextures(1, &td->lineTextures[i]);
 	text->setUserData(nullptr);
 
 	delete td->shader;
