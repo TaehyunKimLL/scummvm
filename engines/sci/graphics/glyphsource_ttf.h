@@ -22,8 +22,6 @@
 #ifndef SCI_GRAPHICS_GLYPHSOURCE_TTF_H
 #define SCI_GRAPHICS_GLYPHSOURCE_TTF_H
 
-#include <functional>
-
 #include "common/array.h"
 #include "common/hashmap.h"
 #include "common/str.h"
@@ -92,10 +90,22 @@ public:
 	static bool isWide(uint32 cp);
 
 	/**
+	 * What chooseFitSize() calls to try one candidate size. An abstract
+	 * interface rather than a std::function, so this engine header needs no
+	 * standard-library include (common/forbidden.h would collide with it).
+	 */
+	struct FitProbe {
+		virtual ~FitProbe() {}
+		/** Measures the ink box at size: fills top/bottom, and returns
+		 *  whether it fits the cell. */
+		virtual bool measure(int size, int &top, int &bottom) = 0;
+	};
+
+	/**
 	 * Picks a vertical-fit size, independent of any real font or FreeType
 	 * state, so the raster-budget bound can be pinned in a unit test with a
-	 * fake measure callback: starting at startSize, tries candidate sizes
-	 * down to minSize (inclusive) by calling measure(trySize, top, bottom),
+	 * fake probe: starting at startSize, tries candidate sizes
+	 * down to minSize (inclusive) by calling probe.measure(trySize, top, bottom),
 	 * which reports whether that candidate's ink box fits and, regardless
 	 * of fit, what its top/bottom are (for bookkeeping). Stops calling
 	 * measure once doing so would push rasterCount past maxRasterCount -
@@ -108,7 +118,7 @@ public:
 	 */
 	static int chooseFitSize(int startSize, int minSize, uint32 rendersPerCall,
 	                          uint32 &rasterCount, uint32 maxRasterCount,
-	                          const std::function<bool(int, int &, int &)> &measure,
+	                          FitProbe &probe,
 	                          int &top, int &bottom);
 
 private:

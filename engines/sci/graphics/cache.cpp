@@ -19,11 +19,6 @@
  *
  */
 
-// glyphsource_ttf.h pulls in <functional> for std::function; it must be
-// included before anything that drags in common/forbidden.h's #defines
-// (util.h, sci.h, ...), or libc++'s own headers collide with them.
-#include "sci/graphics/glyphsource_ttf.h"
-
 #include "common/util.h"
 #include "common/stack.h"
 #include "graphics/primitives.h"
@@ -37,6 +32,7 @@
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
+#include "sci/graphics/glyphsource_ttf.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/file.h"

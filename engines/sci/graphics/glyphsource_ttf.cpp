@@ -187,7 +187,7 @@ bool TtfGlyphSource::isWide(uint32 cp) {
 
 int TtfGlyphSource::chooseFitSize(int startSize, int minSize, uint32 rendersPerCall,
 								   uint32 &rasterCount, uint32 maxRasterCount,
-								   const std::function<bool(int, int &, int &)> &measure,
+								   FitProbe &probe,
 								   int &top, int &bottom) {
 	int chosenSize = startSize;
 	for (int trySize = startSize - 1; trySize >= minSize; trySize--) {
@@ -202,7 +202,7 @@ int TtfGlyphSource::chooseFitSize(int startSize, int minSize, uint32 rendersPerC
 		}
 
 		int t = 0, b = 0;
-		const bool fits = measure(trySize, t, b);
+		const bool fits = probe.measure(trySize, t, b);
 		rasterCount += rendersPerCall;
 		top = t;
 		bottom = b;
@@ -265,6 +265,15 @@ byte coverageAt(const Graphics::ManagedSurface &surf, int x, int y) {
 	surf.format.colorToARGB(surf.getPixel(x, y), a, r, g, b);
 	return a;
 }
+
+// Adapts a lambda to chooseFitSize()'s FitProbe, so create() keeps its
+// retry logic next to the state it captures.
+template<typename F>
+struct LambdaFitProbe : public TtfGlyphSource::FitProbe {
+	explicit LambdaFitProbe(F &f) : _f(f) {}
+	bool measure(int size, int &top, int &bottom) override { return _f(size, top, bottom); }
+	F &_f;
+};
 
 } // namespace
 
@@ -380,8 +389,9 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 			return (b - t) <= cellH;
 		};
 
+		LambdaFitProbe<decltype(measure)> probe(measure);
 		chooseFitSize(pixelSize, 6, (uint32)worstCount, rasterCount, kMaxLoadRasterCount,
-					  measure, top, bottom);
+					  probe, top, bottom);
 		font = bestFont;
 	}
 

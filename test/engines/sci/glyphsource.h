@@ -118,6 +118,22 @@ Common::Array<byte> makeBundle(int bpp) {
 	return d;
 }
 
+// A scripted chooseFitSize() probe: counts calls, reports fixed top/bottom
+// and a fixed fit verdict, so the raster-budget bound is pinned without any
+// real face.
+struct FakeFitProbe : public TtfGlyphSource::FitProbe {
+	FakeFitProbe(bool fits, int top, int bottom) : calls(0), _fits(fits), _top(top), _bottom(bottom) {}
+	bool measure(int /*size*/, int &top, int &bottom) override {
+		calls++;
+		top = _top;
+		bottom = _bottom;
+		return _fits;
+	}
+	int calls;
+	bool _fits;
+	int _top, _bottom;
+};
+
 } // namespace
 
 class SciGlyphSourceScvmuniTestSuite : public CxxTest::TestSuite {
@@ -259,7 +275,7 @@ public:
 
 	// chooseFitSize() is a pure helper (no Font/FreeType dependency), so the
 	// load-time raster budget it enforces can be pinned directly with fake
-	// measure callbacks, in every build.
+	// fake probes, in every build.
 
 	// The pathological case: a measure that never reports a fit. Before this
 	// test was added, the vertical-fit retry re-measured the whole probe set
@@ -272,16 +288,10 @@ public:
 	void test_choose_fit_size_caps_raster_budget() {
 		uint32 rasterCount = 26;	// as if the 26-probe initial pass just ran
 		int top = 0, bottom = 0;
-		int measureCalls = 0;
-
-		auto neverFits = [&](int trySize, int &t, int &b) -> bool {
-			measureCalls++;
-			t = 0;
-			b = 100;	// always "too tall", regardless of trySize
-			return false;
-		};
+		FakeFitProbe neverFits(false, 0, 100);	// always "too tall", regardless of size
 
 		const int chosen = TtfGlyphSource::chooseFitSize(16, 6, 2, rasterCount, 32, neverFits, top, bottom);
+		const int measureCalls = neverFits.calls;
 
 		TS_ASSERT(rasterCount <= 32);
 		TS_ASSERT_EQUALS(rasterCount, (uint32)32);
@@ -294,16 +304,10 @@ public:
 	void test_choose_fit_size_stops_at_first_fit() {
 		uint32 rasterCount = 26;
 		int top = 0, bottom = 0;
-		int measureCalls = 0;
-
-		auto fitsImmediately = [&](int trySize, int &t, int &b) -> bool {
-			measureCalls++;
-			t = 0;
-			b = 10;
-			return true;
-		};
+		FakeFitProbe fitsImmediately(true, 0, 10);
 
 		const int chosen = TtfGlyphSource::chooseFitSize(16, 6, 2, rasterCount, 32, fitsImmediately, top, bottom);
+		const int measureCalls = fitsImmediately.calls;
 
 		TS_ASSERT_EQUALS(measureCalls, 1);
 		TS_ASSERT_EQUALS(rasterCount, (uint32)28);
@@ -317,16 +321,10 @@ public:
 	void test_choose_fit_size_no_budget_for_any_retry() {
 		uint32 rasterCount = 32;	// already at the cap
 		int top = 5, bottom = 9;
-		int measureCalls = 0;
-
-		auto shouldNotBeCalled = [&](int trySize, int &t, int &b) -> bool {
-			measureCalls++;
-			t = 0;
-			b = 0;
-			return true;
-		};
+		FakeFitProbe shouldNotBeCalled(true, 0, 0);
 
 		const int chosen = TtfGlyphSource::chooseFitSize(16, 6, 2, rasterCount, 32, shouldNotBeCalled, top, bottom);
+		const int measureCalls = shouldNotBeCalled.calls;
 
 		TS_ASSERT_EQUALS(measureCalls, 0);
 		TS_ASSERT_EQUALS(rasterCount, (uint32)32);
