@@ -84,7 +84,7 @@ public:
 	uint32 glyphCount() const { return _source ? _source->glyphCount() : 0; }
 
 	/** The packed row y of cp's glyph, for TextCompose::expandGlyphRow(). */
-	const byte *coverageRow(uint32 cp, int y) { return _source->row(cp, y); }
+	const byte *coverageRow(uint32 cp, int y) { return _source ? _source->row(cp, y) : nullptr; }
 	int bitsPerPixel() const { return _source ? _source->bitsPerPixel() : 1; }
 
 private:
