@@ -242,6 +242,24 @@ static const GrimGameDescription gameDescriptions[] = {
 		},
 		GType_GRIM
 	},
+	{
+		// FORK-ONLY (scummvm-korean i18n fork, C8 Task 9): Grim Fandango
+		// English version (unpatched) + Korean Fan translation. The kortrs
+		// patch README asks only for the original Windows CD release; upstream
+		// detects Korean on the patched (1.01) VOX0001.LAB alone. Not sent
+		// upstream.
+		{
+			"grim",
+			"",
+			AD_ENTRY2s("VOX0001.LAB", "8b12ed530195c6c577436df27df62ecb", 58011176,
+					   "grim.ko.tab", NULL, AD_NO_SIZE),
+			Common::KO_KOR,
+			Common::kPlatformWindows,
+			ADGF_NO_FLAGS,
+			GUI_OPTIONS_GRIME
+		},
+		GType_GRIM
+	},
 /*	{
 		// Grim Fandango German version (patched)
 		{
