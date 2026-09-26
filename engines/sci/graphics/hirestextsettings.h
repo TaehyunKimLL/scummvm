@@ -100,6 +100,17 @@ FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapL
  */
 int warnScummOnlyMapKeys(const Graphics::HiResTextConfig &map);
 
+/**
+ * The key GfxCache shares a Unicode bundle (GfxFontUnicode) under: the main
+ * face and size, plus - only when a second face draws the Latin range
+ * (@p latinPath non-empty) - that face and the Latin mode. Every mode gets
+ * its own router, so half and proportional never share one even though they
+ * route the same range today; with no Latin face there is no router and the
+ * mode does not matter.
+ */
+Common::String unicodeBundleKey(const Common::String &mainPath, int size,
+								const Common::String &latinPath, LatinMode mode);
+
 } // End of namespace Sci
 
 #endif

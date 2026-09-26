@@ -281,6 +281,53 @@ public:
 		TS_ASSERT_EQUALS(s.latinFacePath, "/games/kq5/fonts/NarrowLatin.ttf");
 	}
 
+	// GfxCache parses every face path with the native separator and keys its
+	// TrueType sources by the string: a map face must round-trip exactly, and
+	// equal the same file named in the ini, or one file opens twice.
+	void test_map_face_path_round_trips_with_the_native_separator() {
+		const Graphics::HiResTextConfig map = parse(
+			"[fonts]\n"
+			"default=fonts/NanumGothic.ttf\n"
+			"[hires]\n"
+			"font=default\n");
+		const HiresTextOverrides noIni;
+		const FontSettings s = resolveFontSettings(map, true, 0, noIni, gameDir());
+
+		const Common::Path expected = gameDir().join("fonts").join("NanumGothic.ttf");
+		TS_ASSERT_EQUALS(Common::Path(s.facePath, Common::Path::kNativeSeparator), expected);
+		TS_ASSERT_EQUALS(s.facePath, expected.toString(Common::Path::kNativeSeparator));
+
+		// The same file given as hires_text_font (a native path, as a player
+		// types it) yields the same string, i.e. the same source-cache key.
+		HiresTextOverrides ini;
+		ini.hasFont = true;
+		ini.font = expected.toString(Common::Path::kNativeSeparator);
+		const Graphics::HiResTextConfig empty;
+		TS_ASSERT_EQUALS(resolveFontSettings(empty, false, 0, ini, gameDir()).facePath, s.facePath);
+	}
+
+	void test_bundle_key_distinguishes_latin_modes() {
+		const Common::String main = "/f/Main.ttf";
+		const Common::String latin = "/f/Latin.ttf";
+
+		// With a Latin face, each mode gets its own router.
+		const Common::String half = Sci::unicodeBundleKey(main, 16, latin, Sci::kLatinHalf);
+		const Common::String prop = Sci::unicodeBundleKey(main, 16, latin, Sci::kLatinProportional);
+		const Common::String full = Sci::unicodeBundleKey(main, 16, latin, Sci::kLatinFullwidth);
+		TS_ASSERT_DIFFERS(half, prop);
+		TS_ASSERT_DIFFERS(half, full);
+		TS_ASSERT_DIFFERS(prop, full);
+
+		// Face and size still count.
+		TS_ASSERT_DIFFERS(half, Sci::unicodeBundleKey(main, 18, latin, Sci::kLatinHalf));
+		TS_ASSERT_DIFFERS(half, Sci::unicodeBundleKey(main, 16, "/f/Other.ttf", Sci::kLatinHalf));
+
+		// Without one there is no router: the main face alone, whatever the mode.
+		TS_ASSERT_EQUALS(Sci::unicodeBundleKey(main, 16, "", Sci::kLatinOff),
+						 Sci::unicodeBundleKey(main, 16, "", Sci::kLatinProportional));
+		TS_ASSERT_DIFFERS(Sci::unicodeBundleKey(main, 16, "", Sci::kLatinOff), half);
+	}
+
 	void test_bitmap_is_scumm_only() {
 		const HiresTextOverrides noIni;
 

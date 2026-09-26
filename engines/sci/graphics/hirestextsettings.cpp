@@ -38,10 +38,14 @@ HiresTextOverrides::HiresTextOverrides()
 namespace {
 
 /// A face as the map wrote it - a [fonts] name or a path - as a file path.
-/// Relative paths are taken against the game directory.
+/// Relative paths are taken against the game directory. Spelled with the
+/// native separator: GfxCache parses every face path (ini or map) back with
+/// Common::Path::kNativeSeparator, and keys its sources by the string, so a
+/// map face and the same file named in the ini must come out identical.
 Common::String mapFacePath(const Graphics::HiResTextConfig &map, const Common::String &nameOrPath,
 						   const Common::Path &gameDir) {
-	return Graphics::HiResFontMap::resolvePath(map.resolveFace(nameOrPath), gameDir).toString('/');
+	return Graphics::HiResFontMap::resolvePath(map.resolveFace(nameOrPath), gameDir)
+		.toString(Common::Path::kNativeSeparator);
 }
 
 LatinMode toLatinMode(Graphics::HiResLatinMode mode) {
@@ -133,6 +137,13 @@ int warnScummOnlyMapKeys(const Graphics::HiResTextConfig &map) {
 		warnings++;
 	}
 	return warnings;
+}
+
+Common::String unicodeBundleKey(const Common::String &mainPath, int size,
+								const Common::String &latinPath, LatinMode mode) {
+	if (latinPath.empty())
+		return Common::String::format("%s|%d||-", mainPath.c_str(), size);
+	return Common::String::format("%s|%d|%s|%d", mainPath.c_str(), size, latinPath.c_str(), (int)mode);
 }
 
 } // End of namespace Sci

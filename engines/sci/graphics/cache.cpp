@@ -70,8 +70,8 @@ bool hiresTextFontApplies(Common::String &why) {
 	}
 }
 
-// The default cell size, and the range hires_text_font_size may ask for.
-const int kHiresTextFontDefaultSize = 16;
+// The range hires_text_font_size may ask for (the default, 16, is
+// FontSettings').
 const int kHiresTextFontMinSize = 8;
 const int kHiresTextFontMaxSize = 64;
 
@@ -106,11 +106,16 @@ void GfxCache::resolveHiresText() {
 	// hires_text.map: the file hires_text_map names, else the game
 	// directory's own. Only a map that is asked for or present is mentioned.
 	const bool mapKeySet = ConfMan.hasKey("hires_text_map", domain);
+	// An empty hires_text_map= names nothing, as an empty hires_text_font
+	// does; FSNode would take it for the current directory.
+	const bool mapKeyEmpty = mapKeySet && ConfMan.get("hires_text_map", domain).empty();
 	Common::FSNode mapNode;
-	if (mapKeySet)
-		mapNode = Common::FSNode(Common::Path(ConfMan.get("hires_text_map", domain), Common::Path::kNativeSeparator));
-	else
+	if (mapKeySet) {
+		if (!mapKeyEmpty)
+			mapNode = Common::FSNode(Common::Path(ConfMan.get("hires_text_map", domain), Common::Path::kNativeSeparator));
+	} else {
 		mapNode = Common::FSNode(_gameDir).getChild("hires_text.map");
+	}
 
 	if (!_hiresApplies) {
 		if (ConfMan.hasKey("hires_text_font", domain))
@@ -130,7 +135,9 @@ void GfxCache::resolveHiresText() {
 	if (mapKeySet || mapNode.exists()) {
 		Common::String error;
 		Common::SeekableReadStream *stream = nullptr;
-		if (!mapNode.exists())
+		if (mapKeyEmpty)
+			error = "empty path";
+		else if (!mapNode.exists())
 			error = "does not exist";
 		else if (mapNode.isDirectory())
 			error = "is a directory";
@@ -155,7 +162,9 @@ void GfxCache::resolveHiresText() {
 				error = "is not a valid map";
 			}
 		}
-		if (!_hiresMapLoaded)
+		if (mapKeyEmpty)
+			warning("hires_text_map: empty path; no map is used");
+		else if (!_hiresMapLoaded)
 			warning("hires_text.map %s: %s; ignoring it", mapNode.getPath().toString().c_str(), error.c_str());
 	}
 
@@ -176,12 +185,9 @@ void GfxCache::resolveHiresText() {
 		const long size = strtol(value.c_str(), &end, 10);
 		if (value.empty() || *end != '\0' ||
 			size < kHiresTextFontMinSize || size > kHiresTextFontMaxSize) {
-			warning("hires_text_font_size '%s' is not a number from %d to %d; using %d",
-					value.c_str(), kHiresTextFontMinSize, kHiresTextFontMaxSize,
-					kHiresTextFontDefaultSize);
-			// As before: an out-of-range size is the default, not the map's.
-			_hiresIni.hasFontSize = true;
-			_hiresIni.fontSize = kHiresTextFontDefaultSize;
+			// Ignored, so the map's size (else the default) still applies.
+			warning("hires_text_font_size '%s' is not a number from %d to %d; ignoring it",
+					value.c_str(), kHiresTextFontMinSize, kHiresTextFontMaxSize);
 		} else {
 			_hiresIni.hasFontSize = true;
 			_hiresIni.fontSize = (int)size;
@@ -356,6 +362,7 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 			_iniLatinIgnoredWarned = true;
 		}
 		s.latin = kLatinOff;
+		s.latinFacePath.clear();
 		return loadUniBundle();
 	}
 
@@ -370,11 +377,14 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 						  "the main face draws Latin text");
 	}
 
-	// Fullwidth routes the fullwidth forms; half and (until its own advances
-	// exist) proportional route plain ASCII - so they share a router.
-	const char routing = !latin ? '-' : (s.latin == kLatinFullwidth ? 'f' : 'h');
-	const Common::String key = Common::String::format("%s|%d|%s|%c", mainPath.c_str(), s.size,
-													   latin ? s.latinFacePath.c_str() : "", routing);
+	// The set carries what is drawn: no Latin face when the mode is off or
+	// the face failed (or is the main face itself) - the main face then
+	// draws the Latin range.
+	if (!latin)
+		s.latinFacePath.clear();
+
+	// One router per Latin mode (see unicodeBundleKey()).
+	const Common::String key = unicodeBundleKey(mainPath, s.size, s.latinFacePath, s.latin);
 	if (_ttfBundles.contains(key))
 		return _ttfBundles[key];
 
