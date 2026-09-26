@@ -360,6 +360,12 @@ void apply_config(const ConfigTree &cfg) {
 		else
 			_GP(usetup).translation = CfgReadString(cfg, "language", "translation");
 
+		// ScummVM: how to read a .tra that names no encoding (the Korean fan
+		// translations' legacy EUC-KR files); checked in init_translation()
+		Common::String textEncoding;
+		if (ConfMan.getActiveDomain()->tryGetVal("text_encoding", textEncoding))
+			_GP(usetup).text_encoding = textEncoding;
+
 		// Resource caches and options
 		_GP(usetup).clear_cache_on_room_change = CfgReadBoolInt(cfg, "misc", "clear_cache_on_room_change", _GP(usetup).clear_cache_on_room_change);
 		_GP(usetup).SpriteCacheSize = CfgReadInt(cfg, "graphics", "sprite_cache_size", _GP(usetup).SpriteCacheSize);

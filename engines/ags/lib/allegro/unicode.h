@@ -23,6 +23,7 @@
 #define AGS_LIB_ALLEGRO_UNICODE_H
 
 #include "ags/lib/allegro/base.h"
+#include "ags/lib/allegro/unicode_euckr.h"
 
 namespace AGS3 {
 
@@ -30,6 +31,9 @@ namespace AGS3 {
 #define U_ASCII_CP      AL_ID('A','S','C','P')
 #define U_UNICODE       AL_ID('U','N','I','C')
 #define U_UTF8          AL_ID('U','T','F','8')
+/* Legacy Korean .tra text: KS X 1001 Hangul pairs read as code points
+ * (unicode_euckr.h). */
+#define U_EUCKR         AL_ID('E','U','K','R')
 #define U_CURRENT       AL_ID('c','u','r','.')
 
 
