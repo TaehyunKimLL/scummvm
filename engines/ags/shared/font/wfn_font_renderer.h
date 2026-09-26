@@ -48,7 +48,7 @@ public:
 	int GetVersion() override { return 26; /* first compatible engine API version */ }
 	const char *GetRendererName() override { return "WFNFontRenderer"; }
 	const char *GetFontName(int /*fontNumber*/) override { return ""; }
-	int GetFontHeight(int fontNumber) override { return 0; /* TODO? */ }
+	int GetFontHeight(int fontNumber) override;
 	int GetLineSpacing(int fontNumber) override { return 0; /* no specific spacing */ }
 
 	// IAGSFontRendererInternal implementation
@@ -59,6 +59,8 @@ public:
 	void AdjustFontForAntiAlias(int /*fontNumber*/, bool /*aa_mode*/) override { /* do nothing */ }
 
 private:
+	void LoadExtension(WFNFont *font, int fontNumber, const AGS::Shared::String &base_name);
+
 	struct FontData {
 		WFNFont *Font;
 		FontRenderParams Params;
