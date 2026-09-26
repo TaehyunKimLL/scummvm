@@ -75,6 +75,10 @@ struct HiresTextOverrides {
  * the platform code as the qualifier), so @p map already holds the winner of
  * each qualified/bare pair.
  *
+ * The legacy [latin] enabled=true means kLatinProportional with the usual
+ * metrics chain, but only when enabled= is written: bitmap=, which SCUMM
+ * also reads as enabling, does nothing on SCI.
+ *
  * Defaults: size 16, latin off, space keep, metrics game, no face.
  * A face name resolves through [fonts]; a relative map path is taken against
  * @p gameDir. Ini paths are used as given, as GfxCache always has.
@@ -85,6 +89,16 @@ struct HiresTextOverrides {
  */
 FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapLoaded, int fontId,
 								 const HiresTextOverrides &ini, const Common::Path &gameDir);
+
+/**
+ * Warn once per map key SCI parses but cannot honour: today only the legacy
+ * [latin] bitmap= (SCUMM's bitmap Latin font; SCI has no such path, and does
+ * not read it as enabled=true either). GfxCache calls this once per loaded
+ * map.
+ *
+ * @return the number of warnings given
+ */
+int warnScummOnlyMapKeys(const Graphics::HiResTextConfig &map);
 
 } // End of namespace Sci
 

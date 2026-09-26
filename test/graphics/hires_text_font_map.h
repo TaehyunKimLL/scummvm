@@ -912,4 +912,80 @@ public:
 		TS_ASSERT_EQUALS(cfg.legacy.latinTtfMetrics, Graphics::kHiResMetricsGame);
 		TS_ASSERT_EQUALS(cfg.legacy.latinBitmapMetrics, Graphics::kHiResMetricsGame);
 	}
+
+	void test_legacy_enabled_literal_is_recorded() {
+		// bitmap= still implies latinEnabled (SCUMM), but only an explicit
+		// enabled= sets the literal fields an engine without bitmaps reads.
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[latin]\nbitmap=latin24.fnt\n", cfg));
+		TS_ASSERT(cfg.legacy.latinEnabled);
+		TS_ASSERT(!cfg.legacy.latinEnabledSet);
+
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nenabled=false\nbitmap=latin24.fnt\n", cfg));
+		TS_ASSERT(cfg.legacy.latinEnabled);
+		TS_ASSERT(cfg.legacy.latinEnabledSet);
+		TS_ASSERT(!cfg.legacy.latinEnabledValue);
+
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nenabled=true\n", cfg));
+		TS_ASSERT(cfg.legacy.latinEnabledSet);
+		TS_ASSERT(cfg.legacy.latinEnabledValue);
+
+		cfg.clear();
+		TS_ASSERT(!cfg.legacy.latinEnabledSet);
+		TS_ASSERT(!cfg.legacy.latinEnabledValue);
+	}
+
+	void test_latin_metrics_ttf_is_font() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[latin]\nmetrics=ttf\n", cfg));
+		TS_ASSERT(cfg.latinMetricsSet);
+		TS_ASSERT_EQUALS(cfg.latinMetrics, Graphics::kHiResMetricsFont);
+		// The legacy reading is unchanged.
+		TS_ASSERT_EQUALS(cfg.legacy.latinTtfMetrics, Graphics::kHiResMetricsFont);
+		TS_ASSERT_EQUALS(cfg.legacy.latinBitmapMetrics, Graphics::kHiResMetricsGame);
+
+		// bitmap is a legacy-only spelling, not a new-reader value.
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nmetrics=bitmap\n", cfg));
+		TS_ASSERT(!cfg.latinMetricsSet);
+	}
+
+	void test_face_and_font_are_aliases() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[hires]\nface=main\n[font.4]\nfont=narrow\n", cfg));
+		TS_ASSERT(cfg.hiresFaceSet);
+		TS_ASSERT_EQUALS(cfg.hiresFace, "main");
+		const Graphics::HiResFontIdSettings *f4 = cfg.fontIdSettings(4);
+		TS_ASSERT(f4 && f4->faceSet);
+		TS_ASSERT(f4 && f4->face == "narrow");
+
+		// The canonical spelling wins within one section.
+		cfg.clear();
+		TS_ASSERT(parse("[hires]\nface=b\nfont=a\n[font.4]\nfont=d\nface=c\n", cfg));
+		TS_ASSERT_EQUALS(cfg.hiresFace, "a");
+		TS_ASSERT(cfg.fontIdSettings(4) && cfg.fontIdSettings(4)->face == "c");
+
+		// A qualified section still wins whichever spelling either uses.
+		cfg.clear();
+		TS_ASSERT(parse("[font.4]\nface=bare\n[font.4:pc98]\nfont=qualified\n", cfg, "pc98"));
+		TS_ASSERT(cfg.fontIdSettings(4) && cfg.fontIdSettings(4)->face == "qualified");
+	}
+
+	void test_non_canonical_font_id_sections_are_skipped() {
+		// [font.04] and [font.4:] would read back from [font.4] and come out
+		// empty; they are skipped with a warning instead.
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[font.04]\nsize=20\n[font.5:]\nsize=21\n[font.6]\nsize=22\n", cfg));
+		TS_ASSERT(cfg.fontIdSettings(4) == nullptr);
+		TS_ASSERT(cfg.fontIdSettings(5) == nullptr);
+		TS_ASSERT(cfg.fontIdSettings(6) && cfg.fontIdSettings(6)->size == 22);
+		TS_ASSERT_EQUALS(cfg.fontIds.size(), 1u);
+
+		// Case does not matter: section names are case-insensitive.
+		cfg.clear();
+		TS_ASSERT(parse("[FONT.7]\nsize=23\n", cfg));
+		TS_ASSERT(cfg.fontIdSettings(7) && cfg.fontIdSettings(7)->size == 23);
+	}
 };

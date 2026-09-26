@@ -21,6 +21,8 @@
 
 #include "sci/graphics/hirestextsettings.h"
 
+#include "common/textconsole.h"
+
 namespace Sci {
 
 FontSettings::FontSettings()
@@ -86,13 +88,15 @@ FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapL
 	// Latin mode: ini > [font.N] latin > [latin] mode > [latin] enabled=true
 	// (SCUMM's legacy switch: "the engine's current Latin behaviour", which
 	// for SCI is proportional; its metrics default to game below) > off.
+	// Only the literal enabled=true counts: SCUMM's parser also sets
+	// latinEnabled for bitmap=, a path SCI does not have.
 	if (ini.hasLatin)
 		s.latin = ini.latin;
 	else if (font && font->latinSet)
 		s.latin = toLatinMode(font->latin);
 	else if (mapLoaded && map.latinModeSet)
 		s.latin = toLatinMode(map.latinMode);
-	else if (mapLoaded && map.legacy.latinEnabled)
+	else if (mapLoaded && map.legacy.latinEnabledSet && map.legacy.latinEnabledValue)
 		s.latin = kLatinProportional;
 
 	// Latin face: ini > [font.N] latin_font > [latin] font > none (the main face).
@@ -120,6 +124,15 @@ FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapL
 		s.metrics = map.latinMetrics;
 
 	return s;
+}
+
+int warnScummOnlyMapKeys(const Graphics::HiResTextConfig &map) {
+	int warnings = 0;
+	if (!map.legacy.latinBitmapName.empty()) {
+		warning("hires_text.map: [latin] bitmap= is SCUMM-only, ignored");
+		warnings++;
+	}
+	return warnings;
 }
 
 } // End of namespace Sci

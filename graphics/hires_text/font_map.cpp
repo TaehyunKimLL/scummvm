@@ -80,6 +80,8 @@ void HiResTextConfig::clear() {
 
 	metricsSource = kHiResMetricsGame;
 	legacy.latinEnabled = false;
+	legacy.latinEnabledSet = false;
+	legacy.latinEnabledValue = false;
 	legacy.latinTtfPath = Common::Path();
 	legacy.latinBitmapName.clear();
 	legacy.latinTtfMetrics = kHiResMetricsGame;
@@ -450,7 +452,7 @@ bool qualifierListed(const Common::Array<Common::String> &qualifiers, const Comm
 void readFontIdSections(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
 						HiResTextConfig &out) {
 	static const char *const knownKeys[] = {
-		"face", "size", "latin", "latin_font", "latin_face", "latin_space", "metrics",
+		"face", "font", "size", "latin", "latin_font", "latin_face", "latin_space", "metrics",
 		"baseline" // a known future key: parsed and ignored, no warning
 	};
 
@@ -465,6 +467,15 @@ void readFontIdSections(const Common::INIFile &ini, const Common::Array<Common::
 		int id;
 		if (!parseInteger(idText, 65535, id)) {
 			warning("HiResText: [%s] does not name a font id, ignoring it", sec->name.c_str());
+			continue;
+		}
+		// The values are read back from "font.<id>" below, so a section
+		// written any other way ([font.04], an empty qualifier in
+		// [font.4:]) would yield an empty entry. Say so instead.
+		const bool emptyQualifier = sec->name.findFirstOf(':') != Common::String::npos && qualifier.empty();
+		if (idText != Common::String::format("%d", id) || emptyQualifier) {
+			warning("HiResText: [%s] is not written as [font.%d] or [font.%d:<platform>], ignoring it",
+					sec->name.c_str(), id, id);
 			continue;
 		}
 		// Another platform's section: not an error, just not ours.
@@ -492,7 +503,7 @@ void readFontIdSections(const Common::INIFile &ini, const Common::Array<Common::
 		HiResFontIdSettings &f = out.fontIds[ids[i]];
 		Common::String value;
 
-		if (getKey(ini, qualifiers, section.c_str(), "face", value)) {
+		if (getKeyEither(ini, qualifiers, section.c_str(), "face", "font", value)) {
 			f.face = value;
 			f.faceSet = true;
 		}
@@ -717,9 +728,14 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 	//   metrics=font
 	if (getKey(ini, qualifiers, "latin", "enabled", value)) {
 		bool enabled;
-		if (parseMapBool(value, enabled))
+		if (parseMapBool(value, enabled)) {
 			out.legacy.latinEnabled = enabled;
-		else
+			// Recorded apart from latinEnabled, which bitmap= below also
+			// turns on: an engine with no bitmap path (SCI) honours only
+			// the literal enabled=.
+			out.legacy.latinEnabledSet = true;
+			out.legacy.latinEnabledValue = enabled;
+		} else
 			warning("HiResText: invalid legacy enabled '%s', ignoring", value.c_str());
 	}
 	if (getKey(ini, qualifiers, "latin", "font", value))
@@ -768,7 +784,7 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 	//
 	//   [font.0:pc98]         ; wins over [font.0] for the "pc98" qualifier
 	//   latin=fullwidth
-	if (getKey(ini, qualifiers, "hires", "font", value)) {
+	if (getKeyEither(ini, qualifiers, "hires", "font", "face", value)) {
 		out.hiresFace = value;
 		out.hiresFaceSet = true;
 	}
@@ -797,8 +813,15 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 		out.latinFontSet = true;
 	}
 	// The legacy reader above already warned about a value it does not know.
-	if (getKey(ini, qualifiers, "latin", "metrics", value) && parseMetrics(value, out.latinMetrics))
-		out.latinMetricsSet = true;
+	// Its "ttf" spelling means the face's own advances, i.e. "font".
+	if (getKey(ini, qualifiers, "latin", "metrics", value)) {
+		if (value.equalsIgnoreCase("ttf")) {
+			out.latinMetrics = kHiResMetricsFont;
+			out.latinMetricsSet = true;
+		} else if (parseMetrics(value, out.latinMetrics)) {
+			out.latinMetricsSet = true;
+		}
+	}
 	readFontIdSections(ini, qualifiers, out);
 
 	// [shadow] forces an outline or drop shadow on the replacement glyphs.

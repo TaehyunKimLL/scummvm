@@ -136,7 +136,9 @@ struct HiResGlyphOverride {
 
 /** Compatibility data for old maps; not generic character classification. */
 struct LegacyFontMapOptions {
-	bool latinEnabled;
+	bool latinEnabled;              ///< enabled=, or implied by bitmap= (SCUMM's reading)
+	bool latinEnabledSet;           ///< an explicit enabled= parsed
+	bool latinEnabledValue;         ///< its literal value (bitmap= does not touch it)
 	Common::Path latinTtfPath;
 	Common::String latinBitmapName;
 	HiResMetricsSource latinTtfMetrics;

@@ -280,4 +280,38 @@ public:
 		TS_ASSERT_EQUALS(s.facePath, "/games/kq5/fonts/Narrow.ttf");
 		TS_ASSERT_EQUALS(s.latinFacePath, "/games/kq5/fonts/NarrowLatin.ttf");
 	}
+
+	void test_bitmap_is_scumm_only() {
+		const HiresTextOverrides noIni;
+
+		// SCI has no bitmap Latin path: bitmap= alone is off (SCUMM reads it
+		// as enabled=true; SCI does not), and gets one warning.
+		Graphics::HiResTextConfig map = parse("[latin]\nbitmap=latin24.fnt\n");
+		TS_ASSERT(map.legacy.latinEnabled); // SCUMM's reading is unchanged
+		FontSettings s = resolveFontSettings(map, true, 0, noIni, gameDir());
+		TS_ASSERT_EQUALS(s.latin, Sci::kLatinOff);
+		TS_ASSERT_EQUALS(Sci::warnScummOnlyMapKeys(map), 1);
+
+		// enabled=false with bitmap= is off too.
+		map = parse("[latin]\nenabled=false\nbitmap=latin24.fnt\n");
+		s = resolveFontSettings(map, true, 0, noIni, gameDir());
+		TS_ASSERT_EQUALS(s.latin, Sci::kLatinOff);
+
+		// Only an explicit enabled=true is the legacy alias.
+		map = parse("[latin]\nenabled=true\nbitmap=latin24.fnt\n");
+		s = resolveFontSettings(map, true, 0, noIni, gameDir());
+		TS_ASSERT_EQUALS(s.latin, Sci::kLatinProportional);
+		TS_ASSERT_EQUALS(s.metrics, Graphics::kHiResMetricsGame);
+
+		// No bitmap=, no warning.
+		map = parse("[latin]\nenabled=true\n");
+		TS_ASSERT_EQUALS(Sci::warnScummOnlyMapKeys(map), 0);
+	}
+
+	void test_latin_metrics_ttf_means_font() {
+		const HiresTextOverrides noIni;
+		const Graphics::HiResTextConfig map = parse("[latin]\nmode=proportional\nmetrics=ttf\n");
+		const FontSettings s = resolveFontSettings(map, true, 0, noIni, gameDir());
+		TS_ASSERT_EQUALS(s.metrics, Graphics::kHiResMetricsFont);
+	}
 };
