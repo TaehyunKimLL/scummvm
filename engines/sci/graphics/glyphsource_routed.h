@@ -22,6 +22,7 @@
 #ifndef SCI_GRAPHICS_GLYPHSOURCE_ROUTED_H
 #define SCI_GRAPHICS_GLYPHSOURCE_ROUTED_H
 
+#include "common/types.h"
 #include "sci/graphics/glyphsource.h"
 #include "sci/graphics/textlatin.h"
 
@@ -41,7 +42,8 @@ namespace Sci {
  *   kLatinFullwidth - U+FF01..U+FF5E and U+3000, the fullwidth-forms range
  *                     GfxText16::glyphChar() remaps plain ASCII into via
  *                     TextCompose::latinFullwidth().
- *   kLatinHalf      - U+0020..U+007E, plain ASCII left unremapped at the code
+ *   kLatinHalf and
+ *   kLatinProportional - U+0020..U+007E, plain ASCII left unremapped at the code
  *                     point level, routed here instead by
  *                     GfxFontSet/GfxFontUnicodeAdapter choosing the Unicode
  *                     face for it in the first place (see
@@ -50,11 +52,14 @@ namespace Sci {
  * Never constructed with kLatinOff - callers only wrap two sources once
  * hires_text_latin has resolved to half or fullwidth (see cache.cpp).
  *
- * Owns both sources.
+ * Owns both sources unless constructed with DisposeAfterUse::NO (GfxCache
+ * shares one TrueType source between every font id naming the same face at
+ * the same size, and owns them itself).
  */
 class RoutedGlyphSource : public UnicodeGlyphSource {
 public:
-	RoutedGlyphSource(UnicodeGlyphSource *main, UnicodeGlyphSource *latin, LatinMode mode);
+	RoutedGlyphSource(UnicodeGlyphSource *main, UnicodeGlyphSource *latin, LatinMode mode,
+					  DisposeAfterUse::Flag dispose = DisposeAfterUse::YES);
 	~RoutedGlyphSource() override;
 
 	byte cellWidth() const override { return _main->cellWidth(); }
@@ -91,6 +96,7 @@ private:
 	UnicodeGlyphSource *_main;
 	UnicodeGlyphSource *_latin;
 	LatinMode _mode;
+	DisposeAfterUse::Flag _dispose;
 };
 
 } // End of namespace Sci

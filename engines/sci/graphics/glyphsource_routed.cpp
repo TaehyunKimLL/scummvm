@@ -23,17 +23,21 @@
 
 namespace Sci {
 
-RoutedGlyphSource::RoutedGlyphSource(UnicodeGlyphSource *main, UnicodeGlyphSource *latin, LatinMode mode)
-	: _main(main), _latin(latin), _mode(mode) {
+RoutedGlyphSource::RoutedGlyphSource(UnicodeGlyphSource *main, UnicodeGlyphSource *latin, LatinMode mode,
+									 DisposeAfterUse::Flag dispose)
+	: _main(main), _latin(latin), _mode(mode), _dispose(dispose) {
 }
 
 RoutedGlyphSource::~RoutedGlyphSource() {
-	delete _main;
-	delete _latin;
+	if (_dispose == DisposeAfterUse::YES) {
+		delete _main;
+		delete _latin;
+	}
 }
 
 bool RoutedGlyphSource::routeToLatin(uint32 cp) const {
-	if (_mode == kLatinHalf)
+	// kLatinProportional routes the same plain ASCII as kLatinHalf.
+	if (_mode == kLatinHalf || _mode == kLatinProportional)
 		return cp >= 0x0020 && cp <= 0x007E;
 	// kLatinFullwidth: the only other mode this class is ever constructed
 	// with (see the class comment in glyphsource_routed.h). Latin-1

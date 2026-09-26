@@ -24,6 +24,7 @@
 
 #include "common/array.h"
 #include "common/str-enc.h"
+#include "sci/graphics/hirestextsettings.h"
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/textlatin.h"
 
@@ -76,14 +77,21 @@ public:
 	};
 
 	/**
-	 * @param latinMode  hires_text_latin, cached by GfxCache. Only kLatinHalf
-	 *                   changes anything here: it routes the printable ASCII
-	 *                   range past the resource face and into the faces below
-	 *                   (see faceFor()). kLatinFullwidth needs no such
-	 *                   routing - its ASCII arrives already remapped past
-	 *                   U+00FF by GfxText16::glyphChar().
+	 * @param settings  this font id's hi-res text settings, resolved by
+	 *                  GfxCache (ini keys and hires_text.map, see
+	 *                  resolveFontSettings()) with the Latin mode already
+	 *                  forced off when the id has no live TrueType face.
+	 *                  Only its Latin mode changes anything here: kLatinHalf
+	 *                  (and, until proportional advances exist,
+	 *                  kLatinProportional) routes the printable ASCII range
+	 *                  past the resource face and into the faces below (see
+	 *                  faceFor()). kLatinFullwidth needs no such routing - its
+	 *                  ASCII arrives already remapped past U+00FF by
+	 *                  GfxText16::glyphChar(), which reads latinMode() and
+	 *                  latinFullwidthSpace() from the current font.
 	 */
-	GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage, LatinMode latinMode = kLatinOff);
+	GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage,
+			   const FontSettings &settings = FontSettings());
 	~GfxFontSet() override;
 
 	/**
@@ -110,6 +118,11 @@ public:
 	void addFace(GfxFont *face, FaceKind kind, bool owned = true, bool hiresPlane = false);
 
 	bool isEmpty() const { return _faces.empty(); }
+
+	/** The settings this font id was built with. */
+	const FontSettings &settings() const { return _settings; }
+	LatinMode latinMode() const { return _settings.latin; }
+	bool latinFullwidthSpace() const { return _settings.fullwidthSpace; }
 	uint faceCount() const { return _faces.size(); }
 
 	/**
@@ -163,7 +176,8 @@ private:
 	Common::Array<Face> _faces;
 	GuiResourceId _resourceId;
 	Common::CodePage _codePage;
-	LatinMode _latinMode;
+	FontSettings _settings;
+	LatinMode _latinMode; ///< _settings.latin, read per character
 };
 
 } // End of namespace Sci

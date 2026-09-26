@@ -60,10 +60,13 @@ public:
 	bool load(const Common::String &filename);
 
 	/**
-	 * Take ownership of an already-built source and mark the face loaded.
-	 * name is used only for the debug line printed on success.
+	 * Use an already-built source and mark the face loaded; the font owns
+	 * it unless @p dispose is DisposeAfterUse::NO (a source GfxCache shares
+	 * between fonts). name is used only for the debug line printed on
+	 * success.
 	 */
-	void setSource(UnicodeGlyphSource *src, const Common::String &name);
+	void setSource(UnicodeGlyphSource *src, const Common::String &name,
+				   DisposeAfterUse::Flag dispose = DisposeAfterUse::YES);
 
 	bool isLoaded() const { return _loaded; }
 
@@ -93,7 +96,7 @@ private:
 	GuiResourceId _resourceId;
 	bool _loaded;
 
-	Common::ScopedPtr<UnicodeGlyphSource> _source;
+	Common::DisposablePtr<UnicodeGlyphSource> _source;
 
 	/** Scratch buffer for expanding a glyph to one byte per pixel. */
 	Common::Array<byte> _glyphScratch;
@@ -121,14 +124,20 @@ private:
 class GfxFontUnicodeAdapter : public GfxFont {
 public:
 	/**
-	 * @param latinMode  hires_text_latin, cached by GfxCache. Only
-	 *                   kLatinHalf changes anything here: it routes the
-	 *                   printable ASCII range to _font instead of _fallback
-	 *                   (see the chr < 0x80 checks below).
+	 * @param latinMode  this font id's Latin mode (see GfxFontSet), resolved
+	 *                   by GfxCache. Only kLatinHalf/kLatinProportional
+	 *                   change anything here: they route the printable
+	 *                   ASCII range to _font instead of _fallback (see the
+	 *                   chr < 0x80 checks below).
+	 * @param fullwidthSpace  kLatinFullwidth: whether GfxText16 remaps ' '
+	 *                   too; only carried, for GfxText16 to read.
 	 */
 	GfxFontUnicodeAdapter(GfxFontUnicode *font, Common::CodePage codePage,
 	                      GfxFont *fallback, GuiResourceId resourceId,
-	                      LatinMode latinMode = kLatinOff);
+	                      LatinMode latinMode = kLatinOff, bool fullwidthSpace = false);
+
+	LatinMode latinMode() const { return _latinMode; }
+	bool latinFullwidthSpace() const { return _fullwidthSpace; }
 	~GfxFontUnicodeAdapter() override;
 
 	GuiResourceId getResourceId() override { return _resourceId; }
@@ -161,6 +170,7 @@ private:
 	Common::CodePage _codePage;
 	GuiResourceId _resourceId;
 	LatinMode _latinMode;
+	bool _fullwidthSpace;
 };
 
 } // End of namespace Sci

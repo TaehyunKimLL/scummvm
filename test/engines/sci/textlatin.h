@@ -120,6 +120,14 @@ public:
 		TS_ASSERT(asciiGoesToUnicodeFace(0x0041, kLatinHalf));
 	}
 
+	// Until proportional advances exist, proportional routes as half does.
+	void test_ascii_goes_to_unicode_face_in_proportional_mode() {
+		TS_ASSERT(asciiGoesToUnicodeFace(0x0041, Sci::kLatinProportional));
+		TS_ASSERT(asciiGoesToUnicodeFace(0x0020, Sci::kLatinProportional));
+		TS_ASSERT(!asciiGoesToUnicodeFace(0x007F, Sci::kLatinProportional));
+		TS_ASSERT_EQUALS(latinFullwidth(0x0041, Sci::kLatinProportional, true), (uint32)0x0041);
+	}
+
 	void test_ascii_goes_to_unicode_face_boundaries() {
 		TS_ASSERT(!asciiGoesToUnicodeFace(0x001F, kLatinHalf));
 		TS_ASSERT(asciiGoesToUnicodeFace(0x0020, kLatinHalf));

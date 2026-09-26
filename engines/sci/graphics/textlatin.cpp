@@ -36,7 +36,9 @@ uint32 latinFullwidth(uint32 cp, LatinMode mode, bool fullwidthSpace) {
 }
 
 bool asciiGoesToUnicodeFace(uint32 cp, LatinMode mode) {
-	return mode == kLatinHalf && cp >= 0x0020 && cp <= 0x007E;
+	// kLatinProportional routes exactly as kLatinHalf does; only its
+	// advance differs, and that is the font's business, not this one's.
+	return (mode == kLatinHalf || mode == kLatinProportional) && cp >= 0x0020 && cp <= 0x007E;
 }
 
 } // End of namespace TextCompose

@@ -22,6 +22,8 @@
 #ifndef SCI_GRAPHICS_TEXT16_H
 #define SCI_GRAPHICS_TEXT16_H
 
+#include "sci/graphics/textlatin.h"
+
 namespace Graphics {
 class Font;
 }
@@ -110,8 +112,8 @@ private:
 
 	/**
 	 * The glyph character for @p chr, a character readChar() returned (after
-	 * any escape substitution): TextCompose::latinFullwidth() per
-	 * hires_text_latin. readChar() itself returns the raw character, which
+	 * any escape substitution): TextCompose::latinFullwidth() per the
+	 * current font's Latin mode. readChar() itself returns the raw character, which
 	 * is what every classification sees - '|' codes, '@'/0xFF20 and CR/LF
 	 * line breaks, the PQ2 "\n" escape, the ' ' word break - so fullwidth
 	 * mode leaves the text protocol alone. Only the sites that measure or
@@ -119,6 +121,18 @@ private:
 	 * and drawing agree.
 	 */
 	uint32 glyphChar(uint32 chr) const;
+
+	/**
+	 * Copy the current _font's Latin settings (GfxFontSet /
+	 * GfxFontUnicodeAdapter carry their font id's resolved settings) into
+	 * _latinMode/_latinSpaceFullwidth, which glyphChar() reads per
+	 * character. Called wherever _font changes (GetFont()/SetFont()); any
+	 * other font kind is kLatinOff.
+	 */
+	void refreshLatinSettings();
+
+	LatinMode _latinMode;
+	bool _latinSpaceFullwidth;
 
 	bool SwitchToFont1001OnKorean(const char *text, uint16 languageSplitter);
 	bool SwitchToFont900OnSjis(const char *text, uint16 languageSplitter);

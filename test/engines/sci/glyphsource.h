@@ -621,6 +621,29 @@ public:
 		TS_ASSERT_EQUALS(main->lastCellsCp, (uint32)0x0041);
 	}
 
+	void test_proportional_routes_as_half() {
+		TaggedFakeGlyphSource *main = makeMain();
+		TaggedFakeGlyphSource *latin = makeLatin();
+		RoutedGlyphSource src(main, latin, Sci::kLatinProportional);
+		TS_ASSERT_EQUALS(src.cells(0x0041), 9);
+		TS_ASSERT_EQUALS(src.cells(0xFF01), 1);
+		TS_ASSERT_EQUALS(src.cells(0xAC00), 1);
+	}
+
+	void test_unowned_sources_outlive_the_router() {
+		TaggedFakeGlyphSource *main = makeMain();
+		TaggedFakeGlyphSource *latin = makeLatin();
+		{
+			RoutedGlyphSource src(main, latin, kLatinHalf, DisposeAfterUse::NO);
+			TS_ASSERT_EQUALS(src.cells(0x0041), 9);
+		}
+		// Still alive: the router did not delete them.
+		TS_ASSERT_EQUALS(main->cells(0xAC00), 1);
+		TS_ASSERT_EQUALS(latin->cells(0x0041), 9);
+		delete main;
+		delete latin;
+	}
+
 	void test_half_routes_plain_ascii_to_latin() {
 		TaggedFakeGlyphSource *main = makeMain();
 		TaggedFakeGlyphSource *latin = makeLatin();

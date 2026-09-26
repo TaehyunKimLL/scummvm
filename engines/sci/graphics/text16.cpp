@@ -96,6 +96,8 @@ GfxText16::~GfxText16() {
 
 void GfxText16::init() {
 	_font = nullptr;
+	_latinMode = kLatinOff;
+	_latinSpaceFullwidth = false;
 	_codeFonts = nullptr;
 	_codeFontsCount = 0;
 	_codeColors = nullptr;
@@ -112,15 +114,19 @@ GuiResourceId GfxText16::GetFontId() {
 }
 
 GfxFont *GfxText16::GetFont() {
-	if ((_font == nullptr) || (_font->getResourceId() != _ports->_curPort->fontId))
+	if ((_font == nullptr) || (_font->getResourceId() != _ports->_curPort->fontId)) {
 		_font = _cache->getFont(_ports->_curPort->fontId);
+		refreshLatinSettings();
+	}
 
 	return _font;
 }
 
 void GfxText16::SetFont(GuiResourceId fontId) {
-	if ((_font == nullptr) || (_font->getResourceId() != fontId))
+	if ((_font == nullptr) || (_font->getResourceId() != fontId)) {
 		_font = _cache->getFont(fontId);
+		refreshLatinSettings();
+	}
 
 	_ports->_curPort->fontId = _font->getResourceId();
 	_ports->_curPort->fontHeight = _font->getHeight();
@@ -894,13 +900,25 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 // hires_text_latin=fullwidth remaps ASCII into the fullwidth-forms block here
 // and only here; kLatinOff and kLatinHalf leave it untouched (half's routing
 // happens at the face-selection layer - GfxFontSet::faceFor() and
-// GfxFontUnicodeAdapter). The mode is a plain field read: GetFont() has
-// already gone through GfxCache::getFont(), which resolves it.
+// GfxFontUnicodeAdapter). The mode is a plain field read: the current font's
+// own setting, copied by refreshLatinSettings() whenever _font changes.
 // Latin-1 (U+00A0..U+00FF) is deliberately neither remapped nor routed: the
 // fullwidth-forms block has no counterpart for it, and it keeps the face it
 // had before hires_text_latin existed.
 uint32 GfxText16::glyphChar(uint32 chr) const {
-	return TextCompose::latinFullwidth(chr, _cache->getLatinMode(), _cache->getLatinSpaceFullwidth());
+	return TextCompose::latinFullwidth(chr, _latinMode, _latinSpaceFullwidth);
+}
+
+void GfxText16::refreshLatinSettings() {
+	_latinMode = kLatinOff;
+	_latinSpaceFullwidth = false;
+	if (const GfxFontSet *set = dynamic_cast<const GfxFontSet *>(_font)) {
+		_latinMode = set->latinMode();
+		_latinSpaceFullwidth = set->latinFullwidthSpace();
+	} else if (const GfxFontUnicodeAdapter *adapter = dynamic_cast<const GfxFontUnicodeAdapter *>(_font)) {
+		_latinMode = adapter->latinMode();
+		_latinSpaceFullwidth = adapter->latinFullwidthSpace();
+	}
 }
 
 uint16 GfxText16::getGlyphWidth(uint32 chr) {

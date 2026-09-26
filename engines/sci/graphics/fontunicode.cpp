@@ -35,7 +35,7 @@
 namespace Sci {
 
 GfxFontUnicode::GfxFontUnicode(GfxScreen *screen, GuiResourceId resourceId)
-	: _screen(screen), _resourceId(resourceId), _loaded(false) {
+	: _screen(screen), _resourceId(resourceId), _loaded(false), _source(nullptr, DisposeAfterUse::YES) {
 }
 
 GfxFontUnicode::~GfxFontUnicode() {
@@ -64,8 +64,9 @@ bool GfxFontUnicode::load(const Common::String &filename) {
 	return true;
 }
 
-void GfxFontUnicode::setSource(UnicodeGlyphSource *src, const Common::String &name) {
-	_source.reset(src);
+void GfxFontUnicode::setSource(UnicodeGlyphSource *src, const Common::String &name,
+							   DisposeAfterUse::Flag dispose) {
+	_source.reset(src, dispose);
 	_loaded = true;
 	debug(1, "GfxFontUnicode: %s loaded, %u glyphs, %dx%d, %dbpp",
 		  name.c_str(), src->glyphCount(), src->cellWidth(), src->cellHeight(), src->bitsPerPixel());
@@ -178,9 +179,10 @@ GfxFontUnicodeAdapter::GfxFontUnicodeAdapter(GfxFontUnicode *font,
 											 Common::CodePage codePage,
 											 GfxFont *fallback,
 											 GuiResourceId resourceId,
-											 LatinMode latinMode)
+											 LatinMode latinMode,
+											 bool fullwidthSpace)
 	: _font(font), _fallback(fallback), _codePage(codePage),
-	  _resourceId(resourceId), _latinMode(latinMode) {
+	  _resourceId(resourceId), _latinMode(latinMode), _fullwidthSpace(fullwidthSpace) {
 }
 
 GfxFontUnicodeAdapter::~GfxFontUnicodeAdapter() {

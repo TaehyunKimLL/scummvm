@@ -29,8 +29,8 @@
 
 namespace Sci {
 
-GfxFontSet::GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage, LatinMode latinMode)
-	: _resourceId(resourceId), _codePage(codePage), _latinMode(latinMode) {
+GfxFontSet::GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage, const FontSettings &settings)
+	: _resourceId(resourceId), _codePage(codePage), _settings(settings), _latinMode(settings.latin) {
 }
 
 GfxFontSet::~GfxFontSet() {

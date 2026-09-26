@@ -29,8 +29,9 @@ namespace Sci {
 /**
  * hires_text_latin: how ASCII text is drawn once hires_text_font applies
  * (see cache.cpp's hiresTextFontApplies()) and resolves to a live TrueType
- * face. Read from the player's ini once and cached (GfxCache::getLatinMode()),
- * never looked up per character.
+ * face. Resolved per font id (resolveFontSettings(), hirestextsettings.h) from
+ * the ini keys and hires_text.map when GfxCache builds that font, carried by
+ * the font itself, and never looked up per character.
  */
 enum LatinMode {
 	kLatinOff,			///< default: today's behaviour, unchanged
@@ -94,7 +95,9 @@ uint32 latinFullwidth(uint32 cp, LatinMode mode, bool fullwidthSpace);
  * GfxFontSet::faceFor() (fontset.cpp) and GfxFontUnicodeAdapter
  * (fontunicode.cpp).
  *
- * Only kLatinHalf redirects, and only the printable range U+0020..U+007E.
+ * Only kLatinHalf and kLatinProportional redirect, and only the printable
+ * range U+0020..U+007E. (Until proportional advances exist, a
+ * kLatinProportional font draws exactly like kLatinHalf.)
  * kLatinFullwidth needs no such override: its ASCII is already remapped past
  * U+00FF by latinFullwidth() before any chr < 0x80 check ever sees it.
  */
