@@ -1,3 +1,24 @@
+/* ScummVM - Graphic Adventure Engine
+ *
+ * ScummVM is the legal property of its developers, whose names
+ * are too numerous to list here. Please refer to the COPYRIGHT
+ * file distributed with this source distribution.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
 #include <cxxtest/TestSuite.h>
 
 #include "ags/lib/allegro/unicode_euckr.h"
@@ -85,7 +106,30 @@ public:
 		TS_ASSERT_EQUALS(length("\xb0"), 1);
 	}
 
+	void test_length_agrees_with_offsets() {
+		// String.Length/GetChars and Substring/Truncate/ReplaceCharAt must
+		// count the same units: characters, not bytes, under EUC-KR.
+		const char text[] = "\xb0\xa1" "AB";
+		TS_ASSERT_EQUALS(length(text), 3);
+		TS_ASSERT_EQUALS((int)strlen(text), 4);
+		// Character n for every n < length() is reachable by getx.
+		TS_ASSERT_EQUALS(charAt(text, 0), 0xAC00);
+		TS_ASSERT_EQUALS(charAt(text, 1), 'A');
+		TS_ASSERT_EQUALS(charAt(text, 2), 'B');
+		// The last character by (length - 1), as s.Substring(s.Length-1, 1).
+		TS_ASSERT_EQUALS(charAt(text, length(text) - 1), 'B');
+	}
+
 private:
+	static int charAt(const char *s, int index) {
+		char *p = const_cast<char *>(s);
+		int c = 0;
+		for (int i = 0; i <= index; i++)
+			c = AGS3::euckr_getx(&p);
+		return c;
+	}
+
+
 	static int length(const char *s) {
 		char *p = const_cast<char *>(s);
 		int n = 0;
