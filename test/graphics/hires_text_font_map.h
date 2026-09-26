@@ -537,4 +537,379 @@ public:
 		Graphics::HiResTextConfig cfg;
 		TS_ASSERT(!parse("[glyphs]\nu+5e = keep\n", cfg));
 	}
+
+	// --- SCI additions: [latin] mode/space, [fonts] names, [font.N] -------
+	//
+	// Everything below is optional and additive: a map that names none of it
+	// parses exactly as it did before (test_existing_scumm_maps_unchanged).
+
+	void test_latin_mode_and_space_parse() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(!cfg.latinModeSet);
+		TS_ASSERT(!cfg.latinSpaceSet);
+		TS_ASSERT(!cfg.latinMetricsSet);
+
+		TS_ASSERT(parse("[latin]\nmode=fullwidth\nspace=fullwidth\nmetrics=font\n", cfg));
+		TS_ASSERT(cfg.latinModeSet);
+		TS_ASSERT_EQUALS(cfg.latinMode, Graphics::kHiResLatinFullwidth);
+		TS_ASSERT(cfg.latinSpaceSet);
+		TS_ASSERT(cfg.latinFullwidthSpace);
+		TS_ASSERT(cfg.latinMetricsSet);
+		TS_ASSERT_EQUALS(cfg.latinMetrics, Graphics::kHiResMetricsFont);
+
+		const struct {
+			const char *name;
+			Graphics::HiResLatinMode mode;
+		} modes[] = {
+			{ "off", Graphics::kHiResLatinOff },
+			{ "half", Graphics::kHiResLatinHalf },
+			{ "fullwidth", Graphics::kHiResLatinFullwidth },
+			{ "proportional", Graphics::kHiResLatinProportional }
+		};
+		for (uint i = 0; i < ARRAYSIZE(modes); ++i) {
+			cfg.clear();
+			const Common::String map = Common::String::format("[latin]\nmode=%s\nspace=keep\n", modes[i].name);
+			TS_ASSERT(parse(map.c_str(), cfg));
+			TS_ASSERT(cfg.latinModeSet);
+			TS_ASSERT_EQUALS(cfg.latinMode, modes[i].mode);
+			TS_ASSERT(cfg.latinSpaceSet);
+			TS_ASSERT(!cfg.latinFullwidthSpace);
+		}
+
+		// The new keys are not the legacy switch: mode= does not turn on
+		// SCUMM's [latin] companion font.
+		TS_ASSERT(!cfg.legacy.latinEnabled);
+
+		// A qualified [latin:<platform>] wins over [latin] for its qualifier.
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nmode=half\n[latin:pc98]\nmode=fullwidth\n", cfg, "pc98"));
+		TS_ASSERT_EQUALS(cfg.latinMode, Graphics::kHiResLatinFullwidth);
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nmode=half\n[latin:pc98]\nmode=fullwidth\n", cfg, "dos"));
+		TS_ASSERT_EQUALS(cfg.latinMode, Graphics::kHiResLatinHalf);
+	}
+
+	void test_hires_face_and_size_parse() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(!cfg.hiresFaceSet);
+		TS_ASSERT(!cfg.hiresSizeSet);
+		TS_ASSERT(parse("[hires]\nfont=default\nsize=18\n", cfg));
+		TS_ASSERT(cfg.hiresFaceSet);
+		TS_ASSERT_EQUALS(cfg.hiresFace, "default");
+		TS_ASSERT(cfg.hiresSizeSet);
+		TS_ASSERT_EQUALS(cfg.hiresSize, 18);
+		// Neither touches SCUMM's geometry.
+		TS_ASSERT_EQUALS(cfg.scale, 1);
+		TS_ASSERT(!cfg.scaleFromMap);
+	}
+
+	void test_font_id_sections_parse() {
+		const char *map =
+			"[font.4]\n"
+			"face=default\n"
+			"size=16\n"
+			"latin=proportional\n"
+			"latin_font=latin\n"
+			"latin_space=keep\n"
+			"metrics=font\n"
+			"\n"
+			"[font.300]\n"
+			"size=24\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(map, cfg));
+		TS_ASSERT_EQUALS(cfg.fontIds.size(), 2u);
+
+		const Graphics::HiResFontIdSettings *f4 = cfg.fontIdSettings(4);
+		TS_ASSERT(f4 != nullptr);
+		if (f4) {
+			TS_ASSERT(f4->faceSet);
+			TS_ASSERT_EQUALS(f4->face, "default");
+			TS_ASSERT(f4->sizeSet);
+			TS_ASSERT_EQUALS(f4->size, 16);
+			TS_ASSERT(f4->latinSet);
+			TS_ASSERT_EQUALS(f4->latin, Graphics::kHiResLatinProportional);
+			TS_ASSERT(f4->latinFontSet);
+			TS_ASSERT_EQUALS(f4->latinFont, "latin");
+			TS_ASSERT(f4->latinSpaceSet);
+			TS_ASSERT(!f4->latinFullwidthSpace);
+			TS_ASSERT(f4->metricsSet);
+			TS_ASSERT_EQUALS(f4->metrics, Graphics::kHiResMetricsFont);
+		}
+
+		// A section sets only what it names.
+		const Graphics::HiResFontIdSettings *f300 = cfg.fontIdSettings(300);
+		TS_ASSERT(f300 != nullptr);
+		if (f300) {
+			TS_ASSERT(f300->sizeSet);
+			TS_ASSERT_EQUALS(f300->size, 24);
+			TS_ASSERT(!f300->faceSet);
+			TS_ASSERT(!f300->latinSet);
+			TS_ASSERT(!f300->latinFontSet);
+			TS_ASSERT(!f300->latinSpaceSet);
+			TS_ASSERT(!f300->metricsSet);
+		}
+
+		// An id the map does not mention has no entry at all.
+		TS_ASSERT(cfg.fontIdSettings(0) == nullptr);
+
+		// latin_face= is the spelling the design doc uses for latin_font=.
+		cfg.clear();
+		TS_ASSERT(parse("[font.0]\nlatin_face=latin\n", cfg));
+		TS_ASSERT(cfg.fontIdSettings(0) && cfg.fontIdSettings(0)->latinFontSet);
+		TS_ASSERT(cfg.fontIdSettings(0) && cfg.fontIdSettings(0)->latinFont == "latin");
+
+		// clear() forgets the table.
+		cfg.clear();
+		TS_ASSERT_EQUALS(cfg.fontIds.size(), 0u);
+	}
+
+	void test_font_id_qualified_section_wins_for_its_qualifier() {
+		const char *map =
+			"[font.0]\n"
+			"latin=half\n"
+			"size=14\n"
+			"[font.0:pc98]\n"
+			"latin=fullwidth\n"
+			"[font.7:pc98]\n"
+			"size=20\n";
+
+		// On its own qualifier the qualified section wins, key by key: the
+		// size it does not name still comes from the bare section.
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(map, cfg, "pc98"));
+		const Graphics::HiResFontIdSettings *f0 = cfg.fontIdSettings(0);
+		TS_ASSERT(f0 != nullptr);
+		if (f0) {
+			TS_ASSERT_EQUALS(f0->latin, Graphics::kHiResLatinFullwidth);
+			TS_ASSERT_EQUALS(f0->size, 14);
+		}
+		// A font id named only in a qualified section exists on that qualifier.
+		TS_ASSERT(cfg.fontIdSettings(7) != nullptr);
+		if (cfg.fontIdSettings(7))
+			TS_ASSERT_EQUALS(cfg.fontIdSettings(7)->size, 20);
+
+		// Any other qualifier sees the bare section only...
+		cfg.clear();
+		TS_ASSERT(parse(map, cfg, "dos"));
+		f0 = cfg.fontIdSettings(0);
+		TS_ASSERT(f0 != nullptr);
+		if (f0) {
+			TS_ASSERT_EQUALS(f0->latin, Graphics::kHiResLatinHalf);
+			TS_ASSERT_EQUALS(f0->size, 14);
+		}
+		// ...and no entry for an id only another qualifier names.
+		TS_ASSERT(cfg.fontIdSettings(7) == nullptr);
+
+		// As does a caller with no qualifier at all.
+		cfg.clear();
+		TS_ASSERT(parse(map, cfg));
+		TS_ASSERT(cfg.fontIdSettings(0) && cfg.fontIdSettings(0)->latin == Graphics::kHiResLatinHalf);
+		TS_ASSERT(cfg.fontIdSettings(7) == nullptr);
+	}
+
+	void test_latin_font_accepts_face_name() {
+		const char *map =
+			"[fonts]\n"
+			"default=NanumGothic.ttf\n"
+			"latin=/fonts/AppleGothic.ttf\n"
+			"[latin]\n"
+			"font=latin\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(map, cfg));
+
+		// The raw value is kept, and a [fonts] name resolves to its file.
+		TS_ASSERT(cfg.latinFontSet);
+		TS_ASSERT_EQUALS(cfg.latinFont, "latin");
+		TS_ASSERT_EQUALS(cfg.resolveFace(cfg.latinFont), "/fonts/AppleGothic.ttf");
+
+		// Every [fonts] name is in the table, not only SCUMM's roles, and
+		// the lookup ignores case like the rest of the map.
+		TS_ASSERT_EQUALS(cfg.fontFaces.size(), 2u);
+		TS_ASSERT_EQUALS(cfg.resolveFace("DEFAULT"), "NanumGothic.ttf");
+
+		// Something that is not a face name is taken to be a path.
+		TS_ASSERT_EQUALS(cfg.resolveFace("other/Face.ttf"), "other/Face.ttf");
+
+		// SCUMM's role lookup is unchanged by the table.
+		TS_ASSERT_EQUALS(cfg.ttfPath[Graphics::kHiResRoleDefault].toString('/'),
+						 "/games/demo/NanumGothic.ttf");
+
+		// A path still works in [latin] font=, as it always has.
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nfont=fonts/latin.ttf\n", cfg));
+		TS_ASSERT_EQUALS(cfg.resolveFace(cfg.latinFont), "fonts/latin.ttf");
+		TS_ASSERT_EQUALS(cfg.legacy.latinTtfPath.toString('/'), "/games/demo/fonts/latin.ttf");
+		TS_ASSERT(!cfg.legacy.latinEnabled);
+
+		// face= is the design doc's spelling of the same key.
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nface=latin\n", cfg));
+		TS_ASSERT(cfg.latinFontSet);
+		TS_ASSERT_EQUALS(cfg.latinFont, "latin");
+
+		// A qualified [fonts:<q>] entry wins over the bare one for its name.
+		cfg.clear();
+		TS_ASSERT(parse("[fonts]\nlatin=a.ttf\n[fonts:pc98]\nlatin=b.ttf\n", cfg, "pc98"));
+		TS_ASSERT_EQUALS(cfg.resolveFace("latin"), "b.ttf");
+	}
+
+	void test_existing_scumm_maps_unchanged() {
+		// The full example from engines/scumm/HIRES_TEXT_SETUP.md (hires-text).
+		const char *full =
+			"[hires]\n"
+			"scale=2\n"
+			"alpha=true\n"
+			"\n"
+			"[encoding]\n"
+			"codepage=cp949\n"
+			"\n"
+			"[bitmap]\n"
+			"multi=korean%02d.fnt\n"
+			"single=korean.fnt\n"
+			"glyphs=2350\n"
+			"\n"
+			"[latin]\n"
+			"enabled=true\n"
+			"bitmap=hrlat%02d.fnt\n"
+			"metrics=font\n"
+			"\n"
+			"[render]\n"
+			"metrics=font\n"
+			"\n"
+			"[shadow]\n"
+			"mode=outline\n"
+			"offset=2\n"
+			"color=0\n"
+			"\n"
+			"[glyphs]\n"
+			"0x07=keep\n"
+			"0x5e=0x2026\n"
+			"\n"
+			"[translation]\n"
+			"file=strings.txt\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(full, cfg, "monkey2", "v5"));
+		TS_ASSERT_EQUALS(cfg.scale, 2);
+		TS_ASSERT(cfg.scaleFromMap);
+		TS_ASSERT(cfg.alpha);
+		TS_ASSERT(cfg.alphaFromMap);
+		TS_ASSERT_EQUALS(cfg.encoding, Common::kWindows949);
+		TS_ASSERT(cfg.encodingFromMap);
+		TS_ASSERT_EQUALS(cfg.bitmapPattern, "korean%02d.fnt");
+		TS_ASSERT_EQUALS(cfg.bitmapSingle, "korean.fnt");
+		TS_ASSERT_EQUALS(cfg.bitmapGlyphs, 2350);
+		TS_ASSERT(cfg.legacy.latinEnabled);
+		TS_ASSERT_EQUALS(cfg.legacy.latinBitmapName, "hrlat%02d.fnt");
+		TS_ASSERT(cfg.legacy.latinTtfPath.empty());
+		TS_ASSERT_EQUALS(cfg.legacy.latinTtfMetrics, Graphics::kHiResMetricsFont);
+		TS_ASSERT_EQUALS(cfg.legacy.latinBitmapMetrics, Graphics::kHiResMetricsFont);
+		TS_ASSERT_EQUALS(cfg.metricsSource, Graphics::kHiResMetricsFont);
+		TS_ASSERT_EQUALS(cfg.shadowMode, Graphics::kHiResShadowOutline);
+		TS_ASSERT_EQUALS(cfg.shadowOffset, 2);
+		TS_ASSERT_EQUALS((int)cfg.shadowColor, 0);
+		TS_ASSERT(cfg.shadowColorSet);
+		TS_ASSERT_EQUALS(cfg.translationName, "strings.txt");
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 2u);
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(cfg.glyphOverride(0x07, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+		TS_ASSERT(cfg.glyphOverride(0x5e, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(o.codepoint, 0x2026u);
+		for (int r = 0; r < Graphics::kHiResRoleCount; ++r) {
+			TS_ASSERT(cfg.ttfPath[r].empty());
+			TS_ASSERT_EQUALS(cfg.ttfSize[r], 0);
+			TS_ASSERT_EQUALS(cfg.ttfSupersample[r], 1);
+		}
+		TS_ASSERT(!cfg.ttfStringMode);
+		TS_ASSERT_EQUALS(cfg.heightRoles.size(), 0u);
+		// Nothing SCI-only appears from a SCUMM map.
+		TS_ASSERT(!cfg.latinModeSet);
+		TS_ASSERT(!cfg.latinSpaceSet);
+		TS_ASSERT(!cfg.hiresFaceSet);
+		TS_ASSERT(!cfg.hiresSizeSet);
+		TS_ASSERT_EQUALS(cfg.fontIds.size(), 0u);
+
+		// The [fonts]/[sizes] example.
+		cfg.clear();
+		TS_ASSERT(parse("[fonts]\ndefault=/fonts/NanumGothic.ttf\nbold=/fonts/NanumGothic-Bold.ttf\n"
+						"\n[sizes]\ndefault=16\n", cfg));
+		TS_ASSERT_EQUALS(cfg.ttfPath[Graphics::kHiResRoleDefault].toString('/'), "/fonts/NanumGothic.ttf");
+		TS_ASSERT_EQUALS(cfg.ttfPath[Graphics::kHiResRoleBold].toString('/'), "/fonts/NanumGothic-Bold.ttf");
+		TS_ASSERT(cfg.ttfPath[Graphics::kHiResRoleTitle].empty());
+		TS_ASSERT_EQUALS(cfg.ttfSize[Graphics::kHiResRoleDefault], 16);
+		TS_ASSERT(!cfg.ttfSizeRelative[Graphics::kHiResRoleDefault]);
+		TS_ASSERT_EQUALS(cfg.ttfSize[Graphics::kHiResRoleBold], 0);
+		TS_ASSERT_EQUALS(cfg.fontIds.size(), 0u);
+
+		// The per-game (qualified) section example, verbatim.
+		const char *qualified =
+			"[shadow]\n"
+			"color=0            ; DOS\n"
+			"\n"
+			"[shadow:fmtowns]\n"
+			"color=8            ; where 0 is transparent\n";
+		cfg.clear();
+		TS_ASSERT(parse(qualified, cfg, "fmtowns"));
+		// INIFile keeps a same-line "; ..." in the value, so neither colour
+		// parses as a number - the same result as before this parser grew.
+		TS_ASSERT(!cfg.shadowColorSet);
+
+		// The simple [latin] shape keeps meaning what it meant.
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nenabled=true\nfont=latin.ttf\nmetrics=game\n", cfg));
+		TS_ASSERT(cfg.legacy.latinEnabled);
+		TS_ASSERT_EQUALS(cfg.legacy.latinTtfPath.toString('/'), "/games/demo/latin.ttf");
+		TS_ASSERT_EQUALS(cfg.legacy.latinTtfMetrics, Graphics::kHiResMetricsGame);
+		TS_ASSERT_EQUALS(cfg.legacy.latinBitmapMetrics, Graphics::kHiResMetricsGame);
+		TS_ASSERT(!cfg.latinModeSet);
+	}
+
+	void test_bad_values_warn_and_default() {
+		const char *map =
+			"[hires]\n"
+			"size=0\n"
+			"[latin]\n"
+			"mode=sideways\n"
+			"space=narrow\n"
+			"metrics=vibes\n"
+			"[font.4]\n"
+			"size=big\n"
+			"latin=maybe\n"
+			"latin_space=wide\n"
+			"metrics=ttf\n"
+			"face=default\n"
+			"[font.x]\n"
+			"size=16\n"
+			"[font.99999999]\n"
+			"size=16\n";
+		Graphics::HiResTextConfig cfg;
+		// One bad key never throws the map away.
+		TS_ASSERT(parse(map, cfg));
+		TS_ASSERT(!cfg.hiresSizeSet);
+		TS_ASSERT(!cfg.latinModeSet);
+		TS_ASSERT_EQUALS(cfg.latinMode, Graphics::kHiResLatinOff);
+		TS_ASSERT(!cfg.latinSpaceSet);
+		TS_ASSERT(!cfg.latinFullwidthSpace);
+		TS_ASSERT(!cfg.latinMetricsSet);
+		TS_ASSERT_EQUALS(cfg.latinMetrics, Graphics::kHiResMetricsGame);
+
+		// The good key in a section with bad ones is still taken.
+		const Graphics::HiResFontIdSettings *f4 = cfg.fontIdSettings(4);
+		TS_ASSERT(f4 != nullptr);
+		if (f4) {
+			TS_ASSERT(f4->faceSet);
+			TS_ASSERT(!f4->sizeSet);
+			TS_ASSERT(!f4->latinSet);
+			TS_ASSERT(!f4->latinSpaceSet);
+			TS_ASSERT(!f4->metricsSet);
+		}
+
+		// Section names that are not a font id are skipped, not guessed at.
+		TS_ASSERT_EQUALS(cfg.fontIds.size(), 1u);
+
+		// The legacy [latin] metrics reader is unaffected by the bad value.
+		TS_ASSERT_EQUALS(cfg.legacy.latinTtfMetrics, Graphics::kHiResMetricsGame);
+		TS_ASSERT_EQUALS(cfg.legacy.latinBitmapMetrics, Graphics::kHiResMetricsGame);
+	}
 };

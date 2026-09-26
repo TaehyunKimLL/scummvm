@@ -59,6 +59,7 @@ MODULE_OBJS := \
 	graphics/glyphsource_routed.o \
 	graphics/glyphsource_scvmuni.o \
 	graphics/glyphsource_ttf.o \
+	graphics/hirestextsettings.o \
 	graphics/macfont.o \
 	graphics/maciconbar.o \
 	graphics/menu.o \

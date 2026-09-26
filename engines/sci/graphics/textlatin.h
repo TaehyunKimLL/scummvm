@@ -37,8 +37,11 @@ enum LatinMode {
 	kLatinHalf,			///< ASCII keeps its code point but is routed to the
 						///< Unicode/TrueType face and drawn at half (narrow)
 						///< width instead of by the game's resource font
-	kLatinFullwidth		///< ASCII is remapped to the fullwidth-forms block
+	kLatinFullwidth,	///< ASCII is remapped to the fullwidth-forms block
 						///< and drawn at double (wide) width
+	kLatinProportional	///< ASCII is routed to the Unicode/TrueType face as
+						///< in kLatinHalf, each advance taken from the game
+						///< font (metrics=game) or the face (metrics=font)
 };
 
 /**
