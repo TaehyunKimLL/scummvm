@@ -76,6 +76,14 @@ public:
 	void DrawString(const Common::String &str);
 	void DrawStatus(const Common::String &str);
 
+	/**
+	 * Width of @p chr as Draw() would draw it in the current _font - through
+	 * the hires_text_latin glyph mapping. For callers outside this class
+	 * (the text-edit control) that measure the text Draw() puts on screen;
+	 * with hires_text_latin off it is exactly _font->getCharWidth(chr).
+	 */
+	uint16 getGlyphWidth(uint32 chr);
+
 	GfxFont *_font;
 
 	reg_t allocAndFillReferenceRectArray();
@@ -99,6 +107,18 @@ private:
 	 * in exactly one place; see docs/i18n/M10_FONTSET.md.
 	 */
 	uint32 readChar(const char *text, int &outBytes) const;
+
+	/**
+	 * The glyph character for @p chr, a character readChar() returned (after
+	 * any escape substitution): TextCompose::latinFullwidth() per
+	 * hires_text_latin. readChar() itself returns the raw character, which
+	 * is what every classification sees - '|' codes, '@'/0xFF20 and CR/LF
+	 * line breaks, the PQ2 "\n" escape, the ' ' word break - so fullwidth
+	 * mode leaves the text protocol alone. Only the sites that measure or
+	 * draw a glyph call this, and they call it on the same value, so width
+	 * and drawing agree.
+	 */
+	uint32 glyphChar(uint32 chr) const;
 
 	bool SwitchToFont1001OnKorean(const char *text, uint16 languageSplitter);
 	bool SwitchToFont900OnSjis(const char *text, uint16 languageSplitter);

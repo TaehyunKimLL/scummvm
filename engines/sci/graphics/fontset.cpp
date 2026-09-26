@@ -29,8 +29,8 @@
 
 namespace Sci {
 
-GfxFontSet::GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage)
-	: _resourceId(resourceId), _codePage(codePage) {
+GfxFontSet::GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage, LatinMode latinMode)
+	: _resourceId(resourceId), _codePage(codePage), _latinMode(latinMode) {
 }
 
 GfxFontSet::~GfxFontSet() {
@@ -102,10 +102,13 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 	if (_faces.empty())
 		return nullptr;
 
-	// Single-byte characters always go to the first face, unconditionally.
-	// Asking the faces by coverage would let a later face answer for ASCII,
-	// which changes the metrics of every English string in the game.
-	if (chr < 0x80) {
+	// Single-byte characters go to the first face, unconditionally - except
+	// in kLatinHalf mode, where the printable ASCII range is deliberately
+	// routed past it instead (hires_text_latin=half; see
+	// TextCompose::asciiGoesToUnicodeFace()). Outside that one mode, asking
+	// the faces by coverage would let a later face answer for ASCII, which
+	// changes the metrics of every English string in the game.
+	if (chr < 0x80 && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode)) {
 		outChr = chr;
 		return &_faces[0];
 	}
@@ -145,6 +148,13 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 		// lead byte. korean.fnt indexes glyphs as `uc - 0xAC00` and holds
 		// 11184 of them, exactly the hangul syllable block, so that block is
 		// its real coverage and nothing else.
+		//
+		// Known limitation (hires_text_latin): faces are asked in order and
+		// the legacy face comes before the Unicode one, so when a Shift-JIS
+		// face is present its U+FF00..U+FFEF coverage catches the fullwidth
+		// Latin that hires_text_latin=fullwidth produces, and
+		// hires_text_latin_font is never consulted for it. korean.fnt only
+		// covers Hangul syllables, so Korean games are unaffected.
 		if (!legacyCovers(codePoint))
 			continue;
 		// A legacy face is indexed by the encoded byte pair, not by a code

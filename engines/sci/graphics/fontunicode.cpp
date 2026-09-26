@@ -23,6 +23,7 @@
 #include "sci/graphics/glyphsource_scvmuni.h"
 #include "sci/graphics/screen.h"
 #include "sci/graphics/textcompose.h"
+#include "sci/graphics/textlatin.h"
 #include "sci/sci.h"
 
 #include "common/file.h"
@@ -147,9 +148,10 @@ void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,
 GfxFontUnicodeAdapter::GfxFontUnicodeAdapter(GfxFontUnicode *font,
 											 Common::CodePage codePage,
 											 GfxFont *fallback,
-											 GuiResourceId resourceId)
+											 GuiResourceId resourceId,
+											 LatinMode latinMode)
 	: _font(font), _fallback(fallback), _codePage(codePage),
-	  _resourceId(resourceId) {
+	  _resourceId(resourceId), _latinMode(latinMode) {
 }
 
 GfxFontUnicodeAdapter::~GfxFontUnicodeAdapter() {
@@ -218,8 +220,10 @@ byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
 	// bundle has Latin glyphs too, but using them would change the metrics of
 	// every English string in every font the game uses - measured, it made
 	// fonts of height 12 and 9 all report 8 and pushed menu text outside its
-	// button. The bundle is for characters the resource font cannot draw.
-	if (chr < 0x80 && _fallback)
+	// button. The bundle is for characters the resource font cannot draw -
+	// except in kLatinHalf mode, which deliberately asks the printable ASCII
+	// range to be drawn narrow by the Unicode/TrueType face instead.
+	if (chr < 0x80 && _fallback && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode))
 		return _fallback->getCharWidth(chr);
 
 	const uint32 cp = toCodePoint(chr);
@@ -238,7 +242,7 @@ byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
 }
 
 byte GfxFontUnicodeAdapter::getCharHeight(uint32 chr) {
-	if (chr < 0x80 && _fallback)
+	if (chr < 0x80 && _fallback && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode))
 		return _fallback->getCharHeight(chr);
 
 	const uint32 cp = toCodePoint(chr);
@@ -253,8 +257,9 @@ byte GfxFontUnicodeAdapter::getCharHeight(uint32 chr) {
 
 void GfxFontUnicodeAdapter::draw(uint32 chr, int16 top, int16 left, byte color,
 								 bool greyedOutput) {
-	// Keep single-byte text pixel-identical to the unmodified engine.
-	if (chr < 0x80 && _fallback) {
+	// Keep single-byte text pixel-identical to the unmodified engine - except
+	// in kLatinHalf mode; see getCharWidth().
+	if (chr < 0x80 && _fallback && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode)) {
 		_fallback->draw(chr, top, left, color, greyedOutput);
 		return;
 	}
@@ -272,7 +277,7 @@ void GfxFontUnicodeAdapter::draw(uint32 chr, int16 top, int16 left, byte color,
 void GfxFontUnicodeAdapter::drawToBuffer(uint32 chr, int16 top, int16 left,
 										 byte color, bool greyedOutput,
 										 byte *buffer, int16 width, int16 height) {
-	if (chr < 0x80 && _fallback) {
+	if (chr < 0x80 && _fallback && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode)) {
 		_fallback->drawToBuffer(chr, top, left, color, greyedOutput, buffer, width, height);
 		return;
 	}

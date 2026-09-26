@@ -37,6 +37,7 @@
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/screen.h"
 #include "sci/graphics/text16.h"
+#include "sci/graphics/textlatin.h"
 #include "sci/utf8.h"
 
 namespace Sci {
@@ -273,7 +274,7 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 		default:
 			break;
 		}
-		tempWidth += _font->getCharWidth(curChar);
+		tempWidth += _font->getCharWidth(glyphChar(curChar));
 
 		// Width is too large? -> break out
 		if (tempWidth > maxWidth)
@@ -429,7 +430,7 @@ void GfxText16::Width(const char *text, int16 from, int16 len, GuiResourceId org
 				// fall through
 			default:
 				textHeight = MAX<int16> (textHeight, _ports->_curPort->fontHeight);
-				textWidth += _font->getCharWidth(curChar);
+				textWidth += _font->getCharWidth(glyphChar(curChar));
 			}
 		}
 	}
@@ -553,7 +554,10 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 			}
 			// fall through
 		default: {
-			uint16 charWidth = _font->getCharWidth(curChar);
+			// Measured and drawn as the same glyph character, so the two
+			// agree; the switch above classified the raw character.
+			const uint32 glyph = glyphChar(curChar);
+			uint16 charWidth = _font->getCharWidth(glyph);
 			// clear char
 			if (_ports->_curPort->penMode == 1) {
 				rect.left = _ports->_curPort->curLeft;
@@ -561,7 +565,7 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 				_paint16->eraseRect(rect);
 			}
 			// CharStd
-			_font->draw(curChar, _ports->_curPort->top + _ports->_curPort->curTop, _ports->_curPort->left + _ports->_curPort->curLeft, _ports->_curPort->penClr, _ports->_curPort->greyedOutput);
+			_font->draw(glyph, _ports->_curPort->top + _ports->_curPort->curTop, _ports->_curPort->left + _ports->_curPort->curLeft, _ports->_curPort->penClr, _ports->_curPort->greyedOutput);
 			_ports->_curPort->curLeft += charWidth;
 		}
 		}
@@ -778,10 +782,28 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 		textLen -= curCharBytes;
 		if (curChar == 0)
 			continue;
-		uint16 charWidth = _font->getCharWidth(curChar);
-		_font->draw(curChar, _ports->_curPort->top + _ports->_curPort->curTop, _ports->_curPort->left + _ports->_curPort->curLeft, _ports->_curPort->penClr, _ports->_curPort->greyedOutput);
+		const uint32 glyph = glyphChar(curChar);
+		uint16 charWidth = _font->getCharWidth(glyph);
+		_font->draw(glyph, _ports->_curPort->top + _ports->_curPort->curTop, _ports->_curPort->left + _ports->_curPort->curLeft, _ports->_curPort->penClr, _ports->_curPort->greyedOutput);
 		_ports->_curPort->curLeft += charWidth;
 	}
+}
+
+// The glyph character for an already-classified character (see text16.h).
+// hires_text_latin=fullwidth remaps ASCII into the fullwidth-forms block here
+// and only here; kLatinOff and kLatinHalf leave it untouched (half's routing
+// happens at the face-selection layer - GfxFontSet::faceFor() and
+// GfxFontUnicodeAdapter). The mode is a plain field read: GetFont() has
+// already gone through GfxCache::getFont(), which resolves it.
+// Latin-1 (U+00A0..U+00FF) is deliberately neither remapped nor routed: the
+// fullwidth-forms block has no counterpart for it, and it keeps the face it
+// had before hires_text_latin existed.
+uint32 GfxText16::glyphChar(uint32 chr) const {
+	return TextCompose::latinFullwidth(chr, _cache->getLatinMode(), _cache->getLatinSpaceFullwidth());
+}
+
+uint16 GfxText16::getGlyphWidth(uint32 chr) {
+	return _font->getCharWidth(glyphChar(chr));
 }
 
 // Read one character and report how many bytes it occupied.
