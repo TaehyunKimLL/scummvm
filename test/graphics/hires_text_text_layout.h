@@ -24,6 +24,17 @@ public:
 	}
 };
 
+// UnitMetrics that counts advance() calls.
+class CountingMetrics : public UnitMetrics {
+public:
+	CountingMetrics() : calls(0) {}
+	int advance(uint32 cp) override {
+		calls++;
+		return UnitMetrics::advance(cp);
+	}
+	uint32 calls;
+};
+
 // An engine-style decoder: FF 0A x y is one control unit of 4 bytes (an
 // escape with two argument bytes), FF 01 a control unit that is also a
 // newline; everything else is UTF-8.
@@ -425,13 +436,16 @@ public:
 
 	void test_lines_reproduce_the_input_bytes() {
 		const char *inputs[] = { "the door is locked", kJapanese, kThai, kHangul, kMixed,
-		                         "  lead  and trail  ", "a\n\n b  \nc", "Supercalifragilistic" };
+		                         "  lead  and trail  ", "a\n\n b  \nc", "Supercalifragilistic",
+		                         "ab \xFF\x0A\x01\x02" "cd\xFF\x01" "ef gh", "a \xFF\x0A\x01\x02 b\xFF\x0A\x03\x04", "x \xFF\x0A\x01\x02", "a  \xFF\x0A\x01\x02\xE0\xB9\x88  bc d",
+		                         "\xEA\xB0\x80 \xFF\x0A\x01\x02\xE0\xB8\x97\xE0\xB8\xB5\xE0\xB9\x88 x" };
 		UnitMetrics m;
+		EscapeDecoder dec;
 		Graphics::BreakRules rules;
 		for (uint32 n = 0; n < ARRAYSIZE(inputs); n++) {
 			const char *s = inputs[n];
 			Graphics::TextRun run;
-			decodeUtf8(run, s);
+			run.decode((const byte *)s, len(s), dec);
 			for (int w = 1; w <= 12; w++) {
 				for (int h = 0; h < 2; h++) {
 					rules.hangul = h ? Graphics::kHangulBreakAny : Graphics::kHangulBreakWord;
@@ -448,6 +462,8 @@ public:
 						TS_ASSERT_EQUALS(l.byteEnd, run.byteOffset(l.end));
 						TS_ASSERT_EQUALS(l.byteNext, run.byteOffset(l.next));
 						TS_ASSERT_EQUALS(l.width, m.width(run, l.first, l.end));
+						if (!l.emergency)
+							TSM_ASSERT(Common::String::format("input %u w %d line %u", n, w, k).c_str(), l.width <= w);
 						joined += Common::String(s + l.byteStart, l.byteEnd - l.byteStart);
 						joined += Common::String(s + l.byteEnd, l.byteNext - l.byteEnd);
 						expectStart = l.byteNext;
@@ -459,23 +475,88 @@ public:
 		}
 	}
 
-	void test_break_lines_speed() {
-		// About 300 bytes of Japanese, broken 1000 times. Bounded loosely so a
-		// quadratic slip shows without making the suite flaky.
-		Common::String s;
-		while (s.size() + strlen(kJapanese) <= 300)
-			s += kJapanese;
+	void test_default_extend_matches_width() {
+		// Latin, Hangul, Thai with marks and escapes in one string.
+		const char s[] = "Ab \xEA\xB0\x80\xEB\x82\x98 \xFF\x0A\x01\x02\xE0\xB8\x97\xE0\xB8\xB5\xE0\xB9\x88"
+		                 "\xE0\xB8\x99 x\xFF\x01y";
+		EscapeDecoder dec;
 		Graphics::TextRun run;
-		Graphics::Utf8TextDecoder dec;
+		run.decode((const byte *)s, len(s), dec);
+		UnitMetrics m;
+		for (uint32 from = 0; from < run.size(); from++) {
+			int w = 0;
+			for (uint32 i = from; i < run.size(); i++) {
+				w = m.extend(run, from, i, w);
+				TS_ASSERT_EQUALS(w, m.width(run, from, i + 1));
+			}
+		}
+	}
+
+	void test_fit_line_measures_each_unit_once() {
+		// A long line without spaces: advance() is called about once per
+		// unit examined, not once per prefix.
+		Common::String s;
+		for (int k = 0; k < 400; k++)
+			s += 'a';
+		Graphics::TextRun run;
+		decodeUtf8(run, s.c_str());
+		CountingMetrics m;
+		Graphics::BreakRules rules;
+		Graphics::LineSpan l = Graphics::TextLayout::fitLine(run, 0, 300, m, rules);
+		TS_ASSERT_EQUALS(l.end, 300u);
+		// 301 units examined, plus the final width of the 300 kept.
+		TS_ASSERT(m.calls <= 301u + 300u);
+	}
+
+	void test_zero_width_after_hanging_space_is_no_emergency() {
+		// "a <esc> b" at width 1: the escape after the hanging space is
+		// zero wide and must not count as the unit that overflows.
+		const char s[] = "a \xFF\x0A\x01\x02 b";
+		EscapeDecoder dec;
+		Graphics::TextRun run;
+		run.decode((const byte *)s, len(s), dec);
 		UnitMetrics m;
 		Graphics::BreakRules rules;
 		Common::Array<Graphics::LineSpan> lines;
-		uint32 total = 0;
-		for (int i = 0; i < 1000; i++) {
-			run.decode((const byte *)s.c_str(), s.size(), dec);
-			Graphics::TextLayout::breakLines(run, 20, m, rules, lines);
-			total += lines.size();
+		Graphics::TextLayout::breakLines(run, 1, m, rules, lines);
+		for (uint32 k = 0; k < lines.size(); k++) {
+			TS_ASSERT(!lines[k].emergency);
+			TS_ASSERT(lines[k].width <= 1);
 		}
-		TS_ASSERT(total > 0);
+		// "a" / the escape (it begins the next word, but " b" is 2 wide) / "b".
+		TS_ASSERT_EQUALS(lines.size(), 3u);
+		if (lines.size() == 3) {
+			TS_ASSERT_EQUALS(lines[0].byteEnd, 1u);
+			TS_ASSERT_EQUALS(lines[1].byteStart, 2u);
+			TS_ASSERT_EQUALS(lines[2].byteStart, 7u);
+		}
+	}
+
+	void test_break_lines_speed() {
+		// About 300 bytes (95 characters) and 400 characters of Japanese,
+		// each broken 1000 times. Bounded loosely so a quadratic slip shows
+		// without making the suite flaky.
+		const uint32 kUnits[] = { 95, 400 };
+		for (uint32 c = 0; c < ARRAYSIZE(kUnits); c++) {
+			Common::String s;
+			const uint32 perSentence = 19;
+			while ((s.size() / 3) + perSentence <= kUnits[c])
+				s += kJapanese;
+			while (s.size() / 3 < kUnits[c])
+				s += "\xE3\x81\x82";
+			Graphics::TextRun run;
+			Graphics::Utf8TextDecoder dec;
+			UnitMetrics m;
+			Graphics::BreakRules rules;
+			Common::Array<Graphics::LineSpan> lines;
+			uint32 total = 0;
+			for (int i = 0; i < 1000; i++) {
+				run.decode((const byte *)s.c_str(), s.size(), dec);
+				Graphics::TextLayout::breakLines(run, 20, m, rules, lines);
+				total += lines.size();
+			}
+			TS_ASSERT_EQUALS(run.size(), kUnits[c]);
+			TS_ASSERT(total > 0);
+		}
 	}
 };

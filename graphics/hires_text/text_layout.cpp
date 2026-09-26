@@ -146,8 +146,6 @@ int CodePageTextDecoder::charLength(Common::CodePage page, const byte *p, const 
 		// A single byte page, or none named at all.
 		return 1;
 	}
-
-	(void)end;
 }
 
 int CodePageTextDecoder::decode(const byte *p, const byte *end, uint32 &cp, byte &flags) const {
@@ -239,6 +237,13 @@ int LayoutMetrics::width(const TextRun &run, uint32 from, uint32 to) {
 	return w;
 }
 
+int LayoutMetrics::extend(const TextRun &run, uint32 from, uint32 i, int widthSoFar) {
+	(void)from;
+	if (run.flags(i) & (kUnitControl | kUnitCombining))
+		return widthSoFar;
+	return widthSoFar + advance(run.cp(i));
+}
+
 // --- TextLayout ---------------------------------------------------------
 
 namespace TextLayout {
@@ -313,7 +318,7 @@ bool canBreakBefore(const TextRun &run, uint32 i, const BreakRules &rules) {
 	while (j < n && isGlue(run, j))
 		j++;
 	if (j >= n)
-		return false;
+		return (fa & kUnitSpace) != 0;   // trailing escapes after a space
 	const byte fb = run.flags(j);
 	if (fb & kUnitCombining)
 		return false;
@@ -323,8 +328,9 @@ bool canBreakBefore(const TextRun &run, uint32 i, const BreakRules &rules) {
 	const uint32 a = run.cp(i - 1);
 	const uint32 b = run.cp(j);
 
-	// 2. After a space run.
-	if ((fa & kUnitSpace) && !(fb & kUnitSpace))
+	// 2. After a space run; an escape right after a space begins the next
+	// word even when a space follows the escape.
+	if ((fa & kUnitSpace) && (!(fb & kUnitSpace) || j > i))
 		return true;
 
 	// 3. Kinsoku.
@@ -368,6 +374,8 @@ LineSpan fitLine(const TextRun &run, uint32 from, int maxWidth, LayoutMetrics &m
 
 	uint32 lastBreak = from;   // from itself means "none"
 	uint32 i = from;
+	int w = 0;      // width of [from, i + 1), kept through LayoutMetrics::extend()
+	int inkW = 0;   // width of [from, k + 1), k the last unit before i that is not a space
 	for (; i < n; i++) {
 		if (run.flags(i) & kUnitNewline) {
 			l.end = i;
@@ -377,23 +385,33 @@ LineSpan fitLine(const TextRun &run, uint32 from, int maxWidth, LayoutMetrics &m
 			finish(run, l, m);
 			return l;
 		}
-		if (i > from && canBreakBefore(run, i, rules))
+		// A break before i keeps [from, i) minus its trailing spaces, whose
+		// width is inkW: hanging spaces that an escape or a mark pinned
+		// inside the line count.
+		if (i > from && inkW <= maxWidth && canBreakBefore(run, i, rules))
 			lastBreak = i;
+		w = m.extend(run, from, i, w);
 		// Spaces hang past the edge: they are dropped at a line end anyway.
 		if (run.flags(i) & kUnitSpace)
 			continue;
-		if (m.width(run, from, i + 1) > maxWidth)
+		inkW = w;
+		// Zero-width units (escapes, marks) cannot be the unit that
+		// overflows, even after a hanging space.
+		if (run.flags(i) & (kUnitControl | kUnitCombining))
+			continue;
+		if (w > maxWidth)
 			break;
 	}
 
-	if (i >= n) {
+	if (i >= n && (inkW <= maxWidth || lastBreak == from)) {
 		l.end = l.next = n;
 		trimTrailingSpaces(run, l);
 		finish(run, l, m);
 		return l;
 	}
 
-	// Unit i does not fit.
+	// Unit i does not fit (or, at the end, an escape pinned hanging spaces
+	// past the edge).
 	uint32 end = lastBreak;
 	if (end == from) {
 		l.emergency = true;
