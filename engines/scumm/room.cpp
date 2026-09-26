@@ -30,6 +30,7 @@
 #include "scumm/resource.h"
 #include "scumm/scumm_v3.h"
 #include "scumm/scumm_v7.h"
+#include "scumm/usage_bits.h"
 #include "scumm/sound.h"
 #include "scumm/util.h"
 
@@ -51,6 +52,33 @@ void ScummEngine::startScene(int room, Actor *a, int objectNr) {
 #endif
 
 	stopTalk();
+
+	// A new room means the old picture is gone; hi-res text drawn over it has
+	// to go too, or it stays on top of the new room until something happens to
+	// repaint that band. stopTalk() above covers actor speech, but not text
+	// drawn by scripts that never set the charset mask.
+	if (_hiResText.enabled()) {
+		// The verb strip does not belong to the room: it is drawn once when
+		// the interface appears and then left alone, so nothing would repaint
+		// it. Clearing the whole overlay here wipes the verbs for good - take
+		// down only the screens the room actually owns.
+		for (int i = 0; i < 3; ++i) {
+			VirtScreen *v = &_virtscr[i];
+			if (!v->h || v->number == kVerbVirtScreen)
+				continue;
+			clearTextSurface(v);
+		}
+
+		// Clearing is only half of it: a screen reaches the display again only
+		// when something marks it dirty, so mark them all or the text just
+		// wiped stays visible.
+		for (int i = 0; i < 3; ++i) {
+			VirtScreen *v = &_virtscr[i];
+			if (v->h)
+				markRectAsDirty((VirtScreenNumber)i, Common::Rect(v->w, v->h),
+								USAGE_BIT_RESTORED);
+		}
+	}
 
 	fadeOut(_switchRoomEffect2);
 	_newEffect = _switchRoomEffect;

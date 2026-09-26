@@ -250,6 +250,18 @@ Common::KeyState ScummEngine::showBannerAndPause(int bannerId, int32 waitTime, c
 						_textSurfBannerMemSize);
 				}
 
+				// The coverage for the same band. Saving the indices alone
+				// leaves the banner's own antialiasing under the text that
+				// comes back when it is dismissed.
+				if (const Graphics::Surface *cov = _overlay.coverage()) {
+					_textSurfBannerCovMem = (byte *)malloc(_textSurfBannerMemSize);
+					if (_textSurfBannerCovMem)
+						memcpy(
+							_textSurfBannerCovMem,
+							&((const byte *)cov->getBasePtr(0, _screenTop * _textSurfaceMultiplier))[rowSize * _bannerSaveYStart],
+							_textSurfBannerMemSize);
+				}
+
 				// We're going to use these same values for saving the
 				// virtual screen surface, so let's un-multiply them...
 				rowSize /= _textSurfaceMultiplier;
@@ -628,6 +640,14 @@ void ScummEngine::clearBanner() {
 					_textSurfBannerMem,
 					_textSurfBannerMemSize);
 
+				if (_textSurfBannerCovMem) {
+					if (Graphics::Surface *cov = _overlay.coverage())
+						memcpy(
+							&((byte *)cov->getBasePtr(0, _screenTop * _textSurfaceMultiplier))[rowSize * startingPointY],
+							_textSurfBannerCovMem,
+							_textSurfBannerMemSize);
+				}
+
 				// We're going to use these same values for restoring the
 				// virtual screen surface, so let's un-multiply them...
 				rowSize /= _textSurfaceMultiplier;
@@ -650,6 +670,8 @@ void ScummEngine::clearBanner() {
 
 		free(_textSurfBannerMem);
 		_textSurfBannerMem = nullptr;
+		free(_textSurfBannerCovMem);
+		_textSurfBannerCovMem = nullptr;
 	}
 
 	// Restore shake effect
@@ -1454,6 +1476,13 @@ void ScummEngine::saveSurfacesPreGUI() {
 	if (_tempTextSurface) {
 		memcpy(_tempTextSurface, _textSurface.getBasePtr(0, 0), _textSurface.pitch * _textSurface.h);
 
+		// The raw copy above is also the source the stamping loop below reads
+		// from, so it stays. But it covers the index plane only: without this
+		// the coverage plane would keep describing glyphs that the GUI is
+		// about to paint over, and closing the menu would restore indices
+		// under stale antialiasing.
+		_overlay.saveState();
+
 		// For each v4-v6 game (except for LOOM VGA which does its own thing), we take the text surface
 		// and stamp it on top of the main screen: this is done to ensure that the GUI is drawn on top
 		// of possible subtitle texts instead of having the latters being deleted or being drawn on top
@@ -1477,9 +1506,12 @@ void ScummEngine::saveSurfacesPreGUI() {
 		if (_game.id == GID_LOOM && _game.version == 3 && _game.platform != Common::kPlatformFMTowns) {
 			int yBegin = _virtscr[kMainVirtScreen].topline;
 			int yEnd = _virtscr[kMainVirtScreen].topline + _virtscr[kMainVirtScreen].h;
-			for (int y = yBegin; y < yEnd; y++) {
-				memset(_textSurface.getBasePtr(0, y), 0xFD, _virtscr[kMainVirtScreen].w);
-			}
+
+			// Deliberately not _overlay.clear(): that spans the full plane
+			// width, while this wipe is scoped to the main virtual screen,
+			// which can be narrower. Same reason the rect overload exists.
+			_overlay.clear(Common::Rect(0, yBegin, _virtscr[kMainVirtScreen].w, yEnd),
+						   textTransparency());
 		}
 	}
 }
@@ -1492,6 +1524,9 @@ void ScummEngine::restoreSurfacesPostGUI() {
 
 	if (_tempTextSurface) {
 		memcpy(_textSurface.getBasePtr(0, 0), _tempTextSurface, _textSurface.pitch * _textSurface.h);
+
+		// And the coverage that belongs with them.
+		_overlay.restoreState();
 
 		// Signal the restoreCharsetBg() function that there's text
 		// on the text surface, so it gets deleted the next time another

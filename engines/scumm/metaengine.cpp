@@ -25,6 +25,7 @@
 #include "common/config-manager.h"
 #include "common/translation.h"
 #include "common/md5.h"
+#include "common/fs.h"
 
 #include "gui/dialog.h"
 #include "gui/message.h"
@@ -947,6 +948,62 @@ const ExtraGuiOption enableRebel1NoDamage = {
 	0
 };
 
+static const ExtraGuiOption enableHiResText = {
+	_s("Use hi-res fonts from the game folder"),
+	_s("Read hires_text.map and the font files beside it. Turn this off to ignore them and draw text exactly as the original game did."),
+	"hires_text",
+	true,
+	0,
+	0
+};
+
+static const ExtraGuiOption enableHiResTextAlpha = {
+	_s("Smooth the hi-res text"),
+	_s("Blend the replacement glyphs into the picture. Turn this off for hard-edged text, which suits a pixelated game and costs nothing to draw."),
+	"hires_text_alpha",
+	true,
+	0,
+	0
+};
+
+/**
+ * Whether a target has hi-res fonts to switch: either a map is configured or
+ * one sits in the game folder. Checked here so the checkbox only appears where
+ * it does something; for every other game the dialog is unchanged.
+ */
+bool ScummMetaEngine::targetHasHiResText(const Common::String &target) {
+	if (ConfMan.hasKey("hires_text_map", target) || ConfMan.hasKey("hires_text_font", target))
+		return true;
+
+	const Common::Path gameDir = ConfMan.getPath("path", target);
+	if (gameDir.empty())
+		return false;
+
+	// A map, or the map-less form: fonts under the conventional names.
+	// hires00.fnt is not required to exist - a set may start at 1 - so
+	// check the few names a translation would plausibly ship first.
+	//
+	// Every language's double-byte name is listed, because this runs from
+	// the launcher where the target's language is not consulted, and hrlat
+	// is listed because a Latin-only translation ships nothing else: its
+	// fonts are the single-byte half by definition and the engine loads
+	// them on their own.
+	static const char *const names[] = {
+		"hires_text.map", "hires.fnt",
+		"hires00.fnt", "hires01.fnt", "hires02.fnt",
+		"hrkor00.fnt", "hrkor01.fnt",
+		"hrjpn00.fnt", "hrjpn01.fnt",
+		"hrchs00.fnt", "hrchs01.fnt",
+		"hrcht00.fnt", "hrcht01.fnt",
+		"hrlat00.fnt", "hrlat01.fnt", "hrlat02.fnt"
+	};
+	for (uint i = 0; i < ARRAYSIZE(names); ++i) {
+		if (Common::FSNode(gameDir.appendComponent(names[i])).exists())
+			return true;
+	}
+	return false;
+}
+
 const ExtraGuiOptions ScummMetaEngine::getExtraGuiOptions(const Common::String &target) const {
 	ExtraGuiOptions options;
 	// Query the GUI options
@@ -966,6 +1023,10 @@ const ExtraGuiOptions ScummMetaEngine::getExtraGuiOptions(const Common::String &
 	}
 	if (target.empty() || guiOptions.contains(GAMEOPTION_COPY_PROTECTION)) {
 		options.push_back(enableCopyProtection);
+	}
+	if (target.empty() || targetHasHiResText(target)) {
+		options.push_back(enableHiResText);
+		options.push_back(enableHiResTextAlpha);
 	}
 	if (target.empty() || guiOptions.contains(GAMEOPTION_ENHANCEMENTS)) {
 		options.push_back(enableEnhancements);

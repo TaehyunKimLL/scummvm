@@ -43,6 +43,8 @@
 #include "scumm/file.h"
 #include "scumm/gfx.h"
 #include "scumm/detection.h"
+#include "scumm/hires_overlay.h"
+#include "scumm/hires_text.h"
 #include "scumm/script.h"
 #include "scumm/serializer.h"
 
@@ -619,6 +621,12 @@ protected:
 	void setupCostumeRenderer();
 
 	virtual void loadLanguageBundle();
+	// The .trs bundle's name is derived from the game's language; empty when
+	// no language is set. Public so the v7 override can consult the same rule.
+	Common::Path getLanguageBundleFilename() const;
+	// True once a .trs bundle has been read and indexed. ScummEngine_v7 keeps
+	// its own flag for the .bnd/.tab formats and needs to know which one ran.
+	bool hasTranslationBundle() const { return _existLanguageFile; }
 	void loadCJKFont();
 	void loadKorFont();
 	void setupMusic(int midi);
@@ -705,6 +713,9 @@ protected:
 
 	// The followings are needed for MI1 FM-Towns
 	byte *_textSurfBannerMem = nullptr;
+
+	/// Coverage for the same band, saved alongside the indices above.
+	byte *_textSurfBannerCovMem = nullptr;
 	uint32 _textSurfBannerMemSize = 0;
 
 	InternalGUIControl _internalGUIControls[30];
@@ -1206,6 +1217,25 @@ protected:
 	virtual void loadCharset(int i);
 	void nukeCharset(int i);
 
+	/**
+	 * The height of the game's own charset 1, read before the resources are
+	 * normally loaded, or 0 when it cannot be had.
+	 *
+	 * Only the hi-res scale needs this. A CJK game gets its height from
+	 * loadCJKFont(), which reads an external file early; a European game's
+	 * charset is a game resource and would otherwise not be known until
+	 * after the text surface has been sized.
+	 */
+	int peekGameCharsetHeight();
+
+	/**
+	 * The same, for v3, whose charsets are standalone files rather than
+	 * resources behind the index. Split out because it shares no code with
+	 * the container path: no index read, no resource manager, and so
+	 * nothing to put back afterwards.
+	 */
+	int peekV3CharsetHeight();
+
 	int _lastLoadedRoom = 0;
 public:
 	const byte *findResourceData(uint32 tag, const byte *ptr);
@@ -1538,6 +1568,28 @@ protected:
 	void dissolveEffect(int width, int height);
 	void scrollEffect(int dir);
 
+	/**
+	 * Blit one strip of the game's own picture to a screen larger than it.
+	 *
+	 * The transition effects move pieces of the picture about the screen
+	 * without going through drawStripToScreen(): their source and destination
+	 * coordinates differ, which that function has no way to express. So they
+	 * hand the game's buffer to the backend themselves - and on a screen the
+	 * hi-res text layer has enlarged, that buffer is the wrong size and, in
+	 * alpha mode, the wrong format as well.
+	 *
+	 * This composes the strip into the output's own format and size first,
+	 * which is what makes the destination rectangle honest.
+	 *
+	 * @param src       the game's buffer, palette indices
+	 * @param srcPitch  its real row stride - the buffer's own, never scaled
+	 * @param tx, ty    where the strip goes, in game pixels
+	 * @param wd, ht    its size, in game pixels
+	 * @return false when this screen cannot be composed for, leaving the
+	 *         caller on its original path
+	 */
+	bool hiResBlitStrip(const byte *src, int srcPitch, int tx, int ty, int wd, int ht);
+
 	void updateScreenShakeEffect();
 
 public:
@@ -1687,8 +1739,33 @@ public:
 	 * All text is normally rendered into this overlay surface. Then later
 	 * drawStripToScreen() composits it over the game graphics.
 	 */
-	Graphics::Surface _textSurface;
+	/**
+	 * The two planes text is drawn into.
+	 *
+	 * Held together so they cannot drift apart: they must agree on size,
+	 * lifetime and contents, and a path that touched one without the other
+	 * used to be a silent corruption.
+	 */
+	HiResOverlay _overlay;
+
+	/**
+	 * The index plane, under its historical name.
+	 *
+	 * The charset renderers and the platform compositors write through this in
+	 * dozens of places; a reference keeps them working while the memory moves
+	 * into the overlay, so a rendering regression here would be the move
+	 * itself rather than a mass edit.
+	 */
+	Graphics::Surface &_textSurface;
 	int _textSurfaceMultiplier = 0;
+
+	/**
+	 * State of the hi-res text layer.
+	 *
+	 * Nothing reads this yet beyond its own configuration; it is wired into
+	 * the render path in later steps.
+	 */
+	ScummHiResText _hiResText;
 
 	bool _isModernMacVersion = false;
 	bool _useGammaCorrection = true;
@@ -1724,7 +1801,10 @@ protected:
 
 	void restoreCharsetBg();
 	void clearCharsetMask();
-	void clearTextSurface();
+	void clearTextSurface(const VirtScreen *vs = nullptr);
+
+	/// The value that means "no text here" on this platform.
+	byte textTransparency() const;
 
 	virtual void initCharset(int charset);
 

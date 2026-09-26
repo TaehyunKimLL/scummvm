@@ -370,6 +370,7 @@ void CharsetRendererCommon::setCurID(int32 id) {
 	_fontHeight = _fontPtr[1];
 	_numChars = READ_LE_UINT16(_fontPtr + 2);
 
+
 	if (_vm->_useMultiFont) {
 		if (id == 6)    // HACK: Fix monkey1cd/monkey2/dott font error
 			id = 0;
@@ -396,6 +397,21 @@ void CharsetRendererCommon::setCurID(int32 id) {
 			_vm->_2byteShadow = _vm->_2byteMultiShadow[nearest];
 		}
 	}
+
+	// After the engine has settled on a font: these are the values text is
+	// actually laid out on, and charset 6 is remapped to font 0 above, so
+	// reading them here is the only way to know the real grid.
+	_vm->_hiResText.setCharsetGrid(_curId, _vm->_2byteWidth, _vm->_2byteHeight);
+
+	// And the game's own cell for this charset, which is a different number:
+	// the grid above is the double-byte font's, while this is what the game
+	// draws its own glyphs at. A TrueType face is baked to fit this, here,
+	// because this is the first point at which it is known.
+	//
+	// A SCUMM charset is proportional - every glyph carries its own width -
+	// so there is no cell width to read; the height is the real measurement
+	// and the width only has to be an upper bound for the baked cell.
+	_vm->_hiResText.noteGameCharset(_curId, _fontHeight, _fontHeight);
 }
 
 void CharsetRendererV3::setCurID(int32 id) {
@@ -441,6 +457,15 @@ void CharsetRendererV3::setCurID(int32 id) {
 			_vm->_2byteShadow = _vm->_2byteMultiShadow[nearest];
 		}
 	}
+
+	// After the engine has settled on a font: these are the values text is
+	// actually laid out on, and charset 6 is remapped to font 0 above, so
+	// reading them here is the only way to know the real grid.
+	_vm->_hiResText.setCharsetGrid(_curId, _vm->_2byteWidth, _vm->_2byteHeight);
+
+	// And the game's own cell, which V3 stores in a different header slot -
+	// the bake needs this, not the double-byte grid above.
+	_vm->_hiResText.noteGameCharset(_curId, _fontHeight, _fontHeight);
 }
 
 int CharsetRendererCommon::getFontHeight() const {
@@ -462,13 +487,14 @@ int CharsetRendererClassic::getCharWidth(uint16 chr) const {
 	int spacing = 0;
 
 	if (_vm->_useCJKMode && chr >= 0x80)
-		return _vm->_2byteWidth / 2;
+		return _vm->_hiResText.advanceFor(chr, _curId, _vm->_2byteWidth / 2);
 
 	int offs = READ_LE_UINT32(_fontPtr + chr * 4 + 4);
 	if (offs)
 		spacing = _fontPtr[offs] + (signed char)_fontPtr[offs + 2];
 
-	return spacing;
+	// Measuring and drawing have to agree - see CharsetRendererV3 above.
+	return _vm->_hiResText.advanceFor(chr, _curId, spacing);
 }
 
 int CharsetRenderer::getStringWidth(int arg, const byte *text) {
@@ -480,6 +506,14 @@ int CharsetRenderer::getStringWidth(int arg, const byte *text) {
 	// even support text rendering over strip borders. However, LOOM VGA Talkie and MONKEY1 EGA do have the
 	// getStringWidth method and they do add 1 to the width. So that seems to have been introduced with version 4.
 	int width = (_vm->_game.version < 4 || _vm->_game.id == GID_FT) ? 0 : 1;
+
+	// Measuring has to reproduce what drawing will do, including the way a
+	// proportional replacement font carries its sub-game-pixel remainder from
+	// one character to the next. Summing individually rounded widths instead
+	// would put a centred line a few pixels off and would break line breaking
+	// wherever the difference crosses a word boundary.
+	const int savedCarry = _hiResCarry;
+	_hiResCarry = 0;
 
 	int chr;
 	int oldID = getCurID();
@@ -575,6 +609,7 @@ int CharsetRenderer::getStringWidth(int arg, const byte *text) {
 	}
 
 	setCurID(oldID);
+	_hiResCarry = savedCarry;
 
 	return width;
 }
@@ -728,7 +763,11 @@ int CharsetRendererV3::getCharWidth(uint16 chr) const {
 	if (!spacing)
 		spacing = *(_widthTable + chr);
 
-	return spacing;
+	// Measuring and drawing have to agree. getStringWidth() adds these up to
+	// decide line breaks and to centre a line, so if a proportional
+	// replacement font draws wider than this says, a centred subtitle drifts
+	// off the edge of the screen.
+	return _vm->_hiResText.advanceFor(chr, _curId, spacing, &_hiResCarry);
 }
 
 void CharsetRendererPC::setShadowMode(ShadowType mode) {
@@ -849,7 +888,25 @@ void CharsetRendererPC::drawBits1Kor(Graphics::Surface &dest, int x1, int y1, co
 		src = origSrc;
 		dst = origDst;
 
-		for (y = 0; y < height && y + drawTop + offsetY[i] < dest.h; y++) {
+		// The row guard has to test the row the loop writes, not the row it
+		// is asked for. Callers pass y1 already scaled by
+		// _textSurfaceMultiplier when the destination is the scaled text
+		// surface (printChar's last fallback), while drawTop stays in game
+		// pixels, so guarding on drawTop alone lets the write run past the
+		// end of the surface. Take the tighter of the two bounds: at scale 1
+		// (which loadCJKFont pins upstream) y1 + height - 1 equals
+		// drawTop + height - 1 for every caller, so that limit is the same
+		// row the old guard stopped at; at a hi-res scale it is the only one
+		// that keeps y1 inside the allocation.
+		int maxRows = height;
+		if (y1 + maxRows + offsetY[i] >= dest.h)
+			maxRows = dest.h - offsetY[i] - y1;
+		if (maxRows > height)
+			maxRows = height;
+		if (maxRows < 0)
+			maxRows = 0;
+
+		for (y = 0; y < maxRows; y++) {
 			for (x = 0; x < width && x + x1 + offsetX[i] < dest.w; x++) {
 				if ((x % 8) == 0)
 					bits = *src++;
@@ -949,6 +1006,11 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	}
 	setDrawCharIntern(chr);
 
+	// Drawing has to step by the same amount getCharWidth() reported, or a
+	// centred line drifts and glyphs land on each other.
+	if (is2byte)
+		width = _vm->_hiResText.advanceFor(chr, _curId, width);
+
 	origWidth = width;
 	origHeight = height;
 
@@ -970,6 +1032,7 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 		_str.right = _left;
 		_str.bottom = _top;
 		_firstChar = false;
+		_hiResCarry = 0;
 	}
 
 	int drawTop = _top - vs->topline;
@@ -981,7 +1044,16 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 		_textScreenID = vs->number;
 	}
 
-	if ((ignoreCharsetMask || !vs->hasTwoBuffers)
+	// Hi-res text goes to the scaled overlay whatever the virtual screen would
+	// normally do, because that is the only surface with the resolution to
+	// hold it. Falling through to the original path keeps a character the
+	// replacement font does not cover looking exactly as it did.
+	if (_vm->_hiResText.drawChar(_vm->_textSurface, chr, _curId,
+								 _left * _vm->_textSurfaceMultiplier,
+								 _top * _vm->_textSurfaceMultiplier,
+								 _color, _shadowColor, _vm->_2byteShadow)) {
+		// drawn
+	} else if ((ignoreCharsetMask || !vs->hasTwoBuffers)
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 		&& (_vm->_game.platform != Common::kPlatformFMTowns)
 #endif
@@ -1001,6 +1073,13 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 
 	if (_str.left > _left)
 		_str.left = _left;
+
+	// A proportional replacement font advances by its own glyph width. Its
+	// metrics are in surface pixels while _left is in game pixels, so carry
+	// the remainder between characters rather than rounding each one and
+	// letting the error accumulate across the line.
+	origWidth = _vm->_hiResText.advanceFor(chr, _curId, origWidth,
+										   &_hiResCarry);
 
 	_left += origWidth;
 
@@ -1202,11 +1281,24 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_cjkSpacing = japWidthCorrection - 16;
 	}
 
-	printCharIntern(is2byte, _charPtr, _origWidth, _origHeight, _width, _height, vs, ignoreCharsetMask);
+	// Hi-res text goes to the scaled overlay, which is the only surface with
+	// the resolution to hold it. A character the replacement font does not
+	// cover falls through and is drawn exactly as it was before.
+	if (!_vm->_hiResText.drawChar(_vm->_textSurface, chr, _curId,
+								  _left * _vm->_textSurfaceMultiplier,
+								  (_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier,
+								  _color, _shadowColor, _vm->_2byteShadow))
+		printCharIntern(is2byte, _charPtr, _origWidth, _origHeight, _width, _height, vs, ignoreCharsetMask);
 
 	// Original keeps glyph width and character dimensions separately
 	if ((_vm->_language == Common::ZH_TWN || _vm->_language == Common::KO_KOR) && is2byte)
 		_origWidth++;
+
+	// A proportional replacement font may want to advance by its own glyph
+	// width rather than the game's. Only metrics=font asks for that; the
+	// default leaves the game's layout alone, because scripts size speech
+	// bubbles and choose line breaks from the original widths.
+	_origWidth = _vm->_hiResText.advanceFor(chr, _curId, _origWidth);
 
 	_left += _origWidth;
 	if (is2byte)
@@ -1503,6 +1595,14 @@ void CharsetRendererTownsV3::drawBits1(Graphics::Surface &dest, int x, int y, co
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 #ifdef USE_RGB_COLOR
 	if (_sjisCurChar) {
+		// As in CharsetRendererTownsClassic::drawBitsN: the ROM font draws
+		// and returns, so the replacement gets its chance first. The
+		// coordinates are this path's own - v3 is handed a destination and
+		// a position rather than computing them from _left and _top.
+		if (_vm->_hiResText.drawChar(dest, _sjisCurChar, _curId, x, y,
+									 _color, _shadowColor, _vm->_2byteShadow))
+			return;
+
 		assert(_vm->_cjkFont);
 		_vm->_cjkFont->drawChar(dest, _sjisCurChar, x, y, _color, _shadowColor);
 		return;
@@ -1997,12 +2097,54 @@ CharsetRendererV7::CharsetRendererV7(ScummEngine *vm) : CharsetRendererClassic(v
 	_newStyle(vm->_useCJKMode) {
 }
 
+/**
+ * Wrap the destination v7 hands its glyph drawers in a Graphics::Surface.
+ *
+ * v7 has no text surface of its own. TextRenderer_v7 is given a pointer into
+ * the main VirtScreen plus a pitch, and every glyph is written straight there;
+ * the hi-res layer draws through a Surface. Bridging here rather than adding a
+ * pointer-shaped entry point to the layer keeps one drawing interface.
+ *
+ * The size is taken from the clip rectangle, because that is the bound the
+ * loops being replaced use: drawCharV7 stops at clipRect.right/bottom and never
+ * consults the buffer's real extent. Sizing the wrapper the same way makes the
+ * shared renderer clip exactly where this code clipped before. Sizing it from
+ * _screenWidth instead would let a replacement glyph - which, unlike the game's
+ * own, is not guaranteed to be _2byteWidth wide - run past the text box.
+ */
+static Graphics::Surface wrapV7Dest(byte *buffer, const Common::Rect &clipRect, int pitch) {
+	Graphics::Surface dest;
+	dest.init(clipRect.right, clipRect.bottom, pitch, buffer,
+			  Graphics::PixelFormat::createFormatCLUT8());
+	return dest;
+}
+
 int CharsetRendererV7::draw2byte(byte *buffer, Common::Rect &clipRect, int x, int y, int pitch, int16 col, uint16 chr) {
 	// I am aware of not doing anything with the clipRect here, but I currently see no need to upgrade the old rendering with that.
-	const byte *src = _vm->get2byteCharPtr(chr);
-	buffer += (y * pitch + x);
 	_origWidth = _vm->_2byteWidth;
 	_origHeight = _vm->_2byteHeight;
+
+	// Offer the character to the hi-res layer before the game's own bitmap is
+	// unpacked. When the layer declines - no map, no glyph for this code
+	// point, or a kHiResGlyphKeep override - the loop below runs unchanged and
+	// the screen looks exactly as it did.
+	//
+	// The advance stays the game's own whatever the replacement measures.
+	// TextRenderer_v7 never asks getCharWidth() for a double-byte character:
+	// getStringWidth() adds a cached _2byteCharWidth + _spacing per character
+	// (string_v7.cpp), and that cached width is what every line was centred
+	// and wrapped by. Stepping the pen by a font metric here would move the
+	// drawing away from the measurement, which shows up as off-centre lines
+	// and wraps in the wrong place. Making both sides live is possible but is
+	// a change to the measuring side, not to this hook.
+	Graphics::Surface dest = wrapV7Dest(buffer, clipRect, pitch);
+	if (_vm->_hiResText.drawChar(dest, chr, _curId,
+								 x, y, (byte)col, _shadowColor, _vm->_2byteShadow,
+								 nullptr, false))
+		return _origWidth + _cjkSpacing;
+
+	const byte *src = _vm->get2byteCharPtr(chr);
+	buffer += (y * pitch + x);
 	uint8 bits = 0;
 	pitch -= _origWidth;
 	while (_origHeight--) {
@@ -2037,6 +2179,23 @@ int CharsetRendererV7::drawCharV7(byte *buffer, Common::Rect &clipRect, int x, i
 	// this could spiral in an infinite loop and bad memory accesses (see #15067)
 	if (height < 0)
 		height = 0;
+
+	// The single-byte path gets the same offer, on the same terms: the layer
+	// draws, or it declines and the original rasteriser below runs untouched.
+	//
+	// Here the advance may follow the replacement font, because
+	// TextRenderer_v7::getStringWidth() measures single-byte characters through
+	// getCharWidth() - the very call that produced _width above - so measuring
+	// and drawing move together. _width is already the layer's answer; MIN with
+	// the clip keeps the last glyph of a line from stepping past the box, which
+	// is what the original return does.
+	{
+		Graphics::Surface dest = wrapV7Dest(buffer, clipRect, pitch);
+		if (_vm->_hiResText.drawChar(dest, chr, _curId, x, y + _offsY,
+									 (byte)col, _shadowColor, _vm->_2byteShadow,
+									 nullptr, false))
+			return _direction * MIN(_width, clipRect.right - x);
+	}
 
 	_vm->_charsetColorMap[1] = col;
 	byte *cmap = _vm->_charsetColorMap;
@@ -2076,7 +2235,18 @@ int CharsetRendererV7::getCharWidth(uint16 chr) const {
 	// SCUMM7 does not use the "kerning" from _fontPtr[offs + 2] here (compare CharsetRendererClassic::getCharWidth()
 	// to see the difference. Verfied from disasm and comparison with DOSBox (hard to notice, but e. g. the 'a' character
 	// used to be too narrow by 1 pixel, so all lines containing that character were slightly off).
-	return offs ? _fontPtr[offs] : 0;
+	//
+	// A replacement glyph may be wider than the one it stands in for, so the
+	// layer gets the last word - as it does in every other renderer. Its
+	// default (metrics=game) hands back the width it was given, so a game with
+	// no map, or a map that does not ask for font metrics, measures exactly as
+	// it always did.
+	//
+	// The double-byte case above is deliberately left alone: nothing calls
+	// this for it (TextRenderer_v7 uses its own cached _2byteCharWidth), so
+	// routing it through the layer here would change the advance in draw2byte
+	// without changing the width the line was laid out by.
+	return _vm->_hiResText.advanceFor(chr, _curId, offs ? _fontPtr[offs] : 0);
 }
 
 CharsetRendererNut::CharsetRendererNut(ScummEngine *vm) : CharsetRenderer(vm) {
@@ -2268,6 +2438,22 @@ int CharsetRendererTownsClassic::getFontHeight() const {
 
 void CharsetRendererTownsClassic::drawBitsN(const Graphics::Surface&, byte *dst, const byte *src, byte bpp, int drawTop, int width, int height) {
 	if (_sjisCurChar) {
+		// A replacement font first: this platform draws its double-byte
+		// glyphs from the font ROM and returns, so without a hook here the
+		// hi-res layer never sees them. It loads its fonts, reports them,
+		// and not one glyph is ever asked for - measured on the Japanese
+		// FM-Towns MI2, where only the ASCII characters reached drawChar().
+		//
+		// The colour is the one this path would have used, so a character
+		// the replacement font does not cover falls through and looks
+		// exactly as it did.
+		if (_vm->_hiResText.drawChar(_vm->_textSurface, _sjisCurChar, _curId,
+									 _left * _vm->_textSurfaceMultiplier,
+									 (_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier,
+									 _vm->_townsCharsetColorMap[1], _shadowColor,
+									 _vm->_2byteShadow))
+			return;
+
 		assert(_vm->_cjkFont);
 		_vm->_cjkFont->drawChar(_vm->_textSurface, _sjisCurChar, _left * _vm->_textSurfaceMultiplier, (_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier, _vm->_townsCharsetColorMap[1], _shadowColor);
 		return;

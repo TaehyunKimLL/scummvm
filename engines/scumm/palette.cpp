@@ -26,6 +26,7 @@
 
 #include "graphics/macega.h"
 #include "graphics/macgamma.h"
+#include "graphics/cursorman.h"
 #include "graphics/paletteman.h"
 
 #include "scumm/resource.h"
@@ -1767,6 +1768,35 @@ void ScummEngine::updatePalette() {
 
 		for (int i = 0; i < 3 * num; ++i)
 			paletteColors[i] = levels[(paletteColors[i] >> 5) & 0x07];
+	}
+
+	// With blended hi-res text the screen is true colour, so the backend has
+	// no palette to set: the lookup happens when the composite buffer is
+	// built. Keep our own copy instead, and redraw.
+	//
+	// The redraw is the part that is easy to miss. A paletted backend can
+	// re-colour a frame it has already been given just by changing the
+	// palette; here that only changes our lookup table, so every pixel drawn
+	// with the old colours has to be composited again. Without this a fade
+	// leaves the screen black except for whatever was redrawn for other
+	// reasons - typically the subtitle line, which makes it look as though
+	// the background broke rather than the palette handling.
+	if (_hiResText.alphaActive()) {
+		_hiResText.updatePaletteCache(_system->getScreenFormat(), paletteColors, first, num);
+
+		// The cursor is still drawn from palette indices, so it needs the
+		// colours the backend is no longer being given.
+		CursorMan.replaceCursorPalette(_hiResText.paletteRGB(), 0, 256);
+
+		for (int i = 0; i < 3; ++i) {
+			VirtScreen *vs = &_virtscr[i];
+			if (vs->h)
+				markRectAsDirty((VirtScreenNumber)i, Common::Rect(vs->w, vs->h));
+		}
+
+		if (_macGui)
+			_macGui->setPaletteDirty();
+		return;
 	}
 
 	_system->getPaletteManager()->setPalette(paletteColors, first, num);

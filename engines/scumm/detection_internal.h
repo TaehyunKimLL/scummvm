@@ -23,6 +23,7 @@
 #define SCUMM_DETECTION_INTERNAL_H
 
 #include "common/debug.h"
+#include "common/language.h"
 #include "common/macresman.h"
 #include "common/md5.h"
 #include "common/punycode.h"
@@ -33,6 +34,7 @@
 #include "scumm/detection_tables.h"
 #include "scumm/scumm-md5.h"
 #include "scumm/file_nes.h"
+#include "scumm/trs_bundle.h"
 
 // Includes some shared functionalities, which is required by multiple TU's.
 // Mark it as static in the header, so visibility for function is limited by the TU, and we can use it wherever required.
@@ -212,6 +214,23 @@ static bool detectSpeech(const Common::FSList &fslist, const GameSettings *gs) {
 	return false;
 }
 
+// A .trs language bundle names the language it carries; getTrsBundleLanguage()
+// holds that rule, shared with the engine that opens the file
+// (scumm/trs_bundle.h). Returns UNK_LANG when the directory holds no bundle we
+// recognise.
+static Common::Language detectLanguageBundle(const Common::FSList &fslist) {
+	for (Common::FSList::const_iterator file = fslist.begin(); file != fslist.end(); ++file) {
+		if (file->isDirectory())
+			continue;
+
+		Common::Language lang = Scumm::getTrsBundleLanguage(file->getName());
+		if (lang != Common::UNK_LANG)
+			return lang;
+	}
+
+	return Common::UNK_LANG;
+}
+
 // The following function tries to detect the language.
 static Common::Language detectLanguage(const Common::FSList &fslist, byte id, const char *variant, Common::Language originalLanguage = Common::UNK_LANG) {
 	// First try to detect Chinese translation.
@@ -232,15 +251,18 @@ static Common::Language detectLanguage(const Common::FSList &fslist, byte id, co
 	}
 
 	if (id != GID_CMI && id != GID_DIG) {
-		// Detect Korean fan translated games
-		Common::FSNode langFile;
-		if (searchFSNode(fslist, "korean.trs", langFile)) {
-			debugC(0, kDebugGlobalDetection, "Korean fan translation detected");
-			return Common::KO_KOR;
+		// Detect fan translations shipping a .trs language bundle. Korean
+		// established the format ("korean.trs"); other languages name the
+		// bundle after their ScummVM language code.
+		Common::Language bundleLang = detectLanguageBundle(fslist);
+		if (bundleLang != Common::UNK_LANG) {
+			debugC(0, kDebugGlobalDetection, "Fan translation detected: %s", Common::getLanguageDescription(bundleLang));
+			return bundleLang;
 		}
 
 		if (id == GID_REBEL2) {
 			Common::FSNode systmDir;
+			Common::FSNode langFile;
 			Common::FSList systmList;
 			Common::File trs;
 			if (searchFSNode(fslist, "SYSTM", systmDir)

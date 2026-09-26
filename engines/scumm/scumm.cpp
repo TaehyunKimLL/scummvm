@@ -139,7 +139,8 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
 	  _game(dr.game),
 	  _filenamePattern(dr.fp),
 	  _language(dr.language),
-	  _rnd("scumm")
+	  _rnd("scumm"),
+	  _textSurface(_overlay.index())
 {
 
 #ifdef USE_RGB_COLOR
@@ -515,7 +516,8 @@ ScummEngine::~ScummEngine() {
 	delete _costumeLoader;
 	delete _costumeRenderer;
 
-	_textSurface.free();
+	_overlay.free();
+	_hiResText.freeCoverage();
 
 	free(_shadowPalette);
 	free(_verbPalette);
@@ -1264,14 +1266,64 @@ Common::Error ScummEngine::init() {
 	if (_filenamePattern.genMethod == kGenDiskNumSteam || _filenamePattern.genMethod == kGenRoomNumSteam)
 		_game.platform = Common::kPlatformDOS;
 
+	// Read the hi-res text configuration before the fonts, since the map may
+	// name the scale the rest of the setup works from.
+	_hiResText.loadConfig(ConfMan.getPath("path"), _game.gameid, _game.version, _language);
+
 	// Load CJK font, if present
 	// Load it earlier so _useCJKMode variable could be set
 	loadCJKFont();
+
+	// Map-less fonts name no scale; now that the game's own font size is
+	// known it can be read off them.
+	//
+	// A CJK game has that height already: loadCJKFont() reads an external
+	// file. A European game's charset is a game resource, not loaded until
+	// resetScumm(), which is long after the backend window and the text
+	// surface have both been sized from _textSurfaceMultiplier. So the
+	// height is peeked at here instead - see peekGameCharsetHeight().
+	int scaleFromHeight = _useCJKMode ? _2byteHeight : 0;
+	if (scaleFromHeight <= 0)
+		scaleFromHeight = peekGameCharsetHeight();
+	_hiResText.resolveScale(scaleFromHeight);
 
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	if (_game.platform == Common::kPlatformFMTowns && _forceFMTownsHiResMode)
 		_textSurfaceMultiplier = 2;
 #endif
+
+	// The hi-res text layer draws its glyphs into a larger text surface and
+	// lets the compositing step scale the picture up to meet it.
+	//
+	// This must stay the last word on the multiplier, because loadCJKFont()
+	// resets it to 1 for the resource-font path and the platform cases above
+	// set their own values.
+	//
+	// A platform that already scales the text surface keeps its own factor
+	// rather than having ours applied on top: the two are not the same idea.
+	// FM-Towns doubling is an emulation of a second hardware text layer -
+	// _townsScreen, drawn through towns_fillTopLayerRect() - not simply a
+	// bigger surface, and multiplying the two would produce a size neither
+	// path knows how to composite. The cost is that those platforms cannot
+	// use a hi-res scale of their own; lifting that needs the Towns layer
+	// path itself reworked, which is a separate piece of work.
+	//
+	// v7 and later are excluded for a different reason: drawStripToScreen()
+	// blits their screen straight out, with none of the compositing and
+	// scaling the older path does ("For The Dig, FT and COMI, we just blit
+	// everything to the screen at once"). Enlarging the backend without that
+	// path left The Dig drawing its 320x200 picture into the top-left corner
+	// of a 640x400 window.
+	if (_hiResText.enabled() && _game.version < 7) {
+		if (_textSurfaceMultiplier <= 1)
+			_textSurfaceMultiplier = _hiResText.scale();
+		else if (_hiResText.scale() > 1 && _hiResText.scale() != _textSurfaceMultiplier)
+			warning("SCUMM: this platform already scales text by %d; ignoring the hi-res scale of %d",
+					_textSurfaceMultiplier, _hiResText.scale());
+	} else if (_hiResText.enabled() && _hiResText.scale() > 1) {
+		warning("SCUMM: hi-res text cannot be scaled in this game: its screen "
+				"is blitted without the compositing step that would enlarge it");
+	}
 
 	Common::Path macResourceFile;
 
@@ -1501,6 +1553,21 @@ Common::Error ScummEngine::init() {
 				if (_system->getScreenFormat().bytesPerPixel != 2)
 					return Common::kUnsupportedColorMode;
 			}
+
+			// This screen is 16 bit rather than paletted, which is all
+			// blending actually needs - the 32bpp request further down is
+			// about the DOS path, which starts from a paletted screen and has
+			// to ask for something better. A game that is already here can
+			// blend as it stands.
+			//
+			// v7 and later are excluded for the same reason as below: they
+			// drive the backend palette from places the text layer does not
+			// own.
+			if (_hiResText.enabled() && _hiResText.wantsAlpha() && _game.version < 7) {
+				_hiResText.setAlphaActive(true);
+				debug(1, "SCUMM: hi-res text blending into %s",
+					  _system->getScreenFormat().toString().c_str());
+			}
 #else
 			if (_game.platform == Common::kPlatformFMTowns && _game.version == 3) {
 				warning("Starting game without the required 16bit color support.\nYou may experience color glitches");
@@ -1514,7 +1581,61 @@ Common::Error ScummEngine::init() {
 		if (_game.platform == Common::kPlatformFMTowns && _game.version == 5)
 			return Common::Error(Common::kUnsupportedColorMode, "This game requires dual graphics layer support which is disabled in this build");
 #endif
-			initGraphics(screenWidth, screenHeight);
+			// Blended hi-res text needs a true-colour screen to composite
+			// into, because the blend produces colours that are not in the
+			// game's palette. Ask for one by capability rather than by
+			// backend: several backends can manage 32bpp, and which formats
+			// they offer depends on the display they are running on.
+			//
+			// CLUT8 stays in the list so a display that cannot do it still
+			// starts, with blending quietly turned off - the glyphs then draw
+			// as solid colour, which is what the map asked for minus the
+			// smoothing.
+			// v7 and later drive the backend palette from places the text
+			// layer does not own: SMUSH sets it directly per frame while a
+			// cutscene plays (smush_player.cpp), and it asserts if the screen
+			// has no palette to set. Blending needs a 32bpp screen, so the two
+			// cannot both be had - keep the palette and drop the blending.
+			if (_hiResText.enabled() && _hiResText.wantsAlpha() && _game.version < 7) {
+#ifdef USE_RGB_COLOR
+				Common::List<Graphics::PixelFormat> tryModes;
+				Common::List<Graphics::PixelFormat> supported = _system->getSupportedFormats();
+				for (Common::List<Graphics::PixelFormat>::const_iterator g = supported.begin();
+					 g != supported.end(); ++g) {
+					if (g->bytesPerPixel == 4)
+						tryModes.push_back(*g);
+				}
+				tryModes.push_back(Graphics::PixelFormat::createFormatCLUT8());
+
+				initGraphics(screenWidth, screenHeight, tryModes);
+
+				const Graphics::PixelFormat chosen = _system->getScreenFormat();
+				if (chosen.bytesPerPixel == 4) {
+					_hiResText.setAlphaActive(true);
+					debug(1, "SCUMM: hi-res text blending into %s", chosen.toString().c_str());
+				} else {
+					_hiResText.setAlphaActive(false);
+					warning("SCUMM: no 32bpp screen available (got %s); hi-res text will not be blended",
+							chosen.toString().c_str());
+				}
+#else
+				initGraphics(screenWidth, screenHeight);
+				_hiResText.setAlphaActive(false);
+				warning("SCUMM: built without RGB colour support; hi-res text will not be blended");
+#endif
+			} else {
+				initGraphics(screenWidth, screenHeight);
+
+				// Either the map did not ask for blending, or this game keeps
+				// the backend palette for itself. Both mean the screen is
+				// paletted, so make sure nothing later tries to composite
+				// true-colour text into it.
+				if (_hiResText.wantsAlpha()) {
+					_hiResText.setAlphaActive(false);
+					warning("SCUMM: hi-res text will not be blended: this game "
+							"drives the backend palette itself");
+				}
+			}
 
 			if (_game.platform == Common::kPlatformNES)
 				_system->fillScreen(0x1d);
@@ -1711,8 +1832,31 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 	setupCharsetRenderer(macFontFile);
 
 	// Create and clear the text surface
-	_textSurface.create(_screenWidth * _textSurfaceMultiplier, _screenHeight * _textSurfaceMultiplier, Graphics::PixelFormat::createFormatCLUT8());
+	// Coverage still belongs to the hi-res layer, so the overlay carries the
+	// index plane alone until that moves too.
+	_overlay.create(_screenWidth * _textSurfaceMultiplier,
+					_screenHeight * _textSurfaceMultiplier, false);
+	_hiResText.useOverlay(&_overlay);
 	clearTextSurface();
+
+	// The coverage that makes hi-res glyphs anti-aliased cannot live in a
+	// paletted surface, so it gets one of its own alongside.
+	_hiResText.createCoverage(_textSurface.w, _textSurface.h);
+
+	// The replacement fonts themselves. Failing to load leaves the engine on
+	// its original path rather than showing nothing. A TrueType face is
+	// baked per charset, at the cell the game draws that charset at.
+	if (_useMultiFont) {
+		for (int i = 0; i < 20; ++i)
+			if (_2byteMultiFontPtr[i])
+				_hiResText.setGameFontCell(i, _2byteMultiWidth[i], _2byteMultiHeight[i]);
+	} else if (_useCJKMode) {
+		_hiResText.setGameFontCell(0, _2byteWidth, _2byteHeight);
+	}
+	// A game with no CJK font measures its charsets as they are selected and
+	// bakes then, so nothing is guessed here.
+	_hiResText.loadFonts(ConfMan.getPath("path"));
+
 
 	// Create the costume renderer
 	setupCostumeRenderer();
@@ -1804,6 +1948,7 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 
 	free(_compositeBuf);
 	_compositeBuf = (byte *)malloc(_screenWidth * _textSurfaceMultiplier * _screenHeight * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel);
+
 
 	// MI2 NI DOS Demo, load demo.rec playback file if present
 	if ((_game.id == GID_MONKEY2) && (_game.features & GF_DEMO) && (_game.platform == Common::kPlatformDOS) && !ConfMan.getBool("disable_mi2_ni_demo"))
@@ -2049,7 +2194,12 @@ void ScummEngine::resetScumm() {
 		_scrollDestOffset = _scrollTimer = 0;
 		_townsScreen = new TownsScreen(_system);
 		_townsScreen->setupLayer(0, 512, _screenHeight, _textSurfaceMultiplier, _textSurfaceMultiplier, (_outputPixelFormat.bytesPerPixel == 2) ? 32767 : 256);
-		_townsScreen->setupLayer(1, _screenWidth * _textSurfaceMultiplier, _screenHeight * _textSurfaceMultiplier, 1, 1, 16, _textPalette);
+		// A 16 colour layer cannot hold a blended pixel. When hi-res text
+		// is antialiasing, give it a 16 bit layer instead; the layer keys
+		// on the colour index 0 maps to, so it stays see-through.
+		_townsScreen->setupLayer(1, _screenWidth * _textSurfaceMultiplier, _screenHeight * _textSurfaceMultiplier, 1, 1,
+			(_outputPixelFormat.bytesPerPixel == 2 && _hiResText.alphaActive())
+				? 32767 : 16, _textPalette);
 	}
 #endif
 
@@ -4261,7 +4411,9 @@ void ScummEngine::restart() {
 
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	if (_townsScreen && _game.id == GID_MONKEY) {
-		_textSurface.fillRect(Common::Rect(0, 0, _textSurface.w * _textSurfaceMultiplier, _textSurface.h * _textSurfaceMultiplier), 0);
+		_overlay.clear(Common::Rect(0, 0, _textSurface.w * _textSurfaceMultiplier,
+									_textSurface.h * _textSurfaceMultiplier),
+					   CHARSET_MASK_TRANSPARENCY_TOWNS);
 		_townsScreen->clearLayer(1);
 	}
 #endif
@@ -4428,6 +4580,28 @@ void ScummEngine::pauseEngineIntern(bool pause) {
 		towns_updateGfx();
 #endif
 		_shakeNextTick = _shakeTickCounter = 0;
+
+		// The ScummVM GUI sets its own cursor palette while it is open. In
+		// blended mode the backend is never handed the game palette - the
+		// lookup happens when the composite buffer is built - so nothing else
+		// puts the game's colours back and the cursor would keep the GUI's.
+		//
+		// This is only for the ScummVM GUI. A game's own menu (the default for
+		// SCUMM, isUsingOriginalGUI()) is drawn by game script and changes the
+		// palette through setPalColor()/updatePalette(), which already goes
+		// through the blended path in setPalette().
+		if (_hiResText.alphaActive()) {
+			CursorMan.replaceCursorPalette(_hiResText.paletteRGB(), 0, 256);
+
+			// The screen behind the dialog has to be composited again for the
+			// same reason: a paletted backend would simply be handed the
+			// palette back, but here every pixel carries its colour already.
+			for (int i = 0; i < 3; ++i) {
+				VirtScreen *vs = &_virtscr[i];
+				if (vs->h)
+					markRectAsDirty((VirtScreenNumber)i, Common::Rect(vs->w, vs->h));
+			}
+		}
 
 		// Update the screen to make it less likely that the player will see a
 		// brief cursor palette glitch when the GUI is disabled.

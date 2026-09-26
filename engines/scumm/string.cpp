@@ -22,6 +22,7 @@
 
 
 #include "common/config-manager.h"
+#include "common/language.h"
 #include "common/unicode-bidi.h"
 #include "audio/mixer.h"
 
@@ -29,6 +30,7 @@
 #include "scumm/charset.h"
 #include "scumm/dialogs.h"
 #include "scumm/file.h"
+#include "scumm/trs_bundle.h"
 #include "scumm/imuse_digi/dimuse_engine.h"
 #ifdef ENABLE_HE
 #include "scumm/he/intern_he.h"
@@ -1588,7 +1590,7 @@ int ScummEngine::convertMessageToString(const byte *msg, byte *dst, int dstSize)
 		return 0;
 	}
 
-	if (_game.version >= 7 || isScummvmKorTarget()) {
+	if (_game.version >= 7 || hasTranslationBundle()) {
 		translateText(msg, transBuf, sizeof(transBuf));
 		src = transBuf;
 	} else {
@@ -2040,8 +2042,10 @@ static int indexCompare(const void *p1, const void *p2) {
 
 // Create an index of the language file.
 void ScummEngine_v7::loadLanguageBundle() {
-	if (isScummvmKorTarget()) {
-		// Support language bundle for FT
+	// The Dig and COMI ship a native language.bnd/language.tab. Every other v7
+	// game can instead carry a .trs fan-translation bundle, which the base
+	// engine reads - the same split detection uses when it scans for a .trs.
+	if (_game.id != GID_DIG && _game.id != GID_CMI) {
 		ScummEngine::loadLanguageBundle();
 		return;
 	}
@@ -2213,8 +2217,9 @@ void ScummEngine_v7::playSpeech(const byte *ptr) {
 }
 
 void ScummEngine_v7::translateText(const byte *text, byte *trans_buff, int transBufferSize) {
-	if (isScummvmKorTarget()) {
-		// Support language bundle for FT
+	// A .trs bundle was read by the base engine, so let it do the lookup too.
+	// Its own _existLanguageFile - not this class's - records that.
+	if (ScummEngine::hasTranslationBundle()) {
 		ScummEngine::translateText(text, trans_buff, transBufferSize);
 		return;
 	}
@@ -2330,21 +2335,26 @@ void ScummEngine_v7::translateText(const byte *text, byte *trans_buff, int trans
 
 #endif
 
+// The .trs bundle format is language-neutral, so the file name is what says
+// which language it carries. getTrsBundleName() holds that rule, shared with
+// the detector that scans for these files (scumm/trs_bundle.h).
+Common::Path ScummEngine::getLanguageBundleFilename() const {
+	return getTrsBundleName(_language);
+}
+
 void ScummEngine::loadLanguageBundle() {
-	if (!isScummvmKorTarget()) {
-		_existLanguageFile = false;
+	_existLanguageFile = false;
+
+	Common::Path bundle = getLanguageBundleFilename();
+	if (bundle.empty())
 		return;
-	}
 
 	ScummFile file(this);
-	openFile(file, "korean.trs");
+	openFile(file, bundle);
 
 	if (!file.isOpen()) {
-		_existLanguageFile = false;
 		return;
 	}
-
-	_existLanguageFile = true;
 
 	int size = file.size();
 
@@ -2352,9 +2362,10 @@ void ScummEngine::loadLanguageBundle() {
 	uint32 magic2 = file.readUint32BE();
 
 	if (magic1 != MKTAG('S', 'C', 'V', 'M') || magic2 != MKTAG('T', 'R', 'S', ' ')) {
-		_existLanguageFile = false;
 		return;
 	}
+
+	_existLanguageFile = true;
 
 	_numTranslatedLines = file.readUint16LE();
 	_translatedLines = new TranslatedLine[_numTranslatedLines];

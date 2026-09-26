@@ -37,6 +37,7 @@
 #include "gui/ThemeEval.h"
 
 #include "scumm/dialogs.h"
+#include "scumm/metaengine.h"
 #include "scumm/sound.h"
 #include "scumm/scumm.h"
 #include "scumm/imuse/imuse.h"
@@ -1207,6 +1208,56 @@ GUI::CheckboxWidget *ScummOptionsContainerWidget::createOriginalGUICheckbox(GuiO
 	);
 }
 
+GUI::CheckboxWidget *ScummOptionsContainerWidget::createHiResTextCheckbox(GuiObject *boss, const Common::String &name) {
+	if (!ScummMetaEngine::targetHasHiResText(_domain))
+		return nullptr;
+
+	return new GUI::CheckboxWidget(boss, name,
+		_("Use hi-res fonts from the game folder"),
+		_("Read hires_text.map and the font files beside it. Turn this off to ignore them and draw text exactly as the original game did.")
+	);
+}
+
+void ScummOptionsContainerWidget::loadHiResTextCheckbox(GUI::CheckboxWidget *checkbox) const {
+	if (!checkbox)
+		return;
+	bool on = true;
+	if (ConfMan.hasKey("hires_text", _domain))
+		on = ConfMan.getBool("hires_text", _domain);
+	checkbox->setState(on);
+}
+
+void ScummOptionsContainerWidget::saveHiResTextCheckbox(GUI::CheckboxWidget *checkbox) const {
+	if (checkbox)
+		ConfMan.setBool("hires_text", checkbox->getState(), _domain);
+}
+
+GUI::CheckboxWidget *ScummOptionsContainerWidget::createHiResTextAlphaCheckbox(GuiObject *boss, const Common::String &name) {
+	if (!ScummMetaEngine::targetHasHiResText(_domain))
+		return nullptr;
+
+	return new GUI::CheckboxWidget(boss, name,
+		_("Smooth the hi-res text"),
+		_("Blend the replacement glyphs into the picture. Turn this off for hard-edged text, which suits a pixelated game and costs nothing to draw.")
+	);
+}
+
+void ScummOptionsContainerWidget::loadHiResTextAlphaCheckbox(GUI::CheckboxWidget *checkbox) const {
+	if (!checkbox)
+		return;
+	// Default on: a map that wants hard edges says so, and the ones shipped
+	// so far all blend.
+	bool on = true;
+	if (ConfMan.hasKey("hires_text_alpha", _domain))
+		on = ConfMan.getBool("hires_text_alpha", _domain);
+	checkbox->setState(on);
+}
+
+void ScummOptionsContainerWidget::saveHiResTextAlphaCheckbox(GUI::CheckboxWidget *checkbox) const {
+	if (checkbox)
+		ConfMan.setBool("hires_text_alpha", checkbox->getState(), _domain);
+}
+
 GUI::CheckboxWidget *ScummOptionsContainerWidget::createGammaCorrectionCheckbox(GuiObject *boss, const Common::String &name) {
 	return new GUI::CheckboxWidget(boss, name,
 		_("Enable gamma correction"),
@@ -1617,6 +1668,8 @@ LoomVgaGameOptionsWidget::LoomVgaGameOptionsWidget(GuiObject *boss, const Common
 #ifdef USE_TTS
 	_enableTTSCheckbox = createEnableTTSCheckbox(widgetsBoss(), "LoomVgaGameOptionsDialog.EnableTTS");
 #endif
+	_hiResTextCheckbox = createHiResTextCheckbox(widgetsBoss(), "LoomVgaGameOptionsDialog.HiResText");
+	_hiResTextAlphaCheckbox = createHiResTextAlphaCheckbox(widgetsBoss(), "LoomVgaGameOptionsDialog.HiResTextAlpha");
 }
 
 void LoomVgaGameOptionsWidget::load() {
@@ -1634,6 +1687,8 @@ void LoomVgaGameOptionsWidget::load() {
 #ifdef USE_TTS
 	_enableTTSCheckbox->setState(ConfMan.getBool("tts_enabled", _domain));
 #endif
+	loadHiResTextCheckbox(_hiResTextCheckbox);
+	loadHiResTextAlphaCheckbox(_hiResTextAlphaCheckbox);
 }
 
 bool LoomVgaGameOptionsWidget::save() {
@@ -1643,6 +1698,8 @@ bool LoomVgaGameOptionsWidget::save() {
 #ifdef USE_TTS
 	ConfMan.setBool("tts_enabled", _enableTTSCheckbox->getState(), _domain);
 #endif
+	saveHiResTextCheckbox(_hiResTextCheckbox);
+	saveHiResTextAlphaCheckbox(_hiResTextAlphaCheckbox);
 	return true;
 }
 
@@ -1657,6 +1714,10 @@ void LoomVgaGameOptionsWidget::defineLayout(GUI::ThemeEval &layouts, const Commo
 #ifdef USE_TTS
 	layouts.addWidget("EnableTTS", "Checkbox");
 #endif
+	if (_hiResTextCheckbox)
+		layouts.addWidget("HiResText", "Checkbox");
+	if (_hiResTextAlphaCheckbox)
+		layouts.addWidget("HiResTextAlpha", "Checkbox");
 
 	addEnhancementsLayout(layouts)
 			.closeLayout()
