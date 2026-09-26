@@ -36,7 +36,10 @@ bool RoutedGlyphSource::routeToLatin(uint32 cp) const {
 	if (_mode == kLatinHalf)
 		return cp >= 0x0020 && cp <= 0x007E;
 	// kLatinFullwidth: the only other mode this class is ever constructed
-	// with (see the class comment in glyphsource_routed.h).
+	// with (see the class comment in glyphsource_routed.h). Latin-1
+	// (U+00A0..U+00FF) is deliberately not routed in either mode: it is not
+	// remapped (the fullwidth-forms block has no counterpart for it), and it
+	// keeps the face it had before hires_text_latin existed.
 	return (cp >= 0xFF01 && cp <= 0xFF5E) || cp == 0x3000;
 }
 

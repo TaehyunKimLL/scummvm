@@ -159,12 +159,16 @@ public:
 
 	// The tag itself is returned as the cell count, so a test can tell which
 	// fake answered a given cells() call just from its return value.
+	// ...except for missingCp, which this fake has no glyph for (0 cells,
+	// no row), like a Latin-only face asked for a fullwidth form.
 	int cells(uint32 cp) override {
 		lastCellsCp = cp;
-		return _tag;
+		return cp == missingCp ? 0 : _tag;
 	}
 	const byte *row(uint32 cp, int y) override {
 		lastRowCp = cp;
+		if (cp == missingCp)
+			return nullptr;
 		_rowByte = _tag;
 		return &_rowByte;
 	}
@@ -172,6 +176,7 @@ public:
 
 	uint32 lastCellsCp = 0xFFFFFFFF;
 	uint32 lastRowCp = 0xFFFFFFFF;
+	uint32 missingCp = 0xFFFFFFFF;
 
 private:
 	byte _tag;
@@ -650,6 +655,29 @@ public:
 		row = src.row(0xAC00, 0);
 		TS_ASSERT_EQUALS(main->lastRowCp, (uint32)0xAC00);
 		TS_ASSERT_EQUALS(*row, (byte)1);
+	}
+
+	// A latin face that lacks a glyph in its routed range (a Latin-only
+	// face has no U+FF21) must not swallow it: main answers, for cells()
+	// and row() alike, while the latin face still serves what it has.
+	void test_latin_without_glyph_falls_back_to_main() {
+		TaggedFakeGlyphSource *main = makeMain();
+		TaggedFakeGlyphSource *latin = makeLatin();
+		latin->missingCp = 0xFF21;
+		RoutedGlyphSource src(main, latin, kLatinFullwidth);
+
+		TS_ASSERT_EQUALS(src.cells(0xFF21), 1);
+		TS_ASSERT_EQUALS(main->lastCellsCp, (uint32)0xFF21);
+		const byte *row = src.row(0xFF21, 0);
+		TS_ASSERT(row != nullptr);
+		TS_ASSERT_EQUALS(main->lastRowCp, (uint32)0xFF21);
+		TS_ASSERT_EQUALS(*row, (byte)1);
+
+		// FF22 is still in the latin face.
+		TS_ASSERT_EQUALS(src.cells(0xFF22), 9);
+		row = src.row(0xFF22, 0);
+		TS_ASSERT_EQUALS(latin->lastRowCp, (uint32)0xFF22);
+		TS_ASSERT_EQUALS(*row, (byte)9);
 	}
 
 	void test_geometry_comes_from_main_only() {

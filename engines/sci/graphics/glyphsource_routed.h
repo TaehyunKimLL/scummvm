@@ -39,7 +39,7 @@ namespace Sci {
  * was constructed with (see textlatin.h):
  *
  *   kLatinFullwidth - U+FF01..U+FF5E and U+3000, the fullwidth-forms range
- *                     GfxText16::readChar() remaps plain ASCII into via
+ *                     GfxText16::glyphChar() remaps plain ASCII into via
  *                     TextCompose::latinFullwidth().
  *   kLatinHalf      - U+0020..U+007E, plain ASCII left unremapped at the code
  *                     point level, routed here instead by
@@ -63,14 +63,25 @@ public:
 	byte advanceWide() const override { return _main->advanceWide(); }
 	int bitsPerPixel() const override { return _main->bitsPerPixel(); }
 
-	/** Whether cp is drawn by the latin source rather than the main one. */
+	/** Whether cp is in the range this mode routes to the latin source. */
 	bool routeToLatin(uint32 cp) const;
 
+	/**
+	 * Whether cp is actually drawn by the latin source: it is in the routed
+	 * range AND the latin face has a glyph for it. A Latin-only face (one
+	 * with no fullwidth forms, say) then leaves those code points to the
+	 * main face instead of drawing nothing. cells() and row() both decide
+	 * through this, so they always agree on the source.
+	 */
+	bool useLatin(uint32 cp) {
+		return routeToLatin(cp) && _latin->cells(cp) > 0;
+	}
+
 	int cells(uint32 cp) override {
-		return routeToLatin(cp) ? _latin->cells(cp) : _main->cells(cp);
+		return useLatin(cp) ? _latin->cells(cp) : _main->cells(cp);
 	}
 	const byte *row(uint32 cp, int y) override {
-		return routeToLatin(cp) ? _latin->row(cp, y) : _main->row(cp, y);
+		return useLatin(cp) ? _latin->row(cp, y) : _main->row(cp, y);
 	}
 	uint32 glyphCount() const override {
 		return _main->glyphCount() + _latin->glyphCount();

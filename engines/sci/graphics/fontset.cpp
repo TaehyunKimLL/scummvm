@@ -148,6 +148,13 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 		// lead byte. korean.fnt indexes glyphs as `uc - 0xAC00` and holds
 		// 11184 of them, exactly the hangul syllable block, so that block is
 		// its real coverage and nothing else.
+		//
+		// Known limitation (hires_text_latin): faces are asked in order and
+		// the legacy face comes before the Unicode one, so when a Shift-JIS
+		// face is present its U+FF00..U+FFEF coverage catches the fullwidth
+		// Latin that hires_text_latin=fullwidth produces, and
+		// hires_text_latin_font is never consulted for it. korean.fnt only
+		// covers Hangul syllables, so Korean games are unaffected.
 		if (!legacyCovers(codePoint))
 			continue;
 		// A legacy face is indexed by the encoded byte pair, not by a code
