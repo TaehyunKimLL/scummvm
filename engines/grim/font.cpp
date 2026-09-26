@@ -25,6 +25,7 @@
 #include "graphics/font.h"
 #include "graphics/surface.h"
 #include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/font_descriptor.h"
 #include "graphics/hires_text/glyph_source_svfn.h"
 #include "graphics/hires_text/text_compose.h"
 
@@ -360,14 +361,17 @@ void FontTTF::restoreState(SaveGame *state) {
 	_font = nullptr;
 	delete _svfn;
 	_svfn = nullptr;
+	_fallback = nullptr;
 
 	if (g_grim->getGameType() == GType_GRIM && g_grim->getGameLanguage() == Common::KO_KOR) {
 		Common::String name = fname + ".txt";
 		stream = g_resourceloader->openNewStreamFile(name, true);
-		bool loaded = stream && loadFromDescriptor(fname, stream);
+		if (!stream)
+			warning("Grim: %s is missing; using the bitmap font", name.c_str());
+		const bool loaded = stream && loadFromDescriptor(fname, stream);
 		delete stream;
 		if (!loaded)
-			error("Cannot load korean ttf font");
+			useBitmapFallback(fname);
 	} else {
 		stream = g_resourceloader->openNewStreamFile(fname.c_str(), true);
 		loadTTF(fname, stream, size);
@@ -412,6 +416,27 @@ void BitmapFont::render(Graphics::Surface &buf, const Common::String &currentLin
 FontTTF::FontTTF() : _font(nullptr), _svfn(nullptr), _isUnicode(false), _size(0) {
 }
 
+void FontTTF::useBitmapFallback(const Common::String &filename) {
+	// A save made with a face this build cannot draw (a TrueType face in a
+	// build without FreeType, or one since removed): draw with the game's own
+	// bitmap font of that name. It lives in the BitmapFont pool like any
+	// other, so it is saved and freed with it.
+	_filename = filename;
+	for (BitmapFont *f : BitmapFont::getPool()) {
+		if (f->getFilename() == filename) {
+			_fallback = f;
+			return;
+		}
+	}
+	Common::SeekableReadStream *stream = g_resourceloader->openNewStreamFile(filename.c_str(), true);
+	if (!stream)
+		error("Could not find font file %s", filename.c_str());
+	BitmapFont *bitmap = new BitmapFont();
+	bitmap->load(filename, stream);
+	delete stream;
+	_fallback = bitmap;
+}
+
 FontTTF::~FontTTF() {
 	delete _font;
 	delete _svfn;
@@ -441,20 +466,14 @@ void FontTTF::loadTTFFromArchive(const Common::String &filename, int size) {
 
 bool FontTTF::loadFromDescriptor(const Common::String &filename, Common::SeekableReadStream *descriptor) {
 	// "<face file> <size>px" on the first line, as the Korean patch ships it.
-	Common::String line = descriptor->readLine();
+	const Common::String line = descriptor->readLine();
 	Common::String face;
-	Common::String fsize;
-	for (uint i = 0; i < line.size(); ++i) {
-		if (line[i] == ' ') {
-			face = Common::String(line.c_str(), i);
-			fsize = Common::String(line.c_str() + i + 1, line.size() - i - 2);
-		}
-	}
-	if (face.empty()) {
-		warning("Grim: %s.txt names no font; using the bitmap font", filename.c_str());
+	int s = 0;
+	if (!Graphics::parseFontDescriptor(line, face, s)) {
+		warning("Grim: %s.txt: \"%s\" is not \"<font file> <size>px\" with a size of 1 to %d; using the bitmap font",
+		        filename.c_str(), line.c_str(), (int)Graphics::kFontDescriptorMaxPx);
 		return false;
 	}
-	int s = atoi(fsize.c_str());
 
 	Common::SeekableReadStream *stream = g_resourceloader->openNewStreamFile(face.c_str(), true);
 	if (!stream) {
@@ -536,18 +555,30 @@ void FontTTF::svfnCoverage(const Common::U32String &text, Common::Array<byte> &c
 }
 
 int32 FontTTF::getKernedHeight() const {
+	if (_fallback)
+		return _fallback->getKernedHeight();
 	if (_svfn)
 		return _svfn->cellHeight();
 	return _font->getFontHeight();
 }
 
+int32 FontTTF::getBaseOffsetY() const {
+	if (_fallback)
+		return _fallback->getBaseOffsetY();
+	return 0;
+}
+
 int32 FontTTF::getCharKernedWidth(uint32 c) const {
+	if (_fallback)
+		return _fallback->getCharKernedWidth(c);
 	if (_svfn)
 		return svfnAdvance(c);
 	return _font->getCharWidth(c);
 }
 
 int FontTTF::getKernedStringLength(const Common::String &text) const {
+	if (_fallback)
+		return _fallback->getKernedStringLength(text);
 	if (_svfn) {
 		const Common::U32String u = g_grim->getGameLanguage() == Common::KO_KOR ? decodeKorean(text) : text.decode(Common::CodePage::kUtf8);
 		int w = 0;
@@ -565,24 +596,23 @@ int FontTTF::getKernedStringLength(const Common::String &text) const {
 }
 
 void FontTTF::render(Graphics::Surface &surface, const Common::String &currentLine, const Graphics::PixelFormat &pixelFormat, uint32 blackColor, uint32 color, uint32 colorKey) const {
+	if (_fallback) {
+		_fallback->render(surface, currentLine, pixelFormat, blackColor, color, colorKey);
+		return;
+	}
 	if (_svfn) {
-		// The legacy OpenGL renderer: white over the colour key, as for a TTF.
+		// The legacy OpenGL renderer (colour key = transparent black): white
+		// with alpha = coverage, what TTFFont::drawString leaves there too.
 		Common::Array<byte> coverage;
 		int width, height;
 		svfnCoverage(g_grim->getGameLanguage() == Common::KO_KOR ? decodeKorean(currentLine) : currentLine.decode(Common::CodePage::kUtf8), coverage, width, height);
 		surface.create(width, height, pixelFormat);
 		surface.fillRect(Common::Rect(0, 0, width, height), colorKey);
-		byte kr, kg, kb;
-		pixelFormat.colorToRGB(colorKey, kr, kg, kb);
 		for (int y = 0; y < height; y++) {
 			for (int x = 0; x < width; x++) {
 				const byte c = coverage[y * width + x];
-				if (c == 255)
-					surface.setPixel(x, y, pixelFormat.RGBToColor(255, 255, 255));
-				else if (c)
-					surface.setPixel(x, y, pixelFormat.RGBToColor(Graphics::TextCompose::blend(kr, 255, c),
-					                                             Graphics::TextCompose::blend(kg, 255, c),
-					                                             Graphics::TextCompose::blend(kb, 255, c)));
+				if (c)
+					surface.setPixel(x, y, pixelFormat.ARGBToColor(c, 255, 255, 255));
 			}
 		}
 		return;
@@ -616,6 +646,13 @@ void FontTTF::render(Graphics::Surface &surface, const Common::String &currentLi
 bool FontTTF::renderAlpha(Graphics::Surface &surface, const Common::String &currentLine, const Graphics::PixelFormat &format, byte r, byte g, byte b) const {
 	if (format.bytesPerPixel != 4 || format.aBits() != 8)
 		return false;
+
+	if (_fallback) {
+		// Opaque text and outline on a transparent key.
+		_fallback->render(surface, currentLine, format, format.ARGBToColor(255, 0, 0, 0),
+		                  format.ARGBToColor(255, r, g, b), format.ARGBToColor(0, 0, 0, 0));
+		return true;
+	}
 
 	if (_svfn) {
 		Common::Array<byte> coverage;

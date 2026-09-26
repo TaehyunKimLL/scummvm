@@ -129,5 +129,17 @@ public:
 			TS_ASSERT_EQUALS(px[2], fmt.ARGBToColor(255, 10, 20, 30));
 			TS_ASSERT_EQUALS(px[3], 0xDEADBEEFU);   // count is respected
 		}
+		// Literal values, so a channel placed wrongly in both the helper and
+		// the format cannot cancel out.
+		uint32 px = 0;
+		const byte half = 0x80;
+		Graphics::TextCompose::coverageToArgb(&half, &px, 1, argb(), 10, 20, 30);
+		TS_ASSERT_EQUALS(px, 0x800A141EU);
+		Graphics::TextCompose::coverageToArgb(&half, &px, 1, Graphics::PixelFormat::createFormatRGBA32(), 10, 20, 30);
+		const byte *mem = (const byte *)&px;
+		TS_ASSERT_EQUALS(mem[0], 0x0A);
+		TS_ASSERT_EQUALS(mem[1], 0x14);
+		TS_ASSERT_EQUALS(mem[2], 0x1E);
+		TS_ASSERT_EQUALS(mem[3], 0x80);
 	}
 };
