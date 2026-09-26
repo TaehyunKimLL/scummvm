@@ -27,7 +27,7 @@
 #include "common/str.h"
 #include "common/str-enc.h"
 #include "graphics/hires_text/font_map.h"
-#include "sci/graphics/glyphsource.h"
+#include "graphics/hires_text/glyph_source.h"
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/textlatin.h"
 
@@ -66,7 +66,7 @@ public:
 	 * between fonts). name is used only for the debug line printed on
 	 * success.
 	 */
-	void setSource(UnicodeGlyphSource *src, const Common::String &name,
+	void setSource(Graphics::UnicodeGlyphSource *src, const Common::String &name,
 				   DisposeAfterUse::Flag dispose = DisposeAfterUse::YES);
 
 	bool isLoaded() const { return _loaded; }
@@ -101,7 +101,7 @@ private:
 	GuiResourceId _resourceId;
 	bool _loaded;
 
-	Common::DisposablePtr<UnicodeGlyphSource> _source;
+	Common::DisposablePtr<Graphics::UnicodeGlyphSource> _source;
 
 	/** Scratch buffer for expanding a glyph to one byte per pixel. */
 	Common::Array<byte> _glyphScratch;

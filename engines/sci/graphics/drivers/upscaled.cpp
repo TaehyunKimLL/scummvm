@@ -23,7 +23,7 @@
 #include "common/system.h"
 #include "graphics/cursorman.h"
 #include "sci/graphics/drivers/gfxdriver_intern.h"
-#include "sci/graphics/textcompose.h"
+#include "graphics/hires_text/text_compose.h"
 #include "sci/graphics/textlayer.h"
 
 namespace Sci {
@@ -210,7 +210,7 @@ void UpscaledGfxDriver::updateScreen(int destX, int destY, int w, int h, const P
 			for (int y = 0; y < textH; y++) {
 				if (!_textLayer->rowHasText(destY + y))
 					continue;
-				TextCompose::composeSpan(buff + y * pitch, _format, _textLayer->row(destY + y) + destX, textW, _currentPalette);
+				Graphics::TextCompose::composeSpan(buff + y * pitch, _format, _textLayer->row(destY + y) + destX, textW, _currentPalette);
 			}
 		} else {
 			// CLUT8 output: no room for a blend; stamp coverage >= 50%.
@@ -223,7 +223,7 @@ void UpscaledGfxDriver::updateScreen(int destX, int destY, int w, int h, const P
 			}
 			for (int y = 0; y < textH; y++) {
 				if (_textLayer->rowHasText(destY + y))
-					TextCompose::stampSpan(buff + y * pitch, _textLayer->row(destY + y) + destX, textW);
+					Graphics::TextCompose::stampSpan(buff + y * pitch, _textLayer->row(destY + y) + destX, textW);
 			}
 		}
 	}

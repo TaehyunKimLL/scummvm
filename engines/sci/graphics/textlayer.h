@@ -25,18 +25,13 @@
 #include "common/array.h"
 #include "common/rect.h"
 #include "common/scummsys.h"
+#include "graphics/hires_text/text_compose.h"
 
 namespace Sci {
 
-/** One hi-res pixel of text: a foreground and an outline, each a palette
- *  index plus 8-bit coverage. Colour is resolved when composited, so text
- *  follows palette changes the way the original's indexed text did. */
-struct TextPixel {
-	byte fgIndex;
-	byte fgCoverage;
-	byte outlineIndex;
-	byte outlineCoverage;
-};
+/** One hi-res pixel of text; now shared with every engine, see
+ *  graphics/hires_text/text_compose.h. */
+using Graphics::TextPixel;
 
 /**
  * Hi-res text as part of the visual plane (HIRES_COMPOSITOR_DESIGN.md D3):

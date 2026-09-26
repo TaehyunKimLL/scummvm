@@ -19,15 +19,23 @@
  *
  */
 
-#ifndef SCI_GRAPHICS_TEXTCOMPOSE_H
-#define SCI_GRAPHICS_TEXTCOMPOSE_H
+#ifndef GRAPHICS_HIRES_TEXT_TEXT_COMPOSE_H
+#define GRAPHICS_HIRES_TEXT_TEXT_COMPOSE_H
 
 #include "common/scummsys.h"
 #include "graphics/pixelformat.h"
 
-namespace Sci {
+namespace Graphics {
 
-struct TextPixel;
+/** One hi-res pixel of text: a foreground and an outline, each a palette
+ *  index plus 8-bit coverage. Colour is resolved when composited, so text
+ *  follows palette changes the way the original's indexed text did. */
+struct TextPixel {
+	byte fgIndex;
+	byte fgCoverage;
+	byte outlineIndex;
+	byte outlineCoverage;
+};
 
 /** The arithmetic of hi-res text, free of engine state so it is tested alone
  *  (HIRES_COMPOSITOR_DESIGN.md §3.2). */
@@ -44,6 +52,6 @@ void composeSpan(byte *dst, const Graphics::PixelFormat &fmt, const TextPixel *t
 void stampSpan(byte *dstIndex, const TextPixel *text, int count);
 
 } // End of namespace TextCompose
-} // End of namespace Sci
+} // End of namespace Graphics
 
 #endif

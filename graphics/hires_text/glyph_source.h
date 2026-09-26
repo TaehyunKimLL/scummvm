@@ -19,12 +19,12 @@
  *
  */
 
-#ifndef SCI_GRAPHICS_GLYPHSOURCE_H
-#define SCI_GRAPHICS_GLYPHSOURCE_H
+#ifndef GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_H
+#define GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_H
 
 #include "common/scummsys.h"
 
-namespace Sci {
+namespace Graphics {
 
 /**
  * Where GfxFontUnicode gets glyphs: a packed SCVMUNI file or a live TrueType
@@ -63,6 +63,6 @@ public:
 	virtual uint32 glyphCount() const = 0;
 };
 
-} // End of namespace Sci
+} // End of namespace Graphics
 
 #endif
