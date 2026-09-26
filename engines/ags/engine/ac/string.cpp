@@ -213,7 +213,9 @@ const char *String_UpperCase(const char *thisString) {
 }
 
 int String_GetChars(const char *texx, int index) {
-	if (get_uformat() == U_UTF8) {
+	// ScummVM: any multibyte format (UTF-8, EUC-KR) counts characters, as
+	// Substring/Truncate/ReplaceCharAt do through ustrlen/uoffset
+	if (get_uformat() != U_ASCII) {
 		if ((index < 0) || (index >= ustrlen(texx)))
 			return 0;
 		return ugetat(texx, index);
@@ -225,7 +227,7 @@ int String_GetChars(const char *texx, int index) {
 }
 
 int String_GetLength(const char *texx) {
-	return (get_uformat() == U_UTF8) ? ustrlen(texx) : strlen(texx);
+	return (get_uformat() != U_ASCII) ? ustrlen(texx) : strlen(texx);
 }
 
 int StringToInt(const char *stino) {

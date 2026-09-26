@@ -57,13 +57,13 @@ void close_translation() {
 // ScummVM: the text format of a .tra that names no encoding. Upstream AGS
 // presumes ASCII. The Korean fan translations ship such .tra files in EUC-KR,
 // so text_encoding=auto (the default) reads a translation named "korean" as
-// EUC-KR; euc-kr/cp949, utf8 and ascii force a format.
+// EUC-KR; euc-kr/cp949, utf8/utf-8 and ascii force a format.
 static int select_legacy_tra_uformat(const String &trans_name, const String &key, String &label) {
 	if (key.CompareNoCase("euc-kr") == 0 || key.CompareNoCase("cp949") == 0) {
 		label = "euc-kr";
 		return U_EUCKR;
 	}
-	if (key.CompareNoCase("utf8") == 0) {
+	if (key.CompareNoCase("utf8") == 0 || key.CompareNoCase("utf-8") == 0) {
 		label = "utf-8";
 		return U_UTF8;
 	}
