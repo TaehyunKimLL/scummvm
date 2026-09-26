@@ -358,6 +358,9 @@ GfxFontUnicode *GfxCache::loadUnicodeFont() {
 			} else {
 				warning("hires_text_latin_font %s: %s; the main face draws Latin text",
 						latinPath.c_str(), latinError.c_str());
+				// Not retried when purgeFontCache() reloads the bundle, so
+				// the warning is given once (as for hires_text_font above).
+				_latinFontPath.clear();
 			}
 		}
 
