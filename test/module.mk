@@ -12,7 +12,8 @@ TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/math/*.h \
 	$(srcdir)/test/graphics/hires_text*.h \
 	$(srcdir)/test/gui/*.h \
-	$(srcdir)/test/image/*.h
+	$(srcdir)/test/image/*.h \
+	$(srcdir)/test/backends/surfacesdl_hwformat.h
 # The debug socket's wire protocol only; the rest of gui/ is not linked.
 TEST_LIBS    := gui/debugsocket-protocol.o
 
@@ -34,6 +35,10 @@ TEST_LIBS += test/system/null_osystem.o \
 	backends/fs/stdiostream.o \
 	backends/modular-backend.o \
 	backends/platform/sdl/win32/win32_wrapper.o
+endif
+
+ifdef USE_ASPECT
+TESTS += $(srcdir)/test/graphics/scaler_aspect.h
 endif
 
 ifdef USE_TINYGL
