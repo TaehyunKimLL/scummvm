@@ -21,6 +21,8 @@
 
 #include <cxxtest/TestSuite.h>
 
+#include <stdlib.h>
+
 #include "common/array.h"
 #include "common/endian.h"
 #include "common/fs.h"
@@ -55,6 +57,16 @@ public:
 uint32 ksx(int i) {
 	return Graphics::KoreanCodePage::decodeEucKrPair((byte)(0xB0 + i / 94), (byte)(0xA1 + i % 94));
 }
+
+// The kortrs clone for the real-file test, from SCUMMVM_TEST_KORTRS. The
+// test runner is host code; common/forbidden.h's getenv guard is lifted
+// for this one call only.
+#pragma push_macro("getenv")
+#undef getenv
+const char *kortrsDir() {
+	return getenv("SCUMMVM_TEST_KORTRS");
+}
+#pragma pop_macro("getenv")
 
 void putLE16(Common::Array<byte> &out, uint16 v) {
 	out.push_back(v & 0xFF);
@@ -203,14 +215,23 @@ public:
 		TS_ASSERT_EQUALS(font.GetChar(ksx(8)).Width, 1);
 	}
 
-	// The 5 Days a Stranger patch's own file, when the harness data is here.
+	// The 5 Days a Stranger patch's own file, when SCUMMVM_TEST_KORTRS names
+	// a kortrs clone that has it.
 	void test_real_5days_extfnt0() {
 #if NULL_OSYSTEM_IS_AVAILABLE
+		// SCUMMVM_TEST_KORTRS points at a clone of the Korean patches
+		// (kortrs); without it there is nothing to check.
+		const char *kortrs = kortrsDir();
+		if (!kortrs || !*kortrs) {
+			TS_SKIP("SCUMMVM_TEST_KORTRS is not set");
+			return;
+		}
 		Common::install_null_g_system();
-		Common::FSNode node("/Users/juami/work/scummvm/kortrs/5 Days a Stranger (Windows)/extfnt0.wfn");
+		Common::FSNode node(Common::Path(kortrs, Common::Path::kNativeSeparator)
+			.appendComponent("5 Days a Stranger (Windows)").appendComponent("extfnt0.wfn"));
 		if (!node.exists()) {
 			Common::uninstall_null_g_system();
-			TS_SKIP("the 5 Days a Stranger Korean patch is not present on this machine");
+			TS_SKIP("SCUMMVM_TEST_KORTRS has no 5 Days a Stranger (Windows)/extfnt0.wfn");
 			return;
 		}
 		Common::SeekableReadStream *s = node.createReadStream();

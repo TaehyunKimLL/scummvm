@@ -121,6 +121,10 @@ public:
 	uint16_t GetExtHeight() const;
 
 protected:
+	// Parses the extension from buf, which it takes over on success (buf is
+	// left empty then); every offset is checked against buf's size.
+	WFNError ParseExt(std::vector<uint8_t> &buf);
+
 	std::vector<const WFNChar *> _refs;      // reference array, contains pointers to elements of _items
 	std::vector<WFNChar>        _items;     // actual character items
 	std::vector<uint8_t>        _pixelData; // pixel data array
