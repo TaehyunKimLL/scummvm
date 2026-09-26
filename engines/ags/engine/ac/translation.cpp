@@ -54,6 +54,33 @@ void close_translation() {
 		set_uformat(U_ASCII);
 }
 
+// ScummVM: the text format of a .tra that names no encoding. Upstream AGS
+// presumes ASCII. The Korean fan translations ship such .tra files in EUC-KR,
+// so text_encoding=auto (the default) reads a translation named "korean" as
+// EUC-KR; euc-kr/cp949, utf8 and ascii force a format.
+static int select_legacy_tra_uformat(const String &trans_name, const String &key, String &label) {
+	if (key.CompareNoCase("euc-kr") == 0 || key.CompareNoCase("cp949") == 0) {
+		label = "euc-kr";
+		return U_EUCKR;
+	}
+	if (key.CompareNoCase("utf8") == 0) {
+		label = "utf-8";
+		return U_UTF8;
+	}
+	if (key.CompareNoCase("ascii") == 0) {
+		label = "presume ASCII";
+		return U_ASCII;
+	}
+	if (!key.IsEmpty() && key.CompareNoCase("auto") != 0)
+		Debug::Printf(kDbgMsg_Warn, "WARNING: unknown text_encoding '%s', using auto", key.GetCStr());
+	if (trans_name.CompareNoCase("korean") == 0) {
+		label = "euc-kr";
+		return U_EUCKR;
+	}
+	label = "presume ASCII";
+	return U_ASCII;
+}
+
 bool init_translation(const String &lang, const String &fallback_lang) {
 	if (lang.IsEmpty())
 		return false;
@@ -106,11 +133,18 @@ bool init_translation(const String &lang, const String &fallback_lang) {
 
 	// Setup a text encoding mode depending on the translation data hint
 	String encoding = _GP(trans).StrOptions["encoding"];
-	if (encoding.CompareNoCase("utf-8") == 0)
-		set_uformat(U_UTF8);
-	else
-		set_uformat(U_ASCII);
-	String encoding_msg = !encoding.IsEmpty() ? encoding : "presume ASCII";
+	String encoding_msg;
+	if (!encoding.IsEmpty()) {
+		if (encoding.CompareNoCase("utf-8") == 0)
+			set_uformat(U_UTF8);
+		else
+			set_uformat(U_ASCII);
+		encoding_msg = encoding;
+	} else {
+		// ScummVM: no hint in the .tra; the text_encoding key decides
+		int uformat = select_legacy_tra_uformat(_G(trans_name), _GP(usetup).text_encoding, encoding_msg);
+		set_uformat(uformat);
+	}
 	Debug::Printf("Translation's encoding: %s", encoding_msg.GetCStr());
 
 	// Mixed encoding support: 
