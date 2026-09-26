@@ -51,6 +51,14 @@ inline byte blend(byte dst, byte src, byte a) {
 void composeSpan(byte *dst, const Graphics::PixelFormat &fmt, const TextPixel *text, int count, const byte *paletteRGB);
 void stampSpan(byte *dstIndex, const TextPixel *text, int count);
 
+/**
+ * Turn a run of 8-bit coverage into true-colour pixels with alpha: each
+ * dst pixel gets RGB (r, g, b) and alpha = coverage, in @p fmt, which must
+ * be 4 bytes per pixel with an 8-bit alpha channel. Used by engines that
+ * blend a text line as a texture (Grim on TinyGL and OpenGL shaders).
+ */
+void coverageToArgb(const byte *coverage, uint32 *dst, int count, const Graphics::PixelFormat &fmt, byte r, byte g, byte b);
+
 } // End of namespace TextCompose
 } // End of namespace Graphics
 
