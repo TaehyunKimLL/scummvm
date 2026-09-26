@@ -154,7 +154,7 @@ struct LineSpan {
 	uint32 first, end;        ///< units drawn on this line: [first, end), trailing spaces excluded
 	uint32 next;              ///< first unit of the next line (after dropped spaces / the newline)
 	uint32 byteStart, byteEnd, byteNext;  ///< the same three, as byte offsets
-	int width;                ///< LayoutMetrics::width(run, first, end)
+	int width;                ///< ink width: LayoutMetrics::width() of [first, end) minus the spaces and escapes at its end
 	bool forced;              ///< ended by a kUnitNewline unit
 	bool emergency;           ///< no break opportunity fitted: split at a cluster boundary
 	LineSpan() : first(0), end(0), next(0), byteStart(0), byteEnd(0), byteNext(0),
@@ -166,11 +166,17 @@ namespace TextLayout {
 /**
  * Whether a line may end between unit i-1 and unit i (0 < i < size).
  *
- * Control units that are not newlines are glued to the text after them:
- * no break right after one, and a break before a run of them is judged
- * between the unit before the run and the first unit after it. So an
- * escape (a colour change, say) in front of a word moves to the next line
- * with that word, and a line never ends inside or right after an escape.
+ * Control units that are not newlines are never broken after, and a break
+ * before a run of them is judged between the unit before the run and the
+ * first unit after it:
+ * - an escape (a colour change, say) glued to the front of a word moves to
+ *   the next line with that word ("hello <E>world" -> "hello" / "<E>world");
+ * - in "space, escapes, space, text" the only opportunity is before the
+ *   text, so the escapes end the line before and the spaces around them
+ *   hang ("hello <E> world" -> "hello <E>" / "world");
+ * - escapes at the end of the text stay on the last line.
+ * Rendering is in order, so an escape's state still reaches the glyphs
+ * after it on the next line.
  */
 bool canBreakBefore(const TextRun &run, uint32 i, const BreakRules &rules);
 
