@@ -21,6 +21,7 @@
 
 #include "sci/graphics/glyphsource_ttf.h"
 
+#include "common/debug.h"
 #include "common/util.h"
 #include "graphics/font.h"
 #include "graphics/managed_surface.h"
@@ -183,6 +184,35 @@ bool TtfGlyphSource::isWide(uint32 cp) {
 	return false;
 }
 
+int TtfGlyphSource::chooseFitSize(int startSize, int minSize, uint32 rendersPerCall,
+								   uint32 &rasterCount, uint32 maxRasterCount,
+								   const std::function<bool(int, int &, int &)> &measure,
+								   int &top, int &bottom) {
+	int chosenSize = startSize;
+	for (int trySize = startSize - 1; trySize >= minSize; trySize--) {
+		// Structural bound: decided before calling measure, not after, so
+		// the total can never exceed maxRasterCount regardless of how many
+		// candidate sizes remain to try.
+		if (rasterCount + rendersPerCall > maxRasterCount) {
+			debug(1, "TtfGlyphSource: vertical-fit search capped at size %d after %u/%u "
+					 "rasterisations (raster budget reached before a candidate fit)",
+				  chosenSize, rasterCount, maxRasterCount);
+			break;
+		}
+
+		int t = 0, b = 0;
+		const bool fits = measure(trySize, t, b);
+		rasterCount += rendersPerCall;
+		top = t;
+		bottom = b;
+		chosenSize = trySize;
+
+		if (fits)
+			break;
+	}
+	return chosenSize;
+}
+
 #ifdef USE_FREETYPE2
 
 namespace {
@@ -204,6 +234,12 @@ const uint32 kProbeCodepoints[] = {
 // Matches m7mkfont.py's INK_THRESHOLD: below this, a pixel is treated as
 // unlit, so faint antialiasing fringes do not affect the vertical fit.
 const int kInkThreshold = 40;
+
+// context.md's global constraint: "open the face, plus at most 32 probe
+// rasterisations for the vertical fit". The probe set itself is 26, so this
+// leaves headroom for the vertical-fit retry below, bounded structurally by
+// chooseFitSize() rather than by hoping the retry never needs more.
+const uint32 kMaxLoadRasterCount = 32;
 
 // Draws cp at (x, y) onto surf (already zeroed, i.e. fully transparent) in
 // opaque white, and leaves the per-pixel coverage in the alpha channel.
@@ -316,27 +352,33 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 		const uint32 worstCps[2] = { topCp, bottomCp };
 		const int worstCount = (topCp == bottomCp) ? 1 : 2;
 
+		// bestFont always tracks the most recently opened candidate (i.e.
+		// the smallest size tried so far), not just the one that ends up
+		// fitting: if the raster budget runs out before anything fits,
+		// chooseFitSize's contract is to keep the smallest size tried, so
+		// the Font actually kept must track that too, not silently fall
+		// back to the original (oversized) face.
 		Graphics::Font *bestFont = font;
-		int bestTop = top, bestBottom = bottom;
-		for (int trySize = pixelSize - 1; trySize >= 6; trySize--) {
+		auto measure = [&](int trySize, int &t, int &b) -> bool {
 			Graphics::Font *smaller = openAt(trySize);
-			if (!smaller)
-				continue;
-			int t2, b2;
-			uint32 unusedTopCp, unusedBottomCp;
-			inkBox(smaller, worstCps, worstCount, t2, b2, unusedTopCp, unusedBottomCp);
-			if (b2 - t2 <= cellH) {
-				delete bestFont;
-				bestFont = smaller;
-				bestTop = t2;
-				bestBottom = b2;
-				break;
+			if (!smaller) {
+				// Could not even open this size: report the previous
+				// measurement unchanged and treat it as "does not fit",
+				// so the search keeps trying smaller sizes.
+				t = top;
+				b = bottom;
+				return false;
 			}
-			delete smaller;
-		}
+			uint32 unusedTopCp = 0, unusedBottomCp = 0;
+			inkBox(smaller, worstCps, worstCount, t, b, unusedTopCp, unusedBottomCp);
+			delete bestFont;
+			bestFont = smaller;
+			return (b - t) <= cellH;
+		};
+
+		chooseFitSize(pixelSize, 6, (uint32)worstCount, rasterCount, kMaxLoadRasterCount,
+					  measure, top, bottom);
 		font = bestFont;
-		top = bestTop;
-		bottom = bestBottom;
 	}
 
 	TtfGlyphSource *src = new TtfGlyphSource();
@@ -421,7 +463,7 @@ uint32 TtfGlyphSource::glyphCount() const {
 #else // !USE_FREETYPE2
 
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
-										int pixelSize, Common::String &error) {
+										int /*pixelSize*/, Common::String &error) {
 	error = "this build has no FreeType";
 	if (dispose == DisposeAfterUse::YES)
 		delete stream;
@@ -431,18 +473,18 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 TtfGlyphSource::~TtfGlyphSource() {
 }
 
-TtfGlyphSource::Entry &TtfGlyphSource::ensure(uint32 cp) {
+TtfGlyphSource::Entry &TtfGlyphSource::ensure(uint32 /*cp*/) {
 	// create() never succeeds without FreeType, so no instance exists to
 	// call this; kept only so the class links in a no-FreeType build.
 	static Entry missing;
 	return missing;
 }
 
-int TtfGlyphSource::cells(uint32 cp) {
+int TtfGlyphSource::cells(uint32 /*cp*/) {
 	return 0;
 }
 
-const byte *TtfGlyphSource::row(uint32 cp, int y) {
+const byte *TtfGlyphSource::row(uint32 /*cp*/, int /*y*/) {
 	return nullptr;
 }
 

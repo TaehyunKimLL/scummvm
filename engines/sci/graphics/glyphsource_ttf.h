@@ -22,6 +22,8 @@
 #ifndef SCI_GRAPHICS_GLYPHSOURCE_TTF_H
 #define SCI_GRAPHICS_GLYPHSOURCE_TTF_H
 
+#include <functional>
+
 #include "common/array.h"
 #include "common/hashmap.h"
 #include "common/str.h"
@@ -83,6 +85,26 @@ public:
 	 *  from Python's unicodedata (Unicode 16.0). Available even when this
 	 *  build has no FreeType, since layout needs it independent of a face. */
 	static bool isWide(uint32 cp);
+
+	/**
+	 * Picks a vertical-fit size, independent of any real font or FreeType
+	 * state, so the raster-budget bound can be pinned in a unit test with a
+	 * fake measure callback: starting at startSize, tries candidate sizes
+	 * down to minSize (inclusive) by calling measure(trySize, top, bottom),
+	 * which reports whether that candidate's ink box fits and, regardless
+	 * of fit, what its top/bottom are (for bookkeeping). Stops calling
+	 * measure once doing so would push rasterCount past maxRasterCount -
+	 * a structural bound, checked before the call rather than trusted to
+	 * measure, assuming every call costs rendersPerCall rasterisations.
+	 * When no candidate both fits and stays within budget, returns the
+	 * smallest size that was actually tried (or startSize itself if the
+	 * budget allowed no retry at all), with top/bottom updated to match
+	 * that size's measurement.
+	 */
+	static int chooseFitSize(int startSize, int minSize, uint32 rendersPerCall,
+	                          uint32 &rasterCount, uint32 maxRasterCount,
+	                          const std::function<bool(int, int &, int &)> &measure,
+	                          int &top, int &bottom);
 
 private:
 	TtfGlyphSource() {}

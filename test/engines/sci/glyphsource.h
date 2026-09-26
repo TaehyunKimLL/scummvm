@@ -257,6 +257,84 @@ public:
 		TS_ASSERT(TtfGlyphSource::isWide(0x1F600));	// 😀: emoji
 	}
 
+	// chooseFitSize() is a pure helper (no Font/FreeType dependency), so the
+	// load-time raster budget it enforces can be pinned directly with fake
+	// measure callbacks, in every build.
+
+	// The pathological case: a measure that never reports a fit. Before this
+	// test was added, the vertical-fit retry re-measured the whole probe set
+	// (26 code points) at every candidate size, so against a real font whose
+	// initial ink box narrowly missed the cell, total rasterisations reached
+	// ~46-52 - well past the plan's "at most 32" load-time budget. This pins
+	// that the bound is now structural: it stops calling measure before the
+	// total would exceed maxRasterCount, and settles on the smallest size it
+	// actually tried.
+	void test_choose_fit_size_caps_raster_budget() {
+		uint32 rasterCount = 26;	// as if the 26-probe initial pass just ran
+		int top = 0, bottom = 0;
+		int measureCalls = 0;
+
+		auto neverFits = [&](int trySize, int &t, int &b) -> bool {
+			measureCalls++;
+			t = 0;
+			b = 100;	// always "too tall", regardless of trySize
+			return false;
+		};
+
+		const int chosen = TtfGlyphSource::chooseFitSize(16, 6, 2, rasterCount, 32, neverFits, top, bottom);
+
+		TS_ASSERT(rasterCount <= 32);
+		TS_ASSERT_EQUALS(rasterCount, (uint32)32);
+		TS_ASSERT_EQUALS(measureCalls, 3);
+		TS_ASSERT_EQUALS(chosen, 13);	// the smallest size actually tried: 15, 14, 13
+	}
+
+	// The common case: a measure that fits on the very first try must stop
+	// immediately (one call), not keep searching smaller sizes.
+	void test_choose_fit_size_stops_at_first_fit() {
+		uint32 rasterCount = 26;
+		int top = 0, bottom = 0;
+		int measureCalls = 0;
+
+		auto fitsImmediately = [&](int trySize, int &t, int &b) -> bool {
+			measureCalls++;
+			t = 0;
+			b = 10;
+			return true;
+		};
+
+		const int chosen = TtfGlyphSource::chooseFitSize(16, 6, 2, rasterCount, 32, fitsImmediately, top, bottom);
+
+		TS_ASSERT_EQUALS(measureCalls, 1);
+		TS_ASSERT_EQUALS(rasterCount, (uint32)28);
+		TS_ASSERT_EQUALS(chosen, 15);
+		TS_ASSERT_EQUALS(top, 0);
+		TS_ASSERT_EQUALS(bottom, 10);
+	}
+
+	// No headroom left at all: measure must never be called, and the
+	// original size (nothing was tried) must come back unchanged.
+	void test_choose_fit_size_no_budget_for_any_retry() {
+		uint32 rasterCount = 32;	// already at the cap
+		int top = 5, bottom = 9;
+		int measureCalls = 0;
+
+		auto shouldNotBeCalled = [&](int trySize, int &t, int &b) -> bool {
+			measureCalls++;
+			t = 0;
+			b = 0;
+			return true;
+		};
+
+		const int chosen = TtfGlyphSource::chooseFitSize(16, 6, 2, rasterCount, 32, shouldNotBeCalled, top, bottom);
+
+		TS_ASSERT_EQUALS(measureCalls, 0);
+		TS_ASSERT_EQUALS(rasterCount, (uint32)32);
+		TS_ASSERT_EQUALS(chosen, 16);
+		TS_ASSERT_EQUALS(top, 5);	// unchanged: no candidate was tried
+		TS_ASSERT_EQUALS(bottom, 9);
+	}
+
 	// Every FreeType test below needs a live face; skip cleanly (rather than
 	// fail) where the build has no FreeType or the test font is not
 	// installed. cxxtestgen's generated runner calls every method it finds
