@@ -24,9 +24,19 @@
 #include "common/array.h"
 #include "common/endian.h"
 #include "common/str.h"
+#include "common/memstream.h"
+#include "common/stream.h"
 #include "sci/graphics/glyphsource_scvmuni.h"
+#include "sci/graphics/glyphsource_ttf.h"
+
+#include "../../system/null_osystem.h"
+
+#ifdef USE_FREETYPE2
+#include "common/fs.h"
+#endif
 
 using Sci::ScvmuniGlyphSource;
+using Sci::TtfGlyphSource;
 
 namespace {
 
@@ -210,5 +220,205 @@ public:
 		ScvmuniGlyphSource *src = ScvmuniGlyphSource::create(Common::move(data), "bad.uni", error);
 		TS_ASSERT(src == nullptr);
 		TS_ASSERT(!error.empty());
+	}
+};
+
+// Apple's Korean system font: face 0 of a .ttc, used only for local testing.
+// Absent (non-macOS, or an unusual install), every test below skips itself.
+static const char *kTestTtcPath = "/System/Library/Fonts/AppleSDGothicNeo.ttc";
+
+class SciGlyphSourceTtfTestSuite : public CxxTest::TestSuite {
+public:
+	void setUp() {
+#if NULL_OSYSTEM_IS_AVAILABLE
+		Common::install_null_g_system();
+#endif
+	}
+
+	void tearDown() {
+#if NULL_OSYSTEM_IS_AVAILABLE
+		Common::uninstall_null_g_system();
+#endif
+	}
+
+	// isWide() reads a plain static table: it must work in every build,
+	// including one with no FreeType, since layout needs glyph widths
+	// whether or not a live face backs them.
+	void test_is_wide_table() {
+		TS_ASSERT(TtfGlyphSource::isWide(0xAC00));	// 가: hangul syllable
+		TS_ASSERT(TtfGlyphSource::isWide(0x3000));	// ideographic space
+		TS_ASSERT(TtfGlyphSource::isWide(0xFF21));	// fullwidth A
+		TS_ASSERT(TtfGlyphSource::isWide(0x4E00));	// 一: CJK ideograph
+
+		TS_ASSERT(!TtfGlyphSource::isWide(0x0041));	// A
+		TS_ASSERT(!TtfGlyphSource::isWide(0x2500));	// box drawing light horizontal
+		TS_ASSERT(!TtfGlyphSource::isWide(0x00B0));	// degree sign
+
+		TS_ASSERT(TtfGlyphSource::isWide(0x1F600));	// 😀: emoji
+	}
+
+	// Every FreeType test below needs a live face; skip cleanly (rather than
+	// fail) where the build has no FreeType or the test font is not
+	// installed. cxxtestgen's generated runner calls every method it finds
+	// regardless of which branch of an #ifdef guards it, so every method in
+	// this suite must be declared unconditionally: only bodies are guarded.
+	Common::SeekableReadStream *openTestFont() {
+#ifdef USE_FREETYPE2
+#if NULL_OSYSTEM_IS_AVAILABLE
+		Common::FSNode node(kTestTtcPath);
+		if (!node.exists()) {
+			TS_SKIP("Apple SD Gothic Neo not present on this machine");
+			return nullptr;
+		}
+		Common::SeekableReadStream *stream = node.createReadStream();
+		if (!stream)
+			TS_SKIP("Apple SD Gothic Neo could not be opened");
+		return stream;
+#else
+		TS_SKIP("no real filesystem access in this test environment");
+		return nullptr;
+#endif
+#else
+		TS_SKIP("this build has no FreeType");
+		return nullptr;
+#endif
+	}
+
+	void test_create_rasterises_only_probes() {
+		Common::SeekableReadStream *stream = openTestFont();
+		if (!stream)
+			return;
+
+		Common::String error;
+		TtfGlyphSource *src = TtfGlyphSource::create(stream, DisposeAfterUse::YES, 16, error);
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+
+		TS_ASSERT(src->rasterCount() <= 32);
+		TS_ASSERT_EQUALS(src->glyphCount(), (uint32)0);
+
+		delete src;
+	}
+
+	void test_second_request_is_cached() {
+		Common::SeekableReadStream *stream = openTestFont();
+		if (!stream)
+			return;
+
+		Common::String error;
+		TtfGlyphSource *src = TtfGlyphSource::create(stream, DisposeAfterUse::YES, 16, error);
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+
+		const uint32 beforeFirst = src->rasterCount();
+		TS_ASSERT_EQUALS(src->cells(0xAC00), 2);
+		const uint32 afterFirst = src->rasterCount();
+		TS_ASSERT_EQUALS(afterFirst, beforeFirst + 1);
+
+		TS_ASSERT_EQUALS(src->cells(0xAC00), 2);
+		src->row(0xAC00, 0);
+		TS_ASSERT_EQUALS(src->rasterCount(), afterFirst);
+
+		delete src;
+	}
+
+	void test_missing_is_cached() {
+		Common::SeekableReadStream *stream = openTestFont();
+		if (!stream)
+			return;
+
+		Common::String error;
+		TtfGlyphSource *src = TtfGlyphSource::create(stream, DisposeAfterUse::YES, 16, error);
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+
+		const uint32 before = src->rasterCount();
+		TS_ASSERT_EQUALS(src->cells(0xE000), 0);	// private use area: not in the face
+		const uint32 afterFirst = src->rasterCount();
+		TS_ASSERT_EQUALS(afterFirst, before + 1);
+
+		TS_ASSERT_EQUALS(src->cells(0xE000), 0);
+		TS_ASSERT_EQUALS(src->rasterCount(), afterFirst);
+
+		delete src;
+	}
+
+	void test_coverage_is_eight_bit() {
+		Common::SeekableReadStream *stream = openTestFont();
+		if (!stream)
+			return;
+
+		Common::String error;
+		TtfGlyphSource *src = TtfGlyphSource::create(stream, DisposeAfterUse::YES, 16, error);
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+
+		TS_ASSERT_EQUALS(src->cells(0xAC00), 2);	// 가
+
+		bool sawFull = false, sawPartial = false;
+		for (int y = 0; y < src->cellHeight(); y++) {
+			const byte *row = src->row(0xAC00, y);
+			TS_ASSERT(row != nullptr);
+			if (!row)
+				continue;
+			for (int x = 0; x < src->cellWidth() * 2; x++) {
+				const byte v = row[x];
+				if (v == 255)
+					sawFull = true;
+				else if (v >= 1 && v <= 254)
+					sawPartial = true;
+			}
+		}
+		TS_ASSERT(sawFull);
+		TS_ASSERT(sawPartial);
+
+		delete src;
+	}
+
+	void test_ttc_face0() {
+		Common::SeekableReadStream *stream = openTestFont();
+		if (!stream)
+			return;
+
+		Common::String error;
+		TtfGlyphSource *src = TtfGlyphSource::create(stream, DisposeAfterUse::YES, 16, error);
+		TS_ASSERT(src != nullptr);
+		TS_ASSERT(error.empty());
+
+		delete src;
+	}
+
+	void test_width_without_draw() {
+		Common::SeekableReadStream *stream = openTestFont();
+		if (!stream)
+			return;
+
+		Common::String error;
+		TtfGlyphSource *src = TtfGlyphSource::create(stream, DisposeAfterUse::YES, 16, error);
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+
+		TS_ASSERT_EQUALS(src->cells(0x0041), 1);	// A: narrow
+		TS_ASSERT_EQUALS(src->cells(0xAC01), 2);	// 각: wide
+
+		delete src;
+	}
+
+	void test_no_freetype_stub() {
+#ifndef USE_FREETYPE2
+		byte dummy[4] = { 0, 0, 0, 0 };
+		Common::MemoryReadStream stream(dummy, sizeof(dummy));
+		Common::String error;
+		TtfGlyphSource *src = TtfGlyphSource::create(&stream, DisposeAfterUse::NO, 16, error);
+		TS_ASSERT(src == nullptr);
+		TS_ASSERT(!error.empty());
+#else
+		TS_SKIP("this build has FreeType");
+#endif
 	}
 };
