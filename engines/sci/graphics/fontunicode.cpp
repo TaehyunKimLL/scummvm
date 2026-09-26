@@ -20,25 +20,19 @@
  */
 
 #include "sci/graphics/fontunicode.h"
+#include "sci/graphics/glyphsource_scvmuni.h"
 #include "sci/graphics/screen.h"
 #include "sci/graphics/textcompose.h"
 #include "sci/sci.h"
 
 #include "common/file.h"
 #include "common/textconsole.h"
+#include "common/util.h"
 
 namespace Sci {
 
-static const char kMagic[8] = { 'S', 'C', 'V', 'M', 'U', 'N', 'I', 0 };
-static const uint16 kVersion = 1;
-static const uint32 kHeaderSize = 36;
-
 GfxFontUnicode::GfxFontUnicode(GfxScreen *screen, GuiResourceId resourceId)
-	: _screen(screen), _resourceId(resourceId), _loaded(false),
-	  _codepoints(nullptr), _widths(nullptr), _bitmaps(nullptr),
-	  _glyphCount(0), _cellWidth(0), _cellHeight(0),
-	  _advanceNarrow(0), _advanceWide(0), _bitsPerPixel(1),
-	  _rowBytes(0), _bytesPerGlyph(0) {
+	: _screen(screen), _resourceId(resourceId), _loaded(false) {
 }
 
 GfxFontUnicode::~GfxFontUnicode() {
@@ -50,141 +44,58 @@ bool GfxFontUnicode::load(const Common::String &filename) {
 		return false;
 
 	const uint32 size = f.size();
-	if (size < kHeaderSize) {
-		warning("GfxFontUnicode: %s is too small", filename.c_str());
-		return false;
-	}
-
-	_data.resize(size);
-	if (f.read(&_data[0], size) != size) {
+	Common::Array<byte> data(size);
+	if (size > 0 && f.read(&data[0], size) != size) {
 		warning("GfxFontUnicode: could not read %s", filename.c_str());
-		_data.clear();
-		return false;
-	}
-	const byte *d = &_data[0];
-
-	if (memcmp(d, kMagic, 8) != 0) {
-		warning("GfxFontUnicode: %s has a bad signature", filename.c_str());
-		_data.clear();
 		return false;
 	}
 
-	const uint16 version = READ_LE_UINT16(d + 8);
-	const uint16 flags = READ_LE_UINT16(d + 10);
-	if (version != kVersion) {
-		warning("GfxFontUnicode: unsupported version %u", version);
-		_data.clear();
+	Common::String error;
+	UnicodeGlyphSource *src = ScvmuniGlyphSource::create(Common::move(data), filename, error);
+	if (!src) {
+		warning("GfxFontUnicode: %s", error.c_str());
 		return false;
 	}
 
-	_cellWidth = d[12];
-	_cellHeight = d[13];
-	_advanceNarrow = d[14];
-	_advanceWide = d[15];
-	_glyphCount = READ_LE_UINT32(d + 16);
-
-	const uint32 cpOff = READ_LE_UINT32(d + 20);
-	const uint32 wOff = READ_LE_UINT32(d + 24);
-	const uint32 bmOff = READ_LE_UINT32(d + 28);
-
-	if ((flags & 3) == 3) {
-		warning("GfxFontUnicode: %s sets both 2bpp and 8bpp", filename.c_str());
-		_data.clear();
-		return false;
-	}
-	_bitsPerPixel = (flags & 2) ? 8 : ((flags & 1) ? 2 : 1);
-	// A wide glyph spans two cells and every glyph uses the same stride, so
-	// one row length serves both widths and the reader stays branch-free.
-	_rowBytes = ((uint32)_cellWidth * 2 * _bitsPerPixel + 7) / 8;
-	_bytesPerGlyph = _rowBytes * _cellHeight;
-
-	if (_cellWidth == 0 || _cellHeight == 0 || _glyphCount == 0) {
-		warning("GfxFontUnicode: %s declares an empty font", filename.c_str());
-		_data.clear();
-		return false;
-	}
-
-	// Every table must lie inside the file. Checked before any table is read
-	// so a truncated or hostile bundle cannot walk off the buffer.
-	if (cpOff > size || (uint64)_glyphCount * 4 > size - cpOff ||
-		wOff > size || (uint64)_glyphCount > size - wOff ||
-		bmOff > size || (uint64)_glyphCount * _bytesPerGlyph > size - bmOff) {
-		warning("GfxFontUnicode: %s has a table that runs past the end",
-				filename.c_str());
-		_data.clear();
-		return false;
-	}
-
-	_codepoints = d + cpOff;
-	_widths = d + wOff;
-	_bitmaps = d + bmOff;
-
-	// The code point table must be sorted, because lookup is a binary search.
-	// Verify once at load rather than trusting the producer.
-	for (uint32 i = 1; i < _glyphCount; i++) {
-		if (READ_LE_UINT32(_codepoints + i * 4) <=
-			READ_LE_UINT32(_codepoints + (i - 1) * 4)) {
-			warning("GfxFontUnicode: %s code point table is not sorted at %u",
-					filename.c_str(), i);
-			_data.clear();
-			_codepoints = _widths = _bitmaps = nullptr;
-			return false;
-		}
-	}
-
-	_loaded = true;
-	debug(1, "GfxFontUnicode: %s loaded, %u glyphs, %dx%d, %dbpp",
-		  filename.c_str(), _glyphCount, _cellWidth, _cellHeight, _bitsPerPixel);
+	setSource(src, filename);
 	return true;
 }
 
-int GfxFontUnicode::findGlyph(uint32 codepoint) const {
-	if (!_loaded)
-		return -1;
-
-	uint32 lo = 0, hi = _glyphCount;
-	while (lo < hi) {
-		const uint32 mid = lo + (hi - lo) / 2;
-		const uint32 cp = READ_LE_UINT32(_codepoints + mid * 4);
-		if (cp == codepoint)
-			return (int)mid;
-		if (cp < codepoint)
-			lo = mid + 1;
-		else
-			hi = mid;
-	}
-	return -1;
-}
-
-bool GfxFontUnicode::pixelSet(int glyph, int x, int y) const {
-	const byte *row = _bitmaps + (uint32)glyph * _bytesPerGlyph + (uint32)y * _rowBytes;
-	return TextCompose::expandCoverage(row, x, _bitsPerPixel) != 0;
+void GfxFontUnicode::setSource(UnicodeGlyphSource *src, const Common::String &name) {
+	_source.reset(src);
+	_loaded = true;
+	debug(1, "GfxFontUnicode: %s loaded, %u glyphs, %dx%d, %dbpp",
+		  name.c_str(), src->glyphCount(), src->cellWidth(), src->cellHeight(), src->bitsPerPixel());
 }
 
 bool GfxFontUnicode::isDoubleByte(uint32 chr) {
-	const int g = findGlyph(chr);
-	return g >= 0 && _widths[g] == 2;
+	return _source && _source->cells(chr) == 2;
 }
 
 byte GfxFontUnicode::getCharWidth(uint32 chr) {
-	const int g = findGlyph(chr);
-	if (g < 0)
+	if (!_source)
 		return 0;
-	return _widths[g] == 2 ? _advanceWide : _advanceNarrow;
+	const int cells = _source->cells(chr);
+	if (cells <= 0)
+		return 0;
+	return cells == 2 ? _source->advanceWide() : _source->advanceNarrow();
 }
 
 byte GfxFontUnicode::getCharHeight(uint32 chr) {
-	return findGlyph(chr) >= 0 ? _cellHeight : 0;
+	return (_source && _source->cells(chr) > 0) ? _source->cellHeight() : 0;
 }
 
 void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 						  bool greyedOutput) {
-	const int g = findGlyph(chr);
-	if (g < 0)
+	if (!_source)
+		return;
+	const int cells = _source->cells(chr);
+	if (cells <= 0)
 		return;
 
-	const int cells = _widths[g];
-	const int w = _cellWidth * cells;
+	const int cellHeight = _source->cellHeight();
+	const int bpp = _source->bitsPerPixel();
+	const int w = _source->cellWidth() * cells;
 
 	// Double-byte glyphs are drawn on the text layer at twice the lowres
 	// coordinates, exactly as GfxFontKorean does via putHangulChar. Writing
@@ -195,32 +106,36 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 	//
 	// Expand to one byte per pixel of coverage, the convention the text layer
 	// expects.
-	_glyphScratch.resize((uint)w * _cellHeight);
+	_glyphScratch.resize((uint)w * cellHeight);
 	byte *cov = _glyphScratch.begin();
-	for (int y = 0; y < _cellHeight; y++)
-		TextCompose::expandGlyphRow(cov + y * w, coverageRow(g, y), w, _bitsPerPixel, greyedOutput, top + y, left);
-	_screen->putHiresCoverageGlyph(cov, w, _cellHeight, left, top, color);
+	for (int y = 0; y < cellHeight; y++)
+		TextCompose::expandGlyphRow(cov + y * w, coverageRow(chr, y), w, bpp, greyedOutput, top + y, left);
+	_screen->putHiresCoverageGlyph(cov, w, cellHeight, left, top, color);
 }
 
 void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,
 								  bool greyedOutput, byte *buffer,
 								  int16 width, int16 height) {
-	const int g = findGlyph(chr);
-	if (g < 0)
+	if (!_source)
+		return;
+	const int cells = _source->cells(chr);
+	if (cells <= 0)
 		return;
 
-	const int cells = _widths[g];
-	const int w = _cellWidth * cells;
+	const int cellHeight = _source->cellHeight();
+	const int bpp = _source->bitsPerPixel();
+	const int w = _source->cellWidth() * cells;
 
-	for (int y = 0; y < _cellHeight; y++) {
+	for (int y = 0; y < cellHeight; y++) {
 		const int destY = top + y;
 		if (destY < 0 || destY >= height)
 			continue;
+		const byte *row = coverageRow(chr, y);
 		for (int x = 0; x < w; x++) {
 			const int destX = left + x;
 			if (destX < 0 || destX >= width)
 				continue;
-			if (!pixelSet(g, x, y))
+			if (TextCompose::expandCoverage(row, x, bpp) == 0)
 				continue;
 			if (greyedOutput && (destY % 2) == (destX % 2))
 				continue;

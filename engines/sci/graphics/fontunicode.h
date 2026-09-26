@@ -23,8 +23,10 @@
 #define SCI_GRAPHICS_FONTUNICODE_H
 
 #include "common/array.h"
+#include "common/ptr.h"
 #include "common/str.h"
 #include "common/str-enc.h"
+#include "sci/graphics/glyphsource.h"
 #include "sci/graphics/scifont.h"
 
 namespace Sci {
@@ -56,10 +58,16 @@ public:
 	/** Load a bundle by filename. False leaves the object unusable. */
 	bool load(const Common::String &filename);
 
+	/**
+	 * Take ownership of an already-built source and mark the face loaded.
+	 * name is used only for the debug line printed on success.
+	 */
+	void setSource(UnicodeGlyphSource *src, const Common::String &name);
+
 	bool isLoaded() const { return _loaded; }
 
 	GuiResourceId getResourceId() override { return _resourceId; }
-	byte getHeight() override { return _cellHeight; }
+	byte getHeight() override { return _source ? _source->cellHeight() : 0; }
 
 	/** True when this code point occupies two cells (East Asian W/F). */
 	bool isDoubleByte(uint32 chr) override;
@@ -71,41 +79,20 @@ public:
 	                  byte *buffer, int16 width, int16 height) override;
 
 	/** Does this font have a glyph for @p codepoint? */
-	bool hasGlyph(uint32 codepoint) const { return findGlyph(codepoint) >= 0; }
+	bool hasGlyph(uint32 codepoint) const { return _source && _source->cells(codepoint) > 0; }
 
-	uint32 glyphCount() const { return _glyphCount; }
+	uint32 glyphCount() const { return _source ? _source->glyphCount() : 0; }
 
-	/** The packed row y of glyph g, for TextCompose::expandGlyphRow(). */
-	const byte *coverageRow(int glyph, int y) const {
-		return _bitmaps + (uint32)glyph * _bytesPerGlyph + (uint32)y * _rowBytes;
-	}
-	int bitsPerPixel() const { return _bitsPerPixel; }
+	/** The packed row y of cp's glyph, for TextCompose::expandGlyphRow(). */
+	const byte *coverageRow(uint32 cp, int y) { return _source ? _source->row(cp, y) : nullptr; }
+	int bitsPerPixel() const { return _source ? _source->bitsPerPixel() : 1; }
 
 private:
-	/** Binary search of the sorted code point table; -1 when absent. */
-	int findGlyph(uint32 codepoint) const;
-
-	/** Is this pixel of the glyph set (any non-zero coverage)? Handles 1, 2 or 8 bpp. */
-	bool pixelSet(int glyph, int x, int y) const;
-
 	GfxScreen *_screen;
 	GuiResourceId _resourceId;
 	bool _loaded;
 
-	Common::Array<byte> _data;
-
-	const byte *_codepoints;	// glyphCount x uint32 LE, ascending
-	const byte *_widths;		// glyphCount x uint8, 1 or 2 cells
-	const byte *_bitmaps;		// glyphCount x _bytesPerGlyph
-
-	uint32 _glyphCount;
-	byte _cellWidth;
-	byte _cellHeight;
-	byte _advanceNarrow;
-	byte _advanceWide;
-	byte _bitsPerPixel;
-	uint32 _rowBytes;
-	uint32 _bytesPerGlyph;
+	Common::ScopedPtr<UnicodeGlyphSource> _source;
 
 	/** Scratch buffer for expanding a glyph to one byte per pixel. */
 	Common::Array<byte> _glyphScratch;

@@ -32,14 +32,91 @@
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
+#include "sci/graphics/glyphsource_ttf.h"
+#include "common/config-manager.h"
+#include "common/debug.h"
 #include "common/file.h"
+#include "common/fs.h"
+#include "common/system.h"
+#include "common/textconsole.h"
 #include "sci/graphics/view.h"
 
 namespace Sci {
 
+namespace {
+
+// hires_text_font is honoured only for SCI16 games in a CJK code page. The
+// key is the face the Korean/Japanese/Chinese hi-res text is drawn in; a
+// Western or SCI32 game has no such text, and a TTF face there would replace
+// fonts it was never meant to. Interim: once the hires_text master switch
+// (HIRES_COMPOSITOR_DESIGN.md, step 3) exists, that switch decides instead.
+bool hiresTextFontApplies(Common::String &why) {
+	if (getSciVersion() >= SCI_VERSION_2) {
+		why = "SCI32 games do not support it yet";
+		return false;
+	}
+	switch (g_sci->getSciLanguageCodePage()) {
+	case Common::kWindows949:
+	case Common::kWindows932:
+	case Common::kWindows936:
+	case Common::kWindows950:
+		return true;
+	default:
+		why = "the game's language has no hi-res CJK text";
+		return false;
+	}
+}
+
+// The default cell size, and the range hires_text_font_size may ask for.
+const int kHiresTextFontDefaultSize = 16;
+const int kHiresTextFontMinSize = 8;
+const int kHiresTextFontMaxSize = 64;
+
+} // End of anonymous namespace
+
 GfxCache::GfxCache(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palette)
 	: _resMan(resMan), _screen(screen), _palette(palette),
-	  _unicodeFont(nullptr), _unicodeFontTried(false) {
+	  _unicodeFont(nullptr), _unicodeFontTried(false),
+	  _hiresTextFontResolved(false), _hiresTextFontSize(kHiresTextFontDefaultSize) {
+}
+
+void GfxCache::resolveHiresTextFont() {
+	if (_hiresTextFontResolved)
+		return;
+	_hiresTextFontResolved = true;
+
+	// The game's own domain only: ConfMan.hasKey(key) also finds a key set
+	// in [scummvm], which would turn the face on for every game.
+	const Common::String &domain = ConfMan.getActiveDomainName();
+	if (!ConfMan.hasKey("hires_text_font", domain))
+		return;
+
+	Common::String why;
+	if (!hiresTextFontApplies(why)) {
+		warning("hires_text_font is ignored: %s", why.c_str());
+		return;
+	}
+
+	// Parsed by hand: ConfMan.getInt() calls error() on non-numeric text.
+	if (ConfMan.hasKey("hires_text_font_size", domain)) {
+		const Common::String &value = ConfMan.get("hires_text_font_size", domain);
+		char *end = nullptr;
+		const long size = strtol(value.c_str(), &end, 10);
+		if (value.empty() || *end != '\0' ||
+			size < kHiresTextFontMinSize || size > kHiresTextFontMaxSize) {
+			warning("hires_text_font_size '%s' is not a number from %d to %d; using %d",
+					value.c_str(), kHiresTextFontMinSize, kHiresTextFontMaxSize,
+					kHiresTextFontDefaultSize);
+		} else {
+			_hiresTextFontSize = (int)size;
+		}
+	}
+
+	_hiresTextFontPath = ConfMan.get("hires_text_font", domain);
+	if (_hiresTextFontPath.empty()) {
+		// An empty value names nothing; FSNode would warn about it itself.
+		warning("hires_text_font: empty path; using the .uni fonts");
+	}
 }
 
 GfxCache::~GfxCache() {
@@ -127,8 +204,58 @@ GfxFontUnicode *GfxCache::loadUnicodeFont() {
 	if (!_unicodeFontTried) {
 		_unicodeFontTried = true;
 		GfxFontUnicode *f = new GfxFontUnicode(_screen, 0);
-		static const char *const names[] = { "sci.uni", "korean.uni", "towns.uni" };
 		bool ok = false;
+
+		// hires_text_font names a TrueType face on disk, tried before the
+		// bundled .uni fonts: a live face is preferred when the player asked
+		// for one, and the .uni names remain the fallback, both when the key
+		// is absent (identical to before) and when it names a face that
+		// fails to load (one warning, never a hard error - the game must
+		// still start, per the Task 3 harness check).
+		resolveHiresTextFont();
+		if (!_hiresTextFontPath.empty()) {
+			const Common::String &path = _hiresTextFontPath;
+			const int pixelSize = _hiresTextFontSize;
+
+			Common::String error;
+			Common::FSNode node(Common::Path(path, Common::Path::kNativeSeparator));
+			// Checked with exists() and isDirectory() before
+			// createReadStream(): that call emits its own "FSNode::
+			// createReadStream: ..." warning for an absent node or a
+			// directory, which would give run.log two warnings for one bad
+			// path. A node that still fails to open (permissions, ...) goes
+			// through createReadStream() and gets our single warning below.
+			if (!node.exists()) {
+				error = "does not exist";
+			} else if (node.isDirectory()) {
+				error = "is a directory";
+			} else if (Common::SeekableReadStream *stream = node.createReadStream()) {
+				// A Korean game needs Hangul from the face: one that has none
+				// is refused, and the .uni fonts serve instead.
+				const bool requireHangul = g_sci->getSciLanguageCodePage() == Common::kWindows949;
+				const uint32 startMs = g_system->getMillis();
+				TtfGlyphSource *src = TtfGlyphSource::create(stream, DisposeAfterUse::YES, pixelSize, error,
+															 requireHangul);
+				const uint32 elapsedMs = g_system->getMillis() - startMs;
+				if (src) {
+					f->setSource(src, path);
+					ok = true;
+					debug(1, "SCI: hires_text_font %s opened at %dpx in %u ms",
+						  path.c_str(), pixelSize, elapsedMs);
+				}
+			} else {
+				error = "could not open the file";
+			}
+
+			if (!ok) {
+				warning("hires_text_font %s: %s; using the .uni fonts", path.c_str(), error.c_str());
+				// Not retried when purgeFontCache() reloads the bundle, so
+				// the warning is given once.
+				_hiresTextFontPath.clear();
+			}
+		}
+
+		static const char *const names[] = { "sci.uni", "korean.uni", "towns.uni" };
 		for (uint i = 0; i < ARRAYSIZE(names) && !ok; i++)
 			ok = f->load(names[i]);
 		if (ok) {

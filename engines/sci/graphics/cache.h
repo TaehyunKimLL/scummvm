@@ -24,6 +24,7 @@
 
 #include "common/hashmap.h"
 #include "common/array.h"
+#include "common/str.h"
 
 namespace Sci {
 
@@ -86,9 +87,21 @@ private:
 	 */
 	GfxFont *createFontSet(GuiResourceId fontId);
 
+	/**
+	 * Reads hires_text_font / hires_text_font_size from the game's own
+	 * domain, once per engine run, so each of their warnings is given at
+	 * most once even though purgeFontCache() reloads the bundle. Leaves
+	 * _hiresTextFontPath empty when the key is absent or ignored.
+	 */
+	void resolveHiresTextFont();
+
 	/** The shared SCVMUNI bundle, loaded at most once. */
 	GfxFontUnicode *_unicodeFont;
 	bool _unicodeFontTried;
+
+	bool _hiresTextFontResolved;
+	Common::String _hiresTextFontPath;
+	int _hiresTextFontSize;
 	/**
 	 * Fonts an adapter wraps but does not own. They are not in _cachedFonts
 	 * (only the adapter is), so the cache has to delete them separately.
