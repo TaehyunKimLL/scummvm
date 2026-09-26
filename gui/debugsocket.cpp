@@ -34,13 +34,13 @@
 #include "graphics/paletteman.h"
 #include "graphics/surface.h"
 
-#if defined(POSIX)
+#if defined(DEBUGSOCKET_POSIX)
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
-#elif defined(WIN32)
+#elif defined(DEBUGSOCKET_WIN32)
 // The Windows shape of the same thing is a named pipe: one server instance,
 // byte mode, overlapped so ConnectNamedPipe/ReadFile return at once from
 // the game loop. The path given is used as \\.\pipe\<name>.
@@ -57,11 +57,14 @@ namespace GUI {
 DebugSocket::DebugSocket(Debugger *console) :
 	_console(console), _ext(nullptr), _pollInterval(1), _sinceLastPoll(0),
 	_haveRelease(false), _lastKeyMs(0), _recFile(nullptr),
-	_listenFd(-1), _clientFd(-1)
-#if defined(WIN32)
+	_safePoint(this), _saveLoad(kNone), _saveLoadSlot(0), _saveLoadDeadline(0)
+#if defined(DEBUGSOCKET_POSIX)
+	, _listenFd(-1), _clientFd(-1)
+#elif defined(DEBUGSOCKET_WIN32)
 	, _pipe(nullptr), _connectOv(nullptr), _pipeConnected(false)
 #endif
 	{
+	g_system->getEventManager()->getEventDispatcher()->registerSource(&_safePoint, false);
 }
 
 DebugSocket *DebugSocket::open(Debugger *console, const Common::String &path) {
@@ -75,12 +78,13 @@ DebugSocket *DebugSocket::open(Debugger *console, const Common::String &path) {
 
 DebugSocket::~DebugSocket() {
 	stopRecording();
-#if defined(POSIX)
+	g_system->getEventManager()->getEventDispatcher()->unregisterSource(&_safePoint);
+#if defined(DEBUGSOCKET_POSIX)
 	if (_clientFd >= 0)
 		::close(_clientFd);
 	if (_listenFd >= 0)
 		::close(_listenFd);
-#elif defined(WIN32)
+#elif defined(DEBUGSOCKET_WIN32)
 	if (_pipe) {
 		if (_pipeConnected)
 			DisconnectNamedPipe((HANDLE)_pipe);
@@ -97,7 +101,7 @@ DebugSocket::~DebugSocket() {
 // ---- transport ------------------------------------------------------------
 
 bool DebugSocket::listen(const Common::String &path) {
-#if defined(POSIX)
+#if defined(DEBUGSOCKET_POSIX)
 	_listenFd = ::socket(AF_UNIX, SOCK_STREAM, 0);
 	if (_listenFd < 0) {
 		warning("DebugSocket: socket(): %s", strerror(errno));
@@ -117,7 +121,7 @@ bool DebugSocket::listen(const Common::String &path) {
 	::fcntl(_listenFd, F_SETFL, O_NONBLOCK);
 	debug(1, "DebugSocket: listening on %s", path.c_str());
 	return true;
-#elif defined(WIN32)
+#elif defined(DEBUGSOCKET_WIN32)
 	// A bare name or a full \\.\pipe\ path both work.
 	Common::String name = path;
 	if (!name.hasPrefix("\\\\"))
@@ -128,12 +132,12 @@ bool DebugSocket::listen(const Common::String &path) {
 	debug(1, "DebugSocket: listening on %s", name.c_str());
 	return true;
 #else
-	warning("DebugSocket: not supported on this platform");
+	warning("DebugSocket: not built on this platform (USE_DEBUG_SOCKET), %s ignored", path.c_str());
 	return false;
 #endif
 }
 
-#if defined(WIN32)
+#if defined(DEBUGSOCKET_WIN32)
 bool DebugSocket::createPipe() {
 	HANDLE h = CreateNamedPipeA(_pipeName.c_str(),
 	                            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
@@ -174,7 +178,7 @@ void DebugSocket::dropClient() {
 #endif
 
 void DebugSocket::pollAccept() {
-#if defined(POSIX)
+#if defined(DEBUGSOCKET_POSIX)
 	if (_listenFd < 0 || _clientFd >= 0)
 		return;
 	int fd = ::accept(_listenFd, nullptr, nullptr);
@@ -184,7 +188,7 @@ void DebugSocket::pollAccept() {
 	_clientFd = fd;
 	_inBuf.clear();
 	debug(1, "DebugSocket: client connected");
-#elif defined(WIN32)
+#elif defined(DEBUGSOCKET_WIN32)
 	if (!_pipe || _pipeConnected)
 		return;
 	OVERLAPPED *ov = (OVERLAPPED *)_connectOv;
@@ -197,7 +201,7 @@ void DebugSocket::pollAccept() {
 }
 
 bool DebugSocket::readLine(Common::String &line) {
-#if defined(POSIX)
+#if defined(DEBUGSOCKET_POSIX)
 	if (_clientFd < 0)
 		return false;
 	char buf[512];
@@ -215,7 +219,7 @@ bool DebugSocket::readLine(Common::String &line) {
 		}
 		break;	// EAGAIN
 	}
-#elif defined(WIN32)
+#elif defined(DEBUGSOCKET_WIN32)
 	if (!_pipeConnected)
 		return false;
 	char buf[512];
@@ -245,7 +249,7 @@ bool DebugSocket::readLine(Common::String &line) {
 #else
 	return false;
 #endif
-#if defined(POSIX) || defined(WIN32)
+#if defined(DEBUGSOCKET_POSIX) || defined(DEBUGSOCKET_WIN32)
 	const uint nl = _inBuf.findFirstOf('\n');
 	if (nl == Common::String::npos)
 		return false;
@@ -258,7 +262,7 @@ bool DebugSocket::readLine(Common::String &line) {
 }
 
 void DebugSocket::send(const Common::String &all) {
-#if defined(POSIX)
+#if defined(DEBUGSOCKET_POSIX)
 	if (_clientFd < 0)
 		return;
 	const char *p = all.c_str();
@@ -273,7 +277,7 @@ void DebugSocket::send(const Common::String &all) {
 		p += n;
 		left -= n;
 	}
-#elif defined(WIN32)
+#elif defined(DEBUGSOCKET_WIN32)
 	if (!_pipeConnected)
 		return;
 	const char *p = all.c_str();
@@ -375,7 +379,7 @@ bool DebugSocket::notifyEvent(const Common::Event &ev) {
 // ---- per frame -------------------------------------------------------------
 
 bool DebugSocket::busy() const {
-	return _protocol.frameWaitActive() || (_ext && _ext->replyPending());
+	return _protocol.frameWaitActive() || _saveLoad != kNone || (_ext && _ext->replyPending());
 }
 
 void DebugSocket::onFrame() {
@@ -452,8 +456,8 @@ void DebugSocket::runCommand(const Common::String &line) {
 		return;
 	}
 	if (genericCommand(cmd, args, out)) {
-		if (_protocol.frameWaitActive())
-			return;		// onFrame() replies when the frames have passed
+		if (_protocol.frameWaitActive() || _saveLoad != kNone)
+			return;		// the reply comes when the frames have passed / at the safe point
 		reply(out);
 		return;
 	}
@@ -467,11 +471,11 @@ void DebugSocket::runCommand(const Common::String &line) {
 
 bool DebugSocket::genericCommand(const Common::String &cmd, const Common::StringArray &a, Common::String &out) {
 	if (cmd == "key") {
-		if (a.empty()) {
-			out = "usage: key <name>|<keycode> [ascii] [flags]";
-			return true;
-		}
-		out = queueKey(a) ? "OK" : "unknown key " + a[0];
+		DebugSocketProtocol::KeySpec k;
+		if (!DebugSocketProtocol::parseKey(a, k, out))
+			return true;	// out holds the error
+		queueKey(k);
+		out = "OK";
 		return true;
 	}
 	if (cmd == "type") {
@@ -484,21 +488,36 @@ bool DebugSocket::genericCommand(const Common::String &cmd, const Common::String
 		for (uint i = 0; i < text.size(); i++) {
 			Common::StringArray one;
 			one.push_back(Common::String(text[i]));
-			queueKey(one);
+			DebugSocketProtocol::KeySpec k;
+			Common::String err;
+			if (DebugSocketProtocol::parseKey(one, k, err))	// one character: always a key
+				queueKey(k);
 		}
 		out = "OK";
 		return true;
 	}
 	if (cmd == "click" || cmd == "move") {
-		if (a.size() < 2) {
-			out = "usage: " + cmd + " <x> <y>" + (cmd == "click" ? " [r]" : "");
+		const bool click = (cmd == "click");
+		if (a.size() < 2 || a.size() > (click ? 3u : 2u) || (click && a.size() == 3 && a[2] != "r")) {
+			out = "usage: " + cmd + " <x> <y>" + (click ? " [r]" : "");
 			return true;
 		}
-		const int x = atoi(a[0].c_str()), y = atoi(a[1].c_str());
-		if (cmd == "move")
-			sendMove(x, y);
+		// Inside the game screen, before and after the extension's mapping
+		// (SCI: lowres to the hires backend): an event with a position off
+		// the screen can reach engine code that indexes a buffer by it.
+		int x, y;
+		if (!DebugSocketProtocol::parsePoint(a, g_system->getWidth(), g_system->getHeight(), x, y, out))
+			return true;
+		const Common::Point p = _ext ? _ext->toBackend(Common::Point(x, y)) : Common::Point(x, y);
+		if (p.x < 0 || p.y < 0 || p.x >= (int)g_system->getWidth() || p.y >= (int)g_system->getHeight()) {
+			out = Common::String::format("point %d,%d maps to %d,%d, outside the %dx%d screen",
+			                             x, y, p.x, p.y, g_system->getWidth(), g_system->getHeight());
+			return true;
+		}
+		if (click)
+			sendClick(x, y, a.size() > 2);
 		else
-			sendClick(x, y, a.size() > 2 && a[2] == "r");
+			sendMove(x, y);
 		out = "OK";
 		return true;
 	}
@@ -507,7 +526,12 @@ bool DebugSocket::genericCommand(const Common::String &cmd, const Common::String
 			out = "usage: wait frames <n>";
 			return true;
 		}
-		_protocol.startFrameWait((uint32)atoi(a[1].c_str()));
+		uint32 n;
+		if (!DebugSocketProtocol::parseCount(a[1], n)) {
+			out = Common::String::format("bad frame count '%s' (0..%u)", a[1].c_str(), DebugSocketProtocol::kMaxCount);
+			return true;
+		}
+		_protocol.startFrameWait(n);
 		out = "OK";
 		return true;
 	}
@@ -520,19 +544,21 @@ bool DebugSocket::genericCommand(const Common::String &cmd, const Common::String
 		return true;
 	}
 	if (cmd == "save" || cmd == "load") {
-		if (a.empty()) {
-			out = "usage: " + cmd + " <slot>";
+		int slot;
+		if (a.size() != 1 || !DebugSocketProtocol::parseSlot(a[0], slot)) {
+			out = Common::String::format("usage: %s <slot> (0..%u)", cmd.c_str(), DebugSocketProtocol::kMaxSlot);
 			return true;
 		}
 		if (!g_engine) {
-			out = "FAIL";
+			out = "FAIL no engine";
 			return true;
 		}
-		const int slot = atoi(a[0].c_str());
-		Common::Error err = (cmd == "save")
-			? g_engine->saveGameState(slot, Common::String::format("dbg%d", slot))
-			: g_engine->loadGameState(slot);
-		out = (err.getCode() == Common::kNoError) ? "OK" : "FAIL";
+		// Not now: onFrame() - and so this - runs inside the backend's
+		// updateScreen() for most engines. runSaveLoad() does it at the next
+		// event poll and sends the reply; until then no command is read.
+		_saveLoad = (cmd == "save") ? kSave : kLoad;
+		_saveLoadSlot = slot;
+		_saveLoadDeadline = g_system->getMillis() + kSaveLoadWaitMs;
 		return true;
 	}
 	if (cmd == "record") {
@@ -547,75 +573,53 @@ bool DebugSocket::genericCommand(const Common::String &cmd, const Common::String
 	return false;
 }
 
-// ---- input -----------------------------------------------------------------
-
-static bool keyNameEq(const Common::String &a, const char *b) {
-	if (a.size() != strlen(b))
-		return false;
-	for (uint i = 0; i < a.size(); i++)
-		if (tolower(a[i]) != tolower(b[i]))
-			return false;
-	return true;
-}
-
-bool DebugSocket::keyByName(const Common::String &name, Common::KeyCode &code, uint16 &ascii) {
-	static const struct { const char *n; Common::KeyCode k; uint16 a; } table[] = {
-		{ "Return", Common::KEYCODE_RETURN, 13 }, { "Enter", Common::KEYCODE_RETURN, 13 },
-		{ "Escape", Common::KEYCODE_ESCAPE, 27 }, { "Tab", Common::KEYCODE_TAB, 9 },
-		{ "space", Common::KEYCODE_SPACE, ' ' }, { "BackSpace", Common::KEYCODE_BACKSPACE, 8 },
-		{ "Up", Common::KEYCODE_UP, 0 }, { "Down", Common::KEYCODE_DOWN, 0 },
-		{ "Left", Common::KEYCODE_LEFT, 0 }, { "Right", Common::KEYCODE_RIGHT, 0 },
-		{ "KP_1", Common::KEYCODE_KP1, 0 }, { "KP_2", Common::KEYCODE_KP2, 0 }, { "KP_3", Common::KEYCODE_KP3, 0 },
-		{ "KP_4", Common::KEYCODE_KP4, 0 }, { "KP_5", Common::KEYCODE_KP5, 0 }, { "KP_6", Common::KEYCODE_KP6, 0 },
-		{ "KP_7", Common::KEYCODE_KP7, 0 }, { "KP_8", Common::KEYCODE_KP8, 0 }, { "KP_9", Common::KEYCODE_KP9, 0 },
-		{ "F1", Common::KEYCODE_F1, 0 }, { "F2", Common::KEYCODE_F2, 0 }, { "F3", Common::KEYCODE_F3, 0 },
-		{ "F4", Common::KEYCODE_F4, 0 }, { "F5", Common::KEYCODE_F5, 0 }, { "F6", Common::KEYCODE_F6, 0 },
-		{ "F7", Common::KEYCODE_F7, 0 }, { "F8", Common::KEYCODE_F8, 0 }, { "F9", Common::KEYCODE_F9, 0 },
-		{ "F10", Common::KEYCODE_F10, 0 },
-	};
-	for (uint i = 0; i < ARRAYSIZE(table); i++)
-		if (keyNameEq(name, table[i].n)) {
-			code = table[i].k;
-			ascii = table[i].a;
-			return true;
-		}
-	if (name.size() == 1) {
-		const char c = name[0];
-		code = (Common::KeyCode)(c >= 'A' && c <= 'Z' ? c + 32 : c);
-		ascii = (byte)c;
-		return true;
-	}
+bool DebugSocket::SafePoint::pollEvent(Common::Event &ev) {
+	_owner->runSaveLoad();
 	return false;
 }
 
-// `key Return`, `key a`, `key 13 13 0`. One character is always a name
-// (`key 5` is the 5 key); a longer all-digit word is a keycode, with the
-// ascii value and the modifier flags as optional numbers after it.
-bool DebugSocket::queueKey(const Common::StringArray &a) {
+// At an event poll: the engine is between its own steps, which is where the
+// global main menu saves and loads too. The engine still decides whether
+// now is a time it can: SCI refuses while a script is nested or the user
+// has no control, AGS inside a script or a blocking call. A refusal is
+// retried at later polls for kSaveLoadWaitMs, then reported.
+void DebugSocket::runSaveLoad() {
+	if (_saveLoad == kNone || !g_engine)
+		return;
+	const bool save = (_saveLoad == kSave);
+	const int slot = _saveLoadSlot;
+	Common::U32String why;
+	if (save ? !g_engine->canSaveGameStateCurrently(&why) : !g_engine->canLoadGameStateCurrently(&why)) {
+		if ((int32)(g_system->getMillis() - _saveLoadDeadline) < 0)
+			return;		// try again at the next poll
+		_saveLoad = kNone;
+		reply(Common::String::format("FAIL cannot %s now%s%s", save ? "save" : "load",
+		                             why.empty() ? "" : ": ", why.encode().c_str()));
+		return;
+	}
+	_saveLoad = kNone;	// before the call: saving may poll events itself
+	const Common::Error err = save
+		? g_engine->saveGameState(slot, Common::String::format("dbg%d", slot))
+		: g_engine->loadGameState(slot);
+	if (err.getCode() == Common::kNoError)
+		reply("OK");
+	else
+		reply(Common::String::format("FAIL %d %s", (int)err.getCode(), err.getDesc().c_str()));
+}
+
+// ---- input -----------------------------------------------------------------
+
+bool DebugSocket::keyByName(const Common::String &name, Common::KeyCode &code, uint16 &ascii) {
+	return DebugSocketProtocol::keyByName(name, code, ascii);
+}
+
+void DebugSocket::queueKey(const DebugSocketProtocol::KeySpec &k) {
 	Common::Event ev;
 	ev.type = Common::EVENT_KEYDOWN;
-	const Common::String &k = a[0];
-	bool numeric = k.size() > 1;
-	for (uint i = 0; i < k.size() && numeric; i++)
-		numeric = (k[i] >= '0' && k[i] <= '9');
-	if (numeric) {
-		ev.kbd.keycode = (Common::KeyCode)atoi(k.c_str());
-		ev.kbd.ascii = a.size() > 1 ? (uint16)atoi(a[1].c_str())
-		                            : (ev.kbd.keycode < 0x80 ? (uint16)ev.kbd.keycode : 0);
-		ev.kbd.flags = a.size() > 2 ? (byte)atoi(a[2].c_str()) : 0;
-	} else {
-		Common::KeyCode code;
-		uint16 ascii;
-		if (!keyByName(k, code, ascii)) {
-			warning("DebugSocket: unknown key '%s'", k.c_str());
-			return false;
-		}
-		ev.kbd.keycode = code;
-		ev.kbd.ascii = ascii;
-		ev.kbd.flags = (k.size() == 1 && k[0] >= 'A' && k[0] <= 'Z') ? Common::KBD_SHIFT : 0;
-	}
+	ev.kbd.keycode = k.keycode;
+	ev.kbd.ascii = k.ascii;
+	ev.kbd.flags = k.flags;
 	_pendingKeys.push_back(ev);
-	return true;
 }
 
 void DebugSocket::sendMove(int x, int y) {

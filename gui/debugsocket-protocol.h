@@ -25,6 +25,8 @@
 #include "common/scummsys.h"
 #include "common/str.h"
 #include "common/str-array.h"
+#include "common/config-manager.h"
+#include "common/keyboard.h"
 
 namespace GUI {
 
@@ -65,6 +67,59 @@ public:
 	 * drops the first '.' of any line that starts with two.
 	 */
 	static Common::String frame(const Common::String &reply);
+
+	/**
+	 * A frame count as a command argument: decimal digits only, at most
+	 * kMaxCount. False for anything else (a negative number, junk), which
+	 * atoi() used to turn into a wait of ~4 billion frames.
+	 */
+	static bool parseCount(const Common::String &s, uint32 &n);
+	static const uint32 kMaxCount = 100000000;
+
+	/**
+	 * Decimal digits only, value <= @p max. Every numeric argument of the
+	 * generic commands goes through this: a '-' or a stray letter is an
+	 * error reply, never an atoi() guess.
+	 */
+	static bool parseUInt(const Common::String &s, uint32 max, uint32 &n);
+
+	/**
+	 * `click`/`move`: args[0], args[1] as x, y with 0 <= x < @p w and
+	 * 0 <= y < @p h (the game screen). An event with a mouse position
+	 * outside it can reach engine code that indexes a buffer by it.
+	 * False with @p err set otherwise.
+	 */
+	static bool parsePoint(const Common::StringArray &args, uint w, uint h, int &x, int &y, Common::String &err);
+
+	/** `key`: what to press. */
+	struct KeySpec {
+		Common::KeyCode keycode;
+		uint16 ascii;
+		byte flags;
+	};
+	/**
+	 * `key <name>` or `key <keycode> [ascii] [flags]`. One character is
+	 * always that key (`key 5` is the 5 key); a longer all-digit word is a
+	 * keycode, 1 .. KEYCODE_LAST-1, with ascii 0..65535 and flags a subset of
+	 * the KBD_* bits (0..127). ascii and flags are only taken after a
+	 * keycode. False with @p err set otherwise.
+	 */
+	static bool parseKey(const Common::StringArray &args, KeySpec &out, Common::String &err);
+
+	/** The names `key` knows (Return, Escape, Tab, space, BackSpace, arrows, KP_1..9, F1..F10) or one character. */
+	static bool keyByName(const Common::String &name, Common::KeyCode &code, uint16 &ascii);
+
+	/** `save`/`load`: a slot 0..kMaxSlot. */
+	static bool parseSlot(const Common::String &s, int &slot);
+	static const uint32 kMaxSlot = 999;
+
+	/**
+	 * @p key from the running game's own domain (ConfMan.getActiveDomain()),
+	 * never from [scummvm] or another domain: a debug_socket= written under
+	 * [scummvm] would otherwise open a socket in every game. False when the
+	 * domain is null or lacks the key.
+	 */
+	static bool gameDomainKey(const Common::ConfigManager::Domain *game, const char *key, Common::String &value);
 
 	/** Start `wait frames <n>`; n == 0 ends at once. */
 	void startFrameWait(uint32 n);
