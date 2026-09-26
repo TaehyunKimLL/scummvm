@@ -134,7 +134,14 @@ void ScummEngine::mac_drawIndy3TextBox() {
 	int pitch = s->pitch;
 
 	_macScreen->copyRectToSurface(ptr, pitch, x, y + 2 * _macScreenDrawOffset, w, h);
+
+	// On Mac the text plane is a stencil rather than a glyph store: the box
+	// itself is already in _macScreen, and 0 here marks 'text lives here' so
+	// the compositor stops writing the picture over it. The glyphs are not
+	// antialiased on this path, so the coverage that goes with them is zero.
 	_textSurface.fillRect(Common::Rect(x, y, x + w, y + h), 0);
+	if (Graphics::Surface *cov = _overlay.coverage())
+		cov->fillRect(Common::Rect(x, y, x + w, y + h), 0);
 
 	mac_markScreenAsDirty(x, y, w, h);
 }
@@ -148,7 +155,10 @@ void ScummEngine::mac_undrawIndy3TextBox() {
 	int h = s->h - 2;
 
 	_macScreen->fillRect(Common::Rect(x, y + 2 * _macScreenDrawOffset, x + w, y + h + 2 * _macScreenDrawOffset), 0);
-	_textSurface.fillRect(Common::Rect(x, y, x + w, y + h), CHARSET_MASK_TRANSPARENCY);
+
+	// And the other half of the pair: the box is gone, so the stencil says
+	// 'no text here' again and any coverage goes with it.
+	_overlay.clear(Common::Rect(x, y, x + w, y + h), CHARSET_MASK_TRANSPARENCY);
 
 	mac_markScreenAsDirty(x, y, w, h);
 }

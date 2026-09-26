@@ -57,6 +57,9 @@ static inline bool checkSJISCode(byte c) {
 	return false;
 }
 
+// Shared by the classic renderers (string.cpp) and the v7/v8 text renderer
+// (string_v7.cpp); both already include this header. Kept as one definition so
+// the two paths cannot drift apart.
 static inline bool is2ByteCharacter(Common::Language lang, byte c) {
 	if (lang == Common::JA_JPN)
 		return (c >= 0x80 && c <= 0x9F) || (c >= 0xE0 && c <= 0xFD);
@@ -87,6 +90,15 @@ public:
 
 	bool _blitAlso;
 	bool _firstChar;
+
+	// Surface pixels owed by earlier characters in this run. A proportional
+	// replacement font measures in the scaled surface's pixels while the
+	// engine positions text in game pixels, so each character loses a fraction
+	// of a game pixel; carrying it forward keeps the run on the font's own
+	// metrics instead of drifting wider with every glyph.
+	// mutable: getCharWidth() is const but has to advance the same remainder
+	// drawing does, or measuring and drawing disagree.
+	mutable int _hiResCarry = 0;
 	bool _disableOffsX;
 
 protected:

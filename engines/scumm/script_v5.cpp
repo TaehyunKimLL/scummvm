@@ -2498,7 +2498,10 @@ void ScummEngine_v5::o5_roomOps() {
 					_townsPaletteFlags &= ~2;
 					return;
 				case 18: // clear kMainVirtScreen layer 2 buffer
-					_textSurface.fillRect(Common::Rect(0, _virtscr[kMainVirtScreen].topline * _textSurfaceMultiplier, _textSurface.pitch, (_virtscr[kMainVirtScreen].topline + _virtscr[kMainVirtScreen].h) * _textSurfaceMultiplier), 0);
+					_overlay.clear(Common::Rect(0, _virtscr[kMainVirtScreen].topline * _textSurfaceMultiplier,
+												_textSurface.pitch,
+												(_virtscr[kMainVirtScreen].topline + _virtscr[kMainVirtScreen].h) * _textSurfaceMultiplier),
+								   CHARSET_MASK_TRANSPARENCY_TOWNS);
 					return;
 				case 19: // enable palette operations (palManipulate(), cyclePalette() etc.)
 					_townsPaletteFlags |= 1;

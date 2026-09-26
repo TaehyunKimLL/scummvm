@@ -25,6 +25,11 @@
 #include "engines/metaengine.h"
 
 class ScummMetaEngine : public MetaEngine {
+public:
+	/// Whether a target has hi-res fonts to switch: a configured map, or one in the game folder.
+	static bool targetHasHiResText(const Common::String &target);
+
+private:
 	const char *getName() const override;
 
 	bool hasFeature(MetaEngineFeature f) const override;

@@ -289,6 +289,20 @@ struct StripTable;
 #define CHARSET_MASK_TRANSPARENCY	 0xFD
 #define CHARSET_MASK_TRANSPARENCY_32 0xFDFDFDFD
 
+/**
+ * The same thing, on FM-Towns.
+ *
+ * That platform composites text as a hardware layer rather than keying it
+ * into the picture, and its layer treats index 0 as see-through - so the text
+ * plane is cleared to 0 there instead. The value is not interchangeable with
+ * CHARSET_MASK_TRANSPARENCY: writing 0xFD would draw a visible pixel, and
+ * writing 0 anywhere else would punch a hole in the background.
+ *
+ * Named so the pair can be found together, and so a decoration asking for
+ * colour 0 on FM-Towns is recognisable as asking for transparency.
+ */
+#define CHARSET_MASK_TRANSPARENCY_TOWNS 0x00
+
 class Gdi {
 protected:
 	ScummEngine *_vm;
@@ -589,6 +603,14 @@ public:
 	int getLayerWidth(int layer) const { assert (layer >= 0 && layer < 2); return _layers[layer].width; }
 	int getLayerHeight(int layer) const { assert (layer >= 0 && layer < 2); return _layers[layer].height; }
 	int getLayerBpp(int layer) const { assert (layer >= 0 && layer < 2); return _layers[layer].bpp; }
+
+	/**
+	 * A 16 bit layer's index-to-colour table.
+	 *
+	 * Handing out the table rather than resolved colours keeps text stored as
+	 * indices, so a palette change re-colours glyphs already on screen.
+	 */
+	const uint16 *getLayerPalette(int layer) const { assert (layer >= 0 && layer < 2); return _layers[layer].bltTmpPal; }
 	int getLayerScaleW(int layer) const { assert (layer >= 0 && layer < 2); return _layers[layer].scaleW; }
 	int getLayerScaleH(int layer) const { assert (layer >= 0 && layer < 2); return _layers[layer].scaleH; }
 
@@ -606,6 +628,9 @@ private:
 		uint8 scaleH = 0;
 		int scrollRemainder = 0;
 		bool onBottom = false;
+		/// For a 16 bit layer: the colour that index 0 resolves to, used
+		/// as the transparency key. An 8 bit layer keys on index 0 itself.
+		uint16 transparentColor = 0;
 		bool enabled = false;
 		bool ready = false;
 		uint16 *bltTmpPal= nullptr;

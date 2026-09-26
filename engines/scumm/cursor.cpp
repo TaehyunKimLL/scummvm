@@ -428,7 +428,11 @@ void ScummEngine::updateCursor() {
 	if (_macScreen && _game.version == 6 && _game.heversion == 0)
 		mac_scaleCursor(cursor, hotspotX, hotspotY, width, height);
 
-	Graphics::PixelFormat format = _system->getScreenFormat();
+	// Cursor data is palette indices whatever the screen is. With blending
+	// active the screen is true colour, and declaring the cursor in the screen
+	// format would have the backend read one index byte per channel.
+	Graphics::PixelFormat format = _hiResText.cursorFormat(_system->getScreenFormat());
+
 	if (_game.heversion == 70) {
 		// Windows HE 70 games render the game scaled to 640x400, but
 		// leave the cursor unscaled.
@@ -570,7 +574,7 @@ void ScummEngine_v7::updateCursor() {
 	if (_macScreen)
 		mac_scaleCursor(cursor, hotspotX, hotspotY, width, height);
 
-	Graphics::PixelFormat format = _system->getScreenFormat();
+	Graphics::PixelFormat format = _hiResText.cursorFormat(_system->getScreenFormat());
 	CursorMan.replaceCursor(cursor, width, height,
 							hotspotX, hotspotY,
 							transColor,
@@ -1283,7 +1287,14 @@ void ScummEngine_v5::setBuiltinCursor(int idx) {
 
 	int sclW = (_renderMode == Common::kRenderHercA || _renderMode == Common::kRenderHercG || _enableEGADithering) ? 2 : _textSurfaceMultiplier;
 	int sclH = (_renderMode == Common::kRenderHercA || _renderMode == Common::kRenderHercG) ? 1 : (_enableEGADithering ? 2 : _textSurfaceMultiplier);
-	int sclW2 = _outputPixelFormat.bytesPerPixel * sclW;
+
+	// The built-in cursor is palette indices. Blended hi-res text makes the
+	// screen 32bpp, but updateCursor() still hands the data over as CLUT8, so
+	// the row stride here has to stay one byte per pixel - otherwise the glyph
+	// is spread over four times the width and the gaps keep the 0xFF fill,
+	// i.e. they read as transparent and the cursor comes out in slivers.
+	const int cursorBpp = _hiResText.alphaActive() ? 1 : _outputPixelFormat.bytesPerPixel;
+	int sclW2 = cursorBpp * sclW;
 
 	_cursor.hotspotX = _cursorHotspots[2 * _currentCursor] * sclW;
 	_cursor.hotspotY = _cursorHotspots[2 * _currentCursor + 1] * sclH;
@@ -1293,17 +1304,20 @@ void ScummEngine_v5::setBuiltinCursor(int idx) {
 	for (i = 0; i < 16; i++) {
 		for (j = 0; j < 16; j++) {
 			if (src[i] & (1 << j)) {
-				byte *dst1 = _grabbedCursor + 16 * sclW2 * i * sclH + (15 - j) * sclW2;
-				byte *dst2 = (sclH == 2) ? dst1 + 16 * sclW2 : dst1;
-				if (_outputPixelFormat.bytesPerPixel == 2) {
-					for (int b = 0; b < sclW; b++) {
-						*((uint16 *)dst1) = *((uint16 *)dst2) = color;
-						dst1 += 2;
-						dst2 += 2;
+				// Replicate the pixel into an sclW x sclH block. The original
+				// only knew about a second row, so at a 3x scale two of every
+				// three rows stayed empty.
+				byte *row = _grabbedCursor + 16 * sclW2 * i * sclH + (15 - j) * sclW2;
+				for (int r = 0; r < sclH; r++, row += 16 * sclW2) {
+					if (cursorBpp == 2) {
+						uint16 *p16 = (uint16 *)row;
+						for (int b = 0; b < sclW; b++)
+							*p16++ = color;
+					} else {
+						byte *p8 = row;
+						for (int b = 0; b < sclW; b++)
+							*p8++ = color;
 					}
-				} else {
-					for (int b = 0; b < sclW; b++)
-						*dst1++ = *dst2++ = color;
 				}
 			}
 		}

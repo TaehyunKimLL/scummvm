@@ -22,6 +22,8 @@
 #include "common/system.h"
 #include "scumm/actor.h"
 #include "scumm/charset.h"
+#include "scumm/hires_scale.h"
+#include "scumm/hires_sinks.h"
 #ifdef ENABLE_HE
 #include "scumm/he/intern_he.h"
 #endif
@@ -353,7 +355,9 @@ void ScummEngine::initScreens(int b, int h) {
 			_townsScreen->clearLayer(0);
 
 		if (_game.id != GID_MONKEY) {
-			_textSurface.fillRect(Common::Rect(0, 0, _textSurface.w * _textSurfaceMultiplier, _textSurface.h * _textSurfaceMultiplier), 0);
+			_overlay.clear(Common::Rect(0, 0, _textSurface.w * _textSurfaceMultiplier,
+									_textSurface.h * _textSurfaceMultiplier),
+					   CHARSET_MASK_TRANSPARENCY_TOWNS);
 			_townsScreen->clearLayer(1);
 		}
 	}
@@ -533,6 +537,10 @@ void ScummEngine::markRectAsDirty(VirtScreenNumber virt, int left, int right, in
  * code in the backend is controlled from here.
  */
 void ScummEngine::drawDirtyScreenParts() {
+	// A frame boundary: whatever text was drawn this frame is complete, so
+	// print the accumulated log line rather than one line per glyph.
+	_hiResText.endTextRun();
+
 	// Update verbs
 	updateDirtyScreen(kVerbVirtScreen);
 
@@ -627,6 +635,87 @@ void ScummEngine::updateDirtyScreen(VirtScreenNumber slot) {
 }
 
 /**
+ * Composite one strip of text over the game's picture.
+ *
+ * The game buffer is at the unscaled size, so each of its pixels is read @p m
+ * times across and @p m times down; the text and coverage planes are already
+ * at the output size.
+ *
+ * Pixels are grouped into runs of the same kind before being handed to the
+ * sink, so a virtual call covers a span rather than a single pixel.
+ *
+ * @param coverage  may be null, meaning every text pixel is fully opaque
+ */
+template<class Sink>
+static void compositeText(Sink &sink, const byte *src, int srcPitch,
+						  const byte *text, int textPitch,
+						  const byte *coverage, int covPitch,
+						  int width, int height, int m) {
+	const int outWidth = width * m;
+
+	// Scratch for the expanded background row: the sink is given indices, and
+	// the game buffer holds one per m output pixels.
+	Common::Array<byte> bgRow(outWidth);
+
+	for (int h = 0; h < height * m; ++h) {
+		const byte *srcRow = src + (h / m) * (width + srcPitch);
+		for (int w = 0; w < outWidth; ++w)
+			bgRow[w] = srcRow[w / m];
+
+		int runStart = 0;
+		int runKind = -1;   // 0 = background, 1 = opaque, 2 = blended
+
+		for (int w = 0; w <= outWidth; ++w) {
+			int kind = -1;
+			if (w < outWidth) {
+				const byte t = text[w];
+				const byte a = coverage ? coverage[w] : 0xFF;
+
+				if (t == CHARSET_MASK_TRANSPARENCY || (t == 0 && a == 0)) {
+					// No text here. Index zero with no coverage is not text
+					// either: that is a spot the surface was cleared to rather
+					// than keyed, and painting palette entry 0 there would
+					// punch a hole in the background.
+					kind = 0;
+				} else if (a == 0 || a == 0xFF) {
+					// Fully covered, or drawn by a path that leaves the
+					// coverage channel alone - a zero there means opaque,
+					// not invisible.
+					kind = 1;
+				} else {
+					kind = 2;
+				}
+			}
+
+			if (kind != runKind) {
+				const int count = w - runStart;
+				if (count > 0) {
+					switch (runKind) {
+					case 0:
+						sink.writeBackground(bgRow.begin() + runStart, count);
+						break;
+					case 1:
+						sink.writeOpaque(text + runStart, count);
+						break;
+					default:
+						sink.writeBlended(text + runStart, bgRow.begin() + runStart,
+										  coverage + runStart, count);
+						break;
+					}
+				}
+				runStart = w;
+				runKind = kind;
+			}
+		}
+
+		text += outWidth + textPitch;
+		if (coverage)
+			coverage += outWidth + covPitch;
+	}
+}
+
+
+/**
  * Blit the specified rectangle from the given virtual screen to the display.
  * Note: t and b are in *virtual screen* coordinates, while x is relative to
  * the *real screen*. This is due to the way tdirty/vdirty work: they are
@@ -704,13 +793,105 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 			return;
 		} else
 #endif
-		// Compose the text over the game graphics
+		// Compose the text over the game graphics.
+		//
+		// Blended hi-res text takes its own path: the game graphics stay
+		// paletted, and the palette lookup happens here rather than in the
+		// backend, so that partially covered glyph pixels can be mixed with
+		// the background behind them. The regular paths below key the text in
+		// or out, which cannot express a half-covered pixel.
+		//
+		// The sink has to match the screen's width, not be assumed. The
+		// composite buffer is allocated at _outputPixelFormat.bytesPerPixel
+		// (scumm.cpp), so handing a 16-bit screen the true-colour sink writes
+		// four bytes per pixel into a two-byte-per-pixel allocation and runs
+		// off the end of it by the buffer's own size. FM-Towns is 16-bit here
+		// and survives only because the branch above returns into
+		// towns_drawStripToScreen first; the PC-Engine has no such return and
+		// dies before presenting a frame.
+		//
+		// The game's own buffer must be paletted as well. compositeText reads
+		// it as palette indices - that is the whole point of the overlay, so a
+		// later palette change recolours text drawn long ago - and a
+		// GF_16BIT_COLOR game (PC-Engine, FM-Towns v3) has 16-bit colour in
+		// there instead. Reading those as indices produces a black screen
+		// rather than a crash, which is why it outlived the overrun above.
+		// Such a game falls through to the keying loop below, which reads the
+		// source at its real width; blending against a true-colour background
+		// would need a sink that takes colours rather than indices.
+		if (_hiResText.alphaActive() && _hiResText.coverage() &&
+			vs->format.bytesPerPixel == 1) {
+			const byte *textPlane = (const byte *)_textSurface.getBasePtr(x * m, y * m);
+			const byte *covPlane = (const byte *)_hiResText.coverage()->getBasePtr(x * m, y * m);
+			const int textSkip = _textSurface.pitch - width * m;
+			const int covSkip = _hiResText.coverage()->pitch - width * m;
+
+			if (_outputPixelFormat.bytesPerPixel == 2) {
+				HiResPalette16Sink sink(_compositeBuf,
+										_hiResText.paletteCache(), _outputPixelFormat);
+				compositeText(sink, (const byte *)src, vs->pitch - width,
+							  textPlane, textSkip, covPlane, covSkip,
+							  width, height, m);
+			} else {
+				HiResTrueColorSink sink((uint32 *)_compositeBuf,
+										_hiResText.paletteCache(), _outputPixelFormat);
+				compositeText(sink, (const byte *)src, vs->pitch - width,
+							  textPlane, textSkip, covPlane, covSkip,
+							  width, height, m);
+			}
+
+			// The composite buffer holds width*m pixels per row, not width:
+			// the loop above wrote every source pixel m times across. Handing
+			// the backend the unscaled pitch makes it read each row a third of
+			// the way into the next one, which tiles the picture sideways and
+			// shears it - the giveaway that this is a stride bug rather than a
+			// blending one.
+			_system->copyRectToScreen(_compositeBuf,
+									  width * m * _outputPixelFormat.bytesPerPixel,
+									  x * m, y * m, width * m, height * m);
+			return;
+		}
+
+		// The same, on a screen that stays paletted: the text is keyed in,
+		// not blended, and each game pixel is repeated m times across and
+		// down. The generic loop below cannot do this - it walks the game
+		// buffer at the text surface's size, which for m > 1 runs off the
+		// end of it.
+		if (_hiResText.enabled() && m > 1 && _outputPixelFormat.bytesPerPixel == 1) {
+			// A null coverage plane means every text pixel is opaque, so the
+			// compositor never asks this sink to blend.
+			HiResIndexSink sink(_compositeBuf);
+			compositeText(sink, (const byte *)src, vs->pitch - width,
+						  (const byte *)_textSurface.getBasePtr(x * m, y * m),
+						  _textSurface.pitch - width * m,
+						  nullptr, 0, width, height, m);
+
+			_system->copyRectToScreen(_compositeBuf, width * m, x * m, y * m, width * m, height * m);
+			return;
+		}
+
 		if (_outputPixelFormat.bytesPerPixel == 2) {
-			const byte *srcPtr = (const byte *)src;
+			const byte *srcRow = (const byte *)src;
 			const byte *textPtr = (byte *)_textSurface.getBasePtr(x * m, y * m);
 			byte *dstPtr = _compositeBuf;
 
+			// The text surface is m times the size of the game buffer, and
+			// this loop is driven by the text surface. Each game pixel
+			// therefore has to cover m columns and m rows: advancing the
+			// source once per output pixel reads width*m x height*m pixels
+			// out of a buffer holding width x height, running off the end
+			// of it partway down the first row.
+			//
+			// Nothing reached this loop with m > 1 until the hi-res layer
+			// started scaling on platforms whose game buffer is 16bpp, so
+			// the stride was never wrong before. The counters keep m == 1
+			// exactly as it was: the source then advances every pixel.
+			int xRepeat = 0, yRepeat = 0;
+
 			for (int h = 0; h < height * m; ++h) {
+				const byte *srcPtr = srcRow;
+				xRepeat = 0;
+
 				for (int w = 0; w < width * m; ++w) {
 					uint16 tmp = *textPtr++;
 					if (tmp == CHARSET_MASK_TRANSPARENCY) {
@@ -721,9 +902,17 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 					} else {
 						WRITE_UINT16(dstPtr, _16BitPalette[tmp]); dstPtr += 2;
 					}
-					srcPtr += vs->format.bytesPerPixel;
+
+					if (++xRepeat == m) {
+						xRepeat = 0;
+						srcPtr += vs->format.bytesPerPixel;
+					}
 				}
-				srcPtr += vsPitch;
+
+				if (++yRepeat == m) {
+					yRepeat = 0;
+					srcRow += vs->pitch;
+				}
 				textPtr += _textSurface.pitch - width * m;
 			}
 		} else {
@@ -794,7 +983,15 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 					_system->copyRectToScreen(blackbuf, 16, 0, 0, 16, 240); // Fix left strip
 				}
 			}
-		} else if (_useCJKMode && m == 2) {
+		} else if (m == 2 && (_useCJKMode || _hiResText.enabled())) {
+			// The composite buffer holds width*m x height*m pixels, so the
+			// rectangle handed to the backend has to be the scaled one. The
+			// test used to be _useCJKMode alone, from a time when a doubled
+			// text surface only ever happened for a CJK game; the hi-res
+			// layer now doubles it for European games too, and those came
+			// out with the row stride short by half - each row starting
+			// mid-way through the previous one, and only the top half of
+			// the strip reaching the screen.
 			pitch *= m;
 			x *= m;
 			y *= m;
@@ -1247,27 +1444,43 @@ void ScummEngine::restoreBackground(Common::Rect rect, byte backColor) {
 		if (vs->number == kMainVirtScreen && _charset->_hasMask) {
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 			if (_game.platform == Common::kPlatformFMTowns) {
-				byte *mask = (byte *)_textSurface.getBasePtr(rect.left * _textSurfaceMultiplier, (rect.top + vs->topline) * _textSurfaceMultiplier);
-				fill(mask, _textSurface.pitch, 0, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+				// Both planes: coverage left behind here is not merely
+				// stale, it is composited. The FM-Towns path blends on
+				// (index, coverage) as a pair, so an orphaned partial
+				// coverage byte mixes palette entry 0 into the picture -
+				// a ghost of the glyph edges that were just erased.
+				_overlay.clear(Common::Rect(rect.left * _textSurfaceMultiplier,
+											(rect.top + vs->topline) * _textSurfaceMultiplier,
+											(rect.left + width) * _textSurfaceMultiplier,
+											(rect.top + vs->topline + height) * _textSurfaceMultiplier),
+							   CHARSET_MASK_TRANSPARENCY_TOWNS);
 			} else
 #endif
 			{
-				byte *mask = (byte *)_textSurface.getBasePtr(rect.left, rect.top - _screenTop);
-				fill(mask, _textSurface.pitch, CHARSET_MASK_TRANSPARENCY, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+				_overlay.clear(Common::Rect(rect.left, rect.top - _screenTop,
+											rect.left + width * _textSurfaceMultiplier,
+											rect.top - _screenTop + height * _textSurfaceMultiplier),
+							   CHARSET_MASK_TRANSPARENCY);
 			}
 		}
 	} else {
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 		if (_game.platform == Common::kPlatformFMTowns) {
 			backColor |= (backColor << 4);
-			byte *mask = (byte *)_textSurface.getBasePtr(rect.left * _textSurfaceMultiplier, (rect.top + vs->topline) * _textSurfaceMultiplier);
-			fill(mask, _textSurface.pitch, backColor, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+			_overlay.fillIndices(Common::Rect(rect.left * _textSurfaceMultiplier,
+											  (rect.top + vs->topline) * _textSurfaceMultiplier,
+											  (rect.left + width) * _textSurfaceMultiplier,
+											  (rect.top + vs->topline + height) * _textSurfaceMultiplier),
+								 backColor);
 		}
 #endif
 
 		if (_macScreen) {
-			byte *mask = (byte *)_textSurface.getBasePtr(rect.left * _textSurfaceMultiplier, (rect.top + vs->topline) * _textSurfaceMultiplier);
-			fill(mask, _textSurface.pitch, CHARSET_MASK_TRANSPARENCY, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+			_overlay.clear(Common::Rect(rect.left * _textSurfaceMultiplier,
+										(rect.top + vs->topline) * _textSurfaceMultiplier,
+										(rect.left + width) * _textSurfaceMultiplier,
+										(rect.top + vs->topline + height) * _textSurfaceMultiplier),
+						   CHARSET_MASK_TRANSPARENCY);
 		}
 
 		if (_game.features & GF_16BIT_COLOR)
@@ -1304,11 +1517,13 @@ void ScummEngine::restoreCharsetBg() {
 
 		byte *screenBuf = vs->getPixels(0, 0);
 
+		bool wipedGameBuffer = false;
 		if (vs->hasTwoBuffers && _currentRoom != 0 && isLightOn()) {
 			if (vs->number != kMainVirtScreen) {
 				// Restore from back buffer
 				const byte *backBuf = vs->getBackPixels(0, 0);
 				blit(screenBuf, vs->pitch, backBuf, vs->pitch, vs->w, vs->h, vs->format.bytesPerPixel);
+				wipedGameBuffer = true;
 			}
 		} else {
 			if (!(_game.version < 4 && _messageBannerActive && (getCurrentLights() & LIGHTMODE_flashlight_on))) {
@@ -1317,12 +1532,41 @@ void ScummEngine::restoreCharsetBg() {
 					memset(screenBuf, 0x1d, vs->h * vs->pitch);
 				else
 					memset(screenBuf, 0, vs->h * vs->pitch);
+				wipedGameBuffer = true;
 			}
 		}
 
-		if (vs->hasTwoBuffers || _macScreen) {
-			// Clean out the charset mask
-			clearTextSurface();
+		// Single-buffered screens (v0-v2, and the verb area everywhere) never
+		// reached this branch, so nothing ever cleared the hi-res surface for
+		// them and every line stayed behind - in Zak two speakers piled up on
+		// one row. The built-in fonts do not need it because they draw into
+		// the buffer that was just wiped above; hi-res text lives in a surface
+		// of its own.
+		//
+		// Only when that buffer really was wiped, though. The branches above
+		// both have conditions that skip it - MI2's boot menu is room 0, so
+		// the two-buffer branch is not taken and the game keeps its picture -
+		// and there the game does not repaint the text either. Clearing the
+		// overlay anyway retired glyphs the game still considered on screen,
+		// which is why English MI2 showed an empty menu box.
+		if (wipedGameBuffer && (vs->hasTwoBuffers || _macScreen || _hiResText.enabled())) {
+			// Only the screen that owns this text: verbs and dialogue share
+			// the surface but are retired independently, and verbs are drawn
+			// once and never repainted.
+			clearTextSurface(_hiResText.enabled() ? vs : nullptr);
+
+			// The dirty marking above happened while the glyphs were still
+			// there, so it describes the area to repaint - but the repaint
+			// reads the text surface, which has only now been wiped. Mark it
+			// again so the cleared state is what reaches the screen.
+			//
+			// The keyed paths get away without this because a cleared text
+			// surface is the transparency key, and the strip they redraw
+			// already covers it. The blended path composites the text surface
+			// into true colour, so a stale glyph stays on screen until
+			// something else happens to redraw that band.
+			if (_hiResText.alphaActive())
+				markRectAsDirty(vs->number, Common::Rect(vs->w, vs->h), USAGE_BIT_RESTORED);
 		}
 	}
 }
@@ -1331,13 +1575,44 @@ void ScummEngine::clearCharsetMask() {
 	memset(getResourceAddress(rtBuffer, 9), 0, _gdi->_imgBufOffs[1]);
 }
 
-void ScummEngine::clearTextSurface() {
-	towns_fillTopLayerRect(0, 0, _textSurface.w, _textSurface.h, 0);
-	fill((byte *)_textSurface.getPixels(), _textSurface.pitch,
+void ScummEngine::clearTextSurface(const VirtScreen *vs) {
+	// Scoped to one virtual screen when asked. The verb strip and the
+	// dialogue share this surface but not their lifetimes: verbs are drawn
+	// once when the interface appears and never repainted, so wiping the whole
+	// surface to retire a line of dialogue loses them for good.
+	int top = 0;
+	int height = _textSurface.h;
+	if (vs) {
+		top = vs->topline * _textSurfaceMultiplier;
+		height = vs->h * _textSurfaceMultiplier;
+
+		if (top < 0) {
+			height += top;
+			top = 0;
+		}
+		if (top >= _textSurface.h)
+			return;
+		height = MIN(height, _textSurface.h - top);
+		if (height <= 0)
+			return;
+	}
+
+	towns_fillTopLayerRect(0, top, _textSurface.w, height, 0);
+
+	// Both planes together: coverage left behind would blend the shape of the
+	// previous frame's glyphs into whatever is drawn next.
+	_overlay.clear(top, height, textTransparency());
+}
+
+byte ScummEngine::textTransparency() const {
+	// FM-Towns composites text as a hardware layer that reads index 0 as
+	// see-through; everywhere else text is keyed into the picture and 0 is a
+	// real colour.
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
-		_game.platform == Common::kPlatformFMTowns ? 0 :
+	if (_game.platform == Common::kPlatformFMTowns)
+		return CHARSET_MASK_TRANSPARENCY_TOWNS;
 #endif
-		CHARSET_MASK_TRANSPARENCY,  _textSurface.w, _textSurface.h, _textSurface.format.bytesPerPixel);
+	return CHARSET_MASK_TRANSPARENCY;
 }
 
 byte *ScummEngine::getMaskBuffer(int x, int y, int z) {
@@ -1532,8 +1807,11 @@ void ScummEngine::drawBox(int x, int y, int x2, int y2, int color) {
 
 			blit(backbuff, vs->pitch, bgbuff, vs->pitch, width, height, vs->format.bytesPerPixel);
 			if (_charset->_hasMask) {
-				byte *mask = (byte *)_textSurface.getBasePtr(x * _textSurfaceMultiplier, (y - _screenTop) * _textSurfaceMultiplier);
-				fill(mask, _textSurface.pitch, CHARSET_MASK_TRANSPARENCY, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+				_overlay.clear(Common::Rect(x * _textSurfaceMultiplier,
+											(y - _screenTop) * _textSurfaceMultiplier,
+											(x + width) * _textSurfaceMultiplier,
+											(y - _screenTop + height) * _textSurfaceMultiplier),
+							   CHARSET_MASK_TRANSPARENCY);
 			}
 		}
 	} else if (_game.heversion >= 72) {
@@ -1600,8 +1878,11 @@ void ScummEngine::drawBox(int x, int y, int x2, int y2, int color) {
 					byte *mask = _virtscr[kBannerVirtScreen].getPixels(x, y);
 					fill(mask, vs->pitch, color, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, vs->format.bytesPerPixel);
 				} else {
-					byte *mask = (byte *)_textSurface.getBasePtr(x * _textSurfaceMultiplier, (y - _screenTop + vs->topline) * _textSurfaceMultiplier);
-					fill(mask, _textSurface.pitch, color, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+					_overlay.fillIndices(Common::Rect(x * _textSurfaceMultiplier,
+													  (y - _screenTop + vs->topline) * _textSurfaceMultiplier,
+													  (x + width) * _textSurfaceMultiplier,
+													  (y - _screenTop + vs->topline + height) * _textSurfaceMultiplier),
+										 color);
 				}
 
 				if (_game.id != GID_MONKEY && !(_game.version == 3 && vs->number == kTextVirtScreen))
@@ -1610,8 +1891,11 @@ void ScummEngine::drawBox(int x, int y, int x2, int y2, int color) {
 #endif
 
 			if (_macScreen) {
-				byte *mask = (byte *)_textSurface.getBasePtr(x * _textSurfaceMultiplier, (y - _screenTop + vs->topline) * _textSurfaceMultiplier);
-				fill(mask, _textSurface.pitch, CHARSET_MASK_TRANSPARENCY, width * _textSurfaceMultiplier, height * _textSurfaceMultiplier, _textSurface.format.bytesPerPixel);
+				_overlay.clear(Common::Rect(x * _textSurfaceMultiplier,
+											(y - _screenTop + vs->topline) * _textSurfaceMultiplier,
+											(x + width) * _textSurfaceMultiplier,
+											(y - _screenTop + vs->topline + height) * _textSurfaceMultiplier),
+							   CHARSET_MASK_TRANSPARENCY);
 			}
 
 			fill(backbuff, vs->pitch, color, width, height, vs->format.bytesPerPixel);
@@ -2346,7 +2630,11 @@ void Gdi::drawBitmap(const byte *ptr, VirtScreen *vs, int x, const int y, const 
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	if (_vm->_townsPaletteFlags & 2) {
 		int cx = (x - _vm->_screenStartStrip) << 3;
-		_vm->_textSurface.fillRect(Common::Rect(cx * _vm->_textSurfaceMultiplier, y * _vm->_textSurfaceMultiplier, (cx  + width - 1) * _vm->_textSurfaceMultiplier, (y + height - 1) * _vm->_textSurfaceMultiplier), 0);
+		_vm->_overlay.clear(Common::Rect(cx * _vm->_textSurfaceMultiplier,
+										 y * _vm->_textSurfaceMultiplier,
+										 (cx + width - 1) * _vm->_textSurfaceMultiplier,
+										 (y + height - 1) * _vm->_textSurfaceMultiplier),
+							CHARSET_MASK_TRANSPARENCY_TOWNS);
 	}
 #endif
 
@@ -4456,7 +4744,9 @@ void ScummEngine::fadeOut(int effect) {
 
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	if (_game.version == 3 && _game.platform == Common::kPlatformFMTowns)
-		_textSurface.fillRect(Common::Rect(0, vs->topline * _textSurfaceMultiplier, _textSurface.pitch, (vs->topline + vs->h) * _textSurfaceMultiplier), 0);
+		_overlay.clear(Common::Rect(0, vs->topline * _textSurfaceMultiplier, _textSurface.pitch,
+									(vs->topline + vs->h) * _textSurfaceMultiplier),
+					   CHARSET_MASK_TRANSPARENCY_TOWNS);
 #endif
 
 	// V0 wipes the text area before fading out
@@ -4777,6 +5067,71 @@ void ScummEngine::dissolveEffect(int width, int height) {
 	free(offsets);
 }
 
+bool ScummEngine::hiResBlitStrip(const byte *src, int srcPitch, int tx, int ty, int wd, int ht) {
+	const int m = _textSurfaceMultiplier;
+
+	// Only the enlarged screen needs this. At m == 1 the game's buffer is
+	// already the screen's size and format, and upstream's own blit is
+	// correct - taking this path there would be a second implementation of
+	// something that works.
+	if (!_hiResText.enabled() || m <= 1 || wd <= 0 || ht <= 0)
+		return false;
+
+	// The composition reads the game's buffer as palette indices; a game
+	// whose own buffer is 16bpp (PC-Engine, FM-Towns v3) holds colours
+	// there instead and would come out as noise.
+	if (_virtscr[kMainVirtScreen].format.bytesPerPixel != 1)
+		return false;
+
+	// EGA dithering has already rewritten the source into _compositeBuf at
+	// its own size, and the CGA/Hercules paths postprocess after this
+	// point. Neither has been measured at m > 1; leave them alone rather
+	// than composing over an assumption.
+	if (_enableEGADithering || _hercCGAScaleBuf)
+		return false;
+
+	const Graphics::PixelFormat outFmt = _outputPixelFormat;
+	const int outBpp = outFmt.bytesPerPixel;
+
+	// A true-colour or 16-bit destination is reached through the layer's
+	// palette cache, which is only maintained while blending is active. On
+	// any other screen we have no table to resolve indices with.
+	if (outBpp != 1 && !_hiResText.alphaActive())
+		return false;
+	if (outBpp != 1 && outBpp != 2 && outBpp != 4)
+		return false;
+
+	// The destination has to fit the screen the backend actually gave us.
+	// getSubArea-style clipping would silently move the strip; a rectangle
+	// that does not fit means our idea of the screen is wrong, and the
+	// honest answer is to leave the caller on its own path.
+	const int dstX = tx * m, dstY = ty * m;
+	const int dstW = wd * m, dstH = ht * m;
+	if (dstX < 0 || dstY < 0 ||
+		dstX + dstW > (int)_system->getWidth() ||
+		dstY + dstH > (int)_system->getHeight())
+		return false;
+
+	// Scratch of its own: _compositeBuf is reused by the EGA dithering and
+	// CGA paths and by drawStripToScreen(), and an auxiliary redraw between
+	// two steps of the effect would find it holding this strip.
+	Common::Array<byte> buf((uint)(dstW * dstH * outBpp));
+
+	if (outBpp == 1) {
+		HiResIndexSink sink(buf.begin());
+		expandStrip(sink, src, srcPitch, wd, ht, m);
+	} else if (outBpp == 2) {
+		HiResPalette16Sink sink(buf.begin(), _hiResText.paletteCache(), outFmt);
+		expandStrip(sink, src, srcPitch, wd, ht, m);
+	} else {
+		HiResTrueColorSink sink((uint32 *)buf.begin(), _hiResText.paletteCache(), outFmt);
+		expandStrip(sink, src, srcPitch, wd, ht, m);
+	}
+
+	_system->copyRectToScreen(buf.begin(), dstW * outBpp, dstX, dstY, dstW, dstH);
+	return true;
+}
+
 void ScummEngine::scrollEffect(int dir) {
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	// The FM-Towns versions use smooth scrolling here, but only for left and right.
@@ -4840,7 +5195,12 @@ void ScummEngine::scrollEffect(int dir) {
 						src = ditherVGAtoEGA(vsPitch, tx, ty, wd, ht);
 					}
 
-					_system->copyRectToScreen(src, vsPitch * m, tx, ty * m, wd, ht * m);
+					// The scale has to be on the source as well as the
+					// destination. Where it is not - a 320-wide buffer
+					// declared as 960-wide - the backend samples every
+					// m-th row and covers only 1/m of the width.
+					if (!hiResBlitStrip(src, vsPitch, tx, ty, wd, ht))
+						_system->copyRectToScreen(src, vsPitch * m, tx, ty * m, wd, ht * m);
 				}
 			}
 
@@ -4874,7 +5234,8 @@ void ScummEngine::scrollEffect(int dir) {
 						src = ditherVGAtoEGA(vsPitch, tx, ty, wd, ht);
 					}
 
-					_system->copyRectToScreen(src, vsPitch * m, 0, 0, wd * m, ht * m);
+					if (!hiResBlitStrip(src, vsPitch, tx, ty, wd, ht))
+						_system->copyRectToScreen(src, vsPitch * m, 0, 0, wd * m, ht * m);
 				}
 			}
 
@@ -4911,7 +5272,8 @@ void ScummEngine::scrollEffect(int dir) {
 						src = ditherVGAtoEGA(vsPitch, tx, ty, wd, ht);
 					}
 
-					_system->copyRectToScreen(src, vsPitch * m, tx * m, 0, wd * m, ht * m);
+					if (!hiResBlitStrip(src, vsPitch, tx, ty, wd, ht))
+						_system->copyRectToScreen(src, vsPitch * m, tx * m, 0, wd * m, ht * m);
 				}
 			}
 			waitForTimer(delay, true);
@@ -4947,7 +5309,8 @@ void ScummEngine::scrollEffect(int dir) {
 						src = ditherVGAtoEGA(vsPitch, tx, ty, wd, ht);
 					}
 
-					_system->copyRectToScreen(src, vsPitch * m, 0, 0, wd * m, ht * m);
+					if (!hiResBlitStrip(src, vsPitch, tx, ty, wd, ht))
+						_system->copyRectToScreen(src, vsPitch * m, 0, 0, wd * m, ht * m);
 				}
 			}
 
