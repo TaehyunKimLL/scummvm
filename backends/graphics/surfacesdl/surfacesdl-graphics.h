@@ -197,6 +197,8 @@ protected:
 	 * around this API to keep the code paths as close as possible. */
 	SDL_Renderer *_renderer;
 	SDL_Texture *_screenTexture;
+	/** SDL pixel format of _screenTexture and _hwScreen (RGB565 or XRGB8888). */
+	Uint32 _screenTextureFormat;
 	void deinitializeRenderer();
 	void recreateScreenTexture();
 
@@ -228,6 +230,15 @@ protected:
 	bool _useOldSrc;
 	Graphics::PixelFormat _overlayFormat;
 	bool _isDoubleBuf, _isHwPalette;
+
+	/**
+	 * The hardware screen is (to be) 32-bit XRGB8888 rather than RGB565:
+	 * the game asked for a 4-byte format, or hw_screen_32bpp is set. Only
+	 * the SDL2/SDL3 renderer path acts on it. Decided in loadGFXMode().
+	 */
+	bool _hwScreen32;
+	/** The format _scaler was created for, to recreate it when the hw screen changes depth. */
+	Graphics::PixelFormat _scalerFormat;
 
 	enum {
 		kTransactionNone = 0,
