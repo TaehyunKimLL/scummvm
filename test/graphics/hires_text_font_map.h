@@ -1322,4 +1322,56 @@ public:
 		cfg.clear();
 		TS_ASSERT(!parse("[glyphs]\nu+21-u+7E=keep\n", cfg));
 	}
+
+	void test_glyph_range_limit_is_per_load() {
+		// HiResFontMap::loadFromStream() is static and an engine keeps one
+		// config it reloads (SCI's GfxCache), so a load that used up the
+		// whole range budget must not starve the next one.
+		const char *full =
+			"[glyphs]\n"
+			"0x0-0xFFFF=keep\n"
+			"[glyphs:cs0]\n"
+			"0x0-0xFFFF=keep\n";
+		const char *small =
+			"[glyphs:cs1]\n"
+			"0x41-0x42=keep\n";
+
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parseScoped(full, cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0x10000u);
+
+		cfg.clear();
+		TS_ASSERT(parseScoped(small, cfg));
+		TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides.size(), 2u);
+		if (cfg.scopedGlyphOverrides.size() == 2)
+			TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides[1].size(), 2u);
+
+		// And into a second config.
+		Graphics::HiResTextConfig other;
+		TS_ASSERT(parseScoped(small, other));
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(other.glyphOverride(0x41, o, 1));
+		TS_ASSERT(other.glyphOverride(0x42, o, 1));
+	}
+
+	void test_glyph_range_values() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[glyphs]\n0x21-0x7E=junk\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0u);
+
+		// An inline comment after a range value, as in font_map.cpp's example.
+		cfg.clear();
+		TS_ASSERT(parse("[glyphs]\n0x21-0x7E = +0xFEE0 ; x\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 94u);
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(cfg.glyphOverride(0x21, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(o.codepoint, 0xFF01u);
+	}
+
+	void test_hash_is_not_an_inline_comment() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[bitmap]\nsingle=a #b\n", cfg));
+		TS_ASSERT_EQUALS(cfg.bitmapSingle, "a #b");
+	}
 };
