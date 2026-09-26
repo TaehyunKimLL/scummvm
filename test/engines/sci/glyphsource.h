@@ -485,6 +485,9 @@ public:
 		delete src;
 	}
 
+	// Only meaningful in a build without FreeType; elsewhere it passes
+	// vacuously. Not TS_SKIP: without exception handling that prints a
+	// warning on every run.
 	void test_no_freetype_stub() {
 #ifndef USE_FREETYPE2
 		byte dummy[4] = { 0, 0, 0, 0 };
@@ -493,8 +496,6 @@ public:
 		TtfGlyphSource *src = TtfGlyphSource::create(&stream, DisposeAfterUse::NO, 16, error);
 		TS_ASSERT(src == nullptr);
 		TS_ASSERT(!error.empty());
-#else
-		TS_SKIP("this build has FreeType");
 #endif
 	}
 };
