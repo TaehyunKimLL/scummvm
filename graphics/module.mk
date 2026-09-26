@@ -23,6 +23,7 @@ MODULE_OBJS := \
 	hires_text/glyph_source_ttf.o \
 	hires_text/latin_advance.o \
 	hires_text/text_compose.o \
+	hires_text/text_layout.o \
 	hires_text/unicode_props.o \
 	fonts/amigafont.o \
 	fonts/bdf.o \
