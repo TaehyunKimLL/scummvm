@@ -76,6 +76,15 @@ Localizer::Localizer() {
 	data[filesize] = '\0';
 	delete f;
 
+	// A Korean grim.ko.tab saved as UTF-8 with a byte order mark: drop the
+	// mark and read the text as UTF-8 instead of CP949.
+	if (isKorean && g_grim->getGameType() == GType_GRIM && filesize >= 3 &&
+	    (byte)data[0] == 0xEF && (byte)data[1] == 0xBB && (byte)data[2] == 0xBF) {
+		memmove(data, data + 3, filesize - 3 + 1);
+		filesize -= 3;
+		g_grim->_isUtf8 = true;
+	}
+
 	if (g_grim->isRemastered()) {
 		parseRemasteredData(Common::String(data));
 		delete[] data;

@@ -24,11 +24,18 @@
 
 #include "engines/grim/pool.h"
 
+#include "common/array.h"
+#include "common/ustr.h"
+
 #include "graphics/font.h"
 #include "graphics/pixelformat.h"
 
 namespace Common {
 class SeekableReadStream;
+}
+
+namespace Graphics {
+class SvfnGlyphSource;
 }
 
 namespace Grim {
@@ -49,6 +56,15 @@ public:
 	virtual int32 getPoolTag() const = 0;
 	virtual bool is8Bit() const = 0;
 	const Common::String &getFilename() const { return _filename; }
+
+	/**
+	 * Render a line as colour plus coverage: RGB = (r, g, b), alpha = how much
+	 * of the pixel the text covers, in @p format (4 bytes per pixel, 8-bit
+	 * alpha). The TinyGL and shader renderers blend such a line instead of
+	 * colour-keying it. Returns false for a font that has no coverage (the
+	 * bitmap .laf fonts); the caller then uses render().
+	 */
+	virtual bool renderAlpha(Graphics::Surface &buf, const Common::String &currentLine, const Graphics::PixelFormat &format, byte r, byte g, byte b) const { return false; }
 
 	// for Korean Translate
 	int32 getWCharKernedWidth(byte hi, byte lo) const { return getCharKernedWidth(hi) + getCharKernedWidth(lo); }
@@ -130,30 +146,50 @@ private:
 
 class FontTTF : public Font, public PoolObject<FontTTF> {
 public:
+	FontTTF();
+	~FontTTF();
+
 	void loadTTF(const Common::String &filename, Common::SeekableReadStream *data, int size);
 	void loadTTFFromArchive(const Common::String &filename, int size);
+
+	/**
+	 * Load the face a Korean `<font>.laf.txt` names: "face.ttf 17px" (a
+	 * TrueType face at that pixel size) or "face.svfn 16px" (an SVFN bitmap
+	 * font; its own cell size wins). Returns false after one warning when the
+	 * descriptor names nothing this build can draw - no FreeType for a TTF,
+	 * a missing or corrupt file - and the caller then uses the bitmap .laf.
+	 */
+	bool loadFromDescriptor(const Common::String &filename, Common::SeekableReadStream *descriptor);
 
 	static int32 getStaticTag() { return MKTAG('T', 'T', 'F', ' '); }
 	int getPoolId() const override { return getId(); }
 	int32 getPoolTag() const override { return getStaticTag(); }
 
-	int32 getKernedHeight() const override { return _font->getFontHeight(); }
+	int32 getKernedHeight() const override;
 	int32 getBaseOffsetY() const override { return 0; }
-	int32 getCharKernedWidth(uint32 c) const override { return _font->getCharWidth(c); }
+	int32 getCharKernedWidth(uint32 c) const override;
 	int32 getFontWidth() const override { return getCharKernedWidth('w'); }
 
 	int getKernedStringLength(const Common::String &text) const override;
 	void render(Graphics::Surface &buf, const Common::String &currentLine, const Graphics::PixelFormat &pixelFormat, uint32 blackColor, uint32 color, uint32 colorKey) const override;
+	bool renderAlpha(Graphics::Surface &buf, const Common::String &currentLine, const Graphics::PixelFormat &format, byte r, byte g, byte b) const override;
 	bool is8Bit() const override { return false; }
 
 	void saveState(SaveGame *state) const;
 	void restoreState(SaveGame *state);
 
 	// for Korean Translate
-	int32 getWCharKernedWidth(byte hi, byte lo) const { return _font->getCharWidth(Common::convertUHCToUCS(hi, lo)); }
+	int32 getWCharKernedWidth(byte hi, byte lo) const { return getCharKernedWidth(Common::convertUHCToUCS(hi, lo)); }
 
 private:
+	/** Korean lines are CP949, or UTF-8 when grim.ko.tab carries a UTF-8 BOM. */
+	Common::U32String decodeKorean(const Common::String &text) const;
+	/** Coverage of a line drawn from the SVFN font, w*h bytes. */
+	void svfnCoverage(const Common::U32String &text, Common::Array<byte> &coverage, int &w, int &h) const;
+	int32 svfnAdvance(uint32 cp) const;
+
 	Graphics::Font *_font;
+	Graphics::SvfnGlyphSource *_svfn;
 	bool _isUnicode;
 	int _size;
 };

@@ -24,6 +24,9 @@
 #include "graphics/fonts/ttf.h"
 #include "graphics/font.h"
 #include "graphics/surface.h"
+#include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/glyph_source_svfn.h"
+#include "graphics/hires_text/text_compose.h"
 
 #include "image/tga.h"
 
@@ -354,28 +357,17 @@ void FontTTF::restoreState(SaveGame *state) {
 
 	g_driver->destroyFont(this);
 	delete _font;
+	_font = nullptr;
+	delete _svfn;
+	_svfn = nullptr;
 
 	if (g_grim->getGameType() == GType_GRIM && g_grim->getGameLanguage() == Common::KO_KOR) {
 		Common::String name = fname + ".txt";
 		stream = g_resourceloader->openNewStreamFile(name, true);
-		if (stream) {
-			Common::String line = stream->readLine();
-			Common::String font;
-			Common::String fsize;
-			for (uint i = 0; i < line.size(); ++i) {
-				if (line[i] == ' ') {
-					font = Common::String(line.c_str(), i);
-					fsize = Common::String(line.c_str() + i + 1, line.size() - i - 2);
-				}
-			}
-
-			int s = atoi(fsize.c_str());
-			delete stream;
-			stream = g_resourceloader->openNewStreamFile(font.c_str(), true);
-			loadTTF(fname, stream, s);
-		} else {
+		bool loaded = stream && loadFromDescriptor(fname, stream);
+		delete stream;
+		if (!loaded)
 			error("Cannot load korean ttf font");
-		}
 	} else {
 		stream = g_resourceloader->openNewStreamFile(fname.c_str(), true);
 		loadTTF(fname, stream, size);
@@ -417,6 +409,14 @@ void BitmapFont::render(Graphics::Surface &buf, const Common::String &currentLin
 	}
 }
 
+FontTTF::FontTTF() : _font(nullptr), _svfn(nullptr), _isUnicode(false), _size(0) {
+}
+
+FontTTF::~FontTTF() {
+	delete _font;
+	delete _svfn;
+}
+
 void FontTTF::loadTTF(const Common::String &filename, Common::SeekableReadStream *data, int size) {
 	_filename = filename;
 	_size = size;
@@ -439,9 +439,124 @@ void FontTTF::loadTTFFromArchive(const Common::String &filename, int size) {
 	_isUnicode = true;
 }
 
+bool FontTTF::loadFromDescriptor(const Common::String &filename, Common::SeekableReadStream *descriptor) {
+	// "<face file> <size>px" on the first line, as the Korean patch ships it.
+	Common::String line = descriptor->readLine();
+	Common::String face;
+	Common::String fsize;
+	for (uint i = 0; i < line.size(); ++i) {
+		if (line[i] == ' ') {
+			face = Common::String(line.c_str(), i);
+			fsize = Common::String(line.c_str() + i + 1, line.size() - i - 2);
+		}
+	}
+	if (face.empty()) {
+		warning("Grim: %s.txt names no font; using the bitmap font", filename.c_str());
+		return false;
+	}
+	int s = atoi(fsize.c_str());
+
+	Common::SeekableReadStream *stream = g_resourceloader->openNewStreamFile(face.c_str(), true);
+	if (!stream) {
+		warning("Grim: %s.txt names %s, which is missing; using the bitmap font", filename.c_str(), face.c_str());
+		return false;
+	}
+
+	if (face.hasSuffixIgnoreCase(".svfn")) {
+		Graphics::HiResBitmapFont *bitmap = new Graphics::HiResBitmapFont();
+		const bool ok = bitmap->load(*stream);
+		delete stream;
+		if (!ok || bitmap->cellWidth() <= 0 || bitmap->cellHeight() <= 0) {
+			delete bitmap;
+			warning("Grim: %s is not a valid SVFN font; using the bitmap font", face.c_str());
+			return false;
+		}
+		_filename = filename;
+		_size = s;
+		_isUnicode = false;
+		_svfn = new Graphics::SvfnGlyphSource(bitmap, DisposeAfterUse::YES);
+		return true;
+	}
+
+#ifdef USE_FREETYPE2
+	loadTTF(filename, stream, s);
+	if (!_font) {
+		// TTFFont leaves a stream it failed on to the caller.
+		delete stream;
+		warning("Grim: %s is not a usable TrueType font; using the bitmap font", face.c_str());
+		return false;
+	}
+	// The font now owns the stream and reads glyphs from it on demand.
+	return true;
+#else
+	delete stream;
+	warning("Grim: %s needs FreeType, which this build lacks; using the bitmap font", face.c_str());
+	return false;
+#endif
+}
+
+Common::U32String FontTTF::decodeKorean(const Common::String &text) const {
+	if (g_grim->_isUtf8)
+		return text.decode(Common::CodePage::kUtf8);
+	return Common::U32String(text, Common::kWindows949);
+}
+
+int32 FontTTF::svfnAdvance(uint32 cp) const {
+	const int a = _svfn->advance(cp);
+	if (a > 0)
+		return a;
+	return _svfn->cells(cp) == 2 ? _svfn->advanceWide() : _svfn->advanceNarrow();
+}
+
+void FontTTF::svfnCoverage(const Common::U32String &text, Common::Array<byte> &coverage, int &w, int &h) const {
+	w = 0;
+	for (uint i = 0; i < text.size(); i++)
+		w += svfnAdvance(text[i]);
+	h = _svfn->cellHeight();
+	coverage.clear();
+	coverage.resize(w * h, 0);
+
+	const int bpp = _svfn->bitsPerPixel();
+	int pen = 0;
+	for (uint i = 0; i < text.size(); i++) {
+		const uint32 cp = text[i];
+		const int cells = _svfn->cells(cp);
+		const int glyphW = cells * _svfn->cellWidth();
+		for (int y = 0; cells > 0 && y < h; y++) {
+			const byte *row = _svfn->row(cp, y);
+			for (int x = 0; x < glyphW && pen + x < w; x++) {
+				const byte c = Graphics::TextCompose::expandCoverage(row, x, bpp);
+				byte &dst = coverage[y * w + pen + x];
+				if (c > dst)
+					dst = c;
+			}
+		}
+		pen += svfnAdvance(cp);
+	}
+}
+
+int32 FontTTF::getKernedHeight() const {
+	if (_svfn)
+		return _svfn->cellHeight();
+	return _font->getFontHeight();
+}
+
+int32 FontTTF::getCharKernedWidth(uint32 c) const {
+	if (_svfn)
+		return svfnAdvance(c);
+	return _font->getCharWidth(c);
+}
+
 int FontTTF::getKernedStringLength(const Common::String &text) const {
+	if (_svfn) {
+		const Common::U32String u = g_grim->getGameLanguage() == Common::KO_KOR ? decodeKorean(text) : text.decode(Common::CodePage::kUtf8);
+		int w = 0;
+		for (uint i = 0; i < u.size(); i++)
+			w += svfnAdvance(u[i]);
+		return w;
+	}
 	if (g_grim->getGameLanguage() == Common::KO_KOR) {
-		return _font->getStringWidth(convertToU32String(text.c_str(), Common::kWindows949));
+		return _font->getStringWidth(decodeKorean(text));
 	}
 	if (_isUnicode) {
 		return _font->getStringWidth(text.decode(Common::CodePage::kUtf8));
@@ -450,9 +565,31 @@ int FontTTF::getKernedStringLength(const Common::String &text) const {
 }
 
 void FontTTF::render(Graphics::Surface &surface, const Common::String &currentLine, const Graphics::PixelFormat &pixelFormat, uint32 blackColor, uint32 color, uint32 colorKey) const {
+	if (_svfn) {
+		// The legacy OpenGL renderer: white over the colour key, as for a TTF.
+		Common::Array<byte> coverage;
+		int width, height;
+		svfnCoverage(g_grim->getGameLanguage() == Common::KO_KOR ? decodeKorean(currentLine) : currentLine.decode(Common::CodePage::kUtf8), coverage, width, height);
+		surface.create(width, height, pixelFormat);
+		surface.fillRect(Common::Rect(0, 0, width, height), colorKey);
+		byte kr, kg, kb;
+		pixelFormat.colorToRGB(colorKey, kr, kg, kb);
+		for (int y = 0; y < height; y++) {
+			for (int x = 0; x < width; x++) {
+				const byte c = coverage[y * width + x];
+				if (c == 255)
+					surface.setPixel(x, y, pixelFormat.RGBToColor(255, 255, 255));
+				else if (c)
+					surface.setPixel(x, y, pixelFormat.RGBToColor(Graphics::TextCompose::blend(kr, 255, c),
+					                                             Graphics::TextCompose::blend(kg, 255, c),
+					                                             Graphics::TextCompose::blend(kb, 255, c)));
+			}
+		}
+		return;
+	}
 #ifdef USE_FREETYPE2
 	if (g_grim->getGameLanguage() == Common::KO_KOR) {
-		Common::U32String u32CurrentLine(currentLine, Common::kWindows949);
+		Common::U32String u32CurrentLine = decodeKorean(currentLine);
 		int width = _font->getStringWidth(u32CurrentLine);
 		int height = _font->getFontHeight();
 		surface.create(width, height, pixelFormat);
@@ -473,6 +610,65 @@ void FontTTF::render(Graphics::Surface &surface, const Common::String &currentLi
 
 		_font->drawString(&surface, currentLine, 0, 0, bbox.right, 0xFFFFFFFF);
 	}
+#endif
+}
+
+bool FontTTF::renderAlpha(Graphics::Surface &surface, const Common::String &currentLine, const Graphics::PixelFormat &format, byte r, byte g, byte b) const {
+	if (format.bytesPerPixel != 4 || format.aBits() != 8)
+		return false;
+
+	if (_svfn) {
+		Common::Array<byte> coverage;
+		int width, height;
+		svfnCoverage(g_grim->getGameLanguage() == Common::KO_KOR ? decodeKorean(currentLine) : currentLine.decode(Common::CodePage::kUtf8), coverage, width, height);
+		surface.create(width, height, format);
+		for (int y = 0; width > 0 && y < height; y++)
+			Graphics::TextCompose::coverageToArgb(&coverage[y * width], (uint32 *)surface.getBasePtr(0, y), width, format, r, g, b);
+		return true;
+	}
+
+#ifdef USE_FREETYPE2
+	if (!_font)
+		return false;
+
+	// Same sizes as render(); the line is drawn in white on opaque black, so
+	// the red channel ends up holding the coverage.
+	const uint32 black = format.ARGBToColor(255, 0, 0, 0);
+	const uint32 white = format.ARGBToColor(255, 255, 255, 255);
+	if (g_grim->getGameLanguage() == Common::KO_KOR) {
+		Common::U32String u32CurrentLine = decodeKorean(currentLine);
+		int width = _font->getStringWidth(u32CurrentLine);
+		int height = _font->getFontHeight();
+		surface.create(width, height, format);
+		surface.fillRect(Common::Rect(0, 0, width, height), black);
+		_font->drawString(&surface, u32CurrentLine, 0, 0, width, white);
+	} else if (_isUnicode) {
+		Common::U32String u32CurrentLine = currentLine.decode(Common::CodePage::kUtf8);
+		Common::Rect bbox = _font->getBoundingBox(u32CurrentLine);
+		surface.create(bbox.right, bbox.bottom, format);
+		surface.fillRect(Common::Rect(0, 0, bbox.right, bbox.bottom), black);
+		_font->drawString(&surface, u32CurrentLine, 0, 0, bbox.right, white);
+	} else {
+		Common::Rect bbox = _font->getBoundingBox(currentLine);
+		surface.create(bbox.right, bbox.bottom, format);
+		surface.fillRect(Common::Rect(0, 0, bbox.right, bbox.bottom), black);
+		_font->drawString(&surface, currentLine, 0, 0, bbox.right, white);
+	}
+
+	// Move the red channel into alpha and colour the line.
+	Common::Array<byte> coverage(surface.w, 0);
+	for (int y = 0; y < surface.h; y++) {
+		uint32 *row = (uint32 *)surface.getBasePtr(0, y);
+		for (int x = 0; x < surface.w; x++) {
+			byte a, cr, cg, cb;
+			format.colorToARGB(row[x], a, cr, cg, cb);
+			coverage[x] = cr;
+		}
+		Graphics::TextCompose::coverageToArgb(coverage.begin(), row, surface.w, format, r, g, b);
+	}
+	return true;
+#else
+	return false;
 #endif
 }
 
