@@ -326,6 +326,14 @@ struct ScummHiResText {
 								const Common::Path &ttfPath);
 
 	/**
+	 * Whether the CJK conversion tables (encoding.dat) can be read.
+	 *
+	 * Without them no double-byte string decodes, so the layer draws no
+	 * CJK glyph at all; loadConfig() warns once when that is the case.
+	 */
+	static bool cjkTablesPresent();
+
+	/**
 	 * Tell the layer which grid the engine settled on for this charset.
 	 *
 	 * Call it after the engine has resolved its own font, so the values are
