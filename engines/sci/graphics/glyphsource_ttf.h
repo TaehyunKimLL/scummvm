@@ -131,13 +131,16 @@ private:
 
 	Entry &ensure(uint32 cp);
 
+#ifdef USE_FREETYPE2
+	// Only the FreeType build ever opens a face; the stub has none of this.
 	Graphics::Font *_font = nullptr;
 	Common::SeekableReadStream *_stream = nullptr;
 	DisposeAfterUse::Flag _dispose = DisposeAfterUse::NO;
+	int _yOffset = 0;
+#endif
 
 	byte _cellWidth = 0;
 	byte _cellHeight = 0;
-	int _yOffset = 0;
 	uint32 _rasterCount = 0;
 	uint32 _totalRenderMs = 0;
 
