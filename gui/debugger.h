@@ -37,6 +37,7 @@ namespace GUI {
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
 class ConsoleDialog;
 #endif
+class DebugSocket;
 
 class Debugger {
 public:
@@ -61,6 +62,14 @@ public:
 
 	/** Run one command line as if typed at the console. */
 	bool runCommandLine(const char *line) { return parseCommand(line); }
+
+	/**
+	 * The debug socket (see gui/debugsocket.h), or null. onFrame() opens it
+	 * on its first call when the game's config has `debug_socket=<path>`
+	 * (or `debug_record=<path>`, a recorder with no socket); without either
+	 * key nothing is opened and nothing more is looked up.
+	 */
+	DebugSocket *debugSocket() const { return _debugSocket; }
 
 	void debugPrintColumns(const Common::StringArray &list);
 
@@ -90,6 +99,12 @@ public:
 	bool isActive() const { return _isActive; }
 
 protected:
+	/**
+	 * Called once, right after onFrame() opened the debug socket and before
+	 * its first poll: an engine registers its extension here.
+	 */
+	virtual void debugSocketOpened(DebugSocket *socket) {}
+
 	typedef Common::Functor1<const char *, bool> defaultCommand;
 	typedef Common::Functor2<int, const char **, bool> Debuglet;
 
@@ -211,6 +226,8 @@ private:
 	 */
 	bool _isActive;
 	OutputSink *_outputSink;
+	DebugSocket *_debugSocket;
+	bool _debugSocketChecked;	///< the config was looked at once
 
 	Common::String _errStr;
 
