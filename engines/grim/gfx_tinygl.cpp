@@ -1165,11 +1165,18 @@ void GfxTinyGL::prepareMovieFrame(Graphics::Surface *frame) {
 }
 
 void GfxTinyGL::drawMovieFrame(int offsetX, int offsetY) {
+	// No frame has been prepared since the last release (e.g. right after a
+	// savegame restore): there is nothing to draw.
+	if (_smushImage == nullptr)
+		return;
 	tglBlitFast(_smushImage, offsetX, offsetY);
 }
 
 void GfxTinyGL::releaseMovieFrame() {
+	// The image is freed once no draw call refers to it any more; forget it so
+	// that the next prepareMovieFrame() generates a new one.
 	tglDeleteBlitImage(_smushImage);
+	_smushImage = nullptr;
 }
 
 void GfxTinyGL::loadEmergFont() {
