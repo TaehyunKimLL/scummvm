@@ -71,9 +71,28 @@ public:
 	 * Korean game's .uni fonts. Only Hangul is checked: the probe set holds
 	 * no kana or hanzi, and adding some would spend the load-time raster
 	 * budget, so other CJK code pages get no such check yet.
+	 *
+	 * Legacy: kept, unchanged, for the Korean code-page paths. A UTF-8
+	 * translation uses the overload below and checkCoverage() instead.
 	 */
 	static TtfGlyphSource *create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 	                               int pixelSize, Common::String &error, bool requireHangul = false);
+
+	/**
+	 * As create() above, without the Hangul check, and with @p extraFitProbes
+	 * (the translation's sampled code points, CodePointSet::sample(),
+	 * I18N_TEXT_DESIGN.md section 4.4) appended to the fixed probe set for the
+	 * vertical fit only, so Thai above/below marks and Japanese brackets fit
+	 * the cell. At most kMaxExtraFitProbes are used; the load-time raster
+	 * budget grows by as many. With none, the fit is exactly the legacy one.
+	 * Coverage is checked apart, with checkCoverage() (coverage.h).
+	 */
+	static TtfGlyphSource *create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+	                               int pixelSize, Common::String &error,
+	                               const uint32 *extraFitProbes, uint extraFitProbeCount);
+
+	/** The most extra fit probes create() takes. */
+	static const uint kMaxExtraFitProbes = 64;
 
 	/** The pixel sizes create() accepts. */
 	static const int kMinPixelSize = 6;
@@ -146,6 +165,10 @@ public:
 
 private:
 	TtfGlyphSource() {}
+
+	static TtfGlyphSource *createImpl(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+	                                  int pixelSize, Common::String &error, bool requireHangul,
+	                                  const uint32 *extraFitProbes, uint extraFitProbeCount);
 
 	struct Entry {
 		byte cells = 0;
