@@ -491,6 +491,10 @@ private:
 	Face *faceFor(int charsetId, bool latin) const;
 	Face *ttfFaceFor(int charsetId) const;
 	Face *openTtfFace(int pixelSize) const;
+	int ttfCellWidth(int charsetId) const;
+
+	/// The face could not be used at all; set once, cleared with the faces.
+	mutable bool _ttfFailed = false;
 	void freeFaces();
 	bool loadBitmapFile(const Common::Path &gameDir, const Common::String &name,
 						int charsetId, bool latin);

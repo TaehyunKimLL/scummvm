@@ -101,12 +101,11 @@ further down — whitespace before `;` ends a value — belongs to
 |---|---|---|
 | `hires_text` | bool | the master switch — see below |
 | `hires_text_map` | path | which map to read; otherwise `hires_text.map` in the game folder |
-| `hires_text_font` | path | a TrueType face, baked at start-up |
+| `hires_text_font` | path | a TrueType face, rasterised as glyphs are drawn |
 | `hires_text_scale` | 1–3 | text surface multiplier |
 | `hires_text_alpha` | bool | antialiased blending rather than keyed text |
 | `hires_text_metrics` | `font`/`game` | whose advance widths to use |
 | `hires_text_log` | bool | log every line drawn and which font drew it |
-| `hires_text_dump_baked` | bool | write baked fonts to `baked%02d.fnt` for inspection |
 
 **A user key beats the map.** That is deliberate: the map is the translator's
 intent, the ini is the person running it.
@@ -125,7 +124,7 @@ Measured, one row per way in:
 |---|---|---|
 | `hires_text.map` | map read, layer on | nothing read |
 | `hires00.fnt` … | fonts probed, layer on | nothing probed |
-| `hires_text_font=` | face baked, layer on | nothing baked |
+| `hires_text_font=` | face opened, layer on | nothing opened |
 
 ### In the game options
 
@@ -227,7 +226,7 @@ What the game's own bytes mean. Single-byte: `latin1`/`iso-8859-1`,
 `macroman`, `maccentraleurope`, `ascii`. Double-byte: `cp949` (Korean),
 `cp932` (Japanese), `cp936` (Simplified Chinese), `cp950` (Traditional).
 
-This also decides which glyph set a TrueType face is baked with — see below.
+It also decides whether a TrueType face must carry Hangul — see below.
 
 ### `[bitmap]`
 
@@ -306,17 +305,11 @@ A range covers many codes in one line:
   over the common table and every scope together. A range that would cross
   the limit is ignored whole, with one warning; ranges earlier in the file
   still apply.
-- **Caution — one baked font, one glyph cap:** every remap target is baked
-  into *every* charset's font, not just the one the range was written under
-  — both the CJK bake list and the Latin bake list get every remap applied
-  (`graphics/hires_text/font_baker.cpp` around line 82 and lines 238-248;
-  `engines/scumm/hires_text.cpp` around lines 1168-1178). A baked font holds
-  at most 65535 glyphs; if a map's ranges push a charset's kept-code count
-  past that, the bake fails outright (a warning is logged) and that charset
-  loses hi-res text entirely. Small ranges such as ASCII to fullwidth (94
-  codes) are nowhere near the limit; keep an eye on this only for ranges
-  large enough, or numerous enough across sections, to approach 65535 codes
-  in a single charset's bake.
+- **Offline bakes only — one baked font, one glyph cap:** when a font is
+  baked offline with the map's remaps applied, every remap target goes into
+  the font (`graphics/hires_text/font_baker.cpp`). A baked font holds at most
+  65535 glyphs, and a bake past that fails. A TrueType face at run time has
+  no such cap: it rasterises a remap target when it is first drawn.
 - The key is always a plain code range, never `u+21-u+7E`: `Common::INIFile`
   only allows alphanumerics, `-`, `_`, `.`, `:` and space in a key, so a `u+`
   key rejects the *whole map* — the same failure a single `u+`-keyed entry
@@ -339,7 +332,7 @@ The shared table has three roles, `default`, `bold`, `title`, but **SCUMM
 applies only `default=`.** `bold=` and `title=` parse without error — they
 fill the same table — but nothing on the SCUMM line reads them; only SCI's
 typeface path uses more than the default role. `[sizes]` parses in full too,
-and SCUMM does not apply any of it: the size a TTF is baked at follows the
+and SCUMM does not apply any of it: the size a TTF is drawn at follows the
 game's own cell and `hires_text_scale`, never a value named in the map.
 
 ### `[translation]`
@@ -385,8 +378,8 @@ docs repo for the full section-by-section list of what each engine applies.
 
 ## Using a TrueType face directly
 
-A face is baked into bitmap fonts at start-up, so everything downstream —
-decorations, metrics, the no-FreeType build — sees only bitmap fonts.
+A face is opened once per pixel size a charset needs and each character is
+rasterised the first time it is drawn; nothing is baked at start-up.
 
 ```ini
 [mi2en]
@@ -398,14 +391,28 @@ Measured on English MI2: 4 distinct colours in the subtitle band without it
 
 Two things to know:
 
-**The face is baked at the game's own cell**, measured when a charset is first
-selected. MI2's charset 7 is 14px, so at scale 2 the bake is 28x28. Only the
-charsets a game actually uses are baked.
+**The face is sized to the game's own cell**, the double-byte font's cell for
+a CJK game, otherwise measured when a charset is first selected, times the
+scale. MI2's charset 7 is 14px, so at scale 2 the face's line (ascent plus
+descent) is 28px - the same size the start-up bake of earlier builds used.
+Charsets on the same cell share one face; each glyph is clipped to the cell
+width.
 
-**Which glyphs get baked follows `[encoding] codepage`.** A CJK codepage bakes
-that block plus Latin; anything else bakes Latin alone. A Korean game pointed
-at a Latin-only face will render its Latin halves hi-res and leave Hangul
-original — two qualities on one line.
+**A Korean game needs a face that draws Hangul.** With `[encoding]
+codepage=cp949` (the Korean default) a face whose Hangul probes draw nothing
+is refused with one warning, rather than rendering the Latin halves hi-res
+and leaving Hangul original — two qualities on one line.
+
+**Which font draws a character, when the map names both `.fnt` files and a
+face:** a shipped `.fnt` is primary, and the face fills what no `.fnt` names.
+For a double-byte character: this charset's `[bitmap] multi` file, then
+`[bitmap] single`, then the face, and only then the `.fnt` of the nearest
+charset. For a single-byte character: this charset's `[latin] bitmap` file,
+then a single `[latin] bitmap` file, then the face.
+
+Double-byte text is decoded through `encoding.dat`. Without it the layer says
+`encoding.dat not found (pass --extrapath to dists/engine-data); CJK glyphs
+disabled` once, and only Latin is drawn hi-res.
 
 A face alone cannot carry decorations, because `[shadow]` lives in the map.
 `hires_text_font` plus a map with only `[shadow]` in it is a valid
@@ -521,11 +528,10 @@ SCUMM: hi-res text enabled: scale 2, alpha on, metrics font,
 | Latin letters sit higher or lower than the Hangul beside them | the two fonts record different ascents. Bake both halves of a set at the same `--size` and `--cell` |
 | `source encoding other` | cosmetic. The log names only the four CJK pages, CP1252 and UTF-8; every other valid codepage — including `latin1` — prints as `other`. The map was parsed correctly |
 | `fonts (none named)` | no map was found and no fonts matched `hires%02d.fnt` |
-| `names no [bitmap] fonts` | a warning, not an error; the map is still used |
-| `no CJK block for this language` | expected for a European game — Latin is baked alone |
+| `names no [bitmap] fonts` | the map names neither `.fnt` files nor a face (ini or `[fonts] default=`); usually a map for the older TrueType loader |
+| `encoding.dat not found` | pass `--extrapath` to `dists/engine-data`; without it no double-byte string decodes |
+| `cannot use hi-res TrueType font …: face has no Hangul glyphs` | a Korean game pointed at a Latin-only face |
 | `hi-res scale 1 from the fonts (… over 0px game font)` | the simple form on a non-CJK game; set `[hires] scale` explicitly |
 | `hi-res text is configured but no replacement font loaded` | fonts were named and none loaded; check paths and that the files are valid |
 | `hi-res TrueType fonts need a build with FreeType` | this build cannot rasterise; bake to `.fnt` offline instead |
 
-`hires_text_dump_baked=true` writes what was baked to `baked%02d.fnt`, which
-can then be inspected with the same tools as a shipped font.
