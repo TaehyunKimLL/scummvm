@@ -20,6 +20,8 @@
  */
 
 #include "sci/graphics/fontunicode.h"
+#include "sci/graphics/fontkorean.h"
+#include "sci/graphics/fontsjis.h"
 #include "sci/graphics/glyphsource_scvmuni.h"
 #include "sci/graphics/screen.h"
 #include "sci/graphics/textcompose.h"
@@ -143,6 +145,33 @@ void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,
 			buffer[destY * width + destX] = color;
 		}
 	}
+}
+
+TextFaceKind GfxFontUnicodeAdapter::classify(uint32 chr) const {
+	// This adapter only ever exists for the hard-coded legacy ids (900/1001),
+	// so its two non-Unicode outcomes are: the legacy CJK font when the game
+	// shipped korean.fnt/SJIS.FNT, or the resource font otherwise (see
+	// GfxCache::createUnicodeFont()).
+	const bool fallbackIsLegacy = _fallback &&
+		(dynamic_cast<GfxFontKorean *>(_fallback) || dynamic_cast<GfxFontSjis *>(_fallback));
+
+	if (chr < 0x80 && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode))
+		return fallbackIsLegacy ? kTextFaceLegacy : kTextFaceResource;
+
+	const uint32 cp = toCodePoint(chr);
+	if (cp && _font->hasGlyph(cp)) {
+		// ASCII (hires_text_latin=half) or its fullwidth remap
+		// (hires_text_latin=fullwidth) drawn by the Unicode bundle - see
+		// GfxFontSet::classify() for the same two checks.
+		if (chr < 0x80 && TextCompose::asciiGoesToUnicodeFace(chr, _latinMode))
+			return kTextFaceLatin;
+		if (_latinMode == kLatinFullwidth &&
+			((chr >= 0xFF01 && chr <= 0xFF5E) || chr == 0x3000))
+			return kTextFaceLatin;
+		return kTextFaceUnicode;
+	}
+
+	return fallbackIsLegacy ? kTextFaceLegacy : kTextFaceResource;
 }
 
 GfxFontUnicodeAdapter::GfxFontUnicodeAdapter(GfxFontUnicode *font,

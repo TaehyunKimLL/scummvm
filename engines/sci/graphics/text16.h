@@ -140,6 +140,20 @@ private:
 
 	Common::Rect _codeRefTempRect;
 	CodeRefRectArray _codeRefRects;
+
+	/**
+	 * hires_text_log: the face tally Draw() (and, through it, Show())
+	 * computed for the line it just drew, read back by Box() right after
+	 * each Draw()/Show() call so it can log one aggregate line for the
+	 * whole box instead of Draw()'s own per-rendered-line one. Only
+	 * meaningful when GfxCache::isTextLogEnabled() is true; both callers
+	 * check the same cached flag, so they never disagree about whether
+	 * these are current.
+	 */
+	int _lastDrawTallyResource;
+	int _lastDrawTallyLegacy;
+	int _lastDrawTallyUnicode;
+	int _lastDrawTallyLatin;
 };
 
 } // End of namespace Sci

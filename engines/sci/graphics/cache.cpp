@@ -80,7 +80,8 @@ GfxCache::GfxCache(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palet
 	: _resMan(resMan), _screen(screen), _palette(palette),
 	  _unicodeFont(nullptr), _unicodeFontTried(false),
 	  _hiresTextFontResolved(false), _hiresTextFontSize(kHiresTextFontDefaultSize),
-	  _latinResolved(false), _latinMode(kLatinOff), _latinSpaceFullwidth(false) {
+	  _latinResolved(false), _latinMode(kLatinOff), _latinSpaceFullwidth(false),
+	  _textLogResolved(false), _textLog(false) {
 }
 
 void GfxCache::resolveHiresTextFont() {
@@ -180,6 +181,20 @@ void GfxCache::resolveHiresTextLatin(bool hiresTextFontIsTtf) {
 			warning("hires_text_latin_font: empty path; the main face draws Latin text");
 		}
 	}
+}
+
+bool GfxCache::isTextLogEnabled() {
+	if (!_textLogResolved) {
+		_textLogResolved = true;
+		// Deliberately unconditional: no hiresTextFontApplies() check. Task
+		// 1 of HIRES_COMPOSITOR_PLAN_3_MAP_PROPORTIONAL needs the font id
+		// logged on English games too, which the scope predicate would
+		// otherwise refuse hires_text_font itself on.
+		const Common::String &domain = ConfMan.getActiveDomainName();
+		_textLog = ConfMan.hasKey("hires_text_log", domain) &&
+				   ConfMan.getBool("hires_text_log", domain);
+	}
+	return _textLog;
 }
 
 GfxCache::~GfxCache() {

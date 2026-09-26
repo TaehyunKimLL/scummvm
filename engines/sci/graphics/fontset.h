@@ -112,6 +112,14 @@ public:
 	bool isEmpty() const { return _faces.empty(); }
 	uint faceCount() const { return _faces.size(); }
 
+	/**
+	 * hires_text_log: which face faceFor() would pick for @p chr (a
+	 * glyphChar()-mapped code point, as passed to draw()) - read-only, and
+	 * not on the hot draw path itself, since GfxText16 only calls this when
+	 * hires_text_log resolved true. See textlatin.h's TextFaceKind.
+	 */
+	TextFaceKind classify(uint32 chr) const;
+
 	GuiResourceId getResourceId() override { return _resourceId; }
 	byte getHeight() override;
 	bool isDoubleByte(uint32 chr) override;

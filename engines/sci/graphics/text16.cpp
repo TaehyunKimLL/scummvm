@@ -31,16 +31,58 @@
 #include "sci/engine/state.h"
 #include "sci/graphics/cache.h"
 #include "sci/graphics/coordadjuster.h"
+#include "sci/graphics/scifont.h"
+#include "sci/graphics/fontkorean.h"
+#include "sci/graphics/fontset.h"
+#include "sci/graphics/fontsjis.h"
+#include "sci/graphics/fontunicode.h"
 #include "sci/graphics/macfont.h"
 #include "sci/graphics/ports.h"
 #include "sci/graphics/paint16.h"
-#include "sci/graphics/scifont.h"
 #include "sci/graphics/screen.h"
 #include "sci/graphics/text16.h"
 #include "sci/graphics/textlatin.h"
 #include "sci/utf8.h"
 
 namespace Sci {
+
+namespace {
+
+// hires_text_log: which TextFaceKind (textlatin.h) drew a glyph, found by asking
+// whichever concrete GfxFont _font currently is. classify() on GfxFontSet /
+// GfxFontUnicodeAdapter mirrors their own draw() choice exactly; a plain
+// GfxFontFromResource or the legacy CJK fonts (reached with no SCVMUNI
+// bundle at all - see GfxCache::getFont()) have only one face to report.
+TextFaceKind classifyGlyphFace(GfxFont *font, uint32 glyph) {
+	if (GfxFontSet *set = dynamic_cast<GfxFontSet *>(font))
+		return set->classify(glyph);
+	if (GfxFontUnicodeAdapter *adapter = dynamic_cast<GfxFontUnicodeAdapter *>(font))
+		return adapter->classify(glyph);
+	if (dynamic_cast<GfxFontKorean *>(font) || dynamic_cast<GfxFontSjis *>(font))
+		return kTextFaceLegacy;
+	return kTextFaceResource;
+}
+
+// hires_text_log's "faces %s": one term per non-zero face kind, in a fixed
+// order so runs are easy to diff. "none" for a line with no drawn glyphs
+// (e.g. a blank separator line).
+Common::String formatFaceTally(int resource, int legacy, int unicode, int latin) {
+	Common::String out;
+	if (resource)
+		out += Common::String::format("resource=%d ", resource);
+	if (legacy)
+		out += Common::String::format("legacy=%d ", legacy);
+	if (unicode)
+		out += Common::String::format("unicode=%d ", unicode);
+	if (latin)
+		out += Common::String::format("latin=%d ", latin);
+	if (out.empty())
+		return "none";
+	out.deleteLastChar(); // the trailing separator space
+	return out;
+}
+
+} // End of anonymous namespace
 
 GfxText16::GfxText16(GfxCache *cache, GfxPorts *ports, GfxPaint16 *paint16, GfxScreen *screen, GfxMacFontManager *macFontManager)
 	: _cache(cache), _ports(ports), _paint16(paint16), _screen(screen), _macFontManager(macFontManager) {
@@ -59,6 +101,10 @@ void GfxText16::init() {
 	_codeColors = nullptr;
 	_codeColorsCount = 0;
 	_useEarlyGetLongestTextCalculations = g_sci->_features->useEarlyGetLongestTextCalculations();
+	_lastDrawTallyResource = 0;
+	_lastDrawTallyLegacy = 0;
+	_lastDrawTallyUnicode = 0;
+	_lastDrawTallyLatin = 0;
 }
 
 GuiResourceId GfxText16::GetFontId() {
@@ -519,10 +565,18 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 	if (!_font)
 		return;
 
+	// hires_text_log: resolved once by GfxCache, so this costs one bool read
+	// when off. The four counts are read back by Box() right after this
+	// call, when it is one of the lines a box is splitting text into.
+	const bool logFaces = _cache->isTextLogEnabled();
+	int tallyResource = 0, tallyLegacy = 0, tallyUnicode = 0, tallyLatin = 0;
+
 	Common::Rect rect;
 	rect.top = _ports->_curPort->curTop;
 	rect.bottom = rect.top + _ports->_curPort->fontHeight;
 	text += from;
+	const char *lineStart = text;
+	const int16 lineLen = len;
 	bool escapedNewLine = false;
 	// len counts BYTES, as in Width(): consume what each character took.
 	while (len > 0) {
@@ -566,9 +620,27 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 			}
 			// CharStd
 			_font->draw(glyph, _ports->_curPort->top + _ports->_curPort->curTop, _ports->_curPort->left + _ports->_curPort->curLeft, _ports->_curPort->penClr, _ports->_curPort->greyedOutput);
+			if (logFaces) {
+				switch (classifyGlyphFace(_font, glyph)) {
+				case kTextFaceResource: tallyResource++; break;
+				case kTextFaceLegacy:   tallyLegacy++;    break;
+				case kTextFaceUnicode:  tallyUnicode++;   break;
+				case kTextFaceLatin:    tallyLatin++;     break;
+				}
+			}
 			_ports->_curPort->curLeft += charWidth;
 		}
 		}
+	}
+
+	if (logFaces) {
+		_lastDrawTallyResource = tallyResource;
+		_lastDrawTallyLegacy = tallyLegacy;
+		_lastDrawTallyUnicode = tallyUnicode;
+		_lastDrawTallyLatin = tallyLatin;
+		debug(1, "hires_text: font %d line \"%s\" faces %s", orgFontId,
+			  Common::String(lineStart, (uint32)lineLen).c_str(),
+			  formatFaceTally(tallyResource, tallyLegacy, tallyUnicode, tallyLatin).c_str());
 	}
 }
 
@@ -600,6 +672,12 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 		SetFont(fontId);
 	else
 		fontId = previousFontId;
+
+	// hires_text_log: an aggregate over every line this box renders (as
+	// opposed to Draw()'s own per-rendered-line debug line), read back from
+	// Draw()/Show()'s last tally right after each call below.
+	const bool logFaces = _cache->isTextLogEnabled();
+	int tallyResource = 0, tallyLegacy = 0, tallyUnicode = 0, tallyLatin = 0;
 
 	// The legacy CJK path switches to the one font that holds double-byte
 	// glyphs AND sets doubleByteMode, and both halves matter: dropping the
@@ -724,10 +802,19 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 		} else {
 			Draw(curTextLine, 0, charCount, fontId, previousPenColor);
 		}
+		if (logFaces) {
+			tallyResource += _lastDrawTallyResource;
+			tallyLegacy += _lastDrawTallyLegacy;
+			tallyUnicode += _lastDrawTallyUnicode;
+			tallyLatin += _lastDrawTallyLatin;
+		}
 
 		hline += textHeight;
 		curTextLine = curTextPos;
 	}
+	if (logFaces)
+		debug(1, "hires_text: font %d line \"%s\" faces %s", fontId, text,
+			  formatFaceTally(tallyResource, tallyLegacy, tallyUnicode, tallyLatin).c_str());
 	SetFont(previousFontId);
 	_ports->penColor(previousPenColor);
 }
@@ -760,6 +847,9 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 	else
 		str = Common::convertBiDiString(strOrig, g_sci->getLanguage());
 
+	const bool logFaces = _cache->isTextLogEnabled();
+	int tallyResource = 0, tallyLegacy = 0, tallyUnicode = 0, tallyLatin = 0;
+
 	const char *text = str.c_str();
 	int textLen = (int)str.size();
 	Common::Rect rect;
@@ -785,8 +875,19 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 		const uint32 glyph = glyphChar(curChar);
 		uint16 charWidth = _font->getCharWidth(glyph);
 		_font->draw(glyph, _ports->_curPort->top + _ports->_curPort->curTop, _ports->_curPort->left + _ports->_curPort->curLeft, _ports->_curPort->penClr, _ports->_curPort->greyedOutput);
+		if (logFaces) {
+			switch (classifyGlyphFace(_font, glyph)) {
+			case kTextFaceResource: tallyResource++; break;
+			case kTextFaceLegacy:   tallyLegacy++;    break;
+			case kTextFaceUnicode:  tallyUnicode++;   break;
+			case kTextFaceLatin:    tallyLatin++;     break;
+			}
+		}
 		_ports->_curPort->curLeft += charWidth;
 	}
+	if (logFaces)
+		debug(1, "hires_text: font %d line \"%s\" faces %s", GetFontId(), str.c_str(),
+			  formatFaceTally(tallyResource, tallyLegacy, tallyUnicode, tallyLatin).c_str());
 }
 
 // The glyph character for an already-classified character (see text16.h).

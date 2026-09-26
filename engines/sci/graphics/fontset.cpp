@@ -175,6 +175,37 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 	return &_faces[0];
 }
 
+TextFaceKind GfxFontSet::classify(uint32 chr) const {
+	uint32 outChr = 0;
+	const Face *f = faceFor(chr, outChr);
+	if (!f)
+		return kTextFaceResource;
+
+	switch (f->kind) {
+	case kFaceLegacyDbcs:
+		return kTextFaceLegacy;
+
+	case kFaceCodePoint:
+		// ASCII (or the ' '/printable range) that hires_text_latin=half
+		// routed past the resource face and into this one - see
+		// TextCompose::asciiGoesToUnicodeFace().
+		if (chr < 0x80 && TextCompose::asciiGoesToUnicodeFace(chr, _latinMode))
+			return kTextFaceLatin;
+		// hires_text_latin=fullwidth remapped ASCII into this range before
+		// faceFor() ever saw it (GfxText16::glyphChar()), so a genuine code
+		// point cannot be told apart from it here except by that range -
+		// harmless, since real CJK content never lands in it.
+		if (_latinMode == kLatinFullwidth &&
+			((chr >= 0xFF01 && chr <= 0xFF5E) || chr == 0x3000))
+			return kTextFaceLatin;
+		return kTextFaceUnicode;
+
+	case kFaceResource:
+	default:
+		return kTextFaceResource;
+	}
+}
+
 byte GfxFontSet::getHeight() {
 	// Line spacing is the game's own, from the face the script chose. A later
 	// face reporting its cell height here would collapse every font in the

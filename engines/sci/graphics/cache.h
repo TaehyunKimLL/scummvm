@@ -69,6 +69,19 @@ public:
 	 *  meaningful when getLatinMode() == kLatinFullwidth. */
 	bool getLatinSpaceFullwidth() const { return _latinSpaceFullwidth; }
 
+	/**
+	 * hires_text_log (game domain, bool): whether GfxText16 emits one
+	 * debug(1, ...) line per drawn line, naming the font id and a tally of
+	 * which face kind (see textlatin.h's FaceKind) drew each glyph.
+	 *
+	 * Resolved once and cached here, like getLatinMode(), so GfxText16 never
+	 * does a ConfMan lookup per character. Unlike hires_text_font, this is
+	 * read unconditionally - NOT gated on hiresTextFontApplies() - so an
+	 * English game (which the scope predicate refuses hires_text_font on)
+	 * can still log which font id drew its text.
+	 */
+	bool isTextLogEnabled();
+
 	int16 kernelViewGetCelWidth(GuiResourceId viewId, int16 loopNo, int16 celNo);
 	int16 kernelViewGetCelHeight(GuiResourceId viewId, int16 loopNo, int16 celNo);
 	int16 kernelViewGetLoopCount(GuiResourceId viewId);
@@ -133,6 +146,9 @@ private:
 	LatinMode _latinMode;
 	bool _latinSpaceFullwidth;
 	Common::String _latinFontPath;
+
+	bool _textLogResolved;
+	bool _textLog;
 	/**
 	 * Fonts an adapter wraps but does not own. They are not in _cachedFonts
 	 * (only the adapter is), so the cache has to delete them separately.

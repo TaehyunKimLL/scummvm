@@ -140,6 +140,13 @@ public:
 	void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput,
 	                  byte *buffer, int16 width, int16 height) override;
 
+	/**
+	 * hires_text_log: which face draw() would pick for @p chr - mirrors its
+	 * choice read-only. See GfxFontSet::classify() and textlatin.h's
+	 * TextFaceKind.
+	 */
+	TextFaceKind classify(uint32 chr) const;
+
 private:
 	/**
 	 * Decode a packed byte pair into a Unicode code point.

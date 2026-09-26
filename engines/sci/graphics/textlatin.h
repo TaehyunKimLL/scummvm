@@ -41,6 +41,27 @@ enum LatinMode {
 						///< and drawn at double (wide) width
 };
 
+/**
+ * hires_text_log: which face actually drew a glyph, for GfxText16's
+ * per-line tally (Box/Draw/DrawStatus). Answered by GfxFontSet::classify()
+ * and GfxFontUnicodeAdapter::classify(), which mirror the same choice their
+ * own draw() already makes - this adds no new decision, just a name for the
+ * existing one, so it costs nothing when hires_text_log is off (GfxText16
+ * only calls classify() when the flag resolved true).
+ *
+ * Named TextFaceKind, not FaceKind: GfxFontSet already has its own nested
+ * FaceKind enum (kFaceResource/kFaceLegacyDbcs/kFaceCodePoint) for a
+ * different purpose (which face to ask, not what to report), and the two
+ * would otherwise collide by name inside that class's scope.
+ */
+enum TextFaceKind {
+	kTextFaceResource,	///< the game's own resource face
+	kTextFaceLegacy,	///< korean.fnt / SJIS.FNT, addressed by byte pair
+	kTextFaceUnicode,	///< the SCVMUNI/TrueType bundle, a genuine code point
+	kTextFaceLatin		///< ASCII (or its hires_text_latin=fullwidth remap)
+						///< routed to that bundle by hires_text_latin
+};
+
 /** The arithmetic of hi-res text, free of engine state so it is tested alone
  *  (HIRES_COMPOSITOR_DESIGN.md, hires_text_latin). */
 namespace TextCompose {
