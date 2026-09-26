@@ -37,6 +37,10 @@ TEST_LIBS += test/system/null_osystem.o \
 	backends/platform/sdl/win32/win32_wrapper.o
 endif
 
+ifdef USE_ASPECT
+TESTS += $(srcdir)/test/graphics/scaler_aspect.h
+endif
+
 ifdef USE_TINYGL
 TESTS += $(srcdir)/test/graphics/tinygl*.h
 endif

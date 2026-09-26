@@ -122,6 +122,25 @@ static void interpolate5Line(uint16 *dst, const uint16 *srcA, const uint16 *srcB
 		}
 	}
 }
+
+/**
+ * The same blend for 4-byte pixels with 8-bit channels, in any channel
+ * order: interpolate32_7_1/5_3 work per byte, so ColorMasks<8888> fits
+ * ARGB, RGBA, ABGR, BGRA and XRGB alike (an alpha or padding byte is
+ * blended like the others).
+ */
+template<typename ColorMask, int scale>
+static void interpolate5Line(uint32 *dst, const uint32 *srcA, const uint32 *srcB, int width) {
+	if (scale == 1) {
+		while (width--) {
+			*dst++ = interpolate32_7_1<ColorMask>(*srcB++, *srcA++);
+		}
+	} else {
+		while (width--) {
+			*dst++ = interpolate32_5_3<ColorMask>(*srcB++, *srcA++);
+		}
+	}
+}
 #endif
 
 #if ASPECT_MODE == kFastAndVeryGoodAspectMode
@@ -189,7 +208,7 @@ void makeRectStretchable(int &x, int &y, int &w, int &h, bool interpolate) {
 }
 
 /**
- * Stretch a 16bpp image vertically by factor 1.2. Used to correct the
+ * Stretch a 16bpp or 32bpp image vertically by factor 1.2. Used to correct the
  * aspect-ratio in games using 320x200 pixel graphics with non-qudratic
  * pixels. Applying this method effectively turns that into 320x240, which
  * provides the correct aspect-ratio on modern displays.
@@ -222,12 +241,12 @@ int stretch200To240Nearest(uint8 *buf, uint32 pitch, int width, int height, int 
 	return 1 + maxDstY - srcY;
 }
 
-template<typename ColorMask>
+template<typename ColorMask, typename Pixel>
 int stretch200To240Interpolated(uint8 *buf, uint32 pitch, int width, int height, int srcX, int srcY, int origSrcY) {
 	int maxDstY = real2Aspect(origSrcY + height - 1);
 	int y;
-	const uint8 *startSrcPtr = buf + srcX * 2 + (srcY - origSrcY) * pitch;
-	uint8 *dstPtr = buf + srcX * 2 + maxDstY * pitch;
+	const uint8 *startSrcPtr = buf + srcX * sizeof(Pixel) + (srcY - origSrcY) * pitch;
+	uint8 *dstPtr = buf + srcX * sizeof(Pixel) + maxDstY * pitch;
 
 	for (y = maxDstY; y >= srcY; y--) {
 		const uint8 *srcPtr = startSrcPtr + aspect2Real(y) * pitch;
@@ -235,19 +254,19 @@ int stretch200To240Interpolated(uint8 *buf, uint32 pitch, int width, int height,
 		case 0:
 		case 5:
 			if (srcPtr != dstPtr)
-				memcpy(dstPtr, srcPtr, sizeof(uint16) * width);
+				memcpy(dstPtr, srcPtr, sizeof(Pixel) * width);
 			break;
 		case 1:
-			interpolate5Line<ColorMask, 1>((uint16 *)dstPtr, (const uint16 *)(srcPtr - pitch), (const uint16 *)srcPtr, width);
+			interpolate5Line<ColorMask, 1>((Pixel *)dstPtr, (const Pixel *)(srcPtr - pitch), (const Pixel *)srcPtr, width);
 			break;
 		case 2:
-			interpolate5Line<ColorMask, 2>((uint16 *)dstPtr, (const uint16 *)(srcPtr - pitch), (const uint16 *)srcPtr, width);
+			interpolate5Line<ColorMask, 2>((Pixel *)dstPtr, (const Pixel *)(srcPtr - pitch), (const Pixel *)srcPtr, width);
 			break;
 		case 3:
-			interpolate5Line<ColorMask, 2>((uint16 *)dstPtr, (const uint16 *)srcPtr, (const uint16 *)(srcPtr - pitch), width);
+			interpolate5Line<ColorMask, 2>((Pixel *)dstPtr, (const Pixel *)srcPtr, (const Pixel *)(srcPtr - pitch), width);
 			break;
 		case 4:
-			interpolate5Line<ColorMask, 1>((uint16 *)dstPtr, (const uint16 *)srcPtr, (const uint16 *)(srcPtr - pitch), width);
+			interpolate5Line<ColorMask, 1>((Pixel *)dstPtr, (const Pixel *)srcPtr, (const Pixel *)(srcPtr - pitch), width);
 			break;
 		default:
 			break;
@@ -262,10 +281,16 @@ int stretch200To240(uint8 *buf, uint32 pitch, int width, int height, int srcX, i
 #if ASPECT_MODE != kSuperFastAndUglyAspectMode
 	if (interpolate && format.bytesPerPixel == 2) {
 		if (format.gLoss == 2)
-			return stretch200To240Interpolated<Graphics::ColorMasks<565> >(buf, pitch, width, height, srcX, srcY, origSrcY);
+			return stretch200To240Interpolated<Graphics::ColorMasks<565>, uint16>(buf, pitch, width, height, srcX, srcY, origSrcY);
 		else if (format.gLoss == 3)
-			return stretch200To240Interpolated<Graphics::ColorMasks<555> >(buf, pitch, width, height, srcX, srcY, origSrcY);
+			return stretch200To240Interpolated<Graphics::ColorMasks<555>, uint16>(buf, pitch, width, height, srcX, srcY, origSrcY);
 	}
+#if ASPECT_MODE == kVeryFastAndGoodAspectMode
+	// 4-byte screens with 8-bit colour channels (SurfaceSDL's 32-bit hardware
+	// screen, XRGB8888): same weights as the 2-byte path.
+	if (interpolate && format.bytesPerPixel == 4 && format.rLoss == 0 && format.gLoss == 0 && format.bLoss == 0)
+		return stretch200To240Interpolated<Graphics::ColorMasks<8888>, uint32>(buf, pitch, width, height, srcX, srcY, origSrcY);
+#endif
 #endif
 
 	return stretch200To240Nearest(buf, pitch, width, height, srcX, srcY, origSrcY, format);
