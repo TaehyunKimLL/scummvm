@@ -321,6 +321,26 @@ public:
 		// cell is exactly that, whatever FreeType's advance at this size.
 		TS_ASSERT_EQUALS(hr.advanceFor(kGaChr, 0, 8), 8);
 
+		// The face is sized as the start-up bake sized it: its line, not its
+		// characters, fills the 16px cell, so the syllable advances 11px and
+		// a string measured at half the double-byte width (4 game px, as
+		// getCharWidth() asks) comes out at 6, not 7 - Zak FM-Towns measured
+		// the same 6 with the baked font.
+		TS_ASSERT_EQUALS(s0->advance(0xAC00), 11);
+		TS_ASSERT_EQUALS(hr.advanceFor(kGaChr, 0, 4), 6);
+
+		// A bitmap font whose name and cell happen to match the face's key
+		// is a separate entry: it must not replace the open face.
+		{
+			const Common::Array<byte> bytes = makeFont(8, true, 13, 0);
+			Common::MemoryReadStream ms(bytes.begin(), bytes.size());
+			TS_ASSERT(hr.addBitmapFont(5, true, ms, kTtc));
+		}
+		TS_ASSERT_EQUALS(hr.sourceCount(), 2);
+		TS_ASSERT_EQUALS(hr.sourceFor(0, false), s0);
+		TS_ASSERT(hr.drawChar(dest, kGaChr, 1, 50, 2, 15, 0, 1));
+		TS_ASSERT_EQUALS(ttf->rasterCount(), probes + 1);
+
 		// A charset on another cell opens the face again, at its own size.
 		hr.setGameFontCell(2, 12, 12);
 		Graphics::UnicodeGlyphSource *s2 = hr.sourceFor(2, false);
@@ -328,7 +348,7 @@ public:
 		TS_ASSERT(s2 != s0);
 		if (s2)
 			TS_ASSERT_EQUALS((int)s2->cellHeight(), 24);
-		TS_ASSERT_EQUALS(hr.sourceCount(), 2);
+		TS_ASSERT_EQUALS(hr.sourceCount(), 3);
 
 		dest.free();
 #else

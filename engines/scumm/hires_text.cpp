@@ -159,6 +159,7 @@ void ScummHiResText::freeFaces() {
 	_singleFace = nullptr;
 	_latinSingleFace = nullptr;
 	_logFace = nullptr;
+	_ttfFailed = false;
 }
 
 void ScummHiResText::adoptConfig(const Graphics::HiResTextConfig &config) {
@@ -180,11 +181,13 @@ bool ScummHiResText::addBitmapFont(int charsetId, bool latin, Common::SeekableRe
 	}
 
 	// The same file named twice - a single font doubling as the Latin one -
-	// is one source.
-	const Common::String key = Common::String::format("%s@%d", name.c_str(), font->cellHeight());
+	// is one source. The prefix keeps the bitmap entries apart from the
+	// TrueType ones, which _ttfFaces[] points into, so nothing here can
+	// replace an entry that is still in use.
+	const Common::String key = Common::String::format("svfn:%s@%d", name.c_str(), font->cellHeight());
 	Face *face = nullptr;
 	Common::HashMap<Common::String, Face *>::iterator it = _sources.find(key);
-	if (it != _sources.end() && it->_value && it->_value->bitmap) {
+	if (it != _sources.end()) {
 		delete font;
 		face = it->_value;
 	} else {
@@ -192,11 +195,6 @@ bool ScummHiResText::addBitmapFont(int charsetId, bool latin, Common::SeekableRe
 		face->bitmap = font;
 		face->source = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
 		face->slot = charsetId;
-		if (it != _sources.end()) {
-			if (it->_value)
-				delete it->_value->source;
-			delete it->_value;
-		}
 		_sources[key] = face;
 	}
 
@@ -476,20 +474,48 @@ ScummHiResText::Face *ScummHiResText::ttfFaceFor(int charsetId) const {
 	return face;
 }
 
+int ScummHiResText::ttfCellWidth(int charsetId) const {
+	// The cell the start-up bake clipped each glyph to: the game's own
+	// width times the scale, borrowed from the nearest charset like the
+	// height in ttfFaceFor().
+	if (charsetId < 0 || charsetId >= kMaxFonts)
+		return 0;
+	int width = _gameFontW[charsetId];
+	if (_gameFontH[charsetId] <= 0) {
+		const int nearest = nearestTtfCharset(charsetId);
+		width = (nearest >= 0) ? _gameFontW[nearest] : 0;
+	}
+	return width * MAX(1, _config.scale);
+}
+
 ScummHiResText::Face *ScummHiResText::openTtfFace(int pixelSize) const {
-	const Common::String key = Common::String::format("%s@%d", _ttfPath.toString('/').c_str(), pixelSize);
+	// A face that could not be used at one size - unreadable, or no Hangul
+	// in a Korean game - cannot be used at any other, so it is given up on
+	// after one warning rather than one per charset size.
+	if (_ttfFailed)
+		return nullptr;
+
+	const Common::String key = Common::String::format("ttf:%s@%d", _ttfPath.toString('/').c_str(), pixelSize);
 	Common::HashMap<Common::String, Face *>::iterator it = _sources.find(key);
 	if (it != _sources.end())
 		return it->_value;
 
-	// Recorded before anything can fail, so a face that cannot be used is
+	// Recorded before anything can fail, so a size that cannot be used is
 	// tried - and warned about - once, not once per character.
 	_sources[key] = nullptr;
+
+	// The one failure that depends on the size.
+	if (pixelSize < Graphics::TtfGlyphSource::kMinPixelSize ||
+		pixelSize > Graphics::TtfGlyphSource::kMaxPixelSize) {
+		warning("SCUMM: hi-res TrueType font cannot be drawn at %dpx", pixelSize);
+		return nullptr;
+	}
 
 	Common::FSNode node(_ttfPath);
 	Common::SeekableReadStream *stream = node.exists() ? node.createReadStream() : nullptr;
 	if (!stream) {
 		warning("SCUMM: cannot open hi-res TrueType font '%s'", _ttfPath.toString().c_str());
+		_ttfFailed = true;
 		return nullptr;
 	}
 
@@ -497,12 +523,18 @@ ScummHiResText::Face *ScummHiResText::openTtfFace(int pixelSize) const {
 	// quietly replace every syllable with nothing.
 	const bool requireHangul = (_config.encoding == Common::kWindows949 ||
 								_config.encoding == Common::kJohab);
+	//
+	// The face is sized so its line fills the cell, as the start-up bake
+	// sized it: the game lays text out on its own grid, and a face whose
+	// characters fill the cell outright reaches past that grid's advance.
 	Common::String error;
 	Graphics::TtfGlyphSource *ttf = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES,
-																	 pixelSize, error, requireHangul);
+																	 pixelSize, error, requireHangul,
+																	 true);
 	if (!ttf) {
-		warning("SCUMM: cannot use hi-res TrueType font '%s' at %dpx: %s",
-				_ttfPath.toString().c_str(), pixelSize, error.c_str());
+		warning("SCUMM: cannot use hi-res TrueType font '%s': %s",
+				_ttfPath.toString().c_str(), error.c_str());
+		_ttfFailed = true;
 		return nullptr;
 	}
 
@@ -710,6 +742,13 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	if (!glyphInk(*face, cp, &width))
 		return false;
 
+	// A face glyph is clipped to the game's cell, as the bake clipped it.
+	if (face->ttf) {
+		const int cellW = ttfCellWidth(charsetId);
+		if (cellW > 0 && width > cellW)
+			width = cellW;
+	}
+
 	// Baseline alignment. The two slots can carry fonts of different ascents
 	// - a Latin face leaves room above its capitals and below for descenders
 	// while Hangul fills its cell - and drawing both at one y would put them
@@ -869,6 +908,9 @@ int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
 	} else {
 		// A face advances by its own metrics, widened, like the bitmap fonts
 		// above, to clear ink that reaches past it.
+		const int cellW = ttfCellWidth(charsetId);
+		if (cellW > 0 && inkRight > cellW)
+			inkRight = cellW;
 		advance = MAX(face->source->advance(cp), inkRight);
 	}
 
