@@ -82,5 +82,10 @@ void stampSpan(byte *dstIndex, const TextPixel *text, int count) {
 	}
 }
 
+void coverageToArgb(const byte *coverage, uint32 *dst, int count, const Graphics::PixelFormat &fmt, byte r, byte g, byte b) {
+	for (int i = 0; i < count; i++)
+		dst[i] = fmt.ARGBToColor(coverage[i], r, g, b);
+}
+
 } // End of namespace TextCompose
 } // End of namespace Graphics

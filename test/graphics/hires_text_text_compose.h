@@ -108,4 +108,38 @@ public:
 		TS_ASSERT_EQUALS(idx[1], 4);
 		TS_ASSERT_EQUALS(idx[2], 7);
 	}
+	void test_coverage_to_argb() {
+		// Grim's TTF lines: RGB is the text colour, alpha is the coverage.
+		const byte cov[3] = { 0, 128, 255 };
+		const Graphics::PixelFormat formats[2] = { argb(), Graphics::PixelFormat::createFormatRGBA32() };
+		for (int f = 0; f < 2; f++) {
+			const Graphics::PixelFormat &fmt = formats[f];
+			uint32 px[4] = { 0xDEADBEEF, 0xDEADBEEF, 0xDEADBEEF, 0xDEADBEEF };
+			Graphics::TextCompose::coverageToArgb(cov, px, 3, fmt, 10, 20, 30);
+			for (int i = 0; i < 3; i++) {
+				byte a, r, g, b;
+				fmt.colorToARGB(px[i], a, r, g, b);
+				TS_ASSERT_EQUALS(a, cov[i]);
+				TS_ASSERT_EQUALS(r, 10);
+				TS_ASSERT_EQUALS(g, 20);
+				TS_ASSERT_EQUALS(b, 30);
+			}
+			TS_ASSERT_EQUALS(px[0], fmt.ARGBToColor(0, 10, 20, 30));
+			TS_ASSERT_EQUALS(px[1], fmt.ARGBToColor(128, 10, 20, 30));
+			TS_ASSERT_EQUALS(px[2], fmt.ARGBToColor(255, 10, 20, 30));
+			TS_ASSERT_EQUALS(px[3], 0xDEADBEEFU);   // count is respected
+		}
+		// Literal values, so a channel placed wrongly in both the helper and
+		// the format cannot cancel out.
+		uint32 px = 0;
+		const byte half = 0x80;
+		Graphics::TextCompose::coverageToArgb(&half, &px, 1, argb(), 10, 20, 30);
+		TS_ASSERT_EQUALS(px, 0x800A141EU);
+		Graphics::TextCompose::coverageToArgb(&half, &px, 1, Graphics::PixelFormat::createFormatRGBA32(), 10, 20, 30);
+		const byte *mem = (const byte *)&px;
+		TS_ASSERT_EQUALS(mem[0], 0x0A);
+		TS_ASSERT_EQUALS(mem[1], 0x14);
+		TS_ASSERT_EQUALS(mem[2], 0x1E);
+		TS_ASSERT_EQUALS(mem[3], 0x80);
+	}
 };

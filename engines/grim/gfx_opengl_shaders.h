@@ -144,6 +144,8 @@ public:
 	void destroyFont(Font *font) override;
 
 	void createTextObject(TextObject *text) override;
+	/** A line per texture, colour plus coverage alpha: TrueType and SVFN fonts. */
+	void createAlphaTextObject(TextObject *text);
 	void drawTextObject(const TextObject *text) override;
 	void destroyTextObject(TextObject *text) override;
 
