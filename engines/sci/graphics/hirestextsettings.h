@@ -80,15 +80,18 @@ struct HiresTextOverrides {
  * also reads as enabling, does nothing on SCI.
  *
  * Defaults: size 16, latin off, space keep, metrics game, no face.
- * A face name resolves through [fonts]; a relative map path is taken against
- * @p gameDir. Ini paths are used as given, as GfxCache always has.
+ * A face name resolves through [fonts]; a relative path from the map (a
+ * [fonts] entry or a path written in place of a face name) is taken against
+ * @p mapDir, the directory holding the map file. Ini paths are used as
+ * given, as GfxCache always has.
  *
  * @param map        the parsed hires_text.map
  * @param mapLoaded  false when there is no map (or it is out of scope):
  *                   @p map is then ignored entirely
+ * @param mapDir     the directory holding the map file
  */
 FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapLoaded, int fontId,
-								 const HiresTextOverrides &ini, const Common::Path &gameDir);
+								 const HiresTextOverrides &ini, const Common::Path &mapDir);
 
 /**
  * Warn once per map key SCI parses but cannot honour: today only the legacy

@@ -93,7 +93,7 @@ void GfxCache::resolveHiresText() {
 	// The game's own domain only: ConfMan.hasKey(key) also finds a key set
 	// in [scummvm], which would turn the face on for every game.
 	const Common::String &domain = ConfMan.getActiveDomainName();
-	_gameDir = ConfMan.getPath("path", domain);
+	const Common::Path gameDir = ConfMan.getPath("path", domain);
 
 	Common::String why;
 	_hiresApplies = hiresTextFontApplies(why);
@@ -114,7 +114,7 @@ void GfxCache::resolveHiresText() {
 		if (!mapKeyEmpty)
 			mapNode = Common::FSNode(Common::Path(ConfMan.get("hires_text_map", domain), Common::Path::kNativeSeparator));
 	} else {
-		mapNode = Common::FSNode(_gameDir).getChild("hires_text.map");
+		mapNode = Common::FSNode(gameDir).getChild("hires_text.map");
 	}
 
 	if (!_hiresApplies) {
@@ -149,7 +149,11 @@ void GfxCache::resolveHiresText() {
 			const char *platform = Common::getPlatformCode(g_sci->getPlatform());
 			if (platform && *platform)
 				qualifiers.push_back(platform);
-			_hiresMapLoaded = Graphics::HiResFontMap::loadFromStream(*stream, mapNode.getParent().getPath(),
+			// Relative paths in the map are the map's own: they resolve
+			// against its directory, which for the game directory's
+			// hires_text.map is the game directory.
+			_hiresMapDir = mapNode.getParent().getPath();
+			_hiresMapLoaded = Graphics::HiResFontMap::loadFromStream(*stream, _hiresMapDir,
 																	 qualifiers, _hiresMap);
 			delete stream;
 			if (_hiresMapLoaded) {
@@ -251,7 +255,7 @@ FontSettings GfxCache::fontSettingsFor(GuiResourceId fontId) {
 	resolveHiresText();
 	if (!_hiresApplies)
 		return FontSettings();
-	return resolveFontSettings(_hiresMap, _hiresMapLoaded, fontId, _hiresIni, _gameDir);
+	return resolveFontSettings(_hiresMap, _hiresMapLoaded, fontId, _hiresIni, _hiresMapDir);
 }
 
 TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int size, bool requireHangul,

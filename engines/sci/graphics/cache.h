@@ -141,7 +141,9 @@ private:
 	HiresTextOverrides _hiresIni;
 	Graphics::HiResTextConfig _hiresMap;
 	bool _hiresMapLoaded;
-	Common::Path _gameDir;
+	/// The directory holding the map file: relative paths from the map
+	/// ([fonts] entries, face paths) resolve against it.
+	Common::Path _hiresMapDir;
 	/// The ini latin keys were set: their "not in effect" warning is due
 	/// (once) when a font ends up with no TrueType face.
 	bool _iniLatinKeysSet;

@@ -38,13 +38,13 @@ HiresTextOverrides::HiresTextOverrides()
 namespace {
 
 /// A face as the map wrote it - a [fonts] name or a path - as a file path.
-/// Relative paths are taken against the game directory. Spelled with the
-/// native separator: GfxCache parses every face path (ini or map) back with
+/// Relative paths are taken against the directory holding the map file.
+/// Spelled with the native separator: GfxCache parses every face path (ini or map) back with
 /// Common::Path::kNativeSeparator, and keys its sources by the string, so a
 /// map face and the same file named in the ini must come out identical.
 Common::String mapFacePath(const Graphics::HiResTextConfig &map, const Common::String &nameOrPath,
-						   const Common::Path &gameDir) {
-	return Graphics::HiResFontMap::resolvePath(map.resolveFace(nameOrPath), gameDir)
+						   const Common::Path &mapDir) {
+	return Graphics::HiResFontMap::resolvePath(map.resolveFace(nameOrPath), mapDir)
 		.toString(Common::Path::kNativeSeparator);
 }
 
@@ -65,7 +65,7 @@ LatinMode toLatinMode(Graphics::HiResLatinMode mode) {
 } // End of anonymous namespace
 
 FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapLoaded, int fontId,
-								 const HiresTextOverrides &ini, const Common::Path &gameDir) {
+								 const HiresTextOverrides &ini, const Common::Path &mapDir) {
 	FontSettings s;
 
 	// With no map, only the ini keys (and the defaults) count. Otherwise the
@@ -77,9 +77,9 @@ FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapL
 	if (ini.hasFont)
 		s.facePath = ini.font;
 	else if (font && font->faceSet)
-		s.facePath = mapFacePath(map, font->face, gameDir);
+		s.facePath = mapFacePath(map, font->face, mapDir);
 	else if (mapLoaded && map.hiresFaceSet)
-		s.facePath = mapFacePath(map, map.hiresFace, gameDir);
+		s.facePath = mapFacePath(map, map.hiresFace, mapDir);
 
 	// Size: ini > [font.N] size > [hires] size > 16.
 	if (ini.hasFontSize)
@@ -107,9 +107,9 @@ FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapL
 	if (ini.hasLatinFont)
 		s.latinFacePath = ini.latinFont;
 	else if (font && font->latinFontSet)
-		s.latinFacePath = mapFacePath(map, font->latinFont, gameDir);
+		s.latinFacePath = mapFacePath(map, font->latinFont, mapDir);
 	else if (mapLoaded && map.latinFontSet)
-		s.latinFacePath = mapFacePath(map, map.latinFont, gameDir);
+		s.latinFacePath = mapFacePath(map, map.latinFont, mapDir);
 
 	// Space: ini > [font.N] latin_space > [latin] space > keep.
 	if (ini.hasLatinSpace)
