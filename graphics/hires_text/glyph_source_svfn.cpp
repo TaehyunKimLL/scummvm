@@ -23,7 +23,7 @@
 
 #include "common/textconsole.h"
 #include "graphics/hires_text/bitmap_font.h"
-#include "graphics/hires_text/glyph_source_ttf.h"
+#include "graphics/hires_text/unicode_props.h"
 
 namespace Graphics {
 
@@ -61,7 +61,7 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
 		return entry;
 
 	const uint32 pitch = (uint32)_font->glyphPitch();
-	entry.cells = TtfGlyphSource::isWide(cp) ? 2 : 1;
+	entry.cells = Unicode::isWide(cp) ? 2 : 1;
 	entry.rows.resize(_rowBytes * _cellHeight, 0);
 	for (uint32 y = 0; y < _cellHeight; y++) {
 		byte *dst = &entry.rows[y * _rowBytes];

@@ -101,9 +101,9 @@ public:
 	 *  tests and logged, with rasterCount(), when the source is destroyed. */
 	uint32 totalRenderMs() const { return _totalRenderMs; }
 
-	/** Whether cp is East Asian Wide or Fullwidth, per the table generated
-	 *  from Python's unicodedata (Unicode 16.0). Available even when this
-	 *  build has no FreeType, since layout needs it independent of a face. */
+	/** Whether cp is East Asian Wide or Fullwidth: forwards to
+	 *  Unicode::isWide() (unicode_props.h), kept for existing callers.
+	 *  Available even when this build has no FreeType. */
 	static bool isWide(uint32 cp);
 
 	/**
