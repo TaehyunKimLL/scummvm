@@ -30,6 +30,15 @@
 #include "gui/debugger.h"
 #include "gui/debugsocket-protocol.h"
 
+// The transport is built where configure enabled it (USE_DEBUG_SOCKET:
+// desktop hosts). Elsewhere open() warns once and a debug_socket= key does
+// nothing; the recorder and the protocol work everywhere.
+#if defined(USE_DEBUG_SOCKET) && defined(WIN32)
+#define DEBUGSOCKET_WIN32
+#elif defined(USE_DEBUG_SOCKET) && defined(POSIX)
+#define DEBUGSOCKET_POSIX
+#endif
+
 namespace Common {
 class DumpFile;
 }
@@ -97,12 +106,21 @@ public:
  *                        anything longer that is all digits is a keycode
  *   type <text>          one key per character
  *   click <x> <y> [r]    move there, press and release (r: right button)
- *   move <x> <y>         game coordinates
+ *   move <x> <y>         game coordinates, 0 <= x < getWidth(), 0 <= y <
+ *                        getHeight() (also after the extension maps them)
  *   wait frames <n>      reply OK after n more Debugger::onFrame() calls
+ *
+ * Every number is decimal digits only and range-checked
+ * (DebugSocketProtocol::parse*); anything else is an error reply, and
+ * nothing is sent to the game.
  *   dump <path>          the screen as g_system->lockScreen() has it: raw
  *                        rows at <path>, "w h bpp format" at <path>.txt,
  *                        the palette at <path>.pal when it is CLUT8
  *   save <slot>, load <slot>
+ *                        Engine::saveGameState()/loadGameState(), run at the
+ *                        next event poll (never inside the screen update
+ *                        onFrame() is called from) if the engine allows it
+ *                        then; the reply is OK or FAIL with the error
  *   record [<path>]      start (or, with no path, stop) a recording
  *
  * Input goes through g_system->getEventManager()->pushEvent(), one key per
@@ -174,11 +192,34 @@ private:
 	void paceInput();
 	void runCommand(const Common::String &line);
 	bool genericCommand(const Common::String &cmd, const Common::StringArray &args, Common::String &out);
-	bool queueKey(const Common::StringArray &args);
+	void queueKey(const DebugSocketProtocol::KeySpec &k);
 	void sendMove(int x, int y);
 	void sendClick(int x, int y, bool right);
 	bool dumpScreen(const Common::String &path);
 	bool busy() const;
+
+	/**
+	 * `save`/`load` wait for a safe point: the next event poll, where the
+	 * engine's own menu saves too. onFrame() runs inside the backend's
+	 * updateScreen() for most engines, which is no place to save a game.
+	 * This source is registered with the event dispatcher only to be
+	 * polled; it never produces an event.
+	 */
+	class SafePoint : public Common::EventSource {
+	public:
+		explicit SafePoint(DebugSocket *owner) : _owner(owner) {}
+		bool pollEvent(Common::Event &ev) override;
+	private:
+		DebugSocket *_owner;
+	};
+	friend class SafePoint;
+	SafePoint _safePoint;
+	enum SaveLoad { kNone, kSave, kLoad };
+	SaveLoad _saveLoad;		///< request waiting for the safe point
+	int _saveLoadSlot;
+	uint32 _saveLoadDeadline;	///< g_system->getMillis() after which it fails
+	static const uint32 kSaveLoadWaitMs = 5000;
+	void runSaveLoad();
 
 	Debugger *_console;
 	DebugSocketExtension *_ext;
@@ -193,8 +234,9 @@ private:
 
 	Common::DumpFile *_recFile;
 
-	int _listenFd, _clientFd;	// POSIX
-#if defined(WIN32)
+#if defined(DEBUGSOCKET_POSIX)
+	int _listenFd, _clientFd;
+#elif defined(DEBUGSOCKET_WIN32)
 	void *_pipe;			// HANDLE; a named pipe, one instance
 	void *_connectOv;		// OVERLAPPED for the pending ConnectNamedPipe
 	bool _pipeConnected;

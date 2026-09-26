@@ -218,11 +218,15 @@ void Debugger::onFrame() {
 	// flag test per frame and nothing else.
 	if (!_debugSocketChecked) {
 		_debugSocketChecked = true;
-		const bool sock = ConfMan.hasKey("debug_socket");
-		const bool rec = ConfMan.hasKey("debug_record");
+		// The game's own domain only: a key under [scummvm] must not open a
+		// socket in every game that runs.
+		const Common::ConfigManager::Domain *game = ConfMan.getActiveDomain();
+		Common::String sockPath, recPath;
+		const bool sock = DebugSocketProtocol::gameDomainKey(game, "debug_socket", sockPath);
+		const bool rec = DebugSocketProtocol::gameDomainKey(game, "debug_record", recPath);
 		if (sock || rec) {
-			_debugSocket = DebugSocket::open(this, sock ? ConfMan.get("debug_socket") : Common::String());
-			if (_debugSocket && rec && !_debugSocket->startRecording(ConfMan.get("debug_record"))) {
+			_debugSocket = DebugSocket::open(this, sockPath);
+			if (_debugSocket && rec && !_debugSocket->startRecording(recPath)) {
 				delete _debugSocket;
 				_debugSocket = nullptr;
 			}
