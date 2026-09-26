@@ -6,6 +6,8 @@ MODULE_OBJS := \
 	chooser.o \
 	console.o \
 	debugger.o \
+	debugsocket.o \
+	debugsocket-protocol.o \
 	dialog.o \
 	dump-all-dialogs.o \
 	editgamedialog.o \

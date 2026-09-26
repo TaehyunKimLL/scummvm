@@ -38,6 +38,14 @@ public:
 	AGSConsole(AGSEngine *vm);
 	~AGSConsole() override;
 
+	/**
+	 * Show the text an `ags_say` queued, if any. Called from the game loop
+	 * (check_debug_keys()), where a blocking Display() is safe: the console
+	 * command itself runs inside a screen update, and its caller - the debug
+	 * socket - waits for its reply, so it cannot block there.
+	 */
+	void runPendingSay();
+
 private:
 	AGSEngine *_vm;
 	LogOutputTarget *_logOutputTarget;
@@ -50,6 +58,11 @@ private:
 
 	bool Cmd_getSpriteInfo(int argc, const char **argv);
 	bool Cmd_dumpSprite(int argc, const char **argv);
+
+	bool Cmd_say(int argc, const char **argv);
+	bool _sayPending;
+	int _sayFont;
+	Common::String _sayText;
 
 	const char *getVerbosityLevel(AGS3::uint32_t groupID) const;
 	AGS3::uint32_t parseGroup(const char *, bool &) const;

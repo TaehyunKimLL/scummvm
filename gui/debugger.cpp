@@ -22,6 +22,7 @@
 // NB: This is really only necessary if USE_READLINE is defined
 #define FORBIDDEN_SYMBOL_ALLOW_ALL
 
+#include "common/config-manager.h"
 #include "common/file.h"
 #include "common/debug.h"
 #include "common/debug-channels.h"
@@ -37,6 +38,7 @@
 #include "engines/engine.h"
 
 #include "gui/debugger.h"
+#include "gui/debugsocket.h"
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
 	#include "gui/console.h"
 #elif defined(USE_READLINE)
@@ -52,6 +54,8 @@ Debugger::Debugger() {
 	_frameCountdown = 0;
 	_isActive = false;
 	_outputSink = nullptr;
+	_debugSocket = nullptr;
+	_debugSocketChecked = false;
 	_firstTime = true;
 	_defaultCommandProcessor = nullptr;
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
@@ -85,6 +89,7 @@ Debugger::Debugger() {
 }
 
 Debugger::~Debugger() {
+	delete _debugSocket;
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
 	delete _debuggerDialog;
 #endif
@@ -208,6 +213,29 @@ void Debugger::onFrame() {
 			_isActive = false;
 		}
 	}
+
+	// The debug socket: looked for once, so a game without the keys pays a
+	// flag test per frame and nothing else.
+	if (!_debugSocketChecked) {
+		_debugSocketChecked = true;
+		// The game's own domain only: a key under [scummvm] must not open a
+		// socket in every game that runs.
+		const Common::ConfigManager::Domain *game = ConfMan.getActiveDomain();
+		Common::String sockPath, recPath;
+		const bool sock = DebugSocketProtocol::gameDomainKey(game, "debug_socket", sockPath);
+		const bool rec = DebugSocketProtocol::gameDomainKey(game, "debug_record", recPath);
+		if (sock || rec) {
+			_debugSocket = DebugSocket::open(this, sockPath);
+			if (_debugSocket && rec && !_debugSocket->startRecording(recPath)) {
+				delete _debugSocket;
+				_debugSocket = nullptr;
+			}
+			if (_debugSocket)
+				debugSocketOpened(_debugSocket);
+		}
+	}
+	if (_debugSocket)
+		_debugSocket->onFrame();
 }
 
 #if defined(USE_TEXT_CONSOLE_FOR_DEBUGGER) && defined(USE_READLINE)

@@ -189,6 +189,7 @@ _libmikmod=auto
 _libopenmpt=auto
 _libmpcdec=auto
 _taskbar=auto
+_debug_socket=auto
 _updates=no
 _libunity=auto
 _dialogs=auto
@@ -1057,6 +1058,9 @@ Optional Features:
   --disable-translation    don't build support for translated messages
   --disable-taskbar        don't build support for taskbar and launcher
                            integration
+  --disable-debug-socket   don't build the debug socket (a command channel
+                           for driving a game from a script; desktop
+                           hosts only) [autodetect]
   --disable-cloud          don't build cloud support
   --disable-system-dialogs don't build support for system dialogs
   --enable-vkeybd          build virtual keyboard support
@@ -1377,6 +1381,8 @@ for ac_option in $@; do
 	--disable-freetype2)          _freetype2=no          ;;
 	--enable-taskbar)             _taskbar=yes           ;;
 	--disable-taskbar)            _taskbar=no            ;;
+	--enable-debug-socket)        _debug_socket=yes      ;;
+	--disable-debug-socket)       _debug_socket=no       ;;
 	--enable-system-dialogs)      _dialogs=yes           ;;
 	--disable-system-dialogs)     _dialogs=no            ;;
 	--enable-sdlnet)              _sdlnet=yes            ;;
@@ -7383,6 +7389,25 @@ else
 	esac
 fi
 define_in_config_if_yes $_taskbar 'USE_TASKBAR'
+
+#
+# Check whether to build the debug socket (gui/debugsocket.cpp): a UNIX
+# socket, or a named pipe on Windows. Only desktop hosts are known to have
+# sys/un.h and AF_UNIX; elsewhere it is off unless asked for.
+#
+echo_n "Building the debug socket... "
+if test "$_debug_socket" = auto; then
+	case $_host_os in
+	darwin* | linux* | *bsd* | dragonfly* | solaris* | haiku* | mingw* | cygwin*)
+		_debug_socket=yes
+		;;
+	*)
+		_debug_socket=no
+		;;
+	esac
+fi
+echo "$_debug_socket"
+define_in_config_if_yes $_debug_socket 'USE_DEBUG_SOCKET'
 
 #
 # Check whether to build printing support

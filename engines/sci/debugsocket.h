@@ -25,87 +25,64 @@
 #include "common/scummsys.h"
 #include "common/str.h"
 #include "common/array.h"
-#include "common/events.h"
 #include "common/rect.h"
-#include "common/file.h"
-#include "gui/debugger.h"
+#include "common/str-array.h"
+#include "gui/debugsocket.h"
 #include "sci/engine/vm_types.h"
 
 namespace Sci {
 
 class SciEngine;
-class Console;
 
 /**
- * A command channel for a script that drives the game.
+ * SCI's commands on the debug socket (GUI::DebugSocket, gui/debugsocket.h).
  *
- * Every existing console command becomes callable from outside: a client
- * connects to the UNIX socket named by the `debug_socket` config key, sends
- * one line, and gets the command's output back followed by a line holding
- * a single '.'. The engine polls the socket once per frame from
- * Console::onFrame(), so a command runs between two game ticks, never in
- * the middle of one.
+ * The socket itself - the transport, the recorder, `key`/`type`/`click`/
+ * `move`, `save`/`load`, `record` and every console command - is the
+ * engine-neutral one. What is here needs the SCI VM:
  *
- * On top of that, a few commands that only make sense from outside:
- *
- *   key <name>            press and release a key (Return, Escape, Tab,
- *                         F1..F12, Up/Down/Left/Right, KP_1..KP_9, or a
- *                         single character)
- *   type <text>           the characters of <text>, one key each
- *   click <x> <y> [r]     press and release a mouse button at lowres x,y
- *   move <x> <y>          move the mouse
- *   state                 one line of JSON: room, ego position, score, ...
- *   dump <path>           the hires frame buffer, text plane and lowres
- *                         buffer as raw files at <path>.*
+ *   state                 one line of JSON: room, ego position, score, the
+ *                         texts and buttons drawn, whether keys are taken
+ *   dump <path>           the hires frame buffer, text plane, lowres,
+ *                         control and priority buffers as raw files at
+ *                         <path>_*.bin
  *   wait <cond> [<cond>]  delay the reply until the condition holds, e.g.
  *                         room == 5 / ego.x < 100 / ego in 10 20 30 40 /
  *                         text "Hello" / windows == 0 / global 15 == 3 /
- *                         sel ego loop == 2 / frames 30 / idle 10.
+ *                         sel ego loop == 2 / frames 30 (game ticks) /
+ *                         idle 10 / button "Begin Game" / listening.
  *                         Two conditions joined by && or ||. The reply is
- *                         OK or TIMEOUT (after `timeout N` frames, default
+ *                         OK or TIMEOUT (after `timeout N` ticks, default
  *                         600).
- *   record <path>           start writing a recording there; `record` with
- *                         no argument stops. debug_record=<path> in the
- *                         game's ini does the same without a socket, so a
- *                         human can just play. The file is flushed per
- *                         line; a run killed before it ends leaves
- *                         <path>.tmp, which is the same content.
+ *   hold/walk/walked/release, pause/resume/step, objs, get
  *
- * Why: a driver script that sleeps N seconds after a click lands on a
- * different animation cel every run, and a comparison of two runs then
+ * It also paces the socket's keys: a key goes out only once the game has
+ * polled for keys since the last pic transition (listening()), and it maps
+ * `click` coordinates through the hires driver.
+ *
+ * Why waits: a driver script that sleeps N seconds after a click lands on
+ * a different animation cel every run, and a comparison of two runs then
  * measures timing, not rendering. A script that waits for the state it
  * needs is deterministic.
  */
-class DebugSocket : public GUI::Debugger::OutputSink, public Common::EventObserver {
+class DebugSocket : public GUI::DebugSocketExtension {
 public:
-	DebugSocket(SciEngine *engine, Console *console);
+	DebugSocket(SciEngine *engine, GUI::DebugSocket *socket);
 	~DebugSocket() override;
 
-	/** Bind and listen. Returns false (and logs) when that fails. */
-	bool open(const Common::String &path);
-
-	/**
-	 * Start writing a recording to @p path: one line per game tick with the
-	 * state, one line per input event with the state it arrived in.
-	 * A human plays the game normally; harness/i18n/rec2script.py turns the
-	 * file into a driver script whose waits are conditions on the state the
-	 * player was actually in, not the seconds they took to get there.
-	 */
-	bool startRecording(const Common::String &path);
-	void stopRecording();
-
-	/** EventObserver: every event the dispatcher hands out, never eaten. */
-	bool notifyEvent(const Common::Event &ev) override;
-
-	/** Called often (VM loop, event poll): accepts a client, runs a command. */
-	void onFrame();
+	// GUI::DebugSocketExtension
+	bool handle(const Common::String &cmd, const Common::StringArray &args, Common::String &reply) override;
+	bool replyPending() const override { return _wait.active; }
+	void poll() override;
+	bool inputReady() override { return listening(); }
+	bool paceInput() override;
+	Common::Point toBackend(const Common::Point &p) override;
+	Common::Point fromBackend(const Common::Point &p) override;
+	Common::String recordState() override { return stateJson(); }
 
 	/** Called once per game tick (kAnimate): the frame counter and waits. */
 	void tick();
 	void postAnimate();
-
-	// OutputSink
-	void write(const char *text) override;
 
 	// The state the wait conditions and `state` read.
 	struct Snapshot {
@@ -178,17 +155,11 @@ private:
 	/** Hash the lowres display; feeds `idle`. */
 	void sampleDisplay();
 
-	void pollAccept();
-	bool readLine(Common::String &line);
-	void reply(const Common::String &text);
-	void runCommand(const Common::String &line);
-	bool ownCommand(const Common::String &cmd, const Common::Array<Common::String> &args);
 	/// For each argument, the unsplit remainder of the command line from it.
-	Common::Array<Common::String> _argTails;
+	Common::StringArray _argTails;
 	bool parseCond(const Common::Array<Common::String> &args, uint &i, Cond &c);
 	bool cmp(int32 lhs, const Common::String &op, int32 rhs);
 
-	void sendKey(const Common::String &name);
 	/** Key hold: re-injects the keydown every few ticks the way SDL's
 	 * auto-repeat does, so SCI's ego controller walks continuously.
 	 * SCI stops on key-up, which a single press/release pair delivers
@@ -196,25 +167,14 @@ private:
 	void holdKey(const Common::String &name, int ticks, int maxPx = 0);
 	void releaseKey();
 	void holdTick();
-	void sendClick(int x, int y, bool right);
-	Common::Point toBackend(int x, int y) const;
-	void sendMove(int x, int y);
+	/** A key-down (or, @p up, key-up) of a named key, straight to the game. */
+	void pushKey(const Common::String &name, bool up = false);
 	Common::String stateJson();
 	Common::String objectsJson();
 	bool dumpBuffers(const Common::String &path);
 
 	SciEngine *_engine;
-	Console *_console;
-	Common::ArtificialEventSource _events;
-	// One key at a time, each held until the game has polled for keys at
-	// least once since it was queued (see _keyArmedAt). A text edit control
-	// reads one key per kGetEvent, so a burst in one frame left all but the
-	// first on the floor; and a key handed over during a pic transition was
-	// dropped outright, because GfxTransitions::updateScreen() discards
-	// every pending event to keep the wipe smooth.
-	Common::Array<Common::String> _pendingKeys;
-	Common::Event _pendingRelease;	///< key-up for the last key-down sent
-	bool _haveRelease;
+	GUI::DebugSocket *_socket;
 	Common::String _holdName;		///< key being held down (empty = none)
 	int _holdTicks;			///< ticks left in the hold
 	bool _holdPending;		///< opening KEYDOWN still waiting for listening()
@@ -223,21 +183,6 @@ private:
 	Common::String _capName;	///< key whose walk is still being distance-capped
 	int _capPx;			///< that cap, in pixels
 	int _capFrames;			///< frames spent waiting for it to trip
-	uint32 _lastKeyMs;
-	// Console::onFrame() fires once per VM instruction; polling the socket
-	// that often is all syscall and no progress.
-	static const uint kPollInstructions = 256;
-	uint _sinceLastPoll;
-	int _listenFd, _clientFd;		// POSIX
-#if defined(WIN32)
-	void *_pipe;				// HANDLE; a named pipe, one instance
-	void *_connectOv;			// OVERLAPPED for the pending ConnectNamedPipe
-	bool _pipeConnected;
-	Common::String _pipeName;
-	bool createPipe();
-	void dropClient();
-#endif
-	Common::String _inBuf, _outBuf;
 	Wait _wait;
 	uint32 _timeoutFrames;
 	uint32 _frame;
@@ -271,9 +216,7 @@ private:
 	uint32 _listenSince;		///< frame of the last transition
 	uint16 _lastRoom;
 
-	Common::DumpFile *_recFile;	///< recording, or null
 	Common::String _recLastState;	///< last state line written, to skip repeats
-	void recordLine(char kind, const Common::String &payload);
 	uint32 _inputPoll;		///< _getEventCount when the edit control last reported
 	Common::String _inputText;	///< its content then
 
