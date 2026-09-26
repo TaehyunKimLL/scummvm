@@ -19,18 +19,12 @@
  *
  */
 
-// A UNIX socket is a POSIX thing; this file is the one place in the engine
-// that talks to one, and it is built only where that exists.
-#define FORBIDDEN_SYMBOL_ALLOW_ALL
-
 #include "sci/debugsocket.h"
 
-#include "common/config-manager.h"
 #include "common/events.h"
 #include "common/file.h"
 #include "common/system.h"
 #include "common/textconsole.h"
-#include "common/tokenizer.h"
 
 #include "sci/console.h"
 #include "sci/sci.h"
@@ -47,351 +41,37 @@
 #include "sci/graphics/drivers/gfxdriver.h"
 #include "graphics/surface.h"
 
-#if defined(POSIX)
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <errno.h>
-#elif defined(WIN32)
-// The Windows shape of the same thing is a named pipe: one server instance,
-// message-free byte mode, PIPE_NOWAIT so ConnectNamedPipe/ReadFile return
-// at once from the VM loop. The path given is used as \\.\pipe\<name>.
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-// windows.h defines ARRAYSIZE too; restore common/util.h's, which this
-// file uses for its key table.
-#undef ARRAYSIZE
-#define ARRAYSIZE(x) ((int)(sizeof(x) / sizeof(x[0])))
-#endif
-
 namespace Sci {
 
-DebugSocket::DebugSocket(SciEngine *engine, Console *console) :
-	_engine(engine), _console(console), _lastKeyMs(0), _sinceLastPoll(0),
-	_listenFd(-1), _clientFd(-1),
-#if defined(WIN32)
-	_pipe(nullptr), _connectOv(nullptr), _pipeConnected(false),
-#endif
-	_timeoutFrames(600), _frame(0), _getEventFrame(0), _getEventCount(0), _transitionPoll(0), _listenSince(0), _lastRoom(0xffff), _recFile(nullptr), _inputPoll(0), _haveRelease(false), _holdPending(false), _holdMaxPx(0), _holdStartX(0), _holdStartY(0), _capPx(0), _capFrames(0),
+DebugSocket::DebugSocket(SciEngine *engine, GUI::DebugSocket *socket) :
+	_engine(engine), _socket(socket),
+	_timeoutFrames(600), _frame(0), _getEventFrame(0), _getEventCount(0), _transitionPoll(0), _listenSince(0), _lastRoom(0xffff), _inputPoll(0), _holdPending(false), _holdMaxPx(0), _holdStartX(0), _holdStartY(0), _capPx(0), _capFrames(0),
 	_lastDisplayHash(0), _idleFrames(0), _idleSamples(0), _lastSampleMs(0),
 	_paused(false), _stepTicks(0) {
 	_wait.active = false;
 	_wait.anyOf = false;
 	_wait.deadline = 0;
 	_wait.deadlineMs = 0;
-	// Our events join the backend's queue through the same mechanism the
-	// keymapper's do: a registered artificial source.
-	g_system->getEventManager()->getEventDispatcher()->registerSource(&_events, false);
 }
 
 DebugSocket::~DebugSocket() {
-	stopRecording();
-	g_system->getEventManager()->getEventDispatcher()->unregisterObserver(this);
-	g_system->getEventManager()->getEventDispatcher()->unregisterSource(&_events);
-#if defined(POSIX)
-	if (_clientFd >= 0)
-		::close(_clientFd);
-	if (_listenFd >= 0)
-		::close(_listenFd);
-#elif defined(WIN32)
-	if (_pipe) {
-		if (_pipeConnected)
-			DisconnectNamedPipe((HANDLE)_pipe);
-		CloseHandle((HANDLE)_pipe);
-	}
-	if (_connectOv) {
-		OVERLAPPED *ov = (OVERLAPPED *)_connectOv;
-		CloseHandle(ov->hEvent);
-		delete ov;
-	}
-#endif
 }
 
-bool DebugSocket::open(const Common::String &path) {
-#if defined(POSIX)
-	_listenFd = ::socket(AF_UNIX, SOCK_STREAM, 0);
-	if (_listenFd < 0) {
-		warning("DebugSocket: socket(): %s", strerror(errno));
-		return false;
-	}
-	::unlink(path.c_str());
-	struct sockaddr_un addr;
-	memset(&addr, 0, sizeof(addr));
-	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
-	if (::bind(_listenFd, (struct sockaddr *)&addr, sizeof(addr)) < 0 || ::listen(_listenFd, 1) < 0) {
-		warning("DebugSocket: bind/listen %s: %s", path.c_str(), strerror(errno));
-		::close(_listenFd);
-		_listenFd = -1;
-		return false;
-	}
-	::fcntl(_listenFd, F_SETFL, O_NONBLOCK);
-	debug(1, "DebugSocket: listening on %s", path.c_str());
-	return true;
-#elif defined(WIN32)
-	// A bare name or a full \\.\pipe\ path both work.
-	Common::String name = path;
-	if (!name.hasPrefix("\\\\"))
-		name = "\\\\.\\pipe\\" + name;
-	_pipeName = name;
-	if (!createPipe())
-		return false;
-	debug(1, "DebugSocket: listening on %s", name.c_str());
-	return true;
-#else
-	warning("DebugSocket: not supported on this platform");
-	return false;
-#endif
-}
-
-#if defined(WIN32)
-bool DebugSocket::createPipe() {
-	HANDLE h = CreateNamedPipeA(_pipeName.c_str(),
-	                            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-	                            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-	                            1, 64 * 1024, 64 * 1024, 0, nullptr);
-	if (h == INVALID_HANDLE_VALUE) {
-		warning("DebugSocket: CreateNamedPipe %s: error %lu", _pipeName.c_str(), (unsigned long)GetLastError());
-		return false;
-	}
-	_pipe = h;
-	// Start the asynchronous connect now; pollAccept() asks whether it
-	// completed.
-	OVERLAPPED *ov = new OVERLAPPED;
-	memset(ov, 0, sizeof(*ov));
-	ov->hEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
-	_connectOv = ov;
-	if (!ConnectNamedPipe(h, ov)) {
-		const DWORD err = GetLastError();
-		if (err == ERROR_PIPE_CONNECTED)
-			SetEvent(ov->hEvent);
-		else if (err != ERROR_IO_PENDING)
-			warning("DebugSocket: ConnectNamedPipe: error %lu", (unsigned long)err);
-	}
-	_pipeConnected = false;
-	return true;
-}
-
-void DebugSocket::dropClient() {
-	DisconnectNamedPipe((HANDLE)_pipe);
-	_pipeConnected = false;
-	debug(1, "DebugSocket: client closed");
-	// Listen again for the next client.
-	OVERLAPPED *ov = (OVERLAPPED *)_connectOv;
-	ResetEvent(ov->hEvent);
-	if (!ConnectNamedPipe((HANDLE)_pipe, ov) && GetLastError() == ERROR_PIPE_CONNECTED)
-		SetEvent(ov->hEvent);
-}
-#endif
-
-bool DebugSocket::startRecording(const Common::String &path) {
-	stopRecording();
-	_recFile = new Common::DumpFile();
-	if (!_recFile->open(Common::Path(path))) {
-		warning("DebugSocket: cannot write recording %s", path.c_str());
-		delete _recFile;
-		_recFile = nullptr;
-		return false;
-	}
-	// Priority above DefaultEventManager's (kEventManPriority = 0): that
-	// one queues every event and returns true, so an observer at or below
-	// it never sees anything - measured, 21 state lines and zero events.
-	// Nothing is eaten here; the manager still gets each event after us.
-	// The events the socket itself injects come through the dispatcher
-	// too, so a scripted run records exactly like a played one.
-	g_system->getEventManager()->getEventDispatcher()->registerObserver(this, 5, false);
-	debug(1, "DebugSocket: recording to %s", path.c_str());
-	return true;
-}
-
-void DebugSocket::stopRecording() {
-	if (!_recFile)
-		return;
-	g_system->getEventManager()->getEventDispatcher()->unregisterObserver(this);
-	_recFile->close();
-	delete _recFile;
-	_recFile = nullptr;
-}
-
-void DebugSocket::recordLine(char kind, const Common::String &payload) {
-	if (!_recFile)
-		return;
-	Common::String line = Common::String::format("%c\t%s\n", kind, payload.c_str());
-	_recFile->write(line.c_str(), line.size());
-	// Flushed per line: a recording is most wanted after the run that
-	// crashed, and DumpFile writes to <path>.tmp and renames on close, so
-	// a killed process leaves the .tmp - readable, but only if flushed.
-	_recFile->flush();
-}
-
-bool DebugSocket::notifyEvent(const Common::Event &ev) {
-	if (!_recFile)
-		return false;
-	// The state the event arrived in is what a generated script waits for;
-	// the event itself is what it then does. Mouse coordinates are the
-	// backend's, so they are mapped back to game space for the script.
-	Common::String what;
-	switch (ev.type) {
-	case Common::EVENT_KEYDOWN:
-		what = Common::String::format("key %d %d %d", ev.kbd.keycode, ev.kbd.ascii, ev.kbd.flags);
-		break;
-	case Common::EVENT_LBUTTONDOWN:
-	case Common::EVENT_RBUTTONDOWN: {
-		// The event's own coordinates, scaled down by the driver: asking
-		// the manager for getMousePos() here returns the position from
-		// BEFORE this event, which for a click with no preceding move is
-		// 0,0 - measured, every recorded click came out "click 0 0".
-		Common::Point p(ev.mouse);
-		GfxDriver *drv = _engine->_gfxScreen ? _engine->_gfxScreen->gfxDriver() : nullptr;
-		if (drv) {
-			const Common::Point probe = drv->mousePosToBackend(Common::Point(1000, 1000));
-			if (probe.x > 0 && probe.y > 0) {
-				p.x = p.x * 1000 / probe.x;
-				p.y = p.y * 1000 / probe.y;
-			}
+// A recorded click: the event's own coordinates, scaled down by the
+// driver. Asking the manager for getMousePos() instead returns the
+// position from BEFORE this event, which for a click with no preceding
+// move is 0,0 - measured, every recorded click came out "click 0 0".
+Common::Point DebugSocket::fromBackend(const Common::Point &backend) {
+	Common::Point p(backend);
+	GfxDriver *drv = _engine->_gfxScreen ? _engine->_gfxScreen->gfxDriver() : nullptr;
+	if (drv) {
+		const Common::Point probe = drv->mousePosToBackend(Common::Point(1000, 1000));
+		if (probe.x > 0 && probe.y > 0) {
+			p.x = p.x * 1000 / probe.x;
+			p.y = p.y * 1000 / probe.y;
 		}
-		what = Common::String::format("%s %d %d", ev.type == Common::EVENT_LBUTTONDOWN ? "click" : "rclick", p.x, p.y);
-		break;
 	}
-	default:
-		return false;	// movement, key-up, quit: not what a script replays
-	}
-	recordLine('E', what + "\t" + stateJson());
-	return false;		// never eat: the game must still get it
-}
-
-void DebugSocket::pollAccept() {
-#if defined(POSIX)
-	if (_listenFd < 0 || _clientFd >= 0)
-		return;
-	int fd = ::accept(_listenFd, nullptr, nullptr);
-	if (fd < 0)
-		return;
-	::fcntl(fd, F_SETFL, O_NONBLOCK);
-	_clientFd = fd;
-	_inBuf.clear();
-	debug(1, "DebugSocket: client connected");
-#elif defined(WIN32)
-	if (!_pipe || _pipeConnected)
-		return;
-	OVERLAPPED *ov = (OVERLAPPED *)_connectOv;
-	if (WaitForSingleObject(ov->hEvent, 0) == WAIT_OBJECT_0) {
-		_pipeConnected = true;
-		_inBuf.clear();
-		debug(1, "DebugSocket: client connected");
-	}
-#endif
-}
-
-bool DebugSocket::readLine(Common::String &line) {
-#if defined(POSIX)
-	if (_clientFd < 0)
-		return false;
-	char buf[512];
-	for (;;) {
-		ssize_t n = ::read(_clientFd, buf, sizeof(buf));
-		if (n > 0) {
-			_inBuf += Common::String(buf, n);
-			continue;
-		}
-		if (n == 0) {
-			::close(_clientFd);
-			_clientFd = -1;
-			debug(1, "DebugSocket: client closed");
-			return false;
-		}
-		break;	// EAGAIN
-	}
-#elif defined(WIN32)
-	if (!_pipeConnected)
-		return false;
-	char buf[512];
-	for (;;) {
-		DWORD avail = 0;
-		if (!PeekNamedPipe((HANDLE)_pipe, nullptr, 0, nullptr, &avail, nullptr)) {
-			dropClient();	// ERROR_BROKEN_PIPE: the client went away
-			return false;
-		}
-		if (avail == 0)
-			break;
-		// Overlapped handle: a synchronous read needs an OVERLAPPED anyway,
-		// and with avail > 0 bytes waiting it completes at once.
-		OVERLAPPED ov;
-		memset(&ov, 0, sizeof(ov));
-		DWORD n = 0;
-		if (!ReadFile((HANDLE)_pipe, buf, MIN<DWORD>(avail, sizeof(buf)), &n, &ov)) {
-			if (GetLastError() != ERROR_IO_PENDING || !GetOverlappedResult((HANDLE)_pipe, &ov, &n, TRUE)) {
-				dropClient();
-				return false;
-			}
-		}
-		if (n == 0)
-			break;
-		_inBuf += Common::String(buf, n);
-	}
-#else
-	return false;
-#endif
-#if defined(POSIX) || defined(WIN32)
-	const uint nl = _inBuf.findFirstOf('\n');
-	if (nl == Common::String::npos)
-		return false;
-	line = Common::String(_inBuf.c_str(), nl);
-	_inBuf = Common::String(_inBuf.c_str() + nl + 1);
-	if (!line.empty() && line.lastChar() == '\r')
-		line.deleteLastChar();
-	return true;
-#endif
-}
-
-void DebugSocket::write(const char *text) {
-	_outBuf += text;
-}
-
-void DebugSocket::reply(const Common::String &text) {
-#if defined(POSIX)
-	if (_clientFd < 0)
-		return;
-	Common::String all = text;
-	if (!all.empty() && all.lastChar() != '\n')
-		all += '\n';
-	all += ".\n";
-	const char *p = all.c_str();
-	size_t left = all.size();
-	while (left > 0) {
-		ssize_t n = ::write(_clientFd, p, left);
-		if (n <= 0) {
-			if (errno == EAGAIN)
-				continue;
-			break;
-		}
-		p += n;
-		left -= n;
-	}
-#elif defined(WIN32)
-	if (!_pipeConnected)
-		return;
-	Common::String all = text;
-	if (!all.empty() && all.lastChar() != '\n')
-		all += '\n';
-	all += ".\n";
-	const char *p = all.c_str();
-	DWORD left = all.size();
-	while (left > 0) {
-		OVERLAPPED ov;
-		memset(&ov, 0, sizeof(ov));
-		DWORD n = 0;
-		if (!WriteFile((HANDLE)_pipe, p, left, &n, &ov)) {
-			if (GetLastError() != ERROR_IO_PENDING || !GetOverlappedResult((HANDLE)_pipe, &ov, &n, TRUE)) {
-				dropClient();
-				break;
-			}
-		}
-		p += n;
-		left -= n;
-	}
-#endif
+	return p;
 }
 
 // ---- per frame ----------------------------------------------------------
@@ -414,7 +94,7 @@ void DebugSocket::tick() {
 	// before the ego steps onto a lethal cell and discovering the fall
 	// several frames later.
 	while (_paused && _stepTicks == 0 && !_engine->shouldQuit()) {
-		onFrame();
+		_socket->onFrame();
 		g_system->delayMillis(2);
 	}
 	if (_stepTicks > 0)
@@ -435,7 +115,7 @@ void DebugSocket::tick() {
 	// and `idle`, which move every tick: keeping them would write a line per
 	// tick, ~14,000 for a twenty-minute session, and none of the extra lines
 	// would tell a generated script anything.
-	if (_recFile) {
+	if (_socket->recording()) {
 		const Common::String s = stateJson();
 		Common::String key = s;
 		for (const char *field : { "\"frame\":", "\"idle\":" }) {
@@ -449,7 +129,7 @@ void DebugSocket::tick() {
 			key = Common::String(key.c_str(), start) + Common::String(key.c_str() + end);
 		}
 		if (key != _recLastState) {
-			recordLine('S', s);
+			_socket->recordLine('S', s);
 			_recLastState = key;
 		}
 	}
@@ -486,7 +166,7 @@ void DebugSocket::sampleDisplay() {
 }
 
 void DebugSocket::pollWait() {
-	if (!_wait.active || !_pendingKeys.empty() || _haveRelease || _holdPending)
+	if (!_wait.active || _socket->inputPending() || _holdPending)
 		return;
 	bool done = _wait.anyOf ? false : true;
 	for (uint i = 0; i < _wait.conds.size(); i++) {
@@ -495,81 +175,43 @@ void DebugSocket::pollWait() {
 	}
 	if (done) {
 		_wait.active = false;
-		reply("OK");
+		_socket->reply("OK");
 	} else if (_frame >= _wait.deadline || g_system->getMillis() >= _wait.deadlineMs) {
 		// The tick deadline is the one that means something; the wall
 		// clock is a backstop for when ticks stop coming at all, which
 		// is what a modal box waiting for a keypress does.
 		_wait.active = false;
-		reply("TIMEOUT " + stateJson());
+		_socket->reply("TIMEOUT " + stateJson());
 	}
 }
 
-// Defined below, next to the key table; needed by onFrame()'s hold gate.
-static bool keyByName(const Common::String &name, Common::KeyCode &code, uint16 &ascii);
-
-void DebugSocket::onFrame() {
-	// Called from the VM loop, once per instruction, which is what makes a
-	// command land promptly - but a read() syscall per instruction would
-	// cost more than the game does. Poll at most every kPollInstructions;
-	// at SCI0 speeds that is still several times per game tick.
-	if (++_sinceLastPoll < kPollInstructions)
-		return;
-	_sinceLastPoll = 0;
-
-	pollAccept();
-
-	// The screen also settles while a modal box is up, when no tick runs.
+// Once per socket poll (every 256th VM instruction), after the socket has
+// sent its queued input. The screen also settles while a modal box is up,
+// when no tick runs, so `idle` is sampled here as well as in tick().
+void DebugSocket::poll() {
 	sampleDisplay();
-
-	// One key at a time, each held until the game is actually reading
-	// keys. Two things eat a key handed over at the wrong moment:
-	//   - a pic transition, whose updateScreen() drains the event queue
-	//     outright, so a key sent during the wipe into a room simply
-	//     never existed (3 of 8 launches failed to open KQ1's parser
-	//     line for exactly this reason);
-	//   - a modal edit control, which takes one key per kGetEvent.
-	// listening() covers both: it is false during and just after a
-	// transition, and it follows the game's own polling, so a burst is
-	// paced at the rate the control consumes it. The wall-clock gap is
-	// the backstop for a game that polls in a tight loop.
-	{
-		const uint32 now = g_system->getMillis();
-		if (now - _lastKeyMs >= 40 && listening()) {
-			if (_holdPending) {
-				// Opening press of a hold: same gate as `key`, so a
-				// toggled walk cannot lose its start or its stop.
-				Common::KeyCode code;
-				uint16 ascii;
-				if (keyByName(_holdName, code, ascii)) {
-					Common::Event ev;
-					ev.kbd.keycode = code;
-					ev.kbd.ascii = ascii;
-					ev.kbd.flags = 0;
-					ev.type = Common::EVENT_KEYDOWN;
-					_events.addEvent(ev);
-				}
-				_holdPending = false;
-				_lastKeyMs = now;
-			} else if (_haveRelease) {
-				_events.addEvent(_pendingRelease);
-				_haveRelease = false;
-				_lastKeyMs = now;
-			} else if (!_pendingKeys.empty()) {
-				_lastKeyMs = now;
-				sendKey(_pendingKeys[0]);
-				_pendingKeys.remove_at(0);
-			}
-		}
-	}
-
 	pollWait();
+}
 
-	if (_wait.active)
-		return;		// one thing at a time: no new command while waiting
-	Common::String line;
-	if (readLine(line))
-		runCommand(line);
+// The input slot of a poll, taken before the socket's own key queue: the
+// opening press of a hold goes through the same gate as `key` (the socket
+// asks listening() first), so a toggled walk cannot lose its start or its
+// stop. Why the gate at all: two things eat a key handed over at the wrong
+// moment -
+//   - a pic transition, whose updateScreen() drains the event queue
+//     outright, so a key sent during the wipe into a room simply never
+//     existed (3 of 8 launches failed to open KQ1's parser line for
+//     exactly this reason);
+//   - a modal edit control, which takes one key per kGetEvent.
+// listening() covers both: it is false during and just after a transition,
+// and it follows the game's own polling, so a burst is paced at the rate
+// the control consumes it.
+bool DebugSocket::paceInput() {
+	if (!_holdPending)
+		return false;
+	pushKey(_holdName);
+	_holdPending = false;
+	return true;
 }
 
 // `ego` and `room` are the two objects every wait cares about; both live
@@ -708,73 +350,6 @@ static Common::String jsonEscape(const Common::String &in) {
 	return out;
 }
 
-// Space-separated, with "..." grouping; quotes are stripped. `tails`, when
-// given, receives for each token the UNSPLIT remainder of the line starting
-// at that token - what a condition like `seen` wants, since a game string
-// has spaces and quotes of its own and tokenising it leaves a fragment.
-static Common::Array<Common::String> split(const Common::String &line,
-                                           Common::Array<Common::String> *tails = nullptr) {
-	Common::Array<Common::String> out;
-	Common::String cur;
-	bool inQ = false, have = false;
-	uint tokenStart = 0;
-	for (uint i = 0; i < line.size(); i++) {
-		const char c = line[i];
-		if (c == '"') {
-			if (!have)
-				tokenStart = i;
-			inQ = !inQ;
-			have = true;
-		} else if (c == ' ' && !inQ) {
-			if (have) {
-				out.push_back(cur);
-				if (tails)
-					tails->push_back(Common::String(line.c_str() + tokenStart));
-			}
-			cur.clear();
-			have = false;
-		} else {
-			if (!have)
-				tokenStart = i;
-			cur += c;
-			have = true;
-		}
-	}
-	if (have) {
-		out.push_back(cur);
-		if (tails)
-			tails->push_back(Common::String(line.c_str() + tokenStart));
-	}
-	return out;
-}
-
-void DebugSocket::runCommand(const Common::String &line) {
-	Common::Array<Common::String> tails;
-	Common::Array<Common::String> args = split(line, &tails);
-	if (args.empty()) {
-		reply("");
-		return;
-	}
-	const Common::String cmd = args[0];
-	args.remove_at(0);
-	tails.remove_at(0);
-	_argTails = tails;
-
-	_outBuf.clear();
-	if (ownCommand(cmd, args)) {
-		if (_wait.active)
-			return;		// reply comes when the wait ends
-		reply(_outBuf);
-		return;
-	}
-
-	// Anything else is a console command; its debugPrintf output is ours.
-	_console->setOutputSink(this);
-	_console->runLine(line.c_str());
-	_console->setOutputSink(nullptr);
-	reply(_outBuf);
-}
-
 bool DebugSocket::cmp(int32 lhs, const Common::String &op, int32 rhs) {
 	if (op == "==") return lhs == rhs;
 	if (op == "!=") return lhs != rhs;
@@ -884,33 +459,10 @@ bool DebugSocket::Cond::eval(DebugSocket &ds) {
 	}
 }
 
-bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Common::String> &a) {
-	if (cmd == "key") {
-		if (a.size() < 1) { _outBuf = "usage: key <name>"; return true; }
-		_pendingKeys.push_back(a[0]);
-		_outBuf = "OK";
-		return true;
-	}
-	if (cmd == "type") {
-		Common::String text;
-		for (uint i = 0; i < a.size(); i++) { if (i) text += ' '; text += a[i]; }
-		for (uint i = 0; i < text.size(); i++)
-			_pendingKeys.push_back(Common::String(text[i]));
-		_outBuf = "OK";
-		return true;
-	}
-	if (cmd == "click" || cmd == "move") {
-		if (a.size() < 2) { _outBuf = "usage: " + cmd + " <x> <y>"; return true; }
-		const int x = atoi(a[0].c_str()), y = atoi(a[1].c_str());
-		if (cmd == "move")
-			sendMove(x, y);
-		else
-			sendClick(x, y, a.size() > 2 && a[2] == "r");
-		_outBuf = "OK";
-		return true;
-	}
+bool DebugSocket::handle(const Common::String &cmd, const Common::StringArray &a, Common::String &out) {
+	_argTails = _socket->argTails();
 	if (cmd == "state") {
-		_outBuf = stateJson();
+		out = stateJson();
 		return true;
 	}
 	if (cmd == "pause" || cmd == "resume" || cmd == "step") {
@@ -924,37 +476,37 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 			_wait.active = false;
 			_paused = true;
 			_stepTicks = 0;
-			_outBuf = "paused";
+			out = "paused";
 		} else if (cmd == "resume") {
 			_paused = false;
 			_stepTicks = 0;
-			_outBuf = "running";
+			out = "running";
 		} else {
 			const uint32 n = a.size() >= 1 ? (uint32)atoi(a[0].c_str()) : 1;
 			_paused = true;
 			_stepTicks = MAX<uint32>(1, n);
-			_outBuf = Common::String::format("step %u", _stepTicks);
+			out = Common::String::format("step %u", _stepTicks);
 		}
 		return true;
 	}
 	if (cmd == "timeout") {
 		if (a.size() >= 1)
 			_timeoutFrames = atoi(a[0].c_str());
-		_outBuf = Common::String::format("timeout %u frames", _timeoutFrames);
+		out = Common::String::format("timeout %u frames", _timeoutFrames);
 		return true;
 	}
 	if (cmd == "dump") {
-		if (a.size() < 1) { _outBuf = "usage: dump <path-prefix>"; return true; }
-		_outBuf = dumpBuffers(a[0]) ? "OK" : "FAIL";
+		if (a.size() < 1) { out = "usage: dump <path-prefix>"; return true; }
+		out = dumpBuffers(a[0]) ? "OK" : "FAIL";
 		return true;
 	}
 
 	if (cmd == "hold") {
-		if (a.size() < 1) { _outBuf = "usage: hold <name> [ticks]"; return true; }
+		if (a.size() < 1) { out = "usage: hold <name> [ticks]"; return true; }
 		const int ticks = a.size() > 1 ? atoi(a[1].c_str()) : 400;
 		const int maxPx = a.size() > 2 ? atoi(a[2].c_str()) : 0;
 		holdKey(a[0], ticks, maxPx);
-		_outBuf = "OK";
+		out = "OK";
 		return true;
 	}
 	if (cmd == "walk") {
@@ -970,7 +522,7 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 		// cross a river bank and drown). Here the distance is measured
 		// between ticks, so the walk stops where it was told to.
 		if (a.size() < 2) {
-			_outBuf = "usage: walk <north|south|east|west> <px> [maxframes]";
+			out = "usage: walk <north|south|east|west> <px> [maxframes]";
 			return true;
 		}
 		static const struct { const char *name; const char *key; } dirs[] = {
@@ -989,62 +541,44 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 		for (uint i = 0; i < ARRAYSIZE(dirs); i++)
 			if (a[0] == dirs[i].name || a[0] == dirs[i].key)
 				key = dirs[i].key;
-		if (!key) { _outBuf = "bad direction"; return true; }
+		if (!key) { out = "bad direction"; return true; }
 		const int px = atoi(a[1].c_str());
-		if (px <= 0) { _outBuf = "bad distance"; return true; }
+		if (px <= 0) { out = "bad distance"; return true; }
 		const int frames = a.size() > 2 ? atoi(a[2].c_str()) : 240;
 		holdKey(key, frames, px);
 		// Report where the ego ends up; the caller waits on `stepped`.
-		_outBuf = "OK";
+		out = "OK";
 		return true;
 	}
 	if (cmd == "walked") {
 		// True once no capped walk is outstanding.
-		_outBuf = (_holdName.empty() && _capName.empty() && !_holdPending)
+		out = (_holdName.empty() && _capName.empty() && !_holdPending)
 			? "yes" : "no";
 		return true;
 	}
 	if (cmd == "release") {
 		releaseKey();
-		_outBuf = "OK";
+		out = "OK";
 		return true;
 	}
 
 	if (cmd == "objs") {
-		_outBuf = objectsJson();
+		out = objectsJson();
 		return true;
 	}
 	if (cmd == "get") {
 		// get <objName> <selector> -> raw value (or "obj" if pointer-valued)
-		if (a.size() < 2) { _outBuf = "usage: get <obj> <selector>"; return true; }
+		if (a.size() < 2) { out = "usage: get <obj> <selector>"; return true; }
 		SegManager *sm = _engine->getEngineState()->_segMan;
 		reg_t o = objByName(a[0]);
-		if (o.isNull()) { _outBuf = "noobj"; return true; }
+		if (o.isNull()) { out = "noobj"; return true; }
 		const int selId = _engine->getKernel()->findSelector(a[1].c_str());
-		if (selId < 0) { _outBuf = "nosel"; return true; }
+		if (selId < 0) { out = "nosel"; return true; }
 		reg_t v = readSelector(sm, o, selId);
 		if (v.getSegment() != 0)
-			_outBuf = Common::String::format("obj %04x:%04x", v.getSegment(), v.getOffset());
+			out = Common::String::format("obj %04x:%04x", v.getSegment(), v.getOffset());
 		else
-			_outBuf = Common::String::format("%d", v.toUint16());
-		return true;
-	}
-	if (cmd == "save" || cmd == "load") {
-		if (a.size() < 1) { _outBuf = "usage: " + cmd + " <slot>"; return true; }
-		const int slot = atoi(a[0].c_str());
-		Common::Error err = (cmd == "save")
-			? g_sci->saveGameState(slot, Common::String::format("dbg%d", slot))
-			: g_sci->loadGameState(slot);
-		_outBuf = (err.getCode() == Common::kNoError) ? "OK" : "FAIL";
-		return true;
-	}
-	if (cmd == "record") {
-		if (a.empty()) {
-			stopRecording();
-			_outBuf = "OK";
-		} else {
-			_outBuf = startRecording(a[0]) ? "OK" : "FAIL";
-		}
+			out = Common::String::format("%d", v.toUint16());
 		return true;
 	}
 	if (cmd == "wait") {
@@ -1054,24 +588,24 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 		while (i < a.size()) {
 			Cond c;
 			if (!parseCond(a, i, c)) {
-				_outBuf = "bad condition";
+				out = "bad condition";
 				return true;
 			}
 			_wait.conds.push_back(c);
 			if (i < a.size()) {
 				if (a[i] == "&&") { i++; }
 				else if (a[i] == "||") { _wait.anyOf = true; i++; }
-				else { _outBuf = "expected && or ||"; return true; }
+				else { out = "expected && or ||"; return true; }
 			}
 		}
-		if (_wait.conds.empty()) { _outBuf = "usage: wait <cond>"; return true; }
+		if (_wait.conds.empty()) { out = "usage: wait <cond>"; return true; }
 		_wait.deadline = _frame + _timeoutFrames;
 		// The wall-clock backstop: generous against the tick rate (KQ1
 		// animates 10-20 times a second), so a run that is merely slow
 		// still ends on the tick deadline and reports a real frame count.
 		_wait.deadlineMs = g_system->getMillis() + MAX<uint32>(5000, _timeoutFrames * 200);
 		_wait.active = true;
-		if (!_pendingKeys.empty() || _haveRelease || _holdPending)
+		if (_socket->inputPending() || _holdPending)
 			return true;	// evaluated from onFrame()/tick() once the keys are out
 		// Evaluate once now so a condition that already holds returns at once.
 		bool done = _wait.anyOf ? false : true;
@@ -1081,7 +615,7 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 		}
 		if (done) {
 			_wait.active = false;
-			_outBuf = "OK";
+			out = "OK";
 		}
 		return true;
 	}
@@ -1090,67 +624,24 @@ bool DebugSocket::ownCommand(const Common::String &cmd, const Common::Array<Comm
 
 // ---- input ---------------------------------------------------------------
 
-static bool keyNameEq(const Common::String &a, const char *b) {
-	if (a.size() != strlen(b))
-		return false;
-	for (uint i = 0; i < a.size(); i++)
-		if (tolower(a[i]) != tolower(b[i]))
-			return false;
-	return true;
-}
-
-static bool keyByName(const Common::String &name, Common::KeyCode &code, uint16 &ascii) {
-	struct { const char *n; Common::KeyCode k; uint16 a; } table[] = {
-		{ "Return", Common::KEYCODE_RETURN, 13 }, { "Enter", Common::KEYCODE_RETURN, 13 },
-		{ "Escape", Common::KEYCODE_ESCAPE, 27 }, { "Tab", Common::KEYCODE_TAB, 9 },
-		{ "space", Common::KEYCODE_SPACE, ' ' }, { "BackSpace", Common::KEYCODE_BACKSPACE, 8 },
-		{ "Up", Common::KEYCODE_UP, 0 }, { "Down", Common::KEYCODE_DOWN, 0 },
-		{ "Left", Common::KEYCODE_LEFT, 0 }, { "Right", Common::KEYCODE_RIGHT, 0 },
-		{ "KP_1", Common::KEYCODE_KP1, 0 }, { "KP_2", Common::KEYCODE_KP2, 0 }, { "KP_3", Common::KEYCODE_KP3, 0 },
-		{ "KP_4", Common::KEYCODE_KP4, 0 }, { "KP_5", Common::KEYCODE_KP5, 0 }, { "KP_6", Common::KEYCODE_KP6, 0 },
-		{ "KP_7", Common::KEYCODE_KP7, 0 }, { "KP_8", Common::KEYCODE_KP8, 0 }, { "KP_9", Common::KEYCODE_KP9, 0 },
-		{ "F1", Common::KEYCODE_F1, 0 }, { "F2", Common::KEYCODE_F2, 0 }, { "F3", Common::KEYCODE_F3, 0 },
-		{ "F4", Common::KEYCODE_F4, 0 }, { "F5", Common::KEYCODE_F5, 0 }, { "F6", Common::KEYCODE_F6, 0 },
-		{ "F7", Common::KEYCODE_F7, 0 }, { "F8", Common::KEYCODE_F8, 0 }, { "F9", Common::KEYCODE_F9, 0 },
-		{ "F10", Common::KEYCODE_F10, 0 },
-	};
-	for (uint i = 0; i < ARRAYSIZE(table); i++)
-		if (keyNameEq(name, table[i].n)) { code = table[i].k; ascii = table[i].a; return true; }
-	if (name.size() == 1) {
-		const char c = name[0];
-		code = (Common::KeyCode)(c >= 'A' && c <= 'Z' ? c + 32 : c);
-		ascii = (byte)c;
-		return true;
-	}
-	return false;
-}
-
-void DebugSocket::sendKey(const Common::String &name) {
+void DebugSocket::pushKey(const Common::String &name, bool up) {
 	Common::KeyCode code;
 	uint16 ascii;
-	if (!keyByName(name, code, ascii)) {
-		warning("DebugSocket: unknown key '%s'", name.c_str());
+	if (!GUI::DebugSocket::keyByName(name, code, ascii))
 		return;
-	}
 	Common::Event ev;
 	ev.kbd.keycode = code;
 	ev.kbd.ascii = ascii;
-	ev.kbd.flags = (name.size() == 1 && name[0] >= 'A' && name[0] <= 'Z') ? Common::KBD_SHIFT : 0;
-	ev.type = Common::EVENT_KEYDOWN;
-	_events.addEvent(ev);
-	// The release goes out on a later poll: SCI0's parser line asks
-	// kGetEvent for "any key" and, handed down and up together, took the
-	// release and dropped the press.
-	ev.type = Common::EVENT_KEYUP;
-	_pendingRelease = ev;
-	_haveRelease = true;
+	ev.kbd.flags = 0;
+	ev.type = up ? Common::EVENT_KEYUP : Common::EVENT_KEYDOWN;
+	_socket->pushEvent(ev);
 }
 
 void DebugSocket::holdKey(const Common::String &name, int ticks, int maxPx) {
 	releaseKey();
 	Common::KeyCode code;
 	uint16 ascii;
-	if (!keyByName(name, code, ascii)) {
+	if (!GUI::DebugSocket::keyByName(name, code, ascii)) {
 		warning("DebugSocket: unknown hold key '%s'", name.c_str());
 		return;
 	}
@@ -1188,9 +679,7 @@ void DebugSocket::releaseKey() {
 		_holdTicks = 0;
 		return;
 	}
-	Common::KeyCode code;
-	uint16 ascii;
-	if (keyByName(_holdName, code, ascii)) {
+	{
 		// KEYUP only. Do NOT queue another press of the same key here.
 		//
 		// That was added to "stop" a toggled SCI0 walk, but the distance
@@ -1199,12 +688,7 @@ void DebugSocket::releaseKey() {
 		// bound it. Measured: `hold KP_2 3 12` sent on its own moves the
 		// ego 0-2 px, while the same call followed by this release ran
 		// 49-57 px into the moat.
-		Common::Event ev;
-		ev.kbd.keycode = code;
-		ev.kbd.ascii = ascii;
-		ev.kbd.flags = 0;
-		ev.type = Common::EVENT_KEYUP;
-		_events.addEvent(ev);
+		pushKey(_holdName, true);
 	}
 	_holdName = "";
 	_holdTicks = 0;
@@ -1236,16 +720,7 @@ void DebugSocket::holdTick() {
 			// Stop by toggling the key off. This is the ONE place a
 			// second press is correct: the walk is still running here,
 			// so the press ends it rather than restarting it.
-			Common::KeyCode code;
-			uint16 ascii;
-			if (keyByName(_capName, code, ascii)) {
-				Common::Event ev;
-				ev.kbd.keycode = code;
-				ev.kbd.ascii = ascii;
-				ev.kbd.flags = 0;
-				ev.type = Common::EVENT_KEYDOWN;
-				_events.addEvent(ev);
-			}
+			pushKey(_capName);
 			_capName.clear();
 		} else if (++_capFrames > 240) {
 			_capName.clear();		// gave up: it is not walking
@@ -1280,16 +755,7 @@ void DebugSocket::holdTick() {
 				// below does. releaseKey() alone sends a KEYUP, which
 				// SCI0 ignores for a toggled walk -- the ego would carry
 				// on past the budget with nothing watching.
-				Common::KeyCode code;
-				uint16 ascii;
-				if (keyByName(_holdName, code, ascii)) {
-					Common::Event ev;
-					ev.kbd.keycode = code;
-					ev.kbd.ascii = ascii;
-					ev.kbd.flags = 0;
-					ev.type = Common::EVENT_KEYDOWN;
-					_events.addEvent(ev);
-				}
+				pushKey(_holdName);
 				releaseKey();
 				return;
 			}
@@ -1314,28 +780,11 @@ void DebugSocket::holdTick() {
 // getMousePos() divides the backend position by its scale, so the event
 // has to carry the backend position. The hires drivers (the Korean
 // 640x400 one) would otherwise take a click at 205,163 as 102,81.
-Common::Point DebugSocket::toBackend(int x, int y) const {
+Common::Point DebugSocket::toBackend(const Common::Point &p) {
 	GfxDriver *drv = _engine->_gfxScreen ? _engine->_gfxScreen->gfxDriver() : nullptr;
 	if (!drv)
-		return Common::Point(x, y);
-	return drv->mousePosToBackend(Common::Point(x, y));
-}
-
-void DebugSocket::sendMove(int x, int y) {
-	Common::Event ev;
-	ev.type = Common::EVENT_MOUSEMOVE;
-	ev.mouse = toBackend(x, y);
-	_events.addEvent(ev);
-}
-
-void DebugSocket::sendClick(int x, int y, bool right) {
-	sendMove(x, y);
-	Common::Event ev;
-	ev.mouse = toBackend(x, y);
-	ev.type = right ? Common::EVENT_RBUTTONDOWN : Common::EVENT_LBUTTONDOWN;
-	_events.addEvent(ev);
-	ev.type = right ? Common::EVENT_RBUTTONUP : Common::EVENT_LBUTTONUP;
-	_events.addEvent(ev);
+		return p;
+	return drv->mousePosToBackend(p);
 }
 
 // ---- state ---------------------------------------------------------------

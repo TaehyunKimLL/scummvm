@@ -45,12 +45,6 @@ public:
 	 */
 	void attach(const char *entry = nullptr) override;
 
-	/**
-	 * Per frame: the debugger's own countdown, then the debug socket if
-	 * one is open (config key `debug_socket` = path).
-	 */
-	void onFrame() override;
-
 	/** For GfxText16::Box(): a text was drawn. No-op without a socket. */
 	void noteText(const char *text, const Common::Rect &rect);
 
@@ -70,11 +64,10 @@ public:
 	/** For kDrawControl(): a button with this label was drawn at this rect (port-relative). */
 	void noteButton(const Common::String &label, const Common::Rect &rect);
 
-	/** Runs a console command line; for the socket. */
-	bool runLine(const char *line) { return runCommandLine(line); }
-
 private:
+	/** SCI's commands on the debug socket, or null without one. */
 	DebugSocket *_socket;
+	void debugSocketOpened(GUI::DebugSocket *socket) override;
 	void preEnter() override;
 	void postEnter() override;
 
