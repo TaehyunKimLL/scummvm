@@ -1037,12 +1037,18 @@ void GfxTinyGL::createTextObject(TextObject *text) {
 		const Common::String &currentLine = lines[j];
 		Graphics::Surface buf;
 
-		font->render(buf, currentLine, _pixelFormat, blackColor, color, kKitmapColorkey);
+		// TrueType and SVFN lines carry coverage as alpha and are blended
+		// (drawTextObject enables TGL_SRC_ALPHA, TGL_ONE_MINUS_SRC_ALPHA);
+		// bitmap .laf lines keep the colour key.
+		const bool alpha = font->renderAlpha(buf, currentLine, Graphics::PixelFormat::createFormatRGBA32(),
+		                                     fgColor.getRed(), fgColor.getGreen(), fgColor.getBlue());
+		if (!alpha)
+			font->render(buf, currentLine, _pixelFormat, blackColor, color, kKitmapColorkey);
 
 		userData[j].width = buf.w;
 		userData[j].height = buf.h;
 		userData[j].image = tglGenBlitImage();
-		tglUploadBlitImage(userData[j].image, buf, kKitmapColorkey, true);
+		tglUploadBlitImage(userData[j].image, buf, kKitmapColorkey, !alpha);
 		userData[j].x = text->getLineX(j);
 		userData[j].y = text->getLineY(j);
 

@@ -218,7 +218,7 @@ void TextObject::setupTextReal(S msg, Common::String (*convert)(const S &s)) {
 	for (uint i = 0; i < msg.size(); i++) {
 		message += msg[i];
 		currLine += msg[i];
-		if (i < msg.size() - 1 && g_grim->getGameType() == GType_GRIM && g_grim->getGameLanguage() == Common::KO_KOR && _font->isKoreanChar(msg[i], msg[i + 1])) {
+		if (i < msg.size() - 1 && g_grim->getGameType() == GType_GRIM && g_grim->getGameLanguage() == Common::KO_KOR && !g_grim->_isUtf8 && _font->isKoreanChar(msg[i], msg[i + 1])) {
 			isMultiByte = true;
 			message += msg[i + 1];
 			currLine += msg[i + 1];
