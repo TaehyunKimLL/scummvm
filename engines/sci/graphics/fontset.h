@@ -25,6 +25,7 @@
 #include "common/array.h"
 #include "common/str-enc.h"
 #include "sci/graphics/scifont.h"
+#include "sci/graphics/textlatin.h"
 
 namespace Sci {
 
@@ -74,7 +75,15 @@ public:
 		kFaceCodePoint	///< a SCVMUNI bundle, addressed by code point
 	};
 
-	GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage);
+	/**
+	 * @param latinMode  hires_text_latin, cached by GfxCache. Only kLatinHalf
+	 *                   changes anything here: it routes the printable ASCII
+	 *                   range past the resource face and into the faces below
+	 *                   (see faceFor()). kLatinFullwidth needs no such
+	 *                   routing - its ASCII arrives already remapped past
+	 *                   U+00FF by GfxText16::readChar().
+	 */
+	GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage, LatinMode latinMode = kLatinOff);
 	~GfxFontSet() override;
 
 	/**
@@ -123,8 +132,11 @@ private:
 	/**
 	 * The face that should draw @p chr, and the value to pass it.
 	 *
-	 * Single-byte characters always resolve to the first face, which keeps
-	 * their rendering byte-identical to the unmodified engine.
+	 * Single-byte characters resolve to the first face, which keeps their
+	 * rendering byte-identical to the unmodified engine - except in
+	 * kLatinHalf mode, where the printable ASCII range (see
+	 * TextCompose::asciiGoesToUnicodeFace()) instead falls through to the
+	 * faces below, exactly as any other code point would.
 	 */
 	const Face *faceFor(uint32 chr, uint32 &outChr) const;
 
@@ -143,6 +155,7 @@ private:
 	Common::Array<Face> _faces;
 	GuiResourceId _resourceId;
 	Common::CodePage _codePage;
+	LatinMode _latinMode;
 };
 
 } // End of namespace Sci

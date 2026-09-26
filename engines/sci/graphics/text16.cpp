@@ -37,6 +37,7 @@
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/screen.h"
 #include "sci/graphics/text16.h"
+#include "sci/graphics/textlatin.h"
 #include "sci/utf8.h"
 
 namespace Sci {
@@ -786,6 +787,16 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 
 // Read one character and report how many bytes it occupied.
 uint32 GfxText16::readChar(const char *text, int &outBytes) const {
+	// hires_text_latin, cached by GfxCache (never a ConfMan lookup here, one
+	// per character): kLatinFullwidth remaps ASCII into the fullwidth-forms
+	// block; kLatinOff and kLatinHalf leave the code point untouched (half's
+	// routing instead happens at the face-selection layer - see
+	// GfxFontSet::faceFor() and GfxFontUnicodeAdapter).
+	return TextCompose::latinFullwidth(readCharDecode(text, outBytes),
+										_cache->getLatinMode(), _cache->getLatinSpaceFullwidth());
+}
+
+uint32 GfxText16::readCharDecode(const char *text, int &outBytes) const {
 	const uint32 lead = *(const byte *)text;
 
 	// A translated game holds UTF-8 in the heap, and this is the same

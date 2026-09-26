@@ -100,6 +100,13 @@ private:
 	 */
 	uint32 readChar(const char *text, int &outBytes) const;
 
+	/**
+	 * The decode readChar() used to do directly. readChar() now wraps this
+	 * with TextCompose::latinFullwidth(), per hires_text_latin, so every
+	 * caller - width measurement and drawing alike - agrees on the remap.
+	 */
+	uint32 readCharDecode(const char *text, int &outBytes) const;
+
 	bool SwitchToFont1001OnKorean(const char *text, uint16 languageSplitter);
 	bool SwitchToFont900OnSjis(const char *text, uint16 languageSplitter);
 	static bool isJapaneseNewLine(uint32 curChar, uint32 nextChar);

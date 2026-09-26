@@ -25,6 +25,7 @@
 #include "common/hashmap.h"
 #include "common/array.h"
 #include "common/str.h"
+#include "sci/graphics/textlatin.h"
 
 namespace Sci {
 
@@ -53,6 +54,19 @@ public:
 	bool fontIsSet(GuiResourceId fontId);
 
 	GfxView *getView(GuiResourceId viewId);
+
+	/**
+	 * hires_text_latin, resolved once (see resolveHiresTextLatin()) and
+	 * cached here so GfxText16::readChar() - called once per character -
+	 * never does a ConfMan lookup itself. Forces hires_text_font/latin
+	 * resolution via loadUnicodeFont() if that has not happened yet, so the
+	 * value is always up to date by the time anything asks for it.
+	 */
+	LatinMode getLatinMode() { loadUnicodeFont(); return _latinMode; }
+
+	/** hires_text_latin_space, resolved along with getLatinMode(); only
+	 *  meaningful when getLatinMode() == kLatinFullwidth. */
+	bool getLatinSpaceFullwidth() { loadUnicodeFont(); return _latinSpaceFullwidth; }
 
 	int16 kernelViewGetCelWidth(GuiResourceId viewId, int16 loopNo, int16 celNo);
 	int16 kernelViewGetCelHeight(GuiResourceId viewId, int16 loopNo, int16 celNo);
@@ -95,6 +109,17 @@ private:
 	 */
 	void resolveHiresTextFont();
 
+	/**
+	 * Reads hires_text_latin / _space / _font from the game's own domain,
+	 * once per engine run (mirroring resolveHiresTextFont()), so each of
+	 * their warnings is given at most once even though purgeFontCache()
+	 * reloads the bundle. Honoured only when hiresTextFontIsTtf is true - the
+	 * scope predicate held AND hires_text_font itself resolved to a live
+	 * TrueType face - otherwise any latin key set gets one warning that it is
+	 * ignored, and _latinMode stays kLatinOff.
+	 */
+	void resolveHiresTextLatin(bool hiresTextFontIsTtf);
+
 	/** The shared SCVMUNI bundle, loaded at most once. */
 	GfxFontUnicode *_unicodeFont;
 	bool _unicodeFontTried;
@@ -102,6 +127,11 @@ private:
 	bool _hiresTextFontResolved;
 	Common::String _hiresTextFontPath;
 	int _hiresTextFontSize;
+
+	bool _latinResolved;
+	LatinMode _latinMode;
+	bool _latinSpaceFullwidth;
+	Common::String _latinFontPath;
 	/**
 	 * Fonts an adapter wraps but does not own. They are not in _cachedFonts
 	 * (only the adapter is), so the cache has to delete them separately.

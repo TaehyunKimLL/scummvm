@@ -29,8 +29,8 @@
 
 namespace Sci {
 
-GfxFontSet::GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage)
-	: _resourceId(resourceId), _codePage(codePage) {
+GfxFontSet::GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage, LatinMode latinMode)
+	: _resourceId(resourceId), _codePage(codePage), _latinMode(latinMode) {
 }
 
 GfxFontSet::~GfxFontSet() {
@@ -102,10 +102,13 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 	if (_faces.empty())
 		return nullptr;
 
-	// Single-byte characters always go to the first face, unconditionally.
-	// Asking the faces by coverage would let a later face answer for ASCII,
-	// which changes the metrics of every English string in the game.
-	if (chr < 0x80) {
+	// Single-byte characters go to the first face, unconditionally - except
+	// in kLatinHalf mode, where the printable ASCII range is deliberately
+	// routed past it instead (hires_text_latin=half; see
+	// TextCompose::asciiGoesToUnicodeFace()). Outside that one mode, asking
+	// the faces by coverage would let a later face answer for ASCII, which
+	// changes the metrics of every English string in the game.
+	if (chr < 0x80 && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode)) {
 		outChr = chr;
 		return &_faces[0];
 	}

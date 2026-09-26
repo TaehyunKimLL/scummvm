@@ -28,6 +28,7 @@
 #include "common/str-enc.h"
 #include "sci/graphics/glyphsource.h"
 #include "sci/graphics/scifont.h"
+#include "sci/graphics/textlatin.h"
 
 namespace Sci {
 
@@ -119,8 +120,15 @@ private:
  */
 class GfxFontUnicodeAdapter : public GfxFont {
 public:
+	/**
+	 * @param latinMode  hires_text_latin, cached by GfxCache. Only
+	 *                   kLatinHalf changes anything here: it routes the
+	 *                   printable ASCII range to _font instead of _fallback
+	 *                   (see the chr < 0x80 checks below).
+	 */
 	GfxFontUnicodeAdapter(GfxFontUnicode *font, Common::CodePage codePage,
-	                      GfxFont *fallback, GuiResourceId resourceId);
+	                      GfxFont *fallback, GuiResourceId resourceId,
+	                      LatinMode latinMode = kLatinOff);
 	~GfxFontUnicodeAdapter() override;
 
 	GuiResourceId getResourceId() override { return _resourceId; }
@@ -145,6 +153,7 @@ private:
 	GfxFont *_fallback;
 	Common::CodePage _codePage;
 	GuiResourceId _resourceId;
+	LatinMode _latinMode;
 };
 
 } // End of namespace Sci

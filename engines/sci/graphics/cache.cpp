@@ -32,7 +32,9 @@
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
+#include "sci/graphics/glyphsource_routed.h"
 #include "sci/graphics/glyphsource_ttf.h"
+#include "sci/graphics/textlatin.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/file.h"
@@ -77,7 +79,8 @@ const int kHiresTextFontMaxSize = 64;
 GfxCache::GfxCache(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palette)
 	: _resMan(resMan), _screen(screen), _palette(palette),
 	  _unicodeFont(nullptr), _unicodeFontTried(false),
-	  _hiresTextFontResolved(false), _hiresTextFontSize(kHiresTextFontDefaultSize) {
+	  _hiresTextFontResolved(false), _hiresTextFontSize(kHiresTextFontDefaultSize),
+	  _latinResolved(false), _latinMode(kLatinOff), _latinSpaceFullwidth(false) {
 }
 
 void GfxCache::resolveHiresTextFont() {
@@ -116,6 +119,66 @@ void GfxCache::resolveHiresTextFont() {
 	if (_hiresTextFontPath.empty()) {
 		// An empty value names nothing; FSNode would warn about it itself.
 		warning("hires_text_font: empty path; using the .uni fonts");
+	}
+}
+
+void GfxCache::resolveHiresTextLatin(bool hiresTextFontIsTtf) {
+	if (_latinResolved)
+		return;
+	_latinResolved = true;
+
+	const Common::String &domain = ConfMan.getActiveDomainName();
+	const bool anyLatinKeySet = ConfMan.hasKey("hires_text_latin", domain) ||
+		ConfMan.hasKey("hires_text_latin_space", domain) ||
+		ConfMan.hasKey("hires_text_latin_font", domain);
+	if (!anyLatinKeySet)
+		return;
+
+	// hires_text_latin only means anything once hires_text_font itself
+	// resolved to a live TrueType face: with no such face, there is no
+	// Unicode/TrueType path for ASCII to be routed to or remapped for.
+	if (!hiresTextFontIsTtf) {
+		warning("hires_text_latin is ignored: hires_text_font is not in effect");
+		return;
+	}
+
+	if (ConfMan.hasKey("hires_text_latin", domain)) {
+		const Common::String &value = ConfMan.get("hires_text_latin", domain);
+		if (value == "off") {
+			_latinMode = kLatinOff;
+		} else if (value == "half") {
+			_latinMode = kLatinHalf;
+		} else if (value == "fullwidth") {
+			_latinMode = kLatinFullwidth;
+		} else {
+			warning("hires_text_latin '%s' is not off, half or fullwidth; using off", value.c_str());
+			_latinMode = kLatinOff;
+		}
+	}
+
+	if (_latinMode == kLatinOff)
+		return; // latin_space/latin_font would have no effect either
+
+	// hires_text_latin_space only applies to fullwidth: half draws the
+	// ordinary narrow ASCII space through the TrueType face unchanged.
+	if (_latinMode == kLatinFullwidth && ConfMan.hasKey("hires_text_latin_space", domain)) {
+		const Common::String &value = ConfMan.get("hires_text_latin_space", domain);
+		if (value == "keep") {
+			_latinSpaceFullwidth = false;
+		} else if (value == "fullwidth") {
+			_latinSpaceFullwidth = true;
+		} else {
+			warning("hires_text_latin_space '%s' is not keep or fullwidth; using keep", value.c_str());
+			_latinSpaceFullwidth = false;
+		}
+	}
+
+	if (ConfMan.hasKey("hires_text_latin_font", domain)) {
+		_latinFontPath = ConfMan.get("hires_text_latin_font", domain);
+		if (_latinFontPath.empty()) {
+			// An empty value names nothing; the main face draws Latin text.
+			warning("hires_text_latin_font: empty path; the main face draws Latin text");
+		}
 	}
 }
 
@@ -167,7 +230,12 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 	if (!haveResource)
 		return nullptr;
 
-	GfxFontSet *set = new GfxFontSet(fontId, g_sci->getSciLanguageCodePage());
+	// Forces hires_text_font/hires_text_latin resolution before _latinMode is
+	// read below; loadUnicodeFont() is idempotent, so this costs nothing on
+	// the addFace() call further down that would have triggered it anyway.
+	loadUnicodeFont();
+
+	GfxFontSet *set = new GfxFontSet(fontId, g_sci->getSciLanguageCodePage(), _latinMode);
 	set->addFace(new GfxFontFromResource(_resMan, _screen, fontId), GfxFontSet::kFaceResource);
 
 	// The legacy double-byte faces, when the game ships their font file.
@@ -205,6 +273,11 @@ GfxFontUnicode *GfxCache::loadUnicodeFont() {
 		_unicodeFontTried = true;
 		GfxFontUnicode *f = new GfxFontUnicode(_screen, 0);
 		bool ok = false;
+		// Separate from ok: ok also becomes true via the .uni fallback below,
+		// but hires_text_latin only means anything once hires_text_font
+		// itself resolved to a live TrueType face - not a .uni bundle.
+		bool hiresTtfOk = false;
+		UnicodeGlyphSource *mainSrc = nullptr;
 
 		// hires_text_font names a TrueType face on disk, tried before the
 		// bundled .uni fonts: a live face is preferred when the player asked
@@ -238,8 +311,9 @@ GfxFontUnicode *GfxCache::loadUnicodeFont() {
 															 requireHangul);
 				const uint32 elapsedMs = g_system->getMillis() - startMs;
 				if (src) {
-					f->setSource(src, path);
+					mainSrc = src;
 					ok = true;
+					hiresTtfOk = true;
 					debug(1, "SCI: hires_text_font %s opened at %dpx in %u ms",
 						  path.c_str(), pixelSize, elapsedMs);
 				}
@@ -254,6 +328,41 @@ GfxFontUnicode *GfxCache::loadUnicodeFont() {
 				_hiresTextFontPath.clear();
 			}
 		}
+
+		// hires_text_latin (and its _space/_font companions) are honoured
+		// only once hires_text_font itself is a live TrueType face - see
+		// resolveHiresTextLatin(). When it applies, hires_text_latin_font
+		// names a second face for the Latin range, wrapped together with
+		// mainSrc in a RoutedGlyphSource; absent, mainSrc alone draws that
+		// range too (readChar()/faceFor() send it code points mainSrc can
+		// already answer for, so no second source is needed).
+		resolveHiresTextLatin(hiresTtfOk);
+		if (hiresTtfOk && _latinMode != kLatinOff && !_latinFontPath.empty()) {
+			const Common::String &latinPath = _latinFontPath;
+			Common::String latinError;
+			Common::FSNode latinNode(Common::Path(latinPath, Common::Path::kNativeSeparator));
+			TtfGlyphSource *latinSrc = nullptr;
+			if (!latinNode.exists()) {
+				latinError = "does not exist";
+			} else if (latinNode.isDirectory()) {
+				latinError = "is a directory";
+			} else if (Common::SeekableReadStream *latinStream = latinNode.createReadStream()) {
+				latinSrc = TtfGlyphSource::create(latinStream, DisposeAfterUse::YES, _hiresTextFontSize, latinError);
+			} else {
+				latinError = "could not open the file";
+			}
+
+			if (latinSrc) {
+				mainSrc = new RoutedGlyphSource(mainSrc, latinSrc, _latinMode);
+				debug(1, "SCI: hires_text_latin_font %s opened at %dpx", latinPath.c_str(), _hiresTextFontSize);
+			} else {
+				warning("hires_text_latin_font %s: %s; the main face draws Latin text",
+						latinPath.c_str(), latinError.c_str());
+			}
+		}
+
+		if (mainSrc)
+			f->setSource(mainSrc, _hiresTextFontPath);
 
 		static const char *const names[] = { "sci.uni", "korean.uni", "towns.uni" };
 		for (uint i = 0; i < ARRAYSIZE(names) && !ok; i++)
@@ -300,7 +409,7 @@ GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
 		_ownedFonts.push_back(fallback);
 
 	return new GfxFontUnicodeAdapter(_unicodeFont, g_sci->getSciLanguageCodePage(),
-									 fallback, fontId);
+									 fallback, fontId, _latinMode);
 }
 
 GfxFont *GfxCache::getFont(GuiResourceId fontId) {

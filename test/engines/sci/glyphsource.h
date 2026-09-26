@@ -26,8 +26,10 @@
 #include "common/str.h"
 #include "common/memstream.h"
 #include "common/stream.h"
+#include "sci/graphics/glyphsource_routed.h"
 #include "sci/graphics/glyphsource_scvmuni.h"
 #include "sci/graphics/glyphsource_ttf.h"
+#include "sci/graphics/textlatin.h"
 
 #include "../../system/null_osystem.h"
 
@@ -35,8 +37,11 @@
 #include "common/fs.h"
 #endif
 
+using Sci::RoutedGlyphSource;
 using Sci::ScvmuniGlyphSource;
 using Sci::TtfGlyphSource;
+using Sci::kLatinFullwidth;
+using Sci::kLatinHalf;
 
 namespace {
 
@@ -132,6 +137,48 @@ struct FakeFitProbe : public TtfGlyphSource::FitProbe {
 	int calls;
 	bool _fits;
 	int _top, _bottom;
+};
+
+// A minimal UnicodeGlyphSource stand-in for RoutedGlyphSource tests: cells()
+// and row() return values tagged with which fake answered (rather than real
+// glyph data), and record the last code point asked for, so a test can
+// confirm routing without any real font.
+class TaggedFakeGlyphSource : public Sci::UnicodeGlyphSource {
+public:
+	TaggedFakeGlyphSource(byte tag, byte cellWidth, byte cellHeight,
+	                       byte advanceNarrow, byte advanceWide, int bpp, uint32 glyphCount)
+		: _tag(tag), _cellWidth(cellWidth), _cellHeight(cellHeight),
+		  _advanceNarrow(advanceNarrow), _advanceWide(advanceWide),
+		  _bpp(bpp), _glyphCount(glyphCount) {}
+
+	byte cellWidth() const override { return _cellWidth; }
+	byte cellHeight() const override { return _cellHeight; }
+	byte advanceNarrow() const override { return _advanceNarrow; }
+	byte advanceWide() const override { return _advanceWide; }
+	int bitsPerPixel() const override { return _bpp; }
+
+	// The tag itself is returned as the cell count, so a test can tell which
+	// fake answered a given cells() call just from its return value.
+	int cells(uint32 cp) override {
+		lastCellsCp = cp;
+		return _tag;
+	}
+	const byte *row(uint32 cp, int y) override {
+		lastRowCp = cp;
+		_rowByte = _tag;
+		return &_rowByte;
+	}
+	uint32 glyphCount() const override { return _glyphCount; }
+
+	uint32 lastCellsCp = 0xFFFFFFFF;
+	uint32 lastRowCp = 0xFFFFFFFF;
+
+private:
+	byte _tag;
+	byte _cellWidth, _cellHeight, _advanceNarrow, _advanceWide;
+	int _bpp;
+	uint32 _glyphCount;
+	byte _rowByte = 0;
 };
 
 } // namespace
@@ -539,5 +586,89 @@ public:
 		TS_ASSERT(src == nullptr);
 		TS_ASSERT(!error.empty());
 #endif
+	}
+};
+
+class SciGlyphSourceRoutedTestSuite : public CxxTest::TestSuite {
+public:
+	// tag 1 = "main answered", tag 9 = "latin answered". Distinct cell
+	// geometry on the latin fake pins that geometry always comes from main.
+	TaggedFakeGlyphSource *makeMain() { return new TaggedFakeGlyphSource(1, 16, 16, 8, 16, 8, 3); }
+	TaggedFakeGlyphSource *makeLatin() { return new TaggedFakeGlyphSource(9, 20, 20, 10, 20, 8, 5); }
+
+	void test_fullwidth_routes_ff_range_and_ideographic_space_to_latin() {
+		TaggedFakeGlyphSource *main = makeMain();
+		TaggedFakeGlyphSource *latin = makeLatin();
+		RoutedGlyphSource src(main, latin, kLatinFullwidth);
+
+		TS_ASSERT_EQUALS(src.cells(0xFF01), 9);	// first of the fullwidth-forms range
+		TS_ASSERT_EQUALS(latin->lastCellsCp, (uint32)0xFF01);
+		TS_ASSERT_EQUALS(src.cells(0xFF5E), 9);	// last of the range
+		TS_ASSERT_EQUALS(latin->lastCellsCp, (uint32)0xFF5E);
+		TS_ASSERT_EQUALS(src.cells(0x3000), 9);	// ideographic space
+		TS_ASSERT_EQUALS(latin->lastCellsCp, (uint32)0x3000);
+
+		// Hangul and plain ASCII are NOT part of the fullwidth routing range:
+		// both go to main.
+		TS_ASSERT_EQUALS(src.cells(0xAC00), 1);
+		TS_ASSERT_EQUALS(main->lastCellsCp, (uint32)0xAC00);
+		TS_ASSERT_EQUALS(src.cells(0x0041), 1);
+		TS_ASSERT_EQUALS(main->lastCellsCp, (uint32)0x0041);
+	}
+
+	void test_half_routes_plain_ascii_to_latin() {
+		TaggedFakeGlyphSource *main = makeMain();
+		TaggedFakeGlyphSource *latin = makeLatin();
+		RoutedGlyphSource src(main, latin, kLatinHalf);
+
+		// In half mode, plain (unremapped) ASCII routes to latin...
+		TS_ASSERT_EQUALS(src.cells(0x0041), 9);
+		TS_ASSERT_EQUALS(latin->lastCellsCp, (uint32)0x0041);
+
+		// ...but the fullwidth-forms range and the ideographic space, which
+		// half mode never produces, do NOT route to latin here - only main
+		// answers for them.
+		TS_ASSERT_EQUALS(src.cells(0xFF01), 1);
+		TS_ASSERT_EQUALS(main->lastCellsCp, (uint32)0xFF01);
+		TS_ASSERT_EQUALS(src.cells(0x3000), 1);
+		TS_ASSERT_EQUALS(main->lastCellsCp, (uint32)0x3000);
+
+		// Hangul still goes to main.
+		TS_ASSERT_EQUALS(src.cells(0xAC00), 1);
+		TS_ASSERT_EQUALS(main->lastCellsCp, (uint32)0xAC00);
+	}
+
+	void test_row_routes_the_same_way_as_cells() {
+		TaggedFakeGlyphSource *main = makeMain();
+		TaggedFakeGlyphSource *latin = makeLatin();
+		RoutedGlyphSource src(main, latin, kLatinFullwidth);
+
+		const byte *row = src.row(0xFF21, 0);
+		TS_ASSERT_EQUALS(latin->lastRowCp, (uint32)0xFF21);
+		TS_ASSERT_EQUALS(*row, (byte)9);
+
+		row = src.row(0xAC00, 0);
+		TS_ASSERT_EQUALS(main->lastRowCp, (uint32)0xAC00);
+		TS_ASSERT_EQUALS(*row, (byte)1);
+	}
+
+	void test_geometry_comes_from_main_only() {
+		TaggedFakeGlyphSource *main = makeMain();
+		TaggedFakeGlyphSource *latin = makeLatin();
+		RoutedGlyphSource src(main, latin, kLatinFullwidth);
+
+		TS_ASSERT_EQUALS(src.cellWidth(), (byte)16);
+		TS_ASSERT_EQUALS(src.cellHeight(), (byte)16);
+		TS_ASSERT_EQUALS(src.advanceNarrow(), (byte)8);
+		TS_ASSERT_EQUALS(src.advanceWide(), (byte)16);
+		TS_ASSERT_EQUALS(src.bitsPerPixel(), 8);
+	}
+
+	void test_glyph_count_sums_both_sources() {
+		TaggedFakeGlyphSource *main = makeMain();		// glyphCount 3
+		TaggedFakeGlyphSource *latin = makeLatin();	// glyphCount 5
+		RoutedGlyphSource src(main, latin, kLatinFullwidth);
+
+		TS_ASSERT_EQUALS(src.glyphCount(), (uint32)8);
 	}
 };
