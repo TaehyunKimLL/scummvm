@@ -52,6 +52,8 @@
 #include "common/config-manager.h"
 #include "common/translation.h"
 
+#include "graphics/hires_text/font_descriptor.h"
+
 namespace Grim {
 
 ResourceLoader *g_resourceloader = nullptr;
@@ -381,21 +383,18 @@ Font *ResourceLoader::loadFont(const Common::String &filename) {
 		stream = openNewStreamFile(name, true);
 		if (stream) {
 			Common::String line = stream->readLine();
-			Common::String font;
-			Common::String size;
-			for (uint i = 0; i < line.size(); ++i) {
-				if (line[i] == ' ') {
-					font = "FontsHD/" + Common::String(line.c_str(), i);
-					size = Common::String(line.c_str() + i + 1, line.size() - i - 2);
-				}
-			}
-
-			int s = atoi(size.c_str());
 			delete stream;
-			stream = openNewStreamFile(font.c_str(), true);
-			FontTTF *result = new FontTTF();
-			result->loadTTF(font, stream, s);
-			return result;
+			Common::String face;
+			int s = 0;
+			if (Graphics::parseFontDescriptor(line, face, s)) {
+				Common::String font = "FontsHD/" + face;
+				stream = openNewStreamFile(font.c_str(), true);
+				FontTTF *result = new FontTTF();
+				result->loadTTF(font, stream, s);
+				return result;
+			}
+			warning("Grim: %s: \"%s\" is not \"<font file> <size>px\" with a size of 1 to %d; using the bitmap font",
+			        name.c_str(), line.c_str(), (int)Graphics::kFontDescriptorMaxPx);
 		}
 	} else if (g_grim->getGameType() == GType_GRIM && g_grim->getGameLanguage() == Common::KO_KOR) {
 		// The Korean patch names a TrueType (or SVFN) face per .laf font. When

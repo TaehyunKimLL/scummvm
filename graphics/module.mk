@@ -15,6 +15,7 @@ MODULE_OBJS := \
 	hires_text/bitmap_font.o \
 	hires_text/codepage_kr.o \
 	hires_text/font_baker.o \
+	hires_text/font_descriptor.o \
 	hires_text/font_map.o \
 	hires_text/glyph_renderer.o \
 	hires_text/glyph_source_routed.o \

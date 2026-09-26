@@ -166,7 +166,7 @@ public:
 	int32 getPoolTag() const override { return getStaticTag(); }
 
 	int32 getKernedHeight() const override;
-	int32 getBaseOffsetY() const override { return 0; }
+	int32 getBaseOffsetY() const override;
 	int32 getCharKernedWidth(uint32 c) const override;
 	int32 getFontWidth() const override { return getCharKernedWidth('w'); }
 
@@ -187,9 +187,12 @@ private:
 	/** Coverage of a line drawn from the SVFN font, w*h bytes. */
 	void svfnCoverage(const Common::U32String &text, Common::Array<byte> &coverage, int &w, int &h) const;
 	int32 svfnAdvance(uint32 cp) const;
+	/** Draw with the bitmap font @p filename (restoring a save whose face cannot be loaded). */
+	void useBitmapFallback(const Common::String &filename);
 
 	Graphics::Font *_font;
 	Graphics::SvfnGlyphSource *_svfn;
+	BitmapFont::Ptr _fallback;
 	bool _isUnicode;
 	int _size;
 };
