@@ -125,10 +125,12 @@ left arrow in a dialogue font and a genuine underscore in the others. The
 adapter names each charset `cs0`, `cs1`, ... and a scoped entry overrides the
 common table for that charset only.
 
-Baking honours the same table. The run-time TrueType path bakes a fixed
-Latin-1 block, so without this a remap would name a code point the font was
-never given; the set is filtered per charset before baking, dropping `keep`
-codes and adding remap targets.
+Offline baking honours the same table: the set is filtered per charset before
+baking, dropping `keep` codes and adding remap targets. The run-time TrueType
+path bakes nothing: it opens the face once per pixel size (the charset's game
+cell times the scale) and rasterises each code point the first time it is
+drawn, so a `keep` code is never asked for and a remap target is rasterised
+like any other character.
 
 Keys are parsed as `0x5e`, `94` or `u+2192`, but note that `Common::INIFile`
 only allows alphanumerics, `-`, `_`, `.`, `:` and space in a **key**, and
