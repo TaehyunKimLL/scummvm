@@ -485,6 +485,48 @@ public:
 		delete src;
 	}
 
+	// Out-of-range sizes are refused before the stream is even parsed, so a
+	// dummy stream is enough (and the no-FreeType stub refuses them anyway).
+	void test_create_rejects_out_of_range_size() {
+		byte dummy[4] = { 0, 0, 0, 0 };
+		const int badSizes[] = { 5, 0, -16, 256, 1000 };
+		for (int i = 0; i < ARRAYSIZE(badSizes); i++) {
+			Common::MemoryReadStream stream(dummy, sizeof(dummy));
+			Common::String error;
+			TtfGlyphSource *src = TtfGlyphSource::create(&stream, DisposeAfterUse::NO, badSizes[i], error);
+			TS_ASSERT(src == nullptr);
+			TS_ASSERT(!error.empty());
+			delete src;
+		}
+	}
+
+	// A Latin-only face must not stand in for a Korean game's .uni fonts:
+	// with requireHangul, create() refuses it with a stable error, while the
+	// Korean test face still loads.
+	void test_face_without_hangul_is_rejected_when_required() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		Common::FSNode latin("/System/Library/Fonts/Supplemental/Arial.ttf");
+		if (latin.exists()) {
+			Common::String error;
+			TtfGlyphSource *src = TtfGlyphSource::create(latin.createReadStream(), DisposeAfterUse::YES,
+			                                             16, error, true);
+			TS_ASSERT(src == nullptr);
+			TS_ASSERT_EQUALS(error, Common::String("face has no Hangul glyphs"));
+			delete src;
+		}
+
+		Common::FSNode korean(kTestTtcPath);
+		if (korean.exists()) {
+			Common::String error;
+			TtfGlyphSource *src = TtfGlyphSource::create(korean.createReadStream(), DisposeAfterUse::YES,
+			                                             16, error, true);
+			TS_ASSERT(src != nullptr);
+			TS_ASSERT(error.empty());
+			delete src;
+		}
+#endif
+	}
+
 	// Only meaningful in a build without FreeType; elsewhere it passes
 	// vacuously. Not TS_SKIP: without exception handling that prints a
 	// warning on every run.

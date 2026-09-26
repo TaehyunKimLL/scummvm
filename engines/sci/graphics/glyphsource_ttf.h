@@ -61,9 +61,23 @@ public:
 	 * the source owns stream exactly when dispose is DisposeAfterUse::YES;
 	 * on failure stream is disposed of the same way and null is returned
 	 * with error filled in.
+	 *
+	 * pixelSize must lie in [kMinPixelSize, kMaxPixelSize]; anything else is
+	 * rejected with an error rather than truncated into the byte-sized cell.
+	 *
+	 * With requireHangul, a face whose Hangul probes (the first seven of the
+	 * fixed probe set) all come back without ink is rejected with "face has
+	 * no Hangul glyphs", so a Latin-only face cannot silently replace a
+	 * Korean game's .uni fonts. Only Hangul is checked: the probe set holds
+	 * no kana or hanzi, and adding some would spend the load-time raster
+	 * budget, so other CJK code pages get no such check yet.
 	 */
 	static TtfGlyphSource *create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
-	                               int pixelSize, Common::String &error);
+	                               int pixelSize, Common::String &error, bool requireHangul = false);
+
+	/** The pixel sizes create() accepts. */
+	static const int kMinPixelSize = 6;
+	static const int kMaxPixelSize = 255;
 	~TtfGlyphSource() override;
 
 	byte cellWidth() const override { return _cellWidth; }

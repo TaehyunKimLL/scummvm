@@ -226,11 +226,15 @@ namespace {
 // into the cell at create() time; nothing else is rasterised until asked
 // for through cells()/row().
 const uint32 kProbeCodepoints[] = {
-	0x0AC00, 0x0AC01, 0x0B620, 0x0BDC1, 0x0D7A3, 0x03131, 0x0314E,
+	0x0AC00, 0x0AC01, 0x0B620, 0x0BDC1, 0x0D7A3, 0x03131, 0x0314E,	// Hangul: see kHangulProbeCount
 	0x00041, 0x00067, 0x0006A, 0x00079, 0x000C5,
 	0x0007C, 0x0005B, 0x0005D, 0x0007B, 0x0007D, 0x00028, 0x00029,
 	0x0300C, 0x0300D, 0x0300E, 0x0300F, 0x02026, 0x02014, 0x000B0,
 };
+
+// The leading Hangul syllables and jamo of kProbeCodepoints, checked by
+// create(requireHangul).
+const int kHangulProbeCount = 7;
 
 // Matches m7mkfont.py's INK_THRESHOLD: below this, a pixel is treated as
 // unlit, so faint antialiasing fringes do not affect the vertical fit.
@@ -278,9 +282,17 @@ struct LambdaFitProbe : public TtfGlyphSource::FitProbe {
 } // namespace
 
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
-										int pixelSize, Common::String &error) {
+										int pixelSize, Common::String &error, bool requireHangul) {
 	if (!stream) {
 		error = "no font stream";
+		return nullptr;
+	}
+	// The cell is byte-sized and the vertical-fit retry goes down to 6px, so
+	// a size outside that range is refused rather than truncated.
+	if (pixelSize < kMinPixelSize || pixelSize > kMaxPixelSize) {
+		error = Common::String::format("pixel size %d is outside %d..%d", pixelSize, kMinPixelSize, kMaxPixelSize);
+		if (dispose == DisposeAfterUse::YES)
+			delete stream;
 		return nullptr;
 	}
 
@@ -302,6 +314,7 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 		return nullptr;
 	}
 
+	// Lossless: pixelSize was range-checked against kMaxPixelSize above.
 	const byte cellW = (byte)pixelSize;
 	const byte cellH = (byte)pixelSize;
 	uint32 rasterCount = 0;
@@ -314,8 +327,10 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 	// one or two glyphs instead of the whole probe set - re-measuring all
 	// of them again per candidate size would blow the load-time raster
 	// budget (context.md: at most 32 rasterisations total).
+	// hangulInk, when given, is set when any of the first kHangulProbeCount
+	// code points drew ink.
 	auto inkBox = [&](Graphics::Font *f, const uint32 *cps, int count, int &top, int &bottom,
-					   uint32 &topCp, uint32 &bottomCp) {
+					   uint32 &topCp, uint32 &bottomCp, bool *hangulInk) {
 		const int probeW = cellW * 3, probeH = cellH * 3;
 		top = probeH;
 		bottom = -1;
@@ -334,6 +349,8 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 					}
 				}
 				if (ink) {
+					if (hangulInk && i < kHangulProbeCount)
+						*hangulInk = true;
 					if (y < top) {
 						top = y;
 						topCp = cps[i];
@@ -353,7 +370,16 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 
 	int top, bottom;
 	uint32 topCp = 0, bottomCp = 0;
-	inkBox(font, kProbeCodepoints, ARRAYSIZE(kProbeCodepoints), top, bottom, topCp, bottomCp);
+	bool hangulInk = false;
+	inkBox(font, kProbeCodepoints, ARRAYSIZE(kProbeCodepoints), top, bottom, topCp, bottomCp, &hangulInk);
+
+	if (requireHangul && !hangulInk) {
+		error = "face has no Hangul glyphs";
+		delete font;
+		if (dispose == DisposeAfterUse::YES)
+			delete stream;
+		return nullptr;
+	}
 
 	if (bottom - top > cellH) {
 		// Re-check with only the one or two code points that set the
@@ -383,7 +409,7 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 				return false;
 			}
 			uint32 unusedTopCp = 0, unusedBottomCp = 0;
-			inkBox(smaller, worstCps, worstCount, t, b, unusedTopCp, unusedBottomCp);
+			inkBox(smaller, worstCps, worstCount, t, b, unusedTopCp, unusedBottomCp, nullptr);
 			delete bestFont;
 			bestFont = smaller;
 			return (b - t) <= cellH;
@@ -490,7 +516,7 @@ uint32 TtfGlyphSource::glyphCount() const {
 #else // !USE_FREETYPE2
 
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
-										int /*pixelSize*/, Common::String &error) {
+										int /*pixelSize*/, Common::String &error, bool /*requireHangul*/) {
 	error = "this build has no FreeType";
 	if (dispose == DisposeAfterUse::YES)
 		delete stream;
