@@ -229,17 +229,22 @@ void HiResFontBaker::applyGlyphOverrides(
 
 	// A remap's target is what the renderer will ask for, so it has to be in
 	// the font even when the plain code point list never mentioned it.
+	// A [glyphs] range can remap tens of thousands of codes, so whether a
+	// target is already in the list is looked up, not searched for.
+	Common::HashMap<uint32, bool> present;
+	for (uint i = 0; i < kept.size(); ++i)
+		present[kept[i]] = true;
+
 	for (Common::HashMap<uint32, HiResGlyphOverride>::const_iterator it = overrides.begin();
 		 it != overrides.end(); ++it) {
 		if (it->_value.action != kHiResGlyphRemap)
 			continue;
 
 		const uint32 target = it->_value.codepoint;
-		bool present = false;
-		for (uint i = 0; i < kept.size() && !present; ++i)
-			present = (kept[i] == target);
-		if (!present)
-			kept.push_back(target);
+		if (present.contains(target))
+			continue;
+		present[target] = true;
+		kept.push_back(target);
 	}
 
 	inOut = kept;
