@@ -24,7 +24,9 @@
 
 #include "common/array.h"
 #include "common/str-enc.h"
+#include "sci/graphics/hirestextsettings.h"
 #include "sci/graphics/scifont.h"
+#include "sci/graphics/textlatin.h"
 
 namespace Sci {
 
@@ -74,7 +76,24 @@ public:
 		kFaceCodePoint	///< a SCVMUNI bundle, addressed by code point
 	};
 
-	GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage);
+	/**
+	 * @param settings  this font id's hi-res text settings, resolved by
+	 *                  GfxCache (ini keys and hires_text.map, see
+	 *                  resolveFontSettings()) with the Latin mode already
+	 *                  forced off when the id has no live TrueType face.
+	 *                  Its Latin mode and metrics change things here:
+	 *                  kLatinHalf and kLatinProportional route the printable
+	 *                  ASCII range past the resource face and into the faces
+	 *                  below (see faceFor()), and kLatinProportional gives
+	 *                  that ASCII the advance latinAdvanceGamePx() picks from
+	 *                  the metrics (see getCharWidth()). kLatinFullwidth
+	 *                  needs no such routing - its ASCII arrives already
+	 *                  remapped past U+00FF by
+	 *                  GfxText16::glyphChar(), which reads latinMode() and
+	 *                  latinFullwidthSpace() from the current font.
+	 */
+	GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage,
+			   const FontSettings &settings = FontSettings());
 	~GfxFontSet() override;
 
 	/**
@@ -101,7 +120,20 @@ public:
 	void addFace(GfxFont *face, FaceKind kind, bool owned = true, bool hiresPlane = false);
 
 	bool isEmpty() const { return _faces.empty(); }
+
+	/** The settings this font id was built with. */
+	const FontSettings &settings() const { return _settings; }
+	LatinMode latinMode() const { return _settings.latin; }
+	bool latinFullwidthSpace() const { return _settings.fullwidthSpace; }
 	uint faceCount() const { return _faces.size(); }
+
+	/**
+	 * hires_text_log: which face faceFor() would pick for @p chr (a
+	 * glyphChar()-mapped code point, as passed to draw()) - read-only, and
+	 * not on the hot draw path itself, since GfxText16 only calls this when
+	 * hires_text_log resolved true. See textlatin.h's TextFaceKind.
+	 */
+	TextFaceKind classify(uint32 chr) const;
 
 	GuiResourceId getResourceId() override { return _resourceId; }
 	byte getHeight() override;
@@ -123,8 +155,11 @@ private:
 	/**
 	 * The face that should draw @p chr, and the value to pass it.
 	 *
-	 * Single-byte characters always resolve to the first face, which keeps
-	 * their rendering byte-identical to the unmodified engine.
+	 * Single-byte characters resolve to the first face, which keeps their
+	 * rendering byte-identical to the unmodified engine - except in
+	 * kLatinHalf mode, where the printable ASCII range (see
+	 * TextCompose::asciiGoesToUnicodeFace()) instead falls through to the
+	 * faces below, exactly as any other code point would.
 	 */
 	const Face *faceFor(uint32 chr, uint32 &outChr) const;
 
@@ -143,6 +178,8 @@ private:
 	Common::Array<Face> _faces;
 	GuiResourceId _resourceId;
 	Common::CodePage _codePage;
+	FontSettings _settings;
+	LatinMode _latinMode; ///< _settings.latin, read per character
 };
 
 } // End of namespace Sci

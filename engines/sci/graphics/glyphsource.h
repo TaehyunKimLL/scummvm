@@ -50,6 +50,15 @@ public:
 	/** Packed row y of cp's glyph; only valid when cells(cp) > 0. */
 	virtual const byte *row(uint32 cp, int y) = 0;
 
+	/**
+	 * The face's own advance for cp, in hi-res (source) pixels, or 0 when
+	 * unknown - no glyph, or a source that only knows cells (SCVMUNI).
+	 * Read by hires_text_latin=proportional with metrics=font; the glyph's
+	 * origin is column 0 of its row, so advancing by this places the next
+	 * glyph as the face itself would.
+	 */
+	virtual int advance(uint32 cp) { return 0; }
+
 	/** For logs: glyphs in the file, or glyphs rasterised so far. */
 	virtual uint32 glyphCount() const = 0;
 };

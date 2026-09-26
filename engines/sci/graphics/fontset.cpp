@@ -21,6 +21,7 @@
 
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
+#include "sci/graphics/latinadvance.h"
 
 #include "sci/sci.h"
 
@@ -29,8 +30,8 @@
 
 namespace Sci {
 
-GfxFontSet::GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage)
-	: _resourceId(resourceId), _codePage(codePage) {
+GfxFontSet::GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage, const FontSettings &settings)
+	: _resourceId(resourceId), _codePage(codePage), _settings(settings), _latinMode(settings.latin) {
 }
 
 GfxFontSet::~GfxFontSet() {
@@ -102,10 +103,13 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 	if (_faces.empty())
 		return nullptr;
 
-	// Single-byte characters always go to the first face, unconditionally.
-	// Asking the faces by coverage would let a later face answer for ASCII,
-	// which changes the metrics of every English string in the game.
-	if (chr < 0x80) {
+	// Single-byte characters go to the first face, unconditionally - except
+	// in kLatinHalf mode, where the printable ASCII range is deliberately
+	// routed past it instead (hires_text_latin=half; see
+	// TextCompose::asciiGoesToUnicodeFace()). Outside that one mode, asking
+	// the faces by coverage would let a later face answer for ASCII, which
+	// changes the metrics of every English string in the game.
+	if (chr < 0x80 && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode)) {
 		outChr = chr;
 		return &_faces[0];
 	}
@@ -145,6 +149,13 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 		// lead byte. korean.fnt indexes glyphs as `uc - 0xAC00` and holds
 		// 11184 of them, exactly the hangul syllable block, so that block is
 		// its real coverage and nothing else.
+		//
+		// Known limitation (hires_text_latin): faces are asked in order and
+		// the legacy face comes before the Unicode one, so when a Shift-JIS
+		// face is present its U+FF00..U+FFEF coverage catches the fullwidth
+		// Latin that hires_text_latin=fullwidth produces, and
+		// hires_text_latin_font is never consulted for it. korean.fnt only
+		// covers Hangul syllables, so Korean games are unaffected.
 		if (!legacyCovers(codePoint))
 			continue;
 		// A legacy face is indexed by the encoded byte pair, not by a code
@@ -163,6 +174,37 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 	// a set existed.
 	outChr = chr;
 	return &_faces[0];
+}
+
+TextFaceKind GfxFontSet::classify(uint32 chr) const {
+	uint32 outChr = 0;
+	const Face *f = faceFor(chr, outChr);
+	if (!f)
+		return kTextFaceResource;
+
+	switch (f->kind) {
+	case kFaceLegacyDbcs:
+		return kTextFaceLegacy;
+
+	case kFaceCodePoint:
+		// ASCII (or the ' '/printable range) that hires_text_latin=half
+		// routed past the resource face and into this one - see
+		// TextCompose::asciiGoesToUnicodeFace().
+		if (chr < 0x80 && TextCompose::asciiGoesToUnicodeFace(chr, _latinMode))
+			return kTextFaceLatin;
+		// hires_text_latin=fullwidth remapped ASCII into this range before
+		// faceFor() ever saw it (GfxText16::glyphChar()), so a genuine code
+		// point cannot be told apart from it here except by that range -
+		// harmless, since real CJK content never lands in it.
+		if (_latinMode == kLatinFullwidth &&
+			((chr >= 0xFF01 && chr <= 0xFF5E) || chr == 0x3000))
+			return kTextFaceLatin;
+		return kTextFaceUnicode;
+
+	case kFaceResource:
+	default:
+		return kTextFaceResource;
+	}
 }
 
 byte GfxFontSet::getHeight() {
@@ -195,7 +237,21 @@ bool GfxFontSet::isDoubleByte(uint32 chr) {
 byte GfxFontSet::getCharWidth(uint32 chr) {
 	uint32 c = 0;
 	const Face *f = faceFor(chr, c);
-	return f ? toLowres(*f, f->font->getCharWidth(c)) : 0;
+	if (!f)
+		return 0;
+	// hires_text_latin=proportional: ASCII the Unicode face draws advances by
+	// the resource face's width for it (metrics=game: layout as with
+	// latin=off) or by the face's own advance (metrics=font). GfxText16
+	// moves the pen by this very value, and the glyph is drawn with its
+	// origin at the start of that box, so measuring and drawing agree.
+	if (_latinMode == kLatinProportional && TextCompose::asciiGoesToUnicodeFace(chr, _latinMode) &&
+		f->kind == kFaceCodePoint) {
+		GfxFontUnicode *uni = static_cast<GfxFontUnicode *>(f->font);
+		const int scale = (f->hiresPlane && getSciVersion() < SCI_VERSION_2) ? 2 : 1;
+		return (byte)latinAdvanceGamePx(_settings.metrics, _faces[0].font->getCharWidth(chr),
+										uni->advanceHires(c), scale);
+	}
+	return toLowres(*f, f->font->getCharWidth(c));
 }
 
 byte GfxFontSet::getCharHeight(uint32 chr) {

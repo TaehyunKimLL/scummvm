@@ -485,6 +485,9 @@ TtfGlyphSource::Entry &TtfGlyphSource::ensure(uint32 cp) {
 		return entry;
 
 	entry.cells = isWide(cp) ? 2 : 1;
+	// The glyph was drawn with its origin at column 0 (bearing kept), so
+	// this advance is measured from the start of the row, as drawn.
+	entry.advance = (int16)CLIP<int>(_font->getCharWidth(cp), 0, 0x7FFF);
 	entry.cov.resize((size_t)cellH * cellW * 2, 0);
 	for (int y = 0; y < cellH; y++)
 		for (int x = 0; x < cellW * 2; x++)
@@ -502,6 +505,10 @@ const byte *TtfGlyphSource::row(uint32 cp, int y) {
 	if (entry.cov.empty())
 		return nullptr; // contract: only called when cells(cp) > 0
 	return &entry.cov[(size_t)y * _cellWidth * 2];
+}
+
+int TtfGlyphSource::advance(uint32 cp) {
+	return ensure(cp).advance;
 }
 
 uint32 TtfGlyphSource::glyphCount() const {
@@ -539,6 +546,10 @@ int TtfGlyphSource::cells(uint32 /*cp*/) {
 
 const byte *TtfGlyphSource::row(uint32 /*cp*/, int /*y*/) {
 	return nullptr;
+}
+
+int TtfGlyphSource::advance(uint32 /*cp*/) {
+	return 0;
 }
 
 uint32 TtfGlyphSource::glyphCount() const {

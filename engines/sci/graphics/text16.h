@@ -22,6 +22,8 @@
 #ifndef SCI_GRAPHICS_TEXT16_H
 #define SCI_GRAPHICS_TEXT16_H
 
+#include "sci/graphics/textlatin.h"
+
 namespace Graphics {
 class Font;
 }
@@ -76,6 +78,14 @@ public:
 	void DrawString(const Common::String &str);
 	void DrawStatus(const Common::String &str);
 
+	/**
+	 * Width of @p chr as Draw() would draw it in the current _font - through
+	 * the hires_text_latin glyph mapping. For callers outside this class
+	 * (the text-edit control) that measure the text Draw() puts on screen;
+	 * with hires_text_latin off it is exactly _font->getCharWidth(chr).
+	 */
+	uint16 getGlyphWidth(uint32 chr);
+
 	GfxFont *_font;
 
 	reg_t allocAndFillReferenceRectArray();
@@ -100,6 +110,30 @@ private:
 	 */
 	uint32 readChar(const char *text, int &outBytes) const;
 
+	/**
+	 * The glyph character for @p chr, a character readChar() returned (after
+	 * any escape substitution): TextCompose::latinFullwidth() per the
+	 * current font's Latin mode. readChar() itself returns the raw character, which
+	 * is what every classification sees - '|' codes, '@'/0xFF20 and CR/LF
+	 * line breaks, the PQ2 "\n" escape, the ' ' word break - so fullwidth
+	 * mode leaves the text protocol alone. Only the sites that measure or
+	 * draw a glyph call this, and they call it on the same value, so width
+	 * and drawing agree.
+	 */
+	uint32 glyphChar(uint32 chr) const;
+
+	/**
+	 * Copy the current _font's Latin settings (GfxFontSet /
+	 * GfxFontUnicodeAdapter carry their font id's resolved settings) into
+	 * _latinMode/_latinSpaceFullwidth, which glyphChar() reads per
+	 * character. Called wherever _font changes (GetFont()/SetFont()); any
+	 * other font kind is kLatinOff.
+	 */
+	void refreshLatinSettings();
+
+	LatinMode _latinMode;
+	bool _latinSpaceFullwidth;
+
 	bool SwitchToFont1001OnKorean(const char *text, uint16 languageSplitter);
 	bool SwitchToFont900OnSjis(const char *text, uint16 languageSplitter);
 	static bool isJapaneseNewLine(uint32 curChar, uint32 nextChar);
@@ -120,6 +154,20 @@ private:
 
 	Common::Rect _codeRefTempRect;
 	CodeRefRectArray _codeRefRects;
+
+	/**
+	 * hires_text_log: the face tally Draw() (and, through it, Show())
+	 * computed for the line it just drew, read back by Box() right after
+	 * each Draw()/Show() call so it can log one aggregate line for the
+	 * whole box instead of Draw()'s own per-rendered-line one. Only
+	 * meaningful when GfxCache::isTextLogEnabled() is true; both callers
+	 * check the same cached flag, so they never disagree about whether
+	 * these are current.
+	 */
+	int _lastDrawTallyResource;
+	int _lastDrawTallyLegacy;
+	int _lastDrawTallyUnicode;
+	int _lastDrawTallyLatin;
 };
 
 } // End of namespace Sci

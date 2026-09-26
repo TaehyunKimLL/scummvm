@@ -26,8 +26,10 @@
 #include "common/ptr.h"
 #include "common/str.h"
 #include "common/str-enc.h"
+#include "graphics/hires_text/font_map.h"
 #include "sci/graphics/glyphsource.h"
 #include "sci/graphics/scifont.h"
+#include "sci/graphics/textlatin.h"
 
 namespace Sci {
 
@@ -59,10 +61,13 @@ public:
 	bool load(const Common::String &filename);
 
 	/**
-	 * Take ownership of an already-built source and mark the face loaded.
-	 * name is used only for the debug line printed on success.
+	 * Use an already-built source and mark the face loaded; the font owns
+	 * it unless @p dispose is DisposeAfterUse::NO (a source GfxCache shares
+	 * between fonts). name is used only for the debug line printed on
+	 * success.
 	 */
-	void setSource(UnicodeGlyphSource *src, const Common::String &name);
+	void setSource(UnicodeGlyphSource *src, const Common::String &name,
+				   DisposeAfterUse::Flag dispose = DisposeAfterUse::YES);
 
 	bool isLoaded() const { return _loaded; }
 
@@ -83,6 +88,10 @@ public:
 
 	uint32 glyphCount() const { return _source ? _source->glyphCount() : 0; }
 
+	/** The face's own advance for @p cp in hi-res pixels, 0 when unknown
+	 *  (see UnicodeGlyphSource::advance()). */
+	int advanceHires(uint32 cp) { return _source ? _source->advance(cp) : 0; }
+
 	/** The packed row y of cp's glyph, for TextCompose::expandGlyphRow(). */
 	const byte *coverageRow(uint32 cp, int y) { return _source ? _source->row(cp, y) : nullptr; }
 	int bitsPerPixel() const { return _source ? _source->bitsPerPixel() : 1; }
@@ -92,7 +101,7 @@ private:
 	GuiResourceId _resourceId;
 	bool _loaded;
 
-	Common::ScopedPtr<UnicodeGlyphSource> _source;
+	Common::DisposablePtr<UnicodeGlyphSource> _source;
 
 	/** Scratch buffer for expanding a glyph to one byte per pixel. */
 	Common::Array<byte> _glyphScratch;
@@ -119,8 +128,25 @@ private:
  */
 class GfxFontUnicodeAdapter : public GfxFont {
 public:
+	/**
+	 * @param latinMode  this font id's Latin mode (see GfxFontSet), resolved
+	 *                   by GfxCache. Only kLatinHalf/kLatinProportional
+	 *                   change anything here: they route the printable
+	 *                   ASCII range to _font instead of _fallback (see the
+	 *                   chr < 0x80 checks below).
+	 * @param fullwidthSpace  kLatinFullwidth: whether GfxText16 remaps ' '
+	 *                   too; only carried, for GfxText16 to read.
+	 * @param metrics    kLatinProportional: whose advance ASCII gets - the
+	 *                   fallback font's (game) or the face's (font); see
+	 *                   latinAdvanceGamePx().
+	 */
 	GfxFontUnicodeAdapter(GfxFontUnicode *font, Common::CodePage codePage,
-	                      GfxFont *fallback, GuiResourceId resourceId);
+	                      GfxFont *fallback, GuiResourceId resourceId,
+	                      LatinMode latinMode = kLatinOff, bool fullwidthSpace = false,
+	                      Graphics::HiResMetricsSource metrics = Graphics::kHiResMetricsGame);
+
+	LatinMode latinMode() const { return _latinMode; }
+	bool latinFullwidthSpace() const { return _fullwidthSpace; }
 	~GfxFontUnicodeAdapter() override;
 
 	GuiResourceId getResourceId() override { return _resourceId; }
@@ -131,6 +157,13 @@ public:
 	void draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) override;
 	void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput,
 	                  byte *buffer, int16 width, int16 height) override;
+
+	/**
+	 * hires_text_log: which face draw() would pick for @p chr - mirrors its
+	 * choice read-only. See GfxFontSet::classify() and textlatin.h's
+	 * TextFaceKind.
+	 */
+	TextFaceKind classify(uint32 chr) const;
 
 private:
 	/**
@@ -145,6 +178,9 @@ private:
 	GfxFont *_fallback;
 	Common::CodePage _codePage;
 	GuiResourceId _resourceId;
+	LatinMode _latinMode;
+	bool _fullwidthSpace;
+	Graphics::HiResMetricsSource _metrics;
 };
 
 } // End of namespace Sci
