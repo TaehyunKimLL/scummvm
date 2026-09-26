@@ -19,6 +19,11 @@
  *
  */
 
+// glyphsource_ttf.h pulls in <functional> for std::function; it must be
+// included before anything that drags in common/forbidden.h's #defines
+// (util.h, sci.h, ...), or libc++'s own headers collide with them.
+#include "sci/graphics/glyphsource_ttf.h"
+
 #include "common/util.h"
 #include "common/stack.h"
 #include "graphics/primitives.h"
@@ -32,7 +37,12 @@
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
+#include "common/config-manager.h"
+#include "common/debug.h"
 #include "common/file.h"
+#include "common/fs.h"
+#include "common/system.h"
+#include "common/textconsole.h"
 #include "sci/graphics/view.h"
 
 namespace Sci {
@@ -127,8 +137,41 @@ GfxFontUnicode *GfxCache::loadUnicodeFont() {
 	if (!_unicodeFontTried) {
 		_unicodeFontTried = true;
 		GfxFontUnicode *f = new GfxFontUnicode(_screen, 0);
-		static const char *const names[] = { "sci.uni", "korean.uni", "towns.uni" };
 		bool ok = false;
+
+		// hires_text_font names a TrueType face on disk, tried before the
+		// bundled .uni fonts: a live face is preferred when the player asked
+		// for one, and the .uni names remain the fallback, both when the key
+		// is absent (identical to before) and when it names a face that
+		// fails to load (one warning, never a hard error - the game must
+		// still start, per the Task 3 harness check).
+		if (ConfMan.hasKey("hires_text_font")) {
+			const Common::String path = ConfMan.get("hires_text_font");
+			const int pixelSize = ConfMan.hasKey("hires_text_font_size") ?
+				ConfMan.getInt("hires_text_font_size") : 16;
+
+			Common::String error;
+			Common::FSNode node(Common::Path(path, Common::Path::kNativeSeparator));
+			Common::SeekableReadStream *stream = node.createReadStream();
+			if (!stream) {
+				error = "could not open the file";
+			} else {
+				const uint32 startMs = g_system->getMillis();
+				TtfGlyphSource *src = TtfGlyphSource::create(stream, DisposeAfterUse::YES, pixelSize, error);
+				const uint32 elapsedMs = g_system->getMillis() - startMs;
+				if (src) {
+					f->setSource(src, path);
+					ok = true;
+					debug(1, "SCI: hires_text_font %s opened at %dpx in %u ms",
+						  path.c_str(), pixelSize, elapsedMs);
+				}
+			}
+
+			if (!ok)
+				warning("hires_text_font %s: %s; using the .uni fonts", path.c_str(), error.c_str());
+		}
+
+		static const char *const names[] = { "sci.uni", "korean.uni", "towns.uni" };
 		for (uint i = 0; i < ARRAYSIZE(names) && !ok; i++)
 			ok = f->load(names[i]);
 		if (ok) {

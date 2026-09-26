@@ -81,6 +81,11 @@ public:
 	 *  distinct code point since); exposed for tests. */
 	uint32 rasterCount() const { return _rasterCount; }
 
+	/** Milliseconds spent inside FreeType rendering calls so far (probes at
+	 *  create() time, plus one per distinct code point since); exposed for
+	 *  tests and logged, with rasterCount(), when the source is destroyed. */
+	uint32 totalRenderMs() const { return _totalRenderMs; }
+
 	/** Whether cp is East Asian Wide or Fullwidth, per the table generated
 	 *  from Python's unicodedata (Unicode 16.0). Available even when this
 	 *  build has no FreeType, since layout needs it independent of a face. */
@@ -124,6 +129,7 @@ private:
 	byte _cellHeight = 0;
 	int _yOffset = 0;
 	uint32 _rasterCount = 0;
+	uint32 _totalRenderMs = 0;
 
 	Common::HashMap<uint32, Entry> _cache;
 };

@@ -22,6 +22,7 @@
 #include "sci/graphics/glyphsource_ttf.h"
 
 #include "common/debug.h"
+#include "common/system.h"
 #include "common/util.h"
 #include "graphics/font.h"
 #include "graphics/managed_surface.h"
@@ -295,6 +296,7 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 	const byte cellW = (byte)pixelSize;
 	const byte cellH = (byte)pixelSize;
 	uint32 rasterCount = 0;
+	uint32 totalRenderMs = 0;
 
 	// m7mkfont.py's ink_box(): draw every probe at (0,0) on a 3-cell-tall
 	// canvas and take the rows with any coverage >= kInkThreshold. Also
@@ -310,7 +312,9 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 		bottom = -1;
 		for (int i = 0; i < count; i++) {
 			Graphics::ManagedSurface probeSurf(probeW, probeH, Graphics::PixelFormat::createFormatARGB32());
+			const uint32 renderStart = g_system->getMillis();
 			renderCoverage(f, cps[i], 0, 0, probeSurf);
+			totalRenderMs += g_system->getMillis() - renderStart;
 			rasterCount++;
 			for (int y = 0; y < probeH; y++) {
 				bool ink = false;
@@ -389,10 +393,17 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 	src->_cellHeight = cellH;
 	src->_yOffset = -top + MAX(0, (cellH - (bottom - top)) / 2);
 	src->_rasterCount = rasterCount;
+	src->_totalRenderMs = totalRenderMs;
 	return src;
 }
 
 TtfGlyphSource::~TtfGlyphSource() {
+	// context.md's Task 3: the total FreeType render cost over this source's
+	// lifetime (probes at create() time, plus one rasterisation per distinct
+	// code point since), so a run.log can be grepped for the measurement
+	// without instrumenting the caller.
+	debug(1, "TtfGlyphSource: %u glyphs rasterised, %u ms total render time, %.3f ms/glyph mean",
+		  _rasterCount, _totalRenderMs, _rasterCount ? (double)_totalRenderMs / _rasterCount : 0.0);
 	delete _font;
 	if (_dispose == DisposeAfterUse::YES)
 		delete _stream;
@@ -410,7 +421,9 @@ TtfGlyphSource::Entry &TtfGlyphSource::ensure(uint32 cp) {
 
 	const int cellW = _cellWidth, cellH = _cellHeight;
 	Graphics::ManagedSurface surf(cellW * 2, cellH, Graphics::PixelFormat::createFormatARGB32());
+	const uint32 renderStart = g_system->getMillis();
 	renderCoverage(_font, cp, 0, _yOffset, surf);
+	_totalRenderMs += g_system->getMillis() - renderStart;
 	_rasterCount++;
 
 	bool hasInk = false;
