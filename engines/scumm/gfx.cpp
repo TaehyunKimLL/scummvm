@@ -1441,6 +1441,7 @@ void ScummEngine::restoreBackground(Common::Rect rect, byte backColor) {
 
 	if (vs->hasTwoBuffers && _currentRoom != 0 && isLightOn()) {
 		blit(screenBuf, vs->pitch, vs->getBackPixels(rect.left, rect.top), vs->pitch, width, height, vs->format.bytesPerPixel);
+		retireKeptHiResText(vs, Common::Rect(rect.left, rect.top, rect.left + width, rect.top + height), true);
 		if (vs->number == kMainVirtScreen && _charset->_hasMask) {
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 			if (_game.platform == Common::kPlatformFMTowns) {
@@ -1494,6 +1495,11 @@ void ScummEngine::restoreCharsetBg() {
 	_nextLeft = _string[0].xpos;
 	_nextTop = _string[0].ypos + _screenTop;
 
+	// What the restore is retiring: text the charset marked as removable, or
+	// only whatever the GUI left on the text surface.
+	const Common::Rect maskedArea = _charset->_hasMask ? _charset->_maskedArea : Common::Rect();
+	_charset->_maskedArea = Common::Rect();
+
 	if (_charset->_hasMask || _postGUICharMask) {
 		_postGUICharMask = false;
 		_charset->_hasMask = false;
@@ -1536,38 +1542,57 @@ void ScummEngine::restoreCharsetBg() {
 			}
 		}
 
-		// Single-buffered screens (v0-v2, and the verb area everywhere) never
-		// reached this branch, so nothing ever cleared the hi-res surface for
-		// them and every line stayed behind - in Zak two speakers piled up on
-		// one row. The built-in fonts do not need it because they draw into
-		// the buffer that was just wiped above; hi-res text lives in a surface
-		// of its own.
-		//
-		// Only when that buffer really was wiped, though. The branches above
-		// both have conditions that skip it - MI2's boot menu is room 0, so
-		// the two-buffer branch is not taken and the game keeps its picture -
-		// and there the game does not repaint the text either. Clearing the
-		// overlay anyway retired glyphs the game still considered on screen,
-		// which is why English MI2 showed an empty menu box.
-		if (wipedGameBuffer && (vs->hasTwoBuffers || _macScreen || _hiResText.enabled())) {
+		if (!_hiResText.enabled()) {
+			// The game's own text surface, as upstream has it: the charset
+			// mask holds only removable text - what the game drew for keeps
+			// went into its buffer - so it all goes. In a lit room the main
+			// screen's two-buffer branch above leaves the game buffer alone,
+			// and this clear is the only thing that erases the line.
+			if (vs->hasTwoBuffers || _macScreen)
+				clearTextSurface();
+			return;
+		}
+
+		// Hi-res text lives on the scaled overlay whatever the game asked for,
+		// so the overlay holds two kinds of glyph: removable text, and text
+		// the game drew for keeps into its own buffer (ignoreCharsetMask - the
+		// MI2 boot menu). Which of them may go depends on what happened to
+		// that buffer above.
+		if (wipedGameBuffer || maskedArea.isEmpty()) {
+			// Single-buffered screens (v0-v2, and the verb area everywhere)
+			// never reached this branch in upstream, so nothing ever cleared
+			// the hi-res surface for them and every line stayed behind - in
+			// Zak two speakers piled up on one row. When the buffer was wiped
+			// the kept text is gone from it too, so the whole screen's band
+			// goes; so does a restore with no removable text recorded (the
+			// GUI's leftovers, or a charset loaded from a save).
+			//
 			// Only the screen that owns this text: verbs and dialogue share
 			// the surface but are retired independently, and verbs are drawn
 			// once and never repainted.
-			clearTextSurface(_hiResText.enabled() ? vs : nullptr);
-
-			// The dirty marking above happened while the glyphs were still
-			// there, so it describes the area to repaint - but the repaint
-			// reads the text surface, which has only now been wiped. Mark it
-			// again so the cleared state is what reaches the screen.
-			//
-			// The keyed paths get away without this because a cleared text
-			// surface is the transparency key, and the strip they redraw
-			// already covers it. The blended path composites the text surface
-			// into true colour, so a stale glyph stays on screen until
-			// something else happens to redraw that band.
-			if (_hiResText.alphaActive())
-				markRectAsDirty(vs->number, Common::Rect(vs->w, vs->h), USAGE_BIT_RESTORED);
+			clearTextSurface(vs);
+		} else {
+			// The game buffer kept its picture - the main screen in a lit
+			// room, or the v3 flashlight banner - so the text it drew for
+			// keeps is still on screen, and the game will not draw it again.
+			// Retire only the removable text. Clearing the whole overlay here
+			// emptied MI2's boot menu the next time a line was retired;
+			// clearing nothing left every caption and subtitle piled up.
+			clearTextSurfaceRect(maskedArea);
 		}
+
+		// The dirty marking above happened while the glyphs were still
+		// there, so it describes the area to repaint - but the repaint
+		// reads the text surface, which has only now been wiped. Mark it
+		// again so the cleared state is what reaches the screen.
+		//
+		// The keyed paths get away without this because a cleared text
+		// surface is the transparency key, and the strip they redraw
+		// already covers it. The blended path composites the text surface
+		// into true colour, so a stale glyph stays on screen until
+		// something else happens to redraw that band.
+		if (_hiResText.alphaActive())
+			markRectAsDirty(vs->number, Common::Rect(vs->w, vs->h), USAGE_BIT_RESTORED);
 	}
 }
 
@@ -1598,10 +1623,82 @@ void ScummEngine::clearTextSurface(const VirtScreen *vs) {
 	}
 
 	towns_fillTopLayerRect(0, top, _textSurface.w, height, 0);
+	forgetKeptHiResGlyphs(Common::Rect(0, top, _textSurface.w, top + height));
 
 	// Both planes together: coverage left behind would blend the shape of the
 	// previous frame's glyphs into whatever is drawn next.
 	_overlay.clear(top, height, textTransparency());
+}
+
+void ScummEngine::clearTextSurfaceRect(const Common::Rect &r) {
+	Common::Rect area(r);
+	area.clip(Common::Rect(_textSurface.w, _textSurface.h));
+	if (area.isEmpty())
+		return;
+
+	towns_fillTopLayerRect(area.left, area.top, area.width(), area.height(), 0);
+	forgetKeptHiResGlyphs(area);
+	_overlay.clear(area, textTransparency());
+}
+
+void ScummEngine::noteKeptHiResGlyph(const Common::Rect &area, bool inBackBuffer) {
+	if (area.isEmpty())
+		return;
+
+	// A menu is a few hundred glyphs. The cap only guards against a game
+	// that keeps printing without ever painting over it; the oldest go first,
+	// which at worst leaves them for the next full clear.
+	static const uint kMaxKept = 2048;
+	if (_keptHiResGlyphs.size() >= kMaxKept)
+		_keptHiResGlyphs.remove_at(0);
+
+	KeptHiResGlyph glyph;
+	glyph.area = area;
+	glyph.inBackBuffer = inBackBuffer;
+	_keptHiResGlyphs.push_back(glyph);
+}
+
+void ScummEngine::retireKeptHiResText(const VirtScreen *vs, const Common::Rect &rect, bool fromBackBuffer) {
+	if (_keptHiResGlyphs.empty() || !vs || vs->number != kMainVirtScreen || rect.isEmpty())
+		return;
+
+	const int m = _textSurfaceMultiplier;
+	const int top = rect.top + vs->topline - _screenTop;
+	const Common::Rect painted(rect.left * m, top * m, rect.right * m, (top + rect.height()) * m);
+
+	for (uint i = 0; i < _keptHiResGlyphs.size();) {
+		KeptHiResGlyph &glyph = _keptHiResGlyphs[i];
+		if ((fromBackBuffer && glyph.inBackBuffer) || !glyph.area.intersects(painted)) {
+			++i;
+			continue;
+		}
+
+		// A glyph whose cell the game painted over is gone from the game's
+		// buffer, outline and all, so all of it goes - not only the part
+		// inside the painted strip, which would leave slivers of the
+		// decoration behind.
+		Common::Rect area(glyph.area);
+		area.clip(Common::Rect(_textSurface.w, _textSurface.h));
+		if (!area.isEmpty()) {
+			towns_fillTopLayerRect(area.left, area.top, area.width(), area.height(), 0);
+			_overlay.clear(area, textTransparency());
+			markRectAsDirty(kMainVirtScreen,
+							area.left / m, (area.right + m - 1) / m,
+							area.top / m + _screenTop - vs->topline,
+							(area.bottom + m - 1) / m + _screenTop - vs->topline,
+							USAGE_BIT_RESTORED);
+		}
+		_keptHiResGlyphs.remove_at(i);
+	}
+}
+
+void ScummEngine::forgetKeptHiResGlyphs(const Common::Rect &area) {
+	for (uint i = 0; i < _keptHiResGlyphs.size();) {
+		if (area.contains(_keptHiResGlyphs[i].area))
+			_keptHiResGlyphs.remove_at(i);
+		else
+			++i;
+	}
 }
 
 byte ScummEngine::textTransparency() const {
@@ -2661,6 +2758,12 @@ void Gdi::drawBitmap(const byte *ptr, VirtScreen *vs, int x, const int y, const 
 		limit = numstrip;
 	if (limit > _numStrips - sx)
 		limit = _numStrips - sx;
+
+	// Text the game drew for keeps is painted over along with the rest of
+	// its buffer; so is the hi-res glyph standing in for it.
+	if (vs->hasTwoBuffers && limit > 0)
+		_vm->retireKeptHiResText(vs, Common::Rect(sx * 8, y, (sx + limit) * 8, y + height), false);
+
 	for (int k = 0; k < limit; ++k, ++stripnr, ++sx, ++x) {
 		if (y < vs->tdirty[sx])
 			vs->tdirty[sx] = y;
@@ -3240,6 +3343,7 @@ void Gdi::resetBackground(int top, int bottom, int strip) {
 
 	numLinesToProcess = bottom - top;
 	if (numLinesToProcess) {
+		_vm->retireKeptHiResText(vs, Common::Rect(strip * 8, top, strip * 8 + 8, bottom), true);
 		if (_vm->isLightOn()) {
 			copy8Col(backbuff_ptr, vs->pitch, bgbak_ptr, numLinesToProcess, vs->format.bytesPerPixel);
 		} else {

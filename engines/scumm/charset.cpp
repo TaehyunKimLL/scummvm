@@ -1048,10 +1048,27 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	// normally do, because that is the only surface with the resolution to
 	// hold it. Falling through to the original path keeps a character the
 	// replacement font does not cover looking exactly as it did.
-	if (_vm->_hiResText.drawChar(_vm->_textSurface, chr, _curId,
-								 _left * _vm->_textSurfaceMultiplier,
-								 _top * _vm->_textSurfaceMultiplier,
-								 _color, _shadowColor, _vm->_2byteShadow)) {
+	Common::Rect hiResArea;
+	const bool hiResDrawn = _vm->_hiResText.drawChar(_vm->_textSurface, chr, _curId,
+													 _left * _vm->_textSurfaceMultiplier,
+													 _top * _vm->_textSurfaceMultiplier,
+													 _color, _shadowColor, _vm->_2byteShadow,
+													 &hiResArea);
+	if (!ignoreCharsetMask) {
+		// A double-byte cell is already in surface pixels here.
+		const int m = _vm->_textSurfaceMultiplier;
+		const int w = is2byte ? width : width * m;
+		const int h = is2byte ? height : height * m;
+		noteMaskedArea(hiResDrawn ? hiResArea
+								  : Common::Rect(_left * m, _top * m, _left * m + w, _top * m + h));
+	} else if (hiResDrawn && vs->number == kMainVirtScreen && vs->hasTwoBuffers
+#ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
+			 && _vm->_game.platform != Common::kPlatformFMTowns
+#endif
+			 )
+		_vm->noteKeptHiResGlyph(hiResArea, _blitAlso);
+
+	if (hiResDrawn) {
 		// drawn
 	} else if ((ignoreCharsetMask || !vs->hasTwoBuffers)
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
@@ -1284,10 +1301,25 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	// Hi-res text goes to the scaled overlay, which is the only surface with
 	// the resolution to hold it. A character the replacement font does not
 	// cover falls through and is drawn exactly as it was before.
-	if (!_vm->_hiResText.drawChar(_vm->_textSurface, chr, _curId,
-								  _left * _vm->_textSurfaceMultiplier,
-								  (_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier,
-								  _color, _shadowColor, _vm->_2byteShadow))
+	Common::Rect hiResArea;
+	const bool hiResDrawn = _vm->_hiResText.drawChar(_vm->_textSurface, chr, _curId,
+													 _left * _vm->_textSurfaceMultiplier,
+													 (_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier,
+													 _color, _shadowColor, _vm->_2byteShadow,
+													 &hiResArea);
+	if (!ignoreCharsetMask) {
+		const int m = _vm->_textSurfaceMultiplier;
+		const int y = _top - _vm->_screenTop;
+		noteMaskedArea(hiResDrawn ? hiResArea
+								  : Common::Rect(_left * m, y * m,
+												 (_left + _width) * m, (y + _height) * m));
+	} else if (hiResDrawn && vs->number == kMainVirtScreen && vs->hasTwoBuffers
+#ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
+			 && _vm->_game.platform != Common::kPlatformFMTowns
+#endif
+			 )
+		_vm->noteKeptHiResGlyph(hiResArea, _blitAlso);
+	if (!hiResDrawn)
 		printCharIntern(is2byte, _charPtr, _origWidth, _origHeight, _width, _height, vs, ignoreCharsetMask);
 
 	// Original keeps glyph width and character dimensions separately
