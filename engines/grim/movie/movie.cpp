@@ -248,6 +248,13 @@ void MoviePlayer::restoreState(SaveGame *state) {
 
 	restore(state);
 
+	// restore() may already have decoded the frame at the restored time. As
+	// _frame was set to that same frame above, prepareFrame() did not flag it,
+	// but the renderer has never been given it: make sure it gets uploaded
+	// before it is drawn.
+	if (_internalSurface)
+		_updateNeeded = true;
+
 	state->endSection();
 }
 
