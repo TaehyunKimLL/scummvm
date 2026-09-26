@@ -23,6 +23,7 @@
 
 #if defined(SDL_BACKEND)
 #include "backends/graphics/surfacesdl/surfacesdl-graphics.h"
+#include "backends/graphics/surfacesdl/surfacesdl-hwformat.h"
 #include "backends/events/sdl/sdl-events.h"
 #include "common/config-manager.h"
 #include "common/mutex.h"
@@ -96,9 +97,11 @@ static SDL_Surface *createSurface(int width, int height, SDL_Surface *surface) {
 	const SDL_PixelFormatDetails *pixelFormatDetails = SDL_GetPixelFormatDetails(surface->format);
 	if (pixelFormatDetails == nullptr)
 		error("getting pixel format details failed");
+	// bytes_per_pixel, not bits_per_pixel: XRGB8888 has 24 bits in 4 bytes,
+	// and 24 would ask for the packed 3-byte RGB24 instead.
 	return SDL_CreateSurface(width, height,
 					SDL_GetPixelFormatForMasks(
-						pixelFormatDetails->bits_per_pixel,
+						pixelFormatDetails->bytes_per_pixel * 8,
 						pixelFormatDetails->Rmask,
 						pixelFormatDetails->Gmask,
 						pixelFormatDetails->Bmask,
@@ -107,7 +110,7 @@ static SDL_Surface *createSurface(int width, int height, SDL_Surface *surface) {
 	return SDL_CreateRGBSurface(SDL_SWSURFACE,
 					width,
 					height,
-					surface->format->BitsPerPixel,
+					surface->format->BytesPerPixel * 8,
 					surface->format->Rmask,
 					surface->format->Gmask,
 					surface->format->Bmask,
@@ -167,7 +170,7 @@ SurfaceSdlGraphicsManager::SurfaceSdlGraphicsManager(SdlEventSource *sdlEventSou
 	_osdIconSurface(nullptr),
 #endif
 #if SDL_VERSION_ATLEAST(2, 0, 0)
-	_renderer(nullptr), _screenTexture(nullptr),
+	_renderer(nullptr), _screenTexture(nullptr), _screenTextureFormat(SDL_PIXELFORMAT_RGB565),
 #endif
 #if defined(WIN32) && !SDL_VERSION_ATLEAST(2, 0, 0)
 	_originalBitsPerPixel(0),
@@ -175,7 +178,7 @@ SurfaceSdlGraphicsManager::SurfaceSdlGraphicsManager(SdlEventSource *sdlEventSou
 	_screen(nullptr), _tmpscreen(nullptr),
 	_screenFormat(Graphics::PixelFormat::createFormatCLUT8()),
 	_cursorFormat(Graphics::PixelFormat::createFormatCLUT8()),
-	_useOldSrc(false), _isHwPalette(false),
+	_useOldSrc(false), _isHwPalette(false), _hwScreen32(false),
 	_overlayscreen(nullptr), _tmpscreen2(nullptr),
 	_screenChangeCount(0),
 	_mouseSurface(nullptr), _mouseScaler(nullptr),
@@ -576,78 +579,20 @@ Common::List<Graphics::PixelFormat> SurfaceSdlGraphicsManager::getSupportedForma
 }
 
 void SurfaceSdlGraphicsManager::detectSupportedFormats() {
-	_supportedFormats.clear();
+	Graphics::PixelFormat hwFormat;
+	if (_hwScreen)
+		hwFormat = convertSDLPixelFormat(_hwScreen->format);
 
-	Graphics::PixelFormat format = Graphics::PixelFormat::createFormatCLUT8();
-
-	if (_hwScreen) {
-		// Get our currently set hardware format
-		Graphics::PixelFormat hwFormat = convertSDLPixelFormat(_hwScreen->format);
-
-		// This is the first supported format to prevent pixel format conversion
-		// on blitting. This gives us a lot more performance on low perf hardware.
-		_supportedFormats.push_back(hwFormat);
-
-		format = hwFormat;
-	}
-
-	if (!_isHwPalette) {
-		// Some tables with standard formats that we always list
-		// as "supported". If frontend code tries to use one of
-		// these, we will perform the necessary format
-		// conversion in the background. Of course this incurs a
-		// performance hit, but on desktop ports this should not
-		// matter. We still push the currently active format to
-		// the front, so if frontend code just uses the first
-		// available format, it will get one that is "cheap" to
-		// use.
-		const Graphics::PixelFormat RGBList[] = {
-			// RGBA8888, ARGB8888, RGB888
-			Graphics::PixelFormat(4, 8, 8, 8, 8, 24, 16, 8, 0),
-			Graphics::PixelFormat(4, 8, 8, 8, 8, 16, 8, 0, 24),
-			Graphics::PixelFormat(3, 8, 8, 8, 0, 16, 8, 0, 0),
-			// RGB565, XRGB1555, RGB555, RGBA4444, ARGB4444
-			Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0),
-			Graphics::PixelFormat(2, 5, 5, 5, 1, 10, 5, 0, 15),
-			Graphics::PixelFormat(2, 5, 5, 5, 0, 10, 5, 0, 0),
-			Graphics::PixelFormat(2, 4, 4, 4, 4, 12, 8, 4, 0),
-			Graphics::PixelFormat(2, 4, 4, 4, 4, 8, 4, 0, 12)
-		};
-		const Graphics::PixelFormat BGRList[] = {
-			// ABGR8888, BGRA8888, BGR888
-			Graphics::PixelFormat(4, 8, 8, 8, 8, 0, 8, 16, 24),
-			Graphics::PixelFormat(4, 8, 8, 8, 8, 8, 16, 24, 0),
-			Graphics::PixelFormat(3, 8, 8, 8, 0, 0, 8, 16, 0),
-			// BGR565, XBGR1555, BGR555, ABGR4444, BGRA4444
-			Graphics::PixelFormat(2, 5, 6, 5, 0, 0, 5, 11, 0),
-			Graphics::PixelFormat(2, 5, 5, 5, 1, 0, 5, 10, 15),
-			Graphics::PixelFormat(2, 5, 5, 5, 0, 0, 5, 10, 0),
-			Graphics::PixelFormat(2, 4, 4, 4, 4, 0, 4, 8, 12),
-			Graphics::PixelFormat(2, 4, 4, 4, 4, 4, 8, 12, 0)
-		};
-
-		// TODO: prioritize matching alpha masks
-		int i;
-
-		// Push some RGB formats
-		for (i = 0; i < ARRAYSIZE(RGBList); i++) {
-			if (_hwScreen && (RGBList[i].bytesPerPixel > format.bytesPerPixel))
-				continue;
-			if (RGBList[i] != format)
-				_supportedFormats.push_back(RGBList[i]);
-		}
-
-		// Push some BGR formats
-		for (i = 0; i < ARRAYSIZE(BGRList); i++) {
-			if (_hwScreen && (BGRList[i].bytesPerPixel > format.bytesPerPixel))
-				continue;
-			if (BGRList[i] != format)
-				_supportedFormats.push_back(BGRList[i]);
-		}
-	}
-
-	// Finally, we always supposed 8 bit palette graphics
-	_supportedFormats.push_back(Graphics::PixelFormat::createFormatCLUT8());
+	// The renderer path can switch its hardware screen to 32 bits when a
+	// game asks for a 4-byte format, so those are offered even while the
+	// screen is 16-bit (after every 16-bit format; see surfacesdl-hwformat.h).
+#if SDL_VERSION_ATLEAST(2, 0, 0)
+	const bool offer32 = true;
+#else
+	const bool offer32 = false;
+#endif
+	SurfaceSdlHwFormat::buildSupportedFormats(_supportedFormats, _hwScreen ? &hwFormat : nullptr,
+	                                          _isHwPalette, offer32);
 }
 #endif
 
@@ -700,9 +645,14 @@ void SurfaceSdlGraphicsManager::setGraphicsModeIntern() {
 
 
 	// If the scalerIndex has changed, change scaler plugins
+	// The scaler works in the hardware screen's format, which can change depth
+	// (16 <-> 32 bits) without the game's format changing, e.g. when
+	// hw_screen_32bpp is set only in the game's domain.
+	const Graphics::PixelFormat hwFormat = convertSDLPixelFormat(_hwScreen->format);
 	if (&_scalerPlugins[_videoMode.scalerIndex]->get<ScalerPluginObject>() != _scalerPlugin
-		|| _transactionDetails.formatChanged) {
-		Graphics::PixelFormat format = convertSDLPixelFormat(_hwScreen->format);
+		|| _transactionDetails.formatChanged || !_scaler || hwFormat != _scalerFormat) {
+		Graphics::PixelFormat format = hwFormat;
+		_scalerFormat = hwFormat;
 		delete _scaler;
 
 		_scalerPlugin = &_scalerPlugins[_videoMode.scalerIndex]->get<ScalerPluginObject>();
@@ -950,7 +900,7 @@ void SurfaceSdlGraphicsManager::initGraphicsSurface() {
 	if (_videoMode.fullscreen)
 		flags |= SDL_FULLSCREEN;
 
-	_hwScreen = SDL_SetVideoMode(_videoMode.hardwareWidth, _videoMode.hardwareHeight, 16, flags);
+	_hwScreen = SDL_SetVideoMode(_videoMode.hardwareWidth, _videoMode.hardwareHeight, _hwScreen32 ? 32 : 16, flags);
 #if SDL_VERSION_ATLEAST(2, 0, 0)
 	_isDoubleBuf = false;
 	_isHwPalette = false;
@@ -1005,6 +955,15 @@ bool SurfaceSdlGraphicsManager::loadGFXMode() {
 		fixupResolutionForAspectRatio(_videoMode.desiredAspectRatio, _videoMode.hardwareWidth, _videoMode.hardwareHeight);
 	}
 
+
+#if SDL_VERSION_ATLEAST(2, 0, 0)
+	// A 32-bit hardware screen when the game asked for a 4-byte format, or when
+	// the user forces it; otherwise the RGB565 screen this backend always had.
+	_hwScreen32 = SurfaceSdlHwFormat::wantHwScreen32(_screenFormat,
+		ConfMan.hasKey("hw_screen_32bpp") && ConfMan.getBool("hw_screen_32bpp"));
+#else
+	_hwScreen32 = false;
+#endif
 
 #ifdef ENABLE_EVENTRECORDER
 	_displayDisabled = ConfMan.getBool("disable_display");
@@ -1170,6 +1129,13 @@ bool SurfaceSdlGraphicsManager::hotswapGFXMode() {
 
 		return false;
 	}
+
+	// endGFXTransaction() set the scaler up for the old hardware screen before
+	// this swap. loadGFXMode() may have produced another format - the 32-bit
+	// texture can fall back to RGB565 - so rebuild the scaler for the format
+	// actually in use before anything is drawn with it.
+	if (convertSDLPixelFormat(_hwScreen->format) != _scalerFormat)
+		setGraphicsModeIntern();
 
 	// reset palette
 	SDL_SetColors(_screen, _currentPalette, 0, 256);
@@ -2411,7 +2377,7 @@ void SurfaceSdlGraphicsManager::blitCursor() {
 			_mouseCurState.rW,
 			_mouseCurState.rH,
 			SDL_GetPixelFormatForMasks(
-				pixelFormatDetails->bits_per_pixel,
+				pixelFormatDetails->bytes_per_pixel * 8,
 				pixelFormatDetails->Rmask,
 				pixelFormatDetails->Gmask,
 				pixelFormatDetails->Bmask,
@@ -2420,7 +2386,7 @@ void SurfaceSdlGraphicsManager::blitCursor() {
 		_mouseSurface = SDL_CreateRGBSurface(SDL_SWSURFACE,
 						_mouseCurState.rW,
 						_mouseCurState.rH,
-						_mouseOrigSurface->format->BitsPerPixel,
+						_mouseOrigSurface->format->BytesPerPixel * 8,
 						_mouseOrigSurface->format->Rmask,
 						_mouseOrigSurface->format->Gmask,
 						_mouseOrigSurface->format->Bmask,
@@ -2646,11 +2612,11 @@ void SurfaceSdlGraphicsManager::displayMessageOnOSD(const Common::U32String &msg
 		error("getting pixel format details failed");
 	_osdMessageSurface = SDL_CreateSurface(
 		width, height,
-		SDL_GetPixelFormatForMasks(pixelFormatDetails->bits_per_pixel, pixelFormatDetails->Rmask, pixelFormatDetails->Gmask, pixelFormatDetails->Bmask, pixelFormatDetails->Amask));
+		SDL_GetPixelFormatForMasks(pixelFormatDetails->bytes_per_pixel * 8, pixelFormatDetails->Rmask, pixelFormatDetails->Gmask, pixelFormatDetails->Bmask, pixelFormatDetails->Amask));
 #else
 	_osdMessageSurface = SDL_CreateRGBSurface(
 		SDL_SWSURFACE,
-		width, height, _hwScreen->format->BitsPerPixel, _hwScreen->format->Rmask, _hwScreen->format->Gmask, _hwScreen->format->Bmask, _hwScreen->format->Amask
+		width, height, _hwScreen->format->BytesPerPixel * 8, _hwScreen->format->Rmask, _hwScreen->format->Gmask, _hwScreen->format->Bmask, _hwScreen->format->Amask
 	);
 #endif
 
@@ -3037,7 +3003,11 @@ void SurfaceSdlGraphicsManager::recreateScreenTexture() {
 #endif
 
 	SDL_Texture *oldTexture = _screenTexture;
-	_screenTexture = SDL_CreateTexture(_renderer, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, _videoMode.hardwareWidth, _videoMode.hardwareHeight);
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+	_screenTexture = SDL_CreateTexture(_renderer, (SDL_PixelFormat)_screenTextureFormat, SDL_TEXTUREACCESS_STREAMING, _videoMode.hardwareWidth, _videoMode.hardwareHeight);
+#else
+	_screenTexture = SDL_CreateTexture(_renderer, _screenTextureFormat, SDL_TEXTUREACCESS_STREAMING, _videoMode.hardwareWidth, _videoMode.hardwareHeight);
+#endif
 	if (_screenTexture) {
 		SDL_DestroyTexture(oldTexture);
 #if SDL_VERSION_ATLEAST(3, 0, 0)
@@ -3123,17 +3093,27 @@ SDL_Surface *SurfaceSdlGraphicsManager::SDL_SetVideoMode(int width, int height, 
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, _videoMode.filtering ? "linear" : "nearest");
 #endif
 
+	// bpp is 32 when loadGFXMode() wants a 32-bit screen (see _hwScreen32),
+	// else 16. XRGB8888 rather than ARGB8888: same layout, no alpha to blend.
 #if SDL_VERSION_ATLEAST(3, 0, 0)
-	SDL_PixelFormat format = SDL_PIXELFORMAT_RGB565;
+	SDL_PixelFormat format = (bpp == 32) ? SDL_PIXELFORMAT_XRGB8888 : SDL_PIXELFORMAT_RGB565;
 #else
-	Uint32 format = SDL_PIXELFORMAT_RGB565;
+	Uint32 format = (bpp == 32) ? SDL_PIXELFORMAT_RGB888 : SDL_PIXELFORMAT_RGB565;
 #endif
 
 	_screenTexture = SDL_CreateTexture(_renderer, format, SDL_TEXTUREACCESS_STREAMING, width, height);
+	if (!_screenTexture && format != SDL_PIXELFORMAT_RGB565) {
+		warning("SDL_SetVideoMode: no 32-bit screen texture (%s), using RGB565", SDL_GetError());
+		format = SDL_PIXELFORMAT_RGB565;
+		_hwScreen32 = false;
+		_screenTexture = SDL_CreateTexture(_renderer, format, SDL_TEXTUREACCESS_STREAMING, width, height);
+	}
 	if (!_screenTexture) {
 		deinitializeRenderer();
 		return nullptr;
 	}
+	_screenTextureFormat = format;
+	debug(1, "SurfaceSDL: %dx%d hardware screen in %s", width, height, SDL_GetPixelFormatName(format));
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	SDL_SetTextureScaleMode(_screenTexture, _videoMode.filtering ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
 #endif
