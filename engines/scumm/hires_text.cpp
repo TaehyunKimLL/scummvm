@@ -25,14 +25,12 @@
 #include "common/fs.h"
 #include "common/rect.h"
 #include "common/stream.h"
+#include "common/system.h"
 #include "common/textconsole.h"
-#include "common/textconsole.h"
-#include "common/file.h"
-#include "common/memstream.h"
 #include "common/ustr.h"
-#include "graphics/font.h"
-#include "graphics/fonts/ttf.h"
-#include "graphics/hires_text/font_baker.h"
+#include "graphics/hires_text/glyph_source_svfn.h"
+#include "graphics/hires_text/glyph_source_ttf.h"
+#include "graphics/hires_text/text_compose.h"
 
 namespace Scumm {
 
@@ -121,6 +119,10 @@ ScummHiResText::ScummHiResText() {
 	reset();
 }
 
+ScummHiResText::~ScummHiResText() {
+	freeFaces();
+}
+
 void ScummHiResText::reset() {
 	_enabled = false;
 	_simpleFonts = false;
@@ -136,26 +138,127 @@ void ScummHiResText::reset() {
 	memset(_paletteRGB, 0, sizeof(_paletteRGB));
 	_config.clear();
 	freeCoverage();
+	freeFaces();
+}
 
-	for (int i = 0; i < kMaxFonts; ++i)
-		_fonts[i].free();
-	_singleFont.free();
-	_latinFont.free();
-	for (int i = 0; i < kMaxFonts; ++i)
-		_latinFonts[i].free();
+void ScummHiResText::freeFaces() {
+	for (Common::HashMap<Common::String, Face *>::iterator it = _sources.begin();
+		 it != _sources.end(); ++it) {
+		if (it->_value)
+			delete it->_value->source;
+		delete it->_value;
+	}
+	_sources.clear();
+
+	for (int i = 0; i < kMaxFonts; ++i) {
+		_cjkFaces[i] = nullptr;
+		_latinFaces[i] = nullptr;
+		_ttfFaces[i] = nullptr;
+		_ttfFacePx[i] = 0;
+	}
+	_singleFace = nullptr;
+	_latinSingleFace = nullptr;
+	_logFace = nullptr;
+}
+
+void ScummHiResText::adoptConfig(const Graphics::HiResTextConfig &config) {
+	freeFaces();
+	_config = config;
+	_enabled = true;
+	_fontsLoaded = false;
+}
+
+bool ScummHiResText::addBitmapFont(int charsetId, bool latin, Common::SeekableReadStream &stream,
+								   const Common::String &name) {
+	if (charsetId >= kMaxFonts)
+		return false;
+
+	Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
+	if (!font->load(stream)) {
+		delete font;
+		return false;
+	}
+
+	// The same file named twice - a single font doubling as the Latin one -
+	// is one source.
+	const Common::String key = Common::String::format("%s@%d", name.c_str(), font->cellHeight());
+	Face *face = nullptr;
+	Common::HashMap<Common::String, Face *>::iterator it = _sources.find(key);
+	if (it != _sources.end() && it->_value && it->_value->bitmap) {
+		delete font;
+		face = it->_value;
+	} else {
+		face = new Face();
+		face->bitmap = font;
+		face->source = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
+		face->slot = charsetId;
+		if (it != _sources.end()) {
+			if (it->_value)
+				delete it->_value->source;
+			delete it->_value;
+		}
+		_sources[key] = face;
+	}
+
+	if (charsetId < 0) {
+		if (latin)
+			_latinSingleFace = face;
+		else
+			_singleFace = face;
+	} else if (latin) {
+		_latinFaces[charsetId] = face;
+	} else {
+		_cjkFaces[charsetId] = face;
+	}
+
+	_fontsLoaded = true;
+	return true;
+}
+
+bool ScummHiResText::loadBitmapFile(const Common::Path &gameDir, const Common::String &name,
+									int charsetId, bool latin) {
+	Common::FSNode node(gameDir.appendComponent(name));
+	if (!node.exists())
+		return false;
+
+	Common::SeekableReadStream *stream = node.createReadStream();
+	if (!stream)
+		return false;
+
+	const bool ok = addBitmapFont(charsetId, latin, *stream, name);
+	delete stream;
+
+	if (!ok) {
+		warning("SCUMM: %s is not a usable hi-res font", name.c_str());
+		return false;
+	}
+
+	const Face *face = (charsetId < 0) ? (latin ? _latinSingleFace : _singleFace)
+									   : (latin ? _latinFaces[charsetId] : _cjkFaces[charsetId]);
+	const Graphics::HiResBitmapFont &font = *face->bitmap;
+	if (latin) {
+		debug(1, "SCUMM: hi-res Latin font %d <- %s: %dx%d cell, %d bpp, %d glyphs, %s",
+			  charsetId, name.c_str(), font.cellWidth(), font.cellHeight(), font.bpp(),
+			  font.glyphCount(), font.isProportional() ? "proportional" : "fixed width");
+	} else {
+		debug(1, "SCUMM: hi-res font %d <- %s: %dx%d cell, %d bpp, %d glyphs, "
+				 "%s, codepage %s%s",
+			  charsetId, name.c_str(), font.cellWidth(), font.cellHeight(), font.bpp(),
+			  font.glyphCount(), font.isProportional() ? "proportional" : "fixed width",
+			  codePageName(font.codePage()),
+			  font.bpp() == 8 ? ", anti-aliased" : ", stencil");
+	}
+	return true;
 }
 
 bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 	_fontsLoaded = false;
-	for (int i = 0; i < kMaxFonts; ++i)
-		_fonts[i].free();
-	_singleFont.free();
-	_latinFont.free();
-	for (int i = 0; i < kMaxFonts; ++i)
-		_latinFonts[i].free();
+	freeFaces();
 
 	if (!_enabled)
 		return false;
+
+	const uint32 startMs = g_system ? g_system->getMillis() : 0;
 
 	// A game changes charset mid-scene - dialogue, the verb line and a title
 	// card are different sizes - so a map names a numbered set, one file per
@@ -165,62 +268,49 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 			const Common::String name = expandFontPattern(_config.bitmapPattern, i);
 			if (name.empty())
 				break;
-
-			Common::FSNode node(gameDir.appendComponent(name));
-			if (!node.exists())
-				continue;
-
-			Common::SeekableReadStream *stream = node.createReadStream();
-			if (!stream)
-				continue;
-
-			if (_fonts[i].load(*stream)) {
-				_fontsLoaded = true;
-				debug(1, "SCUMM: hi-res font %d <- %s: %dx%d cell, %d bpp, %d glyphs, "
-						 "%s, codepage %s%s",
-					  i, name.c_str(),
-					  _fonts[i].cellWidth(), _fonts[i].cellHeight(), _fonts[i].bpp(),
-					  _fonts[i].glyphCount(),
-					  _fonts[i].isProportional() ? "proportional" : "fixed width",
-					  codePageName(_fonts[i].codePage()),
-					  _fonts[i].bpp() == 8 ? ", anti-aliased" : ", stencil");
-			} else {
-				warning("SCUMM: %s is not a usable hi-res font", name.c_str());
-			}
-			delete stream;
+			loadBitmapFile(gameDir, name, i, false);
 		}
 	}
 
 	// One file standing in for every charset, which is what a translation with
 	// a single font size ships.
-	if (!_config.bitmapSingle.empty()) {
-		Common::FSNode node(gameDir.appendComponent(_config.bitmapSingle));
-		if (node.exists()) {
-			Common::SeekableReadStream *stream = node.createReadStream();
-			if (stream) {
-				if (_singleFont.load(*stream)) {
-					_fontsLoaded = true;
-					debug(1, "SCUMM: hi-res font (single) <- %s: %dx%d cell, %d bpp, "
-							 "%d glyphs, %s, codepage %s",
-						  _config.bitmapSingle.c_str(),
-						  _singleFont.cellWidth(), _singleFont.cellHeight(),
-						  _singleFont.bpp(), _singleFont.glyphCount(),
-						  _singleFont.isProportional() ? "proportional" : "fixed width",
-						  codePageName(_singleFont.codePage()));
-				} else {
-					warning("SCUMM: %s is not a usable hi-res font",
-							_config.bitmapSingle.c_str());
-				}
-				delete stream;
-			}
-		}
-	}
+	if (!_config.bitmapSingle.empty())
+		loadBitmapFile(gameDir, _config.bitmapSingle, -1, false);
 
-	// A face is only baked when no bitmap font came in: a shipped .fnt is the
-	// primary form, and a face names only what to draw with when there is
-	// nothing baked.
-	if (!_fontsLoaded && bakeTtfFonts(gameDir))
-		_fontsLoaded = true;
+	// A TrueType face is opened, not baked: once per pixel size a charset
+	// needs, rasterising nothing but its probe set until a glyph is drawn.
+	// The sizes known now - a CJK game's double-byte cells - are opened here,
+	// so a face that cannot be used is reported at start-up; a charset whose
+	// cell is learnt later opens its size when it first draws.
+	if (!_ttfPath.empty()) {
+#ifdef USE_FREETYPE2
+		Common::FSNode node(_ttfPath);
+		if (!node.exists()) {
+			warning("SCUMM: hi-res TrueType font not found: '%s'", _ttfPath.toString().c_str());
+			_ttfPath.clear();
+		} else {
+			bool opened = false, anyKnown = false;
+			for (int i = 0; i < kMaxFonts; ++i) {
+				if (_gameFontH[i] <= 0)
+					continue;
+				anyKnown = true;
+				if (ttfFaceFor(i))
+					opened = true;
+			}
+			// A game with no CJK font learns its cells as charsets are
+			// selected, so nothing can be opened yet; the face is still the
+			// font this layer draws with.
+			if (opened || !anyKnown)
+				_fontsLoaded = true;
+		}
+#else
+		// Named a face but cannot rasterise one: say so, or the only symptom
+		// is the generic "no replacement font loaded" below.
+		warning("SCUMM: hi-res TrueType fonts need a build with FreeType; "
+				"bake the font to .fnt instead");
+		_ttfPath.clear();
+#endif
+	}
 
 	// Latin companions, for the letters the double-byte sets do not carry.
 	// The menu, the location titles and much of the dialogue mix scripts, so
@@ -231,9 +321,8 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 	// the wrong cell sits on a different baseline from the Hangul beside it.
 	if (!_config.legacy.latinBitmapName.empty()) {
 		const Common::String &latinName = _config.legacy.latinBitmapName;
-		const bool latinPattern = latinName.contains('%');
 
-		if (latinPattern) {
+		if (latinName.contains('%')) {
 			for (int i = 0; i < kMaxFonts; ++i) {
 				// Through the same guard as the CJK names above: this string
 				// comes from a map file, and format() would let it name any
@@ -241,62 +330,37 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 				const Common::String name = expandFontPattern(latinName, i);
 				if (name.empty())
 					break;
-
-				Common::FSNode node(gameDir.appendComponent(name));
-				if (!node.exists())
-					continue;
-
-				Common::SeekableReadStream *stream = node.createReadStream();
-				if (!stream)
-					continue;
-
-				if (_latinFonts[i].load(*stream)) {
-					_fontsLoaded = true;
-					debug(1, "SCUMM: hi-res Latin font %d <- %s: %dx%d cell, "
-							 "%d bpp, %d glyphs, %s",
-						  i, name.c_str(),
-						  _latinFonts[i].cellWidth(), _latinFonts[i].cellHeight(),
-						  _latinFonts[i].bpp(), _latinFonts[i].glyphCount(),
-						  _latinFonts[i].isProportional() ? "proportional" : "fixed width");
-				} else {
-					warning("SCUMM: %s is not a usable hi-res font", name.c_str());
-				}
-				delete stream;
+				loadBitmapFile(gameDir, name, i, true);
 			}
+		} else if (!Common::FSNode(gameDir.appendComponent(latinName)).exists()) {
+			warning("SCUMM: hi-res Latin font not found: %s", latinName.c_str());
 		} else {
-			Common::FSNode node(gameDir.appendComponent(latinName));
-			if (node.exists()) {
-				Common::SeekableReadStream *stream = node.createReadStream();
-				if (stream) {
-					if (_latinFont.load(*stream)) {
-						_fontsLoaded = true;
-						debug(1, "SCUMM: hi-res Latin font <- %s: %dx%d cell, "
-								 "%d bpp, %d glyphs, %s",
-							  latinName.c_str(),
-							  _latinFont.cellWidth(), _latinFont.cellHeight(),
-							  _latinFont.bpp(), _latinFont.glyphCount(),
-							  _latinFont.isProportional() ? "proportional" : "fixed width");
-					} else {
-						warning("SCUMM: %s is not a usable hi-res font",
-								latinName.c_str());
-					}
-					delete stream;
-				}
-			} else {
-				warning("SCUMM: hi-res Latin font not found: %s",
-						latinName.c_str());
-			}
+			loadBitmapFile(gameDir, latinName, -1, true);
 		}
 	}
 
 	if (!_fontsLoaded)
 		warning("SCUMM: hi-res text is configured but no replacement font loaded");
 
+	if (g_system)
+		debug(1, "SCUMM: hi-res fonts loaded in %u ms (%d glyph sources open)",
+			  g_system->getMillis() - startMs, sourceCount());
+
 	return _fontsLoaded;
 }
 
 bool ScummHiResText::hasFonts() const {
 	return _fontsLoaded;
+}
+
+int ScummHiResText::sourceCount() const {
+	int n = 0;
+	for (Common::HashMap<Common::String, Face *>::const_iterator it = _sources.begin();
+		 it != _sources.end(); ++it) {
+		if (it->_value)
+			++n;
+	}
+	return n;
 }
 
 /**
@@ -341,24 +405,33 @@ static bool glyphHasInk(const Graphics::HiResBitmapFont &font, int index) {
 	return false;
 }
 
-const Graphics::HiResBitmapFont *ScummHiResText::fontFor(int charsetId, bool latin) const {
+ScummHiResText::Face *ScummHiResText::faceFor(int charsetId, bool latin) const {
 	if (!_fontsLoaded)
 		return nullptr;
 
+	const bool inRange = charsetId >= 0 && charsetId < kMaxFonts;
+
 	// A single-byte character has no glyph in a CP949-indexed set, so it must
-	// come from a Latin font or not at all. Prefer the one baked for this
+	// come from a Latin font or not at all. Prefer the one made for this
 	// charset's cell, so it shares a baseline with the Hangul around it.
 	if (latin) {
-		if (charsetId >= 0 && charsetId < kMaxFonts && _latinFonts[charsetId].isLoaded())
-			return &_latinFonts[charsetId];
-		return _latinFont.isLoaded() ? &_latinFont : nullptr;
+		if (inRange && _latinFaces[charsetId])
+			return _latinFaces[charsetId];
+		if (_latinSingleFace)
+			return _latinSingleFace;
+		return ttfFaceFor(charsetId);
 	}
 
-	if (charsetId >= 0 && charsetId < kMaxFonts && _fonts[charsetId].isLoaded())
-		return &_fonts[charsetId];
+	if (inRange && _cjkFaces[charsetId])
+		return _cjkFaces[charsetId];
 
-	if (_singleFont.isLoaded())
-		return &_singleFont;
+	if (_singleFace)
+		return _singleFace;
+
+	// A face opened at this charset's own size fits it better than a bitmap
+	// font made for another charset.
+	if (Face *ttf = ttfFaceFor(charsetId))
+		return ttf;
 
 	// A charset can have no replacement of its own - MI2 draws its verb line
 	// with charset 6, for which the games ship no korean06.fnt, and upstream
@@ -368,9 +441,125 @@ const Graphics::HiResBitmapFont *ScummHiResText::fontFor(int charsetId, bool lat
 	// font while everything around them is replaced.
 	const int nearest = nearestFont(charsetId);
 	if (nearest >= 0)
-		return &_fonts[nearest];
+		return _cjkFaces[nearest];
 
 	return nullptr;
+}
+
+Graphics::UnicodeGlyphSource *ScummHiResText::sourceFor(int charsetId, bool latin) const {
+	const Face *face = faceFor(charsetId, latin);
+	return face ? face->source : nullptr;
+}
+
+ScummHiResText::Face *ScummHiResText::ttfFaceFor(int charsetId) const {
+	if (_ttfPath.empty() || charsetId < 0 || charsetId >= kMaxFonts)
+		return nullptr;
+
+	// The face is drawn at the size of the game's own cell times the scale,
+	// the cell the text is laid out on. A charset whose cell is not known
+	// yet borrows the nearest one that is.
+	int height = _gameFontH[charsetId];
+	if (height <= 0) {
+		const int nearest = nearestTtfCharset(charsetId);
+		if (nearest < 0)
+			return nullptr;
+		height = _gameFontH[nearest];
+	}
+	const int pixelSize = height * MAX(1, _config.scale);
+
+	if (_ttfFacePx[charsetId] == pixelSize)
+		return _ttfFaces[charsetId];
+
+	Face *face = openTtfFace(pixelSize);
+	_ttfFaces[charsetId] = face;
+	_ttfFacePx[charsetId] = pixelSize;
+	return face;
+}
+
+ScummHiResText::Face *ScummHiResText::openTtfFace(int pixelSize) const {
+	const Common::String key = Common::String::format("%s@%d", _ttfPath.toString('/').c_str(), pixelSize);
+	Common::HashMap<Common::String, Face *>::iterator it = _sources.find(key);
+	if (it != _sources.end())
+		return it->_value;
+
+	// Recorded before anything can fail, so a face that cannot be used is
+	// tried - and warned about - once, not once per character.
+	_sources[key] = nullptr;
+
+	Common::FSNode node(_ttfPath);
+	Common::SeekableReadStream *stream = node.exists() ? node.createReadStream() : nullptr;
+	if (!stream) {
+		warning("SCUMM: cannot open hi-res TrueType font '%s'", _ttfPath.toString().c_str());
+		return nullptr;
+	}
+
+	// A Korean game's face has to draw Hangul: a Latin-only face would
+	// quietly replace every syllable with nothing.
+	const bool requireHangul = (_config.encoding == Common::kWindows949 ||
+								_config.encoding == Common::kJohab);
+	Common::String error;
+	Graphics::TtfGlyphSource *ttf = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES,
+																	 pixelSize, error, requireHangul);
+	if (!ttf) {
+		warning("SCUMM: cannot use hi-res TrueType font '%s' at %dpx: %s",
+				_ttfPath.toString().c_str(), pixelSize, error.c_str());
+		return nullptr;
+	}
+
+	Face *face = new Face();
+	face->source = ttf;
+	face->ttf = ttf;
+	face->pixelSize = pixelSize;
+	_sources[key] = face;
+
+	debug(1, "SCUMM: hi-res TrueType font %s opened at %dpx: %u probe glyphs rasterised in %u ms",
+		  _ttfPath.baseName().c_str(), pixelSize, ttf->rasterCount(), ttf->totalRenderMs());
+	return face;
+}
+
+bool ScummHiResText::glyphInk(Face &face, uint32 cp, int *inkRight) const {
+	if (face.bitmap) {
+		const int index = face.bitmap->glyphIndex(cp);
+		if (index < 0 || !glyphHasInk(*face.bitmap, index) || face.source->cells(cp) <= 0)
+			return false;
+		if (inkRight)
+			*inkRight = face.bitmap->cellWidth();
+		return true;
+	}
+
+	if (face.source->cells(cp) <= 0)
+		return false;
+
+	Common::HashMap<uint32, int16>::const_iterator it = face.inkRight.find(cp);
+	int right = 0;
+	if (it != face.inkRight.end()) {
+		right = it->_value;
+	} else {
+		// The face draws its glyph from column 0 of a two-cell row, bearing
+		// included; what matters to layout and to the dirty area is how far
+		// the ink reaches. A blank glyph (a space) is declined, as the baked
+		// fonts' empty cells were: the game draws nothing for it either.
+		const int w = face.source->cellWidth() * 2;
+		const int bpp = face.source->bitsPerPixel();
+		for (int y = 0; y < face.source->cellHeight(); ++y) {
+			const byte *row = face.source->row(cp, y);
+			if (!row)
+				break;
+			for (int x = w - 1; x >= right; --x) {
+				if (Graphics::TextCompose::expandCoverage(row, x, bpp)) {
+					right = x + 1;
+					break;
+				}
+			}
+		}
+		face.inkRight[cp] = (int16)right;
+	}
+
+	if (right <= 0)
+		return false;
+	if (inkRight)
+		*inkRight = right;
+	return true;
 }
 
 void ScummHiResText::setCharsetGrid(int charsetId, int width, int height) {
@@ -384,26 +573,15 @@ void ScummHiResText::noteGameCharset(int charsetId, int width, int height) {
 	if (charsetId < 0 || charsetId >= kMaxFonts || width <= 0 || height <= 0)
 		return;
 
-	// The size is already what it was: nothing has changed, so nothing to do.
-	if (_gameFontW[charsetId] == width && _gameFontH[charsetId] == height)
+	// The first cell recorded stands. For a CJK game that is its double-byte
+	// font's, set before the fonts load, and the text is laid out on it; a
+	// game with none learns each charset's cell here, when it is selected.
+	// A TrueType face is opened at that size when the charset first draws.
+	if (_gameFontW[charsetId] > 0 && _gameFontH[charsetId] > 0)
 		return;
 
 	_gameFontW[charsetId] = width;
 	_gameFontH[charsetId] = height;
-
-	// Nothing to do once this charset has a font, and nothing to do at all
-	// unless a face was named: a translation shipping baked .fnt files has
-	// its sizes decided already.
-	//
-	// Both arrays have to be consulted. A CJK game fills _fonts, a European
-	// one only _latinFonts, so testing _fonts alone would let every charset
-	// re-selection rasterise the face again.
-	if (_ttfPath.empty() ||
-		_fonts[charsetId].glyphCount() > 0 || _latinFonts[charsetId].glyphCount() > 0)
-		return;
-
-	if (bakeCharset(charsetId))
-		_fontsLoaded = true;
 }
 
 int ScummHiResText::nearestFont(int charsetId) const {
@@ -421,18 +599,39 @@ int ScummHiResText::nearestFont(int charsetId) const {
 	int best = -1;
 	int bestDelta = 0;
 	for (int i = 0; i < kMaxFonts; ++i) {
-		if (!_fonts[i].isLoaded())
+		if (!_cjkFaces[i])
 			continue;
 
-		// The replacement was baked at the game width times the scale, so undo
+		// The replacement was made at the game width times the scale, so undo
 		// that to compare like with like.
-		const int delta = ABS(_fonts[i].cellWidth() / m - want);
+		const int delta = ABS(_cjkFaces[i]->bitmap->cellWidth() / m - want);
 		if (best < 0 || delta < bestDelta) {
 			best = i;
 			bestDelta = delta;
 		}
 	}
 
+	return best;
+}
+
+int ScummHiResText::nearestTtfCharset(int charsetId) const {
+	// The same rule as nearestFont(), over the charsets whose cell is known.
+	const int want = (charsetId >= 0 && charsetId < kMaxFonts)
+					 ? _charsetWidths[charsetId] : 0;
+	if (want <= 0)
+		return -1;
+
+	int best = -1;
+	int bestDelta = 0;
+	for (int i = 0; i < kMaxFonts; ++i) {
+		if (_gameFontH[i] <= 0)
+			continue;
+		const int delta = ABS(_gameFontW[i] - want);
+		if (best < 0 || delta < bestDelta) {
+			best = i;
+			bestDelta = delta;
+		}
+	}
 	return best;
 }
 
@@ -491,24 +690,24 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	// it, not by the code point: a CP949-indexed set has no Latin glyphs even
 	// for characters that exist in Unicode.
 	const bool wantLatin = (chr < 256);
-	const Graphics::HiResBitmapFont *font = fontFor(charsetId, wantLatin);
-	if (!font)
+	Face *face = faceFor(charsetId, wantLatin);
+	if (!face)
 		return false;
 
 	if (_logText)
-		noteDrawn(charsetId, font, chr);
+		noteDrawn(charsetId, face, chr);
 
 	// A remap names a Unicode code point outright, so it skips the code page
 	// step that turns the game's bytes into one.
-	const int index = (lookup == chr) ? glyphIndexFor(*font, chr)
-									  : font->glyphIndex((uint32)lookup);
-	if (index < 0)
+	const uint32 cp = (lookup == chr) ? codePointFor(chr) : (uint32)lookup;
+	if (!cp)
 		return false;
 
-	// A glyph that exists but is empty must be declined, not drawn: see
+	// A glyph that is absent or empty must be declined, not drawn: see
 	// glyphHasInk(). Returning true for it would tell the caller the character
 	// was handled and suppress the game's own picture.
-	if (!glyphHasInk(*font, index))
+	int width = 0;
+	if (!glyphInk(*face, cp, &width))
 		return false;
 
 	// Baseline alignment. The two slots can carry fonts of different ascents
@@ -519,13 +718,35 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	//
 	// The reference is the CJK font of this charset, because that is what the
 	// game's line spacing was laid out against. A font that records no ascent
-	// asks for no shift rather than for a wild one.
+	// asks for no shift rather than for a wild one; a TrueType face places
+	// every glyph on its own baseline already.
 	int baselineShift = 0;
-	if (wantLatin && font->ascent() > 0) {
-		const Graphics::HiResBitmapFont *ref = fontFor(charsetId, false);
-		if (ref && ref != font && ref->ascent() > 0)
-			baselineShift = ref->ascent() - font->ascent();
+	if (wantLatin && face->bitmap && face->bitmap->ascent() > 0) {
+		const Face *ref = faceFor(charsetId, false);
+		if (ref && ref != face && ref->bitmap && ref->bitmap->ascent() > 0)
+			baselineShift = ref->bitmap->ascent() - face->bitmap->ascent();
 	}
+
+	// The rows, expanded to one coverage byte per pixel. A 1bpp stencil
+	// becomes 0/255 and records no coverage, as it never did: the glyph
+	// renderer only writes the coverage plane for a glyph that has some.
+	Graphics::UnicodeGlyphSource &src = *face->source;
+	const int height = src.cellHeight();
+	const int bpp = src.bitsPerPixel();
+	_glyphBuf.resize(width * height);
+	for (int gy = 0; gy < height; ++gy) {
+		const byte *row = src.row(cp, gy);
+		if (!row)
+			return false;
+		Graphics::TextCompose::expandGlyphRow(&_glyphBuf[gy * width], row, width, bpp, false, 0, 0);
+	}
+
+	Graphics::GlyphBitmap glyph;
+	glyph.pixels = _glyphBuf.begin();
+	glyph.pitch = width;
+	glyph.width = width;
+	glyph.height = height;
+	glyph.bpp = 8;
 
 	Graphics::GlyphStyle style;
 	style.color = color;
@@ -534,9 +755,8 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	style.shadowOffset = (_config.shadowOffset >= 0) ? _config.shadowOffset : 1;
 
 	return Graphics::HiResGlyphRenderer::drawGlyph(dest,
-												   withCoverage ? coverage() : nullptr,
-												   *font, index,
-												   x, y + baselineShift, style, dirty);
+												   (withCoverage && bpp == 8) ? coverage() : nullptr,
+												   glyph, x, y + baselineShift, style, dirty);
 }
 
 void ScummHiResText::updatePaletteCache(const Graphics::PixelFormat &format,
@@ -554,7 +774,7 @@ void ScummHiResText::updatePaletteCache(const Graphics::PixelFormat &format,
 	}
 }
 
-int ScummHiResText::glyphIndexFor(const Graphics::HiResBitmapFont &font, int chr) const {
+uint32 ScummHiResText::codePointFor(int chr) const {
 	// How a double byte character is packed is decided by arithmetic in the
 	// caller rather than by how bytes sit in memory, so this is endian
 	// independent. charset.cpp builds the pair as (first << 8) | second while
@@ -579,10 +799,9 @@ int ScummHiResText::glyphIndexFor(const Graphics::HiResBitmapFont &font, int chr
 
 	// U+FFFD means the conversion table was missing or the pair is not valid
 	// in this code page; either way there is nothing to look up.
-	if (!codepoint || codepoint == 0xFFFD)
-		return -1;
-
-	return font.glyphIndex(codepoint);
+	if (codepoint == 0xFFFD)
+		return 0;
+	return codepoint;
 }
 
 int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
@@ -611,38 +830,46 @@ int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
 		lookup = (int)override.codepoint;
 	}
 
-	const Graphics::HiResBitmapFont *font = fontFor(charsetId, chr < 256);
-	if (!font)
+	Face *face = faceFor(charsetId, chr < 256);
+	if (!face)
 		return gameWidth;
 
-	const int index = (lookup == chr) ? glyphIndexFor(*font, chr)
-									  : font->glyphIndex((uint32)lookup);
-	if (index < 0)
+	const uint32 cp = (lookup == chr) ? codePointFor(chr) : (uint32)lookup;
+	if (!cp)
 		return gameWidth;
 
 	// drawChar() declines an empty glyph so the game draws its own picture,
 	// so the advance has to be the game's too. Measuring by the replacement
 	// font here while the original is what lands on screen is exactly the
 	// measure/draw disagreement that shows up as text drifting out of its box.
-	if (!glyphHasInk(*font, index))
+	int inkRight = 0;
+	if (!glyphInk(*face, cp, &inkRight))
 		return gameWidth;
 
 	int advance = 0;
 
-	Graphics::GlyphMetrics metrics;
-	if (font->isProportional() && font->glyphMetrics(index, metrics)) {
-		advance = metrics.advance;
+	if (face->bitmap) {
+		const Graphics::HiResBitmapFont *font = face->bitmap;
+		const int index = font->glyphIndex(cp);
+		Graphics::GlyphMetrics metrics;
+		if (font->isProportional() && font->glyphMetrics(index, metrics)) {
+			advance = metrics.advance;
 
-		// Some glyphs are baked with ink reaching one pixel past their
-		// advance - 38 of 2350 in Indy3's vj00.fnt, 4 of 256 in its Latin
-		// companion. Left alone they collide with whatever follows, so widen
-		// the step to clear the ink.
-		const int reach = metrics.bearingX + metrics.width;
-		if (reach > advance)
-			advance = reach;
+			// Some glyphs are baked with ink reaching one pixel past their
+			// advance - 38 of 2350 in Indy3's vj00.fnt, 4 of 256 in its Latin
+			// companion. Left alone they collide with whatever follows, so
+			// widen the step to clear the ink.
+			const int reach = metrics.bearingX + metrics.width;
+			if (reach > advance)
+				advance = reach;
+		} else {
+			// A fixed-width set has no metrics table, so the cell is the advance.
+			advance = font->cellWidth();
+		}
 	} else {
-		// A fixed-width set has no metrics table, so the cell is the advance.
-		advance = font->cellWidth();
+		// A face advances by its own metrics, widened, like the bitmap fonts
+		// above, to clear ink that reaches past it.
+		advance = MAX(face->source->advance(cp), inkRight);
 	}
 
 	if (advance <= 0)
@@ -709,22 +936,13 @@ void ScummHiResText::freeCoverage() {
 		_overlay->freeCoverage();
 }
 
-void ScummHiResText::noteDrawn(int charsetId, const Graphics::HiResBitmapFont *font,
-							   int chr) const {
-	int which = -1;
-	for (int i = 0; i < kMaxFonts; ++i) {
-		if (font == &_fonts[i] || font == &_latinFonts[i]) {
-			which = i;
-			break;
-		}
-	}
-
+void ScummHiResText::noteDrawn(int charsetId, const Face *face, int chr) const {
 	// One line per glyph is unreadable and one line per run is what you want
 	// to match against a screenshot, so accumulate until the font changes.
-	if (charsetId != _logCharset || which != _logFont) {
+	if (charsetId != _logCharset || face != _logFace) {
 		flushTextLog();
 		_logCharset = charsetId;
-		_logFont = which;
+		_logFace = face;
 	}
 
 	// chr is the game's own encoding - a CP949 pair for Korean, not a code
@@ -732,20 +950,8 @@ void ScummHiResText::noteDrawn(int charsetId, const Graphics::HiResBitmapFont *f
 	// Encoding it directly as UTF-8 produces plausible-looking but wrong
 	// syllables, which is worse than failing outright because the log then
 	// disagrees with a screen that is perfectly correct.
-	byte bytes[2];
-	int len;
-	if (chr < 256) {
-		bytes[0] = (byte)chr;
-		len = 1;
-	} else {
-		bytes[0] = (byte)(chr & 0xFF);
-		bytes[1] = (byte)(chr >> 8);
-		len = 2;
-	}
-
-	const byte *p = bytes;
-	const uint32 cp = decodeNext(p, bytes + len);
-	if (!cp || cp == 0xFFFD) {
+	const uint32 cp = codePointFor(chr);
+	if (!cp) {
 		_logRun += '?';
 		return;
 	}
@@ -772,20 +978,30 @@ void ScummHiResText::flushTextLog() const {
 	if (_logRun.empty())
 		return;
 
-	const Graphics::HiResBitmapFont *font = nullptr;
-	if (_logFont >= 0 && _logFont < kMaxFonts) {
-		if (_fonts[_logFont].isLoaded())
-			font = &_fonts[_logFont];
-		else if (_latinFonts[_logFont].isLoaded())
-			font = &_latinFonts[_logFont];
-	} else if (_singleFont.isLoaded()) {
-		font = &_singleFont;
+	// The face may have been freed since the run started (a reload); only
+	// trust it while it is still one of the open sources.
+	const Face *face = nullptr;
+	for (Common::HashMap<Common::String, Face *>::const_iterator it = _sources.begin();
+		 it != _sources.end(); ++it) {
+		if (it->_value && it->_value == _logFace) {
+			face = _logFace;
+			break;
+		}
 	}
 
-	debug("HRTEXT charset=%d font=%d cell=%dx%d \"%s\"",
-		  _logCharset, _logFont,
-		  font ? font->cellWidth() : 0, font ? font->cellHeight() : 0,
-		  _logRun.c_str());
+	const Graphics::UnicodeGlyphSource *src = face ? face->source : nullptr;
+	if (face && face->ttf) {
+		// A face is not one of the numbered fonts: say which size it is and
+		// what it has cost so far.
+		debug("HRTEXT charset=%d font=-1 cell=%dx%d \"%s\" ttf=%dpx rasterised=%u",
+			  _logCharset, src->cellWidth(), src->cellHeight(), _logRun.c_str(),
+			  face->pixelSize, face->ttf->rasterCount());
+	} else {
+		debug("HRTEXT charset=%d font=%d cell=%dx%d \"%s\"",
+			  _logCharset, face ? face->slot : -1,
+			  src ? src->cellWidth() : 0, src ? src->cellHeight() : 0,
+			  _logRun.c_str());
+	}
 
 	_logRun.clear();
 }
@@ -962,7 +1178,7 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir,
 		return false;
 
 	// Which slot the set belongs in comes from the fonts, not from the file
-	// name. A European game emits only single-byte characters, and fontFor()
+	// name. A European game emits only single-byte characters, and faceFor()
 	// sends those to the Latin slot - so a Latin set filed under the numbered
 	// name would load and then never be consulted, drawing nothing while
 	// reporting eight fonts loaded. The header already says which it is.
@@ -1111,156 +1327,10 @@ void ScummHiResText::setGameFontCell(int charsetId, int width, int height) {
 	}
 }
 
-
-/**
- * Bake a TrueType face into the same bitmap fonts a translation would ship.
- *
- * One font per charset the game has a CJK font for, each at that charset's
- * cell times the scale, so the result is exactly what the offline tool would
- * have produced for this game - and everything after this point (fallback,
- * metrics, logging, the no-FreeType build) sees only bitmap fonts.
- *
- * A face is a convenience for a translator who has not baked yet; it costs
- * a rasterising pass at start-up, which a shipped .fnt does not.
- */
-bool ScummHiResText::bakeCharset(int charsetId) {
-#ifdef USE_FREETYPE2
-	if (_ttfPath.empty() || charsetId < 0 || charsetId >= kMaxFonts)
-		return false;
-	if (_gameFontW[charsetId] <= 0 || _gameFontH[charsetId] <= 0)
-		return false;
-
-	Common::FSNode node(_ttfPath);
-	if (!node.exists()) {
-		warning("SCUMM: hi-res TrueType font not found: '%s'", _ttfPath.toString().c_str());
-		return false;
-	}
-
-	// The code points this game needs. A European game names no CJK block,
-	// which is not a failure - the Latin set is the whole of what it draws.
-	Common::Array<uint32> cjk;
-	switch (_config.encoding) {
-	case Common::kWindows949:
-		Graphics::HiResFontBaker::hangulSyllables(cjk);
-		break;
-	case Common::kWindows932:
-		Graphics::HiResFontBaker::jisX0208(cjk);
-		break;
-	case Common::kWindows936:
-		Graphics::HiResFontBaker::chineseCodePage(936, cjk);
-		break;
-	case Common::kWindows950:
-		Graphics::HiResFontBaker::chineseCodePage(950, cjk);
-		break;
-	default:
-		debug(1, "SCUMM: hi-res TrueType font: no CJK block for this language, "
-				 "baking Latin only");
-		break;
-	}
-
-	Common::Array<uint32> latin;
-	Graphics::HiResFontBaker::latin1(latin);
-
-	// The map decides which codes this font is responsible for, and it
-	// decides per charset: a code kept by the game in one charset is an
-	// ordinary character in another.
-	if (!_config.glyphOverrides.empty() || !_config.scopedGlyphOverrides.empty()) {
-		Common::HashMap<uint32, Graphics::HiResGlyphOverride> merged =
-			_config.glyphOverrides;
-		if (charsetId < (int)_config.scopedGlyphOverrides.size()) {
-			const Common::HashMap<uint32, Graphics::HiResGlyphOverride> &scoped =
-				_config.scopedGlyphOverrides[charsetId];
-			for (Common::HashMap<uint32, Graphics::HiResGlyphOverride>::const_iterator it =
-					 scoped.begin(); it != scoped.end(); ++it)
-				merged[it->_key] = it->_value;
-		}
-		Graphics::HiResFontBaker::applyGlyphOverrides(merged, cjk);
-		Graphics::HiResFontBaker::applyGlyphOverrides(merged, latin);
-	}
-
-	const int m = _config.scale;
-	const int cellW = _gameFontW[charsetId] * m;
-	const int cellH = _gameFontH[charsetId] * m;
-
-	Common::SeekableReadStream *stream = node.createReadStream();
-	if (!stream)
-		return false;
-	Graphics::Font *face = Graphics::loadTTFFont(stream, DisposeAfterUse::YES, cellH,
-												 Graphics::kTTFSizeModeCell);
-	if (!face) {
-		warning("SCUMM: cannot load '%s' at %dpx", _ttfPath.toString().c_str(), cellH);
-		return false;
-	}
-
-	bool any = false;
-
-	Common::Array<byte> baked;
-	if (!cjk.empty() &&
-		Graphics::HiResFontBaker::bake(*face, cjk, cellW, cellH, true, baked)) {
-		// Debug aid: write the baked file out so it can be inspected with
-		// the same tools as a shipped one.
-		if (ConfMan.hasKey("hires_text_dump_baked") && ConfMan.getBool("hires_text_dump_baked")) {
-			Common::DumpFile df;
-			if (df.open(Common::Path(Common::String::format("baked%02d.fnt", charsetId))))
-				df.write(baked.data(), baked.size());
-		}
-		Common::MemoryReadStream ms(baked.data(), baked.size());
-		if (_fonts[charsetId].load(ms)) {
-			any = true;
-			debug(1, "SCUMM: hi-res font %d <- %s baked at %dx%d, %d glyphs",
-				  charsetId, _ttfPath.baseName().c_str(), cellW, cellH,
-				  _fonts[charsetId].glyphCount());
-		}
-	}
-
-	Common::Array<byte> bakedLatin;
-	if (Graphics::HiResFontBaker::bake(*face, latin, cellW, cellH, true, bakedLatin)) {
-		Common::MemoryReadStream ms(bakedLatin.data(), bakedLatin.size());
-		if (_latinFonts[charsetId].load(ms)) {
-			// A European game bakes nothing else, so this is what makes the
-			// difference between a face that draws and one that is loaded
-			// and then silently unused.
-			any = true;
-			debug(1, "SCUMM: hi-res Latin font %d <- %s baked at %dx%d",
-				  charsetId, _ttfPath.baseName().c_str(), cellW, cellH);
-		}
-	}
-
-	delete face;
-
-	if (any)
-		_config.legacy.latinEnabled = true;
-	return any;
-#else
-	(void)charsetId;
-	// Named a face but cannot rasterise one: say so, or the only symptom is
-	// the generic "no replacement font loaded" from loadFonts.
-	if (!_ttfPath.empty())
-		warning("SCUMM: hi-res TrueType fonts need a build with FreeType; "
-				"bake the font to .fnt instead");
-	return false;
-#endif
-}
-
-bool ScummHiResText::bakeTtfFonts(const Common::Path &gameDir) {
-#ifdef USE_FREETYPE2
-	(void)gameDir;
-	if (_ttfPath.empty())
-		return false;
-
-	// Only the charsets whose cell is already known, which for a CJK game is
-	// every charset with a double-byte font. A game without one measures its
-	// charsets as they are selected, and bakes then - see noteGameCharset.
-	bool any = false;
-	for (int i = 0; i < kMaxFonts; ++i) {
-		if (_gameFontW[i] > 0 && _gameFontH[i] > 0 && bakeCharset(i))
-			any = true;
-	}
-	return any;
-#else
-	(void)gameDir;
-	return false;
-#endif
+bool ScummHiResText::mapNamesNoFonts(const Graphics::HiResTextConfig &config,
+									 const Common::Path &ttfPath) {
+	return config.bitmapPattern.empty() && config.bitmapSingle.empty() &&
+		   config.legacy.latinBitmapName.empty() && ttfPath.empty();
 }
 
 /// The code page a language's text is in, when the map does not say.
@@ -1345,15 +1415,6 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 				  haveMap ? "read" : "REJECTED", mapPath.toString().c_str(),
 				  explicitMap ? " (from the config)" : " (found in the game folder)");
 
-			// A map naming no bitmap fonts is almost always one written for
-			// the older TrueType loader, which understands a different set of
-			// sections. Left unsaid, the symptom is that the legacy system
-			// draws the text while this one supplies only the scale - two
-			// systems laying out one screen.
-			if (haveMap && _config.bitmapPattern.empty() && _config.bitmapSingle.empty())
-				warning("SCUMM: '%s' names no [bitmap] fonts; if this is an older "
-						"TrueType map, the hi-res text layer will not use it",
-						mapPath.toString().c_str());
 		} else if (explicitMap) {
 			warning("SCUMM: hi-res text map not found: '%s'", mapPath.toString().c_str());
 		}
@@ -1371,12 +1432,22 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	if (!haveMap && mapPath.empty())
 		haveMap = probeSimpleFonts(gameDir, language);
 
-	// A TrueType face, from the config or the map, baked at start-up. The
-	// config key wins, since it is the one a user reaches for.
+	// A TrueType face, from the config or the map, opened when the fonts
+	// load. The config key wins, since it is the one a user reaches for.
 	if (ConfMan.hasKey("hires_text_font"))
 		_ttfPath = Graphics::HiResFontMap::resolvePath(ConfMan.get("hires_text_font"), gameDir);
 	else if (!_config.ttfPath[Graphics::kHiResRoleDefault].empty())
 		_ttfPath = _config.ttfPath[Graphics::kHiResRoleDefault];
+
+	// A map naming no fonts at all - no bitmap set and no face - is almost
+	// always one written for the older TrueType loader, which understands a
+	// different set of sections. Left unsaid, the symptom is that the legacy
+	// system draws the text while this one supplies only the scale - two
+	// systems laying out one screen. A map that names a face is used.
+	if (haveMap && !mapPath.empty() && mapNamesNoFonts(_config, _ttfPath))
+		warning("SCUMM: '%s' names no [bitmap] fonts; if this is an older "
+				"TrueType map, the hi-res text layer will not use it",
+				mapPath.toString().c_str());
 
 	bool haveTtf = false;
 	if (!_ttfPath.empty()) {
