@@ -314,12 +314,18 @@ TtfGlyphSource::Entry &TtfGlyphSource::ensure(uint32 cp) {
 	Entry &entry = _cache[cp];
 
 	const int cellW = _cellWidth, cellH = _cellHeight;
-	// Ink left of the origin (a zero-advance mark's negative bearing) would
-	// be clipped at column 0, so such a glyph is drawn with its origin
-	// further right; a glyph whose ink starts at or right of its origin
-	// (box.left >= 0) is drawn at column 0 exactly as before.
-	const Common::Rect box = _font->getBoundingBox(cp);
-	const int originX = box.left < 0 ? MIN<int>(-box.left, cellW) : 0;
+	// A combining mark's ink lies left of its origin (its negative bearing
+	// puts it over the preceding base) and would be clipped at column 0, so
+	// a mark is drawn with its origin further right. Every other glyph keeps
+	// its origin at column 0 and its old rows - including Latin 'j', whose
+	// descender reaches left of the origin - until the engines read originX
+	// (C11 T5/T6/T8); a drawer that does not would otherwise move it.
+	int originX = 0;
+	if (Unicode::isCombining(cp)) {
+		const Common::Rect box = _font->getBoundingBox(cp);
+		if (box.left < 0)
+			originX = MIN<int>(-box.left, cellW);
+	}
 	Graphics::ManagedSurface surf(cellW * 2, cellH, Graphics::PixelFormat::createFormatARGB32());
 	const uint32 renderStart = g_system->getMillis();
 	renderCoverage(_font, cp, originX, _yOffset, surf);

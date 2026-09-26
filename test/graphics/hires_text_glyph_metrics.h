@@ -319,28 +319,27 @@ public:
 				TSM_ASSERT_EQUALS(Common::String::format("U+%04X", cps[i]).c_str(), fnvRows(*src, cps[i]), fixture[i]);
 		}
 
-		// 'j' reaches left of its origin with its descender: it moves right
-		// by originX and keeps the ink the base build clipped (49 lit
-		// pixels there, face 0 at 24 px).
+		// 'j' reaches left of its origin with its descender, but it is not
+		// combining: placement unchanged, origin at column 0 and the base
+		// build's row bytes (49 lit pixels, the left tip clipped as before).
 		TS_ASSERT(src->metrics(0x006A, m));
-		TS_ASSERT(m.originX > 0);
+		TS_ASSERT_EQUALS(m.originX, 0);
 		TS_ASSERT(!m.combining);
-		int lit = 0;
-		for (int y = 0; y < src->cellHeight(); y++) {
-			const byte *r = src->row(0x006A, y);
-			for (int x = 0; r && x < src->cellWidth() * 2; x++)
-				if (r[x])
-					lit++;
-		}
-		if (haveFixture && src->cellWidth() == 24)
-			TS_ASSERT(lit > 49);
+		if (haveFixture && src->cellWidth() == 24 && src->cellHeight() == 24)
+			TS_ASSERT_EQUALS(fnvRows(*src, 0x006A), 3696380848u);
+
+		// A mark above (U+0E34 SARA I) is shifted like the tone mark.
+		TS_ASSERT(src->metrics(0x0E34, m));
+		TS_ASSERT(m.combining);
+		TS_ASSERT(m.originX > 0);
+		TS_ASSERT_EQUALS(m.advance, 0);
 		delete src;
 	}
 
-	// The Korean face of the TTF path: no Hangul syllable has ink left of
-	// its origin, so no wide glyph moves; of printable ASCII only 'j' does
-	// (its descender reaches left of the origin).
-	void test_ttf_hangul_keeps_origin_zero() {
+	// The Korean face of the TTF path: no Hangul syllable and no printable
+	// ASCII glyph gets a shifted origin ('j' included: only combining marks
+	// are shifted).
+	void test_ttf_hangul_and_ascii_keep_origin_zero() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		Common::FSNode node("/System/Library/Fonts/AppleSDGothicNeo.ttc");
 		if (!node.exists()) {
@@ -355,15 +354,13 @@ public:
 		Graphics::GlyphMetrics m;
 		uint32 moved = 0, first = 0;
 		for (uint32 cp = 0x21; cp <= 0xD7A3; cp = (cp == 0x7E) ? 0xAC00 : cp + 1) {
-			if (src->metrics(cp, m) && m.originX != 0 && cp != 0x006A) {
+			if (src->metrics(cp, m) && m.originX != 0) {
 				if (!moved)
 					first = cp;
 				moved++;
 			}
 		}
 		TSM_ASSERT_EQUALS(Common::String::format("first U+%04X", first).c_str(), moved, 0u);
-		TS_ASSERT(src->metrics(0x006A, m));
-		TS_ASSERT(m.originX > 0);
 		delete src;
 #else
 		TS_SKIP("needs FreeType and a real filesystem");
