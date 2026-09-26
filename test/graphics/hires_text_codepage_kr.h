@@ -89,9 +89,10 @@ public:
 			}
 		}
 
-		const char probe[2] = { (char)0xB0, (char)0xA1 };
-		const Common::U32String first(Common::String(probe, 2), Common::kWindows949);
-		if (!Common::File::exists("encoding.dat") || first.size() != 1 || first[0] != 0xAC00) {
+		// Checked before anything is decoded: decoding without the file
+		// makes the shared decoder print a warning, and the output of
+		// make test must stay pristine.
+		if (!Common::File::exists("encoding.dat")) {
 			if (addedFallback)
 				SearchMan.remove("hires_text_codepage_kr");
 			Common::uninstall_null_g_system();

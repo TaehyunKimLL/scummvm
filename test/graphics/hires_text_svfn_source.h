@@ -4,6 +4,7 @@
 #include "common/memstream.h"
 #include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/glyph_source_svfn.h"
+#include "graphics/hires_text/text_compose.h"
 
 #include "../system/null_osystem.h"
 
@@ -50,7 +51,7 @@ private:
 	 * proportional), glyph data, and the code point table last, so cutting
 	 * even the final byte leaves a table running past the end.
 	 */
-	static Common::Array<byte> makeFont(int bpp, int cellW, int cellH, bool proportional) {
+	static Common::Array<byte> makeFont(int bpp, int cellW, int cellH, bool proportional, bool padBits = false) {
 		const int rowPitch = (bpp == 1) ? (cellW + 7) / 8 : cellW;
 		const uint32 glyphStride = rowPitch * cellH;
 		const uint32 metricsOff = 36;
@@ -87,7 +88,8 @@ private:
 		}
 
 		// A distinct value for every pixel of every glyph. At 1bpp the bits
-		// past the cell width stay clear, as the baker writes them.
+		// past the cell width stay clear, as the baker writes them, unless
+		// padBits asks for them set (a sloppy producer).
 		for (int i = 0; i < kGlyphs; ++i) {
 			for (int y = 0; y < cellH; ++y) {
 				byte *row = &b[dataOff + i * glyphStride + y * rowPitch];
@@ -98,6 +100,9 @@ private:
 					else if (v & 4)
 						row[x >> 3] |= 0x80 >> (x & 7);
 				}
+				if (bpp == 1 && padBits)
+					for (int x = cellW; x < rowPitch * 8; ++x)
+						row[x >> 3] |= 0x80 >> (x & 7);
 			}
 		}
 
@@ -173,6 +178,39 @@ private:
 	}
 
 public:
+	// Padding bits past a 1bpp cell are set in the file: a wide glyph would
+	// read them as the start of its second cell, so the adapter clears them.
+	void test_svfn_source_masks_1bpp_padding() {
+		const int cellW = 6, cellH = 5;
+		const Common::Array<byte> bytes = makeFont(1, cellW, cellH, true, true);
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes, bytes.size()));
+		if (!font.isLoaded())
+			return;
+		Graphics::SvfnGlyphSource src(&font, DisposeAfterUse::NO);
+		const int stride = (src.cellWidth() * 2 + 7) / 8;
+		for (int i = 0; i < kGlyphs; ++i) {
+			const uint32 cp = codepointOf(i);
+			const byte *glyph = font.glyphData(font.glyphIndex(cp));
+			TS_ASSERT(src.cells(cp) > 0);
+			for (int y = 0; y < cellH; ++y) {
+				// The fixture really has the padding set.
+				TS_ASSERT_EQUALS(glyph[y * font.glyphPitch()] & 0x03, 0x03);
+				const byte *row = src.row(cp, y);
+				TS_ASSERT(row != nullptr);
+				if (!row)
+					return;
+				// Ink inside the cell is kept as is.
+				TS_ASSERT_EQUALS(row[0] & 0xFC, glyph[y * font.glyphPitch()] & 0xFC);
+				// Every pixel past the cell, over the whole two-cell stride, is blank.
+				for (int x = cellW; x < src.cellWidth() * 2; ++x)
+					TS_ASSERT_EQUALS(Graphics::TextCompose::expandCoverage(row, x, 1), 0);
+				for (int x = 1; x < stride; ++x)
+					TS_ASSERT_EQUALS(row[x], 0);
+			}
+		}
+	}
+
 	void test_svfn_source_matches_bitmap_font() {
 		checkMatches(8);
 		checkMatches(1);
