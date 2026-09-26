@@ -103,6 +103,19 @@ int SvfnGlyphSource::bearingX(uint32 cp) const {
 	return m.bearingX;
 }
 
+bool SvfnGlyphSource::metrics(uint32 cp, GlyphMetrics &m) {
+	if (!UnicodeGlyphSource::metrics(cp, m))
+		return false;
+	GlyphMetrics font;
+	if (_font->glyphMetrics(_font->glyphIndex(cp), font)) {
+		// HiResBitmapFont reads the bearing byte unsigned; the format
+		// (FONT_FORMAT.md section 3) stores it signed.
+		const int bearing = (int8)(byte)font.bearingX;
+		m.originX = (int16)(bearing < 0 ? MIN<int>(-bearing, _cellWidth) : 0);
+	}
+	return true;
+}
+
 uint32 SvfnGlyphSource::glyphCount() const {
 	return _rowBytes ? (uint32)_font->glyphCount() : 0;
 }

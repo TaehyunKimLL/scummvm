@@ -314,9 +314,15 @@ TtfGlyphSource::Entry &TtfGlyphSource::ensure(uint32 cp) {
 	Entry &entry = _cache[cp];
 
 	const int cellW = _cellWidth, cellH = _cellHeight;
+	// Ink left of the origin (a zero-advance mark's negative bearing) would
+	// be clipped at column 0, so such a glyph is drawn with its origin
+	// further right; a glyph whose ink starts at or right of its origin
+	// (box.left >= 0) is drawn at column 0 exactly as before.
+	const Common::Rect box = _font->getBoundingBox(cp);
+	const int originX = box.left < 0 ? MIN<int>(-box.left, cellW) : 0;
 	Graphics::ManagedSurface surf(cellW * 2, cellH, Graphics::PixelFormat::createFormatARGB32());
 	const uint32 renderStart = g_system->getMillis();
-	renderCoverage(_font, cp, 0, _yOffset, surf);
+	renderCoverage(_font, cp, originX, _yOffset, surf);
 	_totalRenderMs += g_system->getMillis() - renderStart;
 	_rasterCount++;
 
@@ -339,8 +345,9 @@ TtfGlyphSource::Entry &TtfGlyphSource::ensure(uint32 cp) {
 		return entry;
 
 	entry.cells = Unicode::isWide(cp) ? 2 : 1;
-	// The glyph was drawn with its origin at column 0 (bearing kept), so
-	// this advance is measured from the start of the row, as drawn.
+	entry.originX = (int16)originX;
+	// The glyph was drawn with its origin at column originX (bearing kept),
+	// so this advance is measured from there.
 	entry.advance = (int16)CLIP<int>(_font->getCharWidth(cp), 0, 0x7FFF);
 	entry.cov.resize((size_t)cellH * cellW * 2, 0);
 	for (int y = 0; y < cellH; y++)
@@ -363,6 +370,13 @@ const byte *TtfGlyphSource::row(uint32 cp, int y) {
 
 int TtfGlyphSource::advance(uint32 cp) {
 	return ensure(cp).advance;
+}
+
+bool TtfGlyphSource::metrics(uint32 cp, GlyphMetrics &m) {
+	if (!UnicodeGlyphSource::metrics(cp, m))
+		return false;
+	m.originX = ensure(cp).originX;
+	return true;
 }
 
 uint32 TtfGlyphSource::glyphCount() const {
@@ -404,6 +418,10 @@ const byte *TtfGlyphSource::row(uint32 /*cp*/, int /*y*/) {
 
 int TtfGlyphSource::advance(uint32 /*cp*/) {
 	return 0;
+}
+
+bool TtfGlyphSource::metrics(uint32 /*cp*/, GlyphMetrics &/*m*/) {
+	return false;
 }
 
 uint32 TtfGlyphSource::glyphCount() const {
