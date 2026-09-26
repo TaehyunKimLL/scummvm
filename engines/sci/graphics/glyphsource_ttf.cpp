@@ -401,7 +401,11 @@ TtfGlyphSource::~TtfGlyphSource() {
 	// context.md's Task 3: the total FreeType render cost over this source's
 	// lifetime (probes at create() time, plus one rasterisation per distinct
 	// code point since), so a run.log can be grepped for the measurement
-	// without instrumenting the caller.
+	// without instrumenting the caller. "%u glyphs rasterised" is
+	// _rasterCount: every FreeType render this source performed, including
+	// create()'s probes and clean misses (a code point the face lacks still
+	// costs one render) - not glyphCount(), which counts only the cached
+	// hits.
 	debug(1, "TtfGlyphSource: %u glyphs rasterised, %u ms total render time, %.3f ms/glyph mean",
 		  _rasterCount, _totalRenderMs, _rasterCount ? (double)_totalRenderMs / _rasterCount : 0.0);
 	delete _font;

@@ -152,10 +152,15 @@ GfxFontUnicode *GfxCache::loadUnicodeFont() {
 
 			Common::String error;
 			Common::FSNode node(Common::Path(path, Common::Path::kNativeSeparator));
-			Common::SeekableReadStream *stream = node.createReadStream();
-			if (!stream) {
-				error = "could not open the file";
-			} else {
+			// Checked with exists() before createReadStream(): that call emits
+			// its own "FSNode::createReadStream: ... does not exist!" warning
+			// when the node is absent, which would give run.log two warnings
+			// for one bad path. A node that exists but still fails to open
+			// (permissions, not a regular file, ...) still goes through
+			// createReadStream() and gets our single warning below.
+			if (!node.exists()) {
+				error = "does not exist";
+			} else if (Common::SeekableReadStream *stream = node.createReadStream()) {
 				const uint32 startMs = g_system->getMillis();
 				TtfGlyphSource *src = TtfGlyphSource::create(stream, DisposeAfterUse::YES, pixelSize, error);
 				const uint32 elapsedMs = g_system->getMillis() - startMs;
@@ -165,6 +170,8 @@ GfxFontUnicode *GfxCache::loadUnicodeFont() {
 					debug(1, "SCI: hires_text_font %s opened at %dpx in %u ms",
 						  path.c_str(), pixelSize, elapsedMs);
 				}
+			} else {
+				error = "could not open the file";
 			}
 
 			if (!ok)
