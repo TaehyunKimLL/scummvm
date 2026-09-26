@@ -72,6 +72,10 @@ struct Translation {
 	int SpeechFont = -1; // replacement for speech font, or -1 for default
 	int RightToLeft = -1; // r2l text mode (0, 1), or -1 for default
 	StringMap StrOptions; // to store extended options with string values
+	// When set, ReadTraData() also appends each dictionary entry here, in
+	// file order: a debugger asks for "entry n", which the map cannot say.
+	// Null for the game's own translation.
+	std::vector<std::pair<String, String> > *DictOrder = nullptr;
 };
 
 

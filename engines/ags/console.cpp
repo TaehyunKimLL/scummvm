@@ -22,7 +22,12 @@
 #include "ags/console.h"
 #include "ags/ags.h"
 #include "ags/globals.h"
+#include "ags/shared/ac/game_setup_struct.h"
 #include "ags/shared/ac/sprite_cache.h"
+#include "ags/shared/core/asset_manager.h"
+#include "ags/shared/game/tra_file.h"
+#include "ags/engine/ac/game_state.h"
+#include "ags/engine/ac/global_display.h"
 #include "ags/shared/gfx/allegro_bitmap.h"
 #include "ags/shared/script/cc_common.h"
 #include "graphics/palette.h"
@@ -30,12 +35,14 @@
 
 namespace AGS {
 
-AGSConsole::AGSConsole(AGSEngine *vm) : GUI::Debugger(), _vm(vm), _logOutputTarget(nullptr), _agsDebuggerOutput(nullptr) {
+AGSConsole::AGSConsole(AGSEngine *vm) : GUI::Debugger(), _vm(vm), _logOutputTarget(nullptr), _agsDebuggerOutput(nullptr),
+	_sayPending(false), _sayFont(0) {
 	registerCmd("ags_debug_groups_list",   WRAP_METHOD(AGSConsole, Cmd_listDebugGroups));
 	registerCmd("ags_debug_groups_set",  WRAP_METHOD(AGSConsole, Cmd_setDebugGroupLevel));
 	registerCmd("ags_set_script_dump", WRAP_METHOD(AGSConsole, Cmd_SetScriptDump));
 	registerCmd("ags_sprite_info",   WRAP_METHOD(AGSConsole, Cmd_getSpriteInfo));
 	registerCmd("ags_sprite_dump",  WRAP_METHOD(AGSConsole, Cmd_dumpSprite));
+	registerCmd("ags_say",  WRAP_METHOD(AGSConsole, Cmd_say));
 
 	_logOutputTarget = new LogOutputTarget();
 	_agsDebuggerOutput = _GP(DbgMgr).RegisterOutput("ScummVMLog", _logOutputTarget, AGS3::AGS::Shared::kDbgMsg_None);
@@ -275,5 +282,79 @@ void LogOutputTarget::PrintMessage(const AGS3::AGS::Shared::DebugMessage &msg) {
 	g_system->logMessage(msgType, text.c_str());
 }
 
+
+// ags_say <font> <key-substring|#n>
+//
+// A probe for text rendering: put one line of the loaded translation on
+// screen in a given font, without playing the game to where it is said.
+// The entry is the first one (in .tra file order) whose source key contains
+// the substring, or entry n (0-based, same order) with #n. The translated
+// text is shown by DisplayAtY(-1, text) from the next game loop, with the
+// font as both the speech and the normal font for that one call (Display()
+// uses the normal one unless the game always speaks), then both restored.
+bool AGSConsole::Cmd_say(int argc, const char **argv) {
+	if (argc < 3) {
+		debugPrintf("Usage: %s <font> <key-substring|#n>\n", argv[0]);
+		return true;
+	}
+	const int font = atoi(argv[1]);
+	if (font < 0 || font >= _GP(game).numfonts) {
+		debugPrintf("No font %d (the game has %d)\n", font, _GP(game).numfonts);
+		return true;
+	}
+	Common::String what = argv[2];
+	for (int i = 3; i < argc; i++)
+		what += Common::String(" ") + argv[i];
+	if (_G(trans_filename).IsEmpty()) {
+		debugPrintf("No translation loaded\n");
+		return true;
+	}
+
+	// The game's own dictionary is a hash map, which has no order; read the
+	// file again to get one.
+	Std::vector<Std::pair<AGS3::AGS::Shared::String, AGS3::AGS::Shared::String> > entries;
+	{
+		AGS3::AGS::Shared::Translation tra;
+		tra.DictOrder = &entries;
+		Std::unique_ptr<AGS3::AGS::Shared::Stream> in(_GP(AssetMgr)->OpenAsset(_G(trans_filename)));
+		if (!in || !AGS3::AGS::Shared::ReadTraData(tra, in.get())) {
+			debugPrintf("Cannot read %s\n", _G(trans_filename).GetCStr());
+			return true;
+		}
+	}
+
+	int found = -1;
+	if (what.size() > 1 && what[0] == '#') {
+		const int n = atoi(what.c_str() + 1);
+		if (n >= 0 && n < (int)entries.size())
+			found = n;
+	} else {
+		for (uint i = 0; i < entries.size() && found < 0; i++)
+			if (strstr(entries[i].first.GetCStr(), what.c_str()))
+				found = (int)i;
+	}
+	if (found < 0) {
+		debugPrintf("No entry %s among %u\n", what.c_str(), (uint)entries.size());
+		return true;
+	}
+
+	_sayFont = font;
+	_sayText = entries[found].second.GetCStr();
+	_sayPending = true;
+	debugPrintf("#%d font %d: %s\n", found, font, entries[found].first.GetCStr());
+	return true;
+}
+
+void AGSConsole::runPendingSay() {
+	if (!_sayPending)
+		return;
+	_sayPending = false;
+	const int normal = _GP(play).normal_font, speech = _GP(play).speech_font;
+	_GP(play).normal_font = _sayFont;
+	_GP(play).speech_font = _sayFont;
+	AGS3::DisplayAtY(-1, _sayText.c_str());
+	_GP(play).normal_font = normal;
+	_GP(play).speech_font = speech;
+}
 
 } // End of namespace AGS
