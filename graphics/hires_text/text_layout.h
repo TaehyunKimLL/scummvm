@@ -126,6 +126,19 @@ public:
 	 * default.
 	 */
 	virtual int width(const TextRun &run, uint32 from, uint32 to);
+	/**
+	 * The width of [from, i+1) given widthSoFar, the width of [from, i).
+	 * TextLayout::fitLine() keeps a running width through this, so a line
+	 * costs O(L) advance() calls. Default: widthSoFar + advance(cp(i)),
+	 * widthSoFar unchanged for control units and combining marks; it equals
+	 * width(run, from, i + 1) whenever width() is the default. A metrics
+	 * whose width is not additive (AGS: outline, kerning) overrides this
+	 * with `return width(run, from, i + 1);`.
+	 *
+	 * Not const, like advance() and width(): engines measure through fonts
+	 * whose lookups cache.
+	 */
+	virtual int extend(const TextRun &run, uint32 from, uint32 i, int widthSoFar);
 };
 
 enum HangulBreak { kHangulBreakWord = 0, kHangulBreakAny = 1 };
