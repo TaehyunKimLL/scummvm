@@ -23,7 +23,7 @@
 
 #include "common/textconsole.h"
 #include "graphics/hires_text/bitmap_font.h"
-#include "graphics/hires_text/glyph_source_ttf.h"
+#include "graphics/hires_text/unicode_props.h"
 
 namespace Graphics {
 
@@ -61,7 +61,7 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
 		return entry;
 
 	const uint32 pitch = (uint32)_font->glyphPitch();
-	entry.cells = TtfGlyphSource::isWide(cp) ? 2 : 1;
+	entry.cells = Unicode::isWide(cp) ? 2 : 1;
 	entry.rows.resize(_rowBytes * _cellHeight, 0);
 	for (uint32 y = 0; y < _cellHeight; y++) {
 		byte *dst = &entry.rows[y * _rowBytes];
@@ -101,6 +101,24 @@ int SvfnGlyphSource::bearingX(uint32 cp) const {
 	if (!_font->glyphMetrics(_font->glyphIndex(cp), m))
 		return 0;
 	return m.bearingX;
+}
+
+bool SvfnGlyphSource::metrics(uint32 cp, GlyphMetrics &m) {
+	if (!UnicodeGlyphSource::metrics(cp, m))
+		return false;
+	// originX stays 0: every SVFN producer stores rows that start at the pen
+	// (HiResFontBaker draws with the pen at column 0, clipping ink left of
+	// it; mkfont.py shifts the pen so the ink starts at x >= 0). The bearing
+	// is passed on as data only, read as the signed byte FONT_FORMAT.md
+	// section 3 specifies (HiResBitmapFont hands it back unsigned).
+	GlyphMetrics font;
+	if (_font->glyphMetrics(_font->glyphIndex(cp), font)) {
+		m.bearingX = (int8)(byte)font.bearingX;
+		m.bearingY = font.bearingY;
+		m.width = font.width;
+		m.height = font.height;
+	}
+	return true;
 }
 
 uint32 SvfnGlyphSource::glyphCount() const {

@@ -96,6 +96,10 @@ public:
 	int advance(uint32 cp) override {
 		return useLatin(cp) ? _latin->advance(cp) : _main->advance(cp);
 	}
+	/** The metrics of whichever source draws cp (the same choice as cells/row). */
+	bool metrics(uint32 cp, GlyphMetrics &m) override {
+		return useLatin(cp) ? _latin->metrics(cp, m) : _main->metrics(cp, m);
+	}
 	uint32 glyphCount() const override {
 		return _main->glyphCount() + _latin->glyphCount();
 	}

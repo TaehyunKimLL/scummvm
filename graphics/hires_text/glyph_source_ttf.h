@@ -90,6 +90,12 @@ public:
 	/** FreeType's advance for cp at the size in use (rounded up to whole
 	 *  pixels, as TTFFont reports it), or 0 when the face lacks cp. */
 	int advance(uint32 cp) override;
+	/** The default metrics plus originX: a combining mark whose ink starts
+	 *  left of its origin (a Thai mark's negative bearing) is drawn with its
+	 *  origin at column originX = min(-left, cellWidth()) of its row instead
+	 *  of being clipped. Every non-combining glyph keeps originX 0 and its
+	 *  old rows, even with a negative bearing (Latin 'j'). */
+	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	uint32 glyphCount() const override;
 
 	/** FreeType renders done so far (probes at create() time, plus one per
@@ -101,9 +107,9 @@ public:
 	 *  tests and logged, with rasterCount(), when the source is destroyed. */
 	uint32 totalRenderMs() const { return _totalRenderMs; }
 
-	/** Whether cp is East Asian Wide or Fullwidth, per the table generated
-	 *  from Python's unicodedata (Unicode 16.0). Available even when this
-	 *  build has no FreeType, since layout needs it independent of a face. */
+	/** Whether cp is East Asian Wide or Fullwidth: forwards to
+	 *  Unicode::isWide() (unicode_props.h), kept for existing callers.
+	 *  Available even when this build has no FreeType. */
 	static bool isWide(uint32 cp);
 
 	/**
@@ -144,6 +150,7 @@ private:
 	struct Entry {
 		byte cells = 0;
 		int16 advance = 0;	///< FreeType's advance, in pixels; 0 for a miss
+		int16 originX = 0;	///< column the glyph's origin was drawn at
 		Common::Array<byte> cov;
 	};
 
