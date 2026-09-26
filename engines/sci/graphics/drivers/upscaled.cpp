@@ -23,16 +23,24 @@
 #include "common/system.h"
 #include "graphics/cursorman.h"
 #include "sci/graphics/drivers/gfxdriver_intern.h"
+#include "sci/graphics/textcompose.h"
+#include "sci/graphics/textlayer.h"
 
 namespace Sci {
 
-UpscaledGfxDriver::UpscaledGfxDriver(int16 textAlignX, bool scaleCursor, bool rgbRendering) :
+UpscaledGfxDriver::UpscaledGfxDriver(int16 textAlignX, bool scaleCursor, bool rgbRendering, bool preferTrueColor) :
 	UpscaledGfxDriver(640, 400, textAlignX, scaleCursor, rgbRendering) {
+	// Only the KO/JA instance (UpscaledGfxDriver_create) blends hi-res text
+	// and asks for a 32-bit screen. The subclasses (Win256, PC-98) keep the
+	// backend's default format, so an untranslated game's output is
+	// unchanged.
+	_preferTrueColor = preferTrueColor;
 }
 
 UpscaledGfxDriver::UpscaledGfxDriver(uint16 scaledW, uint16 scaledH, int16 textAlignX, bool scaleCursor, bool rgbRendering) :
 	GfxDefaultDriver(scaledW, scaledH, false, rgbRendering), _textAlignX(textAlignX), _scaleCursor(scaleCursor), _needCursorBuffer(false),
-	_scaledBitmap(nullptr), _renderScaled(nullptr), _renderGlyph(nullptr), _cursorWidth(0), _cursorHeight(0), _hScaleMult(2), _vScaleMult(2), _vScaleDiv(1) {
+	_scaledBitmap(nullptr), _renderScaled(nullptr), _renderGlyph(nullptr), _cursorWidth(0), _cursorHeight(0), _hScaleMult(2), _vScaleMult(2), _vScaleDiv(1),
+	_textLayer(nullptr) {
 	_virtualW = 320;
 	_virtualH = 200;
 }
@@ -178,7 +186,73 @@ void UpscaledGfxDriver::updateScreen(int destX, int destY, int w, int h, const P
 		pitch = _screenW *_pixelSize;
 	}
 
+	// Hi-res text is blended here, over pixels just converted from the
+	// scaled bitmap, which itself never holds text. So any update of any
+	// rect re-derives text and picture together and nothing can erase one
+	// with the other (HIRES_COMPOSITOR_DESIGN.md D2).
+	// Clipped to the layer (defence in depth: setTextLayer() only accepts a
+	// layer the size of this screen).
+	const int textH = _textLayer ? MIN<int>(h, (int)_textLayer->height() - destY) : 0;
+	const int textW = _textLayer ? MIN<int>(w, (int)_textLayer->width() - destX) : 0;
+	if (_textLayer && !_textLayer->isEmpty() && destX >= 0 && destY >= 0 && textW > 0 && textH > 0) {
+		if (_pixelSize > 1) {
+			// When the converted buffer is the scaled bitmap itself (buff ==
+			// scb, i.e. _pixelSize == _srcPixelSize: the srcRGBFormat / Mac
+			// hicolor path), compose into a private copy instead - text must
+			// never land in _scaledBitmap (HIRES_COMPOSITOR_DESIGN.md D2).
+			if (buff == scb) {
+				_stampBuffer.resize((uint32)w * h * _pixelSize);
+				for (int y = 0; y < h; y++)
+					memcpy(&_stampBuffer[y * w * _pixelSize], scb + y * _screenW * _pixelSize, w * _pixelSize);
+				buff = _stampBuffer.begin();
+				pitch = w * _pixelSize;
+			}
+			for (int y = 0; y < textH; y++) {
+				if (!_textLayer->rowHasText(destY + y))
+					continue;
+				TextCompose::composeSpan(buff + y * pitch, _format, _textLayer->row(destY + y) + destX, textW, _currentPalette);
+			}
+		} else {
+			// CLUT8 output: no room for a blend; stamp coverage >= 50%.
+			if (buff == scb) {
+				_stampBuffer.resize((uint32)w * h);
+				for (int y = 0; y < h; y++)
+					memcpy(&_stampBuffer[y * w], scb + y * _screenW, w);
+				buff = _stampBuffer.begin();
+				pitch = w;
+			}
+			for (int y = 0; y < textH; y++) {
+				if (_textLayer->rowHasText(destY + y))
+					TextCompose::stampSpan(buff + y * pitch, _textLayer->row(destY + y) + destX, textW);
+			}
+		}
+	}
+
 	g_system->copyRectToScreen(buff, pitch, destX, destY, w, h);
+}
+
+bool UpscaledGfxDriver::setTextLayer(const TextLayer *layer) {
+	// The layer is a plain 2x extension of the 320x200 visual plane. Only a
+	// driver that scales exactly 2x on both axes to a screen of the layer's
+	// size can blend it pixel for pixel; any other geometry (Win256's
+	// 640x440 at 11/5 vertically, its small 320x240 window) would read past
+	// the layer's rows.
+	if (layer && !(_hScaleMult == 2 && _vScaleMult == 2 && _vScaleDiv == 1 &&
+				   layer->width() == _screenW && layer->height() == _screenH)) {
+		warning("Upscaled graphics driver: hi-res text layer %dx%d refused, the driver scales to %dx%d (x%d, y%d/%d)",
+				layer->width(), layer->height(), _screenW, _screenH, _hScaleMult, _vScaleMult, _vScaleDiv);
+		_textLayer = nullptr;
+		return false;
+	}
+	_textLayer = layer;
+	return layer != nullptr;
+}
+
+void UpscaledGfxDriver::refreshHiresRect(const Common::Rect &hires, const PaletteMod *palMods, const byte *palModMapping) {
+	Common::Rect r(hires);
+	r.clip(Common::Rect(0, 0, _screenW, _screenH));
+	if (!r.isEmpty())
+		updateScreen(r.left, r.top, r.width(), r.height(), palMods, palModMapping);
 }
 
 void UpscaledGfxDriver::adjustCursorBuffer(uint16 newWidth, uint16 newHeight) {
@@ -204,7 +278,7 @@ void UpscaledGfxDriver::renderBitmap(const byte *src, int pitch, int dx, int dy,
 }
 
 GfxDriver *UpscaledGfxDriver_create(int rgbRendering, ...) {
-	return new UpscaledGfxDriver(1, true, rgbRendering != 0);
+	return new UpscaledGfxDriver(1, true, rgbRendering != 0, true);
 }
 
 } // End of namespace Sci

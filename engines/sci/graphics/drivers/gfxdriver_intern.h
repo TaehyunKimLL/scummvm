@@ -23,6 +23,7 @@
 #ifndef SCI_GRAPHICS_DRIVERS_GFXDRIVER_INTERN_H
 #define SCI_GRAPHICS_DRIVERS_GFXDRIVER_INTERN_H
 
+#include "common/array.h"
 #include "common/platform.h"
 #include "sci/graphics/drivers/gfxdriver.h"
 
@@ -56,6 +57,7 @@ protected:
 	bool _cursorUsesScreenPalette;
 	const bool _alwaysCreateBmpBuffer;
 	const bool _requestRGBMode;
+	bool _preferTrueColor;
 	typedef void (*ColorConvProc)(byte*, const byte*, int, int, int, const byte*);
 	ColorConvProc _colorConv;
 	typedef void (*ColorConvModProc)(byte*, const byte*, int, int, int, const byte*, const byte*, Graphics::PixelFormat&, const PaletteMod*, const byte*);
@@ -89,7 +91,7 @@ private:
 
 class UpscaledGfxDriver : public GfxDefaultDriver {
 public:
-	UpscaledGfxDriver(int16 textAlignX, bool scaleCursor, bool rgbRendering);
+	UpscaledGfxDriver(int16 textAlignX, bool scaleCursor, bool rgbRendering, bool preferTrueColor = false);
 	~UpscaledGfxDriver() override;
 	bool initScreen(const Graphics::PixelFormat *format) override;
 	void setPalette(const byte *colors, uint start, uint num, bool update, const PaletteMod *palMods, const byte *palModMapping) override;
@@ -104,6 +106,8 @@ public:
 	void drawTextFontGlyph(const byte *src, int pitch, int hiresDestX, int hiresDestY, int hiresW, int hiresH, int transpColor, const PaletteMod *palMods, const byte *palModMapping) override; // For HiRes fonts.
 	bool copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h) const override;
 	bool driverBasedTextRendering() const override { return true; }
+	bool setTextLayer(const TextLayer *layer) override;
+	void refreshHiresRect(const Common::Rect &hires, const PaletteMod *palMods, const byte *palModMapping) override;
 protected:
 	UpscaledGfxDriver(uint16 scaledW, uint16 scaledH, int16 textAlignX, bool scaleCursor, bool rgbRendering);
 	void updateScreen(int destX, int destY, int w, int h, const PaletteMod *palMods, const byte *palModMapping);
@@ -123,6 +127,8 @@ private:
 	uint16 _cursorWidth;
 	uint16 _cursorHeight;
 	bool _needCursorBuffer;
+	const TextLayer *_textLayer;
+	Common::Array<byte> _stampBuffer;
 };
 
 class SCI1_EGADriver : public GfxDriver {

@@ -34,6 +34,7 @@
 #include "sci/graphics/view.h"
 #include "sci/graphics/palette16.h"
 #include "sci/graphics/scifx.h"
+#include "sci/graphics/textlayer.h"
 #include "sci/graphics/drivers/gfxdriver.h"
 
 namespace Sci {
@@ -151,7 +152,7 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
 	// including ones whose driver does not do its own text rendering, and the
 	// double-byte draw paths use this buffer unconditionally. 256 bytes.
 	_hiresGlyphBuffer = new byte[16 * 16]();
-	_hiresTextPlane = nullptr;
+	_textLayer = nullptr;
 
 	_displayPixels = _displayWidth * _displayHeight;
 
@@ -213,7 +214,8 @@ GfxScreen::~GfxScreen() {
 	free(_paletteMapScreen);
 	delete[] _backupScreen;
 	delete[] _hiresGlyphBuffer;
-	free(_hiresTextPlane);
+	_gfxDrv->setTextLayer(nullptr);
+	delete _textLayer;
 	delete _gfxDrv;
 }
 
@@ -222,19 +224,6 @@ void GfxScreen::displayRect(const Common::Rect &rect, int x, int y) {
 	// Clipping is assumed to be done already.
 	_gfxDrv->copyRectToScreen(_activeScreen, rect.left, rect.top,
 		_displayWidth, x, y, rect.width(), rect.height(), _paletteModsEnabled ? _paletteMods : nullptr, _paletteMapScreen);
-
-	// That blit just overwrote whatever hires glyphs stood in this rectangle:
-	// they live only in the driver's scaled bitmap, not in _activeScreen. Put
-	// them back. This is the one funnel every lowres update goes through, so
-	// hooking it here covers the animation loop, kGraph redraws and window
-	// disposal alike, rather than each of them separately.
-	if (_hiresTextPlane) {
-		const int hiresX = x * _hiresScaleX;
-		const int hiresY = y * _hiresScaleY;
-		restoreHiresTextPlane(hiresX, hiresY,
-							  rect.width() * _hiresScaleX,
-							  rect.height() * _hiresScaleY);
-	}
 }
 
 
@@ -247,7 +236,7 @@ void GfxScreen::clearForRestoreGame() {
 	memset(_displayScreen, 0, _displayPixels);
 	memset(&_ditheredPicColors, 0, sizeof(_ditheredPicColors));
 	_fontIsUpscaled = false;
-	clearHiresTextPlane();
+	clearTextLayer();
 	copyToScreen();
 }
 
@@ -257,6 +246,16 @@ void GfxScreen::copyToScreen() {
 }
 
 void GfxScreen::copyVideoFrameToScreen(const byte *buffer, int pitch, const Common::Rect &rect) {
+	// The original drew each movie frame straight into the framebuffer,
+	// over whatever text stood in the frame's rect; text outside it stayed.
+	// Do the same to the text layer before the frame is composited.
+	// rect is in display coordinates, the layer takes low-res ones.
+	if (_textLayer && !_textLayer->isEmpty()) {
+		Common::Rect lowres(rect);
+		if (_upscaledHires == GFX_SCREEN_UPSCALED_640x400)
+			lowres = Common::Rect(rect.left / 2, rect.top / 2, (rect.right + 1) / 2, (rect.bottom + 1) / 2);
+		_textLayer->clearLowresRect(lowres);
+	}
 	_gfxDrv->copyRectToScreen(buffer, 0, 0, pitch, rect.left, rect.top, rect.width(), rect.height(), _paletteModsEnabled ? _paletteMods : nullptr, _paletteMapScreen);
 }
 
@@ -361,7 +360,8 @@ void GfxScreen::vectorPutLinePixel(int16 x, int16 y, byte drawMask, byte color, 
 	putPixel(x, y, drawMask, color, priority, control);
 }
 
-// Special 480x300 Mac putPixel for vector line drawing, also draws an additional pixel below the actual one
+// Special 480x300 Mac putPixel for vector line drawing, also draws an additional pixel below the actual one.
+// Mac 480x300 only: no driver composites the text layer there, so it is not cleared.
 void GfxScreen::vectorPutLinePixel480x300(int16 x, int16 y, byte drawMask, byte color, byte priority, byte control) {
 	int offset = y * _width + x;
 
@@ -506,132 +506,50 @@ void GfxScreen::putHangulChar(Graphics::FontKorean *commonFont, int16 x, int16 y
 	// we don't use outline, so color 0 is actually not used
 	uint16 charWidth = commonFont->getCharWidth(chr);
 	commonFont->drawChar(_hiresGlyphBuffer, chr, charWidth, 1, color, 0, -1, -1);
-	// Through the persistent path, for the same reason the Unicode font
-	// takes it: the legacy Korean face lands on the same driver bitmap that
-	// every lowres update overwrites, and loses its glyphs to an actor
-	// walking past exactly the same way. Measured on KQ1's intro box with
-	// the legacy-face build: black pixels in the box's second row 2048 -> 1334
-	// over 60 frames, the same drain as before the plane existed.
-	putHiresGlyphPersistent(_hiresGlyphBuffer, charWidth, commonFont->getFontHeight(), x, y, color);
+	// Through the text layer, for the same reason the Unicode font takes it:
+	// the legacy Korean face lands on the same driver bitmap that every
+	// lowres update overwrites, and loses its glyphs to an actor walking
+	// past exactly the same way. Measured on KQ1's intro box with the
+	// legacy-face build: black pixels in the box's second row 2048 -> 1334
+	// over 60 frames, the same drain as before the layer existed.
+	byte cov[16 * 16];
+	const int gh = commonFont->getFontHeight();
+	for (int i = 0; i < charWidth * gh; i++)
+		cov[i] = (_hiresGlyphBuffer[i] != 0xff) ? 255 : 0;
+	putHiresCoverageGlyph(cov, charWidth, gh, x, y, color);
 }
 
-void GfxScreen::putHiresGlyph(const byte *glyph, int16 width, int16 height,
-							  int16 x, int16 y, byte color) {
-	// Same path and the same coordinate doubling as putHangulChar: the glyph
-	// lands on the hires text plane through the driver, not in the lowres
-	// buffer. The driver expects 0xff for unset pixels, matching the memset
-	// putHangulChar does before rendering.
-	_gfxDrv->drawTextFontGlyph(glyph, width, x << 1, y << 1, width, height, 0xff,
-							   _paletteModsEnabled ? _paletteMods : nullptr,
-							   _paletteMapScreen);
-}
-
-void GfxScreen::putHiresGlyphPersistent(const byte *glyph, int16 width, int16 height,
-										int16 x, int16 y, byte color) {
-	rememberHiresGlyph(glyph, width, height, x, y);
-	putHiresGlyph(glyph, width, height, x, y, color);
-}
-
-void GfxScreen::rememberHiresGlyph(const byte *glyph, int16 width, int16 height,
-								   int16 x, int16 y) {
-	// Hires coordinates, matching what putHiresGlyph() hands the driver -
-	// including the driver's own x alignment, so the remembered pixels land
-	// exactly where the drawn ones did rather than a few columns off.
-	const int hiresW = _displayWidth * 2;
-	const int hiresH = _displayHeight * 2;
-
-	if (!_hiresTextPlane) {
-		_hiresTextPlane = (byte *)malloc((size_t)hiresW * hiresH);
-		if (!_hiresTextPlane)
-			return;
-		memset(_hiresTextPlane, 0xff, (size_t)hiresW * hiresH);
-	}
-
-	const int destX = (x << 1) & ~(kHiresTextAlignX - 1);
-	const int destY = y << 1;
-
-	for (int gy = 0; gy < height; gy++) {
-		const int py = destY + gy;
-		if (py < 0 || py >= hiresH)
-			continue;
-		const byte *src = glyph + (size_t)gy * width;
-		byte *dst = _hiresTextPlane + (size_t)py * hiresW;
-		for (int gx = 0; gx < width; gx++) {
-			if (src[gx] == 0xff)
-				continue;	// unset pixel, per the driver's convention
-			const int px = destX + gx;
-			if (px < 0 || px >= hiresW)
-				continue;
-			dst[px] = src[gx];
+TextLayer *GfxScreen::ensureTextLayer() {
+	if (!_textLayer) {
+		_textLayer = new TextLayer(_displayWidth * 2, _displayHeight * 2, 2);
+		// Spec section 4: a driver that cannot composite falls back quietly -
+		// the glyphs are kept but not shown - and says so once in the log.
+		if (!_gfxDrv->setTextLayer(_textLayer)) {
+			const char *mode = Common::getRenderModeCode(SciGfxDriver::getRenderMode());
+			warning("Hi-res text: the graphics driver for this game (platform %s, render mode %s, %dx%d display, upscaled mode %d) does not composite the text layer; hi-res glyphs will not be shown",
+					Common::getPlatformDescription(g_sci->getPlatform()), mode ? mode : "default",
+					_displayWidth, _displayHeight, (int)_upscaledHires);
 		}
 	}
+	return _textLayer;
 }
 
-void GfxScreen::clearHiresTextPlane() {
-	if (_hiresTextPlane)
-		memset(_hiresTextPlane, 0xff,
-			   (size_t)(_displayWidth * 2) * (_displayHeight * 2));
+void GfxScreen::putHiresCoverageGlyph(const byte *coverage, int16 w, int16 h, int16 x, int16 y, byte color) {
+	TextLayer *l = ensureTextLayer();
+	// The colour is used as given, as the old putHiresGlyphPersistent() path
+	// did: remapTextColor() belongs to putKanjiChar (PC-98 text mode) and
+	// returns 0 on QFG/SCI1 PC-98 drivers, so applying it here would change
+	// what a SCVMUNI font draws on those releases.
+	l->putGlyph(x << 1, y << 1, coverage, w, h, color);
+	// Shown at once, as the old direct-to-driver draw was: callers that
+	// relied on that (kDisplay's Box) keep working unchanged.
+	_gfxDrv->refreshHiresRect(Common::Rect(x << 1, y << 1, (x << 1) + w, (y << 1) + h),
+							  _paletteModsEnabled ? _paletteMods : nullptr, _paletteMapScreen);
 }
 
-void GfxScreen::clearHiresTextPlane(const Common::Rect &rect) {
-	if (!_hiresTextPlane)
-		return;
-
-	// A hires glyph cell can hang below the lowres rect that placed it: the
-	// window is sized from the font's lowres height (12 for KQ1's) while the
-	// double-byte cell is 16 hires rows = 8 lowres, and the last text line
-	// starts near the bottom edge. Measured on KQ1's intro box: after the
-	// window was disposed, rows 314..316 of the plane (three hires rows
-	// under the window's restoreRect) still held 218 glyph pixels and were
-	// painted back over the scene. So the clear reaches one cell past the
-	// rect on every side; a neighbouring box's glyphs that close are drawn
-	// again by that box's own next redraw.
-	const int hiresW = _displayWidth * 2;
-	const int hiresH = _displayHeight * 2;
-	const int slack = kHiresGlyphCellSize;
-	const int x0 = CLIP<int>((rect.left << 1) - slack, 0, hiresW);
-	const int x1 = CLIP<int>((rect.right << 1) + slack, 0, hiresW);
-	const int y0 = CLIP<int>((rect.top << 1) - slack, 0, hiresH);
-	const int y1 = CLIP<int>((rect.bottom << 1) + slack, 0, hiresH);
-
-	for (int y = y0; y < y1; y++)
-		memset(_hiresTextPlane + (size_t)y * hiresW + x0, 0xff, x1 - x0);
-}
-
-void GfxScreen::restoreHiresTextPlane(int hiresX, int hiresY, int w, int h) {
-	if (!_hiresTextPlane)
-		return;
-
-	const int hiresW = _displayWidth * 2;
-	const int hiresH = _displayHeight * 2;
-	const int x0 = CLIP<int>(hiresX, 0, hiresW);
-	const int x1 = CLIP<int>(hiresX + w, 0, hiresW);
-	const int y0 = CLIP<int>(hiresY, 0, hiresH);
-	const int y1 = CLIP<int>(hiresY + h, 0, hiresH);
-	if (x1 <= x0 || y1 <= y0)
-		return;
-
-	// Re-blit run by run: a row of the plane is mostly 0xff, and the driver
-	// call has per-call overhead, so sending whole spans of set pixels beats
-	// one call per glyph-shaped rectangle and stays correct when two glyphs
-	// abut.
-	const int rowW = x1 - x0;
-	_hiresRestoreRow.resize(rowW);
-	for (int y = y0; y < y1; y++) {
-		const byte *src = _hiresTextPlane + (size_t)y * hiresW + x0;
-		bool any = false;
-		for (int i = 0; i < rowW; i++) {
-			_hiresRestoreRow[i] = src[i];
-			if (src[i] != 0xff)
-				any = true;
-		}
-		if (!any)
-			continue;
-		_gfxDrv->drawTextFontGlyph(_hiresRestoreRow.begin(), rowW, x0, y,
-								   rowW, 1, 0xff,
-								   _paletteModsEnabled ? _paletteMods : nullptr,
-								   _paletteMapScreen);
-	}
+void GfxScreen::clearTextLayer() {
+	if (_textLayer)
+		_textLayer->clear();
 }
 
 void GfxScreen::putKanjiChar(Graphics::FontSJIS *commonFont, int16 x, int16 y, uint16 chr, byte color) {
@@ -684,6 +602,7 @@ int GfxScreen::bitsGetDataSize(Common::Rect rect, byte mask) {
 			if (_paletteMapScreen)
 				byteCount += rectHeight * rectWidth; // _paletteMapScreen (upscaled hires)
 		}
+		byteCount += _textLayer ? _textLayer->saveSize(rect) : 1;
 	}
 	if (mask & GFX_SCREEN_MASK_PRIORITY) {
 		byteCount += pixels; // _priorityScreen
@@ -703,6 +622,10 @@ void GfxScreen::bitsSave(Common::Rect rect, byte mask, byte *memoryPtr) {
 		bitsSaveDisplayScreen(rect, _displayScreen, memoryPtr);
 		if (_paletteMapScreen)
 			bitsSaveDisplayScreen(rect, _paletteMapScreen, memoryPtr);
+		if (_textLayer)
+			_textLayer->save(rect, memoryPtr);
+		else
+			*memoryPtr++ = 0;
 	}
 	if (mask & GFX_SCREEN_MASK_PRIORITY) {
 		bitsSaveScreen(rect, _priorityScreen, _width, memoryPtr);
@@ -756,16 +679,17 @@ void GfxScreen::bitsRestore(const byte *memoryPtr) {
 	memcpy((void *)&mask, memoryPtr, sizeof(mask)); memoryPtr += sizeof(mask);
 
 	if (mask & GFX_SCREEN_MASK_VISUAL) {
-		// Note: the glyph plane is NOT invalidated here. This is also the
-		// animation loop's per-cel underBits restore, called once per actor
-		// per frame, and the actor's cel rect overlaps a text box he walks
-		// past - clearing here erased the glyphs the plane exists to keep
-		// (measured: 576 clears in one intro, text still draining away).
-		// A window's dismissal invalidates in GfxPorts::removeWindow().
+		// The text layer is restored along with the pixels it belongs to:
+		// whatever underbits this save covered, the layer content saved
+		// alongside it comes back too.
 		bitsRestoreScreen(rect, memoryPtr, _visualScreen, _width);
 		bitsRestoreDisplayScreen(rect, memoryPtr, _displayScreen);
 		if (_paletteMapScreen)
 			bitsRestoreDisplayScreen(rect, memoryPtr, _paletteMapScreen);
+		if (_textLayer)
+			_textLayer->restore(rect, memoryPtr);
+		else
+			memoryPtr++;
 	}
 	if (mask & GFX_SCREEN_MASK_PRIORITY) {
 		bitsRestoreScreen(rect, memoryPtr, _priorityScreen, _width);
@@ -839,6 +763,16 @@ void GfxScreen::kernelShakeScreen(uint16 shakeCount, uint16 directions) {
 	}
 }
 
+// dither() finishes a picture draw: it only rewrites pixels that picture
+// ops just drew (a still-dithered colour has its high nibble set), whose
+// text the draw has already cleared. Clearing here too keeps the rule
+// "every draw into the visual plane clears the text over it" without
+// relying on that. Not on 480x300 Mac, where no driver composites the layer.
+void GfxScreen::clearTextUnderDither(int16 x, int16 y) {
+	if (_textLayer && !_textLayer->isEmpty() && _upscaledHires != GFX_SCREEN_UPSCALED_480x300)
+		_textLayer->clearLowresPixel(x, y);
+}
+
 void GfxScreen::dither(bool addToFlag) {
 	int y, x;
 	byte color;
@@ -854,6 +788,7 @@ void GfxScreen::dither(bool addToFlag) {
 				if (color & 0xF0) {
 					color ^= color << 4;
 					color = ((x^y) & 1) ? color >> 4 : color & 0x0F;
+					clearTextUnderDither(x, y);
 					switch (_upscaledHires) {
 					case GFX_SCREEN_UPSCALED_DISABLED:
 					case GFX_SCREEN_UPSCALED_480x300:
@@ -902,6 +837,7 @@ void GfxScreen::dither(bool addToFlag) {
 					}
 					color = ((x^y) & 1) ? color >> 4 : color & 0x0F;
 					*visualPtr = color;
+					clearTextUnderDither(x, y);
 				}
 				visualPtr++; displayPtr++; paletteMapPtr++;
 			}

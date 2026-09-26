@@ -98,7 +98,7 @@ void GfxPaint16::drawPicture(GuiResourceId pictureId, bool mirroredFlag, bool ad
 		// from the previous room survives it. Without this the title screen's
 		// menu entries stayed remembered and were painted back over the intro
 		// - measured as four stale menu lines across the first room.
-		_screen->clearHiresTextPlane();
+		_screen->clearTextLayer();
 	}
 
 	// Draw the picture
@@ -218,9 +218,12 @@ void GfxPaint16::invertRectViaXOR(const Common::Rect &rect) {
 	for (int16 y = r.top; y < r.bottom; y++) {
 		for (int16 x = r.left; x < r.right; x++) {
 			byte curVisual = _screen->getVisual(x, y);
-			_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, curVisual ^ 0x0f, 0, 0);
+			_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, curVisual ^ 0x0f, 0, 0, false);
 		}
 	}
+	// An invert recolours text and never removes it: XOR the text layer's
+	// colours the same way the visual pixels were XORed.
+	_screen->xorTextLayerColors(r, 0x0f);
 }
 
 void GfxPaint16::eraseRect(const Common::Rect &rect) {
@@ -248,12 +251,16 @@ void GfxPaint16::fillRect(const Common::Rect &rect, int16 drawFlags, byte color,
 				for (x = r.left; x < r.right; x++) {
 					byte curVisual = _screen->getVisual(x, y);
 					if (curVisual == color) {
-						_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, priority, 0, 0);
+						_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, priority, 0, 0, false);
 					} else if (curVisual == priority) {
-						_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, color, 0, 0);
+						_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, color, 0, 0, false);
 					}
 				}
 			}
+			// The invert swaps the two colours and leaves every other pixel
+			// alone; hi-res text over the rect is recoloured the same way,
+			// never removed (menu, button and edit-cursor highlights).
+			_screen->swapTextLayerColors(r, color, priority);
 		} else { // just fill rect with color
 			for (y = r.top; y < r.bottom; y++) {
 				for (x = r.left; x < r.right; x++) {

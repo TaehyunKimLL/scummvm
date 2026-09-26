@@ -21,6 +21,7 @@
 
 #include "sci/graphics/fontunicode.h"
 #include "sci/graphics/screen.h"
+#include "sci/graphics/textcompose.h"
 #include "sci/sci.h"
 
 #include "common/file.h"
@@ -86,7 +87,12 @@ bool GfxFontUnicode::load(const Common::String &filename) {
 	const uint32 wOff = READ_LE_UINT32(d + 24);
 	const uint32 bmOff = READ_LE_UINT32(d + 28);
 
-	_bitsPerPixel = (flags & 1) ? 2 : 1;
+	if ((flags & 3) == 3) {
+		warning("GfxFontUnicode: %s sets both 2bpp and 8bpp", filename.c_str());
+		_data.clear();
+		return false;
+	}
+	_bitsPerPixel = (flags & 2) ? 8 : ((flags & 1) ? 2 : 1);
 	// A wide glyph spans two cells and every glyph uses the same stride, so
 	// one row length serves both widths and the reader stays branch-free.
 	_rowBytes = ((uint32)_cellWidth * 2 * _bitsPerPixel + 7) / 8;
@@ -152,9 +158,7 @@ int GfxFontUnicode::findGlyph(uint32 codepoint) const {
 
 bool GfxFontUnicode::pixelSet(int glyph, int x, int y) const {
 	const byte *row = _bitmaps + (uint32)glyph * _bytesPerGlyph + (uint32)y * _rowBytes;
-	if (_bitsPerPixel == 1)
-		return (row[x >> 3] & (0x80 >> (x & 7))) != 0;
-	return ((row[x >> 2] >> (6 - ((x & 3) * 2))) & 3) != 0;
+	return TextCompose::expandCoverage(row, x, _bitsPerPixel) != 0;
 }
 
 bool GfxFontUnicode::isDoubleByte(uint32 chr) {
@@ -182,38 +186,20 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 	const int cells = _widths[g];
 	const int w = _cellWidth * cells;
 
-	// Double-byte glyphs are drawn on the hires text plane at twice the lowres
+	// Double-byte glyphs are drawn on the text layer at twice the lowres
 	// coordinates, exactly as GfxFontKorean does via putHangulChar. Writing
 	// lowres pixels here instead renders nothing visible: the upscaled
 	// background is composited over them. That was measured - the glyph draw
 	// calls arrived with correct code points and coordinates while the screen
 	// stayed blank.
 	//
-	// Expand to one byte per pixel with 0xff meaning "unset", the convention
-	// the driver expects.
+	// Expand to one byte per pixel of coverage, the convention the text layer
+	// expects.
 	_glyphScratch.resize((uint)w * _cellHeight);
-	byte *dst = _glyphScratch.begin();
-	memset(dst, 0xff, (uint)w * _cellHeight);
-
-	for (int y = 0; y < _cellHeight; y++) {
-		for (int x = 0; x < w; x++) {
-			if (!pixelSet(g, x, y))
-				continue;
-			// Greying is the engine's existing checkerboard convention: skip
-			// every other pixel so the glyph reads as disabled.
-			if (greyedOutput && ((top + y) % 2) == ((left + x) % 2))
-				continue;
-			dst[y * w + x] = color;
-		}
-	}
-
-	// Both planes, and both are needed. putHiresGlyphPersistent() draws the
-	// glyph now AND remembers it, so that a lowres update passing over the box
-	// re-applies it instead of erasing it. Measured on KQ1's intro box: with a
-	// plain putHiresGlyph(), an actor walking left across the box composited
-	// the text away one syllable at a time, right to left, tracking his dirty
-	// rect exactly.
-	_screen->putHiresGlyphPersistent(dst, w, _cellHeight, left, top, color);
+	byte *cov = _glyphScratch.begin();
+	for (int y = 0; y < _cellHeight; y++)
+		TextCompose::expandGlyphRow(cov + y * w, coverageRow(g, y), w, _bitsPerPixel, greyedOutput, top + y, left);
+	_screen->putHiresCoverageGlyph(cov, w, _cellHeight, left, top, color);
 }
 
 void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,

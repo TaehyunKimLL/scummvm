@@ -24,6 +24,7 @@
 
 #include "sci/sci.h"
 #include "sci/graphics/helpers.h"
+#include "sci/graphics/textlayer.h"
 #include "sci/graphics/view.h"
 
 #include "graphics/font.h"
@@ -58,6 +59,7 @@ enum {
 };
 
 class GfxDriver;
+class TextLayer;
 
 /**
  * Screen class, actually creates 3 (4) screens internally:
@@ -125,38 +127,36 @@ public:
 	void putHangulChar(Graphics::FontKorean *commonFont, int16 x, int16 y, uint16 chr, byte color);
 
 	/**
-	 * Draw a pre-rendered 1bpp glyph onto the hires text plane.
+	 * Draw a coverage glyph into the text layer AND show it at once.
 	 *
 	 * Double-byte text does not go through putFontPixel: it is drawn at twice
-	 * the lowres coordinates via the graphics driver, on top of the upscaled
-	 * background. A caller that writes lowres pixels instead is painted over
-	 * by the upscale and draws nothing visible.
+	 * the lowres coordinates, over the upscaled background. The glyph is
+	 * remembered in the text layer, so that a later lowres update of the
+	 * same area re-composites the glyph instead of erasing it.
 	 *
-	 * @param glyph  one byte per pixel, 0xff where the pixel is set
+	 * @param coverage  one byte per pixel, 0-255 coverage (0 leaves the pixel alone)
+	 * @param x, y      LOWRES coordinates; the glyph lands at (2x, 2y) hires
 	 */
-	void putHiresGlyph(const byte *glyph, int16 width, int16 height, int16 x, int16 y, byte color);
+	void putHiresCoverageGlyph(const byte *coverage, int16 w, int16 h, int16 x, int16 y, byte color);
 
-	/**
-	 * Draw a pre-rendered 1bpp glyph into the hires text plane AND on screen.
-	 *
-	 * Same pixels as putHiresGlyph(), but also remembered, so that a later
-	 * lowres update of the same area re-applies the glyph instead of erasing
-	 * it. Use this for any glyph that has to survive an animation passing
-	 * underneath it.
-	 *
-	 * @param glyph  one byte per pixel, 0xff where the pixel is unset
-	 * @param x, y   LOWRES coordinates, as for putHiresGlyph()
-	 */
-	void putHiresGlyphPersistent(const byte *glyph, int16 width, int16 height, int16 x, int16 y, byte color);
+	/// The text layer itself, or null if never used.
+	const TextLayer *textLayer() const { return _textLayer; }
 
-	/// Forget every remembered hires glyph inside this LOWRES rect.
-	void clearHiresTextPlane(const Common::Rect &rect);
+	/// Forget every glyph in the text layer.
+	void clearTextLayer();
 
-	/// Forget every remembered hires glyph.
-	void clearHiresTextPlane();
+	/// An invert recolours text: swap colours a and b in the text layer
+	/// inside this LOWRES rect, as the invert swaps them on the visual plane.
+	void swapTextLayerColors(const Common::Rect &lowres, byte a, byte b) {
+		if (_textLayer)
+			_textLayer->swapIndicesLowresRect(lowres, a, b);
+	}
+	/// The XOR invert's counterpart of swapTextLayerColors().
+	void xorTextLayerColors(const Common::Rect &lowres, byte mask) {
+		if (_textLayer)
+			_textLayer->xorIndicesLowresRect(lowres, mask);
+	}
 
-	/// The plane itself (hires, 0xff = no glyph), or null if never used.
-	const byte *hiresTextPlane() const { return _hiresTextPlane; }
 	const byte *displayScreen() const { return _displayScreen; }
 	uint displayPixels() const { return _displayPixels; }
 
@@ -273,44 +273,11 @@ private:
 	 */
 	byte *_hiresGlyphBuffer;
 
-	/**
-	 * Every hires glyph currently on screen, in hires (2x lowres) coordinates,
-	 * one byte per pixel with 0xff meaning "no glyph here".
-	 *
-	 * Double-byte text is handed straight to the graphics driver, which keeps
-	 * it only in the driver's own scaled bitmap. Nothing the engine owns
-	 * remembers it, so the next lowres update covering the same area - an
-	 * actor walking past a text box - composites the glyph away for good.
-	 * Measured on KQ1's intro box: the closing words vanished one syllable at
-	 * a time, right to left, tracking the actor's dirty rect exactly.
-	 *
-	 * This plane is that missing memory. Allocated on first use, so a game
-	 * that never draws a hires glyph pays nothing.
-	 */
-	byte *_hiresTextPlane;
-
-	/// Scratch row for restoreHiresTextPlane(), kept to avoid a per-row alloc.
-	Common::Array<byte> _hiresRestoreRow;
-
-	/**
-	 * Lowres -> hires scale of the glyph plane, i.e. how far a lowres display
-	 * coordinate moves in the driver's scaled bitmap. Two on every path that
-	 * can draw a hires glyph (UpscaledGfxDriver doubles both axes); kept as a
-	 * named constant rather than a literal 2 so the arithmetic reads as the
-	 * coordinate conversion it is.
-	 */
-	static const int _hiresScaleX = 2;
-	static const int _hiresScaleY = 2;
-
-	/// The driver's x alignment for glyph blits; see UpscaledGfxDriver.
-	static const int kHiresTextAlignX = 1;
-	/// The tallest hires glyph cell any face draws (Korean, SJIS, SCVMUNI: 16).
-	static const int kHiresGlyphCellSize = 16;
-
-	void rememberHiresGlyph(const byte *glyph, int16 width, int16 height, int16 x, int16 y);
-
-	/// Re-apply the hires glyph plane over a hires rect just sent to the driver.
-	void restoreHiresTextPlane(int hiresX, int hiresY, int w, int h);
+	/** Hi-res text, a hi-res extension of the visual plane. Allocated on the
+	 *  first hi-res glyph; a game that never draws one pays nothing. */
+	TextLayer *_textLayer;
+	TextLayer *ensureTextLayer();
+	void clearTextUnderDither(int16 x, int16 y);
 
 	/**
 	 * This here holds a translation for vertical+horizontal coordinates between native
@@ -328,7 +295,10 @@ private:
 
 	// pixel related code, in header so that it can be inlined for performance
 public:
-	void putPixel(int16 x, int16 y, byte drawMask, byte color, byte priority, byte control) {
+	/** clearText false: the visual write recolours the pixel without
+	 *  removing text over it (an invert, see GfxPaint16::fillRect()); the
+	 *  caller remaps the text layer's colours itself. */
+	void putPixel(int16 x, int16 y, byte drawMask, byte color, byte priority, byte control, bool clearText = true) {
 		if (_upscaledHires == GFX_SCREEN_UPSCALED_480x300) {
 			putPixel480x300(x, y, drawMask, color, priority, control);
 			return;
@@ -339,6 +309,8 @@ public:
 
 		if (drawMask & GFX_SCREEN_MASK_VISUAL) {
 			_visualScreen[offset] = color;
+			if (clearText && _textLayer && !_textLayer->isEmpty())
+				_textLayer->clearLowresPixel(x, y);
 			if (_paletteMapScreen)
 				_paletteMapScreen[offset] = _curPaletteMapValue;
 
@@ -362,6 +334,8 @@ public:
 		}
 	}
 
+	// Mac 480x300 only, a mode in which no driver composites the text layer,
+	// so it does not clear it.
 	void putPixel480x300(int16 x, int16 y, byte drawMask, byte color, byte priority, byte control) {
 		const int offset = ((y * 3) / 2 * _width) + ((x * 3) / 2);
 
@@ -406,6 +380,10 @@ public:
 
 		if (drawMask & GFX_SCREEN_MASK_VISUAL) {
 			_visualScreen[offset] = color;
+			// A picture line, fill or pattern pixel covers text like any
+			// other draw. (On 480x300 Mac no driver composites the layer.)
+			if (_textLayer && !_textLayer->isEmpty())
+				_textLayer->clearLowresPixel(x, y);
 			_displayScreen[offset] = color;
 			if (_paletteMapScreen)
 				_paletteMapScreen[offset] = _curPaletteMapValue;
@@ -460,6 +438,7 @@ public:
 			putPixelOnDisplay(x, actualY, color);
 		} else {
 			if (_upscaledHires == GFX_SCREEN_UPSCALED_480x300) {
+				// Mac 480x300 only: no driver composites the text layer there.
 				putPixel480x300(x, actualY, GFX_SCREEN_MASK_VISUAL, color, 0, 0);
 				return;
 			}
@@ -467,6 +446,9 @@ public:
 			int offset = actualY * _width + x;
 
 			_visualScreen[offset] = color;
+			// A low-res font pixel covers hi-res text like any other draw.
+			if (_textLayer && !_textLayer->isEmpty())
+				_textLayer->clearLowresPixel(x, actualY);
 			switch (_upscaledHires) {
 			case GFX_SCREEN_UPSCALED_DISABLED:
 				_displayScreen[offset] = color;

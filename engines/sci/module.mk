@@ -69,6 +69,8 @@ MODULE_OBJS := \
 	graphics/scifx.o \
 	graphics/screen.o \
 	graphics/text16.o \
+	graphics/textcompose.o \
+	graphics/textlayer.o \
 	graphics/transitions.o \
 	graphics/view.o \
 	graphics/drivers/cga.o \

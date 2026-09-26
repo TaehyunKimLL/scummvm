@@ -35,6 +35,7 @@ namespace Graphics {
 namespace Sci {
 
 struct PaletteMod;
+class TextLayer;
 
 class GfxDriver {
 public:
@@ -64,6 +65,13 @@ public:
 	 * false when there is no such buffer.
 	 */
 	virtual bool copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h) const { return false; }
+	/** Hi-res text the driver blends over the scaled picture on every update
+	 *  (HIRES_COMPOSITOR_DESIGN.md). Only a 2x upscaled driver whose screen
+	 *  matches the layer uses it. Returns true if the driver will composite
+	 *  the layer, false if it ignores it (the caller logs that once). */
+	virtual bool setTextLayer(const TextLayer *layer) { return false; }
+	/** Present a hi-res rect again, text included, without re-scaling it. */
+	virtual void refreshHiresRect(const Common::Rect &hires, const PaletteMod *palMods, const byte *palModMapping) {}
 	virtual void copyCurrentPalette(byte *dest, int start, int num) const;
 	virtual void drawTextFontGlyph(const byte *src, int pitch, int hiresDestX, int hiresDestY, int hiresW, int hiresH, int transpColor, const PaletteMod *palMods, const byte *palModMapping) = 0;
 	virtual byte remapTextColor(byte color) const { return color; }
