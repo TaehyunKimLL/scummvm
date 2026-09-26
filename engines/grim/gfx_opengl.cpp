@@ -1764,6 +1764,11 @@ void GfxOpenGL::prepareMovieFrame(Graphics::Surface *frame) {
 }
 
 void GfxOpenGL::drawMovieFrame(int offsetX, int offsetY) {
+	// No frame has been prepared since the last release (e.g. right after a
+	// savegame restore): there are no textures to draw.
+	if (_smushNumTex == 0)
+		return;
+
 	double scaleW = _scaleW;
 	double scaleH = _scaleH;
 	// Remastered hack, don't scale full-screen videos for now.
@@ -1826,7 +1831,10 @@ void GfxOpenGL::releaseMovieFrame() {
 	if (_smushNumTex > 0) {
 		glDeleteTextures(_smushNumTex, _smushTexIds);
 		delete[] _smushTexIds;
+		_smushTexIds = nullptr;
 		_smushNumTex = 0;
+		_smushWidth = 0;
+		_smushHeight = 0;
 	}
 }
 

@@ -1166,7 +1166,7 @@ void GfxTinyGL::prepareMovieFrame(Graphics::Surface *frame) {
 
 void GfxTinyGL::drawMovieFrame(int offsetX, int offsetY) {
 	// No frame has been prepared since the last release (e.g. right after a
-	// savegame restore): there is nothing to draw, as with the OpenGL renderers.
+	// savegame restore): there is nothing to draw.
 	if (_smushImage == nullptr)
 		return;
 	tglBlitFast(_smushImage, offsetX, offsetY);
