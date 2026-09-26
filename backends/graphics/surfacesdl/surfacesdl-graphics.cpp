@@ -1130,6 +1130,13 @@ bool SurfaceSdlGraphicsManager::hotswapGFXMode() {
 		return false;
 	}
 
+	// endGFXTransaction() set the scaler up for the old hardware screen before
+	// this swap. loadGFXMode() may have produced another format - the 32-bit
+	// texture can fall back to RGB565 - so rebuild the scaler for the format
+	// actually in use before anything is drawn with it.
+	if (convertSDLPixelFormat(_hwScreen->format) != _scalerFormat)
+		setGraphicsModeIntern();
+
 	// reset palette
 	SDL_SetColors(_screen, _currentPalette, 0, 256);
 
