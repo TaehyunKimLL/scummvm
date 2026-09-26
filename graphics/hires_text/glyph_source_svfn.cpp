@@ -106,12 +106,17 @@ int SvfnGlyphSource::bearingX(uint32 cp) const {
 bool SvfnGlyphSource::metrics(uint32 cp, GlyphMetrics &m) {
 	if (!UnicodeGlyphSource::metrics(cp, m))
 		return false;
+	// originX stays 0: every SVFN producer stores rows that start at the pen
+	// (HiResFontBaker draws with the pen at column 0, clipping ink left of
+	// it; mkfont.py shifts the pen so the ink starts at x >= 0). The bearing
+	// is passed on as data only, read as the signed byte FONT_FORMAT.md
+	// section 3 specifies (HiResBitmapFont hands it back unsigned).
 	GlyphMetrics font;
 	if (_font->glyphMetrics(_font->glyphIndex(cp), font)) {
-		// HiResBitmapFont reads the bearing byte unsigned; the format
-		// (FONT_FORMAT.md section 3) stores it signed.
-		const int bearing = (int8)(byte)font.bearingX;
-		m.originX = (int16)(bearing < 0 ? MIN<int>(-bearing, _cellWidth) : 0);
+		m.bearingX = (int8)(byte)font.bearingX;
+		m.bearingY = font.bearingY;
+		m.width = font.width;
+		m.height = font.height;
 	}
 	return true;
 }
