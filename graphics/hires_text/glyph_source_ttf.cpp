@@ -282,7 +282,8 @@ struct LambdaFitProbe : public TtfGlyphSource::FitProbe {
 } // namespace
 
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
-										int pixelSize, Common::String &error, bool requireHangul) {
+										int pixelSize, Common::String &error, bool requireHangul,
+										bool lineFit) {
 	if (!stream) {
 		error = "no font stream";
 		return nullptr;
@@ -302,7 +303,8 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 	// without a double free.
 	auto openAt = [&](int size) -> Graphics::Font * {
 		stream->seek(0);
-		return Graphics::loadTTFFont(stream, DisposeAfterUse::NO, size, Graphics::kTTFSizeModeCharacter,
+		return Graphics::loadTTFFont(stream, DisposeAfterUse::NO, size,
+									  lineFit ? Graphics::kTTFSizeModeCell : Graphics::kTTFSizeModeCharacter,
 									  0, 0, Graphics::kTTFRenderModeLight);
 	};
 
@@ -371,7 +373,10 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 	int top, bottom;
 	uint32 topCp = 0, bottomCp = 0;
 	bool hangulInk = false;
-	inkBox(font, kProbeCodepoints, ARRAYSIZE(kProbeCodepoints), top, bottom, topCp, bottomCp, &hangulInk);
+	// A line-fitted face is placed by its own metrics, so it needs the
+	// probes only to prove it draws Hangul.
+	const int probeCount = !lineFit ? ARRAYSIZE(kProbeCodepoints) : (requireHangul ? kHangulProbeCount : 0);
+	inkBox(font, kProbeCodepoints, probeCount, top, bottom, topCp, bottomCp, &hangulInk);
 
 	if (requireHangul && !hangulInk) {
 		error = "face has no Hangul glyphs";
@@ -381,7 +386,7 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 		return nullptr;
 	}
 
-	if (bottom - top > cellH) {
+	if (!lineFit && bottom - top > cellH) {
 		// Re-check with only the one or two code points that set the
 		// current top/bottom: at a smaller size the same glyphs are still
 		// the tallest in the overwhelming common case (font metrics scale
@@ -427,7 +432,7 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 	src->_dispose = dispose;
 	src->_cellWidth = cellW;
 	src->_cellHeight = cellH;
-	src->_yOffset = -top + MAX(0, (cellH - (bottom - top)) / 2);
+	src->_yOffset = lineFit ? 0 : -top + MAX(0, (cellH - (bottom - top)) / 2);
 	src->_rasterCount = rasterCount;
 	src->_totalRenderMs = totalRenderMs;
 	return src;
@@ -523,7 +528,8 @@ uint32 TtfGlyphSource::glyphCount() const {
 #else // !USE_FREETYPE2
 
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
-										int /*pixelSize*/, Common::String &error, bool /*requireHangul*/) {
+										int /*pixelSize*/, Common::String &error, bool /*requireHangul*/,
+										bool /*lineFit*/) {
 	error = "this build has no FreeType";
 	if (dispose == DisposeAfterUse::YES)
 		delete stream;
