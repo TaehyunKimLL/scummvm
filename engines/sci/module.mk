@@ -56,6 +56,7 @@ MODULE_OBJS := \
 	graphics/fontset.o \
 	graphics/fontunicode.o \
 	graphics/fontsjis.o \
+	graphics/glyphsource_scvmuni.o \
 	graphics/macfont.o \
 	graphics/maciconbar.o \
 	graphics/menu.o \

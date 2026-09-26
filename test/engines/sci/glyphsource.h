@@ -1,0 +1,214 @@
+/* ScummVM - Graphic Adventure Engine
+ *
+ * ScummVM is the legal property of its developers, whose names
+ * are too numerous to list here. Please refer to the COPYRIGHT
+ * file distributed with this source distribution.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+#include <cxxtest/TestSuite.h>
+
+#include "common/array.h"
+#include "common/endian.h"
+#include "common/str.h"
+#include "sci/graphics/glyphsource_scvmuni.h"
+
+using Sci::ScvmuniGlyphSource;
+
+namespace {
+
+void putU16(Common::Array<byte> &d, uint16 v) {
+	d.push_back(v & 0xFF);
+	d.push_back((v >> 8) & 0xFF);
+}
+
+void putU32(Common::Array<byte> &d, uint32 v) {
+	d.push_back(v & 0xFF);
+	d.push_back((v >> 8) & 0xFF);
+	d.push_back((v >> 16) & 0xFF);
+	d.push_back((v >> 24) & 0xFF);
+}
+
+/**
+ * Builds a minimal SCVMUNI buffer: cell 2x2, glyphs {U+0041 narrow (1 cell),
+ * U+AC00 wide (2 cells), U+AC01 wide (2 cells)}, in that (sorted) code point
+ * order. bpp is 1 or 8; rowBytes = (cellWidth*2*bpp + 7) / 8 as the format
+ * requires - 1 for 1bpp, 4 for 8bpp.
+ *
+ * Bitmaps are all zero except one marked pixel per glyph, at (x=1, y=0) for
+ * the narrow glyph and (x=2, y=1) for the wide ones, so a row read-back can
+ * be checked against a known value.
+ */
+Common::Array<byte> makeBundle(int bpp) {
+	const byte cellWidth = 2, cellHeight = 2;
+	const byte advanceNarrow = 1, advanceWide = 2;
+	const uint32 glyphCount = 3;
+	const uint32 rowBytes = ((uint32)cellWidth * 2 * bpp + 7) / 8;
+	const uint32 bytesPerGlyph = rowBytes * cellHeight;
+
+	const uint32 cpOff = 32;	// right after the 32-byte fixed header
+	const uint32 wOff = cpOff + glyphCount * 4;
+	const uint32 bmOff = wOff + glyphCount;
+
+	Common::Array<byte> d;
+	d.push_back('S'); d.push_back('C'); d.push_back('V'); d.push_back('M');
+	d.push_back('U'); d.push_back('N'); d.push_back('I'); d.push_back(0);
+	putU16(d, 1);								// version
+	putU16(d, bpp == 8 ? 2 : 0);				// flags: bit1 = 8bpp
+	d.push_back(cellWidth);
+	d.push_back(cellHeight);
+	d.push_back(advanceNarrow);
+	d.push_back(advanceWide);
+	putU32(d, glyphCount);
+	putU32(d, cpOff);
+	putU32(d, wOff);
+	putU32(d, bmOff);
+	TS_ASSERT_EQUALS((uint32)d.size(), cpOff);
+
+	putU32(d, 0x0041);
+	putU32(d, 0xAC00);
+	putU32(d, 0xAC01);
+	TS_ASSERT_EQUALS((uint32)d.size(), wOff);
+
+	d.push_back(1);	// U+0041 narrow
+	d.push_back(2);	// U+AC00 wide
+	d.push_back(2);	// U+AC01 wide
+	TS_ASSERT_EQUALS((uint32)d.size(), bmOff);
+
+	for (uint32 g = 0; g < glyphCount; g++) {
+		Common::Array<byte> glyph(bytesPerGlyph, 0);
+		if (bpp == 1) {
+			if (g == 0)
+				glyph[0] = 0x40;			// row 0, bit for x=1 set (MSB first)
+			else
+				glyph[rowBytes] = 0x20;	// row 1, bit for x=2 set
+		} else { // 8bpp coverage
+			if (g == 0)
+				glyph[1] = 200;				// row 0, x=1
+			else
+				glyph[rowBytes + 2] = 180;	// row 1, x=2
+		}
+		for (uint32 i = 0; i < bytesPerGlyph; i++)
+			d.push_back(glyph[i]);
+	}
+
+	return d;
+}
+
+} // namespace
+
+class SciGlyphSourceScvmuniTestSuite : public CxxTest::TestSuite {
+public:
+	void test_parse_valid_1bpp() {
+		Common::String error;
+		Common::Array<byte> data = makeBundle(1);
+		ScvmuniGlyphSource *src = ScvmuniGlyphSource::create(Common::move(data), "test.uni", error);
+		TS_ASSERT(src != nullptr);
+		TS_ASSERT(error.empty());
+		if (!src)
+			return;
+
+		TS_ASSERT_EQUALS(src->cells(0x0041), 1);
+		TS_ASSERT_EQUALS(src->cells(0xAC00), 2);
+		TS_ASSERT_EQUALS(src->cells(0x0042), 0);	// not in the table: a clean miss
+
+		TS_ASSERT_EQUALS(src->cellWidth(), 2);
+		TS_ASSERT_EQUALS(src->cellHeight(), 2);
+		TS_ASSERT_EQUALS(src->advanceNarrow(), 1);
+		TS_ASSERT_EQUALS(src->advanceWide(), 2);
+		TS_ASSERT_EQUALS(src->bitsPerPixel(), 1);
+		TS_ASSERT_EQUALS(src->glyphCount(), (uint32)3);
+
+		delete src;
+	}
+
+	void test_row_bytes_1bpp() {
+		Common::String error;
+		ScvmuniGlyphSource *src = ScvmuniGlyphSource::create(makeBundle(1), "test.uni", error);
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+
+		// Known pixel: U+0041 row 0 has bit x=1 set (0x40 = 0100 0000).
+		const byte *row0 = src->row(0x0041, 0);
+		TS_ASSERT_EQUALS(row0[0], 0x40);
+
+		// U+AC00 row 1 has bit x=2 set (0x20 = 0010 0000).
+		const byte *row1 = src->row(0xAC00, 1);
+		TS_ASSERT_EQUALS(row1[0], 0x20);
+
+		delete src;
+	}
+
+	void test_parse_8bpp_row_is_coverage() {
+		Common::String error;
+		ScvmuniGlyphSource *src = ScvmuniGlyphSource::create(makeBundle(8), "test8.uni", error);
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+
+		TS_ASSERT_EQUALS(src->bitsPerPixel(), 8);
+		const byte *row0 = src->row(0x0041, 0);
+		TS_ASSERT_EQUALS(row0[1], 200);
+		const byte *row1 = src->row(0xAC00, 1);
+		TS_ASSERT_EQUALS(row1[2], 180);
+
+		delete src;
+	}
+
+	void test_rejects_bad_magic() {
+		Common::Array<byte> data = makeBundle(1);
+		data[0] = 'X';
+		Common::String error;
+		ScvmuniGlyphSource *src = ScvmuniGlyphSource::create(Common::move(data), "bad.uni", error);
+		TS_ASSERT(src == nullptr);
+		TS_ASSERT(!error.empty());
+	}
+
+	void test_rejects_both_bpp_flags() {
+		Common::Array<byte> data = makeBundle(1);
+		data[10] = 3;	// both bit0 (2bpp) and bit1 (8bpp) set
+		data[11] = 0;
+		Common::String error;
+		ScvmuniGlyphSource *src = ScvmuniGlyphSource::create(Common::move(data), "bad.uni", error);
+		TS_ASSERT(src == nullptr);
+		TS_ASSERT(!error.empty());
+	}
+
+	void test_rejects_unsorted() {
+		Common::Array<byte> data = makeBundle(1);
+		// Code point table starts at offset 32: swap the first two entries so
+		// it is no longer ascending.
+		for (int i = 0; i < 4; i++) {
+			const byte t = data[32 + i];
+			data[32 + i] = data[36 + i];
+			data[36 + i] = t;
+		}
+		Common::String error;
+		ScvmuniGlyphSource *src = ScvmuniGlyphSource::create(Common::move(data), "bad.uni", error);
+		TS_ASSERT(src == nullptr);
+		TS_ASSERT(!error.empty());
+	}
+
+	void test_rejects_truncated_table() {
+		Common::Array<byte> data = makeBundle(1);
+		data.resize(data.size() - 4);	// bitmap table no longer fits
+		Common::String error;
+		ScvmuniGlyphSource *src = ScvmuniGlyphSource::create(Common::move(data), "bad.uni", error);
+		TS_ASSERT(src == nullptr);
+		TS_ASSERT(!error.empty());
+	}
+};
