@@ -79,6 +79,30 @@ public:
 		TS_ASSERT_EQUALS(latinFullwidth(0x0020, kLatinFullwidth, true), (uint32)0x3000);
 	}
 
+	// The glyph character is remapped for the characters the text protocol
+	// is classified by, which is exactly why GfxText16 classifies the RAW
+	// character (readChar()) and maps only where it measures or draws
+	// (glyphChar()): '@' would otherwise hit the 0xFF20 line-break case,
+	// '|' would never reach the SCI1.1 code case, '\\' would not start the
+	// PQ2 newline escape, and ' ' would not be a word break with
+	// hires_text_latin_space=fullwidth. The raw value itself is never
+	// altered - latinFullwidth() returns a new value.
+	void test_protocol_characters_remap_only_as_glyphs() {
+		const uint32 raw[] = { '|', '@', '\\', ' ' };
+		const uint32 glyph[] = { 0xFF5C, 0xFF20, 0xFF3C, 0x3000 };
+		for (uint i = 0; i < ARRAYSIZE(raw); i++) {
+			uint32 classified = raw[i];
+			const uint32 g = latinFullwidth(classified, kLatinFullwidth, true);
+			TS_ASSERT_EQUALS(g, glyph[i]);
+			TS_ASSERT_EQUALS(classified, raw[i]);
+			// Off mode: glyph == raw, so the split is invisible.
+			TS_ASSERT_EQUALS(latinFullwidth(raw[i], kLatinOff, true), raw[i]);
+		}
+		// The collision the split avoids: a remapped '@' IS the fullwidth-@
+		// line break GetLongest/Width/Draw switch on.
+		TS_ASSERT_EQUALS(latinFullwidth('@', kLatinFullwidth, false), (uint32)0xFF20);
+	}
+
 	// A code point outside ASCII entirely (a Hangul syllable) is never
 	// touched by any mode.
 	void test_non_ascii_is_untouched_in_every_mode() {

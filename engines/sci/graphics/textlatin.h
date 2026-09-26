@@ -46,8 +46,11 @@ enum LatinMode {
 namespace TextCompose {
 
 /**
- * Remaps cp for GfxText16::readChar() - the single decode point every glyph
- * goes through for both measuring and drawing - per hires_text_latin's mode.
+ * The glyph character for cp, per hires_text_latin's mode: what
+ * GfxText16::glyphChar() measures and draws. It is never what the text
+ * protocol is classified by - GfxText16::readChar() returns the raw
+ * character, so '|' codes, '@' (not 0xFF20) and the ' ' word break keep
+ * working in fullwidth mode.
  *
  * kLatinOff never changes cp. kLatinHalf also never changes cp: plain ASCII
  * keeps its ordinary code point, and is instead routed to a different face

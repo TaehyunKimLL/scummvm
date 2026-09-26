@@ -57,16 +57,17 @@ public:
 
 	/**
 	 * hires_text_latin, resolved once (see resolveHiresTextLatin()) and
-	 * cached here so GfxText16::readChar() - called once per character -
-	 * never does a ConfMan lookup itself. Forces hires_text_font/latin
-	 * resolution via loadUnicodeFont() if that has not happened yet, so the
-	 * value is always up to date by the time anything asks for it.
+	 * cached here so GfxText16 - which asks once per character - never does
+	 * a ConfMan lookup or a font load itself. A plain getter: the value is
+	 * resolved by loadUnicodeFont(), which every getFont() miss reaches
+	 * (createFontSet() or createUnicodeFont()), and GfxText16 only asks
+	 * after GetFont() has returned a font. Before that it reads kLatinOff.
 	 */
-	LatinMode getLatinMode() { loadUnicodeFont(); return _latinMode; }
+	LatinMode getLatinMode() const { return _latinMode; }
 
 	/** hires_text_latin_space, resolved along with getLatinMode(); only
 	 *  meaningful when getLatinMode() == kLatinFullwidth. */
-	bool getLatinSpaceFullwidth() { loadUnicodeFont(); return _latinSpaceFullwidth; }
+	bool getLatinSpaceFullwidth() const { return _latinSpaceFullwidth; }
 
 	int16 kernelViewGetCelWidth(GuiResourceId viewId, int16 loopNo, int16 celNo);
 	int16 kernelViewGetCelHeight(GuiResourceId viewId, int16 loopNo, int16 celNo);

@@ -334,7 +334,7 @@ GfxFontUnicode *GfxCache::loadUnicodeFont() {
 		// resolveHiresTextLatin(). When it applies, hires_text_latin_font
 		// names a second face for the Latin range, wrapped together with
 		// mainSrc in a RoutedGlyphSource; absent, mainSrc alone draws that
-		// range too (readChar()/faceFor() send it code points mainSrc can
+		// range too (glyphChar()/faceFor() send it code points mainSrc can
 		// already answer for, so no second source is needed).
 		resolveHiresTextLatin(hiresTtfOk);
 		if (hiresTtfOk && _latinMode != kLatinOff && !_latinFontPath.empty()) {

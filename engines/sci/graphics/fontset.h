@@ -81,7 +81,7 @@ public:
 	 *                   range past the resource face and into the faces below
 	 *                   (see faceFor()). kLatinFullwidth needs no such
 	 *                   routing - its ASCII arrives already remapped past
-	 *                   U+00FF by GfxText16::readChar().
+	 *                   U+00FF by GfxText16::glyphChar().
 	 */
 	GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage, LatinMode latinMode = kLatinOff);
 	~GfxFontSet() override;
