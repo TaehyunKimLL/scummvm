@@ -71,9 +71,17 @@ public:
 	 * Korean game's .uni fonts. Only Hangul is checked: the probe set holds
 	 * no kana or hanzi, and adding some would spend the load-time raster
 	 * budget, so other CJK code pages get no such check yet.
+	 *
+	 * With lineFit, the face is sized so its line (ascent + descent) fills
+	 * pixelSize - FreeType's kTTFSizeModeCell, the rule HiResFontBaker's
+	 * callers bake with - and glyphs are drawn from the line top with no
+	 * probe fit; only the Hangul probes run, and only for requireHangul.
+	 * A face sized this way draws smaller than the default fit, which sizes
+	 * the characters themselves to pixelSize.
 	 */
 	static TtfGlyphSource *create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
-	                               int pixelSize, Common::String &error, bool requireHangul = false);
+	                               int pixelSize, Common::String &error, bool requireHangul = false,
+	                               bool lineFit = false);
 
 	/** The pixel sizes create() accepts. */
 	static const int kMinPixelSize = 6;

@@ -432,6 +432,56 @@ public:
 		delete src;
 	}
 
+	/// Rows [top, bottom) of cp's glyph that carry any ink.
+	static void inkRows(TtfGlyphSource *src, uint32 cp, int &top, int &bottom) {
+		top = src->cellHeight();
+		bottom = 0;
+		for (int y = 0; y < src->cellHeight(); y++) {
+			const byte *row = src->row(cp, y);
+			for (int x = 0; x < src->cellWidth() * 2; x++) {
+				if (row && row[x]) {
+					top = MIN(top, y);
+					bottom = MAX(bottom, y + 1);
+					break;
+				}
+			}
+		}
+	}
+
+	void test_line_fit_sizes_the_line_to_the_cell() {
+		Common::SeekableReadStream *a = openTestFont();
+		if (!a)
+			return;
+		Common::SeekableReadStream *b = openTestFont();
+
+		Common::String error;
+		TtfGlyphSource *chr = TtfGlyphSource::create(a, DisposeAfterUse::YES, 16, error, true);
+		TtfGlyphSource *line = TtfGlyphSource::create(b, DisposeAfterUse::YES, 16, error, true, true);
+		TS_ASSERT(chr != nullptr);
+		TS_ASSERT(line != nullptr);
+		if (!chr || !line) {
+			delete chr;
+			delete line;
+			return;
+		}
+
+		// Only the Hangul probes, and no fit retry.
+		TS_ASSERT(line->rasterCount() <= 7);
+		TS_ASSERT_EQUALS((int)line->cellHeight(), 16);
+
+		// The line, not the character, fills the cell: the syllable is
+		// smaller and sits inside the cell from its top.
+		int ct, cb, lt, lb;
+		inkRows(chr, 0xAC00, ct, cb);
+		inkRows(line, 0xAC00, lt, lb);
+		TS_ASSERT(lb > lt);
+		TS_ASSERT(lb - lt < cb - ct);
+		TS_ASSERT(lb <= 16);
+
+		delete chr;
+		delete line;
+	}
+
 	void test_second_request_is_cached() {
 		Common::SeekableReadStream *stream = openTestFont();
 		if (!stream)
