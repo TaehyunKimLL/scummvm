@@ -236,7 +236,9 @@ a rasteriser would produce and need no FreeType at run time.
 
 - `multi` — a pattern, one font per charset, e.g. `korean%02d.fnt`
 - `single` — one font for every charset
-- `glyphs` — how many glyphs the file holds, for double-byte sets
+- `glyphs` — the shared parser reads this into `bitmapGlyphs`, but SCUMM
+  does not apply it: `engines/scumm/hires_text.cpp` never reads that field.
+  A `.fnt` file already carries its own glyph count in its header.
 
 ### `[latin]`
 
@@ -363,8 +365,9 @@ always looked like it named.
 
 SCUMM and the SCI engine read `hires_text.map` with the same parser. Some
 sections belong to SCI alone — `[font.N]`, `[font.N:<platform>]`,
-`[hires] font=`/`size=`, `[latin] mode=`/`space=` — and parse without error
-in a SCUMM map, but SCUMM ignores every one of them. A badly-formed value in
+`[hires] font=`/`face=`/`size=` (`face=` is an alias for `font=`),
+`[latin] mode=`/`space=` — and parse without error in a SCUMM map, but SCUMM
+ignores every one of them. A badly-formed value in
 one of them still produces a warning: the parser has no way to know which
 engine will read the map before it reads it. See `HIRES_TEXT_MAP.md` in the
 docs repo for the full section-by-section list of what each engine applies.
