@@ -59,6 +59,9 @@ public:
 	int bitsPerPixel() const override { return _bitsPerPixel; }
 	int cells(uint32 cp) override;
 	const byte *row(uint32 cp, int y) override;
+	/** advanceNarrow() or advanceWide() by the glyph's cell count (0 for a
+	 *  combining mark), originX 0: SCVMUNI stores no per-glyph metrics. */
+	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	uint32 glyphCount() const override { return _glyphCount; }
 
 private:

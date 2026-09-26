@@ -90,6 +90,11 @@ public:
 	/** FreeType's advance for cp at the size in use (rounded up to whole
 	 *  pixels, as TTFFont reports it), or 0 when the face lacks cp. */
 	int advance(uint32 cp) override;
+	/** The default metrics plus originX: a glyph whose ink starts left of
+	 *  its origin (a Thai mark's negative bearing) is drawn with its origin
+	 *  at column originX = min(-left, cellWidth()) of its row instead of
+	 *  being clipped; every other glyph keeps originX 0 and its old rows. */
+	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	uint32 glyphCount() const override;
 
 	/** FreeType renders done so far (probes at create() time, plus one per
@@ -144,6 +149,7 @@ private:
 	struct Entry {
 		byte cells = 0;
 		int16 advance = 0;	///< FreeType's advance, in pixels; 0 for a miss
+		int16 originX = 0;	///< column the glyph's origin was drawn at
 		Common::Array<byte> cov;
 	};
 

@@ -26,6 +26,7 @@
 #include "common/hashmap.h"
 #include "common/str-enc.h"
 #include "common/types.h"
+#include "graphics/hires_text/glyph_source.h"
 
 namespace Common {
 class SeekableReadStream;
@@ -33,22 +34,9 @@ class SeekableReadStream;
 
 namespace Graphics {
 
-/**
- * Metrics of a single glyph, in the pixels the font was drawn at.
- *
- * A font whose glyphs all share one advance still fills these in; a caller
- * therefore never has to ask whether a font is proportional before laying text
- * out, only whether it wants the font's opinion at all.
- */
-struct GlyphMetrics {
-	GlyphMetrics() : advance(0), bearingX(0), bearingY(0), width(0), height(0) {}
-
-	int16 advance;   ///< how far the pen moves for this glyph
-	int16 bearingX;  ///< pen position to the left edge of the ink
-	int16 bearingY;  ///< baseline to the top edge of the cell
-	uint16 width;    ///< width of the ink, 0 for a blank glyph
-	uint16 height;   ///< height of the cell the glyph is stored in
-};
+// GlyphMetrics (advance, bearingX, bearingY, width, height, and the
+// glyph-source fields originX, combining, wide) is declared in
+// glyph_source.h, shared with UnicodeGlyphSource::metrics().
 
 /**
  * A bitmap font holding either a 1bpp stencil or 8bpp coverage per pixel.
