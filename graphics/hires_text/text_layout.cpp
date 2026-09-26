@@ -294,7 +294,11 @@ void finish(const TextRun &run, LineSpan &l, LayoutMetrics &m) {
 	l.byteStart = run.byteOffset(l.first);
 	l.byteEnd = run.byteOffset(l.end);
 	l.byteNext = run.byteOffset(l.next);
-	l.width = l.end > l.first ? m.width(run, l.first, l.end) : 0;
+	// The ink width: spaces and escapes at the end of the line hang.
+	uint32 ink = l.end;
+	while (ink > l.first && ((run.flags(ink - 1) & kUnitSpace) || isGlue(run, ink - 1)))
+		ink--;
+	l.width = ink > l.first ? m.width(run, l.first, ink) : 0;
 }
 
 void trimTrailingSpaces(const TextRun &run, LineSpan &l) {
@@ -318,7 +322,7 @@ bool canBreakBefore(const TextRun &run, uint32 i, const BreakRules &rules) {
 	while (j < n && isGlue(run, j))
 		j++;
 	if (j >= n)
-		return (fa & kUnitSpace) != 0;   // trailing escapes after a space
+		return false;   // trailing escapes stay on the line
 	const byte fb = run.flags(j);
 	if (fb & kUnitCombining)
 		return false;
@@ -328,9 +332,9 @@ bool canBreakBefore(const TextRun &run, uint32 i, const BreakRules &rules) {
 	const uint32 a = run.cp(i - 1);
 	const uint32 b = run.cp(j);
 
-	// 2. After a space run; an escape right after a space begins the next
-	// word even when a space follows the escape.
-	if ((fa & kUnitSpace) && (!(fb & kUnitSpace) || j > i))
+	// 2. After a space run. In "space, escapes, space, text" the only
+	// opportunity is before the text: the escapes end the line before.
+	if ((fa & kUnitSpace) && !(fb & kUnitSpace))
 		return true;
 
 	// 3. Kinsoku.
@@ -375,7 +379,7 @@ LineSpan fitLine(const TextRun &run, uint32 from, int maxWidth, LayoutMetrics &m
 	uint32 lastBreak = from;   // from itself means "none"
 	uint32 i = from;
 	int w = 0;      // width of [from, i + 1), kept through LayoutMetrics::extend()
-	int inkW = 0;   // width of [from, k + 1), k the last unit before i that is not a space
+	int inkW = 0;   // width of [from, k + 1), k the last unit before i that is neither a space nor an escape
 	for (; i < n; i++) {
 		if (run.flags(i) & kUnitNewline) {
 			l.end = i;
@@ -385,19 +389,19 @@ LineSpan fitLine(const TextRun &run, uint32 from, int maxWidth, LayoutMetrics &m
 			finish(run, l, m);
 			return l;
 		}
-		// A break before i keeps [from, i) minus its trailing spaces, whose
-		// width is inkW: hanging spaces that an escape or a mark pinned
-		// inside the line count.
+		// A break before i keeps [from, i) minus its trailing spaces; its
+		// ink width is inkW (spaces and escapes at its end hang).
 		if (i > from && inkW <= maxWidth && canBreakBefore(run, i, rules))
 			lastBreak = i;
 		w = m.extend(run, from, i, w);
-		// Spaces hang past the edge: they are dropped at a line end anyway.
-		if (run.flags(i) & kUnitSpace)
+		// Spaces hang past the edge, and so do escapes after them: an
+		// escape followed by spaces ends its line.
+		if ((run.flags(i) & kUnitSpace) || isGlue(run, i))
 			continue;
 		inkW = w;
-		// Zero-width units (escapes, marks) cannot be the unit that
+		// A combining mark is zero wide: it cannot be the unit that
 		// overflows, even after a hanging space.
-		if (run.flags(i) & (kUnitControl | kUnitCombining))
+		if (run.flags(i) & kUnitCombining)
 			continue;
 		if (w > maxWidth)
 			break;
@@ -410,7 +414,7 @@ LineSpan fitLine(const TextRun &run, uint32 from, int maxWidth, LayoutMetrics &m
 		return l;
 	}
 
-	// Unit i does not fit (or, at the end, an escape pinned hanging spaces
+	// Unit i does not fit (or, at the end, a mark pinned hanging spaces
 	// past the edge).
 	uint32 end = lastBreak;
 	if (end == from) {

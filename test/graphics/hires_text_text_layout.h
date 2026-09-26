@@ -80,6 +80,25 @@ Common::String lineText(const char *s, const Graphics::LineSpan &l) {
 	return Common::String(s + l.byteStart, l.byteEnd - l.byteStart);
 }
 
+// End of the ink of a line: [first, end) minus the spaces and escapes at
+// its end, which hang.
+uint32 inkEnd(const Graphics::TextRun &run, const Graphics::LineSpan &l) {
+	uint32 e = l.end;
+	while (e > l.first && ((run.flags(e - 1) & Graphics::kUnitSpace)
+			|| ((run.flags(e - 1) & Graphics::kUnitControl) && !(run.flags(e - 1) & Graphics::kUnitNewline))))
+		e--;
+	return e;
+}
+
+bool controlOnly(const Graphics::TextRun &run, const Graphics::LineSpan &l) {
+	if (l.end == l.first)
+		return false;
+	for (uint32 u = l.first; u < l.end; u++)
+		if (!(run.flags(u) & Graphics::kUnitControl))
+			return false;
+	return true;
+}
+
 } // End of anonymous namespace
 
 class HiResTextLayoutTestSuite : public CxxTest::TestSuite {
@@ -461,7 +480,15 @@ public:
 						TS_ASSERT_EQUALS(l.byteStart, run.byteOffset(l.first));
 						TS_ASSERT_EQUALS(l.byteEnd, run.byteOffset(l.end));
 						TS_ASSERT_EQUALS(l.byteNext, run.byteOffset(l.next));
-						TS_ASSERT_EQUALS(l.width, m.width(run, l.first, l.end));
+						TS_ASSERT_EQUALS(l.width, m.width(run, l.first, inkEnd(run, l)));
+						// No line of escapes alone (every input has text
+						// after its escapes), and after a break that was not
+						// a newline, no line starts with a space.
+						TSM_ASSERT(Common::String::format("control-only: input %u w %d line %u", n, w, k).c_str(),
+						           !controlOnly(run, l));
+						if (k > 0 && !lines[k - 1].forced)
+							TSM_ASSERT(Common::String::format("leading space: input %u w %d line %u", n, w, k).c_str(),
+							           !(run.flags(l.first) & Graphics::kUnitSpace));
 						if (!l.emergency)
 							TSM_ASSERT(Common::String::format("input %u w %d line %u", n, w, k).c_str(), l.width <= w);
 						joined += Common::String(s + l.byteStart, l.byteEnd - l.byteStart);
@@ -523,13 +550,70 @@ public:
 			TS_ASSERT(!lines[k].emergency);
 			TS_ASSERT(lines[k].width <= 1);
 		}
-		// "a" / the escape (it begins the next word, but " b" is 2 wide) / "b".
+		// "a <esc>" / "b": the escape stays at the end of line 1, the
+		// spaces around it hang.
+		TS_ASSERT_EQUALS(lines.size(), 2u);
+		if (lines.size() == 2) {
+			TS_ASSERT_EQUALS(lines[0].byteEnd, 6u);
+			TS_ASSERT_EQUALS(lines[0].width, 1);
+			TS_ASSERT_EQUALS(lines[1].byteStart, 7u);
+		}
+	}
+
+	void test_escape_between_spaces_stays_on_the_line_before() {
+		EscapeDecoder dec;
+		UnitMetrics m;
+		Graphics::BreakRules rules;
+		Graphics::TextRun run;
+		Common::Array<Graphics::LineSpan> lines;
+
+		// "hello <E> world" at width 5: "hello <E>" / "world".
+		const char s1[] = "hello \xFF\x0A\x01\x02 world";
+		run.decode((const byte *)s1, len(s1), dec);
+		Graphics::TextLayout::breakLines(run, 5, m, rules, lines);
+		TS_ASSERT_EQUALS(lines.size(), 2u);
+		if (lines.size() == 2) {
+			TS_ASSERT_EQUALS(lineText(s1, lines[0]), "hello \xFF\x0A\x01\x02");
+			TS_ASSERT_EQUALS(lines[0].width, 5);
+			TS_ASSERT(!lines[0].emergency);
+			TS_ASSERT_EQUALS(lineText(s1, lines[1]), "world");
+		}
+
+		// "aaaa <E> bb cc" at width 4: "aaaa <E>" / "bb" / "cc", no line
+		// starting with a space.
+		const char s2[] = "aaaa \xFF\x0A\x01\x02 bb cc";
+		run.decode((const byte *)s2, len(s2), dec);
+		Graphics::TextLayout::breakLines(run, 4, m, rules, lines);
 		TS_ASSERT_EQUALS(lines.size(), 3u);
 		if (lines.size() == 3) {
-			TS_ASSERT_EQUALS(lines[0].byteEnd, 1u);
-			TS_ASSERT_EQUALS(lines[1].byteStart, 2u);
-			TS_ASSERT_EQUALS(lines[2].byteStart, 7u);
+			TS_ASSERT_EQUALS(lineText(s2, lines[0]), "aaaa \xFF\x0A\x01\x02");
+			TS_ASSERT_EQUALS(lineText(s2, lines[1]), "bb");
+			TS_ASSERT_EQUALS(lineText(s2, lines[2]), "cc");
 		}
+		// At width 5, "bb cc" fits on line 2.
+		Graphics::TextLayout::breakLines(run, 5, m, rules, lines);
+		TS_ASSERT_EQUALS(lines.size(), 2u);
+		if (lines.size() == 2)
+			TS_ASSERT_EQUALS(lineText(s2, lines[1]), "bb cc");
+
+		// A trailing "hello <E>" at width 5 is one line of ink width 5.
+		const char s3[] = "hello \xFF\x0A\x01\x02";
+		run.decode((const byte *)s3, len(s3), dec);
+		Graphics::TextLayout::breakLines(run, 5, m, rules, lines);
+		TS_ASSERT_EQUALS(lines.size(), 1u);
+		if (lines.size() == 1) {
+			TS_ASSERT_EQUALS(lines[0].byteEnd, 10u);
+			TS_ASSERT_EQUALS(lines[0].width, 5);
+		}
+		TS_ASSERT(!Graphics::TextLayout::canBreakBefore(run, 6, rules));
+
+		// An escape glued to a word still moves with it: "hello <E>world".
+		const char s4[] = "hello \xFF\x0A\x01\x02world";
+		run.decode((const byte *)s4, len(s4), dec);
+		Graphics::TextLayout::breakLines(run, 5, m, rules, lines);
+		TS_ASSERT_EQUALS(lines.size(), 2u);
+		if (lines.size() == 2)
+			TS_ASSERT_EQUALS(lines[1].byteStart, 6u);
 	}
 
 	void test_break_lines_speed() {
