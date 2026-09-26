@@ -84,6 +84,9 @@ struct GameSetup {
 	String user_data_dir; // directory to write savedgames and user files to
 	String shared_data_dir; // directory to write shared game files to
 	String translation;
+	// ScummVM: the text format of a .tra that names no encoding, from the
+	// game domain's text_encoding key (auto|euc-kr|cp949|utf8|ascii; empty = auto)
+	String text_encoding;
 	bool  mouse_auto_lock;
 	float mouse_speed;
 	MouseControlWhen mouse_ctrl_when;
