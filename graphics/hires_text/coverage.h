@@ -57,7 +57,10 @@ public:
 	 * Up to n code points spread across the set (every size/n-th, plus the
 	 * first of each 128-block present), non-ASCII first. Deterministic.
 	 *
-	 * The first code point of every block is taken first, then every
+	 * One ASCII code point (when present) is taken first, then the first
+	 * code point of every non-ASCII block - or, when there are more blocks
+	 * than places left, of evenly spaced blocks including the first and the
+	 * last - then every
 	 * (non-ASCII size / n)-th non-ASCII code point, then the same over
 	 * ASCII, then the rest in order, until n are taken; @p out is then the
 	 * non-ASCII picks ascending followed by the ASCII ones ascending. A set
