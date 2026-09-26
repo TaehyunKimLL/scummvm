@@ -82,6 +82,8 @@ HError ReadTraBlock(Translation &tra, Stream *in, TraFileBlock block, const Stri
 			String dst_line = read_string_decrypt(in, buf);
 			if (src_line.IsEmpty() || dst_line.IsEmpty())
 				break;
+			if (tra.DictOrder)
+				tra.DictOrder->push_back(std::make_pair(src_line, dst_line));
 			tra.Dict.insert(std::make_pair(src_line, dst_line));
 		}
 		return HError::None();

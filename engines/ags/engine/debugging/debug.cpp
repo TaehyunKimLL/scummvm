@@ -30,6 +30,8 @@
 #include "ags/engine/debugging/ags_editor_debugger.h"
 #include "ags/engine/debugging/debug_log.h"
 #include "ags/engine/debugging/debugger.h"
+#include "ags/console.h"
+#include "ags/ags.h"
 #include "ags/shared/debugging/debug_manager.h"
 #include "ags/shared/debugging/out.h"
 #include "ags/engine/debugging/log_file.h"
@@ -515,6 +517,9 @@ void scriptDebugHook(ccInstance *ccinst, int linenum) {
 int scrlockWasDown = 0;
 
 void check_debug_keys() {
+	// A text the console's ags_say queued (see AGSConsole::runPendingSay()).
+	if (::AGS::AGSConsole *con = static_cast<::AGS::AGSConsole *>(::AGS::g_vm->getDebugger()))
+		con->runPendingSay();
 #ifdef TODO
 	if (_GP(play).debug_mode) {
 		// do the run-time script debugging
