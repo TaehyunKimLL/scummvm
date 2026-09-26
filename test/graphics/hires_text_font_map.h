@@ -537,4 +537,841 @@ public:
 		Graphics::HiResTextConfig cfg;
 		TS_ASSERT(!parse("[glyphs]\nu+5e = keep\n", cfg));
 	}
+
+	// --- SCI additions: [latin] mode/space, [fonts] names, [font.N] -------
+	//
+	// Everything below is optional and additive: a map that names none of it
+	// parses exactly as it did before (test_existing_scumm_maps_unchanged).
+
+	void test_latin_mode_and_space_parse() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(!cfg.latinModeSet);
+		TS_ASSERT(!cfg.latinSpaceSet);
+		TS_ASSERT(!cfg.latinMetricsSet);
+
+		TS_ASSERT(parse("[latin]\nmode=fullwidth\nspace=fullwidth\nmetrics=font\n", cfg));
+		TS_ASSERT(cfg.latinModeSet);
+		TS_ASSERT_EQUALS(cfg.latinMode, Graphics::kHiResLatinFullwidth);
+		TS_ASSERT(cfg.latinSpaceSet);
+		TS_ASSERT(cfg.latinFullwidthSpace);
+		TS_ASSERT(cfg.latinMetricsSet);
+		TS_ASSERT_EQUALS(cfg.latinMetrics, Graphics::kHiResMetricsFont);
+
+		const struct {
+			const char *name;
+			Graphics::HiResLatinMode mode;
+		} modes[] = {
+			{ "off", Graphics::kHiResLatinOff },
+			{ "half", Graphics::kHiResLatinHalf },
+			{ "fullwidth", Graphics::kHiResLatinFullwidth },
+			{ "proportional", Graphics::kHiResLatinProportional }
+		};
+		for (uint i = 0; i < ARRAYSIZE(modes); ++i) {
+			cfg.clear();
+			const Common::String map = Common::String::format("[latin]\nmode=%s\nspace=keep\n", modes[i].name);
+			TS_ASSERT(parse(map.c_str(), cfg));
+			TS_ASSERT(cfg.latinModeSet);
+			TS_ASSERT_EQUALS(cfg.latinMode, modes[i].mode);
+			TS_ASSERT(cfg.latinSpaceSet);
+			TS_ASSERT(!cfg.latinFullwidthSpace);
+		}
+
+		// The new keys are not the legacy switch: mode= does not turn on
+		// SCUMM's [latin] companion font.
+		TS_ASSERT(!cfg.legacy.latinEnabled);
+
+		// A qualified [latin:<platform>] wins over [latin] for its qualifier.
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nmode=half\n[latin:pc98]\nmode=fullwidth\n", cfg, "pc98"));
+		TS_ASSERT_EQUALS(cfg.latinMode, Graphics::kHiResLatinFullwidth);
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nmode=half\n[latin:pc98]\nmode=fullwidth\n", cfg, "dos"));
+		TS_ASSERT_EQUALS(cfg.latinMode, Graphics::kHiResLatinHalf);
+	}
+
+	void test_hires_face_and_size_parse() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(!cfg.hiresFaceSet);
+		TS_ASSERT(!cfg.hiresSizeSet);
+		TS_ASSERT(parse("[hires]\nfont=default\nsize=18\n", cfg));
+		TS_ASSERT(cfg.hiresFaceSet);
+		TS_ASSERT_EQUALS(cfg.hiresFace, "default");
+		TS_ASSERT(cfg.hiresSizeSet);
+		TS_ASSERT_EQUALS(cfg.hiresSize, 18);
+		// Neither touches SCUMM's geometry.
+		TS_ASSERT_EQUALS(cfg.scale, 1);
+		TS_ASSERT(!cfg.scaleFromMap);
+	}
+
+	void test_font_id_sections_parse() {
+		const char *map =
+			"[font.4]\n"
+			"face=default\n"
+			"size=16\n"
+			"latin=proportional\n"
+			"latin_font=latin\n"
+			"latin_space=keep\n"
+			"metrics=font\n"
+			"\n"
+			"[font.300]\n"
+			"size=24\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(map, cfg));
+		TS_ASSERT_EQUALS(cfg.fontIds.size(), 2u);
+
+		const Graphics::HiResFontIdSettings *f4 = cfg.fontIdSettings(4);
+		TS_ASSERT(f4 != nullptr);
+		if (f4) {
+			TS_ASSERT(f4->faceSet);
+			TS_ASSERT_EQUALS(f4->face, "default");
+			TS_ASSERT(f4->sizeSet);
+			TS_ASSERT_EQUALS(f4->size, 16);
+			TS_ASSERT(f4->latinSet);
+			TS_ASSERT_EQUALS(f4->latin, Graphics::kHiResLatinProportional);
+			TS_ASSERT(f4->latinFontSet);
+			TS_ASSERT_EQUALS(f4->latinFont, "latin");
+			TS_ASSERT(f4->latinSpaceSet);
+			TS_ASSERT(!f4->latinFullwidthSpace);
+			TS_ASSERT(f4->metricsSet);
+			TS_ASSERT_EQUALS(f4->metrics, Graphics::kHiResMetricsFont);
+		}
+
+		// A section sets only what it names.
+		const Graphics::HiResFontIdSettings *f300 = cfg.fontIdSettings(300);
+		TS_ASSERT(f300 != nullptr);
+		if (f300) {
+			TS_ASSERT(f300->sizeSet);
+			TS_ASSERT_EQUALS(f300->size, 24);
+			TS_ASSERT(!f300->faceSet);
+			TS_ASSERT(!f300->latinSet);
+			TS_ASSERT(!f300->latinFontSet);
+			TS_ASSERT(!f300->latinSpaceSet);
+			TS_ASSERT(!f300->metricsSet);
+		}
+
+		// An id the map does not mention has no entry at all.
+		TS_ASSERT(cfg.fontIdSettings(0) == nullptr);
+
+		// latin_face= is the spelling the design doc uses for latin_font=.
+		cfg.clear();
+		TS_ASSERT(parse("[font.0]\nlatin_face=latin\n", cfg));
+		TS_ASSERT(cfg.fontIdSettings(0) && cfg.fontIdSettings(0)->latinFontSet);
+		TS_ASSERT(cfg.fontIdSettings(0) && cfg.fontIdSettings(0)->latinFont == "latin");
+
+		// clear() forgets the table.
+		cfg.clear();
+		TS_ASSERT_EQUALS(cfg.fontIds.size(), 0u);
+	}
+
+	void test_font_id_qualified_section_wins_for_its_qualifier() {
+		const char *map =
+			"[font.0]\n"
+			"latin=half\n"
+			"size=14\n"
+			"[font.0:pc98]\n"
+			"latin=fullwidth\n"
+			"[font.7:pc98]\n"
+			"size=20\n";
+
+		// On its own qualifier the qualified section wins, key by key: the
+		// size it does not name still comes from the bare section.
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(map, cfg, "pc98"));
+		const Graphics::HiResFontIdSettings *f0 = cfg.fontIdSettings(0);
+		TS_ASSERT(f0 != nullptr);
+		if (f0) {
+			TS_ASSERT_EQUALS(f0->latin, Graphics::kHiResLatinFullwidth);
+			TS_ASSERT_EQUALS(f0->size, 14);
+		}
+		// A font id named only in a qualified section exists on that qualifier.
+		TS_ASSERT(cfg.fontIdSettings(7) != nullptr);
+		if (cfg.fontIdSettings(7))
+			TS_ASSERT_EQUALS(cfg.fontIdSettings(7)->size, 20);
+
+		// Any other qualifier sees the bare section only...
+		cfg.clear();
+		TS_ASSERT(parse(map, cfg, "dos"));
+		f0 = cfg.fontIdSettings(0);
+		TS_ASSERT(f0 != nullptr);
+		if (f0) {
+			TS_ASSERT_EQUALS(f0->latin, Graphics::kHiResLatinHalf);
+			TS_ASSERT_EQUALS(f0->size, 14);
+		}
+		// ...and no entry for an id only another qualifier names.
+		TS_ASSERT(cfg.fontIdSettings(7) == nullptr);
+
+		// As does a caller with no qualifier at all.
+		cfg.clear();
+		TS_ASSERT(parse(map, cfg));
+		TS_ASSERT(cfg.fontIdSettings(0) && cfg.fontIdSettings(0)->latin == Graphics::kHiResLatinHalf);
+		TS_ASSERT(cfg.fontIdSettings(7) == nullptr);
+	}
+
+	void test_latin_font_accepts_face_name() {
+		const char *map =
+			"[fonts]\n"
+			"default=NanumGothic.ttf\n"
+			"latin=/fonts/AppleGothic.ttf\n"
+			"[latin]\n"
+			"font=latin\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(map, cfg));
+
+		// The raw value is kept, and a [fonts] name resolves to its file.
+		TS_ASSERT(cfg.latinFontSet);
+		TS_ASSERT_EQUALS(cfg.latinFont, "latin");
+		TS_ASSERT_EQUALS(cfg.resolveFace(cfg.latinFont), "/fonts/AppleGothic.ttf");
+
+		// Every [fonts] name is in the table, not only SCUMM's roles, and
+		// the lookup ignores case like the rest of the map.
+		TS_ASSERT_EQUALS(cfg.fontFaces.size(), 2u);
+		TS_ASSERT_EQUALS(cfg.resolveFace("DEFAULT"), "NanumGothic.ttf");
+
+		// Something that is not a face name is taken to be a path.
+		TS_ASSERT_EQUALS(cfg.resolveFace("other/Face.ttf"), "other/Face.ttf");
+
+		// SCUMM's role lookup is unchanged by the table.
+		TS_ASSERT_EQUALS(cfg.ttfPath[Graphics::kHiResRoleDefault].toString('/'),
+						 "/games/demo/NanumGothic.ttf");
+
+		// A path still works in [latin] font=, as it always has.
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nfont=fonts/latin.ttf\n", cfg));
+		TS_ASSERT_EQUALS(cfg.resolveFace(cfg.latinFont), "fonts/latin.ttf");
+		TS_ASSERT_EQUALS(cfg.legacy.latinTtfPath.toString('/'), "/games/demo/fonts/latin.ttf");
+		TS_ASSERT(!cfg.legacy.latinEnabled);
+
+		// face= is the design doc's spelling of the same key.
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nface=latin\n", cfg));
+		TS_ASSERT(cfg.latinFontSet);
+		TS_ASSERT_EQUALS(cfg.latinFont, "latin");
+
+		// A qualified [fonts:<q>] entry wins over the bare one for its name.
+		cfg.clear();
+		TS_ASSERT(parse("[fonts]\nlatin=a.ttf\n[fonts:pc98]\nlatin=b.ttf\n", cfg, "pc98"));
+		TS_ASSERT_EQUALS(cfg.resolveFace("latin"), "b.ttf");
+	}
+
+	void test_existing_scumm_maps_unchanged() {
+		// The full example from engines/scumm/HIRES_TEXT_SETUP.md (hires-text).
+		const char *full =
+			"[hires]\n"
+			"scale=2\n"
+			"alpha=true\n"
+			"\n"
+			"[encoding]\n"
+			"codepage=cp949\n"
+			"\n"
+			"[bitmap]\n"
+			"multi=korean%02d.fnt\n"
+			"single=korean.fnt\n"
+			"glyphs=2350\n"
+			"\n"
+			"[latin]\n"
+			"enabled=true\n"
+			"bitmap=hrlat%02d.fnt\n"
+			"metrics=font\n"
+			"\n"
+			"[render]\n"
+			"metrics=font\n"
+			"\n"
+			"[shadow]\n"
+			"mode=outline\n"
+			"offset=2\n"
+			"color=0\n"
+			"\n"
+			"[glyphs]\n"
+			"0x07=keep\n"
+			"0x5e=0x2026\n"
+			"\n"
+			"[translation]\n"
+			"file=strings.txt\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(full, cfg, "monkey2", "v5"));
+		TS_ASSERT_EQUALS(cfg.scale, 2);
+		TS_ASSERT(cfg.scaleFromMap);
+		TS_ASSERT(cfg.alpha);
+		TS_ASSERT(cfg.alphaFromMap);
+		TS_ASSERT_EQUALS(cfg.encoding, Common::kWindows949);
+		TS_ASSERT(cfg.encodingFromMap);
+		TS_ASSERT_EQUALS(cfg.bitmapPattern, "korean%02d.fnt");
+		TS_ASSERT_EQUALS(cfg.bitmapSingle, "korean.fnt");
+		TS_ASSERT_EQUALS(cfg.bitmapGlyphs, 2350);
+		TS_ASSERT(cfg.legacy.latinEnabled);
+		TS_ASSERT_EQUALS(cfg.legacy.latinBitmapName, "hrlat%02d.fnt");
+		TS_ASSERT(cfg.legacy.latinTtfPath.empty());
+		TS_ASSERT_EQUALS(cfg.legacy.latinTtfMetrics, Graphics::kHiResMetricsFont);
+		TS_ASSERT_EQUALS(cfg.legacy.latinBitmapMetrics, Graphics::kHiResMetricsFont);
+		TS_ASSERT_EQUALS(cfg.metricsSource, Graphics::kHiResMetricsFont);
+		TS_ASSERT_EQUALS(cfg.shadowMode, Graphics::kHiResShadowOutline);
+		TS_ASSERT_EQUALS(cfg.shadowOffset, 2);
+		TS_ASSERT_EQUALS((int)cfg.shadowColor, 0);
+		TS_ASSERT(cfg.shadowColorSet);
+		TS_ASSERT_EQUALS(cfg.translationName, "strings.txt");
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 2u);
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(cfg.glyphOverride(0x07, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+		TS_ASSERT(cfg.glyphOverride(0x5e, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(o.codepoint, 0x2026u);
+		for (int r = 0; r < Graphics::kHiResRoleCount; ++r) {
+			TS_ASSERT(cfg.ttfPath[r].empty());
+			TS_ASSERT_EQUALS(cfg.ttfSize[r], 0);
+			TS_ASSERT_EQUALS(cfg.ttfSupersample[r], 1);
+		}
+		TS_ASSERT(!cfg.ttfStringMode);
+		TS_ASSERT_EQUALS(cfg.heightRoles.size(), 0u);
+		// Nothing SCI-only appears from a SCUMM map.
+		TS_ASSERT(!cfg.latinModeSet);
+		TS_ASSERT(!cfg.latinSpaceSet);
+		TS_ASSERT(!cfg.hiresFaceSet);
+		TS_ASSERT(!cfg.hiresSizeSet);
+		TS_ASSERT_EQUALS(cfg.fontIds.size(), 0u);
+
+		// The [fonts]/[sizes] example.
+		cfg.clear();
+		TS_ASSERT(parse("[fonts]\ndefault=/fonts/NanumGothic.ttf\nbold=/fonts/NanumGothic-Bold.ttf\n"
+						"\n[sizes]\ndefault=16\n", cfg));
+		TS_ASSERT_EQUALS(cfg.ttfPath[Graphics::kHiResRoleDefault].toString('/'), "/fonts/NanumGothic.ttf");
+		TS_ASSERT_EQUALS(cfg.ttfPath[Graphics::kHiResRoleBold].toString('/'), "/fonts/NanumGothic-Bold.ttf");
+		TS_ASSERT(cfg.ttfPath[Graphics::kHiResRoleTitle].empty());
+		TS_ASSERT_EQUALS(cfg.ttfSize[Graphics::kHiResRoleDefault], 16);
+		TS_ASSERT(!cfg.ttfSizeRelative[Graphics::kHiResRoleDefault]);
+		TS_ASSERT_EQUALS(cfg.ttfSize[Graphics::kHiResRoleBold], 0);
+		TS_ASSERT_EQUALS(cfg.fontIds.size(), 0u);
+
+		// The per-game (qualified) section example, verbatim.
+		const char *qualified =
+			"[shadow]\n"
+			"color=0            ; DOS\n"
+			"\n"
+			"[shadow:fmtowns]\n"
+			"color=8            ; where 0 is transparent\n";
+		cfg.clear();
+		TS_ASSERT(parse(qualified, cfg, "fmtowns"));
+		// Whitespace before ';' starts a comment, so both colours now parse
+		// as the guide says. Before inline comments the "; ..." stayed in
+		// the value and neither colour was set.
+		TS_ASSERT(cfg.shadowColorSet);
+		TS_ASSERT_EQUALS((int)cfg.shadowColor, 8);
+		cfg.clear();
+		TS_ASSERT(parse(qualified, cfg));
+		TS_ASSERT(cfg.shadowColorSet);
+		TS_ASSERT_EQUALS((int)cfg.shadowColor, 0);
+
+		// The simple [latin] shape keeps meaning what it meant.
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nenabled=true\nfont=latin.ttf\nmetrics=game\n", cfg));
+		TS_ASSERT(cfg.legacy.latinEnabled);
+		TS_ASSERT_EQUALS(cfg.legacy.latinTtfPath.toString('/'), "/games/demo/latin.ttf");
+		TS_ASSERT_EQUALS(cfg.legacy.latinTtfMetrics, Graphics::kHiResMetricsGame);
+		TS_ASSERT_EQUALS(cfg.legacy.latinBitmapMetrics, Graphics::kHiResMetricsGame);
+		TS_ASSERT(!cfg.latinModeSet);
+	}
+
+	void test_bad_values_warn_and_default() {
+		const char *map =
+			"[hires]\n"
+			"size=0\n"
+			"[latin]\n"
+			"mode=sideways\n"
+			"space=narrow\n"
+			"metrics=vibes\n"
+			"[font.4]\n"
+			"size=big\n"
+			"latin=maybe\n"
+			"latin_space=wide\n"
+			"metrics=ttf\n"
+			"face=default\n"
+			"[font.x]\n"
+			"size=16\n"
+			"[font.99999999]\n"
+			"size=16\n";
+		Graphics::HiResTextConfig cfg;
+		// One bad key never throws the map away.
+		TS_ASSERT(parse(map, cfg));
+		TS_ASSERT(!cfg.hiresSizeSet);
+		TS_ASSERT(!cfg.latinModeSet);
+		TS_ASSERT_EQUALS(cfg.latinMode, Graphics::kHiResLatinOff);
+		TS_ASSERT(!cfg.latinSpaceSet);
+		TS_ASSERT(!cfg.latinFullwidthSpace);
+		TS_ASSERT(!cfg.latinMetricsSet);
+		TS_ASSERT_EQUALS(cfg.latinMetrics, Graphics::kHiResMetricsGame);
+
+		// The good key in a section with bad ones is still taken.
+		const Graphics::HiResFontIdSettings *f4 = cfg.fontIdSettings(4);
+		TS_ASSERT(f4 != nullptr);
+		if (f4) {
+			TS_ASSERT(f4->faceSet);
+			TS_ASSERT(!f4->sizeSet);
+			TS_ASSERT(!f4->latinSet);
+			TS_ASSERT(!f4->latinSpaceSet);
+			TS_ASSERT(!f4->metricsSet);
+		}
+
+		// Section names that are not a font id are skipped, not guessed at.
+		TS_ASSERT_EQUALS(cfg.fontIds.size(), 1u);
+
+		// The legacy [latin] metrics reader is unaffected by the bad value.
+		TS_ASSERT_EQUALS(cfg.legacy.latinTtfMetrics, Graphics::kHiResMetricsGame);
+		TS_ASSERT_EQUALS(cfg.legacy.latinBitmapMetrics, Graphics::kHiResMetricsGame);
+	}
+
+	void test_legacy_enabled_literal_is_recorded() {
+		// bitmap= still implies latinEnabled (SCUMM), but only an explicit
+		// enabled= sets the literal fields an engine without bitmaps reads.
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[latin]\nbitmap=latin24.fnt\n", cfg));
+		TS_ASSERT(cfg.legacy.latinEnabled);
+		TS_ASSERT(!cfg.legacy.latinEnabledSet);
+
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nenabled=false\nbitmap=latin24.fnt\n", cfg));
+		TS_ASSERT(cfg.legacy.latinEnabled);
+		TS_ASSERT(cfg.legacy.latinEnabledSet);
+		TS_ASSERT(!cfg.legacy.latinEnabledValue);
+
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nenabled=true\n", cfg));
+		TS_ASSERT(cfg.legacy.latinEnabledSet);
+		TS_ASSERT(cfg.legacy.latinEnabledValue);
+
+		cfg.clear();
+		TS_ASSERT(!cfg.legacy.latinEnabledSet);
+		TS_ASSERT(!cfg.legacy.latinEnabledValue);
+	}
+
+	void test_latin_metrics_ttf_is_font() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[latin]\nmetrics=ttf\n", cfg));
+		TS_ASSERT(cfg.latinMetricsSet);
+		TS_ASSERT_EQUALS(cfg.latinMetrics, Graphics::kHiResMetricsFont);
+		// The legacy reading is unchanged.
+		TS_ASSERT_EQUALS(cfg.legacy.latinTtfMetrics, Graphics::kHiResMetricsFont);
+		TS_ASSERT_EQUALS(cfg.legacy.latinBitmapMetrics, Graphics::kHiResMetricsGame);
+
+		// bitmap is a legacy-only spelling, not a new-reader value.
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nmetrics=bitmap\n", cfg));
+		TS_ASSERT(!cfg.latinMetricsSet);
+	}
+
+	void test_face_and_font_are_aliases() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[hires]\nface=main\n[font.4]\nfont=narrow\n", cfg));
+		TS_ASSERT(cfg.hiresFaceSet);
+		TS_ASSERT_EQUALS(cfg.hiresFace, "main");
+		const Graphics::HiResFontIdSettings *f4 = cfg.fontIdSettings(4);
+		TS_ASSERT(f4 && f4->faceSet);
+		TS_ASSERT(f4 && f4->face == "narrow");
+
+		// The canonical spelling wins within one section.
+		cfg.clear();
+		TS_ASSERT(parse("[hires]\nface=b\nfont=a\n[font.4]\nfont=d\nface=c\n", cfg));
+		TS_ASSERT_EQUALS(cfg.hiresFace, "a");
+		TS_ASSERT(cfg.fontIdSettings(4) && cfg.fontIdSettings(4)->face == "c");
+
+		// A qualified section still wins whichever spelling either uses.
+		cfg.clear();
+		TS_ASSERT(parse("[font.4]\nface=bare\n[font.4:pc98]\nfont=qualified\n", cfg, "pc98"));
+		TS_ASSERT(cfg.fontIdSettings(4) && cfg.fontIdSettings(4)->face == "qualified");
+	}
+
+	void test_non_canonical_font_id_sections_are_skipped() {
+		// [font.04] and [font.4:] would read back from [font.4] and come out
+		// empty; they are skipped with a warning instead.
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[font.04]\nsize=20\n[font.5:]\nsize=21\n[font.6]\nsize=22\n", cfg));
+		TS_ASSERT(cfg.fontIdSettings(4) == nullptr);
+		TS_ASSERT(cfg.fontIdSettings(5) == nullptr);
+		TS_ASSERT(cfg.fontIdSettings(6) && cfg.fontIdSettings(6)->size == 22);
+		TS_ASSERT_EQUALS(cfg.fontIds.size(), 1u);
+
+		// Case does not matter: section names are case-insensitive.
+		cfg.clear();
+		TS_ASSERT(parse("[FONT.7]\nsize=23\n", cfg));
+		TS_ASSERT(cfg.fontIdSettings(7) && cfg.fontIdSettings(7)->size == 23);
+	}
+
+	// --- Inline comments --------------------------------------------------
+	//
+	// Whitespace followed by ';' ends a value, on every key the parser reads.
+	// A ';' with no whitespace before it is part of the value.
+
+	/// parse(), with the scopes "cs0" and "cs1" that SCUMM passes for its charsets.
+	bool parseScoped(const char *text, Graphics::HiResTextConfig &out, const char *q0 = nullptr) {
+		Common::Array<Common::String> qualifiers;
+		if (q0)
+			qualifiers.push_back(q0);
+		Common::Array<Common::String> scopes;
+		scopes.push_back("cs0");
+		scopes.push_back("cs1");
+
+		Common::MemoryReadStream stream((const byte *)text, strlen(text));
+		return Graphics::HiResFontMap::loadFromStream(
+			stream, Common::Path("/games/demo"), qualifiers, out, &scopes);
+	}
+
+	void test_inline_comment_ends_a_value() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[shadow]\ncolor=0 ; DOS\n", cfg));
+		TS_ASSERT(cfg.shadowColorSet);
+		TS_ASSERT_EQUALS((int)cfg.shadowColor, 0);
+
+		// A tab counts as whitespace too.
+		cfg.clear();
+		TS_ASSERT(parse("[shadow]\ncolor=7\t; palette index\n", cfg));
+		TS_ASSERT(cfg.shadowColorSet);
+		TS_ASSERT_EQUALS((int)cfg.shadowColor, 7);
+
+		// No whitespace before ';': the value is "2;", which is not a scale.
+		cfg.clear();
+		TS_ASSERT(parse("[hires]\nscale=2;\n", cfg));
+		TS_ASSERT_EQUALS(cfg.scale, 1);
+		TS_ASSERT(!cfg.scaleFromMap);
+	}
+
+	void test_semicolon_without_whitespace_stays() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[bitmap]\nsingle=my;font.fnt\n", cfg));
+		TS_ASSERT_EQUALS(cfg.bitmapSingle, "my;font.fnt");
+
+		cfg.clear();
+		TS_ASSERT(parse("[fonts]\ndefault=a;b.ttf\n", cfg));
+		TS_ASSERT_EQUALS(cfg.ttfPath[Graphics::kHiResRoleDefault].toString('/'), "/games/demo/a;b.ttf");
+	}
+
+	void test_value_that_is_only_a_comment_is_empty() {
+		// INIFile trims the whitespace before the ';', so the value starts
+		// with it; that is a comment, and the value is empty.
+		Graphics::HiResTextConfig cfg;
+		cfg.bitmapSingle = "before";
+		TS_ASSERT(parse("[bitmap]\nsingle= ; none\n", cfg));
+		TS_ASSERT_EQUALS(cfg.bitmapSingle, "");
+
+		cfg.clear();
+		TS_ASSERT(parse("[shadow]\ncolor= ; x\n", cfg));
+		TS_ASSERT(!cfg.shadowColorSet);
+	}
+
+	void test_inline_comment_every_reader() {
+		const char *map =
+			"[hires]\n"
+			"scale=2 ; getKey\n"
+			"[latin]\n"
+			"face=latin ; getKeyEither\n"
+			"[fonts]\n"
+			"latin=AppleGothic.ttf ; the face table\n"
+			"[glyphs]\n"
+			"0x5e = keep ; an ellipsis, not a caret\n"
+			"[map]\n"
+			"height_12 = title ; the menu bar\n"
+			"[font.4]\n"
+			"size=16 ; pixels\n"
+			"latin=half ; narrow\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(map, cfg));
+
+		TS_ASSERT_EQUALS(cfg.scale, 2);
+		TS_ASSERT(cfg.scaleFromMap);
+
+		TS_ASSERT(cfg.latinFontSet);
+		TS_ASSERT_EQUALS(cfg.latinFont, "latin");
+
+		TS_ASSERT_EQUALS(cfg.resolveFace("latin"), "AppleGothic.ttf");
+
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(cfg.glyphOverride(0x5e, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+
+		TS_ASSERT_EQUALS(cfg.roleForHeight(12), (int)Graphics::kHiResRoleTitle);
+
+		const Graphics::HiResFontIdSettings *f4 = cfg.fontIdSettings(4);
+		TS_ASSERT(f4 != nullptr);
+		if (f4) {
+			TS_ASSERT(f4->sizeSet);
+			TS_ASSERT_EQUALS(f4->size, 16);
+			TS_ASSERT(f4->latinSet);
+			TS_ASSERT_EQUALS(f4->latin, Graphics::kHiResLatinHalf);
+		}
+	}
+
+	void test_scumm_doc_examples_now_parse_as_written() {
+		// engines/scumm/HIRES_TEXT.md (hires-text), verbatim.
+		const char *glyphs =
+			"[glyphs]\n"
+			"0x5e = keep        ; an ellipsis, not a caret\n"
+			"0x07 = keep        ; the dialogue bullet\n"
+			"0x7f = u+2192      ; drawn from the replacement at another code point\n"
+			"\n"
+			"[glyphs:cs1]       ; charset 1 only\n"
+			"0x5f = keep\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parseScoped(glyphs, cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 3u);
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(cfg.glyphOverride(0x5e, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+		TS_ASSERT(cfg.glyphOverride(0x07, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+		TS_ASSERT(cfg.glyphOverride(0x7f, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(o.codepoint, 0x2192u);
+		TS_ASSERT(cfg.glyphOverride(0x5f, o, 1));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+		TS_ASSERT(!cfg.glyphOverride(0x5f, o, 0));
+
+		// engines/scumm/HIRES_TEXT_DECORATIONS.md (hires-text), verbatim.
+		const char *shadow =
+			"[shadow]\n"
+			"mode=outline     ; none | drop | outline | stroke | game\n"
+			"offset=2         ; thickness in output pixels\n"
+			"color=8          ; palette index of the stroke\n";
+		cfg.clear();
+		TS_ASSERT(parse(shadow, cfg));
+		TS_ASSERT_EQUALS(cfg.shadowMode, Graphics::kHiResShadowOutline);
+		TS_ASSERT_EQUALS(cfg.shadowOffset, 2);
+		TS_ASSERT(cfg.shadowColorSet);
+		TS_ASSERT_EQUALS((int)cfg.shadowColor, 8);
+	}
+
+	// --- [glyphs] ranges ---------------------------------------------------
+
+	void test_glyph_range_offset() {
+		const char *maps[] = {
+			"[glyphs]\n0x21-0x7E=+0xFEE0\n",
+			"[glyphs]\n33-126=+65248\n",
+			"[glyphs]\n0x21 - 0x7E = +0xFEE0\n"
+		};
+		for (uint i = 0; i < ARRAYSIZE(maps); ++i) {
+			Graphics::HiResTextConfig cfg;
+			TS_ASSERT(parse(maps[i], cfg));
+			TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 94u);
+			Graphics::HiResGlyphOverride o;
+			TS_ASSERT(cfg.glyphOverride(0x21, o));
+			TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+			TS_ASSERT_EQUALS(o.codepoint, 0xFF01u);
+			TS_ASSERT(cfg.glyphOverride(0x7E, o));
+			TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+			TS_ASSERT_EQUALS(o.codepoint, 0xFF5Eu);
+			TS_ASSERT(!cfg.glyphOverride(0x20, o));
+			TS_ASSERT(!cfg.glyphOverride(0x7F, o));
+		}
+	}
+
+	void test_glyph_range_keep() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[glyphs]\n0x80-0x9F=keep\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 32u);
+		Graphics::HiResGlyphOverride o;
+		for (uint32 c = 0x80; c <= 0x9F; ++c) {
+			TS_ASSERT(cfg.glyphOverride(c, o));
+			TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+		}
+		TS_ASSERT(!cfg.glyphOverride(0x7F, o));
+		TS_ASSERT(!cfg.glyphOverride(0xA0, o));
+
+		// A one-code range, and +0 as an identity remap rather than keep.
+		cfg.clear();
+		TS_ASSERT(parse("[glyphs]\n0x41-0x41=+0\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 1u);
+		TS_ASSERT(cfg.glyphOverride(0x41, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(o.codepoint, 0x41u);
+	}
+
+	void test_glyph_single_offset() {
+		Graphics::HiResTextConfig a, b;
+		TS_ASSERT(parse("[glyphs]\n0x41=+0x20\n", a));
+		TS_ASSERT(parse("[glyphs]\n0x41=0x61\n", b));
+		Graphics::HiResGlyphOverride oa, ob;
+		TS_ASSERT(a.glyphOverride(0x41, oa));
+		TS_ASSERT(b.glyphOverride(0x41, ob));
+		TS_ASSERT_EQUALS(oa.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(oa.action, ob.action);
+		TS_ASSERT_EQUALS(oa.codepoint, ob.codepoint);
+		TS_ASSERT_EQUALS(a.glyphOverrides.size(), 1u);
+
+		// Decimal offsets work too; an offset past U+10FFFF does not.
+		a.clear();
+		TS_ASSERT(parse("[glyphs]\n0x41=+32\n0x10FFFF=+1\n", a));
+		TS_ASSERT_EQUALS(a.glyphOverrides.size(), 1u);
+		TS_ASSERT(a.glyphOverride(0x41, oa));
+		TS_ASSERT_EQUALS(oa.codepoint, 0x61u);
+	}
+
+	void test_glyph_single_beats_range_in_its_section() {
+		const char *maps[] = {
+			"[glyphs]\n0x5e=keep\n0x21-0x7E=+0xFEE0\n",
+			"[glyphs]\n0x21-0x7E=+0xFEE0\n0x5e=keep\n"
+		};
+		for (uint i = 0; i < ARRAYSIZE(maps); ++i) {
+			Graphics::HiResTextConfig cfg;
+			TS_ASSERT(parse(maps[i], cfg));
+			TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 94u);
+			Graphics::HiResGlyphOverride o;
+			TS_ASSERT(cfg.glyphOverride(0x5E, o));
+			TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+			TS_ASSERT(cfg.glyphOverride(0x5D, o));
+			TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+			TS_ASSERT_EQUALS(o.codepoint, 0xFF3Du);
+		}
+	}
+
+	void test_glyph_later_range_wins_overlap() {
+		Graphics::HiResTextConfig cfg;
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(parse("[glyphs]\n0x21-0x7E=+0xFEE0\n0x41-0x5A=keep\n", cfg));
+		TS_ASSERT(cfg.glyphOverride(0x41, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+		TS_ASSERT(cfg.glyphOverride(0x40, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+
+		cfg.clear();
+		TS_ASSERT(parse("[glyphs]\n0x41-0x5A=keep\n0x21-0x7E=+0xFEE0\n", cfg));
+		TS_ASSERT(cfg.glyphOverride(0x41, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(o.codepoint, 0xFF21u);
+	}
+
+	void test_glyph_qualified_range_beats_bare_single() {
+		const char *map =
+			"[glyphs]\n"
+			"0x41=keep\n"
+			"[glyphs:monkey2]\n"
+			"0x40-0x42=+0x20\n";
+		Graphics::HiResTextConfig cfg;
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(parse(map, cfg, "monkey2"));
+		TS_ASSERT(cfg.glyphOverride(0x41, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(o.codepoint, 0x61u);
+
+		// Without the qualifier, the bare single stands alone.
+		cfg.clear();
+		TS_ASSERT(parse(map, cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 1u);
+		TS_ASSERT(cfg.glyphOverride(0x41, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphKeep);
+	}
+
+	void test_glyph_range_in_scope() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parseScoped("[glyphs:cs1]\n0x21-0x2F=keep\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0u);
+		TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides.size(), 2u);
+		if (cfg.scopedGlyphOverrides.size() == 2) {
+			TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides[0].size(), 0u);
+			TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides[1].size(), 15u);
+		}
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(cfg.glyphOverride(0x21, o, 1));
+		TS_ASSERT(cfg.glyphOverride(0x2F, o, 1));
+		TS_ASSERT(!cfg.glyphOverride(0x30, o, 1));
+		TS_ASSERT(!cfg.glyphOverride(0x21, o, 0));
+		TS_ASSERT(!cfg.glyphOverride(0x21, o));
+	}
+
+	void test_glyph_range_bounds() {
+		const char *maps[] = {
+			"[glyphs]\n0x7E-0x21=keep\n",         // ends before it starts
+			"[glyphs]\n0x0-0x10000=keep\n",       // past 0xFFFF
+			"[glyphs]\n0xFFF0-0xFFFF=+0x100001\n", // end + offset past U+10FFFF
+			"[glyphs]\n0x21-0x7E=u+FF01\n",       // absolute target
+			"[glyphs]\n0x21-0x7E=+u+10\n",        // an offset is not a code point
+			"[glyphs]\n0x21-=keep\n",             // malformed halves
+			"[glyphs]\n-0x7E=keep\n",
+			"[glyphs]\n0x21-0x7E-0x80=keep\n",
+			"[glyphs]\n0xzz-0x7E=keep\n"
+		};
+		for (uint i = 0; i < ARRAYSIZE(maps); ++i) {
+			Graphics::HiResTextConfig cfg;
+			TS_ASSERT(parse(maps[i], cfg));
+			TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0u);
+		}
+	}
+
+	void test_glyph_range_limit() {
+		// Two full 0x0000-0xFFFF ranges fit; a third range, however small, does not.
+		const char *map =
+			"[glyphs]\n"
+			"0x0-0xFFFF=keep\n"
+			"[glyphs:cs0]\n"
+			"0x0-0xFFFF=keep\n"
+			"[glyphs:cs1]\n"
+			"0x41-0x41=keep\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parseScoped(map, cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0x10000u);
+		TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides.size(), 2u);
+		if (cfg.scopedGlyphOverrides.size() == 2) {
+			TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides[0].size(), 0x10000u);
+			TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides[1].size(), 0u);
+		}
+	}
+
+	void test_glyph_range_key_is_legal_ini() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[glyphs]\n0x21-0x7E=keep\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 94u);
+
+		// '+' is not a key character, so this rejects the whole map, exactly
+		// as test_glyphs_key_may_not_use_u_plus_form() pins for a single code.
+		cfg.clear();
+		TS_ASSERT(!parse("[glyphs]\nu+21-u+7E=keep\n", cfg));
+	}
+
+	void test_glyph_range_limit_is_per_load() {
+		// HiResFontMap::loadFromStream() is static and an engine keeps one
+		// config it reloads (SCI's GfxCache), so a load that used up the
+		// whole range budget must not starve the next one.
+		const char *full =
+			"[glyphs]\n"
+			"0x0-0xFFFF=keep\n"
+			"[glyphs:cs0]\n"
+			"0x0-0xFFFF=keep\n";
+		const char *small =
+			"[glyphs:cs1]\n"
+			"0x41-0x42=keep\n";
+
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parseScoped(full, cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0x10000u);
+
+		cfg.clear();
+		TS_ASSERT(parseScoped(small, cfg));
+		TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides.size(), 2u);
+		if (cfg.scopedGlyphOverrides.size() == 2)
+			TS_ASSERT_EQUALS(cfg.scopedGlyphOverrides[1].size(), 2u);
+
+		// And into a second config.
+		Graphics::HiResTextConfig other;
+		TS_ASSERT(parseScoped(small, other));
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(other.glyphOverride(0x41, o, 1));
+		TS_ASSERT(other.glyphOverride(0x42, o, 1));
+	}
+
+	void test_glyph_range_values() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[glyphs]\n0x21-0x7E=junk\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 0u);
+
+		// An inline comment after a range value, as in font_map.cpp's example.
+		cfg.clear();
+		TS_ASSERT(parse("[glyphs]\n0x21-0x7E = +0xFEE0 ; x\n", cfg));
+		TS_ASSERT_EQUALS(cfg.glyphOverrides.size(), 94u);
+		Graphics::HiResGlyphOverride o;
+		TS_ASSERT(cfg.glyphOverride(0x21, o));
+		TS_ASSERT_EQUALS(o.action, Graphics::kHiResGlyphRemap);
+		TS_ASSERT_EQUALS(o.codepoint, 0xFF01u);
+	}
+
+	void test_hash_is_not_an_inline_comment() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[bitmap]\nsingle=a #b\n", cfg));
+		TS_ASSERT_EQUALS(cfg.bitmapSingle, "a #b");
+	}
 };

@@ -33,6 +33,26 @@ namespace Graphics {
 // 960x600 text surface. Raising this policy limit needs adapter memory tests.
 static const int kMaxScale = 3;
 
+HiResFontIdSettings::HiResFontIdSettings()
+	: faceSet(false), size(0), sizeSet(false), latin(kHiResLatinOff), latinSet(false),
+	  latinFontSet(false), latinFullwidthSpace(false), latinSpaceSet(false),
+	  metrics(kHiResMetricsGame), metricsSet(false) {
+}
+
+const HiResFontIdSettings *HiResTextConfig::fontIdSettings(int id) const {
+	Common::HashMap<int, HiResFontIdSettings>::const_iterator it = fontIds.find(id);
+	if (it == fontIds.end())
+		return nullptr;
+	return &it->_value;
+}
+
+Common::String HiResTextConfig::resolveFace(const Common::String &nameOrPath) const {
+	FaceTable::const_iterator it = fontFaces.find(nameOrPath);
+	if (it == fontFaces.end())
+		return nameOrPath;
+	return it->_value;
+}
+
 HiResTextConfig::HiResTextConfig() {
 	clear();
 }
@@ -60,6 +80,8 @@ void HiResTextConfig::clear() {
 
 	metricsSource = kHiResMetricsGame;
 	legacy.latinEnabled = false;
+	legacy.latinEnabledSet = false;
+	legacy.latinEnabledValue = false;
 	legacy.latinTtfPath = Common::Path();
 	legacy.latinBitmapName.clear();
 	legacy.latinTtfMetrics = kHiResMetricsGame;
@@ -69,6 +91,21 @@ void HiResTextConfig::clear() {
 	shadowOffset = -1;
 	shadowColor = 0;
 	shadowColorSet = false;
+
+	hiresFace.clear();
+	hiresFaceSet = false;
+	hiresSize = 0;
+	hiresSizeSet = false;
+	latinMode = kHiResLatinOff;
+	latinModeSet = false;
+	latinFullwidthSpace = false;
+	latinSpaceSet = false;
+	latinFont.clear();
+	latinFontSet = false;
+	latinMetrics = kHiResMetricsGame;
+	latinMetricsSet = false;
+	fontFaces.clear();
+	fontIds.clear();
 
 	translationName.clear();
 	heightRoles.clear();
@@ -170,18 +207,49 @@ Common::Path HiResFontMap::resolvePath(const Common::String &value, const Common
 
 namespace {
 
+// A [glyphs] range expands into one table entry per code, so ranges are
+// bounded twice: game codes are at most double-byte, and one map load takes
+// at most two full 0x0000-0xFFFF ranges' worth of codes from ranges, summed
+// over the common table and every scope's.
+const uint32 kMaxGlyphRangeCode = 0xFFFF;
+const uint kMaxGlyphRangeCodes = 0x20000;
+
+/**
+ * Drop a trailing comment from a value.
+ *
+ * The first ';' preceded by a space or a tab ends the value. INIFile has
+ * already trimmed the value, so "key= ; note" arrives as "; note", which is
+ * a comment too. A ';' with anything else before it is part of the value
+ * ("single=my;font.fnt").
+ */
+Common::String stripInlineComment(const Common::String &raw) {
+	Common::String value(raw);
+	for (uint i = 0; i < raw.size(); ++i) {
+		if (raw[i] == ';' && (i == 0 || raw[i - 1] == ' ' || raw[i - 1] == '\t')) {
+			value = Common::String(raw.c_str(), i);
+			break;
+		}
+	}
+	value.trim();
+	return value;
+}
+
 /// Read a key, trying each qualified section name before the bare one.
 bool getKey(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
 			const char *section, const char *key, Common::String &value) {
-	for (uint i = 0; i < qualifiers.size(); ++i) {
+	bool found = false;
+	for (uint i = 0; i < qualifiers.size() && !found; ++i) {
 		if (qualifiers[i].empty())
 			continue;
 		const Common::String qualified =
 			Common::String::format("%s:%s", section, qualifiers[i].c_str());
-		if (ini.getKey(key, qualified, value))
-			return true;
+		found = ini.getKey(key, qualified, value);
 	}
-	return ini.getKey(key, section, value);
+	if (!found)
+		found = ini.getKey(key, section, value);
+	if (found)
+		value = stripInlineComment(value);
+	return found;
 }
 
 // Bounded decimal parsing without atoi overflow or acceptance of trailing junk.
@@ -270,15 +338,54 @@ bool parseCodeValue(const Common::String &value, uint32 &out) {
 }
 
 /**
+ * Split a [glyphs] range key, "<code>-<code>", at its first '-'.
+ *
+ * Each half is trimmed ("0x21 - 0x7E") and read by parseCodeValue(). An empty
+ * half or a second '-' makes it no range at all.
+ */
+bool parseGlyphRange(const Common::String &key, uint32 &start, uint32 &end) {
+	const size_t dash = key.findFirstOf('-');
+	if (dash == Common::String::npos)
+		return false;
+	Common::String first(key.c_str(), dash);
+	Common::String second(key.c_str() + dash + 1);
+	if (second.findFirstOf('-') != Common::String::npos)
+		return false;
+	first.trim();
+	second.trim();
+	return parseCodeValue(first, start) && parseCodeValue(second, end);
+}
+
+/// A "+<n>" [glyphs] value, <n> in hex ("0x..") or decimal. Not "u+": an
+/// offset is a distance, not a code point.
+bool parseGlyphOffset(const Common::String &value, uint32 &offset) {
+	if (!value.hasPrefix("+"))
+		return false;
+	const Common::String rest(value.c_str() + 1);
+	if (rest.hasPrefixIgnoreCase("u+"))
+		return false;
+	return parseCodeValue(rest, offset);
+}
+
+/**
  * Read one [glyphs] style section into a table.
  *
  * Qualified section names are tried before the bare one, exactly as getKey()
  * does for single keys, so a map may carry per-game exception lists.
+ *
+ * Within one section every range ("0x21-0x7E=+0xFEE0", "0x80-0x9F=keep") is
+ * applied first, in file order, and every single code after them, so a
+ * single code punches a hole in a range whatever the line order. Across
+ * sections a later (more specific) section overwrites code by code, range or
+ * not. Codes that come from ranges are taken out of @p rangeBudget, which is
+ * shared by every table of one map load; a range that does not fit is
+ * ignored whole.
  */
 void readGlyphSection(const Common::INIFile &ini,
 					  const Common::Array<Common::String> &qualifiers,
 					  const char *section,
-					  Common::HashMap<uint32, HiResGlyphOverride> &out) {
+					  Common::HashMap<uint32, HiResGlyphOverride> &out,
+					  uint &rangeBudget) {
 	// Least specific first, so a qualified entry overwrites the bare one.
 	Common::Array<Common::String> names;
 	names.push_back(section);
@@ -292,8 +399,65 @@ void readGlyphSection(const Common::INIFile &ini,
 			continue;
 
 		const Common::INIFile::SectionKeyList keys = ini.getKeys(names[s]);
+
+		// Pass 1: ranges. A code is never negative, so a key with a '-' in
+		// it is always meant as one.
 		for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin();
 			 it != keys.end(); ++it) {
+			if (it->key.findFirstOf('-') == Common::String::npos)
+				continue;
+			const Common::String value = stripInlineComment(it->value);
+
+			uint32 start, end;
+			if (!parseGlyphRange(it->key, start, end)) {
+				warning("HiResText: glyph range '%s' is not <code>-<code>, ignoring", it->key.c_str());
+				continue;
+			}
+			if (end < start) {
+				warning("HiResText: glyph range '%s' ends before it starts, ignoring", it->key.c_str());
+				continue;
+			}
+			if (end > kMaxGlyphRangeCode) {
+				warning("HiResText: glyph range '%s' goes past 0xFFFF, ignoring", it->key.c_str());
+				continue;
+			}
+
+			// An absolute target is refused: it would draw the whole range
+			// as one character.
+			const bool keep = value.equalsIgnoreCase("keep");
+			uint32 offset = 0;
+			if (!keep && !parseGlyphOffset(value, offset)) {
+				warning("HiResText: glyph range %s: '%s' is neither 'keep' nor '+<offset>', ignoring",
+						it->key.c_str(), value.c_str());
+				continue;
+			}
+			if (!keep && end + offset > 0x10FFFF) {
+				warning("HiResText: glyph %s: '%s' goes past U+10FFFF, ignoring",
+						it->key.c_str(), value.c_str());
+				continue;
+			}
+
+			const uint count = end - start + 1;
+			if (count > rangeBudget) {
+				warning("HiResText: glyph range '%s' would take the map past %u range codes, ignoring",
+						it->key.c_str(), kMaxGlyphRangeCodes);
+				continue;
+			}
+			rangeBudget -= count;
+
+			for (uint32 code = start; code <= end; ++code) {
+				out[code] = keep ? HiResGlyphOverride(kHiResGlyphKeep, 0)
+								 : HiResGlyphOverride(kHiResGlyphRemap, code + offset);
+			}
+		}
+
+		// Pass 2: single codes.
+		for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin();
+			 it != keys.end(); ++it) {
+			if (it->key.findFirstOf('-') != Common::String::npos)
+				continue;
+			const Common::String value = stripInlineComment(it->value);
+
 			uint32 code;
 			if (!parseCodeValue(it->key, code)) {
 				warning("HiResText: '%s' is not a character code, ignoring",
@@ -301,20 +465,241 @@ void readGlyphSection(const Common::INIFile &ini,
 				continue;
 			}
 
-			if (it->value.equalsIgnoreCase("keep")) {
+			if (value.equalsIgnoreCase("keep")) {
 				out[code] = HiResGlyphOverride(kHiResGlyphKeep, 0);
 				continue;
 			}
 
 			uint32 target;
-			if (parseCodeValue(it->value, target)) {
+			if (parseCodeValue(value, target)) {
 				out[code] = HiResGlyphOverride(kHiResGlyphRemap, target);
 				continue;
 			}
 
+			// "0x41=+0x20" is "0x41=0x61".
+			uint32 offset;
+			if (parseGlyphOffset(value, offset)) {
+				if (code + offset > 0x10FFFF) {
+					warning("HiResText: glyph %s: '%s' goes past U+10FFFF, ignoring",
+							it->key.c_str(), value.c_str());
+					continue;
+				}
+				out[code] = HiResGlyphOverride(kHiResGlyphRemap, code + offset);
+				continue;
+			}
+
 			warning("HiResText: glyph %s: '%s' is neither 'keep' nor a code point, ignoring",
-					it->key.c_str(), it->value.c_str());
+					it->key.c_str(), value.c_str());
 		}
+	}
+}
+
+/// getKey() for a key with two spellings: at each section level the first
+/// spelling is tried, then the second, so a qualified section still wins
+/// whichever spelling either section uses.
+bool getKeyEither(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+				  const char *section, const char *key, const char *alias, Common::String &value) {
+	bool found = false;
+	for (uint i = 0; i < qualifiers.size() && !found; ++i) {
+		if (qualifiers[i].empty())
+			continue;
+		const Common::String qualified =
+			Common::String::format("%s:%s", section, qualifiers[i].c_str());
+		found = ini.getKey(key, qualified, value) || ini.getKey(alias, qualified, value);
+	}
+	if (!found)
+		found = ini.getKey(key, section, value) || ini.getKey(alias, section, value);
+	if (found)
+		value = stripInlineComment(value);
+	return found;
+}
+
+bool parseLatinMode(const Common::String &value, HiResLatinMode &out) {
+	if (value.equalsIgnoreCase("off"))
+		out = kHiResLatinOff;
+	else if (value.equalsIgnoreCase("half"))
+		out = kHiResLatinHalf;
+	else if (value.equalsIgnoreCase("fullwidth"))
+		out = kHiResLatinFullwidth;
+	else if (value.equalsIgnoreCase("proportional"))
+		out = kHiResLatinProportional;
+	else
+		return false;
+	return true;
+}
+
+bool parseLatinSpace(const Common::String &value, bool &fullwidth) {
+	if (value.equalsIgnoreCase("keep"))
+		fullwidth = false;
+	else if (value.equalsIgnoreCase("fullwidth"))
+		fullwidth = true;
+	else
+		return false;
+	return true;
+}
+
+bool parseMetrics(const Common::String &value, HiResMetricsSource &out) {
+	if (value.equalsIgnoreCase("game"))
+		out = kHiResMetricsGame;
+	else if (value.equalsIgnoreCase("font"))
+		out = kHiResMetricsFont;
+	else
+		return false;
+	return true;
+}
+
+// A face size in pixels, for [hires] size= and [font.N] size=. Same bound as
+// the [sizes] reader; the adapter applies its own range.
+bool parseFaceSize(const Common::String &value, int &out) {
+	int size;
+	if (!parseInteger(value, 4096, size) || size <= 0)
+		return false;
+	out = size;
+	return true;
+}
+
+/**
+ * Split a "[font.N]" or "[font.N:<qualifier>]" section name.
+ *
+ * @return false if the name is not a font id section at all ("fonts", "hires")
+ */
+bool splitFontIdSection(const Common::String &name, Common::String &idText,
+						Common::String &qualifier) {
+	if (!name.hasPrefixIgnoreCase("font."))
+		return false;
+	const Common::String rest(name.c_str() + 5);
+	const size_t colon = rest.findFirstOf(':');
+	if (colon == Common::String::npos) {
+		idText = rest;
+		qualifier.clear();
+	} else {
+		idText = Common::String(rest.c_str(), colon);
+		qualifier = Common::String(rest.c_str() + colon + 1);
+	}
+	return true;
+}
+
+bool qualifierListed(const Common::Array<Common::String> &qualifiers, const Common::String &q) {
+	for (uint i = 0; i < qualifiers.size(); ++i) {
+		if (!qualifiers[i].empty() && qualifiers[i].equalsIgnoreCase(q))
+			return true;
+	}
+	return false;
+}
+
+/**
+ * Read every [font.N] section that applies - the bare ones, and the qualified
+ * ones whose qualifier the caller listed - into out.fontIds. Each key is read
+ * with getKey(), so [font.N:<q>] wins over [font.N] key by key.
+ */
+void readFontIdSections(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+						HiResTextConfig &out) {
+	static const char *const knownKeys[] = {
+		"face", "font", "size", "latin", "latin_font", "latin_face", "latin_space", "metrics",
+		"baseline" // a known future key: parsed and ignored, no warning
+	};
+
+	Common::Array<int> ids;
+	const Common::INIFile::SectionList sections = ini.getSections();
+	for (Common::INIFile::SectionList::const_iterator sec = sections.begin();
+		 sec != sections.end(); ++sec) {
+		Common::String idText, qualifier;
+		if (!splitFontIdSection(sec->name, idText, qualifier))
+			continue;
+
+		int id;
+		if (!parseInteger(idText, 65535, id)) {
+			warning("HiResText: [%s] does not name a font id, ignoring it", sec->name.c_str());
+			continue;
+		}
+		// The values are read back from "font.<id>" below, so a section
+		// written any other way ([font.04], an empty qualifier in
+		// [font.4:]) would yield an empty entry. Say so instead.
+		const bool emptyQualifier = sec->name.findFirstOf(':') != Common::String::npos && qualifier.empty();
+		if (idText != Common::String::format("%d", id) || emptyQualifier) {
+			warning("HiResText: [%s] is not written as [font.%d] or [font.%d:<platform>], ignoring it",
+					sec->name.c_str(), id, id);
+			continue;
+		}
+		// Another platform's section: not an error, just not ours.
+		if (!qualifier.empty() && !qualifierListed(qualifiers, qualifier))
+			continue;
+
+		const Common::INIFile::SectionKeyList keys = sec->getKeys();
+		for (Common::INIFile::SectionKeyList::const_iterator k = keys.begin(); k != keys.end(); ++k) {
+			bool known = false;
+			for (uint i = 0; i < ARRAYSIZE(knownKeys) && !known; ++i)
+				known = k->key.equalsIgnoreCase(knownKeys[i]);
+			if (!known)
+				warning("HiResText: [%s] has no key '%s', ignoring it", sec->name.c_str(), k->key.c_str());
+		}
+
+		bool seen = false;
+		for (uint i = 0; i < ids.size() && !seen; ++i)
+			seen = ids[i] == id;
+		if (!seen)
+			ids.push_back(id);
+	}
+
+	for (uint i = 0; i < ids.size(); ++i) {
+		const Common::String section = Common::String::format("font.%d", ids[i]);
+		HiResFontIdSettings &f = out.fontIds[ids[i]];
+		Common::String value;
+
+		if (getKeyEither(ini, qualifiers, section.c_str(), "face", "font", value)) {
+			f.face = value;
+			f.faceSet = true;
+		}
+		if (getKey(ini, qualifiers, section.c_str(), "size", value)) {
+			if (parseFaceSize(value, f.size))
+				f.sizeSet = true;
+			else
+				warning("HiResText: [%s] invalid size '%s', ignoring", section.c_str(), value.c_str());
+		}
+		if (getKey(ini, qualifiers, section.c_str(), "latin", value)) {
+			if (parseLatinMode(value, f.latin))
+				f.latinSet = true;
+			else
+				warning("HiResText: [%s] latin '%s' is not off, half, fullwidth or proportional, ignoring",
+						section.c_str(), value.c_str());
+		}
+		if (getKeyEither(ini, qualifiers, section.c_str(), "latin_font", "latin_face", value)) {
+			f.latinFont = value;
+			f.latinFontSet = true;
+		}
+		if (getKey(ini, qualifiers, section.c_str(), "latin_space", value)) {
+			if (parseLatinSpace(value, f.latinFullwidthSpace))
+				f.latinSpaceSet = true;
+			else
+				warning("HiResText: [%s] latin_space '%s' is not keep or fullwidth, ignoring",
+						section.c_str(), value.c_str());
+		}
+		if (getKey(ini, qualifiers, section.c_str(), "metrics", value)) {
+			if (parseMetrics(value, f.metrics))
+				f.metricsSet = true;
+			else
+				warning("HiResText: [%s] metrics '%s' is not game or font, ignoring",
+						section.c_str(), value.c_str());
+		}
+	}
+}
+
+/// [fonts] as a name -> path table, qualified entries refining bare ones.
+void readFaceTable(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+				   HiResTextConfig::FaceTable &out) {
+	Common::Array<Common::String> names;
+	names.push_back("fonts");
+	for (int i = (int)qualifiers.size() - 1; i >= 0; --i) {
+		if (!qualifiers[i].empty())
+			names.push_back(Common::String::format("fonts:%s", qualifiers[i].c_str()));
+	}
+
+	for (uint s = 0; s < names.size(); ++s) {
+		if (!ini.hasSection(names[s]))
+			continue;
+		const Common::INIFile::SectionKeyList keys = ini.getKeys(names[s]);
+		for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it)
+			out[it->key] = stripInlineComment(it->value);
 	}
 }
 
@@ -486,9 +871,14 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 	//   metrics=font
 	if (getKey(ini, qualifiers, "latin", "enabled", value)) {
 		bool enabled;
-		if (parseMapBool(value, enabled))
+		if (parseMapBool(value, enabled)) {
 			out.legacy.latinEnabled = enabled;
-		else
+			// Recorded apart from latinEnabled, which bitmap= below also
+			// turns on: an engine with no bitmap path (SCI) honours only
+			// the literal enabled=.
+			out.legacy.latinEnabledSet = true;
+			out.legacy.latinEnabledValue = enabled;
+		} else
 			warning("HiResText: invalid legacy enabled '%s', ignoring", value.c_str());
 	}
 	if (getKey(ini, qualifiers, "latin", "font", value))
@@ -508,6 +898,74 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 			warning("HiResText: unknown legacy metrics '%s', ignoring", value.c_str());
 		}
 	}
+
+	// Per-font settings for engines that key them by font id (SCI). All of
+	// them are additive: a map that names none of them leaves every field
+	// above exactly as it was, and SCUMM reads none of them.
+	//
+	//   [hires]
+	//   font=default          ; a [fonts] name (or a path)
+	//   size=16
+	//
+	//   [fonts]
+	//   default=NanumGothic.ttf
+	//   latin=AppleGothic.ttf
+	//
+	//   [latin]
+	//   mode=proportional     ; off | half | fullwidth | proportional
+	//   font=latin            ; also read above as the legacy TTF path
+	//   space=keep            ; keep | fullwidth
+	//   metrics=game          ; game | font, also read above
+	//
+	//   [font.4]
+	//   face=default
+	//   size=16
+	//   latin=proportional
+	//   latin_font=latin
+	//   latin_space=keep
+	//   metrics=font
+	//
+	//   [font.0:pc98]         ; wins over [font.0] for the "pc98" qualifier
+	//   latin=fullwidth
+	if (getKeyEither(ini, qualifiers, "hires", "font", "face", value)) {
+		out.hiresFace = value;
+		out.hiresFaceSet = true;
+	}
+	if (getKey(ini, qualifiers, "hires", "size", value)) {
+		if (parseFaceSize(value, out.hiresSize))
+			out.hiresSizeSet = true;
+		else
+			warning("HiResText: invalid [hires] size '%s', ignoring", value.c_str());
+	}
+	readFaceTable(ini, qualifiers, out.fontFaces);
+	if (getKey(ini, qualifiers, "latin", "mode", value)) {
+		if (parseLatinMode(value, out.latinMode))
+			out.latinModeSet = true;
+		else
+			warning("HiResText: [latin] mode '%s' is not off, half, fullwidth or proportional, ignoring",
+					value.c_str());
+	}
+	if (getKey(ini, qualifiers, "latin", "space", value)) {
+		if (parseLatinSpace(value, out.latinFullwidthSpace))
+			out.latinSpaceSet = true;
+		else
+			warning("HiResText: [latin] space '%s' is not keep or fullwidth, ignoring", value.c_str());
+	}
+	if (getKeyEither(ini, qualifiers, "latin", "font", "face", value)) {
+		out.latinFont = value;
+		out.latinFontSet = true;
+	}
+	// The legacy reader above already warned about a value it does not know.
+	// Its "ttf" spelling means the face's own advances, i.e. "font".
+	if (getKey(ini, qualifiers, "latin", "metrics", value)) {
+		if (value.equalsIgnoreCase("ttf")) {
+			out.latinMetrics = kHiResMetricsFont;
+			out.latinMetricsSet = true;
+		} else if (parseMetrics(value, out.latinMetrics)) {
+			out.latinMetricsSet = true;
+		}
+	}
+	readFontIdSections(ini, qualifiers, out);
 
 	// [shadow] forces an outline or drop shadow on the replacement glyphs.
 	//
@@ -572,7 +1030,7 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 				continue;
 			int height;
 			if (parseInteger(it->key.c_str() + 7, 65535, height) && height > 0)
-				out.heightRoles[height] = parseRole(it->value);
+				out.heightRoles[height] = parseRole(stripInlineComment(it->value));
 		}
 	}
 
@@ -587,7 +1045,14 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 	//   [glyphs:cs1]
 	//   0x5f = keep        ; left arrow in this charset only
 	//   0x7f = u+2192      ; drawn from the replacement at another code point
-	readGlyphSection(ini, qualifiers, "glyphs", out.glyphOverrides);
+	//
+	// A key may also be a range of codes, mapped by an offset or kept:
+	//
+	//   [glyphs]
+	//   0x21-0x7E = +0xFEE0  ; ASCII to the fullwidth forms
+	//   0x80-0x9F = keep
+	uint rangeBudget = kMaxGlyphRangeCodes;
+	readGlyphSection(ini, qualifiers, "glyphs", out.glyphOverrides, rangeBudget);
 
 	if (scopes) {
 		out.scopedGlyphOverrides.resize(scopes->size());
@@ -597,7 +1062,7 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 			const Common::String section =
 				Common::String::format("glyphs:%s", (*scopes)[i].c_str());
 			readGlyphSection(ini, qualifiers, section.c_str(),
-							 out.scopedGlyphOverrides[i]);
+							 out.scopedGlyphOverrides[i], rangeBudget);
 		}
 	}
 
