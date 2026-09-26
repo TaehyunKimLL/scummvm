@@ -38,7 +38,7 @@ class HiResBitmapFont;
  *
  * The geometry follows TtfGlyphSource at the same size: cellWidth() is the
  * font's cell width, a glyph is 1 or 2 cells by East Asian Width
- * (TtfGlyphSource::isWide()), advanceNarrow()/advanceWide() are half and
+ * (Unicode::isWide()), advanceNarrow()/advanceWide() are half and
  * all of the cell, and rows are cellWidth()*2 pixels at bitsPerPixel(), the
  * layout TextCompose::expandGlyphRow() reads. SVFN stores one cell per
  * glyph, so each glyph's rows are copied once, on first use, into that
