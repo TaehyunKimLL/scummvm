@@ -138,6 +138,14 @@ int ScvmuniGlyphSource::cells(uint32 cp) {
 	return g >= 0 ? _widths[g] : 0;
 }
 
+bool ScvmuniGlyphSource::metrics(uint32 cp, GlyphMetrics &m) {
+	if (!UnicodeGlyphSource::metrics(cp, m))
+		return false;
+	if (!m.combining)
+		m.advance = (cells(cp) >= 2) ? _advanceWide : _advanceNarrow;
+	return true;
+}
+
 const byte *ScvmuniGlyphSource::row(uint32 cp, int y) {
 	const int g = findGlyph(cp);
 	if (g < 0)
