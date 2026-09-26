@@ -178,8 +178,8 @@ WFNError WFNFont::ReadExtFromFile(Stream *in) {
 		return kWFNErr_BadSignature;
 	std::vector<uint8_t> data;
 	data.resize(static_cast<size_t>(len));
-	const size_t read = in->Read(&data.front(), data.size());
-	return ReadExtFromData(&data.front(), read);
+	data.resize(in->Read(&data.front(), data.size()));
+	return ParseExt(data);
 }
 
 } // namespace AGS3

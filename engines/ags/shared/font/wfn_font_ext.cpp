@@ -72,8 +72,19 @@ uint16_t WFNFont::GetExtHeight() const {
 }
 
 WFNError WFNFont::ReadExtFromData(const uint8_t *data, size_t size) {
+	std::vector<uint8_t> buf;
+	if (data && size > 0) {
+		buf.resize(size);
+		memcpy(&buf.front(), data, size);
+	}
+	return ParseExt(buf);
+}
+
+WFNError WFNFont::ParseExt(std::vector<uint8_t> &buf) {
 	ClearExt();
 
+	const size_t size = buf.size();
+	const uint8_t *data = size > 0 ? &buf.front() : nullptr;
 	if (!data || size < EXT_HEADER_SIZE ||
 		memcmp(data, EXT_FILE_SIGNATURE, EXT_FILE_SIG_LENGTH) != 0)
 		return kWFNErr_BadSignature;
@@ -88,8 +99,8 @@ WFNError WFNFont::ReadExtFromData(const uint8_t *data, size_t size) {
 	if (size - table_addr != char_count * sizeof(uint32_t))
 		return kWFNErr_BadCharCount;
 
-	_extData.resize(size);
-	memcpy(&_extData.front(), data, size);
+	// Take the buffer over; the items point into it.
+	_extData.swap(buf);
 	const uint8_t *file = &_extData.front();
 
 	// Every character is checked on its own: its header and pixel rows must
