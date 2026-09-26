@@ -10,6 +10,7 @@ TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/common/formats/*.h \
 	$(srcdir)/test/audio/*.h \
 	$(srcdir)/test/math/*.h \
+	$(srcdir)/test/graphics/hires_text*.h \
 	$(srcdir)/test/image/*.h
 TEST_LIBS    :=
 

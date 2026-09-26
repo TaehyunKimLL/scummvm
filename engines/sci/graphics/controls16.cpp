@@ -126,7 +126,7 @@ void GfxControls16::texteditCursorDraw(Common::Rect rect, const char *text, uint
 	if (!_texteditCursorVisible) {
 		int16 textWidth = 0;
 		for (int16 i = 0; i < curPos; i++) {
-			textWidth += _text16->_font->getCharWidth((unsigned char)text[i]);
+			textWidth += _text16->getGlyphWidth((unsigned char)text[i]);
 		}
 		if (!g_sci->isLanguageRTL())
 			_texteditCursorRect.left = rect.left + textWidth;
@@ -135,9 +135,9 @@ void GfxControls16::texteditCursorDraw(Common::Rect rect, const char *text, uint
 		_texteditCursorRect.top = rect.top;
 		_texteditCursorRect.bottom = _texteditCursorRect.top + _text16->_font->getHeight();
 		if (!g_sci->isLanguageRTL())
-			_texteditCursorRect.right = _texteditCursorRect.left + (text[curPos] == 0 ? 1 : _text16->_font->getCharWidth((unsigned char)text[curPos]));
+			_texteditCursorRect.right = _texteditCursorRect.left + (text[curPos] == 0 ? 1 : _text16->getGlyphWidth((unsigned char)text[curPos]));
 		else
-			_texteditCursorRect.left = _texteditCursorRect.right - (text[curPos] == 0 ? 1 : _text16->_font->getCharWidth((unsigned char)text[curPos]));
+			_texteditCursorRect.left = _texteditCursorRect.right - (text[curPos] == 0 ? 1 : _text16->getGlyphWidth((unsigned char)text[curPos]));
 		_paint16->invertRect(_texteditCursorRect);
 		_paint16->bitsShow(_texteditCursorRect);
 		_texteditCursorVisible = true;
@@ -272,8 +272,8 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 			// We check if we are really able to add the new char
 			uint16 textWidth = 0;
 			while (*textPtr)
-				textWidth += _text16->_font->getCharWidth((byte)*textPtr++);
-			textWidth += _text16->_font->getCharWidth(eventKey);
+				textWidth += _text16->getGlyphWidth((byte)*textPtr++);
+			textWidth += _text16->getGlyphWidth(eventKey);
 
 			// Does it fit?
 			if (textWidth >= rect.width()) {

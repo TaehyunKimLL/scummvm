@@ -56,8 +56,11 @@ MODULE_OBJS := \
 	graphics/fontset.o \
 	graphics/fontunicode.o \
 	graphics/fontsjis.o \
+	graphics/glyphsource_routed.o \
 	graphics/glyphsource_scvmuni.o \
 	graphics/glyphsource_ttf.o \
+	graphics/hirestextsettings.o \
+	graphics/latinadvance.o \
 	graphics/macfont.o \
 	graphics/maciconbar.o \
 	graphics/menu.o \
@@ -72,6 +75,7 @@ MODULE_OBJS := \
 	graphics/screen.o \
 	graphics/text16.o \
 	graphics/textcompose.o \
+	graphics/textlatin.o \
 	graphics/textlayer.o \
 	graphics/transitions.o \
 	graphics/view.o \
