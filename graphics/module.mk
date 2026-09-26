@@ -14,9 +14,11 @@ MODULE_OBJS := \
 	fontman.o \
 	hires_text/bitmap_font.o \
 	hires_text/codepage_kr.o \
+	hires_text/coverage.o \
 	hires_text/font_baker.o \
 	hires_text/font_map.o \
 	hires_text/glyph_renderer.o \
+	hires_text/glyph_source_fallback.o \
 	hires_text/glyph_source_routed.o \
 	hires_text/glyph_source_scvmuni.o \
 	hires_text/glyph_source_svfn.o \
