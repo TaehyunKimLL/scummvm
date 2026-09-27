@@ -56,6 +56,108 @@ bool hiresTextApplies(SciVersion v, Common::CodePage page, bool utf8Translation,
  */
 int16 gameAdvance(const Graphics::GlyphMetrics &m, int gameNarrow, int gameWide, int scale);
 
+/**
+ * SCI16 text as layout units: UTF-8 (decoded as Sci::decodeUtf8Char(), the
+ * decoder GfxText16::readChar() and the string ops share), plus SCI's
+ * escapes (design section 3.3):
+ * - with @p textCodes (SCI1.1 and later), a '|' code up to and including
+ *   its closing '|' (to the end of the text when unclosed, as
+ *   GfxText16::CodeProcessing() reads it) is one control unit;
+ * - CR LF, CR, LF and U+FF20 (SQ4 Japanese) are newline units.
+ */
+class SciTextDecoder : public Graphics::TextDecoder {
+public:
+	explicit SciTextDecoder(bool textCodes) : _textCodes(textCodes) {}
+	int decode(const byte *p, const byte *end, uint32 &cp, byte &flags) const override;
+
+private:
+	bool _textCodes;
+};
+
+/**
+ * GetLongest()'s measure: the width of each unit in the current font, with
+ * the font changes of '|f' codes applied in order. A line's units are
+ * measured once, in order, by addUnit() (getLongestLayout() does it up to
+ * the first unit that cannot fit); width() and extend() then read those
+ * advances. advance(cp) is charWidth(cp) in the current font.
+ */
+class SciLayoutMetrics : public Graphics::LayoutMetrics {
+public:
+	SciLayoutMetrics() : _base(0) {}
+	virtual ~SciLayoutMetrics() {}
+
+	/** Forget the advances of the previous line; the next addUnit() measures unit @p first. */
+	void begin(uint32 first) { _adv.resize(0); _base = first; }
+	/**
+	 * Measure the next unit (its bytes at @p p, @p bytes long; flags as
+	 * the TextRun has them) and return its advance: 0 for a code (applied
+	 * through textCode()), a newline or a combining mark.
+	 */
+	int addUnit(const byte *p, int bytes, uint32 cp, byte flags);
+	/** The advance addUnit() gave unit @p i (0 when it was not measured). */
+	int unitAdvance(uint32 i) const {
+		return (i >= _base && i - _base < _adv.size()) ? _adv[i - _base] : 0;
+	}
+
+	int advance(uint32 cp) override { return charWidth(cp); }
+	int width(const Graphics::TextRun &run, uint32 from, uint32 to) override;
+	int extend(const Graphics::TextRun &run, uint32 from, uint32 i, int widthSoFar) override;
+
+protected:
+	/** The width of @p cp in the current font (GfxFont::getCharWidth()). */
+	virtual int charWidth(uint32 cp) = 0;
+	/** A '|' code, @p bytes long from its '|': apply it (a font change). */
+	virtual void textCode(const byte *code, int bytes) {}
+
+private:
+	Common::Array<int16> _adv;
+	uint32 _base;
+};
+
+/**
+ * The units of the string GetLongest() is walking, decoded once for all
+ * its lines. The callers (Size(), Box(), ...) ask for one line after the
+ * other with a pointer that moves through the same string; each call
+ * checks that the text from that pointer on is the tail of what was
+ * decoded, byte for byte, and otherwise decodes it afresh. Only the
+ * pointed-to text is read, never what lay before it.
+ */
+class SciLayoutText {
+public:
+	SciLayoutText() : _textCodes(false) {}
+
+	/** The unit at which @p text (NUL-terminated) starts, decoding it if needed. */
+	uint32 prepare(const byte *text, bool textCodes);
+	const Graphics::TextRun &run() const { return _run; }
+
+private:
+	Graphics::TextRun _run;
+	Common::Array<byte> _bytes;	///< the decoded string, for the tail check
+	bool _textCodes;
+};
+
+/**
+ * GfxText16::GetLongest() for UTF-8 text, on the shared layout stage: the
+ * byte count of the line starting at @p text that fits @p maxWidth, and in
+ * @p next the byte offset where the following line starts. The line is
+ * found by Graphics::TextLayout::fitLine() with @p rules (kinsoku, Thai
+ * fallback, Hangul at spaces); what is returned follows the old contract:
+ * - a line ended by a newline counts the newline; the end of the text
+ *   counts everything, trailing spaces included;
+ * - a line broken at spaces counts up to the last of those spaces that
+ *   still fitted (the old "last breaking space"), and @p next skips them;
+ * - a line with no break opportunity is split at a cluster boundary and
+ *   @p next is its end; a first character wider than the line is a line
+ *   of nothing (count 0), as it always was.
+ * @p early is GameFeatures::useEarlyGetLongestTextCalculations(): as the
+ * original interpreters did, a first word that reaches maxWidth exactly
+ * ends the line there, and a split word keeps the character that overflowed.
+ * Units are measured only up to the first one that cannot fit.
+ */
+int16 getLongestLayout(const byte *text, int16 maxWidth, bool textCodes, bool early,
+					   SciLayoutMetrics &m, const Graphics::BreakRules &rules,
+					   SciLayoutText &layoutText, uint32 &next);
+
 } // End of namespace Sci
 
 #endif // SCI_GRAPHICS_TEXTLAYOUT16_H
