@@ -86,7 +86,13 @@ bool GlyphFontRenderer::Build(FontData &fd, const Common::Array<uint32> &fitProb
 		Common::String error;
 		Common::SeekableReadStream *stream = Graphics::openFontFace(path, faceIndex, error);
 		if (!stream) {
-			if (warn)
+			// A plain path keeps its old warning; a "#<N>" one says why.
+			Common::String unusedFile;
+			int32 unusedIndex;
+			if (warn && Graphics::splitFontFaceIndex(path.baseName(), unusedFile, unusedIndex))
+				Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: cannot open font '%s' (%s): %s",
+							  path.toString().c_str(), plan.source.c_str(), error.c_str());
+			else if (warn)
 				Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: cannot open font '%s' (%s)",
 							  path.toString().c_str(), plan.source.c_str());
 			continue;
