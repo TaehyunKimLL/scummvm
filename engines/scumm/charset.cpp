@@ -1198,6 +1198,14 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 		const Common::Rect g = ScummHiResText::gameRectFor(hiResArea, _vm->_textSurfaceMultiplier);
 		_vm->markRectAsDirty(vs->number, g.left, g.right, g.top - vs->topline, g.bottom - vs->topline);
 	}
+	// The game cell this glyph stands for, in overlay pixels (C32).
+	Common::Rect hiResCell;
+	{
+		const int m = _vm->_textSurfaceMultiplier;
+		const int w = is2byte ? width : width * m;
+		const int h = is2byte ? height : height * m;
+		hiResCell = Common::Rect(_left * m, _top * m, _left * m + w, _top * m + h);
+	}
 	if (!ignoreCharsetMask) {
 		// A double-byte cell is already in surface pixels here.
 		const int m = _vm->_textSurfaceMultiplier;
@@ -1210,7 +1218,12 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 			 && _vm->_game.platform != Common::kPlatformFMTowns
 #endif
 			 )
-		_vm->noteKeptHiResGlyph(hiResArea, _blitAlso);
+		_vm->noteKeptHiResGlyph(hiResCell, hiResArea, _blitAlso);
+	if (hiResDrawn && !vs->hasTwoBuffers && _vm->erasesHiResTextOnPaint()) {
+		// The game would have drawn this into the screen's own buffer, and
+		// will erase it by painting that buffer over.
+		_vm->noteTracedHiResGlyph(hiResCell, hiResArea);
+	}
 
 	if (hiResDrawn) {
 		// drawn
@@ -1512,18 +1525,24 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_vm->markRectAsDirty(vs->number, g.left, g.right,
 							 g.top + _vm->_screenTop - vs->topline, g.bottom + _vm->_screenTop - vs->topline);
 	}
+	// The game cell this glyph stands for, in overlay pixels (C32).
+	const Common::Rect hiResCell(_left * _vm->_textSurfaceMultiplier,
+								 (_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier,
+								 (_left + _width) * _vm->_textSurfaceMultiplier,
+								 (_top - _vm->_screenTop + _height) * _vm->_textSurfaceMultiplier);
 	if (!ignoreCharsetMask) {
-		const int m = _vm->_textSurfaceMultiplier;
-		const int y = _top - _vm->_screenTop;
-		noteMaskedArea(hiResDrawn ? hiResArea
-								  : Common::Rect(_left * m, y * m,
-												 (_left + _width) * m, (y + _height) * m));
+		noteMaskedArea(hiResDrawn ? hiResArea : hiResCell);
 	} else if (hiResDrawn && vs->number == kMainVirtScreen && vs->hasTwoBuffers
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 			 && _vm->_game.platform != Common::kPlatformFMTowns
 #endif
 			 )
-		_vm->noteKeptHiResGlyph(hiResArea, _blitAlso);
+		_vm->noteKeptHiResGlyph(hiResCell, hiResArea, _blitAlso);
+	if (hiResDrawn && !vs->hasTwoBuffers && _vm->erasesHiResTextOnPaint()) {
+		// The game would have drawn this into the screen's own buffer, and
+		// will erase it by painting that buffer over.
+		_vm->noteTracedHiResGlyph(hiResCell, hiResArea);
+	}
 	if (!hiResDrawn && _charPtr)
 		printCharIntern(is2byte, _charPtr, _origWidth, _origHeight, _width, _height, vs, ignoreCharsetMask);
 

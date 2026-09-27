@@ -1482,6 +1482,8 @@ void ScummEngine::saveSurfacesPreGUI() {
 		// about to paint over, and closing the menu would restore indices
 		// under stale antialiasing.
 		_overlay.saveState();
+		_savedKeptHiResGlyphs = _keptHiResGlyphs;
+		_savedTracedHiResGlyphs = _tracedHiResGlyphs;
 
 		// For each v4-v6 game (except for LOOM VGA which does its own thing), we take the text surface
 		// and stamp it on top of the main screen: this is done to ensure that the GUI is drawn on top
@@ -1538,6 +1540,12 @@ void ScummEngine::restoreSurfacesPostGUI() {
 
 		// And the coverage that belongs with them.
 		_overlay.restoreState();
+		// The GUI's boxes may have retired records of text the restore just
+		// put back; the records go back with it (C32 review).
+		_keptHiResGlyphs = _savedKeptHiResGlyphs;
+		_tracedHiResGlyphs = _savedTracedHiResGlyphs;
+		_savedKeptHiResGlyphs.clear();
+		_savedTracedHiResGlyphs.clear();
 
 		// Signal the restoreCharsetBg() function that there's text
 		// on the text surface, so it gets deleted the next time another
