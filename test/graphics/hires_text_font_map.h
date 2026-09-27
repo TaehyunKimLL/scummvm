@@ -450,6 +450,22 @@ public:
 							 .toString('/'),
 						 "data:hires_text/fonts/none.ttf");
 
+		// A data: path stays inside the data folders: no absolute path,
+		// no drive letter, no ".." component; such a value is not looked up.
+		TS_ASSERT(M::isSafeDataRelative("hires_text/fonts/x.ttf"));
+		TS_ASSERT(M::isSafeDataRelative("hires_text/..fonts/x..ttf"));
+		TS_ASSERT(!M::isSafeDataRelative(""));
+		TS_ASSERT(!M::isSafeDataRelative("/etc/x.ttf"));
+		TS_ASSERT(!M::isSafeDataRelative("\\x.ttf"));
+		TS_ASSERT(!M::isSafeDataRelative("C:/x.ttf"));
+		TS_ASSERT(!M::isSafeDataRelative("../x.ttf"));
+		TS_ASSERT(!M::isSafeDataRelative("hires_text/../../x.ttf"));
+		TS_ASSERT(!M::isSafeDataRelative("hires_text\\..\\x.ttf"));
+		TS_ASSERT(!M::isSafeDataRelative("hires_text/.."));
+		TS_ASSERT_EQUALS(M::resolveDataPath("../opt/data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf",
+											roots, dataFileExists).toString('/'),
+						 "data:../opt/data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf");
+
 		// (resolvePath() hands a data: value to resolveDataPath() with
 		// dataRoots(); that needs a live file system, so it is covered by
 		// the engine capture in runs/c29, not here.)

@@ -394,21 +394,30 @@ public:
 	static bool isDataPath(const Common::String &value);
 
 	/**
+	 * Whether @p relative (the part after "data:") stays inside a data
+	 * folder: not empty, not absolute (no leading separator or drive
+	 * letter) and no ".." component.
+	 */
+	static bool isSafeDataRelative(const Common::String &relative);
+
+	/**
 	 * Find @p relative (the part after "data:") under each of @p roots in
 	 * order and return the first existing file; a trailing "#<N>" face
 	 * suffix is honoured as resolveFontFace() does and kept in the result.
-	 * When no root holds it, the value comes back as "data:<relative>" so
-	 * the opener's warning names what the map wrote.
+	 * When no root holds it, or it fails isSafeDataRelative(), the value
+	 * comes back as "data:<relative>" so the opener's warning names what
+	 * the map wrote.
 	 */
 	static Common::Path resolveDataPath(const Common::String &relative,
 										const Common::Array<Common::Path> &roots,
 										FontFileExistsFn exists = fontFileExists);
 
 	/**
-	 * The folders "data:" searches, in order: the extrapath of the active
-	 * domain, the application-level extrapath, then the compiled-in
-	 * DATA_PATH (where "make install" puts engine data). A source-tree
-	 * build reaches dists/engine-data through --extrapath.
+	 * The folders "data:" searches, in order, each once: the extrapath
+	 * given on the command line (transient domain), the active game's
+	 * extrapath, the global (application) extrapath, the in-tree default
+	 * a non-release build sets (session domain, dists/engine-data/), then
+	 * the compiled-in DATA_PATH (where "make install" puts engine data).
 	 */
 	static Common::Array<Common::Path> dataRoots();
 
