@@ -211,7 +211,7 @@ private:
 	Common::Array<uint32> _sample;
 	/// Faces already checked for coverage (and warned about), by name.
 	Common::HashMap<Common::String, bool> _coverageChecked;
-	/// Face chains by their faces' paths; each is a face in _ttfSources or one of _chainParts.
+	/// Face chains by faceChainKey() (size, .uni behind, faces); each is a face in _ttfSources or one of _chainParts.
 	Common::HashMap<Common::String, Graphics::UnicodeGlyphSource *> _chains;
 	/// The FallbackGlyphSources and .uni wrappers the chains are made of, owned.
 	Common::Array<Graphics::UnicodeGlyphSource *> _chainParts;

@@ -143,6 +143,7 @@ public:
 	void draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) override;
 	void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput,
 	                  byte *buffer, int16 width, int16 height) override;
+	void beginString() override;
 
 private:
 	struct Face {

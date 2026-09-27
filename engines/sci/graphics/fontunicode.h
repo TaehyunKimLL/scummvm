@@ -96,11 +96,20 @@ public:
 
 	/**
 	 * The advance of @p cp in game px when drawn at @p scale hi-res px per
-	 * game px: gameAdvance() of its metrics, a glyph the source keeps in two
-	 * cells counting as wide (so a SCVMUNI bundle's widths are exactly the
-	 * cell widths they always were). 0 when there is no glyph.
+	 * game px: glyphGameWidth() with perGlyph(). 0 when there is no glyph.
 	 */
 	byte gameCharWidth(uint32 cp, int scale);
+
+	/**
+	 * Per-glyph advance and placement (a UTF-8 translation is loaded).
+	 * Off - the default - every glyph is measured and drawn by its cell,
+	 * as before, so a legacy font keeps its widths to the pixel.
+	 */
+	void setPerGlyph(bool on) { _perGlyph = on; }
+	bool perGlyph() const { return _perGlyph; }
+
+	/** A string starts: a mark at its start does not attach to the last string's base. */
+	void beginString() override { _anchor.reset(); }
 
 	/** Does this font have a glyph for @p codepoint? */
 	bool hasGlyph(uint32 codepoint) const { return _source && _source->cells(codepoint) > 0; }
@@ -128,16 +137,10 @@ private:
 	/** Scratch buffer for expanding a glyph to one byte per pixel. */
 	Common::Array<byte> _glyphScratch;
 
-	/**
-	 * Where a combining mark goes (design section 4.2): the pen after the
-	 * last base glyph draw() placed, kept in hi-res px so the mark lands
-	 * where the face puts it whatever the game-px rounding. Used when the
-	 * mark is drawn where that base left the pen (_anchorLeft, _anchorTop
-	 * in game px).
-	 */
-	bool _anchorValid;
-	int16 _anchorLeft, _anchorTop;
-	int _anchorHiresX;
+	/// Per-glyph advance and placement: set for a UTF-8 translation only.
+	bool _perGlyph;
+	/// Where a combining mark goes; reset by beginString().
+	CombiningAnchor _anchor;
 };
 
 /**
@@ -190,6 +193,7 @@ public:
 	void draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) override;
 	void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput,
 	                  byte *buffer, int16 width, int16 height) override;
+	void beginString() override;
 
 	/**
 	 * hires_text_log: which face draw() would pick for @p chr - mirrors its

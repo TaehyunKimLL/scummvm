@@ -183,6 +183,9 @@ int16 GfxText16::CodeProcessing(const char *&text, GuiResourceId orgFontId, int1
 				SetFont(_codeFonts[curCodeParm]);
 			}
 		}
+		// Another font's anchor is from another string.
+		if (doingDrawing)
+			_font->beginString();
 		break;
 	case 'r': // reference (used in pepper)
 		if (doingDrawing) {
@@ -623,6 +626,9 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 	GetFont();
 	if (!_font)
 		return;
+	// A combining mark at the start of this string must not attach to the
+	// last base of the previous one.
+	_font->beginString();
 
 	// hires_text_log: resolved once by GfxCache, so this costs one bool read
 	// when off. The four counts are read back by Box() right after this

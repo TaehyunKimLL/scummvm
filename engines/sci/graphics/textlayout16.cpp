@@ -22,6 +22,7 @@
 #include "sci/graphics/textlayout16.h"
 
 #include "graphics/hires_text/latin_advance.h"
+#include "graphics/hires_text/unicode_props.h"
 #include "sci/utf8.h"
 
 namespace Sci {
@@ -51,6 +52,48 @@ int16 gameAdvance(const Graphics::GlyphMetrics &m, int gameNarrow, int gameWide,
 	if (m.wide)
 		return (int16)gameWide;
 	return (int16)Graphics::latinAdvanceGamePx(Graphics::kHiResMetricsFont, gameNarrow, m.advance, scale);
+}
+
+int16 glyphGameWidth(Graphics::UnicodeGlyphSource *src, uint32 cp, int scale, bool perGlyph) {
+	if (!src || scale < 1)
+		return 0;
+	const int cells = src->cells(cp);
+	if (cells <= 0)
+		return 0;
+	if (!perGlyph)
+		return (int16)((cells == 2 ? src->advanceWide() : src->advanceNarrow()) / scale);
+	// The cell rule needs no per-glyph metrics (the common case, asked per
+	// character).
+	if (cells == 2 && !Graphics::Unicode::isCombining(cp))
+		return (int16)(src->advanceWide() / scale);
+	Graphics::GlyphMetrics m;
+	if (!src->metrics(cp, m))
+		return 0;
+	m.wide = cells == 2;
+	return gameAdvance(m, src->advanceNarrow() / scale, src->advanceWide() / scale, scale);
+}
+
+int CombiningAnchor::place(const Graphics::GlyphMetrics &m, bool placed, int16 left, int16 top, int gameAdvance) {
+	int hiresX = left << 1;
+	if (!placed)
+		return hiresX;
+	if (m.combining) {
+		if (_valid && left == _left && top == _top)
+			hiresX = _hiresX;
+	} else {
+		_valid = true;
+		_hiresX = hiresX + m.advance;
+		_left = left + gameAdvance;
+		_top = top;
+	}
+	return hiresX - m.originX;
+}
+
+Common::String faceChainKey(const Common::Array<Common::String> &faces, int size, bool uniBehind) {
+	Common::String key = Common::String::format("%d|%d", size, uniBehind ? 1 : 0);
+	for (uint i = 0; i < faces.size(); i++)
+		key += "|" + faces[i];
+	return key;
 }
 
 // --- SciTextDecoder -------------------------------------------------------
@@ -159,6 +202,11 @@ bool isGlue(byte flags) {
 	return (flags & Graphics::kUnitControl) && !(flags & Graphics::kUnitNewline);
 }
 
+/** Byte offset of unit @p i from @p base, the line's start (which is `text`). */
+inline uint32 rel(const Graphics::TextRun &run, uint32 base, uint32 i) {
+	return run.byteOffset(i) - base;
+}
+
 /** The first cluster boundary after unit i. */
 uint32 nextBoundary(const Graphics::TextRun &run, uint32 i) {
 	uint32 e = i + 1;
@@ -205,8 +253,6 @@ int16 getLongestLayout(const byte *text, int16 maxWidth, bool textCodes, bool ea
 	if (from >= n)
 		return 0;
 	const uint32 base = run.byteOffset(from);
-	// Byte offsets from the line's start, which is `text`.
-#define REL(i) (run.byteOffset(i) - base)
 
 	// Measure units in order until the line cannot need more: through the
 	// first unit that overflows (spaces hang, marks and codes are zero
@@ -217,7 +263,7 @@ int16 getLongestLayout(const byte *text, int16 maxWidth, bool textCodes, bool ea
 	bool over = false;
 	for (uint32 i = from; i < n; i++) {
 		const byte flags = run.flags(i);
-		const int a = m.addUnit(text + REL(i), REL(i + 1) - REL(i), run.cp(i), flags);
+		const int a = m.addUnit(text + rel(run, base, i), rel(run, base, i + 1) - rel(run, base, i), run.cp(i), flags);
 		if (flags & Graphics::kUnitNewline)
 			break;
 		const bool glue = isGlue(flags);
@@ -240,7 +286,7 @@ int16 getLongestLayout(const byte *text, int16 maxWidth, bool textCodes, bool ea
 		while (k < n && isGlue(run.flags(k)))
 			k++;
 		if (k < n && !(run.flags(k) & Graphics::kUnitNewline) && m.unitAdvance(k) > maxWidth) {
-			next = REL(k);
+			next = rel(run, base, k);
 			return (int16)next;
 		}
 	}
@@ -267,7 +313,7 @@ int16 getLongestLayout(const byte *text, int16 maxWidth, bool textCodes, bool ea
 			if (fw == maxWidth) {
 				const uint32 e = nextBoundary(run, k);
 				if (l.next >= e || l.end == from) {
-					next = REL(e);
+					next = rel(run, base, e);
 					return (int16)next;
 				}
 				break;
@@ -278,13 +324,21 @@ int16 getLongestLayout(const byte *text, int16 maxWidth, bool textCodes, bool ea
 	uint32 count;
 	if (l.forced) {
 		// The newline belongs to the line.
-		count = next = REL(l.next);
+		count = next = rel(run, base, l.next);
 	} else if (l.emergency) {
 		uint32 e = l.end;
-		// A split word keeps the character that overflowed (early).
-		if (early && l.width < maxWidth && e < n && !(run.flags(e) & Graphics::kUnitNewline))
-			e = nextBoundary(run, e);
-		count = next = REL(e);
+		if (early) {
+			// A split word keeps the character that overflowed, and the
+			// codes before it.
+			if (l.width < maxWidth && e < n && !(run.flags(e) & Graphics::kUnitNewline))
+				e = nextBoundary(run, e);
+		} else {
+			// Codes between the last character that fitted and the one
+			// that did not stay on this line, as GetLongest() counted them.
+			while (e < n && isGlue(run.flags(e)))
+				e++;
+		}
+		count = next = rel(run, base, e);
 	} else {
 		// Broken at spaces: count up to the last of them that still fitted
 		// (the old "last breaking space"); at the end of the text, all of
@@ -300,16 +354,15 @@ int16 getLongestLayout(const byte *text, int16 maxWidth, bool textCodes, bool ea
 		}
 		if (s == l.next && l.next >= n && ws <= maxWidth)
 			c = n;
-		count = REL(c);
-		next = REL(l.next);
+		count = rel(run, base, c);
+		next = rel(run, base, l.next);
 		if (!count) {
 			// Only spaces fitted before the break (a line that starts with
 			// spaces): split the text instead, as a space at the start of a
 			// line was never a break.
-			count = next = REL(splitEnd(run, from, m, maxWidth, early));
+			count = next = rel(run, base, splitEnd(run, from, m, maxWidth, early));
 		}
 	}
-#undef REL
 	return (int16)count;
 }
 
