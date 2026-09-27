@@ -176,6 +176,24 @@ public:
 	 *  tests and logged, with rasterCount(), when the source is destroyed. */
 	uint32 totalRenderMs() const { return _totalRenderMs; }
 
+	/**
+	 * The map's [hires] gamma=, in hundredths: every glyph rasterised from
+	 * now on has its coverage c replaced by 255*(c/255)^(100/gamma), and
+	 * glyphs already cached are dropped so they are drawn again with it.
+	 * Zero stays zero and 255 stays 255, so no glyph's extent, advance or
+	 * fit changes - only its partial pixels. 100 (the default) is off: the
+	 * rows are FreeType's bytes, untouched. Clamped to 50..400.
+	 */
+	void setCoverageGamma(int gammaX100);
+	int coverageGamma() const { return _gamma; }
+
+	/**
+	 * Fills lut with the gamma= curve (gammaX100 clamped to 50..400).
+	 * Returns false when the curve is the identity (gamma 1). Pure; also
+	 * in the no-FreeType build.
+	 */
+	static bool buildGammaCurve(int gammaX100, byte lut[256]);
+
 	/** Whether cp is East Asian Wide or Fullwidth: forwards to
 	 *  Unicode::isWide() (unicode_props.h), kept for existing callers.
 	 *  Available even when this build has no FreeType. */
@@ -244,6 +262,10 @@ private:
 	uint32 _totalRenderMs = 0;
 
 	Common::HashMap<uint32, Entry> _cache;
+
+	int _gamma = 100;
+	bool _useGamma = false;
+	byte _gammaLut[256];
 };
 
 } // End of namespace Graphics

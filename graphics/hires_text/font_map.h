@@ -209,6 +209,11 @@ struct HiResTextConfig {
 	bool alpha;                 ///< keep an 8bpp coverage surface for blending
 	bool scaleFromMap;          ///< true if 'scale' came from the map, not the user
 	bool alphaFromMap;
+	/// [hires] gamma=, in hundredths (2.2 is 220): a curve applied to a
+	/// TrueType glyph's coverage when it is rasterised, 255*(c/255)^(1/g).
+	/// Above 100 stems read heavier; 100 (the default) leaves every byte as
+	/// FreeType drew it. Range 50..400.
+	int coverageGamma;
 
 	// --- source text ----------------------------------------------------
 	/// Code page of the game's own strings. Decoding happens in the engine
