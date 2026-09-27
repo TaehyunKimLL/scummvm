@@ -685,6 +685,8 @@ void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth, int
 	int code = (_vm->_game.heversion >= 80) ? 127 : 64;
 
 	int strLength = _vm->resStrLen(str);
+	if (bufSize < 0)
+		bufSize = strLength + 1;
 
 	while ((chr = str[pos++]) != 0) {
 		if (_vm->_game.heversion >= 72) {
@@ -799,12 +801,16 @@ void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth, int
 					pos = lastspace + 1;
 					lastspace = -1;
 					lastKoreanLineBreak = -1;
-				} else {
-					byte *breakPtr = str + lastKoreanLineBreak;
-					memmove(breakPtr + 1, breakPtr, strLength - lastKoreanLineBreak + 1);
-					str[lastKoreanLineBreak] = 0xD;
+				} else if (insertLinebreak(str, strLength, lastKoreanLineBreak, bufSize)) {
 					curw = 1;
 					pos = lastKoreanLineBreak + 1;
+					lastspace = -1;
+					lastKoreanLineBreak = -1;
+				} else if (lastspace != -1) {
+					// No room in the buffer to insert a break: take the space
+					str[lastspace] = 0xD;
+					curw = 1;
+					pos = lastspace + 1;
 					lastspace = -1;
 					lastKoreanLineBreak = -1;
 				}

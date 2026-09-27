@@ -837,7 +837,8 @@ void ScummEngine::wrapSegaCDText() {
 		memcpy(predictionString, _charsetBuffer, sizeof(predictionString));
 
 		// Impose a tentative max string width for the wrapping
-		_charset->addLinebreaks(0, predictionString + _charsetBufPos, 0, predictionMaxWidth);
+		_charset->addLinebreaks(0, predictionString + _charsetBufPos, 0, predictionMaxWidth,
+								(int)sizeof(predictionString) - _charsetBufPos);
 
 		int predictionStringWidth = _charset->getStringWidth(0, predictionString + _charsetBufPos);
 		predictionNextLeft -= predictionStringWidth / 2;
@@ -909,7 +910,8 @@ void ScummEngine::wrapSegaCDText() {
 		finalMaxWidth = _nextLeft;
 	finalMaxWidth *= 2;
 
-	_charset->addLinebreaks(0, _charsetBuffer + _charsetBufPos, 0, finalMaxWidth);
+	_charset->addLinebreaks(0, _charsetBuffer + _charsetBufPos, 0, finalMaxWidth,
+							(int)sizeof(_charsetBuffer) - _charsetBufPos);
 
 	int finalStringWidth = _charset->getStringWidth(0, _charsetBuffer + _charsetBufPos);
 	_nextLeft -= finalStringWidth / 2;
