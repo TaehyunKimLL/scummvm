@@ -84,10 +84,27 @@ public:
 	 *  kinsoku on, Thai on), overridden by the map's [layout]. */
 	Graphics::BreakRules breakRules() const;
 
-	/** Take a parsed map (nullptr: none) and the ini's face chain and size
-	 *  as load() found them; for load() and the unit tests. */
+	/**
+	 * The N the map or the ini asks for (AGS_HIRES_TEXT_DESIGN.md section 6):
+	 * ini hires_text_scale, else the map's [hires] scale=, else 1. A map
+	 * without scale= is 1 whatever fonts it names (C23 ruling on Q1).
+	 * Not yet gated: see gateScale().
+	 */
+	int requestedScale() const;
+	/** hires_text_scale's value: decimal 1..3 only. */
+	static bool parseScale(const Common::String &value, int &scale);
+	/**
+	 * The section 6 gates on a requested N >= 2: a mapped font, a 16/32-bit
+	 * game and a 32-bit screen format. Returns N, or 1 with the reason in
+	 * `why` (for the one warning). N = 1 passes and leaves `why` alone.
+	 */
+	static int gateScale(int requested, bool fontsNamed, int gameColorDepth, bool has32BitFormat,
+						 Common::String &why);
+
+	/** Take a parsed map (nullptr: none), the ini's face chain, size and
+	 *  scale (0: unset) as load() found them; for load() and the unit tests. */
 	void configure(const Graphics::HiResTextConfig *map, const Common::Path &mapDir,
-				   const Common::Array<Common::Path> &iniChain, int iniSize);
+				   const Common::Array<Common::Path> &iniChain, int iniSize, int iniScale = 0);
 
 	/** Code points of the loaded UTF-8 translation, sampled (coverage.h). */
 	const Common::Array<uint32> &sample() const { return _sample; }
@@ -104,6 +121,7 @@ private:
 	Common::Path _mapDir;		///< relative paths in the map and in hires_text_font resolve here
 	Common::Array<Common::Path> _iniChain;
 	int _iniSize;
+	int _iniScale;				///< hires_text_scale, 1..3; 0 = unset
 	Common::Array<uint32> _sample;
 };
 

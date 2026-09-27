@@ -39,11 +39,12 @@ void HiResFontConfig::clear() {
 	_mapDir.clear();
 	_iniChain.clear();
 	_iniSize = 0;
+	_iniScale = 0;
 	_sample.clear();
 }
 
 void HiResFontConfig::configure(const Graphics::HiResTextConfig *map, const Common::Path &mapDir,
-								const Common::Array<Common::Path> &iniChain, int iniSize) {
+								const Common::Array<Common::Path> &iniChain, int iniSize, int iniScale) {
 	clear();
 	_loaded = true;
 	_mapLoaded = map != nullptr;
@@ -52,6 +53,7 @@ void HiResFontConfig::configure(const Graphics::HiResTextConfig *map, const Comm
 	_mapDir = mapDir;
 	_iniChain = iniChain;
 	_iniSize = iniSize;
+	_iniScale = iniScale;
 	updateActive();
 }
 
@@ -113,6 +115,39 @@ HiResFontPlan HiResFontConfig::plan(int fontNumber) const {
 
 bool HiResFontConfig::alpha() const {
 	return (_mapLoaded && _map.alphaFromMap) ? _map.alpha : true;
+}
+
+// The shared reader's range for [hires] scale= (graphics/hires_text/font_map.cpp)
+static const int kMaxScale = 3;
+
+int HiResFontConfig::requestedScale() const {
+	if (_iniScale >= 1 && _iniScale <= kMaxScale)
+		return _iniScale;
+	if (_mapLoaded && _map.scaleFromMap && _map.scale >= 1 && _map.scale <= kMaxScale)
+		return _map.scale;
+	return 1;
+}
+
+bool HiResFontConfig::parseScale(const Common::String &value, int &scale) {
+	if (value.size() != 1 || value[0] < '1' || value[0] > '0' + kMaxScale)
+		return false;
+	scale = value[0] - '0';
+	return true;
+}
+
+int HiResFontConfig::gateScale(int requested, bool fontsNamed, int gameColorDepth, bool has32BitFormat,
+							   Common::String &why) {
+	if (requested <= 1)
+		return 1;
+	if (!fontsNamed)
+		why = Common::String::format("hires text scale %d needs a mapped font (hires_text.map or hires_text_font); using 1", requested);
+	else if (gameColorDepth <= 8)
+		why = Common::String::format("hires text scale %d is not supported for 8-bit games; using 1", requested);
+	else if (!has32BitFormat)
+		why = Common::String::format("hires text scale %d needs a 32-bit screen format, which the backend lacks; using 1", requested);
+	else
+		return requested;
+	return 1;
 }
 
 Graphics::BreakRules HiResFontConfig::breakRules() const {
