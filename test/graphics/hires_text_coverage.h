@@ -333,6 +333,27 @@ public:
 			"(U+0E48 U+0E49); they fall back to the game's font");
 	}
 
+	// C24: a character that draws no ink by design (a space, a zero-width
+	// or other format character) is never counted missing, even when the
+	// face does not answer for it; every other absent one is.
+	void test_check_coverage_ignores_inkless_characters() {
+		RepertoireSource src;
+		src.glyphs[0xAC00] = 16;
+		src.glyphs['a'] = 8;
+		Common::Array<uint32> sample;
+		const uint32 cps[] = { 'a', ' ', 0x00A0, 0x2009, 0x200B, 0x200D, 0x3000, 0xFE0F, 0xAC00, 0xB620, 0xBDC1 };
+		for (uint i = 0; i < ARRAYSIZE(cps); i++)
+			sample.push_back(cps[i]);
+		Graphics::CoverageReport r = Graphics::checkCoverage(&src, sample);
+		TS_ASSERT_EQUALS(r.sampled, (uint32)ARRAYSIZE(cps));
+		TS_ASSERT_EQUALS(r.missing, 2u);
+		TS_ASSERT_EQUALS(r.firstMissing.size(), 2u);
+		if (r.firstMissing.size() == 2) {
+			TS_ASSERT_EQUALS(r.firstMissing[0], 0xB620u);
+			TS_ASSERT_EQUALS(r.firstMissing[1], 0xBDC1u);
+		}
+	}
+
 	void test_check_coverage_first_missing_is_five_ascending() {
 		RepertoireSource src;
 		Common::Array<uint32> sample;

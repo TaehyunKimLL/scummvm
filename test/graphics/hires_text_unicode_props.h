@@ -186,6 +186,36 @@ public:
 		TS_ASSERT(!Graphics::Unicode::isCombining(0x0041));
 	}
 
+	// C24: the characters a face may draw with no ink without lacking them.
+	void test_is_space_separator() {
+		static const uint32 kZs[] = { 0x0020, 0x00A0, 0x1680, 0x2000, 0x2009, 0x200A, 0x202F, 0x205F, 0x3000 };
+		for (uint i = 0; i < ARRAYSIZE(kZs); i++)
+			TSM_ASSERT(Common::String::format("U+%04X", kZs[i]).c_str(), Graphics::Unicode::isSpaceSeparator(kZs[i]));
+		static const uint32 kNot[] = { 0x0009, 0x000A, 0x200B, 0x2028, 0xFEFF, 'A', 0xAC00, 0xB620, 0x0E01 };
+		for (uint i = 0; i < ARRAYSIZE(kNot); i++)
+			TSM_ASSERT(Common::String::format("U+%04X", kNot[i]).c_str(), !Graphics::Unicode::isSpaceSeparator(kNot[i]));
+	}
+
+	void test_is_inkless() {
+		static const uint32 kInkless[] = {
+			0x0000, 0x0009, 0x000A, 0x001F, 0x007F, 0x0085, 0x009F,	// Cc
+			0x0020, 0x00A0, 0x1680, 0x2002, 0x2009, 0x202F, 0x205F, 0x3000,	// Zs
+			0x2028, 0x2029,								// Zl, Zp
+			0x00AD, 0x061C, 0x200B, 0x200C, 0x200D, 0x200E, 0x2060, 0x2068, 0xFEFF, 0xE0001, 0xE0041,	// Cf
+			0x034F, 0x115F, 0x1160, 0x3164, 0xFFA0, 0x180B, 0xFE00, 0xFE0F, 0xE0100, 0xE01EF	// other default ignorables
+		};
+		for (uint i = 0; i < ARRAYSIZE(kInkless); i++)
+			TSM_ASSERT(Common::String::format("U+%04X", kInkless[i]).c_str(), Graphics::Unicode::isInkless(kInkless[i]));
+		// Letters, marks, punctuation - and the format characters that draw a
+		// sign (prepended concatenation marks: Arabic number sign and kin).
+		static const uint32 kInked[] = {
+			'A', '.', '_', 0x00B7, 0xAC00, 0xB620, 0xBDC1, 0x1100, 0x3131, 0x0E01, 0x0E48, 0x0300, 0x3042, 0x4E00,
+			0x0600, 0x0605, 0x06DD, 0x070F, 0x0890, 0x08E2, 0x110BD, 0x110CD, 0xFFFD, 0x25A1
+		};
+		for (uint i = 0; i < ARRAYSIZE(kInked); i++)
+			TSM_ASSERT(Common::String::format("U+%04X", kInked[i]).c_str(), !Graphics::Unicode::isInkless(kInked[i]));
+	}
+
 	void test_is_wide_moved() {
 		uint32 mismatches = 0, first = 0;
 		for (uint32 cp = 0; cp <= 0x10FFFF; cp++) {
