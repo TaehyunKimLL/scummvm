@@ -727,13 +727,17 @@ ScummHiResText::Face *ScummHiResText::openTtfChain(const Common::Array<Common::P
 		// A face sized to the game cell has its line fill the cell, as the
 		// start-up bake sized it: the game lays text out on its own grid,
 		// and a face whose characters fill the cell outright reaches past
-		// that grid's advance. A size the map names is the characters'
-		// (SCI's meaning), fitted with the translation's own sample.
+		// that grid's advance - unless the translation's own sample would
+		// then leave the cell (Thai marks below Sukhumvit Set's line), when
+		// the face is moved and shrunk to keep it inside. A size the map
+		// names is the characters' (SCI's meaning), fitted with the sample.
 		Common::String error;
 		Graphics::TtfGlyphSource *ttf;
 		if (lineFit)
 			ttf = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, pixelSize, error,
-												   requireHangul, true);
+												   requireHangul, true,
+												   _coverageSample.empty() ? nullptr : _coverageSample.begin(),
+												   _coverageSample.size());
 		else
 			ttf = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, pixelSize, error,
 												   _coverageSample.empty() ? nullptr : _coverageSample.begin(),
