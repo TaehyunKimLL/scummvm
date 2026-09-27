@@ -107,6 +107,29 @@ struct ScummHiResText {
 								 int gameFontHeight, int scale);
 
 	/**
+	 * Whether resolveScale() will use the game's font height at all.
+	 *
+	 * Only a map-less set on a layer that is on reads it. Everything else -
+	 * above all a game with no hi-res fonts - must not pay for finding it:
+	 * the height is peeked at engine init, before the game's own subsystems
+	 * exist, and the original path never reads the index twice.
+	 */
+	bool wantsGameFontHeight() const { return _enabled && _simpleFonts; }
+
+	/**
+	 * Whether the game's font height can be peeked at for this SCUMM
+	 * version before the engine is set up.
+	 *
+	 * v0-v3 need no index, and nothing in a v4-v6 index needs a subsystem
+	 * that is not built yet, so it can be read early. v7 and v8 are refused: their index
+	 * hands the audio names to iMuse Digital (the ANAM block), which is only
+	 * built later, in setupMusic(), and Rebel Assault has no index at all.
+	 * Their screen is never enlarged for hi-res text either (see init()),
+	 * so the height would decide nothing but a warning.
+	 */
+	static bool canPeekGameFontHeight(int version) { return version <= 6; }
+
+	/**
 	 * Tell the layer the cell of the game's own CJK font for one charset.
 	 *
 	 * Needed by the TrueType path, which bakes a face to the size the game

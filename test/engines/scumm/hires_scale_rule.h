@@ -99,4 +99,32 @@ public:
 		static const int kZero[] = { 0 };
 		TS_ASSERT(!Scumm::ScummHiResText::cellMatchesScale(kZero, 1, 0, 2));
 	}
+
+	/**
+	 * The game's font height is peeked at init only when it can be read
+	 * safely there (C15).
+	 *
+	 * The peek runs before the game's subsystems exist. For v7 and v8 the
+	 * index hands the audio names to iMuse Digital, which is not built yet -
+	 * Full Throttle in English crashed in setAudioNames() - and Rebel
+	 * Assault has no index at all. Their screen is never scaled for hi-res
+	 * text anyway, so the height would buy nothing.
+	 */
+	void test_peek_only_where_the_index_is_safe() {
+		for (int v = 0; v <= 6; ++v)
+			TS_ASSERT(Scumm::ScummHiResText::canPeekGameFontHeight(v));
+		TS_ASSERT(!Scumm::ScummHiResText::canPeekGameFontHeight(7));
+		TS_ASSERT(!Scumm::ScummHiResText::canPeekGameFontHeight(8));
+	}
+
+	/**
+	 * A layer that is off never asks for the game's font height, so a game
+	 * without hi-res fonts - the common case - takes the original path and
+	 * reads its index once, as upstream does.
+	 */
+	void test_layer_off_wants_no_height() {
+		Scumm::ScummHiResText layer;
+		TS_ASSERT(!layer.enabled());
+		TS_ASSERT(!layer.wantsGameFontHeight());
+	}
 };
