@@ -28,6 +28,28 @@
 namespace Scumm {
 
 /**
+ * Text over its decoration over the picture, as colour channels: the
+ * decoration is blended over the picture first, then the text over that.
+ * The arithmetic is the one the two-layer sinks use, applied twice.
+ */
+static inline void layer(const Graphics::PixelFormat &format, const uint32 *pal,
+						 byte fg, byte fgCov, byte under, byte underCov, byte bg,
+						 uint8 &r, uint8 &g, uint8 &b) {
+	uint8 fr, fg8, fb, ur, ug, ub, br, bg8, bb;
+	format.colorToRGB(pal[fg], fr, fg8, fb);
+	format.colorToRGB(pal[under], ur, ug, ub);
+	format.colorToRGB(pal[bg], br, bg8, bb);
+
+	const int u = underCov, a = fgCov;
+	const int mr = (ur * u + br * (255 - u)) / 255;
+	const int mg = (ug * u + bg8 * (255 - u)) / 255;
+	const int mb = (ub * u + bb * (255 - u)) / 255;
+	r = (uint8)((fr * a + mr * (255 - a)) / 255);
+	g = (uint8)((fg8 * a + mg * (255 - a)) / 255);
+	b = (uint8)((fb * a + mb * (255 - a)) / 255);
+}
+
+/**
  * A paletted destination: indices are written through unchanged.
  *
  * This is what the game's own picture is, so text keys in rather than
@@ -56,6 +78,15 @@ public:
 					  const byte *coverage, int count) override {
 		for (int i = 0; i < count; ++i)
 			_dst[i] = (coverage[i] >= 128) ? fg[i] : bg[i];
+		_dst += count;
+	}
+
+	/// The text, else the decoration, else the picture - each at half.
+	void writeLayered(const byte *fg, const byte *fgCov,
+					  const byte *under, const byte *underCov,
+					  const byte *bg, int count) override {
+		for (int i = 0; i < count; ++i)
+			_dst[i] = (fgCov[i] >= 128) ? fg[i] : (underCov[i] >= 128) ? under[i] : bg[i];
 		_dst += count;
 	}
 
@@ -123,6 +154,17 @@ public:
 		}
 	}
 
+	void writeLayered(const byte *fg, const byte *fgCov,
+					  const byte *under, const byte *underCov,
+					  const byte *bg, int count) override {
+		for (int i = 0; i < count; ++i) {
+			uint8 r, g, b;
+			layer(_format, _pal, fg[i], fgCov[i], under[i], underCov[i], bg[i], r, g, b);
+			WRITE_UINT16(_dst, (uint16)_format.RGBToColor(r, g, b));
+			_dst += 2;
+		}
+	}
+
 private:
 	byte *_dst;
 	const uint32 *_pal;
@@ -165,6 +207,16 @@ public:
 			*_dst++ = _format.RGBToColor((fr * a + br * (255 - a)) / 255,
 										 (fg8 * a + bg8 * (255 - a)) / 255,
 										 (fb * a + bb * (255 - a)) / 255);
+		}
+	}
+
+	void writeLayered(const byte *fg, const byte *fgCov,
+					  const byte *under, const byte *underCov,
+					  const byte *bg, int count) override {
+		for (int i = 0; i < count; ++i) {
+			uint8 r, g, b;
+			layer(_format, _pal, fg[i], fgCov[i], under[i], underCov[i], bg[i], r, g, b);
+			*_dst++ = _format.RGBToColor(r, g, b);
 		}
 	}
 

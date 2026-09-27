@@ -32,6 +32,10 @@ namespace Graphics {
 // technical limit but a practical one: at 3x a 320x200 game already needs a
 // 960x600 text surface. Raising this policy limit needs adapter memory tests.
 static const int kMaxScale = 3;
+// The widest outline a map may ask for, in quarter pixels (8 px), and the
+// furthest a shadow may be moved. Both bound a per-glyph scratch buffer.
+static const int kMaxShadowWidthQ = 32;
+static const int kMaxShadowShift = 16;
 
 HiResFontIdSettings::HiResFontIdSettings()
 	: faceSet(false), size(0), sizeSet(false), latin(kHiResLatinOff), latinSet(false),
@@ -96,6 +100,14 @@ void HiResTextConfig::clear() {
 	shadowOffset = -1;
 	shadowColor = 0;
 	shadowColorSet = false;
+	shadowWidthQ = -1;
+	shadowStyle = kHiResOutlineRound;
+	shadowShiftSet = false;
+	shadowDx = 0;
+	shadowDy = 0;
+	shadowShiftColor = 0;
+	shadowShiftColorSet = false;
+	shadowAlpha = 255;
 
 	hiresFace.clear();
 	hiresFaceSet = false;
@@ -278,6 +290,68 @@ bool parseNumber(const char *&p, int maxValue, int &out) {
 bool parseInteger(const Common::String &value, int maxValue, int &out) {
 	const char *p = value.c_str();
 	return parseNumber(p, maxValue, out) && *p == 0;
+}
+
+/**
+ * A length in output pixels, to the nearest quarter: "1", "1.5", "0.75".
+ * The result is in quarters, so "1.5" gives 6.
+ */
+bool parseQuarterPixels(const Common::String &value, int maxQuarters, int &out) {
+	const char *p = value.c_str();
+	int whole = 0;
+	if (!parseNumber(p, 1000, whole))
+		return false;
+	int frac = 0, scaleDiv = 1;
+	if (*p == '.') {
+		++p;
+		if (*p < '0' || *p > '9')
+			return false;
+		while (*p >= '0' && *p <= '9') {
+			if (scaleDiv < 10000) {
+				frac = frac * 10 + (*p - '0');
+				scaleDiv *= 10;
+			}
+			++p;
+		}
+	}
+	if (*p)
+		return false;
+	const int q = whole * 4 + (frac * 4 * 2 + scaleDiv) / (2 * scaleDiv);
+	if (q > maxQuarters)
+		return false;
+	out = q;
+	return true;
+}
+
+/// "dx,dy" with optional signs and spaces: "-1,1", "2, 2".
+bool parseSignedPair(const Common::String &value, int maxAbs, int &a, int &b) {
+	const char *p = value.c_str();
+	int v[2];
+	for (int i = 0; i < 2; ++i) {
+		while (*p == ' ')
+			++p;
+		bool neg = false;
+		if (*p == '-' || *p == '+') {
+			neg = (*p == '-');
+			++p;
+		}
+		int n;
+		if (!parseNumber(p, maxAbs, n))
+			return false;
+		v[i] = neg ? -n : n;
+		while (*p == ' ')
+			++p;
+		if (i == 0) {
+			if (*p != ',')
+				return false;
+			++p;
+		}
+	}
+	if (*p)
+		return false;
+	a = v[0];
+	b = v[1];
+	return true;
 }
 
 bool parseMapBool(const Common::String &value, bool &out) {
@@ -1167,6 +1241,60 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 		} else {
 			warning("HiResText: invalid shadow color '%s', ignoring", value.c_str());
 		}
+	}
+	// The geometry of the decoration (C19). These say nothing about the
+	// script being drawn, so a Thai or Japanese map uses them unchanged.
+	//
+	//   width=1.5          outline radius, output pixels, quarter steps
+	//   style=round        round | square | legacy
+	//   shadow=-1,1        a shadow of the outline, dx,dy in output pixels
+	//   shadow_color=0     defaults to color
+	//   shadow_alpha=60    0..100, blended screens only
+	if (getKey(ini, qualifiers, "shadow", "width", value)) {
+		int q;
+		if (parseQuarterPixels(value, kMaxShadowWidthQ, q))
+			out.shadowWidthQ = q;
+		else
+			warning("HiResText: invalid shadow width '%s', ignoring", value.c_str());
+	}
+	if (getKey(ini, qualifiers, "shadow", "style", value)) {
+		if (value.equalsIgnoreCase("round"))
+			out.shadowStyle = kHiResOutlineRound;
+		else if (value.equalsIgnoreCase("square"))
+			out.shadowStyle = kHiResOutlineSquare;
+		else if (value.equalsIgnoreCase("legacy"))
+			out.shadowStyle = kHiResOutlineLegacy;
+		else
+			warning("HiResText: invalid shadow style '%s', ignoring", value.c_str());
+	}
+	if (getKey(ini, qualifiers, "shadow", "shadow", value)) {
+		int dx, dy;
+		if (value.equalsIgnoreCase("none")) {
+			out.shadowShiftSet = true;
+			out.shadowDx = out.shadowDy = 0;
+		} else if (parseSignedPair(value, kMaxShadowShift, dx, dy)) {
+			out.shadowShiftSet = true;
+			out.shadowDx = dx;
+			out.shadowDy = dy;
+		} else {
+			warning("HiResText: invalid shadow '%s', ignoring", value.c_str());
+		}
+	}
+	if (getKey(ini, qualifiers, "shadow", "shadow_color", value)) {
+		int color;
+		if (parseInteger(value, 255, color)) {
+			out.shadowShiftColor = color;
+			out.shadowShiftColorSet = true;
+		} else {
+			warning("HiResText: invalid shadow_color '%s', ignoring", value.c_str());
+		}
+	}
+	if (getKey(ini, qualifiers, "shadow", "shadow_alpha", value)) {
+		int percent;
+		if (parseInteger(value, 100, percent))
+			out.shadowAlpha = (byte)((percent * 255 + 50) / 100);
+		else
+			warning("HiResText: invalid shadow_alpha '%s', ignoring", value.c_str());
 	}
 
 	// [translation] names the runtime translation bundle when it is not the

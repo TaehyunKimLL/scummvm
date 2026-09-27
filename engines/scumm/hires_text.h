@@ -407,11 +407,40 @@ struct ScummHiResText {
 												   int gameShadow, bool korPatchShadow);
 
 	/**
+	 * The colours and decoration a replacement glyph is drawn with (C19).
+	 *
+	 * The mode comes from resolveShadow(); its geometry from the map's
+	 * [shadow] keys at the map's scale (HiResGlyphRenderer::applyMap()). For
+	 * the Korean patch bytes at 2x that gives: 0 (patch) and 4+ a round
+	 * outline 1.5 px wide, 2 a drop of the glyph by (1, 1), 3 that outline
+	 * plus a copy of it moved (-1, +1) in place of the old stroke table.
+	 */
+	static Graphics::GlyphStyle glyphStyle(const Graphics::HiResTextConfig &config,
+										   int gameShadow, bool korPatchShadow,
+										   byte color, byte shadowColor);
+
+	/**
+	 * The game pixels an area of the overlay touches: @p area divided by the
+	 * scale @p m, rounded outwards. A decorated glyph reaches beyond the game
+	 * cell the engine marks dirty - an outline to the left and above, a
+	 * stroke's shadow further - and the part outside would only reach the
+	 * screen when something else redrew it.
+	 */
+	static Common::Rect gameRectFor(const Common::Rect &area, int m);
+
+	/**
 	 * Say whether the game's shadow byte comes from the Korean patch fonts,
 	 * drawn by drawBits1Kor() (a kor-trs v1-v6 target). v7 draws its own
 	 * shadow in draw2byte() and is left out.
 	 */
 	void setKorPatchShadow(bool on) { _korPatchShadow = on; }
+
+	/**
+	 * Whether a decoration may get a layer of its own below the text (C19):
+	 * true only where the compositor reads one. The overlay's under planes
+	 * are then made on the first decorated glyph drawn into it.
+	 */
+	void setLayeredDecorations(bool on) { _layeredDecorations = on; }
 
 	/**
 	 * Whether a map asks for blended text.
@@ -567,6 +596,7 @@ private:
 	 * other. Null until the engine hands one over.
 	 */
 	HiResOverlay *_overlay = nullptr;
+	bool _layeredDecorations = false;
 
 	// The numbered set the map names, indexed by the game's charset id, plus
 	// the single one used when no numbered file matched.

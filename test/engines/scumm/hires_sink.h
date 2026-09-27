@@ -241,4 +241,66 @@ public:
 		TS_ASSERT_EQUALS(dst[0], 0x11);
 		TS_ASSERT_EQUALS(dst[1], 0x22);
 	}
+
+	// --- C19: text blended over its outline, over the picture -------------
+
+	void test_true_colour_layered_blends_the_edge_over_the_outline() {
+		const Graphics::PixelFormat fmt(4, 8, 8, 8, 0, 16, 8, 0, 24);
+		uint32 pal[256];
+		memset(pal, 0, sizeof(pal));
+		pal[1] = fmt.RGBToColor(0, 0, 0);        // outline
+		pal[2] = fmt.RGBToColor(255, 255, 255);  // text
+		pal[3] = fmt.RGBToColor(200, 0, 0);      // picture
+
+		uint32 dst[3];
+		Scumm::HiResTrueColorSink sink(dst, pal, fmt);
+		const byte fg[] = { 2, 2, 2 }, fgCov[] = { 128, 128, 0 };
+		const byte under[] = { 1, 1, 1 }, underCov[] = { 255, 128, 255 };
+		const byte bg[] = { 3, 3, 3 };
+		sink.writeLayered(fg, fgCov, under, underCov, bg, 3);
+
+		uint8 r, g, b;
+		// Half white over solid black: grey, and no red from the picture.
+		fmt.colorToRGB(dst[0], r, g, b);
+		TS_ASSERT_EQUALS(r, 128);
+		TS_ASSERT_EQUALS(g, 128);
+		// Over a half-strength outline the picture shows through that half.
+		fmt.colorToRGB(dst[1], r, g, b);
+		TS_ASSERT_EQUALS(r, (255 * 128 + (200 * 127 / 255) * 127) / 255);
+		TS_ASSERT_EQUALS(g, (0 * 127 + 255 * 128) / 255);
+		// No text: the outline alone.
+		fmt.colorToRGB(dst[2], r, g, b);
+		TS_ASSERT_EQUALS(r, 0);
+	}
+
+	void test_palette16_layered_blends_too() {
+		const Graphics::PixelFormat fmt(2, 5, 6, 5, 0, 11, 5, 0, 0);
+		uint32 pal[256];
+		memset(pal, 0, sizeof(pal));
+		pal[1] = fmt.RGBToColor(0, 0, 0);
+		pal[2] = fmt.RGBToColor(255, 255, 255);
+		pal[3] = fmt.RGBToColor(255, 0, 0);
+
+		byte dst[4];
+		memset(dst, 0xAA, sizeof(dst));
+		Scumm::HiResPalette16Sink sink(dst, pal, fmt);
+		const byte fg[] = { 2 }, fgCov[] = { 0 }, under[] = { 1 }, underCov[] = { 255 }, bg[] = { 3 };
+		sink.writeLayered(fg, fgCov, under, underCov, bg, 1);
+		TS_ASSERT_EQUALS(READ_UINT16(dst), (uint16)pal[1]);
+		TS_ASSERT_EQUALS(dst[2], 0xAA);    // two bytes, no more
+	}
+
+	/// A palette index takes the text, else the outline, else the picture.
+	void test_index_sink_layered_picks_a_side() {
+		byte dst[4];
+		Scumm::HiResIndexSink sink(dst);
+		const byte fg[] = { 9, 9, 9, 9 }, fgCov[] = { 128, 127, 127, 0 };
+		const byte under[] = { 5, 5, 5, 5 }, underCov[] = { 255, 128, 127, 255 };
+		const byte bg[] = { 1, 1, 1, 1 };
+		sink.writeLayered(fg, fgCov, under, underCov, bg, 4);
+		TS_ASSERT_EQUALS(dst[0], 9);
+		TS_ASSERT_EQUALS(dst[1], 5);
+		TS_ASSERT_EQUALS(dst[2], 1);
+		TS_ASSERT_EQUALS(dst[3], 5);
+	}
 };

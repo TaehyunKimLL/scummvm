@@ -218,7 +218,9 @@ private:
 		style.shadowMode = gameShadow == 4 ? Graphics::kHiResShadowOutline
 						 : gameShadow == 2 ? Graphics::kHiResShadowDrop
 										   : Graphics::kHiResShadowNone;
-		style.shadowOffset = 1;
+		// The geometry the map's scale gives (C19): 1.5 px at 2x.
+		Graphics::HiResGlyphRenderer::applyMap(style, koreanConfig(), 2);
+		TS_ASSERT_EQUALS(style.outlineQ, 6);
 
 		Common::Rect dirty, refDirty;
 		TS_ASSERT(hr.drawChar(dest, kGaChr, 0, 3, 4, 15, 4, gameShadow, &dirty));
@@ -231,7 +233,21 @@ private:
 
 		TS_ASSERT(inkCount(refDest) > 0);
 		TS_ASSERT(sameBytes(dest, refDest));
-		TS_ASSERT(sameBytes(*overlay.coverage(), refCov));
+		if (bpp == 1 && gameShadow != 1) {
+			// A decorated stencil records its coverage now (C19), all or
+			// nothing, exactly where it drew - so that under planes, when
+			// there are any, can take an antialiased outline for it.
+			const Graphics::Surface &cov = *overlay.coverage();
+			for (int y = 0; y < cov.h; ++y)
+				for (int x = 0; x < cov.w; ++x) {
+					const byte c = *(const byte *)cov.getBasePtr(x, y);
+					const byte d = *(const byte *)dest.getBasePtr(x, y);
+					TS_ASSERT(c == 0 || c == 0xFF);
+					TS_ASSERT_EQUALS(c != 0, d != 0);
+				}
+		} else {
+			TS_ASSERT(sameBytes(*overlay.coverage(), refCov));
+		}
 		TS_ASSERT_EQUALS(dirty, refDirty);
 
 		// The same advance as the old path: metrics (reach included) or the cell.
@@ -244,7 +260,86 @@ private:
 		refCov.free();
 	}
 
+	/**
+	 * drawRows (C19 review): a plain 1bpp glyph leaves coverage alone, as it
+	 * always did; a decorated one records 0/255 where it drew, and - drawn
+	 * into the overlay, with layering allowed - gets its outline in the under
+	 * planes, which are made on that first decorated glyph.
+	 */
+	void checkDecorated1bpp(int gameShadow) {
+		const Common::Array<byte> cjkBytes = makeFont(1, false, 13, 0);
+		Scumm::HiResOverlay overlay;
+		overlay.create(96, 40, true);
+		overlay.index().fillRect(Common::Rect(96, 40), 0xFD);
+
+		Scumm::ScummHiResText hr;
+		hr.useOverlay(&overlay);
+		hr.adoptConfig(koreanConfig());
+		hr.setLayeredDecorations(true);
+		{
+			Common::MemoryReadStream s1(cjkBytes.begin(), cjkBytes.size());
+			TS_ASSERT(hr.addBitmapFont(0, false, s1, "t00.fnt"));
+		}
+		TS_ASSERT(overlay.underCoverage() == nullptr);
+
+		Common::Rect dirty;
+		TS_ASSERT(hr.drawChar(overlay.index(), kGaChr, 0, 10, 10, 15, 4, gameShadow, &dirty));
+		const Graphics::Surface &idx = overlay.index();
+		const Graphics::Surface &cov = *overlay.coverage();
+		int ink = 0, covered = 0;
+		for (int y = 0; y < 40; ++y)
+			for (int x = 0; x < 96; ++x) {
+				const byte i = *(const byte *)idx.getBasePtr(x, y);
+				const byte c = *(const byte *)cov.getBasePtr(x, y);
+				TS_ASSERT(c == 0 || c == 0xFF);
+				ink += (i == 15);
+				covered += (c != 0);
+				if (gameShadow != 1)
+					TS_ASSERT_EQUALS(c != 0, i == 15);
+			}
+		TS_ASSERT(ink > 0);
+		if (gameShadow == 1) {
+			TS_ASSERT_EQUALS(covered, 0);
+			TS_ASSERT(overlay.underCoverage() == nullptr);
+			return;
+		}
+		// The outline went under, antialiased, and not into the text plane.
+		TS_ASSERT(overlay.underCoverage() != nullptr);
+		int under = 0;
+		for (int y = 0; y < 40; ++y)
+			for (int x = 0; x < 96; ++x) {
+				if (*(const byte *)overlay.underCoverage()->getBasePtr(x, y))
+					++under;
+				TS_ASSERT(*(const byte *)idx.getBasePtr(x, y) != 4);
+			}
+		TS_ASSERT(under > ink);
+	}
+
 public:
+	void test_drawrows_gives_a_decorated_1bpp_glyph_coverage() {
+		checkDecorated1bpp(4);
+	}
+
+	void test_drawrows_leaves_a_plain_1bpp_glyph_without_coverage() {
+		checkDecorated1bpp(1);
+	}
+
+	/// Without layering allowed (FM-Towns, keyed, v7) no under planes appear.
+	void test_no_under_planes_unless_layering_is_allowed() {
+		const Common::Array<byte> cjkBytes = makeFont(8, false, 13, 0);
+		Scumm::HiResOverlay overlay;
+		overlay.create(96, 40, true);
+		Scumm::ScummHiResText hr;
+		hr.useOverlay(&overlay);
+		hr.adoptConfig(koreanConfig());
+		{
+			Common::MemoryReadStream s1(cjkBytes.begin(), cjkBytes.size());
+			TS_ASSERT(hr.addBitmapFont(0, false, s1, "t00.fnt"));
+		}
+		TS_ASSERT(hr.drawChar(overlay.index(), kGaChr, 0, 10, 10, 15, 4, 4));
+		TS_ASSERT(overlay.underCoverage() == nullptr);
+	}
+
 	void setUp() {
 #if NULL_OSYSTEM_IS_AVAILABLE
 		Common::install_null_g_system();

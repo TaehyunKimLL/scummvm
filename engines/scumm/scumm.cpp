@@ -1853,6 +1853,18 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 	// paletted surface, so it gets one of its own alongside.
 	_hiResText.createCoverage(_textSurface.w, _textSurface.h);
 
+	// And the layer an outline is drawn into below the text (C19), for the
+	// one compositor that reads it: drawStripToScreen's blended path, on a
+	// paletted game buffer. FM-Towns and the Mac v3 screens composite
+	// elsewhere, and a 16-bit game buffer falls through to keying; there the
+	// decoration stays in the text's own planes, drawn solid. The planes
+	// themselves are made on the first decorated glyph, so a game that never
+	// asks for an outline does not pay for them.
+	_hiResText.setLayeredDecorations(_hiResText.alphaActive() && _game.version < 7 &&
+									 _game.platform != Common::kPlatformFMTowns &&
+									 !(_game.features & GF_16BIT_COLOR) &&
+									 !(_macScreen && _game.version <= 3));
+
 	// The replacement fonts themselves. Failing to load leaves the engine on
 	// its original path rather than showing nothing. A TrueType face is
 	// baked per charset, at the cell the game draws that charset at.
