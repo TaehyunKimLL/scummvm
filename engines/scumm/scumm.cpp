@@ -1852,6 +1852,9 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 
 	// Create the charset renderer
 	setupCharsetRenderer(macFontFile);
+	// Latin steps by a TrueType face only where the renderer measures it
+	// that way too (C36): not FM-Towns, not V2's fixed 8 px.
+	_hiResText.setLatinFaceStepAllowed(_charset->measuresLatinThroughHiRes());
 
 	// Create and clear the text surface
 	// Coverage still belongs to the hi-res layer, so the overlay carries the
