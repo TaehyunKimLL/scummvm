@@ -1200,6 +1200,529 @@ public:
 		keyed.free();
 	}
 
+	// --- C19: antialiased outlines ----------------------------------------
+
+	/// A set of planes for a layered draw, all w x h and zeroed.
+	struct Planes {
+		Graphics::Surface index, cov, uIndex, uCov;
+		Planes(int w, int h) {
+			index.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+			cov.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+			uIndex.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+			uCov.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+		}
+		~Planes() { index.free(); cov.free(); uIndex.free(); uCov.free(); }
+		Graphics::GlyphPlanes layered() { return Graphics::GlyphPlanes(&index, &cov, &uIndex, &uCov); }
+		bool same(const Planes &o) const {
+			const Graphics::Surface *a[] = { &index, &cov, &uIndex, &uCov };
+			const Graphics::Surface *b[] = { &o.index, &o.cov, &o.uIndex, &o.uCov };
+			for (int i = 0; i < 4; ++i)
+				for (int y = 0; y < a[i]->h; ++y)
+					if (memcmp(a[i]->getBasePtr(0, y), b[i]->getBasePtr(0, y), a[i]->w))
+						return false;
+			return true;
+		}
+	};
+
+	/// An 8bpp glyph from rows of '#' (0xFF), '+' (0x80), '-' (0x40) and '.'.
+	struct Pattern {
+		Common::Array<byte> px;
+		Graphics::GlyphBitmap g;
+		Pattern(const char *const *rows, int h) {
+			const int w = strlen(rows[0]);
+			px.resize(w * h);
+			for (int y = 0; y < h; ++y)
+				for (int x = 0; x < w; ++x) {
+					const char c = rows[y][x];
+					px[y * w + x] = c == '#' ? 0xFF : c == '+' ? 0x80 : c == '-' ? 0x40 : 0;
+				}
+			g.pixels = px.begin();
+			g.pitch = w;
+			g.width = w;
+			g.height = h;
+			g.bpp = 8;
+		}
+	};
+
+	static int weightAt(const Graphics::DilationKernel &k, int dx, int dy) {
+		for (int i = 0; i < k.taps; ++i)
+			if (k.dx[i] == dx && k.dy[i] == dy)
+				return k.w[i];
+		return 0;
+	}
+
+	/**
+	 * The recommended pen, 1.5 px round (C19 memo): 21 taps, full weight to a
+	 * distance of sqrt(2), half at 2 and a quarter at sqrt(5).
+	 */
+	void test_round_kernel_of_1_5_px() {
+		Graphics::DilationKernel k;
+		Graphics::HiResGlyphRenderer::buildKernel(k, 6, Graphics::kHiResOutlineRound);
+		int nonZero = 0;
+		for (int i = 0; i < k.taps; ++i)
+			if (k.w[i])
+				++nonZero;
+		TS_ASSERT_EQUALS(nonZero, 21);
+		TS_ASSERT_EQUALS(k.reach, 2);
+		TS_ASSERT_EQUALS(weightAt(k, 0, 0), 255);
+		TS_ASSERT_EQUALS(weightAt(k, 1, 0), 255);
+		TS_ASSERT_EQUALS(weightAt(k, 1, 1), 255);
+		TS_ASSERT_EQUALS(weightAt(k, 0, -2), 128);
+		TS_ASSERT_EQUALS(weightAt(k, 2, 1), 67);    // 2.5 - sqrt(5)
+		TS_ASSERT_EQUALS(weightAt(k, 2, 2), 0);
+	}
+
+	/// One pixel round is the eight neighbours once cut at half: the old look.
+	void test_round_kernel_of_1_px_is_the_eight_neighbours() {
+		Graphics::DilationKernel k;
+		Graphics::HiResGlyphRenderer::buildKernel(k, 4, Graphics::kHiResOutlineRound);
+		int solid = 0;
+		for (int i = 0; i < k.taps; ++i)
+			if (k.w[i] >= Graphics::HiResGlyphRenderer::kKeyedDecorationThreshold) {
+				TS_ASSERT(ABS(k.dx[i]) <= 1 && ABS(k.dy[i]) <= 1);
+				++solid;
+			}
+		TS_ASSERT_EQUALS(solid, 9);
+		TS_ASSERT_EQUALS(weightAt(k, 1, 1), 149);   // 2 - sqrt(2)
+
+		// Square: the same radius reaches the corners at full weight.
+		Graphics::HiResGlyphRenderer::buildKernel(k, 4, Graphics::kHiResOutlineSquare);
+		TS_ASSERT_EQUALS(weightAt(k, 1, 1), 255);
+		TS_ASSERT_EQUALS(weightAt(k, 2, 2), 0);
+	}
+
+	/**
+	 * Legacy at step 1 is the old table plus the centre; at step 2 it is the
+	 * table grown twice, so nothing between the steps is missing (defect 2).
+	 */
+	void test_legacy_kernel_grows_instead_of_multiplying() {
+		Graphics::DilationKernel k;
+		Graphics::HiResGlyphRenderer::buildKernel(k, 4, Graphics::kHiResOutlineLegacy,
+												  Graphics::kHiResShadowOutline, 1);
+		TS_ASSERT_EQUALS(k.taps, 9);
+		Graphics::HiResGlyphRenderer::buildKernel(k, 8, Graphics::kHiResOutlineLegacy,
+												  Graphics::kHiResShadowOutline, 2);
+		TS_ASSERT_EQUALS(k.taps, 25);                // 5x5, not a ring at 2
+		TS_ASSERT_EQUALS(weightAt(k, 1, 0), 255);
+
+		Graphics::HiResGlyphRenderer::buildKernel(k, 4, Graphics::kHiResOutlineLegacy,
+												  Graphics::kHiResShadowStroke, 1);
+		TS_ASSERT_EQUALS(k.taps, 11);               // 10 distinct offsets (the table lists (-1,1) twice) and the centre
+		TS_ASSERT_EQUALS(weightAt(k, -2, 0), 255);
+		Graphics::HiResGlyphRenderer::buildKernel(k, 8, Graphics::kHiResOutlineLegacy,
+												  Graphics::kHiResShadowStroke, 2);
+		TS_ASSERT_EQUALS(weightAt(k, -1, 0), 255);   // no ghost copy at -2 alone
+		TS_ASSERT_EQUALS(weightAt(k, -3, 0), 255);
+		TS_ASSERT_EQUALS(weightAt(k, -4, 0), 255);
+	}
+
+	/// Dilation is the strongest weighted neighbour, rounded.
+	void test_dilation_takes_the_strongest_neighbour() {
+		static const char *const rows[] = { "#+" };
+		Pattern p(rows, 1);
+		Graphics::DilationKernel k;
+		Graphics::HiResGlyphRenderer::buildKernel(k, 6, Graphics::kHiResOutlineRound);
+		const int mw = 2 + 4, mh = 1 + 4;
+		Common::Array<byte> out(mw * mh);
+		Graphics::HiResGlyphRenderer::dilate(p.g, k, out.begin());
+		// The glyph sits at (2,2).
+		TS_ASSERT_EQUALS(out[2 * mw + 2], 255);
+		TS_ASSERT_EQUALS(out[2 * mw + 3], 255);          // 0x80 itself, but '#' is 1 away
+		TS_ASSERT_EQUALS(out[2 * mw + 4], 128);          // 2 from '#', 1 from '+' (0x80)
+		TS_ASSERT_EQUALS(out[2 * mw + 5], 64);           // only '+', 2 away: 0x80 * 0.5
+		TS_ASSERT_EQUALS(out[0 * mw + 2], 128);          // 2 above '#'
+		TS_ASSERT_EQUALS(out[0 * mw + 0], 0);            // (2,2) away: outside the disk
+
+		// Cut at a coverage first, the faint pixel counts as solid.
+		Graphics::HiResGlyphRenderer::dilate(p.g, k, out.begin(), 0x40);
+		TS_ASSERT_EQUALS(out[2 * mw + 4], 255);
+		TS_ASSERT_EQUALS(out[2 * mw + 5], 128);
+	}
+
+	/**
+	 * The fix for the seam (C19 defect 1): with under planes, the body's
+	 * antialiased edge stays in the body planes at its own coverage, and the
+	 * outline under it is solid, so the compositor blends the edge over the
+	 * outline instead of over the game's picture.
+	 */
+	void test_layered_body_edge_sits_on_a_solid_outline() {
+		static const char *const rows[] = { "##+", "##+" };
+		Pattern p(rows, 2);
+		Planes pl(16, 16);
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowOutline;
+		style.outlineQ = 6;
+
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(pl.layered(), p.g, 5, 5, style));
+
+		// The edge pixel: body at 0x80 over a solid outline.
+		TS_ASSERT_EQUALS(at(pl.index, 7, 5), 7);
+		TS_ASSERT_EQUALS(at(pl.cov, 7, 5), 0x80);
+		TS_ASSERT_EQUALS(at(pl.uIndex, 7, 5), 1);
+		TS_ASSERT_EQUALS(at(pl.uCov, 7, 5), 255);
+
+		// Outside the body, the outline alone, and antialiased at its rim.
+		TS_ASSERT_EQUALS(at(pl.index, 4, 5), 0);
+		TS_ASSERT_EQUALS(at(pl.cov, 4, 5), 0);
+		TS_ASSERT_EQUALS(at(pl.uCov, 4, 5), 255);
+		TS_ASSERT_EQUALS(at(pl.uCov, 3, 5), 128);
+		TS_ASSERT_EQUALS(at(pl.uIndex, 3, 5), 1);
+	}
+
+	/// The body planes are the same with and without a layered decoration.
+	void test_layered_decoration_leaves_the_body_planes_alone() {
+		static const char *const rows[] = { ".+#+.", "+###+", ".+#+." };
+		Pattern p(rows, 3);
+		Planes plain(16, 16), decorated(16, 16);
+
+		Graphics::GlyphStyle none;
+		none.color = 7;
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(plain.layered(), p.g, 5, 5, none));
+
+		Graphics::GlyphStyle style = none;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowStroke;
+		style.outlineQ = 6;
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(decorated.layered(), p.g, 5, 5, style));
+
+		for (int y = 0; y < 16; ++y)
+			for (int x = 0; x < 16; ++x) {
+				TS_ASSERT_EQUALS(at(plain.index, x, y), at(decorated.index, x, y));
+				TS_ASSERT_EQUALS(at(plain.cov, x, y), at(decorated.cov, x, y));
+			}
+		// And nothing at all goes under a plain glyph.
+		TS_ASSERT_EQUALS(inkCount(plain.uCov), 0);
+		TS_ASSERT(inkCount(decorated.uCov) > 0);
+	}
+
+	/**
+	 * A base and a stacked mark (Thai, C19): drawn in either order, the planes
+	 * are identical, and the mark's outline merges into the base's rather
+	 * than cutting it.
+	 */
+	void test_layered_outlines_of_a_base_and_a_mark_merge_in_any_order() {
+		static const char *const base[] = { "..........", "..........", "..........",
+											"##....##..", "#+....+#..", "#+....+#..",
+											"########.." };
+		static const char *const mark[] = { "..+#+.....", "..........", "..........",
+											"..........", "..........", "..........",
+											".........." };
+		Pattern b(base, 7), m(mark, 7);
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowOutline;
+		style.outlineQ = 6;
+
+		Planes one(24, 16), two(24, 16);
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(one.layered(), b.g, 6, 4, style));
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(one.layered(), m.g, 6, 4, style));
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(two.layered(), m.g, 6, 4, style));
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(two.layered(), b.g, 6, 4, style));
+		TS_ASSERT(one.same(two));
+
+		// The mark's body is intact, though the base's outline reaches it.
+		TS_ASSERT_EQUALS(at(one.index, 9, 4), 7);
+		TS_ASSERT_EQUALS(at(one.cov, 9, 4), 0xFF);
+	}
+
+	/**
+	 * A hairline outlined 2 px wide has no gaps (C19 defect 2): every pixel
+	 * within two of the line is covered, and the cover only falls with
+	 * distance.
+	 */
+	void test_a_hairline_outline_has_no_gaps() {
+		static const char *const rows[] = { "#", "#", "#", "#", "#", "#" };
+		Pattern p(rows, 6);
+
+		for (int shape = 0; shape < 3; ++shape) {
+			Planes pl(16, 16);
+			Graphics::GlyphStyle style;
+			style.color = 7;
+			style.shadowColor = 1;
+			style.shadowMode = Graphics::kHiResShadowOutline;
+			style.shadowOffset = 2;
+			style.outlineQ = 8;
+			style.outlineShape = (Graphics::HiResOutlineShape)shape;
+			TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(pl.layered(), p.g, 8, 5, style));
+
+			for (int y = 5; y < 11; ++y) {
+				int previous = 256;
+				for (int d = 0; d <= 2; ++d) {
+					const int l = at(pl.uCov, 8 - d, y), r = at(pl.uCov, 8 + d, y);
+					TS_ASSERT_EQUALS(l, r);
+					TS_ASSERT(l >= 128);
+					TS_ASSERT(l <= previous);
+					previous = l;
+				}
+			}
+		}
+	}
+
+	/// A stroke is the outline plus a copy of it moved (-offset, +offset).
+	void test_a_stroke_is_the_outline_and_its_shadow() {
+		static const char *const rows[] = { "#" };
+		Pattern p(rows, 1);
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowOutline;
+		style.shadowOffset = 1;
+		style.outlineQ = 4;
+
+		Planes outline(16, 16), stroke(16, 16);
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(outline.layered(), p.g, 8, 8, style));
+		style.shadowMode = Graphics::kHiResShadowStroke;
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(stroke.layered(), p.g, 8, 8, style));
+
+		for (int y = 1; y < 15; ++y)
+			for (int x = 1; x < 15; ++x) {
+				const int want = MAX(at(outline.uCov, x, y), at(outline.uCov, x + 1, y - 1));
+				TS_ASSERT_EQUALS(at(stroke.uCov, x, y), want);
+			}
+		TS_ASSERT_EQUALS(at(stroke.uCov, 6, 10), 149);  // the corner of the moved copy
+	}
+
+	/// A shadow in a colour of its own, at a strength of its own.
+	void test_a_shadow_has_its_own_colour_and_alpha() {
+		static const char *const rows[] = { "#" };
+		Pattern p(rows, 1);
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowDrop;
+		style.shadowShiftSet = true;
+		style.shadowDx = 3;
+		style.shadowDy = 2;
+		style.shadowShiftColor = 9;
+		style.shadowShiftColorSet = true;
+		style.shadowAlpha = 153;
+
+		Planes pl(16, 16);
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(pl.layered(), p.g, 4, 4, style));
+		TS_ASSERT_EQUALS(at(pl.uIndex, 7, 6), 9);
+		TS_ASSERT_EQUALS(at(pl.uCov, 7, 6), 153);
+		TS_ASSERT_EQUALS(inkCount(pl.uCov), 1);
+
+		// Keyed, a shadow under half strength is not drawn, and one above is solid.
+		Graphics::Surface keyed;
+		keyed.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
+		style.shadowAlpha = 100;
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(keyed, nullptr, p.g, 4, 4, style));
+		TS_ASSERT_EQUALS(inkCount(keyed), 1);
+		style.shadowAlpha = 200;
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(keyed, nullptr, p.g, 4, 4, style));
+		TS_ASSERT_EQUALS(at(keyed, 7, 6), 9);
+		keyed.free();
+	}
+
+	/**
+	 * style=legacy on a 1bpp glyph keyed at step 1 is today's outline, pixel
+	 * for pixel: the old table applied to the stencil.
+	 */
+	void test_legacy_outline_matches_the_old_table_on_1bpp() {
+		static const int8 kOutlineX[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
+		static const int8 kOutlineY[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
+		static const char *const rows[] = { ".#..#.", "######", "#....#", ".#..#." };
+
+		Common::Array<byte> bytes = makeFont(1, 1, 6, 4);
+		for (int y = 0; y < 4; ++y)
+			for (int x = 0; x < 6; ++x)
+				if (rows[y][x] == '#')
+					setPixel1(bytes, 0, 6, 4, x, y);
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		Graphics::Surface want, got;
+		want.create(12, 10, Graphics::PixelFormat::createFormatCLUT8());
+		got.create(12, 10, Graphics::PixelFormat::createFormatCLUT8());
+		for (int c = 0; c < 8; ++c)
+			for (int y = 0; y < 4; ++y)
+				for (int x = 0; x < 6; ++x)
+					if (rows[y][x] == '#')
+						*(byte *)want.getBasePtr(3 + x + kOutlineX[c], 3 + y + kOutlineY[c]) = 1;
+		for (int y = 0; y < 4; ++y)
+			for (int x = 0; x < 6; ++x)
+				if (rows[y][x] == '#')
+					*(byte *)want.getBasePtr(3 + x, 3 + y) = 7;
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowOutline;
+		style.outlineShape = Graphics::kHiResOutlineLegacy;
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(got, nullptr, font, 0, 3, 3, style));
+
+		for (int y = 0; y < 10; ++y)
+			for (int x = 0; x < 12; ++x)
+				TS_ASSERT_EQUALS(at(got, x, y), at(want, x, y));
+		want.free();
+		got.free();
+	}
+
+	/// Keyed, a later glyph's outline does not overwrite an earlier body.
+	void test_a_keyed_outline_yields_to_earlier_ink() {
+		static const char *const rows[] = { "###", "###", "###" };
+		Pattern p(rows, 3);
+		Graphics::Surface keyed;
+		keyed.create(20, 10, Graphics::PixelFormat::createFormatCLUT8());
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowOutline;
+		style.outlineQ = 8;
+
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(keyed, nullptr, p.g, 3, 3, style));
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(keyed, nullptr, p.g, 7, 3, style));
+		for (int y = 3; y < 6; ++y)
+			for (int x = 3; x < 6; ++x)
+				TS_ASSERT_EQUALS(at(keyed, x, y), 7);
+		keyed.free();
+	}
+
+	/// The dirty area holds the whole decoration, shadow included.
+	void test_dirty_area_holds_the_outline_and_its_shadow() {
+		static const char *const rows[] = { "#" };
+		Pattern p(rows, 1);
+		Planes pl(32, 32);
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowStroke;
+		style.shadowOffset = 3;
+		style.outlineQ = 6;
+
+		Common::Rect dirty;
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(pl.layered(), p.g, 16, 16, style, &dirty));
+		for (int y = 0; y < 32; ++y)
+			for (int x = 0; x < 32; ++x)
+				if (at(pl.uCov, x, y))
+					TS_ASSERT(dirty.contains(x, y));
+	}
+
+	/// What each mode resolves to.
+	void test_decoration_for_each_mode() {
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowOffset = 2;
+		style.outlineQ = 6;
+
+		style.shadowMode = Graphics::kHiResShadowNone;
+		Graphics::GlyphDecoration d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(!d.outline);
+		TS_ASSERT(!d.shadow);
+
+		style.shadowMode = Graphics::kHiResShadowDrop;
+		d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(!d.outline);
+		TS_ASSERT(d.shadow);
+		TS_ASSERT_EQUALS(d.shadowDx, 2);
+		TS_ASSERT_EQUALS(d.shadowDy, 2);
+
+		style.shadowMode = Graphics::kHiResShadowOutline;
+		d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(d.outline);
+		TS_ASSERT_EQUALS(d.outlineQ, 6);
+		TS_ASSERT(!d.shadow);
+
+		style.shadowMode = Graphics::kHiResShadowStroke;
+		d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(d.outline);
+		TS_ASSERT(d.shadow);
+		TS_ASSERT_EQUALS(d.shadowDx, -2);
+		TS_ASSERT_EQUALS(d.shadowDy, 2);
+		TS_ASSERT_EQUALS(d.shadowColor, 1);
+
+		// An explicit shadow replaces the mode's, and (0,0) removes it.
+		style.shadowShiftSet = true;
+		style.shadowDx = 0;
+		style.shadowDy = 0;
+		d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(d.outline);
+		TS_ASSERT(!d.shadow);
+		style.shadowMode = Graphics::kHiResShadowOutline;
+		style.shadowDx = 1;
+		style.shadowDy = 3;
+		style.shadowShiftColor = 4;
+		style.shadowShiftColorSet = true;
+		d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(d.shadow);
+		TS_ASSERT_EQUALS(d.shadowDx, 1);
+		TS_ASSERT_EQUALS(d.shadowDy, 3);
+		TS_ASSERT_EQUALS(d.shadowColor, 4);
+
+		// Legacy strokes carry their weighting in the table.
+		style.shadowShiftSet = false;
+		style.shadowMode = Graphics::kHiResShadowStroke;
+		style.outlineShape = Graphics::kHiResOutlineLegacy;
+		d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(d.outline);
+		TS_ASSERT(!d.shadow);
+		TS_ASSERT_EQUALS(d.legacyTable, Graphics::kHiResShadowStroke);
+		TS_ASSERT_EQUALS(d.step, 2);
+
+		// No outlineQ: the offset is the width, as it always was.
+		style.outlineShape = Graphics::kHiResOutlineRound;
+		style.shadowMode = Graphics::kHiResShadowOutline;
+		style.outlineQ = -1;
+		d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT_EQUALS(d.outlineQ, 8);
+	}
+
+	/// A map's [shadow] keys, and their defaults at each scale.
+	void test_apply_map_defaults_follow_the_scale() {
+		Graphics::HiResTextConfig map;
+		Graphics::GlyphStyle style;
+		style.shadowMode = Graphics::kHiResShadowOutline;
+
+		Graphics::HiResGlyphRenderer::applyMap(style, map, 2);
+		TS_ASSERT_EQUALS(style.outlineQ, 6);          // 1.5 px at 2x
+		TS_ASSERT_EQUALS(style.shadowOffset, 1);      // half a game pixel
+		TS_ASSERT_EQUALS(style.outlineShape, Graphics::kHiResOutlineRound);
+		TS_ASSERT(!style.shadowShiftSet);
+
+		Graphics::HiResGlyphRenderer::applyMap(style, map, 1);
+		TS_ASSERT_EQUALS(style.outlineQ, 3);
+		TS_ASSERT_EQUALS(style.shadowOffset, 1);
+		Graphics::HiResGlyphRenderer::applyMap(style, map, 3);
+		TS_ASSERT_EQUALS(style.outlineQ, 9);
+		TS_ASSERT_EQUALS(style.shadowOffset, 2);
+
+		// offset= alone: the width it always gave, and the shadow distance.
+		map.shadowOffset = 2;
+		Graphics::HiResGlyphRenderer::applyMap(style, map, 2);
+		TS_ASSERT_EQUALS(style.outlineQ, 8);
+		TS_ASSERT_EQUALS(style.shadowOffset, 2);
+
+		// width= wins for the width; the rest is carried across.
+		map.shadowWidthQ = 5;
+		map.shadowStyle = Graphics::kHiResOutlineSquare;
+		map.shadowShiftSet = true;
+		map.shadowDx = -1;
+		map.shadowDy = 1;
+		map.shadowShiftColor = 3;
+		map.shadowShiftColorSet = true;
+		map.shadowAlpha = 128;
+		Graphics::HiResGlyphRenderer::applyMap(style, map, 2);
+		TS_ASSERT_EQUALS(style.outlineQ, 5);
+		TS_ASSERT_EQUALS(style.outlineShape, Graphics::kHiResOutlineSquare);
+		TS_ASSERT(style.shadowShiftSet);
+		TS_ASSERT_EQUALS(style.shadowDx, -1);
+		TS_ASSERT_EQUALS(style.shadowDy, 1);
+		TS_ASSERT_EQUALS(style.shadowShiftColor, 3);
+		TS_ASSERT(style.shadowShiftColorSet);
+		TS_ASSERT_EQUALS(style.shadowAlpha, 128);
+	}
+
 	/// A font with no ascent recorded must not be shifted by a wild amount.
 	void test_a_missing_ascent_asks_for_no_shift() {
 		Common::Array<byte> bytes = makeFont(8, 1, 8, 16);
