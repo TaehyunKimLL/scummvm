@@ -303,4 +303,38 @@ public:
 		TS_ASSERT_EQUALS(dst[2], 1);
 		TS_ASSERT_EQUALS(dst[3], 5);
 	}
+
+	/**
+	 * MM and Zak v1 on DOS recolour their text screen after it is composed
+	 * (postProcessDOSGraphics(): palette index 14 is shown as 9, light
+	 * blue). A composite that bypasses that step has to recolour through the
+	 * same map: the sinks read a palette, so the palette is remapped.
+	 */
+	void test_remapped_palette_follows_the_map_below_its_size() {
+		uint32 pal[256], out[256];
+		for (int i = 0; i < 256; ++i)
+			pal[i] = (uint32)(0x100 + i);
+		const byte map[16] = { 0x00, 0x0F, 0x04, 0x03, 0x05, 0x02, 0x01, 0x0E,
+							   0x0C, 0x06, 0x0C, 0x08, 0x07, 0x0A, 0x09, 0x08 };
+		Scumm::remapPalette(pal, map, 16, out);
+		TS_ASSERT_EQUALS(out[14], pal[9]);   // yellow index, light blue colour
+		TS_ASSERT_EQUALS(out[1], pal[15]);
+		TS_ASSERT_EQUALS(out[0], pal[0]);
+		// Indices the map does not cover are left alone.
+		TS_ASSERT_EQUALS(out[16], pal[16]);
+		TS_ASSERT_EQUALS(out[253], pal[253]);
+	}
+
+	/// The same map on a paletted screen, where the sink wrote indices.
+	void test_remapped_indices_follow_the_map_below_its_size() {
+		const byte map[16] = { 0x00, 0x0F, 0x04, 0x03, 0x05, 0x02, 0x01, 0x0E,
+							   0x0C, 0x06, 0x0C, 0x08, 0x07, 0x0A, 0x09, 0x08 };
+		byte buf[5] = { 14, 0, 1, 16, 253 };
+		Scumm::remapIndices(buf, 4, map, 16);
+		TS_ASSERT_EQUALS(buf[0], 9);
+		TS_ASSERT_EQUALS(buf[1], 0);
+		TS_ASSERT_EQUALS(buf[2], 15);
+		TS_ASSERT_EQUALS(buf[3], 16);  // outside the map: unchanged
+		TS_ASSERT_EQUALS(buf[4], 253); // past count: untouched
+	}
 };

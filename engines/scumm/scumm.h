@@ -1553,6 +1553,8 @@ protected:
 	Common::KeyState mac_showOldStyleBannerAndPause(const char *msg, int32 waitTime);
 
 	const byte *postProcessDOSGraphics(VirtScreen *vs, int &pitch, int &x, int &y, int &width, int &height) const;
+	/// The colour map postProcessDOSGraphics() applies to @p vs that a hi-res composite must apply itself.
+	bool hiResTextColorMap(const VirtScreen *vs, byte (&map)[16]) const;
 	const byte *ditherVGAtoEGA(int &pitch, int &x, int &y, int &width, int &height) const;
 
 public:

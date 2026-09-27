@@ -50,6 +50,30 @@ static inline void layer(const Graphics::PixelFormat &format, const uint32 *pal,
 }
 
 /**
+ * A palette whose first @p mapSize entries are read through @p map.
+ *
+ * Some platforms recolour a screen after it is composed: MM and Zak v1 on
+ * DOS show their text screen through a colour map (postProcessDOSGraphics()),
+ * so the index the charset wrote is not the colour the player sees. A
+ * composite that goes straight to the backend skips that step, so it reads
+ * the palette through the same map instead. Entries at or past @p mapSize
+ * are copied unchanged.
+ */
+static inline void remapPalette(const uint32 *palette, const byte *map, int mapSize,
+								uint32 *out) {
+	for (int i = 0; i < 256; ++i)
+		out[i] = (i < mapSize) ? palette[map[i]] : palette[i];
+}
+
+/// remapPalette() for a paletted screen: the first @p count indices of @p buf.
+static inline void remapIndices(byte *buf, int count, const byte *map, int mapSize) {
+	for (int i = 0; i < count; ++i) {
+		if (buf[i] < mapSize)
+			buf[i] = map[buf[i]];
+	}
+}
+
+/**
  * A paletted destination: indices are written through unchanged.
  *
  * This is what the game's own picture is, so text keys in rather than
