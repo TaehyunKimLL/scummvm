@@ -1010,6 +1010,17 @@ Graphics::HiResShadowMode ScummHiResText::resolveShadow(Graphics::HiResShadowMod
 	}
 }
 
+Graphics::GlyphStyle ScummHiResText::glyphStyle(const Graphics::HiResTextConfig &config,
+												 int gameShadow, bool korPatchShadow,
+												 byte color, byte shadowColor) {
+	Graphics::GlyphStyle style;
+	style.color = color;
+	style.shadowColor = config.shadowColorSet ? config.shadowColor : shadowColor;
+	style.shadowMode = resolveShadow(config.shadowMode, gameShadow, korPatchShadow);
+	Graphics::HiResGlyphRenderer::applyMap(style, config, MAX(1, config.scale));
+	return style;
+}
+
 bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 							  int x, int y, byte color, byte shadowColor,
 							  int gameShadow, Common::Rect *dirty,
@@ -1140,15 +1151,23 @@ bool ScummHiResText::drawRows(Graphics::Surface &dest, Face &face, uint32 cp, in
 	glyph.height = height;
 	glyph.bpp = 8;
 
-	Graphics::GlyphStyle style;
-	style.color = color;
-	style.shadowColor = _config.shadowColorSet ? _config.shadowColor : shadowColor;
-	style.shadowMode = resolveShadow(_config.shadowMode, gameShadow, _korPatchShadow);
-	style.shadowOffset = (_config.shadowOffset >= 0) ? _config.shadowOffset : 1;
+	const Graphics::GlyphStyle style = glyphStyle(_config, gameShadow, _korPatchShadow, color, shadowColor);
+	const bool decorated = style.shadowMode != Graphics::kHiResShadowNone;
 
-	return Graphics::HiResGlyphRenderer::drawGlyph(dest,
-												   (withCoverage && bpp == 8) ? coverage() : nullptr,
-												   glyph, x, y, style, dirty);
+	// A 1bpp stencil records no coverage when plain, as it never did; one
+	// that is decorated does, 0 or 255, so that its outline can be drawn
+	// under it antialiased like any other.
+	Graphics::GlyphPlanes planes(&dest, (withCoverage && (bpp == 8 || decorated)) ? coverage() : nullptr);
+
+	// The decoration's own layer, where the overlay carries one and this is
+	// the overlay being drawn into (C19): the body's antialiased edge is then
+	// blended over the outline instead of over the game's picture.
+	if (planes.coverage && decorated && _overlay && &dest == &_overlay->index()) {
+		planes.underIndex = _overlay->underIndex();
+		planes.underCoverage = _overlay->underCoverage();
+	}
+
+	return Graphics::HiResGlyphRenderer::drawGlyph(planes, glyph, x, y, style, dirty);
 }
 
 bool ScummHiResText::drawGlyphPlaced(Graphics::Surface &dest, int chr, int lookup, int charsetId,
