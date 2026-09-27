@@ -535,15 +535,20 @@ TextLayer *GfxScreen::ensureTextLayer() {
 }
 
 void GfxScreen::putHiresCoverageGlyph(const byte *coverage, int16 w, int16 h, int16 x, int16 y, byte color) {
+	putHiresCoverageGlyphAt(coverage, w, h, x << 1, y << 1, color);
+}
+
+void GfxScreen::putHiresCoverageGlyphAt(const byte *coverage, int16 w, int16 h, int16 hiresX, int16 hiresY, byte color) {
+	const int16 x = hiresX, y = hiresY;
 	TextLayer *l = ensureTextLayer();
 	// The colour is used as given, as the old putHiresGlyphPersistent() path
 	// did: remapTextColor() belongs to putKanjiChar (PC-98 text mode) and
 	// returns 0 on QFG/SCI1 PC-98 drivers, so applying it here would change
 	// what a SCVMUNI font draws on those releases.
-	l->putGlyph(x << 1, y << 1, coverage, w, h, color);
+	l->putGlyph(x, y, coverage, w, h, color);
 	// Shown at once, as the old direct-to-driver draw was: callers that
 	// relied on that (kDisplay's Box) keep working unchanged.
-	_gfxDrv->refreshHiresRect(Common::Rect(x << 1, y << 1, (x << 1) + w, (y << 1) + h),
+	_gfxDrv->refreshHiresRect(Common::Rect(x, y, x + w, y + h),
 							  _paletteModsEnabled ? _paletteMods : nullptr, _paletteMapScreen);
 }
 

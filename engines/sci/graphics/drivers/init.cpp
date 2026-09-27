@@ -23,6 +23,7 @@
 #include "sci/graphics/drivers/gfxdriver.h"
 #include "sci/sci.h"
 #include "common/config-manager.h"
+#include "common/debug.h"
 #include "common/language.h"
 #include "common/platform.h"
 
@@ -68,6 +69,8 @@ struct GfxDriverInfo {
 	bool (*validateMode)(Common::Platform);
 	GfxDriver *(*createDriver)(int, ...);
 	int config;
+	/** Matched only when the game draws hi-res text (SciEngine::usesHiresDoubleByteText()). */
+	bool hiresText;
 };
 
 #define INITPROCS1(x) nullptr, x##Driver_create
@@ -75,33 +78,39 @@ struct GfxDriverInfo {
 
 static const GfxDriverInfo _gfxDriverInfos[] = {
 	// Selected modes
-	{ Common::kRenderEGA, Common::kPlatformUnknown, SCI_VERSION_1_EARLY, SCI_VERSION_1_1, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI1_EGA), 0 },
-	{ Common::kRenderVGAGrey, Common::kPlatformUnknown, SCI_VERSION_1_EARLY, SCI_VERSION_1_1, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI1_VGAGreyScale), 0 },
-	{ Common::kRenderCGA, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_EGA_ONLY, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI0_CGA), 0 },
-	{ Common::kRenderCGA_BW, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_EGA_ONLY, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI0_CGABW), 2 },
-	{ Common::kRenderHercA, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_EGA_ONLY, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI0_Hercules), 0 },
-	{ Common::kRenderHercG, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_EGA_ONLY, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI0_Hercules), 1 },
-	{ Common::kRenderPC98_8c, Common::kPlatformUnknown, SCI_VERSION_0_LATE, SCI_VERSION_0_LATE, GID_PQ2, Common::UNK_LANG, kUnused, INITPROCS2(SCI0_PC98Gfx8Colors), 1 },
-	{ Common::kRenderPC98_8c, Common::kPlatformUnknown, SCI_VERSION_01, SCI_VERSION_01, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI0_PC98Gfx8Colors), 0 },
-	{ Common::kRenderPC98_8c, Common::kPlatformUnknown, SCI_VERSION_1_LATE, SCI_VERSION_1_LATE, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI1_PC98Gfx8Colors), 0 },
-	{ Common::kRenderWin16c, Common::kPlatformUnknown, SCI_VERSION_1_1, SCI_VERSION_1_1, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(WindowsGfx16Colors), 0 },
+	{ Common::kRenderEGA, Common::kPlatformUnknown, SCI_VERSION_1_EARLY, SCI_VERSION_1_1, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI1_EGA), 0, false },
+	{ Common::kRenderVGAGrey, Common::kPlatformUnknown, SCI_VERSION_1_EARLY, SCI_VERSION_1_1, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI1_VGAGreyScale), 0, false },
+	{ Common::kRenderCGA, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_EGA_ONLY, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI0_CGA), 0, false },
+	{ Common::kRenderCGA_BW, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_EGA_ONLY, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI0_CGABW), 2, false },
+	{ Common::kRenderHercA, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_EGA_ONLY, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI0_Hercules), 0, false },
+	{ Common::kRenderHercG, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_EGA_ONLY, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI0_Hercules), 1, false },
+	{ Common::kRenderPC98_8c, Common::kPlatformUnknown, SCI_VERSION_0_LATE, SCI_VERSION_0_LATE, GID_PQ2, Common::UNK_LANG, kUnused, INITPROCS2(SCI0_PC98Gfx8Colors), 1, false },
+	{ Common::kRenderPC98_8c, Common::kPlatformUnknown, SCI_VERSION_01, SCI_VERSION_01, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI0_PC98Gfx8Colors), 0, false },
+	{ Common::kRenderPC98_8c, Common::kPlatformUnknown, SCI_VERSION_1_LATE, SCI_VERSION_1_LATE, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(SCI1_PC98Gfx8Colors), 0, false },
+	{ Common::kRenderWin16c, Common::kPlatformUnknown, SCI_VERSION_1_1, SCI_VERSION_1_1, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS2(WindowsGfx16Colors), 0, false },
 	// Default modes
-	{ Common::kRenderDefault, Common::kPlatformPC98, SCI_VERSION_0_LATE, SCI_VERSION_0_LATE, GID_PQ2, Common::UNK_LANG, kUnused, INITPROCS1(PC98Gfx16Colors), 2 },
-	{ Common::kRenderDefault, Common::kPlatformPC98, SCI_VERSION_01, SCI_VERSION_01, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS1(PC98Gfx16Colors), 0 },
-	{ Common::kRenderDefault, Common::kPlatformPC98, SCI_VERSION_1_EARLY, SCI_VERSION_1_LATE, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS1(PC98Gfx16Colors), 1 },
-	{ Common::kRenderDefault, Common::kPlatformWindows, SCI_VERSION_1_1, SCI_VERSION_1_1, GID_ALL, Common::UNK_LANG, kDisable, INITPROCS1(WindowsGfx256Colors), 0 },
-	{ Common::kRenderDefault, Common::kPlatformWindows, SCI_VERSION_1_1, SCI_VERSION_1_1, GID_KQ6, Common::UNK_LANG, kEnable, INITPROCS1(WindowsGfx256Colors), 1 },
-	{ Common::kRenderDefault, Common::kPlatformDOS, SCI_VERSION_1_1, SCI_VERSION_1_1, GID_KQ6, Common::UNK_LANG, kEnable, INITPROCS1(WindowsGfx256Colors), 1 },
-	{ Common::kRenderDefault, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_1, GID_ALL, Common::KO_KOR, kUnused, INITPROCS1(UpscaledGfx), 0 },
+	{ Common::kRenderDefault, Common::kPlatformPC98, SCI_VERSION_0_LATE, SCI_VERSION_0_LATE, GID_PQ2, Common::UNK_LANG, kUnused, INITPROCS1(PC98Gfx16Colors), 2, false },
+	{ Common::kRenderDefault, Common::kPlatformPC98, SCI_VERSION_01, SCI_VERSION_01, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS1(PC98Gfx16Colors), 0, false },
+	{ Common::kRenderDefault, Common::kPlatformPC98, SCI_VERSION_1_EARLY, SCI_VERSION_1_LATE, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS1(PC98Gfx16Colors), 1, false },
+	{ Common::kRenderDefault, Common::kPlatformWindows, SCI_VERSION_1_1, SCI_VERSION_1_1, GID_ALL, Common::UNK_LANG, kDisable, INITPROCS1(WindowsGfx256Colors), 0, false },
+	{ Common::kRenderDefault, Common::kPlatformWindows, SCI_VERSION_1_1, SCI_VERSION_1_1, GID_KQ6, Common::UNK_LANG, kEnable, INITPROCS1(WindowsGfx256Colors), 1, false },
+	{ Common::kRenderDefault, Common::kPlatformDOS, SCI_VERSION_1_1, SCI_VERSION_1_1, GID_KQ6, Common::UNK_LANG, kEnable, INITPROCS1(WindowsGfx256Colors), 1, false },
+	// Hi-res text needs the upscaled driver: its glyphs are drawn on the
+	// text plane, which only that driver composites. Chosen by the text
+	// (a UTF-8 translation in any language, a Korean patch), not by the
+	// language, and after the platform rows above, so PC-98 and Windows
+	// releases keep their drivers. The KO/JA rows stay for byte-identity.
+	{ Common::kRenderDefault, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_1, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS1(UpscaledGfx), 0, true },
+	{ Common::kRenderDefault, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_1, GID_ALL, Common::KO_KOR, kUnused, INITPROCS1(UpscaledGfx), 0, false },
 	// Japanese needs the same upscaled driver as Korean: double-byte glyphs
 	// are drawn on the hires text plane, and the default driver's
 	// drawTextFontGlyph() is not implemented, so a Japanese translation on a
 	// DOS release dies with "I don't want to initialize, when not being in
 	// upscaled hires mode". The PC98 and FM-TOWNS entries above still win for
 	// those platforms, since they are matched on platform first.
-	{ Common::kRenderDefault, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_1, GID_ALL, Common::JA_JPN, kUnused, INITPROCS1(UpscaledGfx), 0 },
-	{ Common::kRenderDefault, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_0_LATE, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS1(GfxDefault), 0 },
-	{ Common::kRenderDefault, Common::kPlatformUnknown, SCI_VERSION_01, SCI_VERSION_1_1, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS1(GfxDefault), 1 }
+	{ Common::kRenderDefault, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_1_1, GID_ALL, Common::JA_JPN, kUnused, INITPROCS1(UpscaledGfx), 0, false },
+	{ Common::kRenderDefault, Common::kPlatformUnknown, SCI_VERSION_0_EARLY, SCI_VERSION_0_LATE, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS1(GfxDefault), 0, false },
+	{ Common::kRenderDefault, Common::kPlatformUnknown, SCI_VERSION_01, SCI_VERSION_1_1, GID_ALL, Common::UNK_LANG, kUnused, INITPROCS1(GfxDefault), 1, false }
 };
 
 #undef INITPROCS1
@@ -122,10 +131,11 @@ Common::RenderMode getRenderMode() {
 	Common::Platform platform = g_sci->getPlatform();
 	SciVersion version = getSciVersion();
 
-	// No extra modes supported for the Korean fan-patched games.
+	// No extra modes supported for the Korean fan-patched games, nor for a
+	// UTF-8 translation (the upscaled driver draws its text).
 	// Also set default mode if undithering is enabled for a 16 colors game and the render mode is not set to CGA, Hercules
 	// or PC-98 8 colors.
-	if (lang == Common::KO_KOR || (undither && version <= SCI_VERSION_1_EGA_ONLY && selectedMode != Common::kRenderCGA &&
+	if (lang == Common::KO_KOR || g_sci->heapStringsAreUtf8() || (undither && version <= SCI_VERSION_1_EGA_ONLY && selectedMode != Common::kRenderCGA &&
 		selectedMode != Common::kRenderCGA_BW && selectedMode != Common::kRenderHercA && selectedMode != Common::kRenderHercG && selectedMode != Common::kRenderPC98_8c))
 			result = Common::kRenderDefault;
 
@@ -154,6 +164,7 @@ GfxDriver *create(Common::RenderMode renderMode, int width, int height) {
 	Common::Language lang = g_sci->getLanguage();
 	Common::Platform platform = g_sci->getPlatform();
 	bool hires = g_sci->useHiresGraphics();
+	bool hiresText = g_sci->usesHiresDoubleByteText();
 
 	bool undither = ConfMan.hasKey("disable_dithering") ? ConfMan.getBool("disable_dithering") : false;
 	bool winCursors = ConfMan.hasKey("windows_cursors") ? ConfMan.getBool("windows_cursors") : false;
@@ -162,8 +173,11 @@ GfxDriver *create(Common::RenderMode renderMode, int width, int height) {
 	// driver that supports the current platform, game and version.
 	for (const GfxDriverInfo *info = _gfxDriverInfos; info < &_gfxDriverInfos[ARRAYSIZE(_gfxDriverInfos)]; ++info)  {
 		if (((info->renderMode == Common::kRenderDefault && (info->platform == Common::kPlatformUnknown || info->platform == platform)) || (renderMode != Common::kRenderDefault && info->renderMode == renderMode))
-			&& version >= info->versionMin && version <= info->versionMax && (info->gameId == GID_ALL || info->gameId == gameId) && (info->language == Common::UNK_LANG || info->language == lang) && (info->hires == kUnused || (info->hires == kEnable) == hires)) {
+			&& version >= info->versionMin && version <= info->versionMax && (info->gameId == GID_ALL || info->gameId == gameId) && (info->language == Common::UNK_LANG || info->language == lang) && (info->hires == kUnused || (info->hires == kEnable) == hires)
+			&& (!info->hiresText || hiresText)) {
 				result = info->createDriver(requestRGB, info->config, width, height, undither, winCursors, hires);
+				if (info->hiresText)
+					debug(1, "SCI: hi-res text: the upscaled graphics driver");
 				break;
 		}
 	}

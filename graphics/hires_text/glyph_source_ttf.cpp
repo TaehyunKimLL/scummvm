@@ -350,8 +350,15 @@ TtfGlyphSource::Entry &TtfGlyphSource::ensure(uint32 cp) {
 	// its origin at column 0 and its old rows - including Latin 'j', whose
 	// descender reaches left of the origin - until the engines read originX
 	// (C11 T5/T6/T8); a drawer that does not would otherwise move it.
+	// SARA AM (Thai U+0E33, Lao AM U+0EB3) is general category Lo, not a
+	// mark: it advances like a vowel (the SARA AA part), but it is
+	// NIKHAHIT + SARA AA in one glyph, and the NIKHAHIT ring is drawn over
+	// the base before it - left of the glyph's own origin (Sukhumvit Set
+	// 16 px: bounding box left -4, measured). Drawn with its origin at
+	// column 0 the ring was cut off. It gets the marks' treatment: origin
+	// moved right by the ink left of it; its advance is unchanged.
 	int originX = 0;
-	if (Unicode::isCombining(cp)) {
+	if (Unicode::isCombining(cp) || cp == 0x0E33 || cp == 0x0EB3) {
 		const Common::Rect box = _font->getBoundingBox(cp);
 		if (box.left < 0)
 			originX = MIN<int>(-box.left, cellW);

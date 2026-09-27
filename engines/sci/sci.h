@@ -31,6 +31,7 @@
 #include "sci/detection.h" // Shared code between detection and engine
 #include "sci/engine/text_overlay.h"
 #include "sci/engine/translation.h"
+#include "graphics/hires_text/coverage.h"
 
 struct ADGameDescription;
 
@@ -213,8 +214,9 @@ public:
 	 * and missing one produced text that was drawn at correct coordinates and
 	 * then composited away.
 	 *
-	 * True for: the Korean fan patches (legacy Text.MAP or UTF-8 TEXT
-	 * resources, either drawn through a SCVMUNI font set), and PQ2 on PC-98.
+	 * True for: a UTF-8 translation (heapStringsAreUtf8(): the Korean
+	 * UTF-8 TEXT resources, or any language whose sci-<lang>.str manifest
+	 * is present), the legacy Text.MAP overlay, KO_KOR, and PQ2 on PC-98.
 	 */
 	bool usesHiresDoubleByteText() const;
 
@@ -222,10 +224,12 @@ public:
 	 * Whether strings in the VM heap are UTF-8, so that the string ops that
 	 * index into text (kStrLen, kStrAt) count code points rather than bytes.
 	 *
-	 * True when the game's TEXT resources are a UTF-8 fan translation (its
-	 * detection entry carries ADGF_UTF8I18N) and not the legacy code-page
-	 * Text.MAP overlay. The language alone does not decide it: a KO_KOR
-	 * entry without the flag is cp949. An untranslated game keeps byte semantics to the last op -
+	 * True when the game's TEXT resources are a UTF-8 fan translation and
+	 * not the legacy code-page Text.MAP overlay: its detection entry carries
+	 * ADGF_UTF8I18N (KQ1-ko), or the player chose a language (language=)
+	 * and the translation's manifest, sci-<lang>.str, is present - entries
+	 * or not (I18N_TEXT_DESIGN.md section 4.1). The language itself does
+	 * not decide it: a KO_KOR entry without the flag is cp949. An untranslated game keeps byte semantics to the last op -
 	 * measured in M11_STRING_OPS.md, its scripts never see translated text
 	 * anyway, so the gate is belt and braces for the fan game that does
 	 * scan bytes.
@@ -235,6 +239,15 @@ public:
 	 * byte in the heap means.
 	 */
 	bool heapStringsAreUtf8() const;
+
+	/**
+	 * The code points of the loaded UTF-8 translation - every TEXT resource
+	 * (the translation's patch files replace them) and the sci-<lang>.str
+	 * strings - collected on first use. Empty when heapStringsAreUtf8() is
+	 * false. GfxCache samples it for the coverage check and the vertical
+	 * fit of the faces (I18N_TEXT_DESIGN.md section 4.4).
+	 */
+	const Graphics::CodePointSet &translationCodePoints();
 
 	/**
 	 * Returns true if the game's language direction is Right To Left.
@@ -479,6 +492,10 @@ private:
 	ResourceManager *_resMan; /**< The resource manager */
 	TextOverlay _textOverlay; /**< Korean fan-patch text override */
 	ScriptStrings _scriptStrings; /**< run-time translations for strings embedded in scripts */
+	/** language= is set and sci-<lang>.str is present: the UTF-8 manifest, decided once at start. */
+	bool _utf8Manifest;
+	Graphics::CodePointSet _translationCodePoints;
+	bool _translationCodePointsCollected;
 	ScriptPatcher *_scriptPatcher; /**< The script patcher */
 	EngineState *_gamestate;
 	Kernel *_kernel;

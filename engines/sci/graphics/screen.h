@@ -138,6 +138,8 @@ public:
 	 * @param x, y      LOWRES coordinates; the glyph lands at (2x, 2y) hires
 	 */
 	void putHiresCoverageGlyph(const byte *coverage, int16 w, int16 h, int16 x, int16 y, byte color);
+	/** putHiresCoverageGlyph() at HIRES coordinates: a glyph placed by its own bearing, not on a game pixel. */
+	void putHiresCoverageGlyphAt(const byte *coverage, int16 w, int16 h, int16 hiresX, int16 hiresY, byte color);
 
 	/// The text layer itself, or null if never used.
 	const TextLayer *textLayer() const { return _textLayer; }

@@ -30,6 +30,7 @@
 #include "graphics/hires_text/glyph_source.h"
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/textlatin.h"
+#include "sci/graphics/textlayout16.h"
 
 namespace Sci {
 
@@ -83,10 +84,40 @@ public:
 	void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput,
 	                  byte *buffer, int16 width, int16 height) override;
 
+	/**
+	 * The advance rule of I18N_TEXT_DESIGN.md section 4.2, in game px:
+	 * wide -> @p gameWide (the cell rule, unchanged); combining -> 0; any
+	 * other glyph -> latinAdvanceGamePx(kHiResMetricsFont, @p gameNarrow,
+	 * m.advance, @p scale). See Sci::gameAdvance() (textlayout16.h).
+	 */
+	static int16 gameAdvance(const Graphics::GlyphMetrics &m, int gameNarrow, int gameWide, int scale) {
+		return Sci::gameAdvance(m, gameNarrow, gameWide, scale);
+	}
+
+	/**
+	 * The advance of @p cp in game px when drawn at @p scale hi-res px per
+	 * game px: glyphGameWidth() with perGlyph(). 0 when there is no glyph.
+	 */
+	byte gameCharWidth(uint32 cp, int scale);
+
+	/**
+	 * Per-glyph advance and placement (a UTF-8 translation is loaded).
+	 * Off - the default - every glyph is measured and drawn by its cell,
+	 * as before, so a legacy font keeps its widths to the pixel.
+	 */
+	void setPerGlyph(bool on) { _perGlyph = on; }
+	bool perGlyph() const { return _perGlyph; }
+
+	/** A string starts: a mark at its start does not attach to the last string's base. */
+	void beginString() override { _anchor.reset(); }
+
 	/** Does this font have a glyph for @p codepoint? */
 	bool hasGlyph(uint32 codepoint) const { return _source && _source->cells(codepoint) > 0; }
 
 	uint32 glyphCount() const { return _source ? _source->glyphCount() : 0; }
+
+	/** The glyph source, still owned by this font (GfxCache chains the .uni bundle's behind TrueType faces). */
+	Graphics::UnicodeGlyphSource *source() { return _source.get(); }
 
 	/** The face's own advance for @p cp in hi-res pixels, 0 when unknown
 	 *  (see UnicodeGlyphSource::advance()). */
@@ -105,6 +136,11 @@ private:
 
 	/** Scratch buffer for expanding a glyph to one byte per pixel. */
 	Common::Array<byte> _glyphScratch;
+
+	/// Per-glyph advance and placement: set for a UTF-8 translation only.
+	bool _perGlyph;
+	/// Where a combining mark goes; reset by beginString().
+	CombiningAnchor _anchor;
 };
 
 /**
@@ -157,6 +193,7 @@ public:
 	void draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) override;
 	void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput,
 	                  byte *buffer, int16 width, int16 height) override;
+	void beginString() override;
 
 	/**
 	 * hires_text_log: which face draw() would pick for @p chr - mirrors its
