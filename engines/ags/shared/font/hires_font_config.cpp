@@ -50,6 +50,9 @@ void HiResFontConfig::load() {
 		const Common::String value = ConfMan.get("hires_text_map", domain);
 		if (value.empty())
 			Debug::Printf(kDbgMsg_Warn, "WARNING: hires_text_map: empty path; no map is used");
+		else if (Graphics::HiResFontMap::isDataPath(value))
+			// "data:" names a map shipped with ScummVM (HiResFontMap::resolvePath()).
+			mapNode = Common::FSNode(Graphics::HiResFontMap::resolvePath(value, Common::Path()));
 		else
 			mapNode = Common::FSNode(Common::Path(value, Common::Path::kNativeSeparator));
 	} else if (!gameDir.empty()) {

@@ -28,6 +28,7 @@
 #include "common/path.h"
 #include "common/str.h"
 #include "common/str-enc.h"
+#include "graphics/hires_text/font_face.h"
 #include "graphics/hires_text/text_layout.h"
 
 namespace Common {
@@ -378,8 +379,38 @@ public:
 	 * Relative paths are taken against @p baseDir - normally the map's own
 	 * folder - so a translation can ship its fonts next to the map and stay
 	 * movable. Absolute paths are returned unchanged.
+	 *
+	 * A value starting with "data:" names a file shipped with ScummVM
+	 * instead ("data:hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf"):
+	 * it is looked up under dataRoots() by resolveDataPath(), never under
+	 * @p baseDir.
 	 */
 	static Common::Path resolvePath(const Common::String &value, const Common::Path &baseDir);
+
+	/// Prefix of a map value naming a file in ScummVM's data directories.
+	static const char *const kDataPrefix;
+
+	/// Whether @p value starts with kDataPrefix ("data:", case-sensitive).
+	static bool isDataPath(const Common::String &value);
+
+	/**
+	 * Find @p relative (the part after "data:") under each of @p roots in
+	 * order and return the first existing file; a trailing "#<N>" face
+	 * suffix is honoured as resolveFontFace() does and kept in the result.
+	 * When no root holds it, the value comes back as "data:<relative>" so
+	 * the opener's warning names what the map wrote.
+	 */
+	static Common::Path resolveDataPath(const Common::String &relative,
+										const Common::Array<Common::Path> &roots,
+										FontFileExistsFn exists = fontFileExists);
+
+	/**
+	 * The folders "data:" searches, in order: the extrapath of the active
+	 * domain, the application-level extrapath, then the compiled-in
+	 * DATA_PATH (where "make install" puts engine data). A source-tree
+	 * build reaches dists/engine-data through --extrapath.
+	 */
+	static Common::Array<Common::Path> dataRoots();
 
 	/// Map a code page name ("cp932", "sjis", ...) to a CodePage.
 	/// Returns Common::kCodePageInvalid when the name is not known.

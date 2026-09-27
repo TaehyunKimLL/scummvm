@@ -21,6 +21,7 @@
 
 #include "graphics/hires_text/font_map.h"
 
+#include "common/config-manager.h"
 #include "common/formats/ini-file.h"
 #include "common/fs.h"
 #include "common/stream.h"
@@ -216,9 +217,54 @@ Common::CodePage HiResFontMap::parseCodePage(const Common::String &name) {
 	return Common::kCodePageInvalid;
 }
 
+const char *const HiResFontMap::kDataPrefix = "data:";
+
+bool HiResFontMap::isDataPath(const Common::String &value) {
+	return value.hasPrefix(kDataPrefix);
+}
+
+Common::Path HiResFontMap::resolveDataPath(const Common::String &relative,
+										   const Common::Array<Common::Path> &roots,
+										   FontFileExistsFn exists) {
+	const Common::Path rel(relative);
+	for (uint i = 0; i < roots.size(); ++i) {
+		if (roots[i].empty())
+			continue;
+		const Common::Path candidate = roots[i].join(rel);
+		Common::Path file;
+		int32 faceIndex;
+		if (resolveFontFace(candidate, file, faceIndex, exists))
+			return candidate;
+	}
+	return Common::Path(Common::String(kDataPrefix) + relative);
+}
+
+Common::Array<Common::Path> HiResFontMap::dataRoots() {
+	Common::Array<Common::Path> roots;
+	if (ConfMan.hasKey("extrapath"))
+		roots.push_back(ConfMan.getPath("extrapath"));
+	if (ConfMan.hasKey("extrapath", Common::ConfigManager::kApplicationDomain)) {
+		const Common::Path app = ConfMan.getPath("extrapath", Common::ConfigManager::kApplicationDomain);
+		if (roots.empty() || roots[0] != app)
+			roots.push_back(app);
+	}
+#ifdef DATA_PATH
+	roots.push_back(Common::Path(DATA_PATH, Common::Path::kNativeSeparator));
+#endif
+	return roots;
+}
+
 Common::Path HiResFontMap::resolvePath(const Common::String &value, const Common::Path &baseDir) {
 	if (value.empty())
 		return Common::Path();
+
+	if (isDataPath(value)) {
+		const Common::String relative = value.substr(strlen(kDataPrefix));
+		const Common::Path found = resolveDataPath(relative, dataRoots());
+		if (isDataPath(found.toString('/')))
+			warning("HiResText: '%s' is not in the extrapath or the ScummVM data directory", value.c_str());
+		return found;
+	}
 
 	const char first = value[0];
 	const bool absolute = (first == '/' || first == '\\') ||
