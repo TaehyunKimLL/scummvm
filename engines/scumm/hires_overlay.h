@@ -141,6 +141,27 @@ public:
 	/// Zero a band of coverage without touching the index plane.
 	void clearCoverage(int top, int height);
 
+	/**
+	 * Add the two planes a text decoration is drawn into (C19).
+	 *
+	 * An outline has to sit *under* the text so that the text's antialiased
+	 * edge is blended over it; in the text's own planes the edge replaced
+	 * the outline and was blended over the picture instead, a seam of
+	 * background inside every outline. These hold the decoration's colour
+	 * and coverage. They go with the coverage plane: without it there is no
+	 * blending to layer, so this does nothing then. Every clear, fill, save
+	 * and restore of the coverage takes them along.
+	 */
+	void createUnder();
+
+	/// The decoration's index plane, or null when there is none.
+	Graphics::Surface *underIndex() { return _underCoverage.getPixels() ? &_underIndex : nullptr; }
+	const Graphics::Surface *underIndex() const { return _underCoverage.getPixels() ? &_underIndex : nullptr; }
+
+	/// The decoration's coverage plane, or null when there is none.
+	Graphics::Surface *underCoverage() { return _underCoverage.getPixels() ? &_underCoverage : nullptr; }
+	const Graphics::Surface *underCoverage() const { return _underCoverage.getPixels() ? &_underCoverage : nullptr; }
+
 	bool created() const { return _index.getPixels() != nullptr; }
 
 	/**
@@ -161,8 +182,16 @@ public:
 private:
 	Graphics::Surface _index;
 	Graphics::Surface _coverage;
+	Graphics::Surface _underIndex;
+	Graphics::Surface _underCoverage;
 	Graphics::Surface _savedIndex;
 	Graphics::Surface _savedCoverage;
+	Graphics::Surface _savedUnderIndex;
+	Graphics::Surface _savedUnderCoverage;
+
+	/// Zero the under planes in @p r, already clipped.
+	void clearUnder(const Common::Rect &r);
+	void freeUnder();
 };
 
 } // End of namespace Scumm
