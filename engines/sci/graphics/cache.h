@@ -133,8 +133,10 @@ private:
 		kProbesTranslation = 2  ///< the fixed set plus a sample of the translation's characters
 	};
 
+	/// pixel > 0 opens the face as a pixel font of that design size in a
+	/// size cell (TtfGlyphSource::createPixel()); probes then do not apply.
 	Graphics::TtfGlyphSource *ttfSource(const Common::String &path, int size, FaceProbes probes,
-							  const char *what, const char *fallback);
+							  const char *what, const char *fallback, int pixel = 0);
 
 	/**
 	 * With a UTF-8 translation: every face of @p s's chain that opens,

@@ -37,6 +37,25 @@ thin and gappy. `bakecells.sh` detects these games (one `korean00.fnt`, 8x8)
 and switches to `unifont_jp`, rendered at twice the cell so its 16-unit
 advance lands on the grid.
 
+### Every syllable, and other scripts: `--unicode`
+
+A code-page bake (`--codepage 949`, the default) holds only the 2350
+syllables of KS X 1001, so a UTF-8 translation that writes 똠 or 뷁 falls back
+to another face for them. `mkfont.py --unicode <list>` bakes a version 2 SVFN
+(a code point table, FONT_FORMAT.md) in the order given; the list takes hex
+ranges and names (`ascii`, `latin1`, `hangul` = all 11172, `jamo`,
+`cjk-punct`, `ksx1001` = the whole of KS X 1001 with its 4888 Hanja, `kana`,
+`thai`). Code points the face does not draw (no ink, or its .notdef box) are
+left out, so the `[font.N] bitmap=` loader falls back for them. A pixel font
+baked at its design size is its own bitmap exactly:
+
+```sh
+tools/korean/mkfont.py Galmuri7.ttf galmuri7-8px.fnt --size 8 --cell 9 --bpp 1 \
+    --unicode ascii,hangul,jamo,cjk-punct
+```
+
+The glyph count field is 16 bits: at most 65535 glyphs per file.
+
 ### Hangul is proportional too
 
 CJK faces report one advance per syllable because they are drawn on a square

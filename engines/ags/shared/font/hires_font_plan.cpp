@@ -110,6 +110,11 @@ HiResFontPlan HiResFontConfig::plan(int fontNumber) const {
 		p.size = _map.hiresSize;
 	if (_mapLoaded)
 		p.gamma = _map.coverageGamma;
+	// A pixel font (C28) is held on its grid in the size above.
+	if (f && f->pixelSet)
+		p.pixel = f->pixel;
+	else if (_mapLoaded && _map.hiresPixelSet)
+		p.pixel = _map.hiresPixel;
 	return p;
 }
 

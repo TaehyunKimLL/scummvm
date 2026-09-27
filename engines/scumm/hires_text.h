@@ -665,6 +665,7 @@ private:
 	struct CharsetFonts {
 		Common::Array<Common::Path> chain;   ///< faces, [font.N] face= then [hires] face=
 		int size = 0;                        ///< pixels; 0 = the game cell times the scale
+		int pixel = 0;                       ///< [font.N] pixel= then [hires] pixel=; 0 = not a pixel font
 		Graphics::HiResLatinMode latin = Graphics::kHiResLatinProportional;
 		bool fullwidthSpace = false;
 		Common::Path latinFace;              ///< [font.N] latin_font= then [latin] font=
@@ -703,7 +704,11 @@ private:
 
 	Face *faceFor(int charsetId, bool latin) const;
 	Face *ttfFaceFor(int charsetId) const;
-	Face *openTtfChain(const Common::Array<Common::Path> &chain, int pixelSize, bool lineFit) const;
+	/// pixelGrid > 0 opens the chain's first face as a pixel font of that
+	/// design size in a pixelSize cell (TtfGlyphSource::createPixel()); the
+	/// faces behind it are opened as usual in the same cell.
+	Face *openTtfChain(const Common::Array<Common::Path> &chain, int pixelSize, bool lineFit,
+					   int pixelGrid = 0) const;
 	int ttfCellWidth(int charsetId) const;
 
 	// --- per-glyph placement (C11 T6) ---------------------------------
