@@ -768,7 +768,13 @@ ScummHiResText::Face *ScummHiResText::openTtfChain(const Common::Array<Common::P
 		Common::String openError;
 		Common::SeekableReadStream *stream = Graphics::openFontFace(chain[i], faceIndex, openError);
 		if (!stream) {
-			warning("SCUMM: cannot open hi-res TrueType font '%s'", chain[i].toString().c_str());
+			// A plain path keeps its old warning; a "#<N>" one says why.
+			Common::String unusedFile;
+			int32 unusedIndex;
+			if (Graphics::splitFontFaceIndex(chain[i].baseName(), unusedFile, unusedIndex))
+				warning("SCUMM: cannot open hi-res TrueType font '%s': %s", chain[i].toString().c_str(), openError.c_str());
+			else
+				warning("SCUMM: cannot open hi-res TrueType font '%s'", chain[i].toString().c_str());
 			_failedFaces[path] = true;
 			continue;
 		}
