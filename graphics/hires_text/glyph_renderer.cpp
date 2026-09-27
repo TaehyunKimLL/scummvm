@@ -173,6 +173,7 @@ void HiResGlyphRenderer::buildKernel(DilationKernel &k, int quarterRadius, HiRes
 					continue;
 				k.dx[k.taps] = x - R;
 				k.dy[k.taps] = y - R;
+				k.k[k.taps] = 255;
 				k.w[k.taps] = 255;
 				k.reach = MAX(k.reach, MAX(ABS(x - R), ABS(y - R)));
 				++k.taps;
@@ -192,15 +193,13 @@ void HiResGlyphRenderer::buildKernel(DilationKernel &k, int quarterRadius, HiRes
 				d = MAX(ABS(dx), ABS(dy));
 			else
 				d = sqrt((double)(dx * dx + dy * dy));
-			double w = r + 1.0 - d;
-			if (w > 1.0)
-				w = 1.0;
-			const int wi = (int)(w * 255.0 + 0.5);
-			if (wi <= 0 || k.taps >= DilationKernel::kMaxTaps)
+			const int ki = (int)((r + 1.0 - d) * 255.0 + 0.5);
+			if (ki <= 0 || k.taps >= DilationKernel::kMaxTaps)
 				continue;
 			k.dx[k.taps] = dx;
 			k.dy[k.taps] = dy;
-			k.w[k.taps] = (byte)wi;
+			k.k[k.taps] = (int16)ki;
+			k.w[k.taps] = (byte)MIN(ki, 255);
 			k.reach = MAX(k.reach, MAX(ABS(dx), ABS(dy)));
 			++k.taps;
 		}
@@ -216,6 +215,12 @@ void HiResGlyphRenderer::dilate(const GlyphBitmap &glyph, const DilationKernel &
 	// Scatter each covered source pixel through the pen, keeping the maximum.
 	// Glyphs are a few hundred pixels and pens a few dozen taps, so this is
 	// cheap; empty source pixels, most of a glyph, cost nothing.
+	//
+	// Coverage is read as distance, not as opacity: ink covering c of its
+	// pixel reaches 1 - c less far, so its outline is that much narrower but
+	// just as solid. Multiplying instead capped the outline at the stroke's
+	// own coverage, and a thin face whose stems straddle two pixels at two
+	// thirds each got a translucent outline (measured on MI2, C19).
 	for (int gy = 0; gy < glyph.height; ++gy) {
 		const byte *row = glyph.pixels + gy * glyph.pitch;
 		for (int gx = 0; gx < glyph.width; ++gx) {
@@ -227,7 +232,10 @@ void HiResGlyphRenderer::dilate(const GlyphBitmap &glyph, const DilationKernel &
 
 			byte *centre = out + (gy + k.reach) * mw + gx + k.reach;
 			for (int t = 0; t < k.taps; ++t) {
-				const byte v = (cv == 0xFF) ? k.w[t] : (byte)((cv * k.w[t] + 127) / 255);
+				const int reach = k.k[t] - (255 - cv);
+				if (reach <= 0)
+					continue;
+				const byte v = (byte)MIN(reach, 255);
 				byte &o = centre[k.dy[t] * mw + k.dx[t]];
 				if (v > o)
 					o = v;
@@ -326,7 +334,7 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 		if (deco.outline)
 			buildKernel(kernel, deco.outlineQ, deco.shape, deco.legacyTable, deco.step);
 		else
-			buildKernel(kernel, 0, kHiResOutlineSquare);   // the glyph itself: one tap
+			buildKernel(kernel, 0, kHiResOutlineSquare);   // the glyph itself: one tap, k = 255
 
 		const int pad = kernel.reach;
 		const int mw = glyph.width + 2 * pad;

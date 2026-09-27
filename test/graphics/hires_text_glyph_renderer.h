@@ -1316,7 +1316,13 @@ public:
 		TS_ASSERT_EQUALS(weightAt(k, -4, 0), 255);
 	}
 
-	/// Dilation is the strongest weighted neighbour, rounded.
+	/**
+	 * Dilation reads coverage as how far into its pixel the ink reaches: a
+	 * pixel c covered pushes the pen's edge back by 1 - c. So the outline of
+	 * a stroke drawn at partial coverage - a thin face's stems straddle two
+	 * pixels at two thirds each - is as solid as a vector stroker makes it,
+	 * rather than capped at the stroke's own coverage.
+	 */
 	void test_dilation_takes_the_strongest_neighbour() {
 		static const char *const rows[] = { "#+" };
 		Pattern p(rows, 1);
@@ -1327,15 +1333,21 @@ public:
 		Graphics::HiResGlyphRenderer::dilate(p.g, k, out.begin());
 		// The glyph sits at (2,2).
 		TS_ASSERT_EQUALS(out[2 * mw + 2], 255);
-		TS_ASSERT_EQUALS(out[2 * mw + 3], 255);          // 0x80 itself, but '#' is 1 away
-		TS_ASSERT_EQUALS(out[2 * mw + 4], 128);          // 2 from '#', 1 from '+' (0x80)
-		TS_ASSERT_EQUALS(out[2 * mw + 5], 64);           // only '+', 2 away: 0x80 * 0.5
+		TS_ASSERT_EQUALS(out[2 * mw + 3], 255);
+		TS_ASSERT_EQUALS(out[2 * mw + 4], 255);          // 1 from '+': 1.5 + 0.5 - 1, clamped
+		TS_ASSERT_EQUALS(out[2 * mw + 5], 1);            // 2 from '+': 1.5 + 0.5 - 2, the rim
 		TS_ASSERT_EQUALS(out[0 * mw + 2], 128);          // 2 above '#'
 		TS_ASSERT_EQUALS(out[0 * mw + 0], 0);            // (2,2) away: outside the disk
 
+		// A faint stem still gets a solid outline next to it.
+		static const char *const faint[] = { "-" };      // 0x40
+		Pattern f(faint, 1);
+		Common::Array<byte> fo(5 * 5);
+		Graphics::HiResGlyphRenderer::dilate(f.g, k, fo.begin());
+		TS_ASSERT_EQUALS(fo[2 * 5 + 3], 192);            // 1.5 + 0.25 - 1: three quarters
+		TS_ASSERT_EQUALS(fo[2 * 5 + 2], 255);            // under the stem itself
 		// Cut at a coverage first, the faint pixel counts as solid.
 		Graphics::HiResGlyphRenderer::dilate(p.g, k, out.begin(), 0x40);
-		TS_ASSERT_EQUALS(out[2 * mw + 4], 255);
 		TS_ASSERT_EQUALS(out[2 * mw + 5], 128);
 	}
 
