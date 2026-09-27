@@ -139,6 +139,7 @@ void ScummHiResText::reset() {
 		_gameFontW[i] = _gameFontH[i] = 0;
 	_fontsLoaded = false;
 	_alphaActive = false;
+	_korPatchShadow = false;
 	_perGlyph = false;
 	_metricsFromIni = false;
 	_ttfFromIni = false;
@@ -981,20 +982,25 @@ int ScummHiResText::nearestTtfCharset(int charsetId) const {
  * font, which a replacement has no reason to match, so a map may override it.
  * Without an override we follow the game and nothing changes by accident.
  */
-static Graphics::HiResShadowMode resolveShadow(Graphics::HiResShadowMode fromMap, int gameShadow) {
+Graphics::HiResShadowMode ScummHiResText::resolveShadow(Graphics::HiResShadowMode fromMap,
+														 int gameShadow, bool korPatchShadow) {
 	if (fromMap != Graphics::kHiResShadowGame)
 		return fromMap;
 
-	// _2byteShadow: 1 = none, 2 = drop, 3 = stroke, anything else outline.
+	// _2byteShadow: 1 = none, 2 = drop, 3 = stroke, anything else outline -
+	// byte 1 of a kor-trs korean%02d.fnt, read as drawBits1Kor() reads it.
 	//
-	// Zero is not one of those values: it is the field's initial state, and it
-	// keeps that value in any game that never loads a CJK font, since only
-	// loadCJKFont() and the charset switch ever assign it. Treating zero as
-	// "outline" there wrapped every glyph in shadowColor - which is also zero
-	// - so English text was drawn black-on-black and vanished. A game that
-	// asked for nothing gets nothing.
+	// Zero is ambiguous. From a Korean patch font it is that font's own
+	// "anything else": MI2's dialogue font korean02.fnt says 0, and the
+	// patch's renderer outlines it (C18). But zero is also the field's initial
+	// state, which it keeps in any game that never loads such a font, since
+	// only loadKorFont() and the charset switch assign it. Outlining there
+	// wrapped every glyph in shadowColor - also zero - so English text was
+	// drawn black-on-black and vanished (3bd719542f). So zero is an outline
+	// only where the patch fonts set it.
 	switch (gameShadow) {
 	case 0:
+		return korPatchShadow ? Graphics::kHiResShadowOutline : Graphics::kHiResShadowNone;
 	case 1:
 		return Graphics::kHiResShadowNone;
 	case 2:
@@ -1139,7 +1145,7 @@ bool ScummHiResText::drawRows(Graphics::Surface &dest, Face &face, uint32 cp, in
 	Graphics::GlyphStyle style;
 	style.color = color;
 	style.shadowColor = _config.shadowColorSet ? _config.shadowColor : shadowColor;
-	style.shadowMode = resolveShadow(_config.shadowMode, gameShadow);
+	style.shadowMode = resolveShadow(_config.shadowMode, gameShadow, _korPatchShadow);
 	style.shadowOffset = (_config.shadowOffset >= 0) ? _config.shadowOffset : 1;
 
 	return Graphics::HiResGlyphRenderer::drawGlyph(dest,
