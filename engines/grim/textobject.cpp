@@ -23,6 +23,8 @@
 
 #include "common/dbcs-str.h"
 
+#include "graphics/hires_text/text_layout.h"
+
 #include "engines/grim/debug.h"
 #include "engines/grim/grim.h"
 #include "engines/grim/textobject.h"
@@ -31,6 +33,7 @@
 #include "engines/grim/font.h"
 #include "engines/grim/gfx_base.h"
 #include "engines/grim/color.h"
+#include "engines/grim/localize_text.h"
 
 namespace Grim {
 
@@ -211,6 +214,56 @@ void TextObject::setupTextReal(S msg, Common::String (*convert)(const S &s)) {
 	}
 
 	// We break the message to lines not longer than maxWidth
+	wrapMessage(msg, maxWidth, message);
+
+	// If the text object is a speech subtitle, the y parameter is the
+	// coordinate of the bottom of the text block (instead of the top). It means
+	// that every extra line pushes the previous lines up, instead of being
+	// printed further down the screen.
+	const int SCREEN_TOP_MARGIN = _font->getKernedHeight();
+	if (_isSpeech) {
+		_y -= _numberLines * _font->getKernedHeight();
+		if (_y < SCREEN_TOP_MARGIN) {
+			_y = SCREEN_TOP_MARGIN;
+		}
+	}
+
+	_lines = new Common::String[_numberLines];
+
+
+	// Reset the max width so it can be recalculated
+	_maxLineWidth = 0;
+
+	for (int j = 0; j < _numberLines; j++) {
+		int nextLinePos, cutLen;
+		const typename S::value_type *breakPos = message.c_str();
+		while (*breakPos && *breakPos != '\n')
+			breakPos++;
+		if (*breakPos == '\n') {
+			nextLinePos = breakPos - message.c_str();
+			cutLen = nextLinePos + 1;
+		} else {
+			nextLinePos = message.size();
+			cutLen = nextLinePos;
+		}
+		S currentLine(message.c_str(), message.c_str() + nextLinePos);
+		Common::String currentLineConvert = convert(currentLine);
+
+		// Reverse the line for the Hebrew translation
+		if (g_grim->getGameLanguage() == Common::HE_ISR)
+			currentLineConvert = Common::convertBiDiString(currentLineConvert, Common::kWindows1255);
+
+		_lines[j] = currentLineConvert;
+		int width = _font->getKernedStringLength(currentLineConvert);
+		if (width > _maxLineWidth)
+			_maxLineWidth = width;
+		for (int count = 0; count < cutLen; count++)
+			message.deleteChar(0);
+	}
+}
+
+template <typename S>
+void TextObject::wrapMessage(const S &msg, int maxWidth, S &message) {
 	S currLine;
 	_numberLines = 1;
 	int lineWidth = 0;
@@ -266,51 +319,66 @@ void TextObject::setupTextReal(S msg, Common::String (*convert)(const S &s)) {
 			lineWidth = 0;
 		}
 	}
+}
 
-	// If the text object is a speech subtitle, the y parameter is the
-	// coordinate of the bottom of the text block (instead of the top). It means
-	// that every extra line pushes the previous lines up, instead of being
-	// printed further down the screen.
-	const int SCREEN_TOP_MARGIN = _font->getKernedHeight();
-	if (_isSpeech) {
-		_y -= _numberLines * _font->getKernedHeight();
-		if (_y < SCREEN_TOP_MARGIN) {
-			_y = SCREEN_TOP_MARGIN;
-		}
+namespace {
+
+// Grim's widths, in game px: the font's kerned width of each character.
+class GrimLayoutMetrics : public Graphics::LayoutMetrics {
+public:
+	explicit GrimLayoutMetrics(const Font *font) : _font(font) {}
+	int advance(uint32 cp) override {
+		if (cp == Graphics::kControlUnit)
+			return 0;
+		return _font->getCharKernedWidth(cp);
 	}
 
-	_lines = new Common::String[_numberLines];
+private:
+	const Font *_font;
+};
 
+} // End of anonymous namespace
 
-	// Reset the max width so it can be recalculated
-	_maxLineWidth = 0;
+void TextObject::wrapMessage(const Common::U32String &msg, int maxWidth, Common::U32String &message) {
+	// One rule set for every language: Latin and Hangul break at spaces,
+	// kana and Han between characters with kinsoku, Thai before its bases.
+	// A word too long for the line is split where it must be, with '-'
+	// only between two Latin letters.
+	Graphics::TextRun run;
+	run.assign(msg);
+	GrimLayoutMetrics metrics(_font);
+	Graphics::BreakRules rules;
+	rules.hangul = Graphics::kHangulBreakWord;
+	rules.kinsoku = true;
+	rules.thaiFallback = true;
+	const int dashWidth = _font->getCharKernedWidth('-');
 
-	for (int j = 0; j < _numberLines; j++) {
-		int nextLinePos, cutLen;
-		const typename S::value_type *breakPos = message.c_str();
-		while (*breakPos && *breakPos != '\n')
-			breakPos++;
-		if (*breakPos == '\n') {
-			nextLinePos = breakPos - message.c_str();
-			cutLen = nextLinePos + 1;
-		} else {
-			nextLinePos = message.size();
-			cutLen = nextLinePos;
+	_numberLines = 0;
+	uint32 from = 0;
+	while (from < run.size()) {
+		Graphics::LineSpan span = Graphics::TextLayout::fitLine(run, from, maxWidth, metrics, rules);
+		bool dash = false;
+		if (splitWantsDash(run, span)) {
+			// Leave room for the dash, as the breaker before this one did.
+			const Graphics::LineSpan narrower = Graphics::TextLayout::fitLine(run, from, maxWidth - dashWidth, metrics, rules);
+			if (splitWantsDash(run, narrower)) {
+				span = narrower;
+				dash = true;
+			}
 		}
-		S currentLine(message.c_str(), message.c_str() + nextLinePos);
-		Common::String currentLineConvert = convert(currentLine);
-
-		// Reverse the line for the Hebrew translation
-		if (g_grim->getGameLanguage() == Common::HE_ISR)
-			currentLineConvert = Common::convertBiDiString(currentLineConvert, Common::kWindows1255);
-
-		_lines[j] = currentLineConvert;
-		int width = _font->getKernedStringLength(currentLineConvert);
-		if (width > _maxLineWidth)
-			_maxLineWidth = width;
-		for (int count = 0; count < cutLen; count++)
-			message.deleteChar(0);
+		if (_numberLines > 0)
+			message += '\n';
+		for (uint32 u = span.first; u < span.end; u++)
+			message += msg[u];
+		if (dash)
+			message += '-';
+		_numberLines++;
+		if (span.next <= from)
+			break;
+		from = span.next;
 	}
+	if (_numberLines == 0)
+		_numberLines = 1;
 }
 
 static Common::String sConvert(const Common::String &s) {
