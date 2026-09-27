@@ -64,7 +64,7 @@ GfxCache::GfxCache(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palet
 	  _iniLatinKeysSet(false), _iniLatinIgnoredWarned(false),
 	  _uniBundle(nullptr), _uniBundleTried(false),
 	  _textLogResolved(false), _textLog(false),
-	  _layoutRulesResolved(false), _sampleResolved(false) {
+	  _layoutRulesResolved(false), _sampleResolved(false), _fitProbesResolved(false) {
 }
 
 void GfxCache::resolveHiresText() {
@@ -292,7 +292,7 @@ Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int si
 		if (probes == kProbesTranslation) {
 			// Fitted to the translation's own characters too (Thai marks,
 			// Japanese brackets), not only to the fixed Hangul/Latin set.
-			const Common::Array<uint32> &sample = translationSample();
+			const Common::Array<uint32> &sample = translationFitProbes();
 			src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, size, error,
 												   sample.empty() ? nullptr : &sample[0], sample.size());
 		} else {
@@ -437,6 +437,15 @@ const Common::Array<uint32> &GfxCache::translationSample() {
 			g_sci->translationCodePoints().sample(64, _sample);
 	}
 	return _sample;
+}
+
+const Common::Array<uint32> &GfxCache::translationFitProbes() {
+	if (!_fitProbesResolved) {
+		_fitProbesResolved = true;
+		if (g_sci->heapStringsAreUtf8())
+			g_sci->translationCodePoints().fitProbes(Graphics::TtfGlyphSource::kMaxExtraFitProbes, _fitProbes);
+	}
+	return _fitProbes;
 }
 
 Common::Array<uint32> GfxCache::coverageSample() {
