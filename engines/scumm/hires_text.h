@@ -224,11 +224,14 @@ struct ScummHiResText {
 	/**
 	 * Add one translated string to the code points the faces are checked
 	 * against (design section 4.4). Decoded with this layer's encoding;
-	 * SCUMM's escapes (0xFF/0xFE + code, with two argument bytes for codes
-	 * 10, 12, 13, 14 and 21) and '@' are skipped. Stops at a NUL outside an
+	 * SCUMM's escapes (0xFF/0xFE + code + escapeArgBytes(code) argument
+	 * bytes) and '@' are skipped. Stops at a NUL outside an
 	 * escape or after @p maxLen bytes. Call before loadFonts().
 	 */
 	void noteTranslatedString(const byte *s, uint32 maxLen);
+
+	/// The code points noteTranslatedString() has collected so far.
+	const Graphics::CodePointSet &translationCodePoints() const { return _translationCps; }
 
 	/// The coverage warnings printed so far, one per face that lacks some of
 	/// the translation's sampled characters or spaces its combining marks.
