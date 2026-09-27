@@ -213,6 +213,19 @@ public:
 	static const int kGammaToe = 4;
 	static bool buildGammaCurve(int gammaX100, byte lut[256]);
 
+	/**
+	 * Whether a glyph that drew no ink is still the face's (ensure()):
+	 * U+0020, U+00A0 and U+3000 always, as before; any other space separator
+	 * (Unicode::isSpaceSeparator()) when the face advances it
+	 * (@p advance > 0, TTFFont's width - 0 for a code point it does not
+	 * map). Everything else is missing: an empty outline for a letter (a
+	 * face that maps all 11172 Hangul syllables but outlines only KS X
+	 * 1001's 2350), a face with no outlines drawn off its bitmap strike, and
+	 * zero-width format characters, as before. A chain then asks its next
+	 * face. Pure; also in the no-FreeType build.
+	 */
+	static bool keepsInklessGlyph(uint32 cp, int advance);
+
 	/** Whether cp is East Asian Wide or Fullwidth: forwards to
 	 *  Unicode::isWide() (unicode_props.h), kept for existing callers.
 	 *  Available even when this build has no FreeType. */

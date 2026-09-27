@@ -26,6 +26,7 @@
 #include "common/str.h"
 #include "common/memstream.h"
 #include "common/stream.h"
+#include "graphics/hires_text/glyph_source_fallback.h"
 #include "graphics/hires_text/glyph_source_routed.h"
 #include "graphics/hires_text/glyph_source_scvmuni.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
@@ -36,7 +37,9 @@
 #include "common/fs.h"
 #endif
 
+using Graphics::FallbackGlyphSource;
 using Graphics::RoutedGlyphSource;
+using Graphics::UnicodeGlyphSource;
 using Graphics::ScvmuniGlyphSource;
 using Graphics::TtfGlyphSource;
 using Graphics::kHiResLatinFullwidth;
@@ -298,6 +301,15 @@ public:
 // Absent (non-macOS, or an unusual install), every test below skips itself.
 static const char *kTestTtcPath = "/System/Library/Fonts/AppleSDGothicNeo.ttc";
 
+// Free fonts downloaded by C22/C25 (fonts/ in the harness workspace, not in
+// the tree); the tests that need them skip where they are absent.
+// Maps all 11172 Hangul syllables, outlines only KS X 1001's 2350.
+static const char *kBlankHangulFont = "/Users/juami/work/scummvm/fonts/gongu/x/barun-R/HakgyoansimBareondotumR.ttf";
+// Outlines all 11172.
+static const char *kFullHangulFont = "/Users/juami/work/scummvm/fonts/gongu/x/nanumgothic-gf/NanumGothic-Regular.ttf";
+// No outlines at all, one 11 ppem bitmap strike (EBDT).
+static const char *kStrikeOnlyFont = "/Users/juami/work/scummvm/fonts/pixel/lanapixel/lanapixel.ttf";
+
 class SciGlyphSourceTtfTestSuite : public CxxTest::TestSuite {
 public:
 	void setUp() {
@@ -525,6 +537,149 @@ public:
 		TS_ASSERT_EQUALS(src->rasterCount(), afterFirst);
 
 		delete src;
+	}
+
+	// C24: a face may map a code point and draw nothing for it - the free
+	// Korean faces that map all 11172 syllables but outline only KS X
+	// 1001's 2350 (C22), a face with no outlines off its bitmap strike
+	// (C25's LanaPixel). No ink means missing, so a chain asks its next
+	// face; only a space separator the face advances, and the three spaces
+	// kept since the start, count as present without ink.
+	void test_inkless_glyph_decision() {
+		// The three spaces present from the start, whatever their advance.
+		TS_ASSERT(TtfGlyphSource::keepsInklessGlyph(0x0020, 0));
+		TS_ASSERT(TtfGlyphSource::keepsInklessGlyph(0x0020, 5));
+		TS_ASSERT(TtfGlyphSource::keepsInklessGlyph(0x00A0, 0));
+		TS_ASSERT(TtfGlyphSource::keepsInklessGlyph(0x3000, 16));
+		// Another space separator: the face's own when it advances it.
+		TS_ASSERT(TtfGlyphSource::keepsInklessGlyph(0x2009, 3));
+		TS_ASSERT(TtfGlyphSource::keepsInklessGlyph(0x202F, 4));
+		TS_ASSERT(!TtfGlyphSource::keepsInklessGlyph(0x2009, 0));	// not in the face
+		// A blank letter is missing, whatever advance the face gives it.
+		TS_ASSERT(!TtfGlyphSource::keepsInklessGlyph(0xB620, 16));	// 똠
+		TS_ASSERT(!TtfGlyphSource::keepsInklessGlyph(0xBDC1, 0));	// 뷁
+		TS_ASSERT(!TtfGlyphSource::keepsInklessGlyph('A', 8));
+		TS_ASSERT(!TtfGlyphSource::keepsInklessGlyph(0x0E01, 9));
+		// Zero-width format characters stay as they were: not the face's
+		// (the chain and the layout see what they saw before); only the
+		// coverage check stops counting them (coverage.h).
+		TS_ASSERT(!TtfGlyphSource::keepsInklessGlyph(0x200B, 0));
+		TS_ASSERT(!TtfGlyphSource::keepsInklessGlyph(0x200D, 0));
+		TS_ASSERT(!TtfGlyphSource::keepsInklessGlyph(0x000A, 5));
+	}
+
+	/// A gongu font from C22 on this machine, or null (test skips).
+	static Common::SeekableReadStream *openLocalFont(const char *path) {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		Common::FSNode node(path);
+		if (!node.exists())
+			return nullptr;
+		return node.createReadStream();
+#else
+		return nullptr;
+#endif
+	}
+
+	void test_blank_glyphs_are_missing() {
+		Common::SeekableReadStream *stream = openLocalFont(kBlankHangulFont);
+		if (!stream) {
+			TS_SKIP("Hakgyoansim Bareondotum (C22 fonts/gongu) not on this machine, or no FreeType");
+			return;
+		}
+		Common::String error;
+		TtfGlyphSource *src = TtfGlyphSource::create(stream, DisposeAfterUse::YES, 16, error);
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+
+		const uint32 probes = src->rasterCount();
+		TS_ASSERT_EQUALS(src->cells(0xAC00), 2);	// 가: drawn
+		TS_ASSERT_EQUALS(src->cells(0xB620), 0);	// 똠: mapped, no outline
+		TS_ASSERT_EQUALS(src->cells(0xBDC1), 0);	// 뷁
+		TS_ASSERT_EQUALS(src->cells(0x0020), 1);	// space: present, no ink
+		Graphics::GlyphMetrics m;
+		TS_ASSERT(!src->metrics(0xB620, m));
+		TS_ASSERT_EQUALS(src->advance(0xB620), 0);
+		// Decided once, when first asked, and cached: nothing else drawn.
+		TS_ASSERT_EQUALS(src->rasterCount(), probes + 4);
+		TS_ASSERT_EQUALS(src->cells(0xB620), 0);
+		TS_ASSERT_EQUALS(src->rasterCount(), probes + 4);
+		delete src;
+	}
+
+	void test_blank_glyph_falls_through_the_chain() {
+		Common::SeekableReadStream *a = openLocalFont(kBlankHangulFont);
+		Common::SeekableReadStream *b = openLocalFont(kFullHangulFont);
+		if (!a || !b) {
+			delete a;
+			delete b;
+			TS_SKIP("C22 fonts/gongu faces not on this machine, or no FreeType");
+			return;
+		}
+		Common::SeekableReadStream *b2 = openLocalFont(kFullHangulFont);
+		Common::String error;
+		Common::Array<UnicodeGlyphSource *> chain;
+		TtfGlyphSource *blank = TtfGlyphSource::create(a, DisposeAfterUse::YES, 16, error, true, true);
+		TtfGlyphSource *full = TtfGlyphSource::create(b, DisposeAfterUse::YES, 16, error, true, true);
+		TtfGlyphSource *alone = TtfGlyphSource::create(b2, DisposeAfterUse::YES, 16, error, true, true);
+		TS_ASSERT(blank && full && alone);
+		if (!blank || !full || !alone) {
+			delete blank;
+			delete full;
+			delete alone;
+			return;
+		}
+		chain.push_back(blank);
+		chain.push_back(full);
+		FallbackGlyphSource fb(chain, DisposeAfterUse::YES);
+
+		// 똠 comes from the second face, row for row what it draws alone.
+		TS_ASSERT_EQUALS(fb.cells(0xB620), 2);
+		bool same = true, ink = false;
+		for (int y = 0; y < fb.cellHeight(); y++) {
+			const byte *r1 = fb.row(0xB620, y);
+			const byte *r2 = alone->row(0xB620, y);
+			for (int x = 0; x < fb.cellWidth() * 2; x++) {
+				same = same && r1[x] == r2[x];
+				ink = ink || r1[x];
+			}
+		}
+		TS_ASSERT(same);
+		TS_ASSERT(ink);
+		// 가 stays the first face's.
+		TS_ASSERT_EQUALS(fb.cells(0xAC00), 2);
+		TS_ASSERT_EQUALS(fb.row(0xAC00, 8), blank->row(0xAC00, 8));
+		TS_ASSERT_EQUALS(fb.cells(0x0020), 1);
+		TS_ASSERT_EQUALS(fb.row(0x0020, 8), blank->row(0x0020, 8));
+		delete alone;
+	}
+
+	// LanaPixel has no outlines, only an 11 ppem bitmap strike, and FreeType
+	// reports it not scalable: TTFFont opens it at 11 px alone. At any other
+	// size create() fails, so an engine leaves it out of the chain (with a
+	// warning) and the next face answers - it never draws blanks.
+	void test_outline_less_face_is_missing_off_its_strike() {
+		Common::SeekableReadStream *stream = openLocalFont(kStrikeOnlyFont);
+		if (!stream) {
+			TS_SKIP("LanaPixel (C25 fonts/pixel) not on this machine, or no FreeType");
+			return;
+		}
+		Common::String error;
+		TtfGlyphSource *src = TtfGlyphSource::create(stream, DisposeAfterUse::NO, 16, error);
+		TS_ASSERT(src == nullptr);
+		TS_ASSERT_EQUALS(error, "could not open the font face");
+		delete src;
+
+		error.clear();
+		src = TtfGlyphSource::create(stream, DisposeAfterUse::NO, 11, error);
+		TS_ASSERT(src != nullptr);
+		if (src) {
+			TS_ASSERT_EQUALS(src->cells('A'), 1);
+			TS_ASSERT_EQUALS(src->cells(0xAC00), 2);
+			TS_ASSERT_EQUALS(src->cells(0xB620), 2);
+			delete src;
+		}
+		delete stream;
 	}
 
 	void test_coverage_is_eight_bit() {
