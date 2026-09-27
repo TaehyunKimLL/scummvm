@@ -221,6 +221,11 @@ bool isFitMark(uint32 cp) {
 	return Unicode::isCombining(cp) || cp == 0x0E33 || cp == 0x0EB3;
 }
 
+bool isStackingFitMark(uint32 cp) {
+	return cp == 0x0E31 || (cp >= 0x0E33 && cp <= 0x0E3A) || (cp >= 0x0E47 && cp <= 0x0E4E) ||
+		   cp == 0x0EB1 || (cp >= 0x0EB3 && cp <= 0x0EBC) || (cp >= 0x0EC8 && cp <= 0x0ECE);
+}
+
 void CodePointSet::fitProbes(uint n, Common::Array<uint32> &out) const {
 	out.clear();
 	for (uint i = 0; i < _cps.size() && out.size() < n; i++) {
