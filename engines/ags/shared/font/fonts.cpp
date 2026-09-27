@@ -26,6 +26,7 @@
 #include "ags/shared/ac/game_struct_defines.h"
 #include "ags/shared/debugging/out.h"
 #include "ags/shared/font/fonts.h"
+#include "ags/shared/font/ags_text_layout.h"
 #include "ags/shared/font/glyph_font_renderer.h"
 #include "ags/shared/font/hires_font_config.h"
 #include "ags/shared/font/ttf_font_renderer.h"
@@ -345,6 +346,47 @@ void unescape_script_string(const char *cstr, std::vector<char> &out) {
 	out.insert(out.end(), cstr, off + 1);
 }
 
+// ScummVM: split_lines() measures a line by terminating it; the layout stage
+// measures byte ranges of the unescaped text the same way.
+class SplitLinesMetrics : public AgsLayoutMetrics {
+public:
+	explicit SplitLinesMetrics(int font) : _font(font) {}
+
+protected:
+	int measureBytes(const char *s, uint32 len) override {
+		_buf.resize(len + 1);
+		memcpy(&_buf[0], s, len);
+		_buf[len] = 0;
+		return get_text_width_outlined(&_buf[0], _font);
+	}
+
+private:
+	int _font;
+	std::vector<char> _buf;
+};
+
+// ScummVM: text in any format but U_ASCII (UTF-8 translations, the Korean
+// patches' EUC-KR) is broken by the shared layout stage: kinsoku, Thai
+// clusters, Hangul at spaces (I18N_TEXT_DESIGN.md section 4.3). Widths are
+// get_text_width_outlined() of the line, as below; max_lines and the "..."
+// rule are the same.
+static size_t split_lines_layout(SplitLines &lines, int wii, int fonnt, size_t max_lines) {
+	const char *text = &lines.LineBuf.front();
+	Common::Array<AgsLineSpan> spans;
+	SplitLinesMetrics metrics(fonnt);
+	if (!ags_layout_lines(text, strlen(text), get_uformat(), wii, metrics,
+						  _GP(hiresFontConfig).breakRules(), spans))
+		return 0;   // not even one character fits, as below
+	for (size_t i = 0; i < spans.size(); ++i) {
+		lines.Add(String(text + spans[i].start, spans[i].end - spans[i].start).GetCStr());
+		if (lines.Count() >= max_lines && i + 1 < spans.size()) {
+			lines[lines.Count() - 1].Append("...");
+			break;
+		}
+	}
+	return lines.Count();
+}
+
 // Break up the text into lines
 size_t split_lines(const char *todis, SplitLines &lines, int wii, int fonnt, size_t max_lines) {
 	// NOTE: following hack accommodates for the legacy math mistake in split_lines.
@@ -358,6 +400,8 @@ size_t split_lines(const char *todis, SplitLines &lines, int wii, int fonnt, siz
 
 	lines.Reset();
 	unescape_script_string(todis, lines.LineBuf);
+	if (split_lines_uses_layout(get_uformat()))
+		return split_lines_layout(lines, wii, fonnt, max_lines);
 	char *theline = &lines.LineBuf.front();
 
 	char *scan_ptr = theline;

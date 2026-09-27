@@ -46,6 +46,7 @@ MODULE_OBJS = \
 	shared/core/asset.o \
 	shared/core/asset_manager.o \
 	shared/debugging/debug_manager.o \
+	shared/font/ags_text_layout.o \
 	shared/font/fonts.o \
 	shared/font/glyph_font_draw.o \
 	shared/font/glyph_font_renderer.o \
