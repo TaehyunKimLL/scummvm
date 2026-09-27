@@ -145,8 +145,10 @@ void ScummHiResText::reset() {
 	_metricsFromIni = false;
 	_ttfFromIni = false;
 	_mapDir.clear();
-	for (int i = 0; i < kMaxFonts; ++i)
+	for (int i = 0; i < kMaxFonts; ++i) {
 		_charsetFonts[i] = CharsetFonts();
+		_gameMirror[i] = Graphics::kHiResMirrorNone;
+	}
 	_translationCps = Graphics::CodePointSet();
 	_coverageSample.clear();
 	_fitProbes.clear();
@@ -1081,6 +1083,13 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	if (!_enabled || !_fontsLoaded)
 		return false;
 
+	// A flipped charset the map did not ask to replace: the game draws it
+	// turned, as it always did, and a mark after it has no base here.
+	if (keepsGameFont(charsetId, chr)) {
+		_anchorValid = false;
+		return false;
+	}
+
 	// A code the game repurposed. Returning false here rather than further
 	// down is the whole point: the caller draws the original glyph when this
 	// layer declines, so an ellipsis stored at '^' or an arrow at '_' stays
@@ -1151,8 +1160,13 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	if (wantLatin && face->bitmap)
 		baselineShift = latinBaselineShift(face, charsetId);
 
+	// A flipped charset turns the glyph within its own advance, from the pen.
+	const Graphics::HiResMirror mirror = mirrorFor(charsetId);
+	int advance = face->source->advance(cp);
+	if (advance <= 0)
+		advance = width;
 	return drawRows(dest, *face, cp, width, x, y + baselineShift, color, shadowColor,
-					gameShadow, dirty, withCoverage);
+					gameShadow, dirty, withCoverage, mirror, x, x + advance);
 }
 
 int ScummHiResText::latinBaselineShift(const Face *face, int charsetId) const {
@@ -1182,7 +1196,8 @@ int ScummHiResText::latinBaselineShift(const Face *face, int charsetId) const {
 
 bool ScummHiResText::drawRows(Graphics::Surface &dest, Face &face, uint32 cp, int width,
 							  int x, int y, byte color, byte shadowColor, int gameShadow,
-							  Common::Rect *dirty, bool withCoverage) {
+							  Common::Rect *dirty, bool withCoverage,
+							  Graphics::HiResMirror mirror, int axisLeft, int axisRight) {
 	// The rows, expanded to one coverage byte per pixel. A 1bpp stencil
 	// becomes 0/255 and records no coverage, as it never did: the glyph
 	// renderer only writes the coverage plane for a glyph that has some.
@@ -1195,6 +1210,14 @@ bool ScummHiResText::drawRows(Graphics::Surface &dest, Face &face, uint32 cp, in
 		if (!row)
 			return false;
 		Graphics::TextCompose::expandGlyphRow(&_glyphBuf[gy * width], row, width, bpp, false, 0, 0);
+	}
+
+	// A flipped charset (C27): the rows turned within the cell, the glyph
+	// reflected about its box across, so the string's order is kept.
+	if (mirror != Graphics::kHiResMirrorNone && mirror != Graphics::kHiResMirrorGame) {
+		Graphics::flipGlyph(_glyphBuf.begin(), width, width, height, mirror);
+		if (mirror == Graphics::kHiResMirrorHorizontal || mirror == Graphics::kHiResMirrorBoth)
+			x = Graphics::mirroredLeft(x, width, axisLeft, axisRight);
 	}
 
 	Graphics::GlyphBitmap glyph;
@@ -1258,13 +1281,19 @@ bool ScummHiResText::drawGlyphPlaced(Graphics::Surface &dest, int chr, int looku
 
 	const CharsetFonts &f = _charsetFonts[(charsetId >= 0 && charsetId < kMaxFonts) ? charsetId : 0];
 	int drawX = x - m.originX;
+	// The box a flipped glyph turns in: its own pen and advance, or, for a
+	// mark, its base's, so the mark stays on it.
+	int axisLeft = x, axisRight = x;
 	if (m.combining) {
 		// Against the pen after the previous base, in overlay pixels: the
 		// engine's pen was rounded to game pixels and would put the mark off
 		// its base by up to a pixel per scale step. Several marks share one
 		// anchor. A mark with no base before it on this line stays at x.
-		if (_anchorValid && _anchorY == y)
+		if (_anchorValid && _anchorY == y) {
 			drawX = _anchorX - m.originX;
+			axisLeft = _anchorAxisLeft;
+			axisRight = _anchorAxisRight;
+		}
 	} else {
 		int own = face->source->advance(cp);
 		if (own <= 0)
@@ -1284,6 +1313,8 @@ bool ScummHiResText::drawGlyphPlaced(Graphics::Surface &dest, int chr, int looku
 		_anchorX = drawX + m.originX + own;
 		_anchorY = y;
 		_anchorValid = true;
+		axisLeft = _anchorAxisLeft = drawX + m.originX;
+		axisRight = _anchorAxisRight = _anchorX;
 	}
 
 	int baselineShift = 0;
@@ -1292,7 +1323,7 @@ bool ScummHiResText::drawGlyphPlaced(Graphics::Surface &dest, int chr, int looku
 		baselineShift = latinBaselineShift(face, charsetId);
 
 	return drawRows(dest, *face, cp, width, drawX, y + baselineShift, color, shadowColor,
-					gameShadow, dirty, withCoverage);
+					gameShadow, dirty, withCoverage, mirrorFor(charsetId), axisLeft, axisRight);
 }
 
 void ScummHiResText::updatePaletteCache(const Graphics::PixelFormat &format,
@@ -1353,6 +1384,10 @@ uint32 ScummHiResText::codePointFor(int chr) const {
 int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
 							   int *carry) const {
 	if (!_enabled || !_fontsLoaded)
+		return gameWidth;
+
+	// Drawn by the game, so laid out by it (see drawChar()).
+	if (keepsGameFont(charsetId, chr))
 		return gameWidth;
 
 	// metrics=game keeps the game's own advances, which is what preserves the
@@ -2075,9 +2110,74 @@ bool ScummHiResText::mapNamesNoFonts(const Graphics::HiResTextConfig &config,
 }
 
 bool ScummHiResText::usesPerGlyph(const Graphics::HiResTextConfig &config) {
-	return config.hiresFaceSet || config.hiresSizeSet || config.hiresPixelSet || !config.fontIds.empty() ||
-		   config.latinModeSet || config.latinSpaceSet ||
-		   config.encoding == Common::kUtf8;
+	if (config.hiresFaceSet || config.hiresSizeSet || config.hiresPixelSet || config.latinModeSet ||
+		config.latinSpaceSet || config.encoding == Common::kUtf8)
+		return true;
+	// A [font.N] holding only mirror= (C27) says nothing about placement.
+	for (Common::HashMap<int, Graphics::HiResFontIdSettings>::const_iterator it = config.fontIds.begin();
+		 it != config.fontIds.end(); ++it) {
+		if (!it->_value.onlyMirror())
+			return true;
+	}
+	return false;
+}
+
+Graphics::HiResMirror ScummHiResText::gameMirror(const Common::String &gameId, int version,
+												 int charsetId) {
+	// Charset 3 of these, checked glyph by glyph: 'b' is drawn as 'q', 'T'
+	// with its bar at the bottom (runs/c27, shots/c26/dump-*.png).
+	static const struct {
+		const char *gameId;
+		int minVersion, maxVersion;
+		int charsetId;
+		Graphics::HiResMirror mode;
+	} kTable[] = {
+		{ "monkey", 4, 5, 3, Graphics::kHiResMirrorBoth },    // MI1 EGA (v4), VGA and CD (v5)
+		{ "monkey2", 5, 5, 3, Graphics::kHiResMirrorBoth },
+		{ "loom", 4, 4, 3, Graphics::kHiResMirrorBoth },      // Loom CD
+	};
+	for (uint i = 0; i < ARRAYSIZE(kTable); ++i) {
+		if (gameId.equalsIgnoreCase(kTable[i].gameId) && charsetId == kTable[i].charsetId &&
+			version >= kTable[i].minVersion && version <= kTable[i].maxVersion)
+			return kTable[i].mode;
+	}
+	return Graphics::kHiResMirrorNone;
+}
+
+void ScummHiResText::setGameMirror(const Common::String &gameId, int version) {
+	for (int cs = 0; cs < kMaxFonts; ++cs)
+		_gameMirror[cs] = gameMirror(gameId, version, cs);
+}
+
+Graphics::HiResMirror ScummHiResText::resolveMirror(const Graphics::HiResFontIdSettings *n,
+													Graphics::HiResMirror game) {
+	if (!n || !n->mirrorSet)
+		return game;
+	if (n->mirror == Graphics::kHiResMirrorGame)
+		return game != Graphics::kHiResMirrorNone ? game : Graphics::kHiResMirrorHorizontal;
+	return n->mirror;
+}
+
+bool ScummHiResText::keepsGameFont(const Graphics::HiResFontIdSettings *n, Graphics::HiResMirror game,
+								   bool utf8, int chr) {
+	if (game == Graphics::kHiResMirrorNone)
+		return false;
+	if (n && (n->faceSet || n->mirrorSet || n->bitmapSet))
+		return false;
+	return !utf8 || (chr >= 0 && chr < 0x80);
+}
+
+Graphics::HiResMirror ScummHiResText::mirrorFor(int charsetId) const {
+	const Graphics::HiResMirror game = (charsetId >= 0 && charsetId < kMaxFonts)
+		? _gameMirror[charsetId] : Graphics::kHiResMirrorNone;
+	return resolveMirror(_config.fontIdSettings(charsetId), game);
+}
+
+bool ScummHiResText::keepsGameFont(int charsetId, int chr) const {
+	if (charsetId < 0 || charsetId >= kMaxFonts || _gameMirror[charsetId] == Graphics::kHiResMirrorNone)
+		return false;
+	return keepsGameFont(_config.fontIdSettings(charsetId), _gameMirror[charsetId],
+						 _config.encoding == Common::kUtf8, chr);
 }
 
 bool ScummHiResText::mapWantsAlpha(const Graphics::HiResTextConfig &config,
@@ -2176,6 +2276,7 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	}
 
 	_config.encoding = defaultEncodingFor(language);
+	setGameMirror(gameId, version);
 
 	// Sections may be narrowed by game or by SCUMM version, most specific
 	// first. These strings are the engine's business; the parser treats them
