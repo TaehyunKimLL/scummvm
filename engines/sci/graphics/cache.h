@@ -26,11 +26,13 @@
 #include "common/array.h"
 #include "common/str.h"
 #include "graphics/hires_text/font_map.h"
+#include "graphics/hires_text/text_layout.h"
 #include "sci/graphics/hirestextsettings.h"
 #include "sci/graphics/textlatin.h"
 
 namespace Graphics {
 class TtfGlyphSource;
+class UnicodeGlyphSource;
 }
 
 namespace Sci {
@@ -73,6 +75,13 @@ public:
 	 * can still log which font id drew its text.
 	 */
 	bool isTextLogEnabled();
+
+	/**
+	 * How GfxText16 breaks UTF-8 lines: the [layout] section of
+	 * hires_text.map over SCI's defaults (Hangul at spaces, kinsoku on,
+	 * the Thai fallback on). Resolved once.
+	 */
+	const Graphics::BreakRules &layoutRules();
 
 	int16 kernelViewGetCelWidth(GuiResourceId viewId, int16 loopNo, int16 celNo);
 	int16 kernelViewGetCelHeight(GuiResourceId viewId, int16 loopNo, int16 celNo);
@@ -117,8 +126,39 @@ private:
 	 * (path, size, Hangul check) and shared; nullptr when it fails to open,
 	 * with one warning per such key (@p what names the setting in it).
 	 */
-	Graphics::TtfGlyphSource *ttfSource(const Common::String &path, int size, bool requireHangul,
+	/** Which characters a face is checked and fitted with when it opens. */
+	enum FaceProbes {
+		kProbesDefault = 0,     ///< the fixed Hangul/Latin fit set, no check
+		kProbesHangul = 1,      ///< the same, and the face must draw Hangul (a legacy Korean game)
+		kProbesTranslation = 2  ///< the fixed set plus a sample of the translation's characters
+	};
+
+	Graphics::TtfGlyphSource *ttfSource(const Common::String &path, int size, FaceProbes probes,
 							  const char *what, const char *fallback);
+
+	/**
+	 * With a UTF-8 translation: every face of @p s's chain that opens,
+	 * then the .uni bundle (in the faces' cell), as one
+	 * FallbackGlyphSource - or the one face alone - checked against the
+	 * translation (one coverage warning per face). Shared by every font id
+	 * with the same chain and owned here. nullptr when no face opens;
+	 * @p chainName receives the faces that did, comma-separated.
+	 */
+	Graphics::UnicodeGlyphSource *faceChainFor(const FontSettings &s, Common::String &chainName);
+
+	/** 64 code points of g_sci->translationCodePoints() (Graphics::CodePointSet::sample()). */
+	const Common::Array<uint32> &translationSample();
+
+	/** The non-ASCII part of translationSample(): what the Unicode faces must draw. */
+	Common::Array<uint32> coverageSample();
+
+	/**
+	 * checkCoverage() of @p src against @p sample, warned once per @p name
+	 * (the design's two lines); @p sample is then left with what @p src
+	 * lacks, for the next face of the chain.
+	 */
+	void checkFaceCoverage(Graphics::UnicodeGlyphSource *src, const Common::String &name,
+						   const Common::String &fallback, Common::Array<uint32> &sample);
 
 	/**
 	 * Wrap the game's own font for @p fontId in a GfxFontSet, or nullptr when
@@ -164,6 +204,17 @@ private:
 
 	bool _textLogResolved;
 	bool _textLog;
+
+	bool _layoutRulesResolved;
+	Graphics::BreakRules _layoutRules;
+	bool _sampleResolved;
+	Common::Array<uint32> _sample;
+	/// Faces already checked for coverage (and warned about), by name.
+	Common::HashMap<Common::String, bool> _coverageChecked;
+	/// Face chains by their faces' paths; each is a face in _ttfSources or one of _chainParts.
+	Common::HashMap<Common::String, Graphics::UnicodeGlyphSource *> _chains;
+	/// The FallbackGlyphSources and .uni wrappers the chains are made of, owned.
+	Common::Array<Graphics::UnicodeGlyphSource *> _chainParts;
 	/**
 	 * Fonts an adapter wraps but does not own. They are not in _cachedFonts
 	 * (only the adapter is), so the cache has to delete them separately.

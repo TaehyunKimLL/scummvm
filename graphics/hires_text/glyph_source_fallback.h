@@ -25,6 +25,7 @@
 
 #include "common/array.h"
 #include "common/hashmap.h"
+#include "common/str.h"
 #include "common/types.h"
 #include "graphics/hires_text/glyph_source.h"
 
@@ -70,6 +71,48 @@ private:
 	Common::Array<UnicodeGlyphSource *> _lookup;	///< the ones whose geometry matches sources[0]
 	DisposeAfterUse::Flag _dispose;
 	Common::HashMap<uint32, int> _answer;			///< cp -> index into _lookup, -1 for none
+};
+
+/**
+ * A source presented in a larger cell and at 8 bits per pixel, so that a
+ * bitmap bundle (SCVMUNI at 1 or 2 bpp, 16x16) can stand behind TrueType
+ * faces in a FallbackGlyphSource, whose sources must share one cell and one
+ * depth. Each row is expanded into a scratch row: the source's pixels at
+ * the left, its rows at the top, coverage 0 around them. Placement
+ * (cells, advances, metrics) is the source's own; only the row layout
+ * changes. A source whose cell is larger than the chain's cannot be
+ * presented without cutting its glyphs and is refused.
+ */
+class NormalizedGlyphSource : public UnicodeGlyphSource {
+public:
+	/**
+	 * @p src in a @p cellWidth x @p cellHeight cell at 8 bpp, or nullptr
+	 * (and @p error) when its cell is larger or its depth is not 1, 2 or
+	 * 8. Owns @p src with DisposeAfterUse::YES, and deletes it on failure.
+	 */
+	static NormalizedGlyphSource *create(UnicodeGlyphSource *src, byte cellWidth, byte cellHeight,
+										 DisposeAfterUse::Flag dispose, Common::String &error);
+	~NormalizedGlyphSource() override;
+
+	byte cellWidth() const override { return _cellWidth; }
+	byte cellHeight() const override { return _cellHeight; }
+	byte advanceNarrow() const override { return _src->advanceNarrow(); }
+	byte advanceWide() const override { return _src->advanceWide(); }
+	int bitsPerPixel() const override { return 8; }
+	int cells(uint32 cp) override { return _src->cells(cp); }
+	/** Valid until the next call. */
+	const byte *row(uint32 cp, int y) override;
+	int advance(uint32 cp) override { return _src->advance(cp); }
+	bool metrics(uint32 cp, GlyphMetrics &m) override { return _src->metrics(cp, m); }
+	uint32 glyphCount() const override { return _src->glyphCount(); }
+
+private:
+	NormalizedGlyphSource(UnicodeGlyphSource *src, byte cellWidth, byte cellHeight, DisposeAfterUse::Flag dispose);
+
+	UnicodeGlyphSource *_src;
+	byte _cellWidth, _cellHeight;
+	DisposeAfterUse::Flag _dispose;
+	Common::Array<byte> _scratch;	///< one row: cellWidth * 2 pixels at 8 bpp
 };
 
 } // End of namespace Graphics

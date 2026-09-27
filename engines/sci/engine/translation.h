@@ -24,6 +24,7 @@
 
 #include "common/scummsys.h"
 #include "common/str.h"
+#include "common/array.h"
 #include "common/hashmap.h"
 
 namespace Common {
@@ -77,7 +78,7 @@ public:
 		bool isSet() const { return script != 0xFFFF; }
 	};
 
-	ScriptStrings() : _loaded(false) {}
+	ScriptStrings() : _loaded(false), _present(false) {}
 
 	/**
 	 * Load sci-<lang>.str from the game directory, if the game ships one.
@@ -91,6 +92,17 @@ public:
 	bool loadFromStream(Common::SeekableReadStream &in);
 
 	bool isLoaded() const { return _loaded; }
+
+	/**
+	 * The file was found and parsed, entries or not. A table with no
+	 * entries (comments only) is present but not loaded: it still marks the
+	 * game's TEXT resources as a UTF-8 translation (SciEngine::
+	 * heapStringsAreUtf8(), I18N_TEXT_DESIGN.md section 4.1).
+	 */
+	bool isPresent() const { return _present; }
+
+	/** Every translated string, for collecting the translation's code points. */
+	void collectTexts(Common::Array<Common::String> &out) const;
 	uint entryCount() const { return _entries.size(); }
 
 	/**
@@ -130,6 +142,7 @@ private:
 	}
 
 	bool _loaded;
+	bool _present;
 	Common::HashMap<uint64, Common::String> _entries;
 
 	struct BufferTag {
