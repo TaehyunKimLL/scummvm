@@ -217,6 +217,28 @@ void CodePointSet::sample(uint n, Common::Array<uint32> &out) const {
 	}
 }
 
+bool isFitMark(uint32 cp) {
+	return Unicode::isCombining(cp) || cp == 0x0E33 || cp == 0x0EB3;
+}
+
+void CodePointSet::fitProbes(uint n, Common::Array<uint32> &out) const {
+	out.clear();
+	for (uint i = 0; i < _cps.size() && out.size() < n; i++) {
+		if (isFitMark(_cps[i]))
+			out.push_back(_cps[i]);
+	}
+	if (out.empty()) {
+		sample(n, out);
+		return;
+	}
+	Common::Array<uint32> picks;
+	sample(n, picks);
+	for (uint i = 0; i < picks.size() && out.size() < n; i++) {
+		if (!isFitMark(picks[i]))
+			out.push_back(picks[i]);
+	}
+}
+
 CoverageReport checkCoverage(UnicodeGlyphSource *src, const Common::Array<uint32> &sample) {
 	CoverageReport r;
 	if (!src)

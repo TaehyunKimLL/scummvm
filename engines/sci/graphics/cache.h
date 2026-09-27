@@ -149,6 +149,9 @@ private:
 	/** 64 code points of g_sci->translationCodePoints() (Graphics::CodePointSet::sample()). */
 	const Common::Array<uint32> &translationSample();
 
+	/** g_sci->translationCodePoints().fitProbes(): what the faces are fitted to. */
+	const Common::Array<uint32> &translationFitProbes();
+
 	/** The non-ASCII part of translationSample(): what the Unicode faces must draw. */
 	Common::Array<uint32> coverageSample();
 
@@ -209,6 +212,8 @@ private:
 	Graphics::BreakRules _layoutRules;
 	bool _sampleResolved;
 	Common::Array<uint32> _sample;
+	bool _fitProbesResolved;
+	Common::Array<uint32> _fitProbes;
 	/// Faces already checked for coverage (and warned about), by name.
 	Common::HashMap<Common::String, bool> _coverageChecked;
 	/// Face chains by faceChainKey() (size, .uni behind, faces); each is a face in _ttfSources or one of _chainParts.

@@ -146,6 +146,7 @@ void ScummHiResText::reset() {
 		_charsetFonts[i] = CharsetFonts();
 	_translationCps = Graphics::CodePointSet();
 	_coverageSample.clear();
+	_fitProbes.clear();
 	memset(_paletteCache, 0, sizeof(_paletteCache));
 	memset(_paletteRGB, 0, sizeof(_paletteRGB));
 	_config.clear();
@@ -467,8 +468,13 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 	// checked against them and a face sized by the map fits them into its
 	// cell (design section 4.4).
 	_coverageSample.clear();
-	if (_translationCps.size() > 0)
+	_fitProbes.clear();
+	if (_translationCps.size() > 0) {
 		_translationCps.sample(64, _coverageSample);
+		// The fit also takes every mark the translation uses, which a
+		// 64-point sample of a large Thai translation can drop.
+		_translationCps.fitProbes(Graphics::TtfGlyphSource::kMaxExtraFitProbes, _fitProbes);
+	}
 
 	// A TrueType face is opened, not baked: once per pixel size a charset
 	// needs, rasterising nothing but its probe set until a glyph is drawn.
@@ -764,17 +770,21 @@ ScummHiResText::Face *ScummHiResText::openTtfChain(const Common::Array<Common::P
 		// A face sized to the game cell has its line fill the cell, as the
 		// start-up bake sized it: the game lays text out on its own grid,
 		// and a face whose characters fill the cell outright reaches past
-		// that grid's advance. A size the map names is the characters'
-		// (SCI's meaning), fitted with the translation's own sample.
+		// that grid's advance - unless the translation's own sample would
+		// then leave the cell (Thai marks below Sukhumvit Set's line), when
+		// the face is moved and shrunk to keep it inside. A size the map
+		// names is the characters' (SCI's meaning), fitted with the sample.
 		Common::String error;
 		Graphics::TtfGlyphSource *ttf;
 		if (lineFit)
 			ttf = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, pixelSize, error,
-												   requireHangul, true);
+												   requireHangul, true,
+												   _fitProbes.empty() ? nullptr : _fitProbes.begin(),
+												   _fitProbes.size());
 		else
 			ttf = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, pixelSize, error,
-												   _coverageSample.empty() ? nullptr : _coverageSample.begin(),
-												   _coverageSample.size());
+												   _fitProbes.empty() ? nullptr : _fitProbes.begin(),
+												   _fitProbes.size());
 		if (!ttf) {
 			warning("SCUMM: cannot use hi-res TrueType font '%s': %s",
 					chain[i].toString().c_str(), error.c_str());
