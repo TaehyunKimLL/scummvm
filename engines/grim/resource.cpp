@@ -396,9 +396,10 @@ Font *ResourceLoader::loadFont(const Common::String &filename) {
 			warning("Grim: %s: \"%s\" is not \"<font file> <size>px\" with a size of 1 to %d; using the bitmap font",
 			        name.c_str(), line.c_str(), (int)Graphics::kFontDescriptorMaxPx);
 		}
-	} else if (g_grim->getGameType() == GType_GRIM && g_grim->getGameLanguage() == Common::KO_KOR) {
-		// The Korean patch names a TrueType (or SVFN) face per .laf font. When
-		// that face cannot be drawn, the game's own bitmap font is used.
+	} else if (g_grim->getGameType() == GType_GRIM && g_grim->useFontDescriptors()) {
+		// A UTF-8 translation (and the Korean patch) names a TrueType (or
+		// SVFN) face per .laf font. When that face cannot be drawn, the
+		// game's own bitmap font is used.
 		Common::String name = filename + ".txt";
 		stream = openNewStreamFile(name, true);
 		if (stream) {

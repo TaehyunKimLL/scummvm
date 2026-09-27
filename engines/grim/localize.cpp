@@ -19,18 +19,34 @@
  *
  */
 
+#include "common/config-manager.h"
 #include "common/file.h"
+#include "common/language.h"
 #include "common/str.h"
 #include "common/endian.h"
 #include "common/tokenizer.h"
 
 #include "engines/grim/localize.h"
+#include "engines/grim/localize_text.h"
 #include "engines/grim/grim.h"
 #include "engines/grim/resource.h"
 
 namespace Grim {
 
 Localizer *g_localizer = nullptr;
+
+namespace {
+
+class ResourceProbe : public TabFileProbe {
+public:
+	bool exists(const Common::String &name) const override {
+		Common::SeekableReadStream *s = g_resourceloader->openNewStreamFile(name);
+		delete s;
+		return s != nullptr;
+	}
+};
+
+} // End of anonymous namespace
 
 Localizer::Localizer() {
 	// To avoid too wide lines further below, we just name these here.
@@ -55,10 +71,25 @@ Localizer::Localizer() {
 			filename = Common::String("grim.") + g_grim->getLanguagePrefix() + Common::String(".tab"); // TODO: Detect based on language.
 		} else if (isTranslatedGrimDemo) {
 			filename = "language.tab";
-		} else if (isKorean) {
-			filename = "grim.ko.tab";
-		} else {
+		} else if (isPS2) {
 			filename = "grim.tab";
+		} else {
+			// grim.<code>.tab for the language of the target (forced in the
+			// ini or detected), then the Korean fan patch's grim.ko.tab, then
+			// grim.tab. A retail game without a grim.<code>.tab reads what it
+			// always read.
+			Common::Language lang = g_grim->getGameLanguage();
+			if (ConfMan.hasKey("language")) {
+				const Common::Language forced = Common::parseLanguage(ConfMan.get("language"));
+				if (forced != Common::UNK_LANG)
+					lang = forced;
+			}
+			const char *code = lang != Common::UNK_LANG ? Common::getLanguageCode(lang) : nullptr;
+			Common::String missing;
+			filename = selectGrimTab(code ? code : "", isKorean, lang != g_grim->getGameLanguage(),
+			                         ResourceProbe(), missing);
+			if (!missing.empty())
+				warning("%s", missing.c_str());
 		}
 	}
 
@@ -76,23 +107,24 @@ Localizer::Localizer() {
 	data[filesize] = '\0';
 	delete f;
 
-	// A Korean grim.ko.tab saved as UTF-8 with a byte order mark: drop the
-	// mark and read the text as UTF-8 instead of CP949.
-	if (isKorean && g_grim->getGameType() == GType_GRIM && filesize >= 3 &&
-	    (byte)data[0] == 0xEF && (byte)data[1] == 0xBB && (byte)data[2] == 0xBF) {
-		memmove(data, data + 3, filesize - 3 + 1);
-		filesize -= 3;
-		g_grim->_isUtf8 = true;
-	}
-
 	if (g_grim->isRemastered()) {
 		parseRemasteredData(Common::String(data));
 		delete[] data;
 		return;
 	}
 
+	// A table saved as UTF-8 with a byte order mark (grim.<code>.tab, or a
+	// grim.ko.tab so saved): plain text from byte 3, no magic. The mark is
+	// what selects UTF-8 and the translation's fonts, not the language.
+	int32 start = 4;
+	const char *afterBom = data;
+	int32 bomSize = filesize;
+	if (g_grim->getGameType() == GType_GRIM && !isAnyDemo && !isPS2 && stripUtf8Bom(afterBom, bomSize)) {
+		start = afterBom - data;
+		g_grim->_isUtf8 = true;
+		g_grim->_utf8Tab = true;
 	// Explicitly white-list german demo, as it has a .tab-file
-	if ((isTranslatedGrimDemo) || (!isAnyDemo && !isPS2)) {
+	} else if ((isTranslatedGrimDemo) || (!isAnyDemo && !isPS2)) {
 		if (filesize < 4)
 			error("%s to short: %i", filename.c_str(), filesize);
 		switch (READ_BE_UINT32(data)) {
@@ -129,45 +161,11 @@ Localizer::Localizer() {
 		}
 	}
 
-	char *nextline = data;
-	Common::String last_entry;
-	// Read file till end
-	for (char *line = data + 4; nextline != nullptr && (line - data <= filesize); nextline != nullptr && (line = nextline + 1)) {
-		nextline = strchr(line, '\n');
-		// If there is no next line we arrived the last one
-		if (nextline == nullptr) {
-			nextline = strchr(line, '\0');
-		}
-
-		// In grim we have to exit on first empty line else skip line
-		if (*line == '\r') {
-			if (g_grim->getGameType() == GType_GRIM) {
-				break;
-			}
-
-			nextline = strchr(line + 2, '\n');
-			continue;
-		}
-
-		// EMI has a garbage line which should be ignored
-		if (g_grim->getGameType() == GType_MONKEY4 && *line == '\x1A')
-			continue;
-
-		char *tab = strchr(line, '\t');
-		//skip line if no tab found
-		if (tab == nullptr) {
-			continue;
-		}
-
-		if (tab > nextline) {
-			Common::String cont = Common::String(line, nextline - line - 1);
-			assert(last_entry != "");
-			warning("Continuation line: \"%s\" = \"%s\" + \"%s\"", last_entry.c_str(), _entries[last_entry].c_str(), cont.c_str());
-			_entries[last_entry] += cont;
-		} else {
-			_entries[last_entry = Common::String(line, tab - line)] = Common::String(tab + 1, (nextline - tab - 2));
-		}
-	}
+	Common::StringArray continuations;
+	parseTabLines(data, filesize, start, g_grim->getGameType() == GType_GRIM,
+	              g_grim->getGameType() == GType_MONKEY4, _entries, &continuations);
+	for (uint i = 0; i < continuations.size(); i++)
+		warning("%s", continuations[i].c_str());
 	if (g_grim->_transcodeChineseToSimplified && g_grim->_isUtf8) {
 		for (Common::StringMap::iterator it = _entries.begin(); it != _entries.end(); it++) {
 			it->_value = it->_value.decode(Common::CodePage::kUtf8).transcodeChineseT2S().encode(Common::CodePage::kUtf8);
