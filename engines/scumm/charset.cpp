@@ -1127,6 +1127,11 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 													 _top * _vm->_textSurfaceMultiplier,
 													 _color, _shadowColor, _vm->_2byteShadow,
 													 &hiResArea, true, hiResAdvance);
+	if (hiResDrawn) {
+		// The decoration can reach outside the game cell marked above.
+		const Common::Rect g = ScummHiResText::gameRectFor(hiResArea, _vm->_textSurfaceMultiplier);
+		_vm->markRectAsDirty(vs->number, g.left, g.right, g.top - vs->topline, g.bottom - vs->topline);
+	}
 	if (!ignoreCharsetMask) {
 		// A double-byte cell is already in surface pixels here.
 		const int m = _vm->_textSurfaceMultiplier;
@@ -1399,6 +1404,12 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 													 (_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier,
 													 _color, _shadowColor, _vm->_2byteShadow,
 													 &hiResArea, true, hiResAdvance);
+	if (hiResDrawn) {
+		// The decoration can reach outside the game cell marked above.
+		const Common::Rect g = ScummHiResText::gameRectFor(hiResArea, _vm->_textSurfaceMultiplier);
+		_vm->markRectAsDirty(vs->number, g.left, g.right,
+							 g.top + _vm->_screenTop - vs->topline, g.bottom + _vm->_screenTop - vs->topline);
+	}
 	if (!ignoreCharsetMask) {
 		const int m = _vm->_textSurfaceMultiplier;
 		const int y = _top - _vm->_screenTop;

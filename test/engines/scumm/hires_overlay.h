@@ -339,6 +339,96 @@ public:
 		ov.free();
 	}
 
+	// --- C19: the under planes a decoration is drawn into ----------------
+
+	static void fillUnder(Scumm::HiResOverlay &ov, byte v) {
+		ov.underIndex()->fillRect(Common::Rect(ov.width(), ov.height()), v);
+		ov.underCoverage()->fillRect(Common::Rect(ov.width(), ov.height()), v);
+	}
+
+	void test_under_planes_come_only_when_asked_for() {
+		Scumm::HiResOverlay ov;
+		ov.create(10, 6, true);
+		TS_ASSERT(ov.underIndex() == nullptr);
+		TS_ASSERT(ov.underCoverage() == nullptr);
+
+		ov.createUnder();
+		TS_ASSERT(ov.underIndex() != nullptr);
+		TS_ASSERT(ov.underCoverage() != nullptr);
+		TS_ASSERT_EQUALS(ov.underIndex()->w, 10);
+		TS_ASSERT_EQUALS(ov.underCoverage()->h, 6);
+		// Empty to begin with: nothing under any text yet.
+		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 9, 5), 0);
+
+		// They belong with the coverage: without it there is nothing for
+		// them to be blended with.
+		ov.freeCoverage();
+		TS_ASSERT(ov.underCoverage() == nullptr);
+		ov.createUnder();
+		TS_ASSERT(ov.underCoverage() == nullptr);
+		ov.free();
+	}
+
+	/// Every path that clears the text clears what is under it.
+	void test_every_clear_clears_the_under_planes() {
+		Scumm::HiResOverlay ov;
+		ov.create(8, 8, true);
+		ov.createUnder();
+
+		fillUnder(ov, 0x33);
+		ov.clear(2, 2, 0xFD);
+		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 0, 2), 0);
+		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 7, 3), 0);
+		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 0, 4), 0x33);   // outside the band
+
+		fillUnder(ov, 0x33);
+		ov.clear(Common::Rect(1, 1, 3, 3), 0xFD);
+		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 2, 2), 0);
+		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 3, 3), 0x33);
+
+		fillUnder(ov, 0x33);
+		ov.fillIndices(Common::Rect(4, 4, 6, 6), 5);
+		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 5, 5), 0);
+		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 6, 6), 0x33);
+
+		fillUnder(ov, 0x33);
+		ov.clearCoverage(6, 2);
+		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 0, 7), 0);
+		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 0, 5), 0x33);
+		ov.free();
+	}
+
+	void test_save_and_restore_carry_the_under_planes() {
+		Scumm::HiResOverlay ov;
+		ov.create(4, 4, true);
+		ov.createUnder();
+		fillUnder(ov, 0x21);
+		ov.saveState();
+		fillUnder(ov, 0x99);
+		ov.restoreState();
+		TS_ASSERT_EQUALS(at(*ov.underIndex(), 1, 1), 0x21);
+		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 3, 3), 0x21);
+		ov.free();
+	}
+
+	/**
+	 * Planes that arrive after a save (the first decorated glyph comes while
+	 * a GUI is up) are emptied by the restore: the state saved had no
+	 * decoration, so none may survive it.
+	 */
+	void test_restore_empties_under_planes_added_after_the_save() {
+		Scumm::HiResOverlay ov;
+		ov.create(4, 4, true);
+		ov.saveState();
+		ov.createUnder();
+		fillUnder(ov, 0x44);
+		ov.restoreState();
+		TS_ASSERT(ov.underCoverage() != nullptr);
+		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 2, 2), 0);
+		TS_ASSERT_EQUALS(at(*ov.underIndex(), 2, 2), 0);
+		ov.free();
+	}
+
 	/// The read accessors describe the plane that is actually there.
 	void test_the_accessors_report_the_plane() {
 		Scumm::HiResOverlay ov;

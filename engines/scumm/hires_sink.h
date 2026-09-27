@@ -83,6 +83,20 @@ public:
 	 */
 	virtual void writeBlended(const byte *fg, const byte *bg,
 							  const byte *coverage, int count) = 0;
+
+	/**
+	 * A run of text partly covering a decoration that partly covers the
+	 * picture: the outline is blended over the picture, then the text over
+	 * that (C19). Blending the text straight over the picture instead is what
+	 * put a seam of background inside every outline.
+	 *
+	 * @param fg, fgCov        the text and its coverage
+	 * @param under, underCov  the decoration below it and its coverage
+	 * @param bg               the game's picture
+	 */
+	virtual void writeLayered(const byte *fg, const byte *fgCov,
+							  const byte *under, const byte *underCov,
+							  const byte *bg, int count) = 0;
 };
 
 } // End of namespace Scumm

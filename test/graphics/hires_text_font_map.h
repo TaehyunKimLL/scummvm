@@ -233,6 +233,55 @@ public:
 		TS_ASSERT(!cfg.shadowColorSet);
 	}
 
+	/**
+	 * The C19 geometry keys: width, style, shadow, shadow_color, shadow_alpha.
+	 * They sit beside mode/offset/color, which keep their meaning.
+	 */
+	void test_shadow_geometry_keys() {
+		Graphics::HiResTextConfig cfg;
+		// Nothing asked: every geometry key keeps its "follow the defaults" value.
+		TS_ASSERT_EQUALS(cfg.shadowWidthQ, -1);
+		TS_ASSERT_EQUALS(cfg.shadowStyle, Graphics::kHiResOutlineRound);
+		TS_ASSERT(!cfg.shadowShiftSet);
+		TS_ASSERT(!cfg.shadowShiftColorSet);
+		TS_ASSERT_EQUALS((int)cfg.shadowAlpha, 255);
+
+		TS_ASSERT(parse("[shadow]\nmode=stroke\nwidth=1.5\nstyle=square\n"
+						"shadow=-1, 2\nshadow_color=9\nshadow_alpha=60\n", cfg));
+		TS_ASSERT_EQUALS(cfg.shadowMode, Graphics::kHiResShadowStroke);
+		TS_ASSERT_EQUALS(cfg.shadowWidthQ, 6);        // quarters of a pixel
+		TS_ASSERT_EQUALS(cfg.shadowStyle, Graphics::kHiResOutlineSquare);
+		TS_ASSERT(cfg.shadowShiftSet);
+		TS_ASSERT_EQUALS(cfg.shadowDx, -1);
+		TS_ASSERT_EQUALS(cfg.shadowDy, 2);
+		TS_ASSERT(cfg.shadowShiftColorSet);
+		TS_ASSERT_EQUALS((int)cfg.shadowShiftColor, 9);
+		TS_ASSERT_EQUALS((int)cfg.shadowAlpha, 153);   // 60 % of 255
+
+		// Widths round to the nearest quarter; "shadow=none" turns a mode's
+		// own shadow off; legacy is spelled out.
+		cfg.clear();
+		TS_ASSERT(parse("[shadow]\nwidth=0.75\nstyle=legacy\nshadow=none\n", cfg));
+		TS_ASSERT_EQUALS(cfg.shadowWidthQ, 3);
+		TS_ASSERT_EQUALS(cfg.shadowStyle, Graphics::kHiResOutlineLegacy);
+		TS_ASSERT(cfg.shadowShiftSet);
+		TS_ASSERT_EQUALS(cfg.shadowDx, 0);
+		TS_ASSERT_EQUALS(cfg.shadowDy, 0);
+
+		cfg.clear();
+		TS_ASSERT(parse("[shadow]\nwidth=2\n", cfg));
+		TS_ASSERT_EQUALS(cfg.shadowWidthQ, 8);
+
+		// Junk is refused and the default kept, as for every other key.
+		cfg.clear();
+		TS_ASSERT(parse("[shadow]\nwidth=wide\nstyle=blobby\nshadow=1\n"
+						"shadow_alpha=101\nwidth=99\n", cfg));
+		TS_ASSERT_EQUALS(cfg.shadowWidthQ, -1);
+		TS_ASSERT_EQUALS(cfg.shadowStyle, Graphics::kHiResOutlineRound);
+		TS_ASSERT(!cfg.shadowShiftSet);
+		TS_ASSERT_EQUALS((int)cfg.shadowAlpha, 255);
+	}
+
 	void test_sizes_plain_and_supersampled() {
 		Graphics::HiResTextConfig cfg;
 		TS_ASSERT(parse("[sizes]\ntitle=32\nbold=16x2\n", cfg));

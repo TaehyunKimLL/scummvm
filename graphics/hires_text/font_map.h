@@ -51,6 +51,21 @@ enum HiResShadowMode {
 };
 
 /**
+ * The shape of the pen an outline is drawn with.
+ *
+ * Round and square are soft disks: the glyph's coverage is dilated by them,
+ * so the outline keeps the antialiasing of the letterform. Legacy is the old
+ * binary offset table of each mode (eight neighbours for an outline, the
+ * lower-left weighted stroke for a stroke), for a map that wants exactly the
+ * look the layer had before outlines were antialiased.
+ */
+enum HiResOutlineShape {
+	kHiResOutlineRound = 0,
+	kHiResOutlineSquare,
+	kHiResOutlineLegacy
+};
+
+/**
  * Which of the three font roles a line of text belongs to.
  *
  * Games change font in the middle of a scene - a title card is not drawn with
@@ -238,6 +253,16 @@ struct HiResTextConfig {
 	int shadowOffset;                     ///< scaled pixels; -1 = follow the scale
 	byte shadowColor;
 	bool shadowColorSet;
+	/// Outline radius in quarters of an output pixel (width=1.5 is 6);
+	/// -1 = offset when that is set, else 0.75 of the scale.
+	int shadowWidthQ;
+	HiResOutlineShape shadowStyle;        ///< style=round|square|legacy
+	bool shadowShiftSet;                  ///< shadow=dx,dy was given
+	int shadowDx;                         ///< output pixels
+	int shadowDy;
+	byte shadowShiftColor;                ///< shadow_color; defaults to color
+	bool shadowShiftColorSet;
+	byte shadowAlpha;                     ///< shadow_alpha as 0..255; 255 = solid
 
 	// --- translation bundle ---------------------------------------------
 	Common::String translationName;

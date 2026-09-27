@@ -37,6 +37,7 @@ void HiResOverlay::free() {
 	dropState();
 	_index.free();
 	_coverage.free();
+	freeUnder();
 }
 
 void HiResOverlay::clear(int top, int height, byte transparent) {
@@ -68,6 +69,9 @@ void HiResOverlay::clear(int top, int height, byte transparent) {
 			cov += _coverage.pitch;
 		}
 	}
+
+	// And the outlines of the text that was there.
+	clearUnder(Common::Rect(0, top, _index.w, top + height));
 }
 
 void HiResOverlay::clear(const Common::Rect &r, byte transparent) {
@@ -82,6 +86,7 @@ void HiResOverlay::clear(const Common::Rect &r, byte transparent) {
 	_index.fillRect(area, transparent);
 	if (_coverage.getPixels())
 		_coverage.fillRect(area, 0);
+	clearUnder(area);
 }
 
 void HiResOverlay::fillIndices(const Common::Rect &r, byte index) {
@@ -101,6 +106,9 @@ void HiResOverlay::fillIndices(const Common::Rect &r, byte index) {
 	// edges against the new colour.
 	if (_coverage.getPixels())
 		_coverage.fillRect(clipped, 0);
+
+	// A flat fill hides whatever outline was under the old glyphs as well.
+	clearUnder(clipped);
 }
 
 void HiResOverlay::createCoverage(int w, int h) {
@@ -120,6 +128,39 @@ void HiResOverlay::createCoverage(int w, int h) {
 void HiResOverlay::freeCoverage() {
 	_coverage.free();
 	_savedCoverage.free();
+	freeUnder();
+}
+
+void HiResOverlay::createUnder() {
+	if (!_coverage.getPixels())
+		return;
+
+	freeUnder();
+	_underIndex.create(_index.w, _index.h, Graphics::PixelFormat::createFormatCLUT8());
+	_underCoverage.create(_index.w, _index.h, Graphics::PixelFormat::createFormatCLUT8());
+	_underIndex.fillRect(Common::Rect(0, 0, _index.w, _index.h), 0);
+	_underCoverage.fillRect(Common::Rect(0, 0, _index.w, _index.h), 0);
+}
+
+void HiResOverlay::freeUnder() {
+	_underIndex.free();
+	_underCoverage.free();
+	_savedUnderIndex.free();
+	_savedUnderCoverage.free();
+}
+
+void HiResOverlay::clearUnder(const Common::Rect &r) {
+	if (!_underCoverage.getPixels())
+		return;
+
+	// Coverage is what the compositor reads; the index goes too so that a
+	// saved state or a debugger dump shows nothing stale.
+	Common::Rect area(r);
+	area.clip(Common::Rect(_underCoverage.w, _underCoverage.h));
+	if (area.isEmpty())
+		return;
+	_underCoverage.fillRect(area, 0);
+	_underIndex.fillRect(area, 0);
 }
 
 void HiResOverlay::clearCoverage(int top, int height) {
@@ -137,6 +178,7 @@ void HiResOverlay::clearCoverage(int top, int height) {
 		return;
 
 	_coverage.fillRect(Common::Rect(0, top, _coverage.w, top + height), 0);
+	clearUnder(Common::Rect(0, top, _coverage.w, top + height));
 }
 
 void HiResOverlay::saveState() {
@@ -147,6 +189,10 @@ void HiResOverlay::saveState() {
 	_savedIndex.copyFrom(_index);
 	if (_coverage.getPixels())
 		_savedCoverage.copyFrom(_coverage);
+	if (_underCoverage.getPixels()) {
+		_savedUnderIndex.copyFrom(_underIndex);
+		_savedUnderCoverage.copyFrom(_underCoverage);
+	}
 }
 
 void HiResOverlay::restoreState() {
@@ -160,12 +206,24 @@ void HiResOverlay::restoreState() {
 		_coverage.w == _savedCoverage.w && _coverage.h == _savedCoverage.h)
 		_coverage.copyFrom(_savedCoverage);
 
+	if (_underCoverage.getPixels() && _savedUnderCoverage.getPixels() &&
+		_underCoverage.w == _savedUnderCoverage.w && _underCoverage.h == _savedUnderCoverage.h) {
+		_underIndex.copyFrom(_savedUnderIndex);
+		_underCoverage.copyFrom(_savedUnderCoverage);
+	} else if (_underCoverage.getPixels() && !_savedUnderCoverage.getPixels()) {
+		// The planes arrived after the save (they are made on the first
+		// decorated glyph): the state saved had no decoration at all.
+		clearUnder(Common::Rect(_underCoverage.w, _underCoverage.h));
+	}
+
 	dropState();
 }
 
 void HiResOverlay::dropState() {
 	_savedIndex.free();
 	_savedCoverage.free();
+	_savedUnderIndex.free();
+	_savedUnderCoverage.free();
 }
 
 } // End of namespace Scumm

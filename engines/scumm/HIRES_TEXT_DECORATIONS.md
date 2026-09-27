@@ -7,28 +7,35 @@ Measured against `bfa1cb0e442` with English and Korean MI2.
 
 ## How it is drawn
 
-`HiResGlyphRenderer::drawGlyph` builds the decoration as a **dilation mask**
-before drawing the body, following `FontSJISBase::drawChar` in
-`graphics/sjis.cpp`.
+Since C19 the decoration is the glyph's **coverage dilated by a soft disk**
+(`HiResGlyphRenderer::buildKernel`/`dilate`, `graphics/hires_text/README.md`),
+so an outline is antialiased and can be any width, to a quarter pixel. A
+shadow is the outline (or, for a drop, the glyph) moved.
 
-A pixel belongs to the stroke if any offset in the mode's table lands glyph
-ink on it. The mask is then laid down **solid, in one pass**, and the body is
-drawn over it with its antialiasing intact.
+On the blended DOS path (`alphaActive`, paletted game buffer, not FM-Towns, Mac
+v3 or a 16-bit buffer) `HiResOverlay` carries two more planes, the
+decoration's index and coverage (`ScummHiResText::setLayeredDecorations`,
+set in `ScummEngine::init`). They are made on the first decorated glyph, so a
+game that asks for no outline never allocates them, and are cleared, filled,
+saved and restored with the coverage plane; a restore to a state saved before
+they existed empties them. An original in-game GUI stamps them into the game
+buffer with the text (cut at half coverage), so a subtitle keeps its outline
+under the menu. Each glyph also marks the game pixels its decoration reaches
+dirty (`ScummHiResText::gameRectFor`), not only its game cell. Glyphs write
+their decoration there, keeping the strongest value, and their body into the
+text planes as before. `compositeText` (`hires_composite.h`) blends the
+decoration over the picture and the body over the decoration
+(`HiResSink::writeLayered`).
 
-This matters because the obvious implementation - re-blitting the glyph once
-per offset - does not work with alpha:
+That second layer is the point. With one index and one coverage per pixel, a
+body pixel on the outline replaced it, and its antialiased edge was blended
+over the game's picture: a seam of background colour inside every outline
+(C19 defect 1, `shots/c19/tiles/a1-engine.png`).
 
-- each copy carries the body's own antialiased edge, so the stroke is
-  semi-transparent exactly where it should be solid, and blends with the
-  background it exists to hide;
-- the copies overwrite each other, so the rule meant to stop a decoration
-  eating the body ends up arbitrating between strokes.
-
-One difference from `sjis.cpp` is load-bearing: that code composes a glyph
-into a buffer of its own, while this draws into a plane shared by every glyph
-on the line. A stroke therefore yields to body ink already present, including
-its faint antialiased edge - otherwise each character erases the tail of the
-one before it. Two unit tests cover exactly that.
+Everywhere else (keyed text, FM-Towns, v7) the decoration stays in the text
+planes and is solid: the keyed body dilated and cut at half. It does not
+overwrite ink already there, so one glyph's outline does not erase its
+neighbour.
 
 ### Why it cannot be baked into the font
 
@@ -49,8 +56,13 @@ both - the renderer.
 ```ini
 [shadow]
 mode=outline     ; none | drop | outline | stroke | game
-offset=2         ; thickness in output pixels
-color=8          ; palette index of the stroke
+offset=2         ; shadow distance; the outline width too when width= is absent
+color=8          ; palette index of the decoration
+width=1.5        ; outline radius in output pixels (C19), to a quarter
+style=round      ; round | square | legacy (the old binary tables)
+shadow=-1,1      ; a shadow of the outline, dx,dy; none turns a mode's off
+shadow_color=0   ; defaults to color
+shadow_alpha=60  ; 0..100 on a blended screen; keyed: >= 50 solid, else none
 ```
 
 These `; ...` comments parse as written: a `;` with whitespace before it ends
@@ -58,12 +70,27 @@ the value (`HIRES_TEXT_SETUP.md`, "The map file", has the exact rule).
 
 - `mode=game` (the default) follows whatever the game asked for. With a
   kor-trs v1-v6 patch that is byte 1 of the charset's `korean%02d.fnt`, read as
-  the patch's renderer reads it: 1 none, 2 drop, 3 stroke, anything else
-  (0 in MI2's dialogue font) outline. In a game with no such font the byte
-  is unset and draws nothing. v7 keeps no decoration.
-- `drop` is one-sided, `outline` surrounds evenly, `stroke` is an outline
-  weighted towards the lower left.
-- `offset` is in **output** pixels, so it scales with `[hires] scale`.
+  the patch's renderer reads it (C18), drawn as C19 recommends. With `s` the
+  scale:
+
+  | byte | legacy renderer | hi-res layer |
+  |---|---|---|
+  | 1 | none | none |
+  | 0 (patch font), 4+ | 8-direction outline | round outline, 0.75 x s wide (1.5 px at 2x) |
+  | 2 | drop (1,1) | drop of the glyph's coverage by (s/2, s/2) rounded up |
+  | 3 | stroke + lower-left | that outline plus a copy of it moved (-s/2, +s/2) |
+
+  In a game with no such font the byte is unset and draws nothing. v7 keeps
+  no decoration.
+- `drop` has no outline, `outline` has no shadow, `stroke` has both.
+- Every length is in **output** pixels, so it scales with `[hires] scale`;
+  the defaults follow the scale.
+- `style=legacy` gives the look from before C19: binary, the old offset
+  table of the mode, at the old step - `offset` as written, else 1 at every
+  scale (the other styles' default shadow distance is half a game pixel, 2 at
+  3x). It is pixel-exact at step 1. At a step above 1 the table is grown (a
+  Minkowski sum) rather than multiplied, so it has none of the old gaps; that
+  is the one intended difference.
 
 ## Trap 1: the stroke colour is platform-specific
 
@@ -94,6 +121,10 @@ On DOS, `color=0` is correct and gives 4687 black pixels where the plain
 font gives none.
 
 ## Trap 2: offset has to suit the font's weight
+
+(Measured with the binary tables before C19. The advice stands, with `width=`
+as the finer knob: it takes quarter pixels, and 2 or more starts to fill the
+counters of 14 px Hangul at 2x.)
 
 The bitmap font being replaced has 4px strokes with a 2px surround. A
 replacement face with thinner strokes needs a *smaller* offset than a

@@ -1,6 +1,7 @@
 #include <cxxtest/TestSuite.h>
 
 #include "engines/scumm/hires_text.h"
+#include "graphics/hires_text/glyph_renderer.h"
 
 /**
  * How [shadow] mode=game turns the game's shadow byte into a decoration (C18).
@@ -46,5 +47,99 @@ public:
 						 Graphics::kHiResShadowNone);
 		TS_ASSERT_EQUALS(Scumm::ScummHiResText::resolveShadow(Graphics::kHiResShadowDrop, 3, false),
 						 Graphics::kHiResShadowDrop);
+	}
+
+	// --- C19: what each byte draws, at MI2's 2x --------------------------
+
+	static Graphics::GlyphDecoration drawn(int shadow, bool korPatch, int scale = 2) {
+		Graphics::HiResTextConfig map;
+		map.scale = scale;
+		const Graphics::GlyphStyle style =
+			Scumm::ScummHiResText::glyphStyle(map, shadow, korPatch, 15, 0);
+		TS_ASSERT_EQUALS(style.color, 15);
+		TS_ASSERT_EQUALS(style.shadowColor, 0);
+		return Graphics::HiResGlyphRenderer::decorationFor(style);
+	}
+
+	/// 0 from a patch font (C18) and 4 and up: a round outline, 1.5 px at 2x.
+	void test_outline_bytes_draw_a_round_antialiased_outline() {
+		const int bytes[] = { 0, 4, 7 };
+		for (int i = 0; i < 3; ++i) {
+			const Graphics::GlyphDecoration d = drawn(bytes[i], true);
+			TS_ASSERT(d.outline);
+			TS_ASSERT_EQUALS(d.outlineQ, 6);
+			TS_ASSERT_EQUALS(d.shape, Graphics::kHiResOutlineRound);
+			TS_ASSERT(!d.shadow);
+		}
+		// Width follows the scale: 0.75 of a game pixel.
+		TS_ASSERT_EQUALS(drawn(0, true, 3).outlineQ, 9);
+	}
+
+	/// 0 and 1 with no patch font draw nothing, as before.
+	void test_none_bytes_draw_nothing() {
+		Graphics::GlyphDecoration d = drawn(0, false);
+		TS_ASSERT(!d.outline);
+		TS_ASSERT(!d.shadow);
+		d = drawn(1, true);
+		TS_ASSERT(!d.outline);
+		TS_ASSERT(!d.shadow);
+	}
+
+	/// 2: a drop of the glyph itself, half a game pixel down and right.
+	void test_byte_2_is_a_drop_of_half_a_game_pixel() {
+		Graphics::GlyphDecoration d = drawn(2, true);
+		TS_ASSERT(!d.outline);
+		TS_ASSERT(d.shadow);
+		TS_ASSERT_EQUALS(d.shadowDx, 1);
+		TS_ASSERT_EQUALS(d.shadowDy, 1);
+		d = drawn(2, true, 3);
+		TS_ASSERT_EQUALS(d.shadowDx, 2);
+	}
+
+	/**
+	 * 3: the outline plus a copy of it half a game pixel to the lower left,
+	 * in place of the eleven-offset stroke table.
+	 */
+	void test_byte_3_is_an_outline_and_its_lower_left_shadow() {
+		const Graphics::GlyphDecoration d = drawn(3, true);
+		TS_ASSERT(d.outline);
+		TS_ASSERT_EQUALS(d.outlineQ, 6);
+		TS_ASSERT(d.shadow);
+		TS_ASSERT_EQUALS(d.shadowDx, -1);
+		TS_ASSERT_EQUALS(d.shadowDy, 1);
+		TS_ASSERT_EQUALS(d.shadowColor, 0);
+	}
+
+	/// A map's own colour and geometry still win.
+	void test_the_map_geometry_applies_to_the_game_modes() {
+		Graphics::HiResTextConfig map;
+		map.scale = 2;
+		map.shadowColor = 8;
+		map.shadowColorSet = true;
+		map.shadowWidthQ = 4;
+		map.shadowStyle = Graphics::kHiResOutlineLegacy;
+		const Graphics::GlyphStyle style = Scumm::ScummHiResText::glyphStyle(map, 0, true, 15, 0);
+		TS_ASSERT_EQUALS(style.shadowColor, 8);
+		const Graphics::GlyphDecoration d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(d.outline);
+		TS_ASSERT_EQUALS(d.shape, Graphics::kHiResOutlineLegacy);
+		TS_ASSERT_EQUALS(d.legacyTable, Graphics::kHiResShadowOutline);
+	}
+
+	/**
+	 * The game pixels a decorated glyph touches (C19 review): the overlay
+	 * area divided by the scale, rounded outwards, negative coordinates
+	 * included - an outline can start left of or above the surface.
+	 */
+	void test_game_rect_holds_the_whole_decoration() {
+		// A 2x glyph at game cell (10,5)-(19,14) with a 1.5 px outline and a
+		// stroke shadow reaching three output pixels left.
+		const Common::Rect r = Scumm::ScummHiResText::gameRectFor(Common::Rect(17, 8, 41, 31), 2);
+		TS_ASSERT_EQUALS(r, Common::Rect(8, 4, 21, 16));
+		TS_ASSERT_EQUALS(Scumm::ScummHiResText::gameRectFor(Common::Rect(-3, -1, 4, 5), 2),
+						 Common::Rect(-2, -1, 2, 3));
+		TS_ASSERT_EQUALS(Scumm::ScummHiResText::gameRectFor(Common::Rect(5, 5, 9, 9), 1),
+						 Common::Rect(5, 5, 9, 9));
+		TS_ASSERT(Scumm::ScummHiResText::gameRectFor(Common::Rect(), 2).isEmpty());
 	}
 };

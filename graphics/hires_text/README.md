@@ -58,7 +58,8 @@ implicitly enable it; a legacy bitmap name does, as in the original parser.
 Size syntax: `N` physical pixels, `NxM` size N with supersampling M, `Npt` legacy
 logical pixels (not typographic points). Logical sizes remain unresolved until
 an adapter has applied explicit user scale overrides. Bounds: scale 1..3,
-size 1..4096, supersampling 1..16, shadow offset -1 or 0..4096, palette color
+size 1..4096, supersampling 1..16, shadow offset -1 or 0..4096, shadow width
+0..8 px in quarters, shadow shift -16..16, shadow alpha 0..100, palette color
 0..255, glyph count 1..0x110000, height key 1..65535. These parser limits are not
 promises that every backend can allocate that size; loaders must check products
 and memory budgets. Numeric overflow and trailing junk are rejected. Invalid
@@ -144,11 +145,70 @@ blank. That stencil keeps the pixels covered at least a quarter
 closes small glyphs into blobs, while half coverage drops thin CJK strokes. A
 1bpp font writes no coverage at all - it has none to record.
 
-Decoration (`none`, `drop`, `outline`, `stroke`) is drawn in a full pass before
-the body, and a pixel is never overwritten by one with less coverage. Both rules
-exist so the outline of one glyph cannot erode the stroke of its neighbour. A
-decoration in the text colour is skipped. `shadowOffset` is in destination
-pixels, so a font baked for a larger surface keeps its decoration proportional.
+### Decoration (C19)
+
+A decoration is built from the glyph's **coverage**, whatever the source:
+TrueType, 8bpp SVFN, a baked face or a 1bpp stencil (read as 0/255). Nothing
+here knows about scripts, so a Thai or Japanese line is outlined exactly like
+a Korean one.
+
+- **Outline**: the coverage dilated by a soft disk (`buildKernel`, `dilate`).
+  A round pen of radius r gives each tap k = r + 1 - distance, so the outline
+  has an antialiased rim of any width; 1.5 px has 21 taps weighing 255, 128
+  and 67. Coverage is read as distance, not opacity: alpha(p) = max over taps
+  of clamp(k - (1 - cov(p - tap))). A partly covered stem pushes the outline's
+  edge back instead of dimming the whole outline, so a thin face whose stems
+  straddle two pixels still gets a solid outline, as a vector stroker would. `square` uses the larger axis distance. `legacy` is the old binary
+  offset table of the mode (8 neighbours, or the 11-offset lower-left stroke),
+  grown by the step (a Minkowski sum) rather than multiplied, so a step above
+  one leaves no gaps. Legacy keeps the old step too: `offset=` as written (0 draws
+  nothing, as it did), else 1 at every scale.
+- **Shadow**: that alpha moved by (dx, dy), at `shadowAlpha`. A drop is the
+  glyph's own coverage moved; a stroke is the outline plus a shadow of it at
+  (-offset, +offset). An explicit `shadow=` replaces a mode's own shadow.
+
+Where it goes depends on the planes the caller hands over (`GlyphPlanes`):
+
+- **Layered** (index, coverage and both under planes): the decoration goes into
+  the under planes only, keeping the strongest value any glyph put there, so
+  glyphs may be drawn in any order, a stacked mark's outline merges with its
+  base's, and one glyph's outline never erases another's body. The body planes
+  get exactly what they would with no decoration. The compositor blends the
+  under layer over the picture and the body over that, so the body's
+  antialiased edge sits on the outline rather than showing the picture as a
+  seam inside it.
+- **Coverage, no under planes**: the decoration shares the body's planes and is
+  solid: the keyed body dilated and cut at half (`kKeyedDecorationThreshold`),
+  written only where no ink is recorded yet. The body is drawn over it.
+- **Keyed** (no coverage): the same solid mask, from the body keyed at
+  `kKeyedInkThreshold`; it does not overwrite pixels already in the text
+  colour. A shadow under half strength is not drawn.
+
+A decoration in the text colour is skipped. `shadowOffset` and the width are in
+destination pixels. The dirty rectangle includes the pen's reach and the
+shadow's offset.
+
+`applyMap(style, map, scale)` turns a map's `[shadow]` keys into a style, with
+these defaults for text drawn `scale` output pixels per game pixel: outline
+width 0.75 x scale (1.5 px at 2x), round; `offset=` alone still sets the width
+(as it always has) and the shadow distance; without it the shadow distance is
+half a game pixel rounded up. Map keys, all in `[shadow]`:
+
+```ini
+mode=outline        ; none | drop | outline | stroke | game (unchanged)
+color=0             ; decoration colour (unchanged)
+offset=1            ; shadow distance, and the width when width= is absent
+width=1.5           ; outline radius, output pixels, to a quarter (0..8)
+style=round         ; round | square | legacy
+shadow=-1,1         ; a shadow of the outline, dx,dy output px; none = off
+shadow_color=0      ; defaults to color
+shadow_alpha=60     ; 0..100, blended targets; keyed: >= 50 solid, else none
+```
+
+The pen is built once and kept while the decoration asked for stays the same
+(a one-entry cache), and the dilation scratch buffer is reused. The dilation
+itself is per draw call: a glyph is a few hundred pixels and only covered ones
+do any work, so no per-glyph cache is kept.
 
 Nothing here scales: a font is baked at the size it is drawn. The optional dirty
 rectangle is extended, not replaced, and includes the decoration, since the
