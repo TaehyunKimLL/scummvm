@@ -143,6 +143,8 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	_inErrorString(false) {
 
 	assert(g_sci == nullptr);
+	_utf8Manifest = false;
+	_translationCodePointsCollected = false;
 	g_sci = this;
 
 	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
@@ -309,12 +311,23 @@ Common::Error SciEngine::run() {
 	if (_textOverlay.load())
 		debug(1, "SCI: Korean text overlay active (%u resources)", _textOverlay.size());
 
-	// A UTF-8 fan translation replaces TEXT resources with patch files and
-	// is detected by their MD5 like any other; the strings it cannot patch
-	// - the ones embedded in scripts - come from a sci-<lang>.str table,
-	// named by the detected language.
-	if (_scriptStrings.load(Common::getLanguageCode(getLanguage())))
-		debug(1, "SCI: script string table active: %u entries", _scriptStrings.entryCount());
+	// A UTF-8 fan translation replaces TEXT resources with patch files; the
+	// strings it cannot patch - the ones embedded in scripts - come from a
+	// sci-<lang>.str table, named by the language. That table is also the
+	// translation's manifest: with a language chosen (language=) and the
+	// table present, even with no entries, the TEXT resources are UTF-8
+	// whatever the detection entry says (I18N_TEXT_DESIGN.md section 4.1).
+	// Decided here, before the graphics stack asks heapStringsAreUtf8().
+	if (_scriptStrings.load(Common::getLanguageCode(getLanguage()))) {
+		if (_scriptStrings.isLoaded())
+			debug(1, "SCI: script string table active: %u entries", _scriptStrings.entryCount());
+		else
+			debug(1, "SCI: script string table present: no entries");
+	}
+	_utf8Manifest = ConfMan.hasKey("language") && _scriptStrings.isPresent();
+	if (_utf8Manifest && !(_gameDescription->flags & ADGF_UTF8I18N) && !_textOverlay.isLoaded())
+		debug(1, "SCI: sci-%s.str marks the TEXT resources as a UTF-8 translation",
+			  Common::getLanguageCode(getLanguage()));
 
 	// List every FONT resource the game actually contains, so "does this
 	// Japanese release use the SJIS path" is answered from the data rather
@@ -1023,7 +1036,8 @@ bool SciEngine::usesHiresDoubleByteText() const {
 		return true;
 	if (getPlatform() == Common::kPlatformPC98 && getGameId() == GID_PQ2)
 		return true;
-	return false;
+	// A UTF-8 translation in any language draws on the hi-res plane.
+	return heapStringsAreUtf8();
 }
 
 bool SciEngine::heapStringsAreUtf8() const {
@@ -1035,7 +1049,44 @@ bool SciEngine::heapStringsAreUtf8() const {
 	// Asked of the entry, not of the language: KO_KOR alone also covers
 	// the cp949 Korean translations (KQ5, KQ6, EcoQuest, Castle of Dr.
 	// Brain upstream; LB1 here), whose bytes must not be walked as UTF-8.
-	return (_gameDescription->flags & ADGF_UTF8I18N) && !_textOverlay.isLoaded();
+	//
+	// A translation the table does not know - a Japanese text.000 has
+	// another MD5 and is detected as the English release - is recognised
+	// by its manifest instead: sci-<lang>.str for the chosen language
+	// (_utf8Manifest, decided at start; this is asked per character).
+	if (_textOverlay.isLoaded())
+		return false;
+	return (_gameDescription->flags & ADGF_UTF8I18N) || _utf8Manifest;
+}
+
+const Graphics::CodePointSet &SciEngine::translationCodePoints() {
+	if (_translationCodePointsCollected || !_resMan)
+		return _translationCodePoints;
+	_translationCodePointsCollected = true;
+	if (!heapStringsAreUtf8())
+		return _translationCodePoints;
+
+	// Every TEXT resource: the translation's patch files replace them, and
+	// what is left untranslated is the game's ASCII. A byte that is not
+	// UTF-8 is skipped by addUtf8(), never added.
+	Common::List<ResourceId> ids = _resMan->listResources(kResourceTypeText);
+	for (Common::List<ResourceId>::const_iterator it = ids.begin(); it != ids.end(); ++it) {
+		Resource *res = _resMan->findResource(*it, true);
+		if (!res)
+			continue;
+		if (res->size())
+			_translationCodePoints.addUtf8((const char *)res->getUnsafeDataAt(0, res->size()), res->size());
+		_resMan->unlockResource(res);
+	}
+
+	Common::Array<Common::String> texts;
+	_scriptStrings.collectTexts(texts);
+	for (uint i = 0; i < texts.size(); i++)
+		_translationCodePoints.addUtf8(texts[i].c_str(), texts[i].size());
+
+	debug(1, "SCI: the translation uses %u distinct characters (%u TEXT resources, %u script strings)",
+		  _translationCodePoints.size(), ids.size(), texts.size());
+	return _translationCodePoints;
 }
 
 Common::CodePage SciEngine::getSciLanguageCodePage() const {

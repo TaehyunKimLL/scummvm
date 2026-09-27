@@ -88,6 +88,9 @@ public:
 
 	uint32 glyphCount() const { return _source ? _source->glyphCount() : 0; }
 
+	/** The glyph source, still owned by this font (GfxCache chains the .uni bundle's behind TrueType faces). */
+	Graphics::UnicodeGlyphSource *source() { return _source.get(); }
+
 	/** The face's own advance for @p cp in hi-res pixels, 0 when unknown
 	 *  (see UnicodeGlyphSource::advance()). */
 	int advanceHires(uint32 cp) { return _source ? _source->advance(cp) : 0; }

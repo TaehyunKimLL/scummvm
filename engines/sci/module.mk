@@ -72,6 +72,7 @@ MODULE_OBJS := \
 	graphics/text16.o \
 	graphics/textlatin.o \
 	graphics/textlayer.o \
+	graphics/textlayout16.o \
 	graphics/transitions.o \
 	graphics/view.o \
 	graphics/drivers/cga.o \
