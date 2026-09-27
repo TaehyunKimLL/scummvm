@@ -275,6 +275,36 @@ None of this applies to a map without these keys: `[hires] face/size`,
 `[font.N]`, `[latin] mode/space` (or UTF-8 text) switch it on
 (`perGlyphMetrics()`); an older map keeps every advance and every pixel.
 
+### Wide glyphs from a face step by the face (C31)
+
+With no metrics= key at all (not the ini `hires_text_metrics`, not
+`[font.N] metrics=`, not `[render] metrics=`), a wide glyph drawn by a
+TrueType face - a CP949 double-byte character or a wide code point of a
+UTF-8 translation - steps by the face's own advance (widened to its ink),
+rounded up to game pixels, and is drawn at the pen. An explicit
+`metrics=game` keeps the game's cell (a Korean patch's `korean0N.fnt` cell
+plus the 1-px gap); bitmap (SVFN) faces keep it too. Wrapping and centring
+measure a double-byte character with the same step, and the right-edge clip
+uses it.
+
+A UTF-8 translation beside a CJK patch's fonts (`korean%02d.fnt`,
+`korean.fnt`, `chinese_gb16x12.fnt`) with hi-res text on reads only those
+files' headers and gives each code point the layer draws the patch's cell,
+offsets, shadow and line height, so it draws as the CP949 bundle does.
+Centred UTF-8 text breaks Hangul at spaces, as the Korean patches do, but
+only with the layer on; with hi-res text off UTF-8 text breaks as before.
+
+Known limits:
+- **Round-up slack.** The step is rounded up per glyph with no carry, so
+  each syllable can be up to (scale - 1) px looser than the face: nothing at
+  1x, at most 1 px at 2x, 2-3 px at 3x/4x.
+- **FM-Towns SJIS.** `CharsetRendererTownsV3`/`TownsClassic::getCharWidth()`
+  return a fixed width for a double-byte character and do not ask
+  `advanceFor()`, while drawing now steps by the face: a centred Japanese
+  FM-Towns line under a TrueType map without a metrics= key is measured
+  wider than it is drawn and sits left of centre by (cell - step) x n / 2.
+  Give such a map `[render] metrics=game`.
+
 ### Monkey Island 2 (DOS) with `korean.trs`
 
 MI2 draws pictograms from its own charset where a Latin face has ASCII, and
