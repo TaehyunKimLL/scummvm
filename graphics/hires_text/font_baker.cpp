@@ -31,6 +31,7 @@
 #include "graphics/font.h"
 #include "graphics/pixelformat.h"
 #include "graphics/surface.h"
+#include "graphics/hires_text/unicode_props.h"
 
 namespace Graphics {
 
@@ -98,7 +99,9 @@ bool HiResFontBaker::bake(const Font &face, const Common::Array<uint32> &codepoi
 
 	out[0] = 'S'; out[1] = 'V'; out[2] = 'F'; out[3] = 'N';
 	put16(out, 4, 2);                      // version
-	put16(out, 6, proportional ? 1 : 0);   // flags
+	// Flags bit 2: combining marks are stored with the pen at max(0, -left)
+	// (FONT_FORMAT.md section 3), see below.
+	put16(out, 6, (proportional ? 1 : 0) | 4);   // flags
 	out[8] = 8;                            // bpp
 	put16(out, 10, 0);                     // code page: none, cmap instead
 	put16(out, 12, (uint16)glyphs);
@@ -131,6 +134,16 @@ bool HiResFontBaker::bake(const Font &face, const Common::Array<uint32> &codepoi
 		if (!proportional && advance < cellW)
 			penX = (cellW - advance) / 2;
 
+		// A combining mark's ink lies left of its pen (a Thai tone mark's
+		// negative bearing puts it over the base before it); drawn at pen 0 it
+		// would be clipped. It is stored with the pen at max(0, -left) instead
+		// and its true bearing is recorded, so a reader recovers the pen
+		// column as -bearingX (flags bit 2). Every other glyph keeps the rows
+		// it always had, as TtfGlyphSource keeps them.
+		const bool mark = Unicode::isCombining(cp);
+		if (mark)
+			penX = MIN<int>(MAX<int>(0, -box.left), cellW);
+
 		raster.fillRect(Common::Rect(0, 0, cellW, cellH), 0);
 		// drawAlphaChar places the glyph's top at y for this wrapper, with the
 		// baseline at y + ascent; ScummVM's TTF font draws from the line top.
@@ -149,7 +162,7 @@ bool HiResFontBaker::bake(const Font &face, const Common::Array<uint32> &codepoi
 		if (proportional) {
 			byte *m = &out[metricsOff + (uint32)g * kMetricsEntrySize];
 			m[0] = (byte)CLIP(advance, 0, 255);
-			const int bearing = CLIP((int)box.left + penX, -128, 127);
+			const int bearing = CLIP((mark && box.left < 0) ? -penX : (int)box.left + penX, -128, 127);
 			m[1] = (byte)(int8)bearing;
 			m[2] = (byte)CLIP((int)box.width(), 0, 255);
 			m[3] = 0;

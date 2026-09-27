@@ -2418,6 +2418,17 @@ void ScummEngine::loadLanguageBundle() {
 	file.read(_languageBuffer, size - bodyPos);
 	file.close();
 
+	// The hi-res text layer checks its faces against the characters the
+	// translation actually uses (loadFonts() runs after this).
+	if (_hiResText.enabled()) {
+		const uint32 bodySize = (uint32)(size - bodyPos);
+		for (int i = 0; i < _numTranslatedLines; i++) {
+			const uint32 off = _translatedLines[i].translatedTextOffset;
+			if (off < bodySize)
+				_hiResText.noteTranslatedString(_languageBuffer + off, bodySize - off);
+		}
+	}
+
 	debug(2, "loadLanguageBundle: Loaded %d entries", _numTranslatedLines);
 }
 

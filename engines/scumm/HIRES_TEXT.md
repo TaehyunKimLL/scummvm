@@ -206,6 +206,104 @@ Note the game advanced every character by 4 regardless; the replacement varies
 per glyph, which is the point. With `metrics=game` the code is not consulted at
 all - the probe recorded zero calls - so existing layouts cannot shift.
 
+## Per-charset faces and per-glyph placement
+
+A map may name faces and sizes per charset, and the Latin modes, with the
+same keys and meanings as SCI (`docs/i18n/HIRES_TEXT_MAP.md`); the number in
+`[font.N]` is the SCUMM **charset id**, 0..19:
+
+```ini
+[hires]
+scale=2
+alpha=true
+face=ko, th
+size=24
+
+[fonts]
+ko=/System/Library/Fonts/AppleSDGothicNeo.ttc
+th=sukhumvit-text.ttf
+
+[font.2]
+size=20
+
+[font.4]
+bitmap=subtitle24.fnt
+
+[latin]
+mode=proportional
+metrics=font
+```
+
+- **Faces.** `[font.N] face=`, else `[hires] face=`, else `[fonts] default=`;
+  the ini `hires_text_font` still overrides all of them. `face=` may be a
+  comma-separated chain: each code point is drawn by the first face that has
+  it (`FallbackGlyphSource`), then by the game's own font.
+  `[font.N] bitmap=` names an SVFN for that charset, tried before its faces.
+- **Sizes.** `[font.N] size=`, else `[hires] size=`: the characters are that
+  many pixels tall (SCI's meaning). With no size, a face is opened at the
+  game cell times the scale with its line filling the cell, as before.
+- **Latin** (`[font.N] latin=`, else `[latin] mode=`): `off` leaves ASCII to
+  the game's font; `half` draws it from the face at the face's narrow cell;
+  `fullwidth` draws U+FF01..U+FF5E (and U+3000 for a space with
+  `space=fullwidth`); `proportional` draws it from the face and advances by
+  `[latin] metrics=` (`game`: the game's width; `font`: the face's advance,
+  `latinAdvanceGamePx()`). SCUMM's default is `proportional`, which is what
+  it always did with ASCII; `[latin] enabled=false` turns it off.
+- **Advances** (`advanceFor()`), per glyph, from `UnicodeGlyphSource::metrics()`:
+  a **wide** glyph (Hangul, kanji) keeps the cell rule below, so the game's
+  grid and a legacy layout do not move; a **combining** mark advances 0; any
+  other glyph advances by the face (`metrics=font` unless `[font.N] metrics=`
+  or the ini says `game`). The ini `hires_text_metrics` wins everywhere, then
+  `[font.N] metrics=`; ASCII then takes `[latin] metrics=` and wide glyphs
+  `[render] metrics=`.
+- **Drawing** (`drawChar()`): a glyph under `metrics=game` narrower than the
+  cell it steps by is centred in it. A combining mark is drawn at the pen
+  after the previous base minus its `originX`, the pen being kept in overlay
+  pixels, and moves nothing. A Latin SVFN beside a TrueType face sits on the
+  face's baseline (`TtfGlyphSource::baseline()`), as it did on the baked
+  font's ascent.
+- **Coverage.** With a translation loaded (`korean.trs` and the like), its
+  strings are decoded once and 64 of their code points are sampled; each face
+  of a chain is checked against what the faces before it lack, with one
+  warning per face (`hires text: <face> lacks N of 64 sampled characters
+  ...`). A face sized by the map also fits that sample into its cell.
+
+None of this applies to a map without these keys: `[hires] face/size`,
+`[font.N]`, `[latin] mode/space` (or UTF-8 text) switch it on
+(`perGlyphMetrics()`); an older map keeps every advance and every pixel.
+
+### Monkey Island 2 (DOS) with `korean.trs`
+
+MI2 draws pictograms from its own charset where a Latin face has ASCII, and
+the Korean patch draws "!" at `0x5c` and a quote mark at `0x60`. A map for it
+must keep those codes with the game font, or a face draws `\` and `` ` ``
+there (C6 finding):
+
+```ini
+; Monkey Island 2 (DOS) with the Korean korean.trs patch
+[hires]
+scale=2
+alpha=true
+
+[encoding]
+codepage=cp949
+
+[fonts]
+default=/System/Library/Fonts/AppleSDGothicNeo.ttc
+
+; MI2's own pictograms: the skull bullet at 0x07 and the ellipsis at 0x5e.
+; The Korean patch draws "!" at 0x5c and a quote mark at 0x60 from its
+; own charset, so a replacement face must not draw '\' and '`' there.
+[glyphs]
+0x07=keep
+0x5e=keep
+0x5c=keep
+0x60=keep
+```
+
+`test_mi2_keeps_5c_60` (`test/engines/scumm/hires_glyph_advance.h`) parses
+this map verbatim.
+
 ## Scaling, and platforms that already scale
 
 `_textSurfaceMultiplier` decides both the text surface size and the resolution
