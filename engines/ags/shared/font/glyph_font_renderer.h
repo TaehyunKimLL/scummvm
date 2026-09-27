@@ -136,7 +136,7 @@ private:
 	};
 
 	struct FontData {
-		FontData() : Source(nullptr), Game(nullptr), Size(0) {}
+		FontData() : Source(nullptr), Game(nullptr), Size(0), PixelPpem(0) {}
 		Graphics::UnicodeGlyphSource *Source;	///< owned; the chain's FallbackGlyphSource, or the one source
 		Common::Array<Graphics::UnicodeGlyphSource *> Chain;	///< not owned: the faces, in order
 		Common::Array<AGS::Shared::String> Names;
@@ -144,6 +144,7 @@ private:
 		IAGSFontRendererInternal *Game;
 		FontRenderParams Params;
 		int Size;								///< pixels the faces were opened at
+		int PixelPpem;							///< the pixel face's ppem (C28), 0 when the chain has none
 		GlyphTextDrawer Drawer;
 		GameFallback Fallback;
 		AGS::Shared::String Name;

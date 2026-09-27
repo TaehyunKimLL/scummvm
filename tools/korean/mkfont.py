@@ -69,6 +69,19 @@ NAMED_RANGES = {
 }
 
 
+def unicode_keep(cp, ink_w, absent):
+    """--unicode 로 구울 때 이 글자를 실을지.
+
+    글꼴에 없는 글자 (absent: .notdef 와 똑같이 그려짐) 는 싣지 않는다. 빈
+    글리프나 네모를 실으면 이 폰트가 그 글자를 가진 것처럼 보여 대체 글꼴로
+    넘어가지 못한다. 잉크 없는 글자는 공백 (BLANK_OK) 만 싣는다: 레이아웃이
+    그 폭만큼 나아가야 한다. 공백이라도 글꼴에 없으면 싣지 않는다.
+    """
+    if absent:
+        return False
+    return ink_w > 0 or cp in BLANK_OK
+
+
 def is_mark(ch):
     return ch is not None and unicodedata.category(ch) in ("Mn", "Me")
 
@@ -377,10 +390,8 @@ def main():
         absent = notdef is not None and ch is not None and img.tobytes() == notdef
         if ch is None or ink_w == 0 or absent:
             missing += 1
-            if unicode_cps and ord(ch) not in BLANK_OK:
-                # 글꼴에 없는 글자: 빈 글리프를 실으면 이 폰트가 그 글자를
-                # 가진 것처럼 보여 대체 글꼴로 넘어가지 못한다.
-                continue
+        if unicode_cps and not unicode_keep(ord(ch), ink_w, absent):
+            continue
         if unicode_cps:
             kept.append(ord(ch))
         ink_max = max(ink_max, ink_w)
