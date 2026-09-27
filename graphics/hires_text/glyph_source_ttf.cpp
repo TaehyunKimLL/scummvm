@@ -424,6 +424,14 @@ uint32 TtfGlyphSource::glyphCount() const {
 	return n;
 }
 
+int TtfGlyphSource::baseline() const {
+	// Glyphs are drawn from the line top at row _yOffset, and the face's
+	// baseline lies its ascent below that.
+	if (!_font)
+		return 0;
+	return CLIP<int>(_yOffset + _font->getFontAscent(), 0, _cellHeight);
+}
+
 #else // !USE_FREETYPE2
 
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
@@ -474,6 +482,10 @@ bool TtfGlyphSource::metrics(uint32 /*cp*/, GlyphMetrics &/*m*/) {
 }
 
 uint32 TtfGlyphSource::glyphCount() const {
+	return 0;
+}
+
+int TtfGlyphSource::baseline() const {
 	return 0;
 }
 

@@ -84,6 +84,14 @@ public:
 	/// width. A false here means every glyph advances by the cell width.
 	bool isProportional() const { return _metrics != nullptr; }
 
+	/**
+	 * Flags bit 2 (FONT_FORMAT.md section 3): a combining mark's rows hold
+	 * the pen at column max(0, -bearingX), so ink left of the pen is kept.
+	 * Without it (every file written before the bit existed) the rows start
+	 * at the pen and a mark's ink left of it was clipped when it was baked.
+	 */
+	bool marksAtOrigin() const { return _marksAtOrigin; }
+
 	/// The code page the glyphs are ordered by, or kUtf8 for a font that
 	/// carries its own code point table.
 	Common::CodePage codePage() const { return _codePage; }
@@ -123,6 +131,7 @@ private:
 	int _cellW;
 	int _cellH;
 	int _ascent;
+	bool _marksAtOrigin;
 	int _glyphs;
 	int _rowPitch;
 	int _glyphStride;
