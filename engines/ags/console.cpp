@@ -27,7 +27,9 @@
 #include "ags/shared/core/asset_manager.h"
 #include "ags/shared/game/tra_file.h"
 #include "ags/engine/ac/game_state.h"
+#include "ags/engine/ac/display.h"
 #include "ags/engine/ac/global_display.h"
+#include "ags/shared/font/fonts.h"
 #include "ags/shared/gfx/allegro_bitmap.h"
 #include "ags/engine/gfx/graphics_driver.h"
 #include "common/file.h"
@@ -48,6 +50,7 @@ AGSConsole::AGSConsole(AGSEngine *vm) : GUI::Debugger(), _vm(vm), _logOutputTarg
 	registerCmd("ags_sprite_dump",  WRAP_METHOD(AGSConsole, Cmd_dumpSprite));
 	registerCmd("ags_say",  WRAP_METHOD(AGSConsole, Cmd_say));
 	registerCmd("ags_dump_native",  WRAP_METHOD(AGSConsole, Cmd_dumpNative));
+	registerCmd("ags_render_text",  WRAP_METHOD(AGSConsole, Cmd_renderText));
 
 	_logOutputTarget = new LogOutputTarget();
 	_agsDebuggerOutput = _GP(DbgMgr).RegisterOutput("ScummVMLog", _logOutputTarget, AGS3::AGS::Shared::kDbgMsg_None);
@@ -288,6 +291,49 @@ void LogOutputTarget::PrintMessage(const AGS3::AGS::Shared::DebugMessage &msg) {
 }
 
 
+// The entry of the loaded translation whose key contains `what`, or entry n
+// for "#n" (0-based, .tra file order): its text in `text`, its key in `key`.
+// False with the reason in `why`.
+static bool findTranslationEntry(const Common::String &what, Common::String &key, Common::String &text,
+								 int &index, Common::String &why) {
+	if (_G(trans_filename).IsEmpty()) {
+		why = "No translation loaded";
+		return false;
+	}
+
+	// The game's own dictionary is a hash map, which has no order; read the
+	// file again to get one.
+	Std::vector<Std::pair<AGS3::AGS::Shared::String, AGS3::AGS::Shared::String> > entries;
+	{
+		AGS3::AGS::Shared::Translation tra;
+		tra.DictOrder = &entries;
+		Std::unique_ptr<AGS3::AGS::Shared::Stream> in(_GP(AssetMgr)->OpenAsset(_G(trans_filename)));
+		if (!in || !AGS3::AGS::Shared::ReadTraData(tra, in.get())) {
+			why = Common::String::format("Cannot read %s", _G(trans_filename).GetCStr());
+			return false;
+		}
+	}
+
+	int found = -1;
+	if (what.size() > 1 && what[0] == '#') {
+		const int n = atoi(what.c_str() + 1);
+		if (n >= 0 && n < (int)entries.size())
+			found = n;
+	} else {
+		for (uint i = 0; i < entries.size() && found < 0; i++)
+			if (strstr(entries[i].first.GetCStr(), what.c_str()))
+				found = (int)i;
+	}
+	if (found < 0) {
+		why = Common::String::format("No entry %s among %u", what.c_str(), (uint)entries.size());
+		return false;
+	}
+	index = found;
+	key = entries[found].first.GetCStr();
+	text = entries[found].second.GetCStr();
+	return true;
+}
+
 // ags_say <font> <key-substring|#n>
 //
 // A probe for text rendering: put one line of the loaded translation on
@@ -310,43 +356,17 @@ bool AGSConsole::Cmd_say(int argc, const char **argv) {
 	Common::String what = argv[2];
 	for (int i = 3; i < argc; i++)
 		what += Common::String(" ") + argv[i];
-	if (_G(trans_filename).IsEmpty()) {
-		debugPrintf("No translation loaded\n");
-		return true;
-	}
-
-	// The game's own dictionary is a hash map, which has no order; read the
-	// file again to get one.
-	Std::vector<Std::pair<AGS3::AGS::Shared::String, AGS3::AGS::Shared::String> > entries;
-	{
-		AGS3::AGS::Shared::Translation tra;
-		tra.DictOrder = &entries;
-		Std::unique_ptr<AGS3::AGS::Shared::Stream> in(_GP(AssetMgr)->OpenAsset(_G(trans_filename)));
-		if (!in || !AGS3::AGS::Shared::ReadTraData(tra, in.get())) {
-			debugPrintf("Cannot read %s\n", _G(trans_filename).GetCStr());
-			return true;
-		}
-	}
-
+	Common::String key, text, why;
 	int found = -1;
-	if (what.size() > 1 && what[0] == '#') {
-		const int n = atoi(what.c_str() + 1);
-		if (n >= 0 && n < (int)entries.size())
-			found = n;
-	} else {
-		for (uint i = 0; i < entries.size() && found < 0; i++)
-			if (strstr(entries[i].first.GetCStr(), what.c_str()))
-				found = (int)i;
-	}
-	if (found < 0) {
-		debugPrintf("No entry %s among %u\n", what.c_str(), (uint)entries.size());
+	if (!findTranslationEntry(what, key, text, found, why)) {
+		debugPrintf("%s\n", why.c_str());
 		return true;
 	}
 
 	_sayFont = font;
-	_sayText = entries[found].second.GetCStr();
+	_sayText = text;
 	_sayPending = true;
-	debugPrintf("#%d font %d: %s\n", found, font, entries[found].first.GetCStr());
+	debugPrintf("#%d font %d: %s\n", found, font, key.c_str());
 	return true;
 }
 
@@ -409,6 +429,64 @@ bool AGSConsole::Cmd_dumpNative(int argc, const char **argv) {
 		}
 	}
 	debugPrintf(ok ? "OK %d %d\n" : "FAIL cannot write\n", s.w, s.h);
+	return true;
+}
+
+// ags_render_text <font> <scale> <path.png> <text|#n>
+//
+// A probe for C23's N x text (not wired into the game's drawing yet): the
+// text (or translation entry n) drawn with wouttext_outline() at game
+// resolution and nearest-upscaled (top half), and with
+// wouttext_outline_scaled() at N x (bottom half), white on dark blue, into
+// one PNG. Uses the font's outline setting as the game would.
+bool AGSConsole::Cmd_renderText(int argc, const char **argv) {
+	if (argc < 5) {
+		debugPrintf("Usage: %s <font> <scale> <path.png> <text|#n>\n", argv[0]);
+		return true;
+	}
+	const int font = atoi(argv[1]);
+	const int scale = atoi(argv[2]);
+	if (font < 0 || font >= _GP(game).numfonts || scale < 1 || scale > 3) {
+		debugPrintf("FAIL font 0..%d, scale 1..3\n", _GP(game).numfonts - 1);
+		return true;
+	}
+	Common::String text = argv[4];
+	for (int i = 5; i < argc; i++)
+		text += Common::String(" ") + argv[i];
+	if (text.size() > 1 && text[0] == '#') {
+		Common::String key, why;
+		int found;
+		if (!findTranslationEntry(text, key, text, found, why)) {
+			debugPrintf("FAIL %s\n", why.c_str());
+			return true;
+		}
+	}
+
+	const int pad = 4;
+	const int w = AGS3::get_text_width_outlined(text.c_str(), font) + 2 * pad;
+	const int h = AGS3::get_font_height_outlined(font) + 2 * pad;
+	AGS3::AGS::Shared::Bitmap native(w, h, 32), big(w * scale, h * scale, 32);
+	const uint32 bg = AGS3::makeacol32(32, 32, 64, 255), fg = AGS3::makeacol32(255, 255, 255, 255);
+	native.Fill(bg);
+	big.Fill(bg);
+	AGS3::wouttext_outline(&native, pad, pad, font, fg, text.c_str());
+	AGS3::wouttext_outline_scaled(&big, pad, pad, font, fg, text.c_str(), scale);
+
+	Graphics::Surface out;
+	const Graphics::Surface &ns = native.GetAllegroBitmap()->getSurface().rawSurface();
+	const Graphics::Surface &bs = big.GetAllegroBitmap()->getSurface().rawSurface();
+	out.create(w * scale, 2 * h * scale, ns.format);
+	for (int y = 0; y < h * scale; y++)
+		for (int x = 0; x < w * scale; x++) {
+			*(uint32 *)out.getBasePtr(x, y) = *(const uint32 *)ns.getBasePtr(x / scale, y / scale);
+			*(uint32 *)out.getBasePtr(x, y + h * scale) = *(const uint32 *)bs.getBasePtr(x, y);
+		}
+	Common::DumpFile df;
+	bool ok = df.open(Common::Path(argv[3], Common::Path::kNativeSeparator));
+	if (ok)
+		ok = Image::writePNG(df, out);
+	out.free();
+	debugPrintf(ok ? "OK %d x %d, %d x %d at %dx\n" : "FAIL cannot write\n", w, h, w * scale, h * scale, scale);
 	return true;
 }
 
