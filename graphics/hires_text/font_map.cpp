@@ -36,7 +36,12 @@ static const int kMaxScale = 3;
 HiResFontIdSettings::HiResFontIdSettings()
 	: faceSet(false), size(0), sizeSet(false), latin(kHiResLatinOff), latinSet(false),
 	  latinFontSet(false), latinFullwidthSpace(false), latinSpaceSet(false),
-	  metrics(kHiResMetricsGame), metricsSet(false) {
+	  metrics(kHiResMetricsGame), metricsSet(false), bitmapSet(false) {
+}
+
+HiResLayoutSettings::HiResLayoutSettings()
+	: hangul(kHangulBreakWord), hangulSet(false), kinsoku(true), kinsokuSet(false),
+	  thai(true), thaiSet(false) {
 }
 
 const HiResFontIdSettings *HiResTextConfig::fontIdSettings(int id) const {
@@ -96,6 +101,7 @@ void HiResTextConfig::clear() {
 	hiresFaceSet = false;
 	hiresSize = 0;
 	hiresSizeSet = false;
+	hiresFaceChain.clear();
 	latinMode = kHiResLatinOff;
 	latinModeSet = false;
 	latinFullwidthSpace = false;
@@ -106,6 +112,8 @@ void HiResTextConfig::clear() {
 	latinMetricsSet = false;
 	fontFaces.clear();
 	fontIds.clear();
+	layout = HiResLayoutSettings();
+	mapWarnings.clear();
 
 	translationName.clear();
 	heightRoles.clear();
@@ -587,15 +595,137 @@ bool qualifierListed(const Common::Array<Common::String> &qualifiers, const Comm
 	return false;
 }
 
+/// A warning about one of the keys C11 added: printed, and kept in
+/// out.mapWarnings so a caller (or a test) can see what the load said.
+void mapWarning(HiResTextConfig &out, const Common::String &message) {
+	warning("HiResText: %s", message.c_str());
+	out.mapWarnings.push_back(message);
+}
+
+/// A face entry that names a file rather than a [fonts] entry.
+bool looksLikePath(const Common::String &value) {
+	return value.contains('/') || value.contains('\\') || value.contains('.');
+}
+
+/**
+ * Read a face= value as a fallback chain ("ko, ja, th").
+ *
+ * A value without a comma is one face, taken as a [fonts] name or else a
+ * path, exactly as before chains existed. In a list, each entry is trimmed;
+ * an empty entry, or one that is neither a [fonts] name nor path-like, is
+ * dropped with one warning. @p first receives the first surviving entry as
+ * written (empty when none survived).
+ */
+void parseFaceChain(const char *section, const Common::String &value, const Common::Path &baseDir,
+					HiResTextConfig &out, Common::String &first, Common::Array<Common::Path> &chain) {
+	chain.clear();
+	first.clear();
+	if (value.findFirstOf(',') == Common::String::npos) {
+		first = value;
+		if (!value.empty())
+			chain.push_back(HiResFontMap::resolvePath(out.resolveFace(value), baseDir));
+		return;
+	}
+
+	const char *p = value.c_str();
+	while (true) {
+		const char *comma = strchr(p, ',');
+		Common::String entry = comma ? Common::String(p, comma - p) : Common::String(p);
+		entry.trim();
+		if (entry.empty()) {
+			mapWarning(out, Common::String::format("[%s] face '%s' has an empty entry, skipping it",
+												   section, value.c_str()));
+		} else if (out.fontFaces.contains(entry) || looksLikePath(entry)) {
+			if (first.empty())
+				first = entry;
+			chain.push_back(HiResFontMap::resolvePath(out.resolveFace(entry), baseDir));
+		} else {
+			mapWarning(out, Common::String::format("[%s] face '%s' is no [fonts] name and no path, "
+												   "dropping it from the chain", section, entry.c_str()));
+		}
+		if (!comma)
+			break;
+		p = comma + 1;
+	}
+}
+
+bool parseOnOff(const Common::String &value, bool &out) {
+	if (value.equalsIgnoreCase("on") || value.equalsIgnoreCase("true"))
+		out = true;
+	else if (value.equalsIgnoreCase("off") || value.equalsIgnoreCase("false"))
+		out = false;
+	else
+		return false;
+	return true;
+}
+
+/**
+ * [layout] and [layout:<qualifier>]: hangul=word|any, kinsoku=on|off,
+ * thai=on|off. A bad value or an unknown key is one warning; the field keeps
+ * its value and stays unset.
+ */
+void readLayoutSection(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+					   HiResTextConfig &out) {
+	static const char *const knownKeys[] = { "hangul", "kinsoku", "thai" };
+
+	Common::Array<Common::String> names;
+	names.push_back("layout");
+	for (uint i = 0; i < qualifiers.size(); ++i) {
+		if (!qualifiers[i].empty())
+			names.push_back(Common::String::format("layout:%s", qualifiers[i].c_str()));
+	}
+	for (uint s = 0; s < names.size(); ++s) {
+		if (!ini.hasSection(names[s]))
+			continue;
+		const Common::INIFile::SectionKeyList keys = ini.getKeys(names[s]);
+		for (Common::INIFile::SectionKeyList::const_iterator k = keys.begin(); k != keys.end(); ++k) {
+			bool known = false;
+			for (uint i = 0; i < ARRAYSIZE(knownKeys) && !known; ++i)
+				known = k->key.equalsIgnoreCase(knownKeys[i]);
+			if (!known)
+				mapWarning(out, Common::String::format("[%s] has no key '%s', ignoring it",
+													   names[s].c_str(), k->key.c_str()));
+		}
+	}
+
+	Common::String value;
+	if (getKey(ini, qualifiers, "layout", "hangul", value)) {
+		if (value.equalsIgnoreCase("word")) {
+			out.layout.hangul = kHangulBreakWord;
+			out.layout.hangulSet = true;
+		} else if (value.equalsIgnoreCase("any")) {
+			out.layout.hangul = kHangulBreakAny;
+			out.layout.hangulSet = true;
+		} else {
+			mapWarning(out, Common::String::format("[layout] hangul '%s' is not word or any, ignoring",
+												   value.c_str()));
+		}
+	}
+	if (getKey(ini, qualifiers, "layout", "kinsoku", value)) {
+		if (parseOnOff(value, out.layout.kinsoku))
+			out.layout.kinsokuSet = true;
+		else
+			mapWarning(out, Common::String::format("[layout] kinsoku '%s' is not on or off, ignoring",
+												   value.c_str()));
+	}
+	if (getKey(ini, qualifiers, "layout", "thai", value)) {
+		if (parseOnOff(value, out.layout.thai))
+			out.layout.thaiSet = true;
+		else
+			mapWarning(out, Common::String::format("[layout] thai '%s' is not on or off, ignoring",
+												   value.c_str()));
+	}
+}
+
 /**
  * Read every [font.N] section that applies - the bare ones, and the qualified
  * ones whose qualifier the caller listed - into out.fontIds. Each key is read
  * with getKey(), so [font.N:<q>] wins over [font.N] key by key.
  */
 void readFontIdSections(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
-						HiResTextConfig &out) {
+						const Common::Path &baseDir, HiResTextConfig &out) {
 	static const char *const knownKeys[] = {
-		"face", "font", "size", "latin", "latin_font", "latin_face", "latin_space", "metrics",
+		"face", "font", "size", "latin", "latin_font", "latin_face", "latin_space", "metrics", "bitmap",
 		"baseline" // a known future key: parsed and ignored, no warning
 	};
 
@@ -647,8 +777,20 @@ void readFontIdSections(const Common::INIFile &ini, const Common::Array<Common::
 		Common::String value;
 
 		if (getKeyEither(ini, qualifiers, section.c_str(), "face", "font", value)) {
-			f.face = value;
-			f.faceSet = true;
+			// A list whose every entry was dropped sets no face at all, so
+			// the [hires] face still applies.
+			Common::String first;
+			Common::Array<Common::Path> chain;
+			parseFaceChain(section.c_str(), value, baseDir, out, first, chain);
+			if (!chain.empty() || value.findFirstOf(',') == Common::String::npos) {
+				f.face = first;
+				f.faceChain = chain;
+				f.faceSet = true;
+			}
+		}
+		if (getKey(ini, qualifiers, section.c_str(), "bitmap", value) && !value.empty()) {
+			f.bitmap = HiResFontMap::resolvePath(value, baseDir);
+			f.bitmapSet = true;
 		}
 		if (getKey(ini, qualifiers, section.c_str(), "size", value)) {
 			if (parseFaceSize(value, f.size))
@@ -736,6 +878,7 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 		return false;
 
 	Common::String value;
+	out.mapWarnings.clear();
 
 	// [hires] sets the geometry the font was drawn for, so a translation can
 	// ship one map file and need no user configuration at all. The caller is
@@ -927,10 +1070,20 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 	//
 	//   [font.0:pc98]         ; wins over [font.0] for the "pc98" qualifier
 	//   latin=fullwidth
-	if (getKeyEither(ini, qualifiers, "hires", "font", "face", value)) {
-		out.hiresFace = value;
-		out.hiresFaceSet = true;
-	}
+	//
+	// face= in [hires] and [font.N] may be a fallback chain, and [font.N]
+	// may name an SVFN; [layout] overrides the line-breaking conventions:
+	//
+	//   [hires]
+	//   face=ko, ja, th       ; the first face with the character draws it
+	//   [font.3]
+	//   bitmap=subtitle.svfn  ; relative to the map
+	//   [layout]
+	//   hangul=any            ; word | any
+	//   kinsoku=off           ; on | off
+	//   thai=on               ; on | off
+	Common::String hiresFaceValue;
+	const bool hiresFaceFound = getKeyEither(ini, qualifiers, "hires", "font", "face", hiresFaceValue);
 	if (getKey(ini, qualifiers, "hires", "size", value)) {
 		if (parseFaceSize(value, out.hiresSize))
 			out.hiresSizeSet = true;
@@ -938,6 +1091,17 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 			warning("HiResText: invalid [hires] size '%s', ignoring", value.c_str());
 	}
 	readFaceTable(ini, qualifiers, out.fontFaces);
+	// After [fonts], so the chain's names resolve.
+	if (hiresFaceFound) {
+		Common::String first;
+		Common::Array<Common::Path> chain;
+		parseFaceChain("hires", hiresFaceValue, baseDir, out, first, chain);
+		if (!chain.empty() || hiresFaceValue.findFirstOf(',') == Common::String::npos) {
+			out.hiresFace = first;
+			out.hiresFaceChain = chain;
+			out.hiresFaceSet = true;
+		}
+	}
 	if (getKey(ini, qualifiers, "latin", "mode", value)) {
 		if (parseLatinMode(value, out.latinMode))
 			out.latinModeSet = true;
@@ -965,7 +1129,8 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 			out.latinMetricsSet = true;
 		}
 	}
-	readFontIdSections(ini, qualifiers, out);
+	readFontIdSections(ini, qualifiers, baseDir, out);
+	readLayoutSection(ini, qualifiers, out);
 
 	// [shadow] forces an outline or drop shadow on the replacement glyphs.
 	//
