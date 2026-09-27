@@ -620,8 +620,10 @@ int ScummEngine::peekGameCharsetHeight() {
 	if (_game.version == 3)
 		return peekV3CharsetHeight();
 
-	// v4 to v7 keep their charsets in the game container, behind the index.
-	if (_game.version < 4 || _game.version > 7)
+	// v4 to v6 keep their charsets in the game container, behind the index.
+	// v7 and v8 do too, but reading their index this early reaches iMuse
+	// Digital before it exists - see canPeekGameFontHeight().
+	if (_game.version < 4 || !ScummHiResText::canPeekGameFontHeight(_game.version))
 		return 0;
 
 	// readIndexFile() opens with closeRoom(); openRoom(0), and
