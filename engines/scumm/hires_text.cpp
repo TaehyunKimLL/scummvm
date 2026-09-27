@@ -33,6 +33,7 @@
 #include "graphics/hires_text/glyph_source_ttf.h"
 #include "graphics/hires_text/latin_advance.h"
 #include "graphics/hires_text/text_compose.h"
+#include "graphics/hires_text/text_layout.h"
 #include "graphics/hires_text/unicode_props.h"
 
 namespace Scumm {
@@ -184,6 +185,26 @@ void ScummHiResText::adoptConfig(const Graphics::HiResTextConfig &config) {
 	_enabled = true;
 	_fontsLoaded = false;
 	resolveCharsetFonts();
+}
+
+Graphics::BreakRules ScummHiResText::breakRules() const {
+	Graphics::BreakRules rules;
+	rules.hangul = Graphics::kHangulBreakAny;
+	if (_config.layout.hangulSet)
+		rules.hangul = _config.layout.hangul;
+	if (_config.layout.kinsokuSet)
+		rules.kinsoku = _config.layout.kinsoku;
+	if (_config.layout.thaiSet)
+		rules.thaiFallback = _config.layout.thai;
+	return rules;
+}
+
+void ScummHiResText::useUtf8Text() {
+	_config.encoding = Common::kUtf8;
+	resolveCharsetFonts();
+	if (_enabled)
+		debug(1, "SCUMM: hi-res text: the translation is UTF-8 (source encoding UTF-8, "
+				 "per-glyph placement; the map's code page is not used)");
 }
 
 void ScummHiResText::resolveCharsetFonts() {
@@ -380,6 +401,22 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 
 	if (!_enabled)
 		return false;
+
+	// Every double-byte string is decoded through encoding.dat. Without it
+	// the layer quietly draws no CJK glyph at all - the game's own font
+	// shows instead - so say once what is missing and how to supply it.
+	// Asked here rather than in loadConfig(): a UTF-8 translation, known
+	// only once the bundle is probed, needs no table.
+	{
+		const Common::CodePage page = _config.encoding;
+		if ((page == Common::kWindows932 || page == Common::kWindows936 ||
+			 page == Common::kWindows949 || page == Common::kWindows950 ||
+			 page == Common::kJohab) && !_warnedTables && !cjkTablesPresent(page)) {
+			_warnedTables = true;
+			warning("SCUMM: encoding.dat not found (pass --extrapath to dists/engine-data); "
+					"CJK glyphs disabled");
+		}
+	}
 
 	const uint32 startMs = g_system ? g_system->getMillis() : 0;
 
@@ -1185,6 +1222,16 @@ void ScummHiResText::updatePaletteCache(const Graphics::PixelFormat &format,
 }
 
 uint32 ScummHiResText::codePointFor(int chr) const {
+	// A UTF-8 translation is handed over already decoded: the charset
+	// renderers are given code points (string.cpp reads the UTF-8 sequence).
+	if (_config.encoding == Common::kUtf8) {
+		// A raw game byte (U+F780..U+F7FF, text_utf8.h) is the game's own
+		// character: declined, so the game's font draws it.
+		if (chr >= 0xF780 && chr <= 0xF7FF)
+			return 0;
+		return chr > 0 ? (uint32)chr : 0;
+	}
+
 	// How a double byte character is packed is decided by arithmetic in the
 	// caller rather than by how bytes sit in memory, so this is endian
 	// independent. charset.cpp builds the pair as (first << 8) | second while
@@ -2118,18 +2165,6 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	_enabled = (haveMap || haveTtf) &&
 			   (_config.scale > 1 || haveNamedFonts || haveTtf);
 
-	// Every double-byte string is decoded through encoding.dat. Without it
-	// the layer quietly draws no CJK glyph at all - the game's own font
-	// shows instead - so say once what is missing and how to supply it.
-	if (_enabled) {
-		const Common::CodePage page = _config.encoding;
-		if ((page == Common::kWindows932 || page == Common::kWindows936 ||
-			 page == Common::kWindows949 || page == Common::kWindows950 ||
-			 page == Common::kJohab) && !cjkTablesPresent(page))
-			warning("SCUMM: encoding.dat not found (pass --extrapath to dists/engine-data); "
-					"CJK glyphs disabled");
-	}
-
 	if (_enabled) {
 		const char *fontsNamed = "(none named)";
 		if (!_config.bitmapPattern.empty())
@@ -2150,51 +2185,6 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	}
 }
 
-/**
- * How many bytes the character starting at @p lead takes, in @p page.
- *
- * Returns 1 for anything that is not a lead byte, so a caller always makes
- * progress and never splits a string mid-character.
- */
-static int charLength(Common::CodePage page, const byte *p, const byte *end) {
-	const byte lead = *p;
-
-	switch (page) {
-	case Common::kUtf8:
-		if (lead < 0x80)
-			return 1;
-		if ((lead & 0xE0) == 0xC0)
-			return 2;
-		if ((lead & 0xF0) == 0xE0)
-			return 3;
-		if ((lead & 0xF8) == 0xF0)
-			return 4;
-		return 1;   // a stray continuation byte
-
-	case Common::kWindows932:
-		// Shift-JIS: two lead byte ranges. Everything between them, including
-		// half-width katakana at 0xA1..0xDF, is a single byte character - a
-		// reminder that byte width says nothing about which script it is.
-		return ((lead >= 0x81 && lead <= 0x9F) || (lead >= 0xE0 && lead <= 0xFC)) ? 2 : 1;
-
-	case Common::kWindows936:
-	case Common::kWindows950:
-		return (lead >= 0x81 && lead <= 0xFE) ? 2 : 1;
-
-	case Common::kWindows949:
-		return (lead >= 0x81 && lead <= 0xFE) ? 2 : 1;
-
-	case Common::kJohab:
-		return (lead >= 0x84 && lead <= 0xF9) ? 2 : 1;
-
-	default:
-		// A single byte page, or none named at all.
-		return 1;
-	}
-
-	(void)end;
-}
-
 uint32 ScummHiResText::decodeNext(const byte *&p, const byte *end) const {
 	if (!p || p >= end)
 		return 0;
@@ -2204,30 +2194,34 @@ uint32 ScummHiResText::decodeNext(const byte *&p, const byte *end) const {
 	// With no encoding named, the game's text is single byte in whatever the
 	// game itself defines. Passing it through unchanged keeps the code point
 	// equal to the byte, which is what the original bitmap path assumed.
-	if (page == Common::kCodePageInvalid) {
-		return *p++;
-	}
-
-	int len = charLength(page, p, end);
-	if (p + len > end) {
-		// A truncated character at the end of the string: consume one byte so
-		// the caller still terminates.
-		len = 1;
-	}
-
-	// ASCII is ASCII in every page here, and asking the shared decoder for it
-	// would need the CJK conversion tables loaded.
-	if (len == 1 && *p < 0x80)
+	if (page == Common::kCodePageInvalid)
 		return *p++;
 
-	const Common::String bytes((const char *)p, len);
-	const Common::U32String decoded(bytes, page);
-	p += len;
+	uint32 cp = 0;
+	byte flags = 0;
+	if (page == Common::kUtf8) {
+		const Graphics::Utf8TextDecoder utf8;
+		p += utf8.decode(p, end, cp, flags);
+		return cp;
+	}
 
-	if (decoded.empty())
-		return 0;
+	// A lead byte with its trail cut off by the end of the data. The shared
+	// decoder calls that U+FFFD; SCUMM has always converted the lone byte
+	// on its own, and a CP949 game must keep drawing exactly what it drew
+	// (a game's own single-byte glyph at a lead-byte value comes here, from
+	// codePointFor()), so that one case keeps the old conversion.
+	const int len = Graphics::CodePageTextDecoder::charLength(page, p, end);
+	if (end - p < len) {
+		if (*p < 0x80)
+			return *p++;
+		const Common::U32String lone(Common::String((const char *)p, 1), page);
+		p++;
+		return lone.empty() ? 0 : (uint32)lone[0];
+	}
 
-	return decoded[0];
+	const Graphics::CodePageTextDecoder dec(page);
+	p += dec.decode(p, end, cp, flags);
+	return cp;
 }
 
 } // End of namespace Scumm

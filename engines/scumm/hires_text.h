@@ -250,6 +250,22 @@ struct ScummHiResText {
 
 	Common::CodePage encoding() const { return _config.encoding; }
 
+	/**
+	 * The translation is UTF-8 (a .trs bundle with a body BOM, or ini
+	 * text_encoding=utf8): it outranks the language's default code page
+	 * and the map's [encoding], and the engine hands drawChar() and
+	 * advanceFor() code points instead of code-page bytes. Call after
+	 * loadConfig() and before loadFonts().
+	 */
+	void useUtf8Text();
+
+	/**
+	 * How SCUMM breaks UTF-8 lines: Hangul anywhere (the Korean patches'
+	 * own rule, so a UTF-8 ko.trs breaks where the CP949 korean.trs does),
+	 * kinsoku and the Thai fallback on; the map's [layout] overrides each.
+	 */
+	Graphics::BreakRules breakRules() const;
+
 	const Graphics::HiResTextConfig &config() const { return _config; }
 
 	/**
@@ -631,6 +647,8 @@ private:
 	// Optional running log of what is being drawn, for working out which
 	// scenes exercise which fonts. Off unless hires_text_log is set.
 	bool _logText = false;
+	/// The encoding.dat warning was given; once per engine run, so not reset().
+	bool _warnedTables = false;
 
 	bool probeSimpleFonts(const Common::Path &gameDir, Common::Language language);
 

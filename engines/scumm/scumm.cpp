@@ -1270,6 +1270,12 @@ Common::Error ScummEngine::init() {
 	// name the scale the rest of the setup works from.
 	_hiResText.loadConfig(ConfMan.getPath("path"), _game.gameid, _game.version, _language);
 
+	// Whether the translation is UTF-8 decides whether a CJK font is loaded
+	// at all, so the bundle's header is read before the fonts are.
+	probeLanguageBundle();
+	if (_textUtf8)
+		_isIndy4Jap = false;    // a UTF-8 translation of the DOS release is not the Japanese one
+
 	// Load CJK font, if present
 	// Load it earlier so _useCJKMode variable could be set
 	loadCJKFont();
