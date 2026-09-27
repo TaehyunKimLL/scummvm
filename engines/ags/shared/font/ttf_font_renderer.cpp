@@ -30,6 +30,7 @@
 #include "ags/shared/font/fonts.h"
 #include "ags/shared/font/wfn_font.h"
 #include "ags/shared/font/wfn_font_renderer.h"
+#include "ags/shared/font/ttf_ext_text.h"
 
 namespace AGS3 {
 
@@ -49,23 +50,40 @@ void TTFFontRenderer::EnsureTextValidForFont(char * /*text*/, int /*fontNumber*/
 	// do nothing, TTF can handle all characters
 }
 
-// ScummVM: the chain "game TTF -> extfntN.wfn". The Korean fan patches ship
-// extfntN.wfn for fonts that some games (5 Days a Stranger's 0 and 1, KQ1
-// VGA's 13) keep as TTFs; a Hangul syllable the face has no glyph for is
-// drawn from the extension, everything else by the face as before. Text
-// with no such character takes the old single alfont call.
-bool TTFFontRenderer::UseExt(const FontData &fd, int cp) {
-	return cp >= 256 && fd.Ext->GetChar(cp).Data != nullptr && !alfont_has_char(fd.AlFont, cp);
-}
+// ScummVM: the chain "game TTF -> extfntN.wfn" (ttf_ext_text.h). The Korean
+// fan patches ship extfntN.wfn for fonts that some games (5 Days a
+// Stranger's 0 and 1) keep as TTFs; a Hangul syllable the face has no glyph
+// for is drawn from the extension, everything else by the face as before.
+// Text with no such character takes the old single alfont call.
+// What ttf_ext_text.h runs on for one font
+struct TTFExtOps {
+	TTFExtOps(ALFONT_FONT *font, const WFNFont *ext, int scale, BITMAP *dst = nullptr, int y = 0, int colour = 0)
+		: _font(font), _ext(ext), _scale(scale), _dst(dst), _y(y), _colour(colour) {}
+	int getxc(const char **s) { return ugetxc(s); }
+	bool useExt(int cp) { return cp >= 256 && _ext->GetChar(cp).Data != nullptr && !alfont_has_char(_font, cp); }
+	int faceWidth(const char *run) { return alfont_text_length(_font, run); }
+	int extWidth(int cp) { return _ext->GetChar(cp).Width * _scale; }
+	void drawFace(const char *run, int x) {
+		// Y - 1 as below
+		if ((ShouldAntiAliasText()) && (bitmap_color_depth(_dst) > 8))
+			alfont_textout_aa(_dst, _font, run, x, _y - 1, _colour);
+		else
+			alfont_textout(_dst, _font, run, x, _y - 1, _colour);
+	}
+	void drawExt(int cp, int x) { wfn_render_char(_dst, x, _y, _ext->GetChar(cp), _scale, _colour); }
+private:
+	ALFONT_FONT *_font;
+	const WFNFont *_ext;
+	int _scale;
+	BITMAP *_dst;
+	int _y, _colour;
+};
 
 bool TTFFontRenderer::HasExtChars(const FontData &fd, const char *text) {
 	if (!fd.Ext)
 		return false;
-	for (int cp = ugetxc(&text); cp; cp = ugetxc(&text)) {
-		if (UseExt(fd, cp))
-			return true;
-	}
-	return false;
+	TTFExtOps ops(fd.AlFont, fd.Ext, fd.Params.SizeMultiplier);
+	return ttf_ext_has_chars(text, ops);
 }
 
 int TTFFontRenderer::GetTextWidth(const char *text, int fontNumber) {
@@ -74,24 +92,8 @@ int TTFFontRenderer::GetTextWidth(const char *text, int fontNumber) {
 		return alfont_text_length(fd.AlFont, text);
 	// Runs of face characters are measured whole (kerning), extension
 	// glyphs by their width.
-	int width = 0;
-	String run;
-	const char *p = text;
-	for (;;) {
-		const char *at = p;
-		const int cp = ugetxc(&p);
-		if (cp == 0 || UseExt(fd, cp)) {
-			if (!run.IsEmpty())
-				width += alfont_text_length(fd.AlFont, run.GetCStr());
-			run.Empty();
-			if (cp == 0)
-				break;
-			width += fd.Ext->GetChar(cp).Width * fd.Params.SizeMultiplier;
-		} else {
-			run.Append(String(at, p - at));
-		}
-	}
-	return width;
+	TTFExtOps ops(fd.AlFont, fd.Ext, fd.Params.SizeMultiplier);
+	return ttf_ext_text_width(text, ops);
 }
 
 int TTFFontRenderer::GetTextHeight(const char * /*text*/, int fontNumber) {
@@ -106,27 +108,8 @@ void TTFFontRenderer::RenderText(const char *text, int fontNumber, BITMAP *desti
 	if (HasExtChars(fd, text)) {
 		// ScummVM: face runs through alfont, extension glyphs as WFN
 		// characters with their top at the line's top
-		String run;
-		const char *p = text;
-		for (;;) {
-			const char *at = p;
-			const int cp = ugetxc(&p);
-			if (cp == 0 || UseExt(fd, cp)) {
-				if (!run.IsEmpty()) {
-					if ((ShouldAntiAliasText()) && (bitmap_color_depth(destination) > 8))
-						alfont_textout_aa(destination, fd.AlFont, run.GetCStr(), x, y - 1, colour);
-					else
-						alfont_textout(destination, fd.AlFont, run.GetCStr(), x, y - 1, colour);
-					x += alfont_text_length(fd.AlFont, run.GetCStr());
-				}
-				run.Empty();
-				if (cp == 0)
-					break;
-				x += wfn_render_char(destination, x, y, fd.Ext->GetChar(cp), fd.Params.SizeMultiplier, colour);
-			} else {
-				run.Append(String(at, p - at));
-			}
-		}
+		TTFExtOps ops(fd.AlFont, fd.Ext, fd.Params.SizeMultiplier, destination, y, colour);
+		ttf_ext_render_text(text, x, ops);
 		return;
 	}
 

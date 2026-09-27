@@ -78,8 +78,6 @@ private:
 		// the Hangul the face lacks; null without one
 		WFNFont *Ext = nullptr;
 	};
-	// ScummVM: whether cp is drawn from the extension rather than the face
-	static bool UseExt(const FontData &fd, int cp);
 	static bool HasExtChars(const FontData &fd, const char *text);
 	std::map<int, FontData> _fontData;
 };
