@@ -760,15 +760,23 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 				underSkip = uc->pitch - width * m;
 			}
 
+			// The colours postProcessDOSGraphics() would have given this
+			// strip, had it gone that way (MM/Zak v1 text on DOS).
+			const uint32 *palette = _hiResText.paletteCache();
+			uint32 remapped[256];
+			byte colorMap[16];
+			if (hiResTextColorMap(vs, colorMap)) {
+				remapPalette(palette, colorMap, ARRAYSIZE(colorMap), remapped);
+				palette = remapped;
+			}
+
 			if (_outputPixelFormat.bytesPerPixel == 2) {
-				HiResPalette16Sink sink(_compositeBuf,
-										_hiResText.paletteCache(), _outputPixelFormat);
+				HiResPalette16Sink sink(_compositeBuf, palette, _outputPixelFormat);
 				compositeText(sink, (const byte *)src, vs->pitch - width,
 							  textPlane, textSkip, covPlane, covSkip,
 							  width, height, m, underPlane, underCovPlane, underSkip);
 			} else {
-				HiResTrueColorSink sink((uint32 *)_compositeBuf,
-										_hiResText.paletteCache(), _outputPixelFormat);
+				HiResTrueColorSink sink((uint32 *)_compositeBuf, palette, _outputPixelFormat);
 				compositeText(sink, (const byte *)src, vs->pitch - width,
 							  textPlane, textSkip, covPlane, covSkip,
 							  width, height, m, underPlane, underCovPlane, underSkip);
@@ -799,6 +807,10 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 						  (const byte *)_textSurface.getBasePtr(x * m, y * m),
 						  _textSurface.pitch - width * m,
 						  nullptr, 0, width, height, m);
+
+			byte colorMap[16];
+			if (hiResTextColorMap(vs, colorMap))
+				remapIndices(_compositeBuf, width * m * height * m, colorMap, ARRAYSIZE(colorMap));
 
 			_system->copyRectToScreen(_compositeBuf, width * m, x * m, y * m, width * m, height * m);
 			return;
@@ -949,6 +961,26 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 		// Finally blit the whole thing to the screen
 		_system->copyRectToScreen(src, pitch, x, y, width, height);
 	}
+}
+
+bool ScummEngine::hiResTextColorMap(const VirtScreen *vs, byte (&map)[16]) const {
+	// The hi-res composites hand their strip to the backend themselves, so
+	// they never reach postProcessDOSGraphics(). Of what it does, the one
+	// step that applies to them is v1's recolouring of the text screen in
+	// the EGA-like modes (see the end of that function): without it MM v1
+	// draws its sentence line yellow instead of light blue. CGA and
+	// Hercules repack the whole screen and are not handled here.
+	if (_game.platform != Common::kPlatformDOS || _game.version != 1 ||
+		vs->number != kTextVirtScreen || _enableEGADithering)
+		return false;
+	if (_renderMode == Common::kRenderCGA || _renderMode == Common::kRenderCGAComp ||
+		_renderMode == Common::kRenderCGA_BW || _renderMode == Common::kRenderHercA ||
+		_renderMode == Common::kRenderHercG)
+		return false;
+
+	for (uint8 i = 0; i < ARRAYSIZE(map); ++i)
+		map[i] = _gdi->remapColorToRenderMode(i);
+	return true;
 }
 
 const byte *ScummEngine::postProcessDOSGraphics(VirtScreen *vs, int &pitch, int &x, int &y, int &width, int &height) const {
