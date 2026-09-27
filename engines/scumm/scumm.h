@@ -1761,14 +1761,11 @@ public:
 	 * such glyph here, in overlay pixels, and retires it when the game paints
 	 * the same part of its buffer.
 	 */
-	struct KeptHiResGlyph {
-		Common::Rect area;
-		bool inBackBuffer; ///< drawn with _blitAlso, so survives a back-to-front copy
-	};
+	typedef ScummHiResText::TracedGlyph KeptHiResGlyph;
 	Common::Array<KeptHiResGlyph> _keptHiResGlyphs;
 
-	/// Record a hi-res glyph drawn for keeps on the main screen.
-	void noteKeptHiResGlyph(const Common::Rect &area, bool inBackBuffer);
+	/// Record a hi-res glyph drawn for keeps on the main screen (@p cell: its game cell).
+	void noteKeptHiResGlyph(const Common::Rect &cell, const Common::Rect &area, bool inBackBuffer);
 
 	/**
 	 * The game painted @p rect of @p vs (its own pixels, screen columns).
@@ -1779,8 +1776,40 @@ public:
 	 */
 	void retireKeptHiResText(const VirtScreen *vs, const Common::Rect &rect, bool fromBackBuffer);
 
-	/// Forget the kept glyphs inside @p area of the overlay, which was cleared.
+	/// Forget the kept and traced glyphs inside @p area of the overlay, which was cleared.
 	void forgetKeptHiResGlyphs(const Common::Rect &area);
+
+	/**
+	 * Hi-res glyphs drawn on a single-buffered virtual screen - the verb
+	 * area, where MI1 also puts its dialogue choices and sentence line (C32).
+	 * The game draws that text into the screen's own buffer and erases it by
+	 * painting the buffer over (restoreVerbBG(), a box); the hi-res layer
+	 * draws it on the overlay, so it records each glyph here, in overlay
+	 * pixels, to erase it whole when the game paints over its cell.
+	 */
+	Common::Array<ScummHiResText::TracedGlyph> _tracedHiResGlyphs;
+
+	/// Record a hi-res glyph drawn on a single-buffered virtual screen.
+	void noteTracedHiResGlyph(const Common::Rect &cell, const Common::Rect &area);
+
+	/**
+	 * Both record lists as they were when the original GUI saved the text
+	 * surface: restoreSurfacesPostGUI() puts the overlay back, and the records
+	 * have to describe what it put back, or the text under a banner could
+	 * never be erased again.
+	 */
+	Common::Array<KeptHiResGlyph> _savedKeptHiResGlyphs;
+	Common::Array<ScummHiResText::TracedGlyph> _savedTracedHiResGlyphs;
+
+	/// Whether eraseHiResTextPainted() does anything here (hi-res on, not FM-Towns, not Mac).
+	bool erasesHiResTextOnPaint() const;
+
+	/**
+	 * The game filled @p rect of @p vs (its own rows, screen columns) with a
+	 * colour, erasing the text it had drawn into that buffer: erase the hi-res
+	 * text standing for it. Does nothing with hi-res text off.
+	 */
+	void eraseHiResTextPainted(const VirtScreen *vs, const Common::Rect &rect);
 
 	/**
 	 * The index plane, under its historical name.
