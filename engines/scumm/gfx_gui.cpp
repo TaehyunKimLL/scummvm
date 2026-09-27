@@ -1489,13 +1489,24 @@ void ScummEngine::saveSurfacesPreGUI() {
 		// of the GUI...
 		if (!(_game.version == 4 && _game.id == GID_LOOM) &&
 			!(_game.version == 5 && _game.platform == Common::kPlatformFMTowns)) {
+			// The text plane is _textSurfaceMultiplier times the game's size
+			// with hi-res text, so each game pixel takes the text pixel at its
+			// top left. A decoration drawn in its own layer (C19) is stamped
+			// where no text covers it, at the same half-coverage cut a keyed
+			// screen uses, so a subtitle keeps its outline under the GUI.
+			const int m = _textSurfaceMultiplier;
+			const Graphics::Surface *uIdx = _overlay.underIndex();
+			const Graphics::Surface *uCov = _overlay.underCoverage();
 			for (int y = 0; y < _screenHeight; y++) {
 				for (int x = 0; x < _screenWidth; x++) {
+					byte px = _tempTextSurface[x * m + y * m * _textSurface.pitch];
+					if (px == 0xFD && uCov && *(const byte *)uCov->getBasePtr(x * m, y * m) >= 0x80)
+						px = *(const byte *)uIdx->getBasePtr(x * m, y * m);
 					// Only draw non transparent pixels
-					if (_tempTextSurface[x + y * _screenWidth] != 0xFD) {
+					if (px != 0xFD) {
 						if (x < _virtscr[kMainVirtScreen].pitch && y < _virtscr[kMainVirtScreen].h)
 							_virtscr[kMainVirtScreen].setPixel((_virtscr[kMainVirtScreen].xstart + x) % _virtscr[kMainVirtScreen].pitch,
-								y + (_virtscr[kMainVirtScreen].xstart + x) / _virtscr[kMainVirtScreen].pitch, _tempTextSurface[x + y * _screenWidth]);
+								y + (_virtscr[kMainVirtScreen].xstart + x) / _virtscr[kMainVirtScreen].pitch, px);
 					}
 				}
 			}

@@ -14,8 +14,14 @@ shadow is the outline (or, for a drop, the glyph) moved.
 
 On the blended DOS path (`alphaActive`, paletted game buffer, not FM-Towns, Mac
 v3 or a 16-bit buffer) `HiResOverlay` carries two more planes, the
-decoration's index and coverage, created in `ScummEngine::init` next to the
-coverage plane and cleared, filled, saved and restored with it. Glyphs write
+decoration's index and coverage (`ScummHiResText::setLayeredDecorations`,
+set in `ScummEngine::init`). They are made on the first decorated glyph, so a
+game that asks for no outline never allocates them, and are cleared, filled,
+saved and restored with the coverage plane; a restore to a state saved before
+they existed empties them. An original in-game GUI stamps them into the game
+buffer with the text (cut at half coverage), so a subtitle keeps its outline
+under the menu. Each glyph also marks the game pixels its decoration reaches
+dirty (`ScummHiResText::gameRectFor`), not only its game cell. Glyphs write
 their decoration there, keeping the strongest value, and their body into the
 text planes as before. `compositeText` (`hires_composite.h`) blends the
 decoration over the picture and the body over the decoration
@@ -79,8 +85,12 @@ the value (`HIRES_TEXT_SETUP.md`, "The map file", has the exact rule).
 - `drop` has no outline, `outline` has no shadow, `stroke` has both.
 - Every length is in **output** pixels, so it scales with `[hires] scale`;
   the defaults follow the scale.
-- `style=legacy` gives the look from before C19: binary, the offset tables
-  grown (not multiplied) by `offset`.
+- `style=legacy` gives the look from before C19: binary, the old offset
+  table of the mode, at the old step - `offset` as written, else 1 at every
+  scale (the other styles' default shadow distance is half a game pixel, 2 at
+  3x). It is pixel-exact at step 1. At a step above 1 the table is grown (a
+  Minkowski sum) rather than multiplied, so it has none of the old gaps; that
+  is the one intended difference.
 
 ## Trap 1: the stroke colour is platform-specific
 
