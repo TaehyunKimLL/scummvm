@@ -2443,8 +2443,11 @@ void ScummEngine::probeLanguageBundle() {
 		_game.platform != Common::kPlatformSegaCD && _game.platform != Common::kPlatformNES &&
 		!(_game.platform == Common::kPlatformMacintosh && (_game.id == GID_LOOM || _game.id == GID_INDY3));
 	if (!supported) {
+		// Read as a code-page bundle it would draw as mojibake: ignored, as
+		// an unreadable bundle is.
 		warning("SCUMM: '%s' is UTF-8, which this release's text renderer does not take; "
-				"it is read as a legacy bundle", _trsBundlePath.toString().c_str());
+				"the translation is ignored", _trsBundlePath.toString().c_str());
+		_trsBundlePath.clear();
 		return;
 	}
 
@@ -2595,37 +2598,17 @@ void ScummEngine::loadLanguageBundle() {
 }
 
 void ScummEngine::transcodeLanguageBundle(uint32 bodySize) {
-	Common::Array<byte> body;
-	body.reserve(bodySize);
-	Common::HashMap<uint32, bool> unmapped;
-	Common::HashMap<uint32, uint32> movedOriginal, movedTranslated;
-	Common::Array<byte> text;
+	Common::Array<uint32> orig, trans;
 	for (int i = 0; i < _numTranslatedLines; i++) {
-		TranslatedLine &line = _translatedLines[i];
-		for (int which = 0; which < 2; which++) {
-			uint32 &off = which ? line.translatedTextOffset : line.originalTextOffset;
-			Common::HashMap<uint32, uint32> &moved = which ? movedTranslated : movedOriginal;
-			if (moved.contains(off)) {
-				off = moved[off];
-				continue;
-			}
-			const uint32 from = off;
-			const uint32 at = body.size();
-			if (from < bodySize) {
-				uint32 len = 0;
-				while (from + len < bodySize && _languageBuffer[from + len])
-					len++;
-				if (which)
-					transcodeScummText(_languageBuffer + from, len, Common::kUtf8, _trsTranscodeTo, text, &unmapped);
-				else
-					text = Common::Array<byte>(_languageBuffer + from, len);
-				for (uint k = 0; k < text.size(); k++)
-					body.push_back(text[k]);
-			}
-			body.push_back(0);
-			moved[from] = at;
-			off = at;
-		}
+		orig.push_back(_translatedLines[i].originalTextOffset);
+		trans.push_back(_translatedLines[i].translatedTextOffset);
+	}
+	Common::Array<byte> body;
+	Common::HashMap<uint32, bool> unmapped;
+	transcodeTrsStrings(_languageBuffer, bodySize, orig, trans, _trsTranscodeTo, _game.version, body, &unmapped);
+	for (int i = 0; i < _numTranslatedLines; i++) {
+		_translatedLines[i].originalTextOffset = orig[i];
+		_translatedLines[i].translatedTextOffset = trans[i];
 	}
 
 	delete[] _languageBuffer;

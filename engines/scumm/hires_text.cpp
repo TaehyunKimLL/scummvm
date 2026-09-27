@@ -411,9 +411,11 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 		const Common::CodePage page = _config.encoding;
 		if ((page == Common::kWindows932 || page == Common::kWindows936 ||
 			 page == Common::kWindows949 || page == Common::kWindows950 ||
-			 page == Common::kJohab) && !cjkTablesPresent(page))
+			 page == Common::kJohab) && !_warnedTables && !cjkTablesPresent(page)) {
+			_warnedTables = true;
 			warning("SCUMM: encoding.dat not found (pass --extrapath to dists/engine-data); "
 					"CJK glyphs disabled");
+		}
 	}
 
 	const uint32 startMs = g_system ? g_system->getMillis() : 0;
@@ -1222,8 +1224,13 @@ void ScummHiResText::updatePaletteCache(const Graphics::PixelFormat &format,
 uint32 ScummHiResText::codePointFor(int chr) const {
 	// A UTF-8 translation is handed over already decoded: the charset
 	// renderers are given code points (string.cpp reads the UTF-8 sequence).
-	if (_config.encoding == Common::kUtf8)
+	if (_config.encoding == Common::kUtf8) {
+		// A raw game byte (U+F780..U+F7FF, text_utf8.h) is the game's own
+		// character: declined, so the game's font draws it.
+		if (chr >= 0xF780 && chr <= 0xF7FF)
+			return 0;
 		return chr > 0 ? (uint32)chr : 0;
+	}
 
 	// How a double byte character is packed is decided by arithmetic in the
 	// caller rather than by how bytes sit in memory, so this is endian

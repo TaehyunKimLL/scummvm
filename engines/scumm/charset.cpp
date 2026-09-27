@@ -660,7 +660,7 @@ void CharsetRenderer::addLinebreaksLayout(int a, byte *str, int pos, int maxwidt
 	};
 
 	if (bufSize < 0)
-		bufSize = pos + (int)strlen((const char *)str + pos) + 1;
+		bufSize = pos + scummTextLength(str + pos, 0x10000, _vm->_game.version) + 1;
 	const int oldId = getCurID();
 	const int savedCarry = _hiResCarry;
 	Hooks hooks(this);
