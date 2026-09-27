@@ -1394,6 +1394,13 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_vm->_hiResText.beginString();
 	}
 
+	// ASCII inside CJK text that the hi-res layer steps by the face (C34) is
+	// placed by the face too: the game's offsX belongs to its own glyph, and
+	// getCharWidth() measures the face's step without it.
+	const bool latinFaceStep = !is2byte && !cellGlyph && _vm->_hiResText.latinStepsByFace(chr, _curId);
+	if (latinFaceStep)
+		_offsX = 0;
+
 	_top += _offsY;
 	_left += _offsX;
 
@@ -1401,10 +1408,13 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	// is clipped by that step, the width the line was wrapped with, not by
 	// the wider cell, or a full line's last syllable is dropped (C31). With
 	// the layer off the step is the cell + gap and the cell decides, as before.
+	// Latin stepping by the face likewise (C34).
 	int clipWidth = _origWidth;
 	if (is2byte || cellGlyph) {
 		const bool gap = (_vm->_language == Common::ZH_TWN || _vm->_language == Common::KO_KOR);
 		clipWidth = MIN(_origWidth, _vm->_hiResText.advanceFor(chr, _curId, _origWidth + (gap ? 1 : 0)));
+	} else if (latinFaceStep) {
+		clipWidth = MIN(_origWidth, _vm->_hiResText.advanceFor(chr, _curId, _origWidth));
 	}
 	if (_left + clipWidth > _right + 1 || _left < 0) {
 		_left += _origWidth;
