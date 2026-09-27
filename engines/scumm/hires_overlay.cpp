@@ -210,6 +210,10 @@ void HiResOverlay::restoreState() {
 		_underCoverage.w == _savedUnderCoverage.w && _underCoverage.h == _savedUnderCoverage.h) {
 		_underIndex.copyFrom(_savedUnderIndex);
 		_underCoverage.copyFrom(_savedUnderCoverage);
+	} else if (_underCoverage.getPixels() && !_savedUnderCoverage.getPixels()) {
+		// The planes arrived after the save (they are made on the first
+		// decorated glyph): the state saved had no decoration at all.
+		clearUnder(Common::Rect(_underCoverage.w, _underCoverage.h));
 	}
 
 	dropState();

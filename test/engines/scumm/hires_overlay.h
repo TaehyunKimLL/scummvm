@@ -339,7 +339,6 @@ public:
 		ov.free();
 	}
 
-	/// The read accessors describe the plane that is actually there.
 	// --- C19: the under planes a decoration is drawn into ----------------
 
 	static void fillUnder(Scumm::HiResOverlay &ov, byte v) {
@@ -412,6 +411,25 @@ public:
 		ov.free();
 	}
 
+	/**
+	 * Planes that arrive after a save (the first decorated glyph comes while
+	 * a GUI is up) are emptied by the restore: the state saved had no
+	 * decoration, so none may survive it.
+	 */
+	void test_restore_empties_under_planes_added_after_the_save() {
+		Scumm::HiResOverlay ov;
+		ov.create(4, 4, true);
+		ov.saveState();
+		ov.createUnder();
+		fillUnder(ov, 0x44);
+		ov.restoreState();
+		TS_ASSERT(ov.underCoverage() != nullptr);
+		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 2, 2), 0);
+		TS_ASSERT_EQUALS(at(*ov.underIndex(), 2, 2), 0);
+		ov.free();
+	}
+
+	/// The read accessors describe the plane that is actually there.
 	void test_the_accessors_report_the_plane() {
 		Scumm::HiResOverlay ov;
 		TS_ASSERT_EQUALS(ov.width(), 0);

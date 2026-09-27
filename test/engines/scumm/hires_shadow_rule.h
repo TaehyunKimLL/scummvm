@@ -125,4 +125,21 @@ public:
 		TS_ASSERT_EQUALS(d.shape, Graphics::kHiResOutlineLegacy);
 		TS_ASSERT_EQUALS(d.legacyTable, Graphics::kHiResShadowOutline);
 	}
+
+	/**
+	 * The game pixels a decorated glyph touches (C19 review): the overlay
+	 * area divided by the scale, rounded outwards, negative coordinates
+	 * included - an outline can start left of or above the surface.
+	 */
+	void test_game_rect_holds_the_whole_decoration() {
+		// A 2x glyph at game cell (10,5)-(19,14) with a 1.5 px outline and a
+		// stroke shadow reaching three output pixels left.
+		const Common::Rect r = Scumm::ScummHiResText::gameRectFor(Common::Rect(17, 8, 41, 31), 2);
+		TS_ASSERT_EQUALS(r, Common::Rect(8, 4, 21, 16));
+		TS_ASSERT_EQUALS(Scumm::ScummHiResText::gameRectFor(Common::Rect(-3, -1, 4, 5), 2),
+						 Common::Rect(-2, -1, 2, 3));
+		TS_ASSERT_EQUALS(Scumm::ScummHiResText::gameRectFor(Common::Rect(5, 5, 9, 9), 1),
+						 Common::Rect(5, 5, 9, 9));
+		TS_ASSERT(Scumm::ScummHiResText::gameRectFor(Common::Rect(), 2).isEmpty());
+	}
 };

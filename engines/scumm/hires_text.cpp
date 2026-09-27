@@ -1010,6 +1010,17 @@ Graphics::HiResShadowMode ScummHiResText::resolveShadow(Graphics::HiResShadowMod
 	}
 }
 
+Common::Rect ScummHiResText::gameRectFor(const Common::Rect &area, int m) {
+	if (area.isEmpty())
+		return Common::Rect();
+	m = MAX(1, m);
+	// Floor and ceiling that hold for negative coordinates too: an outline
+	// can start left of or above the surface.
+	auto floorDiv = [](int v, int d) { return (v >= 0) ? v / d : -((-v + d - 1) / d); };
+	return Common::Rect(floorDiv(area.left, m), floorDiv(area.top, m),
+						-floorDiv(-area.right, m), -floorDiv(-area.bottom, m));
+}
+
 Graphics::GlyphStyle ScummHiResText::glyphStyle(const Graphics::HiResTextConfig &config,
 												 int gameShadow, bool korPatchShadow,
 												 byte color, byte shadowColor) {
@@ -1162,7 +1173,9 @@ bool ScummHiResText::drawRows(Graphics::Surface &dest, Face &face, uint32 cp, in
 	// The decoration's own layer, where the overlay carries one and this is
 	// the overlay being drawn into (C19): the body's antialiased edge is then
 	// blended over the outline instead of over the game's picture.
-	if (planes.coverage && decorated && _overlay && &dest == &_overlay->index()) {
+	if (planes.coverage && decorated && _layeredDecorations && _overlay && &dest == &_overlay->index()) {
+		if (!_overlay->underCoverage())
+			_overlay->createUnder();
 		planes.underIndex = _overlay->underIndex();
 		planes.underCoverage = _overlay->underCoverage();
 	}
