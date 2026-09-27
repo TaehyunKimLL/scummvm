@@ -1472,11 +1472,12 @@ bool ScummHiResText::latinStepsByFace(int chr, int charsetId) const {
 }
 
 int ScummHiResText::latinFaceStep(int chr, int charsetId) const {
-	// Only a game laid out on CJK cells: its face is sized to that cell, so
-	// the game's Latin widths, which belong to its own (larger) Latin font,
-	// space the face's letters apart. Elsewhere the face is sized to the
-	// game's font and its widths fit.
-	if (!_enabled || !_fontsLoaded || !_cjkCells)
+	// Only text whose own script already steps by the face: a game laid out
+	// on CJK cells (Hangul, C31), or a UTF-8 translation (kana, kanji, Thai).
+	// There the game's Latin widths, which belong to its own bitmap font,
+	// space the face's smaller letters apart. The game's own text in its
+	// own encoding (English) keeps them: metrics=game is its default.
+	if (!_enabled || !_fontsLoaded || !(_cjkCells || _config.encoding == Common::kUtf8))
 		return 0;
 	// Letters, digits and punctuation. The space keeps the game's width:
 	// it is the word gap of the Hangul around it too.
