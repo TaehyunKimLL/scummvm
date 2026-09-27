@@ -384,7 +384,9 @@ struct ScummHiResText {
 	 *
 	 * A map naming neither bitmap fonts nor a TrueType face is almost
 	 * always one written for the older TrueType loader. A map that names a
-	 * face (or an ini key that does) is used, and must not be warned about.
+	 * face (or an ini key that does) is used, and must not be warned about -
+	 * and that includes a face named only through a [hires] or [font.N]
+	 * face= chain, or a [font.N] bitmap=.
 	 *
 	 * @param config   the parsed map
 	 * @param ttfPath  the face in effect: the ini's hires_text_font, else
@@ -392,6 +394,22 @@ struct ScummHiResText {
 	 */
 	static bool mapNamesNoFonts(const Graphics::HiResTextConfig &config,
 								const Common::Path &ttfPath);
+
+	/**
+	 * Whether a map asks for blended text.
+	 *
+	 * The map's own alpha= wins. Without one, a map whose fonts carry
+	 * coverage - a TrueType face, or an 8 bpp (anti-aliased) SVFN - blends,
+	 * as AGS and the map-less forms already do: drawing such a font keyed
+	 * keeps only the pixels at least half covered and gives stepped edges.
+	 * A map of 1 bpp stencils has nothing to blend and stays keyed.
+	 *
+	 * @param config               the parsed map
+	 * @param namesFace            a TrueType face is in effect (ini or map)
+	 * @param namesCoverageBitmap  a bitmap font the map names is 8 bpp
+	 */
+	static bool mapWantsAlpha(const Graphics::HiResTextConfig &config,
+							  bool namesFace, bool namesCoverageBitmap);
 
 	/**
 	 * Whether the CJK conversion tables (encoding.dat) can be read.
@@ -648,6 +666,7 @@ private:
 	void checkCoverage(const Face *face, const Common::String &key) const;
 
 	void freeFaces();
+	bool namedBitmapHasCoverage(const Common::Path &gameDir) const;
 	bool loadBitmapFile(const Common::Path &gameDir, const Common::String &name,
 						int charsetId, bool latin);
 
