@@ -28,6 +28,8 @@
 #include "ags/shared/util/stream.h"
 #include "ags/shared/ac/game_struct_defines.h"
 #include "ags/shared/font/fonts.h"
+#include "ags/shared/font/wfn_font.h"
+#include "ags/shared/font/wfn_font_renderer.h"
 
 namespace AGS3 {
 
@@ -47,8 +49,49 @@ void TTFFontRenderer::EnsureTextValidForFont(char * /*text*/, int /*fontNumber*/
 	// do nothing, TTF can handle all characters
 }
 
+// ScummVM: the chain "game TTF -> extfntN.wfn". The Korean fan patches ship
+// extfntN.wfn for fonts that some games (5 Days a Stranger's 0 and 1, KQ1
+// VGA's 13) keep as TTFs; a Hangul syllable the face has no glyph for is
+// drawn from the extension, everything else by the face as before. Text
+// with no such character takes the old single alfont call.
+bool TTFFontRenderer::UseExt(const FontData &fd, int cp) {
+	return cp >= 256 && fd.Ext->GetChar(cp).Data != nullptr && !alfont_has_char(fd.AlFont, cp);
+}
+
+bool TTFFontRenderer::HasExtChars(const FontData &fd, const char *text) {
+	if (!fd.Ext)
+		return false;
+	for (int cp = ugetxc(&text); cp; cp = ugetxc(&text)) {
+		if (UseExt(fd, cp))
+			return true;
+	}
+	return false;
+}
+
 int TTFFontRenderer::GetTextWidth(const char *text, int fontNumber) {
-	return alfont_text_length(_fontData[fontNumber].AlFont, text);
+	const FontData &fd = _fontData[fontNumber];
+	if (!HasExtChars(fd, text))
+		return alfont_text_length(fd.AlFont, text);
+	// Runs of face characters are measured whole (kerning), extension
+	// glyphs by their width.
+	int width = 0;
+	String run;
+	const char *p = text;
+	for (;;) {
+		const char *at = p;
+		const int cp = ugetxc(&p);
+		if (cp == 0 || UseExt(fd, cp)) {
+			if (!run.IsEmpty())
+				width += alfont_text_length(fd.AlFont, run.GetCStr());
+			run.Empty();
+			if (cp == 0)
+				break;
+			width += fd.Ext->GetChar(cp).Width * fd.Params.SizeMultiplier;
+		} else {
+			run.Append(String(at, p - at));
+		}
+	}
+	return width;
 }
 
 int TTFFontRenderer::GetTextHeight(const char * /*text*/, int fontNumber) {
@@ -58,6 +101,34 @@ int TTFFontRenderer::GetTextHeight(const char * /*text*/, int fontNumber) {
 void TTFFontRenderer::RenderText(const char *text, int fontNumber, BITMAP *destination, int x, int y, int colour) {
 	if (y > destination->cb)  // optimisation
 		return;
+
+	const FontData &fd = _fontData[fontNumber];
+	if (HasExtChars(fd, text)) {
+		// ScummVM: face runs through alfont, extension glyphs as WFN
+		// characters with their top at the line's top
+		String run;
+		const char *p = text;
+		for (;;) {
+			const char *at = p;
+			const int cp = ugetxc(&p);
+			if (cp == 0 || UseExt(fd, cp)) {
+				if (!run.IsEmpty()) {
+					if ((ShouldAntiAliasText()) && (bitmap_color_depth(destination) > 8))
+						alfont_textout_aa(destination, fd.AlFont, run.GetCStr(), x, y - 1, colour);
+					else
+						alfont_textout(destination, fd.AlFont, run.GetCStr(), x, y - 1, colour);
+					x += alfont_text_length(fd.AlFont, run.GetCStr());
+				}
+				run.Empty();
+				if (cp == 0)
+					break;
+				x += wfn_render_char(destination, x, y, fd.Ext->GetChar(cp), fd.Params.SizeMultiplier, colour);
+			} else {
+				run.Append(String(at, p - at));
+			}
+		}
+		return;
+	}
 
 	// Y - 1 because it seems to get drawn down a bit
 	if ((ShouldAntiAliasText()) && (bitmap_color_depth(destination) > 8))
@@ -133,6 +204,14 @@ bool TTFFontRenderer::LoadFromDiskEx(int fontNumber, int fontSize, String *src_f
 
 	_fontData[fontNumber].AlFont = alfptr;
 	_fontData[fontNumber].Params = f_params;
+	// ScummVM: a Korean patch's extfntN.wfn next to this TTF font
+	WFNFont *ext = new WFNFont();
+	WFNFontRenderer::LoadExtension(ext, fontNumber, filename);
+	if (!ext->HasExt()) {
+		delete ext;
+		ext = nullptr;
+	}
+	_fontData[fontNumber].Ext = ext;
 	if (src_filename)
 		*src_filename = filename;
 	if (metrics)
@@ -163,6 +242,7 @@ void TTFFontRenderer::AdjustFontForAntiAlias(int fontNumber, bool /*aa_mode*/) {
 
 void TTFFontRenderer::FreeMemory(int fontNumber) {
 	alfont_destroy_font(_fontData[fontNumber].AlFont);
+	delete _fontData[fontNumber].Ext;
 	_fontData.erase(fontNumber);
 }
 
