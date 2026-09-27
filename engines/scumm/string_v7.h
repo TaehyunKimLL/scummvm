@@ -50,6 +50,9 @@ private:
 	void drawSubstring(const char *str, uint numBytesMax, byte *buffer, Common::Rect &clipRect, int x, int y, int pitch, int16 &col, TextStyleFlags flags);
 
 	const Common::Language _lang;
+	// A UTF-8 translation (never taken by v7/v8 today: probeLanguageBundle()
+	// keeps it to the v1-v6 renderers), for textCharLength().
+	const bool _utf8;
 	const byte _gameId;
 	const bool _useCJKMode;
 	const int _direction;

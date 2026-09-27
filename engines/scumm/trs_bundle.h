@@ -22,6 +22,7 @@
 #ifndef SCUMM_TRS_BUNDLE_H
 #define SCUMM_TRS_BUNDLE_H
 
+#include "common/array.h"
 #include "common/language.h"
 #include "common/path.h"
 #include "common/str.h"
@@ -52,6 +53,30 @@ inline Common::Path getTrsBundleName(Common::Language lang) {
 		return Common::Path();
 
 	return Common::Path(Common::String::format("%s.trs", code));
+}
+
+/**
+ * Every name a bundle for this language may carry, in the order they are
+ * tried: the language code first (ko.trs, ja.trs, th.trs), then, for
+ * Korean, the established korean.trs. Empty for UNK_LANG.
+ */
+inline void getTrsBundleNames(Common::Language lang, Common::Array<Common::Path> &out) {
+	out.clear();
+	const char *code = Common::getLanguageCode(lang);
+	if (code)
+		out.push_back(Common::Path(Common::String::format("%s.trs", code)));
+	if (lang == Common::KO_KOR)
+		out.push_back(Common::Path("korean.trs"));
+}
+
+/**
+ * Whether a bundle's body - the bytes after the room table, before the
+ * first string - starts with the UTF-8 BOM (EF BB BF). The file itself
+ * starts with the "SCVMTRS " magic, so this is where a bundle says it is
+ * UTF-8 (I18N_TEXT_DESIGN.md section 4.1). No entry points at these bytes.
+ */
+inline bool trsBodyIsUtf8(const byte *body, uint32 size) {
+	return body && size >= 3 && body[0] == 0xEF && body[1] == 0xBB && body[2] == 0xBF;
 }
 
 /**

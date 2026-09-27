@@ -23,6 +23,7 @@
 #include "scumm/charset.h"
 #include "scumm/file.h"
 #include "scumm/scumm.h"
+#include "scumm/text_utf8.h"
 #include "scumm/macgui/macgui.h"
 #include "scumm/nut_renderer.h"
 #include "scumm/util.h"
@@ -46,6 +47,10 @@ better separation of the various modules.
 */
 
 bool ScummEngine::isScummvmKorTarget() {
+	// A UTF-8 bundle takes none of the Korean patches' CP949 paths (fonts,
+	// break rule, josa glue): Korean grammar is not generalised.
+	if (_textUtf8)
+		return false;
 	if (_language == Common::KO_KOR && (_game.version < 7 || _game.id == GID_FT)) {
 		return true;
 	}
@@ -61,6 +66,12 @@ void ScummEngine::loadCJKFont() {
 
 	// Sega CD Rebel Assault uses its SMUSH subtitle font.
 	if (_game.id == GID_REBEL1 && _game.platform == Common::kPlatformSegaCD)
+		return;
+
+	// A UTF-8 translation is drawn by the hi-res layer (or as '?' without
+	// it): none of the language's CJK font files is loaded, and the text is
+	// not in their code page (I18N_TEXT_DESIGN.md section 4.1, A28).
+	if (_textUtf8)
 		return;
 
 	// Special case for Korean
@@ -489,7 +500,8 @@ int CharsetRendererClassic::getCharWidth(uint16 chr) const {
 	if (_vm->_useCJKMode && chr >= 0x80)
 		return _vm->_hiResText.advanceFor(chr, _curId, _vm->_2byteWidth / 2);
 
-	int offs = READ_LE_UINT32(_fontPtr + chr * 4 + 4);
+	// With UTF-8 text chr is a code point; the game's font answers for '?'.
+	int offs = READ_LE_UINT32(_fontPtr + gameChar(chr) * 4 + 4);
 	if (offs)
 		spacing = _fontPtr[offs] + (signed char)_fontPtr[offs + 2];
 
@@ -570,6 +582,15 @@ int CharsetRenderer::getStringWidth(int arg, const byte *text) {
 			}
 		}
 
+		// UTF-8 text: the whole character, measured by its code point.
+		if (_vm->_textUtf8 && chr >= 0x80) {
+			const byte *p = text + pos - 1;
+			chr = readUtf8TextChar(p, p + 4);
+			pos = p - text;
+			width += getCharWidth(chr);
+			continue;
+		}
+
 		if (_vm->_useCJKMode) {
 			if (_vm->_language == Common::JA_JPN && _vm->_game.platform == Common::kPlatformFMTowns) {
 				if (checkSJISCode(chr))
@@ -614,7 +635,47 @@ int CharsetRenderer::getStringWidth(int arg, const byte *text) {
 	return width;
 }
 
-void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth) {
+void CharsetRenderer::addLinebreaksLayout(int a, byte *str, int pos, int maxwidth, int bufSize) {
+	// Widths are the renderer's own, charset switches (FF 0E) included, and
+	// the proportional remainder starts afresh with each line as it does
+	// when a line is drawn.
+	class Hooks : public ScummLayoutHooks {
+	public:
+		Hooks(CharsetRenderer *cs) : _cs(cs), _startId(cs->getCurID()) {}
+		int advance(uint32 cp) override {
+			return _cs->getCharWidth((uint16)(cp > 0xFFFF ? 0xFFFD : cp));
+		}
+		void reset() override {
+			_cs->setCurID(_startId);
+			_cs->_hiResCarry = 0;
+		}
+		void escape(byte code, const byte *args) override {
+			if (code == 14 && args)
+				_cs->setCurID(args[0] | (args[1] << 8));
+		}
+
+	private:
+		CharsetRenderer *_cs;
+		int _startId;
+	};
+
+	if (bufSize < 0)
+		bufSize = pos + (int)strlen((const char *)str + pos) + 1;
+	const int oldId = getCurID();
+	const int savedCarry = _hiResCarry;
+	Hooks hooks(this);
+	layoutLinebreaks(str, bufSize, pos, maxwidth, hooks, _vm->_hiResText.breakRules(),
+					 _vm->_game.version, _vm->_newLineCharacter, a);
+	setCurID(oldId);
+	_hiResCarry = savedCarry;
+}
+
+void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth, int bufSize) {
+	if (_vm->_textUtf8 && _vm->_game.heversion == 0) {
+		addLinebreaksLayout(a, str, pos, maxwidth, bufSize);
+		return;
+	}
+
 	int lastKoreanLineBreak = -1;
 	int origPos = pos;
 	int lastspace = -1;
@@ -761,7 +822,7 @@ int CharsetRendererV3::getCharWidth(uint16 chr) const {
 		spacing = _vm->_2byteWidth / 2;
 
 	if (!spacing)
-		spacing = *(_widthTable + chr);
+		spacing = *(_widthTable + gameChar(chr));
 
 	// Measuring and drawing have to agree. getStringWidth() adds these up to
 	// decide line breaks and to centre a line, so if a proportional
@@ -1000,11 +1061,13 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 			height = getDrawHeightIntern(chr);
 		}
 	} else {
-		charPtr = (_vm->_useCJKMode && chr > 127) ? _vm->get2byteCharPtr(chr) : _fontPtr + chr * 8;
-		width = getDrawWidthIntern(chr);
-		height = getDrawHeightIntern(chr);
+		// With UTF-8 text, the game's '?' stands in for a code point.
+		const int own = gameChar(chr);
+		charPtr = (_vm->_useCJKMode && own > 127) ? _vm->get2byteCharPtr(own) : _fontPtr + own * 8;
+		width = getDrawWidthIntern(own);
+		height = getDrawHeightIntern(own);
 	}
-	setDrawCharIntern(chr);
+	setDrawCharIntern(gameChar(chr));
 
 	// Drawing has to step by the same amount getCharWidth() reported, or a
 	// centred line drifts and glyphs land on each other.
@@ -1137,11 +1200,13 @@ void CharsetRendererV3::drawChar(int chr, Graphics::Surface &s, int x, int y) {
 			height = getDrawHeightIntern(chr);
 		}
 	} else {
-		charPtr = (_vm->_useCJKMode && chr > 127) ? _vm->get2byteCharPtr(chr) : _fontPtr + chr * 8;
-		width = getDrawWidthIntern(chr);
-		height = getDrawHeightIntern(chr);
+		// With UTF-8 text, the game's '?' stands in for a code point.
+		const int own = gameChar(chr);
+		charPtr = (_vm->_useCJKMode && own > 127) ? _vm->get2byteCharPtr(own) : _fontPtr + own * 8;
+		width = getDrawWidthIntern(own);
+		height = getDrawHeightIntern(own);
 	}
-	setDrawCharIntern(chr);
+	setDrawCharIntern(gameChar(chr));
 	drawBits1(s, x, y, charPtr, y, width, height);
 }
 
@@ -1219,9 +1284,17 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_width = _vm->_2byteWidth;
 		_height = _vm->_2byteHeight;
 		_offsX = _offsY = 0;
-	} else {
-		if (!prepareDraw(chr))
+	} else if (!prepareDraw(gameChar(chr))) {
+		if (!(_vm->_textUtf8 && chr >= 0x80))
 			return;
+		// A code point whose stand-in the game's font does not have (MI1's
+		// verb charset has no '?'): the hi-res layer alone draws it, in a
+		// box as wide as it advances.
+		setShadowMode(kNoShadowType);
+		_charPtr = nullptr;
+		_width = _origWidth = _vm->_hiResText.advanceFor(chr, _curId, 0);
+		_height = _origHeight = _fontHeight;
+		_offsX = _offsY = 0;
 	}
 
 	if (_vm->isScummvmKorTarget()) {
@@ -1338,7 +1411,7 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 #endif
 			 )
 		_vm->noteKeptHiResGlyph(hiResArea, _blitAlso);
-	if (!hiResDrawn)
+	if (!hiResDrawn && _charPtr)
 		printCharIntern(is2byte, _charPtr, _origWidth, _origHeight, _width, _height, vs, ignoreCharsetMask);
 
 	// Original keeps glyph width and character dimensions separately
@@ -1603,7 +1676,7 @@ int CharsetRendererTownsV3::getCharWidth(uint16 chr) const {
 	}
 
 	if (!spacing)
-		spacing = *(_widthTable + chr);
+		spacing = *(_widthTable + gameChar(chr));
 
 	return spacing;
 }

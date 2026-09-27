@@ -28,12 +28,14 @@
 #include "scumm/scumm_v8.h"
 #include "scumm/sound.h"
 #include "scumm/string_v7.h"
+#include "scumm/text_utf8.h"
 
 namespace Scumm {
 
 TextRenderer_v7::TextRenderer_v7(ScummEngine *vm, GlyphRenderer_v7 *gr)	:
 	_gameId(vm->_game.id),
 	_lang(vm->_language),
+	_utf8(vm->_textUtf8),
 	_2byteCharWidth(vm->_2byteWidth),
 	_screenWidth(vm->_screenWidth),
 	_useCJKMode(vm->_useCJKMode),
@@ -76,7 +78,7 @@ int TextRenderer_v7::getStringWidth(const char *str, uint numBytesMax) {
 			continue;
 		}
 
-		if (is2ByteCharacter(_lang, *str)) {
+		if (textCharLength(_utf8, _lang, (const byte *)str, (const byte *)str + 2) == 2) {
 			width += _2byteCharWidth + _spacing;
 			++str;
 			--numBytesMax;
@@ -133,7 +135,7 @@ int TextRenderer_v7::getStringHeight(const char *str, uint numBytesMax) {
 			lineHeight = 0;
 		} else if (*str != '\r' && *str != _lineBreakMarker) {
 			lineHeight = MAX<int>(lineHeight, _gr->getCharHeight(*str));
-			if (is2ByteCharacter(_lang, *str)) {
+			if (textCharLength(_utf8, _lang, (const byte *)str, (const byte *)str + 2) == 2) {
 				++str;
 				--numBytesMax;
 			}
@@ -165,7 +167,7 @@ void TextRenderer_v7::drawSubstring(const char *str, uint numBytesMax, byte *buf
 			}
 		}
 
-		if (is2ByteCharacter(_lang, str[i])) {
+		if (textCharLength(_utf8, _lang, (const byte *)str + i, (const byte *)str + i + 2) == 2) {
 			x += _gr->draw2byte(buffer, clipRect, x, y, pitch, col, (byte)str[i] + 256 * (byte)str[i + 1]);
 			++i;
 			--numBytesMax;
