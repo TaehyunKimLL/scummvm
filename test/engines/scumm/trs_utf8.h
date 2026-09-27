@@ -175,6 +175,42 @@ public:
 		TS_ASSERT(unmapped.contains(0x0E01));
 	}
 
+	void test_transcode_keeps_voiced_translation() {
+		// Two strings in a body: a voiced translation (FF 0A with zero
+		// argument bytes) and a plain one. The whole translation is
+		// converted, and the second string's offset follows it.
+		Common::Array<byte> body;
+		const byte a[] = { 0xFF, 0x0A, 0x00, 0x0F, 0xFF, 0x0A, 0x00, 0x00, 0xEA, 0xB0, 0x80, 'a', 0x00 };
+		const byte b[] = { 0xEB, 0x82, 0x98, 0x00 };
+		for (uint i = 0; i < sizeof(a); i++)
+			body.push_back(a[i]);
+		for (uint i = 0; i < sizeof(b); i++)
+			body.push_back(b[i]);
+		Common::Array<uint32> orig, trans;
+		orig.push_back(sizeof(a));      // any string: the originals are copied as they are
+		trans.push_back(0);
+		orig.push_back(0);
+		trans.push_back(sizeof(a));
+		Common::Array<byte> out;
+		Scumm::transcodeTrsStrings(body.begin(), body.size(), orig, trans, Common::kWindows949, 5, out, nullptr);
+		const byte wantA[] = { 0xFF, 0x0A, 0x00, 0x0F, 0xFF, 0x0A, 0x00, 0x00, 0xB0, 0xA1, 'a' };
+		TS_ASSERT(trans[0] + sizeof(wantA) < out.size());
+		if (trans[0] + sizeof(wantA) < out.size()) {
+			TS_ASSERT_SAME_DATA(out.begin() + trans[0], wantA, sizeof(wantA));
+			TS_ASSERT_EQUALS(out[trans[0] + sizeof(wantA)], 0);
+		}
+		TS_ASSERT(trans[1] + 2 < out.size());
+		if (trans[1] + 2 < out.size()) {
+			TS_ASSERT_EQUALS(out[trans[1]], 0xB3);
+			TS_ASSERT_EQUALS(out[trans[1] + 1], 0xAA);
+			TS_ASSERT_EQUALS(out[trans[1] + 2], 0);
+		}
+		// The original voiced string (entry 1's original is string a) is kept whole.
+		TS_ASSERT(orig[1] + sizeof(a) <= out.size());
+		if (orig[1] + sizeof(a) <= out.size())
+			TS_ASSERT_SAME_DATA(out.begin() + orig[1], a, sizeof(a));
+	}
+
 	void test_legacy_page_for_language() {
 		TS_ASSERT_EQUALS(Scumm::legacyTextPage(Common::KO_KOR), Common::kWindows949);
 		TS_ASSERT_EQUALS(Scumm::legacyTextPage(Common::JA_JPN), Common::kWindows932);

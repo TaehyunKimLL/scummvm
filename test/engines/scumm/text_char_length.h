@@ -74,7 +74,7 @@ void legacyKoreanLinebreaks(byte *str, int maxwidth, int wide) {
 	int lastspace = -1;
 	int curw = 1;
 	int chr;
-	const int strLength = (int)strlen((const char *)str);
+	const int strLength = Scumm::scummTextLength(str, 1 << 20, 5);   // the engine's resStrLen()
 
 	while ((chr = str[pos++]) != 0) {
 		if (chr == '@')
@@ -149,13 +149,13 @@ void legacyKoreanLinebreaks(byte *str, int maxwidth, int wide) {
 Common::Array<int> breakIndices(const byte *s, bool utf8) {
 	Common::Array<int> out;
 	int chars = 0;
-	const byte *end = s + strlen((const char *)s);
+	const byte *end = s + Scumm::scummTextLength(s, 1 << 20, 5);
 	const byte *p = s;
 	while (p < end) {
 		if (*p == 0xFF || *p == 0xFE) {
 			const byte code = p + 1 < end ? p[1] : 0;
 			p += 2;
-			if (code == 9 || code == 10 || code == 12 || code == 13 || code == 14 || code == 21)
+			if (code != 1 && code != 2 && code != 3 && code != 8)
 				p += 2;
 			continue;
 		}
@@ -295,6 +295,85 @@ public:
 		TS_ASSERT_EQUALS(buf[10], 0);
 	}
 
+	void test_escape_aware_length() {
+		// resStrLen()'s rule: FF + code, and two argument bytes after every
+		// code but 1, 2, 3 and 8. An argument can be 0 (a talkie offset).
+		const byte voiced[] = { 0xFF, 0x0A, 0x00, 0x0F, 0xFF, 0x0A, 0x00, 0x00, 'a', 'b', 0x00, 'z' };
+		TS_ASSERT_EQUALS(Scumm::scummTextLength(voiced, sizeof(voiced), 5), 10);
+		const byte glue[] = { 'x', 0xFF, 0x07, 0x03, 0x00, 'y', 0xFF, 0x01, 0x00 };
+		TS_ASSERT_EQUALS(Scumm::scummTextLength(glue, sizeof(glue), 5), 8);
+		// Never past maxLen, even inside an escape.
+		TS_ASSERT_EQUALS(Scumm::scummTextLength(voiced, 3, 5), 3);
+		TS_ASSERT_EQUALS(Scumm::scummTextLength(voiced, 0, 5), 0);
+		// The decoder spans the same bytes.
+		Scumm::ScummTextDecoder dec(5, false, 0);
+		TS_ASSERT_EQUALS(dec.escapeLength(glue + 1, glue + sizeof(glue)), 4);
+		TS_ASSERT_EQUALS(dec.escapeLength(voiced, voiced + sizeof(voiced)), 4);
+	}
+
+	void test_layout_wraps_voiced_line() {
+		// A talkie line: FF 0A 00 0F FF 0A 00 00, then the text. The wrap
+		// must see the text, and the escape bytes must survive.
+		byte buf[64];
+		memset(buf, 0xEE, sizeof(buf));
+		const byte head[] = { 0xFF, 0x0A, 0x00, 0x0F, 0xFF, 0x0A, 0x00, 0x00 };
+		memcpy(buf, head, 8);
+		memcpy(buf + 8, "aaaa bbbb cccc", 15);
+		FixedHooks hooks(10);
+		Graphics::BreakRules rules;
+		Scumm::layoutLinebreaks(buf, sizeof(buf), 0, 45, hooks, rules, 5, 0);
+		TS_ASSERT_SAME_DATA(buf, head, 8);
+		TS_ASSERT_EQUALS(Common::String((const char *)buf + 8), Common::String("aaaa bbbb\rcccc"));
+
+		// Wide text needs inserts: they land in the text, and the bytes
+		// after the escapes are intact.
+		byte w[80];
+		memset(w, 0, sizeof(w));
+		memcpy(w, head, 8);
+		Common::String text;
+		for (int i = 0; i < 10; i++)
+			text += "\xE3\x81\x82";
+		memcpy(w + 8, text.c_str(), text.size() + 1);
+		Scumm::layoutLinebreaks(w, sizeof(w), 0, 51, hooks, rules, 5, 0);
+		TS_ASSERT_SAME_DATA(w, head, 8);
+		TS_ASSERT_EQUALS(w[8 + 15], 0x0D);
+		TS_ASSERT_EQUALS(Scumm::scummTextLength(w, sizeof(w), 5), 8 + 31);
+		TS_ASSERT_EQUALS(w[8 + 31], 0);
+	}
+
+	void test_raw_game_bytes_survive() {
+		// A byte that is not UTF-8 (MI1's own glyph 0xFA, or untranslated
+		// game text) is the game's character, passed as U+F700 + byte.
+		const byte s[] = { 0xFA, 'x', 0xEA, 0xB0, 0x80 };
+		const byte *p = s;
+		TS_ASSERT_EQUALS(Scumm::readUtf8TextChar(p, s + sizeof(s)), 0xF7FAu);
+		TS_ASSERT_EQUALS(p, s + 1);
+		TS_ASSERT_EQUALS(Scumm::rawGameByte(0xF7FA), 0xFA);
+		TS_ASSERT_EQUALS(Scumm::rawGameByte(0xAC00), -1);
+		Scumm::ScummTextDecoder dec(5, false, 0);
+		Graphics::TextRun run;
+		run.decode(s, sizeof(s), dec);
+		TS_ASSERT_EQUALS(run.size(), 3u);
+		TS_ASSERT_EQUALS(run.cp(0), 0xF7FAu);
+		TS_ASSERT_EQUALS(run.cp(2), 0xAC00u);
+	}
+
+	void test_layout_keeps_narrow_after_hangul() {
+		// The Korean patches' rule: '^' or '-' after a Hangul syllable stays
+		// with it, so the break goes before the syllable; '(' may start a line.
+		byte buf[64] = "\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80^";
+		FixedHooks hooks(10);
+		Graphics::BreakRules rules;
+		rules.hangul = Graphics::kHangulBreakAny;
+		Scumm::layoutLinebreaks(buf, sizeof(buf), 0, 45, hooks, rules, 5, 0);
+		TS_ASSERT_EQUALS(Common::String((const char *)buf),
+		                 Common::String("\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80\r\xEA\xB0\x80^"));
+		byte par[64] = "\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80(";
+		Scumm::layoutLinebreaks(par, sizeof(par), 0, 45, hooks, rules, 5, 0);
+		TS_ASSERT_EQUALS(Common::String((const char *)par),
+		                 Common::String("\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80\r("));
+	}
+
 	void test_layout_never_splits_a_word() {
 		// No break opportunity fits: the word runs past the width, as SCUMM
 		// lets it, and the line breaks at the first opportunity after.
@@ -374,15 +453,21 @@ public:
 		TS_ASSERT(Scumm::parseTrsHeader(data.begin(), data.size(), h));
 		const int widths[] = { 120, 160, 200, 240, 300 };
 		const int wide = 9;   // MI1's 8-px Korean cell + the Korean 1-px gap
-		int compared = 0, differ = 0;
-		for (uint e = 0; e < 200 && e < h.numLines; e++) {
+		int compared = 0, differ = 0, voiced = 0;
+		// The first 200 entries (no talkie codes) and 200 voiced ones from
+		// entry 896 on (FF 0A with zero argument bytes).
+		for (uint e = 0; e < 1096 && e < h.numLines; e++) {
+			if (e >= 200 && e < 896)
+				continue;
 			const uint32 off = h.translatedOffset[e];
 			if (off >= data.size())
 				continue;
 			const byte *src = data.begin() + off;
-			const uint32 len = strlen((const char *)src);
+			const uint32 len = Scumm::scummTextLength(src, (uint32)(data.size() - off), 5);
 			if (len == 0 || len > 400)
 				continue;
+			if (len >= 4 && src[0] == 0xFF && src[1] == 0x0A && memchr(src, 0, len))
+				voiced++;
 			Common::Array<byte> utf8;
 			Scumm::transcodeScummText(src, len, Common::kWindows949, Common::kUtf8, utf8, nullptr);
 			for (uint w = 0; w < ARRAYSIZE(widths); w++) {
@@ -417,7 +502,9 @@ public:
 		}
 		TS_TRACE(Common::String::format("%d of %d (entry, width) pairs break identically",
 		                                compared - differ, compared).c_str());
+		TS_TRACE(Common::String::format("%d voiced entries (FF 0A with a zero argument byte)", voiced).c_str());
 		TS_ASSERT(compared > 0);
+		TS_ASSERT(voiced > 0);
 		TS_ASSERT_EQUALS(differ, 0);
 #endif
 	}

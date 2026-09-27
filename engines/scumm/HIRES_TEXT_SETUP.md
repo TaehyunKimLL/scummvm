@@ -345,6 +345,35 @@ file=strings.txt
 The shared parser reads `file=` into its config, but SCUMM does not apply
 it. Translated text comes from the game's own resources, not from the map.
 
+### UTF-8 translation bundles (`<code>.trs`)
+
+A `.trs` bundle is named after the language code of the game's `language=`
+(`ja.trs`, `th.trs`, `ko.trs`); Korean also finds the established
+`korean.trs`. **A folder holding both `ko.trs` and `korean.trs` now uses
+`ko.trs`.**
+
+The bundle is UTF-8 when its body (the bytes after the room table) starts
+with `EF BB BF`, or when the game's ini sets `text_encoding=utf8`. Otherwise
+it is read in the language's code page, as before (CP949 for Korean); an
+unmarked body that validates as UTF-8 logs a hint.
+
+- **Hi-res text on:** the hi-res layer draws the text (none of the game's
+  CJK font files is loaded) and lines are broken by the shared layout
+  stage. **UTF-8 Korean is spaced per glyph** (the face's advance, like any
+  other script), while a CP949 `korean.trs` keeps the `.fnt` cell spacing
+  of the Korean patches; line breaks are the same. The Korean
+  postposition glue codes do nothing under UTF-8.
+- **Hi-res text off:** a Korean, Japanese or Chinese bundle is transcoded to
+  its legacy code page at load (a character with no form there becomes `?`,
+  listed once in the log) and drawn by the game's CJK font. Any other
+  language needs hi-res text; its text draws as `?` after one warning.
+- A byte in the text that is not UTF-8 (a game's own glyph code, or an
+  untranslated string of a game whose own text is not ASCII) is drawn with
+  the game's own font, as that byte.
+- Only the classic PC renderers (v1-v6) take a UTF-8 bundle; on any other
+  (v7/v8, HE, FM-Towns, PC Engine, Sega CD, NES, Mac Loom/Indy3) the bundle
+  is ignored with one warning.
+
 ### Per-game sections
 
 Any section may be qualified, and the qualified one wins:

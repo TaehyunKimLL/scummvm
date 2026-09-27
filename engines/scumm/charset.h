@@ -27,6 +27,7 @@
 #include "graphics/sjis.h"
 #include "scumm/charset_v7.h"
 #include "scumm/scumm.h"
+#include "scumm/text_utf8.h"
 #include "scumm/gfx.h"
 
 namespace Graphics {
@@ -124,9 +125,15 @@ protected:
 	 * The character the game's own font draws or measures for @p chr. With
 	 * a UTF-8 translation, chr is a code point and every non-ASCII one is
 	 * the hi-res layer's; the game's font stands in with '?' (its metrics
-	 * when the layer has no glyph, its picture when the layer is off).
+	 * when the layer has no glyph, its picture when the layer is off). A
+	 * raw game byte (text_utf8.h, kRawGameByteBase) is the game's own.
 	 */
-	int gameChar(int chr) const { return (_vm->_textUtf8 && chr >= 0x80) ? '?' : chr; }
+	int gameChar(int chr) const {
+		if (!_vm->_textUtf8 || chr < 0x80)
+			return chr;
+		const int raw = rawGameByte((uint32)chr);   // a byte that is not UTF-8
+		return raw >= 0 ? raw : '?';
+	}
 
 public:
 	CharsetRenderer(ScummEngine *vm);

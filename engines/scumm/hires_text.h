@@ -647,6 +647,8 @@ private:
 	// Optional running log of what is being drawn, for working out which
 	// scenes exercise which fonts. Off unless hires_text_log is set.
 	bool _logText = false;
+	/// The encoding.dat warning was given; once per engine run, so not reset().
+	bool _warnedTables = false;
 
 	bool probeSimpleFonts(const Common::Path &gameDir, Common::Language language);
 

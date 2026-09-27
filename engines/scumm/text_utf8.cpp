@@ -29,6 +29,32 @@
 
 namespace Scumm {
 
+int escapeArgBytes(byte code) {
+	return (code == 1 || code == 2 || code == 3 || code == 8) ? 0 : 2;
+}
+
+int scummTextLength(const byte *s, uint32 maxLen, int version) {
+	if (!s)
+		return 0;
+	uint32 n = 0;
+	while (n < maxLen && s[n]) {
+		if (s[n] == 0xFF && version <= 7) {
+			if (n + 1 >= maxLen)
+				return (int)maxLen;
+			n += 2 + escapeArgBytes(s[n + 1]);
+			if (n > maxLen)
+				return (int)maxLen;
+			continue;
+		}
+		n++;
+	}
+	return (int)n;
+}
+
+int rawGameByte(uint32 cp) {
+	return (cp >= kRawGameByteBase + 0x80 && cp <= kRawGameByteBase + 0xFF) ? (int)(cp - kRawGameByteBase) : -1;
+}
+
 int textCharLength(bool utf8, Common::Language lang, const byte *p, const byte *end) {
 	if (!utf8)
 		return is2ByteCharacter(lang, *p) ? 2 : 1;
@@ -60,15 +86,12 @@ uint32 readUtf8TextChar(const byte *&p, const byte *end) {
 	int n = dec.decode(p, end, cp, flags);
 	if (n < 1)
 		n = 1;
+	if (n == 1 && *p >= 0x80)
+		cp = kRawGameByteBase + *p;    // not UTF-8: the game's own character
 	p += n;
 	if (cp > 0xFFFF)
 		cp = 0xFFFD;
 	return cp;
-}
-
-/** Codes that carry two argument bytes (charset.cpp, string.cpp). */
-static bool escapeHasArgs(byte code) {
-	return code == 9 || code == 10 || code == 12 || code == 13 || code == 14 || code == 21;
 }
 
 int ScummTextDecoder::escapeLength(const byte *p, const byte *end) const {
@@ -78,9 +101,8 @@ int ScummTextDecoder::escapeLength(const byte *p, const byte *end) const {
 		return 0;
 	if (end - p < 2)
 		return (int)(end - p);
-	int len = 2;
-	if (escapeHasArgs(p[1]))
-		len += 2;
+	// FF <newline character> (a CJK release's line break) takes none.
+	int len = 2 + ((_newLineChar != 0 && p[1] == _newLineChar) ? 0 : escapeArgBytes(p[1]));
 	if (end - p < len)
 		len = (int)(end - p);
 	return len;
@@ -114,7 +136,10 @@ int ScummTextDecoder::decode(const byte *p, const byte *end, uint32 &cp, byte &f
 		cp = *p;
 		return 1;
 	}
-	return _utf8.decode(p, end, cp, flags);
+	const int n = _utf8.decode(p, end, cp, flags);
+	if (n == 1)
+		cp = kRawGameByteBase + *p;    // not UTF-8: the game's own character
+	return n;
 }
 
 int ScummLayoutHooks::extend(const Graphics::TextRun &run, uint32 from, uint32 i, int widthSoFar) {
@@ -130,10 +155,21 @@ int ScummLayoutHooks::extend(const Graphics::TextRun &run, uint32 from, uint32 i
 
 namespace {
 
-/// Where wrapping stops: the NUL, or a 'Wait' / 'no newline' escape.
-int wrapRegionEnd(const byte *str, int pos, const ScummTextDecoder &dec) {
+/// The string's end: its NUL outside an escape, never past bufSize.
+int textEnd(const byte *str, int pos, int bufSize, const ScummTextDecoder &dec) {
 	const byte *p = str + pos;
-	const byte *end = p + strlen((const char *)p);
+	const byte *end = str + bufSize;
+	while (p < end && *p) {
+		const int esc = dec.escapeLength(p, end);
+		p += esc > 0 ? esc : 1;
+	}
+	return (int)(MIN(p, end) - str);
+}
+
+/// Where wrapping stops: the end, or a 'Wait' / 'no newline' escape.
+int wrapRegionEnd(const byte *str, int pos, int bufSize, const ScummTextDecoder &dec) {
+	const byte *p = str + pos;
+	const byte *end = str + textEnd(str, pos, bufSize, dec);
 	while (p < end) {
 		const int esc = dec.escapeLength(p, end);
 		if (esc >= 2 && (p[1] == 3 || p[1] == 2))
@@ -154,6 +190,49 @@ void rewindHooks(ScummLayoutHooks &hooks, const Graphics::TextRun &run, uint32 u
 	}
 }
 
+bool isHangulSyllable(uint32 cp) {
+	return cp >= 0xAC00 && cp <= 0xD7A3;
+}
+
+/**
+ * The Korean patches' own rule (addLinebreaks(), the checkKSCode() branch):
+ * with Hangul breaking anywhere, a line may end before a Hangul syllable,
+ * but a narrow character right after one (ASCII punctuation, '^', "--")
+ * stays with it; '(' is the one exception. The shared stage allows a break
+ * there (either side of a wide unit), so a break at such a place moves
+ * back to the previous opportunity, as the byte path would have taken it.
+ */
+bool hangulGlueBreak(const Graphics::TextRun &run, uint32 at) {
+	if (at == 0 || at >= run.size())
+		return false;
+	const byte fb = run.flags(at);
+	if (fb & (Graphics::kUnitSpace | Graphics::kUnitWide | Graphics::kUnitControl | Graphics::kUnitNewline))
+		return false;
+	if (run.cp(at) == '(')
+		return false;
+	uint32 a = at;
+	while (a > 0 && (run.flags(a - 1) & (Graphics::kUnitCombining | Graphics::kUnitControl)))
+		a--;
+	return a > 0 && isHangulSyllable(run.cp(a - 1));
+}
+
+void retreatFromHangulGlue(const Graphics::TextRun &run, uint32 from, const Graphics::BreakRules &rules,
+						   Graphics::LineSpan &l) {
+	if (!hangulGlueBreak(run, l.next))
+		return;
+	for (uint32 k = l.end; k > from + 1; k--) {
+		const uint32 at = k - 1;
+		if (at <= from || !Graphics::TextLayout::canBreakBefore(run, at, rules) || hangulGlueBreak(run, at))
+			continue;
+		l.next = at;
+		l.end = at;
+		while (l.end > from && (run.flags(l.end - 1) & Graphics::kUnitSpace))
+			l.end--;
+		// A break after spaces starts the next line at the spaces' end.
+		return;
+	}
+}
+
 struct Break {
 	uint32 at;       ///< byte offset from the start of the wrapped text
 	bool replace;    ///< the byte there is a space that becomes 0x0D
@@ -170,7 +249,7 @@ void layoutLinebreaks(byte *str, int bufSize, int pos, int maxwidth, ScummLayout
 
 	// FF 08 'verb on next line': a newline for a == 1; otherwise the spaces
 	// after it are hidden as '@', as addLinebreaks() does.
-	const int regionEnd = wrapRegionEnd(str, pos, dec);
+	const int regionEnd = wrapRegionEnd(str, pos, bufSize, dec);
 	for (int i = pos; i < regionEnd;) {
 		const int esc = dec.escapeLength(str + i, str + regionEnd);
 		if (esc >= 2 && str[i + 1] == 8 && a != 1) {
@@ -211,6 +290,8 @@ void layoutLinebreaks(byte *str, int bufSize, int pos, int maxwidth, ScummLayout
 			while (l.end > from && (run.flags(l.end - 1) & Graphics::kUnitSpace))
 				l.end--;
 		}
+		if (!l.forced && l.next < n && rules.hangul == Graphics::kHangulBreakAny)
+			retreatFromHangulGlue(run, from, rules, l);
 		if (l.forced) {
 			from = l.next;
 			rewindHooks(hooks, run, from);
@@ -263,7 +344,7 @@ void layoutLinebreaks(byte *str, int bufSize, int pos, int maxwidth, ScummLayout
 	hooks._text = nullptr;
 
 	// Apply, front to back; every insert shifts the rest by one byte.
-	int strLen = pos + (int)strlen((const char *)text);
+	int strLen = textEnd(str, pos, bufSize, dec);
 	int shift = 0;
 	for (uint k = 0; k < breaks.size(); k++) {
 		const int at = pos + (int)breaks[k].at + shift;
@@ -278,7 +359,8 @@ void layoutLinebreaks(byte *str, int bufSize, int pos, int maxwidth, ScummLayout
 			int last = at;
 			for (int q = at; q < strLen;) {
 				last = q;
-				q += textCharLength(true, Common::UNK_LANG, str + q, str + strLen);
+				const int esc = dec.escapeLength(str + q, str + strLen);
+				q += esc > 0 ? esc : textCharLength(true, Common::UNK_LANG, str + q, str + strLen);
 			}
 			if (last <= at)
 				break;
@@ -422,6 +504,40 @@ void transcodeScummText(const byte *src, uint32 len, Common::CodePage from, Comm
 		}
 		for (uint k = 0; k < enc.size(); k++)
 			out.push_back((byte)enc[k]);
+	}
+}
+
+void transcodeTrsStrings(const byte *body, uint32 bodySize, Common::Array<uint32> &originalOffset,
+						 Common::Array<uint32> &translatedOffset, Common::CodePage to, int version,
+						 Common::Array<byte> &out, Common::HashMap<uint32, bool> *unmapped) {
+	out.clear();
+	out.reserve(bodySize);
+	Common::HashMap<uint32, uint32> movedOriginal, movedTranslated;
+	Common::Array<byte> text;
+	const uint32 n = MIN(originalOffset.size(), translatedOffset.size());
+	for (uint32 i = 0; i < n; i++) {
+		for (int which = 0; which < 2; which++) {
+			uint32 &off = which ? translatedOffset[i] : originalOffset[i];
+			Common::HashMap<uint32, uint32> &moved = which ? movedTranslated : movedOriginal;
+			if (moved.contains(off)) {
+				off = moved[off];
+				continue;
+			}
+			const uint32 from = off;
+			const uint32 at = out.size();
+			if (from < bodySize) {
+				const uint32 len = (uint32)scummTextLength(body + from, bodySize - from, version);
+				if (which)
+					transcodeScummText(body + from, len, Common::kUtf8, to, text, unmapped);
+				else
+					text = Common::Array<byte>(body + from, len);
+				for (uint k = 0; k < text.size(); k++)
+					out.push_back(text[k]);
+			}
+			out.push_back(0);
+			moved[from] = at;
+			off = at;
+		}
 	}
 }
 

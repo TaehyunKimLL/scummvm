@@ -45,21 +45,60 @@ namespace Scumm {
 int textCharLength(bool utf8, Common::Language lang, const byte *p, const byte *end);
 
 /**
+ * Argument bytes after an escape code (FF/FE + code): two for every code
+ * but 1, 2, 3 and 8 - ScummEngine::resStrLen()'s rule, for text as stored
+ * in a script or a .trs bundle. An argument can be 0 (a talkie offset).
+ */
+int escapeArgBytes(byte code);
+
+/**
+ * The length of a SCUMM v1-v7 string in bytes, NUL excluded, read the way
+ * resStrLen() reads it: a 0 inside an escape's arguments does not end it.
+ * Never more than @p maxLen. Every place that needs the end of a UTF-8
+ * translation (wrapping, inserting, transcoding) asks this, not strlen().
+ */
+int scummTextLength(const byte *s, uint32 maxLen, int version);
+
+/**
+ * A byte of a UTF-8 translation that is not UTF-8 - MI1's own glyph 0xFA
+ * in the middle of a line, or untranslated game text in the game's own
+ * single-byte character set - is the game's character. It is passed to
+ * the renderers as U+F700 + byte (Private Use Area): the hi-res layer has
+ * no glyph for it, so the game's font draws and measures the byte itself.
+ */
+static const uint32 kRawGameByteBase = 0xF700;
+
+/** The game byte a code point from readUtf8TextChar() stands for, or -1. */
+int rawGameByte(uint32 cp);
+
+/**
+ * Rewrite the strings of a UTF-8 bundle body in the code page @p to: the
+ * translations are transcoded (escapes kept, see transcodeScummText()),
+ * the originals copied as they are, each measured with scummTextLength().
+ * The offsets (relative to @p body) are updated to point into @p out;
+ * offsets shared by several entries stay shared.
+ */
+void transcodeTrsStrings(const byte *body, uint32 bodySize, Common::Array<uint32> &originalOffset,
+						 Common::Array<uint32> &translatedOffset, Common::CodePage to, int version,
+						 Common::Array<byte> &out, Common::HashMap<uint32, bool> *unmapped);
+
+/**
  * Decode the UTF-8 character at @p p for the charset renderers and advance
- * @p p past it. Invalid or truncated input is U+FFFD for one byte; a code
- * point above U+FFFF is U+FFFD too, since the renderers measure through a
- * 16-bit getCharWidth().
+ * @p p past it. A byte that does not start a valid sequence is a raw game
+ * byte (kRawGameByteBase + byte, one byte); a code point above U+FFFF is
+ * U+FFFD, since the renderers measure through a 16-bit getCharWidth().
  */
 uint32 readUtf8TextChar(const byte *&p, const byte *end);
 
 /**
  * SCUMM v1-v6 text as TextRun units. The escapes are opaque control units
- * spanning exactly their bytes: 0xFF/0xFE + code, with two argument bytes
- * for codes 9, 10, 12, 13, 14 and 21 (0xFE only up to v6); codes 1 and 8,
+ * spanning exactly their bytes: 0xFF/0xFE + code + escapeArgBytes(code)
+ * (0xFE only up to v6); codes 1 and 8,
  * and the release's newline character after an escape, are newlines. '@'
  * is a zero-width control. A raw 0x0D (what addLinebreaks() writes) is a
  * newline; 0x0A is an ordinary character, as it is when SCUMM draws it.
- * Everything else is UTF-8. HE's '@'/0x7F sequences are not decoded: UTF-8
+ * Everything else is UTF-8; a byte that is not is a raw game byte
+ * (kRawGameByteBase + byte). HE's '@'/0x7F sequences are not decoded: UTF-8
  * bundles are not taken by HE games.
  */
 class ScummTextDecoder : public Graphics::TextDecoder {
