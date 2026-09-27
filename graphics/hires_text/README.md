@@ -317,6 +317,69 @@ Grim does not use `TtfGlyphSource` and ignores it.
 same family is usually the better first choice (it keeps crisp stems where the
 curve widens soft ones); gamma is for a script whose only face is light.
 
+### How a TrueType face is sized: line fit, `size=`, `pixel=` (C28)
+
+A face is opened in one of three ways, and each decides both the ppem and
+the **layout cell** (`cellHeight()`, the box the engine lays text out on):
+
+| Map | ppem | Cell | Probe fit |
+|---|---|---|---|
+| no `size=`, no `pixel=` (SCUMM only: the line fit) | `round(upm * cell / (usWinAscent + usWinDescent))` (`kTTFSizeModeCell`) | the game's own cell times the scale | none (only a translation sample that leaves the cell moves or shrinks it) |
+| `size=N` (SCUMM `[font.N]`/`[hires]`, SCI, AGS - AGS uses the game font height when no size is given) | N, stepped down until the fixed probe set (Hangul, `A g j y Å`, brackets, CJK quotes) plus the translation sample fits N rows | **N** | yes |
+| `pixel=D` | `D * k`, the largest multiple of D the cell holds (D itself in a smaller cell) | the cell of the row above that applies: SCUMM's game cell times the scale, or `size=` when set | none |
+
+**`size=` also changes the layout cell.** In SCUMM a charset with
+`[font.N] size=` is laid out on an N-pixel cell instead of its own:
+Monkey Island 2 at 2x, charset 2 (game cell 9, so 18) with `size=16` is laid
+out on 16 - the log shows `cell=16x16` - and its lines sit two pixels closer
+than the game's grid (C25). Harmless where the game only stacks lines, but a
+map that must keep the game's line pitch should not use `size=` for it; with
+`pixel=` alone the cell stays the game's.
+
+**Pixel fonts** (Galmuri, Neo둥근모, HBIOS-SYS, IyagiGGC, Unifont, LanaPixel)
+are drawn on a grid of `upm / D` font units: crisp only at D ppem or a whole
+multiple, and broken into grey steps at any other size (C25 measured 0 grey
+pixels at the design size, 1178-1713 off it). The line fit lands on the grid
+only when the cell happens to match (Galmuri9 in a 12 cell: 10), and `size=`
+shrinks a face whose Latin and brackets pass the em (every Galmuri; LanaPixel
+goes blank off its 11 ppem strike). `pixel=` names the design size:
+
+```ini
+[font.2]              ; MI2 at 2x: the 18-pixel cell holds Galmuri11 at 12
+face=galmuri11
+pixel=12
+[font.1]              ; a 9-pixel cell: Galmuri7 at 8
+face=galmuri7
+pixel=8
+```
+
+`TtfGlyphSource::createPixel()` opens the chain's first face at
+`pixelGridSize(cell, D)` in character mode, with no probe fit and no
+translation-sample fit, and draws glyphs from the face's line top by whole
+pixels (FreeType's glyph origins and advances are whole pixels at a grid
+ppem, so no pen position is fractional). When the face's line (ascent +
+descent + gap) is taller than the cell, the ink of the Hangul probes and
+`A g j y` is moved into the cell by whole rows, or its top put at row 0 when
+the ink itself is taller; the ppem never changes, and ink outside the cell is
+clipped. The faces behind it in a chain (`face=ko, ja, th`) are fallbacks
+for what it lacks and are opened as usual (line fit, or `size=` with its
+probe fit), in the same cell. `[hires] pixel=` sets it for every font;
+`[font.N] pixel=` wins.
+SCUMM, SCI and AGS read it; Grim does not use `TtfGlyphSource`. A Latin
+companion face (`latin_font=`) is not a pixel face. Design sizes: Galmuri7 8,
+Galmuri9 10, Galmuri11 12, Galmuri14 15; Neo둥근모, HBIOS-SYS, IyagiGGC,
+Unifont 16; LanaPixel 11 (its only strike: at 22 it is blank).
+
+Pixel grids are not detected automatically. A grid shows as the GCD of every
+outline coordinate (Galmuri9: 100 units of 1000) or as an embedded bitmap
+strike, but `Graphics::Font` exposes neither, reading every glyph's outline at
+load time would cost what the probe budget forbids, and a false positive
+would move ordinary faces. The key is explicit; `runs/c25/coverage.py` in the
+harness reports a face's grid.
+
+A pixel font baked to SVFN with `tools/korean/mkfont.py --unicode` (version 2,
+every code point it draws) is the same bitmap for a build without FreeType.
+
 TrueType is a convenience: everything it produces can be baked ahead of time,
 which is what a build without FreeType uses. It exists so a translation can
 point at a .ttf during development without baking first.
