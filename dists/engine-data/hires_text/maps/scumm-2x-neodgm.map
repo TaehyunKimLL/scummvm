@@ -1,0 +1,18 @@
+; Hi-res text map: SCUMM v5/v6 at 2x, keyed (8-bit look) Korean text in
+; Neo둥근모 (NeoDunggeunmo), a 16 px DOS-style pixel font.
+;
+; A pixel font is crisp only at its design size (16 px) or a multiple of it.
+; The MI1/MI2 dialogue charset (2) has a 9 px cell, 18 at 2x, so it is held at
+; 16 with size=. Give every charset that shows Korean a [font.N] size=16 (32
+; for a cell of 32 or more); a 16 px cell needs none.
+; See hires_text/fonts/FONTS.md for the licence (OFL, Reserved Font Names).
+[hires]
+scale=2
+alpha=false
+face=ko
+
+[font.2]
+size=16
+
+[fonts]
+ko=data:hires_text/fonts/neodgm/neodgm.ttf
