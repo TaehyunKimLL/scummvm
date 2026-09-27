@@ -536,17 +536,33 @@ int TTFFont::readPointSizeFromVDMXTable(int height) const {
 	return 0;
 }
 
+int cellPointSize(int height, int unitsPerEm, int winAscent, int winDescent,
+				  int hheaAscender, int hheaDescender) {
+	if (winAscent + winDescent != 0)
+		return divRoundToNearest(unitsPerEm * height, winAscent + winDescent);
+
+	// hhea's descender is below the baseline, so the table stores it
+	// negative and FreeType passes it on as it is: the line is the ascender
+	// minus it. Adding the two made the line shorter by twice the descender
+	// and opened such a face far too large (AppleGothic, which has no OS/2
+	// table, at 28 for a 16 pixel cell). A face that stores it positive is
+	// read the same way.
+	const int line = hheaAscender + ABS(hheaDescender);
+	if (line != 0)
+		return divRoundToNearest(unitsPerEm * height, line);
+
+	return 0;
+}
+
 int TTFFont::computePointSizeFromHeaders(int height) const {
 	TT_OS2 *os2Header = (TT_OS2 *)FT_Get_Sfnt_Table(_face, ft_sfnt_os2);
 	TT_HoriHeader *horiHeader = (TT_HoriHeader *)FT_Get_Sfnt_Table(_face, ft_sfnt_hhea);
 
-	if (os2Header && (os2Header->usWinAscent + os2Header->usWinDescent != 0)) {
-		return divRoundToNearest(_face->units_per_EM * height, os2Header->usWinAscent + os2Header->usWinDescent);
-	} else if (horiHeader && (horiHeader->Ascender + horiHeader->Descender != 0)) {
-		return divRoundToNearest(_face->units_per_EM * height, horiHeader->Ascender + horiHeader->Descender);
-	}
-
-	return 0;
+	return cellPointSize(height, _face->units_per_EM,
+						 os2Header ? os2Header->usWinAscent : 0,
+						 os2Header ? os2Header->usWinDescent : 0,
+						 horiHeader ? horiHeader->Ascender : 0,
+						 horiHeader ? horiHeader->Descender : 0);
 }
 
 int TTFFont::getFontHeight() const {

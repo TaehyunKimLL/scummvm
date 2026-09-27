@@ -489,4 +489,27 @@ public:
 		TS_ASSERT(!error.empty());
 #endif
 	}
+
+	/**
+	 * kTTFSizeModeCell's point size from a face's headers.
+	 *
+	 * FreeType reports hhea's descender negative, as the table stores it,
+	 * so a face without an OS/2 table (AppleGothic: hhea 891/-325, 1000
+	 * units) had its line taken as 891 + -325 = 566 units and was opened at
+	 * 28 for a 16 px cell - glyphs twice the cell, overlapping and clipped
+	 * (C6 G3). The line is ascender minus descender, 1216 units: 13.
+	 */
+	void test_cell_point_size_from_headers() {
+#ifdef USE_FREETYPE2
+		// No OS/2 (win metrics zero): hhea, descender negative.
+		TS_ASSERT_EQUALS(Graphics::cellPointSize(16, 1000, 0, 0, 891, -325), 13);
+		// A positive descender (some old faces) is read as a distance too.
+		TS_ASSERT_EQUALS(Graphics::cellPointSize(16, 1000, 0, 0, 891, 325), 13);
+		// OS/2 win metrics win when present (Apple SD Gothic Neo: 900 + 300).
+		TS_ASSERT_EQUALS(Graphics::cellPointSize(16, 1000, 900, 300, 900, -300), 13);
+		TS_ASSERT_EQUALS(Graphics::cellPointSize(12, 1000, 900, 300, 900, -300), 10);
+		// Nothing to go by.
+		TS_ASSERT_EQUALS(Graphics::cellPointSize(16, 1000, 0, 0, 0, 0), 0);
+#endif
+	}
 };

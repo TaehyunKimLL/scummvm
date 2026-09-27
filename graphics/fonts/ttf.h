@@ -107,6 +107,15 @@ enum TTFSizeMode {
 Font *loadTTFFont(Common::SeekableReadStream *stream, DisposeAfterUse::Flag disposeAfterUse, int size, TTFSizeMode sizeMode = kTTFSizeModeCharacter, uint xdpi = 0, uint ydpi = 0, TTFRenderMode renderMode = kTTFRenderModeLight, const uint32 *mapping = 0, bool stemDarkening = false);
 
 /**
+ * The point size kTTFSizeModeCell opens a face at for a cell @p height
+ * pixels tall: the em scaled so the face's line fills the cell. The line is
+ * the OS/2 win ascent plus descent, or with no OS/2 table (both zero) hhea's
+ * ascender minus its descender. Returns 0 when neither gives a line.
+ */
+int cellPointSize(int height, int unitsPerEm, int winAscent, int winDescent,
+				  int hheaAscender, int hheaDescender);
+
+/**
  * Loads a TTF font file from the common fonts archive.
  *
  * @param filename   The name of the font to load.
