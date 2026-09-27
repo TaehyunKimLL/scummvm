@@ -249,6 +249,8 @@ protected:
 
 private:
 	Graphics::Screen *_screen = nullptr;
+	// ScummVM (C23): the N x frame when a hi-res text scale is active
+	Graphics::Surface _scaledFrame;
 	PSDLRenderFilter _filter;
 
 	bool _hasGamma = false;
@@ -300,6 +302,11 @@ private:
 	void __fade_out_range(int speed, int from, int to, int targetColourRed, int targetColourGreen, int targetColourBlue);
 	// Copy raw screen bitmap pixels to the screen
 	void copySurface(const Graphics::Surface &src, bool mode);
+	// ScummVM (C23): Present() split so the N x frame shares the output path
+	void PresentSurface(const Graphics::Surface &src);
+	void PresentScaled(const Graphics::Surface &native, int xoff, int yoff, Shared::GraphicFlip flip, int scale);
+	static void TransformSurface(Graphics::Surface &surf, int xoff, int yoff, Shared::GraphicFlip flip);
+	static void UpscaleNearest(const Graphics::Surface &src, Graphics::Surface &dst, int scale);
 	// Render bitmap on screen
 	void Present(int xoff = 0, int yoff = 0, Shared::GraphicFlip flip = Shared::kFlip_None);
 };
