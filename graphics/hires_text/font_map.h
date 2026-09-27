@@ -28,6 +28,7 @@
 #include "common/path.h"
 #include "common/str.h"
 #include "common/str-enc.h"
+#include "graphics/hires_text/text_layout.h"
 
 namespace Common {
 class SeekableReadStream;
@@ -108,6 +109,39 @@ struct HiResFontIdSettings {
 	bool latinSpaceSet;
 	HiResMetricsSource metrics;       ///< metrics=game|font
 	bool metricsSet;
+
+	/// face= as a fallback chain: "face=ko, ja, th", each entry a [fonts]
+	/// name or a path, resolved against the map's folder. A single value is
+	/// a chain of one (a path when it is no name, as before); in a list, an
+	/// entry that is neither a name nor path-like (no '/', '\\' or '.') is
+	/// dropped with a warning. face is the first surviving entry as written,
+	/// so faceChain[0] is what resolving face gives.
+	Common::Array<Common::Path> faceChain;
+	Common::Path bitmap;              ///< bitmap=, an SVFN file relative to the map
+	bool bitmapSet;
+};
+
+/* HangulBreak (word/any) is defined in text_layout.h, I18N_TEXT_DESIGN.md section 3.2. */
+
+/**
+ * The [layout] section: line-breaking conventions a translator may override.
+ * Every field carries a "set" flag; unset fields keep the engine's default
+ * (the values below are the design's BreakRules defaults).
+ *
+ *     [layout]
+ *     hangul=word      ; word | any
+ *     kinsoku=on       ; on | off
+ *     thai=on          ; on | off (the syllable-ish fallback)
+ */
+struct HiResLayoutSettings {
+	HiResLayoutSettings();
+
+	HangulBreak hangul;
+	bool hangulSet;
+	bool kinsoku;
+	bool kinsokuSet;
+	bool thai;
+	bool thaiSet;
 };
 
 /**
@@ -215,6 +249,8 @@ struct HiResTextConfig {
 	bool hiresFaceSet;
 	int hiresSize;                    ///< [hires] size=, pixels
 	bool hiresSizeSet;
+	/// [hires] face= as a fallback chain; see HiResFontIdSettings::faceChain.
+	Common::Array<Common::Path> hiresFaceChain;
 	HiResLatinMode latinMode;         ///< [latin] mode=
 	bool latinModeSet;
 	bool latinFullwidthSpace;         ///< [latin] space=fullwidth
@@ -240,6 +276,13 @@ struct HiResTextConfig {
 	/// The [fonts] entry for a face name, or @p nameOrPath itself when it is
 	/// not a name in the table (it is then a path).
 	Common::String resolveFace(const Common::String &nameOrPath) const;
+
+	/// [layout] hangul=, kinsoku=, thai=.
+	HiResLayoutSettings layout;
+
+	/// The warnings the last load raised about face chains, [font.N] bitmap=
+	/// and [layout] (each also printed with warning()), one per cause.
+	Common::Array<Common::String> mapWarnings;
 
 	/// Adapter-defined line height key -> font role (no scaling in this parser).
 	Common::HashMap<int, int> heightRoles;

@@ -1374,4 +1374,194 @@ public:
 		TS_ASSERT(parse("[bitmap]\nsingle=a #b\n", cfg));
 		TS_ASSERT_EQUALS(cfg.bitmapSingle, "a #b");
 	}
+
+	// --- C11 T3: face chains, [font.N] bitmap=, [layout] -----------------
+
+	void test_face_chain_of_names() {
+		const char *map =
+			"[fonts]\n"
+			"ko=/fonts/ko.ttf\n"
+			"ja=ja.ttf\n"
+			"th=sub/th.ttf ; extracted face\n"
+			"[hires]\n"
+			"face=ko, ja, th\n"
+			"[font.3]\n"
+			"face=ja,th ; two faces\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(map, cfg));
+		TS_ASSERT_EQUALS(cfg.mapWarnings.size(), 0u);
+
+		TS_ASSERT(cfg.hiresFaceSet);
+		TS_ASSERT_EQUALS(cfg.hiresFace, "ko");	// the first face, as written
+		TS_ASSERT_EQUALS(cfg.hiresFaceChain.size(), 3u);
+		if (cfg.hiresFaceChain.size() == 3) {
+			TS_ASSERT_EQUALS(cfg.hiresFaceChain[0].toString('/'), "/fonts/ko.ttf");
+			TS_ASSERT_EQUALS(cfg.hiresFaceChain[1].toString('/'), "/games/demo/ja.ttf");
+			TS_ASSERT_EQUALS(cfg.hiresFaceChain[2].toString('/'), "/games/demo/sub/th.ttf");
+		}
+
+		const Graphics::HiResFontIdSettings *f3 = cfg.fontIdSettings(3);
+		TS_ASSERT(f3 != nullptr);
+		if (f3) {
+			TS_ASSERT(f3->faceSet);
+			TS_ASSERT_EQUALS(f3->face, "ja");
+			TS_ASSERT_EQUALS(f3->faceChain.size(), 2u);
+			if (f3->faceChain.size() == 2) {
+				TS_ASSERT_EQUALS(f3->faceChain[0].toString('/'), "/games/demo/ja.ttf");
+				TS_ASSERT_EQUALS(f3->faceChain[1].toString('/'), "/games/demo/sub/th.ttf");
+			}
+		}
+	}
+
+	void test_face_single_is_chain_of_one() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[fonts]\ndefault=NanumGothic.ttf\n[font.4]\nface=default\n[font.5]\nface=narrow\n", cfg));
+		TS_ASSERT_EQUALS(cfg.mapWarnings.size(), 0u);
+		const Graphics::HiResFontIdSettings *f4 = cfg.fontIdSettings(4);
+		TS_ASSERT(f4 != nullptr);
+		if (f4) {
+			TS_ASSERT_EQUALS(f4->face, "default");
+			TS_ASSERT_EQUALS(f4->faceChain.size(), 1u);
+			if (f4->faceChain.size() == 1)
+				TS_ASSERT_EQUALS(f4->faceChain[0].toString('/'), "/games/demo/NanumGothic.ttf");
+		}
+		// A single value that is no [fonts] name is a path, as before.
+		const Graphics::HiResFontIdSettings *f5 = cfg.fontIdSettings(5);
+		TS_ASSERT(f5 != nullptr);
+		if (f5) {
+			TS_ASSERT_EQUALS(f5->face, "narrow");
+			TS_ASSERT_EQUALS(f5->faceChain.size(), 1u);
+			if (f5->faceChain.size() == 1)
+				TS_ASSERT_EQUALS(f5->faceChain[0].toString('/'), "/games/demo/narrow");
+		}
+		// No face=: no chain.
+		cfg.clear();
+		TS_ASSERT(parse("[font.4]\nsize=16\n", cfg));
+		TS_ASSERT(cfg.fontIdSettings(4) && cfg.fontIdSettings(4)->faceChain.empty());
+		TS_ASSERT(cfg.hiresFaceChain.empty());
+	}
+
+	void test_face_chain_unknown_name_dropped() {
+		const char *map =
+			"[fonts]\n"
+			"ko=ko.ttf\n"
+			"th=th.ttf\n"
+			"[font.2]\n"
+			"face=nope, ko, extra/fallback.ttf, th\n";
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse(map, cfg));
+		TS_ASSERT_EQUALS(cfg.mapWarnings.size(), 1u);
+		if (cfg.mapWarnings.size() == 1)
+			TS_ASSERT(cfg.mapWarnings[0].contains("nope"));
+		const Graphics::HiResFontIdSettings *f2 = cfg.fontIdSettings(2);
+		TS_ASSERT(f2 != nullptr);
+		if (f2) {
+			TS_ASSERT_EQUALS(f2->face, "ko");	// the first face that survived
+			TS_ASSERT_EQUALS(f2->faceChain.size(), 3u);
+			if (f2->faceChain.size() == 3) {
+				TS_ASSERT_EQUALS(f2->faceChain[0].toString('/'), "/games/demo/ko.ttf");
+				TS_ASSERT_EQUALS(f2->faceChain[1].toString('/'), "/games/demo/extra/fallback.ttf");
+				TS_ASSERT_EQUALS(f2->faceChain[2].toString('/'), "/games/demo/th.ttf");
+			}
+		}
+
+		// Nothing left: face= is as if unset, one warning per dropped name.
+		cfg.clear();
+		TS_ASSERT(parse("[hires]\nface=a, b\n", cfg));
+		TS_ASSERT_EQUALS(cfg.mapWarnings.size(), 2u);
+		TS_ASSERT(!cfg.hiresFaceSet);
+		TS_ASSERT(cfg.hiresFaceChain.empty());
+	}
+
+	void test_face_chain_qualified_table() {
+		// A qualified [fonts:<q>] entry is what a chain name resolves to.
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[fonts]\nja=bare.ttf\n[fonts:pc98]\nja=pc98.ttf\n[hires]\nface=ja, ja2.ttf\n", cfg, "pc98"));
+		TS_ASSERT_EQUALS(cfg.hiresFaceChain.size(), 2u);
+		if (cfg.hiresFaceChain.size() == 2) {
+			TS_ASSERT_EQUALS(cfg.hiresFaceChain[0].toString('/'), "/games/demo/pc98.ttf");
+			TS_ASSERT_EQUALS(cfg.hiresFaceChain[1].toString('/'), "/games/demo/ja2.ttf");
+		}
+	}
+
+	void test_font_id_bitmap() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[font.3]\nbitmap=x.svfn ; the SVFN\n[font.4]\nbitmap=/abs/y.svfn\n", cfg));
+		const Graphics::HiResFontIdSettings *f3 = cfg.fontIdSettings(3);
+		TS_ASSERT(f3 != nullptr);
+		if (f3) {
+			TS_ASSERT(f3->bitmapSet);
+			TS_ASSERT_EQUALS(f3->bitmap.toString('/'), "/games/demo/x.svfn");
+			TS_ASSERT(!f3->faceSet);
+		}
+		const Graphics::HiResFontIdSettings *f4 = cfg.fontIdSettings(4);
+		TS_ASSERT(f4 && f4->bitmapSet);
+		TS_ASSERT(f4 && f4->bitmap.toString('/') == "/abs/y.svfn");
+
+		// Unset by default; an empty value sets nothing.
+		cfg.clear();
+		TS_ASSERT(parse("[font.3]\nsize=12\n[font.4]\nbitmap=\n", cfg));
+		TS_ASSERT(cfg.fontIdSettings(3) && !cfg.fontIdSettings(3)->bitmapSet);
+		TS_ASSERT(cfg.fontIdSettings(4) && !cfg.fontIdSettings(4)->bitmapSet);
+	}
+
+	void test_layout_section() {
+		Graphics::HiResTextConfig cfg;
+		// Defaults: nothing set, the design's BreakRules defaults.
+		TS_ASSERT(!cfg.layout.hangulSet);
+		TS_ASSERT_EQUALS(cfg.layout.hangul, Graphics::kHangulBreakWord);
+		TS_ASSERT(!cfg.layout.kinsokuSet);
+		TS_ASSERT(cfg.layout.kinsoku);
+		TS_ASSERT(!cfg.layout.thaiSet);
+		TS_ASSERT(cfg.layout.thai);
+
+		TS_ASSERT(parse("[layout]\nhangul=any\nkinsoku=off ; no\nthai=on\n", cfg));
+		TS_ASSERT_EQUALS(cfg.mapWarnings.size(), 0u);
+		TS_ASSERT(cfg.layout.hangulSet);
+		TS_ASSERT_EQUALS(cfg.layout.hangul, Graphics::kHangulBreakAny);
+		TS_ASSERT(cfg.layout.kinsokuSet);
+		TS_ASSERT(!cfg.layout.kinsoku);
+		TS_ASSERT(cfg.layout.thaiSet);
+		TS_ASSERT(cfg.layout.thai);
+
+		cfg.clear();
+		TS_ASSERT(parse("[layout]\nhangul=word\nthai=off\n", cfg));
+		TS_ASSERT(cfg.layout.hangulSet);
+		TS_ASSERT_EQUALS(cfg.layout.hangul, Graphics::kHangulBreakWord);
+		TS_ASSERT(cfg.layout.thaiSet);
+		TS_ASSERT(!cfg.layout.thai);
+		TS_ASSERT(!cfg.layout.kinsokuSet);
+	}
+
+	void test_layout_bad_values() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[layout]\nhangul=sideways\n", cfg));
+		TS_ASSERT_EQUALS(cfg.mapWarnings.size(), 1u);
+		TS_ASSERT(!cfg.layout.hangulSet);
+		TS_ASSERT_EQUALS(cfg.layout.hangul, Graphics::kHangulBreakWord);
+
+		cfg.clear();
+		TS_ASSERT(parse("[layout]\nkinsoku=maybe\nthai=2\nrtl=on\n", cfg));
+		TS_ASSERT_EQUALS(cfg.mapWarnings.size(), 3u);	// two values, one unknown key
+		TS_ASSERT(!cfg.layout.kinsokuSet);
+		TS_ASSERT(cfg.layout.kinsoku);
+		TS_ASSERT(!cfg.layout.thaiSet);
+		TS_ASSERT(cfg.layout.thai);
+
+		// A qualified section wins, as for every other section.
+		cfg.clear();
+		TS_ASSERT(parse("[layout]\nhangul=word\n[layout:pc98]\nhangul=any\n", cfg, "pc98"));
+		TS_ASSERT_EQUALS(cfg.layout.hangul, Graphics::kHangulBreakAny);
+		TS_ASSERT_EQUALS(cfg.mapWarnings.size(), 0u);
+	}
+
+	void test_clear_resets_new_fields() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("[hires]\nface=a.ttf, b.ttf\n[layout]\nhangul=any\nthai=sideways\n", cfg));
+		TS_ASSERT(!cfg.mapWarnings.empty());
+		cfg.clear();
+		TS_ASSERT(cfg.hiresFaceChain.empty());
+		TS_ASSERT(!cfg.layout.hangulSet);
+		TS_ASSERT(cfg.mapWarnings.empty());
+	}
 };

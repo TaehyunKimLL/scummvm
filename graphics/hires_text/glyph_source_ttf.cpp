@@ -138,6 +138,18 @@ struct LambdaFitProbe : public TtfGlyphSource::FitProbe {
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 										int pixelSize, Common::String &error, bool requireHangul,
 										bool lineFit) {
+	return createImpl(stream, dispose, pixelSize, error, requireHangul, lineFit, nullptr, 0);
+}
+
+TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+										int pixelSize, Common::String &error,
+										const uint32 *extraFitProbes, uint extraFitProbeCount) {
+	return createImpl(stream, dispose, pixelSize, error, false, false, extraFitProbes, extraFitProbeCount);
+}
+
+TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+											int pixelSize, Common::String &error, bool requireHangul, bool lineFit,
+											const uint32 *extraFitProbes, uint extraFitProbeCount) {
 	if (!stream) {
 		error = "no font stream";
 		return nullptr;
@@ -224,13 +236,26 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 		}
 	};
 
+	// The fixed set first (its first kHangulProbeCount entries stay the
+	// Hangul ones), then the caller's extra fit probes; the raster budget
+	// grows by exactly as many, so with none the fit is the legacy one.
+	if (!extraFitProbes)
+		extraFitProbeCount = 0;
+	extraFitProbeCount = MIN<uint>(extraFitProbeCount, kMaxExtraFitProbes);
+	Common::Array<uint32> probes(kProbeCodepoints, ARRAYSIZE(kProbeCodepoints));
+	for (uint i = 0; i < extraFitProbeCount; i++)
+		probes.push_back(extraFitProbes[i]);
+	const uint32 maxLoadRasterCount = kMaxLoadRasterCount + extraFitProbeCount;
+
 	int top, bottom;
 	uint32 topCp = 0, bottomCp = 0;
 	bool hangulInk = false;
 	// A line-fitted face is placed by its own metrics, so it needs the
-	// probes only to prove it draws Hangul.
-	const int probeCount = !lineFit ? ARRAYSIZE(kProbeCodepoints) : (requireHangul ? kHangulProbeCount : 0);
-	inkBox(font, kProbeCodepoints, probeCount, top, bottom, topCp, bottomCp, &hangulInk);
+	// probes only to prove it draws Hangul; extra fit probes do not apply.
+	if (lineFit)
+		inkBox(font, kProbeCodepoints, requireHangul ? kHangulProbeCount : 0, top, bottom, topCp, bottomCp, &hangulInk);
+	else
+		inkBox(font, probes.data(), (int)probes.size(), top, bottom, topCp, bottomCp, &hangulInk);
 
 	if (requireHangul && !hangulInk) {
 		error = "face has no Hangul glyphs";
@@ -275,7 +300,7 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 		};
 
 		LambdaFitProbe<decltype(measure)> probe(measure);
-		chooseFitSize(pixelSize, 6, (uint32)worstCount, rasterCount, kMaxLoadRasterCount,
+		chooseFitSize(pixelSize, 6, (uint32)worstCount, rasterCount, maxLoadRasterCount,
 					  probe, top, bottom);
 		font = bestFont;
 	}
@@ -402,8 +427,20 @@ uint32 TtfGlyphSource::glyphCount() const {
 #else // !USE_FREETYPE2
 
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
-										int /*pixelSize*/, Common::String &error, bool /*requireHangul*/,
-										bool /*lineFit*/) {
+										int pixelSize, Common::String &error, bool requireHangul,
+										bool lineFit) {
+	return createImpl(stream, dispose, pixelSize, error, requireHangul, lineFit, nullptr, 0);
+}
+
+TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+										int pixelSize, Common::String &error,
+										const uint32 *extraFitProbes, uint extraFitProbeCount) {
+	return createImpl(stream, dispose, pixelSize, error, false, false, extraFitProbes, extraFitProbeCount);
+}
+
+TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+											int /*pixelSize*/, Common::String &error, bool /*requireHangul*/, bool /*lineFit*/,
+											const uint32 * /*extraFitProbes*/, uint /*extraFitProbeCount*/) {
 	error = "this build has no FreeType";
 	if (dispose == DisposeAfterUse::YES)
 		delete stream;
