@@ -142,4 +142,27 @@ public:
 		Common::String out;
 		TS_ASSERT(!t.lookup(Sci::ScriptStrings::Key(995, 4), out));
 	}
+
+	void test_script_strings_comments_only_is_present() {
+		// A translation whose scripts need no string still ships a
+		// sci-<lang>.str: it is the manifest that says the TEXT resources
+		// are UTF-8 (I18N_TEXT_DESIGN.md section 4.1). Present, not loaded.
+		Sci::ScriptStrings t;
+		TS_ASSERT(!load(t, "# only a comment\n"));
+		TS_ASSERT(t.isPresent());
+		TS_ASSERT(!t.isLoaded());
+		TS_ASSERT_EQUALS(t.entryCount(), 0u);
+
+		// A malformed table is neither.
+		Sci::ScriptStrings bad;
+		TS_ASSERT(!load(bad, "995\t4\tok\n995\n"));
+		TS_ASSERT(!bad.isPresent());
+		TS_ASSERT(!bad.isLoaded());
+
+		// A missing file is neither.
+		Sci::ScriptStrings missing;
+		TS_ASSERT(!missing.load("zz-no-such-language"));
+		TS_ASSERT(!missing.isPresent());
+		TS_ASSERT(!missing.isLoaded());
+	}
 };

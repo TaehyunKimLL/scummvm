@@ -73,13 +73,23 @@ FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapL
 	// [font.N], key by key, as the parser applied the platform qualifier.
 	const Graphics::HiResFontIdSettings *font = mapLoaded ? map.fontIdSettings(fontId) : nullptr;
 
-	// Face: ini > [font.N] face > [hires] font > none.
-	if (ini.hasFont)
+	// Face: ini > [font.N] face > [hires] font > none. The chain it heads
+	// comes from the same place (the ini names one face).
+	const Common::Array<Common::Path> *chain = nullptr;
+	if (ini.hasFont) {
 		s.facePath = ini.font;
-	else if (font && font->faceSet)
+	} else if (font && font->faceSet) {
 		s.facePath = mapFacePath(map, font->face, mapDir);
-	else if (mapLoaded && map.hiresFaceSet)
+		chain = &font->faceChain;
+	} else if (mapLoaded && map.hiresFaceSet) {
 		s.facePath = mapFacePath(map, map.hiresFace, mapDir);
+		chain = &map.hiresFaceChain;
+	}
+	if (!s.facePath.empty()) {
+		s.faceChain.push_back(s.facePath);
+		for (uint i = 1; chain && i < chain->size(); i++)
+			s.faceChain.push_back((*chain)[i].toString(Common::Path::kNativeSeparator));
+	}
 
 	// Size: ini > [font.N] size > [hires] size > 16.
 	if (ini.hasFontSize)

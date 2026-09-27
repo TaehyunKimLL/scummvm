@@ -23,6 +23,7 @@
 #include "graphics/hires_text/glyph_source_fallback.h"
 
 #include "common/textconsole.h"
+#include "graphics/hires_text/text_compose.h"
 
 namespace Graphics {
 
@@ -114,6 +115,54 @@ uint32 FallbackGlyphSource::glyphCount() const {
 	for (uint i = 0; i < _sources.size(); i++)
 		n += _sources[i]->glyphCount();
 	return n;
+}
+
+// --- NormalizedGlyphSource ------------------------------------------------
+
+NormalizedGlyphSource *NormalizedGlyphSource::create(UnicodeGlyphSource *src, byte cellWidth, byte cellHeight,
+													 DisposeAfterUse::Flag dispose, Common::String &error) {
+	if (!src) {
+		error = "no source";
+		return nullptr;
+	}
+	const int bpp = src->bitsPerPixel();
+	if (src->cellWidth() > cellWidth || src->cellHeight() > cellHeight || (bpp != 1 && bpp != 2 && bpp != 8)) {
+		error = Common::String::format("a %dx%d cell at %d bpp does not fit a %dx%d cell at 8 bpp",
+									   src->cellWidth(), src->cellHeight(), bpp, cellWidth, cellHeight);
+		if (dispose == DisposeAfterUse::YES)
+			delete src;
+		return nullptr;
+	}
+	return new NormalizedGlyphSource(src, cellWidth, cellHeight, dispose);
+}
+
+NormalizedGlyphSource::NormalizedGlyphSource(UnicodeGlyphSource *src, byte cellWidth, byte cellHeight,
+											 DisposeAfterUse::Flag dispose)
+	: _src(src), _cellWidth(cellWidth), _cellHeight(cellHeight), _dispose(dispose) {
+	_scratch.resize((uint)cellWidth * 2);
+}
+
+NormalizedGlyphSource::~NormalizedGlyphSource() {
+	if (_dispose == DisposeAfterUse::YES)
+		delete _src;
+}
+
+const byte *NormalizedGlyphSource::row(uint32 cp, int y) {
+	const int bpp = _src->bitsPerPixel();
+	if (bpp == 8 && _src->cellWidth() == _cellWidth && _src->cellHeight() == _cellHeight)
+		return _src->row(cp, y);
+
+	byte *out = _scratch.begin();
+	memset(out, 0, _scratch.size());
+	if (y < 0 || y >= _src->cellHeight())
+		return out;
+	const byte *in = _src->row(cp, y);
+	if (!in)
+		return out;
+	const int w = _src->cellWidth() * 2;
+	for (int x = 0; x < w; x++)
+		out[x] = TextCompose::expandCoverage(in, x, bpp);
+	return out;
 }
 
 } // End of namespace Graphics

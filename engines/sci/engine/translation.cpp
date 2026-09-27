@@ -35,7 +35,8 @@ bool ScriptStrings::load(const Common::String &languageCode) {
 	Common::File f;
 	if (!f.open(Common::Path(name)))
 		return false;
-	if (!loadFromStream(f)) {
+	loadFromStream(f);
+	if (!_present) {
 		warning("ScriptStrings: %s is malformed, ignored", name.c_str());
 		return false;
 	}
@@ -59,6 +60,7 @@ static Common::String unescape(const Common::String &s) {
 bool ScriptStrings::loadFromStream(Common::SeekableReadStream &in) {
 	_entries.clear();
 	_loaded = false;
+	_present = false;
 
 	uint lineNo = 0;
 	while (!in.eos()) {
@@ -101,8 +103,14 @@ bool ScriptStrings::loadFromStream(Common::SeekableReadStream &in) {
 		_entries[placeId(script, id, room)] = unescape(text);
 	}
 
+	_present = true;
 	_loaded = !_entries.empty();
 	return _loaded;
+}
+
+void ScriptStrings::collectTexts(Common::Array<Common::String> &out) const {
+	for (Common::HashMap<uint64, Common::String>::const_iterator it = _entries.begin(); it != _entries.end(); ++it)
+		out.push_back(it->_value);
 }
 
 bool ScriptStrings::lookup(const Key &key, Common::String &out) const {

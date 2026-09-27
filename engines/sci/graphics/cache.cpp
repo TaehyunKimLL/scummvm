@@ -32,8 +32,11 @@
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
+#include "graphics/hires_text/coverage.h"
+#include "graphics/hires_text/glyph_source_fallback.h"
 #include "graphics/hires_text/glyph_source_routed.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
+#include "sci/graphics/textlayout16.h"
 #include "sci/graphics/textlatin.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
@@ -48,28 +51,6 @@ namespace Sci {
 
 namespace {
 
-// hires_text_font is honoured only for SCI16 games in a CJK code page. The
-// key is the face the Korean/Japanese/Chinese hi-res text is drawn in; a
-// Western or SCI32 game has no such text, and a TTF face there would replace
-// fonts it was never meant to. Interim: once the hires_text master switch
-// (HIRES_COMPOSITOR_DESIGN.md, step 3) exists, that switch decides instead.
-bool hiresTextFontApplies(Common::String &why) {
-	if (getSciVersion() >= SCI_VERSION_2) {
-		why = "SCI32 games do not support it yet";
-		return false;
-	}
-	switch (g_sci->getSciLanguageCodePage()) {
-	case Common::kWindows949:
-	case Common::kWindows932:
-	case Common::kWindows936:
-	case Common::kWindows950:
-		return true;
-	default:
-		why = "the game's language has no hi-res CJK text";
-		return false;
-	}
-}
-
 // The range hires_text_font_size may ask for (the default, 16, is
 // FontSettings').
 const int kHiresTextFontMinSize = 8;
@@ -82,7 +63,8 @@ GfxCache::GfxCache(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palet
 	  _hiresResolved(false), _hiresApplies(false), _hiresMapLoaded(false),
 	  _iniLatinKeysSet(false), _iniLatinIgnoredWarned(false),
 	  _uniBundle(nullptr), _uniBundleTried(false),
-	  _textLogResolved(false), _textLog(false) {
+	  _textLogResolved(false), _textLog(false),
+	  _layoutRulesResolved(false), _sampleResolved(false) {
 }
 
 void GfxCache::resolveHiresText() {
@@ -95,8 +77,12 @@ void GfxCache::resolveHiresText() {
 	const Common::String &domain = ConfMan.getActiveDomainName();
 	const Common::Path gameDir = ConfMan.getPath("path", domain);
 
+	// hires_text_font and the map are honoured for an SCI16 game whose text
+	// is a UTF-8 translation, or one in a legacy CJK code page: the text
+	// decides, not the game's language (I18N_TEXT_DESIGN.md section 4.6).
 	Common::String why;
-	_hiresApplies = hiresTextFontApplies(why);
+	_hiresApplies = hiresTextApplies(getSciVersion(), g_sci->getSciLanguageCodePage(),
+									 g_sci->heapStringsAreUtf8(), why);
 
 	_iniLatinKeysSet = ConfMan.hasKey("hires_text_latin", domain) ||
 		ConfMan.hasKey("hires_text_latin_space", domain) ||
@@ -274,13 +260,14 @@ FontSettings GfxCache::fontSettingsFor(GuiResourceId fontId) {
 	return resolveFontSettings(_hiresMap, _hiresMapLoaded, fontId, _hiresIni, _hiresMapDir);
 }
 
-Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int size, bool requireHangul,
+Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int size, FaceProbes probes,
 									const char *what, const char *fallback) {
-	const Common::String key = Common::String::format("%s|%d|%d", path.c_str(), size, requireHangul ? 1 : 0);
+	const bool requireHangul = probes == kProbesHangul;
+	const Common::String key = Common::String::format("%s|%d|%d", path.c_str(), size, (int)probes);
 	if (_ttfSources.contains(key))
 		return _ttfSources[key];
 	// A face without the Hangul check is satisfied by one that passed it.
-	if (!requireHangul) {
+	if (probes == kProbesDefault) {
 		const Common::String checked = Common::String::format("%s|%d|1", path.c_str(), size);
 		if (_ttfSources.contains(checked) && _ttfSources[checked])
 			return _ttfSources[checked];
@@ -302,7 +289,15 @@ Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int si
 		error = "is a directory";
 	} else if (Common::SeekableReadStream *stream = node.createReadStream()) {
 		const uint32 startMs = g_system->getMillis();
-		src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, size, error, requireHangul);
+		if (probes == kProbesTranslation) {
+			// Fitted to the translation's own characters too (Thai marks,
+			// Japanese brackets), not only to the fixed Hangul/Latin set.
+			const Common::Array<uint32> &sample = translationSample();
+			src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, size, error,
+												   sample.empty() ? nullptr : &sample[0], sample.size());
+		} else {
+			src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, size, error, requireHangul);
+		}
 		const uint32 elapsedMs = g_system->getMillis() - startMs;
 		if (src)
 			debug(1, "SCI: %s %s opened at %dpx in %u ms", what, path.c_str(), size, elapsedMs);
@@ -327,6 +322,9 @@ GfxFontUnicode *GfxCache::loadUniBundle() {
 		for (uint i = 0; i < ARRAYSIZE(names) && !ok; i++)
 			ok = f->load(names[i]);
 		if (ok) {
+			// Per-glyph advance and placement for a UTF-8 translation only:
+			// a legacy game keeps the bundle's cell widths to the pixel.
+			f->setPerGlyph(g_sci->heapStringsAreUtf8());
 			_uniBundle = f;
 		} else {
 			delete f;
@@ -342,21 +340,27 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	// before) and when it fails to load (one warning, never a hard error -
 	// the game must still start). A Korean game needs Hangul from its main
 	// face: one that has none is refused, and the fallback serves instead.
-	const bool requireHangul = g_sci->getSciLanguageCodePage() == Common::kWindows949;
+	//
+	// With a UTF-8 translation the whole face chain is opened and checked
+	// against the translation's own characters instead (faceChainFor()).
+	const bool utf8 = g_sci->heapStringsAreUtf8();
+	const FaceProbes probes = g_sci->getSciLanguageCodePage() == Common::kWindows949 ? kProbesHangul : kProbesDefault;
 	Common::String mainPath = s.facePath;
-	Graphics::TtfGlyphSource *main = nullptr;
-	if (!mainPath.empty()) {
+	Graphics::UnicodeGlyphSource *main = nullptr;
+	if (utf8) {
+		main = faceChainFor(s, mainPath);
+	} else if (!mainPath.empty()) {
 		// A face only this font id names ([font.N] face=) falls back to the
 		// face every other id gets (the ini key, else [hires] font=), then
 		// to the .uni fonts. Font id -1 is never a [font.N] section.
 		const FontSettings global = fontSettingsFor(-1);
 		const bool haveGlobal = !global.facePath.empty() && global.facePath != mainPath;
 		const Common::String toGlobal = "using " + global.facePath;
-		main = ttfSource(mainPath, s.size, requireHangul, "hires_text_font",
+		main = ttfSource(mainPath, s.size, probes, "hires_text_font",
 						 haveGlobal ? toGlobal.c_str() : "using the .uni fonts");
 		if (!main && haveGlobal) {
 			mainPath = global.facePath;
-			main = ttfSource(mainPath, s.size, requireHangul, "hires_text_font", "using the .uni fonts");
+			main = ttfSource(mainPath, s.size, probes, "hires_text_font", "using the .uni fonts");
 		}
 	}
 	// The set carries what is actually drawn.
@@ -383,7 +387,12 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 		}
 		s.latin = kLatinOff;
 		s.latinFacePath.clear();
-		return loadUniBundle();
+		GfxFontUnicode *uni = loadUniBundle();
+		if (utf8 && uni) {
+			Common::Array<uint32> sample = coverageSample();
+			checkFaceCoverage(uni->source(), "the .uni fonts", "the game's font", sample);
+		}
+		return uni;
 	}
 
 	// hires_text_latin_font / [latin] font=: a second face for the Latin
@@ -393,7 +402,7 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	// answer for, so no second source is needed).
 	Graphics::TtfGlyphSource *latin = nullptr;
 	if (s.latin != kLatinOff && !s.latinFacePath.empty() && s.latinFacePath != mainPath) {
-		latin = ttfSource(s.latinFacePath, s.size, false, "hires_text_latin_font",
+		latin = ttfSource(s.latinFacePath, s.size, kProbesDefault, "hires_text_latin_font",
 						  "the main face draws Latin text");
 	}
 
@@ -409,6 +418,7 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 		return _ttfBundles[key];
 
 	GfxFontUnicode *f = new GfxFontUnicode(_screen, 0);
+	f->setPerGlyph(utf8);
 	if (latin) {
 		// The router owns neither face: both stay in _ttfSources, shared.
 		f->setSource(new Graphics::RoutedGlyphSource(main, latin, toHiResLatinMode(s.latin), DisposeAfterUse::NO), mainPath);
@@ -418,6 +428,157 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	}
 	_ttfBundles[key] = f;
 	return f;
+}
+
+const Common::Array<uint32> &GfxCache::translationSample() {
+	if (!_sampleResolved) {
+		_sampleResolved = true;
+		if (g_sci->heapStringsAreUtf8())
+			g_sci->translationCodePoints().sample(64, _sample);
+	}
+	return _sample;
+}
+
+Common::Array<uint32> GfxCache::coverageSample() {
+	// ASCII is left out: the game's own font draws it (the set's first
+	// face), so a face or a bundle without it lacks nothing. The fit probes
+	// keep it.
+	const Common::Array<uint32> &all = translationSample();
+	Common::Array<uint32> sample;
+	for (uint i = 0; i < all.size(); i++) {
+		if (all[i] >= 0x80)
+			sample.push_back(all[i]);
+	}
+	return sample;
+}
+
+void GfxCache::checkFaceCoverage(Graphics::UnicodeGlyphSource *src, const Common::String &name,
+								 const Common::String &fallback, Common::Array<uint32> &sample) {
+	if (!src || sample.empty())
+		return;
+	const Graphics::CoverageReport r = Graphics::checkCoverage(src, sample);
+
+	// What this face lacks is what the next one is asked for.
+	Common::Array<uint32> left;
+	for (uint i = 0; i < sample.size(); i++) {
+		Graphics::GlyphMetrics m;
+		if (!src->metrics(sample[i], m))
+			left.push_back(sample[i]);
+	}
+
+	if (!_coverageChecked.contains(name)) {
+		_coverageChecked[name] = true;
+		debug(1, "SCI: coverage of %s: %u of %u sampled characters missing, %u spacing marks",
+			  name.c_str(), r.missing, r.sampled, r.spacingMarks);
+		const Common::String text = Graphics::coverageWarning(name, r, fallback);
+		// One warning per line of the text (the missing line, the spacing-mark line).
+		uint start = 0;
+		for (uint i = 0; i < text.size() + 1 && !text.empty(); i++) {
+			if (i == text.size() || text[i] == '\n') {
+				warning("%s", Common::String(text.c_str() + start, i - start).c_str());
+				start = i + 1;
+			}
+		}
+	}
+	sample = left;
+}
+
+Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Common::String &chainName) {
+	chainName.clear();
+	Common::Array<Common::String> paths = s.faceChain;
+	if (paths.empty() && !s.facePath.empty())
+		paths.push_back(s.facePath);
+
+	// Each face of the chain; one that fails to open is left out with one
+	// warning. A chain only this font id names falls back to the one every
+	// other id gets, as a single face always did.
+	Common::Array<Graphics::UnicodeGlyphSource *> faces;
+	Common::Array<Common::String> names;
+	for (int pass = 0; pass < 2 && faces.empty(); pass++) {
+		if (pass == 1) {
+			const FontSettings global = fontSettingsFor(-1);
+			if (global.faceChain.empty() || global.faceChain == paths)
+				break;
+			paths = global.faceChain;
+		}
+		for (uint i = 0; i < paths.size(); i++) {
+			const bool last = i + 1 == paths.size();
+			Graphics::TtfGlyphSource *src = ttfSource(paths[i], s.size, kProbesTranslation, "hires_text_font",
+													  last ? "using the .uni fonts" : "using the next face of the chain");
+			if (src) {
+				faces.push_back(src);
+				names.push_back(paths[i]);
+			}
+		}
+	}
+	if (faces.empty())
+		return nullptr;
+
+	for (uint i = 0; i < names.size(); i++)
+		chainName += (i ? "," : "") + names[i];
+
+	// Behind the faces, the .uni bundle, then the game's own font (what
+	// GfxFontSet falls back to for a character no face has). The chain is
+	// shared by the font ids whose faces, size and bundle all match: the
+	// faces are opened at that size, so another size is another chain.
+	GfxFontUnicode *uni = loadUniBundle();
+	const Common::String key = faceChainKey(names, s.size, uni && uni->source());
+	if (_chains.contains(key))
+		return _chains[key];
+
+	// Each face is checked for what the faces before it lack: a face that
+	// only has to cover Thai is not warned about Japanese.
+	Common::Array<uint32> sample = coverageSample();
+	for (uint i = 0; i < faces.size(); i++) {
+		const Common::String next = i + 1 < faces.size() ? names[i + 1] :
+			(uni ? Common::String("the .uni fonts") : Common::String("the game's font"));
+		checkFaceCoverage(faces[i], names[i], next, sample);
+	}
+
+	Graphics::UnicodeGlyphSource *chain = faces[0];
+	if (faces.size() > 1 || (uni && uni->source())) {
+		Common::Array<Graphics::UnicodeGlyphSource *> sources = faces;
+		if (uni && uni->source()) {
+			// The bundle's 1 bpp cell, presented in the faces' cell.
+			Common::String error;
+			Graphics::NormalizedGlyphSource *n = Graphics::NormalizedGlyphSource::create(
+				uni->source(), faces[0]->cellWidth(), faces[0]->cellHeight(), DisposeAfterUse::NO, error);
+			if (n) {
+				sources.push_back(n);
+				_chainParts.push_back(n);
+			} else {
+				warning("hires text: the .uni fonts cannot stand behind %s (%s); the game's font draws what the chain lacks",
+						names.back().c_str(), error.c_str());
+			}
+		}
+		if (sources.size() > 1) {
+			chain = new Graphics::FallbackGlyphSource(sources, DisposeAfterUse::NO);
+			_chainParts.push_back(chain);
+		}
+	}
+	debug(1, "SCI: face chain %s at %dpx (%u faces%s)", chainName.c_str(), s.size, faces.size(),
+		  chain != faces[0] && uni ? ", then the .uni fonts" : "");
+	_chains[key] = chain;
+	return chain;
+}
+
+const Graphics::BreakRules &GfxCache::layoutRules() {
+	if (!_layoutRulesResolved) {
+		_layoutRulesResolved = true;
+		resolveHiresText();
+		// [layout] of hires_text.map; the defaults are SCI's (Hangul at
+		// spaces, as SCI always broke it; kinsoku and the Thai fallback on).
+		if (_hiresMapLoaded) {
+			const Graphics::HiResLayoutSettings &l = _hiresMap.layout;
+			if (l.hangulSet)
+				_layoutRules.hangul = l.hangul;
+			if (l.kinsokuSet)
+				_layoutRules.kinsoku = l.kinsoku;
+			if (l.thaiSet)
+				_layoutRules.thaiFallback = l.thai;
+		}
+	}
+	return _layoutRules;
 }
 
 bool GfxCache::isTextLogEnabled() {
@@ -445,6 +606,12 @@ GfxCache::~GfxCache() {
 		 it != _ttfBundles.end(); ++it)
 		delete it->_value;
 	_ttfBundles.clear();
+	// The chains next (newest first: a chain points at the wrappers before
+	// it), then the faces they point at.
+	for (int i = (int)_chainParts.size() - 1; i >= 0; i--)
+		delete _chainParts[i];
+	_chainParts.clear();
+	_chains.clear();
 	for (Common::HashMap<Common::String, Graphics::TtfGlyphSource *>::iterator it = _ttfSources.begin();
 		 it != _ttfSources.end(); ++it)
 		delete it->_value;

@@ -41,6 +41,7 @@
 #include "sci/graphics/paint16.h"
 #include "sci/graphics/screen.h"
 #include "sci/graphics/text16.h"
+#include "sci/graphics/textlayout16.h"
 #include "sci/graphics/textlatin.h"
 #include "sci/utf8.h"
 
@@ -182,6 +183,9 @@ int16 GfxText16::CodeProcessing(const char *&text, GuiResourceId orgFontId, int1
 				SetFont(_codeFonts[curCodeParm]);
 			}
 		}
+		// Another font's anchor is from another string.
+		if (doingDrawing)
+			_font->beginString();
 		break;
 	case 'r': // reference (used in pepper)
 		if (doingDrawing) {
@@ -250,7 +254,59 @@ static const uint16 text16_shiftJIS_punctuation_SCI01[] = {
 //                                              "Detective Ryan Hanrahan O'Riley" contains even more spaces (bug #5334)
 //  Conquests of the Longbow - talking with Lobb - one text box of the dialogue contains a longer word,
 //                                                 that will be broken into 2 lines (bug #5159)
+/**
+ * getLongestLayout()'s measure for GfxText16: the width of a character in
+ * the current _font, as Draw() will draw it (glyphChar()), with '|' codes
+ * applied in order as GetLongest() always did - '|f' changes the font the
+ * rest of the line is measured in.
+ */
+class Text16LayoutMetrics : public SciLayoutMetrics {
+public:
+	Text16LayoutMetrics(GfxText16 *text, GuiResourceId orgFontId, int16 orgPenColor)
+		: _text(text), _orgFontId(orgFontId), _orgPenColor(orgPenColor) {}
+
+protected:
+	int charWidth(uint32 cp) override {
+		return _text->_font->getCharWidth(_text->glyphChar(cp));
+	}
+
+	void textCode(const byte *code, int bytes) override {
+		const char *p = (const char *)code + 1;   // CodeProcessing() starts after the '|'
+		_text->CodeProcessing(p, _orgFontId, _orgPenColor, false);
+	}
+
+private:
+	GfxText16 *_text;
+	GuiResourceId _orgFontId;
+	int16 _orgPenColor;
+};
+
+int16 GfxText16::getLongestUtf8(const char *&textPtr, int16 maxWidth, GuiResourceId orgFontId) {
+	const GuiResourceId previousFontId = GetFontId();
+	const int16 previousPenColor = _ports->_curPort->penClr;
+
+	GetFont();
+	if (!_font)
+		return 0;
+
+	Text16LayoutMetrics metrics(this, orgFontId, previousPenColor);
+	uint32 next = 0;
+	const int16 count = getLongestLayout((const byte *)textPtr, maxWidth, getSciVersion() >= SCI_VERSION_1_1,
+										 _useEarlyGetLongestTextCalculations, metrics, _cache->layoutRules(),
+										 _layoutText, next);
+	textPtr += next;
+
+	SetFont(previousFontId);
+	_ports->penColor(previousPenColor);
+	return count;
+}
+
 int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId orgFontId) {
+	// A UTF-8 translation is broken by the shared layout stage; the
+	// code-page path below is the original, unchanged.
+	if (g_sci->heapStringsAreUtf8())
+		return getLongestUtf8(textPtr, maxWidth, orgFontId);
+
 	// uint32, not uint16: readChar() returns a code point, and anything above
 	// U+FFFF would be silently truncated - U+1F600 becomes 0xF600, U+20000
 	// becomes 0. The code page cannot deliver those today, but the variable
@@ -570,6 +626,9 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 	GetFont();
 	if (!_font)
 		return;
+	// A combining mark at the start of this string must not attach to the
+	// last base of the previous one.
+	_font->beginString();
 
 	// hires_text_log: resolved once by GfxCache, so this costs one bool read
 	// when off. The four counts are read back by Box() right after this

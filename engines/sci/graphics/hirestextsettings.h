@@ -23,6 +23,7 @@
 #define SCI_GRAPHICS_HIRESTEXTSETTINGS_H
 
 #include "common/path.h"
+#include "common/array.h"
 #include "common/str.h"
 #include "graphics/hires_text/font_map.h"
 #include "sci/graphics/textlatin.h"
@@ -38,6 +39,10 @@ struct FontSettings {
 	FontSettings();
 
 	Common::String facePath;         ///< main TrueType face; empty = none named
+	/// The face chain facePath heads (hires_text.map "face=ko, ja, th"), as
+	/// paths; faceChain[0] == facePath. GfxCache opens the whole chain for a
+	/// UTF-8 translation, the first face only otherwise.
+	Common::Array<Common::String> faceChain;
 	int size;                        ///< face size in pixels
 	LatinMode latin;                 ///< how ASCII is drawn
 	Common::String latinFacePath;    ///< face for the Latin range; empty = the main face

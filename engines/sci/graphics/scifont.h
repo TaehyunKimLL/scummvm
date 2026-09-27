@@ -46,6 +46,8 @@ public:
 	virtual byte getCharHeight(uint32 chr) { return 0; }
 	virtual void draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) {}
 	virtual void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 width, int16 height) {}
+	/** A string is about to be drawn (GfxText16::Draw()): per-string drawing state starts afresh. */
+	virtual void beginString() {}
 };
 
 
