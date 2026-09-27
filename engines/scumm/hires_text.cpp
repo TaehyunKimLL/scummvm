@@ -795,11 +795,13 @@ ScummHiResText::Face *ScummHiResText::openTtfChain(const Common::Array<Common::P
 		// then leave the cell (Thai marks below Sukhumvit Set's line), when
 		// the face is moved and shrunk to keep it inside. A size the map
 		// names is the characters' (SCI's meaning), fitted with the sample.
-		// A pixel font (pixel=) is opened on its grid in this cell and never
-		// fitted: neither the line fit nor the sample may move it off grid.
+		// A pixel font (pixel=, the chain's first face) is opened on its grid
+		// in this cell and never fitted: neither the line fit nor the sample
+		// may move it off grid. The faces behind it are fallbacks for what
+		// it lacks, opened as usual in the same cell.
 		Common::String error;
 		Graphics::TtfGlyphSource *ttf;
-		if (pixelGrid > 0)
+		if (pixelGrid > 0 && i == 0)
 			ttf = Graphics::TtfGlyphSource::createPixel(stream, DisposeAfterUse::YES, pixelSize, pixelGrid,
 														error, faceIndex);
 		else if (lineFit)
@@ -822,7 +824,7 @@ ScummHiResText::Face *ScummHiResText::openTtfChain(const Common::Array<Common::P
 		ttf->setCoverageGamma(_config.coverageGamma);
 		debug(1, "SCUMM: hi-res TrueType font %s opened at %dpx: %u probe glyphs rasterised in %u ms",
 			  chain[i].baseName().c_str(), pixelSize, ttf->rasterCount(), ttf->totalRenderMs());
-		if (pixelGrid > 0)
+		if (pixelGrid > 0 && i == 0)
 			debug(1, "SCUMM: hi-res TrueType font %s is a pixel font of %dpx: %dppem in the %dpx cell, line top %d",
 				  chain[i].baseName().c_str(), pixelGrid, ttf->faceSize(), pixelSize, ttf->lineTop());
 		sources.push_back(ttf);

@@ -704,8 +704,9 @@ private:
 
 	Face *faceFor(int charsetId, bool latin) const;
 	Face *ttfFaceFor(int charsetId) const;
-	/// pixelGrid > 0 opens every face of the chain as a pixel font of that
-	/// design size in a pixelSize cell (TtfGlyphSource::createPixel()).
+	/// pixelGrid > 0 opens the chain's first face as a pixel font of that
+	/// design size in a pixelSize cell (TtfGlyphSource::createPixel()); the
+	/// faces behind it are opened as usual in the same cell.
 	Face *openTtfChain(const Common::Array<Common::Path> &chain, int pixelSize, bool lineFit,
 					   int pixelGrid = 0) const;
 	int ttfCellWidth(int charsetId) const;
