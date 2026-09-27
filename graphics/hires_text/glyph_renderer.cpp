@@ -63,6 +63,11 @@ GlyphDecoration HiResGlyphRenderer::decorationFor(const GlyphStyle &style) {
 	d.shadowAlpha = style.shadowAlpha;
 	d.shape = style.outlineShape;
 
+	// style=legacy is the look from before C19, offset 0 included: every
+	// copy then sat under the body and nothing showed.
+	if (style.outlineShape == kHiResOutlineLegacy && style.shadowOffset <= 0)
+		return GlyphDecoration();
+
 	const int offset = MAX(1, style.shadowOffset);
 	int q = (style.outlineQ >= 0) ? style.outlineQ : offset * 4;
 	q = CLIP(q, 0, kMaxOutlineQ);
@@ -111,6 +116,11 @@ void HiResGlyphRenderer::applyMap(GlyphStyle &style, const HiResTextConfig &map,
 	// Half a game pixel, rounded up: the legacy fonts' shadows were one game
 	// pixel, which at 2x is a heavy two.
 	style.shadowOffset = (map.shadowOffset >= 0) ? MAX(1, map.shadowOffset) : (scale + 1) / 2;
+
+	// style=legacy keeps the old step exactly: the map's offset as written,
+	// else 1 at every scale.
+	if (map.shadowStyle == kHiResOutlineLegacy)
+		style.shadowOffset = (map.shadowOffset >= 0) ? map.shadowOffset : 1;
 
 	if (map.shadowWidthQ >= 0)
 		style.outlineQ = map.shadowWidthQ;
@@ -204,6 +214,24 @@ void HiResGlyphRenderer::buildKernel(DilationKernel &k, int quarterRadius, HiRes
 			++k.taps;
 		}
 	}
+}
+
+/**
+ * The pen for a decoration, built once for as long as the decoration asked
+ * for stays the same - a line of text, and usually the whole game. A pen is
+ * up to a thousand taps with a square root each, and every glyph needs one.
+ */
+static const DilationKernel &cachedKernel(int q, HiResOutlineShape shape, HiResShadowMode table, int step) {
+	static DilationKernel kernel;
+	static int key[4] = { -1, -1, -1, -1 };
+	if (key[0] != q || key[1] != (int)shape || key[2] != (int)table || key[3] != step) {
+		HiResGlyphRenderer::buildKernel(kernel, q, shape, table, step);
+		key[0] = q;
+		key[1] = (int)shape;
+		key[2] = (int)table;
+		key[3] = step;
+	}
+	return kernel;
 }
 
 void HiResGlyphRenderer::dilate(const GlyphBitmap &glyph, const DilationKernel &k, byte *out,
@@ -330,21 +358,24 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 	// rim for an antialiased outline of any width. A shadow is that alpha
 	// moved; the drop shadow moves the glyph itself.
 	if (deco.outline || deco.shadow) {
-		DilationKernel kernel;
-		if (deco.outline)
-			buildKernel(kernel, deco.outlineQ, deco.shape, deco.legacyTable, deco.step);
-		else
-			buildKernel(kernel, 0, kHiResOutlineSquare);   // the glyph itself: one tap, k = 255
+		const DilationKernel &kernel = deco.outline
+			? cachedKernel(deco.outlineQ, deco.shape, deco.legacyTable, deco.step)
+			: cachedKernel(0, kHiResOutlineSquare, kHiResShadowOutline, 1);   // the glyph itself: one tap
 
 		const int pad = kernel.reach;
 		const int mw = glyph.width + 2 * pad;
 		const int mh = glyph.height + 2 * pad;
-		Common::Array<byte> alpha;
-		alpha.resize(mw * mh);
-		dilate(glyph, kernel, alpha.begin(), solid ? inkMin : 0);
+
+		// One scratch buffer for every glyph: it only ever grows, to the
+		// largest decorated glyph drawn.
+		static Common::Array<byte> scratch;
+		if (scratch.size() < (uint)(mw * mh))
+			scratch.resize(mw * mh);
+		byte *alpha = scratch.begin();
+		dilate(glyph, kernel, alpha, solid ? inkMin : 0);
 
 		if (solid) {
-			for (uint i = 0; i < alpha.size(); ++i)
+			for (int i = 0; i < mw * mh; ++i)
 				alpha[i] = (alpha[i] >= kKeyedDecorationThreshold) ? 0xFF : 0;
 		}
 

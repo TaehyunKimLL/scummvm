@@ -161,7 +161,8 @@ a Korean one.
   straddle two pixels still gets a solid outline, as a vector stroker would. `square` uses the larger axis distance. `legacy` is the old binary
   offset table of the mode (8 neighbours, or the 11-offset lower-left stroke),
   grown by the step (a Minkowski sum) rather than multiplied, so a step above
-  one leaves no gaps.
+  one leaves no gaps. Legacy keeps the old step too: `offset=` as written (0 draws
+  nothing, as it did), else 1 at every scale.
 - **Shadow**: that alpha moved by (dx, dy), at `shadowAlpha`. A drop is the
   glyph's own coverage moved; a stroke is the outline plus a shadow of it at
   (-offset, +offset). An explicit `shadow=` replaces a mode's own shadow.
@@ -204,8 +205,10 @@ shadow_color=0      ; defaults to color
 shadow_alpha=60     ; 0..100, blended targets; keyed: >= 50 solid, else none
 ```
 
-Glyph dilation is per draw call: a pen is at most 33x33 taps and a glyph a few
-hundred pixels, and empty pixels cost nothing, so no per-glyph cache is kept.
+The pen is built once and kept while the decoration asked for stays the same
+(a one-entry cache), and the dilation scratch buffer is reused. The dilation
+itself is per draw call: a glyph is a few hundred pixels and only covered ones
+do any work, so no per-glyph cache is kept.
 
 Nothing here scales: a font is baked at the size it is drawn. The optional dirty
 rectangle is extended, not replaced, and includes the decoration, since the
