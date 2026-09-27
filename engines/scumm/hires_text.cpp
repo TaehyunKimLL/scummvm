@@ -176,7 +176,6 @@ void ScummHiResText::freeFaces() {
 	_singleFace = nullptr;
 	_latinSingleFace = nullptr;
 	_logFace = nullptr;
-	_ttfFailed = false;
 }
 
 void ScummHiResText::adoptConfig(const Graphics::HiResTextConfig &config) {
@@ -674,13 +673,6 @@ int ScummHiResText::ttfCellWidth(int charsetId) const {
 	return width * MAX(1, _config.scale);
 }
 
-ScummHiResText::Face *ScummHiResText::openTtfFace(int pixelSize) const {
-	Common::Array<Common::Path> chain;
-	if (!_ttfPath.empty())
-		chain.push_back(_ttfPath);
-	return chain.empty() ? nullptr : openTtfChain(chain, pixelSize, true);
-}
-
 ScummHiResText::Face *ScummHiResText::openTtfChain(const Common::Array<Common::Path> &chain,
 												  int pixelSize, bool lineFit) const {
 	Common::String chainKey;
@@ -980,14 +972,23 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	int lookup = chr;
 	Graphics::HiResGlyphOverride override;
 	if (_config.glyphOverride((uint32)chr, override, charsetId)) {
-		if (override.action == Graphics::kHiResGlyphKeep)
+		if (override.action == Graphics::kHiResGlyphKeep) {
+			// The game draws this one; a mark after it has no base here.
+			_anchorValid = false;
 			return false;
+		}
 		lookup = (int)override.codepoint;
 	}
 
-	if (_perGlyph)
-		return drawGlyphPlaced(dest, chr, lookup, charsetId, x, y, color, shadowColor,
-							   gameShadow, dirty, withCoverage, gameAdvance);
+	if (_perGlyph) {
+		const bool drawn = drawGlyphPlaced(dest, chr, lookup, charsetId, x, y, color, shadowColor,
+										   gameShadow, dirty, withCoverage, gameAdvance);
+		// Declined: the game draws the glyph, so the anchor of the base
+		// before it is no longer the pen a following mark belongs to.
+		if (!drawn)
+			_anchorValid = false;
+		return drawn;
+	}
 
 	// Which font can hold this character is decided by how the game encoded
 	// it, not by the code point: a CP949-indexed set has no Latin glyphs even

@@ -354,6 +354,147 @@ public:
 		mark.free();
 	}
 
+	/// The anchor a mark attaches to is the base just drawn by this layer on
+	/// this line and in this string - not an older one.
+	void test_mark_anchor_is_reset() {
+		const G thai[] = {
+			{ 0x0E01, 12, 1, 10, 1, 11, 6, 14 },
+			{ 0x0E48, 0, -6, 4, 0, 4, 0, 4 },
+		};
+		Graphics::HiResTextConfig c = parse("[hires]\nscale=2\nalpha=true\n[latin]\nmode=proportional\n");
+		c.glyphOverrides[0xA1B1] = Graphics::HiResGlyphOverride(Graphics::kHiResGlyphRemap, 0x0E01);
+		c.glyphOverrides[0xA2B1] = Graphics::HiResGlyphOverride(Graphics::kHiResGlyphRemap, 0x0E48);
+		c.glyphOverrides[0xA3B1] = Graphics::HiResGlyphOverride(Graphics::kHiResGlyphKeep, 0);
+
+		Scumm::HiResOverlay overlay;
+		overlay.create(96, 40, true);
+		Scumm::ScummHiResText hr;
+		hr.useOverlay(&overlay);
+		hr.adoptConfig(c);
+		TS_ASSERT(addFont(hr, 0, false, svfn(thai, 2, 16, 12, true), "th.fnt"));
+
+		Graphics::Surface scratch, mark;
+		clear(scratch, 96, 40);
+		int l, r;
+
+		// A base the layer declined (the game drew it): the mark stays at
+		// the engine's pen, not on the base before that one.
+		TS_ASSERT(hr.drawChar(scratch, 0xA1B1, 0, 4, 4, kInk, 0, 1));
+		TS_ASSERT(!hr.drawChar(scratch, 0xA3B1, 0, 30, 4, kInk, 0, 1));
+		TS_ASSERT(!hr.drawChar(scratch, 'Z', 0, 44, 4, kInk, 0, 1));	// no glyph: declined
+		clear(mark, 96, 40);
+		TS_ASSERT(hr.drawChar(mark, 0xA2B1, 0, 60, 4, kInk, 0, 1));
+		TS_ASSERT(inkSpan(mark, l, r));
+		TS_ASSERT_EQUALS(l, 54);
+		mark.free();
+
+		// A new string on the same line starts with no base.
+		TS_ASSERT(hr.drawChar(scratch, 0xA1B1, 0, 4, 4, kInk, 0, 1));
+		hr.beginString();
+		clear(mark, 96, 40);
+		TS_ASSERT(hr.drawChar(mark, 0xA2B1, 0, 60, 4, kInk, 0, 1));
+		TS_ASSERT(inkSpan(mark, l, r));
+		TS_ASSERT_EQUALS(l, 54);
+		mark.free();
+
+		// A base on another line is not this mark's base.
+		TS_ASSERT(hr.drawChar(scratch, 0xA1B1, 0, 4, 4, kInk, 0, 1));
+		clear(mark, 96, 40);
+		TS_ASSERT(hr.drawChar(mark, 0xA2B1, 0, 60, 20, kInk, 0, 1));
+		TS_ASSERT(inkSpan(mark, l, r));
+		TS_ASSERT_EQUALS(l, 54);
+		mark.free();
+		scratch.free();
+	}
+
+	/// Under per-glyph placement ASCII is drawn by the replacement unless the
+	/// map says off: SCUMM's own behaviour is [latin] mode=proportional.
+	void test_latin_default_is_proportional() {
+		const G a[] = { { 0x41, 13, 0, 12, 0, 12, 2, 14 } };
+		Scumm::HiResOverlay overlay;
+		overlay.create(96, 40, true);
+		Scumm::ScummHiResText hr;
+		hr.useOverlay(&overlay);
+		hr.adoptConfig(parse("[hires]\nscale=2\nalpha=true\n[font.3]\nsize=20\n"));
+		TS_ASSERT(hr.perGlyphMetrics());
+		TS_ASSERT(addFont(hr, 0, true, svfn(a, 1, 16, 12, false), "lat.fnt"));
+		Graphics::Surface dest;
+		clear(dest, 96, 40);
+		TS_ASSERT(hr.drawChar(dest, 'A', 0, 2, 2, kInk, 0, 1));
+		dest.free();
+		// metrics follow [render] (game): the game's width.
+		TS_ASSERT_EQUALS(hr.advanceFor('A', 0, 4), 4);
+
+		// [latin] enabled=false is off.
+		Scumm::ScummHiResText off;
+		off.useOverlay(&overlay);
+		off.adoptConfig(parse("[hires]\nscale=2\nalpha=true\n[font.3]\nsize=20\n[latin]\nenabled=false\n"));
+		TS_ASSERT(addFont(off, 0, true, svfn(a, 1, 16, 12, false), "lat.fnt"));
+		clear(dest, 96, 40);
+		TS_ASSERT(!off.drawChar(dest, 'A', 0, 2, 2, kInk, 0, 1));
+		dest.free();
+	}
+
+	/// [latin] space= alone switches per-glyph placement on, as mode= does.
+	void test_latin_space_turns_per_glyph_on() {
+		Scumm::ScummHiResText a, b, none;
+		a.adoptConfig(parse("[hires]\nscale=2\n[latin]\nspace=fullwidth\n"));
+		b.adoptConfig(parse("[hires]\nscale=2\n[latin]\nmode=half\n"));
+		none.adoptConfig(parse("[hires]\nscale=2\n[latin]\nmetrics=font\n"));
+		TS_ASSERT(a.perGlyphMetrics());
+		TS_ASSERT(b.perGlyphMetrics());
+		TS_ASSERT(!none.perGlyphMetrics());
+	}
+
+	/// [latin] mode=half: ASCII from the face at its narrow cell (half the
+	/// SVFN cell), whatever the game's width or the glyph's own advance.
+	void test_latin_half_advances_by_narrow_cell() {
+		const G a[] = { { 0x41, 13, 0, 12, 0, 12, 2, 14 } };
+		Scumm::HiResOverlay overlay;
+		overlay.create(96, 40, true);
+		Scumm::ScummHiResText hr;
+		hr.useOverlay(&overlay);
+		hr.adoptConfig(parse("[hires]\nscale=2\nalpha=true\n[latin]\nmode=half\nmetrics=game\n"));
+		TS_ASSERT(addFont(hr, 0, true, svfn(a, 1, 16, 12, false), "lat.fnt"));
+		TS_ASSERT_EQUALS(hr.advanceFor('A', 0, 6), 4);
+		TS_ASSERT_EQUALS(hr.advanceFor('A', 0, 2), 4);
+		Graphics::Surface dest;
+		clear(dest, 96, 40);
+		TS_ASSERT(hr.drawChar(dest, 'A', 0, 2, 2, kInk, 0, 1));
+		dest.free();
+	}
+
+	/// [latin] mode=fullwidth: ASCII drawn as U+FF01..U+FF5E; a space stays
+	/// the game's unless space=fullwidth makes it U+3000.
+	void test_latin_fullwidth_remaps() {
+		const G fw[] = {
+			{ 0xFF21, 16, 0, 14, 1, 15, 2, 14 },
+			{ 0x3000, 16, 0, 0, 0, 0, 0, 0 },
+		};
+		Scumm::HiResOverlay overlay;
+		overlay.create(96, 40, true);
+		Graphics::Surface dest;
+		{
+			Scumm::ScummHiResText hr;
+			hr.useOverlay(&overlay);
+			hr.adoptConfig(parse("[hires]\nscale=2\nalpha=true\n[latin]\nmode=fullwidth\n"));
+			TS_ASSERT(addFont(hr, 0, false, svfn(fw, 2, 16, 12, false), "fw.fnt"));
+			clear(dest, 96, 40);
+			TS_ASSERT(hr.drawChar(dest, 'A', 0, 2, 2, kInk, 0, 1));	// the font has only U+FF21
+			TS_ASSERT(!hr.drawChar(dest, 'B', 0, 40, 2, kInk, 0, 1));	// no U+FF22: the game's
+			dest.free();
+			TS_ASSERT_EQUALS(hr.advanceFor('A', 0, 3), 8);		// the wide cell rule
+			TS_ASSERT_EQUALS(hr.advanceFor(' ', 0, 3), 3);		// space=keep
+		}
+		{
+			Scumm::ScummHiResText hr;
+			hr.useOverlay(&overlay);
+			hr.adoptConfig(parse("[hires]\nscale=2\nalpha=true\n[latin]\nmode=fullwidth\nspace=fullwidth\n"));
+			TS_ASSERT(addFont(hr, 0, false, svfn(fw, 2, 16, 12, false), "fw.fnt"));
+			TS_ASSERT_EQUALS(hr.advanceFor(' ', 0, 3), 8);		// U+3000
+		}
+	}
+
 	/// metrics=game: a glyph narrower than its game cell is centred in it.
 	void test_metrics_game_centres_narrow_glyph() {
 		const G a[] = { { 0x41, 10, 0, 10, 0, 10, 2, 14 } };

@@ -242,6 +242,9 @@ metrics=font
 - **Sizes.** `[font.N] size=`, else `[hires] size=`: the characters are that
   many pixels tall (SCI's meaning). With no size, a face is opened at the
   game cell times the scale with its line filling the cell, as before.
+  `[hires] size=` applies to every charset, so a game whose charsets have
+  different cell heights (MI1's 16-px sentence line beside its 24-px
+  dialogue) should name `[font.N] size=` per charset instead.
 - **Latin** (`[font.N] latin=`, else `[latin] mode=`): `off` leaves ASCII to
   the game's font; `half` draws it from the face at the face's narrow cell;
   `fullwidth` draws U+FF01..U+FF5E (and U+3000 for a space with

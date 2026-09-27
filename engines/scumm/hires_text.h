@@ -386,6 +386,12 @@ struct ScummHiResText {
 	 */
 	void noteGameCharset(int charsetId, int width, int height);
 
+	/**
+	 * A new string starts: a combining mark at its start has no base
+	 * before it. Call when the renderer begins a string.
+	 */
+	void beginString() { _anchorValid = false; }
+
 	/** Finish and print any partially accumulated text-log line. */
 	void endTextRun() const { if (_logText) flushTextLog(); }
 
@@ -546,7 +552,6 @@ private:
 
 	Face *faceFor(int charsetId, bool latin) const;
 	Face *ttfFaceFor(int charsetId) const;
-	Face *openTtfFace(int pixelSize) const;
 	Face *openTtfChain(const Common::Array<Common::Path> &chain, int pixelSize, bool lineFit) const;
 	int ttfCellWidth(int charsetId) const;
 
@@ -599,8 +604,6 @@ private:
 	mutable Common::HashMap<Common::String, bool> _failedFaces;
 	void checkCoverage(const Face *face, const Common::String &key) const;
 
-	/// The face could not be used at all; set once, cleared with the faces.
-	mutable bool _ttfFailed = false;
 	void freeFaces();
 	bool loadBitmapFile(const Common::Path &gameDir, const Common::String &name,
 						int charsetId, bool latin);
