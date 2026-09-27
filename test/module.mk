@@ -91,6 +91,14 @@ ifeq ($(ENABLE_AGS), STATIC_PLUGIN)
 		common/libcommon.a
 endif
 
+ifeq ($(ENABLE_GRIM), STATIC_PLUGIN)
+	TESTS += $(srcdir)/test/engines/grim/*.h
+	# Only the globals-free table reader and break helpers: libgrim.a would
+	# pull in the whole engine.
+	TEST_LIBS += engines/grim/localize_text.o graphics/libgraphics.a \
+		common/libcommon.a
+endif
+
 ifeq ($(ENABLE_SCI), STATIC_PLUGIN)
 	TESTS += $(srcdir)/test/engines/sci/*.h
 	TEST_LIBS += engines/sci/libsci.a

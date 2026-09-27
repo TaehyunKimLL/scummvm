@@ -363,7 +363,7 @@ void FontTTF::restoreState(SaveGame *state) {
 	_svfn = nullptr;
 	_fallback = nullptr;
 
-	if (g_grim->getGameType() == GType_GRIM && g_grim->getGameLanguage() == Common::KO_KOR) {
+	if (g_grim->getGameType() == GType_GRIM && g_grim->useFontDescriptors()) {
 		Common::String name = fname + ".txt";
 		stream = g_resourceloader->openNewStreamFile(name, true);
 		if (!stream)
@@ -580,13 +580,13 @@ int FontTTF::getKernedStringLength(const Common::String &text) const {
 	if (_fallback)
 		return _fallback->getKernedStringLength(text);
 	if (_svfn) {
-		const Common::U32String u = g_grim->getGameLanguage() == Common::KO_KOR ? decodeKorean(text) : text.decode(Common::CodePage::kUtf8);
+		const Common::U32String u = g_grim->useFontDescriptors() ? decodeKorean(text) : text.decode(Common::CodePage::kUtf8);
 		int w = 0;
 		for (uint i = 0; i < u.size(); i++)
 			w += svfnAdvance(u[i]);
 		return w;
 	}
-	if (g_grim->getGameLanguage() == Common::KO_KOR) {
+	if (g_grim->useFontDescriptors()) {
 		return _font->getStringWidth(decodeKorean(text));
 	}
 	if (_isUnicode) {
@@ -605,7 +605,7 @@ void FontTTF::render(Graphics::Surface &surface, const Common::String &currentLi
 		// with alpha = coverage, what TTFFont::drawString leaves there too.
 		Common::Array<byte> coverage;
 		int width, height;
-		svfnCoverage(g_grim->getGameLanguage() == Common::KO_KOR ? decodeKorean(currentLine) : currentLine.decode(Common::CodePage::kUtf8), coverage, width, height);
+		svfnCoverage(g_grim->useFontDescriptors() ? decodeKorean(currentLine) : currentLine.decode(Common::CodePage::kUtf8), coverage, width, height);
 		surface.create(width, height, pixelFormat);
 		surface.fillRect(Common::Rect(0, 0, width, height), colorKey);
 		for (int y = 0; y < height; y++) {
@@ -618,7 +618,7 @@ void FontTTF::render(Graphics::Surface &surface, const Common::String &currentLi
 		return;
 	}
 #ifdef USE_FREETYPE2
-	if (g_grim->getGameLanguage() == Common::KO_KOR) {
+	if (g_grim->useFontDescriptors()) {
 		Common::U32String u32CurrentLine = decodeKorean(currentLine);
 		int width = _font->getStringWidth(u32CurrentLine);
 		int height = _font->getFontHeight();
@@ -657,7 +657,7 @@ bool FontTTF::renderAlpha(Graphics::Surface &surface, const Common::String &curr
 	if (_svfn) {
 		Common::Array<byte> coverage;
 		int width, height;
-		svfnCoverage(g_grim->getGameLanguage() == Common::KO_KOR ? decodeKorean(currentLine) : currentLine.decode(Common::CodePage::kUtf8), coverage, width, height);
+		svfnCoverage(g_grim->useFontDescriptors() ? decodeKorean(currentLine) : currentLine.decode(Common::CodePage::kUtf8), coverage, width, height);
 		surface.create(width, height, format);
 		for (int y = 0; width > 0 && y < height; y++)
 			Graphics::TextCompose::coverageToArgb(&coverage[y * width], (uint32 *)surface.getBasePtr(0, y), width, format, r, g, b);
@@ -672,7 +672,7 @@ bool FontTTF::renderAlpha(Graphics::Surface &surface, const Common::String &curr
 	// the red channel ends up holding the coverage.
 	const uint32 black = format.ARGBToColor(255, 0, 0, 0);
 	const uint32 white = format.ARGBToColor(255, 255, 255, 255);
-	if (g_grim->getGameLanguage() == Common::KO_KOR) {
+	if (g_grim->useFontDescriptors()) {
 		Common::U32String u32CurrentLine = decodeKorean(currentLine);
 		int width = _font->getStringWidth(u32CurrentLine);
 		int height = _font->getFontHeight();

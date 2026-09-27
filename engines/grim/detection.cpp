@@ -19,6 +19,9 @@
  *
  */
 
+#include "common/config-manager.h"
+#include "common/language.h"
+
 #include "engines/advancedDetector.h"
 #include "grim/debug.h"
 #include "grim/detection.h"
@@ -86,6 +89,39 @@ public:
 
 	const DebugChannelDef *getDebugChannels() const override {
 		return debugFlagList;
+	}
+
+	/**
+	 * FORK-ONLY (scummvm-korean i18n fork, C11 Task 9): a retail Grim with
+	 * a translation table for the target's language (language=ja and
+	 * grim.ja.tab, say) is the game the data is, whatever language the
+	 * detection table gives it. The language filter of the detector would
+	 * otherwise reject the English CD with language=ja. Only when that
+	 * table is present; the engine reads it (engines/grim/localize.cpp).
+	 */
+	ADDetectedGame fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const override {
+		if (fslist.empty() || !ConfMan.hasKey("language"))
+			return ADDetectedGame();
+		const Common::Language lang = Common::parseLanguage(ConfMan.get("language"));
+		if (lang == Common::UNK_LANG || lang == Common::EN_ANY)
+			return ADDetectedGame();
+		const Common::String table = Common::String::format("grim.%s.tab", Common::getLanguageCode(lang));
+		if (!allFiles.contains(Common::Path(table)))
+			return ADDetectedGame();
+
+		Common::Platform platform = Common::kPlatformUnknown;
+		if (ConfMan.hasKey("platform"))
+			platform = Common::parsePlatform(ConfMan.get("platform"));
+		// detectGame() is not const; it only reads the tables and the files.
+		GrimMetaEngineDetection *self = const_cast<GrimMetaEngineDetection *>(this);
+		const ADDetectedGames matches = self->detectGame(fslist.begin()->getParent(), allFiles, Common::UNK_LANG, platform, "");
+		for (uint i = 0; i < matches.size(); i++) {
+			const GrimGameDescription *g = reinterpret_cast<const GrimGameDescription *>(matches[i].desc);
+			if (g->gameType == GType_GRIM && !matches[i].hasUnknownFiles &&
+			    !(g->desc.flags & (ADGF_DEMO | ADGF_REMASTERED)) && g->desc.language != Common::KO_KOR)
+				return matches[i];
+		}
+		return ADDetectedGame();
 	}
 
 	DetectedGame toDetectedGame(const ADDetectedGame &adGame, ADDetectedGameExtraInfo *extraInfo) const override {
