@@ -100,6 +100,10 @@ const int kInkThreshold = 40;
 // chooseFitSize() rather than by hoping the retry never needs more.
 const uint32 kMaxLoadRasterCount = 32;
 
+// Rows a fit to a translation's sample keeps free above and below the
+// glyphs it re-checks at a smaller size (see createImpl()).
+const int kSampleFitSlack = 1;
+
 // Draws cp at (x, y) onto surf (already zeroed, i.e. fully transparent) in
 // opaque white, and leaves the per-pixel coverage in the alpha channel.
 //
@@ -124,6 +128,20 @@ byte coverageAt(const Graphics::ManagedSurface &surf, int x, int y) {
 	return a;
 }
 
+// The column a glyph's origin is drawn at in its row: a combining mark
+// whose ink starts left of its origin (a Thai mark's negative bearing puts
+// it over the preceding base) is moved right by that much, as is SARA AM
+// (see ensure()); every other glyph keeps column 0. The vertical fit draws
+// its probes the same way, so a mark's ink is measured where it is drawn.
+int markOriginX(Graphics::Font *font, uint32 cp, int cellW) {
+	if (Unicode::isCombining(cp) || cp == 0x0E33 || cp == 0x0EB3) {
+		const Common::Rect box = font->getBoundingBox(cp);
+		if (box.left < 0)
+			return MIN<int>(-box.left, cellW);
+	}
+	return 0;
+}
+
 // Adapts a lambda to chooseFitSize()'s FitProbe, so create() keeps its
 // retry logic next to the state it captures.
 template<typename F>
@@ -145,6 +163,12 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 										int pixelSize, Common::String &error,
 										const uint32 *extraFitProbes, uint extraFitProbeCount) {
 	return createImpl(stream, dispose, pixelSize, error, false, false, extraFitProbes, extraFitProbeCount);
+}
+
+TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+										int pixelSize, Common::String &error, bool requireHangul, bool lineFit,
+										const uint32 *extraFitProbes, uint extraFitProbeCount) {
+	return createImpl(stream, dispose, pixelSize, error, requireHangul, lineFit, extraFitProbes, extraFitProbeCount);
 }
 
 TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
@@ -197,17 +221,25 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 	// budget (context.md: at most 32 rasterisations total).
 	// hangulInk, when given, is set when any of the first kHangulProbeCount
 	// code points drew ink.
-	auto inkBox = [&](Graphics::Font *f, const uint32 *cps, int count, int &top, int &bottom,
-					   uint32 &topCp, uint32 &bottomCp, bool *hangulInk) {
+	// Each probe is drawn with its line top at canvas row drawY, and top /
+	// bottom are relative to that row: the default fit draws at 0, a
+	// line-fitted face's check at cellH, so ink above its line top counts.
+	// A combining mark is drawn at its originX, as ensure() draws it, so
+	// its ink left of the origin is not lost off the canvas.
+	// boxes, when given, receives each probe's own top and bottom (in
+	// pairs; top > bottom for a probe without ink).
+	auto inkBox = [&](Graphics::Font *f, const uint32 *cps, int count, int drawY, int &top, int &bottom,
+					   uint32 &topCp, uint32 &bottomCp, bool *hangulInk, Common::Array<int> *boxes = nullptr) {
 		const int probeW = cellW * 3, probeH = cellH * 3;
 		top = probeH;
-		bottom = -1;
+		bottom = -1 - drawY;
 		for (int i = 0; i < count; i++) {
 			Graphics::ManagedSurface probeSurf(probeW, probeH, Graphics::PixelFormat::createFormatARGB32());
 			const uint32 renderStart = g_system->getMillis();
-			renderCoverage(f, cps[i], 0, 0, probeSurf);
+			renderCoverage(f, cps[i], markOriginX(f, cps[i], cellW), drawY, probeSurf);
 			totalRenderMs += g_system->getMillis() - renderStart;
 			rasterCount++;
+			int ownTop = probeH, ownBottom = -probeH;
 			for (int y = 0; y < probeH; y++) {
 				bool ink = false;
 				for (int x = 0; x < probeW; x++) {
@@ -217,20 +249,26 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 					}
 				}
 				if (ink) {
+					ownTop = MIN(ownTop, y - drawY);
+					ownBottom = y - drawY + 1;
 					if (hangulInk && i < kHangulProbeCount)
 						*hangulInk = true;
-					if (y < top) {
-						top = y;
+					if (y - drawY < top) {
+						top = y - drawY;
 						topCp = cps[i];
 					}
-					if (y + 1 > bottom) {
-						bottom = y + 1;
+					if (y - drawY + 1 > bottom) {
+						bottom = y - drawY + 1;
 						bottomCp = cps[i];
 					}
 				}
 			}
+			if (boxes) {
+				boxes->push_back(ownTop);
+				boxes->push_back(ownBottom);
+			}
 		}
-		if (bottom < 0) { // no probe drew any ink: fall back to a centred box
+		if (bottom < -drawY) { // no probe drew any ink: fall back to a centred box
 			top = 0;
 			bottom = 0;
 		}
@@ -250,12 +288,20 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 	int top, bottom;
 	uint32 topCp = 0, bottomCp = 0;
 	bool hangulInk = false;
+	// A sample is measured with the line top a cell down the canvas, so a
+	// mark drawn above the face's ascent (Sukhumvit Set's MAI CHATTAWA) is
+	// seen; the legacy fit keeps drawing at the canvas top.
+	const int drawY = extraFitProbeCount > 0 ? cellH : 0;
+	// With a sample, every probe's own box, to pick the retry's glyphs.
+	Common::Array<int> boxes;
+	const uint32 *boxCps = probes.data();
 	// A line-fitted face is placed by its own metrics, so it needs the
 	// probes only to prove it draws Hangul; extra fit probes do not apply.
 	if (lineFit)
-		inkBox(font, kProbeCodepoints, requireHangul ? kHangulProbeCount : 0, top, bottom, topCp, bottomCp, &hangulInk);
+		inkBox(font, kProbeCodepoints, requireHangul ? kHangulProbeCount : 0, 0, top, bottom, topCp, bottomCp, &hangulInk);
 	else
-		inkBox(font, probes.data(), (int)probes.size(), top, bottom, topCp, bottomCp, &hangulInk);
+		inkBox(font, probes.data(), (int)probes.size(), drawY, top, bottom, topCp, bottomCp, &hangulInk,
+			   extraFitProbeCount > 0 ? &boxes : nullptr);
 
 	if (requireHangul && !hangulInk) {
 		error = "face has no Hangul glyphs";
@@ -265,15 +311,62 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 		return nullptr;
 	}
 
-	if (!lineFit && bottom - top > cellH) {
+	// A line-fitted face is placed by its own metrics only while the
+	// translation's characters fit the cell that way. Its ascent may be
+	// taller than the line it was sized by (Sukhumvit Set: hhea ascent
+	// 1103 units against an OS/2 win line of 834 + 250), putting the
+	// baseline below the cell, and marks may reach past its descent (Thai
+	// SARA U/UU): then the sample's ink box decides the placement, and the
+	// size when the box is taller than the cell. A sample that fits leaves
+	// everything as it was.
+	bool lineRefit = false;
+	if (lineFit && extraFitProbeCount > 0) {
+		boxCps = extraFitProbes;
+		inkBox(font, extraFitProbes, (int)extraFitProbeCount, drawY, top, bottom, topCp, bottomCp, nullptr, &boxes);
+		lineRefit = top < 0 || bottom > cellH;
+	}
+
+	int faceSize = pixelSize;
+	if ((!lineFit || lineRefit) && bottom - top > cellH) {
 		// Re-check with only the one or two code points that set the
 		// current top/bottom: at a smaller size the same glyphs are still
 		// the tallest in the overwhelming common case (font metrics scale
 		// close to linearly with pixel size), and this keeps the retry to
 		// one or two rasterisations per candidate size instead of the full
 		// probe set.
-		const uint32 worstCps[2] = { topCp, bottomCp };
-		const int worstCount = (topCp == bottomCp) ? 1 : 2;
+		//
+		// With a sample (Thai: SARA I, MAI EK and MAI CHATTAWA within a row
+		// of each other at the top; SARA UU, PHINTHU, DO CHADA and Latin g
+		// at the bottom), which glyph is tallest can change with the size:
+		// the next-highest and next-lowest glyphs are re-checked too (up to
+		// kMaxWorstProbes in all), and a size must leave a row free above
+		// and below them (kSampleFitSlack), for a glyph not re-checked that
+		// rounds a row further. The legacy fit, with no sample, keeps its
+		// one or two glyphs and no slack.
+		const int kMaxWorstProbes = 4;
+		const int slack = boxes.empty() ? 0 : kSampleFitSlack;
+		uint32 worstCps[kMaxWorstProbes] = { topCp, bottomCp };
+		int worstCount = (topCp == bottomCp) ? 1 : 2;
+		for (int side = 0; !boxes.empty() && worstCount < kMaxWorstProbes; side ^= 1) {
+			// The not yet chosen glyph whose top (side 0) or bottom (side 1)
+			// is closest to the box's.
+			int best = -1;
+			for (uint i = 0; i + 1 < boxes.size(); i += 2) {
+				if (boxes[i] > boxes[i + 1])
+					continue; // no ink
+				const uint32 cp = boxCps[i / 2];
+				bool seen = false;
+				for (int k = 0; k < worstCount; k++)
+					seen = seen || worstCps[k] == cp;
+				if (seen)
+					continue;
+				if (best < 0 || (side == 0 ? boxes[i] < boxes[best] : boxes[i + 1] > boxes[best + 1]))
+					best = (int)i;
+			}
+			if (best < 0)
+				break;
+			worstCps[worstCount++] = boxCps[best / 2];
+		}
 
 		// bestFont always tracks the most recently opened candidate (i.e.
 		// the smallest size tried so far), not just the one that ends up
@@ -292,15 +385,31 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 				b = bottom;
 				return false;
 			}
+			// chooseFitSize() counts these renders itself (rendersPerCall),
+			// so inkBox's own count is taken back rather than added twice.
+			const uint32 countBefore = rasterCount;
 			uint32 unusedTopCp = 0, unusedBottomCp = 0;
-			inkBox(smaller, worstCps, worstCount, t, b, unusedTopCp, unusedBottomCp, nullptr);
+			inkBox(smaller, worstCps, worstCount, drawY, t, b, unusedTopCp, unusedBottomCp, nullptr);
+			rasterCount = countBefore;
 			delete bestFont;
 			bestFont = smaller;
-			return (b - t) <= cellH;
+			faceSize = trySize;
+			return (b - t) <= cellH - 2 * slack;
 		};
 
+		// Stepping down one size at a time from pixelSize, as far as the
+		// raster budget reaches, finds the largest size that fits. When the
+		// box is so much taller than the cell that the budget cannot step
+		// that far (Thai marks above and below: about 1.4 cells), the search
+		// starts just above the size the box scales to linearly instead, so
+		// the few steps it has land on the fitting size.
+		int startSize = pixelSize;
+		const int estimate = MAX(6, pixelSize * (cellH - 2 * slack) / (bottom - top));
+		if (rasterCount + (uint32)(pixelSize - estimate) * worstCount > maxLoadRasterCount)
+			startSize = MIN(pixelSize, estimate + 2);
+
 		LambdaFitProbe<decltype(measure)> probe(measure);
-		chooseFitSize(pixelSize, 6, (uint32)worstCount, rasterCount, maxLoadRasterCount,
+		chooseFitSize(startSize, 6, (uint32)worstCount, rasterCount, maxLoadRasterCount,
 					  probe, top, bottom);
 		font = bestFont;
 	}
@@ -311,7 +420,8 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 	src->_dispose = dispose;
 	src->_cellWidth = cellW;
 	src->_cellHeight = cellH;
-	src->_yOffset = lineFit ? 0 : -top + MAX(0, (cellH - (bottom - top)) / 2);
+	src->_faceSize = faceSize;
+	src->_yOffset = (lineFit && !lineRefit) ? 0 : -top + MAX(0, (cellH - (bottom - top)) / 2);
 	src->_rasterCount = rasterCount;
 	src->_totalRenderMs = totalRenderMs;
 	return src;
@@ -357,12 +467,7 @@ TtfGlyphSource::Entry &TtfGlyphSource::ensure(uint32 cp) {
 	// 16 px: bounding box left -4, measured). Drawn with its origin at
 	// column 0 the ring was cut off. It gets the marks' treatment: origin
 	// moved right by the ink left of it; its advance is unchanged.
-	int originX = 0;
-	if (Unicode::isCombining(cp) || cp == 0x0E33 || cp == 0x0EB3) {
-		const Common::Rect box = _font->getBoundingBox(cp);
-		if (box.left < 0)
-			originX = MIN<int>(-box.left, cellW);
-	}
+	const int originX = markOriginX(_font, cp, cellW);
 	Graphics::ManagedSurface surf(cellW * 2, cellH, Graphics::PixelFormat::createFormatARGB32());
 	const uint32 renderStart = g_system->getMillis();
 	renderCoverage(_font, cp, originX, _yOffset, surf);
@@ -439,6 +544,14 @@ int TtfGlyphSource::baseline() const {
 	return CLIP<int>(_yOffset + _font->getFontAscent(), 0, _cellHeight);
 }
 
+int TtfGlyphSource::faceSize() const {
+	return _faceSize;
+}
+
+int TtfGlyphSource::lineTop() const {
+	return _yOffset;
+}
+
 #else // !USE_FREETYPE2
 
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
@@ -451,6 +564,12 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 										int pixelSize, Common::String &error,
 										const uint32 *extraFitProbes, uint extraFitProbeCount) {
 	return createImpl(stream, dispose, pixelSize, error, false, false, extraFitProbes, extraFitProbeCount);
+}
+
+TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+										int pixelSize, Common::String &error, bool requireHangul, bool lineFit,
+										const uint32 *extraFitProbes, uint extraFitProbeCount) {
+	return createImpl(stream, dispose, pixelSize, error, requireHangul, lineFit, extraFitProbes, extraFitProbeCount);
 }
 
 TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
@@ -493,6 +612,14 @@ uint32 TtfGlyphSource::glyphCount() const {
 }
 
 int TtfGlyphSource::baseline() const {
+	return 0;
+}
+
+int TtfGlyphSource::faceSize() const {
+	return 0;
+}
+
+int TtfGlyphSource::lineTop() const {
 	return 0;
 }
 
