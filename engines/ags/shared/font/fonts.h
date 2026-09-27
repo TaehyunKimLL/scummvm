@@ -128,6 +128,10 @@ void set_font_outline(size_t font_number, int outline_type,
 bool is_font_antialiased(size_t font_number);
 // Outputs a single line of text on the defined position on bitmap, using defined font, color and parameters
 void wouttextxy(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, const char *texx);
+// ScummVM (C23): wouttextxy() at N x into an N x bitmap, (xxx, yyy) in game
+// pixels. A font the map names is drawn from its faces at N x; any other
+// (and an SVFN one) is the game's rendering nearest-upscaled.
+void wouttextxy_scaled(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, const char *texx, int scale);
 // Assigns FontInfo to the font
 void set_fontinfo(size_t fontNumber, const FontInfo &finfo);
 // Gets full information about the font
