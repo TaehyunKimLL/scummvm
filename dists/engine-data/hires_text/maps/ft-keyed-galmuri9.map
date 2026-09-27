@@ -1,0 +1,25 @@
+; Hi-res text map: Full Throttle (SCUMM v7) Korean patch, keyed 8-bit text at 1x
+; in the Galmuri9 pixel font.
+;
+; Galmuri9 is drawn at 10 px, its design size, when the charset cell is 12
+; (FT's dialogue charset). Do not add a size= key: the fit would shrink the
+; font off its pixel grid. Other cells land off the grid (cell 9 -> 8 px).
+; See hires_text/fonts/FONTS.md for the licence.
+[hires]
+scale=1
+alpha=false
+
+[encoding]
+codepage=cp949
+
+[fonts]
+default=data:hires_text/fonts/galmuri/Galmuri9.ttf
+
+[render]
+metrics=game
+
+[shadow]
+mode=game
+
+[glyphs]
+0x5e=keep
