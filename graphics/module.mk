@@ -17,6 +17,7 @@ MODULE_OBJS := \
 	hires_text/coverage.o \
 	hires_text/font_baker.o \
 	hires_text/font_descriptor.o \
+	hires_text/font_face.o \
 	hires_text/font_map.o \
 	hires_text/glyph_renderer.o \
 	hires_text/glyph_source_fallback.o \

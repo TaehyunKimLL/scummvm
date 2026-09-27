@@ -190,24 +190,24 @@ struct LambdaFitProbe : public TtfGlyphSource::FitProbe {
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 										int pixelSize, Common::String &error, bool requireHangul,
 										bool lineFit) {
-	return createImpl(stream, dispose, pixelSize, error, requireHangul, lineFit, nullptr, 0);
+	return createImpl(stream, dispose, pixelSize, error, requireHangul, lineFit, nullptr, 0, 0);
 }
 
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 										int pixelSize, Common::String &error,
 										const uint32 *extraFitProbes, uint extraFitProbeCount) {
-	return createImpl(stream, dispose, pixelSize, error, false, false, extraFitProbes, extraFitProbeCount);
+	return createImpl(stream, dispose, pixelSize, error, false, false, extraFitProbes, extraFitProbeCount, 0);
 }
 
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 										int pixelSize, Common::String &error, bool requireHangul, bool lineFit,
-										const uint32 *extraFitProbes, uint extraFitProbeCount) {
-	return createImpl(stream, dispose, pixelSize, error, requireHangul, lineFit, extraFitProbes, extraFitProbeCount);
+										const uint32 *extraFitProbes, uint extraFitProbeCount, int32 faceIndex) {
+	return createImpl(stream, dispose, pixelSize, error, requireHangul, lineFit, extraFitProbes, extraFitProbeCount, faceIndex);
 }
 
 TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 											int pixelSize, Common::String &error, bool requireHangul, bool lineFit,
-											const uint32 *extraFitProbes, uint extraFitProbeCount) {
+											const uint32 *extraFitProbes, uint extraFitProbeCount, int32 faceIndex) {
 	if (!stream) {
 		error = "no font stream";
 		return nullptr;
@@ -216,6 +216,13 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 	// a size outside that range is refused rather than truncated.
 	if (pixelSize < kMinPixelSize || pixelSize > kMaxPixelSize) {
 		error = Common::String::format("pixel size %d is outside %d..%d", pixelSize, kMinPixelSize, kMaxPixelSize);
+		if (dispose == DisposeAfterUse::YES)
+			delete stream;
+		return nullptr;
+	}
+	// A negative index asks FreeType for the face count, not a face.
+	if (faceIndex < 0) {
+		error = Common::String::format("face index %d is negative", (int)faceIndex);
 		if (dispose == DisposeAfterUse::YES)
 			delete stream;
 		return nullptr;
@@ -229,12 +236,16 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 		stream->seek(0);
 		return Graphics::loadTTFFont(stream, DisposeAfterUse::NO, size,
 									  lineFit ? Graphics::kTTFSizeModeCell : Graphics::kTTFSizeModeCharacter,
-									  0, 0, Graphics::kTTFRenderModeLight);
+									  0, 0, Graphics::kTTFRenderModeLight, nullptr, false, faceIndex);
 	};
 
 	Graphics::Font *font = openAt(pixelSize);
 	if (!font) {
-		error = "could not open the font face";
+		// Face 0 fails only for a file that is no font at all; another face
+		// also when the file (a single font, or a smaller collection) has
+		// no face by that index.
+		error = faceIndex ? Common::String::format("could not open face %d of the font", (int)faceIndex)
+						  : Common::String("could not open the font face");
 		if (dispose == DisposeAfterUse::YES)
 			delete stream;
 		return nullptr;
@@ -614,24 +625,25 @@ int TtfGlyphSource::lineTop() const {
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 										int pixelSize, Common::String &error, bool requireHangul,
 										bool lineFit) {
-	return createImpl(stream, dispose, pixelSize, error, requireHangul, lineFit, nullptr, 0);
+	return createImpl(stream, dispose, pixelSize, error, requireHangul, lineFit, nullptr, 0, 0);
 }
 
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 										int pixelSize, Common::String &error,
 										const uint32 *extraFitProbes, uint extraFitProbeCount) {
-	return createImpl(stream, dispose, pixelSize, error, false, false, extraFitProbes, extraFitProbeCount);
+	return createImpl(stream, dispose, pixelSize, error, false, false, extraFitProbes, extraFitProbeCount, 0);
 }
 
 TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 										int pixelSize, Common::String &error, bool requireHangul, bool lineFit,
-										const uint32 *extraFitProbes, uint extraFitProbeCount) {
-	return createImpl(stream, dispose, pixelSize, error, requireHangul, lineFit, extraFitProbes, extraFitProbeCount);
+										const uint32 *extraFitProbes, uint extraFitProbeCount, int32 faceIndex) {
+	return createImpl(stream, dispose, pixelSize, error, requireHangul, lineFit, extraFitProbes, extraFitProbeCount, faceIndex);
 }
 
 TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 											int /*pixelSize*/, Common::String &error, bool /*requireHangul*/, bool /*lineFit*/,
-											const uint32 * /*extraFitProbes*/, uint /*extraFitProbeCount*/) {
+											const uint32 * /*extraFitProbes*/, uint /*extraFitProbeCount*/,
+											int32 /*faceIndex*/) {
 	error = "this build has no FreeType";
 	if (dispose == DisposeAfterUse::YES)
 		delete stream;

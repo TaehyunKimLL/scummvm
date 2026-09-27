@@ -102,9 +102,12 @@ enum TTFSizeMode {
  *                   loading fails in case no glyph for it is found. When this
  *                   is non-null only characters given in the mapping are
  *                   supported.
+ * @param stemDarkening Whether FreeType darkens stems.
+ * @param faceIndex  The face to open in a font collection (.ttc); 0, the
+ *                   first face, for a single font file.
  * @return 0 in case loading fails, otherwise a pointer to the Font object.
  */
-Font *loadTTFFont(Common::SeekableReadStream *stream, DisposeAfterUse::Flag disposeAfterUse, int size, TTFSizeMode sizeMode = kTTFSizeModeCharacter, uint xdpi = 0, uint ydpi = 0, TTFRenderMode renderMode = kTTFRenderModeLight, const uint32 *mapping = 0, bool stemDarkening = false);
+Font *loadTTFFont(Common::SeekableReadStream *stream, DisposeAfterUse::Flag disposeAfterUse, int size, TTFSizeMode sizeMode = kTTFSizeModeCharacter, uint xdpi = 0, uint ydpi = 0, TTFRenderMode renderMode = kTTFRenderModeLight, const uint32 *mapping = 0, bool stemDarkening = false, int32 faceIndex = 0);
 
 /**
  * Loads a TTF font file from the common fonts archive.
