@@ -21,6 +21,8 @@
 
 #include "sci/graphics/textlayout16.h"
 
+#include "graphics/hires_text/latin_advance.h"
+
 namespace Sci {
 
 bool hiresTextApplies(SciVersion v, Common::CodePage page, bool utf8Translation, Common::String &why) {
@@ -40,6 +42,14 @@ bool hiresTextApplies(SciVersion v, Common::CodePage page, bool utf8Translation,
 		why = "no translation and no CJK code page";
 		return false;
 	}
+}
+
+int16 gameAdvance(const Graphics::GlyphMetrics &m, int gameNarrow, int gameWide, int scale) {
+	if (m.combining)
+		return 0;
+	if (m.wide)
+		return (int16)gameWide;
+	return (int16)Graphics::latinAdvanceGamePx(Graphics::kHiResMetricsFont, gameNarrow, m.advance, scale);
 }
 
 } // End of namespace Sci

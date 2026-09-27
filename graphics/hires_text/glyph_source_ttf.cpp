@@ -350,8 +350,10 @@ TtfGlyphSource::Entry &TtfGlyphSource::ensure(uint32 cp) {
 	// its origin at column 0 and its old rows - including Latin 'j', whose
 	// descender reaches left of the origin - until the engines read originX
 	// (C11 T5/T6/T8); a drawer that does not would otherwise move it.
+	// SARA AM (Thai U+0E33, Lao U+0EB3) is a spacing vowel whose nikhahit
+	// ring lies over the base before it: it is placed like a mark.
 	int originX = 0;
-	if (Unicode::isCombining(cp)) {
+	if (Unicode::isCombining(cp) || cp == 0x0E33 || cp == 0x0EB3) {
 		const Common::Rect box = _font->getBoundingBox(cp);
 		if (box.left < 0)
 			originX = MIN<int>(-box.left, cellW);
