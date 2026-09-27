@@ -408,6 +408,24 @@ struct ScummHiResText {
 	 * @param namesFace            a TrueType face is in effect (ini or map)
 	 * @param namesCoverageBitmap  a bitmap font the map names is 8 bpp
 	 */
+	/**
+	 * The decoration [shadow] mode=game asks for, from the game's shadow byte.
+	 *
+	 * A mode named in the map wins. Otherwise 1 is none, 2 a drop, 3 stroke
+	 * and anything else the outline, as the Korean patches' own renderer
+	 * reads byte 1 of korean%02d.fnt - except that 0 is an outline only when
+	 * such a font set it (@p korPatchShadow); an unset 0 draws nothing.
+	 */
+	static Graphics::HiResShadowMode resolveShadow(Graphics::HiResShadowMode fromMap,
+												   int gameShadow, bool korPatchShadow);
+
+	/**
+	 * Say whether the game's shadow byte comes from the Korean patch fonts,
+	 * drawn by drawBits1Kor() (a kor-trs v1-v6 target). v7 draws its own
+	 * shadow in draw2byte() and is left out.
+	 */
+	void setKorPatchShadow(bool on) { _korPatchShadow = on; }
+
 	static bool mapWantsAlpha(const Graphics::HiResTextConfig &config,
 							  bool namesFace, bool namesCoverageBitmap);
 
@@ -712,6 +730,7 @@ private:
 	// In alpha mode the backend is given no palette, so we keep our own: the
 	// packed colour for compositing, and the RGB triples the cursor needs.
 	bool _alphaActive;
+	bool _korPatchShadow;
 	uint32 _paletteCache[256];
 	byte _paletteRGB[3 * 256];
 };

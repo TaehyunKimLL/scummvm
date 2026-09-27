@@ -1280,6 +1280,10 @@ Common::Error ScummEngine::init() {
 	// Load it earlier so _useCJKMode variable could be set
 	loadCJKFont();
 
+	// A kor-trs font's shadow byte 0 means the outline drawBits1Kor() draws;
+	// elsewhere _2byteShadow is merely unset (C18). v7 draws its own shadow.
+	_hiResText.setKorPatchShadow(_useCJKMode && isScummvmKorTarget() && _game.version < 7);
+
 	// Map-less fonts name no scale; now that the game's own font size is
 	// known it can be read off them.
 	//
