@@ -106,6 +106,13 @@ public:
 		Scumm::ScummHiResText any;
 		any.adoptConfig(parse("[hires]\nscale=2\n[layout]\nhangul=any\n"));
 		TS_ASSERT_EQUALS(any.breakRules(true).hangul, Graphics::kHangulBreakAny);
+
+		// Hi-res text off: UTF-8 text breaks as it did before C31, Hangul
+		// anywhere, centred or not.
+		Scumm::ScummHiResText off;
+		TS_ASSERT(!off.enabled());
+		TS_ASSERT_EQUALS(off.breakRules(true).hangul, Graphics::kHangulBreakAny);
+		TS_ASSERT_EQUALS(off.breakRules(false).hangul, Graphics::kHangulBreakAny);
 	}
 
 	/// No metrics key: CP949 and UTF-8 both step U+AC00 by the face, not by

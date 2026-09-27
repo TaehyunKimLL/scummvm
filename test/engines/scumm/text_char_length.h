@@ -1,5 +1,7 @@
 #include <cxxtest/TestSuite.h>
 
+#include "engines/scumm/hires_text.h"
+
 #include <stdlib.h>
 
 #include "common/array.h"
@@ -28,6 +30,10 @@ namespace {
 #undef getenv
 const char *kortrsDirT7() {
 	return getenv("SCUMMVM_TEST_KORTRS");
+}
+/// SCUMMVM_TEST_UTF8_TRS: colon-separated UTF-8 .trs files (ko/ja/th/zh).
+const char *utf8TrsList() {
+	return getenv("SCUMMVM_TEST_UTF8_TRS");
 }
 #pragma pop_macro("getenv")
 
@@ -512,6 +518,128 @@ public:
 		TS_ASSERT(compared > 0);
 		TS_ASSERT(voiced > 0);
 		TS_ASSERT_EQUALS(differ, 0);
+#endif
+	}
+
+	/**
+	 * C31 review: with hi-res text off, UTF-8 text breaks exactly as at the
+	 * base (48665a4077): the rules the engine asks for (breakRules(_center)
+	 * of a disabled layer) against the base's (Hangul anywhere), centred or
+	 * not, over every entry of each UTF-8 .trs (SCUMMVM_TEST_UTF8_TRS) and
+	 * of every Korean patch's korean.trs transcoded to UTF-8.
+	 */
+	void test_hires_off_utf8_breaks_unchanged() {
+#if NULL_OSYSTEM_IS_AVAILABLE
+		Common::install_null_g_system();
+		Common::Array<Common::Path> files;
+		if (const char *list = utf8TrsList()) {
+			Common::String l(list);
+			uint start = 0;
+			for (uint i = 0; i <= l.size(); i++) {
+				if (i == l.size() || l[i] == ':') {
+					if (i > start)
+						files.push_back(Common::Path(l.substr(start, i - start), Common::Path::kNativeSeparator));
+					start = i + 1;
+				}
+			}
+		}
+		const char *kortrs = kortrsDirT7();
+		Common::Array<bool> cp949;
+		for (uint i = 0; i < files.size(); i++)
+			cp949.push_back(false);
+		if (kortrs && *kortrs) {
+			Common::FSNode root(Common::Path(kortrs, Common::Path::kNativeSeparator));
+			Common::FSList games;
+			if (root.getChildren(games, Common::FSNode::kListDirectoriesOnly)) {
+				for (uint g = 0; g < games.size(); g++) {
+					Common::FSList sub;
+					games[g].getChildren(sub, Common::FSNode::kListAll);
+					for (uint k = 0; k < sub.size(); k++) {
+						Common::FSList inner;
+						if (sub[k].isDirectory())
+							sub[k].getChildren(inner, Common::FSNode::kListFilesOnly);
+						else
+							inner.push_back(sub[k]);
+						for (uint m = 0; m < inner.size(); m++)
+							if (inner[m].getName().equalsIgnoreCase("korean.trs")) {
+								files.push_back(inner[m].getPath());
+								cp949.push_back(true);
+							}
+					}
+				}
+			}
+		}
+		if (files.empty()) {
+			TS_TRACE("no SCUMMVM_TEST_UTF8_TRS / SCUMMVM_TEST_KORTRS: skipped");
+			Common::uninstall_null_g_system();
+			return;
+		}
+
+		Scumm::ScummHiResText off;	// no map: hi-res text off
+		Graphics::BreakRules base;
+		base.hangul = Graphics::kHangulBreakAny;
+		const int widths[] = { 60, 120, 160, 200, 240, 300 };
+		int compared = 0, differ = 0, breaks = 0;
+		for (uint f = 0; f < files.size(); f++) {
+			Common::FSNode node(files[f]);
+			Common::SeekableReadStream *s = node.exists() ? node.createReadStream() : nullptr;
+			if (!s) {
+				TS_WARN(Common::String::format("cannot read %s", files[f].toString().c_str()).c_str());
+				continue;
+			}
+			Common::Array<byte> data;
+			data.resize(s->size());
+			s->read(data.begin(), data.size());
+			delete s;
+			Scumm::TrsHeader h;
+			if (!Scumm::parseTrsHeader(data.begin(), data.size(), h))
+				continue;
+			int fileCompared = 0;
+			for (uint e = 0; e < h.numLines; e++) {
+				uint32 off0 = h.translatedOffset[e];
+				if (off0 >= data.size())
+					continue;
+				// A UTF-8 body may start with a BOM.
+				const byte *src = data.begin() + off0;
+				uint32 len = Scumm::scummTextLength(src, (uint32)(data.size() - off0), 5);
+				if (len == 0 || len > 900)
+					continue;
+				Common::Array<byte> utf8;
+				if (cp949[f])
+					Scumm::transcodeScummText(src, len, Common::kWindows949, Common::kUtf8, utf8, nullptr);
+				else
+					for (uint32 q = 0; q < len; q++)
+						utf8.push_back(src[q]);
+				for (int centred = 0; centred < 2; centred++) {
+					for (uint w = 0; w < ARRAYSIZE(widths); w++) {
+						byte a[2048], b[2048];
+						memset(a, 0, sizeof(a));
+						memset(b, 0, sizeof(b));
+						memcpy(a, utf8.begin(), MIN<uint>(utf8.size(), 1000));
+						memcpy(b, a, sizeof(a));
+						FixedHooks ha(9), hb(9);
+						Scumm::layoutLinebreaks(a, sizeof(a), 0, widths[w], ha, base, 5, 0);
+						Scumm::layoutLinebreaks(b, sizeof(b), 0, widths[w], hb, off.breakRules(centred != 0), 5, 0);
+						compared++;
+						fileCompared++;
+						for (uint q = 0; q < sizeof(a) && a[q]; q++)
+							breaks += (a[q] == 0x0D);
+						if (memcmp(a, b, sizeof(a)) != 0) {
+							differ++;
+							if (differ <= 5)
+								TS_WARN(Common::String::format("%s entry %u width %d%s differs",
+									files[f].toString().c_str(), e, widths[w], centred ? " centred" : "").c_str());
+						}
+					}
+				}
+			}
+			TS_TRACE(Common::String::format("%s: %d (entry, width, centring) layouts", files[f].toString().c_str(), fileCompared).c_str());
+		}
+		TS_TRACE(Common::String::format("hi-res off: %d of %d layouts identical to base (%d breaks)",
+		                                compared - differ, compared, breaks).c_str());
+		TS_ASSERT(compared > 0);
+		TS_ASSERT_EQUALS(differ, 0);
+		Common::uninstall_null_g_system();
 #endif
 	}
 };
