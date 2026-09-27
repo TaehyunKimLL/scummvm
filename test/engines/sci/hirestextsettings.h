@@ -167,6 +167,17 @@ public:
 		TS_ASSERT_EQUALS(s.size, 16);
 	}
 
+	void test_pixel_design_size() {
+		// C28: [font.N] pixel= over [hires] pixel=; 0 (none) by default.
+		const HiresTextOverrides noIni;
+		const Graphics::HiResTextConfig map = parse("[hires]\npixel=16\n[font.2]\npixel=12\n");
+		TS_ASSERT_EQUALS(resolveFontSettings(map, true, 0, noIni, mapDir()).pixel, 16);
+		TS_ASSERT_EQUALS(resolveFontSettings(map, true, 2, noIni, mapDir()).pixel, 12);
+		const Graphics::HiResTextConfig plain = parse("[hires]\nsize=12\n");
+		TS_ASSERT_EQUALS(resolveFontSettings(plain, true, 0, noIni, mapDir()).pixel, 0);
+		TS_ASSERT_EQUALS(resolveFontSettings(map, false, 0, noIni, mapDir()).pixel, 0);
+	}
+
 	void test_ini_overrides_map() {
 		const Graphics::HiResTextConfig map = parse(
 			"[hires]\n"
