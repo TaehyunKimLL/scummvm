@@ -231,6 +231,27 @@ public:
 		t.free();
 	}
 
+	void test_keep_opaque_restores_alpha_where_the_picture_was_opaque() {
+		// A keyed bitmap is drawn ignoring alpha; text stamped into its
+		// twin (an outline stencil copies its coverage alpha) must not make
+		// an opaque pixel translucent. Transparent pixels keep the text's alpha.
+		Graphics::Surface before, twin;
+		before.create(3, 1, kTwinArgb);
+		at32(before, 0, 0) = 0xFF603010;
+		at32(before, 1, 0) = AGS3::TextTwin::kTransparent;
+		at32(before, 2, 0) = 0xFF603010;
+		twin.create(3, 1, kTwinArgb);
+		at32(twin, 0, 0) = 0x40000000;   // outline edge copied with alpha 0x40
+		at32(twin, 1, 0) = 0x40000000;
+		at32(twin, 2, 0) = 0x80FFFFFF;
+		AGS3::TextTwin::keepOpaque(before, twin, Common::Rect(0, 0, 2, 1));
+		TS_ASSERT_EQUALS(at32(twin, 0, 0), 0xFF000000u);
+		TS_ASSERT_EQUALS(at32(twin, 1, 0), 0x40000000u);
+		TS_ASSERT_EQUALS(at32(twin, 2, 0), 0x80FFFFFFu);   // outside the rect
+		before.free();
+		twin.free();
+	}
+
 	void test_colour_to_argb() {
 		TS_ASSERT_EQUALS(AGS3::TextTwin::toArgb(kTwin565.RGBToColor(255, 255, 255), kTwin565), 0xFFFFFFFFu);
 		TS_ASSERT_EQUALS(AGS3::TextTwin::toArgb(0x00102030, kTwinArgb), 0xFF102030u);

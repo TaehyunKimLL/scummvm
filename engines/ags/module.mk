@@ -112,6 +112,7 @@ MODULE_OBJS = \
 	engine/ac/dialog.o \
 	engine/ac/dialog_options_rendering.o \
 	engine/ac/display.o \
+	engine/ac/hires_text_twin.o \
 	engine/ac/draw.o \
 	engine/ac/drawing_surface.o \
 	engine/ac/draw_software.o \

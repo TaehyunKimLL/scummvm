@@ -21,6 +21,7 @@
 
 #include "common/stack.h"
 #include "ags/engine/ac/dialog.h"
+#include "ags/engine/ac/hires_text_twin.h"
 #include "ags/shared/ac/common.h"
 #include "ags/engine/ac/character.h"
 #include "ags/shared/ac/character_info.h"
@@ -624,6 +625,11 @@ void DialogOptions::Redraw() {
 
 	tempScrn->ClearTransparent();
 	Bitmap *ds = tempScrn;
+	// ScummVM (C23): record the built-in options' text for the N x twin;
+	// custom option rendering (script-drawn) stays native
+	std::unique_ptr<HiResTextScope> hiresScope;
+	if (!usingCustomRendering)
+		hiresScope.reset(new HiResTextScope());
 
 	dlgxp = orixp;
 	dlgyp = oriyp;
@@ -781,6 +787,9 @@ void DialogOptions::Redraw() {
 	} else {
 		subBitmap->Blit(tempScrn, dirtyx, dirtyy, 0, 0, dirtywidth, dirtyheight);
 	}
+	HiResTextTwins *twins = hires_text_twins();
+	if (twins)
+		twins->derive(tempScrn, subBitmap, Point(usingCustomRendering ? 0 : dirtyx, usingCustomRendering ? 0 : dirtyy));
 
 	if ((ddb != nullptr) &&
 	        ((ddb->GetWidth() != dirtywidth) ||
@@ -793,6 +802,8 @@ void DialogOptions::Redraw() {
 		ddb = _G(gfxDriver)->CreateDDBFromBitmap(subBitmap, options_surface_has_alpha, false);
 	else
 		_G(gfxDriver)->UpdateDDBFromBitmap(ddb, subBitmap, options_surface_has_alpha);
+	if (twins)
+		twins->attach(ddb, subBitmap, options_surface_has_alpha);
 
 	if (runGameLoopsInBackground) {
 		render_graphics(ddb, dirtyx, dirtyy);

@@ -471,7 +471,7 @@ bool AGSConsole::Cmd_renderText(int argc, const char **argv) {
 	native.Fill(bg);
 	big.Fill(bg);
 	AGS3::wouttext_outline(&native, pad, pad, font, fg, text.c_str());
-	AGS3::wouttext_outline_scaled(&big, pad, pad, font, fg, text.c_str(), scale);
+	AGS3::wouttext_outline_scaled(&big, pad, pad, font, fg, big.GetCompatibleColor(_GP(play).speech_text_shadow), text.c_str(), scale);
 
 	Graphics::Surface out;
 	const Graphics::Surface &ns = native.GetAllegroBitmap()->getSurface().rawSurface();

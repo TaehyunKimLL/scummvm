@@ -115,6 +115,15 @@ public:
 	 */
 	static void upscaleToArgb(const Graphics::Surface &src, bool srcHasAlpha, Graphics::Surface &dst, int scale);
 
+	/**
+	 * After text was drawn into twin (ARGB8888) over picture (the twin as
+	 * it was before, same size): inside r, every pixel that was opaque
+	 * (alpha 255) in picture is opaque again. For a bitmap drawn ignoring
+	 * its alpha (keyed): an outline stencil stamped into it copies its
+	 * coverage alpha, which the native draw never shows.
+	 */
+	static void keepOpaque(const Graphics::Surface &picture, Graphics::Surface &twin, const Common::Rect &r);
+
 	/** A colour of fmt as ARGB8888 with alpha 255. */
 	static uint32 toArgb(uint32 colour, const Graphics::PixelFormat &fmt);
 };

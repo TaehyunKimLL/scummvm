@@ -79,6 +79,8 @@ IAGSFontRenderer *font_replace_renderer(size_t fontNumber, IAGSFontRenderer2 *re
 bool font_first_renderer_loaded();
 bool is_font_loaded(size_t fontNumber);
 bool is_bitmap_font(size_t fontNumber);
+// ScummVM (C23): whether font N is drawn by hires_text.map's faces
+bool is_font_hires_mapped(size_t fontNumber);
 bool font_supports_extended_characters(size_t fontNumber);
 // Get font's name, if it's available, otherwise returns empty string
 const char *get_font_name(size_t fontNumber);

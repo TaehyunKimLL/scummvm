@@ -154,6 +154,18 @@ void TextCapture::deriveRegion(const Common::Rect &area, TextCapture &out) const
 	}
 }
 
+void TextTwin::keepOpaque(const Graphics::Surface &picture, Graphics::Surface &twin, const Common::Rect &r) {
+	Common::Rect area = r;
+	area.clip(Common::Rect(0, 0, MIN(picture.w, twin.w), MIN(picture.h, twin.h)));
+	for (int y = area.top; y < area.bottom; y++) {
+		const uint32 *p = (const uint32 *)picture.getBasePtr(area.left, y);
+		uint32 *t = (uint32 *)twin.getBasePtr(area.left, y);
+		for (int x = area.left; x < area.right; x++, p++, t++)
+			if ((*p >> 24) == 0xFF)
+				*t |= 0xFF000000u;
+	}
+}
+
 uint32 TextTwin::toArgb(uint32 colour, const Graphics::PixelFormat &fmt) {
 	byte a, r, g, b;
 	fmt.colorToARGB(colour, a, r, g, b);

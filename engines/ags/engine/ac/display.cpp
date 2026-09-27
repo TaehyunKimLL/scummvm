@@ -22,6 +22,7 @@
 #include "common/config-manager.h"
 #include "common/std/algorithm.h"
 #include "ags/engine/ac/display.h"
+#include "ags/engine/ac/hires_text_twin.h"
 #include "ags/shared/ac/common.h"
 #include "ags/shared/font/ags_font_renderer.h"
 #include "ags/shared/font/fonts.h"
@@ -70,6 +71,8 @@ struct DisplayVars {
 Bitmap *create_textual_image(const char *text, int asspch, int isThought,
 							 int &xx, int &yy, int &adjustedXX, int &adjustedYY, int wii, int usingfont, int allowShrink,
 							 bool &alphaChannel) {
+	// ScummVM (C23): record the text for the image's N x twin
+	HiResTextScope hiresScope;
 	//
 	// Configure the textual image
 	//
@@ -556,6 +559,26 @@ void wouttext_outline(Shared::Bitmap *ds, int xxp, int yyp, int font, color_t te
 	size_t const text_font = static_cast<size_t>(font);
 	// Draw outline (a backdrop) if requested
 	color_t const outline_color = ds->GetCompatibleColor(_GP(play).speech_text_shadow);
+
+	// ScummVM (C23): inside a capture scope, record what this draws for the
+	// bitmap's N x twin (AGS_HIRES_TEXT_DESIGN.md section 4.1)
+	HiResTextTwins *twins = hires_text_twins();
+	if (twins && !twins->wantsDraw(ds, font))
+		twins = nullptr;
+	TextDraw capture;
+	if (twins) {
+		capture.font = font;
+		capture.colour = text_color;
+		capture.outlineColour = outline_color;
+		capture.text = texx;
+		capture.x = xxp;
+		capture.y = yyp;
+		const Rect clip = ds->GetClip();
+		capture.clip = Common::Rect(clip.Left, clip.Top, clip.Right + 1, clip.Bottom + 1);
+		// Generous rows around the line; only what changes is recorded
+		const int h = get_font_height_outlined(font);
+		twins->beginDraw(ds, Common::Rect(0, yyp - 2 * h - 4, ds->GetWidth(), yyp + 3 * h + 4));
+	}
 	int const outline_font = get_font_outline(font);
 	if (outline_font >= 0)
 		wouttextxy(ds, xxp, yyp, static_cast<size_t>(outline_font), outline_color, texx);
@@ -566,6 +589,9 @@ void wouttext_outline(Shared::Bitmap *ds, int xxp, int yyp, int font, color_t te
 
 	// Draw text on top
 	wouttextxy(ds, xxp, yyp, text_font, text_color, texx);
+
+	if (twins)
+		twins->endDraw(ds, capture);
 }
 
 // wouttextxy_AutoOutline() at N x: the same stencils and stamps, N x as
@@ -636,10 +662,9 @@ static void wouttextxy_AutoOutline_scaled(Bitmap *ds, size_t font, int32_t color
 	}
 }
 
-void wouttext_outline_scaled(Shared::Bitmap *ds, int xxp, int yyp, int font, color_t text_color, const char *texx,
-							 int scale) {
+void wouttext_outline_scaled(Shared::Bitmap *ds, int xxp, int yyp, int font, color_t text_color, color_t outline_color,
+							 const char *texx, int scale) {
 	size_t const text_font = static_cast<size_t>(font);
-	color_t const outline_color = ds->GetCompatibleColor(_GP(play).speech_text_shadow);
 	int const outline_font = get_font_outline(font);
 	if (outline_font >= 0)
 		wouttextxy_scaled(ds, xxp, yyp, static_cast<size_t>(outline_font), outline_color, texx, scale);
