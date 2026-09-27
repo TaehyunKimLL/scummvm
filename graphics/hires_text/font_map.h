@@ -28,6 +28,7 @@
 #include "common/path.h"
 #include "common/str.h"
 #include "common/str-enc.h"
+#include "graphics/hires_text/glyph_mirror.h"
 #include "graphics/hires_text/text_layout.h"
 
 namespace Common {
@@ -134,6 +135,19 @@ struct HiResFontIdSettings {
 	Common::Array<Common::Path> faceChain;
 	Common::Path bitmap;              ///< bitmap=, an SVFN file relative to the map
 	bool bitmapSet;
+	/// mirror= (C27): draw this charset's glyphs flipped; see HiResMirror.
+	/// Naming it also asks for the replacement on a charset the engine
+	/// would otherwise leave on the game's own (mirrored) font.
+	HiResMirror mirror;
+	bool mirrorSet;
+
+	/// Whether mirror= is the only key read from the section: then it says
+	/// nothing about placement, and a map that was laid out the legacy way
+	/// stays so.
+	bool onlyMirror() const {
+		return mirrorSet && !faceSet && !sizeSet && !latinSet && !latinFontSet &&
+			   !latinSpaceSet && !metricsSet && !bitmapSet;
+	}
 };
 
 /* HangulBreak (word/any) is defined in text_layout.h, I18N_TEXT_DESIGN.md section 3.2. */

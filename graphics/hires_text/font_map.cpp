@@ -43,7 +43,8 @@ static const int kMaxCoverageGamma = 400;
 HiResFontIdSettings::HiResFontIdSettings()
 	: faceSet(false), size(0), sizeSet(false), latin(kHiResLatinOff), latinSet(false),
 	  latinFontSet(false), latinFullwidthSpace(false), latinSpaceSet(false),
-	  metrics(kHiResMetricsGame), metricsSet(false), bitmapSet(false) {
+	  metrics(kHiResMetricsGame), metricsSet(false), bitmapSet(false),
+	  mirror(kHiResMirrorNone), mirrorSet(false) {
 }
 
 HiResLayoutSettings::HiResLayoutSettings()
@@ -817,6 +818,7 @@ void readFontIdSections(const Common::INIFile &ini, const Common::Array<Common::
 						const Common::Path &baseDir, HiResTextConfig &out) {
 	static const char *const knownKeys[] = {
 		"face", "font", "size", "latin", "latin_font", "latin_face", "latin_space", "metrics", "bitmap",
+		"mirror",
 		"baseline" // a known future key: parsed and ignored, no warning
 	};
 
@@ -912,6 +914,13 @@ void readFontIdSections(const Common::INIFile &ini, const Common::Array<Common::
 				f.metricsSet = true;
 			else
 				warning("HiResText: [%s] metrics '%s' is not game or font, ignoring",
+						section.c_str(), value.c_str());
+		}
+		if (getKey(ini, qualifiers, section.c_str(), "mirror", value)) {
+			if (parseMirror(value, f.mirror))
+				f.mirrorSet = true;
+			else
+				warning("HiResText: [%s] mirror '%s' is not true, false, horizontal, vertical or both, ignoring",
 						section.c_str(), value.c_str());
 		}
 	}
