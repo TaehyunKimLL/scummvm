@@ -53,6 +53,7 @@ using Graphics::TtfGlyphSource;
 //   SCUMMVM_TEST_THAI_FONT   Sukhumvit Set (a Thai face with zero-width marks)
 //   SCUMMVM_TEST_KO_FONT     Apple SD Gothic Neo
 //   SCUMMVM_TEST_JA_FONT     Hiragino Sans W3
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 #pragma push_macro("getenv")
 #undef getenv
 static const char *ttfFitTestFontPath(const char *var, const char *def) {
@@ -60,6 +61,7 @@ static const char *ttfFitTestFontPath(const char *var, const char *def) {
 	return (v && *v) ? v : def;
 }
 #pragma pop_macro("getenv")
+#endif
 
 class HiResTextTtfFitTestSuite : public CxxTest::TestSuite {
 public:
