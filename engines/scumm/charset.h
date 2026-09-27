@@ -52,6 +52,23 @@ static inline bool checkKSCode(byte hi, byte lo) {
 	return false;
 }
 
+/**
+ * Insert a line break (0x0D) at str[breakPos] for addLinebreaks(), moving
+ * the rest of the string, its terminating NUL at str[strLength] included,
+ * up by one byte. strLength grows by one, so it stays the string's length
+ * for the next insert. Nothing is changed, and false is returned, when the
+ * longer string would not fit in the bufSize bytes available from str.
+ */
+static inline bool insertLinebreak(byte *str, int &strLength, int breakPos, int bufSize) {
+	if (breakPos < 0 || breakPos > strLength || strLength + 2 > bufSize)
+		return false;
+	byte *breakPtr = str + breakPos;
+	memmove(breakPtr + 1, breakPtr, strLength - breakPos + 1);
+	str[breakPos] = 0xD;
+	strLength++;
+	return true;
+}
+
 static inline bool checkSJISCode(byte c) {
 	if ((c >= 0x80 && c <= 0x9f) || (c >= 0xe0 && c <= 0xfd))
 		return true;
@@ -145,8 +162,9 @@ public:
 	virtual int getStringWidth(int arg, const byte *text);
 	/**
 	 * Break a string into lines no wider than @p maxwidth by writing 0x0D.
-	 * @param bufSize  the bytes available from @p str, NUL included; only
-	 *                 the UTF-8 path, which may insert, uses it (-1: none
+	 * @param bufSize  the bytes available from @p str, NUL included, for
+	 *                 the breaks that are inserted rather than written over
+	 *                 a space (UTF-8 text, Korean fan translations; -1: none
 	 *                 beyond the string itself)
 	 */
 	void addLinebreaks(int a, byte *str, int pos, int maxwidth, int bufSize = -1);
