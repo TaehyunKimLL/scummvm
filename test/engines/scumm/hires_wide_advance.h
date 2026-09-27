@@ -143,9 +143,11 @@ public:
 		int carry = 1;
 		TS_ASSERT_EQUALS(utf8.advanceFor(0xAC00, kCs, 8, &carry), fit);
 		TS_ASSERT_EQUALS(carry, 1);	// the carry belongs to metrics=font
-		// ASCII steps by the face too since C34 (hires_latin_advance.h); the
-		// space keeps the game's width.
+		// ASCII steps by the face too since C34, and in the game's own
+		// English since C36 (hires_latin_advance.h); the space keeps the
+		// game's width.
 		TS_ASSERT(cp949.advanceFor('a', kCs, 6) != 6);
+		TS_ASSERT_EQUALS(utf8.advanceFor('a', kCs, 6), cp949.advanceFor('a', kCs, 6));
 		TS_ASSERT_EQUALS(cp949.advanceFor(' ', kCs, 6), 6);
 #else
 		TS_SKIP("needs FreeType and a real filesystem");
@@ -171,6 +173,9 @@ public:
 			TS_ASSERT(open(utf8, overlay, c, true));
 			TS_ASSERT_EQUALS(cp949.advanceFor(kGaCp949, kCs, kCell + 1), kCell + 1);
 			TS_ASSERT_EQUALS(utf8.advanceFor(0xAC00, kCs, kCell + 1), kCell + 1);
+			// The same keys keep ASCII on the game's width (C34/C36).
+			TS_ASSERT_EQUALS(cp949.advanceFor('a', kCs, 6), 6);
+			TS_ASSERT_EQUALS(utf8.advanceFor('a', kCs, 6), 6);
 		}
 #else
 		TS_SKIP("needs FreeType and a real filesystem");
