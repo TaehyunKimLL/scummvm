@@ -38,7 +38,7 @@ struct HiResFontPlan {
 		kBitmap,	///< [font.N] bitmap=: an SVFN file
 		kFaces		///< [font.N] face=, hires_text_font or [hires] face=: a TrueType chain
 	};
-	HiResFontPlan() : kind(kGame), size(0), gamma(100) {}
+	HiResFontPlan() : kind(kGame), size(0), gamma(100), pixel(0) {}
 
 	Kind kind;
 	Common::Array<Common::Path> faces;	///< kFaces: the chain, resolved
@@ -46,6 +46,7 @@ struct HiResFontPlan {
 	int size;							///< pixels; 0 = the game's own font height
 	Common::String source;				///< for logs: which key chose this
 	int gamma;							///< kFaces: [hires] gamma=, hundredths; 100 = off
+	int pixel;							///< kFaces: [font.N]/[hires] pixel=, a pixel font's design size; 0 = none
 };
 
 /**

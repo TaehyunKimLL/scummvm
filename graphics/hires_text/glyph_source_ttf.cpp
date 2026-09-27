@@ -102,6 +102,17 @@ int TtfGlyphSource::chooseFitSize(int startSize, int minSize, uint32 rendersPerC
 	return chosenSize;
 }
 
+int TtfGlyphSource::pixelGridSize(int cellSize, int designPx) {
+	if (designPx <= 0 || designPx > kMaxPixelSize)
+		return 0;
+	// The largest whole multiple of the design the cell holds, never below
+	// the design itself (a smaller cell clips instead of going off grid).
+	int multiple = MAX(1, cellSize / designPx);
+	while (multiple > 1 && designPx * multiple > kMaxPixelSize)
+		multiple--;
+	return designPx * multiple;
+}
+
 #ifdef USE_FREETYPE2
 
 namespace {
@@ -491,6 +502,82 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 	return src;
 }
 
+TtfGlyphSource *TtfGlyphSource::createPixel(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+											 int cellSize, int designPx, Common::String &error, int32 faceIndex) {
+	const int ppem = pixelGridSize(cellSize, designPx);
+	Common::String why;
+	if (!stream)
+		why = "no font stream";
+	else if (cellSize < kMinPixelSize || cellSize > kMaxPixelSize)
+		why = Common::String::format("pixel size %d is outside %d..%d", cellSize, kMinPixelSize, kMaxPixelSize);
+	else if (ppem == 0)
+		why = Common::String::format("pixel=%d is no design size (1..%d)", designPx, kMaxPixelSize);
+	else if (faceIndex < 0)
+		why = Common::String::format("face index %d is negative", (int)faceIndex);
+	if (!why.empty()) {
+		error = why;
+		if (stream && dispose == DisposeAfterUse::YES)
+			delete stream;
+		return nullptr;
+	}
+
+	// The ppem itself, in character mode: the grid is the em, not the line.
+	stream->seek(0);
+	Graphics::Font *font = Graphics::loadTTFFont(stream, DisposeAfterUse::NO, ppem, Graphics::kTTFSizeModeCharacter,
+												  0, 0, Graphics::kTTFRenderModeLight, nullptr, false, faceIndex);
+	if (!font) {
+		error = faceIndex ? Common::String::format("could not open face %d of the font", (int)faceIndex)
+						  : Common::String("could not open the font face");
+		if (dispose == DisposeAfterUse::YES)
+			delete stream;
+		return nullptr;
+	}
+
+	const byte cell = (byte)cellSize;
+	uint32 rasterCount = 0, totalRenderMs = 0;
+	int yOffset = 0;
+	// Drawn from the line top, as a line-fitted face is, while the line
+	// fits the cell. A taller line has the Hangul and Latin probes' ink
+	// moved inside by whole rows (so the grid is kept), or its top put at
+	// row 0 when the ink itself is taller than the cell.
+	if (font->getFontHeight() > cellSize) {
+		const int probeW = cell * 3, probeH = cell * 3, drawY = cell;
+		int top = probeH, bottom = -probeH;
+		for (int i = 0; i < kPixelPlacementProbes; i++) {
+			Graphics::ManagedSurface probeSurf(probeW, probeH, Graphics::PixelFormat::createFormatARGB32());
+			const uint32 renderStart = g_system->getMillis();
+			renderCoverage(font, kProbeCodepoints[i], 0, drawY, probeSurf);
+			totalRenderMs += g_system->getMillis() - renderStart;
+			rasterCount++;
+			for (int y = 0; y < probeH; y++) {
+				for (int x = 0; x < probeW; x++) {
+					if (coverageAt(probeSurf, x, y) >= kInkThreshold) {
+						top = MIN(top, y - drawY);
+						bottom = MAX(bottom, y - drawY + 1);
+						break;
+					}
+				}
+			}
+		}
+		if (bottom > top && (top < 0 || bottom > cellSize)) {
+			const int box = bottom - top;
+			yOffset = -top + MAX(0, (cellSize - box) / 2);
+		}
+	}
+
+	TtfGlyphSource *src = new TtfGlyphSource();
+	src->_font = font;
+	src->_stream = stream;
+	src->_dispose = dispose;
+	src->_cellWidth = cell;
+	src->_cellHeight = cell;
+	src->_faceSize = ppem;
+	src->_yOffset = yOffset;
+	src->_rasterCount = rasterCount;
+	src->_totalRenderMs = totalRenderMs;
+	return src;
+}
+
 TtfGlyphSource::~TtfGlyphSource() {
 	// context.md's Task 3: the total FreeType render cost over this source's
 	// lifetime (probes at create() time, plus one rasterisation per distinct
@@ -638,6 +725,15 @@ TtfGlyphSource *TtfGlyphSource::create(Common::SeekableReadStream *stream, Dispo
 										int pixelSize, Common::String &error, bool requireHangul, bool lineFit,
 										const uint32 *extraFitProbes, uint extraFitProbeCount, int32 faceIndex) {
 	return createImpl(stream, dispose, pixelSize, error, requireHangul, lineFit, extraFitProbes, extraFitProbeCount, faceIndex);
+}
+
+TtfGlyphSource *TtfGlyphSource::createPixel(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+											 int /*cellSize*/, int /*designPx*/, Common::String &error,
+											 int32 /*faceIndex*/) {
+	error = "this build has no FreeType";
+	if (dispose == DisposeAfterUse::YES)
+		delete stream;
+	return nullptr;
 }
 
 TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,

@@ -267,14 +267,16 @@ FontSettings GfxCache::fontSettingsFor(GuiResourceId fontId) {
 }
 
 Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int size, FaceProbes probes,
-									const char *what, const char *fallback) {
+									const char *what, const char *fallback, int pixel) {
 	const bool requireHangul = probes == kProbesHangul;
-	const Common::String key = Common::String::format("%s|%d|%d", path.c_str(), size, (int)probes);
+	// A pixel font is another source of the same file and size.
+	const Common::String pixelKey = pixel > 0 ? Common::String::format("|p%d", pixel) : Common::String();
+	const Common::String key = Common::String::format("%s|%d|%d", path.c_str(), size, (int)probes) + pixelKey;
 	if (_ttfSources.contains(key))
 		return _ttfSources[key];
 	// A face without the Hangul check is satisfied by one that passed it.
 	if (probes == kProbesDefault) {
-		const Common::String checked = Common::String::format("%s|%d|1", path.c_str(), size);
+		const Common::String checked = Common::String::format("%s|%d|1", path.c_str(), size) + pixelKey;
 		if (_ttfSources.contains(checked) && _ttfSources[checked])
 			return _ttfSources[checked];
 	}
@@ -293,7 +295,10 @@ Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int si
 		error = "empty path";
 	} else if ((stream = Graphics::openFontFace(Common::Path(path, Common::Path::kNativeSeparator), faceIndex, error))) {
 		const uint32 startMs = g_system->getMillis();
-		if (probes == kProbesTranslation) {
+		if (pixel > 0) {
+			// Held on its grid: no fit, so no probes and no Hangul check.
+			src = Graphics::TtfGlyphSource::createPixel(stream, DisposeAfterUse::YES, size, pixel, error, faceIndex);
+		} else if (probes == kProbesTranslation) {
 			// Fitted to the translation's own characters too (Thai marks,
 			// Japanese brackets), not only to the fixed Hangul/Latin set.
 			const Common::Array<uint32> &sample = translationFitProbes();
@@ -363,10 +368,10 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 		const bool haveGlobal = !global.facePath.empty() && global.facePath != mainPath;
 		const Common::String toGlobal = "using " + global.facePath;
 		main = ttfSource(mainPath, s.size, probes, "hires_text_font",
-						 haveGlobal ? toGlobal.c_str() : "using the .uni fonts");
+						 haveGlobal ? toGlobal.c_str() : "using the .uni fonts", s.pixel);
 		if (!main && haveGlobal) {
 			mainPath = global.facePath;
-			main = ttfSource(mainPath, s.size, probes, "hires_text_font", "using the .uni fonts");
+			main = ttfSource(mainPath, s.size, probes, "hires_text_font", "using the .uni fonts", s.pixel);
 		}
 	}
 	// The set carries what is actually drawn.
@@ -419,7 +424,9 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 		s.latinFacePath.clear();
 
 	// One router per Latin mode (see unicodeBundleKey()).
-	const Common::String key = unicodeBundleKey(mainPath, s.size, s.latinFacePath, s.latin);
+	Common::String key = unicodeBundleKey(mainPath, s.size, s.latinFacePath, s.latin);
+	if (s.pixel > 0)
+		key += Common::String::format("|p%d", s.pixel);
 	if (_ttfBundles.contains(key))
 		return _ttfBundles[key];
 
@@ -519,7 +526,8 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 		for (uint i = 0; i < paths.size(); i++) {
 			const bool last = i + 1 == paths.size();
 			Graphics::TtfGlyphSource *src = ttfSource(paths[i], s.size, kProbesTranslation, "hires_text_font",
-													  last ? "using the .uni fonts" : "using the next face of the chain");
+													  last ? "using the .uni fonts" : "using the next face of the chain",
+													  i == 0 ? s.pixel : 0);
 			if (src) {
 				faces.push_back(src);
 				names.push_back(paths[i]);
@@ -537,7 +545,9 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 	// shared by the font ids whose faces, size and bundle all match: the
 	// faces are opened at that size, so another size is another chain.
 	GfxFontUnicode *uni = loadUniBundle();
-	const Common::String key = faceChainKey(names, s.size, uni && uni->source());
+	Common::String key = faceChainKey(names, s.size, uni && uni->source());
+	if (s.pixel > 0)
+		key += Common::String::format("|p%d", s.pixel);
 	if (_chains.contains(key))
 		return _chains[key];
 

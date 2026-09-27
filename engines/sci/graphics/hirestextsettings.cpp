@@ -26,7 +26,7 @@
 namespace Sci {
 
 FontSettings::FontSettings()
-	: size(16), latin(kLatinOff), fullwidthSpace(false), metrics(Graphics::kHiResMetricsGame) {
+	: size(16), pixel(0), latin(kLatinOff), fullwidthSpace(false), metrics(Graphics::kHiResMetricsGame) {
 }
 
 HiresTextOverrides::HiresTextOverrides()
@@ -98,6 +98,13 @@ FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapL
 		s.size = font->size;
 	else if (mapLoaded && map.hiresSizeSet)
 		s.size = map.hiresSize;
+
+	// Pixel font (C28): [font.N] pixel > [hires] pixel > none. The face is
+	// held on its grid in the size above, never shrunk by the fit.
+	if (font && font->pixelSet)
+		s.pixel = font->pixel;
+	else if (mapLoaded && map.hiresPixelSet)
+		s.pixel = map.hiresPixel;
 
 	// Latin mode: ini > [font.N] latin > [latin] mode > [latin] enabled=true
 	// (SCUMM's legacy switch: "the engine's current Latin behaviour", which

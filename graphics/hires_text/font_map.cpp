@@ -42,7 +42,7 @@ static const int kMinCoverageGamma = 50;
 static const int kMaxCoverageGamma = 400;
 
 HiResFontIdSettings::HiResFontIdSettings()
-	: faceSet(false), size(0), sizeSet(false), latin(kHiResLatinOff), latinSet(false),
+	: faceSet(false), size(0), sizeSet(false), pixel(0), pixelSet(false), latin(kHiResLatinOff), latinSet(false),
 	  latinFontSet(false), latinFullwidthSpace(false), latinSpaceSet(false),
 	  metrics(kHiResMetricsGame), metricsSet(false), bitmapSet(false) {
 }
@@ -118,6 +118,8 @@ void HiResTextConfig::clear() {
 	hiresFaceSet = false;
 	hiresSize = 0;
 	hiresSizeSet = false;
+	hiresPixel = 0;
+	hiresPixelSet = false;
 	hiresFaceChain.clear();
 	latinMode = kHiResLatinOff;
 	latinModeSet = false;
@@ -906,7 +908,7 @@ void readLayoutSection(const Common::INIFile &ini, const Common::Array<Common::S
 void readFontIdSections(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
 						const Common::Path &baseDir, HiResTextConfig &out) {
 	static const char *const knownKeys[] = {
-		"face", "font", "size", "latin", "latin_font", "latin_face", "latin_space", "metrics", "bitmap",
+		"face", "font", "size", "pixel", "latin", "latin_font", "latin_face", "latin_space", "metrics", "bitmap",
 		"baseline" // a known future key: parsed and ignored, no warning
 	};
 
@@ -978,6 +980,12 @@ void readFontIdSections(const Common::INIFile &ini, const Common::Array<Common::
 				f.sizeSet = true;
 			else
 				warning("HiResText: [%s] invalid size '%s', ignoring", section.c_str(), value.c_str());
+		}
+		if (getKey(ini, qualifiers, section.c_str(), "pixel", value)) {
+			if (parseFaceSize(value, f.pixel))
+				f.pixelSet = true;
+			else
+				warning("HiResText: [%s] invalid pixel '%s', ignoring", section.c_str(), value.c_str());
 		}
 		if (getKey(ini, qualifiers, section.c_str(), "latin", value)) {
 			if (parseLatinMode(value, f.latin))
@@ -1285,6 +1293,12 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 			out.hiresSizeSet = true;
 		else
 			warning("HiResText: invalid [hires] size '%s', ignoring", value.c_str());
+	}
+	if (getKey(ini, qualifiers, "hires", "pixel", value)) {
+		if (parseFaceSize(value, out.hiresPixel))
+			out.hiresPixelSet = true;
+		else
+			warning("HiResText: invalid [hires] pixel '%s', ignoring", value.c_str());
 	}
 	readFaceTable(ini, qualifiers, out.fontFaces);
 	// After [fonts], so the chain's names resolve.

@@ -751,6 +751,32 @@ public:
 		TS_ASSERT(!cfg.scaleFromMap);
 	}
 
+	// C28: pixel=<design px> holds a pixel font on its grid; [font.N]
+	// refines [hires], a bad value is ignored, and no map sets it.
+	void test_pixel_key_parse() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(!cfg.hiresPixelSet);
+		TS_ASSERT_EQUALS(cfg.hiresPixel, 0);
+		TS_ASSERT(parse("[hires]\npixel=12\n[font.2]\npixel=10\n[font.3]\nsize=16\n", cfg));
+		TS_ASSERT(cfg.hiresPixelSet);
+		TS_ASSERT_EQUALS(cfg.hiresPixel, 12);
+		const Graphics::HiResFontIdSettings *f2 = cfg.fontIdSettings(2);
+		TS_ASSERT(f2 && f2->pixelSet);
+		if (f2)
+			TS_ASSERT_EQUALS(f2->pixel, 10);
+		const Graphics::HiResFontIdSettings *f3 = cfg.fontIdSettings(3);
+		TS_ASSERT(f3 && !f3->pixelSet);
+		if (f3)
+			TS_ASSERT_EQUALS(f3->pixel, 0);
+
+		cfg.clear();
+		TS_ASSERT(!cfg.hiresPixelSet);
+		TS_ASSERT(parse("[hires]\npixel=zero\n[font.2]\npixel=0\n", cfg));
+		TS_ASSERT(!cfg.hiresPixelSet);
+		const Graphics::HiResFontIdSettings *bad = cfg.fontIdSettings(2);
+		TS_ASSERT(bad && !bad->pixelSet);
+	}
+
 	void test_font_id_sections_parse() {
 		const char *map =
 			"[font.4]\n"

@@ -44,6 +44,7 @@ struct FontSettings {
 	/// UTF-8 translation, the first face only otherwise.
 	Common::Array<Common::String> faceChain;
 	int size;                        ///< face size in pixels
+	int pixel;                       ///< [font.N]/[hires] pixel=: the first face's design size, held on its grid; 0 = none
 	LatinMode latin;                 ///< how ASCII is drawn
 	Common::String latinFacePath;    ///< face for the Latin range; empty = the main face
 	bool fullwidthSpace;             ///< kLatinFullwidth: remap ' ' to U+3000 too

@@ -117,6 +117,13 @@ struct HiResFontIdSettings {
 	bool faceSet;
 	int size;                         ///< size=, pixels
 	bool sizeSet;
+	/// pixel=, the design size of a pixel font in pixels per em: the face
+	/// is opened at the largest whole multiple of it the cell holds
+	/// (TtfGlyphSource::pixelGridSize()), never shrunk by the probe fit.
+	/// The cell is size= when that is set, else the engine's own. Only the
+	/// first face of the chain is a pixel face; the rest are fallbacks.
+	int pixel;
+	bool pixelSet;
 	HiResLatinMode latin;             ///< latin=
 	bool latinSet;
 	Common::String latinFont;         ///< latin_font= (or latin_face=)
@@ -280,6 +287,8 @@ struct HiResTextConfig {
 	bool hiresFaceSet;
 	int hiresSize;                    ///< [hires] size=, pixels
 	bool hiresSizeSet;
+	int hiresPixel;                   ///< [hires] pixel=, see HiResFontIdSettings::pixel
+	bool hiresPixelSet;
 	/// [hires] face= as a fallback chain; see HiResFontIdSettings::faceChain.
 	Common::Array<Common::Path> hiresFaceChain;
 	HiResLatinMode latinMode;         ///< [latin] mode=
