@@ -139,7 +139,10 @@ CLUT8 surface. A paletted surface cannot hold coverage, so the colour goes to
 the text surface and the coverage to a parallel 8bpp one that the caller blends
 against the background. The coverage surface is optional: without it an 8bpp
 font still draws as a stencil, so a backend with no alpha path is not left
-blank. A 1bpp font writes no coverage at all - it has none to record.
+blank. That stencil keeps the pixels covered at least a quarter
+(`kKeyedInkThreshold`, 0x40): any coverage turns the stroke fringe into ink and
+closes small glyphs into blobs, while half coverage drops thin CJK strokes. A
+1bpp font writes no coverage at all - it has none to record.
 
 Decoration (`none`, `drop`, `outline`, `stroke`) is drawn in a full pass before
 the body, and a pixel is never overwritten by one with less coverage. Both rules

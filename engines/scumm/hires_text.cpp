@@ -139,6 +139,7 @@ void ScummHiResText::reset() {
 		_gameFontW[i] = _gameFontH[i] = 0;
 	_fontsLoaded = false;
 	_alphaActive = false;
+	_korPatchShadow = false;
 	_perGlyph = false;
 	_metricsFromIni = false;
 	_ttfFromIni = false;
@@ -213,9 +214,7 @@ void ScummHiResText::resolveCharsetFonts() {
 	// The keys that name per-charset faces and Latin modes did not exist for
 	// SCUMM before C11 T6; a map without them is laid out exactly as before.
 	// [latin] font= and metrics= are older keys and do not count.
-	_perGlyph = _config.hiresFaceSet || _config.hiresSizeSet || !_config.fontIds.empty() ||
-				_config.latinModeSet || _config.latinSpaceSet ||
-				_config.encoding == Common::kUtf8;
+	_perGlyph = usesPerGlyph(_config);
 
 	for (int cs = 0; cs < kMaxFonts; ++cs) {
 		CharsetFonts &f = _charsetFonts[cs];
@@ -981,20 +980,25 @@ int ScummHiResText::nearestTtfCharset(int charsetId) const {
  * font, which a replacement has no reason to match, so a map may override it.
  * Without an override we follow the game and nothing changes by accident.
  */
-static Graphics::HiResShadowMode resolveShadow(Graphics::HiResShadowMode fromMap, int gameShadow) {
+Graphics::HiResShadowMode ScummHiResText::resolveShadow(Graphics::HiResShadowMode fromMap,
+														 int gameShadow, bool korPatchShadow) {
 	if (fromMap != Graphics::kHiResShadowGame)
 		return fromMap;
 
-	// _2byteShadow: 1 = none, 2 = drop, 3 = stroke, anything else outline.
+	// _2byteShadow: 1 = none, 2 = drop, 3 = stroke, anything else outline -
+	// byte 1 of a kor-trs korean%02d.fnt, read as drawBits1Kor() reads it.
 	//
-	// Zero is not one of those values: it is the field's initial state, and it
-	// keeps that value in any game that never loads a CJK font, since only
-	// loadCJKFont() and the charset switch ever assign it. Treating zero as
-	// "outline" there wrapped every glyph in shadowColor - which is also zero
-	// - so English text was drawn black-on-black and vanished. A game that
-	// asked for nothing gets nothing.
+	// Zero is ambiguous. From a Korean patch font it is that font's own
+	// "anything else": MI2's dialogue font korean02.fnt says 0, and the
+	// patch's renderer outlines it (C18). But zero is also the field's initial
+	// state, which it keeps in any game that never loads such a font, since
+	// only loadKorFont() and the charset switch assign it. Outlining there
+	// wrapped every glyph in shadowColor - also zero - so English text was
+	// drawn black-on-black and vanished (3bd719542f). So zero is an outline
+	// only where the patch fonts set it.
 	switch (gameShadow) {
 	case 0:
+		return korPatchShadow ? Graphics::kHiResShadowOutline : Graphics::kHiResShadowNone;
 	case 1:
 		return Graphics::kHiResShadowNone;
 	case 2:
@@ -1139,7 +1143,7 @@ bool ScummHiResText::drawRows(Graphics::Surface &dest, Face &face, uint32 cp, in
 	Graphics::GlyphStyle style;
 	style.color = color;
 	style.shadowColor = _config.shadowColorSet ? _config.shadowColor : shadowColor;
-	style.shadowMode = resolveShadow(_config.shadowMode, gameShadow);
+	style.shadowMode = resolveShadow(_config.shadowMode, gameShadow, _korPatchShadow);
 	style.shadowOffset = (_config.shadowOffset >= 0) ? _config.shadowOffset : 1;
 
 	return Graphics::HiResGlyphRenderer::drawGlyph(dest,
@@ -1983,8 +1987,82 @@ void ScummHiResText::noteTranslatedString(const byte *s, uint32 maxLen) {
 
 bool ScummHiResText::mapNamesNoFonts(const Graphics::HiResTextConfig &config,
 									 const Common::Path &ttfPath) {
-	return config.bitmapPattern.empty() && config.bitmapSingle.empty() &&
-		   config.legacy.latinBitmapName.empty() && ttfPath.empty();
+	if (!config.bitmapPattern.empty() || !config.bitmapSingle.empty() ||
+		!config.legacy.latinBitmapName.empty() || !ttfPath.empty())
+		return false;
+	if (config.hiresFaceSet && !config.hiresFaceChain.empty())
+		return false;
+	for (Common::HashMap<int, Graphics::HiResFontIdSettings>::const_iterator it = config.fontIds.begin();
+		 it != config.fontIds.end(); ++it) {
+		if ((it->_value.faceSet && !it->_value.faceChain.empty()) || it->_value.bitmapSet)
+			return false;
+	}
+	return true;
+}
+
+bool ScummHiResText::usesPerGlyph(const Graphics::HiResTextConfig &config) {
+	return config.hiresFaceSet || config.hiresSizeSet || !config.fontIds.empty() ||
+		   config.latinModeSet || config.latinSpaceSet ||
+		   config.encoding == Common::kUtf8;
+}
+
+bool ScummHiResText::mapWantsAlpha(const Graphics::HiResTextConfig &config,
+								   bool namesFace, bool namesCoverageBitmap,
+								   bool gameCanBlend) {
+	if (config.alphaFromMap)
+		return config.alpha;
+	return gameCanBlend && (namesFace || namesCoverageBitmap);
+}
+
+/// Whether any bitmap font the map names, and loadFonts() would load, is
+/// 8 bpp (anti-aliased). Reads only each file's SVFN header (magic at 0,
+/// bpp at 8, as HiResBitmapFont::load() reads them); a file that is not a
+/// usable font is reported when the fonts load. Stops at the first such font.
+bool ScummHiResText::namedBitmapHasCoverage(const Common::Path &gameDir) const {
+	Common::Array<Common::Path> files;
+	const Common::String *patterns[] = { &_config.bitmapPattern, &_config.legacy.latinBitmapName };
+	for (int p = 0; p < 2; ++p) {
+		if (patterns[p]->empty())
+			continue;
+		// A plain name (the Latin one may be) is one file, not a pattern.
+		if (!patterns[p]->contains('%')) {
+			files.push_back(gameDir.appendComponent(*patterns[p]));
+			continue;
+		}
+		for (int i = 0; i < kMaxFonts; ++i) {
+			const Common::String name = expandFontPattern(*patterns[p], i);
+			if (name.empty())
+				break;
+			files.push_back(gameDir.appendComponent(name));
+		}
+	}
+	if (!_config.bitmapSingle.empty())
+		files.push_back(gameDir.appendComponent(_config.bitmapSingle));
+	// [font.N] bitmap= is loaded only with per-charset placement (loadFonts()).
+	if (usesPerGlyph(_config)) {
+		for (Common::HashMap<int, Graphics::HiResFontIdSettings>::const_iterator it = _config.fontIds.begin();
+			 it != _config.fontIds.end(); ++it) {
+			if (it->_value.bitmapSet)
+				files.push_back(it->_value.bitmap);
+		}
+	}
+
+	for (uint i = 0; i < files.size(); ++i) {
+		Common::FSNode node(files[i]);
+		if (!node.exists())
+			continue;
+		Common::SeekableReadStream *stream = node.createReadStream();
+		if (!stream)
+			continue;
+		byte header[9];
+		const bool coverage = stream->read(header, sizeof(header)) == sizeof(header) &&
+							  READ_BE_UINT32(header) == MKTAG('S', 'V', 'F', 'N') &&
+							  header[8] == 8;
+		delete stream;
+		if (coverage)
+			return true;
+	}
+	return false;
 }
 
 /// The code page a language's text is in, when the map does not say.
@@ -2121,6 +2199,23 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 			_config.scale = 2;
 			_config.alpha = true;
 		}
+	}
+
+	// A map that does not mention alpha= blends the fonts that have edges to
+	// blend (C17). Before, it drew a face or an 8 bpp SVFN keyed on a
+	// paletted screen, so every glyph edge was a hard step - the fork's own
+	// universal map did exactly that. The ini keys below still win.
+	if (haveMap && !mapPath.empty() && !_config.alphaFromMap) {
+		const bool canBlend = canBlendText(version);
+		const bool coverage = mapWantsAlpha(_config, haveTtf,
+											canBlend && !haveTtf && namedBitmapHasCoverage(gameDir),
+											canBlend);
+		if (coverage != _config.alpha)
+			debug(1, "SCUMM: the map does not set alpha=; %s, so blending is %s",
+				  !canBlend ? "this game cannot blend" :
+				  coverage ? "its fonts are anti-aliased" : "its fonts are 1 bpp stencils",
+				  coverage ? "on" : "off");
+		_config.alpha = coverage;
 	}
 
 	_scaleFromUser = false;
