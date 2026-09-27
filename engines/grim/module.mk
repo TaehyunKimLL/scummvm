@@ -110,6 +110,7 @@ MODULE_OBJS := \
 	lab.o \
 	lipsync.o \
 	localize.o \
+	localize_text.o \
 	lua.o \
 	lua_grim_patch.o \
 	lua_v1.o \
