@@ -6,9 +6,9 @@
  * Whether a map that says nothing about alpha= gets blended text (C17).
  *
  * A TrueType face and an 8 bpp SVFN both carry coverage: their edges are
- * partly covered pixels. With blending off, the layer draws a pixel where
- * coverage is at least half, which throws the anti-aliasing away and gives
- * hard, stepped edges. AGS already blends unless the map says alpha=false;
+ * partly covered pixels. With blending off, the layer keys them: it draws a
+ * pixel where coverage is at least 0x40 (any coverage at all before C17),
+ * which throws the anti-aliasing away and gives hard, stepped edges. AGS already blends unless the map says alpha=false;
  * SCUMM did not, so the fork's own universal map ([hires] face=ko, ja, th,
  * no alpha= line) drew Monkey Island 2's Korean on a paletted screen with
  * jagged edges. The map-less forms already blended (a face named in the
@@ -19,13 +19,13 @@ public:
 	/** A map naming a face and no alpha= blends. */
 	void test_face_without_alpha_key_blends() {
 		Graphics::HiResTextConfig c;
-		TS_ASSERT(Scumm::ScummHiResText::mapWantsAlpha(c, true, false));
+		TS_ASSERT(Scumm::ScummHiResText::mapWantsAlpha(c, true, false, true));
 	}
 
 	/** A map naming an anti-aliased (8 bpp) SVFN and no alpha= blends. */
 	void test_coverage_bitmap_without_alpha_key_blends() {
 		Graphics::HiResTextConfig c;
-		TS_ASSERT(Scumm::ScummHiResText::mapWantsAlpha(c, false, true));
+		TS_ASSERT(Scumm::ScummHiResText::mapWantsAlpha(c, false, true, true));
 	}
 
 	/**
@@ -34,7 +34,7 @@ public:
 	 */
 	void test_stencils_only_do_not_blend() {
 		Graphics::HiResTextConfig c;
-		TS_ASSERT(!Scumm::ScummHiResText::mapWantsAlpha(c, false, false));
+		TS_ASSERT(!Scumm::ScummHiResText::mapWantsAlpha(c, false, false, true));
 	}
 
 	/** What the map says always wins, both ways. */
@@ -42,12 +42,34 @@ public:
 		Graphics::HiResTextConfig off;
 		off.alpha = false;
 		off.alphaFromMap = true;
-		TS_ASSERT(!Scumm::ScummHiResText::mapWantsAlpha(off, true, true));
+		TS_ASSERT(!Scumm::ScummHiResText::mapWantsAlpha(off, true, true, true));
 
 		Graphics::HiResTextConfig on;
 		on.alpha = true;
 		on.alphaFromMap = true;
-		TS_ASSERT(Scumm::ScummHiResText::mapWantsAlpha(on, false, false));
+		TS_ASSERT(Scumm::ScummHiResText::mapWantsAlpha(on, false, false, true));
+	}
+
+	/**
+	 * A game that cannot blend (SCUMM v7 and v8: the backend palette is
+	 * SMUSH's) gets no default: a map with no alpha= stays keyed, so the
+	 * "will not be blended" warning is not printed on every start of FT, The
+	 * Dig or COMI. A map that asks for alpha=true explicitly still asks, and
+	 * still gets told.
+	 */
+	void test_a_game_that_cannot_blend_gets_no_default() {
+		TS_ASSERT(Scumm::ScummHiResText::canBlendText(5));
+		TS_ASSERT(Scumm::ScummHiResText::canBlendText(6));
+		TS_ASSERT(!Scumm::ScummHiResText::canBlendText(7));
+		TS_ASSERT(!Scumm::ScummHiResText::canBlendText(8));
+
+		Graphics::HiResTextConfig c;
+		TS_ASSERT(!Scumm::ScummHiResText::mapWantsAlpha(c, true, true, false));
+
+		Graphics::HiResTextConfig on;
+		on.alpha = true;
+		on.alphaFromMap = true;
+		TS_ASSERT(Scumm::ScummHiResText::mapWantsAlpha(on, true, false, false));
 	}
 
 	/**

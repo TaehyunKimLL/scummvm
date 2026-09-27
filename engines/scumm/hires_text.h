@@ -396,19 +396,6 @@ struct ScummHiResText {
 								const Common::Path &ttfPath);
 
 	/**
-	 * Whether a map asks for blended text.
-	 *
-	 * The map's own alpha= wins. Without one, a map whose fonts carry
-	 * coverage - a TrueType face, or an 8 bpp (anti-aliased) SVFN - blends,
-	 * as AGS and the map-less forms already do: drawing such a font keyed
-	 * keeps only the pixels at least half covered and gives stepped edges.
-	 * A map of 1 bpp stencils has nothing to blend and stays keyed.
-	 *
-	 * @param config               the parsed map
-	 * @param namesFace            a TrueType face is in effect (ini or map)
-	 * @param namesCoverageBitmap  a bitmap font the map names is 8 bpp
-	 */
-	/**
 	 * The decoration [shadow] mode=game asks for, from the game's shadow byte.
 	 *
 	 * A mode named in the map wins. Otherwise 1 is none, 2 a drop, 3 stroke
@@ -426,8 +413,39 @@ struct ScummHiResText {
 	 */
 	void setKorPatchShadow(bool on) { _korPatchShadow = on; }
 
+	/**
+	 * Whether a map asks for blended text.
+	 *
+	 * The map's own alpha= wins. Without one, a map whose fonts carry
+	 * coverage - a TrueType face, or an 8 bpp (anti-aliased) SVFN - blends,
+	 * as AGS and the map-less forms already do: drawing such a font keyed
+	 * keeps only the pixels covered at least 0x40 (any coverage at all
+	 * before C17) and gives stepped edges. A map of 1 bpp stencils has
+	 * nothing to blend and stays keyed, and so does a game that cannot
+	 * blend (canBlendText()): defaulting it on would only earn a warning.
+	 *
+	 * @param config               the parsed map
+	 * @param namesFace            a TrueType face is in effect (ini or map)
+	 * @param namesCoverageBitmap  a bitmap font the map names is 8 bpp
+	 * @param gameCanBlend         canBlendText() for the running game
+	 */
 	static bool mapWantsAlpha(const Graphics::HiResTextConfig &config,
-							  bool namesFace, bool namesCoverageBitmap);
+							  bool namesFace, bool namesCoverageBitmap,
+							  bool gameCanBlend);
+
+	/**
+	 * Whether this SCUMM version can blend hi-res text at all. v7 and v8
+	 * leave the backend palette to SMUSH, so init() keeps their screen
+	 * paletted and draws the text keyed (see scumm.cpp).
+	 */
+	static bool canBlendText(int version) { return version < 7; }
+
+	/**
+	 * Whether [font.N]-style per-charset settings are in use: the rule
+	 * resolveCharsetFonts() applies, and loadFonts() reads [font.N]
+	 * bitmap= only when it holds.
+	 */
+	static bool usesPerGlyph(const Graphics::HiResTextConfig &config);
 
 	/**
 	 * Whether the CJK conversion tables (encoding.dat) can be read.

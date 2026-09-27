@@ -214,9 +214,7 @@ void ScummHiResText::resolveCharsetFonts() {
 	// The keys that name per-charset faces and Latin modes did not exist for
 	// SCUMM before C11 T6; a map without them is laid out exactly as before.
 	// [latin] font= and metrics= are older keys and do not count.
-	_perGlyph = _config.hiresFaceSet || _config.hiresSizeSet || !_config.fontIds.empty() ||
-				_config.latinModeSet || _config.latinSpaceSet ||
-				_config.encoding == Common::kUtf8;
+	_perGlyph = usesPerGlyph(_config);
 
 	for (int cs = 0; cs < kMaxFonts; ++cs) {
 		CharsetFonts &f = _charsetFonts[cs];
@@ -2002,17 +2000,24 @@ bool ScummHiResText::mapNamesNoFonts(const Graphics::HiResTextConfig &config,
 	return true;
 }
 
-bool ScummHiResText::mapWantsAlpha(const Graphics::HiResTextConfig &config,
-								   bool namesFace, bool namesCoverageBitmap) {
-	if (config.alphaFromMap)
-		return config.alpha;
-	return namesFace || namesCoverageBitmap;
+bool ScummHiResText::usesPerGlyph(const Graphics::HiResTextConfig &config) {
+	return config.hiresFaceSet || config.hiresSizeSet || !config.fontIds.empty() ||
+		   config.latinModeSet || config.latinSpaceSet ||
+		   config.encoding == Common::kUtf8;
 }
 
-/// Whether any bitmap font the map names is 8 bpp (anti-aliased).
-///
-/// Only the header decides it, but HiResBitmapFont reads the whole file; the
-/// map-less probe pays the same. Stops at the first such font.
+bool ScummHiResText::mapWantsAlpha(const Graphics::HiResTextConfig &config,
+								   bool namesFace, bool namesCoverageBitmap,
+								   bool gameCanBlend) {
+	if (config.alphaFromMap)
+		return config.alpha;
+	return gameCanBlend && (namesFace || namesCoverageBitmap);
+}
+
+/// Whether any bitmap font the map names, and loadFonts() would load, is
+/// 8 bpp (anti-aliased). Reads only each file's SVFN header (magic at 0,
+/// bpp at 8, as HiResBitmapFont::load() reads them); a file that is not a
+/// usable font is reported when the fonts load. Stops at the first such font.
 bool ScummHiResText::namedBitmapHasCoverage(const Common::Path &gameDir) const {
 	Common::Array<Common::Path> files;
 	const Common::String *patterns[] = { &_config.bitmapPattern, &_config.legacy.latinBitmapName };
@@ -2033,13 +2038,15 @@ bool ScummHiResText::namedBitmapHasCoverage(const Common::Path &gameDir) const {
 	}
 	if (!_config.bitmapSingle.empty())
 		files.push_back(gameDir.appendComponent(_config.bitmapSingle));
-	for (Common::HashMap<int, Graphics::HiResFontIdSettings>::const_iterator it = _config.fontIds.begin();
-		 it != _config.fontIds.end(); ++it) {
-		if (it->_value.bitmapSet)
-			files.push_back(it->_value.bitmap);
+	// [font.N] bitmap= is loaded only with per-charset placement (loadFonts()).
+	if (usesPerGlyph(_config)) {
+		for (Common::HashMap<int, Graphics::HiResFontIdSettings>::const_iterator it = _config.fontIds.begin();
+			 it != _config.fontIds.end(); ++it) {
+			if (it->_value.bitmapSet)
+				files.push_back(it->_value.bitmap);
+		}
 	}
 
-	Graphics::HiResBitmapFont probe;
 	for (uint i = 0; i < files.size(); ++i) {
 		Common::FSNode node(files[i]);
 		if (!node.exists())
@@ -2047,8 +2054,10 @@ bool ScummHiResText::namedBitmapHasCoverage(const Common::Path &gameDir) const {
 		Common::SeekableReadStream *stream = node.createReadStream();
 		if (!stream)
 			continue;
-		const bool coverage = probe.load(*stream) && probe.bpp() == 8;
-		probe.free();
+		byte header[9];
+		const bool coverage = stream->read(header, sizeof(header)) == sizeof(header) &&
+							  READ_BE_UINT32(header) == MKTAG('S', 'V', 'F', 'N') &&
+							  header[8] == 8;
 		delete stream;
 		if (coverage)
 			return true;
@@ -2197,10 +2206,13 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	// paletted screen, so every glyph edge was a hard step - the fork's own
 	// universal map did exactly that. The ini keys below still win.
 	if (haveMap && !mapPath.empty() && !_config.alphaFromMap) {
+		const bool canBlend = canBlendText(version);
 		const bool coverage = mapWantsAlpha(_config, haveTtf,
-											!haveTtf && namedBitmapHasCoverage(gameDir));
+											canBlend && !haveTtf && namedBitmapHasCoverage(gameDir),
+											canBlend);
 		if (coverage != _config.alpha)
 			debug(1, "SCUMM: the map does not set alpha=; %s, so blending is %s",
+				  !canBlend ? "this game cannot blend" :
 				  coverage ? "its fonts are anti-aliased" : "its fonts are 1 bpp stencils",
 				  coverage ? "on" : "off");
 		_config.alpha = coverage;
