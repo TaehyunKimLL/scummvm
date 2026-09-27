@@ -1,5 +1,6 @@
 #include <cxxtest/TestSuite.h>
 
+#include "common/endian.h"
 #include "common/hash-str.h"
 #include "common/str.h"
 #include "common/ustr.h"
@@ -40,6 +41,25 @@ public:
 	int advance(uint32) override { return 1; }
 };
 
+// Every character 1 wide; a CP949 pair 2.
+class GrimUnitWrapWidths : public Grim::LegacyWrapWidths {
+public:
+	int32 charWidth(uint32) const override { return 1; }
+	int32 wcharWidth(byte, byte) const override { return 2; }
+	bool isKoreanChar(byte hi, byte lo) const override { return hi >= 0xB0 && hi <= 0xC8 && lo >= 0xA1 && lo <= 0xFE; }
+};
+
+// Text as the engine gets it from an official UTF-16LE table.
+Common::U32String fromUtf16(const char *ascii) {
+	Common::Array<uint16> u;
+	for (const char *p = ascii; *p; p++)
+		u.push_back(TO_LE_16((uint16)(byte)*p));
+	return Common::U32String::decodeUTF16LE(u.data(), u.size());
+}
+
+Common::String utf8(const Common::U32String &s) {
+	return s.encode(Common::kUtf8);
+}
 } // End of anonymous namespace
 
 class GrimLocalizeTestSuite : public CxxTest::TestSuite {
@@ -178,5 +198,42 @@ public:
 		run.assign(Common::U32String("\xE3\x81\x93\xE3\x81\x93\xE3\x81\xAB", Common::kUtf8));
 		const Graphics::LineSpan l = Graphics::TextLayout::fitLine(run, 0, 0, m, rules);
 		TS_ASSERT(!Grim::splitWantsDash(run, l));
+	}
+
+	// Official UTF-16 releases keep Grim's own breaker (TextObject takes the
+	// shared stage only for a UTF-8 table): the space stays at the line end,
+	// a long word is cut with '-' reserved, Chinese without it.
+	void test_utf16_text_wraps_as_the_old_loop() {
+		GrimUnitWrapWidths w;
+		Common::U32String msg = fromUtf16("hello world foo"), out;
+		TS_ASSERT_EQUALS(Grim::wrapLegacy(msg, 7, out, w, false, true), 3);
+		TS_ASSERT_EQUALS(utf8(out), Common::String("hello \nworld \nfoo"));
+
+		msg = fromUtf16("abcdefghij");
+		out.clear();
+		TS_ASSERT_EQUALS(Grim::wrapLegacy(msg, 5, out, w, false, true), 3);
+		TS_ASSERT_EQUALS(utf8(out), Common::String("abcd-\nefgh-\nij"));
+		out.clear();
+		TS_ASSERT_EQUALS(Grim::wrapLegacy(msg, 5, out, w, false, false), 2);
+		TS_ASSERT_EQUALS(utf8(out), Common::String("abcde\nfghij"));
+
+		// The shared stage would give "hello" / "world" / "foo": different,
+		// which is why UTF-16 text stays here.
+		Graphics::TextRun run;
+		run.assign(fromUtf16("hello world foo"));
+		GrimUnitMetrics m;
+		Common::Array<Graphics::LineSpan> lines;
+		Graphics::TextLayout::breakLines(run, 7, m, Graphics::BreakRules(), lines);
+		TS_ASSERT_EQUALS(lines.size(), 3u);
+		TS_ASSERT_EQUALS(lines[0].end, 5u);
+	}
+
+	void test_legacy_keeps_cp949_pairs_whole() {
+		GrimUnitWrapWidths w;
+		// Three Hangul pairs (2 wide each) at width 5: two per line.
+		const Common::String msg("\xB0\xA1\xB3\xAA\xB4\xD9");
+		Common::String out;
+		TS_ASSERT_EQUALS(Grim::wrapLegacy(msg, 5, out, w, true, true), 2);
+		TS_ASSERT_EQUALS(out, Common::String("\xB0\xA1\xB3\xAA\n\xB4\xD9"));
 	}
 };

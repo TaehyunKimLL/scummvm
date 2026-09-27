@@ -262,68 +262,34 @@ void TextObject::setupTextReal(S msg, Common::String (*convert)(const S &s)) {
 	}
 }
 
+namespace {
+
+// The legacy breaker measures with the game's font, as it always did.
+class FontWrapWidths : public LegacyWrapWidths {
+public:
+	explicit FontWrapWidths(const Font *font) : _font(font) {}
+	int32 charWidth(uint32 c) const override { return _font->getCharKernedWidth(c); }
+	int32 wcharWidth(byte hi, byte lo) const override { return _font->getWCharKernedWidth(hi, lo); }
+	bool isKoreanChar(byte hi, byte lo) const override { return _font->isKoreanChar(hi, lo); }
+
+private:
+	const Font *_font;
+};
+
+} // End of anonymous namespace
+
 template <typename S>
 void TextObject::wrapMessage(const S &msg, int maxWidth, S &message) {
-	S currLine;
-	_numberLines = 1;
-	int lineWidth = 0;
-	bool isMultiByte = false;
-	for (uint i = 0; i < msg.size(); i++) {
-		message += msg[i];
-		currLine += msg[i];
-		if (i < msg.size() - 1 && g_grim->getGameType() == GType_GRIM && g_grim->getGameLanguage() == Common::KO_KOR && !g_grim->_isUtf8 && _font->isKoreanChar(msg[i], msg[i + 1])) {
-			isMultiByte = true;
-			message += msg[i + 1];
-			currLine += msg[i + 1];
-			lineWidth += _font->getWCharKernedWidth(msg[i], msg[i + 1]);
-			i++;
-		} else {
-			isMultiByte = false;
-			lineWidth += _font->getCharKernedWidth(msg[i]);
-		}
-
-		if (currLine.size() > 1 && lineWidth > maxWidth) {
-			if (isMultiByte) {
-				// Remove 2byte code
-				lineWidth -= _font->getWCharKernedWidth(msg[i - 1], msg[i]);
-				message.deleteLastChar();
-				message.deleteLastChar();
-				currLine.deleteLastChar();
-				currLine.deleteLastChar();
-				i -= 2;
-			} else {
-				if (currLine.contains(' ')) {
-					while (currLine.lastChar() != ' ' && currLine.size() > 1) {
-						lineWidth -= _font->getCharKernedWidth(currLine.lastChar());
-						message.deleteLastChar();
-						currLine.deleteLastChar();
-						--i;
-					}
-				} else { // if it is a unique word
-					bool useDash = !(g_grim->getGameLanguage() == Common::Language::ZH_CHN || g_grim->getGameLanguage() == Common::Language::ZH_TWN);
-					int dashWidth = useDash ? _font->getCharKernedWidth('-') : 0;
-					while (lineWidth + dashWidth > maxWidth && currLine.size() > 1) {
-						lineWidth -= _font->getCharKernedWidth(currLine.lastChar());
-						message.deleteLastChar();
-						currLine.deleteLastChar();
-						--i;
-					}
-					if (useDash)
-						message += '-';
-				}
-			}
-			message += '\n';
-			currLine.clear();
-			_numberLines++;
-
-			lineWidth = 0;
-		}
-	}
+	const bool koreanDbcs = g_grim->getGameType() == GType_GRIM && g_grim->getGameLanguage() == Common::KO_KOR && !g_grim->_isUtf8;
+	const bool useDash = !(g_grim->getGameLanguage() == Common::Language::ZH_CHN || g_grim->getGameLanguage() == Common::Language::ZH_TWN);
+	_numberLines = wrapLegacy(msg, maxWidth, message, FontWrapWidths(_font), koreanDbcs, useDash);
 }
 
 namespace {
 
-// Grim's widths, in game px: the font's kerned width of each character.
+// Grim's widths, in game px. A line is as wide as the font draws it, pair
+// kerning included, so width() and extend() measure the whole span with the
+// font's string width (not additive; T2's rule for such metrics).
 class GrimLayoutMetrics : public Graphics::LayoutMetrics {
 public:
 	explicit GrimLayoutMetrics(const Font *font) : _font(font) {}
@@ -331,6 +297,16 @@ public:
 		if (cp == Graphics::kControlUnit)
 			return 0;
 		return _font->getCharKernedWidth(cp);
+	}
+	int width(const Graphics::TextRun &run, uint32 from, uint32 to) override {
+		Common::U32String s;
+		for (uint32 u = from; u < to; u++)
+			if (run.cp(u) != Graphics::kControlUnit)
+				s += run.cp(u);
+		return s.empty() ? 0 : _font->getKernedStringLength(s.encode(Common::kUtf8));
+	}
+	int extend(const Graphics::TextRun &run, uint32 from, uint32 i, int) override {
+		return width(run, from, i + 1);
 	}
 
 private:
@@ -340,6 +316,14 @@ private:
 } // End of anonymous namespace
 
 void TextObject::wrapMessage(const Common::U32String &msg, int maxWidth, Common::U32String &message) {
+	// Official UTF-16 tables keep the breaker they always had; only a
+	// UTF-8 table (grim.<code>.tab, a marked grim.ko.tab) takes the shared
+	// stage.
+	if (!g_grim->_utf8Tab) {
+		wrapMessage<Common::U32String>(msg, maxWidth, message);
+		return;
+	}
+
 	// One rule set for every language: Latin and Hangul break at spaces,
 	// kana and Han between characters with kinsoku, Thai before its bases.
 	// A word too long for the line is split where it must be, with '-'

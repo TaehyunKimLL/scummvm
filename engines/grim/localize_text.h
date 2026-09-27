@@ -83,6 +83,81 @@ void parseTabLines(const char *data, int32 size, int32 start, bool stopAtEmptyLi
  */
 bool splitWantsDash(const Graphics::TextRun &run, const Graphics::LineSpan &span);
 
+/** The widths the legacy breaker measures with (the engine's Font). */
+class LegacyWrapWidths {
+public:
+	virtual ~LegacyWrapWidths() {}
+	virtual int32 charWidth(uint32 c) const = 0;
+	virtual int32 wcharWidth(byte hi, byte lo) const = 0;
+	virtual bool isKoreanChar(byte hi, byte lo) const = 0;
+};
+
+/**
+ * Grim's own breaker, for byte, DBCS and official UTF-16 text: a line ends
+ * at its last space (which stays on the line), a word that does not fit is
+ * cut with '-' (useDash, off for Chinese), CP949 pairs are kept whole
+ * (koreanDbcs). Lines are joined by '\n' in message; returns the number of
+ * lines. Moved unchanged out of TextObject::setupTextReal().
+ */
+template<typename S>
+int wrapLegacy(const S &msg, int maxWidth, S &message, const LegacyWrapWidths &w, bool koreanDbcs, bool useDash) {
+	S currLine;
+	int numberLines = 1;
+	int lineWidth = 0;
+	bool isMultiByte = false;
+	for (uint i = 0; i < msg.size(); i++) {
+		message += msg[i];
+		currLine += msg[i];
+		if (i < msg.size() - 1 && koreanDbcs && w.isKoreanChar(msg[i], msg[i + 1])) {
+			isMultiByte = true;
+			message += msg[i + 1];
+			currLine += msg[i + 1];
+			lineWidth += w.wcharWidth(msg[i], msg[i + 1]);
+			i++;
+		} else {
+			isMultiByte = false;
+			lineWidth += w.charWidth(msg[i]);
+		}
+
+		if (currLine.size() > 1 && lineWidth > maxWidth) {
+			if (isMultiByte) {
+				// Remove 2byte code
+				lineWidth -= w.wcharWidth(msg[i - 1], msg[i]);
+				message.deleteLastChar();
+				message.deleteLastChar();
+				currLine.deleteLastChar();
+				currLine.deleteLastChar();
+				i -= 2;
+			} else {
+				if (currLine.contains(' ')) {
+					while (currLine.lastChar() != ' ' && currLine.size() > 1) {
+						lineWidth -= w.charWidth(currLine.lastChar());
+						message.deleteLastChar();
+						currLine.deleteLastChar();
+						--i;
+					}
+				} else { // if it is a unique word
+					int dashWidth = useDash ? w.charWidth('-') : 0;
+					while (lineWidth + dashWidth > maxWidth && currLine.size() > 1) {
+						lineWidth -= w.charWidth(currLine.lastChar());
+						message.deleteLastChar();
+						currLine.deleteLastChar();
+						--i;
+					}
+					if (useDash)
+						message += '-';
+				}
+			}
+			message += '\n';
+			currLine.clear();
+			numberLines++;
+
+			lineWidth = 0;
+		}
+	}
+	return numberLines;
+}
+
 } // End of namespace Grim
 
 #endif
