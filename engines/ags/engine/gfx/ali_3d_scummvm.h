@@ -304,6 +304,7 @@ private:
 	void copySurface(const Graphics::Surface &src, bool mode);
 	// ScummVM (C23): Present() split so the N x frame shares the output path
 	void PresentSurface(const Graphics::Surface &src);
+	void DisableHiResTextScale(int w, int h);
 	void PresentScaled(const Graphics::Surface &native, int xoff, int yoff, Shared::GraphicFlip flip, int scale);
 	static void TransformSurface(Graphics::Surface &surf, int xoff, int yoff, Shared::GraphicFlip flip);
 	static void UpscaleNearest(const Graphics::Surface &src, Graphics::Surface &dst, int scale);

@@ -28,6 +28,7 @@
 #include "ags/engine/platform/base/ags_platform_driver.h"
 #include "ags/engine/platform/base/sys_main.h"
 #include "ags/engine/ac/timer.h"
+#include "ags/engine/main/engine.h"
 #include "ags/ags.h"
 #include "ags/globals.h"
 
@@ -539,9 +540,15 @@ void ScummVMRendererGraphicsDriver::Present(int xoff, int yoff, Shared::GraphicF
 	// frame (AGS_HIRES_TEXT_DESIGN.md section 5). The virtual screen stays native.
 	const Graphics::Surface &native = virtualScreen->GetAllegroBitmap()->getSurface();
 	const int scale = _G(hiresTextScale);
-	if (scale > 1 && g_system->getWidth() == native.w * scale && g_system->getHeight() == native.h * scale) {
-		PresentScaled(native, xoff, yoff, flip, scale);
-		return;
+	if (scale > 1) {
+		if (g_system->getWidth() == native.w * scale && g_system->getHeight() == native.h * scale) {
+			PresentScaled(native, xoff, yoff, flip, scale);
+			return;
+		}
+		// The screen is not N x the game (a backend that changed the mode):
+		// never show a 1x frame in an N x screen. Turn the scale off for
+		// good, with the display and the mouse mapping at 1x again.
+		DisableHiResTextScale(native.w, native.h);
 	}
 
 	Graphics::Surface *srcTransformed = nullptr;
@@ -607,6 +614,18 @@ void ScummVMRendererGraphicsDriver::UpscaleNearest(const Graphics::Surface &src,
 	}
 }
 
+void ScummVMRendererGraphicsDriver::DisableHiResTextScale(int w, int h) {
+	Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: the screen is %d x %d, not %d x the game's %d x %d; scale 1 from now on",
+				  g_system->getWidth(), g_system->getHeight(), _G(hiresTextScale), w, h);
+	_G(hiresTextScale) = 1;
+	_scaledFrame.free();
+	// Graphics::Screen keeps the size it was made at
+	delete _screen;
+	_screen = nullptr;
+	set_gfx_mode(GFX_SCUMMVM, w, h, _mode.ColorDepth);
+	engine_on_window_changed(Size(w, h));
+}
+
 void ScummVMRendererGraphicsDriver::PresentScaled(const Graphics::Surface &native, int xoff, int yoff,
 												  Shared::GraphicFlip flip, int scale) {
 	// The N x frame: the native frame nearest-upscaled (the text twins of
@@ -619,6 +638,18 @@ void ScummVMRendererGraphicsDriver::PresentScaled(const Graphics::Surface &nativ
 	UpscaleNearest(native, _scaledFrame, scale);
 	if (xoff != 0 || yoff != 0 || flip != Shared::kFlip_None)
 		TransformSurface(_scaledFrame, xoff * scale, yoff * scale, flip);
+
+	// A 32-bit screen with the same RGB layout (XRGB8888, SurfaceSDL's
+	// RGB888) takes the frame as it is: its alpha byte is ignored. One
+	// pass, no second N x buffer. Anything else converts once.
+	const Graphics::PixelFormat screenFormat = g_system->getScreenFormat();
+	if (screenFormat.bytesPerPixel == 4 && screenFormat.rShift == argb.rShift &&
+		screenFormat.gShift == argb.gShift && screenFormat.bShift == argb.bShift &&
+		screenFormat.rLoss == 0 && screenFormat.gLoss == 0 && screenFormat.bLoss == 0) {
+		g_system->copyRectToScreen(_scaledFrame.getPixels(), _scaledFrame.pitch, 0, 0, _scaledFrame.w, _scaledFrame.h);
+		g_system->updateScreen();
+		return;
+	}
 	PresentSurface(_scaledFrame);
 }
 
