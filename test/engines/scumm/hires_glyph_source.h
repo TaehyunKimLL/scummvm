@@ -512,6 +512,31 @@ public:
 		TS_ASSERT_EQUALS((int)s4->cellHeight(), 18);
 		TS_ASSERT_DIFFERS(s4->faceSize(), 12);
 		TS_ASSERT(s2 != s4);
+
+		// Only the chain's first face is the pixel face: a fallback behind
+		// it opens as usual (line fit) in the same cell (C28 review).
+		const Common::String g9 = path.substr(0, path.size() - strlen("Galmuri11.ttf")) + "Galmuri9.ttf";
+		if (!Common::FSNode(Common::Path(g9, '/')).exists())
+			return;
+		Graphics::HiResTextConfig two = c;
+		two.fontIds[2].faceChain.push_back(Common::Path(g9, '/'));
+		Scumm::ScummHiResText hr2;
+		hr2.useOverlay(&overlay);
+		hr2.adoptConfig(two);
+		hr2.setGameFontCell(2, 9, 9);
+		TS_ASSERT(hr2.loadFonts(Common::Path()));
+		Graphics::TtfGlyphSource *first = hr2.ttfChainFace(2, 0);
+		Graphics::TtfGlyphSource *second = hr2.ttfChainFace(2, 1);
+		TS_ASSERT(first && second);
+		if (!first || !second)
+			return;
+		TS_ASSERT_EQUALS(first->faceSize(), 12);
+		TS_ASSERT_EQUALS((int)second->cellHeight(), 18);
+		// Galmuri9 line-fitted to the 18 cell: faceSize() is the
+		// kTTFSizeModeCell size, the cell itself, not a pixel ppem.
+		TS_ASSERT_EQUALS(second->faceSize(), 18);
+		TS_ASSERT_EQUALS(second->lineTop(), 0);
+		TS_ASSERT(hr2.ttfChainFace(2, 2) == nullptr);
 #else
 		TS_SKIP("needs FreeType and a real filesystem");
 #endif

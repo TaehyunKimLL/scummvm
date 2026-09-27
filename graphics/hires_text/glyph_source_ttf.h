@@ -153,8 +153,9 @@ public:
 	/**
 	 * The ppem a pixel font of designPx is opened at in a cell of cellSize:
 	 * the largest whole multiple of designPx not taller than the cell, and
-	 * designPx itself when the cell is smaller than it. 0 when designPx is
-	 * not positive, or when that ppem is above kMaxPixelSize. Pure.
+	 * designPx itself when the cell is smaller than it; the multiple is
+	 * stepped down to stay within kMaxPixelSize. 0 when designPx is outside
+	 * 1..kMaxPixelSize. Pure.
 	 */
 	static int pixelGridSize(int cellSize, int designPx);
 

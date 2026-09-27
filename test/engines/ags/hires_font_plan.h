@@ -22,7 +22,11 @@
 
 #include <cxxtest/TestSuite.h>
 
+#include "common/fs.h"
 #include "common/memstream.h"
+#include "graphics/hires_text/glyph_source_ttf.h"
+
+#include "../../system/null_osystem.h"
 #include "graphics/hires_text/font_map.h"
 
 #include "ags/shared/font/hires_font_config.h"
@@ -67,6 +71,18 @@ const char *const kAgsPlanMap =
 /** Which font an AGS font number gets from hires_text.map and the ini. */
 class AgsHiResFontPlanTestSuite : public CxxTest::TestSuite {
 public:
+	void setUp() {
+#if NULL_OSYSTEM_IS_AVAILABLE
+		Common::install_null_g_system();
+#endif
+	}
+
+	void tearDown() {
+#if NULL_OSYSTEM_IS_AVAILABLE
+		Common::uninstall_null_g_system();
+#endif
+	}
+
 	void test_precedence_bitmap_face_ini_hires() {
 		const Graphics::HiResTextConfig map = agsParseMap(kAgsPlanMap, "5daysastranger");
 		Common::Array<Common::Path> ini;
@@ -142,6 +158,80 @@ public:
 		TS_ASSERT_EQUALS(c.plan(1).pixel, 12);
 		c.configure(&plain, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
 		TS_ASSERT_EQUALS(c.plan(0).pixel, 0);
+	}
+
+	void test_pixel_is_only_for_a_face_the_map_names() {
+		// C28 review: the ini's hires_text_font is not the map's pixel face.
+		const Graphics::HiResTextConfig map = agsParseMap("[hires]\npixel=10\n[fonts]\ndefault=d.ttf\n", "x");
+		AGS3::HiResFontConfig c;
+		Common::Array<Common::Path> ini;
+		ini.push_back(Common::Path("/f/ini.ttf"));
+		c.configure(&map, Common::Path("/maps"), ini, 0);
+		TS_ASSERT_EQUALS(c.plan(0).source, "hires_text_font");
+		TS_ASSERT_EQUALS(c.plan(0).pixel, 0);
+	}
+
+	void test_scaled_pixel_plan_is_n_times_the_small_face() {
+		// C28 review: at N x the pixel face opens at N times the 1x ppem,
+		// not at pixelGridSize(N * cell, D).
+		AGS3::HiResFontPlan p;
+		p.kind = AGS3::HiResFontPlan::kFaces;
+		p.pixel = 10;
+		TS_ASSERT_EQUALS(AGS3::scaledPlan(p, 2, 10).pixel, 20);
+		TS_ASSERT_EQUALS(AGS3::scaledPlan(p, 3, 20).pixel, 60);
+		// The pixel face did not open at 1x: nothing to scale.
+		TS_ASSERT_EQUALS(AGS3::scaledPlan(p, 2, 0).pixel, 0);
+		p.pixel = 0;
+		TS_ASSERT_EQUALS(AGS3::scaledPlan(p, 2, 16).pixel, 0);
+		// Everything else is the plan as it was.
+		p.gamma = 180;
+		TS_ASSERT_EQUALS(AGS3::scaledPlan(p, 2, 16).gamma, 180);
+	}
+
+	void test_scaled_pixel_face_opens_at_n_times_the_small_ppem() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		Common::String path;
+		{
+#pragma push_macro("getenv")
+#undef getenv
+			const char *dir = getenv("SCUMMVM_TEST_PIXEL_FONT_DIR");
+			const char *data = getenv("SCUMMVM_TEST_I18N_DATA");
+#pragma pop_macro("getenv")
+			if (dir && *dir)
+				path = Common::String::format("%s/Galmuri9.ttf", dir);
+			else if (data && *data)
+				path = Common::String::format("%s/../fonts/pixel/galmuri/Galmuri9.ttf", data);
+		}
+		if (path.empty() || !Common::FSNode(Common::Path(path, '/')).exists()) {
+			TS_SKIP("Galmuri9.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
+			return;
+		}
+		AGS3::HiResFontPlan p;
+		p.kind = AGS3::HiResFontPlan::kFaces;
+		p.pixel = 10;
+		// (cell, N): the review's cases, cell 15 and a cell smaller than D.
+		static const int kCases[][2] = { { 15, 2 }, { 9, 2 }, { 12, 3 }, { 25, 2 } };
+		for (uint c = 0; c < ARRAYSIZE(kCases); c++) {
+			const int cell = kCases[c][0], n = kCases[c][1];
+			Common::String error;
+			Graphics::TtfGlyphSource *small = Graphics::TtfGlyphSource::createPixel(
+				Common::FSNode(Common::Path(path, '/')).createReadStream(), DisposeAfterUse::YES, cell, p.pixel, error);
+			TS_ASSERT(small);
+			if (!small)
+				continue;
+			const AGS3::HiResFontPlan big = AGS3::scaledPlan(p, n, small->faceSize());
+			Graphics::TtfGlyphSource *large = Graphics::TtfGlyphSource::createPixel(
+				Common::FSNode(Common::Path(path, '/')).createReadStream(), DisposeAfterUse::YES, cell * n, big.pixel, error);
+			TS_ASSERT(large);
+			if (large)
+				TSM_ASSERT_EQUALS(Common::String::format("cell %d at %dx", cell, n).c_str(),
+								  large->faceSize(), n * small->faceSize());
+			delete small;
+			delete large;
+		}
+#else
+		TS_SKIP("needs FreeType and a real filesystem");
+#endif
 	}
 
 	void test_nothing_named_is_the_game_font() {
