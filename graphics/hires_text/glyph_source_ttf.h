@@ -56,7 +56,8 @@ class Font;
 class TtfGlyphSource : public UnicodeGlyphSource {
 public:
 	/**
-	 * Opens face 0 of stream at cell size pixelSize, fits the vertical
+	 * Opens face 0 of stream (the general overload below takes another
+	 * face of a collection) at cell size pixelSize, fits the vertical
 	 * offset from a fixed probe set, and rasterises nothing else. On success
 	 * the source owns stream exactly when dispose is DisposeAfterUse::YES;
 	 * on failure stream is disposed of the same way and null is returned
@@ -117,10 +118,17 @@ public:
 	 * cell, and, when the box is taller than the cell, the face shrunk
 	 * until it fits, as the default fit does (bounded by the same raster
 	 * budget). The fixed probe set plays no part in that check.
+	 *
+	 * @p faceIndex picks the face of a TrueType collection (.ttc) to open
+	 * (a map's "<file>.ttc#<N>", openFontFace()); every probe, fit and
+	 * glyph uses that face. 0, the default, is the first face - what the
+	 * overloads above open. A face the file does not have (or a negative
+	 * index) fails like an unreadable file, with error naming the index.
 	 */
 	static TtfGlyphSource *create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 	                               int pixelSize, Common::String &error, bool requireHangul, bool lineFit,
-	                               const uint32 *extraFitProbes, uint extraFitProbeCount);
+	                               const uint32 *extraFitProbes, uint extraFitProbeCount,
+	                               int32 faceIndex = 0);
 
 	/** The most extra fit probes create() takes. */
 	static const uint kMaxExtraFitProbes = 64;
@@ -247,7 +255,7 @@ private:
 
 	static TtfGlyphSource *createImpl(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 	                                  int pixelSize, Common::String &error, bool requireHangul, bool lineFit,
-	                                  const uint32 *extraFitProbes, uint extraFitProbeCount);
+	                                  const uint32 *extraFitProbes, uint extraFitProbeCount, int32 faceIndex);
 
 	struct Entry {
 		byte cells = 0;

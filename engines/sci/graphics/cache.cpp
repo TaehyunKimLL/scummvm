@@ -33,6 +33,7 @@
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
 #include "graphics/hires_text/coverage.h"
+#include "graphics/hires_text/font_face.h"
 #include "graphics/hires_text/glyph_source_fallback.h"
 #include "graphics/hires_text/glyph_source_routed.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
@@ -275,28 +276,27 @@ Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int si
 
 	Common::String error;
 	Graphics::TtfGlyphSource *src = nullptr;
-	Common::FSNode node(Common::Path(path, Common::Path::kNativeSeparator));
-	// Checked with exists() and isDirectory() before createReadStream():
-	// that call emits its own "FSNode::createReadStream: ..." warning for an
-	// absent node or a directory, which would give run.log two warnings for
-	// one bad path. A node that still fails to open (permissions, ...) goes
-	// through createReadStream() and gets our single warning below.
+	// openFontFace() checks exists() and isDirectory() before
+	// createReadStream(): that call emits its own "FSNode::createReadStream:
+	// ..." warning for an absent node or a directory, which would give
+	// run.log two warnings for one bad path. A node that still fails to open
+	// (permissions, ...) gets our single warning below. "<file>.ttc#<N>"
+	// names face N of a collection (font_face.h).
+	int32 faceIndex = 0;
+	Common::SeekableReadStream *stream = nullptr;
 	if (path.empty()) {
 		error = "empty path";
-	} else if (!node.exists()) {
-		error = "does not exist";
-	} else if (node.isDirectory()) {
-		error = "is a directory";
-	} else if (Common::SeekableReadStream *stream = node.createReadStream()) {
+	} else if ((stream = Graphics::openFontFace(Common::Path(path, Common::Path::kNativeSeparator), faceIndex, error))) {
 		const uint32 startMs = g_system->getMillis();
 		if (probes == kProbesTranslation) {
 			// Fitted to the translation's own characters too (Thai marks,
 			// Japanese brackets), not only to the fixed Hangul/Latin set.
 			const Common::Array<uint32> &sample = translationFitProbes();
-			src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, size, error,
-												   sample.empty() ? nullptr : &sample[0], sample.size());
+			src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, size, error, false, false,
+												   sample.empty() ? nullptr : &sample[0], sample.size(), faceIndex);
 		} else {
-			src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, size, error, requireHangul);
+			src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, size, error, requireHangul, false,
+												   nullptr, 0, faceIndex);
 		}
 		const uint32 elapsedMs = g_system->getMillis() - startMs;
 		if (src) {
@@ -304,8 +304,6 @@ Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int si
 			src->setCoverageGamma(_hiresMap.coverageGamma);
 			debug(1, "SCI: %s %s opened at %dpx in %u ms", what, path.c_str(), size, elapsedMs);
 		}
-	} else {
-		error = "could not open the file";
 	}
 
 	// A failure is remembered too, so each (path, size) warns once, even

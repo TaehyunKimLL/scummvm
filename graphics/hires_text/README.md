@@ -105,6 +105,47 @@ Note `Common::INIFile` restricts **key** names to alphanumerics, `-`, `_`,
 `.`, `:` and space, and rejects the entire file on anything else - so a
 `u+XXXX` form is usable as a value but not as a key.
 
+### A face of a font collection (`<file>.ttc#<N>`, C21)
+
+A TrueType collection (`.ttc`) holds several faces; `Graphics::loadTTFFont`
+opens the first unless given `faceIndex`. Anywhere a map names a TrueType face -
+`[fonts]` entries, `[hires] face=` and `[font.N] face=` chains, SCUMM's legacy
+`hires_text_font`, SCI's and AGS's faces - the path may end in `#<N>` to open
+face N instead:
+
+```ini
+[fonts]
+ko=/System/Library/Fonts/AppleSDGothicNeo.ttc#6      ; Bold (face 0 is Regular)
+th=/System/Library/Fonts/Supplemental/SukhumvitSet.ttc#2   ; Text (face 0 is Thin)
+```
+
+The parser keeps the path as written (relative paths still resolve against
+the map). The suffix is read when the font is opened, by `openFontFace()`
+(`font_face.h`):
+
+- A file by the **full** name (including `#<N>`) is opened as it is, at face 0,
+  so a file whose name really contains `#` still works.
+- Otherwise, when the text after the last `#` of the file name is one or more
+  ASCII digits and the text before it is not empty, that file is opened at
+  face N. `#`, `#-1`, `# 6`, `#6a`, `#0x6` and a `#` in a directory name are
+  not face suffixes. The path then fails like any other missing file.
+- Face N is passed to `TtfGlyphSource::create(..., faceIndex)`, so the
+  vertical-fit probes, the Hangul check, the coverage check and every glyph
+  use that face.
+- A bad index - one the file does not have (`could not open face 99 of the
+  font`) or one above 65535 (`face index out of range`) - is warned about and
+  the face is skipped, exactly as for a missing file: the chain falls through
+  to its next face, or the engine to its own fonts.
+- A path without the suffix opens exactly as before, at face 0.
+
+Grim is not covered: its font descriptors name files inside the game's
+resources, not map paths.
+
+Faces of the macOS collections this fork uses: AppleSDGothicNeo.ttc 0 Regular,
+2 Medium, 4 SemiBold, 6 Bold; SukhumvitSet.ttc 0 Thin, 2 Text; the Hiragino
+Sans W*.ttc files hold the weight in the file name and face 0 is the one
+wanted. `fc-scan` or FreeType's `ftdump` list a collection's faces.
+
 ## Bitmap fonts (G2)
 
 `HiResBitmapFont` reads the "SVFN" bitmap font format: 1bpp stencil or 8bpp
