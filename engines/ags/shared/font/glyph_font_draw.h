@@ -46,6 +46,30 @@ public:
 	virtual int charWidth(uint32 cp) = 0;
 	/** Draw cp at (x, y), the top of the line, into the drawer's target. */
 	virtual void drawChar(uint32 cp, int x, int y, uint32 colour) = 0;
+	/**
+	 * For GlyphTextDrawer::drawTextScaled(): draw cp as the game's font
+	 * draws it at (x, y) in game pixels, nearest-upscaled scale x into
+	 * the drawer's scale x target at (scale * x, scale * y). Nothing by
+	 * default.
+	 */
+	virtual void drawCharScaled(uint32 cp, int x, int y, uint32 colour, int scale) {}
+};
+
+/**
+ * The N x half of a font for GlyphTextDrawer::drawTextScaled()
+ * (AGS_HIRES_TEXT_DESIGN.md section 4.3): the same faces opened at N x the
+ * size, and where their cell goes vertically.
+ */
+class ScaledGlyphs {
+public:
+	virtual ~ScaledGlyphs() {}
+	/** The faces at scale() x the size. */
+	virtual Graphics::UnicodeGlyphSource *source() = 0;
+	virtual int scale() const = 0;
+	/** Rows to move cp's N x cell down so its baseline falls at N x the
+	 *  game-resolution baseline (the faces' fit can differ by a pixel
+	 *  from N x the small cell). */
+	virtual int rowShift(uint32 cp) = 0;
 };
 
 /**
@@ -89,6 +113,18 @@ public:
 				  int x, int y, uint32 colour, GlyphFallback *fallback);
 
 	/**
+	 * drawText() at N x (N = scaled.scale()) into an N x target: the pen
+	 * positions are this drawer's game-resolution ones (the line is laid
+	 * out exactly as drawText() lays it out, ruling R2), each cluster's
+	 * glyph is scaled.source()'s, drawn from N x its game pen; a combining
+	 * mark is placed against its base with the N x metrics. (x, y) are the
+	 * game-resolution pen and line top; clip is in target pixels. A code
+	 * point either source lacks goes to fallback->drawCharScaled().
+	 */
+	void drawTextScaled(Graphics::Surface &dst, const Common::Rect &clip, const uint32 *cps, uint count,
+						int x, int y, uint32 colour, GlyphFallback *fallback, ScaledGlyphs &scaled);
+
+	/**
 	 * One pixel of coverage c (1..255) of colour over dst, in fmt (2 or 4
 	 * bytes per pixel), the way alfont's anti-aliased text composes:
 	 * c == 255 writes colour; a transparent pixel (the magenta mask colour,
@@ -98,7 +134,23 @@ public:
 	 */
 	static uint32 blendPixel(uint32 dst, uint32 colour, byte c, const Graphics::PixelFormat &fmt);
 
+	/**
+	 * Text the game's own renderer drew at game resolution into src
+	 * (cleared to key first), nearest-upscaled scale x onto dst with its
+	 * top-left at (dx, dy) in dst pixels, inside clip. src and dst share
+	 * a format. Pixels equal to key are left out; in a format with alpha,
+	 * a pixel with alpha 1..254 (what alfont leaves over a transparent
+	 * target) is blended by it with blendPixel(), alpha 0 is left out.
+	 */
+	static void upscaleOnto(Graphics::Surface &dst, const Common::Rect &clip, const Graphics::Surface &src,
+							uint32 key, int dx, int dy, int scale);
+
 private:
+	/** One glyph of src, its pen origin at column gx of the target, its
+	 *  cell's row 0 at row gy. */
+	void drawGlyph(Graphics::Surface &dst, const Common::Rect &area, Graphics::UnicodeGlyphSource *src, uint32 cp,
+				   int gx, int gy, uint32 colour);
+
 	Graphics::UnicodeGlyphSource *_src;
 	bool _alpha;
 };

@@ -438,6 +438,38 @@ void wouttextxy(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t
 	}
 }
 
+void wouttextxy_scaled(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, const char *texx,
+					   int scale) {
+	if (fontNumber >= _GP(fonts).size() || scale < 1)
+		return;
+	Font &font = _GP(fonts)[fontNumber];
+	if (font.Renderer == nullptr)
+		return;
+	yyy += font.Info.YOffset;
+	if (yyy * scale > ds->GetClip().Bottom)
+		return;
+	if (text_color == makeacol32(255, 0, 255, 255)) // as wouttextxy()
+		text_color--;
+	if (font.Renderer == &_GP(glyphRenderer) &&
+		_GP(glyphRenderer).RenderTextScaled(texx, fontNumber, (BITMAP *)ds->GetAllegroBitmap(), xxx, yyy, text_color, scale))
+		return;
+
+	// The game's own rendering at game resolution, upscaled
+	const int width = font.Renderer->GetTextWidth(texx, fontNumber);
+	const std::pair<int, int> extent = get_font_surface_extent(fontNumber);
+	const int height = MAX(extent.second - extent.first, font.Renderer->GetTextHeight(texx, fontNumber));
+	if (width <= 0 || height <= 0)
+		return;
+	Bitmap cell(width, height, ds->GetColorDepth());
+	cell.ClearTransparent();
+	font.Renderer->RenderText(texx, fontNumber, (BITMAP *)cell.GetAllegroBitmap(), 0, -extent.first, text_color);
+	const Rect clip = ds->GetClip();
+	GlyphTextDrawer::upscaleOnto(*((BITMAP *)ds->GetAllegroBitmap())->getSurface().surfacePtr(),
+								 Common::Rect(clip.Left, clip.Top, clip.Right + 1, clip.Bottom + 1),
+								 *((BITMAP *)cell.GetAllegroBitmap())->getSurface().surfacePtr(), cell.GetMaskColor(),
+								 xxx * scale, (yyy + extent.first) * scale, scale);
+}
+
 void set_fontinfo(size_t fontNumber, const FontInfo &finfo) {
 	if (fontNumber < _GP(fonts).size() && _GP(fonts)[fontNumber].Renderer) {
 		_GP(fonts)[fontNumber].Info = finfo;
