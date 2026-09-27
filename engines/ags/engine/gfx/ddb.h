@@ -32,9 +32,16 @@
 #ifndef AGS_ENGINE_GFX_DDB_H
 #define AGS_ENGINE_GFX_DDB_H
 
+#include "common/std/memory.h"
+
 namespace AGS3 {
 namespace AGS {
+namespace Shared {
+class Bitmap;
+} // namespace Shared
+
 namespace Engine {
+class HiResTwin;
 
 class IDriverDependantBitmap {
 public:
@@ -52,6 +59,12 @@ public:
 	virtual int GetHeight() const = 0;
 	virtual int GetColorDepth() const = 0;
 	virtual bool MatchesFormat(AGS::Shared::Bitmap *other) const = 0;
+
+	// ScummVM (C23): an N x 32-bit ARGB copy of this bitmap with its text
+	// drawn at N x, for a driver that composes an N x frame
+	// (AGS_HIRES_TEXT_DESIGN.md section 4.4). nullptr: none. Ignored by
+	// default.
+	virtual void SetHiResTwin(std::shared_ptr<HiResTwin> twin) {}
 
 protected:
 	IDriverDependantBitmap() {}

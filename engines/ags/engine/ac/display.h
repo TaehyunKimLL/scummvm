@@ -66,7 +66,8 @@ void wouttext_outline(Shared::Bitmap *ds, int xxp, int yyp, int usingfont, color
 // game pixels: the outline font through wouttextxy_scaled(), the automatic
 // outline by the same stencil algorithm with thickness x N
 // (AGS_HIRES_TEXT_DESIGN.md section 4.3)
-void wouttext_outline_scaled(Shared::Bitmap *ds, int xxp, int yyp, int usingfont, color_t text_color, const char *texx, int scale);
+void wouttext_outline_scaled(Shared::Bitmap *ds, int xxp, int yyp, int usingfont, color_t text_color, color_t outline_color,
+							 const char *texx, int scale);
 void wouttext_aligned(Shared::Bitmap *ds, int usexp, int yy, int oriwid, int usingfont, color_t text_color, const char *text, HorAlignment align);
 void do_corner(Shared::Bitmap *ds, int sprn, int xx1, int yy1, int typx, int typy);
 // Returns the image of a button control on the GUI under given child index

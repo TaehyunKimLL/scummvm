@@ -28,6 +28,7 @@
 #include "ags/shared/font/fonts.h"
 #include "ags/shared/font/glyph_font_renderer.h"
 #include "ags/shared/font/hires_font_config.h"
+#include "ags/engine/ac/hires_text_twin.h"
 #include "ags/shared/font/ttf_font_renderer.h"
 #include "ags/shared/font/wfn_font_renderer.h"
 #include "ags/shared/game/interactions.h"
@@ -505,6 +506,7 @@ Globals::~Globals() {
 	delete _wfnRenderer;
 	delete _glyphRenderer;
 	delete _hiresFontConfig;
+	delete _hiresTextTwins;
 	delete _Lines;
 
 	// game.cpp globals

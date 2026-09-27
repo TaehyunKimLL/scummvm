@@ -452,6 +452,10 @@ Bitmap *font_scratch_bitmap(Bitmap &owner, Bitmap &sub, int w, int h, int color_
 	return &sub;
 }
 
+bool is_font_hires_mapped(size_t fontNumber) {
+	return fontNumber < _GP(fonts).size() && _GP(fonts)[fontNumber].Renderer == &_GP(glyphRenderer);
+}
+
 void wouttextxy_scaled(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, const char *texx,
 					   int scale) {
 	if (fontNumber >= _GP(fonts).size() || scale < 1)
