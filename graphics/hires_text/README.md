@@ -326,7 +326,7 @@ the **layout cell** (`cellHeight()`, the box the engine lays text out on):
 |---|---|---|---|
 | no `size=`, no `pixel=` (SCUMM only: the line fit) | `round(upm * cell / (usWinAscent + usWinDescent))` (`kTTFSizeModeCell`) | the game's own cell times the scale | none (only a translation sample that leaves the cell moves or shrinks it) |
 | `size=N` (SCUMM `[font.N]`/`[hires]`, SCI, AGS - AGS uses the game font height when no size is given) | N, stepped down until the fixed probe set (Hangul, `A g j y Å`, brackets, CJK quotes) plus the translation sample fits N rows | **N** | yes |
-| `pixel=D` | `D * k`, the largest multiple of D the cell holds (D itself in a smaller cell) | the cell of the row above that applies: SCUMM's game cell times the scale, or `size=` when set | none |
+| `pixel=D` | `D * k`, the largest multiple of D the cell holds (D itself in a smaller cell) | the engine's cell, unchanged: SCUMM the game cell times the scale, or `size=` when set; SCI `size=` (16 by default); AGS `size=` times the game's size multiplier, else the game font's height | none |
 
 **`size=` also changes the layout cell.** In SCUMM a charset with
 `[font.N] size=` is laid out on an N-pixel cell instead of its own:
@@ -363,9 +363,17 @@ descent + gap) is taller than the cell, the ink of the Hangul probes and
 the ink itself is taller; the ppem never changes, and ink outside the cell is
 clipped. The faces behind it in a chain (`face=ko, ja, th`) are fallbacks
 for what it lacks and are opened as usual (line fit, or `size=` with its
-probe fit), in the same cell. `[hires] pixel=` sets it for every font;
-`[font.N] pixel=` wins.
-SCUMM, SCI and AGS read it; Grim does not use `TtfGlyphSource`. A Latin
+probe fit, and the translation sample's fit), in the same cell.
+`[hires] pixel=` sets it for every font; `[font.N] pixel=` wins. It
+describes a face the map names: a face from the ini (`hires_text_font`) is
+never opened as a pixel face, and when SCI falls back from a `[font.N]`
+face to the face every font gets, that face takes `[hires] pixel=`, not the
+`[font.N]` one.
+SCUMM, SCI and AGS read it; Grim does not use `TtfGlyphSource`. AGS text
+drawn N times larger (C23's N x path) opens the pixel face at exactly N
+times the ppem it has at 1x (`AGS3::scaledPlan()`), not at
+`pixelGridSize(N * cell, D)`, so its glyphs line up with the N x pens (cell
+15, D 10 at 2x: 20, not 30; a 9 cell with D 10: 20, not 10). A Latin
 companion face (`latin_font=`) is not a pixel face. Design sizes: Galmuri7 8,
 Galmuri9 10, Galmuri11 12, Galmuri14 15; Neo둥근모, HBIOS-SYS, IyagiGGC,
 Unifont 16; LanaPixel 11 (its only strike: at 22 it is blank).

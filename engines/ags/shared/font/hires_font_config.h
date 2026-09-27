@@ -50,6 +50,17 @@ struct HiResFontPlan {
 };
 
 /**
+ * The plan font N's faces are opened by at @p scale x its size (C23's N x
+ * text). A pixel plan's first face opens at exactly @p scale times the ppem
+ * it opened at in 1x (@p smallPixelPpem, its faceSize()), so its glyphs line
+ * up with the N x pens: pixelGridSize(N * cell, D) is not always that (cell 15,
+ * D 10: 30 against 2 x 10; a cell smaller than D: D against 2 x D). With no
+ * 1x pixel face (@p smallPixelPpem 0, or no pixel=) the plan has no pixel
+ * face either. Everything else is the plan as it is.
+ */
+HiResFontPlan scaledPlan(const HiResFontPlan &plan, int scale, int smallPixelPpem);
+
+/**
  * AGS fonts from hires_text.map (I18N_TEXT_DESIGN.md sections 4.4-4.6).
  * The map is read only when the game directory has hires_text.map or the
  * ini names one with hires_text_map; its sections are qualified by the game

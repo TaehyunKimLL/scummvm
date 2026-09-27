@@ -379,6 +379,10 @@ struct ScummHiResText {
 	/// How many distinct glyph sources are open, for tests and logs.
 	int sourceCount() const;
 
+	/// Face @p index of the TrueType chain charset @p charsetId draws with,
+	/// or null (no chain, or fewer faces); for tests.
+	Graphics::TtfGlyphSource *ttfChainFace(int charsetId, uint index) const;
+
 	/**
 	 * Take an already parsed configuration and switch the layer on.
 	 *

@@ -73,6 +73,16 @@ class RangeTest(unittest.TestCase):
         self.assertEqual(len([c for c in ks if 0xAC00 <= c <= 0xD7A3]), 2350)
         self.assertEqual(len(mkfont.parse_ranges("ascii,hangul,ascii")), 95 + 11172)
 
+    def test_blank_code_points_are_kept_only_when_the_face_has_them(self):
+        # 공백은 잉크가 없어도 싣는다. 하지만 글꼴에 없어 .notdef 로 그려졌다면
+        # 공백 자리에 네모를 구워 넣지 않는다 (C28 리뷰).
+        self.assertTrue(mkfont.unicode_keep(0x20, 0, False))
+        self.assertFalse(mkfont.unicode_keep(0x3000, 7, True))
+        self.assertFalse(mkfont.unicode_keep(0xA0, 0, True))
+        self.assertTrue(mkfont.unicode_keep(0xAC00, 7, False))
+        self.assertFalse(mkfont.unicode_keep(0xAC00, 7, True))
+        self.assertFalse(mkfont.unicode_keep(0xAC00, 0, False))
+
     def test_unknown_name_is_an_error(self):
         with self.assertRaises(ValueError):
             mkfont.parse_ranges("klingon")

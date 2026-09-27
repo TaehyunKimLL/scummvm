@@ -84,6 +84,7 @@ bool GlyphFontRenderer::Build(FontData &fd, const Common::Array<uint32> &fitProb
 	}
 
 	Common::Array<Graphics::UnicodeGlyphSource *> sources;
+	fd.PixelPpem = 0;
 	for (uint i = 0; i < plan.faces.size(); i++) {
 		const Common::Path &path = plan.faces[i];
 		// "<file>.ttc#<N>" names face N of a collection (font_face.h).
@@ -116,6 +117,8 @@ bool GlyphFontRenderer::Build(FontData &fd, const Common::Array<uint32> &fitProb
 			continue;
 		}
 		ttf->setCoverageGamma(plan.gamma);
+		if (plan.pixel > 0 && i == 0)
+			fd.PixelPpem = ttf->faceSize();
 		sources.push_back(ttf);
 		fd.Names.push_back(path.baseName().c_str());
 	}
@@ -170,9 +173,10 @@ void GlyphFontRenderer::SetTranslationSample(const Common::Array<uint32> &sample
 	for (auto &it : _fontData) {
 		FontData &fd = *it._value;
 		// A TrueType chain is opened again with the translation's own
-		// characters in the vertical fit (Thai marks, Japanese brackets);
-		// a pixel font is not fitted, so it is kept as it is.
-		if (fd.Plan.kind == HiResFontPlan::kFaces && fd.Plan.pixel <= 0) {
+		// characters in the vertical fit (Thai marks, Japanese brackets).
+		// A pixel face (the chain's first, pixel=) ignores the sample and
+		// opens as before; the faces behind it are fitted to it.
+		if (fd.Plan.kind == HiResFontPlan::kFaces) {
 			FontData fresh;
 			fresh.Plan = fd.Plan;
 			fresh.Size = fd.Size;
@@ -183,6 +187,7 @@ void GlyphFontRenderer::SetTranslationSample(const Common::Array<uint32> &sample
 				fd.Source = fresh.Source;
 				fd.Chain = fresh.Chain;
 				fd.Names = fresh.Names;
+				fd.PixelPpem = fresh.PixelPpem;
 				fd.Drawer.setSource(fd.Source);
 				fd.FitProbes = probes;
 				fresh.Source = nullptr;
@@ -282,7 +287,8 @@ GlyphFontRenderer::ScaledChain *GlyphFontRenderer::GetScaled(FontData &fd, int f
 		return nullptr;
 	}
 	FontData big;
-	big.Plan = fd.Plan;
+	// A pixel face opens at N x its 1x ppem, so it lines up with the N x pens.
+	big.Plan = scaledPlan(fd.Plan, scale, fd.PixelPpem);
 	big.Size = fd.Size * scale;
 	bool ok = big.Size <= Graphics::TtfGlyphSource::kMaxPixelSize && Build(big, fd.FitProbes, false);
 	// The same faces, in the same order: rowShift() pairs them up

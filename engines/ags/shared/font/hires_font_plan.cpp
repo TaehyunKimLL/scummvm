@@ -110,11 +110,20 @@ HiResFontPlan HiResFontConfig::plan(int fontNumber) const {
 		p.size = _map.hiresSize;
 	if (_mapLoaded)
 		p.gamma = _map.coverageGamma;
-	// A pixel font (C28) is held on its grid in the size above.
-	if (f && f->pixelSet)
+	// A pixel font (C28) is held on its grid in the size above. It names
+	// the map's face: the ini's hires_text_font is never a pixel face.
+	if (p.source == "hires_text_font")
+		p.pixel = 0;
+	else if (f && f->pixelSet)
 		p.pixel = f->pixel;
 	else if (_mapLoaded && _map.hiresPixelSet)
 		p.pixel = _map.hiresPixel;
+	return p;
+}
+
+HiResFontPlan scaledPlan(const HiResFontPlan &plan, int scale, int smallPixelPpem) {
+	HiResFontPlan p = plan;
+	p.pixel = (plan.pixel > 0 && smallPixelPpem > 0) ? MAX(1, scale) * smallPixelPpem : 0;
 	return p;
 }
 
