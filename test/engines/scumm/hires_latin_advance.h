@@ -191,6 +191,60 @@ public:
 #endif
 	}
 
+	/// An ASCII code the game's charset has no glyph for (MI1's verb charset
+	/// lacks '?'): getCharWidth() measures advanceFor(chr, cs, 0) and
+	/// printChar() draws it through this layer when it steps by the face, so
+	/// both sides agree; otherwise it measures 0 and is not drawn.
+	void test_missing_game_glyph_measured_as_drawn() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		const char *apple = appleGothic();
+		if (!apple) {
+			TS_SKIP("needs Apple SD Gothic Neo");
+			return;
+		}
+		Scumm::HiResOverlay overlay;
+		overlay.create(200, 40, true);
+		for (int pg = 0; pg < 2; pg++) {
+			const Graphics::HiResTextConfig c = parse(mi1Map(apple, pg == 1, ""));
+			Scumm::ScummHiResText cp949, en;
+			TS_ASSERT(open(cp949, overlay, c, false, true));
+			TS_ASSERT(open(en, overlay, c, false, false));
+
+			// Face-stepped: drawn, and measured at the face step from a game
+			// width of 0.
+			TS_ASSERT(cp949.drawsMissingGameGlyph('?', kCs, false));
+			const int step = cp949.advanceFor('?', kCs, 0);
+			TS_ASSERT_EQUALS(step, faceStep(cp949, '?'));
+			TS_ASSERT(step > 0);
+			Graphics::Surface a;
+			a.create(200, 40, Graphics::PixelFormat::createFormatCLUT8());
+			memset(a.getPixels(), 0, 200 * 40);
+			TS_ASSERT(cp949.drawChar(a, '?', kCs, 40, 4, kInk, 0, 1, nullptr, true, step));
+			int left;
+			TS_ASSERT(inkLeft(a, left));
+			a.free();
+
+			// The game's own text (English): not drawn, and under per-glyph
+			// placement measured 0. (A legacy map's metrics=game floor has
+			// measured the face's fit for it since before C34: unchanged.)
+			TS_ASSERT(!en.drawsMissingGameGlyph('?', kCs, false));
+			if (pg == 1)
+				TS_ASSERT_EQUALS(en.advanceFor('?', kCs, 0), 0);
+			// The space is never face-stepped.
+			TS_ASSERT(!cp949.drawsMissingGameGlyph(' ', kCs, false));
+			// UTF-8 code points above ASCII, as before C34.
+			TS_ASSERT(en.drawsMissingGameGlyph(0xAC00, kCs, true));
+		}
+
+		// Hi-res off: nothing is drawn by the layer.
+		Scumm::ScummHiResText off;
+		TS_ASSERT(!off.drawsMissingGameGlyph('?', kCs, false));
+		TS_ASSERT_EQUALS(off.advanceFor('?', kCs, 0), 0);
+#else
+		TS_SKIP("needs FreeType and a real filesystem");
+#endif
+	}
+
 	/// Stepping by the face, a Latin glyph is drawn at the pen, not centred
 	/// in the game's (wider) width.
 	void test_latin_face_step_not_centred() {
