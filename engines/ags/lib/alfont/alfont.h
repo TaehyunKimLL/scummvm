@@ -78,6 +78,8 @@ ALFONT_DLL_DECLSPEC int alfont_get_font_height(ALFONT_FONT *f);
 ALFONT_DLL_DECLSPEC int alfont_get_font_real_height(ALFONT_FONT *f);
 /* Returns the real font graphical extent (top, bottom) */
 ALFONT_DLL_DECLSPEC void alfont_get_font_real_vextent(ALFONT_FONT *f, int *top, int *bottom);
+/* ScummVM: whether the face has a glyph for the code point (not .notdef) */
+ALFONT_DLL_DECLSPEC int alfont_has_char(ALFONT_FONT *f, int character);
 
 ALFONT_DLL_DECLSPEC int alfont_text_mode(int mode);
 

@@ -110,6 +110,8 @@ class IRouteFinder;
 class Navigation;
 class SplitLines;
 class TTFFontRenderer;
+class GlyphFontRenderer;
+class HiResFontConfig;
 class WFNFontRenderer;
 
 struct AGSCCStaticObject;
@@ -728,6 +730,9 @@ public:
 	std::vector<AGS::Shared::Font> *_fonts;
 	TTFFontRenderer *_ttfRenderer;
 	WFNFontRenderer *_wfnRenderer;
+	// ScummVM: fonts from hires_text.map
+	GlyphFontRenderer *_glyphRenderer;
+	HiResFontConfig *_hiresFontConfig;
 	SplitLines *_Lines;
 	Shared::Bitmap _wputblock_wrapper; // [IKM] argh! :[
 
