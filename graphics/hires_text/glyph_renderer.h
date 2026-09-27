@@ -134,12 +134,15 @@ struct GlyphDecoration {
 };
 
 /**
- * The pen a glyph is dilated with: integer offsets and a weight for each.
+ * The pen a glyph is dilated with: integer offsets and a reach for each.
  *
- * A pixel's outline alpha is the strongest of cov(p - offset) * weight over
- * all taps, so a weight of 255 copies the glyph's coverage and a smaller one
- * softens it. The soft disk gives the taps at the rim partial weight, which is
- * what keeps an outline of a fractional width antialiased.
+ * @p k is how far inside the pen's edge a tap lies, in 1/255 of a pixel
+ * (r + 1 - distance), and may exceed 255; @p w is that clamped to 0..255,
+ * the tap's weight for fully covered ink. A pixel's outline alpha is the
+ * strongest of k - (255 - cov) over the taps, clamped: coverage is read as
+ * how far into its pixel the ink reaches, so a partly covered stem pushes
+ * the pen's edge back rather than dimming the whole outline. The soft disk's
+ * rim is what keeps an outline of a fractional width antialiased.
  */
 struct DilationKernel {
 	enum { kMaxTaps = 33 * 33 };
@@ -150,6 +153,7 @@ struct DilationKernel {
 	int reach;          ///< the largest |dx| or |dy|
 	int8 dx[kMaxTaps];
 	int8 dy[kMaxTaps];
+	int16 k[kMaxTaps];
 	byte w[kMaxTaps];
 };
 
@@ -225,7 +229,8 @@ public:
 							HiResShadowMode legacyTable = kHiResShadowOutline, int step = 1);
 
 	/**
-	 * Dilate a glyph's coverage by @p kernel into @p out.
+	 * Dilate a glyph's coverage by @p kernel into @p out: at each pixel the
+	 * strongest clamp(k - (255 - cov)) the pen lands there (DilationKernel).
 	 *
 	 * @p out holds (width + 2 reach) x (height + 2 reach) bytes, the glyph at
 	 * (reach, reach). With @p binaryAt above zero the input is first cut to
