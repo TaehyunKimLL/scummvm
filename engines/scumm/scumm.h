@@ -1761,14 +1761,11 @@ public:
 	 * such glyph here, in overlay pixels, and retires it when the game paints
 	 * the same part of its buffer.
 	 */
-	struct KeptHiResGlyph {
-		Common::Rect area;
-		bool inBackBuffer; ///< drawn with _blitAlso, so survives a back-to-front copy
-	};
+	typedef ScummHiResText::TracedGlyph KeptHiResGlyph;
 	Common::Array<KeptHiResGlyph> _keptHiResGlyphs;
 
-	/// Record a hi-res glyph drawn for keeps on the main screen.
-	void noteKeptHiResGlyph(const Common::Rect &area, bool inBackBuffer);
+	/// Record a hi-res glyph drawn for keeps on the main screen (@p cell: its game cell).
+	void noteKeptHiResGlyph(const Common::Rect &cell, const Common::Rect &area, bool inBackBuffer);
 
 	/**
 	 * The game painted @p rect of @p vs (its own pixels, screen columns).
@@ -1794,6 +1791,18 @@ public:
 
 	/// Record a hi-res glyph drawn on a single-buffered virtual screen.
 	void noteTracedHiResGlyph(const Common::Rect &cell, const Common::Rect &area);
+
+	/**
+	 * Both record lists as they were when the original GUI saved the text
+	 * surface: restoreSurfacesPostGUI() puts the overlay back, and the records
+	 * have to describe what it put back, or the text under a banner could
+	 * never be erased again.
+	 */
+	Common::Array<KeptHiResGlyph> _savedKeptHiResGlyphs;
+	Common::Array<ScummHiResText::TracedGlyph> _savedTracedHiResGlyphs;
+
+	/// Whether eraseHiResTextPainted() does anything here (hi-res on, not FM-Towns, not Mac).
+	bool erasesHiResTextOnPaint() const;
 
 	/**
 	 * The game filled @p rect of @p vs (its own rows, screen columns) with a

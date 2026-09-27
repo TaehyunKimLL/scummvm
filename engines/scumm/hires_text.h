@@ -483,6 +483,7 @@ struct ScummHiResText {
 	struct TracedGlyph {
 		Common::Rect cell;
 		Common::Rect area;
+		bool inBackBuffer = false; ///< drawn with _blitAlso: the game's back buffer has it too
 	};
 
 	/**
@@ -496,6 +497,21 @@ struct ScummHiResText {
 	 */
 	static void retireTracedGlyphs(const Common::Rect &painted, Common::Array<TracedGlyph> &glyphs,
 								   Common::Array<Common::Rect> &clear);
+
+	/**
+	 * The rule under retireTracedGlyphs(), for either kind of record: drop
+	 * from @p glyphs every glyph whose cell @p painted meets and append its
+	 * whole area to @p clear.
+	 *
+	 * @param clearPainted    put @p painted itself first in @p clear (a
+	 *                        single-buffered screen, where all its text is
+	 *                        the game's buffer), and skip glyphs it holds
+	 * @param keepBackBuffer  leave glyphs drawn into the back buffer too: the
+	 *                        paint reached the front only, and the game blits
+	 *                        that copy back later
+	 */
+	static void retireGlyphsByCell(const Common::Rect &painted, Common::Array<TracedGlyph> &glyphs,
+								   Common::Array<Common::Rect> &clear, bool clearPainted, bool keepBackBuffer);
 
 	/**
 	 * Say whether the game's shadow byte comes from the Korean patch fonts,
