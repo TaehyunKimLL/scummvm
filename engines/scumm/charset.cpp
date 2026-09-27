@@ -1369,11 +1369,12 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_height = _origHeight = _vm->_2byteHeight;
 		_offsX = _offsY = 0;
 	} else if (!prepareDraw(gameChar(chr))) {
-		if (!(_vm->_textUtf8 && chr >= 0x80))
+		if (!_vm->_hiResText.drawsMissingGameGlyph(chr, _curId, _vm->_textUtf8))
 			return;
 		// A code point whose stand-in the game's font does not have (MI1's
-		// verb charset has no '?'): the hi-res layer alone draws it, in a
-		// box as wide as it advances.
+		// verb charset has no '?'), or ASCII stepping by the face (C34) that
+		// the game's font lacks: the hi-res layer alone draws it, in a box as
+		// wide as it advances, which is what getCharWidth() measured.
 		setShadowMode(kNoShadowType);
 		_charPtr = nullptr;
 		_width = _origWidth = _vm->_hiResText.advanceFor(chr, _curId, 0);
@@ -1417,7 +1418,9 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		clipWidth = MIN(_origWidth, _vm->_hiResText.advanceFor(chr, _curId, _origWidth));
 	}
 	if (_left + clipWidth > _right + 1 || _left < 0) {
-		_left += _origWidth;
+		// Latin stepping by the face moves by that step here too, as it does
+		// below and as it was measured (C34).
+		_left += latinFaceStep ? _vm->_hiResText.advanceFor(chr, _curId, _origWidth) : _origWidth;
 		_top -= _offsY;
 		return;
 	}
