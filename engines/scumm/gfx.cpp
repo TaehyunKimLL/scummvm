@@ -22,6 +22,7 @@
 #include "common/system.h"
 #include "scumm/actor.h"
 #include "scumm/charset.h"
+#include "scumm/hires_composite.h"
 #include "scumm/hires_scale.h"
 #include "scumm/hires_sinks.h"
 #ifdef ENABLE_HE
@@ -634,86 +635,9 @@ void ScummEngine::updateDirtyScreen(VirtScreenNumber slot) {
 	}
 }
 
-/**
- * Composite one strip of text over the game's picture.
- *
- * The game buffer is at the unscaled size, so each of its pixels is read @p m
- * times across and @p m times down; the text and coverage planes are already
- * at the output size.
- *
- * Pixels are grouped into runs of the same kind before being handed to the
- * sink, so a virtual call covers a span rather than a single pixel.
- *
- * @param coverage  may be null, meaning every text pixel is fully opaque
- */
-template<class Sink>
-static void compositeText(Sink &sink, const byte *src, int srcPitch,
-						  const byte *text, int textPitch,
-						  const byte *coverage, int covPitch,
-						  int width, int height, int m) {
-	const int outWidth = width * m;
-
-	// Scratch for the expanded background row: the sink is given indices, and
-	// the game buffer holds one per m output pixels.
-	Common::Array<byte> bgRow(outWidth);
-
-	for (int h = 0; h < height * m; ++h) {
-		const byte *srcRow = src + (h / m) * (width + srcPitch);
-		for (int w = 0; w < outWidth; ++w)
-			bgRow[w] = srcRow[w / m];
-
-		int runStart = 0;
-		int runKind = -1;   // 0 = background, 1 = opaque, 2 = blended
-
-		for (int w = 0; w <= outWidth; ++w) {
-			int kind = -1;
-			if (w < outWidth) {
-				const byte t = text[w];
-				const byte a = coverage ? coverage[w] : 0xFF;
-
-				if (t == CHARSET_MASK_TRANSPARENCY || (t == 0 && a == 0)) {
-					// No text here. Index zero with no coverage is not text
-					// either: that is a spot the surface was cleared to rather
-					// than keyed, and painting palette entry 0 there would
-					// punch a hole in the background.
-					kind = 0;
-				} else if (a == 0 || a == 0xFF) {
-					// Fully covered, or drawn by a path that leaves the
-					// coverage channel alone - a zero there means opaque,
-					// not invisible.
-					kind = 1;
-				} else {
-					kind = 2;
-				}
-			}
-
-			if (kind != runKind) {
-				const int count = w - runStart;
-				if (count > 0) {
-					switch (runKind) {
-					case 0:
-						sink.writeBackground(bgRow.begin() + runStart, count);
-						break;
-					case 1:
-						sink.writeOpaque(text + runStart, count);
-						break;
-					default:
-						sink.writeBlended(text + runStart, bgRow.begin() + runStart,
-										  coverage + runStart, count);
-						break;
-					}
-				}
-				runStart = w;
-				runKind = kind;
-			}
-		}
-
-		text += outWidth + textPitch;
-		if (coverage)
-			coverage += outWidth + covPitch;
-	}
-}
-
+// The compositor lives in hires_composite.h, where it can be tested; it keys
+// on the same transparent index as everything here.
+static_assert(CHARSET_MASK_TRANSPARENCY == kHiResTextTransparent, "hires_composite.h keys on another index");
 
 /**
  * Blit the specified rectangle from the given virtual screen to the display.
@@ -826,18 +750,28 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 			const int textSkip = _textSurface.pitch - width * m;
 			const int covSkip = _hiResText.coverage()->pitch - width * m;
 
+			// The decoration's own layer, when the glyphs were given one
+			// (C19): the text's antialiased edge is blended over it.
+			const byte *underPlane = nullptr, *underCovPlane = nullptr;
+			int underSkip = 0;
+			if (const Graphics::Surface *uc = _overlay.underCoverage()) {
+				underPlane = (const byte *)_overlay.underIndex()->getBasePtr(x * m, y * m);
+				underCovPlane = (const byte *)uc->getBasePtr(x * m, y * m);
+				underSkip = uc->pitch - width * m;
+			}
+
 			if (_outputPixelFormat.bytesPerPixel == 2) {
 				HiResPalette16Sink sink(_compositeBuf,
 										_hiResText.paletteCache(), _outputPixelFormat);
 				compositeText(sink, (const byte *)src, vs->pitch - width,
 							  textPlane, textSkip, covPlane, covSkip,
-							  width, height, m);
+							  width, height, m, underPlane, underCovPlane, underSkip);
 			} else {
 				HiResTrueColorSink sink((uint32 *)_compositeBuf,
 										_hiResText.paletteCache(), _outputPixelFormat);
 				compositeText(sink, (const byte *)src, vs->pitch - width,
 							  textPlane, textSkip, covPlane, covSkip,
-							  width, height, m);
+							  width, height, m, underPlane, underCovPlane, underSkip);
 			}
 
 			// The composite buffer holds width*m pixels per row, not width:

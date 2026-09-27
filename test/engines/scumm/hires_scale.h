@@ -40,6 +40,10 @@ class HiResScaleTestSuite : public CxxTest::TestSuite {
 						  int count) override {
 			writeBackground(fg, count);
 		}
+		void writeLayered(const byte *fg, const byte *, const byte *, const byte *,
+						  const byte *, int count) override {
+			writeBackground(fg, count);
+		}
 	};
 
 	/**
