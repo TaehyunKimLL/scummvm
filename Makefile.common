@@ -435,6 +435,13 @@ DIST_FILES_ENGINEDATA_BASE_BIG:=$(DIST_FILES_LIST)
 DIST_FILES_ENGINEDATA:=$(addprefix $(srcdir)/,$(DIST_FILES_ENGINEDATA_BASE_CORE) $(DIST_FILES_ENGINEDATA_BASE))
 DIST_FILES_ENGINEDATA_BIG:=$(addprefix $(srcdir)/,$(DIST_FILES_ENGINEDATA_BASE_BIG))
 
+# Hi-res text fonts (with their licences) and example maps, installed with
+# their folders under $(datadir) by install-data (ports.mk)
+DIST_DIRS_HIRES_TEXT=
+ifdef USE_FREETYPE2
+DIST_DIRS_HIRES_TEXT:=hires_text/maps hires_text/fonts $(patsubst $(srcdir)/dists/engine-data/%/,%,$(sort $(dir $(wildcard $(srcdir)/dists/engine-data/hires_text/fonts/*/*))))
+endif
+
 # Shaders: install if USE_OPENGL_SHADERS is defined
 DIST_FILES_SHADERS=
 ifneq ($(USE_OPENGL_SHADERS),)

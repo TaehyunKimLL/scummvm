@@ -98,8 +98,13 @@ void GfxCache::resolveHiresText() {
 	const bool mapKeyEmpty = mapKeySet && ConfMan.get("hires_text_map", domain).empty();
 	Common::FSNode mapNode;
 	if (mapKeySet) {
-		if (!mapKeyEmpty)
-			mapNode = Common::FSNode(Common::Path(ConfMan.get("hires_text_map", domain), Common::Path::kNativeSeparator));
+		if (!mapKeyEmpty) {
+			const Common::String value = ConfMan.get("hires_text_map", domain);
+			// "data:" names a map shipped with ScummVM (HiResFontMap::resolvePath()).
+			mapNode = Common::FSNode(Graphics::HiResFontMap::isDataPath(value)
+										 ? Graphics::HiResFontMap::resolvePath(value, Common::Path())
+										 : Common::Path(value, Common::Path::kNativeSeparator));
+		}
 	} else {
 		mapNode = Common::FSNode(gameDir).getChild("hires_text.map");
 	}

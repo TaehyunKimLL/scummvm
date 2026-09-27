@@ -24,6 +24,14 @@ ifneq ($(DIST_FILES_SHADERS),)
 	$(INSTALL) -d "$(DESTDIR)$(datadir)/shaders"
 	$(INSTALL) -c -m 644 $(DIST_FILES_SHADERS) "$(DESTDIR)$(datadir)/shaders"
 endif
+# Hi-res text fonts and example maps keep their folders, so a map can
+# name them as "data:hires_text/fonts/<family>/<file>".
+ifdef USE_FREETYPE2
+	for d in $(DIST_DIRS_HIRES_TEXT); do \
+		$(INSTALL) -d "$(DESTDIR)$(datadir)/$$d"; \
+		$(INSTALL) -c -m 644 $(srcdir)/dists/engine-data/$$d/*.* "$(DESTDIR)$(datadir)/$$d"; \
+	done
+endif
 
 install: $(EXECUTABLE) $(PLUGINS) install-data
 	$(INSTALL) -d "$(DESTDIR)$(bindir)"

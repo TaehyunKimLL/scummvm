@@ -408,6 +408,69 @@ public:
 		TS_ASSERT(M::resolvePath("", base).empty());
 	}
 
+	// Fake file system for the data: tests: only these two files exist.
+	static bool dataFileExists(const Common::Path &path) {
+		const Common::String s = path.toString('/');
+		return s == "/opt/data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf" ||
+			   s == "/home/me/extra/hires_text/fonts/neodgm/neodgm.ttf";
+	}
+
+	void test_data_prefix_names_a_file_in_the_data_directories() {
+		typedef Graphics::HiResFontMap M;
+		Common::Array<Common::Path> roots;
+		roots.push_back(Common::Path("/home/me/extra"));
+		roots.push_back(Common::Path("/opt/data"));
+
+		// The prefix is recognised only at the start, case-sensitively.
+		TS_ASSERT(M::isDataPath("data:hires_text/fonts/x.ttf"));
+		TS_ASSERT(!M::isDataPath("fonts/data:x.ttf"));
+		TS_ASSERT(!M::isDataPath("data"));
+		TS_ASSERT(!M::isDataPath("DATA:x.ttf"));
+
+		// The first root holding the file wins, in the order given.
+		TS_ASSERT_EQUALS(M::resolveDataPath("hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf",
+											roots, dataFileExists).toString('/'),
+						 "/opt/data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf");
+		TS_ASSERT_EQUALS(M::resolveDataPath("hires_text/fonts/neodgm/neodgm.ttf",
+											roots, dataFileExists).toString('/'),
+						 "/home/me/extra/hires_text/fonts/neodgm/neodgm.ttf");
+
+		// A .ttc face suffix is looked up by its file, and kept.
+		TS_ASSERT_EQUALS(M::resolveDataPath("hires_text/fonts/neodgm/neodgm.ttf#0",
+											roots, dataFileExists).toString('/'),
+						 "/home/me/extra/hires_text/fonts/neodgm/neodgm.ttf#0");
+
+		// A missing file keeps its data: name, so the open fails with that
+		// name in the warning rather than against some unrelated folder.
+		TS_ASSERT_EQUALS(M::resolveDataPath("hires_text/fonts/none.ttf", roots, dataFileExists)
+							 .toString('/'),
+						 "data:hires_text/fonts/none.ttf");
+		TS_ASSERT_EQUALS(M::resolveDataPath("hires_text/fonts/none.ttf",
+											Common::Array<Common::Path>(), dataFileExists)
+							 .toString('/'),
+						 "data:hires_text/fonts/none.ttf");
+
+		// A data: path stays inside the data folders: no absolute path,
+		// no drive letter, no ".." component; such a value is not looked up.
+		TS_ASSERT(M::isSafeDataRelative("hires_text/fonts/x.ttf"));
+		TS_ASSERT(M::isSafeDataRelative("hires_text/..fonts/x..ttf"));
+		TS_ASSERT(!M::isSafeDataRelative(""));
+		TS_ASSERT(!M::isSafeDataRelative("/etc/x.ttf"));
+		TS_ASSERT(!M::isSafeDataRelative("\\x.ttf"));
+		TS_ASSERT(!M::isSafeDataRelative("C:/x.ttf"));
+		TS_ASSERT(!M::isSafeDataRelative("../x.ttf"));
+		TS_ASSERT(!M::isSafeDataRelative("hires_text/../../x.ttf"));
+		TS_ASSERT(!M::isSafeDataRelative("hires_text\\..\\x.ttf"));
+		TS_ASSERT(!M::isSafeDataRelative("hires_text/.."));
+		TS_ASSERT_EQUALS(M::resolveDataPath("../opt/data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf",
+											roots, dataFileExists).toString('/'),
+						 "data:../opt/data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf");
+
+		// (resolvePath() hands a data: value to resolveDataPath() with
+		// dataRoots(); that needs a live file system, so it is covered by
+		// the engine capture in runs/c29, not here.)
+	}
+
 	void test_role_names() {
 		typedef Graphics::HiResFontMap M;
 
