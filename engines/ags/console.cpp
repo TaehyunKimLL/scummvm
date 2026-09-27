@@ -32,6 +32,7 @@
 #include "ags/shared/font/fonts.h"
 #include "ags/shared/gfx/allegro_bitmap.h"
 #include "ags/engine/gfx/graphics_driver.h"
+#include "ags/engine/gfx/ali_3d_scummvm.h"
 #include "ags/shared/script/cc_common.h"
 #include "common/file.h"
 #include "common/system.h"
@@ -51,6 +52,7 @@ AGSConsole::AGSConsole(AGSEngine *vm) : GUI::Debugger(), _vm(vm), _logOutputTarg
 	registerCmd("ags_say",  WRAP_METHOD(AGSConsole, Cmd_say));
 	registerCmd("ags_dump_native",  WRAP_METHOD(AGSConsole, Cmd_dumpNative));
 	registerCmd("ags_render_text",  WRAP_METHOD(AGSConsole, Cmd_renderText));
+	registerCmd("ags_hires_rects",  WRAP_METHOD(AGSConsole, Cmd_hiresRects));
 
 	_logOutputTarget = new LogOutputTarget();
 	_agsDebuggerOutput = _GP(DbgMgr).RegisterOutput("ScummVMLog", _logOutputTarget, AGS3::AGS::Shared::kDbgMsg_None);
@@ -488,6 +490,25 @@ bool AGSConsole::Cmd_renderText(int argc, const char **argv) {
 		ok = Image::writePNG(df, out);
 	out.free();
 	debugPrintf(ok ? "OK %d x %d, %d x %d at %dx\n" : "FAIL cannot write\n", w, h, w * scale, h * scale, scale);
+	return true;
+}
+
+// ags_hires_rects
+//
+// C23: the screen rects (native pixels, x0 y0 x1 y1, exclusive) of the text
+// drawn at N x in the frame last presented; empty at scale 1 or without
+// text twins. For checking that the N x frame is the native one upscaled
+// everywhere else (AGS_HIRES_TEXT_DESIGN.md section 8, invariant 3).
+bool AGSConsole::Cmd_hiresRects(int argc, const char **argv) {
+	if (!_G(gfxDriver)) {
+		debugPrintf("FAIL no driver\n");
+		return true;
+	}
+	const auto &rects = static_cast<AGS3::AGS::Engine::ALSW::ScummVMRendererGraphicsDriver *>(_G(gfxDriver))->GetHiResTextRects();
+	Common::String out = Common::String::format("%u", (uint)rects.size());
+	for (const Common::Rect &r : rects)
+		out += Common::String::format(" %d,%d,%d,%d", r.left, r.top, r.right, r.bottom);
+	debugPrintf("%s\n", out.c_str());
 	return true;
 }
 
