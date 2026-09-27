@@ -434,6 +434,52 @@ public:
 		TS_ASSERT(l.emergency);
 	}
 
+	// Grim's shape: the text is a U32String already (assign(), offsets are
+	// unit indices) and the engine appends '-' only after an emergency split
+	// (engines/grim/textobject.cpp). A Latin word too long for the line is
+	// an emergency; Japanese and Thai always have an opportunity, so no
+	// dash lands inside them.
+	void test_grim_dash_rule() {
+		UnitMetrics m;
+		Graphics::BreakRules rules;
+		rules.hangul = Graphics::kHangulBreakWord;
+		Common::Array<Graphics::LineSpan> lines;
+		Graphics::TextRun run;
+
+		run.assign(Common::U32String("abcdefgh"));
+		Graphics::TextLayout::breakLines(run, 5, m, rules, lines);
+		TS_ASSERT_EQUALS(lines.size(), 2u);
+		TS_ASSERT(lines[0].emergency);
+		TS_ASSERT_EQUALS(lines[0].end, 5u);
+		TS_ASSERT_EQUALS(lines[0].byteEnd, 5u);
+
+		run.assign(Common::U32String(kJapanese, Common::kUtf8));
+		Graphics::TextLayout::breakLines(run, 5, m, rules, lines);
+		TS_ASSERT(lines.size() > 1);
+		for (uint32 k = 0; k < lines.size(); k++) {
+			TS_ASSERT(!lines[k].emergency);
+			TS_ASSERT(lines[k].width <= 5);
+			// Kinsoku: no line starts with 。 or 」, none ends with 「.
+			TS_ASSERT(!Graphics::Unicode::kinsokuNoStart(run.cp(lines[k].first)));
+			TS_ASSERT(!Graphics::Unicode::kinsokuNoEnd(run.cp(lines[k].end - 1)));
+		}
+		// "ここには何もない" alone at 3: split between kana, not emergency.
+		run.assign(Common::U32String("\xE3\x81\x93\xE3\x81\x93\xE3\x81\xAB\xE3\x81\xAF\xE4\xBD\x95\xE3\x82\x82\xE3\x81\xAA\xE3\x81\x84", Common::kUtf8));
+		TS_ASSERT_EQUALS(run.size(), 8u);
+		Graphics::TextLayout::breakLines(run, 3, m, rules, lines);
+		TS_ASSERT_EQUALS(lines.size(), 3u);
+		for (uint32 k = 0; k < lines.size(); k++)
+			TS_ASSERT(!lines[k].emergency);
+
+		run.assign(Common::U32String(kThai, Common::kUtf8));
+		Graphics::TextLayout::breakLines(run, 4, m, rules, lines);
+		TS_ASSERT(lines.size() > 1);
+		for (uint32 k = 0; k < lines.size(); k++) {
+			TS_ASSERT(!lines[k].emergency);
+			TS_ASSERT(!Graphics::Unicode::isCombining(run.cp(lines[k].first)));
+		}
+	}
+
 	void test_newline_forces_a_break() {
 		const char s[] = "ab\ncd";
 		Graphics::TextRun run;

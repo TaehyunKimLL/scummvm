@@ -293,6 +293,14 @@ public:
 	int _cursorX = 0;
 	int _cursorY = 0;
 	bool _isUtf8 = false;
+	/** The translation table is UTF-8 with a byte order mark (grim.<code>.tab). */
+	bool _utf8Tab = false;
+	/**
+	 * Fonts come from "<font>.laf.txt" descriptors and text is decoded as
+	 * Unicode: a UTF-8 table (any language), or the Korean fan patch
+	 * (legacy: CP949 unless the table is UTF-8).
+	 */
+	bool useFontDescriptors() const { return _utf8Tab || _gameLanguage == Common::KO_KOR; }
 	bool _transcodeChineseToSimplified = false;
 	Font *_overrideFont = nullptr;
 };
