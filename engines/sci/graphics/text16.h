@@ -23,6 +23,7 @@
 #define SCI_GRAPHICS_TEXT16_H
 
 #include "sci/graphics/textlatin.h"
+#include "sci/graphics/textlayout16.h"
 
 namespace Graphics {
 class Font;
@@ -97,7 +98,20 @@ public:
 	void macTextSize(const Common::String &text, GuiResourceId sciFontId, GuiResourceId origSciFontId, int16 maxWidth, int16 *textWidth, int16 *textHeight);
 	void macDraw(const Common::String &text, Common::Rect rect, TextAlignment alignment, GuiResourceId sciFontId, GuiResourceId origSciFontId, int16 color);
 private:
+	friend class Text16LayoutMetrics;
+
 	void init();
+
+	/**
+	 * GetLongest() for UTF-8 text (heapStringsAreUtf8()): the line found
+	 * by the shared layout stage - kinsoku, the Thai fallback, marks kept
+	 * with their base - under the same contract (see getLongestLayout() in
+	 * textlayout16.h). The code-page path is not touched.
+	 */
+	int16 getLongestUtf8(const char *&textPtr, int16 maxWidth, GuiResourceId orgFontId);
+
+	/** The string getLongestUtf8() is breaking, decoded once for all its lines. */
+	SciLayoutText _layoutText;
 
 	/**
 	 * Read one character from @p text, advancing nothing.
