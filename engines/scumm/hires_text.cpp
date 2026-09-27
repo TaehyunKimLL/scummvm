@@ -1346,6 +1346,29 @@ uint32 ScummHiResText::codePointFor(int chr) const {
 	return codepoint;
 }
 
+bool ScummHiResText::drawsCode(int chr, int charsetId) const {
+	if (!_enabled || !_fontsLoaded)
+		return false;
+	int lookup = chr;
+	Graphics::HiResGlyphOverride override;
+	if (_config.glyphOverride((uint32)chr, override, charsetId)) {
+		if (override.action == Graphics::kHiResGlyphKeep)
+			return false;
+		lookup = (int)override.codepoint;
+	}
+	uint32 cp = (lookup == chr) ? codePointFor(chr) : (uint32)lookup;
+	if (!cp)
+		return false;
+	Face *face = nullptr;
+	if (_perGlyph) {
+		bool ascii = false, declined = false;
+		face = faceForCodePoint(charsetId, cp, ascii, declined);
+	} else {
+		face = faceFor(charsetId, chr < 256);
+	}
+	return face && glyphInk(*face, cp, nullptr);
+}
+
 int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
 							   int *carry) const {
 	if (!_enabled || !_fontsLoaded)

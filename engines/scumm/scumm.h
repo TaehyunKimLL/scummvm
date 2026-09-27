@@ -1921,6 +1921,26 @@ public:
 	bool isScummvmKorTarget();
 	bool hasLocalizer();
 
+	/**
+	 * A UTF-8 translation over a CJK patch (C31): the cells of the
+	 * language's patch fonts, read from their headers - width, height and
+	 * the Korean shadow byte - and nothing else. The text is still drawn by
+	 * the hi-res layer and _useCJKMode stays off; the cells give a wide code
+	 * point the box, face size and decoration the patch gives its
+	 * double-byte characters, so the two encodings draw alike.
+	 */
+	bool _cjkCellsOnly = false;
+	void loadCJKCells();
+	/// Whether charset font @p id has a double-byte font (or, cells only, its cell).
+	bool hasMultiFont(int id) const {
+		return _2byteMultiFontPtr[id] || (_cjkCellsOnly && _2byteMultiWidth[id] > 0);
+	}
+	/// A double-byte character's game advance: the cell, plus the one pixel
+	/// Korean and Traditional Chinese keep between characters.
+	int cjkCellAdvance() const {
+		return _2byteWidth + ((_language == Common::KO_KOR || _language == Common::ZH_TWN) ? 1 : 0);
+	}
+
 //protected:
 	byte *_2byteFontPtr = nullptr;
 	byte *_2byteMultiFontPtr[20];
