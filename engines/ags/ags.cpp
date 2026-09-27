@@ -303,13 +303,24 @@ bool AGSEngine::getPixelFormat(int depth, Graphics::PixelFormat &format) const {
 }
 
 
-void AGSEngine::setGraphicsMode(size_t w, size_t h, int colorDepth) {
+bool AGSEngine::setGraphicsMode(size_t w, size_t h, int colorDepth, int fallbackScale) {
 	Common::List<Graphics::PixelFormat> supportedFormatsList = g_system->getSupportedFormats();
 	Graphics::PixelFormat format;
 	if (!getPixelFormat(colorDepth, format))
 		error("Unsupported color depth %d", colorDepth);
 
+	// ScummVM (C33): an N x hi-res text display the backend refuses must not
+	// be fatal (initGraphics() errors out on a refused size): offer the
+	// game's own size second. Only when both are refused is it an error.
+	if (fallbackScale > 1 && w % fallbackScale == 0 && h % fallbackScale == 0) {
+		Graphics::ModeWithFormatList modes;
+		modes.push_back(Graphics::ModeWithFormat(w, h, format));
+		modes.push_back(Graphics::ModeWithFormat(w / fallbackScale, h / fallbackScale, format));
+		return initGraphicsAny(modes) == 0;
+	}
+
 	initGraphics(w, h, &format);
+	return true;
 }
 
 bool AGSEngine::isUnsupportedPre25() const {
