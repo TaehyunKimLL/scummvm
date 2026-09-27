@@ -6,11 +6,14 @@
 
   python3 mkfont.py neodgm.ttf out.fnt --size 16 --bpp 1
   python3 mkfont.py NanumGothic.ttf out.fnt --size 24 --bpp 8 --variable
+  # 코드 포인트 순서 (버전 2): 한글 11172자 전부, 다른 문자도
+  python3 mkfont.py Galmuri7.ttf ko.fnt --size 8 --cell 9 --bpp 1 --unicode ascii,hangul,ksx1001
 """
 
 import argparse
 import struct
 import sys
+import unicodedata
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -23,6 +26,73 @@ VERSION = 1
 
 FLAG_VARIABLE = 1 << 0
 FLAG_JAMO = 1 << 1
+# 결합 부호(Mn/Me)는 펜을 max(0, -bearingX) 열에 두고 저장했다 (FONT_FORMAT.md 3절).
+FLAG_MARKS_AT_ORIGIN = 1 << 2
+
+# 버전 2: 코드 페이지 순서 대신 코드 포인트 표(cmap)를 싣는다. 머리말 32번
+# 위치에 표의 오프셋이 들어가서 머리말이 36바이트다 (HiResFontBaker 와 같다).
+# 읽는 쪽은 graphics/hires_text/bitmap_font.cpp (버전 1 과 2 를 다 읽는다).
+VERSION_CMAP = 2
+HEADER_V2 = 36
+# glyphCount 는 16비트다.
+MAX_GLYPHS = 0xFFFF
+
+# 잉크가 없어도 싣는 글자: 레이아웃이 그 폭만큼 나아가야 한다.
+BLANK_OK = {0x20, 0xA0, 0x3000}
+
+
+def _ksx1001():
+    """KS X 1001 (cp949 의 A1A1-FEFE) 이 담는 모든 글자: 기호, 낱자, 완성형
+    2350자, 한자 4888자."""
+    out = []
+    for hi in range(0xA1, 0xFF):
+        for lo in range(0xA1, 0xFF):
+            try:
+                ch = bytes((hi, lo)).decode("cp949")
+            except UnicodeDecodeError:
+                continue
+            if len(ch) == 1:
+                out.append(ord(ch))
+    return out
+
+
+# --unicode 에 이름으로 쓸 수 있는 묶음.
+NAMED_RANGES = {
+    "ascii": lambda: list(range(0x20, 0x7F)),
+    "latin1": lambda: list(range(0xA0, 0x100)),
+    "hangul": lambda: list(range(0xAC00, 0xD7A4)),          # 현대 한글 11172자
+    "jamo": lambda: list(range(0x3131, 0x318F)),            # 호환 낱자
+    "cjk-punct": lambda: list(range(0x3000, 0x3040)) + list(range(0xFF01, 0xFF5F)),
+    "ksx1001": _ksx1001,
+    "kana": lambda: list(range(0x3041, 0x3100)),
+    "thai": lambda: list(range(0x0E01, 0x0E3B)) + list(range(0x0E3F, 0x0E5C)),
+}
+
+
+def is_mark(ch):
+    return ch is not None and unicodedata.category(ch) in ("Mn", "Me")
+
+
+def parse_ranges(spec):
+    """'0E01-0E3A,0020,hangul' -> 코드 포인트 목록 (순서대로, 중복 없이).
+
+    16진 코드 포인트나 범위, 또는 NAMED_RANGES 의 이름. 모르는 이름은
+    ValueError.
+    """
+    out = []
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if part.lower() in NAMED_RANGES:
+            out.extend(NAMED_RANGES[part.lower()]())
+        elif "-" in part:
+            a, b = part.split("-", 1)
+            out.extend(range(int(a, 16), int(b, 16) + 1))
+        else:
+            out.append(int(part, 16))
+    seen = set()
+    return [c for c in out if not (c in seen or seen.add(c))]
 
 # 코드 페이지별 (글리프 수, idx -> 바이트쌍) 규칙.
 # docs/FONT_FORMAT.md 5절과 같은 식이다.
@@ -114,7 +184,7 @@ def choose_ascent(font, cell_h, latin=False):
     return choose_ascent_from(ascent, descent, probe[1], probe[3], cell_h, latin)
 
 
-def render(font, ch, cell_w, cell_h, ascent, bpp, center=False):
+def render(font, ch, cell_w, cell_h, ascent, bpp, center=False, mark_origin=False):
     """글자 하나를 셀에 그려 (픽셀들, 잉크왼쪽, 잉크폭) 로 돌려준다.
 
     center 를 켜면 잉크를 셀 가운데에 놓는다. 고정폭으로 구울 때 쓴다:
@@ -137,14 +207,20 @@ def render(font, ch, cell_w, cell_h, ascent, bpp, center=False):
         left, top, right, bottom = bbox
         dx = -min(0, left)
         dy = ascent - min(0, top + ascent)
-        # 오른쪽으로도 넘치면 왼쪽으로 당긴다.
-        if right + dx > cell_w:
-            dx -= (right + dx) - cell_w
-            dx = max(dx, -left)
+        if mark_origin and is_mark(ch):
+            # 결합 부호: 잉크가 펜 왼쪽에 있다 (타이 성조는 음의 bearing 으로
+            # 앞 글자 위에 얹힌다). 펜을 max(0, -left) 열에 두면 잘리지 않고,
+            # 읽는 쪽은 bearingX 에서 그 열을 되찾는다.
+            dx = min(max(0, -left), cell_w)
+        else:
+            # 오른쪽으로도 넘치면 왼쪽으로 당긴다.
+            if right + dx > cell_w:
+                dx -= (right + dx) - cell_w
+                dx = max(dx, -left)
 
-        if center:
-            ink_w = right - left
-            dx = (cell_w - ink_w) // 2 - left
+            if center:
+                ink_w = right - left
+                dx = (cell_w - ink_w) // 2 - left
 
     draw = ImageDraw.Draw(img)
     try:
@@ -158,6 +234,9 @@ def render(font, ch, cell_w, cell_h, ascent, bpp, center=False):
     ink = img.getbbox()
     if ink is None:
         return img, 0, 0
+    if mark_origin and is_mark(ch):
+        # bearingX 는 펜에서 잉크 왼쪽까지: 음수 그대로.
+        return img, ink[0] - dx, ink[2] - ink[0]
     return img, ink[0], ink[2] - ink[0]
 
 
@@ -218,12 +297,31 @@ def main():
                     help="기존 그림자 방식 0~3, 없으면 255")
     ap.add_argument("--count", type=int, default=0,
                     help="글리프 수. 생략하면 코드 페이지 기본값")
+    ap.add_argument("--unicode", default="",
+                    help="코드 포인트 순서로 굽는다 (버전 2, cmap). 16진 범위나 이름: "
+                         + ", ".join(sorted(NAMED_RANGES)) +
+                         ". 예: ascii,hangul,ksx1001 (한글 11172자 + 한자). 가변폭이고, "
+                         "결합 부호는 flags 비트 2 규칙으로 저장한다. 글꼴에 없는 글자 "
+                         "(잉크가 없는 것, 공백 제외)는 빼서 대체 글꼴로 넘어가게 한다")
     args = ap.parse_args()
 
     cell_h = args.cell or args.size
     cell_w = args.width or cell_h
 
-    if args.latin:
+    unicode_cps = None
+    if args.unicode:
+        try:
+            unicode_cps = parse_ranges(args.unicode)
+        except ValueError as e:
+            sys.exit(f"--unicode 를 읽을 수 없다: {e}")
+        if not unicode_cps:
+            sys.exit("--unicode 가 빈 목록이다")
+
+    if unicode_cps:
+        codepage = 0
+        count = len(unicode_cps)
+        variable = True
+    elif args.latin:
         codepage = -1 if args.fullwidth else 0
         count = args.count or 256
         # 셀이 고정된 엔진(v0-v2)에서는 전진 폭 표가 무시되므로 고정폭으로
@@ -235,7 +333,7 @@ def main():
         variable = args.variable
 
     # 고정폭으로 구우면서 가운데 정렬을 끄면 글자가 왼쪽에 몰린다.
-    center = args.center or not variable
+    center = (args.center or not variable) and not unicode_cps
 
     try:
         font = ImageFont.truetype(args.input, args.size)
@@ -258,17 +356,42 @@ def main():
     missing = 0
     ink_max = 0
 
-    for idx, ch in glyph_chars(codepage, count):
+    if unicode_cps:
+        chars = [(i, chr(cp)) for i, cp in enumerate(unicode_cps)]
+    else:
+        chars = glyph_chars(codepage, count)
+
+    kept = []   # --unicode: 실은 코드 포인트, 글리프 순서대로
+    # 글꼴에 없는 글자는 .notdef (보통 네모) 로 그려진다. Pillow 는 cmap 을
+    # 묻는 길이 없어서, 어느 글꼴의 cmap 에도 없는 U+10FFFF (비문자) 를 그린
+    # 것과 똑같으면 없는 글자로 친다.
+    notdef = None
+    if unicode_cps:
+        nd_img, _, nd_w = render(font, "\U0010FFFF", cell_w, cell_h, ascent, args.bpp)
+        if nd_w:
+            notdef = nd_img.tobytes()
+    for idx, ch in chars:
         img, ink_x, ink_w = render(font, ch, cell_w, cell_h, ascent,
-                                         args.bpp, center=center)
-        if ch is None or ink_w == 0:
+                                         args.bpp, center=center,
+                                         mark_origin=bool(unicode_cps))
+        absent = notdef is not None and ch is not None and img.tobytes() == notdef
+        if ch is None or ink_w == 0 or absent:
             missing += 1
+            if unicode_cps and ord(ch) not in BLANK_OK:
+                # 글꼴에 없는 글자: 빈 글리프를 실으면 이 폰트가 그 글자를
+                # 가진 것처럼 보여 대체 글꼴로 넘어가지 못한다.
+                continue
+        if unicode_cps:
+            kept.append(ord(ch))
         ink_max = max(ink_max, ink_w)
 
         glyphs += pack_glyph(img, cell_w, cell_h, args.bpp)
 
         if variable:
-            if args.ink_advance and ch and ink_w:
+            if unicode_cps and is_mark(ch):
+                # 결합 부호는 나아가지 않는다.
+                adv = int(round(font.getlength(ch)))
+            elif args.ink_advance and ch and ink_w:
                 # Advance from the ink, not the face's own metric.
                 #
                 # A CJK face reports one advance for every syllable because
@@ -291,29 +414,48 @@ def main():
 
     flags = FLAG_VARIABLE if variable else 0
     header_size = 32
-    metrics_off = header_size if variable else 0
-    data_off = header_size + len(metrics)
+    cmap = b""
+    version = VERSION
+    if unicode_cps:
+        count = len(kept)
+        if count == 0:
+            sys.exit("--unicode 의 글자가 글꼴에 하나도 없다")
+        if count > MAX_GLYPHS:
+            sys.exit(f"글리프 {count}개: 한 파일에는 {MAX_GLYPHS}개까지만 실린다")
+        # 버전 2: 머리말 뒤에 cmap, 그 뒤에 폭 표와 글리프 (HiResFontBaker 순서).
+        flags |= FLAG_MARKS_AT_ORIGIN
+        version = VERSION_CMAP
+        header_size = HEADER_V2
+        cmap = b"".join(struct.pack("<II", cp, i) for i, cp in enumerate(kept))
+    metrics_off = (header_size + len(cmap)) if variable else 0
+    data_off = header_size + len(cmap) + len(metrics)
 
     header = struct.pack(
         "<4sHHBBHHBBBBHIII",
-        MAGIC, VERSION, flags,
+        MAGIC, version, flags,
         args.bpp, args.shadow & 0xFF,
         max(codepage, 0), count,
         cell_w, cell_h, ascent, 0, 0,
         metrics_off, data_off, len(glyphs))
 
+    if unicode_cps:
+        header += struct.pack("<I", header_size)   # cmapOffset
     assert len(header) == header_size, len(header)
 
     with open(args.output, "wb") as f:
         f.write(header)
+        f.write(cmap)
         f.write(metrics)
         f.write(glyphs)
 
-    total = header_size + len(metrics) + len(glyphs)
+    total = header_size + len(cmap) + len(metrics) + len(glyphs)
     print(f"{args.output}: {cell_w}x{cell_h} {args.bpp}bpp "
           f"{'가변폭' if variable else '고정폭'} "
-          f"{'latin-fullwidth' if codepage == -1 else ('latin' if codepage == 0 else f'cp{codepage}')}")
-    print(f"  글리프 {count}개 (빈 글리프 {missing}개), 최대 잉크 폭 {ink_max}px")
+          f"{'unicode (v2 cmap)' if unicode_cps else ('latin-fullwidth' if codepage == -1 else ('latin' if codepage == 0 else f'cp{codepage}'))}")
+    if unicode_cps:
+        print(f"  글리프 {count}개 (글꼴에 없어 뺀 글자 {len(unicode_cps) - count}개), 최대 잉크 폭 {ink_max}px")
+    else:
+        print(f"  글리프 {count}개 (빈 글리프 {missing}개), 최대 잉크 폭 {ink_max}px")
     print(f"  {total:,} 바이트")
 
 
