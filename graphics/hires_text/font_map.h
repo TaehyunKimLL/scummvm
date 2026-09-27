@@ -243,6 +243,7 @@ struct HiResTextConfig {
 
 	// Encoding byte width must never select a font in the generic renderer.
 	HiResMetricsSource metricsSource; ///< [render] metrics=game|font, for all text
+	bool metricsSourceSet;            ///< [render] metrics= named (not the default)
 	LegacyFontMapOptions legacy;      ///< old [latin] keys; interpreted by adapters only
 
 	/// [glyphs] exceptions, keyed by the game's own character code.
