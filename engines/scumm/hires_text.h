@@ -162,6 +162,15 @@ struct ScummHiResText {
 	 * loadFonts().
 	 */
 	void setGameFontCell(int charsetId, int width, int height);
+
+	/**
+	 * Whether Latin may step by the face at all (latinStepsByFace()). The
+	 * engine clears it for charset renderers whose getCharWidth() measures
+	 * single-byte text with the game's own widths and never asks
+	 * advanceFor() (FM-Towns TownsClassic/TownsV3, the fixed 8-px V2), so
+	 * that what they measure is what printChar() steps by (C36).
+	 */
+	void setLatinFaceStepAllowed(bool allowed) { _latinFaceStepAllowed = allowed; }
 	void reset();
 
 	/**
@@ -259,20 +268,23 @@ struct ScummHiResText {
 
 	/**
 	 * Whether the ASCII character @p chr steps by the replacement face's own
-	 * advance rather than the game's Latin width (C34). All of these hold:
+	 * advance rather than the game's Latin width. C34 did this inside CJK
+	 * text and UTF-8 translations; since C36 it is the default for any
+	 * text, the game's own English included. All of these hold:
 	 * - hi-res text is on and its fonts are loaded;
-	 * - the game lays its text out on a CJK font's cells (setGameFontCell())
-	 *   or the text is UTF-8 (a translation, or a map's codepage=utf-8),
-	 *   whose own script already steps by the face;
-	 * - @p chr is 0x21..0x7E (the space keeps the game's width);
+	 * - the charset renderer measures through advanceFor()
+	 *   (setLatinFaceStepAllowed(); not FM-Towns or V2);
+	 * - @p chr is 0x21..0x7E, or the space when the game has no CJK cells
+	 *   (setGameFontCell()): with them the space is the Hangul word gap and
+	 *   keeps the game's width;
 	 * - no metrics= key names the metrics: not the ini's hires_text_metrics,
 	 *   [render], [font.@p charsetId] nor [latin];
 	 * - the charset is not a mirrored one kept on the game's font (C27) and
 	 *   the map neither keeps nor remaps @p chr ([glyphs]);
 	 * - under per-glyph placement, [latin] mode= is proportional (the
 	 *   default; off, half and fullwidth keep their own rules);
-	 * - the face drawing @p chr is a TrueType one (not a bitmap or pixel=
-	 *   face) with ink for it.
+	 * - the face drawing @p chr is a TrueType one with ink for it (a
+	 *   [font.N] pixel= face is one too; a bitmap SVFN face is not).
 	 * The game's offsX for the character does not apply then: the face
 	 * places it at the pen.
 	 */
@@ -955,8 +967,12 @@ private:
 	Common::Path _ttfPath;          ///< face to draw from, if any
 	int _gameFontW[kMaxFonts] = {};
 	int _gameFontH[kMaxFonts] = {};
-	// setGameFontCell() was given a CJK font's cell: text is laid out on it.
+	// setGameFontCell() was given a CJK font's cell: text is laid out on it,
+	// and the space is the word gap of that script (C36: kept at the game's).
 	bool _cjkCells = false;
+	// The charset renderer measures single-byte text through advanceFor()
+	// (setLatinFaceStepAllowed()).
+	bool _latinFaceStepAllowed = true;
 	void noteDrawn(int charsetId, const Face *face, int chr) const;
 	void flushTextLog() const;
 

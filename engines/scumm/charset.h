@@ -178,6 +178,13 @@ public:
 	virtual int getFontHeight() const = 0;
 	virtual int getCharHeight(uint16 chr) const { return getFontHeight(); }
 	virtual int getCharWidth(uint16 chr) const = 0;
+	/**
+	 * Whether getCharWidth() measures single-byte text through the hi-res
+	 * layer's advanceFor(), so that Latin may step by a TrueType face
+	 * (ScummHiResText::setLatinFaceStepAllowed(), C36). Renderers that
+	 * measure with the game's widths alone say no.
+	 */
+	virtual bool measuresLatinThroughHiRes() const { return true; }
 
 	virtual void setColor(byte color, bool shadowModeSpecialFlag = false) { _color = color; translateColor(); }
 	virtual byte getColor() { return _color; }
@@ -229,6 +236,8 @@ protected:
 	virtual void drawBitsN(const Graphics::Surface &s, byte *dst, const byte *src, byte bpp, int drawTop, int width, int height);
 	void printCharIntern(bool is2byte, const byte *charPtr, int origWidth, int origHeight, int width, int height, VirtScreen *vs, bool ignoreCharsetMask);
 	virtual bool prepareDraw(uint16 chr);
+	/// The y offset the charset's Latin line shares: that of 'x' (or 'a').
+	int latinLineOffsY() const;
 
 	int _width, _height, _origWidth, _origHeight;
 	int _cjkSpacing;
@@ -258,6 +267,7 @@ public:
 	CharsetRendererTownsClassic(ScummEngine *vm);
 
 	int getCharWidth(uint16 chr) const override;
+	bool measuresLatinThroughHiRes() const override { return false; }
 	int getFontHeight() const override;
 
 private:
@@ -312,6 +322,8 @@ public:
 	CharsetRendererTownsV3(ScummEngine *vm);
 
 	int getCharWidth(uint16 chr) const override;
+	// Only a ScummVM Korean target measures through CharsetRendererV3.
+	bool measuresLatinThroughHiRes() const override;
 	int getFontHeight() const override;
 
 private:
@@ -353,6 +365,7 @@ public:
 
 	void setCurID(int32 id) override {}
 	int getCharWidth(uint16 chr) const override { return 8; }
+	bool measuresLatinThroughHiRes() const override { return false; }
 
 #ifdef USE_TTS
 	Common::U32String convertText(const Common::String &text, Common::Language language) const override;

@@ -1341,7 +1341,7 @@ bool ScummHiResText::drawGlyphPlaced(Graphics::Surface &dest, int chr, int looku
 		// A wide TrueType glyph stepping by the face (C31) has no game cell
 		// to be centred in: it is drawn at the pen, as the legacy layout
 		// draws it.
-		// Nor has Latin stepping by the face inside CJK text (C34).
+		// Nor has Latin stepping by the face (C34, and by default since C36).
 		const bool faceStep = (m.wide && !ascii && face->ttf && wideStepsByFace(charsetId)) ||
 							  (ascii && lookup == chr && latinStepsByFace(chr, charsetId));
 		// metrics=game keeps the game's cell; a glyph narrower than it is
@@ -1475,7 +1475,7 @@ int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
 		lookup = (int)override.codepoint;
 	}
 
-	// ASCII inside CJK text steps by the face (C34).
+	// Latin drawn by a TrueType face steps by the face (C34, C36).
 	if (const int latin = latinFaceStep(chr, charsetId))
 		return latin;
 
@@ -1502,16 +1502,18 @@ bool ScummHiResText::latinStepsByFace(int chr, int charsetId) const {
 }
 
 int ScummHiResText::latinFaceStep(int chr, int charsetId) const {
-	// Only text whose own script already steps by the face: a game laid out
-	// on CJK cells (Hangul, C31), or a UTF-8 translation (kana, kanji, Thai).
-	// There the game's Latin widths, which belong to its own bitmap font,
-	// space the face's smaller letters apart. The game's own text in its
-	// own encoding (English) keeps them: metrics=game is its default.
-	if (!_enabled || !_fontsLoaded || !(_cjkCells || _config.encoding == Common::kUtf8))
+	// Latin drawn by a TrueType face steps by that face by default (C36),
+	// whatever the script around it: Hangul on CJK cells (C34), a UTF-8
+	// translation, or the game's own English. The game's Latin widths belong
+	// to its bitmap font and space the face's letters apart ("W e l l").
+	// An explicit metrics= key (below) keeps them.
+	if (!_enabled || !_fontsLoaded || !_latinFaceStepAllowed)
 		return 0;
-	// Letters, digits and punctuation. The space keeps the game's width:
-	// it is the word gap of the Hangul around it too.
-	if (chr <= 0x20 || chr > 0x7E)
+	// Letters, digits and punctuation. The space steps by the face too,
+	// except in text laid out on CJK cells, where it is the word gap of the
+	// Hangul around it and keeps the game's width.
+	const bool space = (chr == 0x20);
+	if (chr < 0x20 || chr > 0x7E || (space && _cjkCells))
 		return 0;
 	// The same keys that keep a wide glyph on the cell keep Latin on the
 	// game's widths, and [latin] metrics= as well.
@@ -1529,7 +1531,7 @@ int ScummHiResText::latinFaceStep(int chr, int charsetId) const {
 	Face *face = nullptr;
 	if (_perGlyph) {
 		const CharsetFonts &f = _charsetFonts[(charsetId >= 0 && charsetId < kMaxFonts) ? charsetId : 0];
-		if (f.latin != Graphics::kHiResLatinProportional)
+		if (f.latin != Graphics::kHiResLatinProportional || (space && f.fullwidthSpace))
 			return 0;
 		bool ascii = false, declined = false;
 		face = faceForCodePoint(charsetId, cp, ascii, declined);
@@ -1540,7 +1542,8 @@ int ScummHiResText::latinFaceStep(int chr, int charsetId) const {
 	}
 	// A bitmap face was drawn for the game's grid (the C31 ruling); a glyph
 	// the face declines is the game's to draw and to step.
-	if (!face || !face->ttf || !glyphInk(*face, cp, nullptr))
+	// The space has no ink; it steps by the face all the same.
+	if (!face || !face->ttf || (!space && !glyphInk(*face, cp, nullptr)))
 		return 0;
 	const int advance = face->source->advance(cp);
 	if (advance <= 0)
