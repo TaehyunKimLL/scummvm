@@ -176,6 +176,18 @@ public:
 		const Graphics::HiResTextConfig plain = parse("[hires]\nsize=12\n");
 		TS_ASSERT_EQUALS(resolveFontSettings(plain, true, 0, noIni, mapDir()).pixel, 0);
 		TS_ASSERT_EQUALS(resolveFontSettings(map, false, 0, noIni, mapDir()).pixel, 0);
+
+		// C28 review: the ini's hires_text_font is not the map's pixel face.
+		HiresTextOverrides iniFont;
+		iniFont.hasFont = true;
+		iniFont.font = "/f/ini.ttf";
+		TS_ASSERT_EQUALS(resolveFontSettings(map, true, 2, iniFont, mapDir()).pixel, 0);
+		TS_ASSERT_EQUALS(resolveFontSettings(map, true, 0, iniFont, mapDir()).pixel, 0);
+		// The face every id falls back to (font id -1) has [hires] pixel=
+		// only, never a [font.N] one.
+		TS_ASSERT_EQUALS(resolveFontSettings(map, true, -1, noIni, mapDir()).pixel, 16);
+		const Graphics::HiResTextConfig idOnly = parse("[font.2]\nface=/f/a.ttf\npixel=12\n");
+		TS_ASSERT_EQUALS(resolveFontSettings(idOnly, true, -1, noIni, mapDir()).pixel, 0);
 	}
 
 	void test_ini_overrides_map() {

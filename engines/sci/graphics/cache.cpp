@@ -370,7 +370,9 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 		main = ttfSource(mainPath, s.size, probes, "hires_text_font",
 						 haveGlobal ? toGlobal.c_str() : "using the .uni fonts", s.pixel);
 		if (!main && haveGlobal) {
+			// The global face with its own pixel= ([hires]), never this id's.
 			mainPath = global.facePath;
+			s.pixel = global.pixel;
 			main = ttfSource(mainPath, s.size, probes, "hires_text_font", "using the .uni fonts", s.pixel);
 		}
 	}
@@ -516,18 +518,21 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 	// other id gets, as a single face always did.
 	Common::Array<Graphics::UnicodeGlyphSource *> faces;
 	Common::Array<Common::String> names;
+	// The pixel= of the chain actually opened: the global chain has its own.
+	int pixel = s.pixel;
 	for (int pass = 0; pass < 2 && faces.empty(); pass++) {
 		if (pass == 1) {
 			const FontSettings global = fontSettingsFor(-1);
 			if (global.faceChain.empty() || global.faceChain == paths)
 				break;
 			paths = global.faceChain;
+			pixel = global.pixel;
 		}
 		for (uint i = 0; i < paths.size(); i++) {
 			const bool last = i + 1 == paths.size();
 			Graphics::TtfGlyphSource *src = ttfSource(paths[i], s.size, kProbesTranslation, "hires_text_font",
 													  last ? "using the .uni fonts" : "using the next face of the chain",
-													  i == 0 ? s.pixel : 0);
+													  i == 0 ? pixel : 0);
 			if (src) {
 				faces.push_back(src);
 				names.push_back(paths[i]);
@@ -546,8 +551,8 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 	// faces are opened at that size, so another size is another chain.
 	GfxFontUnicode *uni = loadUniBundle();
 	Common::String key = faceChainKey(names, s.size, uni && uni->source());
-	if (s.pixel > 0)
-		key += Common::String::format("|p%d", s.pixel);
+	if (pixel > 0)
+		key += Common::String::format("|p%d", pixel);
 	if (_chains.contains(key))
 		return _chains[key];
 

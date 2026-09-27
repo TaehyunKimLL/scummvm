@@ -100,8 +100,11 @@ FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapL
 		s.size = map.hiresSize;
 
 	// Pixel font (C28): [font.N] pixel > [hires] pixel > none. The face is
-	// held on its grid in the size above, never shrunk by the fit.
-	if (font && font->pixelSet)
+	// held on its grid in the size above, never shrunk by the fit. It
+	// names the map's face: the ini's hires_text_font is never a pixel face.
+	if (ini.hasFont)
+		s.pixel = 0;
+	else if (font && font->pixelSet)
 		s.pixel = font->pixel;
 	else if (mapLoaded && map.hiresPixelSet)
 		s.pixel = map.hiresPixel;

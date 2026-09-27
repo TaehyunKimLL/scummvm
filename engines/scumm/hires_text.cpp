@@ -667,6 +667,13 @@ ScummHiResText::Face *ScummHiResText::faceFor(int charsetId, bool latin) const {
 	return nullptr;
 }
 
+Graphics::TtfGlyphSource *ScummHiResText::ttfChainFace(int charsetId, uint index) const {
+	const Face *face = _fontsLoaded ? ttfFaceFor(charsetId) : nullptr;
+	if (!face || index >= face->chain.size())
+		return nullptr;
+	return static_cast<Graphics::TtfGlyphSource *>(face->chain[index]);
+}
+
 Graphics::UnicodeGlyphSource *ScummHiResText::sourceFor(int charsetId, bool latin) const {
 	const Face *face = faceFor(charsetId, latin);
 	return face ? face->source : nullptr;
@@ -687,7 +694,8 @@ ScummHiResText::Face *ScummHiResText::ttfFaceFor(int charsetId) const {
 	if (_ttfFacePx[charsetId] == pixelSize)
 		return _ttfFaces[charsetId];
 
-	Face *face = openTtfChain(chain, pixelSize, lineFit, _charsetFonts[charsetId].pixel);
+	// pixel= names the map's face; hires_text_font (the ini) is never one.
+	Face *face = openTtfChain(chain, pixelSize, lineFit, _ttfFromIni ? 0 : _charsetFonts[charsetId].pixel);
 	_ttfFaces[charsetId] = face;
 	_ttfFacePx[charsetId] = pixelSize;
 	return face;
