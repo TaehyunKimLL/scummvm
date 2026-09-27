@@ -40,6 +40,8 @@ static const int8 kOutlineY[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
 static const int8 kStrokeX[] = { -1, 0, 1, -1, 1, -1, 0, 1, -1, -1, -2 };
 static const int8 kStrokeY[] = { -1, -1, -1, 0, 0, 1, 1, 1, 2, 1, 0 };
 
+const byte HiResGlyphRenderer::kKeyedInkThreshold;
+
 /// Coverage of one pixel of a glyph, 0 for nothing at all.
 static inline byte glyphCoverage(const byte *row, int x, int bpp) {
 	if (bpp == 1)
@@ -75,6 +77,10 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 	// The coverage surface only makes sense for a glyph that has coverage to
 	// record, and only where it is large enough to hold it.
 	Surface *cov = (coverage && glyph.bpp == 8 && coverage->getPixels()) ? coverage : nullptr;
+
+	// Blended, every covered pixel counts; keyed, only real ink does (see
+	// kKeyedInkThreshold). A 1bpp glyph is 0 or 0xFF either way.
+	const byte inkMin = cov ? 1 : kKeyedInkThreshold;
 
 	const int8 *offX = nullptr;
 	const int8 *offY = nullptr;
@@ -152,7 +158,7 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 				byte *out = mask.begin() + (gy + oy) * mw + ox;
 
 				for (int gx = 0; gx < glyph.width; ++gx) {
-					if (glyphCoverage(row, gx, glyph.bpp))
+					if (glyphCoverage(row, gx, glyph.bpp) >= inkMin)
 						out[gx] = 0xFF;
 				}
 			}
@@ -200,7 +206,7 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 
 			for (int gx = 0; gx < glyph.width; ++gx) {
 				const byte cv = glyphCoverage(row, gx, glyph.bpp);
-				if (!cv)
+				if (cv < inkMin)
 					continue;
 
 				const int px = baseX + gx;
