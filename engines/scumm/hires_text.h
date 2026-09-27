@@ -742,9 +742,17 @@ private:
 	/// Rows to move a Latin bitmap glyph down so it shares the charset's baseline.
 	int latinBaselineShift(const Face *face, int charsetId) const;
 	int advancePlaced(int chr, int lookup, int charsetId, int gameWidth, int *carry) const;
-	/// Today's advance rule for a glyph on the game's cell grid.
+	/// Today's advance rule for a glyph on the game's cell grid. With
+	/// @p faceFit a TrueType glyph steps by its own advance instead (C31).
 	int cellRuleAdvance(Face *face, uint32 cp, int charsetId, int gameWidth,
-						int *carry, bool fontMetrics, bool requireInk) const;
+						int *carry, bool fontMetrics, bool requireInk,
+						bool faceFit = false) const;
+	/**
+	 * Whether a wide glyph from a TrueType face steps by the face (C31):
+	 * true unless a metrics= key - the ini's, the charset's [font.N], or
+	 * the map's [render] - names the metrics outright.
+	 */
+	bool wideStepsByFace(int charsetId) const;
 
 	// The pen after the last base glyph drawn, in overlay pixels, for a
 	// combining mark that follows it.
