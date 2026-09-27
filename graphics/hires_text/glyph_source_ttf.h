@@ -130,6 +130,38 @@ public:
 	                               const uint32 *extraFitProbes, uint extraFitProbeCount,
 	                               int32 faceIndex = 0);
 
+	/**
+	 * A pixel font (hires_text.map pixel=<designPx>): a face drawn on a
+	 * grid of designPx pixels per em, crisp only at that ppem or a whole
+	 * multiple of it. Opened at pixelGridSize(cellSize, designPx) ppem -
+	 * never shrunk to fit a probe set, as create() does - in a cell of
+	 * cellSize, with glyphs placed by whole pixels from the face's line
+	 * top. When the face's line (ascent + descent) is taller than the
+	 * cell, the ink of the Hangul and basic Latin probes (the first
+	 * kPixelPlacementProbes of the fixed set) is moved into the cell by
+	 * whole rows, its top at row 0 when it is itself taller; the ppem stays.
+	 * Ink outside the cell is clipped. No translation sample and no Hangul
+	 * check: a pixel face is the map's explicit choice.
+	 *
+	 * Fails like create() for a bad stream, face index or cell size, and
+	 * for a designPx pixelGridSize() gives no size for.
+	 */
+	static TtfGlyphSource *createPixel(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+	                                    int cellSize, int designPx, Common::String &error,
+	                                    int32 faceIndex = 0);
+
+	/**
+	 * The ppem a pixel font of designPx is opened at in a cell of cellSize:
+	 * the largest whole multiple of designPx not taller than the cell, and
+	 * designPx itself when the cell is smaller than it. 0 when designPx is
+	 * not positive, or when that ppem is above kMaxPixelSize. Pure.
+	 */
+	static int pixelGridSize(int cellSize, int designPx);
+
+	/** How many of the fixed probes (the Hangul ones, then A g j y) place a
+	 *  pixel face whose line is taller than its cell. */
+	static const int kPixelPlacementProbes = 11;
+
 	/** The most extra fit probes create() takes. */
 	static const uint kMaxExtraFitProbes = 64;
 
