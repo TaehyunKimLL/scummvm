@@ -10,6 +10,10 @@
 #include "graphics/hires_text/glyph_source_ttf.h"
 #include "graphics/hires_text/text_layout.h"
 #include "graphics/hires_text/unicode_props.h"
+// The runner includes the SCUMM tests too, and scumm/detection.h and
+// sci/detection.h (pulled in by textlayout16.h) each define GAMEOPTION_TTS.
+// Nothing here uses it.
+#undef GAMEOPTION_TTS
 #include "sci/graphics/textlayout16.h"
 #include "sci/utf8.h"
 
@@ -300,14 +304,14 @@ public:
 	class TestMetrics : public Sci::SciLayoutMetrics {
 	public:
 		explicit TestMetrics(bool proportional) : font(0), _proportional(proportional) {}
-		int charWidth(uint32 cp) override { return width(cp, _proportional, font); }
+		int charWidth(uint32 cp) override { return ruleWidth(cp, _proportional, font); }
 		void textCode(const byte *code, int bytes) override {
 			// GfxText16::CodeProcessing(), from after the '|'.
 			const char *p = (const char *)code + 1;
 			applyCode(p, font);
 		}
 
-		static int width(uint32 cp, bool proportional, int font) {
+		static int ruleWidth(uint32 cp, bool proportional, int font) {
 			if (Graphics::Unicode::isCombining(cp))
 				return 0;
 			if (Graphics::Unicode::isWide(cp))
@@ -385,7 +389,7 @@ public:
 			default:
 				break;
 			}
-			tempWidth += TestMetrics::width(curChar, proportional, font);
+			tempWidth += TestMetrics::ruleWidth(curChar, proportional, font);
 			if (tempWidth > maxWidth)
 				break;
 			if (early && lastSpaceCharCount == 0 && tempWidth == maxWidth)
