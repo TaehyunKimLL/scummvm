@@ -125,6 +125,15 @@ public:
 	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	uint32 glyphCount() const override;
 
+	/**
+	 * The row of the face's baseline inside the cell: the row glyphs are
+	 * drawn from plus the face's ascent, clipped to the cell. For a
+	 * line-fitted face this is the ascent HiResFontBaker recorded for the
+	 * same face at the same size, so a baked Latin font can be put on the
+	 * same baseline. 0 in a build without FreeType.
+	 */
+	int baseline() const;
+
 	/** FreeType renders done so far (probes at create() time, plus one per
 	 *  distinct code point since); exposed for tests. */
 	uint32 rasterCount() const { return _rasterCount; }

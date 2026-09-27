@@ -106,17 +106,25 @@ int SvfnGlyphSource::bearingX(uint32 cp) const {
 bool SvfnGlyphSource::metrics(uint32 cp, GlyphMetrics &m) {
 	if (!UnicodeGlyphSource::metrics(cp, m))
 		return false;
-	// originX stays 0: every SVFN producer stores rows that start at the pen
-	// (HiResFontBaker draws with the pen at column 0, clipping ink left of
-	// it; mkfont.py shifts the pen so the ink starts at x >= 0). The bearing
-	// is passed on as data only, read as the signed byte FONT_FORMAT.md
-	// section 3 specifies (HiResBitmapFont hands it back unsigned).
+	// originX is 0 for every glyph of a file written before flags bit 2:
+	// its rows start at the pen (HiResFontBaker drew with the pen at column
+	// 0, clipping ink left of it; mkfont.py shifts the pen so the ink starts
+	// at x >= 0). The bearing is passed on as data, read as the signed byte
+	// FONT_FORMAT.md section 3 specifies (HiResBitmapFont hands it back
+	// unsigned).
 	GlyphMetrics font;
 	if (_font->glyphMetrics(_font->glyphIndex(cp), font)) {
 		m.bearingX = (int8)(byte)font.bearingX;
 		m.bearingY = font.bearingY;
 		m.width = font.width;
 		m.height = font.height;
+		// With flags bit 2 a combining mark was stored with the pen at
+		// column max(0, -bearingX) - the rule TtfGlyphSource draws marks by
+		// - so the ink left of the pen is in the row and the drawer places
+		// the pen, not the row start, on the anchor. Other glyphs keep their
+		// rows and originX 0, as in TtfGlyphSource.
+		if (m.combining && _font->marksAtOrigin() && m.bearingX < 0)
+			m.originX = (int16)MIN<int>(-m.bearingX, _cellWidth);
 	}
 	return true;
 }
