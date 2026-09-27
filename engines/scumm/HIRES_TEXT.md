@@ -305,6 +305,26 @@ Known limits:
   wider than it is drawn and sits left of centre by (cell - step) x n / 2.
   Give such a map `[render] metrics=game`.
 
+### Latin inside CJK or translated text steps by the face (C34)
+
+ASCII letters, digits and punctuation drawn by a TrueType face step by the
+face's own advance (rounded to game pixels, SCI's proportional rule) and are
+drawn at the pen, when the text is a CJK game's (the engine lays it out on a
+CJK font's cells, `setGameFontCell()`: a Korean patch in CP949, or its cells
+under `ko.trs`) or a UTF-8 translation, and no metrics= key is set (the ini's
+`hires_text_metrics`, `[render]`, `[font.N]` or `[latin] metrics=`). Before,
+they kept the game's Latin width - the width of its own, larger bitmap font -
+and per-glyph placement centred the smaller face letter in it, so
+"Thriftweed" read "T h r i f t w e e d" next to face-stepped Hangul. The
+game's `offsX` for the character no longer applies, and wrapping, centring
+and the right-edge clip use the same step.
+
+Unchanged: the space (it is the word gap of the Hangul around it too),
+`[latin] mode=off|half|fullwidth`, bitmap faces, an explicit `metrics=game`,
+and the game's own text in its own encoding (English MI1 with the same map
+still steps by the game's widths, and looks as spaced as Korean did; opting
+in there is `[latin] metrics=font`).
+
 ### Monkey Island 2 (DOS) with `korean.trs`
 
 MI2 draws pictograms from its own charset where a Latin face has ASCII, and
