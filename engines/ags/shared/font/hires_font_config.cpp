@@ -34,21 +34,6 @@ using namespace AGS::Shared;
 static const int kMinFontSize = 6;
 static const int kMaxFontSize = 255;
 
-HiResFontConfig::HiResFontConfig() {
-	clear();
-}
-
-void HiResFontConfig::clear() {
-	_loaded = false;
-	_active = false;
-	_mapLoaded = false;
-	_map.clear();
-	_mapDir.clear();
-	_iniChain.clear();
-	_iniSize = 0;
-	_sample.clear();
-}
-
 void HiResFontConfig::load() {
 	if (_loaded)
 		return;
@@ -131,60 +116,7 @@ void HiResFontConfig::load() {
 			_iniSize = (int)size;
 	}
 
-	_active = !_iniChain.empty() ||
-		(_mapLoaded && (!_map.fontIds.empty() || (_map.hiresFaceSet && !_map.hiresFaceChain.empty())));
-}
-
-HiResFontPlan HiResFontConfig::plan(int fontNumber) const {
-	HiResFontPlan p;
-	if (!_active)
-		return p;
-	const Graphics::HiResFontIdSettings *f = _mapLoaded ? _map.fontIdSettings(fontNumber) : nullptr;
-	if (f && f->bitmapSet && !f->bitmap.empty()) {
-		p.kind = HiResFontPlan::kBitmap;
-		p.bitmap = f->bitmap;
-		p.source = Common::String::format("[font.%d] bitmap", fontNumber);
-	} else if (f && f->faceSet && !f->faceChain.empty()) {
-		p.kind = HiResFontPlan::kFaces;
-		p.faces = f->faceChain;
-		p.source = Common::String::format("[font.%d] face", fontNumber);
-	} else if (!_iniChain.empty()) {
-		p.kind = HiResFontPlan::kFaces;
-		p.faces = _iniChain;
-		p.source = "hires_text_font";
-	} else if (_mapLoaded && _map.hiresFaceSet && !_map.hiresFaceChain.empty()) {
-		p.kind = HiResFontPlan::kFaces;
-		p.faces = _map.hiresFaceChain;
-		p.source = "[hires] face";
-	} else {
-		return p;
-	}
-
-	if (f && f->sizeSet)
-		p.size = f->size;
-	else if (_iniSize > 0)
-		p.size = _iniSize;
-	else if (_mapLoaded && _map.hiresSizeSet)
-		p.size = _map.hiresSize;
-	return p;
-}
-
-bool HiResFontConfig::alpha() const {
-	return (_mapLoaded && _map.alphaFromMap) ? _map.alpha : true;
-}
-
-Graphics::BreakRules HiResFontConfig::breakRules() const {
-	Graphics::BreakRules rules;   // hangul=word, kinsoku on, Thai on
-	if (_mapLoaded) {
-		const Graphics::HiResLayoutSettings &l = _map.layout;
-		if (l.hangulSet)
-			rules.hangul = l.hangul;
-		if (l.kinsokuSet)
-			rules.kinsoku = l.kinsoku;
-		if (l.thaiSet)
-			rules.thaiFallback = l.thai;
-	}
-	return rules;
+	updateActive();
 }
 
 } // namespace AGS3

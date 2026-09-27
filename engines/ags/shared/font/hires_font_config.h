@@ -59,6 +59,7 @@ struct HiResFontPlan {
  *   [font.N] face=a, b, c      a TrueType chain
  *   hires_text_font=           (ini) a face or chain for every font
  *   [hires] face=              the map's face or chain for every font
+ *   [fonts] default=           the face when none of the above names one
  * Size: [font.N] size=, else hires_text_font_size (ini), else [hires] size=,
  * else the game font's own height.
  */
@@ -82,11 +83,19 @@ public:
 	 *  kinsoku on, Thai on), overridden by the map's [layout]. */
 	Graphics::BreakRules breakRules() const;
 
+	/** Take a parsed map (nullptr: none) and the ini's face chain and size
+	 *  as load() found them; for load() and the unit tests. */
+	void configure(const Graphics::HiResTextConfig *map, const Common::Path &mapDir,
+				   const Common::Array<Common::Path> &iniChain, int iniSize);
+
 	/** Code points of the loaded UTF-8 translation, sampled (coverage.h). */
 	const Common::Array<uint32> &sample() const { return _sample; }
 	void setSample(const Common::Array<uint32> &sample) { _sample = sample; }
 
 private:
+	void updateActive();
+	Common::Path defaultFace() const;
+
 	bool _loaded;
 	bool _active;
 	bool _mapLoaded;
