@@ -95,6 +95,7 @@ private:
 
 class TextRun {
 public:
+	TextRun() : _thaiStartsValid(false) {}
 	/** Decode [text, text+len) with dec. Clears the run first; keeps capacity. */
 	void decode(const byte *text, uint32 len, const TextDecoder &dec);
 	/** Build from code points already decoded (Grim); offsets are unit indices. */
@@ -104,6 +105,12 @@ public:
 	byte flags(uint32 i) const { return _flags[i]; }
 	/** Byte offset of unit i; byteOffset(size()) is the total length. */
 	uint32 byteOffset(uint32 i) const { return _offset[i]; }
+	/**
+	 * Whether unit i begins a Thai syllable-ish segment (the layout
+	 * stage's Thai break rule). Computed for the whole run on first use
+	 * and kept until the next decode() or assign().
+	 */
+	bool thaiSegmentStart(uint32 i) const;
 
 private:
 	void clear();
@@ -111,6 +118,8 @@ private:
 
 	Common::Array<uint32> _cp, _offset;
 	Common::Array<byte> _flags;
+	mutable Common::Array<byte> _thaiStarts;
+	mutable bool _thaiStartsValid;
 };
 
 /** What the engine measures with, in its layout units (game px). */
@@ -146,7 +155,7 @@ enum HangulBreak { kHangulBreakWord = 0, kHangulBreakAny = 1 };
 struct BreakRules {
 	HangulBreak hangul;       ///< word: Hangul breaks at spaces (like Latin); any: like CJK ideographs
 	bool kinsoku;             ///< apply the shared kinsoku table
-	bool thaiFallback;        ///< break before Thai bases
+	bool thaiFallback;        ///< Thai: break between syllable-ish segments (no dictionary); ๆ never begins a line
 	BreakRules() : hangul(kHangulBreakWord), kinsoku(true), thaiFallback(true) {}
 };
 

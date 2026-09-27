@@ -175,6 +175,7 @@ int CodePageTextDecoder::decode(const byte *p, const byte *end, uint32 &cp, byte
 
 void TextRun::clear() {
 	// Common::Array::clear() frees the storage; resize(0) keeps it.
+	_thaiStartsValid = false;
 	_cp.resize(0);
 	_offset.resize(0);
 	_flags.resize(0);
@@ -323,7 +324,7 @@ enum {
 	kThaiSaraU = 0x0E38, kThaiSaraE = 0x0E40, kThaiMaiTaiKhu = 0x0E47
 };
 
-int thaiClass(const TextRun &run, uint32 i) {
+ThaiClass thaiClass(const TextRun &run, uint32 i) {
 	const uint32 cp = run.cp(i);
 	if (cp >= 0x0E01 && cp <= 0x0E2E)
 		return kThaiCons;
@@ -387,7 +388,7 @@ public:
 		return i;
 	}
 	uint32 next(uint32 i) const { return sig(i + 1); }
-	int cls(uint32 i) const {
+	ThaiClass cls(uint32 i) const {
 		if (i >= _n || (_run.flags(i) & (kUnitControl | kUnitSpace)))
 			return kThaiOther;
 		return thaiClass(_run, i);
@@ -396,14 +397,15 @@ public:
 
 	/** A mark or a following vowel: what gives the consonant before it a vowel. */
 	bool carries(uint32 i) const {
-		const int c = cls(i);
+		const ThaiClass c = cls(i);
 		return c == kThaiVowelMark || c == kThaiMark || c == kThaiKaran || c == kThaiFollow;
 	}
 
 	/**
 	 * Consonant p begins a syllable with a written vowel: a mark or a
-	 * following vowel on it, อ as the vowel ออ, ว as ัว before a final
-	 * (สวน), or an initial pair whose second consonant has one.
+	 * following vowel on it, อ as the vowel ออ, รร (ธรรม, ภรรยา), ว as ัว
+	 * before a final (สวน), or an initial pair whose second consonant has
+	 * one. Not อ in "งออก": there อ begins ออก and ง is the final before.
 	 */
 	bool voweled(uint32 p) const {
 		const uint32 q = next(p);
@@ -413,7 +415,10 @@ public:
 			return false;
 		const uint32 d = cp(q);
 		const uint32 f = next(q);
-		if (d == kThaiOAng && !carries(f) && !(cp(f) == kThaiYoYak && voweled(f)))
+		if (d == kThaiRoRua && cp(f) == kThaiRoRua)
+			return true;
+		if (d == kThaiOAng && !carries(f) && !(cp(f) == kThaiYoYak && voweled(f))
+				&& !(cp(f) == kThaiOAng && bare(next(f))))
 			return true;
 		if (d == kThaiWoWaen && cls(f) == kThaiCons && !carries(next(f)))
 			return true;
@@ -471,12 +476,14 @@ public:
 	uint32 end(uint32 s) const {
 		uint32 p = s;
 		for (;;) {
-			const int c = cls(p);
+			const ThaiClass c = cls(p);
 			if (c == kThaiDigit) {
 				while (cls(p) == kThaiDigit || cls(p) == kThaiMark)
 					p = next(p);
 				return repeats(p);
 			}
+			if (c == kThaiRepeat)
+				return repeats(p);
 			if (c != kThaiCons && c != kThaiLead)
 				return repeats(skipMarks(next(p)));
 
@@ -486,8 +493,10 @@ public:
 				p = next(p);
 				while (cls(p) == kThaiLead)   // "เเ" typed for "แ"
 					p = next(p);
-				if (cls(p) != kThaiCons)
-					return repeats(skipMarks(p));
+				if (cls(p) == kThaiOther)
+					return p;
+				if (cls(p) != kThaiCons)   // malformed ("เ๑"): no break after เ
+					return repeats(skipMarks(next(p)));
 			}
 
 			// The initial consonant, and after a leading vowel the second
@@ -503,15 +512,15 @@ public:
 			}
 
 			// The vowel and tone marks, the following vowels.
-			bool voweled = lead != 0, closed = false, follow = false;
+			bool hasVowel = lead != 0, closed = false, follow = false;
 			uint32 vowel = 0;
 			for (;;) {
-				const int k = cls(p);
+				const ThaiClass k = cls(p);
 				if (k == kThaiVowelMark) {
-					voweled = true;
+					hasVowel = true;
 					vowel = cp(p);
 				} else if (k == kThaiFollow) {
-					voweled = true;
+					hasVowel = true;
 					follow = true;
 					if (cp(p) == kThaiSaraA || cp(p) == kThaiSaraAm)
 						closed = true;
@@ -527,26 +536,27 @@ public:
 			if (!closed && cls(p) == kThaiCons) {
 				const uint32 d = cp(p);
 				const uint32 f = next(p);
-				const bool free = !carries(f);
+				const bool unmarked = !carries(f);
 				if (d == kThaiYoYak)
 					spelled = lead == kThaiSaraE && vowel == kThaiSaraIi;
 				else if (d == kThaiOAng)
-					spelled = (vowel == kThaiSaraUee && free)
-						|| (lead == kThaiSaraE && !vowel && !follow && (free || cp(f) == kThaiSaraA))
-						|| (!voweled && free && !(cp(f) == kThaiYoYak && this->voweled(f)));
+					spelled = (vowel == kThaiSaraUee && unmarked)
+						|| (lead == kThaiSaraE && !vowel && !follow && (unmarked || cp(f) == kThaiSaraA))
+						|| (!hasVowel && unmarked && !(cp(f) == kThaiYoYak && voweled(f))
+							&& !(cp(f) == kThaiOAng && bare(next(f))));
 				else if (d == kThaiWoWaen)
-					spelled = vowel == kThaiMaiHanAkat || (!voweled && free && bare(f) && opens(next(f)));
-				else if (d == kThaiRoRua && cp(f) == kThaiRoRua && !voweled && !lead) {
-					// รร, the vowel -ั- (ธรรม, กรรม).
-					voweled = spelled = true;
+					spelled = vowel == kThaiMaiHanAkat || (!hasVowel && unmarked && bare(f) && opens(next(f)));
+				else if (d == kThaiRoRua && cp(f) == kThaiRoRua && !hasVowel && !lead) {
+					// รร, the vowel -ั-: takes a bare final even before a
+					// syllable of one bare consonant (ธรรม, วรรณ|คดี).
 					p = next(f);
-					if (bare(p) && !thaiNeverFinal(cp(p)) && opens(next(p)))
+					if (bare(p) && !thaiNeverFinal(cp(p)))
 						p = next(p);
 					p = silent(p, 2);
 					return repeats(p);
 				}
 				if (spelled) {
-					voweled = true;
+					hasVowel = true;
 					p = skipMarks(f);
 					if (cp(p) == kThaiSaraA) {
 						closed = true;
@@ -560,7 +570,7 @@ public:
 			// The final consonant.
 			if (!closed && cls(p) == kThaiCons) {
 				const uint32 x = p;
-				if (!voweled) {
+				if (!hasVowel) {
 					if (!bare(x)) {
 						// A bare consonant before a voweled one: an initial
 						// pair or a syllable too short to stand alone (ปรา,
@@ -596,9 +606,19 @@ public:
 	}
 
 private:
+	/** ๆ and ฯ, and the abbreviations ฯลฯ and ฯพณฯ as one unit. */
 	uint32 repeats(uint32 p) const {
-		while (cls(p) == kThaiRepeat)
+		while (cls(p) == kThaiRepeat) {
+			const bool paiyannoi = cp(p) == 0x0E2F;
 			p = next(p);
+			if (!paiyannoi)
+				continue;
+			const uint32 q = next(p);
+			if (cp(p) == kThaiLoLing && cp(q) == 0x0E2F)
+				p = q;   // ฯลฯ
+			else if (cp(p) == 0x0E1E && cp(q) == 0x0E13 && cp(next(q)) == 0x0E2F)
+				p = next(q);   // ฯพณฯ
+		}
 		return p;
 	}
 
@@ -606,37 +626,14 @@ private:
 	const uint32 _n;
 };
 
-/** Whether unit j (Thai, not an escape) begins a segment of its Thai run,
- *  j - 1 being Thai too. Segmentation starts at the last leading vowel
- *  before j (always a segment start) or at the start of the Thai run. */
+/**
+ * Whether unit j (Thai, not an escape) begins a segment of its Thai run,
+ * j - 1 being Thai too. The whole run is segmented once, from the start of
+ * each Thai run, and the starts are kept in the TextRun until its next
+ * decode(): a line is O(length), not O(length x syllable distance).
+ */
 bool isThaiSegmentStart(const TextRun &run, uint32 j) {
-	const ThaiSyllables th(run);
-	uint32 k = j;
-	for (;;) {
-		// The unit before k, escapes skipped.
-		uint32 pk = k;
-		bool none = true;
-		while (pk > 0) {
-			pk--;
-			if (!isGlue(run, pk)) {
-				none = false;
-				break;
-			}
-		}
-		const bool runStart = none || th.cls(pk) == kThaiOther;
-		if (th.cls(k) == kThaiLead && (runStart || th.cls(pk) != kThaiLead)) {
-			if (k == j)
-				return true;
-			break;
-		}
-		if (runStart)
-			break;
-		k = pk;
-	}
-	uint32 s = k;
-	while (s < j)
-		s = th.end(s);
-	return s == j;
+	return run.thaiSegmentStart(j);
 }
 
 void finish(const TextRun &run, LineSpan &l, LayoutMetrics &m) {
@@ -681,8 +678,9 @@ bool canBreakBefore(const TextRun &run, uint32 i, const BreakRules &rules) {
 	const uint32 a = run.cp(i - 1);
 	const uint32 b = run.cp(j);
 
-	// ๆ and ฯ never begin a line, not even after a space ("รอบ ๆ").
-	if (rules.thaiFallback && (b == 0x0E46 || b == 0x0E2F))
+	// ๆ never begins a line, not even after a space ("รอบ ๆ"). ฯ may,
+	// after a space: the title ฯพณฯ.
+	if (rules.thaiFallback && b == 0x0E46)
 		return false;
 
 	// 2. After a space run. In "space, escapes, space, text" the only
@@ -802,5 +800,32 @@ void breakLines(const TextRun &run, int maxWidth, LayoutMetrics &m, const BreakR
 }
 
 } // End of namespace TextLayout
+
+bool TextRun::thaiSegmentStart(uint32 j) const {
+	if (!_thaiStartsValid) {
+		const uint32 n = size();
+		_thaiStarts.resize(n);
+		for (uint32 i = 0; i < n; i++)
+			_thaiStarts[i] = 0;
+		const TextLayout::ThaiSyllables th(*this);
+		uint32 i = 0;
+		while (i < n) {
+			// The next unit that begins a Thai run.
+			if (th.cls(i) == TextLayout::kThaiOther) {
+				i++;
+				continue;
+			}
+			uint32 s = i;
+			while (s < n && th.cls(s) != TextLayout::kThaiOther) {
+				_thaiStarts[s] = 1;
+				const uint32 e = th.end(s);
+				s = e > s ? e : s + 1;
+			}
+			i = s;
+		}
+		_thaiStartsValid = true;
+	}
+	return j < _thaiStarts.size() && _thaiStarts[j];
+}
 
 } // End of namespace Graphics
