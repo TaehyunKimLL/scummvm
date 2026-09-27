@@ -36,6 +36,9 @@ static const int kMaxScale = 3;
 // furthest a shadow may be moved. Both bound a per-glyph scratch buffer.
 static const int kMaxShadowWidthQ = 32;
 static const int kMaxShadowShift = 16;
+// [hires] gamma= in hundredths: 0.5 (lighter) to 4 (heavier); 1 is off.
+static const int kMinCoverageGamma = 50;
+static const int kMaxCoverageGamma = 400;
 
 HiResFontIdSettings::HiResFontIdSettings()
 	: faceSet(false), size(0), sizeSet(false), latin(kHiResLatinOff), latinSet(false),
@@ -108,6 +111,7 @@ void HiResTextConfig::clear() {
 	shadowShiftColor = 0;
 	shadowShiftColorSet = false;
 	shadowAlpha = 255;
+	coverageGamma = 100;
 
 	hiresFace.clear();
 	hiresFaceSet = false;
@@ -293,10 +297,10 @@ bool parseInteger(const Common::String &value, int maxValue, int &out) {
 }
 
 /**
- * A length in output pixels, to the nearest quarter: "1", "1.5", "0.75".
- * The result is in quarters, so "1.5" gives 6.
+ * A decimal in units of 1/unit, to the nearest one: with unit 4, "1.5"
+ * gives 6; with unit 100, "2.2" gives 220. Signs and exponents are junk.
  */
-bool parseQuarterPixels(const Common::String &value, int maxQuarters, int &out) {
+bool parseFixedPoint(const Common::String &value, int unit, int maxUnits, int &out) {
 	const char *p = value.c_str();
 	int whole = 0;
 	if (!parseNumber(p, 1000, whole))
@@ -316,11 +320,24 @@ bool parseQuarterPixels(const Common::String &value, int maxQuarters, int &out) 
 	}
 	if (*p)
 		return false;
-	const int q = whole * 4 + (frac * 4 * 2 + scaleDiv) / (2 * scaleDiv);
-	if (q > maxQuarters)
+	const int v = whole * unit + (frac * unit * 2 + scaleDiv) / (2 * scaleDiv);
+	if (v > maxUnits)
 		return false;
-	out = q;
+	out = v;
 	return true;
+}
+
+/**
+ * A length in output pixels, to the nearest quarter: "1", "1.5", "0.75".
+ * The result is in quarters, so "1.5" gives 6.
+ */
+bool parseQuarterPixels(const Common::String &value, int maxQuarters, int &out) {
+	return parseFixedPoint(value, 4, maxQuarters, out);
+}
+
+/// A decimal to the nearest hundredth: "2.2" gives 220, "1" gives 100.
+bool parseHundredths(const Common::String &value, int maxHundredths, int &out) {
+	return parseFixedPoint(value, 100, maxHundredths, out);
 }
 
 /// "dx,dy" with optional signs and spaces: "-1,1", "2, 2".
@@ -978,6 +995,21 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 			out.alphaFromMap = true;
 		} else {
 			warning("HiResText: invalid alpha '%s', ignoring", value.c_str());
+		}
+	}
+
+	// gamma= darkens (above 1) or lightens (below 1) the partial pixels of
+	// every TrueType glyph: a thin face blended over a dark outline reads
+	// grey otherwise. Off unless a map asks for it.
+	//
+	//   [hires]
+	//   gamma=1.8
+	if (getKey(ini, qualifiers, "hires", "gamma", value)) {
+		int gamma;
+		if (parseHundredths(value, kMaxCoverageGamma, gamma) && gamma >= kMinCoverageGamma) {
+			out.coverageGamma = gamma;
+		} else {
+			warning("HiResText: invalid gamma '%s' (0.5..4), ignoring", value.c_str());
 		}
 	}
 

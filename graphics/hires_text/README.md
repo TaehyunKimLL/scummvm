@@ -59,7 +59,8 @@ Size syntax: `N` physical pixels, `NxM` size N with supersampling M, `Npt` legac
 logical pixels (not typographic points). Logical sizes remain unresolved until
 an adapter has applied explicit user scale overrides. Bounds: scale 1..3,
 size 1..4096, supersampling 1..16, shadow offset -1 or 0..4096, shadow width
-0..8 px in quarters, shadow shift -16..16, shadow alpha 0..100, palette color
+0..8 px in quarters, shadow shift -16..16, shadow alpha 0..100, coverage
+gamma 0.5..4 in hundredths, palette color
 0..255, glyph count 1..0x110000, height key 1..65535. These parser limits are not
 promises that every backend can allocate that size; loaders must check products
 and memory budgets. Numeric overflow and trailing junk are rejected. Invalid
@@ -237,6 +238,31 @@ hold, so this rasterises into a 32bpp scratch in opaque white and reads the
 coverage back out of the alpha byte. It caches the last glyph, bounds the box a
 face may ask for, and can box-filter a supersampled raster back down, which
 keeps a pixel font on its native grid when the line box is not a multiple of it.
+
+### Coverage gamma (`[hires] gamma=`, C20)
+
+A thin face blended over a dark outline reads grey: a stem that covers half a
+pixel is blended at half strength in gamma space, where linear light would
+show it at about three quarters. `[hires] gamma=` is an opt-in curve applied to
+every TrueType glyph's coverage as `TtfGlyphSource` rasterises it:
+
+```ini
+[hires]
+gamma=1.8   ; 0.5..4, to the nearest hundredth; 1 (the default) is off
+```
+
+`c' = 255 * (c/255)^(1/gamma)`. Above 1 the partial pixels get stronger and
+stems read heavier; below 1 they get weaker. 0 stays 0 and 255 stays 255, so
+a glyph gains no pixels it did not have: its extent, advance, fit and origin
+are unchanged, and a Thai mark does not grow into its base. At 2.2 light text
+over a black outline looks as linear-light blending would draw it. The curve
+is the whole change: sinks, outlines and SVFN bitmap fonts (baked or shipped)
+are untouched, and a map without the key leaves every byte as FreeType drew
+it. SCUMM, SCI and AGS pass the map's value to each TrueType source they open
+(`TtfGlyphSource::setCoverageGamma`, which drops glyphs already cached);
+`TtfGlyphSource::buildGammaCurve` is the pure curve. A heavier face of the
+same family is usually the better first choice (it keeps crisp stems where the
+curve widens soft ones); gamma is for a script whose only face is light.
 
 TrueType is a convenience: everything it produces can be baked ahead of time,
 which is what a build without FreeType uses. It exists so a translation can

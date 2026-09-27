@@ -560,6 +560,108 @@ public:
 		delete src;
 	}
 
+	// C20: the coverage curve behind [hires] gamma=.
+	void test_gamma_curve_identity_at_one() {
+		byte lut[256];
+		TS_ASSERT(!TtfGlyphSource::buildGammaCurve(100, lut));
+		for (int i = 0; i < 256; ++i)
+			TS_ASSERT_EQUALS((int)lut[i], i);
+	}
+
+	void test_gamma_curve_keeps_the_ends_and_order() {
+		static const int gammas[] = { 50, 80, 150, 180, 220, 400 };
+		for (uint g = 0; g < ARRAYSIZE(gammas); ++g) {
+			byte lut[256];
+			TS_ASSERT(TtfGlyphSource::buildGammaCurve(gammas[g], lut));
+			// No ink appears where there was none, and full ink stays full:
+			// the glyph's extent never changes, only its partial pixels.
+			TS_ASSERT_EQUALS((int)lut[0], 0);
+			TS_ASSERT_EQUALS((int)lut[255], 255);
+			for (int i = 1; i < 256; ++i) {
+				TS_ASSERT(lut[i] >= lut[i - 1]);
+				if (gammas[g] > 100) {
+					TS_ASSERT(lut[i] >= i);
+				} else {
+					TS_ASSERT(lut[i] <= i);
+				}
+			}
+		}
+	}
+
+	void test_gamma_curve_values() {
+		byte lut[256];
+		// 255 * (c/255)^(1/g), rounded. At 2.2 a half-covered pixel of light
+		// text over a dark outline reads as linear-light blending would.
+		TtfGlyphSource::buildGammaCurve(220, lut);
+		TS_ASSERT_EQUALS((int)lut[128], 186);
+		TS_ASSERT_EQUALS((int)lut[64], 136);
+		TS_ASSERT_EQUALS((int)lut[1], 21);
+		TtfGlyphSource::buildGammaCurve(50, lut);
+		TS_ASSERT_EQUALS((int)lut[128], 64);
+		// Out of range is clamped, not refused.
+		byte lo[256], hi[256];
+		TtfGlyphSource::buildGammaCurve(1, lo);
+		TtfGlyphSource::buildGammaCurve(50, lut);
+		TS_ASSERT_EQUALS(0, memcmp(lo, lut, 256));
+		TtfGlyphSource::buildGammaCurve(1000, hi);
+		TtfGlyphSource::buildGammaCurve(400, lut);
+		TS_ASSERT_EQUALS(0, memcmp(hi, lut, 256));
+	}
+
+	// The curve is applied to the rasterised rows and nothing else: the
+	// same pixels carry ink, advances are unchanged, and gamma 1 gives the
+	// exact bytes of a source that was never told about it.
+	void test_gamma_changes_only_partial_coverage() {
+		Common::SeekableReadStream *s1 = openTestFont();
+		if (!s1)
+			return;
+		Common::SeekableReadStream *s2 = openTestFont();
+		Common::SeekableReadStream *s3 = openTestFont();
+		Common::String error;
+		TtfGlyphSource *plain = TtfGlyphSource::create(s1, DisposeAfterUse::YES, 16, error);
+		TtfGlyphSource *one = TtfGlyphSource::create(s2, DisposeAfterUse::YES, 16, error);
+		TtfGlyphSource *dark = TtfGlyphSource::create(s3, DisposeAfterUse::YES, 16, error);
+		TS_ASSERT(plain && one && dark);
+		if (!plain || !one || !dark) {
+			delete plain;
+			delete one;
+			delete dark;
+			return;
+		}
+		// Asked before and after a glyph is cached: the cache is dropped.
+		TS_ASSERT_EQUALS(dark->cells(0xAC00), 2);
+		one->setCoverageGamma(100);
+		dark->setCoverageGamma(220);
+		TS_ASSERT_EQUALS(one->coverageGamma(), 100);
+		TS_ASSERT_EQUALS(dark->coverageGamma(), 220);
+		byte lut[256];
+		TtfGlyphSource::buildGammaCurve(220, lut);
+
+		static const uint32 cps[] = { 0xAC00, 0xB625, 'A', 0x0E01, 0x0E34, 0x3042 };
+		bool sawRaised = false;
+		for (uint i = 0; i < ARRAYSIZE(cps); ++i) {
+			const uint32 cp = cps[i];
+			TS_ASSERT_EQUALS(one->cells(cp), plain->cells(cp));
+			TS_ASSERT_EQUALS(dark->cells(cp), plain->cells(cp));
+			if (plain->cells(cp) == 0)
+				continue;
+			TS_ASSERT_EQUALS(dark->advance(cp), plain->advance(cp));
+			for (int y = 0; y < plain->cellHeight(); y++) {
+				const byte *p = plain->row(cp, y), *o = one->row(cp, y), *d = dark->row(cp, y);
+				for (int x = 0; x < plain->cellWidth() * 2; x++) {
+					TS_ASSERT_EQUALS(o[x], p[x]);
+					TS_ASSERT_EQUALS(d[x], lut[p[x]]);
+					if (d[x] > p[x])
+						sawRaised = true;
+				}
+			}
+		}
+		TS_ASSERT(sawRaised);
+		delete plain;
+		delete one;
+		delete dark;
+	}
+
 	void test_ttc_face0() {
 		Common::SeekableReadStream *stream = openTestFont();
 		if (!stream)
