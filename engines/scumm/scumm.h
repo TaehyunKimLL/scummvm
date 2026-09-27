@@ -1877,6 +1877,32 @@ public:
 	// Returns codepage that matches the game for languages that require it.
 	Common::CodePage getDialogCodePage() const;
 
+	/**
+	 * The translation bundle is UTF-8 (body BOM or ini text_encoding=utf8;
+	 * I18N_TEXT_DESIGN.md section 4.1) and is drawn by the hi-res layer:
+	 * no CJK font of the game's is loaded, _useCJKMode stays false, the
+	 * string code hands the charset renderer code points, and UTF-8 text is
+	 * wrapped by the shared layout stage. Set by probeLanguageBundle()
+	 * before loadCJKFont(); false with no bundle.
+	 */
+	bool _textUtf8 = false;
+	bool _warnedTextTruncated = false;
+
+	/**
+	 * Bytes of the character at @p p: the UTF-8 length (1..4) when
+	 * _textUtf8, else exactly is2ByteCharacter(_language, *p) ? 2 : 1.
+	 */
+	int textCharLength(const byte *p, const byte *end) const;
+
+	/**
+	 * Find the translation bundle and read its header, before the fonts
+	 * are set up, to decide _textUtf8: a UTF-8 bundle with hi-res text off
+	 * is transcoded to the language's legacy code page at load (and drawn
+	 * the legacy way), or, with no such page, drawn as '?' after one
+	 * warning.
+	 */
+	void probeLanguageBundle();
+
 	// Somewhat hackish stuff for 2 byte support (Chinese/Japanese/Korean)
 	bool _useCJKMode = false;
 	bool _useMultiFont = false;
@@ -1919,12 +1945,17 @@ private:
 	};
 
 	bool _existLanguageFile = false;
+	Common::Path _trsBundlePath;                 ///< the bundle probeLanguageBundle() found
+	Common::CodePage _trsTranscodeTo = Common::kCodePageInvalid;  ///< UTF-8 bundle, hi-res off
 	bool _isRTL = false;
 	byte *_languageBuffer = nullptr;
 	int _numTranslatedLines = 0;
 	TranslatedLine *_translatedLines = nullptr;
 	uint16 *_languageLineIndex = nullptr;
 	Common::HashMap<byte, TranslationRoom> _roomIndex;
+
+	/** Rewrite a UTF-8 bundle's translations in _trsTranscodeTo (hi-res off). */
+	void transcodeLanguageBundle(uint32 bodySize);
 
 	const byte *searchTranslatedLine(const byte *text, const TranslationRange &range, bool useIndex);
 

@@ -852,7 +852,7 @@ void ScummEngine::drawInternalGUIControl(int id, bool highlightColor) {
 			drawGUIText(buttonString, isSaveSlot ? &indyClipRect : nullptr, textXPos, textYPos, textColor, centerFlag);
 		} else {
 			int tmpRight = _string[5].right;
-			bool nudgeJapYPos = _language == Common::JA_JPN;
+			bool nudgeJapYPos = _language == Common::JA_JPN && !_textUtf8;
 
 			if (_game.platform == Common::kPlatformSegaCD) {
 				nudgeJapYPos &= !(id >= GUI_CTRL_NUMPAD_1 && id <= GUI_CTRL_NUMPAD_0);

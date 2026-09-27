@@ -30,6 +30,7 @@
 #include "scumm/charset.h"
 #include "scumm/dialogs.h"
 #include "scumm/file.h"
+#include "scumm/text_utf8.h"
 #include "scumm/trs_bundle.h"
 #include "scumm/imuse_digi/dimuse_engine.h"
 #ifdef ENABLE_HE
@@ -1170,7 +1171,8 @@ void ScummEngine::displayDialog() {
 		// we will take care of it in a different way just below ... :-)
 		if (_game.platform != Common::kPlatformSegaCD ||
 			(_game.platform == Common::kPlatformSegaCD && !_charset->_center)) {
-			_charset->addLinebreaks(0, _charsetBuffer + _charsetBufPos, 0, maxWidth);
+			_charset->addLinebreaks(0, _charsetBuffer + _charsetBufPos, 0, maxWidth,
+									(int)sizeof(_charsetBuffer) - _charsetBufPos);
 		}
 	}
 
@@ -1262,7 +1264,7 @@ void ScummEngine::displayDialog() {
 		}
 
 		if (c & 0x80 && _useCJKMode) {
-			if (is2ByteCharacter(_language, c)) {
+			if (textCharLength(_charsetBuffer + _charsetBufPos - 1, _charsetBuffer + sizeof(_charsetBuffer)) == 2) {
 				byte *buffer = _charsetBuffer + _charsetBufPos;
 				c += *buffer++ * 256; //LE
 				_charsetBufPos = buffer - _charsetBuffer;
@@ -1280,6 +1282,11 @@ void ScummEngine::displayDialog() {
 					_force2ByteCharHeight = true;
 				}
 			}
+		} else if (c & 0x80 && _textUtf8) {
+			// A UTF-8 translation: the renderer is given the code point.
+			const byte *p = _charsetBuffer + _charsetBufPos - 1;
+			c = readUtf8TextChar(p, _charsetBuffer + sizeof(_charsetBuffer));
+			_charsetBufPos = p - _charsetBuffer;
 		}
 		if (_game.version <= 3) {
 			_charset->printChar(c, false);
@@ -1539,8 +1546,12 @@ void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager
 				}
 			}
 			if (c & 0x80 && _useCJKMode) {
-				if (is2ByteCharacter(_language, c))
+				if (textCharLength(buf + i - 1, buf + sizeof(buf)) == 2)
 					c += buf[i++] * 256;
+			} else if (c & 0x80 && _textUtf8) {
+				const byte *p = buf + i - 1;
+				c = readUtf8TextChar(p, buf + sizeof(buf));
+				i = p - buf;
 			}
 
 			// With the code above, we risk missing the termination character.
@@ -1600,6 +1611,18 @@ int ScummEngine::convertMessageToString(const byte *msg, byte *dst, int dstSize)
 	num = 0;
 
 	while (1) {
+		// A UTF-8 translation can be three times as long in bytes as the
+		// text it replaces. Every step below writes at most 4 bytes, so with
+		// fewer than 5 left the text is cut here, between two characters,
+		// instead of overflowing (the legacy path keeps its error()).
+		if (_textUtf8 && end - dst < 5) {
+			if (!_warnedTextTruncated) {
+				warning("SCUMM: a translated string is longer than its %d-byte buffer; cut short", dstSize);
+				_warnedTextTruncated = true;
+			}
+			break;
+		}
+
 		chr = src[num++];
 		if (chr == 0)
 			break;
@@ -1694,9 +1717,20 @@ int ScummEngine::convertMessageToString(const byte *msg, byte *dst, int dstSize)
 				}
 				num += (_game.version == 8) ? 4 : 2;
 			}
+		} else if (_textUtf8 && chr >= 0x80) {
+			// The whole UTF-8 character at once, so a cut never splits one.
+			const byte *p = src + num - 1;
+			const int n = textCharLength(p, p + 4);
+			for (int k = 0; k < n; k++)
+				*dst++ = p[k];
+			num += n - 1;
+			lastChr = src[num - 1];
 		} else {
-			if ((chr != '@') || (_game.version >= 7 && is2ByteCharacter(_language, lastChr)) ||
-				(_language == Common::JA_JPN && checkSJISCode(lastChr))) {
+			// '@' after a double-byte lead is the pair's trail byte, not padding.
+			// A UTF-8 translation never takes the SJIS test: its lead and
+			// continuation bytes fall in the SJIS lead ranges.
+			if ((chr != '@') || (_game.version >= 7 && textCharLength(&lastChr, &lastChr + 1) == 2) ||
+				(!_textUtf8 && _language == Common::JA_JPN && checkSJISCode(lastChr))) {
 				*dst++ = chr;
 			}
 			lastChr = chr;
@@ -1805,6 +1839,11 @@ int ScummEngine::convertVerbMessage(byte *dst, int dstSize, int var) {
 	int num, k;
 
 	bool isKorVerbGlue = false;
+
+	// The Korean patches' postposition glue (bit 15) is CP949 grammar; a
+	// UTF-8 translation that still carries the code gets nothing for it.
+	if (_textUtf8 && (var & (1 << 15)))
+		return 0;
 
 	if (isScummvmKorTarget() && _useCJKMode && var & (1 << 15)) {
 		isKorVerbGlue = true;
@@ -1948,6 +1987,10 @@ int ScummEngine::convertStringMessage(byte *dst, int dstSize, int var) {
 
 	if (_game.version == 3 || (_game.version >= 6 && _game.heversion < 72))
 		var = readVar(var);
+
+	// The Korean patches' postposition glue: see convertVerbMessage().
+	if (_textUtf8 && (var & (1 << 15)))
+		return 0;
 
 	// Process variation of Korean postpositions
 	// Used by Korean fan translated games (monkey1, monkey2)
@@ -2336,11 +2379,127 @@ void ScummEngine_v7::translateText(const byte *text, byte *trans_buff, int trans
 #endif
 
 // The .trs bundle format is language-neutral, so the file name is what says
-// which language it carries. getTrsBundleName() holds that rule, shared with
-// the detector that scans for these files (scumm/trs_bundle.h).
+// which language it carries. getTrsBundleNames() holds that rule, shared with
+// the detector that scans for these files (scumm/trs_bundle.h):
+// <code>.trs, and for Korean the established korean.trs after it.
+// probeLanguageBundle() settles which one is present.
 Common::Path ScummEngine::getLanguageBundleFilename() const {
-	return getTrsBundleName(_language);
+	return _trsBundlePath;
 }
+
+int ScummEngine::textCharLength(const byte *p, const byte *end) const {
+	return Scumm::textCharLength(_textUtf8, _language, p, end);
+}
+
+void ScummEngine::probeLanguageBundle() {
+	_textUtf8 = false;
+	_trsTranscodeTo = Common::kCodePageInvalid;
+	_trsBundlePath.clear();
+
+	// The Dig and COMI read their own language.bnd/.tab instead.
+	if (_game.id == GID_DIG || _game.id == GID_CMI)
+		return;
+
+	Common::Array<Common::Path> names;
+	getTrsBundleNames(_language, names);
+	Common::Array<byte> data;
+	for (uint i = 0; i < names.size() && _trsBundlePath.empty(); i++) {
+		ScummFile file(this);
+		openFile(file, names[i]);
+		if (!file.isOpen())
+			continue;
+		_trsBundlePath = names[i];
+		data.resize((uint)file.size());
+		if (!data.empty())
+			file.read(data.begin(), data.size());
+	}
+	if (_trsBundlePath.empty())
+		return;
+
+	TrsHeader h;
+	if (!parseTrsHeader(data.begin(), data.size(), h))
+		return;    // loadLanguageBundle() decides what an unreadable bundle means
+
+	bool iniUtf8 = false;
+	if (ConfMan.hasKey("text_encoding")) {
+		const Common::String v = ConfMan.get("text_encoding");
+		if (v.equalsIgnoreCase("utf8") || v.equalsIgnoreCase("utf-8"))
+			iniUtf8 = true;
+		else
+			warning("SCUMM: text_encoding should be 'utf8', not '%s'; ignored", v.c_str());
+	}
+
+	bool looksUtf8 = false;
+	const bool utf8 = decideTrsUtf8(data.begin(), data.size(), h, iniUtf8, &looksUtf8);
+	if (looksUtf8)
+		warning("SCUMM: '%s' looks like UTF-8; add a BOM (EF BB BF) at the start of its body "
+				"or set text_encoding=utf8", _trsBundlePath.toString().c_str());
+	if (!utf8)
+		return;
+
+	// The renderers that take code points are the PC ones (v1-v6).
+	const bool supported = _game.heversion == 0 && _game.version <= 6 &&
+		_game.platform != Common::kPlatformFMTowns && _game.platform != Common::kPlatformPCEngine &&
+		_game.platform != Common::kPlatformSegaCD && _game.platform != Common::kPlatformNES &&
+		!(_game.platform == Common::kPlatformMacintosh && (_game.id == GID_LOOM || _game.id == GID_INDY3));
+	if (!supported) {
+		// Read as a code-page bundle it would draw as mojibake: ignored, as
+		// an unreadable bundle is.
+		warning("SCUMM: '%s' is UTF-8, which this release's text renderer does not take; "
+				"the translation is ignored", _trsBundlePath.toString().c_str());
+		_trsBundlePath.clear();
+		return;
+	}
+
+	if (_hiResText.enabled()) {
+		_textUtf8 = true;
+		_hiResText.useUtf8Text();
+		debug(1, "SCUMM: '%s' is a UTF-8 translation, drawn by the hi-res text layer",
+			  _trsBundlePath.toString().c_str());
+		return;
+	}
+
+	// Hi-res text off: the language's own code page, if it has one, so the
+	// game's CJK font draws it as it would a legacy bundle.
+	_trsTranscodeTo = legacyTextPage(_language);
+	if (_trsTranscodeTo != Common::kCodePageInvalid) {
+		debug(1, "SCUMM: '%s' is UTF-8 and hi-res text is off: transcoded to the language's code page",
+			  _trsBundlePath.toString().c_str());
+		return;
+	}
+	_textUtf8 = true;
+	warning("SCUMM: a UTF-8 translation needs hi-res text (hires_text.map or hires_text_font); "
+			"'%s' is drawn as '?'", _trsBundlePath.toString().c_str());
+}
+
+namespace {
+
+/// Copy a translated string into a fixed buffer, NUL-terminated; a string
+/// that does not fit is cut on a character (and escape) boundary.
+void copyTextBounded(byte *dst, const byte *src, int len, int dstSize, const ScummEngine *vm) {
+	if (dstSize <= 0)
+		return;
+	if (len + 1 <= dstSize) {
+		memcpy(dst, src, len + 1);
+		return;
+	}
+	const ScummTextDecoder esc(vm->_game.version, vm->_game.heversion > 0, 0);
+	const byte *end = src + len;
+	int cut = 0;
+	for (int at = 0; at < len;) {
+		int n = (vm->_game.version <= 6) ? esc.escapeLength(src + at, end) : 0;
+		if (n <= 0)
+			n = vm->textCharLength(src + at, end);
+		if (at + n > dstSize - 1)
+			break;
+		at += n;
+		cut = at;
+	}
+	memcpy(dst, src, cut);
+	dst[cut] = 0;
+}
+
+} // End of anonymous namespace
 
 void ScummEngine::loadLanguageBundle() {
 	_existLanguageFile = false;
@@ -2418,6 +2577,12 @@ void ScummEngine::loadLanguageBundle() {
 	file.read(_languageBuffer, size - bodyPos);
 	file.close();
 
+	// A UTF-8 bundle with hi-res text off: its translations go to the
+	// language's legacy code page now, so the game's CJK font draws them
+	// the way it draws a legacy bundle (probeLanguageBundle()).
+	if (_trsTranscodeTo != Common::kCodePageInvalid)
+		transcodeLanguageBundle((uint32)(size - bodyPos));
+
 	// The hi-res text layer checks its faces against the characters the
 	// translation actually uses (loadFonts() runs after this).
 	if (_hiResText.enabled()) {
@@ -2430,6 +2595,37 @@ void ScummEngine::loadLanguageBundle() {
 	}
 
 	debug(2, "loadLanguageBundle: Loaded %d entries", _numTranslatedLines);
+}
+
+void ScummEngine::transcodeLanguageBundle(uint32 bodySize) {
+	Common::Array<uint32> orig, trans;
+	for (int i = 0; i < _numTranslatedLines; i++) {
+		orig.push_back(_translatedLines[i].originalTextOffset);
+		trans.push_back(_translatedLines[i].translatedTextOffset);
+	}
+	Common::Array<byte> body;
+	Common::HashMap<uint32, bool> unmapped;
+	transcodeTrsStrings(_languageBuffer, bodySize, orig, trans, _trsTranscodeTo, _game.version, body, &unmapped);
+	for (int i = 0; i < _numTranslatedLines; i++) {
+		_translatedLines[i].originalTextOffset = orig[i];
+		_translatedLines[i].translatedTextOffset = trans[i];
+	}
+
+	delete[] _languageBuffer;
+	_languageBuffer = new byte[body.size()];
+	memcpy(_languageBuffer, body.begin(), body.size());
+
+	if (!unmapped.empty()) {
+		Common::String list;
+		int shown = 0;
+		for (Common::HashMap<uint32, bool>::const_iterator it = unmapped.begin(); it != unmapped.end(); ++it) {
+			if (shown++ < 32)
+				list += Common::String::format(" U+%04X", it->_key);
+		}
+		warning("SCUMM: %u characters of the UTF-8 translation have no form in the language's "
+				"code page and are drawn as '?':%s%s", unmapped.size(), list.c_str(),
+				unmapped.size() > 32 ? " ..." : "");
+	}
 }
 
 const byte *ScummEngine::searchTranslatedLine(const byte *text, const TranslationRange &range, bool useIndex) {
@@ -2494,7 +2690,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 					const byte *translatedText = searchTranslatedLine(text, scrpRange, true);
 					if (translatedText) {
 						debug(7, "translateText: Found by heuristic #1");
-						memcpy(trans_buff, translatedText, MIN<int>(resStrLen(translatedText) + 1, transBufferSize));
+						copyTextBounded(trans_buff, translatedText, resStrLen(translatedText), transBufferSize, this);
 						return;
 					}
 				}
@@ -2511,7 +2707,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 					const byte *translatedText = searchTranslatedLine(text, scrpRange, true);
 					if (translatedText) {
 						debug(7, "translateText: Found by heuristic #2");
-						memcpy(trans_buff, translatedText, MIN<int>(resStrLen(translatedText) + 1, transBufferSize));
+						copyTextBounded(trans_buff, translatedText, resStrLen(translatedText), transBufferSize, this);
 						return;
 					}
 				}
@@ -2522,7 +2718,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 		const byte *translatedText = searchTranslatedLine(text, TranslationRange(0, _numTranslatedLines - 1), false);
 		if (translatedText) {
 			debug(7, "translateText: Found by full search");
-			memcpy(trans_buff, translatedText, MIN<int>(resStrLen(translatedText) + 1, transBufferSize));
+			copyTextBounded(trans_buff, translatedText, resStrLen(translatedText), transBufferSize, this);
 			return;
 		}
 
@@ -2530,7 +2726,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 	}
 
 	// Default: just copy the string
-	memcpy(trans_buff, text, MIN<int>(resStrLen(text) + 1, transBufferSize));
+	copyTextBounded(trans_buff, text, resStrLen(text), transBufferSize, this);
 }
 
 bool ScummEngine::reverseIfNeeded(const byte *text, byte *reverseBuf, int reverseBufSize) const {
@@ -2544,6 +2740,8 @@ bool ScummEngine::reverseIfNeeded(const byte *text, byte *reverseBuf, int revers
 }
 
 Common::CodePage ScummEngine::getDialogCodePage() const {
+	if (_textUtf8)
+		return Common::kUtf8;
 	switch (_language) {
 	case Common::KO_KOR:
 		return Common::kWindows949;

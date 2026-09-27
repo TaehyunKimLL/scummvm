@@ -27,6 +27,7 @@
 #include "graphics/sjis.h"
 #include "scumm/charset_v7.h"
 #include "scumm/scumm.h"
+#include "scumm/text_utf8.h"
 #include "scumm/gfx.h"
 
 namespace Graphics {
@@ -120,6 +121,20 @@ protected:
 	ScummEngine *_vm;
 	int32 _curId;
 
+	/**
+	 * The character the game's own font draws or measures for @p chr. With
+	 * a UTF-8 translation, chr is a code point and every non-ASCII one is
+	 * the hi-res layer's; the game's font stands in with '?' (its metrics
+	 * when the layer has no glyph, its picture when the layer is off). A
+	 * raw game byte (text_utf8.h, kRawGameByteBase) is the game's own.
+	 */
+	int gameChar(int chr) const {
+		if (!_vm->_textUtf8 || chr < 0x80)
+			return chr;
+		const int raw = rawGameByte((uint32)chr);   // a byte that is not UTF-8
+		return raw >= 0 ? raw : '?';
+	}
+
 public:
 	CharsetRenderer(ScummEngine *vm);
 	virtual ~CharsetRenderer();
@@ -128,7 +143,15 @@ public:
 	virtual void drawChar(int chr, Graphics::Surface &s, int x, int y) {}
 
 	virtual int getStringWidth(int arg, const byte *text);
-	void addLinebreaks(int a, byte *str, int pos, int maxwidth);
+	/**
+	 * Break a string into lines no wider than @p maxwidth by writing 0x0D.
+	 * @param bufSize  the bytes available from @p str, NUL included; only
+	 *                 the UTF-8 path, which may insert, uses it (-1: none
+	 *                 beyond the string itself)
+	 */
+	void addLinebreaks(int a, byte *str, int pos, int maxwidth, int bufSize = -1);
+	/** addLinebreaks() for UTF-8 text: the shared layout stage (text_utf8.h). */
+	void addLinebreaksLayout(int a, byte *str, int pos, int maxwidth, int bufSize);
 	void translateColor();
 
 	virtual void setCurID(int32 id) = 0;
