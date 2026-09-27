@@ -74,4 +74,67 @@ public:
 		TS_ASSERT_EQUALS(glyphs.size(), 1u);
 		TS_ASSERT(clear.empty());
 	}
+
+	/// Several glyphs: only those whose cell the paint meets go.
+	void test_several_glyphs_only_the_painted_cells_go() {
+		typedef Scumm::ScummHiResText::TracedGlyph G;
+		Common::Array<G> glyphs;
+		G a, b, c;
+		a.cell = Common::Rect(0, 0, 16, 16);  a.area = Common::Rect(-2, -2, 19, 19);
+		b.cell = Common::Rect(16, 0, 32, 16); b.area = Common::Rect(14, -2, 35, 19);
+		c.cell = Common::Rect(48, 0, 64, 16); c.area = Common::Rect(46, -2, 67, 19);
+		glyphs.push_back(a);
+		glyphs.push_back(b);
+		glyphs.push_back(c);
+
+		Common::Array<Common::Rect> clear;
+		Scumm::ScummHiResText::retireTracedGlyphs(Common::Rect(0, 0, 32, 16), glyphs, clear);
+		TS_ASSERT_EQUALS(glyphs.size(), 1u);
+		TS_ASSERT_EQUALS(glyphs[0].cell, c.cell);
+		TS_ASSERT_EQUALS(clear.size(), 3u);
+		TS_ASSERT_EQUALS(clear[1], a.area);
+		TS_ASSERT_EQUALS(clear[2], b.area);
+	}
+
+	/// A glyph inside the painted rect adds nothing to clear: the rect has it.
+	void test_glyph_inside_the_paint_adds_no_rect() {
+		Common::Array<Scumm::ScummHiResText::TracedGlyph> glyphs;
+		Scumm::ScummHiResText::TracedGlyph g;
+		g.cell = Common::Rect(10, 10, 20, 20);
+		g.area = Common::Rect(9, 9, 21, 21);
+		glyphs.push_back(g);
+
+		Common::Array<Common::Rect> clear;
+		Scumm::ScummHiResText::retireTracedGlyphs(Common::Rect(0, 0, 40, 40), glyphs, clear);
+		TS_ASSERT(glyphs.empty());
+		TS_ASSERT_EQUALS(clear.size(), 1u);
+	}
+
+	/**
+	 * The main screen (review fix): only text the game drew for keeps goes,
+	 * whole, by its cell; the painted area itself is not cleared (removable
+	 * text is the charset's); a glyph also drawn into the back buffer stays,
+	 * because the game blits that copy back; a neighbour touched only by its
+	 * outline stays.
+	 */
+	void test_main_screen_retires_front_kept_glyphs_by_cell() {
+		typedef Scumm::ScummHiResText::TracedGlyph G;
+		Common::Array<G> glyphs;
+		G front, back, neighbour;
+		front.cell = Common::Rect(10, 10, 20, 20);     front.area = Common::Rect(9, 9, 21, 21);
+		back.cell = Common::Rect(20, 10, 30, 20);      back.area = Common::Rect(19, 9, 31, 21);
+		back.inBackBuffer = true;
+		neighbour.cell = Common::Rect(10, 40, 20, 50); neighbour.area = Common::Rect(9, 38, 21, 51);
+		glyphs.push_back(front);
+		glyphs.push_back(back);
+		glyphs.push_back(neighbour);
+
+		Common::Array<Common::Rect> clear;
+		Scumm::ScummHiResText::retireGlyphsByCell(Common::Rect(0, 0, 40, 40), glyphs, clear, false, true);
+		TS_ASSERT_EQUALS(clear.size(), 1u);
+		TS_ASSERT_EQUALS(clear[0], front.area); // whole, though inside the paint
+		TS_ASSERT_EQUALS(glyphs.size(), 2u);
+		TS_ASSERT_EQUALS(glyphs[0].cell, back.cell);
+		TS_ASSERT_EQUALS(glyphs[1].cell, neighbour.cell);
+	}
 };

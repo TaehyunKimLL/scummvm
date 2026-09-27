@@ -1079,15 +1079,21 @@ Common::Rect ScummHiResText::overlayRectFor(const Common::Rect &rect, int topOff
 
 void ScummHiResText::retireTracedGlyphs(const Common::Rect &painted, Common::Array<TracedGlyph> &glyphs,
 										Common::Array<Common::Rect> &clear) {
+	retireGlyphsByCell(painted, glyphs, clear, true, false);
+}
+
+void ScummHiResText::retireGlyphsByCell(const Common::Rect &painted, Common::Array<TracedGlyph> &glyphs,
+										Common::Array<Common::Rect> &clear, bool clearPainted, bool keepBackBuffer) {
 	if (painted.isEmpty())
 		return;
-	clear.push_back(painted);
+	if (clearPainted)
+		clear.push_back(painted);
 	for (uint i = 0; i < glyphs.size();) {
-		if (!glyphs[i].cell.intersects(painted)) {
+		if (!glyphs[i].cell.intersects(painted) || (keepBackBuffer && glyphs[i].inBackBuffer)) {
 			++i;
 			continue;
 		}
-		if (!painted.contains(glyphs[i].area))
+		if (!clearPainted || !painted.contains(glyphs[i].area))
 			clear.push_back(glyphs[i].area);
 		glyphs.remove_at(i);
 	}
