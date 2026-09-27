@@ -123,9 +123,14 @@ public:
 	bool getPixelFormat(int depth, Graphics::PixelFormat &format) const;
 
 	/**
-	 * Sets up the graphics mode
+	 * Sets up the graphics mode.
+	 *
+	 * ScummVM (C33): with @p fallbackScale > 1 the mode is an N x hi-res text
+	 * display, and w / N x h / N is tried when the backend refuses it (a GL
+	 * texture limit, say) instead of erroring out. Returns false when the
+	 * fallback size was set, true when w x h was.
 	 */
-	void setGraphicsMode(size_t w, size_t h, int depth);
+	bool setGraphicsMode(size_t w, size_t h, int depth, int fallbackScale = 1);
 
 	bool hasFeature(EngineFeature f) const override {
 		return
