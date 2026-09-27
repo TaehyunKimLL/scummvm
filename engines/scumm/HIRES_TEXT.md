@@ -330,9 +330,20 @@ change** with such a map: lines are narrower, so the game fits more words per
 line ("My name's Guybrush Threepwood, and I want to be a pirate!" now fits on
 one line in MI1's lookout scene) and centres on the new width.
 
+The space steps by the face too, unless the game lays its text out on CJK
+cells (a Korean patch in CP949 or its cells under `ko.trs`): there it is the
+word gap between Hangul words and keeps the game's width.
+
+The face also puts the glyph on its own baseline, so the game glyph's own
+y offset (MI1 drops `,` `p` `g` `j` one game pixel) no longer applies; the
+offset the charset's Latin line shares (that of `x`, else `a`) still does.
+Korean text changes only where it has such Latin punctuation (`,` `;` `'`).
+
+ASCII the game's charset lacks is now drawn by the face in English too, at
+the step it is measured with (C34 did this inside CJK text): MI1's charset 6,
+for one, has no `,` or `.`, which the original measured 0 and never drew.
+
 Unchanged:
-- the space, which keeps the game's width (it is also the word gap between
-  Hangul words);
 - an explicit `metrics=game` in any of the places above: the old spacing,
   byte for byte (English MI1 with `hires_text_metrics=game` is frame-identical
   to the build before C36);
@@ -342,7 +353,16 @@ Unchanged:
 - bitmap (SVFN) faces, which keep the game's widths (a `[font.N] pixel=`
   face, C28, is a TrueType face held on its grid and steps by the face like
   any other);
-- hi-res text off.
+- hi-res text off;
+- charset renderers that measure single-byte text with the game's widths and
+  never ask `advanceFor()`: FM-Towns (`CharsetRendererTownsClassic`, and
+  `CharsetRendererTownsV3` except on a ScummVM Korean target) and V2's fixed
+  8 px (`CharsetRendererV2`). The engine switches the face step off for them
+  (`setLatinFaceStepAllowed()`), so they measure what they draw.
+
+Other renderers step English Latin by the face as well: V3 (Loom, Indy3,
+Zak256; its right-edge clip uses the same step) and V7 (FT, Dig). Only MI1
+(`CharsetRendererClassic`) has been captured.
 
 Ink a face draws outside its step (`j` left of the pen, `/`, `\` or `v`
 past the step at 3x, where round-half-up can round the advance down) is not
