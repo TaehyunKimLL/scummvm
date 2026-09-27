@@ -1,0 +1,29 @@
+; Hi-res text map: The Secret of Monkey Island (UTE) Korean, with styled faces
+; for the charsets the game draws in a styled font:
+;   charset 4 (15 px) heavy serif display: intro and chapter cards, credits
+;   charset 6 (14 px) light serif: the verb buttons
+; Every other charset uses NanumGothic Bold. Latin letters in the styled
+; charsets come from a Latin face in the same style (latin_font=).
+;
+; EB Garamond is a variable font; FreeType opens its default instance
+; (Regular, 400). There is no weight key yet.
+; See hires_text/fonts/FONTS.md for the licences.
+[hires]
+scale=2
+alpha=true
+face=ko
+
+[fonts]
+ko=data:hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf
+display_ko=data:hires_text/fonts/blackhansans/BlackHanSans-Regular.ttf
+display_latin=data:hires_text/fonts/coustard/Coustard-Black.ttf
+serif_ko=data:hires_text/fonts/nanummyeongjo/NanumMyeongjo-Bold.ttf
+serif_latin=data:hires_text/fonts/ebgaramond/EBGaramond-VF.ttf
+
+[font.4]
+face=display_ko, ko
+latin_font=display_latin
+
+[font.6]
+face=serif_ko, ko
+latin_font=serif_latin

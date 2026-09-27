@@ -21,6 +21,7 @@
 
 #include "graphics/hires_text/font_map.h"
 
+#include "common/config-manager.h"
 #include "common/formats/ini-file.h"
 #include "common/fs.h"
 #include "common/stream.h"
@@ -216,9 +217,98 @@ Common::CodePage HiResFontMap::parseCodePage(const Common::String &name) {
 	return Common::kCodePageInvalid;
 }
 
+const char *const HiResFontMap::kDataPrefix = "data:";
+
+bool HiResFontMap::isDataPath(const Common::String &value) {
+	return value.hasPrefix(kDataPrefix);
+}
+
+bool HiResFontMap::isSafeDataRelative(const Common::String &relative) {
+	if (relative.empty())
+		return false;
+	const char first = relative[0];
+	if (first == '/' || first == '\\' || (relative.size() > 1 && relative[1] == ':'))
+		return false;
+	// No ".." component, with either separator.
+	size_t start = 0;
+	while (start <= relative.size()) {
+		size_t end = start;
+		while (end < relative.size() && relative[end] != '/' && relative[end] != '\\')
+			++end;
+		if (end - start == 2 && relative[start] == '.' && relative[start + 1] == '.')
+			return false;
+		start = end + 1;
+	}
+	return true;
+}
+
+Common::Path HiResFontMap::resolveDataPath(const Common::String &relative,
+										   const Common::Array<Common::Path> &roots,
+										   FontFileExistsFn exists) {
+	if (isSafeDataRelative(relative)) {
+		const Common::Path rel(relative);
+		for (uint i = 0; i < roots.size(); ++i) {
+			if (roots[i].empty())
+				continue;
+			const Common::Path candidate = roots[i].join(rel);
+			Common::Path file;
+			int32 faceIndex;
+			if (resolveFontFace(candidate, file, faceIndex, exists))
+				return candidate;
+		}
+	}
+	return Common::Path(Common::String(kDataPrefix) + relative);
+}
+
+namespace {
+
+/// Add @p domain's own extrapath to @p roots, once.
+void addExtraPathRoot(Common::Array<Common::Path> &roots, const Common::String &domain) {
+	if (domain.empty())
+		return;
+	const Common::ConfigManager::Domain *dom = ConfMan.getDomain(domain);
+	if (!dom || !dom->contains("extrapath"))
+		return;
+	const Common::Path path = Common::Path::fromConfig(dom->getVal("extrapath"));
+	if (path.empty())
+		return;
+	for (uint i = 0; i < roots.size(); ++i) {
+		if (roots[i] == path)
+			return;
+	}
+	roots.push_back(path);
+}
+
+} // End of anonymous namespace
+
+Common::Array<Common::Path> HiResFontMap::dataRoots() {
+	Common::Array<Common::Path> roots;
+	addExtraPathRoot(roots, Common::ConfigManager::kTransientDomain);   // --extrapath
+	addExtraPathRoot(roots, ConfMan.getActiveDomainName());             // the game's
+	addExtraPathRoot(roots, Common::ConfigManager::kApplicationDomain); // global
+	addExtraPathRoot(roots, Common::ConfigManager::kSessionDomain);     // in-tree default
+#ifdef DATA_PATH
+	roots.push_back(Common::Path(DATA_PATH, Common::Path::kNativeSeparator));
+#endif
+	return roots;
+}
+
 Common::Path HiResFontMap::resolvePath(const Common::String &value, const Common::Path &baseDir) {
 	if (value.empty())
 		return Common::Path();
+
+	if (isDataPath(value)) {
+		const Common::String relative = value.substr(strlen(kDataPrefix));
+		if (!isSafeDataRelative(relative)) {
+			warning("HiResText: '%s' is refused: a data: path must be relative and must not contain '..'",
+					value.c_str());
+			return Common::Path(value);
+		}
+		const Common::Path found = resolveDataPath(relative, dataRoots());
+		if (isDataPath(found.toString('/')))
+			warning("HiResText: '%s' is not in the extrapath or the ScummVM data directory", value.c_str());
+		return found;
+	}
 
 	const char first = value[0];
 	const bool absolute = (first == '/' || first == '\\') ||

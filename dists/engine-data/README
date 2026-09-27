@@ -66,6 +66,12 @@ This file contains set of script patches for Grim Fandango game.
 hadesch_translations.dat:
 This file contains essential data for Hadesch Challenge game.
 
+hires_text/:
+Free fonts (SIL OFL 1.1) and example maps for hi-res game text
+(graphics/hires_text). A hires_text.map names them as "data:hires_text/...".
+Installed with their folders; each font keeps its licence file next to it.
+Authors, licences and sources are in hires_text/fonts/FONTS.md.
+
 helpdialog.zip:
 This file contains images for Help Dialog.
 
