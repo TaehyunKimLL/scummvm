@@ -407,6 +407,19 @@ struct ScummHiResText {
 												   int gameShadow, bool korPatchShadow);
 
 	/**
+	 * The colours and decoration a replacement glyph is drawn with (C19).
+	 *
+	 * The mode comes from resolveShadow(); its geometry from the map's
+	 * [shadow] keys at the map's scale (HiResGlyphRenderer::applyMap()). For
+	 * the Korean patch bytes at 2x that gives: 0 (patch) and 4+ a round
+	 * outline 1.5 px wide, 2 a drop of the glyph by (1, 1), 3 that outline
+	 * plus a copy of it moved (-1, +1) in place of the old stroke table.
+	 */
+	static Graphics::GlyphStyle glyphStyle(const Graphics::HiResTextConfig &config,
+										   int gameShadow, bool korPatchShadow,
+										   byte color, byte shadowColor);
+
+	/**
 	 * Say whether the game's shadow byte comes from the Korean patch fonts,
 	 * drawn by drawBits1Kor() (a kor-trs v1-v6 target). v7 draws its own
 	 * shadow in draw2byte() and is left out.

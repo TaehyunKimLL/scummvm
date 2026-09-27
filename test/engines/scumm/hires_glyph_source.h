@@ -218,7 +218,9 @@ private:
 		style.shadowMode = gameShadow == 4 ? Graphics::kHiResShadowOutline
 						 : gameShadow == 2 ? Graphics::kHiResShadowDrop
 										   : Graphics::kHiResShadowNone;
-		style.shadowOffset = 1;
+		// The geometry the map's scale gives (C19): 1.5 px at 2x.
+		Graphics::HiResGlyphRenderer::applyMap(style, koreanConfig(), 2);
+		TS_ASSERT_EQUALS(style.outlineQ, 6);
 
 		Common::Rect dirty, refDirty;
 		TS_ASSERT(hr.drawChar(dest, kGaChr, 0, 3, 4, 15, 4, gameShadow, &dirty));
@@ -231,7 +233,21 @@ private:
 
 		TS_ASSERT(inkCount(refDest) > 0);
 		TS_ASSERT(sameBytes(dest, refDest));
-		TS_ASSERT(sameBytes(*overlay.coverage(), refCov));
+		if (bpp == 1 && gameShadow != 1) {
+			// A decorated stencil records its coverage now (C19), all or
+			// nothing, exactly where it drew - so that under planes, when
+			// there are any, can take an antialiased outline for it.
+			const Graphics::Surface &cov = *overlay.coverage();
+			for (int y = 0; y < cov.h; ++y)
+				for (int x = 0; x < cov.w; ++x) {
+					const byte c = *(const byte *)cov.getBasePtr(x, y);
+					const byte d = *(const byte *)dest.getBasePtr(x, y);
+					TS_ASSERT(c == 0 || c == 0xFF);
+					TS_ASSERT_EQUALS(c != 0, d != 0);
+				}
+		} else {
+			TS_ASSERT(sameBytes(*overlay.coverage(), refCov));
+		}
 		TS_ASSERT_EQUALS(dirty, refDirty);
 
 		// The same advance as the old path: metrics (reach included) or the cell.
