@@ -19,6 +19,7 @@
  *
  */
 
+#include "common/system.h"
 #include "graphics/surface.h"
 #include "ags/engine/ac/display.h"
 #include "ags/engine/ac/hires_text_twin.h"
@@ -43,8 +44,13 @@ HiResTextTwins *hires_text_twins() {
 	return _G(hiresTextTwins);
 }
 
-HiResTextScope::HiResTextScope() : _open(false) {
-	HiResTextTwins *tw = hires_text_twins();
+void hires_text_twins_reset() {
+	if (_G(hiresTextTwins))
+		_G(hiresTextTwins)->clear();
+}
+
+HiResTextScope::HiResTextScope(bool enable) : _open(false) {
+	HiResTextTwins *tw = enable ? hires_text_twins() : nullptr;
 	if (tw) {
 		tw->beginScope();
 		_open = true;
@@ -52,8 +58,8 @@ HiResTextScope::HiResTextScope() : _open(false) {
 }
 
 HiResTextScope::~HiResTextScope() {
-	// The scale cannot go from 1 to N inside a scope; it can drop to 1
-	// (HiResTextTwins::clear() then resets the depth)
+	// The scale cannot go from 1 to N inside a scope. clear() (a scale
+	// drop, a restore) sets the depth to 0; endScope() keeps it at 0.
 	if (_open && _G(hiresTextTwins))
 		_G(hiresTextTwins)->endScope();
 }
@@ -132,6 +138,14 @@ void HiResTextTwins::attach(AGS::Engine::IDriverDependantBitmap *ddb, Bitmap *bm
 		ddb->SetHiResTwin(nullptr);
 		return;
 	}
+	const uint32 t0 = g_system->getMillis(true);
+	StatBuilds++;
+	attachBuild(ddb, bmp, hasAlpha, it);
+	StatBuildMs += g_system->getMillis(true) - t0;
+}
+
+void HiResTextTwins::attachBuild(AGS::Engine::IDriverDependantBitmap *ddb, Bitmap *bmp, bool hasAlpha,
+								 std::map<const void *, Entry>::iterator it) {
 	TextCapture &cap = it->_value.capture;
 	const int n = _G(hiresTextScale);
 	const Graphics::Surface &src = bmp->GetAllegroBitmap()->getSurface().rawSurface();
