@@ -1369,11 +1369,12 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_height = _origHeight = _vm->_2byteHeight;
 		_offsX = _offsY = 0;
 	} else if (!prepareDraw(gameChar(chr))) {
-		if (!(_vm->_textUtf8 && chr >= 0x80))
+		if (!_vm->_hiResText.drawsMissingGameGlyph(chr, _curId, _vm->_textUtf8))
 			return;
 		// A code point whose stand-in the game's font does not have (MI1's
-		// verb charset has no '?'): the hi-res layer alone draws it, in a
-		// box as wide as it advances.
+		// verb charset has no '?'), or ASCII stepping by the face (C34) that
+		// the game's font lacks: the hi-res layer alone draws it, in a box as
+		// wide as it advances, which is what getCharWidth() measured.
 		setShadowMode(kNoShadowType);
 		_charPtr = nullptr;
 		_width = _origWidth = _vm->_hiResText.advanceFor(chr, _curId, 0);
@@ -1394,6 +1395,13 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_vm->_hiResText.beginString();
 	}
 
+	// ASCII inside CJK text that the hi-res layer steps by the face (C34) is
+	// placed by the face too: the game's offsX belongs to its own glyph, and
+	// getCharWidth() measures the face's step without it.
+	const bool latinFaceStep = !is2byte && !cellGlyph && _vm->_hiResText.latinStepsByFace(chr, _curId);
+	if (latinFaceStep)
+		_offsX = 0;
+
 	_top += _offsY;
 	_left += _offsX;
 
@@ -1401,13 +1409,18 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	// is clipped by that step, the width the line was wrapped with, not by
 	// the wider cell, or a full line's last syllable is dropped (C31). With
 	// the layer off the step is the cell + gap and the cell decides, as before.
+	// Latin stepping by the face likewise (C34).
 	int clipWidth = _origWidth;
 	if (is2byte || cellGlyph) {
 		const bool gap = (_vm->_language == Common::ZH_TWN || _vm->_language == Common::KO_KOR);
 		clipWidth = MIN(_origWidth, _vm->_hiResText.advanceFor(chr, _curId, _origWidth + (gap ? 1 : 0)));
+	} else if (latinFaceStep) {
+		clipWidth = MIN(_origWidth, _vm->_hiResText.advanceFor(chr, _curId, _origWidth));
 	}
 	if (_left + clipWidth > _right + 1 || _left < 0) {
-		_left += _origWidth;
+		// Latin stepping by the face moves by that step here too, as it does
+		// below and as it was measured (C34).
+		_left += latinFaceStep ? _vm->_hiResText.advanceFor(chr, _curId, _origWidth) : _origWidth;
 		_top -= _offsY;
 		return;
 	}

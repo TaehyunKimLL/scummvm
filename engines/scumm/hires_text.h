@@ -258,6 +258,39 @@ struct ScummHiResText {
 				   int *carry = nullptr) const;
 
 	/**
+	 * Whether the ASCII character @p chr steps by the replacement face's own
+	 * advance rather than the game's Latin width (C34). All of these hold:
+	 * - hi-res text is on and its fonts are loaded;
+	 * - the game lays its text out on a CJK font's cells (setGameFontCell())
+	 *   or the text is UTF-8 (a translation, or a map's codepage=utf-8),
+	 *   whose own script already steps by the face;
+	 * - @p chr is 0x21..0x7E (the space keeps the game's width);
+	 * - no metrics= key names the metrics: not the ini's hires_text_metrics,
+	 *   [render], [font.@p charsetId] nor [latin];
+	 * - the charset is not a mirrored one kept on the game's font (C27) and
+	 *   the map neither keeps nor remaps @p chr ([glyphs]);
+	 * - under per-glyph placement, [latin] mode= is proportional (the
+	 *   default; off, half and fullwidth keep their own rules);
+	 * - the face drawing @p chr is a TrueType one (not a bitmap or pixel=
+	 *   face) with ink for it.
+	 * The game's offsX for the character does not apply then: the face
+	 * places it at the pen.
+	 */
+	bool latinStepsByFace(int chr, int charsetId) const;
+
+	/**
+	 * Whether printChar() should have this layer draw @p chr although the
+	 * game's charset has no glyph for it (prepareDraw() failed): a UTF-8
+	 * code point, whose '?' stand-in is missing, or ASCII that steps by the
+	 * face (latinStepsByFace()). getCharWidth() measures such a character
+	 * by advanceFor(chr, cs, 0), which is then the step it is drawn with;
+	 * any other missing code measures 0 and is not drawn, as before.
+	 */
+	bool drawsMissingGameGlyph(int chr, int charsetId, bool utf8Text) const {
+		return (utf8Text && chr >= 0x80) || latinStepsByFace(chr, charsetId);
+	}
+
+	/**
 	 * Whether drawChar() would draw @p chr in @p charsetId rather than
 	 * decline it: a face has an inked glyph for it and the map does not keep
 	 * the game's own. Lets a UTF-8 layout give a code point the patch
@@ -811,6 +844,9 @@ private:
 	 * the map's [render] - names the metrics outright.
 	 */
 	bool wideStepsByFace(int charsetId) const;
+	/// latinStepsByFace()'s step in game pixels, or 0 when the game's
+	/// width stands.
+	int latinFaceStep(int chr, int charsetId) const;
 
 	// The pen after the last base glyph drawn, in overlay pixels, for a
 	// combining mark that follows it.
@@ -874,6 +910,8 @@ private:
 	Common::Path _ttfPath;          ///< face to draw from, if any
 	int _gameFontW[kMaxFonts] = {};
 	int _gameFontH[kMaxFonts] = {};
+	// setGameFontCell() was given a CJK font's cell: text is laid out on it.
+	bool _cjkCells = false;
 	void noteDrawn(int charsetId, const Face *face, int chr) const;
 	void flushTextLog() const;
 
