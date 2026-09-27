@@ -130,6 +130,31 @@ struct ScummHiResText {
 	static bool canPeekGameFontHeight(int version) { return version <= 6; }
 
 	/**
+	 * The scale glyphs can be drawn at, given how the screen is enlarged.
+	 *
+	 * A glyph opened at the requested scale on a text surface enlarged by a
+	 * different factor lands on a layout made for the other one: FT at scale
+	 * 2 drew 18px glyphs on its 9px grid, each running into the next.
+	 * @p screenEnlarged is false where the screen is blitted without the
+	 * compositing step that enlarges it (v7 and v8, see init()), and then
+	 * only 1 fits. Otherwise a surface a platform enlarges by a factor of
+	 * its own (@p surfaceMultiplier, FM-Towns) sets the size of a scaled
+	 * layer; a scale of 1 is left as asked.
+	 */
+	static int drawableScale(int requested, int surfaceMultiplier, bool screenEnlarged) {
+		if (requested <= 1)
+			return requested;
+		if (!screenEnlarged)
+			return 1;
+		if (surfaceMultiplier > 1 && requested != surfaceMultiplier)
+			return surfaceMultiplier;
+		return requested;
+	}
+
+	/// Draw at @p scale from now on; see drawableScale(). Call before loadFonts().
+	void limitScale(int scale) { _config.scale = scale; }
+
+	/**
 	 * Tell the layer the cell of the game's own CJK font for one charset.
 	 *
 	 * Needed by the TrueType path, which bakes a face to the size the game
