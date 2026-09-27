@@ -326,7 +326,10 @@ void layoutLinebreaks(byte *str, int bufSize, int pos, int maxwidth, ScummLayout
 		Break b;
 		uint32 nextFrom = l.next;
 		const bool overflowInSpaces = overflow < l.next;
-		const bool wideNext = l.next < n && (run.flags(l.next) & Graphics::kUnitWide);
+		// Only while Hangul breaks anywhere: with breaks at spaces alone
+		// (centred text) the space is always the break, as it is there.
+		const bool wideNext = l.next < n && (run.flags(l.next) & Graphics::kUnitWide) &&
+							  rules.hangul == Graphics::kHangulBreakAny;
 		if (space < n && (overflowInSpaces || !wideNext)) {
 			b.at = run.byteOffset(space);
 			b.replace = true;

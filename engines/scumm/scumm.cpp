@@ -1282,7 +1282,8 @@ Common::Error ScummEngine::init() {
 
 	// A kor-trs font's shadow byte 0 means the outline drawBits1Kor() draws;
 	// elsewhere _2byteShadow is merely unset (C18). v7 draws its own shadow.
-	_hiResText.setKorPatchShadow(_useCJKMode && isScummvmKorTarget() && _game.version < 7);
+	_hiResText.setKorPatchShadow(((_useCJKMode && isScummvmKorTarget()) ||
+								  (_cjkCellsOnly && _language == Common::KO_KOR)) && _game.version < 7);
 
 	// Map-less fonts name no scale; now that the game's own font size is
 	// known it can be read off them.
@@ -1292,7 +1293,7 @@ Common::Error ScummEngine::init() {
 	// resetScumm(), which is long after the backend window and the text
 	// surface have both been sized from _textSurfaceMultiplier. So the
 	// height is peeked at here instead - see peekGameCharsetHeight().
-	int scaleFromHeight = _useCJKMode ? _2byteHeight : 0;
+	int scaleFromHeight = (_useCJKMode || _cjkCellsOnly) ? _2byteHeight : 0;
 	if (scaleFromHeight <= 0 && _hiResText.wantsGameFontHeight())
 		scaleFromHeight = peekGameCharsetHeight();
 	_hiResText.resolveScale(scaleFromHeight);
@@ -1881,9 +1882,9 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 	// baked per charset, at the cell the game draws that charset at.
 	if (_useMultiFont) {
 		for (int i = 0; i < 20; ++i)
-			if (_2byteMultiFontPtr[i])
+			if (hasMultiFont(i))
 				_hiResText.setGameFontCell(i, _2byteMultiWidth[i], _2byteMultiHeight[i]);
-	} else if (_useCJKMode) {
+	} else if (_useCJKMode || _cjkCellsOnly) {
 		_hiResText.setGameFontCell(0, _2byteWidth, _2byteHeight);
 	}
 	// A game with no CJK font measures its charsets as they are selected and

@@ -71,8 +71,10 @@ void ScummEngine::loadCJKFont() {
 	// A UTF-8 translation is drawn by the hi-res layer (or as '?' without
 	// it): none of the language's CJK font files is loaded, and the text is
 	// not in their code page (I18N_TEXT_DESIGN.md section 4.1, A28).
-	if (_textUtf8)
+	if (_textUtf8) {
+		loadCJKCells();
 		return;
+	}
 
 	// Special case for Korean
 	if (isScummvmKorTarget()) {
@@ -256,6 +258,62 @@ void ScummEngine::loadKorFont() {
 	return;
 }
 
+void ScummEngine::loadCJKCells() {
+	_cjkCellsOnly = false;
+	if (!_hiResText.enabled())
+		return;
+
+	Common::File fp;
+	if (_language == Common::KO_KOR && (_game.version < 7 || _game.id == GID_FT)) {
+		// loadKorFont()'s files, headers only: byte 1 the shadow, 2 the
+		// width, 3 the height.
+		_numLoadedFont = 0;
+		for (int i = 0; i < 20; i++) {
+			_2byteMultiFontPtr[i] = nullptr;
+			_2byteMultiWidth[i] = _2byteMultiHeight[i] = _2byteMultiShadow[i] = 0;
+			char fontFile[256];
+			snprintf(fontFile, sizeof(fontFile), "korean%02d.fnt", i);
+			if (!fp.open(fontFile))
+				continue;
+			fp.readByte();
+			_2byteMultiShadow[i] = fp.readByte();
+			_2byteMultiWidth[i] = fp.readByte();
+			_2byteMultiHeight[i] = fp.readByte();
+			fp.close();
+			if (_2byteMultiWidth[i] <= 0 || _2byteMultiHeight[i] <= 0) {
+				_2byteMultiWidth[i] = _2byteMultiHeight[i] = 0;
+				continue;
+			}
+			if (_numLoadedFont++ == 0) {
+				_2byteWidth = _2byteMultiWidth[i];
+				_2byteHeight = _2byteMultiHeight[i];
+				_2byteShadow = _2byteMultiShadow[i];
+			}
+		}
+		if (_numLoadedFont > 0) {
+			_useMultiFont = (_game.version < 7 || _game.id == GID_FT);
+			_cjkCellsOnly = true;
+		} else if (fp.open("korean.fnt")) {
+			fp.seek(2, SEEK_CUR);
+			_2byteWidth = fp.readByte();
+			_2byteHeight = fp.readByte();
+			fp.close();
+			_cjkCellsOnly = _2byteWidth > 0 && _2byteHeight > 0;
+		}
+	} else if (_language == Common::ZH_CHN &&
+			   (_game.id == GID_LOOM || _game.id == GID_INDY3 || _game.id == GID_INDY4 ||
+				_game.id == GID_MONKEY || _game.id == GID_MONKEY2 || _game.id == GID_TENTACLE) &&
+			   Common::File::exists("chinese_gb16x12.fnt")) {
+		// loadCJKFont()'s fixed cell for this font.
+		_2byteWidth = 12;
+		_2byteHeight = 12;
+		_cjkCellsOnly = true;
+	}
+	if (_cjkCellsOnly)
+		debug(1, "SCUMM: UTF-8 text on the patch fonts' cells (%dx%d%s)", _2byteWidth, _2byteHeight,
+			  _useMultiFont ? ", one per charset" : "");
+}
+
 byte *ScummEngine::get2byteCharPtr(int idx) {
 	if (!isScummvmKorTarget() && (_game.platform == Common::kPlatformFMTowns || _game.platform == Common::kPlatformPCEngine))
 		return nullptr;
@@ -386,7 +444,7 @@ void CharsetRendererCommon::setCurID(int32 id) {
 		if (id == 6)    // HACK: Fix monkey1cd/monkey2/dott font error
 			id = 0;
 
-		if (_vm->_2byteMultiFontPtr[id]) {
+		if (_vm->hasMultiFont(id)) {
 			_vm->_2byteFontPtr = _vm->_2byteMultiFontPtr[id];
 			_vm->_2byteWidth = _vm->_2byteMultiWidth[id];
 			_vm->_2byteHeight = _vm->_2byteMultiHeight[id];
@@ -446,7 +504,7 @@ void CharsetRendererV3::setCurID(int32 id) {
 	_fontPtr += _numChars;
 
 	if (_vm->_useMultiFont) {
-		if (_vm->_2byteMultiFontPtr[id]) {
+		if (_vm->hasMultiFont(id)) {
 			_vm->_2byteFontPtr = _vm->_2byteMultiFontPtr[id];
 			_vm->_2byteWidth = _vm->_2byteMultiWidth[id];
 			_vm->_2byteHeight = _vm->_2byteMultiHeight[id];
@@ -486,7 +544,7 @@ int CharsetRendererCommon::getFontHeight() const {
 		return _vm->_force2ByteCharHeight ? _vm->_2byteHeight : _fontHeight;
 	} else if (_vm->_isIndy4Jap) {
 		return _vm->_force2ByteCharHeight ? 14 : _fontHeight;
-	} else if (_vm->_useCJKMode && !isSegaCD) {
+	} else if ((_vm->_useCJKMode || _vm->_cjkCellsOnly) && !isSegaCD) {
 		return MAX(_vm->_2byteHeight + 1, _fontHeight);
 	} else {
 		return _fontHeight;
@@ -499,6 +557,11 @@ int CharsetRendererClassic::getCharWidth(uint16 chr) const {
 
 	if (_vm->_useCJKMode && chr >= 0x80)
 		return _vm->_hiResText.advanceFor(chr, _curId, _vm->_2byteWidth / 2);
+
+	// A UTF-8 code point over a CJK patch's cells steps as the patch's
+	// double-byte character would (C31).
+	if (_vm->_cjkCellsOnly && _vm->_textUtf8 && chr >= 0x80 && _vm->_hiResText.drawsCode(chr, _curId))
+		return _vm->_hiResText.advanceFor(chr, _curId, _vm->cjkCellAdvance());
 
 	// With UTF-8 text chr is a code point; the game's font answers for '?'.
 	int offs = READ_LE_UINT32(_fontPtr + gameChar(chr) * 4 + 4);
@@ -615,11 +678,10 @@ int CharsetRenderer::getStringWidth(int arg, const byte *text) {
 						width += _vm->_2byteWidth;
 					}
 				} else {
-					width += _vm->_2byteWidth;
-					// Original keeps glyph width and character dimensions separately
-					if (_vm->_language == Common::KO_KOR || _vm->_language == Common::ZH_TWN) {
-						width++;
-					}
+					// The cell (and the Korean/Taiwanese gap), or what the
+					// hi-res layer steps by when it draws the character:
+					// measuring has to agree with printChar().
+					width += _vm->_hiResText.advanceFor(chr | (text[pos] << 8), _curId, _vm->cjkCellAdvance());
 				}
 
 				pos++;
@@ -664,7 +726,7 @@ void CharsetRenderer::addLinebreaksLayout(int a, byte *str, int pos, int maxwidt
 	const int oldId = getCurID();
 	const int savedCarry = _hiResCarry;
 	Hooks hooks(this);
-	layoutLinebreaks(str, bufSize, pos, maxwidth, hooks, _vm->_hiResText.breakRules(),
+	layoutLinebreaks(str, bufSize, pos, maxwidth, hooks, _vm->_hiResText.breakRules(_center),
 					 _vm->_game.version, _vm->_newLineCharacter, a);
 	setCurID(oldId);
 	_hiResCarry = savedCarry;
@@ -755,11 +817,9 @@ void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth, int
 				curw += getCharWidth(chr);
 			} else if (chr & 0x80) {
 				pos++;
-				curw += _vm->_2byteWidth;
-				// Original keeps glyph width and character dimensions separately
-				if (_vm->_language == Common::KO_KOR || _vm->_language == Common::ZH_TWN) {
-					curw++;
-				}
+				// The cell and the Korean/Taiwanese gap, or the hi-res
+				// layer's step, as getStringWidth() measures it.
+				curw += _vm->_hiResText.advanceFor(chr | (str[pos - 1] << 8), _curId, _vm->cjkCellAdvance());
 			} else if (chr != _vm->_newLineCharacter) {
 				curw += getCharWidth(chr);
 			}
@@ -1262,6 +1322,7 @@ void CharsetRenderer::saveLoadWithSerializer(Common::Serializer &ser) {
 void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	VirtScreen *vs;
 	bool is2byte = (chr >= 256 && _vm->_useCJKMode);
+	bool cellGlyph = false;	// a UTF-8 code point on a CJK patch's cell
 
 	if (_vm->_game.platform == Common::kPlatformSegaCD && chr == 0xFAFD) {
 		is2byte = false;
@@ -1295,6 +1356,18 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_width = _vm->_2byteWidth;
 		_height = _vm->_2byteHeight;
 		_offsX = _offsY = 0;
+	} else if (_vm->_cjkCellsOnly && _vm->_textUtf8 && chr >= 0x80 &&
+			   _vm->_hiResText.drawsCode(chr, _curId)) {
+		// A UTF-8 code point over a CJK patch's cells (C31): the box,
+		// offsets and shadow the patch gives its double-byte characters,
+		// so both encodings draw alike. Not the '?' stand-in's, whose
+		// offsets are not this glyph's. The hi-res layer draws it.
+		cellGlyph = true;
+		setShadowMode(kNormalShadowType);
+		_charPtr = nullptr;
+		_width = _origWidth = _vm->_2byteWidth;
+		_height = _origHeight = _vm->_2byteHeight;
+		_offsX = _offsY = 0;
 	} else if (!prepareDraw(gameChar(chr))) {
 		if (!(_vm->_textUtf8 && chr >= 0x80))
 			return;
@@ -1324,7 +1397,16 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	_top += _offsY;
 	_left += _offsX;
 
-	if (_left + _origWidth > _right + 1 || _left < 0) {
+	// A double-byte (or patch-cell) glyph the hi-res layer steps by the face
+	// is clipped by that step, the width the line was wrapped with, not by
+	// the wider cell, or a full line's last syllable is dropped (C31). With
+	// the layer off the step is the cell + gap and the cell decides, as before.
+	int clipWidth = _origWidth;
+	if (is2byte || cellGlyph) {
+		const bool gap = (_vm->_language == Common::ZH_TWN || _vm->_language == Common::KO_KOR);
+		clipWidth = MIN(_origWidth, _vm->_hiResText.advanceFor(chr, _curId, _origWidth + (gap ? 1 : 0)));
+	}
+	if (_left + clipWidth > _right + 1 || _left < 0) {
 		_left += _origWidth;
 		_top -= _offsY;
 		return;
@@ -1400,7 +1482,8 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	// will step by, which is worked out below from the same width.
 	int hiResAdvance = 0;
 	if (_vm->_hiResText.perGlyphMetrics()) {
-		const bool widened = (_vm->_language == Common::ZH_TWN || _vm->_language == Common::KO_KOR) && is2byte;
+		const bool widened = (_vm->_language == Common::ZH_TWN || _vm->_language == Common::KO_KOR) &&
+							 (is2byte || cellGlyph);
 		hiResAdvance = _vm->_hiResText.advanceFor(chr, _curId, _origWidth + (widened ? 1 : 0));
 	}
 
@@ -1432,7 +1515,7 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		printCharIntern(is2byte, _charPtr, _origWidth, _origHeight, _width, _height, vs, ignoreCharsetMask);
 
 	// Original keeps glyph width and character dimensions separately
-	if ((_vm->_language == Common::ZH_TWN || _vm->_language == Common::KO_KOR) && is2byte)
+	if ((_vm->_language == Common::ZH_TWN || _vm->_language == Common::KO_KOR) && (is2byte || cellGlyph))
 		_origWidth++;
 
 	// A proportional replacement font may want to advance by its own glyph

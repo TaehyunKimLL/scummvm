@@ -258,6 +258,14 @@ struct ScummHiResText {
 				   int *carry = nullptr) const;
 
 	/**
+	 * Whether drawChar() would draw @p chr in @p charsetId rather than
+	 * decline it: a face has an inked glyph for it and the map does not keep
+	 * the game's own. Lets a UTF-8 layout give a code point the patch
+	 * font's cell only when this layer is what draws it (C31).
+	 */
+	bool drawsCode(int chr, int charsetId) const;
+
+	/**
 	 * Whether glyphs are placed by their own metrics (I18N_TEXT_DESIGN.md
 	 * section 4.2): the map names any of the per-charset keys - [hires]
 	 * face/size, a [font.N] section, [latin] mode/space - or the text is
@@ -315,7 +323,10 @@ struct ScummHiResText {
 	 * own rule, so a UTF-8 ko.trs breaks where the CP949 korean.trs does),
 	 * kinsoku and the Thai fallback on; the map's [layout] overrides each.
 	 */
-	Graphics::BreakRules breakRules() const;
+	/// @param centred  the text is centred: with this layer on, Hangul then
+	///                 breaks at spaces only by default, as the Korean patches
+	///                 break it (C31); with it off nothing changes
+	Graphics::BreakRules breakRules(bool centred = false) const;
 
 	const Graphics::HiResTextConfig &config() const { return _config; }
 
@@ -789,9 +800,17 @@ private:
 	/// Rows to move a Latin bitmap glyph down so it shares the charset's baseline.
 	int latinBaselineShift(const Face *face, int charsetId) const;
 	int advancePlaced(int chr, int lookup, int charsetId, int gameWidth, int *carry) const;
-	/// Today's advance rule for a glyph on the game's cell grid.
+	/// Today's advance rule for a glyph on the game's cell grid. With
+	/// @p faceFit a TrueType glyph steps by its own advance instead (C31).
 	int cellRuleAdvance(Face *face, uint32 cp, int charsetId, int gameWidth,
-						int *carry, bool fontMetrics, bool requireInk) const;
+						int *carry, bool fontMetrics, bool requireInk,
+						bool faceFit = false) const;
+	/**
+	 * Whether a wide glyph from a TrueType face steps by the face (C31):
+	 * true unless a metrics= key - the ini's, the charset's [font.N], or
+	 * the map's [render] - names the metrics outright.
+	 */
+	bool wideStepsByFace(int charsetId) const;
 
 	// The pen after the last base glyph drawn, in overlay pixels, for a
 	// combining mark that follows it.

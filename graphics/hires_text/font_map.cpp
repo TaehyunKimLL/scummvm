@@ -93,6 +93,7 @@ void HiResTextConfig::clear() {
 	ttfStringMode = false;
 
 	metricsSource = kHiResMetricsGame;
+	metricsSourceSet = false;
 	legacy.latinEnabled = false;
 	legacy.latinEnabledSet = false;
 	legacy.latinEnabledValue = false;
@@ -1208,12 +1209,15 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 		out.ttfStringMode = value.equalsIgnoreCase("string");
 
 	if (getKey(ini, qualifiers, "render", "metrics", value)) {
-		if (value.equalsIgnoreCase("font"))
+		if (value.equalsIgnoreCase("font")) {
 			out.metricsSource = kHiResMetricsFont;
-		else if (value.equalsIgnoreCase("game"))
+			out.metricsSourceSet = true;
+		} else if (value.equalsIgnoreCase("game")) {
 			out.metricsSource = kHiResMetricsGame;
-		else
+			out.metricsSourceSet = true;
+		} else {
 			warning("HiResText: unknown metrics '%s', ignoring", value.c_str());
+		}
 	}
 
 	// Legacy [latin] keys are retained as adapter data, not a byte-width
