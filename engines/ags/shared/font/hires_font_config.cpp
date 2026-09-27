@@ -116,6 +116,16 @@ void HiResFontConfig::load() {
 			_iniSize = (int)size;
 	}
 
+	// hires_text_scale: overrides the map's [hires] scale= (C23)
+	if (ConfMan.hasKey("hires_text_scale", domain)) {
+		const Common::String value = ConfMan.get("hires_text_scale", domain);
+		int scale = 0;
+		if (parseScale(value, scale))
+			_iniScale = scale;
+		else
+			Debug::Printf(kDbgMsg_Warn, "WARNING: hires_text_scale '%s' is not 1, 2 or 3; ignoring it", value.c_str());
+	}
+
 	updateActive();
 }
 
