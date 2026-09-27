@@ -53,6 +53,12 @@ bool TtfGlyphSource::buildGammaCurve(int gammaX100, byte lut[256]) {
 	lut[0] = 0;
 	for (int i = 1; i < 255; ++i)
 		lut[i] = (byte)CLIP<int>((int)(255.0 * pow(i / 255.0, exponent) + 0.5), 0, 255);
+	// The toe: a lifting curve leaves faint fringe alone (a lowering one
+	// only makes it fainter, and keeping it would break the order).
+	if (gammaX100 > 100) {
+		for (int i = 1; i < kGammaToe; ++i)
+			lut[i] = (byte)i;
+	}
 	lut[255] = 255;
 	return true;
 }

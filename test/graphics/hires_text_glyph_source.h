@@ -577,6 +577,10 @@ public:
 			// the glyph's extent never changes, only its partial pixels.
 			TS_ASSERT_EQUALS((int)lut[0], 0);
 			TS_ASSERT_EQUALS((int)lut[255], 255);
+			if (gammas[g] > 100) {
+				for (int i = 0; i < TtfGlyphSource::kGammaToe; ++i)
+					TS_ASSERT_EQUALS((int)lut[i], i);
+			}
 			for (int i = 1; i < 256; ++i) {
 				TS_ASSERT(lut[i] >= lut[i - 1]);
 				if (gammas[g] > 100) {
@@ -595,7 +599,11 @@ public:
 		TtfGlyphSource::buildGammaCurve(220, lut);
 		TS_ASSERT_EQUALS((int)lut[128], 186);
 		TS_ASSERT_EQUALS((int)lut[64], 136);
-		TS_ASSERT_EQUALS((int)lut[1], 21);
+		// Faint fringe (c < 4) is not lifted: haze between a stacked mark
+		// and its base, or inside a tight counter, stays invisible.
+		TS_ASSERT_EQUALS((int)lut[1], 1);
+		TS_ASSERT_EQUALS((int)lut[3], 3);
+		TS_ASSERT_EQUALS((int)lut[4], 39);
 		TtfGlyphSource::buildGammaCurve(50, lut);
 		TS_ASSERT_EQUALS((int)lut[128], 64);
 		// Out of range is clamped, not refused.

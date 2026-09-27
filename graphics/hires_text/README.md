@@ -59,11 +59,10 @@ Size syntax: `N` physical pixels, `NxM` size N with supersampling M, `Npt` legac
 logical pixels (not typographic points). Logical sizes remain unresolved until
 an adapter has applied explicit user scale overrides. Bounds: scale 1..3,
 size 1..4096, supersampling 1..16, shadow offset -1 or 0..4096, shadow width
-0..8 px in quarters, shadow shift -16..16, shadow alpha 0..100, coverage
-gamma 0.5..4 in hundredths, palette color
-0..255, glyph count 1..0x110000, height key 1..65535. These parser limits are not
-promises that every backend can allocate that size; loaders must check products
-and memory budgets. Numeric overflow and trailing junk are rejected. Invalid
+0..8 px in quarters, shadow shift -16..16, shadow alpha 0..100, coverage gamma
+0.5..4 in hundredths, palette color 0..255, glyph count 1..0x110000, height key
+1..65535. These parser limits are not promises that every backend can allocate
+that size; loaders must check products and memory budgets. Numeric overflow and trailing junk are rejected. Invalid
 optional values preserve existing values. Unknown sections/keys are ignored.
 Malformed INI or stream errors return false without modifying the output.
 
@@ -252,14 +251,27 @@ gamma=1.8   ; 0.5..4, to the nearest hundredth; 1 (the default) is off
 ```
 
 `c' = 255 * (c/255)^(1/gamma)`. Above 1 the partial pixels get stronger and
-stems read heavier; below 1 they get weaker. 0 stays 0 and 255 stays 255, so
-a glyph gains no pixels it did not have: its extent, advance, fit and origin
-are unchanged, and a Thai mark does not grow into its base. At 2.2 light text
-over a black outline looks as linear-light blending would draw it. The curve
-is the whole change: sinks, outlines and SVFN bitmap fonts (baked or shipped)
-are untouched, and a map without the key leaves every byte as FreeType drew
-it. SCUMM, SCI and AGS pass the map's value to each TrueType source they open
+stems read heavier; below 1 they get weaker. Above 1, coverage under 4 is left
+alone, so faint fringe (haze between a stacked mark and its base, or inside a
+tight counter) is not lifted into view. 0 stays 0 and 255 stays 255, so a
+glyph's box, advance, fit and origin are unchanged. At 2.2 light text over a
+black outline looks as linear-light blending would draw it.
+
+What changes on screen depends on the path:
+- Blended (alpha): no pixel is added, and a Thai mark does not grow into its
+  base. The outline does widen with the body, because C19's `dilate()` reads
+  coverage as distance: about +0.23 px at 2.2, up to +0.47 px at 4. That is
+  intended; the outline follows the heavier edge.
+- Keyed (`alpha=false`): the body is cut at 0x40 and the decoration at 0x80,
+  so a pixel whose coverage now crosses a cut becomes a whole solid pixel.
+  Keyed text and its outline grow; below 1, thin keyed strokes can drop out.
+
+The code changes only the coverage bytes: sinks and SVFN bitmap fonts (baked
+or shipped) are untouched, and a map without the key leaves every byte as
+FreeType drew it. The key applies to the whole face chain. SCUMM, SCI and AGS
+pass the map's value to each TrueType source they open
 (`TtfGlyphSource::setCoverageGamma`, which drops glyphs already cached);
+Grim does not use `TtfGlyphSource` and ignores it.
 `TtfGlyphSource::buildGammaCurve` is the pure curve. A heavier face of the
 same family is usually the better first choice (it keeps crisp stems where the
 curve widens soft ones); gamma is for a script whose only face is light.
