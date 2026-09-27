@@ -13,6 +13,16 @@
 #include "sci/graphics/textlayout16.h"
 #include "sci/utf8.h"
 
+// The i18n test data (gamedata/: kq1-ko1/ ...) from SCUMMVM_TEST_I18N_DATA.
+// The test runner is host code; common/forbidden.h's getenv guard is lifted
+// for this one call only.
+#pragma push_macro("getenv")
+#undef getenv
+static const char *i18nDataDir() {
+	return getenv("SCUMMVM_TEST_I18N_DATA");
+}
+#pragma pop_macro("getenv")
+
 /**
  * C11 Task 5: SCI decides hi-res text by the translation, measures glyphs
  * per glyph, and breaks UTF-8 lines with the shared layout stage
@@ -137,7 +147,10 @@ public:
 	// is drawn with its origin moved right, so the ring is not cut off.
 	void test_ttf_sara_am_keeps_its_ring() {
 #ifdef USE_FREETYPE2
-		Common::FSNode node("/Users/juami/work/scummvm/runs/c11/data/fonts/sukhumvit-text.ttf");
+		// Face 0 of the system's Sukhumvit Set (loadTTFFont opens face 0);
+		// quietly nothing to check where it is absent, like the shared
+		// coverage tests.
+		Common::FSNode node("/System/Library/Fonts/Supplemental/SukhumvitSet.ttc");
 		if (!node.exists())
 			return;
 		Common::String error;
@@ -155,6 +168,75 @@ public:
 		TS_ASSERT_EQUALS(aa.originX, 0);   // SARA AA is left alone
 		delete src;
 #endif
+	}
+
+	// --- legacy widths, the anchor, the chain key (fix round 1) -------------
+
+	/** A SCVMUNI-like bundle: 9x16 cells, advances 9/18, 1 bpp. */
+	class OddCellSource : public Graphics::UnicodeGlyphSource {
+	public:
+		byte cellWidth() const override { return 9; }
+		byte cellHeight() const override { return 16; }
+		byte advanceNarrow() const override { return 9; }
+		byte advanceWide() const override { return 18; }
+		int bitsPerPixel() const override { return 1; }
+		int cells(uint32 cp) override { return cp == 0xAC00 ? 2 : (cp >= 0x80 ? 1 : 0); }
+		const byte *row(uint32 cp, int y) override { return _row; }
+		uint32 glyphCount() const override { return 3; }
+	private:
+		byte _row[3] = { 0, 0, 0 };
+	};
+
+	void test_legacy_font_keeps_cell_widths() {
+		OddCellSource src;
+		// Without a UTF-8 translation: the cell halved as it always was
+		// (9 >> 1 = 4), a mark included; wide 18 >> 1 = 9.
+		TS_ASSERT_EQUALS(Sci::glyphGameWidth(&src, 0x00E9, 2, false), 4);
+		TS_ASSERT_EQUALS(Sci::glyphGameWidth(&src, 0x0301, 2, false), 4);
+		TS_ASSERT_EQUALS(Sci::glyphGameWidth(&src, 0xAC00, 2, false), 9);
+		TS_ASSERT_EQUALS(Sci::glyphGameWidth(&src, 0x00E9, 1, false), 9);
+		TS_ASSERT_EQUALS(Sci::glyphGameWidth(&src, 0x0041, 2, false), 0);   // no glyph
+		// With one: the face's advance rounded half up (9 / 2 -> 5), a mark 0,
+		// wide still the cell.
+		TS_ASSERT_EQUALS(Sci::glyphGameWidth(&src, 0x00E9, 2, true), 5);
+		TS_ASSERT_EQUALS(Sci::glyphGameWidth(&src, 0x0301, 2, true), 0);
+		TS_ASSERT_EQUALS(Sci::glyphGameWidth(&src, 0xAC00, 2, true), 9);
+	}
+
+	void test_combining_anchor_is_reset_per_string() {
+		Sci::CombiningAnchor a;
+		Graphics::GlyphMetrics base, mark;
+		base.advance = 13;          // hi-res px; 7 game px
+		mark.combining = true;
+		mark.originX = 4;
+
+		TS_ASSERT_EQUALS(a.place(base, true, 10, 5, 7), 20);
+		// The mark drawn where the base left the pen: against the base's
+		// hi-res pen (20 + 13), not its own game-px position (17 * 2).
+		TS_ASSERT_EQUALS(a.place(mark, true, 17, 5, 0), 20 + 13 - 4);
+		// Elsewhere: at its own position.
+		TS_ASSERT_EQUALS(a.place(mark, true, 30, 5, 0), 60 - 4);
+
+		// A new string starting where the last one ended: no anchor.
+		a.place(base, true, 10, 5, 7);
+		a.reset();
+		TS_ASSERT_EQUALS(a.place(mark, true, 17, 5, 0), 34 - 4);
+		// No metrics: at the game position.
+		TS_ASSERT_EQUALS(a.place(mark, false, 17, 5, 0), 34);
+	}
+
+	void test_face_chain_key_separates_sizes() {
+		// [font.300] size=20 and [hires] size=16 on the same face: two chains.
+		Common::Array<Common::String> faces;
+		faces.push_back("/fonts/a.ttf");
+		faces.push_back("/fonts/b.ttf");
+		TS_ASSERT_DIFFERS(Sci::faceChainKey(faces, 16, true), Sci::faceChainKey(faces, 20, true));
+		TS_ASSERT_EQUALS(Sci::faceChainKey(faces, 16, true), Sci::faceChainKey(faces, 16, true));
+		TS_ASSERT_DIFFERS(Sci::faceChainKey(faces, 16, true), Sci::faceChainKey(faces, 16, false));
+		Common::Array<Common::String> other;
+		other.push_back("/fonts/b.ttf");
+		other.push_back("/fonts/a.ttf");
+		TS_ASSERT_DIFFERS(Sci::faceChainKey(faces, 16, true), Sci::faceChainKey(other, 16, true));
 	}
 
 	// --- the decoder ----------------------------------------------------
@@ -210,21 +292,51 @@ public:
 
 	// --- GetLongest() on the layout stage --------------------------------
 
-	/** Widths in game px: a fixed 4/8 rule, or a proportional ASCII table. */
+	/**
+	 * Widths in game px: a fixed 4/8 rule, or a proportional ASCII table;
+	 * font N (set by a '|fN|' code, '|f|' back to 0) adds N px to every
+	 * glyph that has a width.
+	 */
 	class TestMetrics : public Sci::SciLayoutMetrics {
 	public:
-		explicit TestMetrics(bool proportional) : _proportional(proportional) {}
-		int charWidth(uint32 cp) override { return width(cp, _proportional); }
+		explicit TestMetrics(bool proportional) : font(0), _proportional(proportional) {}
+		int charWidth(uint32 cp) override { return width(cp, _proportional, font); }
+		void textCode(const byte *code, int bytes) override {
+			// GfxText16::CodeProcessing(), from after the '|'.
+			const char *p = (const char *)code + 1;
+			applyCode(p, font);
+		}
 
-		static int width(uint32 cp, bool proportional) {
+		static int width(uint32 cp, bool proportional, int font) {
 			if (Graphics::Unicode::isCombining(cp))
 				return 0;
 			if (Graphics::Unicode::isWide(cp))
-				return 8;
+				return 8 + font;
 			if (cp < 0x80 && proportional)
-				return cp == ' ' ? 3 : 3 + (int)(cp % 3);
-			return 4;
+				return (cp == ' ' ? 3 : 3 + (int)(cp % 3)) + font;
+			return 4 + font;
 		}
+
+		/** CodeProcessing() at @p text (after the '|'): its byte count; 'f' codes set @p font. */
+		static int16 applyCode(const char *&text, int &font) {
+			const char *textCode = text;
+			int16 textCodeSize = 1;
+			while ((*text != 0) && (*text++ != 0x7C))
+				textCodeSize++;
+			const char curCode = textCode[0];
+			int curCodeParm = strtol(textCode + 1, nullptr, 10);
+			if (!Common::isDigit(textCode[1]))
+				curCodeParm = -1;
+			if (curCode == 'f') {
+				if (curCodeParm == -1)
+					font = 0;
+				else if (curCodeParm < 4)
+					font = curCodeParm;
+			}
+			return textCodeSize;
+		}
+
+		int font;
 
 	private:
 		bool _proportional;
@@ -232,20 +344,29 @@ public:
 
 	/**
 	 * The byte-walking GetLongest() of GfxText16 before this task, for UTF-8
-	 * text below SCI1.1 (no '|' codes, no PQ2 escape): the reference the
-	 * layout stage must reproduce on the Korean data.
+	 * text (no PQ2 escape): the reference the layout stage must reproduce.
+	 * @p textCodes is SCI1.1's '|' code handling (CodeProcessing()).
 	 */
-	static int16 oldGetLongest(const char *&textPtr, int16 maxWidth, bool early, bool proportional) {
+	static int16 oldGetLongest(const char *&textPtr, int16 maxWidth, bool early, bool proportional,
+							   bool textCodes = false) {
 		uint32 curChar = 0;
 		int16 lastSpaceCharCount = 0;
 		const char *lastSpacePtr = nullptr;
 		int16 curCharCount = 0, resultCharCount = 0;
 		uint16 tempWidth = 0;
 		int curCharBytes = 0;
+		int font = 0;
 
 		for (;;) {
 			curChar = Sci::decodeUtf8Char((const byte *)textPtr, curCharBytes);
 			switch (curChar) {
+			case 0x7C:
+				if (textCodes) {
+					curCharCount++; textPtr++;
+					curCharCount += TestMetrics::applyCode(textPtr, font);
+					continue;
+				}
+				break;
 			case 0xD:
 				if ((*(const byte *)(textPtr + 1)) == 0xA) {
 					curCharCount++; textPtr++;
@@ -264,7 +385,7 @@ public:
 			default:
 				break;
 			}
-			tempWidth += TestMetrics::width(curChar, proportional);
+			tempWidth += TestMetrics::width(curChar, proportional, font);
 			if (tempWidth > maxWidth)
 				break;
 			if (early && lastSpaceCharCount == 0 && tempWidth == maxWidth)
@@ -286,30 +407,88 @@ public:
 		return resultCharCount;
 	}
 
-	/** gamedata/kq1-ko1, where the harness keeps it; empty when absent. */
-	static Common::FSNode kq1koDir() {
-		static const char *const candidates[] = {
-			"/Users/juami/work/scummvm/gamedata/kq1-ko1",
-			"../../../gamedata/kq1-ko1",
-			"../gamedata/kq1-ko1",
-			"gamedata/kq1-ko1"
-		};
-		for (uint i = 0; i < ARRAYSIZE(candidates); i++) {
-			Common::FSNode n(Common::Path(candidates[i], '/'));
-			if (n.exists() && n.isDirectory())
-				return n;
+	/**
+	 * @p s with SCI1.1 text codes put in: '|c1|' before the second word,
+	 * '|f1|' before the third, '|f|' before the fifth, '|c|' glued inside
+	 * the first word and '|f2|' at the very end.
+	 */
+	static Common::String withCodes(const char *s) {
+		Common::String out;
+		int word = 0;
+		bool inWord = false;
+		int charsInFirst = 0;
+		for (const char *p = s; *p; p++) {
+			const bool space = *p == ' ';
+			if (!space && !inWord) {
+				if (word == 1)
+					out += "|c1|";
+				else if (word == 2)
+					out += "|f1|";
+				else if (word == 4)
+					out += "|f|";
+				word++;
+			}
+			inWord = !space;
+			out += *p;
+			// After the first byte-sequence start of the first word's second character.
+			if (word == 1 && inWord && (((byte)p[1] & 0xC0) != 0x80) && ++charsInFirst == 1)
+				out += "|c|";
 		}
-		return Common::FSNode();
+		out += "|f2|";
+		return out;
+	}
+
+	/** The line-by-line comparison of the two GetLongest()s; differences listed in @p report. */
+	static void compareLines(const char *str, const char *name, int16 width, bool early, bool proportional,
+							 bool textCodes, Sci::SciLayoutText &lt, uint &lines, uint &differences,
+							 Common::String &report) {
+		const Graphics::BreakRules rules;   // hangul=word, kinsoku on, Thai on
+		TestMetrics m(proportional);
+		const char *oldPtr = str;
+		while (*oldPtr) {
+			const char *lineStart = oldPtr;
+			const int16 oldCount = oldGetLongest(oldPtr, width, early, proportional, textCodes);
+			uint32 next = 0;
+			m.font = 0;   // GetLongest() starts each line in the caller's font
+			const int16 newCount = Sci::getLongestLayout((const byte *)lineStart, width, textCodes,
+														 early, m, rules, lt, next);
+			lines++;
+			if (oldCount != newCount || (uint32)(oldPtr - lineStart) != next) {
+				if (differences < 20)
+					report += Common::String::format("\n%s @%u w%d early%d prop%d codes%d: old %d/%d new %d/%u: \"%s\"",
+						name, (uint)(lineStart - str), width, early, proportional, textCodes,
+						oldCount, (int)(oldPtr - lineStart), newCount, next,
+						Common::String(lineStart, MIN<uint32>(60, strlen(lineStart))).c_str());
+				differences++;
+				oldPtr = lineStart + next;   // follow the new layout
+			}
+			if (!oldCount)
+				break;
+		}
+	}
+
+	/**
+	 * $SCUMMVM_TEST_I18N_DATA/kq1-ko1 (the KQ1 Korean UTF-8 patch, its
+	 * text.NNN files), or an empty node when the variable or the directory
+	 * is absent.
+	 */
+	static Common::FSNode kq1koDir() {
+		const char *root = i18nDataDir();
+		if (!root || !*root)
+			return Common::FSNode();
+		Common::FSNode n = Common::FSNode(Common::Path(root, Common::Path::kNativeSeparator)).getChild("kq1-ko1");
+		return (n.exists() && n.isDirectory()) ? n : Common::FSNode();
 	}
 
 	void test_fitline_matches_getlongest_on_kq1ko() {
 		const Common::FSNode dir = kq1koDir();
-		if (!dir.exists())
-			return;   // no game data here: nothing to compare
+		if (!dir.exists()) {
+			TS_SKIP("SCUMMVM_TEST_I18N_DATA does not name a directory holding kq1-ko1/");
+			return;
+		}
 
 		Common::FSList files;
 		dir.getChildren(files, Common::FSNode::kListFilesOnly);
-		const Graphics::BreakRules rules;   // hangul=word, kinsoku on, Thai on
 		Sci::SciLayoutText lt;
 		uint nStrings = 0, lines = 0, differences = 0;
 		Common::String report;
@@ -335,39 +514,24 @@ public:
 				if (!len)
 					continue;
 				nStrings++;
+				// The same string with SCI1.1 '|c|'/'|f|' codes, read as SCI1.1.
+				const Common::String coded = withCodes(str);
+				static const int16 widths[] = { 120, 160, 200 };
 				for (int w = 0; w < 3; w++) {
-					static const int16 widths[] = { 120, 160, 200 };
 					for (int mode = 0; mode < 4; mode++) {
 						const bool early = mode & 1;
 						const bool proportional = mode & 2;
-						TestMetrics m(proportional);
-						const char *oldPtr = str;
-						while (*oldPtr) {
-							const char *lineStart = oldPtr;
-							const int16 oldCount = oldGetLongest(oldPtr, widths[w], early, proportional);
-							uint32 next = 0;
-							const int16 newCount = Sci::getLongestLayout((const byte *)lineStart, widths[w], false,
-																		 early, m, rules, lt, next);
-							lines++;
-							if (oldCount != newCount || (uint32)(oldPtr - lineStart) != next) {
-								if (differences < 20)
-									report += Common::String::format("\n%s @%u w%d early%d prop%d: old %d/%d new %d/%u: \"%s\"",
-										name.c_str(), (uint)(lineStart - str), widths[w], early, proportional,
-										oldCount, (int)(oldPtr - lineStart), newCount, next,
-										Common::String(lineStart, MIN<uint32>(60, strlen(lineStart))).c_str());
-								differences++;
-								oldPtr = lineStart + next;   // follow the new layout
-							}
-							if (!oldCount)
-								break;
-						}
+						compareLines(str, name.c_str(), widths[w], early, proportional, false,
+									 lt, lines, differences, report);
+						compareLines(coded.c_str(), name.c_str(), widths[w], early, proportional, true,
+									 lt, lines, differences, report);
 					}
 				}
 			}
 		}
 
 		TS_ASSERT(nStrings > 1000);
-		TS_ASSERT(lines > 40000);
+		TS_ASSERT(lines > 80000);
 		TSM_ASSERT_EQUALS(Common::String::format("%u of %u lines differ:%s", differences, lines, report.c_str()).c_str(),
 						  differences, 0u);
 	}
@@ -388,42 +552,38 @@ public:
 			"a b",
 			"ab ",
 			" ",
-			"a  "
+			"a  ",
+			"|c1|hello |f1|world",       // SCI1.1 codes (read as codes in modes 4..7)
+			"|f2|abc def|f| ghi",        // font changes mid-line
+			"a|c1|b c|f1|d e"
 		};
-		const Graphics::BreakRules rules;
 		Sci::SciLayoutText lt;
 		uint differences = 0, lines = 0;
 		Common::String report;
 		for (uint t = 0; t < ARRAYSIZE(texts); t++) {
 			for (int16 w = 1; w <= 60; w++) {
-				for (int mode = 0; mode < 4; mode++) {
-					const bool early = mode & 1;
-					const bool proportional = mode & 2;
-					TestMetrics m(proportional);
-					const char *oldPtr = texts[t];
-					while (*oldPtr) {
-						const char *lineStart = oldPtr;
-						const int16 oldCount = oldGetLongest(oldPtr, w, early, proportional);
-						uint32 next = 0;
-						const int16 newCount = Sci::getLongestLayout((const byte *)lineStart, w, false, early,
-																	 m, rules, lt, next);
-						lines++;
-						if (oldCount != newCount || (uint32)(oldPtr - lineStart) != next) {
-							if (differences < 20)
-								report += Common::String::format("\n\"%s\" @%u w%d early%d prop%d: old %d/%d new %d/%u",
-									texts[t], (uint)(lineStart - texts[t]), w, early, proportional,
-									oldCount, (int)(oldPtr - lineStart), newCount, next);
-							differences++;
-							oldPtr = lineStart + next;
-						}
-						if (!oldCount)
-							break;
-					}
-				}
+				for (int mode = 0; mode < 8; mode++)
+					compareLines(texts[t], "edge", w, mode & 1, mode & 2, mode & 4, lt, lines, differences, report);
 			}
 		}
 		TSM_ASSERT_EQUALS(Common::String::format("%u of %u lines differ:%s", differences, lines, report.c_str()).c_str(),
 						  differences, 0u);
+	}
+
+	// The one intended difference from the old code (design section 4.3, the
+	// T2 ruling): in "space, code, space, text" the code ends the line
+	// before, instead of opening the next line with a space.
+	void test_getlongest_layout_code_between_spaces_ends_the_line() {
+		TestMetrics m(false);
+		const Graphics::BreakRules rules;
+		Sci::SciLayoutText lt;
+		uint32 next = 0;
+		const char *text = "hello |c| world";
+		const int16 n = Sci::getLongestLayout((const byte *)text, 20, true, false, m, rules, lt, next);
+		TS_ASSERT_EQUALS(n, 9);           // "hello |c|"
+		TS_ASSERT_EQUALS(next, 10u);      // "world"
+		const char *old = text;
+		TS_ASSERT_EQUALS(oldGetLongest(old, 20, false, false, true), 5);   // "hello" / "|c| world"
 	}
 
 	void test_getlongest_layout_japanese_kinsoku_and_thai() {

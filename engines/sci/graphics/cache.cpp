@@ -322,6 +322,9 @@ GfxFontUnicode *GfxCache::loadUniBundle() {
 		for (uint i = 0; i < ARRAYSIZE(names) && !ok; i++)
 			ok = f->load(names[i]);
 		if (ok) {
+			// Per-glyph advance and placement for a UTF-8 translation only:
+			// a legacy game keeps the bundle's cell widths to the pixel.
+			f->setPerGlyph(g_sci->heapStringsAreUtf8());
 			_uniBundle = f;
 		} else {
 			delete f;
@@ -415,6 +418,7 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 		return _ttfBundles[key];
 
 	GfxFontUnicode *f = new GfxFontUnicode(_screen, 0);
+	f->setPerGlyph(utf8);
 	if (latin) {
 		// The router owns neither face: both stay in _ttfSources, shared.
 		f->setSource(new Graphics::RoutedGlyphSource(main, latin, toHiResLatinMode(s.latin), DisposeAfterUse::NO), mainPath);
@@ -512,14 +516,18 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 
 	for (uint i = 0; i < names.size(); i++)
 		chainName += (i ? "," : "") + names[i];
-	if (_chains.contains(chainName))
-		return _chains[chainName];
 
 	// Behind the faces, the .uni bundle, then the game's own font (what
-	// GfxFontSet falls back to for a character no face has).
+	// GfxFontSet falls back to for a character no face has). The chain is
+	// shared by the font ids whose faces, size and bundle all match: the
+	// faces are opened at that size, so another size is another chain.
+	GfxFontUnicode *uni = loadUniBundle();
+	const Common::String key = faceChainKey(names, s.size, uni && uni->source());
+	if (_chains.contains(key))
+		return _chains[key];
+
 	// Each face is checked for what the faces before it lack: a face that
 	// only has to cover Thai is not warned about Japanese.
-	GfxFontUnicode *uni = loadUniBundle();
 	Common::Array<uint32> sample = coverageSample();
 	for (uint i = 0; i < faces.size(); i++) {
 		const Common::String next = i + 1 < faces.size() ? names[i + 1] :
@@ -548,9 +556,9 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 			_chainParts.push_back(chain);
 		}
 	}
-	debug(1, "SCI: face chain %s (%u faces%s)", chainName.c_str(), faces.size(),
+	debug(1, "SCI: face chain %s at %dpx (%u faces%s)", chainName.c_str(), s.size, faces.size(),
 		  chain != faces[0] && uni ? ", then the .uni fonts" : "");
-	_chains[chainName] = chain;
+	_chains[key] = chain;
 	return chain;
 }
 

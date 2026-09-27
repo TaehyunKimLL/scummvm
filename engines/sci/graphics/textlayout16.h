@@ -57,6 +57,52 @@ bool hiresTextApplies(SciVersion v, Common::CodePage page, bool utf8Translation,
 int16 gameAdvance(const Graphics::GlyphMetrics &m, int gameNarrow, int gameWide, int scale);
 
 /**
+ * The width in game px of @p cp drawn by @p src at @p scale hi-res px per
+ * game px, 0 when @p src has no glyph for it.
+ *
+ * With @p perGlyph (a UTF-8 translation is loaded): gameAdvance() of the
+ * glyph's metrics, a glyph the source keeps in two cells counting as wide
+ * (so Hangul, kana, kanji and every SCVMUNI wide glyph keep the cell rule).
+ * Without: the cell width halved to game px exactly as it always was -
+ * (advanceWide or advanceNarrow) / scale, a combining mark included - so a
+ * legacy font keeps its widths to the pixel.
+ */
+int16 glyphGameWidth(Graphics::UnicodeGlyphSource *src, uint32 cp, int scale, bool perGlyph);
+
+/**
+ * Where GfxFontUnicode draws a glyph on the hi-res plane (design section
+ * 4.2): originX hi-res px left of the pen, and a combining mark against the
+ * pen the previous base left, in hi-res px, when the mark is drawn where
+ * that base left the pen in game px. reset() forgets the base: a mark at
+ * the start of a string never attaches to the previous string.
+ */
+class CombiningAnchor {
+public:
+	CombiningAnchor() : _valid(false), _left(0), _top(0), _hiresX(0) {}
+
+	void reset() { _valid = false; }
+
+	/**
+	 * The hi-res x of a glyph drawn at game (@p left, @p top) with metrics
+	 * @p m (@p placed false: no metrics, drawn at left * 2); a base glyph
+	 * becomes the anchor, its advance @p gameAdvance game px.
+	 */
+	int place(const Graphics::GlyphMetrics &m, bool placed, int16 left, int16 top, int gameAdvance);
+
+private:
+	bool _valid;
+	int16 _left, _top;
+	int _hiresX;
+};
+
+/**
+ * The key a face chain is shared under: everything that changes the
+ * chain built - the pixel size its faces are opened at, whether the .uni
+ * bundle stands behind them, and the faces in order.
+ */
+Common::String faceChainKey(const Common::Array<Common::String> &faces, int size, bool uniBehind);
+
+/**
  * SCI16 text as layout units: UTF-8 (decoded as Sci::decodeUtf8Char(), the
  * decoder GfxText16::readChar() and the string ops share), plus SCI's
  * escapes (design section 3.3):

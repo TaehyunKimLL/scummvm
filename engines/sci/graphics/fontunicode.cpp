@@ -38,7 +38,7 @@ namespace Sci {
 
 GfxFontUnicode::GfxFontUnicode(GfxScreen *screen, GuiResourceId resourceId)
 	: _screen(screen), _resourceId(resourceId), _loaded(false), _source(nullptr, DisposeAfterUse::YES),
-	  _anchorValid(false), _anchorLeft(0), _anchorTop(0), _anchorHiresX(0) {
+	  _perGlyph(false) {
 }
 
 GfxFontUnicode::~GfxFontUnicode() {
@@ -89,21 +89,7 @@ byte GfxFontUnicode::getCharWidth(uint32 chr) {
 }
 
 byte GfxFontUnicode::gameCharWidth(uint32 cp, int scale) {
-	if (!_source || scale < 1)
-		return 0;
-	const int cells = _source->cells(cp);
-	if (cells <= 0)
-		return 0;
-	// Wide is what the source keeps in two cells: for a TrueType face that
-	// is East Asian Wide; a SCVMUNI bundle says so per glyph. The cell rule
-	// needs no per-glyph metrics (the common case, asked per character).
-	if (cells == 2 && !Graphics::Unicode::isCombining(cp))
-		return (byte)(_source->advanceWide() / scale);
-	Graphics::GlyphMetrics m;
-	if (!_source->metrics(cp, m))
-		return 0;
-	m.wide = cells == 2;
-	return (byte)gameAdvance(m, _source->advanceNarrow() / scale, _source->advanceWide() / scale, scale);
+	return (byte)glyphGameWidth(_source.get(), cp, scale, _perGlyph);
 }
 
 byte GfxFontUnicode::getCharHeight(uint32 chr) {
@@ -142,20 +128,14 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 	// base left, in hi-res px, and moves nothing. A glyph with neither (every
 	// glyph of a SCVMUNI bundle, every Hangul, kana and Latin glyph of the
 	// faces measured) is drawn exactly where it always was.
-	Graphics::GlyphMetrics m;
-	const bool placed = _source->metrics(chr, m);
+	// Only for a UTF-8 translation (_perGlyph): a legacy font's glyphs are
+	// drawn where they always were.
 	int hiresX = left << 1;
-	if (placed && m.combining) {
-		if (_anchorValid && left == _anchorLeft && top == _anchorTop)
-			hiresX = _anchorHiresX;
-	} else if (placed) {
-		_anchorValid = true;
-		_anchorHiresX = hiresX + m.advance;
-		_anchorLeft = left + gameCharWidth(chr, 2);
-		_anchorTop = top;
+	if (_perGlyph) {
+		Graphics::GlyphMetrics m;
+		const bool placed = _source->metrics(chr, m);
+		hiresX = _anchor.place(m, placed, left, top, placed && !m.combining ? gameCharWidth(chr, 2) : 0);
 	}
-	if (placed)
-		hiresX -= m.originX;
 	if (hiresX == (left << 1))
 		_screen->putHiresCoverageGlyph(cov, w, cellHeight, left, top, color);
 	else
@@ -327,7 +307,7 @@ byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
 		// the last two syllables of a menu entry spilling outside the button.
 		// Beyond ASCII, per glyph (design section 4.2): the cell for a wide
 		// glyph, nothing for a combining mark, the face's advance otherwise.
-		if (chr >= 0x80)
+		if (chr >= 0x80 && _font->perGlyph())
 			return _font->gameCharWidth(cp, (getSciVersion() >= SCI_VERSION_2) ? 1 : 2);
 		return (getSciVersion() >= SCI_VERSION_2) ? w : (w >> 1);
 	}
@@ -367,6 +347,12 @@ void GfxFontUnicodeAdapter::draw(uint32 chr, int16 top, int16 left, byte color,
 	// coverage degrades to the old rendering instead of to blank space.
 	if (_fallback)
 		_fallback->draw(chr, top, left, color, greyedOutput);
+}
+
+void GfxFontUnicodeAdapter::beginString() {
+	_font->beginString();
+	if (_fallback)
+		_fallback->beginString();
 }
 
 void GfxFontUnicodeAdapter::drawToBuffer(uint32 chr, int16 top, int16 left,
