@@ -29,6 +29,7 @@
 namespace AGS3 {
 
 struct ALFONT_FONT;
+class WFNFont;
 
 class TTFFontRenderer : public IAGSFontRendererInternal {
 public:
@@ -73,7 +74,11 @@ private:
 	struct FontData {
 		ALFONT_FONT *AlFont;
 		FontRenderParams Params;
+		// ScummVM: a Korean patch's extfntN.wfn behind this TTF font, for
+		// the Hangul the face lacks; null without one
+		WFNFont *Ext = nullptr;
 	};
+	static bool HasExtChars(const FontData &fd, const char *text);
 	std::map<int, FontData> _fontData;
 };
 

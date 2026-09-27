@@ -29,6 +29,12 @@
 namespace AGS3 {
 
 class WFNFont;
+struct WFNChar;
+
+// ScummVM: draw one WFN character at (x, y) inside the destination's clip,
+// as WFNFontRenderer does; returns its advance. Used for the Korean
+// extension glyphs behind a TTF font (TTFFontRenderer).
+int wfn_render_char(BITMAP *destination, int x, int y, const WFNChar &wfn_char, int scale, int colour);
 
 class WFNFontRenderer : public IAGSFontRendererInternal {
 public:
@@ -58,8 +64,11 @@ public:
 	void GetFontMetrics(int fontNumber, FontMetrics *metrics) override { *metrics = FontMetrics(); }
 	void AdjustFontForAntiAlias(int /*fontNumber*/, bool /*aa_mode*/) override { /* do nothing */ }
 
+	// ScummVM: read extfnt<fontNumber>.wfn into font's Korean extension, when
+	// present (see wfn_font_renderer.cpp); also used behind a TTF font N.
+	static void LoadExtension(WFNFont *font, int fontNumber, const AGS::Shared::String &base_name);
+
 private:
-	void LoadExtension(WFNFont *font, int fontNumber, const AGS::Shared::String &base_name);
 
 	struct FontData {
 		WFNFont *Font;

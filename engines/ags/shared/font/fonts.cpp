@@ -26,6 +26,9 @@
 #include "ags/shared/ac/game_struct_defines.h"
 #include "ags/shared/debugging/out.h"
 #include "ags/shared/font/fonts.h"
+#include "ags/shared/font/ags_text_layout.h"
+#include "ags/shared/font/glyph_font_renderer.h"
+#include "ags/shared/font/hires_font_config.h"
 #include "ags/shared/font/ttf_font_renderer.h"
 #include "ags/shared/font/wfn_font_renderer.h"
 #include "ags/shared/gfx/bitmap.h"
@@ -164,6 +167,10 @@ void font_recalc_metrics(size_t fontNumber) {
 bool is_bitmap_font(size_t fontNumber) {
 	if (fontNumber >= _GP(fonts).size() || !_GP(fonts)[fontNumber].RendererInt)
 		return false;
+	// ScummVM: a font from hires_text.map keeps the game font's outline and
+	// anti-aliasing rules
+	if (_GP(fonts)[fontNumber].RendererInt == &_GP(glyphRenderer))
+		return _GP(glyphRenderer).IsGameBitmapFont(fontNumber);
 	return _GP(fonts)[fontNumber].RendererInt->IsBitmapFont();
 }
 
@@ -339,6 +346,59 @@ void unescape_script_string(const char *cstr, std::vector<char> &out) {
 	out.insert(out.end(), cstr, off + 1);
 }
 
+// ScummVM: split_lines() measures a line by terminating it; the layout stage
+// measures byte ranges of the unescaped text the same way.
+class SplitLinesMetrics : public AgsLayoutMetrics {
+public:
+	explicit SplitLinesMetrics(int font) : _font(font) {}
+
+protected:
+	int measureBytes(const char *s, uint32 len) override {
+		_buf.resize(len + 1);
+		memcpy(&_buf[0], s, len);
+		_buf[len] = 0;
+		return get_text_width_outlined(&_buf[0], _font);
+	}
+
+private:
+	int _font;
+	std::vector<char> _buf;
+};
+
+// ScummVM: text in any format but U_ASCII (UTF-8 translations, the Korean
+// patches' EUC-KR) is broken by the shared layout stage: kinsoku, Thai
+// clusters, Hangul at spaces (I18N_TEXT_DESIGN.md section 4.3). Widths are
+// get_text_width_outlined() of the line, as below; max_lines and the "..."
+// rule are the same.
+static size_t split_lines_layout(SplitLines &lines, int wii, int fonnt, size_t max_lines) {
+	const char *text = &lines.LineBuf.front();
+	Common::Array<AgsLineSpan> spans;
+	SplitLinesMetrics metrics(fonnt);
+	if (!ags_layout_lines(text, strlen(text), get_uformat(), wii, metrics,
+						  _GP(hiresFontConfig).breakRules(), spans))
+		return 0;   // not even one character fits, as below
+	for (size_t i = 0; i < spans.size(); ++i) {
+		lines.Add(String(text + spans[i].start, spans[i].end - spans[i].start).GetCStr());
+		if (lines.Count() >= max_lines && i + 1 < spans.size()) {
+			lines[lines.Count() - 1].Append("...");
+			break;
+		}
+	}
+	return lines.Count();
+}
+
+// The helpers split_lines_bytes() runs on: Allegro's text format functions
+// and the outlined width, as split_lines() always called them.
+struct SplitLinesOps {
+	explicit SplitLinesOps(int font) : _font(font) {}
+	inline int nextChar(char **s) { return ugetx(s); }
+	inline int charAt(const char *s) { return ugetc(s); }
+	inline int putChar(char *s, int c) { return usetc(s, c); }
+	inline int width(const char *s) { return get_text_width_outlined(s, _font); }
+private:
+	int _font;
+};
+
 // Break up the text into lines
 size_t split_lines(const char *todis, SplitLines &lines, int wii, int fonnt, size_t max_lines) {
 	// NOTE: following hack accommodates for the legacy math mistake in split_lines.
@@ -352,81 +412,11 @@ size_t split_lines(const char *todis, SplitLines &lines, int wii, int fonnt, siz
 
 	lines.Reset();
 	unescape_script_string(todis, lines.LineBuf);
-	char *theline = &lines.LineBuf.front();
-
-	char *scan_ptr = theline;
-	char *prev_ptr = theline;
-	char *last_whitespace = nullptr;
-	while (1) {
-		char *split_at = nullptr;
-
-		if (*scan_ptr == 0) {
-			// end of the text, add the last line if necessary
-			if (scan_ptr > theline) {
-				lines.Add(theline);
-			}
-			break;
-		}
-
-		if (*scan_ptr == ' ')
-			last_whitespace = scan_ptr;
-
-		// force end of line with the \n character
-		if (*scan_ptr == '\n') {
-			split_at = scan_ptr;
-			// otherwise, see if we are too wide
-		} else {
-			// temporarily terminate the line in the *next* char and test its width
-			char *next_ptr = scan_ptr;
-			ugetx(&next_ptr);
-			const int next_chwas = ugetc(next_ptr);
-			*next_ptr = 0;
-
-			if (get_text_width_outlined(theline, fonnt) > wii) {
-				// line is too wide, order the split
-				if (last_whitespace)
-					// revert to the last whitespace
-					split_at = last_whitespace;
-				else
-					// single very wide word, display as much as possible
-					split_at = prev_ptr;
-			}
-
-			// restore the character that was there before
-			usetc(next_ptr, next_chwas);
-		}
-
-		if (split_at == nullptr) {
-			prev_ptr = scan_ptr;
-			ugetx(&scan_ptr);
-		} else {
-			// check if even one char cannot fit...
-			if (split_at == theline && !((*theline == ' ') || (*theline == '\n'))) {
-				// cannot split with current width restriction
-				lines.Reset();
-				break;
-			}
-			// add this line; do the temporary terminator trick again
-			const int next_chwas = ugetc(split_at);
-			*split_at = 0;
-			lines.Add(theline);
-			usetc(split_at, next_chwas);
-			// check if too many lines
-			if (lines.Count() >= max_lines) {
-				lines[lines.Count() - 1].Append("...");
-				break;
-			}
-			// the next line starts from the split point
-			theline = split_at;
-			// skip the space or new line that caused the line break
-			if ((*theline == ' ') || (*theline == '\n'))
-				theline++;
-			scan_ptr = theline;
-			prev_ptr = theline;
-			last_whitespace = nullptr;
-		}
-	}
-	return lines.Count();
+	if (split_lines_uses_layout(get_uformat(), !_G(trans_name).IsEmpty(), _GP(hiresFontConfig).active()))
+		return split_lines_layout(lines, wii, fonnt, max_lines);
+	// AGS's own breaking (split_lines_bytes(), ags_text_layout.h)
+	SplitLinesOps ops(fonnt);
+	return split_lines_bytes(&lines.LineBuf.front(), lines, wii, max_lines, ops);
 }
 
 void wouttextxy(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, const char *texx) {
@@ -490,6 +480,22 @@ bool load_font_size(size_t fontNumber, const FontInfo &font_info) {
 	font.Info = font_info;
 	font.Metrics = metrics;
 	font_post_init(fontNumber);
+
+	// ScummVM: fonts from hires_text.map (or hires_text_font). The game's
+	// renderer keeps font N loaded and draws what the map's fonts lack.
+	HiResFontConfig &hires = _GP(hiresFontConfig);
+	hires.load();
+	const HiResFontPlan plan = hires.plan(fontNumber);
+	if (plan.kind != HiResFontPlan::kGame &&
+		_GP(glyphRenderer).Attach(fontNumber, plan, font.Metrics.CompatHeight, hires.alpha(), font.RendererInt, params)) {
+		font.Renderer = &_GP(glyphRenderer);
+		font.Renderer2 = &_GP(glyphRenderer);
+		font.RendererInt = &_GP(glyphRenderer);
+		_GP(glyphRenderer).GetFontMetrics(fontNumber, &font.Metrics);
+		font_post_init(fontNumber);
+		src_filename = String::FromFormat("%s (map; the game's %s draws what it lacks)",
+										  _GP(glyphRenderer).GetFontName(fontNumber), src_filename.GetCStr());
+	}
 
 	Debug::Printf("Loaded font %d: %s, req size: %d; nominal h: %d, real h: %d, extent: %d,%d",
 				  fontNumber, src_filename.GetCStr(), font_info.Size, font.Metrics.NominalHeight, font.Metrics.RealHeight,
@@ -563,6 +569,8 @@ void free_all_fonts() {
 			_GP(fonts)[i].Renderer->FreeMemory(i);
 	}
 	_GP(fonts).clear();
+	// ScummVM: the next game reads its own map
+	_GP(hiresFontConfig).clear();
 }
 
 } // namespace AGS3
