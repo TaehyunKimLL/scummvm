@@ -60,6 +60,10 @@ static const char *ttfFitTestFontPath(const char *var, const char *def) {
 	const char *v = getenv(var);
 	return (v && *v) ? v : def;
 }
+static bool ttfFitTestFontOverridden(const char *var) {
+	const char *v = getenv(var);
+	return v && *v;
+}
 #pragma pop_macro("getenv")
 #endif
 
@@ -295,6 +299,126 @@ public:
 			{ 1, 2, 32, 30, 0, 49 },
 		};
 		checkPinned(cases, ARRAYSIZE(cases));
+	}
+
+	// C11-T3c: only Thai/Lao stacking marks put the default fit on the
+	// mark-aware path. A Japanese translation holding a combining dakuten
+	// (U+3099) or a Latin one holding a combining acute (U+0301) is fitted
+	// exactly as the same sample without the mark: the size and line top
+	// are the no-mark ones, pinned here from the no-mark fit.
+	struct MarkFreeFit {
+		int face;	///< 0 SD Gothic, 1 Hiragino
+		int sample;	///< 0 Japanese, 1 Latin
+		int cell, faceSize, lineTop;
+	};
+
+	void test_non_thai_marks_keep_the_no_mark_fit() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		const uint32 ja[] = { 0x3042, 0x3044, 0x3089, 0x30FC, 0x4E00, 0x6F22, 0x9F8D, 0x300C, 0x300D,
+		                      0x3002, 0xFF08, 0xFF09, 'g', 'j', '|', 0x3099 };
+		const uint32 latin[] = { 0xC9, 0xE9, 0xE7, 0xF1, 'A', 'E', 'Q', 'a', 'e', 'g', 'j', 'y', '|', '(', 0x0301 };
+		const MarkFreeFit cases[] = {
+			{ 1, 0, 24, 22, 0 },
+			{ 1, 0, 32, 30, 0 },
+			{ 1, 0, 40, 38, 0 },
+			{ 0, 1, 16, 15, 0 },
+			{ 0, 1, 24, 23, 0 },
+			{ 1, 1, 24, 22, 0 },
+			{ 1, 1, 32, 30, 0 },
+		};
+		for (uint i = 0; i < ARRAYSIZE(cases); i++) {
+			const MarkFreeFit &c = cases[i];
+			Common::FSNode node = c.face == 0 ? sdGothicNode() : hiraginoNode();
+			if (!node.exists())
+				return;
+			const uint32 *cps = c.sample == 0 ? ja : latin;
+			const uint count = c.sample == 0 ? ARRAYSIZE(ja) : ARRAYSIZE(latin);
+			Common::String error;
+			// The mark is the sample's last code point.
+			TtfGlyphSource *plain = TtfGlyphSource::create(node.createReadStream(), DisposeAfterUse::YES, c.cell, error,
+			                                               cps, count - 1);
+			TtfGlyphSource *marked = TtfGlyphSource::create(node.createReadStream(), DisposeAfterUse::YES, c.cell, error,
+			                                                cps, count);
+			TS_ASSERT(plain && marked);
+			if (plain && marked) {
+				TS_ASSERT_EQUALS(plain->faceSize(), c.faceSize);
+				TS_ASSERT_EQUALS(plain->lineTop(), c.lineTop);
+				TS_ASSERT_EQUALS(marked->faceSize(), plain->faceSize());
+				TS_ASSERT_EQUALS(marked->lineTop(), plain->lineTop());
+			}
+			delete plain;
+			delete marked;
+		}
+#endif
+	}
+
+	// The fit sweep (C11-T3b's 738-case diag, kept): every cell from 8 to
+	// 48 px, on the default (non-line) fit, with no sample, the Korean and
+	// the Japanese sample of checkPinned(), and the Japanese one with a
+	// combining dakuten (C11-T3c), for the three faces the tests can reach.
+	// The size and line top are the base's (6ef770b7d5), the same for every
+	// sample; the raster count is the no-sample one plus the sample's size.
+	// Pinned for the macOS system faces: a face given by its environment
+	// variable is skipped, since its values are its own.
+	void test_fit_sweep_is_the_base_fit() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		enum { kFirstCell = 8, kCells = 41 };
+		static const int kPinned[3][3][kCells] = {
+			{ // SD Gothic Neo
+				{ 7, 9, 10, 11, 11, 12, 13, 14, 15, 16, 17, 18, 20, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 },
+				{ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+				{ 30, 26, 26, 26, 30, 30, 30, 30, 30, 30, 30, 30, 26, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30 },
+			},
+			{ // Hiragino Sans W3
+				{ 7, 8, 9, 10, 11, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46 },
+				{ -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+				{ 30, 30, 30, 30, 30, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34 },
+			},
+			{ // Sukhumvit Set
+				{ 7, 7, 8, 9, 10, 12, 12, 13, 14, 15, 17, 17, 19, 19, 20, 21, 23, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46 },
+				{ -3, -2, -1, 0, -2, -3, -3, -1, -2, -3, -4, -4, -4, -4, -4, -5, -6, -6, -5, -6, -5, -6, -5, -6, -6, -7, -6, -7, -7, -8, -7, -8, -7, -9, -8, -9, -8, -9, -8, -9, -9 },
+				{ 30, 34, 34, 34, 34, 30, 34, 34, 34, 34, 30, 34, 30, 34, 34, 34, 30, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34 },
+			},
+		};
+		const char *const vars[3] = { "SCUMMVM_TEST_KO_FONT", "SCUMMVM_TEST_JA_FONT", "SCUMMVM_TEST_THAI_FONT" };
+		const uint32 ko[] = { 0xAC00, 0xB098, 0xB2E4, 0xD7A3, 0xBDC1, 0xB620, 0x3131, 0x300C, 0x2026,
+		                      '?', '!', 'g', 'y', '(', 'j', '|' };
+		const uint32 ja[] = { 0x3042, 0x3044, 0x3089, 0x30FC, 0x4E00, 0x6F22, 0x9F8D, 0x300C, 0x300D,
+		                      0x3002, 0xFF08, 0xFF09, 'g', 'j', '|', 0x3099 };
+		const uint32 *const samples[4] = { nullptr, ko, ja, ja };
+		const uint sampleSizes[4] = { 0, ARRAYSIZE(ko), ARRAYSIZE(ja) - 1, ARRAYSIZE(ja) };
+		for (int f = 0; f < 3; f++) {
+			if (ttfFitTestFontOverridden(vars[f])) {
+				TS_WARN(Common::String::format("fit sweep: %s is set, the pinned values are the system face's", vars[f]).c_str());
+				continue;
+			}
+			Common::FSNode node(ttfFitTestFontPath(vars[f], f == 0 ? "/System/Library/Fonts/AppleSDGothicNeo.ttc" :
+			                                        f == 1 ? "/System/Library/Fonts/\xe3\x83\x92\xe3\x83\xa9\xe3\x82\xae\xe3\x83\x8e\xe8\xa7\x92\xe3\x82\xb4\xe3\x82\xb7\xe3\x83\x83\xe3\x82\xaf W3.ttc" :
+			                                        "/System/Library/Fonts/Supplemental/SukhumvitSet.ttc"));
+			if (!node.exists()) {
+				TS_WARN(Common::String::format("fit sweep: no system face for %s", vars[f]).c_str());
+				continue;
+			}
+			for (int i = 0; i < kCells; i++) {
+				for (int s = 0; s < 4; s++) {
+					const int cell = kFirstCell + i;
+					Common::String error;
+					TtfGlyphSource *src = s == 0
+						? TtfGlyphSource::create(node.createReadStream(), DisposeAfterUse::YES, cell, error)
+						: TtfGlyphSource::create(node.createReadStream(), DisposeAfterUse::YES, cell, error,
+						                         samples[s], sampleSizes[s]);
+					TSM_ASSERT(Common::String::format("face %d cell %d sample %d", f, cell, s).c_str(), src != nullptr);
+					if (!src)
+						continue;
+					const Common::String where = Common::String::format("face %d cell %d sample %d", f, cell, s);
+					TSM_ASSERT_EQUALS(where.c_str(), src->faceSize(), kPinned[f][0][i]);
+					TSM_ASSERT_EQUALS(where.c_str(), src->lineTop(), kPinned[f][1][i]);
+					TSM_ASSERT_EQUALS(where.c_str(), (int)src->rasterCount(), kPinned[f][2][i] + (int)sampleSizes[s]);
+					delete src;
+				}
+			}
+		}
+#endif
 	}
 
 	// A Thai translation with more than 64 distinct characters: sample()

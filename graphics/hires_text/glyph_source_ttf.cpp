@@ -289,13 +289,15 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 	int top, bottom;
 	uint32 topCp = 0, bottomCp = 0;
 	bool hangulInk = false;
-	// The mark-aware fit (below) is for a sample that holds combining
-	// marks (or SARA AM): their ink lies above the ascent, below the
-	// descent and left of the origin. Any other sample - Korean, Japanese,
-	// Latin - is fitted exactly as before, as is no sample at all.
+	// The mark-aware fit (below) is for a sample that holds Thai or Lao
+	// stacking marks (isStackingFitMark(), SARA AM included): their ink
+	// lies above the ascent, below the descent and left of the origin. Any
+	// other sample - Korean, Japanese, Latin, with or without their own
+	// combining marks (U+3099, U+0301) - is fitted exactly as before, as
+	// is no sample at all.
 	bool sampleHasMarks = false;
 	for (uint i = 0; i < extraFitProbeCount && !sampleHasMarks; i++)
-		sampleHasMarks = isFitMark(extraFitProbes[i]);
+		sampleHasMarks = isStackingFitMark(extraFitProbes[i]);
 	// The mark-aware fit measures with the line top a cell down the canvas,
 	// so a mark drawn above the face's ascent (Sukhumvit Set's MAI
 	// CHATTAWA) is seen; so does a line-fitted face's check of its sample.
