@@ -56,7 +56,11 @@ color=8          ; palette index of the stroke
 These `; ...` comments parse as written: a `;` with whitespace before it ends
 the value (`HIRES_TEXT_SETUP.md`, "The map file", has the exact rule).
 
-- `mode=game` (the default) follows whatever the game asked for.
+- `mode=game` (the default) follows whatever the game asked for. With a
+  kor-trs v1-v6 patch that is byte 1 of the charset's `korean%02d.fnt`, read as
+  the patch's renderer reads it: 1 none, 2 drop, 3 stroke, anything else
+  (0 in MI2's dialogue font) outline. In a game with no such font the byte
+  is unset and draws nothing. v7 keeps no decoration.
 - `drop` is one-sided, `outline` surrounds evenly, `stroke` is an outline
   weighted towards the lower left.
 - `offset` is in **output** pixels, so it scales with `[hires] scale`.
