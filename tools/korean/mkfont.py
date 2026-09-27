@@ -76,6 +76,44 @@ def glyph_chars(codepage, count):
         yield i, ch
 
 
+# 줄이 셀보다 큰 글꼴의 잉크를 재는 글자들. 라틴 세트는 한글이 없는
+# 글꼴에서도 재도록 라틴 글자만 쓴다.
+PROBE_CJK = "한글AQg"
+PROBE_LATIN = "AQgjy"
+
+
+def choose_ascent_from(ascent, descent, ink_top, ink_bottom, cell_h, latin):
+    """셀 맨 위에서 기준선까지의 거리.
+
+    글꼴의 줄 (ascent + descent) 이 셀에 들어가면 글꼴 값을 그대로 쓴다.
+    넘치면 잉크 상자 (ink_top..ink_bottom, 기준선 기준, 위가 음수) 를 셀
+    가운데 놓는다. 잉크마저 셀보다 크면: 한글 세트는 예전처럼 내림자
+    자리를 남기고, 라틴 세트는 대문자 위를 셀 맨 위에 두어 넘치는 만큼은
+    내림자에서 잘린다.
+
+    라틴에 한글 규칙을 쓰면 기준선이 셀 위로 올라가, 셀 위로 새는 글리프를
+    render() 가 하나씩 밀어 내린다: 'H' 'l' 은 내려가고 'r' ',' '.' 는
+    그대로라 글자마다 다른 줄에 앉는다 (C6 G2, AppleGothic 16px: 기준선 10
+    에서 'l' 은 13, 'r' 은 10). 대문자 위에 맞추면 밀려 내려가는 것은
+    'Ä' 같은 위 부호 글자와 괄호처럼 대문자보다 높은 것뿐이다.
+    """
+    if ascent + descent <= cell_h:
+        return ascent
+    ink_h = ink_bottom - ink_top
+    if 0 < ink_h <= cell_h:
+        return -ink_top + (cell_h - ink_h) // 2
+    if latin and ink_h > 0:
+        return max(1, min(cell_h, -ink_top))
+    return max(1, cell_h - descent)
+
+
+def choose_ascent(font, cell_h, latin=False):
+    """choose_ascent_from() 을 글꼴에서 잰 값으로 부른다."""
+    ascent, descent = font.getmetrics()
+    probe = font.getbbox(PROBE_LATIN if latin else PROBE_CJK, anchor="ls")
+    return choose_ascent_from(ascent, descent, probe[1], probe[3], cell_h, latin)
+
+
 def render(font, ch, cell_w, cell_h, ascent, bpp, center=False):
     """글자 하나를 셀에 그려 (픽셀들, 잉크왼쪽, 잉크폭) 로 돌려준다.
 
@@ -207,21 +245,13 @@ def main():
 
     # 기준선은 폰트가 알려주는 값을 쓴다. 셀 높이에 비례해 짐작하면
     # 글리프가 위아래로 밀려 잘린다.
+    # 글꼴이 셀보다 크면 잉크가 실제로 차지하는 자리를 재서 그것을 셀에
+    # 맞춘다 (choose_ascent_from()): 명목 크기로 계산하면 손글씨처럼 여백이
+    # 큰 글꼴이 쓸데없이 눌린다.
     if args.ascent:
         ascent = args.ascent
     else:
-        ascent, descent = font.getmetrics()
-        if ascent + descent > cell_h:
-            # 글꼴이 셀보다 크다. 잉크가 실제로 차지하는 자리를 재서
-            # 그것을 셀에 맞춘다: 명목 크기로 계산하면 손글씨처럼 여백이
-            # 큰 글꼴이 쓸데없이 눌린다.
-            probe = font.getbbox("한글AQg", anchor="ls")
-            ink_top, ink_bottom = probe[1], probe[3]
-            ink_h = ink_bottom - ink_top
-            if ink_h > 0 and ink_h <= cell_h:
-                ascent = -ink_top + (cell_h - ink_h) // 2
-            else:
-                ascent = max(1, cell_h - descent)
+        ascent = choose_ascent(font, cell_h, latin=args.latin)
 
     glyphs = bytearray()
     metrics = bytearray()
