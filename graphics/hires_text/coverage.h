@@ -92,6 +92,16 @@ private:
  */
 bool isFitMark(uint32 cp);
 
+/**
+ * A mark the default (non-line) TrueType fit mis-measures: a Thai or Lao
+ * vowel or tone mark stacked above or below its base (U+0E31, U+0E33..0E3A,
+ * U+0E47..0E4E, U+0EB1, U+0EB3..0EBC, U+0EC8..0ECE; SARA AM included). A
+ * sample holding one takes the mark-aware fit; any other mark (a Japanese
+ * combining dakuten, a Latin combining accent) leaves the fit the one the
+ * sample gets without it.
+ */
+bool isStackingFitMark(uint32 cp);
+
 /** What checkCoverage() found. */
 struct CoverageReport {
 	CoverageReport() : sampled(0), missing(0), spacingMarks(0) {}

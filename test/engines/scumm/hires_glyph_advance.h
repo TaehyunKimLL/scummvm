@@ -744,6 +744,30 @@ public:
 
 	/// With a translation noted, each face of the chain is checked against
 	/// its code points; a face lacking some is warned about, once.
+	// C11-T3c: the translation's code points are read past every escape by
+	// the shared rule (escapeArgBytes()): codes 4-7 and 9 take two argument
+	// bytes too, and an argument of 0 does not end the string.
+	void test_note_translated_string_skips_every_escape_argument() {
+		Graphics::HiResTextConfig c = parse("[hires]\nscale=2\n");
+		c.encoding = Common::kUtf8;
+		Scumm::ScummHiResText hr;
+		hr.adoptConfig(c);
+		static const byte kText[] = {
+			0xFF, 0x04, 0x00, 0x00, 0xEA, 0xB0, 0x80, 'a',	// FF 04 00 00, U+AC00 a
+			0xFF, 0x05, 'Q', 'R', 'b',			// FF 05 Q R, b
+			0xFF, 0x06, 'S', 'T', 0xFF, 0x07, 'U', 'V', 'c',	// FF 06 S T, FF 07 U V, c
+			0xFF, 0x09, 'W', 0x00, 'd',			// FF 09 W 00, d
+			0xFF, 0x01, 'e',				// FF 01 (no arguments), e
+			0xFF, 0x0E, 'X', 'Y', '@', 'f', 0x00, 'Z'
+		};
+		hr.noteTranslatedString(kText, sizeof(kText));
+		const Graphics::CodePointSet &cps = hr.translationCodePoints();
+		const uint32 want[] = { 0xAC00, 'a', 'b', 'c', 'd', 'e', 'f' };
+		for (uint i = 0; i < ARRAYSIZE(want); i++)
+			TS_ASSERT(cps.contains(want[i]));
+		TS_ASSERT_EQUALS(cps.size(), (uint32)ARRAYSIZE(want));
+	}
+
 	void test_coverage_warning_per_face() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		const char *apple = appleGothic();

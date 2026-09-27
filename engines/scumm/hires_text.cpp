@@ -20,6 +20,7 @@
  */
 
 #include "scumm/hires_text.h"
+#include "scumm/text_utf8.h"
 
 #include "common/config-manager.h"
 #include "common/fs.h"
@@ -1959,15 +1960,15 @@ void ScummHiResText::noteTranslatedString(const byte *s, uint32 maxLen) {
 	const byte *end = s + maxLen;
 	while (p < end && *p) {
 		// SCUMM's escapes (I18N_TEXT_DESIGN.md section 3.3): a code after
-		// 0xFF/0xFE, two argument bytes after codes 10, 12, 13, 14 and 21.
-		// They are read before the NUL test, since an argument can be 0.
+		// 0xFF/0xFE, then escapeArgBytes(code) argument bytes - the rule
+		// every other reader of a translation shares (text_utf8.h). They
+		// are read before the NUL test, since an argument can be 0.
 		if (*p == 0xFF || *p == 0xFE) {
 			if (end - p < 2)
 				break;
 			const byte code = p[1];
 			p += 2;
-			if (code == 10 || code == 12 || code == 13 || code == 14 || code == 21)
-				p += MIN<ptrdiff_t>(2, end - p);
+			p += MIN<ptrdiff_t>(escapeArgBytes(code), end - p);
 			continue;
 		}
 		if (*p == '@') {
