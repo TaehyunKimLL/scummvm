@@ -109,7 +109,8 @@ private:
 	/** The game's own renderer, one character at a time. */
 	class GameFallback : public GlyphFallback {
 	public:
-		GameFallback() : _game(nullptr), _font(0), _dst(nullptr) {}
+		GameFallback() : _game(nullptr), _font(0), _dst(nullptr), _cell(nullptr) {}
+		~GameFallback() override;
 		void set(IAGSFontRenderer *game, int font) { _game = game; _font = font; }
 		void target(BITMAP *dst) { _dst = dst; }
 		int charWidth(uint32 cp) override;
@@ -119,6 +120,7 @@ private:
 		IAGSFontRenderer *_game;
 		int _font;
 		BITMAP *_dst;
+		BITMAP *_cell;	///< drawCharScaled()'s scratch, kept
 	};
 
 	/** A font's faces opened at N x its size (C23). */

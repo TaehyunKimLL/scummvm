@@ -32,11 +32,11 @@
 #include "ags/shared/font/fonts.h"
 #include "ags/shared/gfx/allegro_bitmap.h"
 #include "ags/engine/gfx/graphics_driver.h"
+#include "ags/shared/script/cc_common.h"
 #include "common/file.h"
 #include "common/system.h"
-#include "graphics/paletteman.h"
-#include "ags/shared/script/cc_common.h"
 #include "graphics/palette.h"
+#include "graphics/paletteman.h"
 #include "image/png.h"
 
 namespace AGS {
@@ -404,14 +404,14 @@ bool AGSConsole::Cmd_dumpNative(int argc, const char **argv) {
 	const Common::String path = argv[1];
 	bool ok = true;
 	Common::DumpFile f;
-	if (f.open(Common::Path(path))) {
+	if (f.open(Common::Path(path, Common::Path::kNativeSeparator))) {
 		for (int y = 0; y < s.h; y++)
 			f.write((const byte *)s.getBasePtr(0, y), s.w * pf.bytesPerPixel);
 		f.close();
 	} else {
 		ok = false;
 	}
-	if (f.open(Common::Path(path + ".txt"))) {
+	if (f.open(Common::Path(path + ".txt", Common::Path::kNativeSeparator))) {
 		f.writeString(Common::String::format("%d %d %d %s\n", s.w, s.h, pf.bytesPerPixel * 8,
 											 pf.bytesPerPixel == 1 ? "CLUT8" : pf.toString().c_str()));
 		f.close();
@@ -421,7 +421,7 @@ bool AGSConsole::Cmd_dumpNative(int argc, const char **argv) {
 	if (pf.bytesPerPixel == 1) {
 		byte pal[768];
 		g_system->getPaletteManager()->grabPalette(pal, 0, 256);
-		if (f.open(Common::Path(path + ".pal"))) {
+		if (f.open(Common::Path(path + ".pal", Common::Path::kNativeSeparator))) {
 			f.write(pal, sizeof(pal));
 			f.close();
 		} else {
@@ -454,12 +454,13 @@ bool AGSConsole::Cmd_renderText(int argc, const char **argv) {
 	for (int i = 5; i < argc; i++)
 		text += Common::String(" ") + argv[i];
 	if (text.size() > 1 && text[0] == '#') {
-		Common::String key, why;
+		Common::String key, entry, why;
 		int found;
-		if (!findTranslationEntry(text, key, text, found, why)) {
+		if (!findTranslationEntry(text, key, entry, found, why)) {
 			debugPrintf("FAIL %s\n", why.c_str());
 			return true;
 		}
+		text = entry;
 	}
 
 	const int pad = 4;

@@ -438,6 +438,20 @@ void wouttextxy(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t
 	}
 }
 
+Bitmap *font_scratch_bitmap(Bitmap &owner, Bitmap &sub, int w, int h, int color_depth) {
+	if (owner.IsNull() || owner.GetColorDepth() != color_depth || owner.GetWidth() < w || owner.GetHeight() < h) {
+		const int ow = (owner.IsNull() || owner.GetColorDepth() != color_depth) ? 0 : owner.GetWidth();
+		const int oh = (owner.IsNull() || owner.GetColorDepth() != color_depth) ? 0 : owner.GetHeight();
+		sub.Destroy();
+		owner.Create(MAX(w, ow), MAX(h, oh), color_depth);
+		sub.CreateSubBitmap(&owner, RectWH(Size(w, h)));
+	} else {
+		sub.ResizeSubBitmap(w, h);
+	}
+	sub.ClearTransparent();
+	return &sub;
+}
+
 void wouttextxy_scaled(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, const char *texx,
 					   int scale) {
 	if (fontNumber >= _GP(fonts).size() || scale < 1)
@@ -460,8 +474,7 @@ void wouttextxy_scaled(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, 
 	const int height = MAX(extent.second - extent.first, font.Renderer->GetTextHeight(texx, fontNumber));
 	if (width <= 0 || height <= 0)
 		return;
-	Bitmap cell(width, height, ds->GetColorDepth());
-	cell.ClearTransparent();
+	Bitmap &cell = *font_scratch_bitmap(font.ScaledCell, font.ScaledCellSub, width, height, ds->GetColorDepth());
 	font.Renderer->RenderText(texx, fontNumber, (BITMAP *)cell.GetAllegroBitmap(), 0, -extent.first, text_color);
 	const Rect clip = ds->GetClip();
 	GlyphTextDrawer::upscaleOnto(*((BITMAP *)ds->GetAllegroBitmap())->getSurface().surfacePtr(),
@@ -584,6 +597,12 @@ void wfreefont(size_t fontNumber) {
 	if (fontNumber >= _GP(fonts).size())
 		return;
 
+	_GP(fonts)[fontNumber].ScaledCellSub.Destroy();
+	_GP(fonts)[fontNumber].ScaledCell.Destroy();
+	_GP(fonts)[fontNumber].ScaledTextStencilSub.Destroy();
+	_GP(fonts)[fontNumber].ScaledTextStencil.Destroy();
+	_GP(fonts)[fontNumber].ScaledOutlineStencilSub.Destroy();
+	_GP(fonts)[fontNumber].ScaledOutlineStencil.Destroy();
 	_GP(fonts)[fontNumber].TextStencilSub.Destroy();
 	_GP(fonts)[fontNumber].OutlineStencilSub.Destroy();
 	_GP(fonts)[fontNumber].TextStencil.Destroy();
