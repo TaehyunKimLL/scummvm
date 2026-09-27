@@ -26,6 +26,8 @@
 #include "ags/shared/core/asset_manager.h"
 #include "ags/shared/debugging/debug_manager.h"
 #include "ags/shared/font/fonts.h"
+#include "ags/shared/font/glyph_font_renderer.h"
+#include "ags/shared/font/hires_font_config.h"
 #include "ags/shared/font/ttf_font_renderer.h"
 #include "ags/shared/font/wfn_font_renderer.h"
 #include "ags/shared/game/interactions.h"
@@ -220,6 +222,8 @@ Globals::Globals() {
 	_fonts = new std::vector<AGS::Shared::Font>();
 	_ttfRenderer = new TTFFontRenderer();
 	_wfnRenderer = new WFNFontRenderer();
+	_glyphRenderer = new GlyphFontRenderer();
+	_hiresFontConfig = new HiResFontConfig();
 	_Lines = new SplitLines();
 
 	// game.cpp globals
@@ -499,6 +503,8 @@ Globals::~Globals() {
 	delete _fonts;
 	delete _ttfRenderer;
 	delete _wfnRenderer;
+	delete _glyphRenderer;
+	delete _hiresFontConfig;
 	delete _Lines;
 
 	// game.cpp globals

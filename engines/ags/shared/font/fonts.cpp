@@ -26,6 +26,8 @@
 #include "ags/shared/ac/game_struct_defines.h"
 #include "ags/shared/debugging/out.h"
 #include "ags/shared/font/fonts.h"
+#include "ags/shared/font/glyph_font_renderer.h"
+#include "ags/shared/font/hires_font_config.h"
 #include "ags/shared/font/ttf_font_renderer.h"
 #include "ags/shared/font/wfn_font_renderer.h"
 #include "ags/shared/gfx/bitmap.h"
@@ -164,6 +166,10 @@ void font_recalc_metrics(size_t fontNumber) {
 bool is_bitmap_font(size_t fontNumber) {
 	if (fontNumber >= _GP(fonts).size() || !_GP(fonts)[fontNumber].RendererInt)
 		return false;
+	// ScummVM: a font from hires_text.map keeps the game font's outline and
+	// anti-aliasing rules
+	if (_GP(fonts)[fontNumber].RendererInt == &_GP(glyphRenderer))
+		return _GP(glyphRenderer).IsGameBitmapFont(fontNumber);
 	return _GP(fonts)[fontNumber].RendererInt->IsBitmapFont();
 }
 
@@ -491,6 +497,22 @@ bool load_font_size(size_t fontNumber, const FontInfo &font_info) {
 	font.Metrics = metrics;
 	font_post_init(fontNumber);
 
+	// ScummVM: fonts from hires_text.map (or hires_text_font). The game's
+	// renderer keeps font N loaded and draws what the map's fonts lack.
+	HiResFontConfig &hires = _GP(hiresFontConfig);
+	hires.load();
+	const HiResFontPlan plan = hires.plan(fontNumber);
+	if (plan.kind != HiResFontPlan::kGame &&
+		_GP(glyphRenderer).Attach(fontNumber, plan, font.Metrics.CompatHeight, hires.alpha(), font.RendererInt, params)) {
+		font.Renderer = &_GP(glyphRenderer);
+		font.Renderer2 = &_GP(glyphRenderer);
+		font.RendererInt = &_GP(glyphRenderer);
+		_GP(glyphRenderer).GetFontMetrics(fontNumber, &font.Metrics);
+		font_post_init(fontNumber);
+		src_filename = String::FromFormat("%s (map; the game's %s draws what it lacks)",
+										  _GP(glyphRenderer).GetFontName(fontNumber), src_filename.GetCStr());
+	}
+
 	Debug::Printf("Loaded font %d: %s, req size: %d; nominal h: %d, real h: %d, extent: %d,%d",
 				  fontNumber, src_filename.GetCStr(), font_info.Size, font.Metrics.NominalHeight, font.Metrics.RealHeight,
 				  font.Metrics.VExtent.first, font.Metrics.VExtent.second);
@@ -563,6 +585,8 @@ void free_all_fonts() {
 			_GP(fonts)[i].Renderer->FreeMemory(i);
 	}
 	_GP(fonts).clear();
+	// ScummVM: the next game reads its own map
+	_GP(hiresFontConfig).clear();
 }
 
 } // namespace AGS3
