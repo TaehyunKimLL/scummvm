@@ -176,7 +176,7 @@ comments — the two lines below are shown separately, not as one file, for
 that reason:
 
 ```
-# default - the game's own advances
+# the game's own advances
 hires_text_metrics=game
 ```
 ```
@@ -186,8 +186,12 @@ hires_text_metrics=font
 
 The game decides line breaks and speech-bubble sizes from the widths of its
 own font, so a replacement that advances differently can wrap text in the wrong
-place or push it out of a bubble. The default therefore keeps the original
-spacing and merely draws a better glyph in the same box.
+place or push it out of a bubble. For bitmap (SVFN) replacements the default
+therefore keeps the original spacing and merely draws a better glyph in the
+same box. A **TrueType** face with no metrics key set anywhere steps by its own
+advances instead: wide glyphs since C31, Latin since C34/C36 (see below).
+`hires_text_metrics=game` (or `[render]`/`[font.N]`/`[latin] metrics=game` in
+the map) brings the game's spacing back.
 
 `metrics=font` is for a proportional replacement that should space itself.
 Only fonts with a metrics table (SVFN header flags bit 0) are affected;
@@ -305,25 +309,45 @@ Known limits:
   wider than it is drawn and sits left of centre by (cell - step) x n / 2.
   Give such a map `[render] metrics=game`.
 
-### Latin inside CJK or translated text steps by the face (C34)
+### Latin from a TrueType face steps by the face (C34, C36)
 
 ASCII letters, digits and punctuation drawn by a TrueType face step by the
-face's own advance (rounded to game pixels, SCI's proportional rule) and are
-drawn at the pen, when the text is a CJK game's (the engine lays it out on a
-CJK font's cells, `setGameFontCell()`: a Korean patch in CP949, or its cells
-under `ko.trs`) or a UTF-8 translation, and no metrics= key is set (the ini's
-`hires_text_metrics`, `[render]`, `[font.N]` or `[latin] metrics=`). Before,
-they kept the game's Latin width - the width of its own, larger bitmap font -
-and per-glyph placement centred the smaller face letter in it, so
-"Thriftweed" read "T h r i f t w e e d" next to face-stepped Hangul. The
-game's `offsX` for the character no longer applies, and wrapping, centring
-and the right-edge clip use the same step.
+face's own advance (rounded half up to game pixels, SCI's proportional rule,
+no carry) and are drawn at the pen, whatever the text around them, unless a
+metrics= key is set (the ini's `hires_text_metrics`, `[render]`, `[font.N]`
+or `[latin] metrics=`). The game's Latin widths belong to its own, larger
+bitmap font, and per-glyph placement centred the smaller face letter in
+them, so "Thriftweed" read "T h r i f t w e e d" and English "Well, then"
+read "W e l l, t h e n". The game's `offsX` for the character no longer
+applies, and wrapping, centring, the right-edge clip and an ASCII code the
+game's charset lacks (drawn by the layer at the same step) all use the same
+step.
 
-Unchanged: the space (it is the word gap of the Hangul around it too),
-`[latin] mode=off|half|fullwidth`, bitmap faces, an explicit `metrics=game`,
-and the game's own text in its own encoding (English MI1 with the same map
-still steps by the game's widths, and looks as spaced as Korean did; opting
-in there is `[latin] metrics=font`).
+C34 did this only inside CJK text (the engine lays it out on a CJK font's
+cells, `setGameFontCell()`) and in UTF-8 translations; C36 made it the
+default everywhere, the game's own English included. **English line breaks
+change** with such a map: lines are narrower, so the game fits more words per
+line ("My name's Guybrush Threepwood, and I want to be a pirate!" now fits on
+one line in MI1's lookout scene) and centres on the new width.
+
+Unchanged:
+- the space, which keeps the game's width (it is also the word gap between
+  Hangul words);
+- an explicit `metrics=game` in any of the places above: the old spacing,
+  byte for byte (English MI1 with `hires_text_metrics=game` is frame-identical
+  to the build before C36);
+- `[latin] metrics=font`, which keeps its own proportional path (with carry);
+- `[latin] mode=off|half|fullwidth`, a `[glyphs]` keep or remap of the code,
+  and a mirrored charset kept on the game's font (C27);
+- bitmap (SVFN) faces, which keep the game's widths (a `[font.N] pixel=`
+  face, C28, is a TrueType face held on its grid and steps by the face like
+  any other);
+- hi-res text off.
+
+Ink a face draws outside its step (`j` left of the pen, `/`, `\` or `v`
+past the step at 3x, where round-half-up can round the advance down) is not
+clipped: it overlaps the neighbour as ordinary TrueType text does, and the
+glyph's dirty rect, which the mask and the C32 erase use, covers it.
 
 ### Monkey Island 2 (DOS) with `korean.trs`
 
