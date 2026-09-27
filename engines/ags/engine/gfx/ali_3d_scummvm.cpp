@@ -29,6 +29,7 @@
 #include "ags/engine/platform/base/sys_main.h"
 #include "ags/engine/ac/timer.h"
 #include "ags/engine/main/engine.h"
+#include "ags/engine/ac/hires_text_twin.h"
 #include "ags/ags.h"
 #include "ags/globals.h"
 
@@ -495,7 +496,7 @@ size_t ScummVMRendererGraphicsDriver::RenderSpriteBatch(const ALSpriteBatch &bat
 			if (hiresOnScreen && _hiresSnapshotTaken) {
 				HiResTailEntry e;
 				e.kind = HiResTailEntry::kTint;
-				e.clip = Common::Rect(hiresOff.X, hiresOff.Y, hiresOff.X + surface->GetWidth(), hiresOff.Y + surface->GetHeight());
+				e.clip = HiResClip(surface, hiresOff);
 				e.r = _tint_red;
 				e.g = _tint_green;
 				e.b = _tint_blue;
@@ -511,6 +512,9 @@ size_t ScummVMRendererGraphicsDriver::RenderSpriteBatch(const ALSpriteBatch &bat
 		int drawAtX = sprite.x + surf_offx;
 		int drawAtY = sprite.y + surf_offy;
 
+		// ScummVM (C23): a twin left from a scale that was dropped
+		if (hiresScale < 2 && bitmap->_twin)
+			bitmap->_twin.reset();
 		// ScummVM (C23): from the first usable twin on, record the draws
 		if (hiresOnScreen && bitmap->_alpha != 0 && bitmap->_bmp &&
 			!(bitmap->_opaque && bitmap->_bmp == surface && bitmap->_alpha == 255)) {
@@ -521,7 +525,7 @@ size_t ScummVMRendererGraphicsDriver::RenderSpriteBatch(const ALSpriteBatch &bat
 			if (_hiresSnapshotTaken) {
 				HiResTailEntry e;
 				e.kind = HiResTailEntry::kSprite;
-				e.clip = Common::Rect(hiresOff.X, hiresOff.Y, hiresOff.X + surface->GetWidth(), hiresOff.Y + surface->GetHeight());
+				e.clip = HiResClip(surface, hiresOff);
 				e.bmp = bitmap->_bmp;
 				if (twin)
 					e.twin = bitmap->_twin;
@@ -673,6 +677,9 @@ void ScummVMRendererGraphicsDriver::DisableHiResTextScale(int w, int h) {
 	Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: the screen is %d x %d, not %d x the game's %d x %d; scale 1 from now on",
 				  g_system->getWidth(), g_system->getHeight(), _G(hiresTextScale), w, h);
 	_G(hiresTextScale) = 1;
+	// The records and every twin they made are of no use at scale 1
+	if (_G(hiresTextTwins))
+		_G(hiresTextTwins)->clear();
 	_hiresFrame.reset();
 	_hiresTail.clear();
 	_hiresSnapshotTaken = false;
@@ -700,6 +707,7 @@ void ScummVMRendererGraphicsDriver::PresentScaled(const Graphics::Surface &nativ
 	if (compose) {
 		UpscaleNearest(_hiresSnapshot->GetAllegroBitmap()->getSurface().rawSurface(), frame, scale);
 		HiResReplay(*_hiresFrame, scale);
+		HiResKeepNativeOutsideText(native, frame, scale);
 	} else {
 		UpscaleNearest(native, frame, scale);
 	}
@@ -721,6 +729,54 @@ void ScummVMRendererGraphicsDriver::PresentScaled(const Graphics::Surface &nativ
 		return;
 	}
 	PresentSurface(frame);
+}
+
+Common::Rect ScummVMRendererGraphicsDriver::HiResClip(Bitmap *surface, const Point &off) {
+	// The clip native drawing onto surface obeys, in screen pixels
+	const Rect c = surface->GetClip();
+	return Common::Rect(off.X + c.Left, off.Y + c.Top, off.X + c.Right + 1, off.Y + c.Bottom + 1);
+}
+
+void ScummVMRendererGraphicsDriver::HiResKeepNativeOutsideText(const Graphics::Surface &native, Graphics::Surface &frame,
+															   int n) {
+	// Outside the text the N x frame is the final native frame upscaled,
+	// by construction: the replay blends at 32-bit, which differs in low
+	// bits from a 16-bit game's own blends (translucent GUIs, tint)
+	const int w = native.w, h = native.h;
+	_hiresTextMask.resize(w * h);
+	memset(_hiresTextMask.begin(), 0, w * h);
+	for (const Common::Rect &r : _hiresLastRects) {
+		Common::Rect c = r;
+		c.clip(Common::Rect(0, 0, w, h));
+		for (int y = c.top; y < c.bottom; y++)
+			memset(&_hiresTextMask[y * w + c.left], 1, c.width());
+	}
+	const Graphics::PixelFormat &sf = native.format;
+	const int bpp = sf.bytesPerPixel;
+	for (int y = 0; y < h; y++) {
+		const byte *mask = &_hiresTextMask[y * w];
+		const byte *in = (const byte *)native.getBasePtr(0, y);
+		for (int x = 0; x < w; x++, in += bpp) {
+			if (mask[x])
+				continue;
+			uint32 pixel;
+			if (sf == frame.format) {
+				pixel = *(const uint32 *)in;
+			} else {
+				const uint32 c = bpp == 2 ? *(const uint16 *)in : *(const uint32 *)in;
+				uint8 a, r, g, b;
+				sf.colorToARGB(c, a, r, g, b);
+				if (sf.aLoss == 8)
+					a = 0xff;
+				pixel = frame.format.ARGBToColor(a, r, g, b);
+			}
+			for (int j = 0; j < n; j++) {
+				uint32 *out = (uint32 *)frame.getBasePtr(x * n, y * n + j);
+				for (int i = 0; i < n; i++)
+					out[i] = pixel;
+			}
+		}
+	}
 }
 
 bool ScummVMRendererGraphicsDriver::HiResScreenOffset(Bitmap *surface, Point &off) const {
@@ -750,13 +806,22 @@ void ScummVMRendererGraphicsDriver::HiResTakeSnapshot() {
 }
 
 void ScummVMRendererGraphicsDriver::HiResPatchBegin() {
+	const uint32 t0 = g_system->getMillis(true);
 	if (!_hiresPatchBefore || _hiresPatchBefore->GetSize() != virtualScreen->GetSize() ||
 		_hiresPatchBefore->GetColorDepth() != virtualScreen->GetColorDepth())
 		_hiresPatchBefore.reset(new Bitmap(virtualScreen->GetWidth(), virtualScreen->GetHeight(), virtualScreen->GetColorDepth()));
 	_hiresPatchBefore->Blit(virtualScreen, 0, 0, 0, 0, virtualScreen->GetWidth(), virtualScreen->GetHeight());
+	HiResStats.PatchMs += g_system->getMillis(true) - t0;
+	HiResStats.Patches++;
 }
 
 void ScummVMRendererGraphicsDriver::HiResPatchEnd() {
+	const uint32 t0 = g_system->getMillis(true);
+	HiResPatchEndImpl();
+	HiResStats.PatchMs += g_system->getMillis(true) - t0;
+}
+
+void ScummVMRendererGraphicsDriver::HiResPatchEndImpl() {
 	// What an operation that cannot be replayed at N x changed: kept as
 	// native pixels, upscaled in place at replay
 	const Graphics::Surface &a = _hiresPatchBefore->GetAllegroBitmap()->getSurface().rawSurface();
@@ -832,7 +897,12 @@ Bitmap *ScummVMRendererGraphicsDriver::HiResUpscaled(Bitmap *src, int scale) {
 }
 
 void ScummVMRendererGraphicsDriver::HiResReplay(Bitmap &frame, int n) {
+	HiResStats.Composed++;
 	for (const HiResTailEntry &e : _hiresTail) {
+		if (e.kind == HiResTailEntry::kSprite)
+			(e.twin ? HiResStats.TailTwins : HiResStats.TailSprites)++;
+		else
+			(e.kind == HiResTailEntry::kTint ? HiResStats.TailTints : HiResStats.TailPatches)++;
 		const Rect clip(e.clip.left * n, e.clip.top * n, e.clip.right * n - 1, e.clip.bottom * n - 1);
 		frame.SetClip(clip);
 		switch (e.kind) {
@@ -970,10 +1040,18 @@ void ScummVMRendererGraphicsDriver::PresentSurface(const Graphics::Surface &src)
 }
 
 void ScummVMRendererGraphicsDriver::Render(int xoff, int yoff, GraphicFlip flip) {
+	// C23: frame times for ags_frame_times (whole-millisecond reads: the
+	// mean over many frames is unbiased)
+	const uint32 t0 = g_system->getMillis(true);
 	RenderToBackBuffer();
+	const uint32 t1 = g_system->getMillis(true);
 	_hiresComposeNext = true;
 	Present(xoff, yoff, flip);
 	_hiresComposeNext = false;
+	const uint32 t2 = g_system->getMillis(true);
+	HiResStats.Frames++;
+	HiResStats.RenderMs += t1 - t0;
+	HiResStats.PresentMs += t2 - t1;
 }
 
 void ScummVMRendererGraphicsDriver::Render() {

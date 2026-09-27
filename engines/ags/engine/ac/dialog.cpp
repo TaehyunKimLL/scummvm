@@ -627,9 +627,7 @@ void DialogOptions::Redraw() {
 	Bitmap *ds = tempScrn;
 	// ScummVM (C23): record the built-in options' text for the N x twin;
 	// custom option rendering (script-drawn) stays native
-	std::unique_ptr<HiResTextScope> hiresScope;
-	if (!usingCustomRendering)
-		hiresScope.reset(new HiResTextScope());
+	HiResTextScope hiresScope(!usingCustomRendering);
 
 	dlgxp = orixp;
 	dlgyp = oriyp;

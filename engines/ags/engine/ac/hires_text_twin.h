@@ -68,7 +68,11 @@ public:
 	/** Give ddb the twin of bmp (drawn with has_alpha), or none. */
 	void attach(AGS::Engine::IDriverDependantBitmap *ddb, AGS::Shared::Bitmap *bmp, bool hasAlpha);
 
-	/** Forget everything (a game restarts or the scale changes). */
+	/** C23: twins built and the time it took, for ags_frame_times */
+	uint32 StatBuilds = 0, StatBuildMs = 0;
+
+	/** Forget everything (a game is restored, restarted or unloaded, or the
+	 *  scale drops to 1); open scopes end. */
 	void clear();
 
 private:
@@ -79,6 +83,8 @@ private:
 		uint32 lastUse;
 	};
 	Entry &entryFor(const AGS::Shared::Bitmap *ds);
+	void attachBuild(AGS::Engine::IDriverDependantBitmap *ddb, AGS::Shared::Bitmap *bmp, bool hasAlpha,
+					 std::map<const void *, Entry>::iterator it);
 	void trim();
 
 	std::map<const void *, Entry> _entries;
@@ -90,7 +96,7 @@ private:
 /** RAII: a capture scope (a no-op when the scale is 1). */
 class HiResTextScope {
 public:
-	HiResTextScope();
+	explicit HiResTextScope(bool enable = true);
 	~HiResTextScope();
 private:
 	bool _open;
@@ -98,6 +104,8 @@ private:
 
 /** The registry, or nullptr when the hi-res text scale is 1. */
 HiResTextTwins *hires_text_twins();
+/** Forget all records (a game is restored, restarted or unloaded). */
+void hires_text_twins_reset();
 
 } // namespace AGS3
 

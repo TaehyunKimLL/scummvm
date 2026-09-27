@@ -286,15 +286,24 @@ private:
 	std::unique_ptr<Bitmap> _hiresScratchSub;
 
 	bool HiResScreenOffset(Bitmap *surface, Point &off) const;
+	static Common::Rect HiResClip(Bitmap *surface, const Point &off);
+	void HiResKeepNativeOutsideText(const Graphics::Surface &native, Graphics::Surface &frame, int n);
+	Common::Array<byte> _hiresTextMask;
 public:
 	/** C23: the screen rects (native pixels) of the N x text records in the
 	 *  last composed frame, for ags_hires_rects. */
 	const Common::Array<Common::Rect> &GetHiResTextRects() const { return _hiresLastRects; }
+	/** C23: time spent per stage, for ags_frame_times */
+	struct {
+		uint32 Frames = 0, RenderMs = 0, PresentMs = 0, PatchMs = 0, Patches = 0;
+		uint32 Composed = 0, TailTwins = 0, TailSprites = 0, TailTints = 0, TailPatches = 0;
+	} HiResStats;
 private:
 	Common::Array<Common::Rect> _hiresLastRects;
 	void HiResTakeSnapshot();
 	void HiResPatchBegin();
 	void HiResPatchEnd();
+	void HiResPatchEndImpl();
 	void HiResReplay(Bitmap &frame, int scale);
 	Bitmap *HiResUpscaled(Bitmap *src, int scale);
 	PSDLRenderFilter _filter;
