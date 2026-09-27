@@ -568,6 +568,82 @@ void wouttext_outline(Shared::Bitmap *ds, int xxp, int yyp, int font, color_t te
 	wouttextxy(ds, xxp, yyp, text_font, text_color, texx);
 }
 
+// wouttextxy_AutoOutline() at N x: the same stencils and stamps, N x as
+// large, with its own stencil bitmaps (the font's are the game's).
+// (xxp, yyp) are game pixels and move by the game-resolution thickness,
+// as wouttextxy_AutoOutline() moves them.
+static void wouttextxy_AutoOutline_scaled(Bitmap *ds, size_t font, int32_t color, const char *texx, int &xxp, int &yyp,
+										  int scale) {
+	const FontInfo &finfo = get_fontinfo(font);
+	int const thickness = finfo.AutoOutlineThickness;
+	auto const style = finfo.AutoOutlineStyle;
+	if (thickness <= 0)
+		return;
+
+	int const  ds_cd = ds->GetColorDepth();
+	bool const antialias = ds_cd >= 16 && _GP(game).options[OPT_ANTIALIASFONTS] != 0 && !is_bitmap_font(font);
+	int const  stencil_cd = antialias ? 32 : ds_cd;
+	if (antialias)
+		color |= makeacol32(0, 0, 0, 0xff);
+
+	const int t_width = get_text_width(texx, font);
+	const auto t_extent = get_font_surface_extent(font);
+	const int t_height = t_extent.second - t_extent.first + ((strcmp(_GP(game).guid, "{d6795d1c-3cfe-49ec-90a1-85c313bfccaf}") == 0) && (font == 2) ? 1 : 0);
+	if (t_width == 0 || t_height == 0)
+		return;
+
+	const int t_yoff = t_extent.first;
+	const int thick = thickness * scale;	// target pixels
+	Bitmap texx_stencil(t_width * scale, t_height * scale, stencil_cd);
+	Bitmap outline_stencil(t_width * scale, t_height * scale + 2 * thick, stencil_cd);
+	texx_stencil.ClearTransparent();
+	outline_stencil.ClearTransparent();
+	wouttextxy_scaled(&texx_stencil, 0, -t_yoff, font, color, texx, scale);
+
+	void(Bitmap:: * pfn_drawstencil)(Bitmap * src, int dst_x, int dst_y);
+	if (antialias) {
+		set_argb2any_blender();
+		pfn_drawstencil = &Bitmap::TransBlendBlt;
+	} else {
+		pfn_drawstencil = &Bitmap::MaskedBlit;
+	}
+
+	xxp += thickness;
+	int const outline_y = (yyp + t_yoff) * scale;
+	yyp += thickness;
+	const int x0 = xxp * scale;
+
+	int largest_y_diff_reached_so_far = -1;
+	for (int x_diff = thick; x_diff >= 0; x_diff--) {
+		int y_term_limit = thick * (thick + 1);
+		if (FontInfo::kRounded == style)
+			y_term_limit -= x_diff * x_diff;
+		for (int y_diff = largest_y_diff_reached_so_far + 1;
+			y_diff <= thick && y_diff * y_diff <= y_term_limit;
+			y_diff++) {
+			(outline_stencil.*pfn_drawstencil)(&texx_stencil, 0, thick - y_diff);
+			if (y_diff > 0)
+				(outline_stencil.*pfn_drawstencil)(&texx_stencil, 0, thick + y_diff);
+			largest_y_diff_reached_so_far = y_diff;
+		}
+		(ds->*pfn_drawstencil)(&outline_stencil, x0 - x_diff, outline_y);
+		if (x_diff > 0)
+			(ds->*pfn_drawstencil)(&outline_stencil, x0 + x_diff, outline_y);
+	}
+}
+
+void wouttext_outline_scaled(Shared::Bitmap *ds, int xxp, int yyp, int font, color_t text_color, const char *texx,
+							 int scale) {
+	size_t const text_font = static_cast<size_t>(font);
+	color_t const outline_color = ds->GetCompatibleColor(_GP(play).speech_text_shadow);
+	int const outline_font = get_font_outline(font);
+	if (outline_font >= 0)
+		wouttextxy_scaled(ds, xxp, yyp, static_cast<size_t>(outline_font), outline_color, texx, scale);
+	else if (outline_font == FONT_OUTLINE_AUTO)
+		wouttextxy_AutoOutline_scaled(ds, text_font, outline_color, texx, xxp, yyp, scale);
+	wouttextxy_scaled(ds, xxp, yyp, text_font, text_color, texx, scale);
+}
+
 void wouttext_aligned(Bitmap *ds, int usexp, int yy, int oriwid, int usingfont, color_t text_color, const char *text, HorAlignment align) {
 
 	if (align & kMAlignHCenter)

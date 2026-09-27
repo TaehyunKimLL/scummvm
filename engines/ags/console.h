@@ -61,6 +61,7 @@ private:
 
 	bool Cmd_say(int argc, const char **argv);
 	bool Cmd_dumpNative(int argc, const char **argv);
+	bool Cmd_renderText(int argc, const char **argv);
 	bool _sayPending;
 	int _sayFont;
 	Common::String _sayText;
