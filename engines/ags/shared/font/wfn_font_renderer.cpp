@@ -86,6 +86,11 @@ void WFNFontRenderer::RenderText(const char *text, int fontNumber, BITMAP *desti
 	set_our_eip(oldeip);
 }
 
+int wfn_render_char(BITMAP *destination, int x, int y, const WFNChar &wfn_char, int scale, int colour) {
+	Bitmap ds(destination, true);
+	return RenderChar(&ds, x, y, ds.GetClip(), wfn_char, scale, colour);
+}
+
 static int RenderChar(Bitmap *ds, const int at_x, const int at_y, Rect clip,
 	const WFNChar &wfn_char, const int scale, const color_t text_color) {
 	const int width = wfn_char.Width;

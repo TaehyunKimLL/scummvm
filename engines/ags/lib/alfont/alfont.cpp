@@ -600,6 +600,16 @@ int alfont_get_font_real_height(ALFONT_FONT *f) {
 	return f->real_face_h;
 }
 
+/* ScummVM: whether the face has a glyph for the code point: a charmap entry
+ * other than .notdef (glyph 0), which the text functions would draw as the
+ * face's empty or boxed notdef. */
+ALFONT_DLL_DECLSPEC int alfont_has_char(ALFONT_FONT *f, int character) {
+	if (!f->face->charmap)
+		return (character > 0) && (character < f->face->num_glyphs);
+	const int glyph_index = Get_Char_Index(f->face, character);
+	return (glyph_index > 0) && (glyph_index < f->face->num_glyphs);
+}
+
 ALFONT_DLL_DECLSPEC void alfont_get_font_real_vextent(ALFONT_FONT *f, int *top, int *bottom) {
 	*top = f->face_ascender - f->real_face_extent_asc; // may be negative
 	*bottom = f->face_ascender + f->real_face_extent_desc;
@@ -5183,6 +5193,7 @@ int alfont_set_font_size_ex(ALFONT_FONT *f, int h, int flags) { return 0; }
 int alfont_get_font_height(ALFONT_FONT *f) { return 0; }
 int alfont_get_font_real_height(ALFONT_FONT *f) { return 0; }
 void alfont_get_font_real_vextent(ALFONT_FONT *f, int *top, int *bottom) { *top = 0; *bottom = 0; }
+int alfont_has_char(ALFONT_FONT *f, int character) { return 0; }
 int alfont_text_mode(int mode) { return 0; }
 void alfont_textout_aa(BITMAP *bmp, ALFONT_FONT *f, const char *s, int x, int y, int color) {}
 void alfont_textout(BITMAP *bmp, ALFONT_FONT *f, const char *s, int x, int y, int color) {}
