@@ -615,6 +615,7 @@ private:
 	// Coverage (design section 4.4).
 	Graphics::CodePointSet _translationCps;
 	Common::Array<uint32> _coverageSample;
+	Common::Array<uint32> _fitProbes;	///< _translationCps.fitProbes(): the TrueType faces' fit
 	mutable Common::HashMap<Common::String, bool> _coverageChecked;
 	mutable Common::Array<Common::String> _coverageWarnings;
 	mutable Common::HashMap<Common::String, bool> _failedFaces;

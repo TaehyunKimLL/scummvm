@@ -99,6 +99,29 @@ public:
 	                               int pixelSize, Common::String &error,
 	                               const uint32 *extraFitProbes, uint extraFitProbeCount);
 
+	/**
+	 * The general form of both overloads above: requireHangul and lineFit
+	 * as in the first, and @p extraFitProbes (the translation's sample) for
+	 * either fit.
+	 *
+	 * Without lineFit this is the second overload: the probes join the
+	 * fixed set the characters are fitted to.
+	 *
+	 * With lineFit the face keeps its line-fitted size and line-top
+	 * placement as long as every probe's ink lies inside the cell - so a
+	 * sample that already fits (Korean or Japanese in their usual faces)
+	 * draws byte for byte what it drew without one. Only when some ink
+	 * would fall outside (a face whose ascent is taller than the line it
+	 * is sized by, or marks beyond its line: Thai SARA U/UU under
+	 * Sukhumvit Set's descent) are the probes' ink box centred in the
+	 * cell, and, when the box is taller than the cell, the face shrunk
+	 * until it fits, as the default fit does (bounded by the same raster
+	 * budget). The fixed probe set plays no part in that check.
+	 */
+	static TtfGlyphSource *create(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+	                               int pixelSize, Common::String &error, bool requireHangul, bool lineFit,
+	                               const uint32 *extraFitProbes, uint extraFitProbeCount);
+
 	/** The most extra fit probes create() takes. */
 	static const uint kMaxExtraFitProbes = 64;
 
@@ -133,6 +156,16 @@ public:
 	 * same baseline. 0 in a build without FreeType.
 	 */
 	int baseline() const;
+
+	/** The size the face was opened at once fitted: pixelSize, unless the
+	 *  vertical fit had to shrink it (a kTTFSizeModeCell size for a
+	 *  line-fitted face, a character size otherwise). 0 without FreeType. */
+	int faceSize() const;
+
+	/** The cell row the face's line top is drawn at (negative when the fit
+	 *  moved it up); glyphs are placed by it and the face's ascent. 0
+	 *  without FreeType. */
+	int lineTop() const;
 
 	/** FreeType renders done so far (probes at create() time, plus one per
 	 *  distinct code point since); exposed for tests. */
@@ -202,6 +235,7 @@ private:
 	Common::SeekableReadStream *_stream = nullptr;
 	DisposeAfterUse::Flag _dispose = DisposeAfterUse::NO;
 	int _yOffset = 0;
+	int _faceSize = 0;
 #endif
 
 	byte _cellWidth = 0;

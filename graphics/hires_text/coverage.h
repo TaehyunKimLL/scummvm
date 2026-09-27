@@ -68,11 +68,29 @@ public:
 	 */
 	void sample(uint n, Common::Array<uint32> &out) const;
 
+	/**
+	 * The vertical-fit probes for a TrueType face (TtfGlyphSource::create()'s
+	 * extraFitProbes): every mark the set holds (isFitMark(): a combining
+	 * mark, or SARA AM) first - a 64-point sample() of a large Thai
+	 * translation drops the tone marks, the glyphs reaching highest - then
+	 * sample(n)'s code points not taken yet, until n are taken. Without
+	 * marks this is sample(n) itself. Deterministic.
+	 */
+	void fitProbes(uint n, Common::Array<uint32> &out) const;
+
 private:
 	static bool drawn(uint32 cp);
 
 	Common::Array<uint32> _cps;	///< ascending
 };
+
+/**
+ * A code point whose ink a vertical fit must see where it is drawn: a
+ * combining mark (Unicode::isCombining()), or SARA AM (Thai U+0E33, Lao
+ * U+0EB3), which is NIKHAHIT + SARA AA in one glyph and draws its ring left
+ * of its origin like a mark.
+ */
+bool isFitMark(uint32 cp);
 
 /** What checkCoverage() found. */
 struct CoverageReport {
