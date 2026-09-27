@@ -1324,15 +1324,26 @@ Common::Error ScummEngine::init() {
 	// everything to the screen at once"). Enlarging the backend without that
 	// path left The Dig drawing its 320x200 picture into the top-left corner
 	// of a 640x400 window.
-	if (_hiResText.enabled() && _game.version < 7) {
-		if (_textSurfaceMultiplier <= 1)
+	//
+	// Where the scale asked for is not the one the screen ends up with, the
+	// layer is told to draw at the screen's: saying so and drawing anyway
+	// put glyphs of one size on a layout of another, overlapping.
+	if (_hiResText.enabled()) {
+		const bool enlarged = (_game.version < 7);
+		if (enlarged && _textSurfaceMultiplier <= 1)
 			_textSurfaceMultiplier = _hiResText.scale();
-		else if (_hiResText.scale() > 1 && _hiResText.scale() != _textSurfaceMultiplier)
-			warning("SCUMM: this platform already scales text by %d; ignoring the hi-res scale of %d",
-					_textSurfaceMultiplier, _hiResText.scale());
-	} else if (_hiResText.enabled() && _hiResText.scale() > 1) {
-		warning("SCUMM: hi-res text cannot be scaled in this game: its screen "
-				"is blitted without the compositing step that would enlarge it");
+		const int drawable = ScummHiResText::drawableScale(_hiResText.scale(), _textSurfaceMultiplier, enlarged);
+		if (drawable != _hiResText.scale()) {
+			if (enlarged)
+				warning("SCUMM: this platform already scales text by %d; drawing hi-res text "
+						"at %d rather than the hi-res scale of %d",
+						_textSurfaceMultiplier, drawable, _hiResText.scale());
+			else
+				warning("SCUMM: hi-res text cannot be scaled in this game: its screen "
+						"is blitted without the compositing step that would enlarge it; "
+						"drawing it at scale %d rather than %d", drawable, _hiResText.scale());
+			_hiResText.limitScale(drawable);
+		}
 	}
 
 	Common::Path macResourceFile;

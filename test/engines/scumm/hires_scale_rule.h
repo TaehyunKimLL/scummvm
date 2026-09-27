@@ -127,4 +127,27 @@ public:
 		TS_ASSERT(!layer.enabled());
 		TS_ASSERT(!layer.wantsGameFontHeight());
 	}
+
+	/**
+	 * The scale the layer draws at is the one the screen was enlarged by.
+	 *
+	 * v7 and v8 blit their screen without the compositing step that
+	 * enlarges it, so a map asking for 2 used to get a warning and 18px
+	 * glyphs on FT's 9px layout, lines overlapping (C6 G4). A platform
+	 * that already doubles its text surface (FM-Towns) keeps its own
+	 * factor, and the glyphs have to follow it for the same reason.
+	 */
+	void test_drawable_scale_follows_the_screen() {
+		// Screen not enlarged at all (v7/v8): always 1.
+		TS_ASSERT_EQUALS(Scumm::ScummHiResText::drawableScale(2, 1, false), 1);
+		TS_ASSERT_EQUALS(Scumm::ScummHiResText::drawableScale(3, 1, false), 1);
+		TS_ASSERT_EQUALS(Scumm::ScummHiResText::drawableScale(1, 1, false), 1);
+		// Enlarged by the layer itself: what was asked.
+		TS_ASSERT_EQUALS(Scumm::ScummHiResText::drawableScale(2, 2, true), 2);
+		TS_ASSERT_EQUALS(Scumm::ScummHiResText::drawableScale(3, 3, true), 3);
+		// A platform factor of its own wins over a different scale > 1.
+		TS_ASSERT_EQUALS(Scumm::ScummHiResText::drawableScale(3, 2, true), 2);
+		// Scale 1 on such a platform is left as it was.
+		TS_ASSERT_EQUALS(Scumm::ScummHiResText::drawableScale(1, 2, true), 1);
+	}
 };
