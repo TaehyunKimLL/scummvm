@@ -522,7 +522,7 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 			const bool last = i + 1 == paths.size();
 			Graphics::TtfGlyphSource *src = ttfSource(paths[i], s.size, kProbesTranslation, "hires_text_font",
 													  last ? "using the .uni fonts" : "using the next face of the chain",
-													  s.pixel);
+													  i == 0 ? s.pixel : 0);
 			if (src) {
 				faces.push_back(src);
 				names.push_back(paths[i]);

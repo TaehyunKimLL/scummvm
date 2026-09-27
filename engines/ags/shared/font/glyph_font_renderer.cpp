@@ -97,9 +97,10 @@ bool GlyphFontRenderer::Build(FontData &fd, const Common::Array<uint32> &fitProb
 							  path.toString().c_str(), plan.source.c_str());
 			continue;
 		}
-		// A pixel font (pixel=) is held on its grid in the fd.Size cell,
-		// never shrunk by the fit (C28).
-		Graphics::TtfGlyphSource *ttf = plan.pixel > 0
+		// A pixel font (pixel=, the chain's first face) is held on its grid
+		// in the fd.Size cell, never shrunk by the fit (C28); the faces
+		// behind it are fitted as usual.
+		Graphics::TtfGlyphSource *ttf = (plan.pixel > 0 && i == 0)
 			? Graphics::TtfGlyphSource::createPixel(stream, DisposeAfterUse::YES, fd.Size, plan.pixel, error, faceIndex)
 			: Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, fd.Size, error,
 			false, false, fitProbes.empty() ? nullptr : fitProbes.begin(), fitProbes.size(), faceIndex);

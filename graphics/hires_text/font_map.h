@@ -119,7 +119,8 @@ struct HiResFontIdSettings {
 	/// pixel=, the design size of a pixel font in pixels per em: the face
 	/// is opened at the largest whole multiple of it the cell holds
 	/// (TtfGlyphSource::pixelGridSize()), never shrunk by the probe fit.
-	/// The cell is size= when that is set, else the engine's own.
+	/// The cell is size= when that is set, else the engine's own. Only the
+	/// first face of the chain is a pixel face; the rest are fallbacks.
 	int pixel;
 	bool pixelSet;
 	HiResLatinMode latin;             ///< latin=
