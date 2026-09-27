@@ -20,6 +20,7 @@
  */
 
 #include "graphics/hires_text/glyph_source_ttf.h"
+#include "graphics/hires_text/coverage.h"
 #include "graphics/hires_text/unicode_props.h"
 
 #include "common/debug.h"
@@ -128,13 +129,13 @@ byte coverageAt(const Graphics::ManagedSurface &surf, int x, int y) {
 	return a;
 }
 
-// The column a glyph's origin is drawn at in its row: a combining mark
-// whose ink starts left of its origin (a Thai mark's negative bearing puts
-// it over the preceding base) is moved right by that much, as is SARA AM
-// (see ensure()); every other glyph keeps column 0. The vertical fit draws
-// its probes the same way, so a mark's ink is measured where it is drawn.
+// The column a glyph's origin is drawn at in its row: a mark (isFitMark(),
+// coverage.h) whose ink starts left of its origin (a Thai mark's negative
+// bearing puts it over the preceding base) is moved right by that much;
+// every other glyph keeps column 0. The vertical fit draws its probes the
+// same way, so a mark's ink is measured where it is drawn.
 int markOriginX(Graphics::Font *font, uint32 cp, int cellW) {
-	if (Unicode::isCombining(cp) || cp == 0x0E33 || cp == 0x0EB3) {
+	if (isFitMark(cp)) {
 		const Common::Rect box = font->getBoundingBox(cp);
 		if (box.left < 0)
 			return MIN<int>(-box.left, cellW);
@@ -288,11 +289,19 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 	int top, bottom;
 	uint32 topCp = 0, bottomCp = 0;
 	bool hangulInk = false;
-	// A sample is measured with the line top a cell down the canvas, so a
-	// mark drawn above the face's ascent (Sukhumvit Set's MAI CHATTAWA) is
-	// seen; the legacy fit keeps drawing at the canvas top.
-	const int drawY = extraFitProbeCount > 0 ? cellH : 0;
-	// With a sample, every probe's own box, to pick the retry's glyphs.
+	// The mark-aware fit (below) is for a sample that holds combining
+	// marks (or SARA AM): their ink lies above the ascent, below the
+	// descent and left of the origin. Any other sample - Korean, Japanese,
+	// Latin - is fitted exactly as before, as is no sample at all.
+	bool sampleHasMarks = false;
+	for (uint i = 0; i < extraFitProbeCount && !sampleHasMarks; i++)
+		sampleHasMarks = isFitMark(extraFitProbes[i]);
+	// The mark-aware fit measures with the line top a cell down the canvas,
+	// so a mark drawn above the face's ascent (Sukhumvit Set's MAI
+	// CHATTAWA) is seen; so does a line-fitted face's check of its sample.
+	// The legacy fit keeps drawing at the canvas top.
+	const int drawY = (lineFit ? extraFitProbeCount > 0 : sampleHasMarks) ? cellH : 0;
+	// Every probe's own box, to pick the mark-aware retry's glyphs.
 	Common::Array<int> boxes;
 	const uint32 *boxCps = probes.data();
 	// A line-fitted face is placed by its own metrics, so it needs the
@@ -301,7 +310,7 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 		inkBox(font, kProbeCodepoints, requireHangul ? kHangulProbeCount : 0, 0, top, bottom, topCp, bottomCp, &hangulInk);
 	else
 		inkBox(font, probes.data(), (int)probes.size(), drawY, top, bottom, topCp, bottomCp, &hangulInk,
-			   extraFitProbeCount > 0 ? &boxes : nullptr);
+			   sampleHasMarks ? &boxes : nullptr);
 
 	if (requireHangul && !hangulInk) {
 		error = "face has no Hangul glyphs";
@@ -326,6 +335,12 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 		lineRefit = top < 0 || bottom > cellH;
 	}
 
+	// Only a line-fitted face that must move, or a sample with marks,
+	// takes the mark-aware retry; everything else keeps the legacy one.
+	const bool markFit = lineRefit || (!lineFit && sampleHasMarks);
+	if (!markFit)
+		boxes.clear();
+
 	int faceSize = pixelSize;
 	if ((!lineFit || lineRefit) && bottom - top > cellH) {
 		// Re-check with only the one or two code points that set the
@@ -335,14 +350,14 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 		// one or two rasterisations per candidate size instead of the full
 		// probe set.
 		//
-		// With a sample (Thai: SARA I, MAI EK and MAI CHATTAWA within a row
+		// The mark-aware fit (Thai: SARA I, MAI EK and MAI CHATTAWA within a row
 		// of each other at the top; SARA UU, PHINTHU, DO CHADA and Latin g
 		// at the bottom), which glyph is tallest can change with the size:
 		// the next-highest and next-lowest glyphs are re-checked too (up to
 		// kMaxWorstProbes in all), and a size must leave a row free above
 		// and below them (kSampleFitSlack), for a glyph not re-checked that
-		// rounds a row further. The legacy fit, with no sample, keeps its
-		// one or two glyphs and no slack.
+		// rounds a row further. The legacy fit keeps its one or two glyphs
+		// and no slack.
 		const int kMaxWorstProbes = 4;
 		const int slack = boxes.empty() ? 0 : kSampleFitSlack;
 		uint32 worstCps[kMaxWorstProbes] = { topCp, bottomCp };
@@ -385,12 +400,15 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 				b = bottom;
 				return false;
 			}
-			// chooseFitSize() counts these renders itself (rendersPerCall),
-			// so inkBox's own count is taken back rather than added twice.
+			// chooseFitSize() counts these renders itself (rendersPerCall);
+			// the mark-aware fit takes inkBox's own count back rather than
+			// counting them twice. The legacy fit keeps the double count
+			// (and so its number of tries within the budget) unchanged.
 			const uint32 countBefore = rasterCount;
 			uint32 unusedTopCp = 0, unusedBottomCp = 0;
 			inkBox(smaller, worstCps, worstCount, drawY, t, b, unusedTopCp, unusedBottomCp, nullptr);
-			rasterCount = countBefore;
+			if (markFit)
+				rasterCount = countBefore;
 			delete bestFont;
 			bestFont = smaller;
 			faceSize = trySize;
@@ -400,12 +418,12 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 		// Stepping down one size at a time from pixelSize, as far as the
 		// raster budget reaches, finds the largest size that fits. When the
 		// box is so much taller than the cell that the budget cannot step
-		// that far (Thai marks above and below: about 1.4 cells), the search
-		// starts just above the size the box scales to linearly instead, so
-		// the few steps it has land on the fitting size.
+		// that far (Thai marks above and below: about 1.4 cells), the
+		// mark-aware search starts just above the size the box scales to
+		// linearly instead, so the few steps it has land on the fitting size.
 		int startSize = pixelSize;
 		const int estimate = MAX(6, pixelSize * (cellH - 2 * slack) / (bottom - top));
-		if (rasterCount + (uint32)(pixelSize - estimate) * worstCount > maxLoadRasterCount)
+		if (markFit && rasterCount + (uint32)(pixelSize - estimate) * worstCount > maxLoadRasterCount)
 			startSize = MIN(pixelSize, estimate + 2);
 
 		LambdaFitProbe<decltype(measure)> probe(measure);
