@@ -138,6 +138,7 @@ void ScummHiResText::reset() {
 	_ttfPath.clear();
 	for (int i = 0; i < kMaxFonts; ++i)
 		_gameFontW[i] = _gameFontH[i] = 0;
+	_cjkCells = false;
 	_fontsLoaded = false;
 	_alphaActive = false;
 	_korPatchShadow = false;
@@ -1310,7 +1311,9 @@ bool ScummHiResText::drawGlyphPlaced(Graphics::Surface &dest, int chr, int looku
 		// A wide TrueType glyph stepping by the face (C31) has no game cell
 		// to be centred in: it is drawn at the pen, as the legacy layout
 		// draws it.
-		const bool faceStep = m.wide && !ascii && face->ttf && wideStepsByFace(charsetId);
+		// Nor has Latin stepping by the face inside CJK text (C34).
+		const bool faceStep = (m.wide && !ascii && face->ttf && wideStepsByFace(charsetId)) ||
+							  (ascii && lookup == chr && latinStepsByFace(chr, charsetId));
 		// metrics=game keeps the game's cell; a glyph narrower than it is
 		// centred in it rather than left against its start.
 		if (metrics == Graphics::kHiResMetricsGame && gameAdvance > 0 && !faceStep) {
@@ -1442,6 +1445,10 @@ int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
 		lookup = (int)override.codepoint;
 	}
 
+	// ASCII inside CJK text steps by the face (C34).
+	if (const int latin = latinFaceStep(chr, charsetId))
+		return latin;
+
 	if (_perGlyph)
 		return advancePlaced(chr, lookup, charsetId, gameWidth, carry);
 
@@ -1458,6 +1465,57 @@ int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
 	// A double-byte character is the legacy layout's wide glyph.
 	return cellRuleAdvance(face, cp, charsetId, gameWidth, carry, fontMetrics, true,
 						   chr >= 256 && wideStepsByFace(charsetId));
+}
+
+bool ScummHiResText::latinStepsByFace(int chr, int charsetId) const {
+	return latinFaceStep(chr, charsetId) > 0;
+}
+
+int ScummHiResText::latinFaceStep(int chr, int charsetId) const {
+	// Only a game laid out on CJK cells: its face is sized to that cell, so
+	// the game's Latin widths, which belong to its own (larger) Latin font,
+	// space the face's letters apart. Elsewhere the face is sized to the
+	// game's font and its widths fit.
+	if (!_enabled || !_fontsLoaded || !_cjkCells)
+		return 0;
+	// Letters, digits and punctuation. The space keeps the game's width:
+	// it is the word gap of the Hangul around it too.
+	if (chr <= 0x20 || chr > 0x7E)
+		return 0;
+	// The same keys that keep a wide glyph on the cell keep Latin on the
+	// game's widths, and [latin] metrics= as well.
+	if (!wideStepsByFace(charsetId) || _config.latinMetricsSet)
+		return 0;
+	if (keepsGameFont(charsetId, chr))
+		return 0;
+	Graphics::HiResGlyphOverride override;
+	if (_config.glyphOverride((uint32)chr, override, charsetId))
+		return 0;
+
+	uint32 cp = codePointFor(chr);
+	if (!cp)
+		return 0;
+	Face *face = nullptr;
+	if (_perGlyph) {
+		const CharsetFonts &f = _charsetFonts[(charsetId >= 0 && charsetId < kMaxFonts) ? charsetId : 0];
+		if (f.latin != Graphics::kHiResLatinProportional)
+			return 0;
+		bool ascii = false, declined = false;
+		face = faceForCodePoint(charsetId, cp, ascii, declined);
+		if (!ascii)
+			return 0;
+	} else {
+		face = faceFor(charsetId, true);
+	}
+	// A bitmap face was drawn for the game's grid (the C31 ruling); a glyph
+	// the face declines is the game's to draw and to step.
+	if (!face || !face->ttf || !glyphInk(*face, cp, nullptr))
+		return 0;
+	const int advance = face->source->advance(cp);
+	if (advance <= 0)
+		return 0;
+	// SCI's proportional rule: the face's advance, rounded to game pixels.
+	return Graphics::latinAdvanceGamePx(Graphics::kHiResMetricsFont, 0, advance, MAX(1, _config.scale));
 }
 
 bool ScummHiResText::wideStepsByFace(int charsetId) const {
@@ -2090,6 +2148,8 @@ void ScummHiResText::setGameFontCell(int charsetId, int width, int height) {
 	if (charsetId >= 0 && charsetId < kMaxFonts) {
 		_gameFontW[charsetId] = width;
 		_gameFontH[charsetId] = height;
+		if (width > 0 && height > 0)
+			_cjkCells = true;
 	}
 }
 

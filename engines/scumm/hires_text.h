@@ -258,6 +258,17 @@ struct ScummHiResText {
 				   int *carry = nullptr) const;
 
 	/**
+	 * Whether the ASCII character @p chr steps by the replacement face's own
+	 * advance rather than the game's Latin width (C34). True when the game
+	 * lays its text out on a CJK font's cells (setGameFontCell()), so the
+	 * face is sized to that cell and not to the game's Latin font, the face
+	 * drawing @p chr is a TrueType one, and no metrics= key - the ini's,
+	 * [render], [font.N] or [latin] - names the metrics outright. The game's
+	 * offsX for the character does not apply then: the face places it.
+	 */
+	bool latinStepsByFace(int chr, int charsetId) const;
+
+	/**
 	 * Whether drawChar() would draw @p chr in @p charsetId rather than
 	 * decline it: a face has an inked glyph for it and the map does not keep
 	 * the game's own. Lets a UTF-8 layout give a code point the patch
@@ -811,6 +822,9 @@ private:
 	 * the map's [render] - names the metrics outright.
 	 */
 	bool wideStepsByFace(int charsetId) const;
+	/// latinStepsByFace()'s step in game pixels, or 0 when the game's
+	/// width stands.
+	int latinFaceStep(int chr, int charsetId) const;
 
 	// The pen after the last base glyph drawn, in overlay pixels, for a
 	// combining mark that follows it.
@@ -873,6 +887,8 @@ private:
 
 	Common::Path _ttfPath;          ///< face to draw from, if any
 	int _gameFontW[kMaxFonts] = {};
+	// setGameFontCell() was given a CJK font's cell: text is laid out on it.
+	bool _cjkCells = false;
 	int _gameFontH[kMaxFonts] = {};
 	void noteDrawn(int charsetId, const Face *face, int chr) const;
 	void flushTextLog() const;
