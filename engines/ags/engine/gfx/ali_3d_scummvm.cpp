@@ -55,6 +55,7 @@ ScummVMRendererGraphicsDriver::ScummVMRendererGraphicsDriver() {
 
 ScummVMRendererGraphicsDriver::~ScummVMRendererGraphicsDriver() {
 	delete _screen;
+	_scaledFrame.free();
 	ScummVMRendererGraphicsDriver::UnInit();
 }
 
@@ -534,31 +535,94 @@ void ScummVMRendererGraphicsDriver::copySurface(const Graphics::Surface &src, bo
 }
 
 void ScummVMRendererGraphicsDriver::Present(int xoff, int yoff, Shared::GraphicFlip flip) {
+	// ScummVM (C23): with a hi-res text scale the display is N x the native
+	// frame (AGS_HIRES_TEXT_DESIGN.md section 5). The virtual screen stays native.
+	const Graphics::Surface &native = virtualScreen->GetAllegroBitmap()->getSurface();
+	const int scale = _G(hiresTextScale);
+	if (scale > 1 && g_system->getWidth() == native.w * scale && g_system->getHeight() == native.h * scale) {
+		PresentScaled(native, xoff, yoff, flip, scale);
+		return;
+	}
+
 	Graphics::Surface *srcTransformed = nullptr;
 	if (xoff != 0 || yoff != 0 || flip != Shared::kFlip_None) {
 		srcTransformed = new Graphics::Surface();
-		srcTransformed->copyFrom(virtualScreen->GetAllegroBitmap()->getSurface());
-		switch(flip) {
-		case kFlip_Horizontal:
-			srcTransformed->flipHorizontal(Common::Rect(srcTransformed->w, srcTransformed->h));
-			break;
-		case kFlip_Vertical:
-			srcTransformed->flipVertical(Common::Rect(srcTransformed->w, srcTransformed->h));
-			break;
-		case kFlip_Both:
-			srcTransformed->flipHorizontal(Common::Rect(srcTransformed->w, srcTransformed->h));
-			srcTransformed->flipVertical(Common::Rect(srcTransformed->w, srcTransformed->h));
-			break;
-		default:
-			break;
-		}
-		srcTransformed->move(xoff, yoff, srcTransformed->h);
+		srcTransformed->copyFrom(native);
+		TransformSurface(*srcTransformed, xoff, yoff, flip);
 	}
 
-	const Graphics::Surface &src = srcTransformed ?
-		*srcTransformed :
-		virtualScreen->GetAllegroBitmap()->getSurface();
+	PresentSurface(srcTransformed ? *srcTransformed : native);
 
+	if (srcTransformed) {
+		srcTransformed->free();
+		delete srcTransformed;
+	}
+}
+
+void ScummVMRendererGraphicsDriver::TransformSurface(Graphics::Surface &surf, int xoff, int yoff, Shared::GraphicFlip flip) {
+	switch(flip) {
+	case kFlip_Horizontal:
+		surf.flipHorizontal(Common::Rect(surf.w, surf.h));
+		break;
+	case kFlip_Vertical:
+		surf.flipVertical(Common::Rect(surf.w, surf.h));
+		break;
+	case kFlip_Both:
+		surf.flipHorizontal(Common::Rect(surf.w, surf.h));
+		surf.flipVertical(Common::Rect(surf.w, surf.h));
+		break;
+	default:
+		break;
+	}
+	surf.move(xoff, yoff, surf.h);
+}
+
+void ScummVMRendererGraphicsDriver::UpscaleNearest(const Graphics::Surface &src, Graphics::Surface &dst, int scale) {
+	// dst is 32-bit ARGB, scale x src; src is any 16/32-bit format
+	const Graphics::PixelFormat &sf = src.format;
+	const bool sameFormat = sf == dst.format;
+	for (int y = 0; y < src.h; ++y) {
+		uint32 *out = (uint32 *)dst.getBasePtr(0, y * scale);
+		if (sameFormat) {
+			const uint32 *in = (const uint32 *)src.getBasePtr(0, y);
+			for (int x = 0; x < src.w; ++x)
+				for (int i = 0; i < scale; ++i)
+					*out++ = in[x];
+		} else {
+			const byte *in = (const byte *)src.getBasePtr(0, y);
+			for (int x = 0; x < src.w; ++x, in += sf.bytesPerPixel) {
+				uint32 c = sf.bytesPerPixel == 2 ? *(const uint16 *)in : *(const uint32 *)in;
+				uint8 a, r, g, b;
+				sf.colorToARGB(c, a, r, g, b);
+				if (sf.aLoss == 8)
+					a = 0xff;
+				const uint32 pixel = dst.format.ARGBToColor(a, r, g, b);
+				for (int i = 0; i < scale; ++i)
+					*out++ = pixel;
+			}
+		}
+		const uint32 *first = (const uint32 *)dst.getBasePtr(0, y * scale);
+		for (int i = 1; i < scale; ++i)
+			memcpy(dst.getBasePtr(0, y * scale + i), first, dst.w * 4);
+	}
+}
+
+void ScummVMRendererGraphicsDriver::PresentScaled(const Graphics::Surface &native, int xoff, int yoff,
+												  Shared::GraphicFlip flip, int scale) {
+	// The N x frame: the native frame nearest-upscaled (the text twins of
+	// C23 T6 will be composed into it here), then shake and flip at N x.
+	const Graphics::PixelFormat argb(4, 8, 8, 8, 8, 16, 8, 0, 24);
+	if (_scaledFrame.w != native.w * scale || _scaledFrame.h != native.h * scale || _scaledFrame.format != argb) {
+		_scaledFrame.free();
+		_scaledFrame.create(native.w * scale, native.h * scale, argb);
+	}
+	UpscaleNearest(native, _scaledFrame, scale);
+	if (xoff != 0 || yoff != 0 || flip != Shared::kFlip_None)
+		TransformSurface(_scaledFrame, xoff * scale, yoff * scale, flip);
+	PresentSurface(_scaledFrame);
+}
+
+void ScummVMRendererGraphicsDriver::PresentSurface(const Graphics::Surface &src) {
 	enum {
 		kRenderInitial, kRenderDirect, kRenderToABGR, kRenderToRGBA,
 		kRenderOther
@@ -612,19 +676,10 @@ void ScummVMRendererGraphicsDriver::Present(int xoff, int yoff, Shared::GraphicF
 		g_system->copyRectToScreen(src.getPixels(), src.pitch,
 			0, 0, src.w, src.h);
 		g_system->updateScreen();
-		if (srcTransformed) {
-			srcTransformed->free();
-			delete srcTransformed;
-		}
 		return;
 
 	default:
 		break;
-	}
-
-	if (srcTransformed) {
-		srcTransformed->free();
-		delete srcTransformed;
 	}
 
 	if (_screen)

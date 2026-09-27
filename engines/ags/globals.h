@@ -733,6 +733,8 @@ public:
 	// ScummVM: fonts from hires_text.map
 	GlyphFontRenderer *_glyphRenderer;
 	HiResFontConfig *_hiresFontConfig;
+	// ScummVM (C23): the hi-res text scale N in effect, gated; 1 = off
+	int _hiresTextScale = 1;
 	SplitLines *_Lines;
 	Shared::Bitmap _wputblock_wrapper; // [IKM] argh! :[
 

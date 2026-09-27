@@ -29,6 +29,10 @@
 #include "ags/engine/ac/game_state.h"
 #include "ags/engine/ac/global_display.h"
 #include "ags/shared/gfx/allegro_bitmap.h"
+#include "ags/engine/gfx/graphics_driver.h"
+#include "common/file.h"
+#include "common/system.h"
+#include "graphics/paletteman.h"
 #include "ags/shared/script/cc_common.h"
 #include "graphics/palette.h"
 #include "image/png.h"
@@ -43,6 +47,7 @@ AGSConsole::AGSConsole(AGSEngine *vm) : GUI::Debugger(), _vm(vm), _logOutputTarg
 	registerCmd("ags_sprite_info",   WRAP_METHOD(AGSConsole, Cmd_getSpriteInfo));
 	registerCmd("ags_sprite_dump",  WRAP_METHOD(AGSConsole, Cmd_dumpSprite));
 	registerCmd("ags_say",  WRAP_METHOD(AGSConsole, Cmd_say));
+	registerCmd("ags_dump_native",  WRAP_METHOD(AGSConsole, Cmd_dumpNative));
 
 	_logOutputTarget = new LogOutputTarget();
 	_agsDebuggerOutput = _GP(DbgMgr).RegisterOutput("ScummVMLog", _logOutputTarget, AGS3::AGS::Shared::kDbgMsg_None);
@@ -355,6 +360,56 @@ void AGSConsole::runPendingSay() {
 	AGS3::DisplayAtY(-1, _sayText.c_str());
 	_GP(play).normal_font = normal;
 	_GP(play).speech_font = speech;
+}
+
+// ags_dump_native <path>
+//
+// The native (game-resolution) frame last presented, as the generic `dump`
+// writes the screen: raw rows at <path>, "w h bits format" at <path>.txt,
+// the palette at <path>.pal for 8-bit. With a hi-res text scale (C23) the
+// screen `dump` reads is N x; this is the frame scripts, plugins,
+// screenshots and saves see (AGS_HIRES_TEXT_DESIGN.md section 8, invariant 2).
+bool AGSConsole::Cmd_dumpNative(int argc, const char **argv) {
+	if (argc != 2) {
+		debugPrintf("Usage: %s <path>\n", argv[0]);
+		return true;
+	}
+	AGS3::AGS::Shared::Bitmap *vs = _G(gfxDriver) ? _G(gfxDriver)->GetMemoryBackBuffer() : nullptr;
+	if (!vs) {
+		debugPrintf("FAIL no frame\n");
+		return true;
+	}
+	const Graphics::Surface &s = vs->GetAllegroBitmap()->getSurface();
+	const Graphics::PixelFormat &pf = s.format;
+	const Common::String path = argv[1];
+	bool ok = true;
+	Common::DumpFile f;
+	if (f.open(Common::Path(path))) {
+		for (int y = 0; y < s.h; y++)
+			f.write((const byte *)s.getBasePtr(0, y), s.w * pf.bytesPerPixel);
+		f.close();
+	} else {
+		ok = false;
+	}
+	if (f.open(Common::Path(path + ".txt"))) {
+		f.writeString(Common::String::format("%d %d %d %s\n", s.w, s.h, pf.bytesPerPixel * 8,
+											 pf.bytesPerPixel == 1 ? "CLUT8" : pf.toString().c_str()));
+		f.close();
+	} else {
+		ok = false;
+	}
+	if (pf.bytesPerPixel == 1) {
+		byte pal[768];
+		g_system->getPaletteManager()->grabPalette(pal, 0, 256);
+		if (f.open(Common::Path(path + ".pal"))) {
+			f.write(pal, sizeof(pal));
+			f.close();
+		} else {
+			ok = false;
+		}
+	}
+	debugPrintf(ok ? "OK %d %d\n" : "FAIL cannot write\n", s.w, s.h);
+	return true;
 }
 
 } // End of namespace AGS
