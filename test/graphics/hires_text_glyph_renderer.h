@@ -1620,6 +1620,96 @@ public:
 					TS_ASSERT(dirty.contains(x, y));
 	}
 
+	/// A shadow moved left and up is inside the dirty area too.
+	void test_dirty_area_reaches_a_shadow_moved_left_and_up() {
+		static const char *const rows[] = { "##", "##" };
+		Pattern p(rows, 2);
+		Planes pl(32, 32);
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowDrop;
+		style.shadowShiftSet = true;
+		style.shadowDx = -5;
+		style.shadowDy = -4;
+
+		Common::Rect dirty;
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(pl.layered(), p.g, 16, 16, style, &dirty));
+		TS_ASSERT_EQUALS(at(pl.uCov, 11, 12), 255);
+		TS_ASSERT_EQUALS(dirty.left, 11);
+		TS_ASSERT_EQUALS(dirty.top, 12);
+		TS_ASSERT_EQUALS(dirty.right, 18);
+		TS_ASSERT_EQUALS(dirty.bottom, 18);
+		for (int y = 0; y < 32; ++y)
+			for (int x = 0; x < 32; ++x)
+				if (at(pl.uCov, x, y))
+					TS_ASSERT(dirty.contains(x, y));
+
+		// Keyed, the same.
+		Graphics::Surface keyed;
+		keyed.create(32, 32, Graphics::PixelFormat::createFormatCLUT8());
+		Common::Rect kd;
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(keyed, nullptr, p.g, 16, 16, style, &kd));
+		TS_ASSERT_EQUALS(at(keyed, 11, 12), 1);
+		TS_ASSERT_EQUALS(kd, dirty);
+		keyed.free();
+	}
+
+	/**
+	 * style=legacy keeps the old step at every scale: the map's offset as
+	 * written, else 1; offset 0 draws nothing, as the old tables did.
+	 */
+	void test_legacy_keeps_the_old_step_at_every_scale() {
+		Graphics::HiResTextConfig map;
+		map.shadowStyle = Graphics::kHiResOutlineLegacy;
+		Graphics::GlyphStyle style;
+		style.shadowColor = 1;
+		style.color = 7;
+
+		style.shadowMode = Graphics::kHiResShadowDrop;
+		Graphics::HiResGlyphRenderer::applyMap(style, map, 3);
+		TS_ASSERT_EQUALS(style.shadowOffset, 1);
+		Graphics::GlyphDecoration d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT_EQUALS(d.shadowDx, 1);
+
+		style.shadowMode = Graphics::kHiResShadowStroke;
+		d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT_EQUALS(d.step, 1);
+
+		map.shadowOffset = 0;
+		Graphics::HiResGlyphRenderer::applyMap(style, map, 2);
+		TS_ASSERT_EQUALS(style.shadowOffset, 0);
+		d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(!d.outline);
+		TS_ASSERT(!d.shadow);
+
+		// The other styles follow the scale.
+		map.shadowStyle = Graphics::kHiResOutlineRound;
+		map.shadowOffset = -1;
+		Graphics::HiResGlyphRenderer::applyMap(style, map, 3);
+		TS_ASSERT_EQUALS(style.shadowOffset, 2);
+	}
+
+	/// The cached pen follows the decoration asked for, not the first one.
+	void test_a_changed_width_is_drawn_with_its_own_pen() {
+		static const char *const rows[] = { "#" };
+		Pattern p(rows, 1);
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowOutline;
+
+		for (int q = 4; q <= 12; q += 4) {
+			Planes pl(24, 24);
+			style.outlineQ = q;
+			TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(pl.layered(), p.g, 12, 12, style));
+			// Solid out to the radius, nothing two pixels beyond it.
+			TS_ASSERT_EQUALS(at(pl.uCov, 12 - q / 4, 12), 255);
+			TS_ASSERT_EQUALS(at(pl.uCov, 12 - q / 4 - 2, 12), 0);
+		}
+	}
+
 	/// What each mode resolves to.
 	void test_decoration_for_each_mode() {
 		Graphics::GlyphStyle style;
