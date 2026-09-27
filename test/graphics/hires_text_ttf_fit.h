@@ -28,10 +28,12 @@
 
 #include <cxxtest/TestSuite.h>
 
+#include "common/algorithm.h"
 #include "common/array.h"
 #include "common/str.h"
 #include "common/memstream.h"
 #include "common/stream.h"
+#include "graphics/hires_text/coverage.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
 
 #include "../system/null_osystem.h"
@@ -44,6 +46,20 @@
 #endif
 
 using Graphics::TtfGlyphSource;
+
+// The faces measured, each overridable by an environment variable (a path
+// to a .ttf/.ttc; face 0 is used). The defaults are macOS system fonts; a
+// test whose face is absent is skipped, visibly.
+//   SCUMMVM_TEST_THAI_FONT   Sukhumvit Set (a Thai face with zero-width marks)
+//   SCUMMVM_TEST_KO_FONT     Apple SD Gothic Neo
+//   SCUMMVM_TEST_JA_FONT     Hiragino Sans W3
+#pragma push_macro("getenv")
+#undef getenv
+static const char *ttfFitTestFontPath(const char *var, const char *def) {
+	const char *v = getenv(var);
+	return (v && *v) ? v : def;
+}
+#pragma pop_macro("getenv")
 
 class HiResTextTtfFitTestSuite : public CxxTest::TestSuite {
 public:
@@ -64,16 +80,21 @@ public:
 	// its OS/2 win line (834 + 250), which kTTFSizeModeCell sizes by, so a
 	// line-fitted face puts the baseline below the cell and SARA UU under
 	// it. The system .ttc's face 0 ("Thin") has the same metrics as the
-	// extracted "Text" face the C11 maps name.
-	static Common::FSNode sukhumvitNode() {
-		Common::FSNode node("/System/Library/Fonts/Supplemental/SukhumvitSet.ttc");
+	// "Text" face the C11 maps name.
+	static Common::FSNode fontNode(const char *var, const char *def) {
+		Common::FSNode node(ttfFitTestFontPath(var, def));
 		if (!node.exists())
-			node = Common::FSNode("/Users/juami/work/scummvm/runs/c11/data/fonts/sukhumvit-text.ttf");
+			TS_SKIP(Common::String::format("%s: no font at '%s'", var, ttfFitTestFontPath(var, def)).c_str());
 		return node;
 	}
-
+	static Common::FSNode sukhumvitNode() {
+		return fontNode("SCUMMVM_TEST_THAI_FONT", "/System/Library/Fonts/Supplemental/SukhumvitSet.ttc");
+	}
 	static Common::FSNode sdGothicNode() {
-		return Common::FSNode("/System/Library/Fonts/AppleSDGothicNeo.ttc");
+		return fontNode("SCUMMVM_TEST_KO_FONT", "/System/Library/Fonts/AppleSDGothicNeo.ttc");
+	}
+	static Common::FSNode hiraginoNode() {
+		return fontNode("SCUMMVM_TEST_JA_FONT", "/System/Library/Fonts/\xe3\x83\x92\xe3\x83\xa9\xe3\x82\xae\xe3\x83\x8e\xe8\xa7\x92\xe3\x82\xb4\xe3\x82\xb7\xe3\x83\x83\xe3\x82\xaf W3.ttc");
 	}
 
 	// The fit's own ink threshold (m7mkfont.py's INK_THRESHOLD): a fainter
@@ -138,7 +159,7 @@ public:
 	void checkThai(bool lineFit, int pixelSize) {
 		Common::FSNode node = sukhumvitNode();
 		if (!node.exists())
-			return; // not on this machine: nothing to measure
+			return;
 		Common::Array<uint32> sample;
 		thaiSample(sample);
 		Common::String error;
@@ -208,6 +229,127 @@ public:
 			delete plain;
 			delete fitted;
 		}
+#endif
+	}
+
+	// fix1: the fits the translation does not reach stay the base's own.
+	// Each case is (face, cell, sample?) -> the size, line top and raster
+	// count the base (6ef770b7d5) picked, measured with it: the legacy fit
+	// with no sample, and a Korean / Japanese sample on the default
+	// (non-line) fit, all of which shrink the face.
+	struct PinnedFit {
+		int face;	///< 0 SD Gothic, 1 Hiragino
+		int sample;	///< 0 none, 1 Korean, 2 Japanese
+		int cell, faceSize, lineTop;
+		uint32 rasterCount;
+	};
+
+	void checkPinned(const PinnedFit *cases, uint count) {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		const uint32 ko[] = { 0xAC00, 0xB098, 0xB2E4, 0xD7A3, 0xBDC1, 0xB620, 0x3131, 0x300C, 0x2026,
+		                      '?', '!', 'g', 'y', '(', 'j', '|' };
+		const uint32 ja[] = { 0x3042, 0x3044, 0x3089, 0x30FC, 0x4E00, 0x6F22, 0x9F8D, 0x300C, 0x300D,
+		                      0x3002, 0xFF08, 0xFF09, 'g', 'j', '|' };
+		for (uint i = 0; i < count; i++) {
+			const PinnedFit &c = cases[i];
+			Common::FSNode node = c.face == 0 ? sdGothicNode() : hiraginoNode();
+			if (!node.exists())
+				return;
+			Common::String error;
+			TtfGlyphSource *src;
+			if (c.sample == 0)
+				src = TtfGlyphSource::create(node.createReadStream(), DisposeAfterUse::YES, c.cell, error);
+			else if (c.sample == 1)
+				src = TtfGlyphSource::create(node.createReadStream(), DisposeAfterUse::YES, c.cell, error, ko, ARRAYSIZE(ko));
+			else
+				src = TtfGlyphSource::create(node.createReadStream(), DisposeAfterUse::YES, c.cell, error, ja, ARRAYSIZE(ja));
+			TS_ASSERT(src != nullptr);
+			if (!src)
+				continue;
+			TS_ASSERT_EQUALS(src->faceSize(), c.faceSize);
+			TS_ASSERT_EQUALS(src->lineTop(), c.lineTop);
+			TS_ASSERT_EQUALS(src->rasterCount(), c.rasterCount);
+			delete src;
+		}
+#endif
+	}
+
+	void test_legacy_fit_without_sample_is_the_base_fit() {
+		const PinnedFit cases[] = {
+			{ 0, 0, 16, 15, 0, 30 },
+			{ 1, 0, 24, 22, 0, 34 },
+			{ 1, 0, 32, 30, 0, 34 },
+			{ 1, 0, 40, 38, 0, 34 },
+		};
+		checkPinned(cases, ARRAYSIZE(cases));
+	}
+
+	void test_cjk_sample_fit_is_the_base_fit() {
+		const PinnedFit cases[] = {
+			{ 0, 1, 16, 15, 0, 46 },
+			{ 0, 1, 24, 23, 0, 46 },
+			{ 0, 1, 32, 31, 0, 46 },
+			{ 1, 2, 24, 22, 0, 49 },
+			{ 1, 2, 32, 30, 0, 49 },
+		};
+		checkPinned(cases, ARRAYSIZE(cases));
+	}
+
+	// A Thai translation with more than 64 distinct characters: sample()
+	// keeps the lowest 64 non-ASCII ones and drops the tone marks
+	// (U+0E48..U+0E4B); fitProbes() keeps every mark, so a line-fitted face
+	// still fits SARA UU and MAI EK.
+	void test_fit_probes_keep_every_mark_of_a_large_translation() {
+		Graphics::CodePointSet set;
+		for (uint32 cp = 0x0E01; cp <= 0x0E3A; cp++)
+			set.add(cp);
+		for (uint32 cp = 0x0E3F; cp <= 0x0E5B; cp++)
+			set.add(cp);
+		for (uint32 cp = 'a'; cp <= 'z'; cp++)
+			set.add(cp);
+		TS_ASSERT(set.size() > 64u);
+
+		Common::Array<uint32> sample, probes;
+		set.sample(64, sample);
+		set.fitProbes(TtfGlyphSource::kMaxExtraFitProbes, probes);
+		TS_ASSERT(Common::find(sample.begin(), sample.end(), 0x0E48u) == sample.end());
+		TS_ASSERT_EQUALS(probes.size(), (uint)TtfGlyphSource::kMaxExtraFitProbes);
+		const uint32 marks[] = { 0x0E31, 0x0E33, 0x0E34, 0x0E38, 0x0E39, 0x0E3A, 0x0E47, 0x0E48,
+		                         0x0E49, 0x0E4A, 0x0E4B, 0x0E4C, 0x0E4D, 0x0E4E };
+		for (uint i = 0; i < ARRAYSIZE(marks); i++)
+			TS_ASSERT(Common::find(probes.begin(), probes.end(), marks[i]) != probes.end());
+		for (uint i = 0; i < probes.size(); i++) {
+			TS_ASSERT(set.contains(probes[i]));
+			for (uint j = 0; j < i; j++)
+				TS_ASSERT_DIFFERS(probes[i], probes[j]);
+		}
+		// A small set: all of it, marks first.
+		Graphics::CodePointSet small;
+		small.add('a');
+		small.add(0x0E01);
+		small.add(0x0E39);
+		small.fitProbes(64, probes);
+		TS_ASSERT_EQUALS(probes.size(), 3u);
+		if (probes.size() == 3)
+			TS_ASSERT_EQUALS(probes[0], 0x0E39u);
+
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		Common::FSNode node = sukhumvitNode();
+		if (!node.exists())
+			return;
+		set.fitProbes(TtfGlyphSource::kMaxExtraFitProbes, probes);
+		Common::String error;
+		TtfGlyphSource *src = TtfGlyphSource::create(node.createReadStream(), DisposeAfterUse::YES, 30, error,
+		                                             false, true, probes.data(), probes.size());
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+		const uint32 check[] = { 0x0E1C, 0x0E39, 0x0E48, 0x0E4B };
+		for (uint i = 0; i < ARRAYSIZE(check); i++) {
+			TS_ASSERT(src->cells(check[i]) > 0);
+			TS_ASSERT_EQUALS(lostInkRows(src, node, true, check[i]), 0);
+		}
+		delete src;
 #endif
 	}
 
