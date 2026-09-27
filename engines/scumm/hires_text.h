@@ -495,6 +495,46 @@ struct ScummHiResText {
 	static bool canBlendText(int version) { return version < 7; }
 
 	/**
+	 * How a game's own charset is flipped (C27): an explicit table, as no
+	 * heuristic on the glyphs is needed for three games. MI1 (v4/v5), MI2
+	 * and Loom CD (v4) have a charset 3 whose glyphs are turned half a turn;
+	 * MI1 draws the dazed dialogue choices in the Fettucini brothers' tent
+	 * (room 51) with it, their strings stored reversed.
+	 *
+	 * @param gameId     the game's id, e.g. "monkey2"
+	 * @param version    its SCUMM version
+	 * @param charsetId  the charset number ([font.N])
+	 */
+	static Graphics::HiResMirror gameMirror(const Common::String &gameId, int version, int charsetId);
+
+	/// Fill the per-charset table from gameMirror(). loadConfig() calls it.
+	void setGameMirror(const Common::String &gameId, int version);
+
+	/**
+	 * How a charset's replacement glyphs are flipped: [font.N] mirror= when
+	 * set - true meaning "as the game's font", or horizontal for a charset
+	 * @p game does not know - else @p game.
+	 */
+	static Graphics::HiResMirror resolveMirror(const Graphics::HiResFontIdSettings *n,
+											   Graphics::HiResMirror game);
+
+	/**
+	 * Whether a character of a flipped charset stays on the game's own font
+	 * (C27): a replacement would draw the face's upright glyphs where the
+	 * game shows turned ones. It does unless [font.N] names face=, mirror=
+	 * or bitmap=, and only for what the game can draw: UTF-8 text beyond
+	 * ASCII has no game glyph, so the replacement draws it, flipped as the
+	 * game's are.
+	 *
+	 * @param n     the charset's [font.N] section, or null
+	 * @param game  gameMirror() for the charset
+	 * @param utf8  the text is UTF-8 (chr is a code point)
+	 * @param chr   the character, as drawChar() is given it
+	 */
+	static bool keepsGameFont(const Graphics::HiResFontIdSettings *n, Graphics::HiResMirror game,
+							  bool utf8, int chr);
+
+	/**
 	 * Whether [font.N]-style per-charset settings are in use: the rule
 	 * resolveCharsetFonts() applies, and loadFonts() reads [font.N]
 	 * bitmap= only when it holds.
@@ -731,9 +771,12 @@ private:
 	bool drawGlyphPlaced(Graphics::Surface &dest, int chr, int lookup, int charsetId,
 						 int x, int y, byte color, byte shadowColor, int gameShadow,
 						 Common::Rect *dirty, bool withCoverage, int gameAdvance);
+	/// @p mirror flips the glyph; across, about [@p axisLeft, @p axisRight).
 	bool drawRows(Graphics::Surface &dest, Face &face, uint32 cp, int width,
 				  int x, int y, byte color, byte shadowColor, int gameShadow,
-				  Common::Rect *dirty, bool withCoverage);
+				  Common::Rect *dirty, bool withCoverage,
+				  Graphics::HiResMirror mirror = Graphics::kHiResMirrorNone,
+				  int axisLeft = 0, int axisRight = 0);
 	/// Rows to move a Latin bitmap glyph down so it shares the charset's baseline.
 	int latinBaselineShift(const Face *face, int charsetId) const;
 	int advancePlaced(int chr, int lookup, int charsetId, int gameWidth, int *carry) const;
@@ -746,6 +789,17 @@ private:
 	int _anchorX = 0;
 	int _anchorY = 0;
 	bool _anchorValid = false;
+	// That base's box across (pen to pen plus advance): a mark of a flipped
+	// charset is flipped about it, so it stays on its base.
+	int _anchorAxisLeft = 0;
+	int _anchorAxisRight = 0;
+
+	// --- flipped charsets (C27) ----------------------------------------
+	Graphics::HiResMirror _gameMirror[kMaxFonts];
+	/// resolveMirror() for one charset of this game and map.
+	Graphics::HiResMirror mirrorFor(int charsetId) const;
+	/// keepsGameFont() for one charset of this game and map.
+	bool keepsGameFont(int charsetId, int chr) const;
 
 	// Coverage (design section 4.4).
 	Graphics::CodePointSet _translationCps;
