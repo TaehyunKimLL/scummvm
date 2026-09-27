@@ -412,10 +412,10 @@ public:
 		TS_ASSERT(inkCount(dest) > 0);
 		TS_ASSERT_EQUALS(hr.sourceCount(), 1);
 
-		// With metrics=game a full-width glyph keeps the game's own advance:
-		// the face is opened at the game cell times the scale, so its wide
-		// cell is exactly that, whatever FreeType's advance at this size.
-		TS_ASSERT_EQUALS(hr.advanceFor(kGaChr, 0, 8), 8);
+		// With no metrics= key a full-width glyph from a face steps by the
+		// face (C31), not by the game's 8: 11px at scale 2 is 6. An explicit
+		// metrics=game keeps the 8 (hires_wide_advance.h).
+		TS_ASSERT_EQUALS(hr.advanceFor(kGaChr, 0, 8), 6);
 
 		// The face is sized as the start-up bake sized it: its line, not its
 		// characters, fills the 16px cell, so the syllable advances 11px and

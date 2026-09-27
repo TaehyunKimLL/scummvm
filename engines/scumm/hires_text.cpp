@@ -1266,9 +1266,13 @@ bool ScummHiResText::drawGlyphPlaced(Graphics::Surface &dest, int chr, int looku
 			metrics = (f.latin == Graphics::kHiResLatinHalf) ? Graphics::kHiResMetricsFont : f.latinMetrics;
 		else if (m.wide)
 			metrics = f.wideMetrics;
+		// A wide TrueType glyph stepping by the face (C31) has no game cell
+		// to be centred in: it is drawn at the pen, as the legacy layout
+		// draws it.
+		const bool faceStep = m.wide && !ascii && face->ttf && wideStepsByFace(charsetId);
 		// metrics=game keeps the game's cell; a glyph narrower than it is
 		// centred in it rather than left against its start.
-		if (metrics == Graphics::kHiResMetricsGame && gameAdvance > 0) {
+		if (metrics == Graphics::kHiResMetricsGame && gameAdvance > 0 && !faceStep) {
 			const int slack = gameAdvance * MAX(1, _config.scale) - own;
 			if (slack > 1)
 				drawX += slack / 2;
@@ -1381,11 +1385,21 @@ int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
 
 	// A glyph that draws nothing is laid out by the game, as it is drawn by
 	// the game: see below.
-	return cellRuleAdvance(face, cp, charsetId, gameWidth, carry, fontMetrics, true);
+	// A double-byte character is the legacy layout's wide glyph.
+	return cellRuleAdvance(face, cp, charsetId, gameWidth, carry, fontMetrics, true,
+						   chr >= 256 && wideStepsByFace(charsetId));
+}
+
+bool ScummHiResText::wideStepsByFace(int charsetId) const {
+	if (_metricsFromIni || _config.metricsSourceSet)
+		return false;
+	const Graphics::HiResFontIdSettings *n = _config.fontIdSettings(charsetId);
+	return !(n && n->metricsSet);
 }
 
 int ScummHiResText::cellRuleAdvance(Face *face, uint32 cp, int charsetId, int gameWidth,
-									int *carry, bool fontMetrics, bool requireInk) const {
+									int *carry, bool fontMetrics, bool requireInk,
+									bool faceFit) const {
 	// drawChar() declines an empty glyph so the game draws its own picture,
 	// so the advance has to be the game's too. Measuring by the replacement
 	// font here while the original is what lands on screen is exactly the
@@ -1431,6 +1445,19 @@ int ScummHiResText::cellRuleAdvance(Face *face, uint32 cp, int charsetId, int ga
 
 	if (advance <= 0)
 		return gameWidth;
+
+	// A wide TrueType glyph with no metrics= key steps by the face (C31): its
+	// advance, widened to its ink, rounded up to game pixels. The game's
+	// width is not a floor here. A Korean patch's cell + 1 is a bitmap
+	// font's grid, which a face drawn inside it leaves as gaps (4 px a
+	// syllable in MI1), and a UTF-8 translation's game width is only the
+	// '?' standing in for the code point; the face is the one width both
+	// encodings share. No carry: every syllable takes the same step. A
+	// bitmap face was drawn for the game's grid and keeps the cell rule.
+	if (faceFit && face->ttf) {
+		const int m = scale();
+		return MAX(1, (m > 1) ? (advance + m - 1) / m : advance);
+	}
 
 	// metrics=game keeps the game's own advance and only needs a floor, so it
 	// must not disturb the carry: the remainder belongs to the font's own
@@ -1508,7 +1535,8 @@ int ScummHiResText::advancePlaced(int chr, int lookup, int charsetId, int gameWi
 	// game's cells (and a legacy Korean layout does not move).
 	if (m.wide)
 		return cellRuleAdvance(face, cp, charsetId, gameWidth, carry,
-							   f.wideMetrics == Graphics::kHiResMetricsFont, false);
+							   f.wideMetrics == Graphics::kHiResMetricsFont, false,
+							   wideStepsByFace(charsetId));
 
 	// Everything else is placed by the face (metrics=font unless a key says
 	// game); a face that gives no advance leaves the game's.
