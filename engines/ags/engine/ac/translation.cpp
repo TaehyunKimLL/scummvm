@@ -31,6 +31,12 @@
 #include "ags/shared/ac/words_dictionary.h"
 #include "ags/shared/core/asset_manager.h"
 #include "ags/shared/debugging/out.h"
+#include "ags/shared/font/glyph_font_renderer.h"
+#include "ags/shared/font/hires_font_config.h"
+#include "graphics/hires_text/coverage.h"
+#include "graphics/hires_text/unicode_props.h"
+#include "ags/shared/font/fonts.h"
+#include "ags/shared/font/ttf_font_renderer.h"
 #include "ags/shared/game/tra_file.h"
 #include "ags/shared/util/stream.h"
 #include "ags/shared/util/string_utils.h"
@@ -171,6 +177,38 @@ bool init_translation(const String &lang, const String &fallback_lang) {
 		}
 		else {
 			Debug::Printf(kDbgMsg_Warn, "WARNING: UTF-8 translation in the ASCII/ANSI game, but no encoding hint for TRA keys conversion");
+		}
+	}
+
+	// ScummVM: a UTF-8 translation's own characters check the fonts from
+	// hires_text.map and join their vertical fit (I18N_TEXT_DESIGN.md 4.4)
+	if (get_uformat() == U_UTF8) {
+		Graphics::CodePointSet cps;
+		bool marks = false;
+		for (const auto &item : _GP(trans).Dict) {
+			cps.addUtf8(item._value.GetCStr(), item._value.GetLength());
+			if (!marks) {
+				const Common::U32String u(item._value.GetCStr(), Common::kUtf8);
+				for (uint i = 0; i < u.size() && !marks; i++)
+					marks = Graphics::Unicode::isCombining(u[i]);
+			}
+		}
+		Common::Array<uint32> sample;
+		cps.sample(64, sample);
+		_GP(hiresFontConfig).setSample(sample);
+		_GP(glyphRenderer).SetTranslationSample(sample);
+		Debug::Printf(kDbgMsg_Info, "Translation's characters: %u distinct, %u sampled for the map's fonts",
+					  cps.size(), (uint)sample.size());
+		// alfont clips combining marks above the line and places them after
+		// their base (measured with Sukhumvit, C11 T8): a hint, no change
+		if (marks && !_GP(hiresFontConfig).active()) {
+			for (size_t i = 0; i < _GP(fonts).size(); ++i) {
+				if (_GP(fonts)[i].RendererInt == &_GP(ttfRenderer)) {
+					Debug::Printf(kDbgMsg_Warn, "WARNING: the translation has combining marks and font %u is a TTF drawn by alfont, "
+								  "which clips and misplaces them; name the fonts in a hires_text.map", (uint)i);
+					break;
+				}
+			}
 		}
 	}
 

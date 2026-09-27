@@ -47,6 +47,9 @@ MODULE_OBJS = \
 	shared/core/asset_manager.o \
 	shared/debugging/debug_manager.o \
 	shared/font/fonts.o \
+	shared/font/glyph_font_draw.o \
+	shared/font/glyph_font_renderer.o \
+	shared/font/hires_font_config.o \
 	shared/font/ttf_font_renderer.o \
 	shared/font/wfn_font.o \
 	shared/font/wfn_font_ext.o \

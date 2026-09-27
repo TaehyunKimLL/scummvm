@@ -1,0 +1,288 @@
+/* ScummVM - Graphic Adventure Engine
+ *
+ * ScummVM is the legal property of its developers, whose names
+ * are too numerous to list here. Please refer to the COPYRIGHT
+ * file distributed with this source distribution.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+
+#include "common/fs.h"
+#include "common/stream.h"
+#include "graphics/managed_surface.h"
+#include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/coverage.h"
+#include "graphics/hires_text/glyph_source_fallback.h"
+#include "graphics/hires_text/glyph_source_svfn.h"
+#include "graphics/hires_text/glyph_source_ttf.h"
+#include "ags/lib/allegro/gfx.h"
+#include "ags/lib/allegro/unicode.h"
+#include "ags/shared/debugging/out.h"
+#include "ags/shared/font/glyph_font_renderer.h"
+
+namespace AGS3 {
+
+using namespace AGS::Shared;
+
+GlyphFontRenderer::~GlyphFontRenderer() {
+	for (auto &it : _fontData) {
+		FreeSources(*it._value);
+		delete it._value;
+	}
+	_fontData.clear();
+}
+
+void GlyphFontRenderer::FreeSources(FontData &fd) {
+	// The FallbackGlyphSource owns the chain; a chain of one is the source.
+	delete fd.Source;
+	fd.Source = nullptr;
+	fd.Chain.clear();
+	fd.Names.clear();
+	fd.Drawer.setSource(nullptr);
+}
+
+bool GlyphFontRenderer::Build(FontData &fd, const Common::Array<uint32> &fitProbes, bool warn) {
+	const HiResFontPlan &plan = fd.Plan;
+	if (plan.kind == HiResFontPlan::kBitmap) {
+		Common::FSNode node(plan.bitmap);
+		Common::SeekableReadStream *stream = (node.exists() && !node.isDirectory()) ? node.createReadStream() : nullptr;
+		Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
+		const bool ok = stream && font->load(*stream);
+		delete stream;
+		if (!ok) {
+			if (warn)
+				Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: %s '%s' is not a readable SVFN font",
+							  plan.source.c_str(), plan.bitmap.toString().c_str());
+			delete font;
+			return false;
+		}
+		fd.Source = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
+		fd.Chain.push_back(fd.Source);
+		fd.Names.push_back(plan.bitmap.baseName().c_str());
+		fd.Size = fd.Source->cellHeight();
+		fd.Name = fd.Names[0];
+		return true;
+	}
+
+	Common::Array<Graphics::UnicodeGlyphSource *> sources;
+	for (uint i = 0; i < plan.faces.size(); i++) {
+		const Common::Path &path = plan.faces[i];
+		Common::FSNode node(path);
+		Common::SeekableReadStream *stream = (node.exists() && !node.isDirectory()) ? node.createReadStream() : nullptr;
+		if (!stream) {
+			if (warn)
+				Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: cannot open font '%s' (%s)",
+							  path.toString().c_str(), plan.source.c_str());
+			continue;
+		}
+		Common::String error;
+		Graphics::TtfGlyphSource *ttf = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, fd.Size, error,
+			fitProbes.empty() ? nullptr : fitProbes.begin(), fitProbes.size());
+		if (!ttf) {
+			if (warn)
+				Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: cannot use font '%s' at %dpx: %s",
+							  path.toString().c_str(), fd.Size, error.c_str());
+			continue;
+		}
+		sources.push_back(ttf);
+		fd.Names.push_back(path.baseName().c_str());
+	}
+	if (sources.empty())
+		return false;
+	fd.Chain = sources;
+	// Every face is opened at one size, so their cells agree and the
+	// fallback source reads any of them.
+	fd.Source = (sources.size() == 1) ? sources[0]
+				: new Graphics::FallbackGlyphSource(sources, DisposeAfterUse::YES);
+	fd.Name = fd.Names[0];
+	return true;
+}
+
+bool GlyphFontRenderer::Attach(int fontNumber, const HiResFontPlan &plan, int gameHeight, bool alpha,
+							   IAGSFontRendererInternal *game, const FontRenderParams &params) {
+	FontData *fd = new FontData();
+	fd->Plan = plan;
+	fd->Game = game;
+	fd->Params = params;
+	fd->Size = plan.size > 0 ? plan.size * MAX(1, params.SizeMultiplier) : gameHeight;
+	if (plan.kind == HiResFontPlan::kFaces &&
+		(fd->Size < Graphics::TtfGlyphSource::kMinPixelSize || fd->Size > Graphics::TtfGlyphSource::kMaxPixelSize)) {
+		const int size = CLIP<int>(fd->Size, Graphics::TtfGlyphSource::kMinPixelSize, Graphics::TtfGlyphSource::kMaxPixelSize);
+		Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: font %d cannot be drawn at %dpx, using %dpx",
+					  fontNumber, fd->Size, size);
+		fd->Size = size;
+	}
+	if (!Build(*fd, Common::Array<uint32>(), true)) {
+		Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: %s names no usable font; font %d stays the game's",
+					  plan.source.c_str(), fontNumber);
+		delete fd;
+		return false;
+	}
+	fd->Drawer.setSource(fd->Source);
+	fd->Drawer.setAlpha(alpha);
+	fd->Fallback.set(game, fontNumber);
+	_fontData[fontNumber] = fd;
+
+	Common::String names;
+	for (uint i = 0; i < fd->Names.size(); i++)
+		names += (i ? ", " : "") + Common::String(fd->Names[i].GetCStr());
+	Debug::Printf(kDbgMsg_Info, "hires text: font %d from %s: %s at %dpx (cell %dx%d), alpha %s",
+				  fontNumber, plan.source.c_str(), names.c_str(), fd->Size,
+				  fd->Source->cellWidth(), fd->Source->cellHeight(), alpha ? "on" : "off");
+	return true;
+}
+
+void GlyphFontRenderer::SetTranslationSample(const Common::Array<uint32> &sample) {
+	if (sample.empty())
+		return;
+	for (auto &it : _fontData) {
+		FontData &fd = *it._value;
+		// A TrueType chain is opened again with the translation's own
+		// characters in the vertical fit (Thai marks, Japanese brackets).
+		if (fd.Plan.kind == HiResFontPlan::kFaces) {
+			FontData fresh;
+			fresh.Plan = fd.Plan;
+			fresh.Size = fd.Size;
+			const uint n = MIN<uint>(sample.size(), Graphics::TtfGlyphSource::kMaxExtraFitProbes);
+			Common::Array<uint32> probes(sample.begin(), n);
+			if (Build(fresh, probes, false)) {
+				FreeSources(fd);
+				fd.Source = fresh.Source;
+				fd.Chain = fresh.Chain;
+				fd.Names = fresh.Names;
+				fd.Drawer.setSource(fd.Source);
+				fresh.Source = nullptr;
+			}
+		}
+		// Each face is asked for what the faces before it lack.
+		Common::Array<uint32> wanted = sample;
+		for (uint i = 0; i < fd.Chain.size() && !wanted.empty(); i++) {
+			Graphics::UnicodeGlyphSource *src = fd.Chain[i];
+			const Graphics::CoverageReport report = Graphics::checkCoverage(src, wanted);
+			const Common::String fallback = (i + 1 < fd.Chain.size()) ? Common::String(fd.Names[i + 1].GetCStr())
+				: Common::String::format("the game's font %d", it._key);
+			const Common::String text = Graphics::coverageWarning(fd.Names[i].GetCStr(), report, fallback);
+			if (!text.empty()) {
+				Common::String line;
+				for (uint c = 0; c <= text.size(); c++) {
+					if (c == text.size() || text[c] == '\n') {
+						if (!line.empty())
+							Debug::Printf(kDbgMsg_Warn, "WARNING: font %d: %s", it._key, line.c_str());
+						line.clear();
+					} else {
+						line += text[c];
+					}
+				}
+			}
+			Common::Array<uint32> missing;
+			for (uint k = 0; k < wanted.size(); k++) {
+				if (src->cells(wanted[k]) <= 0)
+					missing.push_back(wanted[k]);
+			}
+			wanted = missing;
+		}
+	}
+}
+
+bool GlyphFontRenderer::IsGameBitmapFont(int fontNumber) {
+	auto it = _fontData.find(fontNumber);
+	return it != _fontData.end() && it->_value->Game && it->_value->Game->IsBitmapFont();
+}
+
+void GlyphFontRenderer::FreeMemory(int fontNumber) {
+	auto it = _fontData.find(fontNumber);
+	if (it == _fontData.end())
+		return;
+	FontData *fd = it->_value;
+	_fontData.erase(it);
+	if (fd->Game)
+		fd->Game->FreeMemory(fontNumber);
+	FreeSources(*fd);
+	delete fd;
+}
+
+void GlyphFontRenderer::Decode(const char *text) {
+	_cps.resize(0);
+	for (int cp = ugetxc(&text); cp; cp = ugetxc(&text))
+		_cps.push_back((uint32)cp);
+}
+
+int GlyphFontRenderer::GetTextWidth(const char *text, int fontNumber) {
+	FontData &fd = *_fontData[fontNumber];
+	Decode(text);
+	return fd.Drawer.textWidth(_cps.begin(), _cps.size(), &fd.Fallback);
+}
+
+int GlyphFontRenderer::GetTextHeight(const char *text, int fontNumber) {
+	return GetFontHeight(fontNumber);
+}
+
+void GlyphFontRenderer::RenderText(const char *text, int fontNumber, BITMAP *destination, int x, int y, int colour) {
+	FontData &fd = *_fontData[fontNumber];
+	if (y > destination->cb)  // optimisation, as the other renderers
+		return;
+	Decode(text);
+	// Allegro's clip is inclusive; the drawer's is exclusive at right/bottom.
+	const Common::Rect clip = destination->clip ?
+		Common::Rect(destination->cl, destination->ct, destination->cr + 1, destination->cb + 1) :
+		Common::Rect(0, 0, destination->w, destination->h);
+	fd.Fallback.target(destination);
+	fd.Drawer.drawText(*destination->getSurface().surfacePtr(), clip, _cps.begin(), _cps.size(), x, y,
+					   (uint32)colour, &fd.Fallback);
+	fd.Fallback.target(nullptr);
+}
+
+const char *GlyphFontRenderer::GetFontName(int fontNumber) {
+	auto it = _fontData.find(fontNumber);
+	return it != _fontData.end() ? it->_value->Name.GetCStr() : "";
+}
+
+int GlyphFontRenderer::GetFontHeight(int fontNumber) {
+	return _fontData[fontNumber]->Source->cellHeight();
+}
+
+void GlyphFontRenderer::GetFontMetrics(int fontNumber, FontMetrics *metrics) {
+	const int h = GetFontHeight(fontNumber);
+	*metrics = FontMetrics();
+	metrics->NominalHeight = h;
+	metrics->RealHeight = h;
+	metrics->CompatHeight = h;
+	metrics->VExtent = std::make_pair(0, h);
+}
+
+void GlyphFontRenderer::AdjustFontForAntiAlias(int fontNumber, bool aa_mode) {
+	auto it = _fontData.find(fontNumber);
+	if (it != _fontData.end() && it->_value->Game)
+		it->_value->Game->AdjustFontForAntiAlias(fontNumber, aa_mode);
+}
+
+int GlyphFontRenderer::GameFallback::charWidth(uint32 cp) {
+	if (!_game)
+		return 0;
+	char buf[8] = { 0 };
+	usetc(buf, (int)cp);
+	return _game->GetTextWidth(buf, _font);
+}
+
+void GlyphFontRenderer::GameFallback::drawChar(uint32 cp, int x, int y, uint32 colour) {
+	if (!_game || !_dst)
+		return;
+	char buf[8] = { 0 };
+	usetc(buf, (int)cp);
+	_game->RenderText(buf, _font, _dst, x, y, (int)colour);
+}
+
+} // namespace AGS3
