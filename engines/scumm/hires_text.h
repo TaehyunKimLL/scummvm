@@ -384,7 +384,9 @@ struct ScummHiResText {
 	 *
 	 * A map naming neither bitmap fonts nor a TrueType face is almost
 	 * always one written for the older TrueType loader. A map that names a
-	 * face (or an ini key that does) is used, and must not be warned about.
+	 * face (or an ini key that does) is used, and must not be warned about -
+	 * and that includes a face named only through a [hires] or [font.N]
+	 * face= chain, or a [font.N] bitmap=.
 	 *
 	 * @param config   the parsed map
 	 * @param ttfPath  the face in effect: the ini's hires_text_font, else
@@ -392,6 +394,58 @@ struct ScummHiResText {
 	 */
 	static bool mapNamesNoFonts(const Graphics::HiResTextConfig &config,
 								const Common::Path &ttfPath);
+
+	/**
+	 * The decoration [shadow] mode=game asks for, from the game's shadow byte.
+	 *
+	 * A mode named in the map wins. Otherwise 1 is none, 2 a drop, 3 stroke
+	 * and anything else the outline, as the Korean patches' own renderer
+	 * reads byte 1 of korean%02d.fnt - except that 0 is an outline only when
+	 * such a font set it (@p korPatchShadow); an unset 0 draws nothing.
+	 */
+	static Graphics::HiResShadowMode resolveShadow(Graphics::HiResShadowMode fromMap,
+												   int gameShadow, bool korPatchShadow);
+
+	/**
+	 * Say whether the game's shadow byte comes from the Korean patch fonts,
+	 * drawn by drawBits1Kor() (a kor-trs v1-v6 target). v7 draws its own
+	 * shadow in draw2byte() and is left out.
+	 */
+	void setKorPatchShadow(bool on) { _korPatchShadow = on; }
+
+	/**
+	 * Whether a map asks for blended text.
+	 *
+	 * The map's own alpha= wins. Without one, a map whose fonts carry
+	 * coverage - a TrueType face, or an 8 bpp (anti-aliased) SVFN - blends,
+	 * as AGS and the map-less forms already do: drawing such a font keyed
+	 * keeps only the pixels covered at least 0x40 (any coverage at all
+	 * before C17) and gives stepped edges. A map of 1 bpp stencils has
+	 * nothing to blend and stays keyed, and so does a game that cannot
+	 * blend (canBlendText()): defaulting it on would only earn a warning.
+	 *
+	 * @param config               the parsed map
+	 * @param namesFace            a TrueType face is in effect (ini or map)
+	 * @param namesCoverageBitmap  a bitmap font the map names is 8 bpp
+	 * @param gameCanBlend         canBlendText() for the running game
+	 */
+	static bool mapWantsAlpha(const Graphics::HiResTextConfig &config,
+							  bool namesFace, bool namesCoverageBitmap,
+							  bool gameCanBlend);
+
+	/**
+	 * Whether this SCUMM version can blend hi-res text at all. v7 and v8
+	 * leave the backend palette to SMUSH, so init() keeps their screen
+	 * paletted and draws the text keyed (see scumm.cpp).
+	 */
+	static bool canBlendText(int version) { return version < 7; }
+
+	/**
+	 * Whether [font.N]-style per-charset settings are in use: the rule
+	 * resolveCharsetFonts() applies, and loadFonts() reads [font.N]
+	 * bitmap= only when it holds.
+	 */
+	static bool usesPerGlyph(const Graphics::HiResTextConfig &config);
 
 	/**
 	 * Whether the CJK conversion tables (encoding.dat) can be read.
@@ -648,6 +702,7 @@ private:
 	void checkCoverage(const Face *face, const Common::String &key) const;
 
 	void freeFaces();
+	bool namedBitmapHasCoverage(const Common::Path &gameDir) const;
 	bool loadBitmapFile(const Common::Path &gameDir, const Common::String &name,
 						int charsetId, bool latin);
 
@@ -693,6 +748,7 @@ private:
 	// In alpha mode the backend is given no palette, so we keep our own: the
 	// packed colour for compositing, and the RGB triples the cursor needs.
 	bool _alphaActive;
+	bool _korPatchShadow;
 	uint32 _paletteCache[256];
 	byte _paletteRGB[3 * 256];
 };
