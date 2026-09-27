@@ -448,4 +448,28 @@ public:
 		src.free();
 		dst.free();
 	}
+
+	void test_mark_after_a_fallback_base() {
+		// Z is the game font's (5 game px); the mark after it sits against
+		// the end of Z's upscaled cell, N x the pen after Z, with the N x
+		// mark's own originX.
+		AgsBoxGlyphSource small(4, 1), big(8, 2);
+		small.add(0x0E48, 0, 2, 0, 1, 0, 1);
+		big.add(0x0E48, 0, 5, 0, 1, 0, 2);
+		AgsFakeScaled scaled(&big, 2);
+		AgsFakeScaledFallback fb;
+		AGS3::GlyphTextDrawer d(&small, true);
+		Graphics::Surface s;
+		s.create(32, 2, Graphics::PixelFormat::createFormatCLUT8());
+		agsClear8(s);
+		const uint32 text[] = { 'Z', 0x0E48 };
+		d.drawTextScaled(s, Common::Rect(0, 0, 32, 2), text, 2, 1, 0, 9, &fb, scaled);
+		TS_ASSERT_EQUALS(fb.scaledCalls, 1);
+		TS_ASSERT_EQUALS(fb.lastX, 1);
+		int l, r;
+		agsInkColumns(s, 0, 32, l, r);
+		TS_ASSERT_EQUALS(l, 2 * (1 + 5) - 5);
+		TS_ASSERT_EQUALS(r, 2 * (1 + 5) - 5);
+		s.free();
+	}
 };
