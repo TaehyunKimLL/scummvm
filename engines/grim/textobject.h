@@ -151,6 +151,11 @@ protected:
 private:
 	template <typename S>
 	void setupTextReal(S msg, Common::String (*convert)(const S &s));
+	/** Break msg into lines of at most maxWidth, joined by '\n' in message; sets _numberLines. */
+	template <typename S>
+	void wrapMessage(const S &msg, int maxWidth, S &message);
+	/** Unicode text (a UTF-8 or UTF-16 table): the shared layout stage. */
+	void wrapMessage(const Common::U32String &msg, int maxWidth, Common::U32String &message);
 };
 
 } // end of namespace Grim
