@@ -237,6 +237,13 @@ void ScummHiResText::resolveCharsetFonts() {
 		else if (_config.hiresSizeSet)
 			f.size = _config.hiresSize;
 
+		// A pixel font's design size (C28): held on its grid, in the cell
+		// size= names or else the game's own.
+		if (n && n->pixelSet)
+			f.pixel = n->pixel;
+		else if (_config.hiresPixelSet)
+			f.pixel = _config.hiresPixel;
+
 		// SCUMM's own Latin behaviour, before the modes existed, was to draw
 		// ASCII with the replacement: that is what "proportional" names, so
 		// it is the default here, as [latin] enabled=true is SCI's alias for
@@ -680,7 +687,7 @@ ScummHiResText::Face *ScummHiResText::ttfFaceFor(int charsetId) const {
 	if (_ttfFacePx[charsetId] == pixelSize)
 		return _ttfFaces[charsetId];
 
-	Face *face = openTtfChain(chain, pixelSize, lineFit);
+	Face *face = openTtfChain(chain, pixelSize, lineFit, _charsetFonts[charsetId].pixel);
 	_ttfFaces[charsetId] = face;
 	_ttfFacePx[charsetId] = pixelSize;
 	return face;
@@ -721,15 +728,17 @@ int ScummHiResText::ttfCellWidth(int charsetId) const {
 }
 
 ScummHiResText::Face *ScummHiResText::openTtfChain(const Common::Array<Common::Path> &chain,
-												  int pixelSize, bool lineFit) const {
+												  int pixelSize, bool lineFit, int pixelGrid) const {
 	Common::String chainKey;
 	for (uint i = 0; i < chain.size(); ++i) {
 		if (i)
 			chainKey += '|';
 		chainKey += chain[i].toString('/');
 	}
-	const Common::String key = Common::String::format("ttf:%s@%d%s", chainKey.c_str(), pixelSize,
-													  lineFit ? "" : "c");
+	Common::String key = Common::String::format("ttf:%s@%d%s", chainKey.c_str(), pixelSize,
+												lineFit ? "" : "c");
+	if (pixelGrid > 0)
+		key += Common::String::format("p%d", pixelGrid);
 	Common::HashMap<Common::String, Face *>::iterator it = _sources.find(key);
 	if (it != _sources.end())
 		return it->_value;
@@ -786,9 +795,14 @@ ScummHiResText::Face *ScummHiResText::openTtfChain(const Common::Array<Common::P
 		// then leave the cell (Thai marks below Sukhumvit Set's line), when
 		// the face is moved and shrunk to keep it inside. A size the map
 		// names is the characters' (SCI's meaning), fitted with the sample.
+		// A pixel font (pixel=) is opened on its grid in this cell and never
+		// fitted: neither the line fit nor the sample may move it off grid.
 		Common::String error;
 		Graphics::TtfGlyphSource *ttf;
-		if (lineFit)
+		if (pixelGrid > 0)
+			ttf = Graphics::TtfGlyphSource::createPixel(stream, DisposeAfterUse::YES, pixelSize, pixelGrid,
+														error, faceIndex);
+		else if (lineFit)
 			ttf = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, pixelSize, error,
 												   requireHangul, true,
 												   _fitProbes.empty() ? nullptr : _fitProbes.begin(),
@@ -808,6 +822,9 @@ ScummHiResText::Face *ScummHiResText::openTtfChain(const Common::Array<Common::P
 		ttf->setCoverageGamma(_config.coverageGamma);
 		debug(1, "SCUMM: hi-res TrueType font %s opened at %dpx: %u probe glyphs rasterised in %u ms",
 			  chain[i].baseName().c_str(), pixelSize, ttf->rasterCount(), ttf->totalRenderMs());
+		if (pixelGrid > 0)
+			debug(1, "SCUMM: hi-res TrueType font %s is a pixel font of %dpx: %dppem in the %dpx cell, line top %d",
+				  chain[i].baseName().c_str(), pixelGrid, ttf->faceSize(), pixelSize, ttf->lineTop());
 		sources.push_back(ttf);
 		names.push_back(chain[i].baseName());
 	}
@@ -2048,7 +2065,7 @@ bool ScummHiResText::mapNamesNoFonts(const Graphics::HiResTextConfig &config,
 }
 
 bool ScummHiResText::usesPerGlyph(const Graphics::HiResTextConfig &config) {
-	return config.hiresFaceSet || config.hiresSizeSet || !config.fontIds.empty() ||
+	return config.hiresFaceSet || config.hiresSizeSet || config.hiresPixelSet || !config.fontIds.empty() ||
 		   config.latinModeSet || config.latinSpaceSet ||
 		   config.encoding == Common::kUtf8;
 }

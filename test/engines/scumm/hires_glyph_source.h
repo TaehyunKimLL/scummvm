@@ -1,6 +1,7 @@
 #include <cxxtest/TestSuite.h>
 
 #include "common/array.h"
+#include "common/fs.h"
 #include "common/memstream.h"
 #include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/glyph_renderer.h"
@@ -446,6 +447,71 @@ public:
 		TS_ASSERT_EQUALS(hr.sourceCount(), 3);
 
 		dest.free();
+#else
+		TS_SKIP("needs FreeType and a real filesystem");
+#endif
+	}
+
+	// C28: [font.N] pixel= holds a pixel font on its grid in the game's own
+	// cell (MI2 at 2x: 9 * 2 = 18), where the line fit would open it at 14
+	// and size= would shrink it and the cell with it; with size= too the
+	// cell is size='s. A charset without the key is opened as before.
+	void test_pixel_key_holds_the_design_size_in_the_game_cell() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		Common::String path;
+		{
+#pragma push_macro("getenv")
+#undef getenv
+			const char *dir = getenv("SCUMMVM_TEST_PIXEL_FONT_DIR");
+			const char *data = getenv("SCUMMVM_TEST_I18N_DATA");
+#pragma pop_macro("getenv")
+			if (dir && *dir)
+				path = Common::String::format("%s/Galmuri11.ttf", dir);
+			else if (data && *data)
+				path = Common::String::format("%s/../fonts/pixel/galmuri/Galmuri11.ttf", data);
+		}
+		if (path.empty() || !Common::FSNode(Common::Path(path, '/')).exists()) {
+			TS_SKIP("Galmuri11.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
+			return;
+		}
+
+		Graphics::HiResTextConfig c = koreanConfig();
+		c.encoding = Common::kUtf8;
+		for (int id = 2; id <= 4; id++) {
+			Graphics::HiResFontIdSettings &f = c.fontIds[id];
+			f.face = path;
+			f.faceChain.push_back(Common::Path(path, '/'));
+			f.faceSet = true;
+		}
+		c.fontIds[2].pixel = 12;
+		c.fontIds[2].pixelSet = true;
+		c.fontIds[3].pixel = 12;
+		c.fontIds[3].pixelSet = true;
+		c.fontIds[3].size = 16;
+		c.fontIds[3].sizeSet = true;
+
+		Scumm::HiResOverlay overlay;
+		overlay.create(96, 40, true);
+		Scumm::ScummHiResText hr;
+		hr.useOverlay(&overlay);
+		hr.adoptConfig(c);
+		for (int id = 2; id <= 4; id++)
+			hr.setGameFontCell(id, 9, 9);
+		TS_ASSERT(hr.loadFonts(Common::Path()));
+
+		const Graphics::TtfGlyphSource *s2 = static_cast<const Graphics::TtfGlyphSource *>(hr.sourceFor(2, false));
+		const Graphics::TtfGlyphSource *s3 = static_cast<const Graphics::TtfGlyphSource *>(hr.sourceFor(3, false));
+		const Graphics::TtfGlyphSource *s4 = static_cast<const Graphics::TtfGlyphSource *>(hr.sourceFor(4, false));
+		TS_ASSERT(s2 && s3 && s4);
+		if (!s2 || !s3 || !s4)
+			return;
+		TS_ASSERT_EQUALS((int)s2->cellHeight(), 18);
+		TS_ASSERT_EQUALS(s2->faceSize(), 12);
+		TS_ASSERT_EQUALS((int)s3->cellHeight(), 16);
+		TS_ASSERT_EQUALS(s3->faceSize(), 12);
+		TS_ASSERT_EQUALS((int)s4->cellHeight(), 18);
+		TS_ASSERT_DIFFERS(s4->faceSize(), 12);
+		TS_ASSERT(s2 != s4);
 #else
 		TS_SKIP("needs FreeType and a real filesystem");
 #endif

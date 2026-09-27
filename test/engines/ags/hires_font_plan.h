@@ -131,6 +131,19 @@ public:
 		TS_ASSERT_EQUALS(c.plan(0).gamma, 100);
 	}
 
+	void test_plan_carries_the_pixel_design_size() {
+		// C28: [font.N] pixel= over [hires] pixel=; 0 when neither names one.
+		const Graphics::HiResTextConfig map = agsParseMap(
+			"[hires]\npixel=16\n[fonts]\ndefault=d.ttf\n[font.1]\nface=d.ttf\npixel=12\n", "x");
+		const Graphics::HiResTextConfig plain = agsParseMap("[fonts]\ndefault=d.ttf\n", "x");
+		AGS3::HiResFontConfig c;
+		c.configure(&map, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		TS_ASSERT_EQUALS(c.plan(0).pixel, 16);
+		TS_ASSERT_EQUALS(c.plan(1).pixel, 12);
+		c.configure(&plain, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		TS_ASSERT_EQUALS(c.plan(0).pixel, 0);
+	}
+
 	void test_nothing_named_is_the_game_font() {
 		AGS3::HiResFontConfig c;
 		c.configure(nullptr, Common::Path(), Common::Array<Common::Path>(), 16);

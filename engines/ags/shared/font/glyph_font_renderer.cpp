@@ -97,7 +97,11 @@ bool GlyphFontRenderer::Build(FontData &fd, const Common::Array<uint32> &fitProb
 							  path.toString().c_str(), plan.source.c_str());
 			continue;
 		}
-		Graphics::TtfGlyphSource *ttf = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, fd.Size, error,
+		// A pixel font (pixel=) is held on its grid in the fd.Size cell,
+		// never shrunk by the fit (C28).
+		Graphics::TtfGlyphSource *ttf = plan.pixel > 0
+			? Graphics::TtfGlyphSource::createPixel(stream, DisposeAfterUse::YES, fd.Size, plan.pixel, error, faceIndex)
+			: Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, fd.Size, error,
 			false, false, fitProbes.empty() ? nullptr : fitProbes.begin(), fitProbes.size(), faceIndex);
 		if (!ttf) {
 			if (warn)
@@ -160,8 +164,9 @@ void GlyphFontRenderer::SetTranslationSample(const Common::Array<uint32> &sample
 	for (auto &it : _fontData) {
 		FontData &fd = *it._value;
 		// A TrueType chain is opened again with the translation's own
-		// characters in the vertical fit (Thai marks, Japanese brackets).
-		if (fd.Plan.kind == HiResFontPlan::kFaces) {
+		// characters in the vertical fit (Thai marks, Japanese brackets);
+		// a pixel font is not fitted, so it is kept as it is.
+		if (fd.Plan.kind == HiResFontPlan::kFaces && fd.Plan.pixel <= 0) {
 			FontData fresh;
 			fresh.Plan = fd.Plan;
 			fresh.Size = fd.Size;
