@@ -39,6 +39,7 @@
 #include "ags/shared/core/platform.h"
 #include "ags/shared/gfx/bitmap.h"
 #include "ags/engine/gfx/ddb.h"
+#include "ags/engine/gfx/hires_twin.h"
 #include "ags/engine/gfx/gfx_driver_factory_base.h"
 #include "ags/engine/gfx/gfx_driver_base.h"
 
@@ -76,8 +77,13 @@ public:
 	}
 	void SetLightLevel(int /*lightLevel*/) override {}
 	void SetTint(int /*red*/, int /*green*/, int /*blue*/, int /*tintSaturation*/) override {}
+	void SetHiResTwin(std::shared_ptr<HiResTwin> twin) override {
+		_twin = twin;
+	}
 
 	Bitmap *_bmp = nullptr;
+	// ScummVM (C23): _bmp N x with hi-res text; dropped when _bmp changes
+	std::shared_ptr<HiResTwin> _twin;
 	bool _flipped = false;
 	int _stretchToWidth = 0, _stretchToHeight = 0;
 	int _alpha = 255;
@@ -249,8 +255,48 @@ protected:
 
 private:
 	Graphics::Screen *_screen = nullptr;
-	// ScummVM (C23): the N x frame when a hi-res text scale is active
-	Graphics::Surface _scaledFrame;
+	// ScummVM (C23 T6): composing text twins into the N x frame
+	// (AGS_HIRES_TEXT_DESIGN.md section 5.2). From the first sprite with a
+	// usable twin on, the native frame is kept (the snapshot) and every
+	// later draw onto the screen is recorded (the tail); Present() replays
+	// the tail at N x over the upscaled snapshot.
+	struct HiResTailEntry {
+		enum Kind { kSprite, kTint, kPatch };
+		Kind kind = kSprite;
+		Common::Rect clip;					///< native screen pixels
+		// kSprite
+		Bitmap *bmp = nullptr;
+		std::shared_ptr<HiResTwin> twin;	///< nullptr: the native bitmap, upscaled
+		int x = 0, y = 0;					///< native screen pixels
+		int alpha = 255;
+		bool opaque = false, hasAlpha = false;
+		// kTint
+		int r = 0, g = 0, b = 0;
+		// kPatch: native pixels a plugin hook or a batch blit changed
+		std::shared_ptr<Bitmap> before, after;	///< clip's area
+	};
+	std::vector<HiResTailEntry> _hiresTail;
+	std::unique_ptr<Bitmap> _hiresSnapshot;	///< native, when taken this frame
+	bool _hiresSnapshotTaken = false;
+	bool _hiresComposeNext = false;			///< Present() follows RenderToBackBuffer()
+	Bitmap *_hiresTailScreen = nullptr;		///< the virtual screen the tail belongs to
+	std::unique_ptr<Bitmap> _hiresPatchBefore;
+	std::unique_ptr<Bitmap> _hiresFrame;	///< N x, 32-bit, where the tail is replayed
+	std::unique_ptr<Bitmap> _hiresScratch;	///< a sprite upscaled for replay
+	std::unique_ptr<Bitmap> _hiresScratchSub;
+
+	bool HiResScreenOffset(Bitmap *surface, Point &off) const;
+public:
+	/** C23: the screen rects (native pixels) of the N x text records in the
+	 *  last composed frame, for ags_hires_rects. */
+	const Common::Array<Common::Rect> &GetHiResTextRects() const { return _hiresLastRects; }
+private:
+	Common::Array<Common::Rect> _hiresLastRects;
+	void HiResTakeSnapshot();
+	void HiResPatchBegin();
+	void HiResPatchEnd();
+	void HiResReplay(Bitmap &frame, int scale);
+	Bitmap *HiResUpscaled(Bitmap *src, int scale);
 	PSDLRenderFilter _filter;
 
 	bool _hasGamma = false;

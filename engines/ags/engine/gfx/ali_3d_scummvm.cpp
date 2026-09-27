@@ -56,7 +56,6 @@ ScummVMRendererGraphicsDriver::ScummVMRendererGraphicsDriver() {
 
 ScummVMRendererGraphicsDriver::~ScummVMRendererGraphicsDriver() {
 	delete _screen;
-	_scaledFrame.free();
 	ScummVMRendererGraphicsDriver::UnInit();
 }
 
@@ -263,6 +262,7 @@ void ScummVMRendererGraphicsDriver::UpdateDDBFromBitmap(IDriverDependantBitmap *
 	ALSoftwareBitmap *alSwBmp = (ALSoftwareBitmap *)bitmapToUpdate;
 	alSwBmp->_bmp = bitmap;
 	alSwBmp->_hasAlpha = has_alpha;
+	alSwBmp->_twin.reset();
 }
 
 void ScummVMRendererGraphicsDriver::DestroyDDB(IDriverDependantBitmap *bitmap) {
@@ -393,6 +393,11 @@ void ScummVMRendererGraphicsDriver::RenderToBackBuffer() {
 	// be required (similarly to how AGS caches flipped/scaled object sprites now for).
 	//
 
+	// ScummVM (C23): a fresh tail each frame
+	_hiresTail.clear();
+	_hiresSnapshotTaken = false;
+	const bool hires = _G(hiresTextScale) > 1;
+
 	const size_t last_batch_to_rend = _spriteBatchDesc.size() - 1;
 	for (size_t cur_bat = 0u, last_bat = 0u, cur_spr = 0u; last_bat <= last_batch_to_rend;) {
 		// Test if we are entering this batch (and not continuing after coming back from nested)
@@ -438,7 +443,15 @@ void ScummVMRendererGraphicsDriver::RenderToBackBuffer() {
 			// If we're not drawing directly to the subregion of a parent surface,
 			// then blit our own surface to the parent's
 			if (surface && !batch.IsParentRegion) {
+				// ScummVM (C23): after the snapshot, a batch's own surface
+				// reaches the screen as native pixels
+				Point off;
+				const bool patch = hires && _hiresSnapshotTaken && HiResScreenOffset(parent_surf, off);
+				if (patch)
+					HiResPatchBegin();
 				parent_surf->StretchBlt(surface, viewport, batch.Opaque ? kBitmap_Copy : kBitmap_Transparency);
+				if (patch)
+					HiResPatchEnd();
 			}
 
 			// Back to the parent batch
@@ -458,17 +471,36 @@ void ScummVMRendererGraphicsDriver::RenderToBackBuffer() {
 }
 
 size_t ScummVMRendererGraphicsDriver::RenderSpriteBatch(const ALSpriteBatch &batch, size_t from, Bitmap *surface, int surf_offx, int surf_offy) {
+	const int hiresScale = _G(hiresTextScale);
 	for (; (from < _spriteList.size()) && (_spriteList[from].node == batch.ID); ++from) {
 		const auto &sprite = _spriteList[from];
+		// ScummVM (C23): where this surface is on the screen, when it is
+		Point hiresOff;
+		const bool hiresOnScreen = hiresScale > 1 && HiResScreenOffset(surface, hiresOff);
 		if (sprite.ddb == nullptr) {
+			// A plugin hook cannot be replayed at N x: its native change is
+			const bool patch = hiresOnScreen && _hiresSnapshotTaken;
+			if (patch)
+				HiResPatchBegin();
 			if (_spriteEvtCallback)
 				_spriteEvtCallback(sprite.x, sprite.y);
 			else
 				error("Unhandled attempt to draw null sprite");
+			if (patch)
+				HiResPatchEnd();
 			// Stage surface could have been replaced by plugin
 			surface = _stageVirtualScreen;
 			continue;
 		} else if (sprite.ddb == reinterpret_cast<ALSoftwareBitmap *>(DRAWENTRY_TINT)) {
+			if (hiresOnScreen && _hiresSnapshotTaken) {
+				HiResTailEntry e;
+				e.kind = HiResTailEntry::kTint;
+				e.clip = Common::Rect(hiresOff.X, hiresOff.Y, hiresOff.X + surface->GetWidth(), hiresOff.Y + surface->GetHeight());
+				e.r = _tint_red;
+				e.g = _tint_green;
+				e.b = _tint_blue;
+				_hiresTail.push_back(e);
+			}
 			// draw screen tint fx
 			set_trans_blender(_tint_red, _tint_green, _tint_blue, 0);
 			surface->LitBlendBlt(surface, 0, 0, 128);
@@ -478,6 +510,29 @@ size_t ScummVMRendererGraphicsDriver::RenderSpriteBatch(const ALSpriteBatch &bat
 		ALSoftwareBitmap *bitmap = sprite.ddb;
 		int drawAtX = sprite.x + surf_offx;
 		int drawAtY = sprite.y + surf_offy;
+
+		// ScummVM (C23): from the first usable twin on, record the draws
+		if (hiresOnScreen && bitmap->_alpha != 0 && bitmap->_bmp &&
+			!(bitmap->_opaque && bitmap->_bmp == surface && bitmap->_alpha == 255)) {
+			const bool twin = bitmap->_twin && bitmap->_twin->GetWidth() == bitmap->_bmp->GetWidth() * hiresScale &&
+				bitmap->_twin->GetHeight() == bitmap->_bmp->GetHeight() * hiresScale;
+			if (twin && !_hiresSnapshotTaken)
+				HiResTakeSnapshot();
+			if (_hiresSnapshotTaken) {
+				HiResTailEntry e;
+				e.kind = HiResTailEntry::kSprite;
+				e.clip = Common::Rect(hiresOff.X, hiresOff.Y, hiresOff.X + surface->GetWidth(), hiresOff.Y + surface->GetHeight());
+				e.bmp = bitmap->_bmp;
+				if (twin)
+					e.twin = bitmap->_twin;
+				e.x = hiresOff.X + drawAtX;
+				e.y = hiresOff.Y + drawAtY;
+				e.alpha = bitmap->_alpha;
+				e.opaque = bitmap->_opaque;
+				e.hasAlpha = bitmap->_hasAlpha;
+				_hiresTail.push_back(e);
+			}
+		}
 
 		if (bitmap->_alpha == 0) {
 		} // fully transparent, do nothing
@@ -618,7 +673,9 @@ void ScummVMRendererGraphicsDriver::DisableHiResTextScale(int w, int h) {
 	Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: the screen is %d x %d, not %d x the game's %d x %d; scale 1 from now on",
 				  g_system->getWidth(), g_system->getHeight(), _G(hiresTextScale), w, h);
 	_G(hiresTextScale) = 1;
-	_scaledFrame.free();
+	_hiresFrame.reset();
+	_hiresTail.clear();
+	_hiresSnapshotTaken = false;
 	// Graphics::Screen keeps the size it was made at
 	delete _screen;
 	_screen = nullptr;
@@ -628,16 +685,29 @@ void ScummVMRendererGraphicsDriver::DisableHiResTextScale(int w, int h) {
 
 void ScummVMRendererGraphicsDriver::PresentScaled(const Graphics::Surface &native, int xoff, int yoff,
 												  Shared::GraphicFlip flip, int scale) {
-	// The N x frame: the native frame nearest-upscaled (the text twins of
-	// C23 T6 will be composed into it here), then shake and flip at N x.
+	// The N x frame: the native frame nearest-upscaled, or, when text twins
+	// were drawn this frame, the native frame from just before the first of
+	// them upscaled with everything drawn after it replayed at N x
+	// (AGS_HIRES_TEXT_DESIGN.md section 5.2); then shake and flip at N x.
 	const Graphics::PixelFormat argb(4, 8, 8, 8, 8, 16, 8, 0, 24);
-	if (_scaledFrame.w != native.w * scale || _scaledFrame.h != native.h * scale || _scaledFrame.format != argb) {
-		_scaledFrame.free();
-		_scaledFrame.create(native.w * scale, native.h * scale, argb);
+	if (!_hiresFrame || _hiresFrame->GetWidth() != native.w * scale || _hiresFrame->GetHeight() != native.h * scale)
+		_hiresFrame.reset(new Bitmap(native.w * scale, native.h * scale, 32));
+	Graphics::Surface &frame = *_hiresFrame->GetAllegroBitmap()->getSurface().surfacePtr();
+
+	const bool compose = _hiresComposeNext && _hiresSnapshotTaken && virtualScreen == _hiresTailScreen;
+	if (compose || _hiresComposeNext)
+		_hiresLastRects.clear();
+	if (compose) {
+		UpscaleNearest(_hiresSnapshot->GetAllegroBitmap()->getSurface().rawSurface(), frame, scale);
+		HiResReplay(*_hiresFrame, scale);
+	} else {
+		UpscaleNearest(native, frame, scale);
 	}
-	UpscaleNearest(native, _scaledFrame, scale);
+	_hiresTail.clear();
+	_hiresSnapshotTaken = false;
+
 	if (xoff != 0 || yoff != 0 || flip != Shared::kFlip_None)
-		TransformSurface(_scaledFrame, xoff * scale, yoff * scale, flip);
+		TransformSurface(frame, xoff * scale, yoff * scale, flip);
 
 	// A 32-bit screen with the same RGB layout (XRGB8888, SurfaceSDL's
 	// RGB888) takes the frame as it is: its alpha byte is ignored. One
@@ -646,11 +716,193 @@ void ScummVMRendererGraphicsDriver::PresentScaled(const Graphics::Surface &nativ
 	if (screenFormat.bytesPerPixel == 4 && screenFormat.rShift == argb.rShift &&
 		screenFormat.gShift == argb.gShift && screenFormat.bShift == argb.bShift &&
 		screenFormat.rLoss == 0 && screenFormat.gLoss == 0 && screenFormat.bLoss == 0) {
-		g_system->copyRectToScreen(_scaledFrame.getPixels(), _scaledFrame.pitch, 0, 0, _scaledFrame.w, _scaledFrame.h);
+		g_system->copyRectToScreen(frame.getPixels(), frame.pitch, 0, 0, frame.w, frame.h);
 		g_system->updateScreen();
 		return;
 	}
-	PresentSurface(_scaledFrame);
+	PresentSurface(frame);
+}
+
+bool ScummVMRendererGraphicsDriver::HiResScreenOffset(Bitmap *surface, Point &off) const {
+	// Whether surface is the virtual screen or a region of it, and where
+	if (!surface || !virtualScreen)
+		return false;
+	const Graphics::Surface &vs = virtualScreen->GetAllegroBitmap()->getSurface().rawSurface();
+	const Graphics::Surface &s = surface->GetAllegroBitmap()->getSurface().rawSurface();
+	if (s.format != vs.format || s.pitch != vs.pitch || vs.format.bytesPerPixel == 0)
+		return false;
+	const byte *base = (const byte *)vs.getPixels(), *p = (const byte *)s.getPixels();
+	if (p < base || p >= base + vs.pitch * vs.h)
+		return false;
+	const ptrdiff_t d = p - base;
+	off.Y = (int)(d / vs.pitch);
+	off.X = (int)((d % vs.pitch) / vs.format.bytesPerPixel);
+	return off.X + s.w <= vs.w && off.Y + s.h <= vs.h;
+}
+
+void ScummVMRendererGraphicsDriver::HiResTakeSnapshot() {
+	if (!_hiresSnapshot || _hiresSnapshot->GetSize() != virtualScreen->GetSize() ||
+		_hiresSnapshot->GetColorDepth() != virtualScreen->GetColorDepth())
+		_hiresSnapshot.reset(new Bitmap(virtualScreen->GetWidth(), virtualScreen->GetHeight(), virtualScreen->GetColorDepth()));
+	_hiresSnapshot->Blit(virtualScreen, 0, 0, 0, 0, virtualScreen->GetWidth(), virtualScreen->GetHeight());
+	_hiresSnapshotTaken = true;
+	_hiresTailScreen = virtualScreen;
+}
+
+void ScummVMRendererGraphicsDriver::HiResPatchBegin() {
+	if (!_hiresPatchBefore || _hiresPatchBefore->GetSize() != virtualScreen->GetSize() ||
+		_hiresPatchBefore->GetColorDepth() != virtualScreen->GetColorDepth())
+		_hiresPatchBefore.reset(new Bitmap(virtualScreen->GetWidth(), virtualScreen->GetHeight(), virtualScreen->GetColorDepth()));
+	_hiresPatchBefore->Blit(virtualScreen, 0, 0, 0, 0, virtualScreen->GetWidth(), virtualScreen->GetHeight());
+}
+
+void ScummVMRendererGraphicsDriver::HiResPatchEnd() {
+	// What an operation that cannot be replayed at N x changed: kept as
+	// native pixels, upscaled in place at replay
+	const Graphics::Surface &a = _hiresPatchBefore->GetAllegroBitmap()->getSurface().rawSurface();
+	const Graphics::Surface &b = virtualScreen->GetAllegroBitmap()->getSurface().rawSurface();
+	if (a.w != b.w || a.h != b.h || a.format != b.format)
+		return;
+	const int bpp = b.format.bytesPerPixel;
+	Common::Rect box;
+	bool any = false;
+	for (int y = 0; y < b.h; y++) {
+		const byte *pa = (const byte *)a.getBasePtr(0, y), *pb = (const byte *)b.getBasePtr(0, y);
+		if (!memcmp(pa, pb, b.w * bpp))
+			continue;
+		for (int x = 0; x < b.w; x++) {
+			if (memcmp(pa + x * bpp, pb + x * bpp, bpp)) {
+				const Common::Rect p(x, y, x + 1, y + 1);
+				if (any)
+					box.extend(p);
+				else
+					box = p;
+				any = true;
+			}
+		}
+	}
+	if (!any)
+		return;
+	HiResTailEntry e;
+	e.kind = HiResTailEntry::kPatch;
+	e.clip = box;
+	e.before.reset(new Bitmap(box.width(), box.height(), b.format.bytesPerPixel * 8));
+	e.after.reset(new Bitmap(box.width(), box.height(), b.format.bytesPerPixel * 8));
+	e.before->Blit(_hiresPatchBefore.get(), box.left, box.top, 0, 0, box.width(), box.height());
+	e.after->Blit(virtualScreen, box.left, box.top, 0, 0, box.width(), box.height());
+	_hiresTail.push_back(e);
+}
+
+Bitmap *ScummVMRendererGraphicsDriver::HiResUpscaled(Bitmap *src, int scale) {
+	// src as a 32-bit bitmap scale x its size, in a kept scratch: the mask
+	// colour stays the mask colour, a 16-bit pixel gets alpha 255, a 32-bit
+	// one keeps its alpha
+	const int w = src->GetWidth() * scale, h = src->GetHeight() * scale;
+	if (!_hiresScratch || _hiresScratch->GetWidth() < w || _hiresScratch->GetHeight() < h) {
+		_hiresScratchSub.reset();
+		_hiresScratch.reset(new Bitmap(MAX(w, _hiresScratch ? _hiresScratch->GetWidth() : 0),
+									   MAX(h, _hiresScratch ? _hiresScratch->GetHeight() : 0), 32));
+	}
+	if (!_hiresScratchSub || _hiresScratchSub->GetSize() != Size(w, h))
+		_hiresScratchSub.reset(BitmapHelper::CreateSubBitmap(_hiresScratch.get(), RectWH(0, 0, w, h)));
+	const Graphics::Surface &s = src->GetAllegroBitmap()->getSurface().rawSurface();
+	Graphics::Surface &d = *_hiresScratchSub->GetAllegroBitmap()->getSurface().surfacePtr();
+	const Graphics::PixelFormat &sf = s.format;
+	const int bpp = sf.bytesPerPixel;
+	for (int y = 0; y < s.h; y++) {
+		const byte *in = (const byte *)s.getBasePtr(0, y);
+		uint32 *out = (uint32 *)d.getBasePtr(0, y * scale);
+		for (int x = 0; x < s.w; x++, in += bpp) {
+			const uint32 c = bpp == 1 ? *in : bpp == 2 ? *(const uint16 *)in : *(const uint32 *)in;
+			uint32 pixel;
+			if (bpp == 4) {
+				pixel = c;
+			} else {
+				byte a, r, g, b;
+				sf.colorToARGB(c, a, r, g, b);
+				pixel = (r == 255 && g == 0 && b == 255) ? 0x00FF00FFu : (0xFF000000u | (r << 16) | (g << 8) | b);
+			}
+			for (int i = 0; i < scale; i++)
+				*out++ = pixel;
+		}
+		for (int i = 1; i < scale; i++)
+			memcpy(d.getBasePtr(0, y * scale + i), d.getBasePtr(0, y * scale), s.w * scale * 4);
+	}
+	return _hiresScratchSub.get();
+}
+
+void ScummVMRendererGraphicsDriver::HiResReplay(Bitmap &frame, int n) {
+	for (const HiResTailEntry &e : _hiresTail) {
+		const Rect clip(e.clip.left * n, e.clip.top * n, e.clip.right * n - 1, e.clip.bottom * n - 1);
+		frame.SetClip(clip);
+		switch (e.kind) {
+		case HiResTailEntry::kSprite: {
+			if (e.twin) {
+				for (const Common::Rect &r : e.twin->Rects) {
+					Common::Rect sr = r;
+					sr.translate(e.x, e.y);
+					sr.clip(e.clip);
+					if (!sr.isEmpty())
+						_hiresLastRects.push_back(sr);
+				}
+				// The twin is ARGB with the text's own alpha: blended, with
+				// the DDB's global alpha, unless the DDB is opaque
+				if (e.opaque) {
+					frame.Blit(e.twin.get(), 0, 0, e.x * n, e.y * n, e.twin->GetWidth(), e.twin->GetHeight());
+				} else {
+					if (e.alpha == 255)
+						set_alpha_blender();
+					else
+						set_blender_mode(kArgbToRgbBlender, 0, 0, 0, e.alpha);
+					frame.TransBlendBlt(e.twin.get(), e.x * n, e.y * n);
+				}
+				break;
+			}
+			// Any other sprite: upscaled, drawn as the native one was
+			Bitmap *up = HiResUpscaled(e.bmp, n);
+			if (e.opaque) {
+				frame.Blit(up, 0, 0, e.x * n, e.y * n, up->GetWidth(), up->GetHeight());
+			} else if (e.hasAlpha) {
+				if (e.alpha == 255)
+					set_alpha_blender();
+				else
+					set_blender_mode(kArgbToRgbBlender, 0, 0, 0, e.alpha);
+				frame.TransBlendBlt(up, e.x * n, e.y * n);
+			} else {
+				GfxUtil::DrawSpriteWithTransparency(&frame, up, e.x * n, e.y * n, e.alpha);
+			}
+			break;
+		}
+		case HiResTailEntry::kTint: {
+			std::unique_ptr<Bitmap> sub(BitmapHelper::CreateSubBitmap(&frame, clip));
+			set_trans_blender(e.r, e.g, e.b, 0);
+			sub->LitBlendBlt(sub.get(), 0, 0, 128);
+			break;
+		}
+		case HiResTailEntry::kPatch: {
+			const Graphics::Surface &a = e.before->GetAllegroBitmap()->getSurface().rawSurface();
+			const Graphics::Surface &b = e.after->GetAllegroBitmap()->getSurface().rawSurface();
+			Graphics::Surface &f = *frame.GetAllegroBitmap()->getSurface().surfacePtr();
+			const int bpp = b.format.bytesPerPixel;
+			for (int y = 0; y < b.h; y++) {
+				for (int x = 0; x < b.w; x++) {
+					const byte *pa = (const byte *)a.getBasePtr(x, y), *pb = (const byte *)b.getBasePtr(x, y);
+					if (!memcmp(pa, pb, bpp))
+						continue;
+					const uint32 c = bpp == 2 ? *(const uint16 *)pb : *(const uint32 *)pb;
+					byte ca, cr, cg, cb;
+					b.format.colorToARGB(c, ca, cr, cg, cb);
+					const uint32 pixel = bpp == 4 ? c : (0xFF000000u | (cr << 16) | (cg << 8) | cb);
+					for (int j = 0; j < n; j++)
+						for (int i = 0; i < n; i++)
+							*(uint32 *)f.getBasePtr((e.clip.left + x) * n + i, (e.clip.top + y) * n + j) = pixel;
+				}
+			}
+			break;
+		}
+		}
+	}
+	frame.ResetClip();
 }
 
 void ScummVMRendererGraphicsDriver::PresentSurface(const Graphics::Surface &src) {
@@ -719,7 +971,9 @@ void ScummVMRendererGraphicsDriver::PresentSurface(const Graphics::Surface &src)
 
 void ScummVMRendererGraphicsDriver::Render(int xoff, int yoff, GraphicFlip flip) {
 	RenderToBackBuffer();
+	_hiresComposeNext = true;
 	Present(xoff, yoff, flip);
+	_hiresComposeNext = false;
 }
 
 void ScummVMRendererGraphicsDriver::Render() {
