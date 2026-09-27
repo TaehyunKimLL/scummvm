@@ -170,7 +170,7 @@ public:
 
 	/// C36: a game without CJK cells in its own encoding (English MI1)
 	/// steps its Latin by the face too, as does a UTF-8 translation without
-	/// patch fonts (ja.trs, th.trs). The space keeps the game's width.
+	/// patch fonts (ja.trs, th.trs); the space as well.
 	void test_english_steps_by_face() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		const char *apple = appleGothic();
@@ -195,8 +195,71 @@ public:
 				TS_ASSERT_EQUALS(utf8.advanceFor(letters[i], kCs, kGameT), want);
 				TS_ASSERT(utf8.latinStepsByFace(letters[i], kCs));
 			}
+			// The space steps by the face too without CJK cells (C36 M1).
+			const int space = faceStep(en, ' ');
+			TS_ASSERT(space > 0 && space != 6);
+			TS_ASSERT_EQUALS(en.advanceFor(' ', kCs, 6), space);
+			TS_ASSERT(en.latinStepsByFace(' ', kCs));
+			TS_ASSERT_EQUALS(utf8.advanceFor(' ', kCs, 6), space);
+		}
+#else
+		TS_SKIP("needs FreeType and a real filesystem");
+#endif
+	}
+
+	/// C36: with CJK cells the space keeps the game's width (the Hangul
+	/// word gap), in CP949 and UTF-8 alike; any metrics= key keeps it in
+	/// English too.
+	void test_space_rule() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		const char *apple = appleGothic();
+		if (!apple) {
+			TS_SKIP("needs Apple SD Gothic Neo");
+			return;
+		}
+		Scumm::HiResOverlay overlay;
+		overlay.create(200, 40, true);
+		for (int pg = 0; pg < 2; pg++) {
+			const Graphics::HiResTextConfig c = parse(mi1Map(apple, pg == 1, ""));
+			Scumm::ScummHiResText cp949, utf8;
+			TS_ASSERT(open(cp949, overlay, c, false, true));
+			TS_ASSERT(open(utf8, overlay, c, true, true));
+			TS_ASSERT_EQUALS(cp949.advanceFor(' ', kCs, 6), 6);
+			TS_ASSERT_EQUALS(utf8.advanceFor(' ', kCs, 6), 6);
+			TS_ASSERT(!cp949.latinStepsByFace(' ', kCs));
+			const Graphics::HiResTextConfig g = parse(mi1Map(apple, pg == 1, "[render]\nmetrics=game\n"));
+			Scumm::ScummHiResText en;
+			TS_ASSERT(open(en, overlay, g, false, false));
 			TS_ASSERT_EQUALS(en.advanceFor(' ', kCs, 6), 6);
-			TS_ASSERT(!en.latinStepsByFace(' ', kCs));
+		}
+#else
+		TS_SKIP("needs FreeType and a real filesystem");
+#endif
+	}
+
+	/// C36 I1: a charset renderer that measures with the game's widths
+	/// (FM-Towns, V2) switches the face step off, so measuring and drawing
+	/// agree: every Latin code keeps the game's width.
+	void test_renderer_gate() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		const char *apple = appleGothic();
+		if (!apple) {
+			TS_SKIP("needs Apple SD Gothic Neo");
+			return;
+		}
+		Scumm::HiResOverlay overlay;
+		overlay.create(200, 40, true);
+		for (int pg = 0; pg < 2; pg++) {
+			const Graphics::HiResTextConfig c = parse(mi1Map(apple, pg == 1, ""));
+			for (int cells = 0; cells < 2; cells++) {
+				Scumm::ScummHiResText hr;
+				hr.setLatinFaceStepAllowed(false);
+				TS_ASSERT(open(hr, overlay, c, false, cells == 1));
+				TS_ASSERT(!hr.latinStepsByFace('T', kCs));
+				TS_ASSERT(!hr.latinStepsByFace(' ', kCs));
+				TS_ASSERT_EQUALS(hr.advanceFor('T', kCs, kGameT), kGameT);
+				TS_ASSERT(!hr.drawsMissingGameGlyph('?', kCs, false));
+			}
 		}
 #else
 		TS_SKIP("needs FreeType and a real filesystem");

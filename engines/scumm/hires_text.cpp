@@ -138,6 +138,7 @@ void ScummHiResText::reset() {
 	_ttfPath.clear();
 	for (int i = 0; i < kMaxFonts; ++i)
 		_gameFontW[i] = _gameFontH[i] = 0;
+	_cjkCells = false;
 	_fontsLoaded = false;
 	_alphaActive = false;
 	_korPatchShadow = false;
@@ -1506,11 +1507,13 @@ int ScummHiResText::latinFaceStep(int chr, int charsetId) const {
 	// translation, or the game's own English. The game's Latin widths belong
 	// to its bitmap font and space the face's letters apart ("W e l l").
 	// An explicit metrics= key (below) keeps them.
-	if (!_enabled || !_fontsLoaded)
+	if (!_enabled || !_fontsLoaded || !_latinFaceStepAllowed)
 		return 0;
-	// Letters, digits and punctuation. The space keeps the game's width:
-	// it is the word gap of the Hangul around it too.
-	if (chr <= 0x20 || chr > 0x7E)
+	// Letters, digits and punctuation. The space steps by the face too,
+	// except in text laid out on CJK cells, where it is the word gap of the
+	// Hangul around it and keeps the game's width.
+	const bool space = (chr == 0x20);
+	if (chr < 0x20 || chr > 0x7E || (space && _cjkCells))
 		return 0;
 	// The same keys that keep a wide glyph on the cell keep Latin on the
 	// game's widths, and [latin] metrics= as well.
@@ -1528,7 +1531,7 @@ int ScummHiResText::latinFaceStep(int chr, int charsetId) const {
 	Face *face = nullptr;
 	if (_perGlyph) {
 		const CharsetFonts &f = _charsetFonts[(charsetId >= 0 && charsetId < kMaxFonts) ? charsetId : 0];
-		if (f.latin != Graphics::kHiResLatinProportional)
+		if (f.latin != Graphics::kHiResLatinProportional || (space && f.fullwidthSpace))
 			return 0;
 		bool ascii = false, declined = false;
 		face = faceForCodePoint(charsetId, cp, ascii, declined);
@@ -1539,7 +1542,8 @@ int ScummHiResText::latinFaceStep(int chr, int charsetId) const {
 	}
 	// A bitmap face was drawn for the game's grid (the C31 ruling); a glyph
 	// the face declines is the game's to draw and to step.
-	if (!face || !face->ttf || !glyphInk(*face, cp, nullptr))
+	// The space has no ink; it steps by the face all the same.
+	if (!face || !face->ttf || (!space && !glyphInk(*face, cp, nullptr)))
 		return 0;
 	const int advance = face->source->advance(cp);
 	if (advance <= 0)
@@ -2178,6 +2182,8 @@ void ScummHiResText::setGameFontCell(int charsetId, int width, int height) {
 	if (charsetId >= 0 && charsetId < kMaxFonts) {
 		_gameFontW[charsetId] = width;
 		_gameFontH[charsetId] = height;
+		if (width > 0 && height > 0)
+			_cjkCells = true;
 	}
 }
 
