@@ -1397,7 +1397,16 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	_top += _offsY;
 	_left += _offsX;
 
-	if (_left + _origWidth > _right + 1 || _left < 0) {
+	// A double-byte (or patch-cell) glyph the hi-res layer steps by the face
+	// is clipped by that step, the width the line was wrapped with, not by
+	// the wider cell, or a full line's last syllable is dropped (C31). With
+	// the layer off the step is the cell + gap and the cell decides, as before.
+	int clipWidth = _origWidth;
+	if (is2byte || cellGlyph) {
+		const bool gap = (_vm->_language == Common::ZH_TWN || _vm->_language == Common::KO_KOR);
+		clipWidth = MIN(_origWidth, _vm->_hiResText.advanceFor(chr, _curId, _origWidth + (gap ? 1 : 0)));
+	}
+	if (_left + clipWidth > _right + 1 || _left < 0) {
 		_left += _origWidth;
 		_top -= _offsY;
 		return;
