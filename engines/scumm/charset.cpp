@@ -1033,6 +1033,7 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 		_str.bottom = _top;
 		_firstChar = false;
 		_hiResCarry = 0;
+		_vm->_hiResText.beginString();
 	}
 
 	int drawTop = _top - vs->topline;
@@ -1233,6 +1234,7 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_str.top = 0;
 		_str.right = 0;
 		_str.bottom = 0;
+		_vm->_hiResText.beginString();
 	}
 
 	_top += _offsY;
