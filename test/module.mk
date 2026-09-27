@@ -91,7 +91,7 @@ ifeq ($(ENABLE_AGS), STATIC_PLUGIN)
 		engines/ags/shared/font/wfn_font_ext.o \
 		engines/ags/shared/font/glyph_font_draw.o \
 		engines/ags/shared/font/ags_text_layout.o \
-		engines/ags/shared/font/hires_font_plan.o graphics/libgraphics.a \
+		engines/ags/shared/font/hires_font_plan.o engines/ags/shared/font/text_twin.o graphics/libgraphics.a \
 		common/libcommon.a
 endif
 

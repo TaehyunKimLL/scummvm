@@ -22,6 +22,7 @@
 #include "common/config-manager.h"
 #include "common/memstream.h"
 #include "ags/engine/ac/game.h"
+#include "ags/engine/ac/hires_text_twin.h"
 #include "ags/shared/ac/common.h"
 #include "ags/shared/ac/view.h"
 #include "ags/engine/ac/audio_channel.h"
@@ -364,6 +365,7 @@ void free_do_once_tokens() {
 
 // Free all the memory associated with the game
 void unload_game() {
+	hires_text_twins_reset();	// ScummVM (C23)
 	dispose_game_drawdata();
 	// NOTE: fonts should be freed prior to stopping plugins,
 	// as plugins may provide font renderer interface.
@@ -961,6 +963,7 @@ static bool TestGame(const String &filepath) {
 HSaveError load_game(const String &path, int slotNumber, bool &data_overwritten) {
 	data_overwritten = false;
 	_G(gameHasBeenRestored)++;
+	hires_text_twins_reset();	// ScummVM (C23): the restored game draws its own bitmaps
 
 	_G(oldeip) = get_our_eip();
 	set_our_eip(2050);

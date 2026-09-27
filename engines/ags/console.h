@@ -60,7 +60,13 @@ private:
 	bool Cmd_dumpSprite(int argc, const char **argv);
 
 	bool Cmd_say(int argc, const char **argv);
+	bool Cmd_dumpNative(int argc, const char **argv);
+	bool Cmd_renderText(int argc, const char **argv);
+	bool Cmd_hiresRects(int argc, const char **argv);
+	bool Cmd_frameTimes(int argc, const char **argv);
+	bool Cmd_call(int argc, const char **argv);
 	bool _sayPending;
+	Common::Array<Common::String> _callPending;	///< ags_call, run from the game loop
 	int _sayFont;
 	Common::String _sayText;
 

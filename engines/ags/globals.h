@@ -112,6 +112,7 @@ class SplitLines;
 class TTFFontRenderer;
 class GlyphFontRenderer;
 class HiResFontConfig;
+class HiResTextTwins;
 class WFNFontRenderer;
 
 struct AGSCCStaticObject;
@@ -733,6 +734,10 @@ public:
 	// ScummVM: fonts from hires_text.map
 	GlyphFontRenderer *_glyphRenderer;
 	HiResFontConfig *_hiresFontConfig;
+	// ScummVM (C23): the hi-res text scale N in effect, gated; 1 = off
+	int _hiresTextScale = 1;
+	// ScummVM (C23): text records for N x twins; made when first needed
+	HiResTextTwins *_hiresTextTwins = nullptr;
 	SplitLines *_Lines;
 	Shared::Bitmap _wputblock_wrapper; // [IKM] argh! :[
 

@@ -51,6 +51,7 @@ MODULE_OBJS = \
 	shared/font/glyph_font_draw.o \
 	shared/font/glyph_font_renderer.o \
 	shared/font/hires_font_config.o \
+	shared/font/text_twin.o \
 	shared/font/hires_font_plan.o \
 	shared/font/ttf_font_renderer.o \
 	shared/font/wfn_font.o \
@@ -111,6 +112,7 @@ MODULE_OBJS = \
 	engine/ac/dialog.o \
 	engine/ac/dialog_options_rendering.o \
 	engine/ac/display.o \
+	engine/ac/hires_text_twin.o \
 	engine/ac/draw.o \
 	engine/ac/drawing_surface.o \
 	engine/ac/draw_software.o \

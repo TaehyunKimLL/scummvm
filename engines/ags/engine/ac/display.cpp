@@ -22,6 +22,7 @@
 #include "common/config-manager.h"
 #include "common/std/algorithm.h"
 #include "ags/engine/ac/display.h"
+#include "ags/engine/ac/hires_text_twin.h"
 #include "ags/shared/ac/common.h"
 #include "ags/shared/font/ags_font_renderer.h"
 #include "ags/shared/font/fonts.h"
@@ -70,6 +71,8 @@ struct DisplayVars {
 Bitmap *create_textual_image(const char *text, int asspch, int isThought,
 							 int &xx, int &yy, int &adjustedXX, int &adjustedYY, int wii, int usingfont, int allowShrink,
 							 bool &alphaChannel) {
+	// ScummVM (C23): record the text for the image's N x twin
+	HiResTextScope hiresScope;
 	//
 	// Configure the textual image
 	//
@@ -556,6 +559,26 @@ void wouttext_outline(Shared::Bitmap *ds, int xxp, int yyp, int font, color_t te
 	size_t const text_font = static_cast<size_t>(font);
 	// Draw outline (a backdrop) if requested
 	color_t const outline_color = ds->GetCompatibleColor(_GP(play).speech_text_shadow);
+
+	// ScummVM (C23): inside a capture scope, record what this draws for the
+	// bitmap's N x twin (AGS_HIRES_TEXT_DESIGN.md section 4.1)
+	HiResTextTwins *twins = hires_text_twins();
+	if (twins && !twins->wantsDraw(ds, font))
+		twins = nullptr;
+	TextDraw capture;
+	if (twins) {
+		capture.font = font;
+		capture.colour = text_color;
+		capture.outlineColour = outline_color;
+		capture.text = texx;
+		capture.x = xxp;
+		capture.y = yyp;
+		const Rect clip = ds->GetClip();
+		capture.clip = Common::Rect(clip.Left, clip.Top, clip.Right + 1, clip.Bottom + 1);
+		// Generous rows around the line; only what changes is recorded
+		const int h = get_font_height_outlined(font);
+		twins->beginDraw(ds, Common::Rect(0, yyp - 2 * h - 4, ds->GetWidth(), yyp + 3 * h + 4));
+	}
 	int const outline_font = get_font_outline(font);
 	if (outline_font >= 0)
 		wouttextxy(ds, xxp, yyp, static_cast<size_t>(outline_font), outline_color, texx);
@@ -566,6 +589,88 @@ void wouttext_outline(Shared::Bitmap *ds, int xxp, int yyp, int font, color_t te
 
 	// Draw text on top
 	wouttextxy(ds, xxp, yyp, text_font, text_color, texx);
+
+	if (twins)
+		twins->endDraw(ds, capture);
+}
+
+// wouttextxy_AutoOutline() at N x: the same stencils and stamps, N x as
+// large, with its own (padded) stencil bitmaps (the font's are the game's).
+// (xxp, yyp) are game pixels and move by the game-resolution thickness,
+// as wouttextxy_AutoOutline() moves them.
+static void wouttextxy_AutoOutline_scaled(Bitmap *ds, size_t font, int32_t color, const char *texx, int &xxp, int &yyp,
+										  int scale) {
+	const FontInfo &finfo = get_fontinfo(font);
+	int const thickness = finfo.AutoOutlineThickness;
+	auto const style = finfo.AutoOutlineStyle;
+	if (thickness <= 0)
+		return;
+
+	int const  ds_cd = ds->GetColorDepth();
+	bool const antialias = ds_cd >= 16 && _GP(game).options[OPT_ANTIALIASFONTS] != 0 && !is_bitmap_font(font);
+	int const  stencil_cd = antialias ? 32 : ds_cd;
+	if (antialias)
+		color |= makeacol32(0, 0, 0, 0xff);
+
+	const int t_width = get_text_width(texx, font);
+	const auto t_extent = get_font_surface_extent(font);
+	const int t_height = t_extent.second - t_extent.first + ((strcmp(_GP(game).guid, "{d6795d1c-3cfe-49ec-90a1-85c313bfccaf}") == 0) && (font == 2) ? 1 : 0);
+	if (t_width == 0 || t_height == 0)
+		return;
+
+	const int t_yoff = t_extent.first;
+	const int thick = thickness * scale;	// target pixels
+	// N x ink may overhang N x the game's text box by a game pixel (the
+	// N x face's own glyph extents): pad the stencils by one game pixel
+	// (N target pixels) on every side so the outline keeps it too
+	const int pad = scale;
+	Font &f = _GP(fonts)[font];
+	const int sw = t_width * scale + 2 * pad, sh = t_height * scale + 2 * pad;
+	Bitmap *texx_stencil = font_scratch_bitmap(f.ScaledTextStencil, f.ScaledTextStencilSub, sw, sh, stencil_cd);
+	Bitmap *outline_stencil = font_scratch_bitmap(f.ScaledOutlineStencil, f.ScaledOutlineStencilSub, sw, sh + 2 * thick, stencil_cd);
+	wouttextxy_scaled(texx_stencil, 1, 1 - t_yoff, font, color, texx, scale);
+
+	void(Bitmap:: * pfn_drawstencil)(Bitmap * src, int dst_x, int dst_y);
+	if (antialias) {
+		set_argb2any_blender();
+		pfn_drawstencil = &Bitmap::TransBlendBlt;
+	} else {
+		pfn_drawstencil = &Bitmap::MaskedBlit;
+	}
+
+	xxp += thickness;
+	int const outline_y = (yyp + t_yoff) * scale - pad;
+	yyp += thickness;
+	const int x0 = xxp * scale - pad;
+
+	int largest_y_diff_reached_so_far = -1;
+	for (int x_diff = thick; x_diff >= 0; x_diff--) {
+		int y_term_limit = thick * (thick + 1);
+		if (FontInfo::kRounded == style)
+			y_term_limit -= x_diff * x_diff;
+		for (int y_diff = largest_y_diff_reached_so_far + 1;
+			y_diff <= thick && y_diff * y_diff <= y_term_limit;
+			y_diff++) {
+			(outline_stencil->*pfn_drawstencil)(texx_stencil, 0, thick - y_diff);
+			if (y_diff > 0)
+				(outline_stencil->*pfn_drawstencil)(texx_stencil, 0, thick + y_diff);
+			largest_y_diff_reached_so_far = y_diff;
+		}
+		(ds->*pfn_drawstencil)(outline_stencil, x0 - x_diff, outline_y);
+		if (x_diff > 0)
+			(ds->*pfn_drawstencil)(outline_stencil, x0 + x_diff, outline_y);
+	}
+}
+
+void wouttext_outline_scaled(Shared::Bitmap *ds, int xxp, int yyp, int font, color_t text_color, color_t outline_color,
+							 const char *texx, int scale) {
+	size_t const text_font = static_cast<size_t>(font);
+	int const outline_font = get_font_outline(font);
+	if (outline_font >= 0)
+		wouttextxy_scaled(ds, xxp, yyp, static_cast<size_t>(outline_font), outline_color, texx, scale);
+	else if (outline_font == FONT_OUTLINE_AUTO)
+		wouttextxy_AutoOutline_scaled(ds, text_font, outline_color, texx, xxp, yyp, scale);
+	wouttextxy_scaled(ds, xxp, yyp, text_font, text_color, texx, scale);
 }
 
 void wouttext_aligned(Bitmap *ds, int usexp, int yy, int oriwid, int usingfont, color_t text_color, const char *text, HorAlignment align) {

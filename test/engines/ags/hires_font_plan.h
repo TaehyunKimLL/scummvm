@@ -141,4 +141,80 @@ public:
 		TS_ASSERT(!c.active());
 		TS_ASSERT(!c.alpha());
 	}
+
+	// C23 T1: [hires] scale= and hires_text_scale (AGS_HIRES_TEXT_DESIGN.md section 6)
+	void test_scale_absent_is_one() {
+		// Ruling (C23 Q1): a map without scale= is N = 1, whatever it names
+		const Graphics::HiResTextConfig map = agsParseMap("[hires]\nface=/f/a.ttf\n", "x");
+		AGS3::HiResFontConfig c;
+		c.configure(&map, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		TS_ASSERT_EQUALS(c.requestedScale(), 1);
+		c.configure(nullptr, Common::Path(), Common::Array<Common::Path>(), 0);
+		TS_ASSERT_EQUALS(c.requestedScale(), 1);
+	}
+
+	void test_scale_map_and_ini_precedence() {
+		const Graphics::HiResTextConfig map = agsParseMap("[hires]\nscale=2\nface=/f/a.ttf\n", "x");
+		AGS3::HiResFontConfig c;
+		c.configure(&map, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		TS_ASSERT_EQUALS(c.requestedScale(), 2);
+		// the ini overrides the map, both ways
+		c.configure(&map, Common::Path("/maps"), Common::Array<Common::Path>(), 0, 3);
+		TS_ASSERT_EQUALS(c.requestedScale(), 3);
+		c.configure(&map, Common::Path("/maps"), Common::Array<Common::Path>(), 0, 1);
+		TS_ASSERT_EQUALS(c.requestedScale(), 1);
+		// the ini alone
+		c.configure(nullptr, Common::Path(), Common::Array<Common::Path>(), 0, 2);
+		TS_ASSERT_EQUALS(c.requestedScale(), 2);
+		// clear() forgets it
+		c.clear();
+		TS_ASSERT_EQUALS(c.requestedScale(), 1);
+	}
+
+	void test_scale_map_range() {
+		// the shared reader keeps 1..3; out of range is the default 1
+		const Graphics::HiResTextConfig four = agsParseMap("[hires]\nscale=4\nface=/f/a.ttf\n", "x");
+		const Graphics::HiResTextConfig zero = agsParseMap("[hires]\nscale=0\nface=/f/a.ttf\n", "x");
+		AGS3::HiResFontConfig c;
+		c.configure(&four, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		TS_ASSERT_EQUALS(c.requestedScale(), 1);
+		c.configure(&zero, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		TS_ASSERT_EQUALS(c.requestedScale(), 1);
+	}
+
+	void test_parse_ini_scale() {
+		int n = -1;
+		TS_ASSERT(AGS3::HiResFontConfig::parseScale("1", n));
+		TS_ASSERT_EQUALS(n, 1);
+		TS_ASSERT(AGS3::HiResFontConfig::parseScale("3", n));
+		TS_ASSERT_EQUALS(n, 3);
+		TS_ASSERT(!AGS3::HiResFontConfig::parseScale("0", n));
+		TS_ASSERT(!AGS3::HiResFontConfig::parseScale("4", n));
+		TS_ASSERT(!AGS3::HiResFontConfig::parseScale("", n));
+		TS_ASSERT(!AGS3::HiResFontConfig::parseScale("2x", n));
+		TS_ASSERT(!AGS3::HiResFontConfig::parseScale("-2", n));
+	}
+
+	void test_scale_gates() {
+		Common::String why;
+		// all gates open
+		TS_ASSERT_EQUALS(AGS3::HiResFontConfig::gateScale(2, true, 16, true, why), 2);
+		TS_ASSERT(why.empty());
+		TS_ASSERT_EQUALS(AGS3::HiResFontConfig::gateScale(3, true, 32, true, why), 3);
+		TS_ASSERT(why.empty());
+		// N = 1 needs no gate and says nothing
+		TS_ASSERT_EQUALS(AGS3::HiResFontConfig::gateScale(1, false, 8, false, why), 1);
+		TS_ASSERT(why.empty());
+		// no mapped font
+		TS_ASSERT_EQUALS(AGS3::HiResFontConfig::gateScale(2, false, 32, true, why), 1);
+		TS_ASSERT(why.contains("mapped font"));
+		// 8-bit game
+		why.clear();
+		TS_ASSERT_EQUALS(AGS3::HiResFontConfig::gateScale(2, true, 8, true, why), 1);
+		TS_ASSERT(why.contains("8-bit"));
+		// no 32-bit screen format
+		why.clear();
+		TS_ASSERT_EQUALS(AGS3::HiResFontConfig::gateScale(2, true, 16, false, why), 1);
+		TS_ASSERT(why.contains("32-bit"));
+	}
 };

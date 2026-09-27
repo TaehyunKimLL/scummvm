@@ -37,7 +37,9 @@
 #include "ags/engine/main/graphics_mode.h"
 #include "ags/engine/platform/base/ags_platform_driver.h"
 #include "ags/engine/platform/base/sys_main.h"
+#include "ags/shared/font/hires_font_config.h"
 #include "ags/globals.h"
+#include "common/system.h"
 
 namespace AGS3 {
 
@@ -183,9 +185,29 @@ Size get_game_frame_from_screen_size(const Size &game_size, const Size screen_si
 	}
 }
 
+// ScummVM (C23): the hi-res text scale for this game, from hires_text.map's
+// [hires] scale= or the ini's hires_text_scale, through the gates of
+// AGS_HIRES_TEXT_DESIGN.md section 6. N >= 2 makes the display N x the game.
+static void hires_text_scale_init(const GraphicResolution &game_res) {
+	HiResFontConfig &hires = _GP(hiresFontConfig);
+	hires.load();
+	bool has32 = false;
+	const Common::List<Graphics::PixelFormat> formats = g_system->getSupportedFormats();
+	for (const auto &f : formats)
+		has32 = has32 || f.bytesPerPixel == 4;
+	Common::String why;
+	const int scale = HiResFontConfig::gateScale(hires.requestedScale(), hires.active(), game_res.ColorDepth, has32, why);
+	if (!why.empty())
+		Debug::Printf(kDbgMsg_Warn, "WARNING: %s", why.c_str());
+	else if (scale > 1)
+		Debug::Printf(kDbgMsg_Info, "hires text: scale %d, display %d x %d for the game's %d x %d",
+					  scale, game_res.Width * scale, game_res.Height * scale, game_res.Width, game_res.Height);
+	_G(hiresTextScale) = scale;
+}
+
 static Size precalc_screen_size(const Size &game_size, const WindowSetup &ws, const FrameScaleDef frame) {
 #if AGS_PLATFORM_SCUMMVM
-	return game_size;
+	return Size(game_size.Width * _G(hiresTextScale), game_size.Height * _G(hiresTextScale));
 #else
 	const bool windowed = ws.Mode == kWnd_Windowed;
 	// Set requested screen (window) size, depending on screen definition option
@@ -334,13 +356,15 @@ static bool simple_create_gfx_driver_and_init_mode(const String &gfx_driver_id,
 	const WindowSetup ws = setup.Windowed ? setup.WinSetup : setup.FsSetup;
 	const FrameScaleDef frame = setup.Windowed ? setup.WinGameFrame : setup.FsGameFrame;
 
-	DisplayMode dm(GraphicResolution(game_res.Width, game_res.Height, col_depth),
+	// ScummVM (C23): the display is N x the game; the native size is not
+	const int scale = _G(hiresTextScale);
+	DisplayMode dm(GraphicResolution(game_res.Width * scale, game_res.Height * scale, col_depth),
 		ws.Mode, setup.Params.RefreshRate, setup.Params.VSync);
 
 	if (!graphics_mode_set_dm(dm)) {
 		return false;
 	}
-	if (!graphics_mode_set_native_res(dm)) {
+	if (!graphics_mode_set_native_res(GraphicResolution(game_res.Width, game_res.Height, col_depth))) {
 		return false;
 	}
 	if (!graphics_mode_set_render_frame(frame)) {
@@ -380,6 +404,8 @@ bool graphics_mode_init_any(const GraphicResolution &game_res, const DisplayMode
 		Debug::Printf("Device display resolution: %d x %d", device_size.Width, device_size.Height);
 	else
 		Debug::Printf(kDbgMsg_Error, "Unable to obtain device resolution");
+
+	hires_text_scale_init(game_res);
 
 	WindowSetup ws = setup.Windowed ? setup.WinSetup : setup.FsSetup;
 	FrameScaleDef gameframe = setup.Windowed ? setup.WinGameFrame : setup.FsGameFrame;

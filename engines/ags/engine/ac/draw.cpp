@@ -30,6 +30,7 @@
 #include "ags/shared/ac/character_info.h"
 #include "ags/engine/ac/display.h"
 #include "ags/engine/ac/draw.h"
+#include "ags/engine/ac/hires_text_twin.h"
 #include "ags/engine/ac/draw_software.h"
 #include "ags/engine/ac/game.h"
 #include "ags/engine/ac/game_setup.h"
@@ -828,6 +829,9 @@ Engine::IDriverDependantBitmap* recycle_ddb_sprite(Engine::IDriverDependantBitma
 static void sync_object_texture(ObjTexture &obj, bool has_alpha = false, bool opaque = false) {
 	Bitmap *use_bmp = obj.Bmp.get() ? obj.Bmp.get() : _GP(spriteset)[obj.SpriteID];
 	obj.Ddb = recycle_ddb_sprite(obj.Ddb, obj.SpriteID, use_bmp, has_alpha, opaque);
+	// ScummVM (C23): the bitmap's N x twin, if its text was recorded
+	if (HiResTextTwins *twins = hires_text_twins())
+		twins->attach(obj.Ddb, use_bmp, has_alpha);
 	// Handle notification control block for the dynamic sprites
 	if ((obj.SpriteID != UINT32_MAX) && _GP(game).SpriteInfos[obj.SpriteID].IsDynamicSprite()) {
 		// For dynamic sprite: check and update a notification block for this drawable
@@ -1801,9 +1805,11 @@ void draw_gui_and_overlays() {
 				if (gui.HasChanged() || (draw_with_controls && gui.HasControlsChanged())) {
 					auto &gbg = _GP(guibg)[index];
                     recycle_bitmap(gbg.Bmp, _GP(game).GetColorDepth(), gui.Width, gui.Height, true);
-                    if (draw_with_controls)
+                    if (draw_with_controls) {
+                        // ScummVM (C23): record the controls' text for the GUI's N x twin
+                        HiResTextScope hiresScope;
                         gui.DrawWithControls(gbg.Bmp.get());
-                    else
+                    } else
                         gui.DrawSelf(gbg.Bmp.get());
 
                     const bool is_alpha = gui.HasAlphaChannel();
