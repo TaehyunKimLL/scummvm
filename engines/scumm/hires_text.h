@@ -260,8 +260,8 @@ struct ScummHiResText {
 	/**
 	 * Whether the ASCII character @p chr steps by the replacement face's own
 	 * advance rather than the game's Latin width (C34). True when the game
-	 * lays its text out on a CJK font's cells (setGameFontCell()), so the
-	 * face is sized to that cell and not to the game's Latin font, the face
+	 * lays its text out on a CJK font's cells (setGameFontCell()) or the
+	 * text is a UTF-8 translation, whose own script steps by the face, the face
 	 * drawing @p chr is a TrueType one, and no metrics= key - the ini's,
 	 * [render], [font.N] or [latin] - names the metrics outright. The game's
 	 * offsX for the character does not apply then: the face places it.

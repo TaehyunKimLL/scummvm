@@ -19,9 +19,10 @@
  * the replacement face is sized to that cell, not to the game's own Latin
  * font, so the game's Latin widths space the face's smaller letters apart
  * ("T h r i f t w e e d"). With no metrics= key ASCII then steps by the
- * face's own advance, as a wide glyph does since C31. An explicit
- * metrics=game keeps the game's widths; a game without CJK cells (English,
- * a UTF-8 translation with no patch fonts) is unchanged.
+ * face's own advance, as a wide glyph does since C31; so does ASCII in any
+ * UTF-8 translation, whose own script already steps by the face. An explicit
+ * metrics=game keeps the game's widths; a game's own text without CJK cells
+ * (English) is unchanged.
  */
 class ScummHiResLatinAdvanceTestSuite : public CxxTest::TestSuite {
 private:
@@ -162,10 +163,11 @@ public:
 #endif
 	}
 
-	/// A game without CJK cells (English, or a UTF-8 translation with no
-	/// patch fonts) keeps the game's Latin width: its face is sized to the
-	/// game's own font.
-	void test_no_cjk_cells_keeps_game_width() {
+	/// A game without CJK cells in its own encoding (English MI1) keeps the
+	/// game's Latin width: metrics=game stays the default for the game's own
+	/// text. A UTF-8 translation without patch fonts (ja.trs, th.trs) steps
+	/// ASCII by the face, as its kana, kanji and Thai already do.
+	void test_no_cjk_cells() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		const char *apple = appleGothic();
 		if (!apple) {
@@ -180,8 +182,9 @@ public:
 			TS_ASSERT(open(en, overlay, c, false, false));
 			TS_ASSERT(open(utf8, overlay, c, true, false));
 			TS_ASSERT_EQUALS(en.advanceFor('T', kCs, kGameT), kGameT);
-			TS_ASSERT_EQUALS(utf8.advanceFor('T', kCs, kGameT), kGameT);
 			TS_ASSERT(!en.latinStepsByFace('T', kCs));
+			TS_ASSERT_EQUALS(utf8.advanceFor('T', kCs, kGameT), faceStep(utf8, 'T'));
+			TS_ASSERT(utf8.latinStepsByFace('T', kCs));
 		}
 #else
 		TS_SKIP("needs FreeType and a real filesystem");
