@@ -1146,6 +1146,10 @@ void GrimEngine::mainLoop() {
 
 		doFlip();
 
+		// The console's per-frame hook: it opens the debug socket when the
+		// game domain names one and serves it; otherwise a flag test.
+		getDebugger()->onFrame();
+
 		// We do not want the scripts to update while a movie is playing in the PS2-version.
 		if (!(getGamePlatform() == Common::kPlatformPS2 && _mode == SmushMode)) {
 			luaUpdate();
