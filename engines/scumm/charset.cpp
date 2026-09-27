@@ -726,7 +726,7 @@ void CharsetRenderer::addLinebreaksLayout(int a, byte *str, int pos, int maxwidt
 	const int oldId = getCurID();
 	const int savedCarry = _hiResCarry;
 	Hooks hooks(this);
-	layoutLinebreaks(str, bufSize, pos, maxwidth, hooks, _vm->_hiResText.breakRules(),
+	layoutLinebreaks(str, bufSize, pos, maxwidth, hooks, _vm->_hiResText.breakRules(_center),
 					 _vm->_game.version, _vm->_newLineCharacter, a);
 	setCurID(oldId);
 	_hiResCarry = savedCarry;

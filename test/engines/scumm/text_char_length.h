@@ -63,11 +63,11 @@ struct FixedHooks : public Scumm::ScummLayoutHooks {
 
 /**
  * CharsetRenderer::addLinebreaks() for a Korean fan-translation target
- * (isScummvmKorTarget(), _useCJKMode, not centred), v5, with the widths
- * above: the branch the CP949 korean.trs bundles take, reduced to what it
- * does with a string and a width.
+ * (isScummvmKorTarget(), _useCJKMode), v5, with the widths above: the
+ * branch the CP949 korean.trs bundles take, reduced to what it does with a
+ * string and a width. Centred text (_center) breaks at spaces only.
  */
-void legacyKoreanLinebreaks(byte *str, int maxwidth, int wide) {
+void legacyKoreanLinebreaks(byte *str, int maxwidth, int wide, bool centred = false) {
 	int lastKoreanLineBreak = -1;
 	const int origPos = 0;
 	int pos = 0;
@@ -113,7 +113,9 @@ void legacyKoreanLinebreaks(byte *str, int maxwidth, int wide) {
 			curw += FixedWidths::ascii(chr);
 		}
 
-		if (chr & 0x80) {
+		if (centred) {
+			// isScummvmKorTarget() && !_center: no Korean breaks
+		} else if (chr & 0x80) {
 			if (Scumm::checkKSCode(chr, str[pos - 1])
 				&& !(pos - 4 >= origPos && str[pos - 3] == '`' && str[pos - 4] == ' ')
 				&& !(pos - 4 >= origPos && str[pos - 3] == '\'' && str[pos - 4] == ' ')
@@ -470,17 +472,21 @@ public:
 				voiced++;
 			Common::Array<byte> utf8;
 			Scumm::transcodeScummText(src, len, Common::kWindows949, Common::kUtf8, utf8, nullptr);
-			for (uint w = 0; w < ARRAYSIZE(widths); w++) {
+			for (uint w = 0; w < 2 * ARRAYSIZE(widths); w++) {
+				// The second pass is centred text: Hangul breaks at spaces
+				// only, in both (C31).
+				const bool centred = w >= ARRAYSIZE(widths);
+				const int width = widths[w % ARRAYSIZE(widths)];
 				byte a[1024], b[1024];
 				memset(a, 0, sizeof(a));
 				memset(b, 0, sizeof(b));
 				memcpy(a, src, len);
 				memcpy(b, utf8.begin(), utf8.size());
-				legacyKoreanLinebreaks(a, widths[w], wide);
+				legacyKoreanLinebreaks(a, width, wide, centred);
 				FixedHooks hooks(wide);
 				Graphics::BreakRules rules;
-				rules.hangul = Graphics::kHangulBreakAny;
-				Scumm::layoutLinebreaks(b, sizeof(b), 0, widths[w], hooks, rules, 5, 0);
+				rules.hangul = centred ? Graphics::kHangulBreakWord : Graphics::kHangulBreakAny;
+				Scumm::layoutLinebreaks(b, sizeof(b), 0, width, hooks, rules, 5, 0);
 				const Common::Array<int> ia = breakIndices(a, false);
 				const Common::Array<int> ib = breakIndices(b, true);
 				compared++;
@@ -495,7 +501,7 @@ public:
 							sa += Common::String::format(" %d", ia[k]);
 						for (uint k = 0; k < ib.size(); k++)
 							sb += Common::String::format(" %d", ib[k]);
-						TS_WARN(Common::String::format("entry %u width %d: cp949 breaks at%s, layout at%s", e, widths[w], sa.c_str(), sb.c_str()).c_str());
+						TS_WARN(Common::String::format("entry %u width %d%s: cp949 breaks at%s, layout at%s", e, width, centred ? " centred" : "", sa.c_str(), sb.c_str()).c_str());
 					}
 				}
 			}

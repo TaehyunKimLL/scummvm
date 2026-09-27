@@ -191,9 +191,11 @@ void ScummHiResText::adoptConfig(const Graphics::HiResTextConfig &config) {
 	resolveCharsetFonts();
 }
 
-Graphics::BreakRules ScummHiResText::breakRules() const {
+Graphics::BreakRules ScummHiResText::breakRules(bool centred) const {
 	Graphics::BreakRules rules;
-	rules.hangul = Graphics::kHangulBreakAny;
+	// The Korean patches' addLinebreaks() breaks Hangul anywhere except in
+	// centred text (actor speech), where it breaks at spaces.
+	rules.hangul = centred ? Graphics::kHangulBreakWord : Graphics::kHangulBreakAny;
 	if (_config.layout.hangulSet)
 		rules.hangul = _config.layout.hangul;
 	if (_config.layout.kinsokuSet)

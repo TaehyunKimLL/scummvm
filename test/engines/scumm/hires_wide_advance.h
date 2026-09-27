@@ -96,6 +96,18 @@ public:
 		TS_ASSERT(!parse("[render]\nmetrics=bogus\n").metricsSourceSet);
 	}
 
+	/// The Korean patches break Hangul anywhere except in centred text; a
+	/// map's [layout] hangul= wins in both.
+	void test_hangul_break_follows_centring() {
+		Scumm::ScummHiResText hr;
+		hr.adoptConfig(parse("[hires]\nscale=2\n"));
+		TS_ASSERT_EQUALS(hr.breakRules().hangul, Graphics::kHangulBreakAny);
+		TS_ASSERT_EQUALS(hr.breakRules(true).hangul, Graphics::kHangulBreakWord);
+		Scumm::ScummHiResText any;
+		any.adoptConfig(parse("[hires]\nscale=2\n[layout]\nhangul=any\n"));
+		TS_ASSERT_EQUALS(any.breakRules(true).hangul, Graphics::kHangulBreakAny);
+	}
+
 	/// No metrics key: CP949 and UTF-8 both step U+AC00 by the face, not by
 	/// the patch cell + 1 (10) nor the stand-in's width.
 	void test_wide_ttf_steps_by_face_by_default() {

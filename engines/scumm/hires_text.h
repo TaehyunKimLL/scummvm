@@ -323,7 +323,9 @@ struct ScummHiResText {
 	 * own rule, so a UTF-8 ko.trs breaks where the CP949 korean.trs does),
 	 * kinsoku and the Thai fallback on; the map's [layout] overrides each.
 	 */
-	Graphics::BreakRules breakRules() const;
+	/// @param centred  the text is centred: by default Hangul then breaks
+	///                 at spaces only, as the Korean patches break it (C31)
+	Graphics::BreakRules breakRules(bool centred = false) const;
 
 	const Graphics::HiResTextConfig &config() const { return _config; }
 
