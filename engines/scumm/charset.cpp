@@ -1211,6 +1211,14 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 #endif
 			 )
 		_vm->noteKeptHiResGlyph(hiResArea, _blitAlso);
+	if (hiResDrawn && !vs->hasTwoBuffers) {
+		// The game would have drawn this into the screen's own buffer, and
+		// will erase it by painting that buffer over.
+		const int m = _vm->_textSurfaceMultiplier;
+		const int w = is2byte ? width : width * m;
+		const int h = is2byte ? height : height * m;
+		_vm->noteTracedHiResGlyph(Common::Rect(_left * m, _top * m, _left * m + w, _top * m + h), hiResArea);
+	}
 
 	if (hiResDrawn) {
 		// drawn
@@ -1511,6 +1519,13 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 #endif
 			 )
 		_vm->noteKeptHiResGlyph(hiResArea, _blitAlso);
+	if (hiResDrawn && !vs->hasTwoBuffers) {
+		// The game would have drawn this into the screen's own buffer, and
+		// will erase it by painting that buffer over.
+		const int m = _vm->_textSurfaceMultiplier;
+		const int y = _top - _vm->_screenTop;
+		_vm->noteTracedHiResGlyph(Common::Rect(_left * m, y * m, (_left + _width) * m, (y + _height) * m), hiResArea);
+	}
 	if (!hiResDrawn && _charPtr)
 		printCharIntern(is2byte, _charPtr, _origWidth, _origHeight, _width, _height, vs, ignoreCharsetMask);
 

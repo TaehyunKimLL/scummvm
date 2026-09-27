@@ -1069,6 +1069,30 @@ Common::Rect ScummHiResText::gameRectFor(const Common::Rect &area, int m) {
 						-floorDiv(-area.right, m), -floorDiv(-area.bottom, m));
 }
 
+Common::Rect ScummHiResText::overlayRectFor(const Common::Rect &rect, int topOffset, int m) {
+	if (rect.isEmpty())
+		return Common::Rect();
+	m = MAX(1, m);
+	return Common::Rect(rect.left * m, (rect.top + topOffset) * m,
+						rect.right * m, (rect.bottom + topOffset) * m);
+}
+
+void ScummHiResText::retireTracedGlyphs(const Common::Rect &painted, Common::Array<TracedGlyph> &glyphs,
+										Common::Array<Common::Rect> &clear) {
+	if (painted.isEmpty())
+		return;
+	clear.push_back(painted);
+	for (uint i = 0; i < glyphs.size();) {
+		if (!glyphs[i].cell.intersects(painted)) {
+			++i;
+			continue;
+		}
+		if (!painted.contains(glyphs[i].area))
+			clear.push_back(glyphs[i].area);
+		glyphs.remove_at(i);
+	}
+}
+
 Graphics::GlyphStyle ScummHiResText::glyphStyle(const Graphics::HiResTextConfig &config,
 												 int gameShadow, bool korPatchShadow,
 												 byte color, byte shadowColor) {
