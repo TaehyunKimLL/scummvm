@@ -330,6 +330,7 @@ public:
 			delete small;
 			delete big;
 			TS_SKIP("Arial.ttf not available");
+			return;
 		}
 		AgsTtfScaled scaled(small, big, 2);
 		AGS3::GlyphTextDrawer d(small, true);
@@ -379,6 +380,7 @@ public:
 			delete small;
 			delete big;
 			TS_SKIP("Ayuthaya.ttf not available");
+			return;
 		}
 		AgsTtfScaled scaled(small, big, 2);
 		AGS3::GlyphTextDrawer d(small, true);
