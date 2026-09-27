@@ -23,7 +23,8 @@
 // unicodedata, Unicode 16.0.0. Do not edit by hand: re-run the generator.
 //
 // The tables below are derived from the Unicode Character Database 16.0.0
-// (EastAsianWidth.txt, UnicodeData.txt general categories), Copyright (C)
+// (EastAsianWidth.txt, UnicodeData.txt general categories, PropList.txt and
+// DerivedCoreProperties.txt for isInkless()), Copyright (C)
 // Unicode, Inc., distributed under the Unicode License v3
 // (https://www.unicode.org/license.txt).
 
@@ -524,6 +525,44 @@ const Run kCombiningRuns[] = {
 	{ 0xE0100, 0xE01EF }
 };
 
+// General category Zs (7 runs).
+const Run kSpaceRuns[] = {
+	{ 0x00020, 0x00020 },
+	{ 0x000A0, 0x000A0 },
+	{ 0x01680, 0x01680 },
+	{ 0x02000, 0x0200A },
+	{ 0x0202F, 0x0202F },
+	{ 0x0205F, 0x0205F },
+	{ 0x03000, 0x03000 }
+};
+
+// General category Zs, Zl, Zp, Cc or Cf less the prepended concatenation
+// marks, plus the other default-ignorable code points (22 runs).
+const Run kInklessRuns[] = {
+	{ 0x00000, 0x00020 },
+	{ 0x0007F, 0x000A0 },
+	{ 0x000AD, 0x000AD },
+	{ 0x0034F, 0x0034F },
+	{ 0x0061C, 0x0061C },
+	{ 0x0115F, 0x01160 },
+	{ 0x01680, 0x01680 },
+	{ 0x017B4, 0x017B5 },
+	{ 0x0180B, 0x0180F },
+	{ 0x02000, 0x0200F },
+	{ 0x02028, 0x0202F },
+	{ 0x0205F, 0x0206F },
+	{ 0x03000, 0x03000 },
+	{ 0x03164, 0x03164 },
+	{ 0x0FE00, 0x0FE0F },
+	{ 0x0FEFF, 0x0FEFF },
+	{ 0x0FFA0, 0x0FFA0 },
+	{ 0x0FFF0, 0x0FFFB },
+	{ 0x13430, 0x1343F },
+	{ 0x1BCA0, 0x1BCA3 },
+	{ 0x1D173, 0x1D17A },
+	{ 0xE0000, 0xE0FFF }
+};
+
 // SCI01 kinsoku table as CP932 code points, plus the JIS X 4051 closers
 // of design section 4.3 (29 + 17 code points, sorted).
 const uint32 kNoStart[] = {
@@ -579,6 +618,14 @@ bool isWide(uint32 cp) {
 
 bool isCombining(uint32 cp) {
 	return inRuns(kCombiningRuns, cp);
+}
+
+bool isSpaceSeparator(uint32 cp) {
+	return inRuns(kSpaceRuns, cp);
+}
+
+bool isInkless(uint32 cp) {
+	return inRuns(kInklessRuns, cp);
 }
 
 bool isThaiBase(uint32 cp) {

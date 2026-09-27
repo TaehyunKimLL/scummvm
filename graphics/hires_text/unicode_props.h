@@ -45,6 +45,22 @@ bool isWide(uint32 cp);
  */
 bool isCombining(uint32 cp);
 
+/** General category Zs (space separator): U+0020, U+00A0, U+1680,
+ *  U+2000..U+200A, U+202F, U+205F, U+3000. */
+bool isSpaceSeparator(uint32 cp);
+
+/**
+ * A character a face may rightly draw with no ink at all, so that a glyph
+ * without ink does not show the face lacks it: general category Zs, Zl, Zp,
+ * Cc or Cf, except the prepended concatenation marks (U+0600..U+0605,
+ * U+06DD, U+070F, U+0890..U+0891, U+08E2, U+110BD, U+110CD: format
+ * characters that draw a sign), plus the other default-ignorable code
+ * points (DerivedCoreProperties.txt: variation selectors, the Hangul
+ * fillers U+115F, U+1160, U+3164, U+FFA0, U+034F, U+17B4..U+17B5, and the
+ * reserved U+2065, U+FFF0..U+FFF8, U+E0000..U+E0FFF).
+ */
+bool isInkless(uint32 cp);
+
 /** A Thai character that may begin a syllable-ish unit:
  *  U+0E01..U+0E2E (consonants), U+0E40..U+0E44 (leading vowels),
  *  U+0E4F..U+0E5B (signs and digits). */

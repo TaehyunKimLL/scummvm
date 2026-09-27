@@ -254,7 +254,11 @@ CoverageReport checkCoverage(UnicodeGlyphSource *src, const Common::Array<uint32
 		r.sampled++;
 		GlyphMetrics m;
 		if (!src->metrics(cp, m)) {
-			missing.push_back(cp);
+			// A space or format character may rightly have no glyph (a
+			// TrueType face that draws no ink for it does not answer for it
+			// unless it is a space it advances): not a gap in the face.
+			if (!Unicode::isInkless(cp))
+				missing.push_back(cp);
 			continue;
 		}
 		if ((m.combining || Unicode::isCombining(cp)) && (m.advance != 0 || src->advance(cp) != 0))

@@ -42,6 +42,13 @@ bool TtfGlyphSource::isWide(uint32 cp) {
 	return Unicode::isWide(cp);
 }
 
+bool TtfGlyphSource::keepsInklessGlyph(uint32 cp, int advance) {
+	// The three spaces kept from the start, whatever the face says of them.
+	if (cp == 0x0020 || cp == 0x00A0 || cp == 0x3000)
+		return true;
+	return advance > 0 && Unicode::isSpaceSeparator(cp);
+}
+
 bool TtfGlyphSource::buildGammaCurve(int gammaX100, byte lut[256]) {
 	gammaX100 = CLIP(gammaX100, 50, 400);
 	if (gammaX100 == 100) {
@@ -636,11 +643,14 @@ TtfGlyphSource::Entry &TtfGlyphSource::ensure(uint32 cp) {
 	}
 
 	// TTFFont exposes no "has glyph" query, so a code point the face lacks
-	// is inferred from drawing no ink at all - except the code points that
-	// are legitimately blank (space, no-break space, the CJK ideographic
-	// space), which must still count as present so layout can advance past
-	// them.
-	if (!hasInk && cp != 0x0020 && cp != 0x00A0 && cp != 0x3000)
+	// is inferred from drawing no ink at all. That also catches a face that
+	// maps a code point to an empty glyph (C22: faces that map all 11172
+	// Hangul syllables but outline only KS X 1001's 2350) and a face with
+	// no outlines drawn off its bitmap strike: missing, so a chain asks its
+	// next face. The code points that are legitimately blank - the spaces,
+	// keepsInklessGlyph() - still count as present so layout can advance
+	// past them. The face's advance is asked only for those.
+	if (!hasInk && !keepsInklessGlyph(cp, Unicode::isSpaceSeparator(cp) ? _font->getCharWidth(cp) : 0))
 		return entry;
 
 	entry.cells = Unicode::isWide(cp) ? 2 : 1;
