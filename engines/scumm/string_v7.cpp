@@ -753,7 +753,8 @@ void ScummEngine_v7::displayDialog() {
 			maxwidth *= 2;
 		}
 
-		_charset->addLinebreaks(0, _charsetBuffer + _charsetBufPos, 0, maxwidth);
+		_charset->addLinebreaks(0, _charsetBuffer + _charsetBufPos, 0, maxwidth,
+								(int)sizeof(_charsetBuffer) - _charsetBufPos);
 
 		if (_charset->_center) {
 			_nextLeft -= _charset->getStringWidth(0, _charsetBuffer + _charsetBufPos) / 2;
