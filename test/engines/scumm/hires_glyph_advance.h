@@ -134,6 +134,17 @@ private:
 		return Common::FSNode(kPath).exists() ? kPath : nullptr;
 	}
 
+	/// C22's free fonts (fonts/gongu in the harness workspace), or null.
+	static const char *blankHangulFont() {
+		static const char *const kPath = "/Users/juami/work/scummvm/fonts/gongu/x/barun-R/HakgyoansimBareondotumR.ttf";
+		return Common::FSNode(kPath).exists() ? kPath : nullptr;
+	}
+
+	static const char *fullHangulFont() {
+		static const char *const kPath = "/Users/juami/work/scummvm/fonts/gongu/x/nanumgothic-gf/NanumGothic-Regular.ttf";
+		return Common::FSNode(kPath).exists() ? kPath : nullptr;
+	}
+
 	static const char *sukhumvit() {
 		static const char *const kTtc = "/System/Library/Fonts/Supplemental/SukhumvitSet.ttc";
 		static const char *const kTtf = "/Users/juami/work/scummvm/runs/c11/data/fonts/sukhumvit-text.ttf";
@@ -804,6 +815,65 @@ public:
 			TS_ASSERT(w[0].contains("AppleSDGothicNeo"));
 			TS_ASSERT(w[0].contains("lacks 3 of"));
 			TS_ASSERT(w[0].contains("U+0E01"));
+		}
+#else
+		TS_SKIP("needs FreeType and a real filesystem");
+#endif
+	}
+
+	// C24: a face that maps a syllable but draws nothing for it (C22's
+	// Hakgyoansim Bareondotum: 11172 mapped, 2350 outlined) hands it to the
+	// next face of the chain, and the coverage check counts it; a space is
+	// never counted.
+	void test_blank_glyph_falls_through_to_the_next_face() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		const char *blank = blankHangulFont();
+		const char *full = fullHangulFont();
+		if (!blank || !full) {
+			TS_SKIP("needs the C22 fonts (fonts/gongu)");
+			return;
+		}
+		// "똠방각하 뷁 가\u2009a"
+		static const char kText[] = "\xEB\x98\xA0\xEB\xB0\xA9\xEA\xB0\x81\xED\x95\x98 \xEB\xB7\x81 "
+									"\xEA\xB0\x80\xE2\x80\x89" "a";
+		Scumm::HiResOverlay overlay;
+		overlay.create(96, 40, true);
+
+		for (int withNext = 0; withNext < 2; withNext++) {
+			const Common::String map = withNext
+				? Common::String::format("[hires]\nscale=2\nalpha=true\nface=%s, %s\n", blank, full)
+				: Common::String::format("[hires]\nscale=2\nalpha=true\nface=%s\n", blank);
+			Graphics::HiResTextConfig c = parse(map.c_str());
+			c.encoding = Common::kUtf8;
+			Scumm::ScummHiResText hr;
+			hr.useOverlay(&overlay);
+			hr.adoptConfig(c);
+			hr.noteTranslatedString((const byte *)kText, sizeof(kText) - 1);
+			hr.setGameFontCell(0, 8, 8);
+			TS_ASSERT(hr.loadFonts(Common::Path()));
+
+			Graphics::Surface dest;
+			clear(dest, 96, 40);
+			// 가 is the first face's either way.
+			TS_ASSERT(hr.drawChar(dest, 0xAC00, 0, 2, 2, kInk, 0, 1));
+			clear(dest, 96, 40);
+			// 똠: the next face draws it; alone, nothing is drawn and the
+			// caller falls back to the game's font.
+			TS_ASSERT_EQUALS(hr.drawChar(dest, 0xB620, 0, 2, 2, kInk, 0, 1), withNext == 1);
+			int l, r;
+			TS_ASSERT_EQUALS(inkSpan(dest, l, r), withNext == 1);
+			dest.free();
+
+			// One warning, for the blank face, naming the blank syllables and
+			// not the thin space.
+			const Common::Array<Common::String> &w = hr.coverageWarnings();
+			TS_ASSERT_EQUALS(w.size(), 1U);
+			if (w.size() == 1) {
+				TS_ASSERT(w[0].contains("HakgyoansimBareondotumR.ttf lacks 2 of"));
+				TS_ASSERT(w[0].contains("(U+B620 U+BDC1)"));
+				TS_ASSERT(!w[0].contains("U+2009"));
+				TS_ASSERT(w[0].contains(withNext ? "fall back to NanumGothic-Regular.ttf" : "fall back to the game's font"));
+			}
 		}
 #else
 		TS_SKIP("needs FreeType and a real filesystem");

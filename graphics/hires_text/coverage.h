@@ -114,7 +114,11 @@ struct CoverageReport {
 /**
  * Asks @p src for each sampled code point through metrics() (a TrueType
  * source rasterises and so caches it: these are glyphs the game will draw).
- * A code point is missing when metrics() fails; a combining one (Unicode::
+ * A code point is missing when metrics() fails, unless it may rightly draw
+ * no ink (Unicode::isInkless(): a space, a zero-width or other format
+ * character) - a TrueType source answers only for what it draws ink for,
+ * so an empty glyph (a face that maps every Hangul syllable but outlines
+ * only some) counts as missing, once per face; a combining one (Unicode::
  * isCombining(), or metrics().combining) counts as a spacing mark when
  * metrics() or the face's own advance() gives it a non-zero advance - the
  * face expects a shaper to place it.
