@@ -25,6 +25,7 @@ MODULE_OBJS := \
 	gfx.o \
 	hires_overlay.o \
 	hires_text.o \
+	text_utf8.o \
 	he/mixer_he.o \
 	he/resource_he.o \
 	he/script_v60he.o \
