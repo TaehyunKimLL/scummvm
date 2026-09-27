@@ -37,8 +37,13 @@ static const uint32 kFormatUtf8 = AGS_LAYOUT_ID('U', 'T', 'F', '8');
 static const uint32 kFormatEucKr = AGS_LAYOUT_ID('E', 'U', 'K', 'R');
 #undef AGS_LAYOUT_ID
 
-bool split_lines_uses_layout(int uformat) {
-	return (uint32)uformat != kFormatAscii;
+bool split_lines_uses_layout(int uformat, bool translationLoaded, bool mapActive) {
+	if ((uint32)uformat == kFormatAscii)
+		return false;
+	// U_EUCKR is only ever set for a translation (C8 T6)
+	if ((uint32)uformat == kFormatEucKr)
+		return true;
+	return translationLoaded || mapActive;
 }
 
 int AgsTextDecoder::decode(const byte *p, const byte *end, uint32 &cp, byte &flags) const {

@@ -387,6 +387,18 @@ static size_t split_lines_layout(SplitLines &lines, int wii, int fonnt, size_t m
 	return lines.Count();
 }
 
+// The helpers split_lines_bytes() runs on: Allegro's text format functions
+// and the outlined width, as split_lines() always called them.
+struct SplitLinesOps {
+	explicit SplitLinesOps(int font) : _font(font) {}
+	inline int nextChar(char **s) { return ugetx(s); }
+	inline int charAt(const char *s) { return ugetc(s); }
+	inline int putChar(char *s, int c) { return usetc(s, c); }
+	inline int width(const char *s) { return get_text_width_outlined(s, _font); }
+private:
+	int _font;
+};
+
 // Break up the text into lines
 size_t split_lines(const char *todis, SplitLines &lines, int wii, int fonnt, size_t max_lines) {
 	// NOTE: following hack accommodates for the legacy math mistake in split_lines.
@@ -400,83 +412,11 @@ size_t split_lines(const char *todis, SplitLines &lines, int wii, int fonnt, siz
 
 	lines.Reset();
 	unescape_script_string(todis, lines.LineBuf);
-	if (split_lines_uses_layout(get_uformat()))
+	if (split_lines_uses_layout(get_uformat(), !_G(trans_name).IsEmpty(), _GP(hiresFontConfig).active()))
 		return split_lines_layout(lines, wii, fonnt, max_lines);
-	char *theline = &lines.LineBuf.front();
-
-	char *scan_ptr = theline;
-	char *prev_ptr = theline;
-	char *last_whitespace = nullptr;
-	while (1) {
-		char *split_at = nullptr;
-
-		if (*scan_ptr == 0) {
-			// end of the text, add the last line if necessary
-			if (scan_ptr > theline) {
-				lines.Add(theline);
-			}
-			break;
-		}
-
-		if (*scan_ptr == ' ')
-			last_whitespace = scan_ptr;
-
-		// force end of line with the \n character
-		if (*scan_ptr == '\n') {
-			split_at = scan_ptr;
-			// otherwise, see if we are too wide
-		} else {
-			// temporarily terminate the line in the *next* char and test its width
-			char *next_ptr = scan_ptr;
-			ugetx(&next_ptr);
-			const int next_chwas = ugetc(next_ptr);
-			*next_ptr = 0;
-
-			if (get_text_width_outlined(theline, fonnt) > wii) {
-				// line is too wide, order the split
-				if (last_whitespace)
-					// revert to the last whitespace
-					split_at = last_whitespace;
-				else
-					// single very wide word, display as much as possible
-					split_at = prev_ptr;
-			}
-
-			// restore the character that was there before
-			usetc(next_ptr, next_chwas);
-		}
-
-		if (split_at == nullptr) {
-			prev_ptr = scan_ptr;
-			ugetx(&scan_ptr);
-		} else {
-			// check if even one char cannot fit...
-			if (split_at == theline && !((*theline == ' ') || (*theline == '\n'))) {
-				// cannot split with current width restriction
-				lines.Reset();
-				break;
-			}
-			// add this line; do the temporary terminator trick again
-			const int next_chwas = ugetc(split_at);
-			*split_at = 0;
-			lines.Add(theline);
-			usetc(split_at, next_chwas);
-			// check if too many lines
-			if (lines.Count() >= max_lines) {
-				lines[lines.Count() - 1].Append("...");
-				break;
-			}
-			// the next line starts from the split point
-			theline = split_at;
-			// skip the space or new line that caused the line break
-			if ((*theline == ' ') || (*theline == '\n'))
-				theline++;
-			scan_ptr = theline;
-			prev_ptr = theline;
-			last_whitespace = nullptr;
-		}
-	}
-	return lines.Count();
+	// AGS's own breaking (split_lines_bytes(), ags_text_layout.h)
+	SplitLinesOps ops(fonnt);
+	return split_lines_bytes(&lines.LineBuf.front(), lines, wii, max_lines, ops);
 }
 
 void wouttextxy(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, const char *texx) {
