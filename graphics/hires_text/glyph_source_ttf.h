@@ -176,6 +176,35 @@ public:
 	 *  tests and logged, with rasterCount(), when the source is destroyed. */
 	uint32 totalRenderMs() const { return _totalRenderMs; }
 
+	/**
+	 * The map's [hires] gamma=, in hundredths: every glyph rasterised from
+	 * now on has its coverage c replaced by 255*(c/255)^(100/gamma), and
+	 * glyphs already cached are dropped so they are drawn again with it.
+	 * 100 (the default) is off: the rows are FreeType's bytes, untouched.
+	 * Clamped to 50..400.
+	 *
+	 * Zero stays zero and 255 stays 255, so the glyph's box, advance and
+	 * fit do not change, and on a blended screen no pixel is added. What
+	 * reads the coverage does see a change: the outline (C19 dilate() takes
+	 * coverage as distance) widens with the body, about +0.23 px at 2.2 and
+	 * up to +0.47 px at 4; on a keyed screen (alpha=false) pixels that now
+	 * cross the ink cut (0x40) or the decoration cut (0x80) become whole
+	 * solid pixels, so keyed text grows, and below 1 thin keyed strokes can
+	 * drop out.
+	 */
+	void setCoverageGamma(int gammaX100);
+	int coverageGamma() const { return _gamma; }
+
+	/**
+	 * Fills lut with the gamma= curve (gammaX100 clamped to 50..400).
+	 * Above gamma 1, coverage below kGammaToe is left as it is, so faint
+	 * fringe (haze between a stacked mark and its base, inside a tight
+	 * counter) is not lifted into view. Returns false when the curve is
+	 * the identity (gamma 1). Pure; also in the no-FreeType build.
+	 */
+	static const int kGammaToe = 4;
+	static bool buildGammaCurve(int gammaX100, byte lut[256]);
+
 	/** Whether cp is East Asian Wide or Fullwidth: forwards to
 	 *  Unicode::isWide() (unicode_props.h), kept for existing callers.
 	 *  Available even when this build has no FreeType. */
@@ -244,6 +273,10 @@ private:
 	uint32 _totalRenderMs = 0;
 
 	Common::HashMap<uint32, Entry> _cache;
+
+	int _gamma = 100;
+	bool _useGamma = false;
+	byte _gammaLut[256];
 };
 
 } // End of namespace Graphics

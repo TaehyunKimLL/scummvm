@@ -299,8 +299,11 @@ Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int si
 			src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, size, error, requireHangul);
 		}
 		const uint32 elapsedMs = g_system->getMillis() - startMs;
-		if (src)
+		if (src) {
+			// [hires] gamma=: off (100) unless the map asks.
+			src->setCoverageGamma(_hiresMap.coverageGamma);
 			debug(1, "SCI: %s %s opened at %dpx in %u ms", what, path.c_str(), size, elapsedMs);
+		}
 	} else {
 		error = "could not open the file";
 	}

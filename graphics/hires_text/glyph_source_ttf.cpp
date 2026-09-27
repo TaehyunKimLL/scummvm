@@ -30,6 +30,8 @@
 #include "graphics/managed_surface.h"
 #include "graphics/pixelformat.h"
 
+#include <math.h>
+
 #ifdef USE_FREETYPE2
 #include "graphics/fonts/ttf.h"
 #endif
@@ -38,6 +40,37 @@ namespace Graphics {
 
 bool TtfGlyphSource::isWide(uint32 cp) {
 	return Unicode::isWide(cp);
+}
+
+bool TtfGlyphSource::buildGammaCurve(int gammaX100, byte lut[256]) {
+	gammaX100 = CLIP(gammaX100, 50, 400);
+	if (gammaX100 == 100) {
+		for (int i = 0; i < 256; ++i)
+			lut[i] = (byte)i;
+		return false;
+	}
+	const double exponent = 100.0 / gammaX100;
+	lut[0] = 0;
+	for (int i = 1; i < 255; ++i)
+		lut[i] = (byte)CLIP<int>((int)(255.0 * pow(i / 255.0, exponent) + 0.5), 0, 255);
+	// The toe: a lifting curve leaves faint fringe alone (a lowering one
+	// only makes it fainter, and keeping it would break the order).
+	if (gammaX100 > 100) {
+		for (int i = 1; i < kGammaToe; ++i)
+			lut[i] = (byte)i;
+	}
+	lut[255] = 255;
+	return true;
+}
+
+void TtfGlyphSource::setCoverageGamma(int gammaX100) {
+	gammaX100 = CLIP(gammaX100, 50, 400);
+	if (gammaX100 == _gamma)
+		return;
+	_gamma = gammaX100;
+	_useGamma = buildGammaCurve(gammaX100, _gammaLut);
+	// A glyph cached under the old curve would otherwise keep it.
+	_cache.clear();
 }
 
 int TtfGlyphSource::chooseFitSize(int startSize, int minSize, uint32 rendersPerCall,
@@ -521,6 +554,10 @@ TtfGlyphSource::Entry &TtfGlyphSource::ensure(uint32 cp) {
 	for (int y = 0; y < cellH; y++)
 		for (int x = 0; x < cellW * 2; x++)
 			entry.cov[y * cellW * 2 + x] = coverageAt(surf, x, y);
+	if (_useGamma) {
+		for (uint i = 0; i < entry.cov.size(); ++i)
+			entry.cov[i] = _gammaLut[entry.cov[i]];
+	}
 
 	return entry;
 }
