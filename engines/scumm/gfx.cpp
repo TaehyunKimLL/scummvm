@@ -1454,6 +1454,11 @@ void ScummEngine::restoreBackground(Common::Rect rect, byte backColor) {
 			fill(screenBuf, vs->pitch, _16BitPalette[backColor], width, height, vs->format.bytesPerPixel);
 		else
 			fill(screenBuf, vs->pitch, backColor, width, height, vs->format.bytesPerPixel);
+
+		// The fill erased whatever text the game drew into this buffer - on
+		// the verb screen that is every verb, dialogue choice and sentence
+		// line. Hi-res text is on the overlay instead, so erase it there too.
+		eraseHiResTextPainted(vs, Common::Rect(rect.left, rect.top, rect.left + width, rect.top + height));
 	}
 }
 
@@ -1664,6 +1669,68 @@ void ScummEngine::forgetKeptHiResGlyphs(const Common::Rect &area) {
 			_keptHiResGlyphs.remove_at(i);
 		else
 			++i;
+	}
+	for (uint i = 0; i < _tracedHiResGlyphs.size();) {
+		if (area.contains(_tracedHiResGlyphs[i].area))
+			_tracedHiResGlyphs.remove_at(i);
+		else
+			++i;
+	}
+}
+
+void ScummEngine::noteTracedHiResGlyph(const Common::Rect &cell, const Common::Rect &area) {
+	if (area.isEmpty())
+		return;
+
+	// The verb screen holds a few dozen glyphs at a time; the cap only guards
+	// a game that prints there without ever painting over it.
+	static const uint kMaxTraced = 2048;
+	if (_tracedHiResGlyphs.size() >= kMaxTraced)
+		_tracedHiResGlyphs.remove_at(0);
+
+	ScummHiResText::TracedGlyph glyph;
+	glyph.cell = cell;
+	glyph.area = area;
+	_tracedHiResGlyphs.push_back(glyph);
+}
+
+void ScummEngine::eraseHiResTextPainted(const VirtScreen *vs, const Common::Rect &rect) {
+	if (!_hiResText.enabled() || !vs || rect.isEmpty() || _macScreen)
+		return;
+#ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
+	// FM-Towns paints its text layer with the fill colour itself.
+	if (_game.platform == Common::kPlatformFMTowns)
+		return;
+#endif
+
+	if (vs->hasTwoBuffers) {
+		// The main screen in the dark or in room 0: the fill reached the
+		// front buffer, so the text the game drew there for keeps is gone.
+		// Removable text is on the text surface in the game too, and stays.
+		retireKeptHiResText(vs, rect, false);
+		return;
+	}
+
+	// A single-buffered screen has all its text in its own buffer, so all of
+	// it under the paint goes, and every glyph the paint touched goes whole.
+	const int m = _textSurfaceMultiplier;
+	const Common::Rect painted = ScummHiResText::overlayRectFor(rect, vs->topline - _screenTop, m);
+	Common::Array<Common::Rect> clear;
+	ScummHiResText::retireTracedGlyphs(painted, _tracedHiResGlyphs, clear);
+	for (uint i = 0; i < clear.size(); ++i) {
+		Common::Rect area(clear[i]);
+		area.clip(Common::Rect(_textSurface.w, _textSurface.h));
+		if (area.isEmpty())
+			continue;
+		_overlay.clear(area, textTransparency());
+		// A glyph's decoration can reach past the painted rect, which the
+		// caller already marked; the rest has to reach the screen too.
+		if (i > 0) {
+			const Common::Rect g = ScummHiResText::gameRectFor(area, m);
+			markRectAsDirty(vs->number, g.left, g.right,
+							g.top + _screenTop - vs->topline, g.bottom + _screenTop - vs->topline,
+							USAGE_BIT_RESTORED);
+		}
 	}
 }
 
@@ -1962,6 +2029,9 @@ void ScummEngine::drawBox(int x, int y, int x2, int y2, int color) {
 			}
 
 			fill(backbuff, vs->pitch, color, width, height, vs->format.bytesPerPixel);
+			// A box over text the game drew into this buffer erases it; the
+			// hi-res text standing for it goes the same way.
+			eraseHiResTextPainted(vs, Common::Rect(x, y, x + width, y + height));
 		}
 	}
 }

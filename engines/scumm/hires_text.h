@@ -469,6 +469,35 @@ struct ScummHiResText {
 	static Common::Rect gameRectFor(const Common::Rect &area, int m);
 
 	/**
+	 * A rect of a virtual screen, in that screen's own rows, as overlay
+	 * pixels: moved down by @p topOffset (the screen's topline less
+	 * _screenTop) and scaled by @p m.
+	 */
+	static Common::Rect overlayRectFor(const Common::Rect &rect, int topOffset, int m);
+
+	/**
+	 * A hi-res glyph drawn on a single-buffered virtual screen (C32), in
+	 * overlay pixels: @p cell is the game cell it stands for, @p area what it
+	 * inked, decoration included.
+	 */
+	struct TracedGlyph {
+		Common::Rect cell;
+		Common::Rect area;
+	};
+
+	/**
+	 * The game painted @p painted (overlay pixels) of a screen whose text it
+	 * draws into its own buffer, so the text there is gone. Append to
+	 * @p clear what the overlay must lose: the painted area itself, then the
+	 * whole of each glyph whose cell the paint touched - its decoration too,
+	 * which would otherwise stay as slivers - and drop those glyphs from
+	 * @p glyphs. A glyph whose cell is outside the paint stays whole even when
+	 * its decoration reaches in: the game did not erase it.
+	 */
+	static void retireTracedGlyphs(const Common::Rect &painted, Common::Array<TracedGlyph> &glyphs,
+								   Common::Array<Common::Rect> &clear);
+
+	/**
 	 * Say whether the game's shadow byte comes from the Korean patch fonts,
 	 * drawn by drawBits1Kor() (a kor-trs v1-v6 target). v7 draws its own
 	 * shadow in draw2byte() and is left out.

@@ -1779,8 +1779,28 @@ public:
 	 */
 	void retireKeptHiResText(const VirtScreen *vs, const Common::Rect &rect, bool fromBackBuffer);
 
-	/// Forget the kept glyphs inside @p area of the overlay, which was cleared.
+	/// Forget the kept and traced glyphs inside @p area of the overlay, which was cleared.
 	void forgetKeptHiResGlyphs(const Common::Rect &area);
+
+	/**
+	 * Hi-res glyphs drawn on a single-buffered virtual screen - the verb
+	 * area, where MI1 also puts its dialogue choices and sentence line (C32).
+	 * The game draws that text into the screen's own buffer and erases it by
+	 * painting the buffer over (restoreVerbBG(), a box); the hi-res layer
+	 * draws it on the overlay, so it records each glyph here, in overlay
+	 * pixels, to erase it whole when the game paints over its cell.
+	 */
+	Common::Array<ScummHiResText::TracedGlyph> _tracedHiResGlyphs;
+
+	/// Record a hi-res glyph drawn on a single-buffered virtual screen.
+	void noteTracedHiResGlyph(const Common::Rect &cell, const Common::Rect &area);
+
+	/**
+	 * The game filled @p rect of @p vs (its own rows, screen columns) with a
+	 * colour, erasing the text it had drawn into that buffer: erase the hi-res
+	 * text standing for it. Does nothing with hi-res text off.
+	 */
+	void eraseHiResTextPainted(const VirtScreen *vs, const Common::Rect &rect);
 
 	/**
 	 * The index plane, under its historical name.
