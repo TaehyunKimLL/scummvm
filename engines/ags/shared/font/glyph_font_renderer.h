@@ -68,6 +68,18 @@ public:
 	 *  points and warn, once per face, about what a face lacks (coverage.h). */
 	void SetTranslationSample(const Common::Array<uint32> &sample);
 
+	/**
+	 * C23: the text as RenderText() lays it out at game resolution, drawn
+	 * N x into an N x destination: (x, y) are game pixels, the glyphs come
+	 * from the same faces opened at N x the size (lazily, once per font and
+	 * N), the pens are N x the game's (AGS_HIRES_TEXT_DESIGN.md section
+	 * 4.3). What the faces lack is the game's font upscaled. False when font
+	 * N cannot be drawn so (an SVFN font, or a face that fails at N x the
+	 * size: one warning per font and N); the caller upscales the native
+	 * rendering then.
+	 */
+	bool RenderTextScaled(const char *text, int fontNumber, BITMAP *destination, int x, int y, int colour, int scale);
+
 	// IAGSFontRenderer implementation
 	bool LoadFromDisk(int fontNumber, int fontSize) override { return false; }
 	void FreeMemory(int fontNumber) override;
@@ -97,15 +109,30 @@ private:
 	/** The game's own renderer, one character at a time. */
 	class GameFallback : public GlyphFallback {
 	public:
-		GameFallback() : _game(nullptr), _font(0), _dst(nullptr) {}
+		GameFallback() : _game(nullptr), _font(0), _dst(nullptr), _cell(nullptr) {}
+		~GameFallback() override;
 		void set(IAGSFontRenderer *game, int font) { _game = game; _font = font; }
 		void target(BITMAP *dst) { _dst = dst; }
 		int charWidth(uint32 cp) override;
 		void drawChar(uint32 cp, int x, int y, uint32 colour) override;
+		void drawCharScaled(uint32 cp, int x, int y, uint32 colour, int scale) override;
 	private:
 		IAGSFontRenderer *_game;
 		int _font;
 		BITMAP *_dst;
+		BITMAP *_cell;	///< drawCharScaled()'s scratch, kept
+	};
+
+	/** A font's faces opened at N x its size (C23). */
+	struct ScaledChain : public ScaledGlyphs {
+		ScaledChain() : Source(nullptr), Small(nullptr), N(1) {}
+		Graphics::UnicodeGlyphSource *source() override { return Source; }
+		int scale() const override { return N; }
+		int rowShift(uint32 cp) override;
+		Graphics::UnicodeGlyphSource *Source;	///< owned, as FontData::Source; nullptr: cannot (warned once)
+		Common::Array<Graphics::UnicodeGlyphSource *> Chain;
+		const Common::Array<Graphics::UnicodeGlyphSource *> *Small;	///< the font's own chain, face for face
+		int N;
 	};
 
 	struct FontData {
@@ -120,7 +147,11 @@ private:
 		GlyphTextDrawer Drawer;
 		GameFallback Fallback;
 		AGS::Shared::String Name;
+		Common::Array<uint32> FitProbes;		///< the translation's, for the N x chains too
+		std::map<int, ScaledChain *> Scaled;	///< by N, opened on first use
 	};
+
+	ScaledChain *GetScaled(FontData &fd, int fontNumber, int scale);
 
 	bool Build(FontData &fd, const Common::Array<uint32> &fitProbes, bool warn);
 	static void FreeSources(FontData &fd);

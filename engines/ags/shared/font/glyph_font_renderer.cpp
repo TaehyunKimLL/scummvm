@@ -47,6 +47,11 @@ GlyphFontRenderer::~GlyphFontRenderer() {
 }
 
 void GlyphFontRenderer::FreeSources(FontData &fd) {
+	for (auto &it : fd.Scaled) {
+		delete it._value->Source;
+		delete it._value;
+	}
+	fd.Scaled.clear();
 	// The FallbackGlyphSource owns the chain; a chain of one is the source.
 	delete fd.Source;
 	fd.Source = nullptr;
@@ -173,6 +178,7 @@ void GlyphFontRenderer::SetTranslationSample(const Common::Array<uint32> &sample
 				fd.Chain = fresh.Chain;
 				fd.Names = fresh.Names;
 				fd.Drawer.setSource(fd.Source);
+				fd.FitProbes = probes;
 				fresh.Source = nullptr;
 			}
 		}
@@ -254,6 +260,83 @@ void GlyphFontRenderer::RenderText(const char *text, int fontNumber, BITMAP *des
 	fd.Fallback.target(nullptr);
 }
 
+GlyphFontRenderer::ScaledChain *GlyphFontRenderer::GetScaled(FontData &fd, int fontNumber, int scale) {
+	auto it = fd.Scaled.find(scale);
+	if (it != fd.Scaled.end())
+		return it->_value->Source ? it->_value : nullptr;
+
+	ScaledChain *sc = new ScaledChain();
+	sc->N = scale;
+	sc->Small = &fd.Chain;
+	fd.Scaled[scale] = sc;
+	// An SVFN font has one size: it is upscaled (section 4.3)
+	if (fd.Plan.kind != HiResFontPlan::kFaces) {
+		Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: font %d (%s) has no %dx faces; it is upscaled",
+					  fontNumber, fd.Name.GetCStr(), scale);
+		return nullptr;
+	}
+	FontData big;
+	big.Plan = fd.Plan;
+	big.Size = fd.Size * scale;
+	bool ok = big.Size <= Graphics::TtfGlyphSource::kMaxPixelSize && Build(big, fd.FitProbes, false);
+	// The same faces, in the same order: rowShift() pairs them up
+	if (ok && big.Names.size() == fd.Names.size()) {
+		for (uint i = 0; i < big.Names.size(); i++)
+			ok = ok && big.Names[i] == fd.Names[i];
+	} else {
+		ok = false;
+	}
+	if (!ok) {
+		FreeSources(big);
+		Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: font %d (%s) cannot be opened at %dpx; its %dx text is upscaled",
+					  fontNumber, fd.Name.GetCStr(), fd.Size * scale, scale);
+		return nullptr;
+	}
+	sc->Source = big.Source;
+	sc->Chain = big.Chain;
+	big.Source = nullptr;
+	Debug::Printf(kDbgMsg_Info, "hires text: font %d at %dx: %dpx (cell %dx%d)", fontNumber, scale, fd.Size * scale,
+				  sc->Source->cellWidth(), sc->Source->cellHeight());
+	return sc;
+}
+
+int GlyphFontRenderer::ScaledChain::rowShift(uint32 cp) {
+	// Every entry of both chains is a TtfGlyphSource: GetScaled() builds a
+	// ScaledChain only for a kFaces plan, whose Build() opens TrueType faces
+	// and nothing else, and only when both chains name the same faces.
+	assert(Small && Chain.size() == Small->size());
+	// The face that draws cp, at both sizes: its N x baseline goes to N x
+	// its game-size baseline
+	for (uint i = 0; i < Chain.size() && i < Small->size(); i++) {
+		if (Chain[i]->cells(cp) > 0)
+			return N * static_cast<Graphics::TtfGlyphSource *>((*Small)[i])->baseline() -
+				static_cast<Graphics::TtfGlyphSource *>(Chain[i])->baseline();
+	}
+	return 0;
+}
+
+bool GlyphFontRenderer::RenderTextScaled(const char *text, int fontNumber, BITMAP *destination, int x, int y,
+										 int colour, int scale) {
+	auto it = _fontData.find(fontNumber);
+	if (it == _fontData.end())
+		return false;
+	FontData &fd = *it->_value;
+	ScaledChain *sc = GetScaled(fd, fontNumber, scale);
+	if (!sc)
+		return false;
+	if (y * scale > destination->cb)
+		return true;
+	Decode(text);
+	const Common::Rect clip = destination->clip ?
+		Common::Rect(destination->cl, destination->ct, destination->cr, destination->cb) :
+		Common::Rect(0, 0, destination->w, destination->h);
+	fd.Fallback.target(destination);
+	fd.Drawer.drawTextScaled(*destination->getSurface().surfacePtr(), clip, _cps.begin(), _cps.size(), x, y,
+							 (uint32)colour, &fd.Fallback, *sc);
+	fd.Fallback.target(nullptr);
+	return true;
+}
+
 const char *GlyphFontRenderer::GetFontName(int fontNumber) {
 	auto it = _fontData.find(fontNumber);
 	return it != _fontData.end() ? it->_value->Name.GetCStr() : "";
@@ -292,6 +375,43 @@ void GlyphFontRenderer::GameFallback::drawChar(uint32 cp, int x, int y, uint32 c
 	char buf[8] = { 0 };
 	usetc(buf, (int)cp);
 	_game->RenderText(buf, _font, _dst, x, y, (int)colour);
+}
+
+void GlyphFontRenderer::GameFallback::drawCharScaled(uint32 cp, int x, int y, uint32 colour, int scale) {
+	// The game's font at game resolution into a scratch cell, then upscaled:
+	// the character looks as it does today (section 4.3)
+	if (!_game || !_dst)
+		return;
+	char buf[8] = { 0 };
+	usetc(buf, (int)cp);
+	const int w = _game->GetTextWidth(buf, _font);
+	const int h = _game->GetTextHeight(buf, _font);
+	if (w <= 0 || h <= 0)
+		return;
+	// One scratch cell, kept and grown (one per font's fallback)
+	const int depth = bitmap_color_depth(_dst);
+	if (!_cell || bitmap_color_depth(_cell) != depth || _cell->w < w || _cell->h < h) {
+		const int cw = (_cell && bitmap_color_depth(_cell) == depth) ? MAX<int>(w, _cell->w) : w;
+		const int ch = (_cell && bitmap_color_depth(_cell) == depth) ? MAX<int>(h, _cell->h) : h;
+		if (_cell)
+			destroy_bitmap(_cell);
+		_cell = create_bitmap_ex(depth, cw, ch);
+		if (!_cell)
+			return;
+	}
+	const uint32 key = bitmap_mask_color(_cell);
+	set_clip_rect(_cell, 0, 0, w - 1, h - 1);
+	clear_to_color(_cell, key);
+	_game->RenderText(buf, _font, _cell, 0, 0, (int)colour);
+	const Common::Rect clip = _dst->clip ? Common::Rect(_dst->cl, _dst->ct, _dst->cr, _dst->cb)
+										 : Common::Rect(0, 0, _dst->w, _dst->h);
+	const Graphics::Surface area = _cell->getSurface().surfacePtr()->getSubArea(Common::Rect(0, 0, w, h));
+	GlyphTextDrawer::upscaleOnto(*_dst->getSurface().surfacePtr(), clip, area, key, x * scale, y * scale, scale);
+}
+
+GlyphFontRenderer::GameFallback::~GameFallback() {
+	if (_cell)
+		destroy_bitmap(_cell);
 }
 
 } // namespace AGS3

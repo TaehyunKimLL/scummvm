@@ -56,6 +56,11 @@ struct Font {
 	// Outline buffers
 	Bitmap TextStencil, TextStencilSub;
 	Bitmap OutlineStencil, OutlineStencilSub;
+	// ScummVM (C23): scratch for N x text: the game's rendering of a line
+	// before it is upscaled, and the N x auto-outline stencils
+	Bitmap ScaledCell, ScaledCellSub;
+	Bitmap ScaledTextStencil, ScaledTextStencilSub;
+	Bitmap ScaledOutlineStencil, ScaledOutlineStencilSub;
 
 	Font() {}
 };
@@ -74,6 +79,8 @@ IAGSFontRenderer *font_replace_renderer(size_t fontNumber, IAGSFontRenderer2 *re
 bool font_first_renderer_loaded();
 bool is_font_loaded(size_t fontNumber);
 bool is_bitmap_font(size_t fontNumber);
+// ScummVM (C23): whether font N is drawn by hires_text.map's faces
+bool is_font_hires_mapped(size_t fontNumber);
 bool font_supports_extended_characters(size_t fontNumber);
 // Get font's name, if it's available, otherwise returns empty string
 const char *get_font_name(size_t fontNumber);
@@ -128,6 +135,13 @@ void set_font_outline(size_t font_number, int outline_type,
 bool is_font_antialiased(size_t font_number);
 // Outputs a single line of text on the defined position on bitmap, using defined font, color and parameters
 void wouttextxy(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, const char *texx);
+// ScummVM (C23): wouttextxy() at N x into an N x bitmap, (xxx, yyy) in game
+// pixels. A font the map names is drawn from its faces at N x; any other
+// (and an SVFN one) is the game's rendering nearest-upscaled.
+// ScummVM (C23): a w x h scratch bitmap of the given depth kept in owner
+// (grown as needed), as a sub-bitmap view in sub; cleared to transparent.
+Shared::Bitmap *font_scratch_bitmap(Shared::Bitmap &owner, Shared::Bitmap &sub, int w, int h, int color_depth);
+void wouttextxy_scaled(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, const char *texx, int scale);
 // Assigns FontInfo to the font
 void set_fontinfo(size_t fontNumber, const FontInfo &finfo);
 // Gets full information about the font
