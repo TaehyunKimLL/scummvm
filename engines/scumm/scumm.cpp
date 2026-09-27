@@ -1289,7 +1289,7 @@ Common::Error ScummEngine::init() {
 	// surface have both been sized from _textSurfaceMultiplier. So the
 	// height is peeked at here instead - see peekGameCharsetHeight().
 	int scaleFromHeight = _useCJKMode ? _2byteHeight : 0;
-	if (scaleFromHeight <= 0)
+	if (scaleFromHeight <= 0 && _hiResText.wantsGameFontHeight())
 		scaleFromHeight = peekGameCharsetHeight();
 	_hiResText.resolveScale(scaleFromHeight);
 
