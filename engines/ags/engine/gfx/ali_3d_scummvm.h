@@ -295,6 +295,7 @@ public:
 	const Common::Array<Common::Rect> &GetHiResTextRects() const { return _hiresLastRects; }
 	/** C23: time spent per stage, for ags_frame_times */
 	struct {
+		bool Enabled = false;	///< timers at scale 1 too (ags_frame_times on)
 		uint32 Frames = 0, RenderMs = 0, PresentMs = 0, PatchMs = 0, Patches = 0;
 		uint32 Composed = 0, TailTwins = 0, TailSprites = 0, TailTints = 0, TailPatches = 0;
 	} HiResStats;

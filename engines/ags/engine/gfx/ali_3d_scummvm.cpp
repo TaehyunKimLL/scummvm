@@ -743,16 +743,25 @@ void ScummVMRendererGraphicsDriver::HiResKeepNativeOutsideText(const Graphics::S
 	// by construction: the replay blends at 32-bit, which differs in low
 	// bits from a 16-bit game's own blends (translucent GUIs, tint)
 	const int w = native.w, h = native.h;
-	_hiresTextMask.resize(w * h);
-	memset(_hiresTextMask.begin(), 0, w * h);
+	if ((int)_hiresTextMask.size() != w * h) {
+		_hiresTextMask.resize(w * h);
+		memset(_hiresTextMask.begin(), 0, w * h);
+	}
+	// The mask is all clear between calls: set the text rects, clear them after
+	Common::Array<Common::Rect> used;
 	for (const Common::Rect &r : _hiresLastRects) {
 		Common::Rect c = r;
 		c.clip(Common::Rect(0, 0, w, h));
+		if (c.isEmpty())
+			continue;
+		used.push_back(c);
 		for (int y = c.top; y < c.bottom; y++)
 			memset(&_hiresTextMask[y * w + c.left], 1, c.width());
 	}
 	const Graphics::PixelFormat &sf = native.format;
 	const int bpp = sf.bytesPerPixel;
+	const bool same = sf == frame.format;
+	const bool noAlpha = sf.aLoss == 8;
 	for (int y = 0; y < h; y++) {
 		const byte *mask = &_hiresTextMask[y * w];
 		const byte *in = (const byte *)native.getBasePtr(0, y);
@@ -760,15 +769,13 @@ void ScummVMRendererGraphicsDriver::HiResKeepNativeOutsideText(const Graphics::S
 			if (mask[x])
 				continue;
 			uint32 pixel;
-			if (sf == frame.format) {
+			if (same) {
 				pixel = *(const uint32 *)in;
 			} else {
 				const uint32 c = bpp == 2 ? *(const uint16 *)in : *(const uint32 *)in;
 				uint8 a, r, g, b;
 				sf.colorToARGB(c, a, r, g, b);
-				if (sf.aLoss == 8)
-					a = 0xff;
-				pixel = frame.format.ARGBToColor(a, r, g, b);
+				pixel = frame.format.ARGBToColor(noAlpha ? 0xff : a, r, g, b);
 			}
 			for (int j = 0; j < n; j++) {
 				uint32 *out = (uint32 *)frame.getBasePtr(x * n, y * n + j);
@@ -777,6 +784,9 @@ void ScummVMRendererGraphicsDriver::HiResKeepNativeOutsideText(const Graphics::S
 			}
 		}
 	}
+	for (const Common::Rect &c : used)
+		for (int y = c.top; y < c.bottom; y++)
+			memset(&_hiresTextMask[y * w + c.left], 0, c.width());
 }
 
 bool ScummVMRendererGraphicsDriver::HiResScreenOffset(Bitmap *surface, Point &off) const {
@@ -1042,6 +1052,12 @@ void ScummVMRendererGraphicsDriver::PresentSurface(const Graphics::Surface &src)
 void ScummVMRendererGraphicsDriver::Render(int xoff, int yoff, GraphicFlip flip) {
 	// C23: frame times for ags_frame_times (whole-millisecond reads: the
 	// mean over many frames is unbiased)
+	if (_G(hiresTextScale) < 2 && !HiResStats.Enabled) {
+		// Scale 1: exactly as upstream
+		RenderToBackBuffer();
+		Present(xoff, yoff, flip);
+		return;
+	}
 	const uint32 t0 = g_system->getMillis(true);
 	RenderToBackBuffer();
 	const uint32 t1 = g_system->getMillis(true);

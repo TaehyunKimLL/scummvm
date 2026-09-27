@@ -571,8 +571,9 @@ bool AGSConsole::Cmd_hiresRects(int argc, const char **argv) {
 	return true;
 }
 
-// ags_frame_times [reset]
+// ags_frame_times [reset|on|off]
 //
+// The timers run at scale 2 or more; at scale 1 only after "on".
 // C23: frames rendered, and the mean milliseconds per frame of
 // RenderToBackBuffer() and Present() (N x composition included), of the
 // N x native-patch copies/compares, and of building text twins, since the
@@ -584,6 +585,12 @@ bool AGSConsole::Cmd_frameTimes(int argc, const char **argv) {
 	}
 	auto &st = static_cast<AGS3::AGS::Engine::ALSW::ScummVMRendererGraphicsDriver *>(_G(gfxDriver))->HiResStats;
 	AGS3::HiResTextTwins *tw = _G(hiresTextTwins);
+	if (argc > 1 && (!strcmp(argv[1], "on") || !strcmp(argv[1], "off"))) {
+		// Timers at scale 1 too; off, scale 1 renders exactly as upstream
+		st.Enabled = !strcmp(argv[1], "on");
+		debugPrintf("OK\n");
+		return true;
+	}
 	if (argc > 1 && !strcmp(argv[1], "reset")) {
 		st.Frames = st.RenderMs = st.PresentMs = st.PatchMs = st.Patches = 0;
 		st.Composed = st.TailTwins = st.TailSprites = st.TailTints = st.TailPatches = 0;
@@ -606,16 +613,67 @@ bool AGSConsole::Cmd_frameTimes(int argc, const char **argv) {
 //
 // C23 test driver: calls one game function from the next game loop (as
 // ags_say does), for scenarios the games do not reach by themselves.
+// A decimal integer from lo to hi, or false
+static bool callArg(const char *s, int lo, int hi, int &v) {
+	if (!s || !*s)
+		return false;
+	const char *p = s;
+	if (*p == '-')
+		p++;
+	if (!*p)
+		return false;
+	for (; *p; p++)
+		if (*p < '0' || *p > '9' || p - s > 9)
+			return false;
+	v = atoi(s);
+	return v >= lo && v <= hi;
+}
+
 bool AGSConsole::Cmd_call(int argc, const char **argv) {
 	if (argc < 2) {
 		debugPrintf("Usage: %s <tint|shake|flip|fadeout|fadein|guitrans|dialog|saybg> args...\n", argv[0]);
 		return true;
 	}
+	// Every argument checked here, in the game's own ranges: a bad one is a
+	// FAIL reply, never the game's quit() or an endless fade
+	const Common::String f = argv[1];
+	struct Range { int lo, hi; };
+	Common::Array<Range> want;
+	if (f == "tint")
+		want = { {0, 100}, {0, 100}, {0, 100} };							// TintScreen
+	else if (f == "shake")
+		want = { {2, 100}, {0, 100}, {1, 10000} };							// ShakeScreenBackground: delay, amount, length
+	else if (f == "flip")
+		want = { {0, 3} };													// FlipScreen
+	else if (f == "fadeout" || f == "fadein")
+		want = { {1, 64} };													// fade speed
+	else if (f == "guitrans")
+		want = { {0, _GP(game).numgui - 1}, {0, 100} };						// SetGUITransparency
+	else if (f == "dialog")
+		want = { {0, _GP(game).numdialog - 1} };							// RunDialog
+	else if (f == "saybg")
+		want = { {0, _GP(game).numcharacters - 1} };						// DisplaySpeechBackground: char, then the key
+	else {
+		debugPrintf("FAIL unknown function %s\n", f.c_str());
+		return true;
+	}
+	const int given = argc - 2;
+	if (f == "saybg" ? given < 2 : given != (int)want.size()) {
+		debugPrintf("FAIL %s takes %u number(s)%s\n", f.c_str(), (uint)want.size(), f == "saybg" ? " and a key" : "");
+		return true;
+	}
+	for (uint i = 0; i < want.size(); i++) {
+		int v;
+		if (want[i].hi < want[i].lo || !callArg(argv[2 + i], want[i].lo, want[i].hi, v)) {
+			debugPrintf("FAIL %s argument %u: '%s' is not %d..%d\n", f.c_str(), i + 1, argv[2 + i], want[i].lo, want[i].hi);
+			return true;
+		}
+	}
 	_callPending.clear();
 	for (int i = 1; i < argc; i++)
 		_callPending.push_back(argv[i]);
 	// saybg: the rest of the line is the key
-	if (_callPending[0] == "saybg" && _callPending.size() > 3) {
+	if (f == "saybg" && _callPending.size() > 3) {
 		for (uint i = 3; i < _callPending.size(); i++)
 			_callPending[2] += " " + _callPending[i];
 		_callPending.resize(3);
