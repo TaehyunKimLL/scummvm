@@ -29,6 +29,7 @@
 #include "common/system.h"
 #include "common/textconsole.h"
 #include "common/ustr.h"
+#include "graphics/hires_text/font_face.h"
 #include "graphics/hires_text/glyph_source_fallback.h"
 #include "graphics/hires_text/glyph_source_svfn.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
@@ -486,7 +487,10 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 		anyFace = !chainFor(i).empty() || !_charsetFonts[i].latinFace.empty();
 	if (anyFace) {
 #ifdef USE_FREETYPE2
-		if (!_ttfPath.empty() && !Common::FSNode(_ttfPath).exists()) {
+		Common::Path ttfFile;
+		int32 ttfFace;
+		if (!_ttfPath.empty() && !Graphics::resolveFontFace(_ttfPath, ttfFile, ttfFace) &&
+			!Common::FSNode(_ttfPath).exists()) {
 			warning("SCUMM: hi-res TrueType font not found: '%s'", _ttfPath.toString().c_str());
 			_ttfPath.clear();
 		}
@@ -759,8 +763,10 @@ ScummHiResText::Face *ScummHiResText::openTtfChain(const Common::Array<Common::P
 		if (_failedFaces.contains(path))
 			continue;
 
-		Common::FSNode node(chain[i]);
-		Common::SeekableReadStream *stream = node.exists() ? node.createReadStream() : nullptr;
+		// "<file>.ttc#<N>" names face N of a collection (font_face.h).
+		int32 faceIndex = 0;
+		Common::String openError;
+		Common::SeekableReadStream *stream = Graphics::openFontFace(chain[i], faceIndex, openError);
 		if (!stream) {
 			warning("SCUMM: cannot open hi-res TrueType font '%s'", chain[i].toString().c_str());
 			_failedFaces[path] = true;
@@ -780,11 +786,12 @@ ScummHiResText::Face *ScummHiResText::openTtfChain(const Common::Array<Common::P
 			ttf = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, pixelSize, error,
 												   requireHangul, true,
 												   _fitProbes.empty() ? nullptr : _fitProbes.begin(),
-												   _fitProbes.size());
+												   _fitProbes.size(), faceIndex);
 		else
 			ttf = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, pixelSize, error,
+												   false, false,
 												   _fitProbes.empty() ? nullptr : _fitProbes.begin(),
-												   _fitProbes.size());
+												   _fitProbes.size(), faceIndex);
 		if (!ttf) {
 			warning("SCUMM: cannot use hi-res TrueType font '%s': %s",
 					chain[i].toString().c_str(), error.c_str());

@@ -25,6 +25,7 @@
 #include "graphics/managed_surface.h"
 #include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/coverage.h"
+#include "graphics/hires_text/font_face.h"
 #include "graphics/hires_text/glyph_source_fallback.h"
 #include "graphics/hires_text/glyph_source_svfn.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
@@ -80,17 +81,18 @@ bool GlyphFontRenderer::Build(FontData &fd, const Common::Array<uint32> &fitProb
 	Common::Array<Graphics::UnicodeGlyphSource *> sources;
 	for (uint i = 0; i < plan.faces.size(); i++) {
 		const Common::Path &path = plan.faces[i];
-		Common::FSNode node(path);
-		Common::SeekableReadStream *stream = (node.exists() && !node.isDirectory()) ? node.createReadStream() : nullptr;
+		// "<file>.ttc#<N>" names face N of a collection (font_face.h).
+		int32 faceIndex = 0;
+		Common::String error;
+		Common::SeekableReadStream *stream = Graphics::openFontFace(path, faceIndex, error);
 		if (!stream) {
 			if (warn)
 				Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: cannot open font '%s' (%s)",
 							  path.toString().c_str(), plan.source.c_str());
 			continue;
 		}
-		Common::String error;
 		Graphics::TtfGlyphSource *ttf = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, fd.Size, error,
-			fitProbes.empty() ? nullptr : fitProbes.begin(), fitProbes.size());
+			false, false, fitProbes.empty() ? nullptr : fitProbes.begin(), fitProbes.size(), faceIndex);
 		if (!ttf) {
 			if (warn)
 				Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: cannot use font '%s' at %dpx: %s",
