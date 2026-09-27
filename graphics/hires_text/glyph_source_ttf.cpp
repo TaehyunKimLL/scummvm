@@ -292,7 +292,7 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 	// boxes, when given, receives each probe's own top and bottom (in
 	// pairs; top > bottom for a probe without ink).
 	auto inkBox = [&](Graphics::Font *f, const uint32 *cps, int count, int drawY, int &top, int &bottom,
-					   uint32 &topCp, uint32 &bottomCp, bool *hangulInk, Common::Array<int> *boxes = nullptr) {
+					   uint32 &topCp, uint32 &bottomCp, bool *hangulInk, Common::Array<int> *boxes) {
 		const int probeW = cellW * 3, probeH = cellH * 3;
 		top = probeH;
 		bottom = -1 - drawY;
@@ -371,7 +371,7 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 	// A line-fitted face is placed by its own metrics, so it needs the
 	// probes only to prove it draws Hangul; extra fit probes do not apply.
 	if (lineFit)
-		inkBox(font, kProbeCodepoints, requireHangul ? kHangulProbeCount : 0, 0, top, bottom, topCp, bottomCp, &hangulInk);
+		inkBox(font, kProbeCodepoints, requireHangul ? kHangulProbeCount : 0, 0, top, bottom, topCp, bottomCp, &hangulInk, nullptr);
 	else
 		inkBox(font, probes.data(), (int)probes.size(), drawY, top, bottom, topCp, bottomCp, &hangulInk,
 			   sampleHasMarks ? &boxes : nullptr);
@@ -470,7 +470,7 @@ TtfGlyphSource *TtfGlyphSource::createImpl(Common::SeekableReadStream *stream, D
 			// (and so its number of tries within the budget) unchanged.
 			const uint32 countBefore = rasterCount;
 			uint32 unusedTopCp = 0, unusedBottomCp = 0;
-			inkBox(smaller, worstCps, worstCount, drawY, t, b, unusedTopCp, unusedBottomCp, nullptr);
+			inkBox(smaller, worstCps, worstCount, drawY, t, b, unusedTopCp, unusedBottomCp, nullptr, nullptr);
 			if (markFit)
 				rasterCount = countBefore;
 			delete bestFont;

@@ -121,8 +121,22 @@ bool ScummVMRendererGraphicsDriver::SetDisplayMode(const DisplayMode &mode) {
 
 	_capsVsync = true; // reset vsync flag, allow to try setting again
 	const int driver = GFX_SCUMMVM;
-	if (set_gfx_mode(driver, mode.Width, mode.Height, mode.ColorDepth) != 0)
+	// ScummVM (C33): an N x hi-res text display (AGS_HIRES_TEXT_DESIGN.md
+	// section 5) the backend refuses, e.g. past its GL texture size, falls
+	// back to the game's own size at scale 1 rather than ending the game.
+	const int scale = _G(hiresTextScale);
+	DisplayMode setMode = mode;
+	if (scale > 1) {
+		if (!::AGS::g_vm->setGraphicsMode(mode.Width, mode.Height, mode.ColorDepth, scale)) {
+			setMode.Width = mode.Width / scale;
+			setMode.Height = mode.Height / scale;
+			warning("hires text: the backend refused the %d x %d display; running at the game's %d x %d (scale 1)",
+					mode.Width, mode.Height, setMode.Width, setMode.Height);
+			DropHiResTextState();
+		}
+	} else if (set_gfx_mode(driver, mode.Width, mode.Height, mode.ColorDepth) != 0) {
 		return false;
+	}
 
 	if (g_system->hasFeature(OSystem::kFeatureVSync)) {
 		g_system->beginGFXTransaction();
@@ -135,7 +149,7 @@ bool ScummVMRendererGraphicsDriver::SetDisplayMode(const DisplayMode &mode) {
 	}
 
 	OnInit();
-	OnModeSet(mode);
+	OnModeSet(setMode);
 	return true;
 }
 
@@ -676,6 +690,12 @@ void ScummVMRendererGraphicsDriver::UpscaleNearest(const Graphics::Surface &src,
 void ScummVMRendererGraphicsDriver::DisableHiResTextScale(int w, int h) {
 	Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: the screen is %d x %d, not %d x the game's %d x %d; scale 1 from now on",
 				  g_system->getWidth(), g_system->getHeight(), _G(hiresTextScale), w, h);
+	DropHiResTextState();
+	set_gfx_mode(GFX_SCUMMVM, w, h, _mode.ColorDepth);
+	engine_on_window_changed(Size(w, h));
+}
+
+void ScummVMRendererGraphicsDriver::DropHiResTextState() {
 	_G(hiresTextScale) = 1;
 	// The records and every twin they made are of no use at scale 1
 	if (_G(hiresTextTwins))
@@ -686,8 +706,6 @@ void ScummVMRendererGraphicsDriver::DisableHiResTextScale(int w, int h) {
 	// Graphics::Screen keeps the size it was made at
 	delete _screen;
 	_screen = nullptr;
-	set_gfx_mode(GFX_SCUMMVM, w, h, _mode.ColorDepth);
-	engine_on_window_changed(Size(w, h));
 }
 
 void ScummVMRendererGraphicsDriver::PresentScaled(const Graphics::Surface &native, int xoff, int yoff,
