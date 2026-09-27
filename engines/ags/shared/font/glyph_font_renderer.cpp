@@ -97,6 +97,7 @@ bool GlyphFontRenderer::Build(FontData &fd, const Common::Array<uint32> &fitProb
 							  path.toString().c_str(), fd.Size, error.c_str());
 			continue;
 		}
+		ttf->setCoverageGamma(plan.gamma);
 		sources.push_back(ttf);
 		fd.Names.push_back(path.baseName().c_str());
 	}

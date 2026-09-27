@@ -282,6 +282,42 @@ public:
 		TS_ASSERT_EQUALS((int)cfg.shadowAlpha, 255);
 	}
 
+	/**
+	 * C20: [hires] gamma= is an opt-in coverage curve for TrueType glyphs,
+	 * kept in hundredths. 1 (the default) means off.
+	 */
+	void test_hires_gamma_key() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT_EQUALS(cfg.coverageGamma, 100);
+
+		TS_ASSERT(parse("[hires]\ngamma=2.2\n", cfg));
+		TS_ASSERT_EQUALS(cfg.coverageGamma, 220);
+
+		cfg.clear();
+		TS_ASSERT_EQUALS(cfg.coverageGamma, 100);
+		TS_ASSERT(parse("[hires]\ngamma=1\n", cfg));
+		TS_ASSERT_EQUALS(cfg.coverageGamma, 100);
+
+		cfg.clear();
+		TS_ASSERT(parse("[hires]\ngamma=0.5\n", cfg));
+		TS_ASSERT_EQUALS(cfg.coverageGamma, 50);
+		cfg.clear();
+		TS_ASSERT(parse("[hires]\ngamma=4\n", cfg));
+		TS_ASSERT_EQUALS(cfg.coverageGamma, 400);
+		cfg.clear();
+		TS_ASSERT(parse("[hires]\ngamma=1.805\n", cfg));   // to the nearest hundredth
+		TS_ASSERT_EQUALS(cfg.coverageGamma, 181);
+
+		// Out of range or junk: warned about, the default kept.
+		static const char *const bad[] = { "0", "0.4", "4.01", "9", "-1", "2.2x", "dark", "", "1." };
+		for (uint i = 0; i < ARRAYSIZE(bad); ++i) {
+			cfg.clear();
+			const Common::String text = Common::String::format("[hires]\ngamma=%s\n", bad[i]);
+			TS_ASSERT(parse(text.c_str(), cfg));
+			TS_ASSERT_EQUALS(cfg.coverageGamma, 100);
+		}
+	}
+
 	void test_sizes_plain_and_supersampled() {
 		Graphics::HiResTextConfig cfg;
 		TS_ASSERT(parse("[sizes]\ntitle=32\nbold=16x2\n", cfg));
