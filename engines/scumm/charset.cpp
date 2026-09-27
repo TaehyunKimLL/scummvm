@@ -1033,6 +1033,7 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 		_str.bottom = _top;
 		_firstChar = false;
 		_hiResCarry = 0;
+		_vm->_hiResText.beginString();
 	}
 
 	int drawTop = _top - vs->topline;
@@ -1048,12 +1049,21 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	// normally do, because that is the only surface with the resolution to
 	// hold it. Falling through to the original path keeps a character the
 	// replacement font does not cover looking exactly as it did.
+	// Per-glyph placement centres a glyph under metrics=game in the cell it
+	// will step by, so it is told that step. The carry is copied: measuring
+	// here must not spend what the step below will spend.
+	int hiResAdvance = 0;
+	if (!is2byte && _vm->_hiResText.perGlyphMetrics()) {
+		int carry = _hiResCarry;
+		hiResAdvance = _vm->_hiResText.advanceFor(chr, _curId, origWidth, &carry);
+	}
+
 	Common::Rect hiResArea;
 	const bool hiResDrawn = _vm->_hiResText.drawChar(_vm->_textSurface, chr, _curId,
 													 _left * _vm->_textSurfaceMultiplier,
 													 _top * _vm->_textSurfaceMultiplier,
 													 _color, _shadowColor, _vm->_2byteShadow,
-													 &hiResArea);
+													 &hiResArea, true, hiResAdvance);
 	if (!ignoreCharsetMask) {
 		// A double-byte cell is already in surface pixels here.
 		const int m = _vm->_textSurfaceMultiplier;
@@ -1224,6 +1234,7 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_str.top = 0;
 		_str.right = 0;
 		_str.bottom = 0;
+		_vm->_hiResText.beginString();
 	}
 
 	_top += _offsY;
@@ -1301,12 +1312,20 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	// Hi-res text goes to the scaled overlay, which is the only surface with
 	// the resolution to hold it. A character the replacement font does not
 	// cover falls through and is drawn exactly as it was before.
+	// Per-glyph placement centres a glyph under metrics=game in the cell it
+	// will step by, which is worked out below from the same width.
+	int hiResAdvance = 0;
+	if (_vm->_hiResText.perGlyphMetrics()) {
+		const bool widened = (_vm->_language == Common::ZH_TWN || _vm->_language == Common::KO_KOR) && is2byte;
+		hiResAdvance = _vm->_hiResText.advanceFor(chr, _curId, _origWidth + (widened ? 1 : 0));
+	}
+
 	Common::Rect hiResArea;
 	const bool hiResDrawn = _vm->_hiResText.drawChar(_vm->_textSurface, chr, _curId,
 													 _left * _vm->_textSurfaceMultiplier,
 													 (_top - _vm->_screenTop) * _vm->_textSurfaceMultiplier,
 													 _color, _shadowColor, _vm->_2byteShadow,
-													 &hiResArea);
+													 &hiResArea, true, hiResAdvance);
 	if (!ignoreCharsetMask) {
 		const int m = _vm->_textSurfaceMultiplier;
 		const int y = _top - _vm->_screenTop;

@@ -30,6 +30,7 @@
 #include "graphics/hires_text/glyph_renderer.h"
 #include "graphics/pixelformat.h"
 #include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/coverage.h"
 #include "graphics/hires_text/font_map.h"
 #include "graphics/surface.h"
 
@@ -209,6 +210,31 @@ struct ScummHiResText {
 				   int *carry = nullptr) const;
 
 	/**
+	 * Whether glyphs are placed by their own metrics (I18N_TEXT_DESIGN.md
+	 * section 4.2): the map names any of the per-charset keys - [hires]
+	 * face/size, a [font.N] section, [latin] mode/space - or the text is
+	 * UTF-8. Then a wide glyph keeps the cell rule, a combining mark
+	 * advances 0, ASCII follows [latin], every other glyph advances by the
+	 * face (metrics=font unless a key says game), and a glyph under
+	 * metrics=game is centred in its game cell. False keeps every advance
+	 * and every pixel of a map written before those keys existed.
+	 */
+	bool perGlyphMetrics() const { return _perGlyph; }
+
+	/**
+	 * Add one translated string to the code points the faces are checked
+	 * against (design section 4.4). Decoded with this layer's encoding;
+	 * SCUMM's escapes (0xFF/0xFE + code, with two argument bytes for codes
+	 * 10, 12, 13, 14 and 21) and '@' are skipped. Stops at a NUL outside an
+	 * escape or after @p maxLen bytes. Call before loadFonts().
+	 */
+	void noteTranslatedString(const byte *s, uint32 maxLen);
+
+	/// The coverage warnings printed so far, one per face that lacks some of
+	/// the translation's sampled characters or spaces its combining marks.
+	const Common::Array<Common::String> &coverageWarnings() const { return _coverageWarnings; }
+
+	/**
 	 * The format to declare a cursor in.
 	 *
 	 * Cursor data is palette indices whatever the screen is. When blending is
@@ -331,7 +357,7 @@ struct ScummHiResText {
 	 * Without them no double-byte string decodes, so the layer draws no
 	 * CJK glyph at all; loadConfig() warns once when that is the case.
 	 */
-	static bool cjkTablesPresent();
+	static bool cjkTablesPresent(Common::CodePage page = Common::kWindows949);
 
 	/**
 	 * Tell the layer which grid the engine settled on for this charset.
@@ -359,6 +385,12 @@ struct ScummHiResText {
 	 * game has one, is the grid the text is laid out on.
 	 */
 	void noteGameCharset(int charsetId, int width, int height);
+
+	/**
+	 * A new string starts: a combining mark at its start has no base
+	 * before it. Call when the renderer begins a string.
+	 */
+	void beginString() { _anchorValid = false; }
 
 	/** Finish and print any partially accumulated text-log line. */
 	void endTextRun() const { if (_logText) flushTextLog(); }
@@ -388,12 +420,20 @@ struct ScummHiResText {
 	 *                   out as it stands, so coverage recorded for it would
 	 *                   never be read - and never cleared either, so it would
 	 *                   go on suppressing later strokes at those pixels.
+	 * @param gameAdvance  the advance, in game pixels, the caller steps by
+	 *                   after this character (what advanceFor() returned);
+	 *                   0 when not known. With perGlyphMetrics(), a glyph
+	 *                   under metrics=game is centred in that cell.
 	 * @return false when nothing was drawn and the caller must fall back
+	 *
+	 * A combining mark is drawn against the pen after the previous base,
+	 * kept here in overlay pixels (not re-derived from the engine's pen,
+	 * which is rounded to game pixels), and moves nothing.
 	 */
 	bool drawChar(Graphics::Surface &dest, int chr, int charsetId,
 				  int x, int y, byte color, byte shadowColor,
 				  int gameShadow, Common::Rect *dirty = nullptr,
-				  bool withCoverage = true);
+				  bool withCoverage = true, int gameAdvance = 0);
 
 	/// Point the layer at the engine's overlay. Must precede any drawing.
 	void useOverlay(HiResOverlay *overlay) { _overlay = overlay; }
@@ -458,6 +498,28 @@ private:
 		int pixelSize = 0;         ///< TrueType: the size it was opened at
 		/// TrueType: one past the rightmost column with ink, per code point.
 		Common::HashMap<uint32, int16> inkRight;
+		/// TrueType: sized to the game cell (the start-up bake's rule), so a
+		/// glyph and its ink reach are clipped to that cell.
+		bool lineFit = true;
+		/// A chain: each face in order (borrowed from source) and its name.
+		Common::Array<Graphics::UnicodeGlyphSource *> chain;
+		Common::Array<Common::String> chainNames;
+	};
+
+	/**
+	 * What the map says for one charset once [font.N], [hires], [latin] and
+	 * the ini are resolved, most specific first (C11 T6). Used only when
+	 * _perGlyph is set.
+	 */
+	struct CharsetFonts {
+		Common::Array<Common::Path> chain;   ///< faces, [font.N] face= then [hires] face=
+		int size = 0;                        ///< pixels; 0 = the game cell times the scale
+		Graphics::HiResLatinMode latin = Graphics::kHiResLatinProportional;
+		bool fullwidthSpace = false;
+		Common::Path latinFace;              ///< [font.N] latin_font= then [latin] font=
+		Graphics::HiResMetricsSource latinMetrics = Graphics::kHiResMetricsGame;
+		Graphics::HiResMetricsSource wideMetrics = Graphics::kHiResMetricsGame;
+		Graphics::HiResMetricsSource otherMetrics = Graphics::kHiResMetricsFont;
 	};
 
 	/// Every open source, keyed "<path>@<px>". A face that failed to open
@@ -490,11 +552,58 @@ private:
 
 	Face *faceFor(int charsetId, bool latin) const;
 	Face *ttfFaceFor(int charsetId) const;
-	Face *openTtfFace(int pixelSize) const;
+	Face *openTtfChain(const Common::Array<Common::Path> &chain, int pixelSize, bool lineFit) const;
 	int ttfCellWidth(int charsetId) const;
 
-	/// The face could not be used at all; set once, cleared with the faces.
-	mutable bool _ttfFailed = false;
+	// --- per-glyph placement (C11 T6) ---------------------------------
+	bool _perGlyph = false;
+	bool _metricsFromIni = false;
+	bool _ttfFromIni = false;
+	Common::Path _mapDir;
+	CharsetFonts _charsetFonts[kMaxFonts];
+	mutable Face *_latinTtfFaces[kMaxFonts] = {};
+	mutable int _latinTtfFacePx[kMaxFonts] = {};
+
+	/// Decide _perGlyph and fill _charsetFonts from _config.
+	void resolveCharsetFonts();
+	/// The faces charset @p charsetId draws from: the ini face, else the map's.
+	Common::Array<Common::Path> chainFor(int charsetId) const;
+	/// The pixel size a charset's face opens at, and whether it is line-fitted.
+	bool ttfSizeFor(int charsetId, int &pixelSize, bool &lineFit) const;
+	Face *latinTtfFaceFor(int charsetId) const;
+	/**
+	 * The face that answers @p cp in @p charsetId under per-glyph placement:
+	 * the first candidate that has a glyph for it, or null. @p cp is updated
+	 * by the fullwidth mode; @p ascii says it was routed as ASCII.
+	 */
+	Face *faceForCodePoint(int charsetId, uint32 &cp, bool &ascii, bool &declined) const;
+	bool drawGlyphPlaced(Graphics::Surface &dest, int chr, int lookup, int charsetId,
+						 int x, int y, byte color, byte shadowColor, int gameShadow,
+						 Common::Rect *dirty, bool withCoverage, int gameAdvance);
+	bool drawRows(Graphics::Surface &dest, Face &face, uint32 cp, int width,
+				  int x, int y, byte color, byte shadowColor, int gameShadow,
+				  Common::Rect *dirty, bool withCoverage);
+	/// Rows to move a Latin bitmap glyph down so it shares the charset's baseline.
+	int latinBaselineShift(const Face *face, int charsetId) const;
+	int advancePlaced(int chr, int lookup, int charsetId, int gameWidth, int *carry) const;
+	/// Today's advance rule for a glyph on the game's cell grid.
+	int cellRuleAdvance(Face *face, uint32 cp, int charsetId, int gameWidth,
+						int *carry, bool fontMetrics, bool requireInk) const;
+
+	// The pen after the last base glyph drawn, in overlay pixels, for a
+	// combining mark that follows it.
+	int _anchorX = 0;
+	int _anchorY = 0;
+	bool _anchorValid = false;
+
+	// Coverage (design section 4.4).
+	Graphics::CodePointSet _translationCps;
+	Common::Array<uint32> _coverageSample;
+	mutable Common::HashMap<Common::String, bool> _coverageChecked;
+	mutable Common::Array<Common::String> _coverageWarnings;
+	mutable Common::HashMap<Common::String, bool> _failedFaces;
+	void checkCoverage(const Face *face, const Common::String &key) const;
+
 	void freeFaces();
 	bool loadBitmapFile(const Common::Path &gameDir, const Common::String &name,
 						int charsetId, bool latin);

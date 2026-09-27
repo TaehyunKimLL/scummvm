@@ -44,7 +44,9 @@ static const int kCmapOffField = 32;
 static const uint16 kMaxVersion = 2;
 
 enum {
-	kFlagProportional = 1 << 0
+	kFlagProportional = 1 << 0,
+	// Bit 1 (glyphs are jamo, composed at run time) is reserved.
+	kFlagMarksAtOrigin = 1 << 2
 };
 
 // Bytes per entry in the metrics table: advance, left bearing, ink width, and
@@ -63,6 +65,7 @@ HiResBitmapFont::HiResBitmapFont() {
 	_cellW = 0;
 	_cellH = 0;
 	_ascent = 0;
+	_marksAtOrigin = false;
 	_glyphs = 0;
 	_rowPitch = 0;
 	_glyphStride = 0;
@@ -83,6 +86,7 @@ void HiResBitmapFont::free() {
 	_cellW = 0;
 	_cellH = 0;
 	_ascent = 0;
+	_marksAtOrigin = false;
 	_glyphs = 0;
 	_rowPitch = 0;
 	_glyphStride = 0;
@@ -208,6 +212,7 @@ bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit)
 	_cellW = cellW;
 	_cellH = cellH;
 	_ascent = ascent;
+	_marksAtOrigin = (flags & kFlagMarksAtOrigin) != 0;
 	_glyphs = glyphs;
 	_rowPitch = rowPitch;
 	_glyphStride = (int)glyphStride;
