@@ -1144,7 +1144,13 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	origHeight = height;
 
 	// Clip at the right side (to avoid drawing "outside" the screen bounds).
-	if (_left + origWidth > _right + 1)
+	// Latin stepping by the face is clipped by that step, the width the
+	// line was wrapped with, or a full line's last letter is dropped (C36,
+	// as CharsetRendererClassic does since C34).
+	int clipWidth = origWidth;
+	if (!is2byte && _vm->_hiResText.latinStepsByFace(chr, _curId))
+		clipWidth = MIN(origWidth, _vm->_hiResText.advanceFor(chr, _curId, origWidth));
+	if (_left + clipWidth > _right + 1)
 		return;
 
 	if (_shadowType == kNormalShadowType) {
@@ -1412,8 +1418,14 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	// placed by the face too: the game's offsX belongs to its own glyph, and
 	// getCharWidth() measures the face's step without it.
 	const bool latinFaceStep = !is2byte && !cellGlyph && _vm->_hiResText.latinStepsByFace(chr, _curId);
-	if (latinFaceStep)
+	if (latinFaceStep) {
 		_offsX = 0;
+		// Nor does its own offsY: the face puts the glyph on the face's
+		// baseline, so the game's drop for a descender (',' 'p' 'g' 'j' are
+		// +1 in MI1) would put it a game pixel low twice over. An offset the
+		// whole charset shares still moves the line (C36).
+		_offsY = latinLineOffsY();
+	}
 
 	_top += _offsY;
 	_left += _offsX;
@@ -1732,6 +1744,18 @@ bool CharsetRendererClassic::prepareDraw(uint16 chr) {
 	return true;
 }
 
+int CharsetRendererClassic::latinLineOffsY() const {
+	// The offset of a letter without ascender or descender stands for the
+	// line: 'x', else 'a', else none.
+	static const byte kReference[] = { 'x', 'a' };
+	for (uint i = 0; i < ARRAYSIZE(kReference); ++i) {
+		const uint32 offs = READ_LE_UINT32(_fontPtr + kReference[i] * 4 + 4);
+		if (offs && offs < 0x14000)
+			return (signed char)_fontPtr[offs + 3];
+	}
+	return 0;
+}
+
 void CharsetRendererClassic::drawChar(int chr, Graphics::Surface &s, int x, int y) {
 	if (!prepareDraw(chr))
 		return;
@@ -1791,6 +1815,10 @@ void CharsetRendererClassic::drawBitsN(const Graphics::Surface &s, byte *dst, co
 }
 
 CharsetRendererTownsV3::CharsetRendererTownsV3(ScummEngine *vm) : CharsetRendererV3(vm), _sjisCurChar(0) {
+}
+
+bool CharsetRendererTownsV3::measuresLatinThroughHiRes() const {
+	return _vm->isScummvmKorTarget();
 }
 
 int CharsetRendererTownsV3::getCharWidth(uint16 chr) const {
