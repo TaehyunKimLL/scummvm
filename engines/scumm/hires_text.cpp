@@ -194,8 +194,10 @@ void ScummHiResText::adoptConfig(const Graphics::HiResTextConfig &config) {
 Graphics::BreakRules ScummHiResText::breakRules(bool centred) const {
 	Graphics::BreakRules rules;
 	// The Korean patches' addLinebreaks() breaks Hangul anywhere except in
-	// centred text (actor speech), where it breaks at spaces.
-	rules.hangul = centred ? Graphics::kHangulBreakWord : Graphics::kHangulBreakAny;
+	// centred text (actor speech), where it breaks at spaces. Only with this
+	// layer on (C31): with hi-res text off a UTF-8 translation breaks as it
+	// always did, Hangul anywhere.
+	rules.hangul = (centred && _enabled) ? Graphics::kHangulBreakWord : Graphics::kHangulBreakAny;
 	if (_config.layout.hangulSet)
 		rules.hangul = _config.layout.hangul;
 	if (_config.layout.kinsokuSet)
