@@ -410,6 +410,26 @@ public:
 			"\xE0\xB8\x94\xE0\xB8\xB4\xE0\xB8\x99\x7C\xE0\xB8\x82\xE0\xB8\x99\xE0\xB8\xB2\xE0\xB8\x94\x7C\xE0\xB9\x83\xE0\xB8\xAB\xE0\xB8\x8D\xE0\xB9\x88",
 			// "รอบ ๆ |น้ำ" - ๆ never begins a line, even after a space
 			"\xE0\xB8\xA3\xE0\xB8\xAD\xE0\xB8\x9A\x20\xE0\xB9\x86\x20\x7C\xE0\xB8\x99\xE0\xB9\x89\xE0\xB8\xB3",
+			// "ต้อง|ออก|ไป" - ออก after a final ง: not ต้อ|งออก
+			"\xE0\xB8\x95\xE0\xB9\x89\xE0\xB8\xAD\xE0\xB8\x87\x7C\xE0\xB8\xAD\xE0\xB8\xAD\xE0\xB8\x81\x7C\xE0\xB9\x84\xE0\xB8\x9B",
+			// "วิ่ง|ออก"
+			"\xE0\xB8\xA7\xE0\xB8\xB4\xE0\xB9\x88\xE0\xB8\x87\x7C\xE0\xB8\xAD\xE0\xB8\xAD\xE0\xB8\x81",
+			// "ขอ|อภัย" - still ออ before a voweled consonant
+			"\xE0\xB8\x82\xE0\xB8\xAD\x7C\xE0\xB8\xAD\xE0\xB8\xA0\xE0\xB8\xB1\xE0\xB8\xA2",
+			// "ให้|ภรร|ยา" - a consonant before รร is voweled
+			"\xE0\xB9\x83\xE0\xB8\xAB\xE0\xB9\x89\x7C\xE0\xB8\xA0\xE0\xB8\xA3\xE0\xB8\xA3\x7C\xE0\xB8\xA2\xE0\xB8\xB2",
+			// "ยุ|ติ|ธรรม"
+			"\xE0\xB8\xA2\xE0\xB8\xB8\x7C\xE0\xB8\x95\xE0\xB8\xB4\x7C\xE0\xB8\x98\xE0\xB8\xA3\xE0\xB8\xA3\xE0\xB8\xA1",
+			// "วรรณ|คดี" - รร takes a final before a one-consonant syllable
+			"\xE0\xB8\xA7\xE0\xB8\xA3\xE0\xB8\xA3\xE0\xB8\x93\x7C\xE0\xB8\x84\xE0\xB8\x94\xE0\xB8\xB5",
+			// "ท่าน |ฯพณฯ |นา|ยก" - ฯ may begin a line after a space; ฯพณฯ is one unit
+			"\xE0\xB8\x97\xE0\xB9\x88\xE0\xB8\xB2\xE0\xB8\x99\x20\x7C\xE0\xB8\xAF\xE0\xB8\x9E\xE0\xB8\x93\xE0\xB8\xAF\x20\x7C\xE0\xB8\x99\xE0\xB8\xB2\x7C\xE0\xB8\xA2\xE0\xB8\x81",
+			// "กล้วยฯลฯ" - ฯลฯ is one unit and stays on its word
+			"\xE0\xB8\x81\xE0\xB8\xA5\xE0\xB9\x89\xE0\xB8\xA7\xE0\xB8\xA2\xE0\xB8\xAF\xE0\xB8\xA5\xE0\xB8\xAF",
+			// "รอบ ๆ" - ๆ never begins a line, even after a space
+			"\xE0\xB8\xA3\xE0\xB8\xAD\xE0\xB8\x9A\x20\xE0\xB9\x86",
+			// "เ๑" - malformed: no break after a leading vowel
+			"\xE0\xB9\x80\xE0\xB9\x91",
 		};
 		Graphics::BreakRules rules;
 		for (uint32 c = 0; c < ARRAYSIZE(cases); c++) {
@@ -459,6 +479,30 @@ public:
 				TS_ASSERT(!text.hasSuffix(dewe));
 			}
 		}
+	}
+
+	// The Thai segment starts are cached in the run: a long Thai run with
+	// no leading vowel (the worst case for segmenting) lays out in linear
+	// time - 40000 units took seconds per line before the cache, so a
+	// quadratic slip shows as a hung suite - and a new decode() drops the
+	// cache.
+	void test_thai_long_run_is_linear() {
+		Common::String s;
+		for (int k = 0; k < 20000; k++)
+			s += "\xE0\xB8\x81\xE0\xB8\xB2";   // "กา"
+		Graphics::TextRun run;
+		decodeUtf8(run, s.c_str());
+		UnitMetrics m;
+		Graphics::BreakRules rules;
+		Common::Array<Graphics::LineSpan> lines;
+		Graphics::TextLayout::breakLines(run, 30, m, rules, lines);
+		TS_ASSERT_EQUALS(lines.size(), 40000u / 30 + 1);
+		for (uint32 k = 0; k + 1 < lines.size(); k++)
+			TS_ASSERT_EQUALS(lines[k].end % 2, 0u);   // between syllables
+		// Reused run: the cache is rebuilt for the new text.
+		decodeUtf8(run, "\xE0\xB9\x80\xE0\xB8\x9E\xE0\xB8\xB7\xE0\xB9\x88\xE0\xB8\xAD\xE0\xB8\x81\xE0\xB8\xB2");   // "เพื่อกา"
+		TS_ASSERT(!Graphics::TextLayout::canBreakBefore(run, 4, rules));
+		TS_ASSERT(Graphics::TextLayout::canBreakBefore(run, 5, rules));
 	}
 
 	void test_combining_marks_have_no_width() {
