@@ -301,6 +301,10 @@ GlyphFontRenderer::ScaledChain *GlyphFontRenderer::GetScaled(FontData &fd, int f
 }
 
 int GlyphFontRenderer::ScaledChain::rowShift(uint32 cp) {
+	// Every entry of both chains is a TtfGlyphSource: GetScaled() builds a
+	// ScaledChain only for a kFaces plan, whose Build() opens TrueType faces
+	// and nothing else, and only when both chains name the same faces.
+	assert(Small && Chain.size() == Small->size());
 	// The face that draws cp, at both sizes: its N x baseline goes to N x
 	// its game-size baseline
 	for (uint i = 0; i < Chain.size() && i < Small->size(); i++) {
@@ -324,7 +328,7 @@ bool GlyphFontRenderer::RenderTextScaled(const char *text, int fontNumber, BITMA
 		return true;
 	Decode(text);
 	const Common::Rect clip = destination->clip ?
-		Common::Rect(destination->cl, destination->ct, destination->cr + 1, destination->cb + 1) :
+		Common::Rect(destination->cl, destination->ct, destination->cr, destination->cb) :
 		Common::Rect(0, 0, destination->w, destination->h);
 	fd.Fallback.target(destination);
 	fd.Drawer.drawTextScaled(*destination->getSurface().surfacePtr(), clip, _cps.begin(), _cps.size(), x, y,
@@ -384,17 +388,30 @@ void GlyphFontRenderer::GameFallback::drawCharScaled(uint32 cp, int x, int y, ui
 	const int h = _game->GetTextHeight(buf, _font);
 	if (w <= 0 || h <= 0)
 		return;
-	BITMAP *cell = create_bitmap_ex(bitmap_color_depth(_dst), w, h);
-	if (!cell)
-		return;
-	const uint32 key = bitmap_mask_color(cell);
-	clear_to_color(cell, key);
-	_game->RenderText(buf, _font, cell, 0, 0, (int)colour);
-	const Common::Rect clip = _dst->clip ? Common::Rect(_dst->cl, _dst->ct, _dst->cr + 1, _dst->cb + 1)
+	// One scratch cell, kept and grown (one per font's fallback)
+	const int depth = bitmap_color_depth(_dst);
+	if (!_cell || bitmap_color_depth(_cell) != depth || _cell->w < w || _cell->h < h) {
+		const int cw = (_cell && bitmap_color_depth(_cell) == depth) ? MAX<int>(w, _cell->w) : w;
+		const int ch = (_cell && bitmap_color_depth(_cell) == depth) ? MAX<int>(h, _cell->h) : h;
+		if (_cell)
+			destroy_bitmap(_cell);
+		_cell = create_bitmap_ex(depth, cw, ch);
+		if (!_cell)
+			return;
+	}
+	const uint32 key = bitmap_mask_color(_cell);
+	set_clip_rect(_cell, 0, 0, w - 1, h - 1);
+	clear_to_color(_cell, key);
+	_game->RenderText(buf, _font, _cell, 0, 0, (int)colour);
+	const Common::Rect clip = _dst->clip ? Common::Rect(_dst->cl, _dst->ct, _dst->cr, _dst->cb)
 										 : Common::Rect(0, 0, _dst->w, _dst->h);
-	GlyphTextDrawer::upscaleOnto(*_dst->getSurface().surfacePtr(), clip, *cell->getSurface().surfacePtr(), key,
-								 x * scale, y * scale, scale);
-	destroy_bitmap(cell);
+	const Graphics::Surface area = _cell->getSurface().surfacePtr()->getSubArea(Common::Rect(0, 0, w, h));
+	GlyphTextDrawer::upscaleOnto(*_dst->getSurface().surfacePtr(), clip, area, key, x * scale, y * scale, scale);
+}
+
+GlyphFontRenderer::GameFallback::~GameFallback() {
+	if (_cell)
+		destroy_bitmap(_cell);
 }
 
 } // namespace AGS3

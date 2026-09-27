@@ -569,7 +569,7 @@ void wouttext_outline(Shared::Bitmap *ds, int xxp, int yyp, int font, color_t te
 }
 
 // wouttextxy_AutoOutline() at N x: the same stencils and stamps, N x as
-// large, with its own stencil bitmaps (the font's are the game's).
+// large, with its own (padded) stencil bitmaps (the font's are the game's).
 // (xxp, yyp) are game pixels and move by the game-resolution thickness,
 // as wouttextxy_AutoOutline() moves them.
 static void wouttextxy_AutoOutline_scaled(Bitmap *ds, size_t font, int32_t color, const char *texx, int &xxp, int &yyp,
@@ -594,11 +594,15 @@ static void wouttextxy_AutoOutline_scaled(Bitmap *ds, size_t font, int32_t color
 
 	const int t_yoff = t_extent.first;
 	const int thick = thickness * scale;	// target pixels
-	Bitmap texx_stencil(t_width * scale, t_height * scale, stencil_cd);
-	Bitmap outline_stencil(t_width * scale, t_height * scale + 2 * thick, stencil_cd);
-	texx_stencil.ClearTransparent();
-	outline_stencil.ClearTransparent();
-	wouttextxy_scaled(&texx_stencil, 0, -t_yoff, font, color, texx, scale);
+	// N x ink may overhang N x the game's text box by a game pixel (the
+	// N x face's own glyph extents): pad the stencils by one game pixel
+	// (N target pixels) on every side so the outline keeps it too
+	const int pad = scale;
+	Font &f = _GP(fonts)[font];
+	const int sw = t_width * scale + 2 * pad, sh = t_height * scale + 2 * pad;
+	Bitmap *texx_stencil = font_scratch_bitmap(f.ScaledTextStencil, f.ScaledTextStencilSub, sw, sh, stencil_cd);
+	Bitmap *outline_stencil = font_scratch_bitmap(f.ScaledOutlineStencil, f.ScaledOutlineStencilSub, sw, sh + 2 * thick, stencil_cd);
+	wouttextxy_scaled(texx_stencil, 1, 1 - t_yoff, font, color, texx, scale);
 
 	void(Bitmap:: * pfn_drawstencil)(Bitmap * src, int dst_x, int dst_y);
 	if (antialias) {
@@ -609,9 +613,9 @@ static void wouttextxy_AutoOutline_scaled(Bitmap *ds, size_t font, int32_t color
 	}
 
 	xxp += thickness;
-	int const outline_y = (yyp + t_yoff) * scale;
+	int const outline_y = (yyp + t_yoff) * scale - pad;
 	yyp += thickness;
-	const int x0 = xxp * scale;
+	const int x0 = xxp * scale - pad;
 
 	int largest_y_diff_reached_so_far = -1;
 	for (int x_diff = thick; x_diff >= 0; x_diff--) {
@@ -621,14 +625,14 @@ static void wouttextxy_AutoOutline_scaled(Bitmap *ds, size_t font, int32_t color
 		for (int y_diff = largest_y_diff_reached_so_far + 1;
 			y_diff <= thick && y_diff * y_diff <= y_term_limit;
 			y_diff++) {
-			(outline_stencil.*pfn_drawstencil)(&texx_stencil, 0, thick - y_diff);
+			(outline_stencil->*pfn_drawstencil)(texx_stencil, 0, thick - y_diff);
 			if (y_diff > 0)
-				(outline_stencil.*pfn_drawstencil)(&texx_stencil, 0, thick + y_diff);
+				(outline_stencil->*pfn_drawstencil)(texx_stencil, 0, thick + y_diff);
 			largest_y_diff_reached_so_far = y_diff;
 		}
-		(ds->*pfn_drawstencil)(&outline_stencil, x0 - x_diff, outline_y);
+		(ds->*pfn_drawstencil)(outline_stencil, x0 - x_diff, outline_y);
 		if (x_diff > 0)
-			(ds->*pfn_drawstencil)(&outline_stencil, x0 + x_diff, outline_y);
+			(ds->*pfn_drawstencil)(outline_stencil, x0 + x_diff, outline_y);
 	}
 }
 
