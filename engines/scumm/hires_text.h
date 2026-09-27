@@ -258,6 +258,14 @@ struct ScummHiResText {
 				   int *carry = nullptr) const;
 
 	/**
+	 * Whether drawChar() would draw @p chr in @p charsetId rather than
+	 * decline it: a face has an inked glyph for it and the map does not keep
+	 * the game's own. Lets a UTF-8 layout give a code point the patch
+	 * font's cell only when this layer is what draws it (C31).
+	 */
+	bool drawsCode(int chr, int charsetId) const;
+
+	/**
 	 * Whether glyphs are placed by their own metrics (I18N_TEXT_DESIGN.md
 	 * section 4.2): the map names any of the per-charset keys - [hires]
 	 * face/size, a [font.N] section, [latin] mode/space - or the text is
