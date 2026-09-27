@@ -49,7 +49,12 @@ ksc5601/euc-kr select the CP949 decoder (a compatible superset, not strict EUC-K
 validation). UTF-16 input and engine control-token handling are later stages.
 
 New `render.metrics=game|font` applies to all text, independent of script or
-encoded byte length. `game` is the safe default. Old `[latin]` data is isolated
+encoded byte length. `game` is the parser's default (`metricsSource`). SCUMM (engines/scumm/HIRES_TEXT.md) reads an **unset** key
+differently for a TrueType face: wide glyphs (C31) and Latin (C34, C36) step by
+the face's own advance; only an explicitly set `metrics=game` (`[render]`,
+`[font.N]`, `[latin]`, or the ini's `hires_text_metrics`) keeps the game's
+widths. `metricsSourceSet`, `HiResFontIdSettings::metricsSet` and
+`latinMetricsSet` tell the two apart. Old `[latin]` data is isolated
 in `LegacyFontMapOptions` for adapter compatibility; it must not become the
 generic renderer's character classification. Legacy `metrics=ttf` and
 `metrics=bitmap` retain separate settings. Naming a legacy TTF font does not
