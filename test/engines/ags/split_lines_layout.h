@@ -24,6 +24,7 @@
 
 #include "common/str.h"
 #include "common/ustr.h"
+#include "common/str-enc.h"
 
 // unicode.h declares an enum { LC_CTYPE } for the engine; the runner has
 // already seen <locale.h>'s macro of that name.
@@ -69,6 +70,65 @@ AgsLaidOut agsLayout(const char *text, int uformat, int maxWidth) {
 	return r;
 }
 
+
+/** SplitLines' interface over Common:: containers. */
+struct AgsTestLines {
+	struct Line {
+		Common::String s;
+		void Append(const char *t) { s += t; }
+	};
+	Common::Array<Line> l;
+	void Add(const char *t) { Line x; x.s = t; l.push_back(x); }
+	size_t Count() const { return l.size(); }
+	void Reset() { l.clear(); }
+	Line &operator[](size_t i) { return l[i]; }
+};
+
+/** Allegro's U_UTF8 ugetx/ugetc/usetc for valid UTF-8, 10 px a character. */
+struct AgsTestUtf8Ops {
+	static int len(byte b) { return b < 0x80 ? 1 : b < 0xE0 ? 2 : b < 0xF0 ? 3 : 4; }
+	int charAt(const char *s) {
+		const byte *p = (const byte *)s;
+		const int n = len(p[0]);
+		if (n == 1)
+			return p[0];
+		int c = p[0] & (0xFF >> (n + 1));
+		for (int i = 1; i < n; i++)
+			c = (c << 6) | (p[i] & 0x3F);
+		return c;
+	}
+	int nextChar(char **s) {
+		const int c = charAt(*s);
+		*s += len((byte)**s);
+		return c;
+	}
+	int putChar(char *s, int c) {
+		Common::U32String u;
+		u += (Common::u32char_type_t)c;
+		const Common::String e = u.encode(Common::kUtf8);
+		memcpy(s, e.c_str(), e.size());
+		return e.size();
+	}
+	int width(const char *s) {
+		int n = 0;
+		for (const char *p = s; *p; p += len((byte)*p))
+			n++;
+		return 10 * n;
+	}
+};
+
+/** split_lines()'s own loop (split_lines_bytes()) on text at wii. */
+Common::Array<Common::String> agsLegacy(const char *text, int wii, size_t maxLines = 100) {
+	Common::String buf(text);
+	AgsTestLines lines;
+	AgsTestUtf8Ops ops;
+	AGS3::split_lines_bytes(buf.begin(), lines, wii, maxLines, ops);
+	Common::Array<Common::String> out;
+	for (uint i = 0; i < lines.l.size(); i++)
+		out.push_back(lines.l[i].s);
+	return out;
+}
+
 } // End of anonymous namespace
 
 /**
@@ -77,10 +137,78 @@ AgsLaidOut agsLayout(const char *text, int uformat, int maxWidth) {
  */
 class AgsSplitLinesLayoutTestSuite : public CxxTest::TestSuite {
 public:
-	void test_only_ascii_keeps_the_old_path() {
-		TS_ASSERT(AGS3::split_lines_uses_layout(U_UTF8));
-		TS_ASSERT(AGS3::split_lines_uses_layout(U_EUCKR));
-		TS_ASSERT(!AGS3::split_lines_uses_layout(U_ASCII));
+	void test_which_text_takes_the_layout_stage() {
+		// A UTF-8 translation, an EUC-KR translation, or fonts from a map.
+		TS_ASSERT(AGS3::split_lines_uses_layout(U_UTF8, true, false));
+		TS_ASSERT(AGS3::split_lines_uses_layout(U_UTF8, false, true));
+		TS_ASSERT(AGS3::split_lines_uses_layout(U_EUCKR, true, false));
+		TS_ASSERT(AGS3::split_lines_uses_layout(U_EUCKR, false, false));
+		// A native UTF-8 game with no translation and no map keeps AGS's own
+		// breaking, and U_ASCII always does.
+		TS_ASSERT(!AGS3::split_lines_uses_layout(U_UTF8, false, false));
+		TS_ASSERT(!AGS3::split_lines_uses_layout(U_ASCII, false, false));
+		TS_ASSERT(!AGS3::split_lines_uses_layout(U_ASCII, true, true));
+	}
+
+	// AGS's own breaking, pinned on the cases where the layout stage differs
+	// (review of C11 T8). A native UTF-8 game without a translation or a map
+	// keeps exactly these; an EUC-KR translation takes the layout stage.
+	void test_legacy_emergency_split_drops_a_fitting_character() {
+		// (a) three characters fit, yet each line holds two.
+		const Common::Array<Common::String> l = agsLegacy("abcdefgh", 35);
+		TS_ASSERT_EQUALS(l.size(), 4u);
+		if (l.size() == 4) {
+			TS_ASSERT_EQUALS(l[0], "ab");
+			TS_ASSERT_EQUALS(l[1], "cd");
+			TS_ASSERT_EQUALS(l[2], "ef");
+			TS_ASSERT_EQUALS(l[3], "gh");
+		}
+		TS_ASSERT_EQUALS(agsLayout("abcdefgh", U_UTF8, 35).lines.size(), 3u);
+	}
+
+	void test_legacy_no_lines_when_the_second_character_overflows() {
+		// (b)
+		TS_ASSERT_EQUALS(agsLegacy("abc", 15).size(), 0u);
+		TS_ASSERT_EQUALS(agsLayout("abc", U_UTF8, 15).lines.size(), 3u);
+	}
+
+	void test_legacy_spaces_around_a_break() {
+		// (c) one trailing space kept, the others lead the next line
+		const Common::Array<Common::String> l = agsLegacy("ab   cd", 35);
+		TS_ASSERT_EQUALS(l.size(), 2u);
+		if (l.size() == 2) {
+			TS_ASSERT_EQUALS(l[0], "ab ");
+			TS_ASSERT_EQUALS(l[1], " cd");
+		}
+	}
+
+	void test_legacy_drops_a_final_overflowing_space() {
+		// (d)
+		const Common::Array<Common::String> l = agsLegacy("abc ", 35);
+		TS_ASSERT_EQUALS(l.size(), 1u);
+		if (l.size() == 1)
+			TS_ASSERT_EQUALS(l[0], "abc");
+		const AgsLaidOut r = agsLayout("abc ", U_UTF8, 35);
+		TS_ASSERT_EQUALS(r.lines.size(), 1u);
+		if (r.lines.size() == 1)
+			TS_ASSERT_EQUALS(r.lines[0], "abc ");
+	}
+
+	void test_legacy_splits_cjk_per_character() {
+		// (e) character by character, a character short of the width, no kinsoku table
+		const Common::Array<Common::String> l = agsLegacy("あいう。", 35);
+		TS_ASSERT_EQUALS(l.size(), 2u);
+		if (l.size() == 2) {
+			TS_ASSERT_EQUALS(l[0], "あい");
+			TS_ASSERT_EQUALS(l[1], "う。");
+		}
+	}
+
+	void test_legacy_max_lines() {
+		const Common::Array<Common::String> l = agsLegacy("aa bb cc dd", 25, 2);
+		TS_ASSERT_EQUALS(l.size(), 2u);
+		if (l.size() == 2)
+			TS_ASSERT_EQUALS(l[1], "bb...");
 	}
 
 	void test_japanese_line_never_starts_with_a_full_stop() {

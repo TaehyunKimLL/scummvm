@@ -30,11 +30,14 @@ namespace AGS3 {
 
 /**
  * Whether split_lines() breaks a text through the shared layout stage
- * (graphics/hires_text/text_layout.h): every text format but U_ASCII. The
- * U_ASCII path is AGS's own, byte for byte (no per-frame cost for ASCII
- * games).
+ * (graphics/hires_text/text_layout.h) instead of its own loop
+ * (split_lines_bytes()): only for text the new i18n path owns - an EUC-KR
+ * translation (U_EUCKR), a UTF-8 text while a translation is loaded, or any
+ * non-ASCII format while hires_text.map names fonts (mapActive). U_ASCII
+ * and a native UTF-8 game with neither keep AGS's own breaking, byte for
+ * byte.
  */
-bool split_lines_uses_layout(int uformat);
+bool split_lines_uses_layout(int uformat, bool translationLoaded, bool mapActive);
 
 /**
  * AGS text (after unescape_script_string(), so '[' is already '\n') as
@@ -90,6 +93,95 @@ struct AgsLineSpan {
  */
 bool ags_layout_lines(const char *text, uint32 len, int uformat, int maxWidth, AgsLayoutMetrics &m,
 					  const Graphics::BreakRules &rules, Common::Array<AgsLineSpan> &out);
+
+/**
+ * split_lines()'s own loop, moved here unchanged (only its helpers became
+ * Ops calls) so a unit test runs the very code the engine runs: break at the
+ * last space, else "display as much as possible" at the previous character.
+ * It still serves U_ASCII, and every text split_lines_uses_layout() refuses.
+ *
+ * theline is the unescaped text (it is written to and restored). Ops:
+ *   int nextChar(char **s); int charAt(const char *s); int putChar(char *s, int c)
+ *   (Allegro's ugetx/ugetc/usetc) and int width(const char *s) (the
+ *   outlined width of a line). Lines: Add(const char *), Count(), Reset(),
+ *   operator[](i).Append(const char *).
+ */
+template<class Lines, class Ops>
+size_t split_lines_bytes(char *theline, Lines &lines, int wii, size_t max_lines, Ops &ops) {
+	char *scan_ptr = theline;
+	char *prev_ptr = theline;
+	char *last_whitespace = nullptr;
+	while (1) {
+		char *split_at = nullptr;
+
+		if (*scan_ptr == 0) {
+			// end of the text, add the last line if necessary
+			if (scan_ptr > theline) {
+				lines.Add(theline);
+			}
+			break;
+		}
+
+		if (*scan_ptr == ' ')
+			last_whitespace = scan_ptr;
+
+		// force end of line with the \n character
+		if (*scan_ptr == '\n') {
+			split_at = scan_ptr;
+			// otherwise, see if we are too wide
+		} else {
+			// temporarily terminate the line in the *next* char and test its width
+			char *next_ptr = scan_ptr;
+			ops.nextChar(&next_ptr);
+			const int next_chwas = ops.charAt(next_ptr);
+			*next_ptr = 0;
+
+			if (ops.width(theline) > wii) {
+				// line is too wide, order the split
+				if (last_whitespace)
+					// revert to the last whitespace
+					split_at = last_whitespace;
+				else
+					// single very wide word, display as much as possible
+					split_at = prev_ptr;
+			}
+
+			// restore the character that was there before
+			ops.putChar(next_ptr, next_chwas);
+		}
+
+		if (split_at == nullptr) {
+			prev_ptr = scan_ptr;
+			ops.nextChar(&scan_ptr);
+		} else {
+			// check if even one char cannot fit...
+			if (split_at == theline && !((*theline == ' ') || (*theline == '\n'))) {
+				// cannot split with current width restriction
+				lines.Reset();
+				break;
+			}
+			// add this line; do the temporary terminator trick again
+			const int next_chwas = ops.charAt(split_at);
+			*split_at = 0;
+			lines.Add(theline);
+			ops.putChar(split_at, next_chwas);
+			// check if too many lines
+			if (lines.Count() >= max_lines) {
+				lines[lines.Count() - 1].Append("...");
+				break;
+			}
+			// the next line starts from the split point
+			theline = split_at;
+			// skip the space or new line that caused the line break
+			if ((*theline == ' ') || (*theline == '\n'))
+				theline++;
+			scan_ptr = theline;
+			prev_ptr = theline;
+			last_whitespace = nullptr;
+		}
+	}
+	return lines.Count();
+}
 
 } // namespace AGS3
 
