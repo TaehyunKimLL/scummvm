@@ -259,11 +259,10 @@ struct ScummHiResText {
 
 	/**
 	 * Whether the ASCII character @p chr steps by the replacement face's own
-	 * advance rather than the game's Latin width (C34). All of these hold:
+	 * advance rather than the game's Latin width. C34 did this inside CJK
+	 * text and UTF-8 translations; since C36 it is the default for any
+	 * text, the game's own English included. All of these hold:
 	 * - hi-res text is on and its fonts are loaded;
-	 * - the game lays its text out on a CJK font's cells (setGameFontCell())
-	 *   or the text is UTF-8 (a translation, or a map's codepage=utf-8),
-	 *   whose own script already steps by the face;
 	 * - @p chr is 0x21..0x7E (the space keeps the game's width);
 	 * - no metrics= key names the metrics: not the ini's hires_text_metrics,
 	 *   [render], [font.@p charsetId] nor [latin];
@@ -271,8 +270,8 @@ struct ScummHiResText {
 	 *   the map neither keeps nor remaps @p chr ([glyphs]);
 	 * - under per-glyph placement, [latin] mode= is proportional (the
 	 *   default; off, half and fullwidth keep their own rules);
-	 * - the face drawing @p chr is a TrueType one (not a bitmap or pixel=
-	 *   face) with ink for it.
+	 * - the face drawing @p chr is a TrueType one with ink for it (a
+	 *   [font.N] pixel= face is one too; a bitmap SVFN face is not).
 	 * The game's offsX for the character does not apply then: the face
 	 * places it at the pen.
 	 */
@@ -955,8 +954,6 @@ private:
 	Common::Path _ttfPath;          ///< face to draw from, if any
 	int _gameFontW[kMaxFonts] = {};
 	int _gameFontH[kMaxFonts] = {};
-	// setGameFontCell() was given a CJK font's cell: text is laid out on it.
-	bool _cjkCells = false;
 	void noteDrawn(int charsetId, const Face *face, int chr) const;
 	void flushTextLog() const;
 

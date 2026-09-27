@@ -1408,7 +1408,7 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_vm->_hiResText.beginString();
 	}
 
-	// ASCII inside CJK text that the hi-res layer steps by the face (C34) is
+	// ASCII that the hi-res layer steps by the face (C34, C36) is
 	// placed by the face too: the game's offsX belongs to its own glyph, and
 	// getCharWidth() measures the face's step without it.
 	const bool latinFaceStep = !is2byte && !cellGlyph && _vm->_hiResText.latinStepsByFace(chr, _curId);

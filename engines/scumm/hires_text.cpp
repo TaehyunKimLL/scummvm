@@ -138,7 +138,6 @@ void ScummHiResText::reset() {
 	_ttfPath.clear();
 	for (int i = 0; i < kMaxFonts; ++i)
 		_gameFontW[i] = _gameFontH[i] = 0;
-	_cjkCells = false;
 	_fontsLoaded = false;
 	_alphaActive = false;
 	_korPatchShadow = false;
@@ -1341,7 +1340,7 @@ bool ScummHiResText::drawGlyphPlaced(Graphics::Surface &dest, int chr, int looku
 		// A wide TrueType glyph stepping by the face (C31) has no game cell
 		// to be centred in: it is drawn at the pen, as the legacy layout
 		// draws it.
-		// Nor has Latin stepping by the face inside CJK text (C34).
+		// Nor has Latin stepping by the face (C34, and by default since C36).
 		const bool faceStep = (m.wide && !ascii && face->ttf && wideStepsByFace(charsetId)) ||
 							  (ascii && lookup == chr && latinStepsByFace(chr, charsetId));
 		// metrics=game keeps the game's cell; a glyph narrower than it is
@@ -1475,7 +1474,7 @@ int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth,
 		lookup = (int)override.codepoint;
 	}
 
-	// ASCII inside CJK text steps by the face (C34).
+	// Latin drawn by a TrueType face steps by the face (C34, C36).
 	if (const int latin = latinFaceStep(chr, charsetId))
 		return latin;
 
@@ -1502,12 +1501,12 @@ bool ScummHiResText::latinStepsByFace(int chr, int charsetId) const {
 }
 
 int ScummHiResText::latinFaceStep(int chr, int charsetId) const {
-	// Only text whose own script already steps by the face: a game laid out
-	// on CJK cells (Hangul, C31), or a UTF-8 translation (kana, kanji, Thai).
-	// There the game's Latin widths, which belong to its own bitmap font,
-	// space the face's smaller letters apart. The game's own text in its
-	// own encoding (English) keeps them: metrics=game is its default.
-	if (!_enabled || !_fontsLoaded || !(_cjkCells || _config.encoding == Common::kUtf8))
+	// Latin drawn by a TrueType face steps by that face by default (C36),
+	// whatever the script around it: Hangul on CJK cells (C34), a UTF-8
+	// translation, or the game's own English. The game's Latin widths belong
+	// to its bitmap font and space the face's letters apart ("W e l l").
+	// An explicit metrics= key (below) keeps them.
+	if (!_enabled || !_fontsLoaded)
 		return 0;
 	// Letters, digits and punctuation. The space keeps the game's width:
 	// it is the word gap of the Hangul around it too.
@@ -2179,8 +2178,6 @@ void ScummHiResText::setGameFontCell(int charsetId, int width, int height) {
 	if (charsetId >= 0 && charsetId < kMaxFonts) {
 		_gameFontW[charsetId] = width;
 		_gameFontH[charsetId] = height;
-		if (width > 0 && height > 0)
-			_cjkCells = true;
 	}
 }
 
