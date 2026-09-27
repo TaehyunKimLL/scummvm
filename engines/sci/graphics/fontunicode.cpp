@@ -24,6 +24,7 @@
 #include "sci/graphics/fontsjis.h"
 #include "graphics/hires_text/glyph_source_scvmuni.h"
 #include "graphics/hires_text/latin_advance.h"
+#include "graphics/hires_text/unicode_props.h"
 #include "sci/graphics/screen.h"
 #include "graphics/hires_text/text_compose.h"
 #include "sci/graphics/textlatin.h"
@@ -36,7 +37,8 @@
 namespace Sci {
 
 GfxFontUnicode::GfxFontUnicode(GfxScreen *screen, GuiResourceId resourceId)
-	: _screen(screen), _resourceId(resourceId), _loaded(false), _source(nullptr, DisposeAfterUse::YES) {
+	: _screen(screen), _resourceId(resourceId), _loaded(false), _source(nullptr, DisposeAfterUse::YES),
+	  _anchorValid(false), _anchorLeft(0), _anchorTop(0), _anchorHiresX(0) {
 }
 
 GfxFontUnicode::~GfxFontUnicode() {
@@ -86,6 +88,24 @@ byte GfxFontUnicode::getCharWidth(uint32 chr) {
 	return cells == 2 ? _source->advanceWide() : _source->advanceNarrow();
 }
 
+byte GfxFontUnicode::gameCharWidth(uint32 cp, int scale) {
+	if (!_source || scale < 1)
+		return 0;
+	const int cells = _source->cells(cp);
+	if (cells <= 0)
+		return 0;
+	// Wide is what the source keeps in two cells: for a TrueType face that
+	// is East Asian Wide; a SCVMUNI bundle says so per glyph. The cell rule
+	// needs no per-glyph metrics (the common case, asked per character).
+	if (cells == 2 && !Graphics::Unicode::isCombining(cp))
+		return (byte)(_source->advanceWide() / scale);
+	Graphics::GlyphMetrics m;
+	if (!_source->metrics(cp, m))
+		return 0;
+	m.wide = cells == 2;
+	return (byte)gameAdvance(m, _source->advanceNarrow() / scale, _source->advanceWide() / scale, scale);
+}
+
 byte GfxFontUnicode::getCharHeight(uint32 chr) {
 	return (_source && _source->cells(chr) > 0) ? _source->cellHeight() : 0;
 }
@@ -115,7 +135,31 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 	byte *cov = _glyphScratch.begin();
 	for (int y = 0; y < cellHeight; y++)
 		Graphics::TextCompose::expandGlyphRow(cov + y * w, coverageRow(chr, y), w, bpp, greyedOutput, top + y, left);
-	_screen->putHiresCoverageGlyph(cov, w, cellHeight, left, top, color);
+
+	// Placement (design section 4.2): the pen is at column originX of the
+	// row, so the glyph is drawn originX px left of the pen - ink left of
+	// the origin is not lost. A combining mark takes the pen the previous
+	// base left, in hi-res px, and moves nothing. A glyph with neither (every
+	// glyph of a SCVMUNI bundle, every Hangul, kana and Latin glyph of the
+	// faces measured) is drawn exactly where it always was.
+	Graphics::GlyphMetrics m;
+	const bool placed = _source->metrics(chr, m);
+	int hiresX = left << 1;
+	if (placed && m.combining) {
+		if (_anchorValid && left == _anchorLeft && top == _anchorTop)
+			hiresX = _anchorHiresX;
+	} else if (placed) {
+		_anchorValid = true;
+		_anchorHiresX = hiresX + m.advance;
+		_anchorLeft = left + gameCharWidth(chr, 2);
+		_anchorTop = top;
+	}
+	if (placed)
+		hiresX -= m.originX;
+	if (hiresX == (left << 1))
+		_screen->putHiresCoverageGlyph(cov, w, cellHeight, left, top, color);
+	else
+		_screen->putHiresCoverageGlyphAt(cov, w, cellHeight, hiresX, top << 1, color);
 }
 
 void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,
@@ -281,6 +325,10 @@ byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
 		// GfxFontKorean::getCharWidth does with `>> 1` below SCI2. Reporting
 		// the full width makes text run past its box; that was measured, with
 		// the last two syllables of a menu entry spilling outside the button.
+		// Beyond ASCII, per glyph (design section 4.2): the cell for a wide
+		// glyph, nothing for a combining mark, the face's advance otherwise.
+		if (chr >= 0x80)
+			return _font->gameCharWidth(cp, (getSciVersion() >= SCI_VERSION_2) ? 1 : 2);
 		return (getSciVersion() >= SCI_VERSION_2) ? w : (w >> 1);
 	}
 	if (_fallback)

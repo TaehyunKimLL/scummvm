@@ -46,6 +46,16 @@ namespace Sci {
  */
 bool hiresTextApplies(SciVersion v, Common::CodePage page, bool utf8Translation, Common::String &why);
 
+/**
+ * The advance of a glyph drawn on the hi-res plane, in game px (design
+ * section 4.2): a wide glyph keeps the cell rule (@p gameWide, as before, so
+ * Hangul and kanji keep their grid); a combining mark does not advance; any
+ * other glyph advances by the face's own advance, latinAdvanceGamePx()
+ * (metrics=font) at @p scale hi-res px per game px, @p gameNarrow when the
+ * face cannot say. GfxFontUnicode::gameAdvance() is this.
+ */
+int16 gameAdvance(const Graphics::GlyphMetrics &m, int gameNarrow, int gameWide, int scale);
+
 } // End of namespace Sci
 
 #endif // SCI_GRAPHICS_TEXTLAYOUT16_H

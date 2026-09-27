@@ -251,6 +251,13 @@ byte GfxFontSet::getCharWidth(uint32 chr) {
 		return (byte)Graphics::latinAdvanceGamePx(_settings.metrics, _faces[0].font->getCharWidth(chr),
 										uni->advanceHires(c), scale);
 	}
+	// Beyond ASCII, a Unicode face on the hi-res plane advances per glyph
+	// (I18N_TEXT_DESIGN.md section 4.2): the cell for a wide glyph (as
+	// before), nothing for a combining mark, the face's own advance for any
+	// other - a Thai base is not a CJK half cell. ASCII keeps its Latin
+	// mode's rule above.
+	if (f->kind == kFaceCodePoint && f->hiresPlane && c >= 0x80)
+		return static_cast<GfxFontUnicode *>(f->font)->gameCharWidth(c, getSciVersion() >= SCI_VERSION_2 ? 1 : 2);
 	return toLowres(*f, f->font->getCharWidth(c));
 }
 
