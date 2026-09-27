@@ -106,6 +106,8 @@ HiResFontPlan HiResFontConfig::plan(int fontNumber) const {
 		p.size = _iniSize;
 	else if (_mapLoaded && _map.hiresSizeSet)
 		p.size = _map.hiresSize;
+	if (_mapLoaded)
+		p.gamma = _map.coverageGamma;
 	return p;
 }
 

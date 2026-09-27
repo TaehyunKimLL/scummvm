@@ -118,6 +118,19 @@ public:
 		TS_ASSERT_EQUALS(p.size, 0);         // the game font's height
 	}
 
+	void test_plan_carries_the_map_gamma() {
+		// C20: [hires] gamma= reaches every TrueType plan; off without it.
+		const Graphics::HiResTextConfig plain = agsParseMap("[fonts]\ndefault=d.ttf\n", "x");
+		const Graphics::HiResTextConfig dark = agsParseMap("[hires]\ngamma=1.8\n[fonts]\ndefault=d.ttf\n", "x");
+		AGS3::HiResFontConfig c;
+		c.configure(&plain, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		TS_ASSERT_EQUALS(c.plan(0).gamma, 100);
+		c.configure(&dark, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		TS_ASSERT_EQUALS(c.plan(0).gamma, 180);
+		c.configure(nullptr, Common::Path(), Common::Array<Common::Path>(), 16);
+		TS_ASSERT_EQUALS(c.plan(0).gamma, 100);
+	}
+
 	void test_nothing_named_is_the_game_font() {
 		AGS3::HiResFontConfig c;
 		c.configure(nullptr, Common::Path(), Common::Array<Common::Path>(), 16);
