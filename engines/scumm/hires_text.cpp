@@ -791,6 +791,8 @@ ScummHiResText::Face *ScummHiResText::openTtfChain(const Common::Array<Common::P
 			_failedFaces[path] = true;
 			continue;
 		}
+		// [hires] gamma=: off (100) unless the map asks.
+		ttf->setCoverageGamma(_config.coverageGamma);
 		debug(1, "SCUMM: hi-res TrueType font %s opened at %dpx: %u probe glyphs rasterised in %u ms",
 			  chain[i].baseName().c_str(), pixelSize, ttf->rasterCount(), ttf->totalRenderMs());
 		sources.push_back(ttf);
