@@ -77,14 +77,24 @@ struct GlyphStyle {
  * cannot express on its own. The renderer therefore writes the colour into the
  * text surface and the coverage into a parallel 8bpp one, leaving the caller to
  * blend the two against whatever is behind them. That parallel surface is
- * optional: without it an 8bpp font still draws, as a stencil of every pixel
- * with any coverage at all.
+ * optional: without it an 8bpp font still draws, keyed, as a stencil of the
+ * pixels covered at least kKeyedInkThreshold.
  *
  * Nothing here knows about scaling. A font is baked at the size it will be
  * drawn, so glyphs go down one pixel per pixel.
  */
 class HiResGlyphRenderer {
 public:
+	/**
+	 * The coverage an 8bpp glyph pixel needs to be drawn when there is no
+	 * coverage surface to blend it with (a paletted game, or blending off).
+	 *
+	 * Any coverage at all made the fringe around every stroke solid ink and
+	 * closed small glyphs into blobs; half coverage deletes the thin CJK
+	 * strokes a 9-16 px face draws at a quarter to a third (王 becomes 三).
+	 */
+	static const byte kKeyedInkThreshold = 0x40;
+
 	/**
 	 * Draw one glyph.
 	 *

@@ -1125,6 +1125,81 @@ public:
 		c.free();
 	}
 
+	/**
+	 * Keyed (no coverage surface) drawing keeps only real ink (C17).
+	 *
+	 * An 8-bit game cannot blend, so an anti-aliased glyph is keyed. Keying
+	 * every pixel with any coverage at all turned the faint fringe FreeType
+	 * puts around each stroke into solid ink: at Full Throttle's 12 px the
+	 * counters closed and syllables like 좋 and 를 drew as filled blobs.
+	 * Half coverage is too strict the other way - a thin CJK stroke at 9 to
+	 * 16 px is often only a quarter to a third covered and would vanish
+	 * (王 turning into 三). A quarter keeps those strokes and drops the fringe.
+	 */
+	void test_keyed_drawing_drops_the_faint_fringe() {
+		TS_ASSERT_EQUALS((int)Graphics::HiResGlyphRenderer::kKeyedInkThreshold, 0x40);
+
+		Common::Array<byte> bytes = makeFont(8, 1, 4, 4);
+		setPixel8(bytes, 0, 4, 4, 0, 0, 0x3F);   // fringe
+		setPixel8(bytes, 0, 4, 4, 1, 0, 0x40);   // a thin stroke
+		setPixel8(bytes, 0, 4, 4, 2, 0, 0xFF);   // solid
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		Graphics::GlyphStyle style;
+		style.color = 5;
+
+		Graphics::Surface keyed;
+		keyed.create(8, 8, Graphics::PixelFormat::createFormatCLUT8());
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(keyed, nullptr, font, 0, 0, 0, style));
+		TS_ASSERT_EQUALS(at(keyed, 0, 0), 0);
+		TS_ASSERT_EQUALS(at(keyed, 1, 0), 5);
+		TS_ASSERT_EQUALS(at(keyed, 2, 0), 5);
+
+		// With a coverage surface nothing is dropped: the compositor blends
+		// the fringe in at its own strength.
+		Graphics::Surface dest, cov;
+		dest.create(8, 8, Graphics::PixelFormat::createFormatCLUT8());
+		cov.create(8, 8, Graphics::PixelFormat::createFormatCLUT8());
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(dest, &cov, font, 0, 0, 0, style));
+		TS_ASSERT_EQUALS(at(dest, 0, 0), 5);
+		TS_ASSERT_EQUALS(at(cov, 0, 0), 0x3F);
+
+		keyed.free();
+		dest.free();
+		cov.free();
+	}
+
+	/**
+	 * A keyed decoration follows the keyed body: the fringe the body drops
+	 * does not come back as shadow-coloured ink around it.
+	 */
+	void test_keyed_decoration_ignores_the_fringe() {
+		Common::Array<byte> bytes = makeFont(8, 1, 4, 4);
+		setPixel8(bytes, 0, 4, 4, 1, 1, 0xFF);
+		setPixel8(bytes, 0, 4, 4, 3, 3, 0x10);   // stray fringe
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		Graphics::GlyphStyle style;
+		style.color = 5;
+		style.shadowColor = 9;
+		style.shadowMode = Graphics::kHiResShadowDrop;
+
+		Graphics::Surface keyed;
+		keyed.create(12, 12, Graphics::PixelFormat::createFormatCLUT8());
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(keyed, nullptr, font, 0, 2, 2, style));
+		TS_ASSERT_EQUALS(at(keyed, 3, 3), 5);    // body
+		TS_ASSERT_EQUALS(at(keyed, 4, 4), 9);    // its drop shadow
+		TS_ASSERT_EQUALS(at(keyed, 5, 5), 0);    // fringe: no body
+		TS_ASSERT_EQUALS(at(keyed, 6, 6), 0);    // fringe: no shadow
+		TS_ASSERT_EQUALS(inkCount(keyed), 2);
+
+		keyed.free();
+	}
+
 	/// A font with no ascent recorded must not be shifted by a wild amount.
 	void test_a_missing_ascent_asks_for_no_shift() {
 		Common::Array<byte> bytes = makeFont(8, 1, 8, 16);
