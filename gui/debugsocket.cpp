@@ -254,9 +254,11 @@ bool DebugSocket::readLine(Common::String &line) {
 #elif defined(DEBUGSOCKET_DOSCOM)
 	if (!_uart.isOpen())
 		return false;
+	// At most 256 bytes a call: a line that keeps sending must not keep
+	// the game from its next frame.
 	char buf[64];
 	int n;
-	while ((n = _uart.read(buf, sizeof(buf))) > 0)
+	for (int got = 0; got < 256 && (n = _uart.read(buf, sizeof(buf))) > 0; got += n)
 		_inBuf += Common::String(buf, n);
 #else
 	return false;
