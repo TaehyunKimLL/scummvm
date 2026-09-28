@@ -23,6 +23,7 @@
 #define BACKENDS_PLATFORM_DOS_SOFT_CURSOR_H
 
 #include "common/array.h"
+#include "common/endian.h"
 #include "common/rect.h"
 #include "common/scummsys.h"
 
@@ -32,11 +33,13 @@ namespace DOS {
  * A cursor drawn into the frame we send, since SDL3's direct-framebuffer
  * path draws none. It keeps what it covered so moving it rewrites only its
  * own rectangle. Image and destination share one pixel size (1, 2 or 4
- * bytes); converting to the screen format is the caller's job.
+ * bytes); converting to the screen format is the caller's job. What it
+ * covered is only ever put back at the pixel size it was saved at; after a
+ * mode change the caller forget()s it, since the old frame is gone.
  */
 class SoftCursor {
 public:
-	SoftCursor() : _w(0), _h(0), _hotX(0), _hotY(0), _key(0), _bpp(1) {}
+	SoftCursor() : _w(0), _h(0), _hotX(0), _hotY(0), _key(0), _bpp(1), _underBpp(1) {}
 
 	bool hasImage() const { return _w && _h; }
 
@@ -53,6 +56,7 @@ public:
 		_saved = r;
 		if (r.isEmpty() || !hasImage())
 			return _saved = Common::Rect();
+		_underBpp = _bpp;
 		_under.resize(r.width() * r.height() * _bpp);
 		for (int row = 0; row < r.height(); ++row) {
 			byte *d = dst + (r.top + row) * pitch + r.left * _bpp;
@@ -68,20 +72,30 @@ public:
 		return _saved;
 	}
 
+	/**
+	 * Put back what the last draw() covered, in the same destination. Does
+	 * nothing if the pixel size has changed since (a new image at another
+	 * depth): the saved pixels no longer fit the screen.
+	 */
 	Common::Rect restore(byte *dst, int pitch) {
 		const Common::Rect r = _saved;
+		_saved = Common::Rect();
+		if (_underBpp != _bpp)
+			return Common::Rect();
 		for (int row = 0; row < r.height(); ++row)
 			memcpy(dst + (r.top + row) * pitch + r.left * _bpp, &_under[row * r.width() * _bpp], r.width() * _bpp);
-		_saved = Common::Rect();
 		return r;
 	}
+
+	/** Drop what draw() saved without writing it back (the frame it came from is gone). */
+	void forget() { _saved = Common::Rect(); }
 
 private:
 	uint32 read(const byte *p) const {
 		switch (_bpp) {
 		case 1: return *p;
-		case 2: return *(const uint16 *)p;
-		default: return *(const uint32 *)p;
+		case 2: return READ_UINT16(p);
+		default: return READ_UINT32(p);
 		}
 	}
 
@@ -89,6 +103,7 @@ private:
 	int _hotX, _hotY;
 	uint32 _key;
 	uint _bpp;
+	uint _underBpp;	///< the pixel size _under was saved at
 	Common::Array<byte> _image, _under;
 	Common::Rect _saved;
 };

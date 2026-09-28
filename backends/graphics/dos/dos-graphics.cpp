@@ -125,6 +125,9 @@ OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
 		_pendingW = 0;
 		return OSystem::kTransactionSizeChangeFailed;
 	}
+	// The old frame, cursor included, is gone; the full repaint below
+	// draws the cursor afresh.
+	_cursor.forget();
 	_screen.free();
 	_screen.create(_pendingW, _pendingH, _pendingFormat);
 	_pendingW = 0;

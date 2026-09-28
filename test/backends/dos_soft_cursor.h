@@ -50,4 +50,32 @@ public:
 		c.restore((byte *)screen, 4);
 		TS_ASSERT_EQUALS(screen[1], 5);
 	}
+
+	void test_restore_skipped_after_bpp_change() {
+		byte screen[4 * 4];
+		memset(screen, 1, sizeof(screen));
+		DOS::SoftCursor c;
+		c.setImage(image(), 2, 2, 0, 0, 0, 1);
+		c.draw(screen, 4, 4, 4, 1, 1);
+		const uint16 img16[1] = { 0xF800 };
+		c.setImage((const byte *)img16, 1, 1, 0, 0, 0, 2);
+		byte copy[sizeof(screen)];
+		memcpy(copy, screen, sizeof(screen));
+		TS_ASSERT(c.restore(screen, 4).isEmpty());
+		TS_ASSERT_SAME_DATA(screen, copy, sizeof(screen));
+		TS_ASSERT(c.restore(screen, 4).isEmpty());	// and it stays dropped
+	}
+
+	void test_restore_after_forget_writes_nothing() {
+		byte screen[4 * 4];
+		memset(screen, 1, sizeof(screen));
+		DOS::SoftCursor c;
+		c.setImage(image(), 2, 2, 0, 0, 0, 1);
+		c.draw(screen, 4, 4, 4, 1, 1);
+		byte copy[sizeof(screen)];
+		memcpy(copy, screen, sizeof(screen));
+		c.forget();
+		TS_ASSERT(c.restore(screen, 4).isEmpty());
+		TS_ASSERT_SAME_DATA(screen, copy, sizeof(screen));
+	}
 };
