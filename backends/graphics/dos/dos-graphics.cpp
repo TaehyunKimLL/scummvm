@@ -30,6 +30,7 @@
 #include "backends/platform/dos/line-repeat.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
+#include "common/file.h"
 #include "common/textconsole.h"
 
 static Graphics::PixelFormat fromSdl(SDL_PixelFormat f, bool &ok) {
@@ -47,7 +48,7 @@ static Graphics::PixelFormat fromSdl(SDL_PixelFormat f, bool &ok) {
 static const uint kMaxDirtyRects = 32;
 
 DosGraphicsManager::DosGraphicsManager() :
-	_lineRepeat(false), _vsync(false), _formatsW(640), _formatsH(400),
+	_modeIndex(-1), _lineRepeat(false), _vsync(false), _formatsW(640), _formatsH(400), _shotCount(0),
 	_window(nullptr), _screenChangeID(0), _pendingW(0), _pendingH(0),
 	_overlayVisible(false), _paletteDirty(false), _shakeX(0), _shakeY(0),
 	_fullDirty(false), _cursorW(0), _cursorH(0), _cursorHotX(0), _cursorHotY(0), _cursorKey(0),
@@ -137,6 +138,7 @@ OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
 		_pendingW = 0;
 		return OSystem::kTransactionSizeChangeFailed;
 	}
+	_modeIndex = choice.index;
 	_lineRepeat = choice.lineRepeat;
 	_vsync = ConfMan.get("dos_vsync") == "wait";
 	// The old frame, cursor included, is gone; the full repaint below
@@ -294,6 +296,34 @@ void DosGraphicsManager::blit(SDL_Surface *s, const Common::Rect &r) {
 		if (DOS::repeats(y))
 			memcpy(dst + s->pitch, src, bytes);
 	}
+}
+
+void DosGraphicsManager::saveScreenshot() {
+	SDL_Surface *s = _window ? SDL_GetWindowSurface(_window) : nullptr;
+	if (!s || _modeIndex < 0) {
+		warning("DosGraphicsManager: no screen to save");
+		return;
+	}
+	const Graphics::PixelFormat pf = _modes[_modeIndex].format;
+	const Common::String base = Common::String::format("SHOT%04u", _shotCount++);
+	Common::DumpFile f;
+	if (!f.open(Common::Path(base + ".RAW"))) {
+		warning("DosGraphicsManager: cannot write %s.RAW", base.c_str());
+		return;
+	}
+	for (int y = 0; y < s->h; ++y)
+		f.write((const byte *)s->pixels + y * s->pitch, s->w * pf.bytesPerPixel);
+	f.close();
+	if (f.open(Common::Path(base + ".TXT"))) {
+		f.writeString(Common::String::format("%d %d %d %s\n", s->w, s->h, pf.bytesPerPixel * 8,
+											 pf.bytesPerPixel == 1 ? "CLUT8" : pf.toString().c_str()));
+		f.close();
+	}
+	if (pf.bytesPerPixel == 1 && f.open(Common::Path(base + ".PAL"))) {
+		f.write(_palette, sizeof(_palette));
+		f.close();
+	}
+	debug(1, "DOS: saved %s (%dx%d %s)", base.c_str(), s->w, s->h, pf.toString().c_str());
 }
 
 void DosGraphicsManager::showOverlay(bool inGUI) {
