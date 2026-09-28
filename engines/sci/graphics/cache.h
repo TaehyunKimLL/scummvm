@@ -150,6 +150,15 @@ private:
 											 bool &isSvfn);
 
 	/**
+	 * The one face a legacy (non-UTF-8) game's font id draws with: the SVFN
+	 * bitmap font at @p path (svfnSource()), refused with one warning under
+	 * kProbesHangul when it has no Hangul, else the TrueType face
+	 * (ttfSource(), then also returned in @p ttf; nullptr for a bitmap face).
+	 */
+	Graphics::UnicodeGlyphSource *singleFace(const Common::String &path, int size, FaceProbes probes,
+											 const char *fallback, int pixel, Graphics::TtfGlyphSource *&ttf);
+
+	/**
 	 * With a UTF-8 translation: every face of @p s's chain that opens,
 	 * then the .uni bundle (in the faces' cell), as one
 	 * FallbackGlyphSource - or the one face alone - checked against the
@@ -157,10 +166,13 @@ private:
 	 * with the same chain and owned here. nullptr when no face opens;
 	 * @p chainName receives the faces that did, comma-separated. A face is
 	 * an SVFN bitmap font (svfnSource()) or a TrueType face; @p firstFace
-	 * is the first face only when that one is TrueType.
+	 * is the first face only when that one is TrueType; @p lineTop receives
+	 * the first face's line top in the chain's cell (a bitmap font's line
+	 * is its cell).
 	 */
 	Graphics::UnicodeGlyphSource *faceChainFor(const FontSettings &s, Common::String &chainName,
-											   Graphics::TtfGlyphSource **firstFace = nullptr);
+											   Graphics::TtfGlyphSource **firstFace = nullptr,
+											   int *lineTop = nullptr);
 
 	/**
 	 * The baseline of font resource @p fontId in hi-res px below its line
@@ -226,6 +238,8 @@ private:
 	Common::HashMap<Common::String, Graphics::UnicodeGlyphSource *> _svfnSources;
 	/// Paths already found not to be SVFN files (svfnSource()).
 	Common::HashMap<Common::String, bool> _notSvfn;
+	/// SVFN faces refused as a Korean game's main face (warned once).
+	Common::HashMap<Common::String, bool> _svfnNoHangul;
 	/// Unicode bundles built on those sources, by their faces and routing.
 	Common::HashMap<Common::String, GfxFontUnicode *> _ttfBundles;
 	Common::HashMap<int, int> _gameBaselines;  ///< gameFontBaseline(), by font id
