@@ -8,6 +8,7 @@ MODULE_OBJS := \
 	debugger.o \
 	debugsocket.o \
 	debugsocket-protocol.o \
+	debugsocket-dosuart.o \
 	dialog.o \
 	dump-all-dialogs.o \
 	editgamedialog.o \

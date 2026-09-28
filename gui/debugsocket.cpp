@@ -131,6 +131,11 @@ bool DebugSocket::listen(const Common::String &path) {
 		return false;
 	debug(1, "DebugSocket: listening on %s", name.c_str());
 	return true;
+#elif defined(DEBUGSOCKET_DOSCOM)
+	if (!_uart.open(path))
+		return false;
+	_inBuf.clear();
+	return true;
 #else
 	warning("DebugSocket: not built on this platform (USE_DEBUG_SOCKET), %s ignored", path.c_str());
 	return false;
@@ -246,10 +251,17 @@ bool DebugSocket::readLine(Common::String &line) {
 			break;
 		_inBuf += Common::String(buf, n);
 	}
+#elif defined(DEBUGSOCKET_DOSCOM)
+	if (!_uart.isOpen())
+		return false;
+	char buf[64];
+	int n;
+	while ((n = _uart.read(buf, sizeof(buf))) > 0)
+		_inBuf += Common::String(buf, n);
 #else
 	return false;
 #endif
-#if defined(DEBUGSOCKET_POSIX) || defined(DEBUGSOCKET_WIN32)
+#if defined(DEBUGSOCKET_POSIX) || defined(DEBUGSOCKET_WIN32) || defined(DEBUGSOCKET_DOSCOM)
 	const uint nl = _inBuf.findFirstOf('\n');
 	if (nl == Common::String::npos)
 		return false;
@@ -295,6 +307,9 @@ void DebugSocket::send(const Common::String &all) {
 		p += n;
 		left -= n;
 	}
+#elif defined(DEBUGSOCKET_DOSCOM)
+	if (_uart.isOpen())
+		_uart.write(all.c_str(), all.size());
 #else
 	(void)all;
 #endif
