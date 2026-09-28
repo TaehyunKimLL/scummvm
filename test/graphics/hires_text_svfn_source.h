@@ -254,6 +254,22 @@ public:
 		}
 	}
 
+	/// baselineRow() is the SVFN ascent (the row the baseline falls on);
+	/// an ascent of 0 (not recorded) is no baseline, and one past the cell
+	/// is held to the cell.
+	void test_svfn_source_baseline_row_is_the_ascent() {
+		Common::Array<byte> bytes = makeFont(1, 6, 8, false);
+		for (int pass = 0; pass < 3; ++pass) {
+			bytes[16] = pass == 0 ? 6 : (pass == 1 ? 0 : 9);
+			Graphics::HiResBitmapFont font;
+			TS_ASSERT(loadFont(font, bytes, bytes.size()));
+			if (!font.isLoaded())
+				return;
+			Graphics::SvfnGlyphSource src(&font, DisposeAfterUse::NO);
+			TS_ASSERT_EQUALS(src.baselineRow(), pass == 0 ? 6 : (pass == 1 ? -1 : 8));
+		}
+	}
+
 	void test_svfn_source_matches_bitmap_font() {
 		checkMatches(8);
 		checkMatches(2);
