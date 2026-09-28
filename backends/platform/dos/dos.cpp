@@ -47,6 +47,7 @@
 #include "backends/events/dos/dos-events.h"
 #include "backends/mixer/null/null-mixer.h"
 #include "backends/graphics/dos/dos-graphics.h"
+#include "common/config-manager.h"
 #include "common/fs.h"
 #include "base/main.h"
 
@@ -74,6 +75,12 @@ void OSystem_DOS::initBackend() {
 	SDL_SetHint(SDL_HINT_DOS_ALLOW_DIRECT_FRAMEBUFFER, "1");
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
 		error("SDL_Init: %s", SDL_GetError());
+
+	// dos_truecolor=auto|off: off advertises CLUT8 only.
+	// dos_force_fallback=true uses the 640x480 line-repeat mode even when
+	// 640x400 exists (testing).
+	ConfMan.registerDefault("dos_truecolor", "auto");
+	ConfMan.registerDefault("dos_force_fallback", false);
 
 	DosGraphicsManager *gfx = new DosGraphicsManager();
 	_graphicsManager = gfx;

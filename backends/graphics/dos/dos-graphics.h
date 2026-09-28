@@ -35,8 +35,10 @@ struct SDL_DisplayMode;
 /**
  * The game screen in system RAM, copied to SDL3's window surface one dirty
  * rectangle at a time with the cursor on top; SDL3's direct-framebuffer
- * path then sends those rectangles to VRAM. M0: the physical mode must be
- * exactly the game's size and format; the overlay is kept but not shown.
+ * path then sends those rectangles to VRAM. The physical mode is the game's
+ * size and format, or (M2) 640x480 for a 640x400 game with every fifth row
+ * sent twice (line-repeat.h) when the card has no exact mode or
+ * `dos_force_fallback=true`. The overlay is kept but not shown.
  */
 class DosGraphicsManager : public GraphicsManager {
 public:
@@ -91,10 +93,14 @@ public:
 
 private:
 	void addDirty(const Common::Rect &r);
-	bool setMode(int index);
+	bool setMode(int index, bool lineRepeat);
+	void blit(SDL_Surface *s, const Common::Rect &r);
 
 	Common::Array<DOS::VideoMode> _modes;
 	Common::Array<SDL_DisplayMode> _sdlModes;	///< SDL3's own copy of _modes[i], as SDL_SetWindowFullscreenMode() takes it
+	bool _lineRepeat;	///< 640x400 game in a 640x480 mode (line-repeat.h)
+	uint _formatsW, _formatsH;	///< the size getSupportedFormats() answers for
+
 	SDL_Window *_window;
 	int _screenChangeID;
 

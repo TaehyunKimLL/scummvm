@@ -26,6 +26,8 @@
 #include <SDL3/SDL.h>
 
 #include "backends/graphics/dos/dos-graphics.h"
+#include "backends/platform/dos/line-repeat.h"
+#include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/textconsole.h"
 
@@ -44,6 +46,7 @@ static Graphics::PixelFormat fromSdl(SDL_PixelFormat f, bool &ok) {
 static const uint kMaxDirtyRects = 32;
 
 DosGraphicsManager::DosGraphicsManager() :
+	_lineRepeat(false), _formatsW(640), _formatsH(400),
 	_window(nullptr), _screenChangeID(0), _pendingW(0), _pendingH(0),
 	_overlayVisible(false), _paletteDirty(false), _shakeX(0), _shakeY(0),
 	_fullDirty(false), _cursorVisible(false), _mouseX(0), _mouseY(0) {
@@ -73,17 +76,18 @@ DosGraphicsManager::~DosGraphicsManager() {
 }
 
 Common::List<Graphics::PixelFormat> DosGraphicsManager::getSupportedFormats() const {
-	// SCI asks before initGraphics(); M0 answers for its hires size.
-	return DOS::supportedFormats(_modes, 640, 400);
+	// SCI asks before initGraphics(): until a size is asked for, answer for
+	// its hires 640x400. dos_truecolor=off leaves CLUT8 only.
+	return DOS::supportedFormats(_modes, _formatsW, _formatsH, ConfMan.get("dos_truecolor") != "off");
 }
 
 void DosGraphicsManager::initSize(uint width, uint height, const Graphics::PixelFormat *format) {
-	_pendingW = width;
-	_pendingH = height;
+	_pendingW = _formatsW = width;
+	_pendingH = _formatsH = height;
 	_pendingFormat = format ? *format : Graphics::PixelFormat::createFormatCLUT8();
 }
 
-bool DosGraphicsManager::setMode(int index) {
+bool DosGraphicsManager::setMode(int index, bool lineRepeat) {
 	const SDL_DisplayMode &mode = _sdlModes[index];
 	if (!_window)
 		_window = SDL_CreateWindow("ScummVM", mode.w, mode.h, 0);
@@ -108,23 +112,29 @@ bool DosGraphicsManager::setMode(int index) {
 				SDL_GetPixelFormatName(mode.format), s->w, s->h, SDL_GetPixelFormatName(s->format));
 		return false;
 	}
-	debug(1, "DOS: mode %dx%d %s", s->w, s->h, _modes[index].format.toString().c_str());
+	if (lineRepeat)
+		debug(1, "DOS: mode %dx%d %s (line repeat from %ux%u)", s->w, s->h, _modes[index].format.toString().c_str(),
+			  _pendingW, _pendingH);
+	else
+		debug(1, "DOS: mode %dx%d %s", s->w, s->h, _modes[index].format.toString().c_str());
 	return true;
 }
 
 OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
 	if (!_pendingW)
 		return OSystem::kTransactionSuccess;
-	const int index = DOS::findExactMode(_modes, _pendingW, _pendingH, _pendingFormat);
-	if (index < 0) {
+	const DOS::ModeChoice choice = DOS::chooseMode(_modes, _pendingW, _pendingH, _pendingFormat,
+												   ConfMan.getBool("dos_force_fallback"));
+	if (choice.index < 0) {
 		warning("DosGraphicsManager: no %ux%u %s mode", _pendingW, _pendingH, _pendingFormat.toString().c_str());
 		_pendingW = 0;
 		return OSystem::kTransactionSizeChangeFailed;
 	}
-	if (!setMode(index)) {
+	if (!setMode(choice.index, choice.lineRepeat)) {
 		_pendingW = 0;
 		return OSystem::kTransactionSizeChangeFailed;
 	}
+	_lineRepeat = choice.lineRepeat;
 	// The old frame, cursor included, is gone; the full repaint below
 	// draws the cursor afresh.
 	_cursor.forget();
@@ -203,33 +213,36 @@ void DosGraphicsManager::updateScreen() {
 	if (!back.isEmpty())
 		send.push_back(back);
 
-	const int bpp = _screen.format.bytesPerPixel;
+	// Rectangles below are in window rows before line repeat: the mode's
+	// own rows, or the 400 the 480 hold.
+	const int windowH = _lineRepeat ? DOS::logicalRow(s->h - 1) + 1 : s->h;
+	const Common::Rect window(s->w, windowH);
 	if (_fullDirty) {
 		// Shake shifts the whole picture; the uncovered strip is colour 0.
 		memset(s->pixels, 0, s->pitch * s->h);
-		Common::Rect src(_screen.w, _screen.h);
-		Common::Rect dst = src;
+		Common::Rect dst(_screen.w, _screen.h);
 		dst.translate(_shakeX, _shakeY);
-		dst.clip(Common::Rect(s->w, s->h));
-		for (int y = dst.top; y < dst.bottom; ++y)
-			memcpy((byte *)s->pixels + y * s->pitch + dst.left * bpp,
-				   _screen.getBasePtr(dst.left - _shakeX, y - _shakeY), dst.width() * bpp);
+		dst.clip(window);
+		blit(s, dst);
 		send.clear();
 		send.push_back(Common::Rect(s->w, s->h));
 	} else {
 		for (uint i = 0; i < _dirty.size(); ++i) {
 			Common::Rect r = _dirty[i];
 			r.translate(_shakeX, _shakeY);
-			r.clip(Common::Rect(s->w, s->h));
-			for (int y = r.top; y < r.bottom; ++y)
-				memcpy((byte *)s->pixels + y * s->pitch + r.left * bpp,
-					   _screen.getBasePtr(r.left - _shakeX, y - _shakeY), r.width() * bpp);
-			send.push_back(r);
+			r.clip(window);
+			if (r.isEmpty())
+				continue;
+			blit(s, r);
+			send.push_back(_lineRepeat ? DOS::physRect(r) : r);
 		}
 	}
 
 	if (_cursorVisible && _cursor.hasImage()) {
-		Common::Rect c = _cursor.draw((byte *)s->pixels, s->pitch, s->w, s->h, _mouseX, _mouseY);
+		// At its physical position, not stretched: the hotspot row is the
+		// first copy of the mouse's logical row.
+		const int y = _lineRepeat ? DOS::physRow(_mouseY) : _mouseY;
+		Common::Rect c = _cursor.draw((byte *)s->pixels, s->pitch, s->w, s->h, _mouseX, y);
 		if (!c.isEmpty())
 			send.push_back(c);
 	}
@@ -245,6 +258,30 @@ void DosGraphicsManager::updateScreen() {
 	_dirty.clear();
 	_fullDirty = false;
 	_paletteDirty = false;
+}
+
+void DosGraphicsManager::blit(SDL_Surface *s, const Common::Rect &r) {
+	// r is in window rows (see updateScreen()); the source is r less the shake.
+	const int bpp = _screen.format.bytesPerPixel;
+	const int bytes = r.width() * bpp;
+	if (!_lineRepeat) {
+		for (int y = r.top; y < r.bottom; ++y)
+			memcpy((byte *)s->pixels + y * s->pitch + r.left * bpp, _screen.getBasePtr(r.left - _shakeX, y - _shakeY), bytes);
+		return;
+	}
+	if (!_shakeX && !_shakeY) {
+		DOS::copyRows((byte *)s->pixels, s->pitch, (const byte *)_screen.getPixels(), _screen.pitch, bpp, r);
+		return;
+	}
+	// copyRows() maps rows of one surface to the same rows doubled; with a
+	// shake the source rows are offset, so the same mapping row by row.
+	for (int y = r.top; y < r.bottom; ++y) {
+		const byte *src = (const byte *)_screen.getBasePtr(r.left - _shakeX, y - _shakeY);
+		byte *dst = (byte *)s->pixels + DOS::physRow(y) * s->pitch + r.left * bpp;
+		memcpy(dst, src, bytes);
+		if (DOS::repeats(y))
+			memcpy(dst + s->pitch, src, bytes);
+	}
 }
 
 void DosGraphicsManager::showOverlay(bool inGUI) {
@@ -282,12 +319,13 @@ void DosGraphicsManager::setMousePos(int x, int y) {
 void DosGraphicsManager::warpMouse(int x, int y) {
 	setMousePos(x, y);
 	if (_window)
-		SDL_WarpMouseInWindow(_window, (float)x, (float)y);
+		SDL_WarpMouseInWindow(_window, (float)x, (float)(_lineRepeat ? DOS::physRow(y) : y));
 }
 
 Common::Point DosGraphicsManager::gameMouse(float wx, float wy) const {
-	// M0: the mode is the game's size, so window and game coordinates agree.
-	return Common::Point((int16)wx, (int16)wy);
+	// The mode is the game's size, or its rows with every fifth repeated.
+	const int y = (int)wy;
+	return Common::Point((int16)wx, (int16)(_lineRepeat ? DOS::logicalRow(y) : y));
 }
 
 void DosGraphicsManager::setMouseCursor(const void *buf, uint w, uint h, int hotspotX, int hotspotY, uint32 keycolor,
