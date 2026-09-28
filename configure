@@ -5026,6 +5026,11 @@ case $_host_os in
 	mingw*)
 		# StdioStream just uses _ftelli64
 		;;
+	msdosdjgpp)
+		# DJGPP's fseeko64(SEEK_CUR) seeks from the DOS handle's position,
+		# past whatever stdio has buffered, so every relative seek after
+		# a read lands too far. FAT files end at 4GB anyway: plain fseek.
+		;;
 	*)
 		echo_n "Checking if fseeko with 64-bit off_t is supported... "
 		cat > $TMPC << EOF
