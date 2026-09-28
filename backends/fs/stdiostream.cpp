@@ -43,7 +43,7 @@
 // Atari file names must have a 8.3 format, atomic breaks this
 #define STDIOSTREAM_NO_ATOMIC_SUPPORT
 #endif
-#if defined(DOS_DJGPP)
+#if defined(__DJGPP__)
 // DOS file names are 8.3: NAME.EXT.tmp cannot be created
 #define STDIOSTREAM_NO_ATOMIC_SUPPORT
 #endif
