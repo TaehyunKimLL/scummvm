@@ -6,6 +6,8 @@
 
   python3 mkfont.py neodgm.ttf out.fnt --size 16 --bpp 1
   python3 mkfont.py NanumGothic.ttf out.fnt --size 24 --bpp 8 --variable
+  # 4단계 커버리지 (2bpp): 8bpp 의 1/4 크기, cp949 가 담는 글자 전부
+  python3 mkfont.py NanumGothic-Bold.ttf ko.fnt --size 18 --bpp 2 --unicode ascii,cp949
   # 코드 포인트 순서 (버전 2): 한글 11172자 전부, 다른 문자도
   python3 mkfont.py Galmuri7.ttf ko.fnt --size 8 --cell 9 --bpp 1 --unicode ascii,hangul,ksx1001
 """
@@ -65,6 +67,29 @@ def _ksx1001_nohanja():
             if not (0x4E00 <= cp <= 0x9FFF or 0xF900 <= cp <= 0xFAFF)]
 
 
+def _cp949():
+    """cp949 (통합형 한글 코드) 가 담는 모든 글자: 2바이트 코드 0x81-0xFE x
+    0x41-0xFE 중 한 글자로 디코드되는 것 전부 (현대 한글 11172자, 한자,
+    기호, 낱자) 와 ASCII. 코드 순서대로, 중복 없이."""
+    out = list(range(0x20, 0x7F))
+    for hi in range(0x81, 0xFF):
+        for lo in range(0x41, 0xFF):
+            try:
+                ch = bytes((hi, lo)).decode("cp949")
+            except UnicodeDecodeError:
+                continue
+            if len(ch) == 1:
+                out.append(ord(ch))
+    seen = set()
+    return [c for c in out if not (c in seen or seen.add(c))]
+
+
+def quantize2(v):
+    """0-255 커버리지를 2bpp 의 0-3 단계로. 읽는 쪽은 단계 x 85 로 되돌린다
+    (TextCompose::expandCoverage), 그래서 오차는 픽셀당 43 이하다."""
+    return (v * 3 + 127) // 255
+
+
 # --unicode 에 이름으로 쓸 수 있는 묶음.
 NAMED_RANGES = {
     "ascii": lambda: list(range(0x20, 0x7F)),
@@ -74,6 +99,7 @@ NAMED_RANGES = {
     "cjk-punct": lambda: list(range(0x3000, 0x3040)) + list(range(0xFF01, 0xFF5F)),
     "ksx1001": _ksx1001,
     "ksx1001-nohanja": _ksx1001_nohanja,
+    "cp949": _cp949,
     "kana": lambda: list(range(0x3041, 0x3100)),
     "thai": lambda: list(range(0x0E01, 0x0E3B)) + list(range(0x0E3F, 0x0E5C)),
 }
@@ -253,6 +279,10 @@ def render(font, ch, cell_w, cell_h, ascent, bpp, center=False, mark_origin=Fals
 
     if bpp == 1:
         img = img.point(lambda v: 255 if v >= 128 else 0)
+    elif bpp == 2:
+        # 실릴 값 그대로 (0, 85, 170, 255): 잉크 상자와 .notdef 비교가 파일에
+        # 들어가는 픽셀을 본다. 43 미만의 옅은 가장자리는 여기서 사라진다.
+        img = img.point(lambda v: quantize2(v) * 85)
 
     ink = img.getbbox()
     if ink is None:
@@ -275,6 +305,15 @@ def pack_glyph(img, cell_w, cell_h, bpp):
                 if px[x, y] >= 128:
                     row[x >> 3] |= 0x80 >> (x & 7)
             out += row
+    elif bpp == 2:
+        # 네 픽셀이 한 바이트, 왼쪽 픽셀이 상위 비트 쌍이다
+        # (TextCompose::expandCoverage). 행은 바이트 단위로 채운다.
+        stride = (cell_w + 3) // 4
+        for y in range(cell_h):
+            row = bytearray(stride)
+            for x in range(cell_w):
+                row[x >> 2] |= quantize2(px[x, y]) << (6 - (x & 3) * 2)
+            out += row
     else:
         for y in range(cell_h):
             for x in range(cell_w):
@@ -295,7 +334,9 @@ def main():
                          "셀에 맞춰 잡는다")
     ap.add_argument("--width", type=int, default=0,
                     help="셀 폭. 생략하면 셀 높이와 같다")
-    ap.add_argument("--bpp", type=int, choices=(1, 8), default=8)
+    ap.add_argument("--bpp", type=int, choices=(1, 2, 8), default=8,
+                    help="픽셀당 비트: 1 (스텐실), 2 (커버리지 4단계, 8bpp 의 "
+                         "1/4 크기), 8 (커버리지 256단계)")
     ap.add_argument("--codepage", type=int, choices=sorted(CODEPAGES), default=949)
     ap.add_argument("--center", action="store_true",
                     help="잉크를 셀 가운데에 놓는다. 비례폭 글꼴을 고정폭 셀에 "

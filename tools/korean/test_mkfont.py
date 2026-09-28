@@ -88,6 +88,116 @@ class RangeTest(unittest.TestCase):
             mkfont.parse_ranges("klingon")
 
 
+class TwoBppTest(unittest.TestCase):
+    """M2: --bpp 2. 0-255 커버리지를 4단계로, 네 픽셀을 한 바이트에 (왼쪽이 상위 비트 쌍)."""
+
+    def test_quantize_is_round_to_nearest_level(self):
+        self.assertEqual([mkfont.quantize2(v) for v in (0, 42, 43, 127, 128, 212, 213, 255)],
+                         [0, 0, 1, 1, 2, 2, 3, 3])
+        # 읽는 쪽은 단계 x 85: 어느 값도 43 넘게 틀어지지 않는다.
+        self.assertLessEqual(max(abs(mkfont.quantize2(v) * 85 - v) for v in range(256)), 43)
+
+    def test_pack_glyph_packs_four_pixels_a_byte_msb_first(self):
+        from PIL import Image
+        img = Image.new("L", (6, 2), 0)
+        for x, v in enumerate((0, 85, 170, 255, 255, 170)):
+            img.putpixel((x, 1), v)
+        out = mkfont.pack_glyph(img, 6, 2, 2)
+        # 6 px 는 12비트: 행마다 2바이트, 둘째 바이트의 아래 4비트는 채움.
+        self.assertEqual(out, bytes([0x00, 0x00, 0x1B, 0xE0]))
+
+    def test_cp949_is_every_code_it_decodes_and_ascii(self):
+        cps = mkfont.parse_ranges("cp949")
+        self.assertEqual(len(cps), len(set(cps)))
+        self.assertEqual(cps[:95], list(range(0x20, 0x7F)))
+        s = set(cps)
+        self.assertEqual(len([c for c in s if 0xAC00 <= c <= 0xD7A3]), 11172)
+        self.assertIn(0xB620, s)        # 똠: 2350 에 없는 음절도 cp949 에는 있다
+        self.assertIn(0x4E00, s)
+        self.assertLessEqual(set(mkfont.parse_ranges("ksx1001")), s)
+        self.assertEqual(len(cps), 17143)
+
+
+def _nanum_bold():
+    for p in (os.environ.get("SCUMMVM_TEST_KO_BOLD_TTF", ""),
+              os.path.expanduser("~/.local/sysroot/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"),
+              "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"):
+        if p and os.path.exists(p):
+            return p
+    return ""
+
+
+NANUM_BOLD = _nanum_bold()
+
+
+def read_svfn(data):
+    """SVFN 을 bitmap_font.cpp 처럼 읽는다: {코드 포인트: (폭 표, [행마다 커버리지 0-255])}.
+    버전 2 (cmap) 만. 픽셀은 TextCompose::expandCoverage 순서로 펼친다."""
+    import struct
+    hdr = struct.unpack_from("<4sHHBBHHBBBBHIII", data, 0)
+    magic, version, flags, bpp, _, _, count, cw, ch = hdr[:9]
+    metrics_off, data_off = hdr[12:14]
+    assert magic == b"SVFN" and version == 2 and bpp in (1, 2, 8)
+    pitch = {1: (cw + 7) // 8, 2: (cw + 3) // 4, 8: cw}[bpp]
+    cmap_off = struct.unpack_from("<I", data, 32)[0]
+
+    def px(row, x):
+        if bpp == 1:
+            return 255 if row[x >> 3] & (0x80 >> (x & 7)) else 0
+        if bpp == 2:
+            return ((row[x >> 2] >> (6 - (x & 3) * 2)) & 3) * 85
+        return row[x]
+
+    out = {}
+    for i in range(count):
+        cp, idx = struct.unpack_from("<II", data, cmap_off + 8 * i)
+        g = data_off + idx * pitch * ch
+        rows = [[px(data[g + y * pitch:g + (y + 1) * pitch], x) for x in range(cw)] for y in range(ch)]
+        m = data[metrics_off + 4 * idx:metrics_off + 4 * idx + 4] if metrics_off else b""
+        out[cp] = (m, rows)
+    return dict(bpp=bpp, cell=(cw, ch), pitch=pitch, glyphs=out)
+
+
+@unittest.skipUnless(NANUM_BOLD, "NanumGothicBold.ttf not found (SCUMMVM_TEST_KO_BOLD_TTF)")
+class TwoBppBakeTest(unittest.TestCase):
+    """같은 TTF, 같은 크기를 8bpp 와 2bpp 로 구우면 같은 글자, 같은 폭, 픽셀마다
+    커버리지 차 43 이하 (단계 양자화 오차)."""
+
+    UNICODE = "ascii,AC00-AC40,B620,D7A3,4E00,3131,25A1"
+
+    def bake(self, bpp):
+        import subprocess
+        import tempfile
+        out = tempfile.NamedTemporaryFile(suffix=".fnt", delete=False).name
+        try:
+            subprocess.run([sys.executable, mkfont.__file__, NANUM_BOLD, out, "--size", "18",
+                            "--bpp", str(bpp), "--unicode", self.UNICODE], check=True, capture_output=True)
+            with open(out, "rb") as f:
+                return read_svfn(f.read())
+        finally:
+            os.unlink(out)
+
+    def test_2bpp_is_8bpp_within_one_half_level(self):
+        f8, f2 = self.bake(8), self.bake(2)
+        self.assertEqual(f2["bpp"], 2)
+        self.assertEqual(f2["cell"], (18, 18))
+        self.assertEqual(f2["pitch"], 5)
+        self.assertEqual(sorted(f8["glyphs"]), sorted(f2["glyphs"]))
+        worst = 0
+        levels = set()
+        for cp, (m8, rows8) in f8["glyphs"].items():
+            m2, rows2 = f2["glyphs"][cp]
+            self.assertEqual(m8[0], m2[0], hex(cp))     # 같은 advance
+            for r8, r2 in zip(rows8, rows2):
+                for a, b in zip(r8, r2):
+                    worst = max(worst, abs(a - b))
+                    levels.add(b)
+        self.assertLessEqual(worst, 43)
+        self.assertEqual(levels, {0, 85, 170, 255})
+        print(f"\n  2bpp vs 8bpp, {len(f8['glyphs'])} glyphs at 18px: max per-pixel diff {worst}",
+              file=sys.stderr)
+
+
 def _galmuri(name):
     d = os.environ.get("SCUMMVM_TEST_PIXEL_FONT_DIR")
     if not d and os.environ.get("SCUMMVM_TEST_I18N_DATA"):
