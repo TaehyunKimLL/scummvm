@@ -3527,6 +3527,11 @@ EOF
 		append_var DEFINES "-DSYSTEM_NOT_SUPPORTING_D_TYPE"
 		append_var DEFINES "-D_GNU_SOURCE"
 		;;
+	msdosdjgpp)
+		# DJGPP's uint32 is unsigned long, so every %u/%x/%d given one warns
+		# (as on MorphOS); Linux builds still check these.
+		append_var CXXFLAGS "-Wno-format"
+		;;
 	morphos*)
 		if test "$_debug_build" = no; then
 			_optimization_level=-O2
