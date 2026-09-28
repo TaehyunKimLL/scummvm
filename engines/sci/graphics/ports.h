@@ -92,6 +92,14 @@ public:
 	int16 getPointSize();
 
 	void offsetRect(Common::Rect &r);
+	/**
+	 * Where text drawn in the current port may reach, in screen
+	 * coordinates: for a window the area its removal restores (restoreRect
+	 * as bitsSave() saved it), for any other port its rect. C41's glyphs
+	 * that overflow their cell are clipped to it, so that whatever erases
+	 * the port erases them too.
+	 */
+	Common::Rect textClipRect() const;
 	void offsetLine(Common::Point &start, Common::Point &end);
 	void clipLine(Common::Point &start, Common::Point &end);
 

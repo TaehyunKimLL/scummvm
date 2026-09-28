@@ -55,22 +55,53 @@ int16 gameAdvance(const Graphics::GlyphMetrics &m, int gameNarrow, int gameWide,
 }
 
 int16 glyphGameWidth(Graphics::UnicodeGlyphSource *src, uint32 cp, int scale, bool perGlyph) {
+	return glyphGameWidth(src, cp, scale, perGlyph, 0);
+}
+
+int16 glyphGameWidth(Graphics::UnicodeGlyphSource *src, uint32 cp, int scale, bool perGlyph, int cellPx) {
 	if (!src || scale < 1)
 		return 0;
 	const int cells = src->cells(cp);
 	if (cells <= 0)
 		return 0;
+	const int wide = cellPx > 0 ? cellPx : src->advanceWide();
+	const int narrow = cellPx > 0 ? cellPx / 2 : src->advanceNarrow();
 	if (!perGlyph)
-		return (int16)((cells == 2 ? src->advanceWide() : src->advanceNarrow()) / scale);
+		return (int16)((cells == 2 ? wide : narrow) / scale);
 	// The cell rule needs no per-glyph metrics (the common case, asked per
 	// character).
 	if (cells == 2 && !Graphics::Unicode::isCombining(cp))
-		return (int16)(src->advanceWide() / scale);
+		return (int16)(wide / scale);
 	Graphics::GlyphMetrics m;
 	if (!src->metrics(cp, m))
 		return 0;
 	m.wide = cells == 2;
-	return gameAdvance(m, src->advanceNarrow() / scale, src->advanceWide() / scale, scale);
+	return gameAdvance(m, narrow / scale, wide / scale, scale);
+}
+
+namespace {
+
+/// Half of @p d, rounded towards negative infinity: -2 -> -1, -1 -> -1.
+int floorHalf(int d) {
+	return d >= 0 ? d / 2 : -((1 - d) / 2);
+}
+
+} // End of anonymous namespace
+
+GlyphPlacement GlyphPlacement::compute(int rasterPx, int cellPx, Align align, int rasterBaseline, int gameBaseline,
+									   int shift) {
+	GlyphPlacement p;
+	if (rasterPx <= 0 || cellPx <= 0)
+		return p;
+	p.rasterPx = rasterPx;
+	p.cellPx = cellPx;
+	p.dx = floorHalf(cellPx - rasterPx);
+	if (align == kAlignGame && rasterBaseline >= 0 && gameBaseline >= 0)
+		p.dy = gameBaseline - rasterBaseline;
+	else
+		p.dy = floorHalf(cellPx - rasterPx);
+	p.dy += shift;
+	return p;
 }
 
 int CombiningAnchor::place(const Graphics::GlyphMetrics &m, bool placed, int16 left, int16 top, int gameAdvance) {

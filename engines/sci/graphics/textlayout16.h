@@ -70,6 +70,100 @@ int16 gameAdvance(const Graphics::GlyphMetrics &m, int gameNarrow, int gameWide,
 int16 glyphGameWidth(Graphics::UnicodeGlyphSource *src, uint32 cp, int scale, bool perGlyph);
 
 /**
+ * As above, with the cell rule taken from a layout cell of @p cellPx hi-res
+ * px instead of the source's own cell (GlyphPlacement: a face rasterised at
+ * another size than the cell it is laid out in). A wide glyph advances
+ * cellPx, a narrow one without a face advance cellPx / 2; a glyph with a
+ * face advance keeps it. @p cellPx 0 is the overload above.
+ */
+int16 glyphGameWidth(Graphics::UnicodeGlyphSource *src, uint32 cp, int scale, bool perGlyph, int cellPx);
+
+/**
+ * How a TrueType face drawn on the SCI hi-res plane sits in the text line
+ * (C41, hires_text.map [font.N] size= / cell= / align= / baseline=).
+ *
+ * The face is rasterised in a cell of rasterPx (size=) and laid out in a
+ * cell of cellPx (cell=game: the engine's 16, whatever size= is; cell=glyph:
+ * size= itself, the behaviour before C41): a wide glyph advances cellPx, the
+ * line height stays the game font's. The raster cell is drawn offsetX(wide)
+ * and offsetY() hi-res px from the layout cell's top left; a glyph that
+ * does not fit the layout cell draws over its neighbours rather than being
+ * clipped.
+ */
+struct GlyphPlacement {
+	/// align=: what the face's vertical position is taken from.
+	enum Align {
+		/// The face's baseline on the game font's baseline (the default):
+		/// every glyph of the face - Hangul, Latin, digits, punctuation -
+		/// on the row the game's own letters stand on.
+		kAlignGame = 0,
+		/// The raster cell centred on the layout cell: the probe fit's
+		/// placement, as before C41.
+		kAlignCell
+	};
+
+	GlyphPlacement() : rasterPx(0), cellPx(0), dx(0), dy(0) {}
+
+	int rasterPx;  ///< the face's own cell, hi-res px (0: no placement, draw as the source says)
+	int cellPx;    ///< the layout cell, hi-res px
+	int dx;        ///< where a wide glyph's raster cell starts, from the layout cell's left
+	int dy;        ///< where the raster cell's top row goes, from the line top
+
+	/** Changes anything at all: without, glyphs are measured and drawn by the source's own cell. */
+	bool active() const { return rasterPx > 0 && cellPx > 0 && (rasterPx != cellPx || dx != 0 || dy != 0); }
+	int offsetX(bool wide) const { return wide ? dx : 0; }
+	int offsetY() const { return dy; }
+
+	/**
+	 * The placement of a face rasterised at @p rasterPx in a cell of
+	 * @p cellPx:
+	 * - horizontally, a wide glyph's raster cell is centred on its layout
+	 *   cell (half the difference, rounded down); narrow glyphs start at
+	 *   the pen, as they always did;
+	 * - vertically, with kAlignGame and both baselines known
+	 *   (@p rasterBaseline: the face's baseline row in its raster cell,
+	 *   TtfGlyphSource::baseline(); @p gameBaseline: the game font's
+	 *   baseline row below the line top, both in hi-res px, -1 unknown),
+	 *   the face's baseline on the game's; otherwise the raster cell
+	 *   centred on the layout cell. Then @p shift (baseline=, hi-res px,
+	 *   positive down) is added.
+	 * Pure.
+	 */
+	static GlyphPlacement compute(int rasterPx, int cellPx, Align align, int rasterBaseline, int gameBaseline,
+								  int shift);
+};
+
+/**
+ * The baseline row of a bitmap font, below its line top in its own px: the
+ * row under the lowest ink of the capitals and digits it has ("HIEXZ0"),
+ * the most common such row (a font whose '0' dips a row still reports its
+ * capitals' row). @p inkBottom(ch) returns the row under ch's lowest ink,
+ * -1 when ch has no glyph or no ink. -1 when none of them has ink. Pure.
+ */
+template<typename InkBottom>
+int bitmapFontBaseline(InkBottom inkBottom) {
+	static const char kProbes[] = "HIEXZ0";
+	int rows[sizeof(kProbes)];
+	int n = 0;
+	for (const char *c = kProbes; *c; c++) {
+		const int b = inkBottom((uint32)(byte)*c);
+		if (b > 0)
+			rows[n++] = b;
+	}
+	int best = -1, bestCount = 0;
+	for (int i = 0; i < n; i++) {
+		int count = 0;
+		for (int j = 0; j < n; j++)
+			count += rows[j] == rows[i];
+		if (count > bestCount || (count == bestCount && rows[i] < best)) {
+			best = rows[i];
+			bestCount = count;
+		}
+	}
+	return best;
+}
+
+/**
  * Where GfxFontUnicode draws a glyph on the hi-res plane (design section
  * 4.2): originX hi-res px left of the pen, and a combining mark against the
  * pen the previous base left, in hi-res px, when the mark is drawn where

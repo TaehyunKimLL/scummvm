@@ -56,8 +56,9 @@ public:
 	const TextPixel *row(uint16 y) const { return &_pixels[(uint32)y * _width]; }
 
 	/** Coverage 0 leaves a pixel alone; any other value sets fg index and
-	 *  coverage. Clipped to the layer. */
-	void putGlyph(int16 hx, int16 hy, const byte *coverage, int16 w, int16 h, byte fgIndex);
+	 *  coverage. Clipped to the layer, and to @p clip (hi-res) when given. */
+	void putGlyph(int16 hx, int16 hy, const byte *coverage, int16 w, int16 h, byte fgIndex,
+				  const Common::Rect *clip = nullptr);
 
 	void clear();
 	void clearLowresRect(const Common::Rect &lowres);

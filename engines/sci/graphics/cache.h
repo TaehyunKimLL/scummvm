@@ -146,7 +146,15 @@ private:
 	 * with the same chain and owned here. nullptr when no face opens;
 	 * @p chainName receives the faces that did, comma-separated.
 	 */
-	Graphics::UnicodeGlyphSource *faceChainFor(const FontSettings &s, Common::String &chainName);
+	Graphics::UnicodeGlyphSource *faceChainFor(const FontSettings &s, Common::String &chainName,
+											   Graphics::TtfGlyphSource **firstFace = nullptr);
+
+	/**
+	 * The baseline of font resource @p fontId in hi-res px below its line
+	 * top (bitmapFontBaseline() times the hi-res scale), measured once;
+	 * -1 when the game has no such font or it has none of the probes.
+	 */
+	int gameFontBaseline(GuiResourceId fontId);
 
 	/** 64 code points of g_sci->translationCodePoints() (Graphics::CodePointSet::sample()). */
 	const Common::Array<uint32> &translationSample();
@@ -203,6 +211,7 @@ private:
 	Common::HashMap<Common::String, Graphics::TtfGlyphSource *> _ttfSources;
 	/// Unicode bundles built on those sources, by their faces and routing.
 	Common::HashMap<Common::String, GfxFontUnicode *> _ttfBundles;
+	Common::HashMap<int, int> _gameBaselines;  ///< gameFontBaseline(), by font id
 	/// The .uni bundle.
 	GfxFontUnicode *_uniBundle;
 	bool _uniBundleTried;
