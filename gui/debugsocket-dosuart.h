@@ -27,16 +27,22 @@
 namespace GUI {
 
 /**
- * A 16550 UART polled from the game loop, the DOS transport of the debug
- * socket. No interrupts: the receive FIFO holds 16 bytes and is drained
- * once a frame, so the host paces what it sends (2 ms a byte).
+ * A 16550 UART, the DOS transport of the debug socket. Received bytes are
+ * taken by an IRQ handler into a ring buffer: polled from the game loop,
+ * the 16-byte receive FIFO overran whenever a frame took longer than the
+ * host needed to send 16 bytes, and a command lost a character (measured
+ * under DOSBox-X in LB1's opening room: "wait room == 414" timed out with
+ * room 414, the LSR reporting overruns). Transmit stays polled.
  */
 class DosUart {
 public:
-	DosUart() : _base(0) {}
+	DosUart() : _base(0), _irq(0) {}
+	~DosUart() { close(); }
 
 	/** "com1".."com4", optionally ":<baud>" (a divisor of 115200). */
 	bool open(const Common::String &spec);
+	/** Masks the IRQ and gives the vector back. */
+	void close();
 	bool isOpen() const { return _base != 0; }
 	/** Whatever has arrived, up to max bytes; never waits. */
 	int read(char *buf, int max);
@@ -45,6 +51,7 @@ public:
 
 private:
 	uint16 _base;
+	int _irq;
 };
 
 } // End of namespace GUI
