@@ -105,6 +105,35 @@ public:
 		TS_ASSERT(cfg.alphaFromMap);
 	}
 
+	/// [hires] missing=: the code point drawn for a character no font has.
+	void test_hires_missing() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(parse("", cfg));
+		TS_ASSERT_EQUALS(cfg.missing, 0u);
+		TS_ASSERT(!cfg.missingFromMap);
+
+		TS_ASSERT(parse("[hires]\nmissing=u+25a1\n", cfg));
+		TS_ASSERT_EQUALS(cfg.missing, 0x25A1u);
+		TS_ASSERT(cfg.missingFromMap);
+		TS_ASSERT_EQUALS(cfg.mapWarnings.size(), 0u);
+
+		Graphics::HiResTextConfig upper;
+		TS_ASSERT(parse("[hires]\nmissing=U+25A1\n", upper));
+		TS_ASSERT_EQUALS(upper.missing, 0x25A1u);
+
+		Graphics::HiResTextConfig hex;
+		TS_ASSERT(parse("[hires]\nmissing=0x25a1\n", hex));
+		TS_ASSERT_EQUALS(hex.missing, 0x25A1u);
+
+		Graphics::HiResTextConfig bad;
+		TS_ASSERT(parse("[hires]\nmissing=zz\n", bad));
+		TS_ASSERT_EQUALS(bad.missing, 0u);
+		TS_ASSERT(!bad.missingFromMap);
+		TS_ASSERT_EQUALS(bad.mapWarnings.size(), 1u);
+		if (bad.mapWarnings.size() == 1)
+			TS_ASSERT(bad.mapWarnings[0].contains("zz"));
+	}
+
 	void test_scale_out_of_range_is_rejected() {
 		Graphics::HiResTextConfig cfg;
 
