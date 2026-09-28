@@ -43,6 +43,7 @@
 #include "backends/saves/default/default-saves.h"
 #include "backends/timer/default/default-timer.h"
 #include "backends/events/default/default-events.h"
+#include "backends/events/dos/dos-events.h"
 #include "backends/mixer/null/null-mixer.h"
 #include "backends/graphics/dos/dos-graphics.h"
 #include "common/fs.h"
@@ -51,11 +52,12 @@
 // ScummVM's call depth is far past DJGPP's 256 KB default stack.
 unsigned _stklen = 1024 * 1024;
 
-OSystem_DOS::OSystem_DOS() : _eventSource(this) {
+OSystem_DOS::OSystem_DOS() : _eventSource(nullptr) {
 	_fsFactory = new POSIXFilesystemFactory();
 }
 
 OSystem_DOS::~OSystem_DOS() {
+	delete _eventSource;
 }
 
 void OSystem_DOS::initBackend() {
@@ -63,10 +65,12 @@ void OSystem_DOS::initBackend() {
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
 		error("SDL_Init: %s", SDL_GetError());
 
+	DosGraphicsManager *gfx = new DosGraphicsManager();
+	_graphicsManager = gfx;
+	_eventSource = new DosEventSource(gfx);
 	_timerManager = new DefaultTimerManager();
-	_eventManager = new DefaultEventManager(_eventSource);
+	_eventManager = new DefaultEventManager(this);
 	_savefileManager = new DefaultSaveFileManager("SAVES");
-	_graphicsManager = new DosGraphicsManager();
 	_mixerManager = new NullMixerManager();
 	_mixerManager->init();
 
@@ -76,7 +80,7 @@ void OSystem_DOS::initBackend() {
 bool OSystem_DOS::pollEvent(Common::Event &event) {
 	((DefaultTimerManager *)getTimerManager())->checkTimers();
 	((NullMixerManager *)_mixerManager)->update(1);
-	return false;
+	return _eventSource->pollEvent(event);
 }
 
 Common::MutexInternal *OSystem_DOS::createMutex() {

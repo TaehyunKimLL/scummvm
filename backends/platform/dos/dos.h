@@ -50,7 +50,7 @@ public:
 	void addSysArchivesToSearchSet(Common::SearchSet &s, int priority) override;
 
 private:
-	Common::EventSource *_eventSource;	///< this until Task 7, then a DosEventSource
+	Common::EventSource *_eventSource;	///< a DosEventSource; OSystem_DOS::pollEvent() runs the timers first
 };
 
 #endif
