@@ -93,6 +93,14 @@ public:
 						const Graphics::PixelFormat *format, const byte *mask, frac_t scaleX, frac_t scaleY) override;
 	void setCursorPalette(const byte *colors, uint start, uint num) override;
 
+	/**
+	 * The window surface as it was last sent, cursor included: raw rows
+	 * (pitch w * bytes per pixel) at SHOTnnnn.RAW, "w h bits format" at
+	 * SHOTnnnn.TXT (as the debug socket's dump writes it), the palette at
+	 * SHOTnnnn.PAL when it is CLUT8; nnnn counts from 0000 in this run.
+	 */
+	void saveScreenshot() override;
+
 private:
 	void addDirty(const Common::Rect &r);
 	bool setMode(int index, bool lineRepeat);
@@ -101,9 +109,11 @@ private:
 
 	Common::Array<DOS::VideoMode> _modes;
 	Common::Array<SDL_DisplayMode> _sdlModes;	///< SDL3's own copy of _modes[i], as SDL_SetWindowFullscreenMode() takes it
+	int _modeIndex;	///< the entry of _modes that is set, or -1
 	bool _lineRepeat;	///< 640x400 game in a 640x480 mode (line-repeat.h)
 	bool _vsync;	///< dos_vsync=wait: send in the vertical retrace
 	uint _formatsW, _formatsH;	///< the size getSupportedFormats() answers for
+	uint _shotCount;
 
 	SDL_Window *_window;
 	int _screenChangeID;
