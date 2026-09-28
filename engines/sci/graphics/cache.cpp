@@ -925,12 +925,13 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 	// The legacy double-byte faces, when the game ships their font file.
 	// GfxFontKorean and GfxFontSjis call error() on a missing file, so
 	// existence is checked rather than assumed.
-	// A face the hi-res settings name (hires_text_font, a map's face=) is
-	// what the player asked to draw the text with: it goes before the
-	// legacy double-byte face, which then only draws what the face lacks.
-	// Without one, the legacy face keeps drawing its range, and the .uni
-	// fonts stand last as before.
-	const bool namedFace = uni && !settings.facePath.empty();
+	// In a Korean game, when a hi-res face is in effect (a map's face= or
+	// hires_text_font), that face is what the player asked to draw the text
+	// with: it goes before korean.fnt, which then only draws what the face
+	// lacks. Without one, korean.fnt keeps drawing the Hangul syllables and
+	// the .uni fonts stand last as before. Japanese games keep the legacy
+	// SJIS face first.
+	const bool namedFace = uni && !settings.facePath.empty() && g_sci->usesKoreanText();
 	if (namedFace)
 		set->addFace(uni, GfxFontSet::kFaceCodePoint, false, true);
 

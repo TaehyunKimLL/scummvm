@@ -146,10 +146,15 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 		// 11184 of them, exactly the hangul syllable block, so that block is
 		// its real coverage and nothing else.
 		//
-		// Known limitation (hires_text_latin): faces are asked in order and
-		// the legacy face comes before the Unicode one, so when a Shift-JIS
-		// face is present its U+FF00..U+FFEF coverage catches the fullwidth
-		// Latin that hires_text_latin=fullwidth produces, and
+		// Faces are asked in order. The legacy face comes before the Unicode
+		// one, except in a Korean game while a hi-res face is in effect (a
+		// map's face= or hires_text_font): GfxCache::createFontSet() then
+		// puts that face before korean.fnt, which draws only what it lacks.
+		//
+		// Known limitation (hires_text_latin): with the legacy face before
+		// the Unicode one, when a Shift-JIS face is present its
+		// U+FF00..U+FFEF coverage catches the fullwidth Latin that
+		// hires_text_latin=fullwidth produces, and
 		// hires_text_latin_font is never consulted for it. korean.fnt only
 		// covers Hangul syllables, so Korean games are unaffected.
 		if (!legacyCovers(codePoint))
