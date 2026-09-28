@@ -7424,7 +7424,7 @@ define_in_config_if_yes $_taskbar 'USE_TASKBAR'
 echo_n "Building the debug socket... "
 if test "$_debug_socket" = auto; then
 	case $_host_os in
-	darwin* | linux* | *bsd* | dragonfly* | solaris* | haiku* | mingw* | cygwin*)
+	darwin* | linux* | *bsd* | dragonfly* | solaris* | haiku* | mingw* | cygwin* | msdosdjgpp)
 		_debug_socket=yes
 		;;
 	*)
