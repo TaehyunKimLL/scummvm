@@ -123,6 +123,9 @@ public:
  *   dump <path>          the screen as g_system->lockScreen() has it: raw
  *                        rows at <path>, "w h bpp format" at <path>.txt,
  *                        the palette at <path>.pal when it is CLUT8
+ *   shot                 g_system->saveScreenshot(): the frame as the
+ *                        backend shows it, wherever it saves screenshots
+ *                        (DOS: SHOTnnnn.RAW/.TXT/.PAL in the current dir)
  *   save <slot>, load <slot>
  *                        Engine::saveGameState()/loadGameState(), run at the
  *                        next event poll (never inside the screen update
