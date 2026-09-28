@@ -399,6 +399,19 @@ Graphics::UnicodeGlyphSource *GfxCache::singleFace(const Common::String &path, i
 	return src;
 }
 
+void GfxCache::applyMissing(GfxFontUnicode *f, const Common::String &name) {
+	if (!_hiresApplies || !_hiresMapLoaded || !_hiresMap.missing)
+		return;
+	f->setMissing(_hiresMap.missing);
+	// A set has one Unicode face (this one), so without the box glyph here
+	// missing= draws nothing: said once, for the map's author.
+	if (f->source() && f->source()->cells(_hiresMap.missing) <= 0 && !_missingNoBoxWarned) {
+		_missingNoBoxWarned = true;
+		warning("hires_text.map: missing=U+%04X has no effect: %s has no glyph for it",
+				_hiresMap.missing, name.c_str());
+	}
+}
+
 GfxFontUnicode *GfxCache::loadUniBundle() {
 	if (!_uniBundleTried) {
 		_uniBundleTried = true;
@@ -414,8 +427,7 @@ GfxFontUnicode *GfxCache::loadUniBundle() {
 			// [hires] missing=: the box for what no font has. Chained
 			// behind a face, the bundle is read by its own glyphs
 			// (source()), never by the box.
-			if (_hiresApplies && _hiresMapLoaded && _hiresMap.missing)
-				f->setMissing(_hiresMap.missing);
+			applyMissing(f, "the .uni fonts");
 			_uniBundle = f;
 		} else {
 			delete f;
@@ -574,8 +586,7 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	}
 	// [hires] missing=: the box GfxFontSet draws once every face - this
 	// one, the game's own CJK font - has declined a character.
-	if (_hiresApplies && _hiresMapLoaded && _hiresMap.missing)
-		f->setMissing(_hiresMap.missing);
+	applyMissing(f, mainPath);
 	_ttfBundles[key] = f;
 	return f;
 }
@@ -929,6 +940,7 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 			  settings.metrics == Graphics::kHiResMetricsFont ? "font" : "game");
 
 	GfxFontSet *set = new GfxFontSet(fontId, g_sci->getSciLanguageCodePage(), settings);
+	set->setUtf8Text(g_sci->heapStringsAreUtf8());
 	set->addFace(new GfxFontFromResource(_resMan, _screen, fontId), GfxFontSet::kFaceResource);
 
 	// The legacy double-byte faces, when the game ships their font file.

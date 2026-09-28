@@ -121,6 +121,15 @@ public:
 
 	bool isEmpty() const { return _faces.empty(); }
 
+	/**
+	 * The game's strings are UTF-8 (a translation), so every character
+	 * faceFor() is given is a code point. Otherwise a value up to 0xFF is
+	 * a byte of the game's code page and an undecodable double-byte pair
+	 * is passed as lead | trail << 8 (GfxText16::readChar()): neither is a
+	 * code point, and neither is drawn as the missing= box.
+	 */
+	void setUtf8Text(bool utf8) { _utf8Text = utf8; }
+
 	/** The settings this font id was built with. */
 	const FontSettings &settings() const { return _settings; }
 	LatinMode latinMode() const { return _settings.latin; }
@@ -176,11 +185,18 @@ private:
 	/** Whether the legacy double-byte face for this code page covers @p cp. */
 	bool legacyCovers(uint32 codePoint) const;
 
+	/** Whether @p b starts a double-byte character in this code page. */
+	bool isLeadByte(byte b) const;
+
+	/** Whether @p chr is a code point rather than a byte or an undecodable pair (see setUtf8Text()). */
+	bool isCodePoint(uint32 chr) const;
+
 	Common::Array<Face> _faces;
 	GuiResourceId _resourceId;
 	Common::CodePage _codePage;
 	FontSettings _settings;
 	LatinMode _latinMode; ///< _settings.latin, read per character
+	bool _utf8Text = false; ///< setUtf8Text()
 };
 
 } // End of namespace Sci
