@@ -90,7 +90,16 @@ configure                *-msdosdjgpp 호스트
   PCI 에서 약 8ms 로 추정한다.
 - CLUT8 에서는 팔레트를 서피스 팔레트로 넘기고 SDL 이 VGA DAC 를 쓴다.
   트루컬러 모드의 팔레트 페이드는 SCI 드라이버가 전체를 다시 합성하므로 백엔드는 하는 일이 없다.
-- vsync 는 기본 끔, 설정으로 켠다.
+- SDL3 direct-FB 는 VESA 뱅크 창이 있으면 뱅크 `dosmemput` 을 고르고, 640×400 처럼 창 하나를 넘는 모드에서는
+  넘겨받은 사각형만 보낸다 (`SDL_dosframebuffer.c` 의 multibank 경로, 코드로 확인). 이 경로는 페이지 플리핑이 없다.
+- 설정 `dos_vsync=off|wait|flip`:
+  - `off` (기본): 바로 보낸다. 찢어짐을 받아들인다. SCI0 은 화면 변화가 작다.
+  - `wait` (M2): 포트 0x3DA 로 수직 귀선을 기다린 뒤 dirty rect 를 보낸다. 백엔드만으로 된다.
+  - `flip` (M4 실기 측정 뒤, 필요할 때): VBE `4F07h` 페이지 플리핑. SDL 에 "뱅크 대신 LFB 를 쓴다" 힌트를
+    더하는 작은 패치가 필요하다 (SDL 본가에 보낸다). 뒤 페이지에는 두 프레임 전 화면이 있으므로 백엔드가
+    최근 두 프레임의 dirty rect 를 합쳐 넘긴다. VRAM 은 640×400 16bpp 기준 1MB 가 든다.
+- 하드웨어 BitBlt·확대 블릿·오버레이는 VESA 표준에 없다 (VBE/AF, 카드별 2D 엔진, Streams Processor 만).
+  2배 확대와 텍스트 합성은 소프트웨어로 하고, 버스 부담은 dirty rect 와 `TextLayer::rowHasText` 로 줄인다.
 
 ### 3.3 커서
 
@@ -250,7 +259,8 @@ EXE 는 10MB 이하가 목표 (추정). 필요하면 UPX.
 ### M0 스파이크 (구현 전에 확인)
 
 1. IRQ0 1kHz 보호 모드 핸들러가 SDL3 DOS 와 공존하는가, `cli` 뮤텍스가 동작하는가.
-2. direct-FB 모드의 `SDL_UpdateWindowSurfaceRects` 가 부분 영역만 보내는가 (아니면 VRAM 쓰기를 직접 한다).
+2. direct-FB 모드의 `SDL_UpdateWindowSurfaceRects` 가 부분 영역만 보내는가 — 코드로는 예 (3.2). 640×400
+   CLUT8/RGB565 에서 전체·부분 전송 시간을 재서 확인한다.
 3. SCI 전용 ScummVM 코어가 DJGPP GCC 12 로 컴파일·링크되는가, 크기는.
 
 ## 9. 위험
@@ -262,3 +272,5 @@ EXE 는 10MB 이하가 목표 (추정). 필요하면 UPX.
 | Pentium 에서 FreeType 래스터화가 느림 | 기본 배포는 SVFN, FreeType 은 선택 빌드 |
 | 8.3 이름 제약 | 배포 경로 전부 8.3 |
 | 16MB 초과 | 폰트는 2bpp, 엔진은 SCI 만 |
+| VRAM 전송이 병목 (실기) | ① SDL 전송 루프에 FPU 64비트 쓰기 (SDL 본가 패치) ② 선택: 카드별 확대 블릿 (ViRGE 등) |
+| 찢어짐이 눈에 띔 | `dos_vsync=wait`, 그래도 안 되면 `flip` (SDL LFB 힌트 패치). 일부 카드는 LFB 가 뱅크보다 느리므로 실측으로 판단 |
