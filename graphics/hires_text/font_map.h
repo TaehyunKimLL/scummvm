@@ -276,6 +276,10 @@ struct HiResTextConfig {
 	/// Above 100 stems read heavier; 100 (the default) leaves every byte as
 	/// FreeType drew it. Range 50..400.
 	int coverageGamma;
+	/// [hires] missing=: code point drawn for a character no source has
+	/// (u+25a1 draws a box); 0 = off, the character is left out as before.
+	uint32 missing; ///< code point drawn for a character no source has; 0 = off
+	bool missingFromMap;
 
 	// --- source text ----------------------------------------------------
 	/// Code page of the game's own strings. Decoding happens in the engine
