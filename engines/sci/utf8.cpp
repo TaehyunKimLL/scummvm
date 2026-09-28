@@ -67,6 +67,42 @@ uint32 utf8Length(const byte *p) {
 	return n;
 }
 
+int encodeUtf8Char(uint32 cp, byte *out) {
+	if (cp > 0x10FFFF)
+		cp = 0xFFFD;
+	if (cp < 0x80) {
+		out[0] = (byte)cp;
+		return 1;
+	}
+	if (cp < 0x800) {
+		out[0] = (byte)(0xC0 | (cp >> 6));
+		out[1] = (byte)(0x80 | (cp & 0x3F));
+		return 2;
+	}
+	if (cp < 0x10000) {
+		out[0] = (byte)(0xE0 | (cp >> 12));
+		out[1] = (byte)(0x80 | ((cp >> 6) & 0x3F));
+		out[2] = (byte)(0x80 | (cp & 0x3F));
+		return 3;
+	}
+	out[0] = (byte)(0xF0 | (cp >> 18));
+	out[1] = (byte)(0x80 | ((cp >> 12) & 0x3F));
+	out[2] = (byte)(0x80 | ((cp >> 6) & 0x3F));
+	out[3] = (byte)(0x80 | (cp & 0x3F));
+	return 4;
+}
+
+uint32 utf8WriteOffset(const byte *p, uint32 index) {
+	const byte *start = p;
+	int bytes;
+	while (*p && index) {
+		decodeUtf8Char(p, bytes);
+		p += bytes;
+		index--;
+	}
+	return (uint32)(p - start) + index;
+}
+
 uint32 utf8OffsetOf(const byte *p, uint32 index) {
 	const byte *start = p;
 	int bytes;
