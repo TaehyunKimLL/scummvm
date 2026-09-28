@@ -24,6 +24,7 @@
 #include "graphics/hires_text/latin_advance.h"
 
 #include "sci/sci.h"
+#include "sci/utf8.h"
 
 #include "common/textconsole.h"
 #include "common/ustr.h"
@@ -61,13 +62,8 @@ uint32 GfxFontSet::toCodePoint(uint32 chr) const {
 }
 
 uint32 GfxFontSet::toEncodedPair(uint32 codePoint) const {
-	const char32_t cp = (char32_t)codePoint;
-	const Common::U32String one(&cp, 1);
-	const Common::String encoded = one.encode(_codePage);
-	if (encoded.size() != 2)
-		return 0;
 	// Lead byte low, trail byte high - the layout the legacy faces index by.
-	return (byte)encoded[0] | ((uint32)(byte)encoded[1] << 8);
+	return encodeCodePagePair(codePoint, _codePage);
 }
 
 bool GfxFontSet::legacyCovers(uint32 codePoint) const {

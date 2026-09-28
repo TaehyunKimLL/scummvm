@@ -29,6 +29,7 @@
 #include "graphics/hires_text/text_compose.h"
 #include "sci/graphics/textlatin.h"
 #include "sci/sci.h"
+#include "sci/utf8.h"
 
 #include "common/file.h"
 #include "common/textconsole.h"
@@ -221,17 +222,15 @@ uint32 GfxFontUnicodeAdapter::toCodePoint(uint32 packed) const {
 	if (packed < 0x80)
 		return packed;	// ASCII is the same in every code page we handle
 
-	Common::String bytes;
 	if (packed > 0xFF) {
 		// GfxText16 packs the LEAD byte in the low half and the trail byte in
 		// the high half - reversed relative to the encoding - so undo that
 		// here rather than anywhere else.
-		bytes += (char)(packed & 0xFF);
-		bytes += (char)((packed >> 8) & 0xFF);
-	} else {
-		bytes += (char)packed;
+		return decodeCodePagePair(packed & 0xFF, (packed >> 8) & 0xFF, _codePage);
 	}
 
+	Common::String bytes;
+	bytes += (char)packed;
 	const Common::U32String decoded = bytes.decode(_codePage);
 	if (decoded.empty())
 		return 0;
