@@ -26,6 +26,7 @@
 #include <SDL3/SDL.h>
 
 #include "backends/graphics/dos/dos-graphics.h"
+#include "common/debug.h"
 #include "common/textconsole.h"
 
 static Graphics::PixelFormat fromSdl(SDL_PixelFormat f, bool &ok) {
@@ -54,8 +55,11 @@ DosGraphicsManager::DosGraphicsManager() :
 		Graphics::PixelFormat f = fromSdl(m[i]->format, ok);
 		if (!ok)
 			continue;
-		DOS::VideoMode vm = { (uint16)m[i]->w, (uint16)m[i]->h, f, i };
+		DOS::VideoMode vm = { (uint16)m[i]->w, (uint16)m[i]->h, f };
 		_modes.push_back(vm);
+		// A copy is all SDL_SetWindowFullscreenMode() needs; its internal
+		// pointer belongs to the display, which outlives this manager.
+		_sdlModes.push_back(*m[i]);
 	}
 	SDL_free(m);
 	_overlay.create(640, 480, DOS::rgb565());
@@ -80,10 +84,7 @@ void DosGraphicsManager::initSize(uint width, uint height, const Graphics::Pixel
 }
 
 bool DosGraphicsManager::setMode(int index) {
-	int n = 0;
-	SDL_DisplayMode **m = SDL_GetFullscreenDisplayModes(SDL_GetPrimaryDisplay(), &n);
-	const SDL_DisplayMode mode = *m[_modes[index].sdlIndex];
-	SDL_free(m);
+	const SDL_DisplayMode &mode = _sdlModes[index];
 	if (!_window)
 		_window = SDL_CreateWindow("ScummVM", mode.w, mode.h, 0);
 	if (!_window) {
@@ -95,7 +96,20 @@ bool DosGraphicsManager::setMode(int index) {
 		return false;
 	}
 	SDL_SyncWindow(_window);
-	return SDL_GetWindowSurface(_window) != nullptr;
+	// updateScreen() copies rows straight into this surface: it must be
+	// exactly the mode we asked for, or we write past it or in the wrong format.
+	const SDL_Surface *s = SDL_GetWindowSurface(_window);
+	if (!s) {
+		warning("DosGraphicsManager: mode %dx%d: no window surface: %s", mode.w, mode.h, SDL_GetError());
+		return false;
+	}
+	if (s->w != mode.w || s->h != mode.h || s->format != mode.format) {
+		warning("DosGraphicsManager: asked for %dx%d %s, got a %dx%d %s surface", mode.w, mode.h,
+				SDL_GetPixelFormatName(mode.format), s->w, s->h, SDL_GetPixelFormatName(s->format));
+		return false;
+	}
+	debug(1, "DOS: mode %dx%d %s", s->w, s->h, _modes[index].format.toString().c_str());
+	return true;
 }
 
 OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {

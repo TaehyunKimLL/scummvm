@@ -29,11 +29,10 @@
 
 namespace DOS {
 
-/** One VESA mode as SDL3 lists it; sdlIndex is its place in that list. */
+/** One VESA mode as SDL3 lists it. */
 struct VideoMode {
 	uint16 w, h;
 	Graphics::PixelFormat format;
-	int sdlIndex;
 };
 
 inline Graphics::PixelFormat rgb565() { return Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0); }

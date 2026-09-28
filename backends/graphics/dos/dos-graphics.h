@@ -30,6 +30,7 @@
 #include "graphics/surface.h"
 
 struct SDL_Window;
+struct SDL_DisplayMode;
 
 /**
  * The game screen in system RAM, copied to SDL3's window surface one dirty
@@ -93,6 +94,7 @@ private:
 	bool setMode(int index);
 
 	Common::Array<DOS::VideoMode> _modes;
+	Common::Array<SDL_DisplayMode> _sdlModes;	///< SDL3's own copy of _modes[i], as SDL_SetWindowFullscreenMode() takes it
 	SDL_Window *_window;
 	int _screenChangeID;
 
