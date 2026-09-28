@@ -489,7 +489,7 @@ MODULE_OBJS += \
 	fs/n64/romfsstream.o
 endif
 
-ifeq ($(BACKEND),null)
+ifneq ($(filter null dos,$(BACKEND)),)
 MODULE_OBJS += \
 	mixer/null/null-mixer.o
 endif
@@ -552,9 +552,9 @@ endif
 ifdef ENABLE_EVENTRECORDER
 MODULE_OBJS += \
 	saves/recorder/recorder-saves.o
-# SDL and null backend already add null-mixer
+# SDL, null and dos backends already add null-mixer
 ifndef SDL_BACKEND
-ifneq ($(BACKEND),null)
+ifeq ($(filter null dos,$(BACKEND)),)
 MODULE_OBJS += \
 	mixer/null/null-mixer.o
 endif
