@@ -38,14 +38,17 @@ MissingGlyphSource::~MissingGlyphSource() {
 int MissingGlyphSource::boxCells(uint32 cp) {
 	if (_inner->cells(cp) > 0)
 		return 0;
-	// With no box glyph there is nothing to draw a wide box with; a narrow
-	// one alone would make the two widths disagree, so neither is drawn.
+	// missing= names the box by a glyph inner has; without it nothing is
+	// substituted.
 	if (!_boxCp || cp == _boxCp || _inner->cells(_boxCp) <= 0)
 		return 0;
 	if (!_substituted.contains(cp)) {
 		_substituted[cp] = true;
 		warning("HiResText: U+%04X has no glyph; drawing U+%04X", cp, _boxCp);
 	}
+	// A code point inner does not have has no metrics to size it by, so it
+	// takes its Unicode width - what every source gives a glyph it cannot
+	// measure. The box then fills that slot (see row()).
 	return Unicode::isWide(cp) ? 2 : 1;
 }
 
@@ -58,7 +61,12 @@ const byte *MissingGlyphSource::row(uint32 cp, int y) {
 	const int box = boxCells(cp);
 	if (!box)
 		return _inner->row(cp, y);
-	if (box == 2)
+	// The box glyph is used only in a slot of the size inner gives it
+	// (an SVFN font sizes it by its advance, a face by its Unicode width -
+	// U+25A1 is East Asian Ambiguous), so it never spills into the next
+	// character or leaves half its slot blank; a slot of the other width
+	// gets a drawn outline.
+	if (_inner->cells(_boxCp) == box)
 		return _inner->row(_boxCp, y);
 
 	const int h = cellHeight();
@@ -67,16 +75,17 @@ const byte *MissingGlyphSource::row(uint32 cp, int y) {
 	const int bpp = bitsPerPixel();
 	// A row is cellWidth() * 2 pixels at inner's depth.
 	const uint rowBytes = ((uint)cellWidth() * 2 * bpp + 7) / 8;
-	if (_narrowBox.empty()) {
-		// A 1 px outline in the narrow half cell (cellWidth() / 2 columns),
-		// one pixel in from every edge: rows 1 and h - 2 across, the rows
-		// between only at the two ends.
-		_narrowBox.resize(rowBytes * h, 0);
-		const int w = cellWidth() / 2;
+	Common::Array<byte> &drawn = _drawnBox[box - 1];
+	if (drawn.empty()) {
+		// A 1 px outline in the box's cells (cellWidth() / 2 columns a
+		// cell), one pixel in from every edge: rows 1 and h - 2 across, the
+		// rows between only at the two ends.
+		drawn.resize(rowBytes * h, 0);
+		const int w = box * cellWidth() / 2;
 		const int left = 1, right = w - 2, top = 1, bottom = h - 2;
 		const byte full = (byte)((1 << bpp) - 1);
 		for (int yy = top; yy <= bottom && left <= right; yy++) {
-			byte *r = &_narrowBox[yy * rowBytes];
+			byte *r = &drawn[yy * rowBytes];
 			for (int x = left; x <= right; x++) {
 				if (yy != top && yy != bottom && x != left && x != right)
 					continue;
@@ -86,7 +95,7 @@ const byte *MissingGlyphSource::row(uint32 cp, int y) {
 			}
 		}
 	}
-	return &_narrowBox[y * rowBytes];
+	return &drawn[y * rowBytes];
 }
 
 int MissingGlyphSource::advance(uint32 cp) {
