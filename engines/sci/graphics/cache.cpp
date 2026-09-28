@@ -58,6 +58,18 @@ namespace {
 const int kHiresTextFontMinSize = 8;
 const int kHiresTextFontMaxSize = 64;
 
+// Whether a font id names a FONT resource, as GfxFontFromResource resolves
+// it: lsl1sci mixes its own font ids (extra high bits, e.g. 2107) with the
+// global ones, and the resource loader strips those bits (& 0x7ff, see
+// scifont.cpp). Asked with the raw id, such a font looked like a legacy CJK
+// id with no resource, got the code-page adapter instead of a set, and
+// UTF-8 text in it was drawn as code-page pairs (Korean) or as the low byte
+// of each code point (any other language).
+bool fontResourceExists(ResourceManager *resMan, GuiResourceId fontId) {
+	return resMan->testResource(ResourceId(kResourceTypeFont, fontId)) ||
+		resMan->testResource(ResourceId(kResourceTypeFont, fontId & 0x7ff));
+}
+
 } // End of anonymous namespace
 
 GfxCache::GfxCache(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palette)
@@ -689,7 +701,7 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 	// followed by whatever else can cover characters it cannot. Order is the
 	// contract - the game's own face is first, so single-byte text is drawn
 	// by the glyphs the game shipped and keeps its metrics.
-	const bool haveResource = _resMan->testResource(ResourceId(kResourceTypeFont, fontId));
+	const bool haveResource = fontResourceExists(_resMan, fontId);
 	if (!haveResource)
 		return nullptr;
 
@@ -765,7 +777,7 @@ GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
 	else if (fontId == 900 && g_sci->getLanguage() == Common::JA_JPN &&
 			 Common::File::exists(Common::Path("SJIS.FNT")))
 		fallback = new GfxFontSjis(_screen, fontId);
-	else if (_resMan->testResource(ResourceId(kResourceTypeFont, fontId)))
+	else if (fontResourceExists(_resMan, fontId))
 		fallback = new GfxFontFromResource(_resMan, _screen, fontId);
 	// No fallback at all when the id names no resource. GfxText16 switches to
 	// the legacy CJK font id (1001/900) to get double-byte glyphs, and most
