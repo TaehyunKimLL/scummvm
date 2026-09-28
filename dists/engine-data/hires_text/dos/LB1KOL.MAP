@@ -1,4 +1,4 @@
-; DOS L preset: Leisure Suit Larry 1, Korean EUC-KR patch.
+; DOS L preset: Laura Bow 1 (The Colonel's Bequest), Korean EUC-KR patch.
 ; KO2350.SVF (16 px, 1 bpp) beside this file; characters it lacks draw U+25A1.
 [hires]
 scale=2
