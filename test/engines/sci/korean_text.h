@@ -21,6 +21,7 @@
 
 #include <cxxtest/TestSuite.h>
 
+#include "sci/textencoding.h"
 #include "sci/utf8.h"
 
 /**
@@ -79,5 +80,52 @@ public:
 		TS_ASSERT(!Sci::koreanBankAndSlot(0x41B0, 500, bank, slot));
 		// No banks at all.
 		TS_ASSERT(!Sci::koreanBankAndSlot(0xA1B0, -1, bank, slot));
+	}
+
+	// --- text_encoding= ---------------------------------------------------
+
+	void test_parse_text_encoding() {
+		bool known = false;
+		TS_ASSERT_EQUALS(Sci::parseTextEncoding("", known), Sci::kTextEncodingAuto);
+		TS_ASSERT(known);
+		TS_ASSERT_EQUALS(Sci::parseTextEncoding("auto", known), Sci::kTextEncodingAuto);
+		TS_ASSERT_EQUALS(Sci::parseTextEncoding("euc-kr", known), Sci::kTextEncodingEucKr);
+		TS_ASSERT_EQUALS(Sci::parseTextEncoding("CP949", known), Sci::kTextEncodingEucKr);
+		TS_ASSERT_EQUALS(Sci::parseTextEncoding("utf8", known), Sci::kTextEncodingUtf8);
+		TS_ASSERT_EQUALS(Sci::parseTextEncoding("UTF-8", known), Sci::kTextEncodingUtf8);
+		TS_ASSERT_EQUALS(Sci::parseTextEncoding("ascii", known), Sci::kTextEncodingAscii);
+		TS_ASSERT(known);
+		TS_ASSERT_EQUALS(Sci::parseTextEncoding("klingon", known), Sci::kTextEncodingAuto);
+		TS_ASSERT(!known);
+	}
+
+	void test_auto_is_todays_behaviour() {
+		// The code page is the language's, the heap question is detection's,
+		// the Korean path is KO_KOR's - each untouched.
+		TS_ASSERT_EQUALS(Sci::textEncodingCodePage(Sci::kTextEncodingAuto, Common::kWindows949), Common::kWindows949);
+		TS_ASSERT_EQUALS(Sci::textEncodingCodePage(Sci::kTextEncodingAuto, Common::kLatin1), Common::kLatin1);
+		TS_ASSERT(Sci::textEncodingHeapIsUtf8(Sci::kTextEncodingAuto, true));
+		TS_ASSERT(!Sci::textEncodingHeapIsUtf8(Sci::kTextEncodingAuto, false));
+		TS_ASSERT(Sci::textEncodingKorean(Sci::kTextEncodingAuto, Common::KO_KOR));
+		TS_ASSERT(!Sci::textEncodingKorean(Sci::kTextEncodingAuto, Common::EN_ANY));
+	}
+
+	void test_explicit_key_beats_language_and_detection() {
+		// euc-kr alone: an English-detected game gets the Korean path and CP949.
+		TS_ASSERT_EQUALS(Sci::textEncodingCodePage(Sci::kTextEncodingEucKr, Common::kLatin1), Common::kWindows949);
+		TS_ASSERT(Sci::textEncodingKorean(Sci::kTextEncodingEucKr, Common::EN_ANY));
+		// ... and bytes, even where detection or a manifest said UTF-8.
+		TS_ASSERT(!Sci::textEncodingHeapIsUtf8(Sci::kTextEncodingEucKr, true));
+
+		// utf8: the heap is UTF-8 even with no manifest; the language keeps its code page and Korean path.
+		TS_ASSERT(Sci::textEncodingHeapIsUtf8(Sci::kTextEncodingUtf8, false));
+		TS_ASSERT_EQUALS(Sci::textEncodingCodePage(Sci::kTextEncodingUtf8, Common::kWindows949), Common::kWindows949);
+		TS_ASSERT(Sci::textEncodingKorean(Sci::kTextEncodingUtf8, Common::KO_KOR));
+		TS_ASSERT(!Sci::textEncodingKorean(Sci::kTextEncodingUtf8, Common::EN_ANY));
+
+		// ascii: no double-byte path at all, even with language=ko.
+		TS_ASSERT_EQUALS(Sci::textEncodingCodePage(Sci::kTextEncodingAscii, Common::kWindows949), Common::kLatin1);
+		TS_ASSERT(!Sci::textEncodingKorean(Sci::kTextEncodingAscii, Common::KO_KOR));
+		TS_ASSERT(!Sci::textEncodingHeapIsUtf8(Sci::kTextEncodingAscii, true));
 	}
 };

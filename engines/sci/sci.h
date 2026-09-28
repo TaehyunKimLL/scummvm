@@ -29,6 +29,7 @@
 #include "sci/engine/vm_types.h"	// for Selector
 #include "sci/debug.h"	// for DebugState
 #include "sci/detection.h" // Shared code between detection and engine
+#include "sci/textencoding.h"
 #include "sci/engine/text_overlay.h"
 #include "sci/engine/translation.h"
 #include "graphics/hires_text/coverage.h"
@@ -202,6 +203,25 @@ public:
 	 * boundary instead of at every call site.
 	 */
 	Common::CodePage getSciLanguageCodePage() const;
+
+	/**
+	 * The text_encoding ini key (textencoding.h), read once at start.
+	 * kTextEncodingAuto unless the player set it.
+	 */
+	TextEncodingSetting getTextEncoding() const { return _textEncoding; }
+
+	/**
+	 * Whether the Korean double-byte text path is on: EUC-KR decoding, the
+	 * korean.fnt / font-bank faces, the font 1001 switch and the upscaled
+	 * driver. KO_KOR (language=, detection or the Text.MAP overlay), or
+	 * text_encoding=euc-kr/cp949 on its own; text_encoding=ascii turns it
+	 * off. Every Korean gate in the renderer asks this instead of
+	 * testing getLanguage() == KO_KOR.
+	 */
+	bool usesKoreanText() const;
+
+	/** The code page a language alone implies (the text_encoding=auto answer). */
+	static Common::CodePage languageCodePage(Common::Language language);
 
 	/**
 	 * Does text rendering use hires double-byte glyphs on the text plane?
@@ -494,6 +514,8 @@ private:
 	ScriptStrings _scriptStrings; /**< run-time translations for strings embedded in scripts */
 	/** language= is set and sci-<lang>.str is present: the UTF-8 manifest, decided once at start. */
 	bool _utf8Manifest;
+	/** text_encoding=, parsed once in the constructor. */
+	TextEncodingSetting _textEncoding;
 	Graphics::CodePointSet _translationCodePoints;
 	bool _translationCodePointsCollected;
 	ScriptPatcher *_scriptPatcher; /**< The script patcher */

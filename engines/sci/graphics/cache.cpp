@@ -711,13 +711,12 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 	// The legacy double-byte faces, when the game ships their font file.
 	// GfxFontKorean and GfxFontSjis call error() on a missing file, so
 	// existence is checked rather than assumed.
-	switch (g_sci->getLanguage()) {
-	case Common::KO_KOR:
+	if (g_sci->usesKoreanText()) {
 		if (Common::File::exists(Common::Path("korean.fnt"))) {
 			// GfxFontKorean and GfxFontSjis already halve their own metrics below
 			// SCI2, so they must NOT be marked as hires-plane faces here - doing
 			// so halves twice and the glyphs pile up on top of each other.
-			set->addFace(new GfxFontKorean(_screen, 1001), GfxFontSet::kFaceLegacyDbcs);
+			set->addFace(new GfxFontKorean(_screen, 1001, true), GfxFontSet::kFaceLegacyDbcs);
 		} else if (!uni) {
 			// No korean.fnt and no hi-res face configured: a game that carries
 			// its Hangul as banks of its own FONT resources (Conquests of
@@ -731,13 +730,9 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 				set->addFace(new GfxFontBanked(_resMan, _screen, fontId, bankBase), GfxFontSet::kFaceLegacyDbcs);
 			}
 		}
-		break;
-	case Common::JA_JPN:
+	} else if (g_sci->getLanguage() == Common::JA_JPN) {
 		if (Common::File::exists(Common::Path("SJIS.FNT")))
 			set->addFace(new GfxFontSjis(_screen, 900), GfxFontSet::kFaceLegacyDbcs);
-		break;
-	default:
-		break;
 	}
 
 	// The Unicode face last: it is the widest, and being last means it only
@@ -764,7 +759,7 @@ GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
 	// resource font serves, which is also what keeps single-byte text
 	// identical to the unmodified engine.
 	GfxFont *fallback = nullptr;
-	if (fontId == 1001 && g_sci->getLanguage() == Common::KO_KOR &&
+	if (fontId == 1001 && g_sci->usesKoreanText() &&
 		Common::File::exists(Common::Path("korean.fnt")))
 		fallback = new GfxFontKorean(_screen, fontId);
 	else if (fontId == 900 && g_sci->getLanguage() == Common::JA_JPN &&
@@ -811,7 +806,7 @@ GfxFont *GfxCache::getFont(GuiResourceId fontId) {
 			font = createUnicodeFont(fontId);
 
 		// Create special Korean font in korean games, when font 1001 is selected
-		if (!font && (fontId == 1001) && (g_sci->getLanguage() == Common::KO_KOR))
+		if (!font && (fontId == 1001) && g_sci->usesKoreanText())
 			font = new GfxFontKorean(_screen, fontId);
 		// Create special SJIS font in japanese games, when font 900 is selected
 		if (!font && (fontId == 900) && (g_sci->getLanguage() == Common::JA_JPN))
