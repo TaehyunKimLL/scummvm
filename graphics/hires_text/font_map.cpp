@@ -117,6 +117,8 @@ void HiResTextConfig::clear() {
 	shadowShiftColorSet = false;
 	shadowAlpha = 255;
 	coverageGamma = 100;
+	missing = 0;
+	missingFromMap = false;
 
 	hiresFace.clear();
 	hiresFaceSet = false;
@@ -1204,6 +1206,23 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 			out.alphaFromMap = true;
 		} else {
 			warning("HiResText: invalid alpha '%s', ignoring", value.c_str());
+		}
+	}
+
+	// missing= names the code point drawn for a character no font has -
+	// the face chain, the game's own CJK font, the .uni fonts - instead of
+	// leaving it out. A wide character gets that glyph, a narrow one a box
+	// drawn in the narrow cell. Off unless a map asks for it.
+	//
+	//   [hires]
+	//   missing=u+25a1
+	if (getKey(ini, qualifiers, "hires", "missing", value)) {
+		uint32 cp;
+		if (parseCodeValue(value, cp) && cp) {
+			out.missing = cp;
+			out.missingFromMap = true;
+		} else {
+			mapWarning(out, Common::String::format("invalid missing '%s' (u+25a1), ignoring", value.c_str()));
 		}
 	}
 
