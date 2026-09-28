@@ -21,6 +21,10 @@
 
 #include "sci/utf8.h"
 
+#include "common/str.h"
+#include "common/ustr.h"
+#include "graphics/hires_text/codepage_kr.h"
+
 namespace Sci {
 
 uint32 decodeUtf8Char(const byte *p, int &outBytes) {
@@ -75,6 +79,44 @@ uint32 utf8OffsetOf(const byte *p, uint32 index) {
 		p += bytes;
 	}
 	return (uint32)(p - start);
+}
+
+uint32 decodeCodePagePair(byte lead, byte trail, Common::CodePage codePage) {
+	if (codePage == Common::kWindows949) {
+		const uint32 cp = Graphics::KoreanCodePage::decodeEucKrPair(lead, trail);
+		if (cp)
+			return cp;
+	}
+	const char bytes[3] = { (char)lead, (char)trail, 0 };
+	const Common::U32String decoded = Common::String(bytes, 2).decode(codePage);
+	// One character, and not the replacement character a missing
+	// encoding.dat (or an invalid pair) produces.
+	if (decoded.size() != 1 || decoded[0] == 0xFFFD)
+		return 0;
+	return decoded[0];
+}
+
+uint32 encodeCodePagePair(uint32 codePoint, Common::CodePage codePage) {
+	if (codePage == Common::kWindows949) {
+		const int idx = Graphics::KoreanCodePage::ksx1001HangulIndexOf(codePoint);
+		if (idx >= 0)
+			return (uint32)(0xB0 + idx / 94) | ((uint32)(0xA1 + idx % 94) << 8);
+	}
+	const Common::u32char_type_t c = (Common::u32char_type_t)codePoint;
+	const Common::String encoded = Common::U32String(&c, 1).encode(codePage);
+	if (encoded.size() != 2)
+		return 0;
+	return (byte)encoded[0] | ((uint32)(byte)encoded[1] << 8);
+}
+
+bool koreanBankAndSlot(uint32 packed, int bankBase, int &bank, byte &slot) {
+	const byte lead = packed & 0xFF;
+	const byte trail = (packed >> 8) & 0xFF;
+	if (bankBase < 0 || packed > 0xFFFF || lead < 0xB0 || lead > 0xC8 || trail < 0xA1 || trail > 0xFE)
+		return false;
+	bank = bankBase + lead - 0xB0;
+	slot = trail;
+	return true;
 }
 
 } // End of namespace Sci

@@ -25,6 +25,9 @@
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/fontkorean.h"
 
+#include "sci/utf8.h"
+#include "graphics/korfont.h"
+
 namespace Sci {
 
 GfxFontKorean::GfxFontKorean(GfxScreen *screen, GuiResourceId resourceId)
@@ -62,23 +65,45 @@ byte GfxFontKorean::getHeight() {
 		return _commonFont->getFontHeight() >> 1;
 }
 
+uint16 GfxFontKorean::toFontCode(uint32 chr) {
+	if (chr < 0x80)
+		return (uint16)chr;
+	const uint32 packed = encodeCodePagePair(chr, Common::kWindows949);
+	return packed ? (uint16)packed : (uint16)chr;
+}
+
+bool GfxFontKorean::proportionalLatin() const {
+	const Graphics::FontKoreanSVM *svm = dynamic_cast<const Graphics::FontKoreanSVM *>(_commonFont);
+	return svm && svm->hasProportionalLatin();
+}
+
 byte GfxFontKorean::getCharWidth(uint32 chr) {
+	const uint16 code = toFontCode(chr);
 	if (getSciVersion() >= SCI_VERSION_2)
-		return _commonFont->getCharWidth(chr);
-	else
-		return _commonFont->getCharWidth(chr) >> 1;
+		return _commonFont->getCharWidth(code);
+	// A v4 font's proportional Latin advances are odd as often as even;
+	// rounding up keeps a 7 px glyph from overlapping its neighbour on the
+	// hi-res plane (lowres x is doubled there).
+	if (code < 0x80 && proportionalLatin())
+		return (_commonFont->getCharWidth(code) + 1) >> 1;
+	return _commonFont->getCharWidth(code) >> 1;
 }
 
 void GfxFontKorean::draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) {
 	// TODO: Check, if character fits on screen - if it doesn't we need to skip it
-	_screen->putHangulChar(_commonFont, left & 0xFFC, top, chr, color);
+	// The 4-pixel alignment is the PC-98 SJIS rule this was copied from; it
+	// is harmless with fixed half/full cells. With a v4 font's proportional
+	// Latin it would pull every glyph after a narrow letter back onto the
+	// one before it, so the pen position is kept as is there.
+	const int16 x = proportionalLatin() ? left : (left & 0xFFC);
+	_screen->putHangulChar(_commonFont, x, top, toFontCode(chr), color);
 }
 
 #ifdef ENABLE_SCI32
 void GfxFontKorean::drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 bufWidth, int16 bufHeight) {
 	byte *displayPtr = buffer + top * bufWidth + left;
 	// we don't use outline, so color 0 is actually not used
-	_commonFont->drawChar(displayPtr, chr, bufWidth, 1, color, 0, bufWidth - left, bufHeight - top);
+	_commonFont->drawChar(displayPtr, toFontCode(chr), bufWidth, 1, color, 0, bufWidth - left, bufHeight - top);
 }
 
 #endif

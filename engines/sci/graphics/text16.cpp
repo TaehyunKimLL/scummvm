@@ -1021,11 +1021,11 @@ uint32 GfxText16::readChar(const char *text, int &outBytes) const {
 		// what let the encode step lookupText() once had go away (M11):
 		// UTF-8 text now reaches this function undecoded and takes the
 		// branch above, and only code-page text comes through here.
-		char bytes[3] = { (char)lead, (char)trail, 0 };
-		const Common::U32String decoded =
-			Common::String(bytes, 2).decode(g_sci->getSciLanguageCodePage());
-		if (!decoded.empty())
-			return decoded[0];
+		// decodeCodePagePair() also copes with a missing encoding.dat for
+		// Korean Hangul (sci/utf8.h).
+		const uint32 decoded = decodeCodePagePair(lead, trail, g_sci->getSciLanguageCodePage());
+		if (decoded)
+			return decoded;
 
 		// Undecodable: keep the packed value so the character still advances
 		// and still reaches a font, rather than silently vanishing.

@@ -48,7 +48,22 @@ public:
 	void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 width, int16 height);
 #endif
 
+	/**
+	 * The byte pair korean.fnt is indexed by (lead byte low, trail byte
+	 * high) for a character as GfxText16 hands it over. GfxText16 decodes
+	 * code-page text to code points as it walks (readChar()), so a game
+	 * whose scripts select font 1001 themselves - which gets this font
+	 * directly, not inside a GfxFontSet that re-encodes for it - passes a
+	 * Unicode code point here. Values that are already packed pairs (from a
+	 * GfxFontSet, or undecodable bytes) do not encode to a CP949 pair and
+	 * are returned unchanged, as is ASCII.
+	 */
+	static uint16 toFontCode(uint32 chr);
+
 private:
+	/** True when korean.fnt carries proportional Latin (format v4). */
+	bool proportionalLatin() const;
+
 	GfxScreen *_screen;
 	GuiResourceId _resourceId;
 

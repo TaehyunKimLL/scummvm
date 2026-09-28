@@ -23,6 +23,7 @@
 #define SCI_UTF8_H
 
 #include "common/scummsys.h"
+#include "common/str-enc.h"
 
 namespace Sci {
 
@@ -53,6 +54,36 @@ uint32 utf8Length(const byte *p);
  * string, or the offset of the terminator when @p index is past the end.
  */
 uint32 utf8OffsetOf(const byte *p, uint32 index);
+
+/**
+ * The code point of one double-byte character of a code page (lead byte,
+ * then trail byte), or 0 when the pair does not decode.
+ *
+ * Common::String::decode() needs encoding.dat for every CJK code page, and
+ * without it answers U+FFFD for every pair - measured on Conquests of
+ * Camelot's Korean beta, 44 "font.0 is missing glyph 65533" and empty menu
+ * buttons. For CP949 the KS X 1001 Hangul block (the whole of what the
+ * Korean fan patches write) is therefore decoded from the static table in
+ * graphics/hires_text/codepage_kr.h first, which needs no data file; the
+ * rest of the code page still goes through decode().
+ */
+uint32 decodeCodePagePair(byte lead, byte trail, Common::CodePage codePage);
+
+/**
+ * The inverse: @p codePoint encoded in @p codePage as a packed pair (lead
+ * byte low, trail byte high - the layout the legacy CJK fonts index by), or
+ * 0 when it is not a double-byte character there. The same static-table
+ * shortcut for CP949 Hangul.
+ */
+uint32 encodeCodePagePair(uint32 codePoint, Common::CodePage codePage);
+
+/**
+ * For a game that carries its Hangul as banks of FONT resources, one per
+ * EUC-KR lead byte 0xB0..0xC8 starting at @p bankBase (GfxFontBanked): the
+ * bank resource and glyph slot (the trail byte) of a packed pair. False
+ * outside the Hangul rows, for a bad trail byte, or when bankBase < 0.
+ */
+bool koreanBankAndSlot(uint32 packed, int bankBase, int &bank, byte &slot);
 
 } // End of namespace Sci
 
