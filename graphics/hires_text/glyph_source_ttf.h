@@ -197,6 +197,9 @@ public:
 	 * same baseline. 0 in a build without FreeType.
 	 */
 	int baseline() const;
+	/** baseline(): the row padRows() moved the line top to plus the
+	 *  face's ascent. -1 in a build without FreeType. */
+	int baselineRow() const override;
 
 	/** The size the face was opened at once fitted: pixelSize, unless the
 	 *  vertical fit had to shrink it (a kTTFSizeModeCell size for a

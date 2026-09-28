@@ -13,6 +13,7 @@ MODULE_OBJS := \
 	font.o \
 	fontman.o \
 	hires_text/bitmap_font.o \
+	hires_text/chain_layout.o \
 	hires_text/codepage_kr.o \
 	hires_text/coverage.o \
 	hires_text/font_baker.o \

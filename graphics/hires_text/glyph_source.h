@@ -111,6 +111,14 @@ public:
 		return true;
 	}
 
+	/**
+	 * The cell row the source's baseline falls on (the row just below the
+	 * ink of a capital or a digit), or -1 when the source does not know it
+	 * (the default). A face chain stands bitmap faces of different heights
+	 * on one baseline by it (layoutFaceChain()).
+	 */
+	virtual int baselineRow() const { return -1; }
+
 	/** For logs: glyphs in the file, or glyphs rasterised so far. */
 	virtual uint32 glyphCount() const = 0;
 };

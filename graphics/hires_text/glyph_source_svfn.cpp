@@ -145,4 +145,10 @@ uint32 SvfnGlyphSource::glyphCount() const {
 	return _rowBytes ? (uint32)_font->glyphCount() : 0;
 }
 
+int SvfnGlyphSource::baselineRow() const {
+	if (!_rowBytes || _font->ascent() <= 0)
+		return -1;
+	return MIN<int>(_font->ascent(), _cellHeight);
+}
+
 } // End of namespace Graphics
