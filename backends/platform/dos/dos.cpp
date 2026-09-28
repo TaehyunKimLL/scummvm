@@ -56,7 +56,8 @@ unsigned _stklen = 1024 * 1024;
 // Our own main() does what SDL_RunApp() would, so SDL3's definition of this
 // is not linked. NONMOVE_SBRK keeps the data segment's base fixed as the
 // heap grows (SDL3 keeps near pointers into the framebuffer); LOCK_MEMORY
-// locks code, data and stack at startup, for the interrupt handlers of M3.
+// locks code, data and stack at startup, for the interrupt handlers: the
+// debug socket's COM receive ISR (M1) and M3's timer.
 // main() clears it again, as SDL_RunApp() does, so later malloc()s are not
 // locked.
 int _crt0_startup_flags = _CRT0_FLAG_NONMOVE_SBRK | _CRT0_FLAG_LOCK_MEMORY;
