@@ -761,7 +761,7 @@ GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
 	GfxFont *fallback = nullptr;
 	if (fontId == 1001 && g_sci->usesKoreanText() &&
 		Common::File::exists(Common::Path("korean.fnt")))
-		fallback = new GfxFontKorean(_screen, fontId);
+		fallback = new GfxFontKorean(_screen, fontId, getSciVersion() >= SCI_VERSION_2);
 	else if (fontId == 900 && g_sci->getLanguage() == Common::JA_JPN &&
 			 Common::File::exists(Common::Path("SJIS.FNT")))
 		fallback = new GfxFontSjis(_screen, fontId);
@@ -807,7 +807,8 @@ GfxFont *GfxCache::getFont(GuiResourceId fontId) {
 
 		// Create special Korean font in korean games, when font 1001 is selected
 		if (!font && (fontId == 1001) && g_sci->usesKoreanText())
-			font = new GfxFontKorean(_screen, fontId);
+			// GfxText16 hands a font code points, GfxText32 packed byte pairs.
+			font = new GfxFontKorean(_screen, fontId, getSciVersion() >= SCI_VERSION_2);
 		// Create special SJIS font in japanese games, when font 900 is selected
 		if (!font && (fontId == 900) && (g_sci->getLanguage() == Common::JA_JPN))
 			font = new GfxFontSjis(_screen, fontId);

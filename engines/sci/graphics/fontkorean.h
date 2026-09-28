@@ -40,7 +40,8 @@ public:
 	 *        (GfxFontSet, which re-encodes for its legacy faces); false when
 	 *        it hands over what GfxText16 walks - code points - which is the
 	 *        case for this font used on its own (a script that selects font
-	 *        1001) and as the Unicode adapter's fallback.
+	 *        1001) and as the Unicode adapter's fallback, below SCI2.
+	 *        GfxText32 still walks bytes and packs pairs, so SCI2+ is packed.
 	 */
 	GfxFontKorean(GfxScreen *screen, GuiResourceId resourceId, bool packedInput = false);
 	~GfxFontKorean();
