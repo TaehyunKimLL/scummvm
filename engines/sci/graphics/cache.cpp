@@ -513,9 +513,16 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	Graphics::TtfGlyphSource *latin = nullptr;
 	// Only behind a TrueType main face: a bitmap face's cell and depth are
 	// not the Latin face's, which the router needs them to be.
-	if (firstFace && s.latin != kLatinOff && !s.latinFacePath.empty() && s.latinFacePath != mainPath) {
-		latin = ttfSource(s.latinFacePath, s.size, kProbesDefault, "hires_text_latin_font",
-						  "the main face draws Latin text");
+	if (s.latin != kLatinOff && !s.latinFacePath.empty() && s.latinFacePath != mainPath) {
+		if (firstFace) {
+			latin = ttfSource(s.latinFacePath, s.size, kProbesDefault, "hires_text_latin_font",
+							  "the main face draws Latin text");
+		} else if (!_latinBehindBitmapWarned.contains(fontId)) {
+			warning("hires_text.map: font %d: Latin face '%s' is ignored behind the bitmap font '%s'; "
+					"the main font draws Latin text", fontId, s.latinFacePath.c_str(),
+					mainPath.c_str());
+			_latinBehindBitmapWarned[fontId] = true;
+		}
 	}
 
 	// The set carries what is drawn: no Latin face when the mode is off or
