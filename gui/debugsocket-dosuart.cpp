@@ -86,6 +86,8 @@ static void drainFifo() {
 	}
 }
 
+// The handler does not chain to the previous one: a device sharing the IRQ
+// (a mouse on COM3, IRQ 4) would starve. Fine for a debug transport only.
 static void uartIsr() {
 	// Serve every cause the UART reports, until it reports none: the IRQ
 	// line is edge-triggered at the PIC, so a cause left pending keeps the
@@ -121,6 +123,9 @@ bool DosUart::open(const Common::String &spec) {
 		warning("DebugSocket: %u baud does not divide 115200", (uint)baud);
 		return false;
 	}
+	// A second open() would save our own handler as the one to restore.
+	if (g_openBase)
+		teardown();
 	const uint16 base = kComBase[s[3] - '1'];
 	const int irq = kComIrq[s[3] - '1'];
 	outportb(base + 7, 0x5A);		// scratch register: is there a UART at all?
