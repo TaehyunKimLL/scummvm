@@ -47,19 +47,58 @@ inline int findExactMode(const Common::Array<VideoMode> &modes, uint w, uint h, 
 	return -1;
 }
 
+/** Result of chooseMode(): which entry of @p modes to set, and whether it
+ *  needs the 640x480 line-repeat fallback to show a w x h picture. */
+struct ModeChoice {
+	int index;
+	bool lineRepeat;
+};
+
+/**
+ * Pick the mode to set for a w x h game in format @p f.
+ *
+ * Unless @p forceFallback, an exact w x h match wins. Otherwise (or if
+ * there is none), fall back to a mode of the same width and format whose
+ * height is h * 6 / 5 -- the line-repeat picture size -- but only when
+ * h % 5 == 0 (only then does line-repeat produce a whole number of extra
+ * rows). If neither exists, {-1, false}.
+ */
+inline ModeChoice chooseMode(const Common::Array<VideoMode> &modes, uint w, uint h, const Graphics::PixelFormat &f, bool forceFallback) {
+	if (!forceFallback) {
+		int exact = findExactMode(modes, w, h, f);
+		if (exact >= 0)
+			return ModeChoice{ exact, false };
+	}
+	if (h % 5 == 0) {
+		int fallback = findExactMode(modes, w, h * 6 / 5, f);
+		if (fallback >= 0)
+			return ModeChoice{ fallback, true };
+	}
+	return ModeChoice{ -1, false };
+}
+
 /**
  * What getSupportedFormats() reports for a w x h game: the true-colour
- * formats a mode of exactly that size has, cheapest on the bus first,
- * then CLUT8, which is always there (the engine falls back to it).
+ * formats chooseMode() can set (exactly or via the line-repeat fallback),
+ * cheapest on the bus first, then CLUT8, which is always there (the
+ * engine falls back to it). If @p allowTrueColor is false (dos_truecolor
+ * off), only CLUT8 is reported.
  */
-inline Common::List<Graphics::PixelFormat> supportedFormats(const Common::Array<VideoMode> &modes, uint w, uint h) {
+inline Common::List<Graphics::PixelFormat> supportedFormats(const Common::Array<VideoMode> &modes, uint w, uint h, bool allowTrueColor) {
 	static const Graphics::PixelFormat order[] = { rgb565(), xrgb1555(), xrgb8888() };
 	Common::List<Graphics::PixelFormat> out;
-	for (uint i = 0; i < ARRAYSIZE(order); ++i)
-		if (findExactMode(modes, w, h, order[i]) >= 0)
-			out.push_back(order[i]);
+	if (allowTrueColor) {
+		for (uint i = 0; i < ARRAYSIZE(order); ++i)
+			if (chooseMode(modes, w, h, order[i], false).index >= 0)
+				out.push_back(order[i]);
+	}
 	out.push_back(Graphics::PixelFormat::createFormatCLUT8());
 	return out;
+}
+
+/** Compatibility overload: true-colour formats allowed. */
+inline Common::List<Graphics::PixelFormat> supportedFormats(const Common::Array<VideoMode> &modes, uint w, uint h) {
+	return supportedFormats(modes, w, h, true);
 }
 
 } // End of namespace DOS
