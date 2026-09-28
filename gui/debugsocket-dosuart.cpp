@@ -48,6 +48,26 @@ static volatile uint g_overruns = 0;
 static uint16 g_isrBase = 0;
 static _go32_dpmi_seginfo g_oldVector, g_newVector;
 
+// What teardown() needs, kept outside the object: OSystem_DOS::quit() and
+// fatalError() leave through exit(), which runs atexit() handlers but not
+// the debugger's destructor.
+static uint16 g_openBase = 0;		// 0: nothing hooked
+static int g_openIrq = 0;
+static bool g_irqWasMasked = true;
+static bool g_atexitDone = false;
+
+// Interrupts off, remembering whether they were on; the "memory" clobber
+// keeps the compiler from moving ring accesses across either end.
+static inline uint32 irqSave() {
+	uint32 flags;
+	__asm__ __volatile__("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
+	return flags;
+}
+static inline void irqRestore(uint32 flags) {
+	if (flags & 0x200)
+		__asm__ __volatile__("sti" : : : "memory");
+}
+
 // Moves whatever the receive FIFO holds into the ring. Called by the
 // handler, and by read() with interrupts off.
 static void drainFifo() {
@@ -84,6 +104,8 @@ static void uartIsr() {
 	outportb(0x20, 0x20);	// EOI to the master PIC (IRQ 3 and 4 live there)
 }
 static void uartIsrEnd() {}
+
+static void teardown();
 
 bool DosUart::open(const Common::String &spec) {
 	Common::String s = spec;
@@ -149,7 +171,15 @@ bool DosUart::open(const Common::String &spec) {
 		(void)inportb(base);
 	(void)inportb(base + 2);
 	outportb(base + 1, 0x01);		// interrupt on received data
-	outportb(0x21, inportb(0x21) & ~(1 << irq));
+	const byte mask = inportb(0x21);
+	g_irqWasMasked = (mask & (1 << irq)) != 0;
+	g_openBase = base;
+	g_openIrq = irq;
+	if (!g_atexitDone) {
+		atexit(teardown);
+		g_atexitDone = true;
+	}
+	outportb(0x21, mask & ~(1 << irq));
 
 	_base = base;
 	_irq = irq;
@@ -157,14 +187,25 @@ bool DosUart::open(const Common::String &spec) {
 	return true;
 }
 
+// Idempotent: from close() (the destructor) and from exit() alike.
+static void teardown() {
+	if (!g_openBase)
+		return;
+	const uint32 flags = irqSave();
+	if (g_irqWasMasked)
+		outportb(0x21, inportb(0x21) | (1 << g_openIrq));
+	outportb(g_openBase + 1, 0x00);
+	outportb(g_openBase + 4, 0x03);		// OUT2 off, DTR and RTS stay
+	_go32_dpmi_set_protected_mode_interrupt_vector(8 + g_openIrq, &g_oldVector);
+	irqRestore(flags);
+	_go32_dpmi_free_iret_wrapper(&g_newVector);
+	g_openBase = 0;
+}
+
 void DosUart::close() {
 	if (!_base)
 		return;
-	outportb(0x21, inportb(0x21) | (1 << _irq));
-	outportb(_base + 1, 0x00);
-	outportb(_base + 4, 0x03);		// OUT2 off, DTR and RTS stay
-	_go32_dpmi_set_protected_mode_interrupt_vector(8 + _irq, &g_oldVector);
-	_go32_dpmi_free_iret_wrapper(&g_newVector);
+	teardown();
 	if (g_overruns)
 		warning("DebugSocket: %u bytes lost to receive overruns", (uint)g_overruns);
 	_base = 0;
@@ -175,9 +216,9 @@ int DosUart::read(char *buf, int max) {
 	// the backstop: should an interrupt ever be missed, with a cause left
 	// pending and the IRQ line stuck high, this poll empties the FIFO and
 	// the next byte raises the line again.
-	__asm__ __volatile__("cli");
+	const uint32 flags = irqSave();
 	drainFifo();
-	__asm__ __volatile__("sti");
+	irqRestore(flags);
 	int n = 0;
 	while (n < max && g_ringTail != g_ringHead) {
 		buf[n++] = (char)g_ring[g_ringTail];
