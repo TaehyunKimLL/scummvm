@@ -34,8 +34,9 @@ i18n 브랜치의 hires 텍스트, 고해상도 폰트, 알파 블렌딩 텍스�
 - i18n 의 SCI 는 텍스트를 `TextLayer` (hires 픽셀마다 색 인덱스 + 커버리지) 에 두고
   `Graphics::composeSpan()` 으로 어떤 `PixelFormat` 에든 합성한다. 다만 지금의 SCI 는
   `rgb_rendering`/`palette_mods` 설정이 있을 때만 트루컬러로 `initGraphics` 하고, 그때도
-  `getSupportedFormats()` 의 첫 **4바이트** 포맷만 고른다 (4.5절). M2 가 SCI 를 고쳐 백엔드가 주는
-  첫 non-CLUT8 포맷을 쓰게 한 뒤에야 알파가 백엔드의 트루컬러 화면만으로 동작한다.
+  `getSupportedFormats()` 의 첫 **4바이트** 포맷만 고른다 (4.5절). 이는 의도된 것이다 — 8비트
+  커버리지를 5/6/5 채널에 섞으면 정밀도를 잃는다 (`drivers/default.cpp` 주석). SCI 는 고치지 않고,
+  DOS 에서 SCI 의 트루컬러는 XRGB8888 이다 (두 에뮬레이터 모두 640×400 XRGB8888 이 있다).
 - `graphics/fonts/ttf.cpp` 는 `FT_OPEN_STREAM` 으로 파일을 스트리밍한다 (8MB TTF 도 통째로 올리지 않는다).
 - SVFN 은 1bpp / 8bpp, v1(코드 페이지 순서) / v2(자체 코드 포인트 표) 가 있다.
   `tools/korean/mkfont.py` 가 TTF 를 SVFN 으로 굽는다.
@@ -86,7 +87,8 @@ configure                *-msdosdjgpp 호스트
 3. 없으면 그 포맷은 `getSupportedFormats()` 에 넣지 않는다.
 
 `getSupportedFormats()` 는 모드 목록에서 만든다. 트루컬러는 RGB565 > XRGB1555 > XRGB8888 순
-(버스 대역폭), CLUT8 은 항상 넣는다. 사용자 설정 `dos_truecolor=auto|off` (기본 auto) 가 off 면
+(버스 대역폭), CLUT8 은 항상 넣는다. 이 선호 순서는 첫 포맷을 쓰는 엔진에만 해당한다 — SCI 는
+4바이트 포맷만 받으므로 XRGB8888 을 쓴다 (4.5절). 사용자 설정 `dos_truecolor=auto|off` (기본 auto) 가 off 면
 트루컬러를 빼서 엔진이 CLUT8 hires 로 간다.
 
 ### 3.2 합성과 전송
@@ -151,7 +153,7 @@ EUC-KR 패치 ┘  (cp949 디코드) ③ 패치 원본 폰트 (korean.fnt, 폰�
 |---|---|
 | SVFN 2bpp | `bpp=2` 를 v1/v2 모두에 허용. 행은 `(cellWidth+3)/4` 바이트, 상위 비트 쌍이 왼쪽 픽셀, 값 0–3 → 커버리지 0/85/170/255. `bitmap_font.cpp`, `glyph_source_svfn.cpp` 에서 8bpp 로 펼친다. 렌더러는 그대로. `FONT_FORMAT.md` 갱신 |
 | `mkfont.py` | `--bpp 2` (C20 coverage gamma 에 맞춘 양자화), `--unicode` 묶음 `cp949`, `ksx1001-nohanja` |
-| `[hires] missing=` | 예: `missing=u+25a1`. 체인 전체에 없는 코드 포인트는 체인에서 그 글리프(□)를 그린다. 폭은 원래 글자의 East Asian Width 를 따른다 (전각 16px, 반각 8px). 대체한 코드 포인트는 처음 한 번 로그에 남긴다. `glyph_source_fallback` 의 마지막 단계에 둔다 |
+| `[hires] missing=` | 예: `missing=u+25a1`. 체인 전체에 없는 코드 포인트는 체인에서 그 글리프(□)를 그린다. 칸 폭은 원래 글자의 East Asian Width 를 따른다 (전각 16px, 반각 8px); □ 글리프는 폰트가 그 글리프에 주는 칸 수와 같은 칸에만 쓰고, 다른 폭의 칸에는 1px 테두리 상자를 그린다. (SVFN 폰트에 메트릭 표가 있으면 글리프의 칸 수는 advance 로 정한다 — advance 가 셀 폭의 절반보다 크면 2칸. East Asian Ambiguous 기호 ○ ● □ ■ △ ― 등이 전각으로 그려지므로.) 대체한 코드 포인트는 처음 한 번 로그에 남긴다. `glyph_source_fallback` 의 마지막 단계에 둔다 |
 | LRU 글리프 캐시 | FreeType 빌드 전용. `(face, size, codepoint)` → 커버리지, 기본 512KB. M2 이후 |
 
 ### 4.3 배포 폰트와 프리셋 맵
@@ -167,7 +169,7 @@ EUC-KR 패치 ┘  (cp949 디코드) ③ 패치 원본 폰트 (korean.fnt, 폰�
 | 프리셋 | 체인 | 출력 |
 |---|---|---|
 | L (가벼움) `KQ1KOL.MAP`, `LB1KOL.MAP` | `KO2350.SVF` → 패치 원본 폰트 → □ | CLUT8 (`alpha=false`) |
-| U (고품질) `KQ1KOU.MAP`, `LB1KOU.MAP` | `KOCP949.SVF` 또는 `KO2350A.SVF` → `KO2350.SVF` → □ | 트루컬러 + 알파 (없으면 CLUT8) |
+| U (고품질) `KQ1KOU.MAP`, `LB1KOU.MAP` | `KOCP949.SVF` 또는 `KO2350A.SVF` → `KO2350.SVF` → □ | XRGB8888 + 알파 — ini 의 `rgb_rendering=true` 로 켠다 (맵의 `alpha=` 는 SCI 에서 아무 일도 하지 않는다). 없으면 CLUT8 |
 
 레이아웃 키(`size`, `baseline`, `align`, `cell`)는 기존 `kq1-ko.map` 과 같게 둔다.
 FreeType 을 넣은 빌드에서는 맵이 `.ttf` 를 가리켜도 된다.
@@ -189,14 +191,17 @@ FreeType 빌드는 코드 ≈0.5MB + face 당 0.1–0.2MB + 캐시 0.5MB.
     보다 먼저 온다 (일본어/SJIS 순서는 그대로 — `SJIS.FNT` 가 여전히 먼저).
   - `missing=` 대체는 `GfxFontSet::faceFor` 끝에서, 모든 얼굴(`korean.fnt` 와 `.uni` 포함)이 디코드된
     non-ASCII 코드 포인트를 거절한 다음에만 일어난다. 게임 자체 리소스 폰트에 그 글자가 있으면 절대
-    대체하지 않는다. □ 폭은 East Asian Width 를 따르고 대체는 코드 포인트마다 처음 한 번만 로그에 남긴다;
+    대체하지 않는다. □ 칸 폭은 East Asian Width 를 따르고 대체는 코드 포인트마다 처음 한 번만 로그에 남긴다;
     맵의 □ 글리프를 어느 폰트도 갖지 않으면 그것도 한 번 경고한다.
   - `KO2350.SVF` 실측: 글리프 2898개, 127,548바이트 (4.3 절의 ≈110KB 추정보다 큼) — neodgm 에 KS X 1001
     비한글 기호 535개가 없어, 그 글자들은 (missing= 이 있으면) □ 로 그려진다.
   - DOS L 프리셋 파일: `DATA\KO2350.SVF`, `KQ1KOL.MAP`, `LB1KOL.MAP`, `OFL.TXT`.
 - **SCI 는 맵의 `alpha=` 를 무시한다.** 트루컬러는 `rgb_rendering`/`palette_mods` ConfMan 설정이 있을
   때만 켜지고, 그나마 `getSupportedFormats()` 에서 처음 나오는 **4바이트** 포맷만 고른다 (`RGB565` 는
-  이 경로로 절대 선택되지 않는다). **M2 가 SCI 를 고쳐 백엔드가 주는 첫 non-CLUT8 포맷을 쓰게 한다.**
+  이 경로로 절대 선택되지 않는다). **SCI 는 고치지 않는다 (M2 결정):** 4바이트만 받는 것은 8비트 커버리지
+  정밀도를 위한 의도다 (`drivers/default.cpp` 주석). 그래서 DOS 에서 SCI 의 트루컬러는 XRGB8888 이고, 3.1절의
+  RGB565 선호는 SCI 에 해당하지 않는다. 트루컬러는 ini 의 `rgb_rendering=true` 로 켜고, 맵의 `alpha=` 는 SCI 에서
+  아무 일도 하지 않는다.
 - DOS 프리셋 맵과 폰트는 8.3 디렉터리 하나에 모은다 (`dists/engine-data/hires_text/dos` → 배포 시
   `DATA\`) — `hires_text` 자체가 8.3 이름이 아니라서, 맵이 상대 경로로 폰트를 가리키는 별도 디렉터리가
   필요하다.
@@ -308,7 +313,7 @@ EXE 는 10MB 이하가 목표 (추정). 필요하면 UPX.
 ### 7.3 테스트
 
 1. **리눅스 단위 테스트** — 공통 코드 변경은 `make test`, FreeType 있는/없는 두 설정 모두.
-   글리프 소스 × 출력 조합 표 ({v2 1/2/8bpp, v1 cp949, 패치 폰트} × {CLUT8, RGB565}) 를 기준 이미지와 비교한다.
+   글리프 소스 × 출력 조합 표 ({v2 1/2/8bpp, v1 cp949, 패치 폰트} × {CLUT8, RGB565, XRGB8888 (SCI 가 쓰는 것)}) 를 기준 이미지와 비교한다.
    같은 글자의 8bpp 와 2bpp 는 커버리지 차가 85 이하여야 한다.
 2. **DOS 헤드리스 하네스** `harness/dos/run.sh` — xvfb 에서 DOSBox-X 와 Staging 을 둘 다 돌린다.
    `OSystem_DOS` 는 로그를 현재 디렉터리의 `SCUMMVM.LOG` 에 남긴다 (`--logfile` 은 쓰지 않는다;
@@ -341,8 +346,8 @@ M0 의 DOS 부팅을 막은 원인은 세 가지 모두 엔진이 아니라 DJGP
 | | 내용 | 통과 기준 |
 |---|---|---|
 | M0 | 스파이크 + 최소 포트 | 아래 스파이크 3건이 결론 남. KQ1 이 320×200 CLUT8 로 타이틀까지, 덤프가 기준과 일치. COM 채널로 명령 1개 왕복. **결과: 통과 — DOSBox-X / Staging (memsize 16)** (`harness/dos/spikes/RESULTS.md`, `harness/dos/m0_accept.py`) |
-| M1 | hires 텍스트, L 프리셋 | KQ1·LB1 한국어 대사가 640×400 CLUT8 에 나옴. EUC-KR 패치와 패치 원본 폰트도 확인. □ 대체 로그. **결과: 통과 — DOSBox-X / Staging.** KQ1 타이틀 + 방 1 "look", LB1 한국어 복사방지 화면(`random_seed=1`) 이 FreeType 없는 리눅스 빌드와 `_low`/`_scaled`/`_pal`/`_layer`/`_out` 바이트 단위로 일치; 모드 로그 320×200 → 640×400 CLUT8 (`harness/dos/m1_accept.py`) |
-| M2 | 알파, U 프리셋 | RGB565/XRGB8888 에서 기준 이미지와 일치. 16bpp 없는 모드 목록(Staging)에서 640×480 줄 반복 폴백. SVFN 2bpp |
+| M1 | hires 텍스트, L 프리셋 | KQ1·LB1 한국어 대사가 640×400 CLUT8 에 나옴. EUC-KR 패치와 패치 원본 폰트도 확인. □ 대체 로그. **결과: 통과 — DOSBox-X / Staging.** KQ1 타이틀 + 방 1 "look", LB1 한국어 복사방지 화면(`random_seed=1`) 이 FreeType 없는 리눅스 빌드와 `_low`/`_scaled`/`_pal`/`_layer`/`_out` 바이트 단위로 일치; 모드 로그 320×200 → 640×400 CLUT8 (`harness/dos/m1_accept.py`). □ 대체와 `korean.fnt` 가 □ 보다 먼저 쓰이는 것은 수동 실행으로 확인했다 (Task 4); 자동 인수 캡처에는 없는 글리프가 없다 |
+| M2 | 알파, U 프리셋 | XRGB8888 (`rgb_rendering=true`) 에서 기준 이미지와 일치 — SCI 는 4바이트 포맷만 받으므로 RGB565 는 해당 없음. 640×480 줄 반복 폴백은 `dos_force_fallback=true` 로 시험 (두 에뮬레이터 모두 640×400 XRGB8888 이 있으므로). SVFN 2bpp |
 | M3 | 사운드 | KQ1 타이틀 곡의 OPL 노트 온셋을 리눅스(MAME OPL) 와 비교해 편차 중앙값 ≤ 2ms, 최대 ≤ 10ms, 방 로딩 구간 최대 ≤ 20ms. MPU-401 UART 로 같은 곡이 나옴. SB PCM 효과음 1개 재생 |
 | M4 | 마무리 | GUI 오버레이, 세이브/로드, 실기 측정, 배포 패키지 |
 
