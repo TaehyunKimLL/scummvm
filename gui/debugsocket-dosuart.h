@@ -41,7 +41,9 @@ public:
 
 	/** "com1".."com4", optionally ":<baud>" (a divisor of 115200). */
 	bool open(const Common::String &spec);
-	/** Masks the IRQ and gives the vector back. */
+	/** Puts the PIC mask, the UART and the vector back as open() found them.
+	 *  open() also registers this with atexit(): quit() and fatalError()
+	 *  leave through exit(), past the destructor. */
 	void close();
 	bool isOpen() const { return _base != 0; }
 	/** Whatever has arrived, up to max bytes; never waits. */
