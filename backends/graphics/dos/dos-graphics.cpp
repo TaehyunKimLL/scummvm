@@ -50,8 +50,10 @@ DosGraphicsManager::DosGraphicsManager() :
 	_lineRepeat(false), _vsync(false), _formatsW(640), _formatsH(400),
 	_window(nullptr), _screenChangeID(0), _pendingW(0), _pendingH(0),
 	_overlayVisible(false), _paletteDirty(false), _shakeX(0), _shakeY(0),
-	_fullDirty(false), _cursorVisible(false), _mouseX(0), _mouseY(0) {
+	_fullDirty(false), _cursorW(0), _cursorH(0), _cursorHotX(0), _cursorHotY(0), _cursorKey(0),
+	_cursorPaletteEnabled(false), _cursorVisible(false), _mouseX(0), _mouseY(0) {
 	memset(_palette, 0, sizeof(_palette));
+	memset(_cursorPalette, 0, sizeof(_cursorPalette));
 	int n = 0;
 	SDL_DisplayMode **m = SDL_GetFullscreenDisplayModes(SDL_GetPrimaryDisplay(), &n);
 	for (int i = 0; i < n; ++i) {
@@ -146,12 +148,15 @@ OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
 	_paletteDirty = true;
 	_fullDirty = true;
 	++_screenChangeID;
+	convertCursor();
 	return OSystem::kTransactionSuccess;
 }
 
 void DosGraphicsManager::setPalette(const byte *colors, uint start, uint num) {
 	memcpy(_palette + start * 3, colors, num * 3);
 	_paletteDirty = true;
+	if (!_cursorPaletteEnabled && _screen.format.bytesPerPixel > 1)
+		convertCursor();
 }
 
 void DosGraphicsManager::grabPalette(byte *colors, uint start, uint num) const {
@@ -337,12 +342,80 @@ Common::Point DosGraphicsManager::gameMouse(float wx, float wy) const {
 
 void DosGraphicsManager::setMouseCursor(const void *buf, uint w, uint h, int hotspotX, int hotspotY, uint32 keycolor,
 										const Graphics::PixelFormat *format, const byte *mask, frac_t scaleX, frac_t scaleY) {
-	const Graphics::PixelFormat f = format ? *format : Graphics::PixelFormat::createFormatCLUT8();
-	if (f != _screen.format) {
-		warning("DosGraphicsManager: cursor format %s differs from the screen's, ignored", f.toString().c_str());
+	_cursorFormat = format ? *format : Graphics::PixelFormat::createFormatCLUT8();
+	_cursorW = w;
+	_cursorH = h;
+	_cursorHotX = hotspotX;
+	_cursorHotY = hotspotY;
+	_cursorKey = keycolor;
+	_cursorSrc.resize(w * h * _cursorFormat.bytesPerPixel);
+	if (!_cursorSrc.empty())
+		memcpy(&_cursorSrc[0], buf, _cursorSrc.size());
+	convertCursor();
+}
+
+void DosGraphicsManager::setCursorPalette(const byte *colors, uint start, uint num) {
+	memcpy(_cursorPalette + start * 3, colors, num * 3);
+	_cursorPaletteEnabled = true;
+	convertCursor();
+}
+
+void DosGraphicsManager::setFeatureState(OSystem::Feature f, bool enable) {
+	if (f != OSystem::kFeatureCursorPalette || enable == _cursorPaletteEnabled)
+		return;
+	_cursorPaletteEnabled = enable;
+	convertCursor();
+}
+
+bool DosGraphicsManager::getFeatureState(OSystem::Feature f) const {
+	return f == OSystem::kFeatureCursorPalette && _cursorPaletteEnabled;
+}
+
+void DosGraphicsManager::convertCursor() {
+	if (!_cursorW || !_cursorH || !_screen.getPixels())
+		return;
+	const Graphics::PixelFormat &screen = _screen.format;
+	if (_cursorFormat == screen) {
+		// A CLUT8 cursor on a CLUT8 screen shows through the game palette:
+		// the hardware has one palette, so a cursor palette cannot apply.
+		_cursor.setImage(&_cursorSrc[0], _cursorW, _cursorH, _cursorHotX, _cursorHotY, _cursorKey, screen.bytesPerPixel);
 		return;
 	}
-	_cursor.setImage((const byte *)buf, w, h, hotspotX, hotspotY, keycolor, f.bytesPerPixel);
+	if (_cursorFormat.bytesPerPixel != 1) {
+		warning("DosGraphicsManager: cursor format %s differs from the screen's %s, ignored",
+				_cursorFormat.toString().c_str(), screen.toString().c_str());
+		return;
+	}
+	// CLUT8 on true colour: every pixel through the cursor palette when it
+	// is on, the game palette otherwise. The key must differ from every
+	// converted colour, or SoftCursor would drop that colour too; of the
+	// first 257 values at least one is not among the (at most 256) used.
+	const byte *pal = _cursorPaletteEnabled ? _cursorPalette : _palette;
+	const uint bpp = screen.bytesPerPixel;
+	const uint n = _cursorW * _cursorH;
+	Common::Array<uint32> colors(n);
+	bool used[257];
+	memset(used, 0, sizeof(used));
+	for (uint i = 0; i < n; ++i) {
+		const byte idx = _cursorSrc[i];
+		if (idx == _cursorKey)
+			continue;
+		colors[i] = screen.RGBToColor(pal[idx * 3], pal[idx * 3 + 1], pal[idx * 3 + 2]);
+		if (colors[i] <= 256)
+			used[colors[i]] = true;
+	}
+	uint32 key = 0;
+	while (used[key])
+		++key;
+	Common::Array<byte> image(n * bpp);
+	for (uint i = 0; i < n; ++i) {
+		const uint32 c = (_cursorSrc[i] == _cursorKey) ? key : colors[i];
+		if (bpp == 2)
+			WRITE_UINT16(&image[i * 2], c);
+		else
+			WRITE_UINT32(&image[i * 4], c);
+	}
+	_cursor.setImage(&image[0], _cursorW, _cursorH, _cursorHotX, _cursorHotY, key, bpp);
 }
 
 #endif
