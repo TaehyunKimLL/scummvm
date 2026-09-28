@@ -5,17 +5,17 @@ class DosModesTestSuite : public CxxTest::TestSuite {
 	static Common::Array<DOS::VideoMode> staging() {
 		// 640x400 as DOSBox Staging's S3 offers it, measured 2026-09-28.
 		Common::Array<DOS::VideoMode> m;
-		DOS::VideoMode a = { 640, 400, DOS::xrgb8888(), 0 };
-		DOS::VideoMode b = { 640, 400, Graphics::PixelFormat::createFormatCLUT8(), 1 };
-		DOS::VideoMode c = { 640, 480, DOS::rgb565(), 2 };
-		DOS::VideoMode d = { 320, 200, Graphics::PixelFormat::createFormatCLUT8(), 3 };
+		DOS::VideoMode a = { 640, 400, DOS::xrgb8888() };
+		DOS::VideoMode b = { 640, 400, Graphics::PixelFormat::createFormatCLUT8() };
+		DOS::VideoMode c = { 640, 480, DOS::rgb565() };
+		DOS::VideoMode d = { 320, 200, Graphics::PixelFormat::createFormatCLUT8() };
 		m.push_back(a); m.push_back(b); m.push_back(c); m.push_back(d);
 		return m;
 	}
 	static Common::Array<DOS::VideoMode> dosboxX() {
 		Common::Array<DOS::VideoMode> m = staging();
-		DOS::VideoMode e = { 640, 400, DOS::rgb565(), 4 };
-		DOS::VideoMode f = { 640, 400, DOS::xrgb1555(), 5 };
+		DOS::VideoMode e = { 640, 400, DOS::rgb565() };
+		DOS::VideoMode f = { 640, 400, DOS::xrgb1555() };
 		m.push_back(e); m.push_back(f);
 		return m;
 	}
