@@ -580,7 +580,7 @@ int16 GfxText16::Size(Common::Rect &rect, const char *text, uint16 languageSplit
 	rect.top = rect.left = 0;
 
 	if (maxWidth < 0) { // force output as single line
-		if (g_sci->getLanguage() == Common::KO_KOR)
+		if (g_sci->usesKoreanText())
 			SwitchToFont1001OnKorean(text, languageSplitter);
 		if (g_sci->getLanguage() == Common::JA_JPN)
 			SwitchToFont900OnSjis(text, languageSplitter);
@@ -596,7 +596,7 @@ int16 GfxText16::Size(Common::Rect &rect, const char *text, uint16 languageSplit
 		const char *curTextLine = text; // starting point of current line
 
 		// Check for Korean text
-		if (g_sci->getLanguage() == Common::KO_KOR)
+		if (g_sci->usesKoreanText())
 			SwitchToFont1001OnKorean(curTextPos, languageSplitter);
 
 		int16 totalHeight = 0;
@@ -755,7 +755,7 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 	// So a SCVMUNI bundle takes the same two steps - GfxCache hands back a
 	// Unicode-backed font for whatever id is requested, so the switch is
 	// harmless even when the game has no such font resource.
-	if (g_sci->getLanguage() == Common::KO_KOR) {
+	if (g_sci->usesKoreanText()) {
 		if (SwitchToFont1001OnKorean(curTextPos, languageSplitter)) {
 			doubleByteMode = true;
 			// The id is only overridden when the switch actually happened;

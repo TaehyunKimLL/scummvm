@@ -30,8 +30,8 @@
 
 namespace Sci {
 
-GfxFontKorean::GfxFontKorean(GfxScreen *screen, GuiResourceId resourceId)
-	: _resourceId(resourceId), _screen(screen) {
+GfxFontKorean::GfxFontKorean(GfxScreen *screen, GuiResourceId resourceId, bool packedInput)
+	: _resourceId(resourceId), _screen(screen), _packedInput(packedInput) {
 	assert(resourceId != -1);
 
 	_commonFont = Graphics::FontKorean::createFont("korean.fnt");
@@ -78,7 +78,7 @@ bool GfxFontKorean::proportionalLatin() const {
 }
 
 byte GfxFontKorean::getCharWidth(uint32 chr) {
-	const uint16 code = toFontCode(chr);
+	const uint16 code = fontCode(chr);
 	if (getSciVersion() >= SCI_VERSION_2)
 		return _commonFont->getCharWidth(code);
 	// A v4 font's proportional Latin advances are odd as often as even;
@@ -96,14 +96,14 @@ void GfxFontKorean::draw(uint32 chr, int16 top, int16 left, byte color, bool gre
 	// Latin it would pull every glyph after a narrow letter back onto the
 	// one before it, so the pen position is kept as is there.
 	const int16 x = proportionalLatin() ? left : (left & 0xFFC);
-	_screen->putHangulChar(_commonFont, x, top, toFontCode(chr), color);
+	_screen->putHangulChar(_commonFont, x, top, fontCode(chr), color);
 }
 
 #ifdef ENABLE_SCI32
 void GfxFontKorean::drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 bufWidth, int16 bufHeight) {
 	byte *displayPtr = buffer + top * bufWidth + left;
 	// we don't use outline, so color 0 is actually not used
-	_commonFont->drawChar(displayPtr, toFontCode(chr), bufWidth, 1, color, 0, bufWidth - left, bufHeight - top);
+	_commonFont->drawChar(displayPtr, fontCode(chr), bufWidth, 1, color, 0, bufWidth - left, bufHeight - top);
 }
 
 #endif
