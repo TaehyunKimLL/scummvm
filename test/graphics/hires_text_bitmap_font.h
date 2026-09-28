@@ -3,6 +3,7 @@
 #include "common/memstream.h"
 #include "common/str-enc.h"
 #include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/text_compose.h"
 
 /**
  * Tests for the hi-res text bitmap font reader.
@@ -32,7 +33,7 @@ private:
 	static Common::Array<byte> makeFont(int bpp, uint16 codePage, int glyphs,
 										int cellW, int cellH, int ascent,
 										bool proportional) {
-		const int rowPitch = (bpp == 1) ? (cellW + 7) / 8 : cellW;
+		const int rowPitch = (cellW * bpp + 7) / 8;
 		const uint32 glyphStride = rowPitch * cellH;
 		const uint32 metricsSize = proportional ? glyphs * 4 : 0;
 		const uint32 metricsOff = 32;
@@ -169,6 +170,47 @@ public:
 		TS_ASSERT(loadFont(b, gray));
 		TS_ASSERT_EQUALS(b.bpp(), 8);
 		TS_ASSERT_EQUALS(b.glyphPitch(), 24);  // one byte of coverage per pixel
+	}
+
+	void test_2bpp_row_pitch() {
+		// 18 px at 2 bits is 36 bits: four whole bytes and a half one.
+		Common::Array<byte> bytes = makeFont(2, 949, 8, 18, 18, 15, false);
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+		TS_ASSERT_EQUALS(font.bpp(), 2);
+		TS_ASSERT_EQUALS(font.glyphPitch(), 5);
+		TS_ASSERT_EQUALS(font.cellWidth(), 18);
+		TS_ASSERT_EQUALS(font.glyphCount(), 8);
+
+		Common::Array<byte> even = makeFont(2, 949, 8, 24, 24, 20, false);
+		Graphics::HiResBitmapFont b;
+		TS_ASSERT(loadFont(b, even));
+		TS_ASSERT_EQUALS(b.glyphPitch(), 6);
+	}
+
+	// A 2bpp glyph holds four coverage levels, packed four pixels a byte with
+	// the leftmost in the top two bits (TextCompose::expandCoverage()'s order).
+	void test_2bpp_glyph_has_four_coverage_levels() {
+		Common::Array<byte> bytes = makeFont(2, 949, 2, 18, 18, 15, false);
+		const uint32 dataOff = 32;
+		const uint32 stride = 5 * 18;
+		// Glyph 1, row 0: pixels 0..3 at levels 0, 1, 2, 3; pixel 17 at 3.
+		bytes[dataOff + stride + 0] = 0x1B;               // 00 01 10 11
+		bytes[dataOff + stride + 4] = 0x30;               // pixels 16..17: 00 11
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+		const byte *g = font.glyphData(1);
+		TS_ASSERT(g != nullptr);
+		if (!g)
+			return;
+		TS_ASSERT_EQUALS(Graphics::TextCompose::expandCoverage(g, 0, 2), 0);
+		TS_ASSERT_EQUALS(Graphics::TextCompose::expandCoverage(g, 1, 2), 85);
+		TS_ASSERT_EQUALS(Graphics::TextCompose::expandCoverage(g, 2, 2), 170);
+		TS_ASSERT_EQUALS(Graphics::TextCompose::expandCoverage(g, 3, 2), 255);
+		TS_ASSERT_EQUALS(Graphics::TextCompose::expandCoverage(g, 16, 2), 0);
+		TS_ASSERT_EQUALS(Graphics::TextCompose::expandCoverage(g, 17, 2), 255);
+		// The glyph is where its index says: the next row starts a pitch on.
+		TS_ASSERT_EQUALS(font.glyphData(1) - font.glyphData(0), (int)stride);
 	}
 
 	void test_glyph_data_is_addressed_by_index() {
