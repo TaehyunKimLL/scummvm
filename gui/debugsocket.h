@@ -29,11 +29,16 @@
 #include "common/str-array.h"
 #include "gui/debugger.h"
 #include "gui/debugsocket-protocol.h"
+#include "gui/debugsocket-dosuart.h"
 
 // The transport is built where configure enabled it (USE_DEBUG_SOCKET:
 // desktop hosts). Elsewhere open() warns once and a debug_socket= key does
 // nothing; the recorder and the protocol work everywhere.
-#if defined(USE_DEBUG_SOCKET) && defined(WIN32)
+//
+// DJGPP defines POSIX too, so the DOS branch must come first.
+#if defined(USE_DEBUG_SOCKET) && defined(DOS_DJGPP)
+#define DEBUGSOCKET_DOSCOM
+#elif defined(USE_DEBUG_SOCKET) && defined(WIN32)
 #define DEBUGSOCKET_WIN32
 #elif defined(USE_DEBUG_SOCKET) && defined(POSIX)
 #define DEBUGSOCKET_POSIX
@@ -95,9 +100,11 @@ public:
  *
  * Opened by Debugger::onFrame() when the game's config has
  * `debug_socket=<path>` (a UNIX socket; on Windows a named pipe
- * \\.\pipe\<path>). A client sends one line and gets the reply, then a line
- * holding '.' (see DebugSocketProtocol::frame()). Every console command
- * works, its debugPrintf() output being the reply; on top of those:
+ * \\.\pipe\<path>; on DOS `com1`..`com4[:baud]`, a 16550 polled once a
+ * frame; the host sends 2 ms apart). A client sends one line and gets the
+ * reply, then a line holding '.' (see DebugSocketProtocol::frame()). Every
+ * console command works, its debugPrintf() output being the reply; on top
+ * of those:
  *
  *   key <name>|<keycode> [ascii] [flags]
  *                        press, then release on a later poll. A name is
@@ -243,6 +250,8 @@ private:
 	Common::String _pipeName;
 	bool createPipe();
 	void dropClient();
+#elif defined(DEBUGSOCKET_DOSCOM)
+	DosUart _uart;
 #endif
 	Common::String _inBuf, _outBuf;
 	Common::StringArray _argTails;
