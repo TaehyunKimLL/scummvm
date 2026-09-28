@@ -22,17 +22,22 @@
 #include <cxxtest/TestSuite.h>
 
 #include "common/array.h"
+#include "common/fs.h"
 #include "common/memstream.h"
 #include "common/rect.h"
 #include "common/str.h"
+#include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/font_map.h"
 #include "graphics/hires_text/glyph_source.h"
+#include "graphics/hires_text/glyph_source_svfn.h"
 // scumm/detection.h and sci/detection.h (pulled in by textlayout16.h) each
 // define GAMEOPTION_TTS; nothing here uses it.
 #undef GAMEOPTION_TTS
 #include "sci/graphics/hirestextsettings.h"
 #include "sci/graphics/textlayer.h"
 #include "sci/graphics/textlayout16.h"
+
+#include "../../system/null_osystem.h"
 
 using Sci::FontSettings;
 using Sci::GlyphPlacement;
@@ -311,5 +316,48 @@ public:
 		// Ties go to the higher row; missing glyphs do not count.
 		TS_ASSERT_EQUALS(Sci::bitmapFontBaseline([](uint32 c) { return c == 'H' ? 6 : (c == 'I' ? 5 : -1); }), 5);
 		TS_ASSERT_EQUALS(Sci::bitmapFontBaseline([](uint32) { return -1; }), -1);
+	}
+
+	// The DOS L preset's KO2350.SVF in a code-page game's layout (per-glyph
+	// off, as LB1's EUC-KR text is laid out): the East Asian Ambiguous
+	// symbols neodgm draws full width (U+25CB, U+25A1, U+2015: advance 16)
+	// advance a whole cell, 8 game px - as far as they draw - and the ones it
+	// draws narrow (U+00B7, U+2018: advance 8) half of one.
+	void test_ko2350_ambiguous_symbols_advance_as_drawn() {
+#if NULL_OSYSTEM_IS_AVAILABLE
+		// The source root, from this header's own path (the runner may run
+		// from an out-of-tree build folder).
+		Common::String root = __FILE__;
+		const size_t cut = root.rfind("test/engines/sci/");
+		if (cut == Common::String::npos) {
+			TS_SKIP("source root not known");
+			return;
+		}
+		root = Common::String(root.c_str(), cut);
+		Common::install_null_g_system();
+		const Common::FSNode node(Common::Path(root + "dists/engine-data/hires_text/dos/KO2350.SVF", '/'));
+		Common::SeekableReadStream *stream = node.exists() ? node.createReadStream() : nullptr;
+		Graphics::HiResBitmapFont font;
+		const bool loaded = stream && font.load(*stream);
+		delete stream;
+		Common::uninstall_null_g_system();
+		TS_ASSERT(loaded);
+		if (!loaded)
+			return;
+		Graphics::SvfnGlyphSource src(&font, DisposeAfterUse::NO);
+		const uint32 full[] = { 0x25CB, 0x25CF, 0x25A1, 0x25A0, 0x25B3, 0x2015, 0xAC00 };
+		for (uint i = 0; i < ARRAYSIZE(full); i++) {
+			TS_ASSERT_EQUALS(src.cells(full[i]), 2);
+			TS_ASSERT_EQUALS(Sci::glyphGameWidth(&src, full[i], 2, false), 8);
+			// A UTF-8 game's per-glyph layout, by the metrics advance, as before.
+			TS_ASSERT_EQUALS(Sci::glyphGameWidth(&src, full[i], 2, true), 8);
+		}
+		const uint32 half[] = { 0x00B7, 0x2018, 0x0041 };
+		for (uint i = 0; i < ARRAYSIZE(half); i++) {
+			TS_ASSERT_EQUALS(src.cells(half[i]), 1);
+			TS_ASSERT_EQUALS(Sci::glyphGameWidth(&src, half[i], 2, false), 4);
+			TS_ASSERT_EQUALS(Sci::glyphGameWidth(&src, half[i], 2, true), 4);
+		}
+#endif
 	}
 };
