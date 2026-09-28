@@ -5,6 +5,7 @@
 #include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/glyph_source_svfn.h"
 #include "graphics/hires_text/text_compose.h"
+#include "graphics/hires_text/unicode_props.h"
 
 #include "../system/null_osystem.h"
 
@@ -42,16 +43,21 @@ private:
 	/// Code point of glyph index i. The table is deliberately not in glyph
 	/// order, so the test sees the adapter go through the font's lookup.
 	static uint32 codepointOf(int index) {
-		static const uint32 cps[kGlyphs] = { 0xAC00, 0xD7A3, 0x0041 };
-		return cps[index];
+		return kCodepoints[index];
 	}
+
+	static const uint32 kCodepoints[kGlyphs];
+	/// Advances of the fixture's glyphs in a 6 px cell: the two wide ones
+	/// past the narrow half (3), U+0041 within it.
+	static const byte kAdvances[kGlyphs];
 
 	/**
 	 * A version 2 SVFN file: 36-byte header, metrics table (when
 	 * proportional), glyph data, and the code point table last, so cutting
 	 * even the final byte leaves a table running past the end.
 	 */
-	static Common::Array<byte> makeFont(int bpp, int cellW, int cellH, bool proportional, bool padBits = false) {
+	static Common::Array<byte> makeFont(int bpp, int cellW, int cellH, bool proportional, bool padBits = false,
+	                                    const uint32 *cps = kCodepoints, const byte *advances = kAdvances) {
 		const int rowPitch = (bpp == 1) ? (cellW + 7) / 8 : cellW;
 		const uint32 glyphStride = rowPitch * cellH;
 		const uint32 metricsOff = 36;
@@ -81,7 +87,7 @@ private:
 
 		if (proportional) {
 			for (int i = 0; i < kGlyphs; ++i) {
-				b[metricsOff + i * 4 + 0] = 5 + i * 2;  // advance
+				b[metricsOff + i * 4 + 0] = advances[i];
 				b[metricsOff + i * 4 + 1] = i;          // left bearing
 				b[metricsOff + i * 4 + 2] = 3 + i;      // ink width
 			}
@@ -107,7 +113,7 @@ private:
 		}
 
 		for (int i = 0; i < kGlyphs; ++i) {
-			put32(b, cmapOff + i * 8, codepointOf(i));
+			put32(b, cmapOff + i * 8, cps[i]);
 			put32(b, cmapOff + i * 8 + 4, i);
 		}
 		return b;
@@ -172,7 +178,7 @@ private:
 			Graphics::GlyphMetrics m;
 			TS_ASSERT(font.glyphMetrics(i, m));
 			TS_ASSERT_EQUALS(src.advance(codepointOf(i)), (int)m.advance);
-			TS_ASSERT_EQUALS(src.advance(codepointOf(i)), 5 + i * 2);
+			TS_ASSERT_EQUALS(src.advance(codepointOf(i)), (int)kAdvances[i]);
 			TS_ASSERT_EQUALS(src.bearingX(codepointOf(i)), i);
 		}
 	}
@@ -228,6 +234,37 @@ public:
 		TS_ASSERT_EQUALS(src.advance(0xAC00), 0);
 		TS_ASSERT_EQUALS(src.bearingX(0xAC00), 0);
 		checkRows(font, src);
+	}
+
+	// With a metrics table the advance, not the Unicode width, says how
+	// many cells a glyph takes: an East Asian Ambiguous character a Korean
+	// font draws full width (U+25CB, 16 px in a 16 px cell) is 2 cells, one
+	// it draws narrow (U+00B7, 8 px) is 1, as is a narrow Latin letter; a
+	// wide character stays 2.
+	void test_svfn_source_cells_follow_the_metrics_advance() {
+		static const uint32 cps[kGlyphs] = { 0x25CB, 0x00B7, 0xAC00 };
+		static const byte advances[kGlyphs] = { 16, 8, 16 };
+		const Common::Array<byte> bytes = makeFont(1, 16, 16, true, false, cps, advances);
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes, bytes.size()));
+		if (!font.isLoaded())
+			return;
+		Graphics::SvfnGlyphSource src(&font, DisposeAfterUse::NO);
+		TS_ASSERT(!Graphics::Unicode::isWide(0x25CB));
+		TS_ASSERT_EQUALS(src.cells(0x25CB), 2);
+		TS_ASSERT_EQUALS(src.cells(0x00B7), 1);
+		TS_ASSERT_EQUALS(src.cells(0xAC00), 2);
+		// The per-glyph advance is the table's either way.
+		TS_ASSERT_EQUALS(src.advance(0x25CB), 16);
+		TS_ASSERT_EQUALS(src.advance(0x00B7), 8);
+
+		// Without the table a fixed-grid font has only the Unicode width.
+		const Common::Array<byte> fixed = makeFont(1, 16, 16, false, false, cps, advances);
+		Graphics::HiResBitmapFont grid;
+		TS_ASSERT(loadFont(grid, fixed, fixed.size()));
+		Graphics::SvfnGlyphSource gridSrc(&grid, DisposeAfterUse::NO);
+		TS_ASSERT_EQUALS(gridSrc.cells(0x25CB), 1);
+		TS_ASSERT_EQUALS(gridSrc.cells(0xAC00), 2);
 	}
 
 	// The adapter takes the font when asked to.
@@ -304,3 +341,6 @@ private:
 #endif
 	}
 };
+
+const uint32 HiResTextSvfnSourceTestSuite::kCodepoints[HiResTextSvfnSourceTestSuite::kGlyphs] = { 0xAC00, 0xD7A3, 0x0041 };
+const byte HiResTextSvfnSourceTestSuite::kAdvances[HiResTextSvfnSourceTestSuite::kGlyphs] = { 6, 5, 3 };
