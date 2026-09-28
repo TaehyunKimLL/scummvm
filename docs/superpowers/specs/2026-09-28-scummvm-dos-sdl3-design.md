@@ -32,9 +32,10 @@ i18n 브랜치의 hires 텍스트, 고해상도 폰트, 알파 블렌딩 텍스�
 - 같은 S3 에뮬레이션이라도 모드 목록이 다르다. 640×400 에서 DOSBox-X 는 INDEX8/RGB565/XRGB1555/XRGB8888,
   Staging 은 INDEX8/XRGB8888 만 준다. 640×480 은 둘 다 RGB565 가 있다.
 - i18n 의 SCI 는 텍스트를 `TextLayer` (hires 픽셀마다 색 인덱스 + 커버리지) 에 두고
-  `Graphics::composeSpan()` 으로 어떤 `PixelFormat` 에든 합성한다. SCI 드라이버는
-  `getSupportedFormats()` 에 트루컬러가 있으면 그것으로 `initGraphics` 한다.
-  → 알파는 백엔드가 트루컬러 화면을 주기만 하면 동작한다.
+  `Graphics::composeSpan()` 으로 어떤 `PixelFormat` 에든 합성한다. 다만 지금의 SCI 는
+  `rgb_rendering`/`palette_mods` 설정이 있을 때만 트루컬러로 `initGraphics` 하고, 그때도
+  `getSupportedFormats()` 의 첫 **4바이트** 포맷만 고른다 (4.5절). M2 가 SCI 를 고쳐 백엔드가 주는
+  첫 non-CLUT8 포맷을 쓰게 한 뒤에야 알파가 백엔드의 트루컬러 화면만으로 동작한다.
 - `graphics/fonts/ttf.cpp` 는 `FT_OPEN_STREAM` 으로 파일을 스트리밍한다 (8MB TTF 도 통째로 올리지 않는다).
 - SVFN 은 1bpp / 8bpp, v1(코드 페이지 순서) / v2(자체 코드 포인트 표) 가 있다.
   `tools/korean/mkfont.py` 가 TTF 를 SVFN 으로 굽는다.
@@ -49,14 +50,17 @@ backends/platform/dos/   OSystem_DOS (ModularBackend)
    ├─ graphics/dos/      DosGraphicsManager  ── SDL3 창 서피스 (direct-FB)
    ├─ mixer/             SDL3 오디오 스트림에 ScummVM 믹서 연결 ── SB PCM
    ├─ events/            SDL3 키보드/마우스 → Common::Event
-   ├─ timer/             IRQ0 1kHz → DefaultTimerManager 콜백
-   ├─ mutex/             cli / popf
+   ├─ timer/             IRQ0 1kHz → DefaultTimerManager 콜백 (M3)
+   ├─ mutex/             cli / popf (M3)
    ├─ fs/                posix-fs 재사용
    └─ midi/dos_mpu401    MPU-401 UART
 audio/dosopl.cpp         OPL 하드웨어 (RealChip)
 gui/debugsocket          COM 포트 전송 추가
 configure                *-msdosdjgpp 호스트
 ```
+
+`timer/` 와 `mutex/` 는 M3 에 온다. M0–M2 는 타이머 콜백을 `pollEvent()` 에서 협력형으로 돌리고
+(`DefaultTimerManager::checkTimers()`), 뮤텍스는 null 뮤텍스다 (선점이 없으니 충분하다).
 
 원칙:
 
@@ -227,9 +231,14 @@ M0 스파이크 결론 (`harness/dos/spikes/RESULTS.md`, "타이머"): RTC(IRQ8,
   뮤텍스로 보호되어 있고, 이 구현은 IRQ 에 대해 진짜 상호 배제가 된다.
 - 조건: `_CRT0_FLAG_LOCK_MEMORY` 로 전체 메모리를 잠근다 (핸들러 중 페이지 폴트 금지). 핸들러에서 DOS/BIOS 를
   부르지 않는다. FPU 상태를 저장·복원한다. 재진입을 막는다 (핸들러가 1ms 를 넘기면 다음 틱은 건너뛰고 센다).
-- 주의: SDL3 의 `SDL_RunApp()` 은 시작할 때 한 번 `.data`/`.bss`/`.text`/스택을 잠그지만, 앱이 실제로
-  돌기 직전에 `_CRT0_FLAG_LOCK_MEMORY` 를 다시 내린다 ("don't lock further allocations by default").
-  그 뒤 `malloc()` 한 메모리는 자동으로 잠기지 않으므로, 핸들러가 만지는 힙 버퍼(예: 링 버퍼)는
+- 주의: 우리 `main()` 은 `SDL_RunApp()` 을 거치지 않으므로 SDL3 의 `_crt0_startup_flags` 정의는 링크되지
+  않는다. 그래서 `backends/platform/dos/dos.cpp` 가 직접
+  `_crt0_startup_flags = _CRT0_FLAG_NONMOVE_SBRK | _CRT0_FLAG_LOCK_MEMORY` 를 정의하고 (M0 최종 수정,
+  DOSBox-X·Staging 모두 memsize 16 에서 부팅 확인), `SDL_RunApp()` 처럼 `main()` 첫 줄에서
+  `_CRT0_FLAG_LOCK_MEMORY` 를 다시 내린다 — 시작할 때 `.data`/`.bss`/`.text`/스택만 잠긴다.
+  (`NONMOVE_SBRK` 는 이 DJGPP 에서 이미 기본값(0)이지만, 힙이 자라도 DS 기준이 움직이지 않아야 SDL3 가
+  들고 있는 프레임버퍼 near 포인터가 유효하므로 명시한다.) 그 뒤 `malloc()` 한 메모리는 자동으로 잠기지
+  않으므로, 핸들러가 만지는 힙 버퍼(예: 링 버퍼)는
   `_go32_dpmi_lock_data()` 로 따로 잠그거나, 애초에 정적/사전할당 버퍼로 설계한다.
 - 이 방식이 실패하면 협력형으로 내려간다: `delayMillis()` / `pollEvent()` 에서 밀린 콜백을 실행한다.
 
@@ -274,8 +283,11 @@ SDL3 정적 `~/opt/sdl3-dos`, CWSDPMI, DOSBox Staging 0.83. DOSBox-X 2026.08.31 
 
 ```
 SCUMMVM\  SCUMMVM.EXE  CWSDPMI.EXE  SCUMMVM.INI(예시)  README.TXT
-          DATA\MAPS\*.MAP   DATA\FONTS\*.SVF   라이선스(OFL 등)
+          DATA\*.MAP  DATA\*.SVF   라이선스(OFL 등)
 ```
+
+`DATA\` 는 평평한 디렉터리 하나다 (4.5절, M1 계획). 맵 안의 폰트 경로는 맵 기준 상대 경로(같은 디렉터리의
+8.3 이름)다.
 
 EXE 는 10MB 이하가 목표 (추정). 필요하면 UPX.
 
@@ -285,7 +297,8 @@ EXE 는 10MB 이하가 목표 (추정). 필요하면 UPX.
    글리프 소스 × 출력 조합 표 ({v2 1/2/8bpp, v1 cp949, 패치 폰트} × {CLUT8, RGB565}) 를 기준 이미지와 비교한다.
    같은 글자의 8bpp 와 2bpp 는 커버리지 차가 85 이하여야 한다.
 2. **DOS 헤드리스 하네스** `harness/dos/run.sh` — xvfb 에서 DOSBox-X 와 Staging 을 둘 다 돌린다.
-   `SCUMMVM.EXE --logfile=...`, COM 디버그 채널로 조작. 화면 덤프는 DOS 전용 옵션을 새로 만들지 않고
+   `OSystem_DOS` 는 로그를 현재 디렉터리의 `SCUMMVM.LOG` 에 남긴다 (`--logfile` 은 쓰지 않는다;
+   `debuglevel=1` 이면 백엔드가 설정한 모드가 `DOS: mode WxH <format>` 줄로 남는다). COM 디버그 채널로 조작. 화면 덤프는 DOS 전용 옵션을 새로 만들지 않고
    debug socket 의 기존 `dump <prefix>` 명령을 그대로 쓴다 (SCI 는 `_low`/`_scaled`/`_pal`/`_ctl`/`_pri`/
    `_out` 버퍼를 `<prefix>_low.bin` 등으로 남긴다). DOS 에서는 8.3 제약 때문에 접두어를 글자 하나 +
    디렉터리로 둔다 (예: `T:\T`). DOS 는 파일 이름을 대문자로 쓰므로(`T_LOW.BIN`), 리눅스 기준 이미지와
