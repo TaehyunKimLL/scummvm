@@ -22,6 +22,7 @@ MODULE_OBJS := \
 	hires_text/glyph_mirror.o \
 	hires_text/glyph_renderer.o \
 	hires_text/glyph_source_fallback.o \
+	hires_text/glyph_source_file.o \
 	hires_text/glyph_source_routed.o \
 	hires_text/glyph_source_scvmuni.o \
 	hires_text/glyph_source_svfn.o \
