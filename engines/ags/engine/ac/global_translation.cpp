@@ -25,6 +25,7 @@
 #include "ags/engine/ac/global_translation.h"
 #include "ags/engine/ac/string.h"
 #include "ags/engine/ac/translation.h"
+#include "ags/shared/ac/game_setup_struct.h"
 #include "ags/engine/platform/base/ags_platform_driver.h"
 #include "ags/plugins/ags_plugin_evts.h"
 #include "ags/plugins/plugin_engine.h"
@@ -60,7 +61,19 @@ const char *get_translation(const char *text) {
 	return text;
 }
 
+// AGDI remakes refuse to start when told a translation is loaded, so fan
+// translations of them only work if these games are told there is none.
+static const char *const kTranslationRefusingGames[] = {
+	"{cf1b8753-2ad1-4d79-b5c7-f6aff4fdc729}", // King's Quest I VGA v4.1c
+	"{b85ea0b0-35c5-4e53-bfc7-2281bf481001}", // King's Quest II VGA v3.1c
+	"{19454ab9-e6dd-4f20-a2ad-24da47d91a20}", // King's Quest III Redux v1.1
+};
+
 int IsTranslationAvailable() {
+	for (const char *guid : kTranslationRefusingGames) {
+		if (strcmp(_GP(game).guid, guid) == 0)
+			return 0;
+	}
 	if (get_translation_tree().size() > 0)
 		return 1;
 	return 0;
