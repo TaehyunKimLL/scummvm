@@ -28,7 +28,7 @@ private:
 
 	/// A font of @p glyphs cells, with the pixels left blank for the caller.
 	static Common::Array<byte> makeFont(int bpp, int glyphs, int cellW, int cellH) {
-		const int rowPitch = (bpp == 1) ? (cellW + 7) / 8 : cellW;
+		const int rowPitch = (cellW * bpp + 7) / 8;
 		const uint32 dataOff = 32;
 		const uint32 dataSize = rowPitch * cellH * glyphs;
 
@@ -58,6 +58,13 @@ private:
 						  int x, int y) {
 		const int pitch = (cellW + 7) / 8;
 		b[32 + glyph * pitch * cellH + y * pitch + (x >> 3)] |= 0x80 >> (x & 7);
+	}
+
+	/// Sets pixel (x, y) of a 2bpp glyph to @p level (0..3).
+	static void setPixel2(Common::Array<byte> &b, int glyph, int cellW, int cellH,
+						  int x, int y, int level) {
+		const int pitch = (cellW * 2 + 7) / 8;
+		b[32 + glyph * pitch * cellH + y * pitch + (x >> 2)] |= (byte)(level << (6 - (x & 3) * 2));
 	}
 
 	static bool loadFont(Graphics::HiResBitmapFont &font, Common::Array<byte> &bytes) {
@@ -160,6 +167,70 @@ public:
 		TS_ASSERT_EQUALS(at(dest, 8, 1), 5);
 		TS_ASSERT_EQUALS(at(dest, 15, 1), 5);
 		TS_ASSERT_EQUALS(inkCount(dest), 4);
+
+		dest.free();
+	}
+
+	// A 2bpp glyph is coverage too, at four levels: each is drawn and, where
+	// there is a coverage surface, recorded as level * 85.
+	void test_draws_a_2bpp_glyph_into_both_surfaces() {
+		// 6 px at 2 bits is 12 bits a row: the second byte is half padding.
+		Common::Array<byte> bytes = makeFont(2, 2, 6, 3);
+		setPixel2(bytes, 0, 6, 3, 0, 1, 1);
+		setPixel2(bytes, 0, 6, 3, 1, 1, 2);
+		setPixel2(bytes, 0, 6, 3, 2, 1, 3);
+		setPixel2(bytes, 0, 6, 3, 5, 2, 3);
+		// Glyph 1 is all ink, so reading past glyph 0's rows would show.
+		for (int y = 0; y < 3; ++y)
+			for (int x = 0; x < 6; ++x)
+				setPixel2(bytes, 1, 6, 3, x, y, 3);
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		Graphics::Surface dest, cov;
+		dest.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
+		cov.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
+
+		Graphics::GlyphStyle style;
+		style.color = 9;
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(dest, &cov, font, 0, 4, 4, style));
+
+		TS_ASSERT_EQUALS(at(cov, 4, 5), 85);
+		TS_ASSERT_EQUALS(at(cov, 5, 5), 170);
+		TS_ASSERT_EQUALS(at(cov, 6, 5), 255);
+		TS_ASSERT_EQUALS(at(cov, 9, 6), 255);
+		TS_ASSERT_EQUALS(at(dest, 4, 5), 9);
+		TS_ASSERT_EQUALS(at(dest, 5, 5), 9);
+		TS_ASSERT_EQUALS(at(dest, 6, 5), 9);
+		TS_ASSERT_EQUALS(at(dest, 9, 6), 9);
+		TS_ASSERT_EQUALS(inkCount(dest), 4);
+		TS_ASSERT_EQUALS(inkCount(cov), 4);
+
+		dest.free();
+		cov.free();
+	}
+
+	// Keyed (no coverage surface), a 2bpp glyph keeps the ink past
+	// kKeyedInkThreshold, as an 8bpp one does.
+	void test_draws_a_2bpp_glyph_keyed() {
+		Common::Array<byte> bytes = makeFont(2, 1, 4, 1);
+		setPixel2(bytes, 0, 4, 1, 1, 0, 1);
+		setPixel2(bytes, 0, 4, 1, 2, 0, 2);
+		setPixel2(bytes, 0, 4, 1, 3, 0, 3);
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		Graphics::Surface dest;
+		dest.create(8, 4, Graphics::PixelFormat::createFormatCLUT8());
+		Graphics::GlyphStyle style;
+		style.color = 4;
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(dest, nullptr, font, 0, 0, 0, style));
+		for (int x = 0; x < 4; ++x) {
+			const byte cv = (byte)(x * 85);
+			TS_ASSERT_EQUALS(at(dest, x, 0), (cv >= Graphics::HiResGlyphRenderer::kKeyedInkThreshold) ? 4 : 0);
+		}
 
 		dest.free();
 	}

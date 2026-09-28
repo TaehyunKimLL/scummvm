@@ -58,7 +58,7 @@ private:
 	 */
 	static Common::Array<byte> makeFont(int bpp, int cellW, int cellH, bool proportional, bool padBits = false,
 	                                    const uint32 *cps = kCodepoints, const byte *advances = kAdvances) {
-		const int rowPitch = (bpp == 1) ? (cellW + 7) / 8 : cellW;
+		const int rowPitch = (cellW * bpp + 7) / 8;
 		const uint32 glyphStride = rowPitch * cellH;
 		const uint32 metricsOff = 36;
 		const uint32 metricsSize = proportional ? kGlyphs * 4 : 0;
@@ -103,12 +103,14 @@ private:
 					const byte v = (byte)(i * 37 + y * 11 + x * 3 + 1);
 					if (bpp == 8)
 						row[x] = v;
+					else if (bpp == 2)
+						row[x >> 2] |= (byte)((v & 3) << (6 - (x & 3) * 2));
 					else if (v & 4)
 						row[x >> 3] |= 0x80 >> (x & 7);
 				}
-				if (bpp == 1 && padBits)
-					for (int x = cellW; x < rowPitch * 8; ++x)
-						row[x >> 3] |= 0x80 >> (x & 7);
+				if (bpp < 8 && padBits)
+					for (int bit = cellW * bpp; bit < rowPitch * 8; ++bit)
+						row[bit >> 3] |= 0x80 >> (bit & 7);
 			}
 		}
 
@@ -217,8 +219,44 @@ public:
 		}
 	}
 
+	// The same at 2bpp: 6 px is 12 bits, so the second byte of a row is
+	// half padding (the general (cellWidth * bpp) & 7 case).
+	void test_svfn_source_masks_2bpp_padding() {
+		const int cellW = 6, cellH = 5;
+		const Common::Array<byte> bytes = makeFont(2, cellW, cellH, true, true);
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes, bytes.size()));
+		if (!font.isLoaded())
+			return;
+		TS_ASSERT_EQUALS(font.glyphPitch(), 2);
+		Graphics::SvfnGlyphSource src(&font, DisposeAfterUse::NO);
+		TS_ASSERT_EQUALS(src.bitsPerPixel(), 2);
+		const int stride = (src.cellWidth() * 2 * 2 + 7) / 8;
+		for (int i = 0; i < kGlyphs; ++i) {
+			const uint32 cp = codepointOf(i);
+			const byte *glyph = font.glyphData(font.glyphIndex(cp));
+			TS_ASSERT(src.cells(cp) > 0);
+			for (int y = 0; y < cellH; ++y) {
+				const byte *g = glyph + y * font.glyphPitch();
+				TS_ASSERT_EQUALS(g[1] & 0x0F, 0x0F);
+				const byte *row = src.row(cp, y);
+				TS_ASSERT(row != nullptr);
+				if (!row)
+					return;
+				for (int x = 0; x < cellW; ++x)
+					TS_ASSERT_EQUALS(Graphics::TextCompose::expandCoverage(row, x, 2),
+									 Graphics::TextCompose::expandCoverage(g, x, 2));
+				for (int x = cellW; x < src.cellWidth() * 2; ++x)
+					TS_ASSERT_EQUALS(Graphics::TextCompose::expandCoverage(row, x, 2), 0);
+				for (int x = 2; x < stride; ++x)
+					TS_ASSERT_EQUALS(row[x], 0);
+			}
+		}
+	}
+
 	void test_svfn_source_matches_bitmap_font() {
 		checkMatches(8);
+		checkMatches(2);
 		checkMatches(1);
 	}
 

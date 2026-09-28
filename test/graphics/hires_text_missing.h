@@ -31,25 +31,28 @@ using Graphics::UnicodeGlyphSource;
 namespace {
 
 /**
- * A 16x16 cell at 1 bpp holding U+0041 (narrow: its first row all set) and,
- * optionally, U+25A1 (wide unless asked narrow - it is East Asian
- * Ambiguous, so a source may size it either way - with a distinct pattern
- * per row, so a row read-back shows which glyph answered).
+ * A 16x16 cell at @p bpp (1 by default) holding U+0041 (narrow: its first
+ * byte all set) and, optionally, U+25A1 (wide unless asked narrow - it is
+ * East Asian Ambiguous, so a source may size it either way - with a
+ * distinct first byte per row, so a row read-back shows which glyph
+ * answered).
  */
 class FakeBoxSource : public UnicodeGlyphSource {
 public:
-	explicit FakeBoxSource(bool haveBox, int boxCells = 2) : _haveBox(haveBox), _boxCells(boxCells), _a(16 * 4, 0), _box(16 * 4, 0) {
-		// Rows are cellWidth()*2 = 32 px at 1 bpp: 4 bytes.
+	explicit FakeBoxSource(bool haveBox, int boxCells = 2, int bpp = 1)
+		: _haveBox(haveBox), _boxCells(boxCells), _bpp(bpp), _rowBytes(32 * bpp / 8),
+		  _a(16 * _rowBytes, 0), _box(16 * _rowBytes, 0) {
+		// Rows are cellWidth()*2 = 32 px at bpp bits.
 		_a[0] = 0xFF;
 		for (int y = 0; y < 16; y++)
-			_box[y * 4] = (byte)(y + 1);
+			_box[y * _rowBytes] = (byte)(y + 1);
 	}
 
 	byte cellWidth() const override { return 16; }
 	byte cellHeight() const override { return 16; }
 	byte advanceNarrow() const override { return 8; }
 	byte advanceWide() const override { return 16; }
-	int bitsPerPixel() const override { return 1; }
+	int bitsPerPixel() const override { return _bpp; }
 	int cells(uint32 cp) override {
 		if (cp == 0x41)
 			return 1;
@@ -59,9 +62,9 @@ public:
 	}
 	const byte *row(uint32 cp, int y) override {
 		if (cp == 0x41)
-			return &_a[y * 4];
+			return &_a[y * _rowBytes];
 		if (cp == 0x25A1 && _haveBox)
-			return &_box[y * 4];
+			return &_box[y * _rowBytes];
 		return nullptr;
 	}
 	uint32 glyphCount() const override { return _haveBox ? 2 : 1; }
@@ -69,11 +72,35 @@ public:
 private:
 	bool _haveBox;
 	int _boxCells;
+	int _bpp;
+	int _rowBytes;
 	Common::Array<byte> _a, _box;
 };
 
 bool pixelOn(const byte *row, int x) {
 	return Graphics::TextCompose::expandCoverage(row, x, 1) != 0;
+}
+
+/**
+ * The drawn outline of @p src's box for @p cp, over the whole two-cell row
+ * at @p bpp: a 1 px frame in columns 1..right, rows 1..14, fully covered
+ * (255) where drawn and 0 everywhere else, including past the box.
+ */
+void checkDrawnBox(MissingGlyphSource &src, uint32 cp, int right, int bpp) {
+	for (int y = 0; y < 16; y++) {
+		const byte *row = src.row(cp, y);
+		TS_ASSERT(row);
+		if (!row)
+			continue;
+		for (int x = 0; x < 32; x++) {
+			bool want = false;
+			if (y == 1 || y == 14)
+				want = x >= 1 && x <= right;
+			else if (y >= 2 && y <= 13)
+				want = x == 1 || x == right;
+			TS_ASSERT_EQUALS(Graphics::TextCompose::expandCoverage(row, x, bpp), want ? 255 : 0);
+		}
+	}
 }
 
 } // End of anonymous namespace
@@ -164,6 +191,38 @@ public:
 		}
 		TS_ASSERT_EQUALS(src.advance(0xAC00), 16);
 		TS_ASSERT_EQUALS(src.advance(0xE9), 8);
+	}
+
+	// The drawn half-width box at the depths of an anti-aliased font: 2bpp
+	// (four pixels a byte) and 8bpp (a byte a pixel), solid where drawn.
+	void test_a_drawn_half_width_box_at_2bpp() {
+		FakeBoxSource inner(true, 2, 2);
+		MissingGlyphSource src(&inner, 0x25A1, DisposeAfterUse::NO);
+		TS_ASSERT_EQUALS(src.bitsPerPixel(), 2);
+		TS_ASSERT_EQUALS(src.cells(0xE9), 1);
+		checkDrawnBox(src, 0xE9, 6, 2);
+		TS_ASSERT_EQUALS(src.advance(0xE9), 8);
+	}
+
+	void test_a_drawn_half_width_box_at_8bpp() {
+		FakeBoxSource inner(true, 2, 8);
+		MissingGlyphSource src(&inner, 0x25A1, DisposeAfterUse::NO);
+		TS_ASSERT_EQUALS(src.bitsPerPixel(), 8);
+		TS_ASSERT_EQUALS(src.cells(0xE9), 1);
+		checkDrawnBox(src, 0xE9, 6, 8);
+		TS_ASSERT_EQUALS(src.advance(0xE9), 8);
+	}
+
+	// And the full-width outline a narrow box glyph leaves wide slots to.
+	void test_a_drawn_full_width_box_at_2bpp_and_8bpp() {
+		for (int bpp = 2; bpp <= 8; bpp += 6) {
+			FakeBoxSource inner(true, 1, bpp);
+			MissingGlyphSource src(&inner, 0x25A1, DisposeAfterUse::NO);
+			TS_ASSERT_EQUALS(src.cells(0xAC00), 2);
+			checkDrawnBox(src, 0xAC00, 14, bpp);
+			// The narrow box glyph itself still fills narrow slots.
+			TS_ASSERT_EQUALS(src.row(0xE9, 3), inner.row(0x25A1, 3));
+		}
 	}
 
 	void test_no_box_glyph_means_no_substitute() {
