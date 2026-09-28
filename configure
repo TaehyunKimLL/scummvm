@@ -5029,7 +5029,8 @@ case $_host_os in
 	msdosdjgpp)
 		# DJGPP's fseeko64(SEEK_CUR) seeks from the DOS handle's position,
 		# past whatever stdio has buffered, so every relative seek after
-		# a read lands too far. FAT files end at 4GB anyway: plain fseek.
+		# a read lands too far. Plain fseek: files up to 2GB, which no
+		# DOS game comes near.
 		;;
 	*)
 		echo_n "Checking if fseeko with 64-bit off_t is supported... "
