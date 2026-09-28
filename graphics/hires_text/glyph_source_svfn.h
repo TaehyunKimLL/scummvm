@@ -67,6 +67,8 @@ public:
 	 *  specifies), bearingY, width, height. */
 	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	uint32 glyphCount() const override;
+	/** The SVFN ascent, held to the cell; -1 for a font that records none (0). */
+	int baselineRow() const override;
 
 private:
 	struct Entry {

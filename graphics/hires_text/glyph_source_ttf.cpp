@@ -709,6 +709,10 @@ int TtfGlyphSource::baseline() const {
 	return CLIP<int>(_yOffset + _font->getFontAscent(), 0, _cellHeight);
 }
 
+int TtfGlyphSource::baselineRow() const {
+	return _font ? baseline() : -1;
+}
+
 int TtfGlyphSource::faceSize() const {
 	return _faceSize;
 }
@@ -798,6 +802,10 @@ uint32 TtfGlyphSource::glyphCount() const {
 
 int TtfGlyphSource::baseline() const {
 	return 0;
+}
+
+int TtfGlyphSource::baselineRow() const {
+	return -1;
 }
 
 int TtfGlyphSource::faceSize() const {
