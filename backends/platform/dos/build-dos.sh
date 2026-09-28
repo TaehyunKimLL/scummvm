@@ -20,4 +20,5 @@ fi
 make -j"$(nproc)"
 cp scummvm.exe "$src/dist/dos/SCUMMVM.EXE"
 cp "$CWSDPMI_EXE" "$src/dist/dos/CWSDPMI.EXE"
+mkdir -p "$src/dist/dos/DATA" && cp "$src"/dists/engine-data/hires_text/dos/* "$src/dist/dos/DATA/"
 ls -la "$src/dist/dos"
