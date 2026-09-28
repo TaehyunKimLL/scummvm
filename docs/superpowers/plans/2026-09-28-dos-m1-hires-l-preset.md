@@ -240,7 +240,10 @@ hires 글리프를 얻는다. FreeType 없는 빌드(DOS)에서는 TTF 가 열�
   3. `_scaled.bin` (640×400 hires 평면) 과 `_pal.bin` 을 바이트 비교. `_low.bin` 도 비교.
   4. LB1: 한국어 패치 디렉터리로 같은 방식, 비교 지점은 인트로에서 한국어 텍스트가 처음 보이는 화면(구현자가 결정론적 지점을 고르고
      근거를 적는다; 복사 방지 화면이 먼저 오면 그 화면의 한국어 텍스트로 충분하다).
-  5. 두 게임 × 비교 전부 같으면 `M1 <emu>: PASS`.
+  5. 모드 전환 확인: DOS 의 SCUMMVM.LOG 에 백엔드의 `DOS: mode 640x400 ...` 줄(M0 최종 수정에서 추가, `debuglevel=1` 필요)이
+     있어야 한다 — 320×200 → 640×400 전환이 실제로 일어났다는 증거. 없으면 FAIL.
+  6. 기준 디렉터리는 실행마다 지우고(`rmtree`), 리눅스 `dump` 응답이 `OK` 인지 확인한다(m0_accept 와 같은 방식).
+  7. 두 게임 × 비교 전부 같으면 `M1 <emu>: PASS`.
 - [ ] **Step 2:** DOSBox-X, Staging 둘 다 실행해 PASS.
 - [ ] **Step 3:** SCUMMVM.LOG 의 `has no glyph` 줄 수를 보고서에 적는다(KQ1: 번역이 2350자 밖 글자를 쓰는지의 실측).
 - [ ] **Step 4: Commit** — `"harness/dos: M1 acceptance, KQ1 and LB1 Korean on the L preset against a FreeType-less Linux build"`.
