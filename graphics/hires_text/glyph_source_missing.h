@@ -31,11 +31,12 @@ namespace Graphics {
 
 /**
  * hires_text.map [hires] missing=: a source that answers for every code
- * point. What @p inner has is inner's; anything else is drawn as a box -
- * a wide (East Asian W/F) character as inner's glyph for the box code point,
- * a narrow one as a 1 px outline drawn in the narrow half of the cell at
- * inner's depth. With no box glyph in inner, nothing is substituted (cells
- * 0, as inner). Each substituted code point is logged once.
+ * point. What @p inner has is inner's; anything else is drawn as a box in
+ * a slot of its Unicode width (East Asian W/F: 2 cells, else 1) - inner's
+ * glyph for the box code point when inner sizes that glyph to the same
+ * cells, else a 1 px outline drawn in the slot at inner's depth. With no
+ * box glyph in inner, nothing is substituted (cells 0, as inner). Each
+ * substituted code point is logged once.
  *
  * Only ask this for a character every other font has declined: it claims
  * them all, so standing in a fallback order before another font would hide
@@ -71,7 +72,7 @@ private:
 	uint32 _boxCp;
 	DisposeAfterUse::Flag _dispose;
 	Common::HashMap<uint32, bool> _substituted;	///< code points logged
-	Common::Array<byte> _narrowBox;				///< the narrow box, every row, built on first use
+	Common::Array<byte> _drawnBox[2];			///< the drawn 1- and 2-cell outlines, every row, built on first use
 };
 
 } // End of namespace Graphics

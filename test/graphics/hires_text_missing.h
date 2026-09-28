@@ -32,12 +32,13 @@ namespace {
 
 /**
  * A 16x16 cell at 1 bpp holding U+0041 (narrow: its first row all set) and,
- * optionally, U+25A1 (wide: a distinct pattern per row, so a row read-back
- * shows which glyph answered).
+ * optionally, U+25A1 (wide unless asked narrow - it is East Asian
+ * Ambiguous, so a source may size it either way - with a distinct pattern
+ * per row, so a row read-back shows which glyph answered).
  */
 class FakeBoxSource : public UnicodeGlyphSource {
 public:
-	explicit FakeBoxSource(bool haveBox) : _haveBox(haveBox), _a(16 * 4, 0), _box(16 * 4, 0) {
+	explicit FakeBoxSource(bool haveBox, int boxCells = 2) : _haveBox(haveBox), _boxCells(boxCells), _a(16 * 4, 0), _box(16 * 4, 0) {
 		// Rows are cellWidth()*2 = 32 px at 1 bpp: 4 bytes.
 		_a[0] = 0xFF;
 		for (int y = 0; y < 16; y++)
@@ -53,7 +54,7 @@ public:
 		if (cp == 0x41)
 			return 1;
 		if (cp == 0x25A1 && _haveBox)
-			return 2;
+			return _boxCells;
 		return 0;
 	}
 	const byte *row(uint32 cp, int y) override {
@@ -67,6 +68,7 @@ public:
 
 private:
 	bool _haveBox;
+	int _boxCells;
 	Common::Array<byte> _a, _box;
 };
 
@@ -133,6 +135,35 @@ public:
 		TS_ASSERT(src.metrics(0xE9, m));
 		TS_ASSERT(!m.wide);
 		TS_ASSERT_EQUALS(m.advance, 8);
+	}
+
+	// A source that sizes the box glyph narrow (a face going by Unicode
+	// width) has it used for narrow slots, and a wide slot gets a drawn
+	// full-cell outline instead of a narrow glyph in a wide slot.
+	void test_a_narrow_box_glyph_fills_narrow_slots_only() {
+		FakeBoxSource inner(true, 1);
+		MissingGlyphSource src(&inner, 0x25A1, DisposeAfterUse::NO);
+		TS_ASSERT_EQUALS(src.cells(0xE9), 1);
+		for (int y = 0; y < 16; y++)
+			TS_ASSERT_EQUALS(src.row(0xE9, y), inner.row(0x25A1, y));
+		TS_ASSERT_EQUALS(src.cells(0xAC00), 2);
+		// Columns 1..14, rows 1..14.
+		for (int y = 0; y < 16; y++) {
+			const byte *row = src.row(0xAC00, y);
+			TS_ASSERT(row);
+			if (!row)
+				continue;
+			for (int x = 0; x < 32; x++) {
+				bool want = false;
+				if (y == 1 || y == 14)
+					want = x >= 1 && x <= 14;
+				else if (y >= 2 && y <= 13)
+					want = x == 1 || x == 14;
+				TS_ASSERT_EQUALS(pixelOn(row, x), want);
+			}
+		}
+		TS_ASSERT_EQUALS(src.advance(0xAC00), 16);
+		TS_ASSERT_EQUALS(src.advance(0xE9), 8);
 	}
 
 	void test_no_box_glyph_means_no_substitute() {
