@@ -34,6 +34,7 @@
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
+#include "graphics/hires_text/chain_layout.h"
 #include "graphics/hires_text/coverage.h"
 #include "graphics/hires_text/font_face.h"
 #include "graphics/hires_text/glyph_source_fallback.h"
@@ -729,34 +730,33 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 		*firstFace = firstTtf;
 
 	// The faces and the .uni fonts, all in one cell at 8 bpp: what
-	// FallbackGlyphSource asks of its sources. A chain of TrueType faces
-	// shares the first face's cell as it always did, the .uni fonts starting
-	// at its row pad. One with a bitmap face in it is brought to a cell that
-	// holds every face with their cells proper starting on one row (the
-	// largest row pad), each face that does not already fill that cell at
-	// 8 bpp - and the .uni fonts - presented there by NormalizedGlyphSource.
-	bool allTtf = true;
+	// FallbackGlyphSource asks of its sources (Graphics::layoutFaceChain()).
+	// A chain of TrueType faces shares the first face's cell as it always
+	// did, the .uni fonts starting at its row pad. One with a bitmap face in
+	// it is brought to a cell that holds every face and the .uni fonts, the
+	// faces standing on one baseline (their cells proper starting on one
+	// row when a face does not know its baseline); each face that does not
+	// already fill that cell at 8 bpp - and the .uni fonts - is presented
+	// there by NormalizedGlyphSource.
+	GfxFontUnicode *uni = loadUniBundle();
+	Graphics::UnicodeGlyphSource *uniSource = uni ? uni->source() : nullptr;
+	Common::Array<Graphics::ChainFaceInfo> infos;
 	for (uint i = 0; i < faces.size(); i++) {
-		if (_svfnSources.contains(names[i]))
-			allTtf = false;
+		Graphics::ChainFaceInfo info;
+		info.cellWidth = faces[i]->cellWidth();
+		info.cellHeight = faces[i]->cellHeight();
+		info.rowPad = pads[i];
+		info.bpp = faces[i]->bitsPerPixel();
+		info.baselineRow = faces[i]->baselineRow();
+		info.trueType = !_svfnSources.contains(names[i]);
+		infos.push_back(info);
 	}
-	int pad = firstTtf ? firstTtf->rowPad() : 0;
-	int cellW = faces[0]->cellWidth(), cellH = faces[0]->cellHeight();
-	Common::Array<int> tops(faces.size(), 0);
-	if (!allTtf) {
-		for (uint i = 0; i < faces.size(); i++)
-			pad = MAX(pad, pads[i]);
-		cellH = 0;
-		for (uint i = 0; i < faces.size(); i++) {
-			tops[i] = pad - pads[i];
-			cellW = MAX<int>(cellW, faces[i]->cellWidth());
-			cellH = MAX<int>(cellH, tops[i] + faces[i]->cellHeight());
-		}
-	}
+	const Graphics::ChainLayout layout = Graphics::layoutFaceChain(
+		infos, uniSource != nullptr, uniSource ? uniSource->cellWidth() : 0, uniSource ? uniSource->cellHeight() : 0);
 	// The first face's line top in the chain's cell (C41 align=font): a
 	// TrueType face's own, a bitmap font's first row (its cell is its line).
 	if (lineTop)
-		*lineTop = tops[0] + (firstTtf ? firstTtf->lineTop() : 0);
+		*lineTop = layout.tops[0] + (firstTtf ? firstTtf->lineTop() : 0);
 
 	for (uint i = 0; i < names.size(); i++)
 		chainName += (i ? "," : "") + names[i];
@@ -765,8 +765,7 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 	// GfxFontSet falls back to for a character no face has). The chain is
 	// shared by the font ids whose faces, size and bundle all match: the
 	// faces are opened at that size, so another size is another chain.
-	GfxFontUnicode *uni = loadUniBundle();
-	Common::String key = faceChainKey(names, s.size, uni && uni->source());
+	Common::String key = faceChainKey(names, s.size, uniSource != nullptr);
 	if (pixel > 0)
 		key += Common::String::format("|p%d", pixel);
 	if (_chains.contains(key))
@@ -784,14 +783,13 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 	Common::Array<Graphics::UnicodeGlyphSource *> sources;
 	for (uint i = 0; i < faces.size(); i++) {
 		Graphics::UnicodeGlyphSource *f = faces[i];
-		const bool fits = f->bitsPerPixel() == 8 && f->cellWidth() == cellW && f->cellHeight() == cellH && !tops[i];
-		if (allTtf || fits || (faces.size() == 1 && !(uni && uni->source()))) {
+		if (!layout.normalize[i]) {
 			sources.push_back(f);
 			continue;
 		}
 		Common::String error;
 		Graphics::NormalizedGlyphSource *n = Graphics::NormalizedGlyphSource::create(
-			f, cellW, cellH, tops[i], DisposeAfterUse::NO, error);
+			f, layout.cellWidth, layout.cellHeight, layout.tops[i], DisposeAfterUse::NO, error);
 		if (n) {
 			sources.push_back(n);
 			_chainParts.push_back(n);
@@ -800,11 +798,11 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 		}
 	}
 	bool uniBehind = false;
-	if (uni && uni->source() && !sources.empty()) {
+	if (uniSource && !sources.empty()) {
 		// The bundle's 1 bpp cell, presented in the faces' cell.
 		Common::String error;
 		Graphics::NormalizedGlyphSource *n = Graphics::NormalizedGlyphSource::create(
-			uni->source(), cellW, cellH, pad, DisposeAfterUse::NO, error);
+			uniSource, layout.cellWidth, layout.cellHeight, layout.uniTop, DisposeAfterUse::NO, error);
 		if (n) {
 			sources.push_back(n);
 			_chainParts.push_back(n);
@@ -824,6 +822,20 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 	const Common::String at = firstTtf ? Common::String::format("at %dpx", s.size) : Common::String("(bitmap)");
 	debug(1, "SCI: face chain %s %s (%u faces%s)", chainName.c_str(), at.c_str(), sources.size() - (uniBehind ? 1 : 0),
 		  uniBehind ? ", then the .uni fonts" : "");
+	// A chain with a bitmap face in it: where each face stands.
+	bool allTtf = true;
+	for (uint i = 0; i < infos.size(); i++)
+		allTtf &= infos[i].trueType;
+	if (!allTtf) {
+		Common::String rows;
+		for (uint i = 0; i < layout.tops.size(); i++)
+			rows += Common::String::format("%s%d", i ? "," : "", layout.tops[i]);
+		const Common::String behind = uniBehind ? Common::String::format(", the .uni fonts at row %d", layout.uniTop) :
+			Common::String();
+		debug(1, "SCI: face chain %s: %dx%d cell, faces at rows %s (%s)%s", chainName.c_str(), layout.cellWidth,
+			  layout.cellHeight, rows.c_str(), layout.byBaseline ? "on one baseline" : "cells proper on one row",
+			  behind.c_str());
+	}
 	_chains[key] = chain;
 	return chain;
 }
