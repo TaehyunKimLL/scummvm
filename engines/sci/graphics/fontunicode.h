@@ -73,6 +73,20 @@ public:
 	bool isLoaded() const { return _loaded; }
 
 	/**
+	 * hires_text.map [hires] missing=: draw @p boxCp for a code point the
+	 * source lacks (Graphics::MissingGlyphSource), at most once per font.
+	 * hasGlyph() and source() still answer for the source's own glyphs, so
+	 * the box never stands before another face of a GfxFontSet; the set asks
+	 * drawsMissing() once every face has declined a character.
+	 */
+	void setMissing(uint32 boxCp);
+
+	/** Whether this font draws @p codepoint as the missing= box. */
+	bool drawsMissing(uint32 codepoint) const {
+		return _source && _source.get() != _own && !hasGlyph(codepoint) && _source->cells(codepoint) > 0;
+	}
+
+	/**
 	 * Lay the face out in another cell than it is rasterised in, and move
 	 * its glyphs (C41, GlyphPlacement). An inactive placement (the default)
 	 * measures and draws by the source's own cell, as before.
@@ -120,12 +134,12 @@ public:
 	void beginString() override { _anchor.reset(); }
 
 	/** Does this font have a glyph for @p codepoint? */
-	bool hasGlyph(uint32 codepoint) const { return _source && _source->cells(codepoint) > 0; }
+	bool hasGlyph(uint32 codepoint) const { return _own && _own->cells(codepoint) > 0; }
 
 	uint32 glyphCount() const { return _source ? _source->glyphCount() : 0; }
 
 	/** The glyph source, still owned by this font (GfxCache chains the .uni bundle's behind TrueType faces). */
-	Graphics::UnicodeGlyphSource *source() { return _source.get(); }
+	Graphics::UnicodeGlyphSource *source() { return _own; }
 
 	/** The face's own advance for @p cp in hi-res pixels, 0 when unknown
 	 *  (see UnicodeGlyphSource::advance()). */
@@ -140,7 +154,13 @@ private:
 	GuiResourceId _resourceId;
 	bool _loaded;
 
+	/// With missing= (setMissing()), the source set, kept here while
+	/// _source is the box wrapped around it; empty otherwise.
+	Common::DisposablePtr<Graphics::UnicodeGlyphSource> _ownHolder;
+	/// What is drawn and measured: the source set, or the box around it.
 	Common::DisposablePtr<Graphics::UnicodeGlyphSource> _source;
+	/// The source set: its own glyphs, without the box.
+	Graphics::UnicodeGlyphSource *_own;
 
 	/** Scratch buffer for expanding a glyph to one byte per pixel. */
 	Common::Array<byte> _glyphScratch;

@@ -411,6 +411,11 @@ GfxFontUnicode *GfxCache::loadUniBundle() {
 			// Per-glyph advance and placement for a UTF-8 translation only:
 			// a legacy game keeps the bundle's cell widths to the pixel.
 			f->setPerGlyph(g_sci->heapStringsAreUtf8());
+			// [hires] missing=: the box for what no font has. Chained
+			// behind a face, the bundle is read by its own glyphs
+			// (source()), never by the box.
+			if (_hiresApplies && _hiresMapLoaded && _hiresMap.missing)
+				f->setMissing(_hiresMap.missing);
 			_uniBundle = f;
 		} else {
 			delete f;
@@ -567,6 +572,10 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	} else {
 		f->setSource(main, mainPath, DisposeAfterUse::NO);
 	}
+	// [hires] missing=: the box GfxFontSet draws once every face - this
+	// one, the game's own CJK font - has declined a character.
+	if (_hiresApplies && _hiresMapLoaded && _hiresMap.missing)
+		f->setMissing(_hiresMap.missing);
 	_ttfBundles[key] = f;
 	return f;
 }
