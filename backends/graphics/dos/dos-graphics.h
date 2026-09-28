@@ -99,6 +99,7 @@ private:
 	Common::Array<DOS::VideoMode> _modes;
 	Common::Array<SDL_DisplayMode> _sdlModes;	///< SDL3's own copy of _modes[i], as SDL_SetWindowFullscreenMode() takes it
 	bool _lineRepeat;	///< 640x400 game in a 640x480 mode (line-repeat.h)
+	bool _vsync;	///< dos_vsync=wait: send in the vertical retrace
 	uint _formatsW, _formatsH;	///< the size getSupportedFormats() answers for
 
 	SDL_Window *_window;

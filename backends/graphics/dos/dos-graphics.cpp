@@ -24,6 +24,7 @@
 #if defined(DOS_DJGPP)
 
 #include <SDL3/SDL.h>
+#include <pc.h>
 
 #include "backends/graphics/dos/dos-graphics.h"
 #include "backends/platform/dos/line-repeat.h"
@@ -46,7 +47,7 @@ static Graphics::PixelFormat fromSdl(SDL_PixelFormat f, bool &ok) {
 static const uint kMaxDirtyRects = 32;
 
 DosGraphicsManager::DosGraphicsManager() :
-	_lineRepeat(false), _formatsW(640), _formatsH(400),
+	_lineRepeat(false), _vsync(false), _formatsW(640), _formatsH(400),
 	_window(nullptr), _screenChangeID(0), _pendingW(0), _pendingH(0),
 	_overlayVisible(false), _paletteDirty(false), _shakeX(0), _shakeY(0),
 	_fullDirty(false), _cursorVisible(false), _mouseX(0), _mouseY(0) {
@@ -135,6 +136,7 @@ OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
 		return OSystem::kTransactionSizeChangeFailed;
 	}
 	_lineRepeat = choice.lineRepeat;
+	_vsync = ConfMan.get("dos_vsync") == "wait";
 	// The old frame, cursor included, is gone; the full repaint below
 	// draws the cursor afresh.
 	_cursor.forget();
@@ -252,6 +254,11 @@ void DosGraphicsManager::updateScreen() {
 		for (uint i = 0; i < send.size(); ++i) {
 			SDL_Rect r = { send[i].left, send[i].top, send[i].width(), send[i].height() };
 			rects.push_back(r);
+		}
+		if (_vsync) {
+			// Wait for the start of a vertical retrace (VGA input status 1, bit 3).
+			while (inportb(0x3DA) & 8) {}
+			while (!(inportb(0x3DA) & 8)) {}
 		}
 		SDL_UpdateWindowSurfaceRects(_window, rects.empty() ? nullptr : &rects[0], (int)rects.size());
 	}
