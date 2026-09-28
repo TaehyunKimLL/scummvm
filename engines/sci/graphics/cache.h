@@ -120,6 +120,9 @@ private:
 	/** The .uni bundle (sci.uni, korean.uni, towns.uni), loaded at most
 	 *  once; nullptr when the game ships none. */
 	GfxFontUnicode *loadUniBundle();
+	/// [hires] missing=: give @p f the box (GfxFontUnicode::setMissing()),
+	/// warning once when @p name has no glyph to draw it with.
+	void applyMissing(GfxFontUnicode *f, const Common::String &name);
 
 	/**
 	 * The TrueType source for @p path at @p size, opened at most once per
@@ -240,6 +243,7 @@ private:
 	Common::HashMap<Common::String, bool> _notSvfn;
 	/// SVFN faces refused as a Korean game's main face (warned once).
 	Common::HashMap<Common::String, bool> _svfnNoHangul;
+	bool _missingNoBoxWarned = false; ///< applyMissing() said missing= draws nothing
 	/// Unicode bundles built on those sources, by their faces and routing.
 	Common::HashMap<Common::String, GfxFontUnicode *> _ttfBundles;
 	Common::HashMap<int, int> _gameBaselines;  ///< gameFontBaseline(), by font id

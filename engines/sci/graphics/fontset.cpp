@@ -174,8 +174,13 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 	// (GfxFontUnicode::setMissing()): only now, after every face - the
 	// hi-res face, korean.fnt, the .uni fonts - has declined it, so the
 	// box never hides a glyph a later face has. ASCII stays the resource
-	// face's, as below.
-	if (decoded && codePoint >= 0x80) {
+	// face's, as below; so does a byte or an undecodable pair
+	// (isCodePoint()), and a character the resource face has a glyph for
+	// (a 256-glyph font's U+0080..U+00FF in a UTF-8 translation): the loop
+	// above never asks the resource face, so it is asked here, by the
+	// width GfxFontFromResource reports - 0 past its last glyph.
+	if (decoded && codePoint >= 0x80 && isCodePoint(codePoint) &&
+		!(_faces[0].kind == kFaceResource && _faces[0].font->getCharWidth(chr) > 0)) {
 		for (uint i = 0; i < _faces.size(); i++) {
 			const Face &f = _faces[i];
 			if (f.kind == kFaceCodePoint &&
@@ -238,7 +243,10 @@ bool GfxFontSet::isDoubleByte(uint32 chr) {
 	// break the byte walk and draw each half as its own character.
 	if (chr > 0xFF)
 		return true;
-	const byte b = chr & 0xFF;
+	return isLeadByte(chr & 0xFF);
+}
+
+bool GfxFontSet::isLeadByte(byte b) const {
 	switch (_codePage) {
 	case Common::kWindows932:	// Shift-JIS
 		return (b >= 0x81 && b <= 0x9F) || (b >= 0xE0 && b <= 0xFC);
@@ -249,6 +257,22 @@ bool GfxFontSet::isDoubleByte(uint32 chr) {
 	default:
 		return false;
 	}
+}
+
+bool GfxFontSet::isCodePoint(uint32 chr) const {
+	if (_utf8Text)
+		return true;
+	// A byte of a single-byte code page, or a lone byte of a double-byte one.
+	if (chr <= 0xFF)
+		return false;
+	// The pair GfxText16::readChar() could not decode, kept as lead |
+	// trail << 8: it decodes to nothing here either. A code point whose
+	// two bytes happen to read as such a pair is taken for one too, and
+	// falls back to the game's font as before missing= existed.
+	const byte lead = chr & 0xFF, trail = (chr >> 8) & 0xFF;
+	if (chr <= 0xFFFF && isLeadByte(lead) && !decodeCodePagePair(lead, trail, _codePage))
+		return false;
+	return true;
 }
 
 byte GfxFontSet::getCharWidth(uint32 chr) {
