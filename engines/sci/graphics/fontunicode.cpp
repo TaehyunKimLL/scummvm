@@ -22,6 +22,7 @@
 #include "sci/graphics/fontunicode.h"
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontsjis.h"
+#include "graphics/hires_text/glyph_source_file.h"
 #include "graphics/hires_text/glyph_source_scvmuni.h"
 #include "graphics/hires_text/latin_advance.h"
 #include "graphics/hires_text/unicode_props.h"
@@ -57,8 +58,17 @@ bool GfxFontUnicode::load(const Common::String &filename) {
 		return false;
 	}
 
+	// An SVFN bitmap font under a .uni name serves as the bundle too.
 	Common::String error;
-	Graphics::UnicodeGlyphSource *src = Graphics::ScvmuniGlyphSource::create(Common::move(data), filename, error);
+	Graphics::UnicodeGlyphSource *src;
+	if (Graphics::isSvfnFile(size > 0 ? &data[0] : nullptr, size)) {
+		f.seek(0);
+		src = Graphics::createSvfnSource(f, error);
+		if (!src)
+			error = filename + ": " + error;
+	} else {
+		src = Graphics::ScvmuniGlyphSource::create(Common::move(data), filename, error);
+	}
 	if (!src) {
 		warning("GfxFontUnicode: %s", error.c_str());
 		return false;

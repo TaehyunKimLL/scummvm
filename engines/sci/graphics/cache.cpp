@@ -37,6 +37,7 @@
 #include "graphics/hires_text/coverage.h"
 #include "graphics/hires_text/font_face.h"
 #include "graphics/hires_text/glyph_source_fallback.h"
+#include "graphics/hires_text/glyph_source_file.h"
 #include "graphics/hires_text/glyph_source_routed.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
 #include "sci/graphics/textlayout16.h"
@@ -342,6 +343,41 @@ Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int si
 	return src;
 }
 
+Graphics::UnicodeGlyphSource *GfxCache::svfnSource(const Common::String &path, const char *what,
+												  const char *fallback, bool &isSvfn) {
+	isSvfn = false;
+	if (path.empty() || _notSvfn.contains(path))
+		return nullptr;
+	if (_svfnSources.contains(path)) {
+		isSvfn = true;
+		return _svfnSources[path];
+	}
+
+	// Only the header is looked at here; a path that does not open is left
+	// to ttfSource(), which gives it its one warning.
+	int32 faceIndex = 0;
+	Common::String error;
+	Common::SeekableReadStream *stream =
+		Graphics::openFontFace(Common::Path(path, Common::Path::kNativeSeparator), faceIndex, error);
+	byte head[4];
+	if (!stream || stream->read(head, sizeof(head)) != sizeof(head) || !Graphics::isSvfnFile(head, sizeof(head))) {
+		delete stream;
+		_notSvfn[path] = true;
+		return nullptr;
+	}
+
+	isSvfn = true;
+	stream->seek(0);
+	Graphics::UnicodeGlyphSource *src = Graphics::createSvfnSource(*stream, error);
+	delete stream;
+	if (src)
+		debug(1, "SCI: %s %s opened as a %dx%d bitmap font", what, path.c_str(), src->cellWidth(), src->cellHeight());
+	else
+		warning("%s %s: %s; %s", what, path.c_str(), error.c_str(), fallback);
+	_svfnSources[path] = src;
+	return src;
+}
+
 GfxFontUnicode *GfxCache::loadUniBundle() {
 	if (!_uniBundleTried) {
 		_uniBundleTried = true;
@@ -478,13 +514,14 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	});
 	if (rasterBaseline >= 0)
 		in.rasterBaseline = rasterBaseline;
-	if (firstFace)
-		in.faceLineTop = firstFace->lineTop();
+	// A chain led by an SVFN bitmap font has no TrueType first face: its
+	// line is its cell, so the line top is the cell's top row.
+	in.faceLineTop = firstFace ? firstFace->lineTop() : 0;
 	const GlyphPlacement placement = GlyphPlacement::compute(in);
 	debug(1, "SCI: font %d glyphs: %dpx face (%dpx em, %d rows) in a %dpx cell, align %d: baseline row %d, "
 		  "game's %d, line top %d, shift %d -> offset (%d, %d)%s",
 		  fontId, main->cellWidth(), firstFace ? firstFace->faceSize() : 0, main->cellHeight(), s.cell, (int)in.align,
-		  rasterBaseline, gameBaseline, firstFace ? firstFace->lineTop() : -1, s.baseline, placement.dx, placement.dy,
+		  rasterBaseline, gameBaseline, in.faceLineTop, s.baseline, placement.dx, placement.dy,
 		  placement.active() ? "" : " (unchanged)");
 
 	// One router per Latin mode (see unicodeBundleKey()).
@@ -602,6 +639,8 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 	Common::Array<Common::String> names;
 	// The pixel= of the chain actually opened: the global chain has its own.
 	int pixel = s.pixel;
+	// The first face opened, when it is TrueType (its line top and row pad).
+	Graphics::TtfGlyphSource *firstTtf = nullptr;
 	for (int pass = 0; pass < 2 && faces.empty(); pass++) {
 		if (pass == 1) {
 			const FontSettings global = fontSettingsFor(-1);
@@ -612,10 +651,18 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 		}
 		for (uint i = 0; i < paths.size(); i++) {
 			const bool last = i + 1 == paths.size();
-			Graphics::TtfGlyphSource *src = ttfSource(paths[i], s.size, kProbesTranslation, "hires_text_font",
-													  last ? "using the .uni fonts" : "using the next face of the chain",
-													  i == 0 ? pixel : 0);
+			const char *fallback = last ? "using the .uni fonts" : "using the next face of the chain";
+			// An SVFN bitmap font is a face as it is: no size, pixel or fit.
+			bool isSvfn = false;
+			Graphics::UnicodeGlyphSource *src = svfnSource(paths[i], "hires_text_font", fallback, isSvfn);
+			Graphics::TtfGlyphSource *ttf = nullptr;
+			if (!isSvfn) {
+				ttf = ttfSource(paths[i], s.size, kProbesTranslation, "hires_text_font", fallback, i == 0 ? pixel : 0);
+				src = ttf;
+			}
 			if (src) {
+				if (faces.empty())
+					firstTtf = ttf;
 				faces.push_back(src);
 				names.push_back(paths[i]);
 			}
@@ -623,9 +670,8 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 	}
 	if (faces.empty())
 		return nullptr;
-	// Only TrueType faces are pushed above.
 	if (firstFace)
-		*firstFace = static_cast<Graphics::TtfGlyphSource *>(faces[0]);
+		*firstFace = firstTtf;
 
 	for (uint i = 0; i < names.size(); i++)
 		chainName += (i ? "," : "") + names[i];
@@ -658,7 +704,7 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 			Common::String error;
 			Graphics::NormalizedGlyphSource *n = Graphics::NormalizedGlyphSource::create(
 				uni->source(), faces[0]->cellWidth(), faces[0]->cellHeight(),
-				static_cast<Graphics::TtfGlyphSource *>(faces[0])->rowPad(), DisposeAfterUse::NO, error);
+				firstTtf ? firstTtf->rowPad() : 0, DisposeAfterUse::NO, error);
 			if (n) {
 				sources.push_back(n);
 				_chainParts.push_back(n);
@@ -732,6 +778,11 @@ GfxCache::~GfxCache() {
 		 it != _ttfSources.end(); ++it)
 		delete it->_value;
 	_ttfSources.clear();
+	for (Common::HashMap<Common::String, Graphics::UnicodeGlyphSource *>::iterator it = _svfnSources.begin();
+		 it != _svfnSources.end(); ++it)
+		delete it->_value;
+	_svfnSources.clear();
+	_notSvfn.clear();
 	delete _uniBundle;
 	_uniBundle = nullptr;
 }

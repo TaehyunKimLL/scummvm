@@ -139,12 +139,25 @@ private:
 							  const char *what, const char *fallback, int pixel = 0);
 
 	/**
+	 * The SVFN bitmap font at @p path when the file is one (its header,
+	 * Graphics::isSvfnFile()): @p isSvfn is set, and the source is opened at
+	 * most once per path - a bitmap font has its own size - and shared;
+	 * nullptr when it fails to load, with one warning per path, worded as
+	 * ttfSource()'s. @p isSvfn false (and nullptr) for any other file, which
+	 * is then the caller's to open as a TrueType face.
+	 */
+	Graphics::UnicodeGlyphSource *svfnSource(const Common::String &path, const char *what, const char *fallback,
+											 bool &isSvfn);
+
+	/**
 	 * With a UTF-8 translation: every face of @p s's chain that opens,
 	 * then the .uni bundle (in the faces' cell), as one
 	 * FallbackGlyphSource - or the one face alone - checked against the
 	 * translation (one coverage warning per face). Shared by every font id
 	 * with the same chain and owned here. nullptr when no face opens;
-	 * @p chainName receives the faces that did, comma-separated.
+	 * @p chainName receives the faces that did, comma-separated. A face is
+	 * an SVFN bitmap font (svfnSource()) or a TrueType face; @p firstFace
+	 * is the first face only when that one is TrueType.
 	 */
 	Graphics::UnicodeGlyphSource *faceChainFor(const FontSettings &s, Common::String &chainName,
 											   Graphics::TtfGlyphSource **firstFace = nullptr);
@@ -209,6 +222,10 @@ private:
 
 	/// TrueType sources by "path|size|hangul"; nullptr = failed (warned).
 	Common::HashMap<Common::String, Graphics::TtfGlyphSource *> _ttfSources;
+	/// SVFN bitmap faces by path; nullptr = an SVFN file that failed (warned).
+	Common::HashMap<Common::String, Graphics::UnicodeGlyphSource *> _svfnSources;
+	/// Paths already found not to be SVFN files (svfnSource()).
+	Common::HashMap<Common::String, bool> _notSvfn;
 	/// Unicode bundles built on those sources, by their faces and routing.
 	Common::HashMap<Common::String, GfxFontUnicode *> _ttfBundles;
 	Common::HashMap<int, int> _gameBaselines;  ///< gameFontBaseline(), by font id
