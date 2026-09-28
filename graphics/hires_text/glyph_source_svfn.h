@@ -32,7 +32,7 @@ namespace Graphics {
 class HiResBitmapFont;
 
 /**
- * An SVFN bitmap font (HiResBitmapFont, 1bpp or 8bpp) exposed as a
+ * An SVFN bitmap font (HiResBitmapFont, 1, 2 or 8 bpp) exposed as a
  * UnicodeGlyphSource, so an engine can draw from a baked font through the
  * same interface as a live TrueType face (TtfGlyphSource).
  *

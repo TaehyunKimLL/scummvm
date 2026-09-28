@@ -35,16 +35,18 @@ class HiResBitmapFont;
  * One glyph's pixels, in the form the renderer draws from.
  *
  * Coverage, one byte per pixel: 0 where the glyph is absent and 0xFF where it
- * is solid. A 1bpp stencil is accepted too, and read through the same path.
+ * is solid. A 1bpp stencil and 2bpp coverage (four levels, packed as
+ * TextCompose::expandCoverage() reads them) are accepted too, and read
+ * through the same path.
  */
 struct GlyphBitmap {
 	GlyphBitmap() : pixels(nullptr), pitch(0), width(0), height(0), bpp(8), originX(0), originY(0) {}
 
-	const byte *pixels;  ///< coverage, or a 1bpp stencil when bpp is 1
+	const byte *pixels;  ///< coverage (packed at 2bpp), or a 1bpp stencil
 	int pitch;           ///< bytes between rows
 	int width;
 	int height;
-	int bpp;             ///< 1 or 8
+	int bpp;             ///< 1, 2 or 8
 
 	/// Where the top left of these pixels sits relative to the pen position.
 	/// Glyphs are not confined to their advance box - descenders drop below
@@ -160,11 +162,11 @@ struct DilationKernel {
 /**
  * Draws glyphs of a bitmap font onto a CLUT8 surface.
  *
- * An 8bpp font stores coverage rather than a stencil, which a paletted surface
- * cannot express on its own. The renderer therefore writes the colour into the
+ * An 8bpp (or 2bpp) font stores coverage rather than a stencil, which a
+ * paletted surface cannot express on its own. The renderer therefore writes the colour into the
  * text surface and the coverage into a parallel 8bpp one, leaving the caller to
  * blend the two against whatever is behind them. That parallel surface is
- * optional: without it an 8bpp font still draws, keyed, as a stencil of the
+ * optional: without it such a font still draws, keyed, as a stencil of the
  * pixels covered at least kKeyedInkThreshold.
  *
  * Nothing here knows about scaling. A font is baked at the size it will be
