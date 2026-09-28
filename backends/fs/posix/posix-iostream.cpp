@@ -30,12 +30,12 @@ PosixIoStream::PosixIoStream(void *handle) :
 }
 
 int64 PosixIoStream::size() const {
-#if defined(DOS_DJGPP)
+#if defined(__DJGPP__)
 	// DJGPP's fstat() takes some 200 ms under DOSBox (it walks DOS internals
 	// for fields we don't want); SCI asks for a volume's size once per
 	// resource, so opening a game took minutes. Seeking to the end is cheap.
 	return StdioStream::size();
-#endif
+#else
 	int fd = fileno((FILE *)_handle);
 	if (fd == -1) {
 		return StdioStream::size();
@@ -49,4 +49,5 @@ int64 PosixIoStream::size() const {
 	}
 
 	return st.st_size;
+#endif
 }
