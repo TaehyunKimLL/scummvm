@@ -208,6 +208,20 @@ public:
 	 *  without FreeType. */
 	int lineTop() const;
 
+	/**
+	 * Add @p pad empty rows above and below the cell the glyphs are
+	 * rasterised in (C41): the face keeps its size and fit, and its line
+	 * top moves down by @p pad, so ink the fit could not bring inside the
+	 * cell (a fit that ran out of its raster budget, a glyph taller than
+	 * the probe set) is kept instead of cut off, for a drawer that places
+	 * the glyph by its own measurement and lets it overflow its layout
+	 * cell (SCI's GlyphPlacement). cellHeight() grows by 2 * @p pad (held
+	 * within kMaxPixelSize); glyphs already cached are dropped.
+	 */
+	void padRows(int pad);
+	/** The rows padRows() added above the cell. */
+	int rowPad() const { return _rowPad; }
+
 	/** FreeType renders done so far (probes at create() time, plus one per
 	 *  distinct code point since); exposed for tests. */
 	uint32 rasterCount() const { return _rasterCount; }
@@ -323,6 +337,7 @@ private:
 
 	byte _cellWidth = 0;
 	byte _cellHeight = 0;
+	int _rowPad = 0;
 	uint32 _rasterCount = 0;
 	uint32 _totalRenderMs = 0;
 

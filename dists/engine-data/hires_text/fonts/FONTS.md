@@ -92,6 +92,7 @@ A pixel font is sharp only at its design size or at a whole multiple of it.
 | `blackhansans/` | BlackHanSans-Regular.ttf, OFL.txt | 1.0 MB | Korean heavy display face. Use it for heavy serif chapter cards and credits (MI1/MI2/Loom charset 4). It has 2581 syllables (all 2350 of KS X 1001 plus 231 more), not all 11172, so chain a full-coverage face after it. |
 | `coustard/` | Coustard-Black.ttf, OFL.txt | 0.1 MB | Latin heavy serif display face (Cooper/Clarendon look). Use it as `latin_font` next to Black Han Sans. |
 | `nanummyeongjo/` | NanumMyeongjo-Bold.ttf, OFL.txt | 3.1 MB | Korean serif (myeongjo). Use it for light serif charsets, such as the MI1/MI2 verbs (charset 6). It covers all 11172 syllables. |
+| `gowunbatang/` | GowunBatang-Bold.ttf, OFL.txt | 8.2 MB | Korean serif (batang) with a heavier, rounder stroke than Nanum Myeongjo, and its own Latin. King's Quest I Korean's dialogue and title fonts (`../maps/kq1-ko.map`). It covers all 11172 syllables. |
 | `ebgaramond/` | EBGaramond-VF.ttf, OFL.txt | 0.8 MB | Latin old-style serif. Use it as `latin_font` next to Nanum Myeongjo. |
 | `nanumpenscript/` | NanumPenScript-Regular.ttf, OFL.txt | 3.2 MB | Korean handwriting, such as notebooks and notes (e.g. Blackwell). It covers all 11172 syllables. |
 | `caveat/` | Caveat-VF.ttf, OFL.txt | 0.4 MB | Latin handwriting, as the Latin face before Nanum Pen Script. |
@@ -121,6 +122,14 @@ instances cannot be selected.
 - Licence: OFL 1.1, with the Nanum Reserved Font Names listed under NanumGothic.
 - Source: Google Fonts, `ofl/nanummyeongjo`.
 
+**Gowun Batang** (고운바탕) Bold
+- Copyright 2021 The Gowun Batang Project Authors
+  (https://github.com/yangheeryu/Gowun-Batang), per `OFL.txt`.
+- Designer (Google Fonts METADATA.pb): Yanghee Ryu.
+- Licence: OFL 1.1. No Reserved Font Name.
+- Upstream: https://github.com/yangheeryu/Gowun-Batang (commit 4e73f5a9a0).
+- Source: Google Fonts, `ofl/gowunbatang`. Only the Bold cut is shipped.
+
 **EB Garamond**
 - Copyright 2017 The EB Garamond Project Authors. Designed by Georg Duffner and Octavio Pardo.
 - Licence: OFL 1.1. No Reserved Font Name.
@@ -142,8 +151,6 @@ instances cannot be selected.
 
 ## Not shipped
 
-- **Gowun Batang Bold** (OFL): the only static cut is 8.2 MB. Nanum Myeongjo
-  Bold (3.1 MB) takes its place as the Korean serif.
 - **HBIOS-SYS**: 5.7 MB. Its Latin and box-drawing glyphs are CC BY-SA 4.0
   (VileR, int10h.org), and the rest is OFL. The mixed licence needs its own
   attribution and share-alike terms. Neo둥근모 covers the same use.

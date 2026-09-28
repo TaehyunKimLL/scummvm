@@ -95,6 +95,37 @@ enum HiResMetricsSource {
 };
 
 /**
+ * What sets the layout cell of an SCI hi-res face ([hires] cell=, [font.N]
+ * cell=): the cell is the advance of a wide glyph (half of it for a narrow
+ * one) and the height the font reports. SCUMM does not read it.
+ */
+enum HiResCellMode {
+	/// The engine's own cell (16 hi-res px on SCI), whatever size= says:
+	/// size= only sets how large the glyphs are drawn, and a glyph larger
+	/// than the cell draws over its neighbours instead of being clipped.
+	kHiResCellGame = 0,
+	/// The cell is size= itself: a larger size= spaces the text wider and
+	/// wraps it earlier. The behaviour before C41.
+	kHiResCellGlyph
+};
+
+/**
+ * Where an SCI hi-res face sits vertically ([hires] align=, [font.N]
+ * align=). SCUMM does not read it.
+ */
+enum HiResAlign {
+	/// The face's baseline on the game font's baseline, so every glyph of
+	/// the face stands where the game's own letters stood.
+	kHiResAlignGame = 0,
+	/// The probe fit's box centred on the cell: the placement before C41.
+	kHiResAlignCell,
+	/// The face's own line: its line top on the text line's top, its
+	/// baseline the face's ascent below it, as FreeType lays a line out -
+	/// independent of the game font.
+	kHiResAlignFont
+};
+
+/**
  * How a font's Latin (ASCII) range is drawn, for engines that route it to a
  * replacement face ([latin] mode=, [font.N] latin=). SCUMM does not read it.
  */
@@ -125,6 +156,14 @@ struct HiResFontIdSettings {
 	/// first face of the chain is a pixel face; the rest are fallbacks.
 	int pixel;
 	bool pixelSet;
+	/// baseline=<+-px> (SCI): the glyphs are drawn this many hi-res px lower
+	/// (negative: higher) in their cell; the layout does not move.
+	int baseline;
+	bool baselineSet;
+	HiResCellMode cell;               ///< cell=game|glyph (SCI), see HiResCellMode
+	bool cellSet;
+	HiResAlign align;                 ///< align=game|cell (SCI), see HiResAlign
+	bool alignSet;
 	HiResLatinMode latin;             ///< latin=
 	bool latinSet;
 	Common::String latinFont;         ///< latin_font= (or latin_face=)
@@ -304,6 +343,12 @@ struct HiResTextConfig {
 	bool hiresSizeSet;
 	int hiresPixel;                   ///< [hires] pixel=, see HiResFontIdSettings::pixel
 	bool hiresPixelSet;
+	int hiresBaseline;                ///< [hires] baseline=, see HiResFontIdSettings::baseline
+	bool hiresBaselineSet;
+	HiResCellMode hiresCell;          ///< [hires] cell=, see HiResCellMode
+	bool hiresCellSet;
+	HiResAlign hiresAlign;            ///< [hires] align=, see HiResAlign
+	bool hiresAlignSet;
 	/// [hires] face= as a fallback chain; see HiResFontIdSettings::faceChain.
 	Common::Array<Common::Path> hiresFaceChain;
 	HiResLatinMode latinMode;         ///< [latin] mode=

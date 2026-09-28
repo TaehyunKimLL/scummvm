@@ -713,6 +713,16 @@ int TtfGlyphSource::faceSize() const {
 	return _faceSize;
 }
 
+void TtfGlyphSource::padRows(int pad) {
+	pad = MIN(pad, (kMaxPixelSize - (int)_cellHeight) / 2);
+	if (pad <= 0)
+		return;
+	_cellHeight = (byte)(_cellHeight + 2 * pad);
+	_yOffset += pad;
+	_rowPad += pad;
+	_cache.clear();
+}
+
 int TtfGlyphSource::lineTop() const {
 	return _yOffset;
 }
@@ -792,6 +802,9 @@ int TtfGlyphSource::baseline() const {
 
 int TtfGlyphSource::faceSize() const {
 	return 0;
+}
+
+void TtfGlyphSource::padRows(int /*pad*/) {
 }
 
 int TtfGlyphSource::lineTop() const {

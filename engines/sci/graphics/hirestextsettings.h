@@ -38,12 +38,25 @@ namespace Sci {
 struct FontSettings {
 	FontSettings();
 
+	/// The cell and face size when nothing sets them, hi-res px.
+	static const int kDefaultCell = 16;
+
 	Common::String facePath;         ///< main TrueType face; empty = none named
 	/// The face chain facePath heads (hires_text.map "face=ko, ja, th"), as
 	/// paths; faceChain[0] == facePath. GfxCache opens the whole chain for a
 	/// UTF-8 translation, the first face only otherwise.
 	Common::Array<Common::String> faceChain;
-	int size;                        ///< face size in pixels
+	int size;                        ///< face size in pixels: the cell the face is rasterised in
+	/// The layout cell in hi-res px (C41): the advance of a wide glyph.
+	/// [font.N]/[hires] cell=game (the default) keeps kDefaultCell whatever
+	/// size is; cell=glyph makes it size, as before C41.
+	int cell;
+	/// [font.N]/[hires] baseline=: hi-res px the glyphs move down (negative: up).
+	int baseline;
+	/// [font.N]/[hires] align=: the face's baseline on the game font's
+	/// (game, the default), the fit's box centred on the cell (cell, before
+	/// C41), or the face's own line from the line top (font).
+	Graphics::HiResAlign align;
 	int pixel;                       ///< [font.N]/[hires] pixel=: the first face's design size, held on its grid; 0 = none
 	LatinMode latin;                 ///< how ASCII is drawn
 	Common::String latinFacePath;    ///< face for the Latin range; empty = the main face

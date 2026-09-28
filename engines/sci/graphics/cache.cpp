@@ -27,6 +27,7 @@
 #include "sci/engine/state.h"
 #include "sci/engine/selector.h"
 #include "sci/graphics/cache.h"
+#include "graphics/hires_text/text_compose.h"
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/fontsjis.h"
 #include "sci/graphics/fontbanked.h"
@@ -325,6 +326,10 @@ Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int si
 		if (src) {
 			// [hires] gamma=: off (100) unless the map asks.
 			src->setCoverageGamma(_hiresMap.coverageGamma);
+			// C41: rows of headroom above and below the cell, so a glyph
+			// the fit could not bring inside it is kept whole; GfxFontUnicode
+			// places the raster by its measured baseline (GlyphPlacement).
+			src->padRows((size + 3) / 4);
 			debug(1, "SCI: %s %s opened at %dpx in %u ms", what, path.c_str(), size, elapsedMs);
 		}
 	}
@@ -371,8 +376,11 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	const FaceProbes probes = g_sci->getSciLanguageCodePage() == Common::kWindows949 ? kProbesHangul : kProbesDefault;
 	Common::String mainPath = s.facePath;
 	Graphics::UnicodeGlyphSource *main = nullptr;
+	// The face whose baseline places the glyphs (C41): the main face, or the
+	// first face of the chain.
+	Graphics::TtfGlyphSource *firstFace = nullptr;
 	if (utf8) {
-		main = faceChainFor(s, mainPath);
+		main = faceChainFor(s, mainPath, &firstFace);
 	} else if (!mainPath.empty()) {
 		// A face only this font id names ([font.N] face=) falls back to the
 		// face every other id gets (the ini key, else [hires] font=), then
@@ -380,14 +388,15 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 		const FontSettings global = fontSettingsFor(-1);
 		const bool haveGlobal = !global.facePath.empty() && global.facePath != mainPath;
 		const Common::String toGlobal = "using " + global.facePath;
-		main = ttfSource(mainPath, s.size, probes, "hires_text_font",
-						 haveGlobal ? toGlobal.c_str() : "using the .uni fonts", s.pixel);
-		if (!main && haveGlobal) {
+		firstFace = ttfSource(mainPath, s.size, probes, "hires_text_font",
+							  haveGlobal ? toGlobal.c_str() : "using the .uni fonts", s.pixel);
+		if (!firstFace && haveGlobal) {
 			// The global face with its own pixel= ([hires]), never this id's.
 			mainPath = global.facePath;
 			s.pixel = global.pixel;
-			main = ttfSource(mainPath, s.size, probes, "hires_text_font", "using the .uni fonts", s.pixel);
+			firstFace = ttfSource(mainPath, s.size, probes, "hires_text_font", "using the .uni fonts", s.pixel);
 		}
+		main = firstFace;
 	}
 	// The set carries what is actually drawn.
 	s.facePath = main ? mainPath : Common::String();
@@ -438,15 +447,58 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	if (!latin)
 		s.latinFacePath.clear();
 
+	// C41: the face in its layout cell - on the game font's baseline
+	// (align=game), on its own line (font) or centred (cell) - moved by
+	// baseline=. Every font id has its own game baseline, so the placement
+	// is part of the bundle's key; the sources stay shared.
+	GlyphPlacement::Input in;
+	in.rasterWidth = main->cellWidth();
+	in.rasterHeight = main->cellHeight();
+	in.cellPx = s.cell;
+	in.align = s.align == Graphics::kHiResAlignFont ? GlyphPlacement::kAlignFont :
+		(s.align == Graphics::kHiResAlignCell ? GlyphPlacement::kAlignCell : GlyphPlacement::kAlignGame);
+	in.shift = s.baseline;
+	const int gameBaseline = in.align == GlyphPlacement::kAlignGame ? gameFontBaseline(fontId) : -1;
+	if (gameBaseline >= 0)
+		in.gameBaseline = gameBaseline;
+	// The face's baseline as its capitals and digits stand on it, measured
+	// on the glyphs as drawn in the raster cell: the rule the game font is
+	// measured by (half coverage counts as ink).
+	const int rasterBaseline = bitmapFontBaseline([main](uint32 cp) -> int {
+		if (main->cells(cp) <= 0)
+			return -1;
+		const int w = main->cellWidth() * main->cells(cp), bpp = main->bitsPerPixel();
+		for (int y = main->cellHeight() - 1; y >= 0; y--) {
+			const byte *row = main->row(cp, y);
+			for (int x = 0; row && x < w; x++)
+				if (Graphics::TextCompose::expandCoverage(row, x, bpp) >= 128)
+					return y + 1;
+		}
+		return -1;
+	});
+	if (rasterBaseline >= 0)
+		in.rasterBaseline = rasterBaseline;
+	if (firstFace)
+		in.faceLineTop = firstFace->lineTop();
+	const GlyphPlacement placement = GlyphPlacement::compute(in);
+	debug(1, "SCI: font %d glyphs: %dpx face (%dpx em, %d rows) in a %dpx cell, align %d: baseline row %d, "
+		  "game's %d, line top %d, shift %d -> offset (%d, %d)%s",
+		  fontId, main->cellWidth(), firstFace ? firstFace->faceSize() : 0, main->cellHeight(), s.cell, (int)in.align,
+		  rasterBaseline, gameBaseline, firstFace ? firstFace->lineTop() : -1, s.baseline, placement.dx, placement.dy,
+		  placement.active() ? "" : " (unchanged)");
+
 	// One router per Latin mode (see unicodeBundleKey()).
 	Common::String key = unicodeBundleKey(mainPath, s.size, s.latinFacePath, s.latin);
 	if (s.pixel > 0)
 		key += Common::String::format("|p%d", s.pixel);
+	if (placement.active())
+		key += Common::String::format("|c%d,%d,%d", placement.cellPx, placement.dx, placement.dy);
 	if (_ttfBundles.contains(key))
 		return _ttfBundles[key];
 
 	GfxFontUnicode *f = new GfxFontUnicode(_screen, 0);
 	f->setPerGlyph(utf8);
+	f->setPlacement(placement);
 	if (latin) {
 		// The router owns neither face: both stay in _ttfSources, shared.
 		f->setSource(new Graphics::RoutedGlyphSource(main, latin, toHiResLatinMode(s.latin), DisposeAfterUse::NO), mainPath);
@@ -520,8 +572,25 @@ void GfxCache::checkFaceCoverage(Graphics::UnicodeGlyphSource *src, const Common
 	sample = left;
 }
 
-Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Common::String &chainName) {
+int GfxCache::gameFontBaseline(GuiResourceId fontId) {
+	if (_gameBaselines.contains(fontId))
+		return _gameBaselines[fontId];
+	int baseline = -1;
+	if (fontResourceExists(_resMan, fontId)) {
+		GfxFontFromResource font(_resMan, _screen, fontId);
+		baseline = bitmapFontBaseline([&font](uint32 ch) { return font.inkBottom(ch); });
+		if (baseline >= 0)
+			baseline *= getSciVersion() >= SCI_VERSION_2 ? 1 : 2;
+	}
+	_gameBaselines[fontId] = baseline;
+	return baseline;
+}
+
+Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Common::String &chainName,
+													 Graphics::TtfGlyphSource **firstFace) {
 	chainName.clear();
+	if (firstFace)
+		*firstFace = nullptr;
 	Common::Array<Common::String> paths = s.faceChain;
 	if (paths.empty() && !s.facePath.empty())
 		paths.push_back(s.facePath);
@@ -554,6 +623,9 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 	}
 	if (faces.empty())
 		return nullptr;
+	// Only TrueType faces are pushed above.
+	if (firstFace)
+		*firstFace = static_cast<Graphics::TtfGlyphSource *>(faces[0]);
 
 	for (uint i = 0; i < names.size(); i++)
 		chainName += (i ? "," : "") + names[i];
@@ -585,7 +657,8 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 			// The bundle's 1 bpp cell, presented in the faces' cell.
 			Common::String error;
 			Graphics::NormalizedGlyphSource *n = Graphics::NormalizedGlyphSource::create(
-				uni->source(), faces[0]->cellWidth(), faces[0]->cellHeight(), DisposeAfterUse::NO, error);
+				uni->source(), faces[0]->cellWidth(), faces[0]->cellHeight(),
+				static_cast<Graphics::TtfGlyphSource *>(faces[0])->rowPad(), DisposeAfterUse::NO, error);
 			if (n) {
 				sources.push_back(n);
 				_chainParts.push_back(n);
