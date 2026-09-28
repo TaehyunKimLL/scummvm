@@ -19,6 +19,14 @@ class DosModesTestSuite : public CxxTest::TestSuite {
 		m.push_back(e); m.push_back(f);
 		return m;
 	}
+	// Staging list plus a 640x480 XRGB8888 mode, to exercise a forced
+	// fallback for a format that also has an exact match.
+	static Common::Array<DOS::VideoMode> stagingWithTrueColorFallback() {
+		Common::Array<DOS::VideoMode> m = staging();
+		DOS::VideoMode g = { 640, 480, DOS::xrgb8888() };
+		m.push_back(g);
+		return m;
+	}
 
 public:
 	void test_exact_mode_found() {
@@ -39,15 +47,62 @@ public:
 		TS_ASSERT(*it++ == Graphics::PixelFormat::createFormatCLUT8());
 	}
 
-	void test_formats_only_what_the_size_has() {
+	// 640x400 has no exact RGB565 mode in the Staging list, but 640x480
+	// RGB565 exists, so RGB565 is reported too (via the line-repeat
+	// fallback) alongside the exact XRGB8888 match.
+	void test_formats_include_fallback_capable_formats() {
 		Common::List<Graphics::PixelFormat> got = DOS::supportedFormats(staging(), 640, 400);
-		TS_ASSERT_EQUALS(got.size(), 2u);
-		TS_ASSERT(got.front() == DOS::xrgb8888());
-		TS_ASSERT(got.back() == Graphics::PixelFormat::createFormatCLUT8());
+		Common::List<Graphics::PixelFormat>::const_iterator it = got.begin();
+		TS_ASSERT_EQUALS(got.size(), 3u);
+		TS_ASSERT(*it++ == DOS::rgb565());
+		TS_ASSERT(*it++ == DOS::xrgb8888());
+		TS_ASSERT(*it++ == Graphics::PixelFormat::createFormatCLUT8());
 	}
 
 	void test_clut8_even_without_a_mode() {
 		Common::List<Graphics::PixelFormat> got = DOS::supportedFormats(staging(), 800, 600);
+		TS_ASSERT_EQUALS(got.size(), 1u);
+		TS_ASSERT(got.front() == Graphics::PixelFormat::createFormatCLUT8());
+	}
+
+	void test_choose_mode_exact_match() {
+		DOS::ModeChoice c = DOS::chooseMode(staging(), 640, 400, DOS::xrgb8888(), false);
+		TS_ASSERT_EQUALS(c.index, 0);
+		TS_ASSERT_EQUALS(c.lineRepeat, false);
+	}
+
+	void test_choose_mode_falls_back_to_640x480() {
+		// No 640x400 RGB565 mode, but 640x480 RGB565 exists (index 2).
+		DOS::ModeChoice c = DOS::chooseMode(staging(), 640, 400, DOS::rgb565(), false);
+		TS_ASSERT_EQUALS(c.index, 2);
+		TS_ASSERT_EQUALS(c.lineRepeat, true);
+	}
+
+	void test_choose_mode_force_fallback_skips_exact_match() {
+		// XRGB8888 has an exact 640x400 match, but forceFallback skips it
+		// and picks the 640x480 XRGB8888 mode instead.
+		Common::Array<DOS::VideoMode> modes = stagingWithTrueColorFallback();
+		DOS::ModeChoice c = DOS::chooseMode(modes, 640, 400, DOS::xrgb8888(), true);
+		TS_ASSERT_EQUALS(c.index, 4);
+		TS_ASSERT_EQUALS(c.lineRepeat, true);
+	}
+
+	void test_choose_mode_no_fallback_when_height_not_multiple_of_5() {
+		// 399 % 5 != 0, so no fallback height is even considered, and
+		// there is no exact 640x399 mode either.
+		DOS::ModeChoice c = DOS::chooseMode(staging(), 640, 399, DOS::rgb565(), false);
+		TS_ASSERT_EQUALS(c.index, -1);
+		TS_ASSERT_EQUALS(c.lineRepeat, false);
+	}
+
+	void test_choose_mode_missing_entirely() {
+		DOS::ModeChoice c = DOS::chooseMode(staging(), 800, 600, DOS::xrgb8888(), false);
+		TS_ASSERT_EQUALS(c.index, -1);
+		TS_ASSERT_EQUALS(c.lineRepeat, false);
+	}
+
+	void test_disallow_true_color_reports_clut8_only() {
+		Common::List<Graphics::PixelFormat> got = DOS::supportedFormats(dosboxX(), 640, 400, false);
 		TS_ASSERT_EQUALS(got.size(), 1u);
 		TS_ASSERT(got.front() == Graphics::PixelFormat::createFormatCLUT8());
 	}
