@@ -29,6 +29,7 @@
 #include "sci/graphics/cache.h"
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/fontsjis.h"
+#include "sci/graphics/fontbanked.h"
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
@@ -722,20 +723,28 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 	// The legacy double-byte faces, when the game ships their font file.
 	// GfxFontKorean and GfxFontSjis call error() on a missing file, so
 	// existence is checked rather than assumed.
-	switch (g_sci->getLanguage()) {
-	case Common::KO_KOR:
-		if (Common::File::exists(Common::Path("korean.fnt")))
+	if (g_sci->usesKoreanText()) {
+		if (Common::File::exists(Common::Path("korean.fnt"))) {
 			// GfxFontKorean and GfxFontSjis already halve their own metrics below
-		// SCI2, so they must NOT be marked as hires-plane faces here - doing
-		// so halves twice and the glyphs pile up on top of each other.
-		set->addFace(new GfxFontKorean(_screen, 1001), GfxFontSet::kFaceLegacyDbcs);
-		break;
-	case Common::JA_JPN:
+			// SCI2, so they must NOT be marked as hires-plane faces here - doing
+			// so halves twice and the glyphs pile up on top of each other.
+			set->addFace(new GfxFontKorean(_screen, 1001, true), GfxFontSet::kFaceLegacyDbcs);
+		} else if (!uni) {
+			// No korean.fnt and no hi-res face configured: a game that carries
+			// its Hangul as banks of its own FONT resources (Conquests of
+			// Camelot's Korean beta, fontbanked.h) draws from those, at native
+			// resolution, as its patched DOS interpreter did. A configured
+			// hi-res face (hires_text_font / hires_text.map) wins over them.
+			const int bankBase = GfxFontBanked::bankBaseFor(_resMan, fontId);
+			if (bankBase >= 0) {
+				debug(1, "SCI: font %d draws Hangul from font banks %d..%d", fontId, bankBase,
+					  bankBase + GfxFontBanked::kLeadLast - GfxFontBanked::kLeadFirst);
+				set->addFace(new GfxFontBanked(_resMan, _screen, fontId, bankBase), GfxFontSet::kFaceLegacyDbcs);
+			}
+		}
+	} else if (g_sci->getLanguage() == Common::JA_JPN) {
 		if (Common::File::exists(Common::Path("SJIS.FNT")))
 			set->addFace(new GfxFontSjis(_screen, 900), GfxFontSet::kFaceLegacyDbcs);
-		break;
-	default:
-		break;
 	}
 
 	// The Unicode face last: it is the widest, and being last means it only
@@ -762,9 +771,9 @@ GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
 	// resource font serves, which is also what keeps single-byte text
 	// identical to the unmodified engine.
 	GfxFont *fallback = nullptr;
-	if (fontId == 1001 && g_sci->getLanguage() == Common::KO_KOR &&
+	if (fontId == 1001 && g_sci->usesKoreanText() &&
 		Common::File::exists(Common::Path("korean.fnt")))
-		fallback = new GfxFontKorean(_screen, fontId);
+		fallback = new GfxFontKorean(_screen, fontId, getSciVersion() >= SCI_VERSION_2);
 	else if (fontId == 900 && g_sci->getLanguage() == Common::JA_JPN &&
 			 Common::File::exists(Common::Path("SJIS.FNT")))
 		fallback = new GfxFontSjis(_screen, fontId);
@@ -809,8 +818,9 @@ GfxFont *GfxCache::getFont(GuiResourceId fontId) {
 			font = createUnicodeFont(fontId);
 
 		// Create special Korean font in korean games, when font 1001 is selected
-		if (!font && (fontId == 1001) && (g_sci->getLanguage() == Common::KO_KOR))
-			font = new GfxFontKorean(_screen, fontId);
+		if (!font && (fontId == 1001) && g_sci->usesKoreanText())
+			// GfxText16 hands a font code points, GfxText32 packed byte pairs.
+			font = new GfxFontKorean(_screen, fontId, getSciVersion() >= SCI_VERSION_2);
 		// Create special SJIS font in japanese games, when font 900 is selected
 		if (!font && (fontId == 900) && (g_sci->getLanguage() == Common::JA_JPN))
 			font = new GfxFontSjis(_screen, fontId);

@@ -11,6 +11,7 @@ TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/audio/*.h \
 	$(srcdir)/test/math/*.h \
 	$(srcdir)/test/graphics/hires_text*.h \
+	$(srcdir)/test/graphics/korfont.h \
 	$(srcdir)/test/gui/*.h \
 	$(srcdir)/test/image/*.h \
 	$(srcdir)/test/backends/surfacesdl_hwformat.h

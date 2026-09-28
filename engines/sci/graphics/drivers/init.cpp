@@ -135,7 +135,7 @@ Common::RenderMode getRenderMode() {
 	// UTF-8 translation (the upscaled driver draws its text).
 	// Also set default mode if undithering is enabled for a 16 colors game and the render mode is not set to CGA, Hercules
 	// or PC-98 8 colors.
-	if (lang == Common::KO_KOR || g_sci->heapStringsAreUtf8() || (undither && version <= SCI_VERSION_1_EGA_ONLY && selectedMode != Common::kRenderCGA &&
+	if (g_sci->usesKoreanText() || g_sci->heapStringsAreUtf8() || (undither && version <= SCI_VERSION_1_EGA_ONLY && selectedMode != Common::kRenderCGA &&
 		selectedMode != Common::kRenderCGA_BW && selectedMode != Common::kRenderHercA && selectedMode != Common::kRenderHercG && selectedMode != Common::kRenderPC98_8c))
 			result = Common::kRenderDefault;
 

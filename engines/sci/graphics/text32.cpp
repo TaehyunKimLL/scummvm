@@ -342,7 +342,7 @@ void GfxText32::drawTextBox() {
 	}
 
 	// Check for Korean text
-	if (g_sci->getLanguage() == Common::KO_KOR)
+	if (g_sci->usesKoreanText())
 		SwitchToFont1001OnKorean(text);
 
 	charIndex = 0;
@@ -798,7 +798,7 @@ Common::Rect GfxText32::getTextSize(const Common::String &text, int16 maxWidth, 
 			const char *sourceText = rawText;
 
 			// Check for Korean text
-			if (g_sci->getLanguage() == Common::KO_KOR)
+			if (g_sci->usesKoreanText())
 				SwitchToFont1001OnKorean(rawText);
 
 			uint charIndex = 0;
