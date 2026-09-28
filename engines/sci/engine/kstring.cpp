@@ -111,6 +111,49 @@ reg_t kStrCpy(EngineState *s, int argc, reg_t *argv) {
 }
 
 
+// One byte of a string at @p offset, read and optionally replaced, for a
+// raw segment or one of reg_t cells (two bytes per cell).
+static byte strAtByte(SegmentRef &r, uint16 offset, bool write, byte newvalue) {
+	// FIXME: Move this to segman
+	if (r.isRaw) {
+		const byte value = r.raw[offset];
+		if (write)
+			r.raw[offset] = newvalue;
+		return value;
+	}
+
+	if (r.skipByte)
+		offset++;
+
+	reg_t &tmp = r.reg[offset / 2];
+
+	bool oddOffset = offset & 1;
+	if (g_sci->isBE())
+		oddOffset = !oddOffset;
+
+	byte value;
+	if (!oddOffset) {
+		value = tmp.getOffset() & 0x00ff;
+		if (write) {
+			uint16 tmpOffset = tmp.toUint16();
+			tmpOffset &= 0xff00;
+			tmpOffset |= newvalue;
+			tmp.setOffset(tmpOffset);
+			tmp.setSegment(0);
+		}
+	} else {
+		value = tmp.getOffset() >> 8;
+		if (write) {
+			uint16 tmpOffset = tmp.toUint16();
+			tmpOffset &= 0x00ff;
+			tmpOffset |= newvalue << 8;
+			tmp.setOffset(tmpOffset);
+			tmp.setSegment(0);
+		}
+	}
+	return value;
+}
+
 reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 	if (argv[0] == SIGNAL_REG) {
 		warning("Attempt to perform kStrAt() on a signal reg");
@@ -123,7 +166,6 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 		return NULL_REG;
 	}
 
-	byte value;
 	byte newvalue = 0;
 	uint16 offset = argv[1].toUint16();
 	if (argc > 2)
@@ -132,11 +174,7 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 	g_sci->_tts->setMessage(s->_segMan->getString(argv[0]));
 
 	// With UTF-8 in the heap, the index the script hands us counts code
-	// points, and a read returns the whole code point. A write cannot be
-	// done in place - replacing a 1-byte character with a 3-byte one would
-	// move every byte after it - so writes keep byte semantics and say so.
-	// Measured (M11_STRING_OPS.md): no shipped game writes into translated
-	// text through this op, so the warning is for the fan game that might.
+	// points, and a read returns the whole code point.
 	if (g_sci->heapStringsAreUtf8() && argc <= 2) {
 		const Common::String str = s->_segMan->getString(argv[0]);
 		const byte *p = (const byte *)str.c_str();
@@ -146,8 +184,36 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 		int bytes;
 		return make_reg(0, decodeUtf8Char(p + byteOff, bytes) & 0xFFFF);
 	}
-	if (g_sci->heapStringsAreUtf8() && argc > 2)
-		warning("kStrAt: byte write at %u into a UTF-8 string", offset);
+
+	// A write takes the same units, or a script that copies a string with
+	// it breaks: LSL1's age quiz drops the answer digit off each question
+	// with (StrAt dst i (StrAt src (+ i 1))), and with code-point reads but
+	// byte writes every character came out as the low byte of its code
+	// point. So the index is a code point too, and the code point's UTF-8
+	// bytes are stored there. A copy loop builds the string left to right,
+	// so the characters before the index are the ones it wrote. Replacing a
+	// character of different length in the middle of a string would still
+	// overwrite its neighbour (it cannot move the bytes after it); no game
+	// is known to do that to translated text.
+	if (g_sci->heapStringsAreUtf8() && argc > 2) {
+		const Common::String str = s->_segMan->getString(argv[0]);
+		const byte *p = (const byte *)str.c_str();
+		const uint32 byteOff = utf8WriteOffset(p, offset);
+		uint16 old = 0;
+		if (byteOff < str.size()) {
+			int bytes;
+			old = decodeUtf8Char(p + byteOff, bytes) & 0xFFFF;
+		}
+		byte enc[4];
+		const int n = encodeUtf8Char(argv[2].toUint16(), enc);
+		if ((int)(byteOff + n) > dest_r.maxSize) {
+			warning("kStrAt offset %X exceeds maxSize", byteOff);
+			return s->r_acc;
+		}
+		for (int i = 0; i < n; i++)
+			strAtByte(dest_r, (uint16)(byteOff + i), true, enc[i]);
+		return make_reg(0, old);
+	}
 
 	// in kq5 this here gets called with offset 0xFFFF
 	//  (in the desert wheng getting the staff)
@@ -156,43 +222,7 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 		return s->r_acc;
 	}
 
-	// FIXME: Move this to segman
-	if (dest_r.isRaw) {
-		value = dest_r.raw[offset];
-		if (argc > 2) /* Request to modify this char */
-			dest_r.raw[offset] = newvalue;
-	} else {
-		if (dest_r.skipByte)
-			offset++;
-
-		reg_t &tmp = dest_r.reg[offset / 2];
-
-		bool oddOffset = offset & 1;
-		if (g_sci->isBE())
-			oddOffset = !oddOffset;
-
-		if (!oddOffset) {
-			value = tmp.getOffset() & 0x00ff;
-			if (argc > 2) { /* Request to modify this char */
-				uint16 tmpOffset = tmp.toUint16();
-				tmpOffset &= 0xff00;
-				tmpOffset |= newvalue;
-				tmp.setOffset(tmpOffset);
-				tmp.setSegment(0);
-			}
-		} else {
-			value = tmp.getOffset() >> 8;
-			if (argc > 2)  { /* Request to modify this char */
-				uint16 tmpOffset = tmp.toUint16();
-				tmpOffset &= 0x00ff;
-				tmpOffset |= newvalue << 8;
-				tmp.setOffset(tmpOffset);
-				tmp.setSegment(0);
-			}
-		}
-	}
-
-	return make_reg(0, value);
+	return make_reg(0, strAtByte(dest_r, offset, argc > 2, newvalue));
 }
 
 

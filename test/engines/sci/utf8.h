@@ -133,4 +133,32 @@ public:
 		TS_ASSERT_EQUALS(Sci::utf8OffsetOf(s, 3), 5u);
 		TS_ASSERT_EQUALS(Sci::utf8OffsetOf(s, 99), 5u);
 	}
+
+	void test_encode_round_trips_through_decode() {
+		const uint32 cps[] = { 0x41, 0xE9, 0xAC00, 0xD7A3, 0x0E01, 0x1F600 };
+		for (uint i = 0; i < ARRAYSIZE(cps); i++) {
+			byte buf[5] = { 0, 0, 0, 0, 0 };
+			const int n = Sci::encodeUtf8Char(cps[i], buf);
+			int bytes = 0;
+			TS_ASSERT_EQUALS(Sci::decodeUtf8Char(buf, bytes), cps[i]);
+			TS_ASSERT_EQUALS(bytes, n);
+		}
+		byte buf[4];
+		TS_ASSERT_EQUALS(Sci::encodeUtf8Char(0x110000, buf), 3);	// U+FFFD
+		TS_ASSERT_EQUALS(buf[0], 0xEF);
+	}
+
+	void test_write_offset_follows_a_left_to_right_copy() {
+		// LSL1's age quiz: (StrAt dst i (StrAt src (+ i 1))). After "가"
+		// (3 bytes) went to index 0 over an old ASCII buffer, index 1 is
+		// byte 3, whatever the old bytes after it are.
+		const byte *built = (const byte *)"\xEA\xB0\x80" "Johnny";
+		TS_ASSERT_EQUALS(Sci::utf8WriteOffset(built, 0), 0u);
+		TS_ASSERT_EQUALS(Sci::utf8WriteOffset(built, 1), 3u);
+		// Past the terminator: one byte per index, as the byte op had it
+		const byte *shortStr = (const byte *)"ab";
+		TS_ASSERT_EQUALS(Sci::utf8WriteOffset(shortStr, 2), 2u);
+		TS_ASSERT_EQUALS(Sci::utf8WriteOffset(shortStr, 5), 5u);
+		TS_ASSERT_EQUALS(Sci::utf8WriteOffset((const byte *)"", 0), 0u);
+	}
 };
