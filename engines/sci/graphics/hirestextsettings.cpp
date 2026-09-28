@@ -26,7 +26,7 @@
 namespace Sci {
 
 FontSettings::FontSettings()
-	: size(16), pixel(0), latin(kLatinOff), fullwidthSpace(false), metrics(Graphics::kHiResMetricsGame) {
+	: size(kDefaultCell), cell(kDefaultCell), baseline(0), alignToGame(true), pixel(0), latin(kLatinOff), fullwidthSpace(false), metrics(Graphics::kHiResMetricsGame) {
 }
 
 HiresTextOverrides::HiresTextOverrides()
@@ -98,6 +98,26 @@ FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapL
 		s.size = font->size;
 	else if (mapLoaded && map.hiresSizeSet)
 		s.size = map.hiresSize;
+
+	// Layout cell (C41): [font.N] cell > [hires] cell > game. game keeps the
+	// engine's cell whatever size says, so size only changes how large the
+	// glyphs are drawn; glyph lays the text out in the face's own cell.
+	Graphics::HiResCellMode cellMode = Graphics::kHiResCellGame;
+	if (font && font->cellSet)
+		cellMode = font->cell;
+	else if (mapLoaded && map.hiresCellSet)
+		cellMode = map.hiresCell;
+	s.cell = cellMode == Graphics::kHiResCellGlyph ? s.size : FontSettings::kDefaultCell;
+
+	// Baseline shift and alignment (C41): [font.N] > [hires] > 0 / game.
+	if (font && font->baselineSet)
+		s.baseline = font->baseline;
+	else if (mapLoaded && map.hiresBaselineSet)
+		s.baseline = map.hiresBaseline;
+	if (font && font->alignSet)
+		s.alignToGame = font->align == Graphics::kHiResAlignGame;
+	else if (mapLoaded && map.hiresAlignSet)
+		s.alignToGame = map.hiresAlign == Graphics::kHiResAlignGame;
 
 	// Pixel font (C28): [font.N] pixel > [hires] pixel > none. The face is
 	// held on its grid in the size above, never shrunk by the fit. It

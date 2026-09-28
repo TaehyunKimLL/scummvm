@@ -34,6 +34,7 @@
 #include "sci/graphics/view.h"
 #include "sci/graphics/palette16.h"
 #include "sci/graphics/scifx.h"
+#include "sci/graphics/ports.h"
 #include "sci/graphics/textlayer.h"
 #include "sci/graphics/drivers/gfxdriver.h"
 
@@ -543,6 +544,27 @@ TextLayer *GfxScreen::ensureTextLayer() {
 
 void GfxScreen::putHiresCoverageGlyph(const byte *coverage, int16 w, int16 h, int16 x, int16 y, byte color) {
 	putHiresCoverageGlyphAt(coverage, w, h, x << 1, y << 1, color);
+}
+
+void GfxScreen::putHiresCoverageGlyphAt(const byte *coverage, int16 w, int16 h, int16 hiresX, int16 hiresY, byte color,
+										bool clipToPort) {
+	if (!clipToPort) {
+		putHiresCoverageGlyphAt(coverage, w, h, hiresX, hiresY, color);
+		return;
+	}
+	TextLayer *l = ensureTextLayer();
+	Common::Rect clip(0, 0, l->width(), l->height());
+	if (g_sci && g_sci->_gfxPorts) {
+		const Common::Rect port = g_sci->_gfxPorts->textClipRect();
+		const int s = l->scale();
+		clip.clip(Common::Rect(port.left * s, port.top * s, port.right * s, port.bottom * s));
+	}
+	Common::Rect r(hiresX, hiresY, hiresX + w, hiresY + h);
+	r.clip(clip);
+	if (r.isEmpty())
+		return;
+	l->putGlyph(hiresX, hiresY, coverage, w, h, color, &clip);
+	_gfxDrv->refreshHiresRect(r, _paletteModsEnabled ? _paletteMods : nullptr, _paletteMapScreen);
 }
 
 void GfxScreen::putHiresCoverageGlyphAt(const byte *coverage, int16 w, int16 h, int16 hiresX, int16 hiresY, byte color) {

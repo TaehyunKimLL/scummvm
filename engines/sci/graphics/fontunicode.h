@@ -72,8 +72,16 @@ public:
 
 	bool isLoaded() const { return _loaded; }
 
+	/**
+	 * Lay the face out in another cell than it is rasterised in, and move
+	 * its glyphs (C41, GlyphPlacement). An inactive placement (the default)
+	 * measures and draws by the source's own cell, as before.
+	 */
+	void setPlacement(const GlyphPlacement &p) { _placement = p; }
+	const GlyphPlacement &placement() const { return _placement; }
+
 	GuiResourceId getResourceId() override { return _resourceId; }
-	byte getHeight() override { return _source ? _source->cellHeight() : 0; }
+	byte getHeight() override { return _placement.active() ? (byte)_placement.cellPx : (_source ? _source->cellHeight() : 0); }
 
 	/** True when this code point occupies two cells (East Asian W/F). */
 	bool isDoubleByte(uint32 chr) override;
@@ -139,6 +147,8 @@ private:
 
 	/// Per-glyph advance and placement: set for a UTF-8 translation only.
 	bool _perGlyph;
+	/// Layout cell and glyph offset (C41).
+	GlyphPlacement _placement;
 	/// Where a combining mark goes; reset by beginString().
 	CombiningAnchor _anchor;
 };

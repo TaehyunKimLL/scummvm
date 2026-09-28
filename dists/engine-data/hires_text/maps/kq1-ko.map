@@ -1,0 +1,46 @@
+; Hi-res text map: King's Quest I (SCI, 1990 remake), Korean UTF-8 translation.
+;
+; Dialogue (font 300) and the title menu (font 4) in Gowun Batang Bold, the
+; status line and the parser line (font 0) in NanumGothic Bold. Latin text,
+; digits and punctuation are drawn by the same face as the Korean, on the
+; same baseline, and advance by the face's own widths.
+;
+; Use it with the game setting
+;     hires_text_map=data:hires_text/maps/kq1-ko.map
+; or copy it into the game folder as hires_text.map (then the data: paths
+; below still find the fonts shipped with ScummVM).
+;
+; size=18 draws the glyphs larger than the 16 px cell the text is laid out
+; in (cell=game, the default), so line breaks and letter spacing are those
+; of a 16 px face; a glyph wider or taller than the cell draws over its
+; neighbours. align=game (the default) stands the face's baseline on the
+; game font's own (font 300: 16 hi-res px below the line top, font 4 and
+; font 0: 14); baseline=-2 lifts the glyphs 2 px from there.
+[hires]
+scale=2
+alpha=true
+face=ko
+
+[fonts]
+ko=data:hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf
+batang=data:hires_text/fonts/gowunbatang/GowunBatang-Bold.ttf
+
+[latin]
+mode=proportional
+metrics=font
+
+; dialogue boxes
+[font.300]
+face=batang
+size=18
+baseline=-2
+
+; title menu buttons
+[font.4]
+face=batang
+size=18
+baseline=-2
+
+; status line, parser input and its echo
+[font.0]
+face=ko

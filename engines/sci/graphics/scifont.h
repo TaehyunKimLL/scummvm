@@ -69,6 +69,10 @@ public:
 	void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 width, int16 height) override;
 #endif
 
+	/** The row under @p chr's lowest ink, in font px from its top; -1 when
+	 *  the font has no such glyph or it has no ink (bitmapFontBaseline()). */
+	int inkBottom(uint32 chr);
+
 private:
 	uint8 getCharHeight(uint32 chr) override;
 	SciSpan<const byte> getCharData(uint32 chr);
