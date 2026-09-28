@@ -76,10 +76,11 @@ void OSystem_DOS::initBackend() {
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
 		error("SDL_Init: %s", SDL_GetError());
 
-	// dos_truecolor=auto|off: off advertises CLUT8 only.
-	// dos_force_fallback=true uses the 640x480 line-repeat mode even when
-	// 640x400 exists (testing).
+	// dos_truecolor=auto|off: off advertises CLUT8 only. dos_vsync=off|wait:
+	// wait sends each frame in the vertical retrace. dos_force_fallback=true
+	// uses the 640x480 line-repeat mode even when 640x400 exists (testing).
 	ConfMan.registerDefault("dos_truecolor", "auto");
+	ConfMan.registerDefault("dos_vsync", "off");
 	ConfMan.registerDefault("dos_force_fallback", false);
 
 	DosGraphicsManager *gfx = new DosGraphicsManager();
