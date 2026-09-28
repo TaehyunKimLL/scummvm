@@ -234,6 +234,8 @@ private:
 	bool _iniLatinIgnoredWarned;
 	/// Font ids already warned about a map Latin mode with no face.
 	Common::HashMap<int, bool> _latinNoFaceWarned;
+	/// Font ids already warned about a Latin face behind a bitmap main face.
+	Common::HashMap<int, bool> _latinBehindBitmapWarned;
 
 	/// TrueType sources by "path|size|hangul"; nullptr = failed (warned).
 	Common::HashMap<Common::String, Graphics::TtfGlyphSource *> _ttfSources;
