@@ -22,6 +22,7 @@
 #include "graphics/hires_text/glyph_renderer.h"
 
 #include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/text_compose.h"
 #include "graphics/surface.h"
 
 #include <math.h>
@@ -49,11 +50,10 @@ const byte HiResGlyphRenderer::kKeyedDecorationThreshold;
 static const int kMaxOutlineQ = 32;
 static const int kMaxLegacyStep = 8;
 
-/// Coverage of one pixel of a glyph, 0 for nothing at all.
+/// Coverage of one pixel of a glyph, 0 for nothing at all. A 1bpp stencil
+/// reads 0 or 0xFF, a 2bpp glyph its level times 85.
 static inline byte glyphCoverage(const byte *row, int x, int bpp) {
-	if (bpp == 1)
-		return (row[x >> 3] & (0x80 >> (x & 7))) ? 0xFF : 0;
-	return row[x];
+	return TextCompose::expandCoverage(row, x, bpp);
 }
 
 GlyphDecoration HiResGlyphRenderer::decorationFor(const GlyphStyle &style) {
@@ -310,8 +310,9 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 	Surface &dest = *planes.index;
 
 	// The coverage surface only makes sense for a glyph that has coverage to
-	// record, and only where it is large enough to hold it.
-	Surface *cov = (planes.coverage && glyph.bpp == 8 && planes.coverage->getPixels()) ? planes.coverage : nullptr;
+	// record (2bpp or 8bpp, not a 1bpp stencil), and only where it is large
+	// enough to hold it.
+	Surface *cov = (planes.coverage && glyph.bpp > 1 && planes.coverage->getPixels()) ? planes.coverage : nullptr;
 
 	// The decoration gets a layer of its own when there is one, and only on
 	// a blended target: a keyed one has nothing to blend it with.

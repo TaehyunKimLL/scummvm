@@ -76,10 +76,12 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
 	for (uint32 y = 0; y < _cellHeight; y++) {
 		byte *dst = &entry.rows[y * _rowBytes];
 		memcpy(dst, glyph + y * pitch, pitch);
-		// At 1bpp the last byte of a row may hold bits past the cell; a wide
-		// glyph reads those as its second cell, so they are cleared.
-		if (_bitsPerPixel == 1 && (_cellWidth & 7))
-			dst[pitch - 1] &= (byte)(0xFF << (8 - (_cellWidth & 7)));
+		// Packed below 8bpp, the last byte of a row may hold bits past the
+		// cell (18 px at 2bpp is 36 bits: 4 of padding); a wide glyph reads
+		// those as its second cell, so they are cleared.
+		const int usedBits = (_cellWidth * _bitsPerPixel) & 7;
+		if (usedBits)
+			dst[pitch - 1] &= (byte)(0xFF << (8 - usedBits));
 	}
 	return entry;
 }

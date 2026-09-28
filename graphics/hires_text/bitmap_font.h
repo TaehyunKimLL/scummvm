@@ -39,11 +39,12 @@ namespace Graphics {
 // glyph_source.h, shared with UnicodeGlyphSource::metrics().
 
 /**
- * A bitmap font holding either a 1bpp stencil or 8bpp coverage per pixel.
+ * A bitmap font holding a 1bpp stencil, or 2bpp (four levels) or 8bpp
+ * coverage per pixel.
  *
- * The 8bpp form is what makes anti-aliased text possible without a rasteriser
- * in the build: the shapes are baked once, by a tool that may use FreeType,
- * and at run time only need blending. That makes it the primary format rather
+ * The coverage forms are what make anti-aliased text possible without a
+ * rasteriser in the build: the shapes are baked once, by a tool that may use
+ * FreeType, and at run time only need blending. That makes it the primary format rather
  * than a fallback for builds that lack FreeType.
  *
  * Lookup is by Unicode code point. Files that predate that - everything
@@ -110,8 +111,9 @@ public:
 
 	/**
 	 * The pixels of a glyph by index, or null for an index this font does not
-	 * have. 1bpp rows are packed MSB first and padded to a byte; 8bpp rows are
-	 * one byte per pixel. Rows are cellWidth() wide either way.
+	 * have. 1bpp and 2bpp rows are packed MSB first (at 2bpp the leftmost
+	 * pixel is the top bit pair, level 0..3) and padded to a byte; 8bpp rows
+	 * are one byte per pixel. Rows are cellWidth() pixels wide in every case.
 	 */
 	const byte *glyphData(int index) const;
 

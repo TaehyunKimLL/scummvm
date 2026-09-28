@@ -139,7 +139,7 @@ bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit)
 	const uint32 dataOff = READ_LE_UINT32(raw + 24);
 	const uint32 dataSize = READ_LE_UINT32(raw + 28);
 
-	if (bpp != 1 && bpp != 8) {
+	if (bpp != 1 && bpp != 2 && bpp != 8) {
 		warning("HiResText: font has unsupported depth %d", bpp);
 		delete[] raw;
 		return false;
@@ -150,7 +150,9 @@ bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit)
 		return false;
 	}
 
-	const int rowPitch = (bpp == 1) ? (cellW + 7) / 8 : cellW;
+	// Rows are packed MSB first and padded to a byte: at 2bpp four pixels a
+	// byte, the leftmost in the top two bits (TextCompose::expandCoverage()).
+	const int rowPitch = (bpp == 1) ? (cellW + 7) / 8 : (bpp == 2) ? (cellW + 3) / 4 : cellW;
 	const uint32 glyphStride = (uint32)rowPitch * (uint32)cellH;
 
 	// Everything the header points at has to lie inside the file. These are
