@@ -23,6 +23,7 @@
 
 #include "common/config-manager.h"
 #include "common/formats/ini-file.h"
+#include "common/archive.h"
 #include "common/fs.h"
 #include "common/stream.h"
 #include "common/textconsole.h"
@@ -273,14 +274,8 @@ Common::Path HiResFontMap::resolveDataPath(const Common::String &relative,
 
 namespace {
 
-/// Add @p domain's own extrapath to @p roots, once.
-void addExtraPathRoot(Common::Array<Common::Path> &roots, const Common::String &domain) {
-	if (domain.empty())
-		return;
-	const Common::ConfigManager::Domain *dom = ConfMan.getDomain(domain);
-	if (!dom || !dom->contains("extrapath"))
-		return;
-	const Common::Path path = Common::Path::fromConfig(dom->getVal("extrapath"));
+/// Add @p path to @p roots unless it is empty or already there.
+void addUniqueRoot(Common::Array<Common::Path> &roots, const Common::Path &path) {
 	if (path.empty())
 		return;
 	for (uint i = 0; i < roots.size(); ++i) {
@@ -288,6 +283,16 @@ void addExtraPathRoot(Common::Array<Common::Path> &roots, const Common::String &
 			return;
 	}
 	roots.push_back(path);
+}
+
+/// Add @p domain's own extrapath to @p roots, once.
+void addExtraPathRoot(Common::Array<Common::Path> &roots, const Common::String &domain) {
+	if (domain.empty())
+		return;
+	const Common::ConfigManager::Domain *dom = ConfMan.getDomain(domain);
+	if (!dom || !dom->contains("extrapath"))
+		return;
+	addUniqueRoot(roots, Common::Path::fromConfig(dom->getVal("extrapath")));
 }
 
 } // End of anonymous namespace
@@ -301,6 +306,37 @@ Common::Array<Common::Path> HiResFontMap::dataRoots() {
 #ifdef DATA_PATH
 	roots.push_back(Common::Path(DATA_PATH, Common::Path::kNativeSeparator));
 #endif
+	const Common::Array<Common::Path> searched = searchSetRoots(SearchMan);
+	for (uint i = 0; i < searched.size(); ++i)
+		addUniqueRoot(roots, searched[i]);
+	return roots;
+}
+
+Common::Array<Common::Path> HiResFontMap::searchSetRoots(const Common::SearchSet &set) {
+	// SearchSet does not hand out its archives, but every member it lists
+	// carries the name of the archive it came from, in priority order.
+	// Only the folder at an archive's root matters, not its search depth:
+	// the "." archive a Windows build finds its data in is one level deep,
+	// while a data: path is three or four levels down from it.
+	Common::Array<Common::Path> roots;
+	Common::ArchiveMemberDetailsList members;
+	set.listMatchingMembers(members, Common::Path("*"));
+	Common::Array<Common::String> seen;
+	for (Common::ArchiveMemberDetailsList::const_iterator it = members.begin(); it != members.end(); ++it) {
+		bool known = false;
+		for (uint i = 0; i < seen.size() && !known; ++i)
+			known = seen[i] == it->arcName;
+		if (known)
+			continue;
+		seen.push_back(it->arcName);
+		const Common::FSDirectory *dir =
+			dynamic_cast<const Common::FSDirectory *>(set.getArchive(it->arcName));
+		if (!dir)
+			continue; // a zip, the Win32 resources, ...: no folder to look in
+		const Common::FSNode node = dir->getFSNode();
+		if (node.isDirectory())
+			addUniqueRoot(roots, node.getPath());
+	}
 	return roots;
 }
 
@@ -317,7 +353,7 @@ Common::Path HiResFontMap::resolvePath(const Common::String &value, const Common
 		}
 		const Common::Path found = resolveDataPath(relative, dataRoots());
 		if (isDataPath(found.toString('/')))
-			warning("HiResText: '%s' is not in the extrapath or the ScummVM data directory", value.c_str());
+			warning("HiResText: '%s' is not in the extrapath or any ScummVM data folder", value.c_str());
 		return found;
 	}
 
