@@ -61,7 +61,17 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
 		return entry;
 
 	const uint32 pitch = (uint32)_font->glyphPitch();
-	entry.cells = Unicode::isWide(cp) ? 2 : 1;
+	// A font with a metrics table says how wide each glyph is: one whose
+	// advance runs past the narrow half cell takes two cells, whatever its
+	// Unicode width. East Asian Ambiguous characters (U+25CB, U+25A1, U+2015,
+	// circled letters) are drawn full width by a Korean font but are not
+	// Unicode::isWide(), so a cell-based layout would advance them by half
+	// the ink they draw. Without the table only the Unicode width is known.
+	GlyphMetrics m;
+	if (_font->isProportional() && _font->glyphMetrics(index, m))
+		entry.cells = m.advance > _cellWidth / 2 ? 2 : 1;
+	else
+		entry.cells = Unicode::isWide(cp) ? 2 : 1;
 	entry.rows.resize(_rowBytes * _cellHeight, 0);
 	for (uint32 y = 0; y < _cellHeight; y++) {
 		byte *dst = &entry.rows[y * _rowBytes];
