@@ -104,7 +104,10 @@ bool DosEventSource::pollEvent(Common::Event &event) {
 		case SDL_EVENT_KEY_UP: {
 			event.type = (ev.type == SDL_EVENT_KEY_DOWN) ? Common::EVENT_KEYDOWN : Common::EVENT_KEYUP;
 			event.kbdRepeat = ev.key.repeat;
-			event.kbd.keycode = toKeyCode(ev.key.key);
+			// The unshifted key, so Shift changing between this key's down and up
+			// (SDL3's default keymap maps a shifted letter scancode to 'A'..'Z',
+			// outside Common::KeyCode's range) cannot split a press/release pair.
+			event.kbd.keycode = toKeyCode(SDL_GetKeyFromScancode(ev.key.scancode, SDL_KMOD_NONE, true));
 			event.kbd.flags = toFlags(ev.key.mod);
 			// The shifted character for this layout, e.g. 'A' or '!'.
 			const SDL_Keycode shifted = SDL_GetKeyFromScancode(ev.key.scancode, ev.key.mod, true);
@@ -115,6 +118,7 @@ bool DosEventSource::pollEvent(Common::Event &event) {
 							: (event.kbd.keycode == Common::KEYCODE_TAB) ? Common::ASCII_TAB
 							: (event.kbd.keycode >= Common::KEYCODE_F1 && event.kbd.keycode <= Common::KEYCODE_F12)
 								? (uint16)(Common::ASCII_F1 + (event.kbd.keycode - Common::KEYCODE_F1)) : 0;
+			// Unmapped keys (menu/media/extra layout keys) are dropped on purpose.
 			if (event.kbd.keycode == Common::KEYCODE_INVALID && !event.kbd.ascii)
 				continue;
 			return true;
