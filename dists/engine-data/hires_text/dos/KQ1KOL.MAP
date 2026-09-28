@@ -1,0 +1,14 @@
+; DOS L preset: King's Quest I (SCI remake), Korean UTF-8 translation.
+; KO2350.SVF (16 px, 1 bpp) beside this file; characters it lacks draw U+25A1.
+[hires]
+scale=2
+alpha=false
+face=ko
+missing=u+25a1
+
+[fonts]
+ko=KO2350.SVF
+
+[latin]
+mode=proportional
+metrics=font
