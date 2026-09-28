@@ -92,6 +92,11 @@ public:
 	 */
 	static NormalizedGlyphSource *create(UnicodeGlyphSource *src, byte cellWidth, byte cellHeight,
 										 DisposeAfterUse::Flag dispose, Common::String &error);
+	/** As above, with the source's rows starting at row @p topRow of the
+	 *  cell instead of row 0 (behind a padded TtfGlyphSource, whose cell
+	 *  proper starts at its TtfGlyphSource::rowPad()). */
+	static NormalizedGlyphSource *create(UnicodeGlyphSource *src, byte cellWidth, byte cellHeight, int topRow,
+										 DisposeAfterUse::Flag dispose, Common::String &error);
 	~NormalizedGlyphSource() override;
 
 	byte cellWidth() const override { return _cellWidth; }
@@ -113,6 +118,7 @@ private:
 	byte _cellWidth, _cellHeight;
 	DisposeAfterUse::Flag _dispose;
 	Common::Array<byte> _scratch;	///< one row: cellWidth * 2 pixels at 8 bpp
+	int _topRow = 0;				///< the cell row the source's row 0 is presented at
 };
 
 } // End of namespace Graphics

@@ -53,9 +53,10 @@ struct FontSettings {
 	int cell;
 	/// [font.N]/[hires] baseline=: hi-res px the glyphs move down (negative: up).
 	int baseline;
-	/// [font.N]/[hires] align=: the face's baseline on the game font's (true,
-	/// the default) or the fit's box centred on the cell (false, before C41).
-	bool alignToGame;
+	/// [font.N]/[hires] align=: the face's baseline on the game font's
+	/// (game, the default), the fit's box centred on the cell (cell, before
+	/// C41), or the face's own line from the line top (font).
+	Graphics::HiResAlign align;
 	int pixel;                       ///< [font.N]/[hires] pixel=: the first face's design size, held on its grid; 0 = none
 	LatinMode latin;                 ///< how ASCII is drawn
 	Common::String latinFacePath;    ///< face for the Latin range; empty = the main face

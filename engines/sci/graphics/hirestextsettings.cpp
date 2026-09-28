@@ -26,7 +26,7 @@
 namespace Sci {
 
 FontSettings::FontSettings()
-	: size(kDefaultCell), cell(kDefaultCell), baseline(0), alignToGame(true), pixel(0), latin(kLatinOff), fullwidthSpace(false), metrics(Graphics::kHiResMetricsGame) {
+	: size(kDefaultCell), cell(kDefaultCell), baseline(0), align(Graphics::kHiResAlignGame), pixel(0), latin(kLatinOff), fullwidthSpace(false), metrics(Graphics::kHiResMetricsGame) {
 }
 
 HiresTextOverrides::HiresTextOverrides()
@@ -115,9 +115,9 @@ FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapL
 	else if (mapLoaded && map.hiresBaselineSet)
 		s.baseline = map.hiresBaseline;
 	if (font && font->alignSet)
-		s.alignToGame = font->align == Graphics::kHiResAlignGame;
+		s.align = font->align;
 	else if (mapLoaded && map.hiresAlignSet)
-		s.alignToGame = map.hiresAlign == Graphics::kHiResAlignGame;
+		s.align = map.hiresAlign;
 
 	// Pixel font (C28): [font.N] pixel > [hires] pixel > none. The face is
 	// held on its grid in the size above, never shrunk by the fit. It

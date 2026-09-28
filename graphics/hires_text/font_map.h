@@ -118,7 +118,11 @@ enum HiResAlign {
 	/// the face stands where the game's own letters stood.
 	kHiResAlignGame = 0,
 	/// The probe fit's box centred on the cell: the placement before C41.
-	kHiResAlignCell
+	kHiResAlignCell,
+	/// The face's own line: its line top on the text line's top, its
+	/// baseline the face's ascent below it, as FreeType lays a line out -
+	/// independent of the game font.
+	kHiResAlignFont
 };
 
 /**
