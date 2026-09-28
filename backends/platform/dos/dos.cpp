@@ -44,7 +44,7 @@
 #include "backends/timer/default/default-timer.h"
 #include "backends/events/default/default-events.h"
 #include "backends/mixer/null/null-mixer.h"
-#include "backends/graphics/null/null-graphics.h"
+#include "backends/graphics/dos/dos-graphics.h"
 #include "common/fs.h"
 #include "base/main.h"
 
@@ -66,7 +66,7 @@ void OSystem_DOS::initBackend() {
 	_timerManager = new DefaultTimerManager();
 	_eventManager = new DefaultEventManager(_eventSource);
 	_savefileManager = new DefaultSaveFileManager("SAVES");
-	_graphicsManager = new NullGraphicsManager();
+	_graphicsManager = new DosGraphicsManager();
 	_mixerManager = new NullMixerManager();
 	_mixerManager->init();
 
