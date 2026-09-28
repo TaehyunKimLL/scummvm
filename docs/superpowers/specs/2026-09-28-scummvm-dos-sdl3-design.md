@@ -179,17 +179,27 @@ FreeType 빌드는 코드 ≈0.5MB + face 당 0.1–0.2MB + 캐시 0.5MB.
 
 ### 4.5 M1/M2 를 계획하며 확인한 사실 (2026-09-28)
 
-- **SCI 의 hires 얼굴(face) 체인은 지금 TTF 전용이다.** 맵의 `bitmap=`(SVFN 폰트 지정)은 SCUMM 만 읽는다
-  (`engines/scumm/hires_text.cpp`). SCI 쪽 체인 빌더(`engines/sci/graphics/cache.cpp`)는 `bitmap=` 을
-  보지 않는다. **M1 이 SVFN 을 SCI 체인에 추가하고 `.uni` 묶음을 더한다** — 이건 DOS 전용이 아니라 범용
-  i18n 기능이다 (2장 원칙 1).
+- **SCI 는 이제 SVFN 을 hires 얼굴(face) 체인과 `.uni` 묶음 양쪽에서 받는다 (M1, `engines/sci/graphics/cache.cpp`).**
+  비-UTF-8 단일 얼굴 경로(레거시 cp949 게임의 `face=`)도 SVFN 을 받는다 — `kProbesHangul` 아래에서 얼굴에
+  한글 글리프가 없으면 경고 한 줄과 함께 거부한다. 이건 DOS 전용이 아니라 범용 i18n 기능이다 (2장 원칙 1).
+  - SVFN 얼굴이 섞인 체인은 한 8bpp 셀로 맞춘다(각 얼굴을 셀 높이·top 오프셋에 맞게 `NormalizedGlyphSource`
+    로 감싼다); TTF 전용 체인은 기존 그대로 손대지 않는다. 서로 다른 높이의 비트맵 얼굴은 위쪽 정렬만 한다
+    — **M2 follow-up**: SVFN 의 ascent 로 베이스라인을 맞추거나, 체인에 들어가는 폰트들을 같은 크기로 굽는다.
+  - 한국어 게임에서 hires 얼굴이 적용 중이면(맵의 `face=` 또는 `hires_text_font`) 그 얼굴이 `korean.fnt`
+    보다 먼저 온다 (일본어/SJIS 순서는 그대로 — `SJIS.FNT` 가 여전히 먼저).
+  - `missing=` 대체는 `GfxFontSet::faceFor` 끝에서, 모든 얼굴(`korean.fnt` 와 `.uni` 포함)이 디코드된
+    non-ASCII 코드 포인트를 거절한 다음에만 일어난다. 게임 자체 리소스 폰트에 그 글자가 있으면 절대
+    대체하지 않는다. □ 폭은 East Asian Width 를 따르고 대체는 코드 포인트마다 처음 한 번만 로그에 남긴다;
+    맵의 □ 글리프를 어느 폰트도 갖지 않으면 그것도 한 번 경고한다.
+  - `KO2350.SVF` 실측: 글리프 2898개, 127,548바이트 (4.3 절의 ≈110KB 추정보다 큼) — neodgm 에 KS X 1001
+    비한글 기호 535개가 없어, 그 글자들은 (missing= 이 있으면) □ 로 그려진다.
+  - DOS L 프리셋 파일: `DATA\KO2350.SVF`, `KQ1KOL.MAP`, `LB1KOL.MAP`, `OFL.TXT`.
 - **SCI 는 맵의 `alpha=` 를 무시한다.** 트루컬러는 `rgb_rendering`/`palette_mods` ConfMan 설정이 있을
   때만 켜지고, 그나마 `getSupportedFormats()` 에서 처음 나오는 **4바이트** 포맷만 고른다 (`RGB565` 는
   이 경로로 절대 선택되지 않는다). **M2 가 SCI 를 고쳐 백엔드가 주는 첫 non-CLUT8 포맷을 쓰게 한다.**
 - DOS 프리셋 맵과 폰트는 8.3 디렉터리 하나에 모은다 (`dists/engine-data/hires_text/dos` → 배포 시
   `DATA\`) — `hires_text` 자체가 8.3 이름이 아니라서, 맵이 상대 경로로 폰트를 가리키는 별도 디렉터리가
   필요하다.
-- `missing=□` 대체는 SCI 의 폴백 순서에서 패치 원본 폰트보다 뒤에 온다 (그 폰트에도 없는 글자만 □로 간다).
 - 테스트 데이터: KQ1 한국어는 UTF-8 `text.*` + `sci-ko.str` (`ADGF_UTF8I18N`). LB1 한국어는 자체
   `korean.fnt` 를 쓰는 EUC-KR 팬패치다.
 
@@ -253,7 +263,11 @@ M0 스파이크 결론 (`harness/dos/spikes/RESULTS.md`, "타이머"): RTC(IRQ8,
 `DEBUGSOCKET_WIN32` 로 나뉘어 있다. 세 번째 전송 `DEBUGSOCKET_DOSCOM` 을 더한다.
 
 - 설정: `debug_socket=com1` 또는 `debug_socket=com1:115200` (COM1–COM4, 표준 I/O 주소).
-- 16550 UART 를 메인 루프에서 폴링한다 (IRQ 없음). 8N1, FIFO 사용.
+- 16550 UART 수신은 인터럽트로 받는다 (IRQ4/IRQ3; 원래 M3 계획이었으나 M1 로 앞당겼다 — 메인 루프에서
+  16바이트 FIFO 를 폴링하던 방식은 프레임이 길면 FIFO 가 오버런해 명령 바이트를 잃었다). 8N1, FIFO 사용.
+  잠금(locked)된 정적 링 버퍼에 IRQ 핸들러가 바이트를 채우고, `read()` 는 인터럽트를 놓쳤을 때를 대비해
+  FIFO 도 함께 비운다(백스톱). 해제는 소멸자 경로뿐 아니라 `exit()` 경로에서도 일어난다 — `atexit()` 로
+  등록한 정적 teardown 이 PIC 마스크·IER·MCR 을 원래 값으로 복원한다.
 - 명령 집합(걷기, 저장/로드, 일시정지/틱 진행, 객체·플레인 조회, 입력 기록)은 그대로다. 엔진 확장
   (`DebugSocketExtension`) 도 그대로 동작한다.
 - 호스트 쪽: DOSBox-X / Staging 의 `serial1=nullmodem port:<n>` (`server:` 없이) 로 설정하면 DOSBox 가
@@ -261,8 +275,8 @@ M0 스파이크 결론 (`harness/dos/spikes/RESULTS.md`, "타이머"): RTC(IRQ8,
 - DOSBox 는 ScummVM 이 실제로 COM1 을 여는 것보다 훨씬 먼저 그 TCP 접속을 받아들인다. 그 사이에 보낸
   바이트는 유실된다. 하네스는 빈 줄을 3초마다 보내면서 ScummVM 이 (파싱 실패에 대해) 빈 응답 `.` 을
   돌려줄 때까지 기다려 COM1 이 열렸음을 확인한다 — 그 확인 전에 보낸 바이트도 유실된다.
-- 호스트는 바이트 사이 2ms 로 보낸다 (프레임마다 16바이트 FIFO 를 비운다).
-- IRQ 로 받는 수신은 M3 이다. M0/M1/M2 는 메인 루프 폴링만 쓴다.
+- 호스트는 여전히 바이트 사이 2ms 로 보내지만(하네스 코드), 인터럽트 수신이 된 뒤로는 더 이상 필요하지
+  않다.
 - 115200bps(≈11KB/s) 는 명령에 충분하다. 화면은 파일로 남긴다 (7.3).
 
 ## 7. 빌드, 배포, 테스트
@@ -327,7 +341,7 @@ M0 의 DOS 부팅을 막은 원인은 세 가지 모두 엔진이 아니라 DJGP
 | | 내용 | 통과 기준 |
 |---|---|---|
 | M0 | 스파이크 + 최소 포트 | 아래 스파이크 3건이 결론 남. KQ1 이 320×200 CLUT8 로 타이틀까지, 덤프가 기준과 일치. COM 채널로 명령 1개 왕복. **결과: 통과 — DOSBox-X / Staging (memsize 16)** (`harness/dos/spikes/RESULTS.md`, `harness/dos/m0_accept.py`) |
-| M1 | hires 텍스트, L 프리셋 | KQ1·LB1 한국어 대사가 640×400 CLUT8 에 나옴. EUC-KR 패치와 패치 원본 폰트도 확인. □ 대체 로그 |
+| M1 | hires 텍스트, L 프리셋 | KQ1·LB1 한국어 대사가 640×400 CLUT8 에 나옴. EUC-KR 패치와 패치 원본 폰트도 확인. □ 대체 로그. **결과: 통과 — DOSBox-X / Staging.** KQ1 타이틀 + 방 1 "look", LB1 한국어 복사방지 화면(`random_seed=1`) 이 FreeType 없는 리눅스 빌드와 `_low`/`_scaled`/`_pal`/`_layer`/`_out` 바이트 단위로 일치; 모드 로그 320×200 → 640×400 CLUT8 (`harness/dos/m1_accept.py`) |
 | M2 | 알파, U 프리셋 | RGB565/XRGB8888 에서 기준 이미지와 일치. 16bpp 없는 모드 목록(Staging)에서 640×480 줄 반복 폴백. SVFN 2bpp |
 | M3 | 사운드 | KQ1 타이틀 곡의 OPL 노트 온셋을 리눅스(MAME OPL) 와 비교해 편차 중앙값 ≤ 2ms, 최대 ≤ 10ms, 방 로딩 구간 최대 ≤ 20ms. MPU-401 UART 로 같은 곡이 나옴. SB PCM 효과음 1개 재생 |
 | M4 | 마무리 | GUI 오버레이, 세이브/로드, 실기 측정, 배포 패키지 |
