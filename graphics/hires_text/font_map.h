@@ -33,6 +33,7 @@
 #include "graphics/hires_text/text_layout.h"
 
 namespace Common {
+class SearchSet;
 class SeekableReadStream;
 }
 
@@ -486,9 +487,22 @@ public:
 	 * given on the command line (transient domain), the active game's
 	 * extrapath, the global (application) extrapath, the in-tree default
 	 * a non-release build sets (session domain, dists/engine-data/), then
-	 * the compiled-in DATA_PATH (where "make install" puts engine data).
+	 * the compiled-in DATA_PATH (where "make install" puts engine data),
+	 * then searchSetRoots(SearchMan): the folders ScummVM finds its own
+	 * engine data in on this platform (the current folder, which is the
+	 * one holding scummvm.exe when Windows starts it; the app bundle's
+	 * Resources on macOS; DATA_PATH; extrapaths; the game's folder).
 	 */
 	static Common::Array<Common::Path> dataRoots();
+
+	/**
+	 * The root folders of the file-system directories in @p set that hold
+	 * at least one file, in the set's priority order, each once. Archives
+	 * that are not folders (zips, Win32 resources) are skipped. The root
+	 * is taken whatever the directory's search depth, so a data: path
+	 * deeper than the set would search is still found under it.
+	 */
+	static Common::Array<Common::Path> searchSetRoots(const Common::SearchSet &set);
 
 	/// Map a code page name ("cp932", "sjis", ...) to a CodePage.
 	/// Returns Common::kCodePageInvalid when the name is not known.
