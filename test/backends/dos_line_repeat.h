@@ -14,17 +14,22 @@ public:
 	}
 
 	void test_logical_row_is_inverse_of_phys_row() {
-		for (int y = 0; y < 400; ++y)
+		// logicalRow() is the exact inverse of physRow(), including on a
+		// repeated physical row: both physRow(y) and, when repeats(y),
+		// physRow(y) + 1 map back to the same y.
+		for (int y = 0; y < 400; ++y) {
 			TS_ASSERT_EQUALS(DOS::logicalRow(DOS::physRow(y)), y);
+			if (DOS::repeats(y))
+				TS_ASSERT_EQUALS(DOS::logicalRow(DOS::physRow(y) + 1), y);
+		}
 	}
 
-	void test_logical_row_of_a_repeated_physical_row_rounds_to_the_next_row() {
-		// logicalRow() is the cheap py - py/6 formula, not a true inverse:
-		// on the extra (repeated) physical row it reports y + 1, not y --
-		// at most one row off, which is fine for a mouse position.
-		for (int y = 0; y < 400; ++y)
-			if (DOS::repeats(y))
-				TS_ASSERT_EQUALS(DOS::logicalRow(DOS::physRow(y) + 1), y + 1);
+	void test_every_physical_row_maps_into_0_399() {
+		for (int py = 0; py < 480; ++py) {
+			int y = DOS::logicalRow(py);
+			TS_ASSERT(y >= 0);
+			TS_ASSERT(y < 400);
+		}
 	}
 
 	void test_phys_row_400_reaches_480() {
