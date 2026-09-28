@@ -88,19 +88,20 @@ int floorHalf(int d) {
 
 } // End of anonymous namespace
 
-GlyphPlacement GlyphPlacement::compute(int rasterPx, int cellPx, Align align, int rasterBaseline, int gameBaseline,
-									   int shift) {
+GlyphPlacement GlyphPlacement::compute(const Input &in) {
 	GlyphPlacement p;
-	if (rasterPx <= 0 || cellPx <= 0)
+	if (in.rasterWidth <= 0 || in.rasterHeight <= 0 || in.cellPx <= 0)
 		return p;
-	p.rasterPx = rasterPx;
-	p.cellPx = cellPx;
-	p.dx = floorHalf(cellPx - rasterPx);
-	if (align == kAlignGame && rasterBaseline >= 0 && gameBaseline >= 0)
-		p.dy = gameBaseline - rasterBaseline;
+	p.rasterPx = in.rasterWidth;
+	p.cellPx = in.cellPx;
+	p.dx = floorHalf(in.cellPx - in.rasterWidth);
+	if (in.align == kAlignGame && in.rasterBaseline != kUnknown && in.gameBaseline != kUnknown)
+		p.dy = in.gameBaseline - in.rasterBaseline;
+	else if (in.align == kAlignFont && in.faceLineTop != kUnknown)
+		p.dy = -in.faceLineTop;
 	else
-		p.dy = floorHalf(cellPx - rasterPx);
-	p.dy += shift;
+		p.dy = floorHalf(in.cellPx - in.rasterHeight);
+	p.dy += in.shift;
 	return p;
 }
 

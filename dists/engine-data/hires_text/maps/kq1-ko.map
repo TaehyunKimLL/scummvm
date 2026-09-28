@@ -15,7 +15,10 @@
 ; of a 16 px face; a glyph wider or taller than the cell draws over its
 ; neighbours. align=game (the default) stands the face's baseline on the
 ; game font's own (font 300: 16 hi-res px below the line top, font 4 and
-; font 0: 14); baseline=-2 lifts the glyphs 2 px from there.
+; font 0: 14); baseline=-2 lifts the glyphs 2 px from there, which puts the
+; Hangul, whose ink reaches 2 px below the face's baseline, on the row the
+; game's capitals stand on. (align=font, the face's own ascent, puts font
+; 300 2 px and font 4 4 px lower: font 4's labels then touch their buttons.)
 [hires]
 scale=2
 alpha=true

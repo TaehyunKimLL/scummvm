@@ -82,13 +82,13 @@ int16 glyphGameWidth(Graphics::UnicodeGlyphSource *src, uint32 cp, int scale, bo
  * How a TrueType face drawn on the SCI hi-res plane sits in the text line
  * (C41, hires_text.map [font.N] size= / cell= / align= / baseline=).
  *
- * The face is rasterised in a cell of rasterPx (size=) and laid out in a
- * cell of cellPx (cell=game: the engine's 16, whatever size= is; cell=glyph:
- * size= itself, the behaviour before C41): a wide glyph advances cellPx, the
- * line height stays the game font's. The raster cell is drawn offsetX(wide)
- * and offsetY() hi-res px from the layout cell's top left; a glyph that
- * does not fit the layout cell draws over its neighbours rather than being
- * clipped.
+ * The face is rasterised in a cell of rasterWidth x rasterHeight (size=, and
+ * rows of headroom, TtfGlyphSource::padRows()) and laid out in a cell of
+ * cellPx (cell=game: the engine's 16, whatever size= is; cell=glyph: size=
+ * itself, the behaviour before C41): a wide glyph advances cellPx, the line
+ * height stays the game font's. The raster cell is drawn offsetX(wide) and
+ * offsetY() hi-res px from the layout cell's top left; a glyph that does not
+ * fit the layout cell draws over its neighbours rather than being clipped.
  */
 struct GlyphPlacement {
 	/// align=: what the face's vertical position is taken from.
@@ -99,15 +99,39 @@ struct GlyphPlacement {
 		kAlignGame = 0,
 		/// The raster cell centred on the layout cell: the probe fit's
 		/// placement, as before C41.
-		kAlignCell
+		kAlignCell,
+		/// The face's own line: its line top on the text line's top, so its
+		/// baseline is its ascent below it, whatever the game font is.
+		kAlignFont
 	};
+
+	/// What compute() measures from; -1 (kUnknown) where it is not known.
+	struct Input {
+		Input() : rasterWidth(0), rasterHeight(0), cellPx(0), align(kAlignGame),
+			rasterBaseline(kUnknown), gameBaseline(kUnknown), faceLineTop(kUnknown), shift(0) {}
+		int rasterWidth;     ///< the face's cell width (size=), hi-res px
+		int rasterHeight;    ///< the rows it is rasterised in
+		int cellPx;          ///< the layout cell
+		Align align;
+		/// Row of the face's baseline in its raster (the row under its
+		/// capitals and digits as drawn); for kAlignGame.
+		int rasterBaseline;
+		/// Row of the game font's baseline below the line top; for kAlignGame.
+		int gameBaseline;
+		/// Row of the raster the face's line top is drawn at
+		/// (TtfGlyphSource::lineTop()); for kAlignFont. Any value but
+		/// kUnknown, negative included.
+		int faceLineTop;
+		int shift;           ///< baseline=, hi-res px, positive down
+	};
+	static const int kUnknown = -32768;
 
 	GlyphPlacement() : rasterPx(0), cellPx(0), dx(0), dy(0) {}
 
-	int rasterPx;  ///< the face's own cell, hi-res px (0: no placement, draw as the source says)
+	int rasterPx;  ///< the face's own cell width (0: no placement, draw as the source says)
 	int cellPx;    ///< the layout cell, hi-res px
 	int dx;        ///< where a wide glyph's raster cell starts, from the layout cell's left
-	int dy;        ///< where the raster cell's top row goes, from the line top
+	int dy;        ///< where the raster's top row goes, from the line top
 
 	/** Changes anything at all: without, glyphs are measured and drawn by the source's own cell. */
 	bool active() const { return rasterPx > 0 && cellPx > 0 && (rasterPx != cellPx || dx != 0 || dy != 0); }
@@ -115,22 +139,17 @@ struct GlyphPlacement {
 	int offsetY() const { return dy; }
 
 	/**
-	 * The placement of a face rasterised at @p rasterPx in a cell of
-	 * @p cellPx:
+	 * The placement:
 	 * - horizontally, a wide glyph's raster cell is centred on its layout
 	 *   cell (half the difference, rounded down); narrow glyphs start at
 	 *   the pen, as they always did;
-	 * - vertically, with kAlignGame and both baselines known
-	 *   (@p rasterBaseline: the face's baseline row in its raster cell,
-	 *   TtfGlyphSource::baseline(); @p gameBaseline: the game font's
-	 *   baseline row below the line top, both in hi-res px, -1 unknown),
-	 *   the face's baseline on the game's; otherwise the raster cell
-	 *   centred on the layout cell. Then @p shift (baseline=, hi-res px,
-	 *   positive down) is added.
+	 * - vertically: kAlignGame puts rasterBaseline on gameBaseline;
+	 *   kAlignFont puts the face's line top on the line top; kAlignCell,
+	 *   or either with what it needs unknown, centres the raster on the
+	 *   layout cell (rounded down). Then shift is added.
 	 * Pure.
 	 */
-	static GlyphPlacement compute(int rasterPx, int cellPx, Align align, int rasterBaseline, int gameBaseline,
-								  int shift);
+	static GlyphPlacement compute(const Input &in);
 };
 
 /**

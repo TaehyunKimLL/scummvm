@@ -121,19 +121,28 @@ uint32 FallbackGlyphSource::glyphCount() const {
 
 NormalizedGlyphSource *NormalizedGlyphSource::create(UnicodeGlyphSource *src, byte cellWidth, byte cellHeight,
 													 DisposeAfterUse::Flag dispose, Common::String &error) {
+	return create(src, cellWidth, cellHeight, 0, dispose, error);
+}
+
+NormalizedGlyphSource *NormalizedGlyphSource::create(UnicodeGlyphSource *src, byte cellWidth, byte cellHeight,
+													 int topRow, DisposeAfterUse::Flag dispose, Common::String &error) {
+	if (topRow < 0)
+		topRow = 0;
 	if (!src) {
 		error = "no source";
 		return nullptr;
 	}
 	const int bpp = src->bitsPerPixel();
-	if (src->cellWidth() > cellWidth || src->cellHeight() > cellHeight || (bpp != 1 && bpp != 2 && bpp != 8)) {
+	if (src->cellWidth() > cellWidth || src->cellHeight() + topRow > cellHeight || (bpp != 1 && bpp != 2 && bpp != 8)) {
 		error = Common::String::format("a %dx%d cell at %d bpp does not fit a %dx%d cell at 8 bpp",
 									   src->cellWidth(), src->cellHeight(), bpp, cellWidth, cellHeight);
 		if (dispose == DisposeAfterUse::YES)
 			delete src;
 		return nullptr;
 	}
-	return new NormalizedGlyphSource(src, cellWidth, cellHeight, dispose);
+	NormalizedGlyphSource *n = new NormalizedGlyphSource(src, cellWidth, cellHeight, dispose);
+	n->_topRow = topRow;
+	return n;
 }
 
 NormalizedGlyphSource::NormalizedGlyphSource(UnicodeGlyphSource *src, byte cellWidth, byte cellHeight,
@@ -149,8 +158,9 @@ NormalizedGlyphSource::~NormalizedGlyphSource() {
 
 const byte *NormalizedGlyphSource::row(uint32 cp, int y) {
 	const int bpp = _src->bitsPerPixel();
-	if (bpp == 8 && _src->cellWidth() == _cellWidth && _src->cellHeight() == _cellHeight)
+	if (bpp == 8 && _src->cellWidth() == _cellWidth && _src->cellHeight() == _cellHeight && _topRow == 0)
 		return _src->row(cp, y);
+	y -= _topRow;
 
 	byte *out = _scratch.begin();
 	memset(out, 0, _scratch.size());

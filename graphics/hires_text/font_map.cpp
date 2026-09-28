@@ -420,6 +420,8 @@ bool parseAlign(const Common::String &value, HiResAlign &out) {
 		out = kHiResAlignGame;
 	else if (value.equalsIgnoreCase("cell"))
 		out = kHiResAlignCell;
+	else if (value.equalsIgnoreCase("font"))
+		out = kHiResAlignFont;
 	else
 		return false;
 	return true;
@@ -1051,7 +1053,7 @@ void readFontIdSections(const Common::INIFile &ini, const Common::Array<Common::
 			if (parseAlign(value, f.align))
 				f.alignSet = true;
 			else
-				warning("HiResText: [%s] align '%s' is not game or cell, ignoring", section.c_str(), value.c_str());
+				warning("HiResText: [%s] align '%s' is not game, cell or font, ignoring", section.c_str(), value.c_str());
 		}
 		if (getKey(ini, qualifiers, section.c_str(), "latin", value)) {
 			if (parseLatinMode(value, f.latin))
@@ -1393,7 +1395,7 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 		if (parseAlign(value, out.hiresAlign))
 			out.hiresAlignSet = true;
 		else
-			warning("HiResText: [hires] align '%s' is not game or cell, ignoring", value.c_str());
+			warning("HiResText: [hires] align '%s' is not game, cell or font, ignoring", value.c_str());
 	}
 	readFaceTable(ini, qualifiers, out.fontFaces);
 	// After [fonts], so the chain's names resolve.
