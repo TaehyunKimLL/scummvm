@@ -378,6 +378,27 @@ Graphics::UnicodeGlyphSource *GfxCache::svfnSource(const Common::String &path, c
 	return src;
 }
 
+Graphics::UnicodeGlyphSource *GfxCache::singleFace(const Common::String &path, int size, FaceProbes probes,
+												   const char *fallback, int pixel, Graphics::TtfGlyphSource *&ttf) {
+	ttf = nullptr;
+	bool isSvfn = false;
+	Graphics::UnicodeGlyphSource *src = svfnSource(path, "hires_text_font", fallback, isSvfn);
+	if (!isSvfn) {
+		ttf = ttfSource(path, size, probes, "hires_text_font", fallback, pixel);
+		return ttf;
+	}
+	// As a TrueType face is refused (requireHangul): a Korean game needs
+	// Hangul from its main face.
+	if (src && probes == kProbesHangul && src->cells(0xAC00) <= 0) {
+		if (!_svfnNoHangul.contains(path)) {
+			_svfnNoHangul[path] = true;
+			warning("hires_text_font %s: face has no Hangul glyphs; %s", path.c_str(), fallback);
+		}
+		return nullptr;
+	}
+	return src;
+}
+
 GfxFontUnicode *GfxCache::loadUniBundle() {
 	if (!_uniBundleTried) {
 		_uniBundleTried = true;
@@ -415,8 +436,10 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	// The face whose baseline places the glyphs (C41): the main face, or the
 	// first face of the chain.
 	Graphics::TtfGlyphSource *firstFace = nullptr;
+	// The line top of the chain's first face in the chain's cell.
+	int chainLineTop = -1;
 	if (utf8) {
-		main = faceChainFor(s, mainPath, &firstFace);
+		main = faceChainFor(s, mainPath, &firstFace, &chainLineTop);
 	} else if (!mainPath.empty()) {
 		// A face only this font id names ([font.N] face=) falls back to the
 		// face every other id gets (the ini key, else [hires] font=), then
@@ -424,15 +447,14 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 		const FontSettings global = fontSettingsFor(-1);
 		const bool haveGlobal = !global.facePath.empty() && global.facePath != mainPath;
 		const Common::String toGlobal = "using " + global.facePath;
-		firstFace = ttfSource(mainPath, s.size, probes, "hires_text_font",
-							  haveGlobal ? toGlobal.c_str() : "using the .uni fonts", s.pixel);
-		if (!firstFace && haveGlobal) {
+		main = singleFace(mainPath, s.size, probes, haveGlobal ? toGlobal.c_str() : "using the .uni fonts", s.pixel,
+						  firstFace);
+		if (!main && haveGlobal) {
 			// The global face with its own pixel= ([hires]), never this id's.
 			mainPath = global.facePath;
 			s.pixel = global.pixel;
-			firstFace = ttfSource(mainPath, s.size, probes, "hires_text_font", "using the .uni fonts", s.pixel);
+			main = singleFace(mainPath, s.size, probes, "using the .uni fonts", s.pixel, firstFace);
 		}
-		main = firstFace;
 	}
 	// The set carries what is actually drawn.
 	s.facePath = main ? mainPath : Common::String();
@@ -472,7 +494,9 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	// (glyphChar()/faceFor() send it code points the main face can already
 	// answer for, so no second source is needed).
 	Graphics::TtfGlyphSource *latin = nullptr;
-	if (s.latin != kLatinOff && !s.latinFacePath.empty() && s.latinFacePath != mainPath) {
+	// Only behind a TrueType main face: a bitmap face's cell and depth are
+	// not the Latin face's, which the router needs them to be.
+	if (firstFace && s.latin != kLatinOff && !s.latinFacePath.empty() && s.latinFacePath != mainPath) {
 		latin = ttfSource(s.latinFacePath, s.size, kProbesDefault, "hires_text_latin_font",
 						  "the main face draws Latin text");
 	}
@@ -516,7 +540,7 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 		in.rasterBaseline = rasterBaseline;
 	// A chain led by an SVFN bitmap font has no TrueType first face: its
 	// line is its cell, so the line top is the cell's top row.
-	in.faceLineTop = firstFace ? firstFace->lineTop() : 0;
+	in.faceLineTop = chainLineTop >= 0 ? chainLineTop : (firstFace ? firstFace->lineTop() : 0);
 	const GlyphPlacement placement = GlyphPlacement::compute(in);
 	debug(1, "SCI: font %d glyphs: %dpx face (%dpx em, %d rows) in a %dpx cell, align %d: baseline row %d, "
 		  "game's %d, line top %d, shift %d -> offset (%d, %d)%s",
@@ -624,7 +648,7 @@ int GfxCache::gameFontBaseline(GuiResourceId fontId) {
 }
 
 Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Common::String &chainName,
-													 Graphics::TtfGlyphSource **firstFace) {
+													 Graphics::TtfGlyphSource **firstFace, int *lineTop) {
 	chainName.clear();
 	if (firstFace)
 		*firstFace = nullptr;
@@ -637,6 +661,8 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 	// other id gets, as a single face always did.
 	Common::Array<Graphics::UnicodeGlyphSource *> faces;
 	Common::Array<Common::String> names;
+	// Each face's row pad: where its cell proper starts (0 for a bitmap font).
+	Common::Array<int> pads;
 	// The pixel= of the chain actually opened: the global chain has its own.
 	int pixel = s.pixel;
 	// The first face opened, when it is TrueType (its line top and row pad).
@@ -649,6 +675,7 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 			paths = global.faceChain;
 			pixel = global.pixel;
 		}
+		pads.clear();
 		for (uint i = 0; i < paths.size(); i++) {
 			const bool last = i + 1 == paths.size();
 			const char *fallback = last ? "using the .uni fonts" : "using the next face of the chain";
@@ -665,6 +692,7 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 					firstTtf = ttf;
 				faces.push_back(src);
 				names.push_back(paths[i]);
+				pads.push_back(ttf ? ttf->rowPad() : 0);
 			}
 		}
 	}
@@ -672,6 +700,36 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 		return nullptr;
 	if (firstFace)
 		*firstFace = firstTtf;
+
+	// The faces and the .uni fonts, all in one cell at 8 bpp: what
+	// FallbackGlyphSource asks of its sources. A chain of TrueType faces
+	// shares the first face's cell as it always did, the .uni fonts starting
+	// at its row pad. One with a bitmap face in it is brought to a cell that
+	// holds every face with their cells proper starting on one row (the
+	// largest row pad), each face that does not already fill that cell at
+	// 8 bpp - and the .uni fonts - presented there by NormalizedGlyphSource.
+	bool allTtf = true;
+	for (uint i = 0; i < faces.size(); i++) {
+		if (_svfnSources.contains(names[i]))
+			allTtf = false;
+	}
+	int pad = firstTtf ? firstTtf->rowPad() : 0;
+	int cellW = faces[0]->cellWidth(), cellH = faces[0]->cellHeight();
+	Common::Array<int> tops(faces.size(), 0);
+	if (!allTtf) {
+		for (uint i = 0; i < faces.size(); i++)
+			pad = MAX(pad, pads[i]);
+		cellH = 0;
+		for (uint i = 0; i < faces.size(); i++) {
+			tops[i] = pad - pads[i];
+			cellW = MAX<int>(cellW, faces[i]->cellWidth());
+			cellH = MAX<int>(cellH, tops[i] + faces[i]->cellHeight());
+		}
+	}
+	// The first face's line top in the chain's cell (C41 align=font): a
+	// TrueType face's own, a bitmap font's first row (its cell is its line).
+	if (lineTop)
+		*lineTop = tops[0] + (firstTtf ? firstTtf->lineTop() : 0);
 
 	for (uint i = 0; i < names.size(); i++)
 		chainName += (i ? "," : "") + names[i];
@@ -696,30 +754,49 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Comm
 		checkFaceCoverage(faces[i], names[i], next, sample);
 	}
 
-	Graphics::UnicodeGlyphSource *chain = faces[0];
-	if (faces.size() > 1 || (uni && uni->source())) {
-		Common::Array<Graphics::UnicodeGlyphSource *> sources = faces;
-		if (uni && uni->source()) {
-			// The bundle's 1 bpp cell, presented in the faces' cell.
-			Common::String error;
-			Graphics::NormalizedGlyphSource *n = Graphics::NormalizedGlyphSource::create(
-				uni->source(), faces[0]->cellWidth(), faces[0]->cellHeight(),
-				firstTtf ? firstTtf->rowPad() : 0, DisposeAfterUse::NO, error);
-			if (n) {
-				sources.push_back(n);
-				_chainParts.push_back(n);
-			} else {
-				warning("hires text: the .uni fonts cannot stand behind %s (%s); the game's font draws what the chain lacks",
-						names.back().c_str(), error.c_str());
-			}
+	Common::Array<Graphics::UnicodeGlyphSource *> sources;
+	for (uint i = 0; i < faces.size(); i++) {
+		Graphics::UnicodeGlyphSource *f = faces[i];
+		const bool fits = f->bitsPerPixel() == 8 && f->cellWidth() == cellW && f->cellHeight() == cellH && !tops[i];
+		if (allTtf || fits || (faces.size() == 1 && !(uni && uni->source()))) {
+			sources.push_back(f);
+			continue;
 		}
-		if (sources.size() > 1) {
-			chain = new Graphics::FallbackGlyphSource(sources, DisposeAfterUse::NO);
-			_chainParts.push_back(chain);
+		Common::String error;
+		Graphics::NormalizedGlyphSource *n = Graphics::NormalizedGlyphSource::create(
+			f, cellW, cellH, tops[i], DisposeAfterUse::NO, error);
+		if (n) {
+			sources.push_back(n);
+			_chainParts.push_back(n);
+		} else {
+			warning("hires text: %s cannot join the face chain (%s)", names[i].c_str(), error.c_str());
 		}
 	}
-	debug(1, "SCI: face chain %s at %dpx (%u faces%s)", chainName.c_str(), s.size, faces.size(),
-		  chain != faces[0] && uni ? ", then the .uni fonts" : "");
+	bool uniBehind = false;
+	if (uni && uni->source() && !sources.empty()) {
+		// The bundle's 1 bpp cell, presented in the faces' cell.
+		Common::String error;
+		Graphics::NormalizedGlyphSource *n = Graphics::NormalizedGlyphSource::create(
+			uni->source(), cellW, cellH, pad, DisposeAfterUse::NO, error);
+		if (n) {
+			sources.push_back(n);
+			_chainParts.push_back(n);
+			uniBehind = true;
+		} else {
+			warning("hires text: the .uni fonts cannot stand behind %s (%s); the game's font draws what the chain lacks",
+					names.back().c_str(), error.c_str());
+		}
+	}
+	if (sources.empty())
+		return nullptr;
+	Graphics::UnicodeGlyphSource *chain = sources[0];
+	if (sources.size() > 1) {
+		chain = new Graphics::FallbackGlyphSource(sources, DisposeAfterUse::NO);
+		_chainParts.push_back(chain);
+	}
+	const Common::String at = firstTtf ? Common::String::format("at %dpx", s.size) : Common::String("(bitmap)");
+	debug(1, "SCI: face chain %s %s (%u faces%s)", chainName.c_str(), at.c_str(), sources.size() - (uniBehind ? 1 : 0),
+		  uniBehind ? ", then the .uni fonts" : "");
 	_chains[key] = chain;
 	return chain;
 }
@@ -783,6 +860,7 @@ GfxCache::~GfxCache() {
 		delete it->_value;
 	_svfnSources.clear();
 	_notSvfn.clear();
+	_svfnNoHangul.clear();
 	delete _uniBundle;
 	_uniBundle = nullptr;
 }
@@ -847,6 +925,15 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 	// The legacy double-byte faces, when the game ships their font file.
 	// GfxFontKorean and GfxFontSjis call error() on a missing file, so
 	// existence is checked rather than assumed.
+	// A face the hi-res settings name (hires_text_font, a map's face=) is
+	// what the player asked to draw the text with: it goes before the
+	// legacy double-byte face, which then only draws what the face lacks.
+	// Without one, the legacy face keeps drawing its range, and the .uni
+	// fonts stand last as before.
+	const bool namedFace = uni && !settings.facePath.empty();
+	if (namedFace)
+		set->addFace(uni, GfxFontSet::kFaceCodePoint, false, true);
+
 	if (g_sci->usesKoreanText()) {
 		if (Common::File::exists(Common::Path("korean.fnt"))) {
 			// GfxFontKorean and GfxFontSjis already halve their own metrics below
@@ -873,7 +960,7 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 
 	// The Unicode face last: it is the widest, and being last means it only
 	// answers for characters nothing else covers. Shared, so unowned.
-	if (uni)
+	if (uni && !namedFace)
 		set->addFace(uni, GfxFontSet::kFaceCodePoint, false, true);
 
 	return set;
