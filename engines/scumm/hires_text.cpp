@@ -406,7 +406,7 @@ bool ScummHiResText::loadBitmapFile(const Common::Path &gameDir, const Common::S
 			  charsetId, name.c_str(), font.cellWidth(), font.cellHeight(), font.bpp(),
 			  font.glyphCount(), font.isProportional() ? "proportional" : "fixed width",
 			  codePageName(font.codePage()),
-			  font.bpp() == 8 ? ", anti-aliased" : ", stencil");
+			  font.bpp() > 1 ? ", anti-aliased" : ", stencil");
 	}
 	return true;
 }
@@ -622,7 +622,9 @@ static bool glyphHasInk(const Graphics::HiResBitmapFont &font, int index) {
 	// A fixed-width set has no metrics table, so the cell has to be looked at.
 	// It is at most a few hundred bytes and only walked until the first ink.
 	const int pitch = font.glyphPitch();
-	const int bytes = (font.bpp() == 8) ? font.cellWidth() : (font.cellWidth() + 7) / 8;
+	// Rows below 8bpp are packed MSB first; the padding past the cell is
+	// clear as the tools write it.
+	const int bytes = (font.cellWidth() * font.bpp() + 7) / 8;
 	for (int y = 0; y < font.cellHeight(); ++y) {
 		const byte *row = pixels + y * pitch;
 		for (int x = 0; x < bytes; ++x) {
@@ -1268,7 +1270,7 @@ bool ScummHiResText::drawRows(Graphics::Surface &dest, Face &face, uint32 cp, in
 	// A 1bpp stencil records no coverage when plain, as it never did; one
 	// that is decorated does, 0 or 255, so that its outline can be drawn
 	// under it antialiased like any other.
-	Graphics::GlyphPlanes planes(&dest, (withCoverage && (bpp == 8 || decorated)) ? coverage() : nullptr);
+	Graphics::GlyphPlanes planes(&dest, (withCoverage && (bpp > 1 || decorated)) ? coverage() : nullptr);
 
 	// The decoration's own layer, where the overlay carries one and this is
 	// the overlay being drawn into (C19): the body's antialiased edge is then
@@ -1909,10 +1911,10 @@ static const char *simpleFontPatternFor(Common::Language language) {
  * Look for fonts under the conventional names and, if any are there, fill
  * in the configuration a map would have carried.
  *
- * The fonts describe themselves: an 8bpp file was baked for blending, the
- * smallest cell against the game's own font gives the scale (settled later,
- * in resolveScale(), when that height is known), and the code page in the
- * header says which of the two slots the set belongs in. What a map can
+ * The fonts describe themselves: an 8bpp or 2bpp file was baked for
+ * blending, the smallest cell against the game's own font gives the scale
+ * (settled later, in resolveScale(), when that height is known), and the code
+ * page in the header says which of the two slots the set belongs in. What a map can
  * express and a bare font cannot - a different glyph count, metrics=font,
  * a shadow style - keeps its default.
  */
@@ -1962,7 +1964,7 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir,
 			++found;
 			if (smallestCell == 0 || probe.cellHeight() < smallestCell)
 				smallestCell = probe.cellHeight();
-			anyCoverage = anyCoverage || probe.bpp() == 8;
+			anyCoverage = anyCoverage || probe.bpp() > 1;
 			if (_simpleCellCount < kMaxFonts)
 				_simpleCells[_simpleCellCount++] = probe.cellHeight();
 			if (isSingleByteFont(probe))
@@ -1986,7 +1988,7 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir,
 					haveSingle = true;
 					if (smallestCell == 0 || probe.cellHeight() < smallestCell)
 						smallestCell = probe.cellHeight();
-					anyCoverage = anyCoverage || probe.bpp() == 8;
+					anyCoverage = anyCoverage || probe.bpp() > 1;
 					singleIsLatin = isSingleByteFont(probe);
 					probe.free();
 				} else {
@@ -2023,7 +2025,7 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir,
 					smallestCell = latinProbe.cellHeight();
 				if (_simpleCellCount < kMaxFonts)
 					_simpleCells[_simpleCellCount++] = latinProbe.cellHeight();
-				anyCoverage = anyCoverage || latinProbe.bpp() == 8;
+				anyCoverage = anyCoverage || latinProbe.bpp() > 1;
 				latinProbe.free();
 			} else {
 				warning("SCUMM: %s is not a usable hi-res font", name.c_str());
@@ -2338,7 +2340,7 @@ bool ScummHiResText::mapWantsAlpha(const Graphics::HiResTextConfig &config,
 }
 
 /// Whether any bitmap font the map names, and loadFonts() would load, is
-/// 8 bpp (anti-aliased). Reads only each file's SVFN header (magic at 0,
+/// 8 or 2 bpp (anti-aliased). Reads only each file's SVFN header (magic at 0,
 /// bpp at 8, as HiResBitmapFont::load() reads them); a file that is not a
 /// usable font is reported when the fonts load. Stops at the first such font.
 bool ScummHiResText::namedBitmapHasCoverage(const Common::Path &gameDir) const {
@@ -2380,7 +2382,7 @@ bool ScummHiResText::namedBitmapHasCoverage(const Common::Path &gameDir) const {
 		byte header[9];
 		const bool coverage = stream->read(header, sizeof(header)) == sizeof(header) &&
 							  READ_BE_UINT32(header) == MKTAG('S', 'V', 'F', 'N') &&
-							  header[8] == 8;
+							  (header[8] == 8 || header[8] == 2);
 		delete stream;
 		if (coverage)
 			return true;
