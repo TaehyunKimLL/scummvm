@@ -572,6 +572,8 @@ bool DebugSocket::handle(const Common::String &cmd, const Common::StringArray &a
 		SegManager *sm = _engine->getEngineState()->_segMan;
 		reg_t o = objByName(a[0]);
 		if (o.isNull()) { out = "noobj"; return true; }
+		const Object *obj = sm->getObject(o);
+		if (!obj || !obj->getClass(sm)) { out = "noobj"; return true; }	// class script unloaded
 		const int selId = _engine->getKernel()->findSelector(a[1].c_str());
 		if (selId < 0) { out = "nosel"; return true; }
 		reg_t v = readSelector(sm, o, selId);
@@ -901,6 +903,12 @@ Common::String DebugSocket::objectsJson() {
 			const reg_t addr = addrs[i];
 			Object *o = segMan->getObject(addr);
 			if (!o || o->isFreed() || o->isClass())
+				continue;
+			// A clone or instance whose class lives in a script that has
+			// just been unloaded (a room change in progress) has no class
+			// object; reading a selector would dereference it. Measured: a
+			// KQ1 `objs` during rm58 -> rm61 crashed in locateVarSelector.
+			if (!o->isClass() && !segMan->getObject(o->getSuperClassSelector()))
 				continue;
 			const uint16 view = (uint16)readSelectorValue(segMan, addr, SELECTOR(view));
 			const uint16 x = (uint16)readSelectorValue(segMan, addr, SELECTOR(x));
