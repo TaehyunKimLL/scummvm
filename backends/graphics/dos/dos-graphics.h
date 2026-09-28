@@ -38,7 +38,9 @@ struct SDL_DisplayMode;
  * path then sends those rectangles to VRAM. The physical mode is the game's
  * size and format, or (M2) 640x480 for a 640x400 game with every fifth row
  * sent twice (line-repeat.h) when the card has no exact mode or
- * `dos_force_fallback=true`. The overlay is kept but not shown.
+ * `dos_force_fallback=true`. A CLUT8 cursor on a true-colour screen is
+ * converted through the cursor palette (kFeatureCursorPalette) or the game
+ * palette. The overlay is kept but not shown.
  */
 class DosGraphicsManager : public GraphicsManager {
 public:
@@ -49,9 +51,9 @@ public:
 	Common::Point gameMouse(float wx, float wy) const;
 	void setMousePos(int x, int y);
 
-	bool hasFeature(OSystem::Feature f) const override { return false; }
-	void setFeatureState(OSystem::Feature f, bool enable) override {}
-	bool getFeatureState(OSystem::Feature f) const override { return false; }
+	bool hasFeature(OSystem::Feature f) const override { return f == OSystem::kFeatureCursorPalette; }
+	void setFeatureState(OSystem::Feature f, bool enable) override;
+	bool getFeatureState(OSystem::Feature f) const override;
 
 	Graphics::PixelFormat getScreenFormat() const override { return _screen.format; }
 	Common::List<Graphics::PixelFormat> getSupportedFormats() const override;
@@ -89,12 +91,13 @@ public:
 	void warpMouse(int x, int y) override;
 	void setMouseCursor(const void *buf, uint w, uint h, int hotspotX, int hotspotY, uint32 keycolor,
 						const Graphics::PixelFormat *format, const byte *mask, frac_t scaleX, frac_t scaleY) override;
-	void setCursorPalette(const byte *colors, uint start, uint num) override {}
+	void setCursorPalette(const byte *colors, uint start, uint num) override;
 
 private:
 	void addDirty(const Common::Rect &r);
 	bool setMode(int index, bool lineRepeat);
 	void blit(SDL_Surface *s, const Common::Rect &r);
+	void convertCursor();
 
 	Common::Array<DOS::VideoMode> _modes;
 	Common::Array<SDL_DisplayMode> _sdlModes;	///< SDL3's own copy of _modes[i], as SDL_SetWindowFullscreenMode() takes it
@@ -119,6 +122,14 @@ private:
 	bool _fullDirty;
 
 	DOS::SoftCursor _cursor;
+	// The cursor as the engine gave it; convertCursor() makes _cursor from it.
+	Common::Array<byte> _cursorSrc;
+	uint _cursorW, _cursorH;
+	int _cursorHotX, _cursorHotY;
+	uint32 _cursorKey;
+	Graphics::PixelFormat _cursorFormat;
+	byte _cursorPalette[256 * 3];
+	bool _cursorPaletteEnabled;
 	bool _cursorVisible;
 	int _mouseX, _mouseY;
 };
