@@ -33,6 +33,7 @@
 
 #include <time.h>
 #include <stdio.h>
+#include <crt0.h>
 #include <sys/nearptr.h>
 #include <SDL3/SDL.h>
 
@@ -51,6 +52,14 @@
 
 // ScummVM's call depth is far past DJGPP's 256 KB default stack.
 unsigned _stklen = 1024 * 1024;
+
+// Our own main() does what SDL_RunApp() would, so SDL3's definition of this
+// is not linked. NONMOVE_SBRK keeps the data segment's base fixed as the
+// heap grows (SDL3 keeps near pointers into the framebuffer); LOCK_MEMORY
+// locks code, data and stack at startup, for the interrupt handlers of M3.
+// main() clears it again, as SDL_RunApp() does, so later malloc()s are not
+// locked.
+int _crt0_startup_flags = _CRT0_FLAG_NONMOVE_SBRK | _CRT0_FLAG_LOCK_MEMORY;
 
 OSystem_DOS::OSystem_DOS() : _eventSource(nullptr) {
 	_fsFactory = new POSIXFilesystemFactory();
@@ -109,8 +118,13 @@ void OSystem_DOS::getTimeAndDate(TimeDate &td, bool skipRecord) const {
 }
 
 void OSystem_DOS::quit() {
-	SDL_Quit();
+	SDL_Quit();	// text mode back, keyboard interrupt unhooked
 	exit(0);
+}
+
+void OSystem_DOS::fatalError() {
+	SDL_Quit();
+	exit(1);
 }
 
 void OSystem_DOS::logMessage(LogMessageType::Type type, const char *message) {
@@ -129,6 +143,8 @@ void OSystem_DOS::addSysArchivesToSearchSet(Common::SearchSet &s, int priority) 
 }
 
 int main(int argc, char *argv[]) {
+	_crt0_startup_flags &= ~_CRT0_FLAG_LOCK_MEMORY;
+
 	// SDL3's VESA driver maps the framebuffer through the "fat DS" pointer.
 	if (!__djgpp_nearptr_enable()) {
 		fputs("__djgpp_nearptr_enable failed (needs a DPMI host that allows it)\n", stderr);
@@ -136,7 +152,8 @@ int main(int argc, char *argv[]) {
 	}
 	g_system = new OSystem_DOS();
 	int res = scummvm_main(argc, argv);
-	g_system->destroy();
+	g_system->destroy();	// deletes the graphics manager, and with it the window
+	SDL_Quit();	// text mode back, keyboard interrupt unhooked
 	return res;
 }
 

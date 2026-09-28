@@ -45,6 +45,7 @@ public:
 	void getTimeAndDate(TimeDate &td, bool skipRecord = false) const override;
 
 	void quit() override;
+	void fatalError() override;
 
 	void logMessage(LogMessageType::Type type, const char *message) override;
 	void addSysArchivesToSearchSet(Common::SearchSet &s, int priority) override;
