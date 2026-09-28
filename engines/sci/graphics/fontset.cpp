@@ -170,9 +170,25 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 		return &f;
 	}
 
-	// Nothing covers it. Fall back to the first face so the caller still gets
-	// consistent metrics rather than zero, matching what the engine did before
-	// a set existed.
+	// Nothing covers it. hires_text.map [hires] missing= draws it as a box
+	// (GfxFontUnicode::setMissing()): only now, after every face - the
+	// hi-res face, korean.fnt, the .uni fonts - has declined it, so the
+	// box never hides a glyph a later face has. ASCII stays the resource
+	// face's, as below.
+	if (decoded && codePoint >= 0x80) {
+		for (uint i = 0; i < _faces.size(); i++) {
+			const Face &f = _faces[i];
+			if (f.kind == kFaceCodePoint &&
+				static_cast<const GfxFontUnicode *>(f.font)->drawsMissing(codePoint)) {
+				outChr = codePoint;
+				return &f;
+			}
+		}
+	}
+
+	// Fall back to the first face so the caller still gets consistent
+	// metrics rather than zero, matching what the engine did before a set
+	// existed.
 	outChr = chr;
 	return &_faces[0];
 }

@@ -23,6 +23,7 @@
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontsjis.h"
 #include "graphics/hires_text/glyph_source_file.h"
+#include "graphics/hires_text/glyph_source_missing.h"
 #include "graphics/hires_text/glyph_source_scvmuni.h"
 #include "graphics/hires_text/latin_advance.h"
 #include "graphics/hires_text/unicode_props.h"
@@ -39,8 +40,8 @@
 namespace Sci {
 
 GfxFontUnicode::GfxFontUnicode(GfxScreen *screen, GuiResourceId resourceId)
-	: _screen(screen), _resourceId(resourceId), _loaded(false), _source(nullptr, DisposeAfterUse::YES),
-	  _perGlyph(false) {
+	: _screen(screen), _resourceId(resourceId), _loaded(false), _ownHolder(nullptr, DisposeAfterUse::NO),
+	  _source(nullptr, DisposeAfterUse::YES), _own(nullptr), _perGlyph(false) {
 }
 
 GfxFontUnicode::~GfxFontUnicode() {
@@ -80,10 +81,21 @@ bool GfxFontUnicode::load(const Common::String &filename) {
 
 void GfxFontUnicode::setSource(Graphics::UnicodeGlyphSource *src, const Common::String &name,
 							   DisposeAfterUse::Flag dispose) {
+	_ownHolder.reset(nullptr, DisposeAfterUse::NO);
 	_source.reset(src, dispose);
+	_own = src;
 	_loaded = true;
 	debug(1, "GfxFontUnicode: %s loaded, %u glyphs, %dx%d, %dbpp",
 		  name.c_str(), src->glyphCount(), src->cellWidth(), src->cellHeight(), src->bitsPerPixel());
+}
+
+void GfxFontUnicode::setMissing(uint32 boxCp) {
+	if (!boxCp || !_own || _source.get() != _own)
+		return;
+	// The source set moves to _ownHolder, keeping its ownership; the box
+	// only points at it and goes first (declared after it).
+	_ownHolder = Common::move(_source);
+	_source.reset(new Graphics::MissingGlyphSource(_own, boxCp, DisposeAfterUse::NO), DisposeAfterUse::YES);
 }
 
 bool GfxFontUnicode::isDoubleByte(uint32 chr) {
