@@ -560,6 +560,12 @@ bool DebugSocket::genericCommand(const Common::String &cmd, const Common::String
 		out = dumpScreen(a[0]) ? "OK" : "FAIL";
 		return true;
 	}
+	if (cmd == "shot") {
+		// What the backend sends to the display, where it keeps screenshots.
+		g_system->saveScreenshot();
+		out = "OK";
+		return true;
+	}
 	if (cmd == "save" || cmd == "load") {
 		int slot;
 		if (a.size() != 1 || !DebugSocketProtocol::parseSlot(a[0], slot)) {
