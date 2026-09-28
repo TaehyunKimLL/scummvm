@@ -14,7 +14,8 @@ TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/graphics/korfont.h \
 	$(srcdir)/test/gui/*.h \
 	$(srcdir)/test/image/*.h \
-	$(srcdir)/test/backends/surfacesdl_hwformat.h
+	$(srcdir)/test/backends/surfacesdl_hwformat.h \
+	$(srcdir)/test/backends/dos_*.h
 # The debug socket's wire protocol only; the rest of gui/ is not linked.
 TEST_LIBS    := gui/debugsocket-protocol.o
 
@@ -46,8 +47,11 @@ ifdef USE_TINYGL
 TESTS += $(srcdir)/test/graphics/tinygl*.h
 endif
 
-# libcommon needs libformats and libformats needs libcommon: so libcommon is put twice
-TEST_LIBS +=	audio/libaudio.a math/libmath.a common/libcommon.a common/formats/libformats.a common/compression/libcompression.a common/libcommon.a image/libimage.a graphics/libgraphics.a
+# libcommon needs libformats and libformats needs libcommon: so libcommon is put twice.
+# graphics' TTF support (hires_text_font_baker.h pulls it in even with no
+# engine enabled) wants the zip reader in libcompression, so that is repeated
+# after libgraphics too, for the same left-to-right resolution reason.
+TEST_LIBS +=	audio/libaudio.a math/libmath.a common/libcommon.a common/formats/libformats.a common/compression/libcompression.a common/libcommon.a image/libimage.a graphics/libgraphics.a common/compression/libcompression.a
 
 ifeq ($(ENABLE_SCUMM), STATIC_PLUGIN)
 	TESTS += $(srcdir)/test/engines/scumm/*.h
