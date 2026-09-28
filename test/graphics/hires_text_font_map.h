@@ -1,9 +1,13 @@
 #include <cxxtest/TestSuite.h>
 
+#include "common/archive.h"
 #include "common/array.h"
+#include "common/fs.h"
 #include "common/memstream.h"
 #include "common/str.h"
 #include "graphics/hires_text/font_map.h"
+
+#include "../system/null_osystem.h"
 
 /**
  * Tests for the hi-res text font map reader.
@@ -466,9 +470,71 @@ public:
 											roots, dataFileExists).toString('/'),
 						 "data:../opt/data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf");
 
-		// (resolvePath() hands a data: value to resolveDataPath() with
-		// dataRoots(); that needs a live file system, so it is covered by
-		// the engine capture in runs/c29, not here.)
+		// (resolvePath() with dataRoots() on the live file system is in
+		// test_data_path_falls_back_to_the_search_manager_folders().)
+	}
+
+	// A Windows build ships dists/engine-data next to scummvm.exe and sets no
+	// extrapath or DATA_PATH; ScummVM finds its own .dat files there through
+	// SearchMan's "." folder, which searches one level deep. data: must find
+	// hires_text/maps/... and hires_text/fonts/<face>/... under that folder
+	// all the same. The in-tree dists/engine-data plays the exe folder here.
+	void test_data_path_falls_back_to_the_search_manager_folders() {
+#if NULL_OSYSTEM_IS_AVAILABLE
+		typedef Graphics::HiResFontMap M;
+		Common::install_null_g_system();
+		// An in-tree build runs the runner from the source root.
+		const Common::FSNode dir("dists/engine-data");
+		if (!dir.getChild("hires_text").getChild("maps").getChild("kq1-ko.map").exists()) {
+			Common::uninstall_null_g_system();
+			TS_SKIP("dists/engine-data/hires_text is not reachable from the runner's folder");
+			return;
+		}
+		const Common::String relMap = "hires_text/maps/kq1-ko.map";
+		const Common::String relFont = "hires_text/fonts/gowunbatang/GowunBatang-Bold.ttf";
+
+		// A set that searches one level deep, as SearchMan's "." does; the
+		// files are too deep for the set itself to find.
+		Common::SearchSet set;
+		set.addDirectory("exe-dir", dir, 0, 1);
+		// An archive that is not a folder (here a nested set) has files
+		// but no root to look under: skipped.
+		Common::SearchSet *nested = new Common::SearchSet();
+		nested->addDirectory("inner", dir, 0, 1);
+		set.add("nested", nested, 5);
+		TS_ASSERT(!set.hasFile(Common::Path(relMap)));
+		const Common::Array<Common::Path> roots = M::searchSetRoots(set);
+		TS_ASSERT_EQUALS(roots.size(), 1u);
+		if (roots.size() == 1)
+			TS_ASSERT(roots[0] == dir.getPath());
+		const Common::Path map = M::resolveDataPath(relMap, roots);
+		TS_ASSERT(Common::FSNode(map).exists());
+		TS_ASSERT(map.toString('/').hasSuffix(relMap));
+		const Common::Path font = M::resolveDataPath(relFont, roots);
+		TS_ASSERT(Common::FSNode(font).exists());
+		int32 face = -2;
+		Common::String error;
+		Common::SeekableReadStream *stream = Graphics::openFontFace(font, face, error);
+		TS_ASSERT(stream != nullptr);
+		TS_ASSERT_EQUALS(face, 0);
+		delete stream;
+		// The safety check still holds: ".." never reaches the folders.
+		TS_ASSERT(M::resolveDataPath("hires_text/../hires_text/maps/kq1-ko.map", roots)
+					  .toString('/').hasPrefix("data:"));
+		TS_ASSERT(M::resolveDataPath("hires_text/maps/none.map", roots)
+					  .toString('/').hasPrefix("data:"));
+
+		// The same through the real resolver: SearchMan is part of dataRoots().
+		const bool wasThere = SearchMan.hasArchive("hires_text_font_map");
+		if (!wasThere)
+			SearchMan.addDirectory("hires_text_font_map", dir, -10, 1);
+		const Common::Path viaMan = M::resolvePath("data:" + relMap, Common::Path());
+		TS_ASSERT(Common::FSNode(viaMan).exists());
+		TS_ASSERT(viaMan.toString('/').hasSuffix(relMap));
+		if (!wasThere)
+			SearchMan.remove("hires_text_font_map");
+		Common::uninstall_null_g_system();
+#endif
 	}
 
 	void test_role_names() {
