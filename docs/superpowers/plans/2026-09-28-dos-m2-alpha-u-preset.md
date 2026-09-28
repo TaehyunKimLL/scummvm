@@ -9,7 +9,7 @@
 **Architecture:** SCI 는 `rgb_rendering=true` 일 때 `getSupportedFormats()` 의 첫 4바이트 포맷을 고른다(`default.cpp:110-125`, 8비트
 커버리지 정밀도를 위한 의도된 선택). 그래서 M2 는 엔진을 고치지 않고 DOS 백엔드가 XRGB8888 을 정확히 광고·제공한다. 백엔드는
 게임 크기별로 지원 포맷을 계산하고(정확 일치 또는 640×480 줄 반복 폴백), CLUT8 커서를 화면 포맷으로 변환하며, `saveScreenshot()` 로
-창 서피스를 파일에 쓴다. SVFN 2bpp 는 로더(`bitmap_font.cpp`)와 `mkfont.py` 만 고친다(렌더러 `expandCoverage` 는 이미 2bpp 를 안다).
+창 서피스를 파일에 쓴다. SVFN 2bpp 는 로더(`bitmap_font.cpp`)·`mkfont.py` 와 함께, bpp 를 "1 아니면 8" 로 읽는 소비자(`glyph_renderer.cpp`, SCUMM `hires_text.cpp`, `glyph_source_svfn.cpp` 의 패딩 마스크)도 고친다(`expandCoverage` 는 이미 2bpp 를 안다). 높이가 다른 비트맵 면의 체인은 기준선으로 맞춘다.
 
 **Tech Stack:** 같은 스택 (M0/M1).
 
@@ -24,7 +24,9 @@
   논리 행 `py - py/6`. (400 × 6/5 = 480.)
 - 설정 키: `dos_truecolor=auto|off` (off 면 트루컬러 포맷을 광고하지 않음), `dos_vsync=off|wait` (wait: 포트 0x3DA bit 3 로 수직 귀선 대기 후 전송),
   시험용 `dos_force_fallback=true` (정확 일치 모드가 있어도 줄 반복 폴백을 쓴다 — 하네스가 폴백 경로를 두 에뮬레이터에서 결정론적으로 시험).
-- U 프리셋: `KQ1KOU.MAP`/`LB1KOU.MAP`, `alpha=true`, `missing=u+25a1`, 폰트 `KOCP949.SVF`(18px 2bpp, cp949 전체) → `KO2350.SVF`. ini 에 `rgb_rendering=true`.
+- U 프리셋: `KQ1KOU.MAP`/`LB1KOU.MAP`, `missing=u+25a1`, 폰트 `KOCP949.SVF`(18px 2bpp, cp949 전체) [→ `KO2350.SVF`, Task 2 의 측정으로 필요할 때만]. 트루컬러는 ini 의 `rgb_rendering=true` 가 켠다 — 맵의 `alpha=` 는 SCI 에서 아무 일도 하지 않는다(spec §4.5). 맵에는 `alpha=true` 를 문서로만 남긴다.
+- 면 체인 문법: `[fonts] ko=KOCP949.SVF` 와 `ko2=KO2350.SVF`, `face=ko, ko2` (`font_map.cpp` `parseFaceChain`). `ko=A,B` 는 쉼표가 든 경로 하나가 된다.
+- 체인은 UTF-8 게임에서만 쓰인다. 레거시(EUC-KR) 경로는 `singleFace` 로 첫 면만 쓴다 — LB1KOU 에는 면을 하나만 둔다.
 
 ## 파일 구조
 
@@ -46,6 +48,13 @@
 
 ### Task 1: SVFN 2bpp 와 `mkfont.py --bpp 2`
 
+(M1 최종 리뷰 반영) 로더가 bpp 2 를 받는 순간 bpp 를 "1 아니면 8" 로 읽는 곳이 행 밖을 읽는다. 함께 고친다:
+- `graphics/hires_text/glyph_renderer.cpp:53-56` (`glyphCoverage`) 와 `:314` (`glyph.bpp == 8` 게이트) — 2bpp 를 `expandCoverage` 로 펼친다. 테스트.
+- `engines/scumm/hires_text.cpp:625` (잉크 스캔) — 2bpp 를 알게 하거나, SCUMM 이 bpp 2 SVFN 을 경고와 함께 거부. 작은 쪽을 고르고 근거를 적는다.
+- `graphics/hires_text/glyph_source_svfn.cpp` `ensure()` — 행의 패딩 비트 마스크를 1bpp 전용에서 `(cellWidth * bpp) & 7` 일반식으로(18px 2bpp = 36비트 → 마지막 바이트 4비트 패딩). 클래스 주석 "1bpp or 8bpp" 수정.
+- `test/graphics/hires_text_missing.h` 에 2bpp·8bpp 반각 상자 경우.
+- 8bpp↔2bpp 커버리지 허용 오차는 픽셀당 ≤ 43 (`(v*3+127)//255` 양자화 오차).
+
 - 로더: `bitmap_font.cpp:142-146` 의 bpp 검사에 2 를 허용, `:153` rowPitch 에 `bpp == 2 ? (cellW + 3) / 4` 가지. 픽셀 순서는
   `expandCoverage` 와 같다(바이트의 상위 비트 쌍이 왼쪽 픽셀, 값 0–3 → ×85).
 - 테스트(`hires_text_bitmap_font.h`, 기존 `makeFont` 헬퍼에 bpp 2 지원 추가): 2bpp 폰트 로드, 행 피치, 한 글리프의 커버리지 값 4단계.
@@ -56,11 +65,18 @@
 - `FONT_FORMAT.md` (docs 저장소, `~/work/scummvm/docs`, 자체 git) 의 bpp 필드와 행 레이아웃 절에 2 추가, 따로 커밋.
 - 커밋: `GRAPHICS: SVFN at 2 bpp` / `TEST: ...` / `TOOLS: mkfont --bpp 2 and the cp949 range`.
 
+### Task 1b: 체인 배치를 순수 함수로, 비트맵 면은 기준선 정렬
+
+(M1 최종 리뷰 Important 3 + 조정 4) `GfxCache::faceChainFor` 의 셀·`tops[]`·정규화 결정을 링크 가능한 자유 함수로 뺀다(예: `graphics/hires_text/chain_layout.{h,cpp}`: 입력 = 각 면의 cellW/cellH/rowPad/bpp/baselineRow, .uni 의 셀; 출력 = cellW, cellH, tops[], normalize[]). `UnicodeGlyphSource` 에 `virtual int baselineRow() const { return -1; }`, `SvfnGlyphSource` 는 SVFN ascent(`HiResBitmapFont` 가 이미 읽음), `TtfGlyphSource` 는 rowPad + ascender. `!allTtf` 일 때만 기준선으로 맞춘다(TrueType 체인 불변). 셀이 .uni 셀도 담도록 MAX 에 포함. 단위 테스트: 18px/16px 비트맵 두 면의 기준선 일치, TTF 전용 체인은 이전과 같은 결과, `NormalizedGlyphSource` 를 topRow≠0 으로. □ 판정(`faceFor` 끝)도 같은 방식으로 뺄 수 있으면 빼서 테스트한다.
+
 ### Task 2: U 프리셋 자산
 
 - `bake-dos-fonts.sh` 에 추가: `KOCP949.SVF` = NanumGothic-Bold 18px `--bpp 2 --unicode ascii,cp949` (v2). 크기를 재어 spec 의 ≈1.4MB 추정과 비교해 보고.
-- 맵: `KQ1KOU.MAP`, `LB1KOU.MAP` — `[hires] scale=2 alpha=true face=ko missing=u+25a1`, `[fonts] ko=KOCP949.SVF,KO2350.SVF` (면 체인 문법은
-  `font_map.cpp` `parseFaceChain` 을 따른다), `[latin] mode=proportional metrics=font`.
+- 굽고 나서 KO2350 에는 있고 KOCP949 에는 없는 코드 포인트를 센다. 0 이면 U 체인에서 KO2350 을 뺀다(면 하나).
+- 메모리: 글리프 데이터 + cmap(~136KB) + `SvfnGlyphSource` 글리프 캐시(그린 글리프당 약 162B)를 memsize 16 에 대비해 보고.
+- 줄 높이: 18px 면이 KQ1 폰트 0/4/300 (저해상도 8/9/12 행) 의 줄에 들어가는지 GlyphPlacement 로 확인하고, 대사창 캡처 한 장을 눈으로 확인(잘림·겹침). 리눅스와 DOS 가 같은 배치 버그를 공유하면 바이트 비교로는 못 잡는다.
+- 맵: `KQ1KOU.MAP` — `[hires] scale=2 alpha=true face=ko, ko2 missing=u+25a1` (ko2 는 위 측정으로 필요할 때만), `[fonts] ko=KOCP949.SVF`
+  `ko2=KO2350.SVF`, `[latin] mode=proportional metrics=font`. `LB1KOU.MAP` — 같은 내용에 `face=ko` 하나(레거시 경로는 첫 면만 쓴다).
 - `build-dos.sh` 는 M1 에서 `dists/engine-data/hires_text/dos/*` 를 이미 `DATA/` 로 복사한다 — 새 파일도 따라간다. NanumGothic 라이선스는
   `OFL.TXT` 에 이어 붙이거나 `OFLNANUM.TXT` 로 둔다.
 - 리눅스 no-FreeType 빌드(`builds/linux-dos-noft`)로 KQ1 한국어 + `KQ1KOU.MAP` + `rgb_rendering=true` 를 띄워 대사창 덤프에서 부분 커버리지 픽셀이
