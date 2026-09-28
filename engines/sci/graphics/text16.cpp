@@ -580,7 +580,7 @@ int16 GfxText16::Size(Common::Rect &rect, const char *text, uint16 languageSplit
 	rect.top = rect.left = 0;
 
 	if (maxWidth < 0) { // force output as single line
-		if (g_sci->getLanguage() == Common::KO_KOR)
+		if (g_sci->usesKoreanText())
 			SwitchToFont1001OnKorean(text, languageSplitter);
 		if (g_sci->getLanguage() == Common::JA_JPN)
 			SwitchToFont900OnSjis(text, languageSplitter);
@@ -596,7 +596,7 @@ int16 GfxText16::Size(Common::Rect &rect, const char *text, uint16 languageSplit
 		const char *curTextLine = text; // starting point of current line
 
 		// Check for Korean text
-		if (g_sci->getLanguage() == Common::KO_KOR)
+		if (g_sci->usesKoreanText())
 			SwitchToFont1001OnKorean(curTextPos, languageSplitter);
 
 		int16 totalHeight = 0;
@@ -755,7 +755,7 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 	// So a SCVMUNI bundle takes the same two steps - GfxCache hands back a
 	// Unicode-backed font for whatever id is requested, so the switch is
 	// harmless even when the game has no such font resource.
-	if (g_sci->getLanguage() == Common::KO_KOR) {
+	if (g_sci->usesKoreanText()) {
 		if (SwitchToFont1001OnKorean(curTextPos, languageSplitter)) {
 			doubleByteMode = true;
 			// The id is only overridden when the switch actually happened;
@@ -1021,11 +1021,11 @@ uint32 GfxText16::readChar(const char *text, int &outBytes) const {
 		// what let the encode step lookupText() once had go away (M11):
 		// UTF-8 text now reaches this function undecoded and takes the
 		// branch above, and only code-page text comes through here.
-		char bytes[3] = { (char)lead, (char)trail, 0 };
-		const Common::U32String decoded =
-			Common::String(bytes, 2).decode(g_sci->getSciLanguageCodePage());
-		if (!decoded.empty())
-			return decoded[0];
+		// decodeCodePagePair() also copes with a missing encoding.dat for
+		// Korean Hangul (sci/utf8.h).
+		const uint32 decoded = decodeCodePagePair(lead, trail, g_sci->getSciLanguageCodePage());
+		if (decoded)
+			return decoded;
 
 		// Undecodable: keep the packed value so the character still advances
 		// and still reaches a font, rather than silently vanishing.

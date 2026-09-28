@@ -147,6 +147,19 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	_translationCodePointsCollected = false;
 	g_sci = this;
 
+	// text_encoding= (textencoding.h): read before anything asks what the
+	// text's bytes mean - the graphics stack does, at construction.
+	_textEncoding = kTextEncodingAuto;
+	if (ConfMan.hasKey("text_encoding")) {
+		bool known = true;
+		const Common::String value = ConfMan.get("text_encoding");
+		_textEncoding = parseTextEncoding(value, known);
+		if (!known)
+			warning("SCI: unknown text_encoding '%s', using auto", value.c_str());
+		else if (_textEncoding != kTextEncodingAuto)
+			debug(1, "SCI: text_encoding=%s", textEncodingName(_textEncoding));
+	}
+
 	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
 
 	SearchMan.addSubDirectoryMatching(gameDataDir, "actors");	// KQ6 hi-res portraits
@@ -1032,7 +1045,7 @@ bool SciEngine::usesHiresDoubleByteText() const {
 	// before the text is printed, or the background composite erases it.
 	if (_textOverlay.isLoaded())
 		return true;
-	if (getLanguage() == Common::KO_KOR)
+	if (usesKoreanText())
 		return true;
 	if (getPlatform() == Common::kPlatformPC98 && getGameId() == GID_PQ2)
 		return true;
@@ -1054,9 +1067,11 @@ bool SciEngine::heapStringsAreUtf8() const {
 	// another MD5 and is detected as the English release - is recognised
 	// by its manifest instead: sci-<lang>.str for the chosen language
 	// (_utf8Manifest, decided at start; this is asked per character).
-	if (_textOverlay.isLoaded())
-		return false;
-	return (_gameDescription->flags & ADGF_UTF8I18N) || _utf8Manifest;
+	//
+	// text_encoding=utf8 / euc-kr / ascii overrides all of that.
+	const bool detected = !_textOverlay.isLoaded() &&
+		((_gameDescription->flags & ADGF_UTF8I18N) || _utf8Manifest);
+	return textEncodingHeapIsUtf8(_textEncoding, detected);
 }
 
 const Graphics::CodePointSet &SciEngine::translationCodePoints() {
@@ -1090,7 +1105,16 @@ const Graphics::CodePointSet &SciEngine::translationCodePoints() {
 }
 
 Common::CodePage SciEngine::getSciLanguageCodePage() const {
-	switch (getLanguage()) {
+	// text_encoding= wins over the language (textencoding.h).
+	return textEncodingCodePage(_textEncoding, languageCodePage(getLanguage()));
+}
+
+bool SciEngine::usesKoreanText() const {
+	return textEncodingKorean(_textEncoding, getLanguage());
+}
+
+Common::CodePage SciEngine::languageCodePage(Common::Language language) {
+	switch (language) {
 	case Common::KO_KOR:
 		return Common::kWindows949;	// EUC-KR / CP949
 	case Common::JA_JPN:

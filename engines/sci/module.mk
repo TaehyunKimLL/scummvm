@@ -7,6 +7,7 @@ MODULE_OBJS := \
 	event.o \
 	metaengine.o \
 	sci.o \
+	textencoding.o \
 	utf8.o \
 	util.o \
 	engine/features.o \
@@ -52,6 +53,7 @@ MODULE_OBJS := \
 	graphics/controls16.o \
 	graphics/coordadjuster.o \
 	graphics/cursor.o \
+	graphics/fontbanked.o \
 	graphics/fontkorean.o \
 	graphics/fontset.o \
 	graphics/fontunicode.o \

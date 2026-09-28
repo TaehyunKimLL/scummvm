@@ -504,8 +504,14 @@ void GfxScreen::putHangulChar(Graphics::FontKorean *commonFont, int16 x, int16 y
 
 	memset(_hiresGlyphBuffer, 0xff, 256);
 	// we don't use outline, so color 0 is actually not used
-	uint16 charWidth = commonFont->getCharWidth(chr);
-	commonFont->drawChar(_hiresGlyphBuffer, chr, charWidth, 1, color, 0, -1, -1);
+	// The glyph is drawn at a fixed 16 px pitch and cropped to its advance:
+	// a v4 korean.fnt stores Latin glyphs 16 px wide but advances them
+	// proportionally (graphics/korfont.h), so the advance is not the width
+	// the bitmap is blitted at. For v3 glyphs the result is the same as
+	// drawing at a pitch of the advance.
+	const int kGlyphPitch = 16;
+	uint16 charWidth = MIN<uint16>(commonFont->getCharWidth(chr), kGlyphPitch);
+	commonFont->drawChar(_hiresGlyphBuffer, chr, kGlyphPitch, 1, color, 0, -1, -1);
 	// Through the text layer, for the same reason the Unicode font takes it:
 	// the legacy Korean face lands on the same driver bitmap that every
 	// lowres update overwrites, and loses its glyphs to an actor walking
@@ -514,8 +520,9 @@ void GfxScreen::putHangulChar(Graphics::FontKorean *commonFont, int16 x, int16 y
 	// over 60 frames, the same drain as before the layer existed.
 	byte cov[16 * 16];
 	const int gh = commonFont->getFontHeight();
-	for (int i = 0; i < charWidth * gh; i++)
-		cov[i] = (_hiresGlyphBuffer[i] != 0xff) ? 255 : 0;
+	for (int gy = 0; gy < gh && gy < 16; gy++)
+		for (int gx = 0; gx < charWidth; gx++)
+			cov[gy * charWidth + gx] = (_hiresGlyphBuffer[gy * kGlyphPitch + gx] != 0xff) ? 255 : 0;
 	putHiresCoverageGlyph(cov, charWidth, gh, x, y, color);
 }
 
