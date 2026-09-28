@@ -269,6 +269,23 @@ uint8 GfxFontFromResource::getCharHeight(uint32 chr) {
 	return chr < _numChars ? _chars[chr].height : 0;
 }
 
+int GfxFontFromResource::inkBottom(uint32 chr) {
+	if (chr >= _numChars)
+		return -1;
+	const int w = getCharWidth(chr), h = getCharHeight(chr);
+	const int bytesPerRow = (w + 7) / 8;
+	if (w <= 0 || h <= 0)
+		return -1;
+	SciSpan<const byte> data = getCharData(chr);
+	if (data.size() < (uint)(bytesPerRow * h))
+		return -1;
+	for (int y = h - 1; y >= 0; y--)
+		for (int i = 0; i < bytesPerRow; i++)
+			if (data[y * bytesPerRow + i])
+				return y + 1;
+	return -1;
+}
+
 SciSpan<const byte> GfxFontFromResource::getCharData(uint32 chr) {
 	if (chr >= _numChars) {
 		return SciSpan<const byte>();

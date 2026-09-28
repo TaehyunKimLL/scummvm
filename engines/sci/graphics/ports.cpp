@@ -640,6 +640,20 @@ int16 GfxPorts::getPointSize() {
 	return _curPort->fontHeight;
 }
 
+Common::Rect GfxPorts::textClipRect() const {
+	if (_curPort->isWindow() && _wmgrPort) {
+		// As drawWindow() saves it: restoreRect in the window manager's
+		// port, clipped to it.
+		Common::Rect r = static_cast<const Window *>(_curPort)->restoreRect;
+		r.clip(_wmgrPort->rect);
+		r.translate(_wmgrPort->left, _wmgrPort->top);
+		return r;
+	}
+	Common::Rect r = _curPort->rect;
+	r.translate(_curPort->left, _curPort->top);
+	return r;
+}
+
 void GfxPorts::offsetRect(Common::Rect &r) {
 	r.top += _curPort->top;
 	r.bottom += _curPort->top;

@@ -42,7 +42,8 @@ static const int kMinCoverageGamma = 50;
 static const int kMaxCoverageGamma = 400;
 
 HiResFontIdSettings::HiResFontIdSettings()
-	: faceSet(false), size(0), sizeSet(false), pixel(0), pixelSet(false), latin(kHiResLatinOff), latinSet(false),
+	: faceSet(false), size(0), sizeSet(false), pixel(0), pixelSet(false), baseline(0), baselineSet(false),
+	  cell(kHiResCellGame), cellSet(false), align(kHiResAlignGame), alignSet(false), latin(kHiResLatinOff), latinSet(false),
 	  latinFontSet(false), latinFullwidthSpace(false), latinSpaceSet(false),
 	  metrics(kHiResMetricsGame), metricsSet(false), bitmapSet(false),
 	  mirror(kHiResMirrorNone), mirrorSet(false) {
@@ -122,6 +123,12 @@ void HiResTextConfig::clear() {
 	hiresSizeSet = false;
 	hiresPixel = 0;
 	hiresPixelSet = false;
+	hiresBaseline = 0;
+	hiresBaselineSet = false;
+	hiresCell = kHiResCellGame;
+	hiresCellSet = false;
+	hiresAlign = kHiResAlignGame;
+	hiresAlignSet = false;
 	hiresFaceChain.clear();
 	latinMode = kHiResLatinOff;
 	latinModeSet = false;
@@ -388,6 +395,46 @@ bool parseNumber(const char *&p, int maxValue, int &out) {
 bool parseInteger(const Common::String &value, int maxValue, int &out) {
 	const char *p = value.c_str();
 	return parseNumber(p, maxValue, out) && *p == 0;
+}
+
+// baseline=: a whole number of hi-res px, optionally signed, within
+// -kMaxBaselineShift..kMaxBaselineShift.
+const int kMaxBaselineShift = 64;
+
+bool parseBaseline(const Common::String &value, int &out) {
+	const char *p = value.c_str();
+	int sign = 1;
+	if (*p == '-' || *p == '+') {
+		sign = *p == '-' ? -1 : 1;
+		p++;
+	}
+	int n;
+	if (!parseNumber(p, kMaxBaselineShift, n) || *p != 0)
+		return false;
+	out = sign * n;
+	return true;
+}
+
+bool parseAlign(const Common::String &value, HiResAlign &out) {
+	if (value.equalsIgnoreCase("game"))
+		out = kHiResAlignGame;
+	else if (value.equalsIgnoreCase("cell"))
+		out = kHiResAlignCell;
+	else if (value.equalsIgnoreCase("font"))
+		out = kHiResAlignFont;
+	else
+		return false;
+	return true;
+}
+
+bool parseCellMode(const Common::String &value, HiResCellMode &out) {
+	if (value.equalsIgnoreCase("game"))
+		out = kHiResCellGame;
+	else if (value.equalsIgnoreCase("glyph"))
+		out = kHiResCellGlyph;
+	else
+		return false;
+	return true;
 }
 
 /**
@@ -911,8 +958,7 @@ void readFontIdSections(const Common::INIFile &ini, const Common::Array<Common::
 						const Common::Path &baseDir, HiResTextConfig &out) {
 	static const char *const knownKeys[] = {
 		"face", "font", "size", "pixel", "latin", "latin_font", "latin_face", "latin_space", "metrics", "bitmap",
-		"mirror",
-		"baseline" // a known future key: parsed and ignored, no warning
+		"mirror", "baseline", "cell", "align"
 	};
 
 	Common::Array<int> ids;
@@ -989,6 +1035,25 @@ void readFontIdSections(const Common::INIFile &ini, const Common::Array<Common::
 				f.pixelSet = true;
 			else
 				warning("HiResText: [%s] invalid pixel '%s', ignoring", section.c_str(), value.c_str());
+		}
+		if (getKey(ini, qualifiers, section.c_str(), "baseline", value)) {
+			if (parseBaseline(value, f.baseline))
+				f.baselineSet = true;
+			else
+				warning("HiResText: [%s] baseline '%s' is not a whole number of pixels within -%d..%d, ignoring",
+						section.c_str(), value.c_str(), kMaxBaselineShift, kMaxBaselineShift);
+		}
+		if (getKey(ini, qualifiers, section.c_str(), "cell", value)) {
+			if (parseCellMode(value, f.cell))
+				f.cellSet = true;
+			else
+				warning("HiResText: [%s] cell '%s' is not game or glyph, ignoring", section.c_str(), value.c_str());
+		}
+		if (getKey(ini, qualifiers, section.c_str(), "align", value)) {
+			if (parseAlign(value, f.align))
+				f.alignSet = true;
+			else
+				warning("HiResText: [%s] align '%s' is not game, cell or font, ignoring", section.c_str(), value.c_str());
 		}
 		if (getKey(ini, qualifiers, section.c_str(), "latin", value)) {
 			if (parseLatinMode(value, f.latin))
@@ -1312,6 +1377,25 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 			out.hiresPixelSet = true;
 		else
 			warning("HiResText: invalid [hires] pixel '%s', ignoring", value.c_str());
+	}
+	if (getKey(ini, qualifiers, "hires", "baseline", value)) {
+		if (parseBaseline(value, out.hiresBaseline))
+			out.hiresBaselineSet = true;
+		else
+			warning("HiResText: [hires] baseline '%s' is not a whole number of pixels within -%d..%d, ignoring",
+					value.c_str(), kMaxBaselineShift, kMaxBaselineShift);
+	}
+	if (getKey(ini, qualifiers, "hires", "cell", value)) {
+		if (parseCellMode(value, out.hiresCell))
+			out.hiresCellSet = true;
+		else
+			warning("HiResText: [hires] cell '%s' is not game or glyph, ignoring", value.c_str());
+	}
+	if (getKey(ini, qualifiers, "hires", "align", value)) {
+		if (parseAlign(value, out.hiresAlign))
+			out.hiresAlignSet = true;
+		else
+			warning("HiResText: [hires] align '%s' is not game, cell or font, ignoring", value.c_str());
 	}
 	readFaceTable(ini, qualifiers, out.fontFaces);
 	// After [fonts], so the chain's names resolve.

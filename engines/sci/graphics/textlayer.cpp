@@ -47,17 +47,21 @@ Common::Rect TextLayer::toHires(const Common::Rect &lowres) const {
 	return r;
 }
 
-void TextLayer::putGlyph(int16 hx, int16 hy, const byte *coverage, int16 w, int16 h, byte fgIndex) {
+void TextLayer::putGlyph(int16 hx, int16 hy, const byte *coverage, int16 w, int16 h, byte fgIndex,
+						 const Common::Rect *clip) {
+	Common::Rect bounds(0, 0, _width, _height);
+	if (clip)
+		bounds.clip(*clip);
 	for (int16 gy = 0; gy < h; gy++) {
 		const int y = hy + gy;
-		if (y < 0 || y >= _height)
+		if (y < bounds.top || y >= bounds.bottom)
 			continue;
 		TextPixel *dst = &_pixels[(uint32)y * _width];
 		bool wrote = false;
 		for (int16 gx = 0; gx < w; gx++) {
 			const byte c = coverage[gy * w + gx];
 			const int x = hx + gx;
-			if (!c || x < 0 || x >= _width)
+			if (!c || x < bounds.left || x >= bounds.right)
 				continue;
 			dst[x].fgIndex = fgIndex;
 			dst[x].fgCoverage = c;

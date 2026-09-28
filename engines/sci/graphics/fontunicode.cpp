@@ -86,15 +86,19 @@ byte GfxFontUnicode::getCharWidth(uint32 chr) {
 	const int cells = _source->cells(chr);
 	if (cells <= 0)
 		return 0;
+	if (_placement.active())
+		return (byte)(cells == 2 ? _placement.cellPx : _placement.cellPx / 2);
 	return cells == 2 ? _source->advanceWide() : _source->advanceNarrow();
 }
 
 byte GfxFontUnicode::gameCharWidth(uint32 cp, int scale) {
-	return (byte)glyphGameWidth(_source.get(), cp, scale, _perGlyph);
+	return (byte)glyphGameWidth(_source.get(), cp, scale, _perGlyph, _placement.active() ? _placement.cellPx : 0);
 }
 
 byte GfxFontUnicode::getCharHeight(uint32 chr) {
-	return (_source && _source->cells(chr) > 0) ? _source->cellHeight() : 0;
+	if (!_source || _source->cells(chr) <= 0)
+		return 0;
+	return _placement.active() ? (byte)_placement.cellPx : _source->cellHeight();
 }
 
 void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
@@ -137,6 +141,15 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 		const bool placed = _source->metrics(chr, m);
 		hiresX = _anchor.place(m, placed, left, top, placed && !m.combining ? gameCharWidth(chr, 2) : 0);
 	}
+	if (_placement.active()) {
+		// C41: the raster cell moved within the layout cell. What leaves the
+		// cell is drawn over the neighbouring pixels, not clipped - only at
+		// the edge of the port (or window) the text is drawn in, so that
+		// whatever erases the port erases all of it (GfxScreen).
+		_screen->putHiresCoverageGlyphAt(cov, w, cellHeight, hiresX + _placement.offsetX(cells == 2),
+										 (top << 1) + _placement.offsetY(), color, true);
+		return;
+	}
 	if (hiresX == (left << 1))
 		_screen->putHiresCoverageGlyph(cov, w, cellHeight, left, top, color);
 	else
@@ -156,13 +169,15 @@ void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,
 	const int bpp = _source->bitsPerPixel();
 	const int w = _source->cellWidth() * cells;
 
+	const int offX = _placement.active() ? _placement.offsetX(cells == 2) : 0;
+	const int offY = _placement.active() ? _placement.offsetY() : 0;
 	for (int y = 0; y < cellHeight; y++) {
-		const int destY = top + y;
+		const int destY = top + offY + y;
 		if (destY < 0 || destY >= height)
 			continue;
 		const byte *row = coverageRow(chr, y);
 		for (int x = 0; x < w; x++) {
-			const int destX = left + x;
+			const int destX = left + offX + x;
 			if (destX < 0 || destX >= width)
 				continue;
 			if (Graphics::TextCompose::expandCoverage(row, x, bpp) == 0)

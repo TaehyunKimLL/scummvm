@@ -140,6 +140,10 @@ public:
 	void putHiresCoverageGlyph(const byte *coverage, int16 w, int16 h, int16 x, int16 y, byte color);
 	/** putHiresCoverageGlyph() at HIRES coordinates: a glyph placed by its own bearing, not on a game pixel. */
 	void putHiresCoverageGlyphAt(const byte *coverage, int16 w, int16 h, int16 hiresX, int16 hiresY, byte color);
+	/** As above; with @p clipToPort, only what lies inside the current port's
+	 *  GfxPorts::textClipRect() is drawn (a glyph overflowing its cell, C41). */
+	void putHiresCoverageGlyphAt(const byte *coverage, int16 w, int16 h, int16 hiresX, int16 hiresY, byte color,
+								 bool clipToPort);
 
 	/// The text layer itself, or null if never used.
 	const TextLayer *textLayer() const { return _textLayer; }

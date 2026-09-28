@@ -479,6 +479,48 @@ public:
 #endif
 	}
 
+	/**
+	 * C41 padRows(): rows of headroom around the cell. The glyph keeps its
+	 * size and fit; its rows move down by the pad, the line top and the
+	 * baseline with them, and nothing else changes.
+	 */
+	void test_pad_rows_moves_the_glyph_down_whole() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		const Common::FSNode node = sdGothicNode();
+		Common::String error;
+		TtfGlyphSource *plain = TtfGlyphSource::create(node.createReadStream(), DisposeAfterUse::YES, 18, error);
+		TtfGlyphSource *padded = TtfGlyphSource::create(node.createReadStream(), DisposeAfterUse::YES, 18, error);
+		TS_ASSERT(plain && padded);
+		if (!plain || !padded) {
+			delete plain;
+			delete padded;
+			return;
+		}
+		padded->padRows(5);
+		TS_ASSERT_EQUALS(padded->rowPad(), 5);
+		TS_ASSERT_EQUALS((int)padded->cellHeight(), 28);
+		TS_ASSERT_EQUALS((int)padded->cellWidth(), 18);
+		TS_ASSERT_EQUALS(padded->lineTop(), plain->lineTop() + 5);
+		TS_ASSERT_EQUALS(padded->faceSize(), plain->faceSize());
+		const uint32 cps[] = { 0xBC88, 0x0041, 0x0067 };  // 번 A g
+		for (uint i = 0; i < ARRAYSIZE(cps); i++) {
+			TS_ASSERT_EQUALS(padded->cells(cps[i]), plain->cells(cps[i]));
+			TS_ASSERT_EQUALS(padded->advance(cps[i]), plain->advance(cps[i]));
+			for (int y = 0; y < 28; y++) {
+				const byte *r = padded->row(cps[i], y);
+				const byte *q = (y >= 5 && y < 23) ? plain->row(cps[i], y - 5) : nullptr;
+				for (int x = 0; x < 36; x++)
+					TS_ASSERT_EQUALS(r[x], q ? q[x] : 0);
+			}
+		}
+		// Never past the byte-sized cell.
+		padded->padRows(200);
+		TS_ASSERT((int)padded->cellHeight() <= TtfGlyphSource::kMaxPixelSize);
+		delete plain;
+		delete padded;
+#endif
+	}
+
 	void test_no_freetype_stub_with_probes() {
 #ifndef USE_FREETYPE2
 		byte dummy[4] = { 0, 0, 0, 0 };
