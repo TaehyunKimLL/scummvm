@@ -32,8 +32,11 @@ namespace DOS {
  * repeating every 5th logical row once. physRow() maps a logical row
  * (0..399) to the physical row (0..479) it is written to first;
  * repeats() says whether that logical row is also written to
- * physRow() + 1. logicalRow() is the mouse's inverse: which logical row
- * a physical row (0..479) belongs to, including a repeated one.
+ * physRow() + 1. logicalRow() is the exact inverse: which logical row
+ * a physical row (0..479) belongs to, including a repeated one --
+ * logicalRow(physRow(y)) == y for every y, and when repeats(y),
+ * logicalRow(physRow(y) + 1) == y too (the repeat maps back to the row
+ * it repeats, not the next one).
  */
 inline int physRow(int y) {
 	return y + y / 5;
@@ -44,7 +47,7 @@ inline bool repeats(int y) {
 }
 
 inline int logicalRow(int py) {
-	return py - py / 6;
+	return py - (py + 1) / 6;
 }
 
 /** The physical rows a dirty rect of logical rows touches, same left/right. */
