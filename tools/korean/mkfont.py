@@ -56,6 +56,15 @@ def _ksx1001():
     return out
 
 
+def _ksx1001_nohanja():
+    """_ksx1001() 에서 한자 (CJK 통합 한자 U+4E00-U+9FFF, 호환용 U+F900-U+FAFF)
+    를 뺀 것: 기호, 낱자, 완성형 2350자만 남는다. 한자까지 구우면 한 파일이
+    커지고, 한자는 다른 폭소스(예: 고밀도 CJK 글꼴)로 넘길 수 있어 DOS L
+    프리셋에는 굳이 필요 없다."""
+    return [cp for cp in _ksx1001()
+            if not (0x4E00 <= cp <= 0x9FFF or 0xF900 <= cp <= 0xFAFF)]
+
+
 # --unicode 에 이름으로 쓸 수 있는 묶음.
 NAMED_RANGES = {
     "ascii": lambda: list(range(0x20, 0x7F)),
@@ -64,6 +73,7 @@ NAMED_RANGES = {
     "jamo": lambda: list(range(0x3131, 0x318F)),            # 호환 낱자
     "cjk-punct": lambda: list(range(0x3000, 0x3040)) + list(range(0xFF01, 0xFF5F)),
     "ksx1001": _ksx1001,
+    "ksx1001-nohanja": _ksx1001_nohanja,
     "kana": lambda: list(range(0x3041, 0x3100)),
     "thai": lambda: list(range(0x0E01, 0x0E3B)) + list(range(0x0E3F, 0x0E5C)),
 }
