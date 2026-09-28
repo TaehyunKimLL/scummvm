@@ -49,6 +49,20 @@ uint32 decodeUtf8Char(const byte *p, int &outBytes);
 uint32 utf8Length(const byte *p);
 
 /**
+ * Encode @p codePoint (up to U+10FFFF; larger values become U+FFFD) as
+ * UTF-8 into @p out, which has room for 4 bytes. Returns the byte count.
+ */
+int encodeUtf8Char(uint32 codePoint, byte *out);
+
+/**
+ * Where a write of the @p index-th code point lands in a UTF-8 string that
+ * is being built left to right: the byte offset of that code point, and
+ * past the terminator one byte per missing index (so an ASCII string keeps
+ * the byte-for-index answer it always had).
+ */
+uint32 utf8WriteOffset(const byte *p, uint32 index);
+
+/**
  * Byte offset of the @p index-th code point in a NUL-terminated UTF-8
  * string, or the offset of the terminator when @p index is past the end.
  */

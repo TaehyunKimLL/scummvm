@@ -1233,7 +1233,9 @@ reg_t kNewWindow(EngineState *s, int argc, reg_t *argv) {
 	Common::String title;
 	if (argv[4 + argextra].getSegment()) {
 		title = s->_segMan->getString(argv[4 + argextra]);
-		title = g_sci->strSplit(title.c_str(), nullptr);
+		// Keyed like kDisplay/kDrawControl, so a sci-<lang>.str entry for
+		// the title's script string applies (LSL1's Print #title:).
+		title = g_sci->strSplitHeap(argv[4 + argextra], title, nullptr, nullptr);
 	}
 
 	return g_sci->_gfxPorts->kernelNewWindow(rect1, rect2, style, priority, colorPen, colorBack, title.c_str());
