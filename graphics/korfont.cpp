@@ -66,7 +66,7 @@ void FontKorean::drawChar(Graphics::Surface &dst, uint16 ch, int x, int y, uint3
 }
 
 FontKoreanBase::FontKoreanBase()
-	: _drawMode(kDefaultMode), _flippedMode(false), _fontWidth(16), _fontHeight(16) {
+	: _drawMode(kDefaultMode), _flippedMode(false), _fontWidth(16), _fontHeight(16), _bitPosNewLineMask(0) {
 }
 
 void FontKoreanBase::setDrawingMode(DrawingMode mode) {
@@ -111,9 +111,13 @@ uint FontKoreanBase::getMaxFontWidth() const {
 
 uint FontKoreanBase::getCharWidth(uint16 ch) const {
 	if (isASCII(ch))
-		return ((_drawMode == kOutlineMode) ? _fontWidth / 2 + 2 : (_drawMode == kDefaultMode ? _fontWidth / 2 : _fontWidth / 2 + 1));
+		return _fontWidth / 2 + drawModeExtraWidth();
 	else
 		return getMaxFontWidth();
+}
+
+int FontKoreanBase::drawModeExtraWidth() const {
+	return (_drawMode == kOutlineMode) ? 2 : (_drawMode == kDefaultMode ? 0 : 1);
 }
 
 template<typename Color>
@@ -181,7 +185,7 @@ void FontKoreanBase::drawChar(void *dst, uint16 ch, int pitch, int bpp, uint32 c
 	if (isASCII(ch)) {
 		glyphSource = getCharData(ch);
 		//width = 8;
-		width = _fontWidth / 2;
+		width = getASCIIGlyphWidth();
 		height = _fontHeight;
 	} else {
 		glyphSource = getCharData(ch);
@@ -260,11 +264,12 @@ bool FontKoreanBase::isASCII(uint16 ch) const {
 // ScummVM Korean font
 
 FontKoreanSVM::FontKoreanSVM()
-	: _fontData16x16(0), _fontData16x16Size(0), _fontData8x16(0), _fontData8x16Size(0),
+	: _version(0), _latinRowBytes(1), _fontData16x16(0), _fontData16x16Size(0), _fontData8x16(0), _fontData8x16Size(0),
 	  _fontData8x8(0), _fontData8x8Size(0) {
 
 	//_fontWidth = 16;
 	//_fontHeight = 16;
+	memset(_latinAdvance, 0, sizeof(_latinAdvance));
 }
 
 FontKoreanSVM::~FontKoreanSVM() {
@@ -277,55 +282,84 @@ bool FontKoreanSVM::loadData(const char *fontFile) {
 	Common::SeekableReadStream *data = SearchMan.createReadStreamForMember(fontFile);
 	if (!data)
 		return false;
+	const bool ok = loadFromStream(*data);
+	delete data;
+	return ok;
+}
 
-	uint32 magic1 = data->readUint32BE();
-	uint32 magic2 = data->readUint32BE();
+bool FontKoreanSVM::loadFromStream(Common::SeekableReadStream &data) {
+	uint32 magic1 = data.readUint32BE();
+	uint32 magic2 = data.readUint32BE();
 
-	if (magic1 != MKTAG('S', 'C', 'V', 'M') || magic2 != MKTAG('S', 'J', 'I', 'S')) {
-		delete data;
+	if (magic1 != MKTAG('S', 'C', 'V', 'M') || magic2 != MKTAG('S', 'J', 'I', 'S'))
+		return false;
+
+	uint32 version = data.readUint32BE();
+	if (version != kKoreanFontVersion && version != kKoreanFontVersionProportional) {
+		warning("Korean font version mismatch, expected: %d or %d found: %u", kKoreanFontVersion,
+				kKoreanFontVersionProportional, version);
 		return false;
 	}
+	uint numChars16x16 = data.readUint16BE();
+	uint numChars8x16 = data.readUint16BE();
+	uint numChars8x8 = data.readUint16BE();
+	if (data.err())
+		return false;
 
-	uint32 version = data->readUint32BE();
-	if (version != kKoreanFontVersion) {
-		warning("Korean font version mismatch, expected: %d found: %u", kKoreanFontVersion, version);
-		delete data;
-		return false;
-	}
-	uint numChars16x16 = data->readUint16BE();
-	uint numChars8x16 = data->readUint16BE();
-	uint numChars8x8 = data->readUint16BE();
-	if (data->err()) {
-		delete data;
-		return false;
-	}
+	_version = version;
+	memset(_latinAdvance, 0, sizeof(_latinAdvance));
+	// v4: the per-ASCII-code advance table sits between the header and the
+	// glyphs.
+	if (version >= kKoreanFontVersionProportional)
+		data.read(_latinAdvance, sizeof(_latinAdvance));
+	// Both versions store the Latin rows 2 bytes wide. v3 only ever used the
+	// first byte (8 px glyphs); v4 glyphs are up to 16 px and use both.
+	_latinRowBytes = (version >= kKoreanFontVersionProportional) ? 2 : 1;
 
 	if (_fontWidth == 16) {
 		_fontData16x16Size = numChars16x16 * 32;
 		_fontData16x16 = new uint8[_fontData16x16Size];
 		assert(_fontData16x16);
-		data->read(_fontData16x16, _fontData16x16Size);
+		data.read(_fontData16x16, _fontData16x16Size);
 
-		_fontData8x16Size = numChars8x16 * 16;
+		_fontData8x16Size = numChars8x16 * 16 * _latinRowBytes;
 		_fontData8x16 = new uint8[_fontData8x16Size];
 		assert(_fontData8x16);
-		for (uint i = 0; i < _fontData8x16Size; ++i) {
-			_fontData8x16[i] = data->readByte();
-			data->skip(1);
+		if (_latinRowBytes == 2) {
+			data.read(_fontData8x16, _fontData8x16Size);
+		} else {
+			for (uint i = 0; i < _fontData8x16Size; ++i) {
+				_fontData8x16[i] = data.readByte();
+				data.skip(1);
+			}
 		}
 	} else {
-		data->skip(numChars16x16 * 32);
-		data->skip(numChars8x16 * 32);
+		data.skip(numChars16x16 * 32);
+		data.skip(numChars8x16 * 32);
 
 		_fontData8x8Size = numChars8x8 * 8;
 		_fontData8x8 = new uint8[_fontData8x8Size];
 		assert(_fontData8x8);
-		data->read(_fontData8x8, _fontData8x8Size);
+		data.read(_fontData8x8, _fontData8x8Size);
 	}
 
-	bool retValue = !data->err();
-	delete data;
-	return retValue;
+	// A file cut short reads past its end: reject it rather than draw
+	// whatever the buffers were left holding.
+	return !data.err() && !data.eos();
+}
+
+uint FontKoreanSVM::getCharWidth(uint16 ch) const {
+	// v4: ASCII advances by the font's own table (proportional Latin). The
+	// drawing mode adds to it exactly as it adds to the fixed half cell.
+	if (_version >= kKoreanFontVersionProportional && _fontWidth == 16 && isASCII(ch))
+		return _latinAdvance[ch & 0x7F] + drawModeExtraWidth();
+	return FontKoreanBase::getCharWidth(ch);
+}
+
+int FontKoreanSVM::getASCIIGlyphWidth() const {
+	if (_fontWidth == 16 && _latinRowBytes == 2)
+		return 16;
+	return FontKoreanBase::getASCIIGlyphWidth();
 }
 
 const uint8 *FontKoreanSVM::getCharData(uint16 c) const {
@@ -360,8 +394,9 @@ const uint8 *FontKoreanSVM::getCharDataPCE(uint16 c) const {
 
 const uint8 *FontKoreanSVM::getCharDataDefault(uint16 c) const {
 	if (isASCII(c)) {
-		const uint offset = c * 16;
-		assert(offset <= _fontData8x16Size);
+		const uint offset = c * 16 * _latinRowBytes;
+		if (offset >= _fontData8x16Size)
+			return 0;
 		return _fontData8x16 + offset;
 	} else {
 		if (!checkKorCode(c % 256, c / 256))

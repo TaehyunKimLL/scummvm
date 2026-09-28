@@ -23,6 +23,7 @@
 #define GRAPHICS_KORFONT_H
 
 #include "common/str.h"
+#include "common/stream.h"
 #include "graphics/surface.h"
 
 namespace Graphics {
@@ -135,6 +136,16 @@ public:
 	uint getCharWidth(uint16 ch) const override;
 
 	void drawChar(void *dst, uint16 ch, int pitch, int bpp, uint32 c1, uint32 c2, int maxW, int maxH) const override;
+protected:
+	/**
+	 * Width in pixels of the stored bitmap of an ASCII glyph (the width the
+	 * glyph is blitted at, not its advance). Half the Hangul cell unless a
+	 * font stores wider Latin glyphs.
+	 */
+	virtual int getASCIIGlyphWidth() const { return _fontWidth / 2; }
+
+	/** Extra advance the current drawing mode adds to a glyph. */
+	int drawModeExtraWidth() const;
 private:
 	template<typename Color>
 	void blitCharacter(const uint8 *glyph, const int w, const int h, uint8 *dst, int pitch, Color c) const;
@@ -172,7 +183,39 @@ public:
 	 * Load the font data from "KOREAN.FNT".
 	 */
 	bool loadData(const char *fontFile) override;
+
+	/**
+	 * Load the font data from a stream (does not take ownership). Accepts
+	 * format versions 3 and 4:
+	 *  - v3: 18-byte header, 16x16 Hangul glyphs, then 8x16 Latin glyphs
+	 *    stored at 2 bytes per row of which only the first is used (8 px,
+	 *    fixed advance of half a cell), then 8x8 glyphs.
+	 *  - v4: the same header, then a 128-byte table of per-ASCII-code
+	 *    advances in pixels, then the same glyph blocks - except that the
+	 *    Latin glyphs use both bytes of each row (up to 16 px wide,
+	 *    proportional, advanced by the table).
+	 */
+	bool loadFromStream(Common::SeekableReadStream &data);
+
+	uint getCharWidth(uint16 ch) const override;
+
+	/** The format version of the loaded file (3 or 4), 0 before a load. */
+	uint32 getVersion() const { return _version; }
+
+	/** True when the font carries proportional Latin glyphs (version 4). */
+	bool hasProportionalLatin() const { return _version >= 4; }
+
+	/** The advance a v4 font's table gives an ASCII code, in font pixels (0 for v3). */
+	uint8 getLatinAdvance(uint16 ch) const { return (_version >= 4 && ch < 128) ? _latinAdvance[ch] : 0; }
+
+protected:
+	int getASCIIGlyphWidth() const override;
+
 private:
+	uint32 _version;
+	uint8 _latinAdvance[128];
+	uint _latinRowBytes;	///< bytes kept per Latin glyph row: 1 (v3) or 2 (v4)
+
 	uint8 *_fontData16x16;
 	uint _fontData16x16Size;
 
@@ -190,7 +233,8 @@ private:
 	const uint8 *getCharDataDefault(uint16 c) const;
 
 	enum {
-		kKoreanFontVersion = 3
+		kKoreanFontVersion = 3,	///< the original format
+		kKoreanFontVersionProportional = 4	///< adds proportional Latin (width table, 16 px rows)
 	};
 };
 
