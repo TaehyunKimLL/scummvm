@@ -219,12 +219,12 @@ private:
 	int _loadingLastFill;	///< bar fill width last drawn, pixels
 	const char *_loadingLastLabel;
 	uint _loadingDraws, _loadingDrawMs, _loadingCheckMs, _loadingChecks;	///< what it cost (debug level 1)
-	bool _usedColors[256];
+	bool _usedColors[256];	///< CLUT8 indices the game drew with during the loading screen
 	uint32 _lockAddr[2], _lockSize[2];	///< lockSurfaces()'s regions (linear), size 0 if none
-	bool _unlockAfterPresent;
-	Common::EventType _loadingSwallowUp;	///< the release to drop, of the key/click that skipped the loading screen	///< the loading screen is gone: unlock once the game's frame is sent
+	bool _unlockAfterPresent;	///< the loading screen is gone: unlock once the game's frame is sent
+	Common::EventType _loadingSwallowUp;	///< the release to drop, of the key/click that skipped the loading screen
 	bool _vramOk;	///< see queryVramWindow()
-	uint32 _vramGran, _vramWinSize, _vramBase, _vramPitch;	///< CLUT8 indices the game drew with during the loading screen
+	uint32 _vramGran, _vramWinSize, _vramBase, _vramPitch;
 };
 
 #endif

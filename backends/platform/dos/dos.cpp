@@ -705,14 +705,16 @@ static void flushDeferredLog() {
 void OSystem_DOS::logMessage(LogMessageType::Type type, const char *message) {
 	if (type == LogMessageType::kError)
 		Common::strlcpy(g_lastError, message, sizeof(g_lastError));
-	if (type == LogMessageType::kError || type == LogMessageType::kWarning)
-		DOS::Loading::noteWarning(message);
 	// The screen is in a graphics mode; the log is the only place output
 	// can go.
 	if (!DosTimerManager::interruptsEnabled()) {
 		deferLog(message);
 		return;
 	}
+	// Not from interrupt time: halt() reads the same buffer on the main
+	// thread, unlocked.
+	if (type == LogMessageType::kError || type == LogMessageType::kWarning)
+		DOS::Loading::noteWarning(message);
 	flushDeferredLog();
 	appendLog(message, strlen(message));
 }
