@@ -104,4 +104,19 @@ public:
 		TS_ASSERT(c.restore(screen, 4).isEmpty());
 		TS_ASSERT_SAME_DATA(screen, copy, sizeof(screen));
 	}
+
+	// CursorMan.popCursor() down to nothing: the drawn cursor is erased on
+	// the next frame and not drawn again.
+	void test_clear_after_draw_restores_and_draws_nothing() {
+		byte screen[4 * 4];
+		memset(screen, 1, sizeof(screen));
+		DOS::SoftCursor c;
+		c.setImage(image(), 2, 2, 0, 0, 0, 1);
+		const Common::Rect r = c.draw(screen, 4, 1, 4, 4, 1, 1);
+		c.clearImage();
+		TS_ASSERT_EQUALS(c.restore(screen, 4), r);
+		TS_ASSERT(c.draw(screen, 4, 1, 4, 4, 1, 1).isEmpty());
+		for (int i = 0; i < 16; ++i)
+			TS_ASSERT_EQUALS(screen[i], 1);
+	}
 };
