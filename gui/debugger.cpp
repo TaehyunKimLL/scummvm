@@ -59,9 +59,8 @@ Debugger::Debugger() {
 	_firstTime = true;
 	_defaultCommandProcessor = nullptr;
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
-	_debuggerDialog = new GUI::ConsoleDialog(1.0f, 0.67f);
-	_debuggerDialog->setInputCallback(debuggerInputCallback, this);
-	_debuggerDialog->setCompletionCallback(debuggerCompletionCallback, this);
+	// Made on first use (consoleDialog()).
+	_debuggerDialog = nullptr;
 #endif
 
 	// Register variables
@@ -95,6 +94,20 @@ Debugger::~Debugger() {
 #endif
 }
 
+#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+GUI::ConsoleDialog *Debugger::consoleDialog() {
+	// The dialog needs the GUI manager, whose theme and fonts take a while
+	// to load - a second on a slow machine, at every game's start - so it
+	// is made when something first prints to it or opens it.
+	if (!_debuggerDialog) {
+		_debuggerDialog = new GUI::ConsoleDialog(1.0f, 0.67f);
+		_debuggerDialog->setInputCallback(debuggerInputCallback, this);
+		_debuggerDialog->setCompletionCallback(debuggerCompletionCallback, this);
+	}
+	return _debuggerDialog;
+}
+#endif
+
 void Debugger::clearVars() {
 	_vars.resize(1); // Keep "debug_countdown"
 }
@@ -102,20 +115,21 @@ void Debugger::clearVars() {
 
 void Debugger::setPrompt(Common::String prompt) {
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
-	_debuggerDialog->setPrompt(prompt);
+	consoleDialog()->setPrompt(prompt);
 #endif
 }
 
 void Debugger::resetPrompt() {
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
-	_debuggerDialog->resetPrompt();
+	if (_debuggerDialog)
+		_debuggerDialog->resetPrompt();
 #endif
 }
 
 // Initialisation Functions
 int Debugger::getCharsPerLine() {
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
-	const int charsPerLine = _debuggerDialog->getCharsPerLine();
+	const int charsPerLine = consoleDialog()->getCharsPerLine();
 #elif defined(USE_READLINE)
 	int charsPerLine, rows;
 	rl_get_screen_size(&rows, &charsPerLine);
@@ -137,7 +151,7 @@ int Debugger::debugPrintf(const char *format, ...) {
 		count = s.size();
 	} else {
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
-	count = _debuggerDialog->vprintFormat(1, format, argptr);
+	count = consoleDialog()->vprintFormat(1, format, argptr);
 #else
 	count = ::vprintf(format, argptr);
 	::fflush(stdout);
@@ -283,7 +297,7 @@ void Debugger::enter() {
 		_errStr.clear();
 	}
 
-	_debuggerDialog->runModal();
+	consoleDialog()->runModal();
 #else
 	printf("Debugger entered, please switch to this console for input.\n");
 
@@ -850,7 +864,8 @@ bool Debugger::cmdDebugFlagEnable(int argc, const char **argv) {
 
 bool Debugger::cmdClearLog(int argc, const char **argv) {
 	#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
-	_debuggerDialog->clearBuffer();
+	if (_debuggerDialog)
+		_debuggerDialog->clearBuffer();
 	#endif
 	return true;
 }
