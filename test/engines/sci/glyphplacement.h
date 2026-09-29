@@ -192,6 +192,38 @@ public:
 		TS_ASSERT_EQUALS(p.offsetY(), 3);
 	}
 
+	void test_ink_is_kept_to_the_text_line() {
+		// An 18-row face on font 4's baseline in a 16 px cell: drawn a row
+		// up. The rows it may ink are the line the game erases - font 4's
+		// 18 hi-res rows - never the row above it.
+		GlyphPlacement p = place(18, 16, GlyphPlacement::kAlignGame, 15, 14, 0);
+		TS_ASSERT_EQUALS(p.offsetY(), -1);
+		int top, bottom;
+		p.lineRows(100, 18, top, bottom);
+		TS_ASSERT_EQUALS(top, 100);
+		TS_ASSERT_EQUALS(bottom, 118);
+		// A 16 px line (LB1's title, font 0): the row under the cell is
+		// outside it too.
+		p.lineRows(100, 16, top, bottom);
+		TS_ASSERT_EQUALS(bottom, 116);
+		// A game line shorter than the cell (or unknown, 0): the cell.
+		p.lineRows(100, 0, top, bottom);
+		TS_ASSERT_EQUALS(bottom, 116);
+		// With the clip, TextLayer draws the glyph's rows 1..16 only.
+		Sci::TextLayer l(40, 140, 2);
+		Common::Array<byte> cov;
+		cov.resize(18 * 18);
+		for (uint i = 0; i < cov.size(); i++)
+			cov[i] = 255;
+		p.lineRows(100, 16, top, bottom);
+		const Common::Rect line(-0x4000, top, 0x4000, bottom);
+		l.putGlyph(0, 100 + p.offsetY(), cov.begin(), 18, 18, 1, &line);
+		TS_ASSERT_EQUALS(l.row(99)[5].fgCoverage, 0);
+		TS_ASSERT_EQUALS(l.row(100)[5].fgCoverage, 255);
+		TS_ASSERT_EQUALS(l.row(115)[5].fgCoverage, 255);
+		TS_ASSERT_EQUALS(l.row(116)[5].fgCoverage, 0);
+	}
+
 	void test_placement_centred_when_asked_or_unknown() {
 		// align=cell, or a baseline that cannot be measured: the raster cell
 		// centred on the layout cell, rounded down.

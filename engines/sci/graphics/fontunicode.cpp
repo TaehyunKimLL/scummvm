@@ -27,6 +27,7 @@
 #include "graphics/hires_text/glyph_source_scvmuni.h"
 #include "graphics/hires_text/latin_advance.h"
 #include "graphics/hires_text/unicode_props.h"
+#include "sci/graphics/ports.h"
 #include "sci/graphics/screen.h"
 #include "graphics/hires_text/text_compose.h"
 #include "sci/graphics/textlatin.h"
@@ -166,11 +167,19 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 	}
 	if (_placement.active()) {
 		// C41: the raster cell moved within the layout cell. What leaves the
-		// cell is drawn over the neighbouring pixels, not clipped - only at
-		// the edge of the port (or window) the text is drawn in, so that
-		// whatever erases the port erases all of it (GfxScreen).
+		// cell sideways is drawn over the neighbouring pixels, not clipped -
+		// only at the edge of the port (or window) the text is drawn in.
+		// Above and below, the ink is clipped to the text line: the game
+		// erases a line by its rows only, so a row of ink above or below
+		// it (an 18-row face drawn a row up in a 16-row line) would stay on
+		// screen as stray dots once the text is gone.
+		int lineTop, lineBottom;
+		const int gameLine = (g_sci && g_sci->_gfxPorts && g_sci->_gfxPorts->_curPort) ?
+			g_sci->_gfxPorts->_curPort->fontHeight << 1 : 0;
+		_placement.lineRows(top << 1, gameLine, lineTop, lineBottom);
+		const Common::Rect line(-0x4000, lineTop, 0x4000, lineBottom);
 		_screen->putHiresCoverageGlyphAt(cov, w, cellHeight, hiresX + _placement.offsetX(cells == 2),
-										 (top << 1) + _placement.offsetY(), color, true);
+										 (top << 1) + _placement.offsetY(), color, true, &line);
 		return;
 	}
 	if (hiresX == (left << 1))
