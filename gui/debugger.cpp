@@ -129,7 +129,9 @@ void Debugger::resetPrompt() {
 // Initialisation Functions
 int Debugger::getCharsPerLine() {
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
-	const int charsPerLine = consoleDialog()->getCharsPerLine();
+	// Output going to a sink (the debug socket) has no console width, and
+	// asking the console would build it - and the GUI manager - for nothing.
+	const int charsPerLine = _outputSink ? 80 : consoleDialog()->getCharsPerLine();
 #elif defined(USE_READLINE)
 	int charsPerLine, rows;
 	rl_get_screen_size(&rows, &charsPerLine);
