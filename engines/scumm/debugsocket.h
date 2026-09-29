@@ -50,6 +50,11 @@ class ScummEngine;
  *                         reply `OK <loop>` at the end of the first loop the
  *                         condition holds in, `TIMEOUT <loop>` after N loops
  *                         (default 3600). Conditions: see parseSocketWait().
+ *                         `TIMEOUT <loop> paused` at once while the engine is
+ *                         paused (a modal dialog: go() runs no loop), and
+ *                         `TIMEOUT <loop> stalled` when no loop has ended for
+ *                         60 s; the socket reads commands again then, so a
+ *                         `key Return` can close the dialog. `run` alike.
  *                         `text`/`seen` look at the strings drawn since the
  *                         game last stopped or started under the socket's
  *                         control (the end of a wait, `freeze`, the start and
@@ -71,6 +76,7 @@ class ScummEngine;
  *                           <prefix>_layer.bin  text surface (hi-res: the index plane)
  *                           <prefix>_cov.bin    coverage plane (alpha only)
  *                           <prefix>_pal.bin    the game palette, 768 bytes
+ *                                               (.txt: "256 1 3 RGB888")
  *                           <prefix>_out.bin    the backend screen (lockScreen())
  *                         `FAIL <file>` when one cannot be written. Keep the
  *                         prefix's file name to 2 characters for 8.3 names.
@@ -124,6 +130,10 @@ private:
 	/** The game-to-backend factor of mouse coordinates (input.cpp's rule). */
 	int mouseScale() const;
 	void finishWait(bool ok);
+	/** End a wait or `run` no loop will finish; true when it replied. */
+	bool endStalled();
+	/** Start a wait or `run` that was held for queued keys. Never replies for a wait. */
+	void startPending();
 
 	ScummEngine *_vm;
 	GUI::DebugSocket *_socket;
@@ -146,6 +156,9 @@ private:
 	bool _runPending;		///< `run`: waiting for the input queue to drain
 	bool _runStarted;		///< unfrozen; counting to _runUntil
 	uint32 _runUntil;		///< 0: no refreeze
+
+	static const uint32 kStallMs = 60000;
+	uint32 _progressMs;		///< getMillis() at the last loop end, or when the wait/run came
 };
 
 } // End of namespace Scumm

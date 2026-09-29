@@ -246,6 +246,20 @@ inline bool condHolds(const SocketCond &c, const SocketSnapshot &s,
 	}
 }
 
+/**
+ * Why a wait (or `run`) has to end with no loop to check it on, or null.
+ * "paused" while the engine is paused - a modal dialog; go() then runs no
+ * loop at all - and "stalled" when no loop has ended for @p limitMs since
+ * @p progressMs (the last loop end, or when the wait came).
+ */
+inline const char *socketStall(bool paused, uint32 nowMs, uint32 progressMs, uint32 limitMs) {
+	if (paused)
+		return "paused";
+	if (nowMs - progressMs >= limitMs)
+		return "stalled";
+	return nullptr;
+}
+
 } // End of namespace Scumm
 
 #endif
