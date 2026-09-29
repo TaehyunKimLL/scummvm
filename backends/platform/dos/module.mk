@@ -3,7 +3,8 @@ MODULE := backends/platform/dos
 MODULE_OBJS := \
 	dos.o \
 	../../graphics/dos/dos-graphics.o \
-	../../events/dos/dos-events.o
+	../../events/dos/dos-events.o \
+	../../mutex/dos/dos-mutex.o
 
 # We don't use rules.mk but rather manually update OBJS and MODULE_DIRS.
 MODULE_OBJS := $(addprefix $(MODULE)/, $(MODULE_OBJS))
