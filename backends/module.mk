@@ -494,6 +494,11 @@ MODULE_OBJS += \
 	mixer/null/null-mixer.o
 endif
 
+ifeq ($(BACKEND),dos)
+MODULE_OBJS += \
+	midi/dos_mpu401.o
+endif
+
 ifdef MIYOO
 ifeq ($(MIYOO_TARGET), miyoomini)
 MODULE_OBJS += \
