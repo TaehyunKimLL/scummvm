@@ -40,7 +40,7 @@
 #include "backends/platform/dos/dos.h"
 #include "common/textconsole.h"
 #include "backends/fs/posix/posix-fs-factory.h"
-#include "backends/mutex/null/null-mutex.h"
+#include "backends/mutex/dos/dos-mutex.h"
 #include "backends/saves/default/default-saves.h"
 #include "backends/timer/default/default-timer.h"
 #include "backends/events/default/default-events.h"
@@ -102,8 +102,9 @@ bool OSystem_DOS::pollEvent(Common::Event &event) {
 }
 
 Common::MutexInternal *OSystem_DOS::createMutex() {
-	// No preemption yet: SDL3's threads only switch inside SDL calls.
-	return new NullMutexInternal();
+	// The IRQ0 handler preempts the main thread (SDL3's own threads only
+	// switch inside SDL calls): a mutex holds interrupts off.
+	return new DosMutexInternal();
 }
 
 uint32 OSystem_DOS::getMillis(bool skipRecord) {
