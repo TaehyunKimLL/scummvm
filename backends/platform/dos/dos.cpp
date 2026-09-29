@@ -38,6 +38,7 @@
 #include <sys/nearptr.h>
 #include <sys/farptr.h>
 #include <go32.h>
+#include <dpmi.h>
 #include <pc.h>
 #include <SDL3/SDL.h>
 
@@ -358,15 +359,31 @@ void OSystem_DOS::delayMillis(uint msecs) {
 }
 
 void OSystem_DOS::getTimeAndDate(TimeDate &td, bool skipRecord) const {
-	time_t curTime = time(0);
-	struct tm t = *localtime(&curTime);
-	td.tm_sec = t.tm_sec;
-	td.tm_min = t.tm_min;
-	td.tm_hour = t.tm_hour;
-	td.tm_mday = t.tm_mday;
-	td.tm_mon = t.tm_mon;
-	td.tm_year = t.tm_year;
-	td.tm_wday = t.tm_wday;
+	// DOS's own local time (INT 21h 2Ah/2Ch), not time()/localtime():
+	// DJGPP's tz code keeps its zone state in malloc'd memory and, with no
+	// zoneinfo installed, never sets that state's leap-second count, so
+	// once the heap has been used localtime() applies garbage corrections
+	// and mktime() (and with it time()) returns -1. In ScummVM the clock
+	// then stood still at a made-up time of day - KQ1's title waits for
+	// the seconds to change and never showed its menu. DOS time has no
+	// zone to convert anyway. Read the date on both sides of the time so
+	// a midnight in between is not missed.
+	__dpmi_regs d1, t, d2;
+	do {
+		d1.h.ah = 0x2A;
+		__dpmi_int(0x21, &d1);
+		t.h.ah = 0x2C;
+		__dpmi_int(0x21, &t);
+		d2.h.ah = 0x2A;
+		__dpmi_int(0x21, &d2);
+	} while (d1.h.dl != d2.h.dl);
+	td.tm_sec = t.h.dh;
+	td.tm_min = t.h.cl;
+	td.tm_hour = t.h.ch;
+	td.tm_mday = d2.h.dl;
+	td.tm_mon = d2.h.dh - 1;
+	td.tm_year = d2.x.cx - 1900;
+	td.tm_wday = d2.h.al;
 }
 
 void OSystem_DOS::quit() {
