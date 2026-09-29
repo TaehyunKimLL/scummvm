@@ -4,6 +4,7 @@ MODULE_OBJS := \
 	dos.o \
 	dos-heap.o \
 	../../graphics/dos/dos-graphics.o \
+	../../mixer/dos/dos-mixer.o \
 	../../events/dos/dos-events.o \
 	../../mutex/dos/dos-mutex.o \
 	../../timer/dos/dos-timer.o

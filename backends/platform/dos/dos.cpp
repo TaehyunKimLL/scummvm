@@ -50,7 +50,10 @@
 #include "backends/timer/dos/dos-timer.h"
 #include "backends/events/default/default-events.h"
 #include "backends/events/dos/dos-events.h"
+#include "backends/mixer/dos/dos-mixer.h"
 #include "backends/mixer/null/null-mixer.h"
+#include "audio/audiostream.h"
+#include "audio/mixer.h"
 #include "backends/graphics/dos/dos-graphics.h"
 #include "common/config-manager.h"
 #include "common/stream.h"
@@ -73,7 +76,7 @@ int _crt0_startup_flags = _CRT0_FLAG_NONMOVE_SBRK | _CRT0_FLAG_LOCK_MEMORY;
 
 static void flushDeferredLog();
 
-OSystem_DOS::OSystem_DOS() : _eventSource(nullptr) {
+OSystem_DOS::OSystem_DOS() : _eventSource(nullptr), _nullMixer(nullptr) {
 	// Runs after the timer's teardown (registered later, run earlier).
 	atexit(flushDeferredLog);
 	_fsFactory = new POSIXFilesystemFactory();
@@ -99,6 +102,7 @@ void OSystem_DOS::initBackend() {
 	ConfMan.registerDefault("dos_vsync", "off");
 	ConfMan.registerDefault("dos_force_fallback", false);
 	ConfMan.registerDefault("dos_timer_selftest", false);
+	ConfMan.registerDefault("dos_mixer_selftest", false);
 
 	DosGraphicsManager *gfx = new DosGraphicsManager();
 	_graphicsManager = gfx;
@@ -108,13 +112,23 @@ void OSystem_DOS::initBackend() {
 	_timerManager = new DosTimerManager();
 	_eventManager = new DefaultEventManager(this);
 	_savefileManager = new DefaultSaveFileManager("SAVES");
-	_mixerManager = new NullMixerManager();
+	_mixerManager = new DosMixerManager();
 	_mixerManager->init();
+	if (!_mixerManager->getMixer()) {
+		// No Sound Blaster: a mixer that plays nothing, mixed from
+		// pollEvent() so sounds still run their course.
+		delete _mixerManager;
+		_nullMixer = new NullMixerManager();
+		_nullMixer->init();
+		_mixerManager = _nullMixer;
+	}
 
 	BaseBackend::initBackend();
 
 	if (ConfMan.getBool("dos_timer_selftest"))
 		timerSelftest();
+	if (ConfMan.getBool("dos_mixer_selftest"))
+		mixerSelftest();
 }
 
 static volatile uint32 g_selftestCalls = 0;
@@ -190,13 +204,113 @@ void OSystem_DOS::timerSelftest() {
 		"DOS: timer selftest delayMillis(10)x20 sdl=%u irqoff=%u\n", (uint)sdlDelay, (uint)spinDelay).c_str());
 }
 
+namespace {
+
+// A square wave, mono, at 22050 Hz (so the mixer converts it, as it does
+// a game's sounds): 441 Hz, endless.
+class ToneStream : public Audio::AudioStream {
+public:
+	ToneStream() : _phase(0) {}
+	int readBuffer(int16 *buffer, const int numSamples) override {
+		for (int i = 0; i < numSamples; ++i) {
+			buffer[i] = (_phase < 25) ? 4000 : -4000;
+			if (++_phase == 50)
+				_phase = 0;
+		}
+		return numSamples;
+	}
+	bool isStereo() const override { return false; }
+	int getRate() const override { return 22050; }
+	bool endOfData() const override { return false; }
+private:
+	int _phase;
+};
+
+} // End of anonymous namespace
+
+// Percent of @p msecs spent in SDL_Delay(0), between spans of busy work.
+static uint32 yieldShare(uint32 msecs) {
+	uint32 inYield = 0;
+	const uint32 start = g_system->getMillis();
+	while (g_system->getMillis() - start < msecs) {
+		// Work that does not end on a tick, so the yields start at random
+		// phases of the millisecond count.
+		for (volatile uint32 i = 0; i < 20000; i = i + 1)
+			;
+		const uint32 t = g_system->getMillis();
+		SDL_Delay(0);
+		inYield += g_system->getMillis() - t;
+	}
+	return inYield * 100 / (g_system->getMillis() - start);
+}
+
+void OSystem_DOS::mixerSelftest() {
+	// Three RTC seconds of a tone, the main thread yielding as a game's
+	// would: the frames the Sound Blaster took, per second, must be the
+	// mixer's output rate (expect=). getMillis() over the same seconds
+	// shows whether the mixer's interrupts-off pieces cost the IRQ0 timer
+	// any ticks.
+	if (_nullMixer) {
+		logMessage(LogMessageType::kInfo, "DOS: mixer selftest: no audio device\n");
+		return;
+	}
+	DosMixerManager *mixerManager = (DosMixerManager *)_mixerManager;
+	Audio::Mixer *mixer = mixerManager->getMixer();
+	Audio::SoundHandle handle;
+	mixer->playStream(Audio::Mixer::kPlainSoundType, &handle, new ToneStream());
+	// Let the device's ring fill first.
+	for (int i = 0; i < 50; ++i)
+		delayMillis(10);
+	uint8 s = rtcSeconds();
+	while (rtcSeconds() == s)
+		delayMillis(1);
+	s = rtcSeconds();
+	const uint32 f0 = mixerManager->framesMixed();
+	const uint32 m0 = getMillis();
+	for (int edges = 0; edges < 3;) {
+		delayMillis(5);
+		const uint8 now = rtcSeconds();
+		if (now != s) {
+			s = now;
+			edges++;
+		}
+	}
+	const uint32 frames = mixerManager->framesMixed() - f0;
+	const uint32 millis = getMillis() - m0;
+
+	// What the sound costs the game: a main thread that does a span of
+	// busy work and then yields (SDL_Delay(0) runs SDL3's other threads once),
+	// and the share of its time spent in the yields, with the sound
+	// running and then with the device paused. The millisecond count is
+	// coarse, but sampling it is unbiased.
+	const uint32 busyPlaying = yieldShare(2000);
+	mixerManager->suspendAudio();
+	const uint32 busyPaused = yieldShare(2000);
+	mixerManager->resumeAudio();
+
+	// One interrupts-off piece of the callback, timed: 1000 x 256 frames.
+	// Each is well under a tick if getMillis() comes out right; the IRQ0
+	// held back meanwhile is taken at the end of each.
+	static byte piece[256 * 4];
+	const uint32 t0 = getMillis();
+	for (int i = 0; i < 1000; ++i)
+		((Audio::MixerImpl *)mixer)->mixCallback(piece, sizeof(piece));
+	const uint32 mixMs = getMillis() - t0;
+	mixer->stopHandle(handle);
+
+	logMessage(LogMessageType::kInfo, Common::String::format(
+		"DOS: mixer selftest rate=%u expect=%u frames=%u getMillis=%u mix256=%uus yield=%u%%/%u%%\n",
+		(uint)(frames / 3), mixer->getOutputRate(), (uint)frames, (uint)millis, (uint)mixMs, (uint)busyPlaying, (uint)busyPaused).c_str());
+}
+
 bool OSystem_DOS::pollEvent(Common::Event &event) {
 	flushDeferredLog();
 	// The IRQ0 handler runs the timers; this is the fallback should it
 	// not have gone in.
 	if (!DosTimerManager::installed())
 		((DefaultTimerManager *)getTimerManager())->checkTimers();
-	((NullMixerManager *)_mixerManager)->update(1);
+	if (_nullMixer)
+		_nullMixer->update(1);
 	return _eventSource->pollEvent(event);
 }
 
