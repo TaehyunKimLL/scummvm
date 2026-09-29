@@ -163,8 +163,7 @@ For NanumGothic-Bold that is 15 px for the full cp949 set and for the KQ1
 and LB1 subsets alike; at 16 px about 15 syllables (갈 과 러 말 ...) reach
 one row above the cell and about 40 (국 너 뭐 화 ...) one row below it. The
 U-preset bakes (`bake-dos-fonts.sh`, `bake-game-fonts.sh`) do not use it:
-15 px was judged too small, so they stay at 18 px and the SCI engine clips
-each glyph's ink to its text line instead (`GfxFontUnicode::draw()`).
+15 px was judged too small.
 
 `--clip-cell` is the other answer: keep the size given, put every glyph on
 one baseline (`--ascent`, or without it the ascent that leaves the fewest
@@ -172,6 +171,20 @@ glyphs outside the cell), and cut whatever ink lies above or below the cell
 instead of pushing that glyph down as a plain bake does. It reports how many
 glyphs lose rows and how many pixels (full coverage and antialiased fringe)
 go - use it to see what a size costs before choosing it.
+
+The U preset bakes two faces with it, one for the game's body text and one
+for its UI, each chosen to fill the 16-row cell (the maps pick one per SCI
+font id, `[font.N] face=`):
+
+| file | face | size | ascent | cut (full cp949 / Hangul set) |
+|---|---|---|---|---|
+| `KOCP949.SVF` (UI) | NanumGothic-Bold | 16 px | 14 | 478 of 11693 glyphs, 641 fringe px |
+| `KOBATANG.SVF` (body) | Gowun Batang Bold | 17 px | 15 | 8480 of 11968 glyphs, 3679 full + 28754 fringe px |
+
+Gowun Batang's ink is 17 rows at 17 px, so most of its glyphs lose a row
+of mostly antialiased fringe at the bottom; the SCI engine clips glyph ink
+to its text line as well (`GfxFontUnicode::draw()`), so nothing is ever
+drawn where the game would not erase it.
 
 ### Hangul is proportional too
 
