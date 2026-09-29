@@ -60,18 +60,39 @@ namespace GUI {
 
 #if defined(DOS_DJGPP)
 static int cmosRead(int reg) {
+	// Index and data as one step: an interrupt handler that used the CMOS
+	// in between would leave another register selected.
+	uint32 flags;
+	__asm__ __volatile__("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
 	outportb(0x70, reg);
-	return inportb(0x71);
+	const int v = inportb(0x71);
+	if (flags & 0x200)
+		__asm__ __volatile__("sti" : : : "memory");
+	return v;
 }
 
 // The CMOS real-time clock's time of day, in seconds since midnight: a
 // clock that runs on its own, unlike getMillis() and the BIOS tick (both
-// counted from IRQ0). Main thread only.
+// counted from IRQ0). Main thread only. The registers are read until two
+// reads in a row agree, so an update between them (the UIP bit only
+// warns of one ~244 us ahead) cannot give a torn time.
 static int rtcSeconds() {
-	for (int i = 0; i < 100000 && (cmosRead(0x0A) & 0x80); i++)
-		;	// an update is in progress: its registers are not valid
-	int s = cmosRead(0x00), m = cmosRead(0x02), h = cmosRead(0x04);
-	const int b = cmosRead(0x0B);
+	int s, m, h, b;
+	int prev[4] = { -1, -1, -1, -1 };
+	for (int tries = 0; tries < 1000; tries++) {
+		for (int i = 0; i < 100000 && (cmosRead(0x0A) & 0x80); i++)
+			;	// an update is in progress: its registers are not valid
+		s = cmosRead(0x00);
+		m = cmosRead(0x02);
+		h = cmosRead(0x04);
+		b = cmosRead(0x0B);
+		if (s == prev[0] && m == prev[1] && h == prev[2] && b == prev[3])
+			break;
+		prev[0] = s;
+		prev[1] = m;
+		prev[2] = h;
+		prev[3] = b;
+	}
 	const bool pm = !(b & 0x02) && (h & 0x80);
 	h &= 0x7F;
 	if (!(b & 0x04)) {	// BCD
