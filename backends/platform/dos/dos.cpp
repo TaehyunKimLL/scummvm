@@ -27,6 +27,7 @@
 #define FORBIDDEN_SYMBOL_EXCEPTION_fwrite
 #define FORBIDDEN_SYMBOL_EXCEPTION_exit
 #define FORBIDDEN_SYMBOL_EXCEPTION_time_h
+#define FORBIDDEN_SYMBOL_EXCEPTION_getenv
 
 #include "common/scummsys.h"
 
@@ -34,6 +35,7 @@
 
 #include <time.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <crt0.h>
 #include <sys/nearptr.h>
 #include <sys/farptr.h>
@@ -44,6 +46,7 @@
 
 #include "backends/platform/dos/dos.h"
 #include "backends/platform/dos/dos-heap.h"
+#include "backends/platform/dos/blaster.h"
 #include "common/textconsole.h"
 #include "backends/fs/posix/posix-fs-factory.h"
 #include "backends/mutex/dos/dos-mutex.h"
@@ -143,6 +146,18 @@ static void selftestProc(void *) {
 	g_selftestCalls++;
 }
 
+// A real-mode INT 1Ch hook for the self-test: the BIOS's INT 8 calls it
+// from inside the chain timerIsr() makes, with interrupts on. It counts
+// whether IRQ0 is masked at the PIC then, as it must be.
+static volatile uint32 g_int1cCalls = 0;
+static volatile uint32 g_int1cMasked = 0;
+
+static void int1cProbe(_go32_dpmi_registers *) {
+	g_int1cCalls++;
+	if (inportb(0x21) & 0x01)
+		g_int1cMasked++;
+}
+
 static uint8 cmosRead(uint8 reg) {
 	outportb(0x70, reg);
 	return inportb(0x71);
@@ -169,6 +184,15 @@ void OSystem_DOS::timerSelftest() {
 		;
 	s = rtcSeconds();
 	g_selftestCalls = 0;
+	_go32_dpmi_seginfo old1c, probe1c;
+	static _go32_dpmi_registers probeRegs;
+	probe1c.pm_offset = (unsigned long)int1cProbe;
+	probe1c.pm_selector = _go32_my_cs();
+	const bool hooked1c = DosTimerManager::installed() &&
+		_go32_dpmi_get_real_mode_interrupt_vector(0x1C, &old1c) == 0 &&
+		_go32_dpmi_allocate_real_mode_callback_iret(&probe1c, &probeRegs) == 0;
+	if (hooked1c)
+		_go32_dpmi_set_real_mode_interrupt_vector(0x1C, &probe1c);
 	getTimerManager()->installTimerProc(selftestProc, 1000000 / 60, nullptr, "dosTimerSelftest");
 	const uint32 m0 = getMillis();
 	const uint32 b0 = _farpeekl(_dos_ds, 0x46C);
@@ -188,11 +212,18 @@ void OSystem_DOS::timerSelftest() {
 	const uint32 b1 = _farpeekl(_dos_ds, 0x46C);
 	const uint32 calls = g_selftestCalls;
 	getTimerManager()->removeTimerProc(selftestProc);
+	if (hooked1c) {
+		_go32_dpmi_set_real_mode_interrupt_vector(0x1C, &old1c);
+		_go32_dpmi_free_real_mode_callback(&probe1c);
+	}
 	const bool haveFile = f != nullptr;
 	delete f;
 	logMessage(LogMessageType::kInfo, Common::String::format(
 		"DOS: timer selftest 60Hz calls=%u expect=180 getMillis=%u bios=%u%s\n",
 		(uint)calls, (uint)(m1 - m0), (uint)(b1 - b0), haveFile ? "" : " (no file)").c_str());
+	logMessage(LogMessageType::kInfo, Common::String::format(
+		"DOS: timer selftest chain int1c=%u irq0masked=%u%s\n",
+		(uint)g_int1cCalls, (uint)g_int1cMasked, hooked1c ? "" : " (no hook)").c_str());
 
 	// delayMillis() both ways: SDL_Delay() on uclock(), and (under a mutex,
 	// interrupts off) polling the PIT. 20 x 10 ms each.
@@ -233,6 +264,29 @@ private:
 };
 
 } // End of anonymous namespace
+
+// The Sound Blaster's interrupts, counted by a handler chained in front of
+// SDL3's for the self-test.
+static volatile uint32 g_sbIrqs = 0;
+static void sbIrqCount() {
+	g_sbIrqs++;
+}
+
+// A timer proc that waits once, as SCI's MT-32 driver does after a SysEx.
+static const uint kIsrDelayMs = 200;
+static volatile int g_isrDelayState = 0;	// 1 armed, 2 done
+static volatile uint32 g_isrDelayIrqs = 0;
+static volatile uint32 g_isrDelayMillis = 0;
+static void isrDelayProc(void *) {
+	if (g_isrDelayState != 1)
+		return;
+	const uint32 i0 = g_sbIrqs;
+	const uint32 m0 = g_system->getMillis();
+	g_system->delayMillis(kIsrDelayMs);
+	g_isrDelayIrqs = g_sbIrqs - i0;
+	g_isrDelayMillis = g_system->getMillis() - m0;
+	g_isrDelayState = 2;
+}
 
 // Percent of @p msecs spent in SDL_Delay(0), between spans of busy work.
 static uint32 yieldShare(uint32 msecs) {
@@ -314,7 +368,43 @@ void OSystem_DOS::mixerSelftest() {
 	for (int i = 0; i < 1000; ++i)
 		((Audio::MixerImpl *)mixer)->mixCallback(piece, sizeof(piece));
 	const uint32 mixMs = getMillis() - t0;
+
+	// delayMillis() from a timer proc, with the tone playing: the Sound
+	// Blaster's interrupts must go on being served (only IRQ0 is held
+	// back), where under a mutex on the main thread -- interrupts off --
+	// none may come in. Counted in front of SDL3's handler.
+	const DOS::BlasterConfig blaster = DOS::parseBlaster(getenv("BLASTER"));
+	const int sbVector = blaster.irq < 8 ? 8 + blaster.irq : 0x70 + blaster.irq - 8;
+	_go32_dpmi_seginfo sbOld, sbChain;
+	sbChain.pm_offset = (unsigned long)sbIrqCount;
+	sbChain.pm_selector = _go32_my_cs();
+	_go32_dpmi_lock_code((void *)sbIrqCount, 64);
+	_go32_dpmi_get_protected_mode_interrupt_vector(sbVector, &sbOld);
+	const bool chained = _go32_dpmi_chain_protected_mode_interrupt_vector(sbVector, &sbChain) == 0;
+	uint32 isrIrqs = 0, isrMillis = 0, offIrqs = 0;
+	if (chained) {
+		g_isrDelayState = 1;
+		getTimerManager()->installTimerProc(isrDelayProc, 10000, nullptr, "dosIsrDelaySelftest");
+		const uint32 w0 = getMillis();
+		while (g_isrDelayState != 2 && getMillis() - w0 < 2000)
+			delayMillis(5);
+		getTimerManager()->removeTimerProc(isrDelayProc);
+		isrIrqs = g_isrDelayIrqs;
+		isrMillis = g_isrDelayMillis;
+		{
+			Common::Mutex mutex;
+			Common::StackLock lock(mutex);
+			const uint32 i0 = g_sbIrqs;
+			delayMillis(kIsrDelayMs);
+			offIrqs = g_sbIrqs - i0;
+		}
+		_go32_dpmi_set_protected_mode_interrupt_vector(sbVector, &sbOld);
+	}
 	mixer->stopHandle(handle);
+	logMessage(LogMessageType::kInfo, Common::String::format(
+		"DOS: mixer selftest isr-delay %ums sbirq=%u getMillis=%u blocked=%u irqoff-sbirq=%u%s\n",
+		kIsrDelayMs, (uint)isrIrqs, (uint)isrMillis, (uint)DosTimerManager::delaysBlocked(), (uint)offIrqs,
+		chained ? "" : " (no chain)").c_str());
 
 	logMessage(LogMessageType::kInfo, Common::String::format(
 		"DOS: mixer selftest rate=%u expect=%u frames=%u in=%ums getMillis=%u mix256=%uus yield=%u%%/%u%%\n",
@@ -348,8 +438,10 @@ uint32 OSystem_DOS::getMillis(bool skipRecord) {
 	// count. Not SDL_GetTicks(): this may run under a Common::Mutex --
 	// from a mixer channel inside MixerImpl::mixCallback(), say -- and no
 	// SDL call may, as SDL3's DOS mutex turns interrupts on.
-	// DosTimerManager starts its tick count from the same clock.
-	return (uint32)(uclock() / (UCLOCKS_PER_SEC / 1000));
+	// DosTimerManager starts its tick count from the same clock, scaled
+	// the same way: UCLOCKS_PER_SEC (1193180) is not a multiple of 1000,
+	// and dividing by 1193 would run 0.015% fast.
+	return (uint32)((uint64)uclock() * 1000 / UCLOCKS_PER_SEC);
 }
 
 void OSystem_DOS::delayMillis(uint msecs) {
@@ -357,7 +449,14 @@ void OSystem_DOS::delayMillis(uint msecs) {
 	// count stands still, and SDL_Delay() (which waits on it) would never
 	// return; nor may a timer proc switch SDL3's threads.
 	if (DosTimerManager::installed() && !DosTimerManager::interruptsEnabled()) {
-		DosTimerManager::spinMillis(msecs);
+		// A timer proc (SCI's MT-32 driver waits ~46 ms after a SysEx in
+		// one) waits with only IRQ0 held back, so the other interrupts are
+		// served; under a mutex on the main thread interrupts stay off,
+		// which is what the mutex is for.
+		if (DosTimerManager::inHandler())
+			DosTimerManager::delayInHandler(msecs);
+		else
+			DosTimerManager::spinMillis(msecs);
 		return;
 	}
 	SDL_Delay(msecs);	// also yields to SDL3's cooperative threads
