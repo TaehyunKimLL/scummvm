@@ -25,6 +25,8 @@
 #include "backends/modular-backend.h"
 #include "common/events.h"
 
+class NullMixerManager;
+
 /**
  * MS-DOS through DJGPP. SDL3 opens the hardware (VESA modes, keyboard,
  * mouse); everything above that is ScummVM's. There are no threads: timers
@@ -54,8 +56,11 @@ public:
 private:
 	/** dos_timer_selftest=true: checks the preemptive timer (see dos.cpp). */
 	void timerSelftest();
+	/** dos_mixer_selftest=true: checks the Sound Blaster mixer (see dos.cpp). */
+	void mixerSelftest();
 
 	Common::EventSource *_eventSource;	///< a DosEventSource
+	NullMixerManager *_nullMixer;	///< _mixerManager, when there is no audio device
 };
 
 #endif
