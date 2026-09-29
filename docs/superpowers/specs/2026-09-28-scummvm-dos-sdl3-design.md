@@ -364,6 +364,9 @@ M0 스파이크 결론 (`harness/dos/spikes/RESULTS.md`, "타이머"): RTC(IRQ8,
   DJGPP 의 `uclock()` 이 BIOS 틱(0x46C, ≈55ms 마다 1) 단위로만 올라가므로, `SDL_Delay`/
   `SDL_GetTicks`/SDL SB 오디오의 타임아웃이 최대 55ms 까지 밀릴 수 있었다. 재정의된 `uclock()` 은
   설치 전엔 원래 `__uclock`, 설치 후엔 (틱수×1193 + 틱 안에서의 PIT 카운트)를 단조 증가로 돌려준다.
+  M3 하네스는 이 값을 새 디버그 소켓 명령 `millis`(getMillis() 값)로 읽고, `rtc`(그 값과 DOS CMOS
+  초시계를 짝지어 반환 — DOS_DJGPP 의 메인 스레드에서만 응답하고, 그 밖에는 실패를 답한다)로 긴 음악
+  실행 구간에서 IRQ0 클럭이 실제 시계에서 표류하지 않는지 맞대어 본다(§8).
 - **delayMillis**: 인터럽트가 꺼진 상태(타이머 프로시저 안, 또는 뮤텍스 아래)에서는 틱이 못 올라가므로
   PIT 을 직접 폴링해 경과를 센다(`spinMillis`) — 안 그러면 무한 대기한다. SCI 의 MT-32 경로가 타이머
   스레드에서 `delayMillis` 를 부르므로(`midi.cpp:671`) 실사용된다.
@@ -395,7 +398,9 @@ M0 스파이크 결론 (`harness/dos/spikes/RESULTS.md`, "타이머"): RTC(IRQ8,
   고침: `OSystem_DOS::getTimeAndDate` 는 INT 21h `2Ah`/`2Ch` 를 직접 읽는다(자정 넘어감을 잡으려고
   날짜를 시간 앞뒤로 두 번 읽는다). `time()` 자체는 여전히 -1 을 돌려준다 — 이 빌드의 ScummVM 경로는
   전부 `getTimeAndDate` 를 쓰므로 실제로는 안 걸리지만, 나중에 `time()` 을 직접 부르는 코드가 들어오면
-  다시 걸릴 잠재적 함정이다.
+  다시 걸릴 잠재적 함정이다. **fix round**: `getTimeAndDate` 는 이제 메인 스레드에서만 INT 21h 를
+  부른다 — 인터럽트가 꺼진 채(IF=0, 예: 타이머 프로시저 안) 불리면 DOS 를 부르지 않고 메인 스레드가
+  마지막으로 읽은 값을 캐시로 돌려준다(커밋 `957c9d5`).
 
 ### 5.5 감지
 
@@ -503,7 +508,7 @@ M0 의 DOS 부팅을 막은 원인은 세 가지 모두 엔진이 아니라 DJGP
 | M0 | 스파이크 + 최소 포트 | 아래 스파이크 3건이 결론 남. KQ1 이 320×200 CLUT8 로 타이틀까지, 덤프가 기준과 일치. COM 채널로 명령 1개 왕복. **결과: 통과 — DOSBox-X / Staging (memsize 16)** (`harness/dos/spikes/RESULTS.md`, `harness/dos/m0_accept.py`) |
 | M1 | hires 텍스트, L 프리셋 | KQ1·LB1 한국어 대사가 640×400 CLUT8 에 나옴. EUC-KR 패치와 패치 원본 폰트도 확인. □ 대체 로그. **결과: 통과 — DOSBox-X / Staging.** KQ1 타이틀 + 방 1 "look", LB1 한국어 복사방지 화면(`random_seed=1`) 이 FreeType 없는 리눅스 빌드와 `_low`/`_scaled`/`_pal`/`_layer`/`_out` 바이트 단위로 일치; 모드 로그 320×200 → 640×400 CLUT8 (`harness/dos/m1_accept.py`). □ 대체와 `korean.fnt` 가 □ 보다 먼저 쓰이는 것은 수동 실행으로 확인했다 (Task 4); 자동 인수 캡처에는 없는 글리프가 없다 |
 | M2 | 알파, U 프리셋 | XRGB8888 (`rgb_rendering=true`) 에서 기준 이미지와 일치 — SCI 는 4바이트 포맷만 받으므로 RGB565 는 해당 없음. 640×480 줄 반복 폴백은 `dos_force_fallback=true` 로 시험 (두 에뮬레이터 모두 640×400 XRGB8888 이 있으므로). SVFN 2bpp. **결과: 통과 — DOSBox-X / Staging (각 56/56 세부 항목).** 정확 640×400 RGB888@4 는 리눅스 기준과 0 화소 차(커서 제외); 640×480 줄 반복 폴백을 `logicalRow()` 로 되접으면 반복 행이 원본과 같고 `_out` 과 일치하며, 정확 모드 샷과도 커서 상자 밖에서 전부 일치; `dos_truecolor=off` 는 CLUT8 로 감; LB1 U 맵도 확인. M1/M0 회귀도 통과 (`harness/dos/m2_accept.py`) |
-| M3 | 사운드 | KQ1 타이틀 곡의 OPL 노트 온셋을 리눅스(MAME OPL) 와 비교해 편차 중앙값 ≤ 2ms, 최대 ≤ 10ms, 방 로딩 구간 최대 ≤ 20ms. MPU-401 UART 로 같은 곡이 나옴. SB PCM 효과음 1개 재생. **결과: 통과 — DOSBox-X / Staging** (`harness/dos/m3_accept.py`). 실제 타이머 격자는 4ms 가 아니라 10ms(5.1/5.2절). DOSBox-X: OPL 키온 편차 중앙값/최대/로딩구간최대 1/2/1ms, MPU 1/5/2ms, REG 공통 프리픽스 2102줄(바이트 일치), MIDI 클릭 전 공통 583/583 메시지, 믹서 44072(기대 44100, −0.06%), 타이머 calls=180 getMillis=3003 bios=54. Staging: OPL 1/3/3ms, MPU 1/3/2ms, REG 2086줄, MIDI 587/587, 믹서 44102, 타이머 179/3000/54. M0–M2 회귀도 두 에뮬레이터에서 모두 통과 |
+| M3 | 사운드 | KQ1 타이틀 곡의 OPL 노트 온셋을 리눅스(MAME OPL) 와 비교해 편차 중앙값 ≤ 2ms, 최대 ≤ 10ms, 방 로딩 구간 최대 ≤ 20ms. MPU-401 UART 로 같은 곡이 나옴. SB PCM 효과음 1개 재생. **결과: 통과 — DOSBox-X / Staging** (`harness/dos/m3_accept.py`). 실제 타이머 격자는 4ms 가 아니라 10ms(5.1/5.2절). **1차 리뷰에서 "최대"·"로딩구간 최대" 항목은 편차를 ≤5ms 로 접어 계산해 원리적으로 실패할 수 없는 검사였음이 드러났다** (이제는 정보용으로만 남긴다) — **실제 판정 기준**은 (1) 키온 위상 편차 중앙값(그리드 위상은 중앙값이 가장 작은 오프셋에 고정) ≤2ms — DOSBox-X/Staging 모두 1.0ms, (2) 리눅스 기준(SDL dummy 오디오의 버퍼 경계로 환산한 "음악 시간")과 약 1초 창 단위 비교 — OPL 최악 −21.7ms(두 에뮬레이터 동일, 한도 30ms), MPU 최악 +36.4ms(X)/+24.8ms(Staging, 한도 50ms), 전체 구간 길이 1% 이내(OPL +0.04%, MPU +0.24%/+0.08%), (3) getMillis 를 DOS CMOS RTC 와 ~45초 음악 실행 동안 맞대어 |차이| ≤1100ms — 실측 −14~−64ms, (4) 마스터 볼륨 SysEx 버스트를 값으로 비교 — 양쪽 `5D 5D 5D` 로 일치. 시계 확인은 새 디버그 소켓 명령 `millis`(getMillis 값)와 `rtc`(그 값과 DOS CMOS 초시계를 짝지어 반환)로 한다. 그 밖의 지표(REG 공통 프리픽스, MIDI 클릭 전 공통 메시지 수, 믹서 레이트, 타이머 셀프테스트)는 최초 통과 실행 기준으로 변경 없음 — DOSBox-X: REG 2102줄, MIDI 583/583, 믹서 44072/44100, 타이머 calls=180 getMillis=3003 bios=54; Staging: REG 2086줄, MIDI 587/587, 믹서 44102, 타이머 179/3000/54. M0–M2 회귀도 두 에뮬레이터에서 모두 통과 |
 | M4 | 마무리 | GUI 오버레이, 세이브/로드, 실기 측정, 배포 패키지 |
 
 ### M0 스파이크 (구현 전에 확인)
