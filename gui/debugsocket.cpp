@@ -52,7 +52,38 @@
 #define ARRAYSIZE(x) ((int)(sizeof(x) / sizeof(x[0])))
 #endif
 
+#if defined(DOS_DJGPP)
+#include <pc.h>
+#endif
+
 namespace GUI {
+
+#if defined(DOS_DJGPP)
+static int cmosRead(int reg) {
+	outportb(0x70, reg);
+	return inportb(0x71);
+}
+
+// The CMOS real-time clock's time of day, in seconds since midnight: a
+// clock that runs on its own, unlike getMillis() and the BIOS tick (both
+// counted from IRQ0). Main thread only.
+static int rtcSeconds() {
+	for (int i = 0; i < 100000 && (cmosRead(0x0A) & 0x80); i++)
+		;	// an update is in progress: its registers are not valid
+	int s = cmosRead(0x00), m = cmosRead(0x02), h = cmosRead(0x04);
+	const int b = cmosRead(0x0B);
+	const bool pm = !(b & 0x02) && (h & 0x80);
+	h &= 0x7F;
+	if (!(b & 0x04)) {	// BCD
+		s = (s >> 4) * 10 + (s & 0x0F);
+		m = (m >> 4) * 10 + (m & 0x0F);
+		h = (h >> 4) * 10 + (h & 0x0F);
+	}
+	if (!(b & 0x02))	// 12-hour clock
+		h = (h % 12) + (pm ? 12 : 0);
+	return (h * 60 + m) * 60 + s;
+}
+#endif
 
 DebugSocket::DebugSocket(Debugger *console) :
 	_console(console), _ext(nullptr), _pollInterval(1), _sinceLastPoll(0),
@@ -586,6 +617,28 @@ bool DebugSocket::genericCommand(const Common::String &cmd, const Common::String
 	}
 	if (cmd == "millis") {
 		out = Common::String::format("%u", g_system->getMillis());
+		return true;
+	}
+	if (cmd == "rtc") {
+#if defined(DOS_DJGPP)
+		// Wait for the RTC's seconds to tick over, then read getMillis():
+		// the pair is aligned to within the polling time, so two of them
+		// measure getMillis() against the RTC to a few ms.
+		const int s0 = rtcSeconds();
+		const uint32 start = g_system->getMillis();
+		int s = s0;
+		for (uint32 i = 0; s == s0 && i < 2000000; i++) {
+			s = rtcSeconds();
+			if (g_system->getMillis() - start > 2500)
+				break;
+		}
+		if (s == s0)
+			out = "FAIL the RTC did not tick";
+		else
+			out = Common::String::format("%u %d", g_system->getMillis(), s);
+#else
+		out = "FAIL no RTC here";
+#endif
 		return true;
 	}
 	if (cmd == "record") {
