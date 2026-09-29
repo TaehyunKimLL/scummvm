@@ -39,6 +39,13 @@ void setExeName(const char *argv0);
 /** The name set by setExeName(), or "SCUMMVM.EXE" before main() calls it. */
 const char *exeName();
 
+/**
+ * Reads __dpmi_get_free_memory_information() now and logs it as
+ * formatMemInfo(phase, ...) (dos-memory.h). @p phase is free text: dos.cpp
+ * uses "engine" and "quit", the graphics manager "first-frame".
+ */
+void logMemInfo(const char *phase);
+
 }
 
 /**

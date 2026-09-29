@@ -48,6 +48,7 @@
 
 #include "backends/platform/dos/dos.h"
 #include "backends/platform/dos/dos-heap.h"
+#include "backends/platform/dos/dos-memory.h"
 #include "backends/platform/dos/dos-loading.h"
 #include "backends/platform/dos/dos-silence.h"
 #include "backends/platform/dos/blaster.h"
@@ -108,6 +109,26 @@ void setExeName(const char *argv0) {
 
 const char *exeName() {
 	return g_exeName;
+}
+
+void logMemInfo(const char *phase) {
+	__dpmi_free_mem_info info;
+	MemInfo m = { 0, 0, 0, 0 };
+	if (__dpmi_get_free_memory_information(&info) == 0) {
+		// largest_available_free_block_in_bytes is the only field DPMI
+		// gives us already in bytes; total_number_of_free_pages (what
+		// this client could still get) doubles as both dpmi_free (in
+		// bytes, so it rounds the same way as the largest-block figure)
+		// and phys_free (in its native 4 KB pages, with phys_total).
+		const uint32 freePages = (uint32)info.total_number_of_free_pages;
+		const uint32 freeBytes = (freePages == 0xFFFFFFFF) ? 0xFFFFFFFF : freePages * 4096u;
+		m = memFromPages(freeBytes,
+			(uint32)info.largest_available_free_block_in_bytes,
+			(uint32)info.total_number_of_free_pages,
+			(uint32)info.total_number_of_physical_pages);
+	}
+	if (g_system)
+		g_system->logMessage(LogMessageType::kInfo, (formatMemInfo(phase, m) + "\n").c_str());
 }
 
 }
@@ -498,6 +519,7 @@ bool OSystem_DOS::pollEvent(Common::Event &event) {
 void OSystem_DOS::engineInit() {
 	DOS::Loading::enter(DOS::kLoadData);
 	((DosGraphicsManager *)_graphicsManager)->engineStarted();
+	DOS::logMemInfo("engine");
 }
 
 void OSystem_DOS::engineDone() {
@@ -644,6 +666,7 @@ void DOS::silenceAll() {
 }
 
 void OSystem_DOS::quit() {
+	DOS::logMemInfo("quit");
 	DosTimerManager::shutdown();	// no timer procs while SDL goes away
 	// exit() skips the engine's shutdown, where the music drivers would
 	// have stopped their notes.

@@ -32,6 +32,7 @@
 
 #include "backends/graphics/dos/dos-graphics.h"
 #include "backends/platform/dos/cursor-convert.h"
+#include "backends/platform/dos/dos.h"
 #include "backends/platform/dos/dos-heap.h"
 #include "backends/platform/dos/dos-loading.h"
 #include "backends/platform/dos/line-repeat.h"
@@ -366,6 +367,7 @@ void DosGraphicsManager::updateScreen() {
 		if (!_loadingSawUpdate) {
 			_loadingSawUpdate = true;
 			DOS::Loading::enter(DOS::kLoadFirstFrame);
+			DOS::logMemInfo("first-frame");
 		}
 		// Stopped (DOS::Loading::halt()), it stays for its message unless
 		// the game draws after all.
