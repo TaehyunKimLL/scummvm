@@ -134,6 +134,9 @@ public:
  *   record [<path>]      start (or, with no path, stop) a recording
  *   millis               g_system->getMillis() now, in decimal (to place
  *                        harness actions on the clock the backend's logs use)
+ *   rtc                  DOS: at the next tick of the CMOS clock's seconds,
+ *                        "<getMillis()> <RTC seconds since midnight>", to
+ *                        check getMillis() against a clock of its own
  *
  * Input goes through g_system->getEventManager()->pushEvent(), one key per
  * poll at most every 40 ms, so a game that reads one key per frame sees
