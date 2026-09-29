@@ -5,6 +5,7 @@
 """
 
 import os
+import struct
 import sys
 import unittest
 
@@ -226,6 +227,97 @@ class CharsFromTest(unittest.TestCase):
             cps = mkfont.parse_ranges(f"ascii,file:{path}")
             self.assertIn(ord("라"), cps)
             self.assertIn(0x41, cps)
+
+
+def _make_trs(entries, utf8):
+    """entries: [(original_bytes, translated_bytes), ...] -> SCVMTRS bundle
+    bytes with no rooms (harness/tools/trslib.py's build(), simplified: this
+    test only needs the line index and body, not the room/script ranges)."""
+    header_len = 8 + 2 + len(entries) * 10 + 1
+    body = bytearray()
+    if utf8:
+        body += b"\xef\xbb\xbf"
+    recs = []
+    for orig, trans in entries:
+        o1 = header_len + len(body)
+        body += orig + b"\x00"
+        o2 = header_len + len(body)
+        body += trans + b"\x00"
+        recs.append((o1, o2))
+    out = bytearray(b"SCVMTRS ")
+    out += struct.pack("<H", len(entries))
+    for i, (o1, o2) in enumerate(recs):
+        out += struct.pack("<HII", i, o1, o2)
+    out.append(0)   # nroom = 0
+    assert len(out) == header_len, (len(out), header_len)
+    out += body
+    return bytes(out)
+
+
+class TrsCharsFromTest(unittest.TestCase):
+    """--chars-from *.trs: SCVMTRS 묶음 (engines/scumm/trs_bundle.h,
+    harness/tools/trslib.py 가 기준)."""
+
+    def _write(self, tmpdir, name, data):
+        path = os.path.join(tmpdir, name)
+        with open(path, "wb") as f:
+            f.write(data)
+        return path
+
+    def test_utf8_bundle_with_bom_is_decoded_as_utf8(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            entries = [(b"Hello", "안녕".encode("utf-8"))]
+            path = self._write(d, "korean.trs", _make_trs(entries, utf8=True))
+            cps = mkfont.chars_from_trs(path)
+            self.assertTrue({ord("안"), ord("녕")} <= set(cps))
+
+    def test_bundle_without_bom_is_decoded_as_cp949(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            entries = [(b"Hello", "안녕".encode("cp949"))]
+            path = self._write(d, "korean.trs", _make_trs(entries, utf8=False))
+            cps = mkfont.chars_from_trs(path)
+            self.assertTrue({ord("안"), ord("녕")} <= set(cps))
+
+    def test_control_code_arguments_do_not_leak_as_characters(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            # FF 0A xx xx: code 0x0A is not in (1,2,3,8), so it takes 2 more
+            # argument bytes (resStrLen()'s rule) - none of these 4 bytes,
+            # including the embedded 0x00, may end the string early or leak
+            # out as a decoded character.
+            trans = "안녕".encode("utf-8") + b"\xff\x0a\x00\x99" + "하세요".encode("utf-8")
+            entries = [(b"hi", trans)]
+            path = self._write(d, "korean.trs", _make_trs(entries, utf8=True))
+            cps = mkfont.chars_from_trs(path)
+            self.assertEqual({ord(c) for c in "안녕하세요"}, {c for c in cps if c > 0x7F})
+            self.assertNotIn(0x0A, cps)
+            self.assertNotIn(0x99, cps)
+
+    def test_original_and_translated_strings_are_both_collected(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            entries = [("원본".encode("utf-8"), "번역".encode("utf-8"))]
+            path = self._write(d, "korean.trs", _make_trs(entries, utf8=True))
+            cps = mkfont.chars_from_trs(path)
+            self.assertTrue({ord(c) for c in "원본번역"} <= set(cps))
+
+    def test_shared_offsets_are_only_decoded_once_and_classify_dispatches_to_trs(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            entries = [(b"same", "가".encode("utf-8")), (b"same", "가".encode("utf-8"))]
+            path = self._write(d, "korean.trs", _make_trs(entries, utf8=True))
+            found, counts = mkfont.collect_chars_from_files([path])
+            self.assertIn(ord("가"), found)
+            self.assertEqual(len(counts), 1)
+
+    def test_bad_magic_is_an_error(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write(d, "bad.trs", b"NOTATRS!!" + b"\x00" * 20)
+            with self.assertRaises(SystemExit):
+                mkfont.chars_from_trs(path)
 
 
 class TwoBppTest(unittest.TestCase):
