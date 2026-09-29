@@ -173,7 +173,7 @@ EUC-KR 패치 ┘  (cp949 디코드) ③ 패치 원본 폰트 (korean.fnt, 폰�
 | 대상 | 내용 |
 |---|---|
 | SVFN 2bpp | `bpp=2` 를 v1/v2 모두에 허용. 행은 `(cellWidth+3)/4` 바이트, 상위 비트 쌍이 왼쪽 픽셀, 값 0–3 → 커버리지 0/85/170/255. **M2 구현 완료**: 로더(`bitmap_font.cpp`), 렌더러(`glyph_renderer.cpp` — `expandCoverage()` 로 1/2/8bpp 공통 경로를 타게 했다; 당초 예상과 달리 렌더러도 손봤다), SCUMM(`hires_text.cpp`, 잉크 스캔과 "안티에일리어싱 여부" 판정 6곳을 `bpp>1` 기준으로), 패딩 마스크(`glyph_source_svfn.cpp`, `usedBits=(cellWidth*bpp)&7`). 8bpp 대비 화소당 커버리지 차 최대 42(≤43). `FONT_FORMAT.md` 갱신 |
-| `mkfont.py` | `--bpp 2` (C20 coverage gamma 에 맞춘 양자화), `--unicode` 묶음 `cp949`, `ksx1001-nohanja` |
+| `mkfont.py` | `--bpp 2` (선형 양자화 `(v*3+127)//255`, 읽는 쪽은 단계 x 85), `--unicode` 묶음 `cp949`, `ksx1001-nohanja` |
 | `[hires] missing=` | 예: `missing=u+25a1`. 체인 전체에 없는 코드 포인트는 체인에서 그 글리프(□)를 그린다. 칸 폭은 원래 글자의 East Asian Width 를 따른다 (전각 16px, 반각 8px); □ 글리프는 폰트가 그 글리프에 주는 칸 수와 같은 칸에만 쓰고, 다른 폭의 칸에는 1px 테두리 상자를 그린다. (SVFN 폰트에 메트릭 표가 있으면 글리프의 칸 수는 advance 로 정한다 — advance 가 셀 폭의 절반보다 크면 2칸. East Asian Ambiguous 기호 ○ ● □ ■ △ ― 등이 전각으로 그려지므로.) 대체한 코드 포인트는 처음 한 번 로그에 남긴다. `glyph_source_fallback` 의 마지막 단계에 둔다 |
 | LRU 글리프 캐시 | FreeType 빌드 전용. `(face, size, codepoint)` → 커버리지, 기본 512KB. M2 이후 |
 
