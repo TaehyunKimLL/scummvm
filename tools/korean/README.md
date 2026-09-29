@@ -56,6 +56,79 @@ tools/korean/mkfont.py Galmuri7.ttf galmuri7-8px.fnt --size 8 --cell 9 --bpp 1 \
 
 The glyph count field is 16 bits: at most 65535 glyphs per file.
 
+Besides the 11172-syllable `hangul`/`cp949-hangul` and the 2350+4888
+`ksx1001`, three narrower named sets split KS X 1001 for a per-game subset
+bake: `ksx1001-hangul` (just the 2350 syllables), `ksx1001-symbols`
+(everything else in `ksx1001-nohanja` - jamo, punctuation, Latin/Greek/Cyrillic
+rows, circled and parenthesized forms - with no Hangul and no Hanja), and
+`ksx1001-nohanja` (`ksx1001-hangul` + `ksx1001-symbols`, i.e. `ksx1001` minus
+its 4888 Hanja).
+
+### Only what a game uses: `--chars-from`, `--limit`
+
+A shared font (`bake-dos-fonts.sh`'s `KO2350.SVF`/`KOCP949.SVF`) has to cover
+every game; a single game's translation uses far fewer code points, and a
+per-game bake of just those is smaller. `--chars-from <file>...` collects
+every code point a game's translation actually writes and unions it into
+`--unicode` (a bare `--chars-from` with no `--unicode` works too, same as
+`--unicode ""`). ASCII and U+25A1 (the box `[hires] missing=` draws for a
+character no font has, FONT_FORMAT.md) are always in the result, with or
+without `--chars-from`.
+
+The file format is told apart by name, not content:
+
+- `TEXT.nnn`/`text.nnn` - a SCI TEXT resource patch (a UTF-8 fan translation
+  replaces the game's own TEXT resources this way): a 2-byte header (`type`,
+  then how many more header bytes follow - 0 for TEXT, so 2 bytes in
+  practice, `resource.h`'s `kResourceHeaderSize` and
+  `ResourceManager::processPatch()`), then NUL-separated UTF-8 strings,
+  indexed like a real TEXT resource.
+- `*.str`/`sci-ko.str` - the script-string manifest
+  (`engines/sci/engine/translation.h`/`.cpp`): `script<TAB>id[<TAB>room]<TAB>text`,
+  UTF-8, `#` whole-line comments.
+- `*.map` - a `hires_text.map`/per-game `.MAP` (`graphics/hires_text/font_map.cpp`
+  INI): the `[hires] missing=` code point and any `[glyphs]` entry whose value
+  is an absolute code point (not `keep`, not a `+n` range offset, which adds
+  no fixed code of its own).
+- anything else - read whole as UTF-8 text.
+
+A glob (`TEXT.*`) not already expanded by the shell is expanded here too. A
+`file:<path>` item inside `--unicode` does the same single-file collection
+inline, so it can be mixed with named sets in one list.
+
+`--limit <list>` (same syntax as `--unicode`) intersects the result with a
+character set - typically a code page the L preset's face can actually
+represent. Combined with `--chars-from` this bakes only the game's characters
+that also fit that set:
+
+```sh
+# L preset: this game's characters that KS X 1001 (no Hanja) can draw.
+tools/korean/mkfont.py neodgm.ttf kq1kol.fnt --size 16 --cell 16 --bpp 1 \
+    --chars-from KQ1KO/TEXT.* KQ1KO/SCI-KO.STR --limit ascii,ksx1001-nohanja
+
+# U preset: this game's characters that cp949 (all 11172 syllables) can draw.
+tools/korean/mkfont.py NanumGothic-Bold.ttf kq1kou.fnt --size 18 --bpp 2 \
+    --chars-from KQ1KO/TEXT.* KQ1KO/SCI-KO.STR --limit ascii,cp949
+
+# Every KS X 1001 syllable regardless of what any game uses (a shared font).
+tools/korean/mkfont.py neodgm.ttf ko2350.fnt --size 16 --cell 16 --bpp 1 \
+    --unicode ascii,ksx1001-hangul
+```
+
+A character the game uses but `--limit` excludes is left out and would show
+as the `missing=` box (□) with no fallback face behind this one; `mkfont.py`
+prints how many and which, and `--fail-on-drop` turns that into a non-zero
+exit instead of a warning - useful in a script that must notice when a
+translation starts using a syllable outside KS X 1001. ASCII and U+25A1
+survive `--limit` even when the given sets do not name them.
+
+`--require` is the opposite check: it fails (and writes no file) if any
+collected code point - after `--limit`, so an intentional drop does not also
+trip this - has no glyph in the source TTF at all (drawn as its `.notdef`
+box). Where `--fail-on-drop` catches "outside the character set this face is
+supposed to cover", `--require` catches "this TTF is missing something it was
+expected to have".
+
 ### Hangul is proportional too
 
 CJK faces report one advance per syllable because they are drawn on a square

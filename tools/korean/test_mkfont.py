@@ -87,6 +87,146 @@ class RangeTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             mkfont.parse_ranges("klingon")
 
+    def test_ksx1001_hangul_is_the_2350_syllables_only(self):
+        hg = mkfont.parse_ranges("ksx1001-hangul")
+        self.assertEqual(len(hg), 2350)
+        self.assertTrue(all(0xAC00 <= cp <= 0xD7A3 for cp in hg))
+        self.assertEqual(set(hg), {cp for cp in mkfont.parse_ranges("ksx1001") if 0xAC00 <= cp <= 0xD7A3})
+
+    def test_ksx1001_symbols_excludes_hangul_and_hanja(self):
+        sym = mkfont.parse_ranges("ksx1001-symbols")
+        self.assertFalse(any(0xAC00 <= cp <= 0xD7A3 for cp in sym))
+        self.assertFalse(any(0x4E00 <= cp <= 0x9FFF for cp in sym))
+        self.assertIn(0x3131, sym)   # ㄱ
+        nohanja = set(mkfont.parse_ranges("ksx1001-nohanja"))
+        hangul = set(mkfont.parse_ranges("ksx1001-hangul"))
+        self.assertEqual(set(sym), nohanja - hangul)
+
+    def test_cp949_hangul_is_all_11172_syllables(self):
+        self.assertEqual(mkfont.parse_ranges("cp949-hangul"), mkfont.parse_ranges("hangul"))
+        self.assertEqual(len(mkfont.parse_ranges("cp949-hangul")), 11172)
+
+
+class CharsFromTest(unittest.TestCase):
+    """--chars-from: TEXT.nnn (SCI 패치), sci-ko.str, .MAP, 그냥 UTF-8 텍스트."""
+
+    def _write(self, tmpdir, name, data):
+        path = os.path.join(tmpdir, name)
+        mode = "wb" if isinstance(data, bytes) else "w"
+        kwargs = {} if isinstance(data, bytes) else dict(encoding="utf-8")
+        with open(path, mode, **kwargs) as f:
+            f.write(data)
+        return path
+
+    def test_text_patch_is_nul_separated_utf8_after_2_byte_header(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write(d, "TEXT.000",
+                                b"\x83\x00" + "안녕".encode("utf-8") + b"\x00" +
+                                "하세요".encode("utf-8") + b"\x00")
+            cps = mkfont.chars_from_text_patch(path)
+            self.assertEqual(set(cps), {ord(c) for c in "안녕하세요"})
+
+    def test_text_patch_honours_extra_header_byte(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            # header byte[1] = 3: header is 2 + 3 = 5 bytes total.
+            path = self._write(d, "TEXT.001",
+                                b"\x83\x03" + b"\x00\x00\x00" + "가".encode("utf-8") + b"\x00")
+            cps = mkfont.chars_from_text_patch(path)
+            self.assertEqual(cps, [ord("가")])
+
+    def test_str_format_skips_comments_and_takes_the_text_field(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write(d, "sci-ko.str",
+                                "# comment\n"
+                                "0\t1\t안녕\n"
+                                "\n"
+                                "2\t3\t5\t\\n 이스케이프는 그대로 글자\n")
+            cps = mkfont.chars_from_str(path)
+            self.assertTrue({ord(c) for c in "안녕"} <= set(cps))
+            self.assertIn(ord("이"), cps)
+
+    def test_map_format_collects_missing_and_glyph_targets_not_ranges(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write(d, "test.map",
+                                "[hires]\n"
+                                "missing=u+25a1 ; box\n"
+                                "[glyphs]\n"
+                                "0x5e=u+2192\n"
+                                "0x7e-0x7f=+10\n"
+                                "0x60=keep\n")
+            cps = mkfont.chars_from_map(path)
+            self.assertEqual(sorted(cps), sorted([0x25A1, 0x2192]))
+
+    def test_ini_comment_needs_leading_whitespace(self):
+        # font_map.cpp 규칙: "single=my;font.fnt" 의 ; 는 주석이 아니다.
+        self.assertEqual(mkfont._strip_ini_comment("scale=3  ; why").strip(), "scale=3")
+        self.assertEqual(mkfont._strip_ini_comment("single=my;font.fnt").strip(), "single=my;font.fnt")
+        self.assertEqual(mkfont._strip_ini_comment("; whole line"), "")
+        self.assertEqual(mkfont._strip_ini_comment("# whole line"), "")
+
+    def test_parse_code_value_matches_font_map_rules(self):
+        self.assertEqual(mkfont._parse_code_value("u+25a1"), 0x25A1)
+        self.assertEqual(mkfont._parse_code_value("0x25A1"), 0x25A1)
+        self.assertEqual(mkfont._parse_code_value("9633"), 9633)
+        self.assertIsNone(mkfont._parse_code_value("keep"))
+        self.assertIsNone(mkfont._parse_code_value(""))
+
+    def test_plain_text_file_is_read_as_utf8(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write(d, "plain.txt", "테스트 ABC")
+            cps = mkfont.chars_from_text_patch  # not used; direct collect below
+            found, counts = mkfont.collect_chars_from_files([path])
+            self.assertTrue({ord(c) for c in "테스트"} <= set(found))
+            self.assertEqual(len(counts), 1)
+
+    def test_collect_classifies_each_kind_and_unions_them(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "TEXT.000", b"\x83\x00" + "가".encode("utf-8") + b"\x00")
+            self._write(d, "sci-ko.str", "0\t1\t나\n")
+            self._write(d, "x.map", "[hires]\nmissing=u+25a1\n")
+            self._write(d, "notes.txt", "다")
+            found, counts = mkfont.collect_chars_from_files(
+                [os.path.join(d, n) for n in ("TEXT.000", "sci-ko.str", "x.map", "notes.txt")])
+            self.assertEqual(len(counts), 4)
+            self.assertTrue({ord("가"), ord("나"), ord("다"), 0x25A1} <= set(found))
+
+    def test_glob_pattern_is_expanded(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "TEXT.000", b"\x83\x00" + "가".encode("utf-8") + b"\x00")
+            self._write(d, "TEXT.001", b"\x83\x00" + "나".encode("utf-8") + b"\x00")
+            found, counts = mkfont.collect_chars_from_files([os.path.join(d, "TEXT.*")])
+            self.assertEqual(len(counts), 2)
+            self.assertTrue({ord("가"), ord("나")} <= set(found))
+
+    def test_missing_file_is_an_error(self):
+        with self.assertRaises(SystemExit):
+            mkfont.collect_chars_from_files(["/no/such/file/here"])
+
+    def test_collect_drops_newlines_and_tabs_as_layout_not_glyphs(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write(d, "TEXT.000",
+                                b"\x83\x00" + "줄1\n줄2\t끝".encode("utf-8") + b"\x00")
+            found, _ = mkfont.collect_chars_from_files([path])
+            self.assertNotIn(0x0A, found)
+            self.assertNotIn(0x09, found)
+            self.assertTrue({ord(c) for c in "줄1"} <= set(found))
+
+    def test_parse_ranges_file_token_matches_collect_chars_from_files(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write(d, "sci-ko.str", "0\t1\t라\n")
+            cps = mkfont.parse_ranges(f"ascii,file:{path}")
+            self.assertIn(ord("라"), cps)
+            self.assertIn(0x41, cps)
+
 
 class TwoBppTest(unittest.TestCase):
     """M2: --bpp 2. 0-255 커버리지를 4단계로, 네 픽셀을 한 바이트에 (왼쪽이 상위 비트 쌍)."""
@@ -196,6 +336,76 @@ class TwoBppBakeTest(unittest.TestCase):
         self.assertEqual(levels, {0, 85, 170, 255})
         print(f"\n  2bpp vs 8bpp, {len(f8['glyphs'])} glyphs at 18px: max per-pixel diff {worst}",
               file=sys.stderr)
+
+
+@unittest.skipUnless(NANUM_BOLD, "NanumGothicBold.ttf not found (SCUMMVM_TEST_KO_BOLD_TTF)")
+class CharsFromLimitCliTest(unittest.TestCase):
+    """--chars-from/--limit/--require/--fail-on-drop, mkfont.py 를 실제로 불러서."""
+
+    def _str_file(self, d, text):
+        import os as _os
+        path = _os.path.join(d, "sci-ko.str")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"0\t1\t{text}\n")
+        return path
+
+    def run_mkfont(self, *extra, check=True):
+        import subprocess
+        return subprocess.run([sys.executable, mkfont.__file__] + list(extra),
+                               capture_output=True, text=True)
+
+    def test_chars_from_merges_with_unicode(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            src = self._str_file(d, "안녕")
+            out = os.path.join(d, "out.fnt")
+            r = self.run_mkfont(NANUM_BOLD, out, "--size", "18", "--bpp", "1",
+                                 "--unicode", "ascii", "--chars-from", src)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(out, "rb") as fh:
+                f = read_svfn(fh.read())
+            self.assertIn(ord("안"), f["glyphs"])
+            self.assertIn(ord("녕"), f["glyphs"])
+            self.assertIn(0x41, f["glyphs"])   # ascii 'A' still there
+
+    def test_limit_keeps_only_the_intersection_but_always_keeps_ascii_and_box(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            # 가 (0xAC00, 2350 안) 와 똠 (0xB620, 2350 밖: hangul 11172 에만 있음).
+            src = self._str_file(d, "가똠")
+            out = os.path.join(d, "out.fnt")
+            r = self.run_mkfont(NANUM_BOLD, out, "--size", "18", "--bpp", "1",
+                                 "--chars-from", src, "--limit", "ksx1001-nohanja")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("U+B620", r.stdout)   # dropped-list summary
+            with open(out, "rb") as fh:
+                f = read_svfn(fh.read())
+            self.assertIn(ord("가"), f["glyphs"])
+            self.assertNotIn(ord("똠"), f["glyphs"])
+            self.assertIn(0x41, f["glyphs"])     # ASCII always kept
+            self.assertIn(0x25A1, f["glyphs"])   # box always kept (Nanum has it)
+
+    def test_fail_on_drop_is_a_nonzero_exit(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            src = self._str_file(d, "똠")   # outside ksx1001-nohanja
+            out = os.path.join(d, "out.fnt")
+            r = self.run_mkfont(NANUM_BOLD, out, "--size", "18", "--bpp", "1",
+                                 "--chars-from", src, "--limit", "ksx1001-nohanja",
+                                 "--fail-on-drop")
+            self.assertNotEqual(r.returncode, 0)
+            self.assertFalse(os.path.exists(out))
+
+    def test_require_fails_when_the_face_lacks_a_requested_code_point(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "out.fnt")
+            # U+3400 (CJK 확장 A) 는 NanumGothic-Bold 에 없다.
+            r = self.run_mkfont(NANUM_BOLD, out, "--size", "18",
+                                 "--bpp", "1", "--unicode", "ascii,3400", "--require")
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("3400", r.stdout + r.stderr)
+            self.assertFalse(os.path.exists(out))
 
 
 def _galmuri(name):
