@@ -414,8 +414,11 @@ def choose_ascent(font, cell_h, latin=False):
     return choose_ascent_from(ascent, descent, probe[1], probe[3], cell_h, latin)
 
 
-def render(font, ch, cell_w, cell_h, ascent, bpp, center=False, mark_origin=False):
+def render(font, ch, cell_w, cell_h, ascent, bpp, center=False, mark_origin=False, nudge=True):
     """글자 하나를 셀에 그려 (픽셀들, 잉크왼쪽, 잉크폭) 로 돌려준다.
+
+    nudge 를 끄면 (--clip-cell) 위로 새는 글자를 밀어 내리지 않는다: 모든
+    글자가 같은 기준선에 서고, 셀 밖의 잉크는 잘린다.
 
     center 를 켜면 잉크를 셀 가운데에 놓는다. 고정폭으로 구울 때 쓴다:
     비례폭 글꼴은 글자마다 잉크 폭이 다른데, 셀 왼쪽에 붙여 놓으면 좁은
@@ -436,7 +439,7 @@ def render(font, ch, cell_w, cell_h, ascent, bpp, center=False, mark_origin=Fals
     if bbox:
         left, top, right, bottom = bbox
         dx = -min(0, left)
-        dy = ascent - min(0, top + ascent)
+        dy = ascent - min(0, top + ascent) if nudge else ascent
         if mark_origin and is_mark(ch):
             # 결합 부호: 잉크가 펜 왼쪽에 있다 (타이 성조는 음의 bearing 으로
             # 앞 글자 위에 얹힌다). 펜을 max(0, -left) 열에 두면 잘리지 않고,
@@ -571,6 +574,33 @@ def fit_cell(path, max_size, chars, cell_w, cell_h, bpp, latin=False, min_size=8
     sys.exit(f"--fit-cell: {max_size}px 부터 {min_size}px 까지 어느 크기도 셀에 맞지 않는다")
 
 
+def clipped_ink(font, ch, bpp, ascent, cell_h):
+    """--clip-cell: 셀 (위 0, 아래 cell_h, 기준선 ascent) 위아래로 잘려 나가는
+    잉크 픽셀 수 (가득 찬 픽셀, 옅은 가장자리) - 실릴 값으로 센다."""
+    size = max(8, int(getattr(font, "size", 16)))
+    ox, oy = size * 2, size * 3
+    img = Image.new("L", (size * 5, size * 5), 0)
+    try:
+        ImageDraw.Draw(img).text((ox, oy), ch, font=font, fill=255, anchor="ls")
+    except (ValueError, OSError):
+        return 0, 0
+    if bpp == 1:
+        img = img.point(lambda v: 255 if v >= 128 else 0)
+    elif bpp == 2:
+        img = img.point(lambda v: quantize2(v) * 85)
+    full = fringe = 0
+    top, bottom = oy - ascent, oy - ascent + cell_h
+    px = img.load()
+    for y in list(range(0, top)) + list(range(bottom, img.height)):
+        for x in range(img.width):
+            v = px[x, y]
+            if v == 255:
+                full += 1
+            elif v:
+                fringe += 1
+    return full, fringe
+
+
 def pack_glyph(img, cell_w, cell_h, bpp):
     px = img.load()
     out = bytearray()
@@ -643,6 +673,11 @@ def main():
                          "를 알린다. --ascent 를 함께 주면 맞는 ascent 가 여럿일 때 "
                          "그 값에 가장 가까운 것을 고른다 (게임 글꼴의 기준선 행에 "
                          "맞출 때)")
+    ap.add_argument("--clip-cell", action="store_true",
+                    help="모든 글자를 한 기준선 (--ascent, 생략하면 셀 밖으로 나가는 "
+                         "글자가 가장 적은 값) 에 그대로 두고, 셀 위아래로 나가는 잉크는 "
+                         "자른다 (글자를 밀어 넣지 않는다). 잘린 글자 수와 픽셀 수 "
+                         "(가득 찬 것 / 옅은 가장자리) 를 알린다")
     ap.add_argument("--shadow", type=int, default=0xFF,
                     help="기존 그림자 방식 0~3, 없으면 255")
     ap.add_argument("--count", type=int, default=0,
@@ -777,7 +812,27 @@ def main():
     # 글꼴이 셀보다 크면 잉크가 실제로 차지하는 자리를 재서 그것을 셀에
     # 맞춘다 (choose_ascent_from()): 명목 크기로 계산하면 손글씨처럼 여백이
     # 큰 글꼴이 쓸데없이 눌린다.
-    if args.fit_cell:
+    if args.clip_cell and not args.fit_cell:
+        clip_chars = list(unicode_cps) if unicode_cps else \
+            [ord(ch) for _, ch in glyph_chars(codepage, count) if ch is not None]
+        _, clip_boxes = measure_boxes(args.input, size, clip_chars, args.bpp)
+        if args.ascent:
+            ascent = args.ascent
+        else:
+            ascent, _ = fit_ascent(clip_boxes, cell_h, choose_ascent(font, cell_h, latin=args.latin))
+        top, bottom, wide = fit_counts(clip_boxes, cell_w, cell_h, ascent)
+        cut = sorted(set(top) | set(bottom))
+        full = fringe = 0
+        for cp in cut:
+            f, g = clipped_ink(font, chr(cp), args.bpp, ascent, cell_h)
+            full += f
+            fringe += g
+        print(f"--clip-cell: {size}px, ascent {ascent}: {len(clip_boxes)}자 중 {len(cut)}자가 셀 "
+              f"위아래로 잘린다 (위 {len(top)}, 아래 {len(bottom)}), 잉크 {full + fringe}픽셀 "
+              f"(가득 {full}, 가장자리 {fringe}); 셀보다 넓은 글자 {len(wide)}")
+        if cut and len(cut) <= 40:
+            print("  " + "".join(chr(cp) for cp in cut))
+    elif args.fit_cell:
         ascent = fit_ascent_value
     elif args.ascent:
         ascent = args.ascent
@@ -807,7 +862,8 @@ def main():
     for idx, ch in chars:
         img, ink_x, ink_w = render(font, ch, cell_w, cell_h, ascent,
                                          args.bpp, center=center,
-                                         mark_origin=bool(unicode_cps))
+                                         mark_origin=bool(unicode_cps),
+                                         nudge=not args.clip_cell)
         absent = notdef is not None and ch is not None and img.tobytes() == notdef
         if ch is None or ink_w == 0 or absent:
             missing += 1

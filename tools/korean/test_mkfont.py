@@ -547,6 +547,32 @@ class FitCellBakeTest(unittest.TestCase):
             # on row ascent + its offset from the baseline.
             self.assertEqual((ink_rows[0], ink_rows[-1] + 1), (14 + box[1], 14 + box[3]), chr(cp))
 
+    def test_clip_cell_keeps_one_baseline_and_cuts_what_leaves_the_cell(self):
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "clip.svf")
+            chars = os.path.join(d, "chars.txt")
+            with open(chars, "w", encoding="utf-8") as f:
+                f.write("".join(chr(c) for c in self.CHARS))
+            r = subprocess.run([sys.executable, mkfont.__file__, NANUM_IN_TREE, out, "--size", "18",
+                                "--cell", "16", "--clip-cell", "--ascent", "14", "--bpp", "2",
+                                "--chars-from", chars], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("--clip-cell: 18px, ascent 14", r.stdout)
+            data = open(out, "rb").read()
+        f = read_svfn(data)
+        from PIL import ImageFont
+        font = ImageFont.truetype(NANUM_IN_TREE, 18)
+        for cp in self.CHARS:
+            _, rows = f["glyphs"][cp]
+            ink_rows = [y for y, row in enumerate(rows) if any(row)]
+            box, _ = mkfont.ink_box(font, chr(cp), 2)
+            # Not moved: ink starts where the baseline puts it, or row 0 if
+            # that is above the cell (cut, not pushed down).
+            self.assertEqual(ink_rows[0], max(0, 14 + box[1]), chr(cp))
+            self.assertEqual(ink_rows[-1] + 1, min(16, 14 + box[3]), chr(cp))
+
 
 if __name__ == "__main__":
     unittest.main()

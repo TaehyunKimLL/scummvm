@@ -166,6 +166,13 @@ U-preset bakes (`bake-dos-fonts.sh`, `bake-game-fonts.sh`) do not use it:
 15 px was judged too small, so they stay at 18 px and the SCI engine clips
 each glyph's ink to its text line instead (`GfxFontUnicode::draw()`).
 
+`--clip-cell` is the other answer: keep the size given, put every glyph on
+one baseline (`--ascent`, or without it the ascent that leaves the fewest
+glyphs outside the cell), and cut whatever ink lies above or below the cell
+instead of pushing that glyph down as a plain bake does. It reports how many
+glyphs lose rows and how many pixels (full coverage and antialiased fringe)
+go - use it to see what a size costs before choosing it.
+
 ### Hangul is proportional too
 
 CJK faces report one advance per syllable because they are drawn on a square
