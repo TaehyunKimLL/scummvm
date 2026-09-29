@@ -62,9 +62,11 @@ public:
 	 * The composited output at the driver's own resolution, when the driver
 	 * keeps one (the upscaled CJK drivers do). For a harness that wants to
 	 * see exactly what reached the screen, hires glyphs included. Returns
-	 * false when there is no such buffer.
+	 * false when there is no such buffer. pixelSize is the bytes per pixel
+	 * of what was copied: 1 (palette indices) unless the picture itself is
+	 * true colour (RGB video), whatever the screen's format.
 	 */
-	virtual bool copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h) const { return false; }
+	virtual bool copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h, byte &pixelSize) const { return false; }
 	/** Hi-res text the driver blends over the scaled picture on every update
 	 *  (HIRES_COMPOSITOR_DESIGN.md). Only a 2x upscaled driver whose screen
 	 *  matches the layer uses it. Returns true if the driver will composite

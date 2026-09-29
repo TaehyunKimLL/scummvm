@@ -104,7 +104,7 @@ public:
 	void clearRect(const Common::Rect &r) const override;
 	Common::Point getRealCoords(Common::Point &pos) const override;
 	void drawTextFontGlyph(const byte *src, int pitch, int hiresDestX, int hiresDestY, int hiresW, int hiresH, int transpColor, const PaletteMod *palMods, const byte *palModMapping) override; // For HiRes fonts.
-	bool copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h) const override;
+	bool copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h, byte &pixelSize) const override;
 	bool driverBasedTextRendering() const override { return true; }
 	bool setTextLayer(const TextLayer *layer) override;
 	void refreshHiresRect(const Common::Rect &hires, const PaletteMod *palMods, const byte *palModMapping) override;
