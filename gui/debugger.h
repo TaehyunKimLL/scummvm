@@ -248,7 +248,10 @@ protected:
 	PauseToken _debugPauseToken;
 
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+	/** nullptr until first used: see consoleDialog(). */
 	GUI::ConsoleDialog *_debuggerDialog;
+	/** The console dialog, made on first use. */
+	GUI::ConsoleDialog *consoleDialog();
 #endif
 
 protected:
