@@ -29,6 +29,10 @@
 	#include "audio/nfmopl.h"
 #endif
 
+#ifdef DOS_DJGPP
+	#include "audio/dosopl.h"
+#endif
+
 #include "audio/softsynth/opl/dosbox.h"
 #include "audio/softsynth/opl/mame.h"
 #include "audio/softsynth/opl/nuked.h"
@@ -58,6 +62,12 @@ namespace RetroWaveOPL3 {
 OPL *create(Config::OplType type);
 } // End of namespace RetroWaveOPL3
 #endif // ENABLE_RETROWAVE_OPL3
+
+#ifdef DOS_DJGPP
+namespace DosOPL {
+OPL *create(Config::OplType type);
+} // End of namespace DosOPL
+#endif
 
 #ifdef USE_NFM
 namespace NfmOPL {
@@ -95,6 +105,9 @@ enum OplEmulator {
 	kNfmNatfeatsNull = 17,
 	kNfmNukedOpl3 = 18
 #endif
+#ifdef DOS_DJGPP
+	,kDosOPL = 19
+#endif
 };
 
 OPL::OPL() {
@@ -110,6 +123,10 @@ OPL::OPL() {
 const Config::EmulatorDescription Config::_drivers[] = {
 	{ "auto", "<default>", kAuto, kFlagOpl2 | kFlagDualOpl2 | kFlagOpl3 },
 	{ "null", _s("None"), kNull, kFlagOpl2 | kFlagDualOpl2 | kFlagOpl3 },
+#ifdef DOS_DJGPP
+	// First, so that auto-detection prefers the real chip when there is one.
+	{ "dosopl", _s("Hardware OPL (DOS)"), kDosOPL, kFlagOpl2 | kFlagDualOpl2 | kFlagOpl3 },
+#endif
 #ifndef DISABLE_MAME_OPL
 	{ "mame", _s("MAME OPL emulator"), kMame, kFlagOpl2 },
 #endif
@@ -210,6 +227,11 @@ Config::DriverId Config::detect(OplType type) {
 	drv = -1;
 
 	for (int i = 2; _drivers[i].name; ++i) {
+#ifdef DOS_DJGPP
+		// Only when the card is there (and has an OPL3 if one is needed).
+		if (_drivers[i].id == kDosOPL && !DosOPL::OPL::detect(type))
+			continue;
+#endif
 		if (_drivers[i].flags & flags) {
 			drv = _drivers[i].id;
 			break;
@@ -283,6 +305,17 @@ OPL *Config::create(DriverId driver, OplType type) {
 #ifdef USE_RETROWAVE
 	case kRWOPL3:
 		return RetroWaveOPL3::create(type);
+#endif
+
+#ifdef DOS_DJGPP
+	case kDosOPL:
+		// Without a chip for this type, return nothing so that the engine
+		// can fall back (e.g. from Dual OPL2 to OPL2).
+		if (!DosOPL::OPL::detect(type)) {
+			warning("No hardware OPL for type %d", type);
+			return nullptr;
+		}
+		return DosOPL::create(type);
 #endif
 
 #ifdef USE_NFM
