@@ -116,6 +116,8 @@ private:
 class OPL : virtual public Audio::Chip {
 private:
 	static bool _hasInstance;
+	// Wraps (and so coexists with) the one real instance.
+	friend class LoggingOPL;
 public:
 	OPL();
 	virtual ~OPL() { _hasInstance = false; }
