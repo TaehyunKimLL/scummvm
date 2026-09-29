@@ -42,8 +42,10 @@
  *
  * - malloc() must not be reentered: DJGPP's is not reentrant, and the code
  *   the interrupt came in on may be inside it. The link wraps malloc, free,
- *   realloc, calloc and memalign (-Wl,--wrap, see module.mk) so each runs
- *   with interrupts off.
+ *   realloc, calloc and memalign (-Wl,--wrap, see module.mk) so malloc's
+ *   own work runs with interrupts off. The large blocks below share no
+ *   state with it; their DPMI calls, copies and clears run with interrupts
+ *   as the caller had them.
  *
  * - Locked memory cannot exceed what the machine has. The hi-res text
  *   fonts alone cache several MB of glyphs, which on a 16 MB machine does
@@ -102,13 +104,14 @@ LargeHeader *largeHeader(void *ptr) {
 	return h;
 }
 
-// Interrupts are off.
+// A block of its own; the DPMI calls run with interrupts as they are: it
+// shares nothing with the sbrk heap.
 void *largeAlloc(size_t size) {
 	__dpmi_meminfo mi;
 	mi.handle = 0;
 	mi.address = 0;
 	mi.size = (size + sizeof(LargeHeader) + kPage - 1) & ~(kPage - 1);
-	if (__dpmi_allocate_memory(&mi) != 0)
+	if (mi.size < size || __dpmi_allocate_memory(&mi) != 0)
 		return nullptr;
 	LargeHeader *h = (LargeHeader *)(mi.address + __djgpp_conventional_base);
 	h->magic = kMagic;
@@ -118,11 +121,18 @@ void *largeAlloc(size_t size) {
 	return h + 1;
 }
 
-// Interrupts are off.
 void largeFree(LargeHeader *h) {
 	const uint32 handle = h->handle;
 	h->magic = 0;
 	__dpmi_free_memory(handle);
+}
+
+// The locked heap, with interrupts off for the bookkeeping only.
+void *smallAlloc(size_t size) {
+	const uint32 f = heapLock();
+	void *p = __real_malloc(size);
+	heapUnlock(f);
+	return p;
 }
 
 } // End of anonymous namespace
@@ -134,73 +144,73 @@ void dosHeapEnableLargeBlocks() {
 extern "C" {
 
 void *__wrap_malloc(size_t size) {
-	const uint32 f = heapLock();
 	void *p = nullptr;
 	if (g_largeOk && size >= kLargeBlock)
 		p = largeAlloc(size);
-	if (!p)
-		p = __real_malloc(size);
-	heapUnlock(f);
-	return p;
+	return p ? p : smallAlloc(size);
 }
 
 void __wrap_free(void *ptr) {
-	const uint32 f = heapLock();
-	if (LargeHeader *h = largeHeader(ptr))
+	if (LargeHeader *h = largeHeader(ptr)) {
 		largeFree(h);
-	else
-		__real_free(ptr);
+		return;
+	}
+	const uint32 f = heapLock();
+	__real_free(ptr);
 	heapUnlock(f);
 }
 
 void *__wrap_realloc(void *ptr, size_t size) {
-	const uint32 f = heapLock();
-	void *p;
-	if (LargeHeader *h = largeHeader(ptr)) {
-		if (size == 0) {
-			largeFree(h);
-			p = nullptr;
-		} else if (size <= h->size) {
-			p = ptr;
-		} else {
-			p = largeAlloc(size);
-			if (!p)
-				p = __real_malloc(size);
-			if (p) {
-				memcpy(p, ptr, h->size);
-				largeFree(h);
-			}
-		}
-	} else {
+	LargeHeader *h = largeHeader(ptr);
+	if (!h) {
 		// A small block that grows stays in the locked heap: its old size
 		// is malloc's business.
-		p = __real_realloc(ptr, size);
+		const uint32 f = heapLock();
+		void *p = __real_realloc(ptr, size);
+		heapUnlock(f);
+		return p;
 	}
-	heapUnlock(f);
+	if (size == 0) {
+		largeFree(h);
+		return nullptr;
+	}
+	if (size <= h->size)
+		return ptr;
+	void *p = largeAlloc(size);
+	if (!p)
+		p = smallAlloc(size);
+	if (p) {
+		memcpy(p, ptr, h->size);	// interrupts on: the block is ours alone
+		largeFree(h);
+	}
 	return p;
 }
 
 void *__wrap_calloc(size_t n, size_t size) {
-	const uint32 f = heapLock();
-	void *p = nullptr;
-	if (g_largeOk && size && n >= kLargeBlock / size) {
-		p = largeAlloc(n * size);
-		if (p)
-			memset(p, 0, n * size);
+	if (size && n > (size_t)-1 / size)
+		return nullptr;
+	const size_t total = n * size;
+	if (g_largeOk && total >= kLargeBlock) {
+		void *p = largeAlloc(total);
+		if (p) {
+			memset(p, 0, total);
+			return p;
+		}
 	}
-	if (!p)
-		p = __real_calloc(n, size);
+	const uint32 f = heapLock();
+	void *p = __real_calloc(n, size);
 	heapUnlock(f);
 	return p;
 }
 
 void *__wrap_memalign(size_t alignment, size_t size) {
-	const uint32 f = heapLock();
 	void *p = nullptr;
 	if (g_largeOk && size >= kLargeBlock && alignment <= sizeof(LargeHeader))
 		p = largeAlloc(size);
-	if (!p)
-		p = __real_memalign(alignment, size);
+	if (p)
+		return p;
+	const uint32 f = heapLock();
+	p = __real_memalign(alignment, size);
 	heapUnlock(f);
 	return p;
 }
