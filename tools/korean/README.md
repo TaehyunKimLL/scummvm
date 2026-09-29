@@ -194,6 +194,29 @@ em - NanumGothic says 15.05 for 가, 이 and 무 alike - while their ink is 14,
 proportional in name only, and one pixel too narrow everywhere, so syllables
 touch. `--ink-advance` measures the ink instead.
 
+## Packing a translation's patch files (DOS start-up)
+
+A UTF-8 translation ships one `TEXT.nnn` patch file per text resource. Under
+DOS every file costs directory scans and open/close calls while the engine
+starts, so `packvol.py` puts them into one volume:
+
+```sh
+tools/korean/packvol.py GAMES/LB1KO GAMES/LB1KO.PK --exclude SCRIPT.414   # copy
+tools/korean/packvol.py GAMES/KQ1KO --in-place --exclude TEXT.000         # in place
+```
+
+The default `--mode msg` writes `MESSAGE.MAP` + `RESOURCE.MSG`, the Korean
+fan-patch volume `ResourceManager` already reads (`isKoreanMessageMap()`): with
+`language=ko` its entries replace the game volumes' resources (a loose patch
+file still wins). `RESOURCE.MAP` stays byte-identical, so detection by its md5
+is unchanged. `--mode map` instead writes `RESOURCE.0nn` and rewrites
+`RESOURCE.MAP`; that changes the map's md5, and KQ1 Korean then misses its
+`ADGF_UTF8I18N` detection entry (the generic SCI fallback detects it as
+English; `SCI-KO.STR` still makes the text UTF-8). Keep loose (`--exclude`)
+whatever a detection entry lists (KQ1 Korean: `text.000`) and any patch the
+user may want to delete. Bake the per-game fonts (`bake-game-fonts.sh`,
+`--chars-from TEXT.*`) from the unpacked files.
+
 ## Checking the result
 
 ```sh
