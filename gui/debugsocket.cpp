@@ -54,6 +54,8 @@
 
 #if defined(DOS_DJGPP)
 #include <pc.h>
+#include <dpmi.h>
+#include "backends/platform/dos/dos-memory.h"
 #endif
 
 namespace GUI {
@@ -659,6 +661,29 @@ bool DebugSocket::genericCommand(const Common::String &cmd, const Common::String
 			out = Common::String::format("%u %d", g_system->getMillis(), s);
 #else
 		out = "FAIL no RTC here";
+#endif
+		return true;
+	}
+	if (cmd == "mem") {
+#if defined(DOS_DJGPP)
+		__dpmi_free_mem_info info;
+		DOS::MemInfo m = { 0, 0, 0, 0 };
+		if (__dpmi_get_free_memory_information(&info) == 0) {
+			// Same mapping as dos.cpp's logMemInfo(): the only field DPMI
+			// hands back in bytes is the largest free block; the free-pages
+			// count doubles as dpmi_free (in bytes) and phys_free (in its
+			// native pages, alongside phys_total).
+			const uint32 freePages = (uint32)info.total_number_of_free_pages;
+			const uint32 freeBytes = (freePages == 0xFFFFFFFF) ? 0xFFFFFFFF : freePages * 4096u;
+			m = DOS::memFromPages(freeBytes,
+				(uint32)info.largest_available_free_block_in_bytes,
+				(uint32)info.total_number_of_free_pages,
+				(uint32)info.total_number_of_physical_pages);
+		}
+		out = Common::String::format("dpmi_free=%u largest=%u phys_free=%u phys_total=%u",
+			m.freeKB, m.largestKB, m.physFreeKB, m.physTotalKB);
+#else
+		out = "n/a";
 #endif
 		return true;
 	}
