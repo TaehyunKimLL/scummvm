@@ -28,7 +28,8 @@
 /**
  * MS-DOS through DJGPP. SDL3 opens the hardware (VESA modes, keyboard,
  * mouse); everything above that is ScummVM's. There are no threads: timers
- * run from pollEvent() and SDL3's cooperative scheduler runs in delayMillis().
+ * run from a 1 kHz IRQ0 handler (DosTimerManager), a mutex holds interrupts
+ * off, and SDL3's cooperative scheduler runs in delayMillis().
  */
 class OSystem_DOS : public ModularMixerBackend, public ModularGraphicsBackend, Common::EventSource {
 public:
@@ -51,7 +52,10 @@ public:
 	void addSysArchivesToSearchSet(Common::SearchSet &s, int priority) override;
 
 private:
-	Common::EventSource *_eventSource;	///< a DosEventSource; OSystem_DOS::pollEvent() runs the timers first
+	/** dos_timer_selftest=true: checks the preemptive timer (see dos.cpp). */
+	void timerSelftest();
+
+	Common::EventSource *_eventSource;	///< a DosEventSource
 };
 
 #endif
