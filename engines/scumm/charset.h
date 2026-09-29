@@ -258,6 +258,21 @@ public:
 	void drawChar(int chr, Graphics::Surface &s, int x, int y) override;
 
 	int getCharWidth(uint16 chr) const override;
+
+	/**
+	 * Where @p chr's glyph starts in a classic font (@p fontPtr as _fontPtr:
+	 * after the 4 header bytes, one offset per character), or 0 for none.
+	 *
+	 * A code past the font's @p numChars has no glyph. Text from another
+	 * language's save (a Korean MI2 verb drawn with the English charset of
+	 * 123 characters) asks for one, and the offset table ends before it: the
+	 * bytes read there as an offset point anywhere.
+	 */
+	static uint32 glyphOffset(const byte *fontPtr, int numChars, int chr) {
+		if (chr < 0 || chr >= numChars)
+			return 0;
+		return READ_LE_UINT32(fontPtr + chr * 4 + 4);
+	}
 };
 
 #ifdef USE_RGB_COLOR

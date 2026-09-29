@@ -564,7 +564,7 @@ int CharsetRendererClassic::getCharWidth(uint16 chr) const {
 		return _vm->_hiResText.advanceFor(chr, _curId, _vm->cjkCellAdvance());
 
 	// With UTF-8 text chr is a code point; the game's font answers for '?'.
-	int offs = READ_LE_UINT32(_fontPtr + gameChar(chr) * 4 + 4);
+	int offs = glyphOffset(_fontPtr, _numChars, gameChar(chr));
 	if (offs)
 		spacing = _fontPtr[offs] + (signed char)_fontPtr[offs + 2];
 
@@ -1723,7 +1723,7 @@ bool CharsetRendererClassic::prepareDraw(uint16 chr) {
 		setShadowMode(kNoShadowType);
 	}
 
-	uint32 charOffs = READ_LE_UINT32(_fontPtr + chr * 4 + 4);
+	uint32 charOffs = glyphOffset(_fontPtr, _numChars, chr);
 	assert(charOffs < 0x14000);
 	if (!charOffs)
 		return false;
