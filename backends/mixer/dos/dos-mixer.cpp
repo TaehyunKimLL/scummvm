@@ -28,10 +28,11 @@
 #include "backends/mixer/dos/dos-mixer.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
+#include "common/system.h"
 #include "common/textconsole.h"
 
 DosMixerManager::DosMixerManager()
-	: _stream(nullptr), _buffer(new byte[kBufferBytes]), _subsystemInitialized(false), _framesMixed(0) {
+	: _stream(nullptr), _buffer(new byte[kBufferBytes]), _subsystemInitialized(false), _framesMixed(0), _callbackMillis(0) {
 }
 
 DosMixerManager::~DosMixerManager() {
@@ -46,35 +47,42 @@ DosMixerManager::~DosMixerManager() {
 
 void DosMixerManager::init() {
 	// The Sound Blaster driver keeps four device buffers in its ring:
-	// at 44100 Hz, 1024 frames give ~93 ms of cushion for a main thread
-	// that does not yield.
-	SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "1024");
+	// 2048 frames give ~186 ms of cushion at 44100 Hz (~372 ms at 22050)
+	// for a main thread that does not yield, at the cost of ~46 ms more
+	// latency. A buffer (8 KB at 16-bit stereo) is within the driver's
+	// 32 KB limit.
+	SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "2048");
 	if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
 		warning("DOS: no audio: %s", SDL_GetError());
 		return;
 	}
 	_subsystemInitialized = true;
 
+	const bool rateSet = ConfMan.hasKey("output_rate") && ConfMan.getInt("output_rate") > 0;
 	SDL_AudioSpec spec;
-	int frames = 0;
-	if (!SDL_GetAudioDeviceFormat(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, &frames)) {
-		warning("DOS: no audio device: %s", SDL_GetError());
-		return;
-	}
-	if (ConfMan.hasKey("output_rate") && ConfMan.getInt("output_rate") > 0)
-		spec.freq = ConfMan.getInt("output_rate");
 	spec.format = SDL_AUDIO_S16;
 	spec.channels = 2;
+	spec.freq = rateSet ? ConfMan.getInt("output_rate") : 44100;
 	_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, sdlCallback, this);
 	if (!_stream) {
 		warning("DOS: no audio device: %s", SDL_GetError());
 		return;
 	}
 
+	// The card's rate is known only now: SDL asks for 44100 Hz, and the
+	// driver brings cards before the SB16 down to 22050. Mix at that rate
+	// unless output_rate says otherwise; the device is still paused.
 	SDL_AudioSpec device;
-	if (SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(_stream), &device, &frames))
+	int frames = 0;
+	if (SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(_stream), &device, &frames)) {
+		if (!rateSet && device.freq > 0 && device.freq != spec.freq) {
+			spec.freq = device.freq;
+			if (!SDL_SetAudioStreamFormat(_stream, &spec, nullptr))
+				warning("DOS: audio stream at %d Hz: %s", spec.freq, SDL_GetError());
+		}
 		debug(1, "DOS: audio %s at %d Hz, %d channels, format 0x%x, %d frames; mixer at %d Hz",
 			SDL_GetCurrentAudioDriver(), device.freq, device.channels, (uint)device.format, frames, spec.freq);
+	}
 
 	_mixer = new Audio::MixerImpl(spec.freq, true, kDeviceFrames);
 	_mixer->setReady(true);
@@ -96,6 +104,7 @@ void DosMixerManager::sdlCallback(void *userdata, SDL_AudioStream *stream, int a
 		manager->_framesMixed += n / 4;
 		left -= n;
 	}
+	manager->_callbackMillis = g_system->getMillis();
 }
 
 void DosMixerManager::suspendAudio() {

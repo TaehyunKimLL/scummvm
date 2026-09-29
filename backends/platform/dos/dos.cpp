@@ -261,12 +261,20 @@ void OSystem_DOS::mixerSelftest() {
 	// Let the device's ring fill first.
 	for (int i = 0; i < 50; ++i)
 		delayMillis(10);
+	// The SDL buffers the device takes are 2048 frames, too coarse for a
+	// count over three seconds (+-3% at 22050 Hz): the rate is the frames
+	// between the first and the last callback in the window over the time
+	// between them.
 	uint8 s = rtcSeconds();
 	while (rtcSeconds() == s)
 		delayMillis(1);
 	s = rtcSeconds();
-	const uint32 f0 = mixerManager->framesMixed();
 	const uint32 m0 = getMillis();
+	uint32 f0, c0, f1, c1;
+	const uint32 start = mixerManager->framesMixed();
+	while (mixerManager->framesMixed() == start && getMillis() - m0 < 500)
+		delayMillis(1);	// a card that never takes data gives rate=0
+	mixerManager->lastCallback(f0, c0);
 	for (int edges = 0; edges < 3;) {
 		delayMillis(5);
 		const uint8 now = rtcSeconds();
@@ -275,8 +283,10 @@ void OSystem_DOS::mixerSelftest() {
 			edges++;
 		}
 	}
-	const uint32 frames = mixerManager->framesMixed() - f0;
+	mixerManager->lastCallback(f1, c1);
+	const uint32 frames = f1 - f0;
 	const uint32 millis = getMillis() - m0;
+	const uint32 rate = (c1 > c0) ? (uint32)((uint64)frames * 1000 / (c1 - c0)) : 0;
 
 	// What the sound costs the game: a main thread that does a span of
 	// busy work and then yields (SDL_Delay(0) runs SDL3's other threads once),
@@ -289,8 +299,10 @@ void OSystem_DOS::mixerSelftest() {
 	mixerManager->resumeAudio();
 
 	// One interrupts-off piece of the callback, timed: 1000 x 256 frames.
-	// Each is well under a tick if getMillis() comes out right; the IRQ0
-	// held back meanwhile is taken at the end of each.
+	// The PIC holds back one IRQ0 while a piece runs and delivers it at
+	// the end; a piece that took over 1 ms would lose the ticks after the
+	// first, and the figure would read low. getMillis() over the RTC
+	// seconds above (3000 +- a few) is the check that none were lost.
 	static byte piece[256 * 4];
 	const uint32 t0 = getMillis();
 	for (int i = 0; i < 1000; ++i)
@@ -299,8 +311,8 @@ void OSystem_DOS::mixerSelftest() {
 	mixer->stopHandle(handle);
 
 	logMessage(LogMessageType::kInfo, Common::String::format(
-		"DOS: mixer selftest rate=%u expect=%u frames=%u getMillis=%u mix256=%uus yield=%u%%/%u%%\n",
-		(uint)(frames / 3), mixer->getOutputRate(), (uint)frames, (uint)millis, (uint)mixMs, (uint)busyPlaying, (uint)busyPaused).c_str());
+		"DOS: mixer selftest rate=%u expect=%u frames=%u in=%ums getMillis=%u mix256=%uus yield=%u%%/%u%%\n",
+		(uint)rate, mixer->getOutputRate(), (uint)frames, (uint)(c1 - c0), (uint)millis, (uint)mixMs, (uint)busyPlaying, (uint)busyPaused).c_str());
 }
 
 bool OSystem_DOS::pollEvent(Common::Event &event) {
@@ -325,7 +337,13 @@ uint32 OSystem_DOS::getMillis(bool skipRecord) {
 	// handler()): the tick count is one aligned load.
 	if (DosTimerManager::installed())
 		return DosTimerManager::millis();
-	return (uint32)SDL_GetTicks();
+	// Before the handler goes in (or if it could not), and after it comes
+	// out: DJGPP's uclock(), which only reads the PIT and the BIOS tick
+	// count. Not SDL_GetTicks(): this may run under a Common::Mutex --
+	// from a mixer channel inside MixerImpl::mixCallback(), say -- and no
+	// SDL call may, as SDL3's DOS mutex turns interrupts on.
+	// DosTimerManager starts its tick count from the same clock.
+	return (uint32)(uclock() / (UCLOCKS_PER_SEC / 1000));
 }
 
 void OSystem_DOS::delayMillis(uint msecs) {
