@@ -474,6 +474,103 @@ def render(font, ch, cell_w, cell_h, ascent, bpp, center=False, mark_origin=Fals
     return img, ink[0], ink[2] - ink[0]
 
 
+def ink_box(font, ch, bpp):
+    """글자 하나의 잉크 상자 (왼쪽, 위, 오른쪽, 아래), 펜과 기준선 기준 (위가
+    음수, 오른쪽/아래는 끝 다음 칸). 실릴 값으로 재므로 (bpp 로 양자화) 파일에
+    들어가는 잉크만 센다. 잉크가 없으면 None. 두 번째 값은 그린 그림의
+    바이트 (.notdef 와 비교해 글꼴에 없는 글자를 가린다)."""
+    size = max(8, int(getattr(font, "size", 16)))
+    ox, oy = size * 2, size * 3
+    img = Image.new("L", (size * 5, size * 5), 0)
+    try:
+        ImageDraw.Draw(img).text((ox, oy), ch, font=font, fill=255, anchor="ls")
+    except (ValueError, OSError):
+        return None, b""
+    if bpp == 1:
+        img = img.point(lambda v: 255 if v >= 128 else 0)
+    elif bpp == 2:
+        img = img.point(lambda v: quantize2(v) * 85)
+    box = img.getbbox()
+    if box is None:
+        return None, img.tobytes()
+    return (box[0] - ox, box[1] - oy, box[2] - ox, box[3] - oy), img.tobytes()
+
+
+def fit_counts(boxes, cell_w, cell_h, ascent):
+    """ascent 하나로 셀에 놓았을 때 (위로 넘치는 글자, 아래로 넘치는 글자,
+    셀보다 넓은 글자) 목록 - 각각 코드 포인트."""
+    over_top, over_bottom, too_wide = [], [], []
+    for cp, (left, top, right, bottom) in boxes.items():
+        if top + ascent < 0:
+            over_top.append(cp)
+        if bottom + ascent > cell_h:
+            over_bottom.append(cp)
+        if right - left > cell_w:
+            too_wide.append(cp)
+    return over_top, over_bottom, too_wide
+
+
+def fit_ascent(boxes, cell_h, preferred):
+    """모든 글자의 잉크가 [0, cell_h) 에 드는 ascent 하나: 그런 값들 가운데
+    preferred 에 가장 가까운 것. 없으면 넘치는 글자가 가장 적은 ascent (같으면
+    preferred 에 가까운 쪽) 와 False."""
+    if not boxes:
+        return preferred, True
+    lo = max(-top for (_, top, _, _) in boxes.values())
+    hi = min(cell_h - bottom for (_, _, _, bottom) in boxes.values())
+    if lo <= hi:
+        return max(lo, min(hi, preferred)), True
+    best = None
+    for a in range(min(lo, hi) - 1, max(lo, hi) + 2):
+        t, b, _ = fit_counts(boxes, 0, cell_h, a)
+        n = len(set(t) | set(b))
+        key = (n, abs(a - preferred))
+        if best is None or key < best[0]:
+            best = (key, a)
+    return best[1], False
+
+
+def measure_boxes(path, size, chars, bpp):
+    """size px 로 연 글꼴에서 chars (코드 포인트) 의 잉크 상자들. 글꼴에 없는
+    글자 (.notdef 와 같게 그려지는 것) 와 잉크 없는 글자는 뺀다."""
+    font = ImageFont.truetype(path, size)
+    _, notdef = ink_box(font, "\U0010FFFF", bpp)
+    boxes = {}
+    for cp in chars:
+        box, raw = ink_box(font, chr(cp), bpp)
+        if box is None or raw == notdef:
+            continue
+        boxes[cp] = box
+    return font, boxes
+
+
+def fit_cell(path, max_size, chars, cell_w, cell_h, bpp, latin=False, min_size=8, log=print,
+             preferred_ascent=0):
+    """--fit-cell: max_size 부터 한 px 씩 줄여, 모든 글자의 잉크가 셀
+    (cell_w x cell_h) 에 드는 가장 큰 크기와 그 크기의 ascent (하나, 모든
+    글자 공통) 를 고른다. 글자마다 옮기거나 줄이지 않는다: 글꼴 전체가 한
+    크기, 한 기준선이다. 크기마다 넘치는 글자 수를 찍는다. 맞는 ascent 가
+    여럿이면 preferred_ascent (0 이면 choose_ascent() 의 값) 에 가장 가까운 것.
+    (크기, ascent) 를 돌려준다. 어느 크기도 맞지 않으면 SystemExit."""
+    for size in range(max_size, min_size - 1, -1):
+        font, boxes = measure_boxes(path, size, chars, bpp)
+        preferred = preferred_ascent or choose_ascent(font, cell_h, latin=latin)
+        ascent, ok = fit_ascent(boxes, cell_h, preferred)
+        top, bottom, wide = fit_counts(boxes, cell_w, cell_h, ascent)
+        ink_top = min((b[1] for b in boxes.values()), default=0)
+        ink_bottom = max((b[3] for b in boxes.values()), default=0)
+        over = sorted(set(top) | set(bottom) | set(wide))
+        log(f"--fit-cell: {size}px: 잉크 {ink_bottom - ink_top}줄 (기준선 위 {-ink_top}, "
+            f"아래 {ink_bottom}), ascent {ascent}: 셀 {cell_w}x{cell_h} 을 넘는 글자 "
+            f"{len(over)}개 (위 {len(top)}, 아래 {len(bottom)}, 폭 {len(wide)})")
+        if over and len(over) <= 40:
+            log("  " + ", ".join(f"U+{cp:04X}({chr(cp)})" for cp in over))
+        if not over:
+            log(f"--fit-cell: {size}px, ascent {ascent} 로 굽는다 ({len(boxes)}자 모두 셀 안)")
+            return size, ascent
+    sys.exit(f"--fit-cell: {max_size}px 부터 {min_size}px 까지 어느 크기도 셀에 맞지 않는다")
+
+
 def pack_glyph(img, cell_w, cell_h, bpp):
     px = img.load()
     out = bytearray()
@@ -538,6 +635,14 @@ def main():
                     help="글자별 전진 폭 표를 넣는다")
     ap.add_argument("--ascent", type=int, default=0,
                     help="기준선 위치. 생략하면 셀 높이의 약 80%%")
+    ap.add_argument("--fit-cell", action="store_true",
+                    help="굽는 글자 전부의 잉크가 셀 (--cell x --width) 안에 들도록 "
+                         "글꼴 크기를 --size 부터 1px 씩 줄여 고른다. 글꼴 전체가 한 "
+                         "크기, 기준선 (ascent) 하나다: 글자마다 옮기거나 줄이지 "
+                         "않는다. 크기마다 넘치는 글자 수를 찍고, 고른 크기와 ascent "
+                         "를 알린다. --ascent 를 함께 주면 맞는 ascent 가 여럿일 때 "
+                         "그 값에 가장 가까운 것을 고른다 (게임 글꼴의 기준선 행에 "
+                         "맞출 때)")
     ap.add_argument("--shadow", type=int, default=0xFF,
                     help="기존 그림자 방식 0~3, 없으면 255")
     ap.add_argument("--count", type=int, default=0,
@@ -651,10 +756,20 @@ def main():
     # 고정폭으로 구우면서 가운데 정렬을 끄면 글자가 왼쪽에 몰린다.
     center = (args.center or not variable) and not unicode_cps
 
+    size = args.size
+    fit_ascent_value = 0
+    if args.fit_cell:
+        if unicode_cps:
+            fit_chars = list(unicode_cps)
+        else:
+            fit_chars = [ord(ch) for _, ch in glyph_chars(codepage, count) if ch is not None]
+        size, fit_ascent_value = fit_cell(args.input, args.size, fit_chars, cell_w, cell_h,
+                                          args.bpp, latin=args.latin, preferred_ascent=args.ascent)
+
     try:
-        font = ImageFont.truetype(args.input, args.size)
+        font = ImageFont.truetype(args.input, size)
     except OSError as e:
-        sys.exit(f"폰트를 {args.size}px 로 열 수 없다: {e}\n"
+        sys.exit(f"폰트를 {size}px 로 열 수 없다: {e}\n"
                  f"비트맵 TTF 라면 내장된 크기만 쓸 수 있다.")
 
     # 기준선은 폰트가 알려주는 값을 쓴다. 셀 높이에 비례해 짐작하면
@@ -662,7 +777,9 @@ def main():
     # 글꼴이 셀보다 크면 잉크가 실제로 차지하는 자리를 재서 그것을 셀에
     # 맞춘다 (choose_ascent_from()): 명목 크기로 계산하면 손글씨처럼 여백이
     # 큰 글꼴이 쓸데없이 눌린다.
-    if args.ascent:
+    if args.fit_cell:
+        ascent = fit_ascent_value
+    elif args.ascent:
         ascent = args.ascent
     else:
         ascent = choose_ascent(font, cell_h, latin=args.latin)
@@ -778,6 +895,7 @@ def main():
         print(f"  글리프 {count}개 (글꼴에 없어 뺀 글자 {len(unicode_cps) - count}개), 최대 잉크 폭 {ink_max}px")
     else:
         print(f"  글리프 {count}개 (빈 글리프 {missing}개), 최대 잉크 폭 {ink_max}px")
+    print(f"  크기 {size}px, ascent {ascent}")
     print(f"  {total:,} 바이트")
 
 

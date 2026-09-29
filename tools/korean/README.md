@@ -129,6 +129,43 @@ box). Where `--fail-on-drop` catches "outside the character set this face is
 supposed to cover", `--require` catches "this TTF is missing something it was
 expected to have".
 
+### Ink inside the cell: `--fit-cell`
+
+A game erases a line of text by the rect it laid the line out in - for SCI,
+the 16-row hi-res cell of a game line - and nothing outside it. A face whose
+ink reaches past the cell (NanumGothic-Bold at 18 px: 19 rows from the top of
+the tallest syllable to the bottom of the deepest, drawn one row up to sit on
+the game's baseline) leaves those rows behind as stray dots when the text is
+erased (LB1's copy-protection screen after its title).
+
+`--fit-cell` bakes the largest size at which every glyph going into the file
+has all its ink inside the cell (`--cell` rows, `--width` columns), with one
+ascent for the whole font: it tries `--size`, then one pixel less, and so on.
+Nothing is moved or shrunk per glyph - every glyph is the face at one size on
+one baseline, exactly as without the option. Ink is measured as it will be
+stored (quantized to `--bpp`, so a faint edge that bakes to 0 does not count).
+When several ascents fit, the one nearest `--ascent` wins (the game font's
+baseline row, 14 for SCI's 16-row lines; without `--ascent`, the usual
+choice). Each size tried is reported with how many glyphs would overflow it
+(above, below, too wide) - listed by name when there are few - and the size
+and ascent chosen:
+
+```sh
+tools/korean/mkfont.py NanumGothic-Bold.ttf KOCP949.SVF --size 18 --cell 16 \
+    --fit-cell --ascent 14 --bpp 2 --unicode ascii,cp949
+# --fit-cell: 18px: ink 19 rows ... 11345 overflow
+# --fit-cell: 17px: ink 19 rows ... 7660 overflow
+# --fit-cell: 16px: ink 18 rows (15 above the baseline, 3 below) ... 479 overflow
+# --fit-cell: 15px, ascent 14: all 11693 inside
+```
+
+For NanumGothic-Bold that is 15 px for the full cp949 set and for the KQ1
+and LB1 subsets alike; at 16 px about 15 syllables (갈 과 러 말 ...) reach
+one row above the cell and about 40 (국 너 뭐 화 ...) one row below it. The
+U-preset bakes (`bake-dos-fonts.sh`, `bake-game-fonts.sh`) do not use it:
+15 px was judged too small, so they stay at 18 px and the SCI engine clips
+each glyph's ink to its text line instead (`GfxFontUnicode::draw()`).
+
 ### Hangul is proportional too
 
 CJK faces report one advance per syllable because they are drawn on a square
