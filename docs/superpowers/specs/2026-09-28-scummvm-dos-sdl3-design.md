@@ -60,8 +60,11 @@ gui/debugsocket          COM 포트 전송 추가
 configure                *-msdosdjgpp 호스트
 ```
 
-`timer/` 와 `mutex/` 는 M3 에 온다. M0–M2 는 타이머 콜백을 `pollEvent()` 에서 협력형으로 돌리고
-(`DefaultTimerManager::checkTimers()`), 뮤텍스는 null 뮤텍스다 (선점이 없으니 충분하다).
+`timer/` 와 `mutex/` 는 M3 에 왔다 (M0–M2 는 타이머 콜백을 `pollEvent()` 에서 협력형으로 돌렸고
+(`DefaultTimerManager::checkTimers()`), 뮤텍스는 null 뮤텍스였다). **M3 결과**: PIT 분주값 1193 의
+IRQ0 가 고정소수점 누산기로 BIOS 를 체이닝하며(`pit-chain.h`) `DefaultTimerManager::handler` 를
+4틱마다 선점 호출하고, `Common::Mutex` 는 cli/popf 로 진짜 상호 배제가 된다 — 자세한 내용과 실측치는
+5.4절.
 
 원칙:
 
@@ -251,14 +254,67 @@ FreeType 빌드는 코드 ≈0.5MB + face 당 0.1–0.2MB + 캐시 0.5MB.
 `A220` 이 있으면 0x220/0x222 에서 OPL3 을 감지한다. 레지스터 쓰기 뒤에 상태 포트를 6 회(주소), 35 회(데이터)
 읽어 3.3µs / 23µs 를 지킨다. `fmopl.cpp` 드라이버 표에 `dosopl` 을 넣고 DOS 빌드의 기본으로 한다.
 
+**M3 결과**: 구현·측정 완료 (`audio/dosopl.{h,cpp}`, `audio/fmopl.cpp` 의 `DOS_DJGPP` 부분). 감지
+순서는 0x388 → (BLASTER 가 있으면) `A` 값(뱅크 2 는 A+2, OPL3 로 취급) → `A+8`(OPL2 전용, OPL3 로는
+절대 취급하지 않는다). 상태 포트 읽기 횟수(주소 6회/데이터 35회)는 설계대로다. `dosopl` 은 `dos.cpp`
+의 `ConfMan` 기본값이 아니라 `fmopl.cpp` 드라이버 표 순서(`null` 바로 뒤, `kDosOPL=19`)와 `detect()`
+로 DOS 기본이 된다 (T2/T3 와 `dos.cpp` 충돌을 피하려고). **규칙(확정)**: DOS 에서 자동 감지는 OPL
+칩이 응답하는 한 소프트웨어 에뮬레이터를 절대 고르지 않는다 — OPL2 전용 카드에 `DualOpl2`/`OPL3`
+요청이 오면 칩에서 모노로 폴백하고(엔진의 자체 폴백, 예: SCI 의 adlib.cpp:242-248), 칩이 전혀 없을
+때만 에뮬레이터(`db` 등)를 쓴다. 레지스터 쓰기 로그는 DOS 전용이 아니라 범용 `opl_log=<path>`(모든
+플랫폼)로 `LoggingOPL` 이 감싸 남긴다(`<path>.REG` 는 전체 `%03X %02X`, `<path>.ON` 은 키온마다
+`<ms> %03X %02X`) — 링 버퍼(65536 항목, 8바이트, 락 없이 생성자에서 할당)에 쓰고 메인 스레드가
+`notifyPoll()` 에서 최대 1초마다 비운다; 완전한 로그는 정상 종료(quit) 때만 보장된다(DOSBox 가 4KB
+단위로 호스트 파일을 버퍼링). DOSBox-X/Staging 모두 `DOSOPL: OPL3 at 0x388, type 1` 로 잡았고, 클릭
+이전 구간의 레지스터 스트림이 리눅스 `db` 에뮬레이터 로그와 바이트 단위로 일치했다(§8). **실제 타이머
+주기는 4ms 가 아니라 10ms 다** — SCI 의 AdLib 드라이버는 250Hz(4ms) 콜백을 요청하지만
+`RealChip::startCallbacks` 가 `kMaxFreq`=100Hz 로 누르고, `onTimer` 가 한 틱(10ms)에 콜백을 2~3 회
+몰아 돌린다; 5.4절의 "1~4ms 늦음"이 여기에도 그대로 나타나 키온이 10ms 격자에서 ±2ms 정도 흔들린다.
+
 ### 5.2 MPU-401 — `backends/midi/dos_mpu401.cpp`
 
 UART 모드 (0x331 에 `0x3F`), 0x330 에 쓰기 전 DRR 비트를 확인한다. 포트는 `BLASTER` 의 `P330`, 없으면 설정.
 MT-32 sysex 지연은 기존 `MidiDriver_MT32GM` 이 맡는다. 인텔리전트 모드는 범위 밖이다.
 
+**M3 결과**: 구현 완료, `MidiDriver_DosMPU : MidiDriver_MPU401`. **설계에서 벗어난 점**: 리셋/UART
+전환 명령에 ACK 이 없어도 받아들인다 — DOSBox-X 의 `mpu401=uart` 는 두 명령 모두 ACK 하지 않는다
+(UART 전용 클론 카드에 흔하다); 포트가 0xFF 를 읽지 않고 DRR 이 풀리면 "살아있다"로 보고 UART 로
+취급한다(어느 ACK 이 왔는지 로그에 남긴다). `checkDevice`(자동 감지에서는 제외)가 `open()` 전에 포트
+존재를 먼저 확인한다 — 그래야 SCI 의 `open()` 실패가 `error()`(엔진, 수정 불가)로 죽는 대신
+ScummVM 의 표준 폴백 다이얼로그로 넘어간다; M4 오버레이 전에는 이 다이얼로그가 보이지 않아 키 입력이
+있을 때까지 멈춘다(자동화는 `AUTOTYPE`). 전송은 `Common::Mutex`(= cli) 로 메시지를 통째로 보내
+IRQ0 타이머와 메인 스레드가 한 메시지를 반씩 나눠 쓰지 못하게 한다. 로그는 DOS 전용
+`dos_midi_log=<path>` 링(128KB, `[ms:4][len:2][bytes]`)으로 남기고, 리눅스 쪽은 기존
+`--dump-midi`/`dump_midi=true` 를 기준으로 삼았다 — DOS 의 첫 620 메시지가 리눅스와 바이트 단위로
+일치했다(46 SysEx, 191 Note On/Off 쌍). 이 경로의 실제 타이머 주기도 100Hz(10ms)다
+(`MidiDriver_MPU401` 자체의 설계 주기이며, OPL 과 같은 늦음 패턴이 그대로 나타난다).
+
 ### 5.3 PCM
 
 ScummVM 믹서를 SDL3 오디오 스트림에 붙인다. SDL3 SB 드라이버의 링 버퍼(≈45ms)로 SCI0 에 충분하다.
+
+**M3 결과**: `DosMixerManager`(`backends/mixer/dos`) 구현 완료. 믹서는 **SDL3 가 카드를 연 실제
+레이트**로 돈다 — SB16 은 44100Hz, 그보다 오래된 카드(SB/SB2/SB Pro)는 SDL 의 DOS SB 드라이버가
+22050Hz 로 낮춘다. 설계상 고정 22050Hz 가 아니다: SDL3 공개 API 로는 SB 를 22050Hz 로 직접 열 수
+없고, 레이트를 강제로 22050 에 고정하면 SDL 이 부동소수점 리샘플링을 태워 CPU 점유가 3%→20%
+(DOSBox-X, 6만 사이클 기준의 `yield=` 측정)로 뛴다. `output_rate` 로 덮어쓸 수 있다. 디바이스
+버퍼는 2048 프레임(`SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES`, 44.1kHz 에서 ≈186ms 여유 + 46ms 지연).
+믹스 콜백은 SDL 의 협력 오디오 스레드에서 256프레임(1KB) 조각으로 `Common::Mutex`(cli) 를 잡고
+돈다 — 조각당 인터럽트 차단 시간은 139µs(44100Hz) / 188µs(22050Hz)로 1ms IRQ0 주기보다 훨씬 짧아
+틱을 잃지 않는다. `SDL_PutAudioStreamData` 는 뮤텍스 밖(IF=1)에서만 부른다 — 뮤텍스 아래 또는 타이머
+프로시저 안에서 SDL 을 부르지 않는다는 규칙(5.4절)을 여기서도 지킨다. BLASTER/DSP 가 없으면
+`NullMixerManager` 로 폴백한다(리뷰 결과 `ready=false` 인 믹서는 `playStream` 이 assert 로 죽으므로
+채택). KQ1 타이틀 25초, `music_driver=adlib` 로 OPL 하드웨어 경로와 SB16 44100Hz PCM 이 동시에
+열림을 확인했다.
+
+**알려진 한계**: 이 SDL3 DOS 트리의 SB 드라이버는 SB Pro 스테레오를 절반 속도로만 재생하고
+(DOSBox-X 에서 22050Hz 요청에 11346Hz 로 재생 — 시간 상수는 44100 바이트/초로 맞추지만 일반속도
+DMA(0x1C) 를 쓴다; 실기 SB Pro 스테레오 22050Hz 는 고속 DMA(0x90) 가 필요하다), SB 1.x(DSP 1.x) 에는
+데이터를 전혀 넣지 않는다(자동 초기화 DMA 미지원, SDL 코드의 주석대로). 둘 다 ScummVM 코드가 아니라
+`SDL_dosaudio_sb.c` 의 문제이며 SDL 본가에 보고할 대상이다. 믹스는 인터럽트를 끈 채로 돈다 — 재생
+중 채널의 `mix()` 가 디스크 I/O(DOS 파일 읽기)를 하면 그 순간 인터럽트가 켜진다, 즉 디스크
+스트리밍 사운드는 이 구현으로 안전하지 않다; SCI0 은 모든 사운드를 메모리에 들고 있어 해당 없지만,
+SCI1+ 디지털 오디오를 붙일 때는 다시 볼 문제다.
 
 ### 5.4 타이머 (자체 IRQ0 핸들러, PIT 분주값 1193 ≈ 1kHz, BIOS INT 8 체이닝)
 
@@ -292,10 +348,64 @@ M0 스파이크 결론 (`harness/dos/spikes/RESULTS.md`, "타이머"): RTC(IRQ8,
   `_go32_dpmi_lock_data()` 로 따로 잠그거나, 애초에 정적/사전할당 버퍼로 설계한다.
 - 이 방식이 실패하면 협력형으로 내려간다: `delayMillis()` / `pollEvent()` 에서 밀린 콜백을 실행한다.
 
+**M3 결과**: 구현 완료 (`backends/timer/dos/dos-timer.{h,cpp}`, `backends/mutex/dos/dos-mutex.{h,cpp}`,
+`backends/platform/dos/{pit-chain.h,dos-heap.{h,cpp}}`). 위 설계안에서 다음이 실측으로 바뀌거나
+채워졌다.
+
+- **IRQ0 핸들러**: `pit-chain.h` 의 고정소수점 누산기(`DOS::pitTick`, 분주값 1193)로 BIOS 를
+  체이닝하는 설계는 그대로 확정. `DefaultTimerManager::handler()` 는 매 틱이 아니라 **4틱마다**
+  (`kHandlerEvery`, ≈4ms) 불린다 — 그래서 콜백은 설계상 1~4ms 늦게 온다(5.1/5.2절 OPL/MPU 위상이
+  이 늦음을 그대로 보인다). 재진입은 `inHandler` 플래그로 막는다(중첩 틱은 EOI 없이 그냥 반환해
+  IRQ0 를 in-service 상태로 남긴다 — 그래야 다음 하드웨어 인터럽트까지 안전하게 기다린다, 아래
+  "인터럽트 꺼진 상태의 로깅" 참고). FPU 는 108바이트 버퍼에 `fnsave`/`frstor` 로 핸들러 진입·복귀마다
+  저장·복원한다(x87 전용, SSE 없음).
+- **getMillis**: ISR 의 틱 카운터에서 뽑는다(설치 시 `__uclock()` 값에서 시드해 연속성을 유지하고,
+  설치 실패 시에만 SDL 로 폴백). `uclock()` 자체를 DJGPP 것과 다르게 재정의했다 — 분주값 1193 에서는
+  DJGPP 의 `uclock()` 이 BIOS 틱(0x46C, ≈55ms 마다 1) 단위로만 올라가므로, `SDL_Delay`/
+  `SDL_GetTicks`/SDL SB 오디오의 타임아웃이 최대 55ms 까지 밀릴 수 있었다. 재정의된 `uclock()` 은
+  설치 전엔 원래 `__uclock`, 설치 후엔 (틱수×1193 + 틱 안에서의 PIT 카운트)를 단조 증가로 돌려준다.
+- **delayMillis**: 인터럽트가 꺼진 상태(타이머 프로시저 안, 또는 뮤텍스 아래)에서는 틱이 못 올라가므로
+  PIT 을 직접 폴링해 경과를 센다(`spinMillis`) — 안 그러면 무한 대기한다. SCI 의 MT-32 경로가 타이머
+  스레드에서 `delayMillis` 를 부르므로(`midi.cpp:671`) 실사용된다.
+- **테어다운**: 모든 종료 경로에서 일어난다 — `~OSystem_DOS`(믹서보다 먼저 타이머 매니저를 지운다),
+  `quit()`/`fatalError()` 가 `SDL_Quit()` 전에 부르는 `DosTimerManager::shutdown()`, 그리고 `atexit`
+  핸들러(모두 idempotent). PIT → 벡터 → 래퍼 순으로 복원한다.
+- **메모리 잠금 (설계 변경, "`_CRT0_FLAG_LOCK_MEMORY` 로 전체 잠금" 을 대체)**: 전체 잠금은 16MB 에서
+  깨졌다 — KQ1 M1 덤프 중 ISR 안에서 페이지 폴트가 났다(`mv2freelist`/
+  `MidiParser_SCI::parseNextEvent`, cr2≈18.7MB); hires 폰트 캐시만 수 MB(M2 실측 최대 ≈12MB, 두 번
+  로드)라 전체를 잠긴 채로 못 둔다. 대신 **분할 힙**(`dos-heap.cpp`): 256KB 이상인 블록은 페이지
+  가능한 DPMI(0x501) 블록으로 따로 받고, 그 미만은 기존 sbrk 힙(잠김)에 둔다. `malloc`/`free`/
+  `realloc`/`calloc`/`memalign` 은 `-Wl,--wrap` 으로 감싸 그 자체(장부 정리)만 인터럽트를 끈 채로
+  (IF=0) 돈다 — DJGPP `malloc` 이 재진입 불가이고 SCI 음악 타이머 프로시저가 `Array::clear` 로
+  해제를 하기 때문. 256KB 를 넘겨 커지는 `realloc` 은 잠긴 힙에 남는다. 전제: 타이머 프로시저(SCI
+  음악, OPL, MPU)는 작은 할당만 건드린다 — 256KB 이상 블록을 만지는 타이머 프로시저가 생기면(예:
+  미래의 OPL 에뮬레이터나 ISR 안에서 도는 믹서) 이 전제가 깨진다.
+- **인터럽트 꺼진 상태의 로깅은 유예한다**: 핸들러(타이머 프로시저) 안에서 `debug()`/`warning()` 이
+  그대로 파일 I/O(INT 21h) 를 하면 `sti` 가 실행돼, EOI 없이 중첩된 IRQ0 가 통째로 사라져 걸린다
+  (hang). 그래서 IF=0 일 때 `logMessage` 는 텍스트를 정적 16KB 링(이미지에 포함, malloc 없음)에
+  복사만 하고, 실제 파일 쓰기는 `pollEvent`, IF=1 인 다음 `logMessage` 호출, 또는 `atexit` 핸들러가
+  인터럽트를 켠 채로 나중에 한다. 다 못 담은 메시지는 버려지고 "N characters ... lost" 로만 남는다.
+- **규칙(확정)**: `Common::Mutex` 아래 또는 타이머 프로시저 안에서 SDL 함수를 부르지 않는다 — DOS 용
+  SDL 뮤텍스가 무조건 `sti` 를 하므로, cli 뮤텍스/ISR 안에서 SDL 을 부르면 인터럽트가 다시 켜진다
+  (5.3절 믹서가 지키는 규칙).
+- **시각(time of day)**: DJGPP 의 `localtime()`/`mktime()`/`time()` 은 이 빌드에서 tz 상태를
+  malloc 된 메모리에 보관하는데, zoneinfo 가 없으면 그 상태의 윤초 카운트가 초기화되지 않아 힙이
+  조금만 더러워져도 `time()` 이 -1 을, `localtime(0)` 이 엉뚱한 값을 돌려준다 — KQ1 타이틀 메뉴가
+  12초 뒤에도 나타나지 않는 실제 결함으로 드러났다(M2 시절 실행 파일에서도 재현되는 잠복 결함이었다).
+  고침: `OSystem_DOS::getTimeAndDate` 는 INT 21h `2Ah`/`2Ch` 를 직접 읽는다(자정 넘어감을 잡으려고
+  날짜를 시간 앞뒤로 두 번 읽는다). `time()` 자체는 여전히 -1 을 돌려준다 — 이 빌드의 ScummVM 경로는
+  전부 `getTimeAndDate` 를 쓰므로 실제로는 안 걸리지만, 나중에 `time()` 을 직접 부르는 코드가 들어오면
+  다시 걸릴 잠재적 함정이다.
+
 ### 5.5 감지
 
 `BLASTER` 를 읽어 음악 `dosopl`, PCM SB 로 자동 설정한다. MT-32 는 `music_driver=mt32` 와 MPU-401.
 감지에 실패하면 무음으로 계속하고 로그에 남긴다.
+
+**M3 결과**: `backends/platform/dos/blaster.h` 의 `DOS::parseBlaster()` 가 이 파싱을 맡는다(핸드롤
+16진/10진 파서, DJGPP 비의존). `BLASTER` 가 없으면(`getenv` 가 `nullptr`) 기본값과 `present=false`,
+빈 문자열이면 기본값과 `present=true` 로 구분한다. 태그는 인식해도 숫자가 없거나 잘못되면 그 필드
+전체가 기본값으로 남는다(예: `A22G` → 기본 0x220).
 
 ## 6. COM 포트 디버그 채널
 
@@ -393,7 +503,7 @@ M0 의 DOS 부팅을 막은 원인은 세 가지 모두 엔진이 아니라 DJGP
 | M0 | 스파이크 + 최소 포트 | 아래 스파이크 3건이 결론 남. KQ1 이 320×200 CLUT8 로 타이틀까지, 덤프가 기준과 일치. COM 채널로 명령 1개 왕복. **결과: 통과 — DOSBox-X / Staging (memsize 16)** (`harness/dos/spikes/RESULTS.md`, `harness/dos/m0_accept.py`) |
 | M1 | hires 텍스트, L 프리셋 | KQ1·LB1 한국어 대사가 640×400 CLUT8 에 나옴. EUC-KR 패치와 패치 원본 폰트도 확인. □ 대체 로그. **결과: 통과 — DOSBox-X / Staging.** KQ1 타이틀 + 방 1 "look", LB1 한국어 복사방지 화면(`random_seed=1`) 이 FreeType 없는 리눅스 빌드와 `_low`/`_scaled`/`_pal`/`_layer`/`_out` 바이트 단위로 일치; 모드 로그 320×200 → 640×400 CLUT8 (`harness/dos/m1_accept.py`). □ 대체와 `korean.fnt` 가 □ 보다 먼저 쓰이는 것은 수동 실행으로 확인했다 (Task 4); 자동 인수 캡처에는 없는 글리프가 없다 |
 | M2 | 알파, U 프리셋 | XRGB8888 (`rgb_rendering=true`) 에서 기준 이미지와 일치 — SCI 는 4바이트 포맷만 받으므로 RGB565 는 해당 없음. 640×480 줄 반복 폴백은 `dos_force_fallback=true` 로 시험 (두 에뮬레이터 모두 640×400 XRGB8888 이 있으므로). SVFN 2bpp. **결과: 통과 — DOSBox-X / Staging (각 56/56 세부 항목).** 정확 640×400 RGB888@4 는 리눅스 기준과 0 화소 차(커서 제외); 640×480 줄 반복 폴백을 `logicalRow()` 로 되접으면 반복 행이 원본과 같고 `_out` 과 일치하며, 정확 모드 샷과도 커서 상자 밖에서 전부 일치; `dos_truecolor=off` 는 CLUT8 로 감; LB1 U 맵도 확인. M1/M0 회귀도 통과 (`harness/dos/m2_accept.py`) |
-| M3 | 사운드 | KQ1 타이틀 곡의 OPL 노트 온셋을 리눅스(MAME OPL) 와 비교해 편차 중앙값 ≤ 2ms, 최대 ≤ 10ms, 방 로딩 구간 최대 ≤ 20ms. MPU-401 UART 로 같은 곡이 나옴. SB PCM 효과음 1개 재생 |
+| M3 | 사운드 | KQ1 타이틀 곡의 OPL 노트 온셋을 리눅스(MAME OPL) 와 비교해 편차 중앙값 ≤ 2ms, 최대 ≤ 10ms, 방 로딩 구간 최대 ≤ 20ms. MPU-401 UART 로 같은 곡이 나옴. SB PCM 효과음 1개 재생. **결과: 통과 — DOSBox-X / Staging** (`harness/dos/m3_accept.py`). 실제 타이머 격자는 4ms 가 아니라 10ms(5.1/5.2절). DOSBox-X: OPL 키온 편차 중앙값/최대/로딩구간최대 1/2/1ms, MPU 1/5/2ms, REG 공통 프리픽스 2102줄(바이트 일치), MIDI 클릭 전 공통 583/583 메시지, 믹서 44072(기대 44100, −0.06%), 타이머 calls=180 getMillis=3003 bios=54. Staging: OPL 1/3/3ms, MPU 1/3/2ms, REG 2086줄, MIDI 587/587, 믹서 44102, 타이머 179/3000/54. M0–M2 회귀도 두 에뮬레이터에서 모두 통과 |
 | M4 | 마무리 | GUI 오버레이, 세이브/로드, 실기 측정, 배포 패키지 |
 
 ### M0 스파이크 (구현 전에 확인)
