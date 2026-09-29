@@ -981,11 +981,20 @@ bool DebugSocket::dumpBuffers(const Common::String &prefix) {
 	// hires composited output, when the driver keeps one
 	Common::Array<byte> buf(640 * 400 * 4);
 	uint16 w = 0, h = 0;
-	if (scr->gfxDriver()->copyScaledBitmap(buf.begin(), buf.size(), w, h)) {
+	byte pixelSize = 1;
+	if (scr->gfxDriver()->copyScaledBitmap(buf.begin(), buf.size(), w, h, pixelSize)) {
+		// Palette indices, or the screen's format while an RGB video plays
+		// (the driver's source is then true colour): all w * h pixels.
 		if (f.open(Common::Path(prefix + "_scaled.bin"))) {
-			f.write(buf.begin(), (uint32)w * h);
+			f.write(buf.begin(), (uint32)w * h * pixelSize);
 			f.close();
 		} else ok = false;
+		if (f.open(Common::Path(prefix + "_scaled.txt"))) {
+			const Graphics::PixelFormat pf = pixelSize == 1 ? Graphics::PixelFormat::createFormatCLUT8() : g_system->getScreenFormat();
+			f.writeString(Common::String::format("%d %d %d %d %d %d %d %d %d %d %d\n", w, h, pf.bytesPerPixel,
+				8 - pf.rLoss, 8 - pf.gLoss, 8 - pf.bLoss, 8 - pf.aLoss, pf.rShift, pf.gShift, pf.bShift, pf.aShift));
+			f.close();
+		}
 		if (const TextLayer *tl = scr->textLayer()) {
 			if (f.open(Common::Path(prefix + "_layer.bin"))) {
 				for (uint16 y = 0; y < tl->height(); y++)

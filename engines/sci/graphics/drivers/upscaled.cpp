@@ -164,12 +164,13 @@ void UpscaledGfxDriver::drawTextFontGlyph(const byte *src, int pitch, int hiresD
 	updateScreen(hiresDestX, hiresDestY, hiresW, hiresH, palMods, palModMapping);
 }
 
-bool UpscaledGfxDriver::copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h) const {
+bool UpscaledGfxDriver::copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uint16 &h, byte &pixelSize) const {
 	if (!_scaledBitmap || size < (uint32)_screenW * _screenH * _srcPixelSize)
 		return false;
 	memcpy(dest, _scaledBitmap, (uint32)_screenW * _screenH * _srcPixelSize);
 	w = _screenW;
 	h = _screenH;
+	pixelSize = _srcPixelSize;
 	return true;
 }
 
