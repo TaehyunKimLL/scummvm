@@ -368,6 +368,13 @@ void OSystem_DOS::getTimeAndDate(TimeDate &td, bool skipRecord) const {
 	// the seconds to change and never showed its menu. DOS time has no
 	// zone to convert anyway. Read the date on both sides of the time so
 	// a midnight in between is not missed.
+	// A timer proc (interrupts off) must not call DOS: it gets the last
+	// time read on the main thread.
+	static TimeDate last;
+	if (!DosTimerManager::interruptsEnabled()) {
+		td = last;
+		return;
+	}
 	__dpmi_regs d1, t, d2;
 	do {
 		d1.h.ah = 0x2A;
@@ -384,6 +391,7 @@ void OSystem_DOS::getTimeAndDate(TimeDate &td, bool skipRecord) const {
 	td.tm_mon = d2.h.dh - 1;
 	td.tm_year = d2.x.cx - 1900;
 	td.tm_wday = d2.h.al;
+	last = td;
 }
 
 void OSystem_DOS::quit() {
