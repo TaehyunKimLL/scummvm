@@ -217,6 +217,45 @@ whatever a detection entry lists (KQ1 Korean: `text.000`) and any patch the
 user may want to delete. Bake the per-game fonts (`bake-game-fonts.sh`,
 `--chars-from TEXT.*`) from the unpacked files.
 
+## Converting an SCI0 fan build for the original interpreter
+
+Some Korean fan builds of SCI0 games run on Sierra's own `SCIV.EXE` (patched)
+instead of ScummVM: Conquests of Camelot KR beta 3/5 keeps the English
+`RESOURCE.001`-`004` untouched, adds `RESOURCE.005` with the translated TEXT
+and SCRIPT resources (EUC-KR) and Hangul font banks, and rewrites
+`RESOURCE.MAP`. `sci0_kr_extract.py` turns such a build into the fork's UTF-8
+translation, to be dropped onto the English original:
+
+```sh
+tools/korean/sci0_kr_extract.py rebuild-map KRDIR resource.map   # English map back
+tools/korean/sci0_kr_extract.py extract ENDIR KRDIR OUTDIR       # text.NNN + sci-ko.str
+tools/korean/sci0_kr_extract.py script-strings ENDIR             # = dump_script_strings
+```
+
+- `rebuild-map` re-points every entry the build moved to its new volume back
+  at the copy (or copies: multi-disk games list shared resources once per
+  disk) found by walking the SCI0 headers of the old volumes, and drops the
+  entries only the new volume has. For Camelot it reproduces the retail map
+  byte for byte (md5 `26d6030d...`, 7278 bytes; detection hashes only the
+  first 5000 bytes, `95eca399...`).
+- `extract` decodes each TEXT resource in the new volume as cp949 into a
+  `text.NNN` patch (`0x83 0x00` + NUL-separated UTF-8) and reports string
+  counts that differ from the English resource. For scripts it numbers the
+  strings exactly as `Script::identifyOffsets()` does (checked against the
+  engine's `dump_script_strings` output), then pairs the Korean script's
+  non-empty strings with the English one's in order: the build pads its
+  string blocks with NULs, and every NUL is an (empty) string with an id of
+  its own, so the Korean ids are useless - Camelot's script 3 has 19 strings
+  in English and 984 in the build. Changed strings go to `sci-ko.str` under
+  the English id; a CR LF pair is written as one `\n` (one line break to the
+  SCI0 text code). If the non-empty counts differ it falls back to a diff
+  alignment and lists what it could not pair.
+- The glyph check confirms the encoding: fonts added by the build are
+  grouped in runs of 25 banks, one per EUC-KR lead byte `0xB0`-`0xC8`, the
+  glyph index being the trail byte; every syllable a string uses must have
+  ink there. Camelot: banks 500-524 (8 px) and 525-549 (9 px, the outlined
+  intro text), 1135 syllables, none missing and none unused.
+
 ## Checking the result
 
 ```sh
