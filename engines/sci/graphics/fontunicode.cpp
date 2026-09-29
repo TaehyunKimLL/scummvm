@@ -48,27 +48,28 @@ GfxFontUnicode::~GfxFontUnicode() {
 }
 
 bool GfxFontUnicode::load(const Common::String &filename) {
-	Common::File f;
-	if (!f.open(Common::Path(filename)))
-		return false;
-
-	const uint32 size = f.size();
-	Common::Array<byte> data(size);
-	if (size > 0 && f.read(&data[0], size) != size) {
-		warning("GfxFontUnicode: could not read %s", filename.c_str());
+	Common::File *f = new Common::File();
+	if (!f->open(Common::Path(filename))) {
+		delete f;
 		return false;
 	}
 
 	// An SVFN bitmap font under a .uni name serves as the bundle too.
+	byte head[4];
+	const uint32 got = f->read(head, sizeof(head));
 	Common::String error;
 	Graphics::UnicodeGlyphSource *src;
-	if (Graphics::isSvfnFile(size > 0 ? &data[0] : nullptr, size)) {
-		f.seek(0);
-		src = Graphics::createSvfnSource(f, error);
+	if (Graphics::isSvfnFile(head, got)) {
+		f->seek(0);
+		src = Graphics::createSvfnSource(*f, error);
+		delete f;
 		if (!src)
 			error = filename + ": " + error;
 	} else {
-		src = Graphics::ScvmuniGlyphSource::create(Common::move(data), filename, error);
+		// A SCVMUNI bundle's glyphs are read when one is first drawn: often
+		// the bundle only stands behind the faces a map names, and korean.uni
+		// is 1.4 MB. The source keeps the file until then.
+		src = Graphics::ScvmuniGlyphSource::createDeferred(f, DisposeAfterUse::YES, filename, error);
 	}
 	if (!src) {
 		warning("GfxFontUnicode: %s", error.c_str());
