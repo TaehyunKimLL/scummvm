@@ -227,34 +227,34 @@ def chars_from_str(path):
     return cps
 
 
-def _res_str_len(data, off):
-    """SCUMM 문자열 길이, engines/scumm/script.cpp::resStrLen() 의 heversion<=71
-    (v5/v6, MI1/MI2 포함) 규칙과 같다 - harness/tools/trslib.py 의 res_str_len() 도
-    이와 같다: 0xFF 뒤 코드 바이트가 1, 2, 3, 8 이면 인수가 없고, 그 밖은 2바이트.
-    끝은 그 인수 밖에 있는 0x00 (0xFE 는 이 포맷에서 특별하지 않다 - resStrLen() 이
-    검사하는 것은 0xFF 뿐이다)."""
+def _res_str_len(data, off, path="?"):
+    """resStrLen() 규칙의 SCUMM 문자열 길이 (0xFF 코드 1/2/3/8 은 인수 없음, 그 밖은 2바이트)."""
     n = 0
     i = off
     while True:
+        if i >= len(data):
+            sys.exit(f"--chars-from: {path} 의 오프셋 {off} 문자열에 종료 NUL 이 없다")
         c = data[i]
         i += 1
         if c == 0:
             return n
         n += 1
         if c == 0xFF:
+            if i >= len(data):
+                sys.exit(f"--chars-from: {path} 의 오프셋 {off} 문자열의 이스케이프가 파일 끝을 넘는다")
             code = data[i]
             i += 1
             n += 1
             if code not in (1, 2, 3, 8):
+                if i + 2 > len(data):
+                    sys.exit(f"--chars-from: {path} 의 오프셋 {off} 문자열의 이스케이프가 파일 끝을 넘는다")
                 i += 2
                 n += 2
 
 
-def _trs_string_chars(data, off, enc):
-    """오프셋 off 의 SCUMM 문자열(_res_str_len() 규칙으로 끝을 찾는다)을 0xFF
-    제어 코드를 건너뛰며 enc 로 디코드한 코드 포인트들. 디코드에 실패한 바이트
-    (U+FFFD) 는 실제 글자가 아니므로 뺀다."""
-    end = off + _res_str_len(data, off)
+def _trs_string_chars(data, off, enc, path="?"):
+    """오프셋 off 의 문자열을 제어 코드를 건너뛰며 enc 로 디코드한 코드 포인트들 (U+FFFD 제외)."""
+    end = off + _res_str_len(data, off, path)
     cps = []
     run = bytearray()
     i = off
@@ -278,15 +278,7 @@ def _trs_string_chars(data, off, enc):
 
 
 def chars_from_trs(path):
-    """.trs (SCVMTRS 묶음: engines/scumm/trs_bundle.h 의 파일 형식, 내용은
-    engines/scumm/script.cpp::resStrLen() 규칙 - harness/tools/trslib.py 가 같은
-    것을 읽고 쓴다) 에서 쓰인 모든 코드 포인트.
-
-    본문(방 표 뒤, 첫 문자열 앞)이 UTF-8 BOM (EF BB BF) 으로 시작하면 UTF-8,
-    아니면 CP949 로 색인에 있는 모든 문자열(원문 + 번역문 둘 다)을 디코드한다
-    (engines/scumm/trs_bundle.h::trsBodyIsUtf8() 과 같은 규칙). SCUMM 제어 코드
-    (0xFF 뒤 코드 1바이트 + resStrLen() 규칙의 인수)는 건너뛴다: 그 바이트들은
-    글자가 아니라 게임 이스케이프의 인수(변수 번호, 대화 오프셋 등)다."""
+    """.trs (SCVMTRS 묶음) 의 색인에 있는 원문과 번역문의 모든 코드 포인트 (본문이 BOM 이면 UTF-8, 아니면 CP949)."""
     with open(path, "rb") as f:
         data = f.read()
     if len(data) < 10 or data[:8] != b"SCVMTRS ":
@@ -320,7 +312,7 @@ def chars_from_trs(path):
     for off in sorted(offsets):
         if off >= len(data):
             continue
-        cps.extend(_trs_string_chars(data, off, enc))
+        cps.extend(_trs_string_chars(data, off, enc, path))
     return cps
 
 

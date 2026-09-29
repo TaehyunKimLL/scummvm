@@ -45,6 +45,9 @@ Rules (`mkfont.chars_from_trs()`):
   directly: the `heversion <= 71` branch, which covers every non-HE game
   including MI1/MI2, tests `chr == 0xFF` and nothing tests `0xFE`). Escape
   bytes are skipped, not decoded - they are opcode arguments, not glyphs.
+* A string with no terminating NUL, or an escape that runs past the end of
+  the file, stops the tool with a message naming the file and the string's
+  offset.
 * A byte or byte pair that does not decode under the chosen codec becomes
   U+FFFD and is dropped rather than baked - real `.trs` bodies carry a few
   non-text records (short binary-looking entries unrelated to any visible
@@ -98,12 +101,15 @@ consequences:
 * **False positives happen and are left in.** EUC-KR's high bytes are dense
   enough that a short run of unrelated binary data can occasionally satisfy
   the grammar by chance (a couple of accidental syllables amid graphics or
-  costume data - `잿灰`, `쨩標` in the sample output below are two). This is
-  fine for `--chars-from`'s purpose: an extra, wrong glyph a game never
-  actually draws does not hurt a baked font, and the goal is recall (finding
-  every glyph the real text needs), not precision. Anyone reading the output
-  file for its text (rather than feeding it straight to `mkfont.py`) should
-  expect noise mixed into real lines like:
+  costume data - `잿灰`, `쨩標` in the sample output below are two). The
+  extra glyphs are harmless to the font itself, but they are not harmless to
+  `--require`: a noise syllable the TTF lacks makes `--require` fail the
+  bake. So `bake-scumm-fonts.sh` passes `--require` only for a `.trs` CHARS
+  file and omits it for a `scummtext.py` file (mkfont.py still prints how
+  many requested glyphs the face lacks); if you run mkfont.py by hand on
+  `scummtext.py` output, do the same or comment the noise out first. Anyone
+  reading the output file for its text should expect noise mixed into real
+  lines like:
 
   ```
   먼지가 덮인 책
@@ -159,24 +165,24 @@ the face and `--clip-cell`) when the field is `-`.
 ```sh
 mkfont.py <ttf> <out> --size <size> --cell <H> --width <W> --bpp <bpp> \
     --clip-cell [--ascent <A>] --unicode ascii --chars-from <chars> \
-    --limit ascii,ksx1001-nohanja --require
+    --limit ascii,ksx1001-nohanja [--require]
 ```
 
-`--require` means a syllable the collected text actually uses but the
-chosen face lacks fails the whole bake instead of silently shipping a gap -
-pick a face with the coverage `<chars>` needs, or narrow `<chars>` to what
-that charset actually draws (e.g. run `scummtext.py`/point `--chars-from` at
-a subset if a UI font only needs Latin+digits for one charset).
+`--require` (added only when `<chars>` ends in `.trs`) means a syllable the
+bundle's text actually uses but the chosen face lacks fails the whole bake
+instead of silently shipping a gap - pick a face with the coverage the
+bundle needs. For a `scummtext.py` file it is omitted, because the
+heuristic's noise syllables would make it fail; the bake then reports how
+many requested glyphs the face lacks, and the noise can be commented out of
+the file to get a clean count.
 
-A line whose `(ttf, size, bpp, cell)` was already baked earlier in the same
-plan is copied from that earlier output rather than baked again - MI1/MI2
-commonly reuse one face at one size for several charsets (every UI charset
-at the same cell, say), and re-running FreeType for an identical result
-wastes time. `<ascent>` is not part of that cache key: when omitted (`-`),
-mkfont.py derives the ascent purely from `(ttf, size, bpp, cell)`, so it is
-already identical for a cache hit; a plan that gives two same-key lines
-different *explicit* ascents gets the first line's bake for both, so do not
-do that.
+A line whose `(ttf, size, bpp, cell, ascent)` was already baked earlier in
+the same plan is copied from that earlier output rather than baked again -
+MI1/MI2 commonly reuse one face at one size for several charsets (every UI
+charset at the same cell, say), and re-running FreeType for an identical
+result wastes time. Ascent is part of the key (`-` and an empty field count
+as the same), so a line with an explicit ascent never reuses another line's
+bake.
 
 Comment lines (`#`, after leading whitespace) and blank lines in `plan.tsv`
 are skipped.

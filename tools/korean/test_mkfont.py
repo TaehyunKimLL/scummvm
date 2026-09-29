@@ -5,6 +5,7 @@
 """
 
 import os
+import pathlib
 import struct
 import sys
 import unittest
@@ -230,9 +231,7 @@ class CharsFromTest(unittest.TestCase):
 
 
 def _make_trs(entries, utf8):
-    """entries: [(original_bytes, translated_bytes), ...] -> SCVMTRS bundle
-    bytes with no rooms (harness/tools/trslib.py's build(), simplified: this
-    test only needs the line index and body, not the room/script ranges)."""
+    """entries: [(original_bytes, translated_bytes)] -> SCVMTRS bundle with no rooms."""
     header_len = 8 + 2 + len(entries) * 10 + 1
     body = bytearray()
     if utf8:
@@ -255,9 +254,6 @@ def _make_trs(entries, utf8):
 
 
 class TrsCharsFromTest(unittest.TestCase):
-    """--chars-from *.trs: SCVMTRS 묶음 (engines/scumm/trs_bundle.h,
-    harness/tools/trslib.py 가 기준)."""
-
     def _write(self, tmpdir, name, data):
         path = os.path.join(tmpdir, name)
         with open(path, "wb") as f:
@@ -283,10 +279,7 @@ class TrsCharsFromTest(unittest.TestCase):
     def test_control_code_arguments_do_not_leak_as_characters(self):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
-            # FF 0A xx xx: code 0x0A is not in (1,2,3,8), so it takes 2 more
-            # argument bytes (resStrLen()'s rule) - none of these 4 bytes,
-            # including the embedded 0x00, may end the string early or leak
-            # out as a decoded character.
+            # FF 0A 00 99: an escape with 2 argument bytes, the embedded NUL included
             trans = "안녕".encode("utf-8") + b"\xff\x0a\x00\x99" + "하세요".encode("utf-8")
             entries = [(b"hi", trans)]
             path = self._write(d, "korean.trs", _make_trs(entries, utf8=True))
@@ -294,6 +287,51 @@ class TrsCharsFromTest(unittest.TestCase):
             self.assertEqual({ord(c) for c in "안녕하세요"}, {c for c in cps if c > 0x7F})
             self.assertNotIn(0x0A, cps)
             self.assertNotIn(0x99, cps)
+
+    def test_control_codes_without_arguments_take_no_operand_bytes(self):
+        import tempfile
+        for code in (1, 2, 3, 8):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as d:
+                trans = "안".encode("utf-8") + bytes([0xFF, code]) + "녕".encode("utf-8")
+                path = self._write(d, "korean.trs", _make_trs([(b"hi", trans)], utf8=True))
+                cps = mkfont.chars_from_trs(path)
+                self.assertEqual({ord("안"), ord("녕")}, {c for c in cps if c > 0x7F})
+                self.assertNotIn(code, cps)
+
+    def test_control_code_without_arguments_at_string_end(self):
+        import tempfile
+        for code in (1, 2, 3, 8):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as d:
+                trans = "안".encode("utf-8") + bytes([0xFF, code])
+                path = self._write(d, "korean.trs", _make_trs([(b"hi", trans)], utf8=True))
+                self.assertIn(ord("안"), mkfont.chars_from_trs(path))
+
+    def test_string_without_terminator_is_a_clean_error(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            data = _make_trs([(b"hi", b"abc")], utf8=False)[:-1]
+            path = self._write(d, "korean.trs", data)
+            with self.assertRaises(SystemExit) as cm:
+                mkfont.chars_from_trs(path)
+            self.assertIn("korean.trs", str(cm.exception))
+            self.assertIn("종료 NUL", str(cm.exception))
+
+    def test_escape_running_past_end_of_file_is_a_clean_error(self):
+        import tempfile
+        cases = {
+            "code byte missing": b"ab\xff",
+            "operands missing": b"ab\xff\x0a",
+        }
+        for label, trans in cases.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as d:
+                data = _make_trs([(b"hi", trans)], utf8=False)
+                if label == "code byte missing":
+                    data = data[:-1]
+                path = self._write(d, "korean.trs", data)
+                with self.assertRaises(SystemExit) as cm:
+                    mkfont.chars_from_trs(path)
+                self.assertIn("korean.trs", str(cm.exception))
+                self.assertIn("이스케이프", str(cm.exception))
 
     def test_original_and_translated_strings_are_both_collected(self):
         import tempfile
@@ -522,7 +560,7 @@ class UnicodeBakeTest(unittest.TestCase):
         try:
             subprocess.run([sys.executable, mkfont.__file__, GALMURI7, out, "--size", "8", "--cell", "9",
                             "--bpp", "1"] + list(extra), check=True, capture_output=True)
-            data = open(out, "rb").read()
+            data = pathlib.Path(out).read_bytes()
         finally:
             os.unlink(out)
         hdr = struct.unpack_from("<4sHHBBHHBBBBHIII", data, 0)
@@ -624,7 +662,7 @@ class FitCellBakeTest(unittest.TestCase):
                                 "--cell", "16", "--fit-cell", "--ascent", "14", "--bpp", "2",
                                 "--chars-from", chars], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-            data = open(out, "rb").read()
+            data = pathlib.Path(out).read_bytes()
         f = read_svfn(data)
         self.assertEqual(f["cell"], (16, 16))
         self.assertEqual(data[16], 14)          # header ascent
@@ -652,7 +690,7 @@ class FitCellBakeTest(unittest.TestCase):
                                 "--chars-from", chars], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertIn("--clip-cell: 18px, ascent 14", r.stdout)
-            data = open(out, "rb").read()
+            data = pathlib.Path(out).read_bytes()
         f = read_svfn(data)
         from PIL import ImageFont
         font = ImageFont.truetype(NANUM_IN_TREE, 18)
