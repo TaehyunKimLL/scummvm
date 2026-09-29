@@ -28,13 +28,15 @@ struct SDL_AudioStream;
 
 /**
  * ScummVM's mixer on SDL3's DOS Sound Blaster driver: 16-bit stereo,
- * 1024-frame device buffers, mixed at the rate the device runs at.
+ * 2048-frame device buffers, mixed at the rate the card was opened at.
  *
- * SDL3 opens a device at 44100 Hz or more, whatever the stream asks for,
- * and converts a stream of another rate on its audio thread -- in
- * floating point, which costs a DOS machine far more than the mixer's own
- * rate conversion. So the mixer runs at the device's rate (as
- * SdlMixerManager does); output_rate in [scummvm] overrides it.
+ * SDL3 opens the card at its default rate, 44100 Hz, whatever the stream
+ * asks for; the driver brings cards before the SB16 down to 22050 Hz.
+ * A stream at another rate than the card's is converted on SDL's audio
+ * thread, in floating point, which costs a DOS machine far more than the
+ * mixer's own rate conversion. So once the device is open the mixer takes
+ * the card's rate (as SdlMixerManager does); output_rate in [scummvm]
+ * overrides it.
  *
  * SDL3's DOS threads are cooperative. Its audio thread runs only when the
  * main thread yields (SDL_Delay() in delayMillis(), the event pump) and
@@ -58,10 +60,23 @@ public:
 	void suspendAudio() override;
 	int resumeAudio() override;
 
-	/** Sample frames the device has taken from the mixer so far. */
+	/**
+	 * Sample frames handed to SDL so far. SDL buffers ahead, so this
+	 * equals what the card took only over the long run.
+	 */
 	uint32 framesMixed() const { return _framesMixed; }
 
-	static const int kDeviceFrames = 1024;
+	/**
+	 * framesMixed() and getMillis() as of the end of the last callback.
+	 * The audio thread only runs while the main thread yields, so the
+	 * pair is consistent when read between yields.
+	 */
+	void lastCallback(uint32 &frames, uint32 &millis) const {
+		frames = _framesMixed;
+		millis = _callbackMillis;
+	}
+
+	static const int kDeviceFrames = 2048;
 
 private:
 	static void sdlCallback(void *userdata, SDL_AudioStream *stream, int additionalAmount, int totalAmount);
@@ -82,6 +97,7 @@ private:
 	byte *_buffer;
 	bool _subsystemInitialized;
 	volatile uint32 _framesMixed;
+	volatile uint32 _callbackMillis;
 };
 
 #endif

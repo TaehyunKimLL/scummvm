@@ -232,7 +232,8 @@ static bool install() {
 		return false;
 	}
 
-	const uint32 startMillis = (uint32)SDL_GetTicks();	// getMillis() until now
+	// getMillis() until now (OSystem_DOS's fallback): uclock() in ms.
+	const uint32 startMillis = (uint32)(base / (UCLOCKS_PER_SEC / 1000));
 	const uint32 flags = irqSave();
 	g_uclockBase = base;
 	g_uclockLast = base;
