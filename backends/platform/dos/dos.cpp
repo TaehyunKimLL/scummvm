@@ -99,7 +99,15 @@ OSystem_DOS::~OSystem_DOS() {
 // Set once the splash screen has been shown (engines/engine.cpp).
 extern bool splash;
 
+// SDL_Log() writes to stderr, which is the screen: SDL3's Sound Blaster
+// driver says which card it opened, lines that scroll a text screen and
+// land on a graphics one. To the log instead.
+static void SDLCALL sdlLog(void *, int, SDL_LogPriority, const char *message) {
+	g_system->logMessage(LogMessageType::kInfo, Common::String::format("SDL: %s\n", message).c_str());
+}
+
 void OSystem_DOS::initBackend() {
+	SDL_SetLogOutputFunction(sdlLog, nullptr);
 	SDL_SetHint(SDL_HINT_DOS_ALLOW_DIRECT_FRAMEBUFFER, "1");
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
 		error("SDL_Init: %s", SDL_GetError());
