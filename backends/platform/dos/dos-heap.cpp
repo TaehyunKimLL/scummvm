@@ -141,6 +141,19 @@ void dosHeapEnableLargeBlocks() {
 	g_largeOk = true;
 }
 
+bool dosHeapInLargeBlock(const void *ptr, size_t size) {
+	if (!g_largeOk || !ptr)
+		return false;
+	// A large block's header opens its first page; an aligned allocation
+	// (SDL_aligned_alloc()) starts a little further into that page.
+	const uintptr page = (uintptr)ptr & ~(uintptr)(kPage - 1);
+	LargeHeader *h = largeHeader((void *)(page + sizeof(LargeHeader)));
+	if (!h)
+		return false;
+	const uintptr start = (uintptr)(h + 1);
+	return (uintptr)ptr >= start && (uintptr)ptr - start <= h->size && size <= h->size - ((uintptr)ptr - start);
+}
+
 extern "C" {
 
 void *__wrap_malloc(size_t size) {

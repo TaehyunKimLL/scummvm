@@ -24,6 +24,7 @@
 
 #include "backends/graphics/graphics.h"
 #include "backends/platform/dos/dos-modes.h"
+#include "backends/platform/dos/loading-screen.h"
 #include "backends/platform/dos/soft-cursor.h"
 #include "common/array.h"
 #include "common/events.h"
@@ -115,8 +116,14 @@ public:
 	void engineStarted() { _engineStarted = true; }
 	/** OSystem::engineDone(): a loading screen still up goes. */
 	void engineStopped();
-	/** From pollEvent(): @p event if @p got. A key or a click ends the loading screen. */
-	void loadingPoll(bool got, const Common::Event &event);
+	/**
+	 * From pollEvent(): @p event if @p got. A key or a click ends the
+	 * loading screen; true if @p event was that (or its release) and is
+	 * not for the game.
+	 */
+	bool loadingPoll(bool got, const Common::Event &event);
+	/** DOS::Loading::halt() came: the graphics loading screen shows why. */
+	void loadingHalted();
 
 private:
 	void addDirty(const Common::Rect &r);
@@ -128,6 +135,16 @@ private:
 	 * back. The TransactionError for endGFXTransaction().
 	 */
 	OSystem::TransactionError switchMode(uint w, uint h, const Graphics::PixelFormat &f);
+	/** switchMode() for the game, with the loading screen kept right if it fails. */
+	OSystem::TransactionError gameModeSwitch(uint w, uint h, const Graphics::PixelFormat &f);
+	/**
+	 * Whether a transaction only makes the buffer (see setDeferModes()):
+	 * before engineInit() while the text loading screen is up, or while a
+	 * stopped loading screen shows its message outside an engine.
+	 */
+	bool deferring() const;
+	/** Where the loading screen's parts go in @p s; @p title gets the name as drawn. */
+	DOS::LoadScreenLayout loadingLayout(const SDL_Surface *s, Common::String &title) const;
 	/** The mode deferred by setDeferModes(), for _screen as it is. */
 	bool applyDeferredMode();
 
@@ -204,7 +221,8 @@ private:
 	uint _loadingDraws, _loadingDrawMs, _loadingCheckMs, _loadingChecks;	///< what it cost (debug level 1)
 	bool _usedColors[256];
 	uint32 _lockAddr[2], _lockSize[2];	///< lockSurfaces()'s regions (linear), size 0 if none
-	bool _unlockAfterPresent;	///< the loading screen is gone: unlock once the game's frame is sent
+	bool _unlockAfterPresent;
+	Common::EventType _loadingSwallowUp;	///< the release to drop, of the key/click that skipped the loading screen	///< the loading screen is gone: unlock once the game's frame is sent
 	bool _vramOk;	///< see queryVramWindow()
 	uint32 _vramGran, _vramWinSize, _vramBase, _vramPitch;	///< CLUT8 indices the game drew with during the loading screen
 };

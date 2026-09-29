@@ -68,6 +68,7 @@
 #include "base/main.h"
 #include "base/version.h"
 #include "common/language.h"
+#include "common/translation.h"
 
 // ScummVM's call depth is far past DJGPP's 256 KB default stack.
 unsigned _stklen = 1024 * 1024;
@@ -92,6 +93,7 @@ OSystem_DOS::OSystem_DOS() : _eventSource(nullptr), _nullMixer(nullptr) {
 }
 
 OSystem_DOS::~OSystem_DOS() {
+	SDL_SetLogOutputFunction(SDL_GetDefaultLogOutputFunction(), nullptr);	// logMessage() goes with us
 	// The timer first: its interrupt handler runs timer procs that may
 	// use the mixer, which ModularMixerBackend's destructor deletes.
 	delete _timerManager;
@@ -458,7 +460,9 @@ bool OSystem_DOS::pollEvent(Common::Event &event) {
 	if (_nullMixer)
 		_nullMixer->update(1);
 	const bool got = _eventSource->pollEvent(event);
-	((DosGraphicsManager *)_graphicsManager)->loadingPoll(got, event);
+	// A key or click that skips the loading screen is not the game's.
+	if (((DosGraphicsManager *)_graphicsManager)->loadingPoll(got, event))
+		return false;
 	return got;
 }
 
@@ -468,16 +472,27 @@ void OSystem_DOS::engineInit() {
 }
 
 void OSystem_DOS::engineDone() {
+	// An engine that stops before its first frame has failed (no game
+	// data, say), and base/main.cpp's error dialog cannot be shown yet:
+	// the loading screen stops and says so, and stays.
+	if (DOS::Loading::stage() != DOS::Loading::kStageOff)
+		DOS::Loading::halt(nullptr);
 	((DosGraphicsManager *)_graphicsManager)->engineStopped();
-	DOS::Loading::finish("engine done");
 }
 
 void OSystem_DOS::setWindowCaption(const Common::U32String &caption) {
 	// base/main.cpp's runGame() names the game once its engine exists
-	// (setupGraphics() names ScummVM before that).
+	// (setupGraphics() names ScummVM before that). GUIErrorMessage()
+	// (engines/engine.cpp) names the window "Error" and shows a dialog
+	// that cannot be shown yet: the loading screen stops and says so.
 	const Common::String name = caption.encode();
 	if (name == gScummVMFullVersion)
 		return;
+	if (caption == _("Error")) {
+		DOS::Loading::halt(nullptr);
+		((DosGraphicsManager *)_graphicsManager)->loadingHalted();
+		return;
+	}
 	DOS::Loading::setTitle(name);
 	DOS::Loading::enter(DOS::kLoadEngine);
 }
@@ -690,6 +705,8 @@ static void flushDeferredLog() {
 void OSystem_DOS::logMessage(LogMessageType::Type type, const char *message) {
 	if (type == LogMessageType::kError)
 		Common::strlcpy(g_lastError, message, sizeof(g_lastError));
+	if (type == LogMessageType::kError || type == LogMessageType::kWarning)
+		DOS::Loading::noteWarning(message);
 	// The screen is in a graphics mode; the log is the only place output
 	// can go.
 	if (!DosTimerManager::interruptsEnabled()) {

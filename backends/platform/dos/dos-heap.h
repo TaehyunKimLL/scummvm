@@ -22,11 +22,22 @@
 #ifndef BACKENDS_PLATFORM_DOS_DOS_HEAP_H
 #define BACKENDS_PLATFORM_DOS_DOS_HEAP_H
 
+#include <stddef.h>
+
 /**
  * From now on, allocations of 256 KB or more come from pageable DPMI
  * blocks instead of the locked heap (see dos-heap.cpp). Needs the near
  * pointer enabled.
  */
 void dosHeapEnableLargeBlocks();
+
+/**
+ * Whether @p size bytes at @p ptr lie inside one of those large blocks
+ * (possibly at an offset into it, as SDL's aligned allocations are). Only
+ * such memory may be locked and unlocked on its own: the rest of the heap
+ * is locked as a whole, and an unlock of a region there would unlock the
+ * pages it shares with its neighbours as well.
+ */
+bool dosHeapInLargeBlock(const void *ptr, size_t size);
 
 #endif

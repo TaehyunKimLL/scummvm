@@ -88,10 +88,26 @@ void enterGraphics();
 void finish(const char *why);
 
 /**
- * The text screen stops where it is and says why, e.g. a GUI dialog that
- * cannot be shown before the overlay works (M4).
+ * The loading screen stops where it is and says why: the bar stops, and
+ * haltLine(0) / haltLine(1) take the phase's place -- @p reason (or the
+ * last warning logged, see noteWarning()) and where to look. For what
+ * cannot be shown before the GUI overlay works (M4): an error dialog, or
+ * an engine that stopped before its first frame. The text stage draws it
+ * here; DosGraphicsManager draws it in the graphics stage. halted() stays
+ * true until finish() or teardown().
  */
-void halt(const char *message);
+void halt(const char *reason);
+bool halted();
+const char *haltLine(int line);
+
+/**
+ * A warning or error being logged (any context: copied, nothing
+ * allocated): the last one is what halt() shows when it has no reason.
+ */
+void noteWarning(const char *message);
+
+/** The text stage's IRQ0 redraws stop (before a mode change). */
+void stopTextUpdates();
 
 /** Puts back what start() and backendReady() took (stdout, the cursor). Idempotent. */
 void teardown();
