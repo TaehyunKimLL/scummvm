@@ -472,5 +472,81 @@ class UnicodeBakeTest(unittest.TestCase):
         self.assertEqual(f["count"], 1)
 
 
+class FitCellTest(unittest.TestCase):
+    """--fit-cell: 글꼴 전체가 한 크기, 기준선 하나로 셀에 든다."""
+
+    # 코드 포인트 -> (왼쪽, 위, 오른쪽, 아래), 기준선 기준
+    BOXES = {1: (0, -10, 5, 2), 2: (0, -12, 14, 1), 3: (1, -3, 4, 0)}
+
+    def test_every_ascent_that_fits_is_allowed_and_the_preferred_one_wins(self):
+        # 위로 12줄, 아래로 2줄: ascent 12..14 가 16줄 셀에 든다.
+        self.assertEqual(mkfont.fit_ascent(self.BOXES, 16, 13), (13, True))
+        self.assertEqual(mkfont.fit_ascent(self.BOXES, 16, 20), (14, True))
+        self.assertEqual(mkfont.fit_ascent(self.BOXES, 16, 3), (12, True))
+
+    def test_no_ascent_fits_ink_taller_than_the_cell(self):
+        ascent, ok = mkfont.fit_ascent(self.BOXES, 13, 12)
+        self.assertFalse(ok)
+        top, bottom, _ = mkfont.fit_counts(self.BOXES, 16, 13, ascent)
+        self.assertEqual(len(set(top) | set(bottom)), 1)   # 가장 적게 넘치는 값
+
+    def test_counts_rows_above_below_and_width(self):
+        top, bottom, wide = mkfont.fit_counts(self.BOXES, 13, 16, 11)
+        self.assertEqual(top, [2])
+        self.assertEqual(bottom, [])
+        self.assertEqual(wide, [2])
+        top, bottom, wide = mkfont.fit_counts(self.BOXES, 16, 16, 15)
+        self.assertEqual((top, bottom, wide), ([], [1], []))
+
+
+NANUM_IN_TREE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "dists",
+                             "engine-data", "hires_text", "fonts", "nanumgothic", "NanumGothic-Bold.ttf")
+
+
+@unittest.skipUnless(os.path.exists(NANUM_IN_TREE), "in-tree NanumGothic-Bold.ttf not found")
+class FitCellBakeTest(unittest.TestCase):
+    CHARS = [ord(c) for c in "가각한글뷁똠AQgjy$()W,"]
+
+    def test_largest_size_whose_ink_fits_every_glyph(self):
+        log = []
+        size, ascent = mkfont.fit_cell(NANUM_IN_TREE, 18, self.CHARS, 16, 16, 2, log=log.append)
+        _, boxes = mkfont.measure_boxes(NANUM_IN_TREE, size, self.CHARS, 2)
+        self.assertEqual(len(boxes), len(self.CHARS))
+        self.assertEqual(mkfont.fit_counts(boxes, 16, 16, ascent), ([], [], []))
+        # One px larger does not fit at any single ascent.
+        _, bigger = mkfont.measure_boxes(NANUM_IN_TREE, size + 1, self.CHARS, 2)
+        self.assertFalse(mkfont.fit_ascent(bigger, 16, ascent)[1] and
+                         not mkfont.fit_counts(bigger, 16, 16, mkfont.fit_ascent(bigger, 16, ascent)[0])[2])
+        self.assertLess(size, 18)
+        self.assertTrue(any("넘는 글자" in line for line in log))
+
+    def test_baked_font_has_one_baseline_and_nothing_cropped(self):
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "fit.svf")
+            chars = os.path.join(d, "chars.txt")
+            with open(chars, "w", encoding="utf-8") as f:
+                f.write("".join(chr(c) for c in self.CHARS))
+            r = subprocess.run([sys.executable, mkfont.__file__, NANUM_IN_TREE, out, "--size", "18",
+                                "--cell", "16", "--fit-cell", "--ascent", "14", "--bpp", "2",
+                                "--chars-from", chars], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            data = open(out, "rb").read()
+        f = read_svfn(data)
+        self.assertEqual(f["cell"], (16, 16))
+        self.assertEqual(data[16], 14)          # header ascent
+        size = int(r.stdout.split("크기 ")[1].split("px")[0])
+        from PIL import ImageFont
+        font = ImageFont.truetype(NANUM_IN_TREE, size)
+        for cp in self.CHARS:
+            _, rows = f["glyphs"][cp]
+            ink_rows = [y for y, row in enumerate(rows) if any(row)]
+            box, _ = mkfont.ink_box(font, chr(cp), 2)
+            # The glyph as baked is the glyph as drawn: every row of ink,
+            # on row ascent + its offset from the baseline.
+            self.assertEqual((ink_rows[0], ink_rows[-1] + 1), (14 + box[1], 14 + box[3]), chr(cp))
+
+
 if __name__ == "__main__":
     unittest.main()
