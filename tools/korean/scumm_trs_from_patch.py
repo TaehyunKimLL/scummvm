@@ -1,37 +1,5 @@
 #!/usr/bin/env python3
-"""Build a UTF-8 SCVMTRS bundle (korean.trs) for an English SCUMM v4/v5 release
-from existing Korean translations of that game.
-
-Sources, in the order they are tried for every string of the English release:
-
-  --trs FILE      a .trs made for another release of the game (CP949 or UTF-8),
-                  e.g. the ScummVM Kor. Project's Monkey Island Ultimate Talkie
-                  bundle. Its keys are that release's script strings: talkie
-                  voice escapes (FF 0A xx xx) are dropped, variable escapes
-                  (FF 04-07 xx xx) compared by code only and re-pointed at the
-                  English release's variables, a line the English release
-                  joins with FF 03 (wait) is looked up piece by piece, and
-                  what is left is matched fuzzily within the same room
-                  (ratio >= 0.9, same escapes and numbers).
-  --patch DIR     an in-place EUC-KR patch of the same release (the 2005 DUMB
-                  Monkey Island VGA floppy patch): both builds' scripts are
-                  walked opcode by opcode (scummscript.py) and paired string
-                  by string, block by block.
-  (none)          the English string stays, and is left out of the bundle.
-
-    scumm_trs_from_patch.py --english EN_DIR [--trs FILE] [--patch DIR]
-                            -o korean.trs [--table provenance.tsv] [--report stats.txt]
-
-The bundle is keyed the way ScummEngine::translateText() searches: the
-original bytes exactly as the English script holds them, ranges per
-(room, WIO_ROOM), (room, local script) and (0, global script), both orders
-sorted by memcmp. Its body starts with the UTF-8 BOM (trs_bundle.h).
-
-Legacy text is converted per character: KS X 1001 / CP949 Hangul, jamo and
-symbols become UTF-8; SCUMM escapes and bytes that are the game's own glyphs
-(MI1's 0xFA nonbreaking space, 0x88/0x82 for e-circumflex) are kept as raw
-bytes, which a UTF-8 bundle draws with the game's font (kRawGameByteBase).
-"""
+"""scumm_trs_from_patch.py --english DIR [--trs FILE [--trs-data DIR]] [--patch DIR] -o korean.trs: see README."""
 import argparse
 import collections
 import difflib
@@ -47,55 +15,79 @@ WIO_ROOM, WIO_GLOBAL, WIO_LOCAL = 1, 2, 3
 BOM = b'\xef\xbb\xbf'
 
 
-# ---------------------------------------------------------------- .trs
-
 def esc_len(b, i):
     return 2 if b[i + 1] in (1, 2, 3, 8) else 4
 
 
-def res_str_len(d, p):
+def res_str_len(d, p, name='bundle'):
     n = p
-    while d[n]:
-        n += esc_len(d, n) if d[n] == 0xFF else 1
+    while n < len(d) and d[n]:
+        n += esc_len(d, n) if d[n] == 0xFF and n + 1 < len(d) else 1
+    if n >= len(d):
+        raise SystemExit('%s: string at offset %d runs past the end of the file' % (name, p))
     return n - p
 
 
-def read_trs(path):
-    """[(ctx, original, translation)], ctx = (room, scriptKey) or None; and the UTF-8 flag."""
-    d = open(path, 'rb').read()
-    assert d[:8] == b'SCVMTRS ', path
+def parse_trs(d, name):
+    if d[:8] != b'SCVMTRS ':
+        raise SystemExit('%s: not a SCVMTRS bundle (magic %r)' % (name, bytes(d[:8])))
+
+    def need(p, k):
+        if p + k > len(d):
+            raise SystemExit('%s: truncated at offset %d (header needs %d more bytes)' % (name, p, p + k - len(d)))
+    need(8, 2)
     n = struct.unpack_from('<H', d, 8)[0]
-    p = 10
-    recs = []
-    for _ in range(n):
-        recs.append(struct.unpack_from('<HII', d, p))
-        p += 10
-    pos = [0] * n
-    for i, (idx, _o, _t) in enumerate(recs):
-        pos[idx] = i
-    ctx = {}
+    need(10, n * 10 + 1)
+    recs = [struct.unpack_from('<HII', d, 10 + i * 10) for i in range(n)]
+    if sorted(r[0] for r in recs) != list(range(n)):
+        raise SystemExit('%s: line index is not a permutation of 0..%d' % (name, n - 1))
+    p = 10 + n * 10
+    rooms = {}
     nroom = d[p]
     p += 1
     for _ in range(nroom):
-        rid = d[p]
-        ns = struct.unpack_from('<H', d, p + 1)[0]
+        need(p, 3)
+        rid, ns = d[p], struct.unpack_from('<H', d, p + 1)[0]
         p += 3
+        need(p, ns * 8)
         for _ in range(ns):
             key, left, right = struct.unpack_from('<IHH', d, p)
             p += 8
+            if left <= right and right >= n:
+                raise SystemExit('%s: range %d..%d of room %d is outside the %d lines' % (name, left, right, rid, n))
+            rooms.setdefault(rid, {})[key] = (left, right)
+    for _idx, o, t in recs:
+        for off in (o, t):
+            if not p <= off < len(d):
+                raise SystemExit('%s: string offset %d outside the body (%d..%d)' % (name, off, p, len(d)))
+            res_str_len(d, off, name)
+    return recs, rooms, p
+
+
+def read_trs(path):
+    """[(ctx, original, translation)] with ctx = (room, scriptKey) or None, and the UTF-8 flag."""
+    if not os.path.isfile(path):
+        raise SystemExit('%s: no such file' % path)
+    with open(path, 'rb') as f:
+        d = f.read()
+    recs, rooms, body = parse_trs(d, path)
+    pos = [0] * len(recs)
+    for i, (idx, _o, _t) in enumerate(recs):
+        pos[idx] = i
+    ctx = {}
+    for rid, keys in rooms.items():
+        for key, (left, right) in keys.items():
             for s in range(left, right + 1):
                 ctx[pos[s]] = (rid, key)
-    utf8 = d[p:p + 3] == BOM
 
     def cstr(o):
-        return d[o:o + res_str_len(d, o)]
-    return [(ctx.get(i), cstr(o), cstr(t)) for i, (_idx, o, t) in enumerate(recs)], utf8
+        return d[o:o + res_str_len(d, o, path)]
+    return [(ctx.get(i), cstr(o), cstr(t)) for i, (_idx, o, t) in enumerate(recs)], d[body:body + 3] == BOM
 
 
 def write_trs(groups):
-    """groups: {(room, scriptKey): {original: translation}} -> bundle bytes."""
-    order = sorted(groups)                              # index order: by room, then key
-    index = []                                          # (original, translation, group)
+    order = sorted(groups)
+    index = []
     ranges = collections.OrderedDict()
     for g in order:
         left = len(index)
@@ -103,8 +95,12 @@ def write_trs(groups):
             index.append((orig, groups[g][orig]))
         ranges.setdefault(g[0], []).append((g[1], left, len(index) - 1))
     n = len(index)
-    assert n < 0x10000 and len(ranges) < 256
-    # file order: every entry sorted by original; idx = its position in index order
+    if n >= 0x10000:
+        raise SystemExit('%d translated lines: a .trs holds at most 65535' % n)
+    if len(ranges) >= 256 or any(room > 255 for room in ranges):
+        raise SystemExit('%d rooms (highest %d): a .trs holds rooms 0..255, at most 255 of them'
+                         % (len(ranges), max(ranges)))
+    # translateText() binary-searches with memcmp: the file order and every range must be sorted.
     fileorder = sorted(range(n), key=lambda k: (index[k][0], k))
     header = 8 + 2 + n * 10 + 1 + sum(3 + 8 * len(v) for v in ranges.values())
     body = bytearray(BOM)
@@ -126,49 +122,29 @@ def write_trs(groups):
         out += struct.pack('<H', len(scripts))
         for key, left, right in scripts:
             out += struct.pack('<IHH', key, left, right)
-    assert len(out) == header
     return bytes(out + body)
 
 
-_cache = {}
-
-
-def read_trs_cached(data):
-    if id(data) in _cache:
-        return _cache[id(data)]
-    n = struct.unpack_from('<H', data, 8)[0]
-    p = 10
-    lines = []
+def trs_lookup(data, name='bundle'):
+    """translateText(): the (room, script) range, then the room's WIO_ROOM range, then the whole file."""
+    recs, rooms, _body = parse_trs(data, name)
+    n = len(recs)
     lineindex = [0] * n
-    for i in range(n):
-        idx, o, t = struct.unpack_from('<HII', data, p)
-        p += 10
+    for i, (idx, _o, _t) in enumerate(recs):
         lineindex[idx] = i
-        lines.append((o, t))
-    rooms = {}
-    nroom = data[p]
-    p += 1
-    for _ in range(nroom):
-        rid = data[p]
-        ns = struct.unpack_from('<H', data, p + 1)[0]
-        p += 3
-        for _ in range(ns):
-            key, left, right = struct.unpack_from('<IHH', data, p)
-            p += 8
-            rooms.setdefault(rid, {})[key] = (left, right)
 
     def cstr(o):
-        return data[o:o + res_str_len(data, o)]
+        return data[o:o + res_str_len(data, o, name)]
 
     def chop(text, left, right, use_index):
         while left <= right:
             mid = (left + right) // 2
             i = lineindex[mid] if use_index else mid
-            orig = cstr(lines[i][0])
+            orig = cstr(recs[i][1])
             a, b = text + b'\0', orig + b'\0'
             m = min(len(a), len(b))
             if a[:m] == b[:m]:
-                return cstr(lines[i][1])
+                return cstr(recs[i][2])
             if a[:m] < b[:m]:
                 right = mid - 1
             else:
@@ -181,23 +157,18 @@ def read_trs_cached(data):
         if r:
             t = chop(text, r[0], r[1], True)
             if t is not None:
-                return t, 1
+                return t
         if room:
             r = rooms.get(room, {}).get(WIO_ROOM << 16)
             if r:
                 t = chop(text, r[0], r[1], True)
                 if t is not None:
-                    return t, 2
-        t = chop(text, 0, n - 1, False)
-        return (t, 3) if t is not None else (None, 0)
-    _cache[id(data)] = (lookup, None)
-    return _cache[id(data)]
+                    return t
+        return chop(text, 0, n - 1, False)
+    return lookup
 
-
-# ---------------------------------------------------------------- text
 
 def toks(b):
-    """[('t', bytes)] text runs and [('e', code, args)] escapes."""
     out, run, i = [], bytearray(), 0
     while i < len(b):
         if b[i] == 0xFF and i + 1 < len(b):
@@ -223,12 +194,11 @@ def join(ts):
 
 
 def strip_voice(b):
-    """Drop talkie voice escapes (FF 0A xx xx)."""
     return join([t for t in toks(b) if not (t[0] == 'e' and t[1] == 0x0A)])
 
 
 def masked(b):
-    """Comparison key: no voice escapes, FF 04-07 arguments hidden, no trailing '@' padding."""
+    # CD keys carry voice escapes and their own variable numbers; the floppy pads names with '@'.
     out = []
     for t in toks(strip_voice(b)):
         out.append(('e', t[1], b'\0\0') if t[0] == 'e' and t[1] in (4, 5, 6, 7) else t)
@@ -240,7 +210,6 @@ def var_args(b):
 
 
 def remap(trans, src_key, dst_key, warn):
-    """Point a translation's variable escapes at dst_key's variables."""
     m = dict(zip(var_args(strip_voice(src_key)), var_args(dst_key)))
     by_code = collections.defaultdict(set)
     for (c, _a), dst in zip(var_args(strip_voice(src_key)), var_args(dst_key)):
@@ -259,7 +228,6 @@ def remap(trans, src_key, dst_key, warn):
 
 
 def legacy_to_utf8(b, odd=None):
-    """EUC-KR/CP949 game text -> UTF-8; escapes and the game's own glyph bytes stay raw."""
     out = bytearray()
     i = 0
     while i < len(b):
@@ -286,14 +254,13 @@ def legacy_to_utf8(b, odd=None):
                     i += 2
                     continue
                 if odd is not None:
-                    odd[ch] += 1   # a Hanja or unusual pair: its lead is taken as a game glyph
-        out.append(c)              # the game's own character
+                    odd[ch] += 1
+        out.append(c)              # not Hangul: a raw byte, drawn with the game's own glyph (0xFA hard space)
         i += 1
     return bytes(out)
 
 
 def utf8_ok(b):
-    """Every high byte is either part of valid UTF-8 or a raw byte that cannot pair up."""
     i = 0
     while i < len(b):
         c = b[i]
@@ -328,8 +295,6 @@ def show(b, utf8=True):
 HAS_WORD = re.compile(rb'[A-Za-z]')
 
 
-# ---------------------------------------------------------------- pairing
-
 def ctx_key(r):
     if r.where == WIO_GLOBAL:
         return (0, (WIO_GLOBAL << 16) | (r.number & 0xFFFF))
@@ -339,13 +304,11 @@ def ctx_key(r):
 
 
 def _shape(t):
-    """What a translation keeps of a line: blank or not, escapes, '@' padding, '^' and '`' marks."""
     return (not t.strip(), tuple(x[1] for x in toks(t) if x[0] == 'e'),
             len(t) - len(t.rstrip(b'@')), t.count(b'^'), t.count(b'`'))
 
 
 def _align(a, b):
-    """Global alignment of two lists of shapes; [(i, j)] of the matched pairs."""
     def score(x, y):
         s = 2.0 if x[0] == y[0] else -2.0
         s += 1.0 if x[1] == y[1] else -0.5
@@ -376,13 +339,7 @@ def _align(a, b):
 
 
 def pair_patch(en, ko):
-    """Pair two builds' strings block by block; returns ({en index: ko text}, [ko additions]).
-
-    A block with as many strings on both sides pairs them in order (the
-    patch kept the scripts' structure). Where the patch added strings -
-    its own credits and chapter cards, blank prints - the two lists are
-    aligned on what a translation keeps: blank or not, the escape codes,
-    '@' padding, '^' and '`' marks."""
+    """({en index: patch text}, [patch-only records]); blocks the patch grew are aligned on _shape()."""
     def blocks(recs):
         b = collections.OrderedDict()
         for i, r in enumerate(recs):
@@ -407,8 +364,6 @@ def pair_patch(en, ko):
 
 
 class Ute:
-    """Look-ups into the other release's bundle."""
-
     def __init__(self, recs, utf8):
         self.utf8 = utf8
         self.by_mask = collections.defaultdict(list)
@@ -456,8 +411,7 @@ class Ute:
         return None, None
 
     def fuzzy(self, text, ctx, warn, cutoff=0.9):
-        """The same room's closest key, if it differs only in wording: same
-        escapes, same numbers ("1 piece" is not "175 pieces"), ratio >= cutoff."""
+        # same escapes and numbers: "1 piece of eight" must not take "175 pieces of eight"
         m = masked(text)
         codes = [t[1] for t in toks(m) if t[0] == 'e']
         digits = re.findall(rb'[0-9]+', m)
@@ -473,8 +427,6 @@ class Ute:
         return remap(best[1], best[0], text, warn), best[0], score
 
 
-# ---------------------------------------------------------------- main
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--english', required=True, help='the English release the bundle is for')
@@ -484,8 +436,12 @@ def main():
     ap.add_argument('-o', '--output', required=True)
     ap.add_argument('--table', help='provenance table (TSV, UTF-8)')
     ap.add_argument('--report', help='statistics and examples (text)')
-    ap.add_argument('--no-fuzzy', action='store_true')
+    ap.add_argument('--no-fuzzy', action='store_true', help='no fuzzy matching against the other release')
     a = ap.parse_args()
+    for opt, path, isdir in (('--english', a.english, True), ('--patch', a.patch, True),
+                             ('--trs-data', a.trs_data, True), ('--trs', a.trs, False)):
+        if path and not (os.path.isdir(path) if isdir else os.path.isfile(path)):
+            raise SystemExit('%s %s: no such %s' % (opt, path, 'folder' if isdir else 'file'))
 
     rep = []
 
@@ -562,7 +518,9 @@ def main():
         prov_rec[prov] += 1
         rows.append((r, prov, trans, dumb_u, note))
         if trans is not None and trans != r.text:
-            assert utf8_ok(trans), trans
+            if not utf8_ok(trans):
+                raise SystemExit('room %d script %d: translation of %s is not valid UTF-8 plus game bytes: %r'
+                                 % (r.room, r.number, show(r.text, False), trans))
             g = groups[ctx]
             if r.text in g and g[r.text] != trans:
                 conflicts.append((r, g[r.text], trans))
@@ -570,18 +528,26 @@ def main():
             g[r.text] = trans
 
     data = write_trs(groups)
-    open(a.output, 'wb').write(data)
+    with open(a.output, 'wb') as f:
+        f.write(data)
     n_entries = sum(len(g) for g in groups.values())
 
-    # every string of the English release must come back as the table says
-    look, _ = read_trs_cached(data)
-    bad = 0
+    look = trs_lookup(data, a.output)
+    bad = []
     for r, prov, trans, _d, _n in rows:
-        got, _h = look(r.text, ctx_key(r))
-        if trans is not None and trans != r.text and got is None:
-            bad += 1
-    say('bundle: %s, %d bytes, %d entries in %d ranges over %d rooms; self-check misses %d'
-        % (a.output, len(data), n_entries, len(groups), len(set(g[0] for g in groups)), bad))
+        want = trans if trans is not None and trans != r.text else None
+        got = look(r.text, ctx_key(r))
+        if got != want:
+            bad.append((r, prov, want, got))
+    say('bundle: %s, %d bytes, %d entries in %d ranges over %d rooms; self-check mismatches %d of %d'
+        % (a.output, len(data), n_entries, len(groups), len(set(g[0] for g in groups)), len(bad), len(rows)))
+    for r, prov, want, got in bad[:20]:
+        say('  %d/%d/%d %s [%s] %s: want %s, engine finds %s' % (
+            r.room, r.where, r.number, r.kind, prov, show(r.text, False),
+            show(want) if want is not None else '(English)', show(got) if got is not None else '(English)'))
+    say('same English, two translations in one range (first kept): %d' % len(conflicts))
+    for r, first, other in conflicts[:20]:
+        say('  %d/%d/%d %s: %s | %s' % (r.room, r.where, r.number, show(r.text, False), show(first), show(other)))
 
     dist = collections.Counter(p for _r, p, _t, _d, _n in rows)
     say('')
@@ -620,14 +586,19 @@ def main():
         say('  UTE  %s' % show(t))
         say('  DUMB %s' % show(dd))
     if a.report:
-        open(a.report, 'w', encoding='utf-8').write('\n'.join(rep) + '\n')
+        with open(a.report, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(rep) + '\n')
     if a.table:
         with open(a.table, 'w', encoding='utf-8') as f:
             f.write('room\twhere\tscript\tkind\tprovenance\tenglish\tkorean\tdumb\tnote\n')
             for r, prov, trans, dumb_u, note in rows:
+                if any(c[0] is r for c in conflicts):
+                    note = (note + ' ' if note else '') + 'conflict: first translation in this range kept'
                 f.write('%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n' % (
                     r.room, r.where, r.number, r.kind, prov, show(r.text, False),
                     show(trans) if trans is not None else '', show(dumb_u) if dumb_u else '', note))
+    if bad:
+        raise SystemExit('%d English strings do not come back from the bundle as the table says' % len(bad))
 
 
 if __name__ == '__main__':

@@ -298,7 +298,13 @@ symbols become UTF-8; escapes and the game's own glyph bytes (MI1's `0xFA`
 hard space, `0x88`/`0x82` in "Melee") stay raw - a Hanja the decoder would
 make of `0xFA` + a Hangul lead is rejected - and the renderers draw them with
 the game's font (`kRawGameByteBase`). The tool checks the bundle by running
-the engine's three look-ups for every English string.
+the engine's three look-ups for every English string and exits non-zero if
+any comes back other than the provenance table says. `--no-fuzzy` turns the
+fuzzy pass off (those strings then fall to the patch or stay English).
+Unreadable input (a missing folder or file, a `.trs` with the wrong magic, a
+truncated header or string, more than 65535 lines or rooms beyond 255) stops
+with a message naming the file and offset; `test_scumm_trs.py` covers these
+on synthetic bundles.
 
 `--table` is a TSV (room, where, script, kind, provenance `ute` / `ute-split`
 / `ute-fuzzy` / `dumb` / `none` / `n/a`, English, Korean, DUMB's text);
@@ -314,10 +320,17 @@ patch shows "포스터를 향해 걸어가기".
 The translations are the fans' work, for personal use with a copy of the
 game; the bundle is not to be published.
 
-`scummscript.py <gamedir>` lists a v4 (`000.LFL` + `DISK0N.LEC`) or v5
-(`<name>.000/.001`) game's script strings with their context. It decodes only
-operand sizes (the `o4_`/`o5_` handlers) and reads each block linearly; on
-the MI1 Ultimate Talkie data it finds exactly the 5153 keys of that bundle.
+`scummscript.py <gamedir>` lists a v4 (`000.LFL` + `DISK0N.LEC`, XOR 0x69,
+6-byte little-endian block headers) or v5 (`<name>.000/.001`, LECF) game's
+script strings - print, printEgo, verb, setObjectName, actor and string
+names, object names - with their context `(room, where, script)`: where 1
+(WIO_ROOM) for entry/exit/object code and names, 2 for global scripts
+(room 0), 3 for local scripts. The scripts have to be walked opcode by opcode:
+a patch that changed a string's length moved every jump after it, and a
+string can hold 0x00 inside an `FF` escape. It decodes only operand sizes
+(the `o4_`/`o5_` handlers), does not follow jumps and reads each block
+linearly; on the MI1 Ultimate Talkie data it finds exactly the 5153 keys of
+that bundle.
 
 ## Checking the result
 
