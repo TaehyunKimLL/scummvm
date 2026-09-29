@@ -105,6 +105,11 @@ void OSystem_DOS::initBackend() {
 	ConfMan.registerDefault("dos_timer_selftest", false);
 	ConfMan.registerDefault("dos_mixer_selftest", false);
 
+	// Seed the time a timer proc gets (getTimeAndDate() with interrupts
+	// off) before any timer runs.
+	TimeDate now;
+	getTimeAndDate(now);
+
 	DosGraphicsManager *gfx = new DosGraphicsManager();
 	_graphicsManager = gfx;
 	_eventSource = new DosEventSource(gfx);
@@ -358,6 +363,9 @@ void OSystem_DOS::delayMillis(uint msecs) {
 	SDL_Delay(msecs);	// also yields to SDL3's cooperative threads
 }
 
+// The last time of day read from DOS, for a caller with interrupts off.
+static TimeDate g_lastTime;
+
 void OSystem_DOS::getTimeAndDate(TimeDate &td, bool skipRecord) const {
 	// DOS's own local time (INT 21h 2Ah/2Ch), not time()/localtime():
 	// DJGPP's tz code keeps its zone state in malloc'd memory and, with no
@@ -368,11 +376,13 @@ void OSystem_DOS::getTimeAndDate(TimeDate &td, bool skipRecord) const {
 	// the seconds to change and never showed its menu. DOS time has no
 	// zone to convert anyway. Read the date on both sides of the time so
 	// a midnight in between is not missed.
+	//
 	// A timer proc (interrupts off) must not call DOS: it gets the last
-	// time read on the main thread.
-	static TimeDate last;
+	// time read on the main thread (seeded in initBackend()), which is
+	// copied with interrupts off so it is never seen half-written.
+	uint32 flags;
 	if (!DosTimerManager::interruptsEnabled()) {
-		td = last;
+		td = g_lastTime;
 		return;
 	}
 	__dpmi_regs d1, t, d2;
@@ -391,7 +401,10 @@ void OSystem_DOS::getTimeAndDate(TimeDate &td, bool skipRecord) const {
 	td.tm_mon = d2.h.dh - 1;
 	td.tm_year = d2.x.cx - 1900;
 	td.tm_wday = d2.h.al;
-	last = td;
+	__asm__ __volatile__("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
+	g_lastTime = td;
+	if (flags & 0x200)
+		__asm__ __volatile__("sti" : : : "memory");
 }
 
 void OSystem_DOS::quit() {
