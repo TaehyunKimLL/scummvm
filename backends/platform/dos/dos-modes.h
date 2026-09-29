@@ -96,6 +96,24 @@ inline Common::List<Graphics::PixelFormat> supportedFormats(const Common::Array<
 	return out;
 }
 
+/** The size getSupportedFormats() answers for; see formatsSize(). */
+struct FormatsSize {
+	uint w, h;
+};
+
+/**
+ * getSupportedFormats() has no size argument, and SCI asks it before its
+ * own initGraphics(640, 400) while the last initSize() is still the
+ * launcher's 320x200 (base/main.cpp setupGraphics()). Answer for 640x400
+ * (the hi-res size, exact or line-repeat fallback) unless the last size
+ * asked for (@p lastW x @p lastH, 0x0 for none) is larger, then for that.
+ */
+inline FormatsSize formatsSize(uint lastW, uint lastH) {
+	if (lastW > 640 || lastH > 400)
+		return FormatsSize{ lastW, lastH };
+	return FormatsSize{ 640, 400 };
+}
+
 /** Compatibility overload: true-colour formats allowed. */
 inline Common::List<Graphics::PixelFormat> supportedFormats(const Common::Array<VideoMode> &modes, uint w, uint h) {
 	return supportedFormats(modes, w, h, true);

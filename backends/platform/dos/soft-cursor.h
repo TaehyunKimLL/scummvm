@@ -50,11 +50,21 @@ public:
 			memcpy(&_image[0], buf, _image.size());
 	}
 
-	Common::Rect draw(byte *dst, int pitch, int dstW, int dstH, int x, int y) {
+	/** No image: draw() draws nothing until the next setImage(). */
+	void clearImage() { _w = _h = 0; _image.clear(); }
+
+	/**
+	 * Draw at (x, y) into @p dst, whose pixels are @p dstBpp bytes. Draws
+	 * nothing (and saves nothing) when the image is another pixel size: its
+	 * rows would run past the destination's.
+	 */
+	Common::Rect draw(byte *dst, int pitch, uint dstBpp, int dstW, int dstH, int x, int y) {
+		if (!hasImage() || dstBpp != _bpp)
+			return _saved = Common::Rect();
 		Common::Rect r(x - _hotX, y - _hotY, x - _hotX + _w, y - _hotY + _h);
 		r.clip(Common::Rect(0, 0, dstW, dstH));
 		_saved = r;
-		if (r.isEmpty() || !hasImage())
+		if (r.isEmpty())
 			return _saved = Common::Rect();
 		_underBpp = _bpp;
 		_under.resize(r.width() * r.height() * _bpp);

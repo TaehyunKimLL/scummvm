@@ -48,11 +48,11 @@ static Graphics::PixelFormat fromSdl(SDL_PixelFormat f, bool &ok) {
 static const uint kMaxDirtyRects = 32;
 
 DosGraphicsManager::DosGraphicsManager() :
-	_modeIndex(-1), _lineRepeat(false), _vsync(false), _formatsW(640), _formatsH(400), _shotCount(0),
+	_modeIndex(-1), _lineRepeat(false), _vsync(false), _lastInitW(0), _lastInitH(0), _shotCount(0),
 	_window(nullptr), _screenChangeID(0), _pendingW(0), _pendingH(0),
 	_overlayVisible(false), _paletteDirty(false), _shakeX(0), _shakeY(0),
 	_fullDirty(false), _cursorW(0), _cursorH(0), _cursorHotX(0), _cursorHotY(0), _cursorKey(0),
-	_cursorPaletteEnabled(false), _cursorVisible(false), _mouseX(0), _mouseY(0) {
+	_cursorPaletteEnabled(false), _cursorFormatWarned(false), _cursorVisible(false), _mouseX(0), _mouseY(0) {
 	memset(_palette, 0, sizeof(_palette));
 	memset(_cursorPalette, 0, sizeof(_cursorPalette));
 	int n = 0;
@@ -80,14 +80,17 @@ DosGraphicsManager::~DosGraphicsManager() {
 }
 
 Common::List<Graphics::PixelFormat> DosGraphicsManager::getSupportedFormats() const {
-	// SCI asks before initGraphics(): until a size is asked for, answer for
-	// its hires 640x400. dos_truecolor=off leaves CLUT8 only.
-	return DOS::supportedFormats(_modes, _formatsW, _formatsH, ConfMan.get("dos_truecolor") != "off");
+	// SCI asks before its initGraphics(640, 400), while the last initSize()
+	// is still the launcher's 320x200: answer for 640x400 (exact or line
+	// repeat) unless something larger was asked for. dos_truecolor=off
+	// leaves CLUT8 only.
+	const DOS::FormatsSize size = DOS::formatsSize(_lastInitW, _lastInitH);
+	return DOS::supportedFormats(_modes, size.w, size.h, ConfMan.get("dos_truecolor") != "off");
 }
 
 void DosGraphicsManager::initSize(uint width, uint height, const Graphics::PixelFormat *format) {
-	_pendingW = _formatsW = width;
-	_pendingH = _formatsH = height;
+	_pendingW = _lastInitW = width;
+	_pendingH = _lastInitH = height;
 	_pendingFormat = format ? *format : Graphics::PixelFormat::createFormatCLUT8();
 }
 
@@ -251,7 +254,7 @@ void DosGraphicsManager::updateScreen() {
 		// At its physical position, not stretched: the hotspot row is the
 		// first copy of the mouse's logical row.
 		const int y = _lineRepeat ? DOS::physRow(_mouseY) : _mouseY;
-		Common::Rect c = _cursor.draw((byte *)s->pixels, s->pitch, s->w, s->h, _mouseX, y);
+		Common::Rect c = _cursor.draw((byte *)s->pixels, s->pitch, SDL_BYTESPERPIXEL(s->format), s->w, s->h, _mouseX, y);
 		if (!c.isEmpty())
 			send.push_back(c);
 	}
@@ -263,9 +266,13 @@ void DosGraphicsManager::updateScreen() {
 			rects.push_back(r);
 		}
 		if (_vsync) {
-			// Wait for the start of a vertical retrace (VGA input status 1, bit 3).
-			while (inportb(0x3DA) & 8) {}
-			while (!(inportb(0x3DA) & 8)) {}
+			// Wait for the start of a vertical retrace (VGA input status 1,
+			// bit 3). Each loop gives up after ~100000 port reads (tens of
+			// ms on real hardware) in case the bit never toggles.
+			uint32 n = 0;
+			while ((inportb(0x3DA) & 8) && ++n < 100000) {}
+			n = 0;
+			while (!(inportb(0x3DA) & 8) && ++n < 100000) {}
 		}
 		SDL_UpdateWindowSurfaceRects(_window, rects.empty() ? nullptr : &rects[0], (int)rects.size());
 	}
@@ -412,8 +419,14 @@ void DosGraphicsManager::convertCursor() {
 		return;
 	}
 	if (_cursorFormat.bytesPerPixel != 1) {
-		warning("DosGraphicsManager: cursor format %s differs from the screen's %s, ignored",
-				_cursorFormat.toString().c_str(), screen.toString().c_str());
+		// Nothing to show: the last image may be another pixel size than
+		// this screen's (a true-colour cursor after a switch to CLUT8).
+		_cursor.clearImage();
+		if (!_cursorFormatWarned) {
+			warning("DosGraphicsManager: cursor format %s differs from the screen's %s, not shown",
+					_cursorFormat.toString().c_str(), screen.toString().c_str());
+			_cursorFormatWarned = true;
+		}
 		return;
 	}
 	// CLUT8 on true colour: every pixel through the cursor palette when it
