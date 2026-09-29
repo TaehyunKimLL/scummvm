@@ -96,6 +96,9 @@ OSystem_DOS::~OSystem_DOS() {
 	delete _eventSource;
 }
 
+// Set once the splash screen has been shown (engines/engine.cpp).
+extern bool splash;
+
 void OSystem_DOS::initBackend() {
 	SDL_SetHint(SDL_HINT_DOS_ALLOW_DIRECT_FRAMEBUFFER, "1");
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
@@ -109,6 +112,14 @@ void OSystem_DOS::initBackend() {
 	ConfMan.registerDefault("dos_force_fallback", false);
 	ConfMan.registerDefault("dos_timer_selftest", false);
 	ConfMan.registerDefault("dos_mixer_selftest", false);
+
+	// ScummVM's splash goes to the overlay, which this backend does not
+	// show yet (it draws nothing), and deciding whether to show it made
+	// GUI::GuiManager parse the builtin theme and scale its fonts: about a
+	// second, then a fixed 0.6 s wait, on the way to every game's first
+	// frame. Engine::initGraphics() skips both once the splash has been
+	// shown. Revisit with the GUI overlay (M4).
+	splash = true;
 
 	// Seed the time a timer proc gets (getTimeAndDate() with interrupts
 	// off) before any timer runs.
