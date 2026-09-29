@@ -101,6 +101,33 @@ public:
 		TS_ASSERT_EQUALS(c.lineRepeat, false);
 	}
 
+	void test_formats_size_is_640x400_until_something_larger() {
+		TS_ASSERT_EQUALS(DOS::formatsSize(0, 0).w, 640u);
+		TS_ASSERT_EQUALS(DOS::formatsSize(0, 0).h, 400u);
+		TS_ASSERT_EQUALS(DOS::formatsSize(320, 200).w, 640u);	// the launcher's setupGraphics()
+		TS_ASSERT_EQUALS(DOS::formatsSize(320, 200).h, 400u);
+		TS_ASSERT_EQUALS(DOS::formatsSize(640, 400).h, 400u);
+		TS_ASSERT_EQUALS(DOS::formatsSize(800, 600).w, 800u);
+		TS_ASSERT_EQUALS(DOS::formatsSize(800, 600).h, 600u);
+		TS_ASSERT_EQUALS(DOS::formatsSize(640, 480).h, 480u);
+	}
+
+	void test_true_color_advertised_after_320x200_with_only_a_640x480_mode() {
+		// No 320x200/320x240 or 640x400 true-colour mode, only 640x480
+		// XRGB8888: SCI asks after the launcher's 320x200 initSize() and
+		// must still see XRGB8888 (for 640x400 by line repeat).
+		Common::Array<DOS::VideoMode> m;
+		DOS::VideoMode a = { 640, 480, DOS::xrgb8888() };
+		DOS::VideoMode b = { 320, 200, Graphics::PixelFormat::createFormatCLUT8() };
+		m.push_back(a); m.push_back(b);
+		const DOS::FormatsSize s = DOS::formatsSize(320, 200);
+		Common::List<Graphics::PixelFormat> got = DOS::supportedFormats(m, s.w, s.h, true);
+		TS_ASSERT_EQUALS(got.size(), 2u);
+		TS_ASSERT(got.front() == DOS::xrgb8888());
+		// What asking for the launcher's size itself would have said.
+		TS_ASSERT_EQUALS(DOS::supportedFormats(m, 320, 200, true).size(), 1u);
+	}
+
 	void test_disallow_true_color_reports_clut8_only() {
 		Common::List<Graphics::PixelFormat> got = DOS::supportedFormats(dosboxX(), 640, 400, false);
 		TS_ASSERT_EQUALS(got.size(), 1u);
