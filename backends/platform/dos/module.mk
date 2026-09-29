@@ -5,7 +5,8 @@ MODULE_OBJS := \
 	dos-heap.o \
 	../../graphics/dos/dos-graphics.o \
 	../../events/dos/dos-events.o \
-	../../mutex/dos/dos-mutex.o
+	../../mutex/dos/dos-mutex.o \
+	../../timer/dos/dos-timer.o
 
 # dos-heap.cpp: the heap functions run with interrupts off.
 LDFLAGS += -Wl,--wrap=malloc,--wrap=free,--wrap=realloc,--wrap=calloc,--wrap=memalign
