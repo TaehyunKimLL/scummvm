@@ -38,6 +38,7 @@
 #include <SDL3/SDL.h>
 
 #include "backends/platform/dos/dos.h"
+#include "backends/platform/dos/dos-heap.h"
 #include "common/textconsole.h"
 #include "backends/fs/posix/posix-fs-factory.h"
 #include "backends/mutex/dos/dos-mutex.h"
@@ -57,10 +58,12 @@ unsigned _stklen = 1024 * 1024;
 // Our own main() does what SDL_RunApp() would, so SDL3's definition of this
 // is not linked. NONMOVE_SBRK keeps the data segment's base fixed as the
 // heap grows (SDL3 keeps near pointers into the framebuffer); LOCK_MEMORY
-// locks code, data and stack at startup, for the interrupt handlers: the
-// debug socket's COM receive ISR (M1) and M3's timer.
-// main() clears it again, as SDL_RunApp() does, so later malloc()s are not
-// locked.
+// locks code, data and stack at startup and, left set, every later sbrk()
+// too: the interrupt handlers (the debug socket's COM receive ISR, and the
+// IRQ0 timer, whose timer procs are engine code touching the heap) must
+// never page-fault. SDL_RunApp() would clear it before the app runs; our
+// main() keeps it. Blocks of 256 KB and up come from pageable DPMI memory
+// instead, so the locked part fits in 16 MB (dos-heap.cpp).
 int _crt0_startup_flags = _CRT0_FLAG_NONMOVE_SBRK | _CRT0_FLAG_LOCK_MEMORY;
 
 OSystem_DOS::OSystem_DOS() : _eventSource(nullptr) {
@@ -153,13 +156,12 @@ void OSystem_DOS::addSysArchivesToSearchSet(Common::SearchSet &s, int priority) 
 }
 
 int main(int argc, char *argv[]) {
-	_crt0_startup_flags &= ~_CRT0_FLAG_LOCK_MEMORY;
-
 	// SDL3's VESA driver maps the framebuffer through the "fat DS" pointer.
 	if (!__djgpp_nearptr_enable()) {
 		fputs("__djgpp_nearptr_enable failed (needs a DPMI host that allows it)\n", stderr);
 		return 1;
 	}
+	dosHeapEnableLargeBlocks();
 	g_system = new OSystem_DOS();
 	int res = scummvm_main(argc, argv);
 	g_system->destroy();	// deletes the graphics manager, and with it the window
