@@ -34,6 +34,7 @@
 
 #if defined(DOS_DJGPP)
 
+#include <ctype.h>
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -86,6 +87,31 @@ int _crt0_startup_flags = _CRT0_FLAG_NONMOVE_SBRK | _CRT0_FLAG_LOCK_MEMORY;
 
 static void flushDeferredLog();
 
+namespace DOS {
+
+// "SCUMMVM.EXE" or "SCUMM.EXE": whichever main() was invoked as, so the
+// self-test and shared log can name it without an engine #ifdef. Long
+// enough for any 8.3 name plus the terminator.
+static char g_exeName[13] = "SCUMMVM.EXE";
+
+void setExeName(const char *argv0) {
+	if (!argv0 || !*argv0)
+		return;
+	const char *base = argv0;
+	for (const char *p = argv0; *p; ++p)
+		if (*p == '/' || *p == '\\')
+			base = p + 1;
+	Common::strlcpy(g_exeName, base, sizeof(g_exeName));
+	for (char *p = g_exeName; *p; ++p)
+		*p = toupper((unsigned char)*p);
+}
+
+const char *exeName() {
+	return g_exeName;
+}
+
+}
+
 OSystem_DOS::OSystem_DOS() : _eventSource(nullptr), _nullMixer(nullptr) {
 	// Runs after the timer's teardown (registered later, run earlier).
 	atexit(flushDeferredLog);
@@ -112,6 +138,9 @@ static void SDLCALL sdlLog(void *, int, SDL_LogPriority, const char *message) {
 }
 
 void OSystem_DOS::initBackend() {
+	logMessage(LogMessageType::kInfo, Common::String::format(
+		"DOS: %s %s\n", DOS::exeName(), gScummVMFullVersion).c_str());
+
 	SDL_SetLogOutputFunction(sdlLog, nullptr);
 	SDL_SetHint(SDL_HINT_DOS_ALLOW_DIRECT_FRAMEBUFFER, "1");
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
@@ -216,7 +245,7 @@ void OSystem_DOS::timerSelftest() {
 	// yields: it reads a file and takes a mutex over and over. Only a
 	// preemptive timer gets the 180 calls in; getMillis() and the BIOS
 	// tick count must agree with the RTC.
-	Common::SeekableReadStream *f = Common::FSNode("SCUMMVM.EXE").createReadStream();
+	Common::SeekableReadStream *f = Common::FSNode(DOS::exeName()).createReadStream();
 	Common::Mutex mutex;
 	byte buf[4096];
 	uint8 s = rtcSeconds();
@@ -726,6 +755,10 @@ void OSystem_DOS::addSysArchivesToSearchSet(Common::SearchSet &s, int priority) 
 }
 
 int main(int argc, char *argv[]) {
+	// Names this run for the self-test and the shared log (SCUMMVM.EXE or
+	// SCUMM.EXE), before anything might log.
+	DOS::setExeName(argc > 0 ? argv[0] : nullptr);
+
 	// Before anything can call stat(), mktime() or localtime(): with TZ
 	// unset and no zoneinfo, DJGPP's time-zone code uses a leap-second
 	// count it never set (see getTimeAndDate()) and walks that many bogus
