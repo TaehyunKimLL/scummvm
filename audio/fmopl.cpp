@@ -403,8 +403,13 @@ static OPL *createUnlogged(Config::DriverId driver, Config::OplType type) {
  *
  *  - <path>.REG: every write, "<reg> <val>" (hex, reg 000-1FF).
  *  - <path>.ON:  every key-on, i.e. a write to B0-B8 (either bank) that
- *                sets bit 5 while it was clear, "<ms> <reg> <val>" with
- *                ms = OSystem::getMillis() at the write.
+ *                sets bit 5 while it was clear, "<ms> <reg> <val> <n> <t|m>"
+ *                with ms = OSystem::getMillis() at the write, n the number
+ *                of driver timer callbacks since start() (counting the one
+ *                running), and t if the write came from inside a callback,
+ *                m if not (the main thread). With ms and n a key-on can be
+ *                placed against the driver's own clock: callback n is due
+ *                (n - 1) callback periods after the first.
  *
  * Writes may come from a timer callback, which on some ports (DOS) runs in
  * an interrupt handler, so the write path only stores into a ring buffer
@@ -436,6 +441,7 @@ public:
 
 protected:
 	void startCallbacks(int timerFrequency) override {
+		_callbacks = 0;
 		_inner->start(new Common::Functor0Mem<void, LoggingOPL>(this, &LoggingOPL::onInnerTimer), timerFrequency);
 	}
 	void stopCallbacks() override { _inner->stop(); }
@@ -443,13 +449,19 @@ protected:
 private:
 	struct Entry {
 		uint32 ms;
+		uint32 callbacks;
 		uint16 reg;
 		uint8 value;
-		uint8 keyOn;
+		uint8 flags;	// kKeyOn, kInCallback
 	};
 
 	enum {
-		// 16384 entries of 8 bytes = 128 KB. On DOS, log() runs in the
+		kKeyOn = 1,
+		kInCallback = 2
+	};
+
+	enum {
+		// 16384 entries of 12 bytes = 192 KB. On DOS, log() runs in the
 		// timer's interrupt handler, and only heap blocks under 256 KB stay
 		// locked (backends/platform/dos/dos-heap.cpp); a larger ring would
 		// be pageable and fault there. A flush every second leaves ample
@@ -461,8 +473,11 @@ private:
 	explicit LoggingOPL(Config::OplType type);
 
 	void onInnerTimer() {
+		++_callbacks;
+		++_inCallback;
 		if (_callback && _callback->isValid())
 			(*_callback)();
+		--_inCallback;
 	}
 	void log(int reg, int value);
 	void flush();
@@ -471,6 +486,8 @@ private:
 	Config::OplType _type;
 	int _activeReg;
 	uint8 _shadow[0x200];
+	volatile uint32 _callbacks;	// driver callbacks since start()
+	volatile int _inCallback;
 
 	Common::Mutex _mutex;
 	Entry *_ring;
@@ -485,6 +502,7 @@ private:
 };
 
 LoggingOPL::LoggingOPL(Config::OplType type) : _inner(nullptr), _type(type), _activeReg(0),
+	_callbacks(0), _inCallback(0),
 	_ring(nullptr), _head(0), _tail(0), _dropped(0), _lastFlush(0), _observing(false) {
 	memset(_shadow, 0, sizeof(_shadow));
 }
@@ -565,9 +583,10 @@ void LoggingOPL::log(int reg, int value) {
 	}
 	Entry &e = _ring[_head];
 	e.ms = g_system->getMillis();
+	e.callbacks = _callbacks;
 	e.reg = (uint16)reg;
 	e.value = (uint8)value;
-	e.keyOn = keyOn ? 1 : 0;
+	e.flags = (keyOn ? kKeyOn : 0) | (_inCallback ? kInCallback : 0);
 	_head = next;
 }
 
@@ -598,8 +617,9 @@ void LoggingOPL::flush() {
 	for (uint32 i = _tail; i != head; i = (i + 1) % kRingSize) {
 		const Entry &e = _ring[i];
 		reg += Common::String::format("%03X %02X\n", e.reg, e.value);
-		if (e.keyOn)
-			on += Common::String::format("%u %03X %02X\n", (unsigned)e.ms, e.reg, e.value);
+		if (e.flags & kKeyOn)
+			on += Common::String::format("%u %03X %02X %u %c\n", (unsigned)e.ms, e.reg, e.value,
+			                             (unsigned)e.callbacks, (e.flags & kInCallback) ? 't' : 'm');
 	}
 	_regFile.writeString(reg);
 	_onFile.writeString(on);
