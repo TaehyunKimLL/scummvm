@@ -13,6 +13,9 @@
 """
 
 import argparse
+import glob
+import os
+import re
 import struct
 import sys
 import unicodedata
@@ -67,6 +70,22 @@ def _ksx1001_nohanja():
             if not (0x4E00 <= cp <= 0x9FFF or 0xF900 <= cp <= 0xFAFF)]
 
 
+def _ksx1001_hangul():
+    """_ksx1001() 의 완성형 한글 2350자만 (기호, 낱자, 한자는 뺀다)."""
+    return [cp for cp in _ksx1001() if 0xAC00 <= cp <= 0xD7A3]
+
+
+def _ksx1001_symbols():
+    """_ksx1001_nohanja() 에서 한글 2350자를 뺀 것: 기호와 호환 낱자만."""
+    return [cp for cp in _ksx1001_nohanja() if not (0xAC00 <= cp <= 0xD7A3)]
+
+
+def _cp949_hangul():
+    """cp949 이 담는 현대 한글 11172자 전부 (U+AC00-U+D7A3, 유니코드 한글
+    음절 블록과 정확히 같다): "hangul" 의 다른 이름."""
+    return list(range(0xAC00, 0xD7A4))
+
+
 def _cp949():
     """cp949 (통합형 한글 코드) 가 담는 모든 글자: 2바이트 코드 0x81-0xFE x
     0x41-0xFE 중 한 글자로 디코드되는 것 전부 (현대 한글 11172자, 한자,
@@ -99,7 +118,10 @@ NAMED_RANGES = {
     "cjk-punct": lambda: list(range(0x3000, 0x3040)) + list(range(0xFF01, 0xFF5F)),
     "ksx1001": _ksx1001,
     "ksx1001-nohanja": _ksx1001_nohanja,
+    "ksx1001-hangul": _ksx1001_hangul,
+    "ksx1001-symbols": _ksx1001_symbols,
     "cp949": _cp949,
+    "cp949-hangul": _cp949_hangul,
     "kana": lambda: list(range(0x3041, 0x3100)),
     "thai": lambda: list(range(0x0E01, 0x0E3B)) + list(range(0x0E3F, 0x0E5C)),
 }
@@ -122,18 +144,177 @@ def is_mark(ch):
     return ch is not None and unicodedata.category(ch) in ("Mn", "Me")
 
 
-def parse_ranges(spec):
-    """'0E01-0E3A,0020,hangul' -> 코드 포인트 목록 (순서대로, 중복 없이).
+# --chars-from/--limit 을 붙여도 항상 남는 글자: ASCII 와 대체 상자(□).
+# font_map.cpp 의 missing=u+25a1 이 그리는 바로 그 글자다.
+ALWAYS_KEEP = set(range(0x20, 0x7F)) | {0x25A1}
 
-    16진 코드 포인트나 범위, 또는 NAMED_RANGES 의 이름. 모르는 이름은
-    ValueError.
+
+def _parse_code_value(value):
+    """"0x5e", "u+2192", 10진수 -> 코드 포인트. font_map.cpp 의
+    parseCodeValue() 와 같은 규칙 (그 함수와 달리 실패하면 None)."""
+    if not value:
+        return None
+    s, base = value, 10
+    if s[:2].lower() in ("u+", "0x"):
+        s, base = s[2:], 16
+    if not s:
+        return None
+    try:
+        n = int(s, base)
+    except ValueError:
+        return None
+    return n if 0 <= n <= 0x10FFFF else None
+
+
+def _strip_ini_comment(line):
+    """`;` 뒤가 주석이지만 앞에 공백이 있어야 한다 (font_map.cpp 와 같은
+    규칙); 줄 첫 글자가 `;` 나 `#` 이면 줄 전체가 주석."""
+    stripped = line.strip()
+    if stripped[:1] in (";", "#"):
+        return ""
+    out = []
+    for i, c in enumerate(line):
+        if c == ";" and i > 0 and line[i - 1] in " \t":
+            break
+        out.append(c)
+    return "".join(out)
+
+
+def chars_from_map(path):
+    """.MAP (hires_text INI) 에서 missing= 값과 [glyphs] 오른쪽의 절대
+    코드를 모은다. 범위의 +n 오프셋은 고정된 코드가 아니라서 뺀다."""
+    cps = []
+    section = ""
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for raw in f:
+            line = _strip_ini_comment(raw).strip()
+            if not line:
+                continue
+            if line[0] == "[" and line[-1] == "]":
+                section = line[1:-1].split(":", 1)[0].strip().lower()
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key, value = key.strip().lower(), value.strip()
+            if section == "hires" and key == "missing":
+                cp = _parse_code_value(value)
+                if cp is not None:
+                    cps.append(cp)
+            elif section == "glyphs":
+                if value.lower() == "keep" or value.startswith("+"):
+                    continue
+                cp = _parse_code_value(value)
+                if cp is not None:
+                    cps.append(cp)
+    return cps
+
+
+def chars_from_str(path):
+    """SCI-KO.STR/sci-ko.str (script<TAB>id[<TAB>room]<TAB>text, UTF-8,
+    '#' 주석) 에서 쓰인 모든 글자. translation.cpp::loadFromStream 과 같은
+    필드 나누기; room 은 숫자뿐이라 따로 가려낼 필요가 없다."""
+    cps = []
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.rstrip("\r\n")
+            if not line or line[0] == "#":
+                continue
+            parts = line.split("\t", 2)
+            if len(parts) < 3:
+                continue
+            cps.extend(ord(c) for c in parts[2])
+    return cps
+
+
+def chars_from_text_patch(path):
+    """TEXT.nnn/text.nnn (SCI 패치 포맷): 머리말은 2바이트 + 둘째 바이트가
+    적은 만큼의 추가 바이트 (resource.h kResourceHeaderSize, resource.cpp
+    processPatch() - 대개 추가 바이트는 0이라 TEXT 는 2바이트 머리말이다).
+    그 뒤는 실제 TEXT 리소스와 같은 NUL 로 나뉜 UTF-8 문자열들."""
+    with open(path, "rb") as f:
+        data = f.read()
+    if len(data) < 2:
+        return []
+    header_len = 2 + data[1]
+    if header_len > len(data):
+        header_len = 2
+    cps = []
+    for chunk in data[header_len:].split(b"\x00"):
+        if not chunk:
+            continue
+        cps.extend(ord(c) for c in chunk.decode("utf-8", errors="replace"))
+    return cps
+
+
+def _classify_chars_from(path):
+    base = os.path.basename(path)
+    stem, ext = os.path.splitext(base)
+    if base.lower() == "sci-ko.str" or ext.lower() == ".str":
+        return "str"
+    if ext.lower() == ".map":
+        return "map"
+    if stem.lower() == "text" and ext[1:].isdigit():
+        return "text"
+    return "plain"
+
+
+def _drop_layout_controls(cps):
+    """개행이나 탭 같은 ASCII 제어 문자는 화면에 그려지는 글자가 아니라
+    텍스트 레이아웃의 구분자다 (SCI TEXT 리소스는 줄바꿈을 실제 0x0A 로
+    담는다): 글꼴에 실을 대상에서 뺀다. 0x20 (스페이스) 부터는 그대로."""
+    return [cp for cp in cps if cp >= 0x20 and cp != 0x7F]
+
+
+def collect_chars_from_files(paths):
+    """--chars-from: 주어진 파일들에 쓰인 코드 포인트를 모두 모은다.
+
+    글롭 패턴(예: TEXT.*)은 쉘이 펼치지 않았다면 여기서 펼친다. 반환값은
+    (코드 포인트 목록, [(경로, 그 파일의 서로 다른 코드 포인트 수), ...]).
+    """
+    expanded = []
+    for p in paths:
+        matches = sorted(glob.glob(p))
+        expanded.extend(matches if matches else [p])
+
+    cps = []
+    counts = []
+    for path in expanded:
+        if not os.path.isfile(path):
+            sys.exit(f"--chars-from: {path} 를 찾을 수 없다")
+        kind = _classify_chars_from(path)
+        if kind == "str":
+            found = chars_from_str(path)
+        elif kind == "text":
+            found = chars_from_text_patch(path)
+        elif kind == "map":
+            found = chars_from_map(path)
+        else:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                found = [ord(c) for c in f.read()]
+        found = _drop_layout_controls(found)
+        counts.append((path, len(set(found))))
+        cps.extend(found)
+    return cps, counts
+
+
+def parse_ranges(spec):
+    """'0E01-0E3A,0020,hangul,file:sci-ko.str' -> 코드 포인트 목록 (순서대로,
+    중복 없이).
+
+    16진 코드 포인트나 범위, NAMED_RANGES 의 이름, 또는 `file:<경로>`
+    (collect_chars_from_files() 와 같은 규칙으로 그 파일이 쓴 글자를 담는다).
+    모르는 이름은 ValueError.
     """
     out = []
     for part in spec.split(","):
         part = part.strip()
         if not part:
             continue
-        if part.lower() in NAMED_RANGES:
+        if part.lower().startswith("file:"):
+            found, _ = collect_chars_from_files([part[5:]])
+            out.extend(found)
+        elif part.lower() in NAMED_RANGES:
             out.extend(NAMED_RANGES[part.lower()]())
         elif "-" in part:
             a, b = part.split("-", 1)
@@ -364,22 +545,93 @@ def main():
     ap.add_argument("--unicode", default="",
                     help="코드 포인트 순서로 굽는다 (버전 2, cmap). 16진 범위나 이름: "
                          + ", ".join(sorted(NAMED_RANGES)) +
-                         ". 예: ascii,hangul,ksx1001 (한글 11172자 + 한자). 가변폭이고, "
+                         ". 항목에 file:<경로> 를 쓰면 --chars-from 과 같은 규칙으로 "
+                         "그 파일이 쓴 글자를 담는다. 예: ascii,hangul,ksx1001 (한글 "
+                         "11172자 + 한자), ascii,ksx1001-hangul (2350 음절만). 가변폭이고, "
                          "결합 부호는 flags 비트 2 규칙으로 저장한다. 글꼴에 없는 글자 "
                          "(잉크가 없는 것, 공백 제외)는 빼서 대체 글꼴로 넘어가게 한다")
+    ap.add_argument("--chars-from", nargs="+", default=None, metavar="FILE",
+                    help="이 파일들이 쓴 코드 포인트를 모아 --unicode 와 합친다 "
+                         "(합집합). 글롭 패턴(TEXT.*)도 받는다. 파일 종류는 이름으로 "
+                         "가린다: TEXT.nnn/text.nnn (SCI 패치 - 2바이트 머리말 뒤 "
+                         "NUL 로 나뉜 UTF-8 문자열), *.str/sci-ko.str (script<TAB>id"
+                         "[<TAB>room]<TAB>text, UTF-8, # 주석), *.map (hires_text "
+                         "INI 의 missing= 과 [glyphs] 절대 코드), 그 밖은 그냥 UTF-8 "
+                         "텍스트. ASCII 와 U+25A1 은 --chars-from 유무와 무관하게 "
+                         "항상 실린다")
+    ap.add_argument("--limit", default="",
+                    help="결과를 이 코드 포인트 집합과 교집합한다 (--unicode 와 같은 "
+                         "문법, file: 항목도 된다). --chars-from 으로 모은 글자 중 "
+                         "이 집합 밖의 것은 빠지고(대체 폰트가 없으면 missing= 로 □ "
+                         "그려진다) 요약에 찍힌다. ASCII 와 U+25A1 은 --limit 과 "
+                         "무관하게 남는다. 예: --chars-from TEXT.* SCI-KO.STR "
+                         "--limit ascii,ksx1001-nohanja (게임이 쓴 글자 중 KS X 1001 "
+                         "에 있는 것만)")
+    ap.add_argument("--fail-on-drop", action="store_true",
+                    help="--limit 이 --chars-from 의 글자를 하나라도 뺐으면 "
+                         "0 이 아닌 종료 코드로 실패한다")
+    ap.add_argument("--require", action="store_true",
+                    help="모은 코드 포인트(--limit 을 거친 뒤) 중 원본 TTF 에 없는 "
+                         "것이 있으면(그려 보면 .notdef 상자) 실패한다: 목록을 찍고 "
+                         "0 이 아닌 종료 코드로 끝나며, 파일을 쓰지 않는다")
     args = ap.parse_args()
 
     cell_h = args.cell or args.size
     cell_w = args.width or cell_h
 
+    chars_from_cps = []
+    chars_from_counts = []
+    if args.chars_from:
+        chars_from_cps, chars_from_counts = collect_chars_from_files(args.chars_from)
+
     unicode_cps = None
-    if args.unicode:
+    if args.unicode or args.chars_from:
         try:
-            unicode_cps = parse_ranges(args.unicode)
+            unicode_cps = parse_ranges(args.unicode) if args.unicode else []
         except ValueError as e:
             sys.exit(f"--unicode 를 읽을 수 없다: {e}")
+        seen = set(unicode_cps)
+        for cp in chars_from_cps:
+            if cp not in seen:
+                seen.add(cp)
+                unicode_cps.append(cp)
+        for cp in ALWAYS_KEEP:
+            if cp not in seen:
+                seen.add(cp)
+                unicode_cps.append(cp)
         if not unicode_cps:
-            sys.exit("--unicode 가 빈 목록이다")
+            sys.exit("--unicode/--chars-from 이 빈 목록이다")
+
+    dropped = []
+    if args.limit:
+        if unicode_cps is None:
+            sys.exit("--limit 은 --unicode 나 --chars-from 과 함께 써야 한다")
+        try:
+            limit_cps = set(parse_ranges(args.limit))
+        except ValueError as e:
+            sys.exit(f"--limit 을 읽을 수 없다: {e}")
+        keep = limit_cps | ALWAYS_KEEP
+        dropped = sorted(cp for cp in set(chars_from_cps) if cp not in keep)
+        unicode_cps = [cp for cp in unicode_cps if cp in keep]
+        if not unicode_cps:
+            sys.exit("--limit 이 모든 글자를 뺐다")
+
+    if args.chars_from:
+        print(f"--chars-from: {sum(c for _, c in chars_from_counts)} 개 (서로 다른 "
+              f"코드 포인트, 파일별 합계 - 겹치면 더 많게 보임), 합쳐서 "
+              f"{len(set(chars_from_cps))}개")
+        for path, c in chars_from_counts:
+            print(f"  {path}: {c}")
+        if args.limit:
+            if dropped:
+                names = ", ".join(f"U+{cp:04X}({chr(cp)})" for cp in dropped)
+                print(f"  --limit 밖이라 뺀 게임 글자 {len(dropped)}개 (missing= 이 "
+                      f"있으면 □ 로 보인다): {names}")
+                if args.fail_on_drop:
+                    sys.exit(f"--fail-on-drop: --limit 이 게임이 쓴 글자 {len(dropped)}"
+                              f"개를 뺐다")
+            else:
+                print("  --limit 이 뺀 게임 글자 없음")
 
     if unicode_cps:
         codepage = 0
@@ -426,6 +678,7 @@ def main():
         chars = glyph_chars(codepage, count)
 
     kept = []   # --unicode: 실은 코드 포인트, 글리프 순서대로
+    requested_absent = []   # --require: 요청했지만 글꼴에 없는 (.notdef) 코드 포인트
     # 글꼴에 없는 글자는 .notdef (보통 네모) 로 그려진다. Pillow 는 cmap 을
     # 묻는 길이 없어서, 어느 글꼴의 cmap 에도 없는 U+10FFFF (비문자) 를 그린
     # 것과 똑같으면 없는 글자로 친다.
@@ -441,6 +694,8 @@ def main():
         absent = notdef is not None and ch is not None and img.tobytes() == notdef
         if ch is None or ink_w == 0 or absent:
             missing += 1
+        if unicode_cps and absent:
+            requested_absent.append(ord(ch))
         if unicode_cps and not unicode_keep(ord(ch), ink_w, absent):
             continue
         if unicode_cps:
@@ -473,6 +728,11 @@ def main():
             adv = max(0, min(255, adv))
             metrics += struct.pack("<BbBB", adv, max(-128, min(127, ink_x)),
                                    min(255, ink_w), 0)
+
+    if args.require and requested_absent:
+        names = ", ".join(f"U+{cp:04X}" for cp in sorted(set(requested_absent)))
+        sys.exit(f"--require: 원본 글꼴에 없는 코드 포인트 {len(set(requested_absent))}"
+                  f"개, 파일을 쓰지 않는다: {names}")
 
     flags = FLAG_VARIABLE if variable else 0
     header_size = 32
