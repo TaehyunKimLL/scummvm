@@ -91,6 +91,16 @@ configure                *-msdosdjgpp 호스트
 4바이트 포맷만 받으므로 XRGB8888 을 쓴다 (4.5절). 사용자 설정 `dos_truecolor=auto|off` (기본 auto) 가 off 면
 트루컬러를 빼서 엔진이 CLUT8 hires 로 간다.
 
+**M2 결과**: 줄 반복 공식은 `physRow(y) = y + y/5`, `repeats(y) = (y%5==4)`, 반대 방향(물리→논리)은
+`logicalRow(py) = py - (py+1)/6` — 계획 문서의 `py - py/6` 은 반복된 물리 행을 다음 논리 행으로
+잘못 매핑하는 결함이었다(0..479 전수 검증, `backends/platform/dos/line-repeat.h`).
+`getSupportedFormats()` 는 마지막 `initSize()` 가 640×400 보다 크지 않은 한 640×400 기준으로
+답한다(`DOS::formatsSize()`) — 그렇지 않으면 base 의 런처가 먼저 부르는 320×200
+`setupGraphics()` 때문에 SCI 가 640×400 용 포맷을 못 받는다(M2 리뷰에서 발견). 시험용 설정
+`dos_force_fallback=true` 는 640×400→640×480 뿐 아니라 320×200→320×240 도 줄 반복으로
+바꾼다(`chooseMode()` 가 두 크기 모두에 같은 규칙을 적용하므로). 기본값은 `dos_truecolor=auto`,
+`dos_vsync=off`, `dos_force_fallback=false`.
+
 ### 3.2 합성과 전송
 
 - 게임 화면은 게임 포맷 그대로 시스템 RAM 에 둔다. 커서를 얹어 SDL 창 서피스로 옮기고
@@ -103,7 +113,9 @@ configure                *-msdosdjgpp 호스트
   넘겨받은 사각형만 보낸다 (`SDL_dosframebuffer.c` 의 multibank 경로, 코드로 확인). 이 경로는 페이지 플리핑이 없다.
 - 설정 `dos_vsync=off|wait|flip`:
   - `off` (기본): 바로 보낸다. 찢어짐을 받아들인다. SCI0 은 화면 변화가 작다.
-  - `wait` (M2): 포트 0x3DA 로 수직 귀선을 기다린 뒤 dirty rect 를 보낸다. 백엔드만으로 된다.
+  - `wait` (M2, 구현 완료): 포트 0x3DA 로 수직 귀선을 기다린 뒤 dirty rect 를 보낸다. 백엔드만으로 된다.
+    대기 루프는 `inportb()` 10만 회를 상한으로 끊는다(`uclock()` 은 쓰지 않는다 — DJGPP 의 `uclock()`
+    은 첫 호출 때 PIT 채널 0 을 재설정해 5.4절 타이머와 부딪힌다). DOSBox-X 에서 걸림(hang) 없이 확인.
   - `flip` (M4 실기 측정 뒤, 필요할 때): VBE `4F07h` 페이지 플리핑. SDL 에 "뱅크 대신 LFB 를 쓴다" 힌트를
     더하는 작은 패치가 필요하다 (SDL 본가에 보낸다). 뒤 페이지에는 두 프레임 전 화면이 있으므로 백엔드가
     최근 두 프레임의 dirty rect 를 합쳐 넘긴다. VRAM 은 640×400 16bpp 기준 1MB 가 든다.
@@ -118,6 +130,15 @@ configure                *-msdosdjgpp 호스트
 
 direct-FB 모드에는 SDL 커서가 없으므로 소프트웨어 커서를 그린다. 밑그림을 저장해 두고 움직일 때 그 영역만
 되돌린다. CLUT8 키 컬러 커서와 트루컬러 커서를 모두 받는다.
+
+**M2 결과**: 커서 이미지(포맷·크기·핫스팟·키)는 원본 그대로 갖고 있다가, 화면 포맷이 바뀔 때마다(트랜잭션이
+끝날 때마다) 화면 포맷으로 변환해 그린다. CLUT8 커서를 트루컬러 화면에 그릴 때는 화소마다
+`RGBToColor()` 로 변환한다 — `kFeatureCursorPalette` 가 켜져 있으면 커서 팔레트를, 꺼져 있으면
+게임 팔레트를 쓴다. 키 컬러는 변환된 화소 중 어느 것도 쓰지 않는 가장 작은 값이다(최대 256가지뿐이라
+항상 찾아진다). 화면이 CLUT8 이면 하드웨어 팔레트가 하나뿐이라 커서 팔레트는 적용되지 않는다. 그 밖의
+포맷 불일치(변환되지 않는 트루컬러 간, 또는 알 수 없는 포맷)는 그림을 비우고(`clearImage()`) 아무것도
+그리지 않는다 — 이전에는 화면 bpp 와 다른 크기의 커서 이미지가 남아 있으면 프레임버퍼를 넘어 쓸 수
+있었다(M2 리뷰에서 발견, 고침).
 
 ### 3.4 GUI 오버레이 (M4)
 
@@ -151,7 +172,7 @@ EUC-KR 패치 ┘  (cp949 디코드) ③ 패치 원본 폰트 (korean.fnt, 폰�
 
 | 대상 | 내용 |
 |---|---|
-| SVFN 2bpp | `bpp=2` 를 v1/v2 모두에 허용. 행은 `(cellWidth+3)/4` 바이트, 상위 비트 쌍이 왼쪽 픽셀, 값 0–3 → 커버리지 0/85/170/255. `bitmap_font.cpp`, `glyph_source_svfn.cpp` 에서 8bpp 로 펼친다. 렌더러는 그대로. `FONT_FORMAT.md` 갱신 |
+| SVFN 2bpp | `bpp=2` 를 v1/v2 모두에 허용. 행은 `(cellWidth+3)/4` 바이트, 상위 비트 쌍이 왼쪽 픽셀, 값 0–3 → 커버리지 0/85/170/255. **M2 구현 완료**: 로더(`bitmap_font.cpp`), 렌더러(`glyph_renderer.cpp` — `expandCoverage()` 로 1/2/8bpp 공통 경로를 타게 했다; 당초 예상과 달리 렌더러도 손봤다), SCUMM(`hires_text.cpp`, 잉크 스캔과 "안티에일리어싱 여부" 판정 6곳을 `bpp>1` 기준으로), 패딩 마스크(`glyph_source_svfn.cpp`, `usedBits=(cellWidth*bpp)&7`). 8bpp 대비 화소당 커버리지 차 최대 42(≤43). `FONT_FORMAT.md` 갱신 |
 | `mkfont.py` | `--bpp 2` (C20 coverage gamma 에 맞춘 양자화), `--unicode` 묶음 `cp949`, `ksx1001-nohanja` |
 | `[hires] missing=` | 예: `missing=u+25a1`. 체인 전체에 없는 코드 포인트는 체인에서 그 글리프(□)를 그린다. 칸 폭은 원래 글자의 East Asian Width 를 따른다 (전각 16px, 반각 8px); □ 글리프는 폰트가 그 글리프에 주는 칸 수와 같은 칸에만 쓰고, 다른 폭의 칸에는 1px 테두리 상자를 그린다. (SVFN 폰트에 메트릭 표가 있으면 글리프의 칸 수는 advance 로 정한다 — advance 가 셀 폭의 절반보다 크면 2칸. East Asian Ambiguous 기호 ○ ● □ ■ △ ― 등이 전각으로 그려지므로.) 대체한 코드 포인트는 처음 한 번 로그에 남긴다. `glyph_source_fallback` 의 마지막 단계에 둔다 |
 | LRU 글리프 캐시 | FreeType 빌드 전용. `(face, size, codepoint)` → 커버리지, 기본 512KB. M2 이후 |
@@ -162,7 +183,7 @@ EUC-KR 패치 ┘  (cp949 디코드) ③ 패치 원본 폰트 (korean.fnt, 폰�
 |---|---|---|
 | `KO2350.SVF` | SVFN v2, 16px 1bpp. ASCII + KS X 1001 기호·낱자 + 완성형 2350자, 한자 없음 (≈3,500자) | ≈110KB |
 | `KO2350A.SVF` | 같은 글자, 18px 8bpp | ≈1.1MB |
-| `KOCP949.SVF` | SVFN, 18px 2bpp, cp949 전체 (한글 11172자 + 기호 + 한자, ≈17,000자) | ≈1.4MB |
+| `KOCP949.SVF` | SVFN, 18px 2bpp, cp949 전체 (한글 11172자 + 기호 + 한자) | 실측 1,192,926B / 11,695 glyphs (NanumGothic 에 한자가 없어 그 코드포인트는 □) |
 
 프리셋 맵은 설정 모음일 뿐이다.
 
@@ -176,7 +197,10 @@ FreeType 을 넣은 빌드에서는 맵이 `.ttf` 를 가리켜도 된다.
 
 ### 4.4 메모리 예산 (16MB)
 
-폰트는 파일 전체를 RAM 에 올린다. U 프리셋 최악(KOCP949 1.4MB + KO2350 0.1MB)이 1.5MB 다.
+폰트는 파일 전체를 RAM 에 올린다. **M2 실측**: U 프리셋 파일 상주분(KOCP949 1,192,926B + KO2350
+127,548B) = 1,320,474B ≈1.26MB. 여기에 그려진 글리프마다 쌓이는 캐시(KOCP949 162B/glyph, KO2350
+64B/glyph)를 더하면, 이론상 최악(두 폰트 전체 글리프를 다 그림) ≈3.24MB(memsize 16 의 ~20%), KQ1
+실측(926자 사용) ≈1.40MB(~8.8%)이다.
 FreeType 빌드는 코드 ≈0.5MB + face 당 0.1–0.2MB + 캐시 0.5MB.
 
 ### 4.5 M1/M2 를 계획하며 확인한 사실 (2026-09-28)
@@ -185,8 +209,11 @@ FreeType 빌드는 코드 ≈0.5MB + face 당 0.1–0.2MB + 캐시 0.5MB.
   비-UTF-8 단일 얼굴 경로(레거시 cp949 게임의 `face=`)도 SVFN 을 받는다 — `kProbesHangul` 아래에서 얼굴에
   한글 글리프가 없으면 경고 한 줄과 함께 거부한다. 이건 DOS 전용이 아니라 범용 i18n 기능이다 (2장 원칙 1).
   - SVFN 얼굴이 섞인 체인은 한 8bpp 셀로 맞춘다(각 얼굴을 셀 높이·top 오프셋에 맞게 `NormalizedGlyphSource`
-    로 감싼다); TTF 전용 체인은 기존 그대로 손대지 않는다. 서로 다른 높이의 비트맵 얼굴은 위쪽 정렬만 한다
-    — **M2 follow-up**: SVFN 의 ascent 로 베이스라인을 맞추거나, 체인에 들어가는 폰트들을 같은 크기로 굽는다.
+    로 감싼다); TTF 전용 체인은 기존 그대로 손대지 않는다. 서로 다른 높이의 비트맵 얼굴은 이제 베이스라인에
+    맞춰 정렬한다(**M2, `layoutFaceChain()`** — 얼굴마다 SVFN ascent 또는 TTF baseline 을 앵커로 top
+    오프셋을 계산하고, 하나라도 baseline 을 모르면 M1 의 위쪽-정렬 규칙으로 되돌아간다). TTF 전용 체인은
+    바이트 단위로 그대로임을 확인했다. `.uni` 묶음은 아직 첫 얼굴의 칸 위쪽(베이스라인 아님)에 놓인다 —
+    미해결.
   - 한국어 게임에서 hires 얼굴이 적용 중이면(맵의 `face=` 또는 `hires_text_font`) 그 얼굴이 `korean.fnt`
     보다 먼저 온다 (일본어/SJIS 순서는 그대로 — `SJIS.FNT` 가 여전히 먼저).
   - `missing=` 대체는 `GfxFontSet::faceFor` 끝에서, 모든 얼굴(`korean.fnt` 와 `.uni` 포함)이 디코드된
@@ -196,6 +223,14 @@ FreeType 빌드는 코드 ≈0.5MB + face 당 0.1–0.2MB + 캐시 0.5MB.
   - `KO2350.SVF` 실측: 글리프 2898개, 127,548바이트 (4.3 절의 ≈110KB 추정보다 큼) — neodgm 에 KS X 1001
     비한글 기호 535개가 없어, 그 글자들은 (missing= 이 있으면) □ 로 그려진다.
   - DOS L 프리셋 파일: `DATA\KO2350.SVF`, `KQ1KOL.MAP`, `LB1KOL.MAP`, `OFL.TXT`.
+  - **U 프리셋(M2) 실측**: `KOCP949.SVF` 1,192,926B / 11,695 glyphs. `KQ1KOU.MAP` 은
+    `face=ko, ko2`(`ko2=KO2350.SVF`)로 KO2350 을 뒤에 두어 KOCP949 에 없는 KS X 1001 장식 기호
+    157자(원, 괄호 숫자/한글 낱자, 옛한글 자모 등 — 일반 한글 음절은 전부 KOCP949 에 있다)를 메운다(둘
+    다 없으면 □). `LB1KOU.MAP` 은 `singleFace()` 가 첫 얼굴만 쓰므로 `face=ko` 하나뿐이다(`ko2=` 줄은
+    참고용으로 남기지만 로드되지 않는다). 두 얼굴 체인의 칸은 18×19 인데 KQ1 의 폰트 0/4/300 은 모두
+    16px 줄 칸이라 수식대로는 3행이 넘친다 — `GlyphPlacement` 규칙대로 이웃 줄 위에 그려질 수 있지만,
+    제목 메뉴·2줄 대화창·빈 인벤토리 캡처(리눅스 no-FreeType 빌드) 샘플에서는 눈에 띄는 침범이 없었다
+    (전수 증명은 아니다).
 - **SCI 는 맵의 `alpha=` 를 무시한다.** 트루컬러는 `rgb_rendering`/`palette_mods` ConfMan 설정이 있을
   때만 켜지고, 그나마 `getSupportedFormats()` 에서 처음 나오는 **4바이트** 포맷만 고른다 (`RGB565` 는
   이 경로로 절대 선택되지 않는다). **SCI 는 고치지 않는다 (M2 결정):** 4바이트만 받는 것은 8비트 커버리지
@@ -292,6 +327,10 @@ M0 스파이크 결론 (`harness/dos/spikes/RESULTS.md`, "타이머"): RTC(IRQ8,
 `sci32` 제외. 네트워크, curl, OpenGL, fluidsynth, mt32emu, 동영상·압축 오디오 코덱을 끈다. zlib 은 DJGPP 로
 빌드해 켠다. FreeType 은 선택 (`--enable-freetype2`). 환경은 `~/opt/dos-dev/env.sh`.
 
+DJGPP 빌드는 인수 없는 `%` 포맷 경고가 대량으로 뜬다(전체 재빌드 1409개, 거의 전부 `-Wformat`) —
+**M2**: MorphOS 전례처럼 `msdosdjgpp` 에 `-Wno-format` 을 켠다(`configure`). 남는 경고 1개
+(`engines/sci/graphics/text16.cpp` 의 미사용 변수)는 DOS 이식과 무관하다.
+
 툴체인 (사용자 권한, `~/opt`): DJGPP GCC 12.2 (`ar`/`ranlib` 은 `hostlib/libfl.so.2` 를 찾는 래퍼),
 SDL3 정적 `~/opt/sdl3-dos`, CWSDPMI, DOSBox Staging 0.83. DOSBox-X 2026.08.31 은 `/usr/bin/dosbox-x`.
 
@@ -322,6 +361,12 @@ EXE 는 10MB 이하가 목표 (추정). 필요하면 UPX.
    `_out` 버퍼를 `<prefix>_low.bin` 등으로 남긴다). DOS 에서는 8.3 제약 때문에 접두어를 글자 하나 +
    디렉터리로 둔다 (예: `T:\T`). DOS 는 파일 이름을 대문자로 쓰므로(`T_LOW.BIN`), 리눅스 기준 이미지와
    비교할 때 이름을 맞춰야 한다. 리눅스 하네스의 기준 이미지와 비교한다.
+   **`shot`(M2, 새 명령)**: `dump` 와 별개로 백엔드가 실제로 그린 창 서피스를 저장한다 —
+   `SHOTnnnn.RAW`(원본 행, w×bpp 피치), `SHOTnnnn.TXT`(`w h bits format`, `dump` 의 .txt 와 같은
+   줄 형식이라 파서를 공유), CLUT8 이면 `SHOTnnnn.PAL` 도 같이 남긴다. 카운터는 실행마다 0000 부터
+   (9999 를 넘기면 8.3 이름이 깨진다, 알려진 한계). `dump` 의 `_scaled.bin` 은 SCI 가 보고하는 소스
+   픽셀 크기만큼 쓰도록 고쳤다(M2) — 트루컬러 비디오 소스일 때 픽셀당 1바이트만 쓰던 버그였다
+   (범용 debug-socket/`engines/sci/debugsocket.cpp` 수정, DOS 전용 아님).
 3. **성능** — 로그에 프레임 시간, 화면 전송 시간, 타이머 지터(1kHz 대비)를 남긴다. DOSBox-X `cputype=pentium`
    은 참고용이고 판정은 실기(M4).
 
@@ -347,7 +392,7 @@ M0 의 DOS 부팅을 막은 원인은 세 가지 모두 엔진이 아니라 DJGP
 |---|---|---|
 | M0 | 스파이크 + 최소 포트 | 아래 스파이크 3건이 결론 남. KQ1 이 320×200 CLUT8 로 타이틀까지, 덤프가 기준과 일치. COM 채널로 명령 1개 왕복. **결과: 통과 — DOSBox-X / Staging (memsize 16)** (`harness/dos/spikes/RESULTS.md`, `harness/dos/m0_accept.py`) |
 | M1 | hires 텍스트, L 프리셋 | KQ1·LB1 한국어 대사가 640×400 CLUT8 에 나옴. EUC-KR 패치와 패치 원본 폰트도 확인. □ 대체 로그. **결과: 통과 — DOSBox-X / Staging.** KQ1 타이틀 + 방 1 "look", LB1 한국어 복사방지 화면(`random_seed=1`) 이 FreeType 없는 리눅스 빌드와 `_low`/`_scaled`/`_pal`/`_layer`/`_out` 바이트 단위로 일치; 모드 로그 320×200 → 640×400 CLUT8 (`harness/dos/m1_accept.py`). □ 대체와 `korean.fnt` 가 □ 보다 먼저 쓰이는 것은 수동 실행으로 확인했다 (Task 4); 자동 인수 캡처에는 없는 글리프가 없다 |
-| M2 | 알파, U 프리셋 | XRGB8888 (`rgb_rendering=true`) 에서 기준 이미지와 일치 — SCI 는 4바이트 포맷만 받으므로 RGB565 는 해당 없음. 640×480 줄 반복 폴백은 `dos_force_fallback=true` 로 시험 (두 에뮬레이터 모두 640×400 XRGB8888 이 있으므로). SVFN 2bpp |
+| M2 | 알파, U 프리셋 | XRGB8888 (`rgb_rendering=true`) 에서 기준 이미지와 일치 — SCI 는 4바이트 포맷만 받으므로 RGB565 는 해당 없음. 640×480 줄 반복 폴백은 `dos_force_fallback=true` 로 시험 (두 에뮬레이터 모두 640×400 XRGB8888 이 있으므로). SVFN 2bpp. **결과: 통과 — DOSBox-X / Staging (각 56/56 세부 항목).** 정확 640×400 RGB888@4 는 리눅스 기준과 0 화소 차(커서 제외); 640×480 줄 반복 폴백을 `logicalRow()` 로 되접으면 반복 행이 원본과 같고 `_out` 과 일치하며, 정확 모드 샷과도 커서 상자 밖에서 전부 일치; `dos_truecolor=off` 는 CLUT8 로 감; LB1 U 맵도 확인. M1/M0 회귀도 통과 (`harness/dos/m2_accept.py`) |
 | M3 | 사운드 | KQ1 타이틀 곡의 OPL 노트 온셋을 리눅스(MAME OPL) 와 비교해 편차 중앙값 ≤ 2ms, 최대 ≤ 10ms, 방 로딩 구간 최대 ≤ 20ms. MPU-401 UART 로 같은 곡이 나옴. SB PCM 효과음 1개 재생 |
 | M4 | 마무리 | GUI 오버레이, 세이브/로드, 실기 측정, 배포 패키지 |
 
