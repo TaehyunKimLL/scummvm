@@ -46,6 +46,7 @@
 
 #include "backends/platform/dos/dos.h"
 #include "backends/platform/dos/dos-heap.h"
+#include "backends/platform/dos/dos-silence.h"
 #include "backends/platform/dos/blaster.h"
 #include "common/textconsole.h"
 #include "backends/fs/posix/posix-fs-factory.h"
@@ -506,14 +507,51 @@ void OSystem_DOS::getTimeAndDate(TimeDate &td, bool skipRecord) const {
 		__asm__ __volatile__("sti" : : : "memory");
 }
 
+// The synthesizers' silencers (dos-silence.h). Main thread and exit only.
+static const int kMaxSilencers = 4;
+static struct {
+	DOS::SilenceProc proc;
+	void *param;
+} g_silencers[kMaxSilencers];
+
+void DOS::addSilencer(SilenceProc proc, void *param) {
+	for (int i = 0; i < kMaxSilencers; ++i) {
+		if (!g_silencers[i].proc) {
+			g_silencers[i].proc = proc;
+			g_silencers[i].param = param;
+			return;
+		}
+	}
+}
+
+void DOS::removeSilencer(SilenceProc proc, void *param) {
+	for (int i = 0; i < kMaxSilencers; ++i) {
+		if (g_silencers[i].proc == proc && g_silencers[i].param == param)
+			g_silencers[i].proc = nullptr;
+	}
+}
+
+void DOS::silenceAll() {
+	for (int i = 0; i < kMaxSilencers; ++i) {
+		const SilenceProc proc = g_silencers[i].proc;
+		g_silencers[i].proc = nullptr;
+		if (proc)
+			proc(g_silencers[i].param);
+	}
+}
+
 void OSystem_DOS::quit() {
 	DosTimerManager::shutdown();	// no timer procs while SDL goes away
+	// exit() skips the engine's shutdown, where the music drivers would
+	// have stopped their notes.
+	DOS::silenceAll();
 	SDL_Quit();	// text mode back, keyboard interrupt unhooked
 	exit(0);
 }
 
 void OSystem_DOS::fatalError() {
 	DosTimerManager::shutdown();
+	DOS::silenceAll();
 	SDL_Quit();
 	exit(1);
 }

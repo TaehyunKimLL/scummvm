@@ -36,6 +36,7 @@
 #include "audio/mpu401.h"
 #include "audio/musicplugin.h"
 #include "backends/platform/dos/blaster.h"
+#include "backends/platform/dos/dos-silence.h"
 #include "common/config-manager.h"
 #include "common/error.h"
 #include "common/events.h"
@@ -109,6 +110,7 @@ public:
 
 private:
 	static void countingTimerProc(void *driver);
+	static void silence(void *driver);
 	void drainInput();
 	bool writeByte(uint8 value, int waitReads);
 	bool writeCommand(uint8 cmd);
@@ -256,6 +258,8 @@ int MidiDriver_DosMPU::open() {
 
 	openLog();
 	_isOpen = true;
+	// quit() and fatalError() exit without closing us.
+	DOS::addSilencer(&silence, this);
 	debug("MPU401: UART mode at 0x%X (%s)", _data,
 	      ack && uartAck ? "reset and UART ACKed" : ack ? "reset ACKed, no UART ACK" : "no ACK, UART-only interface");
 	return 0;
@@ -264,6 +268,7 @@ int MidiDriver_DosMPU::open() {
 void MidiDriver_DosMPU::close() {
 	if (!_isOpen)
 		return;
+	DOS::removeSilencer(&silence, this);
 	// Stops the timer and sends All Notes Off on every channel.
 	MidiDriver_MPU401::close();
 	_clientProc = nullptr;
@@ -273,6 +278,25 @@ void MidiDriver_DosMPU::close() {
 	if (_lostMessages)
 		warning("MPU401: %u messages cut short by a send timeout", (unsigned)_lostMessages);
 	closeLog();
+}
+
+/**
+ * For an exit that skips close() (quit(), fatalError()), after the timer
+ * is out: Sustain Off and All Notes Off on every channel, then the reset
+ * that takes the MPU out of UART mode. Port I/O only; each byte gives up
+ * after the usual send timeout.
+ */
+void MidiDriver_DosMPU::silence(void *driver) {
+	MidiDriver_DosMPU *d = (MidiDriver_DosMPU *)driver;
+	if (!d->_isOpen)
+		return;
+	for (uint8 ch = 0; ch < 16; ++ch) {
+		const uint8 sustainOff[3] = { (uint8)(0xB0 | ch), 0x40, 0 };
+		const uint8 notesOff[3] = { (uint8)(0xB0 | ch), 0x7B, 0 };
+		d->sendBytes(sustainOff, 3);
+		d->sendBytes(notesOff, 3);
+	}
+	d->writeCommand(kCmdReset);
 }
 
 bool MidiDriver_DosMPU::sendBytes(const uint8 *bytes, uint32 len) {

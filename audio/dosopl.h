@@ -60,6 +60,8 @@ public:
 
 private:
 	void writeReg(int reg, int value, bool forcePort);
+	/** reset(), for an exit that skips the destructor (DOS::addSilencer). */
+	static void silence(void *opl);
 
 	Config::OplType _type;
 	int _activeReg;

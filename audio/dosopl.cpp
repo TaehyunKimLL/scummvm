@@ -24,6 +24,7 @@
 #include "audio/dosopl.h"
 
 #include "backends/platform/dos/blaster.h"
+#include "backends/platform/dos/dos-silence.h"
 #include "common/debug.h"
 #include "common/textconsole.h"
 
@@ -149,6 +150,7 @@ OPL::~OPL() {
 	// Stop the callbacks before silencing the chip: RealChip's destructor
 	// runs after this one.
 	stop();
+	::DOS::removeSilencer(&silence, this);
 	if (_initialized) {
 		reset();
 		_initialized = false;
@@ -172,7 +174,13 @@ bool OPL::init() {
 	debug("DOSOPL: %s at 0x%X, type %d", _opl3 ? "OPL3" : "OPL2", _base, (int)_type);
 
 	reset();
+	// quit() and fatalError() exit without destroying us.
+	::DOS::addSilencer(&silence, this);
 	return true;
+}
+
+void OPL::silence(void *opl) {
+	((OPL *)opl)->reset();
 }
 
 void OPL::reset() {
