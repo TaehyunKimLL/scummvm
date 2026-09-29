@@ -229,6 +229,18 @@ void DosGraphicsManager::updateScreen() {
 	if (!s || !surfaceFits(s))
 		return;
 
+	// SDL's DOS driver programs the VGA DAC from the window surface's
+	// palette, but SDL_CreateSurfaceFrom() gives that surface none: without
+	// one, SDL_SetPaletteColors() fails and the DAC stays all black. The
+	// surface is new after every mode change, so check each frame.
+	if (s->format == SDL_PIXELFORMAT_INDEX8 && !SDL_GetSurfacePalette(s)) {
+		if (!SDL_CreateSurfacePalette(s)) {
+			warning("DosGraphicsManager: no palette for the window surface: %s", SDL_GetError());
+			return;
+		}
+		_paletteDirty = true;
+	}
+
 	if (_paletteDirty && s->format == SDL_PIXELFORMAT_INDEX8) {
 		SDL_Color c[256];
 		for (int i = 0; i < 256; ++i) {
