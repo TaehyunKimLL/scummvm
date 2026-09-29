@@ -14,6 +14,7 @@ MODULE_OBJS := \
 	costume.o \
 	cursor.o \
 	debugger.o \
+	debugsocket.o \
 	dialogs.o \
 	file.o \
 	file_engine.o \

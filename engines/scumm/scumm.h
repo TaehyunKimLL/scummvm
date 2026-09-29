@@ -99,6 +99,7 @@ class MusicEngine;
 class Player_Towns;
 class ScummEngine;
 class ScummDebugger;
+class DebugSocket;
 class Sound;
 class Localizer;
 class GlyphRenderer_v7;
@@ -525,6 +526,7 @@ extern const char *const insaneKeymapId;
  */
 class ScummEngine : public Engine, public Common::Serializable {
 	friend class ScummDebugger;
+	friend class DebugSocket;
 	friend class CharsetRenderer;
 	friend class CharsetRendererClassic;
 	friend class CharsetRendererTownsClassic;
@@ -1829,6 +1831,16 @@ public:
 	 * the render path in later steps.
 	 */
 	ScummHiResText _hiResText;
+
+	/**
+	 * SCUMM's debug socket commands, when `debug_socket=` opened one; set by
+	 * ScummDebugger::debugSocketOpened(). Null otherwise, and then go() and
+	 * the string drawing take exactly their original paths.
+	 */
+	DebugSocket *_debugSocket = nullptr;
+
+	/// Tell _debugSocket about a string drawn: @p drawn is its characters' bytes.
+	void noteDrawnString(const Common::String &drawn);
 
 	bool _isModernMacVersion = false;
 	bool _useGammaCorrection = true;
