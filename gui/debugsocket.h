@@ -137,6 +137,11 @@ public:
  *   rtc                  DOS: at the next tick of the CMOS clock's seconds,
  *                        "<getMillis()> <RTC seconds since midnight>", to
  *                        check getMillis() against a clock of its own
+ *   mem                  DOS: __dpmi_get_free_memory_information() now, as
+ *                        "dpmi_free=<KB> largest=<KB> phys_free=<KB>
+ *                        phys_total=<KB>" (backends/platform/dos/dos-memory.h
+ *                        formats the same reading into the log at engine
+ *                        start, first frame and quit); elsewhere "n/a"
  *
  * Input goes through g_system->getEventManager()->pushEvent(), one key per
  * poll at most every 40 ms, so a game that reads one key per frame sees
