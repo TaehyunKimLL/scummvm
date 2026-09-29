@@ -297,12 +297,14 @@ IRQ0 타이머와 메인 스레드가 한 메시지를 반씩 나눠 쓰지 못�
 있다. 이 경로의 실제 타이머 주기도 100Hz(10ms)다 (`MidiDriver_MPU401` 자체의 설계 주기이며, OPL 과
 같은 늦음 패턴이 그대로 나타난다).
 
-**알려진 한계 (M3, 미해결)**: SCI 의 MT-32 경로(`engines/sci/sound/drivers/midi.cpp` 의
-`sendMt32SysEx`, `mainThread=false`)는 SysEx 를 보낸 뒤 **타이머 프로시저 안에서, 인터럽트가 꺼진
-채(IF=0)** 약 46ms 를 기다린다 — 한 실행에 5~7 회, 대략 SB 버퍼 하나 분량이다(5.3절의 "인터럽트
-꺼진 채로 믹스" 규칙과 겹쳐, 그 46ms 동안 키보드·COM 포트·Sound Blaster IRQ 가 모두 막힌다). 백엔드가
-아니라 엔진 코드이므로 이 설계(원칙 1)에서는 고치지 않는다; §8 의 타이밍 판정은 이 대기를 알려진
-지연으로 허용한다.
+**MT-32 SysEx 대기 (M3 에서 한계로 남겼다가 최종 리뷰에서 백엔드로 해결)**: SCI 의 MT-32
+경로(`engines/sci/sound/drivers/midi.cpp` 의 `sendMt32SysEx`, `mainThread=false`, 그리고
+`MidiPlayer_Midi::sysEx`)는 SysEx 를 보낸 뒤 **타이머 프로시저 안에서** `g_system->delayMillis()` 로
+약 46ms 를 기다린다 — 한 실행에 5~7 회. 처음 구현에서는 이 대기가 인터럽트를 끈 채(IF=0) 돌아 그
+46ms 동안 키보드·COM 포트·Sound Blaster IRQ 가 모두 막혔다. 엔진은 고치지 않고(원칙 1) 백엔드의
+`delayMillis` 가 타이머 프로시저 안에서 불리면 IRQ0 만 PIC 에서 마스크하고 인터럽트를 켠 채
+기다리도록 바꿨다(5.4절 "delayMillis"). 대기 자체(음악이 46ms 멈추는 것)는 엔진의 의도이므로
+그대로이고, §8 의 타이밍 판정도 이 대기를 계속 알려진 지연으로 허용한다.
 
 ### 5.3 PCM
 
@@ -355,12 +357,14 @@ M0 스파이크 결론 (`harness/dos/spikes/RESULTS.md`, "타이머"): RTC(IRQ8,
 - 주의: 우리 `main()` 은 `SDL_RunApp()` 을 거치지 않으므로 SDL3 의 `_crt0_startup_flags` 정의는 링크되지
   않는다. 그래서 `backends/platform/dos/dos.cpp` 가 직접
   `_crt0_startup_flags = _CRT0_FLAG_NONMOVE_SBRK | _CRT0_FLAG_LOCK_MEMORY` 를 정의하고 (M0 최종 수정,
-  DOSBox-X·Staging 모두 memsize 16 에서 부팅 확인), `SDL_RunApp()` 처럼 `main()` 첫 줄에서
-  `_CRT0_FLAG_LOCK_MEMORY` 를 다시 내린다 — 시작할 때 `.data`/`.bss`/`.text`/스택만 잠긴다.
+  DOSBox-X·Staging 모두 memsize 16 에서 부팅 확인). **`SDL_RunApp()` 과 달리 `main()` 은
+  `_CRT0_FLAG_LOCK_MEMORY` 를 내리지 않고 켜 둔다** — 그래서 이미지(`.text`/`.data`/`.bss`)와 스택뿐
+  아니라 이후의 모든 `sbrk()` 도 잠긴다. `dos-heap.cpp` 의 분할 힙(아래 "메모리 잠금")이 이것에
+  기대어 256KB 미만 블록을 잠긴 메모리로 내준다(M3 에서 확정; 초안의 "다시 내린다" 는 틀린 기술이었다).
   (`NONMOVE_SBRK` 는 이 DJGPP 에서 이미 기본값(0)이지만, 힙이 자라도 DS 기준이 움직이지 않아야 SDL3 가
-  들고 있는 프레임버퍼 near 포인터가 유효하므로 명시한다.) 그 뒤 `malloc()` 한 메모리는 자동으로 잠기지
-  않으므로, 핸들러가 만지는 힙 버퍼(예: 링 버퍼)는
-  `_go32_dpmi_lock_data()` 로 따로 잠그거나, 애초에 정적/사전할당 버퍼로 설계한다.
+  들고 있는 프레임버퍼 near 포인터가 유효하므로 명시한다.) 예외는 `dos-heap.cpp` 가 따로 받는 256KB
+  이상 블록뿐이다 — 이것들은 페이지 가능하므로 핸들러가 만지는 버퍼(예: 링 버퍼)는 256KB 미만으로
+  두거나 `_go32_dpmi_lock_data()` 로 따로 잠근다.
 - 이 방식이 실패하면 협력형으로 내려간다: `delayMillis()` / `pollEvent()` 에서 밀린 콜백을 실행한다.
 
 **M3 결과**: 구현 완료 (`backends/timer/dos/dos-timer.{h,cpp}`, `backends/mutex/dos/dos-mutex.{h,cpp}`,
@@ -374,8 +378,11 @@ M0 스파이크 결론 (`harness/dos/spikes/RESULTS.md`, "타이머"): RTC(IRQ8,
   IRQ0 를 in-service 상태로 남긴다 — 그래야 다음 하드웨어 인터럽트까지 안전하게 기다린다, 아래
   "인터럽트 꺼진 상태의 로깅" 참고). FPU 는 108바이트 버퍼에 `fnsave`/`frstor` 로 핸들러 진입·복귀마다
   저장·복원한다(x87 전용, SSE 없음).
-- **getMillis**: ISR 의 틱 카운터에서 뽑는다(설치 시 `__uclock()` 값에서 시드해 연속성을 유지하고,
-  설치 실패 시에만 SDL 로 폴백). `uclock()` 자체를 DJGPP 것과 다르게 재정의했다 — 분주값 1193 에서는
+- **getMillis**: ISR 의 틱 카운터에서 뽑는다(설치 시 `__uclock()` 값에서 시드해 연속성을 유지한다).
+  핸들러가 설치되기 전·설치에 실패했을 때·테어다운 뒤에는 SDL 이 아니라 `uclock()` 으로 폴백한다
+  (`uclock()×1000/UCLOCKS_PER_SEC`, 64비트 — 설치 시 시드도 같은 환산이다; 이전의 `uclock()/1193` 은
+  UCLOCKS_PER_SEC=1193180 과 어긋나 0.015% 빨랐다). SDL_GetTicks 를 쓰지 않는 까닭은 이 경로가
+  `Common::Mutex` 아래에서도 불리기 때문이다(SDL3 DOS 뮤텍스는 `sti` 를 한다). `uclock()` 자체를 DJGPP 것과 다르게 재정의했다 — 분주값 1193 에서는
   DJGPP 의 `uclock()` 이 BIOS 틱(0x46C, ≈55ms 마다 1) 단위로만 올라가므로, `SDL_Delay`/
   `SDL_GetTicks`/SDL SB 오디오의 타임아웃이 최대 55ms 까지 밀릴 수 있었다. 재정의된 `uclock()` 은
   설치 전엔 원래 `__uclock`, 설치 후엔 (틱수×1193 + 틱 안에서의 PIT 카운트)를 단조 증가로 돌려준다.
@@ -384,10 +391,35 @@ M0 스파이크 결론 (`harness/dos/spikes/RESULTS.md`, "타이머"): RTC(IRQ8,
   실행 구간에서 IRQ0 클럭이 실제 시계에서 표류하지 않는지 맞대어 본다(§8).
 - **delayMillis**: 인터럽트가 꺼진 상태(타이머 프로시저 안, 또는 뮤텍스 아래)에서는 틱이 못 올라가므로
   PIT 을 직접 폴링해 경과를 센다(`spinMillis`) — 안 그러면 무한 대기한다. SCI 의 MT-32 경로가 타이머
-  스레드에서 `delayMillis` 를 부르므로(`midi.cpp:671`) 실사용된다.
+  스레드에서 `delayMillis` 를 부르므로(`midi.cpp:671`, `:1448`) 실사용된다. **최종 리뷰 수정(I2)**:
+  타이머 프로시저 안(IRQ0 핸들러 안, `inHandler`)에서 불리면 `DosTimerManager::delayInHandler()` 가
+  마스터 PIC 에서 **IRQ0 만 마스크**(포트 0x21 비트 0)하고, IRQ0 가 PIC 에서 더 이상 in-service 가
+  아님을 확인한 뒤(`timerIsr` 는 EOI — 직접 보내든 BIOS 체인이 보내든 — 를 `handler()` 앞에서 끝낸다;
+  OCW3 로 ISR 레지스터를 읽어 비트 0 이 서 있으면 예전처럼 IF=0 으로 기다리고 `blocked` 로 센다)
+  `sti` → `spinMillis` → `cli` → 마스크 비트 복원 순으로 기다린다. 그동안 SB·COM·키보드 IRQ 는
+  제때 처리되고, IRQ0 는 마스크돼 CPU 에 닿지 못하므로 task-2 의 행(바쁜 IRET 래퍼에 중첩된 IRQ0 가
+  EOI 없이 버려짐)은 재현될 수 없다 — 대기 중 들어온 틱은 PIC 의 IRR 에 래치됐다가 핸들러의 IRET 뒤에
+  배달돼 스스로를 세고, 나머지 주기는 `spinMillis` 가 크레딧한다. 메인 스레드는 이 인터럽트에 멈춰
+  있으므로 상호 배제는 그대로다(다른 핸들러들은 각자의 잠긴 버퍼만 만진다). 메인 스레드의 뮤텍스 아래
+  `delayMillis` 는 바뀌지 않는다(IF=0 폴링). 확인: `dos_mixer_selftest` 에 톤을 튼 채 타이머
+  프로시저에서 `delayMillis(200)` 을 하고 SDL3 SB 핸들러 앞에 체인한 카운터로 SB IRQ 를 센다 —
+  DOSBox-X/Staging 모두 `sbirq=5`, `getMillis=199`, `blocked=0`; 같은 대기를 메인 스레드 뮤텍스
+  아래에서 하면 `irqoff-sbirq=0`(M3 하네스 `self` 가 판정).
+- **BIOS 체인 중 IRQ0 마스크 (최종 리뷰 수정 I1)**: `pushfl; lcall` 로 옛 INT 8 을 부르는 동안 IRQ0
+  를 PIC 에서 마스크하고 끝나면 비트 0 만 원래대로 돌린다. BIOS 자신이 INT 1Ch 를 인터럽트를 켠 채
+  부르고, INT 8 에 걸린 실모드 TSR 은 흔히 BIOS 의 EOI 뒤에 `sti` 하고 일을 한다 — 그 사이 1ms 가
+  지나면 다음 IRQ0 가 바쁜 래퍼로 들어가 EOI 없이 반환되고 IRQ0 가 영원히 in-service 로 남아 실기에서
+  멈춘다. 마스크하면 그 틱은 래치됐다가 IRET 뒤에 배달된다(체인이 1ms 를 넘기면 첫 주기 뒤의 주기는
+  잃는다 — 다른 긴 IF=0 구간과 같다). 확인: `dos_timer_selftest` 가 3초 동안 실모드 INT 1Ch 에
+  콜백을 걸어 체인 안에서 포트 0x21 을 읽는다 — `int1c=54 irq0masked=54`(Staging 55/55; 마스크를 뺀 빌드에서는 DOSBox-X
+  `irq0masked=0`).
 - **테어다운**: 정상/관리된 종료 경로에서는 일어난다 — `~OSystem_DOS`(믹서보다 먼저 타이머 매니저를
   지운다), `quit()`/`fatalError()` 가 `SDL_Quit()` 전에 부르는 `DosTimerManager::shutdown()`, 그리고
-  `atexit` 핸들러(모두 idempotent). PIT → 벡터 → 래퍼 순으로 복원한다. **알려진 한계**: 크래시로 인한
+  `atexit` 핸들러(모두 idempotent). PIT → 벡터 → 래퍼 순으로 복원한다. `quit()`/`fatalError()` 는
+  엔진의 종료(드라이버 close)를 건너뛰고 `exit()` 하므로, 타이머를 내린 다음 `DOS::silenceAll()`
+  (`backends/platform/dos/dos-silence.h`)로 드라이버가 열 때 등록하고 닫을 때 해제한 무음화 훅을 한
+  번씩 부른다 — DosOPL 은 칩 리셋, MPU-401 은 16채널 Sustain Off·All Notes Off 뒤 MPU 리셋(최종 리뷰
+  수정 M1; 한 번 부르면 등록이 지워지므로 idempotent). **알려진 한계**: 크래시로 인한
   종료(SIGSEGV, abort 등)는 이 경로들을 타지 않는다 — DJGPP 예외/시그널 핸들러를 따로 걸지 않았으므로,
   크래시 시점에 PIT 분주값과 IRQ0 벡터는 재프로그램된 채로 남는다(원래 BIOS 상태로 못 돌아간다). M3
   범위에서 고치지 않은 채 유예한다(M4 이후 과제).
