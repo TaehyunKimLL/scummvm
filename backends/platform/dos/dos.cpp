@@ -28,6 +28,7 @@
 #define FORBIDDEN_SYMBOL_EXCEPTION_exit
 #define FORBIDDEN_SYMBOL_EXCEPTION_time_h
 #define FORBIDDEN_SYMBOL_EXCEPTION_getenv
+#define FORBIDDEN_SYMBOL_EXCEPTION_setenv
 
 #include "common/scummsys.h"
 
@@ -636,6 +637,17 @@ void OSystem_DOS::addSysArchivesToSearchSet(Common::SearchSet &s, int priority) 
 }
 
 int main(int argc, char *argv[]) {
+	// Before anything can call stat(), mktime() or localtime(): with TZ
+	// unset and no zoneinfo, DJGPP's time-zone code uses a leap-second
+	// count it never set (see getTimeAndDate()) and walks that many bogus
+	// corrections in every conversion, some 200 ms each at 60000 cycles.
+	// stat() converts file times with it: seconds in all before a game
+	// starts. A zone given in TZ is parsed with no leap seconds. The
+	// clock itself comes from DOS, which has no zone, so UTC changes no
+	// time we show; a TZ the user set is kept.
+	setenv("TZ", "UTC0", 0);
+	tzset();
+
 	// SDL3's VESA driver maps the framebuffer through the "fat DS" pointer.
 	if (!__djgpp_nearptr_enable()) {
 		fputs("__djgpp_nearptr_enable failed (needs a DPMI host that allows it)\n", stderr);
