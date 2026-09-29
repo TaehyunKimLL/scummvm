@@ -47,6 +47,10 @@ public:
 	void delayMillis(uint msecs) override;
 	void getTimeAndDate(TimeDate &td, bool skipRecord = false) const override;
 
+	void engineInit() override;
+	void engineDone() override;
+	void setWindowCaption(const Common::U32String &caption) override;
+
 	void quit() override;
 	void fatalError() override;
 
