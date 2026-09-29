@@ -46,6 +46,9 @@ class SciEngine;
  *   dump <path>           the hires frame buffer, text plane, lowres,
  *                         control and priority buffers as raw files at
  *                         <path>_*.bin
+ *   textclear             drop every hi-res glyph on screen (the text
+ *                         layer), as if none had been drawn yet: a
+ *                         reference for what later text alone looks like
  *   wait <cond> [<cond>]  delay the reply until the condition holds, e.g.
  *                         room == 5 / ego.x < 100 / ego in 10 20 30 40 /
  *                         text "Hello" / windows == 0 / global 15 == 3 /
