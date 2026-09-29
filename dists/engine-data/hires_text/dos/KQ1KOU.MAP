@@ -1,0 +1,21 @@
+; DOS U preset: King's Quest I (SCI remake), Korean UTF-8 translation.
+; KOCP949.SVF (NanumGothic-Bold, 18 px, 2 bpp, ASCII + cp949) is the primary
+; face; KO2350.SVF (16 px, 1 bpp) backs it up for the ~157 KS X 1001 symbol
+; codepoints (circled digits/letters, parenthesized letters, superscripts,
+; a few Latin-1 diacritics) that NanumGothic-Bold itself lacks. Characters
+; neither face has draw U+25A1. rgb_rendering=true (scummvm.ini) is what
+; makes this render truecolor/antialiased; alpha= below is documentation
+; only, SCI ignores it (spec 4.5).
+[hires]
+scale=2
+alpha=true
+face=ko, ko2
+missing=u+25a1
+
+[fonts]
+ko=KOCP949.SVF
+ko2=KO2350.SVF
+
+[latin]
+mode=proportional
+metrics=font
