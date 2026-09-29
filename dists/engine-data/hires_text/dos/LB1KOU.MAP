@@ -1,0 +1,20 @@
+; DOS U preset: Laura Bow 1 (The Colonel's Bequest), Korean EUC-KR patch.
+; Legacy (EUC-KR) text path uses singleFace(), the first face only, so only
+; KOCP949.SVF (NanumGothic-Bold, 18 px, 2 bpp, ASCII + cp949) is active here
+; -- no ko2 fallback chain (see KQ1KOU.MAP for why KO2350 exists at all).
+; Characters KOCP949 lacks draw U+25A1. rgb_rendering=true (scummvm.ini) is
+; what makes this render truecolor/antialiased; alpha= below is
+; documentation only, SCI ignores it (spec 4.5).
+[hires]
+scale=2
+alpha=true
+face=ko
+missing=u+25a1
+
+[fonts]
+ko=KOCP949.SVF
+ko2=KO2350.SVF
+
+[latin]
+mode=proportional
+metrics=font
