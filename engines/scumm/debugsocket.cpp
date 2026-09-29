@@ -33,7 +33,7 @@ namespace Scumm {
 DebugSocket::DebugSocket(ScummEngine *vm, GUI::DebugSocket *socket) :
 	_vm(vm), _socket(socket), _loop(0), _frozen(false), _stringSeq(0), _textEpoch(0),
 	_waitActive(false), _waitStarted(false), _waitFreeze(false), _waitDeadline(0), _waitTimeout(3600),
-	_runPending(false), _runStarted(false), _runUntil(0) {
+	_runPending(false), _runStarted(false), _runUntil(0), _progressMs(0) {
 }
 
 DebugSocket::~DebugSocket() {
@@ -197,6 +197,10 @@ Common::String DebugSocket::dumpBuffers(const Common::String &prefix) {
 		return "FAIL " + prefix + "_pal";
 	f.write(_vm->_currentPalette, sizeof(_vm->_currentPalette));
 	f.close();
+	if (!f.open(Common::Path(prefix + "_pal.txt")))
+		return "FAIL " + prefix + "_pal";
+	f.writeString("256 1 3 RGB888\n");	// 256 entries of R, G, B
+	f.close();
 
 	// What the backend shows (before its own cursor and scaler).
 	Graphics::Surface *out = g_system->lockScreen();
@@ -221,6 +225,31 @@ void DebugSocket::finishWait(bool ok) {
 }
 
 void DebugSocket::poll() {
+	if (endStalled())
+		return;
+	startPending();
+}
+
+// A wait or `run` counts loops, and a loop that never ends would keep the
+// socket from reading anything, `key Return` for the dialog included. go()
+// runs no loop while the engine is paused (a modal dialog: a failed load,
+// the sound-settings warning, the GMM), so such a wait ends at once; a loop
+// that has not ended for kStallMs ends it too.
+bool DebugSocket::endStalled() {
+	if (!_waitActive && !_runPending)
+		return false;
+	const char *why = socketStall(_vm->isPaused(), g_system->getMillis(), _progressMs, kStallMs);
+	if (!why)
+		return false;
+	_waitActive = _waitStarted = false;
+	_runPending = _runStarted = false;
+	_runUntil = 0;
+	_textEpoch = _stringSeq;
+	_socket->reply(Common::String::format("TIMEOUT %u %s", _loop, why));
+	return true;
+}
+
+void DebugSocket::startPending() {
 	// Input sent while frozen reaches the game in the first loop after it:
 	// unfreeze only once the socket's key queue is empty. A click is queued
 	// when its command runs, so it is already in the event queue.
@@ -248,6 +277,7 @@ void DebugSocket::poll() {
 
 void DebugSocket::loopDone() {
 	_loop++;
+	_progressMs = g_system->getMillis();
 
 	if (_runStarted && _loop >= _runUntil) {
 		_runStarted = false;
@@ -296,8 +326,9 @@ bool DebugSocket::handle(const Common::String &cmd, const Common::StringArray &a
 		_waitFreeze = freeze;
 		_waitActive = true;
 		_waitStarted = false;
+		_progressMs = g_system->getMillis();
 		if (!_frozen)
-			poll();		// starts now, unless keys are still queued
+			startPending();		// starts now, unless keys are still queued
 		return true;	// the reply comes from loopDone()
 	}
 	if (cmd == "freeze") {
@@ -322,7 +353,8 @@ bool DebugSocket::handle(const Common::String &cmd, const Common::StringArray &a
 			_textEpoch = _stringSeq;
 			out = Common::String::format("OK %u", _loop);
 		} else {
-			poll();		// starts counting now, or once the keys are out
+			_progressMs = g_system->getMillis();
+			startPending();		// starts counting now, or once the keys are out
 		}
 		return true;
 	}
