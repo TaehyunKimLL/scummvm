@@ -256,6 +256,69 @@ tools/korean/sci0_kr_extract.py script-strings ENDIR             # = dump_script
   ink there. Camelot: banks 500-524 (8 px) and 525-549 (9 px, the outlined
   intro text), 1135 syllables, none missing and none unused.
 
+## A UTF-8 `korean.trs` for a SCUMM release from existing translations
+
+`scumm_trs_from_patch.py` writes a UTF-8 SCVMTRS bundle for an English SCUMM
+v4/v5 release out of translations made for other builds of the same game.
+Monkey Island 1, English VGA floppy (`000.LFL` md5 `15e03ffb...`):
+
+```sh
+tools/korean/scumm_trs_from_patch.py --english mi1vga \
+    --trs  'ScummVM-Kor-Trs/The Secret Of Monkey Island (Ultimate Talkie Edition DOS)/korean.trs' \
+    --trs-data mi1ute \
+    --patch mi1kor \
+    -o mi1vga/korean.trs --table provenance.tsv --report stats.txt
+```
+
+- `--trs` (primary): a bundle for another release - here the ScummVM Kor.
+  Project's Ultimate Talkie bundle (translation DUMB and 컨버러, script,
+  debugging and conversion 브리티쉬, revision 1, 2022-07-09). Its keys are
+  that release's script strings: voice escapes `FF 0A xx xx` are dropped,
+  `FF 04`-`07` variable escapes compared by code and re-pointed at the floppy's
+  variables, a floppy line the CD splits at `FF 03` is assembled from its
+  pieces, trailing `@` padding and `FF 02` are carried over, and what is
+  still unmatched is compared fuzzily within the same room (ratio >= 0.9,
+  same escapes and numbers: the CD fixed typos such as "it's own" -> "its
+  own"; each pair is listed in the report). `--trs-data` checks every key
+  against that release's scripts.
+- `--patch` (fallback): the 2005 DUMB EUC-KR patch of the same floppy
+  release. Both builds' scripts are walked opcode by opcode
+  (`scummscript.py`, below) and paired block by block (the patch changed
+  string lengths, so jumps and block sizes moved); strings the patch
+  inserted (its own credits, chapter cards) have no English key and are
+  listed, not carried.
+- Otherwise the English string stays and is left out of the bundle.
+
+Keys are the English script's bytes as they are, grouped the way
+`ScummEngine::translateText()` searches: `(room, WIO_ROOM)` for entry, exit
+and object code and object names, `(room, local script)`, `(0, global
+script)`; both orders sorted by `memcmp`. The body starts with the UTF-8 BOM.
+Legacy text is converted per character: Hangul syllables, jamo and KS X 1001
+symbols become UTF-8; escapes and the game's own glyph bytes (MI1's `0xFA`
+hard space, `0x88`/`0x82` in "Melee") stay raw - a Hanja the decoder would
+make of `0xFA` + a Hangul lead is rejected - and the renderers draw them with
+the game's font (`kRawGameByteBase`). The tool checks the bundle by running
+the engine's three look-ups for every English string.
+
+`--table` is a TSV (room, where, script, kind, provenance `ute` / `ute-split`
+/ `ute-fuzzy` / `dumb` / `none` / `n/a`, English, Korean, DUMB's text);
+`--report` has the counts, the strings left English, the patch's additions,
+the fuzzy pairs and where the two translations differ.
+
+One thing does not carry over: DUMB's sentence line puts the object first
+and asks the engine for a postposition with bit 15 of the verb variable
+(`FF 05 6B 80`, "을/를 향해"). Under a UTF-8 bundle `convertVerbMessage()`
+returns nothing for that code, so the line reads "포스터 걸어가기" where the
+patch shows "포스터를 향해 걸어가기".
+
+The translations are the fans' work, for personal use with a copy of the
+game; the bundle is not to be published.
+
+`scummscript.py <gamedir>` lists a v4 (`000.LFL` + `DISK0N.LEC`) or v5
+(`<name>.000/.001`) game's script strings with their context. It decodes only
+operand sizes (the `o4_`/`o5_` handlers) and reads each block linearly; on
+the MI1 Ultimate Talkie data it finds exactly the 5153 keys of that bundle.
+
 ## Checking the result
 
 ```sh
