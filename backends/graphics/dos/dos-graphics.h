@@ -112,7 +112,7 @@ private:
 	int _modeIndex;	///< the entry of _modes that is set, or -1
 	bool _lineRepeat;	///< 640x400 game in a 640x480 mode (line-repeat.h)
 	bool _vsync;	///< dos_vsync=wait: send in the vertical retrace
-	uint _formatsW, _formatsH;	///< the size getSupportedFormats() answers for
+	uint _lastInitW, _lastInitH;	///< the last initSize(), 0x0 before any (see DOS::formatsSize())
 	uint _shotCount;
 
 	SDL_Window *_window;
@@ -140,6 +140,7 @@ private:
 	Graphics::PixelFormat _cursorFormat;
 	byte _cursorPalette[256 * 3];
 	bool _cursorPaletteEnabled;
+	bool _cursorFormatWarned;
 	bool _cursorVisible;
 	int _mouseX, _mouseY;
 };
