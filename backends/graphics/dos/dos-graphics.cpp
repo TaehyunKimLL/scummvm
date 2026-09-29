@@ -32,6 +32,7 @@
 
 #include "backends/graphics/dos/dos-graphics.h"
 #include "backends/platform/dos/cursor-convert.h"
+#include "backends/platform/dos/dos-heap.h"
 #include "backends/platform/dos/dos-loading.h"
 #include "backends/platform/dos/line-repeat.h"
 #include "backends/platform/dos/loading-caption.h"
@@ -72,6 +73,7 @@ enum {
 	kLoadFill,
 	kLoadText,
 	kLoadDim,
+	kLoadAlert,
 	kLoadColorCount
 };
 
@@ -80,7 +82,8 @@ static const byte kLoadRgb[kLoadColorCount][3] = {
 	{ 112, 112, 136 },
 	{  64, 140, 232 },
 	{ 255, 255, 255 },
-	{ 168, 168, 168 }
+	{ 168, 168, 168 },
+	{ 232,  72,  72 }
 };
 
 DosGraphicsManager::DosGraphicsManager() :
@@ -92,7 +95,7 @@ DosGraphicsManager::DosGraphicsManager() :
 	_deferModes(false), _engineStarted(false), _modeOwed(false), _loadingShown(false), _loadingAbort(false),
 	_loadingSawUpdate(false), _loadingLitSeen(false), _loadingStart(0), _loadingLastDraw(0), _loadingLastFill(-1), _loadingLastLabel(nullptr),
 	_loadingDraws(0), _loadingDrawMs(0), _loadingCheckMs(0), _loadingChecks(0),
-	_unlockAfterPresent(false),
+	_unlockAfterPresent(false), _loadingSwallowUp(Common::EVENT_INVALID),
 	_vramOk(false), _vramGran(0), _vramWinSize(0), _vramBase(0), _vramPitch(0) {
 	memset(_palette, 0, sizeof(_palette));
 	memset(_usedColors, 0, sizeof(_usedColors));
@@ -208,10 +211,10 @@ OSystem::TransactionError DosGraphicsManager::switchMode(uint w, uint h, const G
 OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
 	if (!_pendingW)
 		return OSystem::kTransactionSuccess;
-	if (_deferModes && !_engineStarted) {
+	if (deferring()) {
 		// The launcher's size (base/main.cpp setupGraphics()), while the
-		// text loading screen is up: only the buffer for now, as long as
-		// the mode would exist.
+		// text loading screen is up or a stopped loading screen says why:
+		// only the buffer for now, as long as the mode would exist.
 		if (DOS::chooseMode(_modes, _pendingW, _pendingH, _pendingFormat, ConfMan.getBool("dos_force_fallback")).index < 0) {
 			warning("DosGraphicsManager: no %ux%u %s mode", _pendingW, _pendingH, _pendingFormat.toString().c_str());
 			_pendingW = 0;
@@ -219,7 +222,7 @@ OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
 		}
 		_modeOwed = true;
 	} else {
-		const OSystem::TransactionError err = switchMode(_pendingW, _pendingH, _pendingFormat);
+		const OSystem::TransactionError err = gameModeSwitch(_pendingW, _pendingH, _pendingFormat);
 		if (err != OSystem::kTransactionSuccess) {
 			_pendingW = 0;
 			return err;
@@ -244,10 +247,38 @@ OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
 	return OSystem::kTransactionSuccess;
 }
 
+bool DosGraphicsManager::deferring() const {
+	return !_engineStarted && (_deferModes || DOS::Loading::halted());
+}
+
+OSystem::TransactionError DosGraphicsManager::gameModeSwitch(uint w, uint h, const Graphics::PixelFormat &f) {
+	// The text stage's timer proc writes text memory: out before the mode
+	// changes, whether or not the change works.
+	const bool text = DOS::Loading::stage() == DOS::Loading::kStageText;
+	if (text)
+		DOS::Loading::stopTextUpdates();
+	const OSystem::TransactionError err = switchMode(w, h, f);
+	if (err == OSystem::kTransactionSuccess)
+		return err;
+	if (text) {
+		DOS::Loading::finish("no mode");	// nothing left to show it on
+	} else if (_loadingShown) {
+		if (_modeIndex >= 0) {
+			// The previous mode is back, _screen with it.
+			queryVramWindow();
+			lockSurfaces(true);
+			drawLoadingScreen(true);
+		} else {
+			finishLoading("no mode");
+		}
+	}
+	return err;
+}
+
 bool DosGraphicsManager::applyDeferredMode() {
 	// An engine that draws in the launcher's mode without a transaction
 	// of its own: that mode now, _screen as it is.
-	if (switchMode(_screen.w, _screen.h, _screen.format) != OSystem::kTransactionSuccess) {
+	if (gameModeSwitch(_screen.w, _screen.h, _screen.format) != OSystem::kTransactionSuccess) {
 		_modeOwed = false;	// as a failed transaction: nothing drawn
 		return false;
 	}
@@ -326,16 +357,19 @@ void DosGraphicsManager::updateScreen() {
 			_loadingSawUpdate = true;
 			DOS::Loading::enter(DOS::kLoadFirstFrame);
 		}
+		// Stopped (DOS::Loading::halt()), it stays for its message unless
+		// the game draws after all.
+		const bool halted = DOS::Loading::halted();
 		const char *why = nullptr;
 		const uint32 t0 = DOS::Loading::now();
-		const bool content = !_loadingAbort && gameHasContent();
+		const bool content = !(_loadingAbort && !halted) && gameHasContent();
 		_loadingCheckMs += DOS::Loading::now() - t0;
 		_loadingChecks++;
-		if (_loadingAbort)
+		if (_loadingAbort && !halted)
 			why = "input";
 		else if (content)
 			why = "content";
-		else if (DOS::Loading::now() - _loadingStart > kLoadingTimeoutMs)
+		else if (!halted && DOS::Loading::now() - _loadingStart > kLoadingTimeoutMs)
 			why = "timeout";
 		if (!why) {
 			loadingTick();
@@ -530,6 +564,14 @@ void DosGraphicsManager::startLoadingScreen() {
 // The phase line is laid out for the longest label.
 static const int kLoadLabelChars = 26;
 
+DOS::LoadScreenLayout DosGraphicsManager::loadingLayout(const SDL_Surface *s, Common::String &title) const {
+	title = DOS::asciiTitle(DOS::Loading::title(), s->w / DOS::kLoadGlyphW - 2);
+	const bool korean = DOS::Loading::korean();
+	const int captionW = korean ? DOS::kCaptionKoWidth : (int)strlen("Loading...") * DOS::kLoadGlyphW;
+	const int captionH = korean ? DOS::kCaptionKoHeight : DOS::kLoadGlyphH;
+	return DOS::loadScreenLayout(s->w, s->h, title.size(), captionW, captionH, kLoadLabelChars);
+}
+
 void DosGraphicsManager::drawLoadingScreen(bool full) {
 	SDL_Surface *s = _window ? SDL_GetWindowSurface(_window) : nullptr;
 	if (!s || _modeIndex < 0)
@@ -550,12 +592,10 @@ void DosGraphicsManager::drawLoadingScreen(bool full) {
 		}
 		SDL_SetPaletteColors(SDL_GetSurfacePalette(s), c, 0, 256);
 	}
+	Common::String title;
 	const bool korean = DOS::Loading::korean();
-	const Common::String title = DOS::asciiTitle(DOS::Loading::title(), s->w / DOS::kLoadGlyphW - 2);
 	const char *english = "Loading...";
-	const int captionW = korean ? DOS::kCaptionKoWidth : (int)strlen(english) * DOS::kLoadGlyphW;
-	const int captionH = korean ? DOS::kCaptionKoHeight : DOS::kLoadGlyphH;
-	const DOS::LoadScreenLayout l = DOS::loadScreenLayout(s->w, s->h, title.size(), captionW, captionH, kLoadLabelChars);
+	const DOS::LoadScreenLayout l = loadingLayout(s, title);
 	DOS::LoadCanvas canvas((byte *)s->pixels, s->pitch, s->w, s->h, SDL_BYTESPERPIXEL(s->format));
 	const byte *font = DOS::Loading::romFont();
 
@@ -574,8 +614,20 @@ void DosGraphicsManager::drawLoadingScreen(bool full) {
 	canvas.fill(fill, loadingColor(kLoadFill));
 	const char *label = DOS::Loading::phaseLabel();
 	canvas.fill(l.label, loadingColor(kLoadBg));
-	const int labelW = strlen(label) * DOS::kLoadGlyphW;
-	canvas.text(l.label.left + (l.label.width() - labelW) / 2, l.label.top, label, font, loadingColor(kLoadDim));
+	if (DOS::Loading::halted()) {
+		// Two lines where the phase was, as wide as the screen allows.
+		const Common::Rect lines(0, l.label.top, s->w, MIN<int>(s->h, l.label.top + 2 * DOS::kLoadGlyphH + 4));
+		canvas.fill(lines, loadingColor(kLoadBg));
+		for (int i = 0; i < 2; ++i) {
+			const Common::String line = DOS::asciiTitle(DOS::Loading::haltLine(i), s->w / DOS::kLoadGlyphW - 1);
+			canvas.text((s->w - (int)line.size() * DOS::kLoadGlyphW) / 2, l.label.top + i * (DOS::kLoadGlyphH + 4),
+						line.c_str(), font, loadingColor(kLoadAlert));
+		}
+		full = true;	// sent whole, below
+	} else {
+		const int labelW = strlen(label) * DOS::kLoadGlyphW;
+		canvas.text(l.label.left + (l.label.width() - labelW) / 2, l.label.top, label, font, loadingColor(kLoadDim));
+	}
 	_loadingLastFill = fill.width();
 	_loadingLastLabel = label;
 
@@ -667,6 +719,13 @@ void DosGraphicsManager::sendRectsToVram(SDL_Surface *s, const Common::Rect *rec
 			}
 		}
 	}
+	if (bank > 0) {
+		// Window A back where the BIOS left it, for anyone who assumes so.
+		__dpmi_regs b;
+		memset(&b, 0, sizeof(b));
+		b.x.ax = 0x4F05;
+		__dpmi_int(0x10, &b);
+	}
 	if (ok)
 		return;
 	Common::Array<SDL_Rect> sdl;
@@ -690,7 +749,10 @@ static void unlockRegion(uint32 &addr, uint32 &size) {
 
 static void lockRegion(const void *p, uint32 bytes, uint32 &addr, uint32 &size) {
 	unlockRegion(addr, size);
-	if (!p || !bytes)
+	// Only a large block of its own (dos-heap.cpp): the rest of the heap is
+	// locked already, and unlocking a region of it later would also unlock
+	// the pages it shares with its neighbours, which timer procs may use.
+	if (!p || !bytes || !dosHeapInLargeBlock(p, bytes))
 		return;
 	__dpmi_meminfo m;
 	m.handle = 0;
@@ -720,6 +782,7 @@ void DosGraphicsManager::lockSurfaces(bool lock) {
 		lockRegion(s->pixels, (uint32)(s->pitch * s->h), _lockAddr[0], _lockSize[0]);
 	if (_screen.getPixels())
 		lockRegion(_screen.getPixels(), (uint32)(_screen.pitch * _screen.h), _lockAddr[1], _lockSize[1]);
+	debug(1, "DOS: loading screen: locked %u + %u bytes", _lockSize[0], _lockSize[1]);
 }
 
 void DosGraphicsManager::loadingTick() {
@@ -732,10 +795,11 @@ void DosGraphicsManager::loadingTick() {
 	SDL_Surface *s = SDL_GetWindowSurface(_window);
 	if (!s)
 		return;
-	// Only when the bar has grown by a pixel or the phase changed: a
-	// redraw sends the whole screen.
-	const int barW = MIN(s->w * 60 / 100, 400) - 4;
-	const int fillW = barW * (int)DOS::Loading::permille() / 1000;
+	if (DOS::Loading::halted())
+		return;	// stopped: its message is up already (loadingHalted())
+	// Only when the bar has grown by a pixel or the phase changed.
+	Common::String title;
+	const int fillW = DOS::loadBarFill(loadingLayout(s, title).bar, DOS::Loading::permille()).width();
 	if (label == _loadingLastLabel && fillW == _loadingLastFill)
 		return;
 	drawLoadingScreen(false);
@@ -797,7 +861,10 @@ void DosGraphicsManager::finishLoading(const char *why) {
 }
 
 void DosGraphicsManager::engineStopped() {
-	finishLoading("engine done");
+	// A stopped loading screen (the engine failed before its first frame)
+	// stays up for its message; the launcher's mode waits (deferring()).
+	if (!DOS::Loading::halted())
+		finishLoading("engine done");
 	_unlockAfterPresent = false;
 	lockSurfaces(false);
 	// Back in the launcher (or the next game), modes are set as asked:
@@ -806,20 +873,40 @@ void DosGraphicsManager::engineStopped() {
 	_deferModes = false;
 }
 
-void DosGraphicsManager::loadingPoll(bool got, const Common::Event &event) {
+bool DosGraphicsManager::loadingPoll(bool got, const Common::Event &event) {
+	if (got && _loadingSwallowUp != Common::EVENT_INVALID && event.type == _loadingSwallowUp) {
+		_loadingSwallowUp = Common::EVENT_INVALID;
+		return true;	// the release of the key or button that skipped it
+	}
 	if (!_loadingShown)
-		return;
-	if (got && (event.type == Common::EVENT_KEYDOWN || event.type == Common::EVENT_LBUTTONDOWN ||
-				event.type == Common::EVENT_RBUTTONDOWN))
-		_loadingAbort = true;
+		return false;
 	loadingTick();
+	if (!got || DOS::Loading::halted())
+		return false;	// stopped: keys are for the dialog it stands for
+	Common::EventType up = Common::EVENT_INVALID;
+	if (event.type == Common::EVENT_KEYDOWN)
+		up = Common::EVENT_KEYUP;
+	else if (event.type == Common::EVENT_LBUTTONDOWN)
+		up = Common::EVENT_LBUTTONUP;
+	else if (event.type == Common::EVENT_RBUTTONDOWN)
+		up = Common::EVENT_RBUTTONUP;
+	if (up == Common::EVENT_INVALID)
+		return false;
+	_loadingAbort = true;
+	_loadingSwallowUp = up;
+	return true;
+}
+
+void DosGraphicsManager::loadingHalted() {
+	if (_loadingShown)
+		drawLoadingScreen(true);
 }
 
 void DosGraphicsManager::showOverlay(bool inGUI) {
 	// A dialog before the game's mode (an error, say) cannot be shown:
 	// the text screen says so.
-	if (DOS::Loading::stage() == DOS::Loading::kStageText)
-		DOS::Loading::halt("A message could not be shown (no GUI yet): see SCUMMVM.LOG. Enter goes on.");
+	DOS::Loading::halt(nullptr);
+	loadingHalted();
 	static bool warned = false;
 	if (!warned) {
 		warning("DosGraphicsManager: the GUI overlay is not shown before M4");

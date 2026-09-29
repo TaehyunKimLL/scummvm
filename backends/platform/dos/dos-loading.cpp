@@ -362,6 +362,7 @@ void finish(const char *why) {
 	const bool graphics = g_stage == kStageGraphics;
 	g_progress.enter(kLoadDone, t);
 	g_stage = kStageOff;
+	g_halted = false;
 	g_hook = nullptr;
 	if (g_system)
 		g_system->logMessage(LogMessageType::kInfo, Common::String::format(
@@ -369,14 +370,54 @@ void finish(const char *why) {
 			(uint)t, (uint)(graphics ? g_graphicsMs : t), (uint)(graphics ? t - g_graphicsMs : 0), why).c_str());
 }
 
-void halt(const char *message) {
-	if (g_stage != kStageText || g_halted)
+static char g_lastWarning[80];
+static char g_haltReason[80];
+static const char kHaltWhere[] = "See SCUMMVM.LOG. Enter continues.";
+
+void noteWarning(const char *message) {
+	// The GUI's own complaints come as a dialog is built, just before it
+	// fails to show; they would hide the warning that says what went wrong.
+	static const char *const kNoise[] = { "theme", "gui-icons", "translations.dat", "GUI overlay", "hardware input", nullptr };
+	if (g_stage == kStageOff)
 		return;
+	for (int i = 0; kNoise[i]; ++i)
+		if (strstr(message, kNoise[i]))
+			return;
+	if (!strncmp(message, "WARNING: ", 9))
+		message += 9;
+	uint n = 0;
+	for (; message[n] && message[n] != '\n' && n < sizeof(g_lastWarning) - 1; ++n) {
+		const byte c = (byte)message[n];
+		g_lastWarning[n] = (c < 0x20 || c >= 0x7F) ? '?' : (char)c;
+	}
+	g_lastWarning[n] = '\0';
+}
+
+void halt(const char *reason) {
+	if (g_stage == kStageOff || g_halted)
+		return;
+	const char *why = reason ? reason : g_lastWarning[0] ? g_lastWarning : "A message could not be shown (no GUI yet).";
+	snprintf(g_haltReason, sizeof(g_haltReason), "Stopped: %s", why);
 	g_halted = true;
+	if (g_stage != kStageText)
+		return;
 	const uint32 flags = cli();
 	textRow(kRowLabel, "Stopped.", 0x0C);
-	textRow(kRowHalt, message, 0x0C);
+	textRow(kRowHalt, g_haltReason, 0x0C);
+	textRow(kRowHalt + 1, kHaltWhere, 0x0C);
 	restoreFlags(flags);
+}
+
+bool halted() {
+	return g_stage != kStageOff && g_halted;
+}
+
+const char *haltLine(int line) {
+	return line == 0 ? g_haltReason : kHaltWhere;
+}
+
+void stopTextUpdates() {
+	stopTimer();
 }
 
 void teardown() {
