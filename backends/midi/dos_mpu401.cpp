@@ -75,9 +75,11 @@ const int kStallMessages = 4;
 
 /**
  * The optional byte log (dos_midi_log=<path>): records are
- * [ms:4][len:2][bytes], len bit 15 set if the message was cut short by a
- * send timeout. The ring is allocated at open() and stays below 256 KB so
- * the DOS heap hands out locked memory for it.
+ * [ms:4][ticks:4][len:2][bytes], ticks the number of timer callbacks so far
+ * (bit 31 set if the message was sent from outside one, i.e. by the main
+ * thread), len bit 15 set if the message was cut short by a send timeout.
+ * The ring is allocated at open() and stays below 256 KB so the DOS heap
+ * hands out locked memory for it.
  */
 const uint32 kLogRingSize = 128 * 1024;	// power of two
 const uint32 kLogFlushInterval = 1000;	// ms between flushes from the event loop
@@ -103,7 +105,10 @@ public:
 
 	void flushLog();
 
+	void setTimerCallback(void *timerParam, Common::TimerManager::TimerProc timerProc) override;
+
 private:
+	static void countingTimerProc(void *driver);
 	void drainInput();
 	bool writeByte(uint8 value, int waitReads);
 	bool writeCommand(uint8 cmd);
@@ -130,11 +135,40 @@ private:
 	uint32 _logDropped;
 	uint32 _lastFlush;
 	bool _observing;
+
+	// The client's timer proc, called through countingTimerProc so each
+	// logged message carries the number of timer callbacks (the driver's
+	// own clock, 100 Hz) it was sent in.
+	void *_clientParam;
+	Common::TimerManager::TimerProc _clientProc;
+	volatile uint32 _ticks;
+	volatile bool _inTimer;
 };
 
 MidiDriver_DosMPU::MidiDriver_DosMPU(uint16 base) : _data(base), _status(base + 1), _isOpen(false),
 	_stalledMessages(0), _lostMessages(0), _discardedInput(0),
-	_logFile(nullptr), _ring(nullptr), _head(0), _tail(0), _logDropped(0), _lastFlush(0), _observing(false) {
+	_logFile(nullptr), _ring(nullptr), _head(0), _tail(0), _logDropped(0), _lastFlush(0), _observing(false),
+	_clientParam(nullptr), _clientProc(nullptr), _ticks(0), _inTimer(false) {
+}
+
+void MidiDriver_DosMPU::setTimerCallback(void *timerParam, Common::TimerManager::TimerProc timerProc) {
+	if (timerProc && !_clientProc) {
+		_clientParam = timerParam;
+		_clientProc = timerProc;
+		MidiDriver_MPU401::setTimerCallback(this, &countingTimerProc);
+	} else if (!timerProc) {
+		MidiDriver_MPU401::setTimerCallback(nullptr, nullptr);
+		_clientProc = nullptr;
+	}
+}
+
+void MidiDriver_DosMPU::countingTimerProc(void *driver) {
+	MidiDriver_DosMPU *d = (MidiDriver_DosMPU *)driver;
+	++d->_ticks;
+	d->_inTimer = true;
+	if (d->_clientProc)
+		d->_clientProc(d->_clientParam);
+	d->_inTimer = false;
 }
 
 MidiDriver_DosMPU::~MidiDriver_DosMPU() {
@@ -232,6 +266,7 @@ void MidiDriver_DosMPU::close() {
 		return;
 	// Stops the timer and sends All Notes Off on every channel.
 	MidiDriver_MPU401::close();
+	_clientProc = nullptr;
 	_isOpen = false;
 	// A reset takes the MPU out of UART mode for the next program.
 	writeCommand(kCmdReset);
@@ -289,16 +324,18 @@ void MidiDriver_DosMPU::sysEx(const byte *msg, uint16 length) {
 	bool ok = sendBytes(&start, 1) && sendBytes(msg, length) && sendBytes(&end, 1);
 	if (_ring) {
 		// Log it as one message: F0 <msg> F7.
-		uint32 need = 6 + length + 2;
+		uint32 need = 10 + length + 2;
 		if (kLogRingSize - (_head - _tail) < need) {
 			++_logDropped;
 			return;
 		}
 		uint32 ms = g_system->getMillis();
+		uint32 ticks = _ticks | (_inTimer ? 0 : 0x80000000u);
 		uint32 len = (length + 2) | (ok ? 0 : 0x8000);
-		const uint8 header[7] = { (uint8)ms, (uint8)(ms >> 8), (uint8)(ms >> 16), (uint8)(ms >> 24),
-		                          (uint8)len, (uint8)(len >> 8), start };
-		for (uint32 i = 0; i < 7; ++i)
+		const uint8 header[11] = { (uint8)ms, (uint8)(ms >> 8), (uint8)(ms >> 16), (uint8)(ms >> 24),
+		                           (uint8)ticks, (uint8)(ticks >> 8), (uint8)(ticks >> 16), (uint8)(ticks >> 24),
+		                           (uint8)len, (uint8)(len >> 8), start };
+		for (uint32 i = 0; i < 11; ++i)
 			_ring[(_head++) & (kLogRingSize - 1)] = header[i];
 		for (uint32 i = 0; i < length; ++i)
 			_ring[(_head++) & (kLogRingSize - 1)] = msg[i];
@@ -310,16 +347,18 @@ void MidiDriver_DosMPU::sysEx(const byte *msg, uint16 length) {
 void MidiDriver_DosMPU::logMessage(const uint8 *bytes, uint32 len, bool cut) {
 	if (!_ring)
 		return;
-	uint32 need = 6 + len;
+	uint32 need = 10 + len;
 	if (kLogRingSize - (_head - _tail) < need) {
 		++_logDropped;
 		return;
 	}
 	uint32 ms = g_system->getMillis();
+	uint32 ticks = _ticks | (_inTimer ? 0 : 0x80000000u);
 	uint32 l = len | (cut ? 0x8000 : 0);
-	const uint8 header[6] = { (uint8)ms, (uint8)(ms >> 8), (uint8)(ms >> 16), (uint8)(ms >> 24),
-	                          (uint8)l, (uint8)(l >> 8) };
-	for (uint32 i = 0; i < 6; ++i)
+	const uint8 header[10] = { (uint8)ms, (uint8)(ms >> 8), (uint8)(ms >> 16), (uint8)(ms >> 24),
+	                           (uint8)ticks, (uint8)(ticks >> 8), (uint8)(ticks >> 16), (uint8)(ticks >> 24),
+	                           (uint8)l, (uint8)(l >> 8) };
+	for (uint32 i = 0; i < 10; ++i)
 		_ring[(_head++) & (kLogRingSize - 1)] = header[i];
 	for (uint32 i = 0; i < len; ++i)
 		_ring[(_head++) & (kLogRingSize - 1)] = bytes[i];
@@ -376,9 +415,11 @@ void MidiDriver_DosMPU::notifyPoll() {
 }
 
 /**
- * Writes the records in the ring as "<ms> <hex bytes>" lines (a "!" at the
- * end marks a message cut short by a send timeout). Main thread only: from
- * the event loop, close() and atexit.
+ * Writes the records in the ring as "<ms> <hex bytes>[ !] @<ticks>[m]"
+ * lines: "!" marks a message cut short by a send timeout; ticks is the
+ * number of timer callbacks so far (the one sending included), "m" that the
+ * message came from the main thread rather than a timer callback. Main
+ * thread only: from the event loop, close() and atexit.
  */
 void MidiDriver_DosMPU::flushLog() {
 	if (!_logFile || !_ring)
@@ -395,9 +436,11 @@ void MidiDriver_DosMPU::flushLog() {
 	char line[64];
 	uint32 t = _tail;
 	while (t != head) {
-		uint32 ms = 0, len = 0;
+		uint32 ms = 0, ticks = 0, len = 0;
 		for (int i = 0; i < 4; ++i)
 			ms |= (uint32)_ring[(t++) & (kLogRingSize - 1)] << (8 * i);
+		for (int i = 0; i < 4; ++i)
+			ticks |= (uint32)_ring[(t++) & (kLogRingSize - 1)] << (8 * i);
 		for (int i = 0; i < 2; ++i)
 			len |= (uint32)_ring[(t++) & (kLogRingSize - 1)] << (8 * i);
 		bool cut = (len & 0x8000) != 0;
@@ -408,7 +451,11 @@ void MidiDriver_DosMPU::flushLog() {
 			n = snprintf(line, sizeof(line), " %02X", _ring[(t++) & (kLogRingSize - 1)]);
 			fwrite(line, 1, n, _logFile);
 		}
-		fwrite(cut ? " !\n" : "\n", 1, cut ? 3 : 1, _logFile);
+		if (cut)
+			fwrite(" !", 1, 2, _logFile);
+		n = snprintf(line, sizeof(line), " @%u%s\n", (unsigned)(ticks & 0x7FFFFFFF),
+		             (ticks & 0x80000000u) ? "m" : "");
+		fwrite(line, 1, n, _logFile);
 	}
 	if (dropped) {
 		int n = snprintf(line, sizeof(line), "# ring full, %u messages not logged\n", (unsigned)dropped);
