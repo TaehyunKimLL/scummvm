@@ -54,6 +54,20 @@ public:
 	 */
 	static void spinMillis(uint msecs);
 
+	/** True while a timer proc runs, i.e. inside the IRQ0 handler. */
+	static bool inHandler();
+
+	/**
+	 * delayMillis() for a timer proc: waits @p msecs by polling the PIT,
+	 * with IRQ0 masked at the PIC and interrupts on, so the other IRQs
+	 * are served during the wait. Called with interrupts off, returns
+	 * with them off.
+	 */
+	static void delayInHandler(uint msecs);
+
+	/** Times delayInHandler() found IRQ0 still in service (and waited with interrupts off). */
+	static uint32 delaysBlocked();
+
 	/**
 	 * Takes the handler out (PIT and vector back) ahead of the destructor,
 	 * for quit() and fatalError(). Idempotent.

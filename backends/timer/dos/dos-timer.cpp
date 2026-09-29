@@ -71,6 +71,7 @@ struct IsrState {
 static IsrState g_isr;
 
 static volatile bool g_installed = false;
+static uint32 g_isrDelayBlocked = 0;	// delayInHandler() found IRQ0 in service
 static bool g_atexitDone = false;
 static _go32_dpmi_seginfo g_oldVector, g_newVector;
 static uclock_t g_uclockBase = 0;	// uclock() when the handler went in
@@ -100,6 +101,30 @@ static inline uint16 pitRead() {
 	return lo | (inportb(0x40) << 8);
 }
 
+// IRQ0's bit in the master PIC's mask register (port 0x21). Masking holds
+// an IRQ0 back without losing it: the PIC still latches the request, and
+// delivers it once the bit is clear again and interrupts are on.
+static inline uint8 maskIrq0() {
+	const uint8 m = inportb(0x21);
+	outportb(0x21, m | 0x01);
+	return m & 0x01;
+}
+// Puts back bit 0 alone, so a change to the other IRQs' bits made in the
+// meantime (by a real-mode handler in the BIOS chain, say) stays.
+static inline void restoreIrq0(uint8 wasMasked) {
+	const uint8 m = inportb(0x21);
+	outportb(0x21, (m & ~0x01) | wasMasked);
+}
+
+// The master PIC's in-service register (OCW3 0x0B selects it, 0x0A puts
+// the IRR back as the default read).
+static inline uint8 picInService() {
+	outportb(0x20, 0x0B);
+	const uint8 isr = inportb(0x20);
+	outportb(0x20, 0x0A);
+	return isr;
+}
+
 // Advances the clock by one PIT period.
 static void tickClock() {
 	g_isr.ticks++;
@@ -119,11 +144,27 @@ static void timerIsr() {
 		// The old handler (reflected to the BIOS) bumps 0040:006C, calls
 		// INT 1Ch and sends its own EOI. pushfl + lcall build the frame
 		// its IRET pops.
+		//
+		// IRQ0 is masked at the PIC while it runs. Real-mode code in that
+		// chain may turn interrupts on after the BIOS's EOI -- the BIOS
+		// itself runs INT 1Ch with interrupts on, and a TSR hooked on INT 8
+		// commonly does its work after chaining to the BIOS. A tick that
+		// came in then would enter the IRET wrapper while it is busy, which
+		// returns at once without an EOI: IRQ0, and every IRQ below it,
+		// would stay in service for good. Masked, the PIC latches that
+		// tick instead and delivers it after our IRET, where it counts
+		// itself as a tick that came in with interrupts off would (a chain
+		// that ran over 1 ms still loses the periods after the first, as
+		// any long interrupts-off stretch does).
+		const uint8 wasMasked = maskIrq0();
 		__asm__ __volatile__("pushfl; lcall *%0" : : "m"(g_isr.oldInt8) : "memory", "cc");
+		restoreIrq0(wasMasked);
 	} else {
 		outportb(0x20, 0x20);
 	}
 
+	// IRQ0 is out of service at the PIC from here on: the EOI above, or
+	// the BIOS's own in the chain. delayInHandler() relies on that.
 	if (++g_isr.sinceHandler < kHandlerEvery || g_isr.inHandler || !g_isr.timer)
 		return;
 	// Interrupts must stay off through handler(): a tick that came in now
@@ -131,7 +172,9 @@ static void timerIsr() {
 	// without an EOI, from an entry nested in its own, and IRQ0 and every
 	// lower-priority IRQ would stay in service for good. Hence no DOS calls
 	// in timer procs (OSystem_DOS::logMessage defers its file writes while
-	// interrupts are off). inHandler is only a backstop.
+	// interrupts are off). The one place that turns them on is
+	// delayInHandler(), with IRQ0 masked at the PIC. inHandler is only a
+	// backstop.
 	g_isr.sinceHandler = 0;
 	g_isr.inHandler = true;
 	// Timer procs may use the FPU; the code we interrupted may be in the
@@ -232,8 +275,9 @@ static bool install() {
 		return false;
 	}
 
-	// getMillis() until now (OSystem_DOS's fallback): uclock() in ms.
-	const uint32 startMillis = (uint32)(base / (UCLOCKS_PER_SEC / 1000));
+	// getMillis() until now (OSystem_DOS's fallback): uclock() in ms,
+	// scaled the same way.
+	const uint32 startMillis = (uint32)((uint64)base * 1000 / UCLOCKS_PER_SEC);
 	const uint32 flags = irqSave();
 	g_uclockBase = base;
 	g_uclockLast = base;
@@ -278,19 +322,30 @@ void DosTimerManager::spinMillis(uint msecs) {
 	// The count falls from 1193 to 1 once a millisecond; each time it goes
 	// up again, one period has passed. A port read takes about a
 	// microsecond, so no period slips by unseen.
+	//
+	// Interrupts may be on here (delayInHandler(), IRQ0 masked), so each
+	// read is made with them off: no handler comes between the latch and
+	// the two bytes. A handler that ran for over 1 ms between two reads
+	// would hide a period; the ones that can (the COM, keyboard and Sound
+	// Blaster handlers) take microseconds.
 	uint wraps = 0;
+	uint32 flags = irqSave();
 	uint16 prev = pitRead();
+	irqRestore(flags);
 	while (wraps < msecs) {
+		flags = irqSave();
 		const uint16 c = pitRead();
+		irqRestore(flags);
 		if (c > prev)
 			wraps++;
 		prev = c;
 	}
-	// The PIC holds one IRQ0 back for when interrupts come on again, and
-	// that one counts itself; the other periods would be lost. Their BIOS
+	// The PIC holds one IRQ0 back (interrupts off, or IRQ0 masked) for
+	// when it can be delivered, and that one counts itself; the other
+	// periods would be lost. Their BIOS
 	// ticks are counted here too (chaining to INT 8 outside the handler
 	// would send a stray EOI): 0040:006C, wrapping at midnight.
-	const uint32 flags = irqSave();
+	flags = irqSave();
 	for (uint i = 1; i < wraps; ++i) {
 		tickClock();
 		if (DOS::pitTick(g_isr.chain)) {
@@ -303,6 +358,43 @@ void DosTimerManager::spinMillis(uint msecs) {
 		}
 	}
 	irqRestore(flags);
+}
+
+bool DosTimerManager::inHandler() {
+	return g_isr.inHandler;
+}
+
+void DosTimerManager::delayInHandler(uint msecs) {
+	// A timer proc that waits (SCI's MT-32 driver, ~46 ms after a SysEx)
+	// would otherwise hold every interrupt off for the whole wait: the
+	// Sound Blaster's, the keyboard's, the COM port's. Only IRQ0 must not
+	// come in -- it would nest in the busy IRET wrapper (see timerIsr()) --
+	// so it alone is masked, and interrupts go on for the wait. Nothing
+	// else can run into the timer procs' state meanwhile: the main thread
+	// is the code this interrupt stopped, and the other handlers (the
+	// debug socket's COM, SDL3's keyboard and Sound Blaster) touch only
+	// their own locked buffers.
+	//
+	// IRQ0 is no longer in service here (timerIsr() sends or chains the
+	// EOI before handler() runs), so the IRQs below it get through; had it
+	// still been, they would stay blocked and the wait would be the old
+	// interrupts-off one, which is what happens then.
+	const uint8 wasMasked = maskIrq0();
+	if (picInService() & 0x01) {
+		g_isrDelayBlocked++;
+		spinMillis(msecs);
+	} else {
+		__asm__ __volatile__("sti" : : : "memory");
+		spinMillis(msecs);
+		__asm__ __volatile__("cli" : : : "memory");
+	}
+	restoreIrq0(wasMasked);
+	// An IRQ0 that came in during the wait is latched and delivered after
+	// the handler's IRET; spinMillis() credited the other periods.
+}
+
+uint32 DosTimerManager::delaysBlocked() {
+	return g_isrDelayBlocked;
 }
 
 void DosTimerManager::shutdown() {
