@@ -449,7 +449,12 @@ private:
 	};
 
 	enum {
-		kRingSize = 65536,
+		// 16384 entries of 8 bytes = 128 KB. On DOS, log() runs in the
+		// timer's interrupt handler, and only heap blocks under 256 KB stay
+		// locked (backends/platform/dos/dos-heap.cpp); a larger ring would
+		// be pageable and fault there. A flush every second leaves ample
+		// room: SCI music writes a few hundred registers a second.
+		kRingSize = 16384,
 		kFlushInterval = 1000
 	};
 
