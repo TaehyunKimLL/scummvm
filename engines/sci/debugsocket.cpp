@@ -994,7 +994,7 @@ bool DebugSocket::dumpBuffers(const Common::String &prefix) {
 			f.writeString(Common::String::format("%d %d %d %d %d %d %d %d %d %d %d\n", w, h, pf.bytesPerPixel,
 				8 - pf.rLoss, 8 - pf.gLoss, 8 - pf.bLoss, 8 - pf.aLoss, pf.rShift, pf.gShift, pf.bShift, pf.aShift));
 			f.close();
-		}
+		} else ok = false;
 		if (const TextLayer *tl = scr->textLayer()) {
 			if (f.open(Common::Path(prefix + "_layer.bin"))) {
 				for (uint16 y = 0; y < tl->height(); y++)
