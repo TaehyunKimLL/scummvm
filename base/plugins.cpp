@@ -142,6 +142,9 @@ public:
 		#if defined(EMSCRIPTEN)
 		LINK_PLUGIN(WEBMIDI)
 		#endif
+		#if defined(DOS_DJGPP)
+		LINK_PLUGIN(MPU401)
+		#endif
 
 		#endif // defined(__LIBRETRO__)
 
