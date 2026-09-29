@@ -25,6 +25,7 @@
 #include "common/array.h"
 #include "common/str.h"
 #include "common/str-enc.h"
+#include "common/util.h"
 #include "graphics/hires_text/glyph_source.h"
 #include "graphics/hires_text/text_layout.h"
 #include "sci/detection.h"
@@ -137,6 +138,19 @@ struct GlyphPlacement {
 	bool active() const { return rasterPx > 0 && cellPx > 0 && (rasterPx != cellPx || dx != 0 || dy != 0); }
 	int offsetX(bool wide) const { return wide ? dx : 0; }
 	int offsetY() const { return dy; }
+
+	/**
+	 * The hi-res rows a glyph laid out on a line starting at @p lineTop may
+	 * ink: the text line, @p gameLine rows (the game font's line height,
+	 * hi-res) or the layout cell if that is taller; [@p top, @p bottom).
+	 * The game erases a line by these rows and no others, so ink the raster
+	 * puts outside them (a face taller than the cell, or moved by dy) would
+	 * stay behind once the text is gone: it is not drawn. Pure.
+	 */
+	void lineRows(int lineTop, int gameLine, int &top, int &bottom) const {
+		top = lineTop;
+		bottom = lineTop + MAX(gameLine, cellPx);
+	}
 
 	/**
 	 * The placement:

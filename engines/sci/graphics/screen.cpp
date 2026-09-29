@@ -547,7 +547,7 @@ void GfxScreen::putHiresCoverageGlyph(const byte *coverage, int16 w, int16 h, in
 }
 
 void GfxScreen::putHiresCoverageGlyphAt(const byte *coverage, int16 w, int16 h, int16 hiresX, int16 hiresY, byte color,
-										bool clipToPort) {
+										bool clipToPort, const Common::Rect *clipAlso) {
 	if (!clipToPort) {
 		putHiresCoverageGlyphAt(coverage, w, h, hiresX, hiresY, color);
 		return;
@@ -559,6 +559,8 @@ void GfxScreen::putHiresCoverageGlyphAt(const byte *coverage, int16 w, int16 h, 
 		const int s = l->scale();
 		clip.clip(Common::Rect(port.left * s, port.top * s, port.right * s, port.bottom * s));
 	}
+	if (clipAlso)
+		clip.clip(*clipAlso);
 	Common::Rect r(hiresX, hiresY, hiresX + w, hiresY + h);
 	r.clip(clip);
 	if (r.isEmpty())
