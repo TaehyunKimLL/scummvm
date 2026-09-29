@@ -103,7 +103,10 @@ public:
 
 private:
 	void addDirty(const Common::Rect &r);
-	bool setMode(int index, bool lineRepeat);
+	/** Set _sdlModes[index]; srcW x srcH is the picture it shows (for the log). */
+	bool setMode(int index, bool lineRepeat, uint srcW, uint srcH);
+	/** Whether @p s has _screen's pixel size and room for it (see updateScreen()). */
+	bool surfaceFits(const SDL_Surface *s) const;
 	void blit(SDL_Surface *s, const Common::Rect &r);
 	void convertCursor();
 
@@ -112,6 +115,7 @@ private:
 	int _modeIndex;	///< the entry of _modes that is set, or -1
 	bool _lineRepeat;	///< 640x400 game in a 640x480 mode (line-repeat.h)
 	bool _vsync;	///< dos_vsync=wait: send in the vertical retrace
+	bool _vsyncWarned;	///< the wait timed out once and was turned off
 	uint _lastInitW, _lastInitH;	///< the last initSize(), 0x0 before any (see DOS::formatsSize())
 	uint _shotCount;
 

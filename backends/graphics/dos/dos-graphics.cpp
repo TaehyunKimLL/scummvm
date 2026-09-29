@@ -27,6 +27,7 @@
 #include <pc.h>
 
 #include "backends/graphics/dos/dos-graphics.h"
+#include "backends/platform/dos/cursor-convert.h"
 #include "backends/platform/dos/line-repeat.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
@@ -48,7 +49,7 @@ static Graphics::PixelFormat fromSdl(SDL_PixelFormat f, bool &ok) {
 static const uint kMaxDirtyRects = 32;
 
 DosGraphicsManager::DosGraphicsManager() :
-	_modeIndex(-1), _lineRepeat(false), _vsync(false), _lastInitW(0), _lastInitH(0), _shotCount(0),
+	_modeIndex(-1), _lineRepeat(false), _vsync(false), _vsyncWarned(false), _lastInitW(0), _lastInitH(0), _shotCount(0),
 	_window(nullptr), _screenChangeID(0), _pendingW(0), _pendingH(0),
 	_overlayVisible(false), _paletteDirty(false), _shakeX(0), _shakeY(0),
 	_fullDirty(false), _cursorW(0), _cursorH(0), _cursorHotX(0), _cursorHotY(0), _cursorKey(0),
@@ -94,7 +95,7 @@ void DosGraphicsManager::initSize(uint width, uint height, const Graphics::Pixel
 	_pendingFormat = format ? *format : Graphics::PixelFormat::createFormatCLUT8();
 }
 
-bool DosGraphicsManager::setMode(int index, bool lineRepeat) {
+bool DosGraphicsManager::setMode(int index, bool lineRepeat, uint srcW, uint srcH) {
 	const SDL_DisplayMode &mode = _sdlModes[index];
 	if (!_window)
 		_window = SDL_CreateWindow("ScummVM", mode.w, mode.h, 0);
@@ -121,7 +122,7 @@ bool DosGraphicsManager::setMode(int index, bool lineRepeat) {
 	}
 	if (lineRepeat)
 		debug(1, "DOS: mode %dx%d %s (line repeat from %ux%u)", s->w, s->h, _modes[index].format.toString().c_str(),
-			  _pendingW, _pendingH);
+			  srcW, srcH);
 	else
 		debug(1, "DOS: mode %dx%d %s", s->w, s->h, _modes[index].format.toString().c_str());
 	return true;
@@ -137,13 +138,26 @@ OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
 		_pendingW = 0;
 		return OSystem::kTransactionSizeChangeFailed;
 	}
-	if (!setMode(choice.index, choice.lineRepeat)) {
+	if (!setMode(choice.index, choice.lineRepeat, _pendingW, _pendingH)) {
 		_pendingW = 0;
+		// The display may be switched already: back to the mode _screen
+		// describes, or, failing that, nothing is drawn until the next
+		// successful transaction.
+		if (_modeIndex >= 0 && !setMode(_modeIndex, _lineRepeat, _screen.w, _screen.h)) {
+			warning("DosGraphicsManager: cannot restore the previous mode either");
+			_modeIndex = -1;
+			_cursor.forget();
+			_screen.free();
+		}
 		return OSystem::kTransactionSizeChangeFailed;
 	}
 	_modeIndex = choice.index;
 	_lineRepeat = choice.lineRepeat;
-	_vsync = ConfMan.get("dos_vsync") == "wait";
+	// Once the wait has timed out it stays off: the next mode has no
+	// retrace bit either.
+	_vsync = ConfMan.get("dos_vsync") == "wait" && !_vsyncWarned;
+	// A new game may bring a cursor in another format: say so again.
+	_cursorFormatWarned = false;
 	// The old frame, cursor included, is gone; the full repaint below
 	// draws the cursor afresh.
 	_cursor.forget();
@@ -180,16 +194,22 @@ void DosGraphicsManager::addDirty(const Common::Rect &r) {
 }
 
 void DosGraphicsManager::copyRectToScreen(const void *buf, int pitch, int x, int y, int w, int h) {
+	if (!_screen.getPixels())	// no mode (see endGFXTransaction())
+		return;
 	_screen.copyRectToSurface(buf, pitch, x, y, w, h);
 	addDirty(Common::Rect(x, y, x + w, y + h));
 }
 
 void DosGraphicsManager::fillScreen(uint32 col) {
+	if (!_screen.getPixels())
+		return;
 	_screen.fillRect(Common::Rect(_screen.w, _screen.h), col);
 	_fullDirty = true;
 }
 
 void DosGraphicsManager::fillScreen(const Common::Rect &r, uint32 col) {
+	if (!_screen.getPixels())
+		return;
 	_screen.fillRect(r, col);
 	addDirty(r);
 }
@@ -206,7 +226,7 @@ void DosGraphicsManager::updateScreen() {
 	if (!_window || !_screen.getPixels())
 		return;
 	SDL_Surface *s = SDL_GetWindowSurface(_window);
-	if (!s)
+	if (!s || !surfaceFits(s))
 		return;
 
 	if (_paletteDirty && s->format == SDL_PIXELFORMAT_INDEX8) {
@@ -269,16 +289,37 @@ void DosGraphicsManager::updateScreen() {
 			// Wait for the start of a vertical retrace (VGA input status 1,
 			// bit 3). Each loop gives up after ~100000 port reads (tens of
 			// ms on real hardware) in case the bit never toggles.
+			// Without a VGA status register (bit 3 stuck) every frame
+			// would pay the timeout, so after the first one stop waiting.
 			uint32 n = 0;
 			while ((inportb(0x3DA) & 8) && ++n < 100000) {}
+			bool timedOut = n >= 100000;
 			n = 0;
 			while (!(inportb(0x3DA) & 8) && ++n < 100000) {}
+			timedOut = timedOut || n >= 100000;
+			if (timedOut) {
+				_vsync = false;
+				if (!_vsyncWarned) {
+					warning("dos_vsync=wait: no retrace seen, waiting disabled");
+					_vsyncWarned = true;
+				}
+			}
 		}
 		SDL_UpdateWindowSurfaceRects(_window, rects.empty() ? nullptr : &rects[0], (int)rects.size());
 	}
 	_dirty.clear();
 	_fullDirty = false;
 	_paletteDirty = false;
+}
+
+bool DosGraphicsManager::surfaceFits(const SDL_Surface *s) const {
+	// After a failed mode change the display can be in another mode than
+	// _screen describes; copying then would write past the surface or at
+	// the wrong pixel size.
+	if (_modeIndex < 0 || !_screen.getPixels())
+		return false;
+	const int windowH = _lineRepeat ? DOS::logicalRow(s->h - 1) + 1 : s->h;
+	return SDL_BYTESPERPIXEL(s->format) == _screen.format.bytesPerPixel && s->w >= _screen.w && windowH >= _screen.h;
 }
 
 void DosGraphicsManager::blit(SDL_Surface *s, const Common::Rect &r) {
@@ -307,7 +348,7 @@ void DosGraphicsManager::blit(SDL_Surface *s, const Common::Rect &r) {
 
 void DosGraphicsManager::saveScreenshot() {
 	SDL_Surface *s = _window ? SDL_GetWindowSurface(_window) : nullptr;
-	if (!s || _modeIndex < 0) {
+	if (!s || _modeIndex < 0 || !surfaceFits(s)) {
 		warning("DosGraphicsManager: no screen to save");
 		return;
 	}
@@ -409,16 +450,31 @@ bool DosGraphicsManager::getFeatureState(OSystem::Feature f) const {
 }
 
 void DosGraphicsManager::convertCursor() {
-	if (!_cursorW || !_cursorH || !_screen.getPixels())
-		return;
-	const Graphics::PixelFormat &screen = _screen.format;
-	if (_cursorFormat == screen) {
-		// A CLUT8 cursor on a CLUT8 screen shows through the game palette:
-		// the hardware has one palette, so a cursor palette cannot apply.
-		_cursor.setImage(&_cursorSrc[0], _cursorW, _cursorH, _cursorHotX, _cursorHotY, _cursorKey, screen.bytesPerPixel);
+	// setMouseCursor(nullptr, 0, 0) (CursorMan with nothing left on its
+	// stack) means no cursor: the last image must not stay drawn.
+	if (!_cursorW || !_cursorH) {
+		_cursor.clearImage();
 		return;
 	}
-	if (_cursorFormat.bytesPerPixel != 1) {
+	if (!_screen.getPixels())
+		return;
+	const Graphics::PixelFormat &screen = _screen.format;
+	// Only a CLUT8 cursor on true colour reads the palette: the cursor
+	// palette when it is on, the game palette otherwise.
+	const byte *pal = _cursorPaletteEnabled ? _cursorPalette : _palette;
+	Common::Array<byte> image;
+	uint32 key = 0;
+	switch (DOS::cursorImage(&_cursorSrc[0], _cursorW, _cursorH, _cursorFormat, _cursorKey, screen, pal, image, key)) {
+	case DOS::kCursorClear:
+		_cursor.clearImage();
+		break;
+	case DOS::kCursorAsIs:
+		_cursor.setImage(&_cursorSrc[0], _cursorW, _cursorH, _cursorHotX, _cursorHotY, _cursorKey, screen.bytesPerPixel);
+		break;
+	case DOS::kCursorConverted:
+		_cursor.setImage(&image[0], _cursorW, _cursorH, _cursorHotX, _cursorHotY, key, screen.bytesPerPixel);
+		break;
+	case DOS::kCursorMismatch:
 		// Nothing to show: the last image may be another pixel size than
 		// this screen's (a true-colour cursor after a switch to CLUT8).
 		_cursor.clearImage();
@@ -427,38 +483,8 @@ void DosGraphicsManager::convertCursor() {
 					_cursorFormat.toString().c_str(), screen.toString().c_str());
 			_cursorFormatWarned = true;
 		}
-		return;
+		break;
 	}
-	// CLUT8 on true colour: every pixel through the cursor palette when it
-	// is on, the game palette otherwise. The key must differ from every
-	// converted colour, or SoftCursor would drop that colour too; of the
-	// first 257 values at least one is not among the (at most 256) used.
-	const byte *pal = _cursorPaletteEnabled ? _cursorPalette : _palette;
-	const uint bpp = screen.bytesPerPixel;
-	const uint n = _cursorW * _cursorH;
-	Common::Array<uint32> colors(n);
-	bool used[257];
-	memset(used, 0, sizeof(used));
-	for (uint i = 0; i < n; ++i) {
-		const byte idx = _cursorSrc[i];
-		if (idx == _cursorKey)
-			continue;
-		colors[i] = screen.RGBToColor(pal[idx * 3], pal[idx * 3 + 1], pal[idx * 3 + 2]);
-		if (colors[i] <= 256)
-			used[colors[i]] = true;
-	}
-	uint32 key = 0;
-	while (used[key])
-		++key;
-	Common::Array<byte> image(n * bpp);
-	for (uint i = 0; i < n; ++i) {
-		const uint32 c = (_cursorSrc[i] == _cursorKey) ? key : colors[i];
-		if (bpp == 2)
-			WRITE_UINT16(&image[i * 2], c);
-		else
-			WRITE_UINT32(&image[i * 4], c);
-	}
-	_cursor.setImage(&image[0], _cursorW, _cursorH, _cursorHotX, _cursorHotY, key, bpp);
 }
 
 #endif
