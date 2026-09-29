@@ -290,7 +290,9 @@ bool Console::cmdPlayVideo(int argc, const char **args) {
 
 #ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
 		// we have to close the console *now* to properly see the video
-		_debuggerDialog->close();
+		// Made on first use: absent when the command came from elsewhere.
+		if (_debuggerDialog)
+			_debuggerDialog->close();
 		g_system->clearOverlay();
 #endif
 
