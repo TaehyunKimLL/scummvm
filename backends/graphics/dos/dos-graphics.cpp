@@ -24,11 +24,18 @@
 #if defined(DOS_DJGPP)
 
 #include <SDL3/SDL.h>
+#include <dpmi.h>
+#include <go32.h>
 #include <pc.h>
+#include <sys/movedata.h>
+#include <sys/nearptr.h>
 
 #include "backends/graphics/dos/dos-graphics.h"
 #include "backends/platform/dos/cursor-convert.h"
+#include "backends/platform/dos/dos-loading.h"
 #include "backends/platform/dos/line-repeat.h"
+#include "backends/platform/dos/loading-caption.h"
+#include "backends/platform/dos/loading-screen.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/file.h"
@@ -48,13 +55,49 @@ static Graphics::PixelFormat fromSdl(SDL_PixelFormat f, bool &ok) {
 // Past this many rectangles one full-screen update is cheaper than the list.
 static const uint kMaxDirtyRects = 32;
 
+// The graphics loading screen gives way to the game after this long even
+// if the game still shows nothing but black.
+static const uint32 kLoadingTimeoutMs = 15000;
+// Sending the screen costs a whole frame (SDL3 sends all of it when the
+// pitches match): the bar moves at most this often.
+static const uint32 kLoadingRedrawMs = 120;
+// Colour indices the loading screen takes in CLUT8 (the game's palette is
+// not shown until the game is): the top eight, rarely lit in a game's
+// first frame, so the switch shows no stray colours.
+static const int kLoadingFirstIndex = 248;
+
+enum {
+	kLoadBg,
+	kLoadFrame,
+	kLoadFill,
+	kLoadText,
+	kLoadDim,
+	kLoadColorCount
+};
+
+static const byte kLoadRgb[kLoadColorCount][3] = {
+	{   0,   0,   0 },
+	{ 112, 112, 136 },
+	{  64, 140, 232 },
+	{ 255, 255, 255 },
+	{ 168, 168, 168 }
+};
+
 DosGraphicsManager::DosGraphicsManager() :
 	_modeIndex(-1), _lineRepeat(false), _vsync(false), _vsyncWarned(false), _lastInitW(0), _lastInitH(0), _shotCount(0),
 	_window(nullptr), _screenChangeID(0), _pendingW(0), _pendingH(0),
 	_overlayVisible(false), _paletteDirty(false), _shakeX(0), _shakeY(0),
 	_fullDirty(false), _cursorW(0), _cursorH(0), _cursorHotX(0), _cursorHotY(0), _cursorKey(0),
-	_cursorPaletteEnabled(false), _cursorFormatWarned(false), _cursorVisible(false), _mouseX(0), _mouseY(0) {
+	_cursorPaletteEnabled(false), _cursorFormatWarned(false), _cursorVisible(false), _mouseX(0), _mouseY(0),
+	_deferModes(false), _engineStarted(false), _modeOwed(false), _loadingShown(false), _loadingAbort(false),
+	_loadingSawUpdate(false), _loadingLitSeen(false), _loadingStart(0), _loadingLastDraw(0), _loadingLastFill(-1), _loadingLastLabel(nullptr),
+	_loadingDraws(0), _loadingDrawMs(0), _loadingCheckMs(0), _loadingChecks(0),
+	_unlockAfterPresent(false),
+	_vramOk(false), _vramGran(0), _vramWinSize(0), _vramBase(0), _vramPitch(0) {
 	memset(_palette, 0, sizeof(_palette));
+	memset(_usedColors, 0, sizeof(_usedColors));
+	memset(_lockAddr, 0, sizeof(_lockAddr));
+	memset(_lockSize, 0, sizeof(_lockSize));
 	memset(_cursorPalette, 0, sizeof(_cursorPalette));
 	int n = 0;
 	SDL_DisplayMode **m = SDL_GetFullscreenDisplayModes(SDL_GetPrimaryDisplay(), &n);
@@ -74,6 +117,7 @@ DosGraphicsManager::DosGraphicsManager() :
 }
 
 DosGraphicsManager::~DosGraphicsManager() {
+	lockSurfaces(false);
 	_screen.free();
 	_overlay.free();
 	if (_window)
@@ -128,18 +172,14 @@ bool DosGraphicsManager::setMode(int index, bool lineRepeat, uint srcW, uint src
 	return true;
 }
 
-OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
-	if (!_pendingW)
-		return OSystem::kTransactionSuccess;
-	const DOS::ModeChoice choice = DOS::chooseMode(_modes, _pendingW, _pendingH, _pendingFormat,
-												   ConfMan.getBool("dos_force_fallback"));
+OSystem::TransactionError DosGraphicsManager::switchMode(uint w, uint h, const Graphics::PixelFormat &f) {
+	lockSurfaces(false);	// the surfaces go with the mode
+	const DOS::ModeChoice choice = DOS::chooseMode(_modes, w, h, f, ConfMan.getBool("dos_force_fallback"));
 	if (choice.index < 0) {
-		warning("DosGraphicsManager: no %ux%u %s mode", _pendingW, _pendingH, _pendingFormat.toString().c_str());
-		_pendingW = 0;
+		warning("DosGraphicsManager: no %ux%u %s mode", w, h, f.toString().c_str());
 		return OSystem::kTransactionSizeChangeFailed;
 	}
-	if (!setMode(choice.index, choice.lineRepeat, _pendingW, _pendingH)) {
-		_pendingW = 0;
+	if (!setMode(choice.index, choice.lineRepeat, w, h)) {
 		// The display may be switched already: back to the mode _screen
 		// describes, or, failing that, nothing is drawn until the next
 		// successful transaction.
@@ -158,9 +198,33 @@ OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
 	_vsync = ConfMan.get("dos_vsync") == "wait" && !_vsyncWarned;
 	// A new game may bring a cursor in another format: say so again.
 	_cursorFormatWarned = false;
-	// The old frame, cursor included, is gone; the full repaint below
-	// draws the cursor afresh.
+	// The old frame, cursor included, is gone; the full repaint that
+	// follows draws the cursor afresh.
 	_cursor.forget();
+	_modeOwed = false;
+	return OSystem::kTransactionSuccess;
+}
+
+OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
+	if (!_pendingW)
+		return OSystem::kTransactionSuccess;
+	if (_deferModes && !_engineStarted) {
+		// The launcher's size (base/main.cpp setupGraphics()), while the
+		// text loading screen is up: only the buffer for now, as long as
+		// the mode would exist.
+		if (DOS::chooseMode(_modes, _pendingW, _pendingH, _pendingFormat, ConfMan.getBool("dos_force_fallback")).index < 0) {
+			warning("DosGraphicsManager: no %ux%u %s mode", _pendingW, _pendingH, _pendingFormat.toString().c_str());
+			_pendingW = 0;
+			return OSystem::kTransactionSizeChangeFailed;
+		}
+		_modeOwed = true;
+	} else {
+		const OSystem::TransactionError err = switchMode(_pendingW, _pendingH, _pendingFormat);
+		if (err != OSystem::kTransactionSuccess) {
+			_pendingW = 0;
+			return err;
+		}
+	}
 	_screen.free();
 	_screen.create(_pendingW, _pendingH, _pendingFormat);
 	_pendingW = 0;
@@ -168,7 +232,30 @@ OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
 	_fullDirty = true;
 	++_screenChangeID;
 	convertCursor();
+	if (_modeOwed)
+		return OSystem::kTransactionSuccess;
+	if (DOS::Loading::stage() == DOS::Loading::kStageText)
+		startLoadingScreen();
+	else if (_loadingShown) {
+		queryVramWindow();	// the engine changed modes while it loads
+		lockSurfaces(true);
+		drawLoadingScreen(true);
+	}
 	return OSystem::kTransactionSuccess;
+}
+
+bool DosGraphicsManager::applyDeferredMode() {
+	// An engine that draws in the launcher's mode without a transaction
+	// of its own: that mode now, _screen as it is.
+	if (switchMode(_screen.w, _screen.h, _screen.format) != OSystem::kTransactionSuccess) {
+		_modeOwed = false;	// as a failed transaction: nothing drawn
+		return false;
+	}
+	_paletteDirty = true;
+	_fullDirty = true;
+	if (DOS::Loading::stage() == DOS::Loading::kStageText)
+		startLoadingScreen();
+	return true;
 }
 
 void DosGraphicsManager::setPalette(const byte *colors, uint start, uint num) {
@@ -223,11 +310,39 @@ void DosGraphicsManager::setShakePos(int shakeXOffset, int shakeYOffset) {
 }
 
 void DosGraphicsManager::updateScreen() {
+	if (_modeOwed && _screen.getPixels() && _engineStarted && !applyDeferredMode())
+		return;
 	if (!_window || !_screen.getPixels())
 		return;
 	SDL_Surface *s = SDL_GetWindowSurface(_window);
 	if (!s || !surfaceFits(s))
 		return;
+
+	if (_loadingShown) {
+		// The loading screen stays until the game has drawn something
+		// (its first frames are black: SCI's title fades in), a key or a
+		// click comes, or the engine has been at it for too long.
+		if (!_loadingSawUpdate) {
+			_loadingSawUpdate = true;
+			DOS::Loading::enter(DOS::kLoadFirstFrame);
+		}
+		const char *why = nullptr;
+		const uint32 t0 = DOS::Loading::now();
+		const bool content = !_loadingAbort && gameHasContent();
+		_loadingCheckMs += DOS::Loading::now() - t0;
+		_loadingChecks++;
+		if (_loadingAbort)
+			why = "input";
+		else if (content)
+			why = "content";
+		else if (DOS::Loading::now() - _loadingStart > kLoadingTimeoutMs)
+			why = "timeout";
+		if (!why) {
+			loadingTick();
+			return;
+		}
+		finishLoading(why);
+	}
 
 	// SDL's DOS driver programs the VGA DAC from the window surface's
 	// palette, but SDL_CreateSurfaceFrom() gives that surface none: without
@@ -322,6 +437,10 @@ void DosGraphicsManager::updateScreen() {
 	_dirty.clear();
 	_fullDirty = false;
 	_paletteDirty = false;
+	if (_unlockAfterPresent) {
+		_unlockAfterPresent = false;
+		lockSurfaces(false);
+	}
 }
 
 bool DosGraphicsManager::surfaceFits(const SDL_Surface *s) const {
@@ -386,7 +505,321 @@ void DosGraphicsManager::saveScreenshot() {
 	debug(1, "DOS: saved %s (%dx%d %s)", base.c_str(), s->w, s->h, pf.toString().c_str());
 }
 
+uint32 DosGraphicsManager::loadingColor(int which) const {
+	const Graphics::PixelFormat &f = _modes[_modeIndex].format;
+	if (f.bytesPerPixel == 1)
+		return kLoadingFirstIndex + which;
+	return f.RGBToColor(kLoadRgb[which][0], kLoadRgb[which][1], kLoadRgb[which][2]);
+}
+
+void DosGraphicsManager::startLoadingScreen() {
+	DOS::Loading::enterGraphics();
+	DOS::Loading::setTickHook(loadingTickHook, this);
+	_loadingShown = true;
+	_loadingAbort = false;
+	_loadingSawUpdate = false;
+	_loadingStart = DOS::Loading::now();
+	memset(_usedColors, 0, sizeof(_usedColors));
+	_loadingLitSeen = false;
+	_loadingDraws = _loadingDrawMs = _loadingCheckMs = _loadingChecks = 0;
+	queryVramWindow();
+	lockSurfaces(true);
+	drawLoadingScreen(true);
+}
+
+// The phase line is laid out for the longest label.
+static const int kLoadLabelChars = 26;
+
+void DosGraphicsManager::drawLoadingScreen(bool full) {
+	SDL_Surface *s = _window ? SDL_GetWindowSurface(_window) : nullptr;
+	if (!s || _modeIndex < 0)
+		return;
+	if (s->format == SDL_PIXELFORMAT_INDEX8 && full) {
+		// Its own colours, the rest black; the game's palette waits in
+		// _palette (_paletteDirty) for the switch.
+		if (!SDL_GetSurfacePalette(s) && !SDL_CreateSurfacePalette(s))
+			return;
+		SDL_Color c[256];
+		memset(c, 0, sizeof(c));
+		for (int i = 0; i < 256; ++i)
+			c[i].a = 255;
+		for (int i = 0; i < kLoadColorCount; ++i) {
+			c[kLoadingFirstIndex + i].r = kLoadRgb[i][0];
+			c[kLoadingFirstIndex + i].g = kLoadRgb[i][1];
+			c[kLoadingFirstIndex + i].b = kLoadRgb[i][2];
+		}
+		SDL_SetPaletteColors(SDL_GetSurfacePalette(s), c, 0, 256);
+	}
+	const bool korean = DOS::Loading::korean();
+	const Common::String title = DOS::asciiTitle(DOS::Loading::title(), s->w / DOS::kLoadGlyphW - 2);
+	const char *english = "Loading...";
+	const int captionW = korean ? DOS::kCaptionKoWidth : (int)strlen(english) * DOS::kLoadGlyphW;
+	const int captionH = korean ? DOS::kCaptionKoHeight : DOS::kLoadGlyphH;
+	const DOS::LoadScreenLayout l = DOS::loadScreenLayout(s->w, s->h, title.size(), captionW, captionH, kLoadLabelChars);
+	DOS::LoadCanvas canvas((byte *)s->pixels, s->pitch, s->w, s->h, SDL_BYTESPERPIXEL(s->format));
+	const byte *font = DOS::Loading::romFont();
+
+	if (full) {
+		canvas.fill(Common::Rect(s->w, s->h), loadingColor(kLoadBg));
+		canvas.text(l.title.left, l.title.top, title.c_str(), font, loadingColor(kLoadText));
+		if (korean)
+			canvas.bitmap(l.caption.left, l.caption.top, DOS::kCaptionKo, (DOS::kCaptionKoWidth + 7) / 8,
+						  DOS::kCaptionKoWidth, DOS::kCaptionKoHeight, loadingColor(kLoadDim));
+		else
+			canvas.text(l.caption.left, l.caption.top, english, font, loadingColor(kLoadDim));
+		canvas.frame(l.bar, loadingColor(kLoadFrame));
+	}
+	const Common::Rect fill = DOS::loadBarFill(l.bar, DOS::Loading::permille());
+	canvas.fill(Common::Rect(l.bar.left + 1, l.bar.top + 1, l.bar.right - 1, l.bar.bottom - 1), loadingColor(kLoadBg));
+	canvas.fill(fill, loadingColor(kLoadFill));
+	const char *label = DOS::Loading::phaseLabel();
+	canvas.fill(l.label, loadingColor(kLoadBg));
+	const int labelW = strlen(label) * DOS::kLoadGlyphW;
+	canvas.text(l.label.left + (l.label.width() - labelW) / 2, l.label.top, label, font, loadingColor(kLoadDim));
+	_loadingLastFill = fill.width();
+	_loadingLastLabel = label;
+
+	const uint32 t0 = DOS::Loading::now();
+	if (full) {
+		SDL_UpdateWindowSurface(_window);
+	} else {
+		const Common::Rect rects[2] = { l.bar, l.label };
+		sendRectsToVram(s, rects, 2);
+	}
+	_loadingLastDraw = DOS::Loading::now();
+	_loadingDraws++;
+	_loadingDrawMs += _loadingLastDraw - t0;
+}
+
+bool DosGraphicsManager::queryVramWindow() {
+	// The mode SDL3 set, and its VESA window A: only when SDL3 set it
+	// banked (no linear frame buffer bit) with a window we may write.
+	_vramOk = false;
+	__dpmi_regs r;
+	memset(&r, 0, sizeof(r));
+	r.x.ax = 0x4F03;
+	__dpmi_int(0x10, &r);
+	if (r.x.ax != 0x004F || (r.x.bx & 0x4000))
+		return false;
+	const uint16 mode = r.x.bx & 0x3FFF;
+	memset(&r, 0, sizeof(r));
+	r.x.ax = 0x4F01;
+	r.x.cx = mode;
+	r.x.es = __tb >> 4;
+	r.x.di = __tb & 0x0F;
+	__dpmi_int(0x10, &r);
+	if (r.x.ax != 0x004F)
+		return false;
+	byte info[32];
+	dosmemget(__tb, sizeof(info), info);
+	const byte winAAttr = info[2];
+	const uint32 gran = READ_LE_UINT16(info + 4) * 1024;
+	const uint32 size = READ_LE_UINT16(info + 6) * 1024;
+	const uint32 seg = READ_LE_UINT16(info + 8);
+	const uint32 pitch = READ_LE_UINT16(info + 16);
+	if ((winAAttr & 0x05) != 0x05 || !gran || !size || !seg || !pitch)
+		return false;
+	_vramGran = gran;
+	_vramWinSize = size;
+	_vramBase = seg << 4;
+	_vramPitch = pitch;
+	_vramOk = true;
+	return true;
+}
+
+void DosGraphicsManager::sendRectsToVram(SDL_Surface *s, const Common::Rect *rects, int n) {
+	// SDL3's direct path sends the whole screen whatever rectangles it is
+	// given (the pitches match): 1 MB in XRGB8888 for a bar a few rows
+	// tall, some 5 ms of the game's time at 60000 cycles each redraw and,
+	// in DOSBox, a lot more of the host's. Through window A ourselves
+	// instead: SDL3 sets its bank afresh on every update, so ours need
+	// not be put back. Anything unexpected, and SDL3 sends it.
+	const int bpp = SDL_BYTESPERPIXEL(s->format);
+	bool ok = _vramOk && (int)_vramPitch >= s->w * bpp;
+	int bank = -1;
+	for (int i = 0; i < n && ok; ++i) {
+		Common::Rect r = rects[i];
+		r.clip(Common::Rect(s->w, s->h));
+		for (int y = r.top; y < r.bottom && ok; ++y) {
+			const byte *src = (const byte *)s->pixels + y * s->pitch + r.left * bpp;
+			uint32 offset = (uint32)y * _vramPitch + r.left * bpp;
+			uint32 left = r.width() * bpp;
+			while (left) {
+				const int want = (int)(offset / _vramGran);
+				const uint32 inWin = offset % _vramGran;
+				const uint32 chunk = MIN(left, _vramWinSize - inWin);
+				if (want != bank) {
+					__dpmi_regs b;
+					memset(&b, 0, sizeof(b));
+					b.x.ax = 0x4F05;
+					b.x.dx = want;
+					__dpmi_int(0x10, &b);
+					if (b.x.ax != 0x004F) {
+						ok = _vramOk = false;
+						break;
+					}
+					bank = want;
+				}
+				dosmemput(src, chunk, _vramBase + inWin);
+				src += chunk;
+				offset += chunk;
+				left -= chunk;
+			}
+		}
+	}
+	if (ok)
+		return;
+	Common::Array<SDL_Rect> sdl;
+	for (int i = 0; i < n; ++i) {
+		SDL_Rect r = { rects[i].left, rects[i].top, rects[i].width(), rects[i].height() };
+		sdl.push_back(r);
+	}
+	SDL_UpdateWindowSurfaceRects(_window, &sdl[0], n);
+}
+
+static void unlockRegion(uint32 &addr, uint32 &size) {
+	if (!size)
+		return;
+	__dpmi_meminfo m;
+	m.handle = 0;
+	m.address = addr;
+	m.size = size;
+	__dpmi_unlock_linear_region(&m);
+	size = 0;
+}
+
+static void lockRegion(const void *p, uint32 bytes, uint32 &addr, uint32 &size) {
+	unlockRegion(addr, size);
+	if (!p || !bytes)
+		return;
+	__dpmi_meminfo m;
+	m.handle = 0;
+	m.address = __djgpp_base_address + (uint32)p;
+	m.size = bytes;
+	if (__dpmi_lock_linear_region(&m) == 0) {
+		addr = m.address;
+		size = m.size;
+	}
+}
+
+void DosGraphicsManager::lockSurfaces(bool lock) {
+	// The game's frame (_screen) and the window surface, 1 MB each in
+	// XRGB8888, are read and written whole when the game's first frame
+	// replaces the loading screen. Without the game's frames going through
+	// them while the engine loads, in 16 MB they were what CWSDPMI swapped
+	// out (KQ1KO, DOSBox-X: 640 KB in CWSDPMI.SWP), and paging them back
+	// in held that frame up by over half a second. Locked while the loading
+	// screen is up, they stay in memory as the game's frames would keep
+	// them. Large blocks are pageable DPMI memory (dos-heap.cpp).
+	unlockRegion(_lockAddr[0], _lockSize[0]);
+	unlockRegion(_lockAddr[1], _lockSize[1]);
+	if (!lock)
+		return;
+	SDL_Surface *s = _window ? SDL_GetWindowSurface(_window) : nullptr;
+	if (s)
+		lockRegion(s->pixels, (uint32)(s->pitch * s->h), _lockAddr[0], _lockSize[0]);
+	if (_screen.getPixels())
+		lockRegion(_screen.getPixels(), (uint32)(_screen.pitch * _screen.h), _lockAddr[1], _lockSize[1]);
+}
+
+void DosGraphicsManager::loadingTick() {
+	if (!_loadingShown || !_window)
+		return;
+	const uint32 now = DOS::Loading::now();
+	const char *label = DOS::Loading::phaseLabel();
+	if (label == _loadingLastLabel && now - _loadingLastDraw < kLoadingRedrawMs)
+		return;
+	SDL_Surface *s = SDL_GetWindowSurface(_window);
+	if (!s)
+		return;
+	// Only when the bar has grown by a pixel or the phase changed: a
+	// redraw sends the whole screen.
+	const int barW = MIN(s->w * 60 / 100, 400) - 4;
+	const int fillW = barW * (int)DOS::Loading::permille() / 1000;
+	if (label == _loadingLastLabel && fillW == _loadingLastFill)
+		return;
+	drawLoadingScreen(false);
+}
+
+bool DosGraphicsManager::gameHasContent() {
+	// What the game drew since the last check: the dirty rectangles (all
+	// of it after a full repaint), which the switch replaces with a full
+	// repaint anyway. A cheap test on those first -- in CLUT8, where a
+	// fade changes only the palette, the indices drawn are collected and
+	// checked against the palette as it is now -- and only once something
+	// is lit, a count over the whole frame.
+	const Common::Rect all(_screen.w, _screen.h);
+	Common::Array<Common::Rect> rects;
+	if (_fullDirty) {
+		rects.push_back(all);
+	} else {
+		for (uint i = 0; i < _dirty.size(); ++i) {
+			Common::Rect r = _dirty[i];
+			r.clip(all);
+			if (!r.isEmpty())
+				rects.push_back(r);
+		}
+	}
+	_dirty.clear();
+	_fullDirty = false;
+	const byte *pixels = (const byte *)_screen.getPixels();
+	if (_screen.format.bytesPerPixel == 1) {
+		for (uint i = 0; i < rects.size(); ++i)
+			DOS::markUsedColors(pixels, _screen.pitch, rects[i], _usedColors);
+		if (!DOS::anyUsedColorLit(_usedColors, _palette))
+			return false;
+	} else if (!_loadingLitSeen) {
+		for (uint i = 0; i < rects.size() && !_loadingLitSeen; ++i)
+			_loadingLitSeen = DOS::anyPixelLit(pixels, _screen.pitch, _screen.format, rects[i]);
+		if (!_loadingLitSeen)
+			return false;
+	} else if (rects.empty()) {
+		return false;	// counted already, and nothing changed
+	}
+	const uint need = DOS::firstFrameLitSamples(_screen.w, _screen.h);
+	return DOS::countLitSamples(pixels, _screen.pitch, _screen.format, _palette, _screen.w, _screen.h, need) >= need;
+}
+
+void DosGraphicsManager::finishLoading(const char *why) {
+	if (!_loadingShown)
+		return;
+	_loadingShown = false;
+	_unlockAfterPresent = true;	// that present reads and writes both whole
+	DOS::Loading::setTickHook(nullptr, nullptr);
+	DOS::Loading::finish(why);
+	debug(1, "DOS: loading screen: %u redraws took %u ms, %u looks for the first frame %u ms", _loadingDraws,
+		  _loadingDrawMs, _loadingChecks, _loadingCheckMs);
+	// The game's own frame, palette and cursor, all of it.
+	_dirty.clear();
+	_fullDirty = true;
+	_paletteDirty = true;
+	_cursor.forget();
+}
+
+void DosGraphicsManager::engineStopped() {
+	finishLoading("engine done");
+	_unlockAfterPresent = false;
+	lockSurfaces(false);
+	// Back in the launcher (or the next game), modes are set as asked:
+	// the loading screen is over.
+	_engineStarted = false;
+	_deferModes = false;
+}
+
+void DosGraphicsManager::loadingPoll(bool got, const Common::Event &event) {
+	if (!_loadingShown)
+		return;
+	if (got && (event.type == Common::EVENT_KEYDOWN || event.type == Common::EVENT_LBUTTONDOWN ||
+				event.type == Common::EVENT_RBUTTONDOWN))
+		_loadingAbort = true;
+	loadingTick();
+}
+
 void DosGraphicsManager::showOverlay(bool inGUI) {
+	// A dialog before the game's mode (an error, say) cannot be shown:
+	// the text screen says so.
+	if (DOS::Loading::stage() == DOS::Loading::kStageText)
+		DOS::Loading::halt("A message could not be shown (no GUI yet): see SCUMMVM.LOG. Enter goes on.");
 	static bool warned = false;
 	if (!warned) {
 		warning("DosGraphicsManager: the GUI overlay is not shown before M4");

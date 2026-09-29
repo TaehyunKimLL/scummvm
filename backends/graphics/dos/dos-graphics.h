@@ -26,10 +26,12 @@
 #include "backends/platform/dos/dos-modes.h"
 #include "backends/platform/dos/soft-cursor.h"
 #include "common/array.h"
+#include "common/events.h"
 #include "common/rect.h"
 #include "graphics/surface.h"
 
 struct SDL_Window;
+struct SDL_Surface;
 struct SDL_DisplayMode;
 
 /**
@@ -101,10 +103,50 @@ public:
 	 */
 	void saveScreenshot() override;
 
+	/**
+	 * While a loading screen is up (DOS::Loading), no graphics mode is set
+	 * before the engine starts: base/main.cpp's launcher-size mode would
+	 * take the text screen away early. The mode comes with the engine's
+	 * first graphics transaction (or, if it has none, its first
+	 * updateScreen()), and the graphics loading screen with it.
+	 */
+	void setDeferModes(bool defer) { _deferModes = defer; }
+	/** OSystem::engineInit(): graphics transactions set modes from now on. */
+	void engineStarted() { _engineStarted = true; }
+	/** OSystem::engineDone(): a loading screen still up goes. */
+	void engineStopped();
+	/** From pollEvent(): @p event if @p got. A key or a click ends the loading screen. */
+	void loadingPoll(bool got, const Common::Event &event);
+
 private:
 	void addDirty(const Common::Rect &r);
 	/** Set _sdlModes[index]; srcW x srcH is the picture it shows (for the log). */
 	bool setMode(int index, bool lineRepeat, uint srcW, uint srcH);
+	/**
+	 * Choose and set the mode for a w x h picture in @p f (_modeIndex,
+	 * _lineRepeat and the rest along with it), or put the previous one
+	 * back. The TransactionError for endGFXTransaction().
+	 */
+	OSystem::TransactionError switchMode(uint w, uint h, const Graphics::PixelFormat &f);
+	/** The mode deferred by setDeferModes(), for _screen as it is. */
+	bool applyDeferredMode();
+
+	// The graphics loading screen (DOS::Loading's second stage).
+	void startLoadingScreen();
+	void drawLoadingScreen(bool full);
+	/** Whether the game has drawn something that is not black since the loading screen came up. */
+	bool gameHasContent();
+	void finishLoading(const char *why);
+	/** Moves the bar when it is due (at most every kLoadingRedrawMs). */
+	void loadingTick();
+	static void loadingTickHook(void *self) { ((DosGraphicsManager *)self)->loadingTick(); }
+	uint32 loadingColor(int which) const;
+	/** Keeps _screen and the window surface in memory while the loading screen is up (see there). */
+	void lockSurfaces(bool lock);
+	/** VESA window A of the mode SDL3 set (_vram*), if it set it banked. */
+	bool queryVramWindow();
+	/** @p rects of the window surface to the screen: through window A, or SDL3. */
+	void sendRectsToVram(SDL_Surface *s, const Common::Rect *rects, int n);
 	/** Whether @p s has _screen's pixel size and room for it (see updateScreen()). */
 	bool surfaceFits(const SDL_Surface *s) const;
 	void blit(SDL_Surface *s, const Common::Rect &r);
@@ -147,6 +189,24 @@ private:
 	bool _cursorFormatWarned;
 	bool _cursorVisible;
 	int _mouseX, _mouseY;
+
+	bool _deferModes;	///< see setDeferModes()
+	bool _engineStarted;
+	bool _modeOwed;	///< _screen was made while modes were deferred; no mode for it yet
+	bool _loadingShown;	///< the window shows the loading screen, not _screen
+	bool _loadingAbort;	///< a key or click came in: show the game
+	bool _loadingSawUpdate;	///< updateScreen() came since the loading screen went up
+	bool _loadingLitSeen;	///< true colour: the game has drawn a lit pixel
+	uint32 _loadingStart;	///< DOS::Loading::now() when it went up
+	uint32 _loadingLastDraw;
+	int _loadingLastFill;	///< bar fill width last drawn, pixels
+	const char *_loadingLastLabel;
+	uint _loadingDraws, _loadingDrawMs, _loadingCheckMs, _loadingChecks;	///< what it cost (debug level 1)
+	bool _usedColors[256];
+	uint32 _lockAddr[2], _lockSize[2];	///< lockSurfaces()'s regions (linear), size 0 if none
+	bool _unlockAfterPresent;	///< the loading screen is gone: unlock once the game's frame is sent
+	bool _vramOk;	///< see queryVramWindow()
+	uint32 _vramGran, _vramWinSize, _vramBase, _vramPitch;	///< CLUT8 indices the game drew with during the loading screen
 };
 
 #endif

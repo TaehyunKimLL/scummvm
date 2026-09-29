@@ -47,6 +47,7 @@
 
 #include "backends/platform/dos/dos.h"
 #include "backends/platform/dos/dos-heap.h"
+#include "backends/platform/dos/dos-loading.h"
 #include "backends/platform/dos/dos-silence.h"
 #include "backends/platform/dos/blaster.h"
 #include "common/textconsole.h"
@@ -65,6 +66,8 @@
 #include "common/stream.h"
 #include "common/fs.h"
 #include "base/main.h"
+#include "base/version.h"
+#include "common/language.h"
 
 // ScummVM's call depth is far past DJGPP's 256 KB default stack.
 unsigned _stklen = 1024 * 1024;
@@ -120,6 +123,9 @@ void OSystem_DOS::initBackend() {
 	ConfMan.registerDefault("dos_force_fallback", false);
 	ConfMan.registerDefault("dos_timer_selftest", false);
 	ConfMan.registerDefault("dos_mixer_selftest", false);
+	// dos_loading_screen=false: no loading screen (DOS::Loading), the
+	// launcher's mode set at once as before.
+	ConfMan.registerDefault("dos_loading_screen", true);
 
 	// ScummVM's splash goes to the overlay, which this backend does not
 	// show yet (it draws nothing), and deciding whether to show it made
@@ -154,6 +160,17 @@ void OSystem_DOS::initBackend() {
 	}
 
 	BaseBackend::initBackend();
+
+	// The command line's target is the active domain by now; without one
+	// (the launcher) there is no game to load.
+	const Common::String target = ConfMan.getActiveDomainName();
+	Common::String title = ConfMan.get("description");
+	if (title.empty())
+		title = target;
+	DOS::Loading::backendReady(_timerManager, title,
+							   Common::parseLanguage(ConfMan.get("language")) == Common::KO_KOR,
+							   ConfMan.getBool("dos_loading_screen") && !target.empty());
+	gfx->setDeferModes(DOS::Loading::stage() == DOS::Loading::kStageText);
 
 	if (ConfMan.getBool("dos_timer_selftest"))
 		timerSelftest();
@@ -440,7 +457,29 @@ bool OSystem_DOS::pollEvent(Common::Event &event) {
 		((DefaultTimerManager *)getTimerManager())->checkTimers();
 	if (_nullMixer)
 		_nullMixer->update(1);
-	return _eventSource->pollEvent(event);
+	const bool got = _eventSource->pollEvent(event);
+	((DosGraphicsManager *)_graphicsManager)->loadingPoll(got, event);
+	return got;
+}
+
+void OSystem_DOS::engineInit() {
+	DOS::Loading::enter(DOS::kLoadData);
+	((DosGraphicsManager *)_graphicsManager)->engineStarted();
+}
+
+void OSystem_DOS::engineDone() {
+	((DosGraphicsManager *)_graphicsManager)->engineStopped();
+	DOS::Loading::finish("engine done");
+}
+
+void OSystem_DOS::setWindowCaption(const Common::U32String &caption) {
+	// base/main.cpp's runGame() names the game once its engine exists
+	// (setupGraphics() names ScummVM before that).
+	const Common::String name = caption.encode();
+	if (name == gScummVMFullVersion)
+		return;
+	DOS::Loading::setTitle(name);
+	DOS::Loading::enter(DOS::kLoadEngine);
 }
 
 Common::MutexInternal *OSystem_DOS::createMutex() {
@@ -566,13 +605,23 @@ void OSystem_DOS::quit() {
 	// have stopped their notes.
 	DOS::silenceAll();
 	SDL_Quit();	// text mode back, keyboard interrupt unhooked
+	DOS::Loading::teardown();
 	exit(0);
 }
+
+// The last error() message, for the text screen fatalError() leaves.
+static char g_lastError[256];
 
 void OSystem_DOS::fatalError() {
 	DosTimerManager::shutdown();
 	DOS::silenceAll();
-	SDL_Quit();
+	SDL_Quit();	// text mode back (cleared), whether a game mode was set or not
+	DOS::Loading::teardown();
+	if (g_lastError[0]) {
+		fputs("ScummVM: ", stderr);
+		fputs(g_lastError, stderr);
+		fputs("See SCUMMVM.LOG.\n", stderr);
+	}
 	exit(1);
 }
 
@@ -639,6 +688,8 @@ static void flushDeferredLog() {
 }
 
 void OSystem_DOS::logMessage(LogMessageType::Type type, const char *message) {
+	if (type == LogMessageType::kError)
+		Common::strlcpy(g_lastError, message, sizeof(g_lastError));
 	// The screen is in a graphics mode; the log is the only place output
 	// can go.
 	if (!DosTimerManager::interruptsEnabled()) {
@@ -666,6 +717,11 @@ int main(int argc, char *argv[]) {
 	// time we show; a TZ the user set is kept.
 	setenv("TZ", "UTC0", 0);
 	tzset();
+
+	// The text loading screen, when the command line starts a game; the
+	// graphics mode waits for the game's (DOS::Loading).
+	DOS::Loading::start(argc, argv);
+	atexit(DOS::Loading::teardown);
 
 	// SDL3's VESA driver maps the framebuffer through the "fat DS" pointer.
 	if (!__djgpp_nearptr_enable()) {
