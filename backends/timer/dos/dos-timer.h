@@ -54,6 +54,12 @@ public:
 	 */
 	static void spinMillis(uint msecs);
 
+	/**
+	 * Takes the handler out (PIT and vector back) ahead of the destructor,
+	 * for quit() and fatalError(). Idempotent.
+	 */
+	static void shutdown();
+
 	/** True if interrupts are enabled (EFLAGS.IF). */
 	static bool interruptsEnabled();
 };

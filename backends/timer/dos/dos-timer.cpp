@@ -28,6 +28,7 @@
 #include <dpmi.h>
 #include <go32.h>
 #include <pc.h>
+#include <sys/farptr.h>
 #include <time.h>
 #include <stdlib.h>
 #include <SDL3/SDL_timer.h>
@@ -125,8 +126,12 @@ static void timerIsr() {
 
 	if (++g_isr.sinceHandler < kHandlerEvery || g_isr.inHandler || !g_isr.timer)
 		return;
-	// A tick that arrives while a timer proc runs (only if something turned
-	// interrupts on) just counts: handler() catches up from getMillis().
+	// Interrupts must stay off through handler(): a tick that came in now
+	// would never reach timerIsr -- DJGPP's IRET wrapper returns at once,
+	// without an EOI, from an entry nested in its own, and IRQ0 and every
+	// lower-priority IRQ would stay in service for good. Hence no DOS calls
+	// in timer procs (OSystem_DOS::logMessage defers its file writes while
+	// interrupts are off). inHandler is only a backstop.
 	g_isr.sinceHandler = 0;
 	g_isr.inHandler = true;
 	// Timer procs may use the FPU; the code we interrupted may be in the
@@ -281,11 +286,26 @@ void DosTimerManager::spinMillis(uint msecs) {
 		prev = c;
 	}
 	// The PIC holds one IRQ0 back for when interrupts come on again, and
-	// that one counts itself; the other periods would be lost.
+	// that one counts itself; the other periods would be lost. Their BIOS
+	// ticks are counted here too (chaining to INT 8 outside the handler
+	// would send a stray EOI): 0040:006C, wrapping at midnight.
 	const uint32 flags = irqSave();
-	for (uint i = 1; i < wraps; ++i)
+	for (uint i = 1; i < wraps; ++i) {
 		tickClock();
+		if (DOS::pitTick(g_isr.chain)) {
+			uint32 bios = _farpeekl(_dos_ds, 0x46C) + 1;
+			if (bios >= 0x1800B0) {
+				bios = 0;
+				_farpokeb(_dos_ds, 0x470, 1);
+			}
+			_farpokel(_dos_ds, 0x46C, bios);
+		}
+	}
 	irqRestore(flags);
+}
+
+void DosTimerManager::shutdown() {
+	teardown();
 }
 
 #endif

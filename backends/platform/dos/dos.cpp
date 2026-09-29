@@ -24,6 +24,7 @@
 #define FORBIDDEN_SYMBOL_EXCEPTION_fclose
 #define FORBIDDEN_SYMBOL_EXCEPTION_stderr
 #define FORBIDDEN_SYMBOL_EXCEPTION_fputs
+#define FORBIDDEN_SYMBOL_EXCEPTION_fwrite
 #define FORBIDDEN_SYMBOL_EXCEPTION_exit
 #define FORBIDDEN_SYMBOL_EXCEPTION_time_h
 
@@ -70,7 +71,11 @@ unsigned _stklen = 1024 * 1024;
 // instead, so the locked part fits in 16 MB (dos-heap.cpp).
 int _crt0_startup_flags = _CRT0_FLAG_NONMOVE_SBRK | _CRT0_FLAG_LOCK_MEMORY;
 
+static void flushDeferredLog();
+
 OSystem_DOS::OSystem_DOS() : _eventSource(nullptr) {
+	// Runs after the timer's teardown (registered later, run earlier).
+	atexit(flushDeferredLog);
 	_fsFactory = new POSIXFilesystemFactory();
 }
 
@@ -186,6 +191,7 @@ void OSystem_DOS::timerSelftest() {
 }
 
 bool OSystem_DOS::pollEvent(Common::Event &event) {
+	flushDeferredLog();
 	// The IRQ0 handler runs the timers; this is the fallback should it
 	// not have gone in.
 	if (!DosTimerManager::installed())
@@ -232,22 +238,88 @@ void OSystem_DOS::getTimeAndDate(TimeDate &td, bool skipRecord) const {
 }
 
 void OSystem_DOS::quit() {
+	DosTimerManager::shutdown();	// no timer procs while SDL goes away
 	SDL_Quit();	// text mode back, keyboard interrupt unhooked
 	exit(0);
 }
 
 void OSystem_DOS::fatalError() {
+	DosTimerManager::shutdown();
 	SDL_Quit();
 	exit(1);
 }
 
-void OSystem_DOS::logMessage(LogMessageType::Type type, const char *message) {
-	// The screen is in a graphics mode; the log is the only place output can go.
+// Log text that came in with interrupts off -- from a timer proc, which
+// runs in the IRQ0 handler, or under a Common::Mutex. Writing the file
+// there would be a DOS call, and DOS turns interrupts on: see timerIsr().
+// Static, so it is locked; nothing here allocates.
+static const uint kDeferredLogSize = 16384;	// a power of two
+static char g_deferredLog[kDeferredLogSize];
+static uint g_deferredHead = 0;		// interrupts off
+static uint g_deferredTail = 0;		// interrupts off
+static uint g_deferredDropped = 0;	// characters
+
+static void appendLog(const char *text, uint len) {
 	FILE *f = fopen("SCUMMVM.LOG", "a");
 	if (f) {
-		fputs(message, f);
+		fwrite(text, 1, len, f);
 		fclose(f);
 	}
+}
+
+// Interrupts are off. A message that does not fit whole is dropped.
+static void deferLog(const char *message) {
+	const uint len = strlen(message);
+	const uint used = (g_deferredHead - g_deferredTail) & (kDeferredLogSize - 1);
+	if (len > kDeferredLogSize - 1 - used) {
+		g_deferredDropped += len;
+		return;
+	}
+	for (uint i = 0; i < len; ++i)
+		g_deferredLog[(g_deferredHead + i) & (kDeferredLogSize - 1)] = message[i];
+	g_deferredHead = (g_deferredHead + len) & (kDeferredLogSize - 1);
+}
+
+// Writes out whatever deferLog() kept, once interrupts are on.
+static void flushDeferredLog() {
+	if (!DosTimerManager::interruptsEnabled())
+		return;
+	char chunk[512];
+	for (;;) {
+		uint n = 0, dropped = 0;
+		uint32 flags;
+		__asm__ __volatile__("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
+		while (n < sizeof(chunk) && g_deferredTail != g_deferredHead) {
+			chunk[n++] = g_deferredLog[g_deferredTail];
+			g_deferredTail = (g_deferredTail + 1) & (kDeferredLogSize - 1);
+		}
+		if (n == 0) {
+			dropped = g_deferredDropped;
+			g_deferredDropped = 0;
+		}
+		if (flags & 0x200)
+			__asm__ __volatile__("sti" : : : "memory");
+		if (n == 0) {
+			if (dropped) {
+				Common::String note = Common::String::format(
+					"DOS: %u characters of log from interrupt time lost\n", dropped);
+				appendLog(note.c_str(), note.size());
+			}
+			return;
+		}
+		appendLog(chunk, n);
+	}
+}
+
+void OSystem_DOS::logMessage(LogMessageType::Type type, const char *message) {
+	// The screen is in a graphics mode; the log is the only place output
+	// can go.
+	if (!DosTimerManager::interruptsEnabled()) {
+		deferLog(message);
+		return;
+	}
+	flushDeferredLog();
+	appendLog(message, strlen(message));
 }
 
 void OSystem_DOS::addSysArchivesToSearchSet(Common::SearchSet &s, int priority) {
