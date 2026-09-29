@@ -62,6 +62,42 @@ public:
 		TS_ASSERT(Scumm::condHolds(c, snap(4, 0, 0, 0, 0), noText, noRaw));
 	}
 
+	void test_room_orderings() {
+		Scumm::SocketCond c;
+		uint32 timeout = 3600;
+		bool freeze;
+		Common::String err;
+		const Common::Array<Common::String> noText;
+		const Common::Array<Common::Array<byte> > noRaw;
+		// op, then whether rooms 4, 5, 6 satisfy "<op> 5"
+		static const struct { const char *line; bool r4, r5, r6; } kCases[] = {
+			{ "room < 5", true, false, false },
+			{ "room <= 5", true, true, false },
+			{ "room > 5", false, false, true },
+			{ "room >= 5", false, true, true },
+		};
+		for (uint i = 0; i < ARRAYSIZE(kCases); i++) {
+			TS_ASSERT(parseLine(kCases[i].line, c, timeout, freeze, err));
+			TS_ASSERT_EQUALS(Scumm::condHolds(c, snap(4, 0, 0, 0, 0), noText, noRaw), kCases[i].r4);
+			TS_ASSERT_EQUALS(Scumm::condHolds(c, snap(5, 0, 0, 0, 0), noText, noRaw), kCases[i].r5);
+			TS_ASSERT_EQUALS(Scumm::condHolds(c, snap(6, 0, 0, 0, 0), noText, noRaw), kCases[i].r6);
+		}
+	}
+
+	/**
+	 * A wait counts loops, and a paused engine (a modal dialog - a failed
+	 * load) runs none: the wait must end at once, or the socket never reads
+	 * the `key Return` that would close the dialog.
+	 */
+	void test_stall() {
+		TS_ASSERT(Scumm::socketStall(false, 1000, 900, 60000) == nullptr);
+		TS_ASSERT_EQUALS(Common::String(Scumm::socketStall(true, 1000, 900, 60000)), "paused");
+		TS_ASSERT(Scumm::socketStall(false, 60899, 900, 60000) == nullptr);
+		TS_ASSERT_EQUALS(Common::String(Scumm::socketStall(false, 60900, 900, 60000)), "stalled");
+		// getMillis() wrapping past 2^32 is still "just now".
+		TS_ASSERT(Scumm::socketStall(false, 5, 0xfffffff0u, 60000) == nullptr);
+	}
+
 	void test_text_is_a_substring_of_one_string() {
 		Scumm::SocketCond c;
 		uint32 timeout = 3600;
