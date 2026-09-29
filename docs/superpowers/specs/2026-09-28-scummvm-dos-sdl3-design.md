@@ -263,9 +263,13 @@ FreeType 빌드는 코드 ≈0.5MB + face 당 0.1–0.2MB + 캐시 0.5MB.
 요청이 오면 칩에서 모노로 폴백하고(엔진의 자체 폴백, 예: SCI 의 adlib.cpp:242-248), 칩이 전혀 없을
 때만 에뮬레이터(`db` 등)를 쓴다. 레지스터 쓰기 로그는 DOS 전용이 아니라 범용 `opl_log=<path>`(모든
 플랫폼)로 `LoggingOPL` 이 감싸 남긴다(`<path>.REG` 는 전체 `%03X %02X`, `<path>.ON` 은 키온마다
-`<ms> %03X %02X`) — 링 버퍼(65536 항목, 8바이트, 락 없이 생성자에서 할당)에 쓰고 메인 스레드가
-`notifyPoll()` 에서 최대 1초마다 비운다; 완전한 로그는 정상 종료(quit) 때만 보장된다(DOSBox 가 4KB
-단위로 호스트 파일을 버퍼링). DOSBox-X/Staging 모두 `DOSOPL: OPL3 at 0x388, type 1` 로 잡았고, 클릭
+`<ms> %03X %02X <callbacks> <t|m>` — `callbacks` 는 `start()` 이후 드라이버 타이머 콜백이 돈 횟수,
+`t`/`m` 은 그 쓰기가 콜백 안(t)에서인지 메인 스레드(m)에서인지)로 남긴다. 링 버퍼는 16384 항목 ×
+12바이트(ms, callbacks, reg, value, flags) = 192KB 다 — `backends/platform/dos/dos-heap.cpp` 의
+256KB 잠긴-힙(locked-heap) 문턱을 넘지 않도록 잡은 크기다(로그 기록은 타이머 인터럽트 핸들러 안에서
+일어나므로 락 없이 생성자에서 미리 할당한 정적 버퍼여야 하고, 그 버퍼가 페이지 가능(pageable) 힙으로
+가면 핸들러 안에서 폴트가 난다). 메인 스레드가 `notifyPoll()` 에서 최대 1초마다 비운다; 완전한 로그는
+정상 종료(quit) 때만 보장된다(DOSBox 가 4KB 단위로 호스트 파일을 버퍼링). DOSBox-X/Staging 모두 `DOSOPL: OPL3 at 0x388, type 1` 로 잡았고, 클릭
 이전 구간의 레지스터 스트림이 리눅스 `db` 에뮬레이터 로그와 바이트 단위로 일치했다(§8). **실제 타이머
 주기는 4ms 가 아니라 10ms 다** — SCI 의 AdLib 드라이버는 250Hz(4ms) 콜백을 요청하지만
 `RealChip::startCallbacks` 가 `kMaxFreq`=100Hz 로 누르고, `onTimer` 가 한 틱(10ms)에 콜백을 2~3 회
@@ -284,10 +288,21 @@ MT-32 sysex 지연은 기존 `MidiDriver_MT32GM` 이 맡는다. 인텔리전트 
 ScummVM 의 표준 폴백 다이얼로그로 넘어간다; M4 오버레이 전에는 이 다이얼로그가 보이지 않아 키 입력이
 있을 때까지 멈춘다(자동화는 `AUTOTYPE`). 전송은 `Common::Mutex`(= cli) 로 메시지를 통째로 보내
 IRQ0 타이머와 메인 스레드가 한 메시지를 반씩 나눠 쓰지 못하게 한다. 로그는 DOS 전용
-`dos_midi_log=<path>` 링(128KB, `[ms:4][len:2][bytes]`)으로 남기고, 리눅스 쪽은 기존
+`dos_midi_log=<path>` 링(128KB, `[ms:4][ticks:4][len:2][bytes]`)으로 남기고, 리눅스 쪽은 기존
 `--dump-midi`/`dump_midi=true` 를 기준으로 삼았다 — DOS 의 첫 620 메시지가 리눅스와 바이트 단위로
-일치했다(46 SysEx, 191 Note On/Off 쌍). 이 경로의 실제 타이머 주기도 100Hz(10ms)다
-(`MidiDriver_MPU401` 자체의 설계 주기이며, OPL 과 같은 늦음 패턴이 그대로 나타난다).
+일치했다(46 SysEx, 191 Note On/Off 쌍). `ticks` 는 드라이버 자신의 타이머 콜백(100Hz)이 돈 횟수다 —
+클라이언트의 타이머 프로시저를 `countingTimerProc` 으로 감싸 세며, 최상위 비트(bit 31)가 서면 메인
+스레드에서 보낸 메시지라는 뜻이다; `len` 의 비트 15 는 전송 타임아웃으로 메시지가 잘렸다는 표시다.
+이 timer-count 스탬프로 OPL 과 같은 방식(§8) 으로 각 노트온을 드라이버 자신의 시계에 맞대어 볼 수
+있다. 이 경로의 실제 타이머 주기도 100Hz(10ms)다 (`MidiDriver_MPU401` 자체의 설계 주기이며, OPL 과
+같은 늦음 패턴이 그대로 나타난다).
+
+**알려진 한계 (M3, 미해결)**: SCI 의 MT-32 경로(`engines/sci/sound/drivers/midi.cpp` 의
+`sendMt32SysEx`, `mainThread=false`)는 SysEx 를 보낸 뒤 **타이머 프로시저 안에서, 인터럽트가 꺼진
+채(IF=0)** 약 46ms 를 기다린다 — 한 실행에 5~7 회, 대략 SB 버퍼 하나 분량이다(5.3절의 "인터럽트
+꺼진 채로 믹스" 규칙과 겹쳐, 그 46ms 동안 키보드·COM 포트·Sound Blaster IRQ 가 모두 막힌다). 백엔드가
+아니라 엔진 코드이므로 이 설계(원칙 1)에서는 고치지 않는다; §8 의 타이밍 판정은 이 대기를 알려진
+지연으로 허용한다.
 
 ### 5.3 PCM
 
@@ -370,9 +385,12 @@ M0 스파이크 결론 (`harness/dos/spikes/RESULTS.md`, "타이머"): RTC(IRQ8,
 - **delayMillis**: 인터럽트가 꺼진 상태(타이머 프로시저 안, 또는 뮤텍스 아래)에서는 틱이 못 올라가므로
   PIT 을 직접 폴링해 경과를 센다(`spinMillis`) — 안 그러면 무한 대기한다. SCI 의 MT-32 경로가 타이머
   스레드에서 `delayMillis` 를 부르므로(`midi.cpp:671`) 실사용된다.
-- **테어다운**: 모든 종료 경로에서 일어난다 — `~OSystem_DOS`(믹서보다 먼저 타이머 매니저를 지운다),
-  `quit()`/`fatalError()` 가 `SDL_Quit()` 전에 부르는 `DosTimerManager::shutdown()`, 그리고 `atexit`
-  핸들러(모두 idempotent). PIT → 벡터 → 래퍼 순으로 복원한다.
+- **테어다운**: 정상/관리된 종료 경로에서는 일어난다 — `~OSystem_DOS`(믹서보다 먼저 타이머 매니저를
+  지운다), `quit()`/`fatalError()` 가 `SDL_Quit()` 전에 부르는 `DosTimerManager::shutdown()`, 그리고
+  `atexit` 핸들러(모두 idempotent). PIT → 벡터 → 래퍼 순으로 복원한다. **알려진 한계**: 크래시로 인한
+  종료(SIGSEGV, abort 등)는 이 경로들을 타지 않는다 — DJGPP 예외/시그널 핸들러를 따로 걸지 않았으므로,
+  크래시 시점에 PIT 분주값과 IRQ0 벡터는 재프로그램된 채로 남는다(원래 BIOS 상태로 못 돌아간다). M3
+  범위에서 고치지 않은 채 유예한다(M4 이후 과제).
 - **메모리 잠금 (설계 변경, "`_CRT0_FLAG_LOCK_MEMORY` 로 전체 잠금" 을 대체)**: 전체 잠금은 16MB 에서
   깨졌다 — KQ1 M1 덤프 중 ISR 안에서 페이지 폴트가 났다(`mv2freelist`/
   `MidiParser_SCI::parseNextEvent`, cr2≈18.7MB); hires 폰트 캐시만 수 MB(M2 실측 최대 ≈12MB, 두 번
@@ -508,7 +526,7 @@ M0 의 DOS 부팅을 막은 원인은 세 가지 모두 엔진이 아니라 DJGP
 | M0 | 스파이크 + 최소 포트 | 아래 스파이크 3건이 결론 남. KQ1 이 320×200 CLUT8 로 타이틀까지, 덤프가 기준과 일치. COM 채널로 명령 1개 왕복. **결과: 통과 — DOSBox-X / Staging (memsize 16)** (`harness/dos/spikes/RESULTS.md`, `harness/dos/m0_accept.py`) |
 | M1 | hires 텍스트, L 프리셋 | KQ1·LB1 한국어 대사가 640×400 CLUT8 에 나옴. EUC-KR 패치와 패치 원본 폰트도 확인. □ 대체 로그. **결과: 통과 — DOSBox-X / Staging.** KQ1 타이틀 + 방 1 "look", LB1 한국어 복사방지 화면(`random_seed=1`) 이 FreeType 없는 리눅스 빌드와 `_low`/`_scaled`/`_pal`/`_layer`/`_out` 바이트 단위로 일치; 모드 로그 320×200 → 640×400 CLUT8 (`harness/dos/m1_accept.py`). □ 대체와 `korean.fnt` 가 □ 보다 먼저 쓰이는 것은 수동 실행으로 확인했다 (Task 4); 자동 인수 캡처에는 없는 글리프가 없다 |
 | M2 | 알파, U 프리셋 | XRGB8888 (`rgb_rendering=true`) 에서 기준 이미지와 일치 — SCI 는 4바이트 포맷만 받으므로 RGB565 는 해당 없음. 640×480 줄 반복 폴백은 `dos_force_fallback=true` 로 시험 (두 에뮬레이터 모두 640×400 XRGB8888 이 있으므로). SVFN 2bpp. **결과: 통과 — DOSBox-X / Staging (각 56/56 세부 항목).** 정확 640×400 RGB888@4 는 리눅스 기준과 0 화소 차(커서 제외); 640×480 줄 반복 폴백을 `logicalRow()` 로 되접으면 반복 행이 원본과 같고 `_out` 과 일치하며, 정확 모드 샷과도 커서 상자 밖에서 전부 일치; `dos_truecolor=off` 는 CLUT8 로 감; LB1 U 맵도 확인. M1/M0 회귀도 통과 (`harness/dos/m2_accept.py`) |
-| M3 | 사운드 | KQ1 타이틀 곡의 OPL 노트 온셋을 리눅스(MAME OPL) 와 비교해 편차 중앙값 ≤ 2ms, 최대 ≤ 10ms, 방 로딩 구간 최대 ≤ 20ms. MPU-401 UART 로 같은 곡이 나옴. SB PCM 효과음 1개 재생. **결과: 통과 — DOSBox-X / Staging** (`harness/dos/m3_accept.py`). 실제 타이머 격자는 4ms 가 아니라 10ms(5.1/5.2절). **1차 리뷰에서 "최대"·"로딩구간 최대" 항목은 편차를 ≤5ms 로 접어 계산해 원리적으로 실패할 수 없는 검사였음이 드러났다** (이제는 정보용으로만 남긴다) — **실제 판정 기준**은 (1) 키온 위상 편차 중앙값(그리드 위상은 중앙값이 가장 작은 오프셋에 고정) ≤2ms — DOSBox-X/Staging 모두 1.0ms, (2) 리눅스 기준(SDL dummy 오디오의 버퍼 경계로 환산한 "음악 시간")과 약 1초 창 단위 비교 — OPL 최악 −21.7ms(두 에뮬레이터 동일, 한도 30ms), MPU 최악 +36.4ms(X)/+24.8ms(Staging, 한도 50ms), 전체 구간 길이 1% 이내(OPL +0.04%, MPU +0.24%/+0.08%), (3) getMillis 를 DOS CMOS RTC 와 ~45초 음악 실행 동안 맞대어 |차이| ≤1100ms — 실측 −14~−64ms, (4) 마스터 볼륨 SysEx 버스트를 값으로 비교 — 양쪽 `5D 5D 5D` 로 일치. 시계 확인은 새 디버그 소켓 명령 `millis`(getMillis 값)와 `rtc`(그 값과 DOS CMOS 초시계를 짝지어 반환)로 한다. 그 밖의 지표(REG 공통 프리픽스, MIDI 클릭 전 공통 메시지 수, 믹서 레이트, 타이머 셀프테스트)는 최초 통과 실행 기준으로 변경 없음 — DOSBox-X: REG 2102줄, MIDI 583/583, 믹서 44072/44100, 타이머 calls=180 getMillis=3003 bios=54; Staging: REG 2086줄, MIDI 587/587, 믹서 44102, 타이머 179/3000/54. M0–M2 회귀도 두 에뮬레이터에서 모두 통과 |
+| M3 | 사운드 | KQ1 타이틀 곡의 OPL 노트 온셋을 리눅스(MAME OPL) 와 비교해 편차 중앙값 ≤ 2ms, 최대 ≤ 10ms, 방 로딩 구간 최대 ≤ 20ms. MPU-401 UART 로 같은 곡이 나옴. SB PCM 효과음 1개 재생. **결과: 통과 — DOSBox-X / Staging** (`harness/dos/m3_accept.py`). 실제 타이머 격자는 4ms 가 아니라 10ms(5.1/5.2절). **1차 리뷰에서 "최대"·"로딩구간 최대" 항목은 편차를 ≤5ms 로 접어 계산해 원리적으로 실패할 수 없는 검사였음이 드러났다. 2차 리뷰에서 컨트롤러 판정을 다시 정해 최종 방법으로 확정했다**(`.superpowers/sdd/2026-09-29-dos-m3-sound/task-6-report.md` fix-round-2/3). **최종 판정 방법**: 각 키온을, 그 키온이 속한 드라이버 자신의 타이머 콜백 순번(주기 10ms — OPL 은 SCI 가 요청한 250Hz 콜백을 `ceil(콜백순번×100/250)` 으로 100Hz 프록에 접어 넣는다)이 정한 due time 과 맞대되, 이전 프록이 밀리면 그 due time 도 같이 미는 식으로 편차를 "펼쳐서"(unfold) 잰다 — 캡처 전체(타이틀, 로딩, 방 1 곡)에 대해서다. **기준**: 편차 중앙값(그리드 위상 보정) ≤2ms, 로딩 구간(클릭~방 1 진입+2초) 밖 최대 ≤10ms, 로딩 구간 안 최대 ≤20ms; SCI 의 MT-32 SysEx 대기(`engines/sci/sound/drivers/midi.cpp` 의 `sendMt32SysEx`, 타이머 프로시저 안·IF=0, 46ms)는 허용하되 `setReverb()` 의 `noDelay=true` 리버브 SysEx 는 허용하지 않는다; 로딩 구간 뒤(방 1 곡)에 키온이 20개 이상 있어야 한다. **2차(보조) 검사**: 리눅스 기준과의 "음악 시간" 비교는 양쪽에 1.5초 넘는 무음이 같이 있는 지점(그 길이가 100ms 이내로 맞을 때)에서만 구간을 자른다 — OPL 은 구간 길이 오차 ≤0.3%, MPU 는 정보용(리눅스 MT-32 참조 자체가 ~0.7% 오차라 판정에 쓰지 않는다). **RTC 대조**: getMillis 를 DOS CMOS RTC 와 맞대어 |차이| ≤ max(200ms, 0.3%). **실측(최종본)** — DOSBox-X: OPL 718 키온/43841ms 중앙값 1.0ms·로딩 밖 최대 +2ms·로딩 구간(100 키온) 최대 +2ms·로딩 뒤 290 키온(≥20)·무음 2099ms vs 리눅스 2067ms·1초 창 최악 −21.7ms·구간 길이 +0.19%·getMillis −16ms(−356ppm)·REG 공통 프리픽스 2110줄; MPU 454 키온/47629ms 중앙값 1.0ms·로딩 밖 최대 +3ms·로딩 구간(55 키온) 최대 +2ms·로딩 뒤 201 키온·무음 2100ms vs 2067ms·창 최악 −44.9ms·구간 길이 −0.12%(정보용)·getMillis −32ms(−667ppm)·MIDI 클릭 전 공통 588 메시지·마스터 볼륨 버스트 `5D 5D 5D` 일치·MT-32 SysEx 대기 허용 5회; 믹서 44057/44100(−0.10%), 타이머 셀프테스트 calls=180 getMillis=3003 bios=54. Staging: OPL 730 키온/44921ms 중앙값 1.0ms·로딩 밖 최대 −2ms·로딩 구간(110 키온) 최대 +1ms·로딩 뒤 256 키온·무음 2099ms vs 2090ms·창 최악 −21.7ms·구간 길이 +0.12%·getMillis −86ms(−1792ppm)·REG 공통 프리픽스 2090줄; MPU 404 키온/46027ms 중앙값 1.0ms·로딩 밖 최대 +3ms·로딩 구간(57 키온) 최대 −2ms·로딩 뒤 157 키온·무음 2100ms vs 2043ms·창 최악 +36.4ms·구간 길이 +0.96%(정보용)·getMillis −39ms(−848ppm)·MIDI 클릭 전 공통 551 메시지·버스트 `5D 5D 5D` 일치·MT-32 SysEx 대기 허용 7회; 믹서 44110/44100(+0.02%), 타이머 셀프테스트 calls=180 getMillis=3000 bios=54. **부정 대조**(fix-round-2 의 Staging 로그에 인위 주입, 판정 방법 자체의 검증): 100/300/600번째 키온부터 +12ms 를 주입하면 항상 로딩-밖 최대 검사가 FAIL(−13/−12/+13ms), 300번째부터 주입은 중앙값도 FAIL(3.0ms); MT-32 대기 허용을 빼면 최대 +43ms 로 FAIL — 판정이 실제 편차를 잡아낸다는 확인. 시계 확인은 새 디버그 소켓 명령 `millis`(getMillis 값)와 `rtc`(그 값과 DOS CMOS 초시계를 짝지어 반환)로 한다. M0–M2 회귀도 두 에뮬레이터에서 모두 통과 |
 | M4 | 마무리 | GUI 오버레이, 세이브/로드, 실기 측정, 배포 패키지 |
 
 ### M0 스파이크 (구현 전에 확인)
