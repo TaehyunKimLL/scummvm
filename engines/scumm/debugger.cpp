@@ -28,6 +28,7 @@
 #include "scumm/actor.h"
 #include "scumm/boxes.h"
 #include "scumm/debugger.h"
+#include "scumm/debugsocket.h"
 #include "scumm/imuse/imuse.h"
 #include "scumm/imuse_digi/dimuse_engine.h"
 #include "scumm/object.h"
@@ -123,6 +124,22 @@ void ScummDebugger::postEnter() {
 	// Boot params often need debugging switched on to work
 	if (_vm->_bootParam)
 		_vm->_debugMode = true;
+}
+
+ScummDebugger::~ScummDebugger() {
+	if (_socket && debugSocket())
+		debugSocket()->setExtension(nullptr);	// the socket outlives us (~Debugger)
+	delete _socket;
+}
+
+// GUI::Debugger::onFrame() opens the socket (debug_socket=); SCUMM adds its
+// state, waits, freeze and dumps (scumm/debugsocket.h). go() reads the
+// extension through ScummEngine::_debugSocket, which lives as long as the
+// engine: the debugger, and with it the extension, is deleted after it.
+void ScummDebugger::debugSocketOpened(GUI::DebugSocket *socket) {
+	_socket = new DebugSocket(_vm, socket);
+	socket->setExtension(_socket);
+	_vm->_debugSocket = _socket;
 }
 
 void ScummDebugger::onFrame() {

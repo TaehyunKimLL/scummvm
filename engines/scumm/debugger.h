@@ -29,13 +29,18 @@ namespace Scumm {
 #define DEBUG_COLOR_COUNT 32
 
 class ScummEngine;
+class DebugSocket;
 
 class ScummDebugger : public GUI::Debugger {
 public:
 	ScummDebugger(ScummEngine *s);
+	~ScummDebugger() override;
 
 private:
 	ScummEngine *_vm;
+	DebugSocket *_socket = nullptr;	///< SCUMM's commands on the debug socket
+
+	void debugSocketOpened(GUI::DebugSocket *socket) override;
 
 	int _nextColorIndex = 0;
 	int _debugColors[DEBUG_COLOR_COUNT];

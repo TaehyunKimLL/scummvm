@@ -43,6 +43,7 @@
 #include "scumm/charset.h"
 #include "scumm/costume.h"
 #include "scumm/debugger.h"
+#include "scumm/debugsocket.h"
 #include "scumm/detection_tables.h"
 #include "scumm/dialogs.h"
 #include "scumm/file.h"
@@ -3101,8 +3102,9 @@ Common::Error ScummEngine::go() {
 
 		waitForTimer(delta * 4);
 
-		// Run the main loop
-		if (!isPaused()) {
+		// Run the main loop - unless the debug socket froze the game, which
+		// then only waits for the timer (events, screen, the socket).
+		if (!isPaused() && !(_debugSocket && _debugSocket->frozen())) {
 			scummLoop(delta);
 
 			// The Mac GUI is updated after the engine has had a
@@ -3118,6 +3120,9 @@ Common::Error ScummEngine::go() {
 
 			if (VAR_LAST_FRAME_SCUMM_TIME != 0xFF)
 				VAR(VAR_LAST_FRAME_SCUMM_TIME) = _system->getMillis() - _lastWaitTime;
+
+			if (_debugSocket)
+				_debugSocket->loopDone();
 		}
 
 		if (shouldQuit()) {

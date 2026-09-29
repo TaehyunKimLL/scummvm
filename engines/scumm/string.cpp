@@ -28,6 +28,7 @@
 
 #include "scumm/actor.h"
 #include "scumm/charset.h"
+#include "scumm/debugsocket.h"
 #include "scumm/dialogs.h"
 #include "scumm/file.h"
 #include "scumm/text_utf8.h"
@@ -1227,7 +1228,9 @@ void ScummEngine::displayDialog() {
 #ifdef USE_TTS
 	Common::String ttsMessage;
 #endif
+	Common::String drawn;	// for the debug socket only
 	while (handleNextCharsetCode(a, &c)) {
+		const int charStart = _charsetBufPos - 1;
 		if (c == 0) {
 			// End of text reached, set _haveMsg accordingly
 			_haveMsg = 1;
@@ -1240,6 +1243,8 @@ void ScummEngine::displayDialog() {
 #ifdef USE_TTS
 			ttsMessage += ' ';
 #endif
+			if (_debugSocket)
+				drawn += '\n';
 			if (!newLine())
 				break;
 			continue;
@@ -1290,6 +1295,8 @@ void ScummEngine::displayDialog() {
 			c = readUtf8TextChar(p, _charsetBuffer + sizeof(_charsetBuffer));
 			_charsetBufPos = p - _charsetBuffer;
 		}
+		if (_debugSocket)
+			drawn += Common::String((const char *)_charsetBuffer + charStart, _charsetBufPos - charStart);
 		if (_game.version <= 3) {
 			_charset->printChar(c, false);
 			_msgCount += 1;
@@ -1323,6 +1330,9 @@ void ScummEngine::displayDialog() {
 			_talkDelay += (int)VAR(VAR_CHARINC);
 		}
 	}
+
+	if (_debugSocket && !drawn.empty())
+		noteDrawnString(drawn);
 
 #ifdef USE_TTS
 	if (!_mixer->isSoundHandleActive(*_sound->_talkChannelHandle) && 
@@ -1480,7 +1490,9 @@ void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager
 		}
 	}
 
+	Common::String drawn;	// for the debug socket only
 	for (i = 0; (c = buf[i++]) != 0;) {
+		const int charStart = i - 1;
 		if (_game.heversion >= 72 && c == code) {
 			c = buf[i++];
 			switch (c) {
@@ -1518,6 +1530,8 @@ void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager
 				} else {
 					_charset->_top += fontHeight;
 				}
+				if (_debugSocket)
+					drawn += '\n';
 				break;
 			case 12:
 				color = buf[i] + (buf[i + 1] << 8);
@@ -1561,10 +1575,15 @@ void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager
 			if (isV3Towns && i > 1 && buf[i - 1] == 0)
 				break;
 
+			if (_debugSocket)
+				drawn += Common::String((const char *)buf + charStart, i - charStart);
 			_charset->printChar(c, true);
 			_charset->_blitAlso = false;
 		}
 	}
+
+	if (_debugSocket && !drawn.empty())
+		noteDrawnString(drawn);
 
 	if (a == 0) {
 		_nextLeft = _charset->_left;
@@ -2739,6 +2758,26 @@ bool ScummEngine::reverseIfNeeded(const byte *text, byte *reverseBuf, int revers
 	Common::strlcpy(reinterpret_cast<char *>(reverseBuf), reinterpret_cast<const char *>(text), reverseBufSize);
 	fakeBidiString(reverseBuf, true, reverseBufSize);
 	return true;
+}
+
+void ScummEngine::noteDrawnString(const Common::String &drawn) {
+	// Decoded the way the text is drawn: the hi-res layer's decoder when it
+	// is on and names an encoding, else the language's code page.
+	Common::U32String text;
+	if (_hiResText.enabled() && _hiResText.encoding() != Common::kCodePageInvalid) {
+		const byte *p = (const byte *)drawn.c_str();
+		const byte *end = p + drawn.size();
+		while (p < end) {
+			const byte *before = p;
+			const uint32 cp = _hiResText.decodeNext(p, end);
+			if (p == before)
+				p++;
+			text += (Common::u32char_type_t)(cp ? cp : '?');
+		}
+	} else {
+		text = Common::U32String(drawn, getDialogCodePage());
+	}
+	_debugSocket->noteString(_charset->getCurID(), (const byte *)drawn.c_str(), drawn.size(), text, _charset->_str);
 }
 
 Common::CodePage ScummEngine::getDialogCodePage() const {
