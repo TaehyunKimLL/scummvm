@@ -584,6 +584,10 @@ bool DebugSocket::genericCommand(const Common::String &cmd, const Common::String
 		_saveLoadDeadline = g_system->getMillis() + kSaveLoadWaitMs;
 		return true;
 	}
+	if (cmd == "millis") {
+		out = Common::String::format("%u", g_system->getMillis());
+		return true;
+	}
 	if (cmd == "record") {
 		if (a.empty()) {
 			stopRecording();

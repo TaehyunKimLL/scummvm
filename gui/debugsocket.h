@@ -132,6 +132,8 @@ public:
  *                        onFrame() is called from) if the engine allows it
  *                        then; the reply is OK or FAIL with the error
  *   record [<path>]      start (or, with no path, stop) a recording
+ *   millis               g_system->getMillis() now, in decimal (to place
+ *                        harness actions on the clock the backend's logs use)
  *
  * Input goes through g_system->getEventManager()->pushEvent(), one key per
  * poll at most every 40 ms, so a game that reads one key per frame sees
