@@ -41,6 +41,8 @@
 #include "common/debug.h"
 #include "common/file.h"
 #include "common/textconsole.h"
+#include "engines/engine.h"
+#include "gui/debugger.h"
 
 static Graphics::PixelFormat fromSdl(SDL_PixelFormat f, bool &ok) {
 	ok = true;
@@ -348,6 +350,14 @@ void DosGraphicsManager::updateScreen() {
 	SDL_Surface *s = SDL_GetWindowSurface(_window);
 	if (!s || !surfaceFits(s))
 		return;
+
+	// If there's an active debugger, update it (as the SDL and OpenGL
+	// graphics managers do): this is what opens the debug socket
+	// (Debugger::onFrame(), gui/debugsocket.cpp) on a null test before the
+	// engine exists.
+	GUI::Debugger *debugger = g_engine ? g_engine->getDebugger() : nullptr;
+	if (debugger)
+		debugger->onFrame();
 
 	if (_loadingShown) {
 		// The loading screen stays until the game has drawn something
