@@ -501,6 +501,15 @@ bool DebugSocket::handle(const Common::String &cmd, const Common::StringArray &a
 		return true;
 	}
 
+	if (cmd == "textclear") {
+		GfxScreen *scr = _engine->_gfxScreen;
+		if (!scr || !scr->textLayer()) { out = "no text layer"; return true; }
+		scr->clearTextLayer();
+		scr->copyToScreen();
+		out = "OK";
+		return true;
+	}
+
 	if (cmd == "hold") {
 		if (a.size() < 1) { out = "usage: hold <name> [ticks]"; return true; }
 		const int ticks = a.size() > 1 ? atoi(a[1].c_str()) : 400;
