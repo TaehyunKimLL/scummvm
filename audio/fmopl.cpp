@@ -38,6 +38,11 @@
 #include "audio/softsynth/opl/nuked.h"
 
 #include "common/config-manager.h"
+#include "common/events.h"
+#include "common/file.h"
+#include "common/func.h"
+#include "common/mutex.h"
+#include "common/system.h"
 #include "common/textconsole.h"
 #include "common/translation.h"
 
@@ -245,7 +250,7 @@ OPL *Config::create(OplType type) {
 	return create(kAuto, type);
 }
 
-OPL *Config::create(DriverId driver, OplType type) {
+static OPL *createUnlogged(Config::DriverId driver, Config::OplType type) {
 	// On invalid driver selection, we try to do some fallback detection
 	if (driver == -1) {
 		warning("Invalid OPL driver selected, trying to detect a fallback emulator");
@@ -255,7 +260,7 @@ OPL *Config::create(DriverId driver, OplType type) {
 	// If autodetection is selected, we search for a matching
 	// driver.
 	if (driver == kAuto) {
-		driver = detect(type);
+		driver = Config::detect(type);
 
 		// No emulator for the specified OPL chip could
 		// be found, thus stop here.
@@ -268,7 +273,7 @@ OPL *Config::create(DriverId driver, OplType type) {
 	switch (driver) {
 #ifndef DISABLE_MAME_OPL
 	case kMame:
-		if (type == kOpl2)
+		if (type == Config::kOpl2)
 			return new MAME::OPL();
 		else
 			warning("MAME OPL emulator only supports OPL2 emulation");
@@ -292,7 +297,7 @@ OPL *Config::create(DriverId driver, OplType type) {
 
 #ifdef ENABLE_OPL2LPT
 	case kOPL2LPT:
-		if (type == kOpl2) {
+		if (type == Config::kOpl2) {
 			return OPL2LPT::create(type);
 		}
 
@@ -320,7 +325,7 @@ OPL *Config::create(DriverId driver, OplType type) {
 
 #ifdef USE_NFM
 	case kNfmNokturnFM2: {
-		if (type == kOpl2) {
+		if (type == Config::kOpl2) {
 			return NfmOPL::RealChip::create(type, NfmOPL::dtNokturnFM2);
 		}
 		warning("NokturnFM2 supports only OPL2");
@@ -334,7 +339,7 @@ OPL *Config::create(DriverId driver, OplType type) {
 		return NfmOPL::RealChip::create(type, NfmOPL::dtRWOpl3Express);
 
 	case kNfmOPL2LPT: {
-		if (type == kOpl2) {
+		if (type == Config::kOpl2) {
 			return NfmOPL::RealChip::create(type, NfmOPL::dtOPL2LPT);
 		}
 		warning("OPL2LPT supports only OPL2");
@@ -345,7 +350,7 @@ OPL *Config::create(DriverId driver, OplType type) {
 		return NfmOPL::RealChip::create(type, NfmOPL::dtOPL3LPT);
 
 	case kNfmCeOPL2AudioBoard: {
-		if (type == kOpl2) {
+		if (type == Config::kOpl2) {
 			return NfmOPL::RealChip::create(type, NfmOPL::dtOPL2AudioBoard);
 		}
 
@@ -370,6 +375,216 @@ OPL *Config::create(DriverId driver, OplType type) {
 		warning("Unsupported OPL emulator %d", driver);
 		return nullptr;
 	}
+}
+
+/**
+ * Wraps the OPL that Config::create would return and logs every register
+ * write, for comparing the register streams of two builds (e.g. a DOS
+ * hardware OPL against a Linux emulator). Enabled by the config key
+ * opl_log=<path>, it writes two files:
+ *
+ *  - <path>.REG: every write, "<reg> <val>" (hex, reg 000-1FF).
+ *  - <path>.ON:  every key-on, i.e. a write to B0-B8 (either bank) that
+ *                sets bit 5 while it was clear, "<ms> <reg> <val>" with
+ *                ms = OSystem::getMillis() at the write.
+ *
+ * Writes may come from a timer callback, which on some ports (DOS) runs in
+ * an interrupt handler, so the write path only stores into a ring buffer
+ * allocated up front, under a mutex. The main thread empties it into the
+ * files from the event loop (an EventObserver poll, at most every
+ * kFlushInterval ms) and once more when the OPL is destroyed. Writes that
+ * find the ring full are dropped and counted (reported by warning()), so
+ * the ring must hold what arrives between two event polls.
+ */
+class LoggingOPL : public OPL, public Common::EventObserver {
+public:
+	static OPL *create(Config::DriverId driver, Config::OplType type, const Common::Path &path);
+	~LoggingOPL() override;
+
+	bool init() override { return _inner->init(); }
+	void reset() override { _inner->reset(); }
+	void write(int a, int v) override;
+	void writeReg(int r, int v) override;
+
+	void setCallbackFrequency(int timerFrequency) override { _inner->setCallbackFrequency(timerFrequency); }
+
+	bool notifyEvent(const Common::Event &event) override { return false; }
+	void notifyPoll() override;
+
+protected:
+	void startCallbacks(int timerFrequency) override {
+		_inner->start(new Common::Functor0Mem<void, LoggingOPL>(this, &LoggingOPL::onInnerTimer), timerFrequency);
+	}
+	void stopCallbacks() override { _inner->stop(); }
+
+private:
+	struct Entry {
+		uint32 ms;
+		uint16 reg;
+		uint8 value;
+		uint8 keyOn;
+	};
+
+	enum {
+		kRingSize = 65536,
+		kFlushInterval = 1000
+	};
+
+	explicit LoggingOPL(Config::OplType type);
+
+	void onInnerTimer() {
+		if (_callback && _callback->isValid())
+			(*_callback)();
+	}
+	void log(int reg, int value);
+	void flush();
+
+	OPL *_inner;
+	Config::OplType _type;
+	int _activeReg;
+	uint8 _shadow[0x200];
+
+	Common::Mutex _mutex;
+	Entry *_ring;
+	uint32 _head;	// next slot to fill (writer)
+	uint32 _tail;	// next slot to flush (main thread)
+	uint32 _dropped;
+	uint32 _lastFlush;
+
+	Common::DumpFile _onFile;
+	Common::DumpFile _regFile;
+	bool _observing;
+};
+
+LoggingOPL::LoggingOPL(Config::OplType type) : _inner(nullptr), _type(type), _activeReg(0),
+	_ring(nullptr), _head(0), _tail(0), _dropped(0), _lastFlush(0), _observing(false) {
+	memset(_shadow, 0, sizeof(_shadow));
+}
+
+OPL *LoggingOPL::create(Config::DriverId driver, Config::OplType type, const Common::Path &path) {
+	LoggingOPL *opl = new LoggingOPL(type);
+
+	// The wrapper and the wrapped driver are one OPL instance.
+	_hasInstance = false;
+	opl->_inner = createUnlogged(driver, type);
+	if (!opl->_inner) {
+		delete opl;
+		return nullptr;
+	}
+
+	if (!opl->_onFile.open(path.append(".ON")) || !opl->_regFile.open(path.append(".REG"))) {
+		warning("OPL log: cannot create %s.ON/.REG", path.toString(Common::Path::kNativeSeparator).c_str());
+		return opl;
+	}
+	opl->_ring = new Entry[kRingSize];
+	opl->_lastFlush = g_system->getMillis();
+	g_system->getEventManager()->getEventDispatcher()->registerObserver(opl, 0, false, true);
+	opl->_observing = true;
+	return opl;
+}
+
+LoggingOPL::~LoggingOPL() {
+	if (_observing)
+		g_system->getEventManager()->getEventDispatcher()->unregisterObserver(this);
+	// Deleting the driver stops its callbacks; then nothing writes any more.
+	delete _inner;
+	if (_ring) {
+		flush();
+		_onFile.finalize();
+		_regFile.finalize();
+		delete[] _ring;
+	}
+}
+
+void LoggingOPL::write(int a, int v) {
+	if (a & 1) {
+		log(_activeReg, v);
+	} else {
+		// The register as the chip drivers decode it.
+		if (_type == Config::kOpl2)
+			_activeReg = v & 0xFF;
+		else
+			_activeReg = ((a & 2) << 7) | (v & 0xFF);
+	}
+	_inner->write(a, v);
+}
+
+void LoggingOPL::writeReg(int r, int v) {
+	log(r, v);
+	_inner->writeReg(r, v);
+}
+
+void LoggingOPL::log(int reg, int value) {
+	if (!_ring)
+		return;
+
+	reg &= 0x1FF;
+	value &= 0xFF;
+	Common::StackLock lock(_mutex);
+
+	int low = reg & 0xFF;
+	bool keyOn = low >= 0xB0 && low <= 0xB8 && (value & 0x20) && !(_shadow[reg] & 0x20);
+	_shadow[reg] = (uint8)value;
+
+	uint32 next = (_head + 1) % kRingSize;
+	if (next == _tail) {
+		++_dropped;
+		return;
+	}
+	Entry &e = _ring[_head];
+	e.ms = g_system->getMillis();
+	e.reg = (uint16)reg;
+	e.value = (uint8)value;
+	e.keyOn = keyOn ? 1 : 0;
+	_head = next;
+}
+
+void LoggingOPL::notifyPoll() {
+	uint32 now = g_system->getMillis();
+	if (now - _lastFlush < kFlushInterval)
+		return;
+	_lastFlush = now;
+	flush();
+}
+
+void LoggingOPL::flush() {
+	uint32 head, dropped;
+	{
+		Common::StackLock lock(_mutex);
+		head = _head;
+		dropped = _dropped;
+		_dropped = 0;
+	}
+	if (dropped)
+		warning("OPL log: ring full, %u writes not logged", (unsigned)dropped);
+	if (head == _tail)
+		return;
+
+	// Entries [_tail, head) are complete and the writer does not touch them
+	// until _tail moves past them.
+	Common::String on, reg;
+	for (uint32 i = _tail; i != head; i = (i + 1) % kRingSize) {
+		const Entry &e = _ring[i];
+		reg += Common::String::format("%03X %02X\n", e.reg, e.value);
+		if (e.keyOn)
+			on += Common::String::format("%u %03X %02X\n", (unsigned)e.ms, e.reg, e.value);
+	}
+	_regFile.writeString(reg);
+	_onFile.writeString(on);
+	_regFile.flush();
+	_onFile.flush();
+
+	Common::StackLock lock(_mutex);
+	_tail = head;
+}
+
+OPL *Config::create(DriverId driver, OplType type) {
+	if (ConfMan.hasKey("opl_log")) {
+		Common::Path path = ConfMan.getPath("opl_log");
+		if (!path.empty())
+			return LoggingOPL::create(driver, type, path);
+	}
+	return createUnlogged(driver, type);
 }
 
 void OPL::initDualOpl2OnOpl3(Config::OplType oplType) {
