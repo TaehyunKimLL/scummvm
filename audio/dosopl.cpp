@@ -72,6 +72,8 @@ bool probe(uint16 base, bool &opl3) {
 	rawWrite(base, base, 0x04, 0x60);
 	rawWrite(base, base, 0x04, 0x80);
 	uint8 before = inportb(base);
+	if ((before & 0xE0) != 0)
+		return false;	// Nothing (or not an OPL) there; skip the timer wait.
 	rawWrite(base, base, 0x02, 0xFF);
 	rawWrite(base, base, 0x04, 0x21);
 	uint8 after = 0;
@@ -83,7 +85,7 @@ bool probe(uint16 base, bool &opl3) {
 	rawWrite(base, base, 0x04, 0x60);
 	rawWrite(base, base, 0x04, 0x80);
 
-	if ((before & 0xE0) != 0 || (after & 0xE0) != 0xC0)
+	if ((after & 0xE0) != 0xC0)
 		return false;
 	opl3 = (after & 0x06) == 0;
 	return true;

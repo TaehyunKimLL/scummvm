@@ -231,10 +231,28 @@ Config::DriverId Config::detect(OplType type) {
 	// Detect the first matching emulator
 	drv = -1;
 
+#ifdef DOS_DJGPP
+	// A chip that answers is used or nothing is: software emulation costs
+	// too much CPU on the machines this port runs on. When the chip cannot
+	// serve the type (Dual OPL2 or OPL3 on an OPL2 card), return no driver
+	// so that the engine falls back to OPL2 if it can (SCI does). The price
+	// is that an engine demanding an OPL3 without a fallback gets no music on
+	// an OPL2 card. Emulators are chosen only when no chip answers.
+	if (DosOPL::OPL::detect(kOpl2)) {
+		if (DosOPL::OPL::detect(type))
+			return kDosOPL;
+		static bool warned = false;
+		if (!warned) {
+			warning("The hardware OPL cannot serve OPL type %d; not using an emulator", type);
+			warned = true;
+		}
+		return -1;
+	}
+#endif
+
 	for (int i = 2; _drivers[i].name; ++i) {
 #ifdef DOS_DJGPP
-		// Only when the card is there (and has an OPL3 if one is needed).
-		if (_drivers[i].id == kDosOPL && !DosOPL::OPL::detect(type))
+		if (_drivers[i].id == kDosOPL)
 			continue;
 #endif
 		if (_drivers[i].flags & flags) {
@@ -395,6 +413,11 @@ static OPL *createUnlogged(Config::DriverId driver, Config::OplType type) {
  * kFlushInterval ms) and once more when the OPL is destroyed. Writes that
  * find the ring full are dropped and counted (reported by warning()), so
  * the ring must hold what arrives between two event polls.
+ *
+ * On DOS the files have 8.3 names, so the last component of <path> must be
+ * at most 8 characters without an extension. The periodic flushes reach
+ * the file, but an emulator (DOSBox) may hold host writes until the file
+ * is closed: the logs are complete only after a clean quit.
  */
 class LoggingOPL : public OPL, public Common::EventObserver {
 public:
@@ -473,7 +496,11 @@ OPL *LoggingOPL::create(Config::DriverId driver, Config::OplType type, const Com
 	}
 
 	if (!opl->_onFile.open(path.append(".ON")) || !opl->_regFile.open(path.append(".REG"))) {
+		// Log nothing; an .ON that did open stays behind, empty (there is
+		// no portable way to remove it).
 		warning("OPL log: cannot create %s.ON/.REG", path.toString(Common::Path::kNativeSeparator).c_str());
+		opl->_onFile.close();
+		opl->_regFile.close();
 		return opl;
 	}
 	opl->_ring = new Entry[kRingSize];
