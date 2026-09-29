@@ -227,6 +227,103 @@ def chars_from_str(path):
     return cps
 
 
+def _res_str_len(data, off):
+    """SCUMM 문자열 길이, engines/scumm/script.cpp::resStrLen() 의 heversion<=71
+    (v5/v6, MI1/MI2 포함) 규칙과 같다 - harness/tools/trslib.py 의 res_str_len() 도
+    이와 같다: 0xFF 뒤 코드 바이트가 1, 2, 3, 8 이면 인수가 없고, 그 밖은 2바이트.
+    끝은 그 인수 밖에 있는 0x00 (0xFE 는 이 포맷에서 특별하지 않다 - resStrLen() 이
+    검사하는 것은 0xFF 뿐이다)."""
+    n = 0
+    i = off
+    while True:
+        c = data[i]
+        i += 1
+        if c == 0:
+            return n
+        n += 1
+        if c == 0xFF:
+            code = data[i]
+            i += 1
+            n += 1
+            if code not in (1, 2, 3, 8):
+                i += 2
+                n += 2
+
+
+def _trs_string_chars(data, off, enc):
+    """오프셋 off 의 SCUMM 문자열(_res_str_len() 규칙으로 끝을 찾는다)을 0xFF
+    제어 코드를 건너뛰며 enc 로 디코드한 코드 포인트들. 디코드에 실패한 바이트
+    (U+FFFD) 는 실제 글자가 아니므로 뺀다."""
+    end = off + _res_str_len(data, off)
+    cps = []
+    run = bytearray()
+    i = off
+
+    def flush():
+        if run:
+            cps.extend(ord(c) for c in run.decode(enc, errors="replace") if c != "�")
+            run.clear()
+
+    while i < end:
+        c = data[i]
+        if c == 0xFF:
+            flush()
+            code = data[i + 1]
+            i += 2 if code in (1, 2, 3, 8) else 4
+            continue
+        run.append(c)
+        i += 1
+    flush()
+    return cps
+
+
+def chars_from_trs(path):
+    """.trs (SCVMTRS 묶음: engines/scumm/trs_bundle.h 의 파일 형식, 내용은
+    engines/scumm/script.cpp::resStrLen() 규칙 - harness/tools/trslib.py 가 같은
+    것을 읽고 쓴다) 에서 쓰인 모든 코드 포인트.
+
+    본문(방 표 뒤, 첫 문자열 앞)이 UTF-8 BOM (EF BB BF) 으로 시작하면 UTF-8,
+    아니면 CP949 로 색인에 있는 모든 문자열(원문 + 번역문 둘 다)을 디코드한다
+    (engines/scumm/trs_bundle.h::trsBodyIsUtf8() 과 같은 규칙). SCUMM 제어 코드
+    (0xFF 뒤 코드 1바이트 + resStrLen() 규칙의 인수)는 건너뛴다: 그 바이트들은
+    글자가 아니라 게임 이스케이프의 인수(변수 번호, 대화 오프셋 등)다."""
+    with open(path, "rb") as f:
+        data = f.read()
+    if len(data) < 10 or data[:8] != b"SCVMTRS ":
+        sys.exit(f"--chars-from: {path} 는 SCVMTRS 묶음이 아니다 (머리 8바이트가 다르다)")
+    num = struct.unpack_from("<H", data, 8)[0]
+    p = 10
+    if p + num * 10 > len(data):
+        sys.exit(f"--chars-from: {path} 의 줄 색인이 잘렸다")
+    offsets = set()
+    for _ in range(num):
+        _idx, orig_off, trans_off = struct.unpack_from("<HII", data, p)
+        offsets.add(orig_off)
+        offsets.add(trans_off)
+        p += 10
+    if p >= len(data):
+        sys.exit(f"--chars-from: {path} 의 방 표가 잘렸다")
+    nroom = data[p]
+    p += 1
+    for _ in range(nroom):
+        if p + 3 > len(data):
+            sys.exit(f"--chars-from: {path} 의 방 표가 잘렸다")
+        p += 1  # roomId
+        nscript = struct.unpack_from("<H", data, p)[0]
+        p += 2 + nscript * 8
+    if p > len(data):
+        sys.exit(f"--chars-from: {path} 의 방 표가 잘렸다")
+    body_pos = p
+    enc = "utf-8" if data[body_pos:body_pos + 3] == b"\xef\xbb\xbf" else "cp949"
+
+    cps = []
+    for off in sorted(offsets):
+        if off >= len(data):
+            continue
+        cps.extend(_trs_string_chars(data, off, enc))
+    return cps
+
+
 def chars_from_text_patch(path):
     """TEXT.nnn/text.nnn (SCI 패치 포맷): 머리말은 2바이트 + 둘째 바이트가
     적은 만큼의 추가 바이트 (resource.h kResourceHeaderSize, resource.cpp
@@ -254,6 +351,8 @@ def _classify_chars_from(path):
         return "str"
     if ext.lower() == ".map":
         return "map"
+    if ext.lower() == ".trs":
+        return "trs"
     if stem.lower() == "text" and ext[1:].isdigit():
         return "text"
     return "plain"
@@ -289,6 +388,8 @@ def collect_chars_from_files(paths):
             found = chars_from_text_patch(path)
         elif kind == "map":
             found = chars_from_map(path)
+        elif kind == "trs":
+            found = chars_from_trs(path)
         else:
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 found = [ord(c) for c in f.read()]
@@ -696,9 +797,11 @@ def main():
                          "가린다: TEXT.nnn/text.nnn (SCI 패치 - 2바이트 머리말 뒤 "
                          "NUL 로 나뉜 UTF-8 문자열), *.str/sci-ko.str (script<TAB>id"
                          "[<TAB>room]<TAB>text, UTF-8, # 주석), *.map (hires_text "
-                         "INI 의 missing= 과 [glyphs] 절대 코드), 그 밖은 그냥 UTF-8 "
-                         "텍스트. ASCII 와 U+25A1 은 --chars-from 유무와 무관하게 "
-                         "항상 실린다")
+                         "INI 의 missing= 과 [glyphs] 절대 코드), *.trs (SCUMM SCVMTRS "
+                         "묶음 - 본문이 UTF-8 BOM 으로 시작하면 UTF-8, 아니면 CP949 로 "
+                         "원문+번역문 모든 문자열을 읽고, 0xFF 로 시작하는 SCUMM 제어 "
+                         "코드는 건너뛴다), 그 밖은 그냥 UTF-8 텍스트. ASCII 와 U+25A1 "
+                         "은 --chars-from 유무와 무관하게 항상 실린다")
     ap.add_argument("--limit", default="",
                     help="결과를 이 코드 포인트 집합과 교집합한다 (--unicode 와 같은 "
                          "문법, file: 항목도 된다). --chars-from 으로 모은 글자 중 "
