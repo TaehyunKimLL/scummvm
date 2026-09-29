@@ -295,6 +295,85 @@ public:
 		TS_ASSERT(src == nullptr);
 		TS_ASSERT(!error.empty());
 	}
+
+	// A stream that counts the bytes read from it, so a test can see what a
+	// deferred source reads, and when.
+	class CountingStream : public Common::MemoryReadStream {
+	public:
+		CountingStream(const byte *data, uint32 size, uint32 *count)
+			: Common::MemoryReadStream(data, size), _count(count) {}
+		uint32 read(void *dataPtr, uint32 dataSize) override {
+			const uint32 n = Common::MemoryReadStream::read(dataPtr, dataSize);
+			*_count += n;
+			return n;
+		}
+	private:
+		uint32 *_count;
+	};
+
+	void test_deferred_matches_create() {
+		for (int bpp = 1; bpp <= 8; bpp *= 8) {
+			Common::Array<byte> file = makeBundle(bpp);
+			Common::String error;
+			ScvmuniGlyphSource *whole = ScvmuniGlyphSource::create(makeBundle(bpp), "test.uni", error);
+			uint32 read = 0;
+			CountingStream *stream = new CountingStream(&file[0], file.size(), &read);
+			ScvmuniGlyphSource *lazy =
+				ScvmuniGlyphSource::createDeferred(stream, DisposeAfterUse::YES, "test.uni", error);
+			TS_ASSERT(whole != nullptr);
+			TS_ASSERT(lazy != nullptr);
+			TS_ASSERT(error.empty());
+			if (!whole || !lazy) {
+				delete whole;
+				delete lazy;
+				return;
+			}
+			TS_ASSERT_EQUALS(lazy->cellWidth(), whole->cellWidth());
+			TS_ASSERT_EQUALS(lazy->cellHeight(), whole->cellHeight());
+			TS_ASSERT_EQUALS(lazy->advanceNarrow(), whole->advanceNarrow());
+			TS_ASSERT_EQUALS(lazy->advanceWide(), whole->advanceWide());
+			TS_ASSERT_EQUALS(lazy->bitsPerPixel(), whole->bitsPerPixel());
+			TS_ASSERT_EQUALS(lazy->glyphCount(), whole->glyphCount());
+			const uint32 cps[] = { 0x0041, 0x0042, 0xAC00, 0x3000 };
+			for (uint i = 0; i < ARRAYSIZE(cps); i++)
+				TS_ASSERT_EQUALS(lazy->cells(cps[i]), whole->cells(cps[i]));
+
+			// The 36-byte header and the tables only, until a row is asked
+			// for; then the bitmaps, once.
+			const uint32 bitmapBytes = 3 * ((2 * 2 * bpp + 7) / 8) * 2;
+			TS_ASSERT_EQUALS(read, (uint32)(36 + 3 * 5));
+			const uint32 before = read;
+			const uint32 rowBytes = (2 * 2 * bpp + 7) / 8;
+			const uint32 drawn[] = { 0x0041, 0xAC00 };
+			for (uint i = 0; i < ARRAYSIZE(drawn); i++)
+				for (int y = 0; y < 2; y++)
+					TS_ASSERT_SAME_DATA(lazy->row(drawn[i], y), whole->row(drawn[i], y), rowBytes);
+			TS_ASSERT_EQUALS(read, before + bitmapBytes);
+
+			delete whole;
+			delete lazy;
+		}
+	}
+
+	void test_deferred_rejects_what_create_rejects() {
+		Common::Array<byte> bad[3] = { makeBundle(1), makeBundle(1), makeBundle(1) };
+		bad[0][0] = 'X';
+		for (int i = 0; i < 4; i++) {
+			const byte t = bad[1][32 + i];
+			bad[1][32 + i] = bad[1][36 + i];
+			bad[1][36 + i] = t;
+		}
+		bad[2].resize(bad[2].size() - 4);
+		for (int i = 0; i < 3; i++) {
+			Common::String error;
+			Common::MemoryReadStream *stream = new Common::MemoryReadStream(&bad[i][0], bad[i].size());
+			ScvmuniGlyphSource *src =
+				ScvmuniGlyphSource::createDeferred(stream, DisposeAfterUse::YES, "bad.uni", error);
+			TS_ASSERT(src == nullptr);
+			TS_ASSERT(!error.empty());
+			delete src;
+		}
+	}
 };
 
 // Apple's Korean system font: face 0 of a .ttc, used only for local testing.

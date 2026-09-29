@@ -23,7 +23,9 @@
 #define GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_SCVMUNI_H
 
 #include "common/array.h"
+#include "common/ptr.h"
 #include "common/str.h"
+#include "common/stream.h"
 #include "graphics/hires_text/glyph_source.h"
 
 namespace Graphics {
@@ -52,6 +54,19 @@ public:
 	 */
 	static ScvmuniGlyphSource *create(Common::Array<byte> &&data, const Common::String &name, Common::String &error);
 
+	/**
+	 * As create(), reading only the header and the code point and width
+	 * tables from @p stream (the whole file, from its start): the glyph
+	 * bitmaps - nearly all of a bundle - are read on the first row() call,
+	 * so a bundle that only stands behind other faces costs neither the
+	 * read nor the memory until a glyph is actually drawn from it. The
+	 * source keeps @p stream until then (deleting it when @p dispose says
+	 * so). Checks what create() checks; a failed late read is warned about
+	 * once and leaves the glyphs blank.
+	 */
+	static ScvmuniGlyphSource *createDeferred(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+											  const Common::String &name, Common::String &error);
+
 	byte cellWidth() const override { return _cellWidth; }
 	byte cellHeight() const override { return _cellHeight; }
 	byte advanceNarrow() const override { return _advanceNarrow; }
@@ -74,7 +89,21 @@ private:
 	 */
 	int findGlyph(uint32 cp);
 
+	/** Checks the header in _data and sets the fields from it. */
+	bool parseHeader(uint32 size, const Common::String &name, Common::String &error);
+	/** Checks that the code point table is sorted. */
+	bool checkSorted(const Common::String &name, Common::String &error) const;
+	/** Reads the bitmaps a deferred source left in its file. */
+	void loadBitmaps();
+
 	Common::Array<byte> _data;
+
+	// A deferred source (createDeferred()): the file its bitmaps are in,
+	// until loadBitmaps() has read them to _bitmapData.
+	Common::DisposablePtr<Common::SeekableReadStream> _stream{nullptr, DisposeAfterUse::NO};
+	uint32 _bitmapOffset = 0;
+	Common::Array<byte> _bitmapData;
+	Common::String _name;
 
 	const byte *_codepoints = nullptr;	// glyphCount x uint32 LE, ascending
 	const byte *_widths = nullptr;		// glyphCount x uint8, 1 or 2 cells

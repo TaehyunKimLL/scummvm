@@ -23,6 +23,7 @@
 
 #include "common/endian.h"
 #include "common/ptr.h"
+#include "common/textconsole.h"
 #include "common/util.h"
 
 namespace Graphics {
@@ -42,25 +43,80 @@ ScvmuniGlyphSource *ScvmuniGlyphSource::create(Common::Array<byte> &&data,
 
 	Common::ScopedPtr<ScvmuniGlyphSource> src(new ScvmuniGlyphSource());
 	src->_data = Common::move(data);
+	if (!src->parseHeader(size, name, error))
+		return nullptr;
+
 	const byte *d = &src->_data[0];
+	src->_codepoints = d + READ_LE_UINT32(d + 20);
+	src->_widths = d + READ_LE_UINT32(d + 24);
+	src->_bitmaps = d + READ_LE_UINT32(d + 28);
+	if (!src->checkSorted(name, error))
+		return nullptr;
+
+	return src.release();
+}
+
+ScvmuniGlyphSource *ScvmuniGlyphSource::createDeferred(Common::SeekableReadStream *stream,
+														DisposeAfterUse::Flag dispose,
+														const Common::String &name,
+														Common::String &error) {
+	Common::DisposablePtr<Common::SeekableReadStream> file(stream, dispose);
+	const int64 fileSize = stream ? stream->size() : 0;
+	if (fileSize < (int64)kHeaderSize) {
+		error = Common::String::format("%s is too small", name.c_str());
+		return nullptr;
+	}
+	const uint32 size = fileSize > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32)fileSize;
+
+	Common::ScopedPtr<ScvmuniGlyphSource> src(new ScvmuniGlyphSource());
+	src->_data.resize(kHeaderSize);
+	if (!stream->seek(0) || stream->read(&src->_data[0], kHeaderSize) != kHeaderSize) {
+		error = Common::String::format("%s could not be read", name.c_str());
+		return nullptr;
+	}
+	if (!src->parseHeader(size, name, error))
+		return nullptr;
+
+	// Only the two small tables are read now, into _data after each other.
+	const uint32 cpOff = READ_LE_UINT32(&src->_data[20]);
+	const uint32 wOff = READ_LE_UINT32(&src->_data[24]);
+	const uint32 n = src->_glyphCount;
+	src->_data.resize(n * 5);
+	if (!stream->seek(cpOff) || stream->read(&src->_data[0], n * 4) != n * 4 ||
+		!stream->seek(wOff) || stream->read(&src->_data[n * 4], n) != n) {
+		error = Common::String::format("%s could not be read", name.c_str());
+		return nullptr;
+	}
+	src->_codepoints = &src->_data[0];
+	src->_widths = &src->_data[n * 4];
+	if (!src->checkSorted(name, error))
+		return nullptr;
+
+	src->_name = name;
+	src->_stream = Common::move(file);
+	return src.release();
+}
+
+bool ScvmuniGlyphSource::parseHeader(uint32 size, const Common::String &name, Common::String &error) {
+	const byte *d = &_data[0];
 
 	if (memcmp(d, kMagic, 8) != 0) {
 		error = Common::String::format("%s has a bad signature", name.c_str());
-		return nullptr;
+		return false;
 	}
 
 	const uint16 version = READ_LE_UINT16(d + 8);
 	const uint16 flags = READ_LE_UINT16(d + 10);
 	if (version != kVersion) {
 		error = Common::String::format("unsupported version %u", version);
-		return nullptr;
+		return false;
 	}
 
-	src->_cellWidth = d[12];
-	src->_cellHeight = d[13];
-	src->_advanceNarrow = d[14];
-	src->_advanceWide = d[15];
-	src->_glyphCount = READ_LE_UINT32(d + 16);
+	_cellWidth = d[12];
+	_cellHeight = d[13];
+	_advanceNarrow = d[14];
+	_advanceWide = d[15];
+	_glyphCount = READ_LE_UINT32(d + 16);
 
 	const uint32 cpOff = READ_LE_UINT32(d + 20);
 	const uint32 wOff = READ_LE_UINT32(d + 24);
@@ -68,44 +124,55 @@ ScvmuniGlyphSource *ScvmuniGlyphSource::create(Common::Array<byte> &&data,
 
 	if ((flags & 3) == 3) {
 		error = Common::String::format("%s sets both 2bpp and 8bpp", name.c_str());
-		return nullptr;
+		return false;
 	}
-	src->_bitsPerPixel = (flags & 2) ? 8 : ((flags & 1) ? 2 : 1);
+	_bitsPerPixel = (flags & 2) ? 8 : ((flags & 1) ? 2 : 1);
 	// A wide glyph spans two cells and every glyph uses the same stride, so
 	// one row length serves both widths and the reader stays branch-free.
-	src->_rowBytes = ((uint32)src->_cellWidth * 2 * src->_bitsPerPixel + 7) / 8;
-	src->_bytesPerGlyph = src->_rowBytes * src->_cellHeight;
+	_rowBytes = ((uint32)_cellWidth * 2 * _bitsPerPixel + 7) / 8;
+	_bytesPerGlyph = _rowBytes * _cellHeight;
 
-	if (src->_cellWidth == 0 || src->_cellHeight == 0 || src->_glyphCount == 0) {
+	if (_cellWidth == 0 || _cellHeight == 0 || _glyphCount == 0) {
 		error = Common::String::format("%s declares an empty font", name.c_str());
-		return nullptr;
+		return false;
 	}
 
 	// Every table must lie inside the file. Checked before any table is read
 	// so a truncated or hostile bundle cannot walk off the buffer.
-	if (cpOff > size || (uint64)src->_glyphCount * 4 > size - cpOff ||
-		wOff > size || (uint64)src->_glyphCount > size - wOff ||
-		bmOff > size || (uint64)src->_glyphCount * src->_bytesPerGlyph > size - bmOff) {
+	if (cpOff > size || (uint64)_glyphCount * 4 > size - cpOff ||
+		wOff > size || (uint64)_glyphCount > size - wOff ||
+		bmOff > size || (uint64)_glyphCount * _bytesPerGlyph > size - bmOff) {
 		error = Common::String::format("%s has a table that runs past the end", name.c_str());
-		return nullptr;
+		return false;
 	}
 
-	src->_codepoints = d + cpOff;
-	src->_widths = d + wOff;
-	src->_bitmaps = d + bmOff;
+	_bitmapOffset = bmOff;
+	return true;
+}
 
+bool ScvmuniGlyphSource::checkSorted(const Common::String &name, Common::String &error) const {
 	// The code point table must be sorted, because lookup is a binary search.
 	// Verify once at load rather than trusting the producer.
-	for (uint32 i = 1; i < src->_glyphCount; i++) {
-		if (READ_LE_UINT32(src->_codepoints + i * 4) <=
-			READ_LE_UINT32(src->_codepoints + (i - 1) * 4)) {
+	for (uint32 i = 1; i < _glyphCount; i++) {
+		if (READ_LE_UINT32(_codepoints + i * 4) <=
+			READ_LE_UINT32(_codepoints + (i - 1) * 4)) {
 			error = Common::String::format("%s code point table is not sorted at %u",
 											name.c_str(), i);
-			return nullptr;
+			return false;
 		}
 	}
+	return true;
+}
 
-	return src.release();
+void ScvmuniGlyphSource::loadBitmaps() {
+	const uint32 size = _glyphCount * _bytesPerGlyph;
+	_bitmapData.resize(size);
+	if (!_stream->seek(_bitmapOffset) || _stream->read(&_bitmapData[0], size) != size) {
+		warning("%s: could not read the glyphs; they are left blank", _name.c_str());
+		memset(&_bitmapData[0], 0, size);
+	}
+	_bitmaps = &_bitmapData[0];
+	_stream.reset();
 }
 
 int ScvmuniGlyphSource::findGlyph(uint32 cp) {
@@ -147,6 +214,8 @@ bool ScvmuniGlyphSource::metrics(uint32 cp, GlyphMetrics &m) {
 }
 
 const byte *ScvmuniGlyphSource::row(uint32 cp, int y) {
+	if (!_bitmaps)
+		loadBitmaps();
 	const int g = findGlyph(cp);
 	if (g < 0)
 		return _bitmaps;	// contract: only called when cells(cp) > 0
