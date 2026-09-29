@@ -84,7 +84,7 @@ Common::Array<byte> makeBundle(int bpp) {
 	d.push_back('S'); d.push_back('C'); d.push_back('V'); d.push_back('M');
 	d.push_back('U'); d.push_back('N'); d.push_back('I'); d.push_back(0);
 	putU16(d, 1);								// version
-	putU16(d, bpp == 8 ? 2 : 0);				// flags: bit1 = 8bpp
+	putU16(d, bpp == 8 ? 2 : (bpp == 2 ? 1 : 0));	// flags: bit0 = 2bpp, bit1 = 8bpp
 	d.push_back(cellWidth);
 	d.push_back(cellHeight);
 	d.push_back(advanceNarrow);
@@ -112,6 +112,11 @@ Common::Array<byte> makeBundle(int bpp) {
 				glyph[0] = 0x40;			// row 0, bit for x=1 set (MSB first)
 			else
 				glyph[rowBytes] = 0x20;	// row 1, bit for x=2 set
+		} else if (bpp == 2) {
+			if (g == 0)
+				glyph[0] = 0x30;			// row 0, x=1 at level 3
+			else
+				glyph[rowBytes] = 0x08;	// row 1, x=2 at level 2
 		} else { // 8bpp coverage
 			if (g == 0)
 				glyph[1] = 200;				// row 0, x=1
@@ -312,7 +317,9 @@ public:
 	};
 
 	void test_deferred_matches_create() {
-		for (int bpp = 1; bpp <= 8; bpp *= 8) {
+		const int depths[] = { 1, 2, 8 };
+		for (uint d = 0; d < ARRAYSIZE(depths); d++) {
+			const int bpp = depths[d];
 			Common::Array<byte> file = makeBundle(bpp);
 			Common::String error;
 			ScvmuniGlyphSource *whole = ScvmuniGlyphSource::create(makeBundle(bpp), "test.uni", error);
@@ -353,6 +360,45 @@ public:
 			delete whole;
 			delete lazy;
 		}
+	}
+
+	// A stream whose reads fail from @p failAt on: the file went away, say.
+	class FailingStream : public Common::MemoryReadStream {
+	public:
+		FailingStream(const byte *data, uint32 size, uint32 failAt)
+			: Common::MemoryReadStream(data, size), _failAt(failAt) {}
+		uint32 read(void *dataPtr, uint32 dataSize) override {
+			if (pos() >= (int64)_failAt)
+				return 0;
+			return Common::MemoryReadStream::read(dataPtr, dataSize);
+		}
+	private:
+		uint32 _failAt;
+	};
+
+	void test_deferred_late_read_failure_draws_blank() {
+		Common::Array<byte> file = makeBundle(1);
+		const uint32 bmOff = 32 + 3 * 5;
+		Common::String error;
+		ScvmuniGlyphSource *src = ScvmuniGlyphSource::createDeferred(
+			new FailingStream(&file[0], file.size(), bmOff), DisposeAfterUse::YES, "gone.uni", error);
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+		TS_ASSERT_EQUALS(src->cells(0x0041), 1);
+		TS_ASSERT_EQUALS(src->cells(0xAC00), 2);
+		// The glyphs cannot be read: a warning, and blank rows.
+		for (int y = 0; y < 2; y++) {
+			const byte *row = src->row(0x0041, y);
+			TS_ASSERT(row != nullptr);
+			if (row)
+				TS_ASSERT_EQUALS(row[0], 0);
+			row = src->row(0xAC00, y);
+			TS_ASSERT(row != nullptr);
+			if (row)
+				TS_ASSERT_EQUALS(row[0], 0);
+		}
+		delete src;
 	}
 
 	void test_deferred_rejects_what_create_rejects() {
