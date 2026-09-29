@@ -1,27 +1,5 @@
 #!/usr/bin/env python3
-"""List the strings of a SCUMM v4 or v5 game's scripts, with their context.
-
-Every string the engine hands to translateText() comes from a script (print,
-printEgo, verbOps name, setObjectName, actorOps name, stringOps load) or from
-an object's name. Finding them needs the scripts walked opcode by opcode: a
-translation that changed a string's length moved every jump after it, so byte
-offsets do not line up between releases, and a string can hold a NUL-like 0x00
-inside an 0xFF escape.
-
-The walker only decodes operand sizes (the engine's o4_/o5_ handlers,
-engines/scumm/script_v5.cpp and script_v4.cpp); it does not follow jumps, so
-it reads each script block linearly from its first instruction to its end.
-
-Context is what ScummEngine::translateText() keys a .trs range on:
-(room, where, number) - where 1 (WIO_ROOM) for entry/exit/object code and
-object names, 2 (WIO_GLOBAL) for global scripts (room 0), 3 (WIO_LOCAL) for
-local scripts.
-
-    scummscript.py <gamedir> [--v5 NAME] [--limit N]
-
-v4 is the LucasArts floppy layout (000.LFL index, DISK0N.LEC XOR 0x69,
-6-byte little-endian block headers); v5 is <name>.000/.001 (LECF, XOR 0x69).
-"""
+"""scummscript.py <gamedir> [--v5 NAME] [--limit N]: a SCUMM v4/v5 game's script strings with their context."""
 import argparse
 import collections
 import os
@@ -35,9 +13,8 @@ def dexor(raw, key=0x69):
 
 
 def res_str_len(d, p):
-    """ScummEngine::resStrLen for v4/v5: 0xFF + code, + 2 argument bytes unless 1, 2, 3, 8."""
     n = p
-    while d[n] != 0:
+    while n < len(d) and d[n] != 0:
         if d[n] == 0xFF:
             n += 2 if d[n + 1] in (1, 2, 3, 8) else 4
         else:
@@ -49,10 +26,7 @@ class BadOpcode(Exception):
     pass
 
 
-# Operand shapes of the opcodes without sub-opcodes. B1/W1: byte/word that is
-# a variable when the opcode's 0x80 bit is set (B2/W2: 0x40, B3/W3: 0x20);
-# R: a variable (result or operand, + a word when bit 0x2000 is set);
-# J: jump offset; b/w: literal byte/word; V: word list up to 0xFF.
+# B1/W1: var-or-byte/word by bit 0x80 (2: 0x40, 3: 0x20); R: var (+word if 0x2000); J: jump; V: word list.
 _SHAPES = [
     (0x01, 'B1 W2 W3', 0xE0), (0x02, 'B1', 0x80), (0x03, 'R B1', 0x80),
     (0x04, 'R W1 J', 0x80), (0x06, 'R B1', 0x80), (0x07, 'W1 B2', 0xC0),
@@ -100,14 +74,12 @@ def _table():
 
 SHAPES = _table()
 
-# startScript also uses bits 0x20/0x40 as flags.
+# startScript's bits 0x20/0x40 are flags, not operands.
 for _op in (0x2A, 0x4A, 0x6A, 0xAA, 0xCA, 0xEA):
     SHAPES[_op] = ['B1', 'V']
 
 
 class Walker:
-    """Linear operand-size walker; collects (offset, kind, bytes) strings."""
-
     ACTOR_CONV = [1, 0, 0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20]
 
     def __init__(self, d, start, end, version):
@@ -116,7 +88,6 @@ class Walker:
         self.small = version <= 4
         self.strings = []
 
-    # -- operands
     def b(self):
         x = self.d[self.p]
         self.p += 1
@@ -161,7 +132,6 @@ class Walker:
             self.op()
         return self.strings
 
-    # -- sub-opcode families
     def parse_string(self, kind):
         while True:
             s = self.b()
@@ -275,7 +245,6 @@ class Walker:
         else:
             raise BadOpcode('stringOps sub-op %02x' % s)
 
-    # -- one instruction
     def op(self):
         at = self.p
         op = self.b()
@@ -403,9 +372,7 @@ class Walker:
                 (self.B if a[0] == 'B' else self.W)(op, mask)
 
 
-# A record: (room, where, number, kind, text, disk, block, offset). block is
-# the block's ordinal in its file - the same across two builds of one game
-# even when the block sizes differ.
+# block: the block's ordinal in its file, stable across two builds whose block sizes differ.
 Rec = collections.namedtuple('Rec', 'room where number kind text disk block offset')
 
 
@@ -414,7 +381,7 @@ def _walk_small(d, off, end, out, lf):
         sz = struct.unpack_from('<I', d, off)[0]
         tag = d[off + 4:off + 6]
         if sz < 6 or off + sz > end:
-            break      # a sound block's size field does not cover its data; nothing after it matters
+            break      # a sound block's size does not cover its data; nothing after it matters
         out.append((lf, tag, off, sz))
         if tag in (b'LE', b'RO'):
             _walk_small(d, off + 6, off + sz, out, lf)
@@ -436,7 +403,7 @@ def v4_strings(gamedir):
             for i in range(struct.unpack_from('<H', idx, off + 6)[0]):
                 room, o = struct.unpack_from('<BI', idx, off + 8 + i * 5)
                 if room:
-                    glob[(room, o)] = i       # offset from the room's RO block
+                    glob[(room, o)] = i
         off += sz
     out = []
     for disk in range(1, 10):
@@ -478,6 +445,9 @@ def v4_strings(gamedir):
 
 
 def v5_strings(gamedir, name):
+    for ext in ('.000', '.001'):
+        if not os.path.isfile(os.path.join(gamedir, name + ext)):
+            raise SystemExit('%s: no %s%s' % (gamedir, name, ext))
     idx = dexor(open(os.path.join(gamedir, name + '.000'), 'rb').read())
     glob = {}
     off = 0
@@ -551,6 +521,8 @@ def v5_strings(gamedir, name):
 
 
 def game_strings(gamedir, v5name=None):
+    if not os.path.isdir(gamedir):
+        raise SystemExit('%s: no such game folder' % gamedir)
     if v5name:
         return v5_strings(gamedir, v5name)
     if os.path.exists(os.path.join(gamedir, '000.LFL')):
