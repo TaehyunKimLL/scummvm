@@ -153,10 +153,10 @@ wanted. `fc-scan` or FreeType's `ftdump` list a collection's faces.
 
 ## Bitmap fonts (G2)
 
-`HiResBitmapFont` reads the "SVFN" bitmap font format: 1bpp stencil or 8bpp
-coverage, optional per-glyph metrics. The 8bpp form carries anti-aliased shapes
-baked by a tool, so a build without FreeType renders the same glyphs; that makes
-it the primary format rather than a fallback.
+`HiResBitmapFont` reads the "SVFN" bitmap font format: 1bpp stencil, or 8bpp or
+2bpp coverage, optional per-glyph metrics. The coverage forms carry anti-aliased
+shapes baked by a tool, so a build without FreeType renders the same glyphs; that
+makes it the primary format rather than a fallback.
 
 Lookup is by Unicode code point. Files written so far order their glyphs by a
 code page named in the header (949 for the Korean sets, 0 for the single byte
@@ -185,7 +185,7 @@ legacy `.fnt` files are rejected so the caller can fall back.
 CLUT8 surface. A paletted surface cannot hold coverage, so the colour goes to
 the text surface and the coverage to a parallel 8bpp one that the caller blends
 against the background. The coverage surface is optional: without it an 8bpp
-font still draws as a stencil, so a backend with no alpha path is not left
+or 2bpp font still draws as a stencil, so a backend with no alpha path is not left
 blank. That stencil keeps the pixels covered at least a quarter
 (`kKeyedInkThreshold`, 0x40): any coverage turns the stroke fringe into ink and
 closes small glyphs into blobs, while half coverage drops thin CJK strokes. A
@@ -194,7 +194,7 @@ closes small glyphs into blobs, while half coverage drops thin CJK strokes. A
 ### Decoration (C19)
 
 A decoration is built from the glyph's **coverage**, whatever the source:
-TrueType, 8bpp SVFN, a baked face or a 1bpp stencil (read as 0/255). Nothing
+TrueType, 8bpp or 2bpp SVFN, a baked face or a 1bpp stencil (read as 0/255). Nothing
 here knows about scripts, so a Thai or Japanese line is outlined exactly like
 a Korean one.
 

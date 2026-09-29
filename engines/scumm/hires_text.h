@@ -576,7 +576,7 @@ struct ScummHiResText {
 	 * Whether a map asks for blended text.
 	 *
 	 * The map's own alpha= wins. Without one, a map whose fonts carry
-	 * coverage - a TrueType face, or an 8 bpp (anti-aliased) SVFN - blends,
+	 * coverage - a TrueType face, or an 8 or 2 bpp (anti-aliased) SVFN - blends,
 	 * as AGS and the map-less forms already do: drawing such a font keyed
 	 * keeps only the pixels covered at least 0x40 (any coverage at all
 	 * before C17) and gives stepped edges. A map of 1 bpp stencils has
@@ -585,7 +585,7 @@ struct ScummHiResText {
 	 *
 	 * @param config               the parsed map
 	 * @param namesFace            a TrueType face is in effect (ini or map)
-	 * @param namesCoverageBitmap  a bitmap font the map names is 8 bpp
+	 * @param namesCoverageBitmap  a bitmap font the map names is 8 or 2 bpp
 	 * @param gameCanBlend         canBlendText() for the running game
 	 */
 	static bool mapWantsAlpha(const Graphics::HiResTextConfig &config,
