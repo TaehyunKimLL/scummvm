@@ -27,6 +27,20 @@
 
 class NullMixerManager;
 
+namespace DOS {
+
+/**
+ * From main(): records argv[0]'s base name (path and case stripped, e.g.
+ * "SCUMM.EXE") for exeName(). Left at the default ("SCUMMVM.EXE") if
+ * argv[0] is missing or empty.
+ */
+void setExeName(const char *argv0);
+
+/** The name set by setExeName(), or "SCUMMVM.EXE" before main() calls it. */
+const char *exeName();
+
+}
+
 /**
  * MS-DOS through DJGPP. SDL3 opens the hardware (VESA modes, keyboard,
  * mouse); everything above that is ScummVM's. There are no threads: timers
