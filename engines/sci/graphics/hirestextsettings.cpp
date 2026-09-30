@@ -26,7 +26,7 @@
 namespace Sci {
 
 FontSettings::FontSettings()
-	: size(kDefaultCell), cell(kDefaultCell), baseline(0), align(Graphics::kHiResAlignGame), pixel(0), latin(kLatinOff), fullwidthSpace(false), metrics(Graphics::kHiResMetricsGame) {
+	: original(false), size(kDefaultCell), cell(kDefaultCell), baseline(0), align(Graphics::kHiResAlignGame), pixel(0), latin(kLatinOff), fullwidthSpace(false), metrics(Graphics::kHiResMetricsGame) {
 }
 
 HiresTextOverrides::HiresTextOverrides()
@@ -75,15 +75,32 @@ FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapL
 
 	// Face: ini > [font.N] face > [hires] font > none. The chain it heads
 	// comes from the same place (the ini names one face).
+	//
+	// face=original (at any of those levels) is not a file name: this font
+	// id is not replaced at all, game font and all - and it beats even the
+	// ini's hires_text_font, the one key that otherwise wins over every
+	// [font.N] the way it does below. hires_text_font itself naming
+	// "original" is nothing to beat: it is treated as absent, and [font.N]/
+	// [hires] decide as if the ini had not spoken.
 	const Common::Array<Common::Path> *chain = nullptr;
-	if (ini.hasFont) {
+	const bool iniFaceOriginal = ini.hasFont && ini.font.equalsIgnoreCase("original");
+	if (font && font->faceSet && font->face.equalsIgnoreCase("original")) {
+		s.original = true;
+	} else if (ini.hasFont && !iniFaceOriginal) {
 		s.facePath = ini.font;
-	} else if (font && font->faceSet) {
-		s.facePath = mapFacePath(map, font->face, mapDir);
-		chain = &font->faceChain;
-	} else if (mapLoaded && map.hiresFaceSet) {
-		s.facePath = mapFacePath(map, map.hiresFace, mapDir);
-		chain = &map.hiresFaceChain;
+	} else {
+		Common::String rawFace;
+		if (font && font->faceSet) {
+			rawFace = font->face;
+			chain = &font->faceChain;
+		} else if (mapLoaded && map.hiresFaceSet) {
+			rawFace = map.hiresFace;
+			chain = &map.hiresFaceChain;
+		}
+		if (rawFace.equalsIgnoreCase("original"))
+			s.original = true;
+		else if (!rawFace.empty())
+			s.facePath = mapFacePath(map, rawFace, mapDir);
 	}
 	if (!s.facePath.empty()) {
 		s.faceChain.push_back(s.facePath);
@@ -143,13 +160,29 @@ FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapL
 	else if (mapLoaded && map.legacy.latinEnabledSet && map.legacy.latinEnabledValue)
 		s.latin = kLatinProportional;
 
-	// Latin face: ini > [font.N] latin_font > [latin] font > none (the main face).
-	if (ini.hasLatinFont)
+	// Latin face: ini > [font.N] latin_font > [latin] font > none (the main
+	// face). latin_font=same is not a file name either: an empty
+	// latinFacePath already means the main face draws Latin (GfxCache::
+	// unicodeFaceFor()), so "same" only has to avoid being opened as one.
+	// latin_font=original forces ASCII to the game's font, like [latin]
+	// mode=off, and - like face=original above - beats even the ini's
+	// hires_text_latin_font, whose own "original" is treated as absent.
+	const bool iniLatinOriginal = ini.hasLatinFont && ini.latinFont.equalsIgnoreCase("original");
+	if (font && font->latinFontSet && font->latinFont.equalsIgnoreCase("original")) {
+		s.latin = kLatinOff;
+	} else if (ini.hasLatinFont && !iniLatinOriginal) {
 		s.latinFacePath = ini.latinFont;
-	else if (font && font->latinFontSet)
-		s.latinFacePath = mapFacePath(map, font->latinFont, mapDir);
-	else if (mapLoaded && map.latinFontSet)
-		s.latinFacePath = mapFacePath(map, map.latinFont, mapDir);
+	} else {
+		Common::String rawLatinFace;
+		if (font && font->latinFontSet)
+			rawLatinFace = font->latinFont;
+		else if (mapLoaded && map.latinFontSet)
+			rawLatinFace = map.latinFont;
+		if (rawLatinFace.equalsIgnoreCase("original"))
+			s.latin = kLatinOff;
+		else if (!rawLatinFace.equalsIgnoreCase("same") && !rawLatinFace.empty())
+			s.latinFacePath = mapFacePath(map, rawLatinFace, mapDir);
+	}
 
 	// Space: ini > [font.N] latin_space > [latin] space > keep.
 	if (ini.hasLatinSpace)

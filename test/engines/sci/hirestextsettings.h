@@ -418,4 +418,173 @@ public:
 		const FontSettings s = resolveFontSettings(map, true, 0, noIni, mapDir());
 		TS_ASSERT_EQUALS(s.metrics, Graphics::kHiResMetricsFont);
 	}
+
+	// ---- [latin] font=same / latin_font=same ---------------------------
+	// "same" is not a file name: an empty latinFacePath already means the
+	// main face draws Latin (GfxCache::unicodeFaceFor()), so same only has
+	// to leave it empty rather than let it become "<mapDir>/same".
+
+	void test_latin_font_same_leaves_latin_face_path_empty() {
+		const HiresTextOverrides noIni;
+		const Graphics::HiResTextConfig map = parse(
+			"[hires]\nfont=default\n[fonts]\ndefault=/f/Main.ttf\n"
+			"[latin]\nmode=proportional\nfont=same\n");
+		const FontSettings s = resolveFontSettings(map, true, 0, noIni, mapDir());
+		TS_ASSERT(s.latinFacePath.empty());
+		TS_ASSERT_EQUALS(s.latin, Sci::kLatinProportional);
+		TS_ASSERT(!s.original);
+	}
+
+	void test_latin_font_same_is_case_insensitive_and_per_font() {
+		const HiresTextOverrides noIni;
+		const Graphics::HiResTextConfig map = parse(
+			"[latin]\nmode=proportional\nfont=/f/MapLatin.ttf\n"
+			"[font.4]\nlatin_font=SAME\n");
+		// Font 4: same wins over its own section, ignoring the map-wide path.
+		FontSettings s = resolveFontSettings(map, true, 4, noIni, mapDir());
+		TS_ASSERT(s.latinFacePath.empty());
+		// A font with no section of its own still gets the map-wide path.
+		s = resolveFontSettings(map, true, 0, noIni, mapDir());
+		TS_ASSERT_EQUALS(s.latinFacePath, "/f/MapLatin.ttf");
+	}
+
+	void test_latin_font_same_precedence_both_ways() {
+		const HiresTextOverrides noIni;
+		// A per-font real path beats a map-wide same.
+		Graphics::HiResTextConfig map = parse(
+			"[latin]\nmode=proportional\nfont=same\n"
+			"[font.4]\nlatin_font=/f/Four.ttf\n");
+		FontSettings s = resolveFontSettings(map, true, 4, noIni, mapDir());
+		TS_ASSERT_EQUALS(s.latinFacePath, "/f/Four.ttf");
+
+		// A per-font same beats a map-wide real path.
+		map = parse(
+			"[latin]\nmode=proportional\nfont=/f/MapLatin.ttf\n"
+			"[font.4]\nlatin_font=same\n");
+		s = resolveFontSettings(map, true, 4, noIni, mapDir());
+		TS_ASSERT(s.latinFacePath.empty());
+	}
+
+	// ---- [latin] font=original / latin_font=original -------------------
+	// ASCII forced to the game's font, exactly as mode=off; unlike same,
+	// original also beats the ini's own hires_text_latin_font override
+	// (the one key that otherwise wins over every [font.N]/[latin]), except
+	// when the ini itself says "original" - then there is nothing to beat
+	// and [font.N]/[latin] decide as if the key had not been given.
+
+	void test_latin_font_original_forces_latin_off() {
+		const HiresTextOverrides noIni;
+		const Graphics::HiResTextConfig map = parse("[latin]\nmode=proportional\nfont=original\n");
+		const FontSettings s = resolveFontSettings(map, true, 0, noIni, mapDir());
+		TS_ASSERT_EQUALS(s.latin, Sci::kLatinOff);
+		TS_ASSERT(s.latinFacePath.empty());
+	}
+
+	void test_latin_font_original_beats_ini_latin_font() {
+		const Graphics::HiResTextConfig map = parse(
+			"[latin]\nmode=proportional\n[font.4]\nlatin_font=original\n");
+		HiresTextOverrides ini;
+		ini.hasLatinFont = true;
+		ini.latinFont = "/f/Ini.ttf";
+
+		// Font 4's original beats the ini's real path.
+		FontSettings s = resolveFontSettings(map, true, 4, ini, mapDir());
+		TS_ASSERT_EQUALS(s.latin, Sci::kLatinOff);
+		TS_ASSERT(s.latinFacePath.empty());
+		// A font with no section of its own still gets the ini's path.
+		s = resolveFontSettings(map, true, 0, ini, mapDir());
+		TS_ASSERT_EQUALS(s.latinFacePath, "/f/Ini.ttf");
+	}
+
+	void test_ini_latin_font_original_is_treated_as_absent() {
+		const Graphics::HiResTextConfig map = parse(
+			"[latin]\nmode=proportional\nfont=/f/MapLatin.ttf\n");
+		HiresTextOverrides ini;
+		ini.hasLatinFont = true;
+		ini.latinFont = "original";
+		// Nothing for the ini to force: the map's own path applies, as if
+		// hires_text_latin_font had not been set at all.
+		const FontSettings s = resolveFontSettings(map, true, 0, ini, mapDir());
+		TS_ASSERT_EQUALS(s.latinFacePath, "/f/MapLatin.ttf");
+	}
+
+	// ---- [font.N] face=original / [hires] font=original -----------------
+	// The whole font id draws only from the game's own font resource (see
+	// GfxCache::unicodeFaceFor(), which returns null for it without even
+	// trying the shared .uni bundle); resolveFontSettings() only has to
+	// mark it and leave facePath empty.
+
+	void test_face_original_marks_the_font_id() {
+		const HiresTextOverrides noIni;
+		const Graphics::HiResTextConfig map = parse("[font.4]\nface=original\n");
+		const FontSettings s = resolveFontSettings(map, true, 4, noIni, mapDir());
+		TS_ASSERT(s.original);
+		TS_ASSERT(s.facePath.empty());
+		TS_ASSERT(s.faceChain.empty());
+	}
+
+	void test_hires_font_original_is_the_map_wide_default() {
+		const HiresTextOverrides noIni;
+		// [font.2] has its own face: it is unaffected by the map-wide default
+		// being original. A font id with no section of its own is original.
+		const Graphics::HiResTextConfig map = parse(
+			"[hires]\nfont=original\n[font.2]\nface=/f/Two.ttf\n");
+		FontSettings s = resolveFontSettings(map, true, 2, noIni, mapDir());
+		TS_ASSERT(!s.original);
+		TS_ASSERT_EQUALS(s.facePath, "/f/Two.ttf");
+		s = resolveFontSettings(map, true, 0, noIni, mapDir());
+		TS_ASSERT(s.original);
+		TS_ASSERT(s.facePath.empty());
+	}
+
+	void test_face_original_precedence_both_ways() {
+		const HiresTextOverrides noIni;
+		// A per-font real face beats a map-wide original.
+		Graphics::HiResTextConfig map = parse("[hires]\nfont=original\n[font.4]\nface=/f/Four.ttf\n");
+		FontSettings s = resolveFontSettings(map, true, 4, noIni, mapDir());
+		TS_ASSERT(!s.original);
+		TS_ASSERT_EQUALS(s.facePath, "/f/Four.ttf");
+
+		// A per-font original beats a map-wide real face.
+		map = parse("[hires]\nfont=/f/Map.ttf\n[font.4]\nface=original\n");
+		s = resolveFontSettings(map, true, 4, noIni, mapDir());
+		TS_ASSERT(s.original);
+		TS_ASSERT(s.facePath.empty());
+	}
+
+	void test_face_original_beats_ini_font() {
+		const Graphics::HiResTextConfig map = parse("[font.4]\nface=original\n");
+		HiresTextOverrides ini;
+		ini.hasFont = true;
+		ini.font = "/f/Ini.ttf";
+
+		// Font 4's original beats the ini's real path.
+		FontSettings s = resolveFontSettings(map, true, 4, ini, mapDir());
+		TS_ASSERT(s.original);
+		TS_ASSERT(s.facePath.empty());
+		// A font with no section of its own still gets the ini's path.
+		s = resolveFontSettings(map, true, 0, ini, mapDir());
+		TS_ASSERT(!s.original);
+		TS_ASSERT_EQUALS(s.facePath, "/f/Ini.ttf");
+	}
+
+	void test_ini_font_original_is_treated_as_absent() {
+		const Graphics::HiResTextConfig map = parse("[hires]\nfont=/f/Map.ttf\n");
+		HiresTextOverrides ini;
+		ini.hasFont = true;
+		ini.font = "original";
+		// Nothing for the ini to force: the map's own default face applies,
+		// as if hires_text_font had not been set at all.
+		const FontSettings s = resolveFontSettings(map, true, 0, ini, mapDir());
+		TS_ASSERT(!s.original);
+		TS_ASSERT_EQUALS(s.facePath, "/f/Map.ttf");
+	}
+
+	void test_original_is_case_insensitive() {
+		const HiresTextOverrides noIni;
+		const Graphics::HiResTextConfig map = parse("[font.4]\nface=Original\n[latin]\nfont=Same\n");
+		const FontSettings s = resolveFontSettings(map, true, 4, noIni, mapDir());
+		TS_ASSERT(s.original);
+		TS_ASSERT(s.latinFacePath.empty());
+	}
 };
