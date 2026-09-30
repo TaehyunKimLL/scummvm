@@ -1526,6 +1526,11 @@ public:
 	void markRectAsDirty(VirtScreenNumber virt, const Common::Rect& rect, int dirtybit = 0) {
 		markRectAsDirty(virt, rect.left, rect.right, rect.top, rect.bottom, dirtybit);
 	}
+	/**
+	 * With blended hi-res text: mark dirty what is drawn with a palette
+	 * entry whose colour differs from @p before (the cache as it was).
+	 */
+	void markPaletteUsersDirty(const uint32 *before);
 protected:
 	// Screen rendering
 	byte *_compositeBuf;
