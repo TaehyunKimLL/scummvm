@@ -4,7 +4,7 @@ Date: 2026-09-30. Branch `dos-port`, worktree `~/work/scummvm/dos`.
 Source: the audit `.superpowers/sdd/2026-09-29-dos-m5-scumm/config-audit.md` (inventory, problems, file list).
 Plan: `docs/superpowers/plans/2026-09-30-hires-config-unify.md`.
 
-This document is the single reference for every hi-res text key after the change: map file (`hires_text.map`, the DOS `*.MAP`
+This document is the single reference for every hi-res text key after the change: map file (`HIRESTXT.MAP`, the DOS `*.MAP`
 files) and ini (`scummvm.ini` / `SCUMMVM.INI`), for SCI, SCUMM, AGS and the MS-DOS backend. Anything not listed here is not
 read. Where this document and an engine's own doc disagree, this document wins and the engine doc is corrected.
 
@@ -157,7 +157,7 @@ A value that names a file is resolved by exactly one rule, in every engine and f
 Consequences: the current directory is never a base; `[bitmap]`-style game-folder paths inside a map are gone (a map that
 wants a font in the game folder writes the path relative to itself, or the map sits in the game folder); SCI, SCUMM and
 AGS resolve `hires_text_map` and `hires_text_face` identically. `hires_text_map` with no value set means
-`<game folder>/hires_text.map` when that file exists; an empty value (`hires_text_map=`) means "no map".
+`<game folder>/HIRESTXT.MAP` when that file exists; an empty value (`hires_text_map=`) means "no map". The default file name is 8.3 (DOS), matched case-insensitively on every platform.
 
 ## 5. Font value
 
@@ -450,14 +450,14 @@ load, and are also kept in `HiResMap::warnings` for tests.
 
 ### 10.1 The map is refused (loaded as "no map")
 
-- Unreadable file, not an INI, or `[map] version` missing or not `2`: `hires_text.map <path>: not a version 2 map; regenerate it
+- Unreadable file, not an INI, or `[map] version` missing or not `2`: `HIRESTXT.MAP <path>: not a version 2 map; regenerate it
   (graphics/hires_text/README.md)`. When the refused file has an old section (`[hires]`, `[latin]`, `[bitmap]`,
   `[encoding]`), the message names the first one found: `... (found [latin])`.
 
 ### 10.2 The map loads; the offending key is ignored
 
-- Unknown section, unknown key in a known section, or a removed section/key (section 3.3): `hires_text.map: [latin] is not
-  read any more; see "Ranges" in graphics/hires_text/README.md`, `hires_text.map: unknown key [font.4] bitmap`.
+- Unknown section, unknown key in a known section, or a removed section/key (section 3.3): `HIRESTXT.MAP: [latin] is not
+  read any more; see "Ranges" in graphics/hires_text/README.md`, `HIRESTXT.MAP: unknown key [font.4] bitmap`.
 - Invalid value (out of range, wrong word, bad code point): the key is ignored and the next level down applies (never a
   silent substitute value).
 - Font value: unknown face name; entries after `original`; `same` where it has no meaning (section 5.2).
@@ -473,9 +473,9 @@ engine does not use: `SCI does not use [font.4] mirror`. The key is otherwise pa
 
 - A face that fails to open, an SVF whose cell height differs from its id's, a targeted glyph whose face lacks it (section
   6.7), a `missing=` code point no face of a chain has: one warning each, at load. Texts:
-  `hires_text.map: <path>: cell height <h> differs from <first path>'s <h0> on <id>; not used`,
-  `hires_text.map: [glyphs] 0x<code> -> <face>:U+<cp>: the face has no such glyph; the game's font draws it`,
-  `hires_text.map: missing=U+<cp> has no effect: <face> has no glyph for it`.
+  `HIRESTXT.MAP: <path>: cell height <h> differs from <first path>'s <h0> on <id>; not used`,
+  `HIRESTXT.MAP: [glyphs] 0x<code> -> <face>:U+<cp>: the face has no such glyph; the game's font draws it`,
+  `HIRESTXT.MAP: missing=U+<cp> has no effect: <face> has no glyph for it`.
 - An unavailable render target, `blend=on` on `clut8` before section 7.2 is implemented, an unsupported scale: one warning.
 - The ini: invalid values are warnings and the key is ignored (the map or default applies); no ini value is ever
   substituted by another value.
@@ -488,7 +488,7 @@ All hi-res text keys are read from the **game domain only**, except `render_targ
 | Key | Values | Default | Read by | Replaces |
 |---|---|---|---|---|
 | `hires_text` | `true` `false` | `true` | SCI, SCUMM, AGS | SCUMM's `hires_text` (now all three). `false`: no map, no faces, the engine draws exactly as without the layer. |
-| `hires_text_map` | path (section 4) or empty | `<game folder>/hires_text.map` if present | SCI, SCUMM, AGS | same key; relative now = game folder everywhere |
+| `hires_text_map` | path (section 4) or empty | `<game folder>/HIRESTXT.MAP` if present | SCI, SCUMM, AGS | same key; relative now = game folder everywhere |
 | `hires_text_face` | font value | - | SCI, SCUMM, AGS | `hires_text_font`, `hires_text_latin_font`. Names resolve through the loaded map's `[fonts]`. `original`: every id on the game's font (section 6.5 step 3). |
 | `hires_text_size` | `8`..`64` | - | SCI, SCUMM, AGS | `hires_text_font_size` |
 | `hires_text_scale` | `1` `2` `3` | - | SCI, SCUMM, AGS | `hires_text_scale`, `korean_hires_scale` |
