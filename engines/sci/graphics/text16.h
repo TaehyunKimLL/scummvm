@@ -127,25 +127,37 @@ private:
 	/**
 	 * The glyph character for @p chr, a character readChar() returned (after
 	 * any escape substitution): TextCompose::glyphCode() against the current
-	 * font's compiled plan (design section 6.5 step 2 on). readChar() itself
-	 * returns the raw character, which is what every classification sees -
-	 * '|' codes, '@'/0xFF20 and CR/LF line breaks, the PQ2 "\n" escape, the
-	 * ' ' word break - so a `[glyphs]` remap leaves the text protocol alone.
-	 * Only the sites that measure or draw a glyph call this, and they call it
-	 * on the same value, so width and drawing agree.
+	 * font's compiled plan (design section 6.5 step 2 on), or @p chr
+	 * unchanged when the current font carries no plan at all (see
+	 * refreshTextPlan()) - a bare GfxFontKorean/GfxFontSjis/GfxFontBanked/
+	 * GfxFontFromResource, which know nothing about
+	 * Graphics::kHiResGameCodeBase and must be handed their own values back
+	 * untouched. readChar() itself returns the raw character, which is what
+	 * every classification sees - '|' codes, '@'/0xFF20 and CR/LF line
+	 * breaks, the PQ2 "\n" escape, the ' ' word break - so a `[glyphs]`
+	 * remap leaves the text protocol alone. Only the sites that measure or
+	 * draw a glyph call this, and they call it on the same value, so width
+	 * and drawing agree. Also tells the current font (when it is a
+	 * GfxFontSet/GfxFontUnicodeAdapter) @p chr itself, the undecided game
+	 * code design 6.3/6.7's `advance=game` measures on - see
+	 * GfxFontSet::setGameCode()/GfxFontUnicodeAdapter::setGameCode().
 	 */
 	uint32 glyphChar(uint32 chr) const;
 
 	/**
 	 * Copy the current _font's compiled plan (GfxFontSet / GfxFontUnicodeAdapter
-	 * carry their font id's resolved settings) into _plan, which glyphChar()
-	 * reads per character. Called wherever _font changes (GetFont()/SetFont());
-	 * any other font kind gets the default (empty) plan, i.e. today's
-	 * behaviour - every character stays with the resource font.
+	 * carry their font id's resolved settings) into _plan, and record whether
+	 * it has one at all (_hasPlan) - false for any other font kind, so
+	 * glyphChar() leaves such a font's own values alone instead of running
+	 * them through a plan that was never compiled for them. Called wherever
+	 * _font changes (GetFont()/SetFont()).
 	 */
-	void refreshLatinSettings();
+	void refreshTextPlan();
 
 	Graphics::HiResIdPlan _plan;
+	/// Whether _font is a GfxFontSet/GfxFontUnicodeAdapter (refreshTextPlan()
+	/// sets both together): _plan means nothing for any other font kind.
+	bool _hasPlan = false;
 
 	bool SwitchToFont1001OnKorean(const char *text, uint16 languageSplitter);
 	bool SwitchToFont900OnSjis(const char *text, uint16 languageSplitter);

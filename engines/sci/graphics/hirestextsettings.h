@@ -109,6 +109,16 @@ FontSettings resolveFontSettings(const Graphics::HiResMap &map, bool mapLoaded, 
 Common::String unicodeBundleKey(const Common::String &mainPath, int size, uint32 planHash);
 
 /**
+ * Whether @p plan names any face at all: the id chain, any rule chain
+ * (design 6.2's `range.*` faces), or any `[glyphs]` target naming a file.
+ * An id can have an empty id chain (no `face=` anywhere) while still
+ * naming faces through `range.*`/`[glyphs]` alone (design 6.5 step 4,
+ * design 6.7) - GfxCache::unicodeFaceFor() must still open them, not treat
+ * the id as if it named nothing.
+ */
+bool planNamesAnyFace(const Graphics::HiResIdPlan &plan);
+
+/**
  * One face a plan names, already opened (or not): what
  * checkPlanLoadWarnings() needs to run design 5.4's cell-height refusal and
  * design 6.4/6.7's missing=/targeted-glyph warnings, without depending on
@@ -142,10 +152,29 @@ struct FontIdFace {
  * do not depend on which font id happens to reach them first, so the caller
  * shares one map and one dedup table across every font id it resolves in a
  * load.
+ *
+ * @param failedTargetCodes  every game code (design 6.7's key) whose target
+ *                           failed the check, appended in plan order. Spec
+ *                           6.7's fallback ("the game's font draws `c`") is
+ *                           a load-time decision: the caller rewrites each
+ *                           of these codes' `[glyphs]` rule to `original`
+ *                           before building anything from the plan, so no
+ *                           per-draw lookup is ever needed.
  */
 void checkPlanLoadWarnings(int fontId, const Graphics::HiResIdPlan &plan, const Common::Array<FontIdFace> &faces,
-						   Common::Array<Common::String> &excludedPaths, Graphics::HiResMap &map,
-						   Common::HashMap<Common::String, bool> &warnedOnceThisLoad);
+						   Common::Array<Common::String> &excludedPaths, Common::Array<uint32> &failedTargetCodes,
+						   Graphics::HiResMap &map, Common::HashMap<Common::String, bool> &warnedOnceThisLoad);
+
+/**
+ * design 6.7's load-time fallback: rewrite @p plan's `[glyphs]` rule for
+ * each of @p failedTargetCodes to `original`, so
+ * TextCompose::glyphCode()/goesToUnicodeFace() decline it like any other
+ * `original` code from then on - the game's own font draws it, with no
+ * per-draw target lookup. Called once, right after checkPlanLoadWarnings(),
+ * before the plan is used to build anything (a bundle key, a routed source,
+ * a GfxFontSet/GfxFontUnicodeAdapter).
+ */
+void declineFailedTargets(Graphics::HiResIdPlan &plan, const Common::Array<uint32> &failedTargetCodes);
 
 } // End of namespace Sci
 

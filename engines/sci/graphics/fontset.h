@@ -127,6 +127,15 @@ public:
 	uint faceCount() const { return _faces.size(); }
 
 	/**
+	 * Tell this font the game code GfxText16::glyphChar() is about to map:
+	 * design 6.3/6.7's `advance=game`/`font` measure the game font's own
+	 * width for exactly this value, never the drawn (remapped or virtual
+	 * target) code getCharWidth() itself is later called with. Call before
+	 * every glyphChar()/getCharWidth() pair - GfxText16::glyphChar() does.
+	 */
+	void setGameCode(uint32 code) { _gameCode = code; }
+
+	/**
 	 * hires_text_log: which face faceFor() would pick for @p chr (a
 	 * glyphChar()-mapped code, as passed to draw()) - read-only, and
 	 * not on the hot draw path itself, since GfxText16 only calls this when
@@ -180,6 +189,7 @@ private:
 	Common::CodePage _codePage;
 	FontSettings _settings;
 	bool _utf8Text = false; ///< setUtf8Text()
+	uint32 _gameCode = 0;   ///< setGameCode()
 };
 
 } // End of namespace Sci

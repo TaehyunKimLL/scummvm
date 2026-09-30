@@ -122,13 +122,15 @@ private:
 	GfxFontUnicode *loadUniBundle();
 
 	/**
-	 * design section 6.4: give @p f the box (GfxFontUnicode::setMissing()),
-	 * warning once (in @p map's own warnings, design section 10) when
-	 * @p name has no glyph to draw it with. Only for the faceless path
-	 * (a bare .uni bundle, which does not itself know about missing=): a
-	 * font id with its own chain already has missing= baked into its
-	 * Graphics::RangeRoutedGlyphSource by Graphics::pickGlyph() and does not
-	 * call this.
+	 * design section 6.4: give @p f the box (GfxFontUnicode::setMissing(),
+	 * idempotent per @p f), warning once (in @p map's own warnings, design
+	 * section 10) when @p name has no glyph to draw it with. Only for the
+	 * faceless path (a bare .uni bundle, which no chain-level check ever
+	 * looks at): a font id with its own chain has its missing= coverage
+	 * already checked, per chain, by checkPlanLoadWarnings() inside
+	 * faceChainFor() - unicodeFaceFor() applies that chain's box with a
+	 * plain `f->setMissing()` instead of this, so the warning is not raised
+	 * twice under two different wordings for the same cause.
 	 */
 	void applyMissing(GfxFontUnicode *f, uint32 missing, const Common::String &name);
 
@@ -191,16 +193,42 @@ private:
 	 * failed. Shared by every font id whose plan, size and faces are
 	 * identical (unicodeBundleKey()) and owned here (_chainParts).
 	 *
-	 * @param firstRaw   set to the id chain's own first opened face, before
-	 *                   any chain-wide normalisation - what GlyphPlacement
-	 *                   (design 5.4's C41) measures against, distinct from
-	 *                   the shared routing surface this returns; null when
-	 *                   nothing opened.
-	 * @return nullptr when nothing opens (an empty id chain, or every named
-	 *         face failed); @p chainName then still names what was tried.
+	 * Called whenever @p s.plan names any face at all
+	 * (Sci::planNamesAnyFace()) - the id chain, a rule chain, or a
+	 * `[glyphs]` target - not only when the id chain itself is non-empty: an
+	 * id whose own face is `original` but that still names a `range.*` face,
+	 * or that names only a target, must still have those opened.
+	 *
+	 * Before returning, resolves every unopenable `[glyphs]` target
+	 * (design 6.7's load-time fallback) by rewriting @p s.plan's own rule for
+	 * each to `original` (Sci::declineFailedTargets()) - done here, once,
+	 * rather than at draw time, and applied to @p s.plan itself so
+	 * TextCompose::glyphCode() (fed from the very same plan by whatever set
+	 * or adapter @p s ends up building) declines it exactly as any other
+	 * `original` code, with no virtual code point ever produced for it again.
+	 *
+	 * @param firstNormalized  set to the id chain's own first face, already
+	 *                   folded into the chain's one shared cell - what
+	 *                   GlyphPlacement (design 5.4's C41) measures its raster
+	 *                   dimensions and baseline against; null when nothing
+	 *                   of the id chain's own opened (a plan whose id chain
+	 *                   is empty but which still names a rule-chain or
+	 *                   target face).
+	 * @param firstRaw   the same face before that folding - only ever used to
+	 *                   ask whether it is a live TrueType face
+	 *                   (Graphics::TtfGlyphSource::lineTop()), which
+	 *                   @p firstNormalized (wrapped in a
+	 *                   Graphics::NormalizedGlyphSource when folding changed
+	 *                   anything) can no longer answer.
+	 * @param firstTop   the row @p firstNormalized's own top now sits at
+	 *                   within the chain's shared cell (design 5.4's C41
+	 *                   `align=font`, `faceLineTop = firstTop + lineTop`).
+	 * @return nullptr when nothing opens (every named face failed); @p
+	 *         chainName then still names what was tried.
 	 */
-	Graphics::UnicodeGlyphSource *faceChainFor(GuiResourceId fontId, const FontSettings &s,
-											   Common::String &chainName, Graphics::UnicodeGlyphSource *&firstRaw);
+	Graphics::UnicodeGlyphSource *faceChainFor(GuiResourceId fontId, FontSettings &s,
+											   Common::String &chainName, Graphics::UnicodeGlyphSource *&firstRaw,
+											   Graphics::UnicodeGlyphSource *&firstNormalized, int &firstTop);
 
 	/**
 	 * The baseline of font resource @p fontId in hi-res px below its line
@@ -264,10 +292,6 @@ private:
 	/// map-wide (missing=, a target), so this is shared across every font
 	/// id resolved from the same load rather than per id.
 	Common::HashMap<Common::String, bool> _warnedOnceThisLoad;
-	/// The shared .uni bundle has already had its one missing= wrap applied
-	/// (applyMissing() on it is otherwise idempotent, but which id's
-	/// missing= value wins if they differ is only meaningful once).
-	bool _uniBundleMissingApplied;
 
 	/// TrueType sources by "path|size|probes[|pN][|tN,N,...]"; nullptr = failed (warned).
 	Common::HashMap<Common::String, Graphics::TtfGlyphSource *> _ttfSources;
@@ -298,9 +322,18 @@ private:
 	/// Routing sources (Graphics::RangeRoutedGlyphSource) by faceChainFor()'s
 	/// own key (faces, size, plan hash); each is also in _chainParts.
 	Common::HashMap<Common::String, Graphics::UnicodeGlyphSource *> _chains;
-	/// faceChainFor()'s own `firstRaw` out-param, by the same key: a cache
-	/// hit still has to answer it without reopening anything.
-	Common::HashMap<Common::String, Graphics::UnicodeGlyphSource *> _chainFirstFace;
+	/// One chain's cached out-params (faceChainFor()'s `firstRaw`/
+	/// `firstNormalized`/`firstTop`, and the target codes it declined) by
+	/// the same key as _chains: a cache hit still has to answer all of them,
+	/// and reapply the same decline to a *different* id's plan, without
+	/// reopening or rechecking anything.
+	struct ChainFirstFace {
+		Graphics::UnicodeGlyphSource *raw = nullptr;
+		Graphics::UnicodeGlyphSource *normalized = nullptr;
+		int top = 0;
+		Common::Array<uint32> declinedTargets;
+	};
+	Common::HashMap<Common::String, ChainFirstFace> _chainFirstFace;
 	/// The NormalizedGlyphSources and RangeRoutedGlyphSources the chains are
 	/// made of, owned.
 	Common::Array<Graphics::UnicodeGlyphSource *> _chainParts;

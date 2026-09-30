@@ -116,7 +116,7 @@ GuiResourceId GfxText16::GetFontId() {
 GfxFont *GfxText16::GetFont() {
 	if ((_font == nullptr) || (_font->getResourceId() != _ports->_curPort->fontId)) {
 		_font = _cache->getFont(_ports->_curPort->fontId);
-		refreshLatinSettings();
+		refreshTextPlan();
 	}
 
 	return _font;
@@ -125,7 +125,7 @@ GfxFont *GfxText16::GetFont() {
 void GfxText16::SetFont(GuiResourceId fontId) {
 	if ((_font == nullptr) || (_font->getResourceId() != fontId)) {
 		_font = _cache->getFont(fontId);
-		refreshLatinSettings();
+		refreshTextPlan();
 	}
 
 	_ports->_curPort->fontId = _font->getResourceId();
@@ -963,19 +963,31 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 // `[glyphs]` remap - fullwidth or otherwise - happens through, and only
 // here; readChar()'s classification is untouched, so '|' codes, '@'/0xFF20
 // and CR/LF line breaks, the PQ2 "\n" escape and the ' ' word break keep
-// working whatever the map remaps. The plan is a plain field read: the
-// current font's own compiled plan, copied by refreshLatinSettings()
-// whenever _font changes.
+// working whatever the map remaps. With no plan at all (_hasPlan false: a
+// bare GfxFontKorean/GfxFontSjis/GfxFontBanked/GfxFontFromResource, which
+// index glyphs by their own raw values and know nothing of
+// Graphics::kHiResGameCodeBase), @p chr is handed back unchanged - it is
+// what such a font has always been given.
 uint32 GfxText16::glyphChar(uint32 chr) const {
+	if (GfxFontSet *set = dynamic_cast<GfxFontSet *>(_font))
+		set->setGameCode(chr);
+	else if (GfxFontUnicodeAdapter *adapter = dynamic_cast<GfxFontUnicodeAdapter *>(_font))
+		adapter->setGameCode(chr);
+	if (!_hasPlan)
+		return chr;
 	return TextCompose::glyphCode(_plan, chr);
 }
 
-void GfxText16::refreshLatinSettings() {
+void GfxText16::refreshTextPlan() {
 	_plan = Graphics::HiResIdPlan();
-	if (const GfxFontSet *set = dynamic_cast<const GfxFontSet *>(_font))
+	_hasPlan = false;
+	if (const GfxFontSet *set = dynamic_cast<const GfxFontSet *>(_font)) {
 		_plan = set->settings().plan;
-	else if (const GfxFontUnicodeAdapter *adapter = dynamic_cast<const GfxFontUnicodeAdapter *>(_font))
+		_hasPlan = true;
+	} else if (const GfxFontUnicodeAdapter *adapter = dynamic_cast<const GfxFontUnicodeAdapter *>(_font)) {
 		_plan = adapter->plan();
+		_hasPlan = true;
+	}
 }
 
 uint16 GfxText16::getGlyphWidth(uint32 chr) {

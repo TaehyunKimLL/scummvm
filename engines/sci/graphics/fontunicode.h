@@ -109,7 +109,7 @@ public:
 	/**
 	 * The advance rule of I18N_TEXT_DESIGN.md section 4.2, in game px:
 	 * wide -> @p gameWide (the cell rule, unchanged); combining -> 0; any
-	 * other glyph -> latinAdvanceGamePx(kHiResMetricsFont, @p gameNarrow,
+	 * other glyph -> Graphics::advanceGamePx(kHiResAdvanceFont, @p gameNarrow,
 	 * m.advance, @p scale). See Sci::gameAdvance() (textlayout16.h).
 	 */
 	static int16 gameAdvance(const Graphics::GlyphMetrics &m, int gameNarrow, int gameWide, int scale) {
@@ -200,13 +200,20 @@ public:
 	 *              TextCompose::goesToUnicodeFace() routes to @p font instead
 	 *              of @p fallback (see the chr < 0x80 checks below) and by
 	 *              how much they advance (plan.advanceFor()).
+	 * @param cell  the id's resolved layout cell (FontSettings::cell, hi-res
+	 *              px): design 6.3's `advance=cell` grid, and the fallback
+	 *              `advance=game`/`font` fall to when the game font has no
+	 *              glyph for the game code at all.
 	 */
 	GfxFontUnicodeAdapter(GfxFontUnicode *font, Common::CodePage codePage,
 	                      GfxFont *fallback, GuiResourceId resourceId,
-	                      const Graphics::HiResIdPlan &plan = Graphics::HiResIdPlan());
+	                      const Graphics::HiResIdPlan &plan = Graphics::HiResIdPlan(), int cell = 16);
 
-	/** The plan this font id was built with; GfxText16::refreshLatinSettings() reads it. */
+	/** The plan this font id was built with; GfxText16::refreshTextPlan() reads it. */
 	const Graphics::HiResIdPlan &plan() const { return _plan; }
+
+	/** As GfxFontSet::setGameCode(): the game code design 6.3/6.7's `advance=game`/`font` measure on. */
+	void setGameCode(uint32 code) { _gameCode = code; }
 
 	~GfxFontUnicodeAdapter() override;
 
@@ -241,6 +248,8 @@ private:
 	Common::CodePage _codePage;
 	GuiResourceId _resourceId;
 	Graphics::HiResIdPlan _plan;
+	int _cell;
+	uint32 _gameCode = 0;
 };
 
 } // End of namespace Sci

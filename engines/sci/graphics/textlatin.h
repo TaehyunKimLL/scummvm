@@ -63,14 +63,21 @@ namespace TextCompose {
 uint32 glyphCode(const Graphics::HiResIdPlan &plan, uint32 chr);
 
 /**
- * Whether a (post-glyphCode) @p code is drawn by the Unicode face set
- * (design 6.5 steps 4-6) rather than the game's own resource font: false for
- * a declined code (`code >= Graphics::kHiResGameCodeBase`); for a
- * targeted-glyph code (`Graphics::kHiResTargetBase` and up), whether @p plan
- * actually produced it; otherwise whether @p plan's chain for it is
- * non-null (design 6.2/6.5 step 4) - for the printable ASCII range this is
- * null unless a map rule says otherwise, per the SCI engine scope's
+ * Whether @p plan itself names a chain for @p code (design 6.2/6.5 step 4):
+ * false for a declined code (`code >= Graphics::kHiResGameCodeBase`) and for
+ * a real code point whose winning rule (or whose id, with no rule at all
+ * matching) is exactly `original`; for a targeted-glyph code
+ * (`Graphics::kHiResTargetBase` and up), whether @p plan actually produced
+ * it; otherwise true. For the printable ASCII range this is false unless a
+ * map rule says otherwise, per the SCI engine scope's
  * `range.basic-latin=original` (sciEngineScope(), hirestextsettings.h).
+ *
+ * This is narrower than "will some face eventually draw @p code": an id
+ * with no face at all (design 5.3's empty id chain, not `original`) answers
+ * false here for a code its own chain does not name, even though
+ * GfxCache's shared `.uni` bundle (or a legacy `korean.fnt`/`SJIS.FNT` face)
+ * may still draw it - glyphCode() itself does not decline that case (see
+ * its own comment), only this predicate about the plan's *own* chain does.
  */
 bool goesToUnicodeFace(const Graphics::HiResIdPlan &plan, uint32 code);
 
