@@ -544,8 +544,40 @@ struct HiResMap {
 	byte shadowAlpha;
 
 	/// Every warning the last load raised (design section 10), in the order
-	/// raised; each was also printed with warning().
+	/// raised; each was also printed with warning(), unless the load was
+	/// quiet (HiResMapLoadOptions::quiet).
 	Common::Array<Common::String> warnings;
+
+	/// The HiResMapLoadOptions::target of the load that produced this map:
+	/// `kHiResTargetAuto` means the phase-1 view (design 7.1.1) - no
+	/// target-qualified section was merged in.
+	HiResRenderTarget loadedFor;
+
+	/// Internal to the loader: true while this load's warnings are only
+	/// collected in @ref warnings, not printed with warning() (design
+	/// 3.4's "warnings once" - phase 1 is silent). Set from
+	/// HiResMapLoadOptions::quiet, cleared by clear().
+	bool quietLoad;
+};
+
+/**
+ * One loadMap()/loadMapFile() call's options (design sections 3.4, 7.1.1).
+ */
+struct HiResMapLoadOptions {
+	HiResMapLoadOptions();
+
+	/// The resolved render target (never itself resolved by the loader):
+	/// `kHiResTargetAuto` asks for the phase-1 view - target-qualified
+	/// sections (`[S:t]`, `[S:e:t]`) are not merged in, only the engine's
+	/// own and the bare ones. Any other value expands the qualifier list
+	/// with qualifiersForTarget() before the section merge (design 3.4).
+	HiResRenderTarget target;
+
+	/// True for phase 1 (design 7.1.1): warnings are collected in
+	/// HiResMap::warnings but not printed with warning(). Phase 2 (and
+	/// every other caller) leaves this false so every warning is reported
+	/// once, as before.
+	bool quiet;
 };
 
 /**
@@ -620,12 +652,28 @@ public:
 						HiResMap &out);
 
 	/**
+	 * loadMap() with explicit HiResMapLoadOptions (design 3.4, 7.1.1): @p out
+	 * gains the render-target section qualifiers (expanded from
+	 * @p qualifiers with qualifiersForTarget()) for every qualifiable
+	 * section, and @ref HiResMap::loadedFor is set to @p options.target. The
+	 * plain overload above means @p options's default (target auto, quiet
+	 * false) - the phase-1 view, reported as loudly as before.
+	 */
+	static bool loadMap(Common::SeekableReadStream &stream, const Common::Path &mapDir,
+						const Common::Array<Common::String> &qualifiers, const HiResEngineKeys &engine,
+						HiResMap &out, const HiResMapLoadOptions &options);
+
+	/**
 	 * loadMap() on a file named by path; the file's own folder is @p mapDir.
 	 * Behaves as loadMap() when the file cannot be opened at all (returns
 	 * false, with one 10.1 warning naming @p mapPath).
 	 */
 	static bool loadMapFile(const Common::Path &mapPath, const Common::Array<Common::String> &qualifiers,
 						const HiResEngineKeys &engine, HiResMap &out);
+
+	/** loadMapFile() with explicit HiResMapLoadOptions; see loadMap(). */
+	static bool loadMapFile(const Common::Path &mapPath, const Common::Array<Common::String> &qualifiers,
+						const HiResEngineKeys &engine, HiResMap &out, const HiResMapLoadOptions &options);
 
 	/**
 	 * Resolve a path named inside a map file.

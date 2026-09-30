@@ -482,4 +482,111 @@ HiResIdPlan compileIdPlan(const HiResMap &map, bool mapLoaded, int id, const HiR
 	return plan;
 }
 
+namespace {
+
+/// Call @p fn on @p entry's path once, when it is a real file (design 7.1.1:
+/// `same`/`original` name no face of their own) and its path has not already
+/// been asked about (@p seen); returns true (and stops the caller) on the
+/// first coverage hit.
+bool checkCoverageEntry(const HiResFaceEntry &entry, HiResCoverageFn fn, void *ctx,
+						 Common::HashMap<Common::String, bool> &seen) {
+	if (entry.kind != kHiResFaceFile)
+		return false;
+	const Common::String key = entry.path.toString('/');
+	if (seen.contains(key))
+		return false;
+	seen[key] = true;
+	return fn(entry.path, ctx);
+}
+
+bool checkCoverageValue(const HiResFontValue &value, HiResCoverageFn fn, void *ctx,
+						 Common::HashMap<Common::String, bool> &seen) {
+	for (uint i = 0; i < value.entries.size(); ++i) {
+		if (checkCoverageEntry(value.entries[i], fn, ctx, seen))
+			return true;
+	}
+	return false;
+}
+
+bool checkCoverageScope(const HiResFontScope &scope, HiResCoverageFn fn, void *ctx,
+						 Common::HashMap<Common::String, bool> &seen) {
+	if (checkCoverageValue(scope.face, fn, ctx, seen))
+		return true;
+	for (uint i = 0; i < scope.rangeValues.size(); ++i) {
+		if (checkCoverageValue(scope.rangeValues[i], fn, ctx, seen))
+			return true;
+	}
+	return false;
+}
+
+bool checkCoverageGlyphs(const HiResGlyphTable &table, HiResCoverageFn fn, void *ctx,
+						  Common::HashMap<Common::String, bool> &seen) {
+	for (HiResGlyphTable::const_iterator it = table.begin(); it != table.end(); ++it) {
+		const HiResGlyphRule &rule = it->_value;
+		if (rule.kind != kHiResGlyphTarget && rule.kind != kHiResGlyphTargetOffset)
+			continue;
+		if (checkCoverageEntry(rule.face, fn, ctx, seen))
+			return true;
+	}
+	return false;
+}
+
+} // End of anonymous namespace
+
+bool mapHasCoverage(const HiResMap &map, bool mapLoaded, const HiResIniOverrides &ini, const Common::Path &mapDir,
+					const Common::Path &gameDir, HiResCoverageFn fn, void *ctx) {
+	Common::HashMap<Common::String, bool> seen;
+
+	if (ini.faceSet) {
+		static const HiResFaceNames kEmptyFaces;
+		const HiResFaceNames &names = mapLoaded ? map.faces : kEmptyFaces;
+		HiResFontValue fv;
+		Common::Array<Common::String> localWarnings;
+		parseFontValue(ini.face, names, mapDir, gameDir, fv, localWarnings);
+		if (checkCoverageValue(fv, fn, ctx, seen))
+			return true;
+	}
+
+	if (!mapLoaded)
+		return false;
+
+	if (checkCoverageScope(map.font, fn, ctx, seen))
+		return true;
+	for (Common::HashMap<int, HiResFontScope>::const_iterator it = map.fontIds.begin(); it != map.fontIds.end(); ++it) {
+		if (checkCoverageScope(it->_value, fn, ctx, seen))
+			return true;
+	}
+
+	if (checkCoverageGlyphs(map.glyphs, fn, ctx, seen))
+		return true;
+	for (Common::HashMap<int, HiResGlyphTable>::const_iterator it = map.glyphIds.begin(); it != map.glyphIds.end(); ++it) {
+		if (checkCoverageGlyphs(it->_value, fn, ctx, seen))
+			return true;
+	}
+
+	return false;
+}
+
+HiResRenderTarget wantedRenderTarget(const HiResMap &phase1, bool mapLoaded, const HiResIniOverrides &ini,
+									 bool anyCoverage, bool &explicitTarget) {
+	explicitTarget = false;
+
+	if (ini.targetSet && ini.target != kHiResTargetAuto) {
+		explicitTarget = true;
+		return ini.target;
+	}
+	if (mapLoaded && phase1.targetSet && phase1.target != kHiResTargetAuto) {
+		explicitTarget = true;
+		return phase1.target;
+	}
+
+	HiResBlend blend = kHiResBlendAuto;
+	if (ini.blendSet)
+		blend = ini.blend;
+	else if (mapLoaded && phase1.blendSet)
+		blend = phase1.blend;
+
+	return resolveAutoTarget(anyCoverage, blend);
+}
+
 } // End of namespace Graphics

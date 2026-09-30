@@ -2126,3 +2126,149 @@ public:
 		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [shadow] offset 'notanumber' is invalid; ignoring it"));
 	}
 };
+
+class HiResMapTargetTestSuite : public CxxTest::TestSuite {
+	bool load(const char *text, Graphics::HiResMap &out, Graphics::HiResRenderTarget target,
+			  const char *q0 = nullptr, bool quiet = false) {
+		Common::Array<Common::String> qualifiers;
+		if (q0)
+			qualifiers.push_back(q0);
+		const Common::String full = Common::String("[map]\nversion=2\n") + text;
+		Common::MemoryReadStream stream((const byte *)full.c_str(), full.size());
+		Graphics::HiResMapLoadOptions options;
+		options.target = target;
+		options.quiet = quiet;
+		// kHiResKeysSci, not kHiResKeysScumm: twoPresets() below (align=/cell=,
+		// design section 3.2's "[font]"/"[font.N]" table) exercises SCI-only
+		// keys; kHiResKeysScumm would warn "SCUMM does not use [font] align"
+		// and "... [font.40] cell" (design 10.3, kHiResKeysScumm's bitmask),
+		// which is a correct, already-tested behaviour unrelated to this
+		// suite's render-target qualifiers.
+		return Graphics::HiResFontMap::loadMap(stream, Common::Path("/maps", '/'), qualifiers,
+											   Graphics::kHiResKeysSci, out, options);
+	}
+
+	static bool hasWarning(const Graphics::HiResMap &m, const char *text) {
+		for (uint i = 0; i < m.warnings.size(); ++i)
+			if (m.warnings[i] == text)
+				return true;
+		return false;
+	}
+
+	static Common::String facePath(const Graphics::HiResFontScope *s) {
+		return (s && s->faceSet && !s->face.entries.empty()) ? s->face.entries[0].path.toString('/') : Common::String("<none>");
+	}
+
+	static const char *twoPresets() {
+		return "[fonts]\nui=KO2350G.SVF\nbody=KO2350B.SVF\n[fonts:clut8]\nui=KO2350.SVF\nbody=KO2350.SVF\n"
+			   "[render]\nblend=auto\n[render:clut8]\nblend=off\n"
+			   "[font]\nface=ui\nalign=cell\nmissing=u+25a1\n[font:clut8]\nalign=game\n"
+			   "[font.4]\nface=body\n[font.40]\nface=body\ncell=glyph\nsize=18\n[font.40:clut8]\ncell=game\nsize=16\n";
+	}
+
+public:
+	void test_bare_sections_serve_every_rgb_target_and_phase_one() {
+		const Graphics::HiResRenderTarget targets[] = {
+			Graphics::kHiResTargetAuto, Graphics::kHiResTargetRgb565, Graphics::kHiResTargetRgb888 };
+		for (uint i = 0; i < ARRAYSIZE(targets); ++i) {
+			Graphics::HiResMap m;
+			TS_ASSERT(load(twoPresets(), m, targets[i]));
+			TS_ASSERT_EQUALS(facePath(&m.font), "/maps/KO2350G.SVF");
+			TS_ASSERT_EQUALS(facePath(m.fontIdScope(4)), "/maps/KO2350B.SVF");
+			TS_ASSERT_EQUALS(m.font.align, Graphics::kHiResAlignCell);
+			TS_ASSERT_EQUALS(m.blend, Graphics::kHiResBlendAuto);
+			TS_ASSERT_EQUALS(m.fontIdScope(40)->size, 18);
+			TS_ASSERT_EQUALS(m.loadedFor, targets[i]);
+			TS_ASSERT(m.warnings.empty());
+		}
+	}
+
+	void test_clut8_sections_win_key_by_key() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load(twoPresets(), m, Graphics::kHiResTargetClut8));
+		TS_ASSERT_EQUALS(facePath(&m.font), "/maps/KO2350.SVF");          // [fonts:clut8] refines the name
+		TS_ASSERT_EQUALS(facePath(m.fontIdScope(4)), "/maps/KO2350.SVF");
+		TS_ASSERT_EQUALS(m.font.align, Graphics::kHiResAlignGame);
+		TS_ASSERT_EQUALS(m.font.missing, 0x25A1u);                         // not in [font:clut8]: the bare key
+		TS_ASSERT_EQUALS(m.blend, Graphics::kHiResBlendOff);
+		TS_ASSERT_EQUALS(m.fontIdScope(40)->cell, Graphics::kHiResCellGame);
+		TS_ASSERT_EQUALS(m.fontIdScope(40)->size, 16);
+		TS_ASSERT(m.warnings.empty());
+	}
+
+	void test_target_ranges_merge_span_by_span() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[font]\nrange.basic-latin=A.SVF\nrange.U+2026=B.SVF\n[font:clut8]\nrange.U+0020-007E=C.SVF\n",
+					   m, Graphics::kHiResTargetClut8));
+		TS_ASSERT_EQUALS(m.font.rangeSpecs.size(), 2u);
+		bool sawC = false, sawB = false, sawA = false;
+		for (uint i = 0; i < m.font.rangeValues.size(); ++i) {
+			sawA |= m.font.rangeValues[i].entries[0].written == "A.SVF";
+			sawB |= m.font.rangeValues[i].entries[0].written == "B.SVF";
+			sawC |= m.font.rangeValues[i].entries[0].written == "C.SVF";
+		}
+		TS_ASSERT(sawC && sawB && !sawA);
+	}
+
+	void test_target_glyph_sections() {
+		const char *text = "[glyphs]\n0x5e=u+2026\n0x07=original\n[glyphs:clut8]\n0x07=u+2022\n[glyphs.2:clut8]\n0x5e=original\n";
+		Graphics::HiResMap c;
+		TS_ASSERT(load(text, c, Graphics::kHiResTargetClut8));
+		TS_ASSERT_EQUALS(c.glyphs[0x07].value, 0x2022u);
+		TS_ASSERT_EQUALS(c.glyphs[0x5e].value, 0x2026u);
+		TS_ASSERT(c.glyphIds.contains(2));
+		TS_ASSERT_EQUALS(c.glyphIds[2][0x5e].kind, Graphics::kHiResGlyphOriginal);
+		Graphics::HiResMap r;
+		TS_ASSERT(load(text, r, Graphics::kHiResTargetRgb888));
+		TS_ASSERT_EQUALS(r.glyphs[0x07].kind, Graphics::kHiResGlyphOriginal);
+		TS_ASSERT(!r.glyphIds.contains(2));
+	}
+
+	void test_render_target_key_in_a_target_section_is_refused() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[render]\ntarget=rgb888\n[render:clut8]\ntarget=clut8\nscale=2\n", m, Graphics::kHiResTargetClut8));
+		TS_ASSERT_EQUALS(m.target, Graphics::kHiResTargetRgb888);
+		TS_ASSERT(m.scaleSet);
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [render:clut8] target cannot depend on the render target; ignoring it"));
+	}
+
+	void test_engine_qualifier_beats_target_and_both_combine() {
+		const char *all = "[font]\nface=A.SVF\n[font:clut8]\nface=B.SVF\n[font:monkey2]\nface=C.SVF\n"
+						  "[font:monkey2:clut8]\nface=D.SVF\n";
+		Graphics::HiResMap m;
+		TS_ASSERT(load(all, m, Graphics::kHiResTargetClut8, "monkey2"));
+		TS_ASSERT_EQUALS(facePath(&m.font), "/maps/D.SVF");
+		TS_ASSERT(load(all, m, Graphics::kHiResTargetRgb888, "monkey2"));
+		TS_ASSERT_EQUALS(facePath(&m.font), "/maps/C.SVF");
+		TS_ASSERT(load(all, m, Graphics::kHiResTargetClut8, "tentacle"));
+		TS_ASSERT_EQUALS(facePath(&m.font), "/maps/B.SVF");
+		TS_ASSERT(load("[font]\nface=A.SVF\n[font:clut8]\nface=B.SVF\n[font:monkey2]\nface=C.SVF\n", m,
+					   Graphics::kHiResTargetClut8, "monkey2"));
+		TS_ASSERT_EQUALS(facePath(&m.font), "/maps/C.SVF");                // engine-only beats target-only
+	}
+
+	void test_malformed_target_qualifiers_warn_and_are_ignored() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[font:auto]\nface=X.SVF\n[font:clut8:monkey2]\nface=Y.SVF\n[font:pc:v5]\nface=Z.SVF\n"
+					   "[font:a:b:clut8]\nface=W.SVF\n[text:clut8]\nencoding=cp949\n[layout:clut8]\nhangul=any\n",
+					   m, Graphics::kHiResTargetClut8, "monkey2"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font:auto]: auto is not a render-target qualifier; ignoring the section"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font:clut8:monkey2]: the render target goes last ([font:monkey2:clut8]); ignoring the section"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font:pc:v5]: the second qualifier must be clut8, rgb565 or rgb888; ignoring the section"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font:a:b:clut8]: a section takes at most two qualifiers; ignoring the section"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [text:clut8]: [text] cannot depend on the render target; ignoring the section"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [layout:clut8]: [layout] cannot depend on the render target; ignoring the section"));
+		TS_ASSERT(!m.font.faceSet);
+		TS_ASSERT(!m.encodingSet);
+		TS_ASSERT(!m.layout.hangulSet);
+		TS_ASSERT_EQUALS(m.warnings.size(), 6u);
+	}
+
+	void test_quiet_load_collects_the_same_warnings() {
+		Graphics::HiResMap loud, quiet;
+		TS_ASSERT(load("[font:auto]\nface=X.SVF\n", loud, Graphics::kHiResTargetAuto));
+		TS_ASSERT(load("[font:auto]\nface=X.SVF\n", quiet, Graphics::kHiResTargetAuto, nullptr, true));
+		TS_ASSERT_EQUALS(quiet.warnings.size(), loud.warnings.size());
+		TS_ASSERT_EQUALS(quiet.warnings.size(), 1u);
+	}
+};

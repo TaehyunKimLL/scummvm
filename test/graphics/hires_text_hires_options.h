@@ -178,4 +178,40 @@ public:
 		TS_ASSERT(!o.faceSet && !o.blendSet && !o.targetSet);
 		TS_ASSERT(w.empty());
 	}
+
+	void test_target_qualifiers() {
+		Graphics::HiResRenderTarget t;
+		TS_ASSERT(Graphics::parseRenderTargetQualifier("CLUT8", t));
+		TS_ASSERT_EQUALS(t, Graphics::kHiResTargetClut8);
+		TS_ASSERT(!Graphics::parseRenderTargetQualifier("auto", t));
+		TS_ASSERT(!Graphics::parseRenderTargetQualifier("monkey2", t));
+		Common::Array<Common::String> e;
+		e.push_back("monkey2");
+		e.push_back("");
+		e.push_back("v5");
+		const Common::Array<Common::String> q = Graphics::qualifiersForTarget(e, Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(q.size(), 5u);
+		TS_ASSERT_EQUALS(q[0], "monkey2:clut8");
+		TS_ASSERT_EQUALS(q[1], "v5:clut8");
+		TS_ASSERT_EQUALS(q[2], "monkey2");
+		TS_ASSERT_EQUALS(q[3], "v5");
+		TS_ASSERT_EQUALS(q[4], "clut8");
+		TS_ASSERT_EQUALS(Graphics::qualifiersForTarget(e, Graphics::kHiResTargetAuto).size(), 2u);
+		TS_ASSERT_EQUALS(Graphics::qualifiersForTarget(Common::Array<Common::String>(), Graphics::kHiResTargetRgb565).size(), 1u);
+	}
+
+	void test_target_of_format_and_prediction() {
+		TS_ASSERT_EQUALS(Graphics::targetOfFormat(Graphics::PixelFormat::createFormatCLUT8()), Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(Graphics::targetOfFormat(rgb565()), Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(Graphics::targetOfFormat(xrgb1555()), Graphics::kHiResTargetRgb565);   // family, not formatMatchesTarget
+		TS_ASSERT_EQUALS(Graphics::targetOfFormat(xrgb8888()), Graphics::kHiResTargetRgb888);
+		Common::List<Graphics::PixelFormat> staging;
+		staging.push_back(xrgb8888());
+		staging.push_back(Graphics::PixelFormat::createFormatCLUT8());
+		TS_ASSERT_EQUALS(Graphics::predictedTarget(Graphics::kHiResTargetRgb565, staging, true), Graphics::kHiResTargetRgb888);
+		TS_ASSERT_EQUALS(Graphics::predictedTarget(Graphics::kHiResTargetClut8, staging, true), Graphics::kHiResTargetClut8);
+		Common::List<Graphics::PixelFormat> clutOnly;
+		clutOnly.push_back(Graphics::PixelFormat::createFormatCLUT8());
+		TS_ASSERT_EQUALS(Graphics::predictedTarget(Graphics::kHiResTargetRgb888, clutOnly, true), Graphics::kHiResTargetClut8);
+	}
 };
