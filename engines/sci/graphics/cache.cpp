@@ -438,6 +438,18 @@ GfxFontUnicode *GfxCache::loadUniBundle() {
 }
 
 GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) {
+	// [font.N] face=original (or the ini/[hires] default): this font id
+	// draws only from the game's own resource font. createFontSet() adds no
+	// Unicode face at all when this is null, and unlike an ordinary faceless
+	// id below, not even the shared .uni bundle stands in - original means
+	// the game's font, not "whatever generic Unicode font is around". No
+	// warning either: this is what the map asked for, not a misconfiguration.
+	if (s.original) {
+		s.latin = kLatinOff;
+		s.latinFacePath.clear();
+		return nullptr;
+	}
+
 	// A face on disk, tried before the bundled .uni fonts: a live face is
 	// preferred when the player (or the map) asked for one, and the .uni
 	// names remain the fallback, both when no face is named (identical to

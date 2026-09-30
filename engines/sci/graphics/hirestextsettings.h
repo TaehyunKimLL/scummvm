@@ -41,6 +41,12 @@ struct FontSettings {
 	/// The cell and face size when nothing sets them, hi-res px.
 	static const int kDefaultCell = 16;
 
+	/// [font.N] face=original or [hires] font=original (also the ini
+	/// hires_text_font): this font id is not replaced at all - the game's
+	/// own font resource draws it, not even the shared .uni bundle a face-
+	/// less id otherwise falls back to. Distinct from latin==kLatinOff
+	/// (latin_font=original), which only ever concerns the Latin range.
+	bool original;
 	Common::String facePath;         ///< main TrueType face; empty = none named
 	/// The face chain facePath heads (hires_text.map "face=ko, ja, th"), as
 	/// paths; faceChain[0] == facePath. GfxCache opens the whole chain for a
