@@ -20,6 +20,7 @@
  */
 class ScummHiResWideAdvanceTestSuite : public CxxTest::TestSuite {
 	static const int kCs = ScummHiResFixture::kCs;
+	static const int kOtherCs = ScummHiResFixture::kOtherCs;
 
 	bool open(Scumm::ScummHiResText &hr, Scumm::HiResOverlay &overlay, const char *body) {
 		return ScummHiResFixture::open(hr, overlay, body);
@@ -198,6 +199,57 @@ public:
 		// lineFit false): a much bigger face at its own size is not capped
 		// down to that cell - its advance is larger, not merely different.
 		TS_ASSERT_LESS_THAN(adv[0], adv[1]);
+#else
+		TS_SKIP("needs FreeType");
+#endif
+	}
+
+	/// M5: a TrueType face is re-opened when its own charset's size becomes
+	/// known, even though it was already opened once at a borrowed/guessed
+	/// size (nearestTtfCharset(), before noteGameCharset() gave the id its
+	/// own cell) - the old ttfFaceFor()'s "a charset on another cell opens
+	/// the face again". Built without ScummHiResFixture::open()/openMap(),
+	/// which both give kCs and kOtherCs the same 8x8 grid up front - this
+	/// test needs kCs's cell to still be *unknown* at loadFonts() time.
+	void test_ttf_reopens_when_the_charset_learns_its_own_size() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		const char *ttf = systemTtf();
+		if (!ttf) {
+			TS_SKIP("needs a TrueType face");
+			return;
+		}
+		Scumm::HiResOverlay overlay;
+		overlay.create(96, 48, true);
+		Scumm::ScummHiResText hr;
+		hr.useOverlay(&overlay);
+		const Common::String text = Common::String::format(
+			"[map]\nversion=2\n[render]\nblend=off\n[font]\nface=%s\nadvance=font\n", ttf);
+		Graphics::HiResMap m;
+		Common::Array<Common::String> q;
+		Common::MemoryReadStream s((const byte *)text.c_str(), text.size());
+		TS_ASSERT(Graphics::HiResFontMap::loadMap(s, Common::Path("/tmp/m5", '/'), q, Graphics::kHiResKeysScumm, m));
+		hr.adoptMap(m);
+
+		// Only kOtherCs's cell is known at load time; kCs's is not, so it
+		// opens at kOtherCs's (tiny) borrowed size (nearestTtfCharset()).
+		hr.noteGameCharset(kOtherCs, 8, 8);
+		hr.setCharsetGrid(kOtherCs, 8, 8);
+		TS_ASSERT(hr.loadFonts(Common::Path()));
+
+		uint32 wide = findRealWideGlyph(hr, kCs);
+		if (!wide) {
+			TS_SKIP("the available TrueType face has no real wide glyph to measure");
+			return;
+		}
+		const int advBorrowed = hr.advanceFor(wide, kCs, 8);
+
+		// kCs's own, much larger cell becomes known, as it does when the
+		// game selects this charset for the first time.
+		hr.noteGameCharset(kCs, 48, 48);
+		hr.setCharsetGrid(kCs, 48, 48);
+		const int advOwn = hr.advanceFor(wide, kCs, 48);
+
+		TS_ASSERT_LESS_THAN(advBorrowed, advOwn);
 #else
 		TS_SKIP("needs FreeType");
 #endif
