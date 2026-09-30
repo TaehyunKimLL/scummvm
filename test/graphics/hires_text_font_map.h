@@ -2125,6 +2125,53 @@ public:
 		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [text] encoding 'nonsense' is not known; ignoring it"));
 		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [shadow] offset 'notanumber' is invalid; ignoring it"));
 	}
+
+	// A v2 map's mirror= is spec'd (design 6.2.1) as off|horizontal|vertical|
+	// both only: unlike the legacy [font.N] mirror= of a version-1
+	// HIRESTXT.MAP (test_map_font_section_mirror, hires_text_glyph_mirror.h),
+	// the true/on/yes/1/false/no/0/none/rotate aliases are not part of the
+	// v2 grammar and must be rejected with a warning, not silently accepted
+	// as an alias for one of the four spec values.
+	void test_mirror_alias_v2_only() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n"
+					   "[font.2]\nmirror=true\n"
+					   "[font.3]\nmirror=off\n"
+					   "[font.4]\nmirror=horizontal\n"
+					   "[font.5]\nmirror=vertical\n"
+					   "[font.6]\nmirror=both\n"
+					   "[font.7]\nmirror=on\n"
+					   "[font.8]\nmirror=false\n"
+					   "[font.9]\nmirror=rotate\n", m));
+		const Graphics::HiResFontScope *f2 = m.fontIdScope(2);
+		const Graphics::HiResFontScope *f3 = m.fontIdScope(3);
+		const Graphics::HiResFontScope *f4 = m.fontIdScope(4);
+		const Graphics::HiResFontScope *f5 = m.fontIdScope(5);
+		const Graphics::HiResFontScope *f6 = m.fontIdScope(6);
+		const Graphics::HiResFontScope *f7 = m.fontIdScope(7);
+		const Graphics::HiResFontScope *f8 = m.fontIdScope(8);
+		const Graphics::HiResFontScope *f9 = m.fontIdScope(9);
+		TS_ASSERT(f3 && f4 && f5 && f6);
+		if (!f3 || !f4 || !f5 || !f6)
+			return;
+		TS_ASSERT(f3->mirrorSet);
+		TS_ASSERT_EQUALS(f3->mirror, Graphics::kHiResMirrorNone);
+		TS_ASSERT(f4->mirrorSet);
+		TS_ASSERT_EQUALS(f4->mirror, Graphics::kHiResMirrorHorizontal);
+		TS_ASSERT(f5->mirrorSet);
+		TS_ASSERT_EQUALS(f5->mirror, Graphics::kHiResMirrorVertical);
+		TS_ASSERT(f6->mirrorSet);
+		TS_ASSERT_EQUALS(f6->mirror, Graphics::kHiResMirrorBoth);
+		// The legacy aliases: rejected, key left unset, each warned about.
+		TS_ASSERT(!f2 || !f2->mirrorSet);
+		TS_ASSERT(!f7 || !f7->mirrorSet);
+		TS_ASSERT(!f8 || !f8->mirrorSet);
+		TS_ASSERT(!f9 || !f9->mirrorSet);
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font.2] mirror 'true' is not off, horizontal, vertical or both; ignoring it"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font.7] mirror 'on' is not off, horizontal, vertical or both; ignoring it"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font.8] mirror 'false' is not off, horizontal, vertical or both; ignoring it"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font.9] mirror 'rotate' is not off, horizontal, vertical or both; ignoring it"));
+	}
 };
 
 class HiResMapTargetTestSuite : public CxxTest::TestSuite {
