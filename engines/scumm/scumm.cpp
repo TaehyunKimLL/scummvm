@@ -1632,10 +1632,7 @@ Common::Error ScummEngine::init() {
 			if (_hiResText.alphaActive())
 				debug(1, "SCUMM: hi-res text blending into %s", chosen.toString().c_str());
 			else if (_hiResText.enabled() && Graphics::blendRefusedOnClut8(_hiResText.blend(), chosen.isCLUT8()))
-				// S7: blend=on asked for palette-matched anti-aliasing on a
-				// paletted screen, which does not exist yet (Task 20) -
-				// blendActive() already fell back to the hard stencil above;
-				// this just says so, once.
+				// blendActive() already fell back to the hard stencil; say so once.
 				warning("hires_text_blend=on needs an RGB screen until palette-matched blending exists; drawing hard-edged text");
 
 			if (_game.platform == Common::kPlatformNES)
