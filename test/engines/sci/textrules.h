@@ -103,15 +103,30 @@ public:
 		TS_ASSERT_EQUALS(Sci::TextCompose::glyphCode(s.plan, '@'), 0xFF20u);
 	}
 
-	void test_fullwidth_recipe_boundaries_are_not_remapped() {
-		// 0x1F and 0x7F are outside both the remapped range and
-		// basic-latin's own span (U+0020-007E, design 6.1: "U+007F and C0
-		// controls are in no block"), so neither is offset by the recipe -
-		// they reach the id's own chain unchanged, exactly as any other code
-		// point with no rule of its own does.
+	void test_fullwidth_recipe_boundaries_stay_on_the_resource_font() {
+		// 0x1F and 0x7F are outside the remapped range and outside
+		// basic-latin's own span (U+0020-007E), but the SCI engine scope's
+		// own built-in rules keep C0 controls and DEL on the resource font
+		// regardless (sciEngineScope(); a map may still override either
+		// span explicitly) - unlike a code point genuinely in no block at
+		// all, they are not left to the id's plain chain.
 		const Sci::FontSettings s = settings("[font]\nface=KO.SVF\n[glyphs]\n0x21-0x7E=+0xFEE0\n");
-		TS_ASSERT_EQUALS(Sci::TextCompose::glyphCode(s.plan, 0x1F), 0x1Fu);
-		TS_ASSERT_EQUALS(Sci::TextCompose::glyphCode(s.plan, 0x7F), 0x7Fu);
+		TS_ASSERT_EQUALS(Sci::TextCompose::glyphCode(s.plan, 0x1F), Graphics::kHiResGameCodeBase + 0x1Fu);
+		TS_ASSERT_EQUALS(Sci::TextCompose::glyphCode(s.plan, 0x7F), Graphics::kHiResGameCodeBase + 0x7Fu);
+	}
+
+	// A C0/DEL scenario: even with a face routing basic-latin away and
+	// missing= set, tab (0x09, a C0 control) and DEL (0x7F) still reach the
+	// game's own font - sciEngineScope()'s built-in
+	// range.U+0000-001F/U+007F=original rules decline them before
+	// Graphics::pickGlyph() (and its missing= box step) is ever reached, so
+	// the box never stands in for either.
+	void test_c0_and_del_reach_the_game_font_even_with_missing_set() {
+		const Sci::FontSettings s = settings("[font]\nface=KO.SVF\nrange.basic-latin=same\nmissing=u+25a1\n");
+		TS_ASSERT_EQUALS(Sci::TextCompose::glyphCode(s.plan, 0x09), Graphics::kHiResGameCodeBase + 0x09u); // tab
+		TS_ASSERT_EQUALS(Sci::TextCompose::glyphCode(s.plan, 0x7F), Graphics::kHiResGameCodeBase + 0x7Fu); // DEL
+		TS_ASSERT(!Sci::TextCompose::goesToUnicodeFace(s.plan, Sci::TextCompose::glyphCode(s.plan, 0x09)));
+		TS_ASSERT(!Sci::TextCompose::goesToUnicodeFace(s.plan, Sci::TextCompose::glyphCode(s.plan, 0x7F)));
 	}
 
 	void test_fullwidth_recipe_space_flag() {

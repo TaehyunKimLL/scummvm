@@ -554,6 +554,11 @@ capability, not a player key, and is not documented for players. A non-numeric i
 "As today" means: when no advance key applies, the adapter takes exactly the code path it takes now; the regression gates
 compare pixels before and after.
 
+SCI's own scope also keeps `range.U+0000-001F` and `range.U+007F` (with their `advance` set to `game`) on the game's own
+font: section 6.1 puts C0 controls and DEL in no named block, so without a built-in rule for them here they would fall to
+an id's plain chain (section 6.5 step 4) the moment any face is configured at all, rather than staying on the resource
+font as they always have. A map may still override either span explicitly.
+
 ## 9. The DOS backend
 
 - `dos_truecolor` is removed (no reader, no `registerDefault`). Its replacement is `render_target=clut8` in `[scummvm]`.

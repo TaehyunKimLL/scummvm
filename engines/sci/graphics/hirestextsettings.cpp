@@ -34,21 +34,30 @@ FontSettings::FontSettings()
 Graphics::HiResFontScope sciEngineScope() {
 	Graphics::HiResFontScope scope;
 
-	Graphics::HiResRangeSpec basicLatin;
-	Common::String error;
-	Graphics::parseRangeSpec("basic-latin", basicLatin, error);
-
 	Graphics::HiResFontValue original;
 	Graphics::HiResFaceEntry originalEntry;
 	originalEntry.kind = Graphics::kHiResFaceOriginal;
 	originalEntry.written = "original";
 	original.entries.push_back(originalEntry);
 
-	scope.rangeSpecs.push_back(basicLatin);
-	scope.rangeValues.push_back(original);
-
-	scope.advanceSpecs.push_back(basicLatin);
-	scope.advanceValues.push_back(Graphics::kHiResAdvanceGame);
+	// design section 8's own default range, plus the built-in C0/control and
+	// DEL spans a map cannot otherwise reach with one rule (spec 6.1: they
+	// are in no named block): the game's own resource font keeps drawing
+	// them, as it always has - `basic-latin` alone leaves U+0000-001F and
+	// U+007F to the id's plain chain (design 6.5 step 4), which routes them
+	// to whatever face the id names, and a `missing=` box would then answer
+	// for them where the game's own font used to. A map may still override
+	// any of the three spans explicitly.
+	static const char *const kSpans[] = { "basic-latin", "U+0000-001F", "U+007F" };
+	for (uint i = 0; i < ARRAYSIZE(kSpans); i++) {
+		Graphics::HiResRangeSpec spec;
+		Common::String error;
+		Graphics::parseRangeSpec(kSpans[i], spec, error);
+		scope.rangeSpecs.push_back(spec);
+		scope.rangeValues.push_back(original);
+		scope.advanceSpecs.push_back(spec);
+		scope.advanceValues.push_back(Graphics::kHiResAdvanceGame);
+	}
 
 	return scope;
 }
@@ -86,6 +95,30 @@ Common::String unicodeBundleKey(const Common::String &mainPath, int size, uint32
 	return Common::String::format("%s|%d|%08x", mainPath.c_str(), size, planHash);
 }
 
+bool planNamesAnyFace(const Graphics::HiResIdPlan &plan) {
+	if (!plan.idChain.faces.empty())
+		return true;
+	for (uint i = 0; i < plan.ruleChains.size(); i++) {
+		if (!plan.ruleChains[i].faces.empty())
+			return true;
+	}
+	for (uint i = 0; i < plan.targets.size(); i++) {
+		if (plan.targets[i].face.kind == Graphics::kHiResFaceFile)
+			return true;
+	}
+	return false;
+}
+
+void declineFailedTargets(Graphics::HiResIdPlan &plan, const Common::Array<uint32> &failedTargetCodes) {
+	for (uint i = 0; i < failedTargetCodes.size(); i++) {
+		Graphics::HiResGlyphRule rule;
+		rule.kind = Graphics::kHiResGlyphOriginal;
+		rule.value = 0;
+		rule.face = Graphics::HiResFaceEntry();
+		plan.glyphs[failedTargetCodes[i]] = rule;
+	}
+}
+
 namespace {
 
 /// The FontIdFace naming @p path, or nullptr.
@@ -108,10 +141,10 @@ bool isExcluded(const Common::Array<Common::String> &excludedPaths, const Common
 } // End of anonymous namespace
 
 void checkPlanLoadWarnings(int fontId, const Graphics::HiResIdPlan &plan, const Common::Array<FontIdFace> &faces,
-						   Common::Array<Common::String> &excludedPaths, Graphics::HiResMap &map,
-						   Common::HashMap<Common::String, bool> &warnedOnceThisLoad) {
-	if (plan.original)
-		return;
+						   Common::Array<Common::String> &excludedPaths, Common::Array<uint32> &failedTargetCodes,
+						   Graphics::HiResMap &map, Common::HashMap<Common::String, bool> &warnedOnceThisLoad) {
+	if (!planNamesAnyFace(plan))
+		return; // nothing opens: an id that is purely `original`
 
 	auto warnOnce = [&](const Common::String &w) {
 		map.warnings.push_back(w);
@@ -179,20 +212,24 @@ void checkPlanLoadWarnings(int fontId, const Graphics::HiResIdPlan &plan, const 
 				break;
 			}
 		}
+		failedTargetCodes.push_back(code);
 		warnOnce(Common::String::format(
 			"HIRESTXT.MAP: [glyphs] 0x%X -> %s:U+%04X: the face has no such glyph; the game's font draws it",
 			code, faceText.c_str(), t.cp));
 	}
 
-	// design 6.4 / 10.4: missing= naming a code point no face of the id's own
-	// chain(s) has. An id that names no face of its own at all has nothing
-	// of its own to check here.
-	bool hasOwnChain = !plan.idChain.faces.empty();
-	for (uint c = 0; c < plan.ruleChains.size() && !hasOwnChain; c++)
-		hasOwnChain = !plan.ruleChains[c].faces.empty();
-	if (plan.missing && hasOwnChain) {
-		bool found = false;
-		auto checkChain = [&](const Graphics::HiResFaceChain &c) {
+	// design 6.4 / 10.4: missing= naming a code point no face of a chain
+	// has - checked once per chain (the id chain, and every rule chain of
+	// its own), not once for the id as a whole: a rule chain whose own
+	// faces lack the box is warned about even when the id chain (or another
+	// rule chain) happens to have it. A chain with no faces of its own, or
+	// that ends in `original` (design 6.4: the box never follows `original`),
+	// has nothing to check.
+	if (plan.missing) {
+		auto checkOneChain = [&](const Graphics::HiResFaceChain &c) {
+			if (c.faces.empty() || c.endsInOriginal)
+				return;
+			bool found = false;
 			for (uint i = 0; i < c.faces.size() && !found; i++) {
 				const Common::String path = c.faces[i].path.toString('/');
 				if (isExcluded(excludedPaths, path))
@@ -201,16 +238,15 @@ void checkPlanLoadWarnings(int fontId, const Graphics::HiResIdPlan &plan, const 
 				if (f && f->source && f->source->cells(plan.missing) > 0)
 					found = true;
 			}
+			if (!found) {
+				warnOnce(Common::String::format(
+					"HIRESTXT.MAP: missing=U+%04X has no effect: %s has no glyph for it",
+					plan.missing, c.faces[0].written.c_str()));
+			}
 		};
-		checkChain(plan.idChain);
-		for (uint c = 0; c < plan.ruleChains.size() && !found; c++)
-			checkChain(plan.ruleChains[c]);
-		if (!found) {
-			const Common::String faceName = !plan.idChain.faces.empty() ? plan.idChain.faces[0].written
-																		 : Common::String("the game's font");
-			warnOnce(Common::String::format(
-				"HIRESTXT.MAP: missing=U+%04X has no effect: %s has no glyph for it", plan.missing, faceName.c_str()));
-		}
+		checkOneChain(plan.idChain);
+		for (uint c = 0; c < plan.ruleChains.size(); c++)
+			checkOneChain(plan.ruleChains[c]);
 	}
 }
 

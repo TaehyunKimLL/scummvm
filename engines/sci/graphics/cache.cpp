@@ -105,7 +105,6 @@ bool isExcluded(const Common::Array<Common::String> &excludedPaths, const Common
 GfxCache::GfxCache(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palette)
 	: _resMan(resMan), _screen(screen), _palette(palette),
 	  _hiresResolved(false), _hiresApplies(false), _hiresMapLoaded(false),
-	  _uniBundleMissingApplied(false),
 	  _uniBundle(nullptr), _uniBundleTried(false),
 	  _textLogResolved(false), _textLog(false),
 	  _layoutRulesResolved(false), _sampleResolved(false), _fitProbesResolved(false) {
@@ -150,22 +149,6 @@ void GfxCache::resolveHiresText() {
 		return;
 	}
 
-	// hires_text_face=same, or an unknown name: validated once here, not
-	// once per font id resolveFontSettings() would otherwise repeat the same
-	// text for (design section 10: "once per cause per load").
-	if (_hiresIni.faceSet && !_hiresIni.face.equalsIgnoreCase("original")) {
-		Common::Array<Common::String> faceWarnings;
-		if (_hiresIni.face.equalsIgnoreCase("same")) {
-			faceWarnings.push_back("hires_text_face=same has no meaning; ignoring it");
-		} else {
-			Graphics::HiResFontValue fv;
-			Graphics::parseFontValue(_hiresIni.face, Graphics::HiResFaceNames(), _hiresMapDir, _hiresGameDir, fv,
-									 faceWarnings);
-		}
-		for (uint i = 0; i < faceWarnings.size(); i++)
-			warning("%s", faceWarnings[i].c_str());
-	}
-
 	// The map (design section 4): the file hires_text_map names, else the
 	// game folder's own HIRESTXT.MAP when it exists. A relative
 	// hires_text_map is the game folder's now, not the current directory.
@@ -182,26 +165,47 @@ void GfxCache::resolveHiresText() {
 		mapPath = findDefaultMapFile(_hiresGameDir);
 		haveMapPath = !mapPath.empty();
 	}
-	if (!haveMapPath)
-		return;
 
-	_hiresMapDir = mapPath.getParent();
-	Common::Array<Common::String> qualifiers;
-	const char *platform = Common::getPlatformCode(g_sci->getPlatform());
-	if (platform && *platform)
-		qualifiers.push_back(platform);
+	if (haveMapPath) {
+		_hiresMapDir = mapPath.getParent();
+		Common::Array<Common::String> qualifiers;
+		const char *platform = Common::getPlatformCode(g_sci->getPlatform());
+		if (platform && *platform)
+			qualifiers.push_back(platform);
 
-	// GfxCache runs after GfxScreen has set the actual screen (design
-	// section 7.1.1's phase 2): the map is read for the sections that
-	// screen's own render target actually uses.
-	Graphics::HiResMapLoadOptions options;
-	options.target = Graphics::targetOfFormat(g_system->getScreenFormat());
-	options.quiet = false;
-	_hiresMapLoaded = Graphics::HiResFontMap::loadMapFile(mapPath, qualifiers, Graphics::kHiResKeysSci, _hiresMap, options);
-	if (_hiresMapLoaded)
-		debug(1, "SCI: %s loaded (platform '%s', target %s), %u font id sections",
-			  mapPath.toString().c_str(), platform ? platform : "", Graphics::renderTargetName(options.target),
-			  (uint)_hiresMap.fontIds.size());
+		// GfxCache runs after GfxScreen has set the actual screen (design
+		// section 7.1.1's phase 2): the map is read for the sections that
+		// screen's own render target actually uses.
+		Graphics::HiResMapLoadOptions options;
+		options.target = Graphics::targetOfFormat(g_system->getScreenFormat());
+		options.quiet = false;
+		_hiresMapLoaded =
+			Graphics::HiResFontMap::loadMapFile(mapPath, qualifiers, Graphics::kHiResKeysSci, _hiresMap, options);
+		if (_hiresMapLoaded)
+			debug(1, "SCI: %s loaded (platform '%s', target %s), %u font id sections",
+				  mapPath.toString().c_str(), platform ? platform : "", Graphics::renderTargetName(options.target),
+				  (uint)_hiresMap.fontIds.size());
+	}
+
+	// hires_text_face=same, or an unknown name: validated once here, not
+	// once per font id resolveFontSettings() would otherwise repeat the same
+	// text for (design section 10: "once per cause per load") - after the
+	// map has loaded, so a name the map's own [fonts] resolves does not get
+	// a spurious "unknown face name" first.
+	if (_hiresIni.faceSet && !_hiresIni.face.equalsIgnoreCase("original")) {
+		Common::Array<Common::String> faceWarnings;
+		if (_hiresIni.face.equalsIgnoreCase("same")) {
+			faceWarnings.push_back("hires_text_face=same has no meaning; ignoring it");
+		} else {
+			Graphics::HiResFontValue fv;
+			Graphics::parseFontValue(_hiresIni.face, _hiresMapLoaded ? _hiresMap.faces : Graphics::HiResFaceNames(),
+									 _hiresMapDir, _hiresGameDir, fv, faceWarnings);
+		}
+		for (uint i = 0; i < faceWarnings.size(); i++) {
+			_hiresMap.warnings.push_back(faceWarnings[i]);
+			warning("%s", faceWarnings[i].c_str());
+		}
+	}
 }
 
 FontSettings GfxCache::fontSettingsFor(GuiResourceId fontId) {
@@ -335,14 +339,14 @@ Graphics::UnicodeGlyphSource *GfxCache::singleFace(const Common::String &path, i
 }
 
 void GfxCache::applyMissing(GfxFontUnicode *f, uint32 missing, const Common::String &name) {
-	// Only for the faceless path (the bare .uni bundle): a font id with its
-	// own chain already has missing= baked into its RangeRoutedGlyphSource
-	// by Graphics::pickGlyph(). The bundle is shared by every faceless id,
-	// so its one box is applied (and checked) once, for whichever id's
-	// missing= reaches it first.
-	if (!missing || _uniBundleMissingApplied || !f)
+	// GfxFontUnicode::setMissing() is idempotent per object (it bails once
+	// its _source is already the box-wrapped one), so this is safe to call
+	// once per font id that shares @p f, whether that is the one shared
+	// .uni bundle (the faceless path) or a chain's own routed source
+	// (faceChainFor() builds that source with missing= off, so its box has to
+	// be applied here instead, same as the faceless path).
+	if (!missing || !f)
 		return;
-	_uniBundleMissingApplied = true;
 	f->setMissing(missing);
 	if (f->source() && f->source()->cells(missing) <= 0) {
 		const Common::String w = Common::String::format(
@@ -375,11 +379,14 @@ GfxFontUnicode *GfxCache::loadUniBundle() {
 	return _uniBundle;
 }
 
-Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(GuiResourceId fontId, const FontSettings &s,
-													 Common::String &chainName, Graphics::UnicodeGlyphSource *&firstRaw) {
+Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(GuiResourceId fontId, FontSettings &s,
+													 Common::String &chainName, Graphics::UnicodeGlyphSource *&firstRaw,
+													 Graphics::UnicodeGlyphSource *&firstNormalized, int &firstTop) {
 	chainName.clear();
 	firstRaw = nullptr;
-	const Graphics::HiResIdPlan &plan = s.plan;
+	firstNormalized = nullptr;
+	firstTop = 0;
+	Graphics::HiResIdPlan &plan = s.plan;
 
 	// Shared by every font id whose face, size and plan agree: opening
 	// faces, checking coverage and load-time warnings all happen only once.
@@ -387,7 +394,18 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(GuiResourceId fontId, const
 	if (_chains.contains(key)) {
 		for (uint i = 0; i < plan.idChain.faces.size(); i++)
 			chainName += (i ? "," : "") + plan.idChain.faces[i].path.toString('/');
-		firstRaw = _chainFirstFace.contains(key) ? _chainFirstFace[key] : nullptr;
+		if (_chainFirstFace.contains(key)) {
+			const ChainFirstFace &cached = _chainFirstFace[key];
+			firstRaw = cached.raw;
+			firstNormalized = cached.normalized;
+			firstTop = cached.top;
+			// This id's own plan is a fresh copy of the same starting
+			// plan the cached chain was built from - it needs the same
+			// load-time decline applied to it, since only the *chain*
+			// (opening, warnings, the decline itself) was shared, not the
+			// mutation each id's own settings.plan carries forward.
+			declineFailedTargets(plan, cached.declinedTargets);
+		}
 		return _chains[key];
 	}
 
@@ -479,7 +497,11 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(GuiResourceId fontId, const
 			addFace(plan.targets[i].face.path.toString('/'));
 
 	Common::Array<Common::String> excludedPaths;
-	checkPlanLoadWarnings(fontId, plan, faces, excludedPaths, _hiresMap, _warnedOnceThisLoad);
+	Common::Array<uint32> failedTargetCodes;
+	checkPlanLoadWarnings(fontId, plan, faces, excludedPaths, failedTargetCodes, _hiresMap, _warnedOnceThisLoad);
+	// design 6.7: an unresolvable target is decided now, once, by turning
+	// it into `original` in the plan itself - not at draw time.
+	declineFailedTargets(plan, failedTargetCodes);
 
 	for (uint i = 0; i < order.size(); i++)
 		chainName += (i ? "," : "") + order[i];
@@ -551,6 +573,18 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(GuiResourceId fontId, const
 			normalized[unionPaths[i]] = nullptr;
 		}
 	}
+	// The id chain's own first face, in the chain's one shared cell - what
+	// GlyphPlacement measures against - and the row it now sits at.
+	if (!order.empty()) {
+		for (uint i = 0; i < unionPaths.size(); i++) {
+			if (unionPaths[i] == order[0]) {
+				firstNormalized = normalized.contains(order[0]) ? normalized[order[0]] : nullptr;
+				firstTop = layout.tops[i];
+				break;
+			}
+		}
+	}
+
 	Graphics::UnicodeGlyphSource *uniNormalized = nullptr;
 	if (uniSource) {
 		Common::String error;
@@ -593,11 +627,23 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(GuiResourceId fontId, const
 		// no entry of its own is needed here.
 	}
 
+	// missing= is applied to the GfxFontUnicode wrapper afterward
+	// (GfxCache::applyMissing()), not baked into the routed source itself -
+	// with it built in, cells()/hasGlyph() would answer "yes" for the box on
+	// a code a legacy face named after this one in a GfxFontSet could still
+	// have covered, pre-empting it. A plan copy is enough: nothing else
+	// reads `missing` off the source's own plan.
+	Graphics::HiResIdPlan rangedPlan = plan;
+	rangedPlan.missing = 0;
 	Graphics::UnicodeGlyphSource *ranged =
-		new Graphics::RangeRoutedGlyphSource(plan, chainSources, targetSources, DisposeAfterUse::NO);
+		new Graphics::RangeRoutedGlyphSource(rangedPlan, chainSources, targetSources, DisposeAfterUse::NO);
 	_chainParts.push_back(ranged);
 	_chains[key] = ranged;
-	_chainFirstFace[key] = firstRaw;
+	ChainFirstFace &cached = _chainFirstFace[key];
+	cached.raw = firstRaw;
+	cached.normalized = firstNormalized;
+	cached.top = firstTop;
+	cached.declinedTargets = failedTargetCodes;
 
 	debug(1, "SCI: font %d hi-res chain %s (%u faces%s)", fontId, chainName.c_str(), (uint)unionPaths.size(),
 		  uniNormalized ? ", then the .uni fonts" : "");
@@ -686,8 +732,11 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	if (s.original)
 		return nullptr;
 
-	if (s.facePath.empty()) {
-		// design 5.3: an empty id chain falls back to the shared .uni bundle.
+	// A plan can name a face through range.*/[glyphs] alone, with no
+	// face= anywhere (an empty id chain) - those still have to be opened.
+	// Only a plan naming no face at all falls straight to the shared .uni
+	// bundle (design 5.3's empty-id-chain fallback).
+	if (s.facePath.empty() && !planNamesAnyFace(s.plan)) {
 		GfxFontUnicode *uni = loadUniBundle();
 		if (uni) {
 			applyMissing(uni, s.plan.missing, "the .uni fonts");
@@ -701,7 +750,9 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 
 	Common::String chainName;
 	Graphics::UnicodeGlyphSource *firstRaw = nullptr;
-	Graphics::UnicodeGlyphSource *ranged = faceChainFor(fontId, s, chainName, firstRaw);
+	Graphics::UnicodeGlyphSource *firstNormalized = nullptr;
+	int firstTop = 0;
+	Graphics::UnicodeGlyphSource *ranged = faceChainFor(fontId, s, chainName, firstRaw, firstNormalized, firstTop);
 	if (!ranged) {
 		// Every face the id named failed to open: fall back exactly as a
 		// faceless id would.
@@ -720,15 +771,18 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 
 	// C41: the face in its layout cell - on the game font's baseline
 	// (align=game), on its own line (font) or centred (cell) - moved by
-	// shift=. Measured against the id chain's own first opened face, before
-	// any chain-wide normalisation (design 5.4's own reference face): what
-	// the layout offsets, not the shared routing surface, is placed.
+	// shift=. Measured against the id chain's own first face, already folded
+	// into the chain's one shared cell: the raster dimensions and
+	// the ink-scanned baseline both have to be the cell every glyph is
+	// actually drawn from, or a chain whose first face is not the tallest
+	// (the id chain shorter than a range-named face, or than the .uni
+	// bundle) places every glyph off by the padding that first face got.
 	GlyphPlacement placement;
 	int gameBaseline = -1;
-	if (firstRaw) {
+	if (firstNormalized) {
 		GlyphPlacement::Input in;
-		in.rasterWidth = firstRaw->cellWidth();
-		in.rasterHeight = firstRaw->cellHeight();
+		in.rasterWidth = firstNormalized->cellWidth();
+		in.rasterHeight = firstNormalized->cellHeight();
 		in.cellPx = s.cell;
 		in.align = s.align == Graphics::kHiResAlignFont ? GlyphPlacement::kAlignFont :
 			(s.align == Graphics::kHiResAlignCell ? GlyphPlacement::kAlignCell : GlyphPlacement::kAlignGame);
@@ -736,7 +790,7 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 		gameBaseline = in.align == GlyphPlacement::kAlignGame ? gameFontBaseline(fontId) : -1;
 		if (gameBaseline >= 0)
 			in.gameBaseline = gameBaseline;
-		Graphics::UnicodeGlyphSource *raw = firstRaw;
+		Graphics::UnicodeGlyphSource *raw = firstNormalized;
 		const int rasterBaseline = bitmapFontBaseline([raw](uint32 cp) -> int {
 			if (raw->cells(cp) <= 0)
 				return -1;
@@ -751,13 +805,16 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 		});
 		if (rasterBaseline >= 0)
 			in.rasterBaseline = rasterBaseline;
+		// lineTop() is TrueType-specific and the normalised source may be a
+		// NormalizedGlyphSource wrapper, so it is asked of the pre-fold face.
 		Graphics::TtfGlyphSource *firstTtf = dynamic_cast<Graphics::TtfGlyphSource *>(firstRaw);
-		in.faceLineTop = firstTtf ? firstTtf->lineTop() : 0;
+		in.faceLineTop = firstTop + (firstTtf ? firstTtf->lineTop() : 0);
 		placement = GlyphPlacement::compute(in);
 		debug(1, "SCI: font %d glyphs: %dpx face (%d rows) in a %dpx cell, align %d: baseline row %d, game's %d, "
 			  "shift %d -> offset (%d, %d)%s",
-			  fontId, firstRaw->cellWidth(), firstRaw->cellHeight(), s.cell, (int)in.align, rasterBaseline,
-			  gameBaseline, s.baseline, placement.dx, placement.dy, placement.active() ? "" : " (unchanged)");
+			  fontId, firstNormalized->cellWidth(), firstNormalized->cellHeight(), s.cell, (int)in.align,
+			  rasterBaseline, gameBaseline, s.baseline, placement.dx, placement.dy,
+			  placement.active() ? "" : " (unchanged)");
 	}
 
 	Common::String key = unicodeBundleKey(s.facePath, s.size, s.plan.hash());
@@ -772,9 +829,18 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	f->setPerGlyph(g_sci->heapStringsAreUtf8());
 	f->setPlacement(placement);
 	// The router owns no source: every face and the .uni bundle stay in
-	// their own caches, shared. missing= is already baked into `ranged` by
-	// Graphics::pickGlyph(), so it is not applied again here.
+	// their own caches, shared.
 	f->setSource(ranged, s.facePath, DisposeAfterUse::NO);
+	// `ranged` was built with missing= off (faceChainFor()), so the box
+	// is applied to this wrapper instead - reachable only through
+	// drawsMissing(), never through hasGlyph(), so a legacy face named after
+	// this one in a GfxFontSet still gets first refusal at a code the chain
+	// lacks (GfxFontSet::faceFor()'s own final step). The "no glyph for the
+	// box either" warning is already checkPlanLoadWarnings()'s, per chain
+	// (called above, inside faceChainFor()); setMissing() alone is
+	// idempotent and safe to call unconditionally.
+	if (s.plan.missing)
+		f->setMissing(s.plan.missing);
 	_ttfBundles[key] = f;
 	return f;
 }
@@ -973,7 +1039,8 @@ GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
 	if (fallback)
 		_ownedFonts.push_back(fallback);
 
-	return new GfxFontUnicodeAdapter(uni, g_sci->getSciLanguageCodePage(), fallback, fontId, settings.plan);
+	return new GfxFontUnicodeAdapter(uni, g_sci->getSciLanguageCodePage(), fallback, fontId, settings.plan,
+									 settings.cell);
 }
 
 GfxFont *GfxCache::getFont(GuiResourceId fontId) {

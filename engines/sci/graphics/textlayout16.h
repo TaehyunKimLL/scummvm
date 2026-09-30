@@ -40,10 +40,10 @@ namespace Sci {
  */
 
 /**
- * Whether the hi-res text keys (hires_text_font, _latin*, hires_text.map)
- * apply: an SCI16 game whose text is a UTF-8 translation, or one in a legacy
- * CJK code page (949, 932, 936, 950). The language of the game is not asked.
- * On false, @p why says which half failed.
+ * Whether the hi-res text keys (hires_text_face, hires_text.map) apply: an
+ * SCI16 game whose text is a UTF-8 translation, or one in a legacy CJK code
+ * page (949, 932, 936, 950). The language of the game is not asked. On
+ * false, @p why says which half failed.
  */
 bool hiresTextApplies(SciVersion v, Common::CodePage page, bool utf8Translation, Common::String &why);
 
@@ -51,8 +51,8 @@ bool hiresTextApplies(SciVersion v, Common::CodePage page, bool utf8Translation,
  * The advance of a glyph drawn on the hi-res plane, in game px (design
  * section 4.2): a wide glyph keeps the cell rule (@p gameWide, as before, so
  * Hangul and kanji keep their grid); a combining mark does not advance; any
- * other glyph advances by the face's own advance, latinAdvanceGamePx()
- * (metrics=font) at @p scale hi-res px per game px, @p gameNarrow when the
+ * other glyph advances by the face's own advance, Graphics::advanceGamePx()
+ * (advance=font) at @p scale hi-res px per game px, @p gameNarrow when the
  * face cannot say. GfxFontUnicode::gameAdvance() is this.
  */
 int16 gameAdvance(const Graphics::GlyphMetrics &m, int gameNarrow, int gameWide, int scale);

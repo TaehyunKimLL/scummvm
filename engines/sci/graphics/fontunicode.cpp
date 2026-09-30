@@ -255,9 +255,10 @@ GfxFontUnicodeAdapter::GfxFontUnicodeAdapter(GfxFontUnicode *font,
 											 Common::CodePage codePage,
 											 GfxFont *fallback,
 											 GuiResourceId resourceId,
-											 const Graphics::HiResIdPlan &plan)
+											 const Graphics::HiResIdPlan &plan,
+											 int cell)
 	: _font(font), _fallback(fallback), _codePage(codePage),
-	  _resourceId(resourceId), _plan(plan) {
+	  _resourceId(resourceId), _plan(plan), _cell(cell) {
 }
 
 GfxFontUnicodeAdapter::~GfxFontUnicodeAdapter() {
@@ -346,13 +347,22 @@ byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
 		const Graphics::HiResAdvance rule = _plan.advanceFor(cp);
 		const int scale = (getSciVersion() >= SCI_VERSION_2) ? 1 : 2;
 		if (rule == Graphics::kHiResAdvanceGame || rule == Graphics::kHiResAdvanceFont) {
-			// design 6.3: the fallback (the game's font) sets the advance, or
-			// the face's own does. With no fallback, the narrow cell stands
-			// in for the game's width. draw() needs no counterpart:
-			// GfxText16 advances the pen by this, and the glyph's origin is
-			// at the start of its cell.
-			const int gameWidth = _fallback ? _fallback->getCharWidth(chr) : (int)_font->getCharWidth(cp) / scale;
+			// design 6.3/6.7: the game font's own width for the game code -
+			// _gameCode (setGameCode(), GfxText16::glyphChar()'s own @p chr
+			// before any remap or target substitution), never @p chr itself,
+			// which for a fullwidth remap or a target is not a code the game
+			// font has anything for. Where the game font has no glyph for it
+			// either, design 6.3 falls to the cell.
+			int gameWidth = _fallback ? _fallback->getCharWidth(_gameCode) : 0;
+			if (gameWidth <= 0) {
+				const int raw = Graphics::Unicode::isWide(cp) ? _cell : _cell / 2;
+				gameWidth = MAX(1, raw / scale);
+			}
 			return (byte)Graphics::advanceGamePx(rule, gameWidth, _font->advanceHires(cp), scale);
+		}
+		if (rule == Graphics::kHiResAdvanceCell) {
+			const int raw = Graphics::Unicode::isWide(cp) ? _cell : _cell / 2;
+			return (byte)MAX(1, raw / scale);
 		}
 		// The glyph is drawn on the hires plane at twice the lowres
 		// coordinates, so its advance must be reported halved - exactly what

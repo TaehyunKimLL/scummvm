@@ -161,13 +161,25 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 		return &f;
 	}
 
-	// Nothing covers it: the resource face draws the original game code -
-	// today's behaviour for a character no face wants, and (design 6.5 step
-	// 6) for a code point whose chain lacks it and has no missing= box
-	// either (a face lacking the box is already caught by
-	// Sci::checkPlanLoadWarnings() at load time; drawing here still falls
-	// back cleanly since RangeRoutedGlyphSource::cells() already answered 0
-	// for it and the kFaceCodePoint branch above never matched).
+	// design 6.4/6.5 step 6: the missing= box, tried only now - after every
+	// face, including a legacy double-byte one standing behind the Unicode
+	// face, has declined `codePoint`. The Unicode face's own routed source is
+	// built with missing= off (GfxCache::faceChainFor()), so hasGlyph() above
+	// answered strictly by real coverage; the box is applied to the
+	// GfxFontUnicode wrapper separately (GfxCache::applyMissing()) and is
+	// reachable only through drawsMissing(), never through hasGlyph() - so a
+	// legacy face named after it in the chain still gets first refusal.
+	for (uint i = 0; i < _faces.size(); i++) {
+		const Face &f = _faces[i];
+		if (f.kind == kFaceCodePoint &&
+			static_cast<const GfxFontUnicode *>(f.font)->drawsMissing(codePoint)) {
+			outChr = codePoint;
+			return &f;
+		}
+	}
+
+	// Nothing covers it, box included: the resource face draws the original
+	// game code - today's behaviour for a character no face wants.
 	outChr = chr;
 	return &_faces[0];
 }
@@ -243,10 +255,20 @@ byte GfxFontSet::getCharWidth(uint32 chr) {
 	// the glyph's origin is at the start of that box, so measuring and
 	// drawing agree).
 	if (rule == Graphics::kHiResAdvanceGame || rule == Graphics::kHiResAdvanceFont) {
-		// `game`: the resource face's own width for the game code (as today,
-		// glyphChar()'s declined codes already round-trip to it above).
-		const uint32 gameCode = chr < Graphics::kHiResGameCodeBase ? chr : c;
-		const int gameWidth = _faces[0].font->getCharWidth(gameCode);
+		// `game`: the resource face's own width for the game code (design
+		// 6.3/6.7's "the game code", i.e. GfxText16::glyphChar()'s own @p chr
+		// before TextCompose::glyphCode() ever remapped or targeted it -
+		// _gameCode, set by setGameCode() right before this is called -
+		// never the drawn code point @p c, which for a fullwidth remap or a
+		// target is not a code the resource face has anything for at all.
+		// Where the resource face has no glyph for it either (a wide script
+		// the game font never drew), design 6.3 falls to the cell.
+		int gameWidth = _faces[0].font->getCharWidth(_gameCode);
+		if (gameWidth <= 0) {
+			const int cell = _settings.cell;
+			const int raw = Graphics::Unicode::isWide(c) ? cell : cell / 2;
+			gameWidth = MAX(1, raw / scale);
+		}
 		return (byte)Graphics::advanceGamePx(rule, gameWidth, uni->advanceHires(c), scale);
 	}
 	if (rule == Graphics::kHiResAdvanceCell) {

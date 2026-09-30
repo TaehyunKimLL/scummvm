@@ -29,13 +29,24 @@ uint32 glyphCode(const Graphics::HiResIdPlan &plan, uint32 chr) {
 	uint32 cp = chr;
 	if (plan.glyphFor(chr, chr, cp) == Graphics::kHiResGlyphStepGame)
 		return Graphics::kHiResGameCodeBase + chr;
-	// design 6.5 steps 3-4: a real code point (not yet a target) with no
-	// chain naming a face for it at all - the id is off, its own resolved
-	// face is `original`, or nothing names a face - falls to the game's own
-	// font too. A virtual targeted-glyph code (design 6.7) never consults
-	// the range table, so it always continues.
-	if (cp < Graphics::kHiResTargetBase && !plan.chainFor(cp))
-		return Graphics::kHiResGameCodeBase + chr;
+	// design 6.5 steps 3-4: the game's own font draws it only for an
+	// *explicit* `original` - the id itself (design 5.3's `original`, or the
+	// ini `hires_text_face=original`), or a range rule whose own chain is
+	// exactly `original` (an empty chain, e.g. the engine scope's
+	// `range.basic-latin=original`). `HiResIdPlan::chainFor()` cannot tell
+	// that apart from "no rule matched and the id names no face at all"
+	// (design 5.3's empty id chain) - both give an empty chain - so this
+	// decides it directly instead: with no matching rule at all, an empty id
+	// chain is NOT declined, it continues to `cp` unchanged, so the caller's
+	// own coverage search (the `.uni` bundle, `korean.fnt`, `SJIS.FNT`, a
+	// banked font) still runs exactly as it does for a plan-less font.
+	if (cp < Graphics::kHiResTargetBase) {
+		const int idx = plan.faceRules.lookup(cp);
+		const bool ruleIsOriginal = idx >= 0 && plan.ruleChains[(uint)idx].faces.empty();
+		const bool idIsOriginal = idx < 0 && plan.original;
+		if (ruleIsOriginal || idIsOriginal)
+			return Graphics::kHiResGameCodeBase + chr;
+	}
 	return cp;
 }
 
