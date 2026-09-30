@@ -192,6 +192,48 @@ HiResIdPlan compileIdPlan(const HiResMap &map, bool mapLoaded, int id, const HiR
 						  const HiResFontScope &engineScope, const Common::Path &mapDir,
 						  const Common::Path &gameDir, Common::Array<Common::String> &warnings);
 
+/**
+ * The two-phase render-target helpers (design section 7.1.1): phase 1 loads
+ * the map with the engine qualifiers only (HiResMapLoadOptions target auto,
+ * quiet true); these two answer the questions phase 1 needs before the
+ * target is resolved and the map is loaded again for real.
+ */
+
+/**
+ * true when @p face (already resolved to a path) is a 2 bpp or 8 bpp SVF, or
+ * a TrueType face (design 7.1.1's "every face the phase-1 view names"): the
+ * caller's own face-opening code decides what that means; this layer only
+ * walks the view and calls @p fn once per distinct path.
+ */
+typedef bool (*HiResCoverageFn)(const Common::Path &face, void *ctx);
+
+/**
+ * Whether any face the phase-1 view @p map names has coverage (design
+ * 7.1.1's `auto` rule): the ini `hires_text_face` (parsed against
+ * @p map.faces when @p mapLoaded, paths resolved against @p gameDir),
+ * [font] and every [font.N] `face=`/`range.<spec>=` value, and every
+ * [glyphs]/[glyphs.N] targeted-glyph face (paths already resolved against
+ * @p mapDir at load time) - each distinct path is asked of @p fn once, and
+ * the first true wins. @p mapLoaded false makes every map-sourced part
+ * behave as if the map were empty (as compileIdPlan() does), leaving only
+ * the ini face to check.
+ */
+bool mapHasCoverage(const HiResMap &map, bool mapLoaded, const HiResIniOverrides &ini, const Common::Path &mapDir,
+					const Common::Path &gameDir, HiResCoverageFn fn, void *ctx);
+
+/**
+ * Design section 7.1.1's phase-1 "wanted target": the ini `render_target`
+ * unless it is `auto`; else the phase-1 @p phase1's `[render] target`
+ * (@p mapLoaded and set, and not `auto`); else `resolveAutoTarget()` of
+ * @p anyCoverage (design 7.1.1's mapHasCoverage()) and the blend - the ini
+ * `hires_text_blend` if set, else @p mapLoaded's phase-1 `[render] blend`,
+ * else `kHiResBlendAuto`. Never returns `kHiResTargetAuto`. @p explicitTarget
+ * is set to true exactly when the ini or the map named a target (the first
+ * two cases); false when the `auto` rule resolved it.
+ */
+HiResRenderTarget wantedRenderTarget(const HiResMap &phase1, bool mapLoaded, const HiResIniOverrides &ini,
+									 bool anyCoverage, bool &explicitTarget);
+
 } // End of namespace Graphics
 
 #endif

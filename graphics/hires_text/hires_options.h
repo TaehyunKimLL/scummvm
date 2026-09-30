@@ -46,6 +46,37 @@ bool parseRenderTarget(const Common::String &text, HiResRenderTarget &out);
 /** The ini/map spelling of @p target ("auto", "clut8", "rgb565", "rgb888"). */
 const char *renderTargetName(HiResRenderTarget target);
 
+/**
+ * Parse a map section's render-target qualifier (design section 3.4):
+ * `clut8`/`rgb565`/`rgb888` only, case-insensitive. Unlike parseRenderTarget(),
+ * `auto` is refused (`auto` is never a qualifier - the resolved target is
+ * never `auto`), and this never returns `kHiResTargetAuto`.
+ */
+bool parseRenderTargetQualifier(const Common::String &q, HiResRenderTarget &t);
+
+/**
+ * Expand a section's engine qualifiers into the full render-target lookup
+ * order (design section 3.4): `e1:t, e2:t, ..., e1, e2, ..., t` - most
+ * specific first, an engine qualifier always beating a target one. Empty
+ * entries of @p engineQualifiers are dropped. `t == kHiResTargetAuto` returns
+ * the non-empty engine qualifiers unchanged (no target-qualified section is
+ * ever consulted): this is the phase-1 view (design section 7.1.1). The
+ * caller still falls back to the section's bare form itself (as it already
+ * does for the engine-only list).
+ */
+Common::Array<Common::String> qualifiersForTarget(const Common::Array<Common::String> &engineQualifiers,
+												   HiResRenderTarget t);
+
+/**
+ * The render target a screen @p f is (design section 7.1.1's `targetOfFormat`):
+ * `kHiResTargetClut8` for `f.isCLUT8()`, `kHiResTargetRgb565` for any 2-byte
+ * format, `kHiResTargetRgb888` for any 3- or 4-byte format (the family, not
+ * formatMatchesTarget()'s exact bit layout - e.g. a 1-5-5-5 format is still
+ * the rgb565 family here). Never actually returns `kHiResTargetAuto`: every
+ * format this is called on (a screen's own PixelFormat) is one of the three.
+ */
+HiResRenderTarget targetOfFormat(const PixelFormat &f);
+
 /** Parse `auto`/`on`/`off` (design section 7.2), case-insensitive. */
 bool parseBlend(const Common::String &text, HiResBlend &out);
 
@@ -83,6 +114,17 @@ bool formatMatchesTarget(const PixelFormat &format, HiResRenderTarget target);
  */
 Common::List<PixelFormat> formatRequest(HiResRenderTarget want, const Common::List<PixelFormat> &supported,
 										 bool engineCanRgb565, Common::String &note);
+
+/**
+ * The predicted resolved target (design section 7.1.1's "the predicted
+ * family") for an engine that loads its faces before `initGraphics()`:
+ * `targetOfFormat(formatRequest(want, supported, engineCanRgb565, note).front())`,
+ * the note dropped. Used for phase 2's target before the actual screen
+ * format is known; the caller compares it with `targetOfFormat()` of the
+ * actual screen once `initGraphics()` has run.
+ */
+HiResRenderTarget predictedTarget(HiResRenderTarget want, const Common::List<PixelFormat> &supported,
+								  bool engineCanRgb565);
 
 /**
  * `auto`'s resolution (design section 7.1): `kHiResTargetClut8` when

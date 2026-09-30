@@ -131,6 +131,53 @@ bool parseOrigin(const Common::String &text, HiResOrigin &out) {
 	return false;
 }
 
+bool parseRenderTargetQualifier(const Common::String &q, HiResRenderTarget &t) {
+	if (q.equalsIgnoreCase("clut8")) {
+		t = kHiResTargetClut8;
+		return true;
+	}
+	if (q.equalsIgnoreCase("rgb565")) {
+		t = kHiResTargetRgb565;
+		return true;
+	}
+	if (q.equalsIgnoreCase("rgb888")) {
+		t = kHiResTargetRgb888;
+		return true;
+	}
+	return false;
+}
+
+Common::Array<Common::String> qualifiersForTarget(const Common::Array<Common::String> &engineQualifiers,
+												   HiResRenderTarget t) {
+	Common::Array<Common::String> nonEmpty;
+	for (uint i = 0; i < engineQualifiers.size(); ++i) {
+		if (!engineQualifiers[i].empty())
+			nonEmpty.push_back(engineQualifiers[i]);
+	}
+
+	if (t == kHiResTargetAuto)
+		return nonEmpty;
+
+	const char *const tName = renderTargetName(t);
+	Common::Array<Common::String> result;
+	for (uint i = 0; i < nonEmpty.size(); ++i)
+		result.push_back(Common::String::format("%s:%s", nonEmpty[i].c_str(), tName));
+	for (uint i = 0; i < nonEmpty.size(); ++i)
+		result.push_back(nonEmpty[i]);
+	result.push_back(tName);
+	return result;
+}
+
+HiResRenderTarget targetOfFormat(const PixelFormat &f) {
+	if (f.isCLUT8())
+		return kHiResTargetClut8;
+	if (f.bytesPerPixel == 2)
+		return kHiResTargetRgb565;
+	if (f.bytesPerPixel == 3 || f.bytesPerPixel == 4)
+		return kHiResTargetRgb888;
+	return kHiResTargetAuto; // never reached by a real screen format
+}
+
 bool formatMatchesTarget(const PixelFormat &format, HiResRenderTarget target) {
 	switch (target) {
 	case kHiResTargetClut8:
@@ -196,6 +243,15 @@ Common::List<PixelFormat> formatRequest(HiResRenderTarget want, const Common::Li
 	}
 
 	return result;
+}
+
+HiResRenderTarget predictedTarget(HiResRenderTarget want, const Common::List<PixelFormat> &supported,
+								  bool engineCanRgb565) {
+	Common::String note;
+	const Common::List<PixelFormat> request = formatRequest(want, supported, engineCanRgb565, note);
+	if (request.empty())
+		return kHiResTargetAuto; // never reached: formatRequest() always ends in CLUT8
+	return targetOfFormat(request.front());
 }
 
 HiResRenderTarget resolveAutoTarget(bool anyCoverage, HiResBlend blend) {

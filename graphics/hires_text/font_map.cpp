@@ -1717,6 +1717,11 @@ void HiResMap::clear() {
 	shadowAlpha = 255;
 
 	warnings.clear();
+	loadedFor = kHiResTargetAuto;
+	quietLoad = false;
+}
+
+HiResMapLoadOptions::HiResMapLoadOptions() : target(kHiResTargetAuto), quiet(false) {
 }
 
 const HiResFontScope *HiResMap::fontIdScope(int id) const {
@@ -1760,7 +1765,8 @@ const char *const kHiResMapName = "HIRESTXT.MAP";
 const char *const kHiResOldSections[] = { "hires", "latin", "bitmap", "encoding" };
 
 void hiResWarn(HiResMap &out, const Common::String &message) {
-	warning("%s", message.c_str());
+	if (!out.quietLoad)
+		warning("%s", message.c_str());
 	out.warnings.push_back(message);
 }
 
@@ -1787,11 +1793,32 @@ struct HiResSectionInfo {
 	HiResSectionFamily family;
 	int id;                    ///< for kHSecFontId/kHSecGlyphsId/kHSecOldGlyphsCs
 	Common::String base;       ///< section name before ':' ("font.4")
-	Common::String qualifier;  ///< after ':'; empty if bare
+	Common::String qualifier;  ///< after the first ':' (may itself contain ':'); empty if bare
+	Common::Array<Common::String> qualifierParts; ///< @ref qualifier split at every ':' (design 3.4)
 };
+
+/// @ref HiResSectionInfo::qualifier split at every ':' (design 3.4: "[S]",
+/// "[S:e]", "[S:t]", "[S:e:t]" - the engine qualifier first, the target last).
+Common::Array<Common::String> splitQualifierParts(const Common::String &qualifier) {
+	Common::Array<Common::String> parts;
+	if (qualifier.empty())
+		return parts;
+	size_t start = 0;
+	for (;;) {
+		const size_t colon = qualifier.findFirstOf(':', start);
+		if (colon == Common::String::npos) {
+			parts.push_back(Common::String(qualifier.c_str() + start));
+			break;
+		}
+		parts.push_back(Common::String(qualifier.c_str() + start, (uint32)(colon - start)));
+		start = colon + 1;
+	}
+	return parts;
+}
 
 /// The old per-charset qualifier convention [glyphs:csN] (design 3.3: removed,
 /// replaced by [glyphs.N]): "cs" followed by one or more digits, case-insensitive.
+/// Looks at the first qualifier only (design 3.4's "[S:e:t]" form is never this).
 bool isOldGlyphsCsQualifier(const Common::String &qualifier, int &id) {
 	if (!qualifier.hasPrefixIgnoreCase("cs") || qualifier.size() <= 2)
 		return false;
@@ -1807,6 +1834,7 @@ void classifyHiResSection(const Common::String &name, HiResSectionInfo &info) {
 		info.base = Common::String(name.c_str(), colon);
 		info.qualifier = Common::String(name.c_str() + colon + 1);
 	}
+	info.qualifierParts = splitQualifierParts(info.qualifier);
 	info.id = -1;
 
 	if (info.base.equalsIgnoreCase("map")) { info.family = kHSecMap; return; }
@@ -1817,7 +1845,7 @@ void classifyHiResSection(const Common::String &name, HiResSectionInfo &info) {
 	if (info.base.equalsIgnoreCase("font")) { info.family = kHSecFont; return; }
 	if (info.base.equalsIgnoreCase("glyphs")) {
 		int csId;
-		if (!info.qualifier.empty() && isOldGlyphsCsQualifier(info.qualifier, csId)) {
+		if (!info.qualifierParts.empty() && isOldGlyphsCsQualifier(info.qualifierParts[0], csId)) {
 			info.family = kHSecOldGlyphsCs;
 			info.id = csId;
 			return;
@@ -1921,6 +1949,63 @@ bool classifyShadowKey(const Common::String &key, uint32 &flag) {
 }
 
 /**
+ * Design section 3.4's qualifier syntax check, run for every section (in
+ * this fixed order, first match only): three or more qualifiers; `auto` as
+ * either qualifier; a target first with a second qualifier after it; a
+ * second qualifier that is not a target; a target qualifier on
+ * [text]/[layout]. Returns the empty string for a well-formed section (a
+ * plain engine qualifier, or the valid `[S:e:t]`/`[S:t]` forms); otherwise
+ * the full warning text (design 10.2) - the section is then skipped
+ * entirely (it can never match a generated qualifier candidate anyway).
+ */
+Common::String hiResQualifierProblem(const HiResSectionInfo &info, const Common::String &sectionName) {
+	const Common::Array<Common::String> &p = info.qualifierParts;
+	Common::String reason;
+
+	if (p.size() >= 3) {
+		reason = "a section takes at most two qualifiers";
+	} else {
+		bool sawAuto = false;
+		for (uint i = 0; i < p.size() && !sawAuto; ++i)
+			sawAuto = p[i].equalsIgnoreCase("auto");
+		if (sawAuto) {
+			reason = "auto is not a render-target qualifier";
+		} else if (p.size() == 2) {
+			HiResRenderTarget t;
+			const bool firstIsTarget = parseRenderTargetQualifier(p[0], t);
+			const bool secondIsTarget = parseRenderTargetQualifier(p[1], t);
+			if (firstIsTarget) {
+				reason = Common::String::format("the render target goes last ([%s:%s:%s])",
+												 info.base.c_str(), p[1].c_str(), p[0].c_str());
+			} else if (!secondIsTarget) {
+				reason = "the second qualifier must be clut8, rgb565 or rgb888";
+			}
+		} else if (p.size() == 1 && (info.family == kHSecText || info.family == kHSecLayout)) {
+			HiResRenderTarget t;
+			if (parseRenderTargetQualifier(p[0], t))
+				reason = Common::String::format("[%s] cannot depend on the render target", info.base.c_str());
+		}
+	}
+
+	if (reason.empty())
+		return Common::String();
+	return Common::String::format("%s: [%s]: %s; ignoring the section", kHiResMapName, sectionName.c_str(), reason.c_str());
+}
+
+/// Whether a render-qualified section's target is fixed by its own
+/// qualifiers - the last qualifier ([S:t]) or second ([S:e:t]) is a render
+/// target - so a `target` key inside it would be circular (design 3.4's
+/// "[render:t] target").
+bool hiResSectionEndsInTarget(const HiResSectionInfo &info) {
+	HiResRenderTarget t;
+	if (info.qualifierParts.size() == 1)
+		return parseRenderTargetQualifier(info.qualifierParts[0], t);
+	if (info.qualifierParts.size() == 2)
+		return parseRenderTargetQualifier(info.qualifierParts[1], t);
+	return false;
+}
+
+/**
  * Pass 1 (design 10.2/10.3): walk every physical section and key once,
  * warning about unknown sections/keys, removed sections, and keys the
  * engine does not honour. Values themselves are parsed separately (pass 2,
@@ -1929,7 +2014,9 @@ bool classifyShadowKey(const Common::String &key, uint32 &flag) {
  * S18 ruling: the "<engine> does not use" warning fires only for a bare
  * section or one whose qualifier is in @p qualifiers; unknown-section,
  * unknown-key and removed-section warnings fire for every section
- * regardless of qualifier.
+ * regardless of qualifier. @p qualifiers is the render-target-expanded list
+ * (qualifiersForTarget()): qualifierRelevant (the S18 gate) accepts a
+ * section whose qualifier is in it.
  */
 void scanHiResSections(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
 						const HiResEngineKeys &engine, HiResMap &out) {
@@ -1954,6 +2041,13 @@ void scanHiResSections(const Common::INIFile &ini, const Common::Array<Common::S
 													kHiResMapName, sec->name.c_str(), info.id));
 			continue;
 		}
+
+		const Common::String qualifierProblem = hiResQualifierProblem(info, sec->name);
+		if (!qualifierProblem.empty()) {
+			hiResWarn(out, qualifierProblem);
+			continue;
+		}
+
 		if (info.family == kHSecFonts)
 			continue; // a name table: buildFaceNames() warns about a bad name itself
 
@@ -2000,6 +2094,13 @@ void scanHiResSections(const Common::INIFile &ini, const Common::Array<Common::S
 														kHiResMapName, sec->name.c_str(), k->key.c_str()));
 				continue;
 			}
+			// design 3.4: [render:t]/[render:e:t] target is circular - the
+			// target is chosen before target-qualified sections are read.
+			if (info.family == kHSecRender && k->key.equalsIgnoreCase("target") && hiResSectionEndsInTarget(info)) {
+				hiResWarn(out, Common::String::format("%s: [%s] %s cannot depend on the render target; ignoring it",
+														kHiResMapName, sec->name.c_str(), k->key.c_str()));
+				continue;
+			}
 			if (flag && qualifierRelevant && !(engine.honoured & flag)) {
 				hiResWarn(out, Common::String::format("%s does not use [%s] %s",
 														engine.engine, sec->name.c_str(), k->key.c_str()));
@@ -2035,9 +2136,16 @@ void collectFaceNames(const Common::INIFile &ini, const Common::Array<Common::St
 	}
 }
 
-void buildRenderSection(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers, HiResMap &out) {
+/**
+ * design 3.4: [render] target= is read with @p engineQualifiers only (never
+ * a target-qualified section - the target is chosen before those are read);
+ * blend=/scale=/gamma= are read with @p qualifiers, the render-target-expanded
+ * list, so they may hold a `:clut8` variant.
+ */
+void buildRenderSection(const Common::INIFile &ini, const Common::Array<Common::String> &engineQualifiers,
+						 const Common::Array<Common::String> &qualifiers, HiResMap &out) {
 	Common::String value;
-	if (getKey(ini, qualifiers, "render", "target", value)) {
+	if (getKey(ini, engineQualifiers, "render", "target", value)) {
 		HiResRenderTarget t;
 		if (parseRenderTarget(value, t)) {
 			out.target = t;
@@ -2078,9 +2186,12 @@ void buildRenderSection(const Common::INIFile &ini, const Common::Array<Common::
 	}
 }
 
-void buildTextSection(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers, HiResMap &out) {
+/// design 3.4: [text] is never target-qualifiable, so it is read with
+/// @p engineQualifiers only (a target-qualified [text:t] is warned about and
+/// skipped by hiResQualifierProblem() before this is reached).
+void buildTextSection(const Common::INIFile &ini, const Common::Array<Common::String> &engineQualifiers, HiResMap &out) {
 	Common::String value;
-	if (getKey(ini, qualifiers, "text", "encoding", value)) {
+	if (getKey(ini, engineQualifiers, "text", "encoding", value)) {
 		const Common::CodePage page = HiResFontMap::parseCodePage(value);
 		if (page != Common::kCodePageInvalid) {
 			out.encoding = page;
@@ -2092,9 +2203,11 @@ void buildTextSection(const Common::INIFile &ini, const Common::Array<Common::St
 	}
 }
 
-void buildLayoutSectionV2(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers, HiResMap &out) {
+/// design 3.4: [layout] is never target-qualifiable; read with
+/// @p engineQualifiers only, as [text] above.
+void buildLayoutSectionV2(const Common::INIFile &ini, const Common::Array<Common::String> &engineQualifiers, HiResMap &out) {
 	Common::String value;
-	if (getKey(ini, qualifiers, "layout", "hangul", value)) {
+	if (getKey(ini, engineQualifiers, "layout", "hangul", value)) {
 		if (value.equalsIgnoreCase("word")) {
 			out.layout.hangul = kHangulBreakWord;
 			out.layout.hangulSet = true;
@@ -2106,14 +2219,14 @@ void buildLayoutSectionV2(const Common::INIFile &ini, const Common::Array<Common
 				"%s: [layout] hangul '%s' is not word or any; ignoring it", kHiResMapName, value.c_str()));
 		}
 	}
-	if (getKey(ini, qualifiers, "layout", "kinsoku", value)) {
+	if (getKey(ini, engineQualifiers, "layout", "kinsoku", value)) {
 		if (parseOnOff(value, out.layout.kinsoku))
 			out.layout.kinsokuSet = true;
 		else
 			hiResWarn(out, Common::String::format(
 				"%s: [layout] kinsoku '%s' is not on or off; ignoring it", kHiResMapName, value.c_str()));
 	}
-	if (getKey(ini, qualifiers, "layout", "thai", value)) {
+	if (getKey(ini, engineQualifiers, "layout", "thai", value)) {
 		if (parseOnOff(value, out.layout.thai))
 			out.layout.thaiSet = true;
 		else
@@ -2642,13 +2755,20 @@ void buildShadowSection(const Common::INIFile &ini, const Common::Array<Common::
 	}
 }
 
-void buildHiResMap(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
-					const Common::Path &mapDir, HiResMap &out) {
+/**
+ * @p engineQualifiers: the caller's own list, used for [render] target=,
+ * [text] and [layout] (design 3.4: not target-qualifiable). @p qualifiers:
+ * qualifiersForTarget(engineQualifiers, options.target) - every other
+ * qualifiable section ([fonts], [render] blend=/scale=/gamma=, [font],
+ * [font.N], [glyphs], [glyphs.N], [shadow]).
+ */
+void buildHiResMap(const Common::INIFile &ini, const Common::Array<Common::String> &engineQualifiers,
+					const Common::Array<Common::String> &qualifiers, const Common::Path &mapDir, HiResMap &out) {
 	collectFaceNames(ini, qualifiers, out);
 
-	buildRenderSection(ini, qualifiers, out);
-	buildTextSection(ini, qualifiers, out);
-	buildLayoutSectionV2(ini, qualifiers, out);
+	buildRenderSection(ini, engineQualifiers, qualifiers, out);
+	buildTextSection(ini, engineQualifiers, out);
+	buildLayoutSectionV2(ini, engineQualifiers, out);
 
 	out.font = buildFontScope(ini, qualifiers, "font", /* isBareFont */ true, mapDir, out);
 
@@ -2677,7 +2797,14 @@ void buildHiResMap(const Common::INIFile &ini, const Common::Array<Common::Strin
 bool HiResFontMap::loadMap(Common::SeekableReadStream &stream, const Common::Path &mapDir,
 						   const Common::Array<Common::String> &qualifiers, const HiResEngineKeys &engine,
 						   HiResMap &out) {
+	return loadMap(stream, mapDir, qualifiers, engine, out, HiResMapLoadOptions());
+}
+
+bool HiResFontMap::loadMap(Common::SeekableReadStream &stream, const Common::Path &mapDir,
+						   const Common::Array<Common::String> &qualifiers, const HiResEngineKeys &engine,
+						   HiResMap &out, const HiResMapLoadOptions &options) {
 	out.clear();
+	out.quietLoad = options.quiet;
 
 	Common::INIFile ini;
 	ini.requireKeyValueDelimiter();
@@ -2709,16 +2836,24 @@ bool HiResFontMap::loadMap(Common::SeekableReadStream &stream, const Common::Pat
 	}
 
 	out.version = version;
+	out.loadedFor = options.target;
 
-	scanHiResSections(ini, qualifiers, engine, out);
-	buildHiResMap(ini, qualifiers, mapDir, out);
+	const Common::Array<Common::String> expanded = qualifiersForTarget(qualifiers, options.target);
+	scanHiResSections(ini, expanded, engine, out);
+	buildHiResMap(ini, qualifiers, expanded, mapDir, out);
 
 	return true;
 }
 
 bool HiResFontMap::loadMapFile(const Common::Path &mapPath, const Common::Array<Common::String> &qualifiers,
 							   const HiResEngineKeys &engine, HiResMap &out) {
+	return loadMapFile(mapPath, qualifiers, engine, out, HiResMapLoadOptions());
+}
+
+bool HiResFontMap::loadMapFile(const Common::Path &mapPath, const Common::Array<Common::String> &qualifiers,
+							   const HiResEngineKeys &engine, HiResMap &out, const HiResMapLoadOptions &options) {
 	out.clear();
+	out.quietLoad = options.quiet;
 
 	Common::FSNode mapNode(mapPath);
 	Common::SeekableReadStream *stream = mapNode.createReadStream();
@@ -2729,7 +2864,7 @@ bool HiResFontMap::loadMapFile(const Common::Path &mapPath, const Common::Array<
 		return false;
 	}
 
-	const bool ok = loadMap(*stream, mapPath.getParent(), qualifiers, engine, out);
+	const bool ok = loadMap(*stream, mapPath.getParent(), qualifiers, engine, out, options);
 	delete stream;
 	return ok;
 }

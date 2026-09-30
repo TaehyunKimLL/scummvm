@@ -268,4 +268,45 @@ public:
 		load("[fonts]\nsym=SYM.SVF\n[font]\nface=KO.SVF\n[glyphs]\n0x41=sym:u+2620\n");
 		TS_ASSERT_DIFFERS(base, plan(0).hash());
 	}
+
+	static bool coverageG(const Common::Path &face, void *) { return face.toString('/').hasSuffix("G.SVF"); }
+	static bool coverageT(const Common::Path &face, void *) { return face.toString('/').hasSuffix("T.SVF"); }
+	static bool coverageNone(const Common::Path &, void *) { return false; }
+
+	void test_wanted_render_target_phase_one() {
+		bool explicitTarget = false;
+		Graphics::HiResIniOverrides ini;
+		load("[render]\ntarget=rgb565\n");
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, true, ini, false, explicitTarget), Graphics::kHiResTargetRgb565);
+		TS_ASSERT(explicitTarget);
+		ini.targetSet = true;
+		ini.target = Graphics::kHiResTargetAuto;                     // ini auto: no ini preference, the map decides
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, true, ini, false, explicitTarget), Graphics::kHiResTargetRgb565);
+		ini.target = Graphics::kHiResTargetClut8;
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, true, ini, true, explicitTarget), Graphics::kHiResTargetClut8);
+		ini = Graphics::HiResIniOverrides();
+		load("[font]\nface=KO.SVF\n");
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, true, ini, true, explicitTarget), Graphics::kHiResTargetRgb888);
+		TS_ASSERT(!explicitTarget);
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, true, ini, false, explicitTarget), Graphics::kHiResTargetClut8);
+		load("[render]\nblend=off\n[font]\nface=KO.SVF\n");
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, true, ini, true, explicitTarget), Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, false, ini, true, explicitTarget), Graphics::kHiResTargetRgb888);
+	}
+
+	void test_map_has_coverage_walks_the_phase_one_view() {
+		load("[fonts]\nui=G.SVF\n[fonts:clut8]\nui=L.SVF\n[font]\nface=L.SVF\n[font.4]\nrange.basic-latin=ui\n"
+			 "[glyphs]\n0x07=T.SVF:u+2620\n");
+		const Common::Path m("/maps", '/'), g("/games/g", '/');
+		Graphics::HiResIniOverrides ini;
+		TS_ASSERT(Graphics::mapHasCoverage(_map, true, ini, m, g, coverageG, nullptr));     // [fonts] ui, not [fonts:clut8]
+		TS_ASSERT(Graphics::mapHasCoverage(_map, true, ini, m, g, coverageT, nullptr));     // a [glyphs] target counts
+		TS_ASSERT(!Graphics::mapHasCoverage(_map, true, ini, m, g, coverageNone, nullptr));
+		TS_ASSERT(!Graphics::mapHasCoverage(_map, false, ini, m, g, coverageG, nullptr));   // no map, no ini face
+		ini.faceSet = true;
+		ini.face = "X.SVF";
+		TS_ASSERT(!Graphics::mapHasCoverage(_map, false, ini, m, g, coverageG, nullptr));
+		ini.face = "XG.SVF";
+		TS_ASSERT(Graphics::mapHasCoverage(_map, false, ini, m, g, coverageG, nullptr));    // /games/g/XG.SVF
+	}
 };
