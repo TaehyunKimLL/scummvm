@@ -251,14 +251,14 @@ protected:
 	// at save() differs from the one it was given at load() - an untouched
 	// dialog leaves the key alone, unlike the old unconditional
 	// hires_text_alpha=true.
-	GUI::CheckboxWidget *createHiResTextAlphaCheckbox(GuiObject *boss, const Common::String &name);
-	void loadHiResTextAlphaCheckbox(GUI::CheckboxWidget *checkbox) const;
-	void saveHiResTextAlphaCheckbox(GUI::CheckboxWidget *checkbox) const;
-	// The state loadHiResTextAlphaCheckbox() set the box to, so save() can
+	GUI::CheckboxWidget *createHiResTextBlendCheckbox(GuiObject *boss, const Common::String &name);
+	void loadHiResTextBlendCheckbox(GUI::CheckboxWidget *checkbox) const;
+	void saveHiResTextBlendCheckbox(GUI::CheckboxWidget *checkbox) const;
+	// The state loadHiResTextBlendCheckbox() set the box to, so save() can
 	// tell whether the player actually touched it: comparing against the
 	// current state alone cannot, since the box holds no other memory of
 	// where it started.
-	mutable bool _hiResTextAlphaOpenedState = true;
+	mutable bool _hiResTextBlendOpenedState = true;
 	GUI::CheckboxWidget *createGammaCorrectionCheckbox(GuiObject *boss, const Common::String &name);
 	GUI::CheckboxWidget *createSegaShadowModeCheckbox(GuiObject *boss, const Common::String &name);
 	GUI::CheckboxWidget *createSegaCdWaitCursorWhenPausedCheckbox(GuiObject *boss, const Common::String &name);
@@ -382,7 +382,7 @@ private:
 #endif
 
 	GUI::CheckboxWidget *_hiResTextCheckbox = nullptr;
-	GUI::CheckboxWidget *_hiResTextAlphaCheckbox = nullptr;
+	GUI::CheckboxWidget *_hiResTextBlendCheckbox = nullptr;
 
 	GUI::SliderWidget *_playbackAdjustmentSlider = nullptr;
 	GUI::StaticTextWidget *_playbackAdjustmentValue = nullptr;

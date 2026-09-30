@@ -1232,7 +1232,7 @@ void ScummOptionsContainerWidget::saveHiResTextCheckbox(GUI::CheckboxWidget *che
 		ConfMan.setBool("hires_text", checkbox->getState(), _domain);
 }
 
-GUI::CheckboxWidget *ScummOptionsContainerWidget::createHiResTextAlphaCheckbox(GuiObject *boss, const Common::String &name) {
+GUI::CheckboxWidget *ScummOptionsContainerWidget::createHiResTextBlendCheckbox(GuiObject *boss, const Common::String &name) {
 	if (!ScummMetaEngine::targetHasHiResText(_domain))
 		return nullptr;
 
@@ -1242,7 +1242,7 @@ GUI::CheckboxWidget *ScummOptionsContainerWidget::createHiResTextAlphaCheckbox(G
 	);
 }
 
-void ScummOptionsContainerWidget::loadHiResTextAlphaCheckbox(GUI::CheckboxWidget *checkbox) const {
+void ScummOptionsContainerWidget::loadHiResTextBlendCheckbox(GUI::CheckboxWidget *checkbox) const {
 	if (!checkbox)
 		return;
 	// The checkbox shows the effective state (design section 7.2's
@@ -1259,17 +1259,17 @@ void ScummOptionsContainerWidget::loadHiResTextAlphaCheckbox(GUI::CheckboxWidget
 		if (Graphics::parseBlend(ConfMan.get("hires_text_blend", _domain), parsed))
 			blend = parsed;
 	}
-	_hiResTextAlphaOpenedState = Graphics::blendActive(blend, true, false);
-	checkbox->setState(_hiResTextAlphaOpenedState);
+	_hiResTextBlendOpenedState = Graphics::blendActive(blend, true, false);
+	checkbox->setState(_hiResTextBlendOpenedState);
 }
 
-void ScummOptionsContainerWidget::saveHiResTextAlphaCheckbox(GUI::CheckboxWidget *checkbox) const {
+void ScummOptionsContainerWidget::saveHiResTextBlendCheckbox(GUI::CheckboxWidget *checkbox) const {
 	if (!checkbox)
 		return;
 	// Write only when the player actually toggled it (design section 7.2):
 	// an untouched dialog must leave hires_text_blend alone, unlike the old
 	// unconditional hires_text_alpha=true.
-	if (checkbox->getState() == _hiResTextAlphaOpenedState)
+	if (checkbox->getState() == _hiResTextBlendOpenedState)
 		return;
 	ConfMan.set("hires_text_blend", checkbox->getState() ? "on" : "off", _domain);
 }
@@ -1685,7 +1685,7 @@ LoomVgaGameOptionsWidget::LoomVgaGameOptionsWidget(GuiObject *boss, const Common
 	_enableTTSCheckbox = createEnableTTSCheckbox(widgetsBoss(), "LoomVgaGameOptionsDialog.EnableTTS");
 #endif
 	_hiResTextCheckbox = createHiResTextCheckbox(widgetsBoss(), "LoomVgaGameOptionsDialog.HiResText");
-	_hiResTextAlphaCheckbox = createHiResTextAlphaCheckbox(widgetsBoss(), "LoomVgaGameOptionsDialog.HiResTextAlpha");
+	_hiResTextBlendCheckbox = createHiResTextBlendCheckbox(widgetsBoss(), "LoomVgaGameOptionsDialog.HiResTextBlend");
 }
 
 void LoomVgaGameOptionsWidget::load() {
@@ -1704,7 +1704,7 @@ void LoomVgaGameOptionsWidget::load() {
 	_enableTTSCheckbox->setState(ConfMan.getBool("tts_enabled", _domain));
 #endif
 	loadHiResTextCheckbox(_hiResTextCheckbox);
-	loadHiResTextAlphaCheckbox(_hiResTextAlphaCheckbox);
+	loadHiResTextBlendCheckbox(_hiResTextBlendCheckbox);
 }
 
 bool LoomVgaGameOptionsWidget::save() {
@@ -1715,7 +1715,7 @@ bool LoomVgaGameOptionsWidget::save() {
 	ConfMan.setBool("tts_enabled", _enableTTSCheckbox->getState(), _domain);
 #endif
 	saveHiResTextCheckbox(_hiResTextCheckbox);
-	saveHiResTextAlphaCheckbox(_hiResTextAlphaCheckbox);
+	saveHiResTextBlendCheckbox(_hiResTextBlendCheckbox);
 	return true;
 }
 
@@ -1732,8 +1732,8 @@ void LoomVgaGameOptionsWidget::defineLayout(GUI::ThemeEval &layouts, const Commo
 #endif
 	if (_hiResTextCheckbox)
 		layouts.addWidget("HiResText", "Checkbox");
-	if (_hiResTextAlphaCheckbox)
-		layouts.addWidget("HiResTextAlpha", "Checkbox");
+	if (_hiResTextBlendCheckbox)
+		layouts.addWidget("HiResTextBlend", "Checkbox");
 
 	addEnhancementsLayout(layouts)
 			.closeLayout()

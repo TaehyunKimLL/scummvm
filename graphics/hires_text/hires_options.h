@@ -143,6 +143,18 @@ HiResRenderTarget resolveAutoTarget(bool anyCoverage, HiResBlend blend);
 bool blendActive(HiResBlend blend, bool faceHasCoverage, bool screenIsClut8);
 
 /**
+ * Whether `blend=on` is being refused because the screen is CLUT8 (design
+ * sections 7.2 and 10.4, preflight ruling S7): true exactly when @p blend is
+ * `kHiResBlendOn` and @p screenIsClut8 - the one case blendActive() quietly
+ * falls back to a hard stencil, since palette-matched anti-aliasing on a
+ * paletted screen does not exist yet (Task 20). Each engine that reaches
+ * this (SCUMM, SCI) warns once per load when it is true:
+ * `warning("hires_text_blend=on needs an RGB screen until palette-matched
+ * blending exists; drawing hard-edged text")`.
+ */
+bool blendRefusedOnClut8(HiResBlend blend, bool screenIsClut8);
+
+/**
  * The hi-res text surface scale limits (design section 7.4): the backend's
  * registered `hires_text_platform_scale` default as {n, n}, or {1, 3} when
  * no backend has registered it.

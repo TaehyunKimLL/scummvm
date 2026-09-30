@@ -274,6 +274,10 @@ bool blendActive(HiResBlend blend, bool faceHasCoverage, bool screenIsClut8) {
 	return true;
 }
 
+bool blendRefusedOnClut8(HiResBlend blend, bool screenIsClut8) {
+	return blend == kHiResBlendOn && screenIsClut8;
+}
+
 HiResScaleLimits hiResScaleLimits() {
 	// get(), not hasKey(): the backend sets this with registerDefault().
 	const Common::String value = ConfMan.get("hires_text_platform_scale");

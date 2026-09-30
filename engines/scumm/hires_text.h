@@ -302,6 +302,16 @@ struct ScummHiResText {
 	 * plan/scale/blend compile) so faces open against the target the game
 	 * is really running in. A no-op when the prediction already matches, or
 	 * when no map was ever found to reload (nothing to redo).
+	 *
+	 * Also refreshes wantsAlpha() from the (possibly corrected) blend()/
+	 * anyCoverage() - Task 8 review M2: `blend` is read in phase 2 (design
+	 * 7.2), so a target correction can change it, and createCoverage() -
+	 * called once, after this, from the same init() that calls
+	 * setAlphaActive() from blendActive() - is gated on wantsAlpha(), not on
+	 * alphaActive(). Left stale, a corrected "wants blending after all"
+	 * would get alphaActive()==true with no coverage surface ever
+	 * allocated, silently dropping the blend gfx.cpp's composite path
+	 * otherwise would have drawn.
 	 */
 	void adoptScreen(const Graphics::PixelFormat &actual);
 
@@ -534,6 +544,22 @@ struct ScummHiResText {
 	 * the engine goes through loadConfig().
 	 */
 	void adoptMap(const Graphics::HiResMap &map, const Graphics::HiResIniOverrides &ini = Graphics::HiResIniOverrides());
+
+	/**
+	 * For adoptScreen()'s own tests: like adoptMap() (@p map is already
+	 * parsed, as if phase 2 had just loaded it against @p predictedTarget),
+	 * but also records what loadConfig() leaves behind for a later
+	 * adoptScreen() call to use - the predicted target itself, canBlendText()
+	 * of @p gameVersion, and, when @p mapPath is not empty, the file/
+	 * qualifiers to redo phase 2 for real against a real map on disk.
+	 * adoptMap() alone never sets these (its tests never exercise target
+	 * reconciliation), so adoptScreen() against a plain adoptMap() is a
+	 * no-op beyond the target/wantsAlpha() bookkeeping this also does.
+	 */
+	void adoptMapForScreenTest(const Graphics::HiResMap &map, const Graphics::HiResIniOverrides &ini,
+							   Graphics::HiResRenderTarget predictedTarget, int gameVersion,
+							   const Common::Path &mapPath = Common::Path(),
+							   const Common::Array<Common::String> &qualifiers = Common::Array<Common::String>());
 
 	/**
 	 * Add one face - an SVFN bitmap font, sniffed by its magic - opened from
@@ -924,6 +950,10 @@ private:
 	/// view; Task 7 review L1(b)).
 	Graphics::HiResBlend _resolvedBlend = Graphics::kHiResBlendAuto;
 	bool _anyCoverage = false;
+	/// canBlendText(version), cached at loadConfig() time so adoptScreen()
+	/// can redo wantsAlphaFor()'s canBlend argument without a gameVersion of
+	/// its own (Task 8 review M2).
+	bool _canBlend = true;
 	Graphics::HiResIdPlan _plans[kMaxFonts];
 	mutable bool _idBound[kMaxFonts] = {};       ///< checkIdOnceReady() ran its load-time checks once
 	/// Paths checkIdOnceReady() refused for this id (an SVF whose cell
