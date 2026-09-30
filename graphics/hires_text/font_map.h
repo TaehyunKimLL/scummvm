@@ -29,8 +29,11 @@
 #include "common/str.h"
 #include "common/str-enc.h"
 #include "graphics/hires_text/font_face.h"
+#include "graphics/hires_text/font_value.h"
 #include "graphics/hires_text/glyph_mirror.h"
+#include "graphics/hires_text/hires_options.h"
 #include "graphics/hires_text/text_layout.h"
+#include "graphics/hires_text/unicode_ranges.h"
 
 namespace Common {
 class SearchSet;
@@ -398,6 +401,154 @@ struct HiResTextConfig {
 };
 
 /**
+ * Version-2 hi-res text map format (design `docs/superpowers/specs/2026-09-30-hires-config-unify-design.md`).
+ *
+ * This is the new loader, built beside HiResFontMap::load()/loadFromStream()
+ * above; the old loader and HiResTextConfig stay until every engine adapter
+ * has moved to this one (Task 13 of the unification plan).
+ */
+
+/// One game code's [glyphs] table: game code -> rule (ranges already expanded
+/// into individual entries).
+typedef Common::HashMap<uint32, HiResGlyphRule> HiResGlyphTable;
+
+/**
+ * One [font] or [font.N] scope, its `:q` qualifier already merged in
+ * (design section 6.2.1). Every scalar field carries a "Set" companion, so a
+ * consumer can tell "the map said so" from "silent, fall back a level".
+ */
+struct HiResFontScope {
+	HiResFontScope();
+
+	HiResFontValue face;          ///< face=
+	bool faceSet;
+	Common::String faceText;      ///< face= as written, kept for re-resolution
+	int size;                     ///< size=, px
+	bool sizeSet;
+	int pixel;                    ///< pixel=, ppem
+	bool pixelSet;
+	int shift;                    ///< shift=, hi-res px, -32..32
+	bool shiftSet;
+	HiResCellMode cell;            ///< cell=game|glyph
+	bool cellSet;
+	HiResAlign align;              ///< align=game|cell|font
+	bool alignSet;
+	uint32 missing;                ///< missing=<cp>; missing=off is 0 with missingSet
+	bool missingSet;
+	HiResAdvance advance;           ///< advance= (id-wide)
+	bool advanceSet;
+	HiResOrigin origin;             ///< origin= (id-wide)
+	bool originSet;
+	HiResMirror mirror;             ///< mirror=
+	bool mirrorSet;
+
+	/// range.<spec>=: parallel arrays, rangeSpecs[i] <-> rangeValues[i].
+	Common::Array<HiResRangeSpec> rangeSpecs;
+	Common::Array<HiResFontValue> rangeValues;
+	/// advance.<spec>=
+	Common::Array<HiResRangeSpec> advanceSpecs;
+	Common::Array<HiResAdvance> advanceValues;
+	/// origin.<spec>=
+	Common::Array<HiResRangeSpec> originSpecs;
+	Common::Array<HiResOrigin> originValues;
+};
+
+/**
+ * Bitmask of the map keys one engine reads (design section 3.2's "Read by"
+ * columns): a bit the engine's HiResEngineKeys::honoured does not set means
+ * the loader warns once per section/key the map sets it in (design 10.3),
+ * though the key is still parsed.
+ */
+enum HiResKeyFlag {
+	kHiResKeyTarget       = 1 << 0,  ///< [render] target=
+	kHiResKeyBlend        = 1 << 1,  ///< [render] blend=
+	kHiResKeyScale        = 1 << 2,  ///< [render] scale=
+	kHiResKeyGamma        = 1 << 3,  ///< [render] gamma=
+	kHiResKeyTextEncoding = 1 << 4,  ///< [text] encoding=
+	kHiResKeyLayout       = 1 << 5,  ///< [layout] hangul=/kinsoku=/thai=
+	kHiResKeyShift        = 1 << 6,  ///< [font]/[font.N] shift=
+	kHiResKeyCell         = 1 << 7,  ///< [font]/[font.N] cell=
+	kHiResKeyAlign        = 1 << 8,  ///< [font]/[font.N] align=
+	kHiResKeyMissing      = 1 << 9,  ///< [font]/[font.N] missing=
+	kHiResKeyAdvance      = 1 << 10, ///< [font]/[font.N] advance=, advance.<spec>=
+	kHiResKeyOrigin       = 1 << 11, ///< [font]/[font.N] origin=, origin.<spec>=
+	kHiResKeyRange        = 1 << 12, ///< [font]/[font.N] range.<spec>=
+	kHiResKeyMirror       = 1 << 13, ///< [font]/[font.N] mirror=
+	kHiResKeyGlyphs       = 1 << 14, ///< [glyphs]/[glyphs.N]
+	kHiResKeyShadow       = 1 << 15  ///< [shadow]
+};
+
+/// One engine's name (for the "<engine> does not use ..." warning, design
+/// 10.3) and the HiResKeyFlag bits it honours.
+struct HiResEngineKeys {
+	const char *engine;
+	uint32 honoured;
+};
+
+extern const HiResEngineKeys kHiResKeysSci, kHiResKeysScumm, kHiResKeysAgs;
+
+/**
+ * A fully parsed version-2 map (design section 3): every `:q` qualifier
+ * already merged into its scope, every removed/unknown/unhonoured key
+ * reported in @ref warnings, nothing left for a caller to re-derive.
+ */
+struct HiResMap {
+	HiResMap();
+
+	/// Reset every field to its documented default, including @ref warnings.
+	void clear();
+
+	int version;
+
+	// --- [render] --------------------------------------------------------
+	HiResRenderTarget target;
+	bool targetSet;
+	HiResBlend blend;
+	bool blendSet;
+	int scale;
+	bool scaleSet;
+	int coverageGamma;             ///< hundredths; 100 = off
+
+	// --- [text] ------------------------------------------------------------
+	Common::CodePage encoding;
+	bool encodingSet;
+
+	// --- [layout] ----------------------------------------------------------
+	HiResLayoutSettings layout;
+
+	// --- [fonts], [font], [font.N] -----------------------------------------
+	HiResFaceNames faces;                        ///< [fonts], qualified entries merged
+	HiResFontScope font;                         ///< [font]
+	Common::HashMap<int, HiResFontScope> fontIds; ///< [font.N]
+
+	/// The [font.N] scope for @p id, or nullptr if the map has none.
+	const HiResFontScope *fontIdScope(int id) const;
+
+	// --- [glyphs], [glyphs.N] ------------------------------------------------
+	HiResGlyphTable glyphs;
+	Common::HashMap<int, HiResGlyphTable> glyphIds;
+
+	// --- [shadow]: the same fields and meanings as HiResTextConfig's
+	// decoration block above.
+	HiResShadowMode shadowMode;
+	int shadowOffset;
+	byte shadowColor;
+	bool shadowColorSet;
+	int shadowWidthQ;
+	HiResOutlineShape shadowStyle;
+	bool shadowShiftSet;
+	int shadowDx;
+	int shadowDy;
+	byte shadowShiftColor;
+	bool shadowShiftColorSet;
+	byte shadowAlpha;
+
+	/// Every warning the last load raised (design section 10), in the order
+	/// raised; each was also printed with warning().
+	Common::Array<Common::String> warnings;
+};
+
+/**
  * Reader for the ".map" font description file.
  *
  * A line starting with ';' or '#' is a comment. A ';' preceded by a space or
@@ -447,6 +598,34 @@ public:
 							   const Common::Array<Common::String> &qualifiers,
 							   HiResTextConfig &out,
 							   const Common::Array<Common::String> *scopes = nullptr);
+
+	/**
+	 * Parse a version-2 map that has already been opened (design section 3).
+	 *
+	 * @param stream      the map text
+	 * @param mapDir      the map's own folder: relative paths inside the map,
+	 *                    and the folder named in the version-gate warning
+	 * @param qualifiers  section suffixes to try, most specific first
+	 * @param engine      the calling engine's name and honoured-key bitmask
+	 *                    (design section 10.3); see kHiResKeysSci et al.
+	 * @param out         cleared, then filled in; on a version-gate refusal
+	 *                    (design 10.1) every field but @ref HiResMap::warnings
+	 *                    stays at its cleared default
+	 * @return false when the map is refused outright (design 10.1); every
+	 *         other problem (10.2, 10.3) is a warning and this still returns
+	 *         true
+	 */
+	static bool loadMap(Common::SeekableReadStream &stream, const Common::Path &mapDir,
+						const Common::Array<Common::String> &qualifiers, const HiResEngineKeys &engine,
+						HiResMap &out);
+
+	/**
+	 * loadMap() on a file named by path; the file's own folder is @p mapDir.
+	 * Behaves as loadMap() when the file cannot be opened at all (returns
+	 * false, with one 10.1 warning naming @p mapPath).
+	 */
+	static bool loadMapFile(const Common::Path &mapPath, const Common::Array<Common::String> &qualifiers,
+						const HiResEngineKeys &engine, HiResMap &out);
 
 	/**
 	 * Resolve a path named inside a map file.

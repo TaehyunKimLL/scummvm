@@ -1662,4 +1662,1053 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 	return true;
 }
 
+// =====================================================================
+// The version-2 map loader (design
+// docs/superpowers/specs/2026-09-30-hires-config-unify-design.md), built
+// beside the loader above; both stay until every engine adapter has moved
+// to this one (Task 13 of the unification plan).
+// =====================================================================
+
+HiResFontScope::HiResFontScope()
+	: faceSet(false), size(0), sizeSet(false), pixel(0), pixelSet(false), shift(0), shiftSet(false),
+	  cell(kHiResCellGame), cellSet(false), align(kHiResAlignGame), alignSet(false),
+	  missing(0), missingSet(false), advance(kHiResAdvanceEngine), advanceSet(false),
+	  origin(kHiResOriginGame), originSet(false), mirror(kHiResMirrorNone), mirrorSet(false) {
+}
+
+HiResMap::HiResMap() {
+	clear();
+}
+
+void HiResMap::clear() {
+	version = 0;
+
+	target = kHiResTargetAuto;
+	targetSet = false;
+	blend = kHiResBlendAuto;
+	blendSet = false;
+	scale = 0;
+	scaleSet = false;
+	coverageGamma = 100;
+
+	encoding = Common::kCodePageInvalid;
+	encodingSet = false;
+
+	layout = HiResLayoutSettings();
+
+	faces.clear();
+	font = HiResFontScope();
+	fontIds.clear();
+
+	glyphs.clear();
+	glyphIds.clear();
+
+	shadowMode = kHiResShadowGame;
+	shadowOffset = -1;
+	shadowColor = 0;
+	shadowColorSet = false;
+	shadowWidthQ = -1;
+	shadowStyle = kHiResOutlineRound;
+	shadowShiftSet = false;
+	shadowDx = 0;
+	shadowDy = 0;
+	shadowShiftColor = 0;
+	shadowShiftColorSet = false;
+	shadowAlpha = 255;
+
+	warnings.clear();
+}
+
+const HiResFontScope *HiResMap::fontIdScope(int id) const {
+	Common::HashMap<int, HiResFontScope>::const_iterator it = fontIds.find(id);
+	if (it == fontIds.end())
+		return nullptr;
+	return &it->_value;
+}
+
+// design section 3.2's "Read by" columns, decoded to HiResKeyFlag bits.
+const HiResEngineKeys kHiResKeysSci = {
+	"SCI",
+	kHiResKeyTarget | kHiResKeyBlend | kHiResKeyScale | kHiResKeyGamma | kHiResKeyLayout |
+	kHiResKeyShift | kHiResKeyCell | kHiResKeyAlign | kHiResKeyMissing | kHiResKeyAdvance |
+	kHiResKeyRange | kHiResKeyGlyphs
+};
+
+const HiResEngineKeys kHiResKeysScumm = {
+	"SCUMM",
+	kHiResKeyTarget | kHiResKeyBlend | kHiResKeyScale | kHiResKeyGamma | kHiResKeyTextEncoding |
+	kHiResKeyLayout | kHiResKeyMissing | kHiResKeyAdvance | kHiResKeyOrigin | kHiResKeyRange |
+	kHiResKeyMirror | kHiResKeyGlyphs | kHiResKeyShadow
+};
+
+const HiResEngineKeys kHiResKeysAgs = {
+	"AGS",
+	kHiResKeyBlend | kHiResKeyScale | kHiResKeyGamma | kHiResKeyLayout
+};
+
+namespace {
+
+// The default map's own name, for every version-2 warning text (design
+// section 10): the file is looked up as "HIRESTXT.MAP" (8.3, DOS), matched
+// case-insensitively; the ini key that names it, hires_text_map, is
+// unaffected.
+const char *const kHiResMapName = "HIRESTXT.MAP";
+
+// The old sections scanned, in this fixed order, for the "(found [x])" part
+// of the version-gate warning (design 10.1): only these four, not [sizes] or
+// [translation].
+const char *const kHiResOldSections[] = { "hires", "latin", "bitmap", "encoding" };
+
+void hiResWarn(HiResMap &out, const Common::String &message) {
+	warning("%s", message.c_str());
+	out.warnings.push_back(message);
+}
+
+// ---- Section classification (design 3.2, 3.3) ----------------------------
+
+enum HiResSectionFamily {
+	kHSecUnknown = 0,
+	kHSecRemoved,
+	kHSecReserved,   ///< [translation.<lang>]: a later plan's, skipped whole
+	kHSecMap,
+	kHSecRender,
+	kHSecText,
+	kHSecLayout,
+	kHSecFonts,
+	kHSecFont,
+	kHSecFontId,
+	kHSecGlyphs,
+	kHSecGlyphsId,
+	kHSecShadow
+};
+
+struct HiResSectionInfo {
+	HiResSectionFamily family;
+	int id;                    ///< for kHSecFontId/kHSecGlyphsId
+	Common::String base;       ///< section name before ':' ("font.4")
+	Common::String qualifier;  ///< after ':'; empty if bare
+};
+
+void classifyHiResSection(const Common::String &name, HiResSectionInfo &info) {
+	const size_t colon = name.findFirstOf(':');
+	if (colon == Common::String::npos) {
+		info.base = name;
+		info.qualifier.clear();
+	} else {
+		info.base = Common::String(name.c_str(), colon);
+		info.qualifier = Common::String(name.c_str() + colon + 1);
+	}
+	info.id = -1;
+
+	if (info.base.equalsIgnoreCase("map")) { info.family = kHSecMap; return; }
+	if (info.base.equalsIgnoreCase("render")) { info.family = kHSecRender; return; }
+	if (info.base.equalsIgnoreCase("text")) { info.family = kHSecText; return; }
+	if (info.base.equalsIgnoreCase("layout")) { info.family = kHSecLayout; return; }
+	if (info.base.equalsIgnoreCase("fonts")) { info.family = kHSecFonts; return; }
+	if (info.base.equalsIgnoreCase("font")) { info.family = kHSecFont; return; }
+	if (info.base.equalsIgnoreCase("glyphs")) { info.family = kHSecGlyphs; return; }
+	if (info.base.equalsIgnoreCase("shadow")) { info.family = kHSecShadow; return; }
+	// Reserved for a later plan (user ruling): [translation.<lang>], lang an
+	// ISO 639-1 code. The bare [translation] below is still the removed
+	// section (design 3.3); only the dotted form is reserved.
+	if (info.base.hasPrefixIgnoreCase("translation.") && info.base.size() > 12) {
+		info.family = kHSecReserved;
+		return;
+	}
+	if (info.base.equalsIgnoreCase("hires") || info.base.equalsIgnoreCase("latin") ||
+		info.base.equalsIgnoreCase("bitmap") || info.base.equalsIgnoreCase("encoding") ||
+		info.base.equalsIgnoreCase("sizes") || info.base.equalsIgnoreCase("translation")) {
+		info.family = kHSecRemoved;
+		return;
+	}
+	if (info.base.hasPrefixIgnoreCase("font.")) {
+		int id;
+		if (parseInteger(Common::String(info.base.c_str() + 5), 65535, id)) {
+			info.family = kHSecFontId;
+			info.id = id;
+			return;
+		}
+		info.family = kHSecUnknown;
+		return;
+	}
+	if (info.base.hasPrefixIgnoreCase("glyphs.")) {
+		int id;
+		if (parseInteger(Common::String(info.base.c_str() + 7), 65535, id)) {
+			info.family = kHSecGlyphsId;
+			info.id = id;
+			return;
+		}
+		info.family = kHSecUnknown;
+		return;
+	}
+	info.family = kHSecUnknown;
+}
+
+/// The "not read any more" pointer for one removed section (design 3.3):
+/// [latin]'s wording is pinned by a test; the others follow the same style.
+const char *hiResRemovedSectionPointer(const Common::String &base) {
+	if (base.equalsIgnoreCase("latin"))
+		return "see \"Ranges\" in graphics/hires_text/README.md";
+	return "see \"The map file\" in graphics/hires_text/README.md";
+}
+
+/// Known keys of [render]/[text]/[layout]/[shadow] and the HiResKeyFlag each
+/// needs (design 3.2); 0 means every engine reads it (no "does not use").
+bool classifyRenderKey(const Common::String &key, uint32 &flag) {
+	static const struct { const char *key; uint32 flag; } kKeys[] = {
+		{ "target", kHiResKeyTarget }, { "blend", kHiResKeyBlend },
+		{ "scale", kHiResKeyScale }, { "gamma", kHiResKeyGamma }
+	};
+	for (uint i = 0; i < ARRAYSIZE(kKeys); ++i) {
+		if (key.equalsIgnoreCase(kKeys[i].key)) {
+			flag = kKeys[i].flag;
+			return true;
+		}
+	}
+	return false;
+}
+
+/// Known keys of [font]/[font.N], including the dynamic range./advance./
+/// origin.<spec> families.
+bool classifyFontKey(const Common::String &key, uint32 &flag) {
+	static const struct { const char *key; uint32 flag; } kExact[] = {
+		{ "face", 0 }, { "size", 0 }, { "pixel", 0 },
+		{ "shift", kHiResKeyShift }, { "cell", kHiResKeyCell }, { "align", kHiResKeyAlign },
+		{ "missing", kHiResKeyMissing }, { "advance", kHiResKeyAdvance }, { "origin", kHiResKeyOrigin },
+		{ "mirror", kHiResKeyMirror }
+	};
+	for (uint i = 0; i < ARRAYSIZE(kExact); ++i) {
+		if (key.equalsIgnoreCase(kExact[i].key)) {
+			flag = kExact[i].flag;
+			return true;
+		}
+	}
+	if (key.hasPrefixIgnoreCase("range.") && key.size() > 6) { flag = kHiResKeyRange; return true; }
+	if (key.hasPrefixIgnoreCase("advance.") && key.size() > 8) { flag = kHiResKeyAdvance; return true; }
+	if (key.hasPrefixIgnoreCase("origin.") && key.size() > 7) { flag = kHiResKeyOrigin; return true; }
+	return false;
+}
+
+bool classifyShadowKey(const Common::String &key, uint32 &flag) {
+	static const char *const kKeys[] = {
+		"mode", "offset", "color", "width", "style", "shadow", "shadow_color", "shadow_alpha"
+	};
+	for (uint i = 0; i < ARRAYSIZE(kKeys); ++i) {
+		if (key.equalsIgnoreCase(kKeys[i])) {
+			flag = kHiResKeyShadow;
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Pass 1 (design 10.2/10.3): walk every physical section and key once,
+ * warning about unknown sections/keys, removed sections, and keys the
+ * engine does not honour. Values themselves are parsed separately (pass 2,
+ * buildHiResMap()); this pass only ever appends to @ref HiResMap::warnings.
+ *
+ * S18 ruling: the "<engine> does not use" warning fires only for a bare
+ * section or one whose qualifier is in @p qualifiers; unknown-section,
+ * unknown-key and removed-section warnings fire for every section
+ * regardless of qualifier.
+ */
+void scanHiResSections(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+						const HiResEngineKeys &engine, HiResMap &out) {
+	const Common::INIFile::SectionList sections = ini.getSections();
+	for (Common::INIFile::SectionList::const_iterator sec = sections.begin(); sec != sections.end(); ++sec) {
+		HiResSectionInfo info;
+		classifyHiResSection(sec->name, info);
+
+		if (info.family == kHSecReserved)
+			continue; // [translation.<lang>]: a later plan's; skip silently
+		if (info.family == kHSecUnknown) {
+			hiResWarn(out, Common::String::format("%s: unknown section [%s]", kHiResMapName, sec->name.c_str()));
+			continue;
+		}
+		if (info.family == kHSecRemoved) {
+			hiResWarn(out, Common::String::format("%s: [%s] is not read any more; %s",
+													kHiResMapName, sec->name.c_str(), hiResRemovedSectionPointer(info.base)));
+			continue;
+		}
+		if (info.family == kHSecFonts)
+			continue; // a name table: buildFaceNames() warns about a bad name itself
+
+		const bool qualifierRelevant = info.qualifier.empty() || qualifierListed(qualifiers, info.qualifier);
+
+		const Common::INIFile::SectionKeyList keys = sec->getKeys();
+		for (Common::INIFile::SectionKeyList::const_iterator k = keys.begin(); k != keys.end(); ++k) {
+			uint32 flag = 0;
+			bool known = false;
+			switch (info.family) {
+			case kHSecMap:
+				known = k->key.equalsIgnoreCase("version");
+				break;
+			case kHSecRender:
+				known = classifyRenderKey(k->key, flag);
+				break;
+			case kHSecText:
+				known = k->key.equalsIgnoreCase("encoding");
+				flag = kHiResKeyTextEncoding;
+				break;
+			case kHSecLayout:
+				known = k->key.equalsIgnoreCase("hangul") || k->key.equalsIgnoreCase("kinsoku") ||
+						k->key.equalsIgnoreCase("thai");
+				flag = kHiResKeyLayout;
+				break;
+			case kHSecFont:
+			case kHSecFontId:
+				known = classifyFontKey(k->key, flag);
+				break;
+			case kHSecGlyphs:
+			case kHSecGlyphsId:
+				known = true;
+				flag = kHiResKeyGlyphs;
+				break;
+			case kHSecShadow:
+				known = classifyShadowKey(k->key, flag);
+				break;
+			default:
+				break;
+			}
+
+			if (!known) {
+				hiResWarn(out, Common::String::format("%s: unknown key [%s] %s",
+														kHiResMapName, sec->name.c_str(), k->key.c_str()));
+				continue;
+			}
+			if (flag && qualifierRelevant && !(engine.honoured & flag)) {
+				hiResWarn(out, Common::String::format("%s does not use [%s] %s",
+														engine.engine, sec->name.c_str(), k->key.c_str()));
+			}
+		}
+	}
+}
+
+// ---- Pass 2: building the merged values -----------------------------------
+
+/// [fonts]: the name table, isValidFaceName()-filtered (design 3.2), least
+/// specific merged first so a qualified entry refines a bare one.
+void collectFaceNames(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers, HiResMap &out) {
+	Common::Array<Common::String> names;
+	names.push_back("fonts");
+	for (int i = (int)qualifiers.size() - 1; i >= 0; --i) {
+		if (!qualifiers[i].empty())
+			names.push_back(Common::String::format("fonts:%s", qualifiers[i].c_str()));
+	}
+
+	for (uint s = 0; s < names.size(); ++s) {
+		if (!ini.hasSection(names[s]))
+			continue;
+		const Common::INIFile::SectionKeyList keys = ini.getKeys(names[s]);
+		for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
+			if (!isValidFaceName(it->key)) {
+				hiResWarn(out, Common::String::format("%s: [%s] '%s' is not a valid font name; ignoring it",
+														kHiResMapName, names[s].c_str(), it->key.c_str()));
+				continue;
+			}
+			out.faces[it->key] = stripInlineComment(it->value);
+		}
+	}
+}
+
+void buildRenderSection(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers, HiResMap &out) {
+	Common::String value;
+	if (getKey(ini, qualifiers, "render", "target", value)) {
+		HiResRenderTarget t;
+		if (parseRenderTarget(value, t)) {
+			out.target = t;
+			out.targetSet = true;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [render] target '%s' is not auto, clut8, rgb565 or rgb888; ignoring it", kHiResMapName, value.c_str()));
+		}
+	}
+	if (getKey(ini, qualifiers, "render", "blend", value)) {
+		HiResBlend b;
+		if (parseBlend(value, b)) {
+			out.blend = b;
+			out.blendSet = true;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [render] blend '%s' is not auto, on or off; ignoring it", kHiResMapName, value.c_str()));
+		}
+	}
+	if (getKey(ini, qualifiers, "render", "scale", value)) {
+		int scale;
+		if (parseInteger(value, kMaxScale, scale) && scale >= 1) {
+			out.scale = scale;
+			out.scaleSet = true;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [render] scale '%s' is not 1, 2 or 3; ignoring it", kHiResMapName, value.c_str()));
+		}
+	}
+	if (getKey(ini, qualifiers, "render", "gamma", value)) {
+		int gamma;
+		if (parseHundredths(value, kMaxCoverageGamma, gamma) && gamma >= kMinCoverageGamma) {
+			out.coverageGamma = gamma;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [render] gamma '%s' is not 0.5..4.0; ignoring it", kHiResMapName, value.c_str()));
+		}
+	}
+}
+
+void buildTextSection(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers, HiResMap &out) {
+	Common::String value;
+	if (getKey(ini, qualifiers, "text", "encoding", value)) {
+		const Common::CodePage page = HiResFontMap::parseCodePage(value);
+		if (page != Common::kCodePageInvalid) {
+			out.encoding = page;
+			out.encodingSet = true;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [text] encoding '%s' is not known; ignoring it", kHiResMapName, value.c_str()));
+		}
+	}
+}
+
+void buildLayoutSectionV2(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers, HiResMap &out) {
+	Common::String value;
+	if (getKey(ini, qualifiers, "layout", "hangul", value)) {
+		if (value.equalsIgnoreCase("word")) {
+			out.layout.hangul = kHangulBreakWord;
+			out.layout.hangulSet = true;
+		} else if (value.equalsIgnoreCase("any")) {
+			out.layout.hangul = kHangulBreakAny;
+			out.layout.hangulSet = true;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [layout] hangul '%s' is not word or any; ignoring it", kHiResMapName, value.c_str()));
+		}
+	}
+	if (getKey(ini, qualifiers, "layout", "kinsoku", value)) {
+		if (parseOnOff(value, out.layout.kinsoku))
+			out.layout.kinsokuSet = true;
+		else
+			hiResWarn(out, Common::String::format(
+				"%s: [layout] kinsoku '%s' is not on or off; ignoring it", kHiResMapName, value.c_str()));
+	}
+	if (getKey(ini, qualifiers, "layout", "thai", value)) {
+		if (parseOnOff(value, out.layout.thai))
+			out.layout.thaiSet = true;
+		else
+			hiResWarn(out, Common::String::format(
+				"%s: [layout] thai '%s' is not on or off; ignoring it", kHiResMapName, value.c_str()));
+	}
+}
+
+// A signed integer within -maxAbs..maxAbs ("shift=-4").
+bool parseSignedInt(const Common::String &value, int maxAbs, int &out) {
+	const char *p = value.c_str();
+	int sign = 1;
+	if (*p == '-' || *p == '+') {
+		sign = (*p == '-') ? -1 : 1;
+		++p;
+	}
+	int n;
+	if (!parseNumber(p, maxAbs, n) || *p != 0)
+		return false;
+	out = sign * n;
+	return true;
+}
+
+/// face=: `same` in a bare [font] has nothing to inherit (M10: a warning,
+/// once per load, since only one merged bare face value ever exists); `same`
+/// in [font.N] means "inherit", i.e. leave faceSet false (design 5.2).
+void applyFaceKey(HiResFontScope &scope, const Common::String &value, bool isBareFont,
+				   const Common::Path &mapDir, HiResMap &out) {
+	if (value.equalsIgnoreCase("same")) {
+		if (isBareFont)
+			hiResWarn(out, Common::String::format("%s: [font] face=same has nothing to inherit; ignoring it", kHiResMapName));
+		return;
+	}
+	HiResFontValue fv;
+	Common::Array<Common::String> localWarnings;
+	const bool any = parseFontValue(value, out.faces, mapDir, mapDir, fv, localWarnings);
+	for (uint i = 0; i < localWarnings.size(); ++i)
+		hiResWarn(out, localWarnings[i]);
+	if (any) {
+		scope.face = fv;
+		scope.faceSet = true;
+		scope.faceText = value;
+	}
+}
+
+void applyFontScalarKeys(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+						  const char *section, bool isBareFont, const Common::Path &mapDir,
+						  HiResMap &out, HiResFontScope &scope) {
+	Common::String value;
+
+	if (getKey(ini, qualifiers, section, "face", value))
+		applyFaceKey(scope, value, isBareFont, mapDir, out);
+
+	if (getKey(ini, qualifiers, section, "size", value)) {
+		int v;
+		if (parseFaceSize(value, v) && v >= 8 && v <= 64) {
+			scope.size = v;
+			scope.sizeSet = true;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [%s] size '%s' is not 8..64; ignoring it", kHiResMapName, section, value.c_str()));
+		}
+	}
+	if (getKey(ini, qualifiers, section, "pixel", value)) {
+		int v;
+		if (parseFaceSize(value, v) && v >= 1 && v <= 64) {
+			scope.pixel = v;
+			scope.pixelSet = true;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [%s] pixel '%s' is not 1..64; ignoring it", kHiResMapName, section, value.c_str()));
+		}
+	}
+	if (getKey(ini, qualifiers, section, "shift", value)) {
+		int v;
+		if (parseSignedInt(value, 32, v)) {
+			scope.shift = v;
+			scope.shiftSet = true;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [%s] shift '%s' is not -32..32; ignoring it", kHiResMapName, section, value.c_str()));
+		}
+	}
+	if (getKey(ini, qualifiers, section, "cell", value)) {
+		if (parseCellMode(value, scope.cell))
+			scope.cellSet = true;
+		else
+			hiResWarn(out, Common::String::format(
+				"%s: [%s] cell '%s' is not game or glyph; ignoring it", kHiResMapName, section, value.c_str()));
+	}
+	if (getKey(ini, qualifiers, section, "align", value)) {
+		if (parseAlign(value, scope.align))
+			scope.alignSet = true;
+		else
+			hiResWarn(out, Common::String::format(
+				"%s: [%s] align '%s' is not game, cell or font; ignoring it", kHiResMapName, section, value.c_str()));
+	}
+	if (getKey(ini, qualifiers, section, "missing", value)) {
+		if (value.equalsIgnoreCase("off")) {
+			scope.missing = 0;
+			scope.missingSet = true;
+		} else {
+			uint32 cp;
+			if (parseCodePointValue(value, cp) && cp) {
+				scope.missing = cp;
+				scope.missingSet = true;
+			} else {
+				hiResWarn(out, Common::String::format(
+					"%s: [%s] missing '%s' is not a code point or off; ignoring it", kHiResMapName, section, value.c_str()));
+			}
+		}
+	}
+	if (getKey(ini, qualifiers, section, "advance", value)) {
+		HiResAdvance a;
+		if (parseAdvance(value, a)) {
+			scope.advance = a;
+			scope.advanceSet = true;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [%s] advance '%s' is not game, font or cell; ignoring it", kHiResMapName, section, value.c_str()));
+		}
+	}
+	if (getKey(ini, qualifiers, section, "origin", value)) {
+		HiResOrigin o;
+		if (parseOrigin(value, o)) {
+			scope.origin = o;
+			scope.originSet = true;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [%s] origin '%s' is not game or face; ignoring it", kHiResMapName, section, value.c_str()));
+		}
+	}
+	if (getKey(ini, qualifiers, section, "mirror", value)) {
+		if (parseMirror(value, scope.mirror))
+			scope.mirrorSet = true;
+		else
+			hiResWarn(out, Common::String::format(
+				"%s: [%s] mirror '%s' is not off, horizontal, vertical or both; ignoring it", kHiResMapName, section, value.c_str()));
+	}
+}
+
+// ---- range./advance./origin.<spec> families (design 6.2.1) ---------------
+
+/// One physical section's own entries of one family, kept apart from the
+/// scope-level arrays so the duplicate-spelling and equal-width-overlap
+/// checks (design 6.2.1) apply only within the section that wrote them.
+template<typename ValueT>
+struct HiResSpecBucket {
+	Common::Array<HiResRangeSpec> specs;
+	Common::Array<ValueT> values;
+	Common::Array<Common::String> keys; ///< the key exactly as written, for warnings
+};
+
+bool hiResSpecSameSpan(const HiResRangeSpec &a, const HiResRangeSpec &b) {
+	if (a.kind != b.kind)
+		return false;
+	if (a.kind == kHiResSpecWide)
+		return true; // wide has no numeric span; two "wide" specs are one span
+	return a.span.lo == b.span.lo && a.span.hi == b.span.hi;
+}
+
+template<typename ValueT>
+void addHiResSpecEntry(HiResSpecBucket<ValueT> &bucket, const HiResRangeSpec &spec, const ValueT &value,
+						const Common::String &keyText, const Common::String &sectionDisplay, HiResMap &out) {
+	for (uint i = 0; i < bucket.specs.size(); ++i) {
+		if (hiResSpecSameSpan(spec, bucket.specs[i])) {
+			hiResWarn(out, Common::String::format("%s: [%s] %s repeats %s; ignoring it",
+													kHiResMapName, sectionDisplay.c_str(), keyText.c_str(), bucket.keys[i].c_str()));
+			return;
+		}
+		if (spec.kind == kHiResSpecSpan && bucket.specs[i].kind == kHiResSpecSpan) {
+			const uint32 w1 = spec.span.hi - spec.span.lo;
+			const uint32 w2 = bucket.specs[i].span.hi - bucket.specs[i].span.lo;
+			if (w1 == w2 && spec.span.lo <= bucket.specs[i].span.hi && bucket.specs[i].span.lo <= spec.span.hi) {
+				hiResWarn(out, Common::String::format("%s: [%s] %s overlaps %s at the same width; ignoring it",
+														kHiResMapName, sectionDisplay.c_str(), keyText.c_str(), bucket.keys[i].c_str()));
+				return;
+			}
+		}
+	}
+	bucket.specs.push_back(spec);
+	bucket.values.push_back(value);
+	bucket.keys.push_back(keyText);
+}
+
+/// Merge one physical section's bucket into the scope's arrays: a span
+/// already present is replaced (silently: design 6.2.1's cross-section rule
+/// carries no warning), any other span is appended.
+template<typename ValueT>
+void mergeHiResSpecBucket(Common::Array<HiResRangeSpec> &scopeSpecs, Common::Array<ValueT> &scopeValues,
+						   const HiResSpecBucket<ValueT> &section) {
+	for (uint i = 0; i < section.specs.size(); ++i) {
+		int found = -1;
+		for (uint j = 0; j < scopeSpecs.size(); ++j) {
+			if (hiResSpecSameSpan(section.specs[i], scopeSpecs[j])) {
+				found = (int)j;
+				break;
+			}
+		}
+		if (found >= 0) {
+			scopeSpecs[found] = section.specs[i];
+			scopeValues[found] = section.values[i];
+		} else {
+			scopeSpecs.push_back(section.specs[i]);
+			scopeValues.push_back(section.values[i]);
+		}
+	}
+}
+
+/// The section names to merge for one scope: @p base itself, then each
+/// qualifier from least to most specific (so the most specific - the first
+/// of @p qualifiers - is applied last and wins).
+void hiResScopeSectionNames(const Common::Array<Common::String> &qualifiers, const Common::String &base,
+							 Common::Array<Common::String> &names) {
+	names.push_back(base);
+	for (int i = (int)qualifiers.size() - 1; i >= 0; --i) {
+		if (!qualifiers[i].empty())
+			names.push_back(Common::String::format("%s:%s", base.c_str(), qualifiers[i].c_str()));
+	}
+}
+
+void collectRangeFamily(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+						 const Common::String &base, const Common::Path &mapDir, HiResFontScope &scope, HiResMap &out) {
+	Common::Array<Common::String> names;
+	hiResScopeSectionNames(qualifiers, base, names);
+
+	for (uint s = 0; s < names.size(); ++s) {
+		if (!ini.hasSection(names[s]))
+			continue;
+		HiResSpecBucket<HiResFontValue> bucket;
+		const Common::INIFile::SectionKeyList keys = ini.getKeys(names[s]);
+		for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
+			if (!it->key.hasPrefixIgnoreCase("range.") || it->key.size() <= 6)
+				continue;
+			const Common::String specText(it->key.c_str() + 6);
+			HiResRangeSpec spec;
+			Common::String error;
+			if (!parseRangeSpec(specText, spec, error)) {
+				hiResWarn(out, Common::String::format("%s: [%s] %s: %s",
+														kHiResMapName, names[s].c_str(), it->key.c_str(), error.c_str()));
+				continue;
+			}
+			HiResFontValue fv;
+			Common::Array<Common::String> w;
+			const Common::String rhs = stripInlineComment(it->value);
+			const bool any = parseFontValue(rhs, out.faces, mapDir, mapDir, fv, w);
+			for (uint i = 0; i < w.size(); ++i)
+				hiResWarn(out, w[i]);
+			if (!any)
+				continue;
+			addHiResSpecEntry(bucket, spec, fv, it->key, names[s], out);
+		}
+		mergeHiResSpecBucket(scope.rangeSpecs, scope.rangeValues, bucket);
+	}
+}
+
+void collectAdvanceFamily(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+						   const Common::String &base, HiResFontScope &scope, HiResMap &out) {
+	Common::Array<Common::String> names;
+	hiResScopeSectionNames(qualifiers, base, names);
+
+	for (uint s = 0; s < names.size(); ++s) {
+		if (!ini.hasSection(names[s]))
+			continue;
+		HiResSpecBucket<HiResAdvance> bucket;
+		const Common::INIFile::SectionKeyList keys = ini.getKeys(names[s]);
+		for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
+			if (!it->key.hasPrefixIgnoreCase("advance.") || it->key.size() <= 8)
+				continue;
+			const Common::String specText(it->key.c_str() + 8);
+			HiResRangeSpec spec;
+			Common::String error;
+			if (!parseRangeSpec(specText, spec, error)) {
+				hiResWarn(out, Common::String::format("%s: [%s] %s: %s",
+														kHiResMapName, names[s].c_str(), it->key.c_str(), error.c_str()));
+				continue;
+			}
+			HiResAdvance value;
+			const Common::String rhs = stripInlineComment(it->value);
+			if (!parseAdvance(rhs, value)) {
+				hiResWarn(out, Common::String::format("%s: [%s] %s '%s' is not game, font or cell; ignoring it",
+														kHiResMapName, names[s].c_str(), it->key.c_str(), rhs.c_str()));
+				continue;
+			}
+			addHiResSpecEntry(bucket, spec, value, it->key, names[s], out);
+		}
+		mergeHiResSpecBucket(scope.advanceSpecs, scope.advanceValues, bucket);
+	}
+}
+
+void collectOriginFamily(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+						  const Common::String &base, HiResFontScope &scope, HiResMap &out) {
+	Common::Array<Common::String> names;
+	hiResScopeSectionNames(qualifiers, base, names);
+
+	for (uint s = 0; s < names.size(); ++s) {
+		if (!ini.hasSection(names[s]))
+			continue;
+		HiResSpecBucket<HiResOrigin> bucket;
+		const Common::INIFile::SectionKeyList keys = ini.getKeys(names[s]);
+		for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
+			if (!it->key.hasPrefixIgnoreCase("origin.") || it->key.size() <= 7)
+				continue;
+			const Common::String specText(it->key.c_str() + 7);
+			HiResRangeSpec spec;
+			Common::String error;
+			if (!parseRangeSpec(specText, spec, error)) {
+				hiResWarn(out, Common::String::format("%s: [%s] %s: %s",
+														kHiResMapName, names[s].c_str(), it->key.c_str(), error.c_str()));
+				continue;
+			}
+			HiResOrigin value;
+			const Common::String rhs = stripInlineComment(it->value);
+			if (!parseOrigin(rhs, value)) {
+				hiResWarn(out, Common::String::format("%s: [%s] %s '%s' is not game or face; ignoring it",
+														kHiResMapName, names[s].c_str(), it->key.c_str(), rhs.c_str()));
+				continue;
+			}
+			addHiResSpecEntry(bucket, spec, value, it->key, names[s], out);
+		}
+		mergeHiResSpecBucket(scope.originSpecs, scope.originValues, bucket);
+	}
+}
+
+HiResFontScope buildFontScope(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+							   const Common::String &base, bool isBareFont, const Common::Path &mapDir, HiResMap &out) {
+	HiResFontScope scope;
+	applyFontScalarKeys(ini, qualifiers, base.c_str(), isBareFont, mapDir, out, scope);
+	collectRangeFamily(ini, qualifiers, base, mapDir, scope, out);
+	collectAdvanceFamily(ini, qualifiers, base, scope, out);
+	collectOriginFamily(ini, qualifiers, base, scope, out);
+	return scope;
+}
+
+/// The ids named by "<prefix>N" or "<prefix>N:<q>" sections (q in
+/// @p qualifiers, or bare), each once, in first-seen order.
+void collectRelevantIds(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+						 const char *prefix, Common::Array<int> &ids) {
+	const size_t prefixLen = strlen(prefix);
+	const Common::INIFile::SectionList sections = ini.getSections();
+	for (Common::INIFile::SectionList::const_iterator sec = sections.begin(); sec != sections.end(); ++sec) {
+		if (!sec->name.hasPrefixIgnoreCase(prefix))
+			continue;
+		const Common::String rest(sec->name.c_str() + prefixLen);
+		const size_t colon = rest.findFirstOf(':');
+		const Common::String idText = (colon == Common::String::npos) ? rest : Common::String(rest.c_str(), colon);
+		const Common::String qualifier = (colon == Common::String::npos) ? Common::String() : Common::String(rest.c_str() + colon + 1);
+		if (!qualifier.empty() && !qualifierListed(qualifiers, qualifier))
+			continue;
+		int id;
+		if (!parseInteger(idText, 65535, id))
+			continue;
+		bool seen = false;
+		for (uint i = 0; i < ids.size() && !seen; ++i)
+			seen = ids[i] == id;
+		if (!seen)
+			ids.push_back(id);
+	}
+}
+
+// ---- [glyphs] / [glyphs.N] --------------------------------------------------
+
+/// Expand one [glyphs]/[glyphs.N] key (a single code or a range) into
+/// @p table; the value is parsed once per key (design: every expanded code
+/// shares the one parsed rule).
+void applyGlyphKey(const Common::String &key, const Common::String &rawValue, const Common::String &sectionDisplay,
+					const Common::Path &mapDir, HiResGlyphTable &table, HiResMap &out) {
+	const Common::String value = stripInlineComment(rawValue);
+	const bool isRange = key.findFirstOf('-') != Common::String::npos;
+
+	uint32 start, end;
+	if (isRange) {
+		if (!parseGlyphRange(key, start, end) || end < start) {
+			hiResWarn(out, Common::String::format("%s: [%s] %s is not a character code or range; ignoring it",
+													kHiResMapName, sectionDisplay.c_str(), key.c_str()));
+			return;
+		}
+	} else {
+		if (!parseCodeValue(key, start)) {
+			hiResWarn(out, Common::String::format("%s: [%s] %s is not a character code or range; ignoring it",
+													kHiResMapName, sectionDisplay.c_str(), key.c_str()));
+			return;
+		}
+		end = start;
+	}
+
+	const uint32 count = end - start + 1;
+	if (count > 0x10000) {
+		hiResWarn(out, Common::String::format("%s: [%s] %s spans more than 0x10000 codes; ignoring it",
+												kHiResMapName, sectionDisplay.c_str(), key.c_str()));
+		return;
+	}
+
+	HiResGlyphRule rule;
+	Common::String error;
+	if (!parseGlyphRule(value, out.faces, mapDir, rule, error)) {
+		hiResWarn(out, Common::String::format("%s: [%s] %s = '%s': %s",
+												kHiResMapName, sectionDisplay.c_str(), key.c_str(), value.c_str(), error.c_str()));
+		return;
+	}
+
+	for (uint32 code = start; code <= end; ++code)
+		table[code] = rule;
+}
+
+/// One [glyphs]/[glyphs.N] table, bare merged with each matching qualifier
+/// (least to most specific): within a section ranges are applied before
+/// single codes, so a single code punches a hole in a range whatever the
+/// line order; across sections a later (more specific) one wins key by key.
+void collectGlyphSection(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+						  const Common::String &base, const Common::Path &mapDir,
+						  HiResGlyphTable &table, HiResMap &out) {
+	Common::Array<Common::String> names;
+	hiResScopeSectionNames(qualifiers, base, names);
+
+	for (uint s = 0; s < names.size(); ++s) {
+		if (!ini.hasSection(names[s]))
+			continue;
+		const Common::INIFile::SectionKeyList keys = ini.getKeys(names[s]);
+		for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
+			if (it->key.findFirstOf('-') == Common::String::npos)
+				continue;
+			applyGlyphKey(it->key, it->value, names[s], mapDir, table, out);
+		}
+		for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
+			if (it->key.findFirstOf('-') != Common::String::npos)
+				continue;
+			applyGlyphKey(it->key, it->value, names[s], mapDir, table, out);
+		}
+	}
+}
+
+// ---- [shadow] --------------------------------------------------------------
+
+/// mode=: design 3.2's one behaviour change from the old loader - an unknown
+/// mode is now a warning (the key is ignored) rather than a silent `game`.
+bool parseHiResShadowMode(const Common::String &value, HiResShadowMode &out) {
+	if (value.equalsIgnoreCase("game")) { out = kHiResShadowGame; return true; }
+	if (value.equalsIgnoreCase("none")) { out = kHiResShadowNone; return true; }
+	if (value.equalsIgnoreCase("drop")) { out = kHiResShadowDrop; return true; }
+	if (value.equalsIgnoreCase("outline")) { out = kHiResShadowOutline; return true; }
+	if (value.equalsIgnoreCase("stroke")) { out = kHiResShadowStroke; return true; }
+	return false;
+}
+
+void buildShadowSection(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers, HiResMap &out) {
+	Common::String value;
+	if (getKey(ini, qualifiers, "shadow", "mode", value)) {
+		HiResShadowMode m;
+		if (parseHiResShadowMode(value, m))
+			out.shadowMode = m;
+		else
+			hiResWarn(out, Common::String::format(
+				"%s: [shadow] mode '%s' is not game, none, drop, outline or stroke; ignoring it", kHiResMapName, value.c_str()));
+	}
+	if (getKey(ini, qualifiers, "shadow", "offset", value)) {
+		int offset;
+		if (value == "-1")
+			out.shadowOffset = -1;
+		else if (parseInteger(value, 4096, offset))
+			out.shadowOffset = offset;
+		else
+			hiResWarn(out, Common::String::format(
+				"%s: [shadow] offset '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+	}
+	if (getKey(ini, qualifiers, "shadow", "color", value)) {
+		int color;
+		if (parseInteger(value, 255, color)) {
+			out.shadowColor = color;
+			out.shadowColorSet = true;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [shadow] color '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+		}
+	}
+	if (getKey(ini, qualifiers, "shadow", "width", value)) {
+		int q;
+		if (parseQuarterPixels(value, kMaxShadowWidthQ, q))
+			out.shadowWidthQ = q;
+		else
+			hiResWarn(out, Common::String::format(
+				"%s: [shadow] width '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+	}
+	if (getKey(ini, qualifiers, "shadow", "style", value)) {
+		if (value.equalsIgnoreCase("round"))
+			out.shadowStyle = kHiResOutlineRound;
+		else if (value.equalsIgnoreCase("square"))
+			out.shadowStyle = kHiResOutlineSquare;
+		else if (value.equalsIgnoreCase("legacy"))
+			out.shadowStyle = kHiResOutlineLegacy;
+		else
+			hiResWarn(out, Common::String::format(
+				"%s: [shadow] style '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+	}
+	if (getKey(ini, qualifiers, "shadow", "shadow", value)) {
+		int dx, dy;
+		if (value.equalsIgnoreCase("none")) {
+			out.shadowShiftSet = true;
+			out.shadowDx = out.shadowDy = 0;
+		} else if (parseSignedPair(value, kMaxShadowShift, dx, dy)) {
+			out.shadowShiftSet = true;
+			out.shadowDx = dx;
+			out.shadowDy = dy;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [shadow] shadow '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+		}
+	}
+	if (getKey(ini, qualifiers, "shadow", "shadow_color", value)) {
+		int color;
+		if (parseInteger(value, 255, color)) {
+			out.shadowShiftColor = color;
+			out.shadowShiftColorSet = true;
+		} else {
+			hiResWarn(out, Common::String::format(
+				"%s: [shadow] shadow_color '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+		}
+	}
+	if (getKey(ini, qualifiers, "shadow", "shadow_alpha", value)) {
+		int percent;
+		if (parseInteger(value, 100, percent))
+			out.shadowAlpha = (byte)((percent * 255 + 50) / 100);
+		else
+			hiResWarn(out, Common::String::format(
+				"%s: [shadow] shadow_alpha '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+	}
+}
+
+void buildHiResMap(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+					const Common::Path &mapDir, HiResMap &out) {
+	collectFaceNames(ini, qualifiers, out);
+
+	buildRenderSection(ini, qualifiers, out);
+	buildTextSection(ini, qualifiers, out);
+	buildLayoutSectionV2(ini, qualifiers, out);
+
+	out.font = buildFontScope(ini, qualifiers, "font", /* isBareFont */ true, mapDir, out);
+
+	Common::Array<int> fontIds;
+	collectRelevantIds(ini, qualifiers, "font.", fontIds);
+	for (uint i = 0; i < fontIds.size(); ++i) {
+		const Common::String base = Common::String::format("font.%d", fontIds[i]);
+		out.fontIds[fontIds[i]] = buildFontScope(ini, qualifiers, base, /* isBareFont */ false, mapDir, out);
+	}
+
+	collectGlyphSection(ini, qualifiers, "glyphs", mapDir, out.glyphs, out);
+	Common::Array<int> glyphIds;
+	collectRelevantIds(ini, qualifiers, "glyphs.", glyphIds);
+	for (uint i = 0; i < glyphIds.size(); ++i) {
+		const Common::String base = Common::String::format("glyphs.%d", glyphIds[i]);
+		HiResGlyphTable table;
+		collectGlyphSection(ini, qualifiers, base, mapDir, table, out);
+		out.glyphIds[glyphIds[i]] = table;
+	}
+
+	buildShadowSection(ini, qualifiers, out);
+}
+
+} // End of anonymous namespace
+
+bool HiResFontMap::loadMap(Common::SeekableReadStream &stream, const Common::Path &mapDir,
+						   const Common::Array<Common::String> &qualifiers, const HiResEngineKeys &engine,
+						   HiResMap &out) {
+	out.clear();
+
+	Common::INIFile ini;
+	ini.requireKeyValueDelimiter();
+	ini.allowNonEnglishCharacters();
+	const bool parsed = ini.loadFromStream(stream) && !stream.err();
+
+	int version = 0;
+	if (parsed) {
+		Common::String value;
+		if (ini.getKey("version", "map", value))
+			parseInteger(value, 0x7fffffff, version);
+	}
+
+	if (!parsed || version != 2) {
+		const char *found = nullptr;
+		if (parsed) {
+			for (uint i = 0; i < ARRAYSIZE(kHiResOldSections) && !found; ++i) {
+				if (ini.hasSection(kHiResOldSections[i]))
+					found = kHiResOldSections[i];
+			}
+		}
+		Common::String message = Common::String::format(
+			"%s %s: not a version 2 map; regenerate it (graphics/hires_text/README.md)",
+			kHiResMapName, mapDir.toString('/').c_str());
+		if (found)
+			message += Common::String::format(" (found [%s])", found);
+		hiResWarn(out, message);
+		return false;
+	}
+
+	out.version = version;
+
+	scanHiResSections(ini, qualifiers, engine, out);
+	buildHiResMap(ini, qualifiers, mapDir, out);
+
+	return true;
+}
+
+bool HiResFontMap::loadMapFile(const Common::Path &mapPath, const Common::Array<Common::String> &qualifiers,
+							   const HiResEngineKeys &engine, HiResMap &out) {
+	out.clear();
+
+	Common::FSNode mapNode(mapPath);
+	Common::SeekableReadStream *stream = mapNode.createReadStream();
+	if (!stream) {
+		hiResWarn(out, Common::String::format(
+			"%s %s: not a version 2 map; regenerate it (graphics/hires_text/README.md)",
+			kHiResMapName, mapPath.toString('/').c_str()));
+		return false;
+	}
+
+	const bool ok = loadMap(*stream, mapPath.getParent(), qualifiers, engine, out);
+	delete stream;
+	return ok;
+}
+
 } // End of namespace Graphics
