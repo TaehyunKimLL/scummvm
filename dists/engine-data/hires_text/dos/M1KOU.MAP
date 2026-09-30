@@ -26,6 +26,9 @@ bitmap=M1U4.SVF
 [latin]
 mode=proportional
 metrics=font
+# No Latin companion here: font=same is a no-op today, and just says so -
+# ASCII stays on each charset's own SVF, never the game's internal font.
+font=same
 
 # Codes the game did not use for what the code page says (mi1kor/hires_text.map).
 [glyphs]

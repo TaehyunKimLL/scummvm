@@ -243,6 +243,16 @@ metrics=font
   comma-separated chain: each code point is drawn by the first face that has
   it (`FallbackGlyphSource`), then by the game's own font.
   `[font.N] bitmap=` names an SVFN for that charset, tried before its faces.
+  A face value is a path or `[fonts]` name, or one of two sentinels SCUMM
+  alone interprets (the parser stores them as plain strings; see "Latin"
+  below for `latin_font=`'s own use of them): `[font.N] face=original` (or
+  `bitmap=original`) takes this charset out of replacement entirely - every
+  glyph, Hangul included, is the game's own font to draw, `[glyphs]` remaps
+  included, and no neighbouring charset's font is borrowed into it
+  (`nearestFont()`). It beats even `hires_text_font`, the ini key that
+  otherwise overrides every charset - except when the ini itself is what
+  says `original`, which is then treated as if the key had not been given.
+  No file literally named `original` is ever opened.
 - **Sizes.** `[font.N] size=`, else `[hires] size=`: the characters are that
   many pixels tall (SCI's meaning). With no size, a face is opened at the
   game cell times the scale with its line filling the cell, as before.
@@ -256,6 +266,27 @@ metrics=font
   `[latin] metrics=` (`game`: the game's width; `font`: the face's advance,
   `latinAdvanceGamePx()`). SCUMM's default is `proportional`, which is what
   it always did with ASCII; `[latin] enabled=false` turns it off.
+- **Latin font** (`[font.N] latin_font=`, alias `latin_face=`, else
+  `[latin] font=`, alias `face=`): a path or `[fonts]` name for a second face
+  that draws ASCII, ahead of the charset's own face and any bitmap Latin
+  companion (`[latin] bitmap=`) - or one of two sentinels, case-insensitive,
+  a per-charset value winning over a map-wide one in both directions
+  (`[font.N] latin_font=some.ttf` overrides a map-wide `font=same`, and
+  `latin_font=same` overrides a map-wide real font):
+  - **`same`**: Latin is drawn from the very font that draws this charset's
+    Hangul - never a Latin companion, never a TTF - so a bitmap (SVFN) Latin
+    companion is pointless with it: bake the one SVF with `--unicode
+    ascii,...` and it already carries both. On a code point neither the
+    charset's own face nor its bitmap has, `[hires] missing=` still draws its
+    box from that same font rather than declining to the game's font; without
+    `missing=` such a code point is simply left to the game, as always. It
+    never becomes a path: no "needs a build with FreeType" warning fires for
+    it on the DOS build, which has none. SCUMM-only (`graphics/hires_text` do
+    not interpret it).
+  - **`original`**: the opposite - ASCII is the game's own font to draw,
+    exactly as `mode=off`, and (like `face=original` above) beats even the
+    ini's `hires_text_font`, except when naming it there is itself what says
+    `original`. Hangul on the same charset is unaffected. SCUMM-only.
 - **Latin baseline** (`[latin] baseline=game|face`, default `game`): with
   `face`, ASCII drawn by a bitmap (SVFN) face is placed by the baseline baked
   into that face and the game glyph's own `offsX`/`offsY` no longer apply.

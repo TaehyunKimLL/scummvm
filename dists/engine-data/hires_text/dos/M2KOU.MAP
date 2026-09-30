@@ -42,6 +42,9 @@ bitmap=M2U8.SVF
 [latin]
 mode=proportional
 metrics=font
+# No Latin companion here: font=same is a no-op today, and just says so -
+# ASCII stays on each charset's own SVF, never the game's internal font.
+font=same
 # The card fonts (charsets 4, 7, 8) are trimmed: '.' and ',' carry a game offsY of 9 in a
 # 15 px cell. The baked SVF already sets the baseline, so drop the game's offsets.
 baseline=face
