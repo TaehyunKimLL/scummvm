@@ -3,8 +3,11 @@
 #include "common/array.h"
 #include "common/fs.h"
 #include "common/memstream.h"
+#include "common/rect.h"
 #include "graphics/hires_text/font_map.h"
 #include "graphics/hires_text/glyph_source.h"
+#include "graphics/hires_text/text_compose.h"
+#include "graphics/surface.h"
 
 #include "engines/scumm/hires_overlay.h"
 #include "engines/scumm/hires_text.h"
@@ -26,6 +29,27 @@ class ScummHiResWideAdvanceTestSuite : public CxxTest::TestSuite {
 		return ScummHiResFixture::open(hr, overlay, body);
 	}
 
+	/// Whether src actually paints some pixel for cp - GlyphMetrics::width/
+	/// height are an SVFN-only field (its metrics table); the generic
+	/// UnicodeGlyphSource::metrics() default (which TtfGlyphSource::metrics()
+	/// calls into and never overrides width/height itself) leaves both at 0
+	/// unconditionally, so checking them would always call a real TrueType
+	/// glyph "blank". Scan the actual rows instead, the way
+	/// ScummHiResText::scannedInkRight() does internally.
+	static bool hasRealInk(Graphics::UnicodeGlyphSource *src, uint32 cp) {
+		const int w = src->cellWidth() * 2;
+		const int bpp = src->bitsPerPixel();
+		for (int y = 0; y < src->cellHeight(); ++y) {
+			const byte *row = src->row(cp, y);
+			if (!row)
+				break;
+			for (int x = 0; x < w; ++x)
+				if (Graphics::TextCompose::expandCoverage(row, x, bpp))
+					return true;
+		}
+		return false;
+	}
+
 	/// A Unicode::isWide() code point this id's own TrueType face actually
 	/// has a real glyph for - DejaVuSans has broad symbol coverage but no
 	/// Hangul or Han, so the fixed 0xAC00 many other tests in this file use
@@ -35,7 +59,11 @@ class ScummHiResWideAdvanceTestSuite : public CxxTest::TestSuite {
 	/// none of the candidates are covered.
 	static uint32 findRealWideGlyph(Scumm::ScummHiResText &hr, int id) {
 		static const uint32 kCandidates[] = {
-			0xFF21, 0xFF41, 0xFF10, 0xFF01, 0xFF08, 0xFF09, 0x300C, 0x300D, 0x3001, 0x3002,
+			// 0xAC00 (가), the first Hangul syllable: the repo's own
+			// NanumGothic-Bold.ttf (systemTtf()'s first candidate) has it,
+			// so this is checked first, ahead of the Fullwidth-Forms/CJK
+			// punctuation fallbacks a system font might cover instead.
+			0xAC00, 0xFF21, 0xFF41, 0xFF10, 0xFF01, 0xFF08, 0xFF09, 0x300C, 0x300D, 0x3001, 0x3002,
 		};
 		for (uint i = 0; i < ARRAYSIZE(kCandidates); ++i) {
 			uint32 cp = kCandidates[i];
@@ -45,7 +73,7 @@ class ScummHiResWideAdvanceTestSuite : public CxxTest::TestSuite {
 			Graphics::GlyphMetrics m;
 			if (!src->metrics(cp, m) || !m.wide)
 				continue;
-			if (m.width <= 0 || m.height <= 0)
+			if (!hasRealInk(src, cp))
 				continue; // no ink to measure (e.g. a blank/space glyph)
 			return kCandidates[i];
 		}
@@ -99,6 +127,23 @@ public:
 
 	static const char *systemTtf() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		// The repo's own Hangul TrueType face, tried first: SCUMM_HIRES_CENSUS_SRCDIR
+		// (test/module.mk's -D for hires_hook_census.h, defined whenever
+		// this file is - both are only compiled with ENABLE_SCUMM) gives an
+		// absolute path to the source tree regardless of the runner's own
+		// working directory ("dists/engine-data" alone, a path relative to
+		// cwd, is not reachable from every build's actual `make test`
+		// invocation - only from the source root, unlike
+		// hires_text_font_map.h's identically-named precedent test, which
+		// TS_SKIPs itself when it is not). DejaVuSans/AppleSDGothicNeo below
+		// have no Hangul/Han/most fullwidth forms at all - see
+		// findRealWideGlyph()'s comment.
+#ifdef SCUMM_HIRES_CENSUS_SRCDIR
+		static const Common::String kNanumGothic =
+			Common::String(SCUMM_HIRES_CENSUS_SRCDIR) + "/dists/engine-data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf";
+		if (Common::FSNode(Common::Path(kNanumGothic, '/')).exists())
+			return kNanumGothic.c_str();
+#endif
 		static const char *const kFonts[] = {
 			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 			"/System/Library/Fonts/AppleSDGothicNeo.ttc",
@@ -126,6 +171,12 @@ public:
 		Scumm::ScummHiResText hr;
 		const Common::String body = Common::String::format("[font.2]\nface=%s\n", ttf);
 		TS_ASSERT(open(hr, overlay, body.c_str()));
+		// codePointFor() only reads a literal Unicode code point past 0xFF
+		// (a real Hangul syllable, not a game byte pair) in UTF-8 mode;
+		// otherwise advanceFor() returns gameWidth from its own early-out
+		// before ever reaching cellRuleAdvance() - the exact trap
+		// test_wide_keeps_cell (hires_glyph_advance.h) hit first.
+		hr.useUtf8Text();
 		hr.noteGameCharset(2, 16, 16);
 		hr.setCharsetGrid(2, 16, 16);
 		TS_ASSERT(hr.loadFonts(Common::Path()));
@@ -147,6 +198,7 @@ public:
 		Scumm::ScummHiResText grid;
 		const Common::String gridBody = Common::String::format("[font.2]\nface=%s\nadvance=game\n", ttf);
 		TS_ASSERT(open(grid, overlay, gridBody.c_str()));
+		grid.useUtf8Text();
 		grid.noteGameCharset(2, 16, 16);
 		grid.setCharsetGrid(2, 16, 16);
 		TS_ASSERT(grid.loadFonts(Common::Path()));
@@ -192,16 +244,27 @@ public:
 			TS_SKIP("needs a TrueType face");
 			return;
 		}
-		int adv[2];
+		// Measured via the drawn dirty-rect width (drawGlyphPlaced()'s own
+		// `width` variable), not advanceFor(): cellRuleAdvance()'s clip
+		// feeds into MAX(src->advance(cp), inkRight), and a real face's own
+		// advance() is often already >= the clipped ink reach, which would
+		// mask the clip entirely (confirmed by hand: reverting only
+		// cellRuleAdvance()'s `face->lineFit ? ttfCellWidth(...) : 0` back
+		// to an unconditional ttfCellWidth() did not fail this test the
+		// first time it was written this way). The draw-width clip
+		// (`hires_text.cpp` ~:1005) has no such competing MAX and clips the
+		// measured value directly.
+		int widths[2];
 		uint32 wide = 0;
 		for (int pass = 0; pass < 2; ++pass) {
 			Scumm::HiResOverlay overlay;
-			overlay.create(64, 40, true);
+			overlay.create(96, 96, true);
 			Scumm::ScummHiResText hr;
 			const Common::String body = pass == 0
-				? Common::String::format("[font.2]\nface=%s\nadvance=font\n", ttf)
-				: Common::String::format("[font.2]\nface=%s\nsize=24\nadvance=font\n", ttf);
+				? Common::String::format("[font.2]\nface=%s\n", ttf)
+				: Common::String::format("[font.2]\nface=%s\nsize=24\n", ttf);
 			TS_ASSERT(open(hr, overlay, body.c_str()));
+			hr.useUtf8Text(); // see test_wide_ttf_steps_by_face_by_default's note
 			hr.noteGameCharset(2, 8, 8);
 			hr.setCharsetGrid(2, 8, 8);
 			TS_ASSERT(hr.loadFonts(Common::Path()));
@@ -212,13 +275,25 @@ public:
 					return;
 				}
 			}
-			adv[pass] = hr.advanceFor(wide, 2, 8);
+			Graphics::Surface dest;
+			dest.create(96, 96, Graphics::PixelFormat::createFormatCLUT8());
+			memset(dest.getPixels(), 0, dest.pitch * dest.h);
+			Common::Rect dirty;
+			TS_ASSERT(hr.drawChar(dest, wide, 2, 10, 10, 15, 0, 1, &dirty));
+			widths[pass] = dirty.width();
+			dest.free();
 		}
-		// Line-fit (pass 0, no size=): the face is sized to the tiny 8 px
-		// game cell, so its own ink reach is small too. size=24 (pass 1,
-		// lineFit false): a much bigger face at its own size is not capped
-		// down to that cell - its advance is larger, not merely different.
-		TS_ASSERT_LESS_THAN(adv[0], adv[1]);
+		// Line-fit (pass 0, no size=): the glyph is sized to (and clipped
+		// to, if wider) the tiny 8 px game cell. size=24 (pass 1, lineFit
+		// false): a much bigger glyph at its own size is not clipped down
+		// to that cell - its drawn width is larger, not merely different.
+		// A plain widths[0] < widths[1] is too weak here: even with the bug
+		// reverted (the clip applied to any TTF wide glyph, lineFit or not)
+		// pass 1's much bigger 24px glyph still edges out pass 0's, just
+		// capped close to it (measured: 14 vs 16, a 2px gap) rather than
+		// reflecting its true, unclamped size (measured: 14 vs 22, an 8px
+		// gap, with the fix). Require a real margin, not just "more".
+		TS_ASSERT_LESS_THAN_EQUALS(widths[0] + 5, widths[1]);
 #else
 		TS_SKIP("needs FreeType");
 #endif
@@ -249,9 +324,17 @@ public:
 		Common::MemoryReadStream s((const byte *)text.c_str(), text.size());
 		TS_ASSERT(Graphics::HiResFontMap::loadMap(s, Common::Path("/tmp/m5", '/'), q, Graphics::kHiResKeysScumm, m));
 		hr.adoptMap(m);
+		hr.useUtf8Text(); // see test_wide_ttf_steps_by_face_by_default's note
 
-		// Only kOtherCs's cell is known at load time; kCs's is not, so it
-		// opens at kOtherCs's (tiny) borrowed size (nearestTtfCharset()).
+		// Only kOtherCs's cell (noteGameCharset(), the actual font height/
+		// width nearestTtfCharset() matches sizes by) is known at load
+		// time; kCs's is not. kCs's own *grid* (setCharsetGrid(), used only
+		// for glyph-box geometry) is given up front regardless - without
+		// it, nearestTtfCharset()'s own `_charsetWidths[kCs] <= 0` guard
+		// refuses to borrow a size for kCs at all, which is not what this
+		// test is about (that guard is unrelated to M5's own re-resolution
+		// question).
+		hr.setCharsetGrid(kCs, 48, 48);
 		hr.noteGameCharset(kOtherCs, 8, 8);
 		hr.setCharsetGrid(kOtherCs, 8, 8);
 		TS_ASSERT(hr.loadFonts(Common::Path()));
