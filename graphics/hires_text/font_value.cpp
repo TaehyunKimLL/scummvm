@@ -29,6 +29,8 @@ namespace Graphics {
 namespace {
 
 const uint32 kMaxCodePoint = 0x10FFFF;
+const uint32 kSurrogateLo = 0xD800;
+const uint32 kSurrogateHi = 0xDFFF;
 
 /** 1-6 hex digits, no prefix. */
 bool parseHexDigits(const Common::String &s, uint32 &out) {
@@ -138,6 +140,13 @@ bool parseCodePointValue(const Common::String &text, uint32 &out) {
 
 	uint32 n;
 	if (!parseHexDigits(hex, n) || n > kMaxCodePoint)
+		return false;
+	// U+D800-DFFF are surrogate halves, not Unicode scalar values (design
+	// section 1's "code point": "the Unicode scalar that is drawn") - reject
+	// them the same way as a value past U+10FFFF, so the caller's ordinary
+	// invalid-value warning applies (section 10.2) instead of silently
+	// carrying a surrogate through to the range table and glyph sources.
+	if (n >= kSurrogateLo && n <= kSurrogateHi)
 		return false;
 	out = n;
 	return true;

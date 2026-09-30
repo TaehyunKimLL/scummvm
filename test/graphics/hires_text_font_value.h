@@ -91,7 +91,10 @@ public:
 		// "data:" is resolved through HiResFontMap::resolvePath(), which -
 		// for a value it cannot find - falls back to the real file system
 		// (SearchMan/dataRoots()); that needs a real g_system, as in
-		// hires_text_font_map.h's own data: tests.
+		// hires_text_font_map.h's own data: tests. No test root has
+		// hires_text/x.svf, so this also prints one harmless "not in the
+		// extrapath or any ScummVM data folder" warning every run - the
+		// same miss-path behaviour font_map.cpp already has.
 #if NULL_OSYSTEM_IS_AVAILABLE
 		Common::install_null_g_system();
 #endif
@@ -108,5 +111,40 @@ public:
 		TS_ASSERT(!glyph("sym, ko:u+2620", r));    // a chain is refused
 		TS_ASSERT(!glyph("original:u+2620", r));   // original is not a face
 		TS_ASSERT(!glyph("sym:2620", r));          // the part after the colon must be u+ or +0x
+	}
+
+	void test_surrogates_rejected() {
+		uint32 cp;
+		TS_ASSERT(Graphics::parseCodePointValue("u+d7ff", cp));   // just below the surrogate range: valid
+		TS_ASSERT_EQUALS(cp, 0xD7FFu);
+		TS_ASSERT(!Graphics::parseCodePointValue("u+d800", cp));  // low surrogate: not a scalar value
+		TS_ASSERT(!Graphics::parseCodePointValue("u+dfff", cp));  // high surrogate: not a scalar value
+
+		Graphics::HiResGlyphRule r;
+		TS_ASSERT(glyph("u+d7ff", r));
+		TS_ASSERT(!glyph("u+d800", r));
+		TS_ASSERT(!glyph("u+dfff", r));
+		TS_ASSERT(!glyph("sym:u+d800", r));        // targeted form: same rejection
+	}
+
+	void test_same_and_original_are_case_insensitive() {
+		Graphics::HiResFontValue v;
+		Common::Array<Common::String> w;
+		TS_ASSERT(value("SAME", v, w));
+		TS_ASSERT_EQUALS(v.entries.size(), 1u);
+		TS_ASSERT_EQUALS(v.entries[0].kind, Graphics::kHiResFaceSame);
+		TS_ASSERT(w.empty());
+
+		Graphics::HiResFontValue v2;
+		Common::Array<Common::String> w2;
+		TS_ASSERT(value("ORIGINAL", v2, w2));
+		TS_ASSERT(v2.endsInOriginal());
+		TS_ASSERT(w2.empty());
+
+		Graphics::HiResGlyphRule r;
+		TS_ASSERT(glyph("ORIGINAL", r));
+		TS_ASSERT_EQUALS(r.kind, Graphics::kHiResGlyphOriginal);
+		TS_ASSERT(glyph("SAME:u+2620", r));
+		TS_ASSERT_EQUALS(r.face.kind, Graphics::kHiResFaceSame);
 	}
 };
