@@ -92,16 +92,9 @@ private:
 		return hr.addBitmapFont(charsetId, latin, ms, name);
 	}
 
-	/// A layer with @p map (after the [hires] header) parsed and adopted;
-	/// no bitmap font added yet.
-	bool open(Scumm::ScummHiResText &hr, Scumm::HiResOverlay &overlay, const char *map) {
-		const Common::String text = Common::String::format(
-			"[hires]\nscale=2\nalpha=false\nmissing=u+25a1\n%s", map);
-		Graphics::HiResTextConfig c;
-		Common::Array<Common::String> qualifiers;
-		Common::MemoryReadStream stream((const byte *)text.c_str(), text.size());
-		if (!Graphics::HiResFontMap::loadFromStream(stream, Common::Path("/tmp/same", '/'), qualifiers, c))
-			return false;
+	/// The setup open()/openText() share once the config is parsed.
+	void adopt(Scumm::ScummHiResText &hr, Scumm::HiResOverlay &overlay,
+			  const Graphics::HiResTextConfig &c) {
 		hr.useOverlay(&overlay);
 		hr.adoptConfig(c);
 		hr.noteGameCharset(kCs, 8, 8);
@@ -112,6 +105,32 @@ private:
 		// sized for another exactly.
 		hr.setCharsetGrid(kCs, 8, 8);
 		hr.setCharsetGrid(kOtherCs, 8, 8);
+	}
+
+	/// A layer with @p map (after the [hires] header) parsed and adopted;
+	/// no bitmap font added yet.
+	bool open(Scumm::ScummHiResText &hr, Scumm::HiResOverlay &overlay, const char *map) {
+		const Common::String text = Common::String::format(
+			"[hires]\nscale=2\nalpha=false\nmissing=u+25a1\n%s", map);
+		Graphics::HiResTextConfig c;
+		Common::Array<Common::String> qualifiers;
+		Common::MemoryReadStream stream((const byte *)text.c_str(), text.size());
+		if (!Graphics::HiResFontMap::loadFromStream(stream, Common::Path("/tmp/same", '/'), qualifiers, c))
+			return false;
+		adopt(hr, overlay, c);
+		return true;
+	}
+
+	/// Like open(), but @p text is the whole map (its own [hires] section
+	/// included): for cases that need scale=/alpha=/missing= to sit beside
+	/// something else in [hires] itself, such as face=original.
+	bool openText(Scumm::ScummHiResText &hr, Scumm::HiResOverlay &overlay, const char *text) {
+		Graphics::HiResTextConfig c;
+		Common::Array<Common::String> qualifiers;
+		Common::MemoryReadStream stream((const byte *)text, strlen(text));
+		if (!Graphics::HiResFontMap::loadFromStream(stream, Common::Path("/tmp/same", '/'), qualifiers, c))
+			return false;
+		adopt(hr, overlay, c);
 		return true;
 	}
 
@@ -297,6 +316,103 @@ public:
 		TS_ASSERT(open(hr, overlay, "[font.4]\nface=original\n[latin]\nmode=proportional\n"));
 		uint32 cp = 'A';
 		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cp));
+	}
+
+	/// Map-wide [hires] face=original, no [font.N] section at all: every
+	/// charset is original, the same as SCI's [hires] font=original
+	/// (resolveFontSettings()). No file named "original" is opened either
+	/// (loadFonts() below covers that on disk; here it is enough that
+	/// nothing resolves and nothing crashes trying).
+	void test_map_wide_face_original_declines_every_charset() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(openText(hr, overlay,
+						   "[hires]\nscale=2\nalpha=false\nface=original\n"
+						   "[latin]\nmode=proportional\n"));
+		uint32 cpCs = 'A';
+		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cpCs));
+		uint32 cpOther = 'A';
+		TS_ASSERT(!hr.perGlyphSourceFor(kOtherCs, cpOther));
+	}
+
+	/// A [font.N] face=<path> names a real face for that charset, so it is
+	/// not original even under a map-wide face=original - the per-charset
+	/// value always wins, same as for any other map-wide default. A sibling
+	/// charset with no [font.N] section of its own still inherits the
+	/// map-wide original. The named face itself need not open (no FreeType,
+	/// or the path does not exist): what is under test is that the charset
+	/// is not declined outright, i.e. its own bitmap (tried ahead of any
+	/// face chain) still answers.
+	void test_font_n_face_path_overrides_map_wide_original() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(openText(hr, overlay,
+						   "[hires]\nscale=2\nalpha=false\nface=original\n"
+						   "[font.4]\nface=/does/not/exist.ttf\nbitmap=OWN.SVF\n"
+						   "[latin]\nmode=proportional\n"));
+		Common::Array<uint32> own;
+		own.push_back('A');
+		TS_ASSERT(addFont(hr, kCs, false, own, "OWN.SVF"));
+
+		Graphics::UnicodeGlyphSource *ownSrc = hr.sourceFor(kCs, false);
+		uint32 cpCs = 'A';
+		TS_ASSERT_EQUALS(hr.perGlyphSourceFor(kCs, cpCs), ownSrc);
+		// kOtherCs names no [font.N] section: the map-wide original applies.
+		uint32 cpOther = 'A';
+		TS_ASSERT(!hr.perGlyphSourceFor(kOtherCs, cpOther));
+	}
+
+	/// Symmetric with the face= case above: a [font.N] bitmap=<path> also
+	/// overrides a map-wide face=original for that charset.
+	void test_font_n_bitmap_path_overrides_map_wide_original() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(openText(hr, overlay,
+						   "[hires]\nscale=2\nalpha=false\nface=original\n"
+						   "[font.4]\nbitmap=OWN.SVF\n"
+						   "[latin]\nmode=proportional\n"));
+		Common::Array<uint32> own;
+		own.push_back('A');
+		TS_ASSERT(addFont(hr, kCs, false, own, "OWN.SVF"));
+
+		Graphics::UnicodeGlyphSource *ownSrc = hr.sourceFor(kCs, false);
+		uint32 cpCs = 'A';
+		TS_ASSERT_EQUALS(hr.perGlyphSourceFor(kCs, cpCs), ownSrc);
+		uint32 cpOther = 'A';
+		TS_ASSERT(!hr.perGlyphSourceFor(kOtherCs, cpOther));
+	}
+
+	/// loadFonts() itself, on disk, for the map-wide case: [hires]
+	/// face=original with no [font.N] sections opens nothing at all - not
+	/// even a "not found" warning for a file named "original" - and every
+	/// charset stays without a source.
+	void test_map_wide_face_original_opens_nothing_on_disk() {
+		Common::FSNode tmp("/tmp/scummvm-hires-same-test");
+		tmp.createDirectory();
+		const Common::Path gameDir = tmp.getPath();
+
+		const Common::String text = "[hires]\nscale=2\nalpha=false\nface=original\n[latin]\nmode=proportional\n";
+		Graphics::HiResTextConfig c;
+		Common::Array<Common::String> qualifiers;
+		Common::MemoryReadStream stream((const byte *)text.c_str(), text.size());
+		TS_ASSERT(Graphics::HiResFontMap::loadFromStream(stream, gameDir, qualifiers, c));
+
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		hr.useOverlay(&overlay);
+		hr.adoptConfig(c);
+		hr.noteGameCharset(kCs, 8, 8);
+		// loadFonts() itself decides whether anything at all is usable; with
+		// nothing named it warns "no replacement font loaded" and returns
+		// false, exactly as an ordinary map with no fonts at all would - the
+		// point here is only that it does not also try (and fail, and warn
+		// about) a file named "original".
+		TS_ASSERT(!hr.loadFonts(gameDir));
+		TS_ASSERT_EQUALS(hr.sourceCount(), 0);
 	}
 
 	/// latin_font=original leaves Latin (only) to the game's font, exactly
