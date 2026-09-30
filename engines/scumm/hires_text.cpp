@@ -343,7 +343,7 @@ void ScummHiResText::resolveCharsetFonts() {
 
 Common::Array<Common::Path> ScummHiResText::chainFor(int charsetId) const {
 	Common::Array<Common::Path> chain;
-	// An original charset ([font.N] face= or bitmap=) has no face at all,
+	// An original charset ([font.N] face=/bitmap=, or [hires] face=) has no face at all,
 	// not even hires_text_font's: original beats the ini override too, the
 	// one key that otherwise wins over every [font.N] (below). The ini
 	// itself naming "original" is handled in loadConfig(), which then never
