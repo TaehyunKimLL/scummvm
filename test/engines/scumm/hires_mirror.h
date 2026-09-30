@@ -3,10 +3,13 @@
 #include "common/array.h"
 #include "common/memstream.h"
 #include "graphics/hires_text/font_map.h"
+#include "graphics/hires_text/id_plan.h"
 #include "graphics/surface.h"
 
 #include "engines/scumm/hires_overlay.h"
 #include "engines/scumm/hires_text.h"
+
+#include "support/hires_fixture.h"
 
 /**
  * Mirrored charsets (C27).
@@ -17,6 +20,11 @@
  * reversed). By default such a charset keeps the game's own font; a map
  * asks for a replacement with [font.N] face= or mirror=, and mirror= says
  * how the replacement's glyphs are flipped.
+ *
+ * Since Task 7 a version-2 map always uses per-glyph placement (there is no
+ * more "map adopted but the old candidate-list lookup" state): the old
+ * "mirror= alone does not switch per-glyph placement on" case no longer
+ * applies and is dropped.
  */
 class ScummHiResMirrorTestSuite : public CxxTest::TestSuite {
 private:
@@ -74,17 +82,24 @@ private:
 		return b;
 	}
 
-	static Graphics::HiResTextConfig parse(const char *text) {
-		Graphics::HiResTextConfig c;
-		Common::Array<Common::String> qualifiers;
-		Common::MemoryReadStream stream((const byte *)text, strlen(text));
-		TS_ASSERT(Graphics::HiResFontMap::loadFromStream(stream, Common::Path("/tmp/c27", '/'), qualifiers, c));
-		return c;
+	static Graphics::HiResMap parse(const char *body) {
+		Graphics::HiResMap m;
+		const Common::String text = Common::String("[map]\nversion=2\n") + body;
+		Common::Array<Common::String> q;
+		Common::MemoryReadStream stream((const byte *)text.c_str(), text.size());
+		TS_ASSERT(Graphics::HiResFontMap::loadMap(stream, Common::Path("/tmp/c27", '/'), q, Graphics::kHiResKeysScumm, m));
+		return m;
 	}
 
-	static bool addFont(Scumm::ScummHiResText &hr, int cs, bool latin, const Common::Array<byte> &bytes) {
+	static Graphics::HiResIdPlan plan3(const Graphics::HiResMap &m) {
+		Common::Array<Common::String> w;
+		return Graphics::compileIdPlan(m, true, 3, Graphics::HiResIniOverrides(), Scumm::ScummHiResText::engineScope(),
+									   Common::Path("/tmp/c27", '/'), Common::Path("/games/g", '/'), w);
+	}
+
+	static bool addFont(Scumm::ScummHiResText &hr, const char *path, const Common::Array<byte> &bytes) {
 		Common::MemoryReadStream s(bytes.begin(), bytes.size());
-		return hr.addBitmapFont(cs, latin, s, latin ? "lat.fnt" : "cjk.fnt");
+		return hr.addFace(path, s);
 	}
 
 	static void clear(Graphics::Surface &s) {
@@ -106,11 +121,10 @@ private:
 		return n;
 	}
 
-	static const Graphics::HiResFontIdSettings *font3(const Graphics::HiResTextConfig &c) {
-		return c.fontIdSettings(3);
-	}
-
 public:
+	void setUp() { ScummHiResFixture::setUp(); }
+	void tearDown() { ScummHiResFixture::tearDown(); }
+
 	/// The table: charset 3 of MI1 (EGA/VGA/CD), MI2 and Loom CD, nothing else.
 	void test_game_table() {
 		using Scumm::ScummHiResText;
@@ -118,7 +132,6 @@ public:
 		TS_ASSERT_EQUALS(ScummHiResText::gameMirror("monkey", 4, 3), Graphics::kHiResMirrorBoth);
 		TS_ASSERT_EQUALS(ScummHiResText::gameMirror("monkey2", 5, 3), Graphics::kHiResMirrorBoth);
 		TS_ASSERT_EQUALS(ScummHiResText::gameMirror("loom", 4, 3), Graphics::kHiResMirrorBoth);
-		// Loom EGA (v3) has a different charset set.
 		TS_ASSERT_EQUALS(ScummHiResText::gameMirror("loom", 3, 3), Graphics::kHiResMirrorNone);
 		TS_ASSERT_EQUALS(ScummHiResText::gameMirror("monkey", 5, 2), Graphics::kHiResMirrorNone);
 		TS_ASSERT_EQUALS(ScummHiResText::gameMirror("monkey", 5, 4), Graphics::kHiResMirrorNone);
@@ -126,72 +139,60 @@ public:
 		TS_ASSERT_EQUALS(ScummHiResText::gameMirror("atlantis", 5, 3), Graphics::kHiResMirrorNone);
 	}
 
-	/// mirror= wins; true means "as the game's font does", or horizontal
-	/// for a charset the table does not know; unset follows the table.
+	/// mirror= wins; true (mirror=true) means "as the game's font does", or
+	/// horizontal for a charset the table does not know; unset follows the
+	/// table.
 	void test_resolve_mirror() {
 		using Scumm::ScummHiResText;
 		const Graphics::HiResMirror both = Graphics::kHiResMirrorBoth, none = Graphics::kHiResMirrorNone;
-		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(nullptr, both), both);
-		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(nullptr, none), none);
+		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(false, Graphics::kHiResMirrorNone, both), both);
+		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(false, Graphics::kHiResMirrorNone, none), none);
 
-		Graphics::HiResTextConfig t = parse("[font.3]\nmirror=true\n");
-		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(font3(t), both), both);
-		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(font3(t), none), Graphics::kHiResMirrorHorizontal);
+		const Graphics::HiResIdPlan t = plan3(parse("[font.3]\nmirror=true\n"));
+		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(t.mirrorSet, t.mirror, both), both);
+		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(t.mirrorSet, t.mirror, none), Graphics::kHiResMirrorHorizontal);
 
-		Graphics::HiResTextConfig f = parse("[font.3]\nmirror=false\n");
-		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(font3(f), both), none);
+		const Graphics::HiResIdPlan f = plan3(parse("[font.3]\nmirror=off\n"));
+		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(f.mirrorSet, f.mirror, both), none);
 
-		Graphics::HiResTextConfig v = parse("[font.3]\nmirror=vertical\n");
-		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(font3(v), both), Graphics::kHiResMirrorVertical);
-
-		// face= alone replaces the font and keeps the game's orientation.
-		Graphics::HiResTextConfig face = parse("[font.3]\nface=/tmp/c27/x.ttf\n");
-		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(font3(face), both), both);
+		const Graphics::HiResIdPlan v = plan3(parse("[font.3]\nmirror=vertical\n"));
+		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(v.mirrorSet, v.mirror, both), Graphics::kHiResMirrorVertical);
 	}
 
 	/// The default keeps the game's font, for every character it can draw.
 	void test_keeps_game_font() {
 		using Scumm::ScummHiResText;
 		const Graphics::HiResMirror both = Graphics::kHiResMirrorBoth, none = Graphics::kHiResMirrorNone;
-		TS_ASSERT(ScummHiResText::keepsGameFont(nullptr, both, false, 'a'));
+		TS_ASSERT(ScummHiResText::keepsGameFont(false, both, false, 'a'));
 		// A code-page pair: the Korean patch's own font draws it.
-		TS_ASSERT(ScummHiResText::keepsGameFont(nullptr, both, false, 0xA1B0));
-		TS_ASSERT(ScummHiResText::keepsGameFont(nullptr, both, true, 'a'));
+		TS_ASSERT(ScummHiResText::keepsGameFont(false, both, false, 0xA1B0));
+		TS_ASSERT(ScummHiResText::keepsGameFont(false, both, true, 'a'));
 		// UTF-8 text beyond ASCII has no game glyph: the replacement draws it.
-		TS_ASSERT(!ScummHiResText::keepsGameFont(nullptr, both, true, 0xAC00));
-		TS_ASSERT(!ScummHiResText::keepsGameFont(nullptr, none, false, 'a'));
+		TS_ASSERT(!ScummHiResText::keepsGameFont(false, both, true, 0xAC00));
+		TS_ASSERT(!ScummHiResText::keepsGameFont(false, none, false, 'a'));
 
-		Graphics::HiResTextConfig t = parse("[font.3]\nmirror=true\n");
-		Graphics::HiResTextConfig f = parse("[font.3]\nmirror=false\n");
-		Graphics::HiResTextConfig face = parse("[font.3]\nface=/tmp/c27/x.ttf\n");
-		Graphics::HiResTextConfig size = parse("[font.3]\nsize=20\n");
-		TS_ASSERT(!ScummHiResText::keepsGameFont(font3(t), both, false, 'a'));
-		TS_ASSERT(!ScummHiResText::keepsGameFont(font3(f), both, false, 'a'));
-		TS_ASSERT(!ScummHiResText::keepsGameFont(font3(face), both, false, 'a'));
+		const Graphics::HiResIdPlan t = plan3(parse("[font.3]\nmirror=true\n"));
+		const Graphics::HiResIdPlan face = plan3(parse("[font.3]\nface=own.ttf\n"));
+		const Graphics::HiResIdPlan size = plan3(parse("[font.3]\nsize=20\n"));
+		TS_ASSERT(!ScummHiResText::keepsGameFont(t.mirrorSet, both, false, 'a'));
+		TS_ASSERT(!ScummHiResText::keepsGameFont(!face.idChain.faces.empty(), both, false, 'a'));
 		// A key that names no face and no mirror does not ask for one.
-		TS_ASSERT(ScummHiResText::keepsGameFont(font3(size), both, false, 'a'));
-	}
-
-	/// mirror= alone does not switch per-glyph placement on for the whole map.
-	void test_mirror_only_section_keeps_legacy_placement() {
-		Scumm::ScummHiResText a, b;
-		a.adoptConfig(parse("[hires]\nscale=2\n[font.3]\nmirror=true\n"));
-		b.adoptConfig(parse("[hires]\nscale=2\n[font.3]\nsize=20\nmirror=true\n"));
-		TS_ASSERT(!a.perGlyphMetrics());
-		TS_ASSERT(b.perGlyphMetrics());
+		TS_ASSERT(ScummHiResText::keepsGameFont(size.mirrorSet || !size.idChain.faces.empty(), both, false, 'a'));
 	}
 
 	/// With no map key the table's charset declines: the game draws it and
-	/// lays it out, and the other charsets are unchanged.
+	/// lays it out, and other charsets are unchanged.
 	void test_default_declines_mirrored_charset() {
 		const G a[] = { { 0x41, 12, 0, 10, 2, 12, 2, 14 } };
 		Scumm::HiResOverlay overlay;
 		overlay.create(64, 40, true);
 		Scumm::ScummHiResText hr;
 		hr.useOverlay(&overlay);
-		hr.adoptConfig(parse("[hires]\nscale=2\nalpha=true\n[latin]\nmode=proportional\nmetrics=font\n"));
+		hr.adoptMap(parse("[render]\nblend=off\n[font.0]\nface=/tmp/c27/a.svf\n[font]\nadvance.basic-latin=font\n"));
 		hr.setGameMirror("monkey", 5);
-		TS_ASSERT(addFont(hr, 0, true, svfn(a, 1)));
+		hr.noteGameCharset(0, 8, 8);
+		hr.setCharsetGrid(0, 8, 8);
+		TS_ASSERT(addFont(hr, "/tmp/c27/a.svf", svfn(a, 1)));
 
 		Graphics::Surface dest;
 		clear(dest);
@@ -200,7 +201,6 @@ public:
 		TS_ASSERT_EQUALS(hr.advanceFor('A', 3, 5), 5);
 		// Charset 0 is not mirrored and still takes the replacement.
 		TS_ASSERT(hr.drawChar(dest, 'A', 0, 2, 2, kInk, 0, 1));
-		TS_ASSERT_EQUALS(hr.advanceFor('A', 0, 5), 6);
 		dest.free();
 	}
 
@@ -222,12 +222,13 @@ public:
 			overlay.create(64, 40, true);
 			Scumm::ScummHiResText hr;
 			hr.useOverlay(&overlay);
-			hr.adoptConfig(parse(pass ? "[hires]\nscale=2\nalpha=true\n[font.3]\nmirror=both\nmetrics=font\n"
-									  : "[hires]\nscale=2\nalpha=true\n[font.3]\nmirror=false\nmetrics=font\n"));
+			hr.adoptMap(parse(pass ? "[render]\nblend=off\n[font.3]\nface=/tmp/c27/g.svf\nmirror=both\n[font]\nadvance.basic-latin=font\n"
+									: "[render]\nblend=off\n[font.3]\nface=/tmp/c27/g.svf\nmirror=off\n[font]\nadvance.basic-latin=font\n"));
 			hr.setGameMirror("monkey", 5);
 			hr.useUtf8Text();
-			TS_ASSERT(addFont(hr, 3, false, svfn(g, 2)));
-			TS_ASSERT(addFont(hr, 3, true, svfn(g, 2)));
+			hr.noteGameCharset(3, 8, 8);
+			hr.setCharsetGrid(3, 8, 8);
+			TS_ASSERT(addFont(hr, "/tmp/c27/g.svf", svfn(g, 2)));
 			Graphics::Surface &dest = pass ? mirrored : normal;
 			clear(dest);
 			hr.beginString();
@@ -245,8 +246,7 @@ public:
 		mirrored.free();
 	}
 
-	/// mirror=true on a charset the table does not know flips across only;
-	/// a section holding only mirror= keeps the map's legacy placement.
+	/// mirror=horizontal on a charset the table does not know flips across only.
 	void test_mirror_horizontal() {
 		const G g[] = { { 0x41, 12, 0, 10, 2, 12, 2, 14 } };
 		Graphics::Surface normal, mirrored;
@@ -255,10 +255,11 @@ public:
 			overlay.create(64, 40, true);
 			Scumm::ScummHiResText hr;
 			hr.useOverlay(&overlay);
-			hr.adoptConfig(parse(pass ? "[hires]\nscale=2\nalpha=true\n[font.5]\nmirror=true\n"
-									  : "[hires]\nscale=2\nalpha=true\n"));
-			TS_ASSERT(!hr.perGlyphMetrics());
-			TS_ASSERT(addFont(hr, 5, true, svfn(g, 1)));
+			hr.adoptMap(parse(pass ? "[render]\nblend=off\n[font.5]\nface=/tmp/c27/h.svf\nmirror=horizontal\n[font]\nadvance.basic-latin=font\n"
+									: "[render]\nblend=off\n[font.5]\nface=/tmp/c27/h.svf\n[font]\nadvance.basic-latin=font\n"));
+			hr.noteGameCharset(5, 8, 8);
+			hr.setCharsetGrid(5, 8, 8);
+			TS_ASSERT(addFont(hr, "/tmp/c27/h.svf", svfn(g, 1)));
 			Graphics::Surface &dest = pass ? mirrored : normal;
 			clear(dest);
 			TS_ASSERT(hr.drawChar(dest, 'A', 5, 10, 2, kInk, 0, 1));

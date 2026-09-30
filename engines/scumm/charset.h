@@ -243,9 +243,9 @@ public:
 	/**
 	 * What printChar() leaves of the game glyph's offsets for a Latin glyph
 	 * the hi-res layer places itself: stepped by a TrueType face (@p faceStep:
-	 * no offsX, the charset's shared @p lineOffsY) or by the baseline rule of
-	 * a bitmap face (@p baselineFace, [latin] baseline=face: neither, the
-	 * baked baseline is the only placement). Neither: the game's stay. Inline,
+	 * no offsX, the charset's shared @p lineOffsY) or by the origin rule of
+	 * a bitmap face (@p baselineFace, origin=face: neither, the baked
+	 * baseline is the only placement). Neither: the game's stay. Inline,
 	 * as glyphOffset() is, so a unit test needs no engine to link.
 	 */
 	static void latinGlyphOffsets(bool faceStep, bool baselineFace, int lineOffsY, int &offsX, int &offsY) {
