@@ -451,7 +451,7 @@ public:
 		TS_ASSERT_EQUALS(v.entries.size(), 2u);
 		TS_ASSERT(v.endsInOriginal());
 		TS_ASSERT_EQUALS(w.size(), 1u);
-		TS_ASSERT_EQUALS(w[0], "hires_text.map: entries after 'original' are ignored: 'ko'");
+		TS_ASSERT_EQUALS(w[0], "HIRESTXT.MAP: entries after 'original' are ignored: 'ko'");
 	}
 
 	void test_unknown_name_dropped() {
@@ -459,7 +459,7 @@ public:
 		Common::Array<Common::String> w;
 		TS_ASSERT(!value("nosuchface", v, w));
 		TS_ASSERT(v.empty());
-		TS_ASSERT_EQUALS(w[0], "hires_text.map: unknown face name 'nosuchface'");
+		TS_ASSERT_EQUALS(w[0], "HIRESTXT.MAP: unknown face name 'nosuchface'");
 	}
 
 	void test_face_name_grammar() {
@@ -825,7 +825,7 @@ public:
 		TS_ASSERT(!load("[map]\nversion=1\n", m));
 		TS_ASSERT(!load("[hires]\nscale=2\n[latin]\nmode=off\n", m));
 		TS_ASSERT_EQUALS(m.warnings.back(),
-			"hires_text.map: not a version 2 map (found [hires]); regenerate it (graphics/hires_text/README.md)");
+			"HIRESTXT.MAP: not a version 2 map (found [hires]); regenerate it (graphics/hires_text/README.md)");
 		TS_ASSERT(load("[map]\nversion=2\n", m));
 	}
 
@@ -871,8 +871,8 @@ public:
 		TS_ASSERT(load("[map]\nversion=2\n[font]\nrange.basic-latin=A.SVF\nrange.U+0020-007E=B.SVF\n"
 					   "range.U+0100-010F=C.SVF\nrange.U+0108-0117=D.SVF\n", m));
 		TS_ASSERT_EQUALS(m.font.rangeSpecs.size(), 2u);   // the later spelling and the equal-width overlap dropped
-		TS_ASSERT(hasWarning(m, "hires_text.map: [font] range.U+0020-007E repeats range.basic-latin; ignoring it"));
-		TS_ASSERT(hasWarning(m, "hires_text.map: [font] range.U+0108-0117 overlaps range.U+0100-010F at the same width; ignoring it"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font] range.U+0020-007E repeats range.basic-latin; ignoring it"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font] range.U+0108-0117 overlaps range.U+0100-010F at the same width; ignoring it"));
 	}
 
 	void test_qualified_font_section_merges_span_by_span() {
@@ -905,9 +905,9 @@ public:
 	void test_removed_and_unknown_keys_warn() {
 		Graphics::HiResMap m;
 		TS_ASSERT(load("[map]\nversion=2\n[latin]\nmode=off\n[font.4]\nbitmap=X.SVF\nfase=Y.SVF\n", m));
-		TS_ASSERT(hasWarning(m, "hires_text.map: [latin] is not read any more; see \"Ranges\" in graphics/hires_text/README.md"));
-		TS_ASSERT(hasWarning(m, "hires_text.map: unknown key [font.4] bitmap"));
-		TS_ASSERT(hasWarning(m, "hires_text.map: unknown key [font.4] fase"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [latin] is not read any more; see \"Ranges\" in graphics/hires_text/README.md"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown key [font.4] bitmap"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown key [font.4] fase"));
 		TS_ASSERT(!m.fontIdScope(4) || !m.fontIdScope(4)->faceSet);
 	}
 
@@ -1437,7 +1437,7 @@ rewrites it).
 
 Behaviour to implement (spec 5, 6, 8):
 - `loadConfig()`: `hires_text=false` -> off (unchanged meaning, now through `readHiResIniFromConfMan`); map path per spec 4
-  (`hires_text_map` relative to the game folder; unset -> `<game>/hires_text.map` if present; empty -> no map);
+  (`hires_text_map` relative to the game folder; unset -> `<game>/HIRESTXT.MAP` if present; empty -> no map);
   `loadMapFile(path, {gameid, "v<N>"}, kHiResKeysScumm, _map)`; `_config.encoding` default from language, map `[text]
   encoding` wins; compile `_plans[i] = compileIdPlan(_map, haveMap, i, ini, engineScope(), mapDir, gameDir, warnings)`
   for i in 0..19. Scale: `clampScale(ini > map > 2, 1, 3, hiResScaleLimits(), "SCUMM", w)`. Blend wanted =
@@ -1449,12 +1449,12 @@ Behaviour to implement (spec 5, 6, 8):
 - Faces are opened per distinct `(resolved path, pixel size)` into `_sources` (SVF sniffed by magic in every chain -
   `openTtfChain` gains the `SVFN` check that `sci/graphics/cache.cpp` `svfnSource()` has). An SVF whose cell height differs
   from the first SVF of its charset's id chain is refused: warning
-  `hires_text.map: <path>: cell height <h> differs from <first path>'s <h0> on charset <N>; not used`.
+  `HIRESTXT.MAP: <path>: cell height <h> differs from <first path>'s <h0> on charset <N>; not used`.
 - `faceForCodePoint(charsetId, cp, ...)`: `plan.glyphFor(chr, decoded, cp)` (Game -> declined), then
   `pickGlyph(plan, chainSources, targetSources, cp)`; `kFace` -> map `{chain, face}` back to the `Face*`; `kGame` with a
   real cp -> try `nearestFont()` borrowing exactly as today (never for a target); then the `missing` box is already in
   `pickGlyph`. Targets are opened at load; a target face lacking its cp is warned once:
-  `hires_text.map: [glyphs] 0x<code> -> <face>:U+<cp>: the face has no such glyph; the game's font draws it`.
+  `HIRESTXT.MAP: [glyphs] 0x<code> -> <face>:U+<cp>: the face has no such glyph; the game's font draws it`.
 - Advance: `plan.advanceFor(cp)`: `Game`/`Font` -> `advanceGamePx()`; `Cell` -> the charset's cell rule (the old half);
   `Engine` -> the current C31 code path (`wideStepsByFace()`/`cellRuleAdvance()` with no metrics key). The remapped
   code's old exclusions (`hires_text.cpp` ~1596-1597, ~1638) are removed: the rules of the remapped cp apply (spec 6.5).
@@ -1785,7 +1785,7 @@ Behaviour:
   `Cell` -> the narrow/wide cell (was `half`); `Engine` -> today's path (cell for a legacy code-page game, per-glyph
   advances for a UTF-8 translation).
 - `missing` per font id from the plan (was map-wide only); `applyMissing()` warns once per chain without the box glyph:
-  `hires_text.map: missing=U+%04X has no effect: %s has no glyph for it` (text unchanged).
+  `HIRESTXT.MAP: missing=U+%04X has no effect: %s has no glyph for it` (text unchanged).
 - The `hires_text_log` tally: `kTextFaceLatin` becomes `kTextFaceRule` ("a range rule's chain drew it"), printed as
   `rule=N`.
 
@@ -2226,12 +2226,12 @@ cd /home/thkim/work/scummvm && grep -rnE "dos_truecolor|hires_text_alpha|hires_t
 ```
   Record the hits (the to-do list of this task).
 - [ ] **Step 3: Update the generators.** `makemaps.py` writes version-2 maps (spec 3) only. Check it by hand-converting
-  one map first (`gamedata/mi2kor/hires_text.map`, spec 6.6) and diffing the generator's output against it: identical
+  one map first (`gamedata/mi2kor/HIRESTXT.MAP`, spec 6.6) and diffing the generator's output against it: identical
   except comments. `inifix.py`/`fontplan.py`/`build-debian.sh`/`fontcheck.sh` write and read the new ini keys only.
   Regenerate the 16 gamedata maps (untracked: nothing to commit). Gate: every generated file has `[map]` with
   `version=2` and none of the Step 2 patterns (`grep -LE "^version=2" gamedata/*/hires_text*.map` prints nothing). Then
   load one of them in the Linux build (`builds/linux-dos-test-scumm/scummvm` on its game, `-d1`) and check the log has
-  no `hires_text.map:` warning. Look at `gamedata/mi2kor/hires_text.map` and `gamedata/indy3kor/hires_text.map` by eye;
+  no `HIRESTXT.MAP:` warning. Look at `gamedata/mi2kor/HIRESTXT.MAP` and `gamedata/indy3kor/HIRESTXT.MAP` by eye;
   these used the legacy non-per-glyph path and now use per-glyph placement - say so in the report.
 - [ ] **Step 4: Update the harness.** `m2_accept.py` "KQ1 off" run: `render_target=clut8` (expected mode 640x400 CLUT8);
   the U runs drop `rgb_rendering=true`. `m5_accept.py` A2 extra run: `mi2ko` with `render_target=clut8`: expected
