@@ -1769,6 +1769,7 @@ void hiResWarn(HiResMap &out, const Common::String &message) {
 enum HiResSectionFamily {
 	kHSecUnknown = 0,
 	kHSecRemoved,
+	kHSecOldGlyphsCs, ///< [glyphs:csN]: the removed old per-charset form (design 3.3)
 	kHSecReserved,   ///< [translation.<lang>]: a later plan's, skipped whole
 	kHSecMap,
 	kHSecRender,
@@ -1784,10 +1785,18 @@ enum HiResSectionFamily {
 
 struct HiResSectionInfo {
 	HiResSectionFamily family;
-	int id;                    ///< for kHSecFontId/kHSecGlyphsId
+	int id;                    ///< for kHSecFontId/kHSecGlyphsId/kHSecOldGlyphsCs
 	Common::String base;       ///< section name before ':' ("font.4")
 	Common::String qualifier;  ///< after ':'; empty if bare
 };
+
+/// The old per-charset qualifier convention [glyphs:csN] (design 3.3: removed,
+/// replaced by [glyphs.N]): "cs" followed by one or more digits, case-insensitive.
+bool isOldGlyphsCsQualifier(const Common::String &qualifier, int &id) {
+	if (!qualifier.hasPrefixIgnoreCase("cs") || qualifier.size() <= 2)
+		return false;
+	return parseInteger(Common::String(qualifier.c_str() + 2), 65535, id);
+}
 
 void classifyHiResSection(const Common::String &name, HiResSectionInfo &info) {
 	const size_t colon = name.findFirstOf(':');
@@ -1806,7 +1815,16 @@ void classifyHiResSection(const Common::String &name, HiResSectionInfo &info) {
 	if (info.base.equalsIgnoreCase("layout")) { info.family = kHSecLayout; return; }
 	if (info.base.equalsIgnoreCase("fonts")) { info.family = kHSecFonts; return; }
 	if (info.base.equalsIgnoreCase("font")) { info.family = kHSecFont; return; }
-	if (info.base.equalsIgnoreCase("glyphs")) { info.family = kHSecGlyphs; return; }
+	if (info.base.equalsIgnoreCase("glyphs")) {
+		int csId;
+		if (!info.qualifier.empty() && isOldGlyphsCsQualifier(info.qualifier, csId)) {
+			info.family = kHSecOldGlyphsCs;
+			info.id = csId;
+			return;
+		}
+		info.family = kHSecGlyphs;
+		return;
+	}
 	if (info.base.equalsIgnoreCase("shadow")) { info.family = kHSecShadow; return; }
 	// Reserved for a later plan (user ruling): [translation.<lang>], lang an
 	// ISO 639-1 code. The bare [translation] below is still the removed
@@ -1929,6 +1947,11 @@ void scanHiResSections(const Common::INIFile &ini, const Common::Array<Common::S
 		if (info.family == kHSecRemoved) {
 			hiResWarn(out, Common::String::format("%s: [%s] is not read any more; %s",
 													kHiResMapName, sec->name.c_str(), hiResRemovedSectionPointer(info.base)));
+			continue;
+		}
+		if (info.family == kHSecOldGlyphsCs) {
+			hiResWarn(out, Common::String::format("%s: [%s] is not read any more; use [glyphs.%d] instead",
+													kHiResMapName, sec->name.c_str(), info.id));
 			continue;
 		}
 		if (info.family == kHSecFonts)
@@ -2665,7 +2688,7 @@ bool HiResFontMap::loadMap(Common::SeekableReadStream &stream, const Common::Pat
 	if (parsed) {
 		Common::String value;
 		if (ini.getKey("version", "map", value))
-			parseInteger(value, 0x7fffffff, version);
+			parseInteger(stripInlineComment(value), 0x7fffffff, version);
 	}
 
 	if (!parsed || version != 2) {

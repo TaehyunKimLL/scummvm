@@ -2040,4 +2040,89 @@ public:
 		TS_ASSERT(load("[map]\nversion=2\n[translation.ko]\nanything=goes\nfoo=bar\n", m));
 		TS_ASSERT_EQUALS(m.warnings.size(), 0u);
 	}
+
+	// Review fix round 1, item 1: every other key goes through
+	// stripInlineComment(); [map] version= must too.
+	void test_map_version_ignores_inline_comment() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2 ; the current version\n", m));
+		TS_ASSERT_EQUALS(m.version, 2);
+	}
+
+	// Review fix round 1, item 2: [glyphs:csN] is the removed old per-charset
+	// form (design 3.3, "now [glyphs.N]"), not an ordinary qualified [glyphs]
+	// section - it must get the "is not read any more" diagnostic, and its
+	// keys must not be read into the map at all.
+	void test_old_glyphs_csn_section_is_removed() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[glyphs:cs0]\n0x07=original\n", m));
+		TS_ASSERT_EQUALS(m.warnings.size(), 1u);
+		TS_ASSERT_EQUALS(m.warnings[0], "HIRESTXT.MAP: [glyphs:cs0] is not read any more; use [glyphs.0] instead");
+		TS_ASSERT(!m.glyphs.contains(0x07));
+		// A genuine engine qualifier (not "csN") is still an ordinary
+		// qualified [glyphs] section, merged as usual.
+		Graphics::HiResMap m2;
+		TS_ASSERT(load("[map]\nversion=2\n[glyphs:monkey2]\n0x07=original\n", m2, Graphics::kHiResKeysScumm, "monkey2"));
+		TS_ASSERT_EQUALS(m2.warnings.size(), 0u);
+		TS_ASSERT(m2.glyphs.contains(0x07));
+	}
+
+	// Review fix round 1, item 2 (continued): every other removed key form
+	// design 3.3 lists ("font=" alias of face=, "bitmap=", "latin*=",
+	// "metrics=", "baseline=", "[render] alpha=/mode=/metrics=") is already
+	// covered by the generic unknown-key path (they are simply not in the
+	// v2 known-key tables), matching spec 10.2's umbrella wording; this pins
+	// that each of them actually does warn rather than being silently
+	// accepted.
+	void test_other_removed_key_forms_still_warn() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n"
+					   "[font.5]\nfont=OLD.SVF\nlatin=half\nmetrics=game\nbaseline=2\n"
+					   "[render]\nalpha=true\nmode=string\nmetrics=font\n", m));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown key [font.5] font"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown key [font.5] latin"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown key [font.5] metrics"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown key [font.5] baseline"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown key [render] alpha"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown key [render] mode"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown key [render] metrics"));
+	}
+
+	// Review fix round 1, item 3: an invalid value is ignored (never
+	// substituted) for the scalar keys test_invalid_values_are_ignored_not_substituted
+	// does not already cover.
+	void test_more_invalid_scalar_values_are_ignored() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n"
+					   "[font]\nsize=999\npixel=999\nalign=sideways\ncell=weird\nmissing=notacode\n"
+					   "origin=nowhere\nmirror=upsidedown\n"
+					   "[layout]\nhangul=sideways\nkinsoku=maybe\nthai=2\n"
+					   "[text]\nencoding=nonsense\n"
+					   "[shadow]\noffset=notanumber\ncolor=999\nwidth=notanumber\nstyle=wobbly\n"
+					   "shadow=notapair\nshadow_color=999\nshadow_alpha=999\n", m));
+		TS_ASSERT(!m.font.sizeSet);
+		TS_ASSERT(!m.font.pixelSet);
+		TS_ASSERT(!m.font.alignSet);
+		TS_ASSERT(!m.font.cellSet);
+		TS_ASSERT(!m.font.missingSet);
+		TS_ASSERT(!m.font.originSet);
+		TS_ASSERT(!m.font.mirrorSet);
+		TS_ASSERT(!m.layout.hangulSet);
+		TS_ASSERT(!m.layout.kinsokuSet);
+		TS_ASSERT(!m.layout.thaiSet);
+		TS_ASSERT(!m.encodingSet);
+		TS_ASSERT_EQUALS(m.shadowOffset, -1);
+		TS_ASSERT(!m.shadowColorSet);
+		TS_ASSERT_EQUALS(m.shadowWidthQ, -1);
+		TS_ASSERT_EQUALS(m.shadowStyle, Graphics::kHiResOutlineRound);
+		TS_ASSERT(!m.shadowShiftSet);
+		TS_ASSERT(!m.shadowShiftColorSet);
+		TS_ASSERT_EQUALS(m.shadowAlpha, 255);
+		// A representative sample of the actual warning texts, so a future
+		// change that drops the warning call itself (rather than the value
+		// check) would still be caught.
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font] align 'sideways' is not game, cell or font; ignoring it"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [text] encoding 'nonsense' is not known; ignoring it"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [shadow] offset 'notanumber' is invalid; ignoring it"));
+	}
 };
