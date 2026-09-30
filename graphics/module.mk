@@ -33,6 +33,7 @@ MODULE_OBJS := \
 	hires_text/text_compose.o \
 	hires_text/text_layout.o \
 	hires_text/unicode_props.o \
+	hires_text/unicode_ranges.o \
 	fonts/amigafont.o \
 	fonts/bdf.o \
 	fonts/bgifont.o \
