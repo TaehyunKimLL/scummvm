@@ -116,12 +116,15 @@ HiResScaleLimits hiResScaleLimits();
  * @p platform limits (design section 7.4), warning once when either
  * disagrees with @p requested: the platform limit is checked first (only
  * when it is a fixed value, i.e. @p platform.min == @p platform.max), then
- * the engine limit. @p engineName names the engine in the engine-limit
+ * the engine limit. On either violation the clamped result is
+ * @p engineDefault (the ruling's per-engine default: SCUMM 2, SCI 2, AGS 1
+ * - never hard-wired here, always the caller's own value, since it need not
+ * equal @p engineMin). @p engineName names the engine in the engine-limit
  * message ("SCI", "SCUMM", ...). @p warning is left empty when
  * @p requested needed no clamping.
  */
 int clampScale(int requested, int engineMin, int engineMax, const HiResScaleLimits &platform,
-			   const char *engineName, Common::String &warning);
+			   int engineDefault, const char *engineName, Common::String &warning);
 
 /**
  * One load's resolved ini overrides (design section 11); a field's `xSet`
