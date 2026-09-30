@@ -15,6 +15,13 @@
  * files and a launched game, which is why it went untested while the harness
  * grew around it. It is a pure function over the cell array, so it does not
  * need any of that.
+ *
+ * This is the map-less fallback's own rule only. A map (or an ini
+ * hires_text_scale) names its scale directly, ini > map > 2, clamped to
+ * SCUMM's 1..3 and then the platform's own limits (the DOS backend's 2x-only
+ * cap): that resolution is Scumm::ScummHiResText::resolvedScale(), tested in
+ * hires_render_target.h alongside the render-target rules it shares a design
+ * section (7) with.
  */
 class HiResScaleRuleTestSuite : public CxxTest::TestSuite {
 public:

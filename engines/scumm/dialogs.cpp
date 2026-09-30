@@ -1245,17 +1245,33 @@ GUI::CheckboxWidget *ScummOptionsContainerWidget::createHiResTextAlphaCheckbox(G
 void ScummOptionsContainerWidget::loadHiResTextAlphaCheckbox(GUI::CheckboxWidget *checkbox) const {
 	if (!checkbox)
 		return;
-	// Default on: a map that wants hard edges says so, and the ones shipped
-	// so far all blend.
-	bool on = true;
-	if (ConfMan.hasKey("hires_text_alpha", _domain))
-		on = ConfMan.getBool("hires_text_alpha", _domain);
-	checkbox->setState(on);
+	// The checkbox shows the effective state (design section 7.2's
+	// blendActive()), not just the raw key: an untouched hires_text_blend
+	// reads as "auto", and blendActive(auto, ...) is what the map/screen
+	// would actually do with it. The dialog has neither a loaded map nor a
+	// live screen format to ask, so it asks the best-case question - some
+	// face has coverage, the screen is not paletted - which reduces
+	// blendActive() to "blend != off"; that is the one thing this checkbox
+	// can honestly promise from config alone.
+	Graphics::HiResBlend blend = Graphics::kHiResBlendAuto;
+	if (ConfMan.hasKey("hires_text_blend", _domain)) {
+		Graphics::HiResBlend parsed;
+		if (Graphics::parseBlend(ConfMan.get("hires_text_blend", _domain), parsed))
+			blend = parsed;
+	}
+	_hiResTextAlphaOpenedState = Graphics::blendActive(blend, true, false);
+	checkbox->setState(_hiResTextAlphaOpenedState);
 }
 
 void ScummOptionsContainerWidget::saveHiResTextAlphaCheckbox(GUI::CheckboxWidget *checkbox) const {
-	if (checkbox)
-		ConfMan.setBool("hires_text_alpha", checkbox->getState(), _domain);
+	if (!checkbox)
+		return;
+	// Write only when the player actually toggled it (design section 7.2):
+	// an untouched dialog must leave hires_text_blend alone, unlike the old
+	// unconditional hires_text_alpha=true.
+	if (checkbox->getState() == _hiResTextAlphaOpenedState)
+		return;
+	ConfMan.set("hires_text_blend", checkbox->getState() ? "on" : "off", _domain);
 }
 
 GUI::CheckboxWidget *ScummOptionsContainerWidget::createGammaCorrectionCheckbox(GuiObject *boss, const Common::String &name) {

@@ -246,10 +246,19 @@ protected:
 	void saveHiResTextCheckbox(GUI::CheckboxWidget *checkbox) const;
 
 	// The companion switch: whether those fonts are blended or drawn hard.
-	// Same null-tolerant shape, and null for the same reason.
+	// Same null-tolerant shape, and null for the same reason. Writes
+	// hires_text_blend=on|off (design section 7.2) only when the box's state
+	// at save() differs from the one it was given at load() - an untouched
+	// dialog leaves the key alone, unlike the old unconditional
+	// hires_text_alpha=true.
 	GUI::CheckboxWidget *createHiResTextAlphaCheckbox(GuiObject *boss, const Common::String &name);
 	void loadHiResTextAlphaCheckbox(GUI::CheckboxWidget *checkbox) const;
 	void saveHiResTextAlphaCheckbox(GUI::CheckboxWidget *checkbox) const;
+	// The state loadHiResTextAlphaCheckbox() set the box to, so save() can
+	// tell whether the player actually touched it: comparing against the
+	// current state alone cannot, since the box holds no other memory of
+	// where it started.
+	mutable bool _hiResTextAlphaOpenedState = true;
 	GUI::CheckboxWidget *createGammaCorrectionCheckbox(GuiObject *boss, const Common::String &name);
 	GUI::CheckboxWidget *createSegaShadowModeCheckbox(GuiObject *boss, const Common::String &name);
 	GUI::CheckboxWidget *createSegaCdWaitCursorWhenPausedCheckbox(GuiObject *boss, const Common::String &name);

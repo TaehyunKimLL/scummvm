@@ -1604,61 +1604,33 @@ Common::Error ScummEngine::init() {
 		if (_game.platform == Common::kPlatformFMTowns && _game.version == 5)
 			return Common::Error(Common::kUnsupportedColorMode, "This game requires dual graphics layer support which is disabled in this build");
 #endif
-			// Blended hi-res text needs a true-colour screen to composite
-			// into, because the blend produces colours that are not in the
-			// game's palette. Ask for one by capability rather than by
-			// backend: several backends can manage 32bpp, and which formats
-			// they offer depends on the display they are running on.
-			//
-			// CLUT8 stays in the list so a display that cannot do it still
-			// starts, with blending quietly turned off - the glyphs then draw
-			// as solid colour, which is what the map asked for minus the
-			// smoothing.
-			// v7 and later drive the backend palette from places the text
-			// layer does not own: SMUSH sets it directly per frame while a
-			// cutscene plays (smush_player.cpp), and it asserts if the screen
-			// has no palette to set. Blending needs a 32bpp screen, so the two
-			// cannot both be had - keep the palette and drop the blending.
-			if (_hiResText.enabled() && _hiResText.wantsAlpha() && _game.version < 7) {
-#ifdef USE_RGB_COLOR
-				Common::List<Graphics::PixelFormat> tryModes;
-				Common::List<Graphics::PixelFormat> supported = _system->getSupportedFormats();
-				for (Common::List<Graphics::PixelFormat>::const_iterator g = supported.begin();
-					 g != supported.end(); ++g) {
-					if (g->bytesPerPixel == 4)
-						tryModes.push_back(*g);
-				}
-				tryModes.push_back(Graphics::PixelFormat::createFormatCLUT8());
+			// The render target, blend and scale for the hi-res text layer
+			// all come from the shared design (docs/superpowers/specs/
+			// 2026-09-30-hires-config-unify-design.md section 7):
+			// loadConfig() already predicted the screen's family
+			// (_hiResText.renderTarget()) before any font was opened, so
+			// the request here is just handing that prediction - and its
+			// fallback order - to the backend. CLUT8 always ends the list
+			// (formatRequest()), so a display that cannot give the wanted
+			// family still starts, with blending quietly turned off - the
+			// glyphs then draw as solid colour, which is what the map asked
+			// for minus the smoothing. adoptScreen() catches a backend that
+			// could not honour the prediction and redoes phase 2 for the
+			// family it actually gave us (spec 7.1.1); v7 and later already
+			// predict clut8 (SMUSH drives the backend palette from places
+			// the text layer does not own), so they never ask for anything
+			// else here.
+			Common::String note;
+			initGraphics(screenWidth, screenHeight,
+						 Graphics::formatRequest(_hiResText.renderTarget(), _system->getSupportedFormats(), true, note));
+			_hiResText.adoptScreen(_system->getScreenFormat());
+			if (!note.empty())
+				warning("SCUMM: %s", note.c_str());
 
-				initGraphics(screenWidth, screenHeight, tryModes);
-
-				const Graphics::PixelFormat chosen = _system->getScreenFormat();
-				if (chosen.bytesPerPixel == 4) {
-					_hiResText.setAlphaActive(true);
-					debug(1, "SCUMM: hi-res text blending into %s", chosen.toString().c_str());
-				} else {
-					_hiResText.setAlphaActive(false);
-					warning("SCUMM: no 32bpp screen available (got %s); hi-res text will not be blended",
-							chosen.toString().c_str());
-				}
-#else
-				initGraphics(screenWidth, screenHeight);
-				_hiResText.setAlphaActive(false);
-				warning("SCUMM: built without RGB colour support; hi-res text will not be blended");
-#endif
-			} else {
-				initGraphics(screenWidth, screenHeight);
-
-				// Either the map did not ask for blending, or this game keeps
-				// the backend palette for itself. Both mean the screen is
-				// paletted, so make sure nothing later tries to composite
-				// true-colour text into it.
-				if (_hiResText.wantsAlpha()) {
-					_hiResText.setAlphaActive(false);
-					warning("SCUMM: hi-res text will not be blended: this game "
-							"drives the backend palette itself");
-				}
-			}
+			const Graphics::PixelFormat chosen = _system->getScreenFormat();
+			_hiResText.setAlphaActive(Graphics::blendActive(_hiResText.blend(), _hiResText.anyCoverage(), chosen.isCLUT8()));
+			if (_hiResText.alphaActive())
+				debug(1, "SCUMM: hi-res text blending into %s", chosen.toString().c_str());
 
 			if (_game.platform == Common::kPlatformNES)
 				_system->fillScreen(0x1d);
