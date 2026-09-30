@@ -37,9 +37,10 @@
 #include "graphics/hires_text/chain_layout.h"
 #include "graphics/hires_text/coverage.h"
 #include "graphics/hires_text/font_face.h"
-#include "graphics/hires_text/glyph_source_fallback.h"
+#include "graphics/hires_text/font_value.h"
 #include "graphics/hires_text/glyph_source_file.h"
-#include "graphics/hires_text/glyph_source_routed.h"
+#include "graphics/hires_text/glyph_source_fallback.h"
+#include "graphics/hires_text/glyph_source_ranged.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
 #include "sci/graphics/textlayout16.h"
 #include "sci/graphics/textlatin.h"
@@ -56,11 +57,6 @@ namespace Sci {
 
 namespace {
 
-// The range hires_text_font_size may ask for (the default, 16, is
-// FontSettings').
-const int kHiresTextFontMinSize = 8;
-const int kHiresTextFontMaxSize = 64;
-
 // Whether a font id names a FONT resource, as GfxFontFromResource resolves
 // it: lsl1sci mixes its own font ids (extra high bits, e.g. 2107) with the
 // global ones, and the resource loader strips those bits (& 0x7ff, see
@@ -73,12 +69,43 @@ bool fontResourceExists(ResourceManager *resMan, GuiResourceId fontId) {
 		resMan->testResource(ResourceId(kResourceTypeFont, fontId & 0x7ff));
 }
 
+// design section 4's default map file, matched case-insensitively; the same
+// fixed 8.3 name every engine looks for (graphics/hires_text/font_map.cpp's
+// own kHiResMapName, not exported, so it is repeated here).
+const char *const kHiResMapName = "HIRESTXT.MAP";
+
+Common::Path findDefaultMapFile(const Common::Path &gameDir) {
+	const Common::Path direct = gameDir.appendComponent(kHiResMapName);
+	if (Common::FSNode(direct).exists())
+		return direct;
+
+	Common::FSNode dir(gameDir);
+	if (!dir.isDirectory())
+		return Common::Path();
+	Common::FSList children;
+	if (dir.getChildren(children, Common::FSNode::kListFilesOnly)) {
+		for (uint i = 0; i < children.size(); ++i) {
+			if (children[i].getName().equalsIgnoreCase(kHiResMapName))
+				return children[i].getPath();
+		}
+	}
+	return Common::Path();
+}
+
+bool isExcluded(const Common::Array<Common::String> &excludedPaths, const Common::String &path) {
+	for (uint i = 0; i < excludedPaths.size(); i++) {
+		if (excludedPaths[i] == path)
+			return true;
+	}
+	return false;
+}
+
 } // End of anonymous namespace
 
 GfxCache::GfxCache(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palette)
 	: _resMan(resMan), _screen(screen), _palette(palette),
 	  _hiresResolved(false), _hiresApplies(false), _hiresMapLoaded(false),
-	  _iniLatinKeysSet(false), _iniLatinIgnoredWarned(false),
+	  _uniBundleMissingApplied(false),
 	  _uniBundle(nullptr), _uniBundleTried(false),
 	  _textLogResolved(false), _textLog(false),
 	  _layoutRulesResolved(false), _sampleResolved(false), _fitProbesResolved(false) {
@@ -92,206 +119,113 @@ void GfxCache::resolveHiresText() {
 	// The game's own domain only: ConfMan.hasKey(key) also finds a key set
 	// in [scummvm], which would turn the face on for every game.
 	const Common::String &domain = ConfMan.getActiveDomainName();
-	const Common::Path gameDir = ConfMan.getPath("path", domain);
+	_hiresGameDir = ConfMan.getPath("path", domain);
 
-	// hires_text_font and the map are honoured for an SCI16 game whose text
+	// hires_text_face and the map are honoured for an SCI16 game whose text
 	// is a UTF-8 translation, or one in a legacy CJK code page: the text
 	// decides, not the game's language (I18N_TEXT_DESIGN.md section 4.6).
 	Common::String why;
 	_hiresApplies = hiresTextApplies(getSciVersion(), g_sci->getSciLanguageCodePage(),
 									 g_sci->heapStringsAreUtf8(), why);
 
-	_iniLatinKeysSet = ConfMan.hasKey("hires_text_latin", domain) ||
-		ConfMan.hasKey("hires_text_latin_space", domain) ||
-		ConfMan.hasKey("hires_text_latin_font", domain) ||
-		ConfMan.hasKey("hires_text_metrics", domain);
-
-	// hires_text.map: the file hires_text_map names, else the game
-	// directory's own. Only a map that is asked for or present is mentioned.
-	const bool mapKeySet = ConfMan.hasKey("hires_text_map", domain);
-	// An empty hires_text_map= names nothing, as an empty hires_text_font
-	// does; FSNode would take it for the current directory.
-	const bool mapKeyEmpty = mapKeySet && ConfMan.get("hires_text_map", domain).empty();
-	Common::FSNode mapNode;
-	if (mapKeySet) {
-		if (!mapKeyEmpty) {
-			const Common::String value = ConfMan.get("hires_text_map", domain);
-			// "data:" names a map shipped with ScummVM (HiResFontMap::resolvePath()).
-			mapNode = Common::FSNode(Graphics::HiResFontMap::isDataPath(value)
-										 ? Graphics::HiResFontMap::resolvePath(value, Common::Path())
-										 : Common::Path(value, Common::Path::kNativeSeparator));
-		}
-	} else {
-		mapNode = Common::FSNode(gameDir).getChild("hires_text.map");
-	}
+	Common::Array<Common::String> iniWarnings;
+	_hiresIni = Graphics::readHiResIniFromConfMan(domain, iniWarnings);
+	for (uint i = 0; i < iniWarnings.size(); i++)
+		warning("%s", iniWarnings[i].c_str());
 
 	if (!_hiresApplies) {
-		if (ConfMan.hasKey("hires_text_font", domain))
-			warning("hires_text_font is ignored: %s", why.c_str());
-		if (_iniLatinKeysSet)
-			warning("hires_text_latin is ignored: hires_text_font is not in effect");
-		if (mapKeySet || mapNode.exists())
+		if (_hiresIni.faceSet)
+			warning("hires_text_face is ignored: %s", why.c_str());
+		const bool defaultMapExists = !_hiresIni.mapSet && !findDefaultMapFile(_hiresGameDir).empty();
+		if (_hiresIni.mapSet || defaultMapExists)
 			warning("hires_text.map is ignored: %s", why.c_str());
-		// Nothing applies: every font id gets the defaults, i.e. today's
-		// behaviour, and _iniLatinKeysSet has been answered already.
-		_iniLatinKeysSet = false;
 		return;
 	}
 
-	// The map, parsed with the platform code as its one qualifier, so
-	// [font.N:<platform>] wins over [font.N] on that platform only.
-	if (mapKeySet || mapNode.exists()) {
-		Common::String error;
-		Common::SeekableReadStream *stream = nullptr;
-		if (mapKeyEmpty)
-			error = "empty path";
-		else if (!mapNode.exists())
-			error = "does not exist";
-		else if (mapNode.isDirectory())
-			error = "is a directory";
-		else if (!(stream = mapNode.createReadStream()))
-			error = "could not open the file";
+	if (!_hiresIni.enabled) {
+		// design section 11: hires_text=false is the layer off entirely - as
+		// if no map and no other ini key had been given at all.
+		_hiresIni = Graphics::HiResIniOverrides();
+		_hiresIni.enabled = false;
+		return;
+	}
 
-		if (stream) {
-			Common::Array<Common::String> qualifiers;
-			const char *platform = Common::getPlatformCode(g_sci->getPlatform());
-			if (platform && *platform)
-				qualifiers.push_back(platform);
-			// Relative paths in the map are the map's own: they resolve
-			// against its directory, which for the game directory's
-			// hires_text.map is the game directory.
-			_hiresMapDir = mapNode.getParent().getPath();
-			_hiresMapLoaded = Graphics::HiResFontMap::loadFromStream(*stream, _hiresMapDir,
-																	 qualifiers, _hiresMap);
-			delete stream;
-			if (_hiresMapLoaded) {
-				warnScummOnlyMapKeys(_hiresMap);
-				debug(1, "SCI: hires_text.map %s loaded (platform '%s'), %u font id sections",
-					  mapNode.getPath().toString().c_str(), platform ? platform : "",
-					  (uint)_hiresMap.fontIds.size());
-			} else {
-				_hiresMap.clear();
-				error = "is not a valid map";
-			}
+	// hires_text_face=same, or an unknown name: validated once here, not
+	// once per font id resolveFontSettings() would otherwise repeat the same
+	// text for (design section 10: "once per cause per load").
+	if (_hiresIni.faceSet && !_hiresIni.face.equalsIgnoreCase("original")) {
+		Common::Array<Common::String> faceWarnings;
+		if (_hiresIni.face.equalsIgnoreCase("same")) {
+			faceWarnings.push_back("hires_text_face=same has no meaning; ignoring it");
+		} else {
+			Graphics::HiResFontValue fv;
+			Graphics::parseFontValue(_hiresIni.face, Graphics::HiResFaceNames(), _hiresMapDir, _hiresGameDir, fv,
+									 faceWarnings);
 		}
-		if (mapKeyEmpty)
+		for (uint i = 0; i < faceWarnings.size(); i++)
+			warning("%s", faceWarnings[i].c_str());
+	}
+
+	// The map (design section 4): the file hires_text_map names, else the
+	// game folder's own HIRESTXT.MAP when it exists. A relative
+	// hires_text_map is the game folder's now, not the current directory.
+	Common::Path mapPath;
+	bool haveMapPath = false;
+	if (_hiresIni.mapSet) {
+		if (_hiresIni.map.empty()) {
 			warning("hires_text_map: empty path; no map is used");
-		else if (!_hiresMapLoaded)
-			warning("hires_text.map %s: %s; ignoring it", mapNode.getPath().toString().c_str(), error.c_str());
-	}
-
-	// The ini keys: global overrides of the map, each validated here once.
-	if (ConfMan.hasKey("hires_text_font", domain)) {
-		_hiresIni.hasFont = true;
-		_hiresIni.font = ConfMan.get("hires_text_font", domain);
-		if (_hiresIni.font.empty()) {
-			// An empty value names nothing; FSNode would warn about it itself.
-			warning("hires_text_font: empty path; using the .uni fonts");
-		}
-	}
-
-	// Parsed by hand: ConfMan.getInt() calls error() on non-numeric text.
-	if (ConfMan.hasKey("hires_text_font_size", domain)) {
-		const Common::String &value = ConfMan.get("hires_text_font_size", domain);
-		char *end = nullptr;
-		const long size = strtol(value.c_str(), &end, 10);
-		if (value.empty() || *end != '\0' ||
-			size < kHiresTextFontMinSize || size > kHiresTextFontMaxSize) {
-			// Ignored, so the map's size (else the default) still applies.
-			warning("hires_text_font_size '%s' is not a number from %d to %d; ignoring it",
-					value.c_str(), kHiresTextFontMinSize, kHiresTextFontMaxSize);
 		} else {
-			_hiresIni.hasFontSize = true;
-			_hiresIni.fontSize = (int)size;
+			mapPath = Graphics::HiResFontMap::resolvePath(_hiresIni.map, _hiresGameDir);
+			haveMapPath = true;
 		}
+	} else {
+		mapPath = findDefaultMapFile(_hiresGameDir);
+		haveMapPath = !mapPath.empty();
 	}
+	if (!haveMapPath)
+		return;
 
-	if (ConfMan.hasKey("hires_text_latin", domain)) {
-		const Common::String &value = ConfMan.get("hires_text_latin", domain);
-		_hiresIni.hasLatin = true;
-		if (value == "off") {
-			_hiresIni.latin = kLatinOff;
-		} else if (value == "half") {
-			_hiresIni.latin = kLatinHalf;
-		} else if (value == "fullwidth") {
-			_hiresIni.latin = kLatinFullwidth;
-		} else if (value == "proportional") {
-			_hiresIni.latin = kLatinProportional;
-		} else {
-			warning("hires_text_latin '%s' is not off, half, fullwidth or proportional; using off", value.c_str());
-			_hiresIni.latin = kLatinOff;
-		}
-	}
+	_hiresMapDir = mapPath.getParent();
+	Common::Array<Common::String> qualifiers;
+	const char *platform = Common::getPlatformCode(g_sci->getPlatform());
+	if (platform && *platform)
+		qualifiers.push_back(platform);
 
-	if (ConfMan.hasKey("hires_text_latin_space", domain)) {
-		const Common::String &value = ConfMan.get("hires_text_latin_space", domain);
-		_hiresIni.hasLatinSpace = true;
-		if (value == "keep") {
-			_hiresIni.latinFullwidthSpace = false;
-		} else if (value == "fullwidth") {
-			_hiresIni.latinFullwidthSpace = true;
-		} else {
-			warning("hires_text_latin_space '%s' is not keep or fullwidth; using keep", value.c_str());
-			_hiresIni.latinFullwidthSpace = false;
-		}
-	}
-
-	if (ConfMan.hasKey("hires_text_latin_font", domain)) {
-		_hiresIni.hasLatinFont = true;
-		_hiresIni.latinFont = ConfMan.get("hires_text_latin_font", domain);
-		if (_hiresIni.latinFont.empty()) {
-			// An empty value names nothing; the main face draws Latin text.
-			warning("hires_text_latin_font: empty path; the main face draws Latin text");
-		}
-	}
-
-	if (ConfMan.hasKey("hires_text_metrics", domain)) {
-		const Common::String &value = ConfMan.get("hires_text_metrics", domain);
-		if (value == "game") {
-			_hiresIni.hasMetrics = true;
-			_hiresIni.metrics = Graphics::kHiResMetricsGame;
-		} else if (value == "font") {
-			_hiresIni.hasMetrics = true;
-			_hiresIni.metrics = Graphics::kHiResMetricsFont;
-		} else {
-			warning("hires_text_metrics '%s' is not game or font; ignoring it", value.c_str());
-		}
-	}
-}
-
-/** Sci::LatinMode as the shared router in graphics/hires_text names it; the
- *  two enums list the same modes (hirestextsettings.cpp maps the other way). */
-static Graphics::HiResLatinMode toHiResLatinMode(LatinMode mode) {
-	switch (mode) {
-	case kLatinHalf:
-		return Graphics::kHiResLatinHalf;
-	case kLatinFullwidth:
-		return Graphics::kHiResLatinFullwidth;
-	case kLatinProportional:
-		return Graphics::kHiResLatinProportional;
-	case kLatinOff:
-	default:
-		return Graphics::kHiResLatinOff;
-	}
+	// GfxCache runs after GfxScreen has set the actual screen (design
+	// section 7.1.1's phase 2): the map is read for the sections that
+	// screen's own render target actually uses.
+	Graphics::HiResMapLoadOptions options;
+	options.target = Graphics::targetOfFormat(g_system->getScreenFormat());
+	options.quiet = false;
+	_hiresMapLoaded = Graphics::HiResFontMap::loadMapFile(mapPath, qualifiers, Graphics::kHiResKeysSci, _hiresMap, options);
+	if (_hiresMapLoaded)
+		debug(1, "SCI: %s loaded (platform '%s', target %s), %u font id sections",
+			  mapPath.toString().c_str(), platform ? platform : "", Graphics::renderTargetName(options.target),
+			  (uint)_hiresMap.fontIds.size());
 }
 
 FontSettings GfxCache::fontSettingsFor(GuiResourceId fontId) {
 	resolveHiresText();
-	if (!_hiresApplies)
+	if (!_hiresApplies || !_hiresIni.enabled)
 		return FontSettings();
-	return resolveFontSettings(_hiresMap, _hiresMapLoaded, fontId, _hiresIni, _hiresMapDir);
+	return resolveFontSettings(_hiresMap, _hiresMapLoaded, fontId, _hiresIni, _hiresMapDir, _hiresGameDir);
 }
 
 Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int size, FaceProbes probes,
-									const char *what, const char *fallback, int pixel) {
+									const char *what, const char *fallback, int pixel,
+									const Common::Array<uint32> *explicitProbes) {
 	const bool requireHangul = probes == kProbesHangul;
-	// A pixel font is another source of the same file and size.
 	const Common::String pixelKey = pixel > 0 ? Common::String::format("|p%d", pixel) : Common::String();
-	const Common::String key = Common::String::format("%s|%d|%d", path.c_str(), size, (int)probes) + pixelKey;
+	Common::String key = Common::String::format("%s|%d|%d", path.c_str(), size, (int)probes) + pixelKey;
+	if (explicitProbes) {
+		key += "|t";
+		for (uint i = 0; i < explicitProbes->size(); i++)
+			key += Common::String::format(",%x", (*explicitProbes)[i]);
+	}
 	if (_ttfSources.contains(key))
 		return _ttfSources[key];
 	// A face without the Hangul check is satisfied by one that passed it.
-	if (probes == kProbesDefault) {
+	if (!explicitProbes && probes == kProbesDefault) {
 		const Common::String checked = Common::String::format("%s|%d|1", path.c_str(), size) + pixelKey;
 		if (_ttfSources.contains(checked) && _ttfSources[checked])
 			return _ttfSources[checked];
@@ -299,12 +233,6 @@ Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int si
 
 	Common::String error;
 	Graphics::TtfGlyphSource *src = nullptr;
-	// openFontFace() checks exists() and isDirectory() before
-	// createReadStream(): that call emits its own "FSNode::createReadStream:
-	// ..." warning for an absent node or a directory, which would give
-	// run.log two warnings for one bad path. A node that still fails to open
-	// (permissions, ...) gets our single warning below. "<file>.ttc#<N>"
-	// names face N of a collection (font_face.h).
 	int32 faceIndex = 0;
 	Common::SeekableReadStream *stream = nullptr;
 	if (path.empty()) {
@@ -314,6 +242,12 @@ Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int si
 		if (pixel > 0) {
 			// Held on its grid: no fit, so no probes and no Hangul check.
 			src = Graphics::TtfGlyphSource::createPixel(stream, DisposeAfterUse::YES, size, pixel, error, faceIndex);
+		} else if (explicitProbes) {
+			// design 6.7: a [glyphs] target face is fitted to exactly its own
+			// targeted code points, nothing else.
+			src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, size, error, false, false,
+												   explicitProbes->empty() ? nullptr : &(*explicitProbes)[0],
+												   explicitProbes->size(), faceIndex);
 		} else if (probes == kProbesTranslation) {
 			// Fitted to the translation's own characters too (Thai marks,
 			// Japanese brackets), not only to the fixed Hangul/Latin set.
@@ -326,7 +260,7 @@ Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int si
 		}
 		const uint32 elapsedMs = g_system->getMillis() - startMs;
 		if (src) {
-			// [hires] gamma=: off (100) unless the map asks.
+			// [render] gamma=: off (100) unless the map asks.
 			src->setCoverageGamma(_hiresMap.coverageGamma);
 			// C41: rows of headroom above and below the cell, so a glyph
 			// the fit could not bring inside it is kept whole; GfxFontUnicode
@@ -336,8 +270,8 @@ Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int si
 		}
 	}
 
-	// A failure is remembered too, so each (path, size) warns once, even
-	// though purgeFontCache() rebuilds the font sets.
+	// A failure is remembered too, so each key warns once, even though
+	// purgeFontCache() rebuilds the font sets.
 	if (!src)
 		warning("%s %s: %s; %s", what, path.c_str(), error.c_str(), fallback);
 	_ttfSources[key] = src;
@@ -383,9 +317,9 @@ Graphics::UnicodeGlyphSource *GfxCache::singleFace(const Common::String &path, i
 												   const char *fallback, int pixel, Graphics::TtfGlyphSource *&ttf) {
 	ttf = nullptr;
 	bool isSvfn = false;
-	Graphics::UnicodeGlyphSource *src = svfnSource(path, "hires_text_font", fallback, isSvfn);
+	Graphics::UnicodeGlyphSource *src = svfnSource(path, "hires_text_face", fallback, isSvfn);
 	if (!isSvfn) {
-		ttf = ttfSource(path, size, probes, "hires_text_font", fallback, pixel);
+		ttf = ttfSource(path, size, probes, "hires_text_face", fallback, pixel);
 		return ttf;
 	}
 	// As a TrueType face is refused (requireHangul): a Korean game needs
@@ -393,23 +327,31 @@ Graphics::UnicodeGlyphSource *GfxCache::singleFace(const Common::String &path, i
 	if (src && probes == kProbesHangul && src->cells(0xAC00) <= 0) {
 		if (!_svfnNoHangul.contains(path)) {
 			_svfnNoHangul[path] = true;
-			warning("hires_text_font %s: face has no Hangul glyphs; %s", path.c_str(), fallback);
+			warning("hires_text_face %s: face has no Hangul glyphs; %s", path.c_str(), fallback);
 		}
 		return nullptr;
 	}
 	return src;
 }
 
-void GfxCache::applyMissing(GfxFontUnicode *f, const Common::String &name) {
-	if (!_hiresApplies || !_hiresMapLoaded || !_hiresMap.missing)
+void GfxCache::applyMissing(GfxFontUnicode *f, uint32 missing, const Common::String &name) {
+	// Only for the faceless path (the bare .uni bundle): a font id with its
+	// own chain already has missing= baked into its RangeRoutedGlyphSource
+	// by Graphics::pickGlyph(). The bundle is shared by every faceless id,
+	// so its one box is applied (and checked) once, for whichever id's
+	// missing= reaches it first.
+	if (!missing || _uniBundleMissingApplied || !f)
 		return;
-	f->setMissing(_hiresMap.missing);
-	// A set has one Unicode face (this one), so without the box glyph here
-	// missing= draws nothing: said once, for the map's author.
-	if (f->source() && f->source()->cells(_hiresMap.missing) <= 0 && !_missingNoBoxWarned) {
-		_missingNoBoxWarned = true;
-		warning("hires_text.map: missing=U+%04X has no effect: %s has no glyph for it",
-				_hiresMap.missing, name.c_str());
+	_uniBundleMissingApplied = true;
+	f->setMissing(missing);
+	if (f->source() && f->source()->cells(missing) <= 0) {
+		const Common::String w = Common::String::format(
+			"HIRESTXT.MAP: missing=U+%04X has no effect: %s has no glyph for it", missing, name.c_str());
+		_hiresMap.warnings.push_back(w);
+		if (!_warnedOnceThisLoad.contains(w)) {
+			_warnedOnceThisLoad[w] = true;
+			warning("%s", w.c_str());
+		}
 	}
 }
 
@@ -425,10 +367,6 @@ GfxFontUnicode *GfxCache::loadUniBundle() {
 			// Per-glyph advance and placement for a UTF-8 translation only:
 			// a legacy game keeps the bundle's cell widths to the pixel.
 			f->setPerGlyph(g_sci->heapStringsAreUtf8());
-			// [hires] missing=: the box for what no font has. Chained
-			// behind a face, the bundle is read by its own glyphs
-			// (source()), never by the box.
-			applyMissing(f, "the .uni fonts");
 			_uniBundle = f;
 		} else {
 			delete f;
@@ -437,178 +375,233 @@ GfxFontUnicode *GfxCache::loadUniBundle() {
 	return _uniBundle;
 }
 
-GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) {
-	// [font.N] face=original (or the ini/[hires] default): this font id
-	// draws only from the game's own resource font. createFontSet() adds no
-	// Unicode face at all when this is null, and unlike an ordinary faceless
-	// id below, not even the shared .uni bundle stands in - original means
-	// the game's font, not "whatever generic Unicode font is around". No
-	// warning either: this is what the map asked for, not a misconfiguration.
-	if (s.original) {
-		s.latin = kLatinOff;
-		s.latinFacePath.clear();
-		return nullptr;
+Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(GuiResourceId fontId, const FontSettings &s,
+													 Common::String &chainName, Graphics::UnicodeGlyphSource *&firstRaw) {
+	chainName.clear();
+	firstRaw = nullptr;
+	const Graphics::HiResIdPlan &plan = s.plan;
+
+	// Shared by every font id whose face, size and plan agree: opening
+	// faces, checking coverage and load-time warnings all happen only once.
+	const Common::String key = unicodeBundleKey(s.facePath, s.size, plan.hash());
+	if (_chains.contains(key)) {
+		for (uint i = 0; i < plan.idChain.faces.size(); i++)
+			chainName += (i ? "," : "") + plan.idChain.faces[i].path.toString('/');
+		firstRaw = _chainFirstFace.contains(key) ? _chainFirstFace[key] : nullptr;
+		return _chains[key];
 	}
 
-	// A face on disk, tried before the bundled .uni fonts: a live face is
-	// preferred when the player (or the map) asked for one, and the .uni
-	// names remain the fallback, both when no face is named (identical to
-	// before) and when it fails to load (one warning, never a hard error -
-	// the game must still start). A Korean game needs Hangul from its main
-	// face: one that has none is refused, and the fallback serves instead.
-	//
-	// With a UTF-8 translation the whole face chain is opened and checked
-	// against the translation's own characters instead (faceChainFor()).
 	const bool utf8 = g_sci->heapStringsAreUtf8();
-	const FaceProbes probes = g_sci->getSciLanguageCodePage() == Common::kWindows949 ? kProbesHangul : kProbesDefault;
-	Common::String mainPath = s.facePath;
-	Graphics::UnicodeGlyphSource *main = nullptr;
-	// The face whose baseline places the glyphs (C41): the main face, or the
-	// first face of the chain.
-	Graphics::TtfGlyphSource *firstFace = nullptr;
-	// The line top of the chain's first face in the chain's cell.
-	int chainLineTop = -1;
+	// A legacy (non-UTF8) main face needs Hangul, as a single main face
+	// always has; a UTF-8 translation's chain is fitted to its own sampled
+	// characters too (faces beyond the first keep the plain default fit).
+	const FaceProbes idProbes = utf8 ? kProbesTranslation :
+		(g_sci->getSciLanguageCodePage() == Common::kWindows949 ? kProbesHangul : kProbesDefault);
+
+	// Every distinct path the id chain and every range rule's chain name,
+	// id chain first, in plan order.
+	Common::Array<Common::String> order;
+	Common::HashMap<Common::String, Graphics::UnicodeGlyphSource *> opened;
+	Common::HashMap<Common::String, bool> openedIsSvf;
+
+	auto rememberPath = [&](const Common::String &p) {
+		for (uint i = 0; i < order.size(); i++)
+			if (order[i] == p)
+				return;
+		order.push_back(p);
+	};
+
+	auto openChainFace = [&](const Common::String &p, bool first) {
+		rememberPath(p);
+		if (opened.contains(p))
+			return;
+		// design 5.4: pixel/size apply only to the id chain's own first
+		// face; every other position is fitted at the id's plain size.
+		Graphics::TtfGlyphSource *ttf = nullptr;
+		Graphics::UnicodeGlyphSource *src = singleFace(p, s.size, first ? idProbes : (utf8 ? kProbesTranslation : kProbesDefault),
+													   "using the .uni fonts", first ? s.pixel : 0, ttf);
+		opened[p] = src;
+		openedIsSvf[p] = _svfnSources.contains(p);
+	};
+
+	for (uint i = 0; i < plan.idChain.faces.size(); i++)
+		openChainFace(plan.idChain.faces[i].path.toString('/'), i == 0);
+	for (uint c = 0; c < plan.ruleChains.size(); c++)
+		for (uint i = 0; i < plan.ruleChains[c].faces.size(); i++)
+			openChainFace(plan.ruleChains[c].faces[i].path.toString('/'), false);
+
+	if (!order.empty())
+		firstRaw = opened.contains(order[0]) ? opened[order[0]] : nullptr;
+
+	// design 6.7: every [glyphs] target face, fitted to exactly its own
+	// targeted code points (several targets sharing one face share one
+	// open, fitted to the union of their code points).
+	Common::HashMap<Common::String, Common::Array<uint32> > targetCps;
+	for (uint i = 0; i < plan.targets.size(); i++) {
+		if (plan.targets[i].face.kind != Graphics::kHiResFaceFile)
+			continue;
+		targetCps[plan.targets[i].face.path.toString('/')].push_back(plan.targets[i].cp);
+	}
+	for (Common::HashMap<Common::String, Common::Array<uint32> >::iterator it = targetCps.begin();
+		 it != targetCps.end(); ++it) {
+		if (opened.contains(it->_key))
+			continue; // already opened for the chain itself
+		bool isSvf = false;
+		Graphics::UnicodeGlyphSource *src = svfnSource(it->_key, "[glyphs]", "the game's font draws it", isSvf);
+		if (!isSvf)
+			src = ttfSource(it->_key, s.size, kProbesDefault, "[glyphs]", "the game's font draws it", 0, &it->_value);
+		opened[it->_key] = src;
+		openedIsSvf[it->_key] = isSvf;
+	}
+
+	// design 5.4, 6.4, 6.7's load-time checks, over every distinct path in
+	// plan order (id chain, every rule chain, every target).
+	Common::Array<FontIdFace> faces;
+	Common::Array<Common::String> seen;
+	auto addFace = [&](const Common::String &p) {
+		for (uint i = 0; i < seen.size(); i++)
+			if (seen[i] == p)
+				return;
+		seen.push_back(p);
+		FontIdFace f;
+		f.path = p;
+		f.source = opened.contains(p) ? opened[p] : nullptr;
+		f.isSvf = openedIsSvf.contains(p) && openedIsSvf[p];
+		faces.push_back(f);
+	};
+	for (uint i = 0; i < plan.idChain.faces.size(); i++)
+		addFace(plan.idChain.faces[i].path.toString('/'));
+	for (uint c = 0; c < plan.ruleChains.size(); c++)
+		for (uint i = 0; i < plan.ruleChains[c].faces.size(); i++)
+			addFace(plan.ruleChains[c].faces[i].path.toString('/'));
+	for (uint i = 0; i < plan.targets.size(); i++)
+		if (plan.targets[i].face.kind == Graphics::kHiResFaceFile)
+			addFace(plan.targets[i].face.path.toString('/'));
+
+	Common::Array<Common::String> excludedPaths;
+	checkPlanLoadWarnings(fontId, plan, faces, excludedPaths, _hiresMap, _warnedOnceThisLoad);
+
+	for (uint i = 0; i < order.size(); i++)
+		chainName += (i ? "," : "") + order[i];
+
+	// One shared cell for the whole id, over the union of every face the
+	// id chain, every rule chain and every target names, plus the .uni
+	// bundle - so RangeRoutedGlyphSource's geometry is uniform.
+	GfxFontUnicode *uni = loadUniBundle();
+	Graphics::UnicodeGlyphSource *uniSource = uni ? uni->source() : nullptr;
+
+	Common::Array<Common::String> unionPaths;
+	Common::Array<Graphics::ChainFaceInfo> infos;
+	auto addUnion = [&](const Common::String &p) {
+		if (isExcluded(excludedPaths, p) || !opened.contains(p) || !opened[p])
+			return;
+		for (uint i = 0; i < unionPaths.size(); i++)
+			if (unionPaths[i] == p)
+				return;
+		Graphics::UnicodeGlyphSource *src = opened[p];
+		Graphics::ChainFaceInfo info;
+		info.cellWidth = src->cellWidth();
+		info.cellHeight = src->cellHeight();
+		info.bpp = src->bitsPerPixel();
+		info.baselineRow = src->baselineRow();
+		info.trueType = !(openedIsSvf.contains(p) && openedIsSvf[p]);
+		Graphics::TtfGlyphSource *ttf = info.trueType ? dynamic_cast<Graphics::TtfGlyphSource *>(src) : nullptr;
+		info.rowPad = ttf ? ttf->rowPad() : 0;
+		unionPaths.push_back(p);
+		infos.push_back(info);
+	};
+	for (uint i = 0; i < order.size(); i++)
+		addUnion(order[i]);
+	for (Common::HashMap<Common::String, Common::Array<uint32> >::iterator it = targetCps.begin();
+		 it != targetCps.end(); ++it)
+		addUnion(it->_key);
+
+	if (unionPaths.empty())
+		return nullptr; // every named face failed to open
+
+	const Graphics::ChainLayout layout = Graphics::layoutFaceChain(
+		infos, uniSource != nullptr, uniSource ? uniSource->cellWidth() : 0, uniSource ? uniSource->cellHeight() : 0);
+
+	// Each face is checked for what the faces before it lack (design 4.4):
+	// a face that only has to cover Thai is not warned about Japanese.
 	if (utf8) {
-		main = faceChainFor(s, mainPath, &firstFace, &chainLineTop);
-	} else if (!mainPath.empty()) {
-		// A face only this font id names ([font.N] face=) falls back to the
-		// face every other id gets (the ini key, else [hires] font=), then
-		// to the .uni fonts. Font id -1 is never a [font.N] section.
-		const FontSettings global = fontSettingsFor(-1);
-		const bool haveGlobal = !global.facePath.empty() && global.facePath != mainPath;
-		const Common::String toGlobal = "using " + global.facePath;
-		main = singleFace(mainPath, s.size, probes, haveGlobal ? toGlobal.c_str() : "using the .uni fonts", s.pixel,
-						  firstFace);
-		if (!main && haveGlobal) {
-			// The global face with its own pixel= ([hires]), never this id's.
-			mainPath = global.facePath;
-			s.pixel = global.pixel;
-			main = singleFace(mainPath, s.size, probes, "using the .uni fonts", s.pixel, firstFace);
-		}
-	}
-	// The set carries what is actually drawn.
-	s.facePath = main ? mainPath : Common::String();
-
-	if (!main) {
-		// Latin modes only mean anything once the id has a live TrueType
-		// face: with none, there is no face for ASCII to be routed to.
-		if (s.latin != kLatinOff) {
-			if (_iniLatinKeysSet && _hiresIni.hasLatin) {
-				if (!_iniLatinIgnoredWarned)
-					warning("hires_text_latin is ignored: hires_text_font is not in effect");
-				_iniLatinIgnoredWarned = true;
-			} else if (!_latinNoFaceWarned.contains(fontId)) {
-				warning("hires_text.map: font %d has a Latin mode but no TrueType face; "
-						"the game's font draws its Latin text", fontId);
-				_latinNoFaceWarned[fontId] = true;
-			}
-		} else if (_iniLatinKeysSet && !_iniLatinIgnoredWarned) {
-			// As before: any hires_text_latin* key, even =off, is reported
-			// once when hires_text_font is not a live TrueType face.
-			warning("hires_text_latin is ignored: hires_text_font is not in effect");
-			_iniLatinIgnoredWarned = true;
-		}
-		s.latin = kLatinOff;
-		s.latinFacePath.clear();
-		GfxFontUnicode *uni = loadUniBundle();
-		if (utf8 && uni) {
-			Common::Array<uint32> sample = coverageSample();
-			checkFaceCoverage(uni->source(), "the .uni fonts", "the game's font", sample);
-		}
-		return uni;
-	}
-
-	// hires_text_latin_font / [latin] font=: a second face for the Latin
-	// range, wrapped together with the main face in a RoutedGlyphSource.
-	// Absent (or the same file), the main face draws that range too
-	// (glyphChar()/faceFor() send it code points the main face can already
-	// answer for, so no second source is needed).
-	Graphics::TtfGlyphSource *latin = nullptr;
-	// Only behind a TrueType main face: a bitmap face's cell and depth are
-	// not the Latin face's, which the router needs them to be.
-	if (s.latin != kLatinOff && !s.latinFacePath.empty() && s.latinFacePath != mainPath) {
-		if (firstFace) {
-			latin = ttfSource(s.latinFacePath, s.size, kProbesDefault, "hires_text_latin_font",
-							  "the main face draws Latin text");
-		} else if (!_latinBehindBitmapWarned.contains(fontId)) {
-			warning("hires_text.map: font %d: Latin face '%s' is ignored behind the bitmap font '%s'; "
-					"the main font draws Latin text", fontId, s.latinFacePath.c_str(),
-					mainPath.c_str());
-			_latinBehindBitmapWarned[fontId] = true;
+		Common::Array<uint32> sample = coverageSample();
+		for (uint i = 0; i < unionPaths.size(); i++) {
+			const Common::String next = i + 1 < unionPaths.size() ? unionPaths[i + 1] :
+				(uni ? Common::String("the .uni fonts") : Common::String("the game's font"));
+			checkFaceCoverage(opened[unionPaths[i]], unionPaths[i], next, sample);
 		}
 	}
 
-	// The set carries what is drawn: no Latin face when the mode is off or
-	// the face failed (or is the main face itself) - the main face then
-	// draws the Latin range.
-	if (!latin)
-		s.latinFacePath.clear();
-
-	// C41: the face in its layout cell - on the game font's baseline
-	// (align=game), on its own line (font) or centred (cell) - moved by
-	// baseline=. Every font id has its own game baseline, so the placement
-	// is part of the bundle's key; the sources stay shared.
-	GlyphPlacement::Input in;
-	in.rasterWidth = main->cellWidth();
-	in.rasterHeight = main->cellHeight();
-	in.cellPx = s.cell;
-	in.align = s.align == Graphics::kHiResAlignFont ? GlyphPlacement::kAlignFont :
-		(s.align == Graphics::kHiResAlignCell ? GlyphPlacement::kAlignCell : GlyphPlacement::kAlignGame);
-	in.shift = s.baseline;
-	const int gameBaseline = in.align == GlyphPlacement::kAlignGame ? gameFontBaseline(fontId) : -1;
-	if (gameBaseline >= 0)
-		in.gameBaseline = gameBaseline;
-	// The face's baseline as its capitals and digits stand on it, measured
-	// on the glyphs as drawn in the raster cell: the rule the game font is
-	// measured by (half coverage counts as ink).
-	const int rasterBaseline = bitmapFontBaseline([main](uint32 cp) -> int {
-		if (main->cells(cp) <= 0)
-			return -1;
-		const int w = main->cellWidth() * main->cells(cp), bpp = main->bitsPerPixel();
-		for (int y = main->cellHeight() - 1; y >= 0; y--) {
-			const byte *row = main->row(cp, y);
-			for (int x = 0; row && x < w; x++)
-				if (Graphics::TextCompose::expandCoverage(row, x, bpp) >= 128)
-					return y + 1;
+	Common::HashMap<Common::String, Graphics::UnicodeGlyphSource *> normalized;
+	for (uint i = 0; i < unionPaths.size(); i++) {
+		Graphics::UnicodeGlyphSource *raw = opened[unionPaths[i]];
+		if (!layout.normalize[i]) {
+			normalized[unionPaths[i]] = raw;
+			continue;
 		}
-		return -1;
-	});
-	if (rasterBaseline >= 0)
-		in.rasterBaseline = rasterBaseline;
-	// A chain led by an SVFN bitmap font has no TrueType first face: its
-	// line is its cell, so the line top is the cell's top row.
-	in.faceLineTop = chainLineTop >= 0 ? chainLineTop : (firstFace ? firstFace->lineTop() : 0);
-	const GlyphPlacement placement = GlyphPlacement::compute(in);
-	debug(1, "SCI: font %d glyphs: %dpx face (%dpx em, %d rows) in a %dpx cell, align %d: baseline row %d, "
-		  "game's %d, line top %d, shift %d -> offset (%d, %d)%s",
-		  fontId, main->cellWidth(), firstFace ? firstFace->faceSize() : 0, main->cellHeight(), s.cell, (int)in.align,
-		  rasterBaseline, gameBaseline, in.faceLineTop, s.baseline, placement.dx, placement.dy,
-		  placement.active() ? "" : " (unchanged)");
-
-	// One router per Latin mode (see unicodeBundleKey()).
-	Common::String key = unicodeBundleKey(mainPath, s.size, s.latinFacePath, s.latin);
-	if (s.pixel > 0)
-		key += Common::String::format("|p%d", s.pixel);
-	if (placement.active())
-		key += Common::String::format("|c%d,%d,%d", placement.cellPx, placement.dx, placement.dy);
-	if (_ttfBundles.contains(key))
-		return _ttfBundles[key];
-
-	GfxFontUnicode *f = new GfxFontUnicode(_screen, 0);
-	f->setPerGlyph(utf8);
-	f->setPlacement(placement);
-	if (latin) {
-		// The router owns neither face: both stay in _ttfSources, shared.
-		f->setSource(new Graphics::RoutedGlyphSource(main, latin, toHiResLatinMode(s.latin), DisposeAfterUse::NO), mainPath);
-		debug(1, "SCI: font %d routes Latin text to %s", fontId, s.latinFacePath.c_str());
-	} else {
-		f->setSource(main, mainPath, DisposeAfterUse::NO);
+		Common::String error;
+		Graphics::NormalizedGlyphSource *n = Graphics::NormalizedGlyphSource::create(
+			raw, layout.cellWidth, layout.cellHeight, layout.tops[i], DisposeAfterUse::NO, error);
+		if (n) {
+			normalized[unionPaths[i]] = n;
+			_chainParts.push_back(n);
+		} else {
+			warning("hires text: %s cannot join the face chain (%s)", unionPaths[i].c_str(), error.c_str());
+			normalized[unionPaths[i]] = nullptr;
+		}
 	}
-	// [hires] missing=: the box GfxFontSet draws once every face - this
-	// one, the game's own CJK font - has declined a character.
-	applyMissing(f, mainPath);
-	_ttfBundles[key] = f;
-	return f;
+	Graphics::UnicodeGlyphSource *uniNormalized = nullptr;
+	if (uniSource) {
+		Common::String error;
+		Graphics::NormalizedGlyphSource *n = Graphics::NormalizedGlyphSource::create(
+			uniSource, layout.cellWidth, layout.cellHeight, layout.uniTop, DisposeAfterUse::NO, error);
+		if (n) {
+			uniNormalized = n;
+			_chainParts.push_back(n);
+		} else {
+			warning("hires text: the .uni fonts cannot stand behind font %d's faces (%s)", fontId, error.c_str());
+		}
+	}
+
+	auto sourceFor = [&](const Common::String &p) -> Graphics::UnicodeGlyphSource * {
+		if (isExcluded(excludedPaths, p) || !normalized.contains(p))
+			return nullptr;
+		return normalized[p];
+	};
+
+	Common::Array<Common::Array<Graphics::UnicodeGlyphSource *> > chainSources;
+	chainSources.resize(plan.ruleChains.size() + 1);
+	auto buildChain = [&](const Graphics::HiResFaceChain &chain, Common::Array<Graphics::UnicodeGlyphSource *> &out) {
+		for (uint i = 0; i < chain.faces.size(); i++)
+			out.push_back(sourceFor(chain.faces[i].path.toString('/')));
+		// The .uni bundle stands behind every chain that does not end
+		// in `original`, as the id's own empty-chain fallback would.
+		if (uniNormalized && !chain.endsInOriginal)
+			out.push_back(uniNormalized);
+	};
+	buildChain(plan.idChain, chainSources[0]);
+	for (uint c = 0; c < plan.ruleChains.size(); c++)
+		buildChain(plan.ruleChains[c], chainSources[c + 1]);
+
+	Common::Array<Graphics::UnicodeGlyphSource *> targetSources;
+	targetSources.resize(plan.targets.size());
+	for (uint i = 0; i < plan.targets.size(); i++) {
+		if (plan.targets[i].face.kind == Graphics::kHiResFaceFile)
+			targetSources[i] = sourceFor(plan.targets[i].face.path.toString('/'));
+		// kHiResFaceSame answers through chainSources[0] inside pickGlyph();
+		// no entry of its own is needed here.
+	}
+
+	Graphics::UnicodeGlyphSource *ranged =
+		new Graphics::RangeRoutedGlyphSource(plan, chainSources, targetSources, DisposeAfterUse::NO);
+	_chainParts.push_back(ranged);
+	_chains[key] = ranged;
+	_chainFirstFace[key] = firstRaw;
+
+	debug(1, "SCI: font %d hi-res chain %s (%u faces%s)", fontId, chainName.c_str(), (uint)unionPaths.size(),
+		  uniNormalized ? ", then the .uni fonts" : "");
+	return ranged;
 }
 
 const Common::Array<uint32> &GfxCache::translationSample() {
@@ -630,9 +623,8 @@ const Common::Array<uint32> &GfxCache::translationFitProbes() {
 }
 
 Common::Array<uint32> GfxCache::coverageSample() {
-	// ASCII is left out: the game's own font draws it (the set's first
-	// face), so a face or a bundle without it lacks nothing. The fit probes
-	// keep it.
+	// ASCII is left out: the game's own font draws it by default, so a face
+	// or a bundle without it lacks nothing. The fit probes keep it.
 	const Common::Array<uint32> &all = translationSample();
 	Common::Array<uint32> sample;
 	for (uint i = 0; i < all.size(); i++) {
@@ -687,169 +679,104 @@ int GfxCache::gameFontBaseline(GuiResourceId fontId) {
 	return baseline;
 }
 
-Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(const FontSettings &s, Common::String &chainName,
-													 Graphics::TtfGlyphSource **firstFace, int *lineTop) {
-	chainName.clear();
-	if (firstFace)
-		*firstFace = nullptr;
-	Common::Array<Common::String> paths = s.faceChain;
-	if (paths.empty() && !s.facePath.empty())
-		paths.push_back(s.facePath);
+GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) {
+	// design 6.5 step 3: this font id draws only from the game's own
+	// resource font, not even the shared .uni bundle a faceless id
+	// otherwise falls back to.
+	if (s.original)
+		return nullptr;
 
-	// Each face of the chain; one that fails to open is left out with one
-	// warning. A chain only this font id names falls back to the one every
-	// other id gets, as a single face always did.
-	Common::Array<Graphics::UnicodeGlyphSource *> faces;
-	Common::Array<Common::String> names;
-	// Each face's row pad: where its cell proper starts (0 for a bitmap font).
-	Common::Array<int> pads;
-	// The pixel= of the chain actually opened: the global chain has its own.
-	int pixel = s.pixel;
-	// The first face opened, when it is TrueType (its line top and row pad).
-	Graphics::TtfGlyphSource *firstTtf = nullptr;
-	for (int pass = 0; pass < 2 && faces.empty(); pass++) {
-		if (pass == 1) {
-			const FontSettings global = fontSettingsFor(-1);
-			if (global.faceChain.empty() || global.faceChain == paths)
-				break;
-			paths = global.faceChain;
-			pixel = global.pixel;
-		}
-		pads.clear();
-		for (uint i = 0; i < paths.size(); i++) {
-			const bool last = i + 1 == paths.size();
-			const char *fallback = last ? "using the .uni fonts" : "using the next face of the chain";
-			// An SVFN bitmap font is a face as it is: no size, pixel or fit.
-			bool isSvfn = false;
-			Graphics::UnicodeGlyphSource *src = svfnSource(paths[i], "hires_text_font", fallback, isSvfn);
-			Graphics::TtfGlyphSource *ttf = nullptr;
-			if (!isSvfn) {
-				ttf = ttfSource(paths[i], s.size, kProbesTranslation, "hires_text_font", fallback, i == 0 ? pixel : 0);
-				src = ttf;
-			}
-			if (src) {
-				if (faces.empty())
-					firstTtf = ttf;
-				faces.push_back(src);
-				names.push_back(paths[i]);
-				pads.push_back(ttf ? ttf->rowPad() : 0);
+	if (s.facePath.empty()) {
+		// design 5.3: an empty id chain falls back to the shared .uni bundle.
+		GfxFontUnicode *uni = loadUniBundle();
+		if (uni) {
+			applyMissing(uni, s.plan.missing, "the .uni fonts");
+			if (g_sci->heapStringsAreUtf8()) {
+				Common::Array<uint32> sample = coverageSample();
+				checkFaceCoverage(uni->source(), "the .uni fonts", "the game's font", sample);
 			}
 		}
-	}
-	if (faces.empty())
-		return nullptr;
-	if (firstFace)
-		*firstFace = firstTtf;
-
-	// The faces and the .uni fonts, all in one cell at 8 bpp: what
-	// FallbackGlyphSource asks of its sources (Graphics::layoutFaceChain()).
-	// A chain of TrueType faces shares the first face's cell as it always
-	// did, the .uni fonts starting at its row pad. One with a bitmap face in
-	// it is brought to a cell that holds every face and the .uni fonts, the
-	// faces standing on one baseline (their cells proper starting on one
-	// row when a face does not know its baseline); each face that does not
-	// already fill that cell at 8 bpp - and the .uni fonts - is presented
-	// there by NormalizedGlyphSource.
-	GfxFontUnicode *uni = loadUniBundle();
-	Graphics::UnicodeGlyphSource *uniSource = uni ? uni->source() : nullptr;
-	Common::Array<Graphics::ChainFaceInfo> infos;
-	for (uint i = 0; i < faces.size(); i++) {
-		Graphics::ChainFaceInfo info;
-		info.cellWidth = faces[i]->cellWidth();
-		info.cellHeight = faces[i]->cellHeight();
-		info.rowPad = pads[i];
-		info.bpp = faces[i]->bitsPerPixel();
-		info.baselineRow = faces[i]->baselineRow();
-		info.trueType = !_svfnSources.contains(names[i]);
-		infos.push_back(info);
-	}
-	const Graphics::ChainLayout layout = Graphics::layoutFaceChain(
-		infos, uniSource != nullptr, uniSource ? uniSource->cellWidth() : 0, uniSource ? uniSource->cellHeight() : 0);
-	// The first face's line top in the chain's cell (C41 align=font): a
-	// TrueType face's own, a bitmap font's first row (its cell is its line).
-	if (lineTop)
-		*lineTop = layout.tops[0] + (firstTtf ? firstTtf->lineTop() : 0);
-
-	for (uint i = 0; i < names.size(); i++)
-		chainName += (i ? "," : "") + names[i];
-
-	// Behind the faces, the .uni bundle, then the game's own font (what
-	// GfxFontSet falls back to for a character no face has). The chain is
-	// shared by the font ids whose faces, size and bundle all match: the
-	// faces are opened at that size, so another size is another chain.
-	Common::String key = faceChainKey(names, s.size, uniSource != nullptr);
-	if (pixel > 0)
-		key += Common::String::format("|p%d", pixel);
-	if (_chains.contains(key))
-		return _chains[key];
-
-	// Each face is checked for what the faces before it lack: a face that
-	// only has to cover Thai is not warned about Japanese.
-	Common::Array<uint32> sample = coverageSample();
-	for (uint i = 0; i < faces.size(); i++) {
-		const Common::String next = i + 1 < faces.size() ? names[i + 1] :
-			(uni ? Common::String("the .uni fonts") : Common::String("the game's font"));
-		checkFaceCoverage(faces[i], names[i], next, sample);
+		return uni;
 	}
 
-	Common::Array<Graphics::UnicodeGlyphSource *> sources;
-	for (uint i = 0; i < faces.size(); i++) {
-		Graphics::UnicodeGlyphSource *f = faces[i];
-		if (!layout.normalize[i]) {
-			sources.push_back(f);
-			continue;
+	Common::String chainName;
+	Graphics::UnicodeGlyphSource *firstRaw = nullptr;
+	Graphics::UnicodeGlyphSource *ranged = faceChainFor(fontId, s, chainName, firstRaw);
+	if (!ranged) {
+		// Every face the id named failed to open: fall back exactly as a
+		// faceless id would.
+		s.facePath.clear();
+		s.faceChain.clear();
+		GfxFontUnicode *uni = loadUniBundle();
+		if (uni) {
+			applyMissing(uni, s.plan.missing, "the .uni fonts");
+			if (g_sci->heapStringsAreUtf8()) {
+				Common::Array<uint32> sample = coverageSample();
+				checkFaceCoverage(uni->source(), "the .uni fonts", "the game's font", sample);
+			}
 		}
-		Common::String error;
-		Graphics::NormalizedGlyphSource *n = Graphics::NormalizedGlyphSource::create(
-			f, layout.cellWidth, layout.cellHeight, layout.tops[i], DisposeAfterUse::NO, error);
-		if (n) {
-			sources.push_back(n);
-			_chainParts.push_back(n);
-		} else {
-			warning("hires text: %s cannot join the face chain (%s)", names[i].c_str(), error.c_str());
-		}
+		return uni;
 	}
-	bool uniBehind = false;
-	if (uniSource && !sources.empty()) {
-		// The bundle's 1 bpp cell, presented in the faces' cell.
-		Common::String error;
-		Graphics::NormalizedGlyphSource *n = Graphics::NormalizedGlyphSource::create(
-			uniSource, layout.cellWidth, layout.cellHeight, layout.uniTop, DisposeAfterUse::NO, error);
-		if (n) {
-			sources.push_back(n);
-			_chainParts.push_back(n);
-			uniBehind = true;
-		} else {
-			warning("hires text: the .uni fonts cannot stand behind %s (%s); the game's font draws what the chain lacks",
-					names.back().c_str(), error.c_str());
-		}
+
+	// C41: the face in its layout cell - on the game font's baseline
+	// (align=game), on its own line (font) or centred (cell) - moved by
+	// shift=. Measured against the id chain's own first opened face, before
+	// any chain-wide normalisation (design 5.4's own reference face): what
+	// the layout offsets, not the shared routing surface, is placed.
+	GlyphPlacement placement;
+	int gameBaseline = -1;
+	if (firstRaw) {
+		GlyphPlacement::Input in;
+		in.rasterWidth = firstRaw->cellWidth();
+		in.rasterHeight = firstRaw->cellHeight();
+		in.cellPx = s.cell;
+		in.align = s.align == Graphics::kHiResAlignFont ? GlyphPlacement::kAlignFont :
+			(s.align == Graphics::kHiResAlignCell ? GlyphPlacement::kAlignCell : GlyphPlacement::kAlignGame);
+		in.shift = s.baseline;
+		gameBaseline = in.align == GlyphPlacement::kAlignGame ? gameFontBaseline(fontId) : -1;
+		if (gameBaseline >= 0)
+			in.gameBaseline = gameBaseline;
+		Graphics::UnicodeGlyphSource *raw = firstRaw;
+		const int rasterBaseline = bitmapFontBaseline([raw](uint32 cp) -> int {
+			if (raw->cells(cp) <= 0)
+				return -1;
+			const int w = raw->cellWidth() * raw->cells(cp), bpp = raw->bitsPerPixel();
+			for (int y = raw->cellHeight() - 1; y >= 0; y--) {
+				const byte *row = raw->row(cp, y);
+				for (int x = 0; row && x < w; x++)
+					if (Graphics::TextCompose::expandCoverage(row, x, bpp) >= 128)
+						return y + 1;
+			}
+			return -1;
+		});
+		if (rasterBaseline >= 0)
+			in.rasterBaseline = rasterBaseline;
+		Graphics::TtfGlyphSource *firstTtf = dynamic_cast<Graphics::TtfGlyphSource *>(firstRaw);
+		in.faceLineTop = firstTtf ? firstTtf->lineTop() : 0;
+		placement = GlyphPlacement::compute(in);
+		debug(1, "SCI: font %d glyphs: %dpx face (%d rows) in a %dpx cell, align %d: baseline row %d, game's %d, "
+			  "shift %d -> offset (%d, %d)%s",
+			  fontId, firstRaw->cellWidth(), firstRaw->cellHeight(), s.cell, (int)in.align, rasterBaseline,
+			  gameBaseline, s.baseline, placement.dx, placement.dy, placement.active() ? "" : " (unchanged)");
 	}
-	if (sources.empty())
-		return nullptr;
-	Graphics::UnicodeGlyphSource *chain = sources[0];
-	if (sources.size() > 1) {
-		chain = new Graphics::FallbackGlyphSource(sources, DisposeAfterUse::NO);
-		_chainParts.push_back(chain);
-	}
-	const Common::String at = firstTtf ? Common::String::format("at %dpx", s.size) : Common::String("(bitmap)");
-	debug(1, "SCI: face chain %s %s (%u faces%s)", chainName.c_str(), at.c_str(), sources.size() - (uniBehind ? 1 : 0),
-		  uniBehind ? ", then the .uni fonts" : "");
-	// A chain with a bitmap face in it: where each face stands.
-	bool allTtf = true;
-	for (uint i = 0; i < infos.size(); i++)
-		allTtf &= infos[i].trueType;
-	if (!allTtf) {
-		Common::String rows;
-		for (uint i = 0; i < layout.tops.size(); i++)
-			rows += Common::String::format("%s%d", i ? "," : "", layout.tops[i]);
-		const Common::String behind = uniBehind ? Common::String::format(", the .uni fonts at row %d", layout.uniTop) :
-			Common::String();
-		debug(1, "SCI: face chain %s: %dx%d cell, faces at rows %s (%s)%s", chainName.c_str(), layout.cellWidth,
-			  layout.cellHeight, rows.c_str(), layout.byBaseline ? "on one baseline" : "cells proper on one row",
-			  behind.c_str());
-	}
-	_chains[key] = chain;
-	return chain;
+
+	Common::String key = unicodeBundleKey(s.facePath, s.size, s.plan.hash());
+	if (s.pixel > 0)
+		key += Common::String::format("|p%d", s.pixel);
+	if (placement.active())
+		key += Common::String::format("|c%d,%d,%d", placement.cellPx, placement.dx, placement.dy);
+	if (_ttfBundles.contains(key))
+		return _ttfBundles[key];
+
+	GfxFontUnicode *f = new GfxFontUnicode(_screen, 0);
+	f->setPerGlyph(g_sci->heapStringsAreUtf8());
+	f->setPlacement(placement);
+	// The router owns no source: every face and the .uni bundle stay in
+	// their own caches, shared. missing= is already baked into `ranged` by
+	// Graphics::pickGlyph(), so it is not applied again here.
+	f->setSource(ranged, s.facePath, DisposeAfterUse::NO);
+	_ttfBundles[key] = f;
+	return f;
 }
 
 const Graphics::BreakRules &GfxCache::layoutRules() {
@@ -874,10 +801,9 @@ const Graphics::BreakRules &GfxCache::layoutRules() {
 bool GfxCache::isTextLogEnabled() {
 	if (!_textLogResolved) {
 		_textLogResolved = true;
-		// Deliberately unconditional: no hiresTextFontApplies() check. Task
-		// 1 of HIRES_COMPOSITOR_PLAN_3_MAP_PROPORTIONAL needs the font id
-		// logged on English games too, which the scope predicate would
-		// otherwise refuse hires_text_font itself on.
+		// Deliberately unconditional: no scope-predicate check. Font-id
+		// logging is useful on an English game too, which the predicate
+		// would otherwise refuse hires_text_face itself on.
 		const Common::String &domain = ConfMan.getActiveDomainName();
 		_textLog = ConfMan.hasKey("hires_text_log", domain) &&
 				   ConfMan.getBool("hires_text_log", domain);
@@ -959,16 +885,11 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 		return nullptr;
 
 	// This font id's own hi-res settings (ini keys, then hires_text.map),
-	// and the Unicode face they name. unicodeFaceFor() turns the Latin mode
-	// off when the id ends up with no TrueType face, so the set is built with
-	// what will actually be drawn.
+	// and the Unicode face they name.
 	FontSettings settings = fontSettingsFor(fontId);
 	GfxFontUnicode *uni = unicodeFaceFor(fontId, settings);
 	if (_hiresApplies)
-		debug(1, "SCI: font %d hi-res settings: face '%s' %dpx, latin %d (face '%s', space %s, metrics %s)",
-			  fontId, settings.facePath.c_str(), settings.size, (int)settings.latin,
-			  settings.latinFacePath.c_str(), settings.fullwidthSpace ? "fullwidth" : "keep",
-			  settings.metrics == Graphics::kHiResMetricsFont ? "font" : "game");
+		debug(1, "SCI: font %d hi-res settings: face '%s' %dpx", fontId, settings.facePath.c_str(), settings.size);
 
 	GfxFontSet *set = new GfxFontSet(fontId, g_sci->getSciLanguageCodePage(), settings);
 	set->setUtf8Text(g_sci->heapStringsAreUtf8());
@@ -978,7 +899,7 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 	// GfxFontKorean and GfxFontSjis call error() on a missing file, so
 	// existence is checked rather than assumed.
 	// In a Korean game, when a hi-res face is in effect (a map's face= or
-	// hires_text_font), that face is what the player asked to draw the text
+	// hires_text_face), that face is what the player asked to draw the text
 	// with: it goes before korean.fnt, which then only draws what the face
 	// lacks. Without one, korean.fnt keeps drawing the Hangul syllables and
 	// the .uni fonts stand last as before. Japanese games keep the legacy
@@ -998,7 +919,7 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 			// its Hangul as banks of its own FONT resources (Conquests of
 			// Camelot's Korean beta, fontbanked.h) draws from those, at native
 			// resolution, as its patched DOS interpreter did. A configured
-			// hi-res face (hires_text_font / hires_text.map) wins over them.
+			// hi-res face (hires_text_face / hires_text.map) wins over them.
 			const int bankBase = GfxFontBanked::bankBaseFor(_resMan, fontId);
 			if (bankBase >= 0) {
 				debug(1, "SCI: font %d draws Hangul from font banks %d..%d", fontId, bankBase,
@@ -1052,9 +973,7 @@ GfxFont *GfxCache::createUnicodeFont(GuiResourceId fontId) {
 	if (fallback)
 		_ownedFonts.push_back(fallback);
 
-	return new GfxFontUnicodeAdapter(uni, g_sci->getSciLanguageCodePage(),
-									 fallback, fontId, settings.latin, settings.fullwidthSpace,
-									 settings.metrics);
+	return new GfxFontUnicodeAdapter(uni, g_sci->getSciLanguageCodePage(), fallback, fontId, settings.plan);
 }
 
 GfxFont *GfxCache::getFont(GuiResourceId fontId) {

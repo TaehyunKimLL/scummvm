@@ -22,18 +22,21 @@
 #ifndef SCI_GRAPHICS_HIRESTEXTSETTINGS_H
 #define SCI_GRAPHICS_HIRESTEXTSETTINGS_H
 
-#include "common/path.h"
 #include "common/array.h"
+#include "common/hashmap.h"
+#include "common/path.h"
 #include "common/str.h"
 #include "graphics/hires_text/font_map.h"
-#include "sci/graphics/textlatin.h"
+#include "graphics/hires_text/glyph_source.h"
+#include "graphics/hires_text/id_plan.h"
 
 namespace Sci {
 
 /**
- * The hi-res text settings of one SCI font id, resolved from the ini keys and
- * hires_text.map. Engine-free: GfxCache reads ConfMan and the map file and
- * hands both in, so this is tested alone.
+ * The hi-res text settings of one SCI font id, resolved from the ini keys
+ * and hires_text.map into one compiled plan (design sections 5, 6, 8) plus
+ * the geometry GfxCache reads directly. Engine-free: GfxCache reads ConfMan
+ * and the map file and hands both in, so this is tested alone.
  */
 struct FontSettings {
 	FontSettings();
@@ -41,103 +44,108 @@ struct FontSettings {
 	/// The cell and face size when nothing sets them, hi-res px.
 	static const int kDefaultCell = 16;
 
-	/// [font.N] face=original or [hires] font=original (also the ini
-	/// hires_text_font): this font id is not replaced at all - the game's
-	/// own font resource draws it, not even the shared .uni bundle a face-
-	/// less id otherwise falls back to. Distinct from latin==kLatinOff
-	/// (latin_font=original), which only ever concerns the Latin range.
+	/// The fully compiled plan (design sections 5, 6, 8): every id chain,
+	/// range/advance/origin rule, `[glyphs]` remap and target this font id
+	/// resolves to. GfxCache opens its faces and routes every character
+	/// through it (Graphics::pickGlyph(), Graphics::RangeRoutedGlyphSource).
+	Graphics::HiResIdPlan plan;
+
+	/// plan.original with no id-wide range rules of its own: the resource
+	/// font draws every character, not even the shared .uni bundle a
+	/// faceless id otherwise falls back to. Distinct from a plan whose
+	/// `[font.N]` face is `original` but that still names its own range
+	/// rules (design 6.5 step 3): those still route some characters away
+	/// from the resource font, so they are not "original" in this sense.
 	bool original;
-	Common::String facePath;         ///< main TrueType face; empty = none named
-	/// The face chain facePath heads (hires_text.map "face=ko, ja, th"), as
-	/// paths; faceChain[0] == facePath. GfxCache opens the whole chain for a
-	/// UTF-8 translation, the first face only otherwise.
+	/// plan.idChain's first face, native separators; empty = none.
+	Common::String facePath;
+	/// The rest of plan.idChain, as paths (faceChain[0] == facePath).
 	Common::Array<Common::String> faceChain;
-	int size;                        ///< face size in pixels: the cell the face is rasterised in
-	/// The layout cell in hi-res px (C41): the advance of a wide glyph.
-	/// [font.N]/[hires] cell=game (the default) keeps kDefaultCell whatever
-	/// size is; cell=glyph makes it size, as before C41.
+	int size;                        ///< resolved size=, px (the default when unset)
+	/// The layout cell in hi-res px (plan.cell==glyph makes it @ref size).
 	int cell;
-	/// [font.N]/[hires] baseline=: hi-res px the glyphs move down (negative: up).
-	int baseline;
-	/// [font.N]/[hires] align=: the face's baseline on the game font's
-	/// (game, the default), the fit's box centred on the cell (cell, before
-	/// C41), or the face's own line from the line top (font).
-	Graphics::HiResAlign align;
-	int pixel;                       ///< [font.N]/[hires] pixel=: the first face's design size, held on its grid; 0 = none
-	LatinMode latin;                 ///< how ASCII is drawn
-	Common::String latinFacePath;    ///< face for the Latin range; empty = the main face
-	bool fullwidthSpace;             ///< kLatinFullwidth: remap ' ' to U+3000 too
-	Graphics::HiResMetricsSource metrics; ///< kLatinProportional: whose advances
+	int baseline;                    ///< resolved shift=, hi-res px
+	Graphics::HiResAlign align;      ///< resolved align=
+	int pixel;                       ///< resolved pixel=; 0 = not a pixel face
 };
 
 /**
- * The hi-res text ini keys, already validated by the caller. Each has a
- * has-flag: an unset key leaves the setting to the map.
+ * SCI's engine scope (design section 8, the defaults consulted below
+ * `[font]`): `range.basic-latin=original` (the game's own resource font
+ * draws ASCII unless a map rule says otherwise - today's behaviour),
+ * `advance.basic-latin=game` (an id that does route ASCII to a face steps
+ * it by the game font's own width unless the map asks for
+ * `advance.basic-latin=font`).
  */
-struct HiresTextOverrides {
-	HiresTextOverrides();
-
-	bool hasFont;                    ///< hires_text_font
-	Common::String font;
-	bool hasFontSize;                ///< hires_text_font_size
-	int fontSize;
-	bool hasLatin;                   ///< hires_text_latin
-	LatinMode latin;
-	bool hasLatinFont;               ///< hires_text_latin_font
-	Common::String latinFont;
-	bool hasLatinSpace;              ///< hires_text_latin_space
-	bool latinFullwidthSpace;
-	bool hasMetrics;                 ///< hires_text_metrics
-	Graphics::HiResMetricsSource metrics;
-};
+Graphics::HiResFontScope sciEngineScope();
 
 /**
- * The settings for @p fontId.
- *
- * Precedence, per setting: ini > [font.N:<platform>] > [font.N] >
- * [latin:<platform>]/[latin] (or [hires] for face/size) > default.
- * The platform qualifier is applied when the map is parsed (GfxCache passes
- * the platform code as the qualifier), so @p map already holds the winner of
- * each qualified/bare pair.
- *
- * The legacy [latin] enabled=true means kLatinProportional with the usual
- * metrics chain, but only when enabled= is written: bitmap=, which SCUMM
- * also reads as enabling, does nothing on SCI.
- *
- * Defaults: size 16, latin off, space keep, metrics game, no face.
- * A face name resolves through [fonts]; a relative path from the map (a
- * [fonts] entry or a path written in place of a face name) is taken against
- * @p mapDir, the directory holding the map file. Ini paths are used as
- * given, as GfxCache always has.
+ * The settings for @p fontId: hires_text.map's `[font]`/`[font.N]` scopes
+ * plus @p ini's overrides, compiled into one plan
+ * (Graphics::compileIdPlan()) against sciEngineScope(), and unpacked into
+ * the geometry GfxCache reads directly.
  *
  * @param map        the parsed hires_text.map
  * @param mapLoaded  false when there is no map (or it is out of scope):
  *                   @p map is then ignored entirely
- * @param mapDir     the directory holding the map file
+ * @param mapDir     the directory holding the map file (design section 4:
+ *                   what a `[fonts]` name or a path written in place of one
+ *                   resolves against)
+ * @param gameDir    the game's own folder (design section 4: what the ini
+ *                   `hires_text_face`'s own path entries resolve against)
  */
-FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapLoaded, int fontId,
-								 const HiresTextOverrides &ini, const Common::Path &mapDir);
-
-/**
- * Warn once per map key SCI parses but cannot honour: today only the legacy
- * [latin] bitmap= (SCUMM's bitmap Latin font; SCI has no such path, and does
- * not read it as enabled=true either). GfxCache calls this once per loaded
- * map.
- *
- * @return the number of warnings given
- */
-int warnScummOnlyMapKeys(const Graphics::HiResTextConfig &map);
+FontSettings resolveFontSettings(const Graphics::HiResMap &map, bool mapLoaded, int fontId,
+								 const Graphics::HiResIniOverrides &ini, const Common::Path &mapDir,
+								 const Common::Path &gameDir);
 
 /**
  * The key GfxCache shares a Unicode bundle (GfxFontUnicode) under: the main
- * face and size, plus - only when a second face draws the Latin range
- * (@p latinPath non-empty) - that face and the Latin mode. Every mode gets
- * its own router, so half and proportional never share one even though they
- * route the same range today; with no Latin face there is no router and the
- * mode does not matter.
+ * face, its size, and the compiled plan's own hash
+ * (Graphics::HiResIdPlan::hash() - every range/advance/origin/glyphs rule
+ * that could change what the bundle draws). Two font ids with the same
+ * face, size and plan share one bundle; nothing else about the map affects
+ * what gets drawn.
  */
-Common::String unicodeBundleKey(const Common::String &mainPath, int size,
-								const Common::String &latinPath, LatinMode mode);
+Common::String unicodeBundleKey(const Common::String &mainPath, int size, uint32 planHash);
+
+/**
+ * One face a plan names, already opened (or not): what
+ * checkPlanLoadWarnings() needs to run design 5.4's cell-height refusal and
+ * design 6.4/6.7's missing=/targeted-glyph warnings, without depending on
+ * GfxCache's own face cache - so it can be tested with a handful of fakes.
+ */
+struct FontIdFace {
+	Common::String path;                   ///< resolved, as HiResFaceEntry::path.toString('/')
+	Graphics::UnicodeGlyphSource *source;   ///< the opened source; nullptr = failed to open
+	bool isSvf;                             ///< only an SVF's cell height is compared (design 5.4)
+};
+
+/**
+ * design sections 5.4, 6.4 and 6.7's load-time checks for font id @p fontId's
+ * @p plan, run once every face it names (the id chain, every rule chain and
+ * every `[glyphs]` target) has been opened or found to fail - @p faces, one
+ * entry per distinct path, in plan order.
+ *
+ * An SVF whose cell height differs from the id's first SVF is refused
+ * (design 5.4): its path is added to @p excludedPaths, for the caller to
+ * leave out of every chain and target that names it before building the
+ * id's Unicode source, and warned about once. A `[glyphs]` target lacking
+ * its own code point in the face it names (design 6.7), and a `missing=`
+ * code point no face of the id's own chain(s) has (design 6.4), are each
+ * warned about once too - an id with no chain of its own at all (a pure
+ * `original`) is not checked at all, since it opens no face.
+ *
+ * Every text is the design 10.4 wording (the `HIRESTXT.MAP` prefix), pushed
+ * onto @p map's own warnings (design section 10: "kept in HiResMap::warnings
+ * for tests") and printed with warning() unless @p warnedOnceThisLoad
+ * already has that exact text - the map's own causes (`missing=`, a target)
+ * do not depend on which font id happens to reach them first, so the caller
+ * shares one map and one dedup table across every font id it resolves in a
+ * load.
+ */
+void checkPlanLoadWarnings(int fontId, const Graphics::HiResIdPlan &plan, const Common::Array<FontIdFace> &faces,
+						   Common::Array<Common::String> &excludedPaths, Graphics::HiResMap &map,
+						   Common::HashMap<Common::String, bool> &warnedOnceThisLoad);
 
 } // End of namespace Sci
 

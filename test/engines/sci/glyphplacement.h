@@ -41,25 +41,31 @@
 
 using Sci::FontSettings;
 using Sci::GlyphPlacement;
-using Sci::HiresTextOverrides;
 
 /**
- * C41: an SCI hi-res face rasterised at size= in a layout cell that stays
- * the engine's (cell=game), placed on the game font's baseline (align=game)
- * and moved by baseline=.
+ * design section 5.4 (C41): an SCI hi-res face rasterised at size= in a
+ * layout cell that stays the engine's (cell=game), placed on the game
+ * font's baseline (align=game) and moved by shift=.
  */
 class SciGlyphPlacementTestSuite : public CxxTest::TestSuite {
 private:
-	static Graphics::HiResTextConfig parse(const char *text) {
-		Common::Array<Common::String> qualifiers;
-		Common::MemoryReadStream stream((const byte *)text, strlen(text));
-		Graphics::HiResTextConfig cfg;
-		TS_ASSERT(Graphics::HiResFontMap::loadFromStream(stream, Common::Path("/games/kq1"), qualifiers, cfg));
-		return cfg;
+	static const Common::Path &mapDir() {
+		static const Common::Path dir("/games/kq1");
+		return dir;
 	}
 
-	static FontSettings resolve(const Graphics::HiResTextConfig &map, int fontId) {
-		return Sci::resolveFontSettings(map, true, fontId, HiresTextOverrides(), Common::Path("/games/kq1"));
+	static Graphics::HiResMap parseMap(const char *text) {
+		Common::String full = "[map]\nversion=2\n";
+		full += text;
+		Common::MemoryReadStream stream((const byte *)full.c_str(), full.size());
+		Graphics::HiResMap map;
+		Common::Array<Common::String> qualifiers;
+		TS_ASSERT(Graphics::HiResFontMap::loadMap(stream, mapDir(), qualifiers, Graphics::kHiResKeysSci, map));
+		return map;
+	}
+
+	static FontSettings resolve(const Graphics::HiResMap &map, int fontId) {
+		return Sci::resolveFontSettings(map, true, fontId, Graphics::HiResIniOverrides(), mapDir(), mapDir());
 	}
 
 	/**
@@ -106,52 +112,52 @@ private:
 public:
 	// --- the map keys -------------------------------------------------------
 
-	void test_baseline_cell_align_parse_per_font_and_hires() {
-		const Graphics::HiResTextConfig map = parse(
-			"[hires]\nbaseline=+3\ncell=glyph\nalign=cell\n"
-			"[font.300]\nsize=18\nbaseline=-2\ncell=game\nalign=game\n"
-			"[font.4]\nbaseline=0\n");
-		TS_ASSERT(map.hiresBaselineSet);
-		TS_ASSERT_EQUALS(map.hiresBaseline, 3);
-		TS_ASSERT(map.hiresCellSet);
-		TS_ASSERT_EQUALS(map.hiresCell, Graphics::kHiResCellGlyph);
-		TS_ASSERT(map.hiresAlignSet);
-		TS_ASSERT_EQUALS(map.hiresAlign, Graphics::kHiResAlignCell);
-		const Graphics::HiResFontIdSettings *f = map.fontIdSettings(300);
-		TS_ASSERT(f && f->baselineSet && f->cellSet && f->alignSet);
-		TS_ASSERT_EQUALS(f->baseline, -2);
+	void test_shift_cell_align_parse_per_font_and_map_wide() {
+		const Graphics::HiResMap map = parseMap(
+			"[font]\nshift=+3\ncell=glyph\nalign=cell\n"
+			"[font.300]\nsize=18\nshift=-2\ncell=game\nalign=game\n"
+			"[font.4]\nshift=0\n");
+		TS_ASSERT(map.font.shiftSet);
+		TS_ASSERT_EQUALS(map.font.shift, 3);
+		TS_ASSERT(map.font.cellSet);
+		TS_ASSERT_EQUALS(map.font.cell, Graphics::kHiResCellGlyph);
+		TS_ASSERT(map.font.alignSet);
+		TS_ASSERT_EQUALS(map.font.align, Graphics::kHiResAlignCell);
+		const Graphics::HiResFontScope *f = map.fontIdScope(300);
+		TS_ASSERT(f && f->shiftSet && f->cellSet && f->alignSet);
+		TS_ASSERT_EQUALS(f->shift, -2);
 		TS_ASSERT_EQUALS(f->cell, Graphics::kHiResCellGame);
 		TS_ASSERT_EQUALS(f->align, Graphics::kHiResAlignGame);
-		const Graphics::HiResFontIdSettings *g = map.fontIdSettings(4);
-		TS_ASSERT(g && g->baselineSet && !g->cellSet && !g->alignSet);
-		TS_ASSERT_EQUALS(g->baseline, 0);
+		const Graphics::HiResFontScope *g = map.fontIdScope(4);
+		TS_ASSERT(g && g->shiftSet && !g->cellSet && !g->alignSet);
+		TS_ASSERT_EQUALS(g->shift, 0);
 	}
 
 	void test_bad_values_are_ignored() {
-		const Graphics::HiResTextConfig map = parse(
-			"[hires]\nbaseline=2.5\ncell=16\nalign=top\n"
-			"[font.1]\nbaseline=-65\n[font.2]\nbaseline=--1\n[font.3]\nbaseline=\n[font.5]\nbaseline=-64\n");
-		TS_ASSERT(!map.hiresBaselineSet);
-		TS_ASSERT(!map.hiresCellSet);
-		TS_ASSERT(!map.hiresAlignSet);
-		TS_ASSERT(!map.fontIdSettings(1)->baselineSet);
-		TS_ASSERT(!map.fontIdSettings(2)->baselineSet);
-		TS_ASSERT(!map.fontIdSettings(3)->baselineSet);
-		TS_ASSERT(map.fontIdSettings(5)->baselineSet);
-		TS_ASSERT_EQUALS(map.fontIdSettings(5)->baseline, -64);
+		const Graphics::HiResMap map = parseMap(
+			"[font]\nshift=2.5\ncell=16\nalign=top\n"
+			"[font.1]\nshift=-33\n[font.2]\nshift=--1\n[font.3]\nshift=\n[font.5]\nshift=-32\n");
+		TS_ASSERT(!map.font.shiftSet);
+		TS_ASSERT(!map.font.cellSet);
+		TS_ASSERT(!map.font.alignSet);
+		TS_ASSERT(!map.fontIdScope(1)->shiftSet);
+		TS_ASSERT(!map.fontIdScope(2)->shiftSet);
+		TS_ASSERT(!map.fontIdScope(3)->shiftSet);
+		TS_ASSERT(map.fontIdScope(5)->shiftSet);
+		TS_ASSERT_EQUALS(map.fontIdScope(5)->shift, -32);
 	}
 
 	void test_resolve_defaults_and_precedence() {
 		// Nothing set: the 16 px cell, no shift, on the game's baseline.
-		const FontSettings d = resolve(parse("[hires]\nscale=2\n"), 0);
+		const FontSettings d = resolve(parseMap("[render]\nscale=2\n"), 0);
 		TS_ASSERT_EQUALS(d.size, 16);
 		TS_ASSERT_EQUALS(d.cell, 16);
 		TS_ASSERT_EQUALS(d.baseline, 0);
 		TS_ASSERT_EQUALS(d.align, Graphics::kHiResAlignGame);
 
-		const Graphics::HiResTextConfig map = parse(
-			"[hires]\nsize=20\nbaseline=1\n"
-			"[font.300]\nsize=18\nbaseline=-2\n"
+		const Graphics::HiResMap map = parseMap(
+			"[font]\nsize=20\nshift=1\n"
+			"[font.300]\nsize=18\nshift=-2\n"
 			"[font.4]\ncell=glyph\nalign=cell\n");
 		// size= no longer grows the cell (cell=game is the default) ...
 		const FontSettings s300 = resolve(map, 300);
@@ -159,7 +165,7 @@ public:
 		TS_ASSERT_EQUALS(s300.cell, 16);
 		TS_ASSERT_EQUALS(s300.baseline, -2);
 		TS_ASSERT_EQUALS(s300.align, Graphics::kHiResAlignGame);
-		// ... unless cell=glyph asks for the old behaviour; [hires] fills in.
+		// ... unless cell=glyph asks for the old behaviour; [font] fills in.
 		const FontSettings s4 = resolve(map, 4);
 		TS_ASSERT_EQUALS(s4.size, 20);
 		TS_ASSERT_EQUALS(s4.cell, 20);
@@ -181,7 +187,7 @@ public:
 		TS_ASSERT_EQUALS(p.offsetX(true), -1);   // centred: one px over each side
 		TS_ASSERT_EQUALS(p.offsetX(false), 0);   // narrow glyphs start at the pen
 		TS_ASSERT_EQUALS(p.offsetY(), 0);
-		// baseline=-2: two px up, above the cell's top.
+		// shift=-2: two px up, above the cell's top.
 		p = place(18, 16, GlyphPlacement::kAlignGame, 16, 16, -2);
 		TS_ASSERT_EQUALS(p.offsetY(), -2);
 		// Font 4: the game's baseline is 14.
@@ -245,8 +251,8 @@ public:
 	void test_align_font_uses_the_face_line() {
 		// align=font: the raster's line top (row 5 of a padded raster, say)
 		// on the text line's top, whatever the game font is.
-		const Graphics::HiResTextConfig map = parse("[hires]\nalign=font\n[font.300]\nalign=font\nbaseline=-2\n");
-		TS_ASSERT_EQUALS(map.hiresAlign, Graphics::kHiResAlignFont);
+		const Graphics::HiResMap map = parseMap("[font]\nalign=font\n[font.300]\nalign=font\nshift=-2\n");
+		TS_ASSERT_EQUALS(map.font.align, Graphics::kHiResAlignFont);
 		const FontSettings s = resolve(map, 300);
 		TS_ASSERT_EQUALS(s.align, Graphics::kHiResAlignFont);
 		TS_ASSERT_EQUALS(resolve(map, 0).align, Graphics::kHiResAlignFont);
@@ -297,7 +303,7 @@ public:
 		for (int y = 0; y < 18; y++)
 			memcpy(&cov[y * 36], src.row(0xAC00, y), 36);
 
-		// baseline=-2: the raster's top row at 30, ink rows 31..46 - the
+		// shift=-2: the raster's top row at 30, ink rows 31..46 - the
 		// first above the cell - and, one column to the left, columns 32..47.
 		GlyphPlacement p = place(18, 16, GlyphPlacement::kAlignGame, 16, 16, -2);
 		Sci::TextLayer up(128, 128, 2);
@@ -311,7 +317,7 @@ public:
 		TS_ASSERT_EQUALS(up.row(40)[47].fgCoverage, 255);
 		TS_ASSERT_EQUALS(up.row(40)[48].fgCoverage, 0);
 
-		// baseline=+2: ink rows 35..50, past the cell's last row.
+		// shift=+2: ink rows 35..50, past the cell's last row.
 		p = place(18, 16, GlyphPlacement::kAlignGame, 16, 16, 2);
 		Sci::TextLayer down(128, 128, 2);
 		down.putGlyph(32 + p.offsetX(true), 32 + p.offsetY(), cov.begin(), 36, 18, 7);

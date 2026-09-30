@@ -23,27 +23,9 @@
 #define SCI_GRAPHICS_TEXTLATIN_H
 
 #include "common/scummsys.h"
+#include "graphics/hires_text/id_plan.h"
 
 namespace Sci {
-
-/**
- * hires_text_latin: how ASCII text is drawn once hires_text_font applies
- * (see cache.cpp's hiresTextFontApplies()) and resolves to a live TrueType
- * face. Resolved per font id (resolveFontSettings(), hirestextsettings.h) from
- * the ini keys and hires_text.map when GfxCache builds that font, carried by
- * the font itself, and never looked up per character.
- */
-enum LatinMode {
-	kLatinOff,			///< default: today's behaviour, unchanged
-	kLatinHalf,			///< ASCII keeps its code point but is routed to the
-						///< Unicode/TrueType face and drawn at half (narrow)
-						///< width instead of by the game's resource font
-	kLatinFullwidth,	///< ASCII is remapped to the fullwidth-forms block
-						///< and drawn at double (wide) width
-	kLatinProportional	///< ASCII is routed to the Unicode/TrueType face as
-						///< in kLatinHalf, each advance taken from the game
-						///< font (metrics=game) or the face (metrics=font)
-};
 
 /**
  * hires_text_log: which face actually drew a glyph, for GfxText16's
@@ -52,56 +34,45 @@ enum LatinMode {
  * own draw() already makes - this adds no new decision, just a name for the
  * existing one, so it costs nothing when hires_text_log is off (GfxText16
  * only calls classify() when the flag resolved true).
- *
- * Named TextFaceKind, not FaceKind: GfxFontSet already has its own nested
- * FaceKind enum (kFaceResource/kFaceLegacyDbcs/kFaceCodePoint) for a
- * different purpose (which face to ask, not what to report), and the two
- * would otherwise collide by name inside that class's scope.
  */
 enum TextFaceKind {
 	kTextFaceResource,	///< the game's own resource face
 	kTextFaceLegacy,	///< korean.fnt / SJIS.FNT, addressed by byte pair
-	kTextFaceUnicode,	///< the SCVMUNI/TrueType bundle, a genuine code point
-	kTextFaceLatin		///< ASCII (or its hires_text_latin=fullwidth remap)
-						///< routed to that bundle by hires_text_latin
+	kTextFaceUnicode,	///< the id's own chain, by its plain default routing
+	kTextFaceRule		///< a range rule's chain drew it, not the plain default
 };
 
-/** The arithmetic of hi-res text, free of engine state so it is tested alone
- *  (HIRES_COMPOSITOR_DESIGN.md, hires_text_latin). */
+/** The arithmetic of hi-res text, free of engine state so it is tested alone. */
 namespace TextCompose {
 
 /**
- * The glyph character for cp, per hires_text_latin's mode: what
- * GfxText16::glyphChar() measures and draws. It is never what the text
- * protocol is classified by - GfxText16::readChar() returns the raw
- * character, so '|' codes, '@' (not 0xFF20) and the ' ' word break keep
- * working in fullwidth mode.
+ * The `[glyphs]` step (design section 6.5 step 2) for the code
+ * GfxText16::glyphChar() returns. @p chr is the game code @p plan was
+ * compiled for: a decoded code point (GfxText16::readChar() always hands on
+ * one - see its own comment - so this is true for a legacy code page and a
+ * UTF-8 translation alike) or one of the game's own single-byte values.
  *
- * kLatinOff never changes cp. kLatinHalf also never changes cp: plain ASCII
- * keeps its ordinary code point, and is instead routed to a different face
- * by asciiGoesToUnicodeFace() below, not by remapping the code point itself.
- *
- * kLatinFullwidth remaps U+0021..U+007E to U+FF01..U+FF5E (+0xFEE0), and,
- * when fullwidthSpace, also remaps U+0020 to U+3000 (IDEOGRAPHIC SPACE). Any
- * other code point - including one already outside ASCII, e.g. a Hangul
- * syllable - is returned unchanged in every mode.
+ * An `original` rule, or the id being off entirely (design 6.5 step 3, folded
+ * into @p plan by compileIdPlan() so this function need not know about it),
+ * answers `Graphics::kHiResGameCodeBase + chr`: the game's own font draws
+ * @p chr, unchanged - GfxFontSet/GfxFontUnicodeAdapter decode that back to
+ * @p chr for the resource face. Otherwise the result is a real code point
+ * (design 6.5 step 3 on: a plain decode, or a `[glyphs]` remap/offset) or a
+ * virtual targeted-glyph one (`Graphics::HiResIdPlan::target()`).
  */
-uint32 latinFullwidth(uint32 cp, LatinMode mode, bool fullwidthSpace);
+uint32 glyphCode(const Graphics::HiResIdPlan &plan, uint32 chr);
 
 /**
- * Whether a code point already known to be ASCII (cp < 0x80) should be
- * routed to the Unicode face instead of the game's own resource face -
- * overriding the "chr < 0x80 always uses the resource face" rule in
- * GfxFontSet::faceFor() (fontset.cpp) and GfxFontUnicodeAdapter
- * (fontunicode.cpp).
- *
- * Only kLatinHalf and kLatinProportional redirect, and only the printable
- * range U+0020..U+007E. The two differ only in the advance: half uses the
- * face's narrow cell, proportional latinAdvanceGamePx() (graphics/hires_text/latin_advance.h).
- * kLatinFullwidth needs no such override: its ASCII is already remapped past
- * U+00FF by latinFullwidth() before any chr < 0x80 check ever sees it.
+ * Whether a (post-glyphCode) @p code is drawn by the Unicode face set
+ * (design 6.5 steps 4-6) rather than the game's own resource font: false for
+ * a declined code (`code >= Graphics::kHiResGameCodeBase`); for a
+ * targeted-glyph code (`Graphics::kHiResTargetBase` and up), whether @p plan
+ * actually produced it; otherwise whether @p plan's chain for it is
+ * non-null (design 6.2/6.5 step 4) - for the printable ASCII range this is
+ * null unless a map rule says otherwise, per the SCI engine scope's
+ * `range.basic-latin=original` (sciEngineScope(), hirestextsettings.h).
  */
-bool asciiGoesToUnicodeFace(uint32 cp, LatinMode mode);
+bool goesToUnicodeFace(const Graphics::HiResIdPlan &plan, uint32 code);
 
 } // End of namespace TextCompose
 } // End of namespace Sci

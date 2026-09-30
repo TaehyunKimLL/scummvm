@@ -67,7 +67,7 @@ TextFaceKind classifyGlyphFace(GfxFont *font, uint32 glyph) {
 // hires_text_log's "faces %s": one term per non-zero face kind, in a fixed
 // order so runs are easy to diff. "none" for a line with no drawn glyphs
 // (e.g. a blank separator line).
-Common::String formatFaceTally(int resource, int legacy, int unicode, int latin) {
+Common::String formatFaceTally(int resource, int legacy, int unicode, int rule) {
 	Common::String out;
 	if (resource)
 		out += Common::String::format("resource=%d ", resource);
@@ -75,8 +75,8 @@ Common::String formatFaceTally(int resource, int legacy, int unicode, int latin)
 		out += Common::String::format("legacy=%d ", legacy);
 	if (unicode)
 		out += Common::String::format("unicode=%d ", unicode);
-	if (latin)
-		out += Common::String::format("latin=%d ", latin);
+	if (rule)
+		out += Common::String::format("rule=%d ", rule);
 	if (out.empty())
 		return "none";
 	out.deleteLastChar(); // the trailing separator space
@@ -97,8 +97,7 @@ GfxText16::~GfxText16() {
 
 void GfxText16::init() {
 	_font = nullptr;
-	_latinMode = kLatinOff;
-	_latinSpaceFullwidth = false;
+	_plan = Graphics::HiResIdPlan();
 	_codeFonts = nullptr;
 	_codeFontsCount = 0;
 	_codeColors = nullptr;
@@ -107,7 +106,7 @@ void GfxText16::init() {
 	_lastDrawTallyResource = 0;
 	_lastDrawTallyLegacy = 0;
 	_lastDrawTallyUnicode = 0;
-	_lastDrawTallyLatin = 0;
+	_lastDrawTallyRule = 0;
 }
 
 GuiResourceId GfxText16::GetFontId() {
@@ -634,7 +633,7 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 	// when off. The four counts are read back by Box() right after this
 	// call, when it is one of the lines a box is splitting text into.
 	const bool logFaces = _cache->isTextLogEnabled();
-	int tallyResource = 0, tallyLegacy = 0, tallyUnicode = 0, tallyLatin = 0;
+	int tallyResource = 0, tallyLegacy = 0, tallyUnicode = 0, tallyRule = 0;
 
 	Common::Rect rect;
 	rect.top = _ports->_curPort->curTop;
@@ -694,7 +693,7 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 				case kTextFaceResource: tallyResource++; break;
 				case kTextFaceLegacy:   tallyLegacy++;    break;
 				case kTextFaceUnicode:  tallyUnicode++;   break;
-				case kTextFaceLatin:    tallyLatin++;     break;
+				case kTextFaceRule:    tallyRule++;     break;
 				}
 			}
 			_ports->_curPort->curLeft += charWidth;
@@ -706,10 +705,10 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 		_lastDrawTallyResource = tallyResource;
 		_lastDrawTallyLegacy = tallyLegacy;
 		_lastDrawTallyUnicode = tallyUnicode;
-		_lastDrawTallyLatin = tallyLatin;
+		_lastDrawTallyRule = tallyRule;
 		debug(1, "hires_text: font %d line \"%s\" faces %s", orgFontId,
 			  Common::String(lineStart, (uint32)lineLen).c_str(),
-			  formatFaceTally(tallyResource, tallyLegacy, tallyUnicode, tallyLatin).c_str());
+			  formatFaceTally(tallyResource, tallyLegacy, tallyUnicode, tallyRule).c_str());
 	}
 }
 
@@ -746,7 +745,7 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 	// opposed to Draw()'s own per-rendered-line debug line), read back from
 	// Draw()/Show()'s last tally right after each call below.
 	const bool logFaces = _cache->isTextLogEnabled();
-	int tallyResource = 0, tallyLegacy = 0, tallyUnicode = 0, tallyLatin = 0;
+	int tallyResource = 0, tallyLegacy = 0, tallyUnicode = 0, tallyRule = 0;
 
 	// The legacy CJK path switches to the one font that holds double-byte
 	// glyphs AND sets doubleByteMode, and both halves matter: dropping the
@@ -875,7 +874,7 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 			tallyResource += _lastDrawTallyResource;
 			tallyLegacy += _lastDrawTallyLegacy;
 			tallyUnicode += _lastDrawTallyUnicode;
-			tallyLatin += _lastDrawTallyLatin;
+			tallyRule += _lastDrawTallyRule;
 		}
 
 		hline += textHeight;
@@ -883,7 +882,7 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 	}
 	if (logFaces)
 		debug(1, "hires_text: font %d line \"%s\" faces %s", fontId, text,
-			  formatFaceTally(tallyResource, tallyLegacy, tallyUnicode, tallyLatin).c_str());
+			  formatFaceTally(tallyResource, tallyLegacy, tallyUnicode, tallyRule).c_str());
 	SetFont(previousFontId);
 	_ports->penColor(previousPenColor);
 }
@@ -917,7 +916,7 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 		str = Common::convertBiDiString(strOrig, g_sci->getLanguage());
 
 	const bool logFaces = _cache->isTextLogEnabled();
-	int tallyResource = 0, tallyLegacy = 0, tallyUnicode = 0, tallyLatin = 0;
+	int tallyResource = 0, tallyLegacy = 0, tallyUnicode = 0, tallyRule = 0;
 
 	const char *text = str.c_str();
 	int textLen = (int)str.size();
@@ -949,42 +948,34 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 			case kTextFaceResource: tallyResource++; break;
 			case kTextFaceLegacy:   tallyLegacy++;    break;
 			case kTextFaceUnicode:  tallyUnicode++;   break;
-			case kTextFaceLatin:    tallyLatin++;     break;
+			case kTextFaceRule:    tallyRule++;     break;
 			}
 		}
 		_ports->_curPort->curLeft += charWidth;
 	}
 	if (logFaces)
 		debug(1, "hires_text: font %d line \"%s\" faces %s", GetFontId(), str.c_str(),
-			  formatFaceTally(tallyResource, tallyLegacy, tallyUnicode, tallyLatin).c_str());
+			  formatFaceTally(tallyResource, tallyLegacy, tallyUnicode, tallyRule).c_str());
 }
 
 // The glyph character for an already-classified character (see text16.h).
-// hires_text_latin=fullwidth remaps ASCII into the fullwidth-forms block here
-// and only here; kLatinOff, kLatinHalf and kLatinProportional leave it
-// untouched (their routing happens at the face-selection layer -
-// GfxFontSet::faceFor() and GfxFontUnicodeAdapter - and proportional's
-// advance in those fonts' getCharWidth(), which every measuring and drawing
-// site below reads, so the pen and the layout move alike). The mode is a
-// plain field read: the current font's own setting, copied by
-// refreshLatinSettings() whenever _font changes.
-// Latin-1 (U+00A0..U+00FF) is deliberately neither remapped nor routed: the
-// fullwidth-forms block has no counterpart for it, and it keeps the face it
-// had before hires_text_latin existed.
+// TextCompose::glyphCode() (design section 6.5 step 2 on) is what a
+// `[glyphs]` remap - fullwidth or otherwise - happens through, and only
+// here; readChar()'s classification is untouched, so '|' codes, '@'/0xFF20
+// and CR/LF line breaks, the PQ2 "\n" escape and the ' ' word break keep
+// working whatever the map remaps. The plan is a plain field read: the
+// current font's own compiled plan, copied by refreshLatinSettings()
+// whenever _font changes.
 uint32 GfxText16::glyphChar(uint32 chr) const {
-	return TextCompose::latinFullwidth(chr, _latinMode, _latinSpaceFullwidth);
+	return TextCompose::glyphCode(_plan, chr);
 }
 
 void GfxText16::refreshLatinSettings() {
-	_latinMode = kLatinOff;
-	_latinSpaceFullwidth = false;
-	if (const GfxFontSet *set = dynamic_cast<const GfxFontSet *>(_font)) {
-		_latinMode = set->latinMode();
-		_latinSpaceFullwidth = set->latinFullwidthSpace();
-	} else if (const GfxFontUnicodeAdapter *adapter = dynamic_cast<const GfxFontUnicodeAdapter *>(_font)) {
-		_latinMode = adapter->latinMode();
-		_latinSpaceFullwidth = adapter->latinFullwidthSpace();
-	}
+	_plan = Graphics::HiResIdPlan();
+	if (const GfxFontSet *set = dynamic_cast<const GfxFontSet *>(_font))
+		_plan = set->settings().plan;
+	else if (const GfxFontUnicodeAdapter *adapter = dynamic_cast<const GfxFontUnicodeAdapter *>(_font))
+		_plan = adapter->plan();
 }
 
 uint16 GfxText16::getGlyphWidth(uint32 chr) {

@@ -229,19 +229,22 @@ TextFaceKind GfxFontUnicodeAdapter::classify(uint32 chr) const {
 	const bool fallbackIsLegacy = _fallback &&
 		(dynamic_cast<GfxFontKorean *>(_fallback) || dynamic_cast<GfxFontSjis *>(_fallback));
 
-	if (chr < 0x80 && _fallback && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode))
+	// chr is TextCompose::glyphCode()'s own result; see GfxFontSet::faceFor()
+	// for what each range means.
+	if (chr >= Graphics::kHiResGameCodeBase)
+		return fallbackIsLegacy ? kTextFaceLegacy : kTextFaceResource;
+	if (chr >= Graphics::kHiResTargetBase)
+		return _font->hasGlyph(chr) ? kTextFaceUnicode : (fallbackIsLegacy ? kTextFaceLegacy : kTextFaceResource);
+
+	if (chr < 0x80 && _fallback && !TextCompose::goesToUnicodeFace(_plan, chr))
 		return fallbackIsLegacy ? kTextFaceLegacy : kTextFaceResource;
 
 	const uint32 cp = toCodePoint(chr);
 	if (cp && _font->hasGlyph(cp)) {
-		// ASCII (hires_text_latin=half) or its fullwidth remap
-		// (hires_text_latin=fullwidth) drawn by the Unicode bundle - see
-		// GfxFontSet::classify() for the same two checks.
-		if (chr < 0x80 && TextCompose::asciiGoesToUnicodeFace(chr, _latinMode))
-			return kTextFaceLatin;
-		if (_latinMode == kLatinFullwidth &&
-			((chr >= 0xFF01 && chr <= 0xFF5E) || chr == 0x3000))
-			return kTextFaceLatin;
+		// design 6.2: a range rule sent this here rather than the id's own
+		// plain chain - see GfxFontSet::classify() for the same check.
+		if (chr < Graphics::kHiResTargetBase && _plan.faceRules.lookup(chr) >= 0)
+			return kTextFaceRule;
 		return kTextFaceUnicode;
 	}
 
@@ -252,12 +255,9 @@ GfxFontUnicodeAdapter::GfxFontUnicodeAdapter(GfxFontUnicode *font,
 											 Common::CodePage codePage,
 											 GfxFont *fallback,
 											 GuiResourceId resourceId,
-											 LatinMode latinMode,
-											 bool fullwidthSpace,
-											 Graphics::HiResMetricsSource metrics)
+											 const Graphics::HiResIdPlan &plan)
 	: _font(font), _fallback(fallback), _codePage(codePage),
-	  _resourceId(resourceId), _latinMode(latinMode), _fullwidthSpace(fullwidthSpace),
-	  _metrics(metrics) {
+	  _resourceId(resourceId), _plan(plan) {
 }
 
 GfxFontUnicodeAdapter::~GfxFontUnicodeAdapter() {
@@ -320,41 +320,52 @@ bool GfxFontUnicodeAdapter::isDoubleByte(uint32 chr) {
 }
 
 byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
+	// chr is TextCompose::glyphCode()'s own result; see GfxFontSet::faceFor()
+	// for what each range means. A declined target has no game code to
+	// recover, so it is simply unmeasured, as GfxFontSet's own faceFor() does.
+	if (chr >= Graphics::kHiResGameCodeBase)
+		return _fallback ? _fallback->getCharWidth(chr - Graphics::kHiResGameCodeBase) : 0;
+	if (chr >= Graphics::kHiResTargetBase) {
+		if (!_font->hasGlyph(chr))
+			return 0;
+		const byte w = _font->getCharWidth(chr);
+		return (getSciVersion() >= SCI_VERSION_2) ? w : (w >> 1);
+	}
+
 	// Single-byte characters stay with the game's own font. The Unicode
 	// bundle has Latin glyphs too, but using them would change the metrics of
 	// every English string in every font the game uses - measured, it made
 	// fonts of height 12 and 9 all report 8 and pushed menu text outside its
-	// button. The bundle is for characters the resource font cannot draw -
-	// except in kLatinHalf mode, which deliberately asks the printable ASCII
-	// range to be drawn narrow by the Unicode/TrueType face instead.
-	if (chr < 0x80 && _fallback && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode))
+	// button. The bundle is for characters a range rule deliberately routes
+	// here instead (design 6.2).
+	if (chr < 0x80 && _fallback && !TextCompose::goesToUnicodeFace(_plan, chr))
 		return _fallback->getCharWidth(chr);
 
 	const uint32 cp = toCodePoint(chr);
 	if (cp && _font->hasGlyph(cp)) {
-		const byte w = _font->getCharWidth(cp);
-		if (_latinMode == kLatinProportional &&
-			TextCompose::asciiGoesToUnicodeFace(chr, _latinMode)) {
-			// hires_text_latin=proportional: the fallback (the game's font)
-			// sets the advance, or the face's own does (metrics=font). With
-			// no fallback, the narrow cell stands in for the game's width.
-			// draw() needs no counterpart: GfxText16 advances the pen by
-			// this, and the glyph's origin is at the start of its cell.
-			// The range is GfxFontSet::getCharWidth()'s: the ASCII routed
-			// to this face.
-			const int scale = (getSciVersion() >= SCI_VERSION_2) ? 1 : 2;
-			const int gameWidth = _fallback ? _fallback->getCharWidth(chr) : w / scale;
-			return (byte)Graphics::latinAdvanceGamePx(_metrics, gameWidth, _font->advanceHires(cp), scale);
+		const Graphics::HiResAdvance rule = _plan.advanceFor(cp);
+		const int scale = (getSciVersion() >= SCI_VERSION_2) ? 1 : 2;
+		if (rule == Graphics::kHiResAdvanceGame || rule == Graphics::kHiResAdvanceFont) {
+			// design 6.3: the fallback (the game's font) sets the advance, or
+			// the face's own does. With no fallback, the narrow cell stands
+			// in for the game's width. draw() needs no counterpart:
+			// GfxText16 advances the pen by this, and the glyph's origin is
+			// at the start of its cell.
+			const int gameWidth = _fallback ? _fallback->getCharWidth(chr) : (int)_font->getCharWidth(cp) / scale;
+			return (byte)Graphics::advanceGamePx(rule, gameWidth, _font->advanceHires(cp), scale);
 		}
 		// The glyph is drawn on the hires plane at twice the lowres
 		// coordinates, so its advance must be reported halved - exactly what
 		// GfxFontKorean::getCharWidth does with `>> 1` below SCI2. Reporting
 		// the full width makes text run past its box; that was measured, with
 		// the last two syllables of a menu entry spilling outside the button.
-		// Beyond ASCII, per glyph (design section 4.2): the cell for a wide
-		// glyph, nothing for a combining mark, the face's advance otherwise.
+		// design section 8's engine default: the cell for a wide glyph,
+		// nothing for a combining mark, the face's advance otherwise
+		// (Sci::glyphGameWidth(), only for a UTF-8 translation's per-glyph
+		// layout; a legacy font keeps its cell widths to the pixel).
+		const byte w = _font->getCharWidth(cp);
 		if (chr >= 0x80 && _font->perGlyph())
-			return _font->gameCharWidth(cp, (getSciVersion() >= SCI_VERSION_2) ? 1 : 2);
+			return _font->gameCharWidth(cp, scale);
 		return (getSciVersion() >= SCI_VERSION_2) ? w : (w >> 1);
 	}
 	if (_fallback)
@@ -363,7 +374,15 @@ byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
 }
 
 byte GfxFontUnicodeAdapter::getCharHeight(uint32 chr) {
-	if (chr < 0x80 && _fallback && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode))
+	if (chr >= Graphics::kHiResGameCodeBase)
+		return _fallback ? _fallback->getCharHeight(chr - Graphics::kHiResGameCodeBase) : 0;
+	if (chr >= Graphics::kHiResTargetBase) {
+		if (!_font->hasGlyph(chr))
+			return 0;
+		const byte h = _font->getCharHeight(chr);
+		return (getSciVersion() >= SCI_VERSION_2) ? h : (h >> 1);
+	}
+	if (chr < 0x80 && _fallback && !TextCompose::goesToUnicodeFace(_plan, chr))
 		return _fallback->getCharHeight(chr);
 
 	const uint32 cp = toCodePoint(chr);
@@ -378,9 +397,19 @@ byte GfxFontUnicodeAdapter::getCharHeight(uint32 chr) {
 
 void GfxFontUnicodeAdapter::draw(uint32 chr, int16 top, int16 left, byte color,
 								 bool greyedOutput) {
+	if (chr >= Graphics::kHiResGameCodeBase) {
+		if (_fallback)
+			_fallback->draw(chr - Graphics::kHiResGameCodeBase, top, left, color, greyedOutput);
+		return;
+	}
+	if (chr >= Graphics::kHiResTargetBase) {
+		if (_font->hasGlyph(chr))
+			_font->draw(chr, top, left, color, greyedOutput);
+		return;
+	}
 	// Keep single-byte text pixel-identical to the unmodified engine - except
-	// in kLatinHalf mode; see getCharWidth().
-	if (chr < 0x80 && _fallback && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode)) {
+	// where a range rule routes it here; see getCharWidth().
+	if (chr < 0x80 && _fallback && !TextCompose::goesToUnicodeFace(_plan, chr)) {
 		_fallback->draw(chr, top, left, color, greyedOutput);
 		return;
 	}
@@ -404,7 +433,17 @@ void GfxFontUnicodeAdapter::beginString() {
 void GfxFontUnicodeAdapter::drawToBuffer(uint32 chr, int16 top, int16 left,
 										 byte color, bool greyedOutput,
 										 byte *buffer, int16 width, int16 height) {
-	if (chr < 0x80 && _fallback && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode)) {
+	if (chr >= Graphics::kHiResGameCodeBase) {
+		if (_fallback)
+			_fallback->drawToBuffer(chr - Graphics::kHiResGameCodeBase, top, left, color, greyedOutput, buffer, width, height);
+		return;
+	}
+	if (chr >= Graphics::kHiResTargetBase) {
+		if (_font->hasGlyph(chr))
+			_font->drawToBuffer(chr, top, left, color, greyedOutput, buffer, width, height);
+		return;
+	}
+	if (chr < 0x80 && _fallback && !TextCompose::goesToUnicodeFace(_plan, chr)) {
 		_fallback->drawToBuffer(chr, top, left, color, greyedOutput, buffer, width, height);
 		return;
 	}
