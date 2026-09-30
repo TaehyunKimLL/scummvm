@@ -139,7 +139,10 @@ public:
 		TS_ASSERT_EQUALS(ScummHiResText::gameMirror("atlantis", 5, 3), Graphics::kHiResMirrorNone);
 	}
 
-	/// mirror= wins; true (mirror=true) means "as the game's font does", or
+	/// mirror= wins; kHiResMirrorGame (the old "true" alias, no longer
+	/// reachable from a v2 map's own grammar - see test_mirror_alias_v2_only
+	/// below - but still a resolveMirror() input in its own right, e.g. for a
+	/// future v1-compatibility caller) means "as the game's font does", or
 	/// horizontal for a charset the table does not know; unset follows the
 	/// table.
 	void test_resolve_mirror() {
@@ -148,9 +151,8 @@ public:
 		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(false, Graphics::kHiResMirrorNone, both), both);
 		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(false, Graphics::kHiResMirrorNone, none), none);
 
-		const Graphics::HiResIdPlan t = plan3(parse("[font.3]\nmirror=true\n"));
-		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(t.mirrorSet, t.mirror, both), both);
-		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(t.mirrorSet, t.mirror, none), Graphics::kHiResMirrorHorizontal);
+		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(true, Graphics::kHiResMirrorGame, both), both);
+		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(true, Graphics::kHiResMirrorGame, none), Graphics::kHiResMirrorHorizontal);
 
 		const Graphics::HiResIdPlan f = plan3(parse("[font.3]\nmirror=off\n"));
 		TS_ASSERT_EQUALS(ScummHiResText::resolveMirror(f.mirrorSet, f.mirror, both), none);
@@ -171,7 +173,7 @@ public:
 		TS_ASSERT(!ScummHiResText::keepsGameFont(false, both, true, 0xAC00));
 		TS_ASSERT(!ScummHiResText::keepsGameFont(false, none, false, 'a'));
 
-		const Graphics::HiResIdPlan t = plan3(parse("[font.3]\nmirror=true\n"));
+		const Graphics::HiResIdPlan t = plan3(parse("[font.3]\nmirror=horizontal\n"));
 		const Graphics::HiResIdPlan face = plan3(parse("[font.3]\nface=own.ttf\n"));
 		const Graphics::HiResIdPlan size = plan3(parse("[font.3]\nsize=20\n"));
 		TS_ASSERT(!ScummHiResText::keepsGameFont(t.mirrorSet, both, false, 'a'));

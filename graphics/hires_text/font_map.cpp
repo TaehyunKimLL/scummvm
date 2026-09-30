@@ -476,6 +476,26 @@ bool parseCellMode(const Common::String &value, HiResCellMode &out) {
 	return true;
 }
 
+/// v2-map-only mirror parser (design 6.2.1): unlike the shared
+/// Graphics::parseMirror() used by the legacy v1 loader (which still
+/// accepts the old true/on/yes/1/false/off/no/0/none/rotate aliases for
+/// backward compatibility), the v2 grammar recognises only the four
+/// spec values off|horizontal|vertical|both. Kept local to this file
+/// instead of touching glyph_mirror.cpp, which stays shared with v1.
+bool parseMirrorV2(const Common::String &value, HiResMirror &out) {
+	if (value.equalsIgnoreCase("off"))
+		out = kHiResMirrorNone;
+	else if (value.equalsIgnoreCase("horizontal"))
+		out = kHiResMirrorHorizontal;
+	else if (value.equalsIgnoreCase("vertical"))
+		out = kHiResMirrorVertical;
+	else if (value.equalsIgnoreCase("both"))
+		out = kHiResMirrorBoth;
+	else
+		return false;
+	return true;
+}
+
 /**
  * A decimal in units of 1/unit, to the nearest one: with unit 4, "1.5"
  * gives 6; with unit 100, "2.2" gives 220. Signs and exponents are junk.
@@ -2360,7 +2380,7 @@ void applyFontScalarKeys(const Common::INIFile &ini, const Common::Array<Common:
 		}
 	}
 	if (getKey(ini, qualifiers, section, "mirror", value)) {
-		if (parseMirror(value, scope.mirror))
+		if (parseMirrorV2(value, scope.mirror))
 			scope.mirrorSet = true;
 		else
 			hiResWarn(out, Common::String::format(
