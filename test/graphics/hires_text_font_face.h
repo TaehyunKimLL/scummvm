@@ -145,7 +145,16 @@ public:
 		TS_ASSERT_EQUALS(index, -1);
 	}
 
-#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+// TEST: every test_ method below is declared unconditionally (S15):
+// cxxtestgen has no C preprocessor of its own, so it always generates a call
+// to a method by name whether or not the #ifdef around its declaration is
+// true for this build - a method actually compiled out (USE_FREETYPE2
+// undefined) then fails the *link* of the generated runner, not the build
+// of this suite. Guarding only each method's body - the method itself
+// always exists, skipping visibly when FreeType is unavailable - is what
+// keeps a freetype-less build's test runner buildable.
+#ifdef USE_FREETYPE2
+#if NULL_OSYSTEM_IS_AVAILABLE
 	static const char *sdGothicPath() {
 		return "/System/Library/Fonts/AppleSDGothicNeo.ttc";
 	}
@@ -184,7 +193,12 @@ public:
 		return Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, 24, error, false, false, nullptr, 0, faceIndex);
 	}
 
+#endif
+#endif
+
+public:
 	void test_face_6_draws_differently_from_face_0() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		if (!haveFont(sdGothicPath()))
 			return;
 		Common::String error;
@@ -199,9 +213,13 @@ public:
 		}
 		delete regular;
 		delete bold;
+#else
+		TS_SKIP("needs FreeType");
+#endif
 	}
 
 	void test_no_index_is_face_0_byte_for_byte() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		if (!haveFont(sdGothicPath()))
 			return;
 		Common::String error;
@@ -215,9 +233,13 @@ public:
 		}
 		delete plain;
 		delete zero;
+#else
+		TS_SKIP("needs FreeType");
+#endif
 	}
 
 	void test_bad_face_index_fails_with_an_error() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		if (!haveFont(sdGothicPath()))
 			return;
 		Common::String error;
@@ -230,9 +252,13 @@ public:
 		TS_ASSERT(!src);
 		TS_ASSERT(!error.empty());
 		delete src;
+#else
+		TS_SKIP("needs FreeType");
+#endif
 	}
 
 	void test_open_font_face_on_a_real_collection() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		if (!haveFont(sdGothicPath()))
 			return;
 		int32 index = -2;
@@ -254,6 +280,8 @@ public:
 		s = Graphics::openFontFace(Common::Path("/System/Library/Fonts"), index, error);
 		TS_ASSERT(!s);
 		TS_ASSERT_EQUALS(error, "is a directory");
-	}
+#else
+		TS_SKIP("needs FreeType");
 #endif
+	}
 };

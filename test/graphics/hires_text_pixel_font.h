@@ -23,6 +23,15 @@
 // design size, or the largest whole multiple of it the cell holds, with no
 // probe shrink, so every glyph is the designer's bitmap: coverage is only
 // ever 0 or 255.
+//
+// TEST: every test_ method here is declared unconditionally (S15): cxxtestgen
+// has no C preprocessor of its own, so it finds a method's name whether or
+// not the #ifdef around its declaration is true for this build, and always
+// generates a call to it in test/runner.cpp - a method actually compiled out
+// (USE_FREETYPE2 undefined) then fails to link the generated call, not to
+// build the suite itself. Guarding only each method's *body* - the method
+// itself always exists, skipping visibly when FreeType is unavailable - is
+// what keeps a freetype-less build's test runner buildable.
 
 #include <cxxtest/TestSuite.h>
 
@@ -42,7 +51,8 @@ using Graphics::TtfGlyphSource;
 // The Galmuri faces (OFL, github.com/quiple/galmuri) live in a folder named
 // by SCUMMVM_TEST_PIXEL_FONT_DIR, else <SCUMMVM_TEST_I18N_DATA>/../fonts/
 // pixel/galmuri; a test whose face is absent is skipped, visibly.
-#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+#ifdef USE_FREETYPE2
+#if NULL_OSYSTEM_IS_AVAILABLE
 #pragma push_macro("getenv")
 #undef getenv
 static Common::String pixelFontTestPath(const char *file) {
@@ -56,39 +66,11 @@ static Common::String pixelFontTestPath(const char *file) {
 }
 #pragma pop_macro("getenv")
 #endif
+#endif
 
 class HiResTextPixelFontTestSuite : public CxxTest::TestSuite {
-public:
-	void setUp() {
+#ifdef USE_FREETYPE2
 #if NULL_OSYSTEM_IS_AVAILABLE
-		Common::install_null_g_system();
-#endif
-	}
-
-	void tearDown() {
-#if NULL_OSYSTEM_IS_AVAILABLE
-		Common::uninstall_null_g_system();
-#endif
-	}
-
-	void test_pixel_grid_size_is_the_largest_multiple_the_cell_holds() {
-		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(12, 10), 10);	// FT dialogue, Galmuri9
-		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(9, 8), 8);		// FT cell 9, Galmuri7
-		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(18, 12), 12);	// MI2 2x, Galmuri11
-		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(24, 12), 24);
-		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(24, 10), 20);
-		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(32, 16), 32);
-		// A cell smaller than the design keeps the design size (and clips).
-		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(9, 10), 10);
-		// No design size: no pixel grid.
-		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(12, 0), 0);
-		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(12, -3), 0);
-		// Never past what create() accepts.
-		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(255, 100), 200);
-		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(40, 300), 0);
-	}
-
-#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 private:
 	static Common::SeekableReadStream *openFont(const char *file) {
 		const Common::String path = pixelFontTestPath(file);
@@ -127,12 +109,44 @@ private:
 		n = ARRAYSIZE(cps);
 		return cps;
 	}
+#endif
+#endif
 
 public:
+	void setUp() {
+#if NULL_OSYSTEM_IS_AVAILABLE
+		Common::install_null_g_system();
+#endif
+	}
+
+	void tearDown() {
+#if NULL_OSYSTEM_IS_AVAILABLE
+		Common::uninstall_null_g_system();
+#endif
+	}
+
+	void test_pixel_grid_size_is_the_largest_multiple_the_cell_holds() {
+		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(12, 10), 10);	// FT dialogue, Galmuri9
+		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(9, 8), 8);		// FT cell 9, Galmuri7
+		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(18, 12), 12);	// MI2 2x, Galmuri11
+		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(24, 12), 24);
+		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(24, 10), 20);
+		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(32, 16), 32);
+		// A cell smaller than the design keeps the design size (and clips).
+		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(9, 10), 10);
+		// No design size: no pixel grid.
+		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(12, 0), 0);
+		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(12, -3), 0);
+		// Never past what create() accepts.
+		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(255, 100), 200);
+		TS_ASSERT_EQUALS(TtfGlyphSource::pixelGridSize(40, 300), 0);
+	}
+
 	// FT's dialogue charset: cell 12, Galmuri9 (design 10). Held at 10, on
 	// the grid, placed from the line top - exactly what the line fit gives
 	// in this cell today, byte for byte.
 	void test_galmuri9_held_at_design_size_in_a_12_cell() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		Common::SeekableReadStream *s1 = openFont("Galmuri9.ttf");
 		Common::SeekableReadStream *s2 = openFont("Galmuri9.ttf");
 		if (!s1 || !s2) {
@@ -166,14 +180,17 @@ public:
 		}
 		delete px;
 		delete lf;
+#else
+		TS_SKIP("needs FreeType");
+#endif
 	}
 
 	// The size= path shrinks the same face off its grid (C25): the probe
 	// set's ink (Å, brackets) is taller than 10 rows.
 	void test_size_key_shrinks_galmuri9_where_pixel_does_not() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		Common::SeekableReadStream *s = openFont("Galmuri9.ttf");
 		if (!s) {
-			// TS_SKIP does not leave the test in this runner (no exceptions).
 			TS_SKIP("Galmuri9.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
 			return;
 		}
@@ -183,11 +200,15 @@ public:
 		if (src)
 			TS_ASSERT_LESS_THAN(src->faceSize(), 10);
 		delete src;
+#else
+		TS_SKIP("needs FreeType");
+#endif
 	}
 
 	// MI2 at 2x: charset 2's cell is 9 * 2 = 18. Galmuri11 (design 12) is
 	// held at 12 in the game's own 18 cell; the line fit would open 14.
 	void test_galmuri11_held_at_12_in_an_18_cell() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		Common::SeekableReadStream *s = openFont("Galmuri11.ttf");
 		if (!s) {
 			TS_SKIP("Galmuri11.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
@@ -209,13 +230,16 @@ public:
 			TS_ASSERT_LESS_THAN(b, 18);
 		}
 		delete src;
+#else
+		TS_SKIP("needs FreeType");
+#endif
 	}
 
 	// A cell twice the design: the face doubles, still on the grid.
 	void test_galmuri9_doubles_in_a_24_cell() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		Common::SeekableReadStream *s = openFont("Galmuri9.ttf");
 		if (!s) {
-			// TS_SKIP does not leave the test in this runner (no exceptions).
 			TS_SKIP("Galmuri9.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
 			return;
 		}
@@ -234,11 +258,15 @@ public:
 			TS_ASSERT_EQUALS((b - t + 1) % 2, 0);
 		}
 		delete src;
+#else
+		TS_SKIP("needs FreeType");
+#endif
 	}
 
 	// FT's cell-9 charset with Galmuri7 (design 8): its line (8 + 1) is the
 	// cell, so it sits at the top, on the grid, nothing clipped.
 	void test_galmuri7_held_at_8_in_a_9_cell() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		Common::SeekableReadStream *s = openFont("Galmuri7.ttf");
 		if (!s) {
 			TS_SKIP("Galmuri7.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
@@ -258,15 +286,18 @@ public:
 			TSM_ASSERT(Common::String::format("U+%04X on the grid", cps[i]).c_str(), binaryInk(*src, cps[i], t, b));
 		}
 		delete src;
+#else
+		TS_SKIP("needs FreeType");
+#endif
 	}
 
 	// A design taller than the cell (Galmuri9, line 11, in a 9 cell) keeps
 	// its size; the Hangul and Latin probes' ink is moved inside the cell by
 	// whole rows, as far as it fits.
 	void test_design_taller_than_the_cell_keeps_its_size_and_hangul() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		Common::SeekableReadStream *s = openFont("Galmuri9.ttf");
 		if (!s) {
-			// TS_SKIP does not leave the test in this runner (no exceptions).
 			TS_SKIP("Galmuri9.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
 			return;
 		}
@@ -282,19 +313,24 @@ public:
 		TS_ASSERT(binaryInk(*src, 0xAC00, t, b));
 		TS_ASSERT_EQUALS(t, 0);
 		delete src;
+#else
+		TS_SKIP("needs FreeType");
+#endif
 	}
 
 	void test_create_pixel_refuses_what_create_refuses() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		Common::String error;
 		TS_ASSERT(!TtfGlyphSource::createPixel(nullptr, DisposeAfterUse::YES, 12, 10, error));
 		Common::SeekableReadStream *s = openFont("Galmuri9.ttf");
 		if (!s) {
-			// TS_SKIP does not leave the test in this runner (no exceptions).
 			TS_SKIP("Galmuri9.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
 			return;
 		}
 		TS_ASSERT(!TtfGlyphSource::createPixel(s, DisposeAfterUse::YES, 12, 0, error));
 		TS_ASSERT(!error.empty());
-	}
+#else
+		TS_SKIP("needs FreeType");
 #endif
+	}
 };
