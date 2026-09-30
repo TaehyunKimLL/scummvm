@@ -1,6 +1,9 @@
 #!/bin/bash
 # usage: bake-scumm-fonts.sh PLAN.TSV GAMEDIR OUTDIR CHARS  (see SCUMM_FONTS.md)
+# The ttf field of the plan may start with $FONTS (written literally); it is replaced by the
+# FONTS environment variable, default ~/scummvm-i18n/fonts. Nothing else is expanded.
 set -e
+FONTS="${FONTS:-$HOME/scummvm-i18n/fonts}"
 here="$(cd "$(dirname "$0")" && pwd)"
 
 plan="$1"
@@ -35,6 +38,8 @@ while IFS=$'\t' read -r name charset ttf size bpp ascent || [ -n "$name" ]; do
 		echo "bake-scumm-fonts: $plan line $n: expected 6 tab-separated fields" >&2
 		exit 1
 	fi
+
+	ttf="${ttf//\$FONTS/$FONTS}"
 
 	korfont=$(printf '%s/korean%02d.fnt' "$gamedir" "$charset")
 	if [ ! -f "$korfont" ]; then

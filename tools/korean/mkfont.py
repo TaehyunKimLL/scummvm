@@ -757,7 +757,10 @@ def main():
     ap.add_argument("--variable", action="store_true",
                     help="글자별 전진 폭 표를 넣는다")
     ap.add_argument("--ascent", type=int, default=0,
-                    help="기준선 위치. 생략하면 셀 높이의 약 80%%")
+                    help="기준선 위치, 셀 맨 위에서 몇 행째인지. 생략하면 "
+                         "choose_ascent_from() 이 고른다: 글꼴의 ascent + descent 가 "
+                         "셀에 들어가면 글꼴의 ascent, 넘치면 잉크 상자를 셀 가운데에 "
+                         "놓는 값 (라틴 세트가 셀보다 크면 대문자 위를 셀 맨 위에)")
     ap.add_argument("--fit-cell", action="store_true",
                     help="굽는 글자 전부의 잉크가 셀 (--cell x --width) 안에 들도록 "
                          "글꼴 크기를 --size 부터 1px 씩 줄여 고른다. 글꼴 전체가 한 "

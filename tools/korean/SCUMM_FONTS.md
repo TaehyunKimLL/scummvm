@@ -147,6 +147,12 @@ tools/korean/bake-scumm-fonts.sh plan.tsv ~/games/mi2kor /out/dir chars.txt
 <output 8.3 name>	<charset>	<ttf path>	<size>	<bpp>	<ascent or ->
 ```
 
+The `<ttf path>` may start with `$FONTS`, written literally in the plan. The
+script replaces it with the `FONTS` environment variable, default
+`~/scummvm-i18n/fonts` (nothing else is expanded, so a plan cannot run
+code). The four plans in `tools/korean/scumm-fonts/` use it, so they work
+wherever the fonts are: `FONTS=/data/fonts tools/korean/bake-scumm-fonts.sh ...`.
+
 `<charset>` is the SCUMM charset number
 (`engines/scumm/charset.cpp::loadKorFont()`/`loadCJKCells()`:
 `korean%02d.fnt`, numbered 0-19; MI1/MI2 use 0-8, one per in-game font -
@@ -208,7 +214,9 @@ How each `mkfont.py` option affects the baked baseline:
   closest is taken).
 * `--clip-cell` keeps one baseline for every glyph and cuts ink beyond the
   cell top or bottom; it never moves a glyph. It would delete a floating `.`,
-  not pull it up.
+  not pull it up. Without `--ascent` it also picks the ascent that cuts the
+  fewest glyphs, preferring `choose_ascent_from()`'s value; an explicit
+  `--ascent` is used as given.
 * `--cell` / `--width` set the cell; the cell height drives the ascent
   choice. `bake-scumm-fonts.sh` sets them to 2x the game's `korean0N.fnt`
   header.
