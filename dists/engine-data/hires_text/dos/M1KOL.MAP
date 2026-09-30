@@ -29,9 +29,11 @@ metrics=font
 # ASCII stays on each charset's own SVF, never the game's internal font.
 font=same
 
-# Codes the game did not use for what the code page says (mi1kor/hires_text.map).
+# An ellipsis on the baseline, not a caret; present in every charset (mi1kor/hires_text.map,
+# dumped from the 90x.LFL charsets: "...trailing off^" in the scanned patch text). Real
+# punctuation, so it is drawn by the replacement font like any other character.
 [glyphs]
-0x5e = keep
+0x5e = u+2026
 
 # Solid arrows in the 2bpp dialogue and card charsets; 0x5f is a real underscore elsewhere.
 [glyphs:cs2]
