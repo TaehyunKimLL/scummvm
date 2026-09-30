@@ -1,23 +1,61 @@
-; DOS U preset: Laura Bow 1 (The Colonel's Bequest), Korean EUC-KR patch.
-; Legacy (EUC-KR) text path uses singleFace(), the first face only, so only
-; KOCP949.SVF (NanumGothic-Bold, 16 px, 2 bpp, ASCII + cp949, one baseline
-; in a 16x16 cell - bake-dos-fonts.sh) is active here, for every font id;
-; the body face KOBATANG.SVF needs a UTF-8 translation (see KQ1KOU.MAP).
-; Characters KOCP949 lacks draw U+25A1. align=cell: the 16-row glyph sits
-; on the 16-row line with no offset, nothing above or below it for the
-; game to leave behind when it erases the line. rgb_rendering=true
-; (scummvm.ini) is what makes this render truecolor/antialiased; alpha=
-; below is documentation only, SCI ignores it (spec 4.5).
+; DOS U preset: Laura Bow 1 (The Colonel's Bequest), Korean UTF-8 translation
+; (GAMES\LB1KO: MESSAGE.MAP + RESOURCE.MSG, packed text resources +
+; SCI-KO.STR, language=ko). Two faces, picked by the game's font id:
+;   body - KO2350B.SVF, Gowun Batang Bold 17 px, 2 bpp:
+;          4 dialogue, narration, copy-protection screen   (18 px line)
+;          1 large message boxes ("막이 오르려")             (24 px line)
+;          8 cast names under the intro portraits           (24 px line)
+;          40 the "1925 / LA 뉴올리언스" caption, 41 opening credits and
+;          act titles ("제I막")                              (36 px line)
+;   UI   - KO2350G.SVF, NanumGothic-Bold 16 px, 2 bpp: font 0 (status/menu
+;          bar, parser line, system dialogs such as yes/no) and any other id.
+; Both are baked on one baseline in a 16x16 cell (--clip-cell); align=cell
+; puts every glyph on its line with no offset, so no ink lies outside the
+; line the game erases. rgb_rendering=true (scummvm.ini) is what makes this
+; render truecolor/antialiased; alpha= below is documentation only.
+;
+; Canonical name (common2350-brief, 2026-09-29): this replaces the shipped
+; lb1 zip's LB1U8U.MAP (same content, KO2350G.SVF/KO2350B.SVF in place of
+; the old per-game subset LB1GOT.SVF/LB1BAT.SVF); LB1KOU.MAP superseded the
+; older legacy EUC-KR/singleFace map of the same name (kept below in spirit
+; only - LB1's shipped translation is UTF-8, not EUC-KR; see LB2KOU.MAP for
+; the still-current legacy singleFace path). The coverage gate found LB1's
+; translation needs nothing outside the 2350.
 [hires]
 scale=2
 alpha=true
-face=ko
+face=ui
 missing=u+25a1
 align=cell
 
 [fonts]
-ko=KOCP949.SVF
+ui=KO2350G.SVF
+body=KO2350B.SVF
 
 [latin]
 mode=proportional
 metrics=font
+
+[font.4]
+face=body
+
+[font.1]
+face=body
+
+; the cast names are lined up under the portraits with runs of spaces:
+; spaces and Latin keep the game font's widths (metrics=game)
+[font.8]
+face=body
+metrics=game
+
+; credits and act titles, caption: the game font is 18 game px tall; the
+; glyphs get an 18 px cell (cell=glyph) so they never touch
+[font.40]
+face=body
+cell=glyph
+size=18
+
+[font.41]
+face=body
+cell=glyph
+size=18

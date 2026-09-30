@@ -1,0 +1,53 @@
+; DOS U preset: Conquests of Camelot (SCI0, DOS English 1.001.000), Korean
+; UTF-8 translation (GAMES\CAMELKO: MESSAGE.MAP + RESOURCE.MSG, packed text
+; resources + SCI-KO.STR, language=ko). Two faces, picked by the game's
+; font id:
+;   body - KO2350B.SVF, Gowun Batang Bold 17 px, 2 bpp:
+;          4 message boxes (narration, dialogue, parser replies)  (18 px line)
+;          1 the title menu's label                               (24 px line)
+;          103 intro narration, 104 its outline passes            (18 px line)
+;   UI   - KO2350G.SVF, NanumGothic-Bold 16 px, 2 bpp: font 0 (status/menu
+;          bar, parser line, title-menu buttons, system dialogs) and any
+;          other id.
+; Font 104 is drawn black under 103: CAMOUU.SVF is dilated by 2 px (1 game
+; px) in a 20x20 cell from Camelot's own body glyphs (svfoutline.py - not in
+; this tree; CAMOUU.SVF is kept as-is, copied through unchanged, since it
+; already covers every character Camelot's body face draws), so the
+; narration has the black outline the original has.
+; Both KO2350G.SVF/KO2350B.SVF are baked on one baseline in a 16x16 cell
+; (--clip-cell); align=cell puts every glyph on its line with no offset, so
+; no ink lies outside the line the game erases. rgb_rendering=true
+; (scummvm.ini) is what makes this render truecolor/antialiased; alpha=
+; below is documentation only.
+;
+; Canonical name: this replaces the camelot zip's own CAMKOU.MAP (same
+; content, KO2350G.SVF/KO2350B.SVF in place of the old per-game subset
+; CAMGOT.SVF/CAMBAT.SVF). The coverage gate found Camelot's translation
+; needs nothing outside the 2350 (common2350-brief, 2026-09-29).
+[hires]
+scale=2
+alpha=true
+face=ui
+missing=u+25a1
+align=cell
+
+[fonts]
+ui=KO2350G.SVF
+body=KO2350B.SVF
+out=CAMOUU.SVF
+
+[latin]
+mode=proportional
+metrics=font
+
+[font.4]
+face=body
+
+[font.1]
+face=body
+
+[font.103]
+face=body
+
+[font.104]
+face=out
