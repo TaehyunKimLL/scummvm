@@ -135,6 +135,11 @@ Unchanged keys and values: `mode = game|none|drop|outline|stroke`, `offset`, `co
 `shadow = dx,dy`, `shadow_color`, `shadow_alpha`. Read by SCUMM; SCI `-`; AGS `-`. One change: an unknown `mode` is now a
 warning and the key is ignored (it used to mean `game` silently).
 
+#### `[translation.<lang>]`
+
+`[translation.<lang>]` sections are reserved for docs/superpowers/specs/2026-09-30-map-languages-design.md; the v2 loader
+skips them without warnings.
+
 ### 3.3 Removed outright
 
 Sections `[hires]`, `[latin]`, `[bitmap]`, `[encoding]`, `[sizes]`, `[translation]`, and `[map] height_N`. Keys `font=`
