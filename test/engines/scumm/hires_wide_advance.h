@@ -129,10 +129,30 @@ public:
 		hr.noteGameCharset(2, 16, 16);
 		hr.setCharsetGrid(2, 16, 16);
 		TS_ASSERT(hr.loadFonts(Common::Path()));
-		// 가 (U+AC00): whatever the face's own advance rounds to, not
-		// necessarily the game's 16 - the point is it need not equal it.
-		const int adv = hr.advanceFor(0xAC00, 2, 16);
+
+		// M10: 0xAC00 (Hangul) is not in DejaVuSans, so this used to measure
+		// only the missing-glyph fallback, whose advance happens to be the
+		// game's own 16 either way - "adv > 0" could never fail. Use a real,
+		// inked glyph, and prove the C31 default genuinely differs from the
+		// grid rule (advance=game on the very same glyph), not merely that
+		// it returns something positive.
+		uint32 wide = findRealWideGlyph(hr, 2);
+		if (!wide) {
+			TS_SKIP("the available TrueType face has no real wide glyph to measure");
+			return;
+		}
+		const int adv = hr.advanceFor(wide, 2, 16);
 		TS_ASSERT_LESS_THAN(0, adv);
+
+		Scumm::ScummHiResText grid;
+		const Common::String gridBody = Common::String::format("[font.2]\nface=%s\nadvance=game\n", ttf);
+		TS_ASSERT(open(grid, overlay, gridBody.c_str()));
+		grid.noteGameCharset(2, 16, 16);
+		grid.setCharsetGrid(2, 16, 16);
+		TS_ASSERT(grid.loadFonts(Common::Path()));
+		const int gridAdv = grid.advanceFor(wide, 2, 16);
+		TS_ASSERT_EQUALS(gridAdv, 16);
+		TS_ASSERT(adv != gridAdv);
 #else
 		TS_SKIP("needs FreeType");
 #endif
