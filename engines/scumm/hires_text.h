@@ -448,6 +448,16 @@ struct ScummHiResText {
 	Graphics::TtfGlyphSource *ttfChainFace(int charsetId, uint index) const;
 
 	/**
+	 * faceForCodePoint()'s source for @p cp in @p charsetId under per-glyph
+	 * placement, or null when it declines; for tests, which cannot reach the
+	 * private Face type. @p cp is updated exactly as faceForCodePoint()
+	 * updates it (the fullwidth remap, and, for [latin] font=same, the
+	 * missing= mark), so a caller sees both what drew the glyph and which
+	 * code point it drew.
+	 */
+	Graphics::UnicodeGlyphSource *perGlyphSourceFor(int charsetId, uint32 &cp) const;
+
+	/**
 	 * Take an already parsed configuration and switch the layer on.
 	 *
 	 * For tests and tools, which have neither ConfMan nor a game folder;
@@ -816,12 +826,21 @@ private:
 	 * _perGlyph is set.
 	 */
 	struct CharsetFonts {
+		/// [font.N] face=original or bitmap=original: this charset is not
+		/// replaced at all, Hangul included - every glyph is the game's, and
+		/// chain is always left empty. Distinct from latinSame/latin=off,
+		/// which only ever concern the Latin subset of a charset.
+		bool original = false;
 		Common::Array<Common::Path> chain;   ///< faces, [font.N] face= then [hires] face=
 		int size = 0;                        ///< pixels; 0 = the game cell times the scale
 		int pixel = 0;                       ///< [font.N] pixel= then [hires] pixel=; 0 = not a pixel font
 		Graphics::HiResLatinMode latin = Graphics::kHiResLatinProportional;
 		bool fullwidthSpace = false;
 		Common::Path latinFace;              ///< [font.N] latin_font= then [latin] font=
+		/// [font.N] latin_font=same (or [latin] font=same): Latin never comes
+		/// from latinFace (left empty) or a Latin companion, only from this
+		/// charset's own font - the same one its Hangul draws from.
+		bool latinSame = false;
 		Graphics::HiResMetricsSource latinMetrics = Graphics::kHiResMetricsGame;
 		Graphics::HiResMetricsSource wideMetrics = Graphics::kHiResMetricsGame;
 		Graphics::HiResMetricsSource otherMetrics = Graphics::kHiResMetricsFont;
