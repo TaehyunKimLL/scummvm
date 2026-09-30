@@ -1503,6 +1503,40 @@ bool ScummHiResText::latinStepsByFace(int chr, int charsetId) const {
 	return latinFaceStep(chr, charsetId) > 0;
 }
 
+bool ScummHiResText::latinBaselineByFace(int chr, int charsetId) const {
+	// [latin] baseline=face: Latin a bitmap face draws sits on the baseline
+	// baked into the face. The game's per-glyph offsets belong to its own
+	// font, whose glyphs may be cut to their ink (MI2's card fonts), and
+	// would move the face's glyph a second time. A TrueType face is handled
+	// by latinFaceStep(); the space has no ink to place.
+	if (!_enabled || !_fontsLoaded || !_config.latinBaselineFace)
+		return false;
+	if (chr <= 0x20 || chr > 0x7E)
+		return false;
+	if (keepsGameFont(charsetId, chr))
+		return false;
+	Graphics::HiResGlyphOverride override;
+	if (_config.glyphOverride((uint32)chr, override, charsetId))
+		return false;
+	uint32 cp = codePointFor(chr);
+	if (!cp)
+		return false;
+	Face *face = nullptr;
+	if (_perGlyph) {
+		const CharsetFonts &f = _charsetFonts[(charsetId >= 0 && charsetId < kMaxFonts) ? charsetId : 0];
+		if (f.latin != Graphics::kHiResLatinProportional)
+			return false;
+		bool ascii = false, declined = false;
+		face = faceForCodePoint(charsetId, cp, ascii, declined);
+		if (!ascii)
+			return false;
+	} else {
+		face = faceFor(charsetId, true);
+	}
+	// The glyph the face declines is the game's to draw, offsets and all.
+	return face && !face->ttf && glyphInk(*face, cp, nullptr);
+}
+
 int ScummHiResText::latinFaceStep(int chr, int charsetId) const {
 	// Latin drawn by a TrueType face steps by that face by default (C36),
 	// whatever the script around it: Hangul on CJK cells (C34), a UTF-8

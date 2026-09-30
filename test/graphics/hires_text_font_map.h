@@ -1212,6 +1212,32 @@ public:
 		TS_ASSERT(!cfg.legacy.latinEnabledValue);
 	}
 
+	void test_latin_baseline_face_parse() {
+		Graphics::HiResTextConfig cfg;
+		TS_ASSERT(!cfg.latinBaselineFace);
+
+		TS_ASSERT(parse("[latin]\nmode=proportional\n", cfg));
+		TS_ASSERT(!cfg.latinBaselineFace);
+
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nbaseline=face\n", cfg));
+		TS_ASSERT(cfg.latinBaselineFace);
+
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nbaseline=game\n", cfg));
+		TS_ASSERT(!cfg.latinBaselineFace);
+
+		// A value it does not know is one warning and no change.
+		cfg.clear();
+		TS_ASSERT(parse("[latin]\nbaseline=bogus\n", cfg));
+		TS_ASSERT(!cfg.latinBaselineFace);
+
+		// clear() puts it back.
+		TS_ASSERT(parse("[latin]\nbaseline=face\n", cfg));
+		cfg.clear();
+		TS_ASSERT(!cfg.latinBaselineFace);
+	}
+
 	void test_latin_metrics_ttf_is_font() {
 		Graphics::HiResTextConfig cfg;
 		TS_ASSERT(parse("[latin]\nmetrics=ttf\n", cfg));

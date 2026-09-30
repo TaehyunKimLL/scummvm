@@ -364,6 +364,7 @@ struct HiResTextConfig {
 	bool latinFontSet;
 	HiResMetricsSource latinMetrics;  ///< [latin] metrics=game|font
 	bool latinMetricsSet;
+	bool latinBaselineFace;           ///< [latin] baseline=face
 
 	/// [fonts] as a whole: every face name -> the path as written (relative
 	/// paths are left for the adapter to resolve). SCUMM's ttfPath[] roles are

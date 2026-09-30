@@ -186,3 +186,48 @@ bake.
 
 Comment lines (`#`, after leading whitespace) and blank lines in `plan.tsv`
 are skipped.
+
+## Bake options and baselines
+
+Where a baked glyph stands is set here, at bake time; whether the game's own
+per-glyph offset is added on top of it is set at run time by the map's
+`[latin] baseline=` key (`engines/scumm/HIRES_TEXT.md`, "Baselines and glyph
+offsets", which has the diagrams and the before/after crops).
+
+How each `mkfont.py` option affects the baked baseline:
+
+* `--ascent N` is the baseline row, counted from the cell top. Left out,
+  `choose_ascent_from()` chooses it: the face's own ascent + descent if that
+  line fits the cell, else the ink box of a probe string centred in the cell
+  (a Latin set larger than the cell puts the capitals at the cell top).
+* `--size` is the face's pixel size. A bigger face has more ink above and
+  below its baseline, so fewer ascents keep it inside the cell.
+* `--fit-cell` bakes with **one** size and **one** ascent for every glyph: it
+  starts at `--size` and steps down until all the glyphs' ink fits the cell.
+  `--ascent` is then the preferred value when several ascents fit (the
+  closest is taken).
+* `--clip-cell` keeps one baseline for every glyph and cuts ink beyond the
+  cell top or bottom; it never moves a glyph. It would delete a floating `.`,
+  not pull it up.
+* `--cell` / `--width` set the cell; the cell height drives the ascent
+  choice. `bake-scumm-fonts.sh` sets them to 2x the game's `korean0N.fnt`
+  header.
+* `--unicode ascii` bakes Latin into the same SVF as the Hangul, so they
+  share one baseline. (`--latin` is for single-byte fonts, glyph number =
+  character code; it is not used for SCUMM.)
+* In the plan table (`name charset ttf size bpp ascent`) `size` and `ascent`
+  become `--size` and `--ascent`, and the script always adds `--clip-cell`.
+  The numbers in `m2u.tsv` are what `--fit-cell` picked for each cell:
+  Nanum 22x24 -> size 21, ascent 19; Gowun 26x24 -> size 23, ascent 21.
+
+What follows from that:
+
+1. `baseline=face` is a **map** key. No SVF is re-baked for it.
+2. Re-baking with a different `--ascent` moves the baked baseline (every
+   glyph, Hangul and Latin, by the same rows); the card crops must be
+   re-captured and looked at afterwards.
+3. A baked baseline plus the game glyph's `offsY` is a double shift, and no
+   bake option fixes it. Trimmed card fonts carry `offsY` up to 9 game px
+   (charset 4: `.` 9, `a` 4, `A` 0), which is 18 rows at scale 2: a `.`
+   baked at row 21 is drawn at row 39 of a 24-row cell. With
+   `[latin] baseline=face` the baked baseline is the only placement.

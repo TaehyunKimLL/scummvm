@@ -1418,6 +1418,14 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	// placed by the face too: the game's offsX belongs to its own glyph, and
 	// getCharWidth() measures the face's step without it.
 	const bool latinFaceStep = !is2byte && !cellGlyph && _vm->_hiResText.latinStepsByFace(chr, _curId);
+	// [latin] baseline=face: a bitmap face's Latin is placed by the face as
+	// well, on the baseline baked into its glyph, and the game glyph's offsets
+	// are left out. The face's glyph is on the same cell top as the Hangul
+	// beside it, so the offset is 0 and not latinLineOffsY(): the reference
+	// letter of a font cut to its ink is not a shared line offset (MI2's card
+	// font: 'x' is 4, 'A' 0, '.' 9). Stepping stays the game's unless the map
+	// says metrics=font.
+	const bool latinBaseline = !is2byte && !cellGlyph && _vm->_hiResText.latinBaselineByFace(chr, _curId);
 	if (latinFaceStep) {
 		_offsX = 0;
 		// Nor does its own offsY: the face puts the glyph on the face's
@@ -1425,6 +1433,9 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		// +1 in MI1) would put it a game pixel low twice over. An offset the
 		// whole charset shares still moves the line (C36).
 		_offsY = latinLineOffsY();
+	} else if (latinBaseline) {
+		_offsX = 0;
+		_offsY = 0;
 	}
 
 	_top += _offsY;
