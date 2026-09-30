@@ -23,6 +23,7 @@
 #define GRAPHICS_HIRES_TEXT_LATIN_ADVANCE_H
 
 #include "graphics/hires_text/font_map.h"
+#include "graphics/hires_text/hires_options.h"
 
 namespace Graphics {
 
@@ -42,6 +43,22 @@ namespace Graphics {
  *               plane, 1 where glyphs are drawn at game resolution
  */
 int latinAdvanceGamePx(Graphics::HiResMetricsSource metrics, int gameWidth, int ttfAdvanceHires, int scale);
+
+/**
+ * Design sections 6.3/6.5 step 7: the advance, in game (lowres) pixels, of
+ * one drawn code point under an id's resolved `advance=` value.
+ *
+ *   advance=game - as latinAdvanceGamePx() computes metrics=game: @p gameWidth.
+ *   advance=font - as latinAdvanceGamePx() computes metrics=font: the
+ *                  face's own advance, @p faceAdvanceHires, scaled down by
+ *                  @p scale (falls back to @p gameWidth when the face
+ *                  cannot say).
+ *   advance=cell, advance=(engine) - -1: neither is a game/font metric this
+ *                  helper knows how to compute; the caller applies its own
+ *                  cell width (design 6.3's wide/narrow cell) or its own
+ *                  default rule.
+ */
+int advanceGamePx(HiResAdvance advance, int gameWidth, int faceAdvanceHires, int scale);
 
 } // End of namespace Graphics
 
