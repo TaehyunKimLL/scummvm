@@ -54,10 +54,7 @@ baseline=face
 # Everything else the patch parked on an odd byte code is real punctuation and is
 # drawn by the replacement font like any other character:
 #   0x5e ellipsis (every occurrence in korean.trs trails a clause: "..." / trailing off)
-#   0x5c exclamation mark (korean.trs: "원해!  모든 퍼즐!  온갖 생고생!""; the code page's
-#     own '\' would be wrong here, but so is a comma - the earlier "verify it" note about
-#     '!' being suspect turned out backwards: the previous keep just drew a game glyph
-#     that looks unlike a printed '!', not a comma)
+#   0x5c exclamation mark (korean.trs: "원해!  모든 퍼즐!  온갖 생고생!")
 #   0x60 double quote, both opening and closing (one byte serves both roles in the text,
 #     so there is no separate open/close code to distinguish)
 [glyphs]
