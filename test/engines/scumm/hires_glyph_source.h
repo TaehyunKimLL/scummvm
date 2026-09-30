@@ -140,10 +140,14 @@ private:
 	}
 
 	static Graphics::HiResMap koreanMap(int gameShadow) {
+		// M8 (controller ruling): the Latin companion sits on the CJK face's
+		// baseline unconditionally now (the old implicit ascent alignment,
+		// restored) - no origin=face key is needed to get it, and the old
+		// version of this test (before that bug was introduced) had none.
 		Common::String text =
 			"[map]\nversion=2\n[render]\nblend=on\n[text]\nencoding=cp949\n"
 			"[fonts]\nlat=LAT.SVF\n[font.0]\nface=CJK.SVF\n"
-			"[font]\nrange.basic-latin=lat\norigin.basic-latin=face\n"
+			"[font]\nrange.basic-latin=lat\n"
 			"[glyphs]\n0xa1b0 = u+ac00\n";
 		Graphics::HiResMap m;
 		Common::Array<Common::String> q;
@@ -248,11 +252,25 @@ private:
 		} else {
 			TS_ASSERT(sameBytes(*overlay.coverage(), refCov));
 		}
-		// The dirty area covers what was actually drawn (sameBytes(), just
-		// asserted, is the pixel-identity guarantee); the two decoration call
-		// paths (GlyphBitmap here, HiResBitmapFont+index in the reference)
-		// are not required to grow it by exactly the same rounding.
-		TS_ASSERT(dirty.contains(refDirty) || refDirty.contains(dirty) || dirty == refDirty);
+		// M7: every inked pixel lies inside the dirty rect handed back - the
+		// old test's exact TS_ASSERT_EQUALS(dirty, refDirty) is not required
+		// verbatim (GlyphBitmap here vs. HiResBitmapFont+index in the
+		// reference are not bound to grow the rect by the same rounding),
+		// but a rect that misses drawn ink (the bug the loosened
+		// dirty.contains(refDirty) || refDirty.contains(dirty) check let
+		// through) must fail here.
+		for (int y = 0; y < dest.h; ++y)
+			for (int x = 0; x < dest.w; ++x)
+				if (*(const byte *)dest.getBasePtr(x, y))
+					TS_ASSERT(dirty.contains(Common::Point(x, y)));
+
+		// The same advance as the old path: the face's own metrics (reach
+		// included) for a proportional face, or the narrow half-cell for a
+		// fixed-width one - restoring cellRuleAdvance()'s fixed-width branch
+		// (M7) and glyphInk()'s cellWidth() box together keep this pinned.
+		const int advA = hr.advanceFor('A', 0, 3);
+		const int refA = proportional ? (MAX(9 + 3, 1 + 11) + 1) / 2 : kCell / 2 / 2;
+		TS_ASSERT_EQUALS(advA, MAX(refA, 3));
 
 		dest.free();
 		refDest.free();
@@ -348,5 +366,64 @@ public:
 		checkSvfnMatchesOldPath(8, false, 2);
 		checkSvfnMatchesOldPath(1, true, 4);
 		checkSvfnMatchesOldPath(1, false, 1);
+	}
+
+	/**
+	 * C1 regression: a TrueType face named for a game/charset whose cell is
+	 * not yet known at loadFonts() time (every non-CJK SCUMM game - and a
+	 * UTF-8 translation of one - scumm.cpp only calls setGameFontCell()/
+	 * noteGameCharset() for the CJK ones) must not be treated as a load
+	 * failure. hasFonts() must stay true so later draws are not gated off
+	 * forever, and once noteGameCharset() does learn the cell, the face
+	 * opens and actually draws.
+	 */
+	void test_ttf_face_with_no_cell_known_at_load_still_loads_and_later_draws() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		static const char *const kFonts[] = {
+			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+			"/System/Library/Fonts/AppleSDGothicNeo.ttc",
+		};
+		const char *ttf = nullptr;
+		for (uint i = 0; i < ARRAYSIZE(kFonts) && !ttf; ++i)
+			if (Common::FSNode(kFonts[i]).exists())
+				ttf = kFonts[i];
+		if (!ttf) {
+			TS_SKIP("needs a TrueType face");
+			return;
+		}
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, true);
+		Scumm::ScummHiResText hr;
+		hr.useOverlay(&overlay);
+		const Common::String text = Common::String::format(
+			"[map]\nversion=2\n[render]\nblend=off\n[font.4]\nface=%s\n", ttf);
+		Graphics::HiResMap m;
+		Common::Array<Common::String> q;
+		Common::MemoryReadStream s((const byte *)text.c_str(), text.size());
+		TS_ASSERT(Graphics::HiResFontMap::loadMap(s, Common::Path("/tmp/c1", '/'), q, Graphics::kHiResKeysScumm, m));
+		hr.adoptMap(m);
+
+		// No noteGameCharset()/setCharsetGrid() yet: the id's cell is
+		// unknown, exactly the C1 scenario - loadFonts() cannot size or open
+		// the face, but that is "pending", not "failed".
+		TS_ASSERT(hr.loadFonts(Common::Path()));
+		TS_ASSERT(hr.hasFonts());
+
+		// Still nothing to draw with yet.
+		Graphics::Surface dest;
+		dest.create(64, 40, Graphics::PixelFormat::createFormatCLUT8());
+		memset(dest.getPixels(), 0, dest.pitch * dest.h);
+		TS_ASSERT(!hr.drawChar(dest, 0xE9, 4, 10, 10, 15, 0, 1));
+
+		// The cell becomes known, as it does when the game selects this
+		// charset for the first time.
+		hr.noteGameCharset(4, 16, 16);
+		hr.setCharsetGrid(4, 16, 16);
+		TS_ASSERT(hr.hasFonts());
+		TS_ASSERT(hr.drawChar(dest, 0xE9, 4, 10, 10, 15, 0, 1));
+		dest.free();
+#else
+		TS_SKIP("needs FreeType and a real filesystem");
+#endif
 	}
 };

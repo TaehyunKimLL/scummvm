@@ -5,6 +5,7 @@
 #include "common/memstream.h"
 #include "common/str.h"
 #include "graphics/hires_text/font_map.h"
+#include "graphics/surface.h"
 
 #include "engines/scumm/charset.h"
 #include "engines/scumm/hires_overlay.h"
@@ -171,6 +172,85 @@ public:
 #endif
 #else
 		TS_SKIP("needs FreeType");
+#endif
+	}
+
+	/// M8 (controller ruling): the old implicit ascent alignment is back for
+	/// any face other than the id's own primary - a bitmap Latin companion
+	/// sits on a TrueType CJK primary's baseline whatever origin= says (or
+	/// does not say at all: this map sets no origin key), unlike
+	/// test_key_puts_bitmap_latin_on_the_face_baseline's origin=face, which
+	/// is latinBaselineByFace()'s separate, game-offset-dropping meaning.
+	void test_latin_svfn_on_ttf_baseline() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		static const char *const kFonts[] = {
+			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+			"/System/Library/Fonts/AppleSDGothicNeo.ttc",
+		};
+		const char *ttf = nullptr;
+		for (uint i = 0; i < ARRAYSIZE(kFonts) && !ttf; ++i)
+			if (Common::FSNode(kFonts[i]).exists())
+				ttf = kFonts[i];
+		if (!ttf) {
+			TS_SKIP("needs a TrueType face");
+			return;
+		}
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, true);
+		Scumm::ScummHiResText hr;
+		const Common::String body = Common::String::format(
+			"[font.4]\nface=%s\nrange.basic-latin=OWN.SVF\n", ttf);
+		TS_ASSERT(open(hr, overlay, body.c_str()));
+		hr.noteGameCharset(kCs, 16, 16);
+		hr.setCharsetGrid(kCs, 16, 16);
+		TS_ASSERT(hr.loadFonts(Common::Path()));
+		TS_ASSERT(addOwn(hr, ownGlyphs()));
+
+		// A code point outside basic-latin so it resolves to the id's own
+		// (TrueType) chain, not the range.basic-latin companion - just to
+		// read the primary's own baselineRow().
+		uint32 cpFace = 0xE9; // e-acute: Latin-1 Supplement, DejaVuSans has it
+		Graphics::UnicodeGlyphSource *ttfSrc = hr.perGlyphSourceFor(kCs, cpFace);
+		uint32 cpLatin = 'A';
+		Graphics::UnicodeGlyphSource *svfSrc = hr.perGlyphSourceFor(kCs, cpLatin);
+		TS_ASSERT(ttfSrc);
+		TS_ASSERT(svfSrc);
+		if (!ttfSrc || !svfSrc)
+			return;
+		TS_ASSERT(ttfSrc != svfSrc);
+		TS_ASSERT(ttfSrc->baselineRow() >= 0);
+		TS_ASSERT(svfSrc->baselineRow() >= 0);
+		const int expectedShift = ttfSrc->baselineRow() - svfSrc->baselineRow();
+
+		Scumm::ScummHiResText plain;
+		TS_ASSERT(open(plain, overlay, "[font.4]\nface=OWN.SVF\n"));
+		TS_ASSERT(addOwn(plain, ownGlyphs()));
+
+		Graphics::Surface d1, d2;
+		d1.create(64, 40, Graphics::PixelFormat::createFormatCLUT8());
+		d2.create(64, 40, Graphics::PixelFormat::createFormatCLUT8());
+		memset(d1.getPixels(), 0, d1.pitch * d1.h);
+		memset(d2.getPixels(), 0, d2.pitch * d2.h);
+		TS_ASSERT(hr.drawChar(d1, 'A', kCs, 10, 10, 15, 0, 1));
+		TS_ASSERT(plain.drawChar(d2, 'A', kCs, 10, 10, 15, 0, 1));
+
+		int row1 = -1, row2 = -1;
+		for (int y = 0; y < d1.h && row1 < 0; ++y)
+			for (int x = 0; x < d1.w; ++x)
+				if (*(const byte *)d1.getBasePtr(x, y)) { row1 = y; break; }
+		for (int y = 0; y < d2.h && row2 < 0; ++y)
+			for (int x = 0; x < d2.w; ++x)
+				if (*(const byte *)d2.getBasePtr(x, y)) { row2 = y; break; }
+		TS_ASSERT(row1 >= 0);
+		TS_ASSERT(row2 >= 0);
+		// The TTF-primary draw's ink starts expectedShift rows from the
+		// plain (no primary to align to) draw's - the implicit alignment,
+		// with no origin= key in sight.
+		TS_ASSERT_EQUALS(row1, row2 + expectedShift);
+		d1.free();
+		d2.free();
+#else
+		TS_SKIP("needs FreeType and a real filesystem");
 #endif
 	}
 

@@ -3,6 +3,7 @@
 #include "common/array.h"
 #include "common/memstream.h"
 #include "graphics/hires_text/font_map.h"
+#include "graphics/surface.h"
 
 #include "engines/scumm/hires_overlay.h"
 #include "engines/scumm/hires_text.h"
@@ -33,6 +34,50 @@ class ScummHiResGlyphAdvanceTestSuite : public CxxTest::TestSuite {
 
 	bool add(Scumm::ScummHiResText &hr, const char *path, const Common::Array<uint32> &cps) {
 		return ScummHiResFixture::addFace(hr, path, cps);
+	}
+
+	static void put16(Common::Array<byte> &b, uint pos, uint16 v) {
+		b[pos] = v & 0xff;
+		b[pos + 1] = (v >> 8) & 0xff;
+	}
+
+	static void put32(Common::Array<byte> &b, uint pos, uint32 v) {
+		for (int i = 0; i < 4; i++)
+			b[pos + i] = (v >> (8 * i)) & 0xff;
+	}
+
+	/// A one-glyph 8bpp proportional SVFN with exact control of the metrics
+	/// table and the ink's column reach - what M6's restored cellRuleAdvance()
+	/// ink floor/widening needs pinned to a precise number, unlike
+	/// ScummHiResFixture::makeFont()'s fixed 9 px advance and 6 px ink.
+	static Common::Array<byte> svfn(uint32 cp, int advance, int bearing, int inkWidth,
+									 int x0, int x1, int y0, int y1, int cell, int ascent) {
+		const uint32 stride = cell * cell;
+		const uint32 metricsOff = 36, dataOff = metricsOff + 4;
+		const uint32 cmapOff = dataOff + stride;
+		Common::Array<byte> b;
+		b.resize(cmapOff + 8, 0);
+		b[0] = 'S'; b[1] = 'V'; b[2] = 'F'; b[3] = 'N';
+		put16(b, 4, 2);
+		put16(b, 6, 1); // proportional
+		b[8] = 8;       // 8bpp
+		put16(b, 12, 1);
+		b[14] = cell;
+		b[15] = cell;
+		b[16] = ascent;
+		put32(b, 20, metricsOff);
+		put32(b, 24, dataOff);
+		put32(b, 28, stride);
+		put32(b, 32, cmapOff);
+		b[metricsOff + 0] = advance;
+		b[metricsOff + 1] = (byte)(int8)bearing;
+		b[metricsOff + 2] = inkWidth;
+		for (int y = y0; y < y1; y++)
+			for (int x = x0; x < x1; x++)
+				b[dataOff + y * cell + x] = 255;
+		put32(b, cmapOff, cp);
+		put32(b, cmapOff + 4, 0);
+		return b;
 	}
 
 public:
@@ -122,6 +167,103 @@ public:
 		own.push_back(0x2026);
 		TS_ASSERT(add(hr, "/tmp/t/OWN.SVF", own));
 		TS_ASSERT_EQUALS(hr.advanceFor(0x5e, kCs, 3), 3); // advance.U+2026=game wins (narrower span)
+	}
+
+	/// M6 (controller ruling): advance=game|font on a wide glyph reproduces
+	/// the old cellRuleAdvance() exactly - the ink floor MAX(fit, gameWidth)
+	/// for game, and the carry-widened face advance for font. A 9 px-advance,
+	/// 12 px-wide-ink glyph (ink reaches column 13) is ceil(13/2) = 7 hi-res
+	/// scale-2 px either way; only `game` also floors it at the game's own
+	/// width when that is wider.
+	void test_wide_keeps_cell() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		const Common::Array<byte> bytes = svfn(0xAC00, /*advance*/ 9, /*bearing*/ 1, /*inkWidth*/ 12,
+											   /*x0*/ 1, /*x1*/ 13, /*y0*/ 2, /*y1*/ 14, /*cell*/ 16, /*ascent*/ 13);
+		for (int metricsFont = 0; metricsFont < 2; ++metricsFont) {
+			Scumm::ScummHiResText hr;
+			const Common::String body = Common::String::format(
+				"[font.4]\nface=OWN.SVF\nadvance=%s\n", metricsFont ? "font" : "game");
+			TS_ASSERT(open(hr, overlay, body.c_str()));
+			// codePointFor() only takes chr as a literal Unicode code point in
+			// UTF-8 mode; otherwise 0xAC00 is read as a two-byte game code
+			// (0x00, 0xAC) that decodes to nothing, and advanceFor()/drawChar()
+			// fall back to gameWidth before ever reaching cellRuleAdvance() -
+			// exactly the "found (4 != 7)" a first draft of this test got, and
+			// the same trap that leaves the neighbouring
+			// test_bitmap_wide_glyph_keeps_the_game_grid unable to fail (M10):
+			// its gameWidth argument (12) happens to equal the real ink floor.
+			hr.useUtf8Text();
+			Common::MemoryReadStream ms(bytes.begin(), bytes.size());
+			TS_ASSERT(hr.addFace("/tmp/t/OWN.SVF", ms));
+			// Today's value, pinned: the ink reach 13 at scale 2 is 7.
+			TS_ASSERT_EQUALS(hr.advanceFor(0xAC00, kCs, 4), 7);
+			TS_ASSERT_EQUALS(hr.advanceFor(0xAC00, kCs, 8), metricsFont ? 7 : 8);
+			int carry = 1;
+			TS_ASSERT_EQUALS(hr.advanceFor(0xAC00, kCs, 4, &carry), 7);
+			if (metricsFont)
+				TS_ASSERT_EQUALS(carry, 0); // (9+13 -> 13+1=14)/2=7, remainder 0
+		}
+	}
+
+	/// H1 regression: under the engine default (no advance= key) a wide SVF
+	/// glyph is still centred in the game cell, exactly as the old
+	/// `metrics == Game` default did - not drawn flush against the pen the
+	/// way a TrueType face stepping by its own advance is (that face-steps
+	/// exception, C31, is the only case the engine default does NOT centre).
+	void test_wide_glyph_is_centred_under_the_engine_default() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		// No advance= key at all: kHiResAdvanceEngine.
+		TS_ASSERT(open(hr, overlay, "[font.4]\nface=OWN.SVF\n"));
+		hr.useUtf8Text();
+		// Ink narrower than the cell (columns 4..9, 6 px) so centring moves
+		// it visibly; advance 9 (own), matching test_wide_keeps_cell's glyph
+		// shape otherwise.
+		const Common::Array<byte> bytes = svfn(0xAC00, /*advance*/ 9, /*bearing*/ 0, /*inkWidth*/ 6,
+											   /*x0*/ 4, /*x1*/ 10, /*y0*/ 2, /*y1*/ 14, /*cell*/ 16, /*ascent*/ 13);
+		Common::MemoryReadStream ms(bytes.begin(), bytes.size());
+		TS_ASSERT(hr.addFace("/tmp/t/OWN.SVF", ms));
+
+		Graphics::Surface dest;
+		dest.create(64, 40, Graphics::PixelFormat::createFormatCLUT8());
+		memset(dest.getPixels(), 0, dest.pitch * dest.h);
+		const int x = 10, gameAdvance = 12, scale = 2;
+		TS_ASSERT(hr.drawChar(dest, 0xAC00, kCs, x, 5, 15, 0, 1, nullptr, true, gameAdvance));
+		int firstCol = -1;
+		for (int col = 0; col < dest.w && firstCol < 0; ++col)
+			for (int row = 0; row < dest.h; ++row)
+				if (*(const byte *)dest.getBasePtr(col, row)) { firstCol = col; break; }
+		TS_ASSERT(firstCol >= 0);
+		// drawX = x + slack/2, slack = gameAdvance*scale - own = 24-9 = 15,
+		// slack/2 = 7 (integer); the glyph's own ink starts at its column 4.
+		const int slack = gameAdvance * scale - 9;
+		const int expectedDrawX = x + slack / 2;
+		TS_ASSERT_EQUALS(firstCol, expectedDrawX + 4);
+		dest.free();
+	}
+
+	/// H2 regression: a narrow non-ASCII, non-wide glyph (the "other"
+	/// category - Thai base letters, narrow punctuation, a UTF-8
+	/// translation's own scripts) steps by the face's own advance under the
+	/// engine default, not the wide-glyph grid rule (which would give it
+	/// max(ink, game) instead). U+2026 (horizontal ellipsis, general
+	/// punctuation) at face advance 13 hi-res px, scale 2, on an 8 px game
+	/// cell: the dropped test_metrics_font_advance pinned 7 here.
+	void test_narrow_non_ascii_glyph_steps_by_the_face_by_default() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(open(hr, overlay, "[font.4]\nface=OWN.SVF\n"));
+		hr.useUtf8Text();
+		// advance=13, narrow ink so it is not classified wide; U+2026 is not
+		// Unicode::isWide().
+		const Common::Array<byte> bytes = svfn(0x2026, /*advance*/ 13, /*bearing*/ 0, /*inkWidth*/ 10,
+											   /*x0*/ 1, /*x1*/ 11, /*y0*/ 12, /*y1*/ 14, /*cell*/ 16, /*ascent*/ 13);
+		Common::MemoryReadStream ms(bytes.begin(), bytes.size());
+		TS_ASSERT(hr.addFace("/tmp/t/OWN.SVF", ms));
+		TS_ASSERT_EQUALS(hr.advanceFor(0x2026, kCs, 8), 7);
 	}
 
 	/// Without missing=, a code point no face has (and no box configured)
