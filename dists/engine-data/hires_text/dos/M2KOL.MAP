@@ -1,0 +1,51 @@
+# DOS L preset: Monkey Island 2 (mi2kor Korean patch), one 16 px 1 bpp face for every charset.
+# Monkey Island 2: M2L*.SVF baked from a pixel face, see tools/korean/scumm-fonts/m2l.tsv.
+# Cells per charset: cs0/cs6 22x24, cs1/cs3/cs5/cs8 16x16, cs2 18x18, cs4 26x24, cs7 24x24.
+# Charsets that share a cell share one SVF. Licences: see M12FONT.TXT beside this file.
+# MI2 draws its verb line in charset 6, which has no korean06.fnt: it uses the charset 0 file.
+[hires]
+scale=2
+alpha=false
+missing=u+25a1
+
+[encoding]
+codepage=cp949
+
+[font.0]
+bitmap=M2L0.SVF
+
+[font.1]
+bitmap=M2L1.SVF
+
+[font.2]
+bitmap=M2L2.SVF
+
+[font.3]
+bitmap=M2L1.SVF
+
+[font.4]
+bitmap=M2L4.SVF
+
+[font.5]
+bitmap=M2L1.SVF
+
+[font.6]
+bitmap=M2L0.SVF
+
+[font.7]
+bitmap=M2L7.SVF
+
+[font.8]
+bitmap=M2L1.SVF
+
+[latin]
+mode=proportional
+metrics=font
+
+# MI2's own pictograms: the skull bullet at 0x07 and the ellipsis at 0x5e; the Korean
+# patch draws '!' at 0x5c and a quote mark at 0x60 from its own charset.
+[glyphs]
+0x07 = keep
+0x5e = keep
+0x5c = keep
+0x60 = keep
