@@ -7,8 +7,8 @@
 # The card size is small because four stray symbols in the noisy scummtext.py scan
 # (U+3389 U+339C U+33BD U+33BF) do not fit any larger size; see the Task 9 report.
 # Charset 3 has the same 16x16 cell as charset 1: one file serves both (see M1KOU.MAP).
-# TTF paths are absolute: edit them if the fonts live elsewhere.
-M1U0.SVF	0	/home/thkim/scummvm-i18n/fonts/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	21	2	19
-M1U1.SVF	1	/home/thkim/scummvm-i18n/fonts/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	15	2	14
-M1U2.SVF	2	/home/thkim/scummvm-i18n/fonts/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	16	2	15
-M1U4.SVF	4	/home/thkim/scummvm-i18n/fonts/styled/gowunbatang/GowunBatang-Bold.ttf	17	2	19
+# The TTF field starts with $FONTS (default ~/scummvm-i18n/fonts; set FONTS=... to move it).
+M1U0.SVF	0	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	21	2	19
+M1U1.SVF	1	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	15	2	14
+M1U2.SVF	2	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	16	2	15
+M1U4.SVF	4	$FONTS/styled/gowunbatang/GowunBatang-Bold.ttf	17	2	19

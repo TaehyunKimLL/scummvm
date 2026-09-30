@@ -7,8 +7,8 @@
 # at a 16 px cell) + (cell height - 16) / 2.
 # Charset 3 has the same 16x16 cell as charset 1, so one file serves both (M1KOL.MAP points
 # both at M1L1.SVF); no korean05/06.fnt exists in this patch.
-# TTF paths are absolute: edit them if the fonts live elsewhere.
-M1L0.SVF	0	/home/thkim/scummvm-i18n/fonts/pixel/neodgm/neodgm.ttf	16	1	16
-M1L1.SVF	1	/home/thkim/scummvm-i18n/fonts/pixel/neodgm/neodgm.ttf	16	1	-
-M1L2.SVF	2	/home/thkim/scummvm-i18n/fonts/pixel/neodgm/neodgm.ttf	16	1	13
-M1L4.SVF	4	/home/thkim/scummvm-i18n/fonts/pixel/neodgm/neodgm.ttf	16	1	16
+# The TTF field starts with $FONTS (default ~/scummvm-i18n/fonts; set FONTS=... to move it).
+M1L0.SVF	0	$FONTS/pixel/neodgm/neodgm.ttf	16	1	16
+M1L1.SVF	1	$FONTS/pixel/neodgm/neodgm.ttf	16	1	-
+M1L2.SVF	2	$FONTS/pixel/neodgm/neodgm.ttf	16	1	13
+M1L4.SVF	4	$FONTS/pixel/neodgm/neodgm.ttf	16	1	16
