@@ -1,7 +1,17 @@
 #!/bin/bash
-# usage: bake-scumm-fonts.sh PLAN.TSV GAMEDIR OUTDIR CHARS  (see SCUMM_FONTS.md)
+# usage: bake-scumm-fonts.sh PLAN.TSV GAMEDIR OUTDIR CHARS [EXTRA_CHARS_FROM] [EXTRA_LIMIT]
+# (see SCUMM_FONTS.md)
 # The ttf field of the plan may start with $FONTS (written literally); it is replaced by the
 # FONTS environment variable, default ~/scummvm-i18n/fonts. Nothing else is expanded.
+#
+# EXTRA_CHARS_FROM, if given, is an extra --chars-from input alongside CHARS - typically the
+# map itself (mkfont.py already reads a *.map's missing= and [glyphs] absolute u+XXXX targets,
+# "*.map (hires_text INI 의 missing= 과 [glyphs] 절대 코드)" in its --chars-from help), so a
+# remap target the map just gained is requested from the face without editing the game's own
+# chars-from text. EXTRA_LIMIT, if given, is appended to the hardcoded
+# --limit ascii,ksx1001-nohanja so that target survives the limit too (a remap target such as
+# u+2026 is outside both named ranges). Both are omitted by default, which reproduces the
+# previous four-argument invocation byte for byte.
 set -e
 FONTS="${FONTS:-$HOME/scummvm-i18n/fonts}"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -10,9 +20,11 @@ plan="$1"
 gamedir="$2"
 outdir="$3"
 chars="$4"
+extra_chars_from="$5"
+extra_limit="$6"
 
 if [ -z "$plan" ] || [ -z "$gamedir" ] || [ -z "$outdir" ] || [ -z "$chars" ]; then
-	echo "usage: bake-scumm-fonts.sh PLAN.TSV GAMEDIR OUTDIR CHARS" >&2
+	echo "usage: bake-scumm-fonts.sh PLAN.TSV GAMEDIR OUTDIR CHARS [EXTRA_CHARS_FROM] [EXTRA_LIMIT]" >&2
 	exit 1
 fi
 if [ ! -f "$plan" ]; then
@@ -68,10 +80,19 @@ while IFS=$'\t' read -r name charset ttf size bpp ascent || [ -n "$name" ]; do
 	*.trs | *.TRS) require_args=(--require) ;;
 	esac
 
+	chars_from_args=("$chars")
+	if [ -n "$extra_chars_from" ]; then
+		chars_from_args+=("$extra_chars_from")
+	fi
+	limit="ascii,ksx1001-nohanja"
+	if [ -n "$extra_limit" ]; then
+		limit="$limit,$extra_limit"
+	fi
+
 	echo "== $name: charset $charset ($korfont: ${w}x${h} -> cell ${cell_w}x${cell_h}), $ttf ${size}px ${bpp}bpp =="
 	python3 "$here/mkfont.py" "$ttf" "$out" --size "$size" --cell "$cell_h" --width "$cell_w" \
 		--bpp "$bpp" --clip-cell "${ascent_args[@]}" --unicode ascii \
-		--chars-from "$chars" --limit ascii,ksx1001-nohanja "${require_args[@]}"
+		--chars-from "${chars_from_args[@]}" --limit "$limit" "${require_args[@]}"
 
 	baked[$key]="$out"
 done < "$plan"
