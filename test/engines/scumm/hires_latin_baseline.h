@@ -1,10 +1,12 @@
 #include <cxxtest/TestSuite.h>
 
 #include "common/array.h"
+#include "common/fs.h"
 #include "common/memstream.h"
 #include "common/str.h"
 #include "graphics/hires_text/font_map.h"
 
+#include "engines/scumm/charset.h"
 #include "engines/scumm/hires_overlay.h"
 #include "engines/scumm/hires_text.h"
 
@@ -22,7 +24,9 @@
  * dropped the game's offsets (latinStepsByFace); baseline=face asks the
  * same of a bitmap face, and only when the map says so, so no other map
  * changes. printChar() drops the game's offsX/offsY exactly when
- * latinBaselineByFace() is true.
+ * latinBaselineByFace() is true, through CharsetRendererClassic::
+ * latinGlyphOffsets(), which is tested here directly (printChar() itself
+ * needs a running engine).
  */
 class ScummHiResLatinBaselineTestSuite : public CxxTest::TestSuite {
 private:
@@ -169,5 +173,99 @@ public:
 	void test_layer_off() {
 		Scumm::ScummHiResText hr;
 		TS_ASSERT(!hr.latinBaselineByFace('A', kCs));
+	}
+
+	/// A remapped glyph is drawn from another code point by the map, not by
+	/// this rule: the key does not touch it.
+	void test_remap_is_unaffected() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(open(hr, overlay,
+					   "[latin]\nmode=proportional\nmetrics=font\nbaseline=face\n[glyphs]\n0x41=u+002E\n"));
+		TS_ASSERT(!hr.latinBaselineByFace('A', kCs));		// remapped
+		TS_ASSERT(hr.latinBaselineByFace('.', kCs));		// its neighbour still is placed
+	}
+
+	/// A renderer that measures Latin with the game's widths and never asks
+	/// the layer (FM-Towns, V2) switches the face step off; it ignores this
+	/// key too.
+	void test_renderer_that_does_not_ask_the_layer_ignores_the_key() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(open(hr, overlay, "[latin]\nmode=proportional\nmetrics=font\nbaseline=face\n"));
+		TS_ASSERT(hr.latinBaselineByFace('A', kCs));
+		hr.setLatinFaceStepAllowed(false);
+		TS_ASSERT(!hr.latinBaselineByFace('A', kCs));
+		TS_ASSERT(!hr.latinBaselineByFace('.', kCs));
+		hr.setLatinFaceStepAllowed(true);
+		TS_ASSERT(hr.latinBaselineByFace('A', kCs));
+	}
+
+	/// A TrueType face has its own rule (latinStepsByFace, the charset's
+	/// shared line offset): the key is about bitmap faces and does not
+	/// apply to it, so a TrueType-only map with the key set changes nothing.
+	void test_truetype_face_is_unaffected() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		static const char *const kFonts[] = {
+			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+			"/System/Library/Fonts/AppleSDGothicNeo.ttc",
+		};
+		const char *ttf = nullptr;
+		for (uint i = 0; i < ARRAYSIZE(kFonts) && !ttf; ++i)
+			if (Common::FSNode(kFonts[i]).exists())
+				ttf = kFonts[i];
+		if (!ttf) {
+			TS_SKIP("needs a TrueType face");
+			return;
+		}
+		const Common::String text = Common::String::format(
+			"[hires]\nscale=2\nalpha=true\nface=%s\n[latin]\nmode=proportional\nbaseline=face\n", ttf);
+		Graphics::HiResTextConfig c;
+		Common::Array<Common::String> qualifiers;
+		Common::MemoryReadStream stream((const byte *)text.c_str(), text.size());
+		TS_ASSERT(Graphics::HiResFontMap::loadFromStream(stream, Common::Path("/tmp/baseline", '/'), qualifiers, c));
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, true);
+		Scumm::ScummHiResText hr;
+		hr.useOverlay(&overlay);
+		hr.adoptConfig(c);
+		hr.setTtfFace(c.ttfPath[Graphics::kHiResRoleDefault]);
+		hr.noteGameCharset(2, 9, 9);
+		TS_ASSERT(hr.loadFonts(Common::Path()));
+		// The face is in use, and it is the TrueType path that steps it.
+		TS_ASSERT(hr.latinStepsByFace('A', 2));
+		TS_ASSERT(!hr.latinBaselineByFace('A', 2));
+		TS_ASSERT(!hr.latinBaselineByFace('.', 2));
+#else
+		TS_SKIP("needs FreeType");
+#endif
+	}
+
+	/// What printChar() does with the game glyph's offsets. A glyph placed by
+	/// the baseline rule loses both; one stepped by a TrueType face loses offsX
+	/// and takes the charset's shared line offset; otherwise the game's stay.
+	void test_glyph_offsets() {
+		int x = 3, y = 9;		// a trimmed card font's '.'
+		Scumm::CharsetRendererClassic::latinGlyphOffsets(false, true, 4, x, y);
+		TS_ASSERT_EQUALS(x, 0);
+		TS_ASSERT_EQUALS(y, 0);		// not the line offset 4: 'A' is 0 in that font
+
+		x = -1; y = 1;
+		Scumm::CharsetRendererClassic::latinGlyphOffsets(true, false, 4, x, y);
+		TS_ASSERT_EQUALS(x, 0);
+		TS_ASSERT_EQUALS(y, 4);
+
+		x = -1; y = 1;
+		Scumm::CharsetRendererClassic::latinGlyphOffsets(false, false, 4, x, y);
+		TS_ASSERT_EQUALS(x, -1);
+		TS_ASSERT_EQUALS(y, 1);
+
+		// A TrueType step wins if both are somehow asked for.
+		x = -1; y = 1;
+		Scumm::CharsetRendererClassic::latinGlyphOffsets(true, true, 4, x, y);
+		TS_ASSERT_EQUALS(x, 0);
+		TS_ASSERT_EQUALS(y, 4);
 	}
 };

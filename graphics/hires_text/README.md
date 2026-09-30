@@ -64,7 +64,9 @@ implicitly enable it; a legacy bitmap name does, as in the original parser.
 and used by the SCUMM engine only: with `face`, Latin drawn by a bitmap face is
 placed by the baseline baked into the face and the game glyph's own offsets are
 dropped (trimmed card fonts such as MI2's would otherwise draw a `.` far below
-the line). SCI ignores it. Details, diagrams and a before/after:
+the line). SCI ignores it. It is map-wide (no `[font.N]` override) and unrelated to the
+numeric `[hires] baseline=` pixel shift, which is another key in another section.
+Details, diagrams and a before/after:
 `engines/scumm/HIRES_TEXT.md`, "Baselines and glyph offsets".
 
 Size syntax: `N` physical pixels, `NxM` size N with supersampling M, `Npt` legacy

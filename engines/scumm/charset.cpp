@@ -1426,17 +1426,12 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	// font: 'x' is 4, 'A' 0, '.' 9). Stepping stays the game's unless the map
 	// says metrics=font.
 	const bool latinBaseline = !is2byte && !cellGlyph && _vm->_hiResText.latinBaselineByFace(chr, _curId);
-	if (latinFaceStep) {
-		_offsX = 0;
-		// Nor does its own offsY: the face puts the glyph on the face's
-		// baseline, so the game's drop for a descender (',' 'p' 'g' 'j' are
-		// +1 in MI1) would put it a game pixel low twice over. An offset the
-		// whole charset shares still moves the line (C36).
-		_offsY = latinLineOffsY();
-	} else if (latinBaseline) {
-		_offsX = 0;
-		_offsY = 0;
-	}
+	// A TrueType step: not its own offsY either, the face puts the glyph on
+	// the face's baseline, so the game's drop for a descender (',' 'p' 'g' 'j'
+	// are +1 in MI1) would put it a game pixel low twice over. An offset the
+	// whole charset shares still moves the line (C36).
+	if (latinFaceStep || latinBaseline)
+		latinGlyphOffsets(latinFaceStep, latinBaseline, latinFaceStep ? latinLineOffsY() : 0, _offsX, _offsY);
 
 	_top += _offsY;
 	_left += _offsX;

@@ -260,7 +260,9 @@ metrics=font
   `face`, ASCII drawn by a bitmap (SVFN) face is placed by the baseline baked
   into that face and the game glyph's own `offsX`/`offsY` no longer apply.
   For charsets whose Latin glyphs are cut to their ink (MI2's title and
-  credit cards). See "Baselines and glyph offsets" below.
+  credit cards). See "Baselines and glyph offsets" below. Not to be confused
+  with the numeric `[hires] baseline=` (a pixel shift of the whole face, in
+  another section), and it is map-wide, see "Scope and name" below.
 - **Advances** (`advanceFor()`), per glyph, from `UnicodeGlyphSource::metrics()`:
   a **wide** glyph (Hangul, kanji) keeps the cell rule below, so the game's
   grid and a legacy layout do not move; a **combining** mark advances 0; any
@@ -552,59 +554,44 @@ How it interacts with the neighbouring keys:
 | the space, and a code with no ink in the face | not affected (nothing to place; the game draws the glyph it declines). |
 
 The rule is implemented in `CharsetRendererClassic::printChar()` (the
-renderer MI1 and MI2 use; the other renderers ignore the key) and decided
-per glyph by `ScummHiResText::latinBaselineByFace()`, so a code the face
-declines stays on the game path. The default `game` leaves every other map,
+renderer MI1 and MI2 use) and decided per glyph by
+`ScummHiResText::latinBaselineByFace()`, so a code the face declines stays on
+the game path. Renderers that switch the face step off with
+`setLatinFaceStepAllowed(false)` (FM-Towns, including
+`CharsetRendererTownsClassic`, which inherits this `printChar()`, and the V2
+renderer) ignore the key: `latinBaselineByFace()` answers false for them. The default `game` leaves every other map,
 SCI's included, exactly as it was.
 
 If a period or comma floats below the line: add `baseline=face` to `[latin]`
 and check with the harness `m5_stray` or a debug socket layer dump.
 
+### Scope and name
+
+- `[latin] baseline=face` is **map-wide**. There is no `[font.N]` override, so
+  it applies to every charset whose Latin is drawn by a bitmap face. In the
+  MI2 maps that includes charsets 0-2 (dialogue, verbs, sentence line) as
+  well as the cards. Measured with `baseline=face` in M2KOU/M2KOL: the verb
+  and sentence lines are unchanged; in dialogue one period moved (to the
+  face's baseline, which is where it belongs).
+- The name is shared with the numeric `[hires] baseline=` (`font_map.cpp`), a
+  pixel shift of a face in a different section with a different meaning, and
+  SCI has its own baseline concept (`kq1-ko.map`, `glyphplacement.h`). They
+  never interact: `[latin] baseline=` takes `game` or `face`, `[hires]
+  baseline=` a number. A rename (say `[latin] origin=`) was considered and not
+  done: it touches about 70 lines across the parser, the shared test, both
+  MI2 maps and the docs, and the parser files are copied byte for byte to the
+  SCI line.
+
 ### Bake options and baselines
 
-The same list, with the `mkfont.py` flags spelled out for a bake, is in
-`tools/korean/SCUMM_FONTS.md` ("Bake options and baselines").
-
-The map key is a run-time switch; where the baked baseline itself sits comes
-from `tools/korean/mkfont.py`, and the two must agree. The options,
-and what each does to the baseline (the same table is in
-`tools/korean/SCUMM_FONTS.md`, "Bake options and baselines"):
-
-| option | effect on the baseline |
-|---|---|
-| `--ascent N` | the baseline row, counted from the cell top. Omitted, `choose_ascent_from()` picks it: the face's own ascent + descent if that line fits the cell, else the ink box of a probe string centred in the cell (a Latin face larger than the cell puts the capitals at the top instead) |
-| `--size` | the pixel size of the face. A bigger face has more ink above and below its baseline, which narrows the range of ascents that fit the cell |
-| `--fit-cell` | one size and one ascent for **all** baked glyphs: starts at `--size` and steps down until every glyph's ink fits; with `--ascent` it chooses the fitting ascent closest to it |
-| `--clip-cell` | one baseline for all; ink beyond the cell top or bottom is cut, never moved. A `.` floating below the cell would be cut away, not pulled up, so this hides a stray dot instead of fixing it |
-| `--cell` / `--width` | the cell height and width; the cell height drives the ascent choice. `bake-scumm-fonts.sh` sets them to twice the game's `korean0N.fnt` header |
-| `--unicode ascii` | bakes ASCII into the same SVF as the Hangul, so both share one baseline. (`--latin` is for single-byte fonts, glyph number = character code, and is not used for SCUMM) |
-
-`bake-scumm-fonts.sh` reads each line of a plan table
-(`name charset ttf size bpp ascent`) and bakes with `--size --cell --width
---bpp --clip-cell [--ascent] --unicode ascii`. MI2's `m2u.tsv`, whose
-numbers are the ones `--fit-cell` chose for each cell:
-
-| cell (game header x2) | face | size | ascent |
-|---|---|---|---|
-| Nanum 22x24 (charset 0, 6) | NanumGothic-Bold | 21 | 19 |
-| Gowun 26x24 (charset 4) | GowunBatang-Bold | 23 | 21 |
-| Gowun 24x24 (charset 7) | GowunBatang-Bold | 23 | 21 |
-
-So `M2U4.SVF` and `M2U7.SVF` have their baseline on row 21 of a 24-row cell,
-and every glyph in them, `.` included, stands there.
-
-Three rules follow from that:
-
-1. `baseline=face` is a **map** key: nothing is re-baked. The SVFs shipped
-   with the maps are unchanged.
-2. Re-baking with a different `--ascent` **moves the baked baseline** (a
-   one-row change moves every glyph, Hangul and Latin, together); the map
-   does not follow, and the card crops must be re-captured and looked at, as
-   the numbers above are only true for the SVFs they were measured on.
-3. A baked baseline plus a game glyph `offsY` is a double shift, and **no bake
-   option fixes it**. `--clip-cell` would only cut a floating dot away; a
-   different `--ascent` would move the correct glyphs too. Removing the
-   game's offset is what `baseline=face` does.
+The map key is a run-time switch; where the baked baseline itself sits is
+set at bake time (`mkfont.py --ascent`, `--size`, `--fit-cell`, `--clip-cell`).
+No bake option removes the game's `offsY` (`--clip-cell` would only cut a
+floating dot away), and a different `--ascent` moves every glyph of the SVF
+together, so re-capture the card crops after one. The options, the
+`bake-scumm-fonts.sh` plan fields and the real MI2 numbers are in
+[`tools/korean/SCUMM_FONTS.md`](../../tools/korean/SCUMM_FONTS.md)
+("Bake options and baselines"), the one place they are kept.
 
 ## Scaling, and platforms that already scale
 
