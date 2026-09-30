@@ -141,6 +141,7 @@ void HiResTextConfig::clear() {
 	latinFontSet = false;
 	latinMetrics = kHiResMetricsGame;
 	latinMetricsSet = false;
+	latinBaselineFace = false;
 	fontFaces.clear();
 	fontIds.clear();
 	layout = HiResLayoutSettings();
@@ -1490,6 +1491,17 @@ bool HiResFontMap::loadFromStream(Common::SeekableReadStream &stream,
 		} else if (parseMetrics(value, out.latinMetrics)) {
 			out.latinMetricsSet = true;
 		}
+	}
+	// baseline=face: a bitmap face's Latin sits on the baseline baked into it,
+	// without the game glyph's own offsets. SCUMM only; game (the default)
+	// keeps them.
+	if (getKey(ini, qualifiers, "latin", "baseline", value)) {
+		if (value.equalsIgnoreCase("face"))
+			out.latinBaselineFace = true;
+		else if (value.equalsIgnoreCase("game"))
+			out.latinBaselineFace = false;
+		else
+			warning("HiResText: [latin] baseline '%s' is not game or face, ignoring", value.c_str());
 	}
 	readFontIdSections(ini, qualifiers, baseDir, out);
 	readLayoutSection(ini, qualifiers, out);

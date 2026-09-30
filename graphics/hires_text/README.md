@@ -60,6 +60,13 @@ generic renderer's character classification. Legacy `metrics=ttf` and
 `metrics=bitmap` retain separate settings. Naming a legacy TTF font does not
 implicitly enable it; a legacy bitmap name does, as in the original parser.
 
+`[latin] baseline=game|face` (`latinBaselineFace`, default `game`) is read here
+and used by the SCUMM engine only: with `face`, Latin drawn by a bitmap face is
+placed by the baseline baked into the face and the game glyph's own offsets are
+dropped (trimmed card fonts such as MI2's would otherwise draw a `.` far below
+the line). SCI ignores it. Details, diagrams and a before/after:
+`engines/scumm/HIRES_TEXT.md`, "Baselines and glyph offsets".
+
 Size syntax: `N` physical pixels, `NxM` size N with supersampling M, `Npt` legacy
 logical pixels (not typographic points). Logical sizes remain unresolved until
 an adapter has applied explicit user scale overrides. Bounds: scale 1..3,

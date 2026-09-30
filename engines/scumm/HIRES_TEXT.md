@@ -256,6 +256,11 @@ metrics=font
   `[latin] metrics=` (`game`: the game's width; `font`: the face's advance,
   `latinAdvanceGamePx()`). SCUMM's default is `proportional`, which is what
   it always did with ASCII; `[latin] enabled=false` turns it off.
+- **Latin baseline** (`[latin] baseline=game|face`, default `game`): with
+  `face`, ASCII drawn by a bitmap (SVFN) face is placed by the baseline baked
+  into that face and the game glyph's own `offsX`/`offsY` no longer apply.
+  For charsets whose Latin glyphs are cut to their ink (MI2's title and
+  credit cards). See "Baselines and glyph offsets" below.
 - **Advances** (`advanceFor()`), per glyph, from `UnicodeGlyphSource::metrics()`:
   a **wide** glyph (Hangul, kanji) keeps the cell rule below, so the game's
   grid and a legacy layout do not move; a **combining** mark advances 0; any
@@ -400,6 +405,206 @@ default=/System/Library/Fonts/AppleSDGothicNeo.ttc
 
 `test_mi2_keeps_5c_60` (`test/engines/scumm/hires_glyph_advance.h`) parses
 this map verbatim.
+
+## Baselines and glyph offsets
+
+A hi-res line is drawn glyph by glyph, and every glyph gets its vertical
+position from up to three numbers. Getting the sum wrong shows as a period
+or a lowercase letter that floats below the line, or sits on it in one
+charset and not in another.
+
+### What "baseline" means here
+
+- **The line origin.** The game hands the charset renderer a line top,
+  `_top` (game pixels; the layer draws at `_top * scale`). That is the top
+  of the *cell*: the box a glyph of the replacement font is baked into. The
+  Hangul cell glyph sits exactly there, with an `offsY` of 0.
+- **The game glyph's `offsX`/`offsY`.** Every glyph in the game's own
+  charset resource carries a signed offset from the line origin, in game
+  pixels. `CharsetRendererClassic::printChar()` adds it to `_top`/`_left`
+  before it draws. A normal font keeps these near 0 (MI1's `,` `g` `p` are
+  1). A font *trimmed to its ink*, as MI2's card fonts are, stores the
+  glyph's rows without the blank rows above it, and puts them back with a
+  large `offsY`: a `.` is cut down to its dot and carries `offsY` 7-9.
+- **The SVF glyph's baked baseline.** A bitmap face baked by `mkfont.py`
+  puts every glyph, Latin included, at one baseline `ascent` rows below the
+  top of a fixed cell (`--ascent`, `BitmapFont::ascent()`; a TrueType face
+  says the same with `TtfGlyphSource::baseline()`). The `.` is already
+  drawn low in its cell; it needs no offset to sit on the line.
+- **How they combine.** `latinBaselineShift()` lines a Latin glyph of one
+  bitmap face up with the Hangul of a *different* face by their baselines. A
+  Latin glyph baked into the *same* SVF as the Hangul (`--unicode ascii`,
+  what `bake-scumm-fonts.sh` does) needs no shift, being on that baseline
+  already. What nothing corrects by default is the game glyph's `offsY`: it
+  is added on top of the baked baseline.
+
+### The double shift
+
+The cell of a hi-res glyph, with the rows numbered from its top (the numbers
+are MI2 charset 7, the difficulty card, baked as `M2U7.SVF`: cell 24 rows,
+baseline at row 21; the game's own glyphs are cut to a 14 px cell):
+
+```
+row  cell (24 rows = 12 game px)      what sits there
+  0  +---------------------------+   line top (_top * 2), Hangul top
+     |                           |
+     |     ascent line           |   tall letters ('A', 'l') start here
+     |                           |
+ 21  |--- baseline --------------|   Latin letters stand on this row
+     |     descender             |   'g' 'p' tails
+ 24  +---------------------------+   cell bottom
+```
+
+The default (`baseline=game`) adds the game glyph's `offsY` (game px, times
+the scale) to the origin *before* the face draws its glyph, which is already
+on the baked baseline. The baseline of each glyph then lands on
+`offsY * 2 + 21`; `.` and `a` in that cell, drawn side by side:
+
+```
+default (baseline=game)                  baseline=face
+row                                      row
+  0  +-----------------------+            0  +-----------------------+
+     |  Hangul   A   l       |               |  Hangul   A   l       |
+ 21  |---baseline------------|           21  |---baseline--a-----.---|
+ 24  +-----------------------+           24  +-----------------------+
+ 27       a  (21 + 3*2)                        'a' and '.' both stand on
+ 35                 .  (21 + 7*2)              row 21, with the Hangul
+     'a' 3 rows and '.' 11 rows
+     below the cell: the stray dot
+```
+
+With `baseline=face` the origin is used unmodified (`_offsY = 0`), so the baked
+baseline is the only vertical placement: `a` and `.` both on row 21.
+
+Measured on MI2 charset 7 (the difficulty card of the Korean patch, U preset,
+Linux reference build, screen rows of the 640x400 capture): the period after
+"무서워요" has ink rows 357..364 without the key and 343..350 with it, 14 rows
+(7 game px x 2) higher, at the foot of the Hangul beside it, whose ink ends at
+row 349.
+
+Charset 4, the title card, is worse because its cell is taller: game height
+15, `offsY` of `.` 9, of `a` 4 (of `x` 4, of `g` 3, of `A` 0), baked in
+`M2U4.SVF` (26x24, baseline row 21). The `.` lands at row 21 + 18 = 39, 15
+rows under the cell bottom.
+
+Why `0` and not the charset's "shared line offset" (`latinLineOffsY()`,
+that of `x`, else `a`): that value is right for a font like MI1's, where every
+glyph shares a line offset, and is what the TrueType path (`latinStepsByFace`)
+uses. In a trimmed font `x` is 4 but `A` is 0, so a shared offset would move
+capitals and lowercase apart. The face's glyph and the Hangul beside it are
+baked on the same cell top, so the offset that keeps them together is 0.
+
+Before and after, MI2 difficulty card, 2x. `baseline=game` (default), left;
+`baseline=face`, right. U preset (Gowun Batang, 2 bpp):
+
+| default | `baseline=face` |
+|---|---|
+| ![U preset, default: the periods float below the line](images/hires-baseline-before-u.png) | ![U preset, baseline=face: the periods stand on the line](images/hires-baseline-after-u.png) |
+
+L preset (Neo Dung-Geun-Mo pixel face, 1 bpp):
+
+| default | `baseline=face` |
+|---|---|
+| ![L preset, default: the periods float below the line](images/hires-baseline-before-l.png) | ![L preset, baseline=face: the periods stand on the line](images/hires-baseline-after-l.png) |
+
+(Each crop has two periods, after "봤어요" and after "무서워요"; both are low
+in the default image. The quote marks are the game's own glyphs and do not
+change.)
+
+### When to use `baseline=face`
+
+Set it when **all** of these hold:
+
+- the charset's Latin is drawn by a **bitmap (SVFN)** face: `[font.N]
+  bitmap=` with `--unicode ascii` baked in, or a `[latin] bitmap=`
+  companion (`[latin] mode=proportional`, SCUMM's default), typically with
+  `metrics=font`;
+- the game's glyph offsets do **not** describe where a line of text goes:
+  the game's font is trimmed to its ink and has large per-glyph `offsY`
+  (MI2's card charsets 4 and 7, measured, and charset 8 with the same card
+  face; MI1's charset 4 has the identical glyph offsets, but its title card
+  holds no Latin text to show it).
+
+Small offsets (MI1's charset 2: `,` `g` `p` `offsY` 1, `offsX` -1) are a
+one-pixel drop, not a floating dot, and stay on the default.
+
+Leave the default `game` when
+
+- the game's **own** Latin glyphs are what is drawn (`latin=off`, a
+  `[glyphs]` `keep`, a code the face lacks): the game's offsets *are* the
+  placement for its own glyph, and the key does not touch them;
+- the face is TrueType: it stands on its own baseline and has its own rule
+  (C34/C36, `latinStepsByFace()`, with the charset's shared line offset).
+  `baseline=face` does not apply to a TrueType face; it is only about bitmap
+  faces;
+- an SVF that was baked to be drawn with the game's offsets: the key would
+  move its glyphs. Re-capture before switching a map that already looks
+  right.
+
+How it interacts with the neighbouring keys:
+
+| key | effect on `baseline=face` |
+|---|---|
+| `[latin] metrics=` | independent: it decides the *horizontal* step, `baseline=face` the vertical placement. The key also drops the game's `offsX`, so the glyph is drawn at the pen. |
+| `[glyphs]` `keep` / remap of a code | that code is drawn by the game, or by the remapped code point, so its game offsets are honoured and `baseline=face` does not apply to it. |
+| `latin=off` (`[latin] mode=off`, `[font.N] latin=off`) | the game draws its own ASCII: `baseline=face` never applies. |
+| `[latin] mode=half`, `fullwidth` | in a per-glyph map only `proportional` Latin is affected; these modes are not. |
+| the space, and a code with no ink in the face | not affected (nothing to place; the game draws the glyph it declines). |
+
+The rule is implemented in `CharsetRendererClassic::printChar()` (the
+renderer MI1 and MI2 use; the other renderers ignore the key) and decided
+per glyph by `ScummHiResText::latinBaselineByFace()`, so a code the face
+declines stays on the game path. The default `game` leaves every other map,
+SCI's included, exactly as it was.
+
+If a period or comma floats below the line: add `baseline=face` to `[latin]`
+and check with the harness `m5_stray` or a debug socket layer dump.
+
+### Bake options and baselines
+
+The same list, with the `mkfont.py` flags spelled out for a bake, is in
+`tools/korean/SCUMM_FONTS.md` ("Bake options and baselines").
+
+The map key is a run-time switch; where the baked baseline itself sits comes
+from `tools/korean/mkfont.py`, and the two must agree. The options,
+and what each does to the baseline (the same table is in
+`tools/korean/SCUMM_FONTS.md`, "Bake options and baselines"):
+
+| option | effect on the baseline |
+|---|---|
+| `--ascent N` | the baseline row, counted from the cell top. Omitted, `choose_ascent_from()` picks it: the face's own ascent + descent if that line fits the cell, else the ink box of a probe string centred in the cell (a Latin face larger than the cell puts the capitals at the top instead) |
+| `--size` | the pixel size of the face. A bigger face has more ink above and below its baseline, which narrows the range of ascents that fit the cell |
+| `--fit-cell` | one size and one ascent for **all** baked glyphs: starts at `--size` and steps down until every glyph's ink fits; with `--ascent` it chooses the fitting ascent closest to it |
+| `--clip-cell` | one baseline for all; ink beyond the cell top or bottom is cut, never moved. A `.` floating below the cell would be cut away, not pulled up, so this hides a stray dot instead of fixing it |
+| `--cell` / `--width` | the cell height and width; the cell height drives the ascent choice. `bake-scumm-fonts.sh` sets them to twice the game's `korean0N.fnt` header |
+| `--unicode ascii` | bakes ASCII into the same SVF as the Hangul, so both share one baseline. (`--latin` is for single-byte fonts, glyph number = character code, and is not used for SCUMM) |
+
+`bake-scumm-fonts.sh` reads each line of a plan table
+(`name charset ttf size bpp ascent`) and bakes with `--size --cell --width
+--bpp --clip-cell [--ascent] --unicode ascii`. MI2's `m2u.tsv`, whose
+numbers are the ones `--fit-cell` chose for each cell:
+
+| cell (game header x2) | face | size | ascent |
+|---|---|---|---|
+| Nanum 22x24 (charset 0, 6) | NanumGothic-Bold | 21 | 19 |
+| Gowun 26x24 (charset 4) | GowunBatang-Bold | 23 | 21 |
+| Gowun 24x24 (charset 7) | GowunBatang-Bold | 23 | 21 |
+
+So `M2U4.SVF` and `M2U7.SVF` have their baseline on row 21 of a 24-row cell,
+and every glyph in them, `.` included, stands there.
+
+Three rules follow from that:
+
+1. `baseline=face` is a **map** key: nothing is re-baked. The SVFs shipped
+   with the maps are unchanged.
+2. Re-baking with a different `--ascent` **moves the baked baseline** (a
+   one-row change moves every glyph, Hangul and Latin, together); the map
+   does not follow, and the card crops must be re-captured and looked at, as
+   the numbers above are only true for the SVFs they were measured on.
+3. A baked baseline plus a game glyph `offsY` is a double shift, and **no bake
+   option fixes it**. `--clip-cell` would only cut a floating dot away; a
+   different `--ascent` would move the correct glyphs too. Removing the
+   game's offset is what `baseline=face` does.
 
 ## Scaling, and platforms that already scale
 
