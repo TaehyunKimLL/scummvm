@@ -452,4 +452,33 @@ public:
 		base.free();
 		mark.free();
 	}
+
+	/// advance=game centres any glyph narrower than the game cell it is
+	/// given - not only a wide one under the engine default (H1's own
+	/// test): explicit `advance=game` on the "other"/ASCII-like path
+	/// (kHiResAdvanceGame is not wide-gated) centres too. The old
+	/// metrics=game default behaved identically for every family.
+	void test_metrics_game_centres_narrow_glyph() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(96, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(open(hr, overlay, "[font.4]\nface=OWN.SVF\nadvance=game\n"));
+		hr.useUtf8Text();
+		// A narrow (non-wide, non-ASCII so it takes the "other" path, not
+		// the ascii one - both are gated by rule==Game the same way) glyph:
+		// advance 10, ink columns 0..9 (10 px).
+		const Common::Array<byte> bytes = svfn(0x00E9, /*advance*/ 10, /*bearing*/ 0, /*inkWidth*/ 10,
+											   /*x0*/ 0, /*x1*/ 10, /*y0*/ 2, /*y1*/ 14, /*cell*/ 16, /*ascent*/ 13);
+		Common::MemoryReadStream ms(bytes.begin(), bytes.size());
+		TS_ASSERT(hr.addFace("/tmp/t/OWN.SVF", ms));
+
+		Graphics::Surface dest;
+		dest.create(96, 40, Graphics::PixelFormat::createFormatCLUT8());
+		memset(dest.getPixels(), 0, dest.pitch * dest.h);
+		const int x = 40, gameAdvance = 8;
+		TS_ASSERT(hr.drawChar(dest, 0x00E9, kCs, x, 0, 15, 0, 1, nullptr, true, gameAdvance));
+		// slack = gameAdvance*scale - own = 8*2-10 = 6, slack/2 = 3.
+		TS_ASSERT_EQUALS(inkLeft(dest), x + 6 / 2);
+		dest.free();
+	}
 };
