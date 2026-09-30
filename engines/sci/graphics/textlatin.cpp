@@ -20,25 +20,31 @@
  */
 
 #include "sci/graphics/textlatin.h"
+#include "graphics/hires_text/font_value.h"
 
 namespace Sci {
 namespace TextCompose {
 
-uint32 latinFullwidth(uint32 cp, LatinMode mode, bool fullwidthSpace) {
-	if (mode != kLatinFullwidth)
-		return cp; // kLatinOff and kLatinHalf never remap the code point
-
-	if (cp >= 0x0021 && cp <= 0x007E)
-		return cp + 0xFEE0; // U+FF01..U+FF5E, the fullwidth-forms block
-	if (cp == 0x0020 && fullwidthSpace)
-		return 0x3000; // IDEOGRAPHIC SPACE
+uint32 glyphCode(const Graphics::HiResIdPlan &plan, uint32 chr) {
+	uint32 cp = chr;
+	if (plan.glyphFor(chr, chr, cp) == Graphics::kHiResGlyphStepGame)
+		return Graphics::kHiResGameCodeBase + chr;
+	// design 6.5 steps 3-4: a real code point (not yet a target) with no
+	// chain naming a face for it at all - the id is off, its own resolved
+	// face is `original`, or nothing names a face - falls to the game's own
+	// font too. A virtual targeted-glyph code (design 6.7) never consults
+	// the range table, so it always continues.
+	if (cp < Graphics::kHiResTargetBase && !plan.chainFor(cp))
+		return Graphics::kHiResGameCodeBase + chr;
 	return cp;
 }
 
-bool asciiGoesToUnicodeFace(uint32 cp, LatinMode mode) {
-	// kLatinProportional routes exactly as kLatinHalf does; only its
-	// advance differs, and that is the font's business, not this one's.
-	return (mode == kLatinHalf || mode == kLatinProportional) && cp >= 0x0020 && cp <= 0x007E;
+bool goesToUnicodeFace(const Graphics::HiResIdPlan &plan, uint32 code) {
+	if (code >= Graphics::kHiResGameCodeBase)
+		return false;
+	if (code >= Graphics::kHiResTargetBase)
+		return plan.target(code) != nullptr;
+	return plan.chainFor(code) != nullptr;
 }
 
 } // End of namespace TextCompose

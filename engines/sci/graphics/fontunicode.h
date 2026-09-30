@@ -195,24 +195,19 @@ private:
 class GfxFontUnicodeAdapter : public GfxFont {
 public:
 	/**
-	 * @param latinMode  this font id's Latin mode (see GfxFontSet), resolved
-	 *                   by GfxCache. Only kLatinHalf/kLatinProportional
-	 *                   change anything here: they route the printable
-	 *                   ASCII range to _font instead of _fallback (see the
-	 *                   chr < 0x80 checks below).
-	 * @param fullwidthSpace  kLatinFullwidth: whether GfxText16 remaps ' '
-	 *                   too; only carried, for GfxText16 to read.
-	 * @param metrics    kLatinProportional: whose advance ASCII gets - the
-	 *                   fallback font's (game) or the face's (font); see
-	 *                   latinAdvanceGamePx().
+	 * @param plan  this font id's compiled plan (see GfxFontSet), resolved
+	 *              by GfxCache: it decides which packed byte pairs
+	 *              TextCompose::goesToUnicodeFace() routes to @p font instead
+	 *              of @p fallback (see the chr < 0x80 checks below) and by
+	 *              how much they advance (plan.advanceFor()).
 	 */
 	GfxFontUnicodeAdapter(GfxFontUnicode *font, Common::CodePage codePage,
 	                      GfxFont *fallback, GuiResourceId resourceId,
-	                      LatinMode latinMode = kLatinOff, bool fullwidthSpace = false,
-	                      Graphics::HiResMetricsSource metrics = Graphics::kHiResMetricsGame);
+	                      const Graphics::HiResIdPlan &plan = Graphics::HiResIdPlan());
 
-	LatinMode latinMode() const { return _latinMode; }
-	bool latinFullwidthSpace() const { return _fullwidthSpace; }
+	/** The plan this font id was built with; GfxText16::refreshLatinSettings() reads it. */
+	const Graphics::HiResIdPlan &plan() const { return _plan; }
+
 	~GfxFontUnicodeAdapter() override;
 
 	GuiResourceId getResourceId() override { return _resourceId; }
@@ -245,9 +240,7 @@ private:
 	GfxFont *_fallback;
 	Common::CodePage _codePage;
 	GuiResourceId _resourceId;
-	LatinMode _latinMode;
-	bool _fullwidthSpace;
-	Graphics::HiResMetricsSource _metrics;
+	Graphics::HiResIdPlan _plan;
 };
 
 } // End of namespace Sci

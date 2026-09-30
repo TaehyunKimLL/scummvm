@@ -21,18 +21,21 @@
 
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
+#include "graphics/hires_text/font_value.h"
 #include "graphics/hires_text/latin_advance.h"
+#include "graphics/hires_text/unicode_props.h"
 
 #include "sci/sci.h"
 #include "sci/utf8.h"
 
 #include "common/textconsole.h"
 #include "common/ustr.h"
+#include "common/util.h"
 
 namespace Sci {
 
 GfxFontSet::GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage, const FontSettings &settings)
-	: _resourceId(resourceId), _codePage(codePage), _settings(settings), _latinMode(settings.latin) {
+	: _resourceId(resourceId), _codePage(codePage), _settings(settings) {
 }
 
 GfxFontSet::~GfxFontSet() {
@@ -52,13 +55,6 @@ void GfxFontSet::addFace(GfxFont *face, FaceKind kind, bool owned, bool hiresPla
 	f.owned = owned;
 	f.hiresPlane = hiresPlane;
 	_faces.push_back(f);
-}
-
-uint32 GfxFontSet::toCodePoint(uint32 chr) const {
-	// GfxText16 now decodes as it walks, so what arrives here is already a
-	// code point. The only values that are not are the undecodable byte pairs
-	// readChar() passes through unchanged, and those have no glyph anywhere.
-	return chr;
 }
 
 uint32 GfxFontSet::toEncodedPair(uint32 codePoint) const {
@@ -99,20 +95,33 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 	if (_faces.empty())
 		return nullptr;
 
-	// Single-byte characters go to the first face, unconditionally - except
-	// in kLatinHalf mode, where the printable ASCII range is deliberately
-	// routed past it instead (hires_text_latin=half; see
-	// TextCompose::asciiGoesToUnicodeFace()). Outside that one mode, asking
-	// the faces by coverage would let a later face answer for ASCII, which
-	// changes the metrics of every English string in the game.
-	if (chr < 0x80 && !TextCompose::asciiGoesToUnicodeFace(chr, _latinMode)) {
-		outChr = chr;
+	// @p chr is TextCompose::glyphCode()'s own result (design 6.5 steps 2-6):
+	// a declined code (the game's own font draws the original game code), a
+	// virtual targeted-glyph code, or a real code point.
+	if (chr >= Graphics::kHiResGameCodeBase) {
+		outChr = chr - Graphics::kHiResGameCodeBase;
 		return &_faces[0];
 	}
 
-	uint32 codePoint = 0;
-	bool decoded = false;
+	if (chr >= Graphics::kHiResTargetBase) {
+		// design 6.7: a target is answered only by the ranged Unicode face,
+		// which decodes it to {face, real cp} itself - the range table,
+		// coverage fallback and missing= box are all bypassed. A target the
+		// face turns out to lack (warned about at load) has no glyph here
+		// either, and no other face can draw a virtual code point, so it is
+		// simply declined.
+		for (uint i = 0; i < _faces.size(); i++) {
+			if (_faces[i].kind != kFaceCodePoint)
+				continue;
+			if (static_cast<const GfxFontUnicode *>(_faces[i].font)->hasGlyph(chr)) {
+				outChr = chr;
+				return &_faces[i];
+			}
+		}
+		return nullptr;
+	}
 
+	const uint32 codePoint = chr;
 	for (uint i = 0; i < _faces.size(); i++) {
 		const Face &f = _faces[i];
 
@@ -122,13 +131,6 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 		// was reached - measured, 37 syllables drawn by the wrong face and
 		// the menu buttons came out blank.
 		if (f.kind == kFaceResource)
-			continue;
-
-		if (!decoded) {
-			codePoint = toCodePoint(chr);
-			decoded = true;
-		}
-		if (!codePoint)
 			continue;
 
 		if (f.kind == kFaceCodePoint) {
@@ -148,21 +150,10 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 		//
 		// Faces are asked in order. The legacy face comes before the Unicode
 		// one, except in a Korean game while a hi-res face is in effect (a
-		// map's face= or hires_text_font): GfxCache::createFontSet() then
+		// map's face= or hires_text_face): GfxCache::createFontSet() then
 		// puts that face before korean.fnt, which draws only what it lacks.
-		//
-		// Known limitation (hires_text_latin): with the legacy face before
-		// the Unicode one, when a Shift-JIS face is present its
-		// U+FF00..U+FFEF coverage catches the fullwidth Latin that
-		// hires_text_latin=fullwidth produces, and
-		// hires_text_latin_font is never consulted for it. korean.fnt only
-		// covers Hangul syllables, so Korean games are unaffected.
 		if (!legacyCovers(codePoint))
 			continue;
-		// A legacy face is indexed by the encoded byte pair, not by a code
-		// point, so re-encode for it. GfxText16 hands out code points now;
-		// this is the one place that still needs the game's encoding, and it
-		// disappears when the legacy faces do.
 		const uint32 packed = toEncodedPair(codePoint);
 		if (!packed)
 			continue;
@@ -170,30 +161,13 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 		return &f;
 	}
 
-	// Nothing covers it. hires_text.map [hires] missing= draws it as a box
-	// (GfxFontUnicode::setMissing()): only now, after every face - the
-	// hi-res face, korean.fnt, the .uni fonts - has declined it, so the
-	// box never hides a glyph a later face has. ASCII stays the resource
-	// face's, as below; so does a byte or an undecodable pair
-	// (isCodePoint()), and a character the resource face has a glyph for
-	// (a 256-glyph font's U+0080..U+00FF in a UTF-8 translation): the loop
-	// above never asks the resource face, so it is asked here, by the
-	// width GfxFontFromResource reports - 0 past its last glyph.
-	if (decoded && codePoint >= 0x80 && isCodePoint(codePoint) &&
-		!(_faces[0].kind == kFaceResource && _faces[0].font->getCharWidth(chr) > 0)) {
-		for (uint i = 0; i < _faces.size(); i++) {
-			const Face &f = _faces[i];
-			if (f.kind == kFaceCodePoint &&
-				static_cast<const GfxFontUnicode *>(f.font)->drawsMissing(codePoint)) {
-				outChr = codePoint;
-				return &f;
-			}
-		}
-	}
-
-	// Fall back to the first face so the caller still gets consistent
-	// metrics rather than zero, matching what the engine did before a set
-	// existed.
+	// Nothing covers it: the resource face draws the original game code -
+	// today's behaviour for a character no face wants, and (design 6.5 step
+	// 6) for a code point whose chain lacks it and has no missing= box
+	// either (a face lacking the box is already caught by
+	// Sci::checkPlanLoadWarnings() at load time; drawing here still falls
+	// back cleanly since RangeRoutedGlyphSource::cells() already answered 0
+	// for it and the kFaceCodePoint branch above never matched).
 	outChr = chr;
 	return &_faces[0];
 }
@@ -209,18 +183,11 @@ TextFaceKind GfxFontSet::classify(uint32 chr) const {
 		return kTextFaceLegacy;
 
 	case kFaceCodePoint:
-		// ASCII (or the ' '/printable range) that hires_text_latin=half
-		// routed past the resource face and into this one - see
-		// TextCompose::asciiGoesToUnicodeFace().
-		if (chr < 0x80 && TextCompose::asciiGoesToUnicodeFace(chr, _latinMode))
-			return kTextFaceLatin;
-		// hires_text_latin=fullwidth remapped ASCII into this range before
-		// faceFor() ever saw it (GfxText16::glyphChar()), so a genuine code
-		// point cannot be told apart from it here except by that range -
-		// harmless, since real CJK content never lands in it.
-		if (_latinMode == kLatinFullwidth &&
-			((chr >= 0xFF01 && chr <= 0xFF5E) || chr == 0x3000))
-			return kTextFaceLatin;
+		// A real code point (not a target) an explicit range rule sent here,
+		// rather than the id's own plain chain: design 6.2's "a range rule
+		// beats the plain default".
+		if (chr < Graphics::kHiResTargetBase && _settings.plan.faceRules.lookup(chr) >= 0)
+			return kTextFaceRule;
 		return kTextFaceUnicode;
 
 	case kFaceResource:
@@ -259,49 +226,40 @@ bool GfxFontSet::isLeadByte(byte b) const {
 	}
 }
 
-bool GfxFontSet::isCodePoint(uint32 chr) const {
-	if (_utf8Text)
-		return true;
-	// A byte of a single-byte code page, or a lone byte of a double-byte one.
-	if (chr <= 0xFF)
-		return false;
-	// The pair GfxText16::readChar() could not decode, kept as lead |
-	// trail << 8: it decodes to nothing here either. A code point whose
-	// two bytes happen to read as such a pair is taken for one too, and
-	// falls back to the game's font as before missing= existed.
-	const byte lead = chr & 0xFF, trail = (chr >> 8) & 0xFF;
-	if (chr <= 0xFFFF && isLeadByte(lead) && !decodeCodePagePair(lead, trail, _codePage))
-		return false;
-	return true;
-}
-
 byte GfxFontSet::getCharWidth(uint32 chr) {
 	uint32 c = 0;
 	const Face *f = faceFor(chr, c);
 	if (!f)
 		return 0;
-	// hires_text_latin=proportional: ASCII the Unicode face draws advances by
-	// the resource face's width for it (metrics=game: layout as with
-	// latin=off) or by the face's own advance (metrics=font). GfxText16
-	// moves the pen by this very value, and the glyph is drawn with its
-	// origin at the start of that box, so measuring and drawing agree.
-	if (_latinMode == kLatinProportional && TextCompose::asciiGoesToUnicodeFace(chr, _latinMode) &&
-		f->kind == kFaceCodePoint) {
-		GfxFontUnicode *uni = static_cast<GfxFontUnicode *>(f->font);
-		const int scale = (f->hiresPlane && getSciVersion() < SCI_VERSION_2) ? 2 : 1;
-		return (byte)Graphics::latinAdvanceGamePx(_settings.metrics, _faces[0].font->getCharWidth(chr),
-										uni->advanceHires(c), scale);
+	if (f->kind != kFaceCodePoint)
+		return toLowres(*f, f->font->getCharWidth(c));
+
+	GfxFontUnicode *uni = static_cast<GfxFontUnicode *>(f->font);
+	const int scale = (f->hiresPlane && getSciVersion() < SCI_VERSION_2) ? 2 : 1;
+	const Graphics::HiResAdvance rule = _settings.plan.advanceFor(c);
+
+	// design sections 6.2/6.3: the id's resolved advance rule for the code
+	// point actually drawn (GfxText16 moves the pen by this very value, and
+	// the glyph's origin is at the start of that box, so measuring and
+	// drawing agree).
+	if (rule == Graphics::kHiResAdvanceGame || rule == Graphics::kHiResAdvanceFont) {
+		// `game`: the resource face's own width for the game code (as today,
+		// glyphChar()'s declined codes already round-trip to it above).
+		const uint32 gameCode = chr < Graphics::kHiResGameCodeBase ? chr : c;
+		const int gameWidth = _faces[0].font->getCharWidth(gameCode);
+		return (byte)Graphics::advanceGamePx(rule, gameWidth, uni->advanceHires(c), scale);
 	}
-	// Beyond ASCII, a Unicode face on the hi-res plane advances per glyph
-	// (I18N_TEXT_DESIGN.md section 4.2): the cell for a wide glyph (as
-	// before), nothing for a combining mark, the face's own advance for any
-	// other - a Thai base is not a CJK half cell. ASCII keeps its Latin
-	// mode's rule above.
-	// Only for a UTF-8 translation (perGlyph()): a legacy font keeps its
-	// cell widths below.
-	if (f->kind == kFaceCodePoint && f->hiresPlane && c >= 0x80 &&
-		static_cast<GfxFontUnicode *>(f->font)->perGlyph())
-		return static_cast<GfxFontUnicode *>(f->font)->gameCharWidth(c, getSciVersion() >= SCI_VERSION_2 ? 1 : 2);
+	if (rule == Graphics::kHiResAdvanceCell) {
+		const int cell = _settings.cell;
+		const int raw = Graphics::Unicode::isWide(c) ? cell : cell / 2;
+		return (byte)MAX(1, raw / scale);
+	}
+
+	// kHiResAdvanceEngine (nothing set an advance rule): design section 8's
+	// "today's path" - the cell rule for a legacy code-page game, per-glyph
+	// advances (Sci::glyphGameWidth()) for a UTF-8 translation.
+	if (f->hiresPlane && c >= 0x80 && uni->perGlyph())
+		return uni->gameCharWidth(c, getSciVersion() >= SCI_VERSION_2 ? 1 : 2);
 	return toLowres(*f, f->font->getCharWidth(c));
 }
 

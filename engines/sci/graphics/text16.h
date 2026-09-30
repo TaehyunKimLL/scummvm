@@ -126,27 +126,26 @@ private:
 
 	/**
 	 * The glyph character for @p chr, a character readChar() returned (after
-	 * any escape substitution): TextCompose::latinFullwidth() per the
-	 * current font's Latin mode. readChar() itself returns the raw character, which
-	 * is what every classification sees - '|' codes, '@'/0xFF20 and CR/LF
-	 * line breaks, the PQ2 "\n" escape, the ' ' word break - so fullwidth
-	 * mode leaves the text protocol alone. Only the sites that measure or
-	 * draw a glyph call this, and they call it on the same value, so width
-	 * and drawing agree.
+	 * any escape substitution): TextCompose::glyphCode() against the current
+	 * font's compiled plan (design section 6.5 step 2 on). readChar() itself
+	 * returns the raw character, which is what every classification sees -
+	 * '|' codes, '@'/0xFF20 and CR/LF line breaks, the PQ2 "\n" escape, the
+	 * ' ' word break - so a `[glyphs]` remap leaves the text protocol alone.
+	 * Only the sites that measure or draw a glyph call this, and they call it
+	 * on the same value, so width and drawing agree.
 	 */
 	uint32 glyphChar(uint32 chr) const;
 
 	/**
-	 * Copy the current _font's Latin settings (GfxFontSet /
-	 * GfxFontUnicodeAdapter carry their font id's resolved settings) into
-	 * _latinMode/_latinSpaceFullwidth, which glyphChar() reads per
-	 * character. Called wherever _font changes (GetFont()/SetFont()); any
-	 * other font kind is kLatinOff.
+	 * Copy the current _font's compiled plan (GfxFontSet / GfxFontUnicodeAdapter
+	 * carry their font id's resolved settings) into _plan, which glyphChar()
+	 * reads per character. Called wherever _font changes (GetFont()/SetFont());
+	 * any other font kind gets the default (empty) plan, i.e. today's
+	 * behaviour - every character stays with the resource font.
 	 */
 	void refreshLatinSettings();
 
-	LatinMode _latinMode;
-	bool _latinSpaceFullwidth;
+	Graphics::HiResIdPlan _plan;
 
 	bool SwitchToFont1001OnKorean(const char *text, uint16 languageSplitter);
 	bool SwitchToFont900OnSjis(const char *text, uint16 languageSplitter);
@@ -181,7 +180,7 @@ private:
 	int _lastDrawTallyResource;
 	int _lastDrawTallyLegacy;
 	int _lastDrawTallyUnicode;
-	int _lastDrawTallyLatin;
+	int _lastDrawTallyRule;
 };
 
 } // End of namespace Sci

@@ -22,569 +22,267 @@
 #include <cxxtest/TestSuite.h>
 
 #include "common/array.h"
+#include "common/hashmap.h"
 #include "common/memstream.h"
 #include "common/str.h"
 #include "graphics/hires_text/font_map.h"
+#include "graphics/hires_text/glyph_source.h"
 #include "sci/graphics/hirestextsettings.h"
+#include "sci/graphics/textlatin.h"
 
 using Sci::FontSettings;
-using Sci::HiresTextOverrides;
-using Sci::resolveFontSettings;
 
 /**
- * resolveFontSettings(): hires_text.map plus the ini keys, resolved per SCI
- * font id. Precedence, per setting:
- *   ini > [font.N:<platform>] > [font.N] > [latin:<platform>]/[latin]
- *   (or [hires] for face and size) > the built-in default.
+ * resolveFontSettings(): hires_text.map (design section 3, version 2) plus
+ * the ini keys, compiled into one plan per SCI font id
+ * (Graphics::compileIdPlan(), against Sci::sciEngineScope()).
  */
 class SciHiresTextSettingsTestSuite : public CxxTest::TestSuite {
 private:
-	/// Parse a map as GfxCache would: the platform code is the qualifier.
-	static Graphics::HiResTextConfig parse(const char *text, const char *platform = nullptr) {
-		Common::Array<Common::String> qualifiers;
-		if (platform)
-			qualifiers.push_back(platform);
-		Common::MemoryReadStream stream((const byte *)text, strlen(text));
-		Graphics::HiResTextConfig cfg;
-		const bool ok = Graphics::HiResFontMap::loadFromStream(stream, Common::Path("/games/kq5"),
-															   qualifiers, cfg);
-		TS_ASSERT(ok);
-		return cfg;
-	}
-
-	/// The directory holding the map; for a game's own hires_text.map it
-	/// is the game directory.
 	static const Common::Path &mapDir() {
-		static const Common::Path dir("/games/kq5");
+		static const Common::Path dir("/maps");
+		return dir;
+	}
+	static const Common::Path &gameDir() {
+		static const Common::Path dir("/games/kq1");
 		return dir;
 	}
 
-public:
-	void test_empty_map_defaults() {
-		const HiresTextOverrides noIni;
-		const Graphics::HiResTextConfig empty;
+	/// Parse a map as GfxCache would: `[map] version=2` is prepended so
+	/// every test map string can stay to the point.
+	static Graphics::HiResMap parseMap(const char *text, const Common::Array<Common::String> &qualifiers = Common::Array<Common::String>()) {
+		Common::String full = "[map]\nversion=2\n";
+		full += text;
+		Common::MemoryReadStream stream((const byte *)full.c_str(), full.size());
+		Graphics::HiResMap map;
+		const bool ok = Graphics::HiResFontMap::loadMap(stream, mapDir(), qualifiers, Graphics::kHiResKeysSci, map);
+		TS_ASSERT(ok);
+		return map;
+	}
 
-		// No map at all, and a loaded but empty one, give the same defaults.
+	static FontSettings settings(const char *text, int fontId) {
+		const Graphics::HiResMap map = parseMap(text);
+		return Sci::resolveFontSettings(map, true, fontId, Graphics::HiResIniOverrides(), mapDir(), gameDir());
+	}
+
+	static FontSettings settingsWithIni(const char *text, int fontId, const Graphics::HiResIniOverrides &ini) {
+		const Graphics::HiResMap map = parseMap(text);
+		return Sci::resolveFontSettings(map, true, fontId, ini, mapDir(), gameDir());
+	}
+
+	/** A minimal fake face for checkPlanLoadWarnings(): one glyph, at @p cp. */
+	class FakeFace : public Graphics::UnicodeGlyphSource {
+	public:
+		FakeFace(int cellW, int cellH, uint32 glyphCp)
+			: _w(cellW), _h(cellH), _cp(glyphCp) {
+			memset(_row, 0, sizeof(_row));
+		}
+		byte cellWidth() const override { return (byte)_w; }
+		byte cellHeight() const override { return (byte)_h; }
+		byte advanceNarrow() const override { return (byte)_w; }
+		byte advanceWide() const override { return (byte)(_w * 2); }
+		int bitsPerPixel() const override { return 1; }
+		int cells(uint32 cp) override { return cp == _cp ? 1 : 0; }
+		const byte *row(uint32 cp, int y) override { return _row; }
+		uint32 glyphCount() const override { return 1; }
+	private:
+		int _w, _h;
+		uint32 _cp;
+		byte _row[4];
+	};
+
+public:
+	// ---- Step 1's given tests (spec 6.2, 6.5, 6.7, 5, 8) -----------------
+
+	void test_default_latin_is_the_resource_font() {
+		Sci::FontSettings s = settings("[font]\nface=KO.SVF\n", 4);
+		TS_ASSERT(!Sci::TextCompose::goesToUnicodeFace(s.plan, 'A'));
+		TS_ASSERT(Sci::TextCompose::goesToUnicodeFace(s.plan, 0xAC00));
+	}
+
+	void test_range_same_routes_ascii_to_the_face() {
+		Sci::FontSettings s = settings("[font]\nface=KO.SVF\nrange.basic-latin=same\nadvance.basic-latin=font\n", 4);
+		TS_ASSERT(Sci::TextCompose::goesToUnicodeFace(s.plan, 'A'));
+		TS_ASSERT_EQUALS(s.plan.advanceFor('A'), Graphics::kHiResAdvanceFont);
+	}
+
+	void test_per_id_advance_game() {
+		Sci::FontSettings s = settings("[font]\nface=KO.SVF\nrange.basic-latin=same\nadvance.basic-latin=font\n"
+									   "[font.8]\nadvance.basic-latin=game\n", 8);
+		TS_ASSERT_EQUALS(s.plan.advanceFor(' '), Graphics::kHiResAdvanceGame);
+	}
+
+	void test_fullwidth_recipe_via_glyphs() {
+		Sci::FontSettings s = settings("[font]\nface=KO.SVF\n[glyphs]\n0x21-0x7E=+0xFEE0\n0x20=u+3000\n", 0);
+		TS_ASSERT_EQUALS(Sci::TextCompose::glyphCode(s.plan, 'A'), 0xFF21u);
+		TS_ASSERT_EQUALS(Sci::TextCompose::glyphCode(s.plan, ' '), 0x3000u);
+		TS_ASSERT(Sci::TextCompose::goesToUnicodeFace(s.plan, 0xFF21));
+	}
+
+	void test_glyphs_original_is_the_resource_font() {
+		Sci::FontSettings s = settings("[font]\nface=KO.SVF\nrange.basic-latin=same\n[glyphs]\n0x40=original\n", 0);
+		const uint32 code = Sci::TextCompose::glyphCode(s.plan, '@');
+		TS_ASSERT_EQUALS(code, Graphics::kHiResGameCodeBase + '@');
+		TS_ASSERT(!Sci::TextCompose::goesToUnicodeFace(s.plan, code));
+	}
+
+	void test_targeted_glyph_code() {
+		Sci::FontSettings s = settings("[font]\nface=KO.SVF\n[glyphs]\n0x2605=ICONS.SVF:u+e001\n", 0);
+		const uint32 code = Sci::TextCompose::glyphCode(s.plan, 0x2605);
+		TS_ASSERT(code >= Graphics::kHiResTargetBase && code < Graphics::kHiResGameCodeBase);
+		TS_ASSERT_EQUALS(s.plan.target(code)->cp, 0xE001u);
+		TS_ASSERT(Sci::TextCompose::goesToUnicodeFace(s.plan, code));
+	}
+
+	void test_face_original_keeps_the_resource_font_whole() {
+		Sci::FontSettings s = settings("[font]\nface=KO.SVF\n[font.2]\nface=original\n", 2);
+		TS_ASSERT(s.original);
+		TS_ASSERT(!Sci::TextCompose::goesToUnicodeFace(s.plan, 0xAC00));
+	}
+
+	void test_ini_paths_are_game_folder_relative() {
+		Graphics::HiResIniOverrides ini;
+		ini.faceSet = true;
+		ini.face = "fonts/X.TTF";
+		Sci::FontSettings s = settingsWithIni("[font]\nface=KO.SVF\n", 0, ini);
+		TS_ASSERT_EQUALS(s.facePath, Common::Path("/games/kq1/fonts/X.TTF", '/').toString(Common::Path::kNativeSeparator));
+	}
+
+	void test_shift_cell_align_size() {
+		Sci::FontSettings s = settings("[font]\nface=KO.SVF\nshift=-1\nalign=cell\n[font.40]\ncell=glyph\nsize=18\n", 40);
+		TS_ASSERT_EQUALS(s.baseline, -1);
+		TS_ASSERT_EQUALS(s.align, Graphics::kHiResAlignCell);
+		TS_ASSERT_EQUALS(s.cell, 18);
+		TS_ASSERT_EQUALS(s.size, 18);
+	}
+
+	// ---- the load-time checks (spec 5.4, 6.4, 6.7), pure and testable
+	// against a handful of fake faces, without GfxCache/ResourceManager ----
+
+	void test_cell_height_mismatch_is_refused_and_warned() {
+		Sci::FontSettings s = settings("[font]\nface=A.SVF,B.SVF\nrange.basic-latin=same\n", 0);
+		FakeFace a(16, 16, 'A');
+		FakeFace b(16, 18, 'A');
+		Common::Array<Sci::FontIdFace> faces;
+		faces.push_back({ "/maps/A.SVF", &a, true });
+		faces.push_back({ "/maps/B.SVF", &b, true });
+		Common::Array<Common::String> excluded;
+		Graphics::HiResMap map;
+		Common::HashMap<Common::String, bool> warnedOnce;
+		Sci::checkPlanLoadWarnings(0, s.plan, faces, excluded, map, warnedOnce);
+
+		TS_ASSERT_EQUALS(excluded.size(), 1u);
+		TS_ASSERT_EQUALS(excluded[0], Common::String("/maps/B.SVF"));
+		TS_ASSERT_EQUALS(map.warnings.size(), 1u);
+		TS_ASSERT_EQUALS(map.warnings[0],
+			Common::String("HIRESTXT.MAP: /maps/B.SVF: cell height 18 differs from /maps/A.SVF's 16 on 0; not used"));
+	}
+
+	void test_target_lacking_its_glyph_is_warned() {
+		Sci::FontSettings s = settings("[font]\nface=A.SVF\n[glyphs]\n0x2605=ICONS.SVF:u+e001\n", 0);
+		FakeFace a(16, 16, 'A');
+		FakeFace icons(16, 16, 0xE002); // lacks U+E001
+		Common::Array<Sci::FontIdFace> faces;
+		faces.push_back({ "/maps/A.SVF", &a, true });
+		faces.push_back({ "/maps/ICONS.SVF", &icons, true });
+		Common::Array<Common::String> excluded;
+		Graphics::HiResMap map;
+		Common::HashMap<Common::String, bool> warnedOnce;
+		Sci::checkPlanLoadWarnings(0, s.plan, faces, excluded, map, warnedOnce);
+
+		TS_ASSERT_EQUALS(map.warnings.size(), 1u);
+		TS_ASSERT_EQUALS(map.warnings[0],
+			Common::String("HIRESTXT.MAP: [glyphs] 0x2605 -> ICONS.SVF:U+E001: the face has no such glyph; the game's font draws it"));
+	}
+
+	void test_missing_without_a_glyph_is_warned() {
+		Sci::FontSettings s = settings("[font]\nface=A.SVF\nmissing=u+25a1\n", 0);
+		FakeFace a(16, 16, 'A'); // lacks U+25A1
+		Common::Array<Sci::FontIdFace> faces;
+		faces.push_back({ "/maps/A.SVF", &a, true });
+		Common::Array<Common::String> excluded;
+		Graphics::HiResMap map;
+		Common::HashMap<Common::String, bool> warnedOnce;
+		Sci::checkPlanLoadWarnings(0, s.plan, faces, excluded, map, warnedOnce);
+
+		TS_ASSERT_EQUALS(map.warnings.size(), 1u);
+		TS_ASSERT_EQUALS(map.warnings[0],
+			Common::String("HIRESTXT.MAP: missing=U+25A1 has no effect: A.SVF has no glyph for it"));
+	}
+
+	// ---- ported coverage from the version-1 suite -------------------------
+
+	// (was test_empty_map_defaults) An id with no map at all - or a loaded
+	// but empty one - gets the built-in defaults: no replacement face, the
+	// 16 px cell, ASCII on the resource font.
+	void test_no_map_gives_the_defaults() {
+		const Graphics::HiResMap empty;
 		const bool loaded[] = { false, true };
 		for (uint i = 0; i < ARRAYSIZE(loaded); ++i) {
-			const FontSettings s = resolveFontSettings(empty, loaded[i], 0, noIni, mapDir());
+			const FontSettings s = Sci::resolveFontSettings(empty, loaded[i], 0, Graphics::HiResIniOverrides(), mapDir(), gameDir());
 			TS_ASSERT(s.facePath.empty());
 			TS_ASSERT_EQUALS(s.size, 16);
-			TS_ASSERT_EQUALS(s.latin, Sci::kLatinOff);
-			TS_ASSERT(s.latinFacePath.empty());
-			TS_ASSERT(!s.fullwidthSpace);
-			TS_ASSERT_EQUALS(s.metrics, Graphics::kHiResMetricsGame);
+			TS_ASSERT_EQUALS(s.cell, 16);
+			TS_ASSERT(!Sci::TextCompose::goesToUnicodeFace(s.plan, 'A'));
 		}
-
-		// A map that was not loaded is ignored even if it holds settings.
-		const Graphics::HiResTextConfig full = parse(
-			"[hires]\nfont=/f/a.ttf\nsize=20\n[latin]\nmode=half\n[font.0]\nsize=12\n");
-		const FontSettings s = resolveFontSettings(full, false, 0, noIni, mapDir());
-		TS_ASSERT(s.facePath.empty());
-		TS_ASSERT_EQUALS(s.size, 16);
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinOff);
 	}
 
-	void test_font_section_overrides_latin_section() {
-		const Graphics::HiResTextConfig map = parse(
-			"[hires]\n"
-			"font=default\n"
-			"size=16\n"
-			"[fonts]\n"
-			"default=/fonts/Nanum.ttf\n"
-			"title=/fonts/Title.ttf\n"
-			"latin=/fonts/Latin.ttf\n"
-			"[latin]\n"
-			"mode=fullwidth\n"
-			"space=fullwidth\n"
-			"font=latin\n"
-			"metrics=game\n"
-			"[font.4]\n"
-			"latin=proportional\n"
-			"latin_space=keep\n"
-			"metrics=font\n"
-			"[font.300]\n"
-			"face=title\n"
-			"size=24\n"
-			"latin_font=/fonts/Other.ttf\n");
-		const HiresTextOverrides noIni;
-
-		// Font 4 takes its own section's Latin settings over [latin]'s...
-		FontSettings s = resolveFontSettings(map, true, 4, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinProportional);
-		TS_ASSERT(!s.fullwidthSpace);
-		TS_ASSERT_EQUALS(s.metrics, Graphics::kHiResMetricsFont);
-		// ...and [latin]/[hires] for what it does not name.
-		TS_ASSERT_EQUALS(s.latinFacePath, "/fonts/Latin.ttf");
-		TS_ASSERT_EQUALS(s.facePath, "/fonts/Nanum.ttf");
-		TS_ASSERT_EQUALS(s.size, 16);
-
-		// Font 300 overrides face and size over [hires], the Latin face over [latin].
-		s = resolveFontSettings(map, true, 300, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.facePath, "/fonts/Title.ttf");
-		TS_ASSERT_EQUALS(s.size, 24);
-		TS_ASSERT_EQUALS(s.latinFacePath, "/fonts/Other.ttf");
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinFullwidth);
-		TS_ASSERT(s.fullwidthSpace);
-		TS_ASSERT_EQUALS(s.metrics, Graphics::kHiResMetricsGame);
-
-		// A font id with no section gets [latin] and [hires] as they stand.
-		s = resolveFontSettings(map, true, 0, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.facePath, "/fonts/Nanum.ttf");
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinFullwidth);
-		TS_ASSERT(s.fullwidthSpace);
-		TS_ASSERT_EQUALS(s.latinFacePath, "/fonts/Latin.ttf");
+	// (was test_platform_section_wins_on_its_platform_only) The generic
+	// qualifier merge (design 3.4, 6.2.1) is the shared map/plan layer's own
+	// coverage; this only pins that GfxCache's one qualifier (the platform
+	// code) actually reaches compileIdPlan() through resolveFontSettings()'s
+	// map argument.
+	void test_platform_qualifier_still_applies() {
+		Common::Array<Common::String> pc98;
+		pc98.push_back("pc98");
+		const Graphics::HiResMap map = parseMap("[font]\nface=KO.SVF\n[font:pc98]\nface=PC98.SVF\n", pc98);
+		const FontSettings s = Sci::resolveFontSettings(map, true, 0, Graphics::HiResIniOverrides(), mapDir(), gameDir());
+		TS_ASSERT_EQUALS(s.facePath, Common::Path("/maps/PC98.SVF", '/').toString(Common::Path::kNativeSeparator));
 	}
 
-	void test_platform_section_wins_on_its_platform_only() {
-		const char *text =
-			"[latin]\n"
-			"mode=half\n"
-			"[latin:pc98]\n"
-			"mode=proportional\n"
-			"[font.0]\n"
-			"size=14\n"
-			"[font.0:pc98]\n"
-			"latin=fullwidth\n"
-			"size=18\n";
-		const HiresTextOverrides noIni;
-
-		// On PC-98: [font.0:pc98] beats [font.0], [latin:pc98] beats [latin].
-		const Graphics::HiResTextConfig pc98 = parse(text, "pc98");
-		FontSettings s = resolveFontSettings(pc98, true, 0, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinFullwidth);
-		TS_ASSERT_EQUALS(s.size, 18);
-		s = resolveFontSettings(pc98, true, 4, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinProportional);
-
-		// On DOS neither qualified section applies.
-		const Graphics::HiResTextConfig dos = parse(text, "dos");
-		s = resolveFontSettings(dos, true, 0, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinHalf);
-		TS_ASSERT_EQUALS(s.size, 14);
-		s = resolveFontSettings(dos, true, 4, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinHalf);
-		TS_ASSERT_EQUALS(s.size, 16);
-	}
-
-	void test_pixel_design_size() {
-		// C28: [font.N] pixel= over [hires] pixel=; 0 (none) by default.
-		const HiresTextOverrides noIni;
-		const Graphics::HiResTextConfig map = parse("[hires]\npixel=16\n[font.2]\npixel=12\n");
-		TS_ASSERT_EQUALS(resolveFontSettings(map, true, 0, noIni, mapDir()).pixel, 16);
-		TS_ASSERT_EQUALS(resolveFontSettings(map, true, 2, noIni, mapDir()).pixel, 12);
-		const Graphics::HiResTextConfig plain = parse("[hires]\nsize=12\n");
-		TS_ASSERT_EQUALS(resolveFontSettings(plain, true, 0, noIni, mapDir()).pixel, 0);
-		TS_ASSERT_EQUALS(resolveFontSettings(map, false, 0, noIni, mapDir()).pixel, 0);
-
-		// C28 review: the ini's hires_text_font is not the map's pixel face.
-		HiresTextOverrides iniFont;
-		iniFont.hasFont = true;
-		iniFont.font = "/f/ini.ttf";
-		TS_ASSERT_EQUALS(resolveFontSettings(map, true, 2, iniFont, mapDir()).pixel, 0);
-		TS_ASSERT_EQUALS(resolveFontSettings(map, true, 0, iniFont, mapDir()).pixel, 0);
-		// The face every id falls back to (font id -1) has [hires] pixel=
-		// only, never a [font.N] one.
-		TS_ASSERT_EQUALS(resolveFontSettings(map, true, -1, noIni, mapDir()).pixel, 16);
-		const Graphics::HiResTextConfig idOnly = parse("[font.2]\nface=/f/a.ttf\npixel=12\n");
-		TS_ASSERT_EQUALS(resolveFontSettings(idOnly, true, -1, noIni, mapDir()).pixel, 0);
-	}
-
-	void test_ini_overrides_map() {
-		const Graphics::HiResTextConfig map = parse(
-			"[hires]\n"
-			"font=/fonts/Map.ttf\n"
-			"size=20\n"
-			"[latin]\n"
-			"mode=half\n"
-			"font=/fonts/MapLatin.ttf\n"
-			"[font.4]\n"
-			"face=/fonts/Four.ttf\n"
-			"size=12\n"
-			"latin=proportional\n"
-			"latin_font=/fonts/FourLatin.ttf\n"
-			"latin_space=keep\n"
-			"metrics=font\n");
-
-		HiresTextOverrides ini;
-		ini.hasFont = true;
-		ini.font = "/fonts/Ini.ttf";
-		ini.hasFontSize = true;
-		ini.fontSize = 18;
-		ini.hasLatin = true;
-		ini.latin = Sci::kLatinFullwidth;
-		ini.hasLatinFont = true;
-		ini.latinFont = "/fonts/IniLatin.ttf";
-		ini.hasLatinSpace = true;
-		ini.latinFullwidthSpace = true;
-		ini.hasMetrics = true;
-		ini.metrics = Graphics::kHiResMetricsGame;
-
-		// Every ini key beats even the font's own section.
-		const int ids[] = { 0, 4 };
-		for (uint i = 0; i < ARRAYSIZE(ids); ++i) {
-			const FontSettings s = resolveFontSettings(map, true, ids[i], ini, mapDir());
-			TS_ASSERT_EQUALS(s.facePath, "/fonts/Ini.ttf");
-			TS_ASSERT_EQUALS(s.size, 18);
-			TS_ASSERT_EQUALS(s.latin, Sci::kLatinFullwidth);
-			TS_ASSERT_EQUALS(s.latinFacePath, "/fonts/IniLatin.ttf");
-			TS_ASSERT(s.fullwidthSpace);
-			TS_ASSERT_EQUALS(s.metrics, Graphics::kHiResMetricsGame);
-		}
-
-		// One key at a time: the ini sets only the size, the map the rest.
-		HiresTextOverrides sizeOnly;
-		sizeOnly.hasFontSize = true;
-		sizeOnly.fontSize = 22;
-		const FontSettings s = resolveFontSettings(map, true, 4, sizeOnly, mapDir());
-		TS_ASSERT_EQUALS(s.size, 22);
-		TS_ASSERT_EQUALS(s.facePath, "/fonts/Four.ttf");
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinProportional);
-		TS_ASSERT_EQUALS(s.latinFacePath, "/fonts/FourLatin.ttf");
-		TS_ASSERT_EQUALS(s.metrics, Graphics::kHiResMetricsFont);
-
-		// With no map the ini keys alone give today's settings, their
-		// paths unchanged (GfxCache opens them as it always has).
-		HiresTextOverrides relative;
-		relative.hasFont = true;
-		relative.font = "Nanum.ttf";
-		const Graphics::HiResTextConfig none;
-		const FontSettings t = resolveFontSettings(none, false, 0, relative, mapDir());
-		TS_ASSERT_EQUALS(t.facePath, "Nanum.ttf");
-		TS_ASSERT_EQUALS(t.size, 16);
-	}
-
-	void test_enabled_true_means_proportional_game() {
-		const HiresTextOverrides noIni;
-
-		// SCUMM's legacy [latin] enabled=true: "the engine's current Latin
-		// behaviour", which for SCI is proportional with the game's advances.
-		Graphics::HiResTextConfig map = parse("[latin]\nenabled=true\n");
-		FontSettings s = resolveFontSettings(map, true, 0, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinProportional);
-		TS_ASSERT_EQUALS(s.metrics, Graphics::kHiResMetricsGame);
-
-		// An explicit mode= says more than the alias and wins.
-		map = parse("[latin]\nenabled=true\nmode=half\n");
-		s = resolveFontSettings(map, true, 0, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinHalf);
-
-		// So does the font's own section.
-		map = parse("[latin]\nenabled=true\n[font.4]\nlatin=off\n");
-		s = resolveFontSettings(map, true, 4, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinOff);
-
-		// And enabled=false is plain off.
-		map = parse("[latin]\nenabled=false\n");
-		s = resolveFontSettings(map, true, 0, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinOff);
-	}
-
-	void test_relative_face_path_joins_the_map_dir() {
-		const Graphics::HiResTextConfig map = parse(
-			"[hires]\n"
-			"font=default\n"
-			"[fonts]\n"
-			"default=NanumGothic.ttf\n"
-			"latin=/System/Library/Fonts/Supplemental/AppleGothic.ttf\n"
-			"[latin]\n"
-			"font=latin\n"
-			"[font.4]\n"
-			"face=fonts/Narrow.ttf\n"
-			"latin_font=fonts/NarrowLatin.ttf\n");
-		const HiresTextOverrides noIni;
-
-		// A [fonts] name whose file is relative lands in the map's directory;
-		// an absolute one is used as it stands.
-		FontSettings s = resolveFontSettings(map, true, 0, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.facePath, "/games/kq5/NanumGothic.ttf");
-		TS_ASSERT_EQUALS(s.latinFacePath, "/System/Library/Fonts/Supplemental/AppleGothic.ttf");
-
-		// A path written in place of a face name is resolved the same way.
-		s = resolveFontSettings(map, true, 4, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.facePath, "/games/kq5/fonts/Narrow.ttf");
-		TS_ASSERT_EQUALS(s.latinFacePath, "/games/kq5/fonts/NarrowLatin.ttf");
-	}
-
-	// Relative paths from the map resolve against the map file's directory,
-	// not the game's: a map kept outside the game directory (ini
-	// hires_text_map=) carries its fonts beside it. Ini paths stay as given.
-	void test_relative_map_paths_follow_the_map_dir() {
-		const Graphics::HiResTextConfig map = parse(
-			"[hires]\n"
-			"font=default\n"
-			"[fonts]\n"
-			"default=NanumGothic.ttf\n"
-			"[font.4]\n"
-			"face=fonts/Narrow.ttf\n"
-			"latin_font=../shared/Latin.ttf\n");
-		const HiresTextOverrides noIni;
-		const Common::Path elsewhere("/maps/kq5-ko");
-
-		FontSettings s = resolveFontSettings(map, true, 0, noIni, elsewhere);
-		TS_ASSERT_EQUALS(s.facePath, "/maps/kq5-ko/NanumGothic.ttf");
-		s = resolveFontSettings(map, true, 4, noIni, elsewhere);
-		TS_ASSERT_EQUALS(s.facePath, "/maps/kq5-ko/fonts/Narrow.ttf");
-		TS_ASSERT_EQUALS(s.latinFacePath, "/maps/kq5-ko/../shared/Latin.ttf");
-
-		// The ini keys are not map paths: they are left as the player typed them.
-		HiresTextOverrides ini;
-		ini.hasFont = true;
-		ini.font = "Nanum.ttf";
-		ini.hasLatinFont = true;
-		ini.latinFont = "Latin.ttf";
-		s = resolveFontSettings(map, true, 4, ini, elsewhere);
-		TS_ASSERT_EQUALS(s.facePath, "Nanum.ttf");
-		TS_ASSERT_EQUALS(s.latinFacePath, "Latin.ttf");
-	}
-
-	// GfxCache parses every face path with the native separator and keys its
-	// TrueType sources by the string: a map face must round-trip exactly, and
-	// equal the same file named in the ini, or one file opens twice.
+	// (was test_map_face_path_round_trips_with_the_native_separator) GfxCache
+	// keys its opened sources by this string, so a map face and the same
+	// file named by the ini must produce the identical string.
 	void test_map_face_path_round_trips_with_the_native_separator() {
-		const Graphics::HiResTextConfig map = parse(
-			"[fonts]\n"
-			"default=fonts/NanumGothic.ttf\n"
-			"[hires]\n"
-			"font=default\n");
-		const HiresTextOverrides noIni;
-		const FontSettings s = resolveFontSettings(map, true, 0, noIni, mapDir());
+		const Graphics::HiResMap map = parseMap("[fonts]\ndefault=fonts/NanumGothic.ttf\n[font]\nface=default\n");
+		const FontSettings s = Sci::resolveFontSettings(map, true, 0, Graphics::HiResIniOverrides(), mapDir(), gameDir());
 
 		const Common::Path expected = mapDir().join("fonts").join("NanumGothic.ttf");
 		TS_ASSERT_EQUALS(Common::Path(s.facePath, Common::Path::kNativeSeparator), expected);
-		TS_ASSERT_EQUALS(s.facePath, expected.toString(Common::Path::kNativeSeparator));
 
-		// The same file given as hires_text_font (a native path, as a player
-		// types it) yields the same string, i.e. the same source-cache key.
-		HiresTextOverrides ini;
-		ini.hasFont = true;
-		ini.font = expected.toString(Common::Path::kNativeSeparator);
-		const Graphics::HiResTextConfig empty;
-		TS_ASSERT_EQUALS(resolveFontSettings(empty, false, 0, ini, mapDir()).facePath, s.facePath);
+		Graphics::HiResIniOverrides ini;
+		ini.faceSet = true;
+		ini.face = expected.toString(Common::Path::kNativeSeparator);
+		const Graphics::HiResMap none;
+		TS_ASSERT_EQUALS(Sci::resolveFontSettings(none, false, 0, ini, mapDir(), gameDir()).facePath, s.facePath);
 	}
 
-	void test_bundle_key_distinguishes_latin_modes() {
-		const Common::String main = "/f/Main.ttf";
-		const Common::String latin = "/f/Latin.ttf";
-
-		// With a Latin face, each mode gets its own router.
-		const Common::String half = Sci::unicodeBundleKey(main, 16, latin, Sci::kLatinHalf);
-		const Common::String prop = Sci::unicodeBundleKey(main, 16, latin, Sci::kLatinProportional);
-		const Common::String full = Sci::unicodeBundleKey(main, 16, latin, Sci::kLatinFullwidth);
-		TS_ASSERT_DIFFERS(half, prop);
-		TS_ASSERT_DIFFERS(half, full);
-		TS_ASSERT_DIFFERS(prop, full);
-
-		// Face and size still count.
-		TS_ASSERT_DIFFERS(half, Sci::unicodeBundleKey(main, 18, latin, Sci::kLatinHalf));
-		TS_ASSERT_DIFFERS(half, Sci::unicodeBundleKey(main, 16, "/f/Other.ttf", Sci::kLatinHalf));
-
-		// Without one there is no router: the main face alone, whatever the mode.
-		TS_ASSERT_EQUALS(Sci::unicodeBundleKey(main, 16, "", Sci::kLatinOff),
-						 Sci::unicodeBundleKey(main, 16, "", Sci::kLatinProportional));
-		TS_ASSERT_DIFFERS(Sci::unicodeBundleKey(main, 16, "", Sci::kLatinOff), half);
+	// (was test_ini_overrides_map) hires_text_face/_size beat every [font.N]
+	// and [font] level, as design 5.3/6.2's ini-first precedence says.
+	void test_ini_overrides_map() {
+		const Graphics::HiResMap map = parseMap("[font]\nface=Map.SVF\nsize=20\n[font.4]\nface=Four.SVF\nsize=12\n");
+		Graphics::HiResIniOverrides ini;
+		ini.faceSet = true;
+		ini.face = "Ini.ttf";
+		ini.sizeSet = true;
+		ini.size = 18;
+		const FontSettings s = Sci::resolveFontSettings(map, true, 4, ini, mapDir(), gameDir());
+		// design section 4: a relative ini hires_text_face now resolves
+		// against the game folder, not "as the player typed it".
+		TS_ASSERT_EQUALS(s.facePath, Common::Path("/games/kq1/Ini.ttf", '/').toString(Common::Path::kNativeSeparator));
+		TS_ASSERT_EQUALS(s.size, 18);
 	}
 
-	void test_bitmap_is_scumm_only() {
-		const HiresTextOverrides noIni;
-
-		// SCI has no bitmap Latin path: bitmap= alone is off (SCUMM reads it
-		// as enabled=true; SCI does not), and gets one warning.
-		Graphics::HiResTextConfig map = parse("[latin]\nbitmap=latin24.fnt\n");
-		TS_ASSERT(map.legacy.latinEnabled); // SCUMM's reading is unchanged
-		FontSettings s = resolveFontSettings(map, true, 0, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinOff);
-		TS_ASSERT_EQUALS(Sci::warnScummOnlyMapKeys(map), 1);
-
-		// enabled=false with bitmap= is off too.
-		map = parse("[latin]\nenabled=false\nbitmap=latin24.fnt\n");
-		s = resolveFontSettings(map, true, 0, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinOff);
-
-		// Only an explicit enabled=true is the legacy alias.
-		map = parse("[latin]\nenabled=true\nbitmap=latin24.fnt\n");
-		s = resolveFontSettings(map, true, 0, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinProportional);
-		TS_ASSERT_EQUALS(s.metrics, Graphics::kHiResMetricsGame);
-
-		// No bitmap=, no warning.
-		map = parse("[latin]\nenabled=true\n");
-		TS_ASSERT_EQUALS(Sci::warnScummOnlyMapKeys(map), 0);
-	}
-
-	void test_latin_metrics_ttf_means_font() {
-		const HiresTextOverrides noIni;
-		const Graphics::HiResTextConfig map = parse("[latin]\nmode=proportional\nmetrics=ttf\n");
-		const FontSettings s = resolveFontSettings(map, true, 0, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.metrics, Graphics::kHiResMetricsFont);
-	}
-
-	// ---- [latin] font=same / latin_font=same ---------------------------
-	// "same" is not a file name: an empty latinFacePath already means the
-	// main face draws Latin (GfxCache::unicodeFaceFor()), so same only has
-	// to leave it empty rather than let it become "<mapDir>/same".
-
-	void test_latin_font_same_leaves_latin_face_path_empty() {
-		const HiresTextOverrides noIni;
-		const Graphics::HiResTextConfig map = parse(
-			"[hires]\nfont=default\n[fonts]\ndefault=/f/Main.ttf\n"
-			"[latin]\nmode=proportional\nfont=same\n");
-		const FontSettings s = resolveFontSettings(map, true, 0, noIni, mapDir());
-		TS_ASSERT(s.latinFacePath.empty());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinProportional);
-		TS_ASSERT(!s.original);
-	}
-
-	void test_latin_font_same_is_case_insensitive_and_per_font() {
-		const HiresTextOverrides noIni;
-		const Graphics::HiResTextConfig map = parse(
-			"[latin]\nmode=proportional\nfont=/f/MapLatin.ttf\n"
-			"[font.4]\nlatin_font=SAME\n");
-		// Font 4: same wins over its own section, ignoring the map-wide path.
-		FontSettings s = resolveFontSettings(map, true, 4, noIni, mapDir());
-		TS_ASSERT(s.latinFacePath.empty());
-		// A font with no section of its own still gets the map-wide path.
-		s = resolveFontSettings(map, true, 0, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latinFacePath, "/f/MapLatin.ttf");
-	}
-
-	void test_latin_font_same_precedence_both_ways() {
-		const HiresTextOverrides noIni;
-		// A per-font real path beats a map-wide same.
-		Graphics::HiResTextConfig map = parse(
-			"[latin]\nmode=proportional\nfont=same\n"
-			"[font.4]\nlatin_font=/f/Four.ttf\n");
-		FontSettings s = resolveFontSettings(map, true, 4, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latinFacePath, "/f/Four.ttf");
-
-		// A per-font same beats a map-wide real path.
-		map = parse(
-			"[latin]\nmode=proportional\nfont=/f/MapLatin.ttf\n"
-			"[font.4]\nlatin_font=same\n");
-		s = resolveFontSettings(map, true, 4, noIni, mapDir());
-		TS_ASSERT(s.latinFacePath.empty());
-	}
-
-	// ---- [latin] font=original / latin_font=original -------------------
-	// ASCII forced to the game's font, exactly as mode=off; unlike same,
-	// original also beats the ini's own hires_text_latin_font override
-	// (the one key that otherwise wins over every [font.N]/[latin]), except
-	// when the ini itself says "original" - then there is nothing to beat
-	// and [font.N]/[latin] decide as if the key had not been given.
-
-	void test_latin_font_original_forces_latin_off() {
-		const HiresTextOverrides noIni;
-		const Graphics::HiResTextConfig map = parse("[latin]\nmode=proportional\nfont=original\n");
-		const FontSettings s = resolveFontSettings(map, true, 0, noIni, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinOff);
-		TS_ASSERT(s.latinFacePath.empty());
-	}
-
-	void test_latin_font_original_beats_ini_latin_font() {
-		const Graphics::HiResTextConfig map = parse(
-			"[latin]\nmode=proportional\n[font.4]\nlatin_font=original\n");
-		HiresTextOverrides ini;
-		ini.hasLatinFont = true;
-		ini.latinFont = "/f/Ini.ttf";
-
-		// Font 4's original beats the ini's real path.
-		FontSettings s = resolveFontSettings(map, true, 4, ini, mapDir());
-		TS_ASSERT_EQUALS(s.latin, Sci::kLatinOff);
-		TS_ASSERT(s.latinFacePath.empty());
-		// A font with no section of its own still gets the ini's path.
-		s = resolveFontSettings(map, true, 0, ini, mapDir());
-		TS_ASSERT_EQUALS(s.latinFacePath, "/f/Ini.ttf");
-	}
-
-	void test_ini_latin_font_original_is_treated_as_absent() {
-		const Graphics::HiResTextConfig map = parse(
-			"[latin]\nmode=proportional\nfont=/f/MapLatin.ttf\n");
-		HiresTextOverrides ini;
-		ini.hasLatinFont = true;
-		ini.latinFont = "original";
-		// Nothing for the ini to force: the map's own path applies, as if
-		// hires_text_latin_font had not been set at all.
-		const FontSettings s = resolveFontSettings(map, true, 0, ini, mapDir());
-		TS_ASSERT_EQUALS(s.latinFacePath, "/f/MapLatin.ttf");
-	}
-
-	// ---- [font.N] face=original / [hires] font=original -----------------
-	// The whole font id draws only from the game's own font resource (see
-	// GfxCache::unicodeFaceFor(), which returns null for it without even
-	// trying the shared .uni bundle); resolveFontSettings() only has to
-	// mark it and leave facePath empty.
-
-	void test_face_original_marks_the_font_id() {
-		const HiresTextOverrides noIni;
-		const Graphics::HiResTextConfig map = parse("[font.4]\nface=original\n");
-		const FontSettings s = resolveFontSettings(map, true, 4, noIni, mapDir());
-		TS_ASSERT(s.original);
-		TS_ASSERT(s.facePath.empty());
-		TS_ASSERT(s.faceChain.empty());
-	}
-
-	void test_hires_font_original_is_the_map_wide_default() {
-		const HiresTextOverrides noIni;
-		// [font.2] has its own face: it is unaffected by the map-wide default
-		// being original. A font id with no section of its own is original.
-		const Graphics::HiResTextConfig map = parse(
-			"[hires]\nfont=original\n[font.2]\nface=/f/Two.ttf\n");
-		FontSettings s = resolveFontSettings(map, true, 2, noIni, mapDir());
-		TS_ASSERT(!s.original);
-		TS_ASSERT_EQUALS(s.facePath, "/f/Two.ttf");
-		s = resolveFontSettings(map, true, 0, noIni, mapDir());
-		TS_ASSERT(s.original);
-		TS_ASSERT(s.facePath.empty());
-	}
-
-	void test_face_original_precedence_both_ways() {
-		const HiresTextOverrides noIni;
-		// A per-font real face beats a map-wide original.
-		Graphics::HiResTextConfig map = parse("[hires]\nfont=original\n[font.4]\nface=/f/Four.ttf\n");
-		FontSettings s = resolveFontSettings(map, true, 4, noIni, mapDir());
-		TS_ASSERT(!s.original);
-		TS_ASSERT_EQUALS(s.facePath, "/f/Four.ttf");
-
-		// A per-font original beats a map-wide real face.
-		map = parse("[hires]\nfont=/f/Map.ttf\n[font.4]\nface=original\n");
-		s = resolveFontSettings(map, true, 4, noIni, mapDir());
-		TS_ASSERT(s.original);
-		TS_ASSERT(s.facePath.empty());
-	}
-
-	void test_face_original_beats_ini_font() {
-		const Graphics::HiResTextConfig map = parse("[font.4]\nface=original\n");
-		HiresTextOverrides ini;
-		ini.hasFont = true;
-		ini.font = "/f/Ini.ttf";
-
-		// Font 4's original beats the ini's real path.
-		FontSettings s = resolveFontSettings(map, true, 4, ini, mapDir());
-		TS_ASSERT(s.original);
-		TS_ASSERT(s.facePath.empty());
-		// A font with no section of its own still gets the ini's path.
-		s = resolveFontSettings(map, true, 0, ini, mapDir());
-		TS_ASSERT(!s.original);
-		TS_ASSERT_EQUALS(s.facePath, "/f/Ini.ttf");
-	}
-
-	void test_ini_font_original_is_treated_as_absent() {
-		const Graphics::HiResTextConfig map = parse("[hires]\nfont=/f/Map.ttf\n");
-		HiresTextOverrides ini;
-		ini.hasFont = true;
-		ini.font = "original";
-		// Nothing for the ini to force: the map's own default face applies,
-		// as if hires_text_font had not been set at all.
-		const FontSettings s = resolveFontSettings(map, true, 0, ini, mapDir());
-		TS_ASSERT(!s.original);
-		TS_ASSERT_EQUALS(s.facePath, "/f/Map.ttf");
-	}
-
-	void test_original_is_case_insensitive() {
-		const HiresTextOverrides noIni;
-		const Graphics::HiResTextConfig map = parse("[font.4]\nface=Original\n[latin]\nfont=Same\n");
-		const FontSettings s = resolveFontSettings(map, true, 4, noIni, mapDir());
-		TS_ASSERT(s.original);
-		TS_ASSERT(s.latinFacePath.empty());
+	// (was test_bundle_key_distinguishes_latin_modes, now over the plan hash
+	// - Graphics::HiResIdPlan::hash() is what actually varies the routing).
+	void test_bundle_key_distinguishes_plans() {
+		const Sci::FontSettings same = settings("[font]\nface=KO.SVF\n", 0);
+		const Sci::FontSettings other = settings("[font]\nface=KO.SVF\nrange.basic-latin=same\n", 0);
+		TS_ASSERT_DIFFERS(Sci::unicodeBundleKey("/f/Main.ttf", 16, same.plan.hash()),
+						  Sci::unicodeBundleKey("/f/Main.ttf", 16, other.plan.hash()));
+		TS_ASSERT_DIFFERS(Sci::unicodeBundleKey("/f/Main.ttf", 16, same.plan.hash()),
+						  Sci::unicodeBundleKey("/f/Main.ttf", 18, same.plan.hash()));
+		TS_ASSERT_EQUALS(Sci::unicodeBundleKey("/f/Main.ttf", 16, same.plan.hash()),
+						 Sci::unicodeBundleKey("/f/Main.ttf", 16, same.plan.hash()));
 	}
 };

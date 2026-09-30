@@ -22,201 +22,196 @@
 #include "sci/graphics/hirestextsettings.h"
 
 #include "common/textconsole.h"
+#include "graphics/hires_text/unicode_ranges.h"
 
 namespace Sci {
 
 FontSettings::FontSettings()
-	: original(false), size(kDefaultCell), cell(kDefaultCell), baseline(0), align(Graphics::kHiResAlignGame), pixel(0), latin(kLatinOff), fullwidthSpace(false), metrics(Graphics::kHiResMetricsGame) {
+	: original(false), size(kDefaultCell), cell(kDefaultCell), baseline(0),
+	  align(Graphics::kHiResAlignGame), pixel(0) {
 }
 
-HiresTextOverrides::HiresTextOverrides()
-	: hasFont(false), hasFontSize(false), fontSize(0), hasLatin(false), latin(kLatinOff),
-	  hasLatinFont(false), hasLatinSpace(false), latinFullwidthSpace(false),
-	  hasMetrics(false), metrics(Graphics::kHiResMetricsGame) {
+Graphics::HiResFontScope sciEngineScope() {
+	Graphics::HiResFontScope scope;
+
+	Graphics::HiResRangeSpec basicLatin;
+	Common::String error;
+	Graphics::parseRangeSpec("basic-latin", basicLatin, error);
+
+	Graphics::HiResFontValue original;
+	Graphics::HiResFaceEntry originalEntry;
+	originalEntry.kind = Graphics::kHiResFaceOriginal;
+	originalEntry.written = "original";
+	original.entries.push_back(originalEntry);
+
+	scope.rangeSpecs.push_back(basicLatin);
+	scope.rangeValues.push_back(original);
+
+	scope.advanceSpecs.push_back(basicLatin);
+	scope.advanceValues.push_back(Graphics::kHiResAdvanceGame);
+
+	return scope;
 }
 
-namespace {
-
-/// A face as the map wrote it - a [fonts] name or a path - as a file path.
-/// Relative paths are taken against the directory holding the map file.
-/// Spelled with the native separator: GfxCache parses every face path (ini or map) back with
-/// Common::Path::kNativeSeparator, and keys its sources by the string, so a
-/// map face and the same file named in the ini must come out identical.
-Common::String mapFacePath(const Graphics::HiResTextConfig &map, const Common::String &nameOrPath,
-						   const Common::Path &mapDir) {
-	return Graphics::HiResFontMap::resolvePath(map.resolveFace(nameOrPath), mapDir)
-		.toString(Common::Path::kNativeSeparator);
-}
-
-LatinMode toLatinMode(Graphics::HiResLatinMode mode) {
-	switch (mode) {
-	case Graphics::kHiResLatinHalf:
-		return kLatinHalf;
-	case Graphics::kHiResLatinFullwidth:
-		return kLatinFullwidth;
-	case Graphics::kHiResLatinProportional:
-		return kLatinProportional;
-	case Graphics::kHiResLatinOff:
-	default:
-		return kLatinOff;
-	}
-}
-
-} // End of anonymous namespace
-
-FontSettings resolveFontSettings(const Graphics::HiResTextConfig &map, bool mapLoaded, int fontId,
-								 const HiresTextOverrides &ini, const Common::Path &mapDir) {
+FontSettings resolveFontSettings(const Graphics::HiResMap &map, bool mapLoaded, int fontId,
+								 const Graphics::HiResIniOverrides &ini, const Common::Path &mapDir,
+								 const Common::Path &gameDir) {
 	FontSettings s;
 
-	// With no map, only the ini keys (and the defaults) count. Otherwise the
-	// map's [font.N] section - already the winner of [font.N:<platform>] over
-	// [font.N], key by key, as the parser applied the platform qualifier.
-	const Graphics::HiResFontIdSettings *font = mapLoaded ? map.fontIdSettings(fontId) : nullptr;
+	// The map's own key warnings were already raised (and kept in
+	// HiResMap::warnings) when it was loaded; what compileIdPlan() can still
+	// raise here is only about the ini's own hires_text_face, which GfxCache
+	// validates once per load itself (once, not once per font id) rather
+	// than through this per-id call.
+	Common::Array<Common::String> warnings;
+	s.plan = Graphics::compileIdPlan(map, mapLoaded, fontId, ini, sciEngineScope(), mapDir, gameDir, warnings);
 
-	// Face: ini > [font.N] face > [hires] font > none. The chain it heads
-	// comes from the same place (the ini names one face).
-	//
-	// face=original (at any of those levels) is not a file name: this font
-	// id is not replaced at all, game font and all - and it beats even the
-	// ini's hires_text_font, the one key that otherwise wins over every
-	// [font.N] the way it does below. hires_text_font itself naming
-	// "original" is nothing to beat: it is treated as absent, and [font.N]/
-	// [hires] decide as if the ini had not spoken.
-	const Common::Array<Common::Path> *chain = nullptr;
-	const bool iniFaceOriginal = ini.hasFont && ini.font.equalsIgnoreCase("original");
-	if (font && font->faceSet && font->face.equalsIgnoreCase("original")) {
-		s.original = true;
-	} else if (ini.hasFont && !iniFaceOriginal) {
-		s.facePath = ini.font;
-	} else {
-		Common::String rawFace;
-		if (font && font->faceSet) {
-			rawFace = font->face;
-			chain = &font->faceChain;
-		} else if (mapLoaded && map.hiresFaceSet) {
-			rawFace = map.hiresFace;
-			chain = &map.hiresFaceChain;
-		}
-		if (rawFace.equalsIgnoreCase("original"))
-			s.original = true;
-		else if (!rawFace.empty())
-			s.facePath = mapFacePath(map, rawFace, mapDir);
-	}
-	if (!s.facePath.empty()) {
-		s.faceChain.push_back(s.facePath);
-		for (uint i = 1; chain && i < chain->size(); i++)
-			s.faceChain.push_back((*chain)[i].toString(Common::Path::kNativeSeparator));
-	}
+	s.original = s.plan.original && s.plan.ruleChains.empty();
 
-	// Size: ini > [font.N] size > [hires] size > 16.
-	if (ini.hasFontSize)
-		s.size = ini.fontSize;
-	else if (font && font->sizeSet)
-		s.size = font->size;
-	else if (mapLoaded && map.hiresSizeSet)
-		s.size = map.hiresSize;
+	for (uint i = 0; i < s.plan.idChain.faces.size(); i++)
+		s.faceChain.push_back(s.plan.idChain.faces[i].path.toString(Common::Path::kNativeSeparator));
+	if (!s.faceChain.empty())
+		s.facePath = s.faceChain[0];
 
-	// Layout cell (C41): [font.N] cell > [hires] cell > game. game keeps the
-	// engine's cell whatever size says, so size only changes how large the
-	// glyphs are drawn; glyph lays the text out in the face's own cell.
-	Graphics::HiResCellMode cellMode = Graphics::kHiResCellGame;
-	if (font && font->cellSet)
-		cellMode = font->cell;
-	else if (mapLoaded && map.hiresCellSet)
-		cellMode = map.hiresCell;
-	s.cell = cellMode == Graphics::kHiResCellGlyph ? s.size : FontSettings::kDefaultCell;
-
-	// Baseline shift and alignment (C41): [font.N] > [hires] > 0 / game.
-	if (font && font->baselineSet)
-		s.baseline = font->baseline;
-	else if (mapLoaded && map.hiresBaselineSet)
-		s.baseline = map.hiresBaseline;
-	if (font && font->alignSet)
-		s.align = font->align;
-	else if (mapLoaded && map.hiresAlignSet)
-		s.align = map.hiresAlign;
-
-	// Pixel font (C28): [font.N] pixel > [hires] pixel > none. The face is
-	// held on its grid in the size above, never shrunk by the fit. It
-	// names the map's face: the ini's hires_text_font is never a pixel face.
-	if (ini.hasFont)
-		s.pixel = 0;
-	else if (font && font->pixelSet)
-		s.pixel = font->pixel;
-	else if (mapLoaded && map.hiresPixelSet)
-		s.pixel = map.hiresPixel;
-
-	// Latin mode: ini > [font.N] latin > [latin] mode > [latin] enabled=true
-	// (SCUMM's legacy switch: "the engine's current Latin behaviour", which
-	// for SCI is proportional; its metrics default to game below) > off.
-	// Only the literal enabled=true counts: SCUMM's parser also sets
-	// latinEnabled for bitmap=, a path SCI does not have.
-	if (ini.hasLatin)
-		s.latin = ini.latin;
-	else if (font && font->latinSet)
-		s.latin = toLatinMode(font->latin);
-	else if (mapLoaded && map.latinModeSet)
-		s.latin = toLatinMode(map.latinMode);
-	else if (mapLoaded && map.legacy.latinEnabledSet && map.legacy.latinEnabledValue)
-		s.latin = kLatinProportional;
-
-	// Latin face: ini > [font.N] latin_font > [latin] font > none (the main
-	// face). latin_font=same is not a file name either: an empty
-	// latinFacePath already means the main face draws Latin (GfxCache::
-	// unicodeFaceFor()), so "same" only has to avoid being opened as one.
-	// latin_font=original forces ASCII to the game's font, like [latin]
-	// mode=off, and - like face=original above - beats even the ini's
-	// hires_text_latin_font, whose own "original" is treated as absent.
-	const bool iniLatinOriginal = ini.hasLatinFont && ini.latinFont.equalsIgnoreCase("original");
-	if (font && font->latinFontSet && font->latinFont.equalsIgnoreCase("original")) {
-		s.latin = kLatinOff;
-	} else if (ini.hasLatinFont && !iniLatinOriginal) {
-		s.latinFacePath = ini.latinFont;
-	} else {
-		Common::String rawLatinFace;
-		if (font && font->latinFontSet)
-			rawLatinFace = font->latinFont;
-		else if (mapLoaded && map.latinFontSet)
-			rawLatinFace = map.latinFont;
-		if (rawLatinFace.equalsIgnoreCase("original"))
-			s.latin = kLatinOff;
-		else if (!rawLatinFace.equalsIgnoreCase("same") && !rawLatinFace.empty())
-			s.latinFacePath = mapFacePath(map, rawLatinFace, mapDir);
-	}
-
-	// Space: ini > [font.N] latin_space > [latin] space > keep.
-	if (ini.hasLatinSpace)
-		s.fullwidthSpace = ini.latinFullwidthSpace;
-	else if (font && font->latinSpaceSet)
-		s.fullwidthSpace = font->latinFullwidthSpace;
-	else if (mapLoaded && map.latinSpaceSet)
-		s.fullwidthSpace = map.latinFullwidthSpace;
-
-	// Metrics: ini > [font.N] metrics > [latin] metrics > game.
-	if (ini.hasMetrics)
-		s.metrics = ini.metrics;
-	else if (font && font->metricsSet)
-		s.metrics = font->metrics;
-	else if (mapLoaded && map.latinMetricsSet)
-		s.metrics = map.latinMetrics;
+	s.size = s.plan.sizeSet ? s.plan.size : FontSettings::kDefaultCell;
+	s.cell = s.plan.cell == Graphics::kHiResCellGlyph ? s.size : FontSettings::kDefaultCell;
+	s.baseline = s.plan.shift;
+	s.align = s.plan.align;
+	s.pixel = s.plan.pixel;
 
 	return s;
 }
 
-int warnScummOnlyMapKeys(const Graphics::HiResTextConfig &map) {
-	int warnings = 0;
-	if (!map.legacy.latinBitmapName.empty()) {
-		warning("hires_text.map: [latin] bitmap= is SCUMM-only, ignored");
-		warnings++;
-	}
-	return warnings;
+Common::String unicodeBundleKey(const Common::String &mainPath, int size, uint32 planHash) {
+	return Common::String::format("%s|%d|%08x", mainPath.c_str(), size, planHash);
 }
 
-Common::String unicodeBundleKey(const Common::String &mainPath, int size,
-								const Common::String &latinPath, LatinMode mode) {
-	if (latinPath.empty())
-		return Common::String::format("%s|%d||-", mainPath.c_str(), size);
-	return Common::String::format("%s|%d|%s|%d", mainPath.c_str(), size, latinPath.c_str(), (int)mode);
+namespace {
+
+/// The FontIdFace naming @p path, or nullptr.
+const FontIdFace *findFace(const Common::Array<FontIdFace> &faces, const Common::String &path) {
+	for (uint i = 0; i < faces.size(); i++) {
+		if (faces[i].path == path)
+			return &faces[i];
+	}
+	return nullptr;
+}
+
+bool isExcluded(const Common::Array<Common::String> &excludedPaths, const Common::String &path) {
+	for (uint i = 0; i < excludedPaths.size(); i++) {
+		if (excludedPaths[i] == path)
+			return true;
+	}
+	return false;
+}
+
+} // End of anonymous namespace
+
+void checkPlanLoadWarnings(int fontId, const Graphics::HiResIdPlan &plan, const Common::Array<FontIdFace> &faces,
+						   Common::Array<Common::String> &excludedPaths, Graphics::HiResMap &map,
+						   Common::HashMap<Common::String, bool> &warnedOnceThisLoad) {
+	if (plan.original)
+		return;
+
+	auto warnOnce = [&](const Common::String &w) {
+		map.warnings.push_back(w);
+		if (warnedOnceThisLoad.contains(w))
+			return;
+		warnedOnceThisLoad[w] = true;
+		warning("%s", w.c_str());
+	};
+
+	// design 5.4: every SVF the plan names (not only the id chain's own)
+	// must share the first SVF's cell height.
+	Common::String firstPath;
+	int firstHeight = -1;
+	for (uint i = 0; i < faces.size(); i++) {
+		if (!faces[i].isSvf || !faces[i].source)
+			continue;
+		const int h = faces[i].source->cellHeight();
+		if (firstHeight < 0) {
+			firstHeight = h;
+			firstPath = faces[i].path;
+			continue;
+		}
+		if (h != firstHeight) {
+			warnOnce(Common::String::format(
+				"HIRESTXT.MAP: %s: cell height %d differs from %s's %d on %d; not used",
+				faces[i].path.c_str(), h, firstPath.c_str(), firstHeight, fontId));
+			excludedPaths.push_back(faces[i].path);
+		}
+	}
+
+	// design 6.7 / 10.4: a [glyphs] target lacking its own code point in the
+	// face it names.
+	for (uint i = 0; i < plan.targets.size(); i++) {
+		const Graphics::HiResGlyphTarget &t = plan.targets[i];
+		Graphics::UnicodeGlyphSource *src = nullptr;
+		Common::String faceText;
+		if (t.face.kind == Graphics::kHiResFaceFile) {
+			const Common::String path = t.face.path.toString('/');
+			faceText = t.face.written;
+			if (!isExcluded(excludedPaths, path)) {
+				const FontIdFace *f = findFace(faces, path);
+				if (f)
+					src = f->source;
+			}
+		} else if (t.face.kind == Graphics::kHiResFaceSame) {
+			faceText = "same";
+			for (uint j = 0; j < plan.idChain.faces.size() && !src; j++) {
+				const Common::String path = plan.idChain.faces[j].path.toString('/');
+				if (isExcluded(excludedPaths, path))
+					continue;
+				const FontIdFace *f = findFace(faces, path);
+				if (f && f->source && f->source->cells(t.cp) > 0)
+					src = f->source;
+			}
+		} else {
+			continue;
+		}
+		if (src && src->cells(t.cp) > 0)
+			continue;
+		uint32 code = 0;
+		for (Common::HashMap<uint32, uint32>::const_iterator it = plan.targetIndexByCode.begin();
+			 it != plan.targetIndexByCode.end(); ++it) {
+			if (it->_value == i) {
+				code = it->_key;
+				break;
+			}
+		}
+		warnOnce(Common::String::format(
+			"HIRESTXT.MAP: [glyphs] 0x%X -> %s:U+%04X: the face has no such glyph; the game's font draws it",
+			code, faceText.c_str(), t.cp));
+	}
+
+	// design 6.4 / 10.4: missing= naming a code point no face of the id's own
+	// chain(s) has. An id that names no face of its own at all has nothing
+	// of its own to check here.
+	bool hasOwnChain = !plan.idChain.faces.empty();
+	for (uint c = 0; c < plan.ruleChains.size() && !hasOwnChain; c++)
+		hasOwnChain = !plan.ruleChains[c].faces.empty();
+	if (plan.missing && hasOwnChain) {
+		bool found = false;
+		auto checkChain = [&](const Graphics::HiResFaceChain &c) {
+			for (uint i = 0; i < c.faces.size() && !found; i++) {
+				const Common::String path = c.faces[i].path.toString('/');
+				if (isExcluded(excludedPaths, path))
+					continue;
+				const FontIdFace *f = findFace(faces, path);
+				if (f && f->source && f->source->cells(plan.missing) > 0)
+					found = true;
+			}
+		};
+		checkChain(plan.idChain);
+		for (uint c = 0; c < plan.ruleChains.size() && !found; c++)
+			checkChain(plan.ruleChains[c]);
+		if (!found) {
+			const Common::String faceName = !plan.idChain.faces.empty() ? plan.idChain.faces[0].written
+																		 : Common::String("the game's font");
+			warnOnce(Common::String::format(
+				"HIRESTXT.MAP: missing=U+%04X has no effect: %s has no glyph for it", plan.missing, faceName.c_str()));
+		}
+	}
 }
 
 } // End of namespace Sci

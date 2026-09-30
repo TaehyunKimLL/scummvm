@@ -51,7 +51,7 @@ int16 gameAdvance(const Graphics::GlyphMetrics &m, int gameNarrow, int gameWide,
 		return 0;
 	if (m.wide)
 		return (int16)gameWide;
-	return (int16)Graphics::latinAdvanceGamePx(Graphics::kHiResMetricsFont, gameNarrow, m.advance, scale);
+	return (int16)Graphics::advanceGamePx(Graphics::kHiResAdvanceFont, gameNarrow, m.advance, scale);
 }
 
 int16 glyphGameWidth(Graphics::UnicodeGlyphSource *src, uint32 cp, int scale, bool perGlyph) {

@@ -53,7 +53,7 @@ namespace Sci {
  *
  * Order matters and is not arbitrary. The resource face comes first so that
  * single-byte text is drawn by exactly the glyphs the game shipped - serving
- * Latin from a Unicode bundle instead changed the metrics of every English
+ * ASCII from a Unicode bundle instead changed the metrics of every English
  * string, making faces of height 12 and 9 both report 8 and pushing menu text
  * outside its button.
  *
@@ -73,24 +73,16 @@ public:
 	enum FaceKind {
 		kFaceResource,	///< the game's own font; single-byte only
 		kFaceLegacyDbcs,	///< korean.fnt / SJIS.FNT, addressed by byte pair
-		kFaceCodePoint	///< a SCVMUNI bundle, addressed by code point
+		kFaceCodePoint	///< a SCVMUNI bundle or a routed Unicode face, addressed by code point
 	};
 
 	/**
 	 * @param settings  this font id's hi-res text settings, resolved by
 	 *                  GfxCache (ini keys and hires_text.map, see
-	 *                  resolveFontSettings()) with the Latin mode already
-	 *                  forced off when the id has no live TrueType face.
-	 *                  Its Latin mode and metrics change things here:
-	 *                  kLatinHalf and kLatinProportional route the printable
-	 *                  ASCII range past the resource face and into the faces
-	 *                  below (see faceFor()), and kLatinProportional gives
-	 *                  that ASCII the advance latinAdvanceGamePx() picks from
-	 *                  the metrics (see getCharWidth()). kLatinFullwidth
-	 *                  needs no such routing - its ASCII arrives already
-	 *                  remapped past U+00FF by
-	 *                  GfxText16::glyphChar(), which reads latinMode() and
-	 *                  latinFullwidthSpace() from the current font.
+	 *                  resolveFontSettings()). Its compiled plan decides
+	 *                  everything here: which characters faceFor() routes to
+	 *                  the Unicode face (TextCompose::goesToUnicodeFace()) and
+	 *                  by how much they advance (settings.plan.advanceFor()).
 	 */
 	GfxFontSet(GuiResourceId resourceId, Common::CodePage codePage,
 			   const FontSettings &settings = FontSettings());
@@ -132,13 +124,11 @@ public:
 
 	/** The settings this font id was built with. */
 	const FontSettings &settings() const { return _settings; }
-	LatinMode latinMode() const { return _settings.latin; }
-	bool latinFullwidthSpace() const { return _settings.fullwidthSpace; }
 	uint faceCount() const { return _faces.size(); }
 
 	/**
 	 * hires_text_log: which face faceFor() would pick for @p chr (a
-	 * glyphChar()-mapped code point, as passed to draw()) - read-only, and
+	 * glyphChar()-mapped code, as passed to draw()) - read-only, and
 	 * not on the hot draw path itself, since GfxText16 only calls this when
 	 * hires_text_log resolved true. See textlatin.h's TextFaceKind.
 	 */
@@ -163,18 +153,15 @@ private:
 	};
 
 	/**
-	 * The face that should draw @p chr, and the value to pass it.
-	 *
-	 * Single-byte characters resolve to the first face, which keeps their
-	 * rendering byte-identical to the unmodified engine - except in
-	 * kLatinHalf mode, where the printable ASCII range (see
-	 * TextCompose::asciiGoesToUnicodeFace()) instead falls through to the
-	 * faces below, exactly as any other code point would.
+	 * The face that should draw @p chr (the output of TextCompose::glyphCode(),
+	 * design section 6.5 steps 2-6), and the value to pass it: for a declined
+	 * code (`chr >= Graphics::kHiResGameCodeBase`) the original game code,
+	 * for a targeted-glyph code (`Graphics::kHiResTargetBase` and up) or a
+	 * real code point the same value, unpacked into the code the matching
+	 * face indexes by (a legacy double-byte face still wants the encoded
+	 * pair).
 	 */
 	const Face *faceFor(uint32 chr, uint32 &outChr) const;
-
-	/** Identity now that GfxText16 decodes; kept as the single seam. */
-	uint32 toCodePoint(uint32 chr) const;
 
 	/** Re-encode a code point to the byte pair a legacy face indexes by. */
 	uint32 toEncodedPair(uint32 codePoint) const;
@@ -188,14 +175,10 @@ private:
 	/** Whether @p b starts a double-byte character in this code page. */
 	bool isLeadByte(byte b) const;
 
-	/** Whether @p chr is a code point rather than a byte or an undecodable pair (see setUtf8Text()). */
-	bool isCodePoint(uint32 chr) const;
-
 	Common::Array<Face> _faces;
 	GuiResourceId _resourceId;
 	Common::CodePage _codePage;
 	FontSettings _settings;
-	LatinMode _latinMode; ///< _settings.latin, read per character
 	bool _utf8Text = false; ///< setUtf8Text()
 };
 
