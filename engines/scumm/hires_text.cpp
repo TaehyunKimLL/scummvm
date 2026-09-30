@@ -234,24 +234,43 @@ void ScummHiResText::resolveCharsetFonts() {
 		// [hires]/[latin], then the defaults.
 		const Graphics::HiResFontIdSettings *n = _config.fontIdSettings(cs);
 
-		// [font.N] face=original or bitmap=original: this whole charset is
-		// not replaced - Hangul included - so every glyph is the game's to
-		// draw. face= keeps the value as written (first, before it is turned
-		// into a chain of Paths to open); bitmap= is resolved to a Path by
-		// the parser, but a relative "original" still ends in that name
-		// however the map's folder is spelled, so the basename is what is
-		// compared. Left unset (chain empty, original false) is the every
-		// day case. faceForCodePoint() declines outright on original, ahead
-		// of nearestFont() borrowing a neighbour's font into it; loadFonts()
-		// skips loading its bitmap= so it is never a donor either.
-		f.original = (n && n->faceSet && n->face.equalsIgnoreCase("original")) ||
-					 (n && n->bitmapSet && n->bitmap.baseName().equalsIgnoreCase("original"));
+		// [font.N] face=original, [font.N] bitmap=original, or [hires]
+		// face=original (map-wide, only when this charset names neither key
+		// of its own): this whole charset is not replaced - Hangul included
+		// - so every glyph is the game's to draw. face= keeps the value as
+		// written (first, before it is turned into a chain of Paths to
+		// open); bitmap= is resolved to a Path by the parser, but a relative
+		// "original" still ends in that name however the map's folder is
+		// spelled, so the basename is what is compared. Either [font.N] key,
+		// once the charset names it at all, decides for that charset outright
+		// - a real face= or bitmap= there exempts it from a map-wide
+		// original, same as it would override any other map-wide face -
+		// mirroring SCI's own [hires] font=original (resolveFontSettings()).
+		// [hires] face=same has no such map-wide meaning (there is no one
+		// "the Hangul font" every charset could share) and is left to the
+		// parser as any other plain value, exactly as before this feature:
+		// it opens (and fails to open) a file literally named "same". Left
+		// unset (chain empty, original false) is the everyday case.
+		// faceForCodePoint() declines outright on original, ahead of
+		// nearestFont() borrowing a neighbour's font into it; loadFonts()
+		// skips loading its bitmap= (and the legacy pattern loaders' entry
+		// for it) so it is never a donor either.
+		if (n && (n->faceSet || n->bitmapSet)) {
+			f.original = (n->faceSet && n->face.equalsIgnoreCase("original")) ||
+						 (n->bitmapSet && n->bitmap.baseName().equalsIgnoreCase("original"));
+		} else {
+			f.original = _config.hiresFaceSet && _config.hiresFace.equalsIgnoreCase("original");
+		}
 
 		if (f.original) {
 			// Leave f.chain empty: nothing here is a font to open.
 		} else if (n && n->faceSet)
 			f.chain = n->faceChain;
-		else if (_config.hiresFaceSet)
+		else if (_config.hiresFaceSet && !_config.hiresFace.equalsIgnoreCase("original"))
+			// A charset that is not itself original (it names its own real
+			// bitmap=) must not pick up the map-wide default as a fallback
+			// chain when that default is the "original" sentinel: there is
+			// no real face there to open either.
 			f.chain = _config.hiresFaceChain;
 
 		if (n && n->sizeSet)
@@ -481,6 +500,14 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 			const Common::String name = expandFontPattern(_config.bitmapPattern, i);
 			if (name.empty())
 				break;
+			// An original charset ([font.N] face=/bitmap=original, or the
+			// map-wide [hires] face=original) draws only from the game's own
+			// font: the numbered pattern's file for it, if any, is never
+			// opened either, for the same reason [font.N] bitmap= is skipped
+			// below - explicitly, though harmless today (faceForCodePoint()
+			// already declines before ever consulting _cjkFaces).
+			if (_perGlyph && _charsetFonts[i].original)
+				continue;
 			loadBitmapFile(gameDir, name, i, false);
 		}
 	}
@@ -600,6 +627,12 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 				const Common::String name = expandFontPattern(latinName, i);
 				if (name.empty())
 					break;
+				// An original charset has no Latin either - the whole
+				// charset is the game's font - so its numbered Latin
+				// companion, if any, is not opened. See the CJK pattern
+				// loop above.
+				if (_perGlyph && _charsetFonts[i].original)
+					continue;
 				loadBitmapFile(gameDir, name, i, true);
 			}
 		} else if (!Common::FSNode(gameDir.appendComponent(latinName)).exists()) {
