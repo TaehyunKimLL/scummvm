@@ -1,6 +1,7 @@
 #include <cxxtest/TestSuite.h>
 
 #include "common/array.h"
+#include "common/config-manager.h"
 #include "common/hashmap.h"
 #include "common/hash-str.h"
 #include "common/list.h"
@@ -36,8 +37,19 @@ public:
 		TS_ASSERT(!Graphics::parseBlend("true", b));
 		Graphics::HiResAdvance a;
 		TS_ASSERT(Graphics::parseAdvance("cell", a));
+		TS_ASSERT_EQUALS(a, Graphics::kHiResAdvanceCell);
+		TS_ASSERT(Graphics::parseAdvance("game", a));
+		TS_ASSERT_EQUALS(a, Graphics::kHiResAdvanceGame);
+		TS_ASSERT(Graphics::parseAdvance("font", a));
+		TS_ASSERT_EQUALS(a, Graphics::kHiResAdvanceFont);
 		TS_ASSERT(!Graphics::parseAdvance("engine", a));
 		TS_ASSERT(!Graphics::parseAdvance("ttf", a));
+		Graphics::HiResOrigin o;
+		TS_ASSERT(Graphics::parseOrigin("game", o));
+		TS_ASSERT_EQUALS(o, Graphics::kHiResOriginGame);
+		TS_ASSERT(Graphics::parseOrigin("face", o));
+		TS_ASSERT_EQUALS(o, Graphics::kHiResOriginFace);
+		TS_ASSERT(!Graphics::parseOrigin("self", o));
 	}
 
 	void test_format_matching() {
@@ -91,13 +103,50 @@ public:
 		Graphics::HiResScaleLimits desktop = { 1, 3 };
 		Graphics::HiResScaleLimits dos = { 2, 2 };
 		Common::String w;
-		TS_ASSERT_EQUALS(Graphics::clampScale(3, 1, 3, desktop, "SCUMM", w), 3);
+		TS_ASSERT_EQUALS(Graphics::clampScale(3, 1, 3, desktop, 2, "SCUMM", w), 3);
 		TS_ASSERT(w.empty());
-		TS_ASSERT_EQUALS(Graphics::clampScale(3, 1, 3, dos, "SCUMM", w), 2);
+		TS_ASSERT_EQUALS(Graphics::clampScale(3, 1, 3, dos, 2, "SCUMM", w), 2);
 		TS_ASSERT_EQUALS(w, "the DOS backend runs hi-res text at 2x only");
 		w.clear();
-		TS_ASSERT_EQUALS(Graphics::clampScale(1, 2, 2, desktop, "SCI", w), 2);
+		TS_ASSERT_EQUALS(Graphics::clampScale(1, 2, 2, desktop, 2, "SCI", w), 2);
 		TS_ASSERT_EQUALS(w, "SCI draws hi-res text at 2x only");
+		w.clear();
+		// engineDefault (ruling M16) need not equal engineMin: a generic
+		// out-of-range SCUMM request clamps to 2 (SCUMM's default), not 1
+		// (engineMin).
+		TS_ASSERT_EQUALS(Graphics::clampScale(99, 1, 3, desktop, 2, "SCUMM", w), 2);
+		TS_ASSERT_EQUALS(w, "hires text scale 99 is out of range 1..3");
+	}
+
+	void test_platform_scale_limits() {
+		// No backend has registered hires_text_platform_scale: {1, 3}.
+		Graphics::HiResScaleLimits limits = Graphics::hiResScaleLimits();
+		TS_ASSERT_EQUALS(limits.min, 1);
+		TS_ASSERT_EQUALS(limits.max, 3);
+
+		// The DOS backend's OSystem_DOS::initBackend() path (design section
+		// 7.4/9): ConfMan.registerDefault(), not a real ini/session key.
+		ConfMan.registerDefault("hires_text_platform_scale", "2");
+		limits = Graphics::hiResScaleLimits();
+		TS_ASSERT_EQUALS(limits.min, 2);
+		TS_ASSERT_EQUALS(limits.max, 2);
+
+		// A real key (session domain here) still wins over the registered
+		// default, as for any other ConfMan key.
+		ConfMan.set("hires_text_platform_scale", "3", Common::ConfigManager::kTransientDomain);
+		limits = Graphics::hiResScaleLimits();
+		TS_ASSERT_EQUALS(limits.min, 3);
+		TS_ASSERT_EQUALS(limits.max, 3);
+
+		// Clean up: ConfMan is a process-wide singleton shared with every
+		// other test suite in this binary. There is no "unregister a
+		// default" call, so blank it out instead - empty is
+		// indistinguishable from absent to hiResScaleLimits().
+		ConfMan.removeKey("hires_text_platform_scale", Common::ConfigManager::kTransientDomain);
+		ConfMan.registerDefault("hires_text_platform_scale", "");
+		limits = Graphics::hiResScaleLimits();
+		TS_ASSERT_EQUALS(limits.min, 1);
+		TS_ASSERT_EQUALS(limits.max, 3);
 	}
 
 	void test_ini_domains_and_validation() {

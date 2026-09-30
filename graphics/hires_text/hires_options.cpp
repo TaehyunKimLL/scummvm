@@ -219,15 +219,23 @@ bool blendActive(HiResBlend blend, bool faceHasCoverage, bool screenIsClut8) {
 }
 
 HiResScaleLimits hiResScaleLimits() {
-	if (ConfMan.hasKey("hires_text_platform_scale")) {
-		const int n = ConfMan.getInt("hires_text_platform_scale");
-		return { n, n };
-	}
-	return { 1, 3 };
+	// ConfMan.get() (no domain) falls through to the defaults domain, which
+	// is exactly where OSystem_DOS::initBackend()'s registerDefault() (design
+	// section 7.4/9) lands. The single-argument ConfMan.hasKey()/getInt()
+	// pair used here previously does *not* check the defaults domain, so it
+	// never saw the DOS backend's registered value - use get() instead, as
+	// the brief specifies.
+	const Common::String value = ConfMan.get("hires_text_platform_scale");
+	if (value.empty())
+		return { 1, 3 };
+	int n;
+	if (!parseDecimalInt(value, n))
+		return { 1, 3 };
+	return { n, n };
 }
 
 int clampScale(int requested, int engineMin, int engineMax, const HiResScaleLimits &platform,
-			   const char *engineName, Common::String &warning) {
+			   int engineDefault, const char *engineName, Common::String &warning) {
 	warning.clear();
 
 	if (platform.min == platform.max) {
@@ -237,6 +245,12 @@ int clampScale(int requested, int engineMin, int engineMax, const HiResScaleLimi
 				warning = "the DOS backend runs hi-res text at 2x only";
 			else
 				warning = Common::String::format("the backend runs hi-res text at %dx only", p);
+			// p is returned, not engineDefault: the platform limit is a hard
+			// backend cap, and today the one registered platform value (2)
+			// lies inside every engine's range (SCI 2..2, SCUMM/AGS 1..3),
+			// so this can never land outside [engineMin, engineMax]. A
+			// future engine range that excluded a registered platform value
+			// would need this rechecked against [engineMin, engineMax].
 			return p;
 		}
 	}
@@ -247,7 +261,7 @@ int clampScale(int requested, int engineMin, int engineMax, const HiResScaleLimi
 		else
 			warning = Common::String::format("hires text scale %d is out of range %d..%d",
 											  requested, engineMin, engineMax);
-		return engineMin;
+		return engineDefault;
 	}
 
 	return requested;
