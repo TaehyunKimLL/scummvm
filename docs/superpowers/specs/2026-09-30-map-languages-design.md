@@ -190,11 +190,13 @@ Lookups in `dir` are case-insensitive (`Common::FSDirectory`).
 - Why `map=` rather than inline keys: a language's font setup is a whole version-2 map (fonts table, per-id sections,
   glyph remaps, render, shadow); inlining it would need a second level of section names (`[translation.ko/font.4]`) and a
   merge rule for every key. A separate map keeps one loader and one precedence rule, lets one language map serve several
-  games from `DATA\`, and reuses the maps the unify plan already ships (`LB2KOU.MAP`, `M2KOU.MAP`, ...) unchanged except
+  games from `DATA\`, and reuses the maps the unify plan already ships (`LB2KO.MAP`, `M2KO.MAP`, ...) unchanged except
   for dropping `[text] encoding`.
-- **Presets** (U = true colour, L = 8-bit): the preset is chosen by which game map the target names. A folder ships
-  `HIRESTXT.MAP` (declares `ko` with `map=data:LB2KOU.MAP`) and `HIRESTXL.MAP` (the same declaration with
-  `map=data:LB2KOL.MAP`); the L target sets `hires_text_map=HIRESTXL.MAP` (relative to the game folder, U4).
+- **Presets** (U = true colour, L = 8-bit) are not files (user decision 2026-09-30, U ruling 7): one language map per
+  game holds both, its L variant in `:clut8` sections (U3.4), and the render target chooses (U7.1.1). A folder ships one
+  game map, `HIRESTXT.MAP` (declares `ko` with `map=data:LB2KO.MAP`); the L target adds `render_target=clut8`. The
+  language map is loaded with the same two phases and target as a game map; the game map's `[translation.*]` sections
+  take no qualifiers (section 12).
 
 ## 5. The language list
 
@@ -357,7 +359,7 @@ at detection they are collected and printed only at debug level (`debugC(kDebugG
 - `HIRESTXT.MAP: [translation.ja] encoding cp949 is for ko only; section ignored`
 - `HIRESTXT.MAP: [translation.ko] trs=KO/KOREAN.TRS: no such file; section ignored` (any path key; `dir`: `no such folder`)
 - `HIRESTXT.MAP: [translation.ko] messages needs the map and the volume, in that order; section ignored`
-- `HIRESTXT.MAP: [translation.ko] map=data:LB2KOU.MAP: not a version 2 map; section ignored`
+- `HIRESTXT.MAP: [translation.ko] map=data:LB2KO.MAP: not a version 2 map; section ignored`
 - `HIRESTXT.MAP: [translation.ko]: SCUMM needs trs=; section ignored`
 - `HIRESTXT.MAP: [translation.ko]: SCI needs messages=, strings= or dir=; section ignored`
 
@@ -390,12 +392,11 @@ at detection they are collected and printed only at debug level (`debugC(kDebugG
 SCUMMVM\
   SCUMMVM.EXE  SCUMMVM.INI  EXAMPLE.INI  README.TXT  LB2.BAT  LB2KO.BAT  LB2KOL.BAT
   DATA\
-    LB2KOU.MAP  LB2KOL.MAP            language maps (fonts, render) - version 2, no [text] encoding
+    LB2KO.MAP                         language map (fonts, render; U bare, L in :clut8) - version 2, no [text] encoding
     KO2350.SVF  KO2350G.SVF  ENCODING.DAT  OFL*.TXT
   GAMES\LB2\
     RESOURCE.MAP  RESOURCE.000  RESOURCE.AUD  RESOURCE.SFX  AUDIOSFX\  *.DRV ...   English DOS CD, unmodified
-    HIRESTXT.MAP                       game map, U preset: declares ko
-    HIRESTXL.MAP                       game map, L preset: declares ko
+    HIRESTXT.MAP                       game map: declares ko (both presets)
     KO\
       MESSAGE.MAP  RESOURCE.MSG        the 2014 fan patch's two files, unmodified (cp949)
 ```
@@ -409,10 +410,8 @@ version=2
 name=2014 fan translation
 encoding=cp949
 messages=KO/MESSAGE.MAP, KO/RESOURCE.MSG
-map=data:LB2KOU.MAP
+map=data:LB2KO.MAP
 ```
-
-`HIRESTXL.MAP` is the same with `map=data:LB2KOL.MAP`.
 
 ```ini
 ; SCUMMVM.INI
@@ -442,7 +441,7 @@ gameid=laurabow2
 description=Laura Bow 2 (Korean, 8-bit font)
 platform=pc
 language=ko
-hires_text_map=HIRESTXL.MAP
+render_target=clut8
 path=GAMES\LB2
 extrapath=DATA
 ```
@@ -456,12 +455,12 @@ Korean ("Korean - 2014 fan translation"). Speech is the English `RESOURCE.AUD` i
 ```text
 GAMES\MI2\
   MONKEY2.000  MONKEY2.001            English DOS release
-  HIRESTXT.MAP  HIRESTXL.MAP          game maps (U, L): declare ko
+  HIRESTXT.MAP                        game map: declares ko
   KO\
     KOREAN.TRS                        the fan translation (cp949 SCVMTRS bundle)
     KOREAN00.FNT ... KOREAN08.FNT     the patch fonts (cells, and the draw fonts with hi-res text off)
 DATA\
-  M2KOU.MAP  M2KOL.MAP  M2U*.SVF  M2L*.SVF  ENCODING.DAT
+  M2KO.MAP  M2U*.SVF  M2L*.SVF  ENCODING.DAT
 ```
 
 ```ini
@@ -474,7 +473,7 @@ name=mi2kor fan translation
 encoding=cp949
 trs=KO/KOREAN.TRS
 dir=KO
-map=data:M2KOU.MAP
+map=data:M2KO.MAP
 ```
 
 ```ini
@@ -498,12 +497,12 @@ engineid=scumm
 gameid=monkey2
 description=Monkey Island 2 (Korean, 8-bit font)
 language=ko
-hires_text_map=HIRESTXL.MAP
+render_target=clut8
 path=GAMES\MI2
 extrapath=DATA
 ```
 
-`M2KOU.MAP` loses its `[text] encoding=cp949` (the section says it). The English target needs no `language=en` any
+`M2KO.MAP` loses its `[text] encoding=cp949` (the section says it). The English target needs no `language=en` any
 more: nothing in the folder makes detection say Korean.
 
 ### 11.3 The other packages
@@ -526,5 +525,6 @@ patch, detected as a Korean original by md5: it has no translation section and c
 
 1. GK1/GK2 Korean (SCI32) have upstream overlay entries this feature cannot serve. Remove them now (ruling 4, losing
    GK1/GK2 Korean until a SCI32 follow-up) or keep those two entries with the old `message.map` rule for SCI32 only?
-2. Presets as two game maps per folder (`HIRESTXT.MAP`, `HIRESTXL.MAP`) - or an ini key that picks the language map?
+2. Presets: **decided** (user, 2026-09-30) - render-target qualifiers in one map (U3.4); the ini key is the existing
+   `render_target` (section 4).
 3. Tag saves with their text language (a save-format change in both engines) - or leave them shared as section 9 says?

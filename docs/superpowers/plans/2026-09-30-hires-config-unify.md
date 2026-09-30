@@ -17,7 +17,12 @@ user marked as planned (SCI RGB565, CLUT8 palette-matched anti-aliasing) are sep
 DOS, DOSBox-X 2026.08 and DOSBox Staging 0.83 through `~/work/scummvm/harness/dos/*.py`.
 
 **Spec:** `docs/superpowers/specs/2026-09-30-hires-config-unify-design.md` (every key, value, default, precedence and
-warning is defined there; section numbers below refer to it). Background and file:line inventory:
+warning is defined there; section numbers below refer to it).
+
+**Amendment (user, 2026-09-30, after Task 6):** one map per game holds the U and L presets as render-target variants
+(spec ruling 7, sections 3.4, 7.1.1), and `render_target` is a Graphics-options popup (spec 11.1). New tasks: 6b
+(loader qualifiers + two-phase helpers) and 12b (GUI). Amended: 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 20. Tasks 0-6
+are unchanged. Background and file:line inventory:
 `.superpowers/sdd/2026-09-29-dos-m5-scumm/config-audit.md`.
 
 ## Global Constraints
@@ -76,12 +81,14 @@ warning is defined there; section numbers below refer to it). Background and fil
 | `graphics/hires_text/font_map.{h,cpp}` | + the version-2 loader `HiResFontMap::loadMap()` into `HiResMap`; old loader deleted in Task 13 | 4, 13 |
 | `graphics/hires_text/id_plan.{h,cpp}` (new) | per-id compiled plan: precedence, chains with `same` expanded, range tables, glyph table, missing | 5 |
 | `graphics/hires_text/glyph_source_ranged.{h,cpp}` (new) | `pickGlyph()` and `RangeRoutedGlyphSource`: N chains + targets + missing box | 6 |
+| `graphics/hires_text/{font_map,hires_options,id_plan}.{h,cpp}` | render-target qualifiers (`[S:t]`, `[S:e:t]`), load options, the two-phase target helpers | 6b |
 | `engines/scumm/hires_text.{h,cpp}`, `charset.cpp`, `scumm.cpp`, `metaengine.cpp`, `dialogs.cpp` | SCUMM adapter | 7, 8 |
 | `engines/sci/graphics/{hirestextsettings,cache,fontset,fontunicode,text16}.*`, `textlatin.h`, `drivers/{init,default}.cpp` | SCI adapter | 9, 10 |
 | `backends/graphics/dos/dos-graphics.cpp`, `backends/platform/dos/{dos.cpp,dos-modes.h}` | DOS backend | 11 |
 | `engines/ags/shared/font/hires_font_{config,plan}.{h,cpp}` | AGS adapter | 12 |
+| `gui/options.{h,cpp}`, `gui/editgamedialog.cpp`, `gui/hirestextoptions.{h,cpp}` (new), `engines/metaengine.h`, `gui/themes/**` | the "Hi-res text screen" popup | 12b |
 | `graphics/hires_text/glyph_source_routed.*`, `latin_advance.*` | deleted (Task 13) if nothing uses them | 13 |
-| `dists/engine-data/hires_text/{dos,maps}/*` | maps rewritten | 14 |
+| `dists/engine-data/hires_text/{dos,maps}/*` | maps rewritten; each DOS game's U and L maps merged into one `<X>KO.MAP` | 14 |
 | `tools/korean/*`, harness `harness/dos/**` | generators, acceptance scripts, package templates | 15 |
 | `graphics/hires_text/README.md`, `engines/scumm/HIRES_TEXT*.md`, `dists/engine-data/hires_text/fonts/FONTS.md` | docs | 16 |
 
@@ -1399,6 +1406,327 @@ public:
 
 ---
 
+### Task 6b: Render-target qualifiers in the loader, and the two-phase target helpers
+
+Added 2026-09-30 (user decision: one map per game holds the U and L presets as render-target variants; spec ruling 7,
+sections 3.4 and 7.1.1). A separate task rather than part of Tasks 7/9: it changes only the shared set (the loader,
+options and plan modules) and both engine adapters and AGS consume it, so folding it into Task 7 would put shared-parser
+work into a SCUMM commit and leave Task 9 depending on the middle of Task 7. Runs after Task 6, before Task 7.
+
+**Files:**
+- Modify: `graphics/hires_text/font_map.{h,cpp}` (load options, target qualifier expansion and validation, `[render:t]
+  target` refused, `[text]`/`[layout]` read with the engine qualifiers only), `graphics/hires_text/hires_options.{h,cpp}`
+  (qualifier and format helpers), `graphics/hires_text/id_plan.{h,cpp}` (phase-1 helpers)
+- Test: `test/graphics/hires_text_font_map.h` (append the suite `HiResMapTargetTestSuite`),
+  `test/graphics/hires_text_hires_options.h`, `test/graphics/hires_text_id_plan.h` (append cases)
+
+**Interfaces:**
+- Consumes: Tasks 3-5.
+- Produces (namespace `Graphics`):
+  ```cpp
+  // hires_options.h
+  bool parseRenderTargetQualifier(const Common::String &q, HiResRenderTarget &t); // clut8 rgb565 rgb888 only, case-insensitive
+  // Spec 3.4 order: every engine qualifier + ":<t>" (most specific first), then the engine qualifiers alone, then "<t>".
+  // Empty engine qualifiers are skipped; t == auto returns the non-empty engine qualifiers unchanged.
+  Common::Array<Common::String> qualifiersForTarget(const Common::Array<Common::String> &engineQualifiers,
+                                                    HiResRenderTarget t);
+  HiResRenderTarget targetOfFormat(const PixelFormat &f);   // CLUT8 -> clut8; 2 bytes -> rgb565; 3-4 bytes -> rgb888
+  // targetOfFormat(formatRequest(want, supported, engineCanRgb565, note).front()); the note is dropped
+  HiResRenderTarget predictedTarget(HiResRenderTarget want, const Common::List<PixelFormat> &supported,
+                                    bool engineCanRgb565);
+
+  // font_map.h
+  struct HiResMapLoadOptions {
+      HiResMapLoadOptions();              // target auto, quiet false
+      HiResRenderTarget target;           // auto: phase-1 view (no target-qualified section is merged)
+      bool quiet;                         // true: warnings only collected in HiResMap::warnings, not printed
+  };
+  // in class HiResFontMap - new overloads; the Task 4 signatures stay and mean "default options":
+  static bool loadMap(Common::SeekableReadStream &stream, const Common::Path &mapDir,
+                      const Common::Array<Common::String> &qualifiers, const HiResEngineKeys &engine, HiResMap &out,
+                      const HiResMapLoadOptions &options);
+  static bool loadMapFile(const Common::Path &mapPath, const Common::Array<Common::String> &qualifiers,
+                          const HiResEngineKeys &engine, HiResMap &out, const HiResMapLoadOptions &options);
+  // HiResMap gains: HiResRenderTarget loadedFor;   // the options.target of the load (auto = phase-1 view)
+
+  // id_plan.h
+  typedef bool (*HiResCoverageFn)(const Common::Path &face, void *ctx);   // true: a 2/8 bpp SVF or TrueType face
+  // Any File entry of the view has coverage: the ini hires_text_face (parsed against map.faces, paths from gameDir),
+  // [font] and every [font.N] face and range.<spec> value, every [glyphs]/[glyphs.N] target face. First true wins.
+  bool mapHasCoverage(const HiResMap &map, bool mapLoaded, const HiResIniOverrides &ini, const Common::Path &mapDir,
+                      const Common::Path &gameDir, HiResCoverageFn fn, void *ctx);
+  // Phase 1 (spec 7.1.1): ini target unless auto > map target unless auto > resolveAutoTarget(anyCoverage, blend),
+  // blend = ini > map > auto. Never returns auto. explicitTarget: the ini or the map named a target.
+  HiResRenderTarget wantedRenderTarget(const HiResMap &phase1, bool mapLoaded, const HiResIniOverrides &ini,
+                                       bool anyCoverage, bool &explicitTarget);
+  ```
+
+How an engine uses them (Tasks 7-10, 12): phase 1 `loadMapFile(path, engineQuals, keys, p1, {auto, quiet=true})`
+(when it returns false, print `p1.warnings` with `warning()` and stop: no map); `anyCoverage = mapHasCoverage(p1, ...)`;
+`want = wantedRenderTarget(p1, ...)`; the screen (`formatRequest(want, ...)`, spec 7.1.1 step 2) gives the resolved
+target `t` (`predictedTarget()` before `initGraphics()`, `targetOfFormat(getScreenFormat())` after); phase 2
+`loadMapFile(path, engineQuals, keys, map, {t, quiet=false})`; plans compile from `map`.
+
+Loader behaviour (spec 3.4, 10.2), on top of the Task 4 loader:
+- `qualifiersForTarget(qualifiers, options.target)` replaces `qualifiers` for `[fonts]`, `[render]` (except `target`),
+  `[font]`, `[font.N]`, `[glyphs]`, `[glyphs.N]`, `[shadow]` (`collectFaceNames`, `buildRenderSection`,
+  `buildFontScope`, `collectRelevantIds`, `collectGlyphSection`, `buildShadowSection`), so the existing merge rules
+  (key by key, span by span, code by code, name by name) apply unchanged to the longer list.
+- `[render] target` and `[text]`, `[layout]` are read with the engine qualifiers only (`buildRenderSection` gets both
+  lists; `buildTextSection`/`buildLayoutSectionV2` the engine list), so phase 1 and phase 2 agree on the target.
+- `classifyHiResSection` splits the qualifier part at every `:`; pass 1 (`scanHiResSections`) warns, for every section
+  whatever the load's target, with the texts of the test below: `:auto`; target first; a second qualifier that is not a
+  target; three or more qualifiers; a target qualifier on `[text]`/`[layout]`; a `target` key in a section whose last
+  qualifier is a target. Checks in this order, first match only: three or more qualifiers; `auto` as either
+  qualifier; a target first with a second qualifier after it; a second qualifier that is not a target; a target on
+  `[text]`/`[layout]`. Such sections are also skipped in pass 2 (none of them can appear in the expanded list except
+  `[text:t]`/`[layout:t]`, which pass 2 never asks for, and `[render:t] target`, which pass 2 reads with the engine list).
+- `qualifierRelevant` (the S18 "does not use" gate) accepts a section whose qualifier is in the expanded list.
+- `quiet`: `hiResWarn()` gains the map's quiet flag (store it in `HiResMap` for the load, e.g. a private
+  `bool quietLoad` cleared by `clear()`): collect, do not print.
+- The old `[glyphs:csN]` check (`isOldGlyphsCsQualifier`) looks at the first qualifier only.
+
+- [ ] **Step 1: Write the failing tests.** Append to `test/graphics/hires_text_font_map.h`:
+
+```cpp
+class HiResMapTargetTestSuite : public CxxTest::TestSuite {
+	bool load(const char *text, Graphics::HiResMap &out, Graphics::HiResRenderTarget target,
+			  const char *q0 = nullptr, bool quiet = false) {
+		Common::Array<Common::String> qualifiers;
+		if (q0)
+			qualifiers.push_back(q0);
+		const Common::String full = Common::String("[map]\nversion=2\n") + text;
+		Common::MemoryReadStream stream((const byte *)full.c_str(), full.size());
+		Graphics::HiResMapLoadOptions options;
+		options.target = target;
+		options.quiet = quiet;
+		return Graphics::HiResFontMap::loadMap(stream, Common::Path("/maps", '/'), qualifiers,
+											   Graphics::kHiResKeysScumm, out, options);
+	}
+
+	static bool hasWarning(const Graphics::HiResMap &m, const char *text) {
+		for (uint i = 0; i < m.warnings.size(); ++i)
+			if (m.warnings[i] == text)
+				return true;
+		return false;
+	}
+
+	static Common::String facePath(const Graphics::HiResFontScope *s) {
+		return (s && s->faceSet && !s->face.entries.empty()) ? s->face.entries[0].path.toString('/') : Common::String("<none>");
+	}
+
+	static const char *twoPresets() {
+		return "[fonts]\nui=KO2350G.SVF\nbody=KO2350B.SVF\n[fonts:clut8]\nui=KO2350.SVF\nbody=KO2350.SVF\n"
+			   "[render]\nblend=auto\n[render:clut8]\nblend=off\n"
+			   "[font]\nface=ui\nalign=cell\nmissing=u+25a1\n[font:clut8]\nalign=game\n"
+			   "[font.4]\nface=body\n[font.40]\nface=body\ncell=glyph\nsize=18\n[font.40:clut8]\ncell=game\nsize=16\n";
+	}
+
+public:
+	void test_bare_sections_serve_every_rgb_target_and_phase_one() {
+		const Graphics::HiResRenderTarget targets[] = {
+			Graphics::kHiResTargetAuto, Graphics::kHiResTargetRgb565, Graphics::kHiResTargetRgb888 };
+		for (uint i = 0; i < ARRAYSIZE(targets); ++i) {
+			Graphics::HiResMap m;
+			TS_ASSERT(load(twoPresets(), m, targets[i]));
+			TS_ASSERT_EQUALS(facePath(&m.font), "/maps/KO2350G.SVF");
+			TS_ASSERT_EQUALS(facePath(m.fontIdScope(4)), "/maps/KO2350B.SVF");
+			TS_ASSERT_EQUALS(m.font.align, Graphics::kHiResAlignCell);
+			TS_ASSERT_EQUALS(m.blend, Graphics::kHiResBlendAuto);
+			TS_ASSERT_EQUALS(m.fontIdScope(40)->size, 18);
+			TS_ASSERT_EQUALS(m.loadedFor, targets[i]);
+			TS_ASSERT(m.warnings.empty());
+		}
+	}
+
+	void test_clut8_sections_win_key_by_key() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load(twoPresets(), m, Graphics::kHiResTargetClut8));
+		TS_ASSERT_EQUALS(facePath(&m.font), "/maps/KO2350.SVF");          // [fonts:clut8] refines the name
+		TS_ASSERT_EQUALS(facePath(m.fontIdScope(4)), "/maps/KO2350.SVF");
+		TS_ASSERT_EQUALS(m.font.align, Graphics::kHiResAlignGame);
+		TS_ASSERT_EQUALS(m.font.missing, 0x25A1u);                         // not in [font:clut8]: the bare key
+		TS_ASSERT_EQUALS(m.blend, Graphics::kHiResBlendOff);
+		TS_ASSERT_EQUALS(m.fontIdScope(40)->cell, Graphics::kHiResCellGame);
+		TS_ASSERT_EQUALS(m.fontIdScope(40)->size, 16);
+		TS_ASSERT(m.warnings.empty());
+	}
+
+	void test_target_ranges_merge_span_by_span() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[font]\nrange.basic-latin=A.SVF\nrange.U+2026=B.SVF\n[font:clut8]\nrange.U+0020-007E=C.SVF\n",
+					   m, Graphics::kHiResTargetClut8));
+		TS_ASSERT_EQUALS(m.font.rangeSpecs.size(), 2u);
+		bool sawC = false, sawB = false, sawA = false;
+		for (uint i = 0; i < m.font.rangeValues.size(); ++i) {
+			sawA |= m.font.rangeValues[i].entries[0].written == "A.SVF";
+			sawB |= m.font.rangeValues[i].entries[0].written == "B.SVF";
+			sawC |= m.font.rangeValues[i].entries[0].written == "C.SVF";
+		}
+		TS_ASSERT(sawC && sawB && !sawA);
+	}
+
+	void test_target_glyph_sections() {
+		const char *text = "[glyphs]\n0x5e=u+2026\n0x07=original\n[glyphs:clut8]\n0x07=u+2022\n[glyphs.2:clut8]\n0x5e=original\n";
+		Graphics::HiResMap c;
+		TS_ASSERT(load(text, c, Graphics::kHiResTargetClut8));
+		TS_ASSERT_EQUALS(c.glyphs[0x07].value, 0x2022u);
+		TS_ASSERT_EQUALS(c.glyphs[0x5e].value, 0x2026u);
+		TS_ASSERT(c.glyphIds.contains(2));
+		TS_ASSERT_EQUALS(c.glyphIds[2][0x5e].kind, Graphics::kHiResGlyphOriginal);
+		Graphics::HiResMap r;
+		TS_ASSERT(load(text, r, Graphics::kHiResTargetRgb888));
+		TS_ASSERT_EQUALS(r.glyphs[0x07].kind, Graphics::kHiResGlyphOriginal);
+		TS_ASSERT(!r.glyphIds.contains(2));
+	}
+
+	void test_render_target_key_in_a_target_section_is_refused() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[render]\ntarget=rgb888\n[render:clut8]\ntarget=clut8\nscale=2\n", m, Graphics::kHiResTargetClut8));
+		TS_ASSERT_EQUALS(m.target, Graphics::kHiResTargetRgb888);
+		TS_ASSERT(m.scaleSet);
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [render:clut8] target cannot depend on the render target; ignoring it"));
+	}
+
+	void test_engine_qualifier_beats_target_and_both_combine() {
+		const char *all = "[font]\nface=A.SVF\n[font:clut8]\nface=B.SVF\n[font:monkey2]\nface=C.SVF\n"
+						  "[font:monkey2:clut8]\nface=D.SVF\n";
+		Graphics::HiResMap m;
+		TS_ASSERT(load(all, m, Graphics::kHiResTargetClut8, "monkey2"));
+		TS_ASSERT_EQUALS(facePath(&m.font), "/maps/D.SVF");
+		TS_ASSERT(load(all, m, Graphics::kHiResTargetRgb888, "monkey2"));
+		TS_ASSERT_EQUALS(facePath(&m.font), "/maps/C.SVF");
+		TS_ASSERT(load(all, m, Graphics::kHiResTargetClut8, "tentacle"));
+		TS_ASSERT_EQUALS(facePath(&m.font), "/maps/B.SVF");
+		TS_ASSERT(load("[font]\nface=A.SVF\n[font:clut8]\nface=B.SVF\n[font:monkey2]\nface=C.SVF\n", m,
+					   Graphics::kHiResTargetClut8, "monkey2"));
+		TS_ASSERT_EQUALS(facePath(&m.font), "/maps/C.SVF");                // engine-only beats target-only
+	}
+
+	void test_malformed_target_qualifiers_warn_and_are_ignored() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[font:auto]\nface=X.SVF\n[font:clut8:monkey2]\nface=Y.SVF\n[font:pc:v5]\nface=Z.SVF\n"
+					   "[font:a:b:clut8]\nface=W.SVF\n[text:clut8]\nencoding=cp949\n[layout:clut8]\nhangul=any\n",
+					   m, Graphics::kHiResTargetClut8, "monkey2"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font:auto]: auto is not a render-target qualifier; ignoring the section"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font:clut8:monkey2]: the render target goes last ([font:monkey2:clut8]); ignoring the section"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font:pc:v5]: the second qualifier must be clut8, rgb565 or rgb888; ignoring the section"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font:a:b:clut8]: a section takes at most two qualifiers; ignoring the section"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [text:clut8]: [text] cannot depend on the render target; ignoring the section"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [layout:clut8]: [layout] cannot depend on the render target; ignoring the section"));
+		TS_ASSERT(!m.font.faceSet);
+		TS_ASSERT(!m.encodingSet);
+		TS_ASSERT(!m.layout.hangulSet);
+		TS_ASSERT_EQUALS(m.warnings.size(), 6u);
+	}
+
+	void test_quiet_load_collects_the_same_warnings() {
+		Graphics::HiResMap loud, quiet;
+		TS_ASSERT(load("[font:auto]\nface=X.SVF\n", loud, Graphics::kHiResTargetAuto));
+		TS_ASSERT(load("[font:auto]\nface=X.SVF\n", quiet, Graphics::kHiResTargetAuto, nullptr, true));
+		TS_ASSERT_EQUALS(quiet.warnings.size(), loud.warnings.size());
+		TS_ASSERT_EQUALS(quiet.warnings.size(), 1u);
+	}
+};
+```
+
+  Append to `test/graphics/hires_text_hires_options.h` (inside `HiResOptionsTestSuite`):
+
+```cpp
+	void test_target_qualifiers() {
+		Graphics::HiResRenderTarget t;
+		TS_ASSERT(Graphics::parseRenderTargetQualifier("CLUT8", t));
+		TS_ASSERT_EQUALS(t, Graphics::kHiResTargetClut8);
+		TS_ASSERT(!Graphics::parseRenderTargetQualifier("auto", t));
+		TS_ASSERT(!Graphics::parseRenderTargetQualifier("monkey2", t));
+		Common::Array<Common::String> e;
+		e.push_back("monkey2");
+		e.push_back("");
+		e.push_back("v5");
+		const Common::Array<Common::String> q = Graphics::qualifiersForTarget(e, Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(q.size(), 5u);
+		TS_ASSERT_EQUALS(q[0], "monkey2:clut8");
+		TS_ASSERT_EQUALS(q[1], "v5:clut8");
+		TS_ASSERT_EQUALS(q[2], "monkey2");
+		TS_ASSERT_EQUALS(q[3], "v5");
+		TS_ASSERT_EQUALS(q[4], "clut8");
+		TS_ASSERT_EQUALS(Graphics::qualifiersForTarget(e, Graphics::kHiResTargetAuto).size(), 2u);
+		TS_ASSERT_EQUALS(Graphics::qualifiersForTarget(Common::Array<Common::String>(), Graphics::kHiResTargetRgb565).size(), 1u);
+	}
+
+	void test_target_of_format_and_prediction() {
+		TS_ASSERT_EQUALS(Graphics::targetOfFormat(Graphics::PixelFormat::createFormatCLUT8()), Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(Graphics::targetOfFormat(rgb565()), Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(Graphics::targetOfFormat(xrgb1555()), Graphics::kHiResTargetRgb565);   // family, not formatMatchesTarget
+		TS_ASSERT_EQUALS(Graphics::targetOfFormat(xrgb8888()), Graphics::kHiResTargetRgb888);
+		Common::List<Graphics::PixelFormat> staging;
+		staging.push_back(xrgb8888());
+		staging.push_back(Graphics::PixelFormat::createFormatCLUT8());
+		TS_ASSERT_EQUALS(Graphics::predictedTarget(Graphics::kHiResTargetRgb565, staging, true), Graphics::kHiResTargetRgb888);
+		TS_ASSERT_EQUALS(Graphics::predictedTarget(Graphics::kHiResTargetClut8, staging, true), Graphics::kHiResTargetClut8);
+		Common::List<Graphics::PixelFormat> clutOnly;
+		clutOnly.push_back(Graphics::PixelFormat::createFormatCLUT8());
+		TS_ASSERT_EQUALS(Graphics::predictedTarget(Graphics::kHiResTargetRgb888, clutOnly, true), Graphics::kHiResTargetClut8);
+	}
+```
+
+  Append to `test/graphics/hires_text_id_plan.h` (inside `HiResIdPlanTestSuite`; `load()` there uses the Task 4
+  overload, i.e. the phase-1 view):
+
+```cpp
+	static bool coverageG(const Common::Path &face, void *) { return face.toString('/').hasSuffix("G.SVF"); }
+	static bool coverageT(const Common::Path &face, void *) { return face.toString('/').hasSuffix("T.SVF"); }
+	static bool coverageNone(const Common::Path &, void *) { return false; }
+
+	void test_wanted_render_target_phase_one() {
+		bool explicitTarget = false;
+		Graphics::HiResIniOverrides ini;
+		load("[render]\ntarget=rgb565\n");
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, true, ini, false, explicitTarget), Graphics::kHiResTargetRgb565);
+		TS_ASSERT(explicitTarget);
+		ini.targetSet = true;
+		ini.target = Graphics::kHiResTargetAuto;                     // ini auto: no ini preference, the map decides
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, true, ini, false, explicitTarget), Graphics::kHiResTargetRgb565);
+		ini.target = Graphics::kHiResTargetClut8;
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, true, ini, true, explicitTarget), Graphics::kHiResTargetClut8);
+		ini = Graphics::HiResIniOverrides();
+		load("[font]\nface=KO.SVF\n");
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, true, ini, true, explicitTarget), Graphics::kHiResTargetRgb888);
+		TS_ASSERT(!explicitTarget);
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, true, ini, false, explicitTarget), Graphics::kHiResTargetClut8);
+		load("[render]\nblend=off\n[font]\nface=KO.SVF\n");
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, true, ini, true, explicitTarget), Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(_map, false, ini, true, explicitTarget), Graphics::kHiResTargetRgb888);
+	}
+
+	void test_map_has_coverage_walks_the_phase_one_view() {
+		load("[fonts]\nui=G.SVF\n[fonts:clut8]\nui=L.SVF\n[font]\nface=L.SVF\n[font.4]\nrange.basic-latin=ui\n"
+			 "[glyphs]\n0x07=T.SVF:u+2620\n");
+		const Common::Path m("/maps", '/'), g("/games/g", '/');
+		Graphics::HiResIniOverrides ini;
+		TS_ASSERT(Graphics::mapHasCoverage(_map, true, ini, m, g, coverageG, nullptr));     // [fonts] ui, not [fonts:clut8]
+		TS_ASSERT(Graphics::mapHasCoverage(_map, true, ini, m, g, coverageT, nullptr));     // a [glyphs] target counts
+		TS_ASSERT(!Graphics::mapHasCoverage(_map, true, ini, m, g, coverageNone, nullptr));
+		TS_ASSERT(!Graphics::mapHasCoverage(_map, false, ini, m, g, coverageG, nullptr));   // no map, no ini face
+		ini.faceSet = true;
+		ini.face = "X.SVF";
+		TS_ASSERT(!Graphics::mapHasCoverage(_map, false, ini, m, g, coverageG, nullptr));
+		ini.face = "XG.SVF";
+		TS_ASSERT(Graphics::mapHasCoverage(_map, false, ini, m, g, coverageG, nullptr));    // /games/g/XG.SVF
+	}
+```
+
+- [ ] **Step 2: Run to verify they fail.** Run: `make -C /home/thkim/work/scummvm/builds/linux-dos-test-scumm -j8 test 2>&1 | grep -m5 'error'`. Expected: `HiResMapLoadOptions`, `qualifiersForTarget`, `wantedRenderTarget` not declared.
+- [ ] **Step 3: Implement** the Interfaces and the loader behaviour list. `targetOfFormat`: `isCLUT8()` -> clut8,
+  `bytesPerPixel == 2` -> rgb565, `3` or `4` -> rgb888, else auto (never reached by the three screens the layer asks
+  for). `wantedRenderTarget` reuses `resolveAutoTarget()`. `mapHasCoverage` walks only `kHiResFaceFile` entries and
+  calls `fn` once per distinct path.
+- [ ] **Step 4: Run the tests.** Run: `for d in linux-dos-test-scumm linux-dos-test; do make -C /home/thkim/work/scummvm/builds/$d -j8 test 2>&1 | tail -3; done`. Expected: each only the known `hires_text_ttf_fit.h:493` failure; every Task 4 and Task 5 case still passes (their loads are the phase-1 view); report the counts.
+- [ ] **Step 5: Commit** `GRAPHICS: Render-target section qualifiers and the two-phase target helpers` (`font_map.{h,cpp}`,
+  `hires_options.{h,cpp}`, `id_plan.{h,cpp}`, the three tests).
+
+---
+
 ### Task 7: SCUMM adapter - version-2 map, faces by range, `[glyphs]` with targets, missing, advance, origin
 
 After this task SCUMM reads only version-2 maps (the shipped MI maps stop loading until Task 14 - expected; M5 is not run
@@ -1420,7 +1748,8 @@ rewrites it).
 **Interfaces:**
 - Consumes: `HiResMap`, `HiResFontMap::loadMapFile/loadMap`, `kHiResKeysScumm` (Task 4); `HiResIdPlan`,
   `compileIdPlan` (Task 5); `pickGlyph`, `HiResPick` (Task 6); `readHiResIniFromConfMan`, `blendActive`,
-  `resolveAutoTarget`, `advanceGamePx` (Tasks 3, 6).
+  `resolveAutoTarget`, `advanceGamePx` (Tasks 3, 6); `HiResMapLoadOptions`, `mapHasCoverage`, `wantedRenderTarget`,
+  `predictedTarget` (Task 6b).
 - Produces (class `Scumm::ScummHiResText`, used by Task 8 and the tests):
   ```cpp
   void adoptMap(const Graphics::HiResMap &map, const Graphics::HiResIniOverrides &ini = Graphics::HiResIniOverrides());  // replaces adoptConfig()
@@ -1438,9 +1767,13 @@ rewrites it).
 Behaviour to implement (spec 5, 6, 8):
 - `loadConfig()`: `hires_text=false` -> off (unchanged meaning, now through `readHiResIniFromConfMan`); map path per spec 4
   (`hires_text_map` relative to the game folder; unset -> `<game>/HIRESTXT.MAP` if present; empty -> no map);
-  `loadMapFile(path, {gameid, "v<N>"}, kHiResKeysScumm, _map)`; `_config.encoding` default from language, map `[text]
-  encoding` wins; compile `_plans[i] = compileIdPlan(_map, haveMap, i, ini, engineScope(), mapDir, gameDir, warnings)`
-  for i in 0..19. Scale: `clampScale(ini > map > 2, 1, 3, hiResScaleLimits(), "SCUMM", w)`. Blend wanted =
+  two phases (spec 7.1.1, Task 6b): phase 1 `loadMapFile(path, {gameid, "v<N>"}, kHiResKeysScumm, p1, {auto, quiet})`
+  (false -> print `p1.warnings`, no map), `want = wantedRenderTarget(p1, ..., mapHasCoverage(p1, ..., svfOrTtfHasCoverage))`
+  (v7+: `clut8`), the resolved target `_target = predictedTarget(want, _system->getSupportedFormats(), true)`; phase 2
+  `loadMapFile(path, {gameid, "v<N>"}, kHiResKeysScumm, _map, {_target, false})`. Keep `_target` for Task 8, which
+  also asks `initGraphics()` for it and repeats phase 2 if the screen differs. `_config.encoding` default from
+  language, map `[text] encoding` wins; compile `_plans[i] = compileIdPlan(_map, haveMap, i, ini, engineScope(),
+  mapDir, gameDir, warnings)` for i in 0..19, from the phase-2 map. Scale: `clampScale(ini > map > 2, 1, 3, hiResScaleLimits(), "SCUMM", w)`. Blend wanted =
   `ini.blendSet ? ini.blend : map.blend` fed to the existing `wantsAlpha()` as
   `blend == on || (blend == auto && anyFaceHasCoverage)` (Task 8 replaces this with `render_target`).
 - A loaded version-2 map always uses per-glyph placement (`_perGlyph = true`); the map-less `probeSimpleFonts()` form
@@ -1588,6 +1921,9 @@ Behaviour to implement (spec 5, 6, 8):
     `blend=auto` with a 2 bpp SVF -> blending wanted; 1 bpp -> not.
   - SVF through `face=`: a `[font.4] face=CARD.SVF` opens as a bitmap font (was `bitmap=`).
   - An SVF of a different cell height on the same charset is refused with the warning text above.
+  - New (Task 6b's qualifiers reach the faces): with a map `[fonts] dlg=OWN.SVF` + `[fonts:clut8] dlg=L.SVF` + `[font.4]
+    face=dlg`, `adoptMap()` of a map loaded with target `clut8` routes charset 4 to `/tmp/t/L.SVF`, and with target
+    `rgb565` to `/tmp/t/OWN.SVF` (the bare preset; spec 3.4 "no fallback between targets").
 
 - [ ] **Step 2: Run to verify they fail**
   Run: `make -C /home/thkim/work/scummvm/builds/linux-dos-test-scumm -j8 test 2>&1 | grep -m5 "error:"`
@@ -1597,8 +1933,9 @@ Behaviour to implement (spec 5, 6, 8):
 - [ ] **Step 4: Run the tests.** Run: `for d in linux-dos-test-scumm linux-dos-scumm; do make -C /home/thkim/work/scummvm/builds/$d -j8 test 2>&1 | tail -3; done`.
   Expected: each only the known `hires_text_ttf_fit.h:493` failure; report the test counts.
 - [ ] **Step 5: Linux smoke with a hand-written v2 map.** Write
-  `/tmp/claude-1000/-home-thkim-work/36a78c74-674a-4d24-9ca3-7236f6e2ebde/scratchpad/M2KOU-v2.MAP` by converting the
-  committed `dists/engine-data/hires_text/dos/M2KOU.MAP` with spec 6.6, run the Linux build
+  `/tmp/claude-1000/-home-thkim-work/36a78c74-674a-4d24-9ca3-7236f6e2ebde/scratchpad/M2KO-v2.MAP` by converting the
+  committed `dists/engine-data/hires_text/dos/M2KOU.MAP` with spec 6.6 into the bare sections and adding the
+  `M2KOL.MAP` faces as `[fonts:clut8]` names (spec 12.2), run the Linux build
   (`builds/linux-dos-scumm/scummvm`) on `mi2ko` with `extrapath` = a scratch copy of `dist/dos/DATA` holding that map,
   and take one dump at the difficulty card with the harness client (`harness/dos/scummgame.py`, as `m5_points.py` does
   for point A). Look at the image yourself: Korean text, `!` and `"` from the SVF, no tofu. Put the PNG path in the
@@ -1628,10 +1965,18 @@ Behaviour to implement (spec 5, 6, 8):
   Graphics::HiResRenderTarget renderTarget() const;   // what loadConfig() resolved
   ```
   `wantedTarget`: v >= 7 -> `clut8` (warning `SCUMM v7+ keeps a paletted screen; render_target=<x> ignored` when an
-  explicit non-clut8 target was asked); explicit ini/map target -> it; `auto` -> `resolveAutoTarget(anyCoverage, blend)`.
+  explicit non-clut8 target was asked); otherwise `Graphics::wantedRenderTarget(map, mapLoaded, ini, anyCoverage,
+  explicit)` (Task 6b: ini unless `auto` > map > `resolveAutoTarget`). `map` is the phase-1 map (Task 7's `p1`).
+  `renderTarget()` is the resolved target (Task 7's `_target`), never `auto`. Also produces
+  `void adoptScreen(const Graphics::PixelFormat &actual)`: after `initGraphics()`, if
+  `Graphics::targetOfFormat(actual) != renderTarget()`, warn once `SCUMM: the screen is <actual>, not <predicted>;
+  hi-res text uses the <actual> sections` (target names), set the target and repeat phase 2 + the plan compile + face
+  opening (spec 7.1.1).
 
 Behaviour:
-- `scumm.cpp`: the non-Towns path asks `initGraphics(w, h, Graphics::formatRequest(renderTarget(), _system->getSupportedFormats(), true, note))`;
+- `scumm.cpp`: the non-Towns path asks `initGraphics(w, h, Graphics::formatRequest(wanted, _system->getSupportedFormats(), true, note))`
+  with the phase-1 wanted target (its first entry is what `renderTarget()` predicted), then calls
+  `_hiResText->adoptScreen(_system->getScreenFormat())`;
   `note` non-empty -> `warning("SCUMM: %s", note.c_str())`. `setAlphaActive(Graphics::blendActive(blend, anyCoverage, chosen.isCLUT8()))`.
   A 2-byte screen uses `HiResPalette16Sink` (exists, gfx.cpp ~773). The warning `SCUMM: no 32bpp screen available ...`
   is replaced by the `formatRequest` note. The FM-Towns 16-bit path is unchanged.
@@ -1689,6 +2034,15 @@ public:
 						 Graphics::kHiResTargetClut8);
 	}
 
+	void test_ini_auto_defers_to_the_map() {
+		Graphics::HiResIniOverrides ini;
+		ini.targetSet = true;
+		ini.target = Graphics::kHiResTargetAuto;
+		Common::String w;
+		TS_ASSERT_EQUALS(Scumm::ScummHiResText::wantedTarget(map("target=rgb565\n"), true, ini, 5, true, w),
+						 Graphics::kHiResTargetRgb565);
+	}
+
 	void test_v7_stays_paletted() {
 		Common::String w;
 		TS_ASSERT_EQUALS(Scumm::ScummHiResText::wantedTarget(map("target=rgb888\n"), true, Graphics::HiResIniOverrides(), 7, true, w),
@@ -1716,10 +2070,11 @@ public:
 - [ ] **Step 2: Run to verify it fails.** Run: `make -C /home/thkim/work/scummvm/builds/linux-dos-test-scumm -j8 test 2>&1 | grep -m5 'error'`. Expected: `wantedTarget` is not a member of `Scumm::ScummHiResText`.
 - [ ] **Step 3: Implement** the behaviour list.
 - [ ] **Step 4: Run the tests.** Run: `for d in linux-dos-test-scumm linux-dos-scumm; do make -C /home/thkim/work/scummvm/builds/$d -j8 test 2>&1 | tail -3; done`. Expected: each only the known `hires_text_ttf_fit.h:493` failure.
-- [ ] **Step 5: Linux check of the three targets.** With the Task 7 scratch map, run `mi2ko` on
-  `builds/linux-dos-scumm/scummvm` three times with `render_target=rgb888`, `rgb565`, `clut8` in the scratch ini; each
-  run's log line `SCUMM: hi-res text blending into <format>` (or its absence for clut8) matches, and one dump per run at
-  point A shows the text (look at them). Record the three formats in the report.
+- [ ] **Step 5: Linux check of the three targets.** With the Task 7 scratch map (bare U preset + `[fonts:clut8]`), run
+  `mi2ko` on `builds/linux-dos-scumm/scummvm` (`-d1`) three times with `render_target=rgb888`, `rgb565`, `clut8` in the
+  scratch ini; each run's log line `SCUMM: hi-res text blending into <format>` (or its absence for clut8) matches; the
+  `hi-res font N <- <path>` lines name `M2U*.SVF` for rgb888 and rgb565 and `M2L*.SVF` for clut8 (the one map serves
+  both presets); one dump per run at point A shows the text (look at them). Record the three formats in the report.
 - [ ] **Step 6: Commit** `SCUMM: Hi-res text render target, blend and scale from the unified keys`.
 
 ---
@@ -1770,8 +2125,10 @@ After this task SCI reads only version-2 maps (the shipped SCI maps stop loading
 Behaviour:
 - `resolveHiresText()`: ini through `readHiResIniFromConfMan(domain)`; `hires_text=false` -> the layer as if no map and
   no ini keys; map path per spec 4 (relative `hires_text_map` = game folder, no longer the current directory);
-  `loadMap(stream, mapDir, {platform}, kHiResKeysSci, _hiresMap)`. Every `hires_text_latin*`, `hires_text_font*`,
-  `hires_text_metrics` reader is deleted.
+  `loadMap(stream, mapDir, {platform}, kHiResKeysSci, _hiresMap, {target, false})` with `target =
+  Graphics::targetOfFormat(g_system->getScreenFormat())` (Task 6b; spec 7.1.1: `GfxCache` runs after `GfxScreen` set the
+  screen, so SCI reads the sections for the screen it actually has - this is phase 2; Task 10 adds phase 1 before the
+  driver). Every `hires_text_latin*`, `hires_text_font*`, `hires_text_metrics` reader is deleted.
 - Per font id: `resolveFontSettings()`; the chains of `plan.idChain` and every `plan.ruleChains[i]` and targets are
   opened with the existing `singleFace()`/`svfnSource()`/`ttfSource()` (a target TrueType face: `kProbesDefault`, its fit
   probes = its target cps); the Unicode source is a `Graphics::RangeRoutedGlyphSource` over them (replacing
@@ -1784,6 +2141,8 @@ Behaviour:
 - Advance: `plan.advanceFor(cp)`: `Game`/`Font` -> `Graphics::advanceGamePx()` (was `latinAdvanceGamePx(metrics, ...)`);
   `Cell` -> the narrow/wide cell (was `half`); `Engine` -> today's path (cell for a legacy code-page game, per-glyph
   advances for a UTF-8 translation).
+- A test in `test/engines/sci/hirestextsettings.h`: one map string with `[fonts] ui=G.SVF`, `[fonts:clut8] ui=L.SVF`,
+  `[font] face=ui` loaded with target `clut8` gives `facePath` `/maps/L.SVF`, with `rgb888` or `rgb565` `/maps/G.SVF`.
 - `missing` per font id from the plan (was map-wide only); `applyMissing()` warns once per chain without the box glyph:
   `HIRESTXT.MAP: missing=U+%04X has no effect: %s has no glyph for it` (text unchanged).
 - The `hires_text_log` tally: `kTextFaceLatin` becomes `kTextFaceRule` ("a range rule's chain drew it"), printed as
@@ -1862,9 +2221,12 @@ Behaviour:
 - [ ] **Step 2: Run to verify they fail.** Run: `make -C /home/thkim/work/scummvm/builds/linux-dos-test -j8 test 2>&1 | grep -m5 'error'`. Expected: compile errors (`goesToUnicodeFace`, `glyphCode`, the new `resolveFontSettings` signature).
 - [ ] **Step 3: Implement** the behaviour list.
 - [ ] **Step 4: Run the tests.** Run: `for d in linux-dos-test linux-dos-test-scumm; do make -C /home/thkim/work/scummvm/builds/$d -j8 test 2>&1 | tail -3; done`. Expected: each only the known `hires_text_ttf_fit.h:493` failure.
-- [ ] **Step 5: Linux pixel check against the pre-change references.** Convert the committed `KQ1KOL.MAP`, `KQ1KOU.MAP`,
-  `LB1KOL.MAP`, `LB1KOU.MAP` by spec 6.6 into a scratch `DATA` copy (with `[render] target=rgb888` in the U maps, as
-  `rgb_rendering` is still upstream and still set by the M2 harness ini). Rebuild `builds/linux-dos-noft` and
+- [ ] **Step 5: Linux pixel check against the pre-change references.** Convert the committed `KQ1KOU.MAP` + `KQ1KOL.MAP`
+  and `LB1KOU.MAP` + `LB1KOL.MAP` by spec 6.6 into one merged scratch map per game, `KQ1KO.MAP` and `LB1KO.MAP` (U in
+  the bare sections, the L differences as `:clut8` sections, spec 12.1), in a scratch `DATA` copy; point the scratch
+  scripts' U and L runs at the merged map (the U runs keep `rgb_rendering=true`, still upstream here, so their screen
+  is RGB and the bare sections apply; the L runs have a CLUT8 screen, so the `:clut8` sections apply - this checks
+  the qualifier path before Task 10 reads `render_target`). Rebuild `builds/linux-dos-noft` and
   `builds/linux-dos-test` and run only the Linux halves of M1/M2 through their own scripts with `MAPS` pointed at the
   scratch copy (edit a scratch copy of each script, not the harness). Compare every `linux/*.bin` dump with
   `runs/unify-base/dos-m1|dos-m2/...` (`cmp`). Expected: identical, except where `runs/unify-base/DISTS_COMMIT` differs
@@ -1905,12 +2267,15 @@ Behaviour:
 - Load order: the driver is created in `GfxScreen`'s constructor (`screen.cpp` ~148), and `GfxCache` - which loads the
   map today - is created later (`sci.cpp` ~794). So move the ini + map loading out of `GfxCache::resolveHiresText()` into
   a new `Sci::HiresTextState` (`engines/sci/graphics/hirestextstate.{h,cpp}`: holds the `HiResIniOverrides`, the
-  `HiResMap`, `mapLoaded`, `mapDir`, `gameDir`), created by `SciEngine` just before `GfxScreen` is constructed and
-  reachable as `g_sci->hiresTextState()`. `GfxCache` keeps the "does hi-res text apply" gate (`hiresTextApplies()`), which
+  **phase-1** `HiResMap` (Task 6b: loaded with `{auto, quiet=true}`; on refusal its warnings are printed once),
+  `mapLoaded`, `mapDir`, `gameDir`, `anyCoverage = mapHasCoverage(...)`), created by `SciEngine` just before
+  `GfxScreen` is constructed and reachable as `g_sci->hiresTextState()`. `GfxCache` does phase 2 exactly as Task 9
+  (target = the actual screen's `targetOfFormat()`), from the state's path and ini. `GfxCache` keeps the "does hi-res text apply" gate (`hiresTextApplies()`), which
   it evaluates exactly as today, and reads the rest from the state. Add `hirestextstate.o` to `engines/sci/module.mk`.
 - `drivers/init.cpp create()`: `requestRGB` from `chooseSciRender(upstreamRgb, target, anyCoverage, blend)` with the
-  target and blend of `g_sci->hiresTextState()` (`anyCoverage` = some face of some plan is 2/8 bpp SVF or TrueType,
-  sniffed from the file headers without opening glyph data).
+  phase-1 target (ini unless `auto`, else the phase-1 map's, else `auto`) and blend of `g_sci->hiresTextState()`
+  (`anyCoverage` = `mapHasCoverage()` over the phase-1 view: some face is a 2/8 bpp SVF or TrueType, sniffed from the
+  file headers without opening glyph data).
 - `GfxDefaultDriver::initScreen()`: when the choice's target is not `auto`, pass
   `Graphics::formatRequest(target, g_system->getSupportedFormats(), false, note)` to `initGraphics()`; `auto` keeps the
   upstream code path byte for byte.
@@ -1969,9 +2334,12 @@ public:
 - [ ] **Step 2: Run to verify it fails.** Run: `make -C /home/thkim/work/scummvm/builds/linux-dos-test -j8 test 2>&1 | grep -m5 'error'`. Expected: `chooseSciRender` / `sciHiresScale` not declared.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run the tests.** Run: `for d in linux-dos-test linux-dos-test-scumm; do make -C /home/thkim/work/scummvm/builds/$d -j8 test 2>&1 | tail -3; done`. Expected: each only the known `hires_text_ttf_fit.h:493` failure.
-- [ ] **Step 5: Linux check** with the Task 9 scratch maps: KQ1 U map with `target=rgb888` and **no** `rgb_rendering`
-  in the scratch ini gives a 4-byte screen and blended text (dump T, look at it); the same with `render_target=clut8`
-  gives CLUT8 and a hard stencil; `rgb_rendering=true` + `render_target=auto` with the L map behaves as upstream (RGB).
+- [ ] **Step 5: Linux check** with the Task 9 merged scratch map `KQ1KO.MAP`: with **no** `rgb_rendering` and no
+  `render_target` in the scratch ini, `auto` gives a 4-byte screen (the bare faces have coverage) and blended text
+  (dump T, look at it); the same with `render_target=clut8`
+  gives CLUT8, a hard stencil and the `:clut8` face (`KO2350.SVF` in the `-d1` face log); `render_target=rgb565`
+  gives rgb888 with the Task 3 note (until Task 19) and the bare faces; `rgb_rendering=true` + `render_target=auto`
+  behaves as upstream (RGB) and draws the bare faces.
 - [ ] **Step 6: Commit** `SCI: Hi-res text render target, blend and scale from the unified keys`.
 
 ---
@@ -1994,8 +2362,17 @@ public:
                                                        Graphics::HiResRenderTarget cap = Graphics::kHiResTargetAuto);
   }
   ```
-  `DosGraphicsManager::getSupportedFormats()` reads `ConfMan.get("render_target")` (active domain, then `[scummvm]`); an
-  invalid value -> one `warning("DOS: render_target '%s' is not auto, clut8, rgb565 or rgb888; using auto")`.
+  `DosGraphicsManager::getSupportedFormats()` reads `ConfMan.get("render_target")` (active domain, then `[scummvm]`)
+  **only while a game domain is active** (`ConfMan.getActiveDomain()` non-null; spec 9): the launcher and its options
+  dialogs get the uncapped list, so Task 12b's popup can offer every target even under `[scummvm] render_target=clut8`.
+  The decision is a pure helper for the test:
+  ```cpp
+  namespace DOS {
+  // gameActive false -> auto (no cap); else parseRenderTarget(value) (empty -> auto); invalid -> auto and invalid=true
+  Graphics::HiResRenderTarget renderTargetCap(bool gameActive, const Common::String &value, bool &invalid);
+  }
+  ```
+  An invalid value -> one `warning("DOS: render_target '%s' is not auto, clut8, rgb565 or rgb888; using auto")`.
   `OSystem_DOS::initBackend()`: remove `registerDefault("dos_truecolor", ...)` and its comment; add
   `ConfMan.registerDefault("hires_text_platform_scale", "2");` with a comment citing spec 7.4.
 
@@ -2021,6 +2398,18 @@ public:
 		TS_ASSERT(clut.front().isCLUT8());
 	}
 ```
+  and
+  ```cpp
+	void test_render_target_cap_only_while_a_game_runs() {
+		bool invalid = false;
+		TS_ASSERT_EQUALS(DOS::renderTargetCap(false, "clut8", invalid), Graphics::kHiResTargetAuto);   // launcher
+		TS_ASSERT_EQUALS(DOS::renderTargetCap(true, "clut8", invalid), Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(DOS::renderTargetCap(true, "", invalid), Graphics::kHiResTargetAuto);
+		TS_ASSERT(!invalid);
+		TS_ASSERT_EQUALS(DOS::renderTargetCap(true, "truecolor", invalid), Graphics::kHiResTargetAuto);
+		TS_ASSERT(invalid);
+	}
+  ```
   (If `staging()`'s list has no 640x480 5-6-5 mode either, the expectation is `s565.size() == 1` (CLUT8 only): check the
   list in the file and assert what the modes allow, with a comment naming the mode.)
 - [ ] **Step 2: Run to verify it fails.** Run: `make -C /home/thkim/work/scummvm/builds/linux-dos-test -j8 test 2>&1 | grep -m5 'error'`. Expected: no matching `DOS::supportedFormats` overload.
@@ -2045,7 +2434,10 @@ public:
   `Graphics::HiResBlend`; `scale()`), reading `[render] scale/blend/gamma`, `[layout]`, `[fonts]`, `[font]`/`[font.N]`
   `face/size/pixel`, and the ini `hires_text`, `hires_text_map`, `hires_text_face`, `hires_text_size`,
   `hires_text_scale`, `hires_text_blend`. Default scale stays 1 (spec 8). `alpha()` default `true` becomes `blend=auto`
-  (blend when the face has coverage and the target is 16/32-bit - the same result).
+  (blend when the face has coverage and the target is 16/32-bit - the same result). The map is loaded once (no phase
+  1: AGS does not choose its screen) with `HiResMapLoadOptions::target` = the game's colour depth (Task 6b, spec
+  7.1.1): 8 -> `clut8`, 16 -> `rgb565`, 32 -> `rgb888`; where the config is read before the depth is known, it is
+  re-read when the depth is set (find the call order in `engines/ags/engine/main/graphics_mode.cpp`).
 
 - [ ] **Step 1: Create the AGS test build**
 
@@ -2059,11 +2451,189 @@ if AGS tests fail already at `BASE`, record them as that build's baseline and do
 - [ ] **Step 2: Rewrite the failing tests**: every map string to version 2 (`[hires] scale=2` -> `[render] scale=2`,
   `[hires] face=` -> `[font] face=`, `alpha=` -> `blend=`), plus new cases: `hires_text=false` gives no plan;
   `range.basic-latin=X` in an AGS map adds `AGS does not use [font] range.basic-latin` to the warnings; a relative
-  `hires_text_face` resolves against the game folder.
+  `hires_text_face` resolves against the game folder; `[fonts] ui=G.TTF` + `[fonts:clut8] ui=L.TTF` + `[font] face=ui`
+  gives an 8-bit game `L.TTF` and a 32-bit game `G.TTF`.
 - [ ] **Step 3: Run to verify they fail.** Run: `make -C /home/thkim/work/scummvm/builds/linux-dos-test-ags -j8 test 2>&1 | grep -m5 'error'`. Expected: compile errors against the old `HiResTextConfig` API.
 - [ ] **Step 4: Implement** the Produces list.
 - [ ] **Step 5: Run the tests.** Run: `make -C /home/thkim/work/scummvm/builds/linux-dos-test-ags -j8 test 2>&1 | tail -5` and the same on `linux-dos-test-scumm`. Expected: only the baseline failures recorded in Step 1.
 - [ ] **Step 6: Commit** `AGS: Hi-res fonts read the unified map and ini keys`.
+
+---
+
+### Task 12b: Graphics options - the "Hi-res text screen" popup
+
+Added 2026-09-30 (user: `render_target` selectable in the Graphics options; spec 11.1). After the adapters (Tasks 7-12)
+and the DOS cap (Task 11), before the docs (Task 16).
+
+**Files:**
+- Create: `gui/hirestextoptions.h`, `gui/hirestextoptions.cpp` (the popup's pure logic and its ConfMan reads/writes),
+  `test/gui/hirestextoptions.h`
+- Modify: `gui/options.{h,cpp}` (`addGraphicControls()`, the load in `build()` beside `render_mode` ~333, `apply()` ~672,
+  the override-off removal ~783, `setGraphicSettingsState()` ~1270), `gui/editgamedialog.cpp` (the override list ~443;
+  set the popup's visibility from the engine), `gui/module.mk`, `test/module.mk` (`TEST_LIBS += gui/hirestextoptions.o`),
+  `engines/metaengine.h` (`hasHiResText`), `engines/scumm/metaengine.cpp`, `engines/sci/metaengine.cpp`,
+  `engines/ags/metaengine.{h,cpp}`, `graphics/hires_text/hires_options.{h,cpp}` (`hiResTargetsOffered`,
+  `hiResTextConfigured`), `test/graphics/hires_text_hires_options.h`, theme layouts
+  `gui/themes/common/{highres,lowres}_layout.stx`, `gui/themes/scummclassic/classic_layout{,_lowres}.stx`, the
+  regenerated `gui/themes/default.inc` and `gui/themes/*.zip`, `gui/ThemeEngine.h` + every `gui/themes/*/THEMERC`
+  (theme version bump)
+
+**Interfaces:**
+- Consumes: `HiResRenderTarget`, `parseRenderTarget`, `renderTargetName`, `formatMatchesTarget` (Task 3); the DOS
+  launcher-uncapped list (Task 11).
+- Produces:
+  ```cpp
+  // graphics/hires_text/hires_options.h
+  // bit (1 << target) for each target the list has a matching format for (formatMatchesTarget); never the auto bit
+  uint32 hiResTargetsOffered(const Common::List<PixelFormat> &formats);
+  // spec 11.1: hires_text is not "false" and (hires_text_map set non-empty, or hires_text_face set,
+  // or <path>/HIRESTXT.MAP exists, case-insensitive)
+  bool hiResTextConfigured(const Common::String &domain);
+
+  // engines/metaengine.h, class MetaEngine
+  virtual bool hasHiResText(const Common::String &target) const { return false; }
+  // SCUMM: targetHasHiResText(target) (its map names updated to HIRESTXT.MAP by Task 7); SCI, AGS: hiResTextConfigured()
+
+  // gui/hirestextoptions.h, namespace GUI
+  struct HiResTargetEntry { Graphics::HiResRenderTarget target; bool available; };
+  // Auto, then 8-bit / 16-bit / true colour as offered; a stored explicit target that is not offered is appended
+  // with available = false (shown "(not available here)"). Empty (hide the popup) when fewer than two targets
+  // are offered and nothing unavailable is stored.
+  Common::Array<HiResTargetEntry> renderTargetEntries(uint32 offered, bool storedSet, Graphics::HiResRenderTarget stored);
+  Common::U32String renderTargetLabel(const HiResTargetEntry &e);   // _("Auto"), _("8-bit palette"), _("16-bit colour"), _("True colour") [+ _(" (not available here)")]
+  // this domain only (no [scummvm] fallback); an invalid stored value reads as not set
+  bool readRenderTarget(const Common::String &domain, Graphics::HiResRenderTarget &t);
+  // writes renderTargetName(t) ("auto" for Auto, as render_mode's <default> writes its code); true if the value changed
+  bool writeRenderTarget(const Common::String &domain, Graphics::HiResRenderTarget t);
+  ```
+
+Behaviour (spec 11.1):
+- `addGraphicControls()`: after "Render mode", `_hiResTargetPopUpDesc` ("Hi-res text screen:", tooltip of spec 11.1)
+  and `_hiResTargetPopUp`, entries from `renderTargetEntries(Graphics::hiResTargetsOffered(g_system->getSupportedFormats()),
+  ...)`, tags = the target values. Widget names `grHiResTargetPopupDesc` / `grHiResTargetPopup`.
+- Visibility: `GlobalOptionsDialog` always (subject to the entry rule); `EditGameDialog` only when
+  `enginePlugin->get<MetaEngine>().hasHiResText(_domain)` (the same plugin it asks for its engine options). A hidden
+  popup is never read or written.
+- `apply()`: when the tab is overriding (game) or always (global): `writeRenderTarget(_domain, tag)`; override off:
+  `ConfMan.removeKey("render_target", _domain)` beside `render_mode`. `EditGameDialog::open()` counts
+  `render_target` in its override list.
+- Restart notice: if `writeRenderTarget()` returned true and `g_engine` is non-null, one
+  `MessageDialog(_("The hi-res text screen changes the next time the game starts.")).runModal()` after the apply.
+- Blend is not added (spec 11.1); the pre-flight S6 ruling (no launcher bool checkbox for `hires_text_blend`) stands.
+- Theme: in each of the four `.stx` files add, right after the `grRenderPopup` layout block, the same horizontal layout
+  with `grHiResTargetPopupDesc` (`OptionsLabel`) and `grHiResTargetPopup` (`PopUp`); bump
+  `SCUMMVM_THEME_VERSION_STR` in `gui/ThemeEngine.h` and the version in every `THEMERC` (upstream bumps it when a layout
+  gains a widget); regenerate with `cd gui/themes && python3 scummtheme.py makeall` and the builtin
+  `default.inc` with `scummtheme.py default <theme>` as its usage text says (the theme it was last built from:
+  check `git log -1 -- gui/themes/default.inc`).
+
+- [ ] **Step 1: Write the failing tests.** `test/gui/hirestextoptions.h` (new):
+
+```cpp
+#include <cxxtest/TestSuite.h>
+
+#include "common/config-manager.h"
+#include "graphics/hires_text/hires_options.h"
+#include "gui/hirestextoptions.h"
+
+class HiResTargetOptionsTestSuite : public CxxTest::TestSuite {
+	static uint32 bit(Graphics::HiResRenderTarget t) { return 1u << t; }
+
+public:
+	void tearDown() {
+		if (ConfMan.hasGameDomain("hrtarget-test"))
+			ConfMan.removeGameDomain("hrtarget-test");
+	}
+
+	void test_entries_follow_the_backend() {
+		const uint32 all = bit(Graphics::kHiResTargetClut8) | bit(Graphics::kHiResTargetRgb565) | bit(Graphics::kHiResTargetRgb888);
+		Common::Array<GUI::HiResTargetEntry> e = GUI::renderTargetEntries(all, false, Graphics::kHiResTargetAuto);
+		TS_ASSERT_EQUALS(e.size(), 4u);
+		TS_ASSERT_EQUALS(e[0].target, Graphics::kHiResTargetAuto);
+		TS_ASSERT_EQUALS(e[1].target, Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(e[3].target, Graphics::kHiResTargetRgb888);
+		const uint32 staging = bit(Graphics::kHiResTargetClut8) | bit(Graphics::kHiResTargetRgb888);
+		e = GUI::renderTargetEntries(staging, false, Graphics::kHiResTargetAuto);
+		TS_ASSERT_EQUALS(e.size(), 3u);
+		TS_ASSERT(GUI::renderTargetEntries(bit(Graphics::kHiResTargetClut8), false, Graphics::kHiResTargetAuto).empty());
+	}
+
+	void test_a_stored_target_the_backend_lacks_is_kept_visible() {
+		const uint32 staging = bit(Graphics::kHiResTargetClut8) | bit(Graphics::kHiResTargetRgb888);
+		Common::Array<GUI::HiResTargetEntry> e = GUI::renderTargetEntries(staging, true, Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(e.size(), 4u);
+		TS_ASSERT_EQUALS(e.back().target, Graphics::kHiResTargetRgb565);
+		TS_ASSERT(!e.back().available);
+	}
+
+	void test_write_and_read_one_domain() {
+		ConfMan.addGameDomain("hrtarget-test");
+		Graphics::HiResRenderTarget t;
+		TS_ASSERT(!GUI::readRenderTarget("hrtarget-test", t));
+		TS_ASSERT(GUI::writeRenderTarget("hrtarget-test", Graphics::kHiResTargetClut8));
+		TS_ASSERT_EQUALS(ConfMan.get("render_target", "hrtarget-test"), "clut8");
+		TS_ASSERT(!GUI::writeRenderTarget("hrtarget-test", Graphics::kHiResTargetClut8));   // unchanged
+		TS_ASSERT(GUI::writeRenderTarget("hrtarget-test", Graphics::kHiResTargetAuto));
+		TS_ASSERT_EQUALS(ConfMan.get("render_target", "hrtarget-test"), "auto");
+		TS_ASSERT(GUI::readRenderTarget("hrtarget-test", t));
+		TS_ASSERT_EQUALS(t, Graphics::kHiResTargetAuto);
+		ConfMan.set("render_target", "truecolor", "hrtarget-test");
+		TS_ASSERT(!GUI::readRenderTarget("hrtarget-test", t));
+	}
+};
+```
+
+  Append to `HiResOptionsTestSuite` (`test/graphics/hires_text_hires_options.h`):
+
+```cpp
+	void test_targets_offered() {
+		Common::List<Graphics::PixelFormat> l;
+		l.push_back(xrgb1555());
+		TS_ASSERT_EQUALS(Graphics::hiResTargetsOffered(l), 0u);                  // 1-5-5-5 is not rgb565
+		l.push_back(rgb565());
+		l.push_back(xrgb8888());
+		l.push_back(Graphics::PixelFormat::createFormatCLUT8());
+		TS_ASSERT_EQUALS(Graphics::hiResTargetsOffered(l),
+						 (1u << Graphics::kHiResTargetClut8) | (1u << Graphics::kHiResTargetRgb565) | (1u << Graphics::kHiResTargetRgb888));
+	}
+
+	void test_hires_text_configured() {
+		ConfMan.addGameDomain("hrconf-test");
+		TS_ASSERT(!Graphics::hiResTextConfigured("hrconf-test"));               // no map, no face, no path
+		ConfMan.set("hires_text_map", "data:KQ1KO.MAP", "hrconf-test");
+		TS_ASSERT(Graphics::hiResTextConfigured("hrconf-test"));
+		ConfMan.set("hires_text", "false", "hrconf-test");
+		TS_ASSERT(!Graphics::hiResTextConfigured("hrconf-test"));
+		ConfMan.set("hires_text", "true", "hrconf-test");
+		ConfMan.set("hires_text_map", "", "hrconf-test");                      // empty: no map
+		TS_ASSERT(!Graphics::hiResTextConfigured("hrconf-test"));
+		ConfMan.set("hires_text_face", "KO.TTF", "hrconf-test");
+		TS_ASSERT(Graphics::hiResTextConfigured("hrconf-test"));
+		ConfMan.removeGameDomain("hrconf-test");
+	}
+```
+  (add `#include "common/config-manager.h"` to that file if it is not there.)
+
+- [ ] **Step 2: Run to verify they fail.** Run: `make -C /home/thkim/work/scummvm/builds/linux-dos-test-scumm -j8 test 2>&1 | grep -m5 'error'`. Expected: `gui/hirestextoptions.h: No such file or directory` / `hiResTargetsOffered` not declared.
+- [ ] **Step 3: Implement** the Interfaces and the behaviour list, including the four layouts, the version bump and the
+  regenerated themes.
+- [ ] **Step 4: Run the tests.** Run: `for d in linux-dos-test-scumm linux-dos-test linux-dos-test-ags; do make -C /home/thkim/work/scummvm/builds/$d -j8 test 2>&1 | tail -3; done`. Expected: each at its baseline; report the counts.
+- [ ] **Step 5: Manual check, Linux.** With a scratch config (`builds/linux-dos-scumm/scummvm --config=<scratchpad>/gui.ini`)
+  holding `mi2ko` (the Task 7 merged scratch map) and one target without hi-res text: Global Options > Graphics shows
+  "Hi-res text screen:" with the entries the SDL backend offers; choose "8-bit palette", OK: `[scummvm]
+  render_target=clut8` in the scratch ini. Edit Game `mi2ko` > Graphics: the popup is there, disabled until "Override
+  global graphic settings" is checked; choose "16-bit colour", OK: `render_target=rgb565` in `[mi2ko]`; uncheck the
+  override, OK: the key is gone. The other target: no popup. Start `mi2ko` with `render_target=clut8` from the dialog
+  and check the `-d1` face log names `M2L*.SVF`. Capture the two dialogs (e.g. `import -window root` on the X display
+  the build uses) and look at them: label and popup aligned with "Render mode", nothing clipped, in both the default
+  and the classic theme.
+- [ ] **Step 6: Manual check, DOS** (controller's permission: one DOS run at a time). `build-dos.sh scumm`; in
+  DOSBox-X with `[scummvm] render_target=clut8` in `SCUMMVM.INI`, open the launcher's Global Options > Graphics: all
+  four entries are listed (the cap is off in the launcher, Task 11); on Staging the same, with 16-bit present (the
+  640x480 line-repeat mode serves it). Capture and look.
+- [ ] **Step 7: Commit** `GUI: Hi-res text screen popup in the Graphics options` (every file listed above, named; the
+  theme zips and `default.inc` included), and, if the engine files are kept apart, a second commit `ENGINES: hasHiResText()
+  for SCI, SCUMM and AGS`.
 
 ---
 
@@ -2105,13 +2675,16 @@ the removed-section table and its tests in `font_map.cpp` / `hires_text_font_map
 ### Task 14: Rewrite the shipped maps (start from what is committed)
 
 **Files:**
-- Modify: `dists/engine-data/hires_text/dos/{CAM,KQ1,LB1,LB2}KO{L,U}.MAP`, `M{1,2}KO{L,U}.MAP` (12),
-  `dists/engine-data/hires_text/maps/{korean-default,kq1-ko,mi1-styled,scumm-2x-neodgm,ft-keyed-galmuri9}.map` (5)
+- Modify: `dists/engine-data/hires_text/maps/{korean-default,kq1-ko,mi1-styled,scumm-2x-neodgm,ft-keyed-galmuri9}.map` (5)
+- Merge (spec ruling 7, 3.4): `dists/engine-data/hires_text/dos/{CAM,KQ1,LB1,LB2,M1,M2}KOU.MAP` ->
+  `git mv` to `{CAM,KQ1,LB1,LB2,M1,M2}KO.MAP` (6) and rewritten to hold both presets; `{CAM,KQ1,LB1,LB2,M1,M2}KOL.MAP`
+  (6) `git rm` after their content is in the merged map
 - Create: `test/graphics/hires_text_shipped_maps.h`
 
 **Interfaces:**
 - Consumes: the version-2 loader and every adapter.
-- Produces: version-2 maps that load with zero warnings for their engine.
+- Produces: version-2 maps that load with zero warnings for their engine, for every render target; one DOS map per
+  game whose bare sections are the old U map and whose `:clut8` sections turn it into the old L map.
 
 - [ ] **Step 1: Coordination check.** The SCI package migration to shared 2350 fonts is (or was) in flight by another
   agent. Run:
@@ -2161,22 +2734,40 @@ class HiResShippedMapsTestSuite : public CxxTest::TestSuite {
 				continue;
 			++n;
 			Common::Array<Common::String> q;
-			Graphics::HiResMap m;
-			TSM_ASSERT(name.c_str(), Graphics::HiResFontMap::loadMapFile(files[i].getPath(), q, keysFor(name), m));
-			for (uint w = 0; w < m.warnings.size(); ++w)
-				TS_FAIL((name + ": " + m.warnings[w]).c_str());
+			const Graphics::HiResRenderTarget targets[] = { Graphics::kHiResTargetAuto, Graphics::kHiResTargetClut8,
+															Graphics::kHiResTargetRgb565, Graphics::kHiResTargetRgb888 };
+			for (uint t = 0; t < ARRAYSIZE(targets); ++t) {
+				Graphics::HiResMap m;
+				Graphics::HiResMapLoadOptions options;
+				options.target = targets[t];
+				options.quiet = true;
+				TSM_ASSERT(name.c_str(), Graphics::HiResFontMap::loadMapFile(files[i].getPath(), q, keysFor(name), m, options));
+				for (uint w = 0; w < m.warnings.size(); ++w)
+					TS_FAIL((name + " (" + Graphics::renderTargetName(targets[t]) + "): " + m.warnings[w]).c_str());
+			}
 		}
 		TS_ASSERT(n > 0);
 	}
 
 public:
 	void test_dos_maps_are_version_2_and_clean() { checkDir("dos", ".MAP"); }
+
+	// Spec ruling 7: one DOS map per game; the per-preset files are gone.
+	void test_dos_maps_are_one_per_game() {
+		Common::FSNode dir = tree().getChild("dists").getChild("engine-data").getChild("hires_text").getChild("dos");
+		Common::FSList files;
+		TS_ASSERT(dir.getChildren(files, Common::FSNode::kListFilesOnly));
+		for (uint i = 0; i < files.size(); ++i) {
+			const Common::String name = files[i].getName();
+			TSM_ASSERT(name.c_str(), !name.hasSuffixIgnoreCase("KOU.MAP") && !name.hasSuffixIgnoreCase("KOL.MAP"));
+		}
+	}
 	void test_shared_maps_are_version_2_and_clean() { checkDir("maps", ".map"); }
 };
 ```
   (`korean-default.map` serves SCUMM, SCI and AGS: if a SCUMM-only key in it warns under SCI, split its SCUMM-only part
   into `[shadow:v5]`-style qualified sections or accept the SCUMM key set for it, and say which in the map's comment.)
-- [ ] **Step 3: Run to verify it fails** (every map is still version 1).
+- [ ] **Step 3: Run to verify it fails** (every map is still version 1, and the U/L files still exist).
 - [ ] **Step 4: Convert each map** by spec 6.6, by hand, keeping and rewriting its comments (they explain `alpha=` and
   `[latin]`: say what the new keys do instead). Per map:
   - `[map] version=2` first.
@@ -2192,12 +2783,42 @@ public:
   - `[encoding] codepage` -> `[text] encoding`; `[glyphs] = keep` -> `= original`; `[glyphs:csN]` -> `[glyphs.N]`.
   - `mi1-styled.map` `latin_font=display_latin` -> `range.basic-latin=display_latin` (+ `range.general-punctuation=
     display_latin, same`).
+  First convert each DOS `<X>KOU.MAP` and `<X>KOL.MAP` on its own into scratch files
+  (`/tmp/claude-1000/-home-thkim-work/36a78c74-674a-4d24-9ca3-7236f6e2ebde/scratchpad/maps14/<X>KO{U,L}.MAP`,
+  keeping each `[render] target`), then merge:
+- [ ] **Step 4b: Merge each game's U and L maps** into `<X>KO.MAP` (spec 3.4, 12.1, 12.2): `git mv <X>KOU.MAP <X>KO.MAP`,
+  write the merged content, `git rm <X>KOL.MAP`.
+  - The U map's sections become the bare sections; **no** `[render] target` in either preset (the ini chooses:
+    spec 12.1).
+  - Each key where L differs goes into the `:clut8` form of its section: `[render:clut8] blend=off`; differing faces
+    as **`[fonts:clut8]` name refinements** where the ids use names (LB1, KQ1, CAM: `ui`/`body` both to `KO2350.SVF`;
+    CAM `out=CAMOUL.SVF`), else first give the U faces names in `[fonts]` (M1, M2: spec 12.2 - `M2L1.SVF` also serves
+    charset 8) and refine them in `[fonts:clut8]`.
+  - A key U sets and L leaves at its default: write the default in the `:clut8` section (`[font:clut8] align=game`;
+    LB1 `[font.40:clut8]`/`[font.41:clut8]` `cell=game` + `size=16`); a key only L sets goes only to `:clut8`
+    (LB1/CAM `[font.0:clut8] shift=-1`). An id-wide `advance` that only U sets has no default spelling (spec 3.4):
+    write it in `[font.N:rgb888]` and `[font.N:rgb565]` instead of bare, and say so in a comment (none expected).
+  - The header comment describes both presets and names the ini key that picks one (`render_target=clut8`).
+- [ ] **Step 4c: Equivalence gate (the merged map is the two old maps).** Write a scratch suite
+  `test/graphics/hires_text_merge_check.h` (**not committed**; delete it before Step 7) that, for each game, loads
+  `maps14/<X>KOU.MAP` with target `rgb888`, `maps14/<X>KOL.MAP` with target `clut8`, and the merged map with each of
+  `rgb888` and `clut8` (all from one folder so paths compare), and for every id in 0..65535 that any of the maps names
+  (plus id 0) compares `compileIdPlan()` of old vs merged (empty ini, the engine's scope - `sciEngineScope()` /
+  `ScummHiResText::engineScope()` - and its keys): for every code point 0..0xFFFF the same `chainFor()` face paths
+  and `endsInOriginal`, `advanceFor()`, `originFor()`, `glyphFor()` step and cp; the same `missing`, `pixel`, `shift`,
+  `cell`, `align`, `mirror`; `size` compared as effective size (`sizeSet ? size : 16` on SCI, the old and new unset
+  on SCUMM); and the maps' `blend`, `scale`, `coverageGamma`, `encoding`, `layout`, shadow fields. Also compare the
+  merged map at `rgb565` with the old U map. Run it; every comparison equal. Record the per-game result in the report,
+  then delete the file.
 - [ ] **Step 5: Run the tests.** Run: `make -C /home/thkim/work/scummvm/builds/linux-dos-test-scumm -j8 test 2>&1 | tail -5`. Expected: the shipped-maps suite passes; overall only the known `hires_text_ttf_fit.h:493` failure.
 - [ ] **Step 6: Font coverage gate per range.** For every converted DOS map, run the existing bake check the fonts were
   made with (`tools/korean/mkfont.py --require` as `tools/korean/bake-dos-fonts.sh` / `bake-scumm-fonts.sh` call it; see
-  their `--require` lines) against each SVF the map names, with the `[glyphs]` targets as required glyphs of their face.
+  their `--require` lines) against each SVF the map names in any preset (bare and `:clut8`), with the `[glyphs]`
+  targets as required glyphs of their face.
   Expected: no missing glyph. Do not rebake fonts in this task; a missing glyph is reported, not fixed.
-- [ ] **Step 7: Commit** `DISTS: Hi-res text maps in the version 2 scheme` - the 17 maps and the test, each named.
+- [ ] **Step 7: Commit** `DISTS: Hi-res text maps in the version 2 scheme, one DOS map per game` - the 5 shared maps,
+  the 6 renamed and 6 removed DOS maps (`git mv`/`git rm` already staged them), and the test, each named; the scratch
+  merge check is not in it.
 
 ---
 
@@ -2216,6 +2837,11 @@ public:
 - Consumes: Task 14 maps.
 - Produces: generators that emit only version-2 maps and new ini keys; acceptance scripts whose ini uses
   `render_target=clut8` where they used `dos_truecolor=off`, and no `rgb_rendering` for the U presets.
+  **One map per game** (spec ruling 7): every generator, harness ini and package ini names `<X>KO.MAP` for both
+  presets; a U target has **no** `render_target` (it follows `[scummvm]`, `auto` -> `rgb888` by the bare faces'
+  coverage), an L target has `render_target=clut8` instead of `hires_text_map=...<X>KOL.MAP`. BAT and target names
+  stay (`...L` targets keep their names; only their ini lines change). A generator that wrote a U and an L map writes
+  one, the U content bare and the L differences in `:clut8` sections, as Task 14 Step 4b did by hand.
 
 - [ ] **Step 1: Coordination check** as in Task 14 Step 1, for `harness/dos/release/` in the harness repo
   (`git -C /home/thkim/work/scummvm status --short harness/dos/release`); stop on uncommitted changes there.
@@ -2231,15 +2857,23 @@ cd /home/thkim/work/scummvm && grep -rnE "dos_truecolor|hires_text_alpha|hires_t
   Regenerate the 16 gamedata maps (untracked: nothing to commit). Gate: every generated file has `[map]` with
   `version=2` and none of the Step 2 patterns (`grep -LE "^version=2" gamedata/*/hires_text*.map` prints nothing). Then
   load one of them in the Linux build (`builds/linux-dos-test-scumm/scummvm` on its game, `-d1`) and check the log has
-  no `HIRESTXT.MAP:` warning. Look at `gamedata/mi2kor/HIRESTXT.MAP` and `gamedata/indy3kor/HIRESTXT.MAP` by eye;
+  no `HIRESTXT.MAP:` warning, once without `render_target` and once with `render_target=clut8` (the face lines change
+  to the `:clut8` faces where the generator wrote any). Diff `makemaps.py`'s DOS output for one game against the
+  committed Task 14 `<X>KO.MAP`: identical except comments. Look at `gamedata/mi2kor/HIRESTXT.MAP` and `gamedata/indy3kor/HIRESTXT.MAP` by eye;
   these used the legacy non-per-glyph path and now use per-glyph placement - say so in the report.
-- [ ] **Step 4: Update the harness.** `m2_accept.py` "KQ1 off" run: `render_target=clut8` (expected mode 640x400 CLUT8);
-  the U runs drop `rgb_rendering=true`. `m5_accept.py` A2 extra run: `mi2ko` with `render_target=clut8`: expected
+- [ ] **Step 4: Update the harness.** Every ini the scripts write names the merged map (`hires_text_map=data:<X>KO.MAP`)
+  for U and L runs alike; each L run (`kq1kol`, `lb1kol`, `mi2kol`, ... whatever the scripts call them) gets
+  `render_target=clut8` in its game domain, each U run none. `m2_accept.py` "KQ1 off" run: `render_target=clut8`
+  (expected mode 640x400 CLUT8); the U runs drop `rgb_rendering=true`. `m5_accept.py` A2 extra run: `mi2ko` with `render_target=clut8`: expected
   `DOS: mode 640x400 CLUT8` and **no** `not available` warning (the old check for SCUMM's "no 32bpp screen available"
   warning goes). Package generators write `SCUMMVM.INI`/`EXAMPLE.INI`/`README.TXT` with the new keys: `[scummvm]
-  render_target=auto` with a comment (`clut8` = the old `dos_truecolor=off`), no `rgb_rendering` for U targets.
-- [ ] **Step 5: Re-run Step 2's scan.** Expected: no hits except `rgb_rendering` where a harness test deliberately checks
-  upstream behaviour (name each remaining hit in the report).
+  render_target=auto` with a comment (`clut8` = the old `dos_truecolor=off`), no `rgb_rendering` for U targets, the L
+  targets `render_target=clut8` (README: "the 8-bit targets use the same map; `render_target=clut8` picks its 8-bit
+  fonts, or choose 8-bit palette under Edit Game > Graphics > Hi-res text screen"), and they copy `DATA/<X>KO.MAP`
+  only. The BAT files keep their names and targets.
+- [ ] **Step 5: Re-run Step 2's scan**, plus `grep -rnE "KO[UL]\.MAP|HIRESTXL" harness/dos dos/tools/korean`. Expected:
+  no hits except `rgb_rendering` where a harness test deliberately checks upstream behaviour (name each remaining hit in
+  the report).
 - [ ] **Step 6: Commit** twice: dos worktree `TOOLS: Korean map and ini generators write the unified keys`; harness repo
   `harness/dos: unified hi-res keys (render_target, version 2 maps)`.
 
@@ -2249,7 +2883,8 @@ cd /home/thkim/work/scummvm && grep -rnE "dos_truecolor|hires_text_alpha|hires_t
 
 **Files:**
 - Modify: `graphics/hires_text/README.md` (becomes the single key reference: copy spec sections 3-11 in user terms, with
-  the two examples of spec 12 and the "Ranges" section the loader's warnings point to), `engines/scumm/HIRES_TEXT.md`,
+  the two examples of spec 12, the "Ranges" section the loader's warnings point to, and a "Presets" section for the
+  render-target qualifiers of spec 3.4 and the "Hi-res text screen" popup of spec 11.1), `engines/scumm/HIRES_TEXT.md`,
   `engines/scumm/HIRES_TEXT_SETUP.md`, `engines/scumm/HIRES_TEXT_DECORATIONS.md`,
   `dists/engine-data/hires_text/fonts/FONTS.md`, `docs/superpowers/specs/2026-09-28-scummvm-dos-sdl3-design.md` (the
   `dos_truecolor` mentions -> `render_target`)
@@ -2308,13 +2943,19 @@ for top in ("dos-m1", "dos-m2", "dos-m5"):
                 print("DIFF", os.path.join(rel, f))
 PY
   ```
-  Expected: no `DIFF` for SCI (`dos-m1`, `dos-m2`). For `dos-m5` a `DIFF` is allowed only at points that draw
+  Expected: no `DIFF` for SCI (`dos-m1`, `dos-m2`) - for the L runs too: the L presets now come from the merged
+  `<X>KO.MAP` with `render_target=clut8` instead of `<X>KOL.MAP`, and must draw the same pixels (Task 14 Step 4c showed
+  the plans equal; this shows the screens equal). For `dos-m5` a `DIFF` is allowed only at points that draw
   `0x5e`/`0x5c`/`0x60` in MI1/MI2 (the remapped glyphs now follow the range rules, spec 6.5 step 2) or a Hangul character
   missing from an SVF (now the box, spec 6.4); render each differing `_out` pair to PNG and look at both. Anything else
   is a regression. If `runs/unify-base/DISTS_COMMIT` differs from the current commit of `dists/engine-data/hires_text/dos`,
   list which games' fonts changed and exclude those from this comparison with a note.
 - [ ] **Step 6: Controller visual check**: one U and one L window capture per emulator from Step 3 (KQ1 L) and Step 4
   (mi2ko B, mi2kol A): Korean text present, no tofu, no black window.
+- [ ] **Step 6b: The presets come from one map.** In each L run's log (Steps 3-4): `DOS: mode 640x400 CLUT8` and the
+  `-d1` face lines naming the L fonts (`KO2350.SVF`, `M2L*.SVF`, `M1L*.SVF`, `CAMOUL.SVF`); in each U run's log the U
+  fonts and a 16/32-bit mode; every run's `hires_text_map` is a `<X>KO.MAP` (`grep -h hires_text_map` over the run
+  inis prints no `KOU`/`KOL`).
 - [ ] **Step 7: Ledger** - append the counts, PASS lines and any allowed differences to
   `.superpowers/sdd/<this plan's folder>/progress.md` (the controller names the folder).
 
@@ -2327,10 +2968,11 @@ PY
 - [ ] **Step 1:** `harness/dos/release/build_scumm.py` (MI1, MI2), `harness/dos/release/repack_sci.py` (engine, KQ1,
   LB1, Camelot), `harness/dos/release/build_sci_lb2.py` (LB2), invoked as their `--help` and the last run
   (`.superpowers/sdd/2026-09-29-dos-m5-scumm/repack-report.md`) describe, with the Task 17 EXEs. Every zip's
-  `SCUMMVM.INI`/`EXAMPLE.INI`/`README.TXT` carry the new keys; every `DATA/*.MAP` is the `dists/` version-2 file.
-- [ ] **Step 2:** `unzip -t` each; `harness/dos/release/verify_scumm.sh` on the SCUMM zips; `unzip -p <zip> '*SCUMMVM.INI' | grep -E "dos_truecolor|rgb_rendering|hires_text_alpha"` prints nothing for every zip.
+  `SCUMMVM.INI`/`EXAMPLE.INI`/`README.TXT` carry the new keys; every `DATA/*.MAP` is the `dists/` version-2 file - one
+  `<X>KO.MAP` per game, used by the U and the L targets; the BATs keep their names.
+- [ ] **Step 2:** `unzip -t` each; `harness/dos/release/verify_scumm.sh` on the SCUMM zips; `unzip -p <zip> '*SCUMMVM.INI' | grep -E "dos_truecolor|rgb_rendering|hires_text_alpha|KO[UL]\.MAP"` prints nothing for every zip, and `unzip -l <zip> | grep -E "KO[UL]\.MAP"` prints nothing.
 - [ ] **Step 3:** Smoke from the unpacked packages (not `dist/dos`), DOSBox-X: MI2 U (`mi2ko`) difficulty card, LB1 U
-  one dialogue line, KQ1 L title. Look at each capture.
+  one dialogue line, KQ1 L title (through its unchanged BAT: the same map, `render_target=clut8`). Look at each capture.
 - [ ] **Step 4:** Record names, sizes, sha256 in the ledger. Old zips stay.
 
 ---
@@ -2362,7 +3004,7 @@ Spec 7.2. Shared quantiser + both engines.
   level 0 -> `under`, top level -> `text`, a mid level between black (0) and white (15) in a 16-grey palette -> the
   nearest grey; the cache is invalidated by `setPalette`; levels = 4 for 2 bpp, 8 for 8 bpp.
 - [ ] **Step 2-4:** implement; wire both engines; remove the "on with clut8" warning.
-- [ ] **Step 5:** MI2 L map with `blend=on` on DOS: loops/s in the scrolled room (`progress.md` Task 12 method) stays
+- [ ] **Step 5:** MI2 (`M2KO.MAP`, `render_target=clut8`, `hires_text_blend=on`) on DOS: loops/s in the scrolled room (`progress.md` Task 12 method) stays
   within 10% of `blend=off`; M5 PASS unchanged for the shipped maps (they do not set `on`).
 - [ ] **Step 6: Commit** `GRAPHICS: Palette-matched anti-aliasing for hi-res text on paletted screens`.
 
