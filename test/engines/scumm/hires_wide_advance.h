@@ -4,6 +4,7 @@
 #include "common/fs.h"
 #include "common/memstream.h"
 #include "graphics/hires_text/font_map.h"
+#include "graphics/hires_text/glyph_source.h"
 
 #include "engines/scumm/hires_overlay.h"
 #include "engines/scumm/hires_text.h"
@@ -22,6 +23,32 @@ class ScummHiResWideAdvanceTestSuite : public CxxTest::TestSuite {
 
 	bool open(Scumm::ScummHiResText &hr, Scumm::HiResOverlay &overlay, const char *body) {
 		return ScummHiResFixture::open(hr, overlay, body);
+	}
+
+	/// A Unicode::isWide() code point this id's own TrueType face actually
+	/// has a real glyph for - DejaVuSans has broad symbol coverage but no
+	/// Hangul or Han, so the fixed 0xAC00 many other tests in this file use
+	/// (which only ever exercises DejaVuSans's .notdef/missing-glyph
+	/// fallback, not a real one) will not do for a test that needs to
+	/// measure a real glyph's own ink at two different sizes. Returns 0 if
+	/// none of the candidates are covered.
+	static uint32 findRealWideGlyph(Scumm::ScummHiResText &hr, int id) {
+		static const uint32 kCandidates[] = {
+			0xFF21, 0xFF41, 0xFF10, 0xFF01, 0xFF08, 0xFF09, 0x300C, 0x300D, 0x3001, 0x3002,
+		};
+		for (uint i = 0; i < ARRAYSIZE(kCandidates); ++i) {
+			uint32 cp = kCandidates[i];
+			Graphics::UnicodeGlyphSource *src = hr.perGlyphSourceFor(id, cp);
+			if (!src || src->cells(cp) <= 0)
+				continue;
+			Graphics::GlyphMetrics m;
+			if (!src->metrics(cp, m) || !m.wide)
+				continue;
+			if (m.width <= 0 || m.height <= 0)
+				continue; // no ink to measure (e.g. a blank/space glyph)
+			return kCandidates[i];
+		}
+		return 0;
 	}
 
 public:
@@ -127,6 +154,50 @@ public:
 		hr.setCharsetGrid(2, 16, 16);
 		TS_ASSERT(hr.loadFonts(Common::Path()));
 		TS_ASSERT_EQUALS(hr.advanceFor(0xAC00, 2, 16), 16);
+#else
+		TS_SKIP("needs FreeType");
+#endif
+	}
+
+	/// M4: the wide-glyph clip to ttfCellWidth() only applies to a face
+	/// opened line-fit (sized to the game's own cell); a face given an
+	/// explicit size= draws and advances at its own size, uncapped, even
+	/// on a tiny 8 px game charset (the old test_font_n_is_charset_id
+	/// configuration).
+	void test_line_fit_gates_the_wide_glyph_clip() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		const char *ttf = systemTtf();
+		if (!ttf) {
+			TS_SKIP("needs a TrueType face");
+			return;
+		}
+		int adv[2];
+		uint32 wide = 0;
+		for (int pass = 0; pass < 2; ++pass) {
+			Scumm::HiResOverlay overlay;
+			overlay.create(64, 40, true);
+			Scumm::ScummHiResText hr;
+			const Common::String body = pass == 0
+				? Common::String::format("[font.2]\nface=%s\nadvance=font\n", ttf)
+				: Common::String::format("[font.2]\nface=%s\nsize=24\nadvance=font\n", ttf);
+			TS_ASSERT(open(hr, overlay, body.c_str()));
+			hr.noteGameCharset(2, 8, 8);
+			hr.setCharsetGrid(2, 8, 8);
+			TS_ASSERT(hr.loadFonts(Common::Path()));
+			if (pass == 0) {
+				wide = findRealWideGlyph(hr, 2);
+				if (!wide) {
+					TS_SKIP("the available TrueType face has no real wide glyph to measure");
+					return;
+				}
+			}
+			adv[pass] = hr.advanceFor(wide, 2, 8);
+		}
+		// Line-fit (pass 0, no size=): the face is sized to the tiny 8 px
+		// game cell, so its own ink reach is small too. size=24 (pass 1,
+		// lineFit false): a much bigger face at its own size is not capped
+		// down to that cell - its advance is larger, not merely different.
+		TS_ASSERT_LESS_THAN(adv[0], adv[1]);
 #else
 		TS_SKIP("needs FreeType");
 #endif
