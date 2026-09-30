@@ -46,7 +46,7 @@ public:
 		TS_ASSERT_EQUALS(v.entries.size(), 2u);
 		TS_ASSERT(v.endsInOriginal());
 		TS_ASSERT_EQUALS(w.size(), 1u);
-		TS_ASSERT_EQUALS(w[0], "hires_text.map: entries after 'original' are ignored: 'ko'");
+		TS_ASSERT_EQUALS(w[0], "HIRESTXT.MAP: entries after 'original' are ignored: 'ko'");
 	}
 
 	void test_unknown_name_dropped() {
@@ -54,7 +54,7 @@ public:
 		Common::Array<Common::String> w;
 		TS_ASSERT(!value("nosuchface", v, w));
 		TS_ASSERT(v.empty());
-		TS_ASSERT_EQUALS(w[0], "hires_text.map: unknown face name 'nosuchface'");
+		TS_ASSERT_EQUALS(w[0], "HIRESTXT.MAP: unknown face name 'nosuchface'");
 	}
 
 	void test_face_name_grammar() {
