@@ -171,6 +171,82 @@ public:
 		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cpHangul));
 	}
 
+	/// [font] face=original (design 6.5 step 3, map-wide - not a per-id
+	/// [font.N]): every charset is the game's own to draw, not only the one
+	/// under test. Uses openMap() directly (a single, self-contained [font]
+	/// section) rather than open()'s body-appended-after-a-default-[font]
+	/// form, which the id-section tests below need for the same reason.
+	void test_map_wide_face_original_declines_every_charset() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(ScummHiResFixture::openMap(hr, overlay,
+			"[map]\nversion=2\n[render]\nblend=off\n[font]\nface=original\n"));
+		uint32 cpCs = 'A';
+		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cpCs));
+		uint32 cpOther = 'A';
+		TS_ASSERT(!hr.perGlyphSourceFor(kOtherCs, cpOther));
+	}
+
+	/// A [font.N] face=<path> always wins over a map-wide face=original for
+	/// that one id - the per-id value overrides the map-wide default, same
+	/// as any other key; a sibling id with no [font.N] section of its own
+	/// still inherits the map-wide original.
+	void test_font_n_face_path_overrides_map_wide_original() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(ScummHiResFixture::openMap(hr, overlay,
+			"[map]\nversion=2\n[render]\nblend=off\n[font]\nface=original\n[font.4]\nface=OWN.SVF\n"));
+		Common::Array<uint32> own;
+		own.push_back('A');
+		TS_ASSERT(add(hr, "/tmp/t/OWN.SVF", own));
+
+		uint32 cpCs = 'A';
+		TS_ASSERT_EQUALS(hr.perGlyphSourceFor(kCs, cpCs), hr.sourceForFace("/tmp/t/OWN.SVF"));
+		// kOtherCs names no [font.N] section: the map-wide original applies.
+		uint32 cpOther = 'A';
+		TS_ASSERT(!hr.perGlyphSourceFor(kOtherCs, cpOther));
+	}
+
+	/// face=original declines the id outright, even for a code point a
+	/// [glyphs] rule remaps to: the remap does not get a second chance to
+	/// override the id-wide decline.
+	void test_original_beats_glyph_remap() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(open(hr, overlay, "[font.4]\nface=original\n[glyphs.4]\n0x41=u+0042\n"));
+		// Even asked for directly by the remapped code point, it is declined.
+		uint32 cp = 'B';
+		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cp));
+		uint32 cpA = 'A';
+		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cpA));
+	}
+
+	/// face=original never borrows a neighbouring id's chain, even when a
+	/// donor is actually present and would otherwise be found - unlike a
+	/// truly empty id chain (test_same_borrows_the_nearest_charset_when_this_one_has_none),
+	/// `original` is a deliberate "always the game's own" and B6's
+	/// borrow-retry is guarded against it explicitly.
+	void test_original_never_borrows_even_with_a_donor_present() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		// kOtherCs (0) is the donor with a real face; kCs (4) explicitly
+		// declines everything.
+		TS_ASSERT(open(hr, overlay, "[font.0]\nface=OWN0.SVF\n[font.4]\nface=original\n"));
+		Common::Array<uint32> own0;
+		own0.push_back('A');
+		TS_ASSERT(add(hr, "/tmp/t/OWN0.SVF", own0));
+
+		uint32 cpDonor = 'A';
+		TS_ASSERT(hr.perGlyphSourceFor(kOtherCs, cpDonor));   // the donor itself still draws
+
+		uint32 cpOriginal = 'A';
+		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cpOriginal));    // original never borrows it
+	}
+
 	/// SVF through face= opens as a bitmap font (was bitmap=).
 	void test_svf_through_face_opens_as_a_bitmap_font() {
 		Scumm::HiResOverlay overlay;
