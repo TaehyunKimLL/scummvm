@@ -31,6 +31,7 @@
 
 #include "scumm/resource.h"
 #include "scumm/scumm.h"
+#include "scumm/hires_palette_users.h"
 #include "scumm/scumm_v6.h"
 #include "scumm/scumm_v8.h"
 #include "scumm/util.h"
@@ -1782,17 +1783,18 @@ void ScummEngine::updatePalette() {
 	// reasons - typically the subtitle line, which makes it look as though
 	// the background broke rather than the palette handling.
 	if (_hiResText.alphaActive()) {
+		uint32 before[256];
+		memcpy(before, _hiResText.paletteCache(), sizeof(before));
 		_hiResText.updatePaletteCache(_system->getScreenFormat(), paletteColors, first, num);
 
 		// The cursor is still drawn from palette indices, so it needs the
 		// colours the backend is no longer being given.
 		CursorMan.replaceCursorPalette(_hiResText.paletteRGB(), 0, 256);
 
-		for (int i = 0; i < 3; ++i) {
-			VirtScreen *vs = &_virtscr[i];
-			if (vs->h)
-				markRectAsDirty((VirtScreenNumber)i, Common::Rect(vs->w, vs->h));
-		}
+		// Only what is drawn with an entry that changed, though: a room
+		// that cycles a few colours would otherwise recomposite the whole
+		// true-colour screen at every step (hires_palette_users.h).
+		markPaletteUsersDirty(before);
 
 		if (_macGui)
 			_macGui->setPaletteDirty();
@@ -1803,6 +1805,63 @@ void ScummEngine::updatePalette() {
 
 	if (_macGui)
 		_macGui->setPaletteDirty();
+}
+
+void ScummEngine::markPaletteUsersDirty(const uint32 *before) {
+	const uint32 *after = _hiResText.paletteCache();
+	bool changed[256];
+	bool any = false;
+	for (int i = 0; i < 256; ++i) {
+		changed[i] = before[i] != after[i];
+		any = any || changed[i];
+	}
+	if (!any)
+		return;
+
+	// The whole screen where a strip's colours are not simply its indices
+	// resolved: v1's recoloured text screen (hiResTextColorMap()) and the
+	// Mac screens.
+	const bool whole = _game.version == 1 || _macScreen;
+
+	const int m = MAX(_textSurfaceMultiplier, 1);
+	const Graphics::Surface *underIdx = _overlay.underIndex();
+	const Graphics::Surface *underCov = _overlay.underCoverage();
+	for (int i = 0; i < 3; ++i) {
+		VirtScreen *vs = &_virtscr[i];
+		if (!vs->h)
+			continue;
+		if (whole || !vs->Graphics::Surface::getPixels() || vs->format.bytesPerPixel != 1) {
+			markRectAsDirty((VirtScreenNumber)i, Common::Rect(vs->w, vs->h));
+			continue;
+		}
+
+		// The rows drawStripToScreen() shows, and where they sit in the
+		// text planes.
+		const int rowTop = MAX<int>(0, _screenTop);
+		int rowBottom = MIN<int>(vs->h, _screenTop + _screenHeight);
+		const int planeTop = vs->topline + rowTop - _screenTop;
+		if (planeTop < 0) {
+			markRectAsDirty((VirtScreenNumber)i, Common::Rect(vs->w, vs->h));
+			continue;
+		}
+		rowBottom = MIN<int>(rowBottom, rowTop + _textSurface.h / m - planeTop);
+		const int width = MIN<int>(vs->w, MIN<int>(_gdi->_numStrips * 8, _textSurface.w / m));
+		if (rowBottom <= rowTop || width <= 0)
+			continue;
+
+		int top[80 + 1], bottom[80 + 1];
+		const bool withUnder = underIdx && underCov;
+		findPaletteUsers(vs->getPixels(0, rowTop), vs->pitch,
+						 (const byte *)_textSurface.getBasePtr(0, planeTop * m), _textSurface.pitch,
+						 withUnder ? (const byte *)underIdx->getBasePtr(0, planeTop * m) : nullptr,
+						 withUnder ? (const byte *)underCov->getBasePtr(0, planeTop * m) : nullptr,
+						 withUnder ? underCov->pitch : 0,
+						 width, rowBottom - rowTop, m, changed, top, bottom);
+		for (int s = 0; s < (width + 7) / 8; ++s) {
+			if (top[s] < bottom[s])
+				markRectAsDirty((VirtScreenNumber)i, s * 8, s * 8 + 7, rowTop + top[s], rowTop + bottom[s]);
+		}
+	}
 }
 
 } // End of namespace Scumm
