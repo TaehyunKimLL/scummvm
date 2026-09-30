@@ -1,0 +1,17 @@
+# MI2 (korean.trs), U preset: 2 bpp, alpha=true in M2KOU.MAP.
+# Fields: output 8.3 name, SCUMM charset, TTF, size, bpp, ascent.
+# Dialogue, verbs, sentence line (charsets 0-3, 5, 6): NanumGothic-Bold.
+# Title/difficulty cards and credits (charsets 4, 7, 8): GowunBatang-Bold.
+# Size and ascent are what mkfont.py --fit-cell picks for the charset's cell over the
+# korean.trs text (the U rows of m5_sheets.py, +0 variant, which never clips):
+#   Nanum 22x24 -> 21/19, 16x16 -> 15/14, 18x18 -> 16/15;
+#   Gowun 26x24 -> 23/21, 24x24 -> 23/21, 16x16 -> 14/13.
+# Charsets 3 and 5 share charset 1's 16x16 Nanum file (M2U1.SVF). Charset 6 (the verb line,
+# 22x24) has no korean06.fnt in the game; the map points it at M2U0.SVF (22x24, charset 0).
+# TTF paths are absolute: edit them if the fonts live elsewhere.
+M2U0.SVF	0	/home/thkim/scummvm-i18n/fonts/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	21	2	19
+M2U1.SVF	1	/home/thkim/scummvm-i18n/fonts/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	15	2	14
+M2U2.SVF	2	/home/thkim/scummvm-i18n/fonts/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	16	2	15
+M2U4.SVF	4	/home/thkim/scummvm-i18n/fonts/styled/gowunbatang/GowunBatang-Bold.ttf	23	2	21
+M2U7.SVF	7	/home/thkim/scummvm-i18n/fonts/styled/gowunbatang/GowunBatang-Bold.ttf	23	2	21
+M2U8.SVF	8	/home/thkim/scummvm-i18n/fonts/styled/gowunbatang/GowunBatang-Bold.ttf	14	2	13

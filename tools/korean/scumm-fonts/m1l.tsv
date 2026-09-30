@@ -1,0 +1,14 @@
+# MI1 (DUMB Korean VGA patch), L preset: 1 bpp, every charset (dialogue, sentence/verbs, card)
+# in one pixel face at its 16 px design size, alpha=false in M1KOL.MAP.
+# Fields: output 8.3 name, SCUMM charset, TTF, size, bpp, ascent.
+# The cell is the charset's korean<NN>.fnt header doubled (bake-scumm-fonts.sh).
+# Size rule (m5_sheets.py, pixel rows): min(cell w, cell h) // 16 * 16 = 16 for every cell here;
+# a cell taller than 16 puts the 16 px face in the middle: ascent = 12 (the face's own ascent
+# at a 16 px cell) + (cell height - 16) / 2.
+# Charset 3 has the same 16x16 cell as charset 1, so one file serves both (M1KOL.MAP points
+# both at M1L1.SVF); no korean05/06.fnt exists in this patch.
+# TTF paths are absolute: edit them if the fonts live elsewhere.
+M1L0.SVF	0	/home/thkim/scummvm-i18n/fonts/pixel/neodgm/neodgm.ttf	16	1	16
+M1L1.SVF	1	/home/thkim/scummvm-i18n/fonts/pixel/neodgm/neodgm.ttf	16	1	-
+M1L2.SVF	2	/home/thkim/scummvm-i18n/fonts/pixel/neodgm/neodgm.ttf	16	1	13
+M1L4.SVF	4	/home/thkim/scummvm-i18n/fonts/pixel/neodgm/neodgm.ttf	16	1	16

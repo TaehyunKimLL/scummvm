@@ -1,0 +1,15 @@
+# MI2 (korean.trs), L preset: 1 bpp, every charset in one pixel face at its 16 px design size,
+# alpha=false in M2KOL.MAP.
+# Fields: output 8.3 name, SCUMM charset, TTF, size, bpp, ascent.
+# The cell is the charset's korean<NN>.fnt header doubled (bake-scumm-fonts.sh).
+# Size rule (m5_sheets.py, pixel rows): 16 for every cell; a cell taller than 16 puts the
+# face in the middle: ascent = 12 + (cell height - 16) / 2.
+# Charsets 3, 5 and 8 have the same 16x16 cell as charset 1 (one file, M2L1.SVF, in the map).
+# Charset 6 (the verb line, 22x24) has no korean06.fnt in the game, so it cannot be a row here;
+# the map points it at M2L0.SVF, the 22x24 charset 0 file.
+# TTF paths are absolute: edit them if the fonts live elsewhere.
+M2L0.SVF	0	/home/thkim/scummvm-i18n/fonts/pixel/neodgm/neodgm.ttf	16	1	16
+M2L1.SVF	1	/home/thkim/scummvm-i18n/fonts/pixel/neodgm/neodgm.ttf	16	1	-
+M2L2.SVF	2	/home/thkim/scummvm-i18n/fonts/pixel/neodgm/neodgm.ttf	16	1	13
+M2L4.SVF	4	/home/thkim/scummvm-i18n/fonts/pixel/neodgm/neodgm.ttf	16	1	16
+M2L7.SVF	7	/home/thkim/scummvm-i18n/fonts/pixel/neodgm/neodgm.ttf	16	1	16
