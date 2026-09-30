@@ -32,4 +32,20 @@ int latinAdvanceGamePx(Graphics::HiResMetricsSource metrics, int gameWidth, int 
 	return MAX(1, (2 * ttfAdvanceHires + scale) / (2 * scale));
 }
 
+int advanceGamePx(HiResAdvance advance, int gameWidth, int faceAdvanceHires, int scale) {
+	switch (advance) {
+	case kHiResAdvanceGame:
+		return gameWidth;
+	case kHiResAdvanceFont:
+		if (faceAdvanceHires <= 0 || scale <= 0)
+			return gameWidth;
+		// round(a / s), half up, in integers: (2a + s) / 2s.
+		return MAX(1, (2 * faceAdvanceHires + scale) / (2 * scale));
+	case kHiResAdvanceCell:
+	case kHiResAdvanceEngine:
+	default:
+		return -1;
+	}
+}
+
 } // End of namespace Graphics

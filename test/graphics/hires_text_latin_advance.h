@@ -63,4 +63,19 @@ public:
 		for (int w = 1; w <= 16; w++)
 			TS_ASSERT_EQUALS(latinAdvanceGamePx(Graphics::kHiResMetricsGame, w, 0, 2), w);
 	}
+
+	// This is a tautology (advanceGamePx and latinAdvanceGamePx compute the
+	// game/font cases the same way) until Task 13 deletes latinAdvanceGamePx()
+	// and rewrites this test to fixed expected values (M12).
+	void test_advance_game_px_matches_the_old_metrics() {
+		for (int w = 0; w < 12; ++w)
+			for (int a = -1; a < 30; ++a) {
+				TS_ASSERT_EQUALS(Graphics::advanceGamePx(Graphics::kHiResAdvanceGame, w, a, 2),
+								 Graphics::latinAdvanceGamePx(Graphics::kHiResMetricsGame, w, a, 2));
+				TS_ASSERT_EQUALS(Graphics::advanceGamePx(Graphics::kHiResAdvanceFont, w, a, 2),
+								 Graphics::latinAdvanceGamePx(Graphics::kHiResMetricsFont, w, a, 2));
+			}
+		TS_ASSERT_EQUALS(Graphics::advanceGamePx(Graphics::kHiResAdvanceCell, 8, 20, 2), -1);
+		TS_ASSERT_EQUALS(Graphics::advanceGamePx(Graphics::kHiResAdvanceEngine, 8, 20, 2), -1);
+	}
 };
