@@ -158,4 +158,114 @@ public:
 		load("[font]\nface=KO.SVF\nrange.basic-latin=original\n");
 		TS_ASSERT_DIFFERS(a, plan(0).hash());
 	}
+
+	// F1: an embedded `same` (one entry among several) has no meaning under
+	// any of design 5.2's three bullets (those only cover a bare `same`),
+	// so it is dropped with a warning (10.2's default for "same where it
+	// has no meaning"), not silently combined away.
+	void test_embedded_same_in_face_value_warns_and_is_dropped() {
+		load("[font]\nface=KO.SVF\n[font.4]\nface=A.SVF, same, B.SVF\n");
+		Common::Array<Common::String> w;
+		const Graphics::HiResIdPlan p = Graphics::compileIdPlan(_map, true, 4, Graphics::HiResIniOverrides(), _engine,
+																 Common::Path("/maps", '/'), Common::Path("/games/g", '/'), w);
+		const Graphics::HiResFaceChain *c = p.chainFor(0xAC00);
+		TS_ASSERT_EQUALS(c->faces.size(), 2u);
+		TS_ASSERT_EQUALS(c->faces[0].path.toString('/'), "/maps/A.SVF");
+		TS_ASSERT_EQUALS(c->faces[1].path.toString('/'), "/maps/B.SVF");
+		bool found = false;
+		for (uint i = 0; i < w.size(); ++i)
+			if (w[i] == "HIRESTXT.MAP: [font.4] face=same has no meaning here; ignoring it")
+				found = true;
+		TS_ASSERT(found);
+
+		// Same shape, from the ini: warned with the ini's own wording.
+		Graphics::HiResIniOverrides ini;
+		ini.faceSet = true;
+		ini.face = "A.SVF, same, B.SVF";
+		Common::Array<Common::String> w2;
+		const Graphics::HiResIdPlan p2 = Graphics::compileIdPlan(_map, true, 4, ini, _engine,
+																  Common::Path("/maps", '/'), Common::Path("/games/g", '/'), w2);
+		const Graphics::HiResFaceChain *c2 = p2.chainFor(0xAC00);
+		TS_ASSERT_EQUALS(c2->faces.size(), 2u);
+		TS_ASSERT_EQUALS(c2->faces[0].path.toString('/'), "/games/g/A.SVF");
+		TS_ASSERT_EQUALS(c2->faces[1].path.toString('/'), "/games/g/B.SVF");
+		bool found2 = false;
+		for (uint i = 0; i < w2.size(); ++i)
+			if (w2[i] == "hires_text_face=same has no meaning; ignoring it")
+				found2 = true;
+		TS_ASSERT(found2);
+	}
+
+	// F3: mapLoaded=false makes every map-sourced key behave as if the map
+	// were empty; the ini and the engine scope still apply.
+	void test_map_loaded_false_ignores_the_map_but_keeps_ini_and_engine() {
+		load("[font]\nface=KO.SVF\n");
+
+		Common::Array<Common::String> w;
+		const Graphics::HiResIdPlan noMap = Graphics::compileIdPlan(_map, false, 0, Graphics::HiResIniOverrides(),
+																	 _engine, Common::Path("/maps", '/'),
+																	 Common::Path("/games/g", '/'), w);
+		// The map's KO.SVF is ignored; the engine's basic-latin=same then
+		// expands to an id chain that is empty, so there is no face at all.
+		TS_ASSERT_EQUALS(noMap.chainFor('A'), (const Graphics::HiResFaceChain *)nullptr);
+		TS_ASSERT_EQUALS(noMap.chainFor(0xAC00), (const Graphics::HiResFaceChain *)nullptr);
+
+		Graphics::HiResIniOverrides ini;
+		ini.faceSet = true;
+		ini.face = "C.TTF";
+		Common::Array<Common::String> w2;
+		const Graphics::HiResIdPlan withIni = Graphics::compileIdPlan(_map, false, 0, ini, _engine,
+																	   Common::Path("/maps", '/'),
+																	   Common::Path("/games/g", '/'), w2);
+		TS_ASSERT_EQUALS(first(withIni.chainFor('A')), "/games/g/C.TTF");
+	}
+
+	// F4: a rule value's `same` composed at the very end, on an id chain
+	// that itself ends in `original` after a real face, propagates the id
+	// chain's own endsInOriginal onto the composed chain (design 6.5 step
+	// 4: with a `same` present, no extra implicit append happens, so the
+	// value's own literal composition - `same` spliced in place - decides).
+	void test_same_last_in_rule_value_inherits_id_chains_ends_in_original() {
+		load("[font]\nface=KO.SVF, original\n[font.4]\nrange.U+2026=X.SVF, same\n");
+		const Graphics::HiResIdPlan p = plan(4);
+		const Graphics::HiResFaceChain *c = p.chainFor(0x2026);
+		TS_ASSERT(c);
+		TS_ASSERT_EQUALS(c->faces.size(), 2u);
+		TS_ASSERT_EQUALS(c->faces[0].path.toString('/'), "/maps/X.SVF");
+		TS_ASSERT_EQUALS(c->faces[1].path.toString('/'), "/maps/KO.SVF");
+		TS_ASSERT(c->endsInOriginal);
+	}
+
+	// F6: hash() regression coverage beyond a single range-rule change.
+	void test_hash_covers_every_field() {
+		load("[font]\nface=KO.SVF\n");
+		const uint32 base = plan(0).hash();
+
+		load("[font]\nface=KO.SVF\n[font.0]\nface=original\n");
+		TS_ASSERT_DIFFERS(base, plan(0).hash());
+
+		load("[font]\nface=KO.SVF\n");
+		Graphics::HiResIniOverrides forced;
+		forced.advanceSet = true;
+		forced.advance = Graphics::kHiResAdvanceFont;
+		TS_ASSERT_DIFFERS(base, plan(0, forced).hash());
+
+		load("[font]\nface=KO.SVF\nadvance=font\n");
+		TS_ASSERT_DIFFERS(base, plan(0).hash());
+
+		load("[font]\nface=KO.SVF\norigin=face\n");
+		TS_ASSERT_DIFFERS(base, plan(0).hash());
+
+		load("[font]\nface=KO.SVF\nmirror=horizontal\n");
+		TS_ASSERT_DIFFERS(base, plan(0).hash());
+
+		load("[font]\nface=KO.SVF\nsize=20\n");
+		TS_ASSERT_DIFFERS(base, plan(0).hash());
+
+		load("[font]\nface=KO.SVF\n[glyphs]\n0x41=u+0042\n");
+		TS_ASSERT_DIFFERS(base, plan(0).hash());
+
+		load("[fonts]\nsym=SYM.SVF\n[font]\nface=KO.SVF\n[glyphs]\n0x41=sym:u+2620\n");
+		TS_ASSERT_DIFFERS(base, plan(0).hash());
+	}
 };

@@ -259,12 +259,9 @@ uint32 HiResIdPlan::hash() const {
 		mixFace(h, rule.face);
 	}
 
-	mixU32(h, (uint32)targets.size());
-	for (uint i = 0; i < targets.size(); ++i) {
-		mixFace(h, targets[i].face);
-		mixU32(h, targets[i].cp);
-	}
-
+	// `targets` is entirely derived from `glyphs` (a sorted view of its
+	// Target/TargetOffset entries, by code, kind, value and face), already
+	// hashed above; hashing it again would be redundant, not more coverage.
 	return h;
 }
 
@@ -286,6 +283,7 @@ HiResIdPlan compileIdPlan(const HiResMap &map, bool mapLoaded, int id, const HiR
 	HiResFontValue resolvedFace;
 	bool haveFace = false;
 	bool faceFromIni = false;
+	Common::String faceSourceLabel; // map-sourced embedded `same` warning context
 
 	if (ini.faceSet) {
 		if (ini.face.equalsIgnoreCase("same")) {
@@ -306,10 +304,12 @@ HiResIdPlan compileIdPlan(const HiResMap &map, bool mapLoaded, int id, const HiR
 	if (!haveFace && idScopePtr && idScope.faceSet) {
 		resolvedFace = idScope.face;
 		haveFace = true;
+		faceSourceLabel = Common::String::format("[font.%d]", id);
 	}
 	if (!haveFace && fontScope.faceSet) {
 		resolvedFace = fontScope.face;
 		haveFace = true;
+		faceSourceLabel = "[font]";
 	}
 
 	const bool resolvedIsOriginal = haveFace && resolvedFace.entries.size() == 1 &&
@@ -317,11 +317,23 @@ HiResIdPlan compileIdPlan(const HiResMap &map, bool mapLoaded, int id, const HiR
 	plan.original = resolvedIsOriginal;
 	const bool iniOriginal = resolvedIsOriginal && faceFromIni;
 
+	// design 10.2: "same" is only meaningful as the entire face value (5.2's
+	// inherit/warning bullets, already handled above and by Task 4's
+	// loader); one entry among several has no meaning here and is dropped
+	// with a warning rather than silently combining the real entries around
+	// it.
 	for (uint i = 0; i < resolvedFace.entries.size(); ++i) {
-		if (resolvedFace.entries[i].kind == kHiResFaceFile)
-			plan.idChain.faces.push_back(resolvedFace.entries[i]);
-		// kHiResFaceSame has nothing left to expand into at the id-chain
-		// level itself, and kHiResFaceOriginal carries no face.
+		const HiResFaceEntry &e = resolvedFace.entries[i];
+		if (e.kind == kHiResFaceFile) {
+			plan.idChain.faces.push_back(e);
+		} else if (e.kind == kHiResFaceSame) {
+			if (faceFromIni)
+				warnings.push_back("hires_text_face=same has no meaning; ignoring it");
+			else
+				warnings.push_back(Common::String::format(
+					"HIRESTXT.MAP: %s face=same has no meaning here; ignoring it", faceSourceLabel.c_str()));
+		}
+		// kHiResFaceOriginal carries no face of its own.
 	}
 	plan.idChain.endsInOriginal = resolvedFace.endsInOriginal();
 
