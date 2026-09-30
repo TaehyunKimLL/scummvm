@@ -42,6 +42,9 @@ bitmap=M2U8.SVF
 [latin]
 mode=proportional
 metrics=font
+# The card fonts (charsets 4, 7, 8) are trimmed: '.' and ',' carry a game offsY of 9 in a
+# 15 px cell. The baked SVF already sets the baseline, so drop the game's offsets.
+baseline=face
 
 # MI2's own pictograms: the skull bullet at 0x07 and the ellipsis at 0x5e; the Korean
 # patch draws '!' at 0x5c and a quote mark at 0x60 from its own charset.
