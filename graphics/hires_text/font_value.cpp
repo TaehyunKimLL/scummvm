@@ -176,7 +176,7 @@ bool parseFontValue(const Common::String &text, const HiResFaceNames &names,
 					if (face.kind == kHiResFaceOriginal)
 						endedInOriginal = true;
 				} else {
-					warnings.push_back(Common::String::format("hires_text.map: unknown face name '%s'", entry.c_str()));
+					warnings.push_back(Common::String::format("HIRESTXT.MAP: unknown face name '%s'", entry.c_str()));
 				}
 			}
 		}
@@ -195,7 +195,7 @@ bool parseFontValue(const Common::String &text, const HiResFaceNames &names,
 			joined += droppedAfterOriginal[i];
 			joined += "'";
 		}
-		warnings.push_back("hires_text.map: entries after 'original' are ignored: " + joined);
+		warnings.push_back("HIRESTXT.MAP: entries after 'original' are ignored: " + joined);
 	}
 
 	return !out.entries.empty();

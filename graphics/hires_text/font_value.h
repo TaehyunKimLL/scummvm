@@ -112,9 +112,9 @@ bool parseCodePointValue(const Common::String &text, uint32 &out);
  * map's folder for a map key, the game folder for an ini key, section 4).
  *
  * An entry that is none of these is dropped with one warning
- * (`"hires_text.map: unknown face name '<x>'"`); entries after `original`
+ * (`"HIRESTXT.MAP: unknown face name '<x>'"`); entries after `original`
  * are dropped with one warning naming them
- * (`"hires_text.map: entries after 'original' are ignored: '<x>', ..."`).
+ * (`"HIRESTXT.MAP: entries after 'original' are ignored: '<x>', ..."`).
  * Warnings are appended to @p warnings verbatim (design section 10.2's
  * wording); this function never calls warning() itself.
  *
@@ -153,7 +153,7 @@ struct HiResGlyphRule {
  *              chain"` when @p face would be a comma-separated chain;
  *              otherwise a short reason (original as a target face, an
  *              unknown face name, or a code point/offset that does not
- *              parse). Never prefixed with "hires_text.map:" - the caller
+ *              parse). Never prefixed with "HIRESTXT.MAP:" - the caller
  *              builds the full warning with the key's own context.
  * @return false on failure.
  */
