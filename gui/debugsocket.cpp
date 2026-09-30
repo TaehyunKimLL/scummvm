@@ -456,8 +456,9 @@ bool DebugSocket::busy() const {
 void DebugSocket::onFrame() {
 	if (_protocol.onFrame())
 		reply("OK");		// `wait frames <n>` ends on this frame
-	// A poll per call would be a read() syscall per SCI VM instruction;
-	// the interval keeps that to one per _pollInterval calls.
+	// A poll per call would be a read() syscall per onFrame() call (SCI
+	// makes one per VM instruction); the interval keeps that to one per
+	// _pollInterval calls.
 	if (++_sinceLastPoll < _pollInterval)
 		return;
 	_sinceLastPoll = 0;
