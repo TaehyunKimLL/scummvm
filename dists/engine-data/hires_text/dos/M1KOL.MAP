@@ -1,0 +1,40 @@
+# DOS L preset: Monkey Island 1 (mi1kor Korean patch), one 16 px 1 bpp face for every charset.
+# Monkey Island 1: M1L*.SVF baked from a pixel face, see tools/korean/scumm-fonts/m1l.tsv.
+# Cells per charset: cs0 22x24, cs1/cs3 16x16, cs2 18x18, cs4 26x24.
+# Charsets that share a cell share one SVF. Licences: see M12FONT.TXT beside this file.
+[hires]
+scale=2
+alpha=false
+missing=u+25a1
+
+[font.0]
+bitmap=M1L0.SVF
+
+[font.1]
+bitmap=M1L1.SVF
+
+[font.2]
+bitmap=M1L2.SVF
+
+[font.3]
+bitmap=M1L1.SVF
+
+[font.4]
+bitmap=M1L4.SVF
+
+[latin]
+mode=proportional
+metrics=font
+
+# Codes the game did not use for what the code page says (mi1kor/hires_text.map).
+[glyphs]
+0x5e = keep
+
+# Solid arrows in the 2bpp dialogue and card charsets; 0x5f is a real underscore elsewhere.
+[glyphs:cs2]
+0x5f = keep
+0x7f = keep
+
+[glyphs:cs4]
+0x5f = keep
+0x7f = keep
