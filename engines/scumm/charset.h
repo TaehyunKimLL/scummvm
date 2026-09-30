@@ -239,6 +239,27 @@ protected:
 	/// The y offset the charset's Latin line shares: that of 'x' (or 'a').
 	int latinLineOffsY() const;
 
+public:
+	/**
+	 * What printChar() leaves of the game glyph's offsets for a Latin glyph
+	 * the hi-res layer places itself: stepped by a TrueType face (@p faceStep:
+	 * no offsX, the charset's shared @p lineOffsY) or by the baseline rule of
+	 * a bitmap face (@p baselineFace, [latin] baseline=face: neither, the
+	 * baked baseline is the only placement). Neither: the game's stay. Inline,
+	 * as glyphOffset() is, so a unit test needs no engine to link.
+	 */
+	static void latinGlyphOffsets(bool faceStep, bool baselineFace, int lineOffsY, int &offsX, int &offsY) {
+		if (faceStep) {
+			offsX = 0;
+			offsY = lineOffsY;
+		} else if (baselineFace) {
+			offsX = 0;
+			offsY = 0;
+		}
+	}
+
+protected:
+
 	int _width, _height, _origWidth, _origHeight;
 	int _cjkSpacing;
 	int _offsX, _offsY;

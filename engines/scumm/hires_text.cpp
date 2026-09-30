@@ -371,6 +371,22 @@ bool ScummHiResText::addBitmapFont(int charsetId, bool latin, Common::SeekableRe
 		_cjkFaces[charsetId] = face;
 	}
 
+	// One line per face added, from a numbered set, a single file, a
+	// Latin companion or a [font.N] bitmap= alike.
+	const Graphics::HiResBitmapFont &bf = *face->bitmap;
+	if (latin) {
+		debug(1, "SCUMM: hi-res Latin font %d <- %s: %dx%d cell, %d bpp, %d glyphs, %s",
+			  charsetId, name.c_str(), bf.cellWidth(), bf.cellHeight(), bf.bpp(),
+			  bf.glyphCount(), bf.isProportional() ? "proportional" : "fixed width");
+	} else {
+		debug(1, "SCUMM: hi-res font %d <- %s: %dx%d cell, %d bpp, %d glyphs, "
+				 "%s, codepage %s%s",
+			  charsetId, name.c_str(), bf.cellWidth(), bf.cellHeight(), bf.bpp(),
+			  bf.glyphCount(), bf.isProportional() ? "proportional" : "fixed width",
+			  codePageName(bf.codePage()),
+			  bf.bpp() > 1 ? ", anti-aliased" : ", stencil");
+	}
+
 	_fontsLoaded = true;
 	return true;
 }
@@ -393,21 +409,6 @@ bool ScummHiResText::loadBitmapFile(const Common::Path &gameDir, const Common::S
 		return false;
 	}
 
-	const Face *face = (charsetId < 0) ? (latin ? _latinSingleFace : _singleFace)
-									   : (latin ? _latinFaces[charsetId] : _cjkFaces[charsetId]);
-	const Graphics::HiResBitmapFont &font = *face->bitmap;
-	if (latin) {
-		debug(1, "SCUMM: hi-res Latin font %d <- %s: %dx%d cell, %d bpp, %d glyphs, %s",
-			  charsetId, name.c_str(), font.cellWidth(), font.cellHeight(), font.bpp(),
-			  font.glyphCount(), font.isProportional() ? "proportional" : "fixed width");
-	} else {
-		debug(1, "SCUMM: hi-res font %d <- %s: %dx%d cell, %d bpp, %d glyphs, "
-				 "%s, codepage %s%s",
-			  charsetId, name.c_str(), font.cellWidth(), font.cellHeight(), font.bpp(),
-			  font.glyphCount(), font.isProportional() ? "proportional" : "fixed width",
-			  codePageName(font.codePage()),
-			  font.bpp() > 1 ? ", anti-aliased" : ", stencil");
-	}
 	return true;
 }
 
@@ -1508,8 +1509,10 @@ bool ScummHiResText::latinBaselineByFace(int chr, int charsetId) const {
 	// baked into the face. The game's per-glyph offsets belong to its own
 	// font, whose glyphs may be cut to their ink (MI2's card fonts), and
 	// would move the face's glyph a second time. A TrueType face is handled
-	// by latinFaceStep(); the space has no ink to place.
-	if (!_enabled || !_fontsLoaded || !_config.latinBaselineFace)
+	// by latinFaceStep(); the space has no ink to place. A renderer that
+	// measures Latin with the game's widths and never asks the layer
+	// (FM-Towns, V2) is switched off here as for latinFaceStep().
+	if (!_enabled || !_fontsLoaded || !_latinFaceStepAllowed || !_config.latinBaselineFace)
 		return false;
 	if (chr <= 0x20 || chr > 0x7E)
 		return false;

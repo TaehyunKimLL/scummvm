@@ -293,7 +293,8 @@ struct ScummHiResText {
 	 * Whether printChar() leaves the game glyph's offsX/offsY out for the
 	 * Latin @p chr: [latin] baseline=face and a bitmap (SVFN) face that
 	 * draws it, so the baseline baked into the face is the only placement.
-	 * Off (false) for every map that does not ask.
+	 * Off (false) for every map that does not ask, and for a renderer that
+	 * switched the face step off (setLatinFaceStepAllowed(false): FM-Towns, V2).
 	 */
 	bool latinBaselineByFace(int chr, int charsetId) const;
 
