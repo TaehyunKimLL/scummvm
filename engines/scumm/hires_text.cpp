@@ -234,7 +234,22 @@ void ScummHiResText::resolveCharsetFonts() {
 		// [hires]/[latin], then the defaults.
 		const Graphics::HiResFontIdSettings *n = _config.fontIdSettings(cs);
 
-		if (n && n->faceSet)
+		// [font.N] face=original or bitmap=original: this whole charset is
+		// not replaced - Hangul included - so every glyph is the game's to
+		// draw. face= keeps the value as written (first, before it is turned
+		// into a chain of Paths to open); bitmap= is resolved to a Path by
+		// the parser, but a relative "original" still ends in that name
+		// however the map's folder is spelled, so the basename is what is
+		// compared. Left unset (chain empty, original false) is the every
+		// day case. faceForCodePoint() declines outright on original, ahead
+		// of nearestFont() borrowing a neighbour's font into it; loadFonts()
+		// skips loading its bitmap= so it is never a donor either.
+		f.original = (n && n->faceSet && n->face.equalsIgnoreCase("original")) ||
+					 (n && n->bitmapSet && n->bitmap.baseName().equalsIgnoreCase("original"));
+
+		if (f.original) {
+			// Leave f.chain empty: nothing here is a font to open.
+		} else if (n && n->faceSet)
 			f.chain = n->faceChain;
 		else if (_config.hiresFaceSet)
 			f.chain = _config.hiresFaceChain;
@@ -274,8 +289,22 @@ void ScummHiResText::resolveCharsetFonts() {
 			latinFace = n->latinFont;
 		else if (_config.latinFontSet)
 			latinFace = _config.latinFont;
-		if (!latinFace.empty())
+		if (latinFace.equalsIgnoreCase("same")) {
+			// [font.N] latin_font=same (or map-wide [latin] font=same): Latin
+			// never comes from a Latin companion or a TTF - which is what
+			// opening "same" as a file name below would attempt, warning that
+			// the DOS build (no FreeType) "needs a build with FreeType" -
+			// only from this charset's own font, the one its Hangul draws
+			// from. faceForCodePoint() reads latinSame; leave latinFace empty
+			// so nothing else treats it as a path.
+			f.latinSame = true;
+		} else if (latinFace.equalsIgnoreCase("original")) {
+			// [font.N] latin_font=original (or map-wide [latin] font=original):
+			// ASCII is the game's to draw, exactly as [latin] mode=off is.
+			f.latin = Graphics::kHiResLatinOff;
+		} else if (!latinFace.empty()) {
 			f.latinFace = Graphics::HiResFontMap::resolvePath(_config.resolveFace(latinFace), _mapDir);
+		}
 
 		// The ini key wins everywhere, then [font.N] metrics=; ASCII then
 		// takes [latin] metrics=, a wide glyph the map-wide [render]
@@ -295,6 +324,13 @@ void ScummHiResText::resolveCharsetFonts() {
 
 Common::Array<Common::Path> ScummHiResText::chainFor(int charsetId) const {
 	Common::Array<Common::Path> chain;
+	// An original charset ([font.N] face= or bitmap=) has no face at all,
+	// not even hires_text_font's: original beats the ini override too, the
+	// one key that otherwise wins over every [font.N] (below). The ini
+	// itself naming "original" is handled in loadConfig(), which then never
+	// sets _ttfFromIni/_ttfPath, so there is nothing here to beat.
+	if (_perGlyph && charsetId >= 0 && charsetId < kMaxFonts && _charsetFonts[charsetId].original)
+		return chain;
 	// hires_text_font is the one key that overrides every charset, as it did.
 	if (_perGlyph && !_ttfFromIni && charsetId >= 0 && charsetId < kMaxFonts &&
 		!_charsetFonts[charsetId].chain.empty())
@@ -466,6 +502,11 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 						it->_key, kMaxFonts - 1);
 				continue;
 			}
+			// bitmap=original: nothing is loaded for this charset - it draws
+			// entirely from the game's own font - and no "not found" warning
+			// is given for the name "original" itself.
+			if (_charsetFonts[it->_key].original)
+				continue;
 			Common::FSNode node(it->_value.bitmap);
 			Common::SeekableReadStream *stream = node.exists() ? node.createReadStream() : nullptr;
 			if (!stream) {
@@ -1754,11 +1795,24 @@ ScummHiResText::Face *ScummHiResText::faceForCodePoint(int charsetId, uint32 &cp
 	const bool inRange = charsetId >= 0 && charsetId < kMaxFonts;
 	const CharsetFonts &f = _charsetFonts[inRange ? charsetId : 0];
 
+	// [font.N] face=original or bitmap=original: nothing in this charset is
+	// replaced, Hangul included - every glyph, [glyphs] remaps and all
+	// (the caller's glyphOverride() lookup already ran, but its remapped cp
+	// still lands here and is still declined), is the game's own to draw.
+	// Ahead of nearestFont() below, so a neighbour's font is never borrowed
+	// into it either.
+	if (f.original) {
+		declined = true;
+		return nullptr;
+	}
+
 	// ASCII follows [latin] (SCI's meanings, HIRES_TEXT_MAP.md "Modes"):
-	// off leaves it to the game's font; fullwidth draws the fullwidth form
-	// (and U+3000 for a space, with space=fullwidth); half and proportional
-	// draw it from the replacement at its own code point. The test is on the
-	// code point, not on the byte count of the game's encoding.
+	// off leaves it to the game's font (also [latin] font=original: the
+	// engine forces this above the same way an explicit mode=off does);
+	// fullwidth draws the fullwidth form (and U+3000 for a space, with
+	// space=fullwidth); half and proportional draw it from the replacement
+	// at its own code point. The test is on the code point, not on the byte
+	// count of the game's encoding.
 	if (cp >= 0x20 && cp <= 0x7E) {
 		switch (f.latin) {
 		case Graphics::kHiResLatinOff:
@@ -1781,12 +1835,17 @@ ScummHiResText::Face *ScummHiResText::faceForCodePoint(int charsetId, uint32 &cp
 		}
 	}
 
+	// [latin] font=same (or latin_font=same): Latin never comes from a
+	// separate companion or TTF, only from this charset's own font - the
+	// same one its Hangul draws from.
+	const bool latinSame = ascii && f.latinSame;
+
 	// The candidates in order; the first that has a glyph for the code point
 	// answers it, so a translation's characters fall through a charset's
 	// bitmap font to its faces, and a face chain answers by coverage.
 	Face *candidates[8];
 	int n = 0;
-	if (ascii) {
+	if (ascii && !latinSame) {
 		candidates[n++] = latinTtfFaceFor(charsetId);
 		candidates[n++] = inRange ? _latinFaces[charsetId] : nullptr;
 		candidates[n++] = _latinSingleFace;
@@ -1805,9 +1864,33 @@ ScummHiResText::Face *ScummHiResText::faceForCodePoint(int charsetId, uint32 &cp
 
 	// A charset with no replacement of its own borrows the nearest one's.
 	const int nearest = nearestFont(charsetId);
-	if (nearest >= 0 && _cjkFaces[nearest]->source->cells(cp) > 0)
-		return _cjkFaces[nearest];
+	Face *nearestFace = (nearest >= 0) ? _cjkFaces[nearest] : nullptr;
+	if (nearestFace && nearestFace->source->cells(cp) > 0)
+		return nearestFace;
+
+	// latinSame, and nothing above has the glyph: the missing-glyph mark
+	// ([hires] missing=) is drawn from the same font rather than declining
+	// to the game's internal one.
+	if (latinSame && _config.missing) {
+		const uint32 missingCp = _config.missing;
+		for (int i = 0; i < n; ++i) {
+			if (candidates[i] && candidates[i]->source && candidates[i]->source->cells(missingCp) > 0) {
+				cp = missingCp;
+				return candidates[i];
+			}
+		}
+		if (nearestFace && nearestFace->source->cells(missingCp) > 0) {
+			cp = missingCp;
+			return nearestFace;
+		}
+	}
 	return nullptr;
+}
+
+Graphics::UnicodeGlyphSource *ScummHiResText::perGlyphSourceFor(int charsetId, uint32 &cp) const {
+	bool ascii = false, declined = false;
+	Face *face = faceForCodePoint(charsetId, cp, ascii, declined);
+	return face ? face->source : nullptr;
 }
 
 Graphics::PixelFormat ScummHiResText::cursorFormat(const Graphics::PixelFormat &screenFormat) const {
@@ -2299,7 +2382,11 @@ bool ScummHiResText::mapNamesNoFonts(const Graphics::HiResTextConfig &config,
 
 bool ScummHiResText::usesPerGlyph(const Graphics::HiResTextConfig &config) {
 	if (config.hiresFaceSet || config.hiresSizeSet || config.hiresPixelSet || config.latinModeSet ||
-		config.latinSpaceSet || config.encoding == Common::kUtf8)
+		config.latinSpaceSet || config.encoding == Common::kUtf8 ||
+		// [latin] font=same or font=original, map-wide: a [font.N] with
+		// latin_font= already makes onlyMirror() false below.
+		(config.latinFontSet && (config.latinFont.equalsIgnoreCase("same") ||
+								  config.latinFont.equalsIgnoreCase("original"))))
 		return true;
 	// A [font.N] holding only mirror= (C27) says nothing about placement.
 	for (Common::HashMap<int, Graphics::HiResFontIdSettings>::const_iterator it = config.fontIds.begin();
@@ -2531,7 +2618,11 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 
 	// A TrueType face, from the config or the map, opened when the fonts
 	// load. The config key wins, since it is the one a user reaches for.
-	_ttfFromIni = ConfMan.hasKey("hires_text_font");
+	// hires_text_font=original is not a file name: it says the ini has
+	// nothing to force, so the map's own (or a [font.N] original) decides
+	// instead, exactly as if the key had not been given.
+	_ttfFromIni = ConfMan.hasKey("hires_text_font") &&
+				  !ConfMan.get("hires_text_font").equalsIgnoreCase("original");
 	if (_ttfFromIni)
 		_ttfPath = Graphics::HiResFontMap::resolvePath(ConfMan.get("hires_text_font"), gameDir);
 	else if (!_config.ttfPath[Graphics::kHiResRoleDefault].empty())
@@ -2643,14 +2734,22 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 		else if (!_config.legacy.latinBitmapName.empty())
 			fontsNamed = _config.legacy.latinBitmapName.c_str();
 
+		bool anyLatinSame = false, anyOriginal = false;
+		for (int i = 0; i < kMaxFonts && !(anyLatinSame && anyOriginal); ++i) {
+			anyLatinSame = anyLatinSame || _charsetFonts[i].latinSame;
+			anyOriginal = anyOriginal || _charsetFonts[i].original;
+		}
+
 		debug(1, "SCUMM: hi-res text enabled: scale %d, alpha %s, metrics %s, "
-				 "source encoding %s, fonts %s%s",
+				 "source encoding %s, fonts %s%s%s%s",
 			  _config.scale,
 			  _config.alpha ? "on" : "off",
 			  _config.metricsSource == Graphics::kHiResMetricsFont ? "font" : "game",
 			  codePageName(_config.encoding),
 			  fontsNamed,
-			  _perGlyph ? ", per-glyph placement" : "");
+			  _perGlyph ? ", per-glyph placement" : "",
+			  anyLatinSame ? ", latin font=same on at least one charset" : "",
+			  anyOriginal ? ", at least one charset kept on the game's own font (original)" : "");
 	}
 }
 
