@@ -1860,3 +1860,184 @@ public:
 		TS_ASSERT(cfg.mapWarnings.empty());
 	}
 };
+
+/**
+ * Tests for the version-2 map loader (design
+ * docs/superpowers/specs/2026-09-30-hires-config-unify-design.md), built
+ * beside HiResFontMapTestSuite above; both stay until Task 13.
+ */
+class HiResMapTestSuite : public CxxTest::TestSuite {
+	bool load(const char *text, Graphics::HiResMap &out, const Graphics::HiResEngineKeys &keys = Graphics::kHiResKeysScumm,
+			  const char *q0 = nullptr) {
+		Common::Array<Common::String> qualifiers;
+		if (q0)
+			qualifiers.push_back(q0);
+		Common::MemoryReadStream stream((const byte *)text, strlen(text));
+		return Graphics::HiResFontMap::loadMap(stream, Common::Path("/maps", '/'), qualifiers, keys, out);
+	}
+
+	static bool hasWarning(const Graphics::HiResMap &m, const char *text) {
+		for (uint i = 0; i < m.warnings.size(); ++i)
+			if (m.warnings[i] == text)
+				return true;
+		return false;
+	}
+
+public:
+	void test_version_is_required() {
+		Graphics::HiResMap m;
+		TS_ASSERT(!load("[render]\nscale=2\n", m));
+		TS_ASSERT(!load("[map]\nversion=1\n", m));
+		TS_ASSERT(!load("[hires]\nscale=2\n[latin]\nmode=off\n", m));
+		TS_ASSERT_EQUALS(m.warnings.back(),
+			"HIRESTXT.MAP /maps: not a version 2 map; regenerate it (graphics/hires_text/README.md) (found [hires])");
+		TS_ASSERT(load("[map]\nversion=2\n", m));
+	}
+
+	void test_render_section() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[render]\ntarget=rgb565\nblend=off\nscale=3\ngamma=2.2\n", m));
+		TS_ASSERT(m.targetSet);
+		TS_ASSERT_EQUALS(m.target, Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(m.blend, Graphics::kHiResBlendOff);
+		TS_ASSERT_EQUALS(m.scale, 3);
+		TS_ASSERT_EQUALS(m.coverageGamma, 220);
+	}
+
+	void test_qualified_render_wins() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[render]\ntarget=clut8\n[render:monkey2]\ntarget=rgb888\n", m,
+					   Graphics::kHiResKeysScumm, "monkey2"));
+		TS_ASSERT_EQUALS(m.target, Graphics::kHiResTargetRgb888);
+	}
+
+	void test_font_scopes_and_ranges() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[fonts]\nko=KO.SVF\nlat=LAT.SVF\n"
+					   "[font]\nface=ko\nmissing=u+25a1\nrange.basic-latin=lat, same\nadvance.basic-latin=font\n"
+					   "origin.U+2026=face\n"
+					   "[font.4]\nface=CARD.SVF\nrange.U+0020-007E=original\nmissing=off\n", m));
+		TS_ASSERT(m.font.faceSet);
+		TS_ASSERT_EQUALS(m.font.face.entries[0].path.toString('/'), "/maps/KO.SVF");
+		TS_ASSERT_EQUALS(m.font.missing, 0x25A1u);
+		TS_ASSERT_EQUALS(m.font.rangeSpecs.size(), 1u);
+		TS_ASSERT_EQUALS(m.font.rangeValues[0].entries.size(), 2u);
+		TS_ASSERT_EQUALS(m.font.advanceValues[0], Graphics::kHiResAdvanceFont);
+		TS_ASSERT_EQUALS(m.font.originSpecs[0].span.lo, 0x2026u);
+		const Graphics::HiResFontScope *cs4 = m.fontIdScope(4);
+		TS_ASSERT(cs4);
+		TS_ASSERT(cs4->missingSet);
+		TS_ASSERT_EQUALS(cs4->missing, 0u);
+		TS_ASSERT(cs4->rangeValues[0].endsInOriginal());
+	}
+
+	void test_duplicate_and_overlapping_spans() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[font]\nrange.basic-latin=A.SVF\nrange.U+0020-007E=B.SVF\n"
+					   "range.U+0100-010F=C.SVF\nrange.U+0108-0117=D.SVF\n", m));
+		TS_ASSERT_EQUALS(m.font.rangeSpecs.size(), 2u);   // the later spelling and the equal-width overlap dropped
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font] range.U+0020-007E repeats range.basic-latin; ignoring it"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font] range.U+0108-0117 overlaps range.U+0100-010F at the same width; ignoring it"));
+	}
+
+	void test_qualified_font_section_merges_span_by_span() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[font.2]\nrange.basic-latin=A.SVF\nrange.U+2026=B.SVF\n"
+					   "[font.2:pc]\nrange.basic-latin=C.SVF\n", m, Graphics::kHiResKeysSci, "pc"));
+		const Graphics::HiResFontScope *s = m.fontIdScope(2);
+		TS_ASSERT_EQUALS(s->rangeSpecs.size(), 2u);
+		bool sawC = false, sawB = false;
+		for (uint i = 0; i < s->rangeValues.size(); ++i) {
+			sawC |= s->rangeValues[i].entries[0].written == "C.SVF";
+			sawB |= s->rangeValues[i].entries[0].written == "B.SVF";
+		}
+		TS_ASSERT(sawC && sawB);
+	}
+
+	void test_glyphs_sections() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[fonts]\nsym=SYM.SVF\n"
+					   "[glyphs]\n0x07=original\n0x5e=u+2026\n0x21-0x23=+0xFEE0\n"
+					   "[glyphs.2]\n0x07=sym:u+2620\n", m));
+		TS_ASSERT_EQUALS(m.glyphs[0x07].kind, Graphics::kHiResGlyphOriginal);
+		TS_ASSERT_EQUALS(m.glyphs[0x5e].value, 0x2026u);
+		TS_ASSERT_EQUALS(m.glyphs[0x22].kind, Graphics::kHiResGlyphOffset);
+		TS_ASSERT(m.glyphIds.contains(2));
+		TS_ASSERT_EQUALS(m.glyphIds[2][0x07].kind, Graphics::kHiResGlyphTarget);
+		TS_ASSERT_EQUALS(m.glyphIds[2][0x07].face.path.toString('/'), "/maps/SYM.SVF");
+	}
+
+	void test_removed_and_unknown_keys_warn() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[latin]\nmode=off\n[font.4]\nbitmap=X.SVF\nfase=Y.SVF\n", m));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [latin] is not read any more; see \"Ranges\" in graphics/hires_text/README.md"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown key [font.4] bitmap"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown key [font.4] fase"));
+		TS_ASSERT(!m.fontIdScope(4) || !m.fontIdScope(4)->faceSet);
+	}
+
+	void test_unhonoured_keys_warn_per_engine() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[font.4]\nmirror=horizontal\n[shadow]\nmode=outline\n", m, Graphics::kHiResKeysSci));
+		TS_ASSERT(hasWarning(m, "SCI does not use [font.4] mirror"));
+		TS_ASSERT(hasWarning(m, "SCI does not use [shadow] mode"));
+		Graphics::HiResMap s;
+		TS_ASSERT(load("[map]\nversion=2\n[font]\nshift=2\ncell=glyph\n", s, Graphics::kHiResKeysScumm));
+		TS_ASSERT(hasWarning(s, "SCUMM does not use [font] shift"));
+		TS_ASSERT(hasWarning(s, "SCUMM does not use [font] cell"));
+	}
+
+	// S18: a qualified section whose qualifier the caller did not pass gets
+	// no "does not use" warning (it is not this engine/game's section at
+	// all), though a genuinely unknown key in it would still be reported.
+	void test_unhonoured_key_skipped_for_foreign_qualifier() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[shadow:v5]\nmode=outline\n", m, Graphics::kHiResKeysSci, "pc"));
+		TS_ASSERT_EQUALS(m.warnings.size(), 0u);
+	}
+
+	void test_invalid_values_are_ignored_not_substituted() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[render]\ntarget=truecolor\nscale=9\n[font]\nadvance=ttf\n[shadow]\nmode=glow\n", m));
+		TS_ASSERT(!m.targetSet);
+		TS_ASSERT(!m.scaleSet);
+		TS_ASSERT(!m.font.advanceSet);
+		TS_ASSERT_EQUALS(m.shadowMode, Graphics::kHiResShadowGame);
+		TS_ASSERT_EQUALS(m.warnings.size(), 4u);
+	}
+
+	void test_plus_is_legal_in_key_names() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[font]\nrange.U+2026=A.SVF\n", m));
+		TS_ASSERT_EQUALS(m.font.rangeSpecs.size(), 1u);
+	}
+
+	// M10: [font] face=same is warned once, in the loader (not deferred to
+	// a later per-id compile step).
+	void test_bare_font_face_same_is_warned() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[font]\nface=same\n", m));
+		TS_ASSERT(!m.font.faceSet);
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font] face=same has nothing to inherit; ignoring it"));
+	}
+
+	// [font.N] face=same means "inherit": identical to leaving the key out,
+	// no warning.
+	void test_font_id_face_same_means_inherit() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[font.2]\nface=same\n", m));
+		const Graphics::HiResFontScope *s = m.fontIdScope(2);
+		TS_ASSERT(s);
+		TS_ASSERT(!s->faceSet);
+		TS_ASSERT_EQUALS(m.warnings.size(), 0u);
+	}
+
+	// User ruling: [translation.<lang>] is reserved for a later plan and the
+	// v2 loader skips it whole - no unknown-section warning, no unknown-key
+	// warnings inside it, nothing stored.
+	void test_translation_lang_section_is_reserved() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[translation.ko]\nanything=goes\nfoo=bar\n", m));
+		TS_ASSERT_EQUALS(m.warnings.size(), 0u);
+	}
+};
