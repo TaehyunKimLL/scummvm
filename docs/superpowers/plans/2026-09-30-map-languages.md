@@ -189,8 +189,9 @@ DOS, DOSBox-X 2026.08 and DOSBox Staging 0.83 through `~/work/scummvm/harness/do
   Common::String hiResLanguageTags(const HiResLanguageManifest &m, HiResUsableFn usable, void *ctx);  // "lang_Korean lang_Japanese"
   ```
   In `font_map.h`: `kHiResKeyTranslation = 1 << 16` added to `HiResKeyFlag` and to `kHiResKeysSci`/`kHiResKeysScumm`
-  (not AGS); `enum HiResMapRole { kHiResGameMap, kHiResLanguageMap };` and a trailing parameter
-  `HiResMapRole role = kHiResGameMap` on `loadMap()` and `loadMapFile()`.
+  (not AGS); `enum HiResMapRole { kHiResGameMap, kHiResLanguageMap };` and a field `HiResMapRole role` (default
+  `kHiResGameMap`) in `HiResMapLoadOptions` (added by unify Task 6b, beside `target` and `quiet`), so the Task 6b
+  `loadMap(..., options)` overloads carry it and a language map is loaded with the same render target as a game map.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -238,7 +239,7 @@ public:
 	void test_scumm_section_is_read_and_paths_are_map_relative() {
 		Graphics::HiResLanguageManifest m;
 		TS_ASSERT(read("[map]\nversion=2\n[translation.ko]\nname=mi2kor\nencoding=cp949\n"
-					   "trs=KO/KOREAN.TRS\ndir=KO\nmap=data:M2KOU.MAP\n", m));
+					   "trs=KO/KOREAN.TRS\ndir=KO\nmap=data:M2KO.MAP\n", m));
 		TS_ASSERT_EQUALS(m.warnings.size(), 0u);
 		TS_ASSERT(m.manifestOnly);
 		TS_ASSERT_EQUALS(m.translations.size(), 1u);
@@ -392,8 +393,9 @@ public:
 		const char *text = "[map]\nversion=2\n[text]\nencoding=cp949\n[translation.ko]\nencoding=cp949\n";
 		Common::MemoryReadStream s((const byte *)text, strlen(text));
 		Common::Array<Common::String> q;
-		TS_ASSERT(Graphics::HiResFontMap::loadMap(s, Common::Path("/d", '/'), q, Graphics::kHiResKeysScumm, m,
-												   Graphics::kHiResLanguageMap));
+		Graphics::HiResMapLoadOptions options;
+		options.role = Graphics::kHiResLanguageMap;
+		TS_ASSERT(Graphics::HiResFontMap::loadMap(s, Common::Path("/d", '/'), q, Graphics::kHiResKeysScumm, m, options));
 		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [translation.ko] is read only in the game's map; ignored"));
 		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [text] encoding is not read in a language map; the translation's encoding applies"));
 		TS_ASSERT(!m.encodingSet);
@@ -862,7 +864,7 @@ public:
     The default code page is the translation's `encoding` when a translation is chosen, else as today (`[text]
     encoding`, else the language).
 - [ ] **Step 4: Run the tests**, then on the Task 5 staging folder: `language=ko` target with `hires_text_map` unset and
-  `[translation.ko] map=` pointing at `dists/engine-data/hires_text/dos/M2KOU.MAP` (absolute path); `-d1` log shows
+  `[translation.ko] map=` pointing at `dists/engine-data/hires_text/dos/M2KO.MAP` (absolute path); `-d1` log shows
   `loadLanguageBundle: Loaded 8780 entries` and the language map read; no `language=`: no bundle loaded.
 - [ ] **Step 5: Commit** `SCUMM: Load the translation, its fonts and its map from the map's translation section`.
 
@@ -922,23 +924,23 @@ public:
 ### Task 8: Maps and generators
 
 **Files:**
-- Modify: `dists/engine-data/hires_text/dos/{CAM,KQ1,LB1,LB2}KO{L,U}.MAP`, `M2KO{L,U}.MAP` (language maps: drop `[text]
-  encoding` and say why in a comment), `test/graphics/hires_text_shipped_maps.h`, `tools/korean/makemaps.py`,
-  `tools/korean/inifix.py`, `tools/korean/README.md`
-- Create: `dists/engine-data/hires_text/dos/games/{LB1,LB2,KQ1,CAMELOT,MI2}/HIRESTXT.MAP` and `HIRESTXL.MAP` (the
-  game maps the packages ship; spec 11)
+- Modify: `dists/engine-data/hires_text/dos/{CAM,KQ1,LB1,LB2,M2}KO.MAP` (language maps, one per game with both presets
+  since unify Task 14: drop `[text] encoding` and say why in a comment), `test/graphics/hires_text_shipped_maps.h`,
+  `tools/korean/makemaps.py`, `tools/korean/inifix.py`, `tools/korean/README.md`
+- Create: `dists/engine-data/hires_text/dos/games/{LB1,LB2,KQ1,CAMELOT,MI2}/HIRESTXT.MAP` (the game maps the packages
+  ship; spec 11; one per game - the presets are the language map's `:clut8` sections, chosen by `render_target`)
 
 **Interfaces:**
 - Consumes: Task 1 (`kHiResLanguageMap`, `readLanguageManifest`).
 - Produces: game maps whose `[translation.ko]` paths are relative to the game folder (`KO/...`) and whose `map=` is
-  `data:<X>KOU.MAP` / `data:<X>KOL.MAP`; `encoding` per game: LB2 and MI2 `cp949`, LB1, KQ1, Camelot `utf-8` (check each
+  `data:<X>KO.MAP`; `encoding` per game: LB2 and MI2 `cp949`, LB1, KQ1, Camelot `utf-8` (check each
   against the current package: the text resources' actual bytes decide; record the evidence in the report).
-  `M1KO{L,U}.MAP` are untouched (MI1 is a Korean original, spec 11.3).
+  `M1KO.MAP` is untouched (MI1 is a Korean original, spec 11.3).
 
 - [ ] **Step 1: Coordination check** (as unify Task 14 Step 1): `git status --short dists/engine-data/hires_text/`
   clean, else stop.
-- [ ] **Step 2: Extend the failing test.** In `hires_text_shipped_maps.h`: load the DOS `*KO?.MAP` with
-  `kHiResLanguageMap` (zero warnings); add
+- [ ] **Step 2: Extend the failing test.** In `hires_text_shipped_maps.h`: load the DOS `*KO.MAP` language maps with
+  `options.role = kHiResLanguageMap` for every render target (zero warnings, as unify Task 14's loop); add
   ```cpp
 	void test_game_maps_declare_ko() {
 		Common::FSNode games = tree().getChild("dists").getChild("engine-data").getChild("hires_text").getChild("dos").getChild("games");
@@ -1001,8 +1003,9 @@ public:
   `sci-ko.str`, `korean.uni`, `korean.trs` or `korean*.fnt` at the root; the game map parses (`configparser`) with
   `[translation.ko]`. Run `python3 harness/dos/langdirs.py --selftest` - fails before the file exists, passes after.
 - [ ] **Step 2:** `m1_accept.py`/`m2_accept.py`: KQ1 from `langdirs.stage("KQ1")`; ini `language=ko` and
-  `hires_text_map=<game map>` (U: `HIRESTXT.MAP`, L: `HIRESTXL.MAP`) instead of the language map. `scummgame.py`: `mi2ko`
-  / `mi2kol` use the staged MI2 folder and the game maps; `mi2` drops `language=en`.
+  `hires_text_map=HIRESTXT.MAP` (the game map, both presets) instead of the language map; the L runs keep
+  `render_target=clut8` (unify Task 15). `scummgame.py`: `mi2ko` / `mi2kol` use the staged MI2 folder and its game map
+  (`mi2kol` with `render_target=clut8`); `mi2` drops `language=en`.
 - [ ] **Step 3:** Run `python3 harness/dos/m1_accept.py x` and `python3 harness/dos/m5_accept.py x` (controller's
   permission). Expected: PASS.
 - [ ] **Step 4: Commit** `harness/dos: stage one-folder language layouts for the acceptance runs`.
@@ -1059,9 +1062,9 @@ zips in `/home/thkim/work/scummvm/dist/`.
 - [ ] **Step 1: Coordination check** (`git -C /home/thkim/work/scummvm status --short harness/dos/release` clean).
 - [ ] **Step 2: LB2.** `build_sci_lb2.py`: `GAMES\LB2\` = the 114 English DOS CD files (one `RESOURCE.AUD`) +
   `GAMES\LB2\KO\MESSAGE.MAP`, `KO\RESOURCE.MSG` (the patch's two files, unmodified: keep the `EXPECT_MD5_5000`/`EXPECT_SIZE`
-  check for `RESOURCE.MSG`, now at `KO\`) + `HIRESTXT.MAP`/`HIRESTXL.MAP` from `dists/.../games/LB2/`. Drop the
-  "Layout ruling ... option (c)" docstring paragraph: one folder serves both now. `DATA\` = `LB2KOU.MAP`, `LB2KOL.MAP`,
-  fonts, `ENCODING.DAT`, licences. `SCUMMVM.INI` = spec 11.1 (`lb2`, `lb2ko`, `lb2kol`; `lastselectedgame=lb2ko`);
+  check for `RESOURCE.MSG`, now at `KO\`) + `HIRESTXT.MAP` from `dists/.../games/LB2/`. Drop the
+  "Layout ruling ... option (c)" docstring paragraph: one folder serves both now. `DATA\` = `LB2KO.MAP`,
+  fonts, `ENCODING.DAT`, licences; `lb2kol` carries `render_target=clut8`. `SCUMMVM.INI` = spec 11.1 (`lb2`, `lb2ko`, `lb2kol`; `lastselectedgame=lb2ko`);
   `EXAMPLE.INI` shows `lb2` and says "choose Korean under Edit Game > Language, or `language=ko`"; BATs `LB2.BAT`,
   `LB2KO.BAT`, `LB2KOL.BAT`; README: the folder layout of spec 11.1 and that speech is English.
 - [ ] **Step 3: LB1, KQ1, Camelot** (`repack_sci.py`): one `GAMES\<G>\` per game = the English folder + `KO\` with the

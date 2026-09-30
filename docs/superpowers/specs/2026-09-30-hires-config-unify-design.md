@@ -26,6 +26,11 @@ read. Where this document and an engine's own doc disagree, this document wins a
    implementation may land as separate later tasks.
 6. **Addendum (user, 2026-09-30): a game code can name a code point in a specific font** (`[glyphs]` target form,
    section 6.7), including Private Use Area code points in a custom SVF.
+7. **Addendum (user, 2026-09-30): one map per game holds every preset.** The U (true-colour, anti-aliased) and L
+   (8-bit, 1 bpp) presets are render-target variants inside one map, selected by the resolved render target through
+   section qualifiers (`[font]` = the default preset, `[font:clut8]` = the 8-bit one; section 3.4), not separate map
+   files. A package's targets differ only by `render_target=`. `render_target` is also a popup in the Graphics
+   options (section 11.1).
 
 ## 1. Vocabulary
 
@@ -37,7 +42,8 @@ read. Where this document and an engine's own doc disagree, this document wins a
 | **face** | one opened font file: an SVFN bitmap font (`*.SVF`, sniffed by the `SVFN` magic) or a TrueType/TTC face (with optional `#N`). |
 | **chain** | an ordered list of faces; the first face that has a glyph for the code point draws it (coverage fallback). |
 | **id chain** | the chain the id's resolved `face` key gives (section 5.3). |
-| **qualifier** | the engine's section suffix: SCI the platform code; SCUMM the gameid, then `v<N>`; AGS the gameid. |
+| **qualifier** | a section suffix after a colon. An **engine qualifier** is the engine's: SCI the platform code; SCUMM the gameid, then `v<N>`; AGS the gameid. A **target qualifier** is a resolved render target: `clut8`, `rgb565` or `rgb888` (section 3.4). |
+| **phase 1 / phase 2** | the two loads of a map (section 7.1.1): phase 1 reads the bare and engine-qualified sections to choose the render target; phase 2 reads the whole map for that target. |
 | **engine scope** | the defaults an engine supplies below `[font]` (section 8). |
 
 ## 2. Principles
@@ -46,6 +52,7 @@ read. Where this document and an engine's own doc disagree, this document wins a
    with the same keys in both.
 2. One value grammar for every face, in the map and in the ini: the **font value** (section 5).
 3. One precedence rule: **ini > `[S.N:q]` > `[S.N]` > `[S:q]` > `[S]` > engine scope**, key by key. No sentinel inverts it.
+   `[S:q]` stands for every qualified form in the qualifier order of section 3.4 (`:e:t`, then `:e`, then `:t`).
 4. One path rule (section 4).
 5. Blending and screen format are separate knobs.
 6. Strict parsing: every section warns about unknown keys; every engine declares the keys it honours and the loader warns
@@ -60,8 +67,10 @@ read. Where this document and an engine's own doc disagree, this document wins a
   (`range.U+2026`); `[`, `]`, `=`, `#`, CR and LF stay illegal in names. Key and section names are case-insensitive.
 - A line starting with `;` or `#` is a comment. A `;` preceded by a space or a tab ends a value and starts a comment; a `;`
   with anything else before it is part of the value. `#` never starts an inline comment (it is the TTC face suffix).
-- Sections may carry one qualifier after a colon: `[font.4:pc]`, `[render:monkey2]`, `[glyphs.2:v5]`. The engine passes its
-  qualifiers most specific first; each key is looked up in `[S:q1]`, `[S:q2]`, ..., then `[S]`.
+- Sections may carry one qualifier after a colon: `[font.4:pc]`, `[render:monkey2]`, `[glyphs.2:v5]`, `[font:clut8]`,
+  or two, an engine qualifier then a target qualifier: `[font.4:monkey2:clut8]` (section 3.4). The engine passes its
+  engine qualifiers most specific first; the loader adds the resolved target; each key is looked up in the qualified
+  sections in the order of section 3.4, then `[S]`.
 - Numbers: decimal, or hex with `0x`. Code points: `u+XXXX` / `U+XXXX` (1-6 hex digits), or `0xXXXX`.
 
 ### 3.2 Sections and keys
@@ -79,8 +88,8 @@ Legend for "Read by": **SCI**, **SCUMM**, **AGS**; `-` = the loader warns once w
 
 | Key | Values | Default | Read by | Precedence |
 |---|---|---|---|---|
-| `target` | `auto` `clut8` `rgb565` `rgb888` | `auto` | SCI, SCUMM; AGS `-` | ini `render_target` (game domain) > ini `render_target` (`[scummvm]`) > `[render:q]` > `[render]` > `auto`. Section 7.1. |
-| `blend` | `auto` `on` `off` | `auto` | SCI, SCUMM, AGS | ini `hires_text_blend` > map > `auto`. Section 7.2. |
+| `target` | `auto` `clut8` `rgb565` `rgb888` | `auto` | SCI, SCUMM; AGS `-` | ini `render_target` (game domain) > ini `render_target` (`[scummvm]`) > `[render:e]` > `[render]` > `auto`. Read in phase 1 only: a `target` key in a target-qualified `[render:t]` / `[render:e:t]` is refused (section 3.4). Section 7.1. |
+| `blend` | `auto` `on` `off` | `auto` | SCI, SCUMM, AGS | ini `hires_text_blend` > map (target-qualified sections included) > `auto`. Section 7.2. |
 | `scale` | `1` `2` `3` | SCI 2, SCUMM 2, AGS 1 | SCI (2 only), SCUMM, AGS | ini `hires_text_scale` > map > default, then the limits of section 7.4. |
 | `gamma` | `0.5`..`4.0` | `1.0` | SCI, SCUMM, AGS | TrueType coverage curve `255*(c/255)^(1/g)`; SVF faces ignore it. |
 
@@ -146,6 +155,74 @@ Sections `[hires]`, `[latin]`, `[bitmap]`, `[encoding]`, `[sizes]`, `[translatio
 (as an alias of `face=`), `bitmap=`, `latin*=`, `metrics=`, `baseline=`, `alpha=`, `enabled=`, `[glyphs] ... = keep` (now
 `original`), `[glyphs:csN]` (now `[glyphs.N]`), and `[render] mode/metrics`. No alias is read. A v2 map that contains one of
 the removed sections gets one warning per section naming its replacement (section 10.2) and is otherwise loaded.
+
+### 3.4 Render-target qualifiers (one map, every preset)
+
+A map carries the presets for every screen as **target-qualified sections**. The default preset (in practice the
+true-colour, anti-aliased U preset) is written in the bare sections; a variant for a render target overrides only the
+keys that differ, in sections qualified with that target:
+
+```ini
+[fonts]                 ; default (rgb888 and rgb565: the U preset)
+ui = KO2350G.SVF
+[fonts:clut8]           ; render_target=clut8 (the L preset)
+ui = KO2350.SVF
+[render:clut8]
+blend = off
+```
+
+**Which sections.** Every section that takes an engine qualifier takes a target qualifier: `[render]`, `[fonts]`,
+`[font]`, `[font.N]`, `[glyphs]`, `[glyphs.N]`, `[shadow]`. Not target-qualifiable: `[map]` (never qualified), `[text]`
+and `[layout]` (the game's encoding and line breaking must not change with the screen: a preset switch would re-flow
+text differently), and `[translation.*]` (the map-languages spec). A target-qualified form of those is warned about and
+ignored.
+
+**Names.** The target qualifiers are exactly `clut8`, `rgb565`, `rgb888` (case-insensitive). They are reserved: no SCI
+platform code, SCUMM gameid, `v<N>` or AGS gameid has these names, so an engine qualifier cannot be mistaken for one.
+`auto` is not a qualifier (the resolved target is never `auto`).
+
+**One syntax, at most two qualifiers.** `[S]`, `[S:e]`, `[S:t]`, `[S:e:t]`: the engine qualifier first, the target
+last. `[S:t:e]` (target first), `[S:e1:e2]` (two engine qualifiers), three or more qualifiers, and `[S:auto]` are
+warned about and the section is ignored (section 10.2).
+
+**Order.** With engine qualifiers `e1, e2, ...` (most specific first) and the resolved target `t`, the loader looks at
+
+```
+[S:e1:t]  [S:e2:t]  ...  [S:e1]  [S:e2]  ...  [S:t]  [S]
+```
+
+most specific first. An engine qualifier beats a target qualifier: the target only chooses a screen variant, while the
+engine qualifier names the game, and adding a `:clut8` variant to a shared map must never change what an existing
+`[S:monkey2]` section does. An author who needs both writes `[S:monkey2:clut8]`. Id scopes stay above all of it
+(principle 3): `[font.4]` beats `[font:clut8]` for id 4, so a map whose ids name their own faces either qualifies the
+ids (`[font.4:clut8]`) or - simpler - keeps `face=<name>` in the ids and refines the names in `[fonts:clut8]`.
+
+**Merge rule** - the loader's existing rule (section 6.2.1 and the Task 4 loader), unchanged, over the longer list:
+scalar keys (`face`, `size`, `missing`, `blend`, `[shadow]` keys, ...) are taken from the first section in the order
+above that sets them; `range.`/`advance.`/`origin.` rules merge span by span (a qualified section's rule for a span
+replaces the less specific rule for that span; other spans from all levels remain); `[glyphs]` merges code by code;
+`[fonts]` merges name by name. A key a qualified section does not set falls through to the next level - this is what
+lets a `:clut8` section hold only the differences.
+
+**Values, not deletions.** A qualified section sets values; it cannot remove a key a less specific section set. Every
+key can spell its default (`align=game`, `cell=game`, `shift=0`, `missing=off`, `origin=game`, `mirror=off`; for a range
+family the engine scope's value, section 8, e.g. SCI `range.basic-latin=original`, `advance.basic-latin=game`), except
+the id-wide `advance`, whose default is the engine's own rule: a key only one preset uses without such a spelling goes
+into that preset's qualified sections, not the bare ones. (None of the shipped maps needs it.)
+
+**No fallback between targets.** A target reads its own qualified sections, then the bare ones - never another
+target's. So `rgb565`, which blends like `rgb888`, uses the bare (default) preset when the map has only `[S]` and
+`[S:clut8]`: write the true-colour preset bare and the 8-bit preset as `:clut8`, and every RGB screen shares the
+anti-aliased faces. A map that writes `[S:rgb888]` sections instead of bare ones gives `rgb565` nothing from them;
+the tools write the default preset bare for that reason.
+
+**`[render:t] target`.** The target is chosen before target-qualified sections are read (section 7.1.1), so a `target`
+key in `[render:t]` or `[render:e:t]` is circular: it is warned about and ignored. `blend`, `scale` and `gamma` are
+honoured there.
+
+**Warnings once.** The phase-1 load (section 7.1.1) is silent; the phase-2 load reports every warning of the map,
+including the target-qualifier ones, once. When the phase-1 load refuses the map (section 10.1), the engine prints
+that load's warnings itself and there is no phase 2.
 
 ## 4. Paths (one base rule)
 
@@ -366,23 +443,60 @@ code of a single-byte character (`0x5e = u+2026`); AGS does not read `[glyphs]`.
 | `clut8` | paletted 8-bit screen. |
 | `rgb565` | 16-bit 5-6-5. A 1-5-5-5 format does not qualify. |
 | `rgb888` | 8 bits per channel in a 4-byte pixel, whatever the fourth byte is (xrgb8888, argb8888, abgr8888...). There is no `argb8888` value: the screen's alpha byte is never used. |
-| `auto` | `clut8` when nothing can blend (the resolved `blend` is `off`, or every face of every id chain, range rule and target is 1 bpp and `blend` is not `on`). Otherwise the first of `rgb888`, `rgb565` the backend offers at the needed size, else `clut8` with one warning. |
+| `auto` | no preference: phase 1 (section 7.1.1) decides from the map and the faces, then the backend. |
 
-Resolution: game-domain ini > `[scummvm]` ini > map > `auto`. An explicit value the backend cannot give (or the engine
-cannot draw, section 7.3) falls back in the order `rgb888`, `rgb565`, `clut8`, skipping what is unavailable, with one
-warning naming what was asked and what was set.
+Resolution: game-domain ini > `[scummvm]` ini > map (`[render:e]`, `[render]`) > `auto`. An ini value `auto` means "no
+ini preference": it falls through to the map, but a game-domain `auto` still hides a `[scummvm]` value (the game domain
+is read first). An explicit value the backend cannot give (or the engine cannot draw, section 7.3) falls back in the
+order `rgb888`, `rgb565`, `clut8`, skipping what is unavailable, with one warning naming what was asked and what was
+set.
+
+#### 7.1.1 Two phases: the target first, then the sections for it
+
+The render target selects target-qualified sections (section 3.4), and target-qualified sections may name other faces,
+so the target is resolved from a view of the map that has none of them:
+
+1. **Phase 1 (target).** Load the map with the engine qualifiers only (quiet: its warnings are dropped). The **wanted
+   target** is the ini `render_target` if it is not `auto`, else the phase-1 `[render] target` if it is not `auto`, else
+   **auto**: `clut8` when nothing can blend - the phase-1 blend (ini `hires_text_blend` > phase-1 `[render] blend`) is
+   `off`, or every face the phase-1 view names (ini `hires_text_face`, every `face`, every `range.` value, every
+   `[glyphs]` target file) is 1 bpp and the blend is not `on` - otherwise `rgb888`. (This is the rule of the first
+   version of this section, applied to the phase-1 view; for a map with a bare U preset it gives `rgb888`, for a map
+   whose bare faces are all 1 bpp it gives `clut8`, as before.)
+2. **The backend.** The engine asks for `formatRequest(wanted, getSupportedFormats(), engineCanRgb565)` (the fallback
+   order above). The **resolved target** is the family of the screen format the engine actually runs on:
+   `targetOfFormat()` = `clut8` for CLUT8, `rgb565` for any 2-byte format, `rgb888` for any 3- or 4-byte format. It is
+   never `auto`. On the DOS backend `getSupportedFormats()` is already capped by `render_target` (section 9), so an
+   ini `render_target=clut8` is honoured even by upstream paths that do not ask the hi-res layer.
+   - An engine that loads its faces **after** its screen is set (SCI: `GfxCache` is created after `GfxScreen`) uses
+     the actual `g_system->getScreenFormat()`.
+   - An engine that loads **before** `initGraphics()` (SCUMM) uses the predicted family - the first format of its
+     request list, which `initGraphics()` sets because the list is filtered to what the backend offers - and after
+     `initGraphics()` compares it with the actual screen; if they differ it warns once (`SCUMM: the screen is <actual>,
+     not <predicted>; hi-res text uses the <actual> sections`) and repeats phase 2 with the actual family.
+   - An engine whose screen format is not chosen by the hi-res layer passes the family of the screen it runs on (SCUMM
+     v7+: `clut8`; AGS: the game's colour depth, 8 -> `clut8`, 16 -> `rgb565`, 32 -> `rgb888`; SCI with
+     `render_target=auto` and upstream `rgb_rendering`/`palette_mods`: whatever upstream set).
+3. **Phase 2 (sections).** Load the map again with the engine qualifiers and the resolved target (section 3.4's order);
+   this load reports every warning once, and everything below it (faces, plans, blend, scale, glyph tables, shadow)
+   uses it.
+
+So `auto` ends as "the screen actually set", and the map's `:clut8` preset is used whenever the screen is paletted -
+also where the player did not ask for it (a SCUMM v7 game, an 8-bit AGS game, an SCI EGA game without `rgb_rendering`).
 
 Per engine:
 
-- **SCUMM** (v < 7): asks `initGraphics()` for the formats that match the resolved target, then the fallbacks. v7+
+- **SCUMM** (v < 7): asks `initGraphics()` for the formats that match the wanted target, then the fallbacks. v7+
   (palette driven by SMUSH) always gets `clut8`; an explicit non-`clut8` target is warned about. The 16-bit sink that
   FM-Towns already uses (`HiResPalette16Sink`) draws `rgb565`.
 - **SCI**: `render_target` decides the format requested in `Sci::GfxDriver` creation (`drivers/init.cpp`) and
   `GfxDefaultDriver::initScreen()`. With `render_target=auto` and upstream `rgb_rendering` or `palette_mods` on, the
   upstream request stands exactly as upstream does it (RGB, the upscaled driver's first 4-byte format) - upstream behaviour
   is kept. With an explicit target, that target is requested; if it is `clut8` while `rgb_rendering`/`palette_mods` is on,
-  one warning says `render_target=clut8` wins and the upstream RGB request is dropped.
-- **AGS**: does not read it (AGS takes its colour depth from the game); set in an AGS game's map it is warned about once.
+  one warning says `render_target=clut8` wins and the upstream RGB request is dropped. Phase 1 runs before the driver is
+  created; phase 2 in `GfxCache` with the actual screen format.
+- **AGS**: does not read `[render] target` (AGS takes its colour depth from the game); set in an AGS game's map it is
+  warned about once. AGS does read target-qualified sections, with the target of the game's colour depth (no phase 1).
 - **DOS backend**: section 9.
 
 ### 7.2 `blend` / `hires_text_blend`
@@ -392,6 +506,12 @@ Per engine:
 | `auto` | blend a face's coverage when the face has coverage (2 bpp or 8 bpp SVF, or TrueType) and the screen is not `clut8`; otherwise draw it as a hard stencil. |
 | `on` | blend whenever the face has coverage. On `clut8` this means **palette-matched anti-aliasing**: each partially covered pixel gets the palette entry nearest (in RGB) to the blend of text colour and the pixel under it, computed per palette change through a cache keyed by (text colour, background index, coverage level); coverage is quantised to 4 levels for a 2 bpp face and 8 levels for 8 bpp. Until that is implemented, `on` with `clut8` gives one warning and draws the hard stencil. |
 | `off` | never blend: coverage is thresholded at 50% into a stencil, as the engines do today on a paletted screen. |
+
+`blend` is read in phase 2, so it may differ per target (`[render:clut8] blend=off`), and `auto` means, per resolved
+target: `rgb888` and `rgb565` - blend every face with coverage (the bare U preset's 2 bpp faces are anti-aliased on both);
+`clut8` - hard stencil (a 2 bpp face that reaches a `clut8` screen because the map has no `:clut8` variant is thresholded
+at 50%, today's behaviour). The phase-1 blend used by the `auto` target rule (section 7.1.1) reads only the ini and the
+bare/engine-qualified `[render]`.
 
 SCI now honours `blend` (it used to blend whenever the screen was RGB). SCUMM's options dialog checkbox "Smooth the hi-res
 text" shows the effective state and writes `hires_text_blend=on|off` only when the player toggles it; an untouched dialog
@@ -438,7 +558,9 @@ compare pixels before and after.
 
 - `dos_truecolor` is removed (no reader, no `registerDefault`). Its replacement is `render_target=clut8` in `[scummvm]`.
 - `DosGraphicsManager::getSupportedFormats()` reads `render_target` through ConfMan's normal lookup (active game domain,
-  then `[scummvm]`). `auto` (or unset) reports what it reports today: every format the mode list can set at the size (exact
+  then `[scummvm]`) **while a game domain is active**; with no active domain (the launcher and its options dialogs) it
+  applies no cap, so the Graphics options can list every target the hardware offers (section 11.1) even when
+  `[scummvm] render_target=clut8`. `auto` (or unset) reports what it reports today: every format the mode list can set at the size (exact
   or through the 640x480 line-repeat fallback), cheapest on the bus first (rgb565, xrgb1555, xrgb8888), then CLUT8. An
   explicit value reports only that family (for `rgb565` only 5-6-5; for `rgb888` only 4-byte 8-8-8) that can be set, then
   CLUT8. So the cap also governs upstream paths that ask for `nullptr` (SCI EGA with `rgb_rendering`, videos).
@@ -467,6 +589,13 @@ load, and are also kept in `HiResMap::warnings` for tests.
   silent substitute value).
 - Font value: unknown face name; entries after `original`; `same` where it has no meaning (section 5.2).
 - Ranges: unknown block, malformed span, duplicate spelling, equal-width overlap (section 6.2.1).
+- Qualifiers (section 3.4), the section is ignored:
+  `HIRESTXT.MAP: [font:auto]: auto is not a render-target qualifier; ignoring the section`,
+  `HIRESTXT.MAP: [font:clut8:monkey2]: the render target goes last ([font:monkey2:clut8]); ignoring the section`,
+  `HIRESTXT.MAP: [font:pc:v5]: the second qualifier must be clut8, rgb565 or rgb888; ignoring the section`,
+  `HIRESTXT.MAP: [font:a:b:clut8]: a section takes at most two qualifiers; ignoring the section`,
+  `HIRESTXT.MAP: [text:clut8]: [text] cannot depend on the render target; ignoring the section` (the same for
+  `[layout]`). The key only: `HIRESTXT.MAP: [render:clut8] target cannot depend on the render target; ignoring it`.
 - `[glyphs]`: a chain or `original` as a target face; a target code point that is not `u+`/`+0x`.
 
 ### 10.3 The engine cannot honour a key
@@ -500,33 +629,72 @@ All hi-res text keys are read from the **game domain only**, except `render_targ
 | `hires_text_blend` | `auto` `on` `off` | - | SCI, SCUMM, AGS | `hires_text_alpha`, `korean_alpha_text` |
 | `hires_text_advance` | `game` `font` `cell` | - | SCI, SCUMM | `hires_text_metrics`, `hires_text_latin`, `hires_text_latin_space` (the space and fullwidth parts need a map `[glyphs]`) |
 | `hires_text_log` | `true` `false` | `false` | SCI, SCUMM | same key |
-| `render_target` | `auto` `clut8` `rgb565` `rgb888` | `auto` | SCI, SCUMM, DOS backend | `dos_truecolor`; `rgb_rendering`/`alpha=` in their render role |
+| `render_target` | `auto` `clut8` `rgb565` `rgb888` | `auto` | SCI, SCUMM, DOS backend; AGS no (section 7.1.1) | `dos_truecolor`; `rgb_rendering`/`alpha=` in their render role; the map preset (`hires_text_map=...L.MAP`). Also the Graphics options popup (section 11.1). |
 
 Removed without replacement: `hires_text_font`, `hires_text_font_size`, `hires_text_latin`, `hires_text_latin_space`,
 `hires_text_latin_font`, `hires_text_metrics`, `hires_text_alpha`, `korean_alpha_text`, `korean_hires_scale`,
 `korean_ttf_map` (and its warning), `dos_truecolor`. A range rule in an ini key would be unreadable: a player who wants one
 writes a map. Unchanged, upstream-owned: `rgb_rendering`, `palette_mods`, `render_mode`, `disable_dithering`, `text_encoding`.
 
-The GUI keeps "Use hi-res fonts" (`hires_text`) and "Smooth the hi-res text" (`hires_text_blend`, section 7.2).
+The GUI keeps "Use hi-res fonts" (`hires_text`) and SCUMM's in-game "Smooth the hi-res text" (`hires_text_blend`,
+section 7.2; the launcher's bool checkbox is removed, pre-flight ruling S6), and gains the popup of section 11.1.
+
+### 11.1 The Graphics options: "Hi-res text screen"
+
+- **Where.** The Graphics tab of the global options (`GUI::GlobalOptionsDialog`) and of a game's options
+  (`GUI::EditGameDialog`), both built by `OptionsDialog::addGraphicControls()` (`gui/options.cpp`), below "Render
+  mode": a label **"Hi-res text screen:"** and a popup with **Auto**, **8-bit palette**, **16-bit colour**, **True colour**,
+  writing `render_target` = `auto`, `clut8`, `rgb565`, `rgb888`. Tooltip: "The screen the game runs in when it draws
+  hi-res text. 8-bit uses the map's paletted fonts; 16-bit and true colour blend the smooth ones. Takes effect the next
+  time the game starts."
+- **Domains.** The global dialog writes `[scummvm]`; a game's dialog writes the game domain and, like every key of
+  that tab, only while "Override global graphic settings" is checked - unchecking it removes the key
+  (`gui/options.cpp`'s removal path for `render_mode`), and a game domain that has `render_target` counts as overriding
+  (`gui/editgamedialog.cpp`'s list at the `render_mode` check). "Auto" writes `auto`, as "Render mode"'s `<default>`
+  writes its code: in a game domain it deliberately hides a global `clut8` (section 7.1: an ini `auto` hides the global
+  value and then defers to the map).
+- **Which entries.** Auto always; the three targets only when the backend offers them: `Graphics::hiResTargetsOffered()`
+  maps `g_system->getSupportedFormats()` to a set (CLUT8 -> 8-bit, an exact 5-6-5 -> 16-bit, a 4-byte 8-8-8 -> true
+  colour; `formatMatchesTarget()`). The DOS backend applies its cap only while a game runs (section 9), so the launcher
+  lists what the hardware has. A popup with fewer than two targets is hidden (a backend without `USE_RGB_COLOR` offers
+  CLUT8 only). A stored value the backend does not offer is shown as its entry anyway, marked "(not available here)",
+  so the dialog never rewrites a value silently.
+- **Which games.** The global tab always shows it. A game's tab shows it only when the target uses hi-res text:
+  `MetaEngine::hasHiResText(target)` (new virtual, default `false`), implemented by SCI, SCUMM and AGS through one
+  shared `Graphics::hiResTextConfigured(domain)`: `hires_text` is not `false` and `hires_text_map` is set non-empty, or
+  `hires_text_face` is set, or `<path>/HIRESTXT.MAP` exists. Not a GUIO flag: GUIO flags come from the detection
+  tables, are stored in the target when it is added (stale for existing targets) and cannot know whether a map has been
+  put in the game folder; the per-target question is what `getExtraGuiOptions(target)` already asks (SCUMM's
+  `targetHasHiResText()`), so the new hook follows that.
+- **Restart.** The screen format is chosen at engine start (sections 7.1, 7.1.1), so a change applies the next time the
+  game starts; the tooltip says so. When the dialog is closed with OK while an engine runs (`g_engine` non-null) and
+  `render_target` changed, a `MessageDialog` says "The hi-res text screen changes the next time the game starts."
+- **Blend** stays out of the Graphics tab: `blend=auto` already follows the target (section 7.2); the one useful manual
+  choice, hard-edged text on an RGB screen, is SCUMM's in-game checkbox; `on` for `clut8` waits for palette-matched
+  anti-aliasing (Task 20 of the plan), which is when a "Text smoothing" popup (Auto / On / Off, game domain only,
+  since `hires_text_blend` is read only there) would earn its place.
 
 ## 12. Examples
 
-### 12.1 SCI: Laura Bow 1, U preset
+### 12.1 SCI: Laura Bow 1, both presets in one map
 
 ```ini
-; DATA/LB1KOU.MAP - Laura Bow 1 Korean (UTF-8 translation), U preset.
-; body = KO2350B.SVF (Gowun Batang Bold 17 px, 2 bpp), ui = KO2350G.SVF
-; (NanumGothic Bold 16 px, 2 bpp); both baked on one baseline in a 16x16 cell.
+; DATA/LB1KO.MAP - Laura Bow 1 Korean (UTF-8 translation).
+; Default (true colour, rgb888/rgb565): body = KO2350B.SVF (Gowun Batang Bold 17 px, 2 bpp),
+; ui = KO2350G.SVF (NanumGothic Bold 16 px, 2 bpp); both baked on one baseline in a 16x16 cell.
+; render_target=clut8: every id on KO2350.SVF (16 px, 1 bpp) on the game baseline.
 [map]
 version=2
 
 [render]
-target=rgb888          ; true colour; the ini may still say rgb565 or clut8
-blend=auto             ; 2 bpp faces -> blended on an RGB screen
+blend=auto             ; 2 bpp faces -> blended on an RGB screen, hard-edged on clut8
 
 [fonts]
 ui=KO2350G.SVF
 body=KO2350B.SVF
+[fonts:clut8]           ; the 8-bit preset: one 1 bpp face under both names
+ui=KO2350.SVF
+body=KO2350.SVF
 
 [font]
 face=ui
@@ -534,7 +702,11 @@ align=cell
 missing=u+25a1
 range.basic-latin=same          ; ASCII from the same SVF (was [latin] mode=proportional)
 advance.basic-latin=font        ; was [latin] metrics=font
+[font:clut8]
+align=game                      ; the 1 bpp ink sits on the game baseline
 
+[font.0:clut8]
+shift=-1                        ; status line: the 1 bpp ink one row up
 [font.1]
 face=body
 [font.4]
@@ -546,10 +718,16 @@ advance.basic-latin=game        ; cast names lined up with spaces (was metrics=g
 face=body
 cell=glyph
 size=18
+[font.40:clut8]
+cell=game                       ; the 16 px glyphs keep the game cell
+size=16
 [font.41]
 face=body
 cell=glyph
 size=18
+[font.41:clut8]
+cell=game
+size=16
 ```
 
 ```ini
@@ -557,35 +735,37 @@ size=18
 [scummvm]
 render_target=auto      ; clut8 here forces 8-bit everywhere (was dos_truecolor=off)
 
-[lb1ko]
+[lb1ko]                 ; true colour: no render_target, so [scummvm] decides (auto -> rgb888 here)
 gameid=laurabow
 engineid=sci
 language=ko
 path=GAMES\LB1KO
 extrapath=DATA
-hires_text_map=data:LB1KOU.MAP
+hires_text_map=data:LB1KO.MAP
 
-[lb1kol]
+[lb1kol]                ; 8-bit: the same map, its :clut8 sections
 gameid=laurabow
 engineid=sci
 language=ko
 path=GAMES\LB1KO
 extrapath=DATA
-hires_text_map=data:LB1KOL.MAP
+hires_text_map=data:LB1KO.MAP
+render_target=clut8
 ```
 
-`rgb_rendering=true` is no longer needed: the map says `target=rgb888`. `size=18` with `cell=glyph` makes ids 40 and 41
-lay out on an 18 px cell (an SVF keeps its baked glyphs; only the cell grows).
+`rgb_rendering=true` is no longer needed: `auto` resolves to `rgb888` because the bare faces have coverage. `size=18`
+with `cell=glyph` makes ids 40 and 41 lay out on an 18 px cell (an SVF keeps its baked glyphs; only the cell grows).
+With `render_target=rgb565` the same map gives the bare (anti-aliased) preset on a 16-bit screen.
 
-### 12.2 SCUMM: Monkey Island 2, U preset
+### 12.2 SCUMM: Monkey Island 2, both presets in one map
 
 ```ini
-; DATA/M2KOU.MAP - Monkey Island 2 Korean (mi2kor patch), U preset, 2 bpp.
+; DATA/M2KO.MAP - Monkey Island 2 Korean (mi2kor patch). Default: 2 bpp M2U*.SVF;
+; render_target=clut8: 1 bpp M2L*.SVF (same cells per charset).
 [map]
 version=2
 
 [render]
-target=rgb888
 blend=auto
 scale=2
 
@@ -599,6 +779,13 @@ sent=M2U2.SVF
 card=M2U4.SVF
 card7=M2U7.SVF
 card8=M2U8.SVF
+[fonts:clut8]
+dlg=M2L0.SVF
+small=M2L1.SVF
+sent=M2L2.SVF
+card=M2L4.SVF
+card7=M2L7.SVF
+card8=M2L1.SVF                    ; the L set has no own charset 8 face
 
 [font]
 missing=u+25a1
@@ -642,19 +829,29 @@ gameid=monkey2
 language=ko
 path=GAMES\MI2
 extrapath=DATA
-hires_text_map=data:M2KOU.MAP
+hires_text_map=data:M2KO.MAP
 
-[mi2ko565]                          ; the same map on a 16-bit screen
+[mi2kol]                            ; the same map, 8-bit
 engineid=scumm
 gameid=monkey2
 language=ko
 path=GAMES\MI2
 extrapath=DATA
-hires_text_map=data:M2KOU.MAP
+hires_text_map=data:M2KO.MAP
+render_target=clut8
+
+[mi2ko565]                          ; the same map on a 16-bit screen: the bare (2 bpp) preset
+engineid=scumm
+gameid=monkey2
+language=ko
+path=GAMES\MI2
+extrapath=DATA
+hires_text_map=data:M2KO.MAP
 render_target=rgb565
 ```
 
-The L presets differ in their SVF names and in `[render] target=clut8` (or `auto`: 1 bpp faces resolve to `clut8`).
+Package names stay: every BAT keeps its name and starts the same target; only the maps merge
+(`<X>KOU.MAP` + `<X>KOL.MAP` -> `<X>KO.MAP`) and the L targets say `render_target=clut8` instead of naming the L map.
 
 ## 13. Worktree sync rule for the shared parser
 
@@ -682,3 +879,5 @@ The L presets differ in their SVF names and in `[render] target=clut8` (or `auto
   shared compiled plan.
 - `rgb555` as a target value (the DOS backend offers xrgb1555; add a value if a use appears).
 - Per-range `shift`/`align`.
+- A fallback chain between targets (`rgb565` reading `:rgb888` sections), a target-qualified `[render] target`, a
+  target-qualified `[text]`/`[layout]`, and a "Text smoothing" popup (section 11.1).
