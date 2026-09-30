@@ -296,11 +296,15 @@ struct ScummHiResText {
 
 	/**
 	 * Whether the ASCII character @p chr steps by the replacement face's own
-	 * advance rather than the game's Latin width. C34 did this inside CJK
-	 * text and UTF-8 translations; since C36 it is the default for any
-	 * text, the game's own English included. Kept as a thin wrapper over
-	 * advanceFor()'s own resolution: true exactly when advanceFor() would
-	 * draw @p chr from a TrueType face and step by that face's own advance.
+	 * advance rather than the game's Latin width. C34/C36 made this the
+	 * default for CJK text, UTF-8 translations and the game's own English
+	 * alike; since Task 7 the engine scope's own default is
+	 * `advance.basic-latin=game` (design section 8), so a TrueType face only
+	 * steps Latin by itself when the map or `hires_text_advance` asks for it
+	 * (`advance.basic-latin=font`) - the inverse of the old default. Kept as
+	 * a thin wrapper over advanceFor()'s own resolution: true exactly when
+	 * advanceFor() would draw @p chr from a TrueType face and step by that
+	 * face's own advance.
 	 */
 	bool latinStepsByFace(int chr, int charsetId) const;
 
@@ -782,6 +786,21 @@ private:
 	/// Paths that failed to open at all, or were not a usable font; tried
 	/// (and warned about) once.
 	mutable Common::HashMap<Common::String, bool> _failedFaces;
+	/// Raw paths a TrueType open was attempted for (success or failure),
+	/// keyed the same as _failedFaces but set on success too: openPlanFace()
+	/// stores a successfully opened TrueType face under a size-qualified
+	/// "ttf:<path>@<px>..." key, never under the raw path, so without this
+	/// checkIdOnceReady()'s "every path attempted" gate would wait forever
+	/// for an id whose face opened fine (M2).
+	mutable Common::HashMap<Common::String, bool> _attemptedPaths;
+	/// The Face that owns a given source, for the ink cache, the TrueType/
+	/// lineFit checks (isSourceTtf(), the M4/M7 fixes) and cellRuleAdvance()'s
+	/// bitmap-vs-TrueType branch - a reverse index instead of a linear scan
+	/// of _sources per lookup (M10). Populated wherever a Face is created;
+	/// cleared with the rest in freeFaces().
+	mutable Common::HashMap<uint64, Face *> _faceBySource;
+	/// The Face owning @p src, or null; see _faceBySource.
+	Face *faceForSource(Graphics::UnicodeGlyphSource *src) const;
 
 	/// The map-less form's whole fallback chain, merged into one source
 	/// (FallbackGlyphSource) - unlike the plan-based path below, which
@@ -831,6 +850,21 @@ private:
 	/// null chain slot on its own is not sticky - the next call would just
 	/// look the still-valid source up again.
 	mutable Common::HashMap<Common::String, bool> _excludedForId[kMaxFonts];
+	/// The pixel size chainSources[id]'s TrueType entries were last opened
+	/// at, 0 = none yet: when ttfSizeForSimple()/plan.size answers a
+	/// *different* size later (the id's own cell became known after an
+	/// earlier pass opened it at a borrowed or guessed one, M5), every
+	/// TrueType-backed slot of this id is dropped so resolveEntry() reopens
+	/// it at the right size; an already-resolved SVFN slot is untouched
+	/// (its size never depends on this).
+	mutable int _chainSourcesPixelSize[kMaxFonts] = {};
+	/// design 10.4's "once per cause per load" (M1): every load-time warning
+	/// text checkIdOnceReady() has already printed this load (map warnings
+	/// are per id-independent causes - missing=, a [glyphs] target - so
+	/// without this the same text prints once per id that shares the cause).
+	/// Cleared in freeFaces(), which runs at the start of both reset() and
+	/// loadFonts() - i.e. once per load.
+	mutable Common::HashMap<Common::String, bool> _warnedOnceThisLoad;
 
 	/// Sources for one id's compiled plan, built - and extended as faces
 	/// arrive - by ensureChainSources(): chainSources[id][0] parallels
@@ -861,6 +895,13 @@ private:
 	/// bogus permanent failure, letting checkIdOnceReady() run its once-only
 	/// checks before every face is actually in.
 	void ensureChainSources(int id, bool allowDiskOpen = true) const;
+	/// Shared by adoptMap() and loadConfig() (L4): compiles _plans[0..19]
+	/// from the current _map/_ini/_mapDir against @p gameDir, printing every
+	/// distinct plan warning once (Task 5 review F2), then resolves _scale
+	/// the same way (ini > map > 2, clamped). Only for the map/ini-driven
+	/// (_perGlyph) path; loadConfig() calls it only when not falling back to
+	/// probeSimpleFonts().
+	void compilePlans(const Common::Path &gameDir);
 	/// design section 10.4's load-time checks (cell height, [glyphs] target
 	/// coverage, missing=), run once per id, when ensureChainSources() finds
 	/// every path the plan names has been attempted (S16b).
@@ -889,11 +930,26 @@ private:
 	bool isSourceTtf(Graphics::UnicodeGlyphSource *src) const;
 
 	int advancePlaced(uint32 cp, Graphics::UnicodeGlyphSource *src, int charsetId, int gameWidth, int *carry) const;
-	/// The C31 legacy grid rule (kHiResAdvanceEngine: nothing set an advance
-	/// key), generalised off UnicodeGlyphSource: a bitmap face steps on the
-	/// game's grid, a wide TrueType glyph by the face.
-	int cellRuleAdvance(Graphics::UnicodeGlyphSource *src, uint32 cp, int charsetId, int gameWidth,
-						int *carry, bool faceFit) const;
+	/// Design section 6.3 / M6: the wide-glyph grid rule (game and font
+	/// alike; only ASCII/"other" use the simple advanceGamePx() scaling) -
+	/// unchanged since before Task 7 bar taking a generic UnicodeGlyphSource-
+	/// backed Face instead of a bitmap-only one.
+	///
+	/// @param fontMetrics  advance=font: spend/restore @p carry, no game floor
+	///                     (false: advance=game's ink floor, MAX(fit, gameWidth))
+	/// @param requireInk   decline (return @p gameWidth) on a blank glyph
+	///                     rather than still advancing by it (a wide glyph the
+	///                     face draws blank - an ideographic space - still
+	///                     advances by the face: false)
+	/// @param faceFit      kHiResAdvanceEngine only: a wide TrueType glyph
+	///                     steps by its own advance, rounded up, with no game
+	///                     floor at all (C31)
+	int cellRuleAdvance(Face *face, uint32 cp, int charsetId, int gameWidth, int *carry,
+						bool fontMetrics, bool requireInk, bool faceFit = false) const;
+	/// design section 4.4, restored for a plan chain (M9): the translation
+	/// coverage warning for one id's own idChain, run once its faces are
+	/// resolved (ensureChainSources()).
+	void checkCoverageForId(int id) const;
 
 	bool drawGlyphPlaced(Graphics::Surface &dest, int chr, int charsetId,
 						 int x, int y, byte color, byte shadowColor, int gameShadow,
@@ -935,9 +991,14 @@ private:
 	Common::Array<uint32> _fitProbes;	///< _translationCps.fitProbes(): the TrueType faces' fit
 	mutable Common::HashMap<Common::String, bool> _coverageChecked;
 	mutable Common::Array<Common::String> _coverageWarnings;
-	/// Map-less form only: the translation coverage warning for one merged
-	/// TrueType chain (openTtfChain()).
-	void checkCoverage(const Face *face, const Common::String &key) const;
+	/// The translation coverage warning (design 4.4) for one ordered chain
+	/// of sources/names, run once per @p key: each face is asked only for
+	/// what the faces before it in the chain lack. Used by the map-less
+	/// form's merged TrueType chain (openTtfChain(), @p sources = the Face's
+	/// own chain/chainNames) and by a plan id's own idChain
+	/// (checkCoverageForId(), M9).
+	void checkCoverage(const Common::Array<Graphics::UnicodeGlyphSource *> &sources,
+					   const Common::Array<Common::String> &names, const Common::String &key) const;
 
 	void freeFaces();
 
@@ -955,6 +1016,11 @@ private:
 	 *                  last inked column
 	 */
 	bool glyphInk(Graphics::UnicodeGlyphSource *src, uint32 cp, int *inkRight) const;
+	/// The pixel-scanned one-past-last-inked-column, cached per (owning
+	/// Face, cp): glyphInk()'s fallback for a face whose declared metrics
+	/// cannot say (a fixed-width SVFN, with no metrics table at all; every
+	/// TrueType face).
+	int scannedInkRight(Face *owner, Graphics::UnicodeGlyphSource *src, uint32 cp) const;
 
 	// The grid the engine settled on per charset, so a charset with no
 	// replacement of its own can fall back to a font that fits it.
