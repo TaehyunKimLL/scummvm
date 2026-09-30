@@ -122,6 +122,19 @@ public:
 		TS_ASSERT(!hr.latinBaselineByFace('A', kCs));
 	}
 
+	/// range.basic-latin=original + origin=face: with ASCII declined to the
+	/// game's own font, origin=face has nothing to apply to - the game
+	/// offsets stand, same as with no origin key at all.
+	void test_latin_off_keeps_the_game_font() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(open(hr, overlay,
+					   "[font.4]\nface=OWN.SVF\nrange.basic-latin=original\norigin.basic-latin=face\n"));
+		TS_ASSERT(addOwn(hr, ownGlyphs()));
+		TS_ASSERT(!hr.latinBaselineByFace('A', kCs));
+	}
+
 	/// A renderer that measures Latin with the game's widths and never asks
 	/// the layer (FM-Towns, V2) switches the face step off; it ignores this
 	/// key too.
