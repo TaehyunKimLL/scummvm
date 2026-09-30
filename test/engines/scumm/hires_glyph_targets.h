@@ -1,6 +1,7 @@
 #include <cxxtest/TestSuite.h>
 
 #include "common/array.h"
+#include "common/file.h"
 #include "common/fs.h"
 #include "common/str.h"
 #include "graphics/hires_text/font_map.h"
@@ -298,5 +299,55 @@ public:
 #else
 		TS_SKIP("needs FreeType and a real filesystem");
 #endif
+	}
+
+	/// M9: a map chain's translation coverage is checked, not only the
+	/// map-less form's (openTtfChain()'s own call) - checkCoverageForId()
+	/// runs the same Graphics::checkCoverage() from ensureChainSources()
+	/// for every id's own chain. A real file is needed here: loadFonts()
+	/// (which alone populates the coverage sample from a noted translation)
+	/// resets every face addFace() added in memory.
+	void test_coverage_warning_for_a_map_chain() {
+		Common::FSNode tmp("/tmp/scummvm-hires-m9-test");
+		tmp.createDirectory();
+		const Common::Path gameDir = tmp.getPath();
+		{
+			Common::Array<uint32> cps;
+			cps.push_back('A');
+			const Common::Array<byte> bytes = ScummHiResFixture::makeFont(cps);
+			Common::DumpFile f;
+			TS_ASSERT(f.open(gameDir.join(Common::Path("OWN.SVF", '/'))));
+			f.write(bytes.begin(), bytes.size());
+			f.close();
+		}
+
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		hr.useOverlay(&overlay);
+		const Common::String text = "[map]\nversion=2\n[render]\nblend=off\n[font.4]\nface=OWN.SVF\n";
+		Graphics::HiResMap m;
+		Common::Array<Common::String> q;
+		Common::MemoryReadStream s((const byte *)text.c_str(), text.size());
+		TS_ASSERT(Graphics::HiResFontMap::loadMap(s, gameDir, q, Graphics::kHiResKeysScumm, m));
+		hr.adoptMap(m);
+		hr.noteGameCharset(kCs, 8, 8);
+		hr.setCharsetGrid(kCs, 8, 8);
+		hr.useUtf8Text();
+
+		// A translated string containing U+AC00, which OWN.SVF (only 'A')
+		// lacks.
+		static const byte kTranslated[] = { 0xEA, 0xB0, 0x80, 0 }; // UTF-8 for U+AC00
+		hr.noteTranslatedString(kTranslated, sizeof(kTranslated));
+		TS_ASSERT(hr.loadFonts(gameDir));
+
+		// Touch the id so its chain's coverage is actually checked.
+		uint32 cp = 'A';
+		hr.perGlyphSourceFor(kCs, cp);
+
+		bool found = false;
+		for (uint i = 0; i < hr.coverageWarnings().size() && !found; ++i)
+			found = hr.coverageWarnings()[i].contains("lacks");
+		TS_ASSERT(found);
 	}
 };
