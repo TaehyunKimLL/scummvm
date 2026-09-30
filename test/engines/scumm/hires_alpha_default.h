@@ -64,6 +64,21 @@ public:
 		TS_ASSERT(!Scumm::ScummHiResText::canBlendText(8));
 	}
 
+	/**
+	 * A game that cannot blend (SCUMM v7 and v8: the backend palette is
+	 * SMUSH's) gets no default: blend=auto with a covering face stays keyed,
+	 * so the "will not be blended" warning is not printed on every start of
+	 * FT, The Dig or COMI (Task 7 review L1(a)). blend=on still asks, and
+	 * the caller (scumm.cpp) is still the one that finds out it could not be
+	 * done - wantsAlphaFor() itself never silently drops an explicit ask.
+	 */
+	void test_a_game_that_cannot_blend_gets_no_default() {
+		TS_ASSERT(!Scumm::ScummHiResText::wantsAlphaFor(Graphics::kHiResBlendAuto, true, false));
+		TS_ASSERT(Scumm::ScummHiResText::wantsAlphaFor(Graphics::kHiResBlendOn, true, false));
+		TS_ASSERT(Scumm::ScummHiResText::wantsAlphaFor(Graphics::kHiResBlendOn, false, false));
+		TS_ASSERT(!Scumm::ScummHiResText::wantsAlphaFor(Graphics::kHiResBlendOff, true, false));
+	}
+
 	/// The phase-1 coverage probe (design 7.1.1, Graphics::HiResCoverageFn):
 	/// a 2 bpp SVFN has coverage, a 1 bpp one does not - the C17 rule at the
 	/// file level, sniffed by magic and the bpp byte alone.

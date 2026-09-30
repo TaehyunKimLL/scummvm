@@ -194,17 +194,31 @@ struct ScummHiResText {
 	/**
 	 * Whether the resolved blend setting wants a coverage (alpha) surface.
 	 *
-	 * `blend == on || (blend == auto && some named face has coverage)`
-	 * (design section 7.2, evaluated once at load - Task 8 replaces this
-	 * with render_target()/blendActive() per glyph). Distinct from
-	 * alphaActive(): the map may ask for blending and not get it, because
-	 * the backend could not provide a true-colour screen.
+	 * `blend == on || (blend == auto && some named face has coverage &&
+	 * canBlendText())` (design section 7.2, evaluated once at load).
+	 * Distinct from alphaActive(): the map may ask for blending and not get
+	 * it, because the backend could not provide a true-colour screen, or
+	 * because this SCUMM version keeps the backend palette for itself
+	 * (canBlendText()).
 	 */
 	bool wantsAlpha() const { return _wantsAlpha; }
 
-	/// The pure rule wantsAlpha() applies, exposed for tests.
-	static bool wantsAlphaFor(Graphics::HiResBlend blend, bool anyFaceHasCoverage) {
-		return blend == Graphics::kHiResBlendOn || (blend == Graphics::kHiResBlendAuto && anyFaceHasCoverage);
+	/**
+	 * The pure rule wantsAlpha() applies, exposed for tests.
+	 *
+	 * @p canBlend defaults to true so the two-argument call the design's
+	 * `auto` table describes still reads as a pure blend/coverage rule; the
+	 * loader passes canBlendText(version) explicitly. `on` still answers
+	 * true even when @p canBlend is false - it still asks, and the caller
+	 * still warns that it could not be done (Task 7 review L1: a v7/v8 game
+	 * gets no *default*, but an explicit ask is not silently dropped).
+	 */
+	static bool wantsAlphaFor(Graphics::HiResBlend blend, bool anyFaceHasCoverage, bool canBlend = true) {
+		if (blend == Graphics::kHiResBlendOn)
+			return true;
+		if (blend == Graphics::kHiResBlendOff)
+			return false;
+		return canBlend && anyFaceHasCoverage;
 	}
 
 	/**
@@ -234,6 +248,62 @@ struct ScummHiResText {
 	 * paletted-only display quietly falls back instead of drawing nothing.
 	 */
 	void setAlphaActive(bool active) { _alphaActive = active; }
+
+	/**
+	 * design section 7.1.1's phase-1 "wanted target", specialised for SCUMM:
+	 * v7+ always answers `clut8` (SMUSH drives the backend palette; an
+	 * explicit non-clut8 @p ini/@p map target is ignored, with @p warning
+	 * naming it), otherwise `Graphics::wantedRenderTarget()`. @p map is the
+	 * phase-1 view (engine qualifiers only, Task 7's `p1`); never returns
+	 * `kHiResTargetAuto`. Static and pure so it can be tested without
+	 * ConfMan, a game folder or a backend.
+	 */
+	static Graphics::HiResRenderTarget wantedTarget(const Graphics::HiResMap &map, bool mapLoaded,
+													const Graphics::HiResIniOverrides &ini, int gameVersion,
+													bool anyCoverage, Common::String &warning);
+
+	/**
+	 * design section 7.4's scale resolution for SCUMM: `hires_text_scale`
+	 * (@p ini) beats `[render] scale` (@p map, when @p mapLoaded) beats 2,
+	 * clamped to SCUMM's own 1..3 and then @p platform (Graphics::clampScale()).
+	 * @p warning carries the clamp's own text plus the value actually used,
+	 * e.g. "the DOS backend runs hi-res text at 2x only; using 2". Static and
+	 * pure, replacing the old `ConfMan.getInt("hires_text_scale"/
+	 * "korean_hires_scale", ...)` readers.
+	 */
+	static int resolvedScale(const Graphics::HiResMap &map, bool mapLoaded, const Graphics::HiResIniOverrides &ini,
+							 const Graphics::HiResScaleLimits &platform, Common::String &warning);
+
+	/// The render target loadConfig() resolved (Task 7's `_target`): never
+	/// `kHiResTargetAuto`. What scumm.cpp hands to Graphics::formatRequest().
+	Graphics::HiResRenderTarget renderTarget() const { return _target; }
+
+	/// The blend setting compilePlans() last resolved against the current
+	/// (phase-2, resolved-target) map: `hires_text_blend` if set, else the
+	/// map's `[render] blend`, else `auto`. Feeds Graphics::blendActive()
+	/// alongside anyCoverage() once the actual screen format is known.
+	Graphics::HiResBlend blend() const { return _resolvedBlend; }
+
+	/// Whether some face the current (phase-2) map/ini names has coverage
+	/// (design 7.1.1's Graphics::mapHasCoverage(), against the *resolved*
+	/// target's sections - Task 7 review L1(b): distinct from the phase-1
+	/// question wantedTarget() itself asks, which is answered before any
+	/// target-qualified section exists).
+	bool anyCoverage() const { return _anyCoverage; }
+
+	/**
+	 * Reconcile the predicted render target with the screen the backend
+	 * actually gave us (design section 7.1.1): an engine that loads its
+	 * faces before initGraphics(), like SCUMM, can only predict the family
+	 * from the format list it asked for. When @p actual's family differs
+	 * from renderTarget() - a backend that offered none of the requested
+	 * family and fell all the way back to CLUT8, say - this warns once and
+	 * redoes phase 2 (the map reload against the corrected target, and the
+	 * plan/scale/blend compile) so faces open against the target the game
+	 * is really running in. A no-op when the prediction already matches, or
+	 * when no map was ever found to reload (nothing to redo).
+	 */
+	void adoptScreen(const Graphics::PixelFormat &actual);
 
 	/**
 	 * Refresh the cached true-colour palette.
@@ -842,6 +912,18 @@ private:
 	Common::Path _mapDir;
 	Common::Path _gameDir;
 	Graphics::HiResRenderTarget _target = Graphics::kHiResTargetAuto;
+	/// The map file phase 1 found and loaded, and the qualifiers it was read
+	/// with - kept so adoptScreen() can redo phase 2 against a corrected
+	/// target without loadConfig()'s caller running again. Empty/false when
+	/// no map file was ever found (a map-less game, or hires_text=false).
+	Common::Path _mapPath;
+	Common::Array<Common::String> _qualifiers;
+	bool _haveMapPath = false;
+	/// compilePlans()'s own resolution of blend()/anyCoverage(), against
+	/// whatever _map/_ini/_haveMap currently are (the resolved-target phase-2
+	/// view; Task 7 review L1(b)).
+	Graphics::HiResBlend _resolvedBlend = Graphics::kHiResBlendAuto;
+	bool _anyCoverage = false;
 	Graphics::HiResIdPlan _plans[kMaxFonts];
 	mutable bool _idBound[kMaxFonts] = {};       ///< checkIdOnceReady() ran its load-time checks once
 	/// Paths checkIdOnceReady() refused for this id (an SVF whose cell

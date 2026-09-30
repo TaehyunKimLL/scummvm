@@ -197,6 +197,11 @@ void ScummHiResText::reset() {
 	_mapDir.clear();
 	_gameDir.clear();
 	_target = Graphics::kHiResTargetAuto;
+	_mapPath.clear();
+	_qualifiers.clear();
+	_haveMapPath = false;
+	_resolvedBlend = Graphics::kHiResBlendAuto;
+	_anyCoverage = false;
 	_simpleBitmapPattern.clear();
 	_simpleBitmapSingle.clear();
 	_simpleLatinBitmapName.clear();
@@ -342,10 +347,68 @@ void ScummHiResText::compilePlans(const Common::Path &gameDir) {
 	}
 
 	Common::String scaleWarning;
-	const int wantedScale = _ini.scaleSet ? _ini.scale : (_map.scaleSet ? _map.scale : 2);
-	_scale = Graphics::clampScale(wantedScale, 1, 3, Graphics::hiResScaleLimits(), 2, "SCUMM", scaleWarning);
+	_scale = resolvedScale(_map, _haveMap, _ini, Graphics::hiResScaleLimits(), scaleWarning);
 	if (!scaleWarning.empty())
 		warning("SCUMM: %s", scaleWarning.c_str());
+
+	// design 7.2: blend is read in phase 2, against the sections the
+	// resolved target actually uses - not the phase-1 coverage question
+	// wantedTarget() answers before any target-qualified section exists
+	// (Task 7 review L1(b)).
+	_resolvedBlend = _ini.blendSet ? _ini.blend : _map.blend;
+	_anyCoverage = Graphics::mapHasCoverage(_map, _haveMap, _ini, _mapDir, gameDir,
+											&ScummHiResText::faceHasCoverage, nullptr);
+}
+
+Graphics::HiResRenderTarget ScummHiResText::wantedTarget(const Graphics::HiResMap &map, bool mapLoaded,
+														 const Graphics::HiResIniOverrides &ini, int gameVersion,
+														 bool anyCoverage, Common::String &warning) {
+	warning.clear();
+
+	if (gameVersion >= 7) {
+		bool explicitTarget = false;
+		const Graphics::HiResRenderTarget want = Graphics::wantedRenderTarget(map, mapLoaded, ini, anyCoverage, explicitTarget);
+		if (explicitTarget && want != Graphics::kHiResTargetClut8) {
+			warning = Common::String::format("SCUMM v7+ keeps a paletted screen; render_target=%s ignored",
+											  Graphics::renderTargetName(want));
+		}
+		return Graphics::kHiResTargetClut8;
+	}
+
+	bool explicitTarget = false;
+	return Graphics::wantedRenderTarget(map, mapLoaded, ini, anyCoverage, explicitTarget);
+}
+
+int ScummHiResText::resolvedScale(const Graphics::HiResMap &map, bool mapLoaded, const Graphics::HiResIniOverrides &ini,
+								  const Graphics::HiResScaleLimits &platform, Common::String &warning) {
+	warning.clear();
+	const int wanted = ini.scaleSet ? ini.scale : (mapLoaded && map.scaleSet ? map.scale : 2);
+
+	Common::String clampWarning;
+	const int resolved = Graphics::clampScale(wanted, 1, 3, platform, 2, "SCUMM", clampWarning);
+	if (!clampWarning.empty())
+		warning = clampWarning + Common::String::format("; using %d", resolved);
+	return resolved;
+}
+
+void ScummHiResText::adoptScreen(const Graphics::PixelFormat &actual) {
+	const Graphics::HiResRenderTarget actualTarget = Graphics::targetOfFormat(actual);
+	if (actualTarget == _target)
+		return;
+
+	warning("SCUMM: the screen is %s, not %s; hi-res text uses the %s sections",
+			Graphics::renderTargetName(actualTarget), Graphics::renderTargetName(_target),
+			Graphics::renderTargetName(actualTarget));
+	_target = actualTarget;
+
+	if (_haveMapPath) {
+		Graphics::HiResMapLoadOptions p2opts;
+		p2opts.target = _target;
+		p2opts.quiet = false;
+		_haveMap = Graphics::HiResFontMap::loadMapFile(_mapPath, _qualifiers, Graphics::kHiResKeysScumm, _map, p2opts);
+	}
+
+	compilePlans(_gameDir);
 }
 
 Common::Array<Common::String> ScummHiResText::collectFacePaths(int id) const {
@@ -2373,36 +2436,37 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	for (uint i = 0; i < iniWarnings.size(); ++i)
 		warning("SCUMM: %s", iniWarnings[i].c_str());
 
-	if (!_ini.enabled) {
-		debug(1, "SCUMM: hi-res text off (hires_text=false): the map, the fonts "
-				 "in the game folder and any TrueType face are all ignored");
-		return;
-	}
-
-	setGameMirror(gameId, version);
-
 	Common::Array<Common::String> qualifiers;
 	if (!gameId.empty())
 		qualifiers.push_back(gameId);
 	qualifiers.push_back(Common::String::format("v%d", version));
 
+	// The render target is resolved whatever hires_text says: design
+	// section 11 does not gate render_target on it, so a player's
+	// render_target=clut8 (or the DOS backend's own cap) still governs the
+	// screen a game with no replacement text at all runs in. Phase 1
+	// (design 7.1.1) loads only the engine-qualified sections, quietly: its
+	// warnings are dropped and, when hi-res text is actually on, repeated
+	// for real by phase 2 below.
 	Common::Path mapPath;
 	bool haveMapPath = false;
-	if (_ini.mapSet) {
-		if (!_ini.map.empty()) {
-			mapPath = Graphics::HiResFontMap::resolvePath(_ini.map, gameDir);
-			haveMapPath = true;
-		}
-	} else {
-		const Common::Path candidate = findDefaultMapFile(gameDir);
-		if (!candidate.empty()) {
-			mapPath = candidate;
-			haveMapPath = true;
+	if (_ini.enabled) {
+		if (_ini.mapSet) {
+			if (!_ini.map.empty()) {
+				mapPath = Graphics::HiResFontMap::resolvePath(_ini.map, gameDir);
+				haveMapPath = true;
+			}
+		} else {
+			const Common::Path candidate = findDefaultMapFile(gameDir);
+			if (!candidate.empty()) {
+				mapPath = candidate;
+				haveMapPath = true;
+			}
 		}
 	}
 
-	_haveMap = false;
-	bool anyCoverage = false;
+	Graphics::HiResMap p1;
+	bool p1Loaded = false;
 	if (haveMapPath) {
 		_mapDir = mapPath.getParent();
 		Common::FSNode probe(mapPath);
@@ -2412,73 +2476,82 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 			Graphics::HiResMapLoadOptions p1opts;
 			p1opts.target = Graphics::kHiResTargetAuto;
 			p1opts.quiet = true;
-			Graphics::HiResMap p1;
 			const bool ok1 = Graphics::HiResFontMap::loadMapFile(mapPath, qualifiers, Graphics::kHiResKeysScumm, p1, p1opts);
 			if (!ok1) {
 				for (uint i = 0; i < p1.warnings.size(); ++i)
 					warning("SCUMM: %s", p1.warnings[i].c_str());
 			} else {
-				anyCoverage = Graphics::mapHasCoverage(p1, true, _ini, _mapDir, gameDir, &ScummHiResText::faceHasCoverage, nullptr);
-
-				Graphics::HiResRenderTarget want;
-				if (version >= 7) {
-					want = Graphics::kHiResTargetClut8;
-				} else {
-					bool explicitTarget = false;
-					want = Graphics::wantedRenderTarget(p1, true, _ini, anyCoverage, explicitTarget);
-				}
-				Common::List<Graphics::PixelFormat> supported;
-				if (g_system)
-					supported = g_system->getSupportedFormats();
-				_target = Graphics::predictedTarget(want, supported, true);
-
-				Graphics::HiResMapLoadOptions p2opts;
-				p2opts.target = _target;
-				p2opts.quiet = false;
-				_haveMap = Graphics::HiResFontMap::loadMapFile(mapPath, qualifiers, Graphics::kHiResKeysScumm, _map, p2opts);
-				debug(1, "SCUMM: hi-res map %s: '%s'%s", _haveMap ? "read" : "REJECTED",
-					  mapPath.toString().c_str(), _ini.mapSet ? " (from the config)" : " (found in the game folder)");
+				p1Loaded = true;
 			}
 		}
+	}
+
+	const bool anyCoverageP1 = Graphics::mapHasCoverage(p1, p1Loaded, _ini, _mapDir, gameDir,
+														 &ScummHiResText::faceHasCoverage, nullptr);
+
+	Common::String targetWarning;
+	const Graphics::HiResRenderTarget want = wantedTarget(p1, p1Loaded, _ini, version, anyCoverageP1, targetWarning);
+	if (!targetWarning.empty())
+		warning("%s", targetWarning.c_str());
+
+	Common::List<Graphics::PixelFormat> supported;
+	if (g_system)
+		supported = g_system->getSupportedFormats();
+	_target = Graphics::predictedTarget(want, supported, true);
+
+	if (!_ini.enabled) {
+		debug(1, "SCUMM: hi-res text off (hires_text=false): the map, the fonts "
+				 "in the game folder and any TrueType face are all ignored");
+		return;
+	}
+
+	setGameMirror(gameId, version);
+
+	_haveMap = false;
+	_haveMapPath = p1Loaded;
+	if (p1Loaded) {
+		_mapPath = mapPath;
+		_qualifiers = qualifiers;
+		Graphics::HiResMapLoadOptions p2opts;
+		p2opts.target = _target;
+		p2opts.quiet = false;
+		_haveMap = Graphics::HiResFontMap::loadMapFile(mapPath, qualifiers, Graphics::kHiResKeysScumm, _map, p2opts);
+		debug(1, "SCUMM: hi-res map %s: '%s'%s", _haveMap ? "read" : "REJECTED",
+			  mapPath.toString().c_str(), _ini.mapSet ? " (from the config)" : " (found in the game folder)");
 	}
 
 	_logText = _ini.log;
 
 	_simpleFonts = false;
-	if (!_haveMap) {
+	if (!_haveMap)
 		_simpleFonts = probeSimpleFonts(gameDir, language);
-		if (!_simpleFonts) {
-			Graphics::HiResMap empty;
-			anyCoverage = anyCoverage || Graphics::mapHasCoverage(empty, false, _ini, _mapDir, gameDir,
-																   &ScummHiResText::faceHasCoverage, nullptr);
-		}
-	}
 
 	_encoding = _map.encodingSet ? _map.encoding : defaultEncodingFor(language);
 
 	_perGlyph = !_simpleFonts;
 	// Always compiled (not only when _perGlyph): compilePlans() also
-	// resolves _scale (ini > map > 2), which the map-less simple form still
-	// needs as its *starting* value before resolveScale() (called
-	// externally, once the game's own font height is known) can override it.
-	// A compiled-but-unused plan for the simple form costs nothing but the
+	// resolves _scale (ini > map > 2) and blend()/anyCoverage() (against the
+	// resolved-target phase-2 map), which the map-less simple form still
+	// needs a starting scale from before resolveScale() (called externally,
+	// once the game's own font height is known) can override it. A
+	// compiled-but-unused plan for the simple form costs nothing but the
 	// call.
 	compilePlans(gameDir);
 	_scaleFromUser = _ini.scaleSet;
 
-	const Graphics::HiResBlend blend = _ini.blendSet ? _ini.blend : _map.blend;
-	_wantsAlpha = wantsAlphaFor(blend, anyCoverage);
+	_wantsAlpha = wantsAlphaFor(_resolvedBlend, _anyCoverage, canBlendText(version));
 
 	const bool iniNamesFace = _ini.faceSet && !_ini.face.equalsIgnoreCase("original");
 	_enabled = _haveMap || _simpleFonts || iniNamesFace;
 
 	if (_enabled) {
-		debug(1, "SCUMM: hi-res text enabled: scale %d, blend %s (wants alpha %s), source encoding %s%s",
+		debug(1, "SCUMM: hi-res text enabled: scale %d, blend %s (wants alpha %s), source encoding %s%s, render target %s",
 			  _scale,
-			  blend == Graphics::kHiResBlendOn ? "on" : blend == Graphics::kHiResBlendOff ? "off" : "auto",
+			  _resolvedBlend == Graphics::kHiResBlendOn ? "on" : _resolvedBlend == Graphics::kHiResBlendOff ? "off" : "auto",
 			  _wantsAlpha ? "yes" : "no",
 			  codePageName(_encoding),
-			  _perGlyph ? ", per-glyph placement" : "");
+			  _perGlyph ? ", per-glyph placement" : "",
+			  Graphics::renderTargetName(_target));
 	}
 }
 
