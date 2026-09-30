@@ -80,6 +80,56 @@ class ScummHiResGlyphAdvanceTestSuite : public CxxTest::TestSuite {
 		return b;
 	}
 
+	/// One glyph's metrics and ink box, for svfnMulti().
+	struct G {
+		uint32 cp;
+		int advance, bearing, inkWidth;
+		int x0, x1, y0, y1;
+	};
+
+	/// As svfn(), but for several glyphs in one file (a base and a
+	/// combining mark sharing a font, the way a real translation's face
+	/// would).
+	static Common::Array<byte> svfnMulti(const G *g, int n, int cell = 16, int ascent = 13) {
+		const uint32 stride = (uint32)cell * cell;
+		const uint32 metricsOff = 36, dataOff = metricsOff + n * 4;
+		const uint32 cmapOff = dataOff + stride * n;
+		Common::Array<byte> b;
+		b.resize(cmapOff + n * 8, 0);
+		b[0] = 'S'; b[1] = 'V'; b[2] = 'F'; b[3] = 'N';
+		put16(b, 4, 2);
+		put16(b, 6, 1); // proportional
+		b[8] = 8;       // 8bpp
+		put16(b, 12, n);
+		b[14] = cell;
+		b[15] = cell;
+		b[16] = ascent;
+		put32(b, 20, metricsOff);
+		put32(b, 24, dataOff);
+		put32(b, 28, stride * n);
+		put32(b, 32, cmapOff);
+		for (int i = 0; i < n; ++i) {
+			b[metricsOff + i * 4 + 0] = g[i].advance;
+			b[metricsOff + i * 4 + 1] = (byte)(int8)g[i].bearing;
+			b[metricsOff + i * 4 + 2] = g[i].inkWidth;
+			for (int y = g[i].y0; y < g[i].y1; ++y)
+				for (int x = g[i].x0; x < g[i].x1; ++x)
+					b[dataOff + (uint32)i * stride + y * cell + x] = 255;
+			put32(b, cmapOff + i * 8, g[i].cp);
+			put32(b, cmapOff + i * 8 + 4, i);
+		}
+		return b;
+	}
+
+	/// The leftmost inked (non-zero) column of a surface, or -1.
+	static int inkLeft(const Graphics::Surface &s) {
+		for (int x = 0; x < s.w; ++x)
+			for (int y = 0; y < s.h; ++y)
+				if (*(const byte *)s.getBasePtr(x, y))
+					return x;
+		return -1;
+	}
+
 public:
 	void setUp() { ScummHiResFixture::setUp(); }
 	void tearDown() { ScummHiResFixture::tearDown(); }
@@ -278,5 +328,128 @@ public:
 		own.push_back('A');
 		TS_ASSERT(add(hr, "/tmp/t/OWN.SVF", own));
 		TS_ASSERT_EQUALS(hr.advanceFor('Z', kCs, 3), 3);
+	}
+
+	/// noteTranslatedString() (C11-T3c): the translation's code points are
+	/// read past every escape by the shared rule (escapeArgBytes()) - codes
+	/// 4-7 and 9 take two argument bytes too, and an argument of 0 does not
+	/// end the string. Ported verbatim from the pre-Task-7 suite: this
+	/// function and its call sites are unchanged by Task 7.
+	void test_note_translated_string_skips_every_escape_argument() {
+		Scumm::ScummHiResText hr;
+		hr.useUtf8Text();
+		static const byte kText[] = {
+			0xFF, 0x04, 0x00, 0x00, 0xEA, 0xB0, 0x80, 'a',	// FF 04 00 00, U+AC00 a
+			0xFF, 0x05, 'Q', 'R', 'b',			// FF 05 Q R, b
+			0xFF, 0x06, 'S', 'T', 0xFF, 0x07, 'U', 'V', 'c',	// FF 06 S T, FF 07 U V, c
+			0xFF, 0x09, 'W', 0x00, 'd',			// FF 09 W 00, d
+			0xFF, 0x01, 'e',				// FF 01 (no arguments), e
+			0xFF, 0x0E, 'X', 'Y', '@', 'f', 0x00, 'Z'
+		};
+		hr.noteTranslatedString(kText, sizeof(kText));
+		const Graphics::CodePointSet &cps = hr.translationCodePoints();
+		const uint32 want[] = { 0xAC00, 'a', 'b', 'c', 'd', 'e', 'f' };
+		for (uint i = 0; i < ARRAYSIZE(want); i++)
+			TS_ASSERT(cps.contains(want[i]));
+		TS_ASSERT_EQUALS(cps.size(), (uint32)ARRAYSIZE(want));
+	}
+
+	/// The anchor a combining mark attaches to is the base just drawn by
+	/// this layer on this line and in this string - not an older one, a
+	/// declined one, or one on another line. Ported from the pre-Task-7
+	/// suite; the drawGlyphPlaced()/beginString() anchor bookkeeping this
+	/// pins is unchanged by Task 7 (still `:879-900`-equivalent code).
+	///
+	/// This custom font's mark (U+0300) has no marksAtOrigin flag, so its
+	/// originX is 0 and its own ink starts at its cell's column 0: with no
+	/// valid anchor to fall back to, drawGlyphPlaced() draws it at the
+	/// caller's own pen exactly, which this test pins directly.
+	void test_mark_anchor_is_reset() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(96, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(open(hr, overlay, "[font.4]\nface=OWN.SVF\n"));
+		hr.useUtf8Text();
+		// A base (0x1101, wide so it is not routed through the ascii/"other"
+		// combining-mark special case) and a zero-advance combining mark
+		// (U+0300), both in one file (addFace() is a per-path cache, so a
+		// second call under the same path would just reuse the first).
+		const G both[] = {
+			{ 0x1101, 12, 1, 10, 1, 11, 2, 14 },
+			{ 0x0300, 0, -4, 4, 0, 4, 0, 4 },
+		};
+		const Common::Array<byte> bytes = svfnMulti(both, 2);
+		Common::MemoryReadStream ms(bytes.begin(), bytes.size());
+		TS_ASSERT(hr.addFace("/tmp/t/OWN.SVF", ms));
+
+		Graphics::Surface scratch, mark;
+		scratch.create(96, 40, Graphics::PixelFormat::createFormatCLUT8());
+		mark.create(96, 40, Graphics::PixelFormat::createFormatCLUT8());
+		memset(scratch.getPixels(), 0, scratch.pitch * scratch.h);
+
+		// A declined base ('Z', no glyph): the mark stays wherever the
+		// caller's own pen says, not on the base drawn before that one.
+		TS_ASSERT(hr.drawChar(scratch, 0x1101, kCs, 4, 4, 15, 0, 1));
+		TS_ASSERT(!hr.drawChar(scratch, 'Z', kCs, 30, 4, 15, 0, 1));
+		memset(mark.getPixels(), 0, mark.pitch * mark.h);
+		TS_ASSERT(hr.drawChar(mark, 0x0300, kCs, 60, 4, 15, 0, 1));
+		int l = inkLeft(mark);
+		TS_ASSERT_EQUALS(l, 60);   // no valid anchor: drawn at the caller's own pen
+
+		// A new string on the same line starts with no base either.
+		TS_ASSERT(hr.drawChar(scratch, 0x1101, kCs, 4, 4, 15, 0, 1));
+		hr.beginString();
+		memset(mark.getPixels(), 0, mark.pitch * mark.h);
+		TS_ASSERT(hr.drawChar(mark, 0x0300, kCs, 60, 4, 15, 0, 1));
+		l = inkLeft(mark);
+		TS_ASSERT_EQUALS(l, 60);
+
+		// A base on another line is not this mark's base either.
+		TS_ASSERT(hr.drawChar(scratch, 0x1101, kCs, 4, 4, 15, 0, 1));
+		memset(mark.getPixels(), 0, mark.pitch * mark.h);
+		TS_ASSERT(hr.drawChar(mark, 0x0300, kCs, 60, 20, 15, 0, 1));
+		l = inkLeft(mark);
+		TS_ASSERT_EQUALS(l, 60);
+
+		scratch.free();
+		mark.free();
+	}
+
+	/// The mark-placement half of the old test_combining_zero_advance: a
+	/// combining mark's ink is drawn against the previous base's hi-res
+	/// anchor, not the caller's own (rounded, game-px) pen - the anchor
+	/// carries the sub-game-pixel position a run of marks needs to line up
+	/// on. The zero-advance half is covered by
+	/// test_combining_mark_advances_zero.
+	void test_combining_mark_is_drawn_against_the_base_anchor_not_the_pen() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(96, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(open(hr, overlay, "[font.4]\nface=OWN.SVF\n"));
+		hr.useUtf8Text();
+		const G both[] = {
+			{ 0x1101, 12, 1, 10, 1, 11, 2, 14 },
+			{ 0x0300, 0, -4, 4, 0, 4, 0, 4 },
+		};
+		const Common::Array<byte> bytes = svfnMulti(both, 2);
+		Common::MemoryReadStream ms(bytes.begin(), bytes.size());
+		TS_ASSERT(hr.addFace("/tmp/t/OWN.SVF", ms));
+
+		Graphics::Surface base, mark;
+		base.create(96, 40, Graphics::PixelFormat::createFormatCLUT8());
+		mark.create(96, 40, Graphics::PixelFormat::createFormatCLUT8());
+		memset(base.getPixels(), 0, base.pitch * base.h);
+		memset(mark.getPixels(), 0, mark.pitch * mark.h);
+
+		// The base's own advance (12) at scale 2 is 6 game px; drawn with a
+		// caller pen far from that (34, not 20+6=26), the mark still lands
+		// against the base's real hi-res anchor (20+12=32), not the caller's.
+		TS_ASSERT(hr.drawChar(base, 0x1101, kCs, 20, 4, 15, 0, 1));
+		TS_ASSERT(hr.drawChar(mark, 0x0300, kCs, 34, 4, 15, 0, 1));
+		TS_ASSERT_EQUALS(inkLeft(mark), 32);
+		TS_ASSERT(inkLeft(mark) != 34);
+
+		base.free();
+		mark.free();
 	}
 };
