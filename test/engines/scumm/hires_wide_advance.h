@@ -51,12 +51,22 @@ public:
 		overlay.create(64, 40, false);
 		Scumm::ScummHiResText hr;
 		TS_ASSERT(open(hr, overlay, "[font.4]\nface=OWN.SVF\n"));
+		// codePointFor() reads a literal Unicode code point past 0xFF as a
+		// game code only in UTF-8 mode; without this, 0xAC00 decodes to
+		// nothing and advanceFor() returns gameWidth from its own early-out,
+		// which happened to equal 12 below regardless of cellRuleAdvance()
+		// (M10's flagged weak-test pattern - this one was not caught by the
+		// review, but has the identical defect: see test_wide_keeps_cell).
+		hr.useUtf8Text();
 		Common::Array<uint32> own;
 		own.push_back(0xAC00);
 		TS_ASSERT(ScummHiResFixture::addFace(hr, "/tmp/t/OWN.SVF", own));
 		// makeFont()'s advance (9 hi-res px) at scale 2 rounds up to 5, and
 		// the game's own (12) is wider, so the game's width is the floor.
 		TS_ASSERT_EQUALS(hr.advanceFor(0xAC00, kCs, 12), 12);
+		// A narrower game width does not float the answer down with it - the
+		// ink-based fit (5) is still the floor.
+		TS_ASSERT_EQUALS(hr.advanceFor(0xAC00, kCs, 2), 5);
 	}
 
 	static const char *systemTtf() {
