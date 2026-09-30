@@ -202,6 +202,7 @@ void ScummHiResText::reset() {
 	_haveMapPath = false;
 	_resolvedBlend = Graphics::kHiResBlendAuto;
 	_anyCoverage = false;
+	_canBlend = true;
 	_simpleBitmapPattern.clear();
 	_simpleBitmapSingle.clear();
 	_simpleLatinBitmapName.clear();
@@ -409,6 +410,28 @@ void ScummHiResText::adoptScreen(const Graphics::PixelFormat &actual) {
 	}
 
 	compilePlans(_gameDir);
+	// Task 8 review M2: compilePlans() just refreshed blend()/anyCoverage()
+	// against the corrected target's phase-2 sections, but not wantsAlpha()
+	// - which createCoverage() (called once, later, from the same init()
+	// that reads alphaActive() off blend()/anyCoverage() fresh) is gated
+	// on. Left stale, a correction that starts wanting blending would get a
+	// true alphaActive() with no coverage surface ever allocated.
+	_wantsAlpha = wantsAlphaFor(_resolvedBlend, _anyCoverage, _canBlend);
+}
+
+void ScummHiResText::adoptMapForScreenTest(const Graphics::HiResMap &map, const Graphics::HiResIniOverrides &ini,
+										   Graphics::HiResRenderTarget predictedTarget, int gameVersion,
+										   const Common::Path &mapPath, const Common::Array<Common::String> &qualifiers) {
+	adoptMap(map, ini);
+	_target = predictedTarget;
+	_canBlend = canBlendText(gameVersion);
+	_haveMapPath = !mapPath.empty();
+	if (_haveMapPath) {
+		_mapPath = mapPath;
+		_qualifiers = qualifiers;
+		_mapDir = mapPath.getParent();
+	}
+	_wantsAlpha = wantsAlphaFor(_resolvedBlend, _anyCoverage, _canBlend);
 }
 
 Common::Array<Common::String> ScummHiResText::collectFacePaths(int id) const {
@@ -2539,7 +2562,11 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	compilePlans(gameDir);
 	_scaleFromUser = _ini.scaleSet;
 
-	_wantsAlpha = wantsAlphaFor(_resolvedBlend, _anyCoverage, canBlendText(version));
+	// Cached (not just passed straight to wantsAlphaFor()) so adoptScreen()
+	// can redo this same resolution later, against a corrected blend()/
+	// anyCoverage(), without a gameVersion of its own (Task 8 review M2).
+	_canBlend = canBlendText(version);
+	_wantsAlpha = wantsAlphaFor(_resolvedBlend, _anyCoverage, _canBlend);
 
 	const bool iniNamesFace = _ini.faceSet && !_ini.face.equalsIgnoreCase("original");
 	_enabled = _haveMap || _simpleFonts || iniNamesFace;

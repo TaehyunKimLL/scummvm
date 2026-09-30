@@ -99,6 +99,17 @@ public:
 		TS_ASSERT(!Graphics::blendActive(Graphics::kHiResBlendOn, true, true));   // until palette-matched AA (Task 20)
 	}
 
+	/// S7: `blend=on` refused on a CLUT8 screen gets exactly one warning
+	/// (design 7.2/10.4) - the pure gate each engine calls to decide whether
+	/// to print it.
+	void test_blend_on_refused_on_clut8() {
+		TS_ASSERT(Graphics::blendRefusedOnClut8(Graphics::kHiResBlendOn, true));
+		TS_ASSERT(!Graphics::blendRefusedOnClut8(Graphics::kHiResBlendOn, false));
+		TS_ASSERT(!Graphics::blendRefusedOnClut8(Graphics::kHiResBlendAuto, true));
+		TS_ASSERT(!Graphics::blendRefusedOnClut8(Graphics::kHiResBlendAuto, false));
+		TS_ASSERT(!Graphics::blendRefusedOnClut8(Graphics::kHiResBlendOff, true));
+	}
+
 	void test_scale_limits() {
 		Graphics::HiResScaleLimits desktop = { 1, 3 };
 		Graphics::HiResScaleLimits dos = { 2, 2 };
