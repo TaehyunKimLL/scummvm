@@ -1,6 +1,7 @@
 #include <cxxtest/TestSuite.h>
 
 #include "common/array.h"
+#include "common/fs.h"
 #include "common/str.h"
 #include "graphics/hires_text/font_map.h"
 #include "graphics/hires_text/glyph_source.h"
@@ -33,6 +34,17 @@ class ScummHiResGlyphTargetsTestSuite : public CxxTest::TestSuite {
 				return true;
 		}
 		return false;
+	}
+
+	/// M1: how many times a given warning text appears - spec 10 says "once
+	/// per cause per load", and a text present in the array does not by
+	/// itself say how many times it was pushed.
+	static int warningCount(const Scumm::ScummHiResText &hr, const Common::String &text) {
+		int n = 0;
+		for (uint i = 0; i < hr.map().warnings.size(); ++i)
+			if (hr.map().warnings[i] == text)
+				++n;
+		return n;
 	}
 
 public:
@@ -145,6 +157,42 @@ public:
 		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cp));
 	}
 
+	/// M3: the cell-height check covers every SVF the plan names, not only
+	/// the id chain - a range.*= SVF and a [glyphs] target SVF, each of a
+	/// different height than the id chain's own first SVF, are each refused
+	/// and dropped, with their own warning.
+	void test_cell_height_mismatch_covers_range_and_target_svfs() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(open(hr, overlay,
+					   "[font.4]\nface=OWN.SVF\nrange.basic-latin=RANGE.SVF\n"
+					   "[glyphs.4]\n0x07 = TARGET.SVF:u+2620\n"));
+		Common::Array<uint32> own;
+		own.push_back(0xAC00);
+		TS_ASSERT(add(hr, "/tmp/t/OWN.SVF", own));
+
+		Common::Array<uint32> rangeCps;
+		rangeCps.push_back('A');
+		const Common::Array<byte> rangeBytes = ScummHiResFixture::makeFont(rangeCps, ScummHiResFixture::kCell * 2);
+		Common::MemoryReadStream rangeMs(rangeBytes.begin(), rangeBytes.size());
+		TS_ASSERT(hr.addFace("/tmp/t/RANGE.SVF", rangeMs));
+
+		Common::Array<uint32> targetCps;
+		targetCps.push_back(0x2620);
+		const Common::Array<byte> targetBytes = ScummHiResFixture::makeFont(targetCps, ScummHiResFixture::kCell * 2);
+		Common::MemoryReadStream targetMs(targetBytes.begin(), targetBytes.size());
+		TS_ASSERT(hr.addFace("/tmp/t/TARGET.SVF", targetMs));
+
+		uint32 cpLatin = 'A';
+		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cpLatin));   // RANGE.SVF dropped: falls to the game
+		uint32 cpTarget = 0x07;
+		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cpTarget));  // TARGET.SVF dropped likewise
+
+		TS_ASSERT(hasWarning(hr, "HIRESTXT.MAP: /tmp/t/RANGE.SVF: cell height 32 differs from /tmp/t/OWN.SVF's 16 on 4; not used"));
+		TS_ASSERT(hasWarning(hr, "HIRESTXT.MAP: /tmp/t/TARGET.SVF: cell height 32 differs from /tmp/t/OWN.SVF's 16 on 4; not used"));
+	}
+
 	/// A [glyphs] target whose face lacks the code point: one load-time
 	/// warning, naming the face as written and the code point.
 	void test_target_lacking_glyph_is_warned_once() {
@@ -169,6 +217,86 @@ public:
 		Common::Array<uint32> own;
 		own.push_back('Z');
 		TS_ASSERT(add(hr, "/tmp/t/OWN.SVF", own));
-		TS_ASSERT(hasWarning(hr, "HIRESTXT.MAP: missing=U+25A1 has no effect: OWN.SVF has no glyph for it"));
+		TS_ASSERT_EQUALS(warningCount(hr, "HIRESTXT.MAP: missing=U+25A1 has no effect: OWN.SVF has no glyph for it"), 1);
+	}
+
+	/// M1: a [glyphs] target lacking its glyph, touched through several ids
+	/// that all name the same target face, is still warned about exactly
+	/// once (spec 10: "once per cause per load"), not once per id.
+	void test_target_lacking_glyph_is_warned_once_across_ids() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(open(hr, overlay,
+					   "[font.4]\nface=OWN.SVF\n[glyphs.4]\n0x07 = SYM.SVF:u+2620\n"
+					   "[font.0]\nface=OWN.SVF\n[glyphs.0]\n0x07 = SYM.SVF:u+2620\n"));
+		Common::Array<uint32> own, sym;
+		own.push_back(0x25A1);
+		sym.push_back('x');
+		TS_ASSERT(add(hr, "/tmp/t/OWN.SVF", own));
+		TS_ASSERT(add(hr, "/tmp/t/SYM.SVF", sym));
+		uint32 cp4 = 0x07, cp0 = 0x07;
+		hr.perGlyphSourceFor(kCs, cp4);
+		hr.perGlyphSourceFor(ScummHiResFixture::kOtherCs, cp0);
+		TS_ASSERT_EQUALS(warningCount(hr, "HIRESTXT.MAP: [glyphs] 0x07 -> SYM.SVF:U+2620: the face has no such glyph; the game's font draws it"), 1);
+	}
+
+	/// M1: an id with no face of its own at all (a pure borrower of a
+	/// neighbouring id's chain, B6/design 5.3) has nothing of its own to
+	/// check missing= against - checking it anyway is a false positive the
+	/// donor id's own binding already covers once. Here kOtherCs borrows
+	/// kCs's chain (ScummHiResFixture::open() gives both the same 8x8 grid).
+	void test_missing_false_positive_skipped_for_a_pure_borrower_id() {
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(open(hr, overlay, "[font.4]\nface=OWN.SVF\n"));
+		Common::Array<uint32> own;
+		own.push_back('Z');
+		TS_ASSERT(add(hr, "/tmp/t/OWN.SVF", own));
+		uint32 cp4 = 'Z', cp0 = 'Z';
+		hr.perGlyphSourceFor(kCs, cp4);
+		hr.perGlyphSourceFor(ScummHiResFixture::kOtherCs, cp0);
+		// Exactly the donor's (kCs's) own missing= check fired - kOtherCs's
+		// empty chain added no second copy.
+		TS_ASSERT_EQUALS(warningCount(hr, "HIRESTXT.MAP: missing=U+25A1 has no effect: OWN.SVF has no glyph for it"), 1);
+	}
+
+	/// M2: an id naming only a TrueType face still binds (_idBound) and runs
+	/// its S3/M1 load-time checks - openPlanFace() used to record an opened
+	/// TrueType path only under its size-qualified cache key, never its raw
+	/// one, so collectFacePaths()'s "every named path is in _sources or
+	/// _failedFaces" gate in checkIdOnceReady() waited forever.
+	void test_ttf_only_id_binds_and_runs_its_checks() {
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		static const char *const kFonts[] = {
+			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+			"/System/Library/Fonts/AppleSDGothicNeo.ttc",
+		};
+		const char *ttf = nullptr;
+		for (uint i = 0; i < ARRAYSIZE(kFonts) && !ttf; ++i)
+			if (Common::FSNode(kFonts[i]).exists())
+				ttf = kFonts[i];
+		if (!ttf) {
+			TS_SKIP("needs a TrueType face");
+			return;
+		}
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, true);
+		Scumm::ScummHiResText hr;
+		// DejaVuSans has broad symbol coverage (it has U+25A1, the fixture's
+		// default missing= box) but no Hangul: override missing= to U+AC00
+		// for this id specifically.
+		const Common::String body = Common::String::format("[font.4]\nface=%s\nmissing=u+ac00\n", ttf);
+		TS_ASSERT(open(hr, overlay, body.c_str()));
+		hr.noteGameCharset(kCs, 16, 16);
+		hr.setCharsetGrid(kCs, 16, 16);
+		TS_ASSERT(hr.loadFonts(Common::Path()));
+		// The id's own missing= check must fire once it is bound - it never
+		// did before M2, since a TrueType-only chain's id never bound at all.
+		TS_ASSERT_EQUALS(warningCount(hr, "HIRESTXT.MAP: missing=U+AC00 has no effect: " + Common::String(ttf) + " has no glyph for it"), 1);
+#else
+		TS_SKIP("needs FreeType and a real filesystem");
+#endif
 	}
 };
