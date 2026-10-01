@@ -71,9 +71,22 @@ public:
 	 */
 	bool load(Common::SeekableReadStream &stream, uint32 sizeLimit = 64 * 1024 * 1024);
 
+	/**
+	 * Read a font's header and tables only (its metrics and code point
+	 * table, 4 and 8 bytes a glyph); glyphData() reads each glyph from
+	 * @p stream when asked for it. The same checks as load(). The stream is
+	 * kept until free(), and deleted then when @p dispose says so (also when
+	 * this fails).
+	 */
+	bool loadStreamed(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+					  uint32 sizeLimit = 64 * 1024 * 1024);
+
 	void free();
 
-	bool isLoaded() const { return _data != nullptr; }
+	bool isLoaded() const { return _loaded; }
+
+	/// Whether the glyphs are read from the file as they are asked for (loadStreamed()).
+	bool isStreamed() const { return _stream != nullptr; }
 
 	int bpp() const { return _bpp; }
 	int cellWidth() const { return _cellW; }
@@ -114,6 +127,10 @@ public:
 	 * have. 1bpp and 2bpp rows are packed MSB first (at 2bpp the leftmost
 	 * pixel is the top bit pair, level 0..3) and padded to a byte; 8bpp rows
 	 * are one byte per pixel. Rows are cellWidth() pixels wide in every case.
+	 *
+	 * A streamed font (loadStreamed()) reads the glyph into one buffer of its
+	 * own: the pointer holds until the next call, and is null if the read
+	 * fails.
 	 */
 	const byte *glyphData(int index) const;
 
@@ -130,6 +147,19 @@ public:
 	bool codePointTableNeedsOrder() const { return !_cmapOrder.empty(); }
 
 private:
+	/// The header's fields, checked against a file of @p size bytes.
+	struct Layout {
+		uint16 version, flags, codePage;
+		int bpp, glyphs, cellW, cellH, ascent, rowPitch;
+		uint32 glyphStride, metricsOff, dataOff, cmapOff;
+		bool metricsOk;	///< there is a metrics table, and it fits
+	};
+	/// @p have bytes of the file's start at @p raw, of a file of @p size bytes.
+	static bool readLayout(const byte *raw, uint32 have, uint32 size, Layout &out);
+	/// Checks a version 2 table's indices; @p order gets a sorted order when the table is not sorted.
+	static bool checkCodePointTable(const byte *table, int glyphs, Common::Array<uint16> &order);
+	void adopt(const Layout &layout, const byte *metrics, const byte *cmapTable, Common::Array<uint16> &cmapOrder);
+
 	int legacyGlyphIndex(uint32 codepoint) const;
 	int searchCodePointTable(uint32 codepoint) const;
 
@@ -141,10 +171,19 @@ private:
 	};
 	void clearLookupCache();
 
+	/// The whole file (load()), or the tables only (loadStreamed()).
 	byte *_data;
-	uint32 _dataSize;
+	bool _loaded;
 
+	/// The glyphs: in _data, or in the file (null then).
 	const byte *_pixels;
+	/// Where a streamed font's glyphs are read from.
+	Common::SeekableReadStream *_stream;
+	DisposeAfterUse::Flag _disposeStream;
+	uint32 _dataOff;
+	mutable Common::Array<byte> _glyphBuf;
+	mutable int _glyphBufIndex;	///< the glyph in _glyphBuf, or -1
+
 	const byte *_metrics;
 
 	int _bpp;

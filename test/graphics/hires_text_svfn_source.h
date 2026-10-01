@@ -394,6 +394,83 @@ private:
 		}
 #endif
 	}
+
+	/// A version 1 single-byte font of 256 glyphs, 8bpp 4x3, each pixel of
+	/// glyph i reading i + its offset in the glyph.
+	static Common::Array<byte> makeLatin256() {
+		const int cellW = 4, cellH = 3, glyphs = 256;
+		const uint32 dataOff = 32, dataSize = cellW * cellH * glyphs;
+		Common::Array<byte> b;
+		b.resize(dataOff + dataSize);
+		for (uint i = 0; i < b.size(); ++i)
+			b[i] = 0;
+		b[0] = 'S'; b[1] = 'V'; b[2] = 'F'; b[3] = 'N';
+		put16(b, 4, 1);
+		b[8] = 8;
+		put16(b, 12, glyphs);
+		b[14] = cellW;
+		b[15] = cellH;
+		b[16] = 2;
+		put32(b, 24, dataOff);
+		put32(b, 28, dataSize);
+		for (uint32 i = 0; i < dataSize; ++i)
+			b[dataOff + i] = (byte)(i / (cellW * cellH) + i % (cellW * cellH));
+		return b;
+	}
+
+	static bool rowsAre(Graphics::SvfnGlyphSource &src, uint32 cp) {
+		for (int y = 0; y < 3; ++y) {
+			const byte *row = src.row(cp, y);
+			if (!row)
+				return false;
+			for (int x = 0; x < 8; ++x)
+				if (row[x] != (x < 4 ? (byte)(cp + y * 4 + x) : 0))
+					return false;
+		}
+		return true;
+	}
+
+public:
+	// Only the last kCacheGlyphs code points keep their rows: one used again
+	// is not read again, one gone is, and reads the same.
+	void test_svfn_source_keeps_the_last_glyphs_used() {
+		const Common::Array<byte> bytes = makeLatin256();
+		const int keep = Graphics::SvfnGlyphSource::kCacheGlyphs;
+		TS_ASSERT(keep < 200);
+		for (int streamed = 0; streamed < 2; ++streamed) {
+			Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
+			if (streamed) {
+				byte *copy = (byte *)malloc(bytes.size());
+				memcpy(copy, bytes.begin(), bytes.size());
+				TS_ASSERT(font->loadStreamed(new Common::MemoryReadStream(copy, bytes.size(), DisposeAfterUse::YES),
+											 DisposeAfterUse::YES));
+			} else {
+				TS_ASSERT(loadFont(*font, bytes, bytes.size()));
+			}
+			Graphics::SvfnGlyphSource src(font, DisposeAfterUse::YES);
+			for (uint32 cp = 0; cp < 200; ++cp)
+				TS_ASSERT(rowsAre(src, cp));
+			TS_ASSERT_EQUALS(src.glyphReads(), 200u);
+			// The newest kCacheGlyphs are still there.
+			for (uint32 cp = 200 - keep; cp < 200; ++cp)
+				TS_ASSERT(rowsAre(src, cp));
+			TS_ASSERT_EQUALS(src.glyphReads(), 200u);
+			// The oldest are not, and come back the same.
+			TS_ASSERT(rowsAre(src, 0));
+			TS_ASSERT_EQUALS(src.glyphReads(), 201u);
+			// A code point the font lacks is remembered as lacking.
+			TS_ASSERT_EQUALS(src.cells(0x3042), 0);
+			TS_ASSERT_EQUALS(src.cells(0x3042), 0);
+			TS_ASSERT(src.row(0x3042, 0) == nullptr);
+			TS_ASSERT_EQUALS(src.glyphReads(), 201u);
+			// Using the oldest kept one makes it the newest: what goes next
+			// is the one after it.
+			TS_ASSERT(rowsAre(src, 200 - keep + 2));
+			TS_ASSERT(rowsAre(src, 250));
+			TS_ASSERT(rowsAre(src, 200 - keep + 2));
+			TS_ASSERT_EQUALS(src.glyphReads(), 202u);
+		}
+	}
 };
 
 const uint32 HiResTextSvfnSourceTestSuite::kCodepoints[HiResTextSvfnSourceTestSuite::kGlyphs] = { 0xAC00, 0xD7A3, 0x0041 };

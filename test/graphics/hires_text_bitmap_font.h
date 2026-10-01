@@ -572,4 +572,146 @@ public:
 		TS_ASSERT(font.isProportional());
 		TS_ASSERT_EQUALS(font.glyphIndex('A'), 65);
 	}
+	/// A stream over a copy of @p bytes that says when it is deleted, and
+	/// can be made to fail every read from some point on.
+	class WatchedStream : public Common::MemoryReadStream {
+	public:
+		WatchedStream(const Common::Array<byte> &bytes, bool *deleted)
+			: Common::MemoryReadStream(copyOf(bytes), bytes.size(), DisposeAfterUse::YES), _deleted(deleted), _fail(false) {}
+		~WatchedStream() override {
+			if (_deleted)
+				*_deleted = true;
+		}
+		uint32 read(void *dataPtr, uint32 dataSize) override {
+			if (_fail)
+				return 0;
+			return Common::MemoryReadStream::read(dataPtr, dataSize);
+		}
+		void failReads() { _fail = true; }
+
+	private:
+		static byte *copyOf(const Common::Array<byte> &bytes) {
+			byte *p = (byte *)malloc(bytes.size());
+			memcpy(p, bytes.begin(), bytes.size());
+			return p;
+		}
+		bool *_deleted;
+		bool _fail;
+	};
+
+	/// Everything a reader asks of a font, the same from load() and loadStreamed().
+	static void checkStreamedLikeLoaded(Common::Array<byte> &bytes, const Common::Array<uint32> &probes) {
+		Graphics::HiResBitmapFont whole, streamed;
+		TS_ASSERT(loadFont(whole, bytes));
+		bool deleted = false;
+		TS_ASSERT(streamed.loadStreamed(new WatchedStream(bytes, &deleted), DisposeAfterUse::YES));
+		TS_ASSERT(streamed.isStreamed());
+		TS_ASSERT(!whole.isStreamed());
+		TS_ASSERT_EQUALS(streamed.bpp(), whole.bpp());
+		TS_ASSERT_EQUALS(streamed.cellWidth(), whole.cellWidth());
+		TS_ASSERT_EQUALS(streamed.cellHeight(), whole.cellHeight());
+		TS_ASSERT_EQUALS(streamed.ascent(), whole.ascent());
+		TS_ASSERT_EQUALS(streamed.glyphCount(), whole.glyphCount());
+		TS_ASSERT_EQUALS(streamed.isProportional(), whole.isProportional());
+		TS_ASSERT_EQUALS(streamed.codePage(), whole.codePage());
+		TS_ASSERT_EQUALS(streamed.glyphPitch(), whole.glyphPitch());
+		TS_ASSERT_EQUALS(streamed.searchesCodePointTable(), whole.searchesCodePointTable());
+		TS_ASSERT_EQUALS(streamed.codePointTableNeedsOrder(), whole.codePointTableNeedsOrder());
+		for (uint i = 0; i < probes.size(); ++i)
+			TS_ASSERT_EQUALS(streamed.glyphIndex(probes[i]), whole.glyphIndex(probes[i]));
+		const uint32 stride = whole.glyphPitch() * whole.cellHeight();
+		// Backwards, then the same glyph twice, so the one buffer is reused.
+		for (int i = whole.glyphCount() - 1; i >= 0; --i) {
+			Graphics::GlyphMetrics a, b;
+			TS_ASSERT_EQUALS(streamed.glyphMetrics(i, a), whole.glyphMetrics(i, b));
+			TS_ASSERT_EQUALS(a.advance, b.advance);
+			TS_ASSERT_EQUALS(a.bearingX, b.bearingX);
+			TS_ASSERT_EQUALS(a.width, b.width);
+			for (int twice = 0; twice < 2; ++twice) {
+				const byte *p = streamed.glyphData(i);
+				TS_ASSERT(p != nullptr);
+				if (p)
+					TS_ASSERT_EQUALS(memcmp(p, whole.glyphData(i), stride), 0);
+			}
+		}
+		TS_ASSERT(streamed.glyphData(-1) == nullptr);
+		TS_ASSERT(streamed.glyphData(whole.glyphCount()) == nullptr);
+		TS_ASSERT(!deleted);
+		streamed.free();
+		TS_ASSERT(deleted);
+		TS_ASSERT(!streamed.isLoaded());
+	}
+
+	void test_a_streamed_font_reads_like_a_loaded_one() {
+		Common::Array<uint32> probes;
+		probes.push_back(0x41);
+		probes.push_back(0xAC00);
+		probes.push_back(0xAC01);
+		probes.push_back(0xD79D);
+		probes.push_back(0x20 + 5 * 37);
+		probes.push_back(0x10FFFF);
+
+		Common::Array<byte> korean = makeFont(8, 949, 2350, 24, 24, 17, false);
+		checkStreamedLikeLoaded(korean, probes);
+		Common::Array<byte> latin = makeFont(8, 0, 256, 12, 16, 12, true);
+		checkStreamedLikeLoaded(latin, probes);
+		Common::Array<byte> aa = makeFont(2, 0, 200, 18, 18, 14, true);
+		checkStreamedLikeLoaded(aa, probes);
+		Common::Array<byte> stencil = makeFont(1, 949, 300, 16, 16, 13, false);
+		checkStreamedLikeLoaded(stencil, probes);
+
+		Common::Array<uint32> points, indices;
+		for (int i = 0; i < 40; ++i) {
+			points.push_back(0x20 + i * 37);
+			indices.push_back((i * 7) % 40);
+		}
+		Common::Array<byte> sorted = makeV2Font(points, indices, 40);
+		checkStreamedLikeLoaded(sorted, points);
+		{ const uint32 t = points[3]; points[3] = points[30]; points[30] = t; }
+		Common::Array<byte> unsorted = makeV2Font(points, indices, 40);
+		checkStreamedLikeLoaded(unsorted, points);
+	}
+
+	void test_a_streamed_font_refuses_what_load_refuses_and_drops_the_stream() {
+		Common::Array<byte> bytes = makeFont(8, 949, 16, 24, 24, 17, true);
+		Common::Array<byte> cut = bytes;
+		cut.resize(bytes.size() - 1);
+		Common::Array<byte> head = bytes;
+		head.resize(20);
+		Common::Array<byte> bad = bytes;
+		bad[8] = 4;	// depth
+
+		Common::Array<byte> *cases[] = { &cut, &head, &bad };
+		for (int c = 0; c < 3; ++c) {
+			Graphics::HiResBitmapFont whole, streamed;
+			TS_ASSERT(!loadFont(whole, *cases[c]));
+			bool deleted = false;
+			TS_ASSERT(!streamed.loadStreamed(new WatchedStream(*cases[c], &deleted), DisposeAfterUse::YES));
+			TS_ASSERT(deleted);
+			TS_ASSERT(!streamed.isLoaded());
+		}
+
+		// Not the font's to delete.
+		bool deleted = false;
+		WatchedStream *kept = new WatchedStream(bytes, &deleted);
+		{
+			Graphics::HiResBitmapFont font;
+			TS_ASSERT(font.loadStreamed(kept, DisposeAfterUse::NO));
+		}
+		TS_ASSERT(!deleted);
+		delete kept;
+		TS_ASSERT(deleted);
+	}
+
+	void test_a_streamed_glyph_that_cannot_be_read_is_null() {
+		Common::Array<byte> bytes = makeFont(8, 0, 256, 12, 16, 12, true);
+		WatchedStream *stream = new WatchedStream(bytes, nullptr);
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(font.loadStreamed(stream, DisposeAfterUse::YES));
+		TS_ASSERT(font.glyphData('A') != nullptr);
+		stream->failReads();
+		TS_ASSERT(font.glyphData('A') != nullptr);	// still the one it holds
+		TS_ASSERT(font.glyphData('B') == nullptr);
+		TS_ASSERT_EQUALS(font.glyphIndex('B'), 'B');	// the tables are in memory
+	}
 };

@@ -56,6 +56,14 @@ bool isSvfnFile(const byte *head, uint32 size);
  */
 UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common::String &error);
 
+/**
+ * The same, with the glyphs left in the file (HiResBitmapFont::loadStreamed()):
+ * only the tables are read now, a glyph when it is first drawn. The source
+ * keeps @p stream, deleting it when @p dispose says so (also on failure).
+ */
+UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+									 Common::String &error);
+
 } // End of namespace Graphics
 
 #endif
