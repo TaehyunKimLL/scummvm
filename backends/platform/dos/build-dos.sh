@@ -13,17 +13,20 @@ case "$1" in
 esac
 source ~/opt/dos-dev/env.sh
 src="$(cd "$(dirname "$0")/../../.." && pwd)"
+# The trimmed SDL3 build (sdl3-build.txt): SDL3_DOS_MIN overrides where it is.
+export SDL3_DOS="${SDL3_DOS_MIN:-$HOME/opt/sdl3-dos-min}"
+export PKG_CONFIG_LIBDIR="$SDL3_DOS/lib/pkgconfig"
 # SDL3 must carry sdl3-irq-code.patch: without it its Sound Blaster handler's
 # code is not locked, and the link would fail late on DOS_IRQCodeChecked.
-sdl_lib="${SDL3_DOS:-$HOME/opt/sdl3-dos}/lib/libSDL3.a"
+sdl_lib="$SDL3_DOS/lib/libSDL3.a"
 if [ ! -f "$sdl_lib" ]; then
-	echo "build-dos.sh: no SDL3 for DOS at $sdl_lib (set SDL3_DOS)." >&2
-	echo "  Build SDL3 1ce4c5bc29 with backends/platform/dos/sdl3-irq-code.patch (see its header)." >&2
+	echo "build-dos.sh: no SDL3 for DOS at $sdl_lib (set SDL3_DOS_MIN)." >&2
+	echo "  Build SDL3 as backends/platform/dos/sdl3-build.txt says." >&2
 	exit 1
 fi
 if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q ' [TDR] _DOS_IRQCodeChecked$'; then
 	echo "build-dos.sh: $sdl_lib lacks the dos-irq-lock patch (no DOS_IRQCodeChecked)." >&2
-	echo "  Rebuild SDL3 1ce4c5bc29 with backends/platform/dos/sdl3-irq-code.patch applied (see its header)." >&2
+	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-irq-code.patch)." >&2
 	exit 1
 fi
 if [ "$edition" = scumm ]; then
