@@ -133,8 +133,9 @@ reg_t kShowMovie(EngineState *s, int argc, reg_t *argv) {
 
 		if (g_sci->getPlatform() == Common::kPlatformMacintosh) {
 #ifdef DISABLE_SCI_WINMAC_VIDEO
+			// As when the file fails to open below, but going on: the
+			// cursor is shown again at the end.
 			warning("Mac QuickTime movie '%s' not played: not built in", filename.toString().c_str());
-			return NULL_REG;
 #else
 			// Mac QuickTime: the only argument is the string for the video
 			videoDecoder.reset(new Video::QuickTimeDecoder());
