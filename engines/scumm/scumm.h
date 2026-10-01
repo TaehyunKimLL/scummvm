@@ -697,6 +697,8 @@ protected:
 	Dialog *_messageDialog = nullptr;
 	Dialog *_versionDialog = nullptr;
 
+	GUI::Dialog *createMainMenuDialog() override;
+
 	void confirmExitDialog();
 	void confirmRestartDialog();
 	void pauseDialog();

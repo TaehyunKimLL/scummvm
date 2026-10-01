@@ -463,12 +463,6 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
 
 	_isRTL = (_language == Common::HE_ISR && (_game.heversion == 0 || _game.heversion >= 72))
 			&& (_game.id == GID_MANIAC || (_game.version >= 4 && _game.version < 7)) && !(_game.features & GF_HE_NO_BIDI);
-#ifndef DISABLE_HELP
-	// Create custom GMM dialog providing a help subdialog
-	assert(!_mainMenuDialog);
-	_mainMenuDialog = new ScummMenuDialog(this);
-#endif
-
 	_isIndy4Jap = _game.id == GID_INDY4 &&
 				  (_game.platform == Common::kPlatformMacintosh || _game.platform == Common::kPlatformDOS) &&
 				  _language == Common::JA_JPN;
@@ -4629,6 +4623,15 @@ void ScummEngine_v7::pauseEngineIntern(bool pause) {
 	ScummEngine::pauseEngineIntern(pause);
 }
 #endif
+
+GUI::Dialog *ScummEngine::createMainMenuDialog() {
+#ifndef DISABLE_HELP
+	// The custom GMM dialog provides a help subdialog
+	return new ScummMenuDialog(this);
+#else
+	return Engine::createMainMenuDialog();
+#endif
+}
 
 void ScummEngine::messageDialog(const Common::U32String &message) {
 	if (!_messageDialog)

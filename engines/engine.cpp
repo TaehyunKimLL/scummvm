@@ -814,9 +814,13 @@ void Engine::drawHotspots() {
 	overlayBuffer.free();
 }
 
+GUI::Dialog *Engine::createMainMenuDialog() {
+	return new MainMenuDialog(this);
+}
+
 void Engine::openMainMenuDialog() {
 	if (!_mainMenuDialog)
-		_mainMenuDialog = new MainMenuDialog(this);
+		_mainMenuDialog = createMainMenuDialog();
 	Common::TextToSpeechManager *ttsMan = g_system->getTextToSpeechManager();
 	if (ttsMan != nullptr) {
 		ttsMan->pushState();
