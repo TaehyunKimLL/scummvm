@@ -3936,6 +3936,8 @@ if test -n "$_host"; then
 			append_var DEFINES "-DDISABLE_SCI_TOWNS_PC98_MUSIC"
 			# SCI's Mac audio (AIFF tracks, Mac snd resources).
 			append_var DEFINES "-DDISABLE_SCI_MAC_AUDIO"
+			# No --help text (the option list) in the executable.
+			append_var DEFINES "-DDISABLE_HELP_STRINGS"
 			;;
 		kos32)
 			# neither pkg-config nor *-config work, so we setup everything manually
