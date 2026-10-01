@@ -32,6 +32,28 @@ class HiResCompositeTestSuite : public CxxTest::TestSuite {
 		}
 	};
 
+	/// Writes every value the compositor hands over, so two runs compare.
+	class ValueSink : public Scumm::HiResSink {
+	public:
+		Common::Array<byte> out;
+		void writeBackground(const byte *bg, int count) override { put('.', bg, count); }
+		void writeOpaque(const byte *fg, int count) override { put('T', fg, count); }
+		void writeBlended(const byte *fg, const byte *bg, const byte *a, int count) override {
+			put('b', fg, count); put(0, bg, count); put(0, a, count);
+		}
+		void writeLayered(const byte *fg, const byte *a, const byte *u, const byte *ua,
+						  const byte *bg, int count) override {
+			put('L', fg, count); put(0, a, count); put(0, u, count); put(0, ua, count); put(0, bg, count);
+		}
+	private:
+		void put(byte tag, const byte *p, int count) {
+			if (tag)
+				out.push_back(tag);
+			for (int i = 0; i < count; ++i)
+				out.push_back(p[i]);
+		}
+	};
+
 	static const byte kText = 7;
 	static const byte kUnder = 1;
 	static const byte kNone = Scumm::kHiResTextTransparent;
@@ -60,6 +82,41 @@ public:
 		KindSink sink;
 		Scumm::compositeText(sink, src, 0, text, 0, cov, 0, 4, 1, 1);
 		TS_ASSERT_EQUALS(sink.out, Common::String(".Tb."));
+	}
+
+	/// drawStripToScreen() composes a strip in bands of game rows; each band,
+	/// started at its own row of every plane, gives the same output as the
+	/// matching rows of the whole strip.
+	void test_bands_compose_like_the_whole_strip() {
+		const int w = 5, h = 7, m = 2, srcPad = 3, pad = 2;
+		const int outW = w * m, planePitch = outW + pad, srcPitch = w + srcPad;
+		byte src[srcPitch * h], text[planePitch * h * m], cov[planePitch * h * m];
+		byte uIdx[planePitch * h * m], uCov[planePitch * h * m];
+		uint32 seed = 12345;
+		for (uint i = 0; i < sizeof(src); ++i)
+			src[i] = (byte)((seed = seed * 1103515245 + 12345) >> 16);
+		for (uint i = 0; i < sizeof(text); ++i) {
+			const uint32 r = (seed = seed * 1103515245 + 12345) >> 8;
+			text[i] = (r & 3) == 0 ? kNone : (byte)(r >> 4);
+			cov[i] = (byte)(r >> 12);
+			uIdx[i] = (byte)(r >> 3);
+			uCov[i] = (r & 0x30) ? (byte)(r >> 20) : 0;
+		}
+
+		ValueSink whole;
+		Scumm::compositeText(whole, src, srcPitch - w, text, pad, cov, pad, w, h, m, uIdx, uCov, pad);
+
+		for (int bandRows = 1; bandRows <= h; ++bandRows) {
+			ValueSink banded;
+			for (int band = 0; band < h; band += bandRows) {
+				const int rows = MIN(bandRows, h - band);
+				const int off = band * m * planePitch;
+				Scumm::compositeText(banded, src + band * srcPitch, srcPitch - w,
+									 text + off, pad, cov + off, pad, w, rows, m,
+									 uIdx + off, uCov + off, pad);
+			}
+			TS_ASSERT(banded.out == whole.out);
+		}
 	}
 
 	/// The under planes are read at their own pitch, like the others.

@@ -292,6 +292,12 @@ bool splash = false;
 
 #include "logo_data.h"
 
+// Whether the launcher ran; asked without making the GUI manager, which
+// only an engine that opens a dialog needs.
+static bool guiLaunched() {
+	return GUI::GuiManager::hasInstance() && GUI::GuiManager::instance()._launched;
+}
+
 void splashScreen() {
 	Common::MemoryReadStream stream(logo_data, ARRAYSIZE(logo_data));
 
@@ -448,7 +454,7 @@ int initGraphicsAny(const Graphics::ModeWithFormatList &modes, int start) {
 
 		gfxError = g_system->endGFXTransaction();
 
-		if (!splash && !GUI::GuiManager::instance()._launched)
+		if (!splash && !guiLaunched())
 			splashScreen();
 
 		if (gfxError == OSystem::kTransactionSuccess)
@@ -508,7 +514,7 @@ void initGraphics3d(int width, int height) {
 		g_system->initSize(width, height);
 	OSystem::TransactionError gfxError = g_system->endGFXTransaction();
 
-	if (!splash && !GUI::GuiManager::instance()._launched) {
+	if (!splash && !guiLaunched()) {
 		Common::Event event;
 		(void)g_system->getEventManager()->pollEvent(event);
 		splashScreen();
@@ -814,9 +820,13 @@ void Engine::drawHotspots() {
 	overlayBuffer.free();
 }
 
+GUI::Dialog *Engine::createMainMenuDialog() {
+	return new MainMenuDialog(this);
+}
+
 void Engine::openMainMenuDialog() {
 	if (!_mainMenuDialog)
-		_mainMenuDialog = new MainMenuDialog(this);
+		_mainMenuDialog = createMainMenuDialog();
 	Common::TextToSpeechManager *ttsMan = g_system->getTextToSpeechManager();
 	if (ttsMan != nullptr) {
 		ttsMan->pushState();

@@ -197,6 +197,9 @@ void OSystem_DOS::initBackend() {
 	// scale limits (Graphics::hiResScaleLimits()) read this default, so no
 	// engine or shared code needs a DOS #ifdef.
 	ConfMan.registerDefault("hires_text_platform_scale", "2");
+	// The GUI's two overlay-sized screens (600 KB each at 640x480 RGB565)
+	// are given back while no dialog is open.
+	ConfMan.registerDefault("gui_release_buffers", true);
 
 	// ScummVM's splash goes to the overlay, which this backend does not
 	// show yet (it draws nothing), and deciding whether to show it made

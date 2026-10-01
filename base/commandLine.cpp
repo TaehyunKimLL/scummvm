@@ -403,6 +403,9 @@ void registerDefaults() {
 	ConfMan.registerDefault("gui_launcher_chooser", "list");
 	ConfMan.registerDefault("grid_items_per_row", 4);
 	ConfMan.registerDefault("gui_kinetic_scrolling", true);
+	// Free the GUI's two overlay-sized screens whenever the GUI closes
+	// (backends short of memory turn this on)
+	ConfMan.registerDefault("gui_release_buffers", false);
 	// Specify threshold for scanning directories in the launcher
 	// If number of game entries in scummvm.ini exceeds the specified
 	// number, then skip scanning. -1 = scan always

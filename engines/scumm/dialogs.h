@@ -96,13 +96,15 @@ public:
 	}
 
 	void reflowLayout() override;
-	const char *getPlainEngineString(int stringno, bool forceHardcodedString = false);
+	// Needs no dialog: the menus of the original GUI read their strings here
+	// without building one (and with it the GUI manager).
+	static const char *getPlainEngineString(ScummEngine *vm, int stringno, bool forceHardcodedString = false);
 
 protected:
 	// Query a string from the resources
 	const U32String queryResString(int stringno);
 	// Query hard coded string (copied over from the executable)
-	const ResString &getStaticResString(Common::Language lang, int stringno);
+	static const ResString &getStaticResString(ScummEngine *vm, Common::Language lang, int stringno);
 };
 
 /**

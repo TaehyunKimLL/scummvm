@@ -32,7 +32,7 @@
 namespace Sci {
 
 GfxDefaultDriver::GfxDefaultDriver(uint16 screenWidth, uint16 screenHeight, bool isSCI0, bool rgbRendering) : GfxDriver(screenWidth, screenHeight, 0), _cursorUsesScreenPalette(true),  _colorConv(nullptr), _colorConvMod(nullptr),
-	_srcPixelSize(1), _requestRGBMode(rgbRendering), _compositeBuffer(nullptr), _currentBitmap(nullptr), _internalPalette(nullptr), _currentPalette(nullptr), _virtualW(screenWidth), _virtualH(screenHeight), _alwaysCreateBmpBuffer(!isSCI0), _preferTrueColor(false) {
+	_srcPixelSize(1), _requestRGBMode(rgbRendering), _compositeBuffer(nullptr), _compositeBufferSize(0), _currentBitmap(nullptr), _internalPalette(nullptr), _currentPalette(nullptr), _virtualW(screenWidth), _virtualH(screenHeight), _alwaysCreateBmpBuffer(!isSCI0), _preferTrueColor(false) {
 	switch (g_sci->getResMan()->getViewType()) {
 	case kViewEga:
 		_numColors = 16;	// QFG PC-98 with 8 colors also reports 16 here
@@ -167,6 +167,7 @@ bool GfxDefaultDriver::initScreen(const Graphics::PixelFormat *srcRGBFormat) {
 		delete[] _internalPalette;
 		delete[] _currentPalette;
 		_compositeBuffer = _currentBitmap = _internalPalette = _currentPalette = nullptr;
+		_compositeBufferSize = 0;
 	}
 
 	_pixelSize = _format.bytesPerPixel;
@@ -179,6 +180,7 @@ bool GfxDefaultDriver::initScreen(const Graphics::PixelFormat *srcRGBFormat) {
 		uint32 bufferSize = _screenW * _screenH * _pixelSize;
 		_compositeBuffer = new byte[bufferSize]();
 		assert(_compositeBuffer);
+		_compositeBufferSize = bufferSize;
 	}
 
 	// Not needed for SCI0, except for rgb rendering. Unfortunately, SCI_VERSION_01

@@ -43,6 +43,20 @@ extern const uint16 kDos850ConversionTable[128];
 extern const uint16 kDos862ConversionTable[128];
 extern const uint16 kDos866ConversionTable[128];
 
+/** The tables of encoding.dat, in the file's order. */
+enum CJKTable {
+	kCJKTable932,
+	kCJKTable949,
+	kCJKTable950,
+	kCJKTableJohab,
+	kCJKTable936,
+	kCJKTableT2S,	///< traditional to simplified Chinese
+	kCJKTableCount
+};
+
+/** Whether that table is in memory now (each is read on first use). */
+bool isCJKTableLoaded(CJKTable table);
+
 }
 
 #endif

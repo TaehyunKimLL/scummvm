@@ -93,7 +93,8 @@ MainMenuDialog::MainMenuDialog(Engine *engine)
 	if (!g_system->hasFeature(OSystem::kFeatureNoQuit) && (!(ConfMan.getBool("gui_return_to_launcher_at_exit")) || !_engine->hasFeature(Engine::kSupportsReturnToLauncher)))
 		new GUI::ButtonWidget(this, "GlobalMenu.Quit", _("~Q~uit"), Common::U32String(), kQuitCmd);
 
-	_aboutDialog = new GUI::AboutDialog(true);
+	// Built when first opened: the credits take a few hundred KB.
+	_aboutDialog = nullptr;
 	_loadDialog = new GUI::SaveLoadChooser(false);
 	_saveDialog = new GUI::SaveLoadChooser(true);
 }
@@ -121,6 +122,8 @@ void MainMenuDialog::handleCommand(GUI::CommandSender *sender, uint32 cmd, uint3
 		break;
 	}
 	case kAboutCmd:
+		if (!_aboutDialog)
+			_aboutDialog = new GUI::AboutDialog(true);
 		_aboutDialog->runModal();
 		break;
 	case kHelpCmd: {

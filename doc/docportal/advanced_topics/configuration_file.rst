@@ -252,6 +252,7 @@ There are many recognized configuration keys. In the table below, each key is ei
 		":ref:`gui_browser_native <guibrowser>`", boolean, true
 		gui_browser_show_hidden,boolean,false, Shows hidden files/folders in the ScummVM file browser.
 		gui_list_max_scan_entries,integer,-1, "Specifies the threshold for scanning directories in the Launcher. If the number of game entries exceeds the specified number, then scanning is skipped."
+		gui_release_buffers,boolean,false, "Frees the GUI's two screen-sized drawing buffers whenever no dialog is shown, and makes them again when one opens. For systems short of memory; the DOS port turns it on."
 		":ref:`gui_return_to_launcher_at_exit <guireturn>`",boolean,false,
 		gui_saveload_chooser,string,grid,"- list
 	- grid"
