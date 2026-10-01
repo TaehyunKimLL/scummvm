@@ -24,6 +24,7 @@
 
 #include "graphics/hires_text/font_map.h"
 #include "graphics/hires_text/hires_options.h"
+#include "graphics/hires_text/unicode_props.h"
 
 namespace Graphics {
 
@@ -59,6 +60,45 @@ int latinAdvanceGamePx(Graphics::HiResMetricsSource metrics, int gameWidth, int 
  *                  default rule.
  */
 int advanceGamePx(HiResAdvance advance, int gameWidth, int faceAdvanceHires, int scale);
+
+/**
+ * design 6.3's cell fallback: the width, in game (lowres) pixels, assigned
+ * to a glyph when the resource face has no width for it to measure at all -
+ * a wide-script code point the game font never drew, say. MAX(1, (@p isWide
+ * ? @p cell : @p cell / 2) / @p scale).
+ */
+int cellFallbackWidth(bool isWide, int cell, int scale);
+
+/**
+ * design 6.3/6.7: advance=game/font's width when the resource face's own
+ * width for the game id's game code, @p gameWidth, is known - exactly
+ * advanceGamePx() of it - or cellFallbackWidth() when it is not (@p
+ * gameWidth <= 0, design 6.3's "where the resource face has no glyph for it
+ * either, falls to the cell"). @p gameWidth must be measured on the game
+ * code (the character the font id's own resource face was asked to draw
+ * before any range rule, `[glyphs]` remap or target substitution), never
+ * the drawn/remapped/target code point - that code may not be one the
+ * resource face has anything for at all, which is exactly the case this
+ * falls back for.
+ */
+int advanceGameOrFontPx(HiResAdvance advance, int gameWidth, int cell, bool isWide, int faceAdvanceHires, int scale);
+
+/**
+ * advanceGameOrFontPx() for one drawn glyph, with the game font's width
+ * taken for @p gameCode - the character the text asked for, before any
+ * range rule, `[glyphs]` remap or target substitution - and the cell
+ * fallback sized by @p drawnCode, the code point actually drawn.
+ *
+ * @param gameFontWidth  callable `int(uint32 gameCode)`: the resource
+ *                       face's width in game pixels, <= 0 when it has no
+ *                       glyph for the code
+ */
+template<class GameFontWidth>
+int advanceForGameCode(HiResAdvance advance, uint32 gameCode, uint32 drawnCode, GameFontWidth gameFontWidth,
+					   int cell, int faceAdvanceHires, int scale) {
+	return advanceGameOrFontPx(advance, gameFontWidth(gameCode), cell, Unicode::isWide(drawnCode),
+							   faceAdvanceHires, scale);
+}
 
 } // End of namespace Graphics
 

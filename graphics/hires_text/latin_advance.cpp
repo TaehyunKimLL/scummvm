@@ -48,4 +48,15 @@ int advanceGamePx(HiResAdvance advance, int gameWidth, int faceAdvanceHires, int
 	}
 }
 
+int cellFallbackWidth(bool isWide, int cell, int scale) {
+	const int raw = isWide ? cell : cell / 2;
+	return MAX(1, scale > 0 ? raw / scale : raw);
+}
+
+int advanceGameOrFontPx(HiResAdvance advance, int gameWidth, int cell, bool isWide, int faceAdvanceHires, int scale) {
+	if (gameWidth <= 0)
+		gameWidth = cellFallbackWidth(isWide, cell, scale);
+	return advanceGamePx(advance, gameWidth, faceAdvanceHires, scale);
+}
+
 } // End of namespace Graphics
