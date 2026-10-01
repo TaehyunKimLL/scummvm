@@ -93,10 +93,10 @@ struct IsrState {
 	volatile uint32 calSeen, calMatched;
 	// Counters, logged by logStats().
 	volatile uint32 procRuns;		// handler() calls
+	volatile uint32 procRunsAfterCall;	// ... of them as a real-mode call returned
 	volatile uint32 procDeferred;	// due ticks that came in real mode or the host
 	volatile uint32 maxWait;		// the most ticks the procs waited past due
 	volatile uint32 waits10;		// runs that waited 10 ticks or more
-	volatile uint32 procLate;		// handler() calls that held an IRQ0 back
 	byte fpu[108] __attribute__((aligned(4)));	// fnsave image
 };
 static IsrState g_isr;
@@ -147,8 +147,8 @@ static inline __attribute__((always_inline)) void restoreIrq0(uint8 wasMasked) {
 	DOS::irqOut8(0x21, (m & ~0x01) | wasMasked);
 }
 
-// The master PIC's in-service (OCW3 0x0B) or request (0x0A, also the
-// default read left behind) register.
+// The master PIC's in-service register (OCW3 0x0B; 0x0A puts the request
+// register back as the default read).
 static inline __attribute__((always_inline)) uint8 picRead(uint8 ocw3) {
 	DOS::irqOut8(0x20, ocw3);
 	const uint8 r = DOS::irqIn8(0x20);
@@ -208,8 +208,9 @@ static inline __attribute__((always_inline)) void calibrate(uint32 esp, uint16 s
 		g_isr.calMatched++;
 }
 
-// Runs the timer procs (DefaultTimerManager::handler()) from timerIsr(),
-// with interrupts off.
+// Runs the timer procs (DefaultTimerManager::handler()), with interrupts
+// off: from timerIsr(), and on the main thread as a real-mode call returns
+// (runDeferredProcs()).
 //
 // Interrupts must stay off through handler(): a tick that came in now would
 // never reach timerIsr -- DJGPP's IRET wrapper returns at once, without an
@@ -237,10 +238,10 @@ static inline __attribute__((always_inline)) void runProcs() {
 	g_isr.timer->handler();
 	__asm__ __volatile__("frstor %0" : : "m"(g_isr.fpu) : "memory");
 	g_isr.procRuns++;
-	// A tick that came in meanwhile is latched (delivered after our IRET);
-	// any after it were lost to the clock.
-	if (picRead(0x0A) & 0x01)
-		g_isr.procLate++;
+	// A tick that came in meanwhile is latched, and delivered after our
+	// IRET; any after it are lost to the clock, as before (interrupts were
+	// off). Reading the PIC's request register here to count them made
+	// DOSBox-X run KQ1's title differently (a palette entry off in M0).
 	restoreIrq0(wasMasked);
 	g_isr.inHandler = false;
 }
@@ -287,10 +288,8 @@ static DOS_IRQ_CODE void timerIsr(uint32 savedEsp, uint32 savedSs) {
 	// CWSDPMI services a page fault there (DOS is not busy: the main
 	// thread is in none of its calls). One that came in real mode -- a DOS
 	// call, a page-in of the main thread's -- leaves them due (sinceHandler
-	// stays where it is) for the next tick that did not. Such a stretch is
-	// one DOS call or one page-in: a file read is a string of calls with
-	// moments in protected mode between them, and delay() waits in
-	// protected mode.
+	// stays where it is) for the next tick that did not, or for the end of
+	// that call (runDeferredProcs()).
 	if (!mayRunProcs(savedEsp, (uint16)savedSs)) {
 		g_isr.procDeferred++;
 		return;
@@ -352,6 +351,59 @@ extern "C" void delay(unsigned msecs) {
 	const uint32 start = g_isr.millis;
 	while (g_isr.millis - start < msecs)
 		__asm__ __volatile__("" : : : "memory");
+}
+
+// The main stack's bounds (crt0).
+extern "C" unsigned int __djgpp_stack_limit, __djgpp_stack_top;
+
+// The timer procs' stack on the main thread: one of their own, as in the
+// handler (the IRET wrapper's).
+static byte g_procStack[64 * 1024] __attribute__((aligned(16)));
+
+static void runProcsCall() {
+	runProcs();
+}
+
+/*
+ * Timer procs that came due while the main thread was in real mode run as
+ * the call returns, where a tick a moment later would have run them: a DOS
+ * file read is a string of calls of a few ms each with only moments in
+ * protected mode between them, which ticks seldom hit, and room loads held
+ * the music up by tens of ms. As in the handler: interrupts off, a stack
+ * of their own, and the segment registers the caller had (the IRET wrapper
+ * restores them all; a caller may keep a farptr.h selector in FS across
+ * the call). Only with interrupts on (not under a mutex, not in a timer
+ * proc) and on the main thread (SDL3's threads have stacks of their own).
+ */
+static void runDeferredProcs() {
+	if (g_isr.procsMode != kProcsFromOurCode || !DosTimerManager::interruptsEnabled())
+		return;
+	uint32 esp;
+	__asm__ __volatile__("movl %%esp, %0" : "=r"(esp));
+	if (esp < __djgpp_stack_limit || esp > __djgpp_stack_top)
+		return;
+	const uint32 flags = irqSave();
+	if (g_isr.sinceHandler >= kHandlerEvery && !g_isr.inHandler && g_isr.timer) {
+		g_isr.procRunsAfterCall++;
+		__asm__ __volatile__(
+			"pushl %%es\n\tpushl %%fs\n\tpushl %%gs\n\t"
+			"movl %%esp, %%ebx\n\tmovl %0, %%esp\n\t"
+			"call *%1\n\t"
+			"movl %%ebx, %%esp\n\tpopl %%gs\n\tpopl %%fs\n\tpopl %%es"
+			: : "S"(g_procStack + sizeof(g_procStack)), "D"(runProcsCall)
+			: "eax", "ebx", "ecx", "edx", "memory", "cc");
+	}
+	irqRestore(flags);
+}
+
+// Every real-mode call libc makes for us (DOS, the BIOS, the mouse driver)
+// goes through __dpmi_int() (-Wl,--wrap, see module.mk).
+extern "C" int __real___dpmi_int(int vector, __dpmi_regs *regs);
+extern "C" int __wrap___dpmi_int(int vector, __dpmi_regs *regs) {
+	const int rv = __real___dpmi_int(vector, regs);
+	if (g_isr.sinceHandler >= kHandlerEvery)
+		runDeferredProcs();
+	return rv;
 }
 
 // Idempotent: from the destructor and from exit() alike.
@@ -421,7 +473,7 @@ static bool install() {
 	g_isr.inHandler = false;
 	g_isr.procsMode = kProcsCalibrating;
 	g_isr.timer = nullptr;
-	g_isr.procRuns = g_isr.procDeferred = g_isr.procLate = 0;
+	g_isr.procRuns = g_isr.procRunsAfterCall = g_isr.procDeferred = 0;
 	g_isr.maxWait = g_isr.waits10 = 0;
 
 	// Timer procs run on the wrapper's own stack (malloc'd and locked by
@@ -536,10 +588,10 @@ void DosTimerManager::logStats() {
 	if (!g_installed)
 		return;
 	static const char *const kModes[] = { "calibrating", "from our code", "always (all locked)", "main thread" };
-	debug(1, "DOS: timer procs %s: ran %u, ticks deferred %u, longest wait %u ms, "
-		"waits of 10 ms or more %u, runs that held IRQ0 back %u",
-		kModes[g_isr.procsMode], (uint)g_isr.procRuns, (uint)g_isr.procDeferred,
-		(uint)g_isr.maxWait, (uint)g_isr.waits10, (uint)g_isr.procLate);
+	debug(1, "DOS: timer procs %s: ran %u (%u as a real-mode call returned), ticks deferred %u, "
+		"longest wait %u ms, waits of 10 ms or more %u",
+		kModes[g_isr.procsMode], (uint)g_isr.procRuns, (uint)g_isr.procRunsAfterCall, (uint)g_isr.procDeferred,
+		(uint)g_isr.maxWait, (uint)g_isr.waits10);
 }
 
 void DosTimerManager::delayInHandler(uint msecs) {

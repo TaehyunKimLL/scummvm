@@ -15,6 +15,8 @@ MODULE_OBJS := \
 LDFLAGS += -Wl,--wrap=malloc,--wrap=free,--wrap=realloc,--wrap=calloc,--wrap=memalign
 # dos-loading.cpp: counts the bytes files give, for the loading screen.
 LDFLAGS += -Wl,--wrap=_read
+# dos-timer.cpp: runs the timer procs a real-mode call held back.
+LDFLAGS += -Wl,--wrap=__dpmi_int
 
 # We don't use rules.mk but rather manually update OBJS and MODULE_DIRS.
 MODULE_OBJS := $(addprefix $(MODULE)/, $(MODULE_OBJS))
