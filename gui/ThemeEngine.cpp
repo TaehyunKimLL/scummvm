@@ -402,6 +402,13 @@ void ThemeEngine::enable() {
 	if (_enabled)
 		return;
 
+	// disable() may have released the screens (gui_release_buffers)
+	if (_initOk && !_screen.getPixels()) {
+		_screen.create(_system->getOverlayWidth(), _system->getOverlayHeight(), _overlayFormat);
+		_backBuffer.create(_system->getOverlayWidth(), _system->getOverlayHeight(), _overlayFormat);
+		_dirtyScreen.clear();
+	}
+
 	showCursor();
 
 	_system->showOverlay();
@@ -417,6 +424,15 @@ void ThemeEngine::disable() {
 
 	hideCursor();
 
+	// With gui_release_buffers the two overlay-sized screens are given back
+	// while no dialog is shown; enable() creates them again. clearAll()
+	// fills the back buffer anew on every enable(), and the screen is
+	// redrawn in full, so nothing drawn before is lost.
+	if (ConfMan.getBool("gui_release_buffers")) {
+		_screen.free();
+		_backBuffer.free();
+		_dirtyScreen.clear();
+	}
 
 	_enabled = false;
 }
