@@ -53,6 +53,7 @@
 #include "backends/platform/dos/dos-loading.h"
 #include "backends/platform/dos/dos-silence.h"
 #include "backends/platform/dos/blaster.h"
+#include "common/file-cache-stats.h"
 #include "common/textconsole.h"
 #include "backends/fs/posix/posix-fs-factory.h"
 #include "backends/mutex/dos/dos-mutex.h"
@@ -130,8 +131,15 @@ void logMemInfo(const char *phase) {
 			(uint32)info.total_number_of_free_pages,
 			(uint32)info.total_number_of_physical_pages);
 	}
-	if (g_system)
+	if (g_system) {
 		g_system->logMessage(LogMessageType::kInfo, (formatMemInfo(phase, m) + "\n").c_str());
+		// What the file caches hold (SVF glyphs, translations) and how often
+		// they read, in KB.
+		const Common::String caches = Common::FileCacheRegistry::summary();
+		if (!caches.empty())
+			g_system->logMessage(LogMessageType::kInfo,
+								 Common::String::format("DOS: caches %s %s\n", phase, caches.c_str()).c_str());
+	}
 	DosTimerManager::logStats();
 	pagefaultSelftestLog();
 }
