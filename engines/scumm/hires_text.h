@@ -43,6 +43,7 @@ class SeekableReadStream;
 }
 
 namespace Graphics {
+class HiResBitmapFont;
 class UnicodeGlyphSource;
 class TtfGlyphSource;
 }
@@ -626,6 +627,13 @@ struct ScummHiResText {
 	 * @return false when the stream is not a usable SVFN font
 	 */
 	bool addFace(const Common::String &resolvedPath, Common::SeekableReadStream &stream) const;
+	/**
+	 * The same, with the glyphs read from @p stream as they are drawn
+	 * (HiResBitmapFont::loadStreamed()); the face keeps the stream, and
+	 * deletes it when @p dispose says so (also when this fails).
+	 */
+	bool addFace(const Common::String &resolvedPath, Common::SeekableReadStream *stream,
+				 DisposeAfterUse::Flag dispose) const;
 
 	/// The glyph source addFace() opened for @p resolvedPath, or null; for tests.
 	Graphics::UnicodeGlyphSource *sourceForFace(const Common::String &resolvedPath) const;
@@ -941,6 +949,9 @@ private:
 	mutable Common::HashMap<uint64, Face *> _faceBySource;
 	/// The Face owning @p src, or null; see _faceBySource.
 	Face *faceForSource(Graphics::UnicodeGlyphSource *src) const;
+	/// addFace()'s second half: @p font as the face for @p resolvedPath if
+	/// @p loaded, else it is deleted and the path marked failed.
+	bool adoptFace(const Common::String &resolvedPath, Graphics::HiResBitmapFont *font, bool loaded) const;
 
 	/// The map-less form's whole fallback chain, merged into one source
 	/// (FallbackGlyphSource) - unlike the plan-based path below, which
