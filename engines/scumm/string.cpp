@@ -2636,8 +2636,6 @@ void ScummEngine::loadLanguageBundle() {
 				delete _trsStore;
 				_trsStore = nullptr;
 			}
-		} else {
-			delete body;
 		}
 	}
 
@@ -2716,7 +2714,13 @@ const byte *ScummEngine::searchTranslatedLine(const byte *text, const Translatio
 		// sorted order, so a line before them compares less and one after
 		// greater, as memcmp() found.
 		uint first, last;
-		if (!_trsStore->find(text, (uint32)textLen, first, last)) {
+		_trsStore->takeReadFailure();
+		const bool found = _trsStore->find(text, (uint32)textLen, first, last);
+		if (_trsStore->takeReadFailure()) {
+			_trsReadFailed = true;	// translateText() looks no further
+			return nullptr;
+		}
+		if (!found) {
 			debug(8, "searchTranslatedLine: Not found (no such original)");
 			return nullptr;
 		}
@@ -2726,7 +2730,10 @@ const byte *ScummEngine::searchTranslatedLine(const byte *text, const Translatio
 			const uint idx = useIndex ? _languageLineIndex[mid] : (uint)mid;
 			if (idx >= first && idx <= last) {
 				debug(8, "searchTranslatedLine: Found in %d iteration", dbgIterationCount);
-				return _trsStore->translation(idx);
+				const byte *translation = _trsStore->translation(idx);
+				if (_trsStore->takeReadFailure())
+					_trsReadFailed = true;
+				return translation;
 			} else if (idx > last) {
 				right = mid - 1;
 			} else {
@@ -2762,6 +2769,7 @@ const byte *ScummEngine::searchTranslatedLine(const byte *text, const Translatio
 }
 
 void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBufferSize) {
+	_trsReadFailed = false;
 	if (_existLanguageFile) {
 		if (_currentScript == 0xff) {
 			// used in drawVerb(), etc
@@ -2789,6 +2797,8 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 				TranslationRange scrpRange;
 				if (room.scriptRanges.tryGetVal(scriptKey, scrpRange)) {
 					const byte *translatedText = searchTranslatedLine(text, scrpRange, true);
+					if (_trsReadFailed)
+						goto untranslated;	// the line was not read: no other context's translation of it
 					if (translatedText) {
 						debug(7, "translateText: Found by heuristic #1");
 						copyTextBounded(trans_buff, translatedText, resStrLen(translatedText), transBufferSize, this);
@@ -2806,6 +2816,8 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 				TranslationRange scrpRange;
 				if (room.scriptRanges.tryGetVal(scriptKey, scrpRange)) {
 					const byte *translatedText = searchTranslatedLine(text, scrpRange, true);
+					if (_trsReadFailed)
+						goto untranslated;	// the line was not read: no other context's translation of it
 					if (translatedText) {
 						debug(7, "translateText: Found by heuristic #2");
 						copyTextBounded(trans_buff, translatedText, resStrLen(translatedText), transBufferSize, this);
@@ -2817,7 +2829,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 
 		// Try full search
 		const byte *translatedText = searchTranslatedLine(text, TranslationRange(0, _numTranslatedLines - 1), false);
-		if (translatedText) {
+		if (translatedText && !_trsReadFailed) {
 			debug(7, "translateText: Found by full search");
 			copyTextBounded(trans_buff, translatedText, resStrLen(translatedText), transBufferSize, this);
 			return;
@@ -2826,6 +2838,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 		debug(7, "translateText: Not found");
 	}
 
+untranslated:
 	// Default: just copy the string
 	copyTextBounded(trans_buff, text, resStrLen(text), transBufferSize, this);
 }

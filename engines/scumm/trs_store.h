@@ -28,6 +28,7 @@
 #include "common/hashmap.h"
 #include "common/stream.h"
 #include "common/str.h"
+#include "common/textconsole.h"
 
 /// KB of strings a .trs bundle keeps once read (TrsStore).
 #ifndef SCUMM_TRS_CACHE_KB
@@ -71,7 +72,8 @@ public:
 	};
 
 	TrsStore() : _file(nullptr), _bodyPos(0), _bodySize(0), _version(0), _heversion(0), _cacheBytes(0),
-				 _blockSize(SCUMM_TRS_READ_BLOCK), _clock(0), _registered(false) {
+				 _blockSize(SCUMM_TRS_READ_BLOCK), _clock(0), _registered(false), _readFailed(false),
+				 _readFailWarned(false) {
 		_stats.kind = "trs";
 	}
 
@@ -239,6 +241,16 @@ public:
 		return e->bytes.begin();
 	}
 
+	/**
+	 * Whether a read of the file failed since the last call (the answer of
+	 * a find() or string() in between may then be wrong, not "none").
+	 */
+	bool takeReadFailure() {
+		const bool failed = _readFailed;
+		_readFailed = false;
+		return failed;
+	}
+
 	/** Line @p i's translation, as string() gives it. */
 	const byte *translation(uint i) { return i < _lines.size() ? string(_lines[i].trans) : nullptr; }
 	/** Line @p i's offsets. */
@@ -308,6 +320,12 @@ private:
 			_stats.readBytes += len;
 			if (!_file->seek(_bodyPos + start) || _file->read(b->data.begin(), len) != len) {
 				_file->clearErr();
+				_readFailed = true;
+				if (!_readFailWarned) {
+					warning("%s: the translation could not be read from the file; lines that need it stay untranslated",
+							_stats.name.c_str());
+					_readFailWarned = true;
+				}
 				return false;
 			}
 			b->start = start;
@@ -388,6 +406,7 @@ private:
 	uint32 _clock;
 	Common::FileCacheStats _stats;
 	bool _registered;
+	bool _readFailed, _readFailWarned;
 };
 
 } // End of namespace Scumm
