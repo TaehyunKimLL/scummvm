@@ -1253,7 +1253,18 @@ void ScummEngine_v5::setBuiltinCursor(int idx) {
 	uint16 color;
 	const uint16 *src = _cursorImages[_currentCursor];
 
-	if (_outputPixelFormat.bytesPerPixel == 2) {
+	// The built-in cursor is palette indices whenever hi-res text blends:
+	// the screen is then true colour (4 or 2 bytes a pixel), but
+	// updateCursor() hands the data over as CLUT8 with the game palette as
+	// the cursor palette. So the bytes per pixel here, the colour and the
+	// fill all follow the cursor's format, not the screen's. (A 2-byte screen
+	// of a game that is not 16-bit colour has no _16BitPalette at all.) With
+	// the wrong stride the glyph is spread over several times its width and
+	// the gaps keep the 0xFF fill, i.e. they read as transparent and the
+	// cursor comes out in slivers.
+	const int cursorBpp = _hiResText.alphaActive() ? 1 : _outputPixelFormat.bytesPerPixel;
+
+	if (cursorBpp == 2) {
 		if (_game.id == GID_LOOM && _game.platform == Common::kPlatformPCEngine) {
 			byte r, g, b;
 			colorPCEToRGB(default_pce_cursor_colors[idx], &r, &g, &b);
@@ -1263,8 +1274,11 @@ void ScummEngine_v5::setBuiltinCursor(int idx) {
 			byte *palEntry = &_textPalette[default_cursor_colors[idx] * 3];
 			color = get16BitColor(palEntry[0], palEntry[1], palEntry[2]);
 #endif
-		} else {
+		} else if (_16BitPalette) {
 			color = _16BitPalette[default_cursor_colors[idx]];
+		} else {
+			const byte *palEntry = &_currentPalette[default_cursor_colors[idx] * 3];
+			color = get16BitColor(palEntry[0], palEntry[1], palEntry[2]);
 		}
 
 		for (i = 0; i < 1024; i++)
@@ -1288,12 +1302,6 @@ void ScummEngine_v5::setBuiltinCursor(int idx) {
 	int sclW = (_renderMode == Common::kRenderHercA || _renderMode == Common::kRenderHercG || _enableEGADithering) ? 2 : _textSurfaceMultiplier;
 	int sclH = (_renderMode == Common::kRenderHercA || _renderMode == Common::kRenderHercG) ? 1 : (_enableEGADithering ? 2 : _textSurfaceMultiplier);
 
-	// The built-in cursor is palette indices. Blended hi-res text makes the
-	// screen 32bpp, but updateCursor() still hands the data over as CLUT8, so
-	// the row stride here has to stay one byte per pixel - otherwise the glyph
-	// is spread over four times the width and the gaps keep the 0xFF fill,
-	// i.e. they read as transparent and the cursor comes out in slivers.
-	const int cursorBpp = _hiResText.alphaActive() ? 1 : _outputPixelFormat.bytesPerPixel;
 	int sclW2 = cursorBpp * sclW;
 
 	_cursor.hotspotX = _cursorHotspots[2 * _currentCursor] * sclW;
