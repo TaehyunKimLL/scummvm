@@ -495,7 +495,8 @@ public:
 	};
 
 	/// An SVF face read from its file whose glyph read fails draws nothing
-	/// (and does not crash); once the file reads again the glyph is drawn.
+	/// (and does not crash), also later: its block is not read again. A face
+	/// that reads draws as before.
 	void test_a_face_whose_glyph_read_fails_draws_once_it_can() {
 		Graphics::HiResBitmapFont::setStreamThreshold(0);
 		Scumm::HiResOverlay overlay;
@@ -512,9 +513,18 @@ public:
 		fail = true;
 		hr.drawChar(dest, 0xAC00, kCs, 10, 5, 15, 0, 1, nullptr, true, 12);
 		fail = false;
-		memset(dest.getPixels(), 0, dest.pitch * dest.h);
-		TS_ASSERT(hr.drawChar(dest, 0xAC00, kCs, 10, 5, 15, 0, 1, nullptr, true, 12));
+		hr.drawChar(dest, 0xAC00, kCs, 10, 5, 15, 0, 1, nullptr, true, 12);
 		bool ink = false;
+		for (int y = 0; y < dest.h && !ink; ++y)
+			for (int x = 0; x < dest.w && !ink; ++x)
+				ink = *(const byte *)dest.getBasePtr(x, y) != 0;
+		TS_ASSERT(!ink);
+		// The same face read whole draws it.
+		Scumm::ScummHiResText good;
+		TS_ASSERT(open(good, overlay, "[font.4]\nface=OWN.SVF\n"));
+		good.useUtf8Text();
+		TS_ASSERT(good.addFace("/tmp/t/OWN.SVF", new FlakyStream(bytes, fail), DisposeAfterUse::YES));
+		TS_ASSERT(good.drawChar(dest, 0xAC00, kCs, 10, 5, 15, 0, 1, nullptr, true, 12));
 		for (int y = 0; y < dest.h && !ink; ++y)
 			for (int x = 0; x < dest.w && !ink; ++x)
 				ink = *(const byte *)dest.getBasePtr(x, y) != 0;

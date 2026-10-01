@@ -56,7 +56,8 @@ class HiResBitmapFont;
  * With a streamed font (HiResBitmapFont::loadStreamed()) that is what stands
  * between drawing and the file; its counters are registered with
  * Common::FileCacheRegistry as kind "svf". A glyph whose read fails is drawn
- * blank, at the width cells() gives, and read again at its next use.
+ * blank, at the width cells() gives (the font does not read that block
+ * again, so a glyph drawn every frame cannot read the disk every frame).
  */
 class SvfnGlyphSource : public UnicodeGlyphSource {
 public:

@@ -543,8 +543,8 @@ public:
 	};
 
 	// A glyph the font has but whose pixels cannot be read: cells() and
-	// row() still agree (blank rows at its width, never null), nothing is
-	// kept, and once the file reads again the glyph is there.
+	// row() still agree (blank rows at its width, never null), and its block
+	// is not read again, however often it is drawn.
 	void test_svfn_source_a_failed_read_is_blank_and_tried_again() {
 		const Common::Array<byte> bytes = makeLatin256();
 		bool fail = false;
@@ -563,13 +563,15 @@ public:
 		}
 		TS_ASSERT_EQUALS(src.cells('A'), 1);	// not taken for a glyph the font lacks
 		TS_ASSERT_EQUALS(src.glyphReads(), 0u);
+		const uint32 reads = src.stats().reads;
 		Common::Array<uint32> cps;
 		cps.push_back('B');
-		src.prefetch(cps);	// fails too, quietly
+		src.prefetch(cps);	// the same block: not read again
 		fail = false;
-		TS_ASSERT(rowsAre(src, 'A'));
-		TS_ASSERT(rowsAre(src, 'B'));
-		TS_ASSERT_EQUALS(src.glyphReads(), 2u);
+		for (int i = 0; i < 5; ++i)
+			TS_ASSERT(src.row('A', 0) != nullptr && src.row('A', 0)[0] == 0);
+		TS_ASSERT_EQUALS(src.stats().reads, reads);	// no read a drawing, the rest of the session
+		TS_ASSERT_EQUALS(src.glyphReads(), 0u);
 	}
 
 	// The same through the wrapper SCI's GfxFontUnicode draws through when
@@ -589,7 +591,7 @@ public:
 				TS_ASSERT(box.row(cp, y) != nullptr);
 		}
 		fail = false;
-		TS_ASSERT(box.row('C', 1) != nullptr && box.row('C', 1)[0] == (byte)('C' + 4));
+		TS_ASSERT(box.row('C', 1) != nullptr && box.row('C', 1)[0] == 0);	// blank this session
 	}
 
 	// A small font asked to stream is read whole, and its file let go.

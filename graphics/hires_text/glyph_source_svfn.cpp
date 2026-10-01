@@ -139,11 +139,11 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
 	const byte *glyph = index >= 0 ? _font->glyphData(index) : nullptr;
 	if (!glyph && index >= 0) {
 		// The font has it but its pixels could not be read (a removed disc,
-		// a file changed underneath). Nothing is kept, so the next use tries
-		// again; meanwhile it is blank at the width cells() gives, never a
-		// missing row.
+		// a file changed underneath): blank at the width cells() gives,
+		// never a missing row. Nothing is kept here; the font does not read
+		// that block again (HiResBitmapFont::glyphData()).
 		if (!_readFailWarned) {
-			warning("SVF %s: a glyph could not be read from the file; drawn blank until it can be",
+			warning("SVF %s: glyphs could not be read from the file; they are drawn blank this session",
 					_stats.name.c_str());
 			_readFailWarned = true;
 		}

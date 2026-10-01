@@ -152,7 +152,8 @@ public:
 	 * HIRES_SVF_READ_BLOCK bytes from a multiple of that many, in one read
 	 * into one buffer; the glyph asked for and its neighbours are then
 	 * served from there (SvfnGlyphSource::prefetch() asks in file order).
-	 * The pointer holds until the next call, and is null if the read fails.
+	 * The pointer holds until the next call, and is null if the read fails;
+	 * a block whose read failed is not read again until free().
 	 */
 	const byte *glyphData(int index) const;
 
@@ -222,6 +223,7 @@ private:
 	mutable ReadBlock _blocks[kReadBlocks];
 	int _glyphsPerBlock;
 	mutable uint32 _readClock, _readCount, _readBytes;
+	mutable Common::Array<int> _failedBlocks;	///< first glyph of each block whose read failed
 
 	const byte *_metrics;
 
