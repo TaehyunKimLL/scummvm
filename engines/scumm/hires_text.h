@@ -323,9 +323,13 @@ struct ScummHiResText {
 
 	/**
 	 * The format list for initGraphics() when renderTarget() is not `clut8`:
-	 * Graphics::formatRequest() of askedTarget(), whose first family is
-	 * renderTarget(). (A `clut8` renderTarget() keeps upstream's plain
-	 * initGraphics(w, h).)
+	 * the formats of Graphics::formatRequest() of askedTarget() that are of
+	 * renderTarget()'s family (or, if the backend no longer offers that
+	 * family, of the family formatRequest() starts with), then CLUT8. One
+	 * RGB family only: initGraphics() picks the first format of the
+	 * backend's list that the request holds, so a request naming both
+	 * families would get whichever the backend lists first. (A `clut8`
+	 * renderTarget() keeps upstream's plain initGraphics(w, h).)
 	 */
 	Common::List<Graphics::PixelFormat> screenRequest(const Common::List<Graphics::PixelFormat> &supported) const;
 

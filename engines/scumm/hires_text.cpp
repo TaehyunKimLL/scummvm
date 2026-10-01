@@ -397,7 +397,34 @@ Common::List<Graphics::PixelFormat> ScummHiResText::screenRequest(const Common::
 	Common::String note; // adoptScreen() warns once, against the screen actually set
 	if (_target == Graphics::kHiResTargetClut8)
 		return Graphics::formatRequest(Graphics::kHiResTargetClut8, supported, true, note);
-	return Graphics::formatRequest(_wanted, supported, true, note);
+	const Common::List<Graphics::PixelFormat> all = Graphics::formatRequest(_wanted, supported, true, note);
+
+	// initGraphics(w, h, list) takes the first format of the *backend's*
+	// list that the request holds, not the request's first: with both RGB
+	// families in it, a backend listing 5-6-5 first (DOS, SDL surface) sets
+	// 5-6-5 although rgb888 was resolved. So name one family only - the
+	// resolved one, or formatRequest()'s first when the backend no longer
+	// offers it - then CLUT8.
+	Graphics::HiResRenderTarget family = Graphics::kHiResTargetClut8;
+	for (Common::List<Graphics::PixelFormat>::const_iterator it = all.begin(); it != all.end(); ++it) {
+		if (Graphics::formatMatchesTarget(*it, _target)) {
+			family = _target;
+			break;
+		}
+	}
+	if (family == Graphics::kHiResTargetClut8 && !all.empty())
+		family = Graphics::targetOfFormat(all.front());
+
+	Common::List<Graphics::PixelFormat> request;
+	for (Common::List<Graphics::PixelFormat>::const_iterator it = all.begin(); it != all.end(); ++it) {
+		if (!it->isCLUT8() && Graphics::formatMatchesTarget(*it, family))
+			request.push_back(*it);
+	}
+	for (Common::List<Graphics::PixelFormat>::const_iterator it = all.begin(); it != all.end(); ++it) {
+		if (it->isCLUT8())
+			request.push_back(*it);
+	}
+	return request;
 }
 
 bool ScummHiResText::blendsOnTarget(Graphics::HiResRenderTarget t) const {
