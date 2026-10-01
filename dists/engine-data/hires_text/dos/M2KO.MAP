@@ -1,0 +1,87 @@
+# Monkey Island 2 (mi2kor Korean patch). One map, two presets; the ini's
+# render_target picks one.
+#   Default (true colour: render_target=auto, rgb888 or rgb565): M2U*.SVF, 2 bpp,
+#   anti-aliased (blend=auto), baked by tools/korean/scumm-fonts/m2u.tsv:
+#   dialogue, verbs and the sentence line in a gothic face, the title/credit
+#   card in a serif face. With them in the bare sections, render_target=auto
+#   picks true colour.
+#   render_target=clut8 (8-bit palette): M2L*.SVF, 1 bpp, baked from a pixel
+#   face (tools/korean/scumm-fonts/m2l.tsv), drawn hard-edged.
+# Cells per charset: cs0/cs6 22x24, cs1/cs3/cs5/cs8 16x16, cs2 18x18, cs4 26x24,
+# cs7 24x24; both presets bake the same cells. Charsets that share a cell share
+# one SVF; the 2 bpp set bakes charset 8 on its own (M2U8.SVF), the 1 bpp set
+# serves it with the charset 1 file.
+# MI2 draws its verb line in charset 6, which has no korean06.fnt: it uses the
+# charset 0 file. Licences: see M12FONT.TXT beside this file.
+[map]
+version=2
+
+[render]
+scale=2
+blend=auto
+[render:clut8]
+blend=off
+
+[text]
+encoding=cp949
+
+[fonts]
+dlg=M2U0.SVF
+small=M2U1.SVF
+sent=M2U2.SVF
+card=M2U4.SVF
+card7=M2U7.SVF
+card8=M2U8.SVF
+[fonts:clut8]
+dlg=M2L0.SVF
+small=M2L1.SVF
+sent=M2L2.SVF
+card=M2L4.SVF
+card7=M2L7.SVF
+card8=M2L1.SVF
+
+[font]
+missing=u+25a1
+# ASCII from each charset's own SVF (never the game's internal font),
+# stepped by the face's own widths
+range.basic-latin=same
+advance.basic-latin=font
+# The card fonts (charsets 4, 7, 8) are trimmed: '.' and ',' carry a game offsY of 9 in a
+# 15 px cell. The baked SVF already sets the baseline, so drop the game's offsets; the
+# remapped ellipsis (below) follows the letters around it.
+origin.basic-latin=face
+origin.general-punctuation=face
+
+[font.0]
+face=dlg
+[font.1]
+face=small
+[font.2]
+face=sent
+[font.3]
+face=small
+[font.4]
+face=card
+[font.5]
+face=small
+[font.6]
+face=dlg
+[font.7]
+face=card7
+[font.8]
+face=card8
+
+# MI2's own pictogram: the skull-and-crossbones dialogue bullet at 0x07 (always the
+# first byte of a spoken line in korean.trs; no Latin face has anything for it) stays
+# the game's glyph.
+# Everything else the patch parked on an odd byte code is real punctuation and is
+# drawn by the replacement font like any other character:
+#   0x5e ellipsis (every occurrence in korean.trs trails a clause: "..." / trailing off)
+#   0x5c exclamation mark (korean.trs: "원해!  모든 퍼즐!  온갖 생고생!")
+#   0x60 double quote, both opening and closing (one byte serves both roles in the text,
+#     so there is no separate open/close code to distinguish)
+[glyphs]
+0x07 = original
+0x5e = u+2026
+0x5c = u+0021
+0x60 = u+0022

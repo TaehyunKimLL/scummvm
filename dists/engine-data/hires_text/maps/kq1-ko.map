@@ -7,44 +7,51 @@
 ;
 ; Use it with the game setting
 ;     hires_text_map=data:hires_text/maps/kq1-ko.map
-; or copy it into the game folder as hires_text.map (then the data: paths
+; or copy it into the game folder as HIRESTXT.MAP (then the data: paths
 ; below still find the fonts shipped with ScummVM).
+;
+; blend=auto anti-aliases the faces on a true-colour screen; TrueType faces
+; have coverage, so render_target=auto picks true colour.
 ;
 ; size=18 draws the glyphs larger than the 16 px cell the text is laid out
 ; in (cell=game, the default), so line breaks and letter spacing are those
 ; of a 16 px face; a glyph wider or taller than the cell draws over its
 ; neighbours. align=game (the default) stands the face's baseline on the
 ; game font's own (font 300: 16 hi-res px below the line top, font 4 and
-; font 0: 14) with no shift (baseline=0): Latin and digits stand exactly on
+; font 0: 14) with no shift (shift=0): Latin and digits stand exactly on
 ; the game's baseline and Hangul ink reaches 2-3 px below it, as in print;
 ; the text sits centred in the dialogue box and the title buttons.
-; (baseline=-2 lifts everything 2 px - text rides high in the box and on the
+; (shift=-2 lifts everything 2 px - text rides high in the box and on the
 ; buttons; align=font, the face's own ascent, puts font 300 2 px and font 4
 ; 4 px lower, so font 4's labels touch the bottom of their buttons.)
-[hires]
+[map]
+version=2
+
+[render]
 scale=2
-alpha=true
-face=ko
+blend=auto
 
 [fonts]
 ko=data:hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf
 batang=data:hires_text/fonts/gowunbatang/GowunBatang-Bold.ttf
 
-[latin]
-mode=proportional
-metrics=font
+[font]
+face=ko
+; ASCII from the same face as the Korean, stepped by its own widths
+range.basic-latin=same
+advance.basic-latin=font
 
 ; dialogue boxes
 [font.300]
 face=batang
 size=18
-baseline=0
+shift=0
 
 ; title menu buttons
 [font.4]
 face=batang
 size=18
-baseline=0
+shift=0
 
 ; status line, parser input and its echo
 [font.0]

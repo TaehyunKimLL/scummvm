@@ -1,4 +1,4 @@
-# MI2 (korean.trs), U preset: 2 bpp, alpha=true in M2KOU.MAP.
+# MI2 (korean.trs), U preset: 2 bpp, M2KO.MAP's default (true-colour) preset.
 # Fields: output 8.3 name, SCUMM charset, TTF, size, bpp, ascent.
 # Dialogue, verbs, sentence line (charsets 0-3, 5, 6): NanumGothic-Bold.
 # Title/difficulty cards and credits (charsets 4, 7, 8): GowunBatang-Bold.

@@ -37,6 +37,8 @@ fi
 make -j"$(nproc)"
 cp scummvm.exe "$src/dist/dos/$exe"
 cp "$CWSDPMI_EXE" "$src/dist/dos/CWSDPMI.EXE"
+# A fresh DATA: a map or font removed from dists must not stay behind from an earlier build.
+rm -rf "$src/dist/dos/DATA"
 mkdir -p "$src/dist/dos/DATA" && cp "$src"/dists/engine-data/hires_text/dos/* "$src/dist/dos/DATA/"
 cp "$src/dists/engine-data/encoding.dat" "$src/dist/dos/DATA/ENCODING.DAT"
 ls -la "$src/dist/dos"

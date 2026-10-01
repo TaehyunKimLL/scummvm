@@ -1,0 +1,43 @@
+; Laura Bow 2 (The Dagger of Amon-Ra), Korean EUC-KR fan patch (2014, based
+; on the English DOS CD; SIERRA/LB2CD/message.map + resource.msg - the
+; patch's SIERRA/COMMON/korean.fnt is not used; see KOREAN.TXT). One map,
+; two presets; the ini's render_target picks one.
+;
+; One face serves every font id:
+;   default (true colour: render_target=auto, rgb888 or rgb565):
+;     KO2350G.SVF (NanumGothic-Bold, 16 px, 2 bpp, ASCII + ksx1001-nohanja,
+;     one baseline in a 16x16 cell - bake-dos-fonts.sh). align=cell: the
+;     16-row glyph sits on the 16-row line with no offset, nothing above or
+;     below it for the game to leave behind when it erases the line.
+;     blend=auto anti-aliases it on a true-colour screen; with it in the
+;     bare sections, render_target=auto picks true colour.
+;   render_target=clut8 (8-bit palette): KO2350.SVF (16 px, 1 bpp) on the
+;     game baseline, drawn hard-edged.
+; Characters the face lacks draw U+25A1. LB2's translation needs 7 code
+; points outside the 2350 Hangul (KS X 1001 extension syllables, e.g.
+; U+AC37/U+D59D): both faces' bakes add them (bake-dos-fonts.sh,
+; EXTRA_REQUIRE), so they do not draw U+25A1.
+[map]
+version=2
+
+[render]
+scale=2
+blend=auto
+[render:clut8]
+blend=off
+
+[fonts]
+ko=KO2350G.SVF
+[fonts:clut8]
+ko=KO2350.SVF
+
+[font]
+face=ko
+missing=u+25a1
+align=cell
+; ASCII from the same SVF as the Hangul, stepped by its own widths
+range.basic-latin=same
+advance.basic-latin=font
+[font:clut8]
+; the 1 bpp ink sits on the game baseline
+align=game

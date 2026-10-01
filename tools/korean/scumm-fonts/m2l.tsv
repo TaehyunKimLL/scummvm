@@ -1,5 +1,5 @@
 # MI2 (korean.trs), L preset: 1 bpp, every charset in one pixel face at its 16 px design size,
-# alpha=false in M2KOL.MAP.
+# M2KO.MAP's render_target=clut8 preset.
 # Fields: output 8.3 name, SCUMM charset, TTF, size, bpp, ascent.
 # The cell is the charset's korean<NN>.fnt header doubled (bake-scumm-fonts.sh).
 # Size rule (m5_sheets.py, pixel rows): 16 for every cell; a cell taller than 16 puts the

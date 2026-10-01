@@ -5,14 +5,21 @@
 ; The MI1/MI2 dialogue charset (2) has a 9 px cell, 18 at 2x, so it is held at
 ; 16 with size=. Give every charset that shows Korean a [font.N] size=16 (32
 ; for a cell of 32 or more); a 16 px cell needs none.
+; blend=off draws the glyphs as a hard stencil, so render_target=auto keeps
+; the game's 8-bit palette screen.
 ; See hires_text/fonts/FONTS.md for the licence (OFL, Reserved Font Names).
-[hires]
+[map]
+version=2
+
+[render]
 scale=2
-alpha=false
+blend=off
+
+[fonts]
+ko=data:hires_text/fonts/neodgm/neodgm.ttf
+
+[font]
 face=ko
 
 [font.2]
 size=16
-
-[fonts]
-ko=data:hires_text/fonts/neodgm/neodgm.ttf

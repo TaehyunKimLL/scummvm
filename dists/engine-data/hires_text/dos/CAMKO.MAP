@@ -1,0 +1,82 @@
+; Conquests of Camelot (SCI0, DOS English 1.001.000), Korean UTF-8
+; translation (GAMES\CAMELKO: MESSAGE.MAP + RESOURCE.MSG, packed text
+; resources + SCI-KO.STR, language=ko). One map, two presets; the ini's
+; render_target picks one.
+;
+; Camelot's font ids, their line height in hi-res px (the game fonts are 8,
+; 12 and 9 px tall, drawn at scale 2):
+;   0    status/menu bar, parser line, title-menu buttons,   16
+;        system dialogs
+;   1    the title menu's label                              24
+;   4    message boxes: narration, room descriptions,        18
+;        dialogue, parser replies
+;   103  intro narration over the pictures                   18
+;   104  the same narration's outline passes (drawn under    18
+;        103, several times, one game pixel apart)
+;
+; Default (true colour: render_target=auto, rgb888 or rgb565):
+;   body - KO2350B.SVF, Gowun Batang Bold 17 px, 2 bpp: fonts 1, 4, 103;
+;   ui   - KO2350G.SVF, NanumGothic-Bold 16 px, 2 bpp: font 0 and any other id;
+;   out  - CAMOUU.SVF: font 104.
+; KO2350G.SVF/KO2350B.SVF are baked on one baseline in a 16x16 cell
+; (--clip-cell); align=cell puts every glyph on its line with no offset, so
+; no ink lies outside the line the game erases. blend=auto anti-aliases the
+; 2 bpp faces on a true-colour screen; with them in the bare sections,
+; render_target=auto picks true colour.
+;
+; render_target=clut8 (8-bit palette): fonts 0-103 on KO2350.SVF (16 px,
+; 1 bpp) on the game baseline, font 104 on CAMOUL.SVF, drawn hard-edged.
+;
+; Font 104 is drawn black under 103: CAMOUU.SVF / CAMOUL.SVF are dilated by
+; 2 px (1 game px) in a 20x20 cell from Camelot's own body glyphs
+; (svfoutline.py - not in this tree; both are copied through unchanged,
+; since they already cover every character Camelot's body face draws), so
+; the narration has the black outline the original has.
+;
+; Characters no face has draw U+25A1. Camelot's translation needs nothing
+; outside the 2350 Hangul.
+[map]
+version=2
+
+[render]
+scale=2
+blend=auto
+[render:clut8]
+blend=off
+
+[fonts]
+ui=KO2350G.SVF
+body=KO2350B.SVF
+out=CAMOUU.SVF
+[fonts:clut8]
+; the 8-bit preset: one 1 bpp face under both text names
+ui=KO2350.SVF
+body=KO2350.SVF
+out=CAMOUL.SVF
+
+[font]
+face=ui
+missing=u+25a1
+align=cell
+; ASCII from the same SVF as the Hangul, stepped by its own widths
+range.basic-latin=same
+advance.basic-latin=font
+[font:clut8]
+; the 1 bpp ink sits on the game baseline
+align=game
+
+; 16 px lines: the 1 bpp ink on rows 2-15 instead of 3-16
+[font.0:clut8]
+shift=-1
+
+[font.1]
+face=body
+
+[font.4]
+face=body
+
+[font.103]
+face=body
+
+[font.104]
+face=out
