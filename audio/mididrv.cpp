@@ -32,6 +32,20 @@
 #include "audio/mididrv.h"
 #include "audio/musicplugin.h"
 
+/**
+ * Tells the user that a music device cannot be used. DOS shows no GUI
+ * overlay yet, so a modal dialog there would wait, unseen, for a key: the
+ * warning goes to the log instead.
+ */
+static void showDeviceWarning(const Common::U32String &msg) {
+#ifdef DOS_DJGPP
+	warning("%s", msg.encode().c_str());
+#else
+	GUI::MessageDialog dialog(msg);
+	dialog.runModal();
+#endif
+}
+
 const byte MidiDriver::_mt32ToGm[128] = {
 //	  0    1    2    3    4    5    6    7    8    9    A    B    C    D    E    F
 	  0,   1,   0,   2,   4,   4,   5,   3,  16,  17,  18,  16,  16,  19,  20,  21, // 0x
@@ -231,8 +245,7 @@ MidiDriver::DeviceHandle MidiDriver::detectDevice(int flags) {
 		Common::U32String warningMsg = Common::U32String::format(
 			_("The selected audio device '%s' was not found (e.g. might be turned off or disconnected)."), failedDevStr.c_str())
 			+ Common::U32String(" ") + _("Attempting to fall back to the next available device...");
-		GUI::MessageDialog dialog(warningMsg);
-		dialog.runModal();
+		showDeviceWarning(warningMsg);
 	}
 
 	MusicType tp = getMusicType(reslt);
@@ -245,8 +258,7 @@ MidiDriver::DeviceHandle MidiDriver::detectDevice(int flags) {
 			Common::U32String warningMsg = Common::U32String::format(
 				_("The selected audio device '%s' cannot be used. See log file for more information."), failedDevStr.c_str())
 				+ Common::U32String(" ") + _("Attempting to fall back to the next available device...");
-			GUI::MessageDialog dialog(warningMsg);
-			dialog.runModal();
+			showDeviceWarning(warningMsg);
 		}
 	}
 
@@ -283,8 +295,7 @@ MidiDriver::DeviceHandle MidiDriver::detectDevice(int flags) {
 						Common::U32String warningMsg = Common::U32String::format(
 							_("The preferred audio device '%s' was not found (e.g. might be turned off or disconnected)."), devStr.c_str())
 							+ Common::U32String(" ") + _("Attempting to fall back to the next available device...");
-						GUI::MessageDialog dialog(warningMsg);
-						dialog.runModal();
+						showDeviceWarning(warningMsg);
 					}
 				} else if (type != MT_AUTO) {
 					if (checkDevice(hdl, checkFlags, false)) {
@@ -300,8 +311,7 @@ MidiDriver::DeviceHandle MidiDriver::detectDevice(int flags) {
 							Common::U32String warningMsg = Common::U32String::format(
 								_("The preferred audio device '%s' cannot be used. See log file for more information."), getDeviceString(hdl, MidiDriver::kDeviceName).c_str())
 								+ Common::U32String(" ") + _("Attempting to fall back to the next available device...");
-							GUI::MessageDialog dialog(warningMsg);
-							dialog.runModal();
+							showDeviceWarning(warningMsg);
 						}
 					}
 				}
