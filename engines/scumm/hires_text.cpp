@@ -42,11 +42,6 @@
 
 namespace Scumm {
 
-// The default map name (design section 4): 8.3, matched case-insensitively
-// on every platform, so a translation that ships it needs no config key at
-// all.
-static const char *const kDefaultMapName = "HIRESTXT.MAP";
-
 /**
  * A readable name for a code page, for logs.
  *
@@ -149,25 +144,6 @@ bool ScummHiResText::faceHasCoverage(const Common::Path &face, void *ctx) {
 		coverage = (head[8] == 8 || head[8] == 2);
 	delete stream;
 	return coverage;
-}
-
-/// design section 4's default map file, matched case-insensitively.
-static Common::Path findDefaultMapFile(const Common::Path &gameDir) {
-	const Common::Path direct = gameDir.appendComponent(kDefaultMapName);
-	if (Common::FSNode(direct).exists())
-		return direct;
-
-	Common::FSNode dir(gameDir);
-	if (!dir.isDirectory())
-		return Common::Path();
-	Common::FSList children;
-	if (dir.getChildren(children, Common::FSNode::kListFilesOnly)) {
-		for (uint i = 0; i < children.size(); ++i) {
-			if (children[i].getName().equalsIgnoreCase(kDefaultMapName))
-				return children[i].getPath();
-		}
-	}
-	return Common::Path();
 }
 
 ScummHiResText::ScummHiResText() {
@@ -2592,7 +2568,7 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 				haveMapPath = true;
 			}
 		} else {
-			const Common::Path candidate = findDefaultMapFile(gameDir);
+			const Common::Path candidate = Graphics::findDefaultHiResMap(gameDir);
 			if (!candidate.empty()) {
 				mapPath = candidate;
 				haveMapPath = true;

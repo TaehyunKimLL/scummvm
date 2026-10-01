@@ -111,7 +111,7 @@ void GfxCache::resolveHiresText() {
 	if (!_hiresApplies) {
 		if (_hiresIni.faceSet)
 			warning("hires_text_face is ignored: %s", why.c_str());
-		const bool defaultMapExists = !_hiresIni.mapSet && !findDefaultHiresMap(_hiresGameDir).empty();
+		const bool defaultMapExists = !_hiresIni.mapSet && !Graphics::findDefaultHiResMap(_hiresGameDir).empty();
 		if (_hiresIni.mapSet || defaultMapExists)
 			warning("hires_text.map is ignored: %s", why.c_str());
 		return;
