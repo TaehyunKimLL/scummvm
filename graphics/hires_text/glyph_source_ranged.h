@@ -38,7 +38,7 @@ struct HiResPick {
 	 * kExhausted is an intermediate result only: no face of the chain
 	 * being searched has @ref cp, and `missing` has not been tried yet
 	 * (used internally while pickGlyph() works its way through the
-	 * borrow/missing/game fallbacks of design 6.5 steps 5-6 and B6).
+	 * borrow/missing/game fallbacks of design 6.5 steps 5-6).
 	 * pickGlyph() never returns it - the final answer is always kGame or
 	 * kFace.
 	 */

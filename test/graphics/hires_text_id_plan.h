@@ -136,7 +136,7 @@ public:
 		TS_ASSERT_EQUALS(t->cp, 0x2620u);
 		TS_ASSERT_EQUALS(t->face.path.toString('/'), "/maps/SYM.SVF");
 		TS_ASSERT_EQUALS(p2.chainFor(cp), (const Graphics::HiResFaceChain *)nullptr);  // range rules bypassed
-		TS_ASSERT_EQUALS(p2.originFor(cp), Graphics::kHiResOriginFace);              // origin uses the real cp (S4)
+		TS_ASSERT_EQUALS(p2.originFor(cp), Graphics::kHiResOriginFace);              // origin uses the real cp
 		TS_ASSERT_EQUALS(p2.glyphFor(0x08, 0x08, cp), Graphics::kHiResGlyphStepDraw);
 		TS_ASSERT_EQUALS(p2.target(cp)->cp, 0xE001u);                               // PUA target in a custom SVF
 		TS_ASSERT_EQUALS(p2.glyphFor(0x5e, 0x5e, cp), Graphics::kHiResGlyphStepDraw);  // [glyphs] still applies to id 2
@@ -159,7 +159,7 @@ public:
 		TS_ASSERT_DIFFERS(a, plan(0).hash());
 	}
 
-	// F1: an embedded `same` (one entry among several) has no meaning under
+	// An embedded `same` (one entry among several) has no meaning under
 	// any of design 5.2's three bullets (those only cover a bare `same`),
 	// so it is dropped with a warning (10.2's default for "same where it
 	// has no meaning"), not silently combined away.
@@ -196,7 +196,7 @@ public:
 		TS_ASSERT(found2);
 	}
 
-	// F3: mapLoaded=false makes every map-sourced key behave as if the map
+	// mapLoaded=false makes every map-sourced key behave as if the map
 	// were empty; the ini and the engine scope still apply.
 	void test_map_loaded_false_ignores_the_map_but_keeps_ini_and_engine() {
 		load("[font]\nface=KO.SVF\n");
@@ -220,7 +220,7 @@ public:
 		TS_ASSERT_EQUALS(first(withIni.chainFor('A')), "/games/g/C.TTF");
 	}
 
-	// F4: a rule value's `same` composed at the very end, on an id chain
+	// A rule value's `same` composed at the very end, on an id chain
 	// that itself ends in `original` after a real face, propagates the id
 	// chain's own endsInOriginal onto the composed chain (design 6.5 step
 	// 4: with a `same` present, no extra implicit append happens, so the
@@ -236,7 +236,7 @@ public:
 		TS_ASSERT(c->endsInOriginal);
 	}
 
-	// F6: hash() regression coverage beyond a single range-rule change.
+	// hash() regression coverage beyond a single range-rule change.
 	void test_hash_covers_every_field() {
 		load("[font]\nface=KO.SVF\n");
 		const uint32 base = plan(0).hash();

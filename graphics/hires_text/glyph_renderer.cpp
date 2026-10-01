@@ -110,7 +110,7 @@ GlyphDecoration HiResGlyphRenderer::decorationFor(const GlyphStyle &style) {
 	return d;
 }
 
-void HiResGlyphRenderer::applyMap(GlyphStyle &style, const HiResTextConfig &map, int scale) {
+void HiResGlyphRenderer::applyMap(GlyphStyle &style, const HiResMap &map, int scale) {
 	scale = MAX(1, scale);
 
 	// Half a game pixel, rounded up: the legacy fonts' shadows were one game

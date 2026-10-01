@@ -586,7 +586,7 @@ TtfGlyphSource *TtfGlyphSource::createPixel(Common::SeekableReadStream *stream, 
 }
 
 TtfGlyphSource::~TtfGlyphSource() {
-	// context.md's Task 3: the total FreeType render cost over this source's
+	// The total FreeType render cost over this source's
 	// lifetime (probes at create() time, plus one rasterisation per distinct
 	// code point since), so a run.log can be grepped for the measurement
 	// without instrumenting the caller. "%u glyphs rasterised" is

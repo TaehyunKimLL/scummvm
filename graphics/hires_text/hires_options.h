@@ -153,10 +153,10 @@ bool blendActive(HiResBlend blend, bool faceHasCoverage, bool screenIsClut8);
 
 /**
  * Whether `blend=on` is being refused because the screen is CLUT8 (design
- * sections 7.2 and 10.4, preflight ruling S7): true exactly when @p blend is
+ * sections 7.2 and 10.4): true exactly when @p blend is
  * `kHiResBlendOn` and @p screenIsClut8 - the one case blendActive() quietly
  * falls back to a hard stencil, since palette-matched anti-aliasing on a
- * paletted screen does not exist yet (Task 20). Each engine that reaches
+ * paletted screen does not exist yet. Each engine that reaches
  * this (SCUMM, SCI) warns once per load when it is true:
  * `warning("hires_text_blend=on needs an RGB screen until palette-matched
  * blending exists; drawing hard-edged text")`.
@@ -180,7 +180,7 @@ HiResScaleLimits hiResScaleLimits();
  * disagrees with @p requested: the platform limit is checked first (only
  * when it is a fixed value, i.e. @p platform.min == @p platform.max), then
  * the engine limit. On either violation the clamped result is
- * @p engineDefault (the ruling's per-engine default: SCUMM 2, SCI 2, AGS 1
+ * @p engineDefault (the per-engine default: SCUMM 2, SCI 2, AGS 1
  * - never hard-wired here, always the caller's own value, since it need not
  * equal @p engineMin). @p engineName names the engine in the engine-limit
  * message ("SCI", "SCUMM", ...). @p warning is left empty when

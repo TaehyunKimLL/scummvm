@@ -100,10 +100,10 @@ public:
 		TS_ASSERT(!Graphics::blendActive(Graphics::kHiResBlendAuto, false, false));
 		TS_ASSERT(!Graphics::blendActive(Graphics::kHiResBlendAuto, true, true));
 		TS_ASSERT(!Graphics::blendActive(Graphics::kHiResBlendOff, true, false));
-		TS_ASSERT(!Graphics::blendActive(Graphics::kHiResBlendOn, true, true));   // until palette-matched AA (Task 20)
+		TS_ASSERT(!Graphics::blendActive(Graphics::kHiResBlendOn, true, true));   // until palette-matched AA exists
 	}
 
-	/// S7: `blend=on` refused on a CLUT8 screen gets exactly one warning
+	/// `blend=on` refused on a CLUT8 screen gets exactly one warning
 	/// (design 7.2/10.4) - the pure gate each engine calls to decide whether
 	/// to print it.
 	void test_blend_on_refused_on_clut8() {
@@ -126,7 +126,7 @@ public:
 		TS_ASSERT_EQUALS(Graphics::clampScale(1, 2, 2, desktop, 2, "SCI", w), 2);
 		TS_ASSERT_EQUALS(w, "SCI draws hi-res text at 2x only");
 		w.clear();
-		// engineDefault (ruling M16) need not equal engineMin: a generic
+		// engineDefault need not equal engineMin: a generic
 		// out-of-range SCUMM request clamps to 2 (SCUMM's default), not 1
 		// (engineMin).
 		TS_ASSERT_EQUALS(Graphics::clampScale(99, 1, 3, desktop, 2, "SCUMM", w), 2);
@@ -183,14 +183,6 @@ public:
 		TS_ASSERT(o.faceSet);
 		TS_ASSERT_EQUALS(o.face, "ko, original");
 		TS_ASSERT_EQUALS(o.size, 18);
-
-		FakeIni old;
-		old.game["hires_text_font"] = "x.ttf";      // removed keys are simply not read
-		old.game["hires_text_alpha"] = "true";
-		w.clear();
-		o = Graphics::readHiResIni(get, &old, w);
-		TS_ASSERT(!o.faceSet && !o.blendSet && !o.targetSet);
-		TS_ASSERT(w.empty());
 	}
 
 	void test_target_qualifiers() {

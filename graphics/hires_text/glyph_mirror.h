@@ -47,14 +47,6 @@ enum HiResMirror {
 };
 
 /**
- * Parse a mirror= value: true/on/yes/1 (as the game's font), false/off/no/0/
- * none, horizontal, vertical, both (or rotate). Case is ignored.
- *
- * @return false for anything else, leaving @p out alone
- */
-bool parseMirror(const Common::String &value, HiResMirror &out);
-
-/**
  * Flip an 8 bpp glyph in place.
  *
  * @param pixels  the glyph's top-left pixel

@@ -164,14 +164,14 @@ HiResPick pickGlyph(const HiResIdPlan &plan, const Common::Array<Common::Array<U
 		return p;
 
 	// p.kind == kExhausted: no face of the chain has cp. `original` stops
-	// the search here - never borrow, never box (B6, design 6.5 step 4's
+	// the search here - never borrow, never box (design 6.5 step 4's
 	// "original anywhere ends the chain there").
 	if (chain->endsInOriginal) {
 		p.kind = HiResPick::kGame;
 		return p;
 	}
 
-	// B6 order, step 2: the nearest charset's sources (SCUMM's borrowing).
+	// Step 2: the nearest charset's sources (SCUMM's borrowing).
 	if (borrowed) {
 		HiResPick b = searchChain(*borrowed, -2, cp);
 		if (b.kind == HiResPick::kFace) {
@@ -180,7 +180,7 @@ HiResPick pickGlyph(const HiResIdPlan &plan, const Common::Array<Common::Array<U
 		}
 	}
 
-	// Design 6.4 / B6 order, step 3: the missing box, first in the chain, then in `borrowed`.
+	// Design 6.4 order, step 3: the missing box, first in the chain, then in `borrowed`.
 	if (plan.missing) {
 		HiResPick m = searchChain(sources, chainIndex, plan.missing);
 		if (m.kind == HiResPick::kFace) {

@@ -25,31 +25,6 @@
 
 namespace Graphics {
 
-bool parseMirror(const Common::String &value, HiResMirror &out) {
-	static const struct {
-		const char *name;
-		HiResMirror mode;
-	} kNames[] = {
-		{ "true", kHiResMirrorGame }, { "on", kHiResMirrorGame },
-		{ "yes", kHiResMirrorGame }, { "1", kHiResMirrorGame },
-		{ "false", kHiResMirrorNone }, { "off", kHiResMirrorNone },
-		{ "no", kHiResMirrorNone }, { "0", kHiResMirrorNone },
-		{ "none", kHiResMirrorNone },
-		{ "horizontal", kHiResMirrorHorizontal },
-		{ "vertical", kHiResMirrorVertical },
-		{ "both", kHiResMirrorBoth }, { "rotate", kHiResMirrorBoth },
-	};
-	Common::String v = value;
-	v.trim();
-	for (uint i = 0; i < ARRAYSIZE(kNames); ++i) {
-		if (v.equalsIgnoreCase(kNames[i].name)) {
-			out = kNames[i].mode;
-			return true;
-		}
-	}
-	return false;
-}
-
 void flipGlyph(byte *pixels, int pitch, int width, int height, HiResMirror mode) {
 	if (!pixels || width <= 0 || height <= 0)
 		return;

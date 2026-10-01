@@ -49,7 +49,7 @@ TESTS += $(srcdir)/test/graphics/tinygl*.h
 endif
 
 # libcommon needs libformats and libformats needs libcommon: so libcommon is put twice.
-# graphics' TTF support (hires_text_font_baker.h pulls it in even with no
+# graphics' TTF support (the hi-res text tests pull it in even with no
 # engine enabled) wants the zip reader in libcompression, so that is repeated
 # after libgraphics too, for the same left-to-right resolution reason.
 TEST_LIBS +=	audio/libaudio.a math/libmath.a common/libcommon.a common/formats/libformats.a common/compression/libcompression.a common/libcommon.a image/libimage.a graphics/libgraphics.a common/compression/libcompression.a

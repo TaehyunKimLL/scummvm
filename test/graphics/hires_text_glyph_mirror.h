@@ -1,8 +1,5 @@
 #include <cxxtest/TestSuite.h>
 
-#include "common/array.h"
-#include "common/memstream.h"
-#include "graphics/hires_text/font_map.h"
 #include "graphics/hires_text/glyph_mirror.h"
 
 /**
@@ -15,14 +12,6 @@
  * inside its own box and keeping the string's order.
  */
 class HiResTextGlyphMirrorTestSuite : public CxxTest::TestSuite {
-	static Graphics::HiResTextConfig parse(const char *text) {
-		Graphics::HiResTextConfig c;
-		Common::Array<Common::String> qualifiers;
-		Common::MemoryReadStream stream((const byte *)text, strlen(text));
-		TS_ASSERT(Graphics::HiResFontMap::loadFromStream(stream, Common::Path("/tmp/c27", '/'), qualifiers, c));
-		return c;
-	}
-
 	/// A 4x3 glyph, one distinct value per pixel, in a buffer of pitch 6.
 	static void fill(byte *buf) {
 		memset(buf, 0xEE, 6 * 3);
@@ -91,74 +80,5 @@ public:
 		TS_ASSERT(a < b);
 		TS_ASSERT_EQUALS(a, 2);
 		TS_ASSERT_EQUALS(b, 10);
-	}
-
-	void test_parse_mirror_values() {
-		Graphics::HiResMirror m;
-		TS_ASSERT(Graphics::parseMirror("true", m));
-		TS_ASSERT_EQUALS(m, Graphics::kHiResMirrorGame);
-		TS_ASSERT(Graphics::parseMirror("On", m));
-		TS_ASSERT_EQUALS(m, Graphics::kHiResMirrorGame);
-		TS_ASSERT(Graphics::parseMirror("false", m));
-		TS_ASSERT_EQUALS(m, Graphics::kHiResMirrorNone);
-		TS_ASSERT(Graphics::parseMirror("off", m));
-		TS_ASSERT_EQUALS(m, Graphics::kHiResMirrorNone);
-		TS_ASSERT(Graphics::parseMirror("horizontal", m));
-		TS_ASSERT_EQUALS(m, Graphics::kHiResMirrorHorizontal);
-		TS_ASSERT(Graphics::parseMirror("vertical", m));
-		TS_ASSERT_EQUALS(m, Graphics::kHiResMirrorVertical);
-		TS_ASSERT(Graphics::parseMirror("both", m));
-		TS_ASSERT_EQUALS(m, Graphics::kHiResMirrorBoth);
-		TS_ASSERT(Graphics::parseMirror("rotate", m));
-		TS_ASSERT_EQUALS(m, Graphics::kHiResMirrorBoth);
-		TS_ASSERT(!Graphics::parseMirror("sideways", m));
-		TS_ASSERT(!Graphics::parseMirror("", m));
-	}
-
-	void test_map_font_section_mirror() {
-		const Graphics::HiResTextConfig c = parse(
-			"[hires]\nscale=2\n"
-			"[font.3]\nmirror=true\n"
-			"[font.4]\nmirror=false\n"
-			"[font.5]\nmirror=horizontal\n"
-			"[font.6]\nmirror=sideways\n"
-			"[font.7]\nsize=20\n");
-		const Graphics::HiResFontIdSettings *f3 = c.fontIdSettings(3);
-		const Graphics::HiResFontIdSettings *f4 = c.fontIdSettings(4);
-		const Graphics::HiResFontIdSettings *f5 = c.fontIdSettings(5);
-		const Graphics::HiResFontIdSettings *f6 = c.fontIdSettings(6);
-		const Graphics::HiResFontIdSettings *f7 = c.fontIdSettings(7);
-		TS_ASSERT(f3 && f4 && f5 && f6 && f7);
-		if (!f3 || !f4 || !f5 || !f6 || !f7)
-			return;
-		TS_ASSERT(f3->mirrorSet);
-		TS_ASSERT_EQUALS(f3->mirror, Graphics::kHiResMirrorGame);
-		TS_ASSERT(f4->mirrorSet);
-		TS_ASSERT_EQUALS(f4->mirror, Graphics::kHiResMirrorNone);
-		TS_ASSERT(f5->mirrorSet);
-		TS_ASSERT_EQUALS(f5->mirror, Graphics::kHiResMirrorHorizontal);
-		// A bad value is warned about and leaves the key unset.
-		TS_ASSERT(!f6->mirrorSet);
-		TS_ASSERT(!f7->mirrorSet);
-		// mirror= names no face, so a section holding only it still says
-		// "no font named" to the map check.
-		TS_ASSERT(!f3->faceSet);
-		TS_ASSERT(f3->onlyMirror());
-		TS_ASSERT(!f7->onlyMirror());
-	}
-
-	void test_mirror_with_pixel_is_not_only_mirror() {
-		// pixel= (C28) asks for per-glyph placement on its own, so a section
-		// holding it next to mirror= must not read as "mirror only".
-		const Graphics::HiResTextConfig c = parse(
-			"[hires]\nscale=2\n"
-			"[font.3]\nmirror=true\npixel=12\n");
-		const Graphics::HiResFontIdSettings *f3 = c.fontIdSettings(3);
-		TS_ASSERT(f3);
-		if (!f3)
-			return;
-		TS_ASSERT(f3->mirrorSet);
-		TS_ASSERT(f3->pixelSet);
-		TS_ASSERT(!f3->onlyMirror());
 	}
 };

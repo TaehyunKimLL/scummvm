@@ -318,7 +318,7 @@ HiResIdPlan compileIdPlan(const HiResMap &map, bool mapLoaded, int id, const HiR
 	const bool iniOriginal = resolvedIsOriginal && faceFromIni;
 
 	// design 10.2: "same" is only meaningful as the entire face value (5.2's
-	// inherit/warning bullets, already handled above and by Task 4's
+	// inherit/warning bullets, already handled above and by the map
 	// loader); one entry among several has no meaning here and is dropped
 	// with a warning rather than silently combining the real entries around
 	// it.

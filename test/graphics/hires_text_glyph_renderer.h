@@ -988,8 +988,7 @@ public:
 	 *
 	 * The guard that protects body ink reads the coverage plane, and coverage
 	 * is deliberately not written for a 1bpp font - so on that path the guard
-	 * has nothing to consult. Reported by review; this is the test that says
-	 * whether it matters.
+	 * has nothing to consult; this is the test that says whether it matters.
 	 *
 	 * Two glyphs are drawn close enough that the second's stroke reaches into
 	 * the first's body.
@@ -1732,7 +1731,7 @@ public:
 	 * written, else 1; offset 0 draws nothing, as the old tables did.
 	 */
 	void test_legacy_keeps_the_old_step_at_every_scale() {
-		Graphics::HiResTextConfig map;
+		Graphics::HiResMap map;
 		map.shadowStyle = Graphics::kHiResOutlineLegacy;
 		Graphics::GlyphStyle style;
 		style.shadowColor = 1;
@@ -1853,7 +1852,7 @@ public:
 
 	/// A map's [shadow] keys, and their defaults at each scale.
 	void test_apply_map_defaults_follow_the_scale() {
-		Graphics::HiResTextConfig map;
+		Graphics::HiResMap map;
 		Graphics::GlyphStyle style;
 		style.shadowMode = Graphics::kHiResShadowOutline;
 

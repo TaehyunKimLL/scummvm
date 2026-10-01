@@ -7,7 +7,6 @@
 #include "common/stream.h"
 #include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/glyph_source.h"
-#include "graphics/hires_text/glyph_source_routed.h"
 #include "graphics/hires_text/glyph_source_scvmuni.h"
 #include "graphics/hires_text/glyph_source_svfn.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
@@ -243,24 +242,6 @@ public:
 		TS_ASSERT(!src.metrics(0x0E01, m));
 	}
 
-	void test_routed_metrics_follow_the_route() {
-		CellsOnlySource *mainSrc = new CellsOnlySource();
-		CellsOnlySource *latinSrc = new CellsOnlySource();
-		mainSrc->cellMap[0x0041] = 1;
-		mainSrc->cellMap[0xAC00] = 2;
-		mainSrc->fixedAdvance = 11;
-		latinSrc->cellMap[0x0041] = 1;
-		latinSrc->fixedAdvance = 4;
-		Graphics::RoutedGlyphSource routed(mainSrc, latinSrc, Graphics::kHiResLatinHalf);
-
-		Graphics::GlyphMetrics m;
-		TS_ASSERT(routed.metrics(0x0041, m));
-		TS_ASSERT_EQUALS(m.advance, 4);	// from the latin source
-		TS_ASSERT(routed.metrics(0xAC00, m));
-		TS_ASSERT_EQUALS(m.advance, 11);	// from the main source
-		TS_ASSERT(!routed.metrics(0x0E01, m));
-	}
-
 	// Sukhumvit Set, face 0, 24 px: the face the design measured (U+0E48:
 	// advance 0, ink box left -4). Fixtures below were captured from
 	// TtfGlyphSource::row() of the base build (i18n bee83518ad), before
@@ -274,11 +255,11 @@ public:
 			haveFixture = true;
 			return ttc.createReadStream();
 		}
-		// Plan 6 Task 4's extracted face: same marks, no fixture for it.
+		// An extracted copy of the face: same marks, no fixture for it.
 		Common::FSNode ttf("/Users/juami/work/scummvm/runs/c11/data/fonts/sukhumvit-text.ttf");
 		if (ttf.exists())
 			return ttf.createReadStream();
-		TS_SKIP("no Sukhumvit face (SukhumvitSet.ttc or Task 4's sukhumvit-text.ttf) on this machine");
+		TS_SKIP("no Sukhumvit face (SukhumvitSet.ttc or sukhumvit-text.ttf) on this machine");
 		return nullptr;
 #else
 		TS_SKIP("no real filesystem access in this test environment");

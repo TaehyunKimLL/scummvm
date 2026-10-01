@@ -52,10 +52,9 @@ public:
 	// --- C19: what each byte draws, at MI2's 2x --------------------------
 
 	static Graphics::GlyphDecoration drawn(int shadow, bool korPatch, int scale = 2) {
-		Graphics::HiResTextConfig map;
-		map.scale = scale;
+		Graphics::HiResMap map;
 		const Graphics::GlyphStyle style =
-			Scumm::ScummHiResText::glyphStyle(map, shadow, korPatch, 15, 0);
+			Scumm::ScummHiResText::glyphStyle(map, scale, shadow, korPatch, 15, 0);
 		TS_ASSERT_EQUALS(style.color, 15);
 		TS_ASSERT_EQUALS(style.shadowColor, 0);
 		return Graphics::HiResGlyphRenderer::decorationFor(style);
@@ -112,13 +111,12 @@ public:
 
 	/// A map's own colour and geometry still win.
 	void test_the_map_geometry_applies_to_the_game_modes() {
-		Graphics::HiResTextConfig map;
-		map.scale = 2;
+		Graphics::HiResMap map;
 		map.shadowColor = 8;
 		map.shadowColorSet = true;
 		map.shadowWidthQ = 4;
 		map.shadowStyle = Graphics::kHiResOutlineLegacy;
-		const Graphics::GlyphStyle style = Scumm::ScummHiResText::glyphStyle(map, 0, true, 15, 0);
+		const Graphics::GlyphStyle style = Scumm::ScummHiResText::glyphStyle(map, 2, 0, true, 15, 0);
 		TS_ASSERT_EQUALS(style.shadowColor, 8);
 		const Graphics::GlyphDecoration d = Graphics::HiResGlyphRenderer::decorationFor(style);
 		TS_ASSERT(d.outline);
@@ -127,7 +125,7 @@ public:
 	}
 
 	/**
-	 * The game pixels a decorated glyph touches (C19 review): the overlay
+	 * The game pixels a decorated glyph touches (C19): the overlay
 	 * area divided by the scale, rounded outwards, negative coordinates
 	 * included - an outline can start left of or above the surface.
 	 */
