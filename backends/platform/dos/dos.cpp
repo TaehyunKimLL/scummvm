@@ -134,11 +134,13 @@ void logMemInfo(const char *phase) {
 	if (g_system) {
 		g_system->logMessage(LogMessageType::kInfo, (formatMemInfo(phase, m) + "\n").c_str());
 		// What the file caches hold (SVF glyphs, translations) and how often
-		// they read, in KB.
+		// they read, in KB; files= is how many files they keep open (each
+		// cache one), for FILES= in CONFIG.SYS.
 		const Common::String caches = Common::FileCacheRegistry::summary();
 		if (!caches.empty())
 			g_system->logMessage(LogMessageType::kInfo,
-								 Common::String::format("DOS: caches %s %s\n", phase, caches.c_str()).c_str());
+								 Common::String::format("DOS: caches %s files=%u %s\n", phase,
+														Common::FileCacheRegistry::all().size(), caches.c_str()).c_str());
 	}
 	DosTimerManager::logStats();
 	pagefaultSelftestLog();
