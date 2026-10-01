@@ -550,11 +550,16 @@ void OSystem_DOS::mixerSelftest() {
  * buffer is pageable like any other memory: made larger than the free
  * physical memory, its pages go out to the swap file as the walk goes
  * round and come back in the proc. A read slower than kPfSlowUs is
- * counted as such a page-in, with a histogram of the read times. (DPMI
- * 0x0703, discard page contents, would force a fault without memory
- * pressure, but CWSDPMI r7 leaves a page it cannot give back to its pool
- * mapped, contents and all (paging.c free_memory()), and under QEMU it
- * did so for every page discarded here.)
+ * counted as such a page-in, with a histogram of the read times.
+ *
+ * On a CPU with 4 MB pages (PSE), CWSDPMI r7 maps each 4 MB-aligned
+ * stretch of a memory block that it can back with 4 MB of contiguous
+ * memory as one such page (paging.c getpte()), and never pages those out
+ * (page_out() skips them): a buffer that large is mostly not pageable.
+ * The test is meant for a CPU without PSE (QEMU: -cpu pentium3,-pse).
+ * DPMI 0x0703, discard page contents, would force faults without memory
+ * pressure, but under QEMU CWSDPMI r7 left every page it was asked to
+ * discard mapped, contents and all.
  * The counts go by where the proc ran: IRQ0, the main thread as a
  * real-mode call returned, or the event loop. Interrupts that came in
  * during a fault are counted from the Sound Blaster (a handler chained in
