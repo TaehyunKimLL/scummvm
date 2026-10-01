@@ -545,7 +545,7 @@ public:
 	// A glyph the font has but whose pixels cannot be read: cells() and
 	// row() still agree (blank rows at its width, never null), and its block
 	// is not read again, however often it is drawn.
-	void test_svfn_source_a_failed_read_is_blank_and_tried_again() {
+	void test_svfn_source_a_failed_read_is_blank_and_not_read_again() {
 		const Common::Array<byte> bytes = makeLatin256();
 		bool fail = false;
 		Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();

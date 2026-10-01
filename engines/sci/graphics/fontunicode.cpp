@@ -22,7 +22,6 @@
 #include "sci/graphics/fontunicode.h"
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontsjis.h"
-#include "common/archive.h"
 #include "graphics/hires_text/glyph_source_file.h"
 #include "graphics/hires_text/glyph_source_missing.h"
 #include "graphics/hires_text/glyph_source_scvmuni.h"
