@@ -12,6 +12,11 @@
  * file carries is stated in the test and a header change cannot pass unnoticed.
  */
 class HiResBitmapFontTestSuite : public CxxTest::TestSuite {
+public:
+	// These fonts are a few KB: streamed only with no threshold.
+	void setUp() override { Graphics::HiResBitmapFont::setStreamThreshold(0); }
+	void tearDown() override { Graphics::HiResBitmapFont::setStreamThreshold(HIRES_SVF_STREAM_MIN); }
+
 private:
 	static void put16(Common::Array<byte> &b, uint pos, uint16 v) {
 		b[pos] = v & 0xff;

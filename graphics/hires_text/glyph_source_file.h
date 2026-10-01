@@ -65,6 +65,14 @@ UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common:
 UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 									 Common::String &error, const Common::String &name);
 
+/**
+ * A stream a cache keeps open and reads in blocks of its own: when it is a
+ * C stdio file, the library's buffer is dropped, so that a block read is one
+ * read of that block. DJGPP's is 16 KB, filled whole again after every seek:
+ * per stream, 16 KB of memory and four times the bytes read per block.
+ */
+void unbufferCacheStream(Common::SeekableReadStream *stream);
+
 } // End of namespace Graphics
 
 #endif

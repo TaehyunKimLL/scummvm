@@ -20,6 +20,7 @@
  */
 
 #include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/glyph_source_file.h"
 
 #include "common/algorithm.h"
 #include "common/endian.h"
@@ -33,6 +34,8 @@ namespace Graphics {
 // signature at all - they start with a length byte that happens to always be 2
 // - so a magic is what lets the two be told apart by looking.
 static const uint32 kMagic = MKTAG('S', 'V', 'F', 'N');
+
+uint32 HiResBitmapFont::_streamThreshold = HIRES_SVF_STREAM_MIN;
 
 static const int kHeaderSize = 32;
 
@@ -191,6 +194,14 @@ bool HiResBitmapFont::loadStreamed(Common::SeekableReadStream *stream, DisposeAf
 		return false;
 	}
 
+	if (layout.dataSize <= _streamThreshold) {
+		// Small: whole, and the file closed.
+		const bool ok = stream->seek(0) && load(*stream, sizeLimit);
+		if (dispose == DisposeAfterUse::YES)
+			delete stream;
+		return ok;
+	}
+
 	// Only the tables are kept: the metrics (4 bytes a glyph) and the code
 	// point table (8), one block. The glyphs stay in the file.
 	const uint32 metricsSize = layout.metricsOk ? (uint32)layout.glyphs * kMetricsEntrySize : 0;
@@ -213,6 +224,7 @@ bool HiResBitmapFont::loadStreamed(Common::SeekableReadStream *stream, DisposeAf
 		return false;
 	}
 
+	unbufferCacheStream(stream);
 	_data = tables;
 	_stream = stream;
 	_disposeStream = dispose;
@@ -313,6 +325,7 @@ bool HiResBitmapFont::readLayout(const byte *raw, uint32 have, uint32 size, Layo
 	out.metricsOff = metricsOff;
 	out.metricsOk = metricsOk;
 	out.dataOff = dataOff;
+	out.dataSize = dataSize;
 	out.cmapOff = cmapOff;
 	return true;
 }
@@ -575,8 +588,8 @@ const byte *HiResBitmapFont::glyphData(int index) const {
 	if (_pixels)
 		return _pixels + (uint32)index * (uint32)_glyphStride;
 
-	// Streamed: the glyph is read into the one buffer the font keeps.
-	// Streamed: from the block holding it, read now if neither buffer does.
+	// Streamed: from the block buffer if it holds the glyph, else that block
+	// is read now.
 	ReadBlock *block = nullptr;
 	for (int b = 0; b < kReadBlocks && !block; ++b)
 		if (_blocks[b].first >= 0 && index >= _blocks[b].first && index < _blocks[b].first + _blocks[b].count)
