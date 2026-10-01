@@ -3927,6 +3927,8 @@ if test -n "$_host"; then
 			# Cinepak, MS Video 1, QuickTime RLE/RPZA/SMC: video codecs that
 			# only Windows/Mac data reaches (a BMP or a Mac PICT).
 			append_var DEFINES "-DDISABLE_VIDEO_CODECS"
+			# SCI's FM-Towns and PC-98 music drivers: not DOS games.
+			append_var DEFINES "-DDISABLE_SCI_TOWNS_PC98_MUSIC"
 			;;
 		kos32)
 			# neither pkg-config nor *-config work, so we setup everything manually
