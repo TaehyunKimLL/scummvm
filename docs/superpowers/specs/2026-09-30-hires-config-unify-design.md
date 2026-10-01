@@ -675,7 +675,9 @@ section 7.2; the launcher's bool checkbox is removed, pre-flight ruling S6), and
   game starts; the tooltip says so. When the dialog is closed with OK while an engine runs (`g_engine` non-null) and
   `render_target` changed, a `MessageDialog` says "The hi-res text screen changes the next time the game starts."
 - **Blend** stays out of the Graphics tab: `blend=auto` already follows the target (section 7.2); the one useful manual
-  choice, hard-edged text on an RGB screen, is SCUMM's in-game checkbox; `on` for `clut8` waits for palette-matched
+  choice, turning smoothing off, is SCUMM's in-game checkbox. With blending off a pre-v7 SCUMM game takes a paletted
+  (CLUT8) screen and the map's `:clut8` sections, never an RGB screen it would not draw into, and prints
+  `render_target=<wanted> is not available here; using clut8` once; `on` for `clut8` waits for palette-matched
   anti-aliasing (Task 20 of the plan), which is when a "Text smoothing" popup (Auto / On / Off, game domain only,
   since `hires_text_blend` is read only there) would earn its place.
 
