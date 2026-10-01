@@ -539,6 +539,12 @@ void GuiManager::redraw() {
 	if (_dialogStack.empty())
 		return;
 
+	// With gui_release_buffers the theme has no screens while no dialog is
+	// shown; a dialog opened then (after a screen change, say) is drawn in
+	// full once runLoop() has enabled the theme.
+	if (!_theme->screensReady())
+		return;
+
 	if (_displayTopDialogOnly) {
 		redrawInternalTopDialogOnly();
 	} else {
