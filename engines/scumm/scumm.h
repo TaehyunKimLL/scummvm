@@ -1536,6 +1536,16 @@ public:
 protected:
 	// Screen rendering
 	byte *_compositeBuf;
+	uint32 _compositeBufSize = 0;	///< bytes in _compositeBuf
+	enum { kCompositeBandRows = 32 };	///< output rows per pass of the hi-res composition
+	/**
+	 * Grow _compositeBuf to at least @p size bytes. With hi-res text it
+	 * holds only a band of the screen (see setupScumm()); a path that
+	 * composes a whole strip at once makes room here first.
+	 */
+	void ensureCompositeBuf(uint32 size);
+	/** Game rows of a @p width wide strip that one pass through _compositeBuf holds. */
+	int compositeBandRows(int width, int m, int bytesPerPixel) const;
 	byte *_hercCGAScaleBuf = nullptr;
 	bool _enableEGADithering = false;
 	bool _supportsEGADithering = false;
