@@ -635,7 +635,93 @@ void ResourceSource::loadResource(ResourceManager *resMan, Resource *res) {
 }
 
 Resource *ResourceManager::testResource(const ResourceId &id) const {
-	return _resMap.getValOrDefault(id, NULL);
+	Resource *res = _resMap.getValOrDefault(id, NULL);
+	if (!res && !_lazyAudio.empty()) {
+		LazyAudioEntry *entry = findLazyAudio(id);
+		if (entry)
+			res = makeLazyAudio(id, *entry);
+	}
+	return res;
+}
+
+ResourceManager::LazyAudioEntry *ResourceManager::findLazyAudio(const ResourceId &id) const {
+	if (id.getType() != kResourceTypeAudio36 && id.getType() != kResourceTypeSync36)
+		return nullptr;
+	// The map's run, then the entry in it.
+	uint lo = 0, hi = _lazyAudioRuns.size();
+	while (lo < hi) {
+		const uint mid = (lo + hi) / 2;
+		if (_lazyAudioRuns[mid].number < id.getNumber())
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+	if (lo == _lazyAudioRuns.size() || _lazyAudioRuns[lo].number != id.getNumber())
+		return nullptr;
+	const LazyAudioRun &run = _lazyAudioRuns[lo];
+	const byte type = (byte)id.getType();
+	uint a = run.start, b = run.start + run.count;
+	while (a < b) {
+		const uint mid = (a + b) / 2;
+		const LazyAudioEntry &e = _lazyAudio[mid];
+		if (e.type < type || (e.type == type && e.tuple < id.getTuple()))
+			a = mid + 1;
+		else
+			b = mid;
+	}
+	if (a == run.start + run.count)
+		return nullptr;
+	LazyAudioEntry &e = _lazyAudio[a];
+	if (e.type != type || e.tuple != id.getTuple() || e.order == 0xFFFF)
+		return nullptr;
+	return &e;
+}
+
+Resource *ResourceManager::makeLazyAudio(const ResourceId &id, LazyAudioEntry &entry) const {
+	// What updateResource() made when the map was read; the entry was
+	// checked then (validateResource()).
+	Resource *res = new Resource(const_cast<ResourceManager *>(this), id);
+	res->_status = kResStatusNoMalloc;
+	res->_source = _lazyAudioSources[entry.source];
+	res->_headerSize = 0;
+	res->_fileOffset = entry.offset;
+	res->_size = entry.size;
+	const_cast<ResourceManager *>(this)->_resMap.setVal(id, res);
+	entry.order = 0xFFFF;
+	return res;
+}
+
+void ResourceManager::dropLazyAudio(int type) {
+	for (uint i = 0; i < _lazyAudio.size(); ++i)
+		if (type < 0 || _lazyAudio[i].type == type)
+			_lazyAudio[i].order = 0xFFFF;
+}
+
+void ResourceManager::finishLazyAudioRun(uint16 number, uint32 first) {
+	if (first == _lazyAudio.size())
+		return;
+	LazyAudioEntry *begin = _lazyAudio.begin() + first;
+	LazyAudioEntry *end = _lazyAudio.end();
+	Common::sort(begin, end, [](const LazyAudioEntry &a, const LazyAudioEntry &b) {
+		if (a.type != b.type)
+			return a.type < b.type;
+		if (a.tuple != b.tuple)
+			return a.tuple < b.tuple;
+		return a.order < b.order;
+	});
+	// An id listed twice keeps its first entry, as addResource() did.
+	uint32 out = first;
+	for (uint32 i = first; i < _lazyAudio.size(); ++i) {
+		if (out > first && _lazyAudio[out - 1].type == _lazyAudio[i].type && _lazyAudio[out - 1].tuple == _lazyAudio[i].tuple)
+			continue;
+		_lazyAudio[out++] = _lazyAudio[i];
+	}
+	_lazyAudio.resize(out);
+	LazyAudioRun run = { number, first, out - first };
+	uint at = 0;
+	while (at < _lazyAudioRuns.size() && _lazyAudioRuns[at].number < number)
+		++at;
+	_lazyAudioRuns.insert_at(at, run);
 }
 
 void ResourceManager::addAppropriateSources() {
@@ -1015,6 +1101,9 @@ void ResourceManager::init() {
 	_memoryLRU = 0;
 	_LRU.clear();
 	_resMap.clear();
+	_lazyAudio.clear();
+	_lazyAudioRuns.clear();
+	_lazyAudioSources.clear();
 	_audioMapSCI1 = nullptr;
 #ifdef ENABLE_SCI32
 	_currentDiscNo = 1;
@@ -1175,6 +1264,16 @@ Common::List<ResourceId> ResourceManager::listResources(ResourceType type, int m
 		++itr;
 	}
 
+	// And the audio map entries not made into Resources yet.
+	for (uint r = 0; r < _lazyAudioRuns.size(); ++r) {
+		const LazyAudioRun &run = _lazyAudioRuns[r];
+		if (mapNumber != -1 && run.number != mapNumber)
+			continue;
+		for (uint32 i = run.start; i < run.start + run.count; ++i)
+			if (_lazyAudio[i].type == type && _lazyAudio[i].order != 0xFFFF)
+				resources.push_back(ResourceId(type, run.number, _lazyAudio[i].tuple));
+	}
+
 	return resources;
 }
 
@@ -1186,6 +1285,9 @@ bool ResourceManager::hasResourceType(ResourceType type) {
 		}
 		++itr;
 	}
+	for (uint i = 0; i < _lazyAudio.size(); ++i)
+		if (_lazyAudio[i].type == type && _lazyAudio[i].order != 0xFFFF)
+			return true;
 	return false;
 }
 
@@ -2198,6 +2300,13 @@ Resource *ResourceManager::addResource(ResourceId resId, ResourceSource *src, ui
 	// format and only static sounds are heard when it's played. The second file
 	// is a typical SOL audio file. We therefore skip the first audio file and add
 	// second one for this game.
+	if (!_resMap.contains(resId) && !_lazyAudio.empty()) {
+		// Listed already by an audio map: that entry wins, as it would have
+		// as a Resource.
+		LazyAudioEntry *entry = findLazyAudio(resId);
+		if (entry)
+			return makeLazyAudio(resId, *entry);
+	}
 	if (_resMap.contains(resId) == false || (resId.getType() == kResourceTypeAudio && g_sci && g_sci->getGameId() == GID_HOYLE4)) {
 		return updateResource(resId, src, offset, size, sourceMapLocation);
 	} else {
@@ -2215,7 +2324,13 @@ Resource *ResourceManager::updateResource(ResourceId resId, ResourceSource *src,
 }
 
 Resource *ResourceManager::updateResource(ResourceId resId, ResourceSource *src, uint32 offset, uint32 size, const Common::Path &sourceMapLocation) {
-	// Update a patched resource, whether it exists or not
+	// Update a patched resource, whether it exists or not; one an audio map
+	// listed is replaced as a Resource of it would be.
+	if (!_lazyAudio.empty() && !_resMap.contains(resId)) {
+		LazyAudioEntry *entry = findLazyAudio(resId);
+		if (entry)
+			makeLazyAudio(resId, *entry);
+	}
 	Resource *res = _resMap.getValOrDefault(resId, nullptr);
 
 	// When pulling from resource the "main" file may not even
