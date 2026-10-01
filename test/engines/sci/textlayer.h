@@ -167,4 +167,53 @@ public:
 		TS_ASSERT_EQUALS(l.row(0)[0].fgIndex, 0x12);
 		TS_ASSERT_EQUALS(l.row(0)[1].fgIndex, 0);
 	}
+
+	// Bands of rows are made as text is written into them, and go with
+	// clear(); a row of no band reads as clear.
+	void test_rows_are_held_only_where_text_was_written() {
+		Sci::TextLayer l(640, 400, 2);
+		TS_ASSERT_EQUALS(l.memoryBytes(), 0u);
+		TS_ASSERT_EQUALS(l.row(399)[639].fgCoverage, 0);
+		Common::Array<byte> cov = fill(16, 16, 255);
+		l.putGlyph(100, 40, cov.begin(), 16, 16, 3);	// rows 40..55: bands 2 and 3
+		TS_ASSERT_EQUALS(l.memoryBytes(), 2u * Sci::TextLayer::kBandRows * 640 * 2);
+		TS_ASSERT_EQUALS(l.row(47)[100].fgCoverage, 255);
+		TS_ASSERT_EQUALS(l.row(47)[99].fgCoverage, 0);
+		TS_ASSERT_EQUALS(l.row(10)[100].fgCoverage, 0);
+		// Clearing a rect keeps the bands; a coverage of 0 writes nothing.
+		l.clearLowresRect(Common::Rect(0, 0, 320, 200));
+		TS_ASSERT_EQUALS(l.row(47)[100].fgCoverage, 0);
+		Common::Array<byte> none = fill(16, 16, 0);
+		l.putGlyph(0, 300, none.begin(), 16, 16, 3);
+		TS_ASSERT_EQUALS(l.memoryBytes(), 2u * Sci::TextLayer::kBandRows * 640 * 2);
+		l.clear();
+		TS_ASSERT_EQUALS(l.memoryBytes(), 0u);
+		TS_ASSERT(l.isEmpty());
+	}
+
+	// A box saved where no text is costs its flag byte only, also after
+	// text there was cleared; one with text costs its pixels.
+	void test_save_size_is_what_save_writes() {
+		Sci::TextLayer l(64, 64, 2);
+		const Common::Rect box(0, 0, 16, 16);
+		TS_ASSERT_EQUALS(l.saveSize(box), 1u);
+		Common::Array<byte> cov = fill(4, 4, 200);
+		l.putGlyph(40, 40, cov.begin(), 4, 4, 9);	// lowres 20..21: outside the box
+		TS_ASSERT_EQUALS(l.saveSize(box), 1u);
+		l.putGlyph(2, 2, cov.begin(), 4, 4, 9);
+		TS_ASSERT_EQUALS(l.saveSize(box), 1u + 32 * 32 * 2);
+		Common::Array<byte> mem;
+		mem.resize(l.saveSize(box));
+		byte *w = mem.begin();
+		l.save(box, w);
+		TS_ASSERT_EQUALS(w, mem.end());
+		l.clearLowresRect(box);
+		TS_ASSERT_EQUALS(l.saveSize(box), 1u);
+		const byte *rd = mem.begin();
+		l.restore(box, rd);
+		TS_ASSERT_EQUALS(rd, (const byte *)mem.end());
+		TS_ASSERT_EQUALS(l.row(3)[3].fgCoverage, 200);
+		TS_ASSERT_EQUALS(l.row(3)[3].fgIndex, 9);
+	}
 };
+

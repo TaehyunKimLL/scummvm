@@ -32,6 +32,8 @@ namespace Sci {
 /** One hi-res pixel of text; now shared with every engine, see
  *  graphics/hires_text/text_compose.h. */
 using Graphics::TextPixel;
+/** What the layer stores: SCI draws no outline into it. */
+using Graphics::TextPixelFg;
 
 /**
  * Hi-res text as part of the visual plane (HIRES_COMPOSITOR_DESIGN.md D3):
@@ -39,10 +41,18 @@ using Graphics::TextPixel;
  * scale block here - a pixel write clears it, underbits save and restore
  * carry it. Nothing here knows about the engine, so it is unit tested
  * alone.
+ *
+ * The rows are held in bands of kBandRows, each made when text is first
+ * written into it and dropped by clear(): the layer costs what the text
+ * on screen covers, not the whole screen. A row of a band not made reads
+ * as no text.
  */
 class TextLayer {
 public:
+	enum { kBandRows = 16 };
+
 	TextLayer(uint16 width, uint16 height, uint16 scale);
+	~TextLayer();
 
 	uint16 width() const { return _width; }
 	uint16 height() const { return _height; }
@@ -53,7 +63,13 @@ public:
 	bool isEmpty() const { return !_any; }
 	/** Conservative: true if the row may hold text. */
 	bool rowHasText(uint16 y) const { return _rowFlags[y] != 0; }
-	const TextPixel *row(uint16 y) const { return &_pixels[(uint32)y * _width]; }
+	/** Row @p y; all clear when no text was written near it. */
+	const TextPixelFg *row(uint16 y) const {
+		const TextPixelFg *band = _bands[y / kBandRows];
+		return band ? band + (uint32)(y % kBandRows) * _width : _clearRow.begin();
+	}
+	/** Bytes the bands hold. */
+	uint32 memoryBytes() const;
 
 	/** Coverage 0 leaves a pixel alone; any other value sets fg index and
 	 *  coverage. Clipped to the layer, and to @p clip (hi-res) when given. */
@@ -65,25 +81,33 @@ public:
 	void clearLowresPixel(int16 x, int16 y) { if (_any) clearLowresRect(Common::Rect(x, y, x + 1, y + 1)); }
 
 	/** An invert recolours text, it never removes it: inside the rect, a
-	 *  covered fg or outline index equal to a becomes b and vice versa.
-	 *  Coverage is untouched; applying it twice is the identity. */
+	 *  covered fg index equal to a becomes b and vice versa. Coverage is
+	 *  untouched; applying it twice is the identity. */
 	void swapIndicesLowresRect(const Common::Rect &lowres, byte a, byte b);
-	/** The XOR invert: every covered fg or outline index inside the rect
-	 *  is XORed with mask. Applying it twice is the identity. */
+	/** The XOR invert: every covered fg index inside the rect is XORed
+	 *  with mask. Applying it twice is the identity. */
 	void xorIndicesLowresRect(const Common::Rect &lowres, byte mask);
 
-	/** Upper bound of what save() writes for this rect. */
+	/** What save() writes for this rect now: 1 when no text covers it. */
 	uint32 saveSize(const Common::Rect &lowres) const;
 	/** A flag byte, then the block's pixels if the flag is 1. */
 	void save(const Common::Rect &lowres, byte *&out) const;
 	void restore(const Common::Rect &lowres, const byte *&in);
 
 private:
+	TextLayer(const TextLayer &);
+	TextLayer &operator=(const TextLayer &);
+
 	Common::Rect toHires(const Common::Rect &lowres) const;
+	/** Row @p y to write into, its band made if need be. */
+	TextPixelFg *rowForWrite(uint16 y);
+	/** Whether any pixel of @p r (hi-res) is covered. */
+	bool covers(const Common::Rect &r) const;
 
 	uint16 _width, _height, _scale;
 	bool _any;
-	Common::Array<TextPixel> _pixels;
+	Common::Array<TextPixelFg *> _bands;
+	Common::Array<TextPixelFg> _clearRow;
 	Common::Array<byte> _rowFlags;
 };
 
