@@ -23,6 +23,10 @@ class StdioStreamUnbufferedTestSuite : public CxxTest::TestSuite {
 	static byte at(uint32 i) { return (byte)(i * 7 + 3); }
 
 public:
+	void tearDown() override {
+		remove(path());
+	}
+
 	void test_unbuffered_stream_reads_from_the_handle() {
 		writeFile(16);
 		StdioStream *s = StdioStream::makeFromPath(path(), StdioStream::WriteMode_Read);
