@@ -23,9 +23,15 @@
 #define GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_SVFN_H
 
 #include "common/array.h"
+#include "common/file-cache-stats.h"
 #include "common/hashmap.h"
 #include "common/types.h"
 #include "graphics/hires_text/glyph_source.h"
+
+/// KB of glyph rows an SVF face keeps (SvfnGlyphSource).
+#ifndef HIRES_SVF_CACHE_KB
+#define HIRES_SVF_CACHE_KB 32
+#endif
 
 namespace Graphics {
 
@@ -43,9 +49,12 @@ class HiResBitmapFont;
  * all of the cell, and rows are cellWidth()*2 pixels at bitsPerPixel(), the
  * layout TextCompose::expandGlyphRow() reads. SVFN stores one cell per
  * glyph, so each glyph's rows are copied, on first use, into that stride
- * with the second cell blank. The copies of the last kCacheGlyphs code
- * points used are kept (a code point the font lacks counts as one); a
- * pointer from row() holds until another code point is first asked for.
+ * with the second cell blank. The copies of the code points used last are
+ * kept, HIRES_SVF_CACHE_KB of them (a code point the font lacks counts as
+ * one); a pointer from row() holds until another code point is first asked
+ * for. With a streamed font (HiResBitmapFont::loadStreamed()) that is what
+ * stands between drawing and the file; its counters are registered with
+ * Common::FileCacheRegistry as kind "svf".
  */
 class SvfnGlyphSource : public UnicodeGlyphSource {
 public:
@@ -55,12 +64,22 @@ public:
 	SvfnGlyphSource(HiResBitmapFont *font, DisposeAfterUse::Flag dispose);
 	~SvfnGlyphSource() override;
 
-	/// Code points whose rows are kept. A line of text is far shorter; a
-	/// streamed font (HiResBitmapFont::loadStreamed()) reads the file again
-	/// for a glyph that has gone.
-	enum { kCacheGlyphs = 128 };
 	/// Glyphs copied out of the font so far (for tests).
 	uint32 glyphReads() const { return _glyphReads; }
+	/// Code points whose rows are kept: HIRES_SVF_CACHE_KB worth, or @p bytes worth (at least 32).
+	uint32 cacheEntries() const { return _maxEntries; }
+	void setCacheBytes(uint32 bytes);
+	/// The file the counters name.
+	void setName(const Common::String &name) { _stats.name = name; }
+	const Common::FileCacheStats &stats() const { return _stats; }
+
+	/**
+	 * Read the glyphs of @p cps not kept yet, in the font's order, so that
+	 * glyphs near each other in the file come in one read (as many as the
+	 * cache holds); done before a line is laid out. The code points this
+	 * font has leave @p cps.
+	 */
+	void prefetch(Common::Array<uint32> &cps) override;
 
 	byte cellWidth() const override { return _cellWidth; }
 	byte cellHeight() const override { return _cellHeight; }
@@ -88,6 +107,8 @@ private:
 	};
 
 	Entry &ensure(uint32 cp);
+	Entry *find(uint32 cp);
+	void updateStats();
 	/// The entry for a code point not cached: a new one, or the least recently used.
 	Entry &takeEntry(uint32 cp);
 
@@ -98,11 +119,15 @@ private:
 	int _bitsPerPixel;
 	uint32 _rowBytes;                 ///< bytes per row at the two-cell stride
 
-	/// At most kCacheGlyphs entries, never moved once made (row() hands out pointers into them).
+	/// At most _maxEntries entries, never moved once made (row() hands out pointers into them).
 	Common::Array<Entry *> _entries;
 	Common::HashMap<uint32, Entry *> _byCp;
+	uint32 _maxEntries;
 	uint32 _clock;
 	uint32 _glyphReads;
+	uint32 _lastCp;	///< the last code point looked up, counted once however often in a row
+	Common::FileCacheStats _stats;
+	bool _registered;
 };
 
 } // End of namespace Graphics
