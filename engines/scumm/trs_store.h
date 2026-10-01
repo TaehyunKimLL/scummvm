@@ -141,6 +141,14 @@ public:
 		}
 		_blockSize = SCUMM_TRS_READ_BLOCK;
 		_scanning = false;
+		if (ok) {
+			// A translation the scan could not read for the hi-res layer
+			// is read again, in the small blocks, when a line needs it; a
+			// read that fails then warns and is remembered.
+			_failedFrom.clear();
+			_failedTo.clear();
+			_readFailed = false;
+		}
 		if (!ok) {
 			// The caller reads the body whole instead.
 			if (readFailed)
