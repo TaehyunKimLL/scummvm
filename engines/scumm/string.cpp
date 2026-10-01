@@ -1170,6 +1170,10 @@ void ScummEngine::displayDialog() {
 			maxWidth *= 2;
 		}
 
+		// The glyphs a hi-res face reads from its file, before the line
+		// breaks measure them.
+		prefetchHiResText(_charsetBuffer + _charsetBufPos, _charset->getCurID());
+
 		// If the string is centered and this is MI1 Sega CD, don't add linebreaks right away;
 		// we will take care of it in a different way just below ... :-)
 		if (_game.platform != Common::kPlatformSegaCD ||
@@ -1396,6 +1400,7 @@ void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager
 	_charset->setColor(_string[a].color);
 	_charset->_disableOffsX = _charset->_firstChar = true;
 	_charset->setCurID(_string[a].charset);
+	prefetchHiResText(buf, _string[a].charset);
 
 #ifdef USE_TTS
 	bool bypassTalkDelay = false;
@@ -2758,6 +2763,29 @@ bool ScummEngine::reverseIfNeeded(const byte *text, byte *reverseBuf, int revers
 	Common::strlcpy(reinterpret_cast<char *>(reverseBuf), reinterpret_cast<const char *>(text), reverseBufSize);
 	fakeBidiString(reverseBuf, true, reverseBufSize);
 	return true;
+}
+
+void ScummEngine::prefetchHiResText(const byte *text, int charsetId) {
+	if (!_hiResText.enabled() || !_hiResText.hasFonts() || !text)
+		return;
+	const ScummTextDecoder esc(_game.version, _game.heversion > 0, 0);
+	const byte *p = text;
+	const byte *end = text + resStrLen(text);
+	Common::Array<uint32> cps;
+	while (p < end) {
+		const int n = (_game.version <= 6) ? esc.escapeLength(p, end) : 0;
+		if (n > 0) {
+			p += n;
+			continue;
+		}
+		const byte *before = p;
+		const uint32 cp = _hiResText.decodeNext(p, end);
+		if (p == before)
+			p++;
+		if (cp > ' ' && cp != 0xFFFD)
+			cps.push_back(cp);
+	}
+	_hiResText.prefetch(cps, charsetId);
 }
 
 void ScummEngine::noteDrawnString(const Common::String &drawn) {

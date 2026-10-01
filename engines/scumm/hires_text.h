@@ -829,6 +829,13 @@ struct ScummHiResText {
 	 */
 	void beginString() { _anchorValid = false; }
 
+	/**
+	 * @p cps are about to be laid out and drawn in charset @p charsetId:
+	 * the faces that read their glyphs from a file read the ones they lack
+	 * now, together (UnicodeGlyphSource::prefetch()).
+	 */
+	void prefetch(const Common::Array<uint32> &cps, int charsetId) const;
+
 	/** Finish and print any partially accumulated text-log line. */
 	void endTextRun() const { if (_logText) flushTextLog(); }
 

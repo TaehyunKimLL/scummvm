@@ -862,7 +862,9 @@ bool ScummHiResText::adoptFace(const Common::String &resolvedPath, Graphics::HiR
 	}
 
 	Face *face = new Face();
-	face->source = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
+	Graphics::SvfnGlyphSource *svf = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
+	svf->setName(Common::Path(resolvedPath, '/').baseName());
+	face->source = svf;
 	_sources[resolvedPath] = face;
 	_faceBySource[(uint64)(uintptr)face->source] = face;
 	_fontsLoaded = true;
@@ -876,6 +878,27 @@ bool ScummHiResText::adoptFace(const Common::String &resolvedPath, Graphics::HiR
 		ensureChainSources(i, false);
 
 	return true;
+}
+
+void ScummHiResText::prefetch(const Common::Array<uint32> &cps, int charsetId) const {
+	if (!_enabled || cps.empty())
+		return;
+	const int id = (charsetId >= 0 && charsetId < kMaxFonts) ? charsetId : 0;
+	if (_perGlyph) {
+		ensureChainSources(id);
+		for (uint c = 0; c < _chainSources[id].size(); ++c) {
+			Common::Array<uint32> left = cps;
+			for (uint i = 0; i < _chainSources[id][c].size() && !left.empty(); ++i)
+				if (_chainSources[id][c][i])
+					_chainSources[id][c][i]->prefetch(left);
+		}
+		return;
+	}
+	Common::Array<uint32> left = cps;
+	if (_simpleCjkFaces[id] && _simpleCjkFaces[id]->source)
+		_simpleCjkFaces[id]->source->prefetch(left);
+	if (_simpleLatinFaces[id] && _simpleLatinFaces[id]->source && !left.empty())
+		_simpleLatinFaces[id]->source->prefetch(left);
 }
 
 Graphics::UnicodeGlyphSource *ScummHiResText::sourceForFace(const Common::String &resolvedPath) const {
@@ -1897,7 +1920,9 @@ bool ScummHiResText::loadSimpleBitmapFile(const Common::Path &gameDir, const Com
 		face = it->_value;
 	} else {
 		face = new Face();
-		face->source = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
+		Graphics::SvfnGlyphSource *svf = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
+		svf->setName(name);
+		face->source = svf;
 		_sources[key] = face;
 		_faceBySource[(uint64)(uintptr)face->source] = face;
 	}
