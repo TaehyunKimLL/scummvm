@@ -237,7 +237,7 @@ Config::DriverId Config::detect(OplType type) {
 	// serve the type (Dual OPL2 or OPL3 on an OPL2 card), return no driver
 	// so that the engine falls back to OPL2 if it can (SCI does). The price
 	// is that an engine demanding an OPL3 without a fallback gets no music on
-	// an OPL2 card. Emulators are chosen only when no chip answers.
+	// an OPL2 card. No emulator is built for DOS (configure).
 	if (DosOPL::OPL::detect(kOpl2)) {
 		if (DosOPL::OPL::detect(type))
 			return kDosOPL;
@@ -248,13 +248,16 @@ Config::DriverId Config::detect(OplType type) {
 		}
 		return -1;
 	}
-#endif
-
+	// No chip, and no emulator is built for DOS: say so once (detect()
+	// runs for every device query) and let the engine go without.
+	static bool warnedNoChip = false;
+	if (!warnedNoChip) {
+		warning("No hardware OPL found: no AdLib/OPL music");
+		warnedNoChip = true;
+	}
+	return -1;
+#else
 	for (int i = 2; _drivers[i].name; ++i) {
-#ifdef DOS_DJGPP
-		if (_drivers[i].id == kDosOPL)
-			continue;
-#endif
 		if (_drivers[i].flags & flags) {
 			drv = _drivers[i].id;
 			break;
@@ -262,6 +265,7 @@ Config::DriverId Config::detect(OplType type) {
 	}
 
 	return drv;
+#endif
 }
 
 OPL *Config::create(OplType type) {
@@ -283,7 +287,10 @@ static OPL *createUnlogged(Config::DriverId driver, Config::OplType type) {
 		// No emulator for the specified OPL chip could
 		// be found, thus stop here.
 		if (driver == -1) {
+#ifndef DOS_DJGPP
+			// (DOS: detect() has said why, once.)
 			warning("No OPL emulator available for type %d", type);
+#endif
 			return nullptr;
 		}
 	}
