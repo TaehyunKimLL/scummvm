@@ -3905,6 +3905,11 @@ if test -n "$_host"; then
 			_build_scalers=no
 			_build_aspect=no
 			_seq_midi=no
+			# The OPL is the card's own chip (audio/dosopl.cpp); a software
+			# emulator costs more CPU than these machines have.
+			append_var DEFINES "-DDISABLE_DOSBOX_OPL"
+			append_var DEFINES "-DDISABLE_MAME_OPL"
+			_nuked_opl=no
 			;;
 		kos32)
 			# neither pkg-config nor *-config work, so we setup everything manually
