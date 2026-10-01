@@ -3929,6 +3929,8 @@ if test -n "$_host"; then
 			append_var DEFINES "-DDISABLE_VIDEO_CODECS"
 			# SCI's FM-Towns and PC-98 music drivers: not DOS games.
 			append_var DEFINES "-DDISABLE_SCI_TOWNS_PC98_MUSIC"
+			# SCI's Mac audio (AIFF tracks, Mac snd resources).
+			append_var DEFINES "-DDISABLE_SCI_MAC_AUDIO"
 			;;
 		kos32)
 			# neither pkg-config nor *-config work, so we setup everything manually
