@@ -190,8 +190,8 @@ public:
 		const uint before = Common::FileCacheRegistry::all().size();
 		TS_ASSERT(store.open(streamOf(f.body, 0), 0, f.body.size(), f.lines.begin(), f.lines.size(), 5, 0, "k.trs"));
 		TS_ASSERT_EQUALS(Common::FileCacheRegistry::all().size(), before + 1);
-		// Opening read the body once, block by block.
-		const uint32 blocks = (f.body.size() + SCUMM_TRS_READ_BLOCK - 1) / SCUMM_TRS_READ_BLOCK;
+		// Opening read the body once, in big blocks.
+		const uint32 blocks = (f.body.size() + SCUMM_TRS_SCAN_BLOCK - 1) / SCUMM_TRS_SCAN_BLOCK;
 		TS_ASSERT_EQUALS(store.stats().reads, blocks);
 		TS_ASSERT_EQUALS(store.stats().readBytes, f.body.size());
 		const uint32 reads = store.stats().reads;
@@ -207,6 +207,34 @@ public:
 		TS_ASSERT_EQUALS(store.stats().kind, Common::String("trs"));
 		store.close();
 		TS_ASSERT_EQUALS(Common::FileCacheRegistry::all().size(), before);
+	}
+
+	static void countSeen(void *ctx, const byte *s, uint32 size) {
+		Common::Array<Common::Array<byte> > &seen = *(Common::Array<Common::Array<byte> > *)ctx;
+		Common::Array<byte> copy;
+		for (uint32 i = 0; i < size; ++i)
+			copy.push_back(s[i]);
+		seen.push_back(copy);
+	}
+
+	// Each translation is handed over, end included, while the body is read
+	// for the index: no second pass over the file.
+	void test_open_hands_over_every_translation_in_one_pass() {
+		Fixture f;
+		build(f, 80);
+		Common::Array<Common::Array<byte> > seen;
+		Scumm::TrsStore store;
+		TS_ASSERT(store.open(streamOf(f.body, 0), 0, f.body.size(), f.lines.begin(), f.lines.size(), 5, 0, "p.trs",
+							 SCUMM_TRS_CACHE_KB * 1024, &countSeen, &seen));
+		TS_ASSERT_EQUALS(seen.size(), f.lines.size());
+		for (uint i = 0; i < seen.size() && i < f.lines.size(); ++i) {
+			const byte *t = &f.body[f.lines[i].trans];
+			TS_ASSERT_EQUALS(seen[i].size(), (uint)strLen(t) + 1);
+			TS_ASSERT_EQUALS(memcmp(seen[i].begin(), t, seen[i].size()), 0);
+		}
+		TS_ASSERT_EQUALS(store.stats().reads, (f.body.size() + SCUMM_TRS_SCAN_BLOCK - 1) / SCUMM_TRS_SCAN_BLOCK);
+		// Back to small blocks afterwards.
+		TS_ASSERT(store.stats().used <= store.stats().capacity);
 	}
 
 	void test_a_small_cache_keeps_to_its_size() {
