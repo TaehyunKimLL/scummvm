@@ -306,4 +306,27 @@ public:
 		const byte *other = f.originals[0].begin();
 		TS_ASSERT(store.find(other, strLen(other), first, last));
 	}
+
+	// A read that fails while open() indexes the body: refused, nothing
+	// left pending, and the store opens again once the file reads.
+	void test_a_failed_read_while_indexing_refuses_the_file() {
+		Fixture f;
+		build(f, 100);
+		bool fail = true;
+		byte *p = (byte *)malloc(f.body.size());
+		memcpy(p, f.body.begin(), f.body.size());
+		Scumm::TrsStore store;
+		TS_ASSERT(!store.open(new FlakyStream(p, f.body.size(), fail), 0, f.body.size(), f.lines.begin(),
+							  f.lines.size(), 5, 0, "i.trs"));
+		TS_ASSERT(!store.isOpen());
+		TS_ASSERT(!store.takeReadFailure());
+		fail = false;
+		p = (byte *)malloc(f.body.size());
+		memcpy(p, f.body.begin(), f.body.size());
+		TS_ASSERT(store.open(new FlakyStream(p, f.body.size(), fail), 0, f.body.size(), f.lines.begin(),
+							 f.lines.size(), 5, 0, "i.trs"));
+		uint first, last;
+		const byte *text = f.originals[5].begin();
+		TS_ASSERT(store.find(text, strLen(text), first, last));
+	}
 };
