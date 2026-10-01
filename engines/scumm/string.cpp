@@ -33,6 +33,7 @@
 #include "scumm/file.h"
 #include "scumm/text_utf8.h"
 #include "scumm/trs_store.h"
+#include "graphics/hires_text/glyph_source_file.h"
 #include "scumm/trs_bundle.h"
 #include "scumm/imuse_digi/dimuse_engine.h"
 #ifdef ENABLE_HE
@@ -2612,9 +2613,11 @@ void ScummEngine::loadLanguageBundle() {
 	// below, nor for German Indy 3, whose string ends depend on the room
 	// (resStrLen()), nor when the bundle's lines are not in sorted order.
 	if (_trsTranscodeTo == Common::kCodePageInvalid && !(_game.id == GID_INDY3 && _language == Common::DE_DEU)) {
-		ScummFile *body = new ScummFile(this);
-		openFile(*body, bundle);
-		if (body->isOpen()) {
+		// The file itself, not a ScummFile over it: it is read in blocks of
+		// the store's own, without the C library's buffer.
+		Common::SeekableReadStream *body = SearchMan.createReadStreamForMember(bundle);
+		if (body) {
+			Graphics::unbufferCacheStream(body);
 			Common::Array<TrsStore::Line> lines;
 			lines.resize(_numTranslatedLines);
 			for (int i = 0; i < _numTranslatedLines; i++) {
