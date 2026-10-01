@@ -211,10 +211,6 @@ void OSystem_DOS::initBackend() {
 	// scale limits (Graphics::hiResScaleLimits()) read this default, so no
 	// engine or shared code needs a DOS #ifdef.
 	ConfMan.registerDefault("hires_text_platform_scale", "2");
-	// render_target=auto puts hi-res text on a 5-6-5 screen rather than a
-	// 32-bit one (Graphics::platformTrueColorTarget()): half the memory and
-	// the bytes sent to the card. render_target=rgb888 still asks for 32 bits.
-	ConfMan.registerDefault("hires_text_platform_truecolor", "rgb565");
 	// The GUI's two overlay-sized screens (600 KB each at 640x480 RGB565)
 	// are given back while no dialog is open.
 	ConfMan.registerDefault("gui_release_buffers", true);
