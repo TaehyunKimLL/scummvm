@@ -488,7 +488,7 @@ also where the player did not ask for it (a SCUMM v7 game, an 8-bit AGS game, an
 
 Per engine:
 
-- **SCUMM** (v < 7): asks `initGraphics()` for the formats that match the wanted target, then the fallbacks. v7+
+- **SCUMM** (v < 7): asks `initGraphics()` for the resolved RGB family only (or the first family the backend offers), then CLUT8 (7.1.1). v7+
   (palette driven by SMUSH) always gets `clut8`; an explicit non-`clut8` target is warned about. The 16-bit sink that
   FM-Towns already uses (`HiResPalette16Sink`) draws `rgb565`.
 - **SCI**: `render_target` decides the format requested in `Sci::GfxDriver` creation (`drivers/init.cpp`) and
