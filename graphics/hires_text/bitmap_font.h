@@ -38,6 +38,13 @@ class SeekableReadStream;
 #define HIRES_SVF_READ_BLOCK 4096
 #endif
 
+/// A font with no more glyph data than this is read whole even when it is
+/// asked to stream (HiResBitmapFont::loadStreamed()): kept open, it would
+/// cost about as much as it saves, and a file handle.
+#ifndef HIRES_SVF_STREAM_MIN
+#define HIRES_SVF_STREAM_MIN (64 * 1024)
+#endif
+
 namespace Graphics {
 
 // GlyphMetrics (advance, bearingX, bearingY, width, height, and the
@@ -82,7 +89,8 @@ public:
 	 * table, 4 and 8 bytes a glyph); glyphData() reads each glyph from
 	 * @p stream when asked for it. The same checks as load(). The stream is
 	 * kept until free(), and deleted then when @p dispose says so (also when
-	 * this fails).
+	 * this fails). A font with at most streamThreshold() bytes of glyphs is
+	 * read whole instead (isStreamed() false), and the stream let go.
 	 */
 	bool loadStreamed(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 					  uint32 sizeLimit = 64 * 1024 * 1024);
@@ -93,6 +101,10 @@ public:
 
 	/// Whether the glyphs are read from the file as they are asked for (loadStreamed()).
 	bool isStreamed() const { return _stream != nullptr; }
+
+	/// HIRES_SVF_STREAM_MIN, or what a test set.
+	static uint32 streamThreshold() { return _streamThreshold; }
+	static void setStreamThreshold(uint32 bytes) { _streamThreshold = bytes; }
 
 	int bpp() const { return _bpp; }
 	int cellWidth() const { return _cellW; }
@@ -165,7 +177,7 @@ private:
 	struct Layout {
 		uint16 version, flags, codePage;
 		int bpp, glyphs, cellW, cellH, ascent, rowPitch;
-		uint32 glyphStride, metricsOff, dataOff, cmapOff;
+		uint32 glyphStride, metricsOff, dataOff, dataSize, cmapOff;
 		bool metricsOk;	///< there is a metrics table, and it fits
 	};
 	/// @p have bytes of the file's start at @p raw, of a file of @p size bytes.
@@ -196,6 +208,7 @@ private:
 	DisposeAfterUse::Flag _disposeStream;
 	uint32 _dataOff;
 	uint32 _tablesSize;
+	static uint32 _streamThreshold;
 	/// Glyphs [first, first + count) of a streamed font, as read.
 	struct ReadBlock {
 		ReadBlock() : first(-1), count(0), lastUse(0) {}

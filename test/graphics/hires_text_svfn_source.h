@@ -4,6 +4,7 @@
 #include "common/file-cache-stats.h"
 #include "common/memstream.h"
 #include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/glyph_source_missing.h"
 #include "graphics/hires_text/glyph_source_svfn.h"
 #include "graphics/hires_text/text_compose.h"
 #include "graphics/hires_text/unicode_props.h"
@@ -26,6 +27,11 @@
  * no-FreeType build run it.
  */
 class HiResTextSvfnSourceTestSuite : public CxxTest::TestSuite {
+public:
+	// These fonts are a few KB: streamed only with no threshold.
+	void setUp() override { Graphics::HiResBitmapFont::setStreamThreshold(0); }
+	void tearDown() override { Graphics::HiResBitmapFont::setStreamThreshold(HIRES_SVF_STREAM_MIN); }
+
 private:
 	static void put16(Common::Array<byte> &b, uint pos, uint16 v) {
 		b[pos] = v & 0xff;
@@ -516,6 +522,36 @@ public:
 		Graphics::SvfnGlyphSource *mem = latinSource(bytes, false);
 		TS_ASSERT_EQUALS(Common::FileCacheRegistry::all().size(), before);
 		delete mem;
+	}
+
+	/// A stream over a copy of some bytes whose reads can be made to fail.
+	class FlakyStream : public Common::MemoryReadStream {
+	public:
+		FlakyStream(const Common::Array<byte> &bytes, bool &fail)
+			: Common::MemoryReadStream(copyOf(bytes), bytes.size(), DisposeAfterUse::YES), _fail(fail) {}
+		uint32 read(void *dataPtr, uint32 dataSize) override {
+			return _fail ? 0 : Common::MemoryReadStream::read(dataPtr, dataSize);
+		}
+		static byte *copyOf(const Common::Array<byte> &bytes) {
+			byte *p = (byte *)malloc(bytes.size());
+			memcpy(p, bytes.begin(), bytes.size());
+			return p;
+		}
+
+	private:
+		bool &_fail;
+	};
+
+	// A small font asked to stream is read whole, and its file let go.
+	void test_svfn_source_small_fonts_are_not_streamed() {
+		Graphics::HiResBitmapFont::setStreamThreshold(HIRES_SVF_STREAM_MIN);
+		const Common::Array<byte> bytes = makeLatin256();
+		bool fail = false;
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(font.loadStreamed(new FlakyStream(bytes, fail), DisposeAfterUse::YES));
+		TS_ASSERT(!font.isStreamed());
+		fail = true;	// gone already: no read reaches it
+		TS_ASSERT(font.glyphData('A') != nullptr);
 	}
 
 	// prefetch() reads what it has in the font's order and leaves the rest.
