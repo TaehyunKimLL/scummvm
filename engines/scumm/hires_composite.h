@@ -102,17 +102,21 @@ void compositeTextRows(Sink &sink, const byte *src, int srcPitch,
 	const int outWidth = width * m;
 	const bool withUnder = underRows.present() && underCoverageRows.present();
 
-	// Scratch for the expanded background row: the sink is given indices, and
-	// the game buffer holds one per m output pixels.
-	Common::Array<byte> bgRow(outWidth);
-	// A row of zeros for a plane row no band holds, and room to unpack one.
-	Common::Array<byte> zeroRow;
-	zeroRow.resize(outWidth);
-	memset(zeroRow.begin(), 0, outWidth);
-	Common::Array<byte> covScratch, underScratch, underCovScratch;
-	covScratch.resize(MAX(1, coverageRows.scratchBytes()));
-	underScratch.resize(MAX(1, underRows.scratchBytes()));
-	underCovScratch.resize(MAX(1, underCoverageRows.scratchBytes()));
+	// One allocation for the scratch rows: the expanded background row (the
+	// sink is given indices, and the game buffer holds one per m output
+	// pixels), a row of zeros for a plane row no band holds, and room to
+	// unpack a row of each plane.
+	const int covBytes = coverageRows.scratchBytes();
+	const int underBytes = underRows.scratchBytes();
+	const int underCovBytes = underCoverageRows.scratchBytes();
+	Common::Array<byte> scratch;
+	scratch.resize(2 * outWidth + covBytes + underBytes + underCovBytes);
+	byte *bgRow = scratch.begin();
+	byte *zeroRow = bgRow + outWidth;
+	byte *covScratch = zeroRow + outWidth;
+	byte *underScratch = covScratch + covBytes;
+	byte *underCovScratch = underScratch + underBytes;
+	memset(zeroRow, 0, outWidth);
 
 	enum {
 		kBackground,    ///< no text, no decoration
@@ -130,17 +134,17 @@ void compositeTextRows(Sink &sink, const byte *src, int srcPitch,
 
 		const byte *coverage = nullptr;
 		if (coverageRows.present()) {
-			coverage = coverageRows.row(h, covScratch.begin());
+			coverage = coverageRows.row(h, covScratch);
 			if (!coverage)
-				coverage = zeroRow.begin();
+				coverage = zeroRow;
 		}
 		const byte *under = nullptr, *underCoverage = nullptr;
 		if (withUnder) {
-			underCoverage = underCoverageRows.row(h, underCovScratch.begin());
+			underCoverage = underCoverageRows.row(h, underCovScratch);
 			if (underCoverage) {
-				under = underRows.row(h, underScratch.begin());
+				under = underRows.row(h, underScratch);
 				if (!under)
-					under = zeroRow.begin();
+					under = zeroRow;
 			}
 		}
 
@@ -175,26 +179,26 @@ void compositeTextRows(Sink &sink, const byte *src, int srcPitch,
 				if (count > 0) {
 					switch (runKind) {
 					case kBackground:
-						sink.writeBackground(bgRow.begin() + runStart, count);
+						sink.writeBackground(bgRow + runStart, count);
 						break;
 					case kOpaque:
 						sink.writeOpaque(text + runStart, count);
 						break;
 					case kBlended:
-						sink.writeBlended(text + runStart, bgRow.begin() + runStart,
+						sink.writeBlended(text + runStart, bgRow + runStart,
 										  coverage + runStart, count);
 						break;
 					case kUnderOpaque:
 						sink.writeOpaque(under + runStart, count);
 						break;
 					case kUnderBlended:
-						sink.writeBlended(under + runStart, bgRow.begin() + runStart,
+						sink.writeBlended(under + runStart, bgRow + runStart,
 										  underCoverage + runStart, count);
 						break;
 					default:
 						sink.writeLayered(text + runStart, coverage + runStart,
 										  under + runStart, underCoverage + runStart,
-										  bgRow.begin() + runStart, count);
+										  bgRow + runStart, count);
 						break;
 					}
 				}
