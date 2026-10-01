@@ -203,7 +203,10 @@ ResourceType ResourceManager::convertResType(byte type) {
 }
 
 //-- Resource main functions --
-Resource::Resource(ResourceManager *resMan, ResourceId id) : SciSpan<const byte>(nullptr, 0, id.toString()), _resMan(resMan), _id(id) {
+// The span's name (the id as text, for error messages) is made when the
+// resource is first loaded (ResourceManager::loadResource()): a CD game's
+// audio maps make thousands of resources that are never loaded.
+Resource::Resource(ResourceManager *resMan, ResourceId id) : SciSpan<const byte>(nullptr, 0), _resMan(resMan), _id(id) {
 	_fileOffset = 0;
 	_status = kResStatusNoMalloc;
 	_lockers = 0;
@@ -421,6 +424,8 @@ void ResourceManager::disposeVolumeFileStream(Common::SeekableReadStream *fileSt
 }
 
 void ResourceManager::loadResource(Resource *res) {
+	if (res->name().empty())
+		res->name() = res->_id.toString();
 	res->_source->loadResource(this, res);
 	if (_patcher) {
 		_patcher->applyPatch(*res);
