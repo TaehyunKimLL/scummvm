@@ -21,11 +21,13 @@
 
 
 #include "sci/graphics/drivers/gfxdriver.h"
+#include "sci/graphics/hirestextstate.h"
 #include "sci/sci.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/language.h"
 #include "common/platform.h"
+#include "common/textconsole.h"
 
 namespace Sci {
 
@@ -175,9 +177,27 @@ GfxDriver *create(Common::RenderMode renderMode, int width, int height) {
 		if (((info->renderMode == Common::kRenderDefault && (info->platform == Common::kPlatformUnknown || info->platform == platform)) || (renderMode != Common::kRenderDefault && info->renderMode == renderMode))
 			&& version >= info->versionMin && version <= info->versionMax && (info->gameId == GID_ALL || info->gameId == gameId) && (info->language == Common::UNK_LANG || info->language == lang) && (info->hires == kUnused || (info->hires == kEnable) == hires)
 			&& (!info->hiresText || hiresText)) {
-				result = info->createDriver(requestRGB, info->config, width, height, undither, winCursors, hires);
-				if (info->hiresText)
-					debug(1, "SCI: hi-res text: the upscaled graphics driver");
+				int driverRGB = requestRGB;
+				if (info->hiresText) {
+					// The driver that draws the hi-res text layer: the screen
+					// follows render_target and the map (design 7.1.1); with
+					// hi-res text off for the game the state reports auto,
+					// and the upstream request stands.
+					HiresTextState *state = g_sci->hiresTextState();
+					if (state) {
+						const SciPhase1 &p1 = state->phase1();
+						const SciRenderChoice choice = chooseSciRender(requestRGB != 0, p1.target, p1.anyCoverage, p1.blend);
+						if (!choice.warning.empty())
+							warning("SCI: %s", choice.warning.c_str());
+						driverRGB = choice.requestRGB ? 1 : 0;
+						state->setDriverTarget(choice.target);
+						debug(1, "SCI: hi-res text: the upscaled graphics driver, %s screen requested (render target %s)",
+							  driverRGB ? "RGB" : "paletted", Graphics::renderTargetName(choice.target));
+					} else {
+						debug(1, "SCI: hi-res text: the upscaled graphics driver");
+					}
+				}
+				result = info->createDriver(driverRGB, info->config, width, height, undither, winCursors, hires);
 				break;
 		}
 	}

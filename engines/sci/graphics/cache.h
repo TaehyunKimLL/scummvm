@@ -261,26 +261,33 @@ private:
 	GfxFont *createFontSet(GuiResourceId fontId);
 
 	/**
-	 * Reads the hi-res text ini keys (design section 11,
-	 * Graphics::readHiResIniFromConfMan()) and hires_text.map (the game
-	 * directory's own default name, or the file the ini names, design
-	 * section 4) once per engine run, under the scope predicate (SCI16, a
-	 * CJK code page or a UTF-8 translation, the game's own domain). Out of
-	 * scope, every key and the map get one warning each and nothing
+	 * Phase 2 of the hi-res text configuration (design section 7.1.1), once
+	 * per engine run: takes the ini keys and the map path from
+	 * g_sci->hiresTextState() (read before the screen existed) and loads
+	 * the map again for the screen actually set. Applies only under the
+	 * scope predicate (SCI16, a CJK code page or a UTF-8 translation); out
+	 * of scope, a set face and a map get one warning each and nothing
 	 * applies. hires_text=false leaves the layer as if no map and no ini
-	 * keys had been given at all. Each bad value gets one warning and is
-	 * ignored.
+	 * keys had been given at all. Also settles the blend and checks the
+	 * scale (2 only).
 	 */
 	void resolveHiresText();
 
 	/** resolveFontSettings() for @p fontId from what resolveHiresText() read. */
 	FontSettings fontSettingsFor(GuiResourceId fontId);
 
+	/** Whether a @p faceBpp face's glyphs are cut into a hard stencil (sciThresholdCoverage()). */
+	bool thresholdsCoverage(int faceBpp);
+
 	bool _hiresResolved;
 	bool _hiresApplies;              ///< the scope predicate held
 	Graphics::HiResIniOverrides _hiresIni;
 	Graphics::HiResMap _hiresMap;
 	bool _hiresMapLoaded;
+	/// The phase-2 blend (ini > the screen's map sections > auto).
+	Graphics::HiResBlend _hiresBlend;
+	/// The screen GfxCache found set (phase 2's target).
+	bool _hiresScreenIsClut8;
 	/// The directory holding the map file: relative paths from the map
 	/// ([fonts] entries, face paths) resolve against it (design section 4).
 	Common::Path _hiresMapDir;

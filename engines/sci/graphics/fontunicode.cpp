@@ -42,7 +42,7 @@ namespace Sci {
 
 GfxFontUnicode::GfxFontUnicode(GfxScreen *screen, GuiResourceId resourceId)
 	: _screen(screen), _resourceId(resourceId), _loaded(false), _ownHolder(nullptr, DisposeAfterUse::NO),
-	  _source(nullptr, DisposeAfterUse::YES), _own(nullptr), _perGlyph(false) {
+	  _source(nullptr, DisposeAfterUse::YES), _own(nullptr), _perGlyph(false), _hardStencil(false) {
 }
 
 GfxFontUnicode::~GfxFontUnicode() {
@@ -150,6 +150,10 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 	byte *cov = _glyphScratch.begin();
 	for (int y = 0; y < cellHeight; y++)
 		Graphics::TextCompose::expandGlyphRow(cov + y * w, coverageRow(chr, y), w, bpp, greyedOutput, top + y, left);
+	if (_hardStencil && bpp > 1) {
+		for (int i = 0; i < w * cellHeight; i++)
+			cov[i] = cov[i] >= 128 ? 255 : 0;
+	}
 
 	// Placement (design section 4.2): the pen is at column originX of the
 	// row, so the glyph is drawn originX px left of the pen - ink left of
