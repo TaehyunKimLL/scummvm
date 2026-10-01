@@ -70,6 +70,8 @@ UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, Dispose
  * C stdio file, the library's buffer is dropped, so that a block read is one
  * read of that block. DJGPP's is 16 KB, filled whole again after every seek:
  * per stream, 16 KB of memory and four times the bytes read per block.
+ * Called right after the stream is opened, before any read (setvbuf()
+ * after I/O is undefined); null is ignored.
  */
 void unbufferCacheStream(Common::SeekableReadStream *stream);
 

@@ -278,6 +278,8 @@ Graphics::UnicodeGlyphSource *GfxCache::svfnSource(const Common::String &path, c
 	Common::String error;
 	Common::SeekableReadStream *stream =
 		Graphics::openFontFace(Common::Path(path, Common::Path::kNativeSeparator), faceIndex, error);
+	// Before any read: an SVF stays open and reads blocks of its own.
+	Graphics::unbufferCacheStream(stream);
 	byte head[4];
 	if (!stream || stream->read(head, sizeof(head)) != sizeof(head) || !Graphics::isSvfnFile(head, sizeof(head))) {
 		delete stream;

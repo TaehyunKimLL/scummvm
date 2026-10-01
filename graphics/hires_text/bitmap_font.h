@@ -90,7 +90,9 @@ public:
 	 * @p stream when asked for it. The same checks as load(). The stream is
 	 * kept until free(), and deleted then when @p dispose says so (also when
 	 * this fails). A font with at most streamThreshold() bytes of glyphs is
-	 * read whole instead (isStreamed() false), and the stream let go.
+	 * read whole instead (isStreamed() false), and the stream let go. The
+	 * caller drops a stdio stream's buffer as it opens it
+	 * (unbufferCacheStream()), before reading anything.
 	 */
 	bool loadStreamed(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 					  uint32 sizeLimit = 64 * 1024 * 1024);

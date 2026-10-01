@@ -58,6 +58,7 @@ bool GfxFontUnicode::load(const Common::String &filename) {
 		f = SearchMan.createReadStreamForMember(Common::Path(filename).append("."));
 	if (!f)
 		return false;
+	Graphics::unbufferCacheStream(f);	// before any read
 
 	// An SVFN bitmap font under a .uni name serves as the bundle too.
 	byte head[4];

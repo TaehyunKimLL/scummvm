@@ -930,6 +930,8 @@ Graphics::UnicodeGlyphSource *ScummHiResText::openPlanFace(const Common::Path &p
 	int32 faceIndex = 0;
 	Common::String openError;
 	Common::SeekableReadStream *stream = Graphics::openFontFace(path, faceIndex, openError);
+	// Before any read: an SVF found here stays open and reads blocks of its own.
+	Graphics::unbufferCacheStream(stream);
 	if (!stream) {
 		warning("SCUMM: cannot open hi-res font '%s'", p.c_str());
 		_sources[key] = nullptr;
@@ -1904,6 +1906,7 @@ bool ScummHiResText::loadSimpleBitmapFile(const Common::Path &gameDir, const Com
 	Common::SeekableReadStream *stream = node.createReadStream();
 	if (!stream)
 		return false;
+	Graphics::unbufferCacheStream(stream);	// before any read: it may stay open
 
 	Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
 	if (!font->loadStreamed(stream, DisposeAfterUse::YES)) {
@@ -2240,6 +2243,7 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 					_failedFaces[paths[i]] = true;
 					continue;
 				}
+				Graphics::unbufferCacheStream(stream);	// before any read: it may stay open
 				byte head[4];
 				const bool svfn = stream->read(head, sizeof(head)) == sizeof(head) &&
 								  Graphics::isSvfnFile(head, sizeof(head));
