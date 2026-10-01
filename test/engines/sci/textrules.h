@@ -28,10 +28,9 @@
 #include "sci/graphics/textlatin.h"
 
 /**
- * The old hires_text_latin modes, each now a map recipe (design section 6.6),
- * asserted through the same TextCompose::glyphCode()/goesToUnicodeFace()
- * routing hirestextsettings.h's suite exercises: this file only pins that
- * each recipe reproduces the mode it replaces.
+ * The Latin routing recipes of design section 6.6, asserted through the same
+ * TextCompose::glyphCode()/goesToUnicodeFace() routing hirestextsettings.h's
+ * suite exercises.
  */
 class SciTextRulesTestSuite : public CxxTest::TestSuite {
 private:
@@ -47,7 +46,7 @@ private:
 	}
 
 public:
-	// ---- [latin] mode=off -> the default (no range rule at all) ----------
+	// ---- the default: no range rule at all ---------------------------------
 
 	void test_off_recipe_keeps_ascii_on_the_resource_font() {
 		const Sci::FontSettings s = settings("[font]\nface=KO.SVF\n");
@@ -56,7 +55,7 @@ public:
 		TS_ASSERT(!Sci::TextCompose::goesToUnicodeFace(s.plan, code));
 	}
 
-	// ---- [latin] mode=half -> range.basic-latin=same + advance=cell -------
+	// ---- range.basic-latin=same + advance=cell ------------------------------
 
 	void test_half_recipe_routes_ascii_to_the_face_at_cell_advance() {
 		const Sci::FontSettings s = settings("[font]\nface=KO.SVF\nrange.basic-latin=same\nadvance.basic-latin=cell\n");
@@ -64,7 +63,7 @@ public:
 		TS_ASSERT_EQUALS(s.plan.advanceFor('A'), Graphics::kHiResAdvanceCell);
 	}
 
-	// ---- [latin] mode=proportional + metrics=game|font ---------------------
+	// ---- range.basic-latin=same + advance=game|font -------------------------
 
 	void test_proportional_recipe_game_metrics() {
 		const Sci::FontSettings s = settings("[font]\nface=KO.SVF\nrange.basic-latin=same\nadvance.basic-latin=game\n");
@@ -78,17 +77,17 @@ public:
 		TS_ASSERT_EQUALS(s.plan.advanceFor('A'), Graphics::kHiResAdvanceFont);
 	}
 
-	// ---- [latin] font=original / mode=off with an explicit face -----------
-	// beats even a face= that would otherwise route the range.
+	// ---- range.basic-latin=original ----------------------------------------
+	// Beats even a face= that would otherwise route the range.
 
-	void test_latin_font_original_recipe_forces_the_resource_font() {
+	void test_original_range_recipe_forces_the_resource_font() {
 		const Sci::FontSettings s = settings("[font]\nface=KO.SVF\nrange.basic-latin=original\n");
 		const uint32 code = Sci::TextCompose::glyphCode(s.plan, 'A');
 		TS_ASSERT_EQUALS(code, Graphics::kHiResGameCodeBase + (uint32)'A');
 		TS_ASSERT(!Sci::TextCompose::goesToUnicodeFace(s.plan, code));
 	}
 
-	// ---- [latin] mode=fullwidth (+ space=fullwidth) -> [glyphs] ------------
+	// ---- fullwidth forms through [glyphs] -----------------------------------
 
 	void test_fullwidth_recipe_remaps_the_printable_range() {
 		const Sci::FontSettings s = settings("[font]\nface=KO.SVF\n[glyphs]\n0x21-0x7E=+0xFEE0\n");

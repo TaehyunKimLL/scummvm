@@ -113,7 +113,7 @@ void GfxCache::resolveHiresText() {
 			warning("hires_text_face is ignored: %s", why.c_str());
 		const bool defaultMapExists = !_hiresIni.mapSet && !Graphics::findDefaultHiResMap(_hiresGameDir).empty();
 		if (_hiresIni.mapSet || defaultMapExists)
-			warning("hires_text.map is ignored: %s", why.c_str());
+			warning("HIRESTXT.MAP is ignored: %s", why.c_str());
 		return;
 	}
 
@@ -814,7 +814,7 @@ const Graphics::BreakRules &GfxCache::layoutRules() {
 	if (!_layoutRulesResolved) {
 		_layoutRulesResolved = true;
 		resolveHiresText();
-		// [layout] of hires_text.map; the defaults are SCI's (Hangul at
+		// [layout] of HIRESTXT.MAP; the defaults are SCI's (Hangul at
 		// spaces, as SCI always broke it; kinsoku and the Thai fallback on).
 		if (_hiresMapLoaded) {
 			const Graphics::HiResLayoutSettings &l = _hiresMap.layout;
@@ -915,7 +915,7 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 	if (!haveResource)
 		return nullptr;
 
-	// This font id's own hi-res settings (ini keys, then hires_text.map),
+	// This font id's own hi-res settings (ini keys, then HIRESTXT.MAP),
 	// and the Unicode face they name.
 	FontSettings settings = fontSettingsFor(fontId);
 	GfxFontUnicode *uni = unicodeFaceFor(fontId, settings);
@@ -950,7 +950,7 @@ GfxFont *GfxCache::createFontSet(GuiResourceId fontId) {
 			// its Hangul as banks of its own FONT resources (Conquests of
 			// Camelot's Korean beta, fontbanked.h) draws from those, at native
 			// resolution, as its patched DOS interpreter did. A configured
-			// hi-res face (hires_text_face / hires_text.map) wins over them.
+			// hi-res face (hires_text_face / HIRESTXT.MAP) wins over them.
 			const int bankBase = GfxFontBanked::bankBaseFor(_resMan, fontId);
 			if (bankBase >= 0) {
 				debug(1, "SCI: font %d draws Hangul from font banks %d..%d", fontId, bankBase,

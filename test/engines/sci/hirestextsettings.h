@@ -34,7 +34,7 @@
 using Sci::FontSettings;
 
 /**
- * resolveFontSettings(): hires_text.map (design section 3, version 2) plus
+ * resolveFontSettings(): HIRESTXT.MAP (design section 3, version 2) plus
  * the ini keys, compiled into one plan per SCI font id
  * (Graphics::compileIdPlan(), against Sci::sciEngineScope()).
  */

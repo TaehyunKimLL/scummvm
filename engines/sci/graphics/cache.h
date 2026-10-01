@@ -77,7 +77,7 @@ public:
 
 	/**
 	 * How GfxText16 breaks UTF-8 lines: the [layout] section of
-	 * hires_text.map over SCI's defaults (Hangul at spaces, kinsoku on,
+	 * HIRESTXT.MAP over SCI's defaults (Hangul at spaces, kinsoku on,
 	 * the Thai fallback on). Resolved once.
 	 */
 	const Graphics::BreakRules &layoutRules();

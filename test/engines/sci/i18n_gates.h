@@ -28,7 +28,7 @@ static const char *i18nDataDir() {
 #pragma pop_macro("getenv")
 
 /**
- * C11 Task 5: SCI decides hi-res text by the translation, measures glyphs
+ * C11: SCI decides hi-res text by the translation, measures glyphs
  * per glyph, and breaks UTF-8 lines with the shared layout stage
  * (I18N_TEXT_DESIGN.md sections 4.1, 4.2, 4.3).
  */
@@ -230,7 +230,7 @@ public:
 	}
 
 	void test_face_chain_key_separates_sizes() {
-		// [font.300] size=20 and [hires] size=16 on the same face: two chains.
+		// [font.300] size=20 and [font] size=16 on the same face: two chains.
 		Common::Array<Common::String> faces;
 		faces.push_back("/fonts/a.ttf");
 		faces.push_back("/fonts/b.ttf");
@@ -574,8 +574,8 @@ public:
 						  differences, 0u);
 	}
 
-	// The one intended difference from the old code (design section 4.3, the
-	// T2 ruling): in "space, code, space, text" the code ends the line
+	// The one intended difference from the old code (design section 4.3):
+	// in "space, code, space, text" the code ends the line
 	// before, instead of opening the next line with a space.
 	void test_getlongest_layout_code_between_spaces_ends_the_line() {
 		TestMetrics m(false);

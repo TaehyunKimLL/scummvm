@@ -78,7 +78,7 @@ public:
 
 	/**
 	 * @param settings  this font id's hi-res text settings, resolved by
-	 *                  GfxCache (ini keys and hires_text.map, see
+	 *                  GfxCache (ini keys and HIRESTXT.MAP, see
 	 *                  resolveFontSettings()). Its compiled plan decides
 	 *                  everything here: which characters faceFor() routes to
 	 *                  the Unicode face (TextCompose::goesToUnicodeFace()) and

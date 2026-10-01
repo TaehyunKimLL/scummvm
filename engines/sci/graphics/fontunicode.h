@@ -73,7 +73,7 @@ public:
 	bool isLoaded() const { return _loaded; }
 
 	/**
-	 * hires_text.map [hires] missing=: draw @p boxCp for a code point the
+	 * The map's missing=: draw @p boxCp for a code point the
 	 * source lacks (Graphics::MissingGlyphSource), at most once per font.
 	 * hasGlyph() and source() still answer for the source's own glyphs, so
 	 * the box never stands before another face of a GfxFontSet; the set asks
