@@ -31,8 +31,16 @@
 
 #include "gui/error.h"
 
+#ifdef DOS_DETECTION_FILTER
+#include "dosdetect/scumm/detection_tables.h"	// built from scumm/detection_tables.h, see backends/platform/dos/detection-filter.py
+#else
 #include "scumm/detection_tables.h"
+#endif
+#ifdef DOS_DETECTION_FILTER
+#include "dosdetect/scumm/scumm-md5.h"	// built from scumm/scumm-md5.h, see backends/platform/dos/detection-filter.py
+#else
 #include "scumm/scumm-md5.h"
+#endif
 #include "scumm/file_nes.h"
 #include "scumm/trs_bundle.h"
 

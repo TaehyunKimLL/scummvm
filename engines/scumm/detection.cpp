@@ -35,10 +35,18 @@
 #include "audio/mididrv.h"
 
 #include "scumm/detection.h"
+#ifdef DOS_DETECTION_FILTER
+#include "dosdetect/scumm/detection_tables.h"	// built from scumm/detection_tables.h, see backends/platform/dos/detection-filter.py
+#else
 #include "scumm/detection_tables.h"
+#endif
 #include "scumm/file.h"
 #include "scumm/file_nes.h"
+#ifdef DOS_DETECTION_FILTER
+#include "dosdetect/scumm/scumm-md5.h"	// built from scumm/scumm-md5.h, see backends/platform/dos/detection-filter.py
+#else
 #include "scumm/scumm-md5.h"
+#endif
 
 #pragma mark -
 #pragma mark --- Detection code ---

@@ -47,7 +47,11 @@
 #include "scumm/costume.h"
 #include "scumm/debugger.h"
 #include "scumm/debugsocket.h"
+#ifdef DOS_DETECTION_FILTER
+#include "dosdetect/scumm/detection_tables.h"	// built from scumm/detection_tables.h, see backends/platform/dos/detection-filter.py
+#else
 #include "scumm/detection_tables.h"
+#endif
 #include "scumm/dialogs.h"
 #include "scumm/file.h"
 #include "scumm/file_nes.h"

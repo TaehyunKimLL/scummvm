@@ -47,7 +47,11 @@
 // Files related for detection.
 #include "scumm/metaengine.h"
 #include "scumm/detection.h"
+#ifdef DOS_DETECTION_FILTER
+#include "dosdetect/scumm/detection_tables.h"	// built from scumm/detection_tables.h, see backends/platform/dos/detection-filter.py
+#else
 #include "scumm/detection_tables.h"
+#endif
 #include "scumm/file.h"
 #include "scumm/file_nes.h"
 
