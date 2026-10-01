@@ -2489,7 +2489,7 @@ void ScummEngine::probeLanguageBundle() {
 		return;
 	}
 	_textUtf8 = true;
-	warning("SCUMM: a UTF-8 translation needs hi-res text (hires_text.map or hires_text_font); "
+	warning("SCUMM: a UTF-8 translation needs hi-res text (HIRESTXT.MAP, hires_text_map or hires_text_face); "
 			"'%s' is drawn as '?'", _trsBundlePath.toString().c_str());
 }
 
