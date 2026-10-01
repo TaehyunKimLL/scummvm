@@ -61,7 +61,6 @@ public:
 	void handleCommand(GUI::CommandSender *sender, uint32 cmd, uint32 data) override;
 
 protected:
-	ScummEngine		*_vm;
 	GUI::Dialog		*_helpDialog;
 };
 #endif

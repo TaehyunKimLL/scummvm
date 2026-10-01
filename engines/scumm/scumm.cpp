@@ -449,12 +449,9 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
 #endif
 
 	// Allocate gfx compositing buffer (not needed for V7/V8 games).
-	if (_game.version < 7) {
-		_compositeBufSize = _screenWidth * _screenHeight * sizeMult;
-		_compositeBuf = (byte *)malloc(_compositeBufSize);
-	} else {
-		_compositeBuf = nullptr;
-	}
+	_compositeBuf = nullptr;
+	if (_game.version < 7)
+		setCompositeBuf(_screenWidth * _screenHeight * sizeMult);
 
 	if (_renderMode == Common::kRenderHercA || _renderMode == Common::kRenderHercG)
 		_hercCGAScaleBuf = (byte *)malloc(kHercWidth * kHercHeight);
@@ -1947,16 +1944,14 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 	// dithering, the cursor, the transition effects - need) instead of a
 	// whole enlarged frame: 80 KB rather than 1000 KB at 640x400 in true
 	// colour. Without hi-res text it stays one frame, as before.
-	free(_compositeBuf);
 	const uint32 frameSize = _screenWidth * _textSurfaceMultiplier * _screenHeight * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel;
 	if (_hiResText.enabled() && _game.version < 7) {
 		const uint32 bandSize = kCompositeBandRows * _screenWidth * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel;
 		const uint32 lowResSize = _compositeBufSize;	// the constructor's
-		_compositeBufSize = MIN(frameSize, MAX(bandSize, lowResSize));
+		setCompositeBuf(MIN(frameSize, MAX(bandSize, lowResSize)));
 	} else {
-		_compositeBufSize = frameSize;
+		setCompositeBuf(frameSize);
 	}
-	_compositeBuf = (byte *)malloc(_compositeBufSize);
 
 
 	// MI2 NI DOS Demo, load demo.rec playback file if present
