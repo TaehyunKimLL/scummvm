@@ -32,6 +32,7 @@
 #include "common/savefile.h"
 #include "common/config-manager.h"
 #include "engines/achievements.h"
+#include "graphics/hires_text/hires_options.h"
 #include "image/bmp.h"
 
 const char *AGSMetaEngine::getName() const {
@@ -151,6 +152,10 @@ SaveStateDescriptor AGSMetaEngine::querySaveMetaInfos(const char *target, int sl
 
 bool AGSMetaEngine::removeSaveState(const char *target, int slot) const {
 	return g_system->getSavefileManager()->removeSavefile(getSavegameFile(slot, target));
+}
+
+bool AGSMetaEngine::hasHiResText(const Common::String &target) const {
+	return Graphics::hiResTextConfigured(target);
 }
 
 int AGSMetaEngine::getAutosaveSlot() const {

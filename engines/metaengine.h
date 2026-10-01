@@ -238,6 +238,19 @@ public:
 	virtual ~MetaEngine() {}
 
 	/**
+	 * Whether the specified target draws hi-res replacement text, so the
+	 * Graphics options of its Edit Game dialog offer the "Hi-res text screen"
+	 * popup (the `render_target` key).
+	 *
+	 * The default implementation returns false.
+	 *
+	 * @param target  Name of a config manager target.
+	 */
+	virtual bool hasHiResText(const Common::String &target) const {
+		return false;
+	}
+
+	/**
 	 * Name of the engine plugin.
 	 *
 	 * Classes inheriting a MetaEngine must provide an engineID here,

@@ -27,6 +27,8 @@
 #include "common/md5.h"
 #include "common/fs.h"
 
+#include "graphics/hires_text/hires_options.h"
+
 #include "gui/dialog.h"
 #include "gui/message.h"
 
@@ -950,7 +952,7 @@ const ExtraGuiOption enableRebel1NoDamage = {
 
 static const ExtraGuiOption enableHiResText = {
 	_s("Use hi-res fonts from the game folder"),
-	_s("Read hires_text.map and the font files beside it. Turn this off to ignore them and draw text exactly as the original game did."),
+	_s("Read HIRESTXT.MAP and the fonts it names. Turn this off to ignore them and draw text exactly as the original game did."),
 	"hires_text",
 	true,
 	0,
@@ -958,21 +960,24 @@ static const ExtraGuiOption enableHiResText = {
 };
 
 /**
- * Whether a target has hi-res fonts to switch: either a map is configured or
- * one sits in the game folder. Checked here so the checkbox only appears where
- * it does something; for every other game the dialog is unchanged.
+ * Whether a target has hi-res fonts to switch. Checked here so the checkbox
+ * only appears where it does something; for every other game the dialog is
+ * unchanged. hires_text itself is not consulted: the checkbox must stay
+ * where it can turn the fonts back on.
  */
 bool ScummMetaEngine::targetHasHiResText(const Common::String &target) {
-	if (ConfMan.hasKey("hires_text_map", target) || ConfMan.hasKey("hires_text_font", target))
+	if (Graphics::hiResTextNamed(target))
 		return true;
 
+	if (!ConfMan.hasKey("path", target))
+		return false;
 	const Common::Path gameDir = ConfMan.getPath("path", target);
 	if (gameDir.empty())
 		return false;
 
-	// A map, or the map-less form: fonts under the conventional names.
-	// hires00.fnt is not required to exist - a set may start at 1 - so
-	// check the few names a translation would plausibly ship first.
+	// The map-less form: fonts under the conventional names. hires00.fnt is
+	// not required to exist - a set may start at 1 - so check the few names
+	// a translation would plausibly ship first.
 	//
 	// Every language's double-byte name is listed, because this runs from
 	// the launcher where the target's language is not consulted, and hrlat
@@ -980,7 +985,7 @@ bool ScummMetaEngine::targetHasHiResText(const Common::String &target) {
 	// fonts are the single-byte half by definition and the engine loads
 	// them on their own.
 	static const char *const names[] = {
-		"hires_text.map", "hires.fnt",
+		"hires.fnt",
 		"hires00.fnt", "hires01.fnt", "hires02.fnt",
 		"hrkor00.fnt", "hrkor01.fnt",
 		"hrjpn00.fnt", "hrjpn01.fnt",
@@ -993,6 +998,10 @@ bool ScummMetaEngine::targetHasHiResText(const Common::String &target) {
 			return true;
 	}
 	return false;
+}
+
+bool ScummMetaEngine::hasHiResText(const Common::String &target) const {
+	return Graphics::hiResTextEnabled(target) && targetHasHiResText(target);
 }
 
 const ExtraGuiOptions ScummMetaEngine::getExtraGuiOptions(const Common::String &target) const {

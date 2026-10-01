@@ -27,6 +27,7 @@
 #include "common/savefile.h"
 #include "common/system.h"
 #include "common/translation.h"
+#include "graphics/hires_text/hires_options.h"
 #include "graphics/thumbnail.h"
 #include "graphics/surface.h"
 
@@ -201,6 +202,10 @@ public:
 
 	void registerDefaultSettings(const Common::String &target) const override;
 	GUI::OptionsContainerWidget *buildEngineOptionsWidget(GUI::GuiObject *boss, const Common::String &name, const Common::String &target) const override;
+
+	bool hasHiResText(const Common::String &target) const override {
+		return Graphics::hiResTextConfigured(target);
+	}
 };
 
 Common::Error SciMetaEngine::createInstance(OSystem *syst, Engine **engine, const ADGameDescription *desc) const {
