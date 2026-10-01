@@ -45,7 +45,7 @@ if [ ! -f config.mk ] || [ -n "$*" ]; then
 		--disable-vorbis --disable-tremor --disable-flac --disable-mad \
 		--disable-theoradec --disable-mpeg2 --disable-faad --disable-a52 \
 		--disable-freetype2 --disable-fribidi --disable-lua \
-		--disable-detection-full --disable-gui --enable-release "$@"
+		--disable-detection-full --disable-gui --disable-translation --enable-release "$@"
 fi
 make -j"$(nproc)"
 # Interrupt handler code may reach nothing outside its locked range.
