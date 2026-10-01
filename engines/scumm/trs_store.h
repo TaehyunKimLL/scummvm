@@ -178,6 +178,8 @@ public:
 			_blocks[b].valid = false;
 		}
 		_stats.reads = _stats.readBytes = _stats.used = 0;
+		_failedFrom.clear();
+		_failedTo.clear();
 	}
 
 	/**
@@ -312,6 +314,14 @@ private:
 			for (int i = 1; i < kBlocks; ++i)
 				if (_blocks[i].lastUse < b->lastUse)
 					b = &_blocks[i];
+			// A range whose read failed is not read again this session: a
+			// line asked for every frame must not read the disk every frame.
+			for (uint f = 0; f < _failedFrom.size(); ++f) {
+				if (off >= _failedFrom[f] && off < _failedTo[f]) {
+					_readFailed = true;
+					return false;
+				}
+			}
 			b->valid = false;
 			const uint32 start = off - off % _blockSize;
 			const uint32 len = MIN<uint32>(_blockSize, _bodySize - start);
@@ -321,8 +331,10 @@ private:
 			if (!_file->seek(_bodyPos + start) || _file->read(b->data.begin(), len) != len) {
 				_file->clearErr();
 				_readFailed = true;
+				_failedFrom.push_back(start);
+				_failedTo.push_back(start + len);
 				if (!_readFailWarned) {
-					warning("%s: the translation could not be read from the file; lines that need it stay untranslated",
+					warning("%s: the translation could not be read from the file; lines that need it stay untranslated this session",
 							_stats.name.c_str());
 					_readFailWarned = true;
 				}
@@ -407,6 +419,7 @@ private:
 	Common::FileCacheStats _stats;
 	bool _registered;
 	bool _readFailed, _readFailWarned;
+	Common::Array<uint32> _failedFrom, _failedTo;	///< body ranges whose read failed
 };
 
 } // End of namespace Scumm
