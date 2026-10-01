@@ -24,6 +24,7 @@
 
 #include "backends/platform/dos/soft-cursor.h"
 #include "common/rect.h"
+#include "common/textconsole.h"
 #include "graphics/surface.h"
 
 namespace DOS {
@@ -56,10 +57,16 @@ public:
 	/// Whether the frame is the window surface's pixels.
 	bool direct() const { return _direct; }
 
-	/** A cleared buffer of its own. */
-	void createBuffer(int16 w, int16 h, const Graphics::PixelFormat &f) {
+	/** A cleared buffer of its own. False, and no frame, if no memory is left for it. */
+	bool createBuffer(int16 w, int16 h, const Graphics::PixelFormat &f) {
 		free();
-		_s.create(w, h, f);
+		const int pitch = w * f.bytesPerPixel;
+		byte *pixels = (byte *)_alloc((size_t)pitch * h);
+		if (!pixels)
+			return false;
+		memset(pixels, 0, (size_t)pitch * h);
+		_s.init(w, h, pitch, pixels, f);
+		return true;
 	}
 
 	/**
@@ -111,7 +118,7 @@ public:
 		return true;
 	}
 
-	/// For tests: where detach() gets its buffer.
+	/// For tests: where createBuffer() and detach() get their buffer.
 	void setAllocator(Allocator alloc) { _alloc = alloc; }
 
 	/** Bytes of its own: the buffer's, 0 when direct. */
@@ -174,7 +181,9 @@ struct FrameWindow {
  *   and keeps it there until the offset has stayed 0 for kShakeSettleFrames
  *   frames: the many returns to 0 within a shake cost nothing. With no
  *   memory for that buffer the frame stays in the window and is shown
- *   unshaken (shakeShown() false) until the shake ends.
+ *   unshaken (shakeShown() false); no buffer is asked for again until the
+ *   offset has settled. The settle period only keeps a buffer; it never
+ *   takes a frame out of the window.
  * - The loading screen, line repeat, a mode of another format or row length,
  *   and setForceBuffer() (dos_frame_buffer=true) keep a buffer.
  * - A window whose pixels moved under a direct frame (the surface made
@@ -207,19 +216,25 @@ public:
 
 	bool canBeDirect(const FrameWindow *win, const Graphics::PixelFormat &f, int w, int h, bool loading,
 					 bool shaking) const {
-		const bool haveMode = win && win->pixels;
-		return !_forceBuffer &&
-			   screenCanBeDirect(haveMode, haveMode && win->lineRepeat, haveMode && win->format == f,
-								 haveMode && win->w == w && win->h >= h, shaking || _settle > 0, loading);
+		return windowHolds(win, f, w, h, loading) && !shaking && _settle == 0;
 	}
 
-	/** A new frame, cleared: in the window if it can be. */
+	/**
+	 * A new frame, cleared: in the window if it can be. If the window could
+	 * hold it but for a shake, and no memory is left for a buffer, it goes
+	 * into the window anyway and is shown unshaken. Any other frame the
+	 * window cannot hold needs its buffer: no memory for it is an error.
+	 */
 	void create(int16 w, int16 h, const Graphics::PixelFormat &f, const FrameWindow *win, bool loading,
 				bool shaking) {
-		if (canBeDirect(win, f, w, h, loading, shaking))
+		if (canBeDirect(win, f, w, h, loading, shaking)) {
 			_frame.createDirect(w, h, f, win->pixels, win->pitch);
-		else
-			_frame.createBuffer(w, h, f);
+		} else if (!_frame.createBuffer(w, h, f)) {
+			if (!windowHolds(win, f, w, h, loading))
+				error("DOS: no memory for the %dx%d game screen", w, h);
+			_frame.createDirect(w, h, f, win->pixels, win->pitch);
+			_detachFailed = true;
+		}
 	}
 
 	/** Whether a direct frame's pixels are no longer the window's. */
@@ -242,7 +257,7 @@ public:
 			_settle = kShakeSettleFrames;
 		else if (frameTick && _settle > 0)
 			--_settle;
-		if (!shaking)
+		if (!shaking && _settle == 0)
 			_detachFailed = false;
 
 		const Graphics::Surface &s = _frame.surface();
@@ -256,7 +271,10 @@ public:
 			return kLost;
 		}
 
-		bool can = canBeDirect(win, s.format, s.w, s.h, loading, shaking);
+		// A direct frame leaves the window for a shake, never for the
+		// settle period after one: at offset 0 it is already right there.
+		const bool can = _frame.direct() ? windowHolds(win, s.format, s.w, s.h, loading) && !shaking
+										 : canBeDirect(win, s.format, s.w, s.h, loading, shaking);
 		if (!can && _frame.direct() && _detachFailed)
 			return kSame;	// no memory to shake with: shown unshaken
 		if (_frame.direct() == can)
@@ -280,6 +298,14 @@ public:
 	}
 
 private:
+	/** Whether the window could hold the frame were nothing shaking. */
+	bool windowHolds(const FrameWindow *win, const Graphics::PixelFormat &f, int w, int h, bool loading) const {
+		const bool haveMode = win && win->pixels;
+		return !_forceBuffer &&
+			   screenCanBeDirect(haveMode, haveMode && win->lineRepeat, haveMode && win->format == f,
+								 haveMode && win->w == w && win->h >= h, false, loading);
+	}
+
 	GameScreen _frame;
 	bool _forceBuffer;
 	int _settle;
