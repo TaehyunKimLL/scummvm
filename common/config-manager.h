@@ -259,6 +259,14 @@ private:
 	Domain *		_activeDomain;
 
 	Path			_filename;
+
+#ifdef DISABLE_GUI
+public:
+	/** The line of the config file that stopped the last load (0: none). */
+	int getLoadErrorLine() const { return _loadErrorLine; }
+private:
+	int				_loadErrorLine = 0;
+#endif
 };
 
 /** @} */
