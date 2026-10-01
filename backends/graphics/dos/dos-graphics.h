@@ -24,6 +24,7 @@
 
 #include "backends/graphics/graphics.h"
 #include "backends/platform/dos/dos-modes.h"
+#include "backends/platform/dos/lazy-overlay.h"
 #include "backends/platform/dos/loading-screen.h"
 #include "backends/platform/dos/soft-cursor.h"
 #include "common/array.h"
@@ -81,14 +82,14 @@ public:
 	void clearFocusRectangle() override {}
 
 	void showOverlay(bool inGUI) override;
-	void hideOverlay() override { _overlayVisible = false; }
+	void hideOverlay() override;
 	bool isOverlayVisible() const override { return _overlayVisible; }
-	Graphics::PixelFormat getOverlayFormat() const override { return _overlay.format; }
+	Graphics::PixelFormat getOverlayFormat() const override { return _overlay.format(); }
 	void clearOverlay() override;
 	void grabOverlay(Graphics::Surface &surface) const override;
 	void copyRectToOverlay(const void *buf, int pitch, int x, int y, int w, int h) override;
-	int16 getOverlayHeight() const override { return _overlay.h; }
-	int16 getOverlayWidth() const override { return _overlay.w; }
+	int16 getOverlayHeight() const override { return _overlay.h(); }
+	int16 getOverlayWidth() const override { return _overlay.w(); }
 
 	bool showMouse(bool visible) override;
 	void warpMouse(int x, int y) override;
@@ -185,7 +186,7 @@ private:
 	Graphics::PixelFormat _pendingFormat;
 
 	Graphics::Surface _screen;	///< the game's pixels, in its own format
-	Graphics::Surface _overlay;	///< RGB565 640x480; not shown until M4
+	DOS::LazyOverlay _overlay;	///< RGB565 640x480, allocated while used; not shown until M4
 	bool _overlayVisible;
 	byte _palette[256 * 3];
 	bool _paletteDirty;
