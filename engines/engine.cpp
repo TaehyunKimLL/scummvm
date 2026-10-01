@@ -674,6 +674,19 @@ bool Engine::warnBeforeOverwritingAutosave() {
 				  "Please move this saved game to a new slot, or delete it if it's no longer needed.\n"
 				  "Alternatively, you can skip the autosave (will prompt again in 5 minutes)."), desc.getDescription().c_str());
 	GUI::MessageDialog warn(message, _("Move"), altButtons);
+#ifdef DISABLE_GUI
+	// Nobody to ask: never "Delete". Move the user's save to a free slot
+	// (it is removed from the autosave slot only once the copy exists),
+	// or, if that fails, skip this autosave.
+	runDialog(warn);
+	if (getMetaEngine()->copySaveFileToFreeSlot(_targetName.c_str(), getAutosaveSlot())) {
+		g_system->getSavefileManager()->removeSavefile(
+					getMetaEngine()->getSavegameFile(getAutosaveSlot(), _targetName.c_str()));
+		return true;
+	}
+	warning("Could not copy the saved game in the autosave slot to a new slot; autosave skipped");
+	return false;
+#else
 	switch (runDialog(warn)) {
 	case GUI::kMessageOK:
 		if (getMetaEngine()->copySaveFileToFreeSlot(_targetName.c_str(), getAutosaveSlot())) {
@@ -694,6 +707,7 @@ bool Engine::warnBeforeOverwritingAutosave() {
 	default: // Hitting Escape returns -1. On this case, don't save but do prompt again later.
 		return false;
 	}
+#endif
 }
 
 void Engine::saveAutosaveIfEnabled() {

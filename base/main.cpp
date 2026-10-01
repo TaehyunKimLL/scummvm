@@ -99,6 +99,9 @@
 #endif
 
 #include "gui/dump-all-dialogs.h"
+#ifdef DISABLE_GUI
+#include "base/config-load.h"
+#endif
 
 static bool launcherDialog() {
 #ifdef DISABLE_GUI
@@ -485,6 +488,22 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
 	} else {
 		configLoadStatus = ConfMan.loadDefaultConfigFile(initConfigFilename);
 	}
+
+#ifdef DISABLE_GUI
+	// Nobody can be asked whether to overwrite a file that did not load:
+	// stop before anything writes it (configLoadAction()).
+	if (Base::configLoadAction(configLoadStatus, false) == Base::kConfigLoadRefuse) {
+		Common::Path file = ConfMan.getCustomConfigFileName();
+		if (file.empty())
+			file = system.getDefaultConfigFileName();
+		const Common::String name = file.toString(Common::Path::kNativeSeparator);
+		const int line = ConfMan.getLoadErrorLine();
+		g_system->logMessage(LogMessageType::kError, (line > 0 ?
+			Common::String::format("%s: line %d is not valid; nothing was changed. Fix that line and run again.\n", name.c_str(), line) :
+			Common::String::format("%s could not be read; nothing was changed.\n", name.c_str())).c_str());
+		return 1;
+	}
+#endif
 
 	// Update the config file
 	ConfMan.set("versioninfo", gScummVMVersion, Common::ConfigManager::kApplicationDomain);
