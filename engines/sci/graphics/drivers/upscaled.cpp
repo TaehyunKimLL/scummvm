@@ -195,9 +195,10 @@ void UpscaledGfxDriver::updateScreen(int destX, int destY, int w, int h, const P
 	// from the rectangle's first row) and the text layer, so the bands give
 	// the same pixels as one pass.
 	const bool converts = (palMods && palModMapping) || _pixelSize != _srcPixelSize;
-	if (converts && _compositeBufferSize && w > 0 && h > 0) {
-		const int bandRows = (int)(_compositeBufferSize / ((uint32)w * _pixelSize));
-		assert(bandRows > 0);
+	const int bandRows = (converts && w > 0) ? (int)(_compositeBufferSize / ((uint32)w * _pixelSize)) : 0;
+	if (bandRows > 0 && h > 0) {
+		// (No band fits - a cursor-sized buffer with palette mods on an
+		// 8-bit screen - goes the one-pass way, as it always did.)
 		for (int y = 0; y < h; y += bandRows) {
 			const int rows = MIN(bandRows, h - y);
 			updateScreenBand(destX, destY + y, w, rows, palMods, palModMapping ? palModMapping + y * _screenW : nullptr);
