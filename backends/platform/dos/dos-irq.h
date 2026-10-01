@@ -90,15 +90,26 @@ void lockIrqCode(const char *begin, const char *end, const void *const *fns, uin
 bool lockIrqData(const volatile void *p, uint32 size);
 
 /**
- * Picks the memory regime, first thing in main(). Under CWSDPMI nothing
- * is locked beyond the handlers' own memory. Under any other DPMI host,
- * whose behaviour on a page fault in an interrupt is not known here, the
- * image and the heap are locked as a whole, and every later sbrk() too.
+ * Picks the memory regime, first thing in main(). Under CWSDPMI r7 or
+ * later at ring 3 nothing is locked beyond the handlers' own memory.
+ * Under any other DPMI host, whose behaviour on a page fault in an
+ * interrupt is not known here, everything is locked (lockAll()).
  */
 void chooseLockRegime();
 
-/** True when everything is locked (any host but CWSDPMI). */
+/**
+ * Locks the image and the heap as a whole, every later sbrk() and every
+ * large block (dos-heap.cpp), so that the timer procs may run from any
+ * interrupt. Idempotent; @p why goes to the log. Call it before any timer
+ * proc can run.
+ */
+void lockAll(const char *why);
+
+/** True when everything is locked (lockAll()). */
 bool lockedAll();
+
+/** Why everything is locked, or "". */
+const char *lockedAllWhy();
 
 /** The DPMI host's name and version as DPMI 1.0 function 0x401 gives them ("CWSDPMI 7.0"), or "DPMI 0.9". */
 const char *dpmiHost();

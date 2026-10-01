@@ -48,6 +48,7 @@ static volatile byte g_ring[kRingSize];
 static volatile uint g_ringHead = 0;	// written by the handler
 static volatile uint g_ringTail = 0;	// written by read()
 static volatile uint g_overruns = 0;
+static volatile uint32 g_irqs = 0;		// uartIsr() calls, for DosUart::irqCount()
 static uint16 g_isrBase = 0;
 static _go32_dpmi_seginfo g_oldVector, g_newVector;
 
@@ -97,6 +98,7 @@ static DOS_IRQ_CODE void uartIsr() {
 	// line up and no further interrupt ever arrives. No switch here: its
 	// jump table would land outside the locked code.
 	byte iir;
+	g_irqs++;
 	for (int guard = 0; guard < 16 && !((iir = DOS::irqIn8(g_isrBase + 2)) & 0x01); guard++) {
 		const byte cause = iir & 0x0E;
 		if (cause == 0x06)
@@ -158,6 +160,7 @@ bool DosUart::open(const Common::String &spec) {
 	DOS::lockIrqData(&g_ringHead, sizeof(g_ringHead));
 	DOS::lockIrqData(&g_ringTail, sizeof(g_ringTail));
 	DOS::lockIrqData(&g_overruns, sizeof(g_overruns));
+	DOS::lockIrqData(&g_irqs, sizeof(g_irqs));
 	DOS::lockIrqData(&g_isrBase, sizeof(g_isrBase));
 	const int vec = 8 + irq;
 	_go32_dpmi_get_protected_mode_interrupt_vector(vec, &g_oldVector);
@@ -214,6 +217,10 @@ void DosUart::close() {
 	if (g_overruns)
 		warning("DebugSocket: %u bytes lost to receive overruns", (uint)g_overruns);
 	_base = 0;
+}
+
+uint32 DosUart::irqCount() {
+	return g_irqs;
 }
 
 int DosUart::read(char *buf, int max) {

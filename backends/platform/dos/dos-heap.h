@@ -24,6 +24,8 @@
 
 #include <stddef.h>
 
+#include "common/scummsys.h"
+
 /**
  * From now on, allocations of 256 KB or more come from DPMI blocks of
  * their own instead of the sbrk heap (see dos-heap.cpp). Needs the near
@@ -36,9 +38,17 @@ void dosHeapEnableLargeBlocks();
  * (possibly at an offset into it, as SDL's aligned allocations are). Only
  * such memory may be locked and unlocked on its own: in the rest of the
  * heap an unlock of a region would also unlock the pages it shares with
- * its neighbours, which an interrupt handler may have locked (or, under a
- * DPMI host other than CWSDPMI, the whole heap is locked).
+ * its neighbours, which an interrupt handler may have locked (or, whenever
+ * the heap is locked as a whole, DOS::lockAll(), everything is).
  */
 bool dosHeapInLargeBlock(const void *ptr, size_t size);
+
+/**
+ * Locks every large block there is, and from now on each new one as it is
+ * allocated: for DOS::lockAll(), which locks the sbrk heap as a whole.
+ * Call it before any timer proc can run. Returns false if a lock failed;
+ * @p blocks and @p bytes say what was locked.
+ */
+bool dosHeapLockLargeBlocks(uint32 &blocks, uint32 &bytes);
 
 #endif
