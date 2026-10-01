@@ -449,10 +449,9 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
 #endif
 
 	// Allocate gfx compositing buffer (not needed for V7/V8 games).
+	_compositeBuf = nullptr;
 	if (_game.version < 7)
-		_compositeBuf = (byte *)malloc(_screenWidth * _screenHeight * sizeMult);
-	else
-		_compositeBuf = nullptr;
+		setCompositeBuf(_screenWidth * _screenHeight * sizeMult);
 
 	if (_renderMode == Common::kRenderHercA || _renderMode == Common::kRenderHercG)
 		_hercCGAScaleBuf = (byte *)malloc(kHercWidth * kHercHeight);
@@ -463,12 +462,6 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
 
 	_isRTL = (_language == Common::HE_ISR && (_game.heversion == 0 || _game.heversion >= 72))
 			&& (_game.id == GID_MANIAC || (_game.version >= 4 && _game.version < 7)) && !(_game.features & GF_HE_NO_BIDI);
-#ifndef DISABLE_HELP
-	// Create custom GMM dialog providing a help subdialog
-	assert(!_mainMenuDialog);
-	_mainMenuDialog = new ScummMenuDialog(this);
-#endif
-
 	_isIndy4Jap = _game.id == GID_INDY4 &&
 				  (_game.platform == Common::kPlatformMacintosh || _game.platform == Common::kPlatformDOS) &&
 				  _language == Common::JA_JPN;
@@ -1945,8 +1938,20 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 	_res->setHeapThreshold(16 * 1024 * 1024, 32 * 1024 * 1024);
 #endif
 
-	free(_compositeBuf);
-	_compositeBuf = (byte *)malloc(_screenWidth * _textSurfaceMultiplier * _screenHeight * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel);
+	// The hi-res text paths of drawStripToScreen() compose the screen in
+	// bands of kCompositeBandRows output rows, so with hi-res text the
+	// buffer holds a band (and at least what the low-res users - EGA
+	// dithering, the cursor, the transition effects - need) instead of a
+	// whole enlarged frame: 80 KB rather than 1000 KB at 640x400 in true
+	// colour. Without hi-res text it stays one frame, as before.
+	const uint32 frameSize = _screenWidth * _textSurfaceMultiplier * _screenHeight * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel;
+	if (_hiResText.enabled() && _game.version < 7) {
+		const uint32 bandSize = kCompositeBandRows * _screenWidth * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel;
+		const uint32 lowResSize = _compositeBufSize;	// the constructor's
+		setCompositeBuf(MIN(frameSize, MAX(bandSize, lowResSize)));
+	} else {
+		setCompositeBuf(frameSize);
+	}
 
 
 	// MI2 NI DOS Demo, load demo.rec playback file if present
@@ -4629,6 +4634,15 @@ void ScummEngine_v7::pauseEngineIntern(bool pause) {
 	ScummEngine::pauseEngineIntern(pause);
 }
 #endif
+
+GUI::Dialog *ScummEngine::createMainMenuDialog() {
+#ifndef DISABLE_HELP
+	// The custom GMM dialog provides a help subdialog
+	return new ScummMenuDialog(this);
+#else
+	return Engine::createMainMenuDialog();
+#endif
+}
 
 void ScummEngine::messageDialog(const Common::U32String &message) {
 	if (!_messageDialog)

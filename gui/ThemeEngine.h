@@ -35,6 +35,8 @@
 #include "graphics/font.h"
 #include "graphics/pixelformat.h"
 
+#include "gui/theme-screens.h"
+
 
 #define SCUMMVM_THEME_VERSION_STR "SCUMMVM_STX0.9.25"
 
@@ -370,6 +372,11 @@ public:
 
 	void disable();
 
+	/**
+	 * Whether the screens are there to draw on. Always, unless
+	 * gui_release_buffers released them while no dialog was shown.
+	 */
+	bool screensReady() const { return _screens.ready(); }
 
 	/**
 	 * Query the set up pixel format.
@@ -809,6 +816,12 @@ protected:
 
 	/** Backbuffer surface. Stores previous states of the screen to blit back */
 	Graphics::ManagedSurface _backBuffer;
+
+	/** Makes and releases _screen and _backBuffer (gui_release_buffers). */
+	ThemeScreens _screens;
+	/** gui_release_buffers: the screens exist only while the GUI is shown. */
+	static bool releaseWanted();
+
 
 	/**
 	 * Filter the submitted DrawData descriptors according to their layer attribute

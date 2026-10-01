@@ -48,6 +48,7 @@ public:
 protected:
 	void updatePalette(const byte *colors, uint start, uint num);
 	byte *_compositeBuffer;
+	uint32 _compositeBufferSize;	///< bytes in _compositeBuffer
 	byte *_currentBitmap;
 	byte *_currentPalette;
 	byte *_internalPalette;
@@ -116,6 +117,8 @@ public:
 protected:
 	UpscaledGfxDriver(uint16 scaledW, uint16 scaledH, int16 textAlignX, bool scaleCursor, bool rgbRendering);
 	void updateScreen(int destX, int destY, int w, int h, const PaletteMod *palMods, const byte *palModMapping);
+	enum { kCompositeBandRows = 32 };	///< rows per pass through _compositeBuffer (hi-res text instance)
+	void updateScreenBand(int destX, int destY, int w, int h, const PaletteMod *palMods, const byte *palModMapping);
 	void adjustCursorBuffer(uint16 newWidth, uint16 newHeight);
 	typedef void (*GlyphRenderProc)(byte*, int, const byte*, int, int, int, int);
 	GlyphRenderProc _renderGlyph;

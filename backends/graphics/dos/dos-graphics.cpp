@@ -93,7 +93,7 @@ static const byte kLoadRgb[kLoadColorCount][3] = {
 DosGraphicsManager::DosGraphicsManager() :
 	_modeIndex(-1), _lineRepeat(false), _vsync(false), _vsyncWarned(false), _lastInitW(0), _lastInitH(0), _shotCount(0),
 	_window(nullptr), _screenChangeID(0), _pendingW(0), _pendingH(0),
-	_overlayVisible(false), _paletteDirty(false), _shakeX(0), _shakeY(0),
+	_overlay(640, 480, DOS::rgb565()), _overlayVisible(false), _paletteDirty(false), _shakeX(0), _shakeY(0),
 	_fullDirty(false), _cursorW(0), _cursorH(0), _cursorHotX(0), _cursorHotY(0), _cursorKey(0),
 	_cursorPaletteEnabled(false), _cursorFormatWarned(false), _cursorVisible(false), _mouseX(0), _mouseY(0),
 	_deferModes(false), _engineStarted(false), _modeOwed(false), _loadingShown(false), _loadingAbort(false),
@@ -120,13 +120,12 @@ DosGraphicsManager::DosGraphicsManager() :
 		_sdlModes.push_back(*m[i]);
 	}
 	SDL_free(m);
-	_overlay.create(640, 480, DOS::rgb565());
 }
 
 DosGraphicsManager::~DosGraphicsManager() {
 	lockSurfaces(false);
 	_screen.free();
-	_overlay.free();
+	_overlay.release();
 	if (_window)
 		SDL_DestroyWindow(_window);
 }
@@ -943,19 +942,28 @@ void DosGraphicsManager::showOverlay(bool inGUI) {
 		warning("DosGraphicsManager: the GUI overlay is not shown before M4");
 		warned = true;
 	}
+	// The overlay's 600 KB are taken while it is shown (or drawn to) and
+	// given back by hideOverlay().
+	_overlay.get();
 	_overlayVisible = true;
 }
 
+void DosGraphicsManager::hideOverlay() {
+	_overlayVisible = false;
+	_overlay.release();
+}
+
 void DosGraphicsManager::clearOverlay() {
-	_overlay.fillRect(Common::Rect(_overlay.w, _overlay.h), 0);
+	Graphics::Surface &o = _overlay.get();
+	o.fillRect(Common::Rect(o.w, o.h), 0);
 }
 
 void DosGraphicsManager::grabOverlay(Graphics::Surface &surface) const {
-	surface.copyFrom(_overlay);
+	_overlay.grab(surface);
 }
 
 void DosGraphicsManager::copyRectToOverlay(const void *buf, int pitch, int x, int y, int w, int h) {
-	_overlay.copyRectToSurface(buf, pitch, x, y, w, h);
+	_overlay.get().copyRectToSurface(buf, pitch, x, y, w, h);
 }
 
 bool DosGraphicsManager::showMouse(bool visible) {
