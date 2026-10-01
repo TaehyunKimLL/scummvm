@@ -33,6 +33,7 @@
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontset.h"
 #include "sci/graphics/fontunicode.h"
+#include "sci/graphics/hirestextstate.h"
 #include "graphics/hires_text/chain_layout.h"
 #include "graphics/hires_text/coverage.h"
 #include "graphics/hires_text/font_face.h"
@@ -68,29 +69,6 @@ bool fontResourceExists(ResourceManager *resMan, GuiResourceId fontId) {
 		resMan->testResource(ResourceId(kResourceTypeFont, fontId & 0x7ff));
 }
 
-// design section 4's default map file, matched case-insensitively; the same
-// fixed 8.3 name every engine looks for (graphics/hires_text/font_map.cpp's
-// own kHiResMapName, not exported, so it is repeated here).
-const char *const kHiResMapName = "HIRESTXT.MAP";
-
-Common::Path findDefaultMapFile(const Common::Path &gameDir) {
-	const Common::Path direct = gameDir.appendComponent(kHiResMapName);
-	if (Common::FSNode(direct).exists())
-		return direct;
-
-	Common::FSNode dir(gameDir);
-	if (!dir.isDirectory())
-		return Common::Path();
-	Common::FSList children;
-	if (dir.getChildren(children, Common::FSNode::kListFilesOnly)) {
-		for (uint i = 0; i < children.size(); ++i) {
-			if (children[i].getName().equalsIgnoreCase(kHiResMapName))
-				return children[i].getPath();
-		}
-	}
-	return Common::Path();
-}
-
 bool isExcluded(const Common::Array<Common::String> &excludedPaths, const Common::String &path) {
 	for (uint i = 0; i < excludedPaths.size(); i++) {
 		if (excludedPaths[i] == path)
@@ -104,6 +82,7 @@ bool isExcluded(const Common::Array<Common::String> &excludedPaths, const Common
 GfxCache::GfxCache(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palette)
 	: _resMan(resMan), _screen(screen), _palette(palette),
 	  _hiresResolved(false), _hiresApplies(false), _hiresMapLoaded(false),
+	  _hiresBlend(Graphics::kHiResBlendAuto), _hiresScreenIsClut8(true),
 	  _uniBundle(nullptr), _uniBundleTried(false),
 	  _textLogResolved(false), _textLog(false),
 	  _layoutRulesResolved(false), _sampleResolved(false), _fitProbesResolved(false) {
@@ -114,10 +93,13 @@ void GfxCache::resolveHiresText() {
 		return;
 	_hiresResolved = true;
 
-	// The game's own domain only: ConfMan.hasKey(key) also finds a key set
-	// in [scummvm], which would turn the face on for every game.
-	const Common::String &domain = ConfMan.getActiveDomainName();
-	_hiresGameDir = ConfMan.getPath("path", domain);
+	// SciEngine read the ini keys and the map's phase-1 view before the
+	// screen was set (HiresTextState); this is phase 2, for the screen
+	// actually set.
+	const HiresTextState *state = g_sci->hiresTextState();
+	assert(state);
+	_hiresGameDir = state->gameDir();
+	_hiresIni = state->ini();
 
 	// hires_text_face and the map are honoured for an SCI16 game whose text
 	// is a UTF-8 translation, or one in a legacy CJK code page: the text
@@ -126,15 +108,10 @@ void GfxCache::resolveHiresText() {
 	_hiresApplies = hiresTextApplies(getSciVersion(), g_sci->getSciLanguageCodePage(),
 									 g_sci->heapStringsAreUtf8(), why);
 
-	Common::Array<Common::String> iniWarnings;
-	_hiresIni = Graphics::readHiResIniFromConfMan(domain, iniWarnings);
-	for (uint i = 0; i < iniWarnings.size(); i++)
-		warning("%s", iniWarnings[i].c_str());
-
 	if (!_hiresApplies) {
 		if (_hiresIni.faceSet)
 			warning("hires_text_face is ignored: %s", why.c_str());
-		const bool defaultMapExists = !_hiresIni.mapSet && !findDefaultMapFile(_hiresGameDir).empty();
+		const bool defaultMapExists = !_hiresIni.mapSet && !findDefaultHiresMap(_hiresGameDir).empty();
 		if (_hiresIni.mapSet || defaultMapExists)
 			warning("hires_text.map is ignored: %s", why.c_str());
 		return;
@@ -148,25 +125,12 @@ void GfxCache::resolveHiresText() {
 		return;
 	}
 
-	// The map (design section 4): the file hires_text_map names, else the
-	// game folder's own HIRESTXT.MAP when it exists. A relative
-	// hires_text_map is the game folder's now, not the current directory.
-	Common::Path mapPath;
-	bool haveMapPath = false;
-	if (_hiresIni.mapSet) {
-		if (_hiresIni.map.empty()) {
-			warning("hires_text_map: empty path; no map is used");
-		} else {
-			mapPath = Graphics::HiResFontMap::resolvePath(_hiresIni.map, _hiresGameDir);
-			haveMapPath = true;
-		}
-	} else {
-		mapPath = findDefaultMapFile(_hiresGameDir);
-		haveMapPath = !mapPath.empty();
-	}
-
-	if (haveMapPath) {
-		_hiresMapDir = mapPath.getParent();
+	const Graphics::PixelFormat screen = g_system->getScreenFormat();
+	if (state->haveMapPath())
+		_hiresMapDir = state->mapDir();
+	// A refused map was reported once, by phase 1: it is refused whatever
+	// the target, so it is not read again.
+	if (state->haveMapPath() && !state->mapRefused()) {
 		Common::Array<Common::String> qualifiers;
 		const char *platform = Common::getPlatformCode(g_sci->getPlatform());
 		if (platform && *platform)
@@ -176,13 +140,13 @@ void GfxCache::resolveHiresText() {
 		// section 7.1.1's phase 2): the map is read for the sections that
 		// screen's own render target actually uses.
 		Graphics::HiResMapLoadOptions options;
-		options.target = Graphics::targetOfFormat(g_system->getScreenFormat());
+		options.target = Graphics::targetOfFormat(screen);
 		options.quiet = false;
-		_hiresMapLoaded =
-			Graphics::HiResFontMap::loadMapFile(mapPath, qualifiers, Graphics::kHiResKeysSci, _hiresMap, options);
+		_hiresMapLoaded = Graphics::HiResFontMap::loadMapFile(state->mapPath(), qualifiers, Graphics::kHiResKeysSci,
+															  _hiresMap, options);
 		if (_hiresMapLoaded)
 			debug(1, "SCI: %s loaded (platform '%s', target %s), %u font id sections",
-				  mapPath.toString().c_str(), platform ? platform : "", Graphics::renderTargetName(options.target),
+				  state->mapPath().toString().c_str(), platform ? platform : "", Graphics::renderTargetName(options.target),
 				  (uint)_hiresMap.fontIds.size());
 	}
 
@@ -197,6 +161,31 @@ void GfxCache::resolveHiresText() {
 		_hiresMap.warnings.push_back(faceWarnings[i]);
 		warning("%s", faceWarnings[i].c_str());
 	}
+
+	// design 7.4: SCI draws at 2x only.
+	Common::String scaleWarning;
+	sciHiresScale(_hiresMap, _hiresMapLoaded, _hiresIni, Graphics::hiResScaleLimits(), scaleWarning);
+	if (!scaleWarning.empty()) {
+		_hiresMap.warnings.push_back(scaleWarning);
+		warning("%s", scaleWarning.c_str());
+	}
+
+	// design 7.2: blend from the sections of this screen; coverage is
+	// blended iff Graphics::blendActive() (sciThresholdCoverage()).
+	_hiresBlend = sciBlend(_hiresIni, _hiresMap, _hiresMapLoaded);
+	_hiresScreenIsClut8 = screen.isCLUT8();
+	const bool anyCoverage = Graphics::mapHasCoverage(_hiresMap, _hiresMapLoaded, _hiresIni, _hiresMapDir, _hiresGameDir,
+													  &HiresTextState::faceHasCoverage, nullptr);
+	const Common::String blendWarning = sciBlendWarning(_hiresBlend, anyCoverage, _hiresScreenIsClut8);
+	if (!blendWarning.empty())
+		warning("%s", blendWarning.c_str());
+	debug(1, "SCI: hi-res text blend %s on a %s screen", _hiresBlend == Graphics::kHiResBlendOff ? "off" :
+		  (_hiresBlend == Graphics::kHiResBlendOn ? "on" : "auto"), Graphics::renderTargetName(Graphics::targetOfFormat(screen)));
+}
+
+bool GfxCache::thresholdsCoverage(int faceBpp) {
+	resolveHiresText();
+	return sciThresholdCoverage(_hiresBlend, faceBpp, _hiresScreenIsClut8);
 }
 
 FontSettings GfxCache::fontSettingsFor(GuiResourceId fontId) {
@@ -362,6 +351,7 @@ GfxFontUnicode *GfxCache::loadUniBundle() {
 			// Per-glyph advance and placement for a UTF-8 translation only:
 			// a legacy game keeps the bundle's cell widths to the pixel.
 			f->setPerGlyph(g_sci->heapStringsAreUtf8());
+			f->setHardStencil(thresholdsCoverage(f->bitsPerPixel()));
 			_uniBundle = f;
 		} else {
 			delete f;
@@ -805,6 +795,7 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	// The router owns no source: every face and the .uni bundle stay in
 	// their own caches, shared.
 	f->setSource(ranged, s.facePath, DisposeAfterUse::NO);
+	f->setHardStencil(thresholdsCoverage(f->bitsPerPixel()));
 	// `ranged` was built with missing= off (faceChainFor()), so the box
 	// is applied to this wrapper instead - reachable only through
 	// drawsMissing(), never through hasGlyph(), so a legacy face named after

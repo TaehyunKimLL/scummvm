@@ -28,6 +28,7 @@
 #include "common/str.h"
 #include "graphics/hires_text/font_map.h"
 #include "graphics/hires_text/glyph_source.h"
+#include "graphics/hires_text/hires_options.h"
 #include "graphics/hires_text/id_plan.h"
 
 namespace Sci {
@@ -190,6 +191,89 @@ void declineFailedTargets(Graphics::HiResIdPlan &plan, const Common::Array<uint3
 void checkIniFaceWarnings(const Graphics::HiResIniOverrides &ini, bool mapLoaded,
 						  const Graphics::HiResFaceNames &mapFaces, const Common::Path &mapDir,
 						  const Common::Path &gameDir, Common::Array<Common::String> &warnings);
+
+/**
+ * The upscaled driver's screen request (design section 7.1.1, SCI):
+ * whether it asks for RGB, and the render target it asks
+ * Graphics::formatRequest() for. `target` is `kHiResTargetAuto` only when
+ * the upstream request stands unchanged (the driver's own format choice);
+ * `warning` is the one message the choice itself causes, or empty.
+ */
+struct SciRenderChoice {
+	bool requestRGB;
+	Graphics::HiResRenderTarget target;
+	Common::String warning;
+};
+
+/**
+ * The SCI screen choice. @p upstreamRgb is `rgb_rendering || palette_mods`;
+ * @p target the phase-1 target (ini > `[scummvm]` > map, `auto` when
+ * unset); @p anyCoverage and @p blend the phase-1 view's.
+ *
+ * - `auto` with @p upstreamRgb: `{true, auto}`, upstream's own request.
+ * - `auto` otherwise: Graphics::resolveAutoTarget(), RGB unless clut8.
+ * - `clut8`: no RGB; with @p upstreamRgb one warning that it wins.
+ * - `rgb565`, `rgb888`: RGB, that target (SCI has no 16-bit compositor yet,
+ *   so formatRequest() turns rgb565 into rgb888 with its note).
+ */
+SciRenderChoice chooseSciRender(bool upstreamRgb, Graphics::HiResRenderTarget target, bool anyCoverage,
+								Graphics::HiResBlend blend);
+
+/**
+ * SCI's hi-res text scale (design section 7.4): always 2. The ini
+ * `hires_text_scale`, else a loaded map's `[render] scale`, else 2, is
+ * checked against the platform and SCI's own 2..2; @p warning gets at most
+ * one message (`SCI draws hi-res text at 2x only; using 2`, or the DOS
+ * backend's), empty when nothing asked for another scale.
+ */
+int sciHiresScale(const Graphics::HiResMap &map, bool mapLoaded, const Graphics::HiResIniOverrides &ini,
+				  const Graphics::HiResScaleLimits &platform, Common::String &warning);
+
+/** What phase 1 (design 7.1.1) tells the driver: see sciPhase1(). */
+struct SciPhase1 {
+	Graphics::HiResRenderTarget target; ///< ini unless auto, else the map's, else auto
+	Graphics::HiResBlend blend;         ///< ini > map > auto
+	bool anyCoverage;                   ///< some face of the phase-1 view has coverage
+};
+
+/**
+ * Phase 1's answer for the driver. When hi-res text does not apply to the
+ * game (@p applies false: not SCI16, no CJK code page, no UTF-8
+ * translation) or `hires_text=false`, it is `{auto, auto, false}`: the
+ * driver's request stays exactly upstream's. Otherwise the target is the
+ * ini `render_target` unless it is `auto`, else the phase-1 map's
+ * `[render] target` (only when @p mapLoaded) unless `auto`, else `auto`;
+ * the blend is the ini's, else the map's, else `auto`; @p anyCoverage is
+ * passed through (Graphics::mapHasCoverage() of the phase-1 view).
+ */
+SciPhase1 sciPhase1(bool applies, const Graphics::HiResIniOverrides &ini, const Graphics::HiResMap &map,
+					bool mapLoaded, bool anyCoverage);
+
+/** The phase-2 blend (design 7.2): the ini's, else a loaded map's `[render] blend`, else `auto`. */
+Graphics::HiResBlend sciBlend(const Graphics::HiResIniOverrides &ini, const Graphics::HiResMap &map, bool mapLoaded);
+
+/**
+ * Whether a glyph of a @p faceBpp face is cut into a hard stencil (coverage
+ * thresholded at 50%) before it reaches the text layer: exactly when the
+ * face has coverage, the screen is RGB and Graphics::blendActive() says no.
+ * On a CLUT8 screen the driver stamps at 50% itself, so nothing changes
+ * there.
+ */
+bool sciThresholdCoverage(Graphics::HiResBlend blend, int faceBpp, bool screenIsClut8);
+
+/**
+ * The once-per-start warning when `blend=on` meets a CLUT8 screen with a
+ * face that has coverage (design 7.2, 10.4; Graphics::blendRefusedOnClut8()),
+ * or empty.
+ */
+Common::String sciBlendWarning(Graphics::HiResBlend blend, bool anyCoverage, bool screenIsClut8);
+
+/**
+ * `render_target=<wanted> is not available here; using <actual>` when an
+ * explicit @p wanted (not `auto`) differs from the screen's @p actual
+ * family; empty otherwise.
+ */
+Common::String sciTargetNote(Graphics::HiResRenderTarget wanted, Graphics::HiResRenderTarget actual);
 
 } // End of namespace Sci
 

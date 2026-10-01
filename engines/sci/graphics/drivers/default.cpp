@@ -25,6 +25,8 @@
 #include "graphics/cursorman.h"
 #include "graphics/paletteman.h"
 #include "sci/graphics/drivers/gfxdriver_intern.h"
+#include "sci/graphics/hirestextstate.h"
+#include "sci/sci.h"
 #include "sci/resource/resource.h"
 
 namespace Sci {
@@ -97,8 +99,28 @@ template <typename T> void colorConvertMod(byte *dst, const byte *src, int pitch
 }
 #undef applyMod
 
+const Common::List<Graphics::PixelFormat> *GfxDefaultDriver::hiresTextRequest() {
+	_hiresRequest.clear();
+	if (!_preferTrueColor || !_requestRGBMode)
+		return nullptr;
+	const HiresTextState *state = g_sci->hiresTextState();
+	if (!state)
+		return nullptr;
+	const Graphics::HiResRenderTarget target = state->driverTarget();
+	// auto: upstream's request (rgb_rendering/palette_mods), unchanged. A
+	// clut8 choice never sets _requestRGBMode.
+	if (target != Graphics::kHiResTargetRgb565 && target != Graphics::kHiResTargetRgb888)
+		return nullptr;
+	// SCI has no 16-bit hi-res text compositor yet: rgb565 is unavailable
+	// to it (design 7.3), so formatRequest() falls back to rgb888.
+	Common::String note;
+	_hiresRequest = Graphics::formatRequest(target, g_system->getSupportedFormats(), false, note);
+	return _hiresRequest.empty() ? nullptr : &_hiresRequest;
+}
+
 bool GfxDefaultDriver::initScreen(const Graphics::PixelFormat *srcRGBFormat) {
 	Graphics::PixelFormat format8bt(Graphics::PixelFormat::createFormatCLUT8());
+	const Common::List<Graphics::PixelFormat> *hiresRequest = srcRGBFormat ? nullptr : hiresTextRequest();
 
 	if (srcRGBFormat && !srcRGBFormat->isCLUT8()) {
 		// Also try CLUT8 as a fallback to prevent error dialogs
@@ -106,6 +128,12 @@ bool GfxDefaultDriver::initScreen(const Graphics::PixelFormat *srcRGBFormat) {
 		formatList.push_back(*srcRGBFormat);
 		formatList.push_back(format8bt);
 		initGraphics(_screenW, _screenH, formatList);
+	} else if (hiresRequest) {
+		// The hi-res text driver asked for an RGB render target
+		// (render_target, or a map whose faces blend): the formats of that
+		// family the backend offers, then the fallbacks (design 7.1).
+		// HiresTextState::adoptScreen() names a target that was not met.
+		initGraphics(_screenW, _screenH, *hiresRequest);
 	} else {
 		// Drivers that blend hi-res text (_preferTrueColor) want 8-bit
 		// channels: an 8-bit coverage value blended into a 5/6/5-style
@@ -144,7 +172,7 @@ bool GfxDefaultDriver::initScreen(const Graphics::PixelFormat *srcRGBFormat) {
 	_pixelSize = _format.bytesPerPixel;
 	_srcPixelSize = srcPixelSize;
 
-	if (_requestRGBMode && _pixelSize == 1)
+	if (_requestRGBMode && _pixelSize == 1 && !hiresRequest)
 		warning("GfxDefaultDriver::initScreen(): RGB rendering not available in this ScummVM build");
 
 	if (_pixelSize != _srcPixelSize) {

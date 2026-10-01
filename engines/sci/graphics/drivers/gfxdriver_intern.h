@@ -24,6 +24,7 @@
 #define SCI_GRAPHICS_DRIVERS_GFXDRIVER_INTERN_H
 
 #include "common/array.h"
+#include "common/list.h"
 #include "common/platform.h"
 #include "sci/graphics/drivers/gfxdriver.h"
 
@@ -58,6 +59,10 @@ protected:
 	const bool _alwaysCreateBmpBuffer;
 	const bool _requestRGBMode;
 	bool _preferTrueColor;
+	/// The format list the hi-res text driver asks initGraphics() for when
+	/// its render target is rgb565/rgb888; empty otherwise.
+	Common::List<Graphics::PixelFormat> _hiresRequest;
+	const Common::List<Graphics::PixelFormat> *hiresTextRequest();
 	typedef void (*ColorConvProc)(byte*, const byte*, int, int, int, const byte*);
 	ColorConvProc _colorConv;
 	typedef void (*ColorConvModProc)(byte*, const byte*, int, int, int, const byte*, const byte*, Graphics::PixelFormat&, const PaletteMod*, const byte*);

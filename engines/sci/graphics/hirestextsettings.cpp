@@ -263,4 +263,85 @@ void checkPlanLoadWarnings(int fontId, const Graphics::HiResIdPlan &plan, const 
 	}
 }
 
+SciRenderChoice chooseSciRender(bool upstreamRgb, Graphics::HiResRenderTarget target, bool anyCoverage,
+								Graphics::HiResBlend blend) {
+	SciRenderChoice c;
+	c.requestRGB = upstreamRgb;
+	c.target = target;
+	switch (target) {
+	case Graphics::kHiResTargetAuto:
+		if (upstreamRgb)
+			break; // upstream's own request, unchanged
+		c.target = Graphics::resolveAutoTarget(anyCoverage, blend);
+		c.requestRGB = c.target != Graphics::kHiResTargetClut8;
+		break;
+	case Graphics::kHiResTargetClut8:
+		c.requestRGB = false;
+		if (upstreamRgb)
+			c.warning = "render_target=clut8 wins over rgb_rendering/palette_mods; the screen stays paletted";
+		break;
+	case Graphics::kHiResTargetRgb565:
+	case Graphics::kHiResTargetRgb888:
+		c.requestRGB = true;
+		break;
+	}
+	return c;
+}
+
+int sciHiresScale(const Graphics::HiResMap &map, bool mapLoaded, const Graphics::HiResIniOverrides &ini,
+				  const Graphics::HiResScaleLimits &platform, Common::String &warning) {
+	warning.clear();
+	const int wanted = ini.scaleSet ? ini.scale : (mapLoaded && map.scaleSet ? map.scale : 2);
+	Common::String clampWarning;
+	const int resolved = Graphics::clampScale(wanted, 2, 2, platform, 2, "SCI", clampWarning);
+	if (!clampWarning.empty())
+		warning = clampWarning + Common::String::format("; using %d", resolved);
+	return resolved;
+}
+
+SciPhase1 sciPhase1(bool applies, const Graphics::HiResIniOverrides &ini, const Graphics::HiResMap &map,
+					bool mapLoaded, bool anyCoverage) {
+	SciPhase1 p;
+	p.target = Graphics::kHiResTargetAuto;
+	p.blend = Graphics::kHiResBlendAuto;
+	p.anyCoverage = false;
+	if (!applies || !ini.enabled)
+		return p;
+
+	if (ini.targetSet && ini.target != Graphics::kHiResTargetAuto)
+		p.target = ini.target;
+	else if (mapLoaded && map.targetSet && map.target != Graphics::kHiResTargetAuto)
+		p.target = map.target;
+	p.blend = sciBlend(ini, map, mapLoaded);
+	p.anyCoverage = anyCoverage;
+	return p;
+}
+
+Graphics::HiResBlend sciBlend(const Graphics::HiResIniOverrides &ini, const Graphics::HiResMap &map, bool mapLoaded) {
+	if (ini.blendSet)
+		return ini.blend;
+	if (mapLoaded && map.blendSet)
+		return map.blend;
+	return Graphics::kHiResBlendAuto;
+}
+
+bool sciThresholdCoverage(Graphics::HiResBlend blend, int faceBpp, bool screenIsClut8) {
+	if (screenIsClut8 || faceBpp <= 1)
+		return false;
+	return !Graphics::blendActive(blend, true, false);
+}
+
+Common::String sciBlendWarning(Graphics::HiResBlend blend, bool anyCoverage, bool screenIsClut8) {
+	if (!anyCoverage || !Graphics::blendRefusedOnClut8(blend, screenIsClut8))
+		return Common::String();
+	return "hires_text_blend=on needs an RGB screen until palette-matched blending exists; drawing hard-edged text";
+}
+
+Common::String sciTargetNote(Graphics::HiResRenderTarget wanted, Graphics::HiResRenderTarget actual) {
+	if (wanted == Graphics::kHiResTargetAuto || wanted == actual)
+		return Common::String();
+	return Common::String::format("render_target=%s is not available here; using %s",
+								  Graphics::renderTargetName(wanted), Graphics::renderTargetName(actual));
+}
+
 } // End of namespace Sci

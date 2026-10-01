@@ -59,6 +59,7 @@ MODULE_OBJS := \
 	graphics/fontunicode.o \
 	graphics/fontsjis.o \
 	graphics/hirestextsettings.o \
+	graphics/hirestextstate.o \
 	graphics/macfont.o \
 	graphics/maciconbar.o \
 	graphics/menu.o \

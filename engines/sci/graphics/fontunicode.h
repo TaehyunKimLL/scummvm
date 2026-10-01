@@ -130,6 +130,13 @@ public:
 	void setPerGlyph(bool on) { _perGlyph = on; }
 	bool perGlyph() const { return _perGlyph; }
 
+	/**
+	 * Draw the face's coverage as a hard stencil (thresholded at 50%)
+	 * instead of handing it to the text layer for blending: blend=off on an
+	 * RGB screen (design 7.2, GfxCache::thresholdsCoverage()). Off by default.
+	 */
+	void setHardStencil(bool on) { _hardStencil = on; }
+
 	/** A string starts: a mark at its start does not attach to the last string's base. */
 	void beginString() override { _anchor.reset(); }
 
@@ -167,6 +174,8 @@ private:
 
 	/// Per-glyph advance and placement: set for a UTF-8 translation only.
 	bool _perGlyph;
+	/// Coverage cut at 50% before it reaches the text layer.
+	bool _hardStencil;
 	/// Layout cell and glyph offset (C41).
 	GlyphPlacement _placement;
 	/// Where a combining mark goes; reset by beginString().

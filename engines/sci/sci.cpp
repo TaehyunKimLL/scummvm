@@ -58,6 +58,7 @@
 #include "sci/graphics/coordadjuster.h"
 #include "sci/graphics/cursor.h"
 #include "sci/graphics/drivers/gfxdriver.h"
+#include "sci/graphics/hirestextstate.h"
 #include "sci/graphics/macfont.h"
 #include "sci/graphics/maciconbar.h"
 #include "sci/graphics/menu.h"
@@ -69,6 +70,7 @@
 #include "sci/graphics/remap.h"
 #include "sci/graphics/screen.h"
 #include "sci/graphics/text16.h"
+#include "sci/graphics/textlayout16.h"
 #include "sci/graphics/transitions.h"
 
 #ifdef ENABLE_SCI32
@@ -104,6 +106,7 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	_gfxScreen(nullptr),
 	_gfxText16(nullptr),
 	_gfxTransitions(nullptr),
+	_hiresTextState(nullptr),
 	_gfxMacFontManager(nullptr),
 	_gfxMacIconBar(nullptr),
 #ifdef ENABLE_SCI32
@@ -265,6 +268,7 @@ SciEngine::~SciEngine() {
 	delete _gfxRemap16;
 	delete _gfxCursor;
 	delete _gfxScreen;
+	delete _hiresTextState;
 
 	delete _audio;
 	delete _sync;
@@ -482,6 +486,14 @@ Common::Error SciEngine::run() {
 		_useHiresGraphics = true;
 	}
 
+	// Phase 1 of the hi-res text configuration, before the screen: the
+	// driver GfxScreen creates chooses its screen format from it.
+	{
+		Common::String why;
+		_hiresTextState = new HiresTextState();
+		_hiresTextState->load(hiresTextApplies(getSciVersion(), getSciLanguageCodePage(), heapStringsAreUtf8(), why));
+	}
+
 	if (getSciVersion() < SCI_VERSION_2) {
 		bool undither = ConfMan.getBool("disable_dithering");
 		Common::RenderMode renderMode = SciGfxDriver::getRenderMode();
@@ -495,6 +507,7 @@ Common::Error SciEngine::run() {
 		// Initialize the game screen
 		_gfxScreen = new GfxScreen(_resMan, renderMode);
 		_gfxScreen->enableUndithering(undither);
+		_hiresTextState->adoptScreen(g_system->getScreenFormat());
 	}
 
 	_kernel = new Kernel(_resMan, segMan);

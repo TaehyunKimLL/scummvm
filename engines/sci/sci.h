@@ -64,6 +64,7 @@ class Sync;
 
 class GfxAnimate;
 class GfxCache;
+class HiresTextState;
 class GfxCompare;
 class GfxControls16;
 class GfxControls32;
@@ -261,6 +262,14 @@ public:
 	bool heapStringsAreUtf8() const;
 
 	/**
+	 * The hi-res text configuration read before the screen is set (the ini
+	 * keys and the map's first, target-free view): the graphics driver
+	 * chooses its screen from it, GfxCache loads the map's sections for
+	 * the screen actually set from it. Created before GfxScreen.
+	 */
+	HiresTextState *hiresTextState() const { return _hiresTextState; }
+
+	/**
 	 * The code points of the loaded UTF-8 translation - every TEXT resource
 	 * (the translation's patch files replace them) and the sci-<lang>.str
 	 * strings - collected on first use. Empty when heapStringsAreUtf8() is
@@ -414,6 +423,7 @@ public:
 	GfxScreen *_gfxScreen; // Screen class for 16-bit
 	GfxText16 *_gfxText16;
 	GfxTransitions *_gfxTransitions; // transitions between screens for 16-bit gfx
+	HiresTextState *_hiresTextState;
 	GfxMacIconBar *_gfxMacIconBar; // Mac Icon Bar manager
 	GfxMacFontManager *_gfxMacFontManager; // null when not applicable
 	SciTTS *_tts;
