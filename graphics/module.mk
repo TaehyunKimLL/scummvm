@@ -12,6 +12,7 @@ MODULE_OBJS := \
 	dirtyrects.o \
 	font.o \
 	fontman.o \
+	hires_text/banded_plane.o \
 	hires_text/bitmap_font.o \
 	hires_text/chain_layout.o \
 	hires_text/codepage_kr.o \
