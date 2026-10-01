@@ -102,6 +102,7 @@ enum CJKFileState {
 static CJKFileState cjk_file_state = kCJKFileUnread;
 static int cjk_num_tables = 0;
 static bool cjk_table_tried[kCJKTableCount] = { false, false, false, false, false, false };
+static bool cjk_table_missing_said[kCJKTableCount] = { false, false, false, false, false, false };
 static const uint16 *windows932ConversionTable = 0;
 static const uint16 *windows932ReverseConversionTable = 0;
 static const uint16 *windows936ConversionTable = 0;
@@ -150,6 +151,11 @@ static bool openCJKFile(File &f) {
 		return false;
 
 	if (!f.open("encoding.dat")) {
+		// Read before but not found now: it was on a path that has gone
+		// (a game's, after Return to Launcher). The caller tries again on
+		// a later request rather than turning CJK off for good.
+		if (cjk_file_state == kCJKFileOk)
+			return false;
 		cjk_file_state = kCJKFileBad;
 		warning("encoding.dat is not found. Support for CJK is disabled");
 		return false;
@@ -185,13 +191,25 @@ static bool openCJKFile(File &f) {
 	return true;
 }
 
+// Main thread only, like the decoders that call it (no lock, as before).
 static void ensureCJKTable(CJKTable table) {
 	if (cjk_table_tried[table])
 		return;
-	cjk_table_tried[table] = true;
 
 	File f;
-	if (!openCJKFile(f) || (int)table >= cjk_num_tables)
+	if (!openCJKFile(f)) {
+		if (cjk_file_state == kCJKFileOk) {
+			// Gone for now: say so once for this table, try again later.
+			if (!cjk_table_missing_said[table])
+				warning("encoding.dat is not found now. CJK table %d is not available", (int)table);
+			cjk_table_missing_said[table] = true;
+			return;
+		}
+		cjk_table_tried[table] = true;
+		return;
+	}
+	cjk_table_tried[table] = true;
+	if ((int)table >= cjk_num_tables)
 		return;
 
 	switch (table) {
@@ -221,8 +239,10 @@ static void ensureCJKTable(CJKTable table) {
 void releaseCJKTables() {
 	cjk_file_state = kCJKFileUnread;
 	cjk_num_tables = 0;
-	for (int i = 0; i < kCJKTableCount; i++)
+	for (int i = 0; i < kCJKTableCount; i++) {
 		cjk_table_tried[i] = false;
+		cjk_table_missing_said[i] = false;
+	}
 	delete[] windows932ConversionTable;
 	windows932ConversionTable = 0;
 	delete[] windows932ReverseConversionTable;

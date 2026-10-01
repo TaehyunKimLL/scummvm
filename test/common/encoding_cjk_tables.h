@@ -4,7 +4,9 @@
 #include "common/ustr.h"
 #include "common/str-enc.h"
 #include "common/enc-internal.h"
+#include "common/archive.h"
 #include "common/file.h"
+#include "common/fs.h"
 #include "../system/null_osystem.h"
 
 // encoding.dat holds six tables; a code page reads its own only, the first
@@ -44,8 +46,10 @@ public:
 
 	void test_decoding_949_loads_only_949() {
 #if NULL_OSYSTEM_IS_AVAILABLE
-		if (!_haveFile)
+		if (!_haveFile) {
+			TS_WARN("encoding.dat is not available; not checked");
 			return;
+		}
 		const byte uhc[] = { 0xb0, 0xa1, 0x00 };	// U+AC00
 		Common::U32String s((const char *)uhc, Common::kWindows949);
 		TS_ASSERT_EQUALS(s.size(), 1u);
@@ -57,8 +61,10 @@ public:
 
 	void test_uhc_to_ucs_loads_only_949() {
 #if NULL_OSYSTEM_IS_AVAILABLE
-		if (!_haveFile)
+		if (!_haveFile) {
+			TS_WARN("encoding.dat is not available; not checked");
 			return;
+		}
 		TS_ASSERT_EQUALS((uint32)Common::convertUHCToUCS(0xb0, 0xa1), 0xAC00u);
 		TS_ASSERT(Common::isCJKTableLoaded(Common::kCJKTable949));
 		TS_ASSERT_EQUALS(loadedCount(), 1);
@@ -67,8 +73,10 @@ public:
 
 	void test_encoding_949_loads_only_949() {
 #if NULL_OSYSTEM_IS_AVAILABLE
-		if (!_haveFile)
+		if (!_haveFile) {
+			TS_WARN("encoding.dat is not available; not checked");
 			return;
+		}
 		Common::U32String s;
 		s += (Common::u32char_type_t)0xAC00;
 		const Common::String uhc = s.encode(Common::kWindows949);
@@ -80,8 +88,10 @@ public:
 
 	void test_each_code_page_adds_its_own_table() {
 #if NULL_OSYSTEM_IS_AVAILABLE
-		if (!_haveFile)
+		if (!_haveFile) {
+			TS_WARN("encoding.dat is not available; not checked");
 			return;
+		}
 		const byte sjis[] = { 0x82, 0xa0, 0x00 };	// U+3042
 		Common::U32String a((const char *)sjis, Common::kWindows932);
 		TS_ASSERT_EQUALS((uint32)a[0], 0x3042u);
@@ -112,8 +122,10 @@ public:
 
 	void test_t2s_loads_only_its_table() {
 #if NULL_OSYSTEM_IS_AVAILABLE
-		if (!_haveFile)
+		if (!_haveFile) {
+			TS_WARN("encoding.dat is not available; not checked");
 			return;
+		}
 		Common::U32String t;
 		t += (Common::u32char_type_t)0x9AD4;	// traditional "body"
 		const Common::U32String s = t.transcodeChineseT2S();
@@ -123,10 +135,38 @@ public:
 #endif
 	}
 
+	void test_a_later_table_is_read_once_the_file_is_back() {
+		// encoding.dat can be on a game's path only: after Return to Launcher
+		// another game may need a table the first did not read, while the
+		// file is not found. That must not turn CJK off for good.
+#if NULL_OSYSTEM_IS_AVAILABLE
+		if (!_haveFile || !SearchMan.hasArchive("test/engine-data")) {
+			TS_WARN("encoding.dat is not in test/engine-data; not checked");
+			return;
+		}
+		const byte uhc[] = { 0xb0, 0xa1, 0x00 };
+		Common::U32String a((const char *)uhc, Common::kWindows949);
+		TS_ASSERT_EQUALS((uint32)a[0], 0xAC00u);
+
+		SearchMan.remove("test/engine-data");
+		const byte sjis[] = { 0x82, 0xa0, 0x00 };	// U+3042
+		Common::U32String b((const char *)sjis, Common::kWindows932);
+		TS_ASSERT(!Common::isCJKTableLoaded(Common::kCJKTable932));
+		TS_ASSERT_EQUALS((uint32)b[0], 0xFFFDu);
+
+		SearchMan.add("test/engine-data", new Common::FSDirectory("test/engine-data", 4));
+		Common::U32String c((const char *)sjis, Common::kWindows932);
+		TS_ASSERT(Common::isCJKTableLoaded(Common::kCJKTable932));
+		TS_ASSERT_EQUALS((uint32)c[0], 0x3042u);
+#endif
+	}
+
 	void test_release_unloads_everything() {
 #if NULL_OSYSTEM_IS_AVAILABLE
-		if (!_haveFile)
+		if (!_haveFile) {
+			TS_WARN("encoding.dat is not available; not checked");
 			return;
+		}
 		const byte uhc[] = { 0xb0, 0xa1, 0x00 };
 		Common::U32String s((const char *)uhc, Common::kWindows949);
 		TS_ASSERT_EQUALS(loadedCount(), 1);
