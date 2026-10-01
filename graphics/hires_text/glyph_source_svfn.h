@@ -52,9 +52,11 @@ class HiResBitmapFont;
  * with the second cell blank. The copies of the code points drawn last
  * (row()) are kept, HIRES_SVF_CACHE_KB of them (a code point the font lacks
  * counts as one); cells() answers from the font's tables and keeps nothing.
- * A pointer from row() holds until another code point is first asked for. With a streamed font (HiResBitmapFont::loadStreamed()) that is what
- * stands between drawing and the file; its counters are registered with
- * Common::FileCacheRegistry as kind "svf".
+ * A pointer from row() holds until another code point is first asked for.
+ * With a streamed font (HiResBitmapFont::loadStreamed()) that is what stands
+ * between drawing and the file; its counters are registered with
+ * Common::FileCacheRegistry as kind "svf". A glyph whose read fails is drawn
+ * blank, at the width cells() gives, and read again at its next use.
  */
 class SvfnGlyphSource : public UnicodeGlyphSource {
 public:
@@ -128,6 +130,11 @@ private:
 	uint32 _clock;
 	uint32 _glyphReads;
 	uint32 _lastCp;	///< the last code point looked up, counted once however often in a row
+	/// A glyph the font has whose read failed: blank rows at its width, for
+	/// the use that asked (_failedCp); the next use reads again.
+	Entry _failed;
+	uint32 _failedCp;
+	bool _readFailWarned;
 	Common::FileCacheStats _stats;
 	bool _registered;
 };

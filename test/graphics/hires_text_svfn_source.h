@@ -542,6 +542,56 @@ public:
 		bool &_fail;
 	};
 
+	// A glyph the font has but whose pixels cannot be read: cells() and
+	// row() still agree (blank rows at its width, never null), nothing is
+	// kept, and once the file reads again the glyph is there.
+	void test_svfn_source_a_failed_read_is_blank_and_tried_again() {
+		const Common::Array<byte> bytes = makeLatin256();
+		bool fail = false;
+		Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
+		TS_ASSERT(font->loadStreamed(new FlakyStream(bytes, fail), DisposeAfterUse::YES));
+		TS_ASSERT(font->isStreamed());
+		Graphics::SvfnGlyphSource src(font, DisposeAfterUse::YES);
+		fail = true;
+		TS_ASSERT_EQUALS(src.cells('A'), 1);
+		for (int y = 0; y < 3; ++y) {
+			const byte *row = src.row('A', y);
+			TS_ASSERT(row != nullptr);
+			if (row)
+				for (int x = 0; x < 8; ++x)
+					TS_ASSERT_EQUALS(row[x], 0);
+		}
+		TS_ASSERT_EQUALS(src.cells('A'), 1);	// not taken for a glyph the font lacks
+		TS_ASSERT_EQUALS(src.glyphReads(), 0u);
+		Common::Array<uint32> cps;
+		cps.push_back('B');
+		src.prefetch(cps);	// fails too, quietly
+		fail = false;
+		TS_ASSERT(rowsAre(src, 'A'));
+		TS_ASSERT(rowsAre(src, 'B'));
+		TS_ASSERT_EQUALS(src.glyphReads(), 2u);
+	}
+
+	// The same through the wrapper SCI's GfxFontUnicode draws through when
+	// the map names a missing= box (MissingGlyphSource): what it hands
+	// GfxFontUnicode::draw() and drawToBuffer() is a row whenever cells() > 0.
+	void test_svfn_source_a_failed_read_through_the_missing_box() {
+		const Common::Array<byte> bytes = makeLatin256();
+		bool fail = false;
+		Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
+		TS_ASSERT(font->loadStreamed(new FlakyStream(bytes, fail), DisposeAfterUse::YES));
+		Graphics::SvfnGlyphSource *svf = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
+		fail = true;
+		Graphics::MissingGlyphSource box(svf, '?', DisposeAfterUse::YES);
+		for (uint32 cp = 'A'; cp <= 'Z'; ++cp) {
+			TS_ASSERT(box.cells(cp) > 0);
+			for (int y = 0; y < 3; ++y)
+				TS_ASSERT(box.row(cp, y) != nullptr);
+		}
+		fail = false;
+		TS_ASSERT(box.row('C', 1) != nullptr && box.row('C', 1)[0] == (byte)('C' + 4));
+	}
+
 	// A small font asked to stream is read whole, and its file let go.
 	void test_svfn_source_small_fonts_are_not_streamed() {
 		Graphics::HiResBitmapFont::setStreamThreshold(HIRES_SVF_STREAM_MIN);
