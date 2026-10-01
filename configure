@@ -3924,6 +3924,9 @@ if test -n "$_host"; then
 			# SCI's Windows AVI and Mac QuickTime movies (KQ6 CD Windows, Mac
 			# games): the DOS versions play SEQ.
 			append_var DEFINES "-DDISABLE_SCI_WINMAC_VIDEO"
+			# Cinepak, MS Video 1, QuickTime RLE/RPZA/SMC: video codecs that
+			# only Windows/Mac data reaches (a BMP or a Mac PICT).
+			append_var DEFINES "-DDISABLE_VIDEO_CODECS"
 			;;
 		kos32)
 			# neither pkg-config nor *-config work, so we setup everything manually
