@@ -187,9 +187,14 @@ Common::String DebugSocket::dumpBuffers(const Common::String &prefix) {
 	if (layer.getPixels() && !writeSurface(prefix + "_layer", layer, 0, layer.w, layer.h, formatName(layer.format)))
 		return "FAIL " + prefix + "_layer";
 	if (_vm->_hiResText.alphaActive()) {
-		const Graphics::Surface *cov = _vm->_overlay.coverage();
-		if (cov && !writeSurface(prefix + "_cov", *cov, 0, cov->w, cov->h, formatName(cov->format)))
-			return "FAIL " + prefix + "_cov";
+		if (const Graphics::BandedPlane *plane = _vm->_overlay.coverage()) {
+			Graphics::Surface cov;
+			plane->toSurface(cov);
+			const bool ok = writeSurface(prefix + "_cov", cov, 0, cov.w, cov.h, formatName(cov.format));
+			cov.free();
+			if (!ok)
+				return "FAIL " + prefix + "_cov";
+		}
 	}
 
 	Common::DumpFile f;

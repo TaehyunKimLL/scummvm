@@ -16,6 +16,10 @@ class HiResOverlayTestSuite : public CxxTest::TestSuite {
 		return *(const byte *)s.getBasePtr(x, y);
 	}
 
+	static byte at(const Graphics::BandedPlane &p, int x, int y) {
+		return p.get(x, y);
+	}
+
 public:
 	void test_create_allocates_both_planes_at_one_size() {
 		Scumm::HiResOverlay ov;
@@ -25,8 +29,8 @@ public:
 		TS_ASSERT_EQUALS(ov.index().w, 40);
 		TS_ASSERT_EQUALS(ov.index().h, 20);
 		TS_ASSERT(ov.coverage() != nullptr);
-		TS_ASSERT_EQUALS(ov.coverage()->w, 40);
-		TS_ASSERT_EQUALS(ov.coverage()->h, 20);
+		TS_ASSERT_EQUALS(ov.coverage()->width(), 40);
+		TS_ASSERT_EQUALS(ov.coverage()->height(), 20);
 
 		ov.free();
 		TS_ASSERT(!ov.created());
@@ -74,7 +78,7 @@ public:
 		ov.create(4, 4, true);
 
 		*(byte *)ov.index().getBasePtr(2, 2) = 7;
-		*(byte *)ov.coverage()->getBasePtr(2, 2) = 0x80;
+		ov.coverage()->set(2, 2, 0x80);
 
 		ov.clear(0, 4, 0xFD);
 
@@ -91,7 +95,7 @@ public:
 
 		for (int y = 0; y < 10; ++y) {
 			*(byte *)ov.index().getBasePtr(0, y) = 9;
-			*(byte *)ov.coverage()->getBasePtr(0, y) = 0xFF;
+			ov.coverage()->set(0, y, 0xFF);
 		}
 
 		ov.clear(4, 3, 0xFD);
@@ -133,7 +137,7 @@ public:
 		for (int y = 0; y < 10; ++y)
 			for (int x = 0; x < 10; ++x) {
 				*(byte *)ov.index().getBasePtr(x, y) = 5;
-				*(byte *)ov.coverage()->getBasePtr(x, y) = 0xFF;
+				ov.coverage()->set(x, y, 0xFF);
 			}
 
 		ov.clear(Common::Rect(2, 2, 5, 5), 0xFD);
@@ -159,7 +163,7 @@ public:
 		ov.create(4, 4, true);
 
 		*(byte *)ov.index().getBasePtr(1, 1) = 3;
-		*(byte *)ov.coverage()->getBasePtr(1, 1) = 0x40;
+		ov.coverage()->set(1, 1, 0x40);
 
 		ov.saveState();
 
@@ -246,9 +250,9 @@ public:
 
 		// Two glyph pixels: one solid, one on an antialiased edge.
 		*(byte *)ov.index().getBasePtr(1, 1) = 4;
-		*(byte *)ov.coverage()->getBasePtr(1, 1) = 0xFF;
+		ov.coverage()->set(1, 1, 0xFF);
 		*(byte *)ov.index().getBasePtr(2, 1) = 4;
-		*(byte *)ov.coverage()->getBasePtr(2, 1) = 0x60;
+		ov.coverage()->set(2, 1, 0x60);
 
 		ov.saveState();
 
@@ -256,7 +260,7 @@ public:
 		ov.clear(0, 6, 0xFD);
 		for (int x = 0; x < 6; ++x) {
 			*(byte *)ov.index().getBasePtr(x, 3) = 15;
-			*(byte *)ov.coverage()->getBasePtr(x, 3) = 0xFF;
+			ov.coverage()->set(x, 3, 0xFF);
 		}
 
 		ov.restoreState();
@@ -296,14 +300,14 @@ public:
 		// Some text: an index and a partial coverage, the antialiased edge
 		// that a bare fill would leave behind.
 		ov.index().fillRect(Common::Rect(2, 2, 10, 10), 7);
-		ov.coverage()->fillRect(Common::Rect(2, 2, 10, 10), 0x80);
+		ov.coverage()->fill(Common::Rect(2, 2, 10, 10), 0x80);
 
 		ov.fillIndices(Common::Rect(0, 0, 12, 12), 3);
 
 		for (int y = 0; y < 12; ++y) {
 			for (int x = 0; x < 12; ++x) {
 				TS_ASSERT_EQUALS(*(const byte *)ov.index().getBasePtr(x, y), 3);
-				TS_ASSERT_EQUALS(*(const byte *)ov.coverage()->getBasePtr(x, y), 0);
+				TS_ASSERT_EQUALS(ov.coverage()->get(x, y), 0);
 			}
 		}
 
@@ -342,8 +346,8 @@ public:
 	// --- The under planes a decoration is drawn into ----------------
 
 	static void fillUnder(Scumm::HiResOverlay &ov, byte v) {
-		ov.underIndex()->fillRect(Common::Rect(ov.width(), ov.height()), v);
-		ov.underCoverage()->fillRect(Common::Rect(ov.width(), ov.height()), v);
+		ov.underIndex()->fill(Common::Rect(ov.width(), ov.height()), v);
+		ov.underCoverage()->fill(Common::Rect(ov.width(), ov.height()), v);
 	}
 
 	void test_under_planes_come_only_when_asked_for() {
@@ -355,8 +359,8 @@ public:
 		ov.createUnder();
 		TS_ASSERT(ov.underIndex() != nullptr);
 		TS_ASSERT(ov.underCoverage() != nullptr);
-		TS_ASSERT_EQUALS(ov.underIndex()->w, 10);
-		TS_ASSERT_EQUALS(ov.underCoverage()->h, 6);
+		TS_ASSERT_EQUALS(ov.underIndex()->width(), 10);
+		TS_ASSERT_EQUALS(ov.underCoverage()->height(), 6);
 		// Empty to begin with: nothing under any text yet.
 		TS_ASSERT_EQUALS(at(*ov.underCoverage(), 9, 5), 0);
 

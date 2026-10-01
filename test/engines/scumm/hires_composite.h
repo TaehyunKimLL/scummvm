@@ -131,4 +131,43 @@ public:
 		Scumm::compositeText(sink, src, 0, text, 2, cov, 2, 2, 1, 2, uIdx, uCov, 3);
 		TS_ASSERT_EQUALS(sink.out, Common::String("...U.U.."));
 	}
+
+	/// Planes held in bands (Graphics::BandedPlane) compose as the same
+	/// bytes held whole: a band not there is zeros, a packed one unpacked.
+	void test_banded_planes_compose_like_whole_ones() {
+		const int w = 6, h = 20, m = 2, ow = w * m, oh = h * m;
+		Common::Array<byte> src(w * h), text(ow * oh), cov(ow * oh), uIdx(ow * oh), uCov(ow * oh);
+		Graphics::BandedPlane pCov, pUIdx, pUCov;
+		pCov.create(ow + 4, oh + 4, true);
+		pUIdx.create(ow + 4, oh + 4, false);
+		pUCov.create(ow + 4, oh + 4, true);
+		uint32 seed = 12345;
+		for (int i = 0; i < w * h; ++i)
+			src[i] = (byte)(i % 5);
+		for (int y = 0; y < oh; ++y)
+			for (int x = 0; x < ow; ++x) {
+				const int i = y * ow + x;
+				seed = seed * 1103515245u + 12345u;
+				// Text only in some rows (whole bands without any), coverage
+				// of 2 bpp first, then any value once the halfway row is past.
+				const bool rowHasText = (y >= 4 && y < 12) || y >= 33;
+				const uint r = seed >> 16;
+				text[i] = (rowHasText && (r & 1)) ? kText : kNone;
+				cov[i] = text[i] == kText ? (byte)((r >> 1) % 4 * 85) : 0;
+				uCov[i] = (rowHasText && (r & 8)) ? (byte)(y >= oh / 2 ? (r >> 4) & 0xFF : 255) : 0;
+				uIdx[i] = uCov[i] ? kUnder : 0;
+				pCov.set(x + 2, y + 3, cov[i]);
+				pUIdx.set(x + 2, y + 3, uIdx[i]);
+				pUCov.set(x + 2, y + 3, uCov[i]);
+			}
+		TS_ASSERT(pCov.packed());
+		TS_ASSERT(pCov.bandsHeld() < pCov.height() / 16 + 1);
+
+		ValueSink whole, banded;
+		Scumm::compositeText(whole, src.begin(), 0, text.begin(), 0, cov.begin(), 0, w, h, m,
+							 uIdx.begin(), uCov.begin(), 0);
+		Scumm::compositeTextRows(banded, src.begin(), 0, text.begin(), 0, Scumm::CompositeRows(&pCov, 2, 3),
+								 w, h, m, Scumm::CompositeRows(&pUIdx, 2, 3), Scumm::CompositeRows(&pUCov, 2, 3));
+		TS_ASSERT(whole.out == banded.out);
+	}
 };

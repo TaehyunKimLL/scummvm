@@ -1824,8 +1824,8 @@ void ScummEngine::markPaletteUsersDirty(const uint32 *before) {
 	const bool whole = _game.version == 1 || _macScreen;
 
 	const int m = MAX(_textSurfaceMultiplier, 1);
-	const Graphics::Surface *underIdx = _overlay.underIndex();
-	const Graphics::Surface *underCov = _overlay.underCoverage();
+	const Graphics::BandedPlane *underIdx = _overlay.underIndex();
+	const Graphics::BandedPlane *underCov = _overlay.underCoverage();
 	for (int i = 0; i < 3; ++i) {
 		VirtScreen *vs = &_virtscr[i];
 		if (!vs->h)
@@ -1851,12 +1851,11 @@ void ScummEngine::markPaletteUsersDirty(const uint32 *before) {
 
 		int top[80 + 1], bottom[80 + 1];
 		const bool withUnder = underIdx && underCov;
-		findPaletteUsers(vs->getPixels(0, rowTop), vs->pitch,
-						 (const byte *)_textSurface.getBasePtr(0, planeTop * m), _textSurface.pitch,
-						 withUnder ? (const byte *)underIdx->getBasePtr(0, planeTop * m) : nullptr,
-						 withUnder ? (const byte *)underCov->getBasePtr(0, planeTop * m) : nullptr,
-						 withUnder ? underCov->pitch : 0,
-						 width, rowBottom - rowTop, m, changed, top, bottom);
+		findPaletteUsersRows(vs->getPixels(0, rowTop), vs->pitch,
+							 (const byte *)_textSurface.getBasePtr(0, planeTop * m), _textSurface.pitch,
+							 CompositeRows(withUnder ? underIdx : nullptr, 0, planeTop * m),
+							 CompositeRows(withUnder ? underCov : nullptr, 0, planeTop * m),
+							 width, rowBottom - rowTop, m, changed, top, bottom);
 		for (int s = 0; s < (width + 7) / 8; ++s) {
 			if (top[s] < bottom[s])
 				markRectAsDirty((VirtScreenNumber)i, s * 8, s * 8 + 7, rowTop + top[s], rowTop + bottom[s]);
