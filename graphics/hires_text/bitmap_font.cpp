@@ -103,6 +103,7 @@ void HiResBitmapFont::free() {
 		_blocks[b].first = -1;
 		_blocks[b].count = 0;
 	}
+	_failedBlocks.clear();
 	_glyphsPerBlock = 1;
 	_readClock = _readCount = _readBytes = 0;
 	_pixels = nullptr;
@@ -597,8 +598,13 @@ const byte *HiResBitmapFont::glyphData(int index) const {
 		for (int b = 1; b < kReadBlocks; ++b)
 			if (_blocks[b].lastUse < block->lastUse)
 				block = &_blocks[b];
-		block->first = -1;
 		const int first = index - index % _glyphsPerBlock;
+		// A block whose read failed is not read again this session: a
+		// glyph drawn every frame must not read the disk every frame.
+		for (uint f = 0; f < _failedBlocks.size(); ++f)
+			if (_failedBlocks[f] == first)
+				return nullptr;
+		block->first = -1;
 		const int count = MIN(_glyphsPerBlock, _glyphs - first);
 		const uint32 bytes = (uint32)count * (uint32)_glyphStride;
 		block->data.resize(bytes);
@@ -607,6 +613,7 @@ const byte *HiResBitmapFont::glyphData(int index) const {
 		if (!_stream->seek(_dataOff + (uint32)first * (uint32)_glyphStride) ||
 			_stream->read(block->data.begin(), bytes) != bytes) {
 			_stream->clearErr();
+			_failedBlocks.push_back(first);
 			return nullptr;
 		}
 		block->first = first;
