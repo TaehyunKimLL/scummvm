@@ -115,7 +115,7 @@ public:
 	/**
 	 * drawText() at N x (N = scaled.scale()) into an N x target: the pen
 	 * positions are this drawer's game-resolution ones (the line is laid
-	 * out exactly as drawText() lays it out, ruling R2), each cluster's
+	 * out exactly as drawText() lays it out), each cluster's
 	 * glyph is scaled.source()'s, drawn from N x its game pen; a combining
 	 * mark is placed against its base with the N x metrics. (x, y) are the
 	 * game-resolution pen and line top; clip is in target pixels. A code

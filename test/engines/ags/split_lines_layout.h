@@ -151,7 +151,7 @@ public:
 	}
 
 	// AGS's own breaking, pinned on the cases where the layout stage differs
-	// (review of C11 T8). A native UTF-8 game without a translation or a map
+	// (C11). A native UTF-8 game without a translation or a map
 	// keeps exactly these; an EUC-KR translation takes the layout stage.
 	void test_legacy_emergency_split_drops_a_fitting_character() {
 		// (a) three characters fit, yet each line holds two.
