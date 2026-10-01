@@ -26,7 +26,12 @@
 
 class ScummMetaEngine : public MetaEngine {
 public:
-	/// Whether a target has hi-res fonts to switch: a configured map, or one in the game folder.
+	/**
+	 * Whether a target has hi-res fonts to switch on or off, whatever
+	 * hires_text says: hires_text_map (non-empty) or hires_text_face is set,
+	 * HIRESTXT.MAP is in the game folder, or the folder holds the map-less
+	 * hires*.fnt / hr<lang>*.fnt fonts.
+	 */
 	static bool targetHasHiResText(const Common::String &target);
 
 private:
@@ -43,6 +48,7 @@ private:
 	SaveStateDescriptor querySaveMetaInfos(const char *target, int slot) const override;
 
 	const ExtraGuiOptions getExtraGuiOptions(const Common::String &target) const override;
+	bool hasHiResText(const Common::String &target) const override;
 	void registerDefaultSettings(const Common::String &) const override;
 
 	GUI::OptionsContainerWidget *buildEngineOptionsWidget(GUI::GuiObject *boss, const Common::String &name, const Common::String &target) const override;
