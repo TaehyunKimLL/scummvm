@@ -214,6 +214,7 @@ void ScummEngine::loadKorFont() {
 			char fontFile[256];
 			snprintf(fontFile, sizeof(fontFile), "korean%02d.fnt", i);
 			_2byteMultiFontPtr[i] = nullptr;
+			_2byteMultiDeferred[i] = false;
 			if (fp.open(fontFile)) {
 				_numLoadedFont++;
 				fp.readByte();
@@ -222,16 +223,13 @@ void ScummEngine::loadKorFont() {
 				_2byteMultiHeight[i] = fp.readByte();
 
 				int fontSize = ((_2byteMultiWidth[i] + 7) / 8) * _2byteMultiHeight[i] * numChar;
-				_2byteMultiFontPtr[i] = new byte[fontSize];
 				warning("#%d, size %d, height =%d", i, fontSize, _2byteMultiHeight[i]);
-				fp.read(_2byteMultiFontPtr[i], fontSize);
 				fp.close();
-				if (_2byteFontPtr == nullptr) {	// for non-initialized Smushplayer drawChar
-					_2byteFontPtr = _2byteMultiFontPtr[i];
-					_2byteWidth = _2byteMultiWidth[i];
-					_2byteHeight = _2byteMultiHeight[i];
-					_2byteShadow = _2byteMultiShadow[i];
-				}
+				// The glyphs are read when the game's own drawing first
+				// wants one (loadDeferredMultiFont()).
+				_2byteMultiDeferred[i] = true;
+				if (_2byteMultiCurrent < 0)	// for non-initialized Smushplayer drawChar
+					selectMultiFont(i);
 			}
 		}
 		if (_numLoadedFont == 0) {
@@ -256,6 +254,36 @@ void ScummEngine::loadKorFont() {
 		}
 	}
 	return;
+}
+
+void ScummEngine::selectMultiFont(int id) {
+	_2byteFontPtr = _2byteMultiFontPtr[id];
+	_2byteWidth = _2byteMultiWidth[id];
+	_2byteHeight = _2byteMultiHeight[id];
+	_2byteShadow = _2byteMultiShadow[id];
+	_2byteMultiCurrent = id;
+}
+
+void ScummEngine::loadDeferredMultiFont() {
+	const int id = _2byteMultiCurrent;
+	if (_2byteFontPtr || id < 0 || !_2byteMultiDeferred[id])
+		return;
+	_2byteMultiDeferred[id] = false;
+	const int fontSize = ((_2byteMultiWidth[id] + 7) / 8) * _2byteMultiHeight[id] * 2350;
+	_2byteMultiFontPtr[id] = new byte[fontSize];
+	memset(_2byteMultiFontPtr[id], 0, fontSize);
+	Common::File fp;
+	char fontFile[256];
+	snprintf(fontFile, sizeof(fontFile), "korean%02d.fnt", id);
+	if (fp.open(fontFile)) {
+		fp.seek(4);
+		fp.read(_2byteMultiFontPtr[id], fontSize);
+		fp.close();
+	} else {
+		warning("SCUMM: %s has gone; its glyphs are blank", fontFile);
+	}
+	debug(1, "SCUMM: %s read on first use (%d bytes)", fontFile, fontSize);
+	_2byteFontPtr = _2byteMultiFontPtr[id];
 }
 
 void ScummEngine::loadCJKCells() {
@@ -320,6 +348,8 @@ byte *ScummEngine::get2byteCharPtr(int idx) {
 
 	switch (_language) {
 	case Common::KO_KOR:
+		if (!_2byteFontPtr)
+			loadDeferredMultiFont();
 		idx = ((idx % 256) - 0xb0) * 94 + (idx / 256) - 0xa1;
 		break;
 	case Common::JA_JPN:
@@ -445,10 +475,7 @@ void CharsetRendererCommon::setCurID(int32 id) {
 			id = 0;
 
 		if (_vm->hasMultiFont(id)) {
-			_vm->_2byteFontPtr = _vm->_2byteMultiFontPtr[id];
-			_vm->_2byteWidth = _vm->_2byteMultiWidth[id];
-			_vm->_2byteHeight = _vm->_2byteMultiHeight[id];
-			_vm->_2byteShadow = _vm->_2byteMultiShadow[id];
+			_vm->selectMultiFont(id);
 		} else {
 			// Get nearest font set (by height)
 			debug(7, "Cannot find matching font set for charset #%d, use nearest font set", id);
@@ -460,10 +487,7 @@ void CharsetRendererCommon::setCurID(int32 id) {
 				}
 			}
 			debug(7, "Found #%d", nearest);
-			_vm->_2byteFontPtr = _vm->_2byteMultiFontPtr[nearest];
-			_vm->_2byteWidth = _vm->_2byteMultiWidth[nearest];
-			_vm->_2byteHeight = _vm->_2byteMultiHeight[nearest];
-			_vm->_2byteShadow = _vm->_2byteMultiShadow[nearest];
+			_vm->selectMultiFont(nearest);
 		}
 	}
 
@@ -505,10 +529,7 @@ void CharsetRendererV3::setCurID(int32 id) {
 
 	if (_vm->_useMultiFont) {
 		if (_vm->hasMultiFont(id)) {
-			_vm->_2byteFontPtr = _vm->_2byteMultiFontPtr[id];
-			_vm->_2byteWidth = _vm->_2byteMultiWidth[id];
-			_vm->_2byteHeight = _vm->_2byteMultiHeight[id];
-			_vm->_2byteShadow = _vm->_2byteMultiShadow[id];
+			_vm->selectMultiFont(id);
 		} else {
 			// Get nearest font set (by height)
 			debug(7, "Cannot find matching font set for charset #%d, use nearest font set", id);
@@ -520,10 +541,7 @@ void CharsetRendererV3::setCurID(int32 id) {
 				}
 			}
 			debug(7, "Found #%d", nearest);
-			_vm->_2byteFontPtr = _vm->_2byteMultiFontPtr[nearest];
-			_vm->_2byteWidth = _vm->_2byteMultiWidth[nearest];
-			_vm->_2byteHeight = _vm->_2byteMultiHeight[nearest];
-			_vm->_2byteShadow = _vm->_2byteMultiShadow[nearest];
+			_vm->selectMultiFont(nearest);
 		}
 	}
 
@@ -1369,9 +1387,13 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	translateColor();
 
 	_vm->_charsetColorMap[1] = _color;
+	// The game's double-byte glyph is looked up below, if the hi-res layer
+	// does not draw this character: its font may not have been read.
+	bool gameGlyphDeferred = false;
 	if (_vm->isScummvmKorTarget() && is2byte) {
 		setShadowMode(kNormalShadowType);
-		_charPtr = _vm->get2byteCharPtr(chr);
+		_charPtr = nullptr;
+		gameGlyphDeferred = true;
 		_width = _vm->_2byteWidth;
 		_height = _vm->_2byteHeight;
 		_offsX = _offsY = 0;
@@ -1561,6 +1583,8 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		// will erase it by painting that buffer over.
 		_vm->noteTracedHiResGlyph(hiResCell, hiResArea);
 	}
+	if (!hiResDrawn && gameGlyphDeferred)
+		_charPtr = _vm->get2byteCharPtr(chr);
 	if (!hiResDrawn && _charPtr)
 		printCharIntern(is2byte, _charPtr, _origWidth, _origHeight, _width, _height, vs, ignoreCharsetMask);
 
