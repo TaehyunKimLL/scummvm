@@ -42,6 +42,27 @@ class HiResRangedSourceTestSuite : public CxxTest::TestSuite {
 		uint32 glyphCount() const override { return has.size(); }
 	};
 
+	// Records the code point each call was asked for, and counts its own
+	// deletions, for the pass-through and ownership tests.
+	class RecordingFake : public Fake {
+	public:
+		explicit RecordingFake(int *deleted = nullptr) : _deleted(deleted) {}
+		~RecordingFake() override {
+			if (_deleted)
+				++*_deleted;
+		}
+		const byte *row(uint32 cp, int y) override { lastRow = cp; return Fake::row(cp, y); }
+		int advance(uint32 cp) override { lastAdvance = cp; return has.contains(cp) ? 7 : 0; }
+		bool metrics(uint32 cp, Graphics::GlyphMetrics &m) override {
+			lastMetrics = cp;
+			m.advance = 7;
+			return has.contains(cp);
+		}
+		uint32 lastRow = 0, lastAdvance = 0, lastMetrics = 0;
+	private:
+		int *_deleted;
+	};
+
 	Graphics::HiResIdPlan compile(const char *text, int id) {
 		const Common::String full = Common::String("[map]\nversion=2\n") + text;
 		Common::MemoryReadStream s((const byte *)full.c_str(), full.size());
@@ -182,7 +203,7 @@ public:
 		TS_ASSERT_EQUALS(boxFromBorrowed2.cp, 0x25A1u);
 	}
 
-	// B6: `original` stops the search and never borrows.
+	// `original` stops the search and never borrows.
 	void test_original_rule_never_borrows() {
 		Graphics::HiResIdPlan p = compile("[font]\nface=KO.SVF,original\n", 0);
 		Fake ko, borrowedFace;
@@ -195,5 +216,55 @@ public:
 		borrowed.push_back(&borrowedFace);
 
 		TS_ASSERT_EQUALS(Graphics::pickGlyph(p, chains, targets, 'A', &borrowed).kind, Graphics::HiResPick::kGame);
+	}
+
+	// row(), advance() and metrics() answer for the picked code point, not
+	// the asked one: an absent cp under missing= reads the box glyph.
+	void test_pass_through_uses_the_picked_code_point() {
+		Graphics::HiResIdPlan p = compile("[font]\nface=KO.SVF\nmissing=u+25a1\n", 0);
+		RecordingFake ko;
+		ko.has[0xAC00] = true;
+		ko.has[0x25A1] = true;
+		Common::Array<Common::Array<Graphics::UnicodeGlyphSource *> > chains;
+		chains.resize(1);
+		chains[0].push_back(&ko);
+		Graphics::RangeRoutedGlyphSource r(p, chains, Common::Array<Graphics::UnicodeGlyphSource *>());
+		TS_ASSERT(r.row(0xD7A3, 0) != nullptr);
+		TS_ASSERT_EQUALS(ko.lastRow, 0x25A1u);
+		TS_ASSERT_EQUALS(r.advance(0xD7A3), 7);
+		TS_ASSERT_EQUALS(ko.lastAdvance, 0x25A1u);
+		Graphics::GlyphMetrics m;
+		TS_ASSERT(r.metrics(0xD7A3, m));
+		TS_ASSERT_EQUALS(ko.lastMetrics, 0x25A1u);
+		TS_ASSERT(r.row(0xAC00, 0) != nullptr);
+		TS_ASSERT_EQUALS(ko.lastRow, 0xAC00u);
+	}
+
+	// A source shared by several chains and a target is deleted once with
+	// DisposeAfterUse::YES, never with NO, and counted once by glyphCount().
+	void test_shared_sources_are_owned_and_counted_once() {
+		Graphics::HiResIdPlan p = compile("[font]\nface=KO.SVF\nrange.basic-latin=LAT.SVF\n", 0);
+		int deleted = 0;
+		RecordingFake *ko = new RecordingFake(&deleted);
+		RecordingFake *lat = new RecordingFake(&deleted);
+		ko->has[0xAC00] = true;
+		ko->has[0xAC01] = true;
+		lat->has['A'] = true;
+		Common::Array<Common::Array<Graphics::UnicodeGlyphSource *> > chains;
+		chains.resize(2);
+		chains[0].push_back(ko);
+		chains[1].push_back(lat);
+		chains[1].push_back(ko);
+		Common::Array<Graphics::UnicodeGlyphSource *> targets;
+		targets.push_back(ko);
+		{
+			Graphics::RangeRoutedGlyphSource r(p, chains, targets, DisposeAfterUse::NO);
+			TS_ASSERT_EQUALS(r.glyphCount(), 3u);   // KO (2) once, LAT (1)
+		}
+		TS_ASSERT_EQUALS(deleted, 0);
+		{
+			Graphics::RangeRoutedGlyphSource r(p, chains, targets, DisposeAfterUse::YES);
+		}
+		TS_ASSERT_EQUALS(deleted, 2);
 	}
 };

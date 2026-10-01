@@ -202,10 +202,12 @@ public:
  */
 class HiResMapTestSuite : public CxxTest::TestSuite {
 	bool load(const char *text, Graphics::HiResMap &out, const Graphics::HiResEngineKeys &keys = Graphics::kHiResKeysScumm,
-			  const char *q0 = nullptr) {
+			  const char *q0 = nullptr, const char *q1 = nullptr) {
 		Common::Array<Common::String> qualifiers;
 		if (q0)
 			qualifiers.push_back(q0);
+		if (q1)
+			qualifiers.push_back(q1);
 		Common::MemoryReadStream stream((const byte *)text, strlen(text));
 		return Graphics::HiResFontMap::loadMap(stream, Common::Path("/maps", '/'), qualifiers, keys, out);
 	}
@@ -375,7 +377,7 @@ public:
 		TS_ASSERT_EQUALS(m.warnings.size(), 0u);
 	}
 
-	// Review fix round 1, item 1: every other key goes through
+	// Every other key goes through
 	// stripInlineComment(); [map] version= must too.
 	void test_map_version_ignores_inline_comment() {
 		Graphics::HiResMap m;
@@ -383,7 +385,7 @@ public:
 		TS_ASSERT_EQUALS(m.version, 2);
 	}
 
-	// Review fix round 1, item 2: [glyphs:csN] is the removed old per-charset
+	// [glyphs:csN] is the removed old per-charset
 	// form (design 3.3, "now [glyphs.N]"), not an ordinary qualified [glyphs]
 	// section - it must get the "is not read any more" diagnostic, and its
 	// keys must not be read into the map at all.
@@ -401,7 +403,7 @@ public:
 		TS_ASSERT(m2.glyphs.contains(0x07));
 	}
 
-	// Review fix round 1, item 2 (continued): every other removed key form
+	// Every other removed key form
 	// design 3.3 lists ("font=" alias of face=, "bitmap=", "latin*=",
 	// "metrics=", "baseline=", "[render] alpha=/mode=/metrics=") is already
 	// covered by the generic unknown-key path (they are simply not in the
@@ -422,7 +424,7 @@ public:
 		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown key [render] metrics"));
 	}
 
-	// Review fix round 1, item 3: an invalid value is ignored (never
+	// An invalid value is ignored (never
 	// substituted) for the scalar keys test_invalid_values_are_ignored_not_substituted
 	// does not already cover.
 	void test_more_invalid_scalar_values_are_ignored() {
@@ -458,6 +460,275 @@ public:
 		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font] align 'sideways' is not game, cell or font; ignoring it"));
 		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [text] encoding 'nonsense' is not known; ignoring it"));
 		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [shadow] offset 'notanumber' is invalid; ignoring it"));
+	}
+
+	// Every valid [shadow] value (design 3.2: the keys are unchanged from
+	// before the version 2 format).
+	void test_shadow_values() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nmode=outline\noffset=2\ncolor=7\nwidth=1.5\nstyle=square\n"
+					   "shadow=-1, 2\nshadow_color=9\nshadow_alpha=60\n", m));
+		TS_ASSERT_EQUALS(m.shadowMode, Graphics::kHiResShadowOutline);
+		TS_ASSERT_EQUALS(m.shadowOffset, 2);
+		TS_ASSERT(m.shadowColorSet);
+		TS_ASSERT_EQUALS(m.shadowColor, 7);
+		TS_ASSERT_EQUALS(m.shadowWidthQ, 6);
+		TS_ASSERT_EQUALS(m.shadowStyle, Graphics::kHiResOutlineSquare);
+		TS_ASSERT(m.shadowShiftSet);
+		TS_ASSERT_EQUALS(m.shadowDx, -1);
+		TS_ASSERT_EQUALS(m.shadowDy, 2);
+		TS_ASSERT(m.shadowShiftColorSet);
+		TS_ASSERT_EQUALS(m.shadowShiftColor, 9);
+		TS_ASSERT_EQUALS(m.shadowAlpha, 153);      // 60 % of 255, rounded
+		TS_ASSERT(m.warnings.empty());
+
+		static const struct { const char *mode; Graphics::HiResShadowMode want; } kModes[] = {
+			{ "none", Graphics::kHiResShadowNone }, { "drop", Graphics::kHiResShadowDrop },
+			{ "outline", Graphics::kHiResShadowOutline }, { "stroke", Graphics::kHiResShadowStroke },
+			{ "game", Graphics::kHiResShadowGame }, { "OUTLINE", Graphics::kHiResShadowOutline }
+		};
+		for (uint i = 0; i < ARRAYSIZE(kModes); ++i) {
+			const Common::String text = Common::String::format("[map]\nversion=2\n[shadow]\nmode=%s\n", kModes[i].mode);
+			TS_ASSERT(load(text.c_str(), m));
+			TS_ASSERT_EQUALS(m.shadowMode, kModes[i].want);
+			TS_ASSERT(m.warnings.empty());
+		}
+
+		static const struct { const char *width; int quarters; } kWidths[] = {
+			{ "0.75", 3 }, { "2", 8 }, { "1.5", 6 }, { "0.6", 2 }, { "8", 32 }
+		};
+		for (uint i = 0; i < ARRAYSIZE(kWidths); ++i) {
+			const Common::String text = Common::String::format("[map]\nversion=2\n[shadow]\nwidth=%s\n", kWidths[i].width);
+			TS_ASSERT(load(text.c_str(), m));
+			TS_ASSERT_EQUALS(m.shadowWidthQ, kWidths[i].quarters);
+		}
+
+		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nstyle=legacy\nshadow=none\nshadow_alpha=0\noffset=-1\n", m));
+		TS_ASSERT_EQUALS(m.shadowStyle, Graphics::kHiResOutlineLegacy);
+		TS_ASSERT(m.shadowShiftSet);
+		TS_ASSERT_EQUALS(m.shadowDx, 0);
+		TS_ASSERT_EQUALS(m.shadowDy, 0);
+		TS_ASSERT_EQUALS(m.shadowAlpha, 0);
+		TS_ASSERT_EQUALS(m.shadowOffset, -1);
+		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nstyle=round\nshadow=2,-3\nshadow_alpha=100\n", m));
+		TS_ASSERT_EQUALS(m.shadowStyle, Graphics::kHiResOutlineRound);
+		TS_ASSERT_EQUALS(m.shadowDx, 2);
+		TS_ASSERT_EQUALS(m.shadowDy, -3);
+		TS_ASSERT_EQUALS(m.shadowAlpha, 255);
+
+		// A qualified section's colour wins over the bare one; an inline
+		// comment ends the value.
+		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nmode=outline\ncolor=0\n[shadow:fmtowns]\ncolor=15 ; FM-Towns white\n",
+					   m, Graphics::kHiResKeysScumm, "fmtowns"));
+		TS_ASSERT_EQUALS(m.shadowMode, Graphics::kHiResShadowOutline);
+		TS_ASSERT_EQUALS(m.shadowColor, 15);
+		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nmode=outline\ncolor=0\n[shadow:fmtowns]\ncolor=15 ; FM-Towns white\n", m));
+		TS_ASSERT_EQUALS(m.shadowColor, 0);
+	}
+
+	// Within one [glyphs] section every range is applied before every
+	// single code, so a single code punches a hole in a range whatever the
+	// line order; a later range wins an overlap; a more specific section
+	// wins code by code, a range over a bare single included.
+	void test_glyphs_single_beats_range_and_later_range_wins() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[glyphs]\n0x5e=original\n0x21-0x7E=+0xFEE0\n", m));
+		TS_ASSERT_EQUALS(m.glyphs[0x5e].kind, Graphics::kHiResGlyphOriginal);
+		TS_ASSERT_EQUALS(m.glyphs[0x41].kind, Graphics::kHiResGlyphOffset);
+		TS_ASSERT(load("[map]\nversion=2\n[glyphs]\n0x21-0x7E=+0xFEE0\n0x5e=original\n", m));
+		TS_ASSERT_EQUALS(m.glyphs[0x5e].kind, Graphics::kHiResGlyphOriginal);
+		TS_ASSERT_EQUALS(m.glyphs.size(), 94u);
+
+		TS_ASSERT(load("[map]\nversion=2\n[glyphs]\n0x40-0x50=+0x10\n0x48-0x60=+0x20\n", m));
+		TS_ASSERT_EQUALS(m.glyphs[0x40].value, 0x10u);
+		TS_ASSERT_EQUALS(m.glyphs[0x48].value, 0x20u);   // the later range wins the overlap
+		TS_ASSERT_EQUALS(m.glyphs[0x50].value, 0x20u);
+		TS_ASSERT_EQUALS(m.glyphs[0x60].value, 0x20u);
+
+		const char *scoped = "[map]\nversion=2\n[glyphs]\n0x41=original\n[glyphs:monkey2]\n0x40-0x42=+0x20\n";
+		TS_ASSERT(load(scoped, m, Graphics::kHiResKeysScumm, "monkey2"));
+		TS_ASSERT_EQUALS(m.glyphs[0x41].kind, Graphics::kHiResGlyphOffset);
+		TS_ASSERT_EQUALS(m.glyphs[0x41].value, 0x20u);
+		TS_ASSERT(load(scoped, m));
+		TS_ASSERT_EQUALS(m.glyphs[0x41].kind, Graphics::kHiResGlyphOriginal);
+		TS_ASSERT(!m.glyphs.contains(0x40));
+	}
+
+	// An engine passes its qualifiers most specific first (SCUMM: game id,
+	// then v<N>): the first one a section exists for wins, the next is the
+	// fallback, the bare section the last.
+	void test_two_engine_qualifiers_most_specific_first() {
+		const char *text =
+			"[map]\nversion=2\n"
+			"[render]\nscale=1\n[render:v5]\nscale=2\n[render:monkey2]\nscale=3\n"
+			"[font]\nsize=10\nrange.U+2026=A.SVF\n[font:v5]\nsize=12\nrange.U+2026=B.SVF\n"
+			"[font:monkey2]\nsize=14\nrange.U+2026=C.SVF\n";
+		Graphics::HiResMap m;
+		TS_ASSERT(load(text, m, Graphics::kHiResKeysScumm, "monkey2", "v5"));
+		TS_ASSERT_EQUALS(m.scale, 3);
+		TS_ASSERT_EQUALS(m.font.size, 14);
+		TS_ASSERT_EQUALS(m.font.rangeValues.size(), 1u);
+		TS_ASSERT_EQUALS(m.font.rangeValues[0].entries[0].written, "C.SVF");
+		TS_ASSERT(load(text, m, Graphics::kHiResKeysScumm, "zak", "v5"));
+		TS_ASSERT_EQUALS(m.scale, 2);
+		TS_ASSERT_EQUALS(m.font.size, 12);
+		TS_ASSERT_EQUALS(m.font.rangeValues[0].entries[0].written, "B.SVF");
+		TS_ASSERT(load(text, m));
+		TS_ASSERT_EQUALS(m.scale, 1);
+		TS_ASSERT_EQUALS(m.font.size, 10);
+		TS_ASSERT_EQUALS(m.font.rangeValues[0].entries[0].written, "A.SVF");
+	}
+
+	// A [font.N:q] or [glyphs.N:q] whose qualifier the engine did not pass
+	// is another game's section: it creates no id.
+	void test_foreign_qualified_id_section_creates_no_id() {
+		const char *text = "[map]\nversion=2\n[font.7:pc98]\nsize=20\n[glyphs.3:pc98]\n0x41=original\n";
+		Graphics::HiResMap m;
+		TS_ASSERT(load(text, m, Graphics::kHiResKeysScumm, "dos"));
+		TS_ASSERT(m.fontIdScope(7) == nullptr);
+		TS_ASSERT(!m.glyphIds.contains(3));
+		TS_ASSERT(load(text, m, Graphics::kHiResKeysScumm, "pc98"));
+		TS_ASSERT(m.fontIdScope(7) != nullptr);
+		TS_ASSERT_EQUALS(m.fontIdScope(7)->size, 20);
+		TS_ASSERT(m.glyphIds.contains(3));
+	}
+
+	// gamma= is 0.5..4.0 in hundredths, rounded to the nearest one.
+	void test_gamma_bounds_and_rounding() {
+		static const struct { const char *text; int hundredths; } kGood[] = {
+			{ "0.5", 50 }, { "4", 400 }, { "1.805", 181 }, { "1", 100 }, { "2.2", 220 }
+		};
+		Graphics::HiResMap m;
+		for (uint i = 0; i < ARRAYSIZE(kGood); ++i) {
+			const Common::String text = Common::String::format("[map]\nversion=2\n[render]\ngamma=%s\n", kGood[i].text);
+			TS_ASSERT(load(text.c_str(), m));
+			TS_ASSERT_EQUALS(m.coverageGamma, kGood[i].hundredths);
+			TS_ASSERT(m.warnings.empty());
+		}
+		static const char *const kBad[] = { "0", "0.4", "4.01", "9", "-1", "2.2x", "dark", "", "1." };
+		for (uint i = 0; i < ARRAYSIZE(kBad); ++i) {
+			const Common::String text = Common::String::format("[map]\nversion=2\n[render]\ngamma=%s\n", kBad[i]);
+			TS_ASSERT(load(text.c_str(), m));
+			TS_ASSERT_EQUALS(m.coverageGamma, 100);
+			const Common::String want = Common::String::format("HIRESTXT.MAP: [render] gamma '%s' is not 0.5..4.0; ignoring it", kBad[i]);
+			TS_ASSERT(hasWarning(m, want.c_str()));
+		}
+	}
+
+	// [glyphs] keys: hex or decimal codes, a range with a one-code span, a
+	// +0x0 offset (offsets are hex only, design 6.7); malformed keys and
+	// spans over 0x10000 codes are refused.
+	void test_glyph_key_forms_and_refusals() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[glyphs]\n33-126=+0xFEE0\n0x80-0x80=u+20ac\n65=+0x0\n", m));
+		TS_ASSERT_EQUALS(m.glyphs.size(), 95u);
+		TS_ASSERT_EQUALS(m.glyphs[33].kind, Graphics::kHiResGlyphOffset);
+		TS_ASSERT_EQUALS(m.glyphs[126].value, 0xFEE0u);
+		TS_ASSERT_EQUALS(m.glyphs[0x80].kind, Graphics::kHiResGlyphCodePoint);
+		TS_ASSERT_EQUALS(m.glyphs[0x80].value, 0x20ACu);
+		TS_ASSERT_EQUALS(m.glyphs[65].kind, Graphics::kHiResGlyphOffset);
+		TS_ASSERT_EQUALS(m.glyphs[65].value, 0u);
+		TS_ASSERT(m.warnings.empty());
+
+		static const char *const kBadKeys[] = {
+			"0x110000", "0x7E-0x21", "0x21-", "-0x7E", "0x21-0x7E-0x80", "0xzz-0x7E", "abc"
+		};
+		for (uint i = 0; i < ARRAYSIZE(kBadKeys); ++i) {
+			const Common::String text = Common::String::format("[map]\nversion=2\n[glyphs]\n%s=u+2026\n", kBadKeys[i]);
+			TS_ASSERT(load(text.c_str(), m));
+			TS_ASSERT(m.glyphs.empty());
+			const Common::String want = Common::String::format(
+				"HIRESTXT.MAP: [glyphs] %s is not a character code or range; ignoring it", kBadKeys[i]);
+			TS_ASSERT(hasWarning(m, want.c_str()));
+		}
+		TS_ASSERT(load("[map]\nversion=2\n[glyphs]\n0x0-0x10000=+0x1\n0x0-0xFFFF=+0x1\n", m));
+		TS_ASSERT_EQUALS(m.glyphs.size(), 0x10000u);
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [glyphs] 0x0-0x10000 spans more than 0x10000 codes; ignoring it"));
+	}
+
+	// Inline comments: a space or a tab before ';' starts one; a ';' with
+	// anything else before it is part of the value; a value that is only a
+	// comment is empty; '#' never starts one (the TTC face suffix).
+	void test_inline_comment_edges() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[fonts]\nko=my;font.ttf\n[font]\nface=A.TTF#1\n"
+					   "[shadow]\ncolor=7\t; tab\n", m));
+		TS_ASSERT(m.faces.contains("ko"));
+		TS_ASSERT_EQUALS(m.faces["ko"], "my;font.ttf");
+		TS_ASSERT_EQUALS(m.font.face.entries[0].written, "A.TTF#1");
+		TS_ASSERT_EQUALS(m.font.face.entries[0].path.toString('/'), "/maps/A.TTF#1");
+		TS_ASSERT(m.shadowColorSet);
+		TS_ASSERT_EQUALS(m.shadowColor, 7);
+		TS_ASSERT(load("[map]\nversion=2\n[shadow]\ncolor= ; nothing\n", m));
+		TS_ASSERT(!m.shadowColorSet);
+		TS_ASSERT(load("[map]\nversion=2\n[shadow]\ncolor=2;3\n", m));
+		TS_ASSERT(!m.shadowColorSet);   // "2;3" is the value, and not a number
+	}
+
+	// A map that is not a valid INI file is refused whole, with the
+	// version-gate text.
+	void test_broken_ini_is_refused() {
+		Graphics::HiResMap m;
+		TS_ASSERT(!load("[map]\nversion=2\n[broken\n", m));
+		TS_ASSERT_EQUALS(m.version, 0);
+		TS_ASSERT_EQUALS(m.warnings.size(), 1u);
+		TS_ASSERT_EQUALS(m.warnings.back(),
+			"HIRESTXT.MAP /maps: not a version 2 map; regenerate it (graphics/hires_text/README.md)");
+	}
+
+	// An id section is written [font.N] / [glyphs.N] with N in plain
+	// decimal: [font.04] or [glyphs.007] is an unknown section, warned about
+	// and not read; the section name's case does not matter.
+	void test_non_canonical_id_sections_warn() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[font.04]\nsize=20\n[glyphs.007]\n0x41=original\n[FONT.7]\nsize=18\n", m));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown section [font.04]"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown section [glyphs.007]"));
+		TS_ASSERT(m.fontIdScope(4) == nullptr);
+		TS_ASSERT(!m.glyphIds.contains(7));
+		TS_ASSERT(m.fontIdScope(7) != nullptr);
+		TS_ASSERT_EQUALS(m.fontIdScope(7)->size, 18);
+		TS_ASSERT_EQUALS(m.warnings.size(), 2u);
+	}
+
+	// Loading into a HiResMap that already holds a map forgets all of it.
+	void test_reload_resets_everything() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[render]\ntarget=rgb565\nblend=on\nscale=3\ngamma=2\n[text]\nencoding=cp949\n"
+					   "[layout]\nhangul=any\n[fonts]\nko=KO.SVF\n[font]\nface=ko\nmissing=u+25a1\nrange.basic-latin=A.SVF\n"
+					   "[font.4]\nsize=20\n[glyphs]\n0x41=original\n[glyphs.2]\n0x42=original\n"
+					   "[shadow]\nmode=outline\ncolor=3\nwidth=1\n[bogus]\nx=1\n", m));
+		TS_ASSERT(!m.warnings.empty());
+		TS_ASSERT(load("[map]\nversion=2\n", m));
+		TS_ASSERT(!m.targetSet);
+		TS_ASSERT(!m.blendSet);
+		TS_ASSERT(!m.scaleSet);
+		TS_ASSERT_EQUALS(m.coverageGamma, 100);
+		TS_ASSERT(!m.encodingSet);
+		TS_ASSERT(!m.layout.hangulSet);
+		TS_ASSERT(m.faces.empty());
+		TS_ASSERT(!m.font.faceSet);
+		TS_ASSERT(!m.font.missingSet);
+		TS_ASSERT(m.font.rangeSpecs.empty());
+		TS_ASSERT(m.fontIds.empty());
+		TS_ASSERT(m.glyphs.empty());
+		TS_ASSERT(m.glyphIds.empty());
+		TS_ASSERT_EQUALS(m.shadowMode, Graphics::kHiResShadowGame);
+		TS_ASSERT(!m.shadowColorSet);
+		TS_ASSERT_EQUALS(m.shadowWidthQ, -1);
+		TS_ASSERT(m.warnings.empty());
+	}
+
+	// missing= takes a code point as u+, U+ or 0x.
+	void test_missing_code_point_forms() {
+		static const char *const kForms[] = { "u+25a1", "U+25A1", "0x25a1" };
+		Graphics::HiResMap m;
+		for (uint i = 0; i < ARRAYSIZE(kForms); ++i) {
+			const Common::String text = Common::String::format("[map]\nversion=2\n[font]\nmissing=%s\n", kForms[i]);
+			TS_ASSERT(load(text.c_str(), m));
+			TS_ASSERT(m.font.missingSet);
+			TS_ASSERT_EQUALS(m.font.missing, 0x25A1u);
+		}
 	}
 
 	// mirror= is off|horizontal|vertical|both only (design 6.2.1): the old
