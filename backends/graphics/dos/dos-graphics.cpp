@@ -774,9 +774,11 @@ static void unlockRegion(uint32 &addr, uint32 &size) {
 
 static void lockRegion(const void *p, uint32 bytes, uint32 &addr, uint32 &size) {
 	unlockRegion(addr, size);
-	// Only a large block of its own (dos-heap.cpp): the rest of the heap is
-	// locked already, and unlocking a region of it later would also unlock
-	// the pages it shares with its neighbours, which timer procs may use.
+	// Only a large block of its own (dos-heap.cpp), whose pages it shares
+	// with nothing. A block from the sbrk heap shares its first and last
+	// pages with its neighbours, which an interrupt handler may have locked
+	// (and under a DPMI host other than CWSDPMI the whole heap is locked):
+	// unlocking it later would unlock those pages too.
 	if (!p || !bytes || !dosHeapInLargeBlock(p, bytes))
 		return;
 	__dpmi_meminfo m;
