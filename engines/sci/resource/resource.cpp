@@ -941,6 +941,13 @@ void ResourceManager::scanNewSources() {
 		}
 	}
 
+	// The audio maps' list grew by doubling as they were read: as long as it
+	// is now, no longer.
+	if (!_lazyAudio.empty()) {
+		Common::Array<LazyAudioEntry> exact(_lazyAudio);
+		_lazyAudio.swap(exact);
+	}
+
 	// The warning dialog is shown here instead of someplace more obvious like
 	// SciEngine::run because resource sources can be dynamically added
 	// (e.g. KQ5 via kDoAudio, MGDX via kSetLanguage), and users really should
