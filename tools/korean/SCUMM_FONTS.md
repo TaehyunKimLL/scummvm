@@ -182,6 +182,28 @@ heuristic's noise syllables would make it fail; the bake then reports how
 many requested glyphs the face lacks, and the noise can be commented out of
 the file to get a clean count.
 
+Two more positional arguments, both optional, cover a map's own remap
+targets - a `[glyphs]` entry that points an in-game byte at a real Unicode
+code point (`0x5e = u+2026`, say), rather than at the game's own glyph:
+
+```sh
+tools/korean/bake-scumm-fonts.sh plan.tsv ~/games/mi2kor /out/dir chars.txt \
+    HIRESTXT.MAP 2026
+```
+
+`<extra_chars_from>` (here, the map itself) is a second `--chars-from` input:
+`mkfont.py` already reads a map's `missing=` and `[glyphs]` absolute
+`u+XXXX` targets, so this pulls a target the map just gained into the bake
+without touching `<chars>`, the game's own scanned text. `<extra_limit>`,
+if given, is appended to the hardcoded `--limit ascii,ksx1001-nohanja` (as
+plain hex, no `u+` prefix, comma-separated for more than one) so that target
+survives the limit too - a remap target such as `u+2026` is outside both
+named ranges and would otherwise be silently dropped. Both default to
+empty, reproducing the four-argument invocation byte for byte. Only the
+preset whose SVF needs the remapped glyph takes these two arguments; a
+preset that keeps the byte as the game's own glyph (`[glyphs:clut8] 0x5e =
+original`, say) bakes with the plain four-argument form.
+
 A line whose `(ttf, size, bpp, cell, ascent)` was already baked earlier in
 the same plan is copied from that earlier output rather than baked again -
 MI1/MI2 commonly reuse one face at one size for several charsets (every UI
