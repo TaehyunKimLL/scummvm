@@ -40,6 +40,7 @@
 #include "backends/platform/dos/dos-irq.h"
 #include "backends/platform/dos/pit-chain.h"
 #include "common/debug.h"
+#include "common/str.h"
 #include "common/textconsole.h"
 #include "common/util.h"
 
@@ -55,6 +56,13 @@ static const uint32 kHandlerEvery = 4;
 // One PIT tick is 1193 / 1193182 s = 1193000 / 1193182 ms.
 static const uint32 kMsNum = DOS::kPitDivisor * 1000;
 static const uint32 kMsDen = 1193182;
+
+// handler() run time histogram bounds, in ms (logStats()).
+static const uint32 kStallMs[6] = { 1, 2, 5, 20, 50, 200 };
+
+// The longest handler() run the catch-up accounts for: past that the
+// ticks are lost as before.
+static const uint32 kCatchUpMaxTicks = 2000;
 
 // Ticks the handler samples at install to learn how CWSDPMI hands it an
 // interrupt that came in our protected-mode code.
@@ -101,6 +109,18 @@ struct IsrState {
 	volatile uint32 procDeferred;	// due ticks that came in real mode or the host
 	volatile uint32 maxWait;		// the most ticks the procs waited past due
 	volatile uint32 waits10;		// runs that waited 10 ticks or more
+	// Catch-up for the ticks lost while the procs run (IRQ0 masked, or
+	// interrupts off): see runProcs(). 0 without a TSC, or before it is
+	// calibrated (calibrateTsc()).
+	uint32 tscPerTick;			// TSC counts per PIT period
+	uint32 tscCap;				// the longest run it accounts for, in TSC counts
+	volatile uint32 biosOwed;	// BIOS INT 8 calls owed for credited ticks
+	volatile uint32 ticksCredited;	// ticks credited so far
+	volatile uint32 biosTicks;	// BIOS ticks given: INT 8 calls, and spinMillis()'s own
+	// handler() run times in IRQ0, by kStallMs bin, and the longest.
+	uint32 stallTsc[6];			// kStallMs in TSC counts
+	volatile uint32 stalls[7];
+	volatile uint32 stallMax;	// TSC counts
 	byte fpu[108] __attribute__((aligned(4)));	// fnsave image
 };
 static IsrState g_isr;
@@ -170,6 +190,36 @@ static inline __attribute__((always_inline)) void tickClock() {
 	}
 }
 
+// The PIT's count, from IRQ code.
+static inline __attribute__((always_inline)) uint16 irqPitRead() {
+	DOS::irqOut8(0x43, 0x00);	// latch channel 0
+	const uint16 lo = DOS::irqIn8(0x40);
+	return lo | (DOS::irqIn8(0x40) << 8);
+}
+
+// n / d for a quotient that fits 32 bits (the caller makes sure), inline:
+// GCC calls libgcc's __udivdi3 for a 64-bit division, which is not locked.
+static inline __attribute__((always_inline)) uint32 irqDiv64(uint64 n, uint32 d) {
+	uint32 q, r;
+	__asm__("divl %4" : "=a"(q), "=d"(r) : "a"((uint32)n), "d"((uint32)(n >> 32)), "rm"(d) : "cc");
+	return q;
+}
+
+// Credits @p n ticks that never reached the handler to the clock, and
+// owes the BIOS the INT 8 calls they would have made (timerIsr() pays
+// those back one per tick).
+static inline __attribute__((always_inline)) void creditTicks(uint32 n) {
+	g_isr.ticks += n;
+	// kMsNum < kMsDen: n * kMsNum stays well under 2^32 for n <= kCatchUpMaxTicks.
+	g_isr.msAcc += n * kMsNum;
+	g_isr.millis += g_isr.msAcc / kMsDen;
+	g_isr.msAcc %= kMsDen;
+	g_isr.chain.acc += n * DOS::kPitDivisor;
+	g_isr.biosOwed += g_isr.chain.acc >> 16;
+	g_isr.chain.acc &= 0xFFFF;
+	g_isr.ticksCredited += n;
+}
+
 // The bytes of the frames readFrame() reads, from the saved ESP.
 static const uint32 kFrameBytes = 80;
 
@@ -227,6 +277,13 @@ static inline __attribute__((always_inline)) void calibrate(uint32 esp, uint16 s
 		g_isr.calMatched++;
 }
 
+// The one call into the timer procs, out of line so that it stays one
+// call site (irqcheck.py allows one such indirect call) however runProcs()
+// is inlined.
+static DOS_IRQ_CODE __attribute__((noinline)) void callHandler() {
+	g_isr.timer->handler();
+}
+
 // Runs the timer procs (DefaultTimerManager::handler()), with interrupts
 // off: from timerIsr(), and on the main thread as a real-mode call returns
 // (runDeferredProcs()).
@@ -242,6 +299,14 @@ static inline __attribute__((always_inline)) void calibrate(uint32 esp, uint16 s
 // this cannot nest it either. The other IRQs are served meanwhile; their
 // handlers touch only their own locked memory. inHandler is only a
 // backstop.
+//
+// The ticks that came while handler() ran are lost to the PIC (it latches
+// one, which counts itself once delivered): a page fault in a proc holds
+// IRQ0 masked for tens of ms. With a TSC they are counted here instead --
+// the PIT periods that began during the run, from the TSC and the PIT's
+// count on both sides -- and credited to the clock and the BIOS chain, so
+// that the clock does not fall behind and DefaultTimerManager runs the
+// missed proc intervals on its next pass. spinMillis() credits its own.
 static inline __attribute__((always_inline)) void runProcs(uint8 ctx) {
 	const uint32 waited = g_isr.sinceHandler - kHandlerEvery;
 	if (waited > g_isr.maxWait)
@@ -255,7 +320,40 @@ static inline __attribute__((always_inline)) void runProcs(uint8 ctx) {
 	// Timer procs may use the FPU; the code we interrupted may be in the
 	// middle of an x87 computation. fnsave also leaves the FPU initialised.
 	__asm__ __volatile__("fnsave %0" : "=m"(g_isr.fpu) : : "memory");
-	g_isr.timer->handler();
+	const uint32 tscPerTick = g_isr.tscPerTick;
+	uint64 tsc0 = 0;
+	uint16 pit0 = 0;
+	uint32 ticks0 = 0;
+	if (tscPerTick) {
+		ticks0 = g_isr.ticks;
+		pit0 = irqPitRead();
+		tsc0 = DOS::irqRdtsc();
+	}
+	callHandler();
+	if (tscPerTick) {
+		const uint64 d = DOS::irqRdtsc() - tsc0;
+		const uint16 pit1 = irqPitRead();
+		const uint32 elapsed = d > g_isr.tscCap ? g_isr.tscCap : (uint32)d;
+		// The PIT's input clocks that passed, from the TSC (the quotient
+		// fits: elapsed <= kCatchUpMaxTicks periods), and the periods
+		// begun meanwhile: the count falls from the divisor to 1 and
+		// reloads, so its position on both sides makes the sum a whole
+		// number of periods, give or take the TSC's error, which the
+		// rounding takes out.
+		const int32 clocks = (int32)irqDiv64((uint64)elapsed * DOS::kPitDivisor, tscPerTick) + (int32)pit1 - (int32)pit0;
+		const uint32 periods = clocks <= 0 ? 0 : ((uint32)clocks + DOS::kPitDivisor / 2) / DOS::kPitDivisor;
+		const uint32 credited = g_isr.ticks - ticks0;	// spinMillis()'s
+		if (periods > credited + 1)
+			creditTicks(periods - credited - 1);
+		if (ctx == DosTimerManager::kProcsInIrq0) {
+			uint bin = 0;
+			while (bin < ARRAYSIZE(g_isr.stallTsc) && elapsed >= g_isr.stallTsc[bin])
+				bin++;
+			g_isr.stalls[bin]++;
+			if (elapsed > g_isr.stallMax)
+				g_isr.stallMax = elapsed;
+		}
+	}
 	__asm__ __volatile__("frstor %0" : : "m"(g_isr.fpu) : "memory");
 	g_isr.procRuns++;
 	// A tick that came in meanwhile is latched, and delivered after our
@@ -273,7 +371,14 @@ static inline __attribute__((always_inline)) void runProcs(uint8 ctx) {
 // as its two stack arguments.
 static DOS_IRQ_CODE void timerIsr(uint32 savedEsp, uint32 savedSs) {
 	tickClock();
-	if (DOS::pitTick(g_isr.chain)) {
+	bool chain = DOS::pitTick(g_isr.chain);
+	if (!chain && g_isr.biosOwed) {
+		// A tick credited by runProcs()'s catch-up: one owed call a tick.
+		g_isr.biosOwed--;
+		chain = true;
+	}
+	if (chain) {
+		g_isr.biosTicks++;
 		// The old handler (reflected to the BIOS) bumps 0040:006C, calls
 		// INT 1Ch and sends its own EOI. pushfl + lcall build the frame
 		// its IRET pops.
@@ -397,7 +502,8 @@ static void runProcsCall() {
  * proc) and on the main thread (SDL3's threads have stacks of their own).
  */
 static void runDeferredProcs() {
-	if (g_isr.procsMode != kProcsFromOurCode || !DosTimerManager::interruptsEnabled())
+	if ((g_isr.procsMode != kProcsFromOurCode && g_isr.procsMode != kProcsOnMainThread) ||
+		!DosTimerManager::interruptsEnabled())
 		return;
 	uint32 esp;
 	__asm__ __volatile__("movl %%esp, %0" : "=r"(esp));
@@ -450,7 +556,8 @@ static void teardown() {
 // where the timer procs may run.
 static void calibrate() {
 	if (DOS::lockedAll()) {
-		g_isr.procsMode = kProcsAlways;
+		// Not all of it (lockAll() said so): no interrupt may run them.
+		g_isr.procsMode = DOS::lockedAllComplete() ? kProcsAlways : kProcsOnMainThread;
 		return;
 	}
 	uint16 cs, ss;
@@ -484,12 +591,58 @@ static void calibrate() {
 	}
 	// Nothing here can tell where an interrupt came from. Lock everything
 	// instead, as under any other host, and run the procs from every
-	// IRQ0 (no timer proc can run yet: g_isr.timer is null).
+	// IRQ0 (no timer proc can run yet: g_isr.timer is null) -- unless
+	// some of it could not be locked: CWSDPMI may then page a proc's
+	// memory in an interrupt that came in real mode, which is fatal, so
+	// they stay on the main thread.
 	g_isr.procsMode = kProcsOnMainThread;
 	warning("DOS: %s under %s (%u of %u); locking all memory",
 		why, DOS::dpmiHost(), (uint)g_isr.calMatched, (uint)g_isr.calSeen);
-	DOS::lockAll(why);
-	g_isr.procsMode = kProcsAlways;
+	if (DOS::lockAll(why))
+		g_isr.procsMode = kProcsAlways;
+}
+
+// The TSC's rate in PIT periods, for runProcs()'s catch-up: two runs of
+// kTscCalTicks ticks each, which must agree within 1/64. Without a TSC,
+// or if they do not agree (a TSC that does not run at a steady rate),
+// there is no catch-up. Runs on the main thread with interrupts on, before
+// any timer proc can run.
+static const uint32 kTscCalTicks = 25;
+
+static void calibrateTsc() {
+	if (!DOS::haveTsc() || !DosTimerManager::interruptsEnabled())
+		return;
+	uint64 at[3];
+	uint32 t = g_isr.ticks;
+	for (uint32 spin = 0; g_isr.ticks == t && spin < 100000000; ++spin)
+		__asm__ __volatile__("" : : : "memory");
+	for (int i = 0; i < 3; ++i) {
+		t = g_isr.ticks;
+		at[i] = DOS::irqRdtsc();
+		if (i == 2)
+			break;
+		for (uint32 spin = 0; g_isr.ticks - t < kTscCalTicks && spin < 400000000; ++spin)
+			__asm__ __volatile__("" : : : "memory");
+		if (g_isr.ticks - t != kTscCalTicks) {
+			warning("DOS: no TSC catch-up: IRQ0 ticks did not come as expected");
+			return;
+		}
+	}
+	const uint64 a = (at[1] - at[0]) / kTscCalTicks, b = (at[2] - at[1]) / kTscCalTicks;
+	const uint64 diff = a > b ? a - b : b - a;
+	if (!a || !b || diff > a / 64 || a > 0xFFFFFFFFull) {
+		warning("DOS: no TSC catch-up: TSC per tick %u then %u", (uint)a, (uint)b);
+		return;
+	}
+	const uint32 perTick = (uint32)((a + b) / 2);
+	const uint64 cap = (uint64)perTick * kCatchUpMaxTicks;
+	g_isr.tscCap = cap > 0xFFFFFFFFull ? 0xFFFFFFFFu : (uint32)cap;
+	for (uint i = 0; i < ARRAYSIZE(kStallMs); ++i) {
+		const uint64 v = (uint64)perTick * kStallMs[i];
+		g_isr.stallTsc[i] = v > 0xFFFFFFFFull ? 0xFFFFFFFFu : (uint32)v;
+	}
+	g_isr.tscPerTick = perTick;
+	debug(1, "DOS: TSC %u per IRQ0 tick (%u, %u): lost ticks caught up", (uint)perTick, (uint)a, (uint)b);
 }
 
 static bool install() {
@@ -518,6 +671,11 @@ static bool install() {
 	g_isr.timer = nullptr;
 	g_isr.procRuns = g_isr.procRunsAfterCall = g_isr.procDeferred = 0;
 	g_isr.maxWait = g_isr.waits10 = 0;
+	g_isr.tscPerTick = 0;
+	g_isr.biosOwed = g_isr.ticksCredited = g_isr.biosTicks = 0;
+	for (uint i = 0; i < ARRAYSIZE(g_isr.stalls); ++i)
+		g_isr.stalls[i] = 0;
+	g_isr.stallMax = 0;
 
 	// Timer procs run on the wrapper's own stack (malloc'd and locked by
 	// libc, as is the wrapper); SCI's music code is deeper than the 32 KB
@@ -550,6 +708,7 @@ static bool install() {
 		g_atexitDone = true;
 	}
 	calibrate();
+	calibrateTsc();
 	return true;
 }
 
@@ -608,6 +767,7 @@ void DosTimerManager::spinMillis(uint msecs) {
 	for (uint i = 1; i < wraps; ++i) {
 		tickClock();
 		if (DOS::pitTick(g_isr.chain)) {
+			g_isr.biosTicks++;
 			uint32 bios = _farpeekl(_dos_ds, 0x46C) + 1;
 			if (bios >= 0x1800B0) {
 				bios = 0;
@@ -639,6 +799,17 @@ void DosTimerManager::logStats() {
 		"longest wait %u ms, waits of 10 ms or more %u",
 		kModes[g_isr.procsMode], (uint)g_isr.procRuns, (uint)(g_isr.procRuns - g_isr.procRunsAfterCall),
 		(uint)g_isr.procRunsAfterCall, (uint)g_isr.procDeferred, (uint)g_isr.maxWait, (uint)g_isr.waits10);
+	if (!g_isr.tscPerTick)
+		return;
+	// handler()'s run times in IRQ0, by bin: <1, <2, <5, <20, <50, <200 ms, and more.
+	Common::String bins;
+	for (uint i = 0; i < ARRAYSIZE(g_isr.stalls); ++i)
+		bins += Common::String::format("%s%u", i ? "/" : "", (uint)g_isr.stalls[i]);
+	// The BIOS's due: one tick per 65536 PIT clocks (the accumulator
+	// starts at 0 with the tick count).
+	debug(1, "DOS: timer stalls in IRQ0 bins=%s max_us=%u; ticks caught up %u; BIOS ticks %u + owed %u of %u due",
+		bins.c_str(), (uint)((uint64)g_isr.stallMax * 1000 / g_isr.tscPerTick), (uint)g_isr.ticksCredited,
+		(uint)g_isr.biosTicks, (uint)g_isr.biosOwed, (uint)((uint64)g_isr.ticks * DOS::kPitDivisor / 65536));
 }
 
 void DosTimerManager::delayInHandler(uint msecs) {

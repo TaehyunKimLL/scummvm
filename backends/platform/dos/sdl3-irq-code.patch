@@ -14,6 +14,12 @@ Build and install where build-dos.sh looks ($SDL3_DOS, ~/opt/sdl3-dos):
   cmake --build SDL3/build-dos && cmake --install SDL3/build-dos
 build-dos.sh refuses an installed libSDL3.a without DOS_IRQCodeChecked.
 
+Never add an unlock to SDL's thread stacks (DOS_DestroyThread() frees a
+stack that SDL_dos_scheduler.c locked with _go32_dpmi_lock_data()):
+CWSDPMI keeps no lock count (paging.c lock_memory()), so the unlock would
+also unlock the pages the stack shares with its neighbours -- memory that
+ScummVM locked as a whole (DOS::lockAll()), or an interrupt handler's own.
+
 diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
 index 2958c56..74064b0 100644
 --- a/src/audio/dos/SDL_dosaudio_sb.c

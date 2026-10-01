@@ -71,6 +71,13 @@ static inline __attribute__((always_inline)) void irqOut8(uint16 port, uint8 v) 
 	__asm__ __volatile__("outb %0, %1" : : "a"(v), "Nd"(port));
 }
 
+// The time stamp counter (check haveTsc() first).
+static inline __attribute__((always_inline)) uint64 irqRdtsc() {
+	uint32 lo, hi;
+	__asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
+	return ((uint64)hi << 32) | lo;
+}
+
 static inline __attribute__((always_inline)) uint32 irqPeek32(uint16 selector, uint32 offset) {
 	uint32 v;
 	__asm__ __volatile__("movw %w1, %%fs\n\tmovl %%fs:(%2), %0" : "=r"(v) : "rm"(selector), "r"(offset));
@@ -101,15 +108,23 @@ void chooseLockRegime();
  * Locks the image and the heap as a whole, every later sbrk() and every
  * large block (dos-heap.cpp), so that the timer procs may run from any
  * interrupt. Idempotent; @p why goes to the log. Call it before any timer
- * proc can run.
+ * proc can run. Returns false if some of it could not be locked (no
+ * physical memory left for it, say), which it logs once: the timer procs
+ * must then stay on the main thread (lockedAllComplete()).
  */
-void lockAll(const char *why);
+bool lockAll(const char *why);
 
-/** True when everything is locked (lockAll()). */
+/** True once lockAll() has run, whether or not every lock took. */
 bool lockedAll();
+
+/** True if lockAll() has run and locked everything. */
+bool lockedAllComplete();
 
 /** Why everything is locked, or "". */
 const char *lockedAllWhy();
+
+/** True if the CPU has a time stamp counter (CPUID leaf 1, EDX bit 4). */
+bool haveTsc();
 
 /** The DPMI host's name and version as DPMI 1.0 function 0x401 gives them ("CWSDPMI 7.0"), or "DPMI 0.9". */
 const char *dpmiHost();

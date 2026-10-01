@@ -39,6 +39,7 @@
 #include "common/debug.h"
 #include "common/str.h"
 #include "common/textconsole.h"
+#include "common/util.h"
 
 // The end of .text (the link script's etext): code and read-only data.
 extern "C" char etext[];
@@ -61,6 +62,7 @@ const uintptr kImageStart = 0x1000;
 const uint32 kPage = 4096;
 
 bool g_lockedAll = false;
+bool g_lockedAllComplete = false;
 const char *g_lockedAllWhy = "";
 char g_host[48] = "DPMI 0.9";
 
@@ -162,9 +164,9 @@ void chooseLockRegime() {
 	}
 }
 
-void lockAll(const char *why) {
+bool lockAll(const char *why) {
 	if (g_lockedAll)
-		return;
+		return g_lockedAllComplete;
 	g_lockedAll = true;
 	g_lockedAllWhy = why;
 	// As crt0's _CRT0_FLAG_LOCK_MEMORY would: the image, the stack, the
@@ -173,20 +175,72 @@ void lockAll(const char *why) {
 	// those there are and every later one.
 	_crt0_startup_flags |= _CRT0_FLAG_LOCK_MEMORY;
 	const uintptr top = (uintptr)sbrk(0);
-	if (!lockLinear(kImageStart, top - kImageStart)) {
-		// Blocks of the heap may lie apart; lock what is there.
-		for (uintptr a = kImageStart; a < top; a += kPage)
-			lockLinear(a, kPage);
+	// Block by block, as crt0's non-move sbrk() got them from DPMI: the
+	// heap's blocks may lie apart, and a lock across a gap fails under
+	// most hosts -- and under CWSDPMI r7 stops at the gap and reports
+	// success (paging.c lock_memory(): its loop ends at the first address
+	// outside an area), leaving the rest unlocked.
+	uint32 lockedBytes = 0, failedBytes = 0, blocks = 0;
+	for (uint i = 0; i < ARRAYSIZE(__djgpp_memory_handle_list); ++i) {
+		const uintptr a = __djgpp_memory_handle_list[i].address;
+		const uintptr size = __djgpp_memory_handle_size[i];
+		if ((i > 1 && !a) || !size)
+			continue;
+		const uintptr b = MAX<uintptr>(a, kImageStart), e = MIN<uintptr>(a + size, top);
+		if (b >= e)
+			continue;
+		blocks++;
+		if (lockLinear(b, e - b))
+			lockedBytes += e - b;
+		else
+			failedBytes += e - b;
 	}
-	uint32 blocks, bytes;
-	if (!dosHeapLockLargeBlocks(blocks, bytes))
-		warning("DOS: could not lock every large block");
-	debug(1, "DOS: all memory locked (%s): %u KB below the break, %u large blocks of %u KB",
-		why, (uint)((top - kImageStart) / 1024), (uint)blocks, (uint)(bytes / 1024));
+	if (!blocks) {
+		// No block list to go by: the whole range, else page by page,
+		// where a page that is no one's fails as well as one that could
+		// not be locked; neither is counted.
+		if (lockLinear(kImageStart, top - kImageStart)) {
+			lockedBytes = top - kImageStart;
+		} else {
+			for (uintptr a = kImageStart; a < top; a += kPage)
+				if (lockLinear(a, kPage))
+					lockedBytes += kPage;
+		}
+	}
+	uint32 largeBlocks, largeBytes;
+	const bool largeOk = dosHeapLockLargeBlocks(largeBlocks, largeBytes);
+	debug(1, "DOS: all memory locked (%s): %u KB below the break in %u blocks, %u large blocks of %u KB",
+		why, (uint)(lockedBytes / 1024), (uint)blocks, (uint)largeBlocks, (uint)(largeBytes / 1024));
+	g_lockedAllComplete = failedBytes == 0 && largeOk;
+	if (!g_lockedAllComplete) {
+		// Nothing gained by locking later memory: it would only fail the
+		// sbrk() or large block that needs it.
+		_crt0_startup_flags &= ~_CRT0_FLAG_LOCK_MEMORY;
+		dosHeapStopLockingLargeBlocks();
+		warning("DOS: could not lock all memory (%u KB below the break%s); timer procs run on the main thread",
+			(uint)(failedBytes / 1024), largeOk ? "" : ", some large blocks");
+	}
+	return g_lockedAllComplete;
 }
 
 bool lockedAll() {
 	return g_lockedAll;
+}
+
+bool lockedAllComplete() {
+	return g_lockedAll && g_lockedAllComplete;
+}
+
+bool haveTsc() {
+	// CPUID (EFLAGS.ID toggles), then leaf 1's EDX bit 4.
+	uint32 a, b;
+	__asm__ __volatile__("pushfl; popl %0; movl %0, %1; xorl $0x200000, %0; pushl %0; popfl; pushfl; popl %0; pushl %1; popfl"
+		: "=&r"(a), "=&r"(b) : : "cc");
+	if (((a ^ b) & 0x200000) == 0)
+		return false;
+	uint32 eax = 1, ebx, ecx, edx;
+	__asm__ __volatile__("cpuid" : "+a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx));
+	return (edx & 0x10) != 0;
 }
 
 const char *lockedAllWhy() {

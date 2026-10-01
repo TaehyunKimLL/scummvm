@@ -37,7 +37,9 @@
  * mode leaves them for the next one, or for the end of the real-mode call.
  * Where the handler cannot tell (another host, or frames that do not look
  * as calibrated), everything is locked (DOS::lockAll()) and every due tick
- * runs them.
+ * runs them; if not everything could be locked, they run on the main
+ * thread only. With a TSC, the ticks that come while the procs run (IRQ0
+ * masked) are counted and credited afterwards, BIOS calls included.
  *
  * Teardown (PIT back to its default rate, the old vector back) runs from
  * the destructor and from exit() alike, and only once.

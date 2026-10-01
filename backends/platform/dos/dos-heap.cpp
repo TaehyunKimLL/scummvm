@@ -215,6 +215,10 @@ bool dosHeapLockLargeBlocks(uint32 &blocks, uint32 &bytes) {
 	return ok;
 }
 
+void dosHeapStopLockingLargeBlocks() {
+	g_lockLarge = false;
+}
+
 extern "C" {
 
 void *__wrap_malloc(size_t size) {

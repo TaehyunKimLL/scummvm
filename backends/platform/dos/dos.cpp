@@ -185,8 +185,9 @@ void OSystem_DOS::initBackend() {
 	ConfMan.registerDefault("dos_force_fallback", false);
 	ConfMan.registerDefault("dos_timer_selftest", false);
 	ConfMan.registerDefault("dos_mixer_selftest", false);
-	// dos_pagefault_selftest=<KB>: a timer proc walks a pageable buffer of
-	// that size (see pagefaultSelftestStart()); 0 is off.
+	// dos_pagefault_selftest=<KB>: a timer proc touches a pageable buffer
+	// of that size (see pagefaultSelftestStart()); -<N>: N% of the free
+	// physical memory at the start; 0 is off.
 	ConfMan.registerDefault("dos_pagefault_selftest", 0);
 	ConfMan.registerDefault("dos_pagefault_selftest_hz", 100);
 	// dos_loading_screen=false: no loading screen (DOS::Loading), the
@@ -246,7 +247,7 @@ void OSystem_DOS::initBackend() {
 		timerSelftest();
 	if (ConfMan.getBool("dos_mixer_selftest"))
 		mixerSelftest();
-	if (ConfMan.getInt("dos_pagefault_selftest") > 0)
+	if (ConfMan.getInt("dos_pagefault_selftest") != 0)
 		DOS::pagefaultSelftestStart(ConfMan.getInt("dos_pagefault_selftest"),
 			ConfMan.getInt("dos_pagefault_selftest_hz"));
 }
@@ -277,13 +278,19 @@ static DOS_IRQ_CODE void sbIrqCount() {
 	g_sbIrqs++;
 }
 
-// The self-tests' interrupt code (int1cProbe(), sbIrqCount()), once.
+// The keyboard's, the same way (the page-fault self-test).
+static volatile uint32 g_kbdIrqs = 0;
+static DOS_IRQ_CODE void kbdIrqCount() {
+	g_kbdIrqs++;
+}
+
+// The self-tests' interrupt code (int1cProbe(), sbIrqCount(), kbdIrqCount()), once.
 static void lockSelftestIrqCode() {
 	static bool done = false;
 	if (done)
 		return;
 	done = true;
-	const void *const fns[2] = { (const void *)int1cProbe, (const void *)sbIrqCount };
+	const void *const fns[3] = { (const void *)int1cProbe, (const void *)sbIrqCount, (const void *)kbdIrqCount };
 	DOS::lockIrqCode(dosIrqBegin_dos, dosIrqEnd_dos, fns, ARRAYSIZE(fns), "self-test");
 }
 
@@ -545,12 +552,15 @@ void OSystem_DOS::mixerSelftest() {
  * page fault there is serviced with the interrupt in progress: the paging
  * I/O goes through DOS and the BIOS with interrupts on, so other IRQs come
  * in on the way. This makes it happen on purpose and counts it. A timer
- * proc walks a buffer of that many KB, one page per call: it reads the
- * page's stamp (timed with the TSC), checks it and writes a new one. The
- * buffer is pageable like any other memory: made larger than the free
- * physical memory, its pages go out to the swap file as the walk goes
- * round and come back in the proc. A read slower than kPfSlowUs is
- * counted as such a page-in, with a histogram of the read times.
+ * proc touches a page of a buffer of that many KB per call, picked at
+ * random: it reads the page's first word (timed with the TSC), checks
+ * every word of the page against the page's stamp and writes a new one.
+ * The buffer is pageable like any other memory: made larger than the free
+ * physical memory (1.5 to 2 times), CWSDPMI's pager keeps sending its
+ * pages out to the swap file, and a page picked at random is out about
+ * as often as the buffer is larger than what stays in. A read slower
+ * than kPfSlowUs is counted as such a page-in, with a histogram of the
+ * read times.
  *
  * On a CPU with 4 MB pages (PSE), CWSDPMI r7 maps each 4 MB-aligned
  * stretch of a memory block that it can back with 4 MB of contiguous
@@ -562,8 +572,8 @@ void OSystem_DOS::mixerSelftest() {
  * discard mapped, contents and all.
  * The counts go by where the proc ran: IRQ0, the main thread as a
  * real-mode call returned, or the event loop. Interrupts that came in
- * during a fault are counted from the Sound Blaster (a handler chained in
- * front of SDL3's) and the debug socket's COM port.
+ * during a fault are counted from the Sound Blaster and the keyboard
+ * (handlers chained in front of SDL3's) and the debug socket's COM port.
  */
 namespace DOS {
 
@@ -584,59 +594,58 @@ struct PfTest {
 	byte *buf;
 	uint32 *stamp;		// what each page should hold
 	uint32 pages;
-	uint32 cursor;		// the next page the proc touches
+	uint32 rng;			// xorshift32: the next page the proc touches
 	uint32 gen;
 	uint32 tscPerUs;	// 0: no TSC, no timing
 	uint32 lastLog;
 	PfCounts ctx[3];	// DosTimerManager::ProcsContext; kProcsNone: the event loop
 	uint32 nestedFaults;	// faults during which another IRQ was served
-	uint32 nestedSb, nestedUart;
+	uint32 nestedSb, nestedUart, nestedKbd;
 	uint32 bad;			// a page that did not hold its stamp
-	bool chained;
+	bool chained, kbdChained;
 	int sbVector;
-	_go32_dpmi_seginfo sbOld, sbChain;
+	_go32_dpmi_seginfo sbOld, sbChain, kbdOld, kbdChain;
 };
 
 PfTest g_pf;
 bool g_pfOn = false;
 
-inline uint64 rdtsc() {
-	uint32 lo, hi;
-	__asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
-	return ((uint64)hi << 32) | lo;
+// Word i of a page stamped @p stamp.
+inline uint32 pfWord(uint32 stamp, uint32 i) {
+	return stamp ^ (i * 0x9E3779B9u);
 }
 
-bool haveTsc() {
-	// CPUID (EFLAGS.ID toggles), then leaf 1's EDX bit 4.
-	uint32 a, b;
-	__asm__ __volatile__("pushfl; popl %0; movl %0, %1; xorl $0x200000, %0; pushl %0; popfl; pushfl; popl %0; pushl %1; popfl"
-		: "=&r"(a), "=&r"(b) : : "cc");
-	if (((a ^ b) & 0x200000) == 0)
-		return false;
-	uint32 eax = 1, ebx, ecx, edx;
-	__asm__ __volatile__("cpuid" : "+a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx));
-	return (edx & 0x10) != 0;
+void pfStamp(volatile uint32 *p, uint32 stamp) {
+	for (uint32 i = 0; i < 1024; ++i)
+		p[i] = pfWord(stamp, i);
+}
+
+// Whether every word of the page holds @p stamp's.
+bool pfCheck(const volatile uint32 *p, uint32 stamp) {
+	for (uint32 i = 0; i < 1024; ++i)
+		if (p[i] != pfWord(stamp, i))
+			return false;
+	return true;
 }
 
 void pfProc(void *) {
 	PfTest &t = g_pf;
 	const uint ctx = (uint)DosTimerManager::procsContext();
-	const uint32 idx = t.cursor;
-	t.cursor = (t.cursor + 1) % t.pages;
+	t.rng ^= t.rng << 13;
+	t.rng ^= t.rng >> 17;
+	t.rng ^= t.rng << 5;
+	const uint32 idx = t.rng % t.pages;
 	volatile uint32 *p = (volatile uint32 *)(t.buf + idx * 4096);
-	const uint32 sb0 = g_sbIrqs, uart0 = GUI::DosUart::irqCount();
-	const uint64 t0 = t.tscPerUs ? rdtsc() : 0;
+	const uint32 sb0 = g_sbIrqs, uart0 = GUI::DosUart::irqCount(), kbd0 = g_kbdIrqs;
+	const uint64 t0 = t.tscPerUs ? DOS::irqRdtsc() : 0;
 	const uint32 v = p[0];
-	const uint64 t1 = t.tscPerUs ? rdtsc() : 0;
+	const uint64 t1 = t.tscPerUs ? DOS::irqRdtsc() : 0;
 	const uint32 want = t.stamp[idx];
 	PfCounts &c = t.ctx[ctx < 3 ? ctx : 0];
-	if (v != want)
-		t.bad++;
-	else if (p[1023] != v)
+	if (v != pfWord(want, 0) || !pfCheck(p, want))
 		t.bad++;
 	const uint32 next = ((++t.gen) * 2654435761u) | 1;
-	p[0] = next;
-	p[1023] = next;
+	pfStamp(p, next);
 	t.stamp[idx] = next;
 	c.touches++;
 	if (!t.tscPerUs)
@@ -653,11 +662,12 @@ void pfProc(void *) {
 	c.faults++;
 	if (us >= 1000)
 		c.faults1ms++;
-	const uint32 dsb = g_sbIrqs - sb0, duart = GUI::DosUart::irqCount() - uart0;
-	if (dsb || duart)
+	const uint32 dsb = g_sbIrqs - sb0, duart = GUI::DosUart::irqCount() - uart0, dkbd = g_kbdIrqs - kbd0;
+	if (dsb || duart || dkbd)
 		t.nestedFaults++;
 	t.nestedSb += dsb;
 	t.nestedUart += duart;
+	t.nestedKbd += dkbd;
 }
 
 } // End of anonymous namespace
@@ -665,7 +675,18 @@ void pfProc(void *) {
 void pagefaultSelftestStart(int kb, int hz) {
 	PfTest &t = g_pf;
 	memset(&t, 0, sizeof(t));
+	uint32 freeKb = 0;
+	__dpmi_free_mem_info info;
+	if (__dpmi_get_free_memory_information(&info) == 0 && info.total_number_of_free_pages != 0xFFFFFFFF)
+		freeKb = (uint32)info.total_number_of_free_pages * 4;
+	if (kb < 0)
+		kb = (int)((uint64)freeKb * (uint32)-kb / 100);
 	t.pages = ((uint32)kb * 1024 + 4095) / 4096;
+	if (!t.pages) {
+		g_system->logMessage(LogMessageType::kInfo, Common::String::format(
+			"DOS: pf selftest: an empty buffer (%u KB physical free); not started\n", (uint)freeKb).c_str());
+		return;
+	}
 	t.buf = (byte *)malloc(t.pages * 4096);
 	t.stamp = (uint32 *)calloc(t.pages, sizeof(uint32));
 	if (!t.buf || !t.stamp) {
@@ -673,18 +694,19 @@ void pagefaultSelftestStart(int kb, int hz) {
 		return;
 	}
 	for (uint32 i = 0; i < t.pages; ++i) {
-		uint32 *p = (uint32 *)(t.buf + i * 4096);
-		t.stamp[i] = p[0] = p[1023] = ((++t.gen) * 2654435761u) | 1;
+		t.stamp[i] = ((++t.gen) * 2654435761u) | 1;
+		pfStamp((volatile uint32 *)(t.buf + i * 4096), t.stamp[i]);
 	}
-	if (haveTsc()) {
+	t.rng = 0x2545F491;
+	if (DOS::haveTsc()) {
 		const uint32 m0 = g_system->getMillis();
 		while (g_system->getMillis() == m0)
 			;
-		const uint64 c0 = rdtsc();
+		const uint64 c0 = DOS::irqRdtsc();
 		const uint32 m1 = g_system->getMillis();
 		while (g_system->getMillis() - m1 < 100)
 			;
-		t.tscPerUs = (uint32)((rdtsc() - c0) / 100000);
+		t.tscPerUs = (uint32)((DOS::irqRdtsc() - c0) / 100000);
 		if (!t.tscPerUs)
 			t.tscPerUs = 1;
 	}
@@ -700,13 +722,20 @@ void pagefaultSelftestStart(int kb, int hz) {
 		_go32_dpmi_get_protected_mode_interrupt_vector(t.sbVector, &t.sbOld);
 		t.chained = _go32_dpmi_chain_protected_mode_interrupt_vector(t.sbVector, &t.sbChain) == 0;
 	}
+	// And the keyboard's (IRQ 1), in front of SDL3's.
+	t.kbdChain.pm_offset = (unsigned long)kbdIrqCount;
+	t.kbdChain.pm_selector = _go32_my_cs();
+	lockSelftestIrqCode();
+	DOS::lockIrqData(&g_kbdIrqs, sizeof(g_kbdIrqs));
+	_go32_dpmi_get_protected_mode_interrupt_vector(9, &t.kbdOld);
+	t.kbdChained = _go32_dpmi_chain_protected_mode_interrupt_vector(9, &t.kbdChain) == 0;
 	t.lastLog = g_system->getMillis();
 	g_pfOn = true;
 	g_system->getTimerManager()->installTimerProc(pfProc, 1000000 / (hz > 0 ? hz : 100), nullptr, "dosPagefaultSelftest");
 	g_system->logMessage(LogMessageType::kInfo, Common::String::format(
-		"DOS: pf selftest: %u pages, %d Hz, TSC %u/us, sb chain %s\n",
-		(uint)t.pages, hz, (uint)t.tscPerUs,
-		t.chained ? "on" : "off").c_str());
+		"DOS: pf selftest: %u pages (%u KB physical free before), %d Hz, random walk, TSC %u/us, sb chain %s, kbd chain %s\n",
+		(uint)t.pages, (uint)freeKb, hz, (uint)t.tscPerUs,
+		t.chained ? "on" : "off", t.kbdChained ? "on" : "off").c_str());
 }
 
 void pagefaultSelftestPoll() {
@@ -724,7 +753,20 @@ void pagefaultSelftestPoll() {
 void pagefaultSelftestLog() {
 	if (!g_pfOn)
 		return;
-	const PfTest &t = g_pf;
+	// A snapshot, taken with interrupts off: the procs go on running from
+	// IRQ0 while this formats.
+	PfTest t;
+	uint32 sbIrqs, kbdIrqs, uartIrqs;
+	{
+		uint32 flags;
+		__asm__ __volatile__("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
+		memcpy(&t, &g_pf, sizeof(t));
+		sbIrqs = g_sbIrqs;
+		kbdIrqs = g_kbdIrqs;
+		uartIrqs = GUI::DosUart::irqCount();
+		if (flags & 0x200)
+			__asm__ __volatile__("sti" : : : "memory");
+	}
 	static const char *const kWhere[3] = { "loop", "irq0", "call" };
 	Common::String line = "DOS: pf selftest";
 	static const int kOrder[3] = { DosTimerManager::kProcsInIrq0, DosTimerManager::kProcsAfterCall, DosTimerManager::kProcsNone };
@@ -738,8 +780,9 @@ void pagefaultSelftestLog() {
 			line += Common::String::format("%s%u", b ? "/" : "", (uint)c.bins[b]);
 		line += ";";
 	}
-	line += Common::String::format(" nested faults=%u sb=%u uart=%u; bad=%u\n",
-		(uint)t.nestedFaults, (uint)t.nestedSb, (uint)t.nestedUart, (uint)t.bad);
+	line += Common::String::format(" nested faults=%u sb=%u uart=%u kbd=%u; bad=%u; irqs sb=%u uart=%u kbd=%u\n",
+		(uint)t.nestedFaults, (uint)t.nestedSb, (uint)t.nestedUart, (uint)t.nestedKbd, (uint)t.bad,
+		(uint)sbIrqs, (uint)uartIrqs, (uint)kbdIrqs);
 	g_system->logMessage(LogMessageType::kInfo, line.c_str());
 }
 
@@ -752,6 +795,10 @@ void pagefaultSelftestStop() {
 	if (g_pf.chained) {
 		_go32_dpmi_set_protected_mode_interrupt_vector(g_pf.sbVector, &g_pf.sbOld);
 		g_pf.chained = false;
+	}
+	if (g_pf.kbdChained) {
+		_go32_dpmi_set_protected_mode_interrupt_vector(9, &g_pf.kbdOld);
+		g_pf.kbdChained = false;
 	}
 }
 
