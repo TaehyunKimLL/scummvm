@@ -45,9 +45,10 @@ struct PitChain {
  * and this returns true, meaning: chain this tick to the BIOS's INT 8
  * handler (so BIOS-timed things like the day count keep working).
  * Otherwise it returns false, meaning: just acknowledge the interrupt
- * (EOI) and return.
+ * (EOI) and return. Always inlined: the IRQ0 handler calls it, and an
+ * out-of-line copy would not be in its locked code.
  */
-inline bool pitTick(PitChain &c, uint32 divisor = kPitDivisor) {
+inline __attribute__((always_inline)) bool pitTick(PitChain &c, uint32 divisor = kPitDivisor) {
 	c.acc += divisor;
 	if (c.acc >= 65536) {
 		c.acc -= 65536;

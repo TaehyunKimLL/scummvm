@@ -28,9 +28,12 @@
 #include <pc.h>
 
 #include "gui/debugsocket-dosuart.h"
+#include "backends/platform/dos/dos-irq.h"
 #include "common/debug.h"
 #include "common/textconsole.h"
 #include "common/util.h"
+
+DOS_IRQ_CODE_RANGE(uart);
 
 namespace GUI {
 
@@ -38,8 +41,8 @@ static const uint16 kComBase[4] = { 0x3F8, 0x2F8, 0x3E8, 0x2E8 };
 static const int kComIrq[4] = { 4, 3, 4, 3 };
 
 // The ring the IRQ handler fills and read() drains. One UART at a time:
-// the debug socket opens one COM port. Static, so it sits in the image the
-// startup locked (_CRT0_FLAG_LOCK_MEMORY) and is locked again below.
+// the debug socket opens one COM port. Locked in open(), with the rest of
+// what the handler touches.
 static const uint kRingSize = 4096;	// a power of two
 static volatile byte g_ring[kRingSize];
 static volatile uint g_ringHead = 0;	// written by the handler
@@ -70,10 +73,10 @@ static inline void irqRestore(uint32 flags) {
 
 // Moves whatever the receive FIFO holds into the ring. Called by the
 // handler, and by read() with interrupts off.
-static void drainFifo() {
+static DOS_IRQ_CODE void drainFifo() {
 	byte lsr;
-	while ((lsr = inportb(g_isrBase + 5)) & 0x01) {
-		const byte c = inportb(g_isrBase);
+	while ((lsr = DOS::irqIn8(g_isrBase + 5)) & 0x01) {
+		const byte c = DOS::irqIn8(g_isrBase);
 		if (lsr & 0x02)
 			g_overruns++;
 		const uint next = (g_ringHead + 1) & (kRingSize - 1);
@@ -88,24 +91,24 @@ static void drainFifo() {
 
 // The handler does not chain to the previous one: a device sharing the IRQ
 // (a mouse on COM3, IRQ 4) would starve. Fine for a debug transport only.
-static void uartIsr() {
+static DOS_IRQ_CODE void uartIsr() {
 	// Serve every cause the UART reports, until it reports none: the IRQ
 	// line is edge-triggered at the PIC, so a cause left pending keeps the
-	// line up and no further interrupt ever arrives.
+	// line up and no further interrupt ever arrives. No switch here: its
+	// jump table would land outside the locked code.
 	byte iir;
-	for (int guard = 0; guard < 16 && !((iir = inportb(g_isrBase + 2)) & 0x01); guard++) {
-		switch (iir & 0x0E) {
-		case 0x06: (void)inportb(g_isrBase + 5); break;	// line status
-		case 0x00: (void)inportb(g_isrBase + 6); break;	// modem status
-		case 0x02: break;								// transmitter empty: not enabled
-		default: break;									// data or character timeout
-		}
+	for (int guard = 0; guard < 16 && !((iir = DOS::irqIn8(g_isrBase + 2)) & 0x01); guard++) {
+		const byte cause = iir & 0x0E;
+		if (cause == 0x06)
+			(void)DOS::irqIn8(g_isrBase + 5);	// line status
+		else if (cause == 0x00)
+			(void)DOS::irqIn8(g_isrBase + 6);	// modem status
+		// 0x02 transmitter empty: not enabled; the rest: data or character timeout
 		drainFifo();
 	}
 	drainFifo();
-	outportb(0x20, 0x20);	// EOI to the master PIC (IRQ 3 and 4 live there)
+	DOS::irqOut8(0x20, 0x20);	// EOI to the master PIC (IRQ 3 and 4 live there)
 }
-static void uartIsrEnd() {}
 
 static void teardown();
 
@@ -148,17 +151,14 @@ bool DosUart::open(const Common::String &spec) {
 	g_ringHead = g_ringTail = 0;
 	g_overruns = 0;
 	{
-		// The handler and what it calls, in whatever order they were laid out.
-		const uintptr fns[3] = { (uintptr)drainFifo, (uintptr)uartIsr, (uintptr)uartIsrEnd };
-		const uintptr lo = MIN(fns[0], MIN(fns[1], fns[2]));
-		const uintptr hi = MAX(fns[0], MAX(fns[1], fns[2]));
-		_go32_dpmi_lock_code((void *)lo, hi - lo + 256);
+		const void *const fns[2] = { (const void *)drainFifo, (const void *)uartIsr };
+		DOS::lockIrqCode(dosIrqBegin_uart, dosIrqEnd_uart, fns, ARRAYSIZE(fns), "COM");
 	}
-	_go32_dpmi_lock_data(const_cast<byte *>(g_ring), sizeof(g_ring));
-	_go32_dpmi_lock_data(const_cast<uint *>(&g_ringHead), sizeof(g_ringHead));
-	_go32_dpmi_lock_data(const_cast<uint *>(&g_ringTail), sizeof(g_ringTail));
-	_go32_dpmi_lock_data(const_cast<uint *>(&g_overruns), sizeof(g_overruns));
-	_go32_dpmi_lock_data((void *)&g_isrBase, sizeof(g_isrBase));
+	DOS::lockIrqData(g_ring, sizeof(g_ring));
+	DOS::lockIrqData(&g_ringHead, sizeof(g_ringHead));
+	DOS::lockIrqData(&g_ringTail, sizeof(g_ringTail));
+	DOS::lockIrqData(&g_overruns, sizeof(g_overruns));
+	DOS::lockIrqData(&g_isrBase, sizeof(g_isrBase));
 	const int vec = 8 + irq;
 	_go32_dpmi_get_protected_mode_interrupt_vector(vec, &g_oldVector);
 	g_newVector.pm_offset = (unsigned long)uartIsr;

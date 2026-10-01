@@ -36,10 +36,6 @@
  * heap (SCI's music callback reads song data and empties its command
  * queue, freeing memory), so:
  *
- * - The heap must be locked: CWSDPMI cannot page in during a hardware
- *   interrupt. main() leaves _CRT0_FLAG_LOCK_MEMORY set, so all that
- *   sbrk() hands malloc() is locked.
- *
  * - malloc() must not be reentered: DJGPP's is not reentrant, and the code
  *   the interrupt came in on may be inside it. The link wraps malloc, free,
  *   realloc, calloc and memalign (-Wl,--wrap, see module.mk) so malloc's
@@ -47,12 +43,15 @@
  *   state with it; their DPMI calls, copies and clears run with interrupts
  *   as the caller had them.
  *
- * - Locked memory cannot exceed what the machine has. The hi-res text
- *   fonts alone cache several MB of glyphs, which on a 16 MB machine does
- *   not fit locked. Blocks of kLargeBlock bytes or more therefore come
- *   from DPMI memory blocks of their own, outside sbrk(), which stay
- *   pageable. Nothing a timer proc touches is that large (sound resources
- *   are a few KB; the mixer's buffers are not touched in the handler).
+ * - The heap is pageable (main() sets no _CRT0_FLAG_LOCK_MEMORY under
+ *   CWSDPMI): the timer procs run only in an interrupt that came in
+ *   protected mode, where CWSDPMI services their page faults
+ *   (dos-timer.cpp). Buffers a hardware interrupt handler itself touches
+ *   are locked where they are allocated (dos-irq.h).
+ *
+ * - Blocks of kLargeBlock bytes or more come from DPMI memory blocks of
+ *   their own, outside sbrk(): freeing one gives its memory back at once,
+ *   and it can be locked and unlocked on its own (dosHeapInLargeBlock()).
  *   They need the near pointer (main() enables it before anything else),
  *   so until dosHeapEnableLargeBlocks() every block comes from malloc.
  */
@@ -127,7 +126,7 @@ void largeFree(LargeHeader *h) {
 	__dpmi_free_memory(handle);
 }
 
-// The locked heap, with interrupts off for the bookkeeping only.
+// The sbrk heap, with interrupts off for the bookkeeping only.
 void *smallAlloc(size_t size) {
 	const uint32 f = heapLock();
 	void *p = __real_malloc(size);
@@ -176,7 +175,7 @@ void __wrap_free(void *ptr) {
 void *__wrap_realloc(void *ptr, size_t size) {
 	LargeHeader *h = largeHeader(ptr);
 	if (!h) {
-		// A small block that grows stays in the locked heap: its old size
+		// A small block that grows stays in the sbrk heap: its old size
 		// is malloc's business.
 		const uint32 f = heapLock();
 		void *p = __real_realloc(ptr, size);

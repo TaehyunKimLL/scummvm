@@ -31,7 +31,10 @@
  * is chained to the BIOS's INT 8 handler (so the BIOS clock and anything
  * on INT 1Ch keep their 18.2 Hz), the others just get their EOI. Every
  * kHandlerEvery ticks the handler runs DefaultTimerManager::handler(),
- * with interrupts off and the FPU state saved around it.
+ * with interrupts off, IRQ0 masked and the FPU state saved around it --
+ * but only on a tick that came in our protected-mode code, as the timer
+ * procs' memory is pageable (see timerIsr()); a tick that came in real
+ * mode leaves them for the next one.
  *
  * Teardown (PIT back to its default rate, the old vector back) runs from
  * the destructor and from exit() alike, and only once.
@@ -56,6 +59,16 @@ public:
 
 	/** True while a timer proc runs, i.e. inside the IRQ0 handler. */
 	static bool inHandler();
+
+	/**
+	 * True when the IRQ0 handler does not run the timer procs (it is not
+	 * in, or the DPMI host hands interrupts over in a way it cannot read),
+	 * so that the event loop must.
+	 */
+	static bool procsOnMainThread();
+
+	/** Logs (debug level 1) where the timer procs ran, and how often they waited. */
+	static void logStats();
 
 	/**
 	 * delayMillis() for a timer proc: waits @p msecs by polling the PIT,
