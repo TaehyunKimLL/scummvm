@@ -577,6 +577,7 @@ int16 GfxText16::Size(Common::Rect &rect, const char *text, uint16 languageSplit
 		fontId = previousFontId;
 
 	rect.top = rect.left = 0;
+	prefetchText(text);
 
 	if (maxWidth < 0) { // force output as single line
 		if (g_sci->usesKoreanText())
@@ -618,6 +619,23 @@ int16 GfxText16::Size(Common::Rect &rect, const char *text, uint16 languageSplit
 	SetFont(previousFontId);
 	_ports->penColor(previousPenColor);
 	return rect.right;
+}
+
+void GfxText16::prefetchText(const char *text) {
+	GetFont();
+	if (!_font || !text)
+		return;
+	Common::Array<uint32> cps;
+	while (*text) {
+		int bytes = 1;
+		const uint32 chr = readChar(text, bytes);
+		if (chr > ' ')
+			cps.push_back(chr);
+		for (int i = 0; i < bytes && *text; ++i)
+			++text;
+	}
+	if (!cps.empty())
+		_font->prefetch(cps);
 }
 
 // returns maximum font height used
@@ -740,6 +758,7 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 		SetFont(fontId);
 	else
 		fontId = previousFontId;
+	prefetchText(text);
 
 	// hires_text_log: an aggregate over every line this box renders (as
 	// opposed to Draw()'s own per-rendered-line debug line), read back from
