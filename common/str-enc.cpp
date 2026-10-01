@@ -91,7 +91,17 @@ void U32String::decodeUTF8(const char *src, uint32 len) {
 
 const uint16 invalidCode = 0xFFFD;
 
-static bool cjk_tables_loaded = false;
+// encoding.dat is read one table at a time, the first time a code page
+// needs its own: an engine that decodes CP949 only does not keep the other
+// five tables (about 250 KB) in memory.
+enum CJKFileState {
+	kCJKFileUnread,
+	kCJKFileOk,
+	kCJKFileBad	///< missing or invalid: said once, not read again
+};
+static CJKFileState cjk_file_state = kCJKFileUnread;
+static int cjk_num_tables = 0;
+static bool cjk_table_tried[kCJKTableCount] = { false, false, false, false, false, false };
 static const uint16 *windows932ConversionTable = 0;
 static const uint16 *windows932ReverseConversionTable = 0;
 static const uint16 *windows936ConversionTable = 0;
@@ -134,25 +144,31 @@ static void loadChineseT2S(File &f) {
 	traditional2SimplifiedChineseConversionTable = res;
 }
 
-static void loadCJKTables() {
-	File f;
-
-	cjk_tables_loaded = true;
+// Opens encoding.dat and checks its header (the first time only).
+static bool openCJKFile(File &f) {
+	if (cjk_file_state == kCJKFileBad)
+		return false;
 
 	if (!f.open("encoding.dat")) {
+		cjk_file_state = kCJKFileBad;
 		warning("encoding.dat is not found. Support for CJK is disabled");
-		return;
+		return false;
 	}
+
+	if (cjk_file_state == kCJKFileOk)
+		return true;
+
+	cjk_file_state = kCJKFileBad;
 
 	if (f.size() < 16 + 3 * 4) {
 		warning("encoding.dat is invalid. Support for CJK is disabled");
-		return;
+		return false;
 	}
 
 	if (f.readUint32BE() != MKTAG('S', 'C', 'V', 'M')
 	    || f.readUint32BE() != MKTAG('E', 'N', 'C', 'D')) {
 		warning("encoding.dat is invalid. Support for CJK is disabled");
-		return;
+		return false;
 	}
 
 	int ver = f.readUint32LE();
@@ -161,22 +177,52 @@ static void loadCJKTables() {
 	// Version and number of tables.
 	if (ver != 0 || num_tables < 3) {
 		warning("encoding.dat is of incompatible version. Support for CJK is disabled");
-		return;
+		return false;
 	}
 
-	windows932ConversionTable = loadCJKTable(f, 0, 47 * 192);
-	windows949ConversionTable = loadCJKTable(f, 1, 0x7e * 0xb2);
-	windows950ConversionTable = loadCJKTable(f, 2, 89 * 157);
-	if (num_tables >= 4)
+	cjk_num_tables = num_tables;
+	cjk_file_state = kCJKFileOk;
+	return true;
+}
+
+static void ensureCJKTable(CJKTable table) {
+	if (cjk_table_tried[table])
+		return;
+	cjk_table_tried[table] = true;
+
+	File f;
+	if (!openCJKFile(f) || (int)table >= cjk_num_tables)
+		return;
+
+	switch (table) {
+	case kCJKTable932:
+		windows932ConversionTable = loadCJKTable(f, 0, 47 * 192);
+		break;
+	case kCJKTable949:
+		windows949ConversionTable = loadCJKTable(f, 1, 0x7e * 0xb2);
+		break;
+	case kCJKTable950:
+		windows950ConversionTable = loadCJKTable(f, 2, 89 * 157);
+		break;
+	case kCJKTableJohab:
 		johabConversionTable = loadCJKTable(f, 3, 80 * 188);
-	if (num_tables >= 5)
+		break;
+	case kCJKTable936:
 		windows936ConversionTable = loadCJKTable(f, 4, 126 * 190);
-	if (num_tables >= 6)
+		break;
+	case kCJKTableT2S:
 		loadChineseT2S(f);
+		break;
+	default:
+		break;
+	}
 }
 
 void releaseCJKTables() {
-	cjk_tables_loaded = false;
+	cjk_file_state = kCJKFileUnread;
+	cjk_num_tables = 0;
+	for (int i = 0; i < kCJKTableCount; i++)
+		cjk_table_tried[i] = false;
 	delete[] windows932ConversionTable;
 	windows932ConversionTable = 0;
 	delete[] windows932ReverseConversionTable;
@@ -201,11 +247,30 @@ void releaseCJKTables() {
 	traditional2SimplifiedChineseConversionTable = 0;
 }
 
+bool isCJKTableLoaded(CJKTable table) {
+	switch (table) {
+	case kCJKTable932:
+		return windows932ConversionTable != nullptr;
+	case kCJKTable949:
+		return windows949ConversionTable != nullptr;
+	case kCJKTable950:
+		return windows950ConversionTable != nullptr;
+	case kCJKTableJohab:
+		return johabConversionTable != nullptr;
+	case kCJKTable936:
+		return windows936ConversionTable != nullptr;
+	case kCJKTableT2S:
+		return traditional2SimplifiedChineseConversionTable != nullptr;
+	default:
+		return false;
+	}
+}
+
+
 void U32String::decodeWindows932(const char *src, uint32 len) {
 	ensureCapacity(len, false);
 
-	if (!cjk_tables_loaded)
-		loadCJKTables();
+	ensureCJKTable(kCJKTable932);
 
 	for (uint i = 0; i < len;) {
 		uint8 high = src[i++];
@@ -261,8 +326,7 @@ void U32String::decodeWindows932(const char *src, uint32 len) {
 void U32String::decodeWindows936(const char *src, uint32 len) {
 	ensureCapacity(len, false);
 
-	if (!cjk_tables_loaded)
-		loadCJKTables();
+	ensureCJKTable(kCJKTable936);
 
 	for (uint i = 0; i < len;) {
 		uint8 high = src[i++];
@@ -318,8 +382,7 @@ static uint16 convertUHCToUCSReal(uint8 high, uint8 low) {
 }
 
 uint16 convertUHCToUCS(uint8 high, uint8 low) {
-	if (!cjk_tables_loaded)
-		loadCJKTables();
+	ensureCJKTable(kCJKTable949);
 
 	return convertUHCToUCSReal(high, low);
 }
@@ -328,8 +391,7 @@ uint16 convertUHCToUCS(uint8 high, uint8 low) {
 void U32String::decodeWindows949(const char *src, uint32 len) {
 	ensureCapacity(len, false);
 
-	if (!cjk_tables_loaded)
-		loadCJKTables();
+	ensureCJKTable(kCJKTable949);
 
 	for (uint i = 0; i < len;) {
 		uint8 high = src[i++];
@@ -359,8 +421,7 @@ void U32String::decodeWindows949(const char *src, uint32 len) {
 void U32String::decodeWindows950(const char *src, uint32 len) {
 	ensureCapacity(len, false);
 
-	if (!cjk_tables_loaded)
-		loadCJKTables();
+	ensureCJKTable(kCJKTable950);
 
 	for (uint i = 0; i < len;) {
 		uint8 high = src[i++];
@@ -436,8 +497,7 @@ static uint16 convertJohabToUCSReal(uint8 high, uint8 low) {
 void U32String::decodeJohab(const char *src, uint32 len) {
 	ensureCapacity(len, false);
 
-	if (!cjk_tables_loaded)
-		loadCJKTables();
+	ensureCJKTable(kCJKTableJohab);
 
 	for (uint i = 0; i < len;) {
 		uint8 high = src[i++];
@@ -470,8 +530,7 @@ StringEncodingResult String::encodeWindows932(const U32String &src, char errorCh
 
 	ensureCapacity(src.size() * 2, false);
 
-	if (!cjk_tables_loaded)
-		loadCJKTables();
+	ensureCJKTable(kCJKTable932);
 
 	if (!windows932ReverseConversionTable && windows932ConversionTable) {
 		uint16 *rt = new uint16[0x10000]();
@@ -544,8 +603,7 @@ StringEncodingResult String::encodeWindows936(const U32String &src, char errorCh
 
 	ensureCapacity(src.size() * 2, false);
 
-	if (!cjk_tables_loaded)
-		loadCJKTables();
+	ensureCJKTable(kCJKTable936);
 
 	if (!windows936ReverseConversionTable && windows936ConversionTable) {
 		uint16 *rt = new uint16[0x10000]();
@@ -605,8 +663,7 @@ StringEncodingResult String::encodeWindows949(const U32String &src, char errorCh
 
 	ensureCapacity(src.size() * 2, false);
 
-	if (!cjk_tables_loaded)
-		loadCJKTables();
+	ensureCJKTable(kCJKTable949);
 
 	if (!windows949ReverseConversionTable && windows949ConversionTable) {
 		uint16 *rt = new uint16[0x10000]();
@@ -699,8 +756,7 @@ StringEncodingResult String::encodeWindows950(const U32String &src, bool transli
 
 	ensureCapacity(src.size() * 2, false);
 
-	if (!cjk_tables_loaded)
-		loadCJKTables();
+	ensureCJKTable(kCJKTable950);
 
 	if (!windows950ReverseConversionTable && windows950ConversionTable) {
 		uint16 *rt = new uint16[0x10000]();
@@ -804,8 +860,7 @@ StringEncodingResult String::encodeJohab(const U32String &src, char errorChar) {
 
 	ensureCapacity(src.size() * 2, false);
 
-	if (!cjk_tables_loaded)
-		loadCJKTables();
+	ensureCJKTable(kCJKTableJohab);
 
 	if (!johabReverseConversionTable && johabConversionTable) {
 		uint16 *rt = new uint16[0x10000]();
@@ -1236,8 +1291,7 @@ StringEncodingResult U32String::encode(String &outString, CodePage page, char er
 }
 
 U32String U32String::transcodeChineseT2S() const {
-	if (!cjk_tables_loaded)
-		loadCJKTables();
+	ensureCJKTable(kCJKTableT2S);
 
 	if (!traditional2SimplifiedChineseConversionTable)
 		return *this;
