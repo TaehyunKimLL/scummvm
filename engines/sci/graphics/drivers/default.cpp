@@ -114,7 +114,16 @@ const Common::List<Graphics::PixelFormat> *GfxDefaultDriver::hiresTextRequest() 
 	// Both families draw hi-res text (on 5-6-5 through
 	// TextCompose::composeSpanOver()).
 	Common::String note;
-	_hiresRequest = Graphics::formatRequest(target, g_system->getSupportedFormats(), true, note);
+	const Common::List<Graphics::PixelFormat> all = Graphics::formatRequest(target, g_system->getSupportedFormats(), true, note);
+	// initGraphics() takes the first format of the backend's list that the
+	// request holds, not the request's first: with both RGB families in it,
+	// a backend listing 8-8-8 first would set it for rgb565. So name one
+	// family - the asked one, or formatRequest()'s fallback - then CLUT8.
+	const Graphics::HiResRenderTarget family = all.empty() ? Graphics::kHiResTargetClut8 : Graphics::targetOfFormat(all.front());
+	for (Common::List<Graphics::PixelFormat>::const_iterator it = all.begin(); it != all.end(); ++it) {
+		if (it->isCLUT8() || Graphics::formatMatchesTarget(*it, family))
+			_hiresRequest.push_back(*it);
+	}
 	return _hiresRequest.empty() ? nullptr : &_hiresRequest;
 }
 
