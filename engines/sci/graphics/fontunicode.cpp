@@ -62,8 +62,8 @@ bool GfxFontUnicode::load(const Common::String &filename) {
 	Graphics::UnicodeGlyphSource *src;
 	if (Graphics::isSvfnFile(head, got)) {
 		f->seek(0);
-		src = Graphics::createSvfnSource(*f, error);
-		delete f;
+		// The source keeps the file and reads each glyph as it is first drawn.
+		src = Graphics::createSvfnSource(f, DisposeAfterUse::YES, error);
 		if (!src)
 			error = filename + ": " + error;
 	} else {

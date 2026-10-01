@@ -287,8 +287,8 @@ Graphics::UnicodeGlyphSource *GfxCache::svfnSource(const Common::String &path, c
 
 	isSvfn = true;
 	stream->seek(0);
-	Graphics::UnicodeGlyphSource *src = Graphics::createSvfnSource(*stream, error);
-	delete stream;
+	// The source keeps the file and reads each glyph as it is first drawn.
+	Graphics::UnicodeGlyphSource *src = Graphics::createSvfnSource(stream, DisposeAfterUse::YES, error);
 	if (src)
 		debug(1, "SCI: %s %s opened as a %dx%d bitmap font", what, path.c_str(), src->cellWidth(), src->cellHeight());
 	else
