@@ -119,4 +119,52 @@ public:
 				TS_ASSERT_EQUALS(*(const byte *)s.getBasePtr(x, y), p.get(x, y));
 		s.free();
 	}
+
+	// A span of a row: only its pixels are unpacked, from either nibble.
+	void test_a_span_of_a_row_reads_as_the_pixels() {
+		Graphics::BandedPlane packed, wide;
+		packed.create(13, 20, true);
+		wide.create(13, 20, false);
+		for (int x = 0; x < 13; ++x) {
+			packed.set(x, 2, (byte)((x % 16) * 17));
+			wide.set(x, 2, (byte)(x * 7));
+		}
+		TS_ASSERT(packed.packed());
+		for (int x0 = 0; x0 < 13; ++x0) {
+			for (int n = 1; x0 + n <= 13; ++n) {
+				byte scratch[13];
+				memset(scratch, 0xEE, sizeof(scratch));
+				const byte *r = packed.row(2, scratch, x0, n);
+				for (int i = 0; i < n; ++i)
+					TS_ASSERT_EQUALS(r[i], packed.get(x0 + i, 2));
+				if (n < 13)
+					TS_ASSERT_EQUALS(scratch[n], 0xEE);	// nothing past the span
+				r = wide.row(2, scratch, x0, n);
+				for (int i = 0; i < n; ++i)
+					TS_ASSERT_EQUALS(r[i], wide.get(x0 + i, 2));
+			}
+		}
+		byte scratch[13];
+		TS_ASSERT(packed.row(18, scratch, 3, 4) == nullptr);	// another band: none
+	}
+
+	// Bytes across rows and bands, read and written as one array.
+	void test_bytes_across_rows_and_bands() {
+		Graphics::BandedPlane p;
+		p.create(7, 40, true);
+		Common::Array<byte> in(7 * 20);
+		for (uint i = 0; i < in.size(); ++i)
+			in[i] = (byte)(((i * 5) % 16) * 17);
+		p.writeBytes(7 * 10 + 3, in.begin(), in.size());	// rows 10..30, bands 0..1
+		TS_ASSERT(p.packed());
+		Common::Array<byte> out(in.size() + 4);
+		p.readBytes(7 * 10 + 1, out.begin(), out.size());
+		TS_ASSERT_EQUALS(out[0], 0);
+		TS_ASSERT_EQUALS(out[1], 0);
+		for (uint i = 0; i < in.size(); ++i)
+			TS_ASSERT_EQUALS(out[i + 2], in[i]);
+		TS_ASSERT_EQUALS(out[in.size() + 2], 0);
+		for (uint i = 0; i < in.size(); ++i)
+			TS_ASSERT_EQUALS(p.get((7 * 10 + 3 + i) % 7, (7 * 10 + 3 + i) / 7), in[i]);
+	}
 };

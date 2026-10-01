@@ -78,11 +78,13 @@ public:
 	void set(int x, int y, byte v);
 
 	/**
-	 * Row @p y as one byte a pixel, @p width() of them: the band's own row,
-	 * or @p scratch (width() bytes) filled from a packed one. Null when no
-	 * band holds the row: it is all zeros.
+	 * Pixels [@p x0, @p x0 + @p n) of row @p y (to the row's end when @p n
+	 * is negative), one byte a pixel: in the band's own row, or in
+	 * @p scratch (room for those pixels) unpacked from a packed one. The
+	 * pointer is to pixel @p x0. Null when no band holds the row: it is all
+	 * zeros.
 	 */
-	const byte *row(int y, byte *scratch) const;
+	const byte *row(int y, byte *scratch, int x0 = 0, int n = -1) const;
 
 	/** Whether a band holds row @p y (if not, the row is all zeros). */
 	bool rowHeld(int y) const { return _bands[y >> kBandShift].data != nullptr; }

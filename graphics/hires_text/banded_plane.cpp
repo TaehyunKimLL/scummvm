@@ -125,16 +125,20 @@ void BandedPlane::set(int x, int y, byte v) {
 		dropBand(b);
 }
 
-const byte *BandedPlane::row(int y, byte *scratch) const {
+const byte *BandedPlane::row(int y, byte *scratch, int x0, int n) const {
 	const Band &band = _bands[y >> kBandShift];
 	if (!band.data)
 		return nullptr;
 	const int r = y & (kBandRows - 1);
 	if (!_packed)
-		return band.data + r * _w;
+		return band.data + r * _w + x0;
+	if (n < 0 || x0 + n > _w)
+		n = _w - x0;
 	const byte *src = band.data + r * _packedPitch;
-	for (int x = 0; x < _w; ++x)
-		scratch[x] = (byte)(((x & 1) ? (src[x >> 1] >> 4) : (src[x >> 1] & 15)) * 17);
+	for (int i = 0; i < n; ++i) {
+		const int x = x0 + i;
+		scratch[i] = (byte)(((x & 1) ? (src[x >> 1] >> 4) : (src[x >> 1] & 15)) * 17);
+	}
 	return scratch;
 }
 
@@ -218,19 +222,33 @@ void BandedPlane::copyFrom(const BandedPlane &other) {
 }
 
 void BandedPlane::readBytes(uint32 offset, byte *dst, uint32 n) const {
-	for (uint32 i = 0; i < n; ++i) {
-		const uint32 at = offset + i;
-		const int y = at / _w;
-		dst[i] = (y < _h) ? get(at % _w, y) : 0;
+	while (n) {
+		const int y = offset / _w;
+		const int x = offset % _w;
+		const uint32 run = MIN<uint32>(n, _w - x);
+		const byte *src = (y < _h) ? row(y, dst, x, run) : nullptr;
+		if (!src)
+			memset(dst, 0, run);
+		else if (src != dst)
+			memcpy(dst, src, run);
+		dst += run;
+		offset += run;
+		n -= run;
 	}
 }
 
 void BandedPlane::writeBytes(uint32 offset, const byte *src, uint32 n) {
-	for (uint32 i = 0; i < n; ++i) {
-		const uint32 at = offset + i;
-		const int y = at / _w;
-		if (y < _h)
-			set(at % _w, y, src[i]);
+	while (n) {
+		const int y = offset / _w;
+		const int x = offset % _w;
+		const uint32 run = MIN<uint32>(n, _w - x);
+		if (y < _h) {
+			for (uint32 i = 0; i < run; ++i)
+				set(x + i, y, src[i]);
+		}
+		src += run;
+		offset += run;
+		n -= run;
 	}
 }
 

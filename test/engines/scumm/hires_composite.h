@@ -132,6 +132,31 @@ public:
 		TS_ASSERT_EQUALS(sink.out, Common::String("...U.U.."));
 	}
 
+	/// A strip starting on an odd pixel of a packed plane reads its own
+	/// pixels from the right nibbles.
+	void test_a_packed_span_from_an_odd_pixel() {
+		const int w = 3, h = 2, m = 2, ow = w * m, oh = h * m;
+		Common::Array<byte> src(w * h), text(ow * oh), cov(ow * oh);
+		Graphics::BandedPlane pCov;
+		pCov.create(ow + 5, oh, true);
+		for (int i = 0; i < w * h; ++i)
+			src[i] = 2;
+		for (int y = 0; y < oh; ++y)
+			for (int x = 0; x < ow; ++x) {
+				const int i = y * ow + x;
+				text[i] = kText;
+				cov[i] = (byte)(((x + y) % 4) * 85);
+				pCov.set(x + 3, y, cov[i]);
+			}
+		pCov.set(2, 0, 255);		// next to the span: not read
+		pCov.set(ow + 3, 1, 170);
+		TS_ASSERT(pCov.packed());
+		ValueSink whole, span;
+		Scumm::compositeText(whole, src.begin(), 0, text.begin(), 0, cov.begin(), 0, w, h, m);
+		Scumm::compositeTextRows(span, src.begin(), 0, text.begin(), 0, Scumm::CompositeRows(&pCov, 3, 0, ow), w, h, m);
+		TS_ASSERT(whole.out == span.out);
+	}
+
 	/// Planes held in bands (Graphics::BandedPlane) compose as the same
 	/// bytes held whole: a band not there is zeros, a packed one unpacked.
 	void test_banded_planes_compose_like_whole_ones() {
@@ -163,11 +188,15 @@ public:
 		TS_ASSERT(pCov.packed());
 		TS_ASSERT(pCov.bandsHeld() < pCov.height() / 16 + 1);
 
-		ValueSink whole, banded;
+		ValueSink whole, banded, span;
 		Scumm::compositeText(whole, src.begin(), 0, text.begin(), 0, cov.begin(), 0, w, h, m,
 							 uIdx.begin(), uCov.begin(), 0);
 		Scumm::compositeTextRows(banded, src.begin(), 0, text.begin(), 0, Scumm::CompositeRows(&pCov, 2, 3),
 								 w, h, m, Scumm::CompositeRows(&pUIdx, 2, 3), Scumm::CompositeRows(&pUCov, 2, 3));
 		TS_ASSERT(whole.out == banded.out);
+		// The strip's span only, as drawStripToScreen() asks for it.
+		Scumm::compositeTextRows(span, src.begin(), 0, text.begin(), 0, Scumm::CompositeRows(&pCov, 2, 3, ow),
+								 w, h, m, Scumm::CompositeRows(&pUIdx, 2, 3, ow), Scumm::CompositeRows(&pUCov, 2, 3, ow));
+		TS_ASSERT(whole.out == span.out);
 	}
 };

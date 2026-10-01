@@ -40,16 +40,18 @@ static const byte kHiResTextTransparent = 0xFD;
  */
 class CompositeRows {
 public:
-	CompositeRows() : _plane(nullptr), _ptr(nullptr), _stride(0), _x(0), _y(0) {}
-	/// The plane's rows from (@p x, @p y) on.
-	CompositeRows(const Graphics::BandedPlane *plane, int x, int y) :
-		_plane(plane && plane->exists() ? plane : nullptr), _ptr(nullptr), _stride(0), _x(x), _y(y) {}
+	CompositeRows() : _plane(nullptr), _ptr(nullptr), _stride(0), _x(0), _y(0), _n(0) {}
+	/// The plane's rows from (@p x, @p y) on, @p n pixels of each (to the
+	/// row's end when negative).
+	CompositeRows(const Graphics::BandedPlane *plane, int x, int y, int n = -1) :
+		_plane(plane && plane->exists() ? plane : nullptr), _ptr(nullptr), _stride(0), _x(x), _y(y),
+		_n(_plane ? (n < 0 ? _plane->width() - x : MIN(n, _plane->width() - x)) : 0) {}
 	/// Rows in memory from @p ptr, @p stride bytes apart.
-	CompositeRows(const byte *ptr, int stride) : _plane(nullptr), _ptr(ptr), _stride(stride), _x(0), _y(0) {}
+	CompositeRows(const byte *ptr, int stride) : _plane(nullptr), _ptr(ptr), _stride(stride), _x(0), _y(0), _n(0) {}
 
 	bool present() const { return _plane || _ptr; }
 	/// Bytes of scratch row() may need.
-	int scratchBytes() const { return _plane ? _plane->width() : 0; }
+	int scratchBytes() const { return _plane ? MAX(_n, 0) : 0; }
 
 	/// Row @p h, from the starting point's column; null when it is all zeros.
 	const byte *row(int h, byte *scratch) const {
@@ -57,8 +59,7 @@ public:
 			return _ptr + h * _stride;
 		if (!_plane)
 			return nullptr;
-		const byte *r = _plane->row(_y + h, scratch);
-		return r ? r + _x : nullptr;
+		return _plane->row(_y + h, scratch, _x, _n);
 	}
 
 private:
@@ -66,6 +67,7 @@ private:
 	const byte *_ptr;
 	int _stride;
 	int _x, _y;
+	int _n;	///< pixels of a row read
 };
 
 /**
