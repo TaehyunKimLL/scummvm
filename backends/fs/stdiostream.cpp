@@ -35,6 +35,13 @@
 #include "backends/fs/stdiostream.h"
 #include "common/textconsole.h"
 
+#if defined(POSIX)
+#include <errno.h>
+#include <unistd.h>
+// An unbuffered stream reads from its file handle (StdioStream::unbuffer()).
+#define STDIOSTREAM_READ_FROM_HANDLE
+#endif
+
 #if defined(__DC__)
 // libronin doesn't support rename
 #define STDIOSTREAM_NO_ATOMIC_SUPPORT
@@ -55,10 +62,10 @@
 static void unbufferStdioStream(Common::SeekableReadStream *stream) {
 	StdioStream *file = dynamic_cast<StdioStream *>(stream);
 	if (file)
-		file->setBufferSize(0);
+		file->unbuffer();
 }
 
-StdioStream::StdioStream(void *handle) : _handle(handle), _path(nullptr) {
+StdioStream::StdioStream(void *handle) : _handle(handle), _path(nullptr), _fd(-1), _fdEos(false), _fdErr(false) {
 	assert(handle);
 	// Common::unbufferStream() reaches the files of this kind.
 	Common::setStreamUnbufferer(&unbufferStdioStream);
@@ -103,19 +110,46 @@ bool StdioStream::moveFile(const Common::String &src, const Common::String &dst)
 #endif
 }
 
+void StdioStream::unbuffer() {
+#ifdef STDIOSTREAM_READ_FROM_HANDLE
+	if (_fd >= 0)
+		return;
+	// Where stdio has got to: it may have read ahead into the buffer that
+	// goes now.
+	const int64 at = pos();
+	const bool atEnd = feof((FILE *)_handle) != 0;
+	setBufferSize(0);
+	const int fd = fileno((FILE *)_handle);
+	if (at < 0 || fd < 0 || lseek(fd, (off_t)at, SEEK_SET) == (off_t)-1)
+		return;	// stdio reads it, unbuffered
+	_fd = fd;
+	_fdEos = atEnd;
+	_fdErr = false;
+#else
+	setBufferSize(0);
+#endif
+}
+
 bool StdioStream::err() const {
-	return ferror((FILE *)_handle) != 0;
+	return ferror((FILE *)_handle) != 0 || _fdErr;
 }
 
 void StdioStream::clearErr() {
 	clearerr((FILE *)_handle);
+	_fdEos = _fdErr = false;
 }
 
 bool StdioStream::eos() const {
+	if (_fd >= 0)
+		return _fdEos;
 	return feof((FILE *)_handle) != 0;
 }
 
 int64 StdioStream::pos() const {
+#ifdef STDIOSTREAM_READ_FROM_HANDLE
+	if (_fd >= 0)
+		return lseek(_fd, 0, SEEK_CUR);
+#endif
 #if defined(WIN32)
 	return _ftelli64((FILE *)_handle);
 #elif defined(HAS_FSEEKO_OFFT_64)
@@ -128,6 +162,14 @@ int64 StdioStream::pos() const {
 }
 
 int64 StdioStream::size() const {
+#ifdef STDIOSTREAM_READ_FROM_HANDLE
+	if (_fd >= 0) {
+		const off_t at = lseek(_fd, 0, SEEK_CUR);
+		const off_t length = lseek(_fd, 0, SEEK_END);
+		lseek(_fd, at, SEEK_SET);
+		return length;
+	}
+#endif
 #if defined(WIN32)
 	int64 oldPos = _ftelli64((FILE *)_handle);
 	_fseeki64((FILE *)_handle, 0, SEEK_END);
@@ -154,6 +196,14 @@ int64 StdioStream::size() const {
 }
 
 bool StdioStream::seek(int64 offs, int whence) {
+#ifdef STDIOSTREAM_READ_FROM_HANDLE
+	if (_fd >= 0) {
+		if (lseek(_fd, (off_t)offs, whence) == (off_t)-1)
+			return false;
+		_fdEos = false;	// as fseek() clears it
+		return true;
+	}
+#endif
 #if defined(WIN32)
 	return _fseeki64((FILE *)_handle, offs, whence) == 0;
 #elif defined(HAS_FSEEKO_OFFT_64)
@@ -166,6 +216,27 @@ bool StdioStream::seek(int64 offs, int whence) {
 }
 
 uint32 StdioStream::read(void *ptr, uint32 len) {
+#ifdef STDIOSTREAM_READ_FROM_HANDLE
+	if (_fd >= 0) {
+		byte *p = (byte *)ptr;
+		uint32 done = 0;
+		while (done < len) {
+			const ssize_t n = ::read(_fd, p + done, len - done);
+			if (n < 0) {
+				if (errno == EINTR)
+					continue;
+				_fdErr = true;
+				break;
+			}
+			if (n == 0) {
+				_fdEos = true;
+				break;
+			}
+			done += (uint32)n;
+		}
+		return done;
+	}
+#endif
 	return fread((byte *)ptr, 1, len, (FILE *)_handle);
 }
 
