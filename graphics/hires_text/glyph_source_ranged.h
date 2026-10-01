@@ -129,7 +129,7 @@ public:
 	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	/** The sum of glyphCount() over every distinct source given (each counted once). */
 	uint32 glyphCount() const override;
-	/** Each chain's sources in order, then the targets, with what the ones before do not have. */
+	/** Each code point to the source pick() routes it to, as the code point that source draws. */
 	void prefetch(Common::Array<uint32> &cps) override;
 
 private:
