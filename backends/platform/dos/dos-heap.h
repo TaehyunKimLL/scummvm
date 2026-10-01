@@ -25,8 +25,8 @@
 #include <stddef.h>
 
 /**
- * From now on, allocations of 256 KB or more come from pageable DPMI
- * blocks instead of the locked heap (see dos-heap.cpp). Needs the near
+ * From now on, allocations of 256 KB or more come from DPMI blocks of
+ * their own instead of the sbrk heap (see dos-heap.cpp). Needs the near
  * pointer enabled.
  */
 void dosHeapEnableLargeBlocks();
@@ -34,9 +34,10 @@ void dosHeapEnableLargeBlocks();
 /**
  * Whether @p size bytes at @p ptr lie inside one of those large blocks
  * (possibly at an offset into it, as SDL's aligned allocations are). Only
- * such memory may be locked and unlocked on its own: the rest of the heap
- * is locked as a whole, and an unlock of a region there would unlock the
- * pages it shares with its neighbours as well.
+ * such memory may be locked and unlocked on its own: in the rest of the
+ * heap an unlock of a region would also unlock the pages it shares with
+ * its neighbours, which an interrupt handler may have locked (or, under a
+ * DPMI host other than CWSDPMI, the whole heap is locked).
  */
 bool dosHeapInLargeBlock(const void *ptr, size_t size);
 

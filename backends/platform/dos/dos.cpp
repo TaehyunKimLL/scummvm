@@ -48,6 +48,7 @@
 
 #include "backends/platform/dos/dos.h"
 #include "backends/platform/dos/dos-heap.h"
+#include "backends/platform/dos/dos-irq.h"
 #include "backends/platform/dos/dos-memory.h"
 #include "backends/platform/dos/dos-loading.h"
 #include "backends/platform/dos/dos-silence.h"
@@ -72,19 +73,19 @@
 #include "common/language.h"
 #include "common/translation.h"
 
+DOS_IRQ_CODE_RANGE(dos);
+
 // ScummVM's call depth is far past DJGPP's 256 KB default stack.
 unsigned _stklen = 1024 * 1024;
 
 // Our own main() does what SDL_RunApp() would, so SDL3's definition of this
 // is not linked. NONMOVE_SBRK keeps the data segment's base fixed as the
-// heap grows (SDL3 keeps near pointers into the framebuffer); LOCK_MEMORY
-// locks code, data and stack at startup and, left set, every later sbrk()
-// too: the interrupt handlers (the debug socket's COM receive ISR, and the
-// IRQ0 timer, whose timer procs are engine code touching the heap) must
-// never page-fault. SDL_RunApp() would clear it before the app runs; our
-// main() keeps it. Blocks of 256 KB and up come from pageable DPMI memory
-// instead, so the locked part fits in 16 MB (dos-heap.cpp).
-int _crt0_startup_flags = _CRT0_FLAG_NONMOVE_SBRK | _CRT0_FLAG_LOCK_MEMORY;
+// heap grows (SDL3 keeps near pointers into the framebuffer). Nothing is
+// locked as a whole (no LOCK_MEMORY): under CWSDPMI the interrupt handlers
+// lock what they touch, and the IRQ0 timer runs the timer procs (engine
+// code, heap) only where a page fault is allowed (dos-irq.h, dos-timer.cpp).
+// main() locks everything under any other DPMI host.
+int _crt0_startup_flags = _CRT0_FLAG_NONMOVE_SBRK;
 
 static void flushDeferredLog();
 
@@ -129,6 +130,7 @@ void logMemInfo(const char *phase) {
 	}
 	if (g_system)
 		g_system->logMessage(LogMessageType::kInfo, (formatMemInfo(phase, m) + "\n").c_str());
+	DosTimerManager::logStats();
 }
 
 }
@@ -143,6 +145,7 @@ OSystem_DOS::~OSystem_DOS() {
 	SDL_SetLogOutputFunction(SDL_GetDefaultLogOutputFunction(), nullptr);	// logMessage() goes with us
 	// The timer first: its interrupt handler runs timer procs that may
 	// use the mixer, which ModularMixerBackend's destructor deletes.
+	DosTimerManager::logStats();
 	delete _timerManager;
 	_timerManager = nullptr;
 	delete _eventSource;
@@ -161,6 +164,8 @@ static void SDLCALL sdlLog(void *, int, SDL_LogPriority, const char *message) {
 void OSystem_DOS::initBackend() {
 	logMessage(LogMessageType::kInfo, Common::String::format(
 		"DOS: %s %s\n", DOS::exeName(), gScummVMFullVersion).c_str());
+	logMessage(LogMessageType::kInfo, Common::String::format(
+		"DOS: %s, %s\n", DOS::dpmiHost(), DOS::lockedAll() ? "all memory locked" : "interrupt memory locked").c_str());
 
 	SDL_SetLogOutputFunction(sdlLog, nullptr);
 	SDL_SetHint(SDL_HINT_DOS_ALLOW_DIRECT_FRAMEBUFFER, "1");
@@ -238,14 +243,32 @@ static void selftestProc(void *) {
 
 // A real-mode INT 1Ch hook for the self-test: the BIOS's INT 8 calls it
 // from inside the chain timerIsr() makes, with interrupts on. It counts
-// whether IRQ0 is masked at the PIC then, as it must be.
+// whether IRQ0 is masked at the PIC then, as it must be. A real-mode
+// callback must not page-fault: its code and data are locked.
 static volatile uint32 g_int1cCalls = 0;
 static volatile uint32 g_int1cMasked = 0;
 
-static void int1cProbe(_go32_dpmi_registers *) {
+static DOS_IRQ_CODE void int1cProbe(_go32_dpmi_registers *) {
 	g_int1cCalls++;
-	if (inportb(0x21) & 0x01)
+	if (DOS::irqIn8(0x21) & 0x01)
 		g_int1cMasked++;
+}
+
+// The Sound Blaster's interrupts, counted by a handler chained in front of
+// SDL3's for the self-test.
+static volatile uint32 g_sbIrqs = 0;
+static DOS_IRQ_CODE void sbIrqCount() {
+	g_sbIrqs++;
+}
+
+// The self-tests' interrupt code (int1cProbe(), sbIrqCount()), once.
+static void lockSelftestIrqCode() {
+	static bool done = false;
+	if (done)
+		return;
+	done = true;
+	const void *const fns[2] = { (const void *)int1cProbe, (const void *)sbIrqCount };
+	DOS::lockIrqCode(dosIrqBegin_dos, dosIrqEnd_dos, fns, ARRAYSIZE(fns), "self-test");
 }
 
 static uint8 cmosRead(uint8 reg) {
@@ -276,8 +299,12 @@ void OSystem_DOS::timerSelftest() {
 	g_selftestCalls = 0;
 	_go32_dpmi_seginfo old1c, probe1c;
 	static _go32_dpmi_registers probeRegs;
+	DOS::lockIrqData(&probeRegs, sizeof(probeRegs));	// the callback's wrapper fills it in
+	DOS::lockIrqData(&g_int1cCalls, sizeof(g_int1cCalls));
+	DOS::lockIrqData(&g_int1cMasked, sizeof(g_int1cMasked));
 	probe1c.pm_offset = (unsigned long)int1cProbe;
 	probe1c.pm_selector = _go32_my_cs();
+	lockSelftestIrqCode();
 	const bool hooked1c = DosTimerManager::installed() &&
 		_go32_dpmi_get_real_mode_interrupt_vector(0x1C, &old1c) == 0 &&
 		_go32_dpmi_allocate_real_mode_callback_iret(&probe1c, &probeRegs) == 0;
@@ -354,13 +381,6 @@ private:
 };
 
 } // End of anonymous namespace
-
-// The Sound Blaster's interrupts, counted by a handler chained in front of
-// SDL3's for the self-test.
-static volatile uint32 g_sbIrqs = 0;
-static void sbIrqCount() {
-	g_sbIrqs++;
-}
 
 // A timer proc that waits once, as SCI's MT-32 driver does after a SysEx.
 static const uint kIsrDelayMs = 200;
@@ -468,7 +488,8 @@ void OSystem_DOS::mixerSelftest() {
 	_go32_dpmi_seginfo sbOld, sbChain;
 	sbChain.pm_offset = (unsigned long)sbIrqCount;
 	sbChain.pm_selector = _go32_my_cs();
-	_go32_dpmi_lock_code((void *)sbIrqCount, 64);
+	lockSelftestIrqCode();
+	DOS::lockIrqData(&g_sbIrqs, sizeof(g_sbIrqs));
 	_go32_dpmi_get_protected_mode_interrupt_vector(sbVector, &sbOld);
 	const bool chained = _go32_dpmi_chain_protected_mode_interrupt_vector(sbVector, &sbChain) == 0;
 	uint32 isrIrqs = 0, isrMillis = 0, offIrqs = 0;
@@ -504,8 +525,8 @@ void OSystem_DOS::mixerSelftest() {
 bool OSystem_DOS::pollEvent(Common::Event &event) {
 	flushDeferredLog();
 	// The IRQ0 handler runs the timers; this is the fallback should it
-	// not have gone in.
-	if (!DosTimerManager::installed())
+	// not have gone in, or not be able to.
+	if (DosTimerManager::procsOnMainThread())
 		((DefaultTimerManager *)getTimerManager())->checkTimers();
 	if (_nullMixer)
 		_nullMixer->update(1);
@@ -695,7 +716,7 @@ void OSystem_DOS::fatalError() {
 // Log text that came in with interrupts off -- from a timer proc, which
 // runs in the IRQ0 handler, or under a Common::Mutex. Writing the file
 // there would be a DOS call, and DOS turns interrupts on: see timerIsr().
-// Static, so it is locked; nothing here allocates.
+// Nothing here allocates.
 static const uint kDeferredLogSize = 16384;	// a power of two
 static char g_deferredLog[kDeferredLogSize];
 static uint g_deferredHead = 0;		// interrupts off
@@ -778,6 +799,10 @@ void OSystem_DOS::addSysArchivesToSearchSet(Common::SearchSet &s, int priority) 
 }
 
 int main(int argc, char *argv[]) {
+	// Before anything allocates: under a DPMI host other than CWSDPMI this
+	// locks the image and the heap as crt0 would have.
+	DOS::chooseLockRegime();
+
 	// Names this run for the self-test and the shared log (SCUMMVM.EXE or
 	// SCUMM.EXE), before anything might log.
 	DOS::setExeName(argc > 0 ? argv[0] : nullptr);
