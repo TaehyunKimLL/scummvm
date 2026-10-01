@@ -1,11 +1,10 @@
 #ifndef TEST_ENGINES_SCUMM_SUPPORT_HIRES_FIXTURE_H
 #define TEST_ENGINES_SCUMM_SUPPORT_HIRES_FIXTURE_H
 
-// Shared setup for the SCUMM hi-res text suites (version-2 maps, Task 7 of
-// docs/superpowers/plans/2026-09-30-hires-config-unify.md).
+// Shared setup for the SCUMM hi-res text suites (version-2 maps).
 //
 // This header sits outside test/engines/scumm/*.h, which cxxtestgen globs
-// into test/runner.cpp (pre-flight ruling S16a): a cxxtest suite class in
+// into test/runner.cpp: a cxxtest suite class in
 // here would be picked up a second time and run twice. Free helper
 // functions are fine - test/runner.cpp is one translation unit, and the
 // include guard above keeps a repeated #include from redefining them.

@@ -21,10 +21,8 @@
  * asks for a replacement with [font.N] face= or mirror=, and mirror= says
  * how the replacement's glyphs are flipped.
  *
- * Since Task 7 a version-2 map always uses per-glyph placement (there is no
- * more "map adopted but the old candidate-list lookup" state): the old
- * "mirror= alone does not switch per-glyph placement on" case no longer
- * applies and is dropped.
+ * A version-2 map always uses per-glyph placement, so mirror= alone needs
+ * nothing more to take effect.
  */
 class ScummHiResMirrorTestSuite : public CxxTest::TestSuite {
 private:

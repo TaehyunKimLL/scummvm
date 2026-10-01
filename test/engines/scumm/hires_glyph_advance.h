@@ -11,18 +11,15 @@
 #include "support/hires_fixture.h"
 
 /**
- * advance= / advance.<spec>= (design sections 6.2, 6.3, replacing metrics=
- * and [latin] mode=/space=): how far the pen moves after a replacement
- * glyph, per code-point range.
+ * advance= / advance.<spec>= (design sections 6.2, 6.3): how far the pen
+ * moves after a replacement glyph, per code-point range.
  *
  * `game` keeps the game's own width (advanceGamePx()); `font` uses the
- * face's own advance; `cell` is the id's narrow/wide cell (old
- * `[latin] mode=half`); with none of these set (kHiResAdvanceEngine) the
- * C31 legacy grid rule applies - a bitmap face steps on the game's grid, a
- * wide TrueType glyph by the face. Since Task 7 a remapped code point goes
- * through its own advance/range rules too (design 6.5 step 2: "a deliberate
- * change from SCUMM's old exclusion of remapped codes from the Latin
- * rules") - the old MI2 0x5c/0x5e/0x60 exclusion is gone.
+ * face's own advance; `cell` is the id's narrow/wide cell; with none of
+ * these set (kHiResAdvanceEngine) the C31 legacy grid rule applies - a
+ * bitmap face steps on the game's grid, a wide TrueType glyph by the face.
+ * A remapped code point goes through its own advance/range rules too
+ * (design 6.5 step 2), so MI2's 0x5c/0x5e/0x60 are not excluded.
  */
 class ScummHiResGlyphAdvanceTestSuite : public CxxTest::TestSuite {
 	static const int kCs = ScummHiResFixture::kCs;
@@ -47,7 +44,7 @@ class ScummHiResGlyphAdvanceTestSuite : public CxxTest::TestSuite {
 	}
 
 	/// A one-glyph 8bpp proportional SVFN with exact control of the metrics
-	/// table and the ink's column reach - what M6's restored cellRuleAdvance()
+	/// table and the ink's column reach - what cellRuleAdvance()'s
 	/// ink floor/widening needs pinned to a precise number, unlike
 	/// ScummHiResFixture::makeFont()'s fixed 9 px advance and 6 px ink.
 	static Common::Array<byte> svfn(uint32 cp, int advance, int bearing, int inkWidth,
@@ -219,7 +216,7 @@ public:
 		TS_ASSERT_EQUALS(hr.advanceFor(0x5e, kCs, 3), 3); // advance.U+2026=game wins (narrower span)
 	}
 
-	/// M6 (controller ruling): advance=game|font on a wide glyph reproduces
+	/// advance=game|font on a wide glyph reproduces
 	/// the old cellRuleAdvance() exactly - the ink floor MAX(fit, gameWidth)
 	/// for game, and the carry-widened face advance for font. A 9 px-advance,
 	/// 12 px-wide-ink glyph (ink reaches column 13) is ceil(13/2) = 7 hi-res
@@ -241,7 +238,7 @@ public:
 			// fall back to gameWidth before ever reaching cellRuleAdvance() -
 			// exactly the "found (4 != 7)" a first draft of this test got, and
 			// the same trap that leaves the neighbouring
-			// test_bitmap_wide_glyph_keeps_the_game_grid unable to fail (M10):
+			// test_bitmap_wide_glyph_keeps_the_game_grid unable to fail:
 			// its gameWidth argument (12) happens to equal the real ink floor.
 			hr.useUtf8Text();
 			Common::MemoryReadStream ms(bytes.begin(), bytes.size());
@@ -256,7 +253,7 @@ public:
 		}
 	}
 
-	/// H1 regression: under the engine default (no advance= key) a wide SVF
+	/// Under the engine default (no advance= key) a wide SVF
 	/// glyph is still centred in the game cell, exactly as the old
 	/// `metrics == Game` default did - not drawn flush against the pen the
 	/// way a TrueType face stepping by its own advance is (that face-steps
@@ -294,7 +291,7 @@ public:
 		dest.free();
 	}
 
-	/// H2 regression: a narrow non-ASCII, non-wide glyph (the "other"
+	/// A narrow non-ASCII, non-wide glyph (the "other"
 	/// category - Thai base letters, narrow punctuation, a UTF-8
 	/// translation's own scripts) steps by the face's own advance under the
 	/// engine default, not the wide-glyph grid rule (which would give it
@@ -333,8 +330,7 @@ public:
 	/// noteTranslatedString() (C11-T3c): the translation's code points are
 	/// read past every escape by the shared rule (escapeArgBytes()) - codes
 	/// 4-7 and 9 take two argument bytes too, and an argument of 0 does not
-	/// end the string. Ported verbatim from the pre-Task-7 suite: this
-	/// function and its call sites are unchanged by Task 7.
+	/// end the string.
 	void test_note_translated_string_skips_every_escape_argument() {
 		Scumm::ScummHiResText hr;
 		hr.useUtf8Text();
@@ -356,9 +352,8 @@ public:
 
 	/// The anchor a combining mark attaches to is the base just drawn by
 	/// this layer on this line and in this string - not an older one, a
-	/// declined one, or one on another line. Ported from the pre-Task-7
-	/// suite; the drawGlyphPlaced()/beginString() anchor bookkeeping this
-	/// pins is unchanged by Task 7 (still `:879-900`-equivalent code).
+	/// declined one, or one on another line (the drawGlyphPlaced()/
+	/// beginString() anchor bookkeeping).
 	///
 	/// This custom font's mark (U+0300) has no marksAtOrigin flag, so its
 	/// originX is 0 and its own ink starts at its cell's column 0: with no
@@ -456,8 +451,7 @@ public:
 	/// advance=game centres any glyph narrower than the game cell it is
 	/// given - not only a wide one under the engine default (H1's own
 	/// test): explicit `advance=game` on the "other"/ASCII-like path
-	/// (kHiResAdvanceGame is not wide-gated) centres too. The old
-	/// metrics=game default behaved identically for every family.
+	/// (kHiResAdvanceGame is not wide-gated) centres too, for every family.
 	void test_metrics_game_centres_narrow_glyph() {
 		Scumm::HiResOverlay overlay;
 		overlay.create(96, 40, false);

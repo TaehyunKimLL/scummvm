@@ -1184,7 +1184,7 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	// normally do, because that is the only surface with the resolution to
 	// hold it. Falling through to the original path keeps a character the
 	// replacement font does not cover looking exactly as it did.
-	// Per-glyph placement centres a glyph under metrics=game in the cell it
+	// Per-glyph placement centres a glyph under advance=game in the cell it
 	// will step by, so it is told that step. The carry is copied: measuring
 	// here must not spend what the step below will spend.
 	int hiResAdvance = 0;
@@ -1522,7 +1522,7 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 	// Hi-res text goes to the scaled overlay, which is the only surface with
 	// the resolution to hold it. A character the replacement font does not
 	// cover falls through and is drawn exactly as it was before.
-	// Per-glyph placement centres a glyph under metrics=game in the cell it
+	// Per-glyph placement centres a glyph under advance=game in the cell it
 	// will step by, which is worked out below from the same width.
 	int hiResAdvance = 0;
 	if (_vm->_hiResText.perGlyphMetrics()) {
@@ -1569,7 +1569,7 @@ void CharsetRendererClassic::printChar(int chr, bool ignoreCharsetMask) {
 		_origWidth++;
 
 	// A proportional replacement font may want to advance by its own glyph
-	// width rather than the game's. Only metrics=font asks for that; the
+	// width rather than the game's. Only advance=font asks for that; the
 	// default leaves the game's layout alone, because scripts size speech
 	// bubbles and choose line breaks from the original widths.
 	_origWidth = _vm->_hiResText.advanceFor(chr, _curId, _origWidth);
@@ -2416,7 +2416,7 @@ int CharsetRendererV7::draw2byte(byte *buffer, Common::Rect &clipRect, int x, in
 
 	// Offer the character to the hi-res layer before the game's own bitmap is
 	// unpacked. When the layer declines - no map, no glyph for this code
-	// point, or a kHiResGlyphKeep override - the loop below runs unchanged and
+	// point, or an `original` [glyphs] rule - the loop below runs unchanged and
 	// the screen looks exactly as it did.
 	//
 	// The advance stays the game's own whatever the replacement measures.
@@ -2528,7 +2528,7 @@ int CharsetRendererV7::getCharWidth(uint16 chr) const {
 	//
 	// A replacement glyph may be wider than the one it stands in for, so the
 	// layer gets the last word - as it does in every other renderer. Its
-	// default (metrics=game) hands back the width it was given, so a game with
+	// default (advance=game) hands back the width it was given, so a game with
 	// no map, or a map that does not ask for font metrics, measures exactly as
 	// it always did.
 	//

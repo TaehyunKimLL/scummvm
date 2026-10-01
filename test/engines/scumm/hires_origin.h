@@ -14,7 +14,7 @@
 #include "support/hires_fixture.h"
 
 /**
- * origin=face (design section 8, replacing the old [latin] baseline=face):
+ * origin=face (design section 8):
  * a glyph drawn from a bitmap (SVFN) face sits on the baseline baked into
  * the face, rather than under the game glyph's own offsets.
  *
@@ -26,11 +26,10 @@
  * the game's offsets (latinStepsByFace); origin=face asks the same of a
  * bitmap face, and only when the map says so.
  *
- * Since Task 7 origin=face applies to any code point through a plan
- * (design section 6.2), not only ASCII: latinBaselineByFace() is a thin
- * wrapper over HiResIdPlan::originFor() of the code point actually drawn -
- * so a remap's own origin rule applies too (a deliberate change from the
- * old exclusion of remapped codes from the Latin rules).
+ * origin=face applies to any code point through a plan (design section
+ * 6.2), not only ASCII: latinBaselineByFace() is a thin wrapper over
+ * HiResIdPlan::originFor() of the code point actually drawn - so a remap's
+ * own origin rule applies too (design 6.5 step 2).
  */
 class ScummHiResOriginTestSuite : public CxxTest::TestSuite {
 	static const int kCs = ScummHiResFixture::kCs;
@@ -188,7 +187,7 @@ public:
 #endif
 	}
 
-	/// M8 (controller ruling): the old implicit ascent alignment is back for
+	/// The implicit ascent alignment applies to
 	/// any face other than the id's own primary - a bitmap Latin companion
 	/// sits on a TrueType CJK primary's baseline whatever origin= says (or
 	/// does not say at all: this map sets no origin key), unlike
@@ -267,8 +266,8 @@ public:
 #endif
 	}
 
-	/// What printChar() does with the game glyph's offsets: unchanged since
-	/// before Task 7 (a pure function of two booleans and a line offset).
+	/// What printChar() does with the game glyph's offsets (a pure function
+	/// of two booleans and a line offset).
 	void test_glyph_offsets() {
 		int x = 3, y = 9;		// a trimmed card font's '.'
 		Scumm::CharsetRendererClassic::latinGlyphOffsets(false, true, 4, x, y);

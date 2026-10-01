@@ -10,8 +10,7 @@
 #include "../../system/null_osystem.h"
 
 /**
- * Whether [render] blend= (design section 7.2, replacing [hires] alpha=)
- * wants blended text (C17).
+ * Whether [render] blend= (design section 7.2) wants blended text (C17).
  *
  * A TrueType face and an 8 bpp SVFN both carry coverage: their edges are
  * partly covered pixels. With blending off, the layer keys them: it draws a
@@ -68,7 +67,7 @@ public:
 	 * A game that cannot blend (SCUMM v7 and v8: the backend palette is
 	 * SMUSH's) gets no default: blend=auto with a covering face stays keyed,
 	 * so the "will not be blended" warning is not printed on every start of
-	 * FT, The Dig or COMI (Task 7 review L1(a)). blend=on still asks, and
+	 * FT, The Dig or COMI. blend=on still asks, and
 	 * the caller (scumm.cpp) is still the one that finds out it could not be
 	 * done - wantsAlphaFor() itself never silently drops an explicit ask.
 	 */

@@ -12,7 +12,7 @@
 #include "support/hires_fixture.h"
 
 /**
- * `range.basic-latin=` (design section 6, replacing the old [latin] font=):
+ * `range.basic-latin=` (design section 6):
  * `same` (SCUMM's engine scope default, spec 8) prefers the charset's own
  * face over a range-named Latin face elsewhere; a named face wins without
  * it; `same` on a charset with no font of its own borrows the nearest
@@ -103,7 +103,7 @@ public:
 	/// A charset with no font of its own (kOtherCs) still gets ASCII from
 	/// the nearest charset's face under range.basic-latin=same - SCUMM's
 	/// long-standing nearestFont() borrowing (design section 5.3), which
-	/// pickGlyph() alone cannot reach for a wholly empty id chain (B6).
+	/// pickGlyph() alone cannot reach for a wholly empty id chain.
 	void test_same_borrows_the_nearest_charset_when_this_one_has_none() {
 		Scumm::HiResOverlay overlay;
 		overlay.create(64, 40, false);
@@ -227,7 +227,7 @@ public:
 	/// face=original never borrows a neighbouring id's chain, even when a
 	/// donor is actually present and would otherwise be found - unlike a
 	/// truly empty id chain (test_same_borrows_the_nearest_charset_when_this_one_has_none),
-	/// `original` is a deliberate "always the game's own" and B6's
+	/// `original` is a deliberate "always the game's own" and the
 	/// borrow-retry is guarded against it explicitly.
 	void test_original_never_borrows_even_with_a_donor_present() {
 		Scumm::HiResOverlay overlay;
@@ -247,7 +247,7 @@ public:
 		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cpOriginal));    // original never borrows it
 	}
 
-	/// SVF through face= opens as a bitmap font (was bitmap=).
+	/// An SVF named by face= opens as a bitmap font.
 	void test_svf_through_face_opens_as_a_bitmap_font() {
 		Scumm::HiResOverlay overlay;
 		overlay.create(64, 40, false);
@@ -278,7 +278,7 @@ public:
 		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cp));
 	}
 
-	/// Task 6b's render-target qualifiers reach the faces: a map loaded with
+	/// Render-target qualifiers reach the faces: a map loaded with
 	/// target clut8 routes charset 4 to the :clut8 preset's face; rgb565
 	/// (no fallback between targets, spec 3.4) uses the bare preset.
 	void test_render_target_qualifier_selects_the_fonts_preset() {
