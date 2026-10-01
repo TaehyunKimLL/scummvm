@@ -203,6 +203,11 @@ void ScummHiResText::reset() {
 	_resolvedBlend = Graphics::kHiResBlendAuto;
 	_anyCoverage = false;
 	_canBlend = true;
+	_wanted = Graphics::kHiResTargetClut8;
+	_wantedExplicit = false;
+	_simpleCoverage = false;
+	_shownWarnings.clear();
+	_targetNoted = false;
 	_simpleBitmapPattern.clear();
 	_simpleBitmapSingle.clear();
 	_simpleLatinBitmapName.clear();
@@ -336,21 +341,15 @@ void ScummHiResText::compilePlans(const Common::Path &gameDir) {
 	Common::Array<Common::String> planWarnings;
 	for (int i = 0; i < kMaxFonts; ++i)
 		_plans[i] = Graphics::compileIdPlan(_map, _haveMap, i, _ini, engineScope(), _mapDir, gameDir, planWarnings);
-	// Task 5 review F2 / L4: de-duplicate before emitting (a map-wide
-	// face=same warning would otherwise print once per id), and - unlike
-	// the adoptMap() this replaces - never silently drop them.
-	for (uint i = 0; i < planWarnings.size(); ++i) {
-		bool dup = false;
-		for (uint j = 0; j < i && !dup; ++j)
-			dup = (planWarnings[j] == planWarnings[i]);
-		if (!dup)
-			warning("SCUMM: %s", planWarnings[i].c_str());
-	}
+	// Once per load: a map-wide face=same warning would otherwise print
+	// once per id, and again when adoptScreen() recompiles.
+	for (uint i = 0; i < planWarnings.size(); ++i)
+		warnOnce("SCUMM: " + planWarnings[i]);
 
 	Common::String scaleWarning;
 	_scale = resolvedScale(_map, _haveMap, _ini, Graphics::hiResScaleLimits(), scaleWarning);
 	if (!scaleWarning.empty())
-		warning("SCUMM: %s", scaleWarning.c_str());
+		warnOnce("SCUMM: " + scaleWarning);
 
 	// design 7.2: blend is read in phase 2, against the sections the
 	// resolved target actually uses - not the phase-1 coverage question
@@ -358,26 +357,103 @@ void ScummHiResText::compilePlans(const Common::Path &gameDir) {
 	// (Task 7 review L1(b)).
 	_resolvedBlend = _ini.blendSet ? _ini.blend : _map.blend;
 	_anyCoverage = Graphics::mapHasCoverage(_map, _haveMap, _ini, _mapDir, gameDir,
-											&ScummHiResText::faceHasCoverage, nullptr);
+											&ScummHiResText::faceHasCoverage, nullptr) ||
+				   (_simpleFonts && _simpleCoverage);
+}
+
+void ScummHiResText::warnOnce(const Common::String &message) {
+	for (uint i = 0; i < _shownWarnings.size(); ++i) {
+		if (_shownWarnings[i] == message)
+			return;
+	}
+	_shownWarnings.push_back(message);
+	warning("%s", message.c_str());
 }
 
 Graphics::HiResRenderTarget ScummHiResText::wantedTarget(const Graphics::HiResMap &map, bool mapLoaded,
 														 const Graphics::HiResIniOverrides &ini, int gameVersion,
-														 bool anyCoverage, Common::String &warning) {
+														 bool anyCoverage, Common::String &warning,
+														 bool *explicitTarget) {
 	warning.clear();
+	bool named = false;
+	const Graphics::HiResRenderTarget want = Graphics::wantedRenderTarget(map, mapLoaded, ini, anyCoverage, named);
 
 	if (gameVersion >= 7) {
-		bool explicitTarget = false;
-		const Graphics::HiResRenderTarget want = Graphics::wantedRenderTarget(map, mapLoaded, ini, anyCoverage, explicitTarget);
-		if (explicitTarget && want != Graphics::kHiResTargetClut8) {
+		if (named && want != Graphics::kHiResTargetClut8) {
 			warning = Common::String::format("SCUMM v7+ keeps a paletted screen; render_target=%s ignored",
 											  Graphics::renderTargetName(want));
 		}
+		// Already warned about: no second warning for the same target.
+		if (explicitTarget)
+			*explicitTarget = false;
 		return Graphics::kHiResTargetClut8;
 	}
 
-	bool explicitTarget = false;
-	return Graphics::wantedRenderTarget(map, mapLoaded, ini, anyCoverage, explicitTarget);
+	if (explicitTarget)
+		*explicitTarget = named;
+	return want;
+}
+
+Graphics::HiResRenderTarget ScummHiResText::screenTargetFor(bool layerOn, bool canBlend, Graphics::HiResRenderTarget predicted,
+															 Graphics::HiResBlend blend, bool anyCoverage) {
+	if (!layerOn || !canBlend || predicted == Graphics::kHiResTargetClut8)
+		return Graphics::kHiResTargetClut8;
+	if (!Graphics::blendActive(blend, anyCoverage, false))
+		return Graphics::kHiResTargetClut8;
+	return predicted;
+}
+
+Common::String ScummHiResText::targetNote(Graphics::HiResRenderTarget wanted, bool wantedExplicit,
+										  Graphics::HiResRenderTarget actual) {
+	if (!wantedExplicit || wanted == actual)
+		return Common::String();
+	return Common::String::format("render_target=%s is not available here; using %s",
+								  Graphics::renderTargetName(wanted), Graphics::renderTargetName(actual));
+}
+
+bool ScummHiResText::blendCheckboxState(Graphics::HiResBlend configured, bool running,
+										Graphics::HiResBlend runningWith, bool runningBlends) {
+	if (running && configured == runningWith)
+		return runningBlends;
+	return Graphics::blendActive(configured, true, false);
+}
+
+Common::List<Graphics::PixelFormat> ScummHiResText::screenRequest(const Common::List<Graphics::PixelFormat> &supported) const {
+	Common::String note; // adoptScreen() warns once, against the screen actually set
+	if (_target == Graphics::kHiResTargetClut8)
+		return Graphics::formatRequest(Graphics::kHiResTargetClut8, supported, true, note);
+	return Graphics::formatRequest(_wanted, supported, true, note);
+}
+
+bool ScummHiResText::blendsOnTarget(Graphics::HiResRenderTarget t) const {
+	if (!_ini.enabled || t == Graphics::kHiResTargetClut8)
+		return false;
+
+	Graphics::HiResMap m;
+	bool loaded = false;
+	if (_haveMapPath) {
+		Graphics::HiResMapLoadOptions opts;
+		opts.target = t;
+		opts.quiet = true;
+		loaded = Graphics::HiResFontMap::loadMapFile(_mapPath, _qualifiers, Graphics::kHiResKeysScumm, m, opts);
+	}
+
+	const Graphics::HiResBlend blend = _ini.blendSet ? _ini.blend : (loaded ? m.blend : Graphics::kHiResBlendAuto);
+	const bool coverage = Graphics::mapHasCoverage(m, loaded, _ini, _mapDir, _gameDir,
+												   &ScummHiResText::faceHasCoverage, nullptr) ||
+						  (_simpleFonts && _simpleCoverage);
+	const bool iniNamesFace = _ini.faceSet && !_ini.face.equalsIgnoreCase("original");
+	const bool layerOn = loaded || _simpleFonts || iniNamesFace;
+	return screenTargetFor(layerOn, _canBlend, t, blend, coverage) != Graphics::kHiResTargetClut8;
+}
+
+bool ScummHiResText::canDrawInto(const Graphics::PixelFormat &format) const {
+	if (format.isCLUT8())
+		return true;
+	const Graphics::HiResRenderTarget t = Graphics::targetOfFormat(format);
+	if (t == _target)
+		return screenTargetFor(_enabled, _canBlend, t, _resolvedBlend, _anyCoverage) != Graphics::kHiResTargetClut8;
+	return blendsOnTarget(t);
 }
 
 int ScummHiResText::resolvedScale(const Graphics::HiResMap &map, bool mapLoaded, const Graphics::HiResIniOverrides &ini,
@@ -392,31 +468,65 @@ int ScummHiResText::resolvedScale(const Graphics::HiResMap &map, bool mapLoaded,
 	return resolved;
 }
 
-void ScummHiResText::adoptScreen(const Graphics::PixelFormat &actual) {
+void ScummHiResText::adoptScreen(const Graphics::PixelFormat &actual, bool chosenByLayer) {
 	const Graphics::HiResRenderTarget actualTarget = Graphics::targetOfFormat(actual);
+
+	const Common::String note = targetNote(_wanted, _wantedExplicit, actualTarget);
+	if (!note.empty() && !_targetNoted) {
+		_targetNoted = true;
+		warning("SCUMM: %s", note.c_str());
+	}
+
 	if (actualTarget == _target)
 		return;
 
-	warning("SCUMM: the screen is %s, not %s; hi-res text uses the %s sections",
-			Graphics::renderTargetName(actualTarget), Graphics::renderTargetName(_target),
-			Graphics::renderTargetName(actualTarget));
-	_target = actualTarget;
-
-	if (_haveMapPath) {
-		Graphics::HiResMapLoadOptions p2opts;
-		p2opts.target = _target;
-		p2opts.quiet = false;
-		_haveMap = Graphics::HiResFontMap::loadMapFile(_mapPath, _qualifiers, Graphics::kHiResKeysScumm, _map, p2opts);
+	// Nothing to redo without hi-res text or a map: without a map no
+	// section depends on the target.
+	if (!_ini.enabled || !_haveMapPath) {
+		_target = actualTarget;
+		return;
 	}
 
+	if (chosenByLayer && note.empty())
+		warnOnce(Common::String::format("SCUMM: the screen is %s, not %s; hi-res text uses the %s sections",
+										Graphics::renderTargetName(actualTarget), Graphics::renderTargetName(_target),
+										Graphics::renderTargetName(actualTarget)));
+	else
+		debug(1, "SCUMM: hi-res text uses the %s sections for the %s screen",
+			  Graphics::renderTargetName(actualTarget), actual.toString().c_str());
+
+	reloadSections(actualTarget, true);
+}
+
+void ScummHiResText::reloadSections(Graphics::HiResRenderTarget t, bool keepScale) {
+	_target = t;
+	if (!_ini.enabled)
+		return;
+
+	if (_haveMapPath) {
+		Graphics::HiResMapLoadOptions opts;
+		opts.target = t;
+		opts.quiet = true;
+		Graphics::HiResMap m;
+		_haveMap = Graphics::HiResFontMap::loadMapFile(_mapPath, _qualifiers, Graphics::kHiResKeysScumm, m, opts);
+		for (uint i = 0; i < m.warnings.size(); ++i)
+			warnOnce(m.warnings[i]);
+		_map = m; // the faces open later, in loadFonts()
+	}
+
+	const int sizedFor = _scale;
 	compilePlans(_gameDir);
-	// Task 8 review M2: compilePlans() just refreshed blend()/anyCoverage()
-	// against the corrected target's phase-2 sections, but not wantsAlpha()
-	// - which createCoverage() (called once, later, from the same init()
-	// that reads alphaActive() off blend()/anyCoverage() fresh) is gated
-	// on. Left stale, a correction that starts wanting blending would get a
-	// true alphaActive() with no coverage surface ever allocated.
+	if (keepScale && _scale != sizedFor) {
+		warnOnce(Common::String::format("SCUMM: the %s sections ask for hi-res scale %d, but the screen is "
+										"already sized for %d; using %d",
+										Graphics::renderTargetName(t), _scale, sizedFor, sizedFor));
+		_scale = sizedFor;
+	}
+
 	_wantsAlpha = wantsAlphaFor(_resolvedBlend, _anyCoverage, _canBlend);
+	const bool iniNamesFace = _ini.faceSet && !_ini.face.equalsIgnoreCase("original");
+	_enabled = _haveMap || _simpleFonts || iniNamesFace;
+	_perGlyph = !_simpleFonts;
 }
 
 void ScummHiResText::adoptMapForScreenTest(const Graphics::HiResMap &map, const Graphics::HiResIniOverrides &ini,
@@ -1698,6 +1808,7 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir, Common::Langu
 	}
 
 	_wantsAlpha = _wantsAlpha || anyCoverage;
+	_simpleCoverage = anyCoverage;
 
 	_simpleFonts = true;
 	_simpleCellHeight = smallestCell;
@@ -2450,7 +2561,8 @@ void ScummHiResText::noteTranslatedString(const byte *s, uint32 maxLen) {
 // ---------------------------------------------------------------------
 
 void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::String &gameId,
-								int version, Common::Language language) {
+								int version, Common::Language language,
+								const Common::List<Graphics::PixelFormat> *supportedFormats) {
 	reset();
 	_gameDir = gameDir;
 
@@ -2513,16 +2625,22 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 														 &ScummHiResText::faceHasCoverage, nullptr);
 
 	Common::String targetWarning;
-	const Graphics::HiResRenderTarget want = wantedTarget(p1, p1Loaded, _ini, version, anyCoverageP1, targetWarning);
+	_wanted = wantedTarget(p1, p1Loaded, _ini, version, anyCoverageP1, targetWarning, &_wantedExplicit);
 	if (!targetWarning.empty())
 		warning("%s", targetWarning.c_str());
 
 	Common::List<Graphics::PixelFormat> supported;
-	if (g_system)
+	if (supportedFormats)
+		supported = *supportedFormats;
+	else if (g_system)
 		supported = g_system->getSupportedFormats();
-	_target = Graphics::predictedTarget(want, supported, true);
+	_target = Graphics::predictedTarget(_wanted, supported, true);
+	_canBlend = canBlendText(version);
 
 	if (!_ini.enabled) {
+		// The engine draws exactly as without the layer, on upstream's
+		// paletted screen: only the blending path can fill an RGB one.
+		_target = Graphics::kHiResTargetClut8;
 		debug(1, "SCUMM: hi-res text off (hires_text=false): the map, the fonts "
 				 "in the game folder and any TrueType face are all ignored");
 		return;
@@ -2535,10 +2653,18 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	if (p1Loaded) {
 		_mapPath = mapPath;
 		_qualifiers = qualifiers;
+		// An RGB screen only when the text blends with that family's
+		// sections; asked before the real phase-2 load so that load, and
+		// its warnings, are for the sections actually used.
+		if (_target != Graphics::kHiResTargetClut8 && !blendsOnTarget(_target))
+			_target = Graphics::kHiResTargetClut8;
+
 		Graphics::HiResMapLoadOptions p2opts;
 		p2opts.target = _target;
 		p2opts.quiet = false;
 		_haveMap = Graphics::HiResFontMap::loadMapFile(mapPath, qualifiers, Graphics::kHiResKeysScumm, _map, p2opts);
+		for (uint i = 0; i < _map.warnings.size(); ++i)
+			_shownWarnings.push_back(_map.warnings[i]);
 		debug(1, "SCUMM: hi-res map %s: '%s'%s", _haveMap ? "read" : "REJECTED",
 			  mapPath.toString().c_str(), _ini.mapSet ? " (from the config)" : " (found in the game folder)");
 	}
@@ -2562,14 +2688,19 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	compilePlans(gameDir);
 	_scaleFromUser = _ini.scaleSet;
 
-	// Cached (not just passed straight to wantsAlphaFor()) so adoptScreen()
-	// can redo this same resolution later, against a corrected blend()/
-	// anyCoverage(), without a gameVersion of its own (Task 8 review M2).
-	_canBlend = canBlendText(version);
 	_wantsAlpha = wantsAlphaFor(_resolvedBlend, _anyCoverage, _canBlend);
 
 	const bool iniNamesFace = _ini.faceSet && !_ini.face.equalsIgnoreCase("original");
 	_enabled = _haveMap || _simpleFonts || iniNamesFace;
+
+	// No map, or one that was refused: the layer may be off altogether, or
+	// its faces may not blend. No section depends on the target then, so
+	// only the request changes.
+	if (screenTargetFor(_enabled, _canBlend, _target, _resolvedBlend, _anyCoverage) == Graphics::kHiResTargetClut8) {
+		if (_haveMap && _target != Graphics::kHiResTargetClut8)
+			reloadSections(Graphics::kHiResTargetClut8, false);
+		_target = Graphics::kHiResTargetClut8;
+	}
 
 	if (_enabled) {
 		debug(1, "SCUMM: hi-res text enabled: scale %d, blend %s (wants alpha %s), source encoding %s%s, render target %s",

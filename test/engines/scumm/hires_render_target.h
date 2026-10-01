@@ -1,6 +1,7 @@
 #include <cxxtest/TestSuite.h>
 
 #include "common/array.h"
+#include "common/config-manager.h"
 #include "common/file.h"
 #include "common/fs.h"
 #include "common/memstream.h"
@@ -42,6 +43,84 @@ class ScummHiResRenderTargetTestSuite : public CxxTest::TestSuite {
 		f.close();
 	}
 
+	/// A directory of this run's own (mkdtemp in the working directory), and
+	/// every file a test wrote into it, removed again by tearDown().
+	Common::String _tmpDir;
+	Common::Array<Common::String> _tmpFiles;
+
+	Common::Path tmpDir() {
+		if (_tmpDir.empty()) {
+			char name[] = "hires-render-target-XXXXXX";
+			if (mkdtemp(name)) {
+				// Absolute: a map's relative face paths resolve against it.
+				char *full = realpath(name, nullptr);
+				_tmpDir = full ? full : name;
+				free(full);
+			}
+			TS_ASSERT(!_tmpDir.empty());
+		}
+		return Common::Path(_tmpDir, '/');
+	}
+
+	Common::Path tmpFile(const char *name) {
+		const Common::Path p = tmpDir().join(Common::Path(name, '/'));
+		_tmpFiles.push_back(p.toString('/'));
+		return p;
+	}
+
+	/// Points ConfMan's active domain at a fresh game domain holding @p keys
+	/// ("key=value" lines), for loadConfig(), which reads the ini through it.
+	static void useDomain(const char *keys) {
+		if (ConfMan.hasGameDomain(kDomain))
+			ConfMan.removeGameDomain(kDomain);
+		ConfMan.addGameDomain(kDomain);
+		ConfMan.setActiveDomain(kDomain);
+		Common::String rest(keys);
+		while (!rest.empty()) {
+			const char *nl = strchr(rest.c_str(), '\n');
+			const Common::String line = nl ? Common::String(rest.c_str(), nl) : rest;
+			rest = nl ? Common::String(nl + 1) : Common::String();
+			const char *eq = strchr(line.c_str(), '=');
+			if (eq)
+				ConfMan.set(Common::String(line.c_str(), eq), Common::String(eq + 1), kDomain);
+		}
+	}
+
+	static constexpr const char *kDomain = "hires-render-target-test";
+
+	/// What a desktop backend offers: both RGB families and CLUT8.
+	static const Common::List<Graphics::PixelFormat> &formats() {
+		static Common::List<Graphics::PixelFormat> list;
+		if (list.empty()) {
+			list.push_back(rgb565());
+			list.push_back(Graphics::PixelFormat(4, 8, 8, 8, 8, 24, 16, 8, 0));
+			list.push_back(Graphics::PixelFormat::createFormatCLUT8());
+		}
+		return list;
+	}
+
+	static Graphics::PixelFormat rgb888() { return Graphics::PixelFormat(4, 8, 8, 8, 0, 16, 8, 0, 0); }
+	static Graphics::PixelFormat rgb565() { return Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0); }
+
+	/// A map naming one face for id 0 per render target, as the shipped
+	/// two-preset maps do: @p bare for the bare sections, @p rgb for
+	/// [font.0:rgb888]; @p extra is appended as is.
+	Common::Path writeMap(const char *render, const char *extra = "") {
+		const Common::Path one = tmpFile("one.svf");
+		const Common::Path two = tmpFile("two.svf");
+		writeSvf(one, 1);
+		writeSvf(two, 2);
+		const Common::Path mapPath = tmpFile("HIRESTXT.MAP");
+		writeFile(mapPath, Common::String::format(
+			"[map]\nversion=2\n"
+			"[render]\n%s\n"
+			"[font.0]\nface=%s\n"
+			"[font.0:clut8]\nface=%s\n"
+			"%s",
+			render, two.toString('/').c_str(), one.toString('/').c_str(), extra));
+		return mapPath;
+	}
+
 public:
 	void setUp() {
 #if NULL_OSYSTEM_IS_AVAILABLE
@@ -50,6 +129,15 @@ public:
 	}
 
 	void tearDown() {
+		for (uint i = 0; i < _tmpFiles.size(); ++i)
+			remove(_tmpFiles[i].c_str());
+		_tmpFiles.clear();
+		if (!_tmpDir.empty())
+			remove(_tmpDir.c_str());
+		_tmpDir.clear();
+		if (ConfMan.hasGameDomain(kDomain))
+			ConfMan.removeGameDomain(kDomain);
+		ConfMan.setActiveDomain("");
 #if NULL_OSYSTEM_IS_AVAILABLE
 		Common::uninstall_null_g_system();
 #endif
@@ -128,16 +216,12 @@ public:
 	 * all agree that blending is wanted.
 	 */
 	void test_adopt_screen_refreshes_wants_alpha_and_coverage() {
-		Common::FSNode tmp("/tmp/scummvm-hires-adopt-screen-test");
-		tmp.createDirectory();
-		const Common::Path dir = tmp.getPath();
-
-		const Common::Path onePath = dir.join(Common::Path("one.svf", '/'));
-		const Common::Path twoPath = dir.join(Common::Path("two.svf", '/'));
+		const Common::Path onePath = tmpFile("one.svf");
+		const Common::Path twoPath = tmpFile("two.svf");
 		writeSvf(onePath, 1);
 		writeSvf(twoPath, 2);
 
-		const Common::Path mapPath = dir.join(Common::Path("test.map", '/'));
+		const Common::Path mapPath = tmpFile("test.map");
 		writeFile(mapPath, Common::String::format(
 			"[map]\nversion=2\n"
 			"[render]\nblend=off\n"
@@ -183,5 +267,194 @@ public:
 		TS_ASSERT(hr.coverage());
 		hr.setAlphaActive(Graphics::blendActive(hr.blend(), hr.anyCoverage(), false));
 		TS_ASSERT(hr.alphaActive());
+	}
+	/**
+	 * The screen SCUMM asks for. Before v7 the engine only produces
+	 * true-colour output on its blending path (palette cache, no backend
+	 * palette, the RGB sinks); everywhere else it sets the backend palette
+	 * and blits 1-byte pixels. So the request is paletted unless the text will
+	 * actually blend, whatever render_target says.
+	 */
+	void test_screen_is_paletted_unless_the_text_blends() {
+		using Scumm::ScummHiResText;
+		const Graphics::HiResRenderTarget c = Graphics::kHiResTargetClut8;
+		const Graphics::HiResRenderTarget t888 = Graphics::kHiResTargetRgb888;
+		const Graphics::HiResRenderTarget t565 = Graphics::kHiResTargetRgb565;
+		// hires_text=false, or no map and no faces: the layer is off.
+		TS_ASSERT_EQUALS(ScummHiResText::screenTargetFor(false, true, t888, Graphics::kHiResBlendAuto, false), c);
+		TS_ASSERT_EQUALS(ScummHiResText::screenTargetFor(false, true, t888, Graphics::kHiResBlendOn, true), c);
+		// hires_text_blend=off (the player's checkbox, or [render:rgb888] blend=off).
+		TS_ASSERT_EQUALS(ScummHiResText::screenTargetFor(true, true, t888, Graphics::kHiResBlendOff, true), c);
+		TS_ASSERT_EQUALS(ScummHiResText::screenTargetFor(true, true, t565, Graphics::kHiResBlendOff, true), c);
+		// Only 1 bpp faces: nothing to blend, even with blend=on.
+		TS_ASSERT_EQUALS(ScummHiResText::screenTargetFor(true, true, t888, Graphics::kHiResBlendOn, false), c);
+		TS_ASSERT_EQUALS(ScummHiResText::screenTargetFor(true, true, t888, Graphics::kHiResBlendAuto, false), c);
+		// A game that cannot blend (v7+).
+		TS_ASSERT_EQUALS(ScummHiResText::screenTargetFor(true, false, t888, Graphics::kHiResBlendOn, true), c);
+		// Asked-for clut8 stays clut8.
+		TS_ASSERT_EQUALS(ScummHiResText::screenTargetFor(true, true, c, Graphics::kHiResBlendOn, true), c);
+		// The text blends: the predicted RGB family stands.
+		TS_ASSERT_EQUALS(ScummHiResText::screenTargetFor(true, true, t888, Graphics::kHiResBlendAuto, true), t888);
+		TS_ASSERT_EQUALS(ScummHiResText::screenTargetFor(true, true, t565, Graphics::kHiResBlendOn, true), t565);
+	}
+
+	/// The one section 7.1 warning names what was asked, not what the
+	/// prediction already turned it into.
+	void test_target_note_names_the_wanted_target() {
+		using Scumm::ScummHiResText;
+		TS_ASSERT_EQUALS(ScummHiResText::targetNote(Graphics::kHiResTargetRgb888, true, Graphics::kHiResTargetClut8),
+						 "render_target=rgb888 is not available here; using clut8");
+		TS_ASSERT_EQUALS(ScummHiResText::targetNote(Graphics::kHiResTargetRgb565, true, Graphics::kHiResTargetRgb888),
+						 "render_target=rgb565 is not available here; using rgb888");
+		// Nothing asked (the auto rule chose it), or what was asked was set.
+		TS_ASSERT(ScummHiResText::targetNote(Graphics::kHiResTargetRgb888, false, Graphics::kHiResTargetClut8).empty());
+		TS_ASSERT(ScummHiResText::targetNote(Graphics::kHiResTargetRgb888, true, Graphics::kHiResTargetRgb888).empty());
+		TS_ASSERT(ScummHiResText::targetNote(Graphics::kHiResTargetClut8, true, Graphics::kHiResTargetClut8).empty());
+	}
+
+	void test_hires_text_off_with_rgb888_keeps_a_paletted_screen() {
+		writeMap("blend=auto");
+		useDomain("hires_text=false\nrender_target=rgb888\n");
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &formats());
+		TS_ASSERT(!hr.enabled());
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(hr.askedTarget(), Graphics::kHiResTargetRgb888);
+	}
+
+	void test_no_map_with_rgb888_keeps_a_paletted_screen() {
+		tmpDir();
+		useDomain("render_target=rgb888\n");
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &formats());
+		TS_ASSERT(!hr.enabled());
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetClut8);
+	}
+
+	void test_blend_off_with_rgb888_takes_the_clut8_sections() {
+		writeMap("blend=auto");
+		useDomain("render_target=rgb888\nhires_text_blend=off\n");
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &formats());
+		TS_ASSERT(hr.enabled());
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetClut8);
+		// [font.0:clut8] names the 1 bpp face: the sections follow the screen.
+		TS_ASSERT(!hr.anyCoverage());
+		TS_ASSERT(!hr.wantsAlpha());
+	}
+
+	void test_map_blend_off_for_rgb888_takes_the_clut8_sections() {
+		writeMap("blend=auto", "[render:rgb888]\nblend=off\n");
+		useDomain("render_target=rgb888\n");
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &formats());
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetClut8);
+	}
+
+	void test_blend_on_with_only_1bpp_faces_keeps_a_paletted_screen() {
+		const Common::Path one = tmpFile("one.svf");
+		writeSvf(one, 1);
+		writeFile(tmpFile("HIRESTXT.MAP"), Common::String::format(
+			"[map]\nversion=2\n[font.0]\nface=%s\n", one.toString('/').c_str()));
+		useDomain("hires_text_blend=on\n");
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &formats());
+		TS_ASSERT(hr.enabled());
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetClut8);
+	}
+
+	void test_blending_map_gets_its_rgb_screen() {
+		writeMap("blend=auto");
+		useDomain("render_target=rgb888\n");
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &formats());
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetRgb888);
+		TS_ASSERT(hr.anyCoverage());
+		TS_ASSERT(hr.wantsAlpha());
+		const Common::List<Graphics::PixelFormat> req = hr.screenRequest(formats());
+		TS_ASSERT(!req.empty());
+		TS_ASSERT_EQUALS(Graphics::targetOfFormat(req.front()), Graphics::kHiResTargetRgb888);
+		TS_ASSERT(req.back().isCLUT8());
+	}
+
+	/// v7+ keeps the paletted screen SMUSH sets its palette on.
+	void test_v7_request_is_clut8() {
+		writeMap("blend=on");
+		useDomain("render_target=rgb888\n");
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "dig", 7, Common::EN_ANY, &formats());
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetClut8);
+	}
+
+	/// The backend gave a family whose sections do not blend: the engine
+	/// must not keep that screen (it would set a palette on it).
+	void test_can_draw_into_follows_the_sections_of_that_family() {
+		writeMap("blend=auto", "[render:rgb565]\nblend=off\n");
+		useDomain("render_target=rgb888\n");
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &formats());
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetRgb888);
+		TS_ASSERT(hr.canDrawInto(rgb888()));
+		TS_ASSERT(!hr.canDrawInto(rgb565()));
+		TS_ASSERT(hr.canDrawInto(Graphics::PixelFormat::createFormatCLUT8()));
+	}
+
+	/// The screen and the text surface are sized from scale() before
+	/// adoptScreen() runs: a target correction must not change it.
+	void test_adopt_screen_keeps_the_scale_the_screen_was_sized_for() {
+		writeMap("blend=auto\nscale=2", "[render:rgb888]\nscale=3\n");
+		useDomain("render_target=rgb888\n");
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &formats());
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetRgb888);
+		TS_ASSERT_EQUALS(hr.scale(), 3);
+		hr.adoptScreen(Graphics::PixelFormat::createFormatCLUT8(), true);
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(hr.scale(), 3);
+		TS_ASSERT(!hr.anyCoverage()); // the clut8 face is the 1 bpp one
+	}
+
+	/// A screen the layer did not choose (FM-Towns 16-bit, Hercules, EGA
+	/// dithering) still decides the sections.
+	void test_adopt_screen_follows_a_screen_the_layer_did_not_choose() {
+		writeMap("blend=auto");
+		useDomain("");
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &formats());
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetRgb888);
+		TS_ASSERT(hr.anyCoverage());
+		hr.adoptScreen(Graphics::PixelFormat::createFormatCLUT8(), false);
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetClut8);
+		TS_ASSERT(!hr.anyCoverage());
+	}
+
+	/// With hi-res text off, adoptScreen() only records the screen.
+	void test_adopt_screen_does_nothing_when_hires_text_is_off() {
+		writeMap("blend=auto");
+		useDomain("hires_text=false\n");
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &formats());
+		hr.adoptScreen(rgb565(), false);
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetRgb565);
+		TS_ASSERT(!hr.enabled());
+		TS_ASSERT(!hr.anyCoverage());
+		TS_ASSERT(!hr.wantsAlpha());
+	}
+
+	/// The in-game "Smooth the hi-res text" box shows what the running game
+	/// does while the setting is the one it started with, and the
+	/// best case of the stored setting otherwise (the launcher, or after
+	/// the player changed it without restarting).
+	void test_blend_checkbox_state() {
+		using Scumm::ScummHiResText;
+		// Launcher: nothing running.
+		TS_ASSERT(ScummHiResText::blendCheckboxState(Graphics::kHiResBlendAuto, false, Graphics::kHiResBlendAuto, false));
+		TS_ASSERT(!ScummHiResText::blendCheckboxState(Graphics::kHiResBlendOff, false, Graphics::kHiResBlendAuto, false));
+		// In game, the setting unchanged: the effective state.
+		TS_ASSERT(!ScummHiResText::blendCheckboxState(Graphics::kHiResBlendAuto, true, Graphics::kHiResBlendAuto, false));
+		TS_ASSERT(ScummHiResText::blendCheckboxState(Graphics::kHiResBlendAuto, true, Graphics::kHiResBlendAuto, true));
+		// In game, changed since the start: what was stored.
+		TS_ASSERT(ScummHiResText::blendCheckboxState(Graphics::kHiResBlendOn, true, Graphics::kHiResBlendAuto, false));
+		TS_ASSERT(!ScummHiResText::blendCheckboxState(Graphics::kHiResBlendOff, true, Graphics::kHiResBlendAuto, true));
 	}
 };

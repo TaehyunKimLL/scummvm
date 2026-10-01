@@ -1530,7 +1530,10 @@ Common::Error ScummEngine::init() {
 		}
 	}
 
-	// Initialize backend
+	// Initialize backend. Only the last branch lets the hi-res text layer
+	// choose the screen format; every branch hands the result to
+	// adoptScreen() below.
+	bool hiResChoseScreen = false;
 	if (_renderMode == Common::kRenderHercA || _renderMode == Common::kRenderHercG) {
 		initGraphics(kHercWidth, kHercHeight);
 	} else if (_renderMode == Common::kRenderCGA_BW || (_renderMode == Common::kRenderEGA && _supportsEGADithering)) {
@@ -1576,21 +1579,6 @@ Common::Error ScummEngine::init() {
 				if (_system->getScreenFormat().bytesPerPixel != 2)
 					return Common::kUnsupportedColorMode;
 			}
-
-			// This screen is 16 bit rather than paletted, which is all
-			// blending actually needs - the 32bpp request further down is
-			// about the DOS path, which starts from a paletted screen and has
-			// to ask for something better. A game that is already here can
-			// blend as it stands.
-			//
-			// v7 and later are excluded for the same reason as below: they
-			// drive the backend palette from places the text layer does not
-			// own.
-			if (_hiResText.enabled() && _hiResText.wantsAlpha() && _game.version < 7) {
-				_hiResText.setAlphaActive(true);
-				debug(1, "SCUMM: hi-res text blending into %s",
-					  _system->getScreenFormat().toString().c_str());
-			}
 #else
 			if (_game.platform == Common::kPlatformFMTowns && _game.version == 3) {
 				warning("Starting game without the required 16bit color support.\nYou may experience color glitches");
@@ -1604,40 +1592,38 @@ Common::Error ScummEngine::init() {
 		if (_game.platform == Common::kPlatformFMTowns && _game.version == 5)
 			return Common::Error(Common::kUnsupportedColorMode, "This game requires dual graphics layer support which is disabled in this build");
 #endif
-			// The render target, blend and scale for the hi-res text layer
-			// all come from the shared design (docs/superpowers/specs/
-			// 2026-09-30-hires-config-unify-design.md section 7):
-			// loadConfig() already predicted the screen's family
-			// (_hiResText.renderTarget()) before any font was opened, so
-			// the request here is just handing that prediction - and its
-			// fallback order - to the backend. CLUT8 always ends the list
-			// (formatRequest()), so a display that cannot give the wanted
-			// family still starts, with blending quietly turned off - the
-			// glyphs then draw as solid colour, which is what the map asked
-			// for minus the smoothing. adoptScreen() catches a backend that
-			// could not honour the prediction and redoes phase 2 for the
-			// family it actually gave us (spec 7.1.1); v7 and later already
-			// predict clut8 (SMUSH drives the backend palette from places
-			// the text layer does not own), so they never ask for anything
-			// else here.
-			Common::String note;
-			initGraphics(screenWidth, screenHeight,
-						 Graphics::formatRequest(_hiResText.renderTarget(), _system->getSupportedFormats(), true, note));
-			_hiResText.adoptScreen(_system->getScreenFormat());
-			if (!note.empty())
-				warning("SCUMM: %s", note.c_str());
-
-			const Graphics::PixelFormat chosen = _system->getScreenFormat();
-			_hiResText.setAlphaActive(Graphics::blendActive(_hiResText.blend(), _hiResText.anyCoverage(), chosen.isCLUT8()));
-			if (_hiResText.alphaActive())
-				debug(1, "SCUMM: hi-res text blending into %s", chosen.toString().c_str());
-			else if (_hiResText.enabled() && Graphics::blendRefusedOnClut8(_hiResText.blend(), chosen.isCLUT8()))
-				// blendActive() already fell back to the hard stencil; say so once.
-				warning("hires_text_blend=on needs an RGB screen until palette-matched blending exists; drawing hard-edged text");
+			// loadConfig() already chose the family: an RGB one only when
+			// the hi-res text blends into it, because before v7 blending is
+			// the only path that draws true colour (every other one sets the
+			// backend palette and blits palette indices). CLUT8 is upstream's
+			// request, unchanged. If the backend gives an RGB family whose
+			// sections do not blend, take the paletted screen instead.
+			hiResChoseScreen = true;
+			if (_hiResText.renderTarget() == Graphics::kHiResTargetClut8) {
+				initGraphics(screenWidth, screenHeight);
+			} else {
+				initGraphics(screenWidth, screenHeight, _hiResText.screenRequest(_system->getSupportedFormats()));
+				if (!_hiResText.canDrawInto(_system->getScreenFormat()))
+					initGraphics(screenWidth, screenHeight);
+			}
 
 			if (_game.platform == Common::kPlatformNES)
 				_system->fillScreen(0x1d);
 			}
+	}
+
+	// The hi-res text sections follow the screen actually set, whichever
+	// branch set it; the scale stays the one the screen was sized for.
+	{
+		const Graphics::PixelFormat screen = _system->getScreenFormat();
+		_hiResText.adoptScreen(screen, hiResChoseScreen);
+		_hiResText.setAlphaActive(_hiResText.enabled() && _game.version < 7 &&
+								  Graphics::blendActive(_hiResText.blend(), _hiResText.anyCoverage(), screen.isCLUT8()));
+		if (_hiResText.alphaActive())
+			debug(1, "SCUMM: hi-res text blending into %s", screen.toString().c_str());
+		else if (_hiResText.enabled() && _hiResText.anyCoverage() &&
+				 Graphics::blendRefusedOnClut8(_hiResText.blend(), screen.isCLUT8()))
+			warning("hires_text_blend=on needs an RGB screen until palette-matched blending exists; drawing hard-edged text");
 	}
 
 #ifdef ENABLE_HE
