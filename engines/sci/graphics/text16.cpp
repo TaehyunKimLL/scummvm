@@ -627,13 +627,25 @@ void GfxText16::prefetchText(const char *text, int len) {
 		return;
 	Common::Array<uint32> cps;
 	const char *end = len < 0 ? nullptr : text + len;
+	const bool codes = getSciVersion() >= SCI_VERSION_1_1;
 	while (*text && (!end || text < end)) {
 		int bytes = 1;
 		const uint32 chr = readChar(text, bytes);
-		if (chr > ' ')
-			cps.push_back(chr);
 		for (int i = 0; i < bytes && *text; ++i)
 			++text;
+		if (chr == '|' && codes) {
+			// A text code (|c1|, |f2|): drawn as nothing, CodeProcessing()
+			// reads it up to the next '|'.
+			while (*text && (!end || text < end) && *text++ != '|') {
+			}
+			continue;
+		}
+		// The character Draw() hands the font, as glyphChar() makes it
+		// (without telling the font of it). A code the plan leaves to the
+		// game's font, or a [glyphs] target, is nothing to read here.
+		const uint32 glyph = _hasPlan ? TextCompose::glyphCode(_plan, chr) : chr;
+		if (glyph > ' ' && glyph < Graphics::kHiResTargetBase && glyph < Graphics::kHiResGameCodeBase)
+			cps.push_back(glyph);
 	}
 	if (!cps.empty())
 		_font->prefetch(cps);
