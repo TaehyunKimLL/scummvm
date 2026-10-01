@@ -323,8 +323,8 @@ AGS는 이름 없는 `.tra`를 ASCII로 가정하는데, 한국어 팬 번역이
 
 ### 1.6 폰트와 맵 — 포인터만
 
-이 문서는 hi-res 텍스트의 SVF 폰트 바이너리 포맷과 `hires_text.map`/게임별
-`.MAP`의 INI 키(`[hires]`, `[font.N]`, `[glyphs]`, `[fonts]`, `[latin]` 등)를
+이 문서는 hi-res 텍스트의 SVF 폰트 바이너리 포맷과 `HIRESTXT.MAP`/게임별
+`.MAP`(버전 2)의 INI 키(`[map]`, `[render]`, `[fonts]`, `[font.N]`, `[glyphs]` 등)를
 상세히 다루지 않는다. 정본은:
 
 - `graphics/hires_text/README.md` — 맵 리더, 비트맵/TrueType 소스, 글리프
@@ -520,7 +520,7 @@ the result" 이하)를 그대로 쓴다 — SCI 전용 테스트 스크립트는
   (`CM32L_*.ROM`/`MT32_*.ROM`/`scummvm.exe`/`SDL.dll`은 명시적으로 제외,
   14-20행) 가져오고, `--lb1-zip`(기본 최신 `dist/scummvm-dos-sci-lb1-*.zip`)
   에서 여러 패키지 공통 파일(`CWSDPMI.DOC`, `COPYING`, `SDL3.TXT`,
-  `HELP.TXT`, `VERSION.TXT`)을 재사용한다. 맵(`LB2KOL.MAP`/`LB2KOU.MAP`)과
+  `HELP.TXT`, `VERSION.TXT`)을 재사용한다. 맵(`LB2KO.MAP`)과
   공유 폰트는 `dos/dists/engine-data/hires_text/dos`에서 읽기 전용으로
   가져온다(22-30행). 레이아웃은 "한국어 전용, `GAMES/LB2KO`" 한 가지로
   고정 — 영문판을 따로 안 두는 이유가 스크립트 docstring에 설명돼 있다
@@ -532,19 +532,23 @@ the result" 이하)를 그대로 쓴다 — SCI 전용 테스트 스크립트는
   ```sh
   repack_sci.py --old OLD_ZIP --exe NEW_EXE [--dist DIR] [--work DIR]
   repack_sci.py --old OLD_ZIP --exe NEW_EXE --f2350 {kq1,lb1,camelot}
+  repack_sci.py --old OLD_ZIP --exe NEW_EXE --unify GAME[,GAME...]
   ```
   Info-Zip의 "copy mode"(`zip old --out new -x pattern...`)로 안 바뀐
   엔트리는 재압축 없이 그대로 복사하고, `SCUMMVM.EXE`/`COMMIT.TXT`/
   `VERSION.TXT`/`DATA/*`만 갱신한다. `--f2350`은 게임별 서브셋 폰트에서
   공유 KO2350 폰트로 마이그레이션할 때 `DATA/`를 통째로 교체하고
   `SCUMMVM.INI`의 `hires_text_map=`을 새 표준 이름으로 고쳐 쓴다(LB1의
-  `LB1U8U.MAP`→`LB1KOU.MAP` 등). **"MT-32 ROM이나 .sf2 사운드폰트를 절대
+  `LB1U8U.MAP`→`LB1KOU.MAP` 등). `--unify`는 게임당 맵 하나(`<X>KO.MAP`)로
+  `DATA/`를 다시 꾸미고 INI를 섹션별로 고쳐 쓴다: `extrapath=DATA` +
+  `hires_text_map=data:<X>KO.MAP`, 8비트 타깃은 `render_target=clut8`.
+  **"MT-32 ROM이나 .sf2 사운드폰트를 절대
   포함하지 않는다"를 산출물 스캔으로 직접 강제한다**(33-34행: "the output
   is scanned for them ... before being reported as done") — §5의 근거.
 - `harness/dos/release/build_scumm.py`는 SCUMM 전용(§2.1 (e)).
 
-**실제 패키지 예시** (`dist/scummvm-dos-sci-lb1-570f44908e6.zip`의
-`SCUMMVM.INI`):
+**패키지 예시** (`dist/scummvm-dos-sci-lb1-*.zip`의 `SCUMMVM.INI`,
+`repack_sci.py --unify lb1`이 고쳐 쓴 형태):
 
 ```ini
 [lb1ko]
@@ -552,10 +556,18 @@ gameid=laurabow
 engineid=sci
 description=Laura Bow 1 (Korean, anti-aliased)
 language=ko
-hires_text_map=DATA/LB1U8U.MAP
-rgb_rendering=true
+extrapath=DATA
+hires_text_map=data:LB1KO.MAP
 path=GAMES\LB1KO
+
+[lb1kol]
+...
+hires_text_map=data:LB1KO.MAP
+render_target=clut8
 ```
+
+맵은 게임 폴더 기준이 아니라 `extrapath`(`DATA\`)에서 찾는다(`data:`).
+8비트 타깃은 같은 맵의 `:clut8` 섹션을 쓴다.
 
 `GAMES/LB1KO`는 영문 원본 + `packvol.py`가 만든 `RESOURCE.MSG`+
 `MESSAGE.MAP`(SCRIPT.052 포함) + `SCI-KO.STR`. `language=ko`가 없으면

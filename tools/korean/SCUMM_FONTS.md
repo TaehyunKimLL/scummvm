@@ -197,8 +197,9 @@ are skipped.
 
 Where a baked glyph stands is set here, at bake time; whether the game's own
 per-glyph offset is added on top of it is set at run time by the map's
-`[latin] baseline=` key (`engines/scumm/HIRES_TEXT.md`, "Baselines and glyph
-offsets", which has the diagrams and the before/after crops).
+`origin.basic-latin=` key (`origin.<range>=game|face` in `[font]`/`[font.N]`;
+`engines/scumm/HIRES_TEXT.md`, "Baselines and glyph offsets", which has the
+diagrams and the before/after crops).
 
 How each `mkfont.py` option affects the baked baseline:
 
@@ -230,7 +231,7 @@ How each `mkfont.py` option affects the baked baseline:
 
 What follows from that:
 
-1. `baseline=face` is a **map** key. No SVF is re-baked for it.
+1. `origin.basic-latin=face` is a **map** key. No SVF is re-baked for it.
 2. Re-baking with a different `--ascent` moves the baked baseline (every
    glyph, Hangul and Latin, by the same rows); the card crops must be
    re-captured and looked at afterwards.
@@ -238,4 +239,4 @@ What follows from that:
    bake option fixes it. Trimmed card fonts carry `offsY` up to 9 game px
    (charset 4: `.` 9, `a` 4, `A` 0), which is 18 rows at scale 2: a `.`
    baked at row 21 is drawn at row 39 of a 24-row cell. With
-   `[latin] baseline=face` the baked baseline is the only placement.
+   `origin.basic-latin=face` the baked baseline is the only placement.
