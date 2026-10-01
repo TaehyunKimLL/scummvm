@@ -52,8 +52,17 @@ face=cs4
 # An ellipsis on the baseline, not a caret; present in every charset (mi1kor/hires_text.map,
 # dumped from the 90x.LFL charsets: "...trailing off^" in the scanned patch text). Real
 # punctuation, so it is drawn by the replacement font like any other character.
+# 0x0f is the patch's own trademark sign (DISK0N.LEC: "멜레이 섬\x0f!" Mêlée Island™,
+# "...보물\x0f", "마스터\x0f" Sword Master), real punctuation too.
 [glyphs]
 0x5e = u+2026
+0x0f = u+2122
+
+# neodgm, the L preset's pixel face, has no ™ glyph; its own 1 bpp 0x0f matches the
+# hard-edged L look, so clut8 keeps the game's own glyph instead of falling back to the
+# missing-glyph box.
+[glyphs:clut8]
+0x0f = original
 
 # Solid arrows in the 2 bpp dialogue and card charsets: the game's own glyphs.
 # 0x5f is a real underscore elsewhere.

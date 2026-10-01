@@ -80,8 +80,16 @@ face=card8
 #   0x5c exclamation mark (korean.trs: "원해!  모든 퍼즐!  온갖 생고생!")
 #   0x60 double quote, both opening and closing (one byte serves both roles in the text,
 #     so there is no separate open/close code to distinguish)
+#   0x0f trademark sign (korean.trs: "Ash-2-Life\x0f")
 [glyphs]
 0x07 = original
 0x5e = u+2026
 0x5c = u+0021
 0x60 = u+0022
+0x0f = u+2122
+
+# neodgm, the L preset's pixel face, has no ™ glyph; its own 1 bpp 0x0f matches the
+# hard-edged L look, so clut8 keeps the game's own glyph instead of falling back to the
+# missing-glyph box.
+[glyphs:clut8]
+0x0f = original
