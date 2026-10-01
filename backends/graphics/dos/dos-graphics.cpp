@@ -57,6 +57,8 @@ static Graphics::PixelFormat fromSdl(SDL_PixelFormat f, bool &ok) {
 	}
 }
 
+static void unlockRegion(uint32 &addr, uint32 &size);
+
 // Past this many rectangles one full-screen update is cheaper than the list.
 static const uint kMaxDirtyRects = 32;
 
@@ -92,7 +94,7 @@ static const byte kLoadRgb[kLoadColorCount][3] = {
 
 DosGraphicsManager::DosGraphicsManager() :
 	_modeIndex(-1), _lineRepeat(false), _vsync(false), _vsyncWarned(false), _lastInitW(0), _lastInitH(0), _shotCount(0),
-	_window(nullptr), _screenChangeID(0), _pendingW(0), _pendingH(0),
+	_window(nullptr), _screenChangeID(0), _pendingW(0), _pendingH(0), _screen(_frame.screen().surface()),
 	_overlay(640, 480, DOS::rgb565()), _overlayVisible(false), _paletteDirty(false), _shakeX(0), _shakeY(0),
 	_fullDirty(false), _cursorW(0), _cursorH(0), _cursorHotX(0), _cursorHotY(0), _cursorKey(0),
 	_cursorPaletteEnabled(false), _cursorFormatWarned(false), _cursorVisible(false), _mouseX(0), _mouseY(0),
@@ -124,7 +126,7 @@ DosGraphicsManager::DosGraphicsManager() :
 
 DosGraphicsManager::~DosGraphicsManager() {
 	lockSurfaces(false);
-	_screen.free();
+	_frame.screen().free();
 	_overlay.release();
 	if (_window)
 		SDL_DestroyWindow(_window);
@@ -199,15 +201,34 @@ OSystem::TransactionError DosGraphicsManager::switchMode(uint w, uint h, const G
 		warning("DosGraphicsManager: no %ux%u %s mode", w, h, f.toString().c_str());
 		return OSystem::kTransactionSizeChangeFailed;
 	}
+	// A frame in the window surface goes with it: the frame that follows a
+	// switch is a new one, cleared. Only a failed switch below wants the old
+	// one back, which it then gets cleared.
+	const int16 oldW = _screen.w, oldH = _screen.h;
+	const Graphics::PixelFormat oldFormat = _screen.format;
+	const bool hadDirect = _frame.screen().direct();
+	if (hadDirect) {
+		_cursor.forget();
+		_frame.screen().free();
+	}
+	// dos_frame_buffer=true: the frame stays a buffer of its own, copied into
+	// the window, as before it could be the window.
+	_frame.setForceBuffer(ConfMan.getBool("dos_frame_buffer"));
 	if (!setMode(choice.index, choice.lineRepeat, w, h)) {
 		// The display may be switched already: back to the mode _screen
 		// describes, or, failing that, nothing is drawn until the next
 		// successful transaction.
-		if (_modeIndex >= 0 && !setMode(_modeIndex, _lineRepeat, _screen.w, _screen.h)) {
+		if (_modeIndex >= 0 && !setMode(_modeIndex, _lineRepeat, oldW, oldH)) {
 			warning("DosGraphicsManager: cannot restore the previous mode either");
 			_modeIndex = -1;
 			_cursor.forget();
-			_screen.free();
+			_frame.screen().free();
+		} else if (_modeIndex >= 0 && hadDirect) {
+			// The old picture went with the frame: a cleared one, and the
+			// engine told to draw it again.
+			createFrame(oldW, oldH, oldFormat);
+			_fullDirty = true;
+			++_screenChangeID;
 		}
 		return OSystem::kTransactionSizeChangeFailed;
 	}
@@ -245,8 +266,7 @@ OSystem::TransactionError DosGraphicsManager::endGFXTransaction() {
 			return err;
 		}
 	}
-	_screen.free();
-	_screen.create(_pendingW, _pendingH, _pendingFormat);
+	createFrame(_pendingW, _pendingH, _pendingFormat);
 	_pendingW = 0;
 	_paletteDirty = true;
 	_fullDirty = true;
@@ -303,6 +323,7 @@ bool DosGraphicsManager::applyDeferredMode() {
 	_fullDirty = true;
 	if (DOS::Loading::stage() == DOS::Loading::kStageText)
 		startLoadingScreen();
+	syncFrame(false);
 	return true;
 }
 
@@ -328,16 +349,40 @@ void DosGraphicsManager::addDirty(const Common::Rect &r) {
 	_dirty.push_back(r);
 }
 
+void DosGraphicsManager::prepareWrite() {
+	if (!_frame.screen().direct())
+		return;
+	syncFrame(false);	// still the window's pixels? (FrameKeeper::lost())
+	if (!_frame.screen().direct())
+		return;
+	SDL_Surface *s = SDL_GetWindowSurface(_window);
+	const Common::Rect r = _cursor.restore((byte *)s->pixels, s->pitch);
+	if (!r.isEmpty()) {
+		if (_cursorBack.isEmpty())
+			_cursorBack = r;
+		else
+			_cursorBack.extend(r);
+	}
+}
+
 void DosGraphicsManager::copyRectToScreen(const void *buf, int pitch, int x, int y, int w, int h) {
 	if (!_screen.getPixels())	// no mode (see endGFXTransaction())
 		return;
+	prepareWrite();
 	_screen.copyRectToSurface(buf, pitch, x, y, w, h);
 	addDirty(Common::Rect(x, y, x + w, y + h));
+}
+
+Graphics::Surface *DosGraphicsManager::lockScreen() {
+	// Until unlockScreen() the game may read and write any of it.
+	prepareWrite();
+	return &_screen;
 }
 
 void DosGraphicsManager::fillScreen(uint32 col) {
 	if (!_screen.getPixels())
 		return;
+	prepareWrite();
 	_screen.fillRect(Common::Rect(_screen.w, _screen.h), col);
 	_fullDirty = true;
 }
@@ -345,6 +390,7 @@ void DosGraphicsManager::fillScreen(uint32 col) {
 void DosGraphicsManager::fillScreen(const Common::Rect &r, uint32 col) {
 	if (!_screen.getPixels())
 		return;
+	prepareWrite();
 	_screen.fillRect(r, col);
 	addDirty(r);
 }
@@ -354,6 +400,9 @@ void DosGraphicsManager::setShakePos(int shakeXOffset, int shakeYOffset) {
 		_shakeX = shakeXOffset;
 		_shakeY = shakeYOffset;
 		_fullDirty = true;
+		// Shaken, the window shows the frame shifted: a buffer of its own
+		// meanwhile.
+		syncFrame(false);
 	}
 }
 
@@ -365,6 +414,7 @@ void DosGraphicsManager::updateScreen() {
 	SDL_Surface *s = SDL_GetWindowSurface(_window);
 	if (!s || !surfaceFits(s))
 		return;
+	syncFrame(true);
 
 	// If there's an active debugger, update it (as the SDL and OpenGL
 	// graphics managers do): this is what opens the debug socket
@@ -431,28 +481,38 @@ void DosGraphicsManager::updateScreen() {
 	Common::Rect back = _cursor.restore((byte *)s->pixels, s->pitch);
 	if (!back.isEmpty())
 		send.push_back(back);
+	if (!_cursorBack.isEmpty())
+		send.push_back(_cursorBack);	// taken away before a write (prepareWrite())
+	_cursorBack = Common::Rect();
 
 	// Rectangles below are in window rows before line repeat: the mode's
 	// own rows, or the 400 the 480 hold.
 	const int windowH = _lineRepeat ? DOS::logicalRow(s->h - 1) + 1 : s->h;
 	const Common::Rect window(s->w, windowH);
 	if (_fullDirty) {
-		// Shake shifts the whole picture; the uncovered strip is colour 0.
-		memset(s->pixels, 0, s->pitch * s->h);
-		Common::Rect dst(_screen.w, _screen.h);
-		dst.translate(_shakeX, _shakeY);
-		dst.clip(window);
-		blit(s, dst);
+		if (_frame.screen().direct()) {
+			// The frame is there already; around it, colour 0.
+			DOS::GameScreen::clearOutside((byte *)s->pixels, s->pitch, s->w, s->h, _screen.w, _screen.h,
+										  SDL_BYTESPERPIXEL(s->format));
+		} else {
+			// Shake shifts the whole picture; the uncovered strip is colour 0.
+			memset(s->pixels, 0, s->pitch * s->h);
+			Common::Rect dst(_screen.w, _screen.h);
+			dst.translate(shakeX(), shakeY());
+			dst.clip(window);
+			blit(s, dst);
+		}
 		send.clear();
 		send.push_back(Common::Rect(s->w, s->h));
 	} else {
 		for (uint i = 0; i < _dirty.size(); ++i) {
 			Common::Rect r = _dirty[i];
-			r.translate(_shakeX, _shakeY);
+			r.translate(shakeX(), shakeY());
 			r.clip(window);
 			if (r.isEmpty())
 				continue;
-			blit(s, r);
+			if (!_frame.screen().direct())
+				blit(s, r);
 			send.push_back(_lineRepeat ? DOS::physRect(r) : r);
 		}
 	}
@@ -509,11 +569,66 @@ bool DosGraphicsManager::surfaceFits(const SDL_Surface *s) const {
 	// the wrong pixel size.
 	if (_modeIndex < 0 || !_screen.getPixels())
 		return false;
+	return fitsWindow(s, _screen.w, _screen.h, _screen.format.bytesPerPixel);
+}
+
+bool DosGraphicsManager::fitsWindow(const SDL_Surface *s, int w, int h, int bpp) const {
 	const int windowH = _lineRepeat ? DOS::logicalRow(s->h - 1) + 1 : s->h;
-	return SDL_BYTESPERPIXEL(s->format) == _screen.format.bytesPerPixel && s->w >= _screen.w && windowH >= _screen.h;
+	return SDL_BYTESPERPIXEL(s->format) == bpp && s->w >= w && windowH >= h;
+}
+
+const DOS::FrameWindow *DosGraphicsManager::frameWindow(DOS::FrameWindow &out) const {
+	SDL_Surface *s = _window ? SDL_GetWindowSurface(_window) : nullptr;
+	if (!s || !s->pixels || _modeIndex < 0 || _modeOwed)
+		return nullptr;
+	out.pixels = (byte *)s->pixels;
+	out.pitch = s->pitch;
+	out.w = s->w;
+	out.h = _lineRepeat ? DOS::logicalRow(s->h - 1) + 1 : s->h;
+	out.format = _modes[_modeIndex].format;
+	out.lineRepeat = _lineRepeat;
+	return &out;
+}
+
+void DosGraphicsManager::createFrame(uint w, uint h, const Graphics::PixelFormat &f) {
+	_cursor.forget();
+	_cursorBack = Common::Rect();
+	// The old frame may be a buffer the loading screen locked: unlocked
+	// before it is freed (CWSDPMI keeps no lock count).
+	unlockRegion(_lockAddr[1], _lockSize[1]);
+	DOS::FrameWindow win;
+	// The text loading screen gives way to the graphics one as the game's
+	// mode comes (endGFXTransaction()): that frame starts in a buffer.
+	const bool loading = _loadingShown || DOS::Loading::stage() == DOS::Loading::kStageText;
+	_frame.create(w, h, f, frameWindow(win), loading, _shakeX || _shakeY);
+}
+
+void DosGraphicsManager::syncFrame(bool frameTick) {
+	if (!_frame.screen().exists())
+		return;
+	// A locked buffer is unlocked before it can be freed; only the loading
+	// screen locks it, and then it stays.
+	if (_lockSize[1] && !_loadingShown)
+		unlockRegion(_lockAddr[1], _lockSize[1]);
+	DOS::FrameWindow win;
+	const DOS::FrameWindow *w = frameWindow(win);
+	switch (_frame.sync(w, _loadingShown, _shakeX, _shakeY, frameTick, w ? &_cursor : nullptr, &_cursorBack)) {
+	case DOS::FrameKeeper::kSame:
+		break;
+	case DOS::FrameKeeper::kMoved:
+		_fullDirty = true;
+		break;
+	case DOS::FrameKeeper::kLost:
+		warning("DosGraphicsManager: the window surface was made again; the frame is redrawn");
+		_cursorBack = Common::Rect();
+		_fullDirty = true;
+		++_screenChangeID;
+		break;
+	}
 }
 
 void DosGraphicsManager::blit(SDL_Surface *s, const Common::Rect &r) {
+	// Only from a buffer of its own (never when _frame is the window).
 	// r is in window rows (see updateScreen()); the source is r less the shake.
 	const int bpp = _screen.format.bytesPerPixel;
 	const int bytes = r.width() * bpp;
@@ -576,6 +691,7 @@ void DosGraphicsManager::startLoadingScreen() {
 	DOS::Loading::enterGraphics();
 	DOS::Loading::setTickHook(loadingTickHook, this);
 	_loadingShown = true;
+	syncFrame(false);	// the window shows the loading screen, not the frame
 	_loadingAbort = false;
 	_loadingSawUpdate = false;
 	_loadingStart = DOS::Loading::now();
@@ -887,6 +1003,7 @@ void DosGraphicsManager::finishLoading(const char *why) {
 	_fullDirty = true;
 	_paletteDirty = true;
 	_cursor.forget();
+	syncFrame(false);	// the frame can be the window again
 }
 
 void DosGraphicsManager::engineStopped() {

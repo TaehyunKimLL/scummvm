@@ -129,6 +129,8 @@ public:
 	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	/** The sum of glyphCount() over every distinct source given (each counted once). */
 	uint32 glyphCount() const override;
+	/** Each code point to the source pick() routes it to, as the code point that source draws. */
+	void prefetch(Common::Array<uint32> &cps) override;
 
 private:
 	/** The source @p p names, or nullptr for kGame/kExhausted or an out-of-range index. */

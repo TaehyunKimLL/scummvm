@@ -88,6 +88,7 @@ class FontSJIS;
 namespace Scumm {
 
 class Actor;
+class TrsStore;
 class BaseCostumeLoader;
 class BaseCostumeRenderer;
 class BaseScummFile;
@@ -1863,6 +1864,8 @@ public:
 
 	/// Tell _debugSocket about a string drawn: @p drawn is its characters' bytes.
 	void noteDrawnString(const Common::String &drawn);
+	/** The hi-res faces read the glyphs of @p text (a message, escapes and all) now, together. */
+	void prefetchHiResText(const byte *text, int charsetId);
 
 	bool _isModernMacVersion = false;
 	bool _useGammaCorrection = true;
@@ -1996,8 +1999,10 @@ public:
 	void loadCJKCells();
 	/// Whether charset font @p id has a double-byte font (or, cells only, its cell).
 	bool hasMultiFont(int id) const {
-		return _2byteMultiFontPtr[id] || (_cjkCellsOnly && _2byteMultiWidth[id] > 0);
+		return _2byteMultiFontPtr[id] || _2byteMultiDeferred[id] || (_cjkCellsOnly && _2byteMultiWidth[id] > 0);
 	}
+	/// Charset font @p id's double-byte font, cell and shadow as the current one.
+	void selectMultiFont(int id);
 	/// A double-byte character's game advance: the cell, plus the one pixel
 	/// Korean and Traditional Chinese keep between characters.
 	int cjkCellAdvance() const {
@@ -2007,6 +2012,15 @@ public:
 //protected:
 	byte *_2byteFontPtr = nullptr;
 	byte *_2byteMultiFontPtr[20];
+	/**
+	 * korean<id>.fnt, read only as far as its header: its glyphs are read
+	 * when get2byteCharPtr() first wants one, which with the hi-res text
+	 * layer drawing every double-byte character is never.
+	 */
+	bool _2byteMultiDeferred[20] = {};
+	int _2byteMultiCurrent = -1;	///< the multi font selectMultiFont() chose
+	/// Read the glyphs of the current multi font if they were deferred.
+	void loadDeferredMultiFont();
 	int _2byteMultiHeight[20];
 	int _2byteMultiWidth[20];
 	int _2byteMultiShadow[20];
@@ -2037,6 +2051,9 @@ private:
 	int _numTranslatedLines = 0;
 	TranslatedLine *_translatedLines = nullptr;
 	uint16 *_languageLineIndex = nullptr;
+	/// The body left in the file (then _languageBuffer is null), or null.
+	TrsStore *_trsStore = nullptr;
+	bool _trsReadFailed = false;	///< the last searchTranslatedLine() could not read the bundle
 	Common::HashMap<byte, TranslationRoom> _roomIndex;
 
 	/** Rewrite a UTF-8 bundle's translations in _trsTranscodeTo (hi-res off). */

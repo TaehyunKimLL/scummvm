@@ -23,22 +23,52 @@
 
 namespace Sci {
 
-static_assert(sizeof(TextPixel) == 4, "TextPixel is saved raw into underbits");
+static_assert(sizeof(TextPixelFg) == 2, "TextPixelFg is saved raw into underbits");
 
 TextLayer::TextLayer(uint16 width, uint16 height, uint16 scale)
 	: _width(width), _height(height), _scale(scale), _any(false) {
-	_pixels.resize((uint32)width * height);
+	_bands.resize((height + kBandRows - 1) / kBandRows);
+	for (uint i = 0; i < _bands.size(); i++)
+		_bands[i] = nullptr;
+	TextPixelFg none = { 0, 0 };
+	_clearRow.resize(width);
+	for (uint i = 0; i < _clearRow.size(); i++)
+		_clearRow[i] = none;
 	_rowFlags.resize(height);
 	clear();
 }
 
+TextLayer::~TextLayer() {
+	for (uint i = 0; i < _bands.size(); i++)
+		delete[] _bands[i];
+}
+
 void TextLayer::clear() {
-	TextPixel none = { 0, 0, 0, 0 };
-	for (uint i = 0; i < _pixels.size(); i++)
-		_pixels[i] = none;
+	for (uint i = 0; i < _bands.size(); i++) {
+		delete[] _bands[i];
+		_bands[i] = nullptr;
+	}
 	for (uint i = 0; i < _rowFlags.size(); i++)
 		_rowFlags[i] = 0;
 	_any = false;
+}
+
+uint32 TextLayer::memoryBytes() const {
+	uint32 n = 0;
+	for (uint i = 0; i < _bands.size(); i++)
+		if (_bands[i])
+			n += (uint32)kBandRows * _width * sizeof(TextPixelFg);
+	return n;
+}
+
+TextPixelFg *TextLayer::rowForWrite(uint16 y) {
+	TextPixelFg *&band = _bands[y / kBandRows];
+	if (!band) {
+		const uint32 n = (uint32)kBandRows * _width;
+		band = new TextPixelFg[n];
+		memset(band, 0, n * sizeof(TextPixelFg));
+	}
+	return band + (uint32)(y % kBandRows) * _width;
 }
 
 Common::Rect TextLayer::toHires(const Common::Rect &lowres) const {
@@ -56,18 +86,18 @@ void TextLayer::putGlyph(int16 hx, int16 hy, const byte *coverage, int16 w, int1
 		const int y = hy + gy;
 		if (y < bounds.top || y >= bounds.bottom)
 			continue;
-		TextPixel *dst = &_pixels[(uint32)y * _width];
-		bool wrote = false;
+		TextPixelFg *dst = nullptr;
 		for (int16 gx = 0; gx < w; gx++) {
 			const byte c = coverage[gy * w + gx];
 			const int x = hx + gx;
 			if (!c || x < bounds.left || x >= bounds.right)
 				continue;
+			if (!dst)
+				dst = rowForWrite(y);
 			dst[x].fgIndex = fgIndex;
 			dst[x].fgCoverage = c;
-			wrote = true;
 		}
-		if (wrote) {
+		if (dst) {
 			_rowFlags[y] = 1;
 			_any = true;
 		}
@@ -78,10 +108,12 @@ void TextLayer::clearLowresRect(const Common::Rect &lowres) {
 	if (!_any)
 		return;
 	const Common::Rect r = toHires(lowres);
-	TextPixel none = { 0, 0, 0, 0 };
-	for (int y = r.top; y < r.bottom; y++)
-		for (int x = r.left; x < r.right; x++)
-			_pixels[(uint32)y * _width + x] = none;
+	for (int y = r.top; y < r.bottom; y++) {
+		if (!_bands[y / kBandRows])
+			continue;
+		TextPixelFg *p = rowForWrite(y);
+		memset(p + r.left, 0, r.width() * sizeof(TextPixelFg));
+	}
 }
 
 void TextLayer::swapIndicesLowresRect(const Common::Rect &lowres, byte a, byte b) {
@@ -91,19 +123,13 @@ void TextLayer::swapIndicesLowresRect(const Common::Rect &lowres, byte a, byte b
 	for (int y = r.top; y < r.bottom; y++) {
 		if (!rowHasText(y))
 			continue;
-		TextPixel *p = &_pixels[(uint32)y * _width];
+		TextPixelFg *p = rowForWrite(y);
 		for (int x = r.left; x < r.right; x++) {
 			if (p[x].fgCoverage) {
 				if (p[x].fgIndex == a)
 					p[x].fgIndex = b;
 				else if (p[x].fgIndex == b)
 					p[x].fgIndex = a;
-			}
-			if (p[x].outlineCoverage) {
-				if (p[x].outlineIndex == a)
-					p[x].outlineIndex = b;
-				else if (p[x].outlineIndex == b)
-					p[x].outlineIndex = a;
 			}
 		}
 	}
@@ -116,32 +142,42 @@ void TextLayer::xorIndicesLowresRect(const Common::Rect &lowres, byte mask) {
 	for (int y = r.top; y < r.bottom; y++) {
 		if (!rowHasText(y))
 			continue;
-		TextPixel *p = &_pixels[(uint32)y * _width];
+		TextPixelFg *p = rowForWrite(y);
 		for (int x = r.left; x < r.right; x++) {
 			if (p[x].fgCoverage)
 				p[x].fgIndex ^= mask;
-			if (p[x].outlineCoverage)
-				p[x].outlineIndex ^= mask;
 		}
 	}
 }
 
+bool TextLayer::covers(const Common::Rect &r) const {
+	for (int y = r.top; y < r.bottom; y++) {
+		if (!rowHasText(y))
+			continue;
+		const TextPixelFg *p = row(y);
+		for (int x = r.left; x < r.right; x++)
+			if (p[x].fgCoverage)
+				return true;
+	}
+	return false;
+}
+
 uint32 TextLayer::saveSize(const Common::Rect &lowres) const {
+	// Only the text there is: a box saved over a picture with no text on
+	// it (most of them) costs one byte here, not two a hi-res pixel.
 	const Common::Rect r = toHires(lowres);
-	return 1 + (uint32)r.width() * r.height() * sizeof(TextPixel);
+	return covers(r) ? 1 + (uint32)r.width() * r.height() * sizeof(TextPixelFg) : 1;
 }
 
 void TextLayer::save(const Common::Rect &lowres, byte *&out) const {
 	const Common::Rect r = toHires(lowres);
-	bool any = false;
-	for (int y = r.top; y < r.bottom && !any; y++)
-		any = rowHasText(y);
+	const bool any = covers(r);
 	*out++ = any ? 1 : 0;
 	if (!any)
 		return;
 	for (int y = r.top; y < r.bottom; y++) {
-		const uint32 n = r.width() * sizeof(TextPixel);
-		memcpy(out, &_pixels[(uint32)y * _width + r.left], n);
+		const uint32 n = r.width() * sizeof(TextPixelFg);
+		memcpy(out, row(y) + r.left, n);
 		out += n;
 	}
 }
@@ -154,8 +190,8 @@ void TextLayer::restore(const Common::Rect &lowres, const byte *&in) {
 		return;
 	}
 	for (int y = r.top; y < r.bottom; y++) {
-		const uint32 n = r.width() * sizeof(TextPixel);
-		memcpy(&_pixels[(uint32)y * _width + r.left], in, n);
+		const uint32 n = r.width() * sizeof(TextPixelFg);
+		memcpy(rowForWrite(y) + r.left, in, n);
 		in += n;
 		_rowFlags[y] = 1;
 	}

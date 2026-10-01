@@ -26,6 +26,10 @@
 #include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/glyph_source_svfn.h"
 
+#if defined(POSIX) || defined(WIN32)
+#include "backends/fs/stdiostream.h"
+#endif
+
 namespace Graphics {
 
 bool isSvfnFile(const byte *head, uint32 size) {
@@ -40,6 +44,29 @@ UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common:
 		return nullptr;
 	}
 	return new SvfnGlyphSource(font, DisposeAfterUse::YES);
+}
+
+UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+									 Common::String &error, const Common::String &name) {
+	HiResBitmapFont *font = new HiResBitmapFont();
+	if (!font->loadStreamed(stream, dispose)) {
+		error = "not a valid SVFN bitmap font";
+		delete font;
+		return nullptr;
+	}
+	SvfnGlyphSource *src = new SvfnGlyphSource(font, DisposeAfterUse::YES);
+	src->setName(name);
+	return src;
+}
+
+void unbufferCacheStream(Common::SeekableReadStream *stream) {
+	if (!stream)
+		return;
+#if defined(POSIX) || defined(WIN32)
+	StdioStream *file = dynamic_cast<StdioStream *>(stream);
+	if (file)
+		file->setBufferSize(0);
+#endif
 }
 
 } // End of namespace Graphics

@@ -1006,8 +1006,17 @@ bool DebugSocket::dumpBuffers(const Common::String &prefix) {
 		} else ok = false;
 		if (const TextLayer *tl = scr->textLayer()) {
 			if (f.open(Common::Path(prefix + "_layer.bin"))) {
-				for (uint16 y = 0; y < tl->height(); y++)
-					f.write(tl->row(y), (uint32)tl->width() * sizeof(TextPixel));
+				// As TextPixel (fg index and coverage, outline index and
+				// coverage), the layout this dump has always had.
+				Common::Array<TextPixel> line(tl->width());
+				for (uint16 y = 0; y < tl->height(); y++) {
+					const TextPixelFg *src = tl->row(y);
+					for (uint16 x = 0; x < tl->width(); x++) {
+						const TextPixel p = { src[x].fgIndex, src[x].fgCoverage, 0, 0 };
+						line[x] = p;
+					}
+					f.write(line.begin(), (uint32)tl->width() * sizeof(TextPixel));
+				}
 				f.close();
 			}
 		}

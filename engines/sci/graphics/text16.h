@@ -122,6 +122,8 @@ private:
 	 * inline is routed through here so that the packed representation exists
 	 * in exactly one place; see docs/i18n/M10_FONTSET.md.
 	 */
+	/** The faces read the glyphs of @p text (its first @p len bytes) now, together (GfxFont::prefetch()). */
+	void prefetchText(const char *text, int len = -1);
 	uint32 readChar(const char *text, int &outBytes) const;
 
 	/**

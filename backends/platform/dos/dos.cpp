@@ -53,6 +53,7 @@
 #include "backends/platform/dos/dos-loading.h"
 #include "backends/platform/dos/dos-silence.h"
 #include "backends/platform/dos/blaster.h"
+#include "common/file-cache-stats.h"
 #include "common/textconsole.h"
 #include "backends/fs/posix/posix-fs-factory.h"
 #include "backends/mutex/dos/dos-mutex.h"
@@ -130,8 +131,17 @@ void logMemInfo(const char *phase) {
 			(uint32)info.total_number_of_free_pages,
 			(uint32)info.total_number_of_physical_pages);
 	}
-	if (g_system)
+	if (g_system) {
 		g_system->logMessage(LogMessageType::kInfo, (formatMemInfo(phase, m) + "\n").c_str());
+		// What the file caches hold (SVF glyphs, translations) and how often
+		// they read, in KB; files= is how many files they keep open (each
+		// cache one), for FILES= in CONFIG.SYS.
+		const Common::String caches = Common::FileCacheRegistry::summary();
+		if (!caches.empty())
+			g_system->logMessage(LogMessageType::kInfo,
+								 Common::String::format("DOS: caches %s files=%u %s\n", phase,
+														Common::FileCacheRegistry::all().size(), caches.c_str()).c_str());
+	}
 	DosTimerManager::logStats();
 	pagefaultSelftestLog();
 }
@@ -183,6 +193,10 @@ void OSystem_DOS::initBackend() {
 	// render_target (DosGraphicsManager::getSupportedFormats()).
 	ConfMan.registerDefault("dos_vsync", "off");
 	ConfMan.registerDefault("dos_force_fallback", false);
+	// dos_frame_buffer=true keeps the game's frame in a buffer of its own,
+	// copied into the window surface (1 MB more at 640x400 true colour),
+	// instead of drawing it into the window surface itself.
+	ConfMan.registerDefault("dos_frame_buffer", false);
 	ConfMan.registerDefault("dos_timer_selftest", false);
 	ConfMan.registerDefault("dos_mixer_selftest", false);
 	// dos_pagefault_selftest=<KB>: a timer proc touches a pageable buffer

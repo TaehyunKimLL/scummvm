@@ -281,6 +281,33 @@ int RangeRoutedGlyphSource::bitsPerPixel() const {
 	return _geom ? _geom->bitsPerPixel() : 8;
 }
 
+void RangeRoutedGlyphSource::prefetch(Common::Array<uint32> &cps) {
+	// Each code point to the source that would draw it, as the code point
+	// that source is asked for (pick()), a source's together.
+	Common::Array<UnicodeGlyphSource *> sources;
+	Common::Array<Common::Array<uint32> > wanted;
+	Common::Array<uint32> rest;
+	for (uint i = 0; i < cps.size(); ++i) {
+		const HiResPick p = pick(cps[i]);
+		UnicodeGlyphSource *src = sourceFor(p);
+		if (!src) {
+			rest.push_back(cps[i]);
+			continue;
+		}
+		uint k = 0;
+		while (k < sources.size() && sources[k] != src)
+			++k;
+		if (k == sources.size()) {
+			sources.push_back(src);
+			wanted.push_back(Common::Array<uint32>());
+		}
+		wanted[k].push_back(p.cp);
+	}
+	for (uint k = 0; k < sources.size(); ++k)
+		sources[k]->prefetch(wanted[k]);
+	cps.swap(rest);
+}
+
 int RangeRoutedGlyphSource::cells(uint32 cp) {
 	UnicodeGlyphSource *src = sourceFor(pick(cp));
 	return src ? src->cells(_cachedPick.cp) : 0;

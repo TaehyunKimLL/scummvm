@@ -22,6 +22,7 @@
 #ifndef SCI_GRAPHICS_SCIFONT_H
 #define SCI_GRAPHICS_SCIFONT_H
 
+#include "common/array.h"
 #include "sci/resource/resource.h"
 #include "sci/graphics/helpers.h"
 #include "sci/util.h"
@@ -48,6 +49,12 @@ public:
 	virtual void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 width, int16 height) {}
 	/** A string is about to be drawn (GfxText16::Draw()): per-string drawing state starts afresh. */
 	virtual void beginString() {}
+	/**
+	 * The code points of a text about to be laid out and drawn: a face that
+	 * reads its glyphs from a file reads those it has now, together, and
+	 * takes them out of @p cps (Graphics::UnicodeGlyphSource::prefetch()).
+	 */
+	virtual void prefetch(Common::Array<uint32> &cps) {}
 };
 
 

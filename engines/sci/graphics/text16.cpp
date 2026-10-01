@@ -577,6 +577,7 @@ int16 GfxText16::Size(Common::Rect &rect, const char *text, uint16 languageSplit
 		fontId = previousFontId;
 
 	rect.top = rect.left = 0;
+	prefetchText(text);
 
 	if (maxWidth < 0) { // force output as single line
 		if (g_sci->usesKoreanText())
@@ -620,6 +621,36 @@ int16 GfxText16::Size(Common::Rect &rect, const char *text, uint16 languageSplit
 	return rect.right;
 }
 
+void GfxText16::prefetchText(const char *text, int len) {
+	GetFont();
+	if (!_font || !text)
+		return;
+	Common::Array<uint32> cps;
+	const char *end = len < 0 ? nullptr : text + len;
+	const bool codes = getSciVersion() >= SCI_VERSION_1_1;
+	while (*text && (!end || text < end)) {
+		int bytes = 1;
+		const uint32 chr = readChar(text, bytes);
+		for (int i = 0; i < bytes && *text; ++i)
+			++text;
+		if (chr == '|' && codes) {
+			// A text code (|c1|, |f2|): drawn as nothing, CodeProcessing()
+			// reads it up to the next '|'.
+			while (*text && (!end || text < end) && *text++ != '|') {
+			}
+			continue;
+		}
+		// The character Draw() hands the font, as glyphChar() makes it
+		// (without telling the font of it). A code the plan leaves to the
+		// game's font, or a [glyphs] target, is nothing to read here.
+		const uint32 glyph = _hasPlan ? TextCompose::glyphCode(_plan, chr) : chr;
+		if (glyph > ' ' && glyph < Graphics::kHiResTargetBase && glyph < Graphics::kHiResGameCodeBase)
+			cps.push_back(glyph);
+	}
+	if (!cps.empty())
+		_font->prefetch(cps);
+}
+
 // returns maximum font height used
 void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgFontId, int16 orgPenColor) {
 	GetFont();
@@ -628,6 +659,9 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 	// A combining mark at the start of this string must not attach to the
 	// last base of the previous one.
 	_font->beginString();
+	// A line not laid out by Size() or Box() (a status line, a title)
+	// has its glyphs read together too.
+	prefetchText(text + from, len);
 
 	// hires_text_log: resolved once by GfxCache, so this costs one bool read
 	// when off. The four counts are read back by Box() right after this
@@ -740,6 +774,7 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 		SetFont(fontId);
 	else
 		fontId = previousFontId;
+	prefetchText(text);
 
 	// hires_text_log: an aggregate over every line this box renders (as
 	// opposed to Draw()'s own per-rendered-line debug line), read back from
