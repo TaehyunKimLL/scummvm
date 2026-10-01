@@ -621,12 +621,13 @@ int16 GfxText16::Size(Common::Rect &rect, const char *text, uint16 languageSplit
 	return rect.right;
 }
 
-void GfxText16::prefetchText(const char *text) {
+void GfxText16::prefetchText(const char *text, int len) {
 	GetFont();
 	if (!_font || !text)
 		return;
 	Common::Array<uint32> cps;
-	while (*text) {
+	const char *end = len < 0 ? nullptr : text + len;
+	while (*text && (!end || text < end)) {
 		int bytes = 1;
 		const uint32 chr = readChar(text, bytes);
 		if (chr > ' ')
@@ -646,6 +647,9 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 	// A combining mark at the start of this string must not attach to the
 	// last base of the previous one.
 	_font->beginString();
+	// A line not laid out by Size() or Box() (a status line, a title)
+	// has its glyphs read together too.
+	prefetchText(text + from, len);
 
 	// hires_text_log: resolved once by GfxCache, so this costs one bool read
 	// when off. The four counts are read back by Box() right after this
