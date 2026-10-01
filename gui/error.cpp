@@ -23,19 +23,33 @@
 #include "gui/message.h"
 #include "gui/error.h"
 
+#ifdef DISABLE_GUI
+#include "common/system.h"
+#endif
+
 namespace GUI {
 
 void displayErrorDialog(const Common::U32String &text) {
+#ifdef DISABLE_GUI
+	// No dialog: an error goes to the log as one (the backend shows the
+	// last one when it exits).
+	g_system->logMessage(LogMessageType::kError, (text.encode() + "\n").c_str());
+#else
 	GUI::MessageDialog alert(text);
 	alert.runModal();
+#endif
 }
 
 void displayErrorDialog(const Common::Error &error, const Common::U32String &extraText) {
 	Common::U32String errorText(extraText);
 	errorText += Common::U32String(" ");
 	errorText += error.getTranslatedDesc();
+#ifdef DISABLE_GUI
+	displayErrorDialog(errorText);
+#else
 	GUI::MessageDialog alert(errorText);
 	alert.runModal();
+#endif
 }
 
 } // End of namespace GUI

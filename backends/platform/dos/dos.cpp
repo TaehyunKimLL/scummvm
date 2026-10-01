@@ -1121,6 +1121,18 @@ int main(int argc, char *argv[]) {
 	int res = scummvm_main(argc, argv);
 	g_system->destroy();	// deletes the graphics manager, and with it the window
 	SDL_Quit();	// text mode back, keyboard interrupt unhooked
+#ifdef DISABLE_GUI
+	// No error dialog in this build: the last error logged (no game named,
+	// a game that would not start) goes on the text screen.
+	DOS::Loading::teardown();
+	if (g_lastError[0]) {
+		fputs("ScummVM: ", stderr);
+		fputs(g_lastError, stderr);
+		fputs("See SCUMMVM.LOG.\n", stderr);
+		if (res == 0)
+			res = 1;
+	}
+#endif
 	return res;
 }
 

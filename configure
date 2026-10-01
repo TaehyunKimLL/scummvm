@@ -190,6 +190,7 @@ _libopenmpt=auto
 _libmpcdec=auto
 _taskbar=auto
 _debug_socket=auto
+_gui=yes
 _updates=no
 _libunity=auto
 _dialogs=auto
@@ -1061,6 +1062,8 @@ Optional Features:
   --disable-debug-socket   don't build the debug socket (a command channel
                            for driving a game from a script; desktop
                            hosts only) [autodetect]
+  --disable-gui            build without the GUI: no launcher, options or
+                           main menu; messages go to the log (DOS only)
   --disable-cloud          don't build cloud support
   --disable-system-dialogs don't build support for system dialogs
   --enable-vkeybd          build virtual keyboard support
@@ -1383,6 +1386,8 @@ for ac_option in $@; do
 	--disable-taskbar)            _taskbar=no            ;;
 	--enable-debug-socket)        _debug_socket=yes      ;;
 	--disable-debug-socket)       _debug_socket=no       ;;
+	--enable-gui)                 _gui=yes               ;;
+	--disable-gui)                _gui=no                ;;
 	--enable-system-dialogs)      _dialogs=yes           ;;
 	--disable-system-dialogs)     _dialogs=no            ;;
 	--enable-sdlnet)              _sdlnet=yes            ;;
@@ -7471,6 +7476,19 @@ if test "$_debug_socket" = auto; then
 fi
 echo "$_debug_socket"
 define_in_config_if_yes $_debug_socket 'USE_DEBUG_SOCKET'
+
+#
+# Check whether to build the GUI. Without it (DOS only so far) a game is
+# started from the command line and the engines use their own menus.
+#
+echo_n "Building the GUI... "
+if test "$_gui" = no && test "$_backend" != dos; then
+	echo "no"
+	echo "ERROR: --disable-gui is only supported by the DOS backend"
+	exit 1
+fi
+echo "$_gui"
+define_in_config_if_no $_gui 'DISABLE_GUI'
 
 #
 # Check whether to build printing support

@@ -48,6 +48,9 @@ SaveLoadChooser::~SaveLoadChooser() {
 }
 
 void SaveLoadChooser::selectChooser(const MetaEngine *engine) {
+#ifdef DISABLE_GUI
+	// No GUI: no chooser, so the run answers "none selected" (-1).
+#else
 #ifndef DISABLE_SAVELOADCHOOSER_GRID
 	const SaveLoadChooserType requestedType = getRequestedSaveLoadDialog(engine);
 	if (!_impl || _impl->getType() != requestedType) {
@@ -69,6 +72,7 @@ void SaveLoadChooser::selectChooser(const MetaEngine *engine) {
 		}
 	}
 #endif // !DISABLE_SAVELOADCHOOSER_GRID
+#endif // DISABLE_GUI
 }
 
 Common::String SaveLoadChooser::createDefaultSaveDescription(const int slot) const {
@@ -91,6 +95,9 @@ int SaveLoadChooser::runModalWithCurrentTarget() {
 }
 
 int SaveLoadChooser::runModalWithMetaEngineAndTarget(const MetaEngine *engine, const Common::String &target) {
+#ifdef DISABLE_GUI
+	return -1;
+#else
 	selectChooser(engine);
 	if (!_impl)
 		return -1;
@@ -118,11 +125,16 @@ int SaveLoadChooser::runModalWithMetaEngineAndTarget(const MetaEngine *engine, c
 	ConfMan.setActiveDomain(oldDomain);
 
 	return ret;
+#endif
 }
 
 const Common::String SaveLoadChooser::getResultString() const {
+#ifdef DISABLE_GUI
+	return Common::String();
+#else
 	assert(_impl);
 	return _impl->getResultString();
+#endif
 }
 
 } // End of namespace GUI

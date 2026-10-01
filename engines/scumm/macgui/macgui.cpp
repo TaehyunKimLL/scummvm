@@ -132,7 +132,9 @@ bool MacGui::runRestartDialog() {
 }
 
 void MacGui::runDraftsInventory() {
+#ifndef DISABLE_GUI
 	((MacLoomGui *)_impl)->runDraftsInventory();
+#endif
 }
 
 void MacGui::clearTextArea() {

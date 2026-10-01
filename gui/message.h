@@ -37,6 +37,69 @@ enum {
 	kMessageAlt = 1
 };
 
+#ifdef DISABLE_GUI
+
+/**
+ * A build without the GUI (configure --disable-gui): the message boxes
+ * take the same arguments, put the text in the log, and runModal()
+ * answers with the default button at once. They are not dialogs, so no
+ * GUI code is linked in for them.
+ */
+class MessageDialog {
+public:
+	MessageDialog(const Common::U32String &message);
+	MessageDialog(const Common::String &message);
+	MessageDialog(const Common::U32String &message,
+				  const Common::U32String &defaultButton,
+				  const Common::U32String &altButton = Common::U32String(),
+				  Graphics::TextAlign alignment = Graphics::kTextAlignCenter,
+				  const char *url = nullptr,
+				  const Common::U32String &extraMessage = Common::U32String());
+	MessageDialog(const Common::String &message,
+				  const Common::String &defaultButton,
+				  const Common::String &altButton = Common::String(),
+				  Graphics::TextAlign alignment = Graphics::kTextAlignCenter,
+				  const char *url = nullptr);
+	MessageDialog(const Common::U32String &message,
+				  const Common::U32String &defaultButton,
+				  const Common::U32StringArray &altButtons,
+				  Graphics::TextAlign alignment = Graphics::kTextAlignCenter);
+	virtual ~MessageDialog() {}
+
+	/** Logs the message; returns kMessageOK (the default button). */
+	int runModal();
+
+protected:
+	Common::U32String _message;
+};
+
+class TimedMessageDialog : public MessageDialog {
+public:
+	TimedMessageDialog(const Common::U32String &message, uint32 duration) : MessageDialog(message) {}
+};
+
+class CountdownMessageDialog : public MessageDialog {
+public:
+	CountdownMessageDialog(const Common::U32String &message, uint32 duration) : MessageDialog(message) {}
+	CountdownMessageDialog(const Common::U32String &message,
+				  uint32 duration,
+				  const Common::U32String &defaultButton,
+				  const Common::U32String &altButton = Common::U32String(),
+				  Graphics::TextAlign alignment = Graphics::kTextAlignCenter,
+				  const Common::U32String &countdownMessage = Common::U32String(""))
+		: MessageDialog(message) {}
+};
+
+class MessageDialogWithURL : public MessageDialog {
+public:
+	MessageDialogWithURL(const Common::U32String &message, const char *url) : MessageDialog(message) {}
+	MessageDialogWithURL(const Common::String &message, const char *url) : MessageDialog(message) {}
+	MessageDialogWithURL(const Common::U32String &message, const char *url, const Common::U32String &defaultButton, Graphics::TextAlign alignment = Graphics::kTextAlignCenter) : MessageDialog(message) {}
+	MessageDialogWithURL(const Common::String &message, const char *url, const char *defaultButton, Graphics::TextAlign alignment = Graphics::kTextAlignCenter) : MessageDialog(message) {}
+};
+
+#else
+
 
 /**
  * Simple message dialog ("alert box"): presents a text message in a dialog with up to two buttons.
@@ -129,7 +192,7 @@ public:
 	MessageDialogWithURL(const Common::String &message, const char *url, const char *defaultButton, Graphics::TextAlign alignment = Graphics::kTextAlignCenter);
 };
 
-
+#endif // DISABLE_GUI
 
 } // End of namespace GUI
 

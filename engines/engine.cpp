@@ -53,6 +53,7 @@
 #include "gui/message.h"
 #include "gui/saveload.h"
 #include "gui/unknown-game-dialog.h"
+#include "gui/error.h"
 
 #include "audio/mixer.h"
 
@@ -290,14 +291,21 @@ void initCommonGFX(bool is3D) {
 // This is a proper and good way to show your appreciation for our hard work over these years.
 bool splash = false;
 
+#ifndef DISABLE_GUI
 #include "logo_data.h"
+#endif
 
 // Whether the launcher ran; asked without making the GUI manager, which
 // only an engine that opens a dialog needs.
 static bool guiLaunched() {
+#ifdef DISABLE_GUI
+	return false;
+#else
 	return GUI::GuiManager::hasInstance() && GUI::GuiManager::instance()._launched;
+#endif
 }
 
+#ifndef DISABLE_GUI
 void splashScreen() {
 	Common::MemoryReadStream stream(logo_data, ARRAYSIZE(logo_data));
 
@@ -371,6 +379,7 @@ void splashScreen() {
 
 	splash = true;
 }
+#endif
 
 void initGraphicsModes(const Graphics::ModeList &modes) {
 	g_system->initSizeHint(modes);
@@ -454,8 +463,10 @@ int initGraphicsAny(const Graphics::ModeWithFormatList &modes, int start) {
 
 		gfxError = g_system->endGFXTransaction();
 
+#ifndef DISABLE_GUI
 		if (!splash && !guiLaunched())
 			splashScreen();
+#endif
 
 		if (gfxError == OSystem::kTransactionSuccess)
 			return candidate;
@@ -514,11 +525,13 @@ void initGraphics3d(int width, int height) {
 		g_system->initSize(width, height);
 	OSystem::TransactionError gfxError = g_system->endGFXTransaction();
 
+#ifndef DISABLE_GUI
 	if (!splash && !guiLaunched()) {
 		Common::Event event;
 		(void)g_system->getEventManager()->pollEvent(event);
 		splashScreen();
 	}
+#endif
 
 	warnTransactionFailures(gfxError, width, height);
 }
@@ -537,6 +550,10 @@ void GUIErrorMessage(const Common::String &msg, const char *url) {
 
 void GUIErrorMessage(const Common::U32String &msg, const char *url) {
 	g_system->setWindowCaption(_("Error"));
+#ifdef DISABLE_GUI
+	// No dialog: the error goes to the log (and the backend shows it).
+	GUI::displayErrorDialog(msg);
+#else
 	g_system->beginGFXTransaction();
 		initCommonGFX(false);
 		g_system->initSize(320, 200);
@@ -551,6 +568,7 @@ void GUIErrorMessage(const Common::U32String &msg, const char *url) {
 	} else {
 		error("%s", msg.encode().c_str());
 	}
+#endif
 }
 
 void GUIErrorMessageFormat(const char *fmt, ...) {
@@ -821,10 +839,18 @@ void Engine::drawHotspots() {
 }
 
 GUI::Dialog *Engine::createMainMenuDialog() {
+#ifdef DISABLE_GUI
+	return nullptr;
+#else
 	return new MainMenuDialog(this);
+#endif
 }
 
 void Engine::openMainMenuDialog() {
+#ifdef DISABLE_GUI
+	// No global main menu without the GUI: the game's own menus serve.
+	return;
+#else
 	if (!_mainMenuDialog)
 		_mainMenuDialog = createMainMenuDialog();
 	Common::TextToSpeechManager *ttsMan = g_system->getTextToSpeechManager();
@@ -865,6 +891,7 @@ void Engine::openMainMenuDialog() {
 	g_system->applyBackendSettings();
 	applyGameSettings();
 	syncSoundSettings();
+#endif
 }
 
 bool Engine::warnUserAboutUnsupportedGame(Common::String msg) {
@@ -872,7 +899,9 @@ bool Engine::warnUserAboutUnsupportedGame(Common::String msg) {
 		Common::TextToSpeechManager *ttsMan = g_system->getTextToSpeechManager();
 		if (ttsMan != nullptr) {
 			ttsMan->pushState();
+#ifndef DISABLE_GUI
 			g_gui.initTextToSpeech();
+#endif
 		}
 
 		GUI::MessageDialog alert(!msg.empty() ? _("WARNING: ") + Common::U32String(msg) + _(" Shall we still run the game?") :
@@ -895,7 +924,9 @@ bool Engine::warnUserAboutUnsupportedAddOn(Common::String addOnName) {
 		Common::TextToSpeechManager *ttsMan = g_system->getTextToSpeechManager();
 		if (ttsMan != nullptr) {
 			ttsMan->pushState();
+#ifndef DISABLE_GUI
 			g_gui.initTextToSpeech();
+#endif
 		}
 
 		Common::U32String messageFormat = _("WARNING: the game you are about to start contains the add-on \"%s\""
@@ -921,7 +952,9 @@ void Engine::warnUserAboutTestingMode() {
 		Common::TextToSpeechManager *ttsMan = g_system->getTextToSpeechManager();
 		if (ttsMan != nullptr) {
 			ttsMan->pushState();
+#ifndef DISABLE_GUI
 			g_gui.initTextToSpeech();
+#endif
 		}
 
 		GUI::MessageDialog alert(_("WARNING: The game you are about to start is newly supported and is in testing mode.\n"
@@ -937,7 +970,9 @@ void Engine::errorAddingAddOnWithoutBaseGame(Common::String addOnName, Common::S
 	Common::TextToSpeechManager *ttsMan = g_system->getTextToSpeechManager();
 	if (ttsMan != nullptr) {
 		ttsMan->pushState();
+#ifndef DISABLE_GUI
 		g_gui.initTextToSpeech();
+#endif
 	}
 
 	Common::U32String messageFormat = _("The game \"%s\" you are trying to add is an add-on for \"%s\" that cannot be run independently."
@@ -954,7 +989,9 @@ void Engine::errorUnsupportedGame(Common::String extraMsg) {
 	Common::TextToSpeechManager *ttsMan = g_system->getTextToSpeechManager();
 	if (ttsMan != nullptr) {
 		ttsMan->pushState();
+#ifndef DISABLE_GUI
 		g_gui.initTextToSpeech();
+#endif
 	}
 
 	Common::String message = extraMsg.empty() ? _("This game is not supported.") : _("This game is not supported for the following reason:\n\n");
@@ -983,6 +1020,12 @@ void Engine::setTotalPlayTime(uint32 time) {
 
 	_engineStartTime = currentTime - time;
 }
+
+#ifdef DISABLE_GUI
+int Engine::runDialog(GUI::MessageDialog &dialog) {
+	return dialog.runModal();
+}
+#endif
 
 int Engine::runDialog(GUI::Dialog &dialog) {
 	PauseToken pt = pauseEngine();
@@ -1333,11 +1376,17 @@ Common::ErrorCode Engine::updateAddOns(const MetaEngine *metaEngine) const {
 				Common::U32String msg = Common::U32String::format(msgFormat,
 																  subdirNode.getPath().toString(Common::Path::kNativeSeparator).c_str());
 
+#ifdef DISABLE_GUI
+				// No chooser without the GUI: as if cancelled.
+				warning("%s", msg.encode().c_str());
+				return Common::kUserCanceled;
+#else
 				GUI::ChooserDialog dialog(msg);
 				dialog.setList(list);
 				idx = dialog.runModal();
 				if (idx < 0)
 					return Common::kUserCanceled;
+#endif
 			}
 
 			if (0 <= idx && idx < (int)detectedAddOns.size()) {
@@ -1349,8 +1398,10 @@ Common::ErrorCode Engine::updateAddOns(const MetaEngine *metaEngine) const {
 					debug("Detected an unknown variant of add-on '%s' (path: '%s')",
 						  selectedAddOn.gameId.c_str(),
 						  subdirNode.getPath().toString(Common::Path::kNativeSeparator).c_str());
+#ifndef DISABLE_GUI
 					GUI::UnknownGameDialog dialog(selectedAddOn);
 					dialog.runModal();
+#endif
 					continue; // Do not create an entry for unknown variants
 				}
 
