@@ -850,8 +850,13 @@ void ScummEngine_v6::processKeyboard(Common::KeyState lastKeyHit) {
 		}
 	} else {
 		if (lastKeyHit.keycode == Common::KEYCODE_t && lastKeyHit.hasFlags(Common::KBD_CTRL)) {
+#ifdef DISABLE_GUI
+			// No GUI: the next mode, as the dialog would show it.
+			_voiceMode = (_voiceMode + 1) % 3;
+#else
 			SubtitleSettingsDialog dialog(this, _voiceMode);
 			_voiceMode = runDialog(dialog);
+#endif
 
 			switch (_voiceMode) {
 			case 0:
@@ -950,8 +955,12 @@ void ScummEngine_v3::processKeyboard(Common::KeyState lastKeyHit) {
 			updateIQPoints();
 
 			Common::sprintf_s(text, "IQ Points: Episode = %d, Series = %d", _scummVars[244], _scummVars[245]);
+#ifdef DISABLE_GUI
+			messageDialog(Common::U32String(text));
+#else
 			Indy3IQPointsDialog indy3IQPointsDialog(this, text);
 			runDialog(indy3IQPointsDialog);
+#endif
 		}
 	}
 }
@@ -1443,8 +1452,10 @@ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
 			vol--;
 
 		// Display the music volume
+#ifndef DISABLE_GUI
 		ValueDisplayDialog dlg(_("Music volume: "), 0, 16, vol, ']', '[');
 		vol = runDialog(dlg);
+#endif
 
 		vol *= 16;
 		if (vol > Audio::Mixer::kMaxMixerVolume)
@@ -1460,8 +1471,10 @@ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
 			_defaultTextSpeed++;
 
 		// Display the talk speed
+#ifndef DISABLE_GUI
 		ValueDisplayDialog dlg(_("Subtitle speed: "), 0, 9, _defaultTextSpeed, '+', '-');
 		_defaultTextSpeed = runDialog(dlg);
+#endif
 
 		// Save the new talkspeed value to ConfMan
 		setTalkSpeed(_defaultTextSpeed);

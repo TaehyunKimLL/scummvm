@@ -20,6 +20,9 @@
  */
 
 #include "common/config-manager.h"
+#ifdef DISABLE_GUI
+#include "base/version.h"
+#endif
 #include "common/compression/clickteam.h"
 #include "common/debug-channels.h"
 #include "common/macresman.h"
@@ -1016,9 +1019,14 @@ Common::Error ScummEngine::init() {
 	}
 
 	ConfMan.registerDefault("original_gui", true);
+#ifdef DISABLE_GUI
+	// No ScummVM dialogs to fall back on: always the original interface.
+	_useOriginalGUI = true;
+#else
 	if (ConfMan.hasKey("original_gui", _targetName)) {
 		_useOriginalGUI = ConfMan.getBool("original_gui");
 	}
+#endif
 
 	_enableAudioOverride = ConfMan.getBool("audio_override");
 
@@ -1477,11 +1485,16 @@ Common::Error ScummEngine::init() {
 				// ones do not. If opening the resource fails here, that will
 				// be flagged later.
 
+#ifdef DISABLE_GUI
+				// The simulated Mac interface is GUI code.
+				return Common::Error(Common::kUnsupportedGameidError, _("The Macintosh versions need the Mac interface, which this build leaves out."));
+#else
 				if (resource.open(macResourceFile)) {
 					_isModernMacVersion = (resource.getResLength(MKTAG('M', 'B', 'A', 'R'), 128) > 0);
 					resource.close();
 				}
 				_macGui = new MacGui(this, macResourceFile);
+#endif
 			}
 
 			// Maniac Mansion doesn't use the text surface, but it's easier to
@@ -1860,12 +1873,14 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 		// In case we run the Loom FM-Towns version and have no boot parameter
 		// nor start save game supplied we will show our own custom difficulty
 		// selection dialog, since the original does not have any.
+#ifndef DISABLE_GUI
 		LoomTownsDifficultyDialog difficultyDialog;
 		runDialog(difficultyDialog);
 
 		int difficulty = difficultyDialog.getSelectedDifficulty();
 		if (difficulty != -1)
 			_bootParam = difficulty;
+#endif
 	}
 
 	_res->allocResTypeData(rtBuffer, 0, 10, kDynamicResTypeMode);
@@ -4636,7 +4651,9 @@ void ScummEngine_v7::pauseEngineIntern(bool pause) {
 #endif
 
 GUI::Dialog *ScummEngine::createMainMenuDialog() {
-#ifndef DISABLE_HELP
+#if defined(DISABLE_GUI)
+	return nullptr;
+#elif !defined(DISABLE_HELP)
 	// The custom GMM dialog provides a help subdialog
 	return new ScummMenuDialog(this);
 #else
@@ -4644,6 +4661,33 @@ GUI::Dialog *ScummEngine::createMainMenuDialog() {
 #endif
 }
 
+#ifdef DISABLE_GUI
+// No GUI (configure --disable-gui): these ScummVM-only boxes become the
+// game's own banners and prompts, or a log line.
+void ScummEngine::messageDialog(const Common::U32String &message) {
+	g_system->logMessage(LogMessageType::kInfo, (message.encode() + "\n").c_str());
+}
+
+void ScummEngine::pauseDialog() {
+	// "Game Paused.  Press SPACE to Continue.", as the original GUI shows it.
+	if (_game.version > 4)
+		showBannerAndPause(0, -1, getGUIString(gsPause));
+	else
+		showOldStyleBannerAndPause(getGUIString(gsPause), 12, -1);
+}
+
+void ScummEngine::versionDialog() {
+	g_system->logMessage(LogMessageType::kInfo, (Common::String(gScummVMFullVersion) + "\n").c_str());
+}
+
+void ScummEngine::confirmExitDialog() {
+	ScummEngine::queryQuit(false);
+}
+
+void ScummEngine::confirmRestartDialog() {
+	ScummEngine::queryRestart();
+}
+#else
 void ScummEngine::messageDialog(const Common::U32String &message) {
 	if (!_messageDialog)
 		_messageDialog = new InfoDialog(this, message);
@@ -4678,6 +4722,7 @@ void ScummEngine::confirmRestartDialog() {
 		restart();
 	}
 }
+#endif // DISABLE_GUI
 
 char ScummEngine::displayMessage(const char *message, ...) {
 	char buf[STRINGBUFLEN];
@@ -4712,7 +4757,13 @@ bool ScummEngine::displayMessageOKQuit(const char *message, ...) {
 	va_end(va);
 
 	GUI::MessageDialog dialog(buf, _("OK"), _("Quit"));
+#ifdef DISABLE_GUI
+	// No one to press OK (retry): quit.
+	runDialog(dialog);
+	return false;
+#else
 	return runDialog(dialog) == GUI::kMessageOK;
+#endif
 }
 
 #if defined(ENABLE_HE) && defined(USE_ENET)

@@ -243,10 +243,12 @@ bool AdvancedMetaEngineDetectionBase::cleanupPirated(ADDetectedGames &matched) c
 		// We ruled out all variants and now have nothing
 		if (matched.empty()) {
 			warning("Illegitimate game copy detected. We provide no support in such cases");
+#ifndef DISABLE_GUI
 			if (GUI::GuiManager::hasInstance()) {
 				GUI::MessageDialog dialog(_("Illegitimate game copy detected. We provide no support in such cases"));
 				dialog.runModal();
 			};
+#endif
 			return true;
 		}
 	}

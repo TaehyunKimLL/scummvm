@@ -367,10 +367,14 @@ bool GuestAdditions::kPlayDuckPlayVMDHook() const {
 #pragma mark Integrated save & restore
 
 void GuestAdditions::patchGameSaveRestore() const {
+#ifdef DISABLE_GUI
+	// No ScummVM save/load dialog to patch in: the game's own screens.
+#else
 	if (ConfMan.getBool("originalsaveload") || getSciVersion() >= SCI_VERSION_2)
 		return;
 
 	patchGameSaveRestoreSCI16();
+#endif
 }
 
 static const byte kSaveRestorePatch[] = {

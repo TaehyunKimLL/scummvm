@@ -681,6 +681,9 @@ GUI::OptionsContainerWidget *ScummMetaEngine::buildMI1OptionsWidget(GUI::GuiObje
 
 
 GUI::OptionsContainerWidget *ScummMetaEngine::buildEngineOptionsWidget(GUI::GuiObject *boss, const Common::String &name, const Common::String &target) const {
+#ifdef DISABLE_GUI
+	return nullptr;
+#else
 	Common::String gameid = ConfMan.get("gameid", target);
 	Common::String extra = ConfMan.get("extra", target);
 	Common::Platform platform = Common::parsePlatform(ConfMan.get("platform", target));
@@ -714,6 +717,7 @@ GUI::OptionsContainerWidget *ScummMetaEngine::buildEngineOptionsWidget(GUI::GuiO
 		return new Scumm::ScummGameOptionsWidget(boss, name, target, engineOptions);
 
 	return MetaEngine::buildEngineOptionsWidget(boss, name, target);
+#endif
 }
 
 static const ExtraGuiOption comiObjectLabelsOption = {

@@ -1602,7 +1602,9 @@ static Common::Error listSaves(const Common::String &singleTarget) {
 static void listThemes() {
 	typedef Common::List<GUI::ThemeEngine::ThemeDescriptor> ThList;
 	ThList thList;
+#ifndef DISABLE_GUI
 	GUI::ThemeEngine::listUsableThemes(thList);
+#endif
 
 	printf("Theme          Description\n");
 	printf("-------------- ------------------------------------------------\n");
