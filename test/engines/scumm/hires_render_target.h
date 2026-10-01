@@ -424,6 +424,26 @@ public:
 						 Graphics::kHiResTargetRgb888);
 	}
 
+	/// On a platform that prefers 5-6-5 (DOS registers it), auto resolves to
+	/// rgb565 and the screen set is 5-6-5; an explicit rgb888 still gets 32 bits.
+	void test_platform_preferring_rgb565_gets_it_for_auto() {
+		writeMap("blend=auto");
+		useDomain("");
+		ConfMan.registerDefault("hires_text_platform_truecolor", "rgb565");
+		const Common::List<Graphics::PixelFormat> dos = dosFormats();
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &dos);
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(initGraphicsPicks(dos, hr.screenRequest(dos)), rgb565());
+
+		useDomain("render_target=rgb888\n");
+		Scumm::ScummHiResText named;
+		named.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &dos);
+		TS_ASSERT_EQUALS(named.renderTarget(), Graphics::kHiResTargetRgb888);
+		TS_ASSERT_EQUALS(initGraphicsPicks(dos, named.screenRequest(dos)), rgb888());
+		ConfMan.registerDefault("hires_text_platform_truecolor", "");
+	}
+
 	/// An explicit rgb565 is honoured against a backend that lists 8-8-8
 	/// first, and 1-5-5-5 (not in the rgb565 family) is never taken for it.
 	void test_explicit_rgb565_gets_565_whatever_the_backend_order() {

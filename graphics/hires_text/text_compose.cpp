@@ -100,6 +100,23 @@ void composeSpan(byte *dst, const Graphics::PixelFormat &fmt, const TextPixelFg 
 	}
 }
 
+void composeSpanOver(byte *dst, const Graphics::PixelFormat &fmt, const TextPixelFg *text, int count,
+					 const byte *underRGB, const byte *paletteRGB) {
+	const int bpp = fmt.bytesPerPixel;
+	for (int i = 0; i < count; i++, dst += bpp, underRGB += 3) {
+		const TextPixelFg &t = text[i];
+		if (!t.fgCoverage)
+			continue;
+		byte r = underRGB[0], g = underRGB[1], b = underRGB[2];
+		blendRGB(r, g, b, paletteRGB, t.fgIndex, t.fgCoverage);
+		const uint32 c = fmt.RGBToColor(r, g, b);
+		if (bpp == 2)
+			WRITE_UINT16(dst, c);
+		else
+			WRITE_UINT32(dst, c);
+	}
+}
+
 void stampSpan(byte *dstIndex, const TextPixelFg *text, int count) {
 	for (int i = 0; i < count; i++) {
 		if (text[i].fgCoverage >= 128)

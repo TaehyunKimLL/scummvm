@@ -20,6 +20,7 @@
  */
 
 #include "graphics/hires_text/glyph_renderer.h"
+#include "graphics/hires_text/banded_plane.h"
 
 #include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/text_compose.h"
@@ -272,7 +273,7 @@ void HiResGlyphRenderer::dilate(const GlyphBitmap &glyph, const DilationKernel &
 	}
 }
 
-bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
+bool HiResGlyphRenderer::drawGlyph(Surface &dest, BandedPlane *coverage,
 								   const HiResBitmapFont &font, int index,
 								   int x, int y, const GlyphStyle &style,
 								   Common::Rect *dirty) {
@@ -290,7 +291,7 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 	return drawGlyph(GlyphPlanes(&dest, coverage), glyph, x, y, style, dirty);
 }
 
-bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
+bool HiResGlyphRenderer::drawGlyph(Surface &dest, BandedPlane *coverage,
 								   const GlyphBitmap &glyph,
 								   int x, int y, const GlyphStyle &style,
 								   Common::Rect *dirty) {
@@ -298,8 +299,8 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, Surface *coverage,
 }
 
 /// A plane that can be written at (px, py), which the index plane can.
-static inline bool fits(const Surface *s, int px, int py) {
-	return s && px < s->w && py < s->h;
+static inline bool fits(const BandedPlane *s, int px, int py) {
+	return s && px < s->width() && py < s->height();
 }
 
 bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap &glyph,
@@ -312,13 +313,13 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 	// The coverage surface only makes sense for a glyph that has coverage to
 	// record (2bpp or 8bpp, not a 1bpp stencil), and only where it is large
 	// enough to hold it.
-	Surface *cov = (planes.coverage && glyph.bpp > 1 && planes.coverage->getPixels()) ? planes.coverage : nullptr;
+	BandedPlane *cov = (planes.coverage && glyph.bpp > 1 && planes.coverage->exists()) ? planes.coverage : nullptr;
 
 	// The decoration gets a layer of its own when there is one, and only on
 	// a blended target: a keyed one has nothing to blend it with.
-	Surface *uIdx = nullptr, *uCov = nullptr;
+	BandedPlane *uIdx = nullptr, *uCov = nullptr;
 	if (cov && planes.underIndex && planes.underCoverage &&
-		planes.underIndex->getPixels() && planes.underCoverage->getPixels()) {
+		planes.underIndex->exists() && planes.underCoverage->exists()) {
 		uIdx = planes.underIndex;
 		uCov = planes.underCoverage;
 	}
@@ -420,11 +421,10 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 					if (!fits(uCov, px, py) || !fits(uIdx, px, py))
 						continue;
 					const byte v = MAX(a, s);
-					byte &u = *(byte *)uCov->getBasePtr(px, py);
-					if (v <= u)
+					if (v <= uCov->get(px, py))
 						continue;
-					u = v;
-					*(byte *)uIdx->getBasePtr(px, py) = colour;
+					uCov->set(px, py, v);
+					uIdx->set(px, py, colour);
 				} else if (cov) {
 					// Sharing the body's planes, the stroke must yield to body
 					// ink already there, or each character would erase the
@@ -432,10 +432,9 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 					// edge, which is faint but still the letterform.
 					if (!fits(cov, px, py))
 						continue;
-					byte &c = *(byte *)cov->getBasePtr(px, py);
-					if (c)
+					if (cov->get(px, py))
 						continue;
-					c = 0xFF;
+					cov->set(px, py, 0xFF);
 					*(byte *)dest.getBasePtr(px, py) = colour;
 				} else {
 					// Keyed, there is no coverage to consult, but the text
@@ -473,7 +472,7 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 				*(byte *)dest.getBasePtr(px, py) = style.color;
 
 				if (fits(cov, px, py))
-					*(byte *)cov->getBasePtr(px, py) = cv;
+					cov->set(px, py, cv);
 			}
 		}
 	}

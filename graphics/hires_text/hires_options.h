@@ -136,9 +136,18 @@ HiResRenderTarget predictedTarget(HiResRenderTarget want, const Common::List<Pix
 								  bool engineCanRgb565);
 
 /**
+ * The true-colour family `auto` means on this platform: the backend's
+ * registered `hires_text_platform_truecolor` default (`rgb565` or `rgb888`),
+ * else `kHiResTargetRgb888`. The DOS backend registers the family its card
+ * offers best at 640x400: `rgb565` (half the memory and bus bytes of 32
+ * bits) when that exists exactly, else `rgb888` when that does, else `rgb565`.
+ */
+HiResRenderTarget platformTrueColorTarget();
+
+/**
  * `auto`'s resolution (design section 7.1): `kHiResTargetClut8` when
  * @p blend is `kHiResBlendOff`, or @p blend is `kHiResBlendAuto` and
- * !@p anyCoverage; `kHiResTargetRgb888` otherwise.
+ * !@p anyCoverage; platformTrueColorTarget() otherwise.
  */
 HiResRenderTarget resolveAutoTarget(bool anyCoverage, HiResBlend blend);
 

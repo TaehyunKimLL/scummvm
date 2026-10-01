@@ -887,8 +887,8 @@ struct ScummHiResText {
 	void freeCoverage();
 
 	/// The coverage surface, or null when this configuration has none.
-	Graphics::Surface *coverage() { return _overlay ? _overlay->coverage() : nullptr; }
-	const Graphics::Surface *coverage() const { return _overlay ? _overlay->coverage() : nullptr; }
+	Graphics::BandedPlane *coverage() { return _overlay ? _overlay->coverage() : nullptr; }
+	const Graphics::BandedPlane *coverage() const { return _overlay ? _overlay->coverage() : nullptr; }
 
 private:
 	bool _enabled;

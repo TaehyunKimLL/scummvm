@@ -764,19 +764,13 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 		if (_hiResText.alphaActive() && _hiResText.coverage() &&
 			vs->format.bytesPerPixel == 1) {
 			const byte *textPlane = (const byte *)_textSurface.getBasePtr(x * m, y * m);
-			const byte *covPlane = (const byte *)_hiResText.coverage()->getBasePtr(x * m, y * m);
 			const int textSkip = _textSurface.pitch - width * m;
-			const int covSkip = _hiResText.coverage()->pitch - width * m;
-
-			// The decoration's own layer, when the glyphs were given one
-			// (C19): the text's antialiased edge is blended over it.
-			const byte *underPlane = nullptr, *underCovPlane = nullptr;
-			int underSkip = 0;
-			if (const Graphics::Surface *uc = _overlay.underCoverage()) {
-				underPlane = (const byte *)_overlay.underIndex()->getBasePtr(x * m, y * m);
-				underCovPlane = (const byte *)uc->getBasePtr(x * m, y * m);
-				underSkip = uc->pitch - width * m;
-			}
+			// The coverage and the decoration's own layer (C19), when the
+			// glyphs were given one: the text's antialiased edge is blended
+			// over it. Those planes hold only the bands that have text.
+			const Graphics::BandedPlane *covPlane = _hiResText.coverage();
+			const Graphics::BandedPlane *underIdx = _overlay.underIndex();
+			const Graphics::BandedPlane *underCov = _overlay.underCoverage();
 
 			// The colours postProcessDOSGraphics() would have given this
 			// strip, had it gone that way (MM/Zak v1 text on DOS).
@@ -797,20 +791,19 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 				const int rows = MIN(bandRows, height - band);
 				const byte *bandSrc = (const byte *)src + band * vs->pitch;
 				const byte *bandText = textPlane + band * m * _textSurface.pitch;
-				const byte *bandCov = covPlane + band * m * _hiResText.coverage()->pitch;
-				const byte *bandUnder = underPlane ? underPlane + band * m * _overlay.underIndex()->pitch : nullptr;
-				const byte *bandUnderCov = underCovPlane ? underCovPlane + band * m * _overlay.underCoverage()->pitch : nullptr;
+				const int planeY = (y + band) * m;
+				const CompositeRows bandCov(covPlane, x * m, planeY, width * m);
+				const CompositeRows bandUnder(underCov ? underIdx : nullptr, x * m, planeY, width * m);
+				const CompositeRows bandUnderCov(underCov, x * m, planeY, width * m);
 
 				if (_outputPixelFormat.bytesPerPixel == 2) {
 					HiResPalette16Sink sink(_compositeBuf, palette, _outputPixelFormat);
-					compositeText(sink, bandSrc, vs->pitch - width,
-								  bandText, textSkip, bandCov, covSkip,
-								  width, rows, m, bandUnder, bandUnderCov, underSkip);
+					compositeTextRows(sink, bandSrc, vs->pitch - width, bandText, textSkip, bandCov,
+									  width, rows, m, bandUnder, bandUnderCov);
 				} else {
 					HiResTrueColorSink sink((uint32 *)_compositeBuf, palette, _outputPixelFormat);
-					compositeText(sink, bandSrc, vs->pitch - width,
-								  bandText, textSkip, bandCov, covSkip,
-								  width, rows, m, bandUnder, bandUnderCov, underSkip);
+					compositeTextRows(sink, bandSrc, vs->pitch - width, bandText, textSkip, bandCov,
+									  width, rows, m, bandUnder, bandUnderCov);
 				}
 
 				// The composite buffer holds width*m pixels per row, not width:

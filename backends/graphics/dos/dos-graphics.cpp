@@ -122,6 +122,11 @@ DosGraphicsManager::DosGraphicsManager() :
 		_sdlModes.push_back(*m[i]);
 	}
 	SDL_free(m);
+	// render_target=auto's true colour (Graphics::platformTrueColorTarget())
+	// follows the modes the card has. dos_force_fallback is read here, at
+	// the [scummvm] level: a game's own value does not change this choice.
+	ConfMan.registerDefault("hires_text_platform_truecolor",
+							DOS::autoTrueColorName(_modes, ConfMan.getBool("dos_force_fallback")));
 }
 
 DosGraphicsManager::~DosGraphicsManager() {

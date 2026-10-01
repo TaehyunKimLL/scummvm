@@ -253,13 +253,11 @@ Common::KeyState ScummEngine::showBannerAndPause(int bannerId, int32 waitTime, c
 				// The coverage for the same band. Saving the indices alone
 				// leaves the banner's own antialiasing under the text that
 				// comes back when it is dismissed.
-				if (const Graphics::Surface *cov = _overlay.coverage()) {
+				if (const Graphics::BandedPlane *cov = _overlay.coverage()) {
 					_textSurfBannerCovMem = (byte *)malloc(_textSurfBannerMemSize);
 					if (_textSurfBannerCovMem)
-						memcpy(
-							_textSurfBannerCovMem,
-							&((const byte *)cov->getBasePtr(0, _screenTop * _textSurfaceMultiplier))[rowSize * _bannerSaveYStart],
-							_textSurfBannerMemSize);
+						cov->readBytes(_screenTop * _textSurfaceMultiplier * cov->width() + rowSize * _bannerSaveYStart,
+									   _textSurfBannerCovMem, _textSurfBannerMemSize);
 				}
 
 				// We're going to use these same values for saving the
@@ -641,11 +639,9 @@ void ScummEngine::clearBanner() {
 					_textSurfBannerMemSize);
 
 				if (_textSurfBannerCovMem) {
-					if (Graphics::Surface *cov = _overlay.coverage())
-						memcpy(
-							&((byte *)cov->getBasePtr(0, _screenTop * _textSurfaceMultiplier))[rowSize * startingPointY],
-							_textSurfBannerCovMem,
-							_textSurfBannerMemSize);
+					if (Graphics::BandedPlane *cov = _overlay.coverage())
+						cov->writeBytes(_screenTop * _textSurfaceMultiplier * cov->width() + rowSize * startingPointY,
+										_textSurfBannerCovMem, _textSurfBannerMemSize);
 				}
 
 				// We're going to use these same values for restoring the
@@ -1495,13 +1491,13 @@ void ScummEngine::saveSurfacesPreGUI() {
 			// where no text covers it, at the same half-coverage cut a keyed
 			// screen uses, so a subtitle keeps its outline under the GUI.
 			const int m = _textSurfaceMultiplier;
-			const Graphics::Surface *uIdx = _overlay.underIndex();
-			const Graphics::Surface *uCov = _overlay.underCoverage();
+			const Graphics::BandedPlane *uIdx = _overlay.underIndex();
+			const Graphics::BandedPlane *uCov = _overlay.underCoverage();
 			for (int y = 0; y < _screenHeight; y++) {
 				for (int x = 0; x < _screenWidth; x++) {
 					byte px = _tempTextSurface[x * m + y * m * _textSurface.pitch];
-					if (px == 0xFD && uCov && *(const byte *)uCov->getBasePtr(x * m, y * m) >= 0x80)
-						px = *(const byte *)uIdx->getBasePtr(x * m, y * m);
+					if (px == 0xFD && uCov && uCov->get(x * m, y * m) >= 0x80)
+						px = uIdx->get(x * m, y * m);
 					// Only draw non transparent pixels
 					if (px != 0xFD) {
 						if (x < _virtscr[kMainVirtScreen].pitch && y < _virtscr[kMainVirtScreen].h)

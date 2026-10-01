@@ -25,12 +25,50 @@
 
 #include "common/array.h"
 #include "common/scummsys.h"
+#include "graphics/hires_text/banded_plane.h"
 #include "scumm/hires_sink.h"
 
 namespace Scumm {
 
 /// CHARSET_MASK_TRANSPARENCY, which gfx.cpp checks is still the same value.
 static const byte kHiResTextTransparent = 0xFD;
+
+/**
+ * The rows of one plane as compositeTextRows() reads them: a
+ * Graphics::BandedPlane from a point in it, or bytes in memory @p stride
+ * apart. A row that is all zeros may come back null.
+ */
+class CompositeRows {
+public:
+	CompositeRows() : _plane(nullptr), _ptr(nullptr), _stride(0), _x(0), _y(0), _n(0) {}
+	/// The plane's rows from (@p x, @p y) on, @p n pixels of each (to the
+	/// row's end when negative).
+	CompositeRows(const Graphics::BandedPlane *plane, int x, int y, int n = -1) :
+		_plane(plane && plane->exists() ? plane : nullptr), _ptr(nullptr), _stride(0), _x(x), _y(y),
+		_n(_plane ? (n < 0 ? _plane->width() - x : MIN(n, _plane->width() - x)) : 0) {}
+	/// Rows in memory from @p ptr, @p stride bytes apart.
+	CompositeRows(const byte *ptr, int stride) : _plane(nullptr), _ptr(ptr), _stride(stride), _x(0), _y(0), _n(0) {}
+
+	bool present() const { return _plane || _ptr; }
+	/// Bytes of scratch row() may need.
+	int scratchBytes() const { return _plane ? MAX(_n, 0) : 0; }
+
+	/// Row @p h, from the starting point's column; null when it is all zeros.
+	const byte *row(int h, byte *scratch) const {
+		if (_ptr)
+			return _ptr + h * _stride;
+		if (!_plane)
+			return nullptr;
+		return _plane->row(_y + h, scratch, _x, _n);
+	}
+
+private:
+	const Graphics::BandedPlane *_plane;
+	const byte *_ptr;
+	int _stride;
+	int _x, _y;
+	int _n;	///< pixels of a row read
+};
 
 /**
  * Composite one strip of text over the game's picture.
@@ -42,32 +80,45 @@ static const byte kHiResTextTransparent = 0xFD;
  * Pixels are grouped into runs of the same kind before being handed to the
  * sink, so a virtual call covers a span rather than a single pixel.
  *
- * Every pitch here is the bytes skipped after a row, not the row stride: the
- * source's after @p width bytes, the planes' after @p width x @p m.
+ * @p srcPitch and @p textPitch are the bytes skipped after a row, not the
+ * row stride: the source's after @p width bytes, the text plane's after
+ * @p width x @p m.
  *
- * @param coverage  may be null, meaning every text pixel is fully opaque
+ * @param coverage  may be absent (not present()), meaning every text pixel
+ *                  is fully opaque; a null row of a present one is zeros
  * @param under, underCoverage
- *                  the decoration drawn below the text (C19), or null. Where
- *                  the text is partly covered it is blended over the
+ *                  the decoration drawn below the text (C19), or absent.
+ *                  Where the text is partly covered it is blended over the
  *                  decoration, not over the picture, which is what keeps an
  *                  antialiased edge from showing the picture as a seam inside
  *                  its outline. Where both are empty nothing changes from the
  *                  two-plane compositor.
  */
 template<class Sink>
-void compositeText(Sink &sink, const byte *src, int srcPitch,
-				   const byte *text, int textPitch,
-				   const byte *coverage, int covPitch,
-				   int width, int height, int m,
-				   const byte *under = nullptr, const byte *underCoverage = nullptr,
-				   int underPitch = 0) {
+void compositeTextRows(Sink &sink, const byte *src, int srcPitch,
+					   const byte *text, int textPitch,
+					   const CompositeRows &coverageRows,
+					   int width, int height, int m,
+					   const CompositeRows &underRows = CompositeRows(),
+					   const CompositeRows &underCoverageRows = CompositeRows()) {
 	const int outWidth = width * m;
-	if (!under || !underCoverage)
-		under = underCoverage = nullptr;
+	const bool withUnder = underRows.present() && underCoverageRows.present();
 
-	// Scratch for the expanded background row: the sink is given indices, and
-	// the game buffer holds one per m output pixels.
-	Common::Array<byte> bgRow(outWidth);
+	// One allocation for the scratch rows: the expanded background row (the
+	// sink is given indices, and the game buffer holds one per m output
+	// pixels), a row of zeros for a plane row no band holds, and room to
+	// unpack a row of each plane.
+	const int covBytes = coverageRows.scratchBytes();
+	const int underBytes = underRows.scratchBytes();
+	const int underCovBytes = underCoverageRows.scratchBytes();
+	Common::Array<byte> scratch;
+	scratch.resize(2 * outWidth + covBytes + underBytes + underCovBytes);
+	byte *bgRow = scratch.begin();
+	byte *zeroRow = bgRow + outWidth;
+	byte *covScratch = zeroRow + outWidth;
+	byte *underScratch = covScratch + covBytes;
+	byte *underCovScratch = underScratch + underBytes;
+	memset(zeroRow, 0, outWidth);
 
 	enum {
 		kBackground,    ///< no text, no decoration
@@ -82,6 +133,22 @@ void compositeText(Sink &sink, const byte *src, int srcPitch,
 		const byte *srcRow = src + (h / m) * (width + srcPitch);
 		for (int w = 0; w < outWidth; ++w)
 			bgRow[w] = srcRow[w / m];
+
+		const byte *coverage = nullptr;
+		if (coverageRows.present()) {
+			coverage = coverageRows.row(h, covScratch);
+			if (!coverage)
+				coverage = zeroRow;
+		}
+		const byte *under = nullptr, *underCoverage = nullptr;
+		if (withUnder) {
+			underCoverage = underCoverageRows.row(h, underCovScratch);
+			if (underCoverage) {
+				under = underRows.row(h, underScratch);
+				if (!under)
+					under = zeroRow;
+			}
+		}
 
 		int runStart = 0;
 		int runKind = -1;
@@ -114,26 +181,26 @@ void compositeText(Sink &sink, const byte *src, int srcPitch,
 				if (count > 0) {
 					switch (runKind) {
 					case kBackground:
-						sink.writeBackground(bgRow.begin() + runStart, count);
+						sink.writeBackground(bgRow + runStart, count);
 						break;
 					case kOpaque:
 						sink.writeOpaque(text + runStart, count);
 						break;
 					case kBlended:
-						sink.writeBlended(text + runStart, bgRow.begin() + runStart,
+						sink.writeBlended(text + runStart, bgRow + runStart,
 										  coverage + runStart, count);
 						break;
 					case kUnderOpaque:
 						sink.writeOpaque(under + runStart, count);
 						break;
 					case kUnderBlended:
-						sink.writeBlended(under + runStart, bgRow.begin() + runStart,
+						sink.writeBlended(under + runStart, bgRow + runStart,
 										  underCoverage + runStart, count);
 						break;
 					default:
 						sink.writeLayered(text + runStart, coverage + runStart,
 										  under + runStart, underCoverage + runStart,
-										  bgRow.begin() + runStart, count);
+										  bgRow + runStart, count);
 						break;
 					}
 				}
@@ -143,13 +210,30 @@ void compositeText(Sink &sink, const byte *src, int srcPitch,
 		}
 
 		text += outWidth + textPitch;
-		if (coverage)
-			coverage += outWidth + covPitch;
-		if (underCoverage) {
-			under += outWidth + underPitch;
-			underCoverage += outWidth + underPitch;
-		}
 	}
+}
+
+/**
+ * The same, with each plane as bytes in memory: @p covPitch and
+ * @p underPitch are the bytes skipped after a row's @p width x @p m.
+ * @p coverage may be null (every text pixel opaque); @p under and
+ * @p underCoverage are used only together.
+ */
+template<class Sink>
+void compositeText(Sink &sink, const byte *src, int srcPitch,
+				   const byte *text, int textPitch,
+				   const byte *coverage, int covPitch,
+				   int width, int height, int m,
+				   const byte *under = nullptr, const byte *underCoverage = nullptr,
+				   int underPitch = 0) {
+	const int outWidth = width * m;
+	if (!under || !underCoverage)
+		under = underCoverage = nullptr;
+	compositeTextRows(sink, src, srcPitch, text, textPitch,
+					  coverage ? CompositeRows(coverage, outWidth + covPitch) : CompositeRows(),
+					  width, height, m,
+					  under ? CompositeRows(under, outWidth + underPitch) : CompositeRows(),
+					  underCoverage ? CompositeRows(underCoverage, outWidth + underPitch) : CompositeRows());
 }
 
 } // End of namespace Scumm

@@ -137,6 +137,7 @@ private:
 	bool _needCursorBuffer;
 	const TextLayer *_textLayer;
 	Common::Array<byte> _stampBuffer;
+	Common::Array<byte> _underRGB;	///< one row's colours under hi-res text, on a 16-bit screen
 };
 
 class SCI1_EGADriver : public GfxDriver {

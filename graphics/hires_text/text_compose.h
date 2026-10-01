@@ -63,6 +63,17 @@ void composeSpan(byte *dst, const Graphics::PixelFormat &fmt, const TextPixelFg 
 void stampSpan(byte *dstIndex, const TextPixelFg *text, int count);
 
 /**
+ * composeSpan() with the colour under the text given rather than read back:
+ * @p underRGB holds each pixel's 8-bit R, G, B (3 bytes a pixel). On a
+ * screen of fewer bits a channel (RGB565) the pixel in @p dst has lost what
+ * the blend needs; this blends at 8 bits, as a true-colour screen does, and
+ * rounds the result to @p fmt (2 or 4 bytes a pixel) once. A pixel without
+ * coverage is left as it is.
+ */
+void composeSpanOver(byte *dst, const Graphics::PixelFormat &fmt, const TextPixelFg *text, int count,
+					 const byte *underRGB, const byte *paletteRGB);
+
+/**
  * Turn a run of 8-bit coverage into true-colour pixels with alpha: each
  * dst pixel gets RGB (r, g, b) and alpha = coverage, in @p fmt, which must
  * be 4 bytes per pixel with an 8-bit alpha channel. Used by engines that

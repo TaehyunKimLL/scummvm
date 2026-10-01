@@ -73,7 +73,7 @@ public:
 
 	TrsStore() : _file(nullptr), _bodyPos(0), _bodySize(0), _version(0), _heversion(0), _cacheBytes(0),
 				 _blockSize(SCUMM_TRS_READ_BLOCK), _clock(0), _registered(false), _readFailed(false),
-				 _readFailWarned(false) {
+				 _readFailWarned(false), _scanning(false) {
 		_stats.kind = "trs";
 	}
 
@@ -114,10 +114,14 @@ public:
 		_sameAsPrev.resize((n + 31) / 32, 0);
 		Common::Array<byte> prev, cur, trans;
 		bool ok = true;
+		bool readFailed = false;
+		_scanning = true;
 		for (uint i = 0; i < n && ok; ++i) {
 			ok = readString(_lines[i].orig, cur);
-			if (!ok)
+			if (!ok) {
+				readFailed = _readFailed;
 				break;
+			}
 			if (seen && _lines[i].trans < _bodySize && readString(_lines[i].trans, trans))
 				seen(seenCtx, trans.begin(), trans.size());
 			hashes[i] = hash(cur.begin(), cur.size());
@@ -136,8 +140,21 @@ public:
 			_blocks[b].valid = false;
 		}
 		_blockSize = SCUMM_TRS_READ_BLOCK;
+		_scanning = false;
+		if (ok) {
+			// A translation the scan could not read for the hi-res layer
+			// is read again, in the small blocks, when a line needs it; a
+			// read that fails then warns and is remembered.
+			_failedFrom.clear();
+			_failedTo.clear();
+			_readFailed = false;
+		}
 		if (!ok) {
+			// The caller reads the body whole instead.
+			if (readFailed)
+				warning("%s: the translation could not be read for its index; reading it whole instead", name.c_str());
 			close();
+			_readFailed = false;
 			return false;
 		}
 
@@ -333,7 +350,7 @@ private:
 				_readFailed = true;
 				_failedFrom.push_back(start);
 				_failedTo.push_back(start + len);
-				if (!_readFailWarned) {
+				if (!_readFailWarned && !_scanning) {
 					warning("%s: the translation could not be read from the file; lines that need it stay untranslated this session",
 							_stats.name.c_str());
 					_readFailWarned = true;
@@ -419,6 +436,7 @@ private:
 	Common::FileCacheStats _stats;
 	bool _registered;
 	bool _readFailed, _readFailWarned;
+	bool _scanning;	///< open() reading the body for its index
 	Common::Array<uint32> _failedFrom, _failedTo;	///< body ranges whose read failed
 };
 

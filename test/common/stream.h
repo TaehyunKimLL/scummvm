@@ -43,4 +43,26 @@ class ReadLineStreamTestSuite : public CxxTest::TestSuite {
 
 		TS_ASSERT(ms.eos());
 	}
+
+	// unbufferStream() hands a stream to the backend's unbufferer, if one is
+	// registered; null and an unregistered backend do nothing.
+	static Common::SeekableReadStream *s_unbuffered;
+	static void recordUnbuffer(Common::SeekableReadStream *stream) { s_unbuffered = stream; }
+
+	void test_unbuffer_stream_goes_to_the_registered_unbufferer() {
+		byte contents[] = { 1, 2, 3 };
+		Common::MemoryReadStream ms(contents, sizeof(contents));
+		const Common::StreamUnbufferer before = Common::setStreamUnbufferer(nullptr);
+		s_unbuffered = nullptr;
+		Common::unbufferStream(&ms);	// none registered: nothing happens
+		Common::setStreamUnbufferer(&recordUnbuffer);
+		Common::unbufferStream(nullptr);
+		TS_ASSERT_EQUALS(s_unbuffered, (Common::SeekableReadStream *)nullptr);
+		Common::unbufferStream(&ms);
+		TS_ASSERT_EQUALS(s_unbuffered, (Common::SeekableReadStream *)&ms);
+		TS_ASSERT_EQUALS(ms.readByte(), 1);
+		Common::setStreamUnbufferer(before);
+	}
 };
+
+Common::SeekableReadStream *ReadLineStreamTestSuite::s_unbuffered = nullptr;

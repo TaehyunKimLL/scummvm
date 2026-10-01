@@ -267,12 +267,17 @@ HiResRenderTarget predictedTarget(HiResRenderTarget want, const Common::List<Pix
 	return targetOfFormat(request.front());
 }
 
+HiResRenderTarget platformTrueColorTarget() {
+	// get(), not hasKey(): the backend sets this with registerDefault().
+	return ConfMan.get("hires_text_platform_truecolor") == "rgb565" ? kHiResTargetRgb565 : kHiResTargetRgb888;
+}
+
 HiResRenderTarget resolveAutoTarget(bool anyCoverage, HiResBlend blend) {
 	if (blend == kHiResBlendOff)
 		return kHiResTargetClut8;
 	if (blend == kHiResBlendOn)
-		return kHiResTargetRgb888;
-	return anyCoverage ? kHiResTargetRgb888 : kHiResTargetClut8;
+		return platformTrueColorTarget();
+	return anyCoverage ? platformTrueColorTarget() : kHiResTargetClut8;
 }
 
 bool blendActive(HiResBlend blend, bool faceHasCoverage, bool screenIsClut8) {
