@@ -93,7 +93,6 @@ struct IsrState {
 	volatile uint32 calSeen, calMatched;
 	// Counters, logged by logStats().
 	volatile uint32 procRuns;		// handler() calls
-	volatile uint32 procRunsAfterCall;	// ... of them after a real-mode call
 	volatile uint32 procDeferred;	// due ticks that came in real mode or the host
 	volatile uint32 maxWait;		// the most ticks the procs waited past due
 	volatile uint32 waits10;		// runs that waited 10 ticks or more
@@ -209,9 +208,8 @@ static inline __attribute__((always_inline)) void calibrate(uint32 esp, uint16 s
 		g_isr.calMatched++;
 }
 
-// Runs the timer procs (DefaultTimerManager::handler()), with interrupts
-// off: from timerIsr(), and on the main thread after a real-mode call
-// (runDeferredProcs()).
+// Runs the timer procs (DefaultTimerManager::handler()) from timerIsr(),
+// with interrupts off.
 //
 // Interrupts must stay off through handler(): a tick that came in now would
 // never reach timerIsr -- DJGPP's IRET wrapper returns at once, without an
@@ -289,8 +287,10 @@ static DOS_IRQ_CODE void timerIsr(uint32 savedEsp, uint32 savedSs) {
 	// CWSDPMI services a page fault there (DOS is not busy: the main
 	// thread is in none of its calls). One that came in real mode -- a DOS
 	// call, a page-in of the main thread's -- leaves them due (sinceHandler
-	// stays where it is) for the next tick that did not, or for the end of
-	// that DOS call (runDeferredProcs()).
+	// stays where it is) for the next tick that did not. Such a stretch is
+	// one DOS call or one page-in: a file read is a string of calls with
+	// moments in protected mode between them, and delay() waits in
+	// protected mode.
 	if (!mayRunProcs(savedEsp, (uint16)savedSs)) {
 		g_isr.procDeferred++;
 		return;
@@ -352,40 +352,6 @@ extern "C" void delay(unsigned msecs) {
 	const uint32 start = g_isr.millis;
 	while (g_isr.millis - start < msecs)
 		__asm__ __volatile__("" : : : "memory");
-}
-
-// The main stack's bounds (crt0).
-extern "C" unsigned int __djgpp_stack_limit, __djgpp_stack_top;
-
-// Timer procs that came due while the main thread was in real mode (a DOS
-// file read is a string of them, each a few ms, with only moments in
-// protected mode in between) run as soon as it is back: where a tick would
-// have run them, had it come in a moment later. Only with interrupts on
-// (not under a mutex, not in a timer proc), and on the main stack: SDL3's
-// threads have small ones.
-static void runDeferredProcs() {
-	if (g_isr.procsMode != kProcsFromOurCode || !DosTimerManager::interruptsEnabled())
-		return;
-	uint32 esp;
-	__asm__ __volatile__("movl %%esp, %0" : "=r"(esp));
-	if (esp < __djgpp_stack_limit || esp > __djgpp_stack_top)
-		return;
-	const uint32 flags = irqSave();
-	if (g_isr.sinceHandler >= kHandlerEvery && !g_isr.inHandler && g_isr.timer) {
-		g_isr.procRunsAfterCall++;
-		runProcs();
-	}
-	irqRestore(flags);
-}
-
-// Every real-mode call libc makes for us (DOS, the BIOS, the mouse driver)
-// goes through __dpmi_int() (-Wl,--wrap, see module.mk).
-extern "C" int __real___dpmi_int(int vector, __dpmi_regs *regs);
-extern "C" int __wrap___dpmi_int(int vector, __dpmi_regs *regs) {
-	const int rv = __real___dpmi_int(vector, regs);
-	if (g_isr.sinceHandler >= kHandlerEvery)
-		runDeferredProcs();
-	return rv;
 }
 
 // Idempotent: from the destructor and from exit() alike.
@@ -455,7 +421,7 @@ static bool install() {
 	g_isr.inHandler = false;
 	g_isr.procsMode = kProcsCalibrating;
 	g_isr.timer = nullptr;
-	g_isr.procRuns = g_isr.procRunsAfterCall = g_isr.procDeferred = g_isr.procLate = 0;
+	g_isr.procRuns = g_isr.procDeferred = g_isr.procLate = 0;
 	g_isr.maxWait = g_isr.waits10 = 0;
 
 	// Timer procs run on the wrapper's own stack (malloc'd and locked by
@@ -570,9 +536,9 @@ void DosTimerManager::logStats() {
 	if (!g_installed)
 		return;
 	static const char *const kModes[] = { "calibrating", "from our code", "always (all locked)", "main thread" };
-	debug(1, "DOS: timer procs %s: ran %u (%u after a real-mode call), ticks deferred %u, "
-		"longest wait %u ms, waits of 10 ms or more %u, runs that held IRQ0 back %u",
-		kModes[g_isr.procsMode], (uint)g_isr.procRuns, (uint)g_isr.procRunsAfterCall, (uint)g_isr.procDeferred,
+	debug(1, "DOS: timer procs %s: ran %u, ticks deferred %u, longest wait %u ms, "
+		"waits of 10 ms or more %u, runs that held IRQ0 back %u",
+		kModes[g_isr.procsMode], (uint)g_isr.procRuns, (uint)g_isr.procDeferred,
 		(uint)g_isr.maxWait, (uint)g_isr.waits10, (uint)g_isr.procLate);
 }
 
