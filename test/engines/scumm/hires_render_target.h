@@ -377,6 +377,85 @@ public:
 		TS_ASSERT(req.back().isCLUT8());
 	}
 
+	/// What initGraphics(w, h, list) sets (engines/engine.cpp,
+	/// findCompatibleFormat()): the first format of the *backend's* list that
+	/// the engine's list also holds - the engine's own order is not
+	/// consulted - else CLUT8.
+	static Graphics::PixelFormat initGraphicsPicks(const Common::List<Graphics::PixelFormat> &backend,
+												   const Common::List<Graphics::PixelFormat> &request) {
+		for (Common::List<Graphics::PixelFormat>::const_iterator b = backend.begin(); b != backend.end(); ++b) {
+			for (Common::List<Graphics::PixelFormat>::const_iterator r = request.begin(); r != request.end(); ++r) {
+				if (*b == *r)
+					return *b;
+			}
+		}
+		return Graphics::PixelFormat::createFormatCLUT8();
+	}
+
+	/// The DOS backend's uncapped list: cheapest on the bus first.
+	static Common::List<Graphics::PixelFormat> dosFormats() {
+		Common::List<Graphics::PixelFormat> list;
+		list.push_back(rgb565());
+		list.push_back(Graphics::PixelFormat(2, 5, 5, 5, 0, 10, 5, 0, 0));
+		list.push_back(rgb888());
+		list.push_back(Graphics::PixelFormat::createFormatCLUT8());
+		return list;
+	}
+
+	/// The screen initGraphics() sets from screenRequest() must be of the
+	/// family loadConfig() resolved, whatever order the backend lists its
+	/// formats in: the hi-res text sections, the sink and the cursor all
+	/// follow renderTarget().
+	void test_backend_listing_rgb565_first_still_gets_rgb888() {
+		writeMap("blend=auto");
+		useDomain("");
+		Scumm::ScummHiResText hr;
+		const Common::List<Graphics::PixelFormat> dos = dosFormats();
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &dos);
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetRgb888);
+		const Graphics::PixelFormat set = initGraphicsPicks(dos, hr.screenRequest(dos));
+		TS_ASSERT_EQUALS(set, rgb888());
+
+		// The desktop list starts with 5-6-5 too.
+		Scumm::ScummHiResText desk;
+		desk.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &formats());
+		TS_ASSERT_EQUALS(desk.renderTarget(), Graphics::kHiResTargetRgb888);
+		TS_ASSERT_EQUALS(Graphics::targetOfFormat(initGraphicsPicks(formats(), desk.screenRequest(formats()))),
+						 Graphics::kHiResTargetRgb888);
+	}
+
+	/// An explicit rgb565 is honoured against a backend that lists 8-8-8
+	/// first, and 1-5-5-5 (not in the rgb565 family) is never taken for it.
+	void test_explicit_rgb565_gets_565_whatever_the_backend_order() {
+		writeMap("blend=auto");
+		useDomain("render_target=rgb565\n");
+		Common::List<Graphics::PixelFormat> backend;
+		backend.push_back(rgb888());
+		backend.push_back(Graphics::PixelFormat(2, 5, 5, 5, 0, 10, 5, 0, 0));
+		backend.push_back(rgb565());
+		backend.push_back(Graphics::PixelFormat::createFormatCLUT8());
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &backend);
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(initGraphicsPicks(backend, hr.screenRequest(backend)), rgb565());
+	}
+
+	/// The section 7.1 fallback: rgb888 asked for, the backend has only
+	/// 5-6-5; the request still names one family, the fallback's.
+	void test_fallback_family_is_the_one_set() {
+		writeMap("blend=auto");
+		useDomain("render_target=rgb888\n");
+		Common::List<Graphics::PixelFormat> backend;
+		backend.push_back(rgb565());
+		backend.push_back(Graphics::PixelFormat::createFormatCLUT8());
+		Scumm::ScummHiResText hr;
+		hr.loadConfig(tmpDir(), "monkey2", 5, Common::EN_ANY, &backend);
+		TS_ASSERT_EQUALS(hr.renderTarget(), Graphics::kHiResTargetRgb565);
+		const Common::List<Graphics::PixelFormat> req = hr.screenRequest(backend);
+		TS_ASSERT_EQUALS(initGraphicsPicks(backend, req), rgb565());
+		TS_ASSERT(req.back().isCLUT8());
+	}
+
 	/// v7+ keeps the paletted screen SMUSH sets its palette on.
 	void test_v7_request_is_clut8() {
 		writeMap("blend=on");
