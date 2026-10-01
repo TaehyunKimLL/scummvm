@@ -27,8 +27,10 @@
 #include "common/rect.h"
 #include "common/str.h"
 #include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/chain_layout.h"
 #include "graphics/hires_text/font_map.h"
 #include "graphics/hires_text/glyph_source.h"
+#include "graphics/hires_text/glyph_source_fallback.h"
 #include "graphics/hires_text/glyph_source_svfn.h"
 // scumm/detection.h and sci/detection.h (pulled in by textlayout16.h) each
 // define GAMEOPTION_TTS; nothing here uses it.
@@ -93,6 +95,37 @@ private:
 		uint32 glyphCount() const override { return 1; }
 	private:
 		byte _rows[kCell][kCell * 2];
+	};
+
+	/**
+	 * A face whose glyph fills rows 1..@p inkBottom of a @p cell x @p cell
+	 * cell (and nothing else), for buildChainPlacementInput()'s own
+	 * baseline scan: one glyph answers every code point asked. 8 bpp.
+	 */
+	class InkBlockSource : public Graphics::UnicodeGlyphSource {
+	public:
+		InkBlockSource(int cell, int inkBottom) : _cell(cell) {
+			// The whole scratch row, not just the glyph's own columns:
+			// NormalizedGlyphSource::row() reads up to cellWidth() * 2
+			// columns of the *source* row (its own doubled-width scratch,
+			// for a wide glyph), so anything left uninitialised past
+			// column @p cell would be read as ink at 8 bpp.
+			memset(_rows, 0, sizeof(_rows));
+			for (int y = 0; y < _cell; y++)
+				for (int x = 0; x < _cell; x++)
+					_rows[y][x] = (y >= 1 && y <= inkBottom) ? 255 : 0;
+		}
+		byte cellWidth() const override { return (byte)_cell; }
+		byte cellHeight() const override { return (byte)_cell; }
+		byte advanceNarrow() const override { return (byte)(_cell / 2); }
+		byte advanceWide() const override { return (byte)_cell; }
+		int bitsPerPixel() const override { return 8; }
+		int cells(uint32 cp) override { return 1; }
+		const byte *row(uint32 cp, int y) override { return _rows[y]; }
+		uint32 glyphCount() const override { return 1; }
+	private:
+		int _cell;
+		byte _rows[32][32];
 	};
 
 	static GlyphPlacement place(int raster, int cell, GlyphPlacement::Align align, int rasterBaseline,
@@ -228,6 +261,80 @@ public:
 		TS_ASSERT_EQUALS(l.row(100)[5].fgCoverage, 255);
 		TS_ASSERT_EQUALS(l.row(115)[5].fgCoverage, 255);
 		TS_ASSERT_EQUALS(l.row(116)[5].fgCoverage, 0);
+	}
+
+	// ---- buildChainPlacementInput(): measured on the chain's shared cell,
+	// not a face's own, pre-fold one ------------------------------------
+
+	// The id chain's own 16 px face (baseline row 12) stands behind an 18 px
+	// range-named face (baseline row 15) in the same chain: the id chain is
+	// not the chain's tallest, so layoutFaceChain() moves it down 3 rows to
+	// share the chain's own baseline row - exactly as GfxCache::
+	// faceChainFor() does before GfxCache::unicodeFaceFor() ever measures
+	// anything from it.
+	void test_build_chain_placement_input_measures_the_folded_face_not_the_raw_one() {
+		Common::Array<Graphics::ChainFaceInfo> faces;
+		Graphics::ChainFaceInfo idFace;
+		idFace.cellWidth = 16;
+		idFace.cellHeight = 16;
+		idFace.bpp = 8;
+		idFace.baselineRow = 12;
+		faces.push_back(idFace);
+		Graphics::ChainFaceInfo rangeFace;
+		rangeFace.cellWidth = 18;
+		rangeFace.cellHeight = 18;
+		rangeFace.bpp = 8;
+		rangeFace.baselineRow = 15;
+		faces.push_back(rangeFace);
+		const Graphics::ChainLayout layout = Graphics::layoutFaceChain(faces, false, 0, 0);
+		TS_ASSERT(layout.byBaseline);
+		TS_ASSERT_EQUALS(layout.tops[0], 3);
+		TS_ASSERT_EQUALS(layout.cellWidth, 18);
+		TS_ASSERT_EQUALS(layout.cellHeight, 19);
+
+		InkBlockSource raw(16, 12); // pre-fold: 16 px cell, ink rows 1..12
+		Common::String error;
+		Graphics::NormalizedGlyphSource *normalized = Graphics::NormalizedGlyphSource::create(
+			&raw, (byte)layout.cellWidth, (byte)layout.cellHeight, layout.tops[0], DisposeAfterUse::NO, error);
+		TS_ASSERT(normalized);
+		if (!normalized)
+			return;
+
+		// Fed the chain's own folded face (as GfxCache::unicodeFaceFor() now
+		// is): measured on the shared 18x19 cell, at the row the fold
+		// actually put the ink on.
+		const GlyphPlacement::Input viaNormalized = Sci::buildChainPlacementInput(
+			normalized, &raw, layout.tops[0], 16, GlyphPlacement::kAlignGame, 0, 14);
+		TS_ASSERT_EQUALS(viaNormalized.rasterWidth, layout.cellWidth);
+		TS_ASSERT_EQUALS(viaNormalized.rasterHeight, layout.cellHeight);
+		TS_ASSERT_EQUALS(viaNormalized.rasterBaseline, 12 + 1 + layout.tops[0]);
+
+		// Fed the same face before folding (what must not be measured): its own,
+		// smaller cell and its own, pre-fold baseline row.
+		const GlyphPlacement::Input viaRaw = Sci::buildChainPlacementInput(
+			&raw, &raw, 0, 16, GlyphPlacement::kAlignGame, 0, 14);
+		TS_ASSERT_EQUALS(viaRaw.rasterWidth, 16);
+		TS_ASSERT_EQUALS(viaRaw.rasterHeight, 16);
+		TS_ASSERT_EQUALS(viaRaw.rasterBaseline, 13);
+
+		// The two disagree exactly where the bug mattered, and
+		// GlyphPlacement::compute() places the glyph 3 hi-res rows apart as
+		// a result - the raw face's own baseline is not where this glyph is
+		// actually drawn from once it joins the chain.
+		const GlyphPlacement pNormalized = GlyphPlacement::compute(viaNormalized);
+		const GlyphPlacement pRaw = GlyphPlacement::compute(viaRaw);
+		TS_ASSERT_EQUALS(pNormalized.dy, 14 - 16);
+		TS_ASSERT_EQUALS(pRaw.dy, 14 - 13);
+		TS_ASSERT_DIFFERS(pNormalized.dy, pRaw.dy);
+
+		delete normalized;
+	}
+
+	void test_build_chain_placement_input_is_inactive_for_an_empty_chain() {
+		const GlyphPlacement::Input in =
+			Sci::buildChainPlacementInput(nullptr, nullptr, 0, 16, GlyphPlacement::kAlignGame, 0, 14);
+		TS_ASSERT_EQUALS(in.rasterWidth, 0);
+		TS_ASSERT(!GlyphPlacement::compute(in).active());
 	}
 
 	void test_placement_centred_when_asked_or_unknown() {

@@ -29,6 +29,7 @@
 #include "graphics/hires_text/glyph_source.h"
 #include "sci/graphics/hirestextsettings.h"
 #include "sci/graphics/textlatin.h"
+#include "sci/graphics/textlayout16.h"
 
 using Sci::FontSettings;
 
@@ -442,5 +443,92 @@ public:
 		const FontSettings s = Sci::resolveFontSettings(map, true, 4, sizeOnly, mapDir(), gameDir());
 		TS_ASSERT_EQUALS(s.size, 22);
 		TS_ASSERT_EQUALS(s.facePath, Common::Path("/maps/Four.SVF", '/').toString(Common::Path::kNativeSeparator));
+	}
+
+	// ---- pickChainCoverage(): GfxFontSet::faceFor()'s own missing= order ---
+
+	// One chain entry's answers, for pickChainCoverage()'s two callables;
+	// counts how often the box was asked.
+	struct Entry {
+		bool hasGlyph;
+		bool drawsMissing;
+	};
+	static int pick(const Entry *chain, uint count, int *boxAsked = nullptr) {
+		return Sci::pickChainCoverage(count,
+			[chain](uint i) { return chain[i].hasGlyph; },
+			[chain, boxAsked](uint i) {
+				if (boxAsked)
+					(*boxAsked)++;
+				return chain[i].drawsMissing;
+			});
+	}
+
+	// Real coverage wins over the box regardless of chain order: a legacy
+	// face named *after* a Unicode face that lacks the code point (but
+	// whose missing= box would draw it) still answers, and the box is never
+	// even asked.
+	void test_pick_chain_coverage_prefers_real_coverage_over_the_box() {
+		const Entry chain[] = { { false, true }, { true, false } };
+		int boxAsked = 0;
+		TS_ASSERT_EQUALS(pick(chain, 2, &boxAsked), 1);
+		TS_ASSERT_EQUALS(boxAsked, 0);
+	}
+
+	// The box is tried only once every entry has declined real coverage -
+	// and then in chain order.
+	void test_pick_chain_coverage_tries_the_box_only_once_every_entry_declines() {
+		const Entry chain[] = { { false, false }, { false, true }, { false, true } };
+		TS_ASSERT_EQUALS(pick(chain, 3), 1);
+	}
+
+	// Nothing in the chain answers, box included: the resource face draws
+	// the original game code (GfxFontSet::faceFor()'s own fallback).
+	void test_pick_chain_coverage_is_negative_when_nothing_answers() {
+		const Entry chain[] = { { false, false }, { false, false } };
+		TS_ASSERT_EQUALS(pick(chain, 2), -1);
+		TS_ASSERT_EQUALS(pick(chain, 0), -1);
+	}
+
+	// ---- checkIniFaceWarnings(): hires_text_face validated after the map --
+
+	// hires_text_face names a face the map's own [fonts] defines: no
+	// "unknown face name" warning when it is checked with the map's own
+	// names (mapLoaded=true) - the spurious warning GfxCache::
+	// resolveHiresText() used to produce by checking this before the map
+	// had loaded (mapLoaded=false, so the name was never found).
+	void test_ini_face_named_in_the_map_warns_only_before_the_map_loads() {
+		Graphics::HiResIniOverrides ini;
+		ini.faceSet = true;
+		ini.face = "KO";
+		Graphics::HiResFaceNames mapFaces;
+		mapFaces["KO"] = "KO.SVF";
+
+		Common::Array<Common::String> beforeMap;
+		Sci::checkIniFaceWarnings(ini, /* mapLoaded */ false, Graphics::HiResFaceNames(), mapDir(), gameDir(), beforeMap);
+		TS_ASSERT_EQUALS(beforeMap.size(), 1u);
+		TS_ASSERT(beforeMap[0].contains("unknown face name"));
+
+		Common::Array<Common::String> afterMap;
+		Sci::checkIniFaceWarnings(ini, /* mapLoaded */ true, mapFaces, mapDir(), gameDir(), afterMap);
+		TS_ASSERT_EQUALS(afterMap.size(), 0u);
+	}
+
+	void test_ini_face_same_warns_regardless_of_the_map() {
+		Graphics::HiResIniOverrides ini;
+		ini.faceSet = true;
+		ini.face = "same";
+		Common::Array<Common::String> warnings;
+		Sci::checkIniFaceWarnings(ini, true, Graphics::HiResFaceNames(), mapDir(), gameDir(), warnings);
+		TS_ASSERT_EQUALS(warnings.size(), 1u);
+		TS_ASSERT(warnings[0].contains("has no meaning"));
+	}
+
+	void test_ini_face_original_is_always_quiet() {
+		Graphics::HiResIniOverrides ini;
+		ini.faceSet = true;
+		ini.face = "original";
+		Common::Array<Common::String> warnings;
+		Sci::checkIniFaceWarnings(ini, false, Graphics::HiResFaceNames(), mapDir(), gameDir(), warnings);
+		TS_ASSERT_EQUALS(warnings.size(), 0u);
 	}
 };

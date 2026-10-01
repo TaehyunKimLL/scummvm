@@ -176,6 +176,21 @@ void checkPlanLoadWarnings(int fontId, const Graphics::HiResIdPlan &plan, const 
  */
 void declineFailedTargets(Graphics::HiResIdPlan &plan, const Common::Array<uint32> &failedTargetCodes);
 
+/**
+ * design 10's "once per cause per load": `hires_text_face=same` (no
+ * meaning) or an unknown name, checked once against @p mapFaces - the
+ * map's own `[fonts]` names when @p mapLoaded, empty otherwise - so a name
+ * the map itself defines is never flagged "unknown face name" first.
+ * Appends each warning verbatim (design 10.2's wording); never calls
+ * warning() itself. GfxCache::resolveHiresText() calls this only after
+ * loadMapFile() returns, passing @p mapLoaded/@p mapFaces from its result,
+ * for exactly this reason - calling it before (or always with an empty
+ * @p mapFaces) is the bug this guards against.
+ */
+void checkIniFaceWarnings(const Graphics::HiResIniOverrides &ini, bool mapLoaded,
+						  const Graphics::HiResFaceNames &mapFaces, const Common::Path &mapDir,
+						  const Common::Path &gameDir, Common::Array<Common::String> &warnings);
+
 } // End of namespace Sci
 
 #endif

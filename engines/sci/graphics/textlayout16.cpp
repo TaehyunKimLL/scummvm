@@ -21,7 +21,9 @@
 
 #include "sci/graphics/textlayout16.h"
 
+#include "graphics/hires_text/glyph_source_ttf.h"
 #include "graphics/hires_text/latin_advance.h"
+#include "graphics/hires_text/text_compose.h"
 #include "graphics/hires_text/unicode_props.h"
 #include "sci/utf8.h"
 
@@ -103,6 +105,38 @@ GlyphPlacement GlyphPlacement::compute(const Input &in) {
 		p.dy = floorHalf(in.cellPx - in.rasterHeight);
 	p.dy += in.shift;
 	return p;
+}
+
+GlyphPlacement::Input buildChainPlacementInput(Graphics::UnicodeGlyphSource *chainFirst,
+											   Graphics::UnicodeGlyphSource *chainFirstRaw, int chainFirstTop,
+											   int cellPx, GlyphPlacement::Align align, int shift, int gameBaseline) {
+	GlyphPlacement::Input in;
+	if (!chainFirst)
+		return in;
+	in.rasterWidth = chainFirst->cellWidth();
+	in.rasterHeight = chainFirst->cellHeight();
+	in.cellPx = cellPx;
+	in.align = align;
+	in.shift = shift;
+	if (gameBaseline >= 0)
+		in.gameBaseline = gameBaseline;
+	const int rasterBaseline = bitmapFontBaseline([chainFirst](uint32 cp) -> int {
+		if (chainFirst->cells(cp) <= 0)
+			return -1;
+		const int w = chainFirst->cellWidth() * chainFirst->cells(cp), bpp = chainFirst->bitsPerPixel();
+		for (int y = chainFirst->cellHeight() - 1; y >= 0; y--) {
+			const byte *row = chainFirst->row(cp, y);
+			for (int x = 0; row && x < w; x++)
+				if (Graphics::TextCompose::expandCoverage(row, x, bpp) >= 128)
+					return y + 1;
+		}
+		return -1;
+	});
+	if (rasterBaseline >= 0)
+		in.rasterBaseline = rasterBaseline;
+	Graphics::TtfGlyphSource *rawTtf = dynamic_cast<Graphics::TtfGlyphSource *>(chainFirstRaw);
+	in.faceLineTop = chainFirstTop + (rawTtf ? rawTtf->lineTop() : 0);
+	return in;
 }
 
 int CombiningAnchor::place(const Graphics::GlyphMetrics &m, bool placed, int16 left, int16 top, int gameAdvance) {
