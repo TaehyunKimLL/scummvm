@@ -121,16 +121,47 @@ public:
 		DOS::VideoMode b = { 320, 200, Graphics::PixelFormat::createFormatCLUT8() };
 		m.push_back(a); m.push_back(b);
 		const DOS::FormatsSize s = DOS::formatsSize(320, 200);
-		Common::List<Graphics::PixelFormat> got = DOS::supportedFormats(m, s.w, s.h, true);
+		Common::List<Graphics::PixelFormat> got = DOS::supportedFormats(m, s.w, s.h, Graphics::kHiResTargetAuto);
 		TS_ASSERT_EQUALS(got.size(), 2u);
 		TS_ASSERT(got.front() == DOS::xrgb8888());
 		// What asking for the launcher's size itself would have said.
-		TS_ASSERT_EQUALS(DOS::supportedFormats(m, 320, 200, true).size(), 1u);
+		TS_ASSERT_EQUALS(DOS::supportedFormats(m, 320, 200, Graphics::kHiResTargetAuto).size(), 1u);
 	}
 
-	void test_disallow_true_color_reports_clut8_only() {
-		Common::List<Graphics::PixelFormat> got = DOS::supportedFormats(dosboxX(), 640, 400, false);
-		TS_ASSERT_EQUALS(got.size(), 1u);
-		TS_ASSERT(got.front() == Graphics::PixelFormat::createFormatCLUT8());
+	void test_render_target_caps_the_list() {
+		Common::List<Graphics::PixelFormat> x565 = DOS::supportedFormats(dosboxX(), 640, 400, Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(x565.size(), 2u);
+		TS_ASSERT(x565.front() == DOS::rgb565());
+		TS_ASSERT(x565.back().isCLUT8());
+
+		// Staging has no 640x400 5-6-5: the 640x480 line-repeat mode serves it.
+		Common::List<Graphics::PixelFormat> s565 = DOS::supportedFormats(staging(), 640, 400, Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(s565.size(), 2u);
+		TS_ASSERT(s565.front() == DOS::rgb565());
+
+		// rgb888 keeps the 4-byte 8-8-8 format only; 1-5-5-5 never counts as rgb565.
+		Common::List<Graphics::PixelFormat> x888 = DOS::supportedFormats(dosboxX(), 640, 400, Graphics::kHiResTargetRgb888);
+		TS_ASSERT(x888.front() == DOS::xrgb8888());
+		TS_ASSERT_EQUALS(x888.size(), 2u);
+
+		Common::List<Graphics::PixelFormat> clut = DOS::supportedFormats(dosboxX(), 640, 400, Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(clut.size(), 1u);
+		TS_ASSERT(clut.front().isCLUT8());
+	}
+
+	void test_render_target_cap_only_while_a_game_runs() {
+		bool invalid = false;
+		TS_ASSERT_EQUALS(DOS::renderTargetCap(false, "clut8", invalid), Graphics::kHiResTargetAuto);	// launcher
+		TS_ASSERT_EQUALS(DOS::renderTargetCap(true, "clut8", invalid), Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(DOS::renderTargetCap(true, "RGB888", invalid), Graphics::kHiResTargetRgb888);
+		TS_ASSERT_EQUALS(DOS::renderTargetCap(true, "auto", invalid), Graphics::kHiResTargetAuto);
+		TS_ASSERT_EQUALS(DOS::renderTargetCap(true, "", invalid), Graphics::kHiResTargetAuto);
+		TS_ASSERT(!invalid);
+		TS_ASSERT_EQUALS(DOS::renderTargetCap(true, "truecolor", invalid), Graphics::kHiResTargetAuto);
+		TS_ASSERT(invalid);
+		// The launcher never looks at the value, so it never calls it invalid.
+		invalid = false;
+		TS_ASSERT_EQUALS(DOS::renderTargetCap(false, "truecolor", invalid), Graphics::kHiResTargetAuto);
+		TS_ASSERT(!invalid);
 	}
 };

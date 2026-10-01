@@ -25,7 +25,9 @@
 #include "common/array.h"
 #include "common/list.h"
 #include "common/util.h"
+#include "common/str.h"
 #include "graphics/pixelformat.h"
+#include "graphics/hires_text/hires_options.h"
 
 namespace DOS {
 
@@ -80,20 +82,40 @@ inline ModeChoice chooseMode(const Common::Array<VideoMode> &modes, uint w, uint
 /**
  * What getSupportedFormats() reports for a w x h game: the true-colour
  * formats chooseMode() can set (exactly or via the line-repeat fallback),
- * cheapest on the bus first, then CLUT8, which is always there (the
- * engine falls back to it). If @p allowTrueColor is false (dos_truecolor
- * off), only CLUT8 is reported.
+ * cheapest on the bus first (rgb565, xrgb1555, xrgb8888), then CLUT8, which
+ * is always there (the engine falls back to it). @p cap keeps only one
+ * family: kHiResTargetAuto keeps every format, kHiResTargetClut8 none,
+ * kHiResTargetRgb565 the 5-6-5 one, kHiResTargetRgb888 the 4-byte 8-8-8 one.
  */
-inline Common::List<Graphics::PixelFormat> supportedFormats(const Common::Array<VideoMode> &modes, uint w, uint h, bool allowTrueColor) {
+inline Common::List<Graphics::PixelFormat> supportedFormats(const Common::Array<VideoMode> &modes, uint w, uint h,
+															 Graphics::HiResRenderTarget cap = Graphics::kHiResTargetAuto) {
 	static const Graphics::PixelFormat order[] = { rgb565(), xrgb1555(), xrgb8888() };
 	Common::List<Graphics::PixelFormat> out;
-	if (allowTrueColor) {
-		for (uint i = 0; i < ARRAYSIZE(order); ++i)
-			if (chooseMode(modes, w, h, order[i], false).index >= 0)
-				out.push_back(order[i]);
+	for (uint i = 0; i < ARRAYSIZE(order); ++i) {
+		if (cap != Graphics::kHiResTargetAuto && !Graphics::formatMatchesTarget(order[i], cap))
+			continue;
+		if (chooseMode(modes, w, h, order[i], false).index >= 0)
+			out.push_back(order[i]);
 	}
 	out.push_back(Graphics::PixelFormat::createFormatCLUT8());
 	return out;
+}
+
+/**
+ * The render_target cap getSupportedFormats() applies. With no game running
+ * (@p gameActive false: the launcher and its options dialogs) there is none,
+ * so the options can list every screen the hardware has. Otherwise @p value
+ * (the ConfMan render_target, empty when unset) is parsed; a value that is
+ * not auto, clut8, rgb565 or rgb888 gives no cap and sets @p invalid.
+ */
+inline Graphics::HiResRenderTarget renderTargetCap(bool gameActive, const Common::String &value, bool &invalid) {
+	if (!gameActive || value.empty())
+		return Graphics::kHiResTargetAuto;
+	Graphics::HiResRenderTarget t;
+	if (Graphics::parseRenderTarget(value, t))
+		return t;
+	invalid = true;
+	return Graphics::kHiResTargetAuto;
 }
 
 /** The size getSupportedFormats() answers for; see formatsSize(). */
@@ -112,11 +134,6 @@ inline FormatsSize formatsSize(uint lastW, uint lastH) {
 	if (lastW > 640 || lastH > 400)
 		return FormatsSize{ lastW, lastH };
 	return FormatsSize{ 640, 400 };
-}
-
-/** Compatibility overload: true-colour formats allowed. */
-inline Common::List<Graphics::PixelFormat> supportedFormats(const Common::Array<VideoMode> &modes, uint w, uint h) {
-	return supportedFormats(modes, w, h, true);
 }
 
 } // End of namespace DOS

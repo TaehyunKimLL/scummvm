@@ -172,10 +172,10 @@ void OSystem_DOS::initBackend() {
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
 		error("SDL_Init: %s", SDL_GetError());
 
-	// dos_truecolor=auto|off: off advertises CLUT8 only. dos_vsync=off|wait:
-	// wait sends each frame in the vertical retrace. dos_force_fallback=true
-	// uses the 640x480 line-repeat mode even when 640x400 exists (testing).
-	ConfMan.registerDefault("dos_truecolor", "auto");
+	// dos_vsync=off|wait: wait sends each frame in the vertical retrace.
+	// dos_force_fallback=true uses the 640x480 line-repeat mode even when
+	// 640x400 exists (testing). The screen formats offered follow
+	// render_target (DosGraphicsManager::getSupportedFormats()).
 	ConfMan.registerDefault("dos_vsync", "off");
 	ConfMan.registerDefault("dos_force_fallback", false);
 	ConfMan.registerDefault("dos_timer_selftest", false);
@@ -183,6 +183,10 @@ void OSystem_DOS::initBackend() {
 	// dos_loading_screen=false: no loading screen (DOS::Loading), the
 	// launcher's mode set at once as before.
 	ConfMan.registerDefault("dos_loading_screen", true);
+	// Hi-res text runs at 2x only here (design section 7.4): the shared
+	// scale limits (Graphics::hiResScaleLimits()) read this default, so no
+	// engine or shared code needs a DOS #ifdef.
+	ConfMan.registerDefault("hires_text_platform_scale", "2");
 
 	// ScummVM's splash goes to the overlay, which this backend does not
 	// show yet (it draws nothing), and deciding whether to show it made

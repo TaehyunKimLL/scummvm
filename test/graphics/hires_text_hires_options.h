@@ -187,7 +187,6 @@ public:
 		FakeIni old;
 		old.game["hires_text_font"] = "x.ttf";      // removed keys are simply not read
 		old.game["hires_text_alpha"] = "true";
-		old.game["dos_truecolor"] = "off";
 		w.clear();
 		o = Graphics::readHiResIni(get, &old, w);
 		TS_ASSERT(!o.faceSet && !o.blendSet && !o.targetSet);
