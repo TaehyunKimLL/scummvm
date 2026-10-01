@@ -1021,7 +1021,7 @@ uint32 GfxText16::readChar(const char *text, int &outBytes) const {
 		//
 		// This moved where the bytes are decoded, from GfxFontSet back to
 		// here, so every value flowing through GfxText16 is Unicode. That is
-		// what let the encode step lookupText() once had go away (M11):
+		// what let the encode step lookupText() once had go away:
 		// UTF-8 text now reaches this function undecoded and takes the
 		// branch above, and only code-page text comes through here.
 		// decodeCodePagePair() also copes with a missing encoding.dat for

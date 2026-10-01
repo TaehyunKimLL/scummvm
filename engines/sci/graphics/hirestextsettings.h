@@ -35,7 +35,7 @@ namespace Sci {
 
 /**
  * The hi-res text settings of one SCI font id, resolved from the ini keys
- * and hires_text.map into one compiled plan (design sections 5, 6, 8) plus
+ * and HIRESTXT.MAP into one compiled plan (design sections 5, 6, 8) plus
  * the geometry GfxCache reads directly. Engine-free: GfxCache reads ConfMan
  * and the map file and hands both in, so this is tested alone.
  */
@@ -81,12 +81,12 @@ struct FontSettings {
 Graphics::HiResFontScope sciEngineScope();
 
 /**
- * The settings for @p fontId: hires_text.map's `[font]`/`[font.N]` scopes
+ * The settings for @p fontId: HIRESTXT.MAP's `[font]`/`[font.N]` scopes
  * plus @p ini's overrides, compiled into one plan
  * (Graphics::compileIdPlan()) against sciEngineScope(), and unpacked into
  * the geometry GfxCache reads directly.
  *
- * @param map        the parsed hires_text.map
+ * @param map        the parsed HIRESTXT.MAP
  * @param mapLoaded  false when there is no map (or it is out of scope):
  *                   @p map is then ignored entirely
  * @param mapDir     the directory holding the map file (design section 4:

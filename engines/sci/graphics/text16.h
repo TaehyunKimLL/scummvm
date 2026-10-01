@@ -81,9 +81,9 @@ public:
 
 	/**
 	 * Width of @p chr as Draw() would draw it in the current _font - through
-	 * the hires_text_latin glyph mapping. For callers outside this class
+	 * the map's range and [glyphs] rules. For callers outside this class
 	 * (the text-edit control) that measure the text Draw() puts on screen;
-	 * with hires_text_latin off it is exactly _font->getCharWidth(chr).
+	 * with no rule for @p chr it is exactly _font->getCharWidth(chr).
 	 */
 	uint16 getGlyphWidth(uint32 chr);
 

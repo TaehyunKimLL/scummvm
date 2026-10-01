@@ -40,7 +40,7 @@ namespace Sci {
  */
 
 /**
- * Whether the hi-res text keys (hires_text_face, hires_text.map) apply: an
+ * Whether the hi-res text keys (hires_text_face, HIRESTXT.MAP) apply: an
  * SCI16 game whose text is a UTF-8 translation, or one in a legacy CJK code
  * page (949, 932, 936, 950). The language of the game is not asked. On
  * false, @p why says which half failed.
@@ -81,7 +81,7 @@ int16 glyphGameWidth(Graphics::UnicodeGlyphSource *src, uint32 cp, int scale, bo
 
 /**
  * How a TrueType face drawn on the SCI hi-res plane sits in the text line
- * (C41, hires_text.map [font.N] size= / cell= / align= / baseline=).
+ * (C41, HIRESTXT.MAP [font.N] size= / cell= / align= / shift=).
  *
  * The face is rasterised in a cell of rasterWidth x rasterHeight (size=, and
  * rows of headroom, TtfGlyphSource::padRows()) and laid out in a cell of
@@ -123,7 +123,7 @@ struct GlyphPlacement {
 		/// (TtfGlyphSource::lineTop()); for kAlignFont. Any value but
 		/// kUnknown, negative included.
 		int faceLineTop;
-		int shift;           ///< baseline=, hi-res px, positive down
+		int shift;           ///< shift=, hi-res px, positive down
 	};
 	static const int kUnknown = -32768;
 
