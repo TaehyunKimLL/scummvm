@@ -137,17 +137,7 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
 	++_glyphReads;
 
 	const uint32 pitch = (uint32)_font->glyphPitch();
-	// A font with a metrics table says how wide each glyph is: one whose
-	// advance runs past the narrow half cell takes two cells, whatever its
-	// Unicode width. East Asian Ambiguous characters (U+25CB, U+25A1, U+2015,
-	// circled letters) are drawn full width by a Korean font but are not
-	// Unicode::isWide(), so a cell-based layout would advance them by half
-	// the ink they draw. Without the table only the Unicode width is known.
-	GlyphMetrics m;
-	if (_font->isProportional() && _font->glyphMetrics(index, m))
-		entry.cells = m.advance > _cellWidth / 2 ? 2 : 1;
-	else
-		entry.cells = Unicode::isWide(cp) ? 2 : 1;
+	entry.cells = cellsFor(cp, index);
 	// The rows of the entry's last code point, if any, are all overwritten.
 	entry.rows.resize(_rowBytes * _cellHeight);
 	for (uint32 y = 0; y < _cellHeight; y++) {
@@ -208,8 +198,29 @@ void SvfnGlyphSource::prefetch(Common::Array<uint32> &cps) {
 	_lastCp = 0xFFFFFFFF;
 }
 
+byte SvfnGlyphSource::cellsFor(uint32 cp, int index) const {
+	// A font with a metrics table says how wide each glyph is: one whose
+	// advance runs past the narrow half cell takes two cells, whatever its
+	// Unicode width. East Asian Ambiguous characters (U+25CB, U+25A1, U+2015,
+	// circled letters) are drawn full width by a Korean font but are not
+	// Unicode::isWide(), so a cell-based layout would advance them by half
+	// the ink they draw. Without the table only the Unicode width is known.
+	GlyphMetrics m;
+	if (_font->isProportional() && _font->glyphMetrics(index, m))
+		return m.advance > _cellWidth / 2 ? 2 : 1;
+	return Unicode::isWide(cp) ? 2 : 1;
+}
+
 int SvfnGlyphSource::cells(uint32 cp) {
-	return ensure(cp).cells;
+	// From the tables alone: a layout or a coverage check that only asks
+	// how wide a glyph is reads no pixels and keeps nothing.
+	if (!_rowBytes)
+		return 0;
+	const Entry *kept = find(cp);
+	if (kept)
+		return kept->cells;
+	const int index = _font->glyphIndex(cp);
+	return index >= 0 ? cellsFor(cp, index) : 0;
 }
 
 const byte *SvfnGlyphSource::row(uint32 cp, int y) {

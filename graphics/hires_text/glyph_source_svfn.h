@@ -49,10 +49,10 @@ class HiResBitmapFont;
  * all of the cell, and rows are cellWidth()*2 pixels at bitsPerPixel(), the
  * layout TextCompose::expandGlyphRow() reads. SVFN stores one cell per
  * glyph, so each glyph's rows are copied, on first use, into that stride
- * with the second cell blank. The copies of the code points used last are
- * kept, HIRES_SVF_CACHE_KB of them (a code point the font lacks counts as
- * one); a pointer from row() holds until another code point is first asked
- * for. With a streamed font (HiResBitmapFont::loadStreamed()) that is what
+ * with the second cell blank. The copies of the code points drawn last
+ * (row()) are kept, HIRES_SVF_CACHE_KB of them (a code point the font lacks
+ * counts as one); cells() answers from the font's tables and keeps nothing.
+ * A pointer from row() holds until another code point is first asked for. With a streamed font (HiResBitmapFont::loadStreamed()) that is what
  * stands between drawing and the file; its counters are registered with
  * Common::FileCacheRegistry as kind "svf".
  */
@@ -107,6 +107,8 @@ private:
 	};
 
 	Entry &ensure(uint32 cp);
+	/// How many cells the glyph @p index (of @p cp) takes, from the tables.
+	byte cellsFor(uint32 cp, int index) const;
 	Entry *find(uint32 cp);
 	void updateStats();
 	/// The entry for a code point not cached: a new one, or the least recently used.
