@@ -22,7 +22,6 @@
 
 #include "common/config-manager.h"
 #include "common/fs.h"
-#include "common/stream.h"
 #include "ags/shared/font/hires_font_config.h"
 #include "ags/shared/debugging/out.h"
 
@@ -30,106 +29,85 @@ namespace AGS3 {
 
 using namespace AGS::Shared;
 
-// The pixel sizes TtfGlyphSource accepts (kMinPixelSize..kMaxPixelSize)
-static const int kMinFontSize = 6;
-static const int kMaxFontSize = 255;
+// The default map's name (8.3), matched case-insensitively in the game folder
+static const char *const kDefaultMapName = "HIRESTXT.MAP";
 
-void HiResFontConfig::load() {
-	if (_loaded)
+static Common::Path findDefaultMap(const Common::Path &gameDir) {
+	if (gameDir.empty())
+		return Common::Path();
+	const Common::Path direct = gameDir.appendComponent(kDefaultMapName);
+	if (Common::FSNode(direct).exists())
+		return direct;
+	Common::FSNode dir(gameDir);
+	Common::FSList children;
+	if (dir.isDirectory() && dir.getChildren(children, Common::FSNode::kListFilesOnly)) {
+		for (uint i = 0; i < children.size(); i++) {
+			if (children[i].getName().equalsIgnoreCase(kDefaultMapName))
+				return children[i].getPath();
+		}
+	}
+	return Common::Path();
+}
+
+void HiResFontConfig::load(int gameColorDepth) {
+	if (_loaded && _loadedDepth == gameColorDepth)
 		return;
-	_loaded = true;
+	// The translation's sample is set once, whenever the config is read
+	const Common::Array<uint32> sample = _sample;
 
 	const Common::String domain = ConfMan.getActiveDomainName();
 	const Common::Path gameDir = ConfMan.getPath("path", domain);
 
-	// hires_text.map: the file hires_text_map names, else the game
-	// directory's own. An empty hires_text_map= names nothing.
-	const bool mapKeySet = ConfMan.hasKey("hires_text_map", domain);
-	Common::FSNode mapNode;
-	if (mapKeySet) {
-		const Common::String value = ConfMan.get("hires_text_map", domain);
-		if (value.empty())
-			Debug::Printf(kDbgMsg_Warn, "WARNING: hires_text_map: empty path; no map is used");
-		else if (Graphics::HiResFontMap::isDataPath(value))
-			// "data:" names a map shipped with ScummVM (HiResFontMap::resolvePath()).
-			mapNode = Common::FSNode(Graphics::HiResFontMap::resolvePath(value, Common::Path()));
-		else
-			mapNode = Common::FSNode(Common::Path(value, Common::Path::kNativeSeparator));
-	} else if (!gameDir.empty()) {
-		mapNode = Common::FSNode(gameDir).getChild("hires_text.map");
-	}
+	Common::Array<Common::String> iniWarnings;
+	const Graphics::HiResIniOverrides ini = Graphics::readHiResIniFromConfMan(domain, iniWarnings);
+	for (uint i = 0; i < iniWarnings.size(); i++)
+		Debug::Printf(kDbgMsg_Warn, "WARNING: %s", iniWarnings[i].c_str());
 
-	if ((mapKeySet && !mapNode.getPath().empty()) || (!mapKeySet && mapNode.exists())) {
-		Common::String error;
-		Common::SeekableReadStream *stream = nullptr;
-		if (!mapNode.exists())
-			error = "does not exist";
-		else if (mapNode.isDirectory())
-			error = "is a directory";
-		else if (!(stream = mapNode.createReadStream()))
-			error = "could not open the file";
-		if (stream) {
-			// Qualified by the game id: [font.0:5daysastranger] before [font.0].
-			Common::Array<Common::String> qualifiers;
-			const Common::String gameId = ConfMan.get("gameid", domain);
-			if (!gameId.empty())
-				qualifiers.push_back(gameId);
-			_mapDir = mapNode.getParent().getPath();
-			_mapLoaded = Graphics::HiResFontMap::loadFromStream(*stream, _mapDir, qualifiers, _map);
-			delete stream;
-			if (!_mapLoaded) {
-				_map.clear();
-				error = "is not a valid map";
-			} else {
-				Debug::Printf(kDbgMsg_Info, "hires_text.map %s loaded (game '%s'), %u font sections",
-							  mapNode.getPath().toString().c_str(), gameId.c_str(), (uint)_map.fontIds.size());
-			}
+	// The map: the file hires_text_map names (relative: the game folder),
+	// else the game folder's own. An empty hires_text_map= names nothing.
+	const Graphics::HiResRenderTarget target = targetForColorDepth(gameColorDepth);
+	Common::Path mapPath;
+	if (ini.enabled) {
+		if (ini.mapSet) {
+			if (ini.map.empty())
+				Debug::Printf(kDbgMsg_Warn, "WARNING: hires_text_map: empty path; no map is used");
+			else
+				mapPath = Graphics::HiResFontMap::resolvePath(ini.map, gameDir);
+		} else {
+			mapPath = findDefaultMap(gameDir);
 		}
-		if (!_mapLoaded)
-			Debug::Printf(kDbgMsg_Warn, "WARNING: hires_text.map %s: %s; ignoring it",
-						  mapNode.getPath().toString().c_str(), error.c_str());
 	}
 
-	// hires_text_font: a face (or a comma-separated chain) for every font,
-	// names looked up in the map's [fonts]
-	if (ConfMan.hasKey("hires_text_font", domain)) {
-		const Common::String value = ConfMan.get("hires_text_font", domain);
-		const char *p = value.c_str();
-		while (true) {
-			const char *comma = strchr(p, ',');
-			Common::String entry = comma ? Common::String(p, comma - p) : Common::String(p);
-			entry.trim();
-			if (!entry.empty())
-				_iniChain.push_back(Graphics::HiResFontMap::resolvePath(_map.resolveFace(entry), _mapDir));
-			if (!comma)
-				break;
-			p = comma + 1;
-		}
-		if (_iniChain.empty())
-			Debug::Printf(kDbgMsg_Warn, "WARNING: hires_text_font: empty; the game's fonts are used");
-	}
-	if (ConfMan.hasKey("hires_text_font_size", domain)) {
-		const Common::String value = ConfMan.get("hires_text_font_size", domain);
-		char *end = nullptr;
-		const long size = strtol(value.c_str(), &end, 10);
-		if (value.empty() || *end != '\0' || size < kMinFontSize || size > kMaxFontSize)
-			Debug::Printf(kDbgMsg_Warn, "WARNING: hires_text_font_size '%s' is not a number from %d to %d; ignoring it",
-						  value.c_str(), kMinFontSize, kMaxFontSize);
-		else
-			_iniSize = (int)size;
+	Graphics::HiResMap map;
+	bool mapLoaded = false;
+	Common::Path mapDir;
+	if (!mapPath.empty()) {
+		// Qualified by the game id ([font.0:5daysastranger] before [font.0])
+		// and by the game's colour depth: AGS does not choose its screen,
+		// so the map is read once, for that target.
+		Common::Array<Common::String> qualifiers;
+		const Common::String gameId = ConfMan.get("gameid", domain);
+		if (!gameId.empty())
+			qualifiers.push_back(gameId);
+		Graphics::HiResMapLoadOptions opts;
+		opts.target = target;
+		opts.quiet = true;   // printed below, through the engine's log
+		mapDir = mapPath.getParent();
+		mapLoaded = Graphics::HiResFontMap::loadMapFile(mapPath, qualifiers, Graphics::kHiResKeysAgs, map, opts);
+		if (mapLoaded)
+			Debug::Printf(kDbgMsg_Info, "HIRESTXT.MAP %s loaded (game '%s', %s), %u font sections",
+						  mapPath.toString().c_str(), gameId.c_str(), Graphics::renderTargetName(target),
+						  (uint)map.fontIds.size());
 	}
 
-	// hires_text_scale: overrides the map's [hires] scale= (C23)
-	if (ConfMan.hasKey("hires_text_scale", domain)) {
-		const Common::String value = ConfMan.get("hires_text_scale", domain);
-		int scale = 0;
-		if (parseScale(value, scale))
-			_iniScale = scale;
-		else
-			Debug::Printf(kDbgMsg_Warn, "WARNING: hires_text_scale '%s' is not 1, 2 or 3; ignoring it", value.c_str());
-	}
-
-	updateActive();
+	configure(mapPath.empty() ? nullptr : &map, mapLoaded, ini, mapDir, gameDir);
+	_loadedDepth = gameColorDepth;
+	_target = target;
+	_sample = sample;
+	for (uint i = 0; i < _warnings.size(); i++)
+		Debug::Printf(kDbgMsg_Warn, "WARNING: %s", _warnings[i].c_str());
+	if (!ini.enabled)
+		Debug::Printf(kDbgMsg_Info, "hires text off (hires_text=false): the game's own fonts draw everything");
 }
 
 } // namespace AGS3

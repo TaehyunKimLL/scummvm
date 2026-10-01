@@ -37,9 +37,9 @@ class UnicodeGlyphSource;
 namespace AGS3 {
 
 /**
- * An AGS font renderer over any Graphics::UnicodeGlyphSource: a TrueType
- * chain from hires_text.map (FallbackGlyphSource of TtfGlyphSources) or an
- * SVFN bitmap font (SvfnGlyphSource). Glyphs are placed per glyph with
+ * An AGS font renderer over any Graphics::UnicodeGlyphSource: the face
+ * chain HIRESTXT.MAP or hires_text_face names (TrueType faces and SVFN
+ * bitmap fonts, a FallbackGlyphSource when there are several). Glyphs are placed per glyph with
  * zero-advance combining marks and drawn with coverage alpha
  * (GlyphTextDrawer). A code point the map's fonts lack is drawn by the
  * game's own renderer of the same font, which stays loaded under the same
@@ -58,6 +58,10 @@ public:
 	 */
 	bool Attach(int fontNumber, const HiResFontPlan &plan, int gameHeight, bool alpha,
 				IAGSFontRendererInternal *game, const FontRenderParams &params);
+
+	/** Whether a face of font N's chain has coverage to blend (a TrueType
+	 *  face, or a 2 or 8 bpp SVFN font). */
+	bool HasCoverage(int fontNumber);
 
 	/** Whether the game's own renderer of font N draws a bitmap (WFN)
 	 *  font: the outline and anti-aliasing rules keep following the game's
@@ -136,7 +140,7 @@ private:
 	};
 
 	struct FontData {
-		FontData() : Source(nullptr), Game(nullptr), Size(0), PixelPpem(0) {}
+		FontData() : Source(nullptr), Game(nullptr), Size(0), PixelPpem(0), Bitmap(false) {}
 		Graphics::UnicodeGlyphSource *Source;	///< owned; the chain's FallbackGlyphSource, or the one source
 		Common::Array<Graphics::UnicodeGlyphSource *> Chain;	///< not owned: the faces, in order
 		Common::Array<AGS::Shared::String> Names;
@@ -145,6 +149,7 @@ private:
 		FontRenderParams Params;
 		int Size;								///< pixels the faces were opened at
 		int PixelPpem;							///< the pixel face's ppem (C28), 0 when the chain has none
+		bool Bitmap;							///< the chain has an SVFN font (one size: upscaled at N x)
 		GlyphTextDrawer Drawer;
 		GameFallback Fallback;
 		AGS::Shared::String Name;

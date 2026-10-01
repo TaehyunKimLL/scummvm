@@ -181,7 +181,7 @@ bool init_translation(const String &lang, const String &fallback_lang) {
 	}
 
 	// ScummVM: a UTF-8 translation's own characters check the fonts from
-	// hires_text.map and join their vertical fit (I18N_TEXT_DESIGN.md 4.4)
+	// HIRESTXT.MAP and join their vertical fit (I18N_TEXT_DESIGN.md 4.4)
 	if (get_uformat() == U_UTF8) {
 		Graphics::CodePointSet cps;
 		bool marks = false;
@@ -205,7 +205,7 @@ bool init_translation(const String &lang, const String &fallback_lang) {
 			for (size_t i = 0; i < _GP(fonts).size(); ++i) {
 				if (_GP(fonts)[i].RendererInt == &_GP(ttfRenderer)) {
 					Debug::Printf(kDbgMsg_Warn, "WARNING: the translation has combining marks and font %u is a TTF drawn by alfont, "
-								  "which clips and misplaces them; name the fonts in a hires_text.map", (uint)i);
+								  "which clips and misplaces them; name the fonts in a HIRESTXT.MAP", (uint)i);
 					break;
 				}
 			}

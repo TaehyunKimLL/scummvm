@@ -23,6 +23,7 @@
 #include "ags/lib/alfont/alfont.h"
 #include "common/std/vector.h"
 #include "ags/shared/ac/common.h" // set_our_eip
+#include "ags/shared/ac/game_setup_struct.h"
 #include "ags/shared/ac/game_struct_defines.h"
 #include "ags/shared/debugging/out.h"
 #include "ags/shared/font/fonts.h"
@@ -530,13 +531,17 @@ bool load_font_size(size_t fontNumber, const FontInfo &font_info) {
 	font.Metrics = metrics;
 	font_post_init(fontNumber);
 
-	// ScummVM: fonts from hires_text.map (or hires_text_font). The game's
+	// ScummVM: fonts from HIRESTXT.MAP (or hires_text_face). The game's
 	// renderer keeps font N loaded and draws what the map's fonts lack.
+	// AGS does not choose its screen: the map is read for the game's
+	// colour depth, and text blends only into a 16/32-bit game.
 	HiResFontConfig &hires = _GP(hiresFontConfig);
-	hires.load();
+	hires.load(_GP(game).GetColorDepth());
 	const HiResFontPlan plan = hires.plan(fontNumber);
+	const bool clut8 = hires.target() == Graphics::kHiResTargetClut8;
 	if (plan.kind != HiResFontPlan::kGame &&
-		_GP(glyphRenderer).Attach(fontNumber, plan, font.Metrics.CompatHeight, hires.alpha(), font.RendererInt, params)) {
+		_GP(glyphRenderer).Attach(fontNumber, plan, font.Metrics.CompatHeight,
+								  Graphics::blendActive(hires.blend(), true, clut8), font.RendererInt, params)) {
 		font.Renderer = &_GP(glyphRenderer);
 		font.Renderer2 = &_GP(glyphRenderer);
 		font.RendererInt = &_GP(glyphRenderer);
@@ -544,6 +549,10 @@ bool load_font_size(size_t fontNumber, const FontInfo &font_info) {
 		font_post_init(fontNumber);
 		src_filename = String::FromFormat("%s (map; the game's %s draws what it lacks)",
 										  _GP(glyphRenderer).GetFontName(fontNumber), src_filename.GetCStr());
+		if (Graphics::blendRefusedOnClut8(hires.blend(), clut8) && _GP(glyphRenderer).HasCoverage(fontNumber) &&
+			hires.takeBlendRefusalNotice())
+			Debug::Printf(kDbgMsg_Warn, "WARNING: hires_text_blend=on needs an RGB screen until palette-matched "
+						  "blending exists; drawing hard-edged text");
 	}
 
 	Debug::Printf("Loaded font %d: %s, req size: %d; nominal h: %d, real h: %d, extent: %d,%d",

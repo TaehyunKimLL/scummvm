@@ -27,30 +27,32 @@
 #include "common/path.h"
 #include "common/str.h"
 #include "graphics/hires_text/font_map.h"
+#include "graphics/hires_text/hires_options.h"
+#include "graphics/hires_text/id_plan.h"
 #include "graphics/hires_text/text_layout.h"
 
 namespace AGS3 {
 
-/** Where font N's glyphs come from, as hires_text.map and the ini say. */
+/** Where font N's glyphs come from, as HIRESTXT.MAP and the ini say. */
 struct HiResFontPlan {
 	enum Kind {
-		kGame = 0,	///< the game's own agsfnt/extfnt renderers (no map entry)
-		kBitmap,	///< [font.N] bitmap=: an SVFN file
-		kFaces		///< [font.N] face=, hires_text_font or [hires] face=: a TrueType chain
+		kGame = 0,	///< the game's own agsfnt/extfnt renderers (no face named)
+		kFaces		///< hires_text_face, [font.N] face= or [font] face=: a face chain
 	};
 	HiResFontPlan() : kind(kGame), size(0), gamma(100), pixel(0) {}
 
 	Kind kind;
-	Common::Array<Common::Path> faces;	///< kFaces: the chain, resolved
-	Common::Path bitmap;				///< kBitmap: the SVFN file, resolved
+	/// kFaces: the chain, resolved. Each file is sniffed when it is opened:
+	/// the SVFN magic means a baked bitmap font, anything else TrueType.
+	Common::Array<Common::Path> faces;
 	int size;							///< pixels; 0 = the game's own font height
 	Common::String source;				///< for logs: which key chose this
-	int gamma;							///< kFaces: [hires] gamma=, hundredths; 100 = off
-	int pixel;							///< kFaces: [font.N]/[hires] pixel=, a pixel font's design size; 0 = none
+	int gamma;							///< kFaces: [render] gamma=, hundredths; 100 = off
+	int pixel;							///< kFaces: [font.N]/[font] pixel=, a pixel font's design size; 0 = none
 };
 
 /**
- * The plan font N's faces are opened by at @p scale x its size (C23's N x
+ * The plan font N's faces are opened by at @p scale x its size (N x
  * text). A pixel plan's first face opens at exactly @p scale times the ppem
  * it opened at in 1x (@p smallPixelPpem, its faceSize()), so its glyphs line
  * up with the N x pens: pixelGridSize(N * cell, D) is not always that (cell 15,
@@ -61,20 +63,20 @@ struct HiResFontPlan {
 HiResFontPlan scaledPlan(const HiResFontPlan &plan, int scale, int smallPixelPpem);
 
 /**
- * AGS fonts from hires_text.map (I18N_TEXT_DESIGN.md sections 4.4-4.6).
- * The map is read only when the game directory has hires_text.map or the
- * ini names one with hires_text_map; its sections are qualified by the game
- * id ([font.0:5daysastranger] before [font.0]). Without a map and without
- * the ini keys nothing here applies and every font is the game's own.
+ * AGS fonts from a version-2 HIRESTXT.MAP and the hi-res text ini keys
+ * (docs/superpowers/specs/2026-09-30-hires-config-unify-design.md). The map
+ * is the file hires_text_map names (relative: the game folder), else the
+ * game folder's HIRESTXT.MAP; its sections are qualified by the game id
+ * ([font.0:5daysastranger] before [font.0]) and by the render target of the
+ * game's colour depth ([fonts:clut8] for an 8-bit game). hires_text=false
+ * turns all of it off. Without a map and without hires_text_face every font
+ * is the game's own.
  *
- * For font N, most specific first:
- *   [font.N] bitmap=           an SVFN file (GlyphFontRenderer over SvfnGlyphSource)
- *   [font.N] face=a, b, c      a TrueType chain
- *   hires_text_font=           (ini) a face or chain for every font
- *   [hires] face=              the map's face or chain for every font
- *   [fonts] default=           the face when none of the above names one
- * Size: [font.N] size=, else hires_text_font_size (ini), else [hires] size=,
- * else the game font's own height.
+ * Font N's chain is the first of: hires_text_face (ini; relative paths are
+ * the game folder's, names the map's [fonts]), [font.N] face=, [font] face=.
+ * Size: hires_text_size, else [font.N] size=, else [font] size=, else the
+ * game font's own height. AGS reads no range.*, advance, origin, missing,
+ * [glyphs] or [render] target keys: the map loader warns about them.
  */
 class HiResFontConfig {
 public:
@@ -82,58 +84,87 @@ public:
 
 	/** Forget the game's settings; the next load() reads them again. */
 	void clear();
-	/** Read the map and the ini keys of the active game once. */
-	void load();
+	/**
+	 * Read the ini keys and the map of the active game for a game of
+	 * @p gameColorDepth bits (8, 16, 32): the map's target-qualified
+	 * sections are those of targetForColorDepth(). Read once; read again
+	 * only when called with another depth.
+	 */
+	void load(int gameColorDepth);
 	bool isLoaded() const { return _loaded; }
 
 	/** Whether anything names a font at all. */
 	bool active() const { return _active; }
 	/** The plan for font N; kGame when nothing names it. */
 	HiResFontPlan plan(int fontNumber) const;
-	/** [hires] alpha=, default true: coverage is blended into 16/32-bit targets. */
-	bool alpha() const;
+	/** hires_text_blend, else the map's [render] blend=, else auto. */
+	Graphics::HiResBlend blend() const;
+	/** True the first time it is asked after a load: the one blend=on-on-8-bit warning. */
+	bool takeBlendRefusalNotice() {
+		const bool first = !_blendRefusalNoticed;
+		_blendRefusalNoticed = true;
+		return first;
+	}
+	/** The render target the map was read for (auto before load()). */
+	Graphics::HiResRenderTarget target() const { return _target; }
 	/** The shared layout rules: the design's defaults for AGS (hangul=word,
 	 *  kinsoku on, Thai on), overridden by the map's [layout]. */
 	Graphics::BreakRules breakRules() const;
 
 	/**
-	 * The N the map or the ini asks for (AGS_HIRES_TEXT_DESIGN.md section 6):
-	 * ini hires_text_scale, else the map's [hires] scale=, else 1. A map
-	 * without scale= is 1 whatever fonts it names (C23 ruling on Q1).
+	 * The N the ini or the map asks for: hires_text_scale, else the map's
+	 * [render] scale=, else 1, within the shared limits (1..3, or the
+	 * backend's fixed value; see scaleWarning()). 1 with hires_text=false.
 	 * Not yet gated: see gateScale().
 	 */
-	int requestedScale() const;
-	/** hires_text_scale's value: decimal 1..3 only. */
-	static bool parseScale(const Common::String &value, int &scale);
+	int requestedScale() const { return _scale; }
+	/** Why requestedScale() is not what the ini or the map asked; empty when it is. */
+	const Common::String &scaleWarning() const { return _scaleWarning; }
 	/**
-	 * The section 6 gates on a requested N >= 2: a mapped font, a 16/32-bit
-	 * game and a 32-bit screen format. Returns N, or 1 with the reason in
-	 * `why` (for the one warning). N = 1 passes and leaves `why` alone.
+	 * The gates on a requested N >= 2: a mapped font, a 16/32-bit game and
+	 * a 32-bit screen format. Returns N, or 1 with the reason in `why` (for
+	 * the one warning). N = 1 passes and leaves `why` alone.
 	 */
 	static int gateScale(int requested, bool fontsNamed, int gameColorDepth, bool has32BitFormat,
 						 Common::String &why);
 
-	/** Take a parsed map (nullptr: none), the ini's face chain, size and
-	 *  scale (0: unset) as load() found them; for load() and the unit tests. */
-	void configure(const Graphics::HiResTextConfig *map, const Common::Path &mapDir,
-				   const Common::Array<Common::Path> &iniChain, int iniSize, int iniScale = 0);
+	/** The map target of a game of @p bits colour depth: 8 -> clut8, 16 (and 15) -> rgb565, else rgb888. */
+	static Graphics::HiResRenderTarget targetForColorDepth(int bits);
+
+	/**
+	 * Take a map as load() read it (nullptr: no map; @p mapLoaded false: it
+	 * was refused, and only its warnings are kept) and the ini's overrides.
+	 * @p mapDir is the map's folder (its relative paths), @p gameDir the
+	 * game folder (the ini's relative paths). For load() and the unit tests.
+	 */
+	void configure(const Graphics::HiResMap *map, bool mapLoaded, const Graphics::HiResIniOverrides &ini,
+				   const Common::Path &mapDir, const Common::Path &gameDir);
+
+	/** Every warning of the last configure(): the map's own, then those about the ini's face. */
+	const Common::Array<Common::String> &warnings() const { return _warnings; }
 
 	/** Code points of the loaded UTF-8 translation, sampled (coverage.h). */
 	const Common::Array<uint32> &sample() const { return _sample; }
 	void setSample(const Common::Array<uint32> &sample) { _sample = sample; }
 
 private:
-	void updateActive();
-	Common::Path defaultFace() const;
+	/** The shared plan of font N (the id chain, size and pixel). */
+	Graphics::HiResIdPlan compile(int fontNumber, Common::Array<Common::String> &warnings) const;
 
 	bool _loaded;
+	int _loadedDepth;			///< load()'s colour depth
 	bool _active;
 	bool _mapLoaded;
-	Graphics::HiResTextConfig _map;
-	Common::Path _mapDir;		///< relative paths in the map and in hires_text_font resolve here
-	Common::Array<Common::Path> _iniChain;
-	int _iniSize;
-	int _iniScale;				///< hires_text_scale, 1..3; 0 = unset
+	Graphics::HiResMap _map;
+	Common::Path _mapDir;		///< relative paths in the map resolve here
+	Common::Path _gameDir;		///< relative paths in hires_text_face resolve here
+	Graphics::HiResIniOverrides _ini;
+	bool _iniFaceUsed;			///< hires_text_face names at least one face (it is the chain)
+	Graphics::HiResRenderTarget _target;
+	bool _blendRefusalNoticed;
+	int _scale;
+	Common::String _scaleWarning;
+	Common::Array<Common::String> _warnings;
 	Common::Array<uint32> _sample;
 };
 

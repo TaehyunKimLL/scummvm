@@ -185,12 +185,14 @@ Size get_game_frame_from_screen_size(const Size &game_size, const Size screen_si
 	}
 }
 
-// ScummVM (C23): the hi-res text scale for this game, from hires_text.map's
-// [hires] scale= or the ini's hires_text_scale, through the gates of
+// ScummVM (C23): the hi-res text scale for this game, from HIRESTXT.MAP's
+// [render] scale= or the ini's hires_text_scale, through the gates of
 // AGS_HIRES_TEXT_DESIGN.md section 6. N >= 2 makes the display N x the game.
 static void hires_text_scale_init(const GraphicResolution &game_res) {
 	HiResFontConfig &hires = _GP(hiresFontConfig);
-	hires.load();
+	hires.load(game_res.ColorDepth);
+	if (!hires.scaleWarning().empty())
+		Debug::Printf(kDbgMsg_Warn, "WARNING: %s", hires.scaleWarning().c_str());
 	bool has32 = false;
 	const Common::List<Graphics::PixelFormat> formats = g_system->getSupportedFormats();
 	for (const auto &f : formats)
