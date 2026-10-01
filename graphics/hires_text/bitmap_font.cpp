@@ -20,7 +20,6 @@
  */
 
 #include "graphics/hires_text/bitmap_font.h"
-#include "graphics/hires_text/glyph_source_file.h"
 
 #include "common/algorithm.h"
 #include "common/endian.h"
@@ -224,7 +223,6 @@ bool HiResBitmapFont::loadStreamed(Common::SeekableReadStream *stream, DisposeAf
 		return false;
 	}
 
-	unbufferCacheStream(stream);
 	_data = tables;
 	_stream = stream;
 	_disposeStream = dispose;

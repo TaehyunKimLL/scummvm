@@ -60,6 +60,8 @@ UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, Dispose
 }
 
 void unbufferCacheStream(Common::SeekableReadStream *stream) {
+	if (!stream)
+		return;
 #if defined(POSIX) || defined(WIN32)
 	StdioStream *file = dynamic_cast<StdioStream *>(stream);
 	if (file)
