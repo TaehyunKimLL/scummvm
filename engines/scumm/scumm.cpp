@@ -449,10 +449,12 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
 #endif
 
 	// Allocate gfx compositing buffer (not needed for V7/V8 games).
-	if (_game.version < 7)
-		_compositeBuf = (byte *)malloc(_screenWidth * _screenHeight * sizeMult);
-	else
+	if (_game.version < 7) {
+		_compositeBufSize = _screenWidth * _screenHeight * sizeMult;
+		_compositeBuf = (byte *)malloc(_compositeBufSize);
+	} else {
 		_compositeBuf = nullptr;
+	}
 
 	if (_renderMode == Common::kRenderHercA || _renderMode == Common::kRenderHercG)
 		_hercCGAScaleBuf = (byte *)malloc(kHercWidth * kHercHeight);
@@ -1939,8 +1941,22 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
 	_res->setHeapThreshold(16 * 1024 * 1024, 32 * 1024 * 1024);
 #endif
 
+	// The hi-res text paths of drawStripToScreen() compose the screen in
+	// bands of kCompositeBandRows output rows, so with hi-res text the
+	// buffer holds a band (and at least what the low-res users - EGA
+	// dithering, the cursor, the transition effects - need) instead of a
+	// whole enlarged frame: 80 KB rather than 1000 KB at 640x400 in true
+	// colour. Without hi-res text it stays one frame, as before.
 	free(_compositeBuf);
-	_compositeBuf = (byte *)malloc(_screenWidth * _textSurfaceMultiplier * _screenHeight * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel);
+	const uint32 frameSize = _screenWidth * _textSurfaceMultiplier * _screenHeight * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel;
+	if (_hiResText.enabled() && _game.version < 7) {
+		const uint32 bandSize = kCompositeBandRows * _screenWidth * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel;
+		const uint32 lowResSize = _compositeBufSize;	// the constructor's
+		_compositeBufSize = MIN(frameSize, MAX(bandSize, lowResSize));
+	} else {
+		_compositeBufSize = frameSize;
+	}
+	_compositeBuf = (byte *)malloc(_compositeBufSize);
 
 
 	// MI2 NI DOS Demo, load demo.rec playback file if present

@@ -639,6 +639,21 @@ void ScummEngine::updateDirtyScreen(VirtScreenNumber slot) {
 // on the same transparent index as everything here.
 static_assert(CHARSET_MASK_TRANSPARENCY == kHiResTextTransparent, "hires_composite.h keys on another index");
 
+void ScummEngine::ensureCompositeBuf(uint32 size) {
+	if (size <= _compositeBufSize)
+		return;
+	free(_compositeBuf);
+	_compositeBuf = (byte *)malloc(size);
+	assert(_compositeBuf);
+	_compositeBufSize = size;
+}
+
+int ScummEngine::compositeBandRows(int width, int m, int bytesPerPixel) const {
+	const uint32 rowBytes = (uint32)width * m * m * bytesPerPixel;
+	assert(rowBytes <= _compositeBufSize);
+	return (int)(_compositeBufSize / rowBytes);
+}
+
 /**
  * Blit the specified rectangle from the given virtual screen to the display.
  * Note: t and b are in *virtual screen* coordinates, while x is relative to
@@ -770,27 +785,41 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 				palette = remapped;
 			}
 
-			if (_outputPixelFormat.bytesPerPixel == 2) {
-				HiResPalette16Sink sink(_compositeBuf, palette, _outputPixelFormat);
-				compositeText(sink, (const byte *)src, vs->pitch - width,
-							  textPlane, textSkip, covPlane, covSkip,
-							  width, height, m, underPlane, underCovPlane, underSkip);
-			} else {
-				HiResTrueColorSink sink((uint32 *)_compositeBuf, palette, _outputPixelFormat);
-				compositeText(sink, (const byte *)src, vs->pitch - width,
-							  textPlane, textSkip, covPlane, covSkip,
-							  width, height, m, underPlane, underCovPlane, underSkip);
-			}
+			// The strip goes out in bands that fit the composite buffer
+			// (setupScumm() gives it a band, not a frame). Every output row
+			// is composed from its own row of each plane, so a band is the
+			// same as the matching rows of the whole strip.
+			const int bandRows = compositeBandRows(width, m, _outputPixelFormat.bytesPerPixel);
+			for (int band = 0; band < height; band += bandRows) {
+				const int rows = MIN(bandRows, height - band);
+				const byte *bandSrc = (const byte *)src + band * vs->pitch;
+				const byte *bandText = textPlane + band * m * _textSurface.pitch;
+				const byte *bandCov = covPlane + band * m * _hiResText.coverage()->pitch;
+				const byte *bandUnder = underPlane ? underPlane + band * m * _overlay.underIndex()->pitch : nullptr;
+				const byte *bandUnderCov = underCovPlane ? underCovPlane + band * m * _overlay.underCoverage()->pitch : nullptr;
 
-			// The composite buffer holds width*m pixels per row, not width:
-			// the loop above wrote every source pixel m times across. Handing
-			// the backend the unscaled pitch makes it read each row a third of
-			// the way into the next one, which tiles the picture sideways and
-			// shears it - the giveaway that this is a stride bug rather than a
-			// blending one.
-			_system->copyRectToScreen(_compositeBuf,
-									  width * m * _outputPixelFormat.bytesPerPixel,
-									  x * m, y * m, width * m, height * m);
+				if (_outputPixelFormat.bytesPerPixel == 2) {
+					HiResPalette16Sink sink(_compositeBuf, palette, _outputPixelFormat);
+					compositeText(sink, bandSrc, vs->pitch - width,
+								  bandText, textSkip, bandCov, covSkip,
+								  width, rows, m, bandUnder, bandUnderCov, underSkip);
+				} else {
+					HiResTrueColorSink sink((uint32 *)_compositeBuf, palette, _outputPixelFormat);
+					compositeText(sink, bandSrc, vs->pitch - width,
+								  bandText, textSkip, bandCov, covSkip,
+								  width, rows, m, bandUnder, bandUnderCov, underSkip);
+				}
+
+				// The composite buffer holds width*m pixels per row, not width:
+				// the loop above wrote every source pixel m times across. Handing
+				// the backend the unscaled pitch makes it read each row a third of
+				// the way into the next one, which tiles the picture sideways and
+				// shears it - the giveaway that this is a stride bug rather than a
+				// blending one.
+				_system->copyRectToScreen(_compositeBuf,
+										  width * m * _outputPixelFormat.bytesPerPixel,
+										  x * m, (y + band) * m, width * m, rows * m);
+			}
 			return;
 		}
 
@@ -802,19 +831,30 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 		if (_hiResText.enabled() && m > 1 && _outputPixelFormat.bytesPerPixel == 1) {
 			// A null coverage plane means every text pixel is opaque, so the
 			// compositor never asks this sink to blend.
-			HiResIndexSink sink(_compositeBuf);
-			compositeText(sink, (const byte *)src, vs->pitch - width,
-						  (const byte *)_textSurface.getBasePtr(x * m, y * m),
-						  _textSurface.pitch - width * m,
-						  nullptr, 0, width, height, m);
-
 			byte colorMap[16];
-			if (hiResTextColorMap(vs, colorMap))
-				remapIndices(_compositeBuf, width * m * height * m, colorMap, ARRAYSIZE(colorMap));
+			const bool remap = hiResTextColorMap(vs, colorMap);
 
-			_system->copyRectToScreen(_compositeBuf, width * m, x * m, y * m, width * m, height * m);
+			// In bands, as above.
+			const int bandRows = compositeBandRows(width, m, 1);
+			for (int band = 0; band < height; band += bandRows) {
+				const int rows = MIN(bandRows, height - band);
+				HiResIndexSink sink(_compositeBuf);
+				compositeText(sink, (const byte *)src + band * vs->pitch, vs->pitch - width,
+							  (const byte *)_textSurface.getBasePtr(x * m, (y + band) * m),
+							  _textSurface.pitch - width * m,
+							  nullptr, 0, width, rows, m);
+
+				if (remap)
+					remapIndices(_compositeBuf, width * m * rows * m, colorMap, ARRAYSIZE(colorMap));
+
+				_system->copyRectToScreen(_compositeBuf, width * m, x * m, (y + band) * m, width * m, rows * m);
+			}
 			return;
 		}
+
+		// The whole strip at once: with hi-res text the buffer may hold
+		// only a band so far.
+		ensureCompositeBuf(width * m * height * m * MAX<int>(_outputPixelFormat.bytesPerPixel, vs->format.bytesPerPixel));
 
 		if (_outputPixelFormat.bytesPerPixel == 2) {
 			const byte *srcRow = (const byte *)src;
