@@ -2617,8 +2617,12 @@ void ScummEngine::loadLanguageBundle() {
 				lines[i].trans = _translatedLines[i].translatedTextOffset;
 			}
 			_trsStore = new TrsStore();
-			if (!_trsStore->open(body, bodyPos, bodySize, lines.begin(), lines.size(), _game.version, _game.heversion,
-								 bundle.baseName())) {
+			if (_trsStore->open(body, bodyPos, bodySize, lines.begin(), lines.size(), _game.version, _game.heversion,
+								bundle.baseName())) {
+				// The store has the offsets now.
+				delete[] _translatedLines;
+				_translatedLines = nullptr;
+			} else {
 				delete _trsStore;
 				_trsStore = nullptr;
 			}
@@ -2645,7 +2649,7 @@ void ScummEngine::loadLanguageBundle() {
 	if (_hiResText.enabled()) {
 		Common::Array<byte> translation;
 		for (int i = 0; i < _numTranslatedLines; i++) {
-			const uint32 off = _translatedLines[i].translatedTextOffset;
+			const uint32 off = _trsStore ? _trsStore->line(i).trans : _translatedLines[i].translatedTextOffset;
 			if (off >= bodySize)
 				continue;
 			if (!_trsStore)
@@ -2717,7 +2721,7 @@ const byte *ScummEngine::searchTranslatedLine(const byte *text, const Translatio
 			const uint idx = useIndex ? _languageLineIndex[mid] : (uint)mid;
 			if (idx >= first && idx <= last) {
 				debug(8, "searchTranslatedLine: Found in %d iteration", dbgIterationCount);
-				return _trsStore->string(_translatedLines[idx].translatedTextOffset);
+				return _trsStore->translation(idx);
 			} else if (idx > last) {
 				right = mid - 1;
 			} else {

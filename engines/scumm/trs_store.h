@@ -219,6 +219,11 @@ public:
 		return e->bytes.begin();
 	}
 
+	/** Line @p i's translation, as string() gives it. */
+	const byte *translation(uint i) { return i < _lines.size() ? string(_lines[i].trans) : nullptr; }
+	/** Line @p i's offsets. */
+	const Line &line(uint i) const { return _lines[i]; }
+
 	/**
 	 * Whatever the string at @p off is, read without keeping it (the hi-res
 	 * layer's look at every translation when the bundle is loaded).
