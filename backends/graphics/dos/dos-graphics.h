@@ -173,12 +173,18 @@ private:
 	bool surfaceFits(const SDL_Surface *s) const;
 	/** Whether a @p w x @p h frame of @p bpp bytes a pixel fits @p s as the mode shows it. */
 	bool fitsWindow(const SDL_Surface *s, int w, int h, int bpp) const;
-	/** Whether a frame in @p f can be the window surface @p s now (DOS::screenCanBeDirect()). */
-	bool frameCanBeDirect(const SDL_Surface *s, const Graphics::PixelFormat &f, int w, int h, bool loadingNext) const;
+	/** The window as _frame sees it, or null when no mode is set for it. */
+	const DOS::FrameWindow *frameWindow(DOS::FrameWindow &out) const;
 	/** _frame, cleared: the window surface itself if it can be, else a buffer. */
 	void createFrame(uint w, uint h, const Graphics::PixelFormat &f);
-	/** _frame into the window surface, or out of it into a buffer, as frameCanBeDirect() says now. */
-	void syncFrame();
+	/**
+	 * _frame into the window surface, or out of it into a buffer, as it can
+	 * be now (DOS::FrameKeeper::sync()); @p frameTick from updateScreen().
+	 */
+	void syncFrame(bool frameTick);
+	/** The shake the window shows: none while a frame in it could not be shaken. */
+	int shakeX() const { return _frame.shakeShown() ? _shakeX : 0; }
+	int shakeY() const { return _frame.shakeShown() ? _shakeY : 0; }
 	/** Before the game writes into a frame that is the window: the cursor's pixels go. */
 	void prepareWrite();
 	void blit(SDL_Surface *s, const Common::Rect &r);
@@ -199,8 +205,8 @@ private:
 	uint _pendingW, _pendingH;
 	Graphics::PixelFormat _pendingFormat;
 
-	DOS::GameScreen _frame;	///< the game's pixels, in its own format: the window surface or a buffer
-	Graphics::Surface &_screen;	///< _frame.surface()
+	DOS::FrameKeeper _frame;	///< the game's pixels, in its own format: the window surface or a buffer
+	Graphics::Surface &_screen;	///< _frame.screen().surface()
 	Common::Rect _cursorBack;	///< where prepareWrite() took the cursor away, to send
 	DOS::LazyOverlay _overlay;	///< RGB565 640x480, allocated while used; not shown until M4
 	bool _overlayVisible;

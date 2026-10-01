@@ -22,6 +22,7 @@
 #ifndef BACKENDS_PLATFORM_DOS_GAME_SCREEN_H
 #define BACKENDS_PLATFORM_DOS_GAME_SCREEN_H
 
+#include "backends/platform/dos/soft-cursor.h"
 #include "common/rect.h"
 #include "graphics/surface.h"
 
@@ -43,7 +44,10 @@ namespace DOS {
  */
 class GameScreen {
 public:
-	GameScreen() : _direct(false) {}
+	/// Where a buffer of its own comes from: malloc() (freed by Surface::free()).
+	typedef void *(*Allocator)(size_t bytes);
+
+	GameScreen() : _direct(false), _alloc(&defaultAlloc) {}
 	~GameScreen() { free(); }
 
 	Graphics::Surface &surface() { return _s; }
@@ -90,17 +94,25 @@ public:
 		_direct = true;
 	}
 
-	/** A buffer of its own again, holding the picture the window has now. */
-	void detach() {
+	/**
+	 * A buffer of its own again, holding the picture the window has now.
+	 * False, and still in the window, if no memory is left for it.
+	 */
+	bool detach() {
 		if (!_direct)
-			return;
-		Graphics::Surface buffer;
-		buffer.create(_s.w, _s.h, _s.format);
-		copyRows((byte *)buffer.getPixels(), buffer.pitch, (const byte *)_s.getPixels(), _s.pitch,
-				 _s.w * _s.format.bytesPerPixel, _s.h);
-		_s = buffer;
+			return true;
+		const int pitch = _s.w * _s.format.bytesPerPixel;
+		byte *pixels = (byte *)_alloc((size_t)pitch * _s.h);
+		if (!pixels)
+			return false;
+		copyRows(pixels, pitch, (const byte *)_s.getPixels(), _s.pitch, pitch, _s.h);
+		_s.init(_s.w, _s.h, pitch, pixels, _s.format);
 		_direct = false;
+		return true;
 	}
+
+	/// For tests: where detach() gets its buffer.
+	void setAllocator(Allocator alloc) { _alloc = alloc; }
 
 	/** Bytes of its own: the buffer's, 0 when direct. */
 	uint32 ownBytes() const { return (_direct || !exists()) ? 0 : (uint32)_s.pitch * _s.h; }
@@ -127,20 +139,152 @@ private:
 	GameScreen(const GameScreen &);
 	GameScreen &operator=(const GameScreen &);
 
+	static void *defaultAlloc(size_t bytes) { return malloc(bytes); }
+
 	Graphics::Surface _s;
 	bool _direct;
+	Allocator _alloc;
 };
 
 /**
  * Whether the frame can be the window surface: the mode set (@p haveMode)
  * shows it row for row (no @p lineRepeat), in its own @p sameFormat, in a
- * window at least as large (@p fits), with no @p shaking, and the window
- * shows the game (no @p loadingScreen).
+ * window of rows as long and at least as many (@p fits), with no @p shaking,
+ * and the window shows the game (no @p loadingScreen).
  */
 inline bool screenCanBeDirect(bool haveMode, bool lineRepeat, bool sameFormat, bool fits, bool shaking,
 							  bool loadingScreen) {
 	return haveMode && !lineRepeat && sameFormat && fits && !shaking && !loadingScreen;
 }
+
+/** The window surface as the frame sees it (DosGraphicsManager, or a test's array). */
+struct FrameWindow {
+	byte *pixels;
+	int pitch;
+	int w, h;	///< h: the rows the picture can use (logical rows under line repeat)
+	Graphics::PixelFormat format;
+	bool lineRepeat;
+};
+
+/**
+ * The frame and when it is the window (DosGraphicsManager's state machine,
+ * apart so that it is tested on its own).
+ *
+ * - A shake takes the frame into a buffer of its own at its first offset
+ *   and keeps it there until the offset has stayed 0 for kShakeSettleFrames
+ *   frames: the many returns to 0 within a shake cost nothing. With no
+ *   memory for that buffer the frame stays in the window and is shown
+ *   unshaken (shakeShown() false) until the shake ends.
+ * - The loading screen, line repeat, a mode of another format or row length,
+ *   and setForceBuffer() (dos_frame_buffer=true) keep a buffer.
+ * - A window whose pixels moved under a direct frame (the surface made
+ *   again) loses the picture: the frame is made again, cleared (kLost).
+ *
+ * Before the frame moves, the cursor's pixels are put back into the window
+ * (and the rectangle added to @p cursorBack for sending): a frame taken out
+ * must not keep the cursor, and one put in covers it.
+ */
+class FrameKeeper {
+public:
+	enum { kShakeSettleFrames = 30 };
+	enum SyncResult {
+		kSame,		///< nothing moved
+		kMoved,		///< into or out of the window: repaint all of it
+		kLost		///< made again, cleared: the engine must repaint (a screen change)
+	};
+
+	FrameKeeper() : _forceBuffer(false), _settle(0), _detachFailed(false) {}
+
+	GameScreen &screen() { return _frame; }
+	const GameScreen &screen() const { return _frame; }
+	void setForceBuffer(bool force) { _forceBuffer = force; }
+	bool forceBuffer() const { return _forceBuffer; }
+
+	/** Whether the window shows the shake offset (false: a direct frame drawn unshaken). */
+	bool shakeShown() const { return !_frame.direct(); }
+	/** Frames left before a shaken frame may go back into the window. */
+	int settle() const { return _settle; }
+
+	bool canBeDirect(const FrameWindow *win, const Graphics::PixelFormat &f, int w, int h, bool loading,
+					 bool shaking) const {
+		const bool haveMode = win && win->pixels;
+		return !_forceBuffer &&
+			   screenCanBeDirect(haveMode, haveMode && win->lineRepeat, haveMode && win->format == f,
+								 haveMode && win->w == w && win->h >= h, shaking || _settle > 0, loading);
+	}
+
+	/** A new frame, cleared: in the window if it can be. */
+	void create(int16 w, int16 h, const Graphics::PixelFormat &f, const FrameWindow *win, bool loading,
+				bool shaking) {
+		if (canBeDirect(win, f, w, h, loading, shaking))
+			_frame.createDirect(w, h, f, win->pixels, win->pitch);
+		else
+			_frame.createBuffer(w, h, f);
+	}
+
+	/** Whether a direct frame's pixels are no longer the window's. */
+	bool lost(const FrameWindow *win) const {
+		return _frame.direct() &&
+			   (!win || win->pixels != _frame.surface().getPixels() || win->pitch != _frame.surface().pitch);
+	}
+
+	/**
+	 * The frame into the window or out of it, as it can be now. @p frameTick
+	 * once a frame (updateScreen()): the settle count after a shake runs on
+	 * those.
+	 */
+	SyncResult sync(const FrameWindow *win, bool loading, int shakeX, int shakeY, bool frameTick, SoftCursor *cursor,
+					Common::Rect *cursorBack) {
+		if (!_frame.exists())
+			return kSame;
+		const bool shaking = shakeX || shakeY;
+		if (shaking)
+			_settle = kShakeSettleFrames;
+		else if (frameTick && _settle > 0)
+			--_settle;
+		if (!shaking)
+			_detachFailed = false;
+
+		const Graphics::Surface &s = _frame.surface();
+		if (lost(win)) {
+			if (cursor)
+				cursor->forget();
+			const int16 w = s.w, h = s.h;
+			const Graphics::PixelFormat f = s.format;
+			_frame.free();
+			create(w, h, f, win, loading, shaking);
+			return kLost;
+		}
+
+		bool can = canBeDirect(win, s.format, s.w, s.h, loading, shaking);
+		if (!can && _frame.direct() && _detachFailed)
+			return kSame;	// no memory to shake with: shown unshaken
+		if (_frame.direct() == can)
+			return kSame;
+		if (cursor && win) {
+			const Common::Rect r = cursor->restore(win->pixels, win->pitch);
+			if (cursorBack && !r.isEmpty()) {
+				if (cursorBack->isEmpty())
+					*cursorBack = r;
+				else
+					cursorBack->extend(r);
+			}
+		}
+		if (can) {
+			_frame.attach(win->pixels, win->pitch);
+		} else if (!_frame.detach()) {
+			_detachFailed = true;
+			return kSame;
+		}
+		return kMoved;
+	}
+
+private:
+	GameScreen _frame;
+	bool _forceBuffer;
+	int _settle;
+	bool _detachFailed;
+};
 
 } // End of namespace DOS
 
