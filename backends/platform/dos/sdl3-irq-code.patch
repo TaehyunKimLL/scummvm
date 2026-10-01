@@ -1,28 +1,21 @@
-From 09c194ca773af0dfd9627b12f5e7e63fbbd6249e Mon Sep 17 00:00:00 2001
-From: thkim <dice.thkim@gmail.com>
-Date: Thu, 1 Oct 2026 00:48:54 +0000
-Subject: [PATCH] dos: Lock interrupt handler code as one section range per
- file
+SDL3 changes the ScummVM DOS port needs: interrupt handler code locked as
+one section range per file, with each handler checked to lie in its range
+and every lock checked (DOS_IRQCodeLocked, DOS_IRQCodeChecked).
 
-GCC emits functions in any order, so the _End marker functions placed
-after each handler were not reliably after it: in the static build every
-Sound Blaster marker came before its function, the lock sizes were
-negative and nothing was locked. The handler also called libc memcpy.
-Put handler code in .text.dosirq_b between labels in .text.dosirq_a/c,
-copy inline, use inlined port I/O, and export DOS_IRQCodeLocked so an
-application can require this.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01429qJytiMpcCADjppM2jV4
----
- src/audio/dos/SDL_dosaudio_sb.c | 49 ++++++++++++++++++-------------
- src/core/dos/SDL_dos.c          |  2 ++
- src/core/dos/SDL_dos.h          | 51 +++++++++++++++++++++++++++++++--
- src/video/dos/SDL_dosevents.c   | 10 ++++---
- 4 files changed, 86 insertions(+), 26 deletions(-)
+Base: libsdl-org/SDL 1ce4c5bc2916702e8e0f6df1f612dbd8633011da
+      ("ci: update cmake warning flags of the BSDs", 2026-09-26).
+Apply (git apply skips this text):
+  git -C SDL3 checkout 1ce4c5bc29 && git -C SDL3 apply <this file>
+Build and install where build-dos.sh looks ($SDL3_DOS, ~/opt/sdl3-dos):
+  cmake -S SDL3 -B SDL3/build-dos \
+    -DCMAKE_TOOLCHAIN_FILE=SDL3/build-scripts/i586-pc-msdosdjgpp.cmake \
+    -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF \
+    -DCMAKE_INSTALL_PREFIX=$HOME/opt/sdl3-dos
+  cmake --build SDL3/build-dos && cmake --install SDL3/build-dos
+build-dos.sh refuses an installed libSDL3.a without DOS_IRQCodeChecked.
 
 diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
-index 2958c56..ee19448 100644
+index 2958c56..74064b0 100644
 --- a/src/audio/dos/SDL_dosaudio_sb.c
 +++ b/src/audio/dos/SDL_dosaudio_sb.c
 @@ -30,6 +30,9 @@
@@ -122,35 +115,109 @@ index 2958c56..ee19448 100644
  
  // Wait until the ring buffer has room for one more chunk.
  // The audio thread keeps yielding so the game's main thread can run while
-@@ -337,9 +348,7 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+@@ -337,23 +348,29 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
      isr_silence_value = soundblaster_silence_value;
  
      // Lock all ISR code and data to prevent page faults during interrupts.
 -    DOS_LockCode(SoundBlasterIRQHandler, SoundBlasterIRQHandler_End);
 -    DOS_LockCode(RingCopyOut, RingCopyOut_End);
 -    DOS_LockCode(ISR_GetDMAHalf, ISR_GetDMAHalf_End);
-+    DOS_LockIRQCode(sb);
-     DOS_LockData(*hidden->ring_buffer, hidden->ring_size);
-     DOS_LockVariable(isr_ring_read);
-     DOS_LockVariable(isr_ring_write);
+-    DOS_LockData(*hidden->ring_buffer, hidden->ring_size);
+-    DOS_LockVariable(isr_ring_read);
+-    DOS_LockVariable(isr_ring_write);
+-    DOS_LockVariable(isr_ring_size);
+-    DOS_LockVariable(isr_ring_mask);
+-    DOS_LockVariable(isr_chunk_size);
+-    DOS_LockVariable(isr_ring_buffer);
+-    DOS_LockVariable(isr_dma_buffer);
+-    DOS_LockVariable(isr_dma_halfdma);
+-    DOS_LockVariable(isr_dma_channel);
+-    DOS_LockVariable(isr_is_16bit);
+-    DOS_LockVariable(isr_silence_value);
+-    DOS_LockVariable(isr_irq_ack_port);
+-    DOS_LockVariable(soundblaster_irq);
++    // A page fault in the handler is fatal when the interrupt came in real
++    // mode: without the locks, no handler.
++    {
++        static const void *const handlers[] = { (const void *)SoundBlasterIRQHandler };
++        bool locked = DOS_LockIRQCode(sb, handlers, SDL_arraysize(handlers));
++        locked = (DOS_LockData(*hidden->ring_buffer, hidden->ring_size) == 0) && locked;
++        locked = (DOS_LockVariable(isr_ring_read) == 0) && locked;
++        locked = (DOS_LockVariable(isr_ring_write) == 0) && locked;
++        locked = (DOS_LockVariable(isr_ring_size) == 0) && locked;
++        locked = (DOS_LockVariable(isr_ring_mask) == 0) && locked;
++        locked = (DOS_LockVariable(isr_chunk_size) == 0) && locked;
++        locked = (DOS_LockVariable(isr_ring_buffer) == 0) && locked;
++        locked = (DOS_LockVariable(isr_dma_buffer) == 0) && locked;
++        locked = (DOS_LockVariable(isr_dma_halfdma) == 0) && locked;
++        locked = (DOS_LockVariable(isr_dma_channel) == 0) && locked;
++        locked = (DOS_LockVariable(isr_is_16bit) == 0) && locked;
++        locked = (DOS_LockVariable(isr_silence_value) == 0) && locked;
++        locked = (DOS_LockVariable(isr_irq_ack_port) == 0) && locked;
++        locked = (DOS_LockVariable(soundblaster_irq) == 0) && locked;
++        if (!locked) {
++            return SDL_SetError("Couldn't lock the Sound Blaster interrupt handler's memory");
++        }
++    }
+ 
+     DOS_HookInterrupt(soundblaster_irq, SoundBlasterIRQHandler, &hidden->interrupt_hook);
+ 
 diff --git a/src/core/dos/SDL_dos.c b/src/core/dos/SDL_dos.c
-index 0ba0773..ed133e5 100644
+index 0ba0773..cbe07a6 100644
 --- a/src/core/dos/SDL_dos.c
 +++ b/src/core/dos/SDL_dos.c
-@@ -24,6 +24,8 @@
+@@ -24,6 +24,35 @@
  
  #include "SDL_dos.h"
  
 +const int DOS_IRQCodeLocked = 1;
++const int DOS_IRQCodeChecked = 1;
++
++// The end of the program's code (the djgpp link script's etext); it starts
++// at 0x1000, after the null page.
++extern char etext[];
++
++bool DOS_LockIRQCodeRange(const char *begin, const char *end, const void *const *handlers, int count, const char *what)
++{
++    bool inside = begin < end && end - begin < 64 * 1024;
++    int i;
++    for (i = 0; inside && i < count; i++) {
++        inside = (const char *)handlers[i] > begin && (const char *)handlers[i] < end;
++    }
++    if (!inside) {
++        SDL_Log("DOS: %s interrupt code is not where it should be; locking all code", what);
++        if (_go32_dpmi_lock_code((void *)0x1000, (unsigned long)(etext - (char *)0x1000)) != 0) {
++            SDL_Log("DOS: could not lock the program's code for %s", what);
++            return false;
++        }
++        return true;
++    }
++    if (_go32_dpmi_lock_code((void *)begin, (unsigned long)(end - begin + 1)) != 0) {
++        SDL_Log("DOS: could not lock %s interrupt code", what);
++        return false;
++    }
++    return true;
++}
 +
  void *DOS_AllocateConventionalMemory(const int len, _go32_dpmi_seginfo *seginfo)
  {
      seginfo->size = (len + 15) / 16; // this is in "paragraphs"
+@@ -32,8 +61,8 @@ void *DOS_AllocateConventionalMemory(const int len, _go32_dpmi_seginfo *seginfo)
+         return NULL;
+     }
+     // No need to lock: DPMI 0.9 §3.3 guarantees the first megabyte is always
+-    // committed and locked. CWSDPMI (the DJGPP DPMI host) doesn't support
+-    // virtual memory at all, so conventional memory is never paged out.
++    // committed and locked. CWSDPMI (the DJGPP DPMI host) pages extended
++    // memory only; conventional memory is never paged out.
+     return DOS_PhysicalToLinear(seginfo->rm_segment * 16);
+ }
+ 
 diff --git a/src/core/dos/SDL_dos.h b/src/core/dos/SDL_dos.h
-index 11dc58d..05b30dc 100644
+index 11dc58d..d521d8b 100644
 --- a/src/core/dos/SDL_dos.h
 +++ b/src/core/dos/SDL_dos.h
-@@ -53,6 +53,53 @@
+@@ -53,6 +53,63 @@
  #define DOS_LockCode(start, end) \
      _go32_dpmi_lock_code((void *)(start), (char *)(end) - (char *)(start))
  
@@ -179,12 +246,22 @@ index 11dc58d..05b30dc 100644
 +            ".text\n"); \
 +    extern char dosIrqBegin_##tag[], dosIrqEnd_##tag[]
 +
-+#define DOS_LockIRQCode(tag) \
-+    _go32_dpmi_lock_code(dosIrqBegin_##tag, dosIrqEnd_##tag - dosIrqBegin_##tag + 1)
++// Locks the handler code of the file that has DOS_IRQ_CODE_RANGE(tag), once
++// each of the `count` functions in `handlers` is seen to lie between its
++// labels. If one does not, the link did not lay the sections out as
++// expected, and all of the program's code is locked instead. Returns false
++// if a lock failed: the handlers must not go in then.
++#define DOS_LockIRQCode(tag, handlers, count) \
++    DOS_LockIRQCodeRange(dosIrqBegin_##tag, dosIrqEnd_##tag, (handlers), (count), #tag)
 +
 +// Defined (as 1) by this version of SDL, whose handlers lock their code
 +// with DOS_IRQ_CODE: an application that needs that can reference it.
 +extern const int DOS_IRQCodeLocked;
++
++// Defined (as 1) by this version of SDL, which also checks that each
++// handler lies inside its locked range and that the locks took
++// (DOS_LockIRQCode): an application that needs that can reference it.
++extern const int DOS_IRQCodeChecked;
 +
 +// Port I/O for handler code, inlined whatever the optimization level
 +// (djgpp's inportb()/outportb() are extern inline: GCC may call libc's
@@ -204,7 +281,7 @@ index 11dc58d..05b30dc 100644
  // Lock a range of data so it won't be paged out during interrupts.
  #define DOS_LockData(var, size) \
      _go32_dpmi_lock_data((void *)&(var), (size))
-@@ -115,9 +162,9 @@ SDL_FORCE_INLINE Uint32 DOS_PeekUint32(const Uint32 segoffset)
+@@ -115,9 +172,9 @@ SDL_FORCE_INLINE Uint32 DOS_PeekUint32(const Uint32 segoffset)
  SDL_FORCE_INLINE void DOS_EndOfInterrupt(int irq)
  {
      if (irq > 7) {
@@ -216,8 +293,18 @@ index 11dc58d..05b30dc 100644
  }
  
  // Allocate memory under the 640k line; various real mode services and DMA transfers need this.
+@@ -131,6 +188,9 @@ extern void *DOS_AllocateDMAMemory(const int len, _go32_dpmi_seginfo *seginfo);
+ // Free conventional (or DMA, which _is_ conventional) memory.
+ extern void DOS_FreeConventionalMemory(_go32_dpmi_seginfo *seginfo);
+ 
++// See DOS_LockIRQCode.
++extern bool DOS_LockIRQCodeRange(const char *begin, const char *end, const void *const *handlers, int count, const char *what);
++
+ // Get a SDL_malloc'd copy of a null-terminated string located at a real-mode segment:offset. This makes no promises about character encoding.
+ char *DOS_GetFarPtrCString(const Uint32 segoffset);
+ 
 diff --git a/src/video/dos/SDL_dosevents.c b/src/video/dos/SDL_dosevents.c
-index 9372f35..6567496 100644
+index 9372f35..f558dea 100644
 --- a/src/video/dos/SDL_dosevents.c
 +++ b/src/video/dos/SDL_dosevents.c
 @@ -35,6 +35,9 @@
@@ -230,7 +317,7 @@ index 9372f35..6567496 100644
  // Scancode byte structure
  #define SCANCODE_MASK    0x7F // bits 0-6: scancode index
  #define SCANCODE_RELEASE 0x80 // bit 7: key released (break code)
-@@ -370,20 +373,19 @@ void DOSVESA_PumpEvents(SDL_VideoDevice *device)
+@@ -370,23 +373,29 @@ void DOSVESA_PumpEvents(SDL_VideoDevice *device)
      }
  }
  
@@ -248,12 +335,23 @@ index 9372f35..6567496 100644
  {
      SDL_VideoData *data = device->internal;
  
-     // Lock ISR code and data to prevent page faults during interrupts
+-    // Lock ISR code and data to prevent page faults during interrupts
 -    DOS_LockCode(KeyboardIRQHandler, KeyboardIRQHandler_End);
-+    DOS_LockIRQCode(kbd);
-     DOS_LockVariable(keyevents_ringbuffer);
-     DOS_LockVariable(keyevents_head);
-     DOS_LockVariable(keyevents_tail);
--- 
-2.43.0
-
+-    DOS_LockVariable(keyevents_ringbuffer);
+-    DOS_LockVariable(keyevents_head);
+-    DOS_LockVariable(keyevents_tail);
++    // Lock ISR code and data to prevent page faults during interrupts. A
++    // page fault in the handler is fatal when the interrupt came in real
++    // mode: without the locks, no handler (and no keyboard).
++    static const void *const handlers[] = { (const void *)KeyboardIRQHandler };
++    bool locked = DOS_LockIRQCode(kbd, handlers, SDL_arraysize(handlers));
++    locked = (DOS_LockVariable(keyevents_ringbuffer) == 0) && locked;
++    locked = (DOS_LockVariable(keyevents_head) == 0) && locked;
++    locked = (DOS_LockVariable(keyevents_tail) == 0) && locked;
++    if (!locked) {
++        SDL_Log("DOS: could not lock the keyboard interrupt handler's memory; no keyboard");
++        return;
++    }
+ 
+     DOS_HookInterrupt(1, KeyboardIRQHandler, &data->keyboard_interrupt_hook);
+ }

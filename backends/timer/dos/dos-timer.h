@@ -34,7 +34,10 @@
  * with interrupts off, IRQ0 masked and the FPU state saved around it --
  * but only on a tick that came in our protected-mode code, as the timer
  * procs' memory is pageable (see timerIsr()); a tick that came in real
- * mode leaves them for the next one.
+ * mode leaves them for the next one, or for the end of the real-mode call.
+ * Where the handler cannot tell (another host, or frames that do not look
+ * as calibrated), everything is locked (DOS::lockAll()) and every due tick
+ * runs them.
  *
  * Teardown (PIT back to its default rate, the old vector back) runs from
  * the destructor and from exit() alike, and only once.
@@ -59,6 +62,14 @@ public:
 
 	/** True while a timer proc runs, i.e. inside the IRQ0 handler. */
 	static bool inHandler();
+
+	/** Where the timer procs that run now were called from. */
+	enum ProcsContext {
+		kProcsNone,			// none run
+		kProcsInIrq0,		// the IRQ0 handler
+		kProcsAfterCall		// the main thread, as a real-mode call returned
+	};
+	static ProcsContext procsContext();
 
 	/**
 	 * True when the IRQ0 handler does not run the timer procs (it is not

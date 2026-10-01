@@ -20,6 +20,7 @@
  */
 
 #define FORBIDDEN_SYMBOL_EXCEPTION_time_h
+#define FORBIDDEN_SYMBOL_EXCEPTION_getenv
 
 #include "common/scummsys.h"
 
@@ -28,9 +29,11 @@
 #include <dpmi.h>
 #include <go32.h>
 #include <pc.h>
+#include <sys/exceptn.h>
 #include <sys/farptr.h>
 #include <time.h>
 #include <stdlib.h>
+#include <string.h>
 #include <SDL3/SDL_timer.h>
 
 #include "backends/timer/dos/dos-timer.h"
@@ -83,6 +86,7 @@ struct IsrState {
 	FarPtr32 oldInt8;			// the BIOS INT 8 (as the DPMI host presents it)
 	uint32 sinceHandler;
 	volatile bool inHandler;
+	volatile uint8 procsCtx;	// where the running procs were called from: DosTimerManager::ProcsContext
 	volatile uint8 procsMode;	// ProcsMode
 	DefaultTimerManager *timer;	// null until the manager is fully built
 	// What an interrupt from our protected-mode code looks like (see
@@ -166,21 +170,35 @@ static inline __attribute__((always_inline)) void tickClock() {
 	}
 }
 
+// The bytes of the frames readFrame() reads, from the saved ESP.
+static const uint32 kFrameBytes = 80;
+
 /*
  * Whether this interrupt came in our own protected-mode code, from the
  * frames below the IRET wrapper's saved SS:ESP: the wrapper's pushes
  * (pusha, then DS ES FS GS: 48 bytes), then CWSDPMI's IRET frame into its
  * return stub (EIP CS EFLAGS), then the frame the CPU pushed when the
- * interrupt took our ring 3 code to ring 0 (EIP CS EFLAGS ESP SS). An
- * interrupt that came in real mode returns through another stub, and has
- * host data where the ring 3 frame would be.
+ * interrupt took our ring 3 code to ring 0 (EIP CS EFLAGS ESP SS): what
+ * CWSDPMI r7's irq_common builds (see DOS::chooseLockRegime() for the
+ * source). An interrupt that came in real mode returns through rmcb_task
+ * instead, and has its saved registers where the ring 3 frame would be.
+ *
+ * The stack the frames lie on is the host's, or another handler's: its
+ * limit is checked before the read (a read past it would fault in here).
+ * Returns false if they do not fit below it.
  */
-static inline __attribute__((always_inline)) void readFrame(uint32 esp, uint16 ss,
+static inline __attribute__((always_inline)) bool readFrame(uint32 esp, uint16 ss,
 		uint32 &stubEip, uint16 &stubCs, uint16 &cs, uint16 &stackSs) {
+	uint32 limit;
+	uint8 valid;
+	__asm__("lsll %2, %0\n\tsetz %1" : "=r"(limit), "=q"(valid) : "r"((uint32)ss) : "cc");
+	if (!valid || limit < kFrameBytes - 1 || esp > limit - (kFrameBytes - 1))
+		return false;
 	stubEip = DOS::irqPeek32(ss, esp + 48);
 	stubCs = (uint16)DOS::irqPeek32(ss, esp + 52);
 	cs = (uint16)DOS::irqPeek32(ss, esp + 64);
 	stackSs = (uint16)DOS::irqPeek32(ss, esp + 76);
+	return true;
 }
 
 static inline __attribute__((always_inline)) bool mayRunProcs(uint32 esp, uint16 ss) {
@@ -190,7 +208,8 @@ static inline __attribute__((always_inline)) bool mayRunProcs(uint32 esp, uint16
 		return false;
 	uint32 stubEip;
 	uint16 stubCs, cs, stackSs;
-	readFrame(esp, ss, stubEip, stubCs, cs, stackSs);
+	if (!readFrame(esp, ss, stubEip, stubCs, cs, stackSs))
+		return false;
 	return stubEip == g_isr.stubEip && stubCs == g_isr.stubCs && cs == g_isr.ourCs && stackSs == g_isr.ourSs;
 }
 
@@ -199,12 +218,12 @@ static inline __attribute__((always_inline)) bool mayRunProcs(uint32 esp, uint16
 static inline __attribute__((always_inline)) void calibrate(uint32 esp, uint16 ss) {
 	uint32 stubEip;
 	uint16 stubCs, cs, stackSs;
-	readFrame(esp, ss, stubEip, stubCs, cs, stackSs);
-	if (g_isr.calSeen++ == 0) {
+	const bool read = readFrame(esp, ss, stubEip, stubCs, cs, stackSs);
+	if (g_isr.calSeen++ == 0 && read) {
 		g_isr.stubEip = stubEip;
 		g_isr.stubCs = stubCs;
 	}
-	if (stubEip == g_isr.stubEip && stubCs == g_isr.stubCs && cs == g_isr.ourCs && stackSs == g_isr.ourSs)
+	if (read && stubEip == g_isr.stubEip && stubCs == g_isr.stubCs && cs == g_isr.ourCs && stackSs == g_isr.ourSs)
 		g_isr.calMatched++;
 }
 
@@ -223,7 +242,7 @@ static inline __attribute__((always_inline)) void calibrate(uint32 esp, uint16 s
 // this cannot nest it either. The other IRQs are served meanwhile; their
 // handlers touch only their own locked memory. inHandler is only a
 // backstop.
-static inline __attribute__((always_inline)) void runProcs() {
+static inline __attribute__((always_inline)) void runProcs(uint8 ctx) {
 	const uint32 waited = g_isr.sinceHandler - kHandlerEvery;
 	if (waited > g_isr.maxWait)
 		g_isr.maxWait = waited;
@@ -231,6 +250,7 @@ static inline __attribute__((always_inline)) void runProcs() {
 		g_isr.waits10++;
 	g_isr.sinceHandler = 0;
 	g_isr.inHandler = true;
+	g_isr.procsCtx = ctx;
 	const uint8 wasMasked = maskIrq0();
 	// Timer procs may use the FPU; the code we interrupted may be in the
 	// middle of an x87 computation. fnsave also leaves the FPU initialised.
@@ -243,6 +263,7 @@ static inline __attribute__((always_inline)) void runProcs() {
 	// off). Reading the PIC's request register here to count them made
 	// DOSBox-X run KQ1's title differently (a palette entry off in M0).
 	restoreIrq0(wasMasked);
+	g_isr.procsCtx = DosTimerManager::kProcsNone;
 	g_isr.inHandler = false;
 }
 
@@ -294,7 +315,7 @@ static DOS_IRQ_CODE void timerIsr(uint32 savedEsp, uint32 savedSs) {
 		g_isr.procDeferred++;
 		return;
 	}
-	runProcs();
+	runProcs(DosTimerManager::kProcsInIrq0);
 }
 
 // DJGPP's own uclock(), which ours falls back on before the handler is in.
@@ -361,7 +382,7 @@ extern "C" unsigned int __djgpp_stack_limit, __djgpp_stack_top;
 static byte g_procStack[64 * 1024] __attribute__((aligned(16)));
 
 static void runProcsCall() {
-	runProcs();
+	runProcs(DosTimerManager::kProcsAfterCall);
 }
 
 /*
@@ -415,6 +436,11 @@ static void teardown() {
 	_go32_dpmi_set_protected_mode_interrupt_vector(8, &g_oldVector);
 	g_installed = false;
 	g_isr.timer = nullptr;
+	// An exit from inside the timer procs (a crash, Ctrl-C on the main
+	// thread's call) leaves IRQ0 masked: the BIOS clock would stop in DOS.
+	outportb(0x21, inportb(0x21) & ~0x01);
+	g_isr.inHandler = false;
+	g_isr.procsCtx = DosTimerManager::kProcsNone;
 	irqRestore(flags);
 	_go32_dpmi_free_iret_wrapper(&g_newVector);
 }
@@ -435,19 +461,35 @@ static void calibrate() {
 	g_isr.calMatched = 0;
 	g_isr.procsMode = kProcsCalibrating;
 	// Ticks come every millisecond; this bound only guards a PIT that
-	// never interrupts (the procs then never run from the handler).
+	// never interrupts.
 	for (uint32 spin = 0; g_isr.calSeen < kCalibrationTicks && spin < 200000000; ++spin)
 		__asm__ __volatile__("" : : : "memory");
-	// Every one of them must show the same stub and our CS:SS. Otherwise
-	// the host hands interrupts over some other way, and nothing here
-	// can tell where they came from: the procs run on the main thread.
-	if (g_isr.calSeen >= kCalibrationTicks && g_isr.calMatched == g_isr.calSeen) {
+	// Every one of them must show the same stub and our CS:SS. And the
+	// stacks DJGPP's interrupt wrappers switch to (__djgpp_ds_alias) must
+	// not look like ours: that is what keeps a tick that nests in another
+	// handler from passing for one that came in our code.
+	const char *why = nullptr;
+	const char *test = getenv("SCUMMVM_DOS_LOCKTEST");
+	if (test && strcmp(test, "calibration") == 0)
+		why = "SCUMMVM_DOS_LOCKTEST=calibration";
+	else if (g_isr.calSeen < kCalibrationTicks)
+		why = "IRQ0 never came";
+	else if (g_isr.calMatched != g_isr.calSeen)
+		why = "IRQ0 frames not as expected";
+	else if (__djgpp_ds_alias == ss)
+		why = "interrupt stacks share our SS";
+	if (!why) {
 		g_isr.procsMode = kProcsFromOurCode;
-	} else {
-		g_isr.procsMode = kProcsOnMainThread;
-		warning("DOS: IRQ0 frames not as expected under %s (%u of %u); timers run from the event loop",
-			DOS::dpmiHost(), (uint)g_isr.calMatched, (uint)g_isr.calSeen);
+		return;
 	}
+	// Nothing here can tell where an interrupt came from. Lock everything
+	// instead, as under any other host, and run the procs from every
+	// IRQ0 (no timer proc can run yet: g_isr.timer is null).
+	g_isr.procsMode = kProcsOnMainThread;
+	warning("DOS: %s under %s (%u of %u); locking all memory",
+		why, DOS::dpmiHost(), (uint)g_isr.calMatched, (uint)g_isr.calSeen);
+	DOS::lockAll(why);
+	g_isr.procsMode = kProcsAlways;
 }
 
 static bool install() {
@@ -471,6 +513,7 @@ static bool install() {
 	g_isr.chain = DOS::PitChain();
 	g_isr.sinceHandler = 0;
 	g_isr.inHandler = false;
+	g_isr.procsCtx = DosTimerManager::kProcsNone;
 	g_isr.procsMode = kProcsCalibrating;
 	g_isr.timer = nullptr;
 	g_isr.procRuns = g_isr.procRunsAfterCall = g_isr.procDeferred = 0;
@@ -580,6 +623,10 @@ bool DosTimerManager::inHandler() {
 	return g_isr.inHandler;
 }
 
+DosTimerManager::ProcsContext DosTimerManager::procsContext() {
+	return (ProcsContext)g_isr.procsCtx;
+}
+
 bool DosTimerManager::procsOnMainThread() {
 	return !g_installed || g_isr.procsMode == kProcsOnMainThread;
 }
@@ -588,10 +635,10 @@ void DosTimerManager::logStats() {
 	if (!g_installed)
 		return;
 	static const char *const kModes[] = { "calibrating", "from our code", "always (all locked)", "main thread" };
-	debug(1, "DOS: timer procs %s: ran %u (%u as a real-mode call returned), ticks deferred %u, "
+	debug(1, "DOS: timer procs %s: ran %u (in IRQ0 %u, as a real-mode call returned %u), ticks deferred %u, "
 		"longest wait %u ms, waits of 10 ms or more %u",
-		kModes[g_isr.procsMode], (uint)g_isr.procRuns, (uint)g_isr.procRunsAfterCall, (uint)g_isr.procDeferred,
-		(uint)g_isr.maxWait, (uint)g_isr.waits10);
+		kModes[g_isr.procsMode], (uint)g_isr.procRuns, (uint)(g_isr.procRuns - g_isr.procRunsAfterCall),
+		(uint)g_isr.procRunsAfterCall, (uint)g_isr.procDeferred, (uint)g_isr.maxWait, (uint)g_isr.waits10);
 }
 
 void DosTimerManager::delayInHandler(uint msecs) {

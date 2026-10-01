@@ -50,6 +50,8 @@ public:
 	int read(char *buf, int max);
 	/** Blocks until every byte is in the transmit register. */
 	void write(const char *p, uint len);
+	/** How many times the receive interrupt handler has run (any port). */
+	static uint32 irqCount();
 
 private:
 	uint16 _base;

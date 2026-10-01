@@ -34,6 +34,7 @@
 #include "backends/platform/dos/cursor-convert.h"
 #include "backends/platform/dos/dos.h"
 #include "backends/platform/dos/dos-heap.h"
+#include "backends/platform/dos/dos-irq.h"
 #include "backends/platform/dos/dos-loading.h"
 #include "backends/platform/dos/line-repeat.h"
 #include "backends/platform/dos/loading-caption.h"
@@ -777,10 +778,11 @@ static void lockRegion(const void *p, uint32 bytes, uint32 &addr, uint32 &size) 
 	unlockRegion(addr, size);
 	// Only a large block of its own (dos-heap.cpp), whose pages it shares
 	// with nothing. A block from the sbrk heap shares its first and last
-	// pages with its neighbours, which an interrupt handler may have locked
-	// (and under a DPMI host other than CWSDPMI the whole heap is locked):
-	// unlocking it later would unlock those pages too.
-	if (!p || !bytes || !dosHeapInLargeBlock(p, bytes))
+	// pages with its neighbours, which an interrupt handler may have locked:
+	// unlocking it later would unlock those pages too. When everything is
+	// locked (DOS::lockAll()), large blocks included, there is nothing to
+	// do, and the unlock would undo that lock: CWSDPMI keeps no lock count.
+	if (!p || !bytes || DOS::lockedAll() || !dosHeapInLargeBlock(p, bytes))
 		return;
 	__dpmi_meminfo m;
 	m.handle = 0;

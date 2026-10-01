@@ -54,6 +54,12 @@
  *   and it can be locked and unlocked on its own (dosHeapInLargeBlock()).
  *   They need the near pointer (main() enables it before anything else),
  *   so until dosHeapEnableLargeBlocks() every block comes from malloc.
+ *
+ * - Whenever the heap is locked as a whole (DOS::lockAll(): the timer
+ *   procs then run from every IRQ0), the large blocks are too: those that
+ *   exist then, and each new one as it is allocated. sbrk() does not see
+ *   them, so _CRT0_FLAG_LOCK_MEMORY alone would leave them pageable; the
+ *   blocks are kept in a list for this.
  */
 
 extern "C" {
@@ -71,17 +77,23 @@ namespace {
 const size_t kLargeBlock = 256 * 1024;
 
 // In front of every large block; its address is page aligned, so the
-// pointer handed out is 16 bytes into a page -- a cheap first test.
+// pointer handed out is sizeof(LargeHeader) bytes into a page -- a cheap
+// first test. 32 bytes keep the blocks 16-byte aligned.
 struct LargeHeader {
 	uint32 magic;
 	uint32 handle;
 	uint32 size;		// usable bytes after the header
 	uint32 check;		// magic ^ handle ^ size
+	LargeHeader *next, *prev;	// every live block, for dosHeapLockLargeBlocks()
+	uint32 linear;		// the block's linear address (DPMI's)
+	uint32 blockSize;	// the DPMI block's size, header included
 };
 const uint32 kMagic = 0x4C524745;	// "LRGE"
 const uint32 kPage = 4096;
 
 bool g_largeOk = false;
+bool g_lockLarge = false;		// lock every large block (DOS::lockAll())
+LargeHeader *g_largeList = nullptr;	// changed with interrupts off
 
 inline uint32 heapLock() {
 	uint32 flags;
@@ -103,6 +115,14 @@ LargeHeader *largeHeader(void *ptr) {
 	return h;
 }
 
+bool lockLarge(const LargeHeader *h) {
+	__dpmi_meminfo m;
+	m.handle = 0;
+	m.address = h->linear;
+	m.size = h->blockSize;
+	return __dpmi_lock_linear_region(&m) == 0;
+}
+
 // A block of its own; the DPMI calls run with interrupts as they are: it
 // shares nothing with the sbrk heap.
 void *largeAlloc(size_t size) {
@@ -117,12 +137,36 @@ void *largeAlloc(size_t size) {
 	h->handle = mi.handle;
 	h->size = mi.size - sizeof(LargeHeader);
 	h->check = kMagic ^ h->handle ^ h->size;
+	h->linear = mi.address;
+	h->blockSize = mi.size;
+	// Locked before anyone can see it; failing that, the caller takes
+	// the (locked) sbrk heap instead.
+	if (g_lockLarge && !lockLarge(h)) {
+		h->magic = 0;
+		__dpmi_free_memory(mi.handle);
+		return nullptr;
+	}
+	const uint32 f = heapLock();
+	h->prev = nullptr;
+	h->next = g_largeList;
+	if (g_largeList)
+		g_largeList->prev = h;
+	g_largeList = h;
+	heapUnlock(f);
 	return h + 1;
 }
 
 void largeFree(LargeHeader *h) {
 	const uint32 handle = h->handle;
+	const uint32 f = heapLock();
+	if (h->prev)
+		h->prev->next = h->next;
+	else
+		g_largeList = h->next;
+	if (h->next)
+		h->next->prev = h->prev;
 	h->magic = 0;
+	heapUnlock(f);
 	__dpmi_free_memory(handle);
 }
 
@@ -151,6 +195,24 @@ bool dosHeapInLargeBlock(const void *ptr, size_t size) {
 		return false;
 	const uintptr start = (uintptr)(h + 1);
 	return (uintptr)ptr >= start && (uintptr)ptr - start <= h->size && size <= h->size - ((uintptr)ptr - start);
+}
+
+bool dosHeapLockLargeBlocks(uint32 &blocks, uint32 &bytes) {
+	// From now on largeAlloc() locks each new block itself. Called before
+	// any timer proc runs (DOS::lockAll()), so no block comes or goes
+	// while the list is walked.
+	g_lockLarge = true;
+	bool ok = true;
+	blocks = bytes = 0;
+	for (LargeHeader *h = g_largeList; h; h = h->next) {
+		if (lockLarge(h)) {
+			blocks++;
+			bytes += h->blockSize;
+		} else {
+			ok = false;
+		}
+	}
+	return ok;
 }
 
 extern "C" {

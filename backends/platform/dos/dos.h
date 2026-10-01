@@ -46,6 +46,17 @@ const char *exeName();
  */
 void logMemInfo(const char *phase);
 
+/**
+ * dos_pagefault_selftest (dos.cpp): a timer proc that walks a pageable
+ * buffer of @p kb KB, a page per call at @p hz, and counts the page faults
+ * it takes by where it ran. Poll() from the event loop (logs every 10 s),
+ * Log() with the memory lines, Stop() before SDL closes its audio.
+ */
+void pagefaultSelftestStart(int kb, int hz);
+void pagefaultSelftestPoll();
+void pagefaultSelftestLog();
+void pagefaultSelftestStop();
+
 }
 
 /**
