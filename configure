@@ -3531,6 +3531,10 @@ EOF
 		# DJGPP's uint32 is unsigned long, so every %u/%x/%d given one warns
 		# (as on MorphOS); Linux builds still check these.
 		append_var CXXFLAGS "-Wno-format"
+		# One section per function, and the link drops those nothing calls:
+		# the whole program sits in a 16 MB machine's memory.
+		append_var CXXFLAGS "-ffunction-sections"
+		append_var LDFLAGS "-Wl,--gc-sections"
 		;;
 	morphos*)
 		if test "$_debug_build" = no; then
