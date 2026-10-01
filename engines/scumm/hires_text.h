@@ -81,9 +81,11 @@ struct ScummHiResText {
 	 * @param gameId      identifies the game, e.g. "monkey2"
 	 * @param version     SCUMM version, for the "v5" style qualifier
 	 * @param language    what the game was detected as
+	 * @param supported   the backend's formats; null asks g_system
 	 */
 	void loadConfig(const Common::Path &gameDir, const Common::String &gameId,
-					int version, Common::Language language);
+					int version, Common::Language language,
+					const Common::List<Graphics::PixelFormat> *supported = nullptr);
 
 	/**
 	 * Settle the scale once the game's own font size is known.
@@ -260,7 +262,43 @@ struct ScummHiResText {
 	 */
 	static Graphics::HiResRenderTarget wantedTarget(const Graphics::HiResMap &map, bool mapLoaded,
 													const Graphics::HiResIniOverrides &ini, int gameVersion,
-													bool anyCoverage, Common::String &warning);
+													bool anyCoverage, Common::String &warning,
+													bool *explicitTarget = nullptr);
+
+	/**
+	 * The screen family SCUMM asks the backend for. Before v7 the engine
+	 * produces true-colour output only on its blending path (the palette
+	 * cache, no backend palette, the RGB sinks); every other path sets the
+	 * backend palette and blits 1-byte pixels, which an RGB screen cannot
+	 * take. So @p predicted stands only when the layer is on (@p layerOn),
+	 * the game can blend (@p canBlend, canBlendText()) and the text will
+	 * actually blend on that family (Graphics::blendActive() of @p blend and
+	 * @p anyCoverage on a non-paletted screen); otherwise `clut8`, the
+	 * upstream screen. Pure, for tests.
+	 */
+	static Graphics::HiResRenderTarget screenTargetFor(bool layerOn, bool canBlend, Graphics::HiResRenderTarget predicted,
+													   Graphics::HiResBlend blend, bool anyCoverage);
+
+	/**
+	 * Design section 7.1's warning for a target that was asked for and not
+	 * set: `render_target=<wanted> is not available here; using <actual>`,
+	 * or empty when @p wanted was not asked for explicitly (the `auto` rule
+	 * chose it) or is what the screen is.
+	 */
+	static Common::String targetNote(Graphics::HiResRenderTarget wanted, bool wantedExplicit,
+									 Graphics::HiResRenderTarget actual);
+
+	/**
+	 * What the "Smooth the hi-res text" checkbox shows (design section 7.2:
+	 * the effective state). @p configured is the stored hires_text_blend
+	 * (`auto` when unset). While this target is running with that same
+	 * setting (@p running, @p runningWith), the answer is what the game
+	 * does (@p runningBlends, alphaActive()); otherwise - the launcher, or
+	 * a setting changed since the game started - the best case of
+	 * @p configured, which is "not off".
+	 */
+	static bool blendCheckboxState(Graphics::HiResBlend configured, bool running,
+								   Graphics::HiResBlend runningWith, bool runningBlends);
 
 	/**
 	 * design section 7.4's scale resolution for SCUMM: `hires_text_scale`
@@ -278,6 +316,30 @@ struct ScummHiResText {
 	/// `kHiResTargetAuto`. What scumm.cpp hands to Graphics::formatRequest().
 	Graphics::HiResRenderTarget renderTarget() const { return _target; }
 
+	/// The phase-1 wanted target (design 7.1.1), before the backend or the
+	/// blending decision changed it: what the player or the map asked for.
+	Graphics::HiResRenderTarget askedTarget() const { return _wanted; }
+
+	/// The hires_text_blend this game started with (`auto` when unset).
+	Graphics::HiResBlend iniBlend() const { return _ini.blendSet ? _ini.blend : Graphics::kHiResBlendAuto; }
+
+	/**
+	 * The format list for initGraphics() when renderTarget() is not `clut8`:
+	 * Graphics::formatRequest() of askedTarget(), whose first family is
+	 * renderTarget(). (A `clut8` renderTarget() keeps upstream's plain
+	 * initGraphics(w, h).)
+	 */
+	Common::List<Graphics::PixelFormat> screenRequest(const Common::List<Graphics::PixelFormat> &supported) const;
+
+	/**
+	 * Whether SCUMM can draw into a screen of @p format: always for a
+	 * paletted one; for an RGB one only when the text blends with that
+	 * family's sections (screenTargetFor()). Asks the map quietly and
+	 * changes nothing, so the caller can still drop to a paletted screen
+	 * before adoptScreen().
+	 */
+	bool canDrawInto(const Graphics::PixelFormat &format) const;
+
 	/// The blend setting compilePlans() last resolved against the current
 	/// (phase-2, resolved-target) map: `hires_text_blend` if set, else the
 	/// map's `[render] blend`, else `auto`. Feeds Graphics::blendActive()
@@ -292,28 +354,20 @@ struct ScummHiResText {
 	bool anyCoverage() const { return _anyCoverage; }
 
 	/**
-	 * Reconcile the predicted render target with the screen the backend
-	 * actually gave us (design section 7.1.1): an engine that loads its
-	 * faces before initGraphics(), like SCUMM, can only predict the family
-	 * from the format list it asked for. When @p actual's family differs
-	 * from renderTarget() - a backend that offered none of the requested
-	 * family and fell all the way back to CLUT8, say - this warns once and
-	 * redoes phase 2 (the map reload against the corrected target, and the
-	 * plan/scale/blend compile) so faces open against the target the game
-	 * is really running in. A no-op when the prediction already matches, or
-	 * when no map was ever found to reload (nothing to redo).
-	 *
-	 * Also refreshes wantsAlpha() from the (possibly corrected) blend()/
-	 * anyCoverage() - Task 8 review M2: `blend` is read in phase 2 (design
-	 * 7.2), so a target correction can change it, and createCoverage() -
-	 * called once, after this, from the same init() that calls
-	 * setAlphaActive() from blendActive() - is gated on wantsAlpha(), not on
-	 * alphaActive(). Left stale, a corrected "wants blending after all"
-	 * would get alphaActive()==true with no coverage surface ever
-	 * allocated, silently dropping the blend gfx.cpp's composite path
-	 * otherwise would have drawn.
+	 * Take the screen the game actually runs on (design section 7.1.1), on
+	 * every screen-init path. Prints the section 7.1 warning once when an
+	 * asked-for target was not set (targetNote()). When @p actual's family
+	 * differs from renderTarget() and hi-res text is on with a map, phase 2
+	 * is redone for that family: the map is reloaded and the plans, blend
+	 * and coverage recompiled, printing only warnings not already printed,
+	 * and wantsAlpha()/enabled() follow. scale() is kept: the screen and the
+	 * text surface were sized from it; a family whose sections ask for
+	 * another scale gets one warning. @p chosenByLayer is false where the
+	 * screen format was not the layer's request (FM-Towns and 16-bit games,
+	 * Hercules, CGA, EGA dithering): the sections still follow it, without
+	 * the "screen is not the predicted one" warning.
 	 */
-	void adoptScreen(const Graphics::PixelFormat &actual);
+	void adoptScreen(const Graphics::PixelFormat &actual, bool chosenByLayer = true);
 
 	/**
 	 * Refresh the cached true-colour palette.
@@ -954,6 +1008,22 @@ private:
 	/// can redo wantsAlphaFor()'s canBlend argument without a gameVersion of
 	/// its own (Task 8 review M2).
 	bool _canBlend = true;
+	/// The phase-1 wanted target and whether the ini or the map named it.
+	Graphics::HiResRenderTarget _wanted = Graphics::kHiResTargetClut8;
+	bool _wantedExplicit = false;
+	/// Whether the map-less fonts probeSimpleFonts() found have coverage.
+	bool _simpleCoverage = false;
+	/// Everything warnOnce() has printed this load.
+	Common::Array<Common::String> _shownWarnings;
+	/// adoptScreen() printed targetNote() already.
+	bool _targetNoted = false;
+
+	void warnOnce(const Common::String &message);
+	/// Whether the text would blend on a non-paletted screen of family @p t
+	/// (screenTargetFor()), from a quiet load of the map for @p t.
+	bool blendsOnTarget(Graphics::HiResRenderTarget t) const;
+	/// Redo phase 2 for @p t (see adoptScreen()); @p keepScale keeps scale().
+	void reloadSections(Graphics::HiResRenderTarget t, bool keepScale);
 	Graphics::HiResIdPlan _plans[kMaxFonts];
 	mutable bool _idBound[kMaxFonts] = {};       ///< checkIdOnceReady() ran its load-time checks once
 	/// Paths checkIdOnceReady() refused for this id (an SVF whose cell
