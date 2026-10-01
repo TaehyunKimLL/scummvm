@@ -23,7 +23,6 @@
 #include "ags/lib/alfont/alfont.h"
 #include "common/std/vector.h"
 #include "ags/shared/ac/common.h" // set_our_eip
-#include "ags/shared/ac/game_setup_struct.h"
 #include "ags/shared/ac/game_struct_defines.h"
 #include "ags/shared/debugging/out.h"
 #include "ags/shared/font/fonts.h"
@@ -533,10 +532,9 @@ bool load_font_size(size_t fontNumber, const FontInfo &font_info) {
 
 	// ScummVM: fonts from HIRESTXT.MAP (or hires_text_face). The game's
 	// renderer keeps font N loaded and draws what the map's fonts lack.
-	// AGS does not choose its screen: the map is read for the game's
-	// colour depth, and text blends only into a 16/32-bit game.
+	// AGS does not choose its screen: LoadFonts() has read the map for the
+	// game's colour depth, and text blends only into a 16/32-bit game.
 	HiResFontConfig &hires = _GP(hiresFontConfig);
-	hires.load(_GP(game).GetColorDepth());
 	const HiResFontPlan plan = hires.plan(fontNumber);
 	const bool clut8 = hires.target() == Graphics::kHiResTargetClut8;
 	if (plan.kind != HiResFontPlan::kGame &&

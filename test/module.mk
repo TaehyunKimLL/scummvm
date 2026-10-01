@@ -96,8 +96,11 @@ ifeq ($(ENABLE_AGS), STATIC_PLUGIN)
 		engines/ags/shared/font/wfn_font_ext.o \
 		engines/ags/shared/font/glyph_font_draw.o \
 		engines/ags/shared/font/ags_text_layout.o \
-		engines/ags/shared/font/hires_font_plan.o engines/ags/shared/font/text_twin.o graphics/libgraphics.a \
+		engines/ags/shared/font/hires_font_plan.o engines/ags/shared/font/hires_font_chain.o \
+		engines/ags/shared/font/text_twin.o graphics/libgraphics.a \
 		common/libcommon.a
+	# The face-chain tests open the repo's own TrueType face.
+	AGS_TEST_DEFINES := -DAGS_TEST_SRCDIR=\"$(srcdir)\"
 endif
 
 ifeq ($(ENABLE_GRIM), STATIC_PLUGIN)
@@ -119,7 +122,7 @@ TEST_CFLAGS  := $(CFLAGS) -I$(srcdir)/test/cxxtest
 TEST_LDFLAGS := $(LDFLAGS) $(LIBS)
 TEST_CXXFLAGS  := $(filter-out -Wglobal-constructors,$(CXXFLAGS))
 TEST_CXXFLAGS += -Wno-self-assign-overloaded
-TEST_CXXFLAGS += $(SCUMM_TEST_DEFINES)
+TEST_CXXFLAGS += $(SCUMM_TEST_DEFINES) $(AGS_TEST_DEFINES)
 
 ifdef WIN32
 TEST_LDFLAGS := $(filter-out -mwindows,$(TEST_LDFLAGS))

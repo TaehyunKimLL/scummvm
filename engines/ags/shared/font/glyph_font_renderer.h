@@ -140,9 +140,9 @@ private:
 	};
 
 	struct FontData {
-		FontData() : Source(nullptr), Game(nullptr), Size(0), PixelPpem(0), Bitmap(false) {}
+		FontData() : Source(nullptr), Game(nullptr), Size(0), PixelPpem(0), Bitmap(false), TrueType(false) {}
 		Graphics::UnicodeGlyphSource *Source;	///< owned; the chain's FallbackGlyphSource, or the one source
-		Common::Array<Graphics::UnicodeGlyphSource *> Chain;	///< not owned: the faces, in order
+		Common::Array<Graphics::UnicodeGlyphSource *> Chain;	///< not owned: the faces that joined, as opened, in order
 		Common::Array<AGS::Shared::String> Names;
 		HiResFontPlan Plan;
 		IAGSFontRendererInternal *Game;
@@ -150,6 +150,7 @@ private:
 		int Size;								///< pixels the faces were opened at
 		int PixelPpem;							///< the pixel face's ppem (C28), 0 when the chain has none
 		bool Bitmap;							///< the chain has an SVFN font (one size: upscaled at N x)
+		bool TrueType;							///< the chain has a TrueType face (refitted to a translation)
 		GlyphTextDrawer Drawer;
 		GameFallback Fallback;
 		AGS::Shared::String Name;
@@ -159,7 +160,7 @@ private:
 
 	ScaledChain *GetScaled(FontData &fd, int fontNumber, int scale);
 
-	bool Build(FontData &fd, const Common::Array<uint32> &fitProbes, bool warn);
+	bool Build(FontData &fd, int fontNumber, const Common::Array<uint32> &fitProbes, bool warn);
 	static void FreeSources(FontData &fd);
 	void Decode(const char *text);
 

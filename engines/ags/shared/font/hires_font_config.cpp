@@ -21,33 +21,12 @@
 
 
 #include "common/config-manager.h"
-#include "common/fs.h"
 #include "ags/shared/font/hires_font_config.h"
 #include "ags/shared/debugging/out.h"
 
 namespace AGS3 {
 
 using namespace AGS::Shared;
-
-// The default map's name (8.3), matched case-insensitively in the game folder
-static const char *const kDefaultMapName = "HIRESTXT.MAP";
-
-static Common::Path findDefaultMap(const Common::Path &gameDir) {
-	if (gameDir.empty())
-		return Common::Path();
-	const Common::Path direct = gameDir.appendComponent(kDefaultMapName);
-	if (Common::FSNode(direct).exists())
-		return direct;
-	Common::FSNode dir(gameDir);
-	Common::FSList children;
-	if (dir.isDirectory() && dir.getChildren(children, Common::FSNode::kListFilesOnly)) {
-		for (uint i = 0; i < children.size(); i++) {
-			if (children[i].getName().equalsIgnoreCase(kDefaultMapName))
-				return children[i].getPath();
-		}
-	}
-	return Common::Path();
-}
 
 void HiResFontConfig::load(int gameColorDepth) {
 	if (_loaded && _loadedDepth == gameColorDepth)
@@ -66,17 +45,10 @@ void HiResFontConfig::load(int gameColorDepth) {
 	// The map: the file hires_text_map names (relative: the game folder),
 	// else the game folder's own. An empty hires_text_map= names nothing.
 	const Graphics::HiResRenderTarget target = targetForColorDepth(gameColorDepth);
-	Common::Path mapPath;
-	if (ini.enabled) {
-		if (ini.mapSet) {
-			if (ini.map.empty())
-				Debug::Printf(kDbgMsg_Warn, "WARNING: hires_text_map: empty path; no map is used");
-			else
-				mapPath = Graphics::HiResFontMap::resolvePath(ini.map, gameDir);
-		} else {
-			mapPath = findDefaultMap(gameDir);
-		}
-	}
+	Common::String mapWarning;
+	const Common::Path mapPath = mapPathFor(ini, gameDir, mapWarning);
+	if (!mapWarning.empty())
+		Debug::Printf(kDbgMsg_Warn, "WARNING: %s", mapWarning.c_str());
 
 	Graphics::HiResMap map;
 	bool mapLoaded = false;

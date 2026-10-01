@@ -40,6 +40,7 @@
 #include "ags/shared/debugging/out.h"
 #include "ags/shared/font/ags_font_renderer.h"
 #include "ags/shared/font/fonts.h"
+#include "ags/shared/font/hires_font_config.h"
 #include "ags/engine/game/game_init.h"
 #include "ags/shared/gfx/bitmap.h"
 #include "ags/engine/gfx/ddb.h"
@@ -249,6 +250,9 @@ HError InitAndRegisterGameEntities(GameSetupStruct &game) {
 }
 
 void LoadFonts(GameSetupStruct &game, GameDataVersion data_ver) {
+	// ScummVM: HIRESTXT.MAP and the hi-res text keys, read for the game's
+	// colour depth before its fonts are loaded
+	_GP(hiresFontConfig).load(game.GetColorDepth());
 	for (int i = 0; i < _GP(game).numfonts; ++i) {
 		FontInfo &finfo = _GP(game).fonts[i];
 		if (!load_font_size(i, finfo))

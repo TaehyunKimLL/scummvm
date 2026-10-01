@@ -23,10 +23,46 @@
 // The parts of HiResFontConfig that need neither ConfMan nor the engine's
 // globals, so the unit tests link them (test/engines/ags/hires_font_plan.h).
 
+#include "common/fs.h"
 #include "ags/shared/font/hires_font_config.h"
 #include "graphics/hires_text/font_value.h"
 
 namespace AGS3 {
+
+// The default map's name (8.3), matched case-insensitively in the game folder
+static const char *const kDefaultMapName = "HIRESTXT.MAP";
+
+static Common::Path findDefaultMap(const Common::Path &gameDir) {
+	if (gameDir.empty())
+		return Common::Path();
+	const Common::Path direct = gameDir.appendComponent(kDefaultMapName);
+	if (Common::FSNode(direct).exists())
+		return direct;
+	Common::FSNode dir(gameDir);
+	Common::FSList children;
+	if (dir.isDirectory() && dir.getChildren(children, Common::FSNode::kListFilesOnly)) {
+		for (uint i = 0; i < children.size(); i++) {
+			if (children[i].getName().equalsIgnoreCase(kDefaultMapName))
+				return children[i].getPath();
+		}
+	}
+	return Common::Path();
+}
+
+Common::Path HiResFontConfig::mapPathFor(const Graphics::HiResIniOverrides &ini, const Common::Path &gameDir,
+										 Common::String &warning) {
+	if (!ini.enabled)
+		return Common::Path();
+	if (ini.mapSet) {
+		if (ini.map.empty()) {
+			warning = "hires_text_map: empty path; no map is used";
+			return Common::Path();
+		}
+		// data:, an absolute path, or one relative to the game folder
+		return Graphics::HiResFontMap::resolvePath(ini.map, gameDir);
+	}
+	return findDefaultMap(gameDir);
+}
 
 HiResFontConfig::HiResFontConfig() {
 	clear();
@@ -147,9 +183,8 @@ HiResFontPlan HiResFontConfig::plan(int fontNumber) const {
 	p.size = id.sizeSet ? id.size : 0;
 	if (_mapLoaded)
 		p.gamma = _map.coverageGamma;
-	// A pixel font is held on its grid in the size above. It is the map's
-	// face: the ini's hires_text_face is never a pixel face.
-	p.pixel = _iniFaceUsed ? 0 : id.pixel;
+	// A pixel font (the chain's first face) is held on its grid in the size above
+	p.pixel = id.pixel;
 	return p;
 }
 
