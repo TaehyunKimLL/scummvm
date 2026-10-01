@@ -23,6 +23,7 @@
 
 #include "engines/sci/graphics/hirestextsettings.h"
 #include "graphics/hires_text/hires_options.h"
+#include "graphics/hires_text/text_compose.h"
 
 /**
  * SCI's render target, blend and scale (design sections 7.1.1, 7.2, 7.4):
@@ -251,5 +252,57 @@ public:
 						 "render_target=rgb888 is not available here; using clut8");
 		TS_ASSERT(Sci::sciTargetNote(Graphics::kHiResTargetRgb888, Graphics::kHiResTargetRgb888).empty());
 		TS_ASSERT(Sci::sciTargetNote(Graphics::kHiResTargetAuto, Graphics::kHiResTargetClut8).empty());
+	}
+
+	// The 5-6-5 sink: the text blended at 8 bits over the colour under it,
+	// rounded to 5-6-5 once.
+	void test_rgb565_sink() {
+		const Graphics::PixelFormat f(2, 5, 6, 5, 0, 11, 5, 0, 0);
+		byte pal[768] = { 0 };
+		pal[3 * 15 + 0] = pal[3 * 15 + 1] = pal[3 * 15 + 2] = 255;	// index 15 white
+		const byte black[3 * 3] = { 0 };
+		const Graphics::TextPixelFg text[3] = { { 15, 128 }, { 15, 255 }, { 15, 0 } };
+		uint16 px[3] = { 0x1234, 0x1234, 0x1234 };
+		Graphics::TextCompose::composeSpanOver((byte *)px, f, text, 3, black, pal);
+		TS_ASSERT_EQUALS(px[0], 0x8410);
+		TS_ASSERT_EQUALS(px[1], 0xFFFF);
+		TS_ASSERT_EQUALS(px[2], 0x1234);	// coverage 0 leaves the pixel
+	}
+
+	// The same pixel a 32-bit screen gets, rounded to 5-6-5 the way the
+	// screen's other pixels are: every coverage, over a colour 5-6-5 cannot
+	// hold.
+	void test_rgb565_sink_matches_rgb888_rounded() {
+		const Graphics::PixelFormat f565(2, 5, 6, 5, 0, 11, 5, 0, 0);
+		const Graphics::PixelFormat f888(4, 8, 8, 8, 0, 16, 8, 0, 0);
+		byte pal[768];
+		for (int i = 0; i < 768; i++)
+			pal[i] = (byte)(i * 37 + 11);
+		const byte under[3] = { 201, 77, 13 };
+		for (int cov = 0; cov < 256; cov += 5) {
+			const Graphics::TextPixelFg t = { 9, (byte)cov };
+			uint32 p888 = f888.RGBToColor(under[0], under[1], under[2]);
+			Graphics::TextCompose::composeSpan((byte *)&p888, f888, &t, 1, pal);
+			byte r, g, b;
+			f888.colorToRGB(p888, r, g, b);
+			uint16 p565 = (uint16)f565.RGBToColor(under[0], under[1], under[2]);
+			Graphics::TextCompose::composeSpanOver((byte *)&p565, f565, &t, 1, under, pal);
+			TS_ASSERT_EQUALS(p565, (uint16)f565.RGBToColor(r, g, b));
+		}
+	}
+
+	// rgb565 is drawn now: chooseSciRender() keeps it as asked.
+	void test_rgb565_is_kept() {
+		const Sci::SciRenderChoice c = Sci::chooseSciRender(false, Graphics::kHiResTargetRgb565, true, Graphics::kHiResBlendAuto);
+		TS_ASSERT(c.requestRGB);
+		TS_ASSERT_EQUALS(c.target, Graphics::kHiResTargetRgb565);
+		Common::String note;
+		Common::List<Graphics::PixelFormat> formats;
+		formats.push_back(Graphics::PixelFormat(4, 8, 8, 8, 0, 16, 8, 0, 0));
+		formats.push_back(Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0));
+		formats.push_back(Graphics::PixelFormat::createFormatCLUT8());
+		const Common::List<Graphics::PixelFormat> req = Graphics::formatRequest(c.target, formats, true, note);
+		TS_ASSERT_EQUALS(req.front().bytesPerPixel, 2);
+		TS_ASSERT(note.empty());
 	}
 };
