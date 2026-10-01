@@ -242,7 +242,7 @@ public:
 		TS_ASSERT_EQUALS(dst[1], 0x22);
 	}
 
-	// --- C19: text blended over its outline, over the picture -------------
+	// --- Text blended over its outline, over the picture -------------
 
 	void test_true_colour_layered_blends_the_edge_over_the_outline() {
 		const Graphics::PixelFormat fmt(4, 8, 8, 8, 0, 16, 8, 0, 24);

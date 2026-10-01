@@ -1270,7 +1270,7 @@ public:
 		keyed.free();
 	}
 
-	// --- C19: antialiased outlines ----------------------------------------
+	// --- Antialiased outlines ----------------------------------------
 
 	/// A set of planes for a layered draw, all w x h and zeroed.
 	struct Planes {

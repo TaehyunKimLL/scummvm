@@ -6,7 +6,7 @@
 #include "engines/scumm/hires_text.h"
 
 /**
- * C32: text on a single-buffered virtual screen (the verb area, where MI1
+ * Text on a single-buffered virtual screen (the verb area, where MI1
  * puts its dialogue choices and sentence line) is drawn by the game into the
  * screen's own buffer, and erased when the game paints that buffer over -
  * restoreVerbBG(), a box fill. Hi-res text lives on the overlay instead, so

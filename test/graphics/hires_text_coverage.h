@@ -333,7 +333,7 @@ public:
 			"(U+0E48 U+0E49); they fall back to the game's font");
 	}
 
-	// C24: a character that draws no ink by design (a space, a zero-width
+	// A character that draws no ink by design (a space, a zero-width
 	// or other format character) is never counted missing, even when the
 	// face does not answer for it; every other absent one is.
 	void test_check_coverage_ignores_inkless_characters() {

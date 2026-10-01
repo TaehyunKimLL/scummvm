@@ -19,7 +19,7 @@
  *
  */
 
-// C28: a pixel font (HIRESTXT.MAP pixel=<design px>) is opened at its
+// A pixel font (HIRESTXT.MAP pixel=<design px>) is opened at its
 // design size, or the largest whole multiple of it the cell holds, with no
 // probe shrink, so every glyph is the designer's bitmap: coverage is only
 // ever 0 or 255.

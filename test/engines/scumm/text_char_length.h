@@ -522,7 +522,7 @@ public:
 	}
 
 	/**
-	 * C31: with hi-res text off, UTF-8 text breaks exactly as at the
+	 * With hi-res text off, UTF-8 text breaks exactly as at the
 	 * base (48665a4077): the rules the engine asks for (breakRules(_center)
 	 * of a disabled layer) against the base's (Hangul anywhere), centred or
 	 * not, over every entry of each UTF-8 .trs (SCUMMVM_TEST_UTF8_TRS) and

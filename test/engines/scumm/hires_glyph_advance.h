@@ -449,7 +449,7 @@ public:
 	}
 
 	/// advance=game centres any glyph narrower than the game cell it is
-	/// given - not only a wide one under the engine default (H1's own
+	/// given - not only a wide one under the engine default (the wide-glyph
 	/// test): explicit `advance=game` on the "other"/ASCII-like path
 	/// (kHiResAdvanceGame is not wide-gated) centres too, for every family.
 	void test_metrics_game_centres_narrow_glyph() {

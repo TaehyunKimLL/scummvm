@@ -25,7 +25,7 @@
 #include "sci/utf8.h"
 
 /**
- * C38: Korean text of the SCI fan patches without encoding.dat, and the
+ * Korean text of the SCI fan patches without encoding.dat, and the
  * per-lead-byte font banks of Conquests of Camelot's Korean beta.
  *
  * The test runner has no encoding.dat, which is exactly the situation that

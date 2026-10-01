@@ -68,7 +68,7 @@ public:
 		TS_ASSERT_EQUALS(w, "SCI draws hi-res text at 2x only; using 2");
 	}
 
-	// --- beyond the brief's five ---
+	// --- further cases ---
 
 	void test_explicit_clut8_without_upstream_has_no_warning() {
 		Sci::SciRenderChoice c = Sci::chooseSciRender(false, Graphics::kHiResTargetClut8, true, Graphics::kHiResBlendOn);

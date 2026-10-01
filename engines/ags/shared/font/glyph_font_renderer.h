@@ -73,7 +73,7 @@ public:
 	void SetTranslationSample(const Common::Array<uint32> &sample);
 
 	/**
-	 * C23: the text as RenderText() lays it out at game resolution, drawn
+	 * The text as RenderText() lays it out at game resolution, drawn
 	 * N x into an N x destination: (x, y) are game pixels, the glyphs come
 	 * from the same faces opened at N x the size (lazily, once per font and
 	 * N), the pens are N x the game's (AGS_HIRES_TEXT_DESIGN.md section

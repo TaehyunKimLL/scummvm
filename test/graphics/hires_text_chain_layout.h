@@ -207,7 +207,7 @@ public:
 		TS_ASSERT(l.normalize[1]);
 	}
 
-	// A face with no baseline: the M1 rule, cells proper on one row.
+	// A face with no baseline: the row pads line up, cells proper on one row.
 	void test_without_every_baseline_the_row_pads_line_up() {
 		Common::Array<Graphics::ChainFaceInfo> faces;
 		faces.push_back(bitmapFace(16, 16, 1, -1));

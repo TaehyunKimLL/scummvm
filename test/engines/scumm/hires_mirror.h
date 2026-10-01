@@ -137,12 +137,11 @@ public:
 		TS_ASSERT_EQUALS(ScummHiResText::gameMirror("atlantis", 5, 3), Graphics::kHiResMirrorNone);
 	}
 
-	/// mirror= wins; kHiResMirrorGame (the old "true" alias, no longer
-	/// reachable from a v2 map's own grammar - see test_mirror_alias_v2_only
-	/// below - but still a resolveMirror() input in its own right, e.g. for a
-	/// future v1-compatibility caller) means "as the game's font does", or
+	/// mirror= wins; kHiResMirrorGame means "as the game's font does", or
 	/// horizontal for a charset the table does not know; unset follows the
-	/// table.
+	/// table. No map can produce kHiResMirrorGame any more (the map's
+	/// grammar has no `true`); it is a dead value kept until a cleanup
+	/// removes it with resolveMirror()'s branch for it.
 	void test_resolve_mirror() {
 		using Scumm::ScummHiResText;
 		const Graphics::HiResMirror both = Graphics::kHiResMirrorBoth, none = Graphics::kHiResMirrorNone;

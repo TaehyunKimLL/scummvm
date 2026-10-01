@@ -19,7 +19,7 @@
  *
  */
 
-// C21: a map's font path may name one face of a TrueType collection,
+// A map's font path may name one face of a TrueType collection,
 // "<file>.ttc#<N>". The suffix is taken only when the part after the last
 // '#' is all digits and no file carries the full name, so a literal '#'
 // in a file name still works.

@@ -339,7 +339,7 @@ public:
 		ov.free();
 	}
 
-	// --- C19: the under planes a decoration is drawn into ----------------
+	// --- The under planes a decoration is drawn into ----------------
 
 	static void fillUnder(Scumm::HiResOverlay &ov, byte v) {
 		ov.underIndex()->fillRect(Common::Rect(ov.width(), ov.height()), v);

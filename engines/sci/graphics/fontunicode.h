@@ -195,8 +195,8 @@ private:
  * the font boundary: this adapter accepts the packed pair the renderer already
  * produces, decodes it to a Unicode code point using the game's code page, and
  * delegates to GfxFontUnicode. Wrapping arithmetic, byte counts and the
- * script-visible representation are all untouched - which is what M4's
- * measurement requires, since a real SCI0 game walks dialogue bytes.
+ * script-visible representation are all untouched - which measuring the
+ * text requires, since a real SCI0 game walks dialogue bytes.
  *
  * Widths are reported from the wrapped font but clamped to the cell geometry
  * the renderer assumes, so a code-point font cannot change where text wraps.
