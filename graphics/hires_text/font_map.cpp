@@ -288,6 +288,17 @@ bool parseInteger(const Common::String &value, int maxValue, int &out) {
 	return parseNumber(p, maxValue, out) && *p == 0;
 }
 
+/// The N of a [font.N] / [glyphs.N] section: plain decimal, 0..65535, written
+/// the one way ("4", not "04"), so the section can be read back by its
+/// canonical name.
+bool parseSectionId(const Common::String &text, int &out) {
+	int id;
+	if (!parseInteger(text, 65535, id) || text != Common::String::format("%d", id))
+		return false;
+	out = id;
+	return true;
+}
+
 bool parseAlign(const Common::String &value, HiResAlign &out) {
 	if (value.equalsIgnoreCase("game"))
 		out = kHiResAlignGame;
@@ -703,7 +714,7 @@ void classifyHiResSection(const Common::String &name, HiResSectionInfo &info) {
 	}
 	if (info.base.hasPrefixIgnoreCase("font.")) {
 		int id;
-		if (parseInteger(Common::String(info.base.c_str() + 5), 65535, id)) {
+		if (parseSectionId(Common::String(info.base.c_str() + 5), id)) {
 			info.family = kHSecFontId;
 			info.id = id;
 			return;
@@ -713,7 +724,7 @@ void classifyHiResSection(const Common::String &name, HiResSectionInfo &info) {
 	}
 	if (info.base.hasPrefixIgnoreCase("glyphs.")) {
 		int id;
-		if (parseInteger(Common::String(info.base.c_str() + 7), 65535, id)) {
+		if (parseSectionId(Common::String(info.base.c_str() + 7), id)) {
 			info.family = kHSecGlyphsId;
 			info.id = id;
 			return;
@@ -1411,7 +1422,7 @@ void collectRelevantIds(const Common::INIFile &ini, const Common::Array<Common::
 		if (!qualifier.empty() && !qualifierListed(qualifiers, qualifier))
 			continue;
 		int id;
-		if (!parseInteger(idText, 65535, id))
+		if (!parseSectionId(idText, id))
 			continue;
 		bool seen = false;
 		for (uint i = 0; i < ids.size() && !seen; ++i)
