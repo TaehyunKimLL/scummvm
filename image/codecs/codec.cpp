@@ -85,9 +85,19 @@ Codec *createBitmapCodec(uint32 tag, uint32 streamTag, int width, int height, in
 	case MKTAG('C','R','A','M'):
 	case MKTAG('m','s','v','c'):
 	case MKTAG('W','H','A','M'):
+#ifdef DISABLE_VIDEO_CODECS
+		missingCodec = "Microsoft Video 1";
+		break;
+#else
 		return new MSVideo1Decoder(width, height, bitsPerPixel);
+#endif
 	case MKTAG('c','v','i','d'):
+#ifdef DISABLE_VIDEO_CODECS
+		missingCodec = "Cinepak";
+		break;
+#else
 		return new CinepakDecoder(bitsPerPixel);
+#endif
 	case MKTAG('M','P','4','3'):
 	case MKTAG('m','p','4','3'):
 	case MKTAG('D','I','V','3'):
@@ -169,6 +179,14 @@ Codec *createQuickTimeCodec(uint32 tag, int width, int height, int bitsPerPixel)
 	const char *missingCodec = nullptr;
 
 	switch (tag) {
+#ifdef DISABLE_VIDEO_CODECS
+	case MKTAG('c','v','i','d'):
+	case MKTAG('r','p','z','a'):
+	case MKTAG('r','l','e',' '):
+	case MKTAG('s','m','c',' '):
+		missingCodec = "QuickTime video (Cinepak, RPZA, RLE, SMC)";
+		break;
+#else
 	case MKTAG('c','v','i','d'):
 		// Cinepak: As used by most Myst and all Riven videos as well as some Myst ME videos. "The Chief" videos also use this. Very popular for Director titles.
 		return new CinepakDecoder(bitsPerPixel);
@@ -181,6 +199,7 @@ Codec *createQuickTimeCodec(uint32 tag, int width, int height, int bitsPerPixel)
 	case MKTAG('s','m','c',' '):
 		// Apple SMC: Used by some Myst videos.
 		return new SMCDecoder(width, height);
+#endif
 	case MKTAG('S','V','Q','1'):
 #ifdef USE_SVQ1
 		// Sorenson Video 1: Used by some Myst ME videos.
