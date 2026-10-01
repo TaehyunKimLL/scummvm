@@ -13,6 +13,19 @@ case "$1" in
 esac
 source ~/opt/dos-dev/env.sh
 src="$(cd "$(dirname "$0")/../../.." && pwd)"
+# SDL3 must carry sdl3-irq-code.patch: without it its Sound Blaster handler's
+# code is not locked, and the link would fail late on DOS_IRQCodeChecked.
+sdl_lib="${SDL3_DOS:-$HOME/opt/sdl3-dos}/lib/libSDL3.a"
+if [ ! -f "$sdl_lib" ]; then
+	echo "build-dos.sh: no SDL3 for DOS at $sdl_lib (set SDL3_DOS)." >&2
+	echo "  Build SDL3 1ce4c5bc29 with backends/platform/dos/sdl3-irq-code.patch (see its header)." >&2
+	exit 1
+fi
+if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q ' [TDR] _DOS_IRQCodeChecked$'; then
+	echo "build-dos.sh: $sdl_lib lacks the dos-irq-lock patch (no DOS_IRQCodeChecked)." >&2
+	echo "  Rebuild SDL3 1ce4c5bc29 with backends/platform/dos/sdl3-irq-code.patch applied (see its header)." >&2
+	exit 1
+fi
 if [ "$edition" = scumm ]; then
 	out="$src/build-dos-scumm"
 	engine_args=(--enable-engine=scumm --disable-engine=scumm_7_8,he)
@@ -35,6 +48,11 @@ if [ ! -f config.mk ] || [ -n "$*" ]; then
 		--disable-detection-full --enable-release "$@"
 fi
 make -j"$(nproc)"
+# Interrupt handler code may reach nothing outside its locked range.
+if ! python3 "$src/backends/platform/dos/irqcheck.py" scummvm.exe; then
+	echo "build-dos.sh: scummvm.exe failed the interrupt code check (irqcheck.py); not staged." >&2
+	exit 1
+fi
 cp scummvm.exe "$src/dist/dos/$exe"
 cp "$CWSDPMI_EXE" "$src/dist/dos/CWSDPMI.EXE"
 # A fresh DATA: a map or font removed from dists must not stay behind from an earlier build.
