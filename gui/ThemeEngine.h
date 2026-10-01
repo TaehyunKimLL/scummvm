@@ -370,6 +370,11 @@ public:
 
 	void disable();
 
+private:
+	void releaseScreensIfWanted();
+
+public:
+
 
 	/**
 	 * Query the set up pixel format.
