@@ -128,6 +128,15 @@ public:
 	static int gateScale(int requested, bool fontsNamed, int gameColorDepth, bool has32BitFormat,
 						 Common::String &why);
 
+	/**
+	 * The map file for these ini keys: none with hires_text=false or an
+	 * empty hires_text_map (@p warning says so); hires_text_map resolved
+	 * against @p gameDir ("data:" and absolute paths as they are); else
+	 * HIRESTXT.MAP in @p gameDir, matched case-insensitively, when it exists.
+	 */
+	static Common::Path mapPathFor(const Graphics::HiResIniOverrides &ini, const Common::Path &gameDir,
+								   Common::String &warning);
+
 	/** The map target of a game of @p bits colour depth: 8 -> clut8, 16 (and 15) -> rgb565, else rgb888. */
 	static Graphics::HiResRenderTarget targetForColorDepth(int bits);
 

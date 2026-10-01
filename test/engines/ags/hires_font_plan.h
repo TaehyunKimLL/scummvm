@@ -22,6 +22,7 @@
 
 #include <cxxtest/TestSuite.h>
 
+#include "common/file.h"
 #include "common/fs.h"
 #include "common/memstream.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
@@ -213,16 +214,22 @@ public:
 		TS_ASSERT_EQUALS(c.plan(0).pixel, 0);
 	}
 
-	void test_pixel_is_only_for_a_face_the_map_names() {
-		// The ini's hires_text_face is not the map's pixel face.
-		const Graphics::HiResMap map = agsLoadMap("[map]\nversion=2\n[font]\nface=d.ttf\npixel=10\n", "x");
+	void test_pixel_applies_to_the_ini_face() {
+		// pixel= holds the first face of the id chain on its grid, and the
+		// ini's hires_text_face is that chain: it takes the map's pixel=,
+		// [font.N]'s over [font]'s.
+		const Graphics::HiResMap map = agsLoadMap(
+			"[map]\nversion=2\n[font]\nface=d.ttf\npixel=10\n[font.1]\npixel=12\n", "x");
 		AGS3::HiResFontConfig c;
 		Graphics::HiResIniOverrides ini;
 		ini.faceSet = true;
 		ini.face = "/f/ini.ttf";
 		c.configure(&map, true, ini, Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.plan(0).source, "hires_text_face");
-		TS_ASSERT_EQUALS(c.plan(0).pixel, 0);
+		TS_ASSERT_EQUALS(agsFaces(c.plan(0)), "/f/ini.ttf");
+		TS_ASSERT_EQUALS(c.plan(0).pixel, 10);
+		TS_ASSERT_EQUALS(c.plan(1).source, "hires_text_face");
+		TS_ASSERT_EQUALS(c.plan(1).pixel, 12);
 	}
 
 	void test_scaled_pixel_plan_is_n_times_the_small_face() {
@@ -495,5 +502,53 @@ public:
 		const Graphics::HiResMap map = agsLoadMap("[map]\nversion=2\n[layout]\nkinsoku=off\n", "x");
 		c.configure(&map, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT(!c.breakRules().kinsoku);
+	}
+
+	void test_map_path_choice() {
+#if NULL_OSYSTEM_IS_AVAILABLE
+		// A game folder of this run's own, holding a lower-case hirestxt.map
+		char name[] = "ags-hires-map-XXXXXX";
+		TS_ASSERT(mkdtemp(name));
+		char *full = realpath(name, nullptr);
+		const Common::String dir = full ? full : name;
+		free(full);
+		const Common::Path gameDir(dir, '/');
+		const Common::String mapFile = dir + "/hirestxt.map";
+		{
+			Common::DumpFile f;
+			TS_ASSERT(f.open(Common::Path(mapFile, '/')));
+			f.writeString("[map]\nversion=2\n");
+			f.close();
+		}
+		Common::String warning;
+		Graphics::HiResIniOverrides ini;
+		// unset: the game folder's HIRESTXT.MAP, whatever its case
+		TS_ASSERT_EQUALS(AGS3::HiResFontConfig::mapPathFor(ini, gameDir, warning).toString('/'), mapFile);
+		TS_ASSERT(warning.empty());
+		// relative: the game folder's, whether the file exists or not
+		ini.mapSet = true;
+		ini.map = "sub/X.MAP";
+		TS_ASSERT_EQUALS(AGS3::HiResFontConfig::mapPathFor(ini, gameDir, warning).toString('/'), dir + "/sub/X.MAP");
+		// absolute: as written
+		ini.map = "/maps/Y.MAP";
+		TS_ASSERT_EQUALS(AGS3::HiResFontConfig::mapPathFor(ini, gameDir, warning).toString('/'), "/maps/Y.MAP");
+		// empty: no map, one warning (the game folder's file is not used)
+		ini.map = "";
+		TS_ASSERT(AGS3::HiResFontConfig::mapPathFor(ini, gameDir, warning).empty());
+		TS_ASSERT(warning.contains("empty"));
+		// hires_text=false: no map at all
+		warning.clear();
+		ini = Graphics::HiResIniOverrides();
+		ini.enabled = false;
+		TS_ASSERT(AGS3::HiResFontConfig::mapPathFor(ini, gameDir, warning).empty());
+		TS_ASSERT(warning.empty());
+		// no file in the folder: no map
+		remove(mapFile.c_str());
+		ini.enabled = true;
+		TS_ASSERT(AGS3::HiResFontConfig::mapPathFor(ini, gameDir, warning).empty());
+		remove(dir.c_str());
+#else
+		TS_SKIP("needs a real filesystem");
+#endif
 	}
 };

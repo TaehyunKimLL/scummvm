@@ -50,6 +50,7 @@ MODULE_OBJS = \
 	shared/font/fonts.o \
 	shared/font/glyph_font_draw.o \
 	shared/font/glyph_font_renderer.o \
+	shared/font/hires_font_chain.o \
 	shared/font/hires_font_config.o \
 	shared/font/text_twin.o \
 	shared/font/hires_font_plan.o \
