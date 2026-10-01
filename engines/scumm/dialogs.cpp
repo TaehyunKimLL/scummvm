@@ -247,8 +247,8 @@ ScummDialog::ScummDialog(String name) : GUI::Dialog(name) {
 #ifndef DISABLE_HELP
 
 ScummMenuDialog::ScummMenuDialog(ScummEngine *scumm)
-	: MainMenuDialog(scumm) {
-	_helpDialog = new HelpDialog(scumm->_game);
+	: MainMenuDialog(scumm), _vm(scumm) {
+	_helpDialog = nullptr;
 	_helpButton->setEnabled(true);
 }
 
@@ -259,6 +259,8 @@ ScummMenuDialog::~ScummMenuDialog() {
 void ScummMenuDialog::handleCommand(GUI::CommandSender *sender, uint32 cmd, uint32 data) {
 	switch (cmd) {
 	case kHelpCmd:
+		if (!_helpDialog)
+			_helpDialog = new HelpDialog(_vm->_game);
 		_helpDialog->runModal();
 		break;
 	default:

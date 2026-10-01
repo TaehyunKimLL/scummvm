@@ -176,6 +176,12 @@ protected:
 	 */
 	GUI::Dialog *_mainMenuDialog;
 	/**
+	 * Create the global main menu dialog. openMainMenuDialog() calls this
+	 * the first time the menu is opened, so the GUI is not built before it
+	 * is needed. Engines with their own main menu dialog override it.
+	 */
+	virtual GUI::Dialog *createMainMenuDialog();
+	/**
 	 * Run a GUI dialog.
 	 */
 	virtual int runDialog(GUI::Dialog &dialog);
