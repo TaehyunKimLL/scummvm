@@ -295,6 +295,7 @@ private:
 
 	ExtraGuiOptions _options;
 	Common::Array<GUI::CheckboxWidget *> _checkboxes;
+	GUI::CheckboxWidget *_hiResTextBlendCheckbox = nullptr;
 };
 
 /**
@@ -321,6 +322,7 @@ private:
 #ifdef USE_TTS
 	GUI::CheckboxWidget *_enableTTSCheckbox = nullptr;
 #endif
+	GUI::CheckboxWidget *_hiResTextBlendCheckbox = nullptr;
 
 	GUI::SliderWidget *_overtureTicksSlider = nullptr;
 	GUI::StaticTextWidget *_overtureTicksValue = nullptr;
@@ -352,6 +354,7 @@ private:
 #ifdef USE_TTS
 	GUI::CheckboxWidget *_enableTTSCheckbox = nullptr;
 #endif
+	GUI::CheckboxWidget *_hiResTextBlendCheckbox = nullptr;
 	GUI::SliderWidget *_sndQualitySlider = nullptr;
 	GUI::StaticTextWidget *_sndQualityValue = nullptr;
 	int _quality = 0;
@@ -416,6 +419,7 @@ private:
 #ifdef USE_TTS
 	GUI::CheckboxWidget *_enableTTSCheckbox = nullptr;
 #endif
+	GUI::CheckboxWidget *_hiResTextBlendCheckbox = nullptr;
 
 	GUI::SliderWidget *_introAdjustmentSlider = nullptr;
 	GUI::StaticTextWidget *_introAdjustmentValue = nullptr;
