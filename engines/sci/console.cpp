@@ -51,7 +51,9 @@
 
 #include "sci/parser/vocabulary.h"
 
+#ifndef DISABLE_SCI_WINMAC_VIDEO
 #include "video/avi_decoder.h"
+#endif
 #include "sci/video/seq_decoder.h"
 #ifdef ENABLE_SCI32
 #include "common/memstream.h"
@@ -344,8 +346,10 @@ void Console::postEnter() {
 
 		if (_videoFile.baseName().hasSuffix(".seq")) {
 			videoDecoder.reset(new SEQDecoder(_videoFrameDelay));
+#ifndef DISABLE_SCI_WINMAC_VIDEO
 		} else if (_videoFile.baseName().hasSuffix(".avi")) {
 			videoDecoder.reset(new Video::AVIDecoder());
+#endif
 		} else {
 			warning("Unrecognized video type");
 		}

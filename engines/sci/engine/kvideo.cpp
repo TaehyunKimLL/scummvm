@@ -36,8 +36,10 @@
 #include "graphics/pixelformat.h"
 #include "graphics/surface.h"
 #include "video/video_decoder.h"
+#ifndef DISABLE_SCI_WINMAC_VIDEO
 #include "video/avi_decoder.h"
 #include "video/qt_decoder.h"
+#endif
 #include "sci/video/seq_decoder.h"
 #ifdef ENABLE_SCI32
 #include "sci/engine/guest_additions.h"
@@ -130,6 +132,10 @@ reg_t kShowMovie(EngineState *s, int argc, reg_t *argv) {
 		Common::Path filename(s->_segMan->getString(argv[0]));
 
 		if (g_sci->getPlatform() == Common::kPlatformMacintosh) {
+#ifdef DISABLE_SCI_WINMAC_VIDEO
+			warning("Mac QuickTime movie '%s' not played: not built in", filename.toString().c_str());
+			return NULL_REG;
+#else
 			// Mac QuickTime: the only argument is the string for the video
 			videoDecoder.reset(new Video::QuickTimeDecoder());
 			if (!videoDecoder->loadFile(filename)) {
@@ -159,6 +165,7 @@ reg_t kShowMovie(EngineState *s, int argc, reg_t *argv) {
 			switchedGraphicsMode = true;
 			// Never sync the last frame for QT movies
 			syncLastFrame = false;
+#endif
 		} else {
 			// DOS SEQ
 			// SEQ's are called with no subops, just the string and delay
@@ -190,6 +197,9 @@ reg_t kShowMovie(EngineState *s, int argc, reg_t *argv) {
 			Common::String filename = s->_segMan->getString(argv[1]);
 			// For KQ6, this changes the vertical 200/440 upscaling to 200/400, since this is the expected behavior. Also,
 			// the calculation of the scaled x/y coordinates works slightly differently compared to the normal gfx rendering.
+#ifdef DISABLE_SCI_WINMAC_VIDEO
+			warning("Windows AVI movie '%s' not played: not built in", filename.c_str());
+#else
 			g_sci->_gfxScreen->gfxDriver()->setFlags(GfxDriver::kMovieMode);
 			videoDecoder.reset(new Video::AVIDecoder());
 			videoDecoder->setSoundType(Audio::Mixer::kSFXSoundType);
@@ -198,6 +208,7 @@ reg_t kShowMovie(EngineState *s, int argc, reg_t *argv) {
 				videoDecoder.reset();
 			}
 			syncLastFrame = false;
+#endif
 			retval = TRUE_REG;
 			break;
 		}
