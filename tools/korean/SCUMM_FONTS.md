@@ -204,6 +204,22 @@ preset whose SVF needs the remapped glyph takes these two arguments; a
 preset that keeps the byte as the game's own glyph (`[glyphs:clut8] 0x5e =
 original`, say) bakes with the plain four-argument form.
 
+The shipped MI1/MI2 SVFs are baked this way:
+
+```sh
+G=~/work/scummvm/gamedata D=dists/engine-data/hires_text/dos
+python3 tools/korean/scummtext.py $G/mi1kor mi1.txt
+printf '\xe2\x80\xa6\n' > ellipsis.txt
+# U presets: the map's remap targets, U+2026 and U+2122.
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1u.tsv $G/mi1kor $D mi1.txt $D/M1KO.MAP 2026,2122
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m2u.tsv $G/mi2kor $D $G/mi2kor/korean.trs $D/M2KO.MAP 2026,2122
+# L presets: U+2026 only (0x5e = u+2026 holds for clut8 too; 0x0f stays the
+# game's glyph there, and neodgm has no U+2122). MI2's .trs bake checks
+# --require, which the map's U+2122 would fail, so it takes the ellipsis alone.
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1l.tsv $G/mi1kor $D mi1.txt $D/M1KO.MAP 2026
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m2l.tsv $G/mi2kor $D $G/mi2kor/korean.trs ellipsis.txt 2026
+```
+
 A line whose `(ttf, size, bpp, cell, ascent)` was already baked earlier in
 the same plan is copied from that earlier output rather than baked again -
 MI1/MI2 commonly reuse one face at one size for several charsets (every UI
