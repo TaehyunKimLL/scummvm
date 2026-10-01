@@ -471,7 +471,9 @@ so the target is resolved from a view of the map that has none of them:
    - An engine that loads its faces **after** its screen is set (SCI: `GfxCache` is created after `GfxScreen`) uses
      the actual `g_system->getScreenFormat()`.
    - An engine that loads **before** `initGraphics()` (SCUMM) uses the predicted family - the first format of its
-     request list, which `initGraphics()` sets because the list is filtered to what the backend offers - and after
+     request list - and, because upstream `initGraphics()` picks the first format of the BACKEND's list that the request
+     contains, the request names only that one RGB family (then CLUT8), so the backend's order cannot substitute the
+     other family - and after
      `initGraphics()` compares it with the actual screen; if they differ it warns once (`SCUMM: the screen is <actual>,
      not <predicted>; hi-res text uses the <actual> sections`) and repeats phase 2 with the actual family.
    - An engine whose screen format is not chosen by the hi-res layer passes the family of the screen it runs on (SCUMM
