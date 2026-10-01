@@ -39,6 +39,10 @@ protected:
 	/** File handle to the actual file. */
 	void *_handle;
 	Common::String *_path;
+	/** The handle reads go to after unbuffer(), or -1: then stdio does. */
+	int _fd;
+	/** End of file and error of the reads from _fd, which stdio does not see. */
+	bool _fdEos, _fdErr;
 
 	static StdioStream *makeFromPathHelper(const Common::String &path, WriteMode writeMode,
 			StdioStream *(*factory)(void *handle));
@@ -79,6 +83,18 @@ public:
 	 * @return success or failure
 	 */
 	bool setBufferSize(uint32 bufferSize);
+
+	/**
+	 * Drop the stdio buffer of a stream opened for reading, for a reader
+	 * that reads in blocks of its own (Common::unbufferStream()). Where the
+	 * C library has the file's handle (POSIX), reads, seeks and the
+	 * position go to the handle from now on: DJGPP's fread() fetches an
+	 * unbuffered stream one byte, one DOS call, at a time.
+	 */
+	void unbuffer();
+
+	/** Whether unbuffer() made the reads go to the file handle. */
+	bool readsFromHandle() const { return _fd >= 0; }
 
 private:
 	/**

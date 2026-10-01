@@ -29,6 +29,7 @@ TEST_LIBS += test/system/null_osystem.o \
 	backends/fs/abstract-fs.o \
 	backends/fs/stdiostream.o \
 	backends/modular-backend.o
+TESTS += $(srcdir)/test/backends/stdiostream_unbuffered.h
 endif
 
 ifdef WIN32
