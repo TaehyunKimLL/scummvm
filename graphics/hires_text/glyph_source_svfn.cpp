@@ -30,7 +30,7 @@ namespace Graphics {
 
 SvfnGlyphSource::SvfnGlyphSource(HiResBitmapFont *font, DisposeAfterUse::Flag dispose)
 	: _font(font), _dispose(dispose), _cellWidth(0), _cellHeight(0), _bitsPerPixel(1), _rowBytes(0), _maxEntries(32),
-	  _clock(0), _glyphReads(0), _lastCp(0xFFFFFFFF), _registered(false) {
+	  _clock(0), _glyphReads(0), _lastCp(0xFFFFFFFF), _failedCp(0xFFFFFFFF), _readFailWarned(false), _registered(false) {
 	_stats.kind = "svf";
 	if (!_font || !_font->isLoaded()) {
 		warning("SvfnGlyphSource: font is not loaded; no glyphs");
@@ -124,6 +124,11 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
 		return *found;
 	}
 
+	// A glyph whose read failed in this same drawing is not read again for
+	// each of its rows (row() lets row 0 try again).
+	if (cp == _failedCp)
+		return _failed;
+
 	// Taken first, so a miss is cached too.
 	Entry &entry = takeEntry(cp);
 	entry.lastUse = ++_clock;
@@ -132,8 +137,31 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
 
 	const int index = _font->glyphIndex(cp);
 	const byte *glyph = index >= 0 ? _font->glyphData(index) : nullptr;
+	if (!glyph && index >= 0) {
+		// The font has it but its pixels could not be read (a removed disc,
+		// a file changed underneath). Nothing is kept, so the next use tries
+		// again; meanwhile it is blank at the width cells() gives, never a
+		// missing row.
+		if (!_readFailWarned) {
+			warning("SVF %s: a glyph could not be read from the file; drawn blank until it can be",
+					_stats.name.c_str());
+			_readFailWarned = true;
+		}
+		_byCp.erase(cp);
+		entry.cp = 0xFFFFFFFF;
+		entry.lastUse = 0;
+		_failedCp = cp;
+		_failed.cp = cp;
+		_failed.cells = cellsFor(cp, index);
+		_failed.rows.resize(_rowBytes * _cellHeight);
+		memset(_failed.rows.begin(), 0, _failed.rows.size());
+		updateStats();
+		return _failed;
+	}
 	if (!glyph)
 		return entry;
+	if (cp == _failedCp)
+		_failedCp = 0xFFFFFFFF;
 	++_glyphReads;
 
 	const uint32 pitch = (uint32)_font->glyphPitch();
@@ -166,8 +194,10 @@ void SvfnGlyphSource::prefetch(Common::Array<uint32> &cps) {
 	Common::Array<uint32> rest;
 	for (uint i = 0; i < cps.size(); ++i) {
 		const uint32 cp = cps[i];
-		const Entry *kept = find(cp);
+		Entry *kept = find(cp);
 		if (kept) {
+			// About to be drawn: not what the new glyphs below push out.
+			kept->lastUse = ++_clock;
 			if (!kept->cells)
 				rest.push_back(cp);
 			continue;
@@ -224,6 +254,10 @@ int SvfnGlyphSource::cells(uint32 cp) {
 }
 
 const byte *SvfnGlyphSource::row(uint32 cp, int y) {
+	// Row 0 starts a drawing of the glyph: one whose read failed is tried
+	// again then, not for each of its other rows.
+	if (y == 0 && cp == _failedCp)
+		_failedCp = 0xFFFFFFFF;
 	Entry &entry = ensure(cp);
 	if (!entry.cells || y < 0 || y >= _cellHeight)
 		return nullptr; // contract: only called when cells(cp) > 0

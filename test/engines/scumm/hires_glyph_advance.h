@@ -475,4 +475,51 @@ public:
 		TS_ASSERT_EQUALS(inkLeft(dest), x + 6 / 2);
 		dest.free();
 	}
+
+	/// A stream over a copy of some bytes whose reads can be made to fail.
+	class FlakyStream : public Common::MemoryReadStream {
+	public:
+		FlakyStream(const Common::Array<byte> &bytes, bool &fail)
+			: Common::MemoryReadStream(copyOf(bytes), bytes.size(), DisposeAfterUse::YES), _fail(fail) {}
+		uint32 read(void *dataPtr, uint32 dataSize) override {
+			return _fail ? 0 : Common::MemoryReadStream::read(dataPtr, dataSize);
+		}
+		static byte *copyOf(const Common::Array<byte> &bytes) {
+			byte *p = (byte *)malloc(bytes.size());
+			memcpy(p, bytes.begin(), bytes.size());
+			return p;
+		}
+
+	private:
+		bool &_fail;
+	};
+
+	/// An SVF face read from its file whose glyph read fails draws nothing
+	/// (and does not crash); once the file reads again the glyph is drawn.
+	void test_a_face_whose_glyph_read_fails_draws_once_it_can() {
+		Graphics::HiResBitmapFont::setStreamThreshold(0);
+		Scumm::HiResOverlay overlay;
+		overlay.create(64, 40, false);
+		Scumm::ScummHiResText hr;
+		TS_ASSERT(open(hr, overlay, "[font.4]\nface=OWN.SVF\n"));
+		hr.useUtf8Text();
+		const Common::Array<byte> bytes = svfn(0xAC00, 9, 0, 6, 4, 10, 2, 14, 16, 13);
+		bool fail = false;
+		TS_ASSERT(hr.addFace("/tmp/t/OWN.SVF", new FlakyStream(bytes, fail), DisposeAfterUse::YES));
+		Graphics::Surface dest;
+		dest.create(64, 40, Graphics::PixelFormat::createFormatCLUT8());
+		memset(dest.getPixels(), 0, dest.pitch * dest.h);
+		fail = true;
+		hr.drawChar(dest, 0xAC00, kCs, 10, 5, 15, 0, 1, nullptr, true, 12);
+		fail = false;
+		memset(dest.getPixels(), 0, dest.pitch * dest.h);
+		TS_ASSERT(hr.drawChar(dest, 0xAC00, kCs, 10, 5, 15, 0, 1, nullptr, true, 12));
+		bool ink = false;
+		for (int y = 0; y < dest.h && !ink; ++y)
+			for (int x = 0; x < dest.w && !ink; ++x)
+				ink = *(const byte *)dest.getBasePtr(x, y) != 0;
+		TS_ASSERT(ink);
+		dest.free();
+		Graphics::HiResBitmapFont::setStreamThreshold(HIRES_SVF_STREAM_MIN);
+	}
 };
