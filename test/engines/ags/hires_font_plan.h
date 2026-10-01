@@ -270,7 +270,7 @@ public:
 		AGS3::HiResFontPlan p;
 		p.kind = AGS3::HiResFontPlan::kFaces;
 		p.pixel = 10;
-		// (cell, N): the review's cases, cell 15 and a cell smaller than D.
+		// (cell, N): cell 15 and a cell smaller than D, among others.
 		static const int kCases[][2] = { { 15, 2 }, { 9, 2 }, { 12, 3 }, { 25, 2 } };
 		for (uint c = 0; c < ARRAYSIZE(kCases); c++) {
 			const int cell = kCases[c][0], n = kCases[c][1];

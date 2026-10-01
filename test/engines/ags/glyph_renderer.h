@@ -101,7 +101,7 @@ byte px8(const Graphics::Surface &s, int x) { return *(const byte *)s.getBasePtr
 } // End of anonymous namespace
 
 /**
- * GlyphFontRenderer's drawing half (AGS fonts from hires_text.map): per-glyph
+ * GlyphFontRenderer's drawing half (AGS fonts from HIRESTXT.MAP): per-glyph
  * placement with zero-advance combining marks, coverage blended into 16/32-bit
  * targets, thresholded into 8-bit ones (I18N_TEXT_DESIGN.md section 4.2).
  */

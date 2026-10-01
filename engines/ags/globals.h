@@ -731,7 +731,7 @@ public:
 	std::vector<AGS::Shared::Font> *_fonts;
 	TTFFontRenderer *_ttfRenderer;
 	WFNFontRenderer *_wfnRenderer;
-	// ScummVM: fonts from hires_text.map
+	// ScummVM: fonts from HIRESTXT.MAP
 	GlyphFontRenderer *_glyphRenderer;
 	HiResFontConfig *_hiresFontConfig;
 	// ScummVM (C23): the hi-res text scale N in effect, gated; 1 = off

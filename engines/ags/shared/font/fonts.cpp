@@ -167,7 +167,7 @@ void font_recalc_metrics(size_t fontNumber) {
 bool is_bitmap_font(size_t fontNumber) {
 	if (fontNumber >= _GP(fonts).size() || !_GP(fonts)[fontNumber].RendererInt)
 		return false;
-	// ScummVM: a font from hires_text.map keeps the game font's outline and
+	// ScummVM: a font from HIRESTXT.MAP keeps the game font's outline and
 	// anti-aliasing rules
 	if (_GP(fonts)[fontNumber].RendererInt == &_GP(glyphRenderer))
 		return _GP(glyphRenderer).IsGameBitmapFont(fontNumber);

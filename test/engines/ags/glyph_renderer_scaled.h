@@ -175,7 +175,7 @@ Common::Rect agsInkBox(const Graphics::Surface &s) {
 /**
  * GlyphTextDrawer::drawTextScaled(): text drawn N x into an N x target
  * with the game-resolution pen positions (AGS_HIRES_TEXT_DESIGN.md
- * section 4.3, ruling R2).
+ * section 4.3).
  */
 class AgsGlyphRendererScaledTestSuite : public CxxTest::TestSuite {
 public:

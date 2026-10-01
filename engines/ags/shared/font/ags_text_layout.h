@@ -33,7 +33,7 @@ namespace AGS3 {
  * (graphics/hires_text/text_layout.h) instead of its own loop
  * (split_lines_bytes()): only for text the new i18n path owns - an EUC-KR
  * translation (U_EUCKR), a UTF-8 text while a translation is loaded, or any
- * non-ASCII format while hires_text.map names fonts (mapActive). U_ASCII
+ * non-ASCII format while HIRESTXT.MAP names fonts (mapActive). U_ASCII
  * and a native UTF-8 game with neither keep AGS's own breaking, byte for
  * byte.
  */
