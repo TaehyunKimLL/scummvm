@@ -49,7 +49,7 @@ public:
 						 Graphics::kHiResShadowDrop);
 	}
 
-	// --- C19: what each byte draws, at MI2's 2x --------------------------
+	// --- What each byte draws, at MI2's 2x --------------------------
 
 	static Graphics::GlyphDecoration drawn(int shadow, bool korPatch, int scale = 2) {
 		Graphics::HiResMap map;

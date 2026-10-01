@@ -170,7 +170,7 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 		hiresX = _anchor.place(m, placed, left, top, placed && !m.combining ? gameCharWidth(chr, 2) : 0);
 	}
 	if (_placement.active()) {
-		// C41: the raster cell moved within the layout cell. What leaves the
+		// The raster cell moved within the layout cell. What leaves the
 		// cell sideways is drawn over the neighbouring pixels, not clipped -
 		// only at the edge of the port (or window) the text is drawn in.
 		// Above and below, the ink is clipped to the text line: the game

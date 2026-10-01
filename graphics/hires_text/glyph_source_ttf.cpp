@@ -644,7 +644,7 @@ TtfGlyphSource::Entry &TtfGlyphSource::ensure(uint32 cp) {
 
 	// TTFFont exposes no "has glyph" query, so a code point the face lacks
 	// is inferred from drawing no ink at all. That also catches a face that
-	// maps a code point to an empty glyph (C22: faces that map all 11172
+	// maps a code point to an empty glyph (faces that map all 11172
 	// Hangul syllables but outline only KS X 1001's 2350) and a face with
 	// no outlines drawn off its bitmap strike: missing, so a chain asks its
 	// next face. The code points that are legitimately blank - the spaces,

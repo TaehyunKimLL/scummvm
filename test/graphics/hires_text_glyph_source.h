@@ -609,7 +609,7 @@ public:
 		delete src;
 	}
 
-	// C24: a face may map a code point and draw nothing for it - the free
+	// A face may map a code point and draw nothing for it - the free
 	// Korean faces that map all 11172 syllables but outline only KS X
 	// 1001's 2350 (C22), a face with no outlines off its bitmap strike
 	// (C25's LanaPixel). No ink means missing, so a chain asks its next
@@ -785,7 +785,7 @@ public:
 		delete src;
 	}
 
-	// C20: the coverage curve behind [render] gamma=.
+	// The coverage curve behind [render] gamma=.
 	void test_gamma_curve_identity_at_one() {
 		byte lut[256];
 		TS_ASSERT(!TtfGlyphSource::buildGammaCurve(100, lut));

@@ -1201,7 +1201,7 @@ private:
 	int _gameFontW[kMaxFonts] = {};
 	int _gameFontH[kMaxFonts] = {};
 	// setGameFontCell() was given a CJK font's cell: text is laid out on it,
-	// and the space is the word gap of that script (C36: kept at the game's).
+	// and the space is the word gap of that script (kept at the game's).
 	bool _cjkCells = false;
 	// The charset renderer measures single-byte text through advanceFor()
 	// (setLatinFaceStepAllowed()).

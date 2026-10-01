@@ -186,7 +186,7 @@ public:
 		TS_ASSERT(!Graphics::Unicode::isCombining(0x0041));
 	}
 
-	// C24: the characters a face may draw with no ink without lacking them.
+	// The characters a face may draw with no ink without lacking them.
 	void test_is_space_separator() {
 		static const uint32 kZs[] = { 0x0020, 0x00A0, 0x1680, 0x2000, 0x2009, 0x200A, 0x202F, 0x205F, 0x3000 };
 		for (uint i = 0; i < ARRAYSIZE(kZs); i++)

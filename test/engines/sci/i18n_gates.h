@@ -28,7 +28,7 @@ static const char *i18nDataDir() {
 #pragma pop_macro("getenv")
 
 /**
- * C11: SCI decides hi-res text by the translation, measures glyphs
+ * SCI decides hi-res text by the translation, measures glyphs
  * per glyph, and breaks UTF-8 lines with the shared layout stage
  * (I18N_TEXT_DESIGN.md sections 4.1, 4.2, 4.3).
  */

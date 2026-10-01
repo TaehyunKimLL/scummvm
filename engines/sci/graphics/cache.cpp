@@ -246,7 +246,7 @@ Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int si
 		if (src) {
 			// [render] gamma=: off (100) unless the map asks.
 			src->setCoverageGamma(_hiresMap.coverageGamma);
-			// C41: rows of headroom above and below the cell, so a glyph
+			// Rows of headroom above and below the cell, so a glyph
 			// the fit could not bring inside it is kept whole; GfxFontUnicode
 			// places the raster by its measured baseline (GlyphPlacement).
 			src->padRows((size + 3) / 4);
@@ -750,7 +750,7 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 		return uni;
 	}
 
-	// C41: the face in its layout cell - on the game font's baseline
+	// The face in its layout cell - on the game font's baseline
 	// (align=game), on its own line (font) or centred (cell) - moved by
 	// shift=. Measured against the id chain's own first face, already folded
 	// into the chain's one shared cell: the raster dimensions and

@@ -180,7 +180,7 @@ public:
 		hr.setCharsetGrid(2, 16, 16);
 		TS_ASSERT(hr.loadFonts(Common::Path()));
 
-		// M10: 0xAC00 (Hangul) is not in DejaVuSans, so this used to measure
+		// 0xAC00 (Hangul) is not in DejaVuSans, so this used to measure
 		// only the missing-glyph fallback, whose advance happens to be the
 		// game's own 16 either way - "adv > 0" could never fail. Use a real,
 		// inked glyph, and prove the C31 default genuinely differs from the

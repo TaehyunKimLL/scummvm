@@ -2187,7 +2187,7 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 		for (int id = 0; id < kMaxFonts; ++id)
 			ensureChainSources(id);
 
-		// C1: a TrueType face named for a game/charset whose cell is not yet
+		// A TrueType face named for a game/charset whose cell is not yet
 		// known (any SCUMM version but the CJK ones only calls
 		// setGameFontCell() before loadFonts() - scumm.cpp) is not open yet
 		// (ensureChainSources() has nothing to size it with), but it is not

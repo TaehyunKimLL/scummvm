@@ -54,7 +54,7 @@ enum HiResSpecKind {
  * One parsed `<spec>` (a block name, an explicit `U+XXXX[-YYYY]` span, or
  * `wide`). @p spelled keeps the text as written, for diagnostics: two
  * spellings of the same span (a block name and its equivalent `U+` form)
- * are the same rule (section 6.2.1), a comparison the map loader (task 4)
+ * are the same rule (section 6.2.1), a comparison the map loader
  * makes by span, not by @p spelled.
  */
 struct HiResRangeSpec {
