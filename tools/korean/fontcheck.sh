@@ -1,14 +1,13 @@
 #!/bin/bash
 # fontcheck.sh — which font system is a target actually using?
 #
-# Two font systems can be live at once and it is not obvious from the screen.
-# i3-multi took an hour to diagnose for exactly this reason: its map is the old
-# TrueType format, so the legacy loader picked it up and drew the text, while
-# the new reader found nothing and only the scale was applied. The result was a
-# screen drawn by one system and laid out by the other.
+# Two font systems can be live at once and it is not obvious from the screen:
+# the game's own korean%02d.fnt (loadKorFont) and the hi-res reader. A map the
+# reader refuses (not version 2) or whose faces do not load leaves the game's
+# fonts drawing into a surface laid out for the hi-res ones.
 #
-# This reports, for each target, which loader claimed the map, how many fonts
-# each got, and flags the mixed state.
+# This reports, for each target, the hi-res scale, blend and render target,
+# how many fonts each system got, and flags the mixed state.
 #
 #   fontcheck.sh [target ...]      (no arguments: every target with a hi-res key)
 set -u
@@ -36,9 +35,8 @@ for block in re.split(r'(?m)^\[', text):
     if not block.strip():
         continue
     name, _, body = block.partition(']')
-    if any(k in body for k in ('korean_ttf_map', 'korean_hires_scale',
-                               'korean_alpha_text', 'hires_text_map',
-                               'hires_text_scale')):
+    if any(k in body for k in ('hires_text_map', 'hires_text_face',
+                               'hires_text_scale', 'render_target')):
         out.append(name.strip())
 print(' '.join(out))
 PY
@@ -84,7 +82,7 @@ trap 'kill $XV 2>/dev/null; rm -rf "$D"' EXIT
 sleep 2
 
 printf '%-17s %-6s %-6s %-8s %-7s %-5s %s\n' \
-	target scale alpha metrics legacy new notes
+	target scale blend target legacy new notes
 printf '%-17s %-6s %-6s %-8s %-7s %-5s %s\n' \
 	----------------- ------ ------ -------- ------- ----- -----
 
@@ -116,8 +114,8 @@ for t in $TARGETS; do
 	fi
 
 	scale=$(grep -oE 'hi-res text enabled: scale [0-9]+' "$log" | grep -oE '[0-9]+$' | head -1)
-	alpha=$(grep -oE 'alpha (on|off)' "$log" | head -1 | awk '{print $2}')
-	metrics=$(grep -oE 'metrics (game|font)' "$log" | head -1 | awk '{print $2}')
+	blend=$(grep -oE 'blend (auto|on|off)' "$log" | head -1 | awk '{print $2}')
+	rtarget=$(grep -oE 'render target [a-z0-9]+' "$log" | head -1 | awk '{print $3}')
 
 	# The legacy Korean font loader announces itself and its count.
 	legacy=$(grep -oE '[0-9]+ fonts are loaded' "$log" | grep -oE '^[0-9]+' | head -1)
@@ -143,8 +141,8 @@ for t in $TARGETS; do
 			notes="new reader found no fonts (hi-res off, so harmless)"
 		fi
 	fi
-	if grep -qi 'names no \[bitmap\] fonts' "$log"; then
-		notes="$notes; map is in the OLD TrueType format"
+	if grep -qi 'not a version 2 map' "$log"; then
+		notes="$notes; map REFUSED: not a version 2 map (makemaps.py writes one)"
 	fi
 	if grep -qi 'encoding.dat is not found' "$log"; then
 		notes="$notes; NO encoding.dat, CJK will not decode"
@@ -155,7 +153,7 @@ for t in $TARGETS; do
 	fi
 
 	printf '%-17s %-6s %-6s %-8s %-7s %-5s %s\n' \
-		"$t" "$scale" "${alpha:--}" "${metrics:--}" "$legacy" "$new" "$notes"
+		"$t" "$scale" "${blend:--}" "${rtarget:--}" "$legacy" "$new" "$notes"
 done
 
 kill $XV 2>/dev/null
@@ -173,10 +171,12 @@ Columns:
   the picture is drawn by one system and laid out by the other. That looks like a
   font bug and is not one.
 
-The usual cause is a map in the old format: the new reader wants
+The usual cause is a map in an old format: the reader wants
 
-    [bitmap]
-    multi=korean%02d.fnt
+    [map]
+    version=2
 
-and ignores a map that only has [fonts] default=<something>.ttf.
+and refuses anything else ("not a version 2 map"; tools/korean/makemaps.py
+writes version 2 maps). The next usual cause is a face= the reader cannot
+open (see the warnings in the log).
 NOTES

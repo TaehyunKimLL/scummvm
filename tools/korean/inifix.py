@@ -5,7 +5,7 @@ Every harness needs the same two or three edits, and doing them with inline
 python inside a shell script produced heredocs long enough to be rejected. This
 does them from a file instead.
 
-    python3 inifix.py <ini> [target] [--log] [--gui] [--no-alpha]
+    python3 inifix.py <ini> [target] [--log] [--gui] [--no-alpha] [--no-hires]
 
 Always sets extrapath, because without encoding.dat every CJK character decodes
 to U+FFFD and the capture shows tofu that looks like a font fault.
@@ -120,10 +120,9 @@ def main():
         if args.gui:
             wanted.append("original_gui=false")
         if args.no_alpha:
-            wanted.append("hires_text_alpha=false")
+            wanted.append("hires_text_blend=off")
         if args.no_hires:
-            wanted.append("hires_text_scale=1")
-            wanted.append("korean_hires_scale=1")
+            wanted.append("hires_text=false")
 
         missing = False
         for line in wanted:

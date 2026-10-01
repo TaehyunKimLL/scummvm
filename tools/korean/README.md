@@ -12,7 +12,7 @@ through Pillow; the engine does not.
 ```sh
 tools/korean/fontplan.py   ~/games/mi2kor          # what cells are needed
 tools/korean/bakecells.sh  ~/games/mi2kor 2        # bake them
-tools/korean/makemaps.py   ~/games/mi2kor          # write hires_text.map
+tools/korean/makemaps.py   ~/games/mi2kor          # write HIRESTXT.MAP (version 2)
 ```
 
 ### The cell size is decided by the game
@@ -46,7 +46,8 @@ to another face for them. `mkfont.py --unicode <list>` bakes a version 2 SVFN
 ranges and names (`ascii`, `latin1`, `hangul` = all 11172, `jamo`,
 `cjk-punct`, `ksx1001` = the whole of KS X 1001 with its 4888 Hanja, `kana`,
 `thai`). Code points the face does not draw (no ink, or its .notdef box) are
-left out, so the `[font.N] bitmap=` loader falls back for them. A pixel font
+left out, so the next face of the id's chain in the map (`face=a,b`) or the
+game's own font draws them. A pixel font
 baked at its design size is its own bitmap exactly:
 
 ```sh
@@ -71,7 +72,7 @@ every game; a single game's translation uses far fewer code points, and a
 per-game bake of just those is smaller. `--chars-from <file>...` collects
 every code point a game's translation actually writes and unions it into
 `--unicode` (a bare `--chars-from` with no `--unicode` works too, same as
-`--unicode ""`). ASCII and U+25A1 (the box `[hires] missing=` draws for a
+`--unicode ""`). ASCII and U+25A1 (the box a map's `missing=` draws for a
 character no font has, FONT_FORMAT.md) are always in the result, with or
 without `--chars-from`.
 
@@ -86,10 +87,10 @@ The file format is told apart by name, not content:
 - `*.str`/`sci-ko.str` - the script-string manifest
   (`engines/sci/engine/translation.h`/`.cpp`): `script<TAB>id[<TAB>room]<TAB>text`,
   UTF-8, `#` whole-line comments.
-- `*.map` - a `hires_text.map`/per-game `.MAP` (`graphics/hires_text/font_map.cpp`
-  INI): the `[hires] missing=` code point and any `[glyphs]` entry whose value
-  is an absolute code point (not `keep`, not a `+n` range offset, which adds
-  no fixed code of its own).
+- `*.map` - a `HIRESTXT.MAP`/per-game `.MAP` (`graphics/hires_text/font_map.cpp`
+  INI): the `missing=` code point of `[font]`/`[font.N]` and any
+  `[glyphs]`/`[glyphs.N]` entry whose value is an absolute code point (not
+  `original`, not a `+n` range offset, which adds no fixed code of its own).
 - anything else - read whole as UTF-8 text.
 
 A glob (`TEXT.*`) not already expanded by the shell is expanded here too. A
@@ -360,9 +361,10 @@ tools/korean/sceneab.sh   mi2-svfn-hr 2    # capture that scene both ways
 tools/korean/abrank.py    /tmp/sab_mi2-svfn-hr
 ```
 
-`hires_text_scale=1` does **not** turn the feature off: the map in the game
-folder is still found, the replacement fonts still load, and the glyphs are
-drawn at 1x and magnified by the backend. The capture then shows big
+`hires_text=false` turns the feature off (no map, no faces).
+`hires_text_scale=1` does **not**: the map in the game folder (`HIRESTXT.MAP`)
+is still found, the replacement fonts still load, and the glyphs are drawn at
+1x and magnified by the backend. The capture then shows big
 anti-aliased text that is ours, not the game's. `shot.sh NOHIRES=1` and
 `sceneab.sh` point the game at a copy of the folder with the map and the
 baked fonts removed.
@@ -393,8 +395,10 @@ same binary against itself differs by 0 to 3.3 kB between runs.
 
 ## Pitfalls
 
-1. `Common::INIFile` does not treat `;` as a comment - `scale=3  ; why` is
-   read as the string `"3  ; why"` and silently ignored.
+1. In a version 2 map a `;` after a space or a tab starts a comment
+   (`scale=3  ; why` is 3); a `;` right after the value (`scale=3;why`) is part
+   of it. scummvm.ini (`Common::INIFile`) has no inline comments at all:
+   `render_target=clut8 ; why` there is the string `"clut8 ; why"`.
 2. SDL takes the X11 window class from `argv[0]`, so a binary copied to
    `/tmp/svm-work` has class `svm-work` and a search for `scummvm` finds
    nothing. `xvfb.sh` looks up the first mapped child of the root instead.

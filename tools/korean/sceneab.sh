@@ -44,7 +44,7 @@ run_one() {
 			for f in "$gamepath"/*; do
 				b=$(basename "$f")
 				case "$b" in
-					hires_text.map|korean_ttf.map|km_*.map) continue ;;
+					hires_text.map|[Hh][Ii][Rr][Ee][Ss][Tt][Xx][Tt].[Mm][Aa][Pp]|korean_ttf.map|km_*.map) continue ;;
 					hr*.fnt|i4v*.fnt|uni24_*.fnt) continue ;;
 				esac
 				ln -sf "$f" "$D/plain/$b"
