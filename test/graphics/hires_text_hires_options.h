@@ -9,6 +9,7 @@
 #include "common/list.h"
 #include "common/str.h"
 #include "graphics/hires_text/hires_options.h"
+#include "graphics/hires_text/id_plan.h"
 #include "graphics/pixelformat.h"
 
 #include "../system/null_osystem.h"
@@ -89,6 +90,26 @@ public:
 		TS_ASSERT_EQUALS(got.size(), 1u);
 		TS_ASSERT(got.front().isCLUT8());
 		TS_ASSERT(note.empty());
+	}
+
+	// A backend that prefers 5-6-5 (DOS) makes auto's true colour rgb565;
+	// without one it is rgb888. An explicit target is not auto's business.
+	void test_auto_true_colour_follows_the_platform() {
+		TS_ASSERT_EQUALS(Graphics::platformTrueColorTarget(), Graphics::kHiResTargetRgb888);
+		ConfMan.registerDefault("hires_text_platform_truecolor", "rgb565");
+		TS_ASSERT_EQUALS(Graphics::platformTrueColorTarget(), Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(Graphics::resolveAutoTarget(true, Graphics::kHiResBlendAuto), Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(Graphics::resolveAutoTarget(false, Graphics::kHiResBlendOn), Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(Graphics::resolveAutoTarget(false, Graphics::kHiResBlendAuto), Graphics::kHiResTargetClut8);
+		Graphics::HiResIniOverrides ini;
+		ini.targetSet = true;
+		ini.target = Graphics::kHiResTargetRgb888;
+		bool named = false;
+		TS_ASSERT_EQUALS(Graphics::wantedRenderTarget(Graphics::HiResMap(), false, ini, true, named),
+						 Graphics::kHiResTargetRgb888);
+		TS_ASSERT(named);
+		ConfMan.registerDefault("hires_text_platform_truecolor", "");
+		TS_ASSERT_EQUALS(Graphics::resolveAutoTarget(true, Graphics::kHiResBlendAuto), Graphics::kHiResTargetRgb888);
 	}
 
 	void test_auto_target_and_blend() {
