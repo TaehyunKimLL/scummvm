@@ -32,6 +32,12 @@ namespace Common {
 class SeekableReadStream;
 }
 
+/// Bytes a streamed SVF reads at a time: the glyphs around the one asked
+/// for come in with it (HiResBitmapFont::loadStreamed()).
+#ifndef HIRES_SVF_READ_BLOCK
+#define HIRES_SVF_READ_BLOCK 4096
+#endif
+
 namespace Graphics {
 
 // GlyphMetrics (advance, bearingX, bearingY, width, height, and the
@@ -128,11 +134,19 @@ public:
 	 * pixel is the top bit pair, level 0..3) and padded to a byte; 8bpp rows
 	 * are one byte per pixel. Rows are cellWidth() pixels wide in every case.
 	 *
-	 * A streamed font (loadStreamed()) reads the glyph into one buffer of its
-	 * own: the pointer holds until the next call, and is null if the read
-	 * fails.
+	 * A streamed font (loadStreamed()) reads whole glyphs, as many as fit in
+	 * HIRES_SVF_READ_BLOCK bytes from a multiple of that many, in one read
+	 * into one buffer; the glyph asked for and its neighbours are then
+	 * served from there (SvfnGlyphSource::prefetch() asks in file order).
+	 * The pointer holds until the next call, and is null if the read fails.
 	 */
 	const byte *glyphData(int index) const;
+
+	/// Reads of the file a streamed font has made (one per block), and the bytes.
+	uint32 readCount() const { return _readCount; }
+	uint32 readBytes() const { return _readBytes; }
+	/// Bytes a streamed font holds: its tables and read buffers.
+	uint32 memoryBytes() const;
 
 	/// Bytes between the start of one row of a glyph and the next.
 	int glyphPitch() const { return _rowPitch; }
@@ -181,8 +195,18 @@ private:
 	Common::SeekableReadStream *_stream;
 	DisposeAfterUse::Flag _disposeStream;
 	uint32 _dataOff;
-	mutable Common::Array<byte> _glyphBuf;
-	mutable int _glyphBufIndex;	///< the glyph in _glyphBuf, or -1
+	uint32 _tablesSize;
+	/// Glyphs [first, first + count) of a streamed font, as read.
+	struct ReadBlock {
+		ReadBlock() : first(-1), count(0), lastUse(0) {}
+		Common::Array<byte> data;
+		int first, count;
+		uint32 lastUse;
+	};
+	enum { kReadBlocks = 1 };
+	mutable ReadBlock _blocks[kReadBlocks];
+	int _glyphsPerBlock;
+	mutable uint32 _readClock, _readCount, _readBytes;
 
 	const byte *_metrics;
 

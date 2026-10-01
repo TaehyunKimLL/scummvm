@@ -1,6 +1,7 @@
 #include <cxxtest/TestSuite.h>
 
 #include "common/array.h"
+#include "common/file-cache-stats.h"
 #include "common/memstream.h"
 #include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/glyph_source_svfn.h"
@@ -431,27 +432,33 @@ private:
 	}
 
 public:
-	// Only the last kCacheGlyphs code points keep their rows: one used again
-	// is not read again, one gone is, and reads the same.
+	static Graphics::SvfnGlyphSource *latinSource(const Common::Array<byte> &bytes, bool streamed) {
+		Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
+		if (streamed) {
+			byte *copy = (byte *)malloc(bytes.size());
+			memcpy(copy, bytes.begin(), bytes.size());
+			TS_ASSERT(font->loadStreamed(new Common::MemoryReadStream(copy, bytes.size(), DisposeAfterUse::YES),
+										 DisposeAfterUse::YES));
+		} else {
+			TS_ASSERT(loadFont(*font, bytes, bytes.size()));
+		}
+		return new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
+	}
+
+	// Only the code points used last keep their rows (HIRES_SVF_CACHE_KB of
+	// them): one used again is not read again, one gone is, and reads the
+	// same.
 	void test_svfn_source_keeps_the_last_glyphs_used() {
 		const Common::Array<byte> bytes = makeLatin256();
-		const int keep = Graphics::SvfnGlyphSource::kCacheGlyphs;
-		TS_ASSERT(keep < 200);
 		for (int streamed = 0; streamed < 2; ++streamed) {
-			Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
-			if (streamed) {
-				byte *copy = (byte *)malloc(bytes.size());
-				memcpy(copy, bytes.begin(), bytes.size());
-				TS_ASSERT(font->loadStreamed(new Common::MemoryReadStream(copy, bytes.size(), DisposeAfterUse::YES),
-											 DisposeAfterUse::YES));
-			} else {
-				TS_ASSERT(loadFont(*font, bytes, bytes.size()));
-			}
-			Graphics::SvfnGlyphSource src(font, DisposeAfterUse::YES);
+			Graphics::SvfnGlyphSource &src = *latinSource(bytes, streamed);
+			src.setCacheBytes(0);	// the least it keeps: 32
+			const uint32 keep = src.cacheEntries();
+			TS_ASSERT_EQUALS(keep, 32u);
 			for (uint32 cp = 0; cp < 200; ++cp)
 				TS_ASSERT(rowsAre(src, cp));
 			TS_ASSERT_EQUALS(src.glyphReads(), 200u);
-			// The newest kCacheGlyphs are still there.
+			// The newest ones are still there.
 			for (uint32 cp = 200 - keep; cp < 200; ++cp)
 				TS_ASSERT(rowsAre(src, cp));
 			TS_ASSERT_EQUALS(src.glyphReads(), 200u);
@@ -469,7 +476,79 @@ public:
 			TS_ASSERT(rowsAre(src, 250));
 			TS_ASSERT(rowsAre(src, 200 - keep + 2));
 			TS_ASSERT_EQUALS(src.glyphReads(), 202u);
+			// The default keeps HIRES_SVF_CACHE_KB worth.
+			src.setCacheBytes(HIRES_SVF_CACHE_KB * 1024);
+			TS_ASSERT(src.cacheEntries() > 32u);
+			delete &src;
 		}
+	}
+
+	// A streamed face reads whole blocks of glyphs, counts each read and
+	// its uses, and registers its counters while it lives.
+	void test_svfn_source_reads_blocks_and_counts() {
+		const Common::Array<byte> bytes = makeLatin256();
+		const uint before = Common::FileCacheRegistry::all().size();
+		Graphics::SvfnGlyphSource *src = latinSource(bytes, true);
+		src->setName("LAT.SVF");
+		TS_ASSERT_EQUALS(Common::FileCacheRegistry::all().size(), before + 1);
+		const uint32 perBlock = HIRES_SVF_READ_BLOCK / (4 * 3);
+		// Glyphs next to each other: one read.
+		for (uint32 cp = 0; cp < 10; ++cp)
+			TS_ASSERT(rowsAre(*src, cp));
+		TS_ASSERT_EQUALS(src->stats().reads, 1u);
+		TS_ASSERT_EQUALS(src->stats().readBytes, MIN<uint32>(perBlock, 256) * 12);
+		TS_ASSERT_EQUALS(src->stats().lookups, 10u);
+		TS_ASSERT_EQUALS(src->stats().hits, 0u);
+		// Asked again (cells(), then each row): hits, one a code point.
+		for (uint32 cp = 0; cp < 10; ++cp)
+			TS_ASSERT(rowsAre(*src, cp));
+		TS_ASSERT_EQUALS(src->stats().lookups, 20u);
+		TS_ASSERT_EQUALS(src->stats().hits, 10u);
+		TS_ASSERT_EQUALS(src->stats().reads, 1u);
+		TS_ASSERT(src->stats().used > 0);
+		TS_ASSERT_EQUALS(src->stats().kind, Common::String("svf"));
+		TS_ASSERT_EQUALS(src->stats().name, Common::String("LAT.SVF"));
+		TS_ASSERT(Common::FileCacheRegistry::summary().contains("svf n="));
+		delete src;
+		TS_ASSERT_EQUALS(Common::FileCacheRegistry::all().size(), before);
+
+		// Not streamed: nothing to register.
+		Graphics::SvfnGlyphSource *mem = latinSource(bytes, false);
+		TS_ASSERT_EQUALS(Common::FileCacheRegistry::all().size(), before);
+		delete mem;
+	}
+
+	// prefetch() reads what it has in the font's order and leaves the rest.
+	void test_svfn_source_prefetch_reads_together_and_passes_on_the_rest() {
+		const Common::Array<byte> bytes = makeLatin256();
+		Graphics::SvfnGlyphSource *src = latinSource(bytes, true);
+		// Two far apart, two next to each other, one the font lacks, one twice.
+		Common::Array<uint32> cps;
+		cps.push_back(250);
+		cps.push_back(3);
+		cps.push_back(0xAC00);
+		cps.push_back(4);
+		cps.push_back(250);
+		src->prefetch(cps);
+		TS_ASSERT_EQUALS(cps.size(), 1u);
+		TS_ASSERT_EQUALS(cps[0], 0xACu * 0x100);
+		const uint32 perBlock = HIRES_SVF_READ_BLOCK / (4 * 3);
+		TS_ASSERT_EQUALS(src->stats().reads, (250 / perBlock == 0) ? 1u : 2u);
+		TS_ASSERT_EQUALS(src->glyphReads(), 3u);
+		TS_ASSERT_EQUALS(src->stats().lookups, 0u);
+		const uint32 reads = src->stats().reads;
+		TS_ASSERT(rowsAre(*src, 3));
+		TS_ASSERT(rowsAre(*src, 4));
+		TS_ASSERT(rowsAre(*src, 250));
+		TS_ASSERT_EQUALS(src->stats().reads, reads);
+		TS_ASSERT_EQUALS(src->stats().hits, 3u);
+		// Already kept: nothing read, still taken out.
+		Common::Array<uint32> again;
+		again.push_back(3);
+		src->prefetch(again);
+		TS_ASSERT(again.empty());
+		TS_ASSERT_EQUALS(src->stats().reads, reads);
+		delete src;
 	}
 };
 

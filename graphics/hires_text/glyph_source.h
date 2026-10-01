@@ -22,6 +22,7 @@
 #ifndef GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_H
 #define GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_H
 
+#include "common/array.h"
 #include "common/scummsys.h"
 #include "graphics/hires_text/unicode_props.h"
 
@@ -121,6 +122,13 @@ public:
 
 	/** For logs: glyphs in the file, or glyphs rasterised so far. */
 	virtual uint32 glyphCount() const = 0;
+
+	/**
+	 * @p cps are about to be drawn. A source that reads its glyphs from a
+	 * file reads those it has now, together, and takes them out of @p cps:
+	 * the rest are for the sources after it. Nothing else changes.
+	 */
+	virtual void prefetch(Common::Array<uint32> &cps) {}
 };
 
 } // End of namespace Graphics

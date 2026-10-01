@@ -62,6 +62,8 @@ public:
 	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	/** The sum over every source. */
 	uint32 glyphCount() const override;
+	/** Each source in lookup order, with what the ones before it do not have. */
+	void prefetch(Common::Array<uint32> &cps) override;
 
 private:
 	/** The source that answers cp, or nullptr when none has it. */
@@ -110,6 +112,7 @@ public:
 	int advance(uint32 cp) override { return _src->advance(cp); }
 	bool metrics(uint32 cp, GlyphMetrics &m) override { return _src->metrics(cp, m); }
 	uint32 glyphCount() const override { return _src->glyphCount(); }
+	void prefetch(Common::Array<uint32> &cps) override { _src->prefetch(cps); }
 
 private:
 	NormalizedGlyphSource(UnicodeGlyphSource *src, byte cellWidth, byte cellHeight, DisposeAfterUse::Flag dispose);

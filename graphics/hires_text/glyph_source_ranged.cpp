@@ -281,6 +281,16 @@ int RangeRoutedGlyphSource::bitsPerPixel() const {
 	return _geom ? _geom->bitsPerPixel() : 8;
 }
 
+void RangeRoutedGlyphSource::prefetch(Common::Array<uint32> &cps) {
+	for (uint c = 0; c < _chainSources.size() && !cps.empty(); ++c)
+		for (uint i = 0; i < _chainSources[c].size() && !cps.empty(); ++i)
+			if (_chainSources[c][i])
+				_chainSources[c][i]->prefetch(cps);
+	for (uint i = 0; i < _targetSources.size() && !cps.empty(); ++i)
+		if (_targetSources[i])
+			_targetSources[i]->prefetch(cps);
+}
+
 int RangeRoutedGlyphSource::cells(uint32 cp) {
 	UnicodeGlyphSource *src = sourceFor(pick(cp));
 	return src ? src->cells(_cachedPick.cp) : 0;

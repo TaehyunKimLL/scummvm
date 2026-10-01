@@ -129,6 +129,8 @@ public:
 	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	/** The sum of glyphCount() over every distinct source given (each counted once). */
 	uint32 glyphCount() const override;
+	/** Each chain's sources in order, then the targets, with what the ones before do not have. */
+	void prefetch(Common::Array<uint32> &cps) override;
 
 private:
 	/** The source @p p names, or nullptr for kGame/kExhausted or an out-of-range index. */

@@ -57,6 +57,7 @@ public:
 	int advance(uint32 cp) override;
 	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	uint32 glyphCount() const override { return _inner->glyphCount(); }
+	void prefetch(Common::Array<uint32> &cps) override { _inner->prefetch(cps); }
 
 	/** The wrapped source: what the fonts themselves have. */
 	UnicodeGlyphSource *inner() const { return _inner; }

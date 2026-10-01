@@ -709,9 +709,12 @@ public:
 		Graphics::HiResBitmapFont font;
 		TS_ASSERT(font.loadStreamed(stream, DisposeAfterUse::YES));
 		TS_ASSERT(font.glyphData('A') != nullptr);
+		TS_ASSERT_EQUALS(font.readCount(), 1u);
+		TS_ASSERT(font.glyphData('B') != nullptr);	// read with 'A'
+		TS_ASSERT_EQUALS(font.readCount(), 1u);
 		stream->failReads();
-		TS_ASSERT(font.glyphData('A') != nullptr);	// still the one it holds
-		TS_ASSERT(font.glyphData('B') == nullptr);
-		TS_ASSERT_EQUALS(font.glyphIndex('B'), 'B');	// the tables are in memory
+		TS_ASSERT(font.glyphData('A') != nullptr);	// still in what it read
+		TS_ASSERT(font.glyphData(250) == nullptr);
+		TS_ASSERT_EQUALS(font.glyphIndex(250), 250);	// the tables are in memory
 	}
 };

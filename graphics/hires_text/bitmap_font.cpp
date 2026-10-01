@@ -66,7 +66,9 @@ HiResBitmapFont::HiResBitmapFont() {
 	_stream = nullptr;
 	_disposeStream = DisposeAfterUse::NO;
 	_dataOff = 0;
-	_glyphBufIndex = -1;
+	_tablesSize = 0;
+	_glyphsPerBlock = 1;
+	_readClock = _readCount = _readBytes = 0;
 	_pixels = nullptr;
 	_metrics = nullptr;
 	_bpp = 0;
@@ -93,8 +95,14 @@ void HiResBitmapFont::free() {
 	_stream = nullptr;
 	_disposeStream = DisposeAfterUse::NO;
 	_dataOff = 0;
-	_glyphBuf.clear();
-	_glyphBufIndex = -1;
+	_tablesSize = 0;
+	for (int b = 0; b < kReadBlocks; ++b) {
+		_blocks[b].data.clear();
+		_blocks[b].first = -1;
+		_blocks[b].count = 0;
+	}
+	_glyphsPerBlock = 1;
+	_readClock = _readCount = _readBytes = 0;
 	_pixels = nullptr;
 	_metrics = nullptr;
 	_bpp = 0;
@@ -209,8 +217,8 @@ bool HiResBitmapFont::loadStreamed(Common::SeekableReadStream *stream, DisposeAf
 	_stream = stream;
 	_disposeStream = dispose;
 	_dataOff = layout.dataOff;
-	_glyphBuf.resize(layout.glyphStride);
-	_glyphBufIndex = -1;
+	_tablesSize = metricsSize + cmapSize;
+	_glyphsPerBlock = MAX<int>(1, (int)(HIRES_SVF_READ_BLOCK / layout.glyphStride));
 	adopt(layout, metricsSize ? tables : nullptr, cmapTable, cmapOrder);
 	return true;
 }
@@ -568,16 +576,40 @@ const byte *HiResBitmapFont::glyphData(int index) const {
 		return _pixels + (uint32)index * (uint32)_glyphStride;
 
 	// Streamed: the glyph is read into the one buffer the font keeps.
-	if (index == _glyphBufIndex)
-		return _glyphBuf.begin();
-	_glyphBufIndex = -1;
-	if (!_stream->seek(_dataOff + (uint32)index * (uint32)_glyphStride) ||
-		_stream->read(_glyphBuf.begin(), _glyphBuf.size()) != _glyphBuf.size()) {
-		_stream->clearErr();
-		return nullptr;
+	// Streamed: from the block holding it, read now if neither buffer does.
+	ReadBlock *block = nullptr;
+	for (int b = 0; b < kReadBlocks && !block; ++b)
+		if (_blocks[b].first >= 0 && index >= _blocks[b].first && index < _blocks[b].first + _blocks[b].count)
+			block = &_blocks[b];
+	if (!block) {
+		block = &_blocks[0];
+		for (int b = 1; b < kReadBlocks; ++b)
+			if (_blocks[b].lastUse < block->lastUse)
+				block = &_blocks[b];
+		block->first = -1;
+		const int first = index - index % _glyphsPerBlock;
+		const int count = MIN(_glyphsPerBlock, _glyphs - first);
+		const uint32 bytes = (uint32)count * (uint32)_glyphStride;
+		block->data.resize(bytes);
+		++_readCount;
+		_readBytes += bytes;
+		if (!_stream->seek(_dataOff + (uint32)first * (uint32)_glyphStride) ||
+			_stream->read(block->data.begin(), bytes) != bytes) {
+			_stream->clearErr();
+			return nullptr;
+		}
+		block->first = first;
+		block->count = count;
 	}
-	_glyphBufIndex = index;
-	return _glyphBuf.begin();
+	block->lastUse = ++_readClock;
+	return block->data.begin() + (uint32)(index - block->first) * (uint32)_glyphStride;
+}
+
+uint32 HiResBitmapFont::memoryBytes() const {
+	uint32 n = _tablesSize + _cmapOrder.size() * sizeof(uint16);
+	for (int b = 0; b < kReadBlocks; ++b)
+		n += _blocks[b].data.size();
+	return n;
 }
 
 } // End of namespace Graphics

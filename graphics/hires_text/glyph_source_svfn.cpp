@@ -21,6 +21,7 @@
 
 #include "graphics/hires_text/glyph_source_svfn.h"
 
+#include "common/algorithm.h"
 #include "common/textconsole.h"
 #include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/unicode_props.h"
@@ -28,8 +29,9 @@
 namespace Graphics {
 
 SvfnGlyphSource::SvfnGlyphSource(HiResBitmapFont *font, DisposeAfterUse::Flag dispose)
-	: _font(font), _dispose(dispose), _cellWidth(0), _cellHeight(0), _bitsPerPixel(1), _rowBytes(0), _clock(0),
-	  _glyphReads(0) {
+	: _font(font), _dispose(dispose), _cellWidth(0), _cellHeight(0), _bitsPerPixel(1), _rowBytes(0), _maxEntries(32),
+	  _clock(0), _glyphReads(0), _lastCp(0xFFFFFFFF), _registered(false) {
+	_stats.kind = "svf";
 	if (!_font || !_font->isLoaded()) {
 		warning("SvfnGlyphSource: font is not loaded; no glyphs");
 		return;
@@ -39,9 +41,47 @@ SvfnGlyphSource::SvfnGlyphSource(HiResBitmapFont *font, DisposeAfterUse::Flag di
 	_cellHeight = (byte)_font->cellHeight();
 	_bitsPerPixel = _font->bpp();
 	_rowBytes = ((uint32)_cellWidth * 2 * _bitsPerPixel + 7) / 8;
+	setCacheBytes(HIRES_SVF_CACHE_KB * 1024);
+	if (_font->isStreamed()) {
+		Common::FileCacheRegistry::add(&_stats);
+		_registered = true;
+	}
+}
+
+// What an entry costs besides its rows: the entry, its hash map node and
+// the allocator's headers, about.
+static const uint32 kEntryOverhead = 64;
+
+void SvfnGlyphSource::setCacheBytes(uint32 bytes) {
+	const uint32 each = _rowBytes * _cellHeight + kEntryOverhead;
+	_maxEntries = MAX<uint32>(32, bytes / each);
+	_stats.capacity = _maxEntries * each;
+	while (_entries.size() > _maxEntries) {
+		// The least recently used go.
+		uint oldest = 0;
+		for (uint i = 1; i < _entries.size(); ++i)
+			if (_entries[i]->lastUse < _entries[oldest]->lastUse)
+				oldest = i;
+		_byCp.erase(_entries[oldest]->cp);
+		delete _entries[oldest];
+		_entries.remove_at(oldest);
+	}
+	if (_font && _font->isLoaded())
+		updateStats();
+}
+
+void SvfnGlyphSource::updateStats() {
+	uint32 used = 0;
+	for (uint i = 0; i < _entries.size(); ++i)
+		used += _entries[i]->rows.size() + kEntryOverhead;
+	_stats.used = used + (_font->isStreamed() ? _font->memoryBytes() : 0);
+	_stats.reads = _font->readCount();
+	_stats.readBytes = _font->readBytes();
 }
 
 SvfnGlyphSource::~SvfnGlyphSource() {
+	if (_registered)
+		Common::FileCacheRegistry::remove(&_stats);
 	for (uint i = 0; i < _entries.size(); ++i)
 		delete _entries[i];
 	if (_dispose == DisposeAfterUse::YES)
@@ -50,7 +90,7 @@ SvfnGlyphSource::~SvfnGlyphSource() {
 
 SvfnGlyphSource::Entry &SvfnGlyphSource::takeEntry(uint32 cp) {
 	Entry *entry;
-	if (_entries.size() < kCacheGlyphs) {
+	if (_entries.size() < _maxEntries) {
 		entry = new Entry();
 		_entries.push_back(entry);
 	} else {
@@ -66,11 +106,22 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::takeEntry(uint32 cp) {
 	return *entry;
 }
 
-SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
+SvfnGlyphSource::Entry *SvfnGlyphSource::find(uint32 cp) {
 	Common::HashMap<uint32, Entry *>::iterator it = _byCp.find(cp);
-	if (it != _byCp.end()) {
-		it->_value->lastUse = ++_clock;
-		return *it->_value;
+	return it != _byCp.end() ? it->_value : nullptr;
+}
+
+SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
+	const bool counted = cp != _lastCp;
+	_lastCp = cp;
+	if (counted)
+		++_stats.lookups;
+	Entry *found = find(cp);
+	if (found) {
+		if (counted)
+			++_stats.hits;
+		found->lastUse = ++_clock;
+		return *found;
 	}
 
 	// Taken first, so a miss is cached too.
@@ -110,7 +161,51 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
 		if (usedBits)
 			dst[pitch - 1] &= (byte)(0xFF << (8 - usedBits));
 	}
+	updateStats();
 	return entry;
+}
+
+void SvfnGlyphSource::prefetch(Common::Array<uint32> &cps) {
+	if (!_rowBytes)
+		return;
+	struct Want {
+		int index;
+		uint32 cp;
+	};
+	Common::Array<Want> want;
+	Common::Array<uint32> rest;
+	for (uint i = 0; i < cps.size(); ++i) {
+		const uint32 cp = cps[i];
+		const Entry *kept = find(cp);
+		if (kept) {
+			if (!kept->cells)
+				rest.push_back(cp);
+			continue;
+		}
+		const int index = _font->glyphIndex(cp);
+		if (index < 0) {
+			rest.push_back(cp);
+			continue;
+		}
+		bool listed = false;
+		for (uint k = 0; k < want.size() && !listed; ++k)
+			listed = want[k].cp == cp;
+		if (!listed && want.size() < _maxEntries) {
+			Want w = { index, cp };
+			want.push_back(w);
+		}
+	}
+	cps.swap(rest);
+	if (want.empty() || !_font->isStreamed())
+		return;
+	Common::sort(want.begin(), want.end(), [](const Want &a, const Want &b) { return a.index < b.index; });
+	// Not counted as lookups: the draw that follows is.
+	const uint32 lookups = _stats.lookups, hits = _stats.hits;
+	for (uint i = 0; i < want.size(); ++i)
+		ensure(want[i].cp);
+	_stats.lookups = lookups;
+	_stats.hits = hits;
+	_lastCp = 0xFFFFFFFF;
 }
 
 int SvfnGlyphSource::cells(uint32 cp) {
