@@ -792,9 +792,9 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 				const byte *bandSrc = (const byte *)src + band * vs->pitch;
 				const byte *bandText = textPlane + band * m * _textSurface.pitch;
 				const int planeY = (y + band) * m;
-				const CompositeRows bandCov(covPlane, x * m, planeY);
-				const CompositeRows bandUnder(underCov ? underIdx : nullptr, x * m, planeY);
-				const CompositeRows bandUnderCov(underCov, x * m, planeY);
+				const CompositeRows bandCov(covPlane, x * m, planeY, width * m);
+				const CompositeRows bandUnder(underCov ? underIdx : nullptr, x * m, planeY, width * m);
+				const CompositeRows bandUnderCov(underCov, x * m, planeY, width * m);
 
 				if (_outputPixelFormat.bytesPerPixel == 2) {
 					HiResPalette16Sink sink(_compositeBuf, palette, _outputPixelFormat);

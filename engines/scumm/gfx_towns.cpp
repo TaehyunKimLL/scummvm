@@ -91,7 +91,7 @@ void ScummEngine::towns_drawStripToScreen(VirtScreen *vs, int dstX, int dstY, in
 			// Indices are resolved here rather than stored, so a later
 			// palette change re-colours text that was drawn long before.
 			const uint16 *lpal = _townsScreen->getLayerPalette(1);
-			const CompositeRows covRows(_hiResText.coverage(), srcX * m, (srcY + vs->topline - _screenTop) * m);
+			const CompositeRows covRows(_hiResText.coverage(), srcX * m, (srcY + vs->topline - _screenTop) * m, width * m);
 			Common::Array<uint8> covScratch, zeroRow;
 			covScratch.resize(MAX(1, covRows.scratchBytes()));
 			zeroRow.resize(width * m);
