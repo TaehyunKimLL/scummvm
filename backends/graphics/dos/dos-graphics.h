@@ -24,6 +24,7 @@
 
 #include "backends/graphics/graphics.h"
 #include "backends/platform/dos/dos-modes.h"
+#include "backends/platform/dos/game-screen.h"
 #include "backends/platform/dos/lazy-overlay.h"
 #include "backends/platform/dos/loading-screen.h"
 #include "backends/platform/dos/soft-cursor.h"
@@ -37,9 +38,12 @@ struct SDL_Surface;
 struct SDL_DisplayMode;
 
 /**
- * The game screen in system RAM, copied to SDL3's window surface one dirty
- * rectangle at a time with the cursor on top; SDL3's direct-framebuffer
- * path then sends those rectangles to VRAM. The physical mode is the game's
+ * The game screen is SDL3's window surface in system RAM, the cursor drawn
+ * on top of it before each update; SDL3's direct-framebuffer path then
+ * sends the dirty rectangles to VRAM. A frame buffer of its own (copied
+ * into the window a dirty rectangle at a time) is there only while the
+ * window cannot be the frame: line repeat, a shake, the loading screen
+ * (DOS::GameScreen). The physical mode is the game's
  * size and format, or (M2) 640x480 for a 640x400 game with every fifth row
  * sent twice (line-repeat.h) when the card has no exact mode or
  * `dos_force_fallback=true`. A CLUT8 cursor on a true-colour screen is
@@ -72,7 +76,7 @@ public:
 	void setPalette(const byte *colors, uint start, uint num) override;
 	void grabPalette(byte *colors, uint start, uint num) const override;
 	void copyRectToScreen(const void *buf, int pitch, int x, int y, int w, int h) override;
-	Graphics::Surface *lockScreen() override { return &_screen; }
+	Graphics::Surface *lockScreen() override;
 	void unlockScreen() override { addDirty(Common::Rect(_screen.w, _screen.h)); }
 	void fillScreen(uint32 col) override;
 	void fillScreen(const Common::Rect &r, uint32 col) override;
@@ -167,6 +171,16 @@ private:
 	void sendRectsToVram(SDL_Surface *s, const Common::Rect *rects, int n);
 	/** Whether @p s has _screen's pixel size and room for it (see updateScreen()). */
 	bool surfaceFits(const SDL_Surface *s) const;
+	/** Whether a @p w x @p h frame of @p bpp bytes a pixel fits @p s as the mode shows it. */
+	bool fitsWindow(const SDL_Surface *s, int w, int h, int bpp) const;
+	/** Whether a frame in @p f can be the window surface @p s now (DOS::screenCanBeDirect()). */
+	bool frameCanBeDirect(const SDL_Surface *s, const Graphics::PixelFormat &f, int w, int h, bool loadingNext) const;
+	/** _frame, cleared: the window surface itself if it can be, else a buffer. */
+	void createFrame(uint w, uint h, const Graphics::PixelFormat &f);
+	/** _frame into the window surface, or out of it into a buffer, as frameCanBeDirect() says now. */
+	void syncFrame();
+	/** Before the game writes into a frame that is the window: the cursor's pixels go. */
+	void prepareWrite();
 	void blit(SDL_Surface *s, const Common::Rect &r);
 	void convertCursor();
 
@@ -185,7 +199,9 @@ private:
 	uint _pendingW, _pendingH;
 	Graphics::PixelFormat _pendingFormat;
 
-	Graphics::Surface _screen;	///< the game's pixels, in its own format
+	DOS::GameScreen _frame;	///< the game's pixels, in its own format: the window surface or a buffer
+	Graphics::Surface &_screen;	///< _frame.surface()
+	Common::Rect _cursorBack;	///< where prepareWrite() took the cursor away, to send
 	DOS::LazyOverlay _overlay;	///< RGB565 640x480, allocated while used; not shown until M4
 	bool _overlayVisible;
 	byte _palette[256 * 3];
