@@ -639,13 +639,16 @@ void ScummEngine::updateDirtyScreen(VirtScreenNumber slot) {
 // on the same transparent index as everything here.
 static_assert(CHARSET_MASK_TRANSPARENCY == kHiResTextTransparent, "hires_composite.h keys on another index");
 
-void ScummEngine::ensureCompositeBuf(uint32 size) {
-	if (size <= _compositeBufSize)
-		return;
+void ScummEngine::setCompositeBuf(uint32 size) {
 	free(_compositeBuf);
 	_compositeBuf = (byte *)malloc(size);
 	assert(_compositeBuf);
 	_compositeBufSize = size;
+}
+
+void ScummEngine::ensureCompositeBuf(uint32 size) {
+	if (size > _compositeBufSize)
+		setCompositeBuf(size);
 }
 
 int ScummEngine::compositeBandRows(int width, int m, int bytesPerPixel) const {

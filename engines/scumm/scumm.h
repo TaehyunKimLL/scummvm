@@ -1536,7 +1536,12 @@ public:
 protected:
 	// Screen rendering
 	byte *_compositeBuf;
-	uint32 _compositeBufSize = 0;	///< bytes in _compositeBuf
+	uint32 _compositeBufSize = 0;	///< bytes in _compositeBuf; set only by setCompositeBuf()
+	/**
+	 * (Re)allocate _compositeBuf with @p size bytes. The only place that
+	 * allocates it: the banded paths trust _compositeBufSize.
+	 */
+	void setCompositeBuf(uint32 size);
 	enum { kCompositeBandRows = 32 };	///< output rows per pass of the hi-res composition
 	/**
 	 * Grow _compositeBuf to at least @p size bytes. With hi-res text it
