@@ -42,8 +42,10 @@ class HiResBitmapFont;
  * East Asian Width (Unicode::isWide()) - advanceNarrow()/advanceWide() are half and
  * all of the cell, and rows are cellWidth()*2 pixels at bitsPerPixel(), the
  * layout TextCompose::expandGlyphRow() reads. SVFN stores one cell per
- * glyph, so each glyph's rows are copied once, on first use, into that
- * stride with the second cell blank; the copy is cached per code point.
+ * glyph, so each glyph's rows are copied, on first use, into that stride
+ * with the second cell blank. The copies of the last kCacheGlyphs code
+ * points used are kept (a code point the font lacks counts as one); a
+ * pointer from row() holds until another code point is first asked for.
  */
 class SvfnGlyphSource : public UnicodeGlyphSource {
 public:
@@ -52,6 +54,13 @@ public:
 	 *  @p font must be loaded. */
 	SvfnGlyphSource(HiResBitmapFont *font, DisposeAfterUse::Flag dispose);
 	~SvfnGlyphSource() override;
+
+	/// Code points whose rows are kept. A line of text is far shorter; a
+	/// streamed font (HiResBitmapFont::loadStreamed()) reads the file again
+	/// for a glyph that has gone.
+	enum { kCacheGlyphs = 128 };
+	/// Glyphs copied out of the font so far (for tests).
+	uint32 glyphReads() const { return _glyphReads; }
 
 	byte cellWidth() const override { return _cellWidth; }
 	byte cellHeight() const override { return _cellHeight; }
@@ -72,11 +81,15 @@ public:
 
 private:
 	struct Entry {
+		uint32 cp = 0;
+		uint32 lastUse = 0;
 		byte cells = 0;               ///< 0: the font has no glyph for this code point
-		Common::Array<byte> rows;     ///< cellHeight() rows of _rowBytes
+		Common::Array<byte> rows;     ///< cellHeight() rows of _rowBytes, or none
 	};
 
 	Entry &ensure(uint32 cp);
+	/// The entry for a code point not cached: a new one, or the least recently used.
+	Entry &takeEntry(uint32 cp);
 
 	HiResBitmapFont *_font;
 	DisposeAfterUse::Flag _dispose;
@@ -85,7 +98,11 @@ private:
 	int _bitsPerPixel;
 	uint32 _rowBytes;                 ///< bytes per row at the two-cell stride
 
-	Common::HashMap<uint32, Entry> _cache;
+	/// At most kCacheGlyphs entries, never moved once made (row() hands out pointers into them).
+	Common::Array<Entry *> _entries;
+	Common::HashMap<uint32, Entry *> _byCp;
+	uint32 _clock;
+	uint32 _glyphReads;
 };
 
 } // End of namespace Graphics

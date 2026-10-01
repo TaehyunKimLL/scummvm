@@ -28,7 +28,8 @@
 namespace Graphics {
 
 SvfnGlyphSource::SvfnGlyphSource(HiResBitmapFont *font, DisposeAfterUse::Flag dispose)
-	: _font(font), _dispose(dispose), _cellWidth(0), _cellHeight(0), _bitsPerPixel(1), _rowBytes(0) {
+	: _font(font), _dispose(dispose), _cellWidth(0), _cellHeight(0), _bitsPerPixel(1), _rowBytes(0), _clock(0),
+	  _glyphReads(0) {
 	if (!_font || !_font->isLoaded()) {
 		warning("SvfnGlyphSource: font is not loaded; no glyphs");
 		return;
@@ -41,24 +42,48 @@ SvfnGlyphSource::SvfnGlyphSource(HiResBitmapFont *font, DisposeAfterUse::Flag di
 }
 
 SvfnGlyphSource::~SvfnGlyphSource() {
+	for (uint i = 0; i < _entries.size(); ++i)
+		delete _entries[i];
 	if (_dispose == DisposeAfterUse::YES)
 		delete _font;
 }
 
-SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
-	Common::HashMap<uint32, Entry>::iterator it = _cache.find(cp);
-	if (it != _cache.end())
-		return it->_value;
+SvfnGlyphSource::Entry &SvfnGlyphSource::takeEntry(uint32 cp) {
+	Entry *entry;
+	if (_entries.size() < kCacheGlyphs) {
+		entry = new Entry();
+		_entries.push_back(entry);
+	} else {
+		entry = _entries[0];
+		for (uint i = 1; i < _entries.size(); ++i)
+			if (_entries[i]->lastUse < entry->lastUse)
+				entry = _entries[i];
+		_byCp.erase(entry->cp);
+	}
+	entry->cp = cp;
+	entry->cells = 0;
+	_byCp[cp] = entry;
+	return *entry;
+}
 
-	// Inserted first, so a miss is cached too.
-	Entry &entry = _cache[cp];
+SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
+	Common::HashMap<uint32, Entry *>::iterator it = _byCp.find(cp);
+	if (it != _byCp.end()) {
+		it->_value->lastUse = ++_clock;
+		return *it->_value;
+	}
+
+	// Taken first, so a miss is cached too.
+	Entry &entry = takeEntry(cp);
+	entry.lastUse = ++_clock;
 	if (!_rowBytes)
 		return entry;
 
 	const int index = _font->glyphIndex(cp);
-	const byte *glyph = _font->glyphData(index);
-	if (index < 0 || !glyph)
+	const byte *glyph = index >= 0 ? _font->glyphData(index) : nullptr;
+	if (!glyph)
 		return entry;
+	++_glyphReads;
 
 	const uint32 pitch = (uint32)_font->glyphPitch();
 	// A font with a metrics table says how wide each glyph is: one whose
@@ -72,10 +97,12 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
 		entry.cells = m.advance > _cellWidth / 2 ? 2 : 1;
 	else
 		entry.cells = Unicode::isWide(cp) ? 2 : 1;
-	entry.rows.resize(_rowBytes * _cellHeight, 0);
+	// The rows of the entry's last code point, if any, are all overwritten.
+	entry.rows.resize(_rowBytes * _cellHeight);
 	for (uint32 y = 0; y < _cellHeight; y++) {
 		byte *dst = &entry.rows[y * _rowBytes];
 		memcpy(dst, glyph + y * pitch, pitch);
+		memset(dst + pitch, 0, _rowBytes - pitch);
 		// Packed below 8bpp, the last byte of a row may hold bits past the
 		// cell (18 px at 2bpp is 36 bits: 4 of padding); a wide glyph reads
 		// those as its second cell, so they are cleared.
@@ -92,7 +119,7 @@ int SvfnGlyphSource::cells(uint32 cp) {
 
 const byte *SvfnGlyphSource::row(uint32 cp, int y) {
 	Entry &entry = ensure(cp);
-	if (entry.rows.empty() || y < 0 || y >= _cellHeight)
+	if (!entry.cells || y < 0 || y >= _cellHeight)
 		return nullptr; // contract: only called when cells(cp) > 0
 	return &entry.rows[(uint32)y * _rowBytes];
 }
