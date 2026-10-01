@@ -1863,6 +1863,8 @@ public:
 
 	/// Tell _debugSocket about a string drawn: @p drawn is its characters' bytes.
 	void noteDrawnString(const Common::String &drawn);
+	/** The hi-res faces read the glyphs of @p text (a message, escapes and all) now, together. */
+	void prefetchHiResText(const byte *text, int charsetId);
 
 	bool _isModernMacVersion = false;
 	bool _useGammaCorrection = true;
