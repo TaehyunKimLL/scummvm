@@ -191,6 +191,10 @@ void OSystem_DOS::initBackend() {
 	// render_target (DosGraphicsManager::getSupportedFormats()).
 	ConfMan.registerDefault("dos_vsync", "off");
 	ConfMan.registerDefault("dos_force_fallback", false);
+	// dos_frame_buffer=true keeps the game's frame in a buffer of its own,
+	// copied into the window surface (1 MB more at 640x400 true colour),
+	// instead of drawing it into the window surface itself.
+	ConfMan.registerDefault("dos_frame_buffer", false);
 	ConfMan.registerDefault("dos_timer_selftest", false);
 	ConfMan.registerDefault("dos_mixer_selftest", false);
 	// dos_pagefault_selftest=<KB>: a timer proc touches a pageable buffer
