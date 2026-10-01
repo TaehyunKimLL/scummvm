@@ -1,5 +1,7 @@
 #!/bin/bash
 # Configure and build the DOS port out of tree, then stage dist/dos.
+# A build directory configured with other flags or another SDL3 is
+# configured again (see config_current below).
 # Usage: backends/platform/dos/build-dos.sh [sci|scumm] [extra configure args]
 #   sci (default): build-dos/,       engines/sci (not sci32)             -> dist/dos/SCUMMVM.EXE
 #   scumm:         build-dos-scumm/, engines/scumm (not scumm_7_8, he)   -> dist/dos/SCUMM.EXE
@@ -38,17 +40,42 @@ else
 	engine_args=(--enable-engine=sci --disable-engine=sci32)
 	exe=SCUMMVM.EXE
 fi
+conf_args=(--host=i586-pc-msdosdjgpp
+	--disable-all-engines "${engine_args[@]}"
+	--disable-mt32emu --disable-fluidsynth --disable-timidity
+	--disable-zlib --disable-png --disable-jpeg --disable-gif
+	--disable-vorbis --disable-tremor --disable-flac --disable-mad
+	--disable-theoradec --disable-mpeg2 --disable-faad --disable-a52
+	--disable-freetype2 --disable-fribidi --disable-lua
+	--disable-detection-full --disable-gui --disable-translation --enable-release)
 mkdir -p "$out" "$src/dist/dos"
 cd "$out"
-if [ ! -f config.mk ] || [ -n "$*" ]; then
-	"$src/configure" --host=i586-pc-msdosdjgpp \
-		--disable-all-engines "${engine_args[@]}" \
-		--disable-mt32emu --disable-fluidsynth --disable-timidity \
-		--disable-zlib --disable-png --disable-jpeg --disable-gif \
-		--disable-vorbis --disable-tremor --disable-flac --disable-mad \
-		--disable-theoradec --disable-mpeg2 --disable-faad --disable-a52 \
-		--disable-freetype2 --disable-fribidi --disable-lua \
-		--disable-detection-full --disable-gui --disable-translation --enable-release "$@"
+# Configure again when there is no config.mk, when extra arguments are
+# given, or when the one there was made with other flags or another SDL3
+# (its SAVED_CONFIGFLAGS must start with conf_args - extra arguments of an
+# earlier run may follow - and SAVED_PKG_CONFIG_LIBDIR must be this SDL3's).
+# Otherwise make's own configure.stamp rule would rerun configure with the
+# stale flags and SDL3 of the old config.mk after a change to configure.
+config_current() {
+	[ -f config.mk ] || return 1
+	local saved pkg
+	saved="$(sed -n 's/^SAVED_CONFIGFLAGS *:= *//p' config.mk)"
+	pkg="$(sed -n 's/^SAVED_PKG_CONFIG_LIBDIR *:= *//p' config.mk)"
+	case "$saved" in
+		"${conf_args[*]}"|"${conf_args[*]} "*) ;;
+		*) echo "build-dos.sh: $out/config.mk has other configure flags; configuring again." >&2; return 1 ;;
+	esac
+	if [ "$pkg" != "$PKG_CONFIG_LIBDIR" ]; then
+		echo "build-dos.sh: $out/config.mk uses another SDL3 ($pkg); configuring again." >&2
+		return 1
+	fi
+}
+if [ -n "$*" ] || ! config_current; then
+	"$src/configure" "${conf_args[@]}" "$@"
+fi
+if ! config_current || ! grep -q '^DISABLE_GUI = 1$' config.mk; then
+	echo "build-dos.sh: $out/config.mk is not the DOS configuration after configure; not building." >&2
+	exit 1
 fi
 make -j"$(nproc)"
 # Interrupt handler code may reach nothing outside its locked range.
