@@ -40,6 +40,11 @@
 #define SCUMM_TRS_READ_BLOCK 4096
 #endif
 
+/// Bytes read at a time while the whole body is read once to index it.
+#ifndef SCUMM_TRS_SCAN_BLOCK
+#define SCUMM_TRS_SCAN_BLOCK 32768
+#endif
+
 namespace Scumm {
 
 /**
@@ -65,8 +70,8 @@ public:
 		uint32 trans;	///< body offset of the translation
 	};
 
-	TrsStore() : _file(nullptr), _bodyPos(0), _bodySize(0), _version(0), _heversion(0), _cacheBytes(0), _clock(0),
-				 _registered(false) {
+	TrsStore() : _file(nullptr), _bodyPos(0), _bodySize(0), _version(0), _heversion(0), _cacheBytes(0),
+				 _blockSize(SCUMM_TRS_READ_BLOCK), _clock(0), _registered(false) {
 		_stats.kind = "trs";
 	}
 
@@ -74,16 +79,23 @@ public:
 
 	bool isOpen() const { return _file != nullptr; }
 
+	/// Told of each line's translation as open() reads the body.
+	typedef void (*TranslationSeen)(void *ctx, const byte *s, uint32 size);
+
 	/**
 	 * Take @p file, whose body is @p bodySize bytes from @p bodyPos, for
-	 * @p lines (in bundle order). Every original is read once, in order, for
-	 * the index. False, with @p file deleted and nothing kept, if a read
+	 * @p lines (in bundle order). The body is read once, in order and
+	 * SCUMM_TRS_SCAN_BLOCK bytes at a time, for the index of the originals;
+	 * @p seen, if given, is handed each translation on the way (its end
+	 * included). False, with @p file deleted and nothing kept, if a read
 	 * fails or the originals are not in sorted order (the caller then keeps
 	 * the body in memory, as before).
 	 */
 	bool open(Common::SeekableReadStream *file, uint32 bodyPos, uint32 bodySize, const Line *lines, uint n,
-			  int version, int heversion, const Common::String &name, uint32 cacheBytes = SCUMM_TRS_CACHE_KB * 1024) {
+			  int version, int heversion, const Common::String &name, uint32 cacheBytes = SCUMM_TRS_CACHE_KB * 1024,
+			  TranslationSeen seen = nullptr, void *seenCtx = nullptr) {
 		close();
+		_blockSize = SCUMM_TRS_SCAN_BLOCK;
 		_file = file;
 		_bodyPos = bodyPos;
 		_bodySize = bodySize;
@@ -98,12 +110,14 @@ public:
 		hashes.resize(n);
 		_sameAsPrev.clear();
 		_sameAsPrev.resize((n + 31) / 32, 0);
-		Common::Array<byte> prev, cur;
+		Common::Array<byte> prev, cur, trans;
 		bool ok = true;
 		for (uint i = 0; i < n && ok; ++i) {
 			ok = readString(_lines[i].orig, cur);
 			if (!ok)
 				break;
+			if (seen && _lines[i].trans < _bodySize && readString(_lines[i].trans, trans))
+				seen(seenCtx, trans.begin(), trans.size());
 			hashes[i] = hash(cur.begin(), cur.size());
 			if (i > 0) {
 				const int c = memcmp(prev.begin(), cur.begin(), MIN(prev.size(), cur.size()));
@@ -114,6 +128,12 @@ public:
 			}
 			prev.swap(cur);
 		}
+		// Back to small reads, the scan's big buffer gone.
+		for (int b = 0; b < kBlocks; ++b) {
+			Common::Array<byte>().swap(_blocks[b].data);
+			_blocks[b].valid = false;
+		}
+		_blockSize = SCUMM_TRS_READ_BLOCK;
 		if (!ok) {
 			close();
 			return false;
@@ -224,12 +244,6 @@ public:
 	/** Line @p i's offsets. */
 	const Line &line(uint i) const { return _lines[i]; }
 
-	/**
-	 * Whatever the string at @p off is, read without keeping it (the hi-res
-	 * layer's look at every translation when the bundle is loaded).
-	 */
-	bool peek(uint32 off, Common::Array<byte> &out) { return readString(off, out); }
-
 	const Common::FileCacheStats &stats() const { return _stats; }
 	/// Bytes of the index: offsets, hashes, line order, repeats.
 	uint32 indexBytes() const {
@@ -287,8 +301,8 @@ private:
 				if (_blocks[i].lastUse < b->lastUse)
 					b = &_blocks[i];
 			b->valid = false;
-			const uint32 start = off - off % SCUMM_TRS_READ_BLOCK;
-			const uint32 len = MIN<uint32>(SCUMM_TRS_READ_BLOCK, _bodySize - start);
+			const uint32 start = off - off % _blockSize;
+			const uint32 len = MIN<uint32>(_blockSize, _bodySize - start);
 			b->data.resize(len);
 			++_stats.reads;
 			_stats.readBytes += len;
@@ -363,6 +377,7 @@ private:
 	uint32 _bodyPos, _bodySize;
 	int _version, _heversion;
 	uint32 _cacheBytes;
+	uint32 _blockSize;	///< SCUMM_TRS_READ_BLOCK, or SCUMM_TRS_SCAN_BLOCK in open()
 	Common::Array<Line> _lines;
 	Common::Array<uint16> _byHash;		///< lines in hash order
 	Common::Array<uint32> _hashSorted;	///< their hashes

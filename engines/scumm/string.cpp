@@ -2528,6 +2528,11 @@ void copyTextBounded(byte *dst, const byte *src, int len, int dstSize, const Scu
 
 } // End of anonymous namespace
 
+// TrsStore::open() hands each translation over as it reads the body.
+static void noteTrsTranslation(void *hiResText, const byte *s, uint32 size) {
+	((ScummHiResText *)hiResText)->noteTranslatedString(s, size);
+}
+
 void ScummEngine::loadLanguageBundle() {
 	_existLanguageFile = false;
 
@@ -2617,8 +2622,10 @@ void ScummEngine::loadLanguageBundle() {
 				lines[i].trans = _translatedLines[i].translatedTextOffset;
 			}
 			_trsStore = new TrsStore();
+			// The hi-res layer sees every translation as the body is read.
 			if (_trsStore->open(body, bodyPos, bodySize, lines.begin(), lines.size(), _game.version, _game.heversion,
-								bundle.baseName())) {
+								bundle.baseName(), SCUMM_TRS_CACHE_KB * 1024,
+								_hiResText.enabled() ? &noteTrsTranslation : nullptr, &_hiResText)) {
 				// The store has the offsets now.
 				delete[] _translatedLines;
 				_translatedLines = nullptr;
@@ -2646,16 +2653,11 @@ void ScummEngine::loadLanguageBundle() {
 
 	// The hi-res text layer checks its faces against the characters the
 	// translation actually uses (loadFonts() runs after this).
-	if (_hiResText.enabled()) {
-		Common::Array<byte> translation;
+	if (_hiResText.enabled() && !_trsStore) {
 		for (int i = 0; i < _numTranslatedLines; i++) {
-			const uint32 off = _trsStore ? _trsStore->line(i).trans : _translatedLines[i].translatedTextOffset;
-			if (off >= bodySize)
-				continue;
-			if (!_trsStore)
+			const uint32 off = _translatedLines[i].translatedTextOffset;
+			if (off < bodySize)
 				_hiResText.noteTranslatedString(_languageBuffer + off, bodySize - off);
-			else if (_trsStore->peek(off, translation))
-				_hiResText.noteTranslatedString(translation.begin(), translation.size());
 		}
 	}
 
