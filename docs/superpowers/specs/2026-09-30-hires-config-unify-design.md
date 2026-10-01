@@ -567,8 +567,9 @@ font as they always have. A map may still override either span explicitly.
   applies no cap, so the Graphics options can list every target the hardware offers (section 11.1) even when
   `[scummvm] render_target=clut8`. `auto` (or unset) reports what it reports today: every format the mode list can set at the size (exact
   or through the 640x480 line-repeat fallback), cheapest on the bus first (rgb565, xrgb1555, xrgb8888), then CLUT8. An
-  explicit value reports only that family (for `rgb565` only 5-6-5; for `rgb888` only 4-byte 8-8-8) that can be set, then
-  CLUT8. So the cap also governs upstream paths that ask for `nullptr` (SCI EGA with `rgb_rendering`, videos).
+  explicit value reports its own family first, then the other true-colour family, then CLUT8, each only when it can be set
+  (`rgb565`: 5-6-5, 4-byte 8-8-8, CLUT8; `rgb888`: 4-byte 8-8-8, 5-6-5, CLUT8; `clut8`: CLUT8 alone; 1-5-5-5 is in neither
+  family), so the section 7.1 fallback order still has a true-colour screen to fall back to. So the cap also governs upstream paths that ask for `nullptr` (SCI EGA with `rgb_rendering`, videos).
 - `rgb565` at 640x400: DOSBox-X offers it directly; DOSBox Staging has no 640x400 5-6-5 mode, so the existing 640x480
   line-repeat mode is used (`dos_force_fallback` still forces it for tests).
 - Scale: section 7.4 (2 only): `initBackend()` registers `hires_text_platform_scale=2`.
