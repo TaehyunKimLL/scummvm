@@ -209,6 +209,7 @@ private:
 
 	bool _deferModes;	///< see setDeferModes()
 	bool _engineStarted;
+	mutable Common::String _renderTargetWarned;	///< the invalid render_target warned about in this game
 	bool _modeOwed;	///< _screen was made while modes were deferred; no mode for it yet
 	bool _loadingShown;	///< the window shows the loading screen, not _screen
 	bool _loadingAbort;	///< a key or click came in: show the game

@@ -128,25 +128,59 @@ public:
 		TS_ASSERT_EQUALS(DOS::supportedFormats(m, 320, 200, Graphics::kHiResTargetAuto).size(), 1u);
 	}
 
+	static bool sameList(const Common::List<Graphics::PixelFormat> &got, const Graphics::PixelFormat *want, uint n) {
+		if (got.size() != n)
+			return false;
+		Common::List<Graphics::PixelFormat>::const_iterator it = got.begin();
+		for (uint i = 0; i < n; ++i, ++it)
+			if (!(*it == want[i]))
+				return false;
+		return true;
+	}
+
+	// An explicit target comes first, then the other true-colour family
+	// (never 1-5-5-5), then CLUT8: what the engine falls back to in the
+	// order rgb888, rgb565, clut8.
 	void test_render_target_caps_the_list() {
-		Common::List<Graphics::PixelFormat> x565 = DOS::supportedFormats(dosboxX(), 640, 400, Graphics::kHiResTargetRgb565);
-		TS_ASSERT_EQUALS(x565.size(), 2u);
-		TS_ASSERT(x565.front() == DOS::rgb565());
-		TS_ASSERT(x565.back().isCLUT8());
+		const Graphics::PixelFormat clut8 = Graphics::PixelFormat::createFormatCLUT8();
+
+		const Graphics::PixelFormat x565[] = { DOS::rgb565(), DOS::xrgb8888(), clut8 };
+		TS_ASSERT(sameList(DOS::supportedFormats(dosboxX(), 640, 400, Graphics::kHiResTargetRgb565), x565, 3));
 
 		// Staging has no 640x400 5-6-5: the 640x480 line-repeat mode serves it.
-		Common::List<Graphics::PixelFormat> s565 = DOS::supportedFormats(staging(), 640, 400, Graphics::kHiResTargetRgb565);
-		TS_ASSERT_EQUALS(s565.size(), 2u);
-		TS_ASSERT(s565.front() == DOS::rgb565());
+		TS_ASSERT(sameList(DOS::supportedFormats(staging(), 640, 400, Graphics::kHiResTargetRgb565), x565, 3));
 
-		// rgb888 keeps the 4-byte 8-8-8 format only; 1-5-5-5 never counts as rgb565.
-		Common::List<Graphics::PixelFormat> x888 = DOS::supportedFormats(dosboxX(), 640, 400, Graphics::kHiResTargetRgb888);
-		TS_ASSERT(x888.front() == DOS::xrgb8888());
-		TS_ASSERT_EQUALS(x888.size(), 2u);
+		const Graphics::PixelFormat x888[] = { DOS::xrgb8888(), DOS::rgb565(), clut8 };
+		TS_ASSERT(sameList(DOS::supportedFormats(dosboxX(), 640, 400, Graphics::kHiResTargetRgb888), x888, 3));
+		TS_ASSERT(sameList(DOS::supportedFormats(staging(), 640, 400, Graphics::kHiResTargetRgb888), x888, 3));
 
-		Common::List<Graphics::PixelFormat> clut = DOS::supportedFormats(dosboxX(), 640, 400, Graphics::kHiResTargetClut8);
-		TS_ASSERT_EQUALS(clut.size(), 1u);
-		TS_ASSERT(clut.front().isCLUT8());
+		const Graphics::PixelFormat onlyClut[] = { clut8 };
+		TS_ASSERT(sameList(DOS::supportedFormats(dosboxX(), 640, 400, Graphics::kHiResTargetClut8), onlyClut, 1));
+
+		// auto is unchanged: every format, 1-5-5-5 included.
+		const Graphics::PixelFormat all[] = { DOS::rgb565(), DOS::xrgb1555(), DOS::xrgb8888(), clut8 };
+		TS_ASSERT(sameList(DOS::supportedFormats(dosboxX(), 640, 400, Graphics::kHiResTargetAuto), all, 4));
+	}
+
+	void test_render_target_without_rgb565_hardware() {
+		// 640x400 true colour and 1-5-5-5, no 5-6-5 at any size: rgb565
+		// gets true colour rather than CLUT8, and 1-5-5-5 never stands in.
+		const Graphics::PixelFormat clut8 = Graphics::PixelFormat::createFormatCLUT8();
+		Common::Array<DOS::VideoMode> m;
+		DOS::VideoMode a = { 640, 400, DOS::xrgb8888() };
+		DOS::VideoMode b = { 640, 400, DOS::xrgb1555() };
+		DOS::VideoMode c = { 640, 400, clut8 };
+		m.push_back(a); m.push_back(b); m.push_back(c);
+		const Graphics::PixelFormat tc[] = { DOS::xrgb8888(), clut8 };
+		TS_ASSERT(sameList(DOS::supportedFormats(m, 640, 400, Graphics::kHiResTargetRgb565), tc, 2));
+		TS_ASSERT(sameList(DOS::supportedFormats(m, 640, 400, Graphics::kHiResTargetRgb888), tc, 2));
+
+		// Only 1-5-5-5: neither target has a family to offer.
+		Common::Array<DOS::VideoMode> m555;
+		m555.push_back(b); m555.push_back(c);
+		const Graphics::PixelFormat onlyClut[] = { clut8 };
+		TS_ASSERT(sameList(DOS::supportedFormats(m555, 640, 400, Graphics::kHiResTargetRgb565), onlyClut, 1));
+		TS_ASSERT(sameList(DOS::supportedFormats(m555, 640, 400, Graphics::kHiResTargetRgb888), onlyClut, 1));
 	}
 
 	void test_render_target_cap_only_while_a_game_runs() {
