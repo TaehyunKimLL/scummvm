@@ -53,6 +53,9 @@ class WriteStream;
 namespace GUI {
 class Debugger;
 class Dialog;
+#ifdef DISABLE_GUI
+class MessageDialog;
+#endif
 }
 namespace Graphics {
 struct HotspotInfo;
@@ -185,6 +188,10 @@ protected:
 	 * Run a GUI dialog.
 	 */
 	virtual int runDialog(GUI::Dialog &dialog);
+#ifdef DISABLE_GUI
+	/** Without the GUI a message box is not a dialog: it logs and answers at once. */
+	int runDialog(GUI::MessageDialog &dialog);
+#endif
 
 	/**
 	 * Target name for saves.

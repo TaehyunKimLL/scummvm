@@ -99,8 +99,16 @@
 #endif
 
 #include "gui/dump-all-dialogs.h"
+#ifdef DISABLE_GUI
+#include "base/config-load.h"
+#endif
 
 static bool launcherDialog() {
+#ifdef DISABLE_GUI
+	// No launcher in this build: the game is named on the command line,
+	// and when it ends, so does the program.
+	return false;
+#else
 
 	// Discard any command line options. Those that affect the graphics
 	// mode and the others (like bootparam etc.) should not
@@ -120,6 +128,7 @@ static bool launcherDialog() {
 		status = (dlg.runModal() != -1);
 	} while (noQuit && nullptr == ConfMan.getActiveDomain());
 	return status;
+#endif
 }
 
 static Common::Error identifyGame(const Common::String &debugLevels, const Plugin **detectionPlugin, DetectedGame &game, const void **descriptor) {
@@ -480,6 +489,22 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
 		configLoadStatus = ConfMan.loadDefaultConfigFile(initConfigFilename);
 	}
 
+#ifdef DISABLE_GUI
+	// Nobody can be asked whether to overwrite a file that did not load:
+	// stop before anything writes it (configLoadAction()).
+	if (Base::configLoadAction(configLoadStatus, false) == Base::kConfigLoadRefuse) {
+		Common::Path file = ConfMan.getCustomConfigFileName();
+		if (file.empty())
+			file = system.getDefaultConfigFileName();
+		const Common::String name = file.toString(Common::Path::kNativeSeparator);
+		const int line = ConfMan.getLoadErrorLine();
+		g_system->logMessage(LogMessageType::kError, (line > 0 ?
+			Common::String::format("%s: line %d is not valid; nothing was changed. Fix that line and run again.\n", name.c_str(), line) :
+			Common::String::format("%s could not be read; nothing was changed.\n", name.c_str())).c_str());
+		return 1;
+	}
+#endif
+
 	// Update the config file
 	ConfMan.set("versioninfo", gScummVMVersion, Common::ConfigManager::kApplicationDomain);
 
@@ -715,9 +740,11 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
 	CloudMan.syncSaves();
 #endif
 
+#ifndef DISABLE_GUI
 	if (ConfMan.hasKey("dump_all_dialogs")) {
 		GUI::dumpAllDialogs();
 	}
+#endif
 
 // Print out CPU extension info
 // Separate block to keep the stack clean
@@ -752,8 +779,12 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
 	}
 
 	// Unless a game was specified, show the launcher dialog
-	if (nullptr == ConfMan.getActiveDomain() && !ConfMan.hasKey("dump_all_dialogs"))
+	if (nullptr == ConfMan.getActiveDomain() && !ConfMan.hasKey("dump_all_dialogs")) {
+#ifdef DISABLE_GUI
+		g_system->logMessage(LogMessageType::kError, "No game given. Usage: scummvm <target>, where <target> is a section of the ini file\n");
+#endif
 		launcherDialog();
+	}
 
 	// FIXME: We're now looping the launcher. This, of course, doesn't
 	// work as well as it should. In theory everything should be destroyed
@@ -941,7 +972,9 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
 	Cloud::CloudManager::destroy();
 #endif
 	PluginManager::destroy();
+#ifndef DISABLE_GUI
 	GUI::GuiManager::destroy();
+#endif
 	Common::ConfigManager::destroy();
 	Common::DebugManager::destroy();
 	Common::OSDMessageQueue::destroy();

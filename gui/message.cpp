@@ -23,6 +23,29 @@
 #include "common/system.h"
 #include "common/translation.h"
 #include "gui/message.h"
+
+#ifdef DISABLE_GUI
+
+namespace GUI {
+
+MessageDialog::MessageDialog(const Common::U32String &message) : _message(message) {}
+MessageDialog::MessageDialog(const Common::String &message) : _message(message) {}
+MessageDialog::MessageDialog(const Common::U32String &message, const Common::U32String &, const Common::U32String &,
+							 Graphics::TextAlign, const char *, const Common::U32String &) : _message(message) {}
+MessageDialog::MessageDialog(const Common::String &message, const Common::String &, const Common::String &,
+							 Graphics::TextAlign, const char *) : _message(message) {}
+MessageDialog::MessageDialog(const Common::U32String &message, const Common::U32String &, const Common::U32StringArray &,
+							 Graphics::TextAlign) : _message(message) {}
+
+int MessageDialog::runModal() {
+	g_system->logMessage(LogMessageType::kWarning, ("Message: " + _message.encode() + "\n").c_str());
+	return kMessageOK;
+}
+
+} // End of namespace GUI
+
+#else
+
 #include "gui/gui-manager.h"
 #include "gui/ThemeEval.h"
 #include "gui/widget.h"
@@ -284,3 +307,5 @@ MessageDialogWithURL::MessageDialogWithURL(const Common::String &message, const 
 
 
 } // End of namespace GUI
+
+#endif // DISABLE_GUI

@@ -696,7 +696,11 @@ void SciMetaEngine::registerDefaultSettings(const Common::String &target) const 
 }
 
 GUI::OptionsContainerWidget *SciMetaEngine::buildEngineOptionsWidget(GUI::GuiObject *boss, const Common::String &name, const Common::String &target) const {
+#ifdef DISABLE_GUI
+	return nullptr;
+#else
 	return new OptionsWidget(boss, name, target);
+#endif
 }
 
 } // End of namespace Sci

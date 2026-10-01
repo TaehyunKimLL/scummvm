@@ -19,37 +19,29 @@
  *
  */
 
-#include "common/error.h"
-#include "gui/message.h"
-#include "gui/error.h"
+#ifndef BASE_CONFIG_LOAD_H
+#define BASE_CONFIG_LOAD_H
 
-#ifdef DISABLE_GUI
-#include "common/system.h"
-#endif
+namespace Base {
 
-namespace GUI {
+/** What to do after loading the config file. */
+enum ConfigLoadAction {
+	kConfigLoadContinue,		///< it loaded
+	kConfigLoadAskOverwrite,	///< it did not: ask whether to overwrite it
+	kConfigLoadRefuse			///< it did not, and no one can be asked: stop, change nothing
+};
 
-void displayErrorDialog(const Common::U32String &text) {
-#ifdef DISABLE_GUI
-	// No dialog: an error goes to the log as one (the backend shows the
-	// last one when it exits).
-	g_system->logMessage(LogMessageType::kError, (text.encode() + "\n").c_str());
-#else
-	GUI::MessageDialog alert(text);
-	alert.runModal();
-#endif
+/**
+ * A config file that did not load is only overwritten when the user says
+ * so. Without a GUI to ask (configure --disable-gui) the program stops
+ * before anything writes the file: what did not parse would be lost.
+ */
+inline ConfigLoadAction configLoadAction(bool loaded, bool canAsk) {
+	if (loaded)
+		return kConfigLoadContinue;
+	return canAsk ? kConfigLoadAskOverwrite : kConfigLoadRefuse;
 }
 
-void displayErrorDialog(const Common::Error &error, const Common::U32String &extraText) {
-	Common::U32String errorText(extraText);
-	errorText += Common::U32String(" ");
-	errorText += error.getTranslatedDesc();
-#ifdef DISABLE_GUI
-	displayErrorDialog(errorText);
-#else
-	GUI::MessageDialog alert(errorText);
-	alert.runModal();
-#endif
-}
+} // End of namespace Base
 
-} // End of namespace GUI
+#endif

@@ -1,0 +1,45 @@
+SDL3 for the DOS build, trimmed to what the port uses.
+
+build-dos.sh links $SDL3_DOS_MIN (default ~/opt/sdl3-dos-min). Source:
+libsdl-org/SDL 1ce4c5bc2916702e8e0f6df1f612dbd8633011da with
+sdl3-irq-code.patch applied (see its header; ~/opt/src/SDL3, branch
+dos-irq-lock, 11ca8a4).
+
+  cmake -S SDL3 -B SDL3/build-dos-min \
+    -DCMAKE_TOOLCHAIN_FILE=build-scripts/i586-pc-msdosdjgpp.cmake \
+    -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF \
+    -DSDL_TEST_LIBRARY=OFF -DSDL_EXAMPLES=OFF -DSDL_LEAN_AND_MEAN=ON \
+    -DSDL_RENDER=OFF -DSDL_GPU=OFF -DSDL_OPENGL=OFF -DSDL_OPENGLES=OFF \
+    -DSDL_JOYSTICK=ON -DSDL_HAPTIC=OFF -DSDL_HIDAPI=OFF -DSDL_SENSOR=OFF -DSDL_VIRTUAL_JOYSTICK=OFF \
+    -DSDL_CAMERA=OFF -DSDL_DUMMYCAMERA=OFF -DSDL_DIALOG=OFF -DSDL_TRAY=OFF -DSDL_POWER=OFF \
+    -DSDL_DISKAUDIO=OFF -DSDL_DUMMYAUDIO=OFF -DSDL_DUMMYVIDEO=OFF -DSDL_OFFSCREEN=OFF \
+    "-DCMAKE_C_FLAGS=-ffunction-sections -DSDL_DISABLE_STB" \
+    -DCMAKE_INSTALL_PREFIX=$HOME/opt/sdl3-dos-min
+  cmake --build SDL3/build-dos-min && cmake --install SDL3/build-dos-min
+
+(The toolchain file path is relative to the SDL3 source directory: run cmake
+from there, or give it in full.)
+
+What stays: the dosvesa video driver with its window framebuffer (the port
+uses SDL_GetWindowSurface/SDL_UpdateWindowSurfaceRects, never a renderer:
+the driver has CreateWindowFramebuffer, so SDL never asks for one), surfaces,
+palettes, the copy and generic blitters, events, keyboard and mouse, the Sound Blaster
+audio driver and audio streams, timers, threads, hints and logging.
+
+What goes: the 2D renderer and its software backend, GPU, OpenGL, HIDAPI,
+haptic, sensors, camera, dialogs, tray, power, the dummy and disk audio and
+video drivers (demand-only: without a Sound Blaster the port already uses
+its own null mixer), the stb image loader, and with SDL_LEAN_AND_MEAN the
+optimised blitters (SDL_blit_0/1/A/N/auto), RLE colour-key blits and YUV.
+The port never blits through SDL: the framebuffer's direct path
+(SDL_HINT_DOS_ALLOW_DIRECT_FRAMEBUFFER) copies system RAM to VRAM itself;
+SDL's own fallback path and its hardware cursor would still blit, through
+the generic SDL_blit_slow. -ffunction-sections lets the port's
+--gc-sections link drop the rest of what nothing calls.
+
+The joystick stays on: this SDL's DOS platform block adds the DOS joystick
+driver even with SDL_JOYSTICK=OFF, and SDL_joystick.c then wants the dummy
+driver, which is not built (an undefined SDL_DUMMY_JoystickDriver at link).
+
+The full build (~/opt/sdl3-dos, the options in sdl3-irq-code.patch's header)
+still works: SDL3_DOS_MIN=$HOME/opt/sdl3-dos build-dos.sh ...

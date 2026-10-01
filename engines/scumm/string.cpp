@@ -163,14 +163,21 @@ void ScummEngine::showMessageDialog(const byte *msg) {
 	if (_string[3].color == 0)
 		_string[3].color = 4;
 
+#ifdef DISABLE_GUI
+	// No GUI: the original interpreter's banner.
+	if (true) {
+#else
 	if (isUsingOriginalGUI()) {
+#endif
 		if (_game.version > 4)
 			VAR(VAR_KEYPRESS) = showBannerAndPause(0, -1, (const char *)msg).ascii;
 		else
 			VAR(VAR_KEYPRESS) = showOldStyleBannerAndPause((const char *)msg, _string[3].color, -1).ascii;
 	} else {
+#ifndef DISABLE_GUI
 		InfoDialog dialog(this, Common::U32String((char *)buf, getDialogCodePage()));
 		VAR(VAR_KEYPRESS) = runDialog(dialog);
+#endif
 	}
 
 }

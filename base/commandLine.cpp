@@ -287,6 +287,16 @@ static void usage(const char *s, ...) {
 	va_end(va);
 
 	printf(USAGE_STRING, s_appName, buf, s_appName, s_appName);
+#else
+	// No usage text in this build, but still say what was wrong.
+	char buf[STRINGBUFLEN];
+	va_list va;
+
+	va_start(va, s);
+	vsnprintf(buf, STRINGBUFLEN, s, va);
+	va_end(va);
+
+	printf("%s: %s\n", s_appName, buf);	// exit() flushes it
 #endif
 	exit(1);
 }
@@ -1602,7 +1612,9 @@ static Common::Error listSaves(const Common::String &singleTarget) {
 static void listThemes() {
 	typedef Common::List<GUI::ThemeEngine::ThemeDescriptor> ThList;
 	ThList thList;
+#ifndef DISABLE_GUI
 	GUI::ThemeEngine::listUsableThemes(thList);
+#endif
 
 	printf("Theme          Description\n");
 	printf("-------------- ------------------------------------------------\n");

@@ -556,6 +556,14 @@ int RateConverter_Impl<inStereo, outStereo, reverseStereo>::convertForType(Audio
 
 template<bool inStereo, bool outStereo, bool reverseStereo>
 int RateConverter_Impl<inStereo, outStereo, reverseStereo>::convert(AudioStream &input, byte *outBuffer, uint outBytesPerSample, st_size_t numSamples, st_volume_t volL, st_volume_t volR, MixMode mixMode) {
+#ifdef AUDIO_RATE_STEREO_INT16_ONLY
+	// This port's mixers only ever ask for 16-bit samples.
+	assert(outBytesPerSample == sizeof(int16));
+	if (mixMode == MIX_ADD)
+		return convertForType<int16, MIX_ADD>(input, outBuffer, numSamples, volL, volR);
+	else
+		return convertForType<int16, MIX_CLAMPED_ADD>(input, outBuffer, numSamples, volL, volR);
+#else
 	if (outBytesPerSample == sizeof(int32)) {
 		if (mixMode == MIX_ADD)
 			return convertForType<int32, MIX_ADD>(input, outBuffer, numSamples, volL, volR);
@@ -567,11 +575,21 @@ int RateConverter_Impl<inStereo, outStereo, reverseStereo>::convert(AudioStream 
 		else
 			return convertForType<int16, MIX_CLAMPED_ADD>(input, outBuffer, numSamples, volL, volR);
 	}
+#endif
 }
 
 RateConverter *makeRateConverter(st_rate_t inRate, st_rate_t outRate, bool inStereo, bool outStereo, bool reverseStereo) {
 	assert(inRate != 0 && outRate != 0);
 
+#ifdef AUDIO_RATE_STEREO_INT16_ONLY
+	// This port mixes to stereo only: the mono-output converters are not built.
+	if (!outStereo)
+		error("makeRateConverter: no mono output in this build");
+	if (inStereo)
+		return reverseStereo ? (RateConverter *)new RateConverter_Impl<true, true, true>(inRate, outRate)
+		                     : (RateConverter *)new RateConverter_Impl<true, true, false>(inRate, outRate);
+	return new RateConverter_Impl<false, true, false>(inRate, outRate);
+#else
 	if (inStereo) {
 		if (outStereo) {
 			if (reverseStereo)
@@ -586,6 +604,7 @@ RateConverter *makeRateConverter(st_rate_t inRate, st_rate_t outRate, bool inSte
 		} else
 			return new RateConverter_Impl<false, false, false>(inRate, outRate);
 	}
+#endif
 }
 
 } // End of namespace Audio

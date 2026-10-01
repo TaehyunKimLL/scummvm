@@ -7,6 +7,7 @@
 
 TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/common/compression/*.h \
+	$(srcdir)/test/base/*.h \
 	$(srcdir)/test/common/formats/*.h \
 	$(srcdir)/test/audio/*.h \
 	$(srcdir)/test/math/*.h \

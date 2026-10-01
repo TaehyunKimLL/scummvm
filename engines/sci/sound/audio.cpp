@@ -163,9 +163,11 @@ void AudioPlayer::handleFanmadeSciAudio(reg_t sciAudioObject, SegManager *segMan
 		case MKTAG('W','A','V',' '):
 			audioStream = Audio::makeWAVStream(sciAudioFile, DisposeAfterUse::YES);
 			break;
+#ifndef DISABLE_SCI_MAC_AUDIO
 		case MKTAG('A','I','F','F'):
 			audioStream = Audio::makeAIFFStream(sciAudioFile, DisposeAfterUse::YES);
 			break;
+#endif
 		default:
 			break;
 		}
@@ -456,9 +458,14 @@ Audio::RewindableAudioStream *AudioPlayer::getAudioStream(uint32 number, uint32 
 				   audioRes->getUint32BEAt(10) == 0x00018051) {
 
 			// Mac snd detected
+#ifdef DISABLE_SCI_MAC_AUDIO
+			warning("Mac sound resource not played: not built in");
+			delete memoryStream;
+#else
 			audioSeekStream = Audio::makeMacSndStream(memoryStream, DisposeAfterUse::YES);
 			if (!audioSeekStream)
 				error("Failed to load Mac sound stream");
+#endif
 
 		} else {
 			// SCI1 raw audio
