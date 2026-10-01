@@ -1,7 +1,7 @@
 ; King's Quest I (SCI remake), Korean UTF-8 translation. One map, two presets;
 ; the ini's render_target picks one.
 ;
-; Default (true colour: render_target=auto, rgb888 or rgb565): two faces,
+; Default (true colour: render_target=auto, which is rgb565 on DOS; or rgb565, rgb888): two faces,
 ; picked by the game's font id:
 ;   body - font 300, the message boxes and narration: KO2350B.SVF (Gowun
 ;          Batang Bold, 17 px, 2 bpp, ASCII + ksx1001-nohanja: 2350 Hangul +
