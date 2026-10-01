@@ -2,12 +2,16 @@
 
 #include "common/array.h"
 #include "common/config-manager.h"
+#include "common/file.h"
+#include "common/fs.h"
 #include "common/hashmap.h"
 #include "common/hash-str.h"
 #include "common/list.h"
 #include "common/str.h"
 #include "graphics/hires_text/hires_options.h"
 #include "graphics/pixelformat.h"
+
+#include "../system/null_osystem.h"
 
 class HiResOptionsTestSuite : public CxxTest::TestSuite {
 	struct FakeIni {
@@ -224,5 +228,72 @@ public:
 		Common::List<Graphics::PixelFormat> clutOnly;
 		clutOnly.push_back(Graphics::PixelFormat::createFormatCLUT8());
 		TS_ASSERT_EQUALS(Graphics::predictedTarget(Graphics::kHiResTargetRgb888, clutOnly, true), Graphics::kHiResTargetClut8);
+	}
+
+	void test_targets_offered() {
+		Common::List<Graphics::PixelFormat> l;
+		l.push_back(xrgb1555());
+		TS_ASSERT_EQUALS(Graphics::hiResTargetsOffered(l), 0u);                  // 1-5-5-5 is not rgb565
+		l.push_back(rgb565());
+		l.push_back(xrgb8888());
+		l.push_back(Graphics::PixelFormat::createFormatCLUT8());
+		TS_ASSERT_EQUALS(Graphics::hiResTargetsOffered(l),
+						 (1u << Graphics::kHiResTargetClut8) | (1u << Graphics::kHiResTargetRgb565) | (1u << Graphics::kHiResTargetRgb888));
+	}
+
+	void test_hires_text_configured() {
+		ConfMan.addGameDomain("hrconf-test");
+		TS_ASSERT(!Graphics::hiResTextConfigured("hrconf-test"));               // no map, no face, no path
+		ConfMan.set("hires_text_map", "data:KQ1KO.MAP", "hrconf-test");
+		TS_ASSERT(Graphics::hiResTextConfigured("hrconf-test"));
+		ConfMan.set("hires_text", "false", "hrconf-test");
+		TS_ASSERT(!Graphics::hiResTextConfigured("hrconf-test"));
+		TS_ASSERT(Graphics::hiResTextNamed("hrconf-test"));                     // still there to switch back on
+		ConfMan.set("hires_text", "true", "hrconf-test");
+		ConfMan.set("hires_text_map", "", "hrconf-test");                      // empty: no map
+		TS_ASSERT(!Graphics::hiResTextConfigured("hrconf-test"));
+		ConfMan.set("hires_text_face", "KO.TTF", "hrconf-test");
+		TS_ASSERT(Graphics::hiResTextConfigured("hrconf-test"));
+		ConfMan.removeKey("hires_text", "hrconf-test");
+		ConfMan.set("hires_text", "false", Common::ConfigManager::kApplicationDomain);   // falls back to [scummvm]
+		TS_ASSERT(!Graphics::hiResTextConfigured("hrconf-test"));
+		ConfMan.removeKey("hires_text", Common::ConfigManager::kApplicationDomain);
+		ConfMan.removeGameDomain("hrconf-test");
+	}
+
+	void test_default_map_in_the_game_folder() {
+#if NULL_OSYSTEM_IS_AVAILABLE
+		Common::install_null_g_system();
+		char name[] = "hires-options-XXXXXX";
+		TS_ASSERT(mkdtemp(name) != nullptr);
+		char *full = realpath(name, nullptr);
+		const Common::String dir = full ? full : name;
+		free(full);
+		const Common::Path gameDir(dir, '/');
+
+		ConfMan.addGameDomain("hrmap-test");
+		ConfMan.setPath("path", gameDir, "hrmap-test");
+		TS_ASSERT(Graphics::findDefaultHiResMap(gameDir).empty());
+		TS_ASSERT(Graphics::findDefaultHiResMap(Common::Path()).empty());
+		TS_ASSERT(!Graphics::hiResTextConfigured("hrmap-test"));
+
+		const Common::Path map = gameDir.appendComponent("hirestxt.map");       // any case
+		{
+			Common::DumpFile f;
+			TS_ASSERT(f.open(map));
+			f.writeString("[map]\nversion=2\n");
+			f.close();
+		}
+		TS_ASSERT(!Graphics::findDefaultHiResMap(gameDir).empty());
+		TS_ASSERT_EQUALS(Graphics::findDefaultHiResMap(gameDir).baseName(), "hirestxt.map");
+		TS_ASSERT(Graphics::hiResTextConfigured("hrmap-test"));
+		ConfMan.set("hires_text_map", "", "hrmap-test");                       // an empty map key: no map at all
+		TS_ASSERT(!Graphics::hiResTextConfigured("hrmap-test"));
+
+		ConfMan.removeGameDomain("hrmap-test");
+		remove(map.toString('/').c_str());
+		remove(dir.c_str());
+		Common::uninstall_null_g_system();
+#endif
 	}
 };

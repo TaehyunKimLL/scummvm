@@ -22,6 +22,7 @@
 #include "graphics/hires_text/hires_options.h"
 
 #include "common/config-manager.h"
+#include "common/fs.h"
 #include "common/util.h"
 
 namespace Graphics {
@@ -190,6 +191,18 @@ bool formatMatchesTarget(const PixelFormat &format, HiResRenderTarget target) {
 	default:
 		return false;
 	}
+}
+
+uint32 hiResTargetsOffered(const Common::List<PixelFormat> &formats) {
+	static const HiResRenderTarget kTargets[] = { kHiResTargetClut8, kHiResTargetRgb565, kHiResTargetRgb888 };
+	uint32 offered = 0;
+	for (Common::List<PixelFormat>::const_iterator it = formats.begin(); it != formats.end(); ++it) {
+		for (uint i = 0; i < ARRAYSIZE(kTargets); ++i) {
+			if (formatMatchesTarget(*it, kTargets[i]))
+				offered |= 1u << kTargets[i];
+		}
+	}
+	return offered;
 }
 
 Common::List<PixelFormat> formatRequest(HiResRenderTarget want, const Common::List<PixelFormat> &supported,
@@ -431,6 +444,46 @@ bool confManGet(const char *key, bool globalFallback, Common::String &value, voi
 
 HiResIniOverrides readHiResIniFromConfMan(const Common::String &gameDomain, Common::Array<Common::String> &warnings) {
 	return readHiResIni(confManGet, const_cast<Common::String *>(&gameDomain), warnings);
+}
+
+Common::Path findDefaultHiResMap(const Common::Path &gameDir) {
+	static const char *const kDefaultMapName = "HIRESTXT.MAP";
+	if (gameDir.empty())
+		return Common::Path();
+	const Common::Path direct = gameDir.appendComponent(kDefaultMapName);
+	if (Common::FSNode(direct).exists())
+		return direct;
+	Common::FSNode dir(gameDir);
+	Common::FSList children;
+	if (dir.isDirectory() && dir.getChildren(children, Common::FSNode::kListFilesOnly)) {
+		for (uint i = 0; i < children.size(); ++i) {
+			if (children[i].getName().equalsIgnoreCase(kDefaultMapName))
+				return children[i].getPath();
+		}
+	}
+	return Common::Path();
+}
+
+bool hiResTextEnabled(const Common::String &domain) {
+	Common::String value;
+	if (!confManGet("hires_text", true, value, const_cast<Common::String *>(&domain)))
+		return true;
+	bool on;
+	return Common::parseBool(value, on) ? on : true;
+}
+
+bool hiResTextNamed(const Common::String &domain) {
+	if (ConfMan.hasKey("hires_text_face", domain))
+		return true;
+	if (ConfMan.hasKey("hires_text_map", domain))
+		return !ConfMan.get("hires_text_map", domain).empty();
+	if (!ConfMan.hasKey("path", domain))
+		return false;
+	return !findDefaultHiResMap(ConfMan.getPath("path", domain)).empty();
+}
+
+bool hiResTextConfigured(const Common::String &domain) {
+	return hiResTextEnabled(domain) && hiResTextNamed(domain);
 }
 
 } // End of namespace Graphics

@@ -24,6 +24,7 @@
 
 #include "common/array.h"
 #include "common/list.h"
+#include "common/path.h"
 #include "common/str.h"
 #include "graphics/pixelformat.h"
 
@@ -98,6 +99,14 @@ bool parseOrigin(const Common::String &text, HiResOrigin &out);
  * `kHiResTargetAuto` never matches (it is resolved before this is called).
  */
 bool formatMatchesTarget(const PixelFormat &format, HiResRenderTarget target);
+
+/**
+ * The render targets a backend can give (design section 11.1): bit
+ * `1 << target` for each of `kHiResTargetClut8`, `kHiResTargetRgb565` and
+ * `kHiResTargetRgb888` that some format of @p formats matches
+ * (formatMatchesTarget()). Never the `kHiResTargetAuto` bit.
+ */
+uint32 hiResTargetsOffered(const Common::List<PixelFormat> &formats);
 
 /**
  * Build the list of formats to hand `initGraphics()` for @p want (already
@@ -228,6 +237,35 @@ HiResIniOverrides readHiResIni(HiResIniGetFn get, void *ctx, Common::Array<Commo
  * Common::ConfigManager::kApplicationDomain)`.
  */
 HiResIniOverrides readHiResIniFromConfMan(const Common::String &gameDomain, Common::Array<Common::String> &warnings);
+
+/**
+ * The game folder's own map (design section 4): `HIRESTXT.MAP` in
+ * @p gameDir, matched case-insensitively. Empty when @p gameDir is empty or
+ * holds no such file.
+ */
+Common::Path findDefaultHiResMap(const Common::Path &gameDir);
+
+/**
+ * Whether `hires_text` is on for @p domain (design section 11): the game
+ * domain's value, else `[scummvm]`'s, else true. An invalid value counts as
+ * unset, as readHiResIni() treats it.
+ */
+bool hiResTextEnabled(const Common::String &domain);
+
+/**
+ * Whether @p domain names hi-res text, whatever `hires_text` says:
+ * `hires_text_map` is set non-empty, or `hires_text_face` is set, or (with
+ * no `hires_text_map` at all) the game folder (`path`) holds HIRESTXT.MAP.
+ * An empty `hires_text_map` means "no map", as the engines read it.
+ */
+bool hiResTextNamed(const Common::String &domain);
+
+/**
+ * Whether a target uses hi-res text (design section 11.1, the question
+ * MetaEngine::hasHiResText() answers for SCI, SCUMM and AGS):
+ * hiResTextEnabled(@p domain) and hiResTextNamed(@p domain).
+ */
+bool hiResTextConfigured(const Common::String &domain);
 
 } // End of namespace Graphics
 

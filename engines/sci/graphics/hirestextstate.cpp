@@ -35,32 +35,6 @@
 
 namespace Sci {
 
-namespace {
-
-// design section 4's default map file; the same fixed 8.3 name every engine
-// looks for.
-const char *const kHiResMapName = "HIRESTXT.MAP";
-
-} // End of anonymous namespace
-
-Common::Path findDefaultHiresMap(const Common::Path &gameDir) {
-	const Common::Path direct = gameDir.appendComponent(kHiResMapName);
-	if (Common::FSNode(direct).exists())
-		return direct;
-
-	Common::FSNode dir(gameDir);
-	if (!dir.isDirectory())
-		return Common::Path();
-	Common::FSList children;
-	if (dir.getChildren(children, Common::FSNode::kListFilesOnly)) {
-		for (uint i = 0; i < children.size(); ++i) {
-			if (children[i].getName().equalsIgnoreCase(kHiResMapName))
-				return children[i].getPath();
-		}
-	}
-	return Common::Path();
-}
-
 HiresTextState::HiresTextState()
 	: _active(false), _haveMapPath(false), _mapRefused(false), _phase1Loaded(false),
 	  _driverTarget(Graphics::kHiResTargetAuto), _noted(false) {
@@ -107,7 +81,7 @@ void HiresTextState::load(bool applies) {
 				_haveMapPath = true;
 			}
 		} else {
-			_mapPath = findDefaultHiresMap(_gameDir);
+			_mapPath = Graphics::findDefaultHiResMap(_gameDir);
 			_haveMapPath = !_mapPath.empty();
 		}
 

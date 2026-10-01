@@ -112,9 +112,6 @@ private:
 	bool _noted;
 };
 
-/** The game folder's own HIRESTXT.MAP, matched case-insensitively; empty when absent. */
-Common::Path findDefaultHiresMap(const Common::Path &gameDir);
-
 } // End of namespace Sci
 
 #endif

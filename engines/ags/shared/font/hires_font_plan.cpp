@@ -29,26 +29,6 @@
 
 namespace AGS3 {
 
-// The default map's name (8.3), matched case-insensitively in the game folder
-static const char *const kDefaultMapName = "HIRESTXT.MAP";
-
-static Common::Path findDefaultMap(const Common::Path &gameDir) {
-	if (gameDir.empty())
-		return Common::Path();
-	const Common::Path direct = gameDir.appendComponent(kDefaultMapName);
-	if (Common::FSNode(direct).exists())
-		return direct;
-	Common::FSNode dir(gameDir);
-	Common::FSList children;
-	if (dir.isDirectory() && dir.getChildren(children, Common::FSNode::kListFilesOnly)) {
-		for (uint i = 0; i < children.size(); i++) {
-			if (children[i].getName().equalsIgnoreCase(kDefaultMapName))
-				return children[i].getPath();
-		}
-	}
-	return Common::Path();
-}
-
 Common::Path HiResFontConfig::mapPathFor(const Graphics::HiResIniOverrides &ini, const Common::Path &gameDir,
 										 Common::String &warning) {
 	if (!ini.enabled)
@@ -61,7 +41,7 @@ Common::Path HiResFontConfig::mapPathFor(const Graphics::HiResIniOverrides &ini,
 		// data:, an absolute path, or one relative to the game folder
 		return Graphics::HiResFontMap::resolvePath(ini.map, gameDir);
 	}
-	return findDefaultMap(gameDir);
+	return Graphics::findDefaultHiResMap(gameDir);
 }
 
 HiResFontConfig::HiResFontConfig() {
