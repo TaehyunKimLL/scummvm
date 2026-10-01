@@ -280,7 +280,7 @@ public:
 	// can leave the line untranslated rather than look elsewhere.
 	void test_a_failed_read_is_reported_not_taken_for_absent() {
 		Fixture f;
-		build(f, 200);
+		build(f, 800);
 		bool fail = false;
 		byte *p = (byte *)malloc(f.body.size());
 		memcpy(p, f.body.begin(), f.body.size());
@@ -290,12 +290,20 @@ public:
 		TS_ASSERT(!store.takeReadFailure());
 		fail = true;
 		uint first, last;
-		const byte *text = f.originals[150].begin();
+		const uint late = f.lines.size() - 1;
+		TS_ASSERT(f.lines[late].orig / SCUMM_TRS_READ_BLOCK != f.lines[0].orig / SCUMM_TRS_READ_BLOCK);
+		const byte *text = f.originals[late].begin();
 		TS_ASSERT(!store.find(text, strLen(text), first, last));
 		TS_ASSERT(store.takeReadFailure());
 		TS_ASSERT(!store.takeReadFailure());	// taken
+		// Not read again this session (no disk read for it every frame).
 		fail = false;
-		TS_ASSERT(store.find(text, strLen(text), first, last));
-		TS_ASSERT(!store.takeReadFailure());
+		const uint32 reads = store.stats().reads;
+		TS_ASSERT(!store.find(text, strLen(text), first, last));
+		TS_ASSERT(store.takeReadFailure());
+		TS_ASSERT_EQUALS(store.stats().reads, reads);
+		// Lines elsewhere in the body still read.
+		const byte *other = f.originals[0].begin();
+		TS_ASSERT(store.find(other, strLen(other), first, last));
 	}
 };
