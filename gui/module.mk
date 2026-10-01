@@ -17,6 +17,7 @@ MODULE_OBJS := \
 	filebrowser-dialog.o \
 	gui-manager.o \
 	helpdialog.o \
+	hirestextoptions.o \
 	imagealbum-dialog.o \
 	launcher.o \
 	massadd.o \

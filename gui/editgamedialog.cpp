@@ -173,6 +173,8 @@ EditGameDialog::EditGameDialog(const Common::String &domain)
 	else
 		_globalGraphicsOverride = new CheckboxWidget(graphicsContainer, "GameOptions_Graphics_Container.EnableTabCheckbox", _c("Override global graphic settings", "lowres"), Common::U32String(), kCmdGlobalGraphicsOverride);
 
+	// The "Hi-res text screen" popup only for a game that draws hi-res text.
+	_hiResTargetAllowed = enginePlugin && enginePlugin->get<MetaEngine>().hasHiResText(_domain);
 	addGraphicControls(graphicsContainer, "GameOptions_Graphics_Container.");
 
 	//
@@ -441,6 +443,7 @@ void EditGameDialog::open() {
 
 	e = ConfMan.hasKey("gfx_mode", _domain) ||
 		ConfMan.hasKey("render_mode", _domain) ||
+		(_hiResTargetPopUp && ConfMan.hasKey("render_target", _domain)) ||
 		ConfMan.hasKey("rotation_mode", _domain) ||
 		ConfMan.hasKey("stretch_mode", _domain) ||
 		ConfMan.hasKey("scaler", _domain) ||

@@ -124,6 +124,15 @@ protected:
 
 	ScrollContainerWidget *_pathsContainer;
 
+	/**
+	 * Whether addGraphicControls() may add the "Hi-res text screen" popup
+	 * (render_target). True by default; EditGameDialog clears it for a game
+	 * without hi-res text.
+	 */
+	bool _hiResTargetAllowed;
+	StaticTextWidget *_hiResTargetPopUpDesc;
+	PopUpWidget *_hiResTargetPopUp;
+
 	PathWidget *_shader;
 	ButtonWidget *_shaderClearButton;
 	ButtonWidget *_updateShadersButton = nullptr;
@@ -172,6 +181,7 @@ private:
 	PopUpWidget *_renderModePopUp;
 	StaticTextWidget *_rotationModePopUpDesc;
 	PopUpWidget *_rotationModePopUp;
+	void loadHiResTargetPopUp();
 
 	//
 	// Audio controls

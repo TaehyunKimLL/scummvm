@@ -16,8 +16,9 @@ TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/image/*.h \
 	$(srcdir)/test/backends/surfacesdl_hwformat.h \
 	$(srcdir)/test/backends/dos_*.h
-# The debug socket's wire protocol only; the rest of gui/ is not linked.
-TEST_LIBS    := gui/debugsocket-protocol.o
+# The debug socket's wire protocol and the hi-res text screen popup's logic
+# only; the rest of gui/ is not linked.
+TEST_LIBS    := gui/debugsocket-protocol.o gui/hirestextoptions.o
 
 ifdef POSIX
 TEST_LIBS += test/system/null_osystem.o \
