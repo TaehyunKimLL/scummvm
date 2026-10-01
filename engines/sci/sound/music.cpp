@@ -93,6 +93,7 @@ void SciMusic::init() {
 	if (getSciVersion() > SCI_VERSION_0_EARLY && getSciVersion() <= SCI_VERSION_1_1)
 		deviceFlags |= MDT_CMS;
 
+#ifndef DISABLE_SCI_TOWNS_PC98_MUSIC
 	if (platform == Common::kPlatformFMTowns) {
 		if (getSciVersion() > SCI_VERSION_1_EARLY)
 			deviceFlags = MDT_TOWNS;
@@ -102,6 +103,7 @@ void SciMusic::init() {
 
 	if (platform == Common::kPlatformPC98)
 		deviceFlags |= MDT_PC98;
+#endif
 
 	uint32 dev = MidiDriver::detectDevice(deviceFlags);
 	_musicType = MidiDriver::getMusicType(dev);
@@ -137,12 +139,14 @@ void SciMusic::init() {
 	case MT_CMS:
 		_pMidiDrv = MidiPlayer_CMS_create(_soundVersion);
 		break;
+#ifndef DISABLE_SCI_TOWNS_PC98_MUSIC
 	case MT_TOWNS:
 		_pMidiDrv = MidiPlayer_FMTowns_create(_soundVersion);
 		break;
 	case MT_PC98:
 		_pMidiDrv = MidiPlayer_PC9801_create(_soundVersion);
 		break;
+#endif
 	default:
 		int midiMode;
 		midiMode = ConfMan.getInt("midi_mode");

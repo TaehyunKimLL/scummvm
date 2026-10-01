@@ -34,7 +34,13 @@
 
 namespace GUI {
 
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+// The debugger has no console dialog with a text console, or without the
+// GUI (configure --disable-gui).
+#if defined(USE_TEXT_CONSOLE_FOR_DEBUGGER) || defined(DISABLE_GUI)
+#define GUI_DEBUGGER_NO_DIALOG
+#endif
+
+#ifndef GUI_DEBUGGER_NO_DIALOG
 class ConsoleDialog;
 #endif
 class DebugSocket;
@@ -247,7 +253,7 @@ private:
 protected:
 	PauseToken _debugPauseToken;
 
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 	/** nullptr until first used: see consoleDialog(). */
 	GUI::ConsoleDialog *_debuggerDialog;
 	/** The console dialog, made on first use. */
@@ -314,7 +320,7 @@ protected:
 	bool cmdClearLog(int argc, const char **argv);
 	bool cmdExecFile(int argc, const char **argv);
 
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 private:
 	static bool debuggerInputCallback(GUI::ConsoleDialog *console, const char *input, void *refCon);
 	static bool debuggerCompletionCallback(GUI::ConsoleDialog *console, const char *input, Common::String &completion, void *refCon);

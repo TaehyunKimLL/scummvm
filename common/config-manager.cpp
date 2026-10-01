@@ -225,9 +225,15 @@ bool ConfigManager::loadFromStream(SeekableReadStream &stream) {
 
 			if (*p == '\0') {
 				warning("Config file buggy: missing ] in line %d", lineno);
+#ifdef DISABLE_GUI
+				_loadErrorLine = lineno;
+#endif
 				return false;
 			} else if (*p != ']') {
 				warning("Config file buggy: Invalid character '%c' occurred in section name in line %d", *p, lineno);
+#ifdef DISABLE_GUI
+				_loadErrorLine = lineno;
+#endif
 				return false;
 			}
 
@@ -251,6 +257,9 @@ bool ConfigManager::loadFromStream(SeekableReadStream &stream) {
 			// If no domain has been set, this config file is invalid!
 			if (domainName.empty()) {
 				warning("Config file buggy: Key/value pair found outside a domain in line %d", lineno);
+#ifdef DISABLE_GUI
+				_loadErrorLine = lineno;
+#endif
 				return false;
 			}
 
@@ -258,6 +267,9 @@ bool ConfigManager::loadFromStream(SeekableReadStream &stream) {
 			const char *p = strchr(t, '=');
 			if (!p) {
 				warning("Config file buggy: Junk found in line %d: '%s'", lineno, t);
+#ifdef DISABLE_GUI
+				_loadErrorLine = lineno;
+#endif
 				return false;
 			}
 

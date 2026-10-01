@@ -39,7 +39,7 @@
 
 #include "gui/debugger.h"
 #include "gui/debugsocket.h"
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 	#include "gui/console.h"
 #elif defined(USE_READLINE)
 	#include <readline/readline.h>
@@ -58,7 +58,7 @@ Debugger::Debugger() {
 	_debugSocketChecked = false;
 	_firstTime = true;
 	_defaultCommandProcessor = nullptr;
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 	// Made on first use (consoleDialog()).
 	_debuggerDialog = nullptr;
 #endif
@@ -89,12 +89,12 @@ Debugger::Debugger() {
 
 Debugger::~Debugger() {
 	delete _debugSocket;
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 	delete _debuggerDialog;
 #endif
 }
 
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 GUI::ConsoleDialog *Debugger::consoleDialog() {
 	// The dialog needs the GUI manager, whose theme and fonts take a while
 	// to load - a second on a slow machine, at every game's start - so it
@@ -114,13 +114,13 @@ void Debugger::clearVars() {
 
 
 void Debugger::setPrompt(Common::String prompt) {
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 	consoleDialog()->setPrompt(prompt);
 #endif
 }
 
 void Debugger::resetPrompt() {
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 	if (_debuggerDialog)
 		_debuggerDialog->resetPrompt();
 #endif
@@ -128,7 +128,7 @@ void Debugger::resetPrompt() {
 
 // Initialisation Functions
 int Debugger::getCharsPerLine() {
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 	// Output going to a sink (the debug socket) has no console width, and
 	// asking the console would build it - and the GUI manager - for nothing.
 	const int charsPerLine = _outputSink ? 80 : consoleDialog()->getCharsPerLine();
@@ -152,8 +152,13 @@ int Debugger::debugPrintf(const char *format, ...) {
 		_outputSink->write(s.c_str());
 		count = s.size();
 	} else {
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 	count = consoleDialog()->vprintFormat(1, format, argptr);
+#elif defined(DISABLE_GUI)
+	// No console: the log.
+	Common::String s = Common::String::vformat(format, argptr);
+	g_system->logMessage(LogMessageType::kInfo, s.c_str());
+	count = s.size();
 #else
 	count = ::vprintf(format, argptr);
 	::fflush(stdout);
@@ -286,7 +291,7 @@ void Debugger::enter() {
 	// TODO: Having three I/O methods #ifdef-ed in this file is not the
 	// cleanest approach to this...
 
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 	if (_firstTime) {
 		debugPrintf("Debugger started, type 'exit' to return to the game.\n");
 		debugPrintf("Type 'help' to see a little list of commands and variables.\n");
@@ -300,6 +305,13 @@ void Debugger::enter() {
 	}
 
 	consoleDialog()->runModal();
+#elif defined(DISABLE_GUI)
+	// No console to enter: what brought the debugger up goes to the log,
+	// and the game goes on (or error() ends it).
+	if (_errStr.size()) {
+		debugPrintf("ERROR: %s\n", _errStr.c_str());
+		_errStr.clear();
+	}
 #else
 	printf("Debugger entered, please switch to this console for input.\n");
 
@@ -865,7 +877,7 @@ bool Debugger::cmdDebugFlagEnable(int argc, const char **argv) {
 }
 
 bool Debugger::cmdClearLog(int argc, const char **argv) {
-	#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+	#ifndef GUI_DEBUGGER_NO_DIALOG
 	if (_debuggerDialog)
 		_debuggerDialog->clearBuffer();
 	#endif
@@ -911,7 +923,7 @@ bool Debugger::cmdDebugFlagDisable(int argc, const char **argv) {
 }
 
 // Console handler
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 bool Debugger::debuggerInputCallback(GUI::ConsoleDialog *console, const char *input, void *refCon) {
 	Debugger *debugger = (Debugger *)refCon;
 

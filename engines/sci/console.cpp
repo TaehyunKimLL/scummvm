@@ -51,7 +51,9 @@
 
 #include "sci/parser/vocabulary.h"
 
+#ifndef DISABLE_SCI_WINMAC_VIDEO
 #include "video/avi_decoder.h"
+#endif
 #include "sci/video/seq_decoder.h"
 #ifdef ENABLE_SCI32
 #include "common/memstream.h"
@@ -344,8 +346,10 @@ void Console::postEnter() {
 
 		if (_videoFile.baseName().hasSuffix(".seq")) {
 			videoDecoder.reset(new SEQDecoder(_videoFrameDelay));
+#ifndef DISABLE_SCI_WINMAC_VIDEO
 		} else if (_videoFile.baseName().hasSuffix(".avi")) {
 			videoDecoder.reset(new Video::AVIDecoder());
+#endif
 		} else {
 			warning("Unrecognized video type");
 		}
@@ -2090,7 +2094,7 @@ bool Console::cmdDrawPic(int argc, const char **argv) {
 		return true;
 	}
 
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 	// If a graphical debugger overlay is used, hide it here, so that the
 	// results can be drawn.
 	g_system->hideOverlay();
@@ -2101,7 +2105,7 @@ bool Console::cmdDrawPic(int argc, const char **argv) {
 	_engine->_gfxScreen->copyToScreen();
 	_engine->sleep(2000);
 
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 	// Show the graphical debugger overlay
 	g_system->showOverlay();
 #endif
@@ -2425,7 +2429,7 @@ bool Console::cmdShowSavedBits(int argc, const char **argv) {
 	assert(bakMemory);
 	_engine->_gfxScreen->bitsSave(rect, bakMask, bakMemory);
 
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 	// If a graphical debugger overlay is used, hide it here, so that the
 	// results can be drawn.
 	g_system->hideOverlay();
@@ -2450,7 +2454,7 @@ bool Console::cmdShowSavedBits(int argc, const char **argv) {
 
 	_engine->_gfxPaint16->bitsFree(bakScreen);
 
-#ifndef USE_TEXT_CONSOLE_FOR_DEBUGGER
+#ifndef GUI_DEBUGGER_NO_DIALOG
 	// Show the graphical debugger overlay
 	g_system->showOverlay();
 #endif

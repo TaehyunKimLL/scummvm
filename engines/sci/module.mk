@@ -156,3 +156,11 @@ ifneq ($(ENABLE_SCI), STATIC_PLUGIN)
 # External dependencies for detection.
 DETECT_OBJS += $(MODULE)/detection_internal.o
 endif
+
+# DOS: the detection table without SCI32 entries (DOS_DETECTION_FILTER).
+ifeq ($(BACKEND),dos)
+engines/sci/detection.o: dosdetect/sci/detection_tables.h
+dosdetect/sci/detection_tables.h: $(srcdir)/engines/sci/detection_tables.h $(srcdir)/engines/sci/detection_internal.cpp $(srcdir)/backends/platform/dos/detection-filter.py
+	$(QUIET)$(MKDIR) dosdetect/sci
+	$(QUIET)python3 $(srcdir)/backends/platform/dos/detection-filter.py sci $(srcdir)/engines/sci/detection_tables.h $(srcdir)/engines/sci/detection_internal.cpp > $@.tmp && mv $@.tmp $@
+endif

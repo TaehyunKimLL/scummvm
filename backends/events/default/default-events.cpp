@@ -36,6 +36,23 @@
 #include "gui/debugger.h"
 #include "gui/message.h"
 
+#ifdef DISABLE_GUI
+// Without the GUI there is nobody to answer the "really quit?" box, and
+// its stand-in would answer Quit: confirm_exit is not used for the boxes
+// below (the engines' own quit prompts are unaffected). Said once.
+static bool confirmExitWithoutGui() {
+	static bool told = false;
+	if (!told && ConfMan.getBool("confirm_exit")) {
+		warning("confirm_exit is ignored in a build without the GUI; the game's own quit prompt, if any, still asks");
+		told = true;
+	}
+	return false;
+}
+#define CONFIRM_EXIT() confirmExitWithoutGui()
+#else
+#define CONFIRM_EXIT() ConfMan.getBool("confirm_exit")
+#endif
+
 DefaultEventManager::DefaultEventManager(Common::EventSource *boss) :
 	_buttonState(0),
 	_modifierState(0),
@@ -194,7 +211,7 @@ bool DefaultEventManager::pollEvent(Common::Event &event) {
 		break;
 
 	case Common::EVENT_RETURN_TO_LAUNCHER:
-		if (g_engine && !g_engine->hasFeature(Engine::kSupportsQuitDialogOverride) && ConfMan.getBool("confirm_exit")) {
+		if (g_engine && !g_engine->hasFeature(Engine::kSupportsQuitDialogOverride) && CONFIRM_EXIT()) {
 			if (_confirmExitDialogActive) {
 				forwardEvent = false;
 				break;
@@ -218,7 +235,7 @@ bool DefaultEventManager::pollEvent(Common::Event &event) {
 		break;
 
 	case Common::EVENT_QUIT:
-		if (g_engine && !g_engine->hasFeature(Engine::kSupportsQuitDialogOverride) && ConfMan.getBool("confirm_exit")) {
+		if (g_engine && !g_engine->hasFeature(Engine::kSupportsQuitDialogOverride) && CONFIRM_EXIT()) {
 			if (_confirmExitDialogActive) {
 				forwardEvent = false;
 				break;

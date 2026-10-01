@@ -190,6 +190,7 @@ _libopenmpt=auto
 _libmpcdec=auto
 _taskbar=auto
 _debug_socket=auto
+_gui=yes
 _updates=no
 _libunity=auto
 _dialogs=auto
@@ -1061,6 +1062,8 @@ Optional Features:
   --disable-debug-socket   don't build the debug socket (a command channel
                            for driving a game from a script; desktop
                            hosts only) [autodetect]
+  --disable-gui            build without the GUI: no launcher, options or
+                           main menu; messages go to the log (DOS only)
   --disable-cloud          don't build cloud support
   --disable-system-dialogs don't build support for system dialogs
   --enable-vkeybd          build virtual keyboard support
@@ -1383,6 +1386,8 @@ for ac_option in $@; do
 	--disable-taskbar)            _taskbar=no            ;;
 	--enable-debug-socket)        _debug_socket=yes      ;;
 	--disable-debug-socket)       _debug_socket=no       ;;
+	--enable-gui)                 _gui=yes               ;;
+	--disable-gui)                _gui=no                ;;
 	--enable-system-dialogs)      _dialogs=yes           ;;
 	--disable-system-dialogs)     _dialogs=no            ;;
 	--enable-sdlnet)              _sdlnet=yes            ;;
@@ -3531,6 +3536,10 @@ EOF
 		# DJGPP's uint32 is unsigned long, so every %u/%x/%d given one warns
 		# (as on MorphOS); Linux builds still check these.
 		append_var CXXFLAGS "-Wno-format"
+		# One section per function, and the link drops those nothing calls:
+		# the whole program sits in a 16 MB machine's memory.
+		append_var CXXFLAGS "-ffunction-sections"
+		append_var LDFLAGS "-Wl,--gc-sections"
 		;;
 	morphos*)
 		if test "$_debug_build" = no; then
@@ -3905,6 +3914,33 @@ if test -n "$_host"; then
 			_build_scalers=no
 			_build_aspect=no
 			_seq_midi=no
+			# The OPL is the card's own chip (audio/dosopl.cpp); a software
+			# emulator costs more CPU than these machines have.
+			append_var DEFINES "-DDISABLE_DOSBOX_OPL"
+			append_var DEFINES "-DDISABLE_MAME_OPL"
+			_nuked_opl=no
+			# Its mixers (Sound Blaster and null) are stereo, 16-bit.
+			append_var DEFINES "-DAUDIO_RATE_STEREO_INT16_ONLY"
+			# C64 and NES music (SCUMM): not DOS games.
+			_sid_audio=no
+			append_var DEFINES "-DDISABLE_NES_APU"
+			# No detection entry of SCI or SCUMM is inside an installer.
+			append_var DEFINES "-DDISABLE_DETECTION_ARCHIVES"
+			# SCI's Windows AVI and Mac QuickTime movies (KQ6 CD Windows, Mac
+			# games): the DOS versions play SEQ.
+			append_var DEFINES "-DDISABLE_SCI_WINMAC_VIDEO"
+			# Cinepak, MS Video 1, QuickTime RLE/RPZA/SMC: video codecs that
+			# only Windows/Mac data reaches (a BMP or a Mac PICT).
+			append_var DEFINES "-DDISABLE_VIDEO_CODECS"
+			# SCI's FM-Towns and PC-98 music drivers: not DOS games.
+			append_var DEFINES "-DDISABLE_SCI_TOWNS_PC98_MUSIC"
+			# SCI's Mac audio (AIFF tracks, Mac snd resources).
+			append_var DEFINES "-DDISABLE_SCI_MAC_AUDIO"
+			# No --help text (the option list) in the executable.
+			append_var DEFINES "-DDISABLE_HELP_STRINGS"
+			# Detection tables without the games these editions cannot run
+			# (SCI32; SCUMM v7/v8 and HE): engines/*/module.mk generate them.
+			append_var DEFINES "-DDOS_DETECTION_FILTER"
 			;;
 		kos32)
 			# neither pkg-config nor *-config work, so we setup everything manually
@@ -7445,6 +7481,19 @@ if test "$_debug_socket" = auto; then
 fi
 echo "$_debug_socket"
 define_in_config_if_yes $_debug_socket 'USE_DEBUG_SOCKET'
+
+#
+# Check whether to build the GUI. Without it (DOS only so far) a game is
+# started from the command line and the engines use their own menus.
+#
+echo_n "Building the GUI... "
+if test "$_gui" = no && test "$_backend" != dos; then
+	echo "no"
+	echo "ERROR: --disable-gui is only supported by the DOS backend"
+	exit 1
+fi
+echo "$_gui"
+define_in_config_if_no $_gui 'DISABLE_GUI'
 
 #
 # Check whether to build printing support

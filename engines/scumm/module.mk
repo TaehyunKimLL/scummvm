@@ -309,3 +309,11 @@ ifneq ($(ENABLE_SCUMM), STATIC_PLUGIN)
 DETECT_OBJS += $(MODULE)/file.o
 DETECT_OBJS += $(MODULE)/file_nes.o
 endif
+
+# DOS: the detection tables without v7/v8 and HE entries (DOS_DETECTION_FILTER).
+ifeq ($(BACKEND),dos)
+engines/scumm/detection.o engines/scumm/metaengine.o engines/scumm/scumm.o: dosdetect/scumm/detection_tables.h dosdetect/scumm/scumm-md5.h
+dosdetect/scumm/%.h: $(srcdir)/engines/scumm/%.h $(srcdir)/engines/scumm/detection_tables.h $(srcdir)/backends/platform/dos/detection-filter.py
+	$(QUIET)$(MKDIR) dosdetect/scumm
+	$(QUIET)python3 $(srcdir)/backends/platform/dos/detection-filter.py scumm $< $(srcdir)/engines/scumm/detection_tables.h > $@.tmp && mv $@.tmp $@
+endif

@@ -1,5 +1,17 @@
 MODULE := gui
 
+ifdef DISABLE_GUI
+# configure --disable-gui: the engines' debugger and debug socket, and the
+# message, error and save/load entry points (gui/message.h: log only).
+MODULE_OBJS := \
+	debugger.o \
+	debugsocket.o \
+	debugsocket-protocol.o \
+	debugsocket-dosuart.o \
+	error.o \
+	message.o \
+	saveload.o
+else
 MODULE_OBJS := \
 	about.o \
 	browser.o \
@@ -53,6 +65,7 @@ MODULE_OBJS := \
 	widgets/scrollbar.o \
 	widgets/scrollcontainer.o \
 	widgets/tab.o
+endif
 
 ifdef USE_CLOUD
 MODULE_OBJS += \
