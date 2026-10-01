@@ -1214,7 +1214,7 @@ GUI::CheckboxWidget *ScummOptionsContainerWidget::createHiResTextCheckbox(GuiObj
 
 	return new GUI::CheckboxWidget(boss, name,
 		_("Use hi-res fonts from the game folder"),
-		_("Read hires_text.map and the font files beside it. Turn this off to ignore them and draw text exactly as the original game did.")
+		_("Read HIRESTXT.MAP and the fonts it names. Turn this off to ignore them and draw text exactly as the original game did.")
 	);
 }
 
@@ -1238,7 +1238,7 @@ GUI::CheckboxWidget *ScummOptionsContainerWidget::createHiResTextBlendCheckbox(G
 
 	return new GUI::CheckboxWidget(boss, name,
 		_("Smooth the hi-res text"),
-		_("Blend the replacement glyphs into the picture. Turn this off for hard-edged text, which suits a pixelated game and costs nothing to draw.")
+		_("Blend the replacement glyphs into the picture. Turn this off for hard-edged text, which suits a pixelated game and costs nothing to draw. Takes effect the next time the game starts.")
 	);
 }
 

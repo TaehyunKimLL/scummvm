@@ -450,7 +450,11 @@ void ScummHiResText::adoptScreen(const Graphics::PixelFormat &actual, bool chose
 	const Common::String note = targetNote(_wanted, _wantedExplicit, actualTarget);
 	if (!note.empty() && !_targetNoted) {
 		_targetNoted = true;
-		warning("SCUMM: %s", note.c_str());
+		// A global render_target must not nag every game without hi-res text.
+		if (_enabled)
+			warning("SCUMM: %s", note.c_str());
+		else
+			debug(1, "SCUMM: %s (hi-res text is off for this game)", note.c_str());
 	}
 
 	if (actualTarget == _target)
@@ -2600,10 +2604,10 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	const bool anyCoverageP1 = Graphics::mapHasCoverage(p1, p1Loaded, _ini, _mapDir, gameDir,
 														 &ScummHiResText::faceHasCoverage, nullptr);
 
+	// Reported once the layer is known to be on (below): a global
+	// render_target must not nag every game without hi-res text.
 	Common::String targetWarning;
 	_wanted = wantedTarget(p1, p1Loaded, _ini, version, anyCoverageP1, targetWarning, &_wantedExplicit);
-	if (!targetWarning.empty())
-		warning("%s", targetWarning.c_str());
 
 	Common::List<Graphics::PixelFormat> supported;
 	if (supportedFormats)
@@ -2619,6 +2623,8 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 		_target = Graphics::kHiResTargetClut8;
 		debug(1, "SCUMM: hi-res text off (hires_text=false): the map, the fonts "
 				 "in the game folder and any TrueType face are all ignored");
+		if (!targetWarning.empty())
+			debug(1, "%s (hi-res text is off for this game)", targetWarning.c_str());
 		return;
 	}
 
@@ -2676,6 +2682,13 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 		if (_haveMap && _target != Graphics::kHiResTargetClut8)
 			reloadSections(Graphics::kHiResTargetClut8, false);
 		_target = Graphics::kHiResTargetClut8;
+	}
+
+	if (!targetWarning.empty()) {
+		if (_enabled)
+			warning("%s", targetWarning.c_str());
+		else
+			debug(1, "%s (hi-res text is off for this game)", targetWarning.c_str());
 	}
 
 	if (_enabled) {
