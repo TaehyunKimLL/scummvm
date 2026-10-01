@@ -499,7 +499,7 @@ ScummEngine::~ScummEngine() {
 		delete[] _2byteFontPtr;
 	for (int i = 0; i < 20; i++)
 		if (_2byteMultiFontPtr[i])
-			delete _2byteMultiFontPtr[i];
+			delete[] _2byteMultiFontPtr[i];
 	delete _charset;
 	delete _messageDialog;
 	delete _pauseDialog;
