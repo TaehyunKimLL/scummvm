@@ -40,8 +40,8 @@ RANGES = {
               [r"^lcall \*0x[0-9a-f]+ \(indirect\) -> __ZL5g_isr", r"^call \*0x[0-9a-f]+\(%e[a-z]x\) \(indirect\)$"]),
     "uart": (["__ZN3GUIL7uartIsrEv", "__ZN3GUIL9drainFifoEv"],
              [r"g_ring", r"g_ringHead", r"g_ringTail", r"g_overruns", r"g_isrBase", r"g_irqs"], []),
-    "dos": (["__ZL10int1cProbeP11__dpmi_regs", "__ZL10sbIrqCountv"],
-            [r"g_int1cCalls", r"g_int1cMasked", r"g_sbIrqs"], []),
+    "dos": (["__ZL10int1cProbeP11__dpmi_regs", "__ZL10sbIrqCountv", "__ZL11kbdIrqCountv"],
+            [r"g_int1cCalls", r"g_int1cMasked", r"g_sbIrqs", r"g_kbdIrqs"], []),
     "sb": (["_SoundBlasterIRQHandler"], [r"^_isr_", r"^_soundblaster_irq$"], []),
     "kbd": (["_KeyboardIRQHandler"], [r"^_keyevents_"], []),
 }

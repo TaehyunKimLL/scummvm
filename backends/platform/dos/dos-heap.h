@@ -51,4 +51,7 @@ bool dosHeapInLargeBlock(const void *ptr, size_t size);
  */
 bool dosHeapLockLargeBlocks(uint32 &blocks, uint32 &bytes);
 
+/** New large blocks are no longer locked (DOS::lockAll() could not lock everything). */
+void dosHeapStopLockingLargeBlocks();
+
 #endif
