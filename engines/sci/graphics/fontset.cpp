@@ -26,6 +26,7 @@
 #include "graphics/hires_text/unicode_props.h"
 
 #include "sci/sci.h"
+#include "sci/graphics/textlayout16.h"
 #include "sci/utf8.h"
 
 #include "common/textconsole.h"
@@ -122,60 +123,47 @@ const GfxFontSet::Face *GfxFontSet::faceFor(uint32 chr, uint32 &outChr) const {
 	}
 
 	const uint32 codePoint = chr;
-	for (uint i = 0; i < _faces.size(); i++) {
-		const Face &f = _faces[i];
-
-		// The resource face holds only the game's own single-byte glyphs. It
-		// reports a width for a double-byte value anyway, so asking it by
-		// width let it swallow every Korean syllable before the Unicode face
-		// was reached - measured, 37 syllables drawn by the wrong face and
-		// the menu buttons came out blank.
-		if (f.kind == kFaceResource)
-			continue;
-
-		if (f.kind == kFaceCodePoint) {
-			const GfxFontUnicode *uni = static_cast<const GfxFontUnicode *>(f.font);
-			if (!uni->hasGlyph(codePoint))
-				continue;
-			outChr = codePoint;
-			return &f;
-		}
-
-		// A legacy double-byte face is asked by CODE PAGE RANGE, since
-		// neither of its own predicates reports coverage: getCharWidth()
-		// returns a width for anything and isDoubleByte() only inspects the
-		// lead byte. korean.fnt indexes glyphs as `uc - 0xAC00` and holds
-		// 11184 of them, exactly the hangul syllable block, so that block is
-		// its real coverage and nothing else.
-		//
-		// Faces are asked in order. The legacy face comes before the Unicode
-		// one, except in a Korean game while a hi-res face is in effect (a
-		// map's face= or hires_text_face): GfxCache::createFontSet() then
-		// puts that face before korean.fnt, which draws only what it lacks.
-		if (!legacyCovers(codePoint))
-			continue;
-		const uint32 packed = toEncodedPair(codePoint);
-		if (!packed)
-			continue;
-		outChr = packed;
+	const int picked = pickChainCoverage(_faces.size(),
+		[this, codePoint](uint i) -> bool {
+			const Face &f = _faces[i];
+			// The resource face holds only the game's own single-byte
+			// glyphs. It reports a width for a double-byte value anyway, so
+			// asking it by width let it swallow every Korean syllable before
+			// the Unicode face was reached - measured, 37 syllables drawn by
+			// the wrong face and the menu buttons came out blank.
+			if (f.kind == kFaceResource)
+				return false;
+			// The Unicode face's own routed source is built with missing=
+			// off (GfxCache::faceChainFor()), so hasGlyph() answers strictly
+			// by real coverage; its box is the second pass below.
+			if (f.kind == kFaceCodePoint)
+				return static_cast<const GfxFontUnicode *>(f.font)->hasGlyph(codePoint);
+			// A legacy double-byte face is asked by CODE PAGE RANGE, since
+			// neither of its own predicates reports coverage: getCharWidth()
+			// returns a width for anything and isDoubleByte() only inspects
+			// the lead byte. korean.fnt indexes glyphs as `uc - 0xAC00` and
+			// holds 11184 of them, exactly the hangul syllable block, so
+			// that block is its real coverage and nothing else.
+			//
+			// Faces are asked in order. The legacy face comes before the
+			// Unicode one, except in a Korean game while a hi-res face is in
+			// effect (a map's face= or hires_text_face): GfxCache::
+			// createFontSet() then puts that face before korean.fnt, which
+			// draws only what it lacks.
+			return legacyCovers(codePoint) && toEncodedPair(codePoint) != 0;
+		},
+		// design 6.4/6.5 step 6: the missing= box, tried only once every
+		// face - a legacy double-byte face behind the Unicode one included -
+		// has declined `codePoint`.
+		[this, codePoint](uint i) -> bool {
+			const Face &f = _faces[i];
+			return f.kind == kFaceCodePoint &&
+				static_cast<const GfxFontUnicode *>(f.font)->drawsMissing(codePoint);
+		});
+	if (picked >= 0) {
+		const Face &f = _faces[picked];
+		outChr = f.kind == kFaceLegacyDbcs ? toEncodedPair(codePoint) : codePoint;
 		return &f;
-	}
-
-	// design 6.4/6.5 step 6: the missing= box, tried only now - after every
-	// face, including a legacy double-byte one standing behind the Unicode
-	// face, has declined `codePoint`. The Unicode face's own routed source is
-	// built with missing= off (GfxCache::faceChainFor()), so hasGlyph() above
-	// answered strictly by real coverage; the box is applied to the
-	// GfxFontUnicode wrapper separately (GfxCache::applyMissing()) and is
-	// reachable only through drawsMissing(), never through hasGlyph() - so a
-	// legacy face named after it in the chain still gets first refusal.
-	for (uint i = 0; i < _faces.size(); i++) {
-		const Face &f = _faces[i];
-		if (f.kind == kFaceCodePoint &&
-			static_cast<const GfxFontUnicode *>(f.font)->drawsMissing(codePoint)) {
-			outChr = codePoint;
-			return &f;
-		}
 	}
 
 	// Nothing covers it, box included: the resource face draws the original
@@ -263,19 +251,13 @@ byte GfxFontSet::getCharWidth(uint32 chr) {
 		// target is not a code the resource face has anything for at all.
 		// Where the resource face has no glyph for it either (a wide script
 		// the game font never drew), design 6.3 falls to the cell.
-		int gameWidth = _faces[0].font->getCharWidth(_gameCode);
-		if (gameWidth <= 0) {
-			const int cell = _settings.cell;
-			const int raw = Graphics::Unicode::isWide(c) ? cell : cell / 2;
-			gameWidth = MAX(1, raw / scale);
-		}
-		return (byte)Graphics::advanceGamePx(rule, gameWidth, uni->advanceHires(c), scale);
+		GfxFont *gameFont = _faces[0].font;
+		return (byte)Graphics::advanceForGameCode(rule, _gameCode, c,
+			[gameFont](uint32 code) -> int { return gameFont->getCharWidth(code); },
+			_settings.cell, uni->advanceHires(c), scale);
 	}
-	if (rule == Graphics::kHiResAdvanceCell) {
-		const int cell = _settings.cell;
-		const int raw = Graphics::Unicode::isWide(c) ? cell : cell / 2;
-		return (byte)MAX(1, raw / scale);
-	}
+	if (rule == Graphics::kHiResAdvanceCell)
+		return (byte)Graphics::cellFallbackWidth(Graphics::Unicode::isWide(c), _settings.cell, scale);
 
 	// kHiResAdvanceEngine (nothing set an advance rule): design section 8's
 	// "today's path" - the cell rule for a legacy code-page game, per-glyph

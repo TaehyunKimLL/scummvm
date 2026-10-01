@@ -353,17 +353,13 @@ byte GfxFontUnicodeAdapter::getCharWidth(uint32 chr) {
 			// which for a fullwidth remap or a target is not a code the game
 			// font has anything for. Where the game font has no glyph for it
 			// either, design 6.3 falls to the cell.
-			int gameWidth = _fallback ? _fallback->getCharWidth(_gameCode) : 0;
-			if (gameWidth <= 0) {
-				const int raw = Graphics::Unicode::isWide(cp) ? _cell : _cell / 2;
-				gameWidth = MAX(1, raw / scale);
-			}
-			return (byte)Graphics::advanceGamePx(rule, gameWidth, _font->advanceHires(cp), scale);
+			GfxFont *gameFont = _fallback;
+			return (byte)Graphics::advanceForGameCode(rule, _gameCode, cp,
+				[gameFont](uint32 code) -> int { return gameFont ? gameFont->getCharWidth(code) : 0; },
+				_cell, _font->advanceHires(cp), scale);
 		}
-		if (rule == Graphics::kHiResAdvanceCell) {
-			const int raw = Graphics::Unicode::isWide(cp) ? _cell : _cell / 2;
-			return (byte)MAX(1, raw / scale);
-		}
+		if (rule == Graphics::kHiResAdvanceCell)
+			return (byte)Graphics::cellFallbackWidth(Graphics::Unicode::isWide(cp), _cell, scale);
 		// The glyph is drawn on the hires plane at twice the lowres
 		// coordinates, so its advance must be reported halved - exactly what
 		// GfxFontKorean::getCharWidth does with `>> 1` below SCI2. Reporting

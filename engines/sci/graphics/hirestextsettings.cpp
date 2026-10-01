@@ -119,6 +119,19 @@ void declineFailedTargets(Graphics::HiResIdPlan &plan, const Common::Array<uint3
 	}
 }
 
+void checkIniFaceWarnings(const Graphics::HiResIniOverrides &ini, bool mapLoaded,
+						  const Graphics::HiResFaceNames &mapFaces, const Common::Path &mapDir,
+						  const Common::Path &gameDir, Common::Array<Common::String> &warnings) {
+	if (!ini.faceSet || ini.face.equalsIgnoreCase("original"))
+		return;
+	if (ini.face.equalsIgnoreCase("same")) {
+		warnings.push_back("hires_text_face=same has no meaning; ignoring it");
+		return;
+	}
+	Graphics::HiResFontValue fv;
+	Graphics::parseFontValue(ini.face, mapLoaded ? mapFaces : Graphics::HiResFaceNames(), mapDir, gameDir, fv, warnings);
+}
+
 namespace {
 
 /// The FontIdFace naming @p path, or nullptr.

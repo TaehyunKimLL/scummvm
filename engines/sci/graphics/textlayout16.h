@@ -35,8 +35,8 @@ namespace Sci {
 /**
  * The language-neutral pieces of SCI16 hi-res text (I18N_TEXT_DESIGN.md
  * sections 4.1-4.3), kept free of engine state (no g_sci, no ConfMan) so
- * they are tested alone. GfxCache, GfxFontUnicode and GfxText16 call them
- * with what they know about the running game.
+ * they are tested alone. GfxCache, GfxFontSet, GfxFontUnicode and GfxText16
+ * call them with what they know about the running game.
  */
 
 /**
@@ -194,6 +194,53 @@ int bitmapFontBaseline(InkBottom inkBottom) {
 		}
 	}
 	return best;
+}
+
+/**
+ * The GlyphPlacement::Input for a font id's own chain (C41, GfxCache::
+ * unicodeFaceFor()): measured against @p chainFirst, the chain's own first
+ * face already folded into the chain's one shared cell (GfxCache::
+ * faceChainFor()'s firstNormalized) - never a face's raw, pre-fold cell,
+ * which can differ from the cell every glyph in the chain is actually drawn
+ * from when that face is not the chain's tallest (the id chain shorter than
+ * a range-named face, or than the .uni bundle). Null @p chainFirst (an
+ * empty id chain) answers an inactive Input (rasterWidth 0), which
+ * GlyphPlacement::compute() leaves unchanged.
+ *
+ * @param chainFirstRaw the same face before folding, asked only for its
+ *                       TrueType lineTop() - a NormalizedGlyphSource
+ *                       wrapper defeats the dynamic_cast, so the pre-fold
+ *                       face is kept around for this alone; null or not
+ *                       TrueType answers 0.
+ * @param chainFirstTop the row @p chainFirst's own content starts at in the
+ *                       chain's cell (GfxCache::faceChainFor()'s firstTop).
+ */
+GlyphPlacement::Input buildChainPlacementInput(Graphics::UnicodeGlyphSource *chainFirst,
+											   Graphics::UnicodeGlyphSource *chainFirstRaw, int chainFirstTop,
+											   int cellPx, GlyphPlacement::Align align, int shift, int gameBaseline);
+
+/**
+ * Which of a chain's @p count entries answers a code point, as GfxFontSet::
+ * faceFor() asks them (design 6.4/6.5 step 6): every entry's real coverage
+ * first, in order - so a legacy double-byte face named after a Unicode face
+ * still answers before that face's box - and only once none of them has
+ * it, the missing= box, tried over every entry in the same order. -1 when
+ * nothing answers (the resource face then draws the original game code).
+ *
+ * @param hasGlyph      callable `bool(uint i)`: entry i's real coverage
+ *                      (never its box)
+ * @param drawsMissing  callable `bool(uint i)`: entry i's missing= box;
+ *                      asked only after every hasGlyph() has said no
+ */
+template<class HasGlyph, class DrawsMissing>
+int pickChainCoverage(uint count, HasGlyph hasGlyph, DrawsMissing drawsMissing) {
+	for (uint i = 0; i < count; i++)
+		if (hasGlyph(i))
+			return (int)i;
+	for (uint i = 0; i < count; i++)
+		if (drawsMissing(i))
+			return (int)i;
+	return -1;
 }
 
 /**

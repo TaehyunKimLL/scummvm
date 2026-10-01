@@ -27,7 +27,6 @@
 #include "sci/engine/state.h"
 #include "sci/engine/selector.h"
 #include "sci/graphics/cache.h"
-#include "graphics/hires_text/text_compose.h"
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/fontsjis.h"
 #include "sci/graphics/fontbanked.h"
@@ -187,24 +186,16 @@ void GfxCache::resolveHiresText() {
 				  (uint)_hiresMap.fontIds.size());
 	}
 
-	// hires_text_face=same, or an unknown name: validated once here, not
-	// once per font id resolveFontSettings() would otherwise repeat the same
-	// text for (design section 10: "once per cause per load") - after the
-	// map has loaded, so a name the map's own [fonts] resolves does not get
-	// a spurious "unknown face name" first.
-	if (_hiresIni.faceSet && !_hiresIni.face.equalsIgnoreCase("original")) {
-		Common::Array<Common::String> faceWarnings;
-		if (_hiresIni.face.equalsIgnoreCase("same")) {
-			faceWarnings.push_back("hires_text_face=same has no meaning; ignoring it");
-		} else {
-			Graphics::HiResFontValue fv;
-			Graphics::parseFontValue(_hiresIni.face, _hiresMapLoaded ? _hiresMap.faces : Graphics::HiResFaceNames(),
-									 _hiresMapDir, _hiresGameDir, fv, faceWarnings);
-		}
-		for (uint i = 0; i < faceWarnings.size(); i++) {
-			_hiresMap.warnings.push_back(faceWarnings[i]);
-			warning("%s", faceWarnings[i].c_str());
-		}
+	// checkIniFaceWarnings() runs here, after the map has loaded (not before,
+	// and not once per font id resolveFontSettings() would otherwise repeat
+	// the same text for - design section 10's "once per cause per load") -
+	// so a name the map's own [fonts] resolves does not get a spurious
+	// "unknown face name" warning first.
+	Common::Array<Common::String> faceWarnings;
+	checkIniFaceWarnings(_hiresIni, _hiresMapLoaded, _hiresMap.faces, _hiresMapDir, _hiresGameDir, faceWarnings);
+	for (uint i = 0; i < faceWarnings.size(); i++) {
+		_hiresMap.warnings.push_back(faceWarnings[i]);
+		warning("%s", faceWarnings[i].c_str());
 	}
 }
 
@@ -780,40 +771,23 @@ GfxFontUnicode *GfxCache::unicodeFaceFor(GuiResourceId fontId, FontSettings &s) 
 	GlyphPlacement placement;
 	int gameBaseline = -1;
 	if (firstNormalized) {
-		GlyphPlacement::Input in;
-		in.rasterWidth = firstNormalized->cellWidth();
-		in.rasterHeight = firstNormalized->cellHeight();
-		in.cellPx = s.cell;
-		in.align = s.align == Graphics::kHiResAlignFont ? GlyphPlacement::kAlignFont :
+		const GlyphPlacement::Align align = s.align == Graphics::kHiResAlignFont ? GlyphPlacement::kAlignFont :
 			(s.align == Graphics::kHiResAlignCell ? GlyphPlacement::kAlignCell : GlyphPlacement::kAlignGame);
-		in.shift = s.baseline;
-		gameBaseline = in.align == GlyphPlacement::kAlignGame ? gameFontBaseline(fontId) : -1;
-		if (gameBaseline >= 0)
-			in.gameBaseline = gameBaseline;
-		Graphics::UnicodeGlyphSource *raw = firstNormalized;
-		const int rasterBaseline = bitmapFontBaseline([raw](uint32 cp) -> int {
-			if (raw->cells(cp) <= 0)
-				return -1;
-			const int w = raw->cellWidth() * raw->cells(cp), bpp = raw->bitsPerPixel();
-			for (int y = raw->cellHeight() - 1; y >= 0; y--) {
-				const byte *row = raw->row(cp, y);
-				for (int x = 0; row && x < w; x++)
-					if (Graphics::TextCompose::expandCoverage(row, x, bpp) >= 128)
-						return y + 1;
-			}
-			return -1;
-		});
-		if (rasterBaseline >= 0)
-			in.rasterBaseline = rasterBaseline;
-		// lineTop() is TrueType-specific and the normalised source may be a
-		// NormalizedGlyphSource wrapper, so it is asked of the pre-fold face.
-		Graphics::TtfGlyphSource *firstTtf = dynamic_cast<Graphics::TtfGlyphSource *>(firstRaw);
-		in.faceLineTop = firstTop + (firstTtf ? firstTtf->lineTop() : 0);
+		gameBaseline = align == GlyphPlacement::kAlignGame ? gameFontBaseline(fontId) : -1;
+		// buildChainPlacementInput() measures firstNormalized, the id chain's
+		// own first face already folded into the chain's one shared cell -
+		// never firstRaw's own, pre-fold cell, which can differ from the cell
+		// every glyph is actually drawn from when that face is not the
+		// chain's tallest (the id chain shorter than a range-named face, or
+		// than the .uni bundle); firstRaw is asked only for its TrueType
+		// lineTop(), which a NormalizedGlyphSource wrapper would hide.
+		const GlyphPlacement::Input in =
+			buildChainPlacementInput(firstNormalized, firstRaw, firstTop, s.cell, align, s.baseline, gameBaseline);
 		placement = GlyphPlacement::compute(in);
 		debug(1, "SCI: font %d glyphs: %dpx face (%d rows) in a %dpx cell, align %d: baseline row %d, game's %d, "
 			  "shift %d -> offset (%d, %d)%s",
-			  fontId, firstNormalized->cellWidth(), firstNormalized->cellHeight(), s.cell, (int)in.align,
-			  rasterBaseline, gameBaseline, s.baseline, placement.dx, placement.dy,
+			  fontId, firstNormalized->cellWidth(), firstNormalized->cellHeight(), s.cell, (int)align,
+			  in.rasterBaseline, gameBaseline, s.baseline, placement.dx, placement.dy,
 			  placement.active() ? "" : " (unchanged)");
 	}
 
