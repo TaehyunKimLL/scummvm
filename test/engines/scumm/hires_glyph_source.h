@@ -122,7 +122,7 @@ private:
 	/// The old blit, straight off HiResBitmapFont: the glyph by index, the
 	/// Latin baseline moved onto the CJK font's, the cell handed whole to
 	/// the glyph renderer.
-	static bool oldDrawChar(Graphics::Surface &dest, Graphics::Surface *cov,
+	static bool oldDrawChar(Graphics::Surface &dest, Graphics::BandedPlane *cov,
 							const Graphics::HiResBitmapFont &cjk,
 							const Graphics::HiResBitmapFont &latin,
 							uint32 cp, bool wantLatin, int x, int y,
@@ -160,6 +160,16 @@ private:
 		for (int y = 0; y < a.h; ++y)
 			for (int x = 0; x < a.w; ++x)
 				if (*(const byte *)a.getBasePtr(x, y) != *(const byte *)b.getBasePtr(x, y))
+					return false;
+		return true;
+	}
+
+	static bool sameBytes(const Graphics::BandedPlane &a, const Graphics::BandedPlane &b) {
+		if (a.width() != b.width() || a.height() != b.height())
+			return false;
+		for (int y = 0; y < a.height(); ++y)
+			for (int x = 0; x < a.width(); ++x)
+				if (a.get(x, y) != b.get(x, y))
 					return false;
 		return true;
 	}
@@ -209,13 +219,13 @@ private:
 		}
 		TS_ASSERT(hr.hasFonts());
 
-		Graphics::Surface dest, refDest, refCov;
+		Graphics::Surface dest, refDest;
+		Graphics::BandedPlane refCov;
 		dest.create(96, 40, Graphics::PixelFormat::createFormatCLUT8());
 		refDest.create(96, 40, Graphics::PixelFormat::createFormatCLUT8());
-		refCov.create(96, 40, Graphics::PixelFormat::createFormatCLUT8());
+		refCov.create(96, 40, true);
 		memset(dest.getPixels(), 0, 96 * 40);
 		memset(refDest.getPixels(), 0, 96 * 40);
-		memset(refCov.getPixels(), 0, 96 * 40);
 
 		Graphics::GlyphStyle style;
 		style.color = 15;
@@ -238,10 +248,10 @@ private:
 		TS_ASSERT(inkCount(refDest) > 0);
 		TS_ASSERT(sameBytes(dest, refDest));
 		if (bpp == 1 && gameShadow != 1) {
-			const Graphics::Surface &cov = *overlay.coverage();
-			for (int y = 0; y < cov.h; ++y)
-				for (int x = 0; x < cov.w; ++x) {
-					const byte c = *(const byte *)cov.getBasePtr(x, y);
+			const Graphics::BandedPlane &cov = *overlay.coverage();
+			for (int y = 0; y < cov.height(); ++y)
+				for (int x = 0; x < cov.width(); ++x) {
+					const byte c = cov.get(x, y);
 					const byte d = *(const byte *)dest.getBasePtr(x, y);
 					TS_ASSERT(c == 0 || c == 0xFF);
 					TS_ASSERT_EQUALS(c != 0, d != 0);
@@ -293,12 +303,12 @@ private:
 		Common::Rect dirty;
 		TS_ASSERT(hr.drawChar(overlay.index(), kGaChr, 0, 10, 10, 15, 4, gameShadow, &dirty));
 		const Graphics::Surface &idx = overlay.index();
-		const Graphics::Surface &cov = *overlay.coverage();
+		const Graphics::BandedPlane &cov = *overlay.coverage();
 		int ink = 0, covered = 0;
 		for (int y = 0; y < 40; ++y)
 			for (int x = 0; x < 96; ++x) {
 				const byte i = *(const byte *)idx.getBasePtr(x, y);
-				const byte c = *(const byte *)cov.getBasePtr(x, y);
+				const byte c = cov.get(x, y);
 				TS_ASSERT(c == 0 || c == 0xFF);
 				ink += (i == 15);
 				covered += (c != 0);
@@ -315,7 +325,7 @@ private:
 		int under = 0;
 		for (int y = 0; y < 40; ++y)
 			for (int x = 0; x < 96; ++x) {
-				if (*(const byte *)overlay.underCoverage()->getBasePtr(x, y))
+				if (overlay.underCoverage()->get(x, y))
 					++under;
 				TS_ASSERT(*(const byte *)idx.getBasePtr(x, y) != 4);
 			}

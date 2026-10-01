@@ -24,6 +24,7 @@
 
 #include "common/rect.h"
 #include "graphics/surface.h"
+#include "graphics/hires_text/banded_plane.h"
 
 namespace Scumm {
 
@@ -45,6 +46,12 @@ namespace Scumm {
  * so a later palette change - cycling, a room fade - recolours text drawn long
  * before. Nothing here resolves a colour; that happens per frame in the
  * compositor.
+ *
+ * @par Memory
+ * The index plane is one surface: it is the engine's _textSurface, which the
+ * charset renderers, the GUI and the platform paths address as a whole. The
+ * coverage plane and the two decoration planes are Graphics::BandedPlane:
+ * only the 16-row bands that hold text exist.
  *
  * @par The transparent value is the caller's
  * FM-Towns clears the plane to CHARSET_MASK_TRANSPARENCY_TOWNS and reads that
@@ -120,9 +127,13 @@ public:
 		return (const byte *)_index.getBasePtr(0, y);
 	}
 
-	/// The coverage plane, or null when this overlay carries none.
-	Graphics::Surface *coverage() { return _coverage.getPixels() ? &_coverage : nullptr; }
-	const Graphics::Surface *coverage() const { return _coverage.getPixels() ? &_coverage : nullptr; }
+	/**
+	 * The coverage plane, or null when this overlay carries none. It is
+	 * held in bands where text is (Graphics::BandedPlane), at 4 bits while
+	 * the values written allow it.
+	 */
+	Graphics::BandedPlane *coverage() { return _coverage.exists() ? &_coverage : nullptr; }
+	const Graphics::BandedPlane *coverage() const { return _coverage.exists() ? &_coverage : nullptr; }
 
 	/**
 	 * Add a coverage plane to an overlay that has none.
@@ -155,12 +166,12 @@ public:
 	void createUnder();
 
 	/// The decoration's index plane, or null when there is none.
-	Graphics::Surface *underIndex() { return _underCoverage.getPixels() ? &_underIndex : nullptr; }
-	const Graphics::Surface *underIndex() const { return _underCoverage.getPixels() ? &_underIndex : nullptr; }
+	Graphics::BandedPlane *underIndex() { return _underCoverage.exists() ? &_underIndex : nullptr; }
+	const Graphics::BandedPlane *underIndex() const { return _underCoverage.exists() ? &_underIndex : nullptr; }
 
 	/// The decoration's coverage plane, or null when there is none.
-	Graphics::Surface *underCoverage() { return _underCoverage.getPixels() ? &_underCoverage : nullptr; }
-	const Graphics::Surface *underCoverage() const { return _underCoverage.getPixels() ? &_underCoverage : nullptr; }
+	Graphics::BandedPlane *underCoverage() { return _underCoverage.exists() ? &_underCoverage : nullptr; }
+	const Graphics::BandedPlane *underCoverage() const { return _underCoverage.exists() ? &_underCoverage : nullptr; }
 
 	bool created() const { return _index.getPixels() != nullptr; }
 
@@ -181,13 +192,13 @@ public:
 
 private:
 	Graphics::Surface _index;
-	Graphics::Surface _coverage;
-	Graphics::Surface _underIndex;
-	Graphics::Surface _underCoverage;
+	Graphics::BandedPlane _coverage;
+	Graphics::BandedPlane _underIndex;
+	Graphics::BandedPlane _underCoverage;
 	Graphics::Surface _savedIndex;
-	Graphics::Surface _savedCoverage;
-	Graphics::Surface _savedUnderIndex;
-	Graphics::Surface _savedUnderCoverage;
+	Graphics::BandedPlane _savedCoverage;
+	Graphics::BandedPlane _savedUnderIndex;
+	Graphics::BandedPlane _savedUnderCoverage;
 
 	/// Zero the under planes in @p r, already clipped.
 	void clearUnder(const Common::Rect &r);

@@ -2,6 +2,7 @@
 
 #include "common/memstream.h"
 #include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/banded_plane.h"
 #include "graphics/hires_text/glyph_renderer.h"
 #include "graphics/surface.h"
 
@@ -76,6 +77,19 @@ private:
 		return *(const byte *)s.getBasePtr(x, y);
 	}
 
+	static byte at(const Graphics::BandedPlane &p, int x, int y) {
+		return p.get(x, y);
+	}
+
+	static int inkCount(const Graphics::BandedPlane &p) {
+		int n = 0;
+		for (int y = 0; y < p.height(); ++y)
+			for (int x = 0; x < p.width(); ++x)
+				if (p.get(x, y))
+					++n;
+		return n;
+	}
+
 	static int inkCount(const Graphics::Surface &s) {
 		int n = 0;
 		for (int y = 0; y < s.h; ++y)
@@ -94,9 +108,10 @@ public:
 		Graphics::HiResBitmapFont font;
 		TS_ASSERT(loadFont(font, bytes));
 
-		Graphics::Surface dest, cov;
+		Graphics::Surface dest;
+		Graphics::BandedPlane cov;
 		dest.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
-		cov.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
+		cov.create(16, 16, true);
 
 		Graphics::GlyphStyle style;
 		style.color = 7;
@@ -188,9 +203,10 @@ public:
 		Graphics::HiResBitmapFont font;
 		TS_ASSERT(loadFont(font, bytes));
 
-		Graphics::Surface dest, cov;
+		Graphics::Surface dest;
+		Graphics::BandedPlane cov;
 		dest.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
-		cov.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
+		cov.create(16, 16, true);
 
 		Graphics::GlyphStyle style;
 		style.color = 9;
@@ -242,9 +258,10 @@ public:
 		Graphics::HiResBitmapFont font;
 		TS_ASSERT(loadFont(font, bytes));
 
-		Graphics::Surface dest, cov;
+		Graphics::Surface dest;
+		Graphics::BandedPlane cov;
 		dest.create(8, 4, Graphics::PixelFormat::createFormatCLUT8());
-		cov.create(8, 4, Graphics::PixelFormat::createFormatCLUT8());
+		cov.create(8, 4, true);
 
 		Graphics::GlyphStyle style;
 		style.color = 2;
@@ -429,9 +446,10 @@ public:
 		Graphics::HiResBitmapFont font;
 		TS_ASSERT(loadFont(font, bytes));
 
-		Graphics::Surface dest, cov;
+		Graphics::Surface dest;
+		Graphics::BandedPlane cov;
 		dest.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
-		cov.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
+		cov.create(16, 16, true);
 
 		Graphics::GlyphStyle style;
 		style.color = 7;
@@ -460,9 +478,10 @@ public:
 		Graphics::HiResBitmapFont font;
 		TS_ASSERT(loadFont(font, bytes));
 
-		Graphics::Surface dest, cov;
+		Graphics::Surface dest;
+		Graphics::BandedPlane cov;
 		dest.create(8, 8, Graphics::PixelFormat::createFormatCLUT8());
-		cov.create(8, 8, Graphics::PixelFormat::createFormatCLUT8());
+		cov.create(8, 8, true);
 
 		Graphics::GlyphStyle body;
 		body.color = 7;
@@ -623,9 +642,10 @@ public:
 			Graphics::HiResBitmapFont font;
 			TS_ASSERT(loadFont(font, bytes));
 
-			Graphics::Surface dest, cov;
+			Graphics::Surface dest;
+		Graphics::BandedPlane cov;
 			dest.create(20, 20, Graphics::PixelFormat::createFormatCLUT8());
-			cov.create(20, 20, Graphics::PixelFormat::createFormatCLUT8());
+			cov.create(20, 20, true);
 
 			Graphics::GlyphStyle style;
 			style.color = 7;
@@ -638,8 +658,8 @@ public:
 
 			// Find a pixel that is decoration, and check it is fully covered.
 			bool sawSolidDecoration = false;
-			for (int y = 0; y < cov.h && !sawSolidDecoration; ++y)
-				for (int x = 0; x < cov.w; ++x)
+			for (int y = 0; y < cov.height() && !sawSolidDecoration; ++y)
+				for (int x = 0; x < cov.width(); ++x)
 					if (at(dest, x, y) == 1) {
 						TS_ASSERT_EQUALS(at(cov, x, y), 0xFF);
 						sawSolidDecoration = true;
@@ -783,9 +803,10 @@ public:
 			for (int offset = 1; offset <= 2; ++offset) {
 				// Deliberately tight: the glyph sits two pixels from the top
 				// left, so a dilation of 2 reaches the edge exactly.
-				Graphics::Surface dest, cov;
+				Graphics::Surface dest;
+		Graphics::BandedPlane cov;
 				dest.create(12, 12, Graphics::PixelFormat::createFormatCLUT8());
-				cov.create(12, 12, Graphics::PixelFormat::createFormatCLUT8());
+				cov.create(12, 12, true);
 
 				Graphics::GlyphStyle style;
 				style.color = 7;
@@ -857,19 +878,17 @@ public:
 			// "it did not crash", and a Surface is one allocation, so an
 			// overrun usually does not.
 			const int kGuard = 8;
-			Graphics::Surface backing, cbacking;
+			Graphics::Surface backing;
 			backing.create(12 + 2 * kGuard, 12 + 2 * kGuard,
 						   Graphics::PixelFormat::createFormatCLUT8());
-			cbacking.create(12 + 2 * kGuard, 12 + 2 * kGuard,
-							Graphics::PixelFormat::createFormatCLUT8());
 			backing.fillRect(Common::Rect(backing.w, backing.h), 0xAA);
-			cbacking.fillRect(Common::Rect(cbacking.w, cbacking.h), 0xAA);
 
-			// A 12x12 view onto the middle of it, sharing the same rows.
+			// A 12x12 view onto the middle of it, sharing the same rows. The
+			// coverage plane is 12x12 as well, and holds no more than that.
 			Graphics::Surface dest = backing.getSubArea(
 				Common::Rect(kGuard, kGuard, kGuard + 12, kGuard + 12));
-			Graphics::Surface cov = cbacking.getSubArea(
-				Common::Rect(kGuard, kGuard, kGuard + 12, kGuard + 12));
+			Graphics::BandedPlane cov;
+			cov.create(12, 12, true);
 
 			Graphics::GlyphStyle style;
 			style.color = 7;
@@ -888,12 +907,10 @@ public:
 						y >= kGuard && y < kGuard + 12)
 						continue;
 					TS_ASSERT_EQUALS(at(backing, x, y), 0xAA);
-					TS_ASSERT_EQUALS(at(cbacking, x, y), 0xAA);
 				}
 			}
 
 			backing.free();
-			cbacking.free();
 		}
 	}
 
@@ -957,9 +974,10 @@ public:
 		Graphics::HiResBitmapFont font;
 		TS_ASSERT(loadFont(font, bytes));
 
-		Graphics::Surface dest, cov;
+		Graphics::Surface dest;
+		Graphics::BandedPlane cov;
 		dest.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
-		cov.create(16, 16, Graphics::PixelFormat::createFormatCLUT8());
+		cov.create(16, 16, true);
 
 		Graphics::GlyphStyle style;
 		style.color = 7;
@@ -1229,9 +1247,10 @@ public:
 
 		// With a coverage surface nothing is dropped: the compositor blends
 		// the fringe in at its own strength.
-		Graphics::Surface dest, cov;
+		Graphics::Surface dest;
+		Graphics::BandedPlane cov;
 		dest.create(8, 8, Graphics::PixelFormat::createFormatCLUT8());
-		cov.create(8, 8, Graphics::PixelFormat::createFormatCLUT8());
+		cov.create(8, 8, true);
 		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(dest, &cov, font, 0, 0, 0, style));
 		TS_ASSERT_EQUALS(at(dest, 0, 0), 5);
 		TS_ASSERT_EQUALS(at(cov, 0, 0), 0x3F);
@@ -1274,22 +1293,27 @@ public:
 
 	/// A set of planes for a layered draw, all w x h and zeroed.
 	struct Planes {
-		Graphics::Surface index, cov, uIndex, uCov;
+		Graphics::Surface index;
+		Graphics::BandedPlane cov, uIndex, uCov;
 		Planes(int w, int h) {
 			index.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
-			cov.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
-			uIndex.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
-			uCov.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+			cov.create(w, h, true);
+			uIndex.create(w, h, false);
+			uCov.create(w, h, true);
 		}
 		~Planes() { index.free(); cov.free(); uIndex.free(); uCov.free(); }
 		Graphics::GlyphPlanes layered() { return Graphics::GlyphPlanes(&index, &cov, &uIndex, &uCov); }
 		bool same(const Planes &o) const {
-			const Graphics::Surface *a[] = { &index, &cov, &uIndex, &uCov };
-			const Graphics::Surface *b[] = { &o.index, &o.cov, &o.uIndex, &o.uCov };
-			for (int i = 0; i < 4; ++i)
-				for (int y = 0; y < a[i]->h; ++y)
-					if (memcmp(a[i]->getBasePtr(0, y), b[i]->getBasePtr(0, y), a[i]->w))
-						return false;
+			for (int y = 0; y < index.h; ++y)
+				if (memcmp(index.getBasePtr(0, y), o.index.getBasePtr(0, y), index.w))
+					return false;
+			const Graphics::BandedPlane *a[] = { &cov, &uIndex, &uCov };
+			const Graphics::BandedPlane *b[] = { &o.cov, &o.uIndex, &o.uCov };
+			for (int i = 0; i < 3; ++i)
+				for (int y = 0; y < a[i]->height(); ++y)
+					for (int x = 0; x < a[i]->width(); ++x)
+						if (a[i]->get(x, y) != b[i]->get(x, y))
+							return false;
 			return true;
 		}
 	};

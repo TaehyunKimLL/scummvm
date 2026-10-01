@@ -140,8 +140,8 @@ void ScummEngine::mac_drawIndy3TextBox() {
 	// the compositor stops writing the picture over it. The glyphs are not
 	// antialiased on this path, so the coverage that goes with them is zero.
 	_textSurface.fillRect(Common::Rect(x, y, x + w, y + h), 0);
-	if (Graphics::Surface *cov = _overlay.coverage())
-		cov->fillRect(Common::Rect(x, y, x + w, y + h), 0);
+	if (Graphics::BandedPlane *cov = _overlay.coverage())
+		cov->fill(Common::Rect(x, y, x + w, y + h), 0);
 
 	mac_markScreenAsDirty(x, y, w, h);
 }

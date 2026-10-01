@@ -22,6 +22,7 @@
 #include "common/endian.h"
 #include "common/config-manager.h"
 
+#include "scumm/hires_composite.h"
 #include "scumm/scumm.h"
 #include "scumm/charset.h"
 #include "scumm/util.h"
@@ -90,13 +91,20 @@ void ScummEngine::towns_drawStripToScreen(VirtScreen *vs, int dstX, int dstY, in
 			// Indices are resolved here rather than stored, so a later
 			// palette change re-colours text that was drawn long before.
 			const uint16 *lpal = _townsScreen->getLayerPalette(1);
-			const uint8 *cov = _hiResText.coverage()
-				? (const uint8 *)_hiResText.coverage()->getBasePtr(srcX * m, (srcY + vs->topline - _screenTop) * m)
-				: nullptr;
-			const int covPitch = _hiResText.coverage() ? _hiResText.coverage()->pitch : 0;
+			const CompositeRows covRows(_hiResText.coverage(), srcX * m, (srcY + vs->topline - _screenTop) * m);
+			Common::Array<uint8> covScratch, zeroRow;
+			covScratch.resize(MAX(1, covRows.scratchBytes()));
+			zeroRow.resize(width * m);
+			memset(zeroRow.begin(), 0, width * m);
 			const uint8 *bg = vs->getPixels(srcX, srcY);
 
 			for (int h = 0; h < height * m; ++h) {
+				const uint8 *cov = nullptr;
+				if (covRows.present()) {
+					cov = covRows.row(h, covScratch.begin());
+					if (!cov)
+						cov = zeroRow.begin();
+				}
 				uint16 *out = (uint16 *)dst2;
 				const uint8 *bgRow = bg + (h / m) * vs->pitch;
 				for (int w = 0; w < width * m; ++w) {
@@ -120,8 +128,6 @@ void ScummEngine::towns_drawStripToScreen(VirtScreen *vs, int dstX, int dstY, in
 					}
 				}
 				src2 += _textSurface.pitch;
-				if (cov)
-					cov += covPitch;
 				dst2 += lp1;
 			}
 		} else {
