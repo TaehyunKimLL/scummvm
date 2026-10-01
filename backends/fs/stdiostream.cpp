@@ -52,8 +52,16 @@
 #define STDIOSTREAM_NO_ATOMIC_SUPPORT
 #endif
 
+static void unbufferStdioStream(Common::SeekableReadStream *stream) {
+	StdioStream *file = dynamic_cast<StdioStream *>(stream);
+	if (file)
+		file->setBufferSize(0);
+}
+
 StdioStream::StdioStream(void *handle) : _handle(handle), _path(nullptr) {
 	assert(handle);
+	// Common::unbufferStream() reaches the files of this kind.
+	Common::setStreamUnbufferer(&unbufferStdioStream);
 }
 
 StdioStream::~StdioStream() {
