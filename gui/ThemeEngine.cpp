@@ -193,7 +193,7 @@ ThemeEngine::ThemeEngine(Common::String id, GraphicsMode mode) :
 	_system(nullptr), _vectorRenderer(nullptr),
 	_layerToDraw(kDrawLayerBackground), _bytesPerPixel(0),  _graphicsMode(kGfxDisabled),
 	_font(nullptr), _initOk(false), _themeOk(false), _enabled(false), _themeFiles(),
-	_cursor(nullptr), _scaleFactor(1.0f) {
+	_cursor(nullptr), _scaleFactor(1.0f), _screens(_screen, _backBuffer) {
 
 	_baseWidth = 640;	// Default sane values
 	_baseHeight = 480;
@@ -314,13 +314,15 @@ bool ThemeEngine::init() {
 	_overlayFormat = _system->getOverlayFormat();
 	setGraphicsMode(_graphicsMode);
 
-	if (_screen.getPixels() && _backBuffer.getPixels()) {
+	// With gui_release_buffers and no dialog shown the screens are only
+	// sized here; enable() makes them.
+	if (_screens.ready() || (releaseWanted() && !_enabled && _screens.usable())) {
 		_initOk = true;
 	}
 
 	// TODO: Instead of hard coding the font here, it should be possible
 	// to specify the fonts to be used for each resolution in the theme XML.
-	if (_screen.w >= 400 && _screen.h >= 300) {
+	if (_screens.width() >= 400 && _screens.height() >= 300) {
 		_font = FontMan.getFontByUsage(Graphics::FontManager::kBigGUIFont);
 	} else {
 		_font = FontMan.getFontByUsage(Graphics::FontManager::kGUIFont);
@@ -359,29 +361,17 @@ bool ThemeEngine::init() {
 	// be the builtin theme which has no filename.
 	loadTheme(_themeFile.empty() ? _themeId : _themeFile.toString(Common::Path::kNativeSeparator));
 
-	// A theme loaded while no dialog is shown (the GUI manager is made on
-	// first use, which need not show anything) does not keep the screens
-	// either; enable() makes them.
-	if (!_enabled)
-		releaseScreensIfWanted();
-
 	return ready();
 }
 
-void ThemeEngine::releaseScreensIfWanted() {
-	// With gui_release_buffers the two overlay-sized screens are given back
-	// while no dialog is shown; enable() creates them again. clearAll()
-	// fills the back buffer anew on every enable(), and the screen is
-	// redrawn in full, so nothing drawn before is lost.
-	if (!ConfMan.getBool("gui_release_buffers"))
-		return;
-	_screen.free();
-	_backBuffer.free();
-	_dirtyScreen.clear();
+bool ThemeEngine::releaseWanted() {
+	// The key may be missing where Base::registerDefaults() did not run.
+	return (ConfMan.hasKey("gui_release_buffers") || ConfMan.hasDefault("gui_release_buffers")) &&
+		ConfMan.getBool("gui_release_buffers");
 }
 
 void ThemeEngine::clearAll() {
-	if (_initOk) {
+	if (_initOk && _screens.ready()) {
 		_system->clearOverlay();
 		_system->grabOverlay(*_backBuffer.surfacePtr());
 	}
@@ -420,10 +410,9 @@ void ThemeEngine::enable() {
 	if (_enabled)
 		return;
 
-	// disable() may have released the screens (gui_release_buffers)
-	if (_initOk && !_screen.getPixels()) {
-		_screen.create(_system->getOverlayWidth(), _system->getOverlayHeight(), _overlayFormat);
-		_backBuffer.create(_system->getOverlayWidth(), _system->getOverlayHeight(), _overlayFormat);
+	// They may have been released (gui_release_buffers).
+	if (_initOk && !_screens.ready()) {
+		_screens.ensure();
 		_dirtyScreen.clear();
 	}
 
@@ -442,7 +431,12 @@ void ThemeEngine::disable() {
 
 	hideCursor();
 
-	releaseScreensIfWanted();
+	// clearAll() fills the back buffer anew on every enable(), and the
+	// screen is redrawn in full, so nothing drawn before is lost.
+	if (releaseWanted()) {
+		_screens.hidden(true);
+		_dirtyScreen.clear();
+	}
 
 	_enabled = false;
 }
@@ -471,11 +465,7 @@ void ThemeEngine::setGraphicsMode(GraphicsMode mode) {
 	uint32 width = _system->getOverlayWidth();
 	uint32 height = _system->getOverlayHeight();
 
-	_backBuffer.free();
-	_backBuffer.create(width, height, _overlayFormat);
-
-	_screen.free();
-	_screen.create(width, height, _overlayFormat);
+	_screens.reset(width, height, _overlayFormat, _enabled, releaseWanted());
 
 	delete _vectorRenderer;
 	_vectorRenderer = Graphics::createRenderer(mode);
