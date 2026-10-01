@@ -359,7 +359,25 @@ bool ThemeEngine::init() {
 	// be the builtin theme which has no filename.
 	loadTheme(_themeFile.empty() ? _themeId : _themeFile.toString(Common::Path::kNativeSeparator));
 
+	// A theme loaded while no dialog is shown (the GUI manager is made on
+	// first use, which need not show anything) does not keep the screens
+	// either; enable() makes them.
+	if (!_enabled)
+		releaseScreensIfWanted();
+
 	return ready();
+}
+
+void ThemeEngine::releaseScreensIfWanted() {
+	// With gui_release_buffers the two overlay-sized screens are given back
+	// while no dialog is shown; enable() creates them again. clearAll()
+	// fills the back buffer anew on every enable(), and the screen is
+	// redrawn in full, so nothing drawn before is lost.
+	if (!ConfMan.getBool("gui_release_buffers"))
+		return;
+	_screen.free();
+	_backBuffer.free();
+	_dirtyScreen.clear();
 }
 
 void ThemeEngine::clearAll() {
@@ -424,15 +442,7 @@ void ThemeEngine::disable() {
 
 	hideCursor();
 
-	// With gui_release_buffers the two overlay-sized screens are given back
-	// while no dialog is shown; enable() creates them again. clearAll()
-	// fills the back buffer anew on every enable(), and the screen is
-	// redrawn in full, so nothing drawn before is lost.
-	if (ConfMan.getBool("gui_release_buffers")) {
-		_screen.free();
-		_backBuffer.free();
-		_dirtyScreen.clear();
-	}
+	releaseScreensIfWanted();
 
 	_enabled = false;
 }
