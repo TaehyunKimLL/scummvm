@@ -37,6 +37,15 @@ struct TextPixel {
 	byte outlineCoverage;
 };
 
+/**
+ * A text pixel without an outline, for a layer that never draws one (SCI's):
+ * half the size, composed as a TextPixel with no outline coverage is.
+ */
+struct TextPixelFg {
+	byte fgIndex;
+	byte fgCoverage;
+};
+
 /** The arithmetic of hi-res text, free of engine state so it is tested alone
  *  (HIRES_COMPOSITOR_DESIGN.md §3.2). */
 namespace TextCompose {
@@ -50,6 +59,8 @@ inline byte blend(byte dst, byte src, byte a) {
 
 void composeSpan(byte *dst, const Graphics::PixelFormat &fmt, const TextPixel *text, int count, const byte *paletteRGB);
 void stampSpan(byte *dstIndex, const TextPixel *text, int count);
+void composeSpan(byte *dst, const Graphics::PixelFormat &fmt, const TextPixelFg *text, int count, const byte *paletteRGB);
+void stampSpan(byte *dstIndex, const TextPixelFg *text, int count);
 
 /**
  * Turn a run of 8-bit coverage into true-colour pixels with alpha: each
