@@ -111,10 +111,10 @@ const Common::List<Graphics::PixelFormat> *GfxDefaultDriver::hiresTextRequest() 
 	// clut8 choice never sets _requestRGBMode.
 	if (target != Graphics::kHiResTargetRgb565 && target != Graphics::kHiResTargetRgb888)
 		return nullptr;
-	// SCI has no 16-bit hi-res text compositor yet: rgb565 is unavailable
-	// to it (design 7.3), so formatRequest() falls back to rgb888.
+	// Both families draw hi-res text (on 5-6-5 through
+	// TextCompose::composeSpanOver()).
 	Common::String note;
-	_hiresRequest = Graphics::formatRequest(target, g_system->getSupportedFormats(), false, note);
+	_hiresRequest = Graphics::formatRequest(target, g_system->getSupportedFormats(), true, note);
 	return _hiresRequest.empty() ? nullptr : &_hiresRequest;
 }
 
@@ -135,20 +135,26 @@ bool GfxDefaultDriver::initScreen(const Graphics::PixelFormat *srcRGBFormat) {
 		// HiresTextState::adoptScreen() names a target that was not met.
 		initGraphics(_screenW, _screenH, *hiresRequest);
 	} else {
-		// Drivers that blend hi-res text (_preferTrueColor) want 8-bit
-		// channels: an 8-bit coverage value blended into a 5/6/5-style
-		// format throws away most of its precision. Ask the backend for its
-		// first true-color (32bpp) format when one is available; every other
-		// driver keeps today's behaviour (the backend's own default format).
+		// Drivers that blend hi-res text (_preferTrueColor) ask the backend
+		// for its first format of the platform's true-colour family
+		// (Graphics::platformTrueColorTarget(): 8-bit channels, unless the
+		// platform prefers 5-6-5) when one is available; every other driver
+		// keeps today's behaviour (the backend's own default format).
 		const Graphics::PixelFormat *trueColorFormat = nullptr;
 		Graphics::PixelFormat trueColorFormatStorage;
 		if (!srcRGBFormat && _requestRGBMode && _preferTrueColor) {
+			const Graphics::HiResRenderTarget preferred = Graphics::platformTrueColorTarget();
+			const Graphics::HiResRenderTarget families[2] = {
+				preferred, preferred == Graphics::kHiResTargetRgb565 ? Graphics::kHiResTargetRgb888 : Graphics::kHiResTargetRgb565
+			};
 			Common::List<Graphics::PixelFormat> formats = g_system->getSupportedFormats();
-			for (Common::List<Graphics::PixelFormat>::const_iterator it = formats.begin(); it != formats.end(); ++it) {
-				if (it->bytesPerPixel == 4) {
-					trueColorFormatStorage = *it;
-					trueColorFormat = &trueColorFormatStorage;
-					break;
+			for (int f = 0; f < 2 && !trueColorFormat; ++f) {
+				for (Common::List<Graphics::PixelFormat>::const_iterator it = formats.begin(); it != formats.end(); ++it) {
+					if (Graphics::formatMatchesTarget(*it, families[f])) {
+						trueColorFormatStorage = *it;
+						trueColorFormat = &trueColorFormatStorage;
+						break;
+					}
 				}
 			}
 		}
