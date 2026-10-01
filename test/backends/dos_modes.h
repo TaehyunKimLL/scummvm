@@ -198,4 +198,29 @@ public:
 		TS_ASSERT_EQUALS(DOS::renderTargetCap(false, "truecolor", invalid), Graphics::kHiResTargetAuto);
 		TS_ASSERT(!invalid);
 	}
+
+	// render_target=auto's true colour on a card: 5-6-5 at 640x400 first,
+	// else 8-8-8 at 640x400 (drawn in the window, no line repeat), else 5-6-5.
+	static Common::Array<DOS::VideoMode> modesOf(int w565, int w888, int h565, int h888) {
+		Common::Array<DOS::VideoMode> m;
+		if (h565) {
+			DOS::VideoMode a = { (uint16)w565, (uint16)h565, DOS::rgb565() };
+			m.push_back(a);
+		}
+		if (h888) {
+			DOS::VideoMode b = { (uint16)w888, (uint16)h888, DOS::xrgb8888() };
+			m.push_back(b);
+		}
+		return m;
+	}
+
+	void test_auto_true_colour_follows_the_cards_modes() {
+		TS_ASSERT_EQUALS(Common::String(DOS::autoTrueColorName(modesOf(640, 640, 400, 400), false)), "rgb565");
+		TS_ASSERT_EQUALS(Common::String(DOS::autoTrueColorName(modesOf(640, 640, 480, 400), false)), "rgb888");
+		TS_ASSERT_EQUALS(Common::String(DOS::autoTrueColorName(modesOf(640, 640, 480, 480), false)), "rgb565");
+		TS_ASSERT_EQUALS(Common::String(DOS::autoTrueColorName(modesOf(640, 640, 0, 400), false)), "rgb888");
+		// DOSBox Staging's list; the line-repeat fallback forced for tests.
+		TS_ASSERT_EQUALS(Common::String(DOS::autoTrueColorName(staging(), false)), "rgb888");
+		TS_ASSERT_EQUALS(Common::String(DOS::autoTrueColorName(modesOf(640, 640, 0, 400), true)), "rgb565");
+	}
 };

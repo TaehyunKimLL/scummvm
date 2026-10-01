@@ -49,6 +49,23 @@ inline int findExactMode(const Common::Array<VideoMode> &modes, uint w, uint h, 
 	return -1;
 }
 
+/**
+ * What render_target=auto's true colour is on a card with @p modes (the
+ * value of hires_text_platform_truecolor): 5-6-5 when 640x400 exists in
+ * 5-6-5; else 8-8-8 when 640x400 exists in XRGB8888, which is drawn in the
+ * window itself, where 5-6-5 would need the 640x480 line-repeat buffer;
+ * else 5-6-5. With @p forceFallback no exact mode counts (5-6-5).
+ */
+inline const char *autoTrueColorName(const Common::Array<VideoMode> &modes, bool forceFallback) {
+	if (!forceFallback) {
+		if (findExactMode(modes, 640, 400, rgb565()) >= 0)
+			return "rgb565";
+		if (findExactMode(modes, 640, 400, xrgb8888()) >= 0)
+			return "rgb888";
+	}
+	return "rgb565";
+}
+
 /** Result of chooseMode(): which entry of @p modes to set, and whether it
  *  needs the 640x480 line-repeat fallback to show a w x h picture. */
 struct ModeChoice {
