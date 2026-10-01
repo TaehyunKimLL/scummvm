@@ -3915,6 +3915,8 @@ if test -n "$_host"; then
 			# C64 and NES music (SCUMM): not DOS games.
 			_sid_audio=no
 			append_var DEFINES "-DDISABLE_NES_APU"
+			# No detection entry of SCI or SCUMM is inside an installer.
+			append_var DEFINES "-DDISABLE_DETECTION_ARCHIVES"
 			;;
 		kos32)
 			# neither pkg-config nor *-config work, so we setup everything manually
