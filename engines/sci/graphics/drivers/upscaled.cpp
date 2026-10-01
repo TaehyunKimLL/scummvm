@@ -71,6 +71,20 @@ bool UpscaledGfxDriver::initScreen(const Graphics::PixelFormat *format) {
 
 	_scaledBitmap = new byte[_screenW * _screenH * _srcPixelSize]();
 
+	// updateScreen() converts the scaled bitmap in bands of rows, so the
+	// hi-res text instance (the only one asking for true colour) keeps one
+	// band of the screen instead of a whole one: 80 KB rather than 1000 KB
+	// at 640x400 in 32 bits. The subclasses keep the whole buffer, which
+	// their cursor code also uses.
+	if (_preferTrueColor && _compositeBuffer) {
+		const uint32 bandSize = MIN<uint32>(_compositeBufferSize, kCompositeBandRows * _screenW * _pixelSize);
+		if (bandSize < _compositeBufferSize) {
+			delete[] _compositeBuffer;
+			_compositeBuffer = new byte[bandSize]();
+			_compositeBufferSize = bandSize;
+		}
+	}
+
 	static const ScaledRenderProc scaledRenderProcs[] = {
 		&SciGfxDrvInternal::scale2x<byte>,
 		&SciGfxDrvInternal::scale2x<uint16>,
@@ -175,6 +189,25 @@ bool UpscaledGfxDriver::copyScaledBitmap(byte *dest, uint32 size, uint16 &w, uin
 }
 
 void UpscaledGfxDriver::updateScreen(int destX, int destY, int w, int h, const PaletteMod *palMods, const byte *palModMapping) {
+	// The conversion goes through _compositeBuffer, which may hold only a
+	// band of rows (initScreen()). Each output row comes from its own row of
+	// the scaled bitmap, the palette mod mapping (read at the screen's pitch
+	// from the rectangle's first row) and the text layer, so the bands give
+	// the same pixels as one pass.
+	const bool converts = (palMods && palModMapping) || _pixelSize != _srcPixelSize;
+	if (converts && _compositeBufferSize && w > 0 && h > 0) {
+		const int bandRows = (int)(_compositeBufferSize / ((uint32)w * _pixelSize));
+		assert(bandRows > 0);
+		for (int y = 0; y < h; y += bandRows) {
+			const int rows = MIN(bandRows, h - y);
+			updateScreenBand(destX, destY + y, w, rows, palMods, palModMapping ? palModMapping + y * _screenW : nullptr);
+		}
+		return;
+	}
+	updateScreenBand(destX, destY, w, h, palMods, palModMapping);
+}
+
+void UpscaledGfxDriver::updateScreenBand(int destX, int destY, int w, int h, const PaletteMod *palMods, const byte *palModMapping) {
 	byte *buff = _compositeBuffer;
 	int pitch = w * _pixelSize;
 	byte *scb = _scaledBitmap + destY * _screenW * _srcPixelSize + destX * _srcPixelSize;
@@ -258,14 +291,23 @@ void UpscaledGfxDriver::refreshHiresRect(const Common::Rect &hires, const Palett
 
 void UpscaledGfxDriver::adjustCursorBuffer(uint16 newWidth, uint16 newHeight) {
 	// For configs which need/have the composite buffer for other purposes, we can skip this.
-	if (!_compositeBuffer)
+	if (!_compositeBuffer) {
 		_needCursorBuffer = true;
-	else if (!_needCursorBuffer)
+	} else if (!_needCursorBuffer) {
+		// It may hold a band of the screen only (initScreen()).
+		const uint32 need = (uint32)newWidth * newHeight * _srcPixelSize;
+		if (need > _compositeBufferSize) {
+			delete[] _compositeBuffer;
+			_compositeBuffer = new byte[need]();
+			_compositeBufferSize = need;
+		}
 		return;
+	}
 
 	if (_cursorWidth * _cursorHeight < newWidth * newHeight) {
 		delete[] _compositeBuffer;
 		_compositeBuffer = new byte[newWidth * newHeight * _srcPixelSize]();
+		_compositeBufferSize = newWidth * newHeight * _srcPixelSize;
 		_cursorWidth = newWidth;
 		_cursorHeight = newHeight;
 	}
