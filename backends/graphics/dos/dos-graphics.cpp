@@ -134,18 +134,19 @@ Common::List<Graphics::PixelFormat> DosGraphicsManager::getSupportedFormats() co
 	// SCI asks before its initGraphics(640, 400), while the last initSize()
 	// is still the launcher's 320x200: answer for 640x400 (exact or line
 	// repeat) unless something larger was asked for. While a game runs,
-	// render_target (game domain, then [scummvm]) keeps only its own family
-	// and CLUT8; the launcher and its options dialogs see every format, so
-	// the options can offer them all.
+	// render_target (game domain, then [scummvm]) puts its own family first,
+	// then the other true-colour one, then CLUT8 (DOS::supportedFormats());
+	// the launcher and its options dialogs see every format, so the options
+	// can offer them all.
 	const DOS::FormatsSize size = DOS::formatsSize(_lastInitW, _lastInitH);
 	const Common::String value = ConfMan.get("render_target");
 	bool invalid = false;
 	const Graphics::HiResRenderTarget cap = DOS::renderTargetCap(ConfMan.getActiveDomain() != nullptr, value, invalid);
 	if (invalid) {
-		// Asked for often (engines, videos, the options): say it once per value.
-		static Common::String warned;
-		if (warned != value) {
-			warned = value;
+		// Asked for often (engines, videos, the options): say it once per
+		// value while a game runs; engineStopped() forgets it.
+		if (_renderTargetWarned != value) {
+			_renderTargetWarned = value;
 			warning("DOS: render_target '%s' is not auto, clut8, rgb565 or rgb888; using auto", value.c_str());
 		}
 	}
@@ -898,6 +899,7 @@ void DosGraphicsManager::engineStopped() {
 	// the loading screen is over.
 	_engineStarted = false;
 	_deferModes = false;
+	_renderTargetWarned.clear();
 }
 
 bool DosGraphicsManager::loadingPoll(bool got, const Common::Event &event) {

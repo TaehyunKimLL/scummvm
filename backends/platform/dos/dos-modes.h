@@ -82,21 +82,33 @@ inline ModeChoice chooseMode(const Common::Array<VideoMode> &modes, uint w, uint
 /**
  * What getSupportedFormats() reports for a w x h game: the true-colour
  * formats chooseMode() can set (exactly or via the line-repeat fallback),
- * cheapest on the bus first (rgb565, xrgb1555, xrgb8888), then CLUT8, which
- * is always there (the engine falls back to it). @p cap keeps only one
- * family: kHiResTargetAuto keeps every format, kHiResTargetClut8 none,
- * kHiResTargetRgb565 the 5-6-5 one, kHiResTargetRgb888 the 4-byte 8-8-8 one.
+ * then CLUT8, which is always there (the engine falls back to it).
+ * kHiResTargetAuto reports every one, cheapest on the bus first (rgb565,
+ * xrgb1555, xrgb8888). An explicit @p cap puts its own family first, then
+ * the other true-colour family, the order an engine falls back in (rgb888,
+ * rgb565, clut8): rgb565 gives 5-6-5 then 4-byte 8-8-8, rgb888 the
+ * reverse, clut8 CLUT8 alone. 1-5-5-5 is never in either family.
  */
 inline Common::List<Graphics::PixelFormat> supportedFormats(const Common::Array<VideoMode> &modes, uint w, uint h,
 															 Graphics::HiResRenderTarget cap = Graphics::kHiResTargetAuto) {
-	static const Graphics::PixelFormat order[] = { rgb565(), xrgb1555(), xrgb8888() };
+	static const Graphics::PixelFormat cheapest[] = { rgb565(), xrgb1555(), xrgb8888() };
+	static const Graphics::PixelFormat want565[] = { rgb565(), xrgb8888() };
+	static const Graphics::PixelFormat want888[] = { xrgb8888(), rgb565() };
+	const Graphics::PixelFormat *order = cheapest;
+	uint n = ARRAYSIZE(cheapest);
+	if (cap == Graphics::kHiResTargetRgb565) {
+		order = want565;
+		n = ARRAYSIZE(want565);
+	} else if (cap == Graphics::kHiResTargetRgb888) {
+		order = want888;
+		n = ARRAYSIZE(want888);
+	} else if (cap == Graphics::kHiResTargetClut8) {
+		n = 0;
+	}
 	Common::List<Graphics::PixelFormat> out;
-	for (uint i = 0; i < ARRAYSIZE(order); ++i) {
-		if (cap != Graphics::kHiResTargetAuto && !Graphics::formatMatchesTarget(order[i], cap))
-			continue;
+	for (uint i = 0; i < n; ++i)
 		if (chooseMode(modes, w, h, order[i], false).index >= 0)
 			out.push_back(order[i]);
-	}
 	out.push_back(Graphics::PixelFormat::createFormatCLUT8());
 	return out;
 }
