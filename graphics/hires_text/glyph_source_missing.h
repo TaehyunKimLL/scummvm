@@ -30,7 +30,7 @@
 namespace Graphics {
 
 /**
- * hires_text.map [hires] missing=: a source that answers for every code
+ * The map's missing=: a source that answers for every code
  * point. What @p inner has is inner's; anything else is drawn as a box in
  * a slot of its Unicode width (East Asian W/F: 2 cells, else 1) - inner's
  * glyph for the box code point when inner sizes that glyph to the same

@@ -146,7 +146,7 @@ public:
 		TS_ASSERT_EQUALS(r.cellHeight(), 16);
 	}
 
-	// B6: a chain lacking cp plus a borrowed source that has it gives the
+	// A chain lacking cp plus a borrowed source that has it gives the
 	// borrowed face even with `missing` set.
 	void test_borrowed_source_answers_before_the_missing_box() {
 		Graphics::HiResIdPlan p = compile("[font]\nface=KO.SVF\nmissing=u+25a1\n", 0);

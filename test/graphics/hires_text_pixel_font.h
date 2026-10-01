@@ -19,12 +19,12 @@
  *
  */
 
-// C28: a pixel font (hires_text.map pixel=<design px>) is opened at its
+// C28: a pixel font (HIRESTXT.MAP pixel=<design px>) is opened at its
 // design size, or the largest whole multiple of it the cell holds, with no
 // probe shrink, so every glyph is the designer's bitmap: coverage is only
 // ever 0 or 255.
 //
-// TEST: every test_ method here is declared unconditionally (S15): cxxtestgen
+// TEST: every test_ method here is declared unconditionally: cxxtestgen
 // has no C preprocessor of its own, so it finds a method's name whether or
 // not the #ifdef around its declaration is true for this build, and always
 // generates a call to it in test/runner.cpp - a method actually compiled out

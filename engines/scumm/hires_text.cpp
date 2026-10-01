@@ -248,7 +248,7 @@ ScummHiResText::Face *ScummHiResText::faceForSource(Graphics::UnicodeGlyphSource
 
 Graphics::HiResFontScope ScummHiResText::engineScope() {
 	// design section 8: range.basic-latin=same (ASCII from the charset's own
-	// face - the old font=same default), advance.basic-latin=game. Every
+	// face), advance.basic-latin=game. Every
 	// other key (advance, origin, cell, align, mirror, ...) keeps its
 	// documented zero default, which is already what HiResFontScope's own
 	// constructor gives.
@@ -329,8 +329,7 @@ void ScummHiResText::compilePlans(const Common::Path &gameDir) {
 
 	// design 7.2: blend is read in phase 2, against the sections the
 	// resolved target actually uses - not the phase-1 coverage question
-	// wantedTarget() answers before any target-qualified section exists
-	// (Task 7 review L1(b)).
+	// wantedTarget() answers before any target-qualified section exists.
 	_resolvedBlend = _ini.blendSet ? _ini.blend : _map.blend;
 	_anyCoverage = Graphics::mapHasCoverage(_map, _haveMap, _ini, _mapDir, gameDir,
 											&ScummHiResText::faceHasCoverage, nullptr) ||
@@ -598,7 +597,7 @@ void ScummHiResText::ensureChainSources(int id, bool allowDiskOpen) const {
 		lineFit = false;
 	}
 
-	// M5: a TrueType face opened at an earlier, borrowed or guessed size
+	// A TrueType face opened at an earlier, borrowed or guessed size
 	// (nearestTtfCharset(), before this id's own cell was known) must be
 	// re-opened once the id's own size differs from that - an SVFN slot
 	// never depends on pixelSize and is left alone.
@@ -677,9 +676,9 @@ void ScummHiResText::checkIdOnceReady(int id) const {
 		return;
 	const Common::Array<Common::String> needed = collectFacePaths(id);
 	for (uint i = 0; i < needed.size(); ++i) {
-		// M2: a TrueType path that opened fine is never in _sources under
+		// A TrueType path that opened fine is never in _sources under
 		// its own (raw) key - only openPlanFace()'s size-qualified one - so
-		// without _attemptedPaths this id would never bind and its S3
+		// without _attemptedPaths this id would never bind and its load-time
 		// checks below would never run.
 		if (!_sources.contains(needed[i]) && !_failedFaces.contains(needed[i]) &&
 			!_attemptedPaths.contains(needed[i]))
@@ -691,8 +690,8 @@ void ScummHiResText::checkIdOnceReady(int id) const {
 	if (plan.original)
 		return;
 
-	// design section 5.4 / M1's dedup, M3's "every SVF the plan names, not
-	// only the id chain's": one warning per (path, cause), regardless of how
+	// design section 5.4's dedup over every SVF the plan names, not
+	// only the id chain's: one warning per (path, cause), regardless of how
 	// many ids share the cause (a map-wide missing= or [glyphs] target is
 	// checked once per id it touches otherwise, spec 10's "once per cause
 	// per load").
@@ -704,7 +703,7 @@ void ScummHiResText::checkIdOnceReady(int id) const {
 		_map.warnings.push_back(w);
 	};
 
-	// M3: every SVF the plan names anywhere (id chain, every range./
+	// Every SVF the plan names anywhere (id chain, every range./
 	// advance./origin. chain a rule compiled, every [glyphs] target) must
 	// share the first SVF's cell height - not only the id chain's own.
 	// collectFacePaths() lists the id chain first, so "the first SVF of
@@ -749,7 +748,7 @@ void ScummHiResText::checkIdOnceReady(int id) const {
 	}
 
 	// design section 10.4: a [glyphs] target lacking its code point - a
-	// named face (L6: `same` too, answered by the id chain, design 6.7).
+	// named face (`same` too, answered by the id chain, design 6.7).
 	for (uint i = 0; i < plan.targets.size(); ++i) {
 		Graphics::UnicodeGlyphSource *src = nullptr;
 		Common::String faceText;
@@ -781,8 +780,8 @@ void ScummHiResText::checkIdOnceReady(int id) const {
 	}
 
 	// design section 10.4: missing= naming a code point no face of the id's
-	// chain has. M1: an id that names no face of its own at all (a pure
-	// borrower, B6/design 5.3) has nothing here to check - its own drawing
+	// chain has. An id that names no face of its own at all (a pure
+	// borrower, design 5.3) has nothing here to check - its own drawing
 	// chain is the *borrowed* one, checked (once) when the donor id itself
 	// binds, so checking here as well would be a false positive (spec
 	// still fires it for that donor id).
@@ -838,12 +837,6 @@ Graphics::UnicodeGlyphSource *ScummHiResText::sourceForFace(const Common::String
 	return (it != _sources.end() && it->_value) ? it->_value->source : nullptr;
 }
 
-const Graphics::HiResIdPlan &ScummHiResText::planFor(int charsetId) const {
-	if (charsetId < 0 || charsetId >= kMaxFonts)
-		charsetId = 0;
-	return _plans[charsetId];
-}
-
 Graphics::UnicodeGlyphSource *ScummHiResText::openPlanFace(const Common::Path &path, int pixelSize, bool lineFit,
 														   int pixelGrid) const {
 	const Common::String p = path.toString('/');
@@ -852,7 +845,7 @@ Graphics::UnicodeGlyphSource *ScummHiResText::openPlanFace(const Common::Path &p
 		return it->_value ? it->_value->source : nullptr; // an SVF, already added (or failed)
 	if (_failedFaces.contains(p))
 		return nullptr;
-	// M2: a successfully opened TrueType face is stored under the
+	// A successfully opened TrueType face is stored under the
 	// size-qualified key below, never under the raw path, so
 	// checkIdOnceReady()'s "every path attempted" gate needs its own record
 	// that this path was (successfully or not) tried at all.
@@ -963,7 +956,7 @@ Graphics::UnicodeGlyphSource *ScummHiResText::faceForCodePoint(int charsetId, ui
 
 	Graphics::HiResPick pick = Graphics::pickGlyph(plan, _chainSources[id], _targetSources[id], outCp, &_borrowed[id]);
 	if (pick.kind == Graphics::HiResPick::kGame) {
-		// B6/design 5.3: an id with no face of its own at all (no rule, empty
+		// Design 5.3: an id with no face of its own at all (no rule, empty
 		// idChain, not `original`) never reaches pickGlyph()'s own `borrowed`
 		// step - HiResIdPlan::chainFor() answers null for "off" and "empty"
 		// alike. Retry against the nearest charset explicitly here, so a
@@ -1071,7 +1064,7 @@ bool ScummHiResText::glyphInk(Graphics::UnicodeGlyphSource *src, uint32 cp, int 
 
 	Face *owner = faceForSource(src);
 
-	// M7: an SVFN face's glyph box is the whole cell, not the ink extent -
+	// An SVFN face's glyph box is the whole cell, not the ink extent -
 	// it draws from column 0 of the cell, so a narrower box shrinks the
 	// dirty rect below what was actually drawn (the old bitmap-only
 	// glyphHasInk()/glyphInk() pair). The *existence* test is still the
@@ -1130,7 +1123,7 @@ bool ScummHiResText::drawRows(Graphics::Surface &dest, Graphics::UnicodeGlyphSou
 	glyph.height = height;
 	glyph.bpp = 8;
 
-	const Graphics::GlyphStyle style = glyphStyle(legacyShadowConfig(), gameShadow, _korPatchShadow, color, shadowColor);
+	const Graphics::GlyphStyle style = glyphStyle(_map, _scale, gameShadow, _korPatchShadow, color, shadowColor);
 	const bool decorated = style.shadowMode != Graphics::kHiResShadowNone;
 
 	Graphics::GlyphPlanes planes(&dest, (withCoverage && (bpp > 1 || decorated)) ? coverage() : nullptr);
@@ -1153,7 +1146,7 @@ bool ScummHiResText::drawGlyphPlaced(Graphics::Surface &dest, int chr, int chars
 	if (!cp)
 		return false;
 
-	// L2/spec section 1: the game code a [glyphs] rule matches is the
+	// Spec section 1: the game code a [glyphs] rule matches is the
 	// decoded code point for anything past a single byte, not the raw
 	// double-byte value.
 	const uint32 code = (uint32)((chr < 0x100) ? chr : cp);
@@ -1175,7 +1168,7 @@ bool ScummHiResText::drawGlyphPlaced(Graphics::Surface &dest, int chr, int chars
 	const Graphics::HiResIdPlan &plan = _plans[id];
 	Face *srcFace = faceForSource(src);
 	const bool ttf = srcFace && srcFace->ttf;
-	// M4: only a face opened line-fit (sized to the game's own cell, the
+	// Only a face opened line-fit (sized to the game's own cell, the
 	// start-up bake's rule) is clipped to it; a face given size=/pixel=
 	// explicitly (lineFit false) draws at its own size uncapped.
 	if (m.wide && ttf && srcFace->lineFit) {
@@ -1197,7 +1190,7 @@ bool ScummHiResText::drawGlyphPlaced(Graphics::Surface &dest, int chr, int chars
 		if (own <= 0)
 			own = m.advance;
 		const Graphics::HiResAdvance rule = plan.advanceFor(cp);
-		// H1: centre in the game cell exactly when the old per-family
+		// Centre in the game cell exactly when the old per-family
 		// metrics defaulted to Game - true for ASCII/"other" only when
 		// something explicitly asked for it (advance=game), but true for a
 		// *wide* glyph by default too (kHiResAdvanceEngine, nothing set),
@@ -1219,7 +1212,7 @@ bool ScummHiResText::drawGlyphPlaced(Graphics::Surface &dest, int chr, int chars
 		axisRight = _anchorAxisRight = _anchorX;
 	}
 
-	// M8 (controller ruling): any face other than the id's own primary one
+	// Any face other than the id's own primary one
 	// (e.g. a range-named Latin SVF beside a CJK primary) always sits on
 	// the primary's baseline, whatever origin= says - origin=face's own
 	// meaning (dropping the game glyph's own offsets) is latinBaselineByFace()'s
@@ -1290,24 +1283,6 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 					gameShadow, dirty, withCoverage, mirror, x, x + advance);
 }
 
-Graphics::HiResTextConfig ScummHiResText::legacyShadowConfig() const {
-	Graphics::HiResTextConfig c;
-	c.scale = _scale;
-	c.shadowMode = _map.shadowMode;
-	c.shadowOffset = _map.shadowOffset;
-	c.shadowColor = _map.shadowColor;
-	c.shadowColorSet = _map.shadowColorSet;
-	c.shadowWidthQ = _map.shadowWidthQ;
-	c.shadowStyle = _map.shadowStyle;
-	c.shadowShiftSet = _map.shadowShiftSet;
-	c.shadowDx = _map.shadowDx;
-	c.shadowDy = _map.shadowDy;
-	c.shadowShiftColor = _map.shadowShiftColor;
-	c.shadowShiftColorSet = _map.shadowShiftColorSet;
-	c.shadowAlpha = _map.shadowAlpha;
-	return c;
-}
-
 // ---------------------------------------------------------------------
 // advance
 // ---------------------------------------------------------------------
@@ -1326,9 +1301,8 @@ int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth, int *carry
 		const uint32 cp = codePointFor(chr);
 		if (!cp)
 			return gameWidth;
-		// The map-less form has no [render] metrics=/ini hires_text_metrics
-		// equivalent any more (Task 7): fontMetrics is always the "game"
-		// (floor) rule, as an unset map-wide metrics= always was.
+		// The map-less form has no advance rule of its own: fontMetrics is
+		// always the "game" (floor) rule.
 		return cellRuleAdvance(face, cp, charsetId, gameWidth, carry, /*fontMetrics*/ false, /*requireInk*/ true,
 							   chr >= 256 && face->ttf != nullptr);
 	}
@@ -1338,7 +1312,7 @@ int ScummHiResText::advanceFor(int chr, int charsetId, int gameWidth, int *carry
 	if (!cp)
 		return gameWidth;
 
-	// L2/spec section 1: [glyphs]' game code is the decoded code point past
+	// Spec section 1: [glyphs]' game code is the decoded code point past
 	// a single byte, not the raw double-byte value.
 	const uint32 code = (uint32)((chr < 0x100) ? chr : cp);
 	bool declined = false;
@@ -1362,11 +1336,11 @@ int ScummHiResText::advancePlaced(uint32 cp, Graphics::UnicodeGlyphSource *src, 
 	const bool ascii = (cp >= 0x20 && cp <= 0x7E);
 	Face *face = faceForSource(src);
 
-	// M6 (controller ruling): spec 6.3's game/font are exactly the old
-	// metrics=game/font *for the ASCII/Latin rule*; a wide glyph always -
-	// and a narrow non-ASCII one under the engine default (H2) - goes
-	// through the legacy grid rule (cellRuleAdvance()'s ink floor, carry
-	// and ink-reach widening), never the simple advanceGamePx() scaling.
+	// Design 6.3's game/font apply as such only to the ASCII/Latin rule; a
+	// wide glyph always - and a narrow non-ASCII one under the engine
+	// default - goes through the legacy grid rule (cellRuleAdvance()'s ink
+	// floor, carry and ink-reach widening), never the simple
+	// advanceGamePx() scaling, so its metrics stay as they were.
 	if (m.wide) {
 		if (rule == Graphics::kHiResAdvanceCell) {
 			const int raw = src->advanceWide();
@@ -1392,8 +1366,8 @@ int ScummHiResText::advancePlaced(uint32 cp, Graphics::UnicodeGlyphSource *src, 
 	}
 
 	// "other": non-wide, non-ASCII (Thai base letters, narrow punctuation,
-	// a UTF-8 translation's own scripts, ...). H2 / the old otherMetrics
-	// default: the face's own advance (kHiResAdvanceFont) unless something
+	// a UTF-8 translation's own scripts, ...). The default: the face's own
+	// advance (kHiResAdvanceFont) unless something
 	// explicit says otherwise.
 	if (rule == Graphics::kHiResAdvanceCell) {
 		const int raw = src->advanceNarrow();
@@ -1410,7 +1384,7 @@ int ScummHiResText::cellRuleAdvance(Face *face, uint32 cp, int charsetId, int ga
 	Graphics::UnicodeGlyphSource *src = face->source;
 
 	// The old ink floor/widening is the pixel-scanned reach, not the whole
-	// cell that M7 hands to the renderer for a bitmap face's draw box: use
+	// cell handed to the renderer for a bitmap face's draw box: use
 	// glyphInk() only for the "does it have ink at all" existence test (which
 	// still needs its own font-vs-scan logic for a proportional face with an
 	// empty metrics table) and scannedInkRight() itself for the value that
@@ -1425,7 +1399,7 @@ int ScummHiResText::cellRuleAdvance(Face *face, uint32 cp, int charsetId, int ga
 
 	int advance = 0;
 	if (!face->ttf) {
-		// M7: a proportional SVFN steps by its own advance, widened to
+		// A proportional SVFN steps by its own advance, widened to
 		// clear ink that reaches one pixel past it (some baked glyphs do);
 		// a fixed-width one (no metrics table: advance() answers 0) steps
 		// by the cell, as it always drew the whole cell.
@@ -2268,13 +2242,6 @@ int ScummHiResText::sourceCount() const {
 	return n;
 }
 
-Graphics::TtfGlyphSource *ScummHiResText::ttfChainFace(int charsetId, uint index) const {
-	const Face *face = _fontsLoaded ? ttfFaceForSimple(charsetId) : nullptr;
-	if (!face || index >= face->chain.size())
-		return nullptr;
-	return static_cast<Graphics::TtfGlyphSource *>(face->chain[index]);
-}
-
 Graphics::UnicodeGlyphSource *ScummHiResText::sourceFor(int charsetId, bool latin) const {
 	Face *face = faceForSimple(charsetId, latin);
 	return face ? face->source : nullptr;
@@ -2343,7 +2310,7 @@ int ScummHiResText::nearestTtfCharset(int charsetId) const {
 }
 
 // ---------------------------------------------------------------------
-// shadow / decoration / dirty-rect geometry (unchanged since before Task 7)
+// shadow / decoration / dirty-rect geometry
 // ---------------------------------------------------------------------
 
 Graphics::HiResShadowMode ScummHiResText::resolveShadow(Graphics::HiResShadowMode fromMap,
@@ -2404,14 +2371,14 @@ void ScummHiResText::retireGlyphsByCell(const Common::Rect &painted, Common::Arr
 	}
 }
 
-Graphics::GlyphStyle ScummHiResText::glyphStyle(const Graphics::HiResTextConfig &config,
+Graphics::GlyphStyle ScummHiResText::glyphStyle(const Graphics::HiResMap &map, int scale,
 												 int gameShadow, bool korPatchShadow,
 												 byte color, byte shadowColor) {
 	Graphics::GlyphStyle style;
 	style.color = color;
-	style.shadowColor = config.shadowColorSet ? config.shadowColor : shadowColor;
-	style.shadowMode = resolveShadow(config.shadowMode, gameShadow, korPatchShadow);
-	Graphics::HiResGlyphRenderer::applyMap(style, config, MAX(1, config.scale));
+	style.shadowColor = map.shadowColorSet ? map.shadowColor : shadowColor;
+	style.shadowMode = resolveShadow(map.shadowMode, gameShadow, korPatchShadow);
+	Graphics::HiResGlyphRenderer::applyMap(style, map, MAX(1, scale));
 	return style;
 }
 

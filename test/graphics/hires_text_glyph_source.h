@@ -27,7 +27,6 @@
 #include "common/memstream.h"
 #include "common/stream.h"
 #include "graphics/hires_text/glyph_source_fallback.h"
-#include "graphics/hires_text/glyph_source_routed.h"
 #include "graphics/hires_text/glyph_source_scvmuni.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
 
@@ -38,12 +37,9 @@
 #endif
 
 using Graphics::FallbackGlyphSource;
-using Graphics::RoutedGlyphSource;
 using Graphics::UnicodeGlyphSource;
 using Graphics::ScvmuniGlyphSource;
 using Graphics::TtfGlyphSource;
-using Graphics::kHiResLatinFullwidth;
-using Graphics::kHiResLatinHalf;
 
 namespace {
 
@@ -144,57 +140,6 @@ struct FakeFitProbe : public TtfGlyphSource::FitProbe {
 	int calls;
 	bool _fits;
 	int _top, _bottom;
-};
-
-// A minimal UnicodeGlyphSource stand-in for RoutedGlyphSource tests: cells()
-// and row() return values tagged with which fake answered (rather than real
-// glyph data), and record the last code point asked for, so a test can
-// confirm routing without any real font.
-class TaggedFakeGlyphSource : public Graphics::UnicodeGlyphSource {
-public:
-	TaggedFakeGlyphSource(byte tag, byte cellWidth, byte cellHeight,
-	                       byte advanceNarrow, byte advanceWide, int bpp, uint32 glyphCount)
-		: _tag(tag), _cellWidth(cellWidth), _cellHeight(cellHeight),
-		  _advanceNarrow(advanceNarrow), _advanceWide(advanceWide),
-		  _bpp(bpp), _glyphCount(glyphCount) {}
-
-	byte cellWidth() const override { return _cellWidth; }
-	byte cellHeight() const override { return _cellHeight; }
-	byte advanceNarrow() const override { return _advanceNarrow; }
-	byte advanceWide() const override { return _advanceWide; }
-	int bitsPerPixel() const override { return _bpp; }
-
-	// The tag itself is returned as the cell count, so a test can tell which
-	// fake answered a given cells() call just from its return value.
-	// ...except for missingCp, which this fake has no glyph for (0 cells,
-	// no row), like a Latin-only face asked for a fullwidth form.
-	int cells(uint32 cp) override {
-		lastCellsCp = cp;
-		return cp == missingCp ? 0 : _tag;
-	}
-	const byte *row(uint32 cp, int y) override {
-		lastRowCp = cp;
-		if (cp == missingCp)
-			return nullptr;
-		_rowByte = _tag;
-		return &_rowByte;
-	}
-	uint32 glyphCount() const override { return _glyphCount; }
-	// Ten times the tag, so a test can tell which fake gave the advance.
-	int advance(uint32 cp) override {
-		return cp == missingCp ? 0 : _tag * 10;
-	}
-
-	uint32 lastCellsCp = 0xFFFFFFFF;
-	uint32 lastRowCp = 0xFFFFFFFF;
-	uint32 missingCp = 0xFFFFFFFF;
-
-private:
-	byte _tag;
-	byte _cellWidth, _cellHeight, _advanceNarrow, _advanceWide;
-	int _bpp;
-	uint32 _glyphCount;
-	byte _rowByte = 0;
 };
 
 } // namespace
@@ -840,7 +785,7 @@ public:
 		delete src;
 	}
 
-	// C20: the coverage curve behind [hires] gamma=.
+	// C20: the coverage curve behind [render] gamma=.
 	void test_gamma_curve_identity_at_one() {
 		byte lut[256];
 		TS_ASSERT(!TtfGlyphSource::buildGammaCurve(100, lut));
@@ -980,8 +925,8 @@ public:
 		delete src;
 	}
 
-	// hires_text_latin=proportional, metrics=font: the face's own advance,
-	// narrow for 'i' and wide for 'm', and 0 for a code point it lacks.
+	// advance=font: the face's own advance, narrow for 'i' and wide for 'm',
+	// and 0 for a code point it lacks.
 	void test_advance_is_the_faces_own() {
 		Common::SeekableReadStream *stream = openTestFont();
 		if (!stream)
@@ -1058,146 +1003,5 @@ public:
 		TS_ASSERT(src == nullptr);
 		TS_ASSERT(!error.empty());
 #endif
-	}
-};
-
-class SciGlyphSourceRoutedTestSuite : public CxxTest::TestSuite {
-public:
-	// tag 1 = "main answered", tag 9 = "latin answered". Distinct cell
-	// geometry on the latin fake pins that geometry always comes from main.
-	TaggedFakeGlyphSource *makeMain() { return new TaggedFakeGlyphSource(1, 16, 16, 8, 16, 8, 3); }
-	TaggedFakeGlyphSource *makeLatin() { return new TaggedFakeGlyphSource(9, 20, 20, 10, 20, 8, 5); }
-
-	void test_fullwidth_routes_ff_range_and_ideographic_space_to_latin() {
-		TaggedFakeGlyphSource *main = makeMain();
-		TaggedFakeGlyphSource *latin = makeLatin();
-		RoutedGlyphSource src(main, latin, kHiResLatinFullwidth);
-
-		TS_ASSERT_EQUALS(src.cells(0xFF01), 9);	// first of the fullwidth-forms range
-		TS_ASSERT_EQUALS(latin->lastCellsCp, (uint32)0xFF01);
-		TS_ASSERT_EQUALS(src.cells(0xFF5E), 9);	// last of the range
-		TS_ASSERT_EQUALS(latin->lastCellsCp, (uint32)0xFF5E);
-		TS_ASSERT_EQUALS(src.cells(0x3000), 9);	// ideographic space
-		TS_ASSERT_EQUALS(latin->lastCellsCp, (uint32)0x3000);
-
-		// Hangul and plain ASCII are NOT part of the fullwidth routing range:
-		// both go to main.
-		TS_ASSERT_EQUALS(src.cells(0xAC00), 1);
-		TS_ASSERT_EQUALS(main->lastCellsCp, (uint32)0xAC00);
-		TS_ASSERT_EQUALS(src.cells(0x0041), 1);
-		TS_ASSERT_EQUALS(main->lastCellsCp, (uint32)0x0041);
-	}
-
-	void test_proportional_routes_as_half() {
-		TaggedFakeGlyphSource *main = makeMain();
-		TaggedFakeGlyphSource *latin = makeLatin();
-		RoutedGlyphSource src(main, latin, Graphics::kHiResLatinProportional);
-		TS_ASSERT_EQUALS(src.cells(0x0041), 9);
-		TS_ASSERT_EQUALS(src.cells(0xFF01), 1);
-		TS_ASSERT_EQUALS(src.cells(0xAC00), 1);
-	}
-
-	// advance() comes from whichever source cells()/row() pick.
-	void test_proportional_advance_follows_the_route() {
-		TaggedFakeGlyphSource *main = makeMain();
-		TaggedFakeGlyphSource *latin = makeLatin();
-		latin->missingCp = 0x0042;
-		RoutedGlyphSource src(main, latin, Graphics::kHiResLatinProportional);
-		TS_ASSERT_EQUALS(src.advance(0x0041), 90);	// ASCII: the latin face
-		TS_ASSERT_EQUALS(src.advance(0x0042), 10);	// latin lacks it: main
-		TS_ASSERT_EQUALS(src.advance(0xAC00), 10);	// Hangul: main
-	}
-
-	void test_unowned_sources_outlive_the_router() {
-		TaggedFakeGlyphSource *main = makeMain();
-		TaggedFakeGlyphSource *latin = makeLatin();
-		{
-			RoutedGlyphSource src(main, latin, kHiResLatinHalf, DisposeAfterUse::NO);
-			TS_ASSERT_EQUALS(src.cells(0x0041), 9);
-		}
-		// Still alive: the router did not delete them.
-		TS_ASSERT_EQUALS(main->cells(0xAC00), 1);
-		TS_ASSERT_EQUALS(latin->cells(0x0041), 9);
-		delete main;
-		delete latin;
-	}
-
-	void test_half_routes_plain_ascii_to_latin() {
-		TaggedFakeGlyphSource *main = makeMain();
-		TaggedFakeGlyphSource *latin = makeLatin();
-		RoutedGlyphSource src(main, latin, kHiResLatinHalf);
-
-		// In half mode, plain (unremapped) ASCII routes to latin...
-		TS_ASSERT_EQUALS(src.cells(0x0041), 9);
-		TS_ASSERT_EQUALS(latin->lastCellsCp, (uint32)0x0041);
-
-		// ...but the fullwidth-forms range and the ideographic space, which
-		// half mode never produces, do NOT route to latin here - only main
-		// answers for them.
-		TS_ASSERT_EQUALS(src.cells(0xFF01), 1);
-		TS_ASSERT_EQUALS(main->lastCellsCp, (uint32)0xFF01);
-		TS_ASSERT_EQUALS(src.cells(0x3000), 1);
-		TS_ASSERT_EQUALS(main->lastCellsCp, (uint32)0x3000);
-
-		// Hangul still goes to main.
-		TS_ASSERT_EQUALS(src.cells(0xAC00), 1);
-		TS_ASSERT_EQUALS(main->lastCellsCp, (uint32)0xAC00);
-	}
-
-	void test_row_routes_the_same_way_as_cells() {
-		TaggedFakeGlyphSource *main = makeMain();
-		TaggedFakeGlyphSource *latin = makeLatin();
-		RoutedGlyphSource src(main, latin, kHiResLatinFullwidth);
-
-		const byte *row = src.row(0xFF21, 0);
-		TS_ASSERT_EQUALS(latin->lastRowCp, (uint32)0xFF21);
-		TS_ASSERT_EQUALS(*row, (byte)9);
-
-		row = src.row(0xAC00, 0);
-		TS_ASSERT_EQUALS(main->lastRowCp, (uint32)0xAC00);
-		TS_ASSERT_EQUALS(*row, (byte)1);
-	}
-
-	// A latin face that lacks a glyph in its routed range (a Latin-only
-	// face has no U+FF21) must not swallow it: main answers, for cells()
-	// and row() alike, while the latin face still serves what it has.
-	void test_latin_without_glyph_falls_back_to_main() {
-		TaggedFakeGlyphSource *main = makeMain();
-		TaggedFakeGlyphSource *latin = makeLatin();
-		latin->missingCp = 0xFF21;
-		RoutedGlyphSource src(main, latin, kHiResLatinFullwidth);
-
-		TS_ASSERT_EQUALS(src.cells(0xFF21), 1);
-		TS_ASSERT_EQUALS(main->lastCellsCp, (uint32)0xFF21);
-		const byte *row = src.row(0xFF21, 0);
-		TS_ASSERT(row != nullptr);
-		TS_ASSERT_EQUALS(main->lastRowCp, (uint32)0xFF21);
-		TS_ASSERT_EQUALS(*row, (byte)1);
-
-		// FF22 is still in the latin face.
-		TS_ASSERT_EQUALS(src.cells(0xFF22), 9);
-		row = src.row(0xFF22, 0);
-		TS_ASSERT_EQUALS(latin->lastRowCp, (uint32)0xFF22);
-		TS_ASSERT_EQUALS(*row, (byte)9);
-	}
-
-	void test_geometry_comes_from_main_only() {
-		TaggedFakeGlyphSource *main = makeMain();
-		TaggedFakeGlyphSource *latin = makeLatin();
-		RoutedGlyphSource src(main, latin, kHiResLatinFullwidth);
-
-		TS_ASSERT_EQUALS(src.cellWidth(), (byte)16);
-		TS_ASSERT_EQUALS(src.cellHeight(), (byte)16);
-		TS_ASSERT_EQUALS(src.advanceNarrow(), (byte)8);
-		TS_ASSERT_EQUALS(src.advanceWide(), (byte)16);
-		TS_ASSERT_EQUALS(src.bitsPerPixel(), 8);
-	}
-
-	void test_glyph_count_sums_both_sources() {
-		TaggedFakeGlyphSource *main = makeMain();		// glyphCount 3
-		TaggedFakeGlyphSource *latin = makeLatin();	// glyphCount 5
-		RoutedGlyphSource src(main, latin, kHiResLatinFullwidth);
-
-		TS_ASSERT_EQUALS(src.glyphCount(), (uint32)8);
 	}
 };

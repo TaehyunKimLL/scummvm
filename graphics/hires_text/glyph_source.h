@@ -83,7 +83,7 @@ public:
 	/**
 	 * The face's own advance for cp, in hi-res (source) pixels, or 0 when
 	 * unknown - no glyph, or a source that only knows cells (SCVMUNI).
-	 * Read by hires_text_latin=proportional with metrics=font; the glyph's
+	 * Read by advance=font; the glyph's
 	 * origin is column metrics().originX of its row (0 for every glyph whose
 	 * ink starts at or right of its origin), so advancing by this places the
 	 * next glyph as the face itself would.

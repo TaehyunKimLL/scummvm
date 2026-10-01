@@ -216,7 +216,7 @@ public:
 	 * - offset= alone keeps meaning the outline width, as it always has;
 	 * - shadow distance offset=, else half a game pixel rounded up.
 	 */
-	static void applyMap(GlyphStyle &style, const HiResTextConfig &map, int scale);
+	static void applyMap(GlyphStyle &style, const HiResMap &map, int scale);
 
 	/**
 	 * Build the pen for an outline.

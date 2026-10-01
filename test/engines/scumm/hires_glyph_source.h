@@ -19,9 +19,8 @@
  * The bitmap (SVFN) fonts a translation ships go through SvfnGlyphSource
  * like every other engine's, generically: this suite pins that the move
  * changed no pixel, comparing against a hand-rolled reference blit straight
- * off HiResBitmapFont. Since Task 7 the CJK/Latin split is
- * `range.basic-latin=` (a named face) rather than a dedicated "Latin
- * companion" slot, and origin=face/advance= replace baseline=/metrics=.
+ * off HiResBitmapFont. The CJK/Latin split is `range.basic-latin=` (a
+ * named face), placed by origin= and stepped by advance=.
  */
 class ScummHiResGlyphSourceTestSuite : public CxxTest::TestSuite {
 private:
@@ -140,10 +139,9 @@ private:
 	}
 
 	static Graphics::HiResMap koreanMap(int gameShadow) {
-		// M8 (controller ruling): the Latin companion sits on the CJK face's
-		// baseline unconditionally now (the old implicit ascent alignment,
-		// restored) - no origin=face key is needed to get it, and the old
-		// version of this test (before that bug was introduced) had none.
+		// The Latin companion sits on the CJK face's baseline
+		// unconditionally (the implicit ascent alignment) - no origin=face
+		// key is needed to get it.
 		Common::String text =
 			"[map]\nversion=2\n[render]\nblend=on\n[text]\nencoding=cp949\n"
 			"[fonts]\nlat=LAT.SVF\n[font.0]\nface=CJK.SVF\n"
@@ -225,9 +223,8 @@ private:
 		style.shadowMode = gameShadow == 4 ? Graphics::kHiResShadowOutline
 						 : gameShadow == 2 ? Graphics::kHiResShadowDrop
 										   : Graphics::kHiResShadowNone;
-		Graphics::HiResTextConfig legacy;
-		legacy.scale = 2;
-		Graphics::HiResGlyphRenderer::applyMap(style, legacy, 2);
+		Graphics::HiResMap map;
+		Graphics::HiResGlyphRenderer::applyMap(style, map, 2);
 		TS_ASSERT_EQUALS(style.outlineQ, 6);
 
 		Common::Rect dirty, refDirty;
@@ -252,7 +249,7 @@ private:
 		} else {
 			TS_ASSERT(sameBytes(*overlay.coverage(), refCov));
 		}
-		// M7: every inked pixel lies inside the dirty rect handed back - the
+		// Every inked pixel lies inside the dirty rect handed back - the
 		// old test's exact TS_ASSERT_EQUALS(dirty, refDirty) is not required
 		// verbatim (GlyphBitmap here vs. HiResBitmapFont+index in the
 		// reference are not bound to grow the rect by the same rounding),
@@ -267,7 +264,7 @@ private:
 		// The same advance as the old path: the face's own metrics (reach
 		// included) for a proportional face, or the narrow half-cell for a
 		// fixed-width one - restoring cellRuleAdvance()'s fixed-width branch
-		// (M7) and glyphInk()'s cellWidth() box together keep this pinned.
+		// and glyphInk()'s cellWidth() box together keep this pinned.
 		const int advA = hr.advanceFor('A', 0, 3);
 		const int refA = proportional ? (MAX(9 + 3, 1 + 11) + 1) / 2 : kCell / 2 / 2;
 		TS_ASSERT_EQUALS(advA, MAX(refA, 3));

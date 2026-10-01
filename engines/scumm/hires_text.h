@@ -56,8 +56,7 @@ namespace Scumm {
  * in graphics/hires_text. The split is what lets a second engine reuse the
  * font handling without inheriting SCUMM's screen model.
  *
- * Since docs/superpowers/plans/2026-09-30-hires-config-unify.md Task 7, a
- * loaded map is version 2 (design docs/superpowers/specs/2026-09-30-hires-
+ * A loaded map is version 2 (design docs/superpowers/specs/2026-09-30-hires-
  * config-unify-design.md): faces are named by Unicode range
  * (`range.<spec>=`), `[glyphs]` can target an exact face and code point, and
  * every character - CJK or ASCII alike - goes through one compiled
@@ -212,8 +211,8 @@ struct ScummHiResText {
 	 * `auto` table describes still reads as a pure blend/coverage rule; the
 	 * loader passes canBlendText(version) explicitly. `on` still answers
 	 * true even when @p canBlend is false - it still asks, and the caller
-	 * still warns that it could not be done (Task 7 review L1: a v7/v8 game
-	 * gets no *default*, but an explicit ask is not silently dropped).
+	 * still warns that it could not be done (a v7/v8 game gets no
+	 * *default*, but an explicit ask is not silently dropped).
 	 */
 	static bool wantsAlphaFor(Graphics::HiResBlend blend, bool anyFaceHasCoverage, bool canBlend = true) {
 		if (blend == Graphics::kHiResBlendOn)
@@ -256,7 +255,7 @@ struct ScummHiResText {
 	 * v7+ always answers `clut8` (SMUSH drives the backend palette; an
 	 * explicit non-clut8 @p ini/@p map target is ignored, with @p warning
 	 * naming it), otherwise `Graphics::wantedRenderTarget()`. @p map is the
-	 * phase-1 view (engine qualifiers only, Task 7's `p1`); never returns
+	 * phase-1 view (engine qualifiers only); never returns
 	 * `kHiResTargetAuto`. Static and pure so it can be tested without
 	 * ConfMan, a game folder or a backend.
 	 */
@@ -306,13 +305,12 @@ struct ScummHiResText {
 	 * clamped to SCUMM's own 1..3 and then @p platform (Graphics::clampScale()).
 	 * @p warning carries the clamp's own text plus the value actually used,
 	 * e.g. "the DOS backend runs hi-res text at 2x only; using 2". Static and
-	 * pure, replacing the old `ConfMan.getInt("hires_text_scale"/
-	 * "korean_hires_scale", ...)` readers.
+	 * pure.
 	 */
 	static int resolvedScale(const Graphics::HiResMap &map, bool mapLoaded, const Graphics::HiResIniOverrides &ini,
 							 const Graphics::HiResScaleLimits &platform, Common::String &warning);
 
-	/// The render target loadConfig() resolved (Task 7's `_target`): never
+	/// The render target loadConfig() resolved (`_target`): never
 	/// `kHiResTargetAuto`. What scumm.cpp hands to Graphics::formatRequest().
 	Graphics::HiResRenderTarget renderTarget() const { return _target; }
 
@@ -348,7 +346,7 @@ struct ScummHiResText {
 
 	/// Whether some face the current (phase-2) map/ini names has coverage
 	/// (design 7.1.1's Graphics::mapHasCoverage(), against the *resolved*
-	/// target's sections - Task 7 review L1(b): distinct from the phase-1
+	/// target's sections - distinct from the phase-1
 	/// question wantedTarget() itself asks, which is answered before any
 	/// target-qualified section exists).
 	bool anyCoverage() const { return _anyCoverage; }
@@ -432,10 +430,10 @@ struct ScummHiResText {
 	 * Whether the ASCII character @p chr steps by the replacement face's own
 	 * advance rather than the game's Latin width. C34/C36 made this the
 	 * default for CJK text, UTF-8 translations and the game's own English
-	 * alike; since Task 7 the engine scope's own default is
+	 * alike; the engine scope's own default is now
 	 * `advance.basic-latin=game` (design section 8), so a TrueType face only
 	 * steps Latin by itself when the map or `hires_text_advance` asks for it
-	 * (`advance.basic-latin=font`) - the inverse of the old default. Kept as
+	 * (`advance.basic-latin=font`). Kept as
 	 * a thin wrapper over advanceFor()'s own resolution: true exactly when
 	 * advanceFor() would draw @p chr from a TrueType face and step by that
 	 * face's own advance.
@@ -445,8 +443,8 @@ struct ScummHiResText {
 	/**
 	 * Whether printChar() leaves the game glyph's offsX/offsY out for @p chr:
 	 * the id's resolved `origin=`/`origin.<spec>=` for @p chr's code point is
-	 * `face` (design section 8's `origin`, replacing the old ASCII-only
-	 * `[latin] baseline=face`) and a replacement face actually draws it.
+	 * `face` (design section 8's `origin`) and a replacement face actually
+	 * draws it.
 	 * Off (false) for every map that does not ask, and for a renderer that
 	 * switched the face step off (setLatinFaceStepAllowed(false): FM-Towns, V2).
 	 */
@@ -578,10 +576,6 @@ struct ScummHiResText {
 	/// How many distinct glyph sources are open, for tests and logs.
 	int sourceCount() const;
 
-	/// Face @p index of the TrueType chain charset @p charsetId draws with,
-	/// map-less form; or null (no chain, or fewer faces); for tests.
-	Graphics::TtfGlyphSource *ttfChainFace(int charsetId, uint index) const;
-
 	/**
 	 * The source that will draw @p cp in @p charsetId under a compiled plan,
 	 * or null when nothing does (the game's own font draws it); for tests,
@@ -632,14 +626,10 @@ struct ScummHiResText {
 	/// The glyph source addFace() opened for @p resolvedPath, or null; for tests.
 	Graphics::UnicodeGlyphSource *sourceForFace(const Common::String &resolvedPath) const;
 
-	/// The compiled plan for @p charsetId (design sections 5, 6, 8); for tests
-	/// and Task 8. Charset ids outside 0..19 answer id 0's plan.
-	const Graphics::HiResIdPlan &planFor(int charsetId) const;
-
 	/**
 	 * SCUMM's engine scope (design section 8, the defaults consulted below
-	 * [font]): range.basic-latin=same (ASCII from the charset's own face,
-	 * the old font=same default), advance.basic-latin=game.
+	 * [font]): range.basic-latin=same (ASCII from the charset's own face),
+	 * advance.basic-latin=game.
 	 */
 	static Graphics::HiResFontScope engineScope();
 
@@ -657,17 +647,13 @@ struct ScummHiResText {
 	/**
 	 * The colours and decoration a replacement glyph is drawn with (C19).
 	 *
-	 * The mode comes from resolveShadow(); its geometry from the map's
-	 * [shadow] keys at the map's scale (HiResGlyphRenderer::applyMap()). For
+	 * The mode comes from resolveShadow(); its geometry from @p map's
+	 * [shadow] keys at @p scale (HiResGlyphRenderer::applyMap()). For
 	 * the Korean patch bytes at 2x that gives: 0 (patch) and 4+ a round
 	 * outline 1.5 px wide, 2 a drop of the glyph by (1, 1), 3 that outline
 	 * plus a copy of it moved (-1, +1) in place of the old stroke table.
-	 *
-	 * Unchanged since before Task 7 (graphics/hires_text is not touched by
-	 * it): @p config carries just the [shadow] fields, built from the map by
-	 * legacyShadowConfig().
 	 */
-	static Graphics::GlyphStyle glyphStyle(const Graphics::HiResTextConfig &config,
+	static Graphics::GlyphStyle glyphStyle(const Graphics::HiResMap &map, int scale,
 										   int gameShadow, bool korPatchShadow,
 										   byte color, byte shadowColor);
 
@@ -941,12 +927,12 @@ private:
 	/// stores a successfully opened TrueType face under a size-qualified
 	/// "ttf:<path>@<px>..." key, never under the raw path, so without this
 	/// checkIdOnceReady()'s "every path attempted" gate would wait forever
-	/// for an id whose face opened fine (M2).
+	/// for an id whose face opened fine.
 	mutable Common::HashMap<Common::String, bool> _attemptedPaths;
 	/// The Face that owns a given source, for the ink cache, the TrueType/
-	/// lineFit checks (isSourceTtf(), the M4/M7 fixes) and cellRuleAdvance()'s
+	/// lineFit checks (isSourceTtf()) and cellRuleAdvance()'s
 	/// bitmap-vs-TrueType branch - a reverse index instead of a linear scan
-	/// of _sources per lookup (M10). Populated wherever a Face is created;
+	/// of _sources per lookup. Populated wherever a Face is created;
 	/// cleared with the rest in freeFaces().
 	mutable Common::HashMap<uint64, Face *> _faceBySource;
 	/// The Face owning @p src, or null; see _faceBySource.
@@ -1001,12 +987,12 @@ private:
 	bool _haveMapPath = false;
 	/// compilePlans()'s own resolution of blend()/anyCoverage(), against
 	/// whatever _map/_ini/_haveMap currently are (the resolved-target phase-2
-	/// view; Task 7 review L1(b)).
+	/// view).
 	Graphics::HiResBlend _resolvedBlend = Graphics::kHiResBlendAuto;
 	bool _anyCoverage = false;
 	/// canBlendText(version), cached at loadConfig() time so adoptScreen()
 	/// can redo wantsAlphaFor()'s canBlend argument without a gameVersion of
-	/// its own (Task 8 review M2).
+	/// its own.
 	bool _canBlend = true;
 	/// The phase-1 wanted target and whether the ini or the map named it.
 	Graphics::HiResRenderTarget _wanted = Graphics::kHiResTargetClut8;
@@ -1035,12 +1021,12 @@ private:
 	/// The pixel size chainSources[id]'s TrueType entries were last opened
 	/// at, 0 = none yet: when ttfSizeForSimple()/plan.size answers a
 	/// *different* size later (the id's own cell became known after an
-	/// earlier pass opened it at a borrowed or guessed one, M5), every
+	/// earlier pass opened it at a borrowed or guessed one), every
 	/// TrueType-backed slot of this id is dropped so resolveEntry() reopens
 	/// it at the right size; an already-resolved SVFN slot is untouched
 	/// (its size never depends on this).
 	mutable int _chainSourcesPixelSize[kMaxFonts] = {};
-	/// design 10.4's "once per cause per load" (M1): every load-time warning
+	/// design 10.4's "once per cause per load": every load-time warning
 	/// text checkIdOnceReady() has already printed this load (map warnings
 	/// are per id-independent causes - missing=, a [glyphs] target - so
 	/// without this the same text prints once per id that shares the cause).
@@ -1077,16 +1063,16 @@ private:
 	/// bogus permanent failure, letting checkIdOnceReady() run its once-only
 	/// checks before every face is actually in.
 	void ensureChainSources(int id, bool allowDiskOpen = true) const;
-	/// Shared by adoptMap() and loadConfig() (L4): compiles _plans[0..19]
+	/// Shared by adoptMap() and loadConfig(): compiles _plans[0..19]
 	/// from the current _map/_ini/_mapDir against @p gameDir, printing every
-	/// distinct plan warning once (Task 5 review F2), then resolves _scale
+	/// distinct plan warning once, then resolves _scale
 	/// the same way (ini > map > 2, clamped). Only for the map/ini-driven
 	/// (_perGlyph) path; loadConfig() calls it only when not falling back to
 	/// probeSimpleFonts().
 	void compilePlans(const Common::Path &gameDir);
 	/// design section 10.4's load-time checks (cell height, [glyphs] target
 	/// coverage, missing=), run once per id, when ensureChainSources() finds
-	/// every path the plan names has been attempted (S16b).
+	/// every path the plan names has been attempted.
 	void checkIdOnceReady(int id) const;
 	/// Every distinct resolved path _plans[id] names (idChain, every
 	/// ruleChain, every [glyphs] target face), in plan order.
@@ -1095,14 +1081,13 @@ private:
 
 	/// Resolve @p code (the game's own character/charset byte) for id
 	/// @p charsetId: [glyphs] (design 6.5 step 2), then the range/coverage
-	/// chain and SCUMM's nearest-charset borrowing (pickGlyph(), B6). @p cp
+	/// chain and SCUMM's nearest-charset borrowing (pickGlyph()). @p cp
 	/// is updated to the code point that would be drawn; @p declined is set
 	/// when the game's own font should draw @p code instead.
 	Graphics::UnicodeGlyphSource *faceForCodePoint(int charsetId, uint32 code, uint32 &cp, bool &declined) const;
 
 	/// Rows to move a drawn glyph down so it shares the id's own baseline
-	/// (design section 8's origin=face, generalised from ASCII-only
-	/// latin=baseline=face to any code point, replacing latinBaselineShift()).
+	/// (design section 8's origin=face, for any code point).
 	int originShiftFor(Graphics::UnicodeGlyphSource *drawn, int charsetId) const;
 	/// The id's own primary source (chainSources[id][0]'s first opened
 	/// entry): what originShiftFor() and nearestFont() measure against.
@@ -1112,10 +1097,9 @@ private:
 	bool isSourceTtf(Graphics::UnicodeGlyphSource *src) const;
 
 	int advancePlaced(uint32 cp, Graphics::UnicodeGlyphSource *src, int charsetId, int gameWidth, int *carry) const;
-	/// Design section 6.3 / M6: the wide-glyph grid rule (game and font
-	/// alike; only ASCII/"other" use the simple advanceGamePx() scaling) -
-	/// unchanged since before Task 7 bar taking a generic UnicodeGlyphSource-
-	/// backed Face instead of a bitmap-only one.
+	/// Design section 6.3: the wide-glyph grid rule (game and font alike;
+	/// only ASCII/"other" use the simple advanceGamePx() scaling), on a
+	/// generic UnicodeGlyphSource-backed Face.
 	///
 	/// @param fontMetrics  advance=font: spend/restore @p carry, no game floor
 	///                     (false: advance=game's ink floor, MAX(fit, gameWidth))
@@ -1128,7 +1112,7 @@ private:
 	///                     floor at all (C31)
 	int cellRuleAdvance(Face *face, uint32 cp, int charsetId, int gameWidth, int *carry,
 						bool fontMetrics, bool requireInk, bool faceFit = false) const;
-	/// design section 4.4, restored for a plan chain (M9): the translation
+	/// design section 4.4, restored for a plan chain: the translation
 	/// coverage warning for one id's own idChain, run once its faces are
 	/// resolved (ensureChainSources()).
 	void checkCoverageForId(int id) const;
@@ -1142,10 +1126,6 @@ private:
 				  Common::Rect *dirty, bool withCoverage,
 				  Graphics::HiResMirror mirror = Graphics::kHiResMirrorNone,
 				  int axisLeft = 0, int axisRight = 0);
-
-	/// The [shadow] fields of _map, as a throwaway HiResTextConfig for the
-	/// unchanged glyphStyle()/HiResGlyphRenderer::applyMap().
-	Graphics::HiResTextConfig legacyShadowConfig() const;
 
 	// The pen after the last base glyph drawn, in overlay pixels, for a
 	// combining mark that follows it.
@@ -1178,7 +1158,7 @@ private:
 	/// what the faces before it in the chain lack. Used by the map-less
 	/// form's merged TrueType chain (openTtfChain(), @p sources = the Face's
 	/// own chain/chainNames) and by a plan id's own idChain
-	/// (checkCoverageForId(), M9).
+	/// (checkCoverageForId()).
 	void checkCoverage(const Common::Array<Graphics::UnicodeGlyphSource *> &sources,
 					   const Common::Array<Common::String> &names, const Common::String &key) const;
 

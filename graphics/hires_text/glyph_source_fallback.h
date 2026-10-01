@@ -32,7 +32,7 @@
 namespace Graphics {
 
 /**
- * A face fallback chain (hires_text.map "face=ko, ja, th",
+ * A face fallback chain (HIRESTXT.MAP "face=ko, ja, th",
  * I18N_TEXT_DESIGN.md section 4.5): each lookup asks the sources in order,
  * and the first whose cells(cp) > 0 answers cells, row, advance and metrics
  * for that code point. Which source answered is remembered per code point.

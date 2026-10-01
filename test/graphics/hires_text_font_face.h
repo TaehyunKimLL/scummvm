@@ -145,7 +145,7 @@ public:
 		TS_ASSERT_EQUALS(index, -1);
 	}
 
-// TEST: every test_ method below is declared unconditionally (S15):
+// TEST: every test_ method below is declared unconditionally:
 // cxxtestgen has no C preprocessor of its own, so it always generates a call
 // to a method by name whether or not the #ifdef around its declaration is
 // true for this build - a method actually compiled out (USE_FREETYPE2

@@ -221,48 +221,6 @@ void HiResFontBaker::latin1(Common::Array<uint32> &out) {
 		out.push_back(cp);
 }
 
-void HiResFontBaker::applyGlyphOverrides(
-		const Common::HashMap<uint32, HiResGlyphOverride> &overrides,
-		Common::Array<uint32> &inOut) {
-	if (overrides.empty())
-		return;
-
-	// 'keep' codes are drawn by the game itself, so a baked cell for them
-	// would never be reached. Dropping them also keeps a font's glyph count
-	// honest about what it can actually supply.
-	Common::Array<uint32> kept;
-	kept.reserve(inOut.size());
-	for (uint i = 0; i < inOut.size(); ++i) {
-		Common::HashMap<uint32, HiResGlyphOverride>::const_iterator it =
-			overrides.find(inOut[i]);
-		if (it != overrides.end() && it->_value.action == kHiResGlyphKeep)
-			continue;
-		kept.push_back(inOut[i]);
-	}
-
-	// A remap's target is what the renderer will ask for, so it has to be in
-	// the font even when the plain code point list never mentioned it.
-	// A [glyphs] range can remap tens of thousands of codes, so whether a
-	// target is already in the list is looked up, not searched for.
-	Common::HashMap<uint32, bool> present;
-	for (uint i = 0; i < kept.size(); ++i)
-		present[kept[i]] = true;
-
-	for (Common::HashMap<uint32, HiResGlyphOverride>::const_iterator it = overrides.begin();
-		 it != overrides.end(); ++it) {
-		if (it->_value.action != kHiResGlyphRemap)
-			continue;
-
-		const uint32 target = it->_value.codepoint;
-		if (present.contains(target))
-			continue;
-		present[target] = true;
-		kept.push_back(target);
-	}
-
-	inOut = kept;
-}
-
 } // End of namespace Graphics
 
 #endif // USE_FREETYPE2

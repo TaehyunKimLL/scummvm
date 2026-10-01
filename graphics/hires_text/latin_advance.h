@@ -29,31 +29,17 @@
 namespace Graphics {
 
 /**
- * hires_text_latin=proportional: the advance, in game (lowres) pixels, of one
- * ASCII character drawn by the TrueType face. Engine-free, so the one rule
- * that both measuring (getCharWidth) and drawing (the pen advance, which
- * GfxText16 takes from getCharWidth) follow is tested alone.
- *
- *   metrics=game - @p gameWidth, the width of the character in the font id's
- *                  own resource face. Layout is identical to latin=off.
- *   metrics=font - the face's own advance, max(1, round(@p ttfAdvanceHires /
- *                  @p scale)), rounding half up. When the face cannot say
- *                  (@p ttfAdvanceHires <= 0) it falls back to @p gameWidth.
- *
- * @param scale  hi-res pixels per game pixel: 2 for SCI16's hi-res text
- *               plane, 1 where glyphs are drawn at game resolution
- */
-int latinAdvanceGamePx(Graphics::HiResMetricsSource metrics, int gameWidth, int ttfAdvanceHires, int scale);
-
-/**
  * Design sections 6.3/6.5 step 7: the advance, in game (lowres) pixels, of
  * one drawn code point under an id's resolved `advance=` value.
  *
- *   advance=game - as latinAdvanceGamePx() computes metrics=game: @p gameWidth.
- *   advance=font - as latinAdvanceGamePx() computes metrics=font: the
- *                  face's own advance, @p faceAdvanceHires, scaled down by
- *                  @p scale (falls back to @p gameWidth when the face
- *                  cannot say).
+ *   advance=game - @p gameWidth, the width of the character in the font
+ *                  id's own resource face.
+ *   advance=font - the face's own advance, @p faceAdvanceHires, scaled
+ *                  down by @p scale: max(1, round(a / scale)), rounding half
+ *                  up (falls back to @p gameWidth when the face cannot say,
+ *                  @p faceAdvanceHires <= 0). @p scale is hi-res pixels per
+ *                  game pixel: 2 for SCI16's hi-res text plane, 1 where
+ *                  glyphs are drawn at game resolution.
  *   advance=cell, advance=(engine) - -1: neither is a game/font metric this
  *                  helper knows how to compute; the caller applies its own
  *                  cell width (design 6.3's wide/narrow cell) or its own

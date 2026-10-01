@@ -76,21 +76,6 @@ public:
 	static void chineseCodePage(uint codePage, Common::Array<uint32> &out);
 	/// 0x20..0x7E and 0xA0..0xFF as Latin-1.
 	static void latin1(Common::Array<uint32> &out);
-
-	/**
-	 * Apply a map's [glyphs] table to a code point list before baking.
-	 *
-	 * Baking and drawing have to agree, or a remap names a glyph the font was
-	 * never given: 'keep' means the game draws that code itself, so baking it
-	 * only wastes a cell, and a remap's target has to be present or the
-	 * lookup fails at run time and the character silently disappears.
-	 *
-	 * @param overrides  the parsed [glyphs] table
-	 * @param inOut      code point list, edited in place
-	 */
-	static void applyGlyphOverrides(
-		const Common::HashMap<uint32, HiResGlyphOverride> &overrides,
-		Common::Array<uint32> &inOut);
 };
 
 } // End of namespace Graphics

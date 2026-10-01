@@ -43,7 +43,7 @@ class Font;
  * Cell width is never taken from the TTF advance: it comes from the Unicode
  * East Asian Width property (isWide()), which is the only thing that agrees with
  * SCVMUNI's cells()==1|2 convention across scripts. The advance is kept
- * alongside, for advance() (hires_text_latin=proportional, metrics=font).
+ * alongside, for advance() (advance=font).
  * A code point's presence in the face, on the other hand, cannot be asked
  * for directly - TTFFont
  * exposes no "has glyph" query - so it is inferred from whether rendering it
@@ -131,7 +131,7 @@ public:
 	                               int32 faceIndex = 0);
 
 	/**
-	 * A pixel font (hires_text.map pixel=<designPx>): a face drawn on a
+	 * A pixel font (HIRESTXT.MAP pixel=<designPx>): a face drawn on a
 	 * grid of designPx pixels per em, crisp only at that ppem or a whole
 	 * multiple of it. Opened at pixelGridSize(cellSize, designPx) ppem -
 	 * never shrunk to fit a probe set, as create() does - in a cell of
@@ -235,7 +235,7 @@ public:
 	uint32 totalRenderMs() const { return _totalRenderMs; }
 
 	/**
-	 * The map's [hires] gamma=, in hundredths: every glyph rasterised from
+	 * The map's [render] gamma=, in hundredths: every glyph rasterised from
 	 * now on has its coverage c replaced by 255*(c/255)^(100/gamma), and
 	 * glyphs already cached are dropped so they are drawn again with it.
 	 * 100 (the default) is off: the rows are FreeType's bytes, untouched.
@@ -245,7 +245,7 @@ public:
 	 * fit do not change, and on a blended screen no pixel is added. What
 	 * reads the coverage does see a change: the outline (C19 dilate() takes
 	 * coverage as distance) widens with the body, about +0.23 px at 2.2 and
-	 * up to +0.47 px at 4; on a keyed screen (alpha=false) pixels that now
+	 * up to +0.47 px at 4; on a keyed screen (blending off) pixels that now
 	 * cross the ink cut (0x40) or the decoration cut (0x80) become whole
 	 * solid pixels, so keyed text grows, and below 1 thin keyed strokes can
 	 * drop out.

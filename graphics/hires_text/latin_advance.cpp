@@ -25,13 +25,6 @@
 
 namespace Graphics {
 
-int latinAdvanceGamePx(Graphics::HiResMetricsSource metrics, int gameWidth, int ttfAdvanceHires, int scale) {
-	if (metrics != Graphics::kHiResMetricsFont || ttfAdvanceHires <= 0 || scale <= 0)
-		return gameWidth;
-	// round(a / s), half up, in integers: (2a + s) / 2s.
-	return MAX(1, (2 * ttfAdvanceHires + scale) / (2 * scale));
-}
-
 int advanceGamePx(HiResAdvance advance, int gameWidth, int faceAdvanceHires, int scale) {
 	switch (advance) {
 	case kHiResAdvanceGame:
