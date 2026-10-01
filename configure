@@ -3921,6 +3921,9 @@ if test -n "$_host"; then
 			append_var DEFINES "-DDISABLE_NES_APU"
 			# No detection entry of SCI or SCUMM is inside an installer.
 			append_var DEFINES "-DDISABLE_DETECTION_ARCHIVES"
+			# SCI's Windows AVI and Mac QuickTime movies (KQ6 CD Windows, Mac
+			# games): the DOS versions play SEQ.
+			append_var DEFINES "-DDISABLE_SCI_WINMAC_VIDEO"
 			;;
 		kos32)
 			# neither pkg-config nor *-config work, so we setup everything manually
