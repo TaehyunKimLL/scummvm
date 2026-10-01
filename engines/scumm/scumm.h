@@ -2053,6 +2053,7 @@ private:
 	uint16 *_languageLineIndex = nullptr;
 	/// The body left in the file (then _languageBuffer is null), or null.
 	TrsStore *_trsStore = nullptr;
+	bool _trsReadFailed = false;	///< the last searchTranslatedLine() could not read the bundle
 	Common::HashMap<byte, TranslationRoom> _roomIndex;
 
 	/** Rewrite a UTF-8 bundle's translations in _trsTranscodeTo (hi-res off). */
