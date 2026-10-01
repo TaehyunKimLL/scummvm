@@ -28,17 +28,24 @@
 
 #include "../../system/null_osystem.h"
 #include "graphics/hires_text/font_map.h"
+#include "graphics/hires_text/hires_options.h"
 
 #include "ags/shared/font/hires_font_config.h"
 
 namespace {
 
-Graphics::HiResTextConfig agsParseMap(const char *text, const char *qualifier) {
+Graphics::HiResMap agsLoadMap(const char *text, const char *qualifier,
+							  Graphics::HiResRenderTarget target = Graphics::kHiResTargetAuto, bool *ok = nullptr) {
 	Common::MemoryReadStream in((const byte *)text, strlen(text));
 	Common::Array<Common::String> q;
 	q.push_back(qualifier);
-	Graphics::HiResTextConfig map;
-	Graphics::HiResFontMap::loadFromStream(in, Common::Path("/maps"), q, map);
+	Graphics::HiResMapLoadOptions opts;
+	opts.target = target;
+	opts.quiet = true;
+	Graphics::HiResMap map;
+	const bool loaded = Graphics::HiResFontMap::loadMap(in, Common::Path("/maps"), q, Graphics::kHiResKeysAgs, map, opts);
+	if (ok)
+		*ok = loaded;
 	return map;
 }
 
@@ -49,17 +56,39 @@ Common::String agsFaces(const AGS3::HiResFontPlan &p) {
 	return s;
 }
 
+bool agsHasWarning(const Common::Array<Common::String> &warnings, const char *text) {
+	for (uint i = 0; i < warnings.size(); i++) {
+		if (warnings[i].contains(text))
+			return true;
+	}
+	return false;
+}
+
+struct AgsFakeIni {
+	Common::HashMap<Common::String, Common::String> game;
+};
+
+bool agsFakeIniGet(const char *key, bool globalFallback, Common::String &value, void *ctx) {
+	const AgsFakeIni *ini = static_cast<const AgsFakeIni *>(ctx);
+	if (!ini->game.contains(key))
+		return false;
+	value = ini->game.getVal(key);
+	return true;
+}
+
 const char *const kAgsPlanMap =
-	"[hires]\n"
+	"[map]\n"
+	"version=2\n"
+	"[font]\n"
 	"face=hf\n"
 	"size=14\n"
 	"[fonts]\n"
 	"hf=/f/hires.ttf\n"
 	"a=/f/a.ttf\n"
 	"b=/f/b.ttf\n"
+	"z=/f/zero.svf\n"
 	"[font.0]\n"
-	"bitmap=/f/zero.fnt\n"
-	"face=a\n"
+	"face=z\n"
 	"[font.1]\n"
 	"face=a, b\n"
 	"size=20\n"
@@ -68,7 +97,7 @@ const char *const kAgsPlanMap =
 
 } // End of anonymous namespace
 
-/** Which font an AGS font number gets from hires_text.map and the ini. */
+/** Which font an AGS font number gets from HIRESTXT.MAP and the ini. */
 class AgsHiResFontPlanTestSuite : public CxxTest::TestSuite {
 public:
 	void setUp() {
@@ -83,50 +112,69 @@ public:
 #endif
 	}
 
-	void test_precedence_bitmap_face_ini_hires() {
-		const Graphics::HiResTextConfig map = agsParseMap(kAgsPlanMap, "5daysastranger");
-		Common::Array<Common::Path> ini;
-		ini.push_back(Common::Path("/f/ini.ttf"));
+	void test_precedence_ini_id_face_map_face() {
+		const Graphics::HiResMap map = agsLoadMap(kAgsPlanMap, "5daysastranger");
 		AGS3::HiResFontConfig c;
-		c.configure(&map, Common::Path("/maps"), ini, 0);
+		c.configure(&map, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT(c.active());
 
-		AGS3::HiResFontPlan p = c.plan(0);   // bitmap beats face
-		TS_ASSERT_EQUALS(p.kind, AGS3::HiResFontPlan::kBitmap);
-		TS_ASSERT_EQUALS(p.bitmap.toString(), "/f/zero.fnt");
+		AGS3::HiResFontPlan p = c.plan(0);   // an SVF is a face like any other (sniffed when opened)
+		TS_ASSERT_EQUALS(p.kind, AGS3::HiResFontPlan::kFaces);
+		TS_ASSERT_EQUALS(agsFaces(p), "/f/zero.svf");
+		TS_ASSERT_EQUALS(p.source, "[font.0] face");
 
-		p = c.plan(1);                       // [font.N] face beats the ini
+		p = c.plan(1);                       // [font.N] face beats [font] face
 		TS_ASSERT_EQUALS(p.kind, AGS3::HiResFontPlan::kFaces);
 		TS_ASSERT_EQUALS(agsFaces(p), "/f/a.ttf,/f/b.ttf");
 		TS_ASSERT_EQUALS(p.size, 20);
 
 		p = c.plan(2);                       // qualified by the game id
 		TS_ASSERT_EQUALS(agsFaces(p), "/f/b.ttf");
-		TS_ASSERT_EQUALS(p.size, 14);        // [hires] size
+		TS_ASSERT_EQUALS(p.size, 14);        // [font] size
 
-		p = c.plan(3);                       // the ini beats [hires] face
+		p = c.plan(3);                       // [font] face for every other font
+		TS_ASSERT_EQUALS(agsFaces(p), "/f/hires.ttf");
+		TS_ASSERT_EQUALS(p.source, "[font] face");
+
+		// The ini's hires_text_face beats every level of the map; the
+		// size is still taken key by key.
+		Graphics::HiResIniOverrides ini;
+		ini.faceSet = true;
+		ini.face = "/f/ini.ttf";
+		c.configure(&map, true, ini, Common::Path("/maps"), Common::Path("/game"));
+		p = c.plan(1);
 		TS_ASSERT_EQUALS(agsFaces(p), "/f/ini.ttf");
-		TS_ASSERT_EQUALS(p.source, "hires_text_font");
+		TS_ASSERT_EQUALS(p.source, "hires_text_face");
+		TS_ASSERT_EQUALS(p.size, 20);
+		p = c.plan(3);
+		TS_ASSERT_EQUALS(agsFaces(p), "/f/ini.ttf");
+		TS_ASSERT_EQUALS(p.size, 14);
 	}
 
-	void test_hires_face_without_ini_and_other_game() {
-		const Graphics::HiResTextConfig map = agsParseMap(kAgsPlanMap, "othergame");
+	void test_font_face_without_ini_and_other_game() {
+		const Graphics::HiResMap map = agsLoadMap(kAgsPlanMap, "othergame");
 		AGS3::HiResFontConfig c;
-		c.configure(&map, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		c.configure(&map, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
 		AGS3::HiResFontPlan p = c.plan(2);   // [font.2:5daysastranger] is not this game's
 		TS_ASSERT_EQUALS(p.kind, AGS3::HiResFontPlan::kFaces);
 		TS_ASSERT_EQUALS(agsFaces(p), "/f/hires.ttf");
-		TS_ASSERT_EQUALS(p.source, "[hires] face");
+		TS_ASSERT_EQUALS(p.source, "[font] face");
 		p = c.plan(7);
 		TS_ASSERT_EQUALS(agsFaces(p), "/f/hires.ttf");
 		TS_ASSERT_EQUALS(p.size, 14);
 	}
 
-	void test_fonts_default_is_the_last_fallback() {
-		// HIRES_TEXT_MAP.md: with no face named, [fonts] default=.
-		const Graphics::HiResTextConfig map = agsParseMap("[fonts]\ndefault=d.ttf\n", "5daysastranger");
+	void test_font_face_is_the_map_wide_default() {
+		// [font] face= is the face of every font no [font.N] names; [fonts]
+		// is only a name table, so a name "default" there names nothing.
+		const Graphics::HiResMap names = agsLoadMap("[map]\nversion=2\n[fonts]\ndefault=d.ttf\n", "5daysastranger");
 		AGS3::HiResFontConfig c;
-		c.configure(&map, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		c.configure(&names, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
+		TS_ASSERT(!c.active());
+		TS_ASSERT_EQUALS(c.plan(4).kind, AGS3::HiResFontPlan::kGame);
+
+		const Graphics::HiResMap map = agsLoadMap("[map]\nversion=2\n[font]\nface=d.ttf\n", "5daysastranger");
+		c.configure(&map, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT(c.active());
 		const AGS3::HiResFontPlan p = c.plan(4);
 		TS_ASSERT_EQUALS(p.kind, AGS3::HiResFontPlan::kFaces);
@@ -135,45 +183,51 @@ public:
 	}
 
 	void test_plan_carries_the_map_gamma() {
-		// C20: [hires] gamma= reaches every TrueType plan; off without it.
-		const Graphics::HiResTextConfig plain = agsParseMap("[fonts]\ndefault=d.ttf\n", "x");
-		const Graphics::HiResTextConfig dark = agsParseMap("[hires]\ngamma=1.8\n[fonts]\ndefault=d.ttf\n", "x");
+		// [render] gamma= reaches every TrueType plan; off without it.
+		const Graphics::HiResMap plain = agsLoadMap("[map]\nversion=2\n[font]\nface=d.ttf\n", "x");
+		const Graphics::HiResMap dark = agsLoadMap("[map]\nversion=2\n[render]\ngamma=1.8\n[font]\nface=d.ttf\n", "x");
 		AGS3::HiResFontConfig c;
-		c.configure(&plain, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		c.configure(&plain, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.plan(0).gamma, 100);
-		c.configure(&dark, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		c.configure(&dark, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.plan(0).gamma, 180);
-		c.configure(nullptr, Common::Path(), Common::Array<Common::Path>(), 16);
+		Graphics::HiResIniOverrides ini;
+		ini.faceSet = true;
+		ini.face = "/f/ini.ttf";
+		ini.sizeSet = true;
+		ini.size = 16;
+		c.configure(nullptr, false, ini, Common::Path(), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.plan(0).gamma, 100);
 	}
 
 	void test_plan_carries_the_pixel_design_size() {
-		// C28: [font.N] pixel= over [hires] pixel=; 0 when neither names one.
-		const Graphics::HiResTextConfig map = agsParseMap(
-			"[hires]\npixel=16\n[fonts]\ndefault=d.ttf\n[font.1]\nface=d.ttf\npixel=12\n", "x");
-		const Graphics::HiResTextConfig plain = agsParseMap("[fonts]\ndefault=d.ttf\n", "x");
+		// [font.N] pixel= over [font] pixel=; 0 when neither names one.
+		const Graphics::HiResMap map = agsLoadMap(
+			"[map]\nversion=2\n[font]\nface=d.ttf\npixel=16\n[font.1]\nface=d.ttf\npixel=12\n", "x");
+		const Graphics::HiResMap plain = agsLoadMap("[map]\nversion=2\n[font]\nface=d.ttf\n", "x");
 		AGS3::HiResFontConfig c;
-		c.configure(&map, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		c.configure(&map, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.plan(0).pixel, 16);
 		TS_ASSERT_EQUALS(c.plan(1).pixel, 12);
-		c.configure(&plain, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		c.configure(&plain, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.plan(0).pixel, 0);
 	}
 
 	void test_pixel_is_only_for_a_face_the_map_names() {
-		// C28 review: the ini's hires_text_font is not the map's pixel face.
-		const Graphics::HiResTextConfig map = agsParseMap("[hires]\npixel=10\n[fonts]\ndefault=d.ttf\n", "x");
+		// The ini's hires_text_face is not the map's pixel face.
+		const Graphics::HiResMap map = agsLoadMap("[map]\nversion=2\n[font]\nface=d.ttf\npixel=10\n", "x");
 		AGS3::HiResFontConfig c;
-		Common::Array<Common::Path> ini;
-		ini.push_back(Common::Path("/f/ini.ttf"));
-		c.configure(&map, Common::Path("/maps"), ini, 0);
-		TS_ASSERT_EQUALS(c.plan(0).source, "hires_text_font");
+		Graphics::HiResIniOverrides ini;
+		ini.faceSet = true;
+		ini.face = "/f/ini.ttf";
+		c.configure(&map, true, ini, Common::Path("/maps"), Common::Path("/game"));
+		TS_ASSERT_EQUALS(c.plan(0).source, "hires_text_face");
 		TS_ASSERT_EQUALS(c.plan(0).pixel, 0);
 	}
 
 	void test_scaled_pixel_plan_is_n_times_the_small_face() {
-		// C28 review: at N x the pixel face opens at N times the 1x ppem,
-		// not at pixelGridSize(N * cell, D).
+		// At N x the pixel face opens at N times the 1x ppem, not at
+		// pixelGridSize(N * cell, D).
 		AGS3::HiResFontPlan p;
 		p.kind = AGS3::HiResFontPlan::kFaces;
 		p.pixel = 10;
@@ -236,38 +290,56 @@ public:
 
 	void test_nothing_named_is_the_game_font() {
 		AGS3::HiResFontConfig c;
-		c.configure(nullptr, Common::Path(), Common::Array<Common::Path>(), 16);
+		Graphics::HiResIniOverrides ini;
+		ini.sizeSet = true;
+		ini.size = 16;
+		c.configure(nullptr, false, ini, Common::Path(), Common::Path("/game"));
 		TS_ASSERT(!c.active());
 		TS_ASSERT_EQUALS(c.plan(0).kind, AGS3::HiResFontPlan::kGame);
-		const Graphics::HiResTextConfig map = agsParseMap("[hires]\nalpha=false\n", "x");
-		c.configure(&map, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		TS_ASSERT_EQUALS(c.blend(), Graphics::kHiResBlendAuto);
+		const Graphics::HiResMap map = agsLoadMap("[map]\nversion=2\n[render]\nblend=off\n", "x");
+		c.configure(&map, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT(!c.active());
-		TS_ASSERT(!c.alpha());
+		TS_ASSERT_EQUALS(c.blend(), Graphics::kHiResBlendOff);
 	}
 
-	// C23 T1: [hires] scale= and hires_text_scale (AGS_HIRES_TEXT_DESIGN.md section 6)
-	void test_scale_absent_is_one() {
-		// Ruling (C23 Q1): a map without scale= is N = 1, whatever it names
-		const Graphics::HiResTextConfig map = agsParseMap("[hires]\nface=/f/a.ttf\n", "x");
+	void test_blend_ini_beats_the_map() {
+		const Graphics::HiResMap map = agsLoadMap("[map]\nversion=2\n[render]\nblend=off\n[font]\nface=d.ttf\n", "x");
+		Graphics::HiResIniOverrides ini;
+		ini.blendSet = true;
+		ini.blend = Graphics::kHiResBlendOn;
 		AGS3::HiResFontConfig c;
-		c.configure(&map, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		c.configure(&map, true, ini, Common::Path("/maps"), Common::Path("/game"));
+		TS_ASSERT_EQUALS(c.blend(), Graphics::kHiResBlendOn);
+	}
+
+	void test_scale_absent_is_one() {
+		// A map without scale= is N = 1, whatever it names
+		const Graphics::HiResMap map = agsLoadMap("[map]\nversion=2\n[font]\nface=/f/a.ttf\n", "x");
+		AGS3::HiResFontConfig c;
+		c.configure(&map, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.requestedScale(), 1);
-		c.configure(nullptr, Common::Path(), Common::Array<Common::Path>(), 0);
+		c.configure(nullptr, false, Graphics::HiResIniOverrides(), Common::Path(), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.requestedScale(), 1);
 	}
 
 	void test_scale_map_and_ini_precedence() {
-		const Graphics::HiResTextConfig map = agsParseMap("[hires]\nscale=2\nface=/f/a.ttf\n", "x");
+		const Graphics::HiResMap map = agsLoadMap("[map]\nversion=2\n[render]\nscale=2\n[font]\nface=/f/a.ttf\n", "x");
 		AGS3::HiResFontConfig c;
-		c.configure(&map, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		Graphics::HiResIniOverrides ini;
+		c.configure(&map, true, ini, Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.requestedScale(), 2);
 		// the ini overrides the map, both ways
-		c.configure(&map, Common::Path("/maps"), Common::Array<Common::Path>(), 0, 3);
+		ini.scaleSet = true;
+		ini.scale = 3;
+		c.configure(&map, true, ini, Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.requestedScale(), 3);
-		c.configure(&map, Common::Path("/maps"), Common::Array<Common::Path>(), 0, 1);
+		ini.scale = 1;
+		c.configure(&map, true, ini, Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.requestedScale(), 1);
 		// the ini alone
-		c.configure(nullptr, Common::Path(), Common::Array<Common::Path>(), 0, 2);
+		ini.scale = 2;
+		c.configure(nullptr, false, ini, Common::Path(), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.requestedScale(), 2);
 		// clear() forgets it
 		c.clear();
@@ -276,26 +348,40 @@ public:
 
 	void test_scale_map_range() {
 		// the shared reader keeps 1..3; out of range is the default 1
-		const Graphics::HiResTextConfig four = agsParseMap("[hires]\nscale=4\nface=/f/a.ttf\n", "x");
-		const Graphics::HiResTextConfig zero = agsParseMap("[hires]\nscale=0\nface=/f/a.ttf\n", "x");
+		const Graphics::HiResMap four = agsLoadMap("[map]\nversion=2\n[render]\nscale=4\n[font]\nface=/f/a.ttf\n", "x");
+		const Graphics::HiResMap zero = agsLoadMap("[map]\nversion=2\n[render]\nscale=0\n[font]\nface=/f/a.ttf\n", "x");
 		AGS3::HiResFontConfig c;
-		c.configure(&four, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		c.configure(&four, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.requestedScale(), 1);
-		c.configure(&zero, Common::Path("/maps"), Common::Array<Common::Path>(), 0);
+		c.configure(&zero, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
 		TS_ASSERT_EQUALS(c.requestedScale(), 1);
 	}
 
 	void test_parse_ini_scale() {
-		int n = -1;
-		TS_ASSERT(AGS3::HiResFontConfig::parseScale("1", n));
-		TS_ASSERT_EQUALS(n, 1);
-		TS_ASSERT(AGS3::HiResFontConfig::parseScale("3", n));
-		TS_ASSERT_EQUALS(n, 3);
-		TS_ASSERT(!AGS3::HiResFontConfig::parseScale("0", n));
-		TS_ASSERT(!AGS3::HiResFontConfig::parseScale("4", n));
-		TS_ASSERT(!AGS3::HiResFontConfig::parseScale("", n));
-		TS_ASSERT(!AGS3::HiResFontConfig::parseScale("2x", n));
-		TS_ASSERT(!AGS3::HiResFontConfig::parseScale("-2", n));
+		// hires_text_scale: decimal 1..3 only; anything else is one warning
+		// and leaves the scale unset (the map or 1 applies).
+		static const char *const kGood[] = { "1", "3" };
+		static const char *const kBad[] = { "0", "4", "", "2x", "-2" };
+		for (uint i = 0; i < ARRAYSIZE(kGood); i++) {
+			AgsFakeIni f;
+			f.game["hires_text_scale"] = kGood[i];
+			Common::Array<Common::String> w;
+			const Graphics::HiResIniOverrides o = Graphics::readHiResIni(agsFakeIniGet, &f, w);
+			TS_ASSERT(o.scaleSet);
+			TS_ASSERT_EQUALS(o.scale, kGood[i][0] - '0');
+			TS_ASSERT(w.empty());
+		}
+		for (uint i = 0; i < ARRAYSIZE(kBad); i++) {
+			AgsFakeIni f;
+			f.game["hires_text_scale"] = kBad[i];
+			Common::Array<Common::String> w;
+			const Graphics::HiResIniOverrides o = Graphics::readHiResIni(agsFakeIniGet, &f, w);
+			TSM_ASSERT(kBad[i], !o.scaleSet);
+			TSM_ASSERT_EQUALS(kBad[i], w.size(), 1u);
+			AGS3::HiResFontConfig c;
+			c.configure(nullptr, false, o, Common::Path(), Common::Path("/game"));
+			TS_ASSERT_EQUALS(c.requestedScale(), 1);
+		}
 	}
 
 	void test_scale_gates() {
@@ -319,5 +405,95 @@ public:
 		why.clear();
 		TS_ASSERT_EQUALS(AGS3::HiResFontConfig::gateScale(2, true, 16, false, why), 1);
 		TS_ASSERT(why.contains("32-bit"));
+	}
+
+	void test_hires_text_false_gives_no_plan() {
+		// hires_text=false: no map, no faces, no scale - the game draws as
+		// without the layer, whatever the map or the other ini keys say.
+		const Graphics::HiResMap map = agsLoadMap(kAgsPlanMap, "5daysastranger");
+		const Graphics::HiResMap scaled = agsLoadMap("[map]\nversion=2\n[render]\nscale=2\n[font]\nface=/f/a.ttf\n", "x");
+		Graphics::HiResIniOverrides ini;
+		ini.enabled = false;
+		ini.faceSet = true;
+		ini.face = "/f/ini.ttf";
+		AGS3::HiResFontConfig c;
+		c.configure(&map, true, ini, Common::Path("/maps"), Common::Path("/game"));
+		TS_ASSERT(!c.active());
+		for (int n = 0; n < 4; n++)
+			TS_ASSERT_EQUALS(c.plan(n).kind, AGS3::HiResFontPlan::kGame);
+		c.configure(&scaled, true, ini, Common::Path("/maps"), Common::Path("/game"));
+		TS_ASSERT_EQUALS(c.requestedScale(), 1);
+	}
+
+	void test_range_key_is_warned_for_ags() {
+		const Graphics::HiResMap map = agsLoadMap(
+			"[map]\nversion=2\n[render]\ntarget=clut8\n[font]\nface=/f/a.ttf\nrange.basic-latin=/f/b.ttf\n", "x");
+		AGS3::HiResFontConfig c;
+		c.configure(&map, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
+		TS_ASSERT(agsHasWarning(c.warnings(), "AGS does not use [font] range.basic-latin"));
+		// AGS takes its screen from the game's colour depth
+		TS_ASSERT(agsHasWarning(c.warnings(), "AGS does not use [render] target"));
+		// the rest of the map still applies; the range does not
+		TS_ASSERT_EQUALS(agsFaces(c.plan(0)), "/f/a.ttf");
+	}
+
+	void test_relative_ini_face_resolves_against_the_game_folder() {
+		Graphics::HiResIniOverrides ini;
+		ini.faceSet = true;
+		ini.face = "fonts/KO.TTF";
+		AGS3::HiResFontConfig c;
+		c.configure(nullptr, false, ini, Common::Path(), Common::Path("/games/five"));
+		TS_ASSERT(c.active());
+		TS_ASSERT_EQUALS(agsFaces(c.plan(0)), "/games/five/fonts/KO.TTF");
+		TS_ASSERT_EQUALS(c.plan(0).source, "hires_text_face");
+		// A [fonts] name in the ini is the map's: its path is the map's.
+		const Graphics::HiResMap map = agsLoadMap("[map]\nversion=2\n[fonts]\nui=U.TTF\n", "x");
+		ini.face = "ui, fonts/KO.TTF";
+		c.configure(&map, true, ini, Common::Path("/maps"), Common::Path("/games/five"));
+		TS_ASSERT_EQUALS(agsFaces(c.plan(3)), "/maps/U.TTF,/games/five/fonts/KO.TTF");
+	}
+
+	void test_target_follows_the_game_colour_depth() {
+		TS_ASSERT_EQUALS(AGS3::HiResFontConfig::targetForColorDepth(8), Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(AGS3::HiResFontConfig::targetForColorDepth(16), Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(AGS3::HiResFontConfig::targetForColorDepth(32), Graphics::kHiResTargetRgb888);
+	}
+
+	void test_target_qualified_fonts_follow_the_colour_depth() {
+		const char *const text =
+			"[map]\nversion=2\n"
+			"[fonts]\nui=G.TTF\n"
+			"[fonts:clut8]\nui=L.TTF\n"
+			"[font]\nface=ui\n";
+		static const int kDepths[] = { 8, 16, 32 };
+		static const char *const kWant[] = { "/maps/L.TTF", "/maps/G.TTF", "/maps/G.TTF" };
+		for (uint i = 0; i < ARRAYSIZE(kDepths); i++) {
+			const Graphics::HiResMap map = agsLoadMap(text, "x", AGS3::HiResFontConfig::targetForColorDepth(kDepths[i]));
+			AGS3::HiResFontConfig c;
+			c.configure(&map, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
+			TSM_ASSERT_EQUALS(Common::String::format("%d-bit", kDepths[i]).c_str(), agsFaces(c.plan(0)), kWant[i]);
+		}
+	}
+
+	void test_refused_map_is_no_map() {
+		// An old map (no [map] version=2) is refused: nothing it names applies.
+		bool ok = true;
+		const Graphics::HiResMap old = agsLoadMap("[hires]\nface=/f/a.ttf\nscale=2\n", "x", Graphics::kHiResTargetAuto, &ok);
+		TS_ASSERT(!ok);
+		AGS3::HiResFontConfig c;
+		c.configure(&old, false, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
+		TS_ASSERT(!c.active());
+		TS_ASSERT_EQUALS(c.requestedScale(), 1);
+		TS_ASSERT(agsHasWarning(c.warnings(), "not a version 2 map"));
+	}
+
+	void test_layout_rules_from_the_map() {
+		AGS3::HiResFontConfig c;
+		c.configure(nullptr, false, Graphics::HiResIniOverrides(), Common::Path(), Common::Path("/game"));
+		const Graphics::BreakRules defaults = c.breakRules();
+		TS_ASSERT(defaults.kinsoku);
+		const Graphics::HiResMap map = agsLoadMap("[map]\nversion=2\n[layout]\nkinsoku=off\n", "x");
+		c.configure(&map, true, Graphics::HiResIniOverrides(), Common::Path("/maps"), Common::Path("/game"));
+		TS_ASSERT(!c.breakRules().kinsoku);
 	}
 };

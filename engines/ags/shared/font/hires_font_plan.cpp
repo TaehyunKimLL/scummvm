@@ -24,6 +24,7 @@
 // globals, so the unit tests link them (test/engines/ags/hires_font_plan.h).
 
 #include "ags/shared/font/hires_font_config.h"
+#include "graphics/hires_text/font_value.h"
 
 namespace AGS3 {
 
@@ -33,91 +34,122 @@ HiResFontConfig::HiResFontConfig() {
 
 void HiResFontConfig::clear() {
 	_loaded = false;
+	_loadedDepth = 0;
 	_active = false;
 	_mapLoaded = false;
 	_map.clear();
 	_mapDir.clear();
-	_iniChain.clear();
-	_iniSize = 0;
-	_iniScale = 0;
+	_gameDir.clear();
+	_ini = Graphics::HiResIniOverrides();
+	_iniFaceUsed = false;
+	_target = Graphics::kHiResTargetAuto;
+	_blendRefusalNoticed = false;
+	_scale = 1;
+	_scaleWarning.clear();
+	_warnings.clear();
 	_sample.clear();
 }
 
-void HiResFontConfig::configure(const Graphics::HiResTextConfig *map, const Common::Path &mapDir,
-								const Common::Array<Common::Path> &iniChain, int iniSize, int iniScale) {
+// The engine scope below [font] (design section 8): AGS supplies no range,
+// advance or origin rule of its own, and an empty id chain keeps the game's
+// font.
+static const Graphics::HiResFontScope &agsEngineScope() {
+	static const Graphics::HiResFontScope scope;
+	return scope;
+}
+
+static void addWarning(Common::Array<Common::String> &warnings, const Common::String &text) {
+	for (uint i = 0; i < warnings.size(); i++) {
+		if (warnings[i] == text)
+			return;
+	}
+	warnings.push_back(text);
+}
+
+void HiResFontConfig::configure(const Graphics::HiResMap *map, bool mapLoaded, const Graphics::HiResIniOverrides &ini,
+								const Common::Path &mapDir, const Common::Path &gameDir) {
 	clear();
 	_loaded = true;
-	_mapLoaded = map != nullptr;
-	if (map)
-		_map = *map;
+	_ini = ini;
 	_mapDir = mapDir;
-	_iniChain = iniChain;
-	_iniSize = iniSize;
-	_iniScale = iniScale;
-	updateActive();
+	_gameDir = gameDir;
+	if (map) {
+		for (uint i = 0; i < map->warnings.size(); i++)
+			addWarning(_warnings, map->warnings[i]);
+	}
+	// hires_text=false: no map, no faces, the game draws as without the layer
+	if (!ini.enabled)
+		return;
+	_mapLoaded = map && mapLoaded;
+	if (_mapLoaded)
+		_map = *map;
+
+	// Whether hires_text_face is the chain: it names at least one face.
+	// Its warnings come with the plans' below.
+	if (ini.faceSet && !ini.face.equalsIgnoreCase("same")) {
+		Graphics::HiResFontValue value;
+		Common::Array<Common::String> unused;
+		_iniFaceUsed = Graphics::parseFontValue(ini.face, _map.faces, _mapDir, _gameDir, value, unused);
+	}
+
+	// Font N's chain comes from the ini, [font.N] or [font]: the map's
+	// own ids and any other id (-1, which no [font.N] names) cover every
+	// chain a font can get.
+	Common::Array<int> ids;
+	ids.push_back(-1);
+	if (_mapLoaded) {
+		for (Common::HashMap<int, Graphics::HiResFontScope>::const_iterator it = _map.fontIds.begin();
+			 it != _map.fontIds.end(); ++it)
+			ids.push_back(it->_key);
+	}
+	for (uint i = 0; i < ids.size(); i++) {
+		Common::Array<Common::String> planWarnings;
+		const Graphics::HiResIdPlan p = compile(ids[i], planWarnings);
+		for (uint w = 0; w < planWarnings.size(); w++)
+			addWarning(_warnings, planWarnings[w]);
+		if (!p.original && !p.idChain.faces.empty())
+			_active = true;
+	}
+
+	// ini > map > 1, within the shared limits
+	const int wanted = ini.scaleSet ? ini.scale : ((_mapLoaded && _map.scaleSet) ? _map.scale : 1);
+	Common::String clampWarning;
+	_scale = Graphics::clampScale(wanted, 1, 3, Graphics::hiResScaleLimits(), 1, "AGS", clampWarning);
+	if (!clampWarning.empty())
+		_scaleWarning = clampWarning + Common::String::format("; using %d", _scale);
 }
 
-Common::Path HiResFontConfig::defaultFace() const {
-	// [fonts] default=: the face when no face is named (HIRES_TEXT_MAP.md)
-	if (!_mapLoaded)
-		return Common::Path();
-	Graphics::HiResTextConfig::FaceTable::const_iterator it = _map.fontFaces.find("default");
-	if (it == _map.fontFaces.end() || it->_value.empty())
-		return Common::Path();
-	return Graphics::HiResFontMap::resolvePath(it->_value, _mapDir);
-}
-
-void HiResFontConfig::updateActive() {
-	_active = !_iniChain.empty() ||
-		(_mapLoaded && (!_map.fontIds.empty() || (_map.hiresFaceSet && !_map.hiresFaceChain.empty()) ||
-						!defaultFace().empty()));
+Graphics::HiResIdPlan HiResFontConfig::compile(int fontNumber, Common::Array<Common::String> &warnings) const {
+	return Graphics::compileIdPlan(_map, _mapLoaded, fontNumber, _ini, agsEngineScope(), _mapDir, _gameDir, warnings);
 }
 
 HiResFontPlan HiResFontConfig::plan(int fontNumber) const {
 	HiResFontPlan p;
 	if (!_active)
 		return p;
-	const Graphics::HiResFontIdSettings *f = _mapLoaded ? _map.fontIdSettings(fontNumber) : nullptr;
-	if (f && f->bitmapSet && !f->bitmap.empty()) {
-		p.kind = HiResFontPlan::kBitmap;
-		p.bitmap = f->bitmap;
-		p.source = Common::String::format("[font.%d] bitmap", fontNumber);
-	} else if (f && f->faceSet && !f->faceChain.empty()) {
-		p.kind = HiResFontPlan::kFaces;
-		p.faces = f->faceChain;
-		p.source = Common::String::format("[font.%d] face", fontNumber);
-	} else if (!_iniChain.empty()) {
-		p.kind = HiResFontPlan::kFaces;
-		p.faces = _iniChain;
-		p.source = "hires_text_font";
-	} else if (_mapLoaded && _map.hiresFaceSet && !_map.hiresFaceChain.empty()) {
-		p.kind = HiResFontPlan::kFaces;
-		p.faces = _map.hiresFaceChain;
-		p.source = "[hires] face";
-	} else if (!defaultFace().empty()) {
-		p.kind = HiResFontPlan::kFaces;
-		p.faces.push_back(defaultFace());
-		p.source = "[fonts] default";
-	} else {
+	Common::Array<Common::String> unused;   // configure() kept them
+	const Graphics::HiResIdPlan id = compile(fontNumber, unused);
+	if (id.original)
 		return p;
-	}
+	for (uint i = 0; i < id.idChain.faces.size(); i++)
+		p.faces.push_back(id.idChain.faces[i].path);
+	if (p.faces.empty())
+		return p;
 
-	if (f && f->sizeSet)
-		p.size = f->size;
-	else if (_iniSize > 0)
-		p.size = _iniSize;
-	else if (_mapLoaded && _map.hiresSizeSet)
-		p.size = _map.hiresSize;
+	p.kind = HiResFontPlan::kFaces;
+	const Graphics::HiResFontScope *scope = _mapLoaded ? _map.fontIdScope(fontNumber) : nullptr;
+	if (_iniFaceUsed)
+		p.source = "hires_text_face";
+	else if (scope && scope->faceSet)
+		p.source = Common::String::format("[font.%d] face", fontNumber);
+	else
+		p.source = "[font] face";
+	p.size = id.sizeSet ? id.size : 0;
 	if (_mapLoaded)
 		p.gamma = _map.coverageGamma;
-	// A pixel font (C28) is held on its grid in the size above. It names
-	// the map's face: the ini's hires_text_font is never a pixel face.
-	if (p.source == "hires_text_font")
-		p.pixel = 0;
-	else if (f && f->pixelSet)
-		p.pixel = f->pixel;
-	else if (_mapLoaded && _map.hiresPixelSet)
-		p.pixel = _map.hiresPixel;
+	// A pixel font is held on its grid in the size above. It is the map's
+	// face: the ini's hires_text_face is never a pixel face.
+	p.pixel = _iniFaceUsed ? 0 : id.pixel;
 	return p;
 }
 
@@ -127,26 +159,18 @@ HiResFontPlan scaledPlan(const HiResFontPlan &plan, int scale, int smallPixelPpe
 	return p;
 }
 
-bool HiResFontConfig::alpha() const {
-	return (_mapLoaded && _map.alphaFromMap) ? _map.alpha : true;
+Graphics::HiResBlend HiResFontConfig::blend() const {
+	if (_ini.blendSet)
+		return _ini.blend;
+	return (_mapLoaded && _map.blendSet) ? _map.blend : Graphics::kHiResBlendAuto;
 }
 
-// The shared reader's range for [hires] scale= (graphics/hires_text/font_map.cpp)
-static const int kMaxScale = 3;
-
-int HiResFontConfig::requestedScale() const {
-	if (_iniScale >= 1 && _iniScale <= kMaxScale)
-		return _iniScale;
-	if (_mapLoaded && _map.scaleFromMap && _map.scale >= 1 && _map.scale <= kMaxScale)
-		return _map.scale;
-	return 1;
-}
-
-bool HiResFontConfig::parseScale(const Common::String &value, int &scale) {
-	if (value.size() != 1 || value[0] < '1' || value[0] > '0' + kMaxScale)
-		return false;
-	scale = value[0] - '0';
-	return true;
+Graphics::HiResRenderTarget HiResFontConfig::targetForColorDepth(int bits) {
+	if (bits <= 8)
+		return Graphics::kHiResTargetClut8;
+	if (bits <= 16)
+		return Graphics::kHiResTargetRgb565;
+	return Graphics::kHiResTargetRgb888;
 }
 
 int HiResFontConfig::gateScale(int requested, bool fontsNamed, int gameColorDepth, bool has32BitFormat,
@@ -154,7 +178,7 @@ int HiResFontConfig::gateScale(int requested, bool fontsNamed, int gameColorDept
 	if (requested <= 1)
 		return 1;
 	if (!fontsNamed)
-		why = Common::String::format("hires text scale %d needs a mapped font (hires_text.map or hires_text_font); using 1", requested);
+		why = Common::String::format("hires text scale %d needs a mapped font (HIRESTXT.MAP or hires_text_face); using 1", requested);
 	else if (gameColorDepth <= 8)
 		why = Common::String::format("hires text scale %d is not supported for 8-bit games; using 1", requested);
 	else if (!has32BitFormat)

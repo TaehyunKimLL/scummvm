@@ -23,11 +23,10 @@
 #include "common/fs.h"
 #include "common/stream.h"
 #include "graphics/managed_surface.h"
-#include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/coverage.h"
 #include "graphics/hires_text/font_face.h"
 #include "graphics/hires_text/glyph_source_fallback.h"
-#include "graphics/hires_text/glyph_source_svfn.h"
+#include "graphics/hires_text/glyph_source_file.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
 #include "ags/lib/allegro/gfx.h"
 #include "ags/lib/allegro/unicode.h"
@@ -62,29 +61,9 @@ void GlyphFontRenderer::FreeSources(FontData &fd) {
 
 bool GlyphFontRenderer::Build(FontData &fd, const Common::Array<uint32> &fitProbes, bool warn) {
 	const HiResFontPlan &plan = fd.Plan;
-	if (plan.kind == HiResFontPlan::kBitmap) {
-		Common::FSNode node(plan.bitmap);
-		Common::SeekableReadStream *stream = (node.exists() && !node.isDirectory()) ? node.createReadStream() : nullptr;
-		Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
-		const bool ok = stream && font->load(*stream);
-		delete stream;
-		if (!ok) {
-			if (warn)
-				Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: %s '%s' is not a readable SVFN font",
-							  plan.source.c_str(), plan.bitmap.toString().c_str());
-			delete font;
-			return false;
-		}
-		fd.Source = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
-		fd.Chain.push_back(fd.Source);
-		fd.Names.push_back(plan.bitmap.baseName().c_str());
-		fd.Size = fd.Source->cellHeight();
-		fd.Name = fd.Names[0];
-		return true;
-	}
-
 	Common::Array<Graphics::UnicodeGlyphSource *> sources;
 	fd.PixelPpem = 0;
+	fd.Bitmap = false;
 	for (uint i = 0; i < plan.faces.size(); i++) {
 		const Common::Path &path = plan.faces[i];
 		// "<file>.ttc#<N>" names face N of a collection (font_face.h).
@@ -101,6 +80,29 @@ bool GlyphFontRenderer::Build(FontData &fd, const Common::Array<uint32> &fitProb
 			else if (warn)
 				Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: cannot open font '%s' (%s)",
 							  path.toString().c_str(), plan.source.c_str());
+			continue;
+		}
+		// The file says what it is: the SVFN magic is a baked bitmap font,
+		// anything else is opened as TrueType.
+		byte head[4];
+		const uint32 got = stream->read(head, sizeof(head));
+		stream->seek(0);
+		if (Graphics::isSvfnFile(head, got)) {
+			Graphics::UnicodeGlyphSource *svf = Graphics::createSvfnSource(*stream, error);
+			delete stream;
+			if (!svf) {
+				if (warn)
+					Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: %s '%s' is not a readable SVFN font",
+								  plan.source.c_str(), path.toString().c_str());
+				continue;
+			}
+			// An SVFN font has one size. As the chain's first face it sets
+			// the cell, and the faces behind it are opened at that size.
+			if (sources.empty())
+				fd.Size = svf->cellHeight();
+			fd.Bitmap = true;
+			sources.push_back(svf);
+			fd.Names.push_back(path.baseName().c_str());
 			continue;
 		}
 		// A pixel font (pixel=, the chain's first face) is held on its grid
@@ -125,8 +127,9 @@ bool GlyphFontRenderer::Build(FontData &fd, const Common::Array<uint32> &fitProb
 	if (sources.empty())
 		return false;
 	fd.Chain = sources;
-	// Every face is opened at one size, so their cells agree and the
-	// fallback source reads any of them.
+	// The faces share one size, so their cells agree and the fallback
+	// source reads any of them (one whose cell differs is left out of it,
+	// with one warning).
 	fd.Source = (sources.size() == 1) ? sources[0]
 				: new Graphics::FallbackGlyphSource(sources, DisposeAfterUse::YES);
 	fd.Name = fd.Names[0];
@@ -140,8 +143,7 @@ bool GlyphFontRenderer::Attach(int fontNumber, const HiResFontPlan &plan, int ga
 	fd->Game = game;
 	fd->Params = params;
 	fd->Size = plan.size > 0 ? plan.size * MAX(1, params.SizeMultiplier) : gameHeight;
-	if (plan.kind == HiResFontPlan::kFaces &&
-		(fd->Size < Graphics::TtfGlyphSource::kMinPixelSize || fd->Size > Graphics::TtfGlyphSource::kMaxPixelSize)) {
+	if ((fd->Size < Graphics::TtfGlyphSource::kMinPixelSize || fd->Size > Graphics::TtfGlyphSource::kMaxPixelSize)) {
 		const int size = CLIP<int>(fd->Size, Graphics::TtfGlyphSource::kMinPixelSize, Graphics::TtfGlyphSource::kMaxPixelSize);
 		Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: font %d cannot be drawn at %dpx, using %dpx",
 					  fontNumber, fd->Size, size);
@@ -161,7 +163,7 @@ bool GlyphFontRenderer::Attach(int fontNumber, const HiResFontPlan &plan, int ga
 	Common::String names;
 	for (uint i = 0; i < fd->Names.size(); i++)
 		names += (i ? ", " : "") + Common::String(fd->Names[i].GetCStr());
-	Debug::Printf(kDbgMsg_Info, "hires text: font %d from %s: %s at %dpx (cell %dx%d), alpha %s",
+	Debug::Printf(kDbgMsg_Info, "hires text: font %d from %s: %s at %dpx (cell %dx%d), blend %s",
 				  fontNumber, plan.source.c_str(), names.c_str(), fd->Size,
 				  fd->Source->cellWidth(), fd->Source->cellHeight(), alpha ? "on" : "off");
 	return true;
@@ -175,8 +177,9 @@ void GlyphFontRenderer::SetTranslationSample(const Common::Array<uint32> &sample
 		// A TrueType chain is opened again with the translation's own
 		// characters in the vertical fit (Thai marks, Japanese brackets).
 		// A pixel face (the chain's first, pixel=) ignores the sample and
-		// opens as before; the faces behind it are fitted to it.
-		if (fd.Plan.kind == HiResFontPlan::kFaces) {
+		// opens as before; the faces behind it are fitted to it. A chain
+		// with an SVFN font has nothing to refit.
+		if (!fd.Bitmap) {
 			FontData fresh;
 			fresh.Plan = fd.Plan;
 			fresh.Size = fd.Size;
@@ -221,6 +224,17 @@ void GlyphFontRenderer::SetTranslationSample(const Common::Array<uint32> &sample
 			wanted = missing;
 		}
 	}
+}
+
+bool GlyphFontRenderer::HasCoverage(int fontNumber) {
+	auto it = _fontData.find(fontNumber);
+	if (it == _fontData.end())
+		return false;
+	for (uint i = 0; i < it->_value->Chain.size(); i++) {
+		if (it->_value->Chain[i]->bitsPerPixel() > 1)
+			return true;
+	}
+	return false;
 }
 
 bool GlyphFontRenderer::IsGameBitmapFont(int fontNumber) {
@@ -281,7 +295,7 @@ GlyphFontRenderer::ScaledChain *GlyphFontRenderer::GetScaled(FontData &fd, int f
 	sc->Small = &fd.Chain;
 	fd.Scaled[scale] = sc;
 	// An SVFN font has one size: it is upscaled (section 4.3)
-	if (fd.Plan.kind != HiResFontPlan::kFaces) {
+	if (fd.Bitmap) {
 		Debug::Printf(kDbgMsg_Warn, "WARNING: hires text: font %d (%s) has no %dx faces; it is upscaled",
 					  fontNumber, fd.Name.GetCStr(), scale);
 		return nullptr;
@@ -314,8 +328,8 @@ GlyphFontRenderer::ScaledChain *GlyphFontRenderer::GetScaled(FontData &fd, int f
 
 int GlyphFontRenderer::ScaledChain::rowShift(uint32 cp) {
 	// Every entry of both chains is a TtfGlyphSource: GetScaled() builds a
-	// ScaledChain only for a kFaces plan, whose Build() opens TrueType faces
-	// and nothing else, and only when both chains name the same faces.
+	// ScaledChain only for a chain without an SVFN font, and only when both
+	// chains name the same faces.
 	assert(Small && Chain.size() == Small->size());
 	// The face that draws cp, at both sizes: its N x baseline goes to N x
 	// its game-size baseline
