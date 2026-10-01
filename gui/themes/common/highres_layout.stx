@@ -778,6 +778,14 @@
 				/>
 			</layout>
 			<layout type = 'horizontal' padding = '0, 0, 0, 0' spacing = '10' align = 'center'>
+				<widget name = 'grHiResTargetPopupDesc'
+						type = 'OptionsLabel'
+				/>
+				<widget name = 'grHiResTargetPopup'
+						type = 'PopUp'
+				/>
+			</layout>
+			<layout type = 'horizontal' padding = '0, 0, 0, 0' spacing = '10' align = 'center'>
 				<widget name = 'grRotationModePopupDesc'
 						type = 'OptionsLabel'
 				/>

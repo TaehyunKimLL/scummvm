@@ -16,6 +16,7 @@ gui/filebrowser-dialog.cpp
 gui/fluidsynth-dialog.cpp
 gui/gui-manager.cpp
 gui/helpdialog.cpp
+gui/hirestextoptions.cpp
 gui/imagealbum-dialog.cpp
 gui/launcher.cpp
 gui/massadd.cpp

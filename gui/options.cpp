@@ -24,6 +24,7 @@
 #include "gui/themebrowser.h"
 #include "gui/message.h"
 #include "gui/gui-manager.h"
+#include "gui/hirestextoptions.h"
 #include "gui/options.h"
 #include "gui/widgets/popup.h"
 #include "gui/widgets/tab.h"
@@ -48,6 +49,7 @@
 #include "common/text-to-speech.h"
 
 #include "engines/achievements.h"
+#include "engines/engine.h"
 
 #include "audio/mididrv.h"
 #include "audio/musicplugin.h"
@@ -70,6 +72,7 @@
 #include "backends/networking/sdl_net/localwebserver.h"
 #endif
 
+#include "graphics/hires_text/hires_options.h"
 #include "graphics/paletteman.h"
 #include "graphics/pm5544.h"
 #include "graphics/renderer.h"
@@ -203,6 +206,9 @@ void OptionsDialog::init() {
 	_gfxPopUpDesc = nullptr;
 	_renderModePopUp = nullptr;
 	_renderModePopUpDesc = nullptr;
+	_hiResTargetAllowed = true;
+	_hiResTargetPopUp = nullptr;
+	_hiResTargetPopUpDesc = nullptr;
 	_rotationModePopUp = nullptr;
 	_rotationModePopUpDesc = nullptr;
 	_stretchPopUp = nullptr;
@@ -342,6 +348,9 @@ void OptionsDialog::build() {
 			}
 			_renderModePopUp->setSelectedTag(sel);
 		}
+
+		if (_hiResTargetPopUp)
+			loadHiResTargetPopUp();
 
 		if (g_system->hasFeature(OSystem::kFeatureRotationMode)) {
 			_rotationModePopUp->setSelected(0);
@@ -613,6 +622,7 @@ void OptionsDialog::open() {
 
 void OptionsDialog::apply() {
 	bool graphicsModeChanged = false;
+	bool hiResTargetChanged = false;
 
 	// Graphic options
 	if (_fullscreenCheckbox) {
@@ -675,6 +685,11 @@ void OptionsDialog::apply() {
 					ConfMan.set("render_mode", renderModeCode, _domain);
 					_renderModePopUpDesc->setFontColor(ThemeEngine::FontColor::kFontColorNormal);
 				}
+			}
+
+			if (_hiResTargetPopUp) {
+				if (GUI::writeRenderTarget(_domain, (Graphics::HiResRenderTarget)_hiResTargetPopUp->getSelectedTag()))
+					hiResTargetChanged = true;
 			}
 
 			if (g_system->hasFeature(OSystem::kFeatureRotationMode)) {
@@ -781,6 +796,10 @@ void OptionsDialog::apply() {
 			ConfMan.removeKey("scaler", _domain);
 			ConfMan.removeKey("scale_factor", _domain);
 			ConfMan.removeKey("render_mode", _domain);
+			if (_hiResTargetPopUp && ConfMan.hasKey("render_target", _domain)) {
+				ConfMan.removeKey("render_target", _domain);
+				hiResTargetChanged = true;
+			}
 			ConfMan.removeKey("rotation_mode", _domain);
 			ConfMan.removeKey("renderer", _domain);
 			ConfMan.removeKey("antialiasing", _domain);
@@ -1123,6 +1142,12 @@ void OptionsDialog::apply() {
 
 	// Save config file
 	ConfMan.flushToDisk();
+
+	// The screen format is chosen when the game starts.
+	if (hiResTargetChanged && g_engine) {
+		GUI::MessageDialog dialog(_("The hi-res text screen changes the next time the game starts."));
+		dialog.runModal();
+	}
 }
 
 void OptionsDialog::close() {
@@ -1262,6 +1287,24 @@ void OptionsDialog::handleOtherEvent(const Common::Event &event) {
 	}
 }
 
+void OptionsDialog::loadHiResTargetPopUp() {
+	Graphics::HiResRenderTarget stored = Graphics::kHiResTargetAuto;
+	const bool storedSet = GUI::readRenderTarget(_domain, stored);
+	const Common::Array<HiResTargetEntry> entries =
+		renderTargetEntries(Graphics::hiResTargetsOffered(g_system->getSupportedFormats()), storedSet, stored);
+
+	_hiResTargetPopUp->clearEntries();
+	if (entries.empty()) {
+		HiResTargetEntry autoEntry;
+		autoEntry.target = Graphics::kHiResTargetAuto;
+		autoEntry.available = true;
+		_hiResTargetPopUp->appendEntry(renderTargetLabel(autoEntry), Graphics::kHiResTargetAuto);
+	}
+	for (uint i = 0; i < entries.size(); ++i)
+		_hiResTargetPopUp->appendEntry(renderTargetLabel(entries[i]), entries[i].target);
+	_hiResTargetPopUp->setSelectedTag(storedSet ? stored : Graphics::kHiResTargetAuto);
+}
+
 void OptionsDialog::setGraphicSettingsState(bool enabled) {
 	_enableGraphicSettings = enabled;
 
@@ -1269,6 +1312,10 @@ void OptionsDialog::setGraphicSettingsState(bool enabled) {
 	_gfxPopUp->setEnabled(enabled);
 	_renderModePopUpDesc->setEnabled(enabled);
 	_renderModePopUp->setEnabled(enabled);
+	if (_hiResTargetPopUp) {
+		_hiResTargetPopUpDesc->setEnabled(enabled);
+		_hiResTargetPopUp->setEnabled(enabled);
+	}
 	if (_rotationModePopUp) {
 		_rotationModePopUpDesc->setEnabled(enabled);
 		_rotationModePopUp->setEnabled(enabled);
@@ -1633,6 +1680,21 @@ void OptionsDialog::addGraphicControls(GuiObject *boss, const Common::String &pr
 		Common::String renderGuiOption = Common::renderMode2GUIO(rm->id);
 		if ((_domain == Common::ConfigManager::kApplicationDomain) || (_domain != Common::ConfigManager::kApplicationDomain && renderingTypeDefined && _guioptions.contains(renderGuiOption)))
 			_renderModePopUp->appendEntry(_c(rm->description, context), rm->id);
+	}
+
+	// The "Hi-res text screen" popup: the render_target of games that draw
+	// hi-res replacement text. Entries are filled in by build().
+	if (_hiResTargetAllowed) {
+		Graphics::HiResRenderTarget stored = Graphics::kHiResTargetAuto;
+		const bool storedSet = GUI::readRenderTarget(_domain, stored);
+		if (!GUI::renderTargetEntries(Graphics::hiResTargetsOffered(g_system->getSupportedFormats()), storedSet, stored).empty()) {
+			const Common::U32String tooltip = _("The screen the game runs in when it draws hi-res text. 8-bit uses the map's paletted fonts; "
+												"16-bit and true colour blend the smooth ones. Takes effect the next time the game starts.");
+			_hiResTargetPopUpDesc = new StaticTextWidget(boss, prefix + "grHiResTargetPopupDesc", _("Hi-res text screen:"), tooltip);
+			if (ConfMan.isKeyTemporary("render_target"))
+				_hiResTargetPopUpDesc->setFontColor(ThemeEngine::FontColor::kFontColorOverride);
+			_hiResTargetPopUp = new PopUpWidget(boss, prefix + "grHiResTargetPopup", tooltip);
+		}
 	}
 
 	// The Stretch mode popup
@@ -2114,6 +2176,10 @@ void OptionsDialog::setupGraphicsTab() {
 
 	_renderModePopUpDesc->setVisible(true);
 	_renderModePopUp->setVisible(true);
+	if (_hiResTargetPopUp) {
+		_hiResTargetPopUpDesc->setVisible(true);
+		_hiResTargetPopUp->setVisible(true);
+	}
 
 	if (g_system->hasFeature(OSystem::kFeatureScalers)) {
 		_scalerPopUpDesc->setVisible(true);
