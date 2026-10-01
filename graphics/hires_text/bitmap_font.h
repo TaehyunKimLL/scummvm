@@ -120,8 +120,26 @@ public:
 	/// Bytes between the start of one row of a glyph and the next.
 	int glyphPitch() const { return _rowPitch; }
 
+	/**
+	 * Whether code points are looked up in the font's own table, in place
+	 * (version 2), rather than in a map built from it.
+	 */
+	bool searchesCodePointTable() const { return _cmapTable != nullptr; }
+
+	/// Whether that table had to be given a sorted order of its own.
+	bool codePointTableNeedsOrder() const { return !_cmapOrder.empty(); }
+
 private:
 	int legacyGlyphIndex(uint32 codepoint) const;
+	int searchCodePointTable(uint32 codepoint) const;
+
+	/// Orders entries of a code point table by code point, ties by position.
+	struct CmapEntryLess {
+		explicit CmapEntryLess(const byte *table);
+		bool operator()(uint16 a, uint16 b) const;
+		const byte *_table;
+	};
+	void clearLookupCache();
 
 	byte *_data;
 	uint32 _dataSize;
@@ -140,8 +158,22 @@ private:
 
 	Common::CodePage _codePage;
 
-	/// Code point to glyph index, for fonts that carry the table themselves.
-	Common::HashMap<uint32, int> _cmap;
+	/// A version 2 font's code point table inside _data, searched in place.
+	const byte *_cmapTable;
+	int _cmapEntries;
+	/// The table's entries in code point order (ties in file order), when
+	/// the file does not list them so; empty when it does.
+	Common::Array<uint16> _cmapOrder;
+
+	/// The last lookups in _cmapTable, by the low bits of the code point.
+	struct LookupHit {
+		uint32 codepoint;
+		int index;
+		bool valid;
+	};
+	enum { kLookupCacheSize = 32 };
+	mutable LookupHit _lookupCache[kLookupCacheSize];
+
 
 	/// The same, worked out from the code page of a font that does not.
 	/// Built on the first lookup, hence mutable.

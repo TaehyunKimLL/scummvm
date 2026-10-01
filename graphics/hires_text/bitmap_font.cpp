@@ -21,6 +21,7 @@
 
 #include "graphics/hires_text/bitmap_font.h"
 
+#include "common/algorithm.h"
 #include "common/endian.h"
 #include "common/stream.h"
 #include "common/textconsole.h"
@@ -57,6 +58,9 @@ static const int kMetricsEntrySize = 4;
 static const int kCmapEntrySize = 8;
 
 HiResBitmapFont::HiResBitmapFont() {
+	_cmapTable = nullptr;
+	_cmapEntries = 0;
+	clearLookupCache();
 	_data = nullptr;
 	_dataSize = 0;
 	_pixels = nullptr;
@@ -91,8 +95,24 @@ void HiResBitmapFont::free() {
 	_rowPitch = 0;
 	_glyphStride = 0;
 	_codePage = Common::kCodePageInvalid;
-	_cmap.clear();
+	_cmapTable = nullptr;
+	_cmapEntries = 0;
+	_cmapOrder.clear();
+	clearLookupCache();
 	_legacyMap.clear();
+}
+
+HiResBitmapFont::CmapEntryLess::CmapEntryLess(const byte *table) : _table(table) {}
+
+bool HiResBitmapFont::CmapEntryLess::operator()(uint16 a, uint16 b) const {
+	const uint32 ca = READ_LE_UINT32(_table + (uint32)a * kCmapEntrySize);
+	const uint32 cb = READ_LE_UINT32(_table + (uint32)b * kCmapEntrySize);
+	return ca < cb || (ca == cb && a < b);
+}
+
+void HiResBitmapFont::clearLookupCache() {
+	for (int i = 0; i < kLookupCacheSize; ++i)
+		_lookupCache[i].valid = false;
 }
 
 bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit) {
@@ -182,8 +202,12 @@ bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit)
 	}
 
 	// A version 2 font carries its own code point table, so it does not have
-	// to follow the order of any code page.
-	Common::HashMap<uint32, int> cmap;
+	// to follow the order of any code page. It is searched where it is, by
+	// binary search; a table not listed in code point order gets an order of
+	// two bytes an entry, instead of a hash map of its entries (some 30 bytes
+	// each on a 32-bit machine).
+	Common::Array<uint16> cmapOrder;
+	const byte *cmapTable = nullptr;
 	if (version >= 2) {
 		const uint32 cmapOff = READ_LE_UINT32(raw + kCmapOffField);
 		const uint32 cmapSize = (uint32)glyphs * kCmapEntrySize;
@@ -193,6 +217,7 @@ bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit)
 			return false;
 		}
 
+		bool sorted = true;
 		for (int i = 0; i < glyphs; ++i) {
 			const byte *entry = raw + cmapOff + (uint32)i * kCmapEntrySize;
 			const uint32 codepoint = READ_LE_UINT32(entry);
@@ -202,7 +227,16 @@ bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit)
 				delete[] raw;
 				return false;
 			}
-			cmap[codepoint] = (int)index;
+			if (i > 0 && codepoint <= READ_LE_UINT32(entry - kCmapEntrySize))
+				sorted = false;
+		}
+
+		cmapTable = raw + cmapOff;
+		if (!sorted) {
+			cmapOrder.resize(glyphs);
+			for (int i = 0; i < glyphs; ++i)
+				cmapOrder[i] = (uint16)i;
+			Common::sort(cmapOrder.begin(), cmapOrder.end(), CmapEntryLess(cmapTable));
 		}
 	}
 
@@ -218,7 +252,10 @@ bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit)
 	_glyphs = glyphs;
 	_rowPitch = rowPitch;
 	_glyphStride = (int)glyphStride;
-	_cmap = cmap;
+	_cmapTable = cmapTable;
+	_cmapEntries = cmapTable ? glyphs : 0;
+	_cmapOrder.swap(cmapOrder);
+	clearLookupCache();
 	_legacyMap.clear();
 
 	if (version >= 2) {
@@ -358,14 +395,47 @@ int HiResBitmapFont::legacyGlyphIndex(uint32 codepoint) const {
 	return (it != _legacyMap.end()) ? it->_value : -1;
 }
 
+int HiResBitmapFont::searchCodePointTable(uint32 codepoint) const {
+	// Text repeats its letters, so most lookups are answered here.
+	LookupHit &hit = _lookupCache[codepoint & (kLookupCacheSize - 1)];
+	if (hit.valid && hit.codepoint == codepoint)
+		return hit.index;
+
+	// The first entry at or above the code point, in code point order.
+	const bool ordered = !_cmapOrder.empty();
+	int lo = 0, hi = _cmapEntries;
+	while (lo < hi) {
+		const int mid = lo + (hi - lo) / 2;
+		const uint32 at = ordered ? _cmapOrder[mid] : (uint32)mid;
+		if (READ_LE_UINT32(_cmapTable + at * kCmapEntrySize) < codepoint)
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+
+	// A code point listed more than once maps to its last entry in the file
+	// (ties keep file order), as the map built from the table used to.
+	int index = -1;
+	for (int k = lo; k < _cmapEntries; ++k) {
+		const uint32 at = ordered ? _cmapOrder[k] : (uint32)k;
+		const byte *entry = _cmapTable + at * kCmapEntrySize;
+		if (READ_LE_UINT32(entry) != codepoint)
+			break;
+		index = (int)READ_LE_UINT32(entry + 4);
+	}
+
+	hit.codepoint = codepoint;
+	hit.index = index;
+	hit.valid = true;
+	return index;
+}
+
 int HiResBitmapFont::glyphIndex(uint32 codepoint) const {
 	if (!isLoaded())
 		return -1;
 
-	if (!_cmap.empty()) {
-		Common::HashMap<uint32, int>::const_iterator it = _cmap.find(codepoint);
-		return (it != _cmap.end()) ? it->_value : -1;
-	}
+	if (_cmapTable)
+		return searchCodePointTable(codepoint);
 
 	const int index = legacyGlyphIndex(codepoint);
 	return (index >= 0 && index < _glyphs) ? index : -1;

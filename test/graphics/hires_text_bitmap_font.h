@@ -430,6 +430,120 @@ public:
 		TS_ASSERT_EQUALS(font.glyphIndex(0xD7A3), -1);
 	}
 
+	/// A version 2 font whose table maps points[i] to glyph indices[i].
+	static Common::Array<byte> makeV2Font(const Common::Array<uint32> &points, const Common::Array<uint32> &indices, int glyphs) {
+		const int cellW = 8, cellH = 8;
+		const uint32 cmapOff = 36;
+		const uint32 dataOff = cmapOff + points.size() * 8;
+		const uint32 dataSize = cellW * cellH * glyphs;
+		Common::Array<byte> b;
+		b.resize(dataOff + dataSize);
+		for (uint i = 0; i < b.size(); ++i)
+			b[i] = 0;
+		b[0] = 'S'; b[1] = 'V'; b[2] = 'F'; b[3] = 'N';
+		put16(b, 4, 2);
+		b[8] = 8;
+		put16(b, 12, glyphs);
+		b[14] = cellW;
+		b[15] = cellH;
+		b[16] = 6;
+		put32(b, 32, cmapOff);
+		put32(b, 24, dataOff);
+		put32(b, 28, dataSize);
+		for (uint i = 0; i < points.size(); ++i) {
+			put32(b, cmapOff + i * 8, points[i]);
+			put32(b, cmapOff + i * 8 + 4, indices[i]);
+		}
+		return b;
+	}
+
+	void test_sorted_code_point_table_is_searched_in_place() {
+		// The baker writes the table sorted; the font then looks code points
+		// up in the file's own table instead of building a hash map.
+		Common::Array<uint32> points, indices;
+		const int glyphs = 700;
+		for (int i = 0; i < glyphs; ++i) {
+			points.push_back(0x20 + i * 37);
+			indices.push_back((i * 7) % glyphs);
+		}
+		Common::Array<byte> b = makeV2Font(points, indices, glyphs);
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, b));
+		TS_ASSERT(font.searchesCodePointTable());
+		TS_ASSERT(!font.codePointTableNeedsOrder());
+
+		for (int pass = 0; pass < 2; ++pass) {	// the second pass comes from the cache
+			for (int i = 0; i < glyphs; ++i) {
+				TS_ASSERT_EQUALS(font.glyphIndex(points[i]), (int)indices[i]);
+				TS_ASSERT_EQUALS(font.glyphIndex(points[i] + 1), -1);
+			}
+		}
+		TS_ASSERT_EQUALS(font.glyphIndex(0), -1);
+		TS_ASSERT_EQUALS(font.glyphIndex(0x1F), -1);
+		TS_ASSERT_EQUALS(font.glyphIndex(0x10FFFF), -1);
+		TS_ASSERT_EQUALS(font.glyphIndex(0xFFFFFFFF), -1);
+	}
+
+	void test_unsorted_or_repeated_code_points_keep_the_last_entry() {
+		// A table that is not strictly ascending is searched through an order
+		// of its own: a code point listed twice maps to its last entry, as
+		// it always did.
+		Common::Array<uint32> points, indices;
+		points.push_back(0x41); indices.push_back(0);
+		points.push_back(0x42); indices.push_back(1);
+		points.push_back(0x42); indices.push_back(2);
+		points.push_back(0x43); indices.push_back(3);
+		Common::Array<byte> b = makeV2Font(points, indices, 4);
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, b));
+		TS_ASSERT(font.searchesCodePointTable());
+		TS_ASSERT(font.codePointTableNeedsOrder());
+		TS_ASSERT_EQUALS(font.glyphIndex(0x41), 0);
+		TS_ASSERT_EQUALS(font.glyphIndex(0x42), 2);
+		TS_ASSERT_EQUALS(font.glyphIndex(0x43), 3);
+		TS_ASSERT_EQUALS(font.glyphIndex(0x44), -1);
+	}
+
+	void test_a_table_out_of_order_finds_every_code_point() {
+		// The shipped fonts list glyphs in glyph order, not by code point.
+		Common::Array<uint32> points, indices;
+		const int glyphs = 500;
+		for (int i = 0; i < glyphs; ++i) {
+			points.push_back(0xAC00 + ((i * 263) % 997) * 3);	// distinct, scattered
+			indices.push_back(i);
+		}
+		points.push_back(0xAC00 + ((7 * 263) % 997) * 3);	// one listed twice: the later one wins
+		indices.push_back(3);
+		Common::Array<byte> b = makeV2Font(points, indices, glyphs + 1);
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, b));
+		TS_ASSERT(font.codePointTableNeedsOrder());
+		for (int i = 0; i < glyphs; ++i)
+			TS_ASSERT_EQUALS(font.glyphIndex(points[i]), i == 7 ? 3 : i);
+		TS_ASSERT_EQUALS(font.glyphIndex(0xAC01), -1);
+		TS_ASSERT_EQUALS(font.glyphIndex(0x41), -1);
+	}
+
+	void test_lookups_follow_a_reloaded_font() {
+		// Nothing of the first font's lookups may answer for the second.
+		Common::Array<uint32> p1, i1, p2, i2;
+		p1.push_back(0x41); i1.push_back(1);
+		p1.push_back(0xAC00); i1.push_back(0);
+		p2.push_back(0x42); i2.push_back(0);
+		p2.push_back(0xAC00); i2.push_back(1);
+		Common::Array<byte> a = makeV2Font(p1, i1, 2), b = makeV2Font(p2, i2, 2);
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, a));
+		TS_ASSERT_EQUALS(font.glyphIndex(0x41), 1);
+		TS_ASSERT_EQUALS(font.glyphIndex(0xAC00), 0);
+		TS_ASSERT(loadFont(font, b));
+		TS_ASSERT_EQUALS(font.glyphIndex(0x41), -1);
+		TS_ASSERT_EQUALS(font.glyphIndex(0xAC00), 1);
+		TS_ASSERT_EQUALS(font.glyphIndex(0x42), 0);
+		font.free();
+		TS_ASSERT_EQUALS(font.glyphIndex(0x42), -1);
+	}
+
 	void test_free_resets_the_font() {
 		Common::Array<byte> bytes = makeFont(8, 949, 16, 24, 24, 17, false);
 		Graphics::HiResBitmapFont font;
