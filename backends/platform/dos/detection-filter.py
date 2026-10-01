@@ -94,17 +94,47 @@ def strings(body):
     return [s[1:-1] for s in STRING.findall(body)]
 
 
+def ids(text, array_re, idx):
+    """Entry count per game ID (the idx-th string) of an array."""
+    count = {}
+    for s, e, body in entries(text, array_re):
+        st = strings(body)
+        if len(st) > idx:
+            count[st[idx]] = count.get(st[idx], 0) + 1
+    return count
+
+
+def verify(name, original, filtered, array_re, idx, kept):
+    """Fails unless every game ID the filter keeps (kept(id)) has as many
+    entries in the filtered array as in the original, and no other ID is
+    left."""
+    before = ids(original, array_re, idx)
+    after = ids(filtered, array_re, idx)
+    bad = []
+    for gid, n in before.items():
+        want = n if kept(gid) else 0
+        if after.get(gid, 0) != want:
+            bad.append("%s: %d entries, expected %d" % (gid, after.get(gid, 0), want))
+    bad += ["%s: not in the original" % g for g in after if g not in before]
+    if bad:
+        raise SystemExit("detection-filter: %s: self-check failed:\n  %s" % (name, "\n  ".join(bad)))
+    dropped = sorted(g for g in before if not kept(g))
+    sys.stderr.write("detection-filter: %s: dropped IDs: %s\n" % (name, " ".join(dropped) or "(none)"))
+
+
 def sci(tables, internal):
     src = re.sub(r"//[^\n]*", "", open(internal).read())
     sci32 = set(re.findall(r'\{\s*"([^"]+)",\s*"[^"]*",\s*GID_\w+,\s*true,', src))
     if not sci32:
         raise SystemExit("detection-filter: no SCI32 game IDs found in " + internal)
-    text = open(tables).read()
+    original = open(tables).read()
+    arr = r"SciGameDescriptions\[\]\s*=\s*\{"
 
     def keep(body):
         s = strings(body)
         return not s or s[0] not in sci32 or "AD_TABLE_END_MARKER" in body
-    text, n = drop(text, r"SciGameDescriptions\[\]\s*=\s*\{", keep)
+    text, n = drop(original, arr, keep)
+    verify("SciGameDescriptions", original, text, arr, 0, lambda g: g not in sci32)
     return text, n
 
 
@@ -115,23 +145,31 @@ def scumm(target, variants_file):
     for s, e, body in entries(vt, r"gameVariantsTable\[\]\s*=\s*\{"):
         m = re.match(r'\{\s*"([^"]+)"\s*,\s*(?:"[^"]*"|0)\s*,\s*(?:"[^"]*"|0)\s*,\s*GID_\w+\s*,\s*(\d+)\s*,\s*(\d+)', body)
         if not m:
-            continue
+            st = strings(body)
+            if st and st[0]:
+                # Fail closed: an unread row would drop its game everywhere.
+                raise SystemExit("detection-filter: cannot read this gameVariantsTable row:\n  " + body)
+            continue    # the generic HE rows (empty ID) and the terminator
         gid, ver, he = m.group(1), int(m.group(2)), int(m.group(3))
         (new if ver >= 7 or he else old).add(gid)
     if not old or not new - old:
         raise SystemExit("detection-filter: no v0-v6 or no v7+/HE game IDs in " + variants_file)
     # Kept: the IDs with a v0-v6 variant. (md5table also names IDs that no
     # variant has; those could not run in any build.)
-    text = open(target).read()
+    original = open(target).read()
+    text = original
     total = 0
-    if re.search(r"md5table\[\]\s*=\s*\{", text):
-        text, n = drop(text, r"md5table\[\]\s*=\s*\{",
-                       lambda b: len(strings(b)) < 2 or strings(b)[1] in old)
-        total += n
-    for arr in (r"gameVariantsTable\[\]\s*=\s*\{", r"gameFilenamesTable\[\]\s*=\s*\{"):
+    arrays = [(r"md5table\[\]\s*=\s*\{", 1), (r"gameVariantsTable\[\]\s*=\s*\{", 0),
+              (r"gameFilenamesTable\[\]\s*=\s*\{", 0)]
+    found = 0
+    for arr, idx in arrays:
         if re.search(arr, text):
-            text, n = drop(text, arr, lambda b: not strings(b) or strings(b)[0] in old)
+            found += 1
+            text, n = drop(text, arr, lambda b, idx=idx: len(strings(b)) <= idx or strings(b)[idx] in old)
             total += n
+            verify(arr.split("\\")[0], original, text, arr, idx, lambda g: g in old)
+    if not found:
+        raise SystemExit("detection-filter: no table to filter in " + target)
     return text, total
 
 
