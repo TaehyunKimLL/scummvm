@@ -444,44 +444,44 @@ void InfoDialog::reflowLayout() {
 	_text->setSize(_w, _h);
 }
 
-const char *InfoDialog::getPlainEngineString(int stringno, bool forceHardcodedString) {
+const char *InfoDialog::getPlainEngineString(ScummEngine *vm, int stringno, bool forceHardcodedString) {
 	const char *result = nullptr;
 
 	if (stringno == 0)
 		return nullptr;
 
-	if (_vm->_game.version == 8) {
+	if (vm->_game.version == 8) {
 		assert(stringno - 1 < ARRAYSIZE(string_map_table_v8));
 		return string_map_table_v8[stringno - 1].string;
-	} else if (_vm->_game.version == 7) {
+	} else if (vm->_game.version == 7) {
 		assert(stringno - 1 < ARRAYSIZE(string_map_table_v7));
-		result = (const char *)_vm->getStringAddressVar(string_map_table_v7[stringno - 1].num);
+		result = (const char *)vm->getStringAddressVar(string_map_table_v7[stringno - 1].num);
 
 		if (!result) {
 			result = string_map_table_v7[stringno - 1].string;
 		}
-	} else if (_vm->_game.version == 6) {
+	} else if (vm->_game.version == 6) {
 		assert(stringno - 1 < ARRAYSIZE(string_map_table_v6));
-		result = (const char *)_vm->getStringAddressVar(string_map_table_v6[stringno - 1].num);
+		result = (const char *)vm->getStringAddressVar(string_map_table_v6[stringno - 1].num);
 
 		if (!result) {
-			if (stringno >= 22 && stringno <= 27 && _vm->_game.id == GID_TENTACLE && _vm->enhancementEnabled(kEnhTextLocFixes) && strcmp(_vm->_game.variant, "Floppy")) {
-				result = getStaticResString(_vm->_language, stringno - 1).string;
+			if (stringno >= 22 && stringno <= 27 && vm->_game.id == GID_TENTACLE && vm->enhancementEnabled(kEnhTextLocFixes) && strcmp(vm->_game.variant, "Floppy")) {
+				result = getStaticResString(vm, vm->_language, stringno - 1).string;
 			} else {
 				result = string_map_table_v6[stringno - 1].string;
 			}
 		}
-	} else if (_vm->_game.version >= 3) {
-		if (_vm->_game.platform == Common::kPlatformSegaCD)
-			result = (const char *)_vm->getStringAddress(stringno);
+	} else if (vm->_game.version >= 3) {
+		if (vm->_game.platform == Common::kPlatformSegaCD)
+			result = (const char *)vm->getStringAddress(stringno);
 		else if (!forceHardcodedString)
-			result = (const char *)_vm->getStringAddress(getStaticResString(_vm->_language, stringno - 1).num);
+			result = (const char *)vm->getStringAddress(getStaticResString(vm, vm->_language, stringno - 1).num);
 
 		if (!result) {
-			result = getStaticResString(_vm->_language, stringno - 1).string;
+			result = getStaticResString(vm, vm->_language, stringno - 1).string;
 		}
 	} else {
-		result = getStaticResString(_vm->_language, stringno - 1).string;
+		result = getStaticResString(vm, vm->_language, stringno - 1).string;
 	}
 
 	return result;
@@ -553,9 +553,9 @@ const Common::U32String InfoDialog::queryResString(int stringno) {
 	else if (_vm->_game.version == 6)
 		result = _vm->getStringAddressVar(string_map_table_v6[stringno - 1].num);
 	else if (_vm->_game.version >= 3)
-		result = _vm->getStringAddress(getStaticResString(_vm->_language, stringno - 1).num);
+		result = _vm->getStringAddress(getStaticResString(_vm, _vm->_language, stringno - 1).num);
 	else
-		result = (const byte *)getStaticResString(_vm->_language, stringno - 1).string;
+		result = (const byte *)getStaticResString(_vm, _vm->_language, stringno - 1).string;
 
 	if (result && *result == '/') {
 		_vm->translateText(result, buf, sizeof(buf));
@@ -563,7 +563,7 @@ const Common::U32String InfoDialog::queryResString(int stringno) {
 	}
 
 	if (!result || *result == '\0') // Gracelessly degrade to english :)
-		result = (const byte *)getStaticResString(_vm->_language, stringno - 1).string;
+		result = (const byte *)getStaticResString(_vm, _vm->_language, stringno - 1).string;
 
 	if (_vm->reverseIfNeeded(result, reverseBuf, sizeof(reverseBuf)))
 		result = reverseBuf;
@@ -586,7 +586,7 @@ const Common::U32String InfoDialog::queryResString(int stringno) {
 	return U32String(tmp, _vm->getDialogCodePage());
 }
 
-const ResString &InfoDialog::getStaticResString(Common::Language lang, int stringno) {
+const ResString &InfoDialog::getStaticResString(ScummEngine *vm, Common::Language lang, int stringno) {
 	// The string parts are only needed for v1/2. So we need to provide only the
 	// language varieties that exist for these. I have added the languages I found
 	// in scumm-md5.h. I guess we could actually ditch the first 3 lines...
@@ -782,8 +782,8 @@ const ResString &InfoDialog::getStaticResString(Common::Language lang, int strin
 		}
 	};
 
-	bool useHardcodedV3QuitPrompt = stringno == 5 && _vm->_game.version == 3 && _vm->_game.id != GID_LOOM;
-	bool useFixedDottMenuStrings = stringno >= 21 && stringno <= 26 && _vm->_game.id == GID_TENTACLE;
+	bool useHardcodedV3QuitPrompt = stringno == 5 && vm->_game.version == 3 && vm->_game.id != GID_LOOM;
+	bool useFixedDottMenuStrings = stringno >= 21 && stringno <= 26 && vm->_game.id == GID_TENTACLE;
 
 	// I have added the languages I found in scumm-md5.h for v1/2 games...
 	int langIndex = 0;
@@ -840,7 +840,7 @@ const ResString &InfoDialog::getStaticResString(Common::Language lang, int strin
 	// If it can be verified that other languages have different strings for this game
 	// we can refactor strMap1 to contain both a MM string and a ZAK string; but with
 	// currently only one language doing this, it seems overkill...
-	if (_vm->_game.version == 2 && _vm->_game.id == GID_ZAK && langIndex == 3) {
+	if (vm->_game.version == 2 && vm->_game.id == GID_ZAK && langIndex == 3) {
 		if (stringno == 3) {
 			static const ResString altStr = {4, "PAUSE - Premere SPACE per continuare."};
 			return altStr;

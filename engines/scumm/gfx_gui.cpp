@@ -1130,7 +1130,6 @@ void ScummEngine_v7::queryQuit(bool returnToLauncher) {
 }
 
 const char *ScummEngine_v8::getGUIString(int stringId) {
-	InfoDialog d(this, 0);
 	int resStringId = -1;
 
 	switch (stringId) {
@@ -1184,13 +1183,12 @@ const char *ScummEngine_v8::getGUIString(int stringId) {
 	}
 
 	if (resStringId > 0)
-		return d.getPlainEngineString(resStringId);
+		return InfoDialog::getPlainEngineString(this, resStringId);
 	else
 		return _emptyMsg;
 }
 
 const char *ScummEngine_v7::getGUIString(int stringId) {
-	InfoDialog d(this, 0);
 	int resStringId = -1;
 
 	switch (stringId) {
@@ -1321,7 +1319,7 @@ const char *ScummEngine_v7::getGUIString(int stringId) {
 		break;
 	}
 
-	const char *res =  (resStringId > 0) ? d.getPlainEngineString(resStringId) : _emptyMsg;
+	const char *res =  (resStringId > 0) ? InfoDialog::getPlainEngineString(this, resStringId) : _emptyMsg;
 
 	if (_game.id == GID_DIG && resStringId > 0) {
 		convertMessageToString((const byte*)res, _guiStringTransBuff, 512);
@@ -4814,7 +4812,6 @@ void ScummEngine::getSliderString(int stringId, int value, char *sliderString, i
 }
 
 const char *ScummEngine_v6::getGUIString(int stringId) {
-	InfoDialog d(this, 0);
 	int resStringId = -1;
 
 	switch (stringId) {
@@ -4932,13 +4929,12 @@ const char *ScummEngine_v6::getGUIString(int stringId) {
 	}
 
 	if (resStringId > 0)
-		return d.getPlainEngineString(resStringId);
+		return InfoDialog::getPlainEngineString(this, resStringId);
 	else
 		return _emptyMsg;
 }
 
 const char *ScummEngine::getGUIString(int stringId) {
-	InfoDialog d(this, 0);
 	int resStringId = -1;
 	bool isSegaCD = _game.platform == Common::kPlatformSegaCD;
 	switch (stringId) {
@@ -5110,7 +5106,7 @@ const char *ScummEngine::getGUIString(int stringId) {
 	}
 
 	if (resStringId > 0)
-		return d.getPlainEngineString(resStringId, (_game.id == GID_INDY3) && stringId == gsQuitPrompt);
+		return InfoDialog::getPlainEngineString(this, resStringId, (_game.id == GID_INDY3) && stringId == gsQuitPrompt);
 	else
 		return _emptyMsg;
 }
