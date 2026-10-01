@@ -108,6 +108,30 @@ public:
 		TS_ASSERT_EQUALS(idx[1], 4);
 		TS_ASSERT_EQUALS(idx[2], 7);
 	}
+	// A pixel without an outline composes and stamps as a TextPixel whose
+	// outline coverage is 0.
+	void test_fg_only_pixels_compose_as_text_pixels_without_outline() {
+		byte pal[768];
+		for (int i = 0; i < 768; i++)
+			pal[i] = (byte)(i * 7);
+		const Graphics::PixelFormat formats[2] = { argb(), rgb565() };
+		for (int f = 0; f < 2; f++) {
+			for (int cov = 0; cov < 256; cov += 17) {
+				const Graphics::TextPixel full = { (byte)(cov / 3), (byte)cov, 0, 0 };
+				const Graphics::TextPixelFg fg = { (byte)(cov / 3), (byte)cov };
+				uint32 a = formats[f].RGBToColor(90, 30, 200), b = a;
+				byte *pa = (byte *)&a, *pb = (byte *)&b;
+				Graphics::TextCompose::composeSpan(pa, formats[f], &full, 1, pal);
+				Graphics::TextCompose::composeSpan(pb, formats[f], &fg, 1, pal);
+				TS_ASSERT_EQUALS(a, b);
+				byte ia = 7, ib = 7;
+				Graphics::TextCompose::stampSpan(&ia, &full, 1);
+				Graphics::TextCompose::stampSpan(&ib, &fg, 1);
+				TS_ASSERT_EQUALS(ia, ib);
+			}
+		}
+	}
+
 	void test_coverage_to_argb() {
 		// Grim's TTF lines: RGB is the text colour, alpha is the coverage.
 		const byte cov[3] = { 0, 128, 255 };
