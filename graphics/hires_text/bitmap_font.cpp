@@ -34,6 +34,8 @@ namespace Graphics {
 // - so a magic is what lets the two be told apart by looking.
 static const uint32 kMagic = MKTAG('S', 'V', 'F', 'N');
 
+uint32 HiResBitmapFont::_streamThreshold = HIRES_SVF_STREAM_MIN;
+
 static const int kHeaderSize = 32;
 
 // Version 1 orders its glyphs by a code page named in the header. Version 2
@@ -62,7 +64,13 @@ HiResBitmapFont::HiResBitmapFont() {
 	_cmapEntries = 0;
 	clearLookupCache();
 	_data = nullptr;
-	_dataSize = 0;
+	_loaded = false;
+	_stream = nullptr;
+	_disposeStream = DisposeAfterUse::NO;
+	_dataOff = 0;
+	_tablesSize = 0;
+	_glyphsPerBlock = 1;
+	_readClock = _readCount = _readBytes = 0;
 	_pixels = nullptr;
 	_metrics = nullptr;
 	_bpp = 0;
@@ -83,7 +91,21 @@ HiResBitmapFont::~HiResBitmapFont() {
 void HiResBitmapFont::free() {
 	delete[] _data;
 	_data = nullptr;
-	_dataSize = 0;
+	_loaded = false;
+	if (_disposeStream == DisposeAfterUse::YES)
+		delete _stream;
+	_stream = nullptr;
+	_disposeStream = DisposeAfterUse::NO;
+	_dataOff = 0;
+	_tablesSize = 0;
+	for (int b = 0; b < kReadBlocks; ++b) {
+		_blocks[b].data.clear();
+		_blocks[b].first = -1;
+		_blocks[b].count = 0;
+	}
+	_failedBlocks.clear();
+	_glyphsPerBlock = 1;
+	_readClock = _readCount = _readBytes = 0;
 	_pixels = nullptr;
 	_metrics = nullptr;
 	_bpp = 0;
@@ -129,44 +151,124 @@ bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit)
 		return false;
 	}
 
+	Layout layout;
+	if (!readLayout(raw, size, size, layout)) {
+		delete[] raw;
+		return false;
+	}
+
+	const byte *metrics = layout.metricsOk ? raw + layout.metricsOff : nullptr;
+	const byte *cmapTable = layout.version >= 2 ? raw + layout.cmapOff : nullptr;
+	Common::Array<uint16> cmapOrder;
+	if (cmapTable && !checkCodePointTable(cmapTable, layout.glyphs, cmapOrder)) {
+		delete[] raw;
+		return false;
+	}
+
+	_data = raw;
+	_pixels = raw + layout.dataOff;
+	adopt(layout, metrics, cmapTable, cmapOrder);
+	return true;
+}
+
+bool HiResBitmapFont::loadStreamed(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+								   uint32 sizeLimit) {
+	free();
+	if (!stream)
+		return false;
+
+	const int64 size64 = stream->size();
+	byte head[kHeaderSizeV2];
+	const uint32 headSize = (size64 >= kHeaderSizeV2) ? kHeaderSizeV2 : kHeaderSize;
+	if (size64 < kHeaderSize || (uint64)size64 > sizeLimit || !stream->seek(0) ||
+		stream->read(head, headSize) != headSize) {
+		if (dispose == DisposeAfterUse::YES)
+			delete stream;
+		return false;
+	}
+
+	Layout layout;
+	if (!readLayout(head, headSize, (uint32)size64, layout)) {
+		if (dispose == DisposeAfterUse::YES)
+			delete stream;
+		return false;
+	}
+
+	if (layout.dataSize <= _streamThreshold) {
+		// Small: whole, and the file closed.
+		const bool ok = stream->seek(0) && load(*stream, sizeLimit);
+		if (dispose == DisposeAfterUse::YES)
+			delete stream;
+		return ok;
+	}
+
+	// Only the tables are kept: the metrics (4 bytes a glyph) and the code
+	// point table (8), one block. The glyphs stay in the file.
+	const uint32 metricsSize = layout.metricsOk ? (uint32)layout.glyphs * kMetricsEntrySize : 0;
+	const uint32 cmapSize = layout.version >= 2 ? (uint32)layout.glyphs * kCmapEntrySize : 0;
+	byte *tables = (metricsSize + cmapSize) ? new byte[metricsSize + cmapSize] : nullptr;
+	bool ok = true;
+	if (metricsSize)
+		ok = stream->seek(layout.metricsOff) && stream->read(tables, metricsSize) == metricsSize;
+	if (ok && cmapSize)
+		ok = stream->seek(layout.cmapOff) && stream->read(tables + metricsSize, cmapSize) == cmapSize;
+
+	Common::Array<uint16> cmapOrder;
+	const byte *cmapTable = cmapSize ? tables + metricsSize : nullptr;
+	if (ok && cmapTable)
+		ok = checkCodePointTable(cmapTable, layout.glyphs, cmapOrder);
+	if (!ok) {
+		delete[] tables;
+		if (dispose == DisposeAfterUse::YES)
+			delete stream;
+		return false;
+	}
+
+	_data = tables;
+	_stream = stream;
+	_disposeStream = dispose;
+	_dataOff = layout.dataOff;
+	_tablesSize = metricsSize + cmapSize;
+	_glyphsPerBlock = MAX<int>(1, (int)(HIRES_SVF_READ_BLOCK / layout.glyphStride));
+	adopt(layout, metricsSize ? tables : nullptr, cmapTable, cmapOrder);
+	return true;
+}
+
+bool HiResBitmapFont::readLayout(const byte *raw, uint32 have, uint32 size, Layout &out) {
+	if (have < (uint32)kHeaderSize)
+		return false;
+
 	if (READ_BE_UINT32(raw) != kMagic) {
 		// Not this format. The caller can still try to read it as one of the
 		// engine's own fonts, so this is not worth a warning.
-		delete[] raw;
 		return false;
 	}
 
 	const uint16 version = READ_LE_UINT16(raw + 4);
 	if (version < 1 || version > kMaxVersion) {
 		warning("HiResText: font version %d is not supported by this build", version);
-		delete[] raw;
 		return false;
 	}
-	if (version >= 2 && size < (uint32)kHeaderSizeV2) {
+	if (version >= 2 && (size < (uint32)kHeaderSizeV2 || have < (uint32)kHeaderSizeV2)) {
 		warning("HiResText: version 2 font is too short for its header");
-		delete[] raw;
 		return false;
 	}
 
 	const uint16 flags = READ_LE_UINT16(raw + 6);
 	const int bpp = raw[8];
-	const uint16 codePage = READ_LE_UINT16(raw + 10);
 	const int glyphs = READ_LE_UINT16(raw + 12);
 	const int cellW = raw[14];
 	const int cellH = raw[15];
-	const int ascent = raw[16];
 	const uint32 metricsOff = READ_LE_UINT32(raw + 20);
 	const uint32 dataOff = READ_LE_UINT32(raw + 24);
 	const uint32 dataSize = READ_LE_UINT32(raw + 28);
 
 	if (bpp != 1 && bpp != 2 && bpp != 8) {
 		warning("HiResText: font has unsupported depth %d", bpp);
-		delete[] raw;
 		return false;
 	}
 	if (cellW <= 0 || cellH <= 0 || glyphs <= 0) {
 		warning("HiResText: font has an empty glyph box");
-		delete[] raw;
 		return false;
 	}
 
@@ -180,16 +282,14 @@ bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit)
 	// the load rather than read past the buffer.
 	if (dataOff > size || dataSize > size - dataOff) {
 		warning("HiResText: font glyph data runs past the end of the file");
-		delete[] raw;
 		return false;
 	}
 	if (glyphStride > dataSize / (uint32)glyphs) {
 		warning("HiResText: font declares %d glyphs but holds room for fewer", glyphs);
-		delete[] raw;
 		return false;
 	}
 
-	const byte *metrics = nullptr;
+	bool metricsOk = false;
 	if (flags & kFlagProportional) {
 		const uint32 metricsSize = (uint32)glyphs * kMetricsEntrySize;
 		if (metricsOff > size || metricsSize > size - metricsOff) {
@@ -197,68 +297,87 @@ bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit)
 			// lost, and the cell width is a sane stand-in for them.
 			warning("HiResText: font metrics table runs past the end of the file");
 		} else {
-			metrics = raw + metricsOff;
+			metricsOk = true;
 		}
 	}
 
+	uint32 cmapOff = 0;
+	if (version >= 2) {
+		cmapOff = READ_LE_UINT32(raw + kCmapOffField);
+		const uint32 cmapSize = (uint32)glyphs * kCmapEntrySize;
+		if (cmapOff == 0 || cmapOff > size || cmapSize > size - cmapOff) {
+			warning("HiResText: font code point table runs past the end of the file");
+			return false;
+		}
+	}
+
+	out.version = version;
+	out.flags = flags;
+	out.bpp = bpp;
+	out.codePage = READ_LE_UINT16(raw + 10);
+	out.glyphs = glyphs;
+	out.cellW = cellW;
+	out.cellH = cellH;
+	out.ascent = raw[16];
+	out.rowPitch = rowPitch;
+	out.glyphStride = glyphStride;
+	out.metricsOff = metricsOff;
+	out.metricsOk = metricsOk;
+	out.dataOff = dataOff;
+	out.dataSize = dataSize;
+	out.cmapOff = cmapOff;
+	return true;
+}
+
+bool HiResBitmapFont::checkCodePointTable(const byte *table, int glyphs, Common::Array<uint16> &order) {
 	// A version 2 font carries its own code point table, so it does not have
 	// to follow the order of any code page. It is searched where it is, by
 	// binary search; a table not listed in code point order gets an order of
 	// two bytes an entry, instead of a hash map of its entries (some 30 bytes
 	// each on a 32-bit machine).
-	Common::Array<uint16> cmapOrder;
-	const byte *cmapTable = nullptr;
-	if (version >= 2) {
-		const uint32 cmapOff = READ_LE_UINT32(raw + kCmapOffField);
-		const uint32 cmapSize = (uint32)glyphs * kCmapEntrySize;
-		if (cmapOff == 0 || cmapOff > size || cmapSize > size - cmapOff) {
-			warning("HiResText: font code point table runs past the end of the file");
-			delete[] raw;
+	bool sorted = true;
+	for (int i = 0; i < glyphs; ++i) {
+		const byte *entry = table + (uint32)i * kCmapEntrySize;
+		const uint32 codepoint = READ_LE_UINT32(entry);
+		const uint32 index = READ_LE_UINT32(entry + 4);
+		if (index >= (uint32)glyphs) {
+			warning("HiResText: font maps U+%04X to a glyph it does not have", codepoint);
 			return false;
 		}
-
-		bool sorted = true;
-		for (int i = 0; i < glyphs; ++i) {
-			const byte *entry = raw + cmapOff + (uint32)i * kCmapEntrySize;
-			const uint32 codepoint = READ_LE_UINT32(entry);
-			const uint32 index = READ_LE_UINT32(entry + 4);
-			if (index >= (uint32)glyphs) {
-				warning("HiResText: font maps U+%04X to a glyph it does not have", codepoint);
-				delete[] raw;
-				return false;
-			}
-			if (i > 0 && codepoint <= READ_LE_UINT32(entry - kCmapEntrySize))
-				sorted = false;
-		}
-
-		cmapTable = raw + cmapOff;
-		if (!sorted) {
-			cmapOrder.resize(glyphs);
-			for (int i = 0; i < glyphs; ++i)
-				cmapOrder[i] = (uint16)i;
-			Common::sort(cmapOrder.begin(), cmapOrder.end(), CmapEntryLess(cmapTable));
-		}
+		if (i > 0 && codepoint <= READ_LE_UINT32(entry - kCmapEntrySize))
+			sorted = false;
 	}
 
-	_data = raw;
-	_dataSize = size;
-	_pixels = raw + dataOff;
+	order.clear();
+	if (!sorted) {
+		order.resize(glyphs);
+		for (int i = 0; i < glyphs; ++i)
+			order[i] = (uint16)i;
+		Common::sort(order.begin(), order.end(), CmapEntryLess(table));
+	}
+	return true;
+}
+
+void HiResBitmapFont::adopt(const Layout &layout, const byte *metrics, const byte *cmapTable,
+							Common::Array<uint16> &cmapOrder) {
+	_loaded = true;
 	_metrics = metrics;
-	_bpp = bpp;
-	_cellW = cellW;
-	_cellH = cellH;
-	_ascent = ascent;
-	_marksAtOrigin = (flags & kFlagMarksAtOrigin) != 0;
-	_glyphs = glyphs;
-	_rowPitch = rowPitch;
-	_glyphStride = (int)glyphStride;
+	_bpp = layout.bpp;
+	_cellW = layout.cellW;
+	_cellH = layout.cellH;
+	_ascent = layout.ascent;
+	_marksAtOrigin = (layout.flags & kFlagMarksAtOrigin) != 0;
+	_glyphs = layout.glyphs;
+	_rowPitch = layout.rowPitch;
+	_glyphStride = (int)layout.glyphStride;
 	_cmapTable = cmapTable;
-	_cmapEntries = cmapTable ? glyphs : 0;
+	_cmapEntries = cmapTable ? layout.glyphs : 0;
 	_cmapOrder.swap(cmapOrder);
 	clearLookupCache();
 	_legacyMap.clear();
 
-	if (version >= 2) {
+	const uint16 codePage = layout.codePage;
+	if (layout.version >= 2) {
 		_codePage = Common::kUtf8;
 	} else if (codePage == 0) {
 		// Fonts baked for the single byte range say nothing here, and their
@@ -288,8 +407,6 @@ bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit)
 			break;
 		}
 	}
-
-	return true;
 }
 
 /**
@@ -467,7 +584,50 @@ const byte *HiResBitmapFont::glyphData(int index) const {
 	if (!isLoaded() || index < 0 || index >= _glyphs)
 		return nullptr;
 
-	return _pixels + (uint32)index * (uint32)_glyphStride;
+	if (_pixels)
+		return _pixels + (uint32)index * (uint32)_glyphStride;
+
+	// Streamed: from the block buffer if it holds the glyph, else that block
+	// is read now.
+	ReadBlock *block = nullptr;
+	for (int b = 0; b < kReadBlocks && !block; ++b)
+		if (_blocks[b].first >= 0 && index >= _blocks[b].first && index < _blocks[b].first + _blocks[b].count)
+			block = &_blocks[b];
+	if (!block) {
+		block = &_blocks[0];
+		for (int b = 1; b < kReadBlocks; ++b)
+			if (_blocks[b].lastUse < block->lastUse)
+				block = &_blocks[b];
+		const int first = index - index % _glyphsPerBlock;
+		// A block whose read failed is not read again this session: a
+		// glyph drawn every frame must not read the disk every frame.
+		for (uint f = 0; f < _failedBlocks.size(); ++f)
+			if (_failedBlocks[f] == first)
+				return nullptr;
+		block->first = -1;
+		const int count = MIN(_glyphsPerBlock, _glyphs - first);
+		const uint32 bytes = (uint32)count * (uint32)_glyphStride;
+		block->data.resize(bytes);
+		++_readCount;
+		_readBytes += bytes;
+		if (!_stream->seek(_dataOff + (uint32)first * (uint32)_glyphStride) ||
+			_stream->read(block->data.begin(), bytes) != bytes) {
+			_stream->clearErr();
+			_failedBlocks.push_back(first);
+			return nullptr;
+		}
+		block->first = first;
+		block->count = count;
+	}
+	block->lastUse = ++_readClock;
+	return block->data.begin() + (uint32)(index - block->first) * (uint32)_glyphStride;
+}
+
+uint32 HiResBitmapFont::memoryBytes() const {
+	uint32 n = _tablesSize + _cmapOrder.size() * sizeof(uint16);
+	for (int b = 0; b < kReadBlocks; ++b)
+		n += _blocks[b].data.size();
+	return n;
 }
 
 } // End of namespace Graphics

@@ -16,6 +16,19 @@ import mkfont  # noqa: E402
 APPLE_GOTHIC = "/System/Library/Fonts/Supplemental/AppleGothic.ttf"
 
 
+
+class CmapTableTest(unittest.TestCase):
+    def test_entries_are_in_code_point_order_with_their_glyphs(self):
+        kept = [0xAC00, 0x41, 0xD7A3, 0x20]
+        t = mkfont.cmap_table(kept)
+        entries = [struct.unpack_from("<II", t, k) for k in range(0, len(t), 8)]
+        self.assertEqual(entries, [(0x20, 3), (0x41, 1), (0xAC00, 0), (0xD7A3, 2)])
+
+    def test_one_entry_a_glyph_a_repeat_in_glyph_order(self):
+        t = mkfont.cmap_table([0x41, 0x42, 0x41])
+        entries = [struct.unpack_from("<II", t, k) for k in range(0, len(t), 8)]
+        self.assertEqual(entries, [(0x41, 0), (0x41, 2), (0x42, 1)])
+
 class AscentTest(unittest.TestCase):
     def test_face_that_fits_keeps_its_own_ascent(self):
         self.assertEqual(mkfont.choose_ascent_from(12, 4, -12, 3, 16, latin=True), 12)

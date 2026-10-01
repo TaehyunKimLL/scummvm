@@ -32,6 +32,8 @@
 #include "scumm/dialogs.h"
 #include "scumm/file.h"
 #include "scumm/text_utf8.h"
+#include "scumm/trs_store.h"
+#include "graphics/hires_text/glyph_source_file.h"
 #include "scumm/trs_bundle.h"
 #include "scumm/imuse_digi/dimuse_engine.h"
 #ifdef ENABLE_HE
@@ -1177,6 +1179,10 @@ void ScummEngine::displayDialog() {
 			maxWidth *= 2;
 		}
 
+		// The glyphs a hi-res face reads from its file, before the line
+		// breaks measure them.
+		prefetchHiResText(_charsetBuffer + _charsetBufPos, _charset->getCurID());
+
 		// If the string is centered and this is MI1 Sega CD, don't add linebreaks right away;
 		// we will take care of it in a different way just below ... :-)
 		if (_game.platform != Common::kPlatformSegaCD ||
@@ -1403,6 +1409,7 @@ void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager
 	_charset->setColor(_string[a].color);
 	_charset->_disableOffsX = _charset->_firstChar = true;
 	_charset->setCurID(_string[a].charset);
+	prefetchHiResText(buf, _string[a].charset);
 
 #ifdef USE_TTS
 	bool bypassTalkDelay = false;
@@ -2529,6 +2536,11 @@ void copyTextBounded(byte *dst, const byte *src, int len, int dstSize, const Scu
 
 } // End of anonymous namespace
 
+// TrsStore::open() hands each translation over as it reads the body.
+static void noteTrsTranslation(void *hiResText, const byte *s, uint32 size) {
+	((ScummHiResText *)hiResText)->noteTranslatedString(s, size);
+}
+
 void ScummEngine::loadLanguageBundle() {
 	_existLanguageFile = false;
 
@@ -2601,26 +2613,65 @@ void ScummEngine::loadLanguageBundle() {
 		_translatedLines[i].originalTextOffset -= bodyPos;
 		_translatedLines[i].translatedTextOffset -= bodyPos;
 	}
-	_languageBuffer = new byte[size - bodyPos];
-	file.read(_languageBuffer, size - bodyPos);
+	const uint32 bodySize = (uint32)(size - bodyPos);
+
+	// The body stays in the file, read as lines are looked up (TrsStore):
+	// MI2's is 740 KB. Not when a UTF-8 bundle is rewritten in a code page
+	// below, nor for German Indy 3, whose string ends depend on the room
+	// (resStrLen()), nor when the bundle's lines are not in sorted order.
+	if (_trsTranscodeTo == Common::kCodePageInvalid && !(_game.id == GID_INDY3 && _language == Common::DE_DEU)) {
+		// The file itself, not a ScummFile over it: it is read in blocks of
+		// the store's own, without the C library's buffer.
+		Common::SeekableReadStream *body = SearchMan.createReadStreamForMember(bundle);
+		if (body) {
+			Graphics::unbufferCacheStream(body);
+			Common::Array<TrsStore::Line> lines;
+			lines.resize(_numTranslatedLines);
+			for (int i = 0; i < _numTranslatedLines; i++) {
+				lines[i].orig = _translatedLines[i].originalTextOffset;
+				lines[i].trans = _translatedLines[i].translatedTextOffset;
+			}
+			_trsStore = new TrsStore();
+			// The hi-res layer sees every translation as the body is read.
+			if (_trsStore->open(body, bodyPos, bodySize, lines.begin(), lines.size(), _game.version, _game.heversion,
+								bundle.baseName(), SCUMM_TRS_CACHE_KB * 1024,
+								_hiResText.enabled() ? &noteTrsTranslation : nullptr, &_hiResText)) {
+				// The store has the offsets now.
+				delete[] _translatedLines;
+				_translatedLines = nullptr;
+			} else {
+				delete _trsStore;
+				_trsStore = nullptr;
+			}
+		}
+	}
+
+	if (!_trsStore) {
+		file.seek(bodyPos);
+		_languageBuffer = new byte[bodySize];
+		file.read(_languageBuffer, bodySize);
+	}
 	file.close();
 
 	// A UTF-8 bundle with hi-res text off: its translations go to the
 	// language's legacy code page now, so the game's CJK font draws them
 	// the way it draws a legacy bundle (probeLanguageBundle()).
 	if (_trsTranscodeTo != Common::kCodePageInvalid)
-		transcodeLanguageBundle((uint32)(size - bodyPos));
+		transcodeLanguageBundle(bodySize);
 
 	// The hi-res text layer checks its faces against the characters the
 	// translation actually uses (loadFonts() runs after this).
-	if (_hiResText.enabled()) {
-		const uint32 bodySize = (uint32)(size - bodyPos);
+	if (_hiResText.enabled() && !_trsStore) {
 		for (int i = 0; i < _numTranslatedLines; i++) {
 			const uint32 off = _translatedLines[i].translatedTextOffset;
 			if (off < bodySize)
 				_hiResText.noteTranslatedString(_languageBuffer + off, bodySize - off);
 		}
 	}
+
+	if (_trsStore)
+		debug(1, "SCUMM: %s: %d lines, index %u bytes, strings read as used (%u KB kept)",
+			  bundle.toString().c_str(), _numTranslatedLines, _trsStore->indexBytes(), SCUMM_TRS_CACHE_KB);
 
 	debug(2, "loadLanguageBundle: Loaded %d entries", _numTranslatedLines);
 }
@@ -2664,6 +2715,42 @@ const byte *ScummEngine::searchTranslatedLine(const byte *text, const Translatio
 
 	int dbgIterationCount = 0;
 
+	if (_trsStore) {
+		// The same search over the same lines, without the originals'
+		// text: the lines whose original is text are [first, last] in the
+		// sorted order, so a line before them compares less and one after
+		// greater, as memcmp() found.
+		uint first, last;
+		_trsStore->takeReadFailure();
+		const bool found = _trsStore->find(text, (uint32)textLen, first, last);
+		if (_trsStore->takeReadFailure()) {
+			_trsReadFailed = true;	// translateText() looks no further
+			return nullptr;
+		}
+		if (!found) {
+			debug(8, "searchTranslatedLine: Not found (no such original)");
+			return nullptr;
+		}
+		while (left <= right) {
+			dbgIterationCount++;
+			const int mid = (left + right) / 2;
+			const uint idx = useIndex ? _languageLineIndex[mid] : (uint)mid;
+			if (idx >= first && idx <= last) {
+				debug(8, "searchTranslatedLine: Found in %d iteration", dbgIterationCount);
+				const byte *translation = _trsStore->translation(idx);
+				if (_trsStore->takeReadFailure())
+					_trsReadFailed = true;
+				return translation;
+			} else if (idx > last) {
+				right = mid - 1;
+			} else {
+				left = mid + 1;
+			}
+		}
+		debug(8, "searchTranslatedLine: Not found in %d iteration", dbgIterationCount);
+		return nullptr;
+	}
+
 	while (left <= right) {
 		dbgIterationCount++;
 		debug(8, "searchTranslatedLine: Range: %d - %d", left, right);
@@ -2689,6 +2776,7 @@ const byte *ScummEngine::searchTranslatedLine(const byte *text, const Translatio
 }
 
 void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBufferSize) {
+	_trsReadFailed = false;
 	if (_existLanguageFile) {
 		if (_currentScript == 0xff) {
 			// used in drawVerb(), etc
@@ -2716,6 +2804,8 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 				TranslationRange scrpRange;
 				if (room.scriptRanges.tryGetVal(scriptKey, scrpRange)) {
 					const byte *translatedText = searchTranslatedLine(text, scrpRange, true);
+					if (_trsReadFailed)
+						goto untranslated;	// the line was not read: no other context's translation of it
 					if (translatedText) {
 						debug(7, "translateText: Found by heuristic #1");
 						copyTextBounded(trans_buff, translatedText, resStrLen(translatedText), transBufferSize, this);
@@ -2733,6 +2823,8 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 				TranslationRange scrpRange;
 				if (room.scriptRanges.tryGetVal(scriptKey, scrpRange)) {
 					const byte *translatedText = searchTranslatedLine(text, scrpRange, true);
+					if (_trsReadFailed)
+						goto untranslated;	// the line was not read: no other context's translation of it
 					if (translatedText) {
 						debug(7, "translateText: Found by heuristic #2");
 						copyTextBounded(trans_buff, translatedText, resStrLen(translatedText), transBufferSize, this);
@@ -2744,7 +2836,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 
 		// Try full search
 		const byte *translatedText = searchTranslatedLine(text, TranslationRange(0, _numTranslatedLines - 1), false);
-		if (translatedText) {
+		if (translatedText && !_trsReadFailed) {
 			debug(7, "translateText: Found by full search");
 			copyTextBounded(trans_buff, translatedText, resStrLen(translatedText), transBufferSize, this);
 			return;
@@ -2753,6 +2845,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 		debug(7, "translateText: Not found");
 	}
 
+untranslated:
 	// Default: just copy the string
 	copyTextBounded(trans_buff, text, resStrLen(text), transBufferSize, this);
 }
@@ -2765,6 +2858,29 @@ bool ScummEngine::reverseIfNeeded(const byte *text, byte *reverseBuf, int revers
 	Common::strlcpy(reinterpret_cast<char *>(reverseBuf), reinterpret_cast<const char *>(text), reverseBufSize);
 	fakeBidiString(reverseBuf, true, reverseBufSize);
 	return true;
+}
+
+void ScummEngine::prefetchHiResText(const byte *text, int charsetId) {
+	if (!_hiResText.enabled() || !_hiResText.hasFonts() || !text)
+		return;
+	const ScummTextDecoder esc(_game.version, _game.heversion > 0, 0);
+	const byte *p = text;
+	const byte *end = text + resStrLen(text);
+	Common::Array<uint32> cps;
+	while (p < end) {
+		const int n = (_game.version <= 6) ? esc.escapeLength(p, end) : 0;
+		if (n > 0) {
+			p += n;
+			continue;
+		}
+		const byte *before = p;
+		const uint32 cp = _hiResText.decodeNext(p, end);
+		if (p == before)
+			p++;
+		if (cp > ' ' && cp != 0xFFFD)
+			cps.push_back(cp);
+	}
+	_hiResText.prefetch(cps, charsetId);
 }
 
 void ScummEngine::noteDrawnString(const Common::String &drawn) {

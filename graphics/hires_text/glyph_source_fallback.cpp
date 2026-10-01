@@ -90,6 +90,11 @@ UnicodeGlyphSource *FallbackGlyphSource::answering(uint32 cp) {
 	return found < 0 ? nullptr : _lookup[found];
 }
 
+void FallbackGlyphSource::prefetch(Common::Array<uint32> &cps) {
+	for (uint i = 0; i < _lookup.size() && !cps.empty(); i++)
+		_lookup[i]->prefetch(cps);
+}
+
 int FallbackGlyphSource::cells(uint32 cp) {
 	UnicodeGlyphSource *src = answering(cp);
 	return src ? src->cells(cp) : 0;

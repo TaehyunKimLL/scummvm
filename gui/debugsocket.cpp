@@ -25,6 +25,7 @@
 #include "gui/debugsocket.h"
 
 #include "common/events.h"
+#include "common/file-cache-stats.h"
 #include "common/file.h"
 #include "common/system.h"
 #include "common/textconsole.h"
@@ -663,6 +664,22 @@ bool DebugSocket::genericCommand(const Common::String &cmd, const Common::String
 #else
 		out = "FAIL no RTC here";
 #endif
+		return true;
+	}
+	if (cmd == "caches") {
+		// The caches of file data (Common::FileCacheRegistry): one line a
+		// kind, or with "all" one a cache.
+		if (!a.empty() && a[0] == "all") {
+			const Common::Array<Common::FileCacheStats *> &l = Common::FileCacheRegistry::all();
+			for (uint i = 0; i < l.size(); ++i)
+				out += Common::String::format("%s%s %s used=%u cap=%u lookups=%u hits=%u reads=%u read=%u", i ? "; " : "",
+											  l[i]->kind.c_str(), l[i]->name.c_str(), l[i]->used, l[i]->capacity,
+											  l[i]->lookups, l[i]->hits, l[i]->reads, l[i]->readBytes);
+		} else {
+			out = Common::FileCacheRegistry::summary();
+		}
+		if (out.empty())
+			out = "none";
 		return true;
 	}
 	if (cmd == "mem") {

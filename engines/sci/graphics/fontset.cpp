@@ -280,6 +280,12 @@ void GfxFontSet::draw(uint32 chr, int16 top, int16 left, byte color, bool greyed
 		f->font->draw(c, top, left, color, greyedOutput);
 }
 
+void GfxFontSet::prefetch(Common::Array<uint32> &cps) {
+	for (uint i = 0; i < _faces.size() && !cps.empty(); i++)
+		if (_faces[i].kind == kFaceCodePoint)
+			_faces[i].font->prefetch(cps);
+}
+
 void GfxFontSet::beginString() {
 	for (uint i = 0; i < _faces.size(); i++)
 		_faces[i].font->beginString();

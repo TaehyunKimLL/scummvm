@@ -139,6 +139,10 @@ public:
 
 	/** A string starts: a mark at its start does not attach to the last string's base. */
 	void beginString() override { _anchor.reset(); }
+	void prefetch(Common::Array<uint32> &cps) override {
+		if (_source)
+			_source->prefetch(cps);
+	}
 
 	/** Does this font have a glyph for @p codepoint? */
 	bool hasGlyph(uint32 codepoint) const { return _own && _own->cells(codepoint) > 0; }
@@ -235,6 +239,7 @@ public:
 	void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput,
 	                  byte *buffer, int16 width, int16 height) override;
 	void beginString() override;
+	void prefetch(Common::Array<uint32> &cps) override { _font->prefetch(cps); }
 
 	/**
 	 * hires_text_log: which face draw() would pick for @p chr - mirrors its

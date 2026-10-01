@@ -835,7 +835,26 @@ bool ScummHiResText::addFace(const Common::String &resolvedPath, Common::Seekabl
 		return existing->_value != nullptr;
 
 	Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
-	if (!font->load(stream)) {
+	return adoptFace(resolvedPath, font, font->load(stream));
+}
+
+bool ScummHiResText::addFace(const Common::String &resolvedPath, Common::SeekableReadStream *stream,
+							 DisposeAfterUse::Flag dispose) const {
+	Common::HashMap<Common::String, Face *>::iterator existing = _sources.find(resolvedPath);
+	if (existing != _sources.end()) {
+		if (dispose == DisposeAfterUse::YES)
+			delete stream;
+		return existing->_value != nullptr;
+	}
+
+	// The glyphs stay in the file, read as they are drawn: an SVF of 2350
+	// syllables is some 400 KB, of which a scene draws a few hundred glyphs.
+	Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
+	return adoptFace(resolvedPath, font, font->loadStreamed(stream, dispose));
+}
+
+bool ScummHiResText::adoptFace(const Common::String &resolvedPath, Graphics::HiResBitmapFont *font, bool loaded) const {
+	if (!loaded) {
 		delete font;
 		_sources[resolvedPath] = nullptr;
 		_failedFaces[resolvedPath] = true;
@@ -843,7 +862,9 @@ bool ScummHiResText::addFace(const Common::String &resolvedPath, Common::Seekabl
 	}
 
 	Face *face = new Face();
-	face->source = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
+	Graphics::SvfnGlyphSource *svf = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
+	svf->setName(Common::Path(resolvedPath, '/').baseName());
+	face->source = svf;
 	_sources[resolvedPath] = face;
 	_faceBySource[(uint64)(uintptr)face->source] = face;
 	_fontsLoaded = true;
@@ -857,6 +878,27 @@ bool ScummHiResText::addFace(const Common::String &resolvedPath, Common::Seekabl
 		ensureChainSources(i, false);
 
 	return true;
+}
+
+void ScummHiResText::prefetch(const Common::Array<uint32> &cps, int charsetId) const {
+	if (!_enabled || cps.empty())
+		return;
+	const int id = (charsetId >= 0 && charsetId < kMaxFonts) ? charsetId : 0;
+	if (_perGlyph) {
+		ensureChainSources(id);
+		for (uint c = 0; c < _chainSources[id].size(); ++c) {
+			Common::Array<uint32> left = cps;
+			for (uint i = 0; i < _chainSources[id][c].size() && !left.empty(); ++i)
+				if (_chainSources[id][c][i])
+					_chainSources[id][c][i]->prefetch(left);
+		}
+		return;
+	}
+	Common::Array<uint32> left = cps;
+	if (_simpleCjkFaces[id] && _simpleCjkFaces[id]->source)
+		_simpleCjkFaces[id]->source->prefetch(left);
+	if (_simpleLatinFaces[id] && _simpleLatinFaces[id]->source && !left.empty())
+		_simpleLatinFaces[id]->source->prefetch(left);
 }
 
 Graphics::UnicodeGlyphSource *ScummHiResText::sourceForFace(const Common::String &resolvedPath) const {
@@ -888,6 +930,8 @@ Graphics::UnicodeGlyphSource *ScummHiResText::openPlanFace(const Common::Path &p
 	int32 faceIndex = 0;
 	Common::String openError;
 	Common::SeekableReadStream *stream = Graphics::openFontFace(path, faceIndex, openError);
+	// Before any read: an SVF found here stays open and reads blocks of its own.
+	Graphics::unbufferCacheStream(stream);
 	if (!stream) {
 		warning("SCUMM: cannot open hi-res font '%s'", p.c_str());
 		_sources[key] = nullptr;
@@ -899,8 +943,7 @@ Graphics::UnicodeGlyphSource *ScummHiResText::openPlanFace(const Common::Path &p
 	const bool svfn = stream->read(head, sizeof(head)) == sizeof(head) && Graphics::isSvfnFile(head, sizeof(head));
 	stream->seek(0);
 	if (svfn) {
-		const bool ok = addFace(p, *stream);
-		delete stream;
+		const bool ok = addFace(p, stream, DisposeAfterUse::YES);
 		return ok ? sourceForFace(p) : nullptr;
 	}
 
@@ -1695,7 +1738,7 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir, Common::Langu
 			Common::SeekableReadStream *stream = node.createReadStream();
 			if (!stream)
 				continue;
-			const bool ok = probe.load(*stream);
+			const bool ok = probe.loadStreamed(stream, DisposeAfterUse::NO);
 			if (!ok) {
 				delete stream;
 				warning("SCUMM: %s is not a usable hi-res font", name.c_str());
@@ -1724,7 +1767,7 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir, Common::Langu
 		if (node.exists()) {
 			Common::SeekableReadStream *stream = node.createReadStream();
 			if (stream) {
-				if (probe.load(*stream)) {
+				if (probe.loadStreamed(stream, DisposeAfterUse::NO)) {
 					haveSingle = true;
 					if (smallestCell == 0 || probe.cellHeight() < smallestCell)
 						smallestCell = probe.cellHeight();
@@ -1750,7 +1793,7 @@ bool ScummHiResText::probeSimpleFonts(const Common::Path &gameDir, Common::Langu
 			Common::SeekableReadStream *stream = node.createReadStream();
 			if (!stream)
 				continue;
-			if (latinProbe.load(*stream)) {
+			if (latinProbe.loadStreamed(stream, DisposeAfterUse::NO)) {
 				haveLatin = true;
 				if (smallestCell == 0 || latinProbe.cellHeight() < smallestCell)
 					smallestCell = latinProbe.cellHeight();
@@ -1863,15 +1906,14 @@ bool ScummHiResText::loadSimpleBitmapFile(const Common::Path &gameDir, const Com
 	Common::SeekableReadStream *stream = node.createReadStream();
 	if (!stream)
 		return false;
+	Graphics::unbufferCacheStream(stream);	// before any read: it may stay open
 
 	Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
-	if (!font->load(*stream)) {
+	if (!font->loadStreamed(stream, DisposeAfterUse::YES)) {
 		delete font;
-		delete stream;
 		warning("SCUMM: %s is not a usable hi-res font", name.c_str());
 		return false;
 	}
-	delete stream;
 
 	const Common::String key = Common::String::format("svfn:%s@%d", name.c_str(), font->cellHeight());
 	Face *face = nullptr;
@@ -1881,7 +1923,9 @@ bool ScummHiResText::loadSimpleBitmapFile(const Common::Path &gameDir, const Com
 		face = it->_value;
 	} else {
 		face = new Face();
-		face->source = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
+		Graphics::SvfnGlyphSource *svf = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
+		svf->setName(name);
+		face->source = svf;
 		_sources[key] = face;
 		_faceBySource[(uint64)(uintptr)face->source] = face;
 	}
@@ -2199,15 +2243,17 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 					_failedFaces[paths[i]] = true;
 					continue;
 				}
+				Graphics::unbufferCacheStream(stream);	// before any read: it may stay open
 				byte head[4];
 				const bool svfn = stream->read(head, sizeof(head)) == sizeof(head) &&
 								  Graphics::isSvfnFile(head, sizeof(head));
 				stream->seek(0);
-				if (svfn)
-					addFace(paths[i], *stream);
 				// A TrueType path is left for ensureChainSources() below,
 				// which knows the id's resolved pixel size.
-				delete stream;
+				if (svfn)
+					addFace(paths[i], stream, DisposeAfterUse::YES);
+				else
+					delete stream;
 			}
 		}
 

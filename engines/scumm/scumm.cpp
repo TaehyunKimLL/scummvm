@@ -92,6 +92,7 @@
 #include "scumm/he/basketball/basketball.h"
 #include "scumm/he/moonbase/moonbase.h"
 #include "scumm/scumm_v0.h"
+#include "scumm/trs_store.h"
 #include "scumm/scumm_v8.h"
 #include "scumm/sound.h"
 #include "scumm/string_v7.h"
@@ -497,6 +498,7 @@ ScummEngine::~ScummEngine() {
 	delete[] _sortedActors;
 
 	delete[] _languageBuffer;
+	delete _trsStore;
 	delete[] _translatedLines;
 	delete[] _languageLineIndex;
 
@@ -504,7 +506,7 @@ ScummEngine::~ScummEngine() {
 		delete[] _2byteFontPtr;
 	for (int i = 0; i < 20; i++)
 		if (_2byteMultiFontPtr[i])
-			delete _2byteMultiFontPtr[i];
+			delete[] _2byteMultiFontPtr[i];
 	delete _charset;
 	delete _messageDialog;
 	delete _pauseDialog;

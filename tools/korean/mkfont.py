@@ -698,6 +698,15 @@ def clipped_ink(font, ch, bpp, ascent, cell_h):
     return full, fringe
 
 
+def cmap_table(kept):
+    """버전 2 의 코드 포인트 표: (코드 포인트, 글리프 번호) 8바이트 항목을 코드 포인트
+    순서로, 글리프마다 하나 (머리말의 글리프 수만큼). kept 는 글리프 순서의 코드
+    포인트다. 정렬된 표는 읽는 쪽이 그 자리에서 이진 탐색하고 따로 순서 배열을
+    만들지 않는다 (bitmap_font.cpp). 같은 코드 포인트가 두 번 오면 (parse_ranges 는
+    중복을 빼서 오지 않는다) 글리프 순서로 붙어 있고, 읽는 쪽은 나중 것을 쓴다."""
+    return b"".join(struct.pack("<II", cp, i) for cp, i in sorted((cp, i) for i, cp in enumerate(kept)))
+
+
 def pack_glyph(img, cell_w, cell_h, bpp):
     px = img.load()
     out = bytearray()
@@ -1023,7 +1032,7 @@ def main():
         flags |= FLAG_MARKS_AT_ORIGIN
         version = VERSION_CMAP
         header_size = HEADER_V2
-        cmap = b"".join(struct.pack("<II", cp, i) for i, cp in enumerate(kept))
+        cmap = cmap_table(kept)
     metrics_off = (header_size + len(cmap)) if variable else 0
     data_off = header_size + len(cmap) + len(metrics)
 
