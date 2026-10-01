@@ -211,10 +211,11 @@ struct SciRenderChoice {
  * unset); @p anyCoverage and @p blend the phase-1 view's.
  *
  * - `auto` with @p upstreamRgb: `{true, auto}`, upstream's own request.
- * - `auto` otherwise: Graphics::resolveAutoTarget(), RGB unless clut8.
+ * - `auto` otherwise: Graphics::resolveAutoTarget(), RGB unless clut8 (the
+ *   platform's true-colour family, Graphics::platformTrueColorTarget()).
  * - `clut8`: no RGB; with @p upstreamRgb one warning that it wins.
- * - `rgb565`, `rgb888`: RGB, that target (SCI has no 16-bit compositor yet,
- *   so formatRequest() turns rgb565 into rgb888 with its note).
+ * - `rgb565`, `rgb888`: RGB, that target (both are drawn; a backend
+ *   without it falls back to the other family through formatRequest()).
  */
 SciRenderChoice chooseSciRender(bool upstreamRgb, Graphics::HiResRenderTarget target, bool anyCoverage,
 								Graphics::HiResBlend blend);

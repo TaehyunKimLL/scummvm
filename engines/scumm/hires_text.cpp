@@ -930,8 +930,6 @@ Graphics::UnicodeGlyphSource *ScummHiResText::openPlanFace(const Common::Path &p
 	int32 faceIndex = 0;
 	Common::String openError;
 	Common::SeekableReadStream *stream = Graphics::openFontFace(path, faceIndex, openError);
-	// Before any read: an SVF found here stays open and reads blocks of its own.
-	Graphics::unbufferCacheStream(stream);
 	if (!stream) {
 		warning("SCUMM: cannot open hi-res font '%s'", p.c_str());
 		_sources[key] = nullptr;
@@ -943,6 +941,18 @@ Graphics::UnicodeGlyphSource *ScummHiResText::openPlanFace(const Common::Path &p
 	const bool svfn = stream->read(head, sizeof(head)) == sizeof(head) && Graphics::isSvfnFile(head, sizeof(head));
 	stream->seek(0);
 	if (svfn) {
+		// An SVF stays open and reads blocks of its own: opened again, so
+		// that its buffer goes before any read. A TrueType face keeps the
+		// buffered stream FreeType reads in small pieces.
+		delete stream;
+		stream = Graphics::openFontFace(path, faceIndex, openError);
+		Graphics::unbufferCacheStream(stream);
+		if (!stream) {
+			warning("SCUMM: cannot open hi-res font '%s'", p.c_str());
+			_sources[key] = nullptr;
+			_failedFaces[p] = true;
+			return nullptr;
+		}
 		const bool ok = addFace(p, stream, DisposeAfterUse::YES);
 		return ok ? sourceForFace(p) : nullptr;
 	}

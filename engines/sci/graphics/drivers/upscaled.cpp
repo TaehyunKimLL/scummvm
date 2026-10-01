@@ -23,6 +23,7 @@
 #include "common/system.h"
 #include "graphics/cursorman.h"
 #include "sci/graphics/drivers/gfxdriver_intern.h"
+#include "sci/graphics/helpers.h"
 #include "graphics/hires_text/text_compose.h"
 #include "sci/graphics/textlayer.h"
 
@@ -242,10 +243,39 @@ void UpscaledGfxDriver::updateScreenBand(int destX, int destY, int w, int h, con
 				buff = _stampBuffer.begin();
 				pitch = w * _pixelSize;
 			}
+			// A 16-bit screen has lost bits of the colour under the text:
+			// the blend takes it from the scaled bitmap's index and the
+			// palette (with its mods) instead, so the text is the one a
+			// 32-bit screen shows, rounded once.
+			const bool fromIndices = _pixelSize == 2 && _srcPixelSize == 1 && buff != scb;
+			if (fromIndices)
+				_underRGB.resize(textW * 3);
 			for (int y = 0; y < textH; y++) {
 				if (!_textLayer->rowHasText(destY + y))
 					continue;
-				Graphics::TextCompose::composeSpan(buff + y * pitch, _format, _textLayer->row(destY + y) + destX, textW, _currentPalette);
+				if (fromIndices) {
+					const byte *idx = scb + y * _screenW;
+					const byte *mods = (palMods && palModMapping) ? palModMapping + y * _screenW : nullptr;
+					byte *rgb = _underRGB.begin();
+					for (int x = 0; x < textW; x++, rgb += 3) {
+						const byte *col = &_currentPalette[idx[x] * 3];
+						const byte m = mods ? mods[x] : 0;
+						if (m) {
+							rgb[0] = (byte)MIN<uint>(col[0] * (128 + palMods[m].r) / 128, 255);
+							rgb[1] = (byte)MIN<uint>(col[1] * (128 + palMods[m].g) / 128, 255);
+							rgb[2] = (byte)MIN<uint>(col[2] * (128 + palMods[m].b) / 128, 255);
+						} else {
+							rgb[0] = col[0];
+							rgb[1] = col[1];
+							rgb[2] = col[2];
+						}
+					}
+					Graphics::TextCompose::composeSpanOver(buff + y * pitch, _format, _textLayer->row(destY + y) + destX,
+														   textW, _underRGB.begin(), _currentPalette);
+				} else {
+					Graphics::TextCompose::composeSpan(buff + y * pitch, _format, _textLayer->row(destY + y) + destX,
+													   textW, _currentPalette);
+				}
 			}
 		} else {
 			// CLUT8 output: no room for a blend; stamp coverage >= 50%.

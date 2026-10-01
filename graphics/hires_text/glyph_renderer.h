@@ -29,6 +29,7 @@
 namespace Graphics {
 
 struct Surface;
+class BandedPlane;
 class HiResBitmapFont;
 
 /**
@@ -105,13 +106,13 @@ struct GlyphStyle {
  */
 struct GlyphPlanes {
 	GlyphPlanes() : index(nullptr), coverage(nullptr), underIndex(nullptr), underCoverage(nullptr) {}
-	GlyphPlanes(Surface *i, Surface *c, Surface *ui = nullptr, Surface *uc = nullptr) :
+	GlyphPlanes(Surface *i, BandedPlane *c, BandedPlane *ui = nullptr, BandedPlane *uc = nullptr) :
 		index(i), coverage(c), underIndex(ui), underCoverage(uc) {}
 
 	Surface *index;
-	Surface *coverage;
-	Surface *underIndex;
-	Surface *underCoverage;
+	BandedPlane *coverage;
+	BandedPlane *underIndex;
+	BandedPlane *underCoverage;
 };
 
 /**
@@ -246,7 +247,7 @@ public:
 	 * Draw one glyph.
 	 *
 	 * @param dest      CLUT8 surface receiving the colour
-	 * @param coverage  optional 8bpp surface receiving the coverage, or null
+	 * @param coverage  optional plane receiving the coverage, or null
 	 * @param font      the font to take the glyph from
 	 * @param index     glyph index within that font
 	 * @param x, y      top left of the glyph cell, in destination pixels
@@ -254,7 +255,7 @@ public:
 	 * @param dirty     if not null, extended by the area actually written
 	 * @return false when the font has no such glyph
 	 */
-	static bool drawGlyph(Surface &dest, Surface *coverage,
+	static bool drawGlyph(Surface &dest, BandedPlane *coverage,
 						  const HiResBitmapFont &font, int index,
 						  int x, int y, const GlyphStyle &style,
 						  Common::Rect *dirty = nullptr);
@@ -267,7 +268,7 @@ public:
 	 * code. @p x and @p y are the pen position; the glyph's own origin is
 	 * applied on top of them.
 	 */
-	static bool drawGlyph(Surface &dest, Surface *coverage,
+	static bool drawGlyph(Surface &dest, BandedPlane *coverage,
 						  const GlyphBitmap &glyph,
 						  int x, int y, const GlyphStyle &style,
 						  Common::Rect *dirty = nullptr);

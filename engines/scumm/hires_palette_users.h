@@ -22,6 +22,7 @@
 #ifndef SCUMM_HIRES_PALETTE_USERS_H
 #define SCUMM_HIRES_PALETTE_USERS_H
 
+#include "common/array.h"
 #include "common/scummsys.h"
 #include "common/util.h"
 #include "scumm/hires_composite.h"
@@ -80,21 +81,42 @@ static inline bool anyChangedIndex(const byte *p, const byte *cov, int n,
  * @p underCov may be null; they share @p underPitch. @p top and @p bottom
  * hold (width + 7) / 8 entries.
  */
-static inline void findPaletteUsers(const byte *src, int srcPitch,
-									const byte *text, int textPitch,
-									const byte *under, const byte *underCov, int underPitch,
-									int width, int height, int m, const bool *changed,
-									int *top, int *bottom) {
+static inline void findPaletteUsersRows(const byte *src, int srcPitch,
+										const byte *text, int textPitch,
+										const CompositeRows &under, const CompositeRows &underCov,
+										int width, int height, int m, const bool *changed,
+										int *top, int *bottom) {
 	const int strips = (width + 7) / 8;
 	for (int s = 0; s < strips; ++s) {
 		top[s] = height;
 		bottom[s] = 0;
 	}
-	if (!under || !underCov)
-		under = underCov = nullptr;
+	const bool withUnder = under.present() && underCov.present();
+	// The decoration's m rows of one game row, read (or unpacked) once each.
+	const int uw = MAX(1, MAX(under.scratchBytes(), underCov.scratchBytes()));
+	Common::Array<byte> scratch, zeroRow;
+	Common::Array<const byte *> uRow, ucRow;
+	if (withUnder) {
+		scratch.resize(2 * m * uw);
+		zeroRow.resize(width * m);
+		memset(zeroRow.begin(), 0, width * m);
+		uRow.resize(m);
+		ucRow.resize(m);
+	}
 
 	for (int y = 0; y < height; ++y) {
 		const byte *srcRow = src + y * srcPitch;
+		bool anyUnder = false;
+		for (int r = 0; r < m && withUnder; ++r) {
+			ucRow[r] = underCov.row(y * m + r, &scratch[(2 * r) * uw]);
+			uRow[r] = nullptr;
+			if (ucRow[r]) {
+				uRow[r] = under.row(y * m + r, &scratch[(2 * r + 1) * uw]);
+				if (!uRow[r])
+					uRow[r] = zeroRow.begin();
+				anyUnder = true;
+			}
+		}
 		for (int s = 0; s < strips; ++s) {
 			const int x0 = s * 8;
 			const int x1 = MIN(x0 + 8, width);
@@ -107,9 +129,9 @@ static inline void findPaletteUsers(const byte *src, int srcPitch,
 				hit = anyChangedIndex(text + (y * m + r) * textPitch + x0 * m, nullptr,
 									  (x1 - x0) * m, true, kHiResTextTransparent, changed);
 
-			for (int r = 0; r < m && !hit && under; ++r) {
-				const int off = (y * m + r) * underPitch + x0 * m;
-				hit = anyChangedIndex(under + off, underCov + off, (x1 - x0) * m, false, 0, changed);
+			for (int r = 0; r < m && !hit && anyUnder; ++r) {
+				if (ucRow[r])
+					hit = anyChangedIndex(uRow[r] + x0 * m, ucRow[r] + x0 * m, (x1 - x0) * m, false, 0, changed);
 			}
 
 			if (hit) {
@@ -119,6 +141,20 @@ static inline void findPaletteUsers(const byte *src, int srcPitch,
 			}
 		}
 	}
+}
+
+/// The same, with the decoration planes as bytes in memory (@p underPitch apart).
+static inline void findPaletteUsers(const byte *src, int srcPitch,
+									const byte *text, int textPitch,
+									const byte *under, const byte *underCov, int underPitch,
+									int width, int height, int m, const bool *changed,
+									int *top, int *bottom) {
+	if (!under || !underCov)
+		under = underCov = nullptr;
+	findPaletteUsersRows(src, srcPitch, text, textPitch,
+						 under ? CompositeRows(under, underPitch) : CompositeRows(),
+						 underCov ? CompositeRows(underCov, underPitch) : CompositeRows(),
+						 width, height, m, changed, top, bottom);
 }
 
 } // End of namespace Scumm

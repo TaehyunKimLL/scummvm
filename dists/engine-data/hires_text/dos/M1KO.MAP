@@ -1,6 +1,6 @@
 # Monkey Island 1 (mi1kor Korean patch). One map, two presets; the ini's
 # render_target picks one.
-#   Default (true colour: render_target=auto, rgb888 or rgb565): M1U*.SVF, 2 bpp,
+#   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): M1U*.SVF, 2 bpp,
 #   anti-aliased (blend=auto), baked by tools/korean/scumm-fonts/m1u.tsv:
 #   dialogue, verbs and the sentence line in a gothic face, the title/credit
 #   card in a serif face. With them in the bare sections, render_target=auto

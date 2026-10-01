@@ -22,6 +22,13 @@ an error when it opens a room or a save file.
 
 In SCUMMVM.INI, `[scummvm]` or a game's section:
 
+- `render_target=auto|clut8|rgb565|rgb888`: the screen hi-res text is drawn
+  on. `auto` (the default) gives a true-colour game 16 bits (5-6-5: half the
+  memory and bus bytes of 32 bits) when the card has 640x400 in 5-6-5; else
+  32 bits when it has 640x400 in 32 bits (drawn straight into the screen,
+  where 5-6-5 would need a 640x480 mode with the rows repeated, and a frame
+  buffer for that); else 5-6-5 at 640x480. `rgb565` and `rgb888` ask for
+  their own format whatever the card has at 640x400.
 - `dos_vsync=off|wait`: wait for the vertical retrace before sending a frame.
 - `dos_force_fallback=true`: use the 640x480 line-repeat mode even when the
   card has 640x400.

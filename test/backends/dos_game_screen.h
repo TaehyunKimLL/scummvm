@@ -124,8 +124,10 @@ public:
 
 	// FrameKeeper: the manager's switching between the window and a buffer.
 	static int s_allocs;
+	static int s_attempts;
 	static bool s_failAlloc;
 	static void *countingAlloc(size_t n) {
+		++s_attempts;
 		if (s_failAlloc)
 			return nullptr;
 		++s_allocs;
@@ -222,13 +224,16 @@ public:
 	}
 
 	// No memory for the shake's buffer: the frame stays in the window and is
-	// shown unshaken, without trying again every frame of that shake.
+	// shown unshaken. It asks once for the whole shake: not again on each
+	// frame, nor at each return to 0 within it, nor during the settle
+	// period, where a frame in the window is already right.
 	void test_keeper_no_memory_for_a_shake_draws_it_unshaken() {
 		Window win;
 		DOS::FrameWindow fw = window(win);
 		DOS::FrameKeeper k;
 		k.screen().setAllocator(&countingAlloc);
 		s_allocs = 0;
+		s_attempts = 0;
 		s_failAlloc = true;
 		k.create(8, 5, xrgb(), &fw, false, false);
 		paint(k.screen().surface());
@@ -237,7 +242,61 @@ public:
 		TS_ASSERT(k.screen().direct());
 		TS_ASSERT(!k.shakeShown());
 		TS_ASSERT(painted(k.screen().surface()));
+		TS_ASSERT_EQUALS(s_attempts, 1);
+		// Back to 0, then SCUMM's pattern again within the settle period:
+		// writes (not frame ticks) and frames, and memory comes back meanwhile.
+		static const int shake[8] = { 0, 1, 2, 1, 0, 2, 3, 1 };
+		for (int i = 0; i < 16; ++i) {
+			TS_ASSERT_EQUALS(k.sync(&fw, false, 0, shake[i % 8], false, nullptr, nullptr), DOS::FrameKeeper::kSame);
+			TS_ASSERT_EQUALS(k.sync(&fw, false, 0, shake[i % 8], true, nullptr, nullptr), DOS::FrameKeeper::kSame);
+		}
 		s_failAlloc = false;
+		for (int i = 0; i < 2 * DOS::FrameKeeper::kShakeSettleFrames; ++i) {
+			TS_ASSERT_EQUALS(k.sync(&fw, false, 0, 0, false, nullptr, nullptr), DOS::FrameKeeper::kSame);
+			TS_ASSERT_EQUALS(k.sync(&fw, false, 0, 0, true, nullptr, nullptr), DOS::FrameKeeper::kSame);
+		}
+		TS_ASSERT(k.screen().direct());
+		TS_ASSERT(painted(k.screen().surface()));
+		TS_ASSERT_EQUALS(s_attempts, 1);
+		// Settled: the next shake asks again, and gets its buffer.
+		TS_ASSERT_EQUALS(k.sync(&fw, false, 0, 2, true, nullptr, nullptr), DOS::FrameKeeper::kMoved);
+		TS_ASSERT_EQUALS(s_attempts, 2);
+		TS_ASSERT(!k.screen().direct());
+		TS_ASSERT(painted(k.screen().surface()));
+	}
+
+	// A frame made while shaking (a mode switch, a window made again) with no
+	// memory for its buffer goes into the window and is shown unshaken; one
+	// the window cannot hold at all (line repeat) still gets its buffer.
+	void test_keeper_no_memory_for_a_new_shaken_frame_draws_it_unshaken() {
+		Window win;
+		DOS::FrameWindow fw = window(win);
+		DOS::FrameKeeper k;
+		k.screen().setAllocator(&countingAlloc);
+		s_allocs = 0;
+		s_attempts = 0;
+		s_failAlloc = true;
+		k.create(8, 5, xrgb(), &fw, false, true);
+		TS_ASSERT(k.screen().exists());
+		TS_ASSERT(k.screen().direct());
+		TS_ASSERT(!k.shakeShown());
+		TS_ASSERT_EQUALS(s_attempts, 1);
+		for (int i = 0; i < 10; ++i)
+			TS_ASSERT_EQUALS(k.sync(&fw, false, 0, 2, true, nullptr, nullptr), DOS::FrameKeeper::kSame);
+		TS_ASSERT_EQUALS(s_attempts, 1);
+		// The window made again in the shake: made again in the window.
+		Window other;
+		DOS::FrameWindow moved = window(other);
+		TS_ASSERT_EQUALS(k.sync(&moved, false, 0, 2, true, nullptr, nullptr), DOS::FrameKeeper::kLost);
+		TS_ASSERT(k.screen().direct());
+		TS_ASSERT_EQUALS(k.screen().surface().getPixels(), (void *)other.px);
+		s_failAlloc = false;
+		DOS::FrameWindow rep = window(win, true);
+		DOS::FrameKeeper k2;
+		k2.screen().setAllocator(&countingAlloc);
+		k2.create(8, 5, xrgb(), &rep, false, false);
+		TS_ASSERT(!k2.screen().direct());
+		TS_ASSERT_EQUALS(s_allocs, 1);
 	}
 
 	// The loading screen takes the window: the frame goes to a buffer with
@@ -294,3 +353,4 @@ public:
 
 int DosGameScreenTestSuite::s_allocs = 0;
 bool DosGameScreenTestSuite::s_failAlloc = false;
+int DosGameScreenTestSuite::s_attempts = 0;

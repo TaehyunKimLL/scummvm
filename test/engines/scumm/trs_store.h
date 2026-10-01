@@ -306,4 +306,81 @@ public:
 		const byte *other = f.originals[0].begin();
 		TS_ASSERT(store.find(other, strLen(other), first, last));
 	}
+
+	// A read that fails while open() indexes the body: refused, nothing
+	// left pending, and the store opens again once the file reads.
+	void test_a_failed_read_while_indexing_refuses_the_file() {
+		Fixture f;
+		build(f, 100);
+		bool fail = true;
+		byte *p = (byte *)malloc(f.body.size());
+		memcpy(p, f.body.begin(), f.body.size());
+		Scumm::TrsStore store;
+		TS_ASSERT(!store.open(new FlakyStream(p, f.body.size(), fail), 0, f.body.size(), f.lines.begin(),
+							  f.lines.size(), 5, 0, "i.trs"));
+		TS_ASSERT(!store.isOpen());
+		TS_ASSERT(!store.takeReadFailure());
+		fail = false;
+		p = (byte *)malloc(f.body.size());
+		memcpy(p, f.body.begin(), f.body.size());
+		TS_ASSERT(store.open(new FlakyStream(p, f.body.size(), fail), 0, f.body.size(), f.lines.begin(),
+							 f.lines.size(), 5, 0, "i.trs"));
+		uint first, last;
+		const byte *text = f.originals[5].begin();
+		TS_ASSERT(store.find(text, strLen(text), first, last));
+	}
+
+	/// Fails the first read that reaches past @p from, then reads normally.
+	class FailOnceStream : public Common::MemoryReadStream {
+	public:
+		FailOnceStream(byte *p, uint32 n, uint32 from) : Common::MemoryReadStream(p, n, DisposeAfterUse::YES), _from(from), _failed(false) {}
+		uint32 read(void *dataPtr, uint32 dataSize) override {
+			if (!_failed && pos() + dataSize > _from) {
+				_failed = true;
+				return 0;
+			}
+			return Common::MemoryReadStream::read(dataPtr, dataSize);
+		}
+
+	private:
+		uint32 _from;
+		bool _failed;
+	};
+
+	static void ignoreSeen(void *, const byte *, uint32) {}
+
+	// A translation whose read fails while open() indexes the body (for the
+	// hi-res layer) does not stay unreadable for the session: the scan's
+	// failed range is forgotten, and the line reads it again when needed.
+	void test_a_translation_unread_by_the_scan_is_read_later() {
+		Common::Array<byte> body;
+		const char *origs[2] = { "a", "b" };
+		Common::Array<Scumm::TrsStore::Line> lines;
+		for (int i = 0; i < 2; ++i) {
+			Scumm::TrsStore::Line l;
+			l.orig = body.size();
+			body.push_back((byte)origs[i][0]);
+			body.push_back(0);
+			lines.push_back(l);
+		}
+		const uint32 far = SCUMM_TRS_SCAN_BLOCK + 100;
+		while (body.size() < far)
+			body.push_back(0);
+		for (int i = 0; i < 2; ++i) {
+			lines[i].trans = body.size();
+			body.push_back('T');
+			body.push_back((byte)('0' + i));
+			body.push_back(0);
+		}
+		byte *p = (byte *)malloc(body.size());
+		memcpy(p, body.begin(), body.size());
+		Scumm::TrsStore store;
+		TS_ASSERT(store.open(new FailOnceStream(p, body.size(), SCUMM_TRS_SCAN_BLOCK), 0, body.size(), lines.begin(),
+							 lines.size(), 5, 0, "s.trs", 512, &ignoreSeen, nullptr));
+		TS_ASSERT(!store.takeReadFailure());
+		const byte *t = store.translation(1);
+		TS_ASSERT(t != nullptr);
+		if (t)
+			TS_ASSERT_EQUALS(t[1], (byte)'1');
+	}
 };

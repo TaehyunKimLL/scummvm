@@ -14,7 +14,7 @@
 ;   104  the same narration's outline passes (drawn under    18
 ;        103, several times, one game pixel apart)
 ;
-; Default (true colour: render_target=auto, rgb888 or rgb565):
+; Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888):
 ;   body - KO2350B.SVF, Gowun Batang Bold 17 px, 2 bpp: fonts 1, 4, 103;
 ;   ui   - KO2350G.SVF, NanumGothic-Bold 16 px, 2 bpp: font 0 and any other id;
 ;   out  - CAMOUU.SVF: font 104.
