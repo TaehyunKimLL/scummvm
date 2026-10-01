@@ -264,4 +264,38 @@ public:
 		Scumm::TrsStore store;
 		TS_ASSERT(!store.open(streamOf(f.body, 0), 0, f.lines.back().orig + 1, f.lines.begin(), f.lines.size(), 5, 0, "c.trs"));
 	}
+
+	class FlakyStream : public Common::MemoryReadStream {
+	public:
+		FlakyStream(byte *p, uint32 n, bool &fail) : Common::MemoryReadStream(p, n, DisposeAfterUse::YES), _fail(fail) {}
+		uint32 read(void *dataPtr, uint32 dataSize) override {
+			return _fail ? 0 : Common::MemoryReadStream::read(dataPtr, dataSize);
+		}
+
+	private:
+		bool &_fail;
+	};
+
+	// A read that fails is told apart from "no such line", so the engine
+	// can leave the line untranslated rather than look elsewhere.
+	void test_a_failed_read_is_reported_not_taken_for_absent() {
+		Fixture f;
+		build(f, 200);
+		bool fail = false;
+		byte *p = (byte *)malloc(f.body.size());
+		memcpy(p, f.body.begin(), f.body.size());
+		Scumm::TrsStore store;
+		TS_ASSERT(store.open(new FlakyStream(p, f.body.size(), fail), 0, f.body.size(), f.lines.begin(), f.lines.size(),
+							 5, 0, "f.trs", 512));
+		TS_ASSERT(!store.takeReadFailure());
+		fail = true;
+		uint first, last;
+		const byte *text = f.originals[150].begin();
+		TS_ASSERT(!store.find(text, strLen(text), first, last));
+		TS_ASSERT(store.takeReadFailure());
+		TS_ASSERT(!store.takeReadFailure());	// taken
+		fail = false;
+		TS_ASSERT(store.find(text, strLen(text), first, last));
+		TS_ASSERT(!store.takeReadFailure());
+	}
 };
