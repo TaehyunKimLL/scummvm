@@ -1,0 +1,54 @@
+; King's Quest I (SCI remake), Korean UTF-8 translation. One map, two presets;
+; the ini's render_target picks one.
+;
+; Default (true colour: render_target=auto, rgb888 or rgb565): two faces,
+; picked by the game's font id:
+;   body - font 300, the message boxes and narration: KO2350B.SVF (Gowun
+;          Batang Bold, 17 px, 2 bpp, ASCII + ksx1001-nohanja: 2350 Hangul +
+;          KS X 1001 symbols);
+;   ui   - everything else (font 0: status line, menu bar, parser line;
+;          font 4: the title menu's buttons; any other id): KO2350G.SVF
+;          (NanumGothic-Bold, 16 px, 2 bpp, same charset).
+; Both are baked on one baseline in a 16x16 cell (bake-dos-fonts.sh,
+; --clip-cell): align=cell puts them on the game's 16-row line with no
+; offset and no ink above or below it. The 16 px KO2350.SVF does not back
+; them up: its other baseline would make the face chain 18 rows and move
+; every glyph up a row; KQ1's text needs none of the symbols it holds.
+; blend=auto anti-aliases the 2 bpp faces on a true-colour screen; with
+; them in the bare sections, render_target=auto picks true colour.
+;
+; render_target=clut8 (8-bit palette): every id on KO2350.SVF (16 px, 1 bpp)
+; on the game baseline, drawn hard-edged.
+;
+; Characters no face has draw U+25A1. KQ1's translation needs nothing
+; outside the 2350 Hangul.
+[map]
+version=2
+
+[render]
+scale=2
+blend=auto
+[render:clut8]
+blend=off
+
+[fonts]
+ui=KO2350G.SVF
+body=KO2350B.SVF
+[fonts:clut8]
+; the 8-bit preset: one 1 bpp face under both names
+ui=KO2350.SVF
+body=KO2350.SVF
+
+[font]
+face=ui
+missing=u+25a1
+align=cell
+; ASCII from the same SVF as the Hangul, stepped by its own widths
+range.basic-latin=same
+advance.basic-latin=font
+[font:clut8]
+; the 1 bpp ink sits on the game baseline
+align=game
+
+[font.300]
+face=body

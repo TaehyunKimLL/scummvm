@@ -1,17 +1,26 @@
 ; Hi-res text map: Korean text in NanumGothic Bold, blended at 2x.
 ;
 ; A starting point for SCUMM v5/v6 (Monkey Island 1/2), SCI (KQ1) and AGS
-; Korean translations. Copy it into the game folder as hires_text.map, or
-; point the game's hires_text_map= setting at it.
+; Korean translations. Copy it into the game folder as HIRESTXT.MAP, or
+; point the game's hires_text_map= setting at it. It uses only keys every
+; one of those engines reads.
 ;
 ; "data:" names a font shipped with ScummVM (dists/engine-data/hires_text/,
 ; installed as <datadir>/hires_text/). It is looked up in the extrapath
 ; (command line, game, global), then the ScummVM data directory. See
 ; hires_text/fonts/FONTS.md for the licences.
-[hires]
+;
+; blend=auto anti-aliases the face on a true-colour screen; a TrueType face
+; has coverage, so render_target=auto picks true colour where the engine can.
+[map]
+version=2
+
+[render]
 scale=2
-alpha=true
-face=ko
+blend=auto
 
 [fonts]
 ko=data:hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf
+
+[font]
+face=ko

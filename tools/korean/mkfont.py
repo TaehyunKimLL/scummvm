@@ -197,12 +197,16 @@ def chars_from_map(path):
                 continue
             key, _, value = line.partition("=")
             key, value = key.strip().lower(), value.strip()
-            if section == "hires" and key == "missing":
+            # 버전 2 맵: [font]/[font.N] missing=, [glyphs]/[glyphs.N].
+            # 버전 1 의 [hires] missing= 과 keep 도 그대로 읽는다.
+            if (section in ("hires", "font") or section.startswith("font.")) and key == "missing":
                 cp = _parse_code_value(value)
                 if cp is not None:
                     cps.append(cp)
-            elif section == "glyphs":
-                if value.lower() == "keep" or value.startswith("+"):
+            elif section == "glyphs" or section.startswith("glyphs."):
+                # original/keep 은 게임 글꼴, +n 은 고정 코드가 아니고,
+                # <face>:u+XXXX 는 그 face 의 글자라 이 글꼴과 상관없다.
+                if value.lower() in ("keep", "original") or value.startswith("+") or ":" in value:
                     continue
                 cp = _parse_code_value(value)
                 if cp is not None:

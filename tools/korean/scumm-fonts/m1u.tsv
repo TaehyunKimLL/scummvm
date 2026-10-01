@@ -1,4 +1,4 @@
-# MI1 (DUMB Korean VGA patch), U preset: 2 bpp, alpha=true in M1KOU.MAP.
+# MI1 (DUMB Korean VGA patch), U preset: 2 bpp, M1KO.MAP's default (true-colour) preset.
 # Fields: output 8.3 name, SCUMM charset, TTF, size, bpp, ascent.
 # Dialogue (charsets 0-3): NanumGothic-Bold; title card (charset 4): GowunBatang-Bold.
 # Size and ascent are what mkfont.py --fit-cell picks for the charset's cell over the
@@ -6,7 +6,7 @@
 #   Nanum 22x24 -> 21/19, 16x16 -> 15/14, 18x18 -> 16/15; Gowun 26x24 -> 17/19.
 # The card size is small because four stray symbols in the noisy scummtext.py scan
 # (U+3389 U+339C U+33BD U+33BF) do not fit any larger size; see the Task 9 report.
-# Charset 3 has the same 16x16 cell as charset 1: one file serves both (see M1KOU.MAP).
+# Charset 3 has the same 16x16 cell as charset 1: one file serves both (see M1KO.MAP).
 # The TTF field starts with $FONTS (default ~/scummvm-i18n/fonts; set FONTS=... to move it).
 M1U0.SVF	0	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	21	2	19
 M1U1.SVF	1	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	15	2	14

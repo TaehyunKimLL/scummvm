@@ -1,0 +1,66 @@
+# Monkey Island 1 (mi1kor Korean patch). One map, two presets; the ini's
+# render_target picks one.
+#   Default (true colour: render_target=auto, rgb888 or rgb565): M1U*.SVF, 2 bpp,
+#   anti-aliased (blend=auto), baked by tools/korean/scumm-fonts/m1u.tsv:
+#   dialogue, verbs and the sentence line in a gothic face, the title/credit
+#   card in a serif face. With them in the bare sections, render_target=auto
+#   picks true colour.
+#   render_target=clut8 (8-bit palette): M1L*.SVF, 1 bpp, baked from a pixel
+#   face (tools/korean/scumm-fonts/m1l.tsv), drawn hard-edged.
+# Cells per charset: cs0 22x24, cs1/cs3 16x16, cs2 18x18, cs4 26x24; both
+# presets bake the same cells. Charsets that share a cell share one SVF.
+# Licences: see M12FONT.TXT beside this file.
+[map]
+version=2
+
+[render]
+scale=2
+blend=auto
+[render:clut8]
+blend=off
+
+[fonts]
+cs0=M1U0.SVF
+cs1=M1U1.SVF
+cs2=M1U2.SVF
+cs4=M1U4.SVF
+[fonts:clut8]
+cs0=M1L0.SVF
+cs1=M1L1.SVF
+cs2=M1L2.SVF
+cs4=M1L4.SVF
+
+[font]
+missing=u+25a1
+# ASCII from each charset's own SVF (never the game's internal font),
+# stepped by the face's own widths
+range.basic-latin=same
+advance.basic-latin=font
+
+[font.0]
+face=cs0
+[font.1]
+face=cs1
+[font.2]
+face=cs2
+[font.3]
+# the same 16x16 cell as charset 1
+face=cs1
+[font.4]
+face=cs4
+
+# An ellipsis on the baseline, not a caret; present in every charset (mi1kor/hires_text.map,
+# dumped from the 90x.LFL charsets: "...trailing off^" in the scanned patch text). Real
+# punctuation, so it is drawn by the replacement font like any other character.
+[glyphs]
+0x5e = u+2026
+
+# Solid arrows in the 2 bpp dialogue and card charsets: the game's own glyphs.
+# 0x5f is a real underscore elsewhere.
+[glyphs.2]
+0x5f = original
+0x7f = original
+
+[glyphs.4]
+0x5f = original
+0x7f = original

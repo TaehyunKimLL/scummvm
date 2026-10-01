@@ -1,0 +1,92 @@
+; Laura Bow 1 (The Colonel's Bequest), Korean UTF-8 translation (GAMES\LB1KO:
+; MESSAGE.MAP + RESOURCE.MSG, packed text resources + SCI-KO.STR,
+; language=ko). One map, two presets; the ini's render_target picks one.
+;
+; LB1's font ids, their line height in hi-res px and the game baseline row:
+;   0   status/menu bar, parser line, system dialogs    16  row 14
+;   1   large message boxes ("막이 오르려")              24  row 16
+;   4   dialogue, narration, copy-protection screen      18  row 14
+;   8   cast names under the intro portraits             24  row 20
+;   40  the "1925 / LA 뉴올리언스" caption               36  row 30
+;   41  opening credits and act titles ("제I막")        36  row 30
+;
+; Default (true colour: render_target=auto, rgb888 or rgb565): two faces,
+; picked by the font id:
+;   body - KO2350B.SVF, Gowun Batang Bold 17 px, 2 bpp: fonts 1, 4, 8, 40, 41;
+;   ui   - KO2350G.SVF, NanumGothic-Bold 16 px, 2 bpp: font 0 and any other id.
+; Both are baked on one baseline in a 16x16 cell (--clip-cell); align=cell
+; puts every glyph on its line with no offset, so no ink lies outside the
+; line the game erases. blend=auto anti-aliases the 2 bpp faces on a
+; true-colour screen; with them in the bare sections, render_target=auto
+; picks true colour.
+;
+; render_target=clut8 (8-bit palette): every id on KO2350.SVF (16 px, 1 bpp)
+; on the game baseline, drawn hard-edged. Its ink is rows 1-13 (baseline row
+; 12, descenders to row 14); on the game baseline it fits every line but
+; font 0's, which is moved up a row. Fonts 40/41 keep the 16 px cell there:
+; the glyphs are 16 px wide.
+;
+; Characters no face has draw U+25A1. LB1's translation needs nothing
+; outside the 2350 Hangul.
+[map]
+version=2
+
+[render]
+scale=2
+blend=auto
+[render:clut8]
+blend=off
+
+[fonts]
+ui=KO2350G.SVF
+body=KO2350B.SVF
+[fonts:clut8]
+; the 8-bit preset: one 1 bpp face under both names
+ui=KO2350.SVF
+body=KO2350.SVF
+
+[font]
+face=ui
+missing=u+25a1
+align=cell
+; ASCII from the same SVF as the Hangul, stepped by its own widths
+range.basic-latin=same
+advance.basic-latin=font
+[font:clut8]
+; the 1 bpp ink sits on the game baseline
+align=game
+
+; status line, menu bar, parser line, system dialogs: 16 px lines; the 1 bpp
+; ink on rows 2-15 instead of 3-16
+[font.0:clut8]
+shift=-1
+
+[font.1]
+face=body
+
+[font.4]
+face=body
+
+; the cast names are lined up under the portraits with runs of spaces:
+; spaces and Latin keep the game font's widths
+[font.8]
+face=body
+advance.basic-latin=game
+
+; credits and act titles, caption: the game font is 18 game px tall; the
+; true-colour glyphs get an 18 px cell (cell=glyph) so they never touch
+[font.40]
+face=body
+cell=glyph
+size=18
+[font.40:clut8]
+cell=game
+size=16
+
+[font.41]
+face=body
+cell=glyph
+size=18
+[font.41:clut8]
+cell=game
+size=16

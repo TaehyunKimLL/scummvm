@@ -4,22 +4,30 @@
 ; Galmuri9 is drawn at 10 px, its design size, when the charset cell is 12
 ; (FT's dialogue charset). Do not add a size= key: the fit would shrink the
 ; font off its pixel grid. Other cells land off the grid (cell 9 -> 8 px).
+; blend=off draws it as a hard stencil: the keyed 8-bit look. (A SCUMM v7
+; game always runs on an 8-bit palette screen.)
 ; See hires_text/fonts/FONTS.md for the licence.
-[hires]
-scale=1
-alpha=false
-
-[encoding]
-codepage=cp949
-
-[fonts]
-default=data:hires_text/fonts/galmuri/Galmuri9.ttf
+[map]
+version=2
 
 [render]
-metrics=game
+scale=1
+blend=off
+
+[text]
+encoding=cp949
+
+[fonts]
+galmuri9=data:hires_text/fonts/galmuri/Galmuri9.ttf
+
+[font]
+face=galmuri9
+; every glyph steps by the game font's width for its code
+advance=game
 
 [shadow]
 mode=game
 
 [glyphs]
-0x5e=keep
+; the game's own glyph, not a caret from the face
+0x5e=original
