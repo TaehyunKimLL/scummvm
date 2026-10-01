@@ -503,6 +503,39 @@ protected:
 	int _memoryLRU;		///< Amount of resource bytes under LRU control
 	Common::List<Resource *> _LRU; ///< Last Resource Used list
 	ResourceMap _resMap;
+
+	/**
+	 * The audio36 and sync36 entries of SCI1.1 CD audio maps, kept as they
+	 * are listed (16 bytes each) rather than as Resources in _resMap (some
+	 * 120 bytes each with their hash map node): LB2 lists over 10000 and
+	 * plays a few hundred. An entry becomes a Resource when it is first
+	 * asked for (testResource()), and then leaves the list. Each map's
+	 * entries are one run, sorted; _lazyAudioRuns finds a map's run.
+	 */
+	struct LazyAudioEntry {
+		uint32 tuple;
+		uint32 offset;
+		uint32 size;
+		uint16 order;	///< position in its map (the first of a repeated id wins); 0xFFFF: made a Resource
+		byte type;		///< kResourceTypeAudio36 or kResourceTypeSync36
+		byte source;	///< index into _lazyAudioSources
+	};
+	struct LazyAudioRun {
+		uint16 number;	///< the map's number, the resources' number
+		uint32 start, count;
+	};
+	mutable Common::Array<LazyAudioEntry> _lazyAudio;
+	Common::Array<LazyAudioRun> _lazyAudioRuns;	///< by number
+	Common::Array<ResourceSource *> _lazyAudioSources;
+	/** The entry for @p id not yet made a Resource, or null. */
+	LazyAudioEntry *findLazyAudio(const ResourceId &id) const;
+	/** The Resource for a listed entry, made now (see _lazyAudio). */
+	Resource *makeLazyAudio(const ResourceId &id, LazyAudioEntry &entry) const;
+	/** Forget the listed entries of @p type (-1: both). */
+	void dropLazyAudio(int type);
+	/** Sort and add map @p number's entries from @p first to the end as its run. */
+	void finishLazyAudioRun(uint16 number, uint32 first);
+
 	Common::List<Common::File *> _volumeFiles; ///< list of opened volume files
 	ResourceSource *_audioMapSCI1; ///< Currently loaded audio map for SCI1
 	ResVersion _volVersion; ///< resource.0xx version

@@ -399,6 +399,7 @@ int ResourceManager::readAudioMapSCI11(IntMapResourceSource *map) {
 		return SCI_ERROR_NO_RESOURCE_FILES_FOUND;
 	}
 
+	const uint32 volumeSize = (uint32)fileStream->size();
 	disposeVolumeFileStream(fileStream, src);
 
 	SciSpan<const byte>::const_iterator ptr = mapRes->cbegin();
@@ -492,6 +493,50 @@ int ResourceManager::readAudioMapSCI11(IntMapResourceSource *map) {
 		// EQ1CD & SQ4CD are "early" games; KQ6CD and all SCI32 are "late" games
 		const bool isEarly = (entrySize != 11);
 
+		// SCI1.1 lists its audio36 and sync36 entries (_lazyAudio) rather
+		// than making each a Resource now: they are mostly never played.
+		// Not a map number listed already (its entries go the old way, and
+		// meet the listed ones through addResource()), not KQ6's RAVE
+		// entries, not SCI32 (several discs, changeAudioDirectory()).
+		bool lazy = _volVersion < kResVersionSci2 && g_sci && g_sci->getGameId() != GID_KQ6 &&
+					_lazyAudioSources.size() < 255;
+		for (uint r = 0; r < _lazyAudioRuns.size() && lazy; ++r)
+			lazy = _lazyAudioRuns[r].number != map->_mapNumber;
+		byte lazySource = 0;
+		if (lazy) {
+			while (lazySource < _lazyAudioSources.size() && _lazyAudioSources[lazySource] != src)
+				++lazySource;
+			if (lazySource == _lazyAudioSources.size())
+				_lazyAudioSources.push_back(src);
+		}
+		const uint32 lazyFirst = _lazyAudio.size();
+		AudioVolumeResourceSource *avSrc = dynamic_cast<AudioVolumeResourceSource *>(src);
+		// As updateResource() takes an entry: the volume's own offsets, checked
+		// against its size; a bad one is left out, and the game told.
+		auto listLazy = [&](ResourceType type, uint32 tuple, uint32 entryOffset, uint32 entrySize_) {
+			const ResourceId id(type, map->_mapNumber, tuple);
+			if (_resMap.contains(id))
+				return;	// a patch, added first: it stays
+			uint32 off = entryOffset, sz = entrySize_;
+			if (avSrc != nullptr && !avSrc->relocateMapOffset(off, sz)) {
+				warning("Compressed volume %s does not contain a valid entry for %s (map offset %u)", src->getLocationName().toString().c_str(), id.toString().c_str(), off);
+				_hasBadResources = true;
+				return;
+			}
+			if (!validateResource(id, map->getLocationName(), src->getLocationName(), off, sz, volumeSize)) {
+				_hasBadResources = true;
+				return;
+			}
+			LazyAudioEntry e;
+			e.tuple = tuple;
+			e.offset = off;
+			e.size = sz;
+			e.order = (uint16)MIN<uint32>(_lazyAudio.size() - lazyFirst, 0xFFFE);
+			e.type = (byte)type;
+			e.source = lazySource;
+			_lazyAudio.push_back(e);
+		};
+
 		if (!isEarly) {
 			offset = ptr.getUint32LE();
 			ptr += 4;
@@ -533,7 +578,10 @@ int ResourceManager::readAudioMapSCI11(IntMapResourceSource *map) {
 				// FIXME: The sync36 resource seems to be two bytes too big in KQ6CD
 				// (bytes taken from the RAVE resource right after it)
 				if (syncSize > 0) {
-					addResource(ResourceId(kResourceTypeSync36, map->_mapNumber, n & 0xffffff3f), src, offset, syncSize, map->getLocationName());
+					if (lazy)
+						listLazy(kResourceTypeSync36, n & 0xffffff3f, offset, syncSize);
+					else
+						addResource(ResourceId(kResourceTypeSync36, map->_mapNumber, n & 0xffffff3f), src, offset, syncSize, map->getLocationName());
 				}
 			}
 
@@ -630,8 +678,13 @@ int ResourceManager::readAudioMapSCI11(IntMapResourceSource *map) {
 				continue;
 			}
 
-			addResource(id, src, offset + syncSize, 0, map->getLocationName());
+			if (lazy)
+				listLazy(kResourceTypeAudio36, id.getTuple(), offset + syncSize, 0);
+			else
+				addResource(id, src, offset + syncSize, 0, map->getLocationName());
 		}
+		if (lazy)
+			finishLazyAudioRun(map->_mapNumber, lazyFirst);
 	}
 
 	mapRes->unalloc();
@@ -1194,6 +1247,7 @@ void ResourceManager::changeAudioDirectory(const Common::Path &path) {
 	// resources. There is also no guarantee that there are exactly the same
 	// number of audio36/sync36/map resources in each audio directory.
 	// Therefore, all of these resources must be deleted before scanning.
+	dropLazyAudio(-1);
 	for (ResourceMap::iterator it = _resMap.begin(); it != _resMap.end(); ++it) {
 		const ResourceType type = it->_key.getType();
 
@@ -1274,6 +1328,7 @@ void ResourceManager::changeAudioDirectory(const Common::Path &path) {
 void ResourceManager::changeMacAudioDirectory(const Common::Path &path_) {
 	// delete all Audio36 resources so that they can be replaced with
 	//  different patch files from the new directory.
+	dropLazyAudio(kResourceTypeAudio36);
 	for (ResourceMap::iterator it = _resMap.begin(); it != _resMap.end(); ++it) {
 		const ResourceType type = it->_key.getType();
 
