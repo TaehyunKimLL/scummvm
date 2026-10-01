@@ -43,14 +43,16 @@ UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common:
 }
 
 UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
-									 Common::String &error) {
+									 Common::String &error, const Common::String &name) {
 	HiResBitmapFont *font = new HiResBitmapFont();
 	if (!font->loadStreamed(stream, dispose)) {
 		error = "not a valid SVFN bitmap font";
 		delete font;
 		return nullptr;
 	}
-	return new SvfnGlyphSource(font, DisposeAfterUse::YES);
+	SvfnGlyphSource *src = new SvfnGlyphSource(font, DisposeAfterUse::YES);
+	src->setName(name);
+	return src;
 }
 
 } // End of namespace Graphics
