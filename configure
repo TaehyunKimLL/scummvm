@@ -3938,6 +3938,9 @@ if test -n "$_host"; then
 			append_var DEFINES "-DDISABLE_SCI_MAC_AUDIO"
 			# No --help text (the option list) in the executable.
 			append_var DEFINES "-DDISABLE_HELP_STRINGS"
+			# Detection tables without the games these editions cannot run
+			# (SCI32; SCUMM v7/v8 and HE): engines/*/module.mk generate them.
+			append_var DEFINES "-DDOS_DETECTION_FILTER"
 			;;
 		kos32)
 			# neither pkg-config nor *-config work, so we setup everything manually

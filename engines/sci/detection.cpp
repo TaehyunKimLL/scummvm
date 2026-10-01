@@ -164,7 +164,11 @@ static const PlainGameDescriptor s_sciGameTitles[] = {
 
 } // End of namespace Sci
 
+#ifdef DOS_DETECTION_FILTER
+#include "dosdetect/sci/detection_tables.h"	// built from sci/detection_tables.h, see backends/platform/dos/detection-filter.py
+#else
 #include "sci/detection_tables.h"
+#endif
 
 namespace Sci {
 
