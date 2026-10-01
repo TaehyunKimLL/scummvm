@@ -611,4 +611,17 @@ uint32 SafeMutexedSeekableSubReadStream::read(void *dataPtr, uint32 dataSize) {
 	return Common::SafeSeekableSubReadStream::read(dataPtr, dataSize);
 }
 
+static StreamUnbufferer s_streamUnbufferer = nullptr;
+
+StreamUnbufferer setStreamUnbufferer(StreamUnbufferer unbufferer) {
+	const StreamUnbufferer before = s_streamUnbufferer;
+	s_streamUnbufferer = unbufferer;
+	return before;
+}
+
+void unbufferStream(SeekableReadStream *stream) {
+	if (stream && s_streamUnbufferer)
+		s_streamUnbufferer(stream);
+}
+
 } // End of namespace Common

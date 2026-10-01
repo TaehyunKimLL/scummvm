@@ -984,6 +984,27 @@ public:
 	bool seek(int64 offset, int whence = SEEK_SET) override { return _parentStream->seek(offset, whence); }
 };
 
+/**
+ * How a backend drops the library buffer of one of its file streams (see
+ * unbufferStream()); it leaves streams of other kinds alone.
+ */
+typedef void (*StreamUnbufferer)(SeekableReadStream *stream);
+
+/**
+ * Set by a backend whose file streams carry a library buffer (a C stdio
+ * FILE). Returns the one set before.
+ */
+StreamUnbufferer setStreamUnbufferer(StreamUnbufferer unbufferer);
+
+/**
+ * For a stream a cache keeps open and reads in blocks of its own: drop the
+ * file stream's library buffer, so that a block read is one read of that
+ * block. Called right after the stream is opened, before any read (a C
+ * stdio buffer cannot be changed after I/O). Null, a stream of another
+ * kind, or no backend that registered how, does nothing.
+ */
+void unbufferStream(SeekableReadStream *stream);
+
 /** @} */
 
 } // End of namespace Common
