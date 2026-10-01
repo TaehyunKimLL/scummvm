@@ -3912,6 +3912,9 @@ if test -n "$_host"; then
 			_nuked_opl=no
 			# Its mixers (Sound Blaster and null) are stereo, 16-bit.
 			append_var DEFINES "-DAUDIO_RATE_STEREO_INT16_ONLY"
+			# C64 and NES music (SCUMM): not DOS games.
+			_sid_audio=no
+			append_var DEFINES "-DDISABLE_NES_APU"
 			;;
 		kos32)
 			# neither pkg-config nor *-config work, so we setup everything manually
