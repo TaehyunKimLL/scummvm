@@ -88,6 +88,7 @@ class FontSJIS;
 namespace Scumm {
 
 class Actor;
+class TrsStore;
 class BaseCostumeLoader;
 class BaseCostumeRenderer;
 class BaseScummFile;
@@ -2039,6 +2040,8 @@ private:
 	int _numTranslatedLines = 0;
 	TranslatedLine *_translatedLines = nullptr;
 	uint16 *_languageLineIndex = nullptr;
+	/// The body left in the file (then _languageBuffer is null), or null.
+	TrsStore *_trsStore = nullptr;
 	Common::HashMap<byte, TranslationRoom> _roomIndex;
 
 	/** Rewrite a UTF-8 bundle's translations in _trsTranscodeTo (hi-res off). */

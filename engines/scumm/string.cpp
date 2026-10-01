@@ -32,6 +32,7 @@
 #include "scumm/dialogs.h"
 #include "scumm/file.h"
 #include "scumm/text_utf8.h"
+#include "scumm/trs_store.h"
 #include "scumm/trs_bundle.h"
 #include "scumm/imuse_digi/dimuse_engine.h"
 #ifdef ENABLE_HE
@@ -2599,26 +2600,64 @@ void ScummEngine::loadLanguageBundle() {
 		_translatedLines[i].originalTextOffset -= bodyPos;
 		_translatedLines[i].translatedTextOffset -= bodyPos;
 	}
-	_languageBuffer = new byte[size - bodyPos];
-	file.read(_languageBuffer, size - bodyPos);
+	const uint32 bodySize = (uint32)(size - bodyPos);
+
+	// The body stays in the file, read as lines are looked up (TrsStore):
+	// MI2's is 740 KB. Not when a UTF-8 bundle is rewritten in a code page
+	// below, nor for German Indy 3, whose string ends depend on the room
+	// (resStrLen()), nor when the bundle's lines are not in sorted order.
+	if (_trsTranscodeTo == Common::kCodePageInvalid && !(_game.id == GID_INDY3 && _language == Common::DE_DEU)) {
+		ScummFile *body = new ScummFile(this);
+		openFile(*body, bundle);
+		if (body->isOpen()) {
+			Common::Array<TrsStore::Line> lines;
+			lines.resize(_numTranslatedLines);
+			for (int i = 0; i < _numTranslatedLines; i++) {
+				lines[i].orig = _translatedLines[i].originalTextOffset;
+				lines[i].trans = _translatedLines[i].translatedTextOffset;
+			}
+			_trsStore = new TrsStore();
+			if (!_trsStore->open(body, bodyPos, bodySize, lines.begin(), lines.size(), _game.version, _game.heversion,
+								 bundle.baseName())) {
+				delete _trsStore;
+				_trsStore = nullptr;
+			}
+		} else {
+			delete body;
+		}
+	}
+
+	if (!_trsStore) {
+		file.seek(bodyPos);
+		_languageBuffer = new byte[bodySize];
+		file.read(_languageBuffer, bodySize);
+	}
 	file.close();
 
 	// A UTF-8 bundle with hi-res text off: its translations go to the
 	// language's legacy code page now, so the game's CJK font draws them
 	// the way it draws a legacy bundle (probeLanguageBundle()).
 	if (_trsTranscodeTo != Common::kCodePageInvalid)
-		transcodeLanguageBundle((uint32)(size - bodyPos));
+		transcodeLanguageBundle(bodySize);
 
 	// The hi-res text layer checks its faces against the characters the
 	// translation actually uses (loadFonts() runs after this).
 	if (_hiResText.enabled()) {
-		const uint32 bodySize = (uint32)(size - bodyPos);
+		Common::Array<byte> translation;
 		for (int i = 0; i < _numTranslatedLines; i++) {
 			const uint32 off = _translatedLines[i].translatedTextOffset;
-			if (off < bodySize)
+			if (off >= bodySize)
+				continue;
+			if (!_trsStore)
 				_hiResText.noteTranslatedString(_languageBuffer + off, bodySize - off);
+			else if (_trsStore->peek(off, translation))
+				_hiResText.noteTranslatedString(translation.begin(), translation.size());
 		}
 	}
+
+	if (_trsStore)
+		debug(1, "SCUMM: %s: %d lines, index %u bytes, strings read as used (%u KB kept)",
+			  bundle.toString().c_str(), _numTranslatedLines, _trsStore->indexBytes(), SCUMM_TRS_CACHE_KB);
 
 	debug(2, "loadLanguageBundle: Loaded %d entries", _numTranslatedLines);
 }
@@ -2661,6 +2700,33 @@ const byte *ScummEngine::searchTranslatedLine(const byte *text, const Translatio
 	int right = range.right;
 
 	int dbgIterationCount = 0;
+
+	if (_trsStore) {
+		// The same search over the same lines, without the originals'
+		// text: the lines whose original is text are [first, last] in the
+		// sorted order, so a line before them compares less and one after
+		// greater, as memcmp() found.
+		uint first, last;
+		if (!_trsStore->find(text, (uint32)textLen, first, last)) {
+			debug(8, "searchTranslatedLine: Not found (no such original)");
+			return nullptr;
+		}
+		while (left <= right) {
+			dbgIterationCount++;
+			const int mid = (left + right) / 2;
+			const uint idx = useIndex ? _languageLineIndex[mid] : (uint)mid;
+			if (idx >= first && idx <= last) {
+				debug(8, "searchTranslatedLine: Found in %d iteration", dbgIterationCount);
+				return _trsStore->string(_translatedLines[idx].translatedTextOffset);
+			} else if (idx > last) {
+				right = mid - 1;
+			} else {
+				left = mid + 1;
+			}
+		}
+		debug(8, "searchTranslatedLine: Not found in %d iteration", dbgIterationCount);
+		return nullptr;
+	}
 
 	while (left <= right) {
 		dbgIterationCount++;
