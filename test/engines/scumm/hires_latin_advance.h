@@ -16,10 +16,9 @@
  * latinStepsByFace() (design section 8's advance=): true exactly when
  * advanceFor()'s own resolution would draw the ASCII character from a
  * TrueType face and step by that face's own advance (advance.basic-
- * latin=font). Since Task 7 SCUMM's engine-scope default is advance.basic-
- * latin=game (design section 8's table): a TrueType face no longer steps
- * Latin by itself unless the map (or hires_text_advance) asks for it - the
- * inverse of C34/C36's old default.
+ * latin=font). SCUMM's engine-scope default is advance.basic-latin=game
+ * (design section 8's table): a TrueType face does not step Latin by
+ * itself unless the map (or hires_text_advance) asks for it.
  */
 class ScummHiResLatinAdvanceTestSuite : public CxxTest::TestSuite {
 	static const int kCs = ScummHiResFixture::kCs;
@@ -127,7 +126,7 @@ public:
 	}
 
 	/**
-	 * drawsMissingGameGlyph() (LOST, hires_latin_advance.h): a game glyph
+	 * drawsMissingGameGlyph(): a game glyph
 	 * the charset has none for (prepareDraw() failed) is still drawn, and
 	 * measured at the face's own step from a game width of 0, when
 	 * advance.basic-latin=font makes the ASCII character step by the face
@@ -180,7 +179,7 @@ public:
 	 * A TrueType Latin glyph's ink often overhangs its own advance step
 	 * (italic-leaning descenders/ascenders: 'j', slashes, 'W', 'f') - the
 	 * dirty rect drawChar() hands back must still contain every pixel it
-	 * actually inked, at every scale (LOST, hires_latin_advance.h).
+	 * actually inked, at every scale.
 	 */
 	void test_latin_overhang_inside_dirty() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
@@ -238,7 +237,7 @@ public:
 	 * A pixel=-sized TrueType Latin face (design's pixel=, held at its
 	 * design size in the game cell rather than scaled to fit it) still
 	 * steps Latin by the face under advance.basic-latin=font, the same as
-	 * a plain size= one (LOST, hires_latin_advance.h).
+	 * a plain size= one.
 	 */
 	void test_pixel_face_latin() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
@@ -266,10 +265,10 @@ public:
 	/**
 	 * Stepping by the face (advance.basic-latin=font), a Latin glyph is
 	 * drawn at the pen, not centred in the game's (wider) width - unlike
-	 * advance.basic-latin=game's centring, which H1's own tests cover
-	 * (LOST, hires_latin_advance.h).
+	 * advance.basic-latin=game's centring, which hires_glyph_advance.h
+	 * covers.
 	 */
-	void test_latin_face_step_not_centred() {
+	void test_face_step_latin_not_centred() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		const char *ttf = systemTtf();
 		if (!ttf) {

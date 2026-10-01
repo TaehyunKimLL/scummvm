@@ -201,7 +201,7 @@ public:
 	}
 
 	/**
-	 * Task 8 review M2: adoptScreen() must refresh wantsAlpha() alongside
+	 * adoptScreen() must refresh wantsAlpha() alongside
 	 * blend()/anyCoverage(), or createCoverage() (gated on wantsAlpha(),
 	 * called once after adoptScreen()/setAlphaActive() in
 	 * ScummEngine::init()) can be left never allocating a coverage surface

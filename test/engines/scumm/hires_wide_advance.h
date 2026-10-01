@@ -111,8 +111,7 @@ public:
 		// game code only in UTF-8 mode; without this, 0xAC00 decodes to
 		// nothing and advanceFor() returns gameWidth from its own early-out,
 		// which happened to equal 12 below regardless of cellRuleAdvance()
-		// (M10's flagged weak-test pattern - this one was not caught by the
-		// review, but has the identical defect: see test_wide_keeps_cell).
+		// (the same weak-test pattern as test_wide_keeps_cell).
 		hr.useUtf8Text();
 		Common::Array<uint32> own;
 		own.push_back(0xAC00);
@@ -232,7 +231,7 @@ public:
 #endif
 	}
 
-	/// M4: the wide-glyph clip to ttfCellWidth() only applies to a face
+	/// The wide-glyph clip to ttfCellWidth() only applies to a face
 	/// opened line-fit (sized to the game's own cell); a face given an
 	/// explicit size= draws and advances at its own size, uncapped, even
 	/// on a tiny 8 px game charset (the old test_font_n_is_charset_id
@@ -299,7 +298,7 @@ public:
 #endif
 	}
 
-	/// M5: a TrueType face is re-opened when its own charset's size becomes
+	/// A TrueType face is re-opened when its own charset's size becomes
 	/// known, even though it was already opened once at a borrowed/guessed
 	/// size (nearestTtfCharset(), before noteGameCharset() gave the id its
 	/// own cell) - the old ttfFaceFor()'s "a charset on another cell opens
@@ -332,7 +331,7 @@ public:
 		// for glyph-box geometry) is given up front regardless - without
 		// it, nearestTtfCharset()'s own `_charsetWidths[kCs] <= 0` guard
 		// refuses to borrow a size for kCs at all, which is not what this
-		// test is about (that guard is unrelated to M5's own re-resolution
+		// test is about (that guard is unrelated to the re-resolution
 		// question).
 		hr.setCharsetGrid(kCs, 48, 48);
 		hr.noteGameCharset(kOtherCs, 8, 8);

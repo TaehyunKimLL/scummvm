@@ -249,8 +249,7 @@ protected:
 	// Same null-tolerant shape, and null for the same reason. Writes
 	// hires_text_blend=on|off (design section 7.2) only when the box's state
 	// at save() differs from the one it was given at load() - an untouched
-	// dialog leaves the key alone, unlike the old unconditional
-	// hires_text_alpha=true.
+	// dialog leaves the key alone.
 	GUI::CheckboxWidget *createHiResTextBlendCheckbox(GuiObject *boss, const Common::String &name);
 	void loadHiResTextBlendCheckbox(GUI::CheckboxWidget *checkbox) const;
 	void saveHiResTextBlendCheckbox(GUI::CheckboxWidget *checkbox) const;

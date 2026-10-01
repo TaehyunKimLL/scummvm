@@ -1273,8 +1273,7 @@ void ScummOptionsContainerWidget::saveHiResTextBlendCheckbox(GUI::CheckboxWidget
 	if (!checkbox)
 		return;
 	// Write only when the player actually toggled it (design section 7.2):
-	// an untouched dialog must leave hires_text_blend alone, unlike the old
-	// unconditional hires_text_alpha=true.
+	// an untouched dialog must leave hires_text_blend alone.
 	if (checkbox->getState() == _hiResTextBlendOpenedState)
 		return;
 	ConfMan.set("hires_text_blend", checkbox->getState() ? "on" : "off", _domain);

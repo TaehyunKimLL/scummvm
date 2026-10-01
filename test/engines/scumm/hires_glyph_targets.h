@@ -37,7 +37,7 @@ class ScummHiResGlyphTargetsTestSuite : public CxxTest::TestSuite {
 		return false;
 	}
 
-	/// M1: how many times a given warning text appears - spec 10 says "once
+	/// How many times a given warning text appears - spec 10 says "once
 	/// per cause per load", and a text present in the array does not by
 	/// itself say how many times it was pushed.
 	static int warningCount(const Scumm::ScummHiResText &hr, const Common::String &text) {
@@ -137,7 +137,7 @@ public:
 		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cp));
 	}
 
-	// ---- S3 / spec 10.4: load-time warnings, kept in HiResMap::warnings ----
+	// ---- spec 10.4: load-time warnings, kept in HiResMap::warnings ----
 
 	/// An SVF whose cell height differs from the first SVF of the id's own
 	/// chain is refused and dropped: 'B' (only in TALL.SVF) is never drawn.
@@ -158,7 +158,7 @@ public:
 		TS_ASSERT(!hr.perGlyphSourceFor(kCs, cp));
 	}
 
-	/// M3: the cell-height check covers every SVF the plan names, not only
+	/// The cell-height check covers every SVF the plan names, not only
 	/// the id chain - a range.*= SVF and a [glyphs] target SVF, each of a
 	/// different height than the id chain's own first SVF, are each refused
 	/// and dropped, with their own warning.
@@ -221,7 +221,7 @@ public:
 		TS_ASSERT_EQUALS(warningCount(hr, "HIRESTXT.MAP: missing=U+25A1 has no effect: OWN.SVF has no glyph for it"), 1);
 	}
 
-	/// M1: a [glyphs] target lacking its glyph, touched through several ids
+	/// A [glyphs] target lacking its glyph, touched through several ids
 	/// that all name the same target face, is still warned about exactly
 	/// once (spec 10: "once per cause per load"), not once per id.
 	void test_target_lacking_glyph_is_warned_once_across_ids() {
@@ -242,8 +242,8 @@ public:
 		TS_ASSERT_EQUALS(warningCount(hr, "HIRESTXT.MAP: [glyphs] 0x07 -> SYM.SVF:U+2620: the face has no such glyph; the game's font draws it"), 1);
 	}
 
-	/// M1: an id with no face of its own at all (a pure borrower of a
-	/// neighbouring id's chain, B6/design 5.3) has nothing of its own to
+	/// An id with no face of its own at all (a pure borrower of a
+	/// neighbouring id's chain, design 5.3) has nothing of its own to
 	/// check missing= against - checking it anyway is a false positive the
 	/// donor id's own binding already covers once. Here kOtherCs borrows
 	/// kCs's chain (ScummHiResFixture::open() gives both the same 8x8 grid).
@@ -263,8 +263,8 @@ public:
 		TS_ASSERT_EQUALS(warningCount(hr, "HIRESTXT.MAP: missing=U+25A1 has no effect: OWN.SVF has no glyph for it"), 1);
 	}
 
-	/// M2: an id naming only a TrueType face still binds (_idBound) and runs
-	/// its S3/M1 load-time checks - openPlanFace() used to record an opened
+	/// An id naming only a TrueType face still binds (_idBound) and runs
+	/// its load-time checks - openPlanFace() used to record an opened
 	/// TrueType path only under its size-qualified cache key, never its raw
 	/// one, so collectFacePaths()'s "every named path is in _sources or
 	/// _failedFaces" gate in checkIdOnceReady() waited forever.
@@ -294,14 +294,14 @@ public:
 		hr.setCharsetGrid(kCs, 16, 16);
 		TS_ASSERT(hr.loadFonts(Common::Path()));
 		// The id's own missing= check must fire once it is bound - it never
-		// did before M2, since a TrueType-only chain's id never bound at all.
+		// did before, since a TrueType-only chain's id never bound at all.
 		TS_ASSERT_EQUALS(warningCount(hr, "HIRESTXT.MAP: missing=U+AC00 has no effect: " + Common::String(ttf) + " has no glyph for it"), 1);
 #else
 		TS_SKIP("needs FreeType and a real filesystem");
 #endif
 	}
 
-	/// M9: a map chain's translation coverage is checked, not only the
+	/// A map chain's translation coverage is checked, not only the
 	/// map-less form's (openTtfChain()'s own call) - checkCoverageForId()
 	/// runs the same Graphics::checkCoverage() from ensureChainSources()
 	/// for every id's own chain. A real file is needed here: loadFonts()

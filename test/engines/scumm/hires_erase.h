@@ -111,7 +111,7 @@ public:
 	}
 
 	/**
-	 * The main screen (review fix): only text the game drew for keeps goes,
+	 * The main screen: only text the game drew for keeps goes,
 	 * whole, by its cell; the painted area itself is not cleared (removable
 	 * text is the charset's); a glyph also drawn into the back buffer stays,
 	 * because the game blits that copy back; a neighbour touched only by its
