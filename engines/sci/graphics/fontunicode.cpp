@@ -22,6 +22,7 @@
 #include "sci/graphics/fontunicode.h"
 #include "sci/graphics/fontkorean.h"
 #include "sci/graphics/fontsjis.h"
+#include "common/archive.h"
 #include "graphics/hires_text/glyph_source_file.h"
 #include "graphics/hires_text/glyph_source_missing.h"
 #include "graphics/hires_text/glyph_source_scvmuni.h"
@@ -34,6 +35,7 @@
 #include "sci/sci.h"
 #include "sci/utf8.h"
 
+#include "common/archive.h"
 #include "common/file.h"
 #include "common/textconsole.h"
 #include "common/util.h"
@@ -49,11 +51,13 @@ GfxFontUnicode::~GfxFontUnicode() {
 }
 
 bool GfxFontUnicode::load(const Common::String &filename) {
-	Common::File *f = new Common::File();
-	if (!f->open(Common::Path(filename))) {
-		delete f;
+	// The file's own stream, not a Common::File over it: an SVF kept open
+	// for its glyphs is read without the C library's buffer.
+	Common::SeekableReadStream *f = SearchMan.createReadStreamForMember(Common::Path(filename));
+	if (!f)
+		f = SearchMan.createReadStreamForMember(Common::Path(filename).append("."));
+	if (!f)
 		return false;
-	}
 
 	// An SVFN bitmap font under a .uni name serves as the bundle too.
 	byte head[4];
@@ -148,8 +152,13 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 	// expects.
 	_glyphScratch.resize((uint)w * cellHeight);
 	byte *cov = _glyphScratch.begin();
-	for (int y = 0; y < cellHeight; y++)
-		Graphics::TextCompose::expandGlyphRow(cov + y * w, coverageRow(chr, y), w, bpp, greyedOutput, top + y, left);
+	for (int y = 0; y < cellHeight; y++) {
+		const byte *row = coverageRow(chr, y);
+		if (row)
+			Graphics::TextCompose::expandGlyphRow(cov + y * w, row, w, bpp, greyedOutput, top + y, left);
+		else
+			memset(cov + y * w, 0, w);	// a row a source could not give: blank
+	}
 	if (_hardStencil && bpp > 1) {
 		for (int i = 0; i < w * cellHeight; i++)
 			cov[i] = cov[i] >= 128 ? 255 : 0;
@@ -212,6 +221,8 @@ void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,
 		if (destY < 0 || destY >= height)
 			continue;
 		const byte *row = coverageRow(chr, y);
+		if (!row)
+			continue;
 		for (int x = 0; x < w; x++) {
 			const int destX = left + offX + x;
 			if (destX < 0 || destX >= width)
