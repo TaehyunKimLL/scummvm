@@ -175,6 +175,11 @@ extern bool splash;
 // driver says which card it opened, lines that scroll a text screen and
 // land on a graphics one. To the log instead.
 static void SDLCALL sdlLog(void *, int, SDL_LogPriority, const char *message) {
+	// The Sound Blaster SDL3 found, for DOS::soundBlasterClosed().
+	if (!strncmp(message, "SB: port=0x", 11))
+		DOS::noteSoundBlasterConfig((int)strtol(message + 11, nullptr, 16), -1);
+	else if (!strncmp(message, "SB: irq=", 8))
+		DOS::noteSoundBlasterConfig(-1, (int)strtol(message + 8, nullptr, 10));
 	g_system->logMessage(LogMessageType::kInfo, Common::String::format("SDL: %s\n", message).c_str());
 }
 
@@ -1167,6 +1172,7 @@ int main(int argc, char *argv[]) {
 	DOS::chooseLockRegime();
 	// Before SDL3 or the timer touch the PIC.
 	DOS::saveIrqMasks();
+	DOS::installExitSignals();
 	atexit(atexitDone);
 
 	// Names this run for the self-test and the shared log (SCUMMVM.EXE or

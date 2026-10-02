@@ -27,8 +27,10 @@
 
 #if defined(DOS_DJGPP)
 
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <dpmi.h>
 #include <go32.h>
 #include <pc.h>
@@ -39,6 +41,9 @@
 #include "backends/platform/dos/exit-trace.h"
 #include "backends/platform/dos/blaster.h"
 #include "backends/timer/dos/dos-timer.h"
+#include "common/util.h"
+
+#include <SDL3/SDL.h>
 
 namespace DOS {
 
@@ -54,6 +59,8 @@ bool g_masksSaved = false;
 uint8 g_savedMaster = 0xFF;
 uint8 g_savedSlave = 0xFF;
 bool g_blasterOpen = false;
+int g_blasterPort = -1;		// as SDL3 logged them (noteSoundBlasterConfig())
+int g_blasterIrq = -1;
 
 inline uint32 irqSave() {
 	uint32 flags;
@@ -235,19 +242,34 @@ void noteSoundBlasterOpen() {
 	g_blasterOpen = true;
 }
 
+void noteSoundBlasterConfig(int port, int irq) {
+	if (port >= 0)
+		g_blasterPort = port;
+	if (irq >= 0)
+		g_blasterIrq = irq;
+}
+
 void soundBlasterClosed() {
-	if (!g_blasterOpen)
+	// Only once SDL3 has closed the device and joined its thread: with the
+	// audio subsystem still up (initialised twice, say) the card is live.
+	if (!g_blasterOpen || SDL_WasInit(SDL_INIT_AUDIO))
 		return;
 	g_blasterOpen = false;
+	// The port and IRQ SDL3 used (its log), else our reading of BLASTER.
 	const BlasterConfig blaster = parseBlaster(getenv("BLASTER"));
-	if (!blaster.present)
+	if (g_blasterPort < 0 && !blaster.present)
 		return;
-	const uint16 base = blaster.port;
-	// DSP reset: 1, at least 3 us (an ISA read takes about 1 us), 0, then
-	// the 0xAA it answers with, within 100 us on a real card.
+	const uint16 base = g_blasterPort >= 0 ? (uint16)g_blasterPort : blaster.port;
+	const int irq = g_blasterIrq >= 0 ? g_blasterIrq : blaster.irq;
+	// DSP reset: 1, at least 3 us, 0, then the 0xAA it answers with,
+	// within 100 us on a real card. The pulse is timed on the PIT
+	// (uclock(), 0.84 us a count), with port 80h reads (ISA timing on
+	// almost every chipset) as the floor and a bound should the clock
+	// not move.
 	outportb(base + 0x6, 1);
-	for (int i = 0; i < 8; ++i)
-		(void)inportb(base + 0x6);
+	const uclock_t t0 = uclock();
+	for (int i = 0; i < 1000 && (i < 4 || uclock() - t0 < 6); ++i)
+		(void)inportb(0x80);
 	outportb(base + 0x6, 0);
 	for (int i = 0; i < 100000 && !(inportb(base + 0xE) & 0x80); ++i)
 		;
@@ -260,7 +282,7 @@ void soundBlasterClosed() {
 	if (!g_masksSaved)
 		return;
 	uint8 master, slave;
-	irqPicBits(blaster.irq, master, slave);
+	irqPicBits(irq, master, slave);
 	const uint32 flags = irqSave();
 	if (master)
 		outportb(0x21, picMaskRestore(inportb(0x21), g_savedMaster, master));
@@ -269,15 +291,11 @@ void soundBlasterClosed() {
 	irqRestore(flags);
 }
 
-} // End of namespace DOS
+namespace {
 
-// exit() (once the atexit handlers, stdio and the destructors are done),
-// abort() and libc's out-of-memory exits end in DJGPP's _exit(): linked
-// with --wrap=_exit (module.mk). An exit that skipped the timer's teardown
-// (abort()) takes IRQ0 out here; and the PIT goes back to the mode the
-// BIOS runs it in (3, a square wave, 18.2 Hz), not DJGPP uclock()'s 2.
-extern "C" void __real__exit(int code) __attribute__((noreturn));
-extern "C" void __wrap__exit(int code) {
+// The timer out (if it still is in) and the PIT in the mode the BIOS runs
+// it in (3, a square wave, 18.2 Hz), not DJGPP uclock()'s 2. No heap.
+void stopTimerHardware() {
 	DosTimerManager::stopHardware();
 	uint32 flags;
 	__asm__ __volatile__("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
@@ -286,6 +304,37 @@ extern "C" void __wrap__exit(int code) {
 	outportb(0x40, 0);
 	if (flags & 0x200)
 		__asm__ __volatile__("sti" : : : "memory");
+}
+
+// DJGPP's default action for these (a traceback, then libc's own _exit,
+// which --wrap does not reach: it is called inside libc) would leave
+// IRQ0 on our handler at 1 kHz. The hardware first, then that action.
+void fatalSignal(int sig) {
+	stopTimerHardware();
+	exitMark(kExitSignal, "fatal signal: timer out, then DJGPP's traceback");
+	signal(sig, SIG_DFL);
+	raise(sig);
+}
+
+} // End of anonymous namespace
+
+void installExitSignals() {
+	// SIGINT is Ctrl-C and Ctrl-Break alike.
+	static const int kSignals[] = { SIGABRT, SIGSEGV, SIGFPE, SIGILL, SIGINT, SIGQUIT };
+	for (uint i = 0; i < ARRAYSIZE(kSignals); ++i)
+		signal(kSignals[i], fatalSignal);
+}
+
+} // End of namespace DOS
+
+// exit() (once the atexit handlers, stdio and the destructors are done)
+// and libc's out-of-memory exits end in DJGPP's _exit(), linked with
+// --wrap=_exit (module.mk). DJGPP's traceback exits (a crash, a signal's
+// default action) call it from inside libc, past the wrap: those go
+// through DOS::installExitSignals()'s handler instead.
+extern "C" void __real__exit(int code) __attribute__((noreturn));
+extern "C" void __wrap__exit(int code) {
+	DOS::stopTimerHardware();
 	if (DOS::g_traceOn) {
 		char what[72] = "_exit, then CWSDPMI and DOS: ";
 		DOS::picState(what + strlen(what));
