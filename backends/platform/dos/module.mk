@@ -17,6 +17,13 @@ LDFLAGS += -Wl,--wrap=malloc,--wrap=free,--wrap=realloc,--wrap=calloc,--wrap=mem
 LDFLAGS += -Wl,--wrap=_read
 # dos-timer.cpp: runs the timer procs a real-mode call held back.
 LDFLAGS += -Wl,--wrap=__dpmi_int
+# DJGPP's x87 emulator, linked in: libemu's _npxsetup() replaces libc's
+# (crt1.o, scanned last, asks for it: -u pulls it from libemu first). With
+# an FPU it does what libc's does; without one (a 486SX) it has the DPMI
+# host trap FPU instructions to the emulator, where libc's would look for
+# EMU387.DXE beside the program.
+LDFLAGS += -Wl,-u,__npxsetup
+LIBS += -lemu
 
 # We don't use rules.mk but rather manually update OBJS and MODULE_DIRS.
 MODULE_OBJS := $(addprefix $(MODULE)/, $(MODULE_OBJS))

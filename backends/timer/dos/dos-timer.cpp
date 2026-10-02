@@ -106,7 +106,8 @@ struct IsrState {
 	// Counters, logged by logStats().
 	volatile uint32 procRuns;		// handler() calls
 	volatile uint32 procRunsAfterCall;	// ... of them as a real-mode call returned
-	volatile uint32 procDeferred;	// due ticks that came in real mode or the host
+	volatile uint32 procRunsEventLoop;	// event loop passes (kProcsOnMainThread), not in procRuns
+	volatile uint32 procDeferred;	// due ticks that came in real mode or the host (not kProcsOnMainThread)
 	volatile uint32 maxWait;		// the most ticks the procs waited past due
 	volatile uint32 waits10;		// runs that waited 10 ticks or more
 	// Catch-up for the ticks lost while the procs run (IRQ0 masked, or
@@ -417,7 +418,10 @@ static DOS_IRQ_CODE void timerIsr(uint32 savedEsp, uint32 savedSs) {
 	// stays where it is) for the next tick that did not, or for the end of
 	// that call (runDeferredProcs()).
 	if (!mayRunProcs(savedEsp, (uint16)savedSs)) {
-		g_isr.procDeferred++;
+		// On the main thread every due tick waits for the event loop or
+		// a real-mode call: nothing was held back.
+		if (g_isr.procsMode != kProcsOnMainThread)
+			g_isr.procDeferred++;
 		return;
 	}
 	runProcs(DosTimerManager::kProcsInIrq0);
@@ -555,6 +559,14 @@ static void teardown() {
 // (see readFrame()) while this spins in protected mode, and decides
 // where the timer procs may run.
 static void calibrate() {
+	// Without an FPU its instructions trap to DJGPP's emulator, which keeps
+	// its state in static memory: a timer proc (and runProcs()' fnsave)
+	// in an interrupt that came in while the main thread was inside the
+	// emulator would corrupt it. The procs run on the main thread instead.
+	if (DOS::fpuEmulated()) {
+		g_isr.procsMode = kProcsOnMainThread;
+		return;
+	}
 	if (DOS::lockedAll()) {
 		// Not all of it (lockAll() said so): no interrupt may run them.
 		g_isr.procsMode = DOS::lockedAllComplete() ? kProcsAlways : kProcsOnMainThread;
@@ -669,7 +681,7 @@ static bool install() {
 	g_isr.procsCtx = DosTimerManager::kProcsNone;
 	g_isr.procsMode = kProcsCalibrating;
 	g_isr.timer = nullptr;
-	g_isr.procRuns = g_isr.procRunsAfterCall = g_isr.procDeferred = 0;
+	g_isr.procRuns = g_isr.procRunsAfterCall = g_isr.procRunsEventLoop = g_isr.procDeferred = 0;
 	g_isr.maxWait = g_isr.waits10 = 0;
 	g_isr.tscPerTick = 0;
 	g_isr.biosOwed = g_isr.ticksCredited = g_isr.biosTicks = 0;
@@ -791,14 +803,33 @@ bool DosTimerManager::procsOnMainThread() {
 	return !g_installed || g_isr.procsMode == kProcsOnMainThread;
 }
 
+void DosTimerManager::noteEventLoopRun() {
+	if (!g_installed)
+		return;
+	// As runProcs() does: the wait is the ticks past due since the last
+	// run, wherever it ran.
+	const uint32 flags = irqSave();
+	if (g_isr.sinceHandler >= kHandlerEvery) {
+		const uint32 waited = g_isr.sinceHandler - kHandlerEvery;
+		if (waited > g_isr.maxWait)
+			g_isr.maxWait = waited;
+		if (waited >= 10)
+			g_isr.waits10++;
+	}
+	g_isr.sinceHandler = 0;
+	g_isr.procRunsEventLoop++;
+	irqRestore(flags);
+}
+
 void DosTimerManager::logStats() {
 	if (!g_installed)
 		return;
 	static const char *const kModes[] = { "calibrating", "from our code", "always (all locked)", "main thread" };
-	debug(1, "DOS: timer procs %s: ran %u (in IRQ0 %u, as a real-mode call returned %u), ticks deferred %u, "
-		"longest wait %u ms, waits of 10 ms or more %u",
-		kModes[g_isr.procsMode], (uint)g_isr.procRuns, (uint)(g_isr.procRuns - g_isr.procRunsAfterCall),
-		(uint)g_isr.procRunsAfterCall, (uint)g_isr.procDeferred, (uint)g_isr.maxWait, (uint)g_isr.waits10);
+	debug(1, "DOS: timer procs %s: ran %u (in IRQ0 %u, as a real-mode call returned %u, from the event loop %u), "
+		"ticks deferred %u, longest wait %u ms, waits of 10 ms or more %u",
+		kModes[g_isr.procsMode], (uint)(g_isr.procRuns + g_isr.procRunsEventLoop),
+		(uint)(g_isr.procRuns - g_isr.procRunsAfterCall), (uint)g_isr.procRunsAfterCall,
+		(uint)g_isr.procRunsEventLoop, (uint)g_isr.procDeferred, (uint)g_isr.maxWait, (uint)g_isr.waits10);
 	if (!g_isr.tscPerTick)
 		return;
 	// handler()'s run times in IRQ0, by bin: <1, <2, <5, <20, <50, <200 ms, and more.
