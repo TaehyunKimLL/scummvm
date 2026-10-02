@@ -2,6 +2,7 @@ MODULE := backends/platform/dos
 
 MODULE_OBJS := \
 	dos.o \
+	dos-exit.o \
 	dos-heap.o \
 	dos-irq.o \
 	dos-loading.o \
@@ -17,6 +18,8 @@ LDFLAGS += -Wl,--wrap=malloc,--wrap=free,--wrap=realloc,--wrap=calloc,--wrap=mem
 LDFLAGS += -Wl,--wrap=_read
 # dos-timer.cpp: runs the timer procs a real-mode call held back.
 LDFLAGS += -Wl,--wrap=__dpmi_int
+# dos-exit.cpp: the last step of every exit (timer out, PIT mode, trace).
+LDFLAGS += -Wl,--wrap=_exit
 # DJGPP's x87 emulator, linked in: libemu's _npxsetup() replaces libc's
 # (crt1.o, scanned last, asks for it: -u pulls it from libemu first). With
 # an FPU it does what libc's does; without one (a 486SX) it has the DPMI

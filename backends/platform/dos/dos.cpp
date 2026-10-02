@@ -47,6 +47,7 @@
 #include <SDL3/SDL.h>
 
 #include "backends/platform/dos/dos.h"
+#include "backends/platform/dos/dos-exit.h"
 #include "backends/platform/dos/dos-heap.h"
 #include "backends/platform/dos/dos-irq.h"
 #include "backends/platform/dos/dos-memory.h"
@@ -91,6 +92,7 @@ unsigned _stklen = 1024 * 1024;
 int _crt0_startup_flags = _CRT0_FLAG_NONMOVE_SBRK;
 
 static void flushDeferredLog();
+static void flushDeferredLogAtExit();
 
 namespace DOS {
 
@@ -150,7 +152,7 @@ void logMemInfo(const char *phase) {
 
 OSystem_DOS::OSystem_DOS() : _eventSource(nullptr), _nullMixer(nullptr) {
 	// Runs after the timer's teardown (registered later, run earlier).
-	atexit(flushDeferredLog);
+	atexit(flushDeferredLogAtExit);
 	_fsFactory = new POSIXFilesystemFactory();
 }
 
@@ -162,6 +164,7 @@ OSystem_DOS::~OSystem_DOS() {
 	DOS::pagefaultSelftestStop();
 	delete _timerManager;
 	_timerManager = nullptr;
+	DOS::exitMark(DOS::kExitMainTimer, "~OSystem_DOS: timer out");
 	delete _eventSource;
 }
 
@@ -172,6 +175,11 @@ extern bool splash;
 // driver says which card it opened, lines that scroll a text screen and
 // land on a graphics one. To the log instead.
 static void SDLCALL sdlLog(void *, int, SDL_LogPriority, const char *message) {
+	// The Sound Blaster SDL3 found, for DOS::soundBlasterClosed().
+	if (!strncmp(message, "SB: port=0x", 11))
+		DOS::noteSoundBlasterConfig((int)strtol(message + 11, nullptr, 16), -1);
+	else if (!strncmp(message, "SB: irq=", 8))
+		DOS::noteSoundBlasterConfig(-1, (int)strtol(message + 8, nullptr, 10));
 	g_system->logMessage(LogMessageType::kInfo, Common::String::format("SDL: %s\n", message).c_str());
 }
 
@@ -217,6 +225,10 @@ void OSystem_DOS::initBackend() {
 	// The GUI's two overlay-sized screens (600 KB each at 640x480 RGB565)
 	// are given back while no dialog is open.
 	ConfMan.registerDefault("gui_release_buffers", true);
+	// dos_exit_trace=true: each step of the way out, numbered, on the text
+	// screen's last line and in EXITLOG.TXT (dos-exit.h).
+	ConfMan.registerDefault("dos_exit_trace", false);
+	DOS::exitTraceStart(ConfMan.getBool("dos_exit_trace"));
 
 	// ScummVM's splash goes to the overlay, which this backend does not
 	// show yet (it draws nothing), and deciding whether to show it made
@@ -991,15 +1003,43 @@ void DOS::silenceAll() {
 	}
 }
 
+static_assert(DOS::kExitQuitBlaster == DOS::kExitQuitAudio + 1 && DOS::kExitQuitVideo == DOS::kExitQuitAudio + 2 &&
+			  DOS::kExitQuitSdl == DOS::kExitQuitAudio + 3, "quitSdl() numbers its steps from the first");
+static_assert(DOS::kExitFatalBlaster == DOS::kExitFatalAudio + 1 && DOS::kExitFatalVideo == DOS::kExitFatalAudio + 2 &&
+			  DOS::kExitFatalSdl == DOS::kExitFatalAudio + 3, "quitSdl() numbers its steps from the first");
+static_assert(DOS::kExitMainBlaster == DOS::kExitMainAudio + 1 && DOS::kExitMainVideo == DOS::kExitMainAudio + 2 &&
+			  DOS::kExitMainSdl == DOS::kExitMainAudio + 3, "quitSdl() numbers its steps from the first");
+
+// SDL_Quit() in steps, in its own order (audio, then video, then the
+// rest), with a trace mark after each from @p firstStep on; between the
+// audio and the video the Sound Blaster is reset and its IRQ put back as
+// it was (DOS::soundBlasterClosed()).
+static void quitSdl(int firstStep) {
+	SDL_QuitSubSystem(SDL_INIT_AUDIO);
+	DOS::exitMark(firstStep, "SDL audio closed");
+	DOS::soundBlasterClosed();
+	DOS::exitMark(firstStep + 1, "Sound Blaster reset, its IRQ mask back");
+	SDL_QuitSubSystem(SDL_INIT_VIDEO);	// text mode back, keyboard interrupt unhooked
+	DOS::exitMark(firstStep + 2, "SDL video closed: text mode");
+	SDL_Quit();
+	DOS::exitMark(firstStep + 3, "SDL_Quit done");
+}
+
 void OSystem_DOS::quit() {
+	DOS::exitMark(DOS::kExitQuit, "quit()");
 	DOS::logMemInfo("quit");
+	DOS::exitMark(DOS::kExitQuitMemInfo, "memory logged");
 	DOS::pagefaultSelftestStop();
 	DosTimerManager::shutdown();	// no timer procs while SDL goes away
+	DOS::exitMark(DOS::kExitQuitTimer, "timer out");
 	// exit() skips the engine's shutdown, where the music drivers would
 	// have stopped their notes.
 	DOS::silenceAll();
-	SDL_Quit();	// text mode back, keyboard interrupt unhooked
+	DOS::exitMark(DOS::kExitQuitSilenced, "synthesizers silenced");
+	quitSdl(DOS::kExitQuitAudio);
 	DOS::Loading::teardown();
+	DOS::exitMark(DOS::kExitQuitLoading, "loading screen down");
+	DOS::exitMark(DOS::kExitQuitExit, "exit(0)");
 	exit(0);
 }
 
@@ -1007,15 +1047,20 @@ void OSystem_DOS::quit() {
 static char g_lastError[256];
 
 void OSystem_DOS::fatalError() {
+	DOS::exitMark(DOS::kExitFatal, "fatalError()");
 	DosTimerManager::shutdown();
+	DOS::exitMark(DOS::kExitFatalTimer, "timer out");
 	DOS::silenceAll();
-	SDL_Quit();	// text mode back (cleared), whether a game mode was set or not
+	DOS::exitMark(DOS::kExitFatalSilenced, "synthesizers silenced");
+	quitSdl(DOS::kExitFatalAudio);	// text mode back (cleared), whether a game mode was set or not
 	DOS::Loading::teardown();
 	if (g_lastError[0]) {
 		fputs("ScummVM: ", stderr);
 		fputs(g_lastError, stderr);
 		fputs("See SCUMMVM.LOG.\n", stderr);
 	}
+	DOS::exitMark(DOS::kExitFatalLoading, "loading screen down, error shown");
+	DOS::exitMark(DOS::kExitFatalExit, "exit(1)");
 	exit(1);
 }
 
@@ -1081,6 +1126,12 @@ static void flushDeferredLog() {
 	}
 }
 
+static void flushDeferredLogAtExit() {
+	DOS::exitMark(DOS::kExitAtexitLog, "atexit: log flush");
+	flushDeferredLog();
+	DOS::exitMark(DOS::kExitAtexitLogDone, "log flushed");
+}
+
 void OSystem_DOS::logMessage(LogMessageType::Type type, const char *message) {
 	if (type == LogMessageType::kError)
 		Common::strlcpy(g_lastError, message, sizeof(g_lastError));
@@ -1104,11 +1155,25 @@ void OSystem_DOS::addSysArchivesToSearchSet(Common::SearchSet &s, int priority) 
 		s.add("DATA", new Common::FSDirectory(data, 4), priority);
 }
 
+static void loadingTeardownAtExit() {
+	DOS::exitMark(DOS::kExitAtexitLoading, "atexit: loading screen");
+	DOS::Loading::teardown();
+}
+
+// Registered first, so it runs after every other atexit() handler.
+static void atexitDone() {
+	DOS::exitMark(DOS::kExitAtexitDone, "atexit handlers done");
+}
+
 int main(int argc, char *argv[]) {
 	// Before anything allocates: under any DPMI host but CWSDPMI r7 (at
 	// ring 3) this locks the image and the heap as crt0 would have, and
 	// the large blocks.
 	DOS::chooseLockRegime();
+	// Before SDL3 or the timer touch the PIC.
+	DOS::saveIrqMasks();
+	DOS::installExitSignals();
+	atexit(atexitDone);
 
 	// Names this run for the self-test and the shared log (SCUMMVM.EXE or
 	// SCUMM.EXE), before anything might log.
@@ -1143,7 +1208,7 @@ int main(int argc, char *argv[]) {
 	// The text loading screen, when the command line starts a game; the
 	// graphics mode waits for the game's (DOS::Loading).
 	DOS::Loading::start(argc, argv);
-	atexit(DOS::Loading::teardown);
+	atexit(loadingTeardownAtExit);
 
 	// SDL3's VESA driver maps the framebuffer through the "fat DS" pointer.
 	if (!__djgpp_nearptr_enable()) {
@@ -1153,8 +1218,10 @@ int main(int argc, char *argv[]) {
 	dosHeapEnableLargeBlocks();
 	g_system = new OSystem_DOS();
 	int res = scummvm_main(argc, argv);
+	DOS::exitMark(DOS::kExitMainReturned, "scummvm_main returned");
 	g_system->destroy();	// deletes the graphics manager, and with it the window
-	SDL_Quit();	// text mode back, keyboard interrupt unhooked
+	DOS::exitMark(DOS::kExitMainDestroyed, "backend destroyed");
+	quitSdl(DOS::kExitMainAudio);	// text mode back, keyboard interrupt unhooked
 #ifdef DISABLE_GUI
 	// No error dialog in this build: the last error logged (no game named,
 	// a game that would not start) goes on the text screen.
@@ -1167,6 +1234,8 @@ int main(int argc, char *argv[]) {
 			res = 1;
 	}
 #endif
+	DOS::exitMark(DOS::kExitMainLoading, "loading screen down");
+	DOS::exitMark(DOS::kExitMainReturn, "main() returns");
 	return res;
 }
 

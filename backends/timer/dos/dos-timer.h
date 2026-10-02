@@ -107,6 +107,13 @@ public:
 	 */
 	static void shutdown();
 
+	/**
+	 * shutdown() without freeing anything, for an exit that skipped it (a
+	 * fatal signal, a direct _exit()): the heap may not be usable there.
+	 * Idempotent.
+	 */
+	static void stopHardware();
+
 	/** True if interrupts are enabled (EFLAGS.IF). */
 	static bool interruptsEnabled();
 };

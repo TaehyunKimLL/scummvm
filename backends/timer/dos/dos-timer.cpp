@@ -37,6 +37,7 @@
 #include <SDL3/SDL_timer.h>
 
 #include "backends/timer/dos/dos-timer.h"
+#include "backends/platform/dos/dos-exit.h"
 #include "backends/platform/dos/dos-irq.h"
 #include "backends/platform/dos/pit-chain.h"
 #include "common/debug.h"
@@ -537,10 +538,10 @@ extern "C" int __wrap___dpmi_int(int vector, __dpmi_regs *regs) {
 	return rv;
 }
 
-// Idempotent: from the destructor and from exit() alike.
-static void teardown() {
+// The PIT and the vector back; returns whether the handler was in.
+static bool stopHardware() {
 	if (!g_installed)
-		return;
+		return false;
 	const uint32 flags = irqSave();
 	pitProgram(0);		// 65536: the BIOS's 18.2 Hz
 	_go32_dpmi_set_protected_mode_interrupt_vector(8, &g_oldVector);
@@ -552,7 +553,18 @@ static void teardown() {
 	g_isr.inHandler = false;
 	g_isr.procsCtx = DosTimerManager::kProcsNone;
 	irqRestore(flags);
-	_go32_dpmi_free_iret_wrapper(&g_newVector);
+	return true;
+}
+
+// Idempotent: from the destructor and from exit() alike.
+static void teardown() {
+	if (stopHardware())
+		_go32_dpmi_free_iret_wrapper(&g_newVector);
+}
+
+static void teardownAtExit() {
+	DOS::exitMark(DOS::kExitAtexitTimer, "atexit: timer teardown");
+	teardown();
 }
 
 // The handler is in; learns how an interrupt that came in our code looks
@@ -716,7 +728,7 @@ static bool install() {
 	irqRestore(flags);
 
 	if (!g_atexitDone) {
-		atexit(teardown);
+		atexit(teardownAtExit);
 		g_atexitDone = true;
 	}
 	calibrate();
@@ -878,6 +890,10 @@ uint32 DosTimerManager::delaysBlocked() {
 
 void DosTimerManager::shutdown() {
 	teardown();
+}
+
+void DosTimerManager::stopHardware() {
+	::stopHardware();
 }
 
 #endif
