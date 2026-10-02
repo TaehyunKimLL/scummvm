@@ -31,6 +31,13 @@ if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q 
 	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-irq-code.patch)." >&2
 	exit 1
 fi
+# And sdl3-cpuid.patch: without it SDL_Init() runs CPUID on a 486 that has
+# none and dies with an invalid opcode; the link would fail on DOS_CPUIDChecked.
+if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q ' [TDR] _DOS_CPUIDChecked$'; then
+	echo "build-dos.sh: $sdl_lib lacks the CPUID fix (no DOS_CPUIDChecked)." >&2
+	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-cpuid.patch)." >&2
+	exit 1
+fi
 if [ "$edition" = scumm ]; then
 	out="$src/build-dos-scumm"
 	engine_args=(--enable-engine=scumm --disable-engine=scumm_7_8,he)

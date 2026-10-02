@@ -29,6 +29,7 @@
 #include <crt0.h>
 #include <dpmi.h>
 #include <go32.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/nearptr.h>
@@ -51,6 +52,9 @@ extern "C" char etext[];
 // Referencing this fails the link against an SDL3 that lacks it
 // (build-dos.sh says so before it gets that far).
 extern "C" const int DOS_IRQCodeChecked;
+// Likewise sdl3-cpuid.patch's mark: an SDL3 without it runs CPUID on a 486
+// that has none (SDL_Init() dies with an invalid opcode).
+extern "C" const int DOS_CPUIDChecked;
 
 namespace DOS {
 
@@ -135,6 +139,7 @@ bool lockIrqData(const volatile void *p, uint32 size) {
  */
 void chooseLockRegime() {
 	(void)*(const volatile int *)&DOS_IRQCodeChecked;
+	(void)*(const volatile int *)&DOS_CPUIDChecked;
 	int flags = 0;
 	char vendor[128];
 	memset(vendor, 0, sizeof(vendor));
@@ -241,6 +246,27 @@ bool haveTsc() {
 	uint32 eax = 1, ebx, ecx, edx;
 	__asm__ __volatile__("cpuid" : "+a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx));
 	return (edx & 0x10) != 0;
+}
+
+// crt0's FPU type, declared in <dos.h> (which clashes with forbidden.h).
+extern "C" int _8087;
+
+bool fpuEmulated() {
+	// crt0's _npxsetup(): 3 with an x87, 0 without one (or with 387=N).
+	return _8087 == 0;
+}
+
+bool fpuUsable() {
+	if (!fpuEmulated())
+		return true;
+	// Without an FPU, _npxsetup() installs the emulator as the SIGNOFP
+	// handler once the DPMI host has agreed to trap FPU instructions (and,
+	// were libc's _npxsetup() linked instead of libemu's, once it had
+	// loaded EMU387.DXE). Otherwise the handler stays the default, and the
+	// first FPU instruction ends the program.
+	void (*const handler)(int) = signal(SIGNOFP, SIG_DFL);
+	signal(SIGNOFP, handler);
+	return handler != SIG_DFL && handler != SIG_ERR;
 }
 
 const char *lockedAllWhy() {
