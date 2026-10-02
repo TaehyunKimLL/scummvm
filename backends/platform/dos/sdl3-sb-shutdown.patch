@@ -1,0 +1,45 @@
+SDL3 change the ScummVM DOS port needs for its exit: the Sound Blaster
+driver's WaitDevice waited for the card's interrupt handler to drain the
+ring and never looked at the device's shutdown flag. A card whose
+interrupts never come (BLASTER's D not the DMA channel the card uses: an
+OPL3-SA set up by UNISOUND in 86Box, DMA requests on channel 3 with D1)
+keeps the ring full, the audio thread stays in WaitDevice, and closing the
+device (SDL_DestroyAudioStream, SDL_QuitSubSystem) waits on that thread
+forever. WaitDevice now returns once the device is shutting down. The
+fixed build defines DOS_SBShutdownChecked, which build-dos.sh looks for and
+the port links against.
+
+Base: sdl3-irq-code.patch and sdl3-cpuid.patch applied (~/opt/src/SDL3
+branch dos-sb-shutdown = dos-486 2df4ec6 + fbd0d18). Apply after those two
+(git apply skips this text):
+  git -C SDL3 apply sdl3-irq-code.patch && git -C SDL3 apply sdl3-cpuid.patch \
+    && git -C SDL3 apply sdl3-sb-shutdown.patch
+
+diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
+index 74064b0..98f9dc7 100644
+--- a/src/audio/dos/SDL_dosaudio_sb.c
++++ b/src/audio/dos/SDL_dosaudio_sb.c
+@@ -172,6 +172,11 @@ static DOS_IRQ_CODE void SoundBlasterIRQHandler(void)
+     }
+ }
+ 
++/* Marks a build whose WaitDevice gives up once the device is closing: the
++   ScummVM DOS port refuses (and fails to link against) an SDL3 without it. */
++extern const int DOS_SBShutdownChecked;
++const int DOS_SBShutdownChecked = 1;
++
+ // Wait until the ring buffer has room for one more chunk.
+ // The audio thread keeps yielding so the game's main thread can run while
+ // we wait. Because the ISR is steadily draining the ring, this only blocks
+@@ -186,6 +191,11 @@ static bool DOSSOUNDBLASTER_WaitDevice(SDL_AudioDevice *device)
+     DOS_Yield();
+ 
+     for (;;) {
++        // Without the card's interrupts the ring never drains: closing the
++        // device must not wait on that.
++        if (SDL_GetAtomicInt(&device->shutdown)) {
++            return true;
++        }
+         // Available space = ring_size - (write - read).
+         // ring_write is ours (audio thread only), ring_read is advanced by
+         // the ISR. Read the ISR's copy so we see the latest drain position.
