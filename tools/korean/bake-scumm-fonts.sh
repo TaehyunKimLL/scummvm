@@ -12,6 +12,11 @@
 # --limit ascii,ksx1001-nohanja so that target survives the limit too (a remap target such as
 # u+2026 is outside both named ranges). Both are omitted by default, which reproduces the
 # previous four-argument invocation byte for byte.
+#
+# A plan line may carry a seventh field, a --limit of its own that replaces
+# ascii,ksx1001-nohanja for that line only (EXTRA_LIMIT is still appended): for a face that
+# lacks a symbol the bundle's non-text records decode to, which --require would otherwise
+# refuse although no text ever draws it.
 set -e
 FONTS="${FONTS:-$HOME/scummvm-i18n/fonts}"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -40,14 +45,14 @@ mkdir -p "$outdir"
 declare -A baked
 
 n=0
-while IFS=$'\t' read -r name charset ttf size bpp ascent || [ -n "$name" ]; do
+while IFS=$'\t' read -r name charset ttf size bpp ascent row_limit || [ -n "$name" ]; do
 	n=$((n + 1))
 	trimmed="${name#"${name%%[![:space:]]*}"}"
 	if [ -z "$trimmed" ] || [ "${trimmed:0:1}" = "#" ]; then
 		continue
 	fi
 	if [ -z "$name" ] || [ -z "$charset" ] || [ -z "$ttf" ] || [ -z "$size" ] || [ -z "$bpp" ]; then
-		echo "bake-scumm-fonts: $plan line $n: expected 6 tab-separated fields" >&2
+		echo "bake-scumm-fonts: $plan line $n: expected 6 tab-separated fields (and an optional seventh, a limit)" >&2
 		exit 1
 	fi
 
@@ -63,7 +68,7 @@ while IFS=$'\t' read -r name charset ttf size bpp ascent || [ -n "$name" ]; do
 	cell_h=$((h * 2))
 
 	out="$outdir/$name"
-	key="$ttf|$size|$bpp|$cell_w|$cell_h|${ascent:--}"
+	key="$ttf|$size|$bpp|$cell_w|$cell_h|${ascent:--}|$row_limit"
 	if [ -n "${baked[$key]}" ]; then
 		echo "== $name: same as ${baked[$key]} ($key) - copying =="
 		cp "${baked[$key]}" "$out"
@@ -85,6 +90,9 @@ while IFS=$'\t' read -r name charset ttf size bpp ascent || [ -n "$name" ]; do
 		chars_from_args+=("$extra_chars_from")
 	fi
 	limit="ascii,ksx1001-nohanja"
+	if [ -n "$row_limit" ]; then
+		limit="$row_limit"
+	fi
 	if [ -n "$extra_limit" ]; then
 		limit="$limit,$extra_limit"
 	fi
