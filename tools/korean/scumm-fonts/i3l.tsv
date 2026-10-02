@@ -1,0 +1,8 @@
+# Indiana Jones 3 (indy3kor korean.trs), L preset: 1 bpp, both charsets in one pixel face at its
+# 16 px design size, I3KO.MAP's render_target=clut8 preset.
+# Fields: output 8.3 name, SCUMM charset, TTF, size, bpp, ascent.
+# The cell is the charset's korean<NN>.fnt header doubled (bake-scumm-fonts.sh): cs0 16x16,
+# cs1 18x18. A cell taller than 16 puts the face in the middle: ascent = 12 + (cell height - 16) / 2.
+# The TTF field starts with $FONTS (default ~/scummvm-i18n/fonts; set FONTS=... to move it).
+I3L0.SVF	0	$FONTS/pixel/neodgm/neodgm.ttf	16	1	-
+I3L1.SVF	1	$FONTS/pixel/neodgm/neodgm.ttf	16	1	13

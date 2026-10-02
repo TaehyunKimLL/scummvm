@@ -1,7 +1,7 @@
 # SCUMM Korean fonts: mkfont.py --chars-from \*.trs, scummtext.py, bake-scumm-fonts.sh
 
-Font tooling specific to the SCUMM engine's Korean targets (MI1/MI2 on the
-DOS port, M5). The general `mkfont.py` usage, cell-size rule and
+Font tooling specific to the SCUMM engine's Korean targets (MI1/MI2 and
+Indiana Jones 3/4 on the DOS port). The general `mkfont.py` usage, cell-size rule and
 `--chars-from`/`--limit` design are in `README.md`; this file only covers
 what SCUMM adds: reading a `.trs` bundle for `--chars-from`, recovering text
 from a patch that never shipped one, and baking a game's charsets from a
@@ -150,7 +150,7 @@ tools/korean/bake-scumm-fonts.sh plan.tsv ~/games/mi2kor /out/dir chars.txt
 The `<ttf path>` may start with `$FONTS`, written literally in the plan. The
 script replaces it with the `FONTS` environment variable, default
 `~/scummvm-i18n/fonts` (nothing else is expanded, so a plan cannot run
-code). The four plans in `tools/korean/scumm-fonts/` use it, so they work
+code). The plans in `tools/korean/scumm-fonts/` use it, so they work
 wherever the fonts are: `FONTS=/data/fonts tools/korean/bake-scumm-fonts.sh ...`.
 
 `<charset>` is the SCUMM charset number
@@ -220,13 +220,44 @@ tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1l.tsv $G/mi1kor $D m
 tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m2l.tsv $G/mi2kor $D $G/mi2kor/korean.trs ellipsis.txt 2026
 ```
 
+The Indiana Jones 3 and 4 SVFs (`I3KO.MAP`, `I4KO.MAP`) are baked from each
+game's own `korean.trs` the same way:
+
+```sh
+G=~/work/scummvm/gamedata D=dists/engine-data/hires_text/dos
+printf '\xe2\x80\xa6\n' > ellipsis.txt
+# Indy3: the map's only remap target is U+2026 (0x60 becomes U+0022, ASCII).
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/i3u.tsv $G/indy3kor $D $G/indy3kor/korean.trs $D/I3KO.MAP 2026
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/i3l.tsv $G/indy3kor $D $G/indy3kor/korean.trs $D/I3KO.MAP 2026
+# Indy4: U takes U+2026 and U+2122; L the ellipsis alone (neodgm has no U+2122,
+# and clut8 keeps the game's own 0x0f).
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/i4u.tsv $G/indy4kor $D $G/indy4kor/korean.trs $D/I4KO.MAP 2026,2122
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/i4l.tsv $G/indy4kor $D $G/indy4kor/korean.trs ellipsis.txt 2026
+```
+
+The Indy4 `korean.trs` these were baked from has seven translated lines
+corrected (five syllables outside KS X 1001, such as 됬 -> 됐, and two lines
+whose bytes the translation's converter had mangled) and four map/puzzle
+tables restored to the game's own bytes; the bake reads the bundle as it
+stands in the game folder.
+
+A plan line may have a seventh field, a `--limit` of its own that replaces
+`ascii,ksx1001-nohanja` for that line (`<extra_limit>` is still appended). The
+Indy4 bundle holds a few non-text records (map and puzzle tables, records 20
+and 83) whose bytes decode to KS X 1001 symbols - U+0421, U+2160, U+30B3 among
+them - that GowunBatang and neodgm lack; `--require` would refuse those faces
+although no text ever draws the symbols. `i4u.tsv`'s credit line and every
+`i4l.tsv` line therefore limit to `ascii,ksx1001-hangul,3131-318e` (Hangul
+syllables, the compatibility jamo, ASCII), which is everything the text itself
+uses. A line without the field bakes exactly as before.
+
 A line whose `(ttf, size, bpp, cell, ascent)` was already baked earlier in
 the same plan is copied from that earlier output rather than baked again -
 MI1/MI2 commonly reuse one face at one size for several charsets (every UI
 charset at the same cell, say), and re-running FreeType for an identical
 result wastes time. Ascent is part of the key (`-` and an empty field count
 as the same), so a line with an explicit ascent never reuses another line's
-bake.
+bake; so is a line's own limit.
 
 Comment lines (`#`, after leading whitespace) and blank lines in `plan.tsv`
 are skipped.
