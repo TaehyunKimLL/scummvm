@@ -29,6 +29,7 @@
 #include <crt0.h>
 #include <dpmi.h>
 #include <go32.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/nearptr.h>
@@ -241,6 +242,27 @@ bool haveTsc() {
 	uint32 eax = 1, ebx, ecx, edx;
 	__asm__ __volatile__("cpuid" : "+a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx));
 	return (edx & 0x10) != 0;
+}
+
+// crt0's FPU type, declared in <dos.h> (which clashes with forbidden.h).
+extern "C" int _8087;
+
+bool fpuEmulated() {
+	// crt0's _npxsetup(): 3 with an x87, 0 without one (or with 387=N).
+	return _8087 == 0;
+}
+
+bool fpuUsable() {
+	if (!fpuEmulated())
+		return true;
+	// Without an FPU, _npxsetup() installs the emulator as the SIGNOFP
+	// handler once the DPMI host has agreed to trap FPU instructions (and,
+	// were libc's _npxsetup() linked instead of libemu's, once it had
+	// loaded EMU387.DXE). Otherwise the handler stays the default, and the
+	// first FPU instruction ends the program.
+	void (*const handler)(int) = signal(SIGNOFP, SIG_DFL);
+	signal(SIGNOFP, handler);
+	return handler != SIG_DFL && handler != SIG_ERR;
 }
 
 const char *lockedAllWhy() {

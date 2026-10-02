@@ -126,6 +126,21 @@ const char *lockedAllWhy();
 /** True if the CPU has a time stamp counter (CPUID leaf 1, EDX bit 4). */
 bool haveTsc();
 
+/**
+ * True if there is no x87 FPU (a 486SX, a 386 without a 387, or 387=N in
+ * the environment): DJGPP's startup code then has the DPMI host trap every
+ * FPU instruction to its emulator (libemu, linked in: module.mk), whose
+ * state is not reentrant -- no interrupt handler may use the FPU.
+ */
+bool fpuEmulated();
+
+/**
+ * True if FPU instructions can run: there is an FPU, or the startup code
+ * installed the emulator (it does not if the DPMI host will not trap FPU
+ * instructions).
+ */
+bool fpuUsable();
+
 /** The DPMI host's name and version as DPMI 1.0 function 0x401 gives them ("CWSDPMI 7.0"), or "DPMI 0.9". */
 const char *dpmiHost();
 

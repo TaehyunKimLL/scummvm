@@ -555,6 +555,14 @@ static void teardown() {
 // (see readFrame()) while this spins in protected mode, and decides
 // where the timer procs may run.
 static void calibrate() {
+	// Without an FPU its instructions trap to DJGPP's emulator, which keeps
+	// its state in static memory: a timer proc (and runProcs()' fnsave)
+	// in an interrupt that came in while the main thread was inside the
+	// emulator would corrupt it. The procs run on the main thread instead.
+	if (DOS::fpuEmulated()) {
+		g_isr.procsMode = kProcsOnMainThread;
+		return;
+	}
 	if (DOS::lockedAll()) {
 		// Not all of it (lockAll() said so): no interrupt may run them.
 		g_isr.procsMode = DOS::lockedAllComplete() ? kProcsAlways : kProcsOnMainThread;
