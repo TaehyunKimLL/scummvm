@@ -46,6 +46,14 @@ if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q 
 	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-sb-shutdown.patch)." >&2
 	exit 1
 fi
+# And sdl3-sb-open-fail.patch: without it, a Sound Blaster that cannot be
+# opened (an SB16 whose BLASTER has no H) kills the program with an exception
+# instead of leaving it without digital sound.
+if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q ' [TDR] _DOS_SBOpenFailChecked$'; then
+	echo "build-dos.sh: $sdl_lib lacks the Sound Blaster open-failure fix (no DOS_SBOpenFailChecked)." >&2
+	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-sb-open-fail.patch)." >&2
+	exit 1
+fi
 if [ "$edition" = scumm ]; then
 	out="$src/build-dos-scumm"
 	engine_args=(--enable-engine=scumm --disable-engine=scumm_7_8,he)
