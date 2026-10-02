@@ -4,8 +4,10 @@ build-dos.sh links $SDL3_DOS_MIN (default ~/opt/sdl3-dos-min). Source:
 libsdl-org/SDL 1ce4c5bc2916702e8e0f6df1f612dbd8633011da with
 sdl3-irq-code.patch and then sdl3-cpuid.patch applied (see their headers;
 ~/opt/src/SDL3, branch dos-486, ef2105c: dos-irq-lock 11ca8a4 plus the
-CPUID check). Without sdl3-cpuid.patch the build still links, but
-SDL_Init() dies with an invalid opcode on a 486 without CPUID.
+CPUID check, 2df4ec6: its DOS_CPUIDChecked mark). Without
+sdl3-cpuid.patch SDL_Init() dies with an invalid opcode on a 486 without
+CPUID: build-dos.sh refuses such an SDL3, and the link would fail on
+DOS_CPUIDChecked.
 
   git -C SDL3 checkout 1ce4c5bc29
   git -C SDL3 apply sdl3-irq-code.patch && git -C SDL3 apply sdl3-cpuid.patch
@@ -46,5 +48,10 @@ The joystick stays on: this SDL's DOS platform block adds the DOS joystick
 driver even with SDL_JOYSTICK=OFF, and SDL_joystick.c then wants the dummy
 driver, which is not built (an undefined SDL_DUMMY_JoystickDriver at link).
 
-The full build (~/opt/sdl3-dos, the options in sdl3-irq-code.patch's header)
-still works: SDL3_DOS_MIN=$HOME/opt/sdl3-dos build-dos.sh ...
+The full build (~/opt/sdl3-dos, the options in sdl3-irq-code.patch's header,
+from the same source with both patches) still works:
+SDL3_DOS_MIN=$HOME/opt/sdl3-dos build-dos.sh ...
+
+Configure a fresh build directory (or delete its CMakeCache.txt) after
+changing the source: SDL_REVISION, the "SDL-3.x.y-<commit>" string in
+SDL.c, is taken at configure time.
