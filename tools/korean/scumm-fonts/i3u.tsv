@@ -1,0 +1,8 @@
+# Indiana Jones 3 (indy3kor korean.trs), U preset: 2 bpp, I3KO.MAP's default (true-colour) preset.
+# Fields: output 8.3 name, SCUMM charset, TTF, size, bpp, ascent.
+# Dialogue, verbs, sentence line (charset 0): NanumGothic-Bold. Title card (charset 1): GowunBatang-Bold.
+# Size and ascent are what mkfont.py --fit-cell picks for the charset's cell over the
+# korean.trs text (no glyph leaves the cell): Nanum 16x16 -> 15/14, Gowun 18x18 -> 18/16.
+# The TTF field starts with $FONTS (default ~/scummvm-i18n/fonts; set FONTS=... to move it).
+I3U0.SVF	0	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	15	2	14
+I3U1.SVF	1	$FONTS/styled/gowunbatang/GowunBatang-Bold.ttf	18	2	16

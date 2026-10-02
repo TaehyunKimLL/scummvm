@@ -1,0 +1,57 @@
+# Indiana Jones and the Last Crusade (VGA floppy, English, with the korean.trs
+# translation). One map, two presets; the ini's render_target picks one.
+#   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): I3U*.SVF, 2 bpp,
+#   anti-aliased (blend=auto), baked by tools/korean/scumm-fonts/i3u.tsv:
+#   dialogue, verbs and the sentence line in a gothic face, the title card
+#   in a serif face. With them in the bare sections, render_target=auto
+#   picks true colour.
+#   render_target=clut8 (8-bit palette): I3L*.SVF, 1 bpp, baked from a pixel
+#   face (tools/korean/scumm-fonts/i3l.tsv), drawn hard-edged.
+# The game has two charsets (98.LFL, 99.LFL): cs0 16x16 (dialogue, verbs,
+# sentence line) and cs1 18x18 (the title card); both presets bake the same
+# cells. Licences: see I34FONT.TXT beside this file.
+[map]
+version=2
+
+[render]
+scale=2
+blend=auto
+[render:clut8]
+blend=off
+
+[text]
+encoding=cp949
+
+[fonts]
+dlg=I3U0.SVF
+card=I3U1.SVF
+[fonts:clut8]
+dlg=I3L0.SVF
+card=I3L1.SVF
+
+[font]
+missing=u+25a1
+# ASCII from each charset's own SVF (never the game's internal font),
+# stepped by the face's own widths
+range.basic-latin=same
+advance.basic-latin=font
+
+[font.0]
+face=dlg
+[font.1]
+face=card
+
+# The control range 0x01-0x1F holds only the game's own pictures, never text, and no
+# face has a glyph there: the inventory scroll arrows (0x01-0x04), the two cells of the
+# small "TM" (0x10 0x11, "인디복장\x10\x11"), the copyright sign and the one-pixel spacer
+# after it (0x13 0x12, "TM & \x13\x12 1990"). 0x7f is the game's right arrow.
+# Everything else the translation parks on an odd byte code is real punctuation,
+# drawn by the replacement font:
+#   0x5e ellipsis ("몰라^"; the game's own glyph is three dots on the baseline)
+#   0x60 double quote, opening and closing (the game's glyph at 0x60 is the same
+#     picture as its 0x22: `회개하는 자만이 통과하리라.`)
+[glyphs]
+0x01-0x1f = original
+0x7f = original
+0x5e = u+2026
+0x60 = u+0022

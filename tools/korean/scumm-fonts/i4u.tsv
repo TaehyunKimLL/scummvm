@@ -1,0 +1,15 @@
+# Indiana Jones 4 (indy4kor korean.trs), U preset: 2 bpp, I4KO.MAP's default (true-colour) preset.
+# Fields: output 8.3 name, SCUMM charset, TTF, size, bpp, ascent.
+# Verbs and sentence line (charset 1) and dialogue (charset 2): NanumGothic-Bold.
+# Credit titles (charset 3): GowunBatang-Bold.
+# Size and ascent are what mkfont.py --fit-cell picks for the charset's cell over the
+# korean.trs text (no glyph leaves the cell): Nanum 16x16 -> 15/14, 20x18 -> 16/15;
+# Gowun 32x32 -> 31/28.
+# The credit face takes a limit of its own (seventh field): the bundle's map and puzzle tables
+# (records 20 and 83, never drawn) decode to a few KS X 1001 symbols, two of which (U+0421 С,
+# U+30B3 コ) GowunBatang lacks; the text itself uses Hangul, one jamo (ㅊ) and ASCII only.
+# Charsets 4 and 5 have no korean0N.fnt; I4KO.MAP points them at I4U2.SVF and I4U1.SVF.
+# The TTF field starts with $FONTS (default ~/scummvm-i18n/fonts; set FONTS=... to move it).
+I4U1.SVF	1	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	15	2	14
+I4U2.SVF	2	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	16	2	15
+I4U3.SVF	3	$FONTS/styled/gowunbatang/GowunBatang-Bold.ttf	31	2	28	ascii,ksx1001-hangul,3131-318e

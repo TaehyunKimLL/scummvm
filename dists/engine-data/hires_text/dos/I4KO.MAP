@@ -1,0 +1,79 @@
+# Indiana Jones and the Fate of Atlantis (CD data, English, text only, with the
+# korean.trs translation). One map, two presets; the ini's render_target picks one.
+#   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): I4U*.SVF, 2 bpp,
+#   anti-aliased (blend=auto), baked by tools/korean/scumm-fonts/i4u.tsv:
+#   dialogue, verbs and the sentence line in a gothic face, the credit titles
+#   in a serif face. With them in the bare sections, render_target=auto
+#   picks true colour.
+#   render_target=clut8 (8-bit palette): I4L*.SVF, 1 bpp, baked from a pixel
+#   face (tools/korean/scumm-fonts/i4l.tsv), drawn hard-edged.
+# Charsets (atlantis.001): cs1 16x16 (verbs, sentence line), cs2 20x18
+# (dialogue), cs3 32x32 (credit titles); both presets bake the same cells.
+# The translation ships fonts for these three only. cs4 (12 px high) and cs5
+# (8 px high) get the file of the nearest cell: cs4 the cs2 file, cs5 the cs1
+# file, so no Korean text falls back to the game's font.
+# Licences: see I34FONT.TXT beside this file.
+[map]
+version=2
+
+[render]
+scale=2
+blend=auto
+[render:clut8]
+blend=off
+
+[text]
+encoding=cp949
+
+[fonts]
+small=I4U1.SVF
+dlg=I4U2.SVF
+card=I4U3.SVF
+[fonts:clut8]
+small=I4L1.SVF
+dlg=I4L2.SVF
+card=I4L3.SVF
+
+[font]
+missing=u+25a1
+# ASCII from each charset's own SVF (never the game's internal font),
+# stepped by the face's own widths
+range.basic-latin=same
+advance.basic-latin=font
+
+[font.1]
+face=small
+[font.2]
+face=dlg
+[font.3]
+face=card
+[font.4]
+face=dlg
+[font.5]
+face=small
+
+# The control range 0x01-0x1F holds only the game's own pictures, never text, and no
+# face has a glyph there: the inventory scroll arrows (charset 1: 0x01 0x02, 0x18 0x19),
+# the verb-line triangles (0x05 0x06), the copyright sign (0x08, "\x08헤모크라테스\x08"),
+# the SCUMM and iMUSE logos of the credits (charset 3: 0x11 0x12, "\x11스토리 시스템 : "),
+# and blank spacers (0x09 has no glyph at all, 0x10 an empty one). 0x7b-0x7d are the
+# game's o/a/u umlauts ("H{rst"), 0x7f its dialogue-choice arrow.
+# Everything else the translation parks on an odd byte code is real punctuation,
+# drawn by the replacement font:
+#   0x5e ellipsis ("여기^", "좋아, 존스^")
+#   0x60 double quote, opening and closing ("`론 길버트`"; the game's glyph at
+#     0x60 is the same picture as its 0x22)
+#   0x0f trademark sign ("인디의 옷\x0f 루카스필름표"); a single code beats the range
+[glyphs]
+0x01-0x1f = original
+0x0f = u+2122
+0x7b-0x7d = original
+0x7f = original
+0x5e = u+2026
+0x60 = u+0022
+
+# neodgm, the L preset's pixel face, has no ™ glyph; its own 1 bpp 0x0f matches the
+# hard-edged L look, so clut8 keeps the game's own glyph instead of falling back to the
+# missing-glyph box.
+[glyphs:clut8]
+0x0f = original
