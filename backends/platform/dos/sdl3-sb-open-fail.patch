@@ -1,0 +1,168 @@
+SDL3 change the ScummVM DOS port needs so that a Sound Blaster it cannot
+open leaves it running without digital sound: DOSSOUNDBLASTER_OpenDevice
+stored device->hidden early, and an error return (no high DMA channel on an
+SB16 whose BLASTER has no H, a failed DMA, ring or staging buffer
+allocation, the interrupt memory lock) freed or leaked it without clearing
+the pointer. The CloseDevice that SDL calls after a failed open then read
+freed memory, wrote to the DSP and unhooked an interrupt that was never
+hooked, and the program died with a CWSDPMI exception. OpenDevice now sets
+device->hidden only once it cannot fail any more and frees its partial state
+on every error path. The fixed build defines DOS_SBOpenFailChecked, which
+build-dos.sh looks for and the port links against.
+
+Base: sdl3-irq-code.patch, sdl3-cpuid.patch and sdl3-sb-shutdown.patch applied
+(~/opt/src/SDL3 branch dos-sb-shutdown = dos-486 2df4ec6 + fbd0d18 + f6cc527).
+Apply after those three (git apply skips this text):
+  git -C SDL3 apply sdl3-irq-code.patch && git -C SDL3 apply sdl3-cpuid.patch \
+    && git -C SDL3 apply sdl3-sb-shutdown.patch && git -C SDL3 apply sdl3-sb-open-fail.patch
+
+diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
+index 98f9dc7..f6226eb 100644
+--- a/src/audio/dos/SDL_dosaudio_sb.c
++++ b/src/audio/dos/SDL_dosaudio_sb.c
+@@ -207,6 +207,49 @@ static bool DOSSOUNDBLASTER_WaitDevice(SDL_AudioDevice *device)
+     }
+ }
+ 
++/* Marks a build whose OpenDevice leaves device->hidden NULL when it fails: the
++   ScummVM DOS port refuses (and fails to link against) an SDL3 without it. */
++extern const int DOS_SBOpenFailChecked;
++const int DOS_SBOpenFailChecked = 1;
++
++// Release what OpenDevice set up before the interrupt was hooked, and the state itself.
++static void DOSSOUNDBLASTER_FreeState(struct SDL_PrivateAudioData *hidden)
++{
++    // disable DMA — mask the appropriate DMA channel.
++    if (hidden->dma_buffer) {
++        if (hidden->is_16bit) {
++            outportb(0xD4, 0x04 | hidden->dma_channel); // mask high DMA channel (channels 5-7)
++        } else {
++            outportb(0x0A, 0x04 | hidden->dma_channel); // mask low DMA channel (channels 0-3)
++        }
++        DOS_FreeConventionalMemory(&hidden->dma_seginfo);
++    }
++
++    // Free ring buffer resources.
++    SDL_free(hidden->ring_buffer);
++    SDL_free(hidden->staging_buffer);
++
++    // Clear ISR-visible statics.
++    isr_ring_buffer = NULL;
++    isr_ring_read = 0;
++    isr_ring_write = 0;
++    isr_ring_size = 0;
++    isr_ring_mask = 0;
++    isr_chunk_size = 0;
++    isr_dma_buffer = NULL;
++    isr_dma_halfdma = 0;
++    isr_irq_ack_port = 0;
++
++    SDL_free(hidden);
++}
++
++// OpenDevice failed: undo it, so that CloseDevice (which SDL still calls) has nothing left to do.
++static bool DOSSOUNDBLASTER_OpenFailed(struct SDL_PrivateAudioData *hidden)
++{
++    DOSSOUNDBLASTER_FreeState(hidden);
++    return false;
++}
++
+ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+ {
+     const bool is_sb16 = soundblaster_is_sb16;
+@@ -254,7 +297,6 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+         return false;
+     }
+ 
+-    device->hidden = hidden;
+     hidden->is_16bit = is_sb16;
+ 
+     ResetSoundBlasterDSP();
+@@ -262,14 +304,15 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+     // allocate conventional memory for the DMA buffer.
+     hidden->dma_channel = is_sb16 ? soundblaster_highdma_channel : soundblaster_dma_channel;
+     if (hidden->dma_channel < 0) {
+-        SDL_free(hidden);
+-        return SDL_SetError("No %s DMA channel configured in BLASTER environment variable",
+-                            is_sb16 ? "high (16-bit)" : "low (8-bit)");
++        SDL_SetError("No %s DMA channel configured in BLASTER environment variable",
++                     is_sb16 ? "high (16-bit)" : "low (8-bit)");
++        return DOSSOUNDBLASTER_OpenFailed(hidden);
+     }
+     hidden->dma_buflen = device->buffer_size * 2;
+     hidden->dma_buffer = (Uint8 *)DOS_AllocateDMAMemory(hidden->dma_buflen, &hidden->dma_seginfo);
+     if (!hidden->dma_buffer) {
+-        return SDL_SetError("Couldn't allocate Sound Blaster DMA buffer!");
++        SDL_SetError("Couldn't allocate Sound Blaster DMA buffer!");
++        return DOSSOUNDBLASTER_OpenFailed(hidden);
+     }
+ 
+     SDL_Log("SOUNDBLASTER: Allocated %d bytes of conventional memory at segment %d (ptr=%p)", (int)hidden->dma_buflen, (int)hidden->dma_seginfo.rm_segment, hidden->dma_buffer);
+@@ -334,11 +377,13 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+ 
+     hidden->ring_buffer = (Uint8 *)SDL_calloc(1, hidden->ring_size);
+     if (!hidden->ring_buffer) {
+-        return SDL_SetError("Couldn't allocate ring buffer for IRQ-driven audio");
++        SDL_SetError("Couldn't allocate ring buffer for IRQ-driven audio");
++        return DOSSOUNDBLASTER_OpenFailed(hidden);
+     }
+     hidden->staging_buffer = (Uint8 *)SDL_calloc(1, hidden->chunk_size);
+     if (!hidden->staging_buffer) {
+-        return SDL_SetError("Couldn't allocate staging buffer for IRQ-driven audio");
++        SDL_SetError("Couldn't allocate staging buffer for IRQ-driven audio");
++        return DOSSOUNDBLASTER_OpenFailed(hidden);
+     }
+ 
+     hidden->ring_read = 0;
+@@ -378,7 +423,8 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+         locked = (DOS_LockVariable(isr_irq_ack_port) == 0) && locked;
+         locked = (DOS_LockVariable(soundblaster_irq) == 0) && locked;
+         if (!locked) {
+-            return SDL_SetError("Couldn't lock the Sound Blaster interrupt handler's memory");
++            SDL_SetError("Couldn't lock the Sound Blaster interrupt handler's memory");
++            return DOSSOUNDBLASTER_OpenFailed(hidden);
+         }
+     }
+ 
+@@ -443,6 +489,7 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+         WriteSoundBlasterDSP(0x1C); // 8-bit auto-init DMA playback
+     }
+ 
++    device->hidden = hidden; // set only once nothing can fail any more
+     SDL_Log("SoundBlaster opened!");
+     return true;
+ }
+@@ -505,32 +552,7 @@ static void DOSSOUNDBLASTER_CloseDevice(SDL_AudioDevice *device)
+ 
+         DOS_UnhookInterrupt(&hidden->interrupt_hook, true);
+ 
+-        // disable DMA — mask the appropriate DMA channel.
+-        if (hidden->dma_buffer) {
+-            if (hidden->is_16bit) {
+-                outportb(0xD4, 0x04 | hidden->dma_channel); // mask high DMA channel (channels 5-7)
+-            } else {
+-                outportb(0x0A, 0x04 | hidden->dma_channel); // mask low DMA channel (channels 0-3)
+-            }
+-            DOS_FreeConventionalMemory(&hidden->dma_seginfo);
+-        }
+-
+-        // Free ring buffer resources.
+-        SDL_free(hidden->ring_buffer);
+-        SDL_free(hidden->staging_buffer);
+-
+-        // Clear ISR-visible statics.
+-        isr_ring_buffer = NULL;
+-        isr_ring_read = 0;
+-        isr_ring_write = 0;
+-        isr_ring_size = 0;
+-        isr_ring_mask = 0;
+-        isr_chunk_size = 0;
+-        isr_dma_buffer = NULL;
+-        isr_dma_halfdma = 0;
+-        isr_irq_ack_port = 0;
+-
+-        SDL_free(hidden);
++        DOSSOUNDBLASTER_FreeState(hidden);
+     }
+ }
+ 
