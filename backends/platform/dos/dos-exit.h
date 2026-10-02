@@ -70,6 +70,8 @@ enum ExitStep {
 	kExitAtexitLogDone = 44,
 	kExitAtexitLoading = 45,
 	kExitAtexitDone = 46,
+	// a fatal signal (installExitSignals()), before DJGPP's traceback
+	kExitSignal = 90,
 	// DJGPP's _exit(): its own handlers out, then CWSDPMI and DOS
 	kExitDjgppExit = 99
 };
@@ -100,11 +102,26 @@ void exitMark(int step, const char *what);
 void noteSoundBlasterOpen();
 
 /**
+ * The port and IRQ SDL3 says it uses (its "SB: port=" and "SB: irq="
+ * log lines); -1 leaves one as it was. soundBlasterClosed() prefers them
+ * to its own reading of BLASTER.
+ */
+void noteSoundBlasterConfig(int port, int irq);
+
+/**
+ * main(): SIGABRT, SIGSEGV, SIGFPE, SIGILL, SIGINT (Ctrl-C, Ctrl-Break)
+ * and SIGQUIT take the timer out and put the PIT back before DJGPP's
+ * default action (a traceback and exit) runs.
+ */
+void installExitSignals();
+
+/**
  * Right after SDL3 closed the Sound Blaster device: resets the DSP (SDL3
  * leaves a 16-bit auto-init transfer running), acknowledges an interrupt
  * it may still hold, and puts the card's IRQ (and the cascade, for IRQ
  * 8-15) back in the PIC as saveIrqMasks() found it: SDL3 masks it
- * whatever it was. Idempotent; nothing without noteSoundBlasterOpen().
+ * whatever it was. Nothing without noteSoundBlasterOpen(), nor while the
+ * SDL audio subsystem is still up (a later call does it then).
  */
 void soundBlasterClosed();
 
