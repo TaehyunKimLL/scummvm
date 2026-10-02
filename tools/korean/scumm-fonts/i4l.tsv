@@ -1,0 +1,16 @@
+# Indiana Jones 4 (indy4kor korean.trs), L preset: 1 bpp, every charset in one pixel face,
+# I4KO.MAP's render_target=clut8 preset.
+# Fields: output 8.3 name, SCUMM charset, TTF, size, bpp, ascent.
+# The cell is the charset's korean<NN>.fnt header doubled (bake-scumm-fonts.sh): cs1 16x16,
+# cs2 20x18, cs3 32x32. cs1 and cs2 take the face at its 16 px design size; a cell taller than
+# 16 puts it in the middle: ascent = 12 + (cell height - 16) / 2. cs3 (the credit titles)
+# takes it at 32 px, an exact 2x of the design size, so the pixel look is kept and the face
+# fills the cell: ascent 24 (2 x 12).
+# Every line takes a limit of its own (seventh field): the bundle's map and puzzle tables
+# (records 20 and 83, never drawn) decode to a few KS X 1001 symbols, three of which (U+0421 С,
+# U+2160 Ⅰ, U+30B3 コ) neodgm lacks; the text itself uses Hangul, one jamo (ㅊ) and ASCII only.
+# Charsets 4 and 5 have no korean0N.fnt; I4KO.MAP points them at I4L2.SVF and I4L1.SVF.
+# The TTF field starts with $FONTS (default ~/scummvm-i18n/fonts; set FONTS=... to move it).
+I4L1.SVF	1	$FONTS/pixel/neodgm/neodgm.ttf	16	1	-	ascii,ksx1001-hangul,3131-318e
+I4L2.SVF	2	$FONTS/pixel/neodgm/neodgm.ttf	16	1	13	ascii,ksx1001-hangul,3131-318e
+I4L3.SVF	3	$FONTS/pixel/neodgm/neodgm.ttf	32	1	24	ascii,ksx1001-hangul,3131-318e
