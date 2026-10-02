@@ -1,0 +1,24 @@
+Fonts of the DOS Indiana Jones 3 and 4 Korean text (I3*.SVF, I4*.SVF, I3KO.MAP, I4KO.MAP)
+=========================================================================================
+
+The .SVF files are bitmap fonts baked (tools/korean/mkfont.py, plans in
+tools/korean/scumm-fonts/i[34][lu].tsv) from three SIL Open Font License 1.1
+fonts. Each is a Modified Version (a rasterised subset). They carry no font
+name at all, and neither the file names nor the text inside them use a
+Reserved Font Name.
+
+  I3L*.SVF, I4L*.SVF   (L preset, 1 bpp; 16 px, the Indy4 credit titles 32 px)
+      Neo Dunggeunmo 1.601, Copyright (c) 2017-2021, Eunbin Jeong (Dalgona.)
+      <project-neodgm@dalgona.dev>. Licence: OFL.TXT.
+
+  I3U0.SVF, I4U1/2.SVF   (U preset, 2 bpp: dialogue, verbs, sentence line)
+      NanumGothic Bold, Copyright (c) 2010, NHN Corporation
+      (http://www.nhncorp.com). Licence: OFLNANUM.TXT.
+
+  I3U1.SVF, I4U3.SVF   (U preset, 2 bpp: the Indy3 title card, the Indy4
+                        credit titles)
+      Gowun Batang Bold, Copyright 2021 The Gowun Batang Project Authors
+      (https://github.com/yangheeryu/Gowun-Batang). Licence: OFLGOWUN.TXT.
+
+The three licence files hold the exact upstream text, copyright line and
+Reserved Font Name list included. The fonts are not sold by themselves.
