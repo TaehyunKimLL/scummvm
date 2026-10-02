@@ -52,6 +52,9 @@ extern "C" char etext[];
 // Referencing this fails the link against an SDL3 that lacks it
 // (build-dos.sh says so before it gets that far).
 extern "C" const int DOS_IRQCodeChecked;
+// Likewise sdl3-cpuid.patch's mark: an SDL3 without it runs CPUID on a 486
+// that has none (SDL_Init() dies with an invalid opcode).
+extern "C" const int DOS_CPUIDChecked;
 
 namespace DOS {
 
@@ -136,6 +139,7 @@ bool lockIrqData(const volatile void *p, uint32 size) {
  */
 void chooseLockRegime() {
 	(void)*(const volatile int *)&DOS_IRQCodeChecked;
+	(void)*(const volatile int *)&DOS_CPUIDChecked;
 	int flags = 0;
 	char vendor[128];
 	memset(vendor, 0, sizeof(vendor));
