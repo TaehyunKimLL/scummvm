@@ -181,6 +181,9 @@ void OSystem_DOS::initBackend() {
 	logMessage(LogMessageType::kInfo, Common::String::format(
 		"DOS: %s, %s%s%s\n", DOS::dpmiHost(), DOS::lockedAll() ? "all memory locked" : "interrupt memory locked",
 		DOS::lockedAll() ? ": " : "", DOS::lockedAllWhy()).c_str());
+	if (DOS::fpuEmulated())
+		logMessage(LogMessageType::kInfo,
+			"DOS: no FPU: the built-in emulator stands in (slow); timer procs run on the main thread\n");
 
 	SDL_SetLogOutputFunction(sdlLog, nullptr);
 	SDL_SetHint(SDL_HINT_DOS_ALLOW_DIRECT_FRAMEBUFFER, "1");
@@ -1108,6 +1111,20 @@ int main(int argc, char *argv[]) {
 	// Names this run for the self-test and the shared log (SCUMMVM.EXE or
 	// SCUMM.EXE), before anything might log.
 	DOS::setExeName(argc > 0 ? argv[0] : nullptr);
+
+	// Before the first FPU instruction (SDL_Init() has some): without an
+	// FPU or its emulator that would end in a crash dump.
+	if (!DOS::fpuUsable()) {
+		const Common::String msg = Common::String::format(
+			"%s needs a math coprocessor (FPU): a 486DX, a Pentium or later, or a\n"
+			"486SX or 386 with an FPU fitted. Without one it runs, slowly, on its\n"
+			"built-in FPU emulator, but this DPMI host (%s) would not trap FPU\n"
+			"instructions for it. Use CWSDPMI.EXE (the one beside %s).\n",
+			DOS::exeName(), DOS::dpmiHost(), DOS::exeName());
+		fputs(msg.c_str(), stderr);
+		appendLog(("DOS: " + msg).c_str(), msg.size() + 5);
+		return 1;
+	}
 
 	// Before anything can call stat(), mktime() or localtime(): with TZ
 	// unset and no zoneinfo, DJGPP's time-zone code uses a leap-second
