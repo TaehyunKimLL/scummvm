@@ -2,15 +2,19 @@ SDL3 for the DOS build, trimmed to what the port uses.
 
 build-dos.sh links $SDL3_DOS_MIN (default ~/opt/sdl3-dos-min). Source:
 libsdl-org/SDL 1ce4c5bc2916702e8e0f6df1f612dbd8633011da with
-sdl3-irq-code.patch and then sdl3-cpuid.patch applied (see their headers;
-~/opt/src/SDL3, branch dos-486, ef2105c: dos-irq-lock 11ca8a4 plus the
-CPUID check, 2df4ec6: its DOS_CPUIDChecked mark). Without
-sdl3-cpuid.patch SDL_Init() dies with an invalid opcode on a 486 without
-CPUID: build-dos.sh refuses such an SDL3, and the link would fail on
-DOS_CPUIDChecked.
+sdl3-irq-code.patch, sdl3-cpuid.patch and then sdl3-sb-shutdown.patch
+applied (see their headers; ~/opt/src/SDL3, branch dos-sb-shutdown,
+fbd0d18: dos-486 2df4ec6 = dos-irq-lock 11ca8a4 plus the CPUID check and
+its DOS_CPUIDChecked mark, then the Sound Blaster close fix and its
+DOS_SBShutdownChecked mark). Without sdl3-cpuid.patch SDL_Init() dies with
+an invalid opcode on a 486 without CPUID; without sdl3-sb-shutdown.patch a
+Sound Blaster that sends no interrupts (BLASTER's D not the card's DMA
+channel) hangs the exit. build-dos.sh refuses an SDL3 that lacks either,
+and the link would fail on DOS_CPUIDChecked or DOS_SBShutdownChecked.
 
   git -C SDL3 checkout 1ce4c5bc29
   git -C SDL3 apply sdl3-irq-code.patch && git -C SDL3 apply sdl3-cpuid.patch
+  git -C SDL3 apply sdl3-sb-shutdown.patch
 
   cmake -S SDL3 -B SDL3/build-dos-min \
     -DCMAKE_TOOLCHAIN_FILE=build-scripts/i586-pc-msdosdjgpp.cmake \
@@ -49,7 +53,7 @@ driver even with SDL_JOYSTICK=OFF, and SDL_joystick.c then wants the dummy
 driver, which is not built (an undefined SDL_DUMMY_JoystickDriver at link).
 
 The full build (~/opt/sdl3-dos, the options in sdl3-irq-code.patch's header,
-from the same source with both patches) still works:
+from the same source with the three patches) still works:
 SDL3_DOS_MIN=$HOME/opt/sdl3-dos build-dos.sh ...
 
 Configure a fresh build directory (or delete its CMakeCache.txt) after

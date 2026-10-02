@@ -38,6 +38,14 @@ if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q 
 	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-cpuid.patch)." >&2
 	exit 1
 fi
+# And sdl3-sb-shutdown.patch: without it, closing the Sound Blaster waits
+# forever for an audio thread whose card sends no interrupts (a BLASTER D
+# that is not the card's DMA channel), and the program never exits.
+if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q ' [TDR] _DOS_SBShutdownChecked$'; then
+	echo "build-dos.sh: $sdl_lib lacks the Sound Blaster shutdown fix (no DOS_SBShutdownChecked)." >&2
+	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-sb-shutdown.patch)." >&2
+	exit 1
+fi
 if [ "$edition" = scumm ]; then
 	out="$src/build-dos-scumm"
 	engine_args=(--enable-engine=scumm --disable-engine=scumm_7_8,he)

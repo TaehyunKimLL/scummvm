@@ -55,6 +55,9 @@ extern "C" const int DOS_IRQCodeChecked;
 // Likewise sdl3-cpuid.patch's mark: an SDL3 without it runs CPUID on a 486
 // that has none (SDL_Init() dies with an invalid opcode).
 extern "C" const int DOS_CPUIDChecked;
+// And sdl3-sb-shutdown.patch's: without it a Sound Blaster whose interrupts
+// never come (a wrong DMA channel in BLASTER) hangs the exit.
+extern "C" const int DOS_SBShutdownChecked;
 
 namespace DOS {
 
@@ -140,6 +143,7 @@ bool lockIrqData(const volatile void *p, uint32 size) {
 void chooseLockRegime() {
 	(void)*(const volatile int *)&DOS_IRQCodeChecked;
 	(void)*(const volatile int *)&DOS_CPUIDChecked;
+	(void)*(const volatile int *)&DOS_SBShutdownChecked;
 	int flags = 0;
 	char vendor[128];
 	memset(vendor, 0, sizeof(vendor));
