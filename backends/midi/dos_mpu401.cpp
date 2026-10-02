@@ -36,6 +36,7 @@
 #include "audio/mpu401.h"
 #include "audio/musicplugin.h"
 #include "backends/platform/dos/blaster.h"
+#include "backends/platform/dos/dos-exit.h"
 #include "backends/platform/dos/dos-silence.h"
 #include "common/config-manager.h"
 #include "common/error.h"
@@ -491,6 +492,7 @@ void MidiDriver_DosMPU::flushLog() {
 }
 
 void flushLogAtExit() {
+	DOS::exitMark(DOS::kExitAtexitMidiLog, "atexit: MIDI log flush");
 	// exit() without close(): e.g. an error() while the music plays.
 	if (g_logDriver)
 		g_logDriver->flushLog();
