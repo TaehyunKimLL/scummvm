@@ -26,6 +26,7 @@
 #include <SDL3/SDL.h>
 
 #include "backends/mixer/dos/dos-mixer.h"
+#include "backends/platform/dos/dos-exit.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/system.h"
@@ -42,6 +43,7 @@ DosMixerManager::~DosMixerManager() {
 		SDL_DestroyAudioStream(_stream);	// closes the device it opened
 	if (_subsystemInitialized)
 		SDL_QuitSubSystem(SDL_INIT_AUDIO);
+	DOS::soundBlasterClosed();
 	delete[] _buffer;
 }
 
@@ -68,6 +70,12 @@ void DosMixerManager::init() {
 		warning("DOS: no audio device: %s", SDL_GetError());
 		return;
 	}
+
+	// For the way out (DOS::soundBlasterClosed()): SDL3 masks the card's
+	// IRQ whatever it was, and leaves an SB16's transfer running.
+	const char *driver = SDL_GetCurrentAudioDriver();
+	if (driver && strcmp(driver, "soundblaster") == 0)
+		DOS::noteSoundBlasterOpen();
 
 	// The card's rate is known only now: SDL asks for 44100 Hz, and the
 	// driver brings cards before the SB16 down to 22050. Mix at that rate

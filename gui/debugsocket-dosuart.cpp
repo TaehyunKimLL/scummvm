@@ -28,6 +28,7 @@
 #include <pc.h>
 
 #include "gui/debugsocket-dosuart.h"
+#include "backends/platform/dos/dos-exit.h"
 #include "backends/platform/dos/dos-irq.h"
 #include "common/debug.h"
 #include "common/textconsole.h"
@@ -113,6 +114,7 @@ static DOS_IRQ_CODE void uartIsr() {
 }
 
 static void teardown();
+static void teardownAtExit();
 
 bool DosUart::open(const Common::String &spec) {
 	Common::String s = spec;
@@ -184,7 +186,7 @@ bool DosUart::open(const Common::String &spec) {
 	g_openBase = base;
 	g_openIrq = irq;
 	if (!g_atexitDone) {
-		atexit(teardown);
+		atexit(teardownAtExit);
 		g_atexitDone = true;
 	}
 	outportb(0x21, mask & ~(1 << irq));
@@ -193,6 +195,11 @@ bool DosUart::open(const Common::String &spec) {
 	_irq = irq;
 	debug(1, "DebugSocket: COM at 0x%X, IRQ %d, %u baud", base, irq, (uint)baud);
 	return true;
+}
+
+static void teardownAtExit() {
+	DOS::exitMark(DOS::kExitAtexitUart, "atexit: debug socket COM port");
+	teardown();
 }
 
 // Idempotent: from close() (the destructor) and from exit() alike.
