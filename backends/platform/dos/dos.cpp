@@ -829,8 +829,10 @@ bool OSystem_DOS::pollEvent(Common::Event &event) {
 	DOS::pagefaultSelftestPoll();
 	// The IRQ0 handler runs the timers; this is the fallback should it
 	// not have gone in, or not be able to.
-	if (DosTimerManager::procsOnMainThread())
+	if (DosTimerManager::procsOnMainThread()) {
+		DosTimerManager::noteEventLoopRun();
 		((DefaultTimerManager *)getTimerManager())->checkTimers();
+	}
 	if (_nullMixer)
 		_nullMixer->update(1);
 	const bool got = _eventSource->pollEvent(event);
@@ -1119,7 +1121,8 @@ int main(int argc, char *argv[]) {
 			"%s needs a math coprocessor (FPU): a 486DX, a Pentium or later, or a\n"
 			"486SX or 386 with an FPU fitted. Without one it runs, slowly, on its\n"
 			"built-in FPU emulator, but this DPMI host (%s) would not trap FPU\n"
-			"instructions for it. Use CWSDPMI.EXE (the one beside %s).\n",
+			"instructions for it. Use CWSDPMI.EXE (the one beside %s). If this\n"
+			"PC has an FPU, remove 387=N from the environment.\n",
 			DOS::exeName(), DOS::dpmiHost(), DOS::exeName());
 		fputs(msg.c_str(), stderr);
 		appendLog(("DOS: " + msg).c_str(), msg.size() + 5);

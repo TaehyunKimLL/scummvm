@@ -80,6 +80,13 @@ public:
 	 */
 	static bool procsOnMainThread();
 
+	/**
+	 * The event loop is about to run the timer procs (procsOnMainThread()):
+	 * counts the run and the time they waited, as runs elsewhere count
+	 * theirs, for logStats().
+	 */
+	static void noteEventLoopRun();
+
 	/** Logs (debug level 1) where the timer procs ran, and how often they waited. */
 	static void logStats();
 
