@@ -2,8 +2,13 @@ SDL3 for the DOS build, trimmed to what the port uses.
 
 build-dos.sh links $SDL3_DOS_MIN (default ~/opt/sdl3-dos-min). Source:
 libsdl-org/SDL 1ce4c5bc2916702e8e0f6df1f612dbd8633011da with
-sdl3-irq-code.patch applied (see its header; ~/opt/src/SDL3, branch
-dos-irq-lock, 11ca8a4).
+sdl3-irq-code.patch and then sdl3-cpuid.patch applied (see their headers;
+~/opt/src/SDL3, branch dos-486, ef2105c: dos-irq-lock 11ca8a4 plus the
+CPUID check). Without sdl3-cpuid.patch the build still links, but
+SDL_Init() dies with an invalid opcode on a 486 without CPUID.
+
+  git -C SDL3 checkout 1ce4c5bc29
+  git -C SDL3 apply sdl3-irq-code.patch && git -C SDL3 apply sdl3-cpuid.patch
 
   cmake -S SDL3 -B SDL3/build-dos-min \
     -DCMAKE_TOOLCHAIN_FILE=build-scripts/i586-pc-msdosdjgpp.cmake \

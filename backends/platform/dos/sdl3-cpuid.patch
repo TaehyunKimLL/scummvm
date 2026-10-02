@@ -1,0 +1,45 @@
+SDL3 change the ScummVM DOS port needs on 486 CPUs: CPU_haveCPUID()'s
+EFLAGS.ID check returned an uninitialised value on CPUs without CPUID (its
+result was an output-only asm operand, so GCC dropped the "= 0" store),
+and SDL_GetSIMDAlignment() -> CPU_calcCPUIDFeatures() then ran CPUID and
+took an invalid-opcode fault on a 486.
+
+Base: sdl3-irq-code.patch applied (~/opt/src/SDL3 branch dos-486 =
+dos-irq-lock + this change, ef2105c). Apply after that one (git apply
+skips this text):
+  git -C SDL3 apply sdl3-irq-code.patch && git -C SDL3 apply sdl3-cpuid.patch
+
+diff --git a/src/cpuinfo/SDL_cpuinfo.c b/src/cpuinfo/SDL_cpuinfo.c
+index d343592..fc6f14c 100644
+--- a/src/cpuinfo/SDL_cpuinfo.c
++++ b/src/cpuinfo/SDL_cpuinfo.c
+@@ -136,6 +136,11 @@ static void illegal_instruction(int sig)
+ 
+ static int CPU_haveCPUID(void)
+ {
++    /* The asm below only stores 1 when CPUID exists: has_CPUID is an in-out
++       operand ("+m"), so the compiler keeps the 0 stored here. With "=m" it
++       may drop that store as dead and read an uninitialised stack slot on a
++       CPU without CPUID (a 386 or most 486s), which then runs CPUID and
++       takes an invalid-opcode fault. */
+     int has_CPUID = 0;
+ 
+ /* *INDENT-OFF* */ // clang-format off
+@@ -154,7 +159,7 @@ static int CPU_haveCPUID(void)
+ "        jz      1f                  # Processor=80486                 \n"
+ "        movl    $1,%0               # We have CPUID support           \n"
+ "1:                                                                    \n"
+-    : "=m" (has_CPUID)
++    : "+m" (has_CPUID)
+     :
+     : "%eax", "%ecx"
+     );
+@@ -174,7 +179,7 @@ static int CPU_haveCPUID(void)
+ "        jz      1f                  # Processor=80486                 \n"
+ "        movl    $1,%0               # We have CPUID support           \n"
+ "1:                                                                    \n"
+-    : "=m" (has_CPUID)
++    : "+m" (has_CPUID)
+     :
+     : "%rax", "%rcx"
+     );
