@@ -18,6 +18,25 @@ A Korean MI2 with its hi-res map keeps about 10 files open. Put
 in CONFIG.SYS (DOSBox's default is enough). With too few, a game stops with
 an error when it opens a room or a save file.
 
+## Where it reads and writes
+
+The folder of the EXE is the program's own: SCUMMVM.INI, SAVES, DATA,
+SCUMMVM.LOG and EXITLOG.TXT are found and written there, whatever the
+current directory is when it is started. Only the game's folder is looked
+for from the current directory, and a path on the command line is made
+absolute against it first, so
+
+    D:\> C:\SCUMMVM\SCUMMVM.EXE --path=GAMES\LB2KO lb2ko
+
+runs a game from a read-only drive D: while everything is written to C:.
+`path=` in a section of SCUMMVM.INI stays relative to the folder of the EXE.
+DOS is back on the drive and directory it was started from when the program
+ends. Started from its own folder, nothing changes.
+
+`SCUMMVM --sound=adlib|mt32|gm` (or `--sound adlib`) sets the music output
+in the `[scummvm]` section of SCUMMVM.INI (`music_driver`, `native_mt32`,
+`enable_gs`) and exits.
+
 ## Settings
 
 In SCUMMVM.INI, `[scummvm]` or a game's section:
