@@ -37,16 +37,25 @@ Pack:  `GAMES\ID\` (the game's files) and `ID.INI` (a sample SCUMMVM.INI
 without `path=`).
 
 PLAY makes the profile folder and copies `ID.INI` into it when there is no
-SCUMMVM.INI yet (never over one), picks SCUMM.EXE or SCI.EXE by the first
-`engineid=` of that INI, runs it from the home with `--config`, `--savepath`
-and `--path` naming the profile and the pack, and moves the logs into the
-profile. Further arguments go to the engine; path options among them are
-made absolute against the pack first. DOS is back on the drive and directory
-it was started from when PLAY ends.
+SCUMMVM.INI yet (never over one), picks SCUMM.EXE or SCI.EXE by the
+`engineid=` of the target's own section (the first `engineid=` of the file
+when the target has none), runs it from the home with `--config`,
+`--savepath` and `--path` naming the profile and the pack, and moves the
+logs into the profile, also when the game ends on a signal. Further
+arguments go to the engine; path options among them are made absolute
+against the pack first. Run from the home folder, PLAY gives no `--path`
+(the INI's own is used). When the profile INI lacks the target's section,
+PLAY says so and does not merge the sample. DOS is back on the drive and
+directory it was started from, and the home drive keeps its own current
+directory, when PLAY ends. Messages name paths with backslashes.
 
 - `PLAY --install ID`: only the profile folder and INI.
 - `PLAY --sound=adlib|mt32|gm ID`: sets `music_driver`, `native_mt32` and
-  `enable_gs` in the profile's `[scummvm]` section.
+  `enable_gs` in the profile's `[scummvm]` section (section and key names in
+  any case; the file is replaced whole, never half written).
+
+Both refuse to run, and create nothing, when neither the profile INI nor
+`ID.INI` in the current folder exists.
 
 ## Settings
 

@@ -52,26 +52,6 @@ const char kUsage[] =
 	"ID is the folder name of the game, like MI1KO. The game's INI, saves and\n"
 	"logs are kept in GAMES\\ID below the folder of PLAY.EXE.\n";
 
-// DOS keeps the current drive and directory after a program ends.
-class DirGuard {
-public:
-	DirGuard() : _drive(getdisk()) {
-		char buf[260];
-		if (getcwd(buf, sizeof(buf)))
-			_cwd = buf;
-	}
-	~DirGuard() {
-		setdisk(_drive);
-		if (!_cwd.empty())
-			chdir(_cwd.c_str());
-	}
-	const std::string &cwd() const { return _cwd; }
-
-private:
-	int _drive;
-	std::string _cwd;
-};
-
 std::string driveCwd(char letter) {
 	const int drive = toupper((unsigned char)letter) - 'A';
 	const int back = getdisk();
@@ -81,6 +61,44 @@ std::string driveCwd(char letter) {
 	setdisk(back);
 	return dir;
 }
+
+// DOS keeps the current drive and directory after a program ends, and one
+// directory per drive: the drive of the home folder is put back too.
+class DirGuard {
+public:
+	DirGuard() : _drive(getdisk()), _otherDrive(-1) {
+		char buf[260];
+		if (getcwd(buf, sizeof(buf)))
+			_cwd = buf;
+	}
+	~DirGuard() {
+		if (_otherDrive >= 0) {
+			setdisk(_otherDrive);
+			if (!_otherCwd.empty())
+				chdir(_otherCwd.c_str());
+		}
+		setdisk(_drive);
+		if (!_cwd.empty())
+			chdir(_cwd.c_str());
+	}
+	const std::string &cwd() const { return _cwd; }
+	// Call before changing to `path`.
+	void willEnter(const std::string &path) {
+		if (_otherDrive >= 0 || !Play::Detail::hasDrive(path.c_str()))
+			return;
+		const int drive = toupper((unsigned char)path[0]) - 'A';
+		if (drive == _drive)
+			return;
+		_otherCwd = driveCwd(path[0]);
+		_otherDrive = drive;
+	}
+
+private:
+	int _drive;
+	int _otherDrive;
+	std::string _cwd;
+	std::string _otherCwd;
+};
 
 bool isDir(const std::string &path) {
 	struct stat st;
@@ -139,8 +157,19 @@ void moveFile(const std::string &from, const std::string &to) {
 }
 
 int fail(const char *what, const std::string &name) {
-	fprintf(stderr, "PLAY: %s %s\n", what, name.c_str());
+	fprintf(stderr, "PLAY: %s %s\n", what, Play::dosPath(name).c_str());
 	return 1;
+}
+
+// Writes `data` beside `path` and swaps it in, so a failed write keeps the old file.
+bool replaceFile(const std::string &path, const std::string &data) {
+	const std::string tmp = path.substr(0, path.rfind('/') + 1) + "SCUMMVM.NEW";
+	if (!writeFile(tmp, data)) {
+		remove(tmp.c_str());
+		return false;
+	}
+	remove(path.c_str());
+	return rename(tmp.c_str(), path.c_str()) == 0;
 }
 
 // Makes the folder of a game and its INI from the pack's sample when there is
@@ -148,42 +177,49 @@ int fail(const char *what, const std::string &name) {
 bool ensureProfile(const Play::Profile &p, const std::string &sample, bool say) {
 	const bool had = isDir(p.dir);
 	if (!makeDirs(p.saves)) {
-		fprintf(stderr, "PLAY: cannot create %s (is the folder of PLAY.EXE writable?)\n", p.saves.c_str());
+		fprintf(stderr, "PLAY: cannot create %s (is the folder of PLAY.EXE writable?)\n", Play::dosPath(p.saves).c_str());
 		return false;
 	}
 	if (say && !had)
-		printf("Created %s\n", p.dir.c_str());
+		printf("Created %s\n", Play::dosPath(p.dir).c_str());
 	if (isFile(p.ini))
 		return true;
 	std::string text;
 	if (!readFile(sample, text)) {
-		fprintf(stderr, "PLAY: no %s in the current folder; %s starts empty.\n", sample.c_str(), p.ini.c_str());
+		fprintf(stderr, "PLAY: no %s in the current folder; %s starts empty.\n", Play::dosPath(sample).c_str(), Play::dosPath(p.ini).c_str());
 		return true;
 	}
 	if (!writeFile(p.ini, text)) {
-		fprintf(stderr, "PLAY: cannot write %s\n", p.ini.c_str());
+		fprintf(stderr, "PLAY: cannot write %s\n", Play::dosPath(p.ini).c_str());
 		return false;
 	}
 	if (say)
-		printf("Created %s from %s\n", p.ini.c_str(), sample.c_str());
+		printf("Created %s from %s\n", Play::dosPath(p.ini).c_str(), Play::dosPath(sample).c_str());
 	return true;
 }
 
 int setSound(const Play::Profile &p, Play::SoundChoice choice, const std::string &id) {
 	std::string text;
-	readFile(p.ini, text);
-	if (!writeFile(p.ini, Play::applySoundChoice(text, choice)))
+	// An unreadable INI must stay as it is, not be rebuilt from a partial read.
+	if (isFile(p.ini) && !readFile(p.ini, text))
+		return fail("cannot read", p.ini);
+	if (!replaceFile(p.ini, Play::applySoundChoice(text, choice)))
 		return fail("cannot write", p.ini);
 	static const char *const kLabels[] = { "AdLib / OPL", "Roland MT-32 or CM-32L", "General MIDI" };
 	printf("Music output of %s: %s\n", id.c_str(), kLabels[choice]);
 	return 0;
 }
 
-int play(const std::string &home, const std::string &pack, const Play::Profile &p, const std::string &id,
-		 const std::vector<std::string> &extra) {
+int play(DirGuard &guard, const std::string &home, const std::string &pack, const std::string &sample,
+		 const Play::Profile &p, const std::string &id, const std::vector<std::string> &extra) {
 	std::string iniText;
 	readFile(p.ini, iniText);
-	const std::string engine = Play::engineOf(iniText);
+	const std::string target = Play::targetOf(extra);
+	if (!target.empty() && !Play::hasTarget(iniText, target) && isFile(sample))
+		fprintf(stderr, "PLAY: %s has no [%s] section; the sample %s is not merged into it.\n"
+				"      Delete that INI to take the sample again.\n",
+				Play::dosPath(p.ini).c_str(), target.c_str(), Play::dosPath(sample).c_str());
+	const std::string engine = Play::engineOf(iniText, target);
 	// One EXE per engine family: the INI's engineid says which.
 	const char *const first = engine == "scumm" ? "SCUMM.EXE" : "SCI.EXE";
 	const char *const second = engine == "scumm" ? "SCI.EXE" : "SCUMM.EXE";
@@ -194,7 +230,8 @@ int play(const std::string &home, const std::string &pack, const Play::Profile &
 		return fail("no SCI.EXE or SCUMM.EXE in", home);
 
 	std::string gameDir = Play::join(Play::join(pack, "GAMES"), Play::Detail::upper(id));
-	if (!isDir(gameDir))
+	// Started from the home folder, GAMES\ID is the profile: a --path to it would hide the INI's own.
+	if (!isDir(gameDir) || Play::samePath(pack, home))
 		gameDir.clear();
 	const std::vector<std::string> args = Play::childArgs(p, gameDir, extra);
 
@@ -208,6 +245,7 @@ int play(const std::string &home, const std::string &pack, const Play::Profile &
 	const std::string homeExitLog = Play::join(home, "EXITLOG.TXT");
 	remove(homeLog.c_str());
 	remove(homeExitLog.c_str());
+	guard.willEnter(home);
 	if (Play::Detail::hasDrive(home.c_str()))
 		setdisk(toupper((unsigned char)home[0]) - 'A');
 	if (chdir(home.c_str()) != 0)
@@ -217,13 +255,14 @@ int play(const std::string &home, const std::string &pack, const Play::Profile &
 	void (*const oldInt)(int) = signal(SIGINT, SIG_IGN);
 	const int rc = spawnv(P_WAIT, exe.c_str(), argv.data());
 	signal(SIGINT, oldInt);
-	if (rc < 0) {
-		fprintf(stderr, "PLAY: cannot run %s: %s\n", exe.c_str(), strerror(errno));
+	// -1 is a failed start; another negative value is a game killed by a signal, whose logs matter most.
+	if (rc == -1) {
+		fprintf(stderr, "PLAY: cannot run %s: %s\n", Play::dosPath(exe).c_str(), strerror(errno));
 		return 1;
 	}
 	moveFile(homeLog, p.log);
 	moveFile(homeExitLog, p.exitLog);
-	return rc;
+	return rc < 0 ? 1 : rc;
 }
 
 } // namespace
@@ -264,6 +303,10 @@ int main(int argc, char *argv[]) {
 	const Play::Profile p = Play::profileOf(home, id);
 	const std::string sample = Play::join(pack, id + ".INI");
 
+	if ((install || sound) && !isFile(p.ini) && !isFile(sample)) {
+		fprintf(stderr, "PLAY: run it from the game's folder: %s not found\n", Play::dosPath(sample).c_str());
+		return 1;
+	}
 	if (!ensureProfile(p, sample, install || sound))
 		return 1;
 	if (install)
@@ -277,5 +320,5 @@ int main(int argc, char *argv[]) {
 		words.push_back(argv[k]);
 	std::vector<std::string> extra = Play::absolutizeArgs((int)words.size(), words.data(), pack, driveCwd);
 	extra.erase(extra.begin());
-	return play(home, pack, p, id, extra);
+	return play(guard, home, pack, sample, p, id, extra);
 }
