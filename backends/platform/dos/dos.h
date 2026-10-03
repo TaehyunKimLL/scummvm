@@ -31,12 +31,12 @@ namespace DOS {
 
 /**
  * From main(): records argv[0]'s base name (path and case stripped, e.g.
- * "SCUMM.EXE") for exeName(). Left at the default ("SCUMMVM.EXE") if
+ * "SCUMM.EXE") for exeName(). Left at the default ("SCI.EXE") if
  * argv[0] is missing or empty.
  */
 void setExeName(const char *argv0);
 
-/** The name set by setExeName(), or "SCUMMVM.EXE" before main() calls it. */
+/** The name set by setExeName(), or "SCI.EXE" before main() calls it. */
 const char *exeName();
 
 /**

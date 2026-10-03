@@ -103,10 +103,10 @@ static void flushDeferredLogAtExit();
 
 namespace DOS {
 
-// "SCUMMVM.EXE" or "SCUMM.EXE": whichever main() was invoked as, so the
+// "SCI.EXE" or "SCUMM.EXE": whichever main() was invoked as, so the
 // self-test and shared log can name it without an engine #ifdef. Long
 // enough for any 8.3 name plus the terminator.
-static char g_exeName[13] = "SCUMMVM.EXE";
+static char g_exeName[13] = "SCI.EXE";
 
 void setExeName(const char *argv0) {
 	if (!argv0 || !*argv0)
@@ -1243,7 +1243,7 @@ static int soundOption(int argc, char **argv) {
 	const Common::String out = DOS::applySoundChoice(text, choice);
 	FILE *f = fopen(kIni, "wb");
 	if (!f || fwrite(out.c_str(), 1, out.size(), f) != out.size()) {
-		fputs("Cannot write SCUMMVM.INI: the folder of SCUMMVM.EXE must not be read-only.\n", stderr);
+		fputs("Cannot write SCUMMVM.INI: the folder of the EXE must not be read-only.\n", stderr);
 		if (f)
 			fclose(f);
 		return 1;
@@ -1266,7 +1266,7 @@ int main(int argc, char *argv[]) {
 	DOS::installExitSignals();
 	atexit(atexitDone);
 
-	// Names this run for the self-test and the shared log (SCUMMVM.EXE or
+	// Names this run for the self-test and the shared log (SCI.EXE or
 	// SCUMM.EXE), before anything might log.
 	DOS::setExeName(argc > 0 ? argv[0] : nullptr);
 
