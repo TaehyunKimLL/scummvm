@@ -54,6 +54,39 @@ inline bool parseSoundChoice(const char *name, SoundChoice &out) {
 	return true;
 }
 
+/** The menu key of the music output: '1' AdLib, '2' MT-32, '3' General MIDI. */
+inline bool soundOfKey(int key, SoundChoice &out) {
+	switch (key) {
+	case '1':
+		out = kSoundAdlib;
+		return true;
+	case '2':
+		out = kSoundMt32;
+		return true;
+	case '3':
+		out = kSoundGm;
+		return true;
+	default:
+		return false;
+	}
+}
+
+/** True when a BLASTER value has a P word (the MPU-401 port), like "A220 I7 D1 P330". */
+inline bool blasterHasMpuPort(const char *blaster) {
+	if (!blaster)
+		return false;
+	for (const char *c = blaster; *c;) {
+		while (*c == ' ' || *c == '\t')
+			++c;
+		const char *word = c;
+		while (*c && *c != ' ' && *c != '\t')
+			++c;
+		if (c - word > 1 && (*word == 'P' || *word == 'p'))
+			return true;
+	}
+	return false;
+}
+
 namespace SoundDetail {
 
 inline bool isBlank(char c) {

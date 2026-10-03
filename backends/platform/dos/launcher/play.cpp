@@ -26,7 +26,9 @@
 //   PLAY ID [options] target   run `target` from GAMES\ID of the current folder
 //   PLAY --install ID          create the game's folder and INI, run nothing
 //   PLAY --sound=adlib|mt32|gm ID   set the music output of the game's INI
+//   PLAY --sound ID            ask which music output, then set it
 
+#include <conio.h>
 #include <dir.h>
 #include <errno.h>
 #include <process.h>
@@ -49,6 +51,7 @@ const char kUsage[] =
 	"PLAY ID [options] target       run a game of the pack in the current folder\n"
 	"PLAY --install ID              create the game's folder and INI only\n"
 	"PLAY --sound=adlib|mt32|gm ID  set the music output of the game's INI\n"
+	"PLAY --sound ID                ask which music output, then set it\n"
 	"ID is the folder name of the game, like MI1KO. The game's INI, saves and\n"
 	"logs are kept in GAMES\\ID below the folder of PLAY.EXE.\n";
 
@@ -198,6 +201,26 @@ bool ensureProfile(const Play::Profile &p, const std::string &sample, bool say) 
 	return true;
 }
 
+bool askSound(const std::string &id, Play::SoundChoice &choice) {
+	printf("Select music output for %s:\n"
+		   "  1) AdLib / OPL\n"
+		   "  2) Roland MT-32 or CM-32L\n"
+		   "  3) General MIDI\n"
+		   "Choice (1,2,3, Esc to cancel): ", id.c_str());
+	fflush(stdout);
+	for (;;) {
+		const int key = getch();
+		if (key == 27 || key == 3 || key == EOF) {
+			printf("\n");
+			return false;
+		}
+		if (Play::soundOfKey(key, choice)) {
+			printf("%c\n", key);
+			return true;
+		}
+	}
+}
+
 int setSound(const Play::Profile &p, Play::SoundChoice choice, const std::string &id) {
 	std::string text;
 	// An unreadable INI must stay as it is, not be rebuilt from a partial read.
@@ -207,6 +230,8 @@ int setSound(const Play::Profile &p, Play::SoundChoice choice, const std::string
 		return fail("cannot write", p.ini);
 	static const char *const kLabels[] = { "AdLib / OPL", "Roland MT-32 or CM-32L", "General MIDI" };
 	printf("Music output of %s: %s\n", id.c_str(), kLabels[choice]);
+	if (choice != Play::kSoundAdlib && !Play::blasterHasMpuPort(getenv("BLASTER")))
+		printf("Note: BLASTER has no P (MPU-401 port); 0x330 will be used.\n");
 	return 0;
 }
 
@@ -282,10 +307,15 @@ int main(int argc, char *argv[]) {
 
 	bool install = false;
 	bool sound = false;
+	bool ask = false;
 	Play::SoundChoice choice = Play::kSoundAdlib;
 	int i = 1;
 	if (!strcmp(argv[i], "--install")) {
 		install = true;
+		++i;
+	} else if (!strcmp(argv[i], "--sound")) {
+		sound = true;
+		ask = true;
 		++i;
 	} else if (!strncmp(argv[i], "--sound=", 8)) {
 		if (!Play::parseSoundChoice(argv[i] + 8, choice)) {
@@ -311,8 +341,11 @@ int main(int argc, char *argv[]) {
 		return 1;
 	if (install)
 		return 0;
-	if (sound)
+	if (sound) {
+		if (ask && !askSound(id, choice))
+			return 1;
 		return setSound(p, choice, id);
+	}
 
 	std::vector<const char *> words;
 	words.push_back("");
