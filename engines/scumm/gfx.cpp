@@ -2165,7 +2165,9 @@ void ScummEngine::drawLine(int x1, int y1, int x2, int y2, int color) {
 
 void ScummEngine::drawPixel(VirtScreen *vs, int x, int y, int16 color, bool useBackbuffer) {
 	int factor = _isIndy4Jap ? 0 : 8;
-	int wScale = (vs->number == kBannerVirtScreen && _textSurfaceMultiplier == 2) ? 2 : 1;
+	// Only the FM-Towns banner virtscreen is allocated twice as wide. The hi-res text
+	// multiplier is 2 on other platforms too, but their banner is _screenWidth wide.
+	int wScale = (vs->number == kBannerVirtScreen && _game.platform == Common::kPlatformFMTowns && _textSurfaceMultiplier == 2) ? 2 : 1;
 	if (x >= 0 && y >= 0 && _screenWidth + factor > x && _screenHeight > y) {
 		if (useBackbuffer) {
 			*(vs->getBackPixels(x, y + _screenTop - vs->topline)) = color;
