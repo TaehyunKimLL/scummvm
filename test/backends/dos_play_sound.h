@@ -97,6 +97,8 @@ public:
 		TS_ASSERT(Play::blasterHasMpuPort("p330 A220"));
 		TS_ASSERT(!Play::blasterHasMpuPort("A220 I7 D1 T3"));
 		TS_ASSERT(!Play::blasterHasMpuPort("A220 P"));
+		TS_ASSERT(!Play::blasterHasMpuPort("A220 PXYZ"));
+		TS_ASSERT(!Play::blasterHasMpuPort("P3x0"));
 		TS_ASSERT(!Play::blasterHasMpuPort(""));
 		TS_ASSERT(!Play::blasterHasMpuPort(nullptr));
 	}

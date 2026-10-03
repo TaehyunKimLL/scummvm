@@ -210,6 +210,10 @@ bool askSound(const std::string &id, Play::SoundChoice &choice) {
 	fflush(stdout);
 	for (;;) {
 		const int key = getch();
+		if (key == 0 || key == 0xE0) {
+			getch(); // an extended key sends a scan code next; it is not a menu key
+			continue;
+		}
 		if (key == 27 || key == 3 || key == EOF) {
 			printf("\n");
 			return false;
