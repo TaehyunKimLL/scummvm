@@ -9,18 +9,18 @@
 class PlayHomeTestSuite : public CxxTest::TestSuite {
 public:
 	void test_exe_dir_of_a_full_path() {
-		TS_ASSERT_EQUALS(Play::exeDir("C:\\SCUMMVM\\SCUMMVM.EXE"), "C:\\SCUMMVM");
+		TS_ASSERT_EQUALS(Play::exeDir("C:\\SCUMMVM\\PLAY.EXE"), "C:\\SCUMMVM");
 		TS_ASSERT_EQUALS(Play::exeDir("c:/scummvm/scumm.exe"), "c:/scummvm");
 	}
 
 	void test_exe_dir_at_a_drive_root_keeps_the_separator() {
-		TS_ASSERT_EQUALS(Play::exeDir("C:\\SCUMMVM.EXE"), "C:\\");
-		TS_ASSERT_EQUALS(Play::exeDir("\\SCUMMVM.EXE"), "\\");
+		TS_ASSERT_EQUALS(Play::exeDir("C:\\PLAY.EXE"), "C:\\");
+		TS_ASSERT_EQUALS(Play::exeDir("\\PLAY.EXE"), "\\");
 	}
 
 	void test_exe_dir_without_a_directory_is_empty() {
-		TS_ASSERT_EQUALS(Play::exeDir("SCUMMVM.EXE"), "");
-		TS_ASSERT_EQUALS(Play::exeDir("C:SCUMMVM.EXE"), "");
+		TS_ASSERT_EQUALS(Play::exeDir("PLAY.EXE"), "");
+		TS_ASSERT_EQUALS(Play::exeDir("C:PLAY.EXE"), "");
 		TS_ASSERT_EQUALS(Play::exeDir(nullptr), "");
 		TS_ASSERT_EQUALS(Play::exeDir(""), "");
 	}
@@ -75,12 +75,12 @@ public:
 
 	void test_long_path_option_with_equals() {
 		std::vector<const char *> a;
-		a.push_back("C:\\SCUMMVM\\SCUMMVM.EXE");
+		a.push_back("C:\\SCUMMVM\\PLAY.EXE");
 		a.push_back("--path=GAMES\\LB2KO");
 		a.push_back("lb2ko");
 		std::vector<std::string> r = run(a);
 		TS_ASSERT_EQUALS(r.size(), 3u);
-		TS_ASSERT_EQUALS(r[0], "C:\\SCUMMVM\\SCUMMVM.EXE");
+		TS_ASSERT_EQUALS(r[0], "C:\\SCUMMVM\\PLAY.EXE");
 		TS_ASSERT_EQUALS(r[1], "--path=D:/PACK/GAMES/LB2KO");
 		TS_ASSERT_EQUALS(r[2], "lb2ko");
 	}

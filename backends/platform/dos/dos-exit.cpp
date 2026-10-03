@@ -49,9 +49,7 @@ namespace DOS {
 
 namespace {
 
-char g_exitLog[96] = "EXITLOG.TXT";
-int g_startDrive = -1;
-char g_startDir[96];		// no drive letter, backslashes
+const char kExitLog[] = "EXITLOG.TXT";
 const int kTraceRow = 24;
 const uint8 kTraceAttr = 0x4F;	// white on red
 
@@ -94,8 +92,8 @@ bool dos21(__dpmi_regs &r) {
 // One DOS open, seek, write and close: nothing stays buffered. With
 // @p create the file is made afresh (empty) first.
 bool appendLine(const char *buf, int len, bool create = false) {
-	const int nameLen = (int)strlen(g_exitLog) + 1;
-	dosmemput(g_exitLog, nameLen, __tb);
+	const int nameLen = sizeof(kExitLog);
+	dosmemput(kExitLog, nameLen, __tb);
 	dosmemput(buf, len, __tb + nameLen);
 	__dpmi_regs r;
 	memset(&r, 0, sizeof(r));
@@ -121,29 +119,6 @@ bool appendLine(const char *buf, int len, bool create = false) {
 	r.x.bx = handle;
 	dos21(r);
 	return ok;
-}
-
-// Raw INT 21h like appendLine(), for the same reason: from _exit on libc's
-// file layer is gone.
-void restoreStartDir() {
-	if (g_startDrive < 0)
-		return;
-	uint32 flags;
-	__asm__ __volatile__("pushfl; popl %0" : "=r"(flags));
-	if (!(flags & 0x200))
-		return;
-	__dpmi_regs r;
-	memset(&r, 0, sizeof(r));
-	r.h.ah = 0x0E;
-	r.h.dl = g_startDrive;
-	dos21(r);
-	if (!g_startDir[0])
-		return;
-	dosmemput(g_startDir, strlen(g_startDir) + 1, __tb);
-	memset(&r, 0, sizeof(r));
-	r.h.ah = 0x3B;
-	r.x.dx = __tb & 15;
-	dos21(r);
 }
 
 char *putHex(char *p, uint8 v) {
@@ -224,31 +199,6 @@ void saveIrqMasks() {
 	g_savedMaster = inportb(0x21);
 	g_savedSlave = inportb(0xA1);
 	g_masksSaved = true;
-}
-
-void setExitLogDir(const char *dir) {
-	if (!dir || !*dir || strlen(dir) + sizeof("\\EXITLOG.TXT") > sizeof(g_exitLog))
-		return;
-	strcpy(g_exitLog, dir);
-	for (char *p = g_exitLog; *p; ++p)
-		if (*p == '/')
-			*p = '\\';
-	size_t n = strlen(g_exitLog);
-	if (g_exitLog[n - 1] != '\\')
-		g_exitLog[n++] = '\\';
-	strcpy(g_exitLog + n, "EXITLOG.TXT");
-}
-
-void setStartDir(int drive, const char *dir) {
-	if (drive < 0 || !dir)
-		return;
-	if (dir[0] && dir[1] == ':')
-		dir += 2;
-	if (strlen(dir) >= sizeof(g_startDir))
-		dir = "";
-	for (size_t i = 0; (g_startDir[i] = dir[i] == '/' ? '\\' : dir[i]) != 0; ++i) {
-	}
-	g_startDrive = drive;
 }
 
 void exitTraceStart(bool on) {
@@ -362,7 +312,6 @@ void stopTimerHardware() {
 void fatalSignal(int sig) {
 	stopTimerHardware();
 	exitMark(kExitSignal, "fatal signal: timer out, then DJGPP's traceback");
-	restoreStartDir();
 	signal(sig, SIG_DFL);
 	raise(sig);
 }
@@ -391,7 +340,6 @@ extern "C" void __wrap__exit(int code) {
 		DOS::picState(what + strlen(what));
 		DOS::exitMark(DOS::kExitDjgppExit, what);
 	}
-	DOS::restoreStartDir();
 	__real__exit(code);
 }
 

@@ -23,9 +23,6 @@
 #define FORBIDDEN_SYMBOL_EXCEPTION_fopen
 #define FORBIDDEN_SYMBOL_EXCEPTION_fclose
 #define FORBIDDEN_SYMBOL_EXCEPTION_stderr
-#define FORBIDDEN_SYMBOL_EXCEPTION_stdout
-#define FORBIDDEN_SYMBOL_EXCEPTION_fread
-#define FORBIDDEN_SYMBOL_EXCEPTION_unistd_h
 #define FORBIDDEN_SYMBOL_EXCEPTION_fputs
 #define FORBIDDEN_SYMBOL_EXCEPTION_fwrite
 #define FORBIDDEN_SYMBOL_EXCEPTION_exit
@@ -42,8 +39,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <crt0.h>
-#include <dir.h>
-#include <unistd.h>
 #include <sys/nearptr.h>
 #include <sys/farptr.h>
 #include <go32.h>
@@ -59,8 +54,6 @@
 #include "backends/platform/dos/dos-loading.h"
 #include "backends/platform/dos/dos-silence.h"
 #include "backends/platform/dos/blaster.h"
-#include "backends/platform/dos/dos-home.h"
-#include "backends/platform/dos/sound-ini.h"
 #include "common/file-cache-stats.h"
 #include "common/textconsole.h"
 #include "backends/fs/posix/posix-fs-factory.h"
@@ -1172,90 +1165,6 @@ static void atexitDone() {
 	DOS::exitMark(DOS::kExitAtexitDone, "atexit handlers done");
 }
 
-// The current directory of another drive, as "X:/DIR", or "" if there is none.
-static Common::String driveCwd(char letter) {
-	const int drive = toupper((unsigned char)letter) - 'A';
-	const int back = getdisk();
-	setdisk(drive);
-	char buf[260];
-	const Common::String dir = (getdisk() == drive && getcwd(buf, sizeof(buf))) ? Common::String(buf) : Common::String();
-	setdisk(back);
-	return dir;
-}
-
-// Makes the folder of the EXE the current directory: SCUMMVM.INI, SAVES,
-// DATA and the logs are found, and written, there, while a game folder
-// named on the command line may sit on a read-only drive. Paths on the
-// command line are made absolute first, against the directory the program
-// was started from. Started from its own folder, nothing changes. DOS keeps
-// the current directory after the program ends, so dos-exit goes back.
-static void enterHomeDir(int argc, char **argv, Common::Array<Common::String> &args) {
-	const Common::String home = DOS::exeDir(argc > 0 ? argv[0] : nullptr);
-	char cwd[260];
-	if (home.empty() || !getcwd(cwd, sizeof(cwd)) || DOS::samePath(home, cwd))
-		return;
-	const int startDrive = getdisk();
-	Common::Array<Common::String> absolute = DOS::absolutizeArgs(argc, argv, cwd, driveCwd);
-	if (DOS::HomeDetail::hasDrive(home.c_str()))
-		setdisk(toupper((unsigned char)home[0]) - 'A');
-	if (chdir(home.c_str()) != 0) {
-		setdisk(startDrive);
-		return;
-	}
-	DOS::setStartDir(startDrive, cwd);
-	args = absolute;
-	DOS::setExitLogDir(home.c_str());
-}
-
-// "--sound=adlib|mt32|gm" (or "--sound adlib"): sets the music output in
-// SCUMMVM.INI and returns the exit code to leave with; -1 when the command
-// line has no such option and the program goes on to start a game.
-static int soundOption(int argc, char **argv) {
-	const char *name = nullptr;
-	bool found = false;
-	for (int i = 1; i < argc; ++i) {
-		if (!strncmp(argv[i], "--sound=", 8)) {
-			name = argv[i] + 8;
-			found = true;
-		} else if (!strcmp(argv[i], "--sound")) {
-			name = i + 1 < argc ? argv[i + 1] : nullptr;
-			found = true;
-		}
-		if (found)
-			break;
-	}
-	if (!found)
-		return -1;
-	DOS::SoundChoice choice;
-	if (!DOS::parseSoundChoice(name, choice)) {
-		fputs("Usage: SCUMMVM --sound=ADLIB, --sound=MT32 or --sound=GM\n", stderr);
-		return 1;
-	}
-	static const char kIni[] = "scummvm.ini";
-	Common::String text;
-	if (FILE *f = fopen(kIni, "rb")) {
-		char buf[512];
-		size_t n;
-		while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
-			text += Common::String(buf, buf + n);
-		fclose(f);
-	}
-	const Common::String out = DOS::applySoundChoice(text, choice);
-	FILE *f = fopen(kIni, "wb");
-	if (!f || fwrite(out.c_str(), 1, out.size(), f) != out.size()) {
-		fputs("Cannot write SCUMMVM.INI: the folder of the EXE must not be read-only.\n", stderr);
-		if (f)
-			fclose(f);
-		return 1;
-	}
-	fclose(f);
-	static const char *const kLabels[] = { "AdLib / OPL", "Roland MT-32 or CM-32L", "General MIDI" };
-	fputs("Music output: ", stdout);
-	fputs(kLabels[choice], stdout);
-	fputs(" (SCUMMVM.INI)\n", stdout);
-	return 0;
-}
-
 int main(int argc, char *argv[]) {
 	// Before anything allocates: under any DPMI host but CWSDPMI r7 (at
 	// ring 3) this locks the image and the heap as crt0 would have, and
@@ -1269,20 +1178,6 @@ int main(int argc, char *argv[]) {
 	// Names this run for the self-test and the shared log (SCI.EXE or
 	// SCUMM.EXE), before anything might log.
 	DOS::setExeName(argc > 0 ? argv[0] : nullptr);
-
-	Common::Array<Common::String> homeArgs;
-	enterHomeDir(argc, argv, homeArgs);
-	Common::Array<char *> homeArgv;
-	if (!homeArgs.empty()) {
-		for (uint i = 0; i < homeArgs.size(); ++i)
-			homeArgv.push_back(const_cast<char *>(homeArgs[i].c_str()));
-		homeArgv.push_back(nullptr);
-		argc = (int)homeArgs.size();
-		argv = homeArgv.data();
-	}
-	const int soundExit = soundOption(argc, argv);
-	if (soundExit >= 0)
-		return soundExit;
 
 	// Before the first FPU instruction (SDL_Init() has some): without an
 	// FPU or its emulator that would end in a crash dump.
