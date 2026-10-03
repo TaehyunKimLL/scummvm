@@ -61,6 +61,9 @@ extern "C" const int DOS_SBShutdownChecked;
 // And sdl3-sb-open-fail.patch's: without it a Sound Blaster that cannot be
 // opened (an SB16 whose BLASTER has no H) kills the program with an exception.
 extern "C" const int DOS_SBOpenFailChecked;
+// And sdl3-sb-probe.patch's: without it a Sound Blaster wired to another 8-bit
+// DMA channel than BLASTER's D plays nothing and nothing says why.
+extern "C" const int DOS_SBProbeChecked;
 
 namespace DOS {
 
@@ -148,6 +151,7 @@ void chooseLockRegime() {
 	(void)*(const volatile int *)&DOS_CPUIDChecked;
 	(void)*(const volatile int *)&DOS_SBShutdownChecked;
 	(void)*(const volatile int *)&DOS_SBOpenFailChecked;
+	(void)*(const volatile int *)&DOS_SBProbeChecked;
 	int flags = 0;
 	char vendor[128];
 	memset(vendor, 0, sizeof(vendor));
