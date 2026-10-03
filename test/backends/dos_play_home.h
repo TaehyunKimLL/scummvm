@@ -247,6 +247,7 @@ public:
 		TS_ASSERT_EQUALS(p.saves, "C:/SCUMMVM/GAMES/MI1KO/SAVES");
 		TS_ASSERT_EQUALS(p.log, "C:/SCUMMVM/GAMES/MI1KO/SCUMMVM.LOG");
 		TS_ASSERT_EQUALS(p.exitLog, "C:/SCUMMVM/GAMES/MI1KO/EXITLOG.TXT");
+		TS_ASSERT_EQUALS(p.sound, "C:/SCUMMVM/GAMES/MI1KO/SOUND.INI");
 	}
 
 	void test_child_args_name_the_profile_and_the_game_folder() {
@@ -314,5 +315,12 @@ public:
 	void test_dos_path_uses_backslashes() {
 		TS_ASSERT_EQUALS(Play::dosPath("C:/SCUMMVM/GAMES/MI1KO"), "C:\\SCUMMVM\\GAMES\\MI1KO");
 		TS_ASSERT_EQUALS(Play::dosPath(""), "");
+	}
+
+	void test_default_is_a_reserved_id_in_upper_case_only() {
+		TS_ASSERT(Play::isReservedId("DEFAULT"));
+		TS_ASSERT(!Play::isReservedId("MI1KO"));
+		TS_ASSERT(!Play::isReservedId("DEFAULT2"));
+		TS_ASSERT(Play::validId("DEFAULT"));
 	}
 };

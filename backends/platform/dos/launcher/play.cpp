@@ -27,6 +27,8 @@
 //   PLAY --install ID          create the game's folder and INI, run nothing
 //   PLAY --sound=adlib|mt32|gm ID   set the music output of the game's INI
 //   PLAY --sound ID            ask which music output, then set it
+//   PLAY --sound=default ID    drop the game's own choice: it follows DEFAULT
+//   PLAY --sound[=x] DEFAULT   the same for HOME\DEFAULT.INI, for games with no choice of their own
 
 #include <conio.h>
 #include <dir.h>
@@ -52,6 +54,8 @@ const char kUsage[] =
 	"PLAY --install ID              create the game's folder and INI only\n"
 	"PLAY --sound=adlib|mt32|gm ID  set the music output of the game's INI\n"
 	"PLAY --sound ID                ask which music output, then set it\n"
+	"PLAY --sound=default ID        the game follows the default again\n"
+	"PLAY --sound[=x] DEFAULT       set the default music output of all games\n"
 	"ID is the folder name of the game, like MI1KO. The game's INI, saves and\n"
 	"logs are kept in GAMES\\ID below the folder of PLAY.EXE.\n";
 
@@ -172,7 +176,12 @@ bool replaceFile(const std::string &path, const std::string &data) {
 		return false;
 	}
 	remove(path.c_str());
-	return rename(tmp.c_str(), path.c_str()) == 0;
+	if (rename(tmp.c_str(), path.c_str()) == 0)
+		return true;
+	// The old file is gone or locked: write in place rather than leave no INI.
+	const bool done = writeFile(path, data);
+	remove(tmp.c_str());
+	return done;
 }
 
 // Makes the folder of a game and its INI from the pack's sample when there is
@@ -201,12 +210,23 @@ bool ensureProfile(const Play::Profile &p, const std::string &sample, bool say) 
 	return true;
 }
 
-bool askSound(const std::string &id, Play::SoundChoice &choice) {
+const char *const kSoundLabels[] = { "AdLib / OPL", "Roland MT-32 or CM-32L", "General MIDI" };
+
+// The music choice kept in an INI-format file: a game's SOUND.INI or HOME's DEFAULT.INI.
+bool savedSound(const std::string &path, Play::SoundChoice &out) {
+	std::string text;
+	return readFile(path, text) && Play::soundChoiceOf(text, out);
+}
+
+// Asks on the keyboard. `follow` is set by 4 (use the default), offered when `allowFollow`.
+bool askSound(const std::string &what, bool allowFollow, Play::SoundChoice &choice, bool &follow) {
 	printf("Select music output for %s:\n"
 		   "  1) AdLib / OPL\n"
 		   "  2) Roland MT-32 or CM-32L\n"
-		   "  3) General MIDI\n"
-		   "Choice (1,2,3, Esc to cancel): ", id.c_str());
+		   "  3) General MIDI\n", what.c_str());
+	if (allowFollow)
+		printf("  4) Use the default\n");
+	printf(allowFollow ? "Choice (1,2,3,4, Esc to cancel): " : "Choice (1,2,3, Esc to cancel): ");
 	fflush(stdout);
 	for (;;) {
 		const int key = getch();
@@ -218,6 +238,11 @@ bool askSound(const std::string &id, Play::SoundChoice &choice) {
 			printf("\n");
 			return false;
 		}
+		if (allowFollow && key == '4') {
+			follow = true;
+			printf("4\n");
+			return true;
+		}
 		if (Play::soundOfKey(key, choice)) {
 			printf("%c\n", key);
 			return true;
@@ -225,17 +250,61 @@ bool askSound(const std::string &id, Play::SoundChoice &choice) {
 	}
 }
 
-int setSound(const Play::Profile &p, Play::SoundChoice choice, const std::string &id) {
+void blasterNote(Play::SoundChoice choice) {
+	if (choice != Play::kSoundAdlib && !Play::blasterHasMpuPort(getenv("BLASTER")))
+		printf("Note: BLASTER has no P (MPU-401 port); 0x330 will be used.\n");
+}
+
+// Puts the music choice of a game (its own SOUND.INI, else the default) into its SCUMMVM.INI.
+// 0 when done or when there is no choice; 1 when the INI cannot be read or written.
+int applySavedSound(const Play::Profile &p, const std::string &defaultIni) {
+	Play::SoundChoice choice;
+	if (!savedSound(p.sound, choice)) {
+		if (isFile(p.sound))
+			fprintf(stderr, "PLAY: no usable music choice in %s; the default is used\n", Play::dosPath(p.sound).c_str());
+		if (!savedSound(defaultIni, choice))
+			return 0;
+	}
 	std::string text;
 	// An unreadable INI must stay as it is, not be rebuilt from a partial read.
 	if (isFile(p.ini) && !readFile(p.ini, text))
 		return fail("cannot read", p.ini);
-	if (!replaceFile(p.ini, Play::applySoundChoice(text, choice)))
-		return fail("cannot write", p.ini);
-	static const char *const kLabels[] = { "AdLib / OPL", "Roland MT-32 or CM-32L", "General MIDI" };
-	printf("Music output of %s: %s\n", id.c_str(), kLabels[choice]);
-	if (choice != Play::kSoundAdlib && !Play::blasterHasMpuPort(getenv("BLASTER")))
-		printf("Note: BLASTER has no P (MPU-401 port); 0x330 will be used.\n");
+	const std::string out = Play::applySoundChoice(text, choice);
+	if (out == text)
+		return 0;
+	return replaceFile(p.ini, out) ? 0 : fail("cannot write", p.ini);
+}
+
+int setGameSound(const Play::Profile &p, const std::string &defaultIni, const std::string &id, bool follow, Play::SoundChoice choice) {
+	if (follow) {
+		if (remove(p.sound.c_str()) != 0 && errno != ENOENT)
+			return fail("cannot remove", p.sound);
+	} else if (!replaceFile(p.sound, Play::applySoundChoice("", choice)))
+		return fail("cannot write", p.sound);
+	if (applySavedSound(p, defaultIni))
+		return 1;
+	if (!follow) {
+		printf("Music output of %s: %s\n", id.c_str(), kSoundLabels[choice]);
+		blasterNote(choice);
+		return 0;
+	}
+	Play::SoundChoice def;
+	if (savedSound(defaultIni, def))
+		printf("Music output of %s: the default, %s\n", id.c_str(), kSoundLabels[def]);
+	else
+		printf("Music output of %s: the default, which is not set (the INI keeps its own setting)\n", id.c_str());
+	return 0;
+}
+
+int setDefaultSound(const std::string &defaultIni, Play::SoundChoice choice) {
+	std::string text;
+	if (isFile(defaultIni) && !readFile(defaultIni, text))
+		return fail("cannot read", defaultIni);
+	if (!replaceFile(defaultIni, Play::applySoundChoice(text, choice)))
+		return fail("cannot write", defaultIni);
+	printf("Default music output: %s\n"
+		   "Games with no choice of their own use it from their next start.\n", kSoundLabels[choice]);
+	blasterNote(choice);
 	return 0;
 }
 
@@ -312,6 +381,7 @@ int main(int argc, char *argv[]) {
 	bool install = false;
 	bool sound = false;
 	bool ask = false;
+	bool follow = false;
 	Play::SoundChoice choice = Play::kSoundAdlib;
 	int i = 1;
 	if (!strcmp(argv[i], "--install")) {
@@ -320,6 +390,10 @@ int main(int argc, char *argv[]) {
 	} else if (!strcmp(argv[i], "--sound")) {
 		sound = true;
 		ask = true;
+		++i;
+	} else if (!strncmp(argv[i], "--sound=", 8) && Play::SoundDetail::lower(argv[i] + 8) == "default") {
+		sound = true;
+		follow = true;
 		++i;
 	} else if (!strncmp(argv[i], "--sound=", 8)) {
 		if (!Play::parseSoundChoice(argv[i] + 8, choice)) {
@@ -336,6 +410,18 @@ int main(int argc, char *argv[]) {
 	const std::string id = Play::Detail::upper(argv[i++]);
 	const Play::Profile p = Play::profileOf(home, id);
 	const std::string sample = Play::join(pack, id + ".INI");
+	const std::string defaultIni = Play::join(home, "DEFAULT.INI");
+
+	if (Play::isReservedId(id)) {
+		if (!sound || follow) {
+			fputs("PLAY: DEFAULT is not a game; it only takes --sound=adlib|mt32|gm or --sound\n", stderr);
+			return 1;
+		}
+		bool unused = false;
+		if (ask && !askSound("the default", false, choice, unused))
+			return 1;
+		return setDefaultSound(defaultIni, choice);
+	}
 
 	if ((install || sound) && !isFile(p.ini) && !isFile(sample)) {
 		fprintf(stderr, "PLAY: run it from the game's folder: %s not found\n", Play::dosPath(sample).c_str());
@@ -346,10 +432,12 @@ int main(int argc, char *argv[]) {
 	if (install)
 		return 0;
 	if (sound) {
-		if (ask && !askSound(id, choice))
+		if (ask && !askSound(id, true, choice, follow))
 			return 1;
-		return setSound(p, choice, id);
+		return setGameSound(p, defaultIni, id, follow, choice);
 	}
+	if (applySavedSound(p, defaultIni))
+		fputs("PLAY: the game starts with its INI as it is\n", stderr);
 
 	std::vector<const char *> words;
 	words.push_back("");

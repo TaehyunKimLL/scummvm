@@ -132,6 +132,53 @@ inline bool isSection(const std::string &line) {
 } // End of namespace SoundDetail
 
 /**
+ * The music choice an INI's [scummvm] section holds (as applySoundChoice writes it);
+ * false when it has no music_driver there or a value that is none of the three.
+ */
+inline bool soundChoiceOf(const std::string &ini, SoundChoice &out) {
+	using namespace SoundDetail;
+	std::string driver, mt32, gs;
+	bool inSection = false;
+	size_t start = 0;
+	while (start <= ini.size()) {
+		size_t end = ini.find('\n', start);
+		if (end == std::string::npos)
+			end = ini.size();
+		std::string line = ini.substr(start, end - start);
+		start = end + 1;
+		if (!line.empty() && line[line.size() - 1] == '\r')
+			line.erase(line.size() - 1);
+		if (line.compare(0, 3, "\xEF\xBB\xBF") == 0)
+			line.erase(0, 3);
+		if (isSection(line)) {
+			inSection = lower(trim(line)) == "[scummvm]";
+			continue;
+		}
+		if (!inSection)
+			continue;
+		const std::string key = lower(keyOf(line));
+		if (key.empty())
+			continue;
+		const std::string value = lower(trim(line.substr(line.find('=') + 1)));
+		if (key == "music_driver")
+			driver = value;
+		else if (key == "native_mt32")
+			mt32 = value;
+		else if (key == "enable_gs")
+			gs = value;
+	}
+	if (driver == "adlib")
+		out = kSoundAdlib;
+	else if (driver == "mpu401" && mt32 == "true")
+		out = kSoundMt32;
+	else if (driver == "mpu401" && gs == "true")
+		out = kSoundGm;
+	else
+		return false;
+	return true;
+}
+
+/**
  * `ini` with the music settings of the [scummvm] section set for `choice`
  * and every other line left as it was. Missing keys (or the whole
  * section) are added; the file's line ending style is kept.
@@ -141,7 +188,7 @@ inline std::string applySoundChoice(const std::string &ini, SoundChoice choice) 
 	// The INI parser skips a UTF-8 BOM; so must a header on the first line.
 	if (ini.compare(0, 3, "\xEF\xBB\xBF") == 0)
 		return std::string("\xEF\xBB\xBF") + applySoundChoice(ini.substr(3), choice);
-	const bool crlf = ini.find("\r\n") != std::string::npos;
+	const bool crlf = ini.empty() || ini.find("\r\n") != std::string::npos; // a new file is for DOS editors
 
 	std::vector<std::string> lines;
 	size_t start = 0;
