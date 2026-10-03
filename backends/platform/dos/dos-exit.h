@@ -89,6 +89,13 @@ void saveIrqMasks();
 void setExitLogDir(const char *dir);
 
 /**
+ * The drive (0 = A) and directory ("X:/DIR") to go back to as the very last
+ * step of the way out, on a clean exit and after a fatal signal alike: DOS
+ * keeps the current drive and directory after the program ends.
+ */
+void setStartDir(int drive, const char *dir);
+
+/**
  * From initBackend() (dos_exit_trace): turns the exit trace on and starts
  * EXITLOG.TXT afresh.
  */

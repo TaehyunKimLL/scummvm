@@ -22,6 +22,9 @@
 #ifndef BACKENDS_PLATFORM_DOS_DOS_HOME_H
 #define BACKENDS_PLATFORM_DOS_DOS_HOME_H
 
+#include <ctype.h>
+#include <string.h>
+
 #include "common/array.h"
 #include "common/scummsys.h"
 #include "common/str.h"
@@ -46,15 +49,6 @@ inline bool hasDrive(const char *p) {
 
 }
 
-/** True for "X:\dir", "X:/dir", "\dir" and "/dir". */
-inline bool isAbsolutePath(const char *p) {
-	if (!p || !*p)
-		return false;
-	if (HomeDetail::hasDrive(p))
-		return HomeDetail::isSep(p[2]);
-	return HomeDetail::isSep(p[0]);
-}
-
 /** "C:\SCUMMVM\SCUMMVM.EXE" -> "C:\SCUMMVM"; "C:\SCUMMVM.EXE" -> "C:\"; "" when argv0 has no directory. */
 inline Common::String exeDir(const char *argv0) {
 	if (!argv0)
@@ -73,21 +67,58 @@ inline Common::String exeDir(const char *argv0) {
 	return dir;
 }
 
-/** `p` made absolute against `cwd` (an absolute path); an absolute `p` is returned as given. */
-inline Common::String absolutePath(const Common::String &cwd, const char *p) {
-	// "D:GAMES" is relative to another drive's directory: left to DOS.
-	if (HomeDetail::hasDrive(p))
-		return p;
-	Common::String base = cwd;
+/**
+ * The current directory of drive `letter`, as "X:/DIR": what a drive-relative
+ * "X:" or "X:DIR" refers to before the program changes directory. Empty when
+ * unknown.
+ */
+typedef Common::String (*DriveCwdFn)(char letter);
+
+namespace HomeDetail {
+
+inline Common::String slashed(Common::String s) {
+	for (uint i = 0; i < s.size(); ++i)
+		if (s[i] == '\\')
+			s.setChar('/', i);
+	return s;
+}
+
+} // End of namespace HomeDetail
+
+/**
+ * `p` made absolute against `cwd` (an absolute path); an absolute `p` is
+ * returned as given. A joined result uses '/' only: DJGPP's path code splits
+ * on that alone.
+ */
+inline Common::String absolutePath(const Common::String &cwd, const char *p, DriveCwdFn driveCwd = nullptr) {
+	if (HomeDetail::hasDrive(p)) {
+		// "D:" and "D:GAMES" are relative to drive D's own current directory.
+		if (HomeDetail::isSep(p[2]))
+			return p;
+		const char letter = p[0];
+		Common::String base;
+		if (HomeDetail::hasDrive(cwd.c_str()) && toupper((unsigned char)cwd[0]) == toupper((unsigned char)letter))
+			base = cwd;
+		else if (driveCwd)
+			base = driveCwd(letter);
+		if (base.empty())
+			return p;
+		if (!p[2])
+			return HomeDetail::slashed(base);
+		if (!HomeDetail::isSep(base.lastChar()))
+			base += '/';
+		return HomeDetail::slashed(base + (p + 2));
+	}
 	if (HomeDetail::isSep(p[0])) {
 		// "\GAMES": the drive of cwd, from its root.
-		return HomeDetail::hasDrive(cwd.c_str()) ? Common::String(cwd.c_str(), 2) + p : Common::String(p);
+		return HomeDetail::slashed(HomeDetail::hasDrive(cwd.c_str()) ? Common::String(cwd.c_str(), 2) + p : Common::String(p));
 	}
-	if (base.empty())
+	if (cwd.empty())
 		return p;
+	Common::String base = cwd;
 	if (!HomeDetail::isSep(base.lastChar()))
-		base += '\\';
-	return base + p;
+		base += '/';
+	return HomeDetail::slashed(base + p);
 }
 
 /** Two directory names for the same place, ignoring case, separator style and a trailing separator. */
@@ -136,9 +167,13 @@ inline bool isPathShortOption(char c) {
  * The command line with every path-valued option made absolute against
  * `cwd`, for a program that is about to change its current directory.
  * Handles --opt=VALUE, -oVALUE and -o VALUE; any other word is copied.
+ * A command that looks for games in the current directory (--add,
+ * --detect, --auto-detect) given no --path gets one naming `cwd`.
  */
-inline Common::Array<Common::String> absolutizeArgs(int argc, const char *const *argv, const Common::String &cwd) {
+inline Common::Array<Common::String> absolutizeArgs(int argc, const char *const *argv, const Common::String &cwd,
+													DriveCwdFn driveCwd = nullptr) {
 	Common::Array<Common::String> out;
+	bool hasPath = false, scansCwd = false;
 	for (int i = 0; i < argc; ++i) {
 		const char *a = argv[i];
 		if (i == 0 || !a || a[0] != '-' || !a[1]) {
@@ -146,27 +181,37 @@ inline Common::Array<Common::String> absolutizeArgs(int argc, const char *const 
 			continue;
 		}
 		if (a[1] == '-') {
+			if (!strcmp(a, "--add") || !strcmp(a, "--detect") || !strcmp(a, "--auto-detect"))
+				scansCwd = true;
 			const char *eq = strchr(a, '=');
 			if (eq && HomeDetail::isPathLongOption(Common::String(a + 2, eq)) && eq[1]) {
-				out.push_back(Common::String(a, eq + 1) + absolutePath(cwd, eq + 1));
+				if (!strncmp(a, "--path=", 7))
+					hasPath = true;
+				out.push_back(Common::String(a, eq + 1) + absolutePath(cwd, eq + 1, driveCwd));
 				continue;
 			}
 			out.push_back(a);
 			continue;
 		}
+		if (a[1] == 'a' || a[1] == 'A')
+			scansCwd = scansCwd || !a[2];
 		if (!HomeDetail::isPathShortOption(a[1])) {
 			out.push_back(a);
 			continue;
 		}
+		if (a[1] == 'p' || a[1] == 'P')
+			hasPath = true;
 		if (a[2]) {
-			out.push_back(Common::String(a, 2) + absolutePath(cwd, a + 2));
+			out.push_back(Common::String(a, 2) + absolutePath(cwd, a + 2, driveCwd));
 		} else if (i + 1 < argc && argv[i + 1] && *argv[i + 1]) {
 			out.push_back(a);
-			out.push_back(absolutePath(cwd, argv[++i]));
+			out.push_back(absolutePath(cwd, argv[++i], driveCwd));
 		} else {
 			out.push_back(a);
 		}
 	}
+	if (scansCwd && !hasPath)
+		out.push_back("--path=" + HomeDetail::slashed(cwd));
 	return out;
 }
 

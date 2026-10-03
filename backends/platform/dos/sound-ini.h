@@ -93,6 +93,9 @@ inline bool isSection(const Common::String &line) {
  */
 inline Common::String applySoundChoice(const Common::String &ini, SoundChoice choice) {
 	using namespace SoundIniDetail;
+	// The INI parser skips a UTF-8 BOM; so must a header on the first line.
+	if (ini.hasPrefix("\xEF\xBB\xBF"))
+		return Common::String("\xEF\xBB\xBF") + applySoundChoice(Common::String(ini.c_str() + 3), choice);
 	const bool crlf = ini.contains("\r\n");
 
 	Common::Array<Common::String> lines;

@@ -1172,40 +1172,38 @@ static void atexitDone() {
 	DOS::exitMark(DOS::kExitAtexitDone, "atexit handlers done");
 }
 
-// The folder the program was started from, to go back to when it exits:
-// DOS keeps the current drive and directory after the program ends.
-static int g_startDrive = -1;
-static char g_startDir[260];
-
-static void restoreStartDir() {
-	if (g_startDrive < 0)
-		return;
-	setdisk(g_startDrive);
-	if (g_startDir[0])
-		chdir(g_startDir);
+// The current directory of another drive, as "X:/DIR", or "" if there is none.
+static Common::String driveCwd(char letter) {
+	const int drive = toupper((unsigned char)letter) - 'A';
+	const int back = getdisk();
+	setdisk(drive);
+	char buf[260];
+	const Common::String dir = (getdisk() == drive && getcwd(buf, sizeof(buf))) ? Common::String(buf) : Common::String();
+	setdisk(back);
+	return dir;
 }
 
 // Makes the folder of the EXE the current directory: SCUMMVM.INI, SAVES,
 // DATA and the logs are found, and written, there, while a game folder
 // named on the command line may sit on a read-only drive. Paths on the
 // command line are made absolute first, against the directory the program
-// was started from. Started from its own folder, nothing changes.
+// was started from. Started from its own folder, nothing changes. DOS keeps
+// the current directory after the program ends, so dos-exit goes back.
 static void enterHomeDir(int argc, char **argv, Common::Array<Common::String> &args) {
 	const Common::String home = DOS::exeDir(argc > 0 ? argv[0] : nullptr);
 	char cwd[260];
 	if (home.empty() || !getcwd(cwd, sizeof(cwd)) || DOS::samePath(home, cwd))
 		return;
+	const int startDrive = getdisk();
+	Common::Array<Common::String> absolute = DOS::absolutizeArgs(argc, argv, cwd, driveCwd);
 	if (DOS::HomeDetail::hasDrive(home.c_str()))
 		setdisk(toupper((unsigned char)home[0]) - 'A');
 	if (chdir(home.c_str()) != 0) {
-		if (DOS::HomeDetail::hasDrive(cwd))
-			setdisk(toupper((unsigned char)cwd[0]) - 'A');
+		setdisk(startDrive);
 		return;
 	}
-	g_startDrive = DOS::HomeDetail::hasDrive(cwd) ? toupper((unsigned char)cwd[0]) - 'A' : getdisk();
-	Common::strlcpy(g_startDir, cwd, sizeof(g_startDir));
-	atexit(restoreStartDir);
-	args = DOS::absolutizeArgs(argc, argv, cwd);
+	DOS::setStartDir(startDrive, cwd);
+	args = absolute;
 	DOS::setExitLogDir(home.c_str());
 }
 
