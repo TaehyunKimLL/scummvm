@@ -63,4 +63,12 @@ public:
 		Common::String once = DOS::applySoundChoice(in, DOS::kSoundMt32);
 		TS_ASSERT_EQUALS(DOS::applySoundChoice(once, DOS::kSoundMt32), once);
 	}
+
+	void test_a_utf8_bom_before_the_header_is_kept_and_skipped() {
+		const Common::String out = DOS::applySoundChoice("\xEF\xBB\xBF[scummvm]\nmusic_driver=mpu401\n", DOS::kSoundAdlib);
+		TS_ASSERT(out.hasPrefix("\xEF\xBB\xBF[scummvm]\n"));
+		TS_ASSERT(out.contains("music_driver=adlib"));
+		TS_ASSERT(!out.contains("mpu401"));
+		TS_ASSERT_EQUALS(out.find("[scummvm]"), out.rfind("[scummvm]"));
+	}
 };
