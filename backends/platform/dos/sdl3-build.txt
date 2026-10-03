@@ -4,7 +4,7 @@ build-dos.sh links $SDL3_DOS_MIN (default ~/opt/sdl3-dos-min). Source:
 libsdl-org/SDL 1ce4c5bc2916702e8e0f6df1f612dbd8633011da with
 sdl3-irq-code.patch, sdl3-cpuid.patch, sdl3-sb-shutdown.patch, sdl3-sb-open-fail.patch and then
 sdl3-sb-probe.patch applied (see their headers; ~/opt/src/SDL3, branch
-dos-sb-probe, f5652a4: dos-486 2df4ec6 = dos-irq-lock 11ca8a4 plus the
+dos-sb-probe, d67c987: dos-486 2df4ec6 = dos-irq-lock 11ca8a4 plus the
 CPUID check and its DOS_CPUIDChecked mark, then the Sound Blaster close fix
 and its DOS_SBShutdownChecked mark, then the failed-open fix and its
 DOS_SBOpenFailChecked mark, then the DMA channel probe and its
