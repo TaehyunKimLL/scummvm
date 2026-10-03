@@ -80,6 +80,12 @@ inline std::string keyOf(const std::string &line) {
 	return trim(t.substr(0, eq));
 }
 
+inline std::string lower(std::string s) {
+	for (size_t i = 0; i < s.size(); ++i)
+		s[i] = (char)tolower((unsigned char)s[i]);
+	return s;
+}
+
 inline bool isSection(const std::string &line) {
 	const std::string t = trim(line);
 	return !t.empty() && t[0] == '[';
@@ -124,7 +130,7 @@ inline std::string applySoundChoice(const std::string &ini, SoundChoice choice) 
 
 	int header = -1;
 	for (size_t i = 0; i < lines.size(); ++i) {
-		if (isSection(lines[i]) && trim(lines[i]) == "[scummvm]") {
+		if (isSection(lines[i]) && lower(trim(lines[i])) == "[scummvm]") {
 			header = (int)i;
 			break;
 		}
@@ -151,7 +157,7 @@ inline std::string applySoundChoice(const std::string &ini, SoundChoice choice) 
 				if (key.empty())
 					continue;
 				lastSetting = i;
-				if (key == set[k].key) {
+				if (lower(key) == set[k].key) {
 					lines[i] = std::string(set[k].key) + "=" + set[k].value;
 					found = true;
 				}

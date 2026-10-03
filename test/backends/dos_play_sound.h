@@ -71,4 +71,12 @@ public:
 		TS_ASSERT(!(out.find("mpu401") != std::string::npos));
 		TS_ASSERT_EQUALS(out.find("[scummvm]"), out.rfind("[scummvm]"));
 	}
+
+	void test_section_and_key_names_match_in_any_case() {
+		const std::string out = Play::applySoundChoice("[SCUMMVM]\nMusic_Driver=mpu401\nnative_MT32=true\n", Play::kSoundAdlib);
+		TS_ASSERT(out.find("music_driver=adlib") != std::string::npos);
+		TS_ASSERT(out.find("mpu401") == std::string::npos);
+		TS_ASSERT_EQUALS(out.find("native_mt32=false") != std::string::npos, true);
+		TS_ASSERT_EQUALS(out.find("[scummvm]"), std::string::npos);
+	}
 };

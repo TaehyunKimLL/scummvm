@@ -280,4 +280,39 @@ public:
 		extra.push_back("mi1ko");
 		TS_ASSERT_EQUALS(Play::childArgs(p, "", extra).size(), 3u);
 	}
+
+	void test_engine_of_a_target_wins_over_the_first_engine() {
+		const char *ini = "[mi1ko]\nengineid=scumm\n[lb1]\nengineid=sci\n";
+		TS_ASSERT_EQUALS(Play::engineOf(ini, "lb1"), "sci");
+		TS_ASSERT_EQUALS(Play::engineOf(ini, "MI1KO"), "scumm");
+		TS_ASSERT_EQUALS(Play::engineOf(ini, "other"), "scumm");
+		TS_ASSERT_EQUALS(Play::engineOf(ini), "scumm");
+	}
+
+	void test_engine_of_ignores_case_spaces_and_comments() {
+		TS_ASSERT_EQUALS(Play::engineOf("[ LB1 ]\r\n; engineid=scumm\r\n EngineID = SCI \r\n", "lb1"), "sci");
+		TS_ASSERT_EQUALS(Play::engineOf("# engineid=scumm\n[x]\n"), "");
+	}
+
+	void test_has_target() {
+		TS_ASSERT(Play::hasTarget("[lb1]\ngameid=laurabow\n", "LB1"));
+		TS_ASSERT(!Play::hasTarget("[lb1]\ngameid=laurabow\n", "lb2"));
+		TS_ASSERT(!Play::hasTarget("[lb1]\n[lb2]\ngameid=x\n", "lb1"));
+		TS_ASSERT(!Play::hasTarget("", "lb1"));
+	}
+
+	void test_target_of_is_the_last_word_without_a_dash() {
+		std::vector<std::string> e;
+		TS_ASSERT_EQUALS(Play::targetOf(e), "");
+		e.push_back("--fullscreen");
+		e.push_back("lb1");
+		TS_ASSERT_EQUALS(Play::targetOf(e), "lb1");
+		e.push_back("-d3");
+		TS_ASSERT_EQUALS(Play::targetOf(e), "lb1");
+	}
+
+	void test_dos_path_uses_backslashes() {
+		TS_ASSERT_EQUALS(Play::dosPath("C:/SCUMMVM/GAMES/MI1KO"), "C:\\SCUMMVM\\GAMES\\MI1KO");
+		TS_ASSERT_EQUALS(Play::dosPath(""), "");
+	}
 };

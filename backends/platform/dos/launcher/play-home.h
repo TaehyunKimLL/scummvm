@@ -237,30 +237,96 @@ inline std::string join(const std::string &a, const std::string &b) {
 	return r + Detail::slashed(b);
 }
 
-/**
- * The engine named by the first `engineid=` line of an INI text, lower case;
- * empty when there is none.
- */
-inline std::string engineOf(const std::string &ini) {
+/** `path` the way DOS users write it, for messages. */
+inline std::string dosPath(std::string path) {
+	for (size_t i = 0; i < path.size(); ++i)
+		if (path[i] == '/')
+			path[i] = '\\';
+	return path;
+}
+
+namespace Detail {
+
+inline std::string lower(std::string s) {
+	for (size_t i = 0; i < s.size(); ++i)
+		s[i] = (char)tolower((unsigned char)s[i]);
+	return s;
+}
+
+inline std::string trimmed(const std::string &s) {
+	size_t b = 0, e = s.size();
+	while (b < e && (s[b] == ' ' || s[b] == '\t' || s[b] == '\r'))
+		++b;
+	while (e > b && (s[e - 1] == ' ' || s[e - 1] == '\t' || s[e - 1] == '\r'))
+		--e;
+	return s.substr(b, e - b);
+}
+
+// Calls `fn(section, key, value)` for each "key = value" line, section and key
+// lower case and trimmed; returns early when fn returns true.
+template<class Fn>
+inline void eachSetting(const std::string &ini, Fn fn) {
+	std::string section;
 	size_t pos = 0;
 	while (pos < ini.size()) {
 		size_t end = ini.find('\n', pos);
 		if (end == std::string::npos)
 			end = ini.size();
-		std::string line = ini.substr(pos, end - pos);
+		const std::string line = trimmed(ini.substr(pos, end - pos));
 		pos = end + 1;
-		size_t b = 0;
-		while (b < line.size() && (line[b] == ' ' || line[b] == '\t'))
-			++b;
-		if (line.compare(b, 9, "engineid=") != 0)
+		if (line.empty() || line[0] == '#' || line[0] == ';')
 			continue;
-		std::string v = line.substr(b + 9);
-		while (!v.empty() && (v[v.size() - 1] == '\r' || v[v.size() - 1] == ' ' || v[v.size() - 1] == '\t'))
-			v.erase(v.size() - 1);
-		for (size_t i = 0; i < v.size(); ++i)
-			v[i] = (char)tolower((unsigned char)v[i]);
-		return v;
+		if (line[0] == '[') {
+			const size_t close = line.find(']');
+			section = lower(trimmed(line.substr(1, close == std::string::npos ? std::string::npos : close - 1)));
+			continue;
+		}
+		const size_t eq = line.find('=');
+		if (eq == std::string::npos)
+			continue;
+		if (fn(section, lower(trimmed(line.substr(0, eq))), trimmed(line.substr(eq + 1))))
+			return;
 	}
+}
+
+} // End of namespace Detail
+
+/**
+ * The engine named by `engineid=` in the section `target` of an INI text, or
+ * by the first `engineid=` line when `target` has none; lower case, empty when
+ * there is none.
+ */
+inline std::string engineOf(const std::string &ini, const std::string &target = std::string()) {
+	const std::string want = Detail::lower(target);
+	std::string first, found;
+	Detail::eachSetting(ini, [&](const std::string &section, const std::string &key, const std::string &value) {
+		if (key != "engineid")
+			return false;
+		if (first.empty())
+			first = Detail::lower(value);
+		if (!want.empty() && section == want)
+			found = Detail::lower(value);
+		return !found.empty();
+	});
+	return found.empty() ? first : found;
+}
+
+/** True when the INI text has a section named `target` with at least one setting, in any case. */
+inline bool hasTarget(const std::string &ini, const std::string &target) {
+	const std::string want = Detail::lower(target);
+	bool seen = false;
+	Detail::eachSetting(ini, [&](const std::string &section, const std::string &, const std::string &) {
+		seen = seen || section == want;
+		return seen;
+	});
+	return seen;
+}
+
+/** The target of a command line: its last word that is not an option; empty when there is none. */
+inline std::string targetOf(const std::vector<std::string> &extra) {
+	for (size_t i = extra.size(); i-- > 0;)
+		if (!extra[i].empty() && extra[i][0] != '-')
+			return extra[i];
 	return std::string();
 }
 
