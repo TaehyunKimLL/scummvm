@@ -18,26 +18,35 @@ A Korean MI2 with its hi-res map keeps about 10 files open. Put
 in CONFIG.SYS (DOSBox's default is enough). With too few, a game stops with
 an error when it opens a room or a save file.
 
-## Where it reads and writes
+## Two engines and PLAY.EXE
 
-The folder of the EXE is the program's own: SCUMMVM.INI, SAVES, DATA,
-SCUMMVM.LOG and EXITLOG.TXT are found and written there, whatever the
-current directory is when it is started. Only the game's folder is looked
-for from the current directory, and a path on the command line is made
-absolute against it first, so
+The port builds two EXEs: SCI.EXE (the SCI engine) and SCUMM.EXE (SCUMM,
+without the 7/8 and HE engines). Both read SCUMMVM.INI, SAVES and DATA from
+the current directory and write SCUMMVM.LOG and EXITLOG.TXT there, so
+started from their own folder they need nothing else.
 
-    D:\> C:\SCUMMVM\SCUMMVM.EXE --path=GAMES\LB2KO lb2ko
+PLAY.EXE (`launcher/`, plain DJGPP, no ScummVM code) keeps those files per
+game and lets the game folder sit on a read-only drive. Its own folder is
+the home, and the current directory is the pack:
 
-runs a game from a read-only drive D: while everything is written to C:.
-`path=` in a section of SCUMMVM.INI stays relative to the folder of the EXE.
-`--add`, `--detect` and `--auto-detect` given no `--path` scan the directory
-it was started from. DOS is back on the drive and directory it was started
-from when the program ends, also after a crash. Started from its own folder,
-nothing changes.
+    D:\> C:\SCUMMVM\PLAY MI1KO mi1kol
 
-`SCUMMVM --sound=adlib|mt32|gm` (or `--sound adlib`) sets the music output
-in the `[scummvm]` section of SCUMMVM.INI (`music_driver`, `native_mt32`,
-`enable_gs`) and exits.
+Home:  `C:\SCUMMVM\{SCI.EXE, SCUMM.EXE, CWSDPMI.EXE, PLAY.EXE, DATA\}` and, per
+game, `C:\SCUMMVM\GAMES\ID\{SCUMMVM.INI, SAVES\, SCUMMVM.LOG, EXITLOG.TXT}`.
+Pack:  `GAMES\ID\` (the game's files) and `ID.INI` (a sample SCUMMVM.INI
+without `path=`).
+
+PLAY makes the profile folder and copies `ID.INI` into it when there is no
+SCUMMVM.INI yet (never over one), picks SCUMM.EXE or SCI.EXE by the first
+`engineid=` of that INI, runs it from the home with `--config`, `--savepath`
+and `--path` naming the profile and the pack, and moves the logs into the
+profile. Further arguments go to the engine; path options among them are
+made absolute against the pack first. DOS is back on the drive and directory
+it was started from when PLAY ends.
+
+- `PLAY --install ID`: only the profile folder and INI.
+- `PLAY --sound=adlib|mt32|gm ID`: sets `music_driver`, `native_mt32` and
+  `enable_gs` in the profile's `[scummvm]` section.
 
 ## Settings
 
