@@ -229,6 +229,11 @@ inline bool validId(const std::string &id) {
 	return true;
 }
 
+/** DEFAULT names the music default of all games, so no game can use it. `id` is upper case. */
+inline bool isReservedId(const std::string &id) {
+	return id == "DEFAULT";
+}
+
 /** `a` and `b` joined with one '/'; every separator in the result is '/'. */
 inline std::string join(const std::string &a, const std::string &b) {
 	std::string r = Detail::slashed(a);
@@ -337,6 +342,7 @@ struct Profile {
 	std::string saves; // HOME/GAMES/ID/SAVES
 	std::string log;   // HOME/GAMES/ID/SCUMMVM.LOG
 	std::string exitLog; // HOME/GAMES/ID/EXITLOG.TXT
+	std::string sound; // HOME/GAMES/ID/SOUND.INI: the game's own music choice, when it has one
 };
 
 inline Profile profileOf(const std::string &home, const std::string &id) {
@@ -346,6 +352,7 @@ inline Profile profileOf(const std::string &home, const std::string &id) {
 	p.saves = join(p.dir, "SAVES");
 	p.log = join(p.dir, "SCUMMVM.LOG");
 	p.exitLog = join(p.dir, "EXITLOG.TXT");
+	p.sound = join(p.dir, "SOUND.INI");
 	return p;
 }
 

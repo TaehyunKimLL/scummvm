@@ -47,7 +47,7 @@ public:
 
 	void test_creates_the_section_in_an_empty_or_sectionless_file() {
 		TS_ASSERT_EQUALS(Play::applySoundChoice("", Play::kSoundGm),
-			"[scummvm]\nmusic_driver=mpu401\nnative_mt32=false\nenable_gs=true\n");
+			"[scummvm]\r\nmusic_driver=mpu401\r\nnative_mt32=false\r\nenable_gs=true\r\n");
 		TS_ASSERT_EQUALS(Play::applySoundChoice("[kq1]\ngameid=kq1\n", Play::kSoundAdlib),
 			"[scummvm]\nmusic_driver=adlib\nnative_mt32=false\nenable_gs=false\n\n[kq1]\ngameid=kq1\n");
 	}
@@ -101,5 +101,56 @@ public:
 		TS_ASSERT(!Play::blasterHasMpuPort("P3x0"));
 		TS_ASSERT(!Play::blasterHasMpuPort(""));
 		TS_ASSERT(!Play::blasterHasMpuPort(nullptr));
+	}
+
+	void test_sound_choice_is_read_back_from_what_was_written() {
+		const Play::SoundChoice all[] = { Play::kSoundAdlib, Play::kSoundMt32, Play::kSoundGm };
+		for (int k = 0; k < 3; ++k) {
+			Play::SoundChoice got = Play::kSoundAdlib;
+			TS_ASSERT(Play::soundChoiceOf(Play::applySoundChoice("", all[k]), got));
+			TS_ASSERT_EQUALS(got, all[k]);
+		}
+	}
+
+	void test_sound_choice_of_ignores_other_sections_and_reads_any_case() {
+		Play::SoundChoice got = Play::kSoundAdlib;
+		TS_ASSERT(!Play::soundChoiceOf("[mi1]\nmusic_driver=adlib\n", got));
+		TS_ASSERT(Play::soundChoiceOf("\xEF\xBB\xBF[SCUMMVM]\r\nMusic_Driver = MPU401\r\nNative_MT32=True\r\n[mi1]\r\nmusic_driver=adlib\r\n", got));
+		TS_ASSERT_EQUALS(got, Play::kSoundMt32);
+	}
+
+	void test_sound_choice_of_is_false_without_a_usable_setting() {
+		Play::SoundChoice got = Play::kSoundGm;
+		TS_ASSERT(!Play::soundChoiceOf("", got));
+		TS_ASSERT(!Play::soundChoiceOf("[scummvm]\nmusic_driver=mpu401\n", got));
+		TS_ASSERT(!Play::soundChoiceOf("[scummvm]\nmusic_driver=fluidsynth\n", got));
+		TS_ASSERT(!Play::soundChoiceOf("[scummvm]\n#music_driver=adlib\n", got));
+		TS_ASSERT_EQUALS(got, Play::kSoundGm);
+	}
+
+	void test_applying_twice_changes_nothing_for_any_shape_of_file() {
+		const char *shapes[] = {
+			"", "[kq1]\ngameid=kq1\n", "[scummvm]\r\nx=1\r\n", "[scummvm]\nmusic_driver = adlib\nenable_gs = true",
+			"\xEF\xBB\xBF[scummvm]\nx=1\n", "# note\n[scummvm]\nmusic_driver=mpu401\n[kq1]\nmusic_driver=mt32\n",
+		};
+		const Play::SoundChoice all[] = { Play::kSoundAdlib, Play::kSoundMt32, Play::kSoundGm };
+		for (size_t k = 0; k < sizeof(shapes) / sizeof(shapes[0]); ++k)
+			for (int c = 0; c < 3; ++c) {
+				const std::string once = Play::applySoundChoice(shapes[k], all[c]);
+				TS_ASSERT_EQUALS(Play::applySoundChoice(once, all[c]), once);
+			}
+	}
+
+	void test_sound_choice_of_edge_cases() {
+		Play::SoundChoice got = Play::kSoundAdlib;
+		TS_ASSERT(Play::soundChoiceOf("[scummvm]\nmusic_driver=mpu401\nenable_gs=true\n", got));
+		TS_ASSERT_EQUALS(got, Play::kSoundGm);
+		TS_ASSERT(Play::soundChoiceOf("[scummvm]\nmusic_driver=mpu401\nnative_mt32=true\nenable_gs=true\n", got));
+		TS_ASSERT_EQUALS(got, Play::kSoundMt32);
+		TS_ASSERT(Play::soundChoiceOf("[scummvm]\nmusic_driver=adlib\nnative_mt32=true\n", got));
+		TS_ASSERT_EQUALS(got, Play::kSoundAdlib);
+		TS_ASSERT(Play::soundChoiceOf("[scummvm]\nmusic_driver=mpu401\nmusic_driver=adlib\n", got));
+		TS_ASSERT_EQUALS(got, Play::kSoundAdlib);
+		TS_ASSERT(!Play::soundChoiceOf("music_driver=adlib\n[scummvm]\nx=1\n", got));
 	}
 };
