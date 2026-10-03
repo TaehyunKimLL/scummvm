@@ -30,8 +30,10 @@ absolute against it first, so
 
 runs a game from a read-only drive D: while everything is written to C:.
 `path=` in a section of SCUMMVM.INI stays relative to the folder of the EXE.
-DOS is back on the drive and directory it was started from when the program
-ends. Started from its own folder, nothing changes.
+`--add`, `--detect` and `--auto-detect` given no `--path` scan the directory
+it was started from. DOS is back on the drive and directory it was started
+from when the program ends, also after a crash. Started from its own folder,
+nothing changes.
 
 `SCUMMVM --sound=adlib|mt32|gm` (or `--sound adlib`) sets the music output
 in the `[scummvm]` section of SCUMMVM.INI (`music_driver`, `native_mt32`,
