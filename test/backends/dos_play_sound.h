@@ -79,4 +79,25 @@ public:
 		TS_ASSERT_EQUALS(out.find("native_mt32=false") != std::string::npos, true);
 		TS_ASSERT_EQUALS(out.find("[scummvm]"), std::string::npos);
 	}
+
+	void test_menu_keys() {
+		Play::SoundChoice c = Play::kSoundGm;
+		TS_ASSERT(Play::soundOfKey('1', c));
+		TS_ASSERT_EQUALS(c, Play::kSoundAdlib);
+		TS_ASSERT(Play::soundOfKey('2', c));
+		TS_ASSERT_EQUALS(c, Play::kSoundMt32);
+		TS_ASSERT(Play::soundOfKey('3', c));
+		TS_ASSERT_EQUALS(c, Play::kSoundGm);
+		TS_ASSERT(!Play::soundOfKey('4', c));
+		TS_ASSERT(!Play::soundOfKey('\n', c));
+	}
+
+	void test_blaster_mpu_port() {
+		TS_ASSERT(Play::blasterHasMpuPort("A220 I7 D1 T3 P330"));
+		TS_ASSERT(Play::blasterHasMpuPort("p330 A220"));
+		TS_ASSERT(!Play::blasterHasMpuPort("A220 I7 D1 T3"));
+		TS_ASSERT(!Play::blasterHasMpuPort("A220 P"));
+		TS_ASSERT(!Play::blasterHasMpuPort(""));
+		TS_ASSERT(!Play::blasterHasMpuPort(nullptr));
+	}
 };
