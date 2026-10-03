@@ -49,7 +49,7 @@ namespace DOS {
 
 namespace {
 
-const char kExitLog[] = "EXITLOG.TXT";
+char g_exitLog[96] = "EXITLOG.TXT";
 const int kTraceRow = 24;
 const uint8 kTraceAttr = 0x4F;	// white on red
 
@@ -92,8 +92,8 @@ bool dos21(__dpmi_regs &r) {
 // One DOS open, seek, write and close: nothing stays buffered. With
 // @p create the file is made afresh (empty) first.
 bool appendLine(const char *buf, int len, bool create = false) {
-	const int nameLen = sizeof(kExitLog);
-	dosmemput(kExitLog, nameLen, __tb);
+	const int nameLen = (int)strlen(g_exitLog) + 1;
+	dosmemput(g_exitLog, nameLen, __tb);
 	dosmemput(buf, len, __tb + nameLen);
 	__dpmi_regs r;
 	memset(&r, 0, sizeof(r));
@@ -199,6 +199,19 @@ void saveIrqMasks() {
 	g_savedMaster = inportb(0x21);
 	g_savedSlave = inportb(0xA1);
 	g_masksSaved = true;
+}
+
+void setExitLogDir(const char *dir) {
+	if (!dir || !*dir || strlen(dir) + sizeof("\\EXITLOG.TXT") > sizeof(g_exitLog))
+		return;
+	strcpy(g_exitLog, dir);
+	for (char *p = g_exitLog; *p; ++p)
+		if (*p == '/')
+			*p = '\\';
+	size_t n = strlen(g_exitLog);
+	if (g_exitLog[n - 1] != '\\')
+		g_exitLog[n++] = '\\';
+	strcpy(g_exitLog + n, "EXITLOG.TXT");
 }
 
 void exitTraceStart(bool on) {

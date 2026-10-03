@@ -83,6 +83,12 @@ enum ExitStep {
 void saveIrqMasks();
 
 /**
+ * Puts EXITLOG.TXT in @p dir instead of the current directory, which the
+ * program leaves before it exits. A no-op for a name that does not fit.
+ */
+void setExitLogDir(const char *dir);
+
+/**
  * From initBackend() (dos_exit_trace): turns the exit trace on and starts
  * EXITLOG.TXT afresh.
  */
