@@ -81,8 +81,13 @@ inline bool blasterHasMpuPort(const char *blaster) {
 		const char *word = c;
 		while (*c && *c != ' ' && *c != '\t')
 			++c;
-		if (c - word > 1 && (*word == 'P' || *word == 'p'))
-			return true;
+		if (c - word > 1 && (*word == 'P' || *word == 'p')) {
+			bool hex = true;
+			for (const char *d = word + 1; d < c; ++d)
+				hex = hex && ((*d >= '0' && *d <= '9') || (*d >= 'A' && *d <= 'F') || (*d >= 'a' && *d <= 'f'));
+			if (hex)
+				return true;
+		}
 	}
 	return false;
 }
