@@ -3,7 +3,7 @@
 # A build directory configured with other flags or another SDL3 is
 # configured again (see config_current below).
 # Usage: backends/platform/dos/build-dos.sh [sci|scumm] [extra configure args]
-#   sci (default): build-dos/,       engines/sci (not sci32)             -> dist/dos/SCUMMVM.EXE
+#   sci (default): build-dos/,       engines/sci (not sci32)             -> dist/dos/SCI.EXE
 #   scumm:         build-dos-scumm/, engines/scumm (not scumm_7_8, he)   -> dist/dos/SCUMM.EXE
 # A first argument that is neither "sci" nor "scumm" is not consumed, so old
 # calls (build-dos.sh --foo) still build the sci edition with that as a
@@ -68,7 +68,7 @@ if [ "$edition" = scumm ]; then
 else
 	out="$src/build-dos"
 	engine_args=(--enable-engine=sci --disable-engine=sci32)
-	exe=SCUMMVM.EXE
+	exe=SCI.EXE
 fi
 conf_args=(--host=i586-pc-msdosdjgpp
 	--disable-all-engines "${engine_args[@]}"
@@ -119,4 +119,5 @@ cp "$CWSDPMI_EXE" "$src/dist/dos/CWSDPMI.EXE"
 rm -rf "$src/dist/dos/DATA"
 mkdir -p "$src/dist/dos/DATA" && cp "$src"/dists/engine-data/hires_text/dos/* "$src/dist/dos/DATA/"
 cp "$src/dists/engine-data/encoding.dat" "$src/dist/dos/DATA/ENCODING.DAT"
+"$src/backends/platform/dos/launcher/build-play.sh" >/dev/null
 ls -la "$src/dist/dos"
