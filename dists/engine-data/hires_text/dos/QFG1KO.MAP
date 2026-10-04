@@ -1,0 +1,76 @@
+; Quest for Glory I VGA (SCI1.1), Korean UTF-8 translation: GAMES\QFG1KO with
+; RESOURCE.MSG + MESSAGE.MAP, the loose .MSG patches and SCI-KO.STR
+; (language=ko, text_encoding=utf8).
+;
+; One face and size per font id, chosen by the game font's height and how
+; decorated it is. A line is the game height x 2 hi-res px; each face is baked
+; in a cell two px smaller (the leading), on one baseline, ink clipped to the
+; cell. Baked by tools/korean/bake-qfg1-fonts.sh from the characters the
+; translation uses.
+;
+;   id    game px  look                               line  face
+;   999      8     tiny, plain                          16   Q1G14  NanumGothic-Bold 14
+;   0,3,4    9     plain: status bar, dialogue, UI      18   Q1G16  NanumGothic-Bold 16
+;   2107    10     calligraphic                         20   Q1B18  GowunBatang-Bold 18
+;   1       12     plain, larger                        24   Q1G22  NanumGothic-Bold 22
+;   300     12     calligraphic: message boxes          24   Q1B22  GowunBatang-Bold 22
+;   123     15     blackletter display: titles          30   Q1T28  BlackHanSans 28 (Hangul)
+;                                                             Q1L28  Coustard-Black 24 (Latin)
+;
+; True colour only (the faces are 2 bpp). A render_target=clut8 screen
+; needs 1 bpp faces, which this map does not provide yet.
+[map]
+version=2
+
+[render]
+scale=2
+blend=auto
+
+[fonts]
+g14=Q1G14.SVF
+g16=Q1G16.SVF
+b18=Q1B18.SVF
+g22=Q1G22.SVF
+b22=Q1B22.SVF
+t28=Q1T28.SVF
+l28=Q1L28.SVF
+
+[font]
+face=g16
+cell=glyph
+size=16
+missing=u+25a1
+align=cell
+range.basic-latin=same
+advance.basic-latin=font
+
+[font.999]
+face=g14
+size=14
+
+[font.0]
+face=g16
+
+[font.3]
+face=g16
+
+[font.4]
+face=g16
+
+[font.2107]
+face=b18
+size=18
+
+[font.1]
+face=g22
+size=22
+
+[font.300]
+face=b22
+size=22
+
+[font.123]
+face=t28
+size=28
+range.basic-latin=l28
+missing=off
