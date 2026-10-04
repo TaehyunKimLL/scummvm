@@ -111,8 +111,7 @@ static void textRow(int row, const char *s, byte attr) {
 
 // The bar and the percentage: 60 cells of two halves each (CP437 full
 // block, left half block, light shade; ASCII on a double-byte screen).
-// Called from the timer proc, or
-// from the main thread with interrupts off.
+// Called from the timer proc, or from the main thread with interrupts off.
 static void drawTextBar() {
 	const uint16 v = g_progress.value(now());
 	const int halves = v * kBarCells * 2 / 1000;
@@ -148,7 +147,7 @@ static bool doubleByteScreen() {
 		return true;
 	memset(&r, 0, sizeof(r));
 	r.x.ax = 0x6300;	// DS:SI -> the DBCS lead-byte table (DOS 4.0+)
-	if (__dpmi_int(0x21, &r) == 0 && !(r.x.flags & 1) && (r.x.ds || r.x.si)) {
+	if (__dpmi_int(0x21, &r) == 0 && !(r.x.flags & 1) && (r.x.ax & 0xFF) == 0 && (r.x.ds || r.x.si)) {
 		byte t[2];
 		dosmemget(r.x.ds * 16 + r.x.si, 2, t);
 		return dbcsTableHasLeadBytes(t);
