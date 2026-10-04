@@ -20,6 +20,7 @@
  */
 
 #include "sci/sci.h"
+#include "sci/utf8.h"
 #include "sci/engine/seg_manager.h"
 #include "sci/engine/state.h"
 #include "sci/engine/script.h"
@@ -698,6 +699,43 @@ void SegManager::strncpy(reg_t dest, const char* src, size_t n) {
 		return;
 	}
 
+	// A script sizes a string buffer by kStrLen, which counts code points
+	// under UTF-8, so a translated string can need up to three times the
+	// bytes the script asked for. A dynamic-memory buffer is only a
+	// pointer to the script, so it can grow; any other buffer is cut at a
+	// character boundary rather than written past its end.
+	Common::String cutStr;
+	if (g_sci->heapStringsAreUtf8() && dest_r.maxSize >= 0) {
+		const size_t len = Common::strnlen(src, n);
+		const size_t need = (len < n) ? len + 1 : n;
+		if (need > (size_t)dest_r.maxSize) {
+			if (getSegmentType(dest.getSegment()) == SEG_TYPE_DYNMEM && dest.getOffset() == 0) {
+				DynMem *mem = (DynMem *)_heap[dest.getSegment()];
+				byte *grown = (byte *)realloc(mem->_buf, need);
+				if (!grown) {
+					warning("strncpy: out of memory growing %04x:%04x to %u bytes", PRINT_REG(dest), (uint)need);
+					return;
+				}
+				memset(grown + mem->_size, 0, need - mem->_size);
+				mem->_buf = grown;
+				mem->_size = need;
+				dest_r = dereference(dest);
+			} else if (dest_r.maxSize > 0) {
+				size_t cut = dest_r.maxSize - 1;
+				while (cut > 0 && ((byte)src[cut] & 0xC0) == 0x80)
+					cut--;
+				warning("strncpy: %u bytes into a %d byte buffer at %04x:%04x, cut to %u", (uint)need, dest_r.maxSize, PRINT_REG(dest), (uint)cut);
+				cutStr = Common::String(src, cut);
+				src = cutStr.c_str();
+			} else {
+				warning("strncpy: %u bytes into an empty buffer at %04x:%04x, nothing copied", (uint)need, PRINT_REG(dest));
+				return;
+			}
+		}
+		// The copy zero-pads out to a finite n; never past the buffer.
+		if (n != 0xFFFFFFFFU && n > (size_t)dest_r.maxSize)
+			n = dest_r.maxSize;
+	}
 
 	if (dest_r.isRaw) {
 		forwardCopy<true>(dest_r.raw, (const byte *)src, n);
@@ -740,7 +778,17 @@ void SegManager::strncpy(reg_t dest, reg_t src, size_t n) {
 	}
 
 
-	if (src_r.isRaw) {
+	if (g_sci->heapStringsAreUtf8() && (!src_r.isRaw || src.getSegment() == dest.getSegment())) {
+		// Through the const char * path above, which sizes the copy. A
+		// source in the destination's own segment is copied out first,
+		// since that path may reallocate the segment under it. As the
+		// loops below, stop after the NUL and do not pad.
+		const Common::String text = src_r.isRaw ?
+			Common::String((const char *)src_r.raw, Common::strnlen((const char *)src_r.raw, src_r.maxSize >= 0 && (size_t)src_r.maxSize < n ? (size_t)src_r.maxSize : n)) :
+			getString(src);
+		const size_t upTo = text.size() + 1;
+		strncpy(dest, text.c_str(), (n != 0xFFFFFFFFU && n > upTo) ? upTo : n);
+	} else if (src_r.isRaw) {
 		// raw -> *
 		strncpy(dest, (const char*)src_r.raw, n);
 	} else if (dest_r.isRaw && !src_r.isRaw) {
