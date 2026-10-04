@@ -1,0 +1,69 @@
+# Day of the Tentacle (DOS floppy, Korean patch). One map, two presets; the ini's
+# render_target picks one.
+#   Default (true colour: render_target=auto): DOTTU*.SVF, 2 bpp, anti-aliased (blend=auto), baked by
+#   tools/korean/scumm-fonts/dottu.tsv: a gothic face for the small charsets, Gowun Batang for cs0 and cs7.
+#   render_target=clut8 (8-bit palette): DOTTL*.SVF, 1 bpp pixel face, drawn hard-edged
+#   (tools/korean/scumm-fonts/dottl.tsv).
+# Each cell is 2x the patch's korean0N.fnt: cs0 46x54, cs1 16x16, cs2 20x24, cs3/5/8 18x24, cs4 22x22, cs7 36x36.
+# The patch has no korean06.fnt; cs6 uses the cs0 face.
+# Licences: see MZLDFONT.TXT beside this file.
+[map]
+version=2
+
+[render]
+scale=2
+blend=auto
+[render:clut8]
+blend=off
+
+[text]
+encoding=cp949
+
+[fonts]
+cs0=DOTTU0.SVF
+cs1=DOTTU1.SVF
+cs2=DOTTU2.SVF
+cs3=DOTTU3.SVF
+cs4=DOTTU4.SVF
+cs7=DOTTU7.SVF
+[fonts:clut8]
+cs0=DOTTL0.SVF
+cs1=DOTTL1.SVF
+cs2=DOTTL2.SVF
+cs3=DOTTL3.SVF
+cs4=DOTTL4.SVF
+cs7=DOTTL7.SVF
+
+[font]
+missing=u+25a1
+range.basic-latin=same
+advance.basic-latin=font
+
+[font.0]
+face=cs0
+[font.1]
+face=cs1
+[font.2]
+face=cs2
+[font.3]
+face=cs3
+[font.4]
+face=cs4
+[font.5]
+face=cs3
+[font.6]
+face=cs0
+[font.7]
+face=cs7
+[font.8]
+face=cs3
+
+[glyphs]
+0x01-0x1f = original
+0x5e = original
+
+[glyphs.1]
+0x5f = original
+
+[glyphs.4]
+0x5f = original

@@ -1,0 +1,53 @@
+# Maniac Mansion (V2 DOS, mmkor Korean patch). One map, two presets; the ini's
+# render_target picks one.
+#   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): MMU0.SVF, 2 bpp,
+#   anti-aliased (blend=auto), baked by tools/korean/scumm-fonts/mmu.tsv from a
+#   gothic face. With it in the bare sections, render_target=auto picks true
+#   colour.
+#   render_target=clut8 (8-bit palette): MML0.SVF, 1 bpp, baked from a pixel
+#   face (tools/korean/scumm-fonts/mml.tsv), drawn hard-edged.
+# The game has one charset (cs0), 16x16 cells; both presets bake that cell.
+# Licences: see MZLDFONT.TXT beside this file.
+[map]
+version=2
+
+[render]
+scale=2
+blend=auto
+[render:clut8]
+blend=off
+
+[text]
+encoding=cp949
+
+[fonts]
+dlg=MMU0.SVF
+[fonts:clut8]
+dlg=MML0.SVF
+
+[font]
+missing=u+25a1
+# ASCII from the SVF (never the game's internal font), stepped by the
+# face's own widths
+range.basic-latin=same
+advance.basic-latin=font
+
+[font.0]
+face=dlg
+
+# The control range 0x01-0x1F holds only the game's own pictures, never text: the
+# inventory scroll arrows (0x01-0x04) and the box pieces after them. No face has a
+# glyph there. Everything else the translation parks on an odd byte code is real
+# punctuation, drawn by the replacement font:
+#   0x5e ellipsis ("10 초^", "Diabolically fun^wildly entertaining^"; the game's own
+#     glyph is two rows of dots on the baseline)
+#   0x60 double quote, opening and closing (the game's glyph at 0x60 is the same
+#     picture as its 0x22)
+# The '~' of the translation ("아~하!") is a tilde: the game's own 0x7e is a left arrow,
+# which the face's tilde replaces. "Game A@@" in the save lines is the game's own bar,
+# which is the game's 0x40 glyph, so it stays.
+[glyphs]
+0x01-0x1f = original
+0x40 = original
+0x5e = u+2026
+0x60 = u+0022

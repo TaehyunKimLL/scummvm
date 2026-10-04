@@ -1,0 +1,8 @@
+# DOTT (Day of the Tentacle, DOS floppy, Korean patch), clut8 preset: 1 bpp pixel face, hard-edged.
+# Cells as dottu.tsv. neodgm 16 px in the small cells (ascent 12 + (cell h - 16) / 2), 32 px in the big ones.
+DOTTL0.SVF	0	$FONTS/pixel/neodgm/neodgm.ttf	32	1	35
+DOTTL1.SVF	1	$FONTS/pixel/neodgm/neodgm.ttf	16	1	-
+DOTTL2.SVF	2	$FONTS/pixel/neodgm/neodgm.ttf	16	1	16
+DOTTL3.SVF	3	$FONTS/pixel/neodgm/neodgm.ttf	16	1	16
+DOTTL4.SVF	4	$FONTS/pixel/neodgm/neodgm.ttf	16	1	15
+DOTTL7.SVF	7	$FONTS/pixel/neodgm/neodgm.ttf	32	1	26

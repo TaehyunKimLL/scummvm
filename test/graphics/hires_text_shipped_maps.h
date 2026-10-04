@@ -13,8 +13,10 @@ class HiResShippedMapsTestSuite : public CxxTest::TestSuite {
 	}
 
 	static const Graphics::HiResEngineKeys &keysFor(const Common::String &name) {
-		// DOS maps: M1*/M2* are SCUMM, the rest SCI. Shared maps: named per engine below.
-		if (name.hasPrefixIgnoreCase("M1") || name.hasPrefixIgnoreCase("M2") || name.hasPrefix("mi1-") ||
+		// DOS maps: the SCUMM games below, the rest SCI. Shared maps: named per engine below.
+		if (name.hasPrefixIgnoreCase("M1") || name.hasPrefixIgnoreCase("M2") || name.hasPrefixIgnoreCase("I3") ||
+			name.hasPrefixIgnoreCase("I4") || name.hasPrefixIgnoreCase("MMKO") || name.hasPrefixIgnoreCase("ZAKKO") ||
+			name.hasPrefixIgnoreCase("LOOMKO") || name.hasPrefixIgnoreCase("DOTTKO") || name.hasPrefix("mi1-") ||
 			name.hasPrefix("scumm-") || name.hasPrefix("ft-") || name == "korean-default.map")
 			return Graphics::kHiResKeysScumm;
 		return Graphics::kHiResKeysSci;
