@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract a SCUMM v3/v4 EUC-KR patch's strings (XOR 0x69 DISK0N.LEC, 000.LFL, 90N.LFL) for mkfont.py --chars-from.
+"""Extract a SCUMM v3/v4 EUC-KR patch's strings (XOR 0x69 DISK0N.LEC, 000.LFL, 90N.LFL, TENTACLE.00N) for mkfont.py --chars-from.
 
 Usage: scummtext.py <gamedir> <out.txt>
 """
@@ -16,6 +16,7 @@ FILE_PATTERNS = (
     re.compile(r"^disk\d+\.lec$", re.IGNORECASE),
     re.compile(r"^000\.lfl$", re.IGNORECASE),
     re.compile(r"^90\d\.lfl$", re.IGNORECASE),
+    re.compile(r"^tentacle\.00\d$", re.IGNORECASE),
 )
 
 HANGUL_SYLLABLES = (0xAC00, 0xD7A3)
@@ -104,7 +105,7 @@ def main():
 
     files = find_patch_files(gamedir)
     if not files:
-        sys.exit(f"scummtext: {gamedir} 에서 DISK0N.LEC/000.LFL/90N.LFL 을 "
+        sys.exit(f"scummtext: {gamedir} 에서 DISK0N.LEC/000.LFL/90N.LFL/TENTACLE.00N 을 "
                   f"찾을 수 없다")
 
     strings = []

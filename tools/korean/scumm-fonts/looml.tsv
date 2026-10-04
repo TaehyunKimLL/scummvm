@@ -1,0 +1,8 @@
+# Loom (loomkor korean.trs, VGA talkie), L preset: 1 bpp, both charsets in one pixel face at its
+# 16 px design size, LOOMKO.MAP's render_target=clut8 preset.
+# Fields: output 8.3 name, SCUMM charset, TTF, size, bpp, ascent.
+# The cell is the charset's korean<NN>.fnt header doubled (bake-scumm-fonts.sh): cs1 16x16,
+# cs2 18x18. A cell taller than 16 puts the face in the middle: ascent = 12 + (cell height - 16) / 2.
+# The TTF field starts with $FONTS (default ~/scummvm-i18n/fonts; set FONTS=... to move it).
+LOOML1.SVF	1	$FONTS/pixel/neodgm/neodgm.ttf	16	1	-
+LOOML2.SVF	2	$FONTS/pixel/neodgm/neodgm.ttf	16	1	13

@@ -1,0 +1,65 @@
+# Loom (VGA talkie, loomkor Korean patch). One map, two presets; the ini's
+# render_target picks one.
+#   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): LOOMU1/2.SVF,
+#   2 bpp, anti-aliased (blend=auto), baked by tools/korean/scumm-fonts/loomu.tsv from a gothic face.
+#   render_target=clut8 (8-bit palette): LOOML1/2.SVF, 1 bpp, baked from a pixel face
+#   (tools/korean/scumm-fonts/looml.tsv), drawn hard-edged.
+# The patch ships korean01.fnt (16x16) and korean02.fnt (18x18); both presets bake those cells.
+# Licences: see MZLDFONT.TXT beside this file.
+[map]
+version=2
+
+[render]
+scale=2
+blend=auto
+[render:clut8]
+blend=off
+
+[text]
+encoding=cp949
+
+[fonts]
+cs1=LOOMU1.SVF
+cs2=LOOMU2.SVF
+[fonts:clut8]
+cs1=LOOML1.SVF
+cs2=LOOML2.SVF
+
+[font]
+missing=u+25a1
+range.basic-latin=same
+advance.basic-latin=font
+
+[font.1]
+face=cs1
+[font.2]
+face=cs2
+# The patch has no korean03.fnt or korean04.fnt: those two charsets hold no Korean, so they
+# stay the game's own.
+[font.3]
+face=original
+[font.4]
+face=original
+
+# The control range 0x01-0x1F holds the game's own pictures. Punctuation the translation parks
+# on an odd byte code is drawn by the replacement font:
+#   0x0f trade mark (the copyright card's "(TM) & (C) 1990"); neodgm has none, so the L
+#     preset keeps the game's glyph (and 0x3d, the copyright sign, below)
+#   0x19 double quote, opening and closing ("\x19Loom.\x19")
+#   0x3d the copyright sign, written "=" in that one line
+#   0x5e ellipsis ("Ah, the Weaver boy^"), the game's own glyph there is a row of dots
+# Charset 2 keeps the game's 0x5f and 0x7f (the old map's choice, drawn as pictures there).
+[glyphs]
+0x01-0x1f = original
+0x0f = u+2122
+0x19 = u+0022
+0x3d = u+00a9
+0x5e = u+2026
+
+[glyphs:clut8]
+0x0f = original
+0x3d = original
+
+[glyphs.2]
+0x5f = original
+0x7f = original

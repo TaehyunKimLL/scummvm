@@ -1,0 +1,7 @@
+# Loom (loomkor korean.trs, VGA talkie), U preset: 2 bpp, LOOMKO.MAP's default (true-colour) preset.
+# Fields: output 8.3 name, SCUMM charset, TTF, size, bpp, ascent.
+# Both charsets: NanumGothic-Bold. Size and ascent follow the charset's cell (cs1 16x16 -> 15/14,
+# cs2 18x18 -> 16/15, as mkfont.py --fit-cell picks over the korean.trs text).
+# The TTF field starts with $FONTS (default ~/scummvm-i18n/fonts; set FONTS=... to move it).
+LOOMU1.SVF	1	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	15	2	14
+LOOMU2.SVF	2	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	16	2	15

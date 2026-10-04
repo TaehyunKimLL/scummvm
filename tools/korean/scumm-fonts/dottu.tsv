@@ -1,0 +1,9 @@
+# DOTT (Day of the Tentacle, DOS floppy, Korean patch), default preset: 2 bpp anti-aliased.
+# One SVF per distinct cell of the patch (2x its korean0N.fnt header): cs3, cs5 and cs8 share 18x24.
+# bake-scumm-fonts.sh dottu.tsv GAMEDIR OUT all-hangul.txt (no .trs: every KS X 1001 syllable is baked).
+DOTTU0.SVF	0	$FONTS/styled/gowunbatang/GowunBatang-Bold.ttf	47	2	45
+DOTTU1.SVF	1	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	15	2	14
+DOTTU2.SVF	2	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	19	2	17
+DOTTU3.SVF	3	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	17	2	16
+DOTTU4.SVF	4	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf	21	2	19
+DOTTU7.SVF	7	$FONTS/styled/gowunbatang/GowunBatang-Bold.ttf	35	2	31

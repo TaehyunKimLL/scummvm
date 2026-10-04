@@ -1266,7 +1266,11 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 
 	if (is2byte) {
 		origWidth /= _vm->_textSurfaceMultiplier;
-		height /= _vm->_textSurfaceMultiplier;
+		// A Korean patch's cell is in game pixels, so its height is the
+		// text line's already; halving it shrank a V2/V3 verb's hit box
+		// to half its row.
+		if (!_vm->isScummvmKorTarget())
+			height /= _vm->_textSurfaceMultiplier;
 	}
 
 	if (_str.left > _left)

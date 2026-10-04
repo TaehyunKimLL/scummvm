@@ -241,6 +241,54 @@ whose bytes the translation's converter had mangled) and four map/puzzle
 tables restored to the game's own bytes; the bake reads the bundle as it
 stands in the game folder.
 
+Maniac Mansion, Zak McKracken, Loom and Day of the Tentacle (`MMKO.MAP`,
+`ZAKKO.MAP`, `LOOMKO.MAP`, `DOTTKO.MAP`) use the same plan-table bake, one U
+and one L plan each (`mm`, `zak`, `loom`, `dott` + `u`/`l` + `.tsv`). Every
+SVF comes out byte for byte from these commands:
+
+```sh
+G=~/work/scummvm/gamedata D=dists/engine-data/hires_text/dos
+P=tools/korean/scumm-fonts
+printf '\xe2\x80\xa6\n' > ellipsis.txt
+# MM and Zak: one charset (0), 0x5e = u+2026, 0x60 = u+0022.
+tools/korean/bake-scumm-fonts.sh $P/mmu.tsv $G/mmkor $D $G/mmkor/korean.trs $D/MMKO.MAP 2026
+tools/korean/bake-scumm-fonts.sh $P/mml.tsv $G/mmkor $D $G/mmkor/korean.trs $D/MMKO.MAP 2026
+tools/korean/bake-scumm-fonts.sh $P/zaku.tsv $G/zakkor $D $G/zakkor/korean.trs $D/ZAKKO.MAP 2026
+tools/korean/bake-scumm-fonts.sh $P/zakl.tsv $G/zakkor $D $G/zakkor/korean.trs ellipsis.txt 2026
+# Loom: charsets 1 and 2. U also takes (TM) and (C) from the map (0x0f, 0x3d); L keeps the
+# game's 0x0f and only needs the ellipsis.
+tools/korean/bake-scumm-fonts.sh $P/loomu.tsv $G/loomkor $D $G/loomkor/korean.trs $D/LOOMKO.MAP 2026,2122,a9
+tools/korean/bake-scumm-fonts.sh $P/looml.tsv $G/loomkor $D $G/loomkor/korean.trs ellipsis.txt 2026
+# DOTT: no .trs (the Korean text is inside TENTACLE.00N), so the bake covers every KS X 1001
+# syllable (2350). scummtext.py reads TENTACLE.00N too, but it is only a reference here.
+python3 -c "print(''.join(bytes([h,l]).decode('cp949') for h in range(0xb0,0xc9) for l in range(0xa1,0xff)))" > dott-all.txt
+tools/korean/bake-scumm-fonts.sh $P/dottu.tsv "$G/dott/Day Of the Tentacle (DOS Floppy)" $D dott-all.txt $D/DOTTKO.MAP
+tools/korean/bake-scumm-fonts.sh $P/dottl.tsv "$G/dott/Day Of the Tentacle (DOS Floppy)" $D dott-all.txt $D/DOTTKO.MAP
+```
+
+Notes per game:
+
+* The cells are 2x the game's `korean0N.fnt` header, as everywhere: MM/Zak
+  charset 0 (the patch's one font), Loom cs1 16x16 and cs2 18x18, DOTT cs0 46x54,
+  cs1 16x16, cs2 20x24, cs3/5/8 18x24, cs4 22x22, cs7 36x36. DOTT has no
+  `korean06.fnt`, so `[font.6]` uses the cs0 face; cs5 and cs8 use cs3's SVF.
+* L is neodgm at 16 px (32 px for the 46x54 and 36x36 DOTT cells, ascent
+  12 + (cell h - 16) / 2 when the cell is taller than 16); U is NanumGothic Bold,
+  and Gowun Batang Bold for DOTT's cs0 and cs7 (the big title and credit cells).
+  `mkfont.py --fit-cell --cell H --width W --bpp 2 --chars-from FILE` prints the size and
+  ascent that fit a cell.
+* A bake whose text is the whole Hangul table has no `--require` (the `.trs`
+  bakes have it), so the face's coverage shows as the count of dropped glyphs;
+  all 2446 requested glyphs of each DOTT SVF are present.
+* The maps carry no `[shadow]` section: the engine follows the game's shadow byte.
+* `ENCODING.DAT` must sit in the same `extrapath` as the map. Without it the
+  cp949 text cannot be decoded, every Hangul glyph falls back to the game's own bitmap
+  font, and the dialogue then comes out half size (the overlay is 2x, the game font is
+  drawn at 1x) while Latin still uses the SVF.
+* SCUMM V2/V3 verb hit boxes: `CharsetRendererV3::printChar` halves the glyph height by
+  `_textSurfaceMultiplier`, which shrank a Korean patch's verb boxes (MM, Zak, Loom use
+  2-byte glyphs). The halving is skipped for Korean patch targets.
+
 A plan line may have a seventh field, a `--limit` of its own that replaces
 `ascii,ksx1001-nohanja` for that line (`<extra_limit>` is still appended). The
 Indy4 bundle holds a few non-text records (map and puzzle tables, records 20
