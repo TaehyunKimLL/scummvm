@@ -180,6 +180,7 @@ public:
 		TS_ASSERT(DOS::isDbcsCodePage(932));
 		TS_ASSERT(DOS::isDbcsCodePage(936));
 		TS_ASSERT(DOS::isDbcsCodePage(950));
+		TS_ASSERT(DOS::isDbcsCodePage(1361));
 		TS_ASSERT(!DOS::isDbcsCodePage(437));
 		TS_ASSERT(!DOS::isDbcsCodePage(850));
 		TS_ASSERT(!DOS::isDbcsCodePage(0));
@@ -189,9 +190,13 @@ public:
 		const byte korean[] = { 0x81, 0xFE, 0, 0 };
 		const byte sjis[] = { 0x81, 0x9F, 0xE0, 0xFC, 0, 0 };
 		const byte none[] = { 0, 0, 0, 0 };
+		const byte stray[] = { 0x41, 0x5A, 0, 0 };
+		const byte reversed[] = { 0x81, 0x80, 0, 0 };
 		TS_ASSERT(DOS::dbcsTableHasLeadBytes(korean));
 		TS_ASSERT(DOS::dbcsTableHasLeadBytes(sjis));
 		TS_ASSERT(!DOS::dbcsTableHasLeadBytes(none));
+		TS_ASSERT(!DOS::dbcsTableHasLeadBytes(stray));
+		TS_ASSERT(!DOS::dbcsTableHasLeadBytes(reversed));
 	}
 
 	void test_text_bar_cells_are_cp437_blocks_or_ascii() {

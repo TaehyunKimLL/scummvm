@@ -55,7 +55,8 @@ inline Common::String asciiTitle(const Common::String &s, uint maxChars) {
 /**
  * Whether code page @p cp is a double-byte one (Japanese, Simplified and
  * Traditional Chinese, Korean). There the CP437 block characters of the
- * text-mode bar are lead bytes: they pair with the next cell.
+ * text-mode bar are lead bytes or katakana, and the screen draws them as
+ * double-width or other glyphs.
  */
 inline bool isDbcsCodePage(uint cp) {
 	return cp == 932 || cp == 936 || cp == 949 || cp == 950 || cp == 1361;
@@ -63,11 +64,12 @@ inline bool isDbcsCodePage(uint cp) {
 
 /**
  * Whether the DBCS lead-byte table that INT 21h AX=6300h returns (pairs of
- * first and last lead byte, ended by 0, 0) has an entry. Some Korean DOS
+ * first and last lead byte, ended by 0, 0) has an entry. A lead byte is always
+ * 0x80 or more, so a stray pointer into other memory rarely passes. Some Korean DOS
  * report CP437 with a DBCS driver loaded, so the code page alone is not enough.
  */
 inline bool dbcsTableHasLeadBytes(const byte *table) {
-	return table[0] != 0 && table[1] >= table[0];
+	return table[0] >= 0x80 && table[1] >= table[0];
 }
 
 /**
