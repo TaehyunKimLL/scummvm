@@ -686,6 +686,18 @@ struct ScummHiResText {
 	static Common::Rect overlayRectFor(const Common::Rect &rect, int topOffset, int m);
 
 	/**
+	 * The rows that change owner when a room moves the virtual screens'
+	 * boundaries from (@p oldB, @p oldH) to (@p newB, @p newH) - the top of
+	 * the main screen and the top of the verb screen - as full-width game
+	 * rects of width @p w, appended to @p bands. A room that hides the verbs
+	 * (initScreens(0, 200)) moves the second one: the verb text is on the
+	 * overlay, not in a buffer that goes away, so it has to be cleared here.
+	 * Nothing is appended when the boundaries stay.
+	 */
+	static void changedScreenBands(int oldB, int oldH, int newB, int newH, int w,
+								   Common::Array<Common::Rect> &bands);
+
+	/**
 	 * A hi-res glyph drawn on a single-buffered virtual screen (C32), in
 	 * overlay pixels: @p cell is the game cell it stands for, @p area what it
 	 * inked, decoration included.

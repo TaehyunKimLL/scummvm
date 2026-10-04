@@ -369,6 +369,22 @@ void ScummEngine::initScreens(int b, int h) {
 		clearTextSurface();
 	}
 
+	// Hi-res text is on the overlay, which no buffer reset below reaches. The
+	// rows that change screens (the verb strip going away for a full-screen
+	// picture, or coming back) would keep their old text over the new room.
+	// Rows that keep their screen keep their text: the verbs are drawn once
+	// and never repainted.
+	if (_hiResText.enabled() && _textSurface.getPixels() && !_macScreen
+#ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
+		&& !(_townsScreen && _game.id != GID_MONKEY)
+#endif
+		) {
+		Common::Array<Common::Rect> bands;
+		ScummHiResText::changedScreenBands(_screenB, _screenH, b, h, _screenWidth, bands);
+		for (uint i = 0; i < bands.size(); ++i)
+			clearTextSurfaceRect(ScummHiResText::overlayRectFor(bands[i], 0, _textSurfaceMultiplier));
+	}
+
 	if (_game.version >= 7) {
 		initVirtScreen(kBannerVirtScreen, (_screenHeight / 2) - 10, _screenWidth, 13, false, false);
 	} else if (_game.platform == Common::kPlatformFMTowns) {
