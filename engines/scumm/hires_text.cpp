@@ -2432,6 +2432,14 @@ Common::Rect ScummHiResText::overlayRectFor(const Common::Rect &rect, int topOff
 						rect.right * m, (rect.bottom + topOffset) * m);
 }
 
+void ScummHiResText::changedScreenBands(int oldB, int oldH, int newB, int newH, int w,
+										Common::Array<Common::Rect> &bands) {
+	if (oldB != newB)
+		bands.push_back(Common::Rect(0, MIN(oldB, newB), w, MAX(oldB, newB)));
+	if (oldH != newH)
+		bands.push_back(Common::Rect(0, MIN(oldH, newH), w, MAX(oldH, newH)));
+}
+
 void ScummHiResText::retireTracedGlyphs(const Common::Rect &painted, Common::Array<TracedGlyph> &glyphs,
 										Common::Array<Common::Rect> &clear) {
 	retireGlyphsByCell(painted, glyphs, clear, true, false);

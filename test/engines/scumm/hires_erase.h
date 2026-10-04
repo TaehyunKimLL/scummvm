@@ -28,6 +28,33 @@ public:
 		TS_ASSERT(Scumm::ScummHiResText::overlayRectFor(Common::Rect(), 144, 2).isEmpty());
 	}
 
+	/// A room that hides the verbs for a full-screen picture moves the verb
+	/// strip's top: those rows lose their text, the rest keep theirs.
+	void test_hiding_the_verbs_clears_only_the_verb_strip() {
+		Common::Array<Common::Rect> bands;
+		Scumm::ScummHiResText::changedScreenBands(0, 144, 0, 200, 320, bands);
+		TS_ASSERT_EQUALS(bands.size(), 1u);
+		TS_ASSERT_EQUALS(bands[0], Common::Rect(0, 144, 320, 200));
+
+		bands.clear();
+		Scumm::ScummHiResText::changedScreenBands(0, 200, 0, 144, 320, bands);
+		TS_ASSERT_EQUALS(bands.size(), 1u);
+		TS_ASSERT_EQUALS(bands[0], Common::Rect(0, 144, 320, 200));
+	}
+
+	/// Both boundaries moving gives both bands; the same boundaries give none,
+	/// so a room that keeps its verbs does not lose them.
+	void test_unchanged_boundaries_clear_nothing() {
+		Common::Array<Common::Rect> bands;
+		Scumm::ScummHiResText::changedScreenBands(0, 144, 0, 144, 320, bands);
+		TS_ASSERT(bands.empty());
+
+		Scumm::ScummHiResText::changedScreenBands(16, 144, 8, 152, 320, bands);
+		TS_ASSERT_EQUALS(bands.size(), 2u);
+		TS_ASSERT_EQUALS(bands[0], Common::Rect(0, 8, 320, 16));
+		TS_ASSERT_EQUALS(bands[1], Common::Rect(0, 144, 320, 152));
+	}
+
 	/// The painted area goes, and so does all of every glyph the game erased.
 	void test_painted_glyph_goes_with_its_decoration() {
 		Common::Array<Scumm::ScummHiResText::TracedGlyph> glyphs;
