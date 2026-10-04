@@ -174,4 +174,38 @@ public:
 		TS_ASSERT_EQUALS(DOS::firstFrameLitSamples(320, 200), 80u);
 		TS_ASSERT_EQUALS(DOS::firstFrameLitSamples(2, 2), 1u);
 	}
+
+	void test_double_byte_code_pages() {
+		TS_ASSERT(DOS::isDbcsCodePage(949));
+		TS_ASSERT(DOS::isDbcsCodePage(932));
+		TS_ASSERT(DOS::isDbcsCodePage(936));
+		TS_ASSERT(DOS::isDbcsCodePage(950));
+		TS_ASSERT(!DOS::isDbcsCodePage(437));
+		TS_ASSERT(!DOS::isDbcsCodePage(850));
+		TS_ASSERT(!DOS::isDbcsCodePage(0));
+	}
+
+	void test_dbcs_table_with_a_lead_byte_range() {
+		const byte korean[] = { 0x81, 0xFE, 0, 0 };
+		const byte sjis[] = { 0x81, 0x9F, 0xE0, 0xFC, 0, 0 };
+		const byte none[] = { 0, 0, 0, 0 };
+		TS_ASSERT(DOS::dbcsTableHasLeadBytes(korean));
+		TS_ASSERT(DOS::dbcsTableHasLeadBytes(sjis));
+		TS_ASSERT(!DOS::dbcsTableHasLeadBytes(none));
+	}
+
+	void test_text_bar_cells_are_cp437_blocks_or_ascii() {
+		static const byte cp437[3] = { 0xB0, 0xDD, 0xDB };
+		static const byte ascii[3] = { '.', '+', '#' };
+		for (int h = 0; h < 3; ++h) {
+			byte ch = 0, attr = 0;
+			DOS::textBarCell(h, false, ch, attr);
+			TS_ASSERT_EQUALS(ch, cp437[h]);
+			TS_ASSERT_EQUALS(attr, h ? 0x0B : 0x08);
+			DOS::textBarCell(h, true, ch, attr);
+			TS_ASSERT_EQUALS(ch, ascii[h]);
+			TS_ASSERT(ch < 0x80);
+			TS_ASSERT_EQUALS(attr, h ? 0x0B : 0x08);
+		}
+	}
 };

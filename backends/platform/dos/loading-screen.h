@@ -52,6 +52,39 @@ inline Common::String asciiTitle(const Common::String &s, uint maxChars) {
 	return out;
 }
 
+/**
+ * Whether code page @p cp is a double-byte one (Japanese, Simplified and
+ * Traditional Chinese, Korean). There the CP437 block characters of the
+ * text-mode bar are lead bytes: they pair with the next cell.
+ */
+inline bool isDbcsCodePage(uint cp) {
+	return cp == 932 || cp == 936 || cp == 949 || cp == 950 || cp == 1361;
+}
+
+/**
+ * Whether the DBCS lead-byte table that INT 21h AX=6300h returns (pairs of
+ * first and last lead byte, ended by 0, 0) has an entry. Some Korean DOS
+ * report CP437 with a DBCS driver loaded, so the code page alone is not enough.
+ */
+inline bool dbcsTableHasLeadBytes(const byte *table) {
+	return table[0] != 0 && table[1] >= table[0];
+}
+
+/**
+ * One cell of the text-mode bar with @p halves of its two halves filled
+ * (0, 1 or 2): CP437 full block, left half block and light shade, or with
+ * @p ascii '#', '+' and '.' for a double-byte screen.
+ */
+inline void textBarCell(int halves, bool ascii, byte &ch, byte &attr) {
+	attr = halves > 0 ? 0x0B : 0x08;
+	if (halves >= 2)
+		ch = ascii ? '#' : 0xDB;
+	else if (halves == 1)
+		ch = ascii ? '+' : 0xDD;
+	else
+		ch = ascii ? '.' : 0xB0;
+}
+
 /** Where the graphics loading screen puts its parts, for a w x h mode. */
 struct LoadScreenLayout {
 	Common::Rect title;	///< the game's name, 8x16 ROM font

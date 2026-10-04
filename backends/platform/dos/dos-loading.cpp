@@ -76,6 +76,7 @@ static const int kPercentCol = kBarCol + kBarCells + 1;
 // Shown bar state, so the timer proc writes only what changed.
 static int g_textHalves = -1;
 static int g_textPercent = -1;
+static bool g_asciiBar = false;	// a double-byte screen: no CP437 block characters
 
 static uint32 clockMs() {
 	if (DosTimerManager::installed())
@@ -109,7 +110,8 @@ static void textRow(int row, const char *s, byte attr) {
 }
 
 // The bar and the percentage: 60 cells of two halves each (CP437 full
-// block, left half block, light shade). Called from the timer proc, or
+// block, left half block, light shade; ASCII on a double-byte screen).
+// Called from the timer proc, or
 // from the main thread with interrupts off.
 static void drawTextBar() {
 	const uint16 v = g_progress.value(now());
@@ -117,13 +119,9 @@ static void drawTextBar() {
 	const int percent = v / 10;
 	if (halves != g_textHalves) {
 		for (int i = 0; i < kBarCells; ++i) {
-			const int h = halves - i * 2;
-			if (h >= 2)
-				poke(kRowBar, kBarCol + i, 0xDB, 0x0B);
-			else if (h == 1)
-				poke(kRowBar, kBarCol + i, 0xDD, 0x0B);
-			else
-				poke(kRowBar, kBarCol + i, 0xB0, 0x08);
+			byte ch, attr;
+			textBarCell(CLIP(halves - i * 2, 0, 2), g_asciiBar, ch, attr);
+			poke(kRowBar, kBarCol + i, ch, attr);
 		}
 		g_textHalves = halves;
 	}
@@ -138,6 +136,24 @@ static void drawTextBar() {
 			poke(kRowBar, kPercentCol + i, buf[i], 0x07);
 		g_textPercent = percent;
 	}
+}
+
+// A double-byte screen (a Korean, Japanese or Chinese DOS): the active code
+// page is one, or a DBCS lead-byte table is set.
+static bool doubleByteScreen() {
+	__dpmi_regs r;
+	memset(&r, 0, sizeof(r));
+	r.x.ax = 0x6601;	// get the active code page (DOS 3.3+)
+	if (__dpmi_int(0x21, &r) == 0 && !(r.x.flags & 1) && isDbcsCodePage(r.x.bx))
+		return true;
+	memset(&r, 0, sizeof(r));
+	r.x.ax = 0x6300;	// DS:SI -> the DBCS lead-byte table (DOS 4.0+)
+	if (__dpmi_int(0x21, &r) == 0 && !(r.x.flags & 1) && (r.x.ds || r.x.si)) {
+		byte t[2];
+		dosmemget(r.x.ds * 16 + r.x.si, 2, t);
+		return dbcsTableHasLeadBytes(t);
+	}
+	return false;
 }
 
 static void textTick(void *) {
@@ -260,6 +276,7 @@ void start(int argc, char *argv[]) {
 		g_haveFont = true;
 	}
 
+	g_asciiBar = doubleByteScreen();
 	g_stage = kStageText;
 	drawTextScreen();
 }
