@@ -3,8 +3,7 @@
 # Ultimate Talkie pack script (mkute.py) needs.
 # Usage: backends/platform/dos/build-deps.sh [codecs|host|all]   (default: all)
 #   codecs: libFLAC 1.4.3, libogg 1.3.5 and Tremor (integer Vorbis) for DJGPP,
-#           static, -O2 -march=i586 -mtune=pentium, no asm/SSE (Tremor also
-#           -D_LOW_ACCURACY_: 32-bit multiplies) -> $DOS_CODECS
+#           static, -O2 -march=i586 -mtune=pentium, no asm/SSE -> $DOS_CODECS
 #           (default ~/opt/codecs-dos). build-dos.sh scumm links them.
 #   host:   flac and metaflac 1.4.3 (mkute.py, MI1) and tremor-check (mkute.py
 #           --game mi2 --test-clips: libogg and Tremor for this machine, and
@@ -129,7 +128,7 @@ build_codecs() (
 	unpack "$TREMOR_TAR" tremor
 	for f in $TREMOR_OBJS; do
 		run_logged "$work/tremor.log" i586-pc-msdosdjgpp-gcc $CFLAGS_DOS \
-			-DBYTE_ORDER=1234 -DLITTLE_ENDIAN=1234 -DBIG_ENDIAN=4321 -D_LOW_ACCURACY_ \
+			-DBYTE_ORDER=1234 -DLITTLE_ENDIAN=1234 -DBIG_ENDIAN=4321 \
 			-I"$codecs/include" -c "$work/tremor/$f.c" -o "$work/tremor/$f.o"
 	done
 	run_logged "$work/tremor.log" i586-pc-msdosdjgpp-ar rcs "$codecs/lib/libvorbisidec.a" \
