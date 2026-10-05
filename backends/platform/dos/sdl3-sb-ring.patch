@@ -7,17 +7,18 @@ Korean MI1 Ultimate Talkie at P75 (its lookout room entry runs ~460 ms); 5 give
 (128 KB instead of 64 KB, locked); the fill stops at five buffers, so the added
 output latency is one buffer (93 ms at 44.1 kHz, 186 ms on an SB Pro at
 22 kHz). The build defines DOS_SBRingChunks, which the port logs and links
-against; build-dos.sh refuses an SDL3 without it.
+against; build-dos.sh refuses an SDL3 without it, and the port warns when
+the value is below 5 (the count is a plain 5: no build-time override).
 
 Base: the seven earlier patches applied (~/opt/src/SDL3 branch dos-sb-ring =
-dos-sb-stats 9a55c71 + this, 3ed5eb3). Apply after those (git apply skips this text):
+dos-sb-stats 9a55c71 + this, 45125d4). Apply after those (git apply skips this text):
   git -C SDL3 apply sdl3-sb-ring.patch
 
 diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
-index fa96a22..0555316 100644
+index fa96a22..61b510a 100644
 --- a/src/audio/dos/SDL_dosaudio_sb.c
 +++ b/src/audio/dos/SDL_dosaudio_sb.c
-@@ -80,9 +80,20 @@ static Uint8 ReadSoundBlasterDSP(void)
+@@ -80,9 +80,18 @@ static Uint8 ReadSoundBlasterDSP(void)
  // (using the full SDL pipeline with all its allocations and mutexes), and
  // the ISR just does a memcpy (no SDL calls, no DPMI, no allocator).
  
@@ -30,9 +31,7 @@ index fa96a22..0555316 100644
 +// hi-res frame of the MI1 talkie at P75 needs). The ring itself is allocated
 +// at the next power of two, which the ISR's masks need; the fill stops at
 +// this many chunks, so the latency is this many, not the allocation.
-+#ifndef RING_BUFFER_CHUNKS
 +#define RING_BUFFER_CHUNKS 5
-+#endif
 +
 +/* The ring's chunk count, for the program to check and log: the ScummVM DOS
 +   port refuses (and fails to link against) an SDL3 without it. */
@@ -41,7 +40,13 @@ index fa96a22..0555316 100644
  
  // All of the following statics are memory-locked, making them safe to access
  // from the ISR without risking a page fault or DPMI re-entrance.
-@@ -192,7 +203,7 @@ const int DOS_SBShutdownChecked = 1;
+@@ -188,11 +197,12 @@ const int DOS_SBShutdownChecked = 1;
+ // Wait until the ring buffer has room for one more chunk.
+ // The audio thread keeps yielding so the game's main thread can run while
+ // we wait. Because the ISR is steadily draining the ring, this only blocks
+-// when the ring is completely full, which is a good problem to have.
++// when RING_BUFFER_CHUNKS chunks are queued (the allocation is larger), which
++// is a good problem to have.
  static bool DOSSOUNDBLASTER_WaitDevice(SDL_AudioDevice *device)
  {
      struct SDL_PrivateAudioData *hidden = device->hidden;
@@ -50,3 +55,12 @@ index fa96a22..0555316 100644
  
      // Slow mixing can keep the ring below capacity indefinitely. Yield even
      // when there is room so the cooperative main thread can process events.
+@@ -204,7 +214,7 @@ static bool DOSSOUNDBLASTER_WaitDevice(SDL_AudioDevice *device)
+         if (SDL_GetAtomicInt(&device->shutdown)) {
+             return true;
+         }
+-        // Available space = ring_size - (write - read).
++        // Available space = size (the fill limit) - (write - read).
+         // ring_write is ours (audio thread only), ring_read is advanced by
+         // the ISR. Read the ISR's copy so we see the latest drain position.
+         const int used = hidden->ring_write - isr_ring_read;

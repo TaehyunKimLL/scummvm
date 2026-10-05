@@ -140,6 +140,10 @@ void DosMixerManager::init() {
 	_soundBlaster = driver && strcmp(driver, "soundblaster") == 0;
 	if (_soundBlaster)
 		DOS::noteSoundBlasterOpen();
+	// build-dos.sh only checks that the mark exists: an SDL3 built with a
+	// shorter ring would underrun again on the Korean MI1 talkie's room entry.
+	if (_soundBlaster && DOS_SBRingChunks < 5)
+		warning("DOS: SDL3's Sound Blaster ring holds %d buffers, not 5: rebuild SDL3 with sdl3-sb-ring.patch", DOS_SBRingChunks);
 
 	// The card's rate is known only now: SDL asks for 44100 Hz, and the
 	// driver brings cards before the SB16 down to 22050. Mix at that rate

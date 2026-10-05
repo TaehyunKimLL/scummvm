@@ -27,7 +27,7 @@
 
 namespace DOS {
 
-/** dos_audio_frames' default: 93 ms buffers and a 372 ms ring at 44100 Hz. */
+/** dos_audio_frames' default: 93 ms buffers at 44100 Hz; the driver queues DOS_SBRingChunks of them (5 x 93 ms). */
 const int kDefaultAudioFrames = 4096;
 const int kMinAudioFrames = 512;
 /** 8192 frames make a 64 KB DMA buffer: SDL's allocator then asks for 128 KB and can cross a 128 KB page. */

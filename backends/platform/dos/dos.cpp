@@ -48,6 +48,7 @@
 
 #include "backends/platform/dos/dos.h"
 #include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/keyed_compose.h"
 #include "backends/platform/dos/dos-exit.h"
 #include "backends/platform/dos/dos-heap.h"
 #include "backends/platform/dos/dos-irq.h"
@@ -193,6 +194,12 @@ void OSystem_DOS::initBackend() {
 	if (DOS::fpuEmulated())
 		logMessage(LogMessageType::kInfo,
 			"DOS: no FPU: the built-in emulator stands in (slow); timer procs run on the main thread\n");
+	// With 387=N the DPMI host sets CR0.EM for us, and then an MMX
+	// instruction is an invalid opcode even on a CPU that has MMX (only
+	// x87 opcodes are trapped for the emulator): no MMX in the keyed
+	// hi-res text compose.
+	if (DOS::fpuEmulated())
+		Graphics::KeyedCompose::setMmxAllowed(false, "FPU emulated: CR0.EM is set");
 
 	SDL_SetLogOutputFunction(sdlLog, nullptr);
 	SDL_SetHint(SDL_HINT_DOS_ALLOW_DIRECT_FRAMEBUFFER, "1");
@@ -230,10 +237,11 @@ void OSystem_DOS::initBackend() {
 	// room entry), each a DOS seek and read - cheap under DOSBox, a disk
 	// seek on a real PC without a cache. 512 holds every MI1/MI2 Korean
 	// font (M1L* 0.6 MB, M1U* 1.1 MB together); DOTT's 1.6 MB face still
-	// streams. 0 streams them all.
+	// streams. 0 streams them all. Read here, so from the global section
+	// or the command line only (a per-game section does not apply).
 	ConfMan.registerDefault("dos_svf_preload_kb", 512);
 	{
-		const int kb = ConfMan.getInt("dos_svf_preload_kb");
+		const int kb = MIN(ConfMan.getInt("dos_svf_preload_kb"), 4096);	// 4 MB: *1024 cannot wrap
 		if (kb >= 0)
 			Graphics::HiResBitmapFont::setStreamThreshold((uint32)kb * 1024);
 	}
