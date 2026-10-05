@@ -2,9 +2,11 @@ SDL3 for the DOS build, trimmed to what the port uses.
 
 build-dos.sh links $SDL3_DOS_MIN (default ~/opt/sdl3-dos-min). Source:
 libsdl-org/SDL 1ce4c5bc2916702e8e0f6df1f612dbd8633011da with
-sdl3-irq-code.patch, sdl3-cpuid.patch, sdl3-sb-shutdown.patch, sdl3-sb-open-fail.patch, sdl3-sb-probe.patch, sdl3-sb-stats.patch and then
-sdl3-sb-highspeed.patch applied (see their headers; ~/opt/src/SDL3, branch
-dos-sb-stats 9a55c71 = 1500973 + the SB Pro high-speed DMA fix (no mark);
+sdl3-irq-code.patch, sdl3-cpuid.patch, sdl3-sb-shutdown.patch, sdl3-sb-open-fail.patch, sdl3-sb-probe.patch, sdl3-sb-stats.patch,
+sdl3-sb-highspeed.patch and then sdl3-sb-ring.patch applied (see their headers;
+~/opt/src/SDL3, branch dos-sb-ring 3ed5eb3 = dos-sb-stats 9a55c71 + the
+five-buffer Sound Blaster ring and its DOS_SBRingChunks mark; dos-sb-stats
+9a55c71 = 1500973 + the SB Pro high-speed DMA fix (no mark);
 1500973 = dos-sb-probe d67c987 + the counters (c5ad490, then
 1500973: cli/sti window, counting from after the open probe) and their
 DOS_SBStatsChecked mark; dos-sb-probe d67c987 = dos-sb-shutdown f6cc527 +
@@ -27,13 +29,15 @@ checks for it, so rebuild SDL3 and delete build-dos-scumm/scummvm.exe, which
 build-dos.sh does not relink when only libSDL3.a changes).
 build-dos.sh refuses an SDL3 that lacks any of them, and the link would
 fail on DOS_CPUIDChecked, DOS_SBShutdownChecked, DOS_SBOpenFailChecked,
-DOS_SBProbeChecked or DOS_SBStatsChecked.
+DOS_SBProbeChecked, DOS_SBStatsChecked or DOS_SBRingChunks (without
+sdl3-sb-ring.patch the ring holds four buffers, 372 ms, and the Korean MI1
+talkie underruns at P75).
 
   git -C SDL3 checkout 1ce4c5bc29
   git -C SDL3 apply sdl3-irq-code.patch && git -C SDL3 apply sdl3-cpuid.patch
   git -C SDL3 apply sdl3-sb-shutdown.patch && git -C SDL3 apply sdl3-sb-open-fail.patch
   git -C SDL3 apply sdl3-sb-probe.patch && git -C SDL3 apply sdl3-sb-stats.patch
-  git -C SDL3 apply sdl3-sb-highspeed.patch
+  git -C SDL3 apply sdl3-sb-highspeed.patch && git -C SDL3 apply sdl3-sb-ring.patch
 
   cmake -S SDL3 -B SDL3/build-dos-min \
     -DCMAKE_TOOLCHAIN_FILE=build-scripts/i586-pc-msdosdjgpp.cmake \

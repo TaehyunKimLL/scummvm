@@ -68,6 +68,13 @@ if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q 
 	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-sb-stats.patch)." >&2
 	exit 1
 fi
+# And sdl3-sb-ring.patch: the Sound Blaster's ring queues 5 device buffers
+# (465 ms at 4096 frames), not 4; with 4 the Korean MI1 talkie underruns at P75.
+if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q ' [TDR] _DOS_SBRingChunks$'; then
+	echo "build-dos.sh: $sdl_lib lacks the 5-buffer Sound Blaster ring (no DOS_SBRingChunks)." >&2
+	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-sb-ring.patch)." >&2
+	exit 1
+fi
 # SCUMM.EXE plays compressed speech and CD tracks (the Ultimate Talkie
 # editions: FLAC MONKEY.SOF, Vorbis MONKEY2.SOG, FLAC tracks) with the
 # libraries build-deps.sh builds; SCI.EXE links none.
