@@ -67,6 +67,44 @@ SeekableAudioStream *makeVorbisStream(
 	Common::SeekableReadStream *stream,
 	DisposeAfterUse::Flag disposeAfterUse);
 
+/**
+ * Vorbis streams whose setup header (the third header packet: codebooks,
+ * floors, residues, mappings) is the same share one decoded copy of it, so
+ * that opening a stream does not unpack and expand the codebooks again. A
+ * game whose speech is thousands of short clips made by one encoder setting
+ * (the Ultimate Talkie editions: a handful of setup headers for all clips)
+ * opens each line in a fraction of the time. The decoded audio is the same
+ * with or without the cache.
+ *
+ * The cache keeps the last kDefaultCapacity setups that were used; a setup
+ * dropped from it lives on while a stream still uses it. It is shared by
+ * all threads (a mutex guards it). Builds without libogg (USE_OGG) have no
+ * cache: there these functions do nothing and the stats stay 0.
+ *
+ * The functions below are for tests and measurements.
+ */
+namespace VorbisSetupCache {
+
+enum {
+	kDefaultCapacity = 4
+};
+
+struct Stats {
+	uint32 hits;	///< streams that took a cached setup
+	uint32 misses;	///< streams whose setup was decoded and cached
+	uint32 entries;	///< setups in the cache now
+};
+
+/** Turn the cache on (the default) or off for streams opened from now on. */
+void setEnabled(bool enabled);
+/** Keep at most n setups (at least 1); the least recently used go first. */
+void setCapacity(uint n);
+/** Drop every cached setup and reset the stats. */
+void clear();
+Stats getStats();
+
+} // End of namespace VorbisSetupCache
+
 } // End of namespace Audio
 
 #endif // #ifdef USE_VORBIS
