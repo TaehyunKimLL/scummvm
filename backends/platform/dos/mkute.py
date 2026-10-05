@@ -19,7 +19,10 @@ track1.flac, which is a WAV in this build, as TRACK1.WAV, adds a seek point
 every second to TRACK25-29.FLA with metaflac (without them a seek stalls the
 game for seconds on DOS), checks MONKEY.SOF's clip index (--test-clips also
 decodes every clip with flac), and writes the INI and the BATs. Your files are
-not changed. metaflac and flac come with FLAC (https://xiph.org/flac/).
+not changed: it refuses, before touching anything, a UTE_DIR or KOREAN_DIR that is,
+lies inside or holds OUT_DIR\\MI1UTE, and it builds the pack in MI1UTE.tmp and
+renames it into place, so a failed run keeps the old pack.
+metaflac and flac come with FLAC (https://xiph.org/flac/).
 """
 import argparse
 import os
@@ -30,6 +33,8 @@ import subprocess
 import sys
 
 PACK = "MI1UTE"
+TMP_SUFFIX = ".tmp"      # the pack is built here and renamed into place
+OLD_SUFFIX = ".old"      # the previous pack, until the new one is in place
 UTE_FILES = ["monkey.000", "monkey.001", "monkey.sof", "track1.flac"] + ["track%d.flac" % n for n in range(25, 30)]
 KOREAN_FILES = ["korean.trs"] + ["korean%02d.fnt" % n for n in range(5)]
 HOME_DEFAULT = "C:\\SCUMMVM"
@@ -192,7 +197,35 @@ def ini_text(korean):
     return "\r\n".join(out)
 
 
+def _real(path):
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _overlaps(a, b):
+    """True when a is b, lies inside b, or contains b (real paths)."""
+    try:
+        return os.path.commonpath([a, b]) in (a, b)
+    except ValueError:      # different drives
+        return False
+
+
+def refuse_overlap(sources, pack):
+    """Raise PackError, before anything is removed, when a source folder is, lies
+    inside, or holds a folder this script deletes or replaces: the pack, the
+    temporary folder it is built in, or the old pack it moves aside."""
+    for what, folder in sources:
+        if not folder:
+            continue
+        for mine in (pack, pack + TMP_SUFFIX, pack + OLD_SUFFIX):
+            if _overlaps(_real(folder), _real(mine)):
+                raise PackError("the %s folder %s overlaps %s, which is removed and rebuilt. "
+                                "Nothing was changed. Pick another OUT_DIR, not %s, inside it or above it"
+                                % (what, folder, mine, folder))
+
+
 def make_pack(ute, out, korean=None, metaflac="metaflac", flac="flac", test_clips=False, log=print):
+    pack = os.path.join(out, PACK)
+    refuse_overlap([("UTE", ute), ("Korean", korean)], pack)
     missing = [n for n in UTE_FILES if not find(ute, n)]
     if missing:
         raise PackError('%s lacks %s (the UTE "Midi Music" folder has them)' % (ute, ", ".join(missing)))
@@ -208,22 +241,39 @@ def make_pack(ute, out, korean=None, metaflac="metaflac", flac="flac", test_clip
     if test_clips:
         run([flac, "--version"])
         decode_clips(flac, find(ute, "monkey.sof"), clips, log)
-    pack = os.path.join(out, PACK)
-    game = os.path.join(pack, "GAMES", PACK)
+    tmp = pack + TMP_SUFFIX
+    old = pack + OLD_SUFFIX
+    game = os.path.join(tmp, "GAMES", PACK)
+    for stale in (tmp, old):            # a killed run leaves one; it may hold the only old pack
+        if os.path.lexists(stale):
+            raise PackError("%s exists (left by an interrupted run?). Nothing was changed. "
+                            "Remove or rename it and run again" % stale)
+    try:
+        os.makedirs(game)
+        for n in UTE_FILES + (KOREAN_FILES if korean else []):
+            src = find(korean if n in KOREAN_FILES else ute, n)
+            dst = os.path.join(game, dos_name(n))
+            shutil.copyfile(src, dst)
+            if n.startswith("track") and n != "track1.flac":
+                log("%s: %d seek points" % (dos_name(n), add_seekpoints(metaflac, dst)))
+        with open(os.path.join(tmp, PACK + ".INI"), "wb") as f:
+            f.write(ini_text(bool(korean)).encode("ascii"))
+        for target, bat, _, _, _, _ in targets(bool(korean)):
+            with open(os.path.join(tmp, bat + ".BAT"), "wb") as f:
+                f.write(game_bat(PACK, target).encode("ascii"))
+    except BaseException:
+        shutil.rmtree(tmp, ignore_errors=True)      # the old pack, if any, is still in place
+        raise
     if os.path.exists(pack):
-        shutil.rmtree(pack)
-    os.makedirs(game)
-    for n in UTE_FILES + (KOREAN_FILES if korean else []):
-        src = find(korean if n in KOREAN_FILES else ute, n)
-        dst = os.path.join(game, dos_name(n))
-        shutil.copyfile(src, dst)
-        if n.startswith("track") and n != "track1.flac":
-            log("%s: %d seek points" % (dos_name(n), add_seekpoints(metaflac, dst)))
-    with open(os.path.join(pack, PACK + ".INI"), "wb") as f:
-        f.write(ini_text(bool(korean)).encode("ascii"))
-    for target, bat, _, _, _, _ in targets(bool(korean)):
-        with open(os.path.join(pack, bat + ".BAT"), "wb") as f:
-            f.write(game_bat(PACK, target).encode("ascii"))
+        os.rename(pack, old)
+    try:
+        os.rename(tmp, pack)
+    except BaseException:
+        if os.path.exists(old):
+            os.rename(old, pack)
+        raise
+    if os.path.exists(old):
+        shutil.rmtree(old)
     log("pack: %s" % pack)
     return pack
 
