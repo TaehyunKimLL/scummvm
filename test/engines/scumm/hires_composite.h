@@ -182,6 +182,43 @@ public:
 		bad += (got[outW * h * m] != 0x5A) ? 1 : 0;
 	}
 
+	/// The MMX implementation (where built and the CPU has it) writes byte
+	/// for byte what the scalar reference writes: widths around its 8-pixel
+	/// step, odd paddings, single rows, keys that are every byte value.
+	void test_keyed_compose_mmx_matches_scalar() {
+		if (!Graphics::KeyedCompose::rowsMmx || !Graphics::KeyedCompose::haveMmx()) {
+			TS_WARN("no MMX here: nothing to compare");
+			return;
+		}
+		uint32 seed = 99991;
+		int bad = 0, cases = 0;
+		for (int m = 1; m <= 3; ++m)
+			for (int w = 1; w <= 41; ++w)
+				for (int srcPad = 0; srcPad <= 5; srcPad += 5)
+					for (int pad = 0; pad <= 7; pad += 7) {
+						const int h = 1 + (w % 3), outW = w * m;
+						const byte key = (byte)((seed = seed * 1103515245 + 12345) >> 16);
+						Common::Array<byte> src((w + srcPad) * h), text((outW + pad) * h * m);
+						for (uint i = 0; i < src.size(); ++i)
+							src[i] = (byte)((seed = seed * 1103515245 + 12345) >> 16);
+						for (uint i = 0; i < text.size(); ++i) {
+							const uint32 r = (seed = seed * 1103515245 + 12345) >> 12;
+							text[i] = (r & 1) ? key : (byte)(r >> 4);
+						}
+						Common::Array<byte> a(outW * h * m + 16, 0x77), b(outW * h * m + 16, 0x77);
+						Graphics::KeyedCompose::rowsScalar(a.begin(), src.begin(), srcPad, text.begin(), pad, w, h, m, key);
+						Graphics::KeyedCompose::rowsMmx(b.begin(), src.begin(), srcPad, text.begin(), pad, w, h, m, key);
+						for (uint i = 0; i < a.size(); ++i)
+							bad += (a[i] != b[i]) ? 1 : 0;
+						++cases;
+					}
+		TS_ASSERT_EQUALS(cases, 3 * 41 * 2 * 2);
+		TS_ASSERT_EQUALS(bad, 0);
+		// The FPU works after it (EMMS).
+		volatile double x = 1.5;
+		TS_ASSERT_EQUALS(x * 2.0, 3.0);
+	}
+
 	void test_keyed_compose_matches_the_index_sink() {
 		uint32 seed = 2024;
 		int bad = 0, cases = 0;
