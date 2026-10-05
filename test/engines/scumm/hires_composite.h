@@ -214,9 +214,25 @@ public:
 					}
 		TS_ASSERT_EQUALS(cases, 3 * 41 * 2 * 2);
 		TS_ASSERT_EQUALS(bad, 0);
-		// The FPU works after it (EMMS).
-		volatile double x = 1.5;
-		TS_ASSERT_EQUALS(x * 2.0, 3.0);
+		// The FPU works after it. (x87 on x86_64 only for long double; real
+		// MMX/EMMS coverage comes from the DJGPP build and the pentium_mmx gate.)
+		volatile long double x = 1.5L;
+		TS_ASSERT_EQUALS(x * 2.0L, 3.0L);
+	}
+
+	/// With MMX turned off (a DPMI host that emulates the FPU) rows() takes
+	/// the scalar path and writes the same bytes.
+	void test_keyed_compose_mmx_forced_off() {
+		const bool before = Graphics::KeyedCompose::usesMmx();
+		Graphics::KeyedCompose::setMmxAllowed(false, "test");
+		TS_ASSERT(!Graphics::KeyedCompose::usesMmx());
+		int bad = 0;
+		uint32 seed = 5;
+		for (int w = 1; w <= 20; ++w)
+			keyedCase(2, w, 3, 1, 2, seed, bad, true);
+		TS_ASSERT_EQUALS(bad, 0);
+		Graphics::KeyedCompose::setMmxAllowed(true);
+		TS_ASSERT_EQUALS(Graphics::KeyedCompose::usesMmx(), before);
 	}
 
 	void test_keyed_compose_matches_the_index_sink() {

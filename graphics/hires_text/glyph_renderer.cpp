@@ -424,20 +424,20 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 			// below with its clipping hoisted out.
 			for (int my = MAX(y0, 0); my < MIN(y1, mh); ++my) {
 				const byte *a = alpha + my * mw;
-				byte *d = (byte *)dest.getBasePtr(0, baseY - pad + my) + (baseX - pad);
+				byte *d = (byte *)dest.getBasePtr(0, baseY - pad + my);
 				for (int mx = MAX(x0, 0); mx < MIN(x1, mw); ++mx) {
-					if (a[mx] && d[mx] != style.color)
-						d[mx] = deco.outlineColor;
+					if (a[mx] && d[baseX - pad + mx] != style.color)
+						d[baseX - pad + mx] = deco.outlineColor;
 				}
 			}
 		} else if (!uCov && !cov && !deco.outline) {
 			// Keyed, the drop shadow alone: the same, the mask moved.
 			for (int my = MAX(y0, sdy); my < MIN(y1, mh + sdy); ++my) {
-				const byte *sr = alpha + (my - sdy) * mw - sdx;
-				byte *d = (byte *)dest.getBasePtr(0, baseY - pad + my) + (baseX - pad);
+				const byte *sr = alpha + (my - sdy) * mw;
+				byte *d = (byte *)dest.getBasePtr(0, baseY - pad + my);
 				for (int mx = MAX(x0, sdx); mx < MIN(x1, mw + sdx); ++mx) {
-					if (sr[mx] && d[mx] != style.color)
-						d[mx] = deco.shadowColor;
+					if (sr[mx - sdx] && d[baseX - pad + mx] != style.color)
+						d[baseX - pad + mx] = deco.shadowColor;
 				}
 			}
 		} else {
@@ -512,33 +512,34 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 			const int gx0 = MAX(0, -baseX), gx1 = MIN(glyph.width, dest.w - baseX);
 			for (int gy = MAX(0, -baseY); gy < MIN(glyph.height, dest.h - baseY); ++gy) {
 				const byte *row = glyph.pixels + gy * glyph.pitch;
-				byte *d = (byte *)dest.getBasePtr(0, baseY + gy) + baseX;
+				byte *d = (byte *)dest.getBasePtr(0, baseY + gy);
 				for (int gx = gx0; gx < gx1; ++gx) {
 					if (row[gx] >= inkMin)
-						d[gx] = style.color;
+						d[baseX + gx] = style.color;
 				}
 			}
-		} else
-		for (int gy = 0; gy < glyph.height; ++gy) {
-			const int py = baseY + gy;
-			if (py < 0 || py >= dest.h)
-				continue;
-
-			const byte *row = glyph.pixels + gy * glyph.pitch;
-
-			for (int gx = 0; gx < glyph.width; ++gx) {
-				const byte cv = glyphCoverage(row, gx, glyph.bpp);
-				if (cv < inkMin)
+		} else {
+			for (int gy = 0; gy < glyph.height; ++gy) {
+				const int py = baseY + gy;
+				if (py < 0 || py >= dest.h)
 					continue;
 
-				const int px = baseX + gx;
-				if (px < 0 || px >= dest.w)
-					continue;
+				const byte *row = glyph.pixels + gy * glyph.pitch;
 
-				*(byte *)dest.getBasePtr(px, py) = style.color;
+				for (int gx = 0; gx < glyph.width; ++gx) {
+					const byte cv = glyphCoverage(row, gx, glyph.bpp);
+					if (cv < inkMin)
+						continue;
 
-				if (fits(cov, px, py))
-					cov->set(px, py, cv);
+					const int px = baseX + gx;
+					if (px < 0 || px >= dest.w)
+						continue;
+
+					*(byte *)dest.getBasePtr(px, py) = style.color;
+
+					if (fits(cov, px, py))
+						cov->set(px, py, cv);
+				}
 			}
 		}
 	}

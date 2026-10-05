@@ -25,22 +25,22 @@
 
 // MMX: x86 only, built for the one function with the target attribute (the
 // rest of the program stays plain i586: a Pentium 75 has no MMX).
-#if defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+// Not clang on i386: its <mmintrin.h> wants SSE2 there, not just MMX.
+#if defined(__GNUC__) && !(defined(__clang__) && defined(__i386__)) && (defined(__i386__) || defined(__x86_64__))
 #define KEYED_COMPOSE_MMX 1
 #include <cpuid.h>
 #include <mmintrin.h>
 
 namespace {
 
-/// m == 2: eight game pixels doubled to sixteen, selected against sixteen
-/// text pixels, per step; the rest of a row as the scalar loop does it.
-__attribute__((target("mmx")))
-void rowsMmxImpl(byte *dst, const byte *src, int srcSkip, const byte *text, int textSkip,
-				 int width, int height, int m, byte key) {
-	if (m != 2) {
-		Graphics::KeyedCompose::rowsScalar(dst, src, srcSkip, text, textSkip, width, height, m, key);
-		return;
-	}
+/// m == 2, height > 0: eight game pixels doubled to sixteen, selected
+/// against sixteen text pixels, per step; the rest of a row as the scalar
+/// loop does it. Every path through it ends in the EMMS, and the cases that
+/// need none are decided by rowsMmxImpl() outside it: the compiler may move
+/// MMX instructions anywhere in this function.
+__attribute__((target("mmx"), noinline))
+void rowsMmxBody(byte *dst, const byte *src, int srcSkip, const byte *text, int textSkip,
+				 int width, int height, byte key) {
 	const __m64 keys = _mm_set1_pi8((char)key);
 	const int outWidth = width * 2;
 	const int blocks = width / 8;
@@ -70,6 +70,16 @@ void rowsMmxImpl(byte *dst, const byte *src, int srcSkip, const byte *text, int 
 		text += outWidth + textSkip;
 	}
 	_mm_empty();	// EMMS: the x87 registers are the FPU's again
+}
+
+/// Plain code (no MMX): what the MMX body does not take goes to the scalar
+/// loop, without any MMX register having been touched.
+void rowsMmxImpl(byte *dst, const byte *src, int srcSkip, const byte *text, int textSkip,
+				 int width, int height, int m, byte key) {
+	if (m != 2 || height <= 0)
+		Graphics::KeyedCompose::rowsScalar(dst, src, srcSkip, text, textSkip, width, height, m, key);
+	else
+		rowsMmxBody(dst, src, srcSkip, text, textSkip, width, height, key);
 }
 
 } // End of anonymous namespace
@@ -109,6 +119,16 @@ const RowsFn rowsMmx = rowsMmxImpl;
 const RowsFn rowsMmx = nullptr;
 #endif
 
+static bool g_mmxAllowed = true;
+static const char *g_mmxOffWhy = nullptr;
+static RowsFn g_chosen = nullptr;
+
+void setMmxAllowed(bool allowed, const char *why) {
+	g_mmxAllowed = allowed;
+	g_mmxOffWhy = allowed ? nullptr : why;
+	g_chosen = nullptr;	// chosen again at the next rows()
+}
+
 bool haveMmx() {
 #ifdef KEYED_COMPOSE_MMX
 	// __get_cpuid() checks the highest leaf first, and on i386 that check
@@ -123,15 +143,22 @@ bool haveMmx() {
 #endif
 }
 
+bool usesMmx() {
+	return g_mmxAllowed && rowsMmx && haveMmx();
+}
+
 void rows(byte *dst, const byte *src, int srcSkip, const byte *text, int textSkip,
 		  int width, int height, int m, byte key) {
-	static RowsFn chosen = nullptr;
-	if (!chosen) {
-		const bool mmx = rowsMmx && haveMmx();
-		chosen = mmx ? rowsMmx : rowsScalar;
-		debug(1, "hi-res text: keyed compose %s", mmx ? "MMX" : "scalar");
+	if (!g_chosen) {
+		const bool mmx = usesMmx();
+		g_chosen = mmx ? rowsMmx : rowsScalar;
+		if (!g_mmxAllowed && rowsMmx)
+			debug(1, "hi-res text: keyed compose scalar (MMX forced off: %s)",
+				  g_mmxOffWhy ? g_mmxOffWhy : "by the platform");
+		else
+			debug(1, "hi-res text: keyed compose %s", mmx ? "MMX" : "scalar");
 	}
-	chosen(dst, src, srcSkip, text, textSkip, width, height, m, key);
+	g_chosen(dst, src, srcSkip, text, textSkip, width, height, m, key);
 }
 
 } // End of namespace KeyedCompose
