@@ -253,16 +253,23 @@ class PrefetchMixer : public Audio::MixerImpl {
 public:
 	typedef void (*SpeechHook)(void *ctx);
 	typedef bool (*WrapGuard)();
+	typedef uint32 (*LatencyFn)(void *ctx);
 
 	PrefetchMixer(PrefetchPool &pool, uint sampleRate, bool stereo, uint outBufSize)
 		: Audio::MixerImpl(sampleRate, stereo, outBufSize), _pool(pool), _hook(nullptr), _hookCtx(nullptr),
-		  _guard(nullptr), _markMillis(0), _speechStarts(0), _musicStarts(0) {}
+		  _guard(nullptr), _latencyFn(nullptr), _latencyCtx(nullptr), _markMillis(0), _speechStarts(0), _musicStarts(0) {}
 
 	/** Called at every speech stream's start, before its prime. */
 	void setSpeechHook(SpeechHook fn, void *ctx) {
 		_hook = fn;
 		_hookCtx = ctx;
 	}
+	/** Where getOutputLatencyMillis() comes from (DOS: the Sound Blaster's queue). */
+	void setLatencyProvider(LatencyFn fn, void *ctx) {
+		_latencyFn = fn;
+		_latencyCtx = ctx;
+	}
+	uint32 getOutputLatencyMillis() const override { return _latencyFn ? _latencyFn(_latencyCtx) : 0; }
 	/** When it returns false the stream plays unwrapped (DOS: interrupts are off). */
 	void setWrapGuard(WrapGuard fn) { _guard = fn; }
 	/** dos_audio_mark: a 1 kHz square of this length in front of every speech stream. */
@@ -293,6 +300,8 @@ private:
 	SpeechHook _hook;
 	void *_hookCtx;
 	WrapGuard _guard;
+	LatencyFn _latencyFn;
+	void *_latencyCtx;
 	int _markMillis;
 	uint32 _speechStarts;
 	uint32 _musicStarts;
