@@ -65,6 +65,9 @@ protected:
 	const int16 *_bufferEnd;
 	const int16 *_pos;
 
+	/** The shared setup _ovFile decodes with, or nullptr (see VorbisSetupCache). */
+	void *_sharedSetup;
+
 public:
 	VorbisStream(Common::SeekableReadStream *inStream, DisposeAfterUse::Flag dispose);
 	~VorbisStream();
