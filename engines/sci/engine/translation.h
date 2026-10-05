@@ -88,8 +88,23 @@ public:
 	 */
 	bool load(const Common::String &languageCode);
 
-	/** Parse a table from a stream; what load() does once the file is open. */
+	/**
+	 * Parse a table from a stream; what load() does once the file is open.
+	 * A UTF-8 BOM is skipped. A malformed line rejects the whole table (a
+	 * wrong key would draw a translation in the wrong place, unnoticed);
+	 * a duplicate key is a warning and the later line wins.
+	 */
 	bool loadFromStream(Common::SeekableReadStream &in);
+
+	enum LineKind { kLineSkip, kLineEntry, kLineError };
+
+	/**
+	 * Parse one line of the table, line end already stripped: a blank or
+	 * '#' line is skipped; anything else must be an entry, or kLineError
+	 * with @p error saying why. Numbers are decimal digits, 0..65534.
+	 */
+	static LineKind parseLine(const Common::String &line, Key &key,
+	                          Common::String &text, const char *&error);
 
 	bool isLoaded() const { return _loaded; }
 
