@@ -60,7 +60,7 @@
 #include "common/textconsole.h"
 #include "backends/fs/posix/posix-fs-factory.h"
 #include "backends/mutex/dos/dos-mutex.h"
-#include "backends/saves/default/default-saves.h"
+#include "backends/platform/dos/dos-savefile.h"
 #include "backends/timer/dos/dos-timer.h"
 #include "backends/events/default/default-events.h"
 #include "backends/events/dos/dos-events.h"
@@ -280,7 +280,7 @@ void OSystem_DOS::initBackend() {
 	// the PIT, before the timer sets it to 1 kHz.
 	_timerManager = new DosTimerManager();
 	_eventManager = new DefaultEventManager(this);
-	_savefileManager = new DefaultSaveFileManager("SAVES");
+	_savefileManager = new DOS::SaveFileManager("SAVES");
 	_mixerManager = new DosMixerManager();
 	_mixerManager->init();
 	if (!_mixerManager->getMixer()) {
