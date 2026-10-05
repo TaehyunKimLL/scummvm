@@ -52,6 +52,10 @@ bool interruptsOn() {
 
 DosMixerManager *s_manager = nullptr;
 
+uint32 latencyOf(void *ctx) {
+	return ((const DosMixerManager *)ctx)->outputLatencyMillis();
+}
+
 // dos_audio_mark: a 10 ms 2 kHz tone on the PC speaker (PIT channel 2),
 // which reaches the speaker at once, unlike the Sound Blaster's queue.
 // The click therefore leads the 1 kHz square's onset in the recording by
@@ -154,6 +158,7 @@ void DosMixerManager::init() {
 	_prefetchMixer = new DOS::PrefetchMixer(*_pool, spec.freq, true, frames > 0 ? frames : _deviceFrames);
 	_prefetchMixer->setWrapGuard(interruptsOn);
 	_prefetchMixer->setSpeechHook(onSpeech, this);
+	_prefetchMixer->setLatencyProvider(latencyOf, this);
 	ConfMan.registerDefault("dos_audio_mark", false);
 	_mark = ConfMan.getBool("dos_audio_mark");
 	if (_mark)

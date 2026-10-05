@@ -5,6 +5,10 @@
 
 namespace {
 
+uint32 fixedLatency(void *ctx) {
+	return *(uint32 *)ctx;
+}
+
 // Sample i of the stream is (i & 0x7fff), so a reader can check the order.
 class FakeStream : public Audio::AudioStream {
 public:
@@ -255,5 +259,15 @@ public:
 		}
 		pool.reap();
 		TS_ASSERT_EQUALS(deleted, 2);
+	}
+
+	void test_the_latency_comes_from_the_provider() {
+		DOS::PrefetchPool pool;
+		DOS::PrefetchMixer mixer(pool, 44100, true, 1024);
+		const Audio::Mixer &m = mixer;
+		TS_ASSERT_EQUALS(m.getOutputLatencyMillis(), 0u);
+		uint32 ms = 412;
+		mixer.setLatencyProvider(fixedLatency, &ms);
+		TS_ASSERT_EQUALS(m.getOutputLatencyMillis(), 412u);
 	}
 };
