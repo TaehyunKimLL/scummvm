@@ -31,4 +31,12 @@ public:
 			"ms=0 tsc=0 pieces=0 piecemax=0 prefetch=0 mix=0 misses=0 speech=0 music=0 "
 			"irqs=-1 under=-1 queued=-1 minavail=-1 chunk=-1 rate=0 frames=0");
 	}
+	void test_counters_above_32_bits() {
+		DOS::AudioStats s;
+		s.tsc = 7994056750ULL;
+		s.pieceMaxTsc = 5000000000ULL;
+		TS_ASSERT_EQUALS(DOS::formatAudioStats(s),
+			"ms=0 tsc=7994056750 pieces=0 piecemax=5000000000 prefetch=0 mix=0 misses=0 speech=0 music=0 "
+			"irqs=-1 under=-1 queued=-1 minavail=-1 chunk=-1 rate=0 frames=0");
+	}
 };

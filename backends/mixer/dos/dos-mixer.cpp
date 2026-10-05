@@ -54,6 +54,9 @@ DosMixerManager *s_manager = nullptr;
 
 // dos_audio_mark: a 10 ms 2 kHz tone on the PC speaker (PIT channel 2),
 // which reaches the speaker at once, unlike the Sound Blaster's queue.
+// The click therefore leads the 1 kHz square's onset in the recording by
+// about 10 ms (this busy-wait) plus the output latency: an analysis that
+// measures speech start from the click must subtract the 10 ms.
 void speakerClick() {
 	const uint16 div = 1193182 / 2000;
 	outportb(0x43, 0xB6);
