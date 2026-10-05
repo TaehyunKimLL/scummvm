@@ -222,7 +222,7 @@ python3 -c "import sys; sys.path.insert(0,'tools/korean'); import mkfont; print(
 UHC=AD3B,AD41,B2A2,B548,D25D
 tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1u.tsv $G/mi1ute-kor $D $W/m1u-union.txt $D/M1KO.MAP 2026,2122,$UHC
 tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m2u.tsv $G/mi2kor $D $G/mi2kor/korean.trs $D/M2KO.MAP 2026,2122
-# L presets: U+2026 only (0x5e = u+2026 holds for clut8 too; 0x0f stays the
+# L presets: U+2026 and the five UHC syllables (0x5e = u+2026 holds for clut8 too; 0x0f stays the
 # game's glyph there, and neodgm has no U+2122). MI2's .trs bake checks
 # --require, which the map's U+2122 would fail, so it takes the ellipsis alone.
 tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1l.tsv $G/mi1ute-kor $D $W/m1l-union.txt $D/M1KO.MAP 2026,$UHC
