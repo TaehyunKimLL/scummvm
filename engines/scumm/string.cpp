@@ -1308,9 +1308,11 @@ void ScummEngine::displayDialog() {
 			c = readUtf8TextChar(p, _charsetBuffer + sizeof(_charsetBuffer));
 			_charsetBufPos = p - _charsetBuffer;
 		}
-		if (_debugSocket)
-			drawn += Common::String((const char *)_charsetBuffer + charStart, _charsetBufPos - charStart);
+		// The debug socket is told only of the characters that are really
+		// handed to the renderer, not of those a game skips (subtitles off).
 		if (_game.version <= 3) {
+			if (_debugSocket)
+				drawn += Common::String((const char *)_charsetBuffer + charStart, _charsetBufPos - charStart);
 			_charset->printChar(c, false);
 			_msgCount += 1;
 #ifdef USE_TTS
@@ -1327,6 +1329,8 @@ void ScummEngine::displayDialog() {
 				// Subtitles are turned off, and there is a voice version
 				// of this message -> don't print it.
 			} else {
+				if (_debugSocket)
+					drawn += Common::String((const char *)_charsetBuffer + charStart, _charsetBufPos - charStart);
 				_charset->printChar(c, false);
 #ifdef USE_TTS
 				ttsMessage += c;
