@@ -77,7 +77,7 @@ public:
 	bool handle(const Common::String &cmd, const Common::StringArray &args, Common::String &reply) override;
 	bool replyPending() const override { return _wait.active; }
 	void poll() override;
-	bool inputReady() override { return listening(); }
+	bool inputReady() override { syncRoom(); return listening(); }
 	bool paceInput() override;
 	Common::Point toBackend(const Common::Point &p) override;
 	Common::Point fromBackend(const Common::Point &p) override;
@@ -121,6 +121,9 @@ public:
 	 * `listening` stays false until the first kGetEvent after it.
 	 */
 	void noteTransition();
+
+	/** Treat a change of the room number as a transition (see the .cpp). */
+	void syncRoom();
 
 	/**
 	 * kDrawControl() reports every button it draws, with its rect in the
