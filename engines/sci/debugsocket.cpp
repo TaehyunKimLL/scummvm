@@ -100,15 +100,7 @@ void DebugSocket::tick() {
 	if (_stepTicks > 0)
 		_stepTicks--;
 
-	// Buttons belong to the screen they were drawn on; a room change or
-	// a transition (new picture) takes them with it.
-	{
-		const uint16 room = _engine->getEngineState()->currentRoomNumber();
-		if (room != _lastRoom) {
-			_buttons.clear();
-			_lastRoom = room;
-		}
-	}
+	syncRoom();
 	sampleDisplay();
 	// One state line per tick while recording, skipping ticks where nothing
 	// a condition could test has changed. The key deliberately drops `frame`
@@ -189,6 +181,7 @@ void DebugSocket::pollWait() {
 // sent its queued input. The screen also settles while a modal box is up,
 // when no tick runs, so `idle` is sampled here as well as in tick().
 void DebugSocket::poll() {
+	syncRoom();
 	sampleDisplay();
 	pollWait();
 }
@@ -266,6 +259,36 @@ void DebugSocket::noteButton(const Common::String &label, const Common::Rect &re
 	_buttons.push_back(b);
 	while (_buttons.size() > 16)
 		_buttons.remove_at(0);
+}
+
+// A room change counts as a transition the moment the room number
+// changes, not only when the new picture's transition runs. Between the
+// two, the new room's object is current (its `script` is still 0, its
+// init has not run) while `listening` still reflects the previous
+// screen's polls and `listening N` counts from the previous transition -
+// so `room == 1` followed at once by `sel room script == 0 && listening
+// 8` could pass on that frame, and the key sent next was drained by the
+// room's own transition a frame later. Measured in KQ1 (t_dea20c7c):
+// with both conditions in one wait, it returned at frame 25 in room 1
+// with the picture not yet drawn, and the space that followed never
+// opened the parser line (TIMEOUT at frame 325, idle 263) - 6 runs of 9.
+// With this, the same wait returns at frame 63-64, after the picture,
+// and the line opens: 8 of 8. Buttons belong to the screen they were
+// drawn on, so they go too.
+void DebugSocket::syncRoom() {
+	EngineState *s = _engine->getEngineState();
+	if (!s)
+		return;
+	const uint16 room = s->currentRoomNumber();
+	if (room == _lastRoom)
+		return;
+	const bool first = _lastRoom == 0xffff;
+	_lastRoom = room;
+	_buttons.clear();
+	if (!first) {
+		_transitionPoll = _getEventCount;
+		_listenSince = _frame;
+	}
 }
 
 void DebugSocket::noteTransition() {
