@@ -129,10 +129,23 @@ void compositeTextRows(Sink &sink, const byte *src, int srcPitch,
 		kLayered        ///< text over the decoration over the picture
 	};
 
+	const byte *expanded = nullptr;	// the game row bgRow holds
 	for (int h = 0; h < height * m; ++h) {
+		// Each game row serves m output rows: expand it once, without a
+		// division per pixel (this loop is most of a full redraw's cost on
+		// a 2x screen; a Pentium divides in tens of cycles).
 		const byte *srcRow = src + (h / m) * (width + srcPitch);
-		for (int w = 0; w < outWidth; ++w)
-			bgRow[w] = srcRow[w / m];
+		if (srcRow != expanded) {
+			expanded = srcRow;
+			if (m == 1) {
+				memcpy(bgRow, srcRow, outWidth);
+			} else {
+				byte *d = bgRow;
+				for (int x = 0; x < width; ++x)
+					for (int k = 0; k < m; ++k)
+						*d++ = srcRow[x];
+			}
+		}
 
 		const byte *coverage = nullptr;
 		if (coverageRows.present()) {
@@ -147,6 +160,20 @@ void compositeTextRows(Sink &sink, const byte *src, int srcPitch,
 				under = underRows.row(h, underScratch);
 				if (!under)
 					under = zeroRow;
+			}
+		}
+
+		// A row with no text and no decoration is the picture alone, one
+		// run, as the loop below would find pixel by pixel (most rows of a
+		// redraw: text covers a few bands of the screen).
+		if (!underCoverage) {
+			int w = 0;
+			while (w < outWidth && text[w] == kHiResTextTransparent)
+				++w;
+			if (w == outWidth) {
+				sink.writeBackground(bgRow, outWidth);
+				text += outWidth + textPitch;
+				continue;
 			}
 		}
 
