@@ -29,6 +29,36 @@ public:
 	static Graphics::PixelFormat argb() { return Graphics::PixelFormat(4, 8, 8, 8, 8, 16, 8, 0, 24); }
 	static Graphics::PixelFormat rgb565() { return Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0); }
 
+	/// A row expanded at once (the 1bpp loop works a byte at a time) is the
+	/// per-pixel expandCoverage() of every pixel, at every width and depth,
+	/// greyed or not.
+	void test_expand_glyph_row_matches_per_pixel() {
+		uint32 seed = 31337;
+		byte row[8], out[40];
+		int bad = 0;
+		for (int bpp = 1; bpp <= 8; bpp *= 2) {
+			if (bpp == 4)
+				continue;
+			for (int width = 1; width <= 8 * 8 / bpp && width <= 40; ++width) {
+				for (int greyed = 0; greyed < 2; ++greyed) {
+					for (int i = 0; i < 8; ++i)
+						row[i] = (byte)((seed = seed * 1103515245 + 12345) >> 16);
+					memset(out, 0xAA, sizeof(out));
+					Graphics::TextCompose::expandGlyphRow(out, row, width, bpp, greyed != 0, 3, 1);
+					for (int x = 0; x < width; ++x) {
+						byte want = Graphics::TextCompose::expandCoverage(row, x, bpp);
+						if (greyed && (3 % 2) == ((1 + x) % 2))
+							want = 0;
+						bad += (out[x] != want) ? 1 : 0;
+					}
+					for (int x = width; x < 40; ++x)
+						bad += (out[x] != 0xAA) ? 1 : 0;
+				}
+			}
+		}
+		TS_ASSERT_EQUALS(bad, 0);
+	}
+
 	void test_expand_coverage_1_2_8_bpp() {
 		const byte one[1] = { 0xA0 };            // 1010 0000
 		TS_ASSERT_EQUALS(Graphics::TextCompose::expandCoverage(one, 0, 1), 255);

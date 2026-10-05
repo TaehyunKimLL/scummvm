@@ -244,6 +244,17 @@ public:
 					   byte binaryAt = 0);
 
 	/**
+	 * dilate() with @p binaryAt (above zero) followed by the cut at
+	 * kKeyedDecorationThreshold, in one pass: @p out gets 0xFF where the
+	 * keyed decoration is drawn and 0 elsewhere, byte for byte what the two
+	 * steps give. The input being binary, a tap either always reaches the
+	 * cut or never does, so only the taps that do are walked, each a fixed
+	 * offset into @p out.
+	 */
+	static void dilateKeyed(const GlyphBitmap &glyph, const DilationKernel &kernel, byte *out,
+							byte binaryAt);
+
+	/**
 	 * Draw one glyph.
 	 *
 	 * @param dest      CLUT8 surface receiving the colour
