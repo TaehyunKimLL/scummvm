@@ -72,7 +72,7 @@ public:
 		int markPeriod;	///< marker period, in frames
 	};
 
-	PrefetchPool() : _misses(0) {
+	PrefetchPool() : _misses(0), _declined(0) {
 		for (int i = 0; i < kSlots; i++) {
 			Slot &s = _slots[i];
 			s.state = kFree;
@@ -115,6 +115,14 @@ public:
 
 	/** Reads a ring could not serve, which were decoded under the mixer's mutex. */
 	uint32 misses() const { return _misses; }
+
+	/**
+	 * Streams that should have been wrapped and were not: no free slot, no
+	 * memory, or the mixer's guard refused (a timer proc in IRQ0). Counted
+	 * only: wrap() may run in an interrupt, which must not log.
+	 */
+	uint32 declined() const { return _declined; }
+	void noteDeclined() { _declined = _declined + 1; }
 
 	int countSlots(State st) const {
 		int n = 0;
@@ -177,6 +185,7 @@ private:
 
 	Slot _slots[kSlots];
 	uint32 _misses;
+	volatile uint32 _declined;
 };
 
 /** What the mixer's channel holds in place of a wrapped stream. */
@@ -211,11 +220,15 @@ inline Audio::AudioStream *PrefetchPool::wrap(Audio::AudioStream *parent, int ma
 	for (int i = 0; i < kSlots && !s; i++)
 		if (_slots[i].state == kFree)
 			s = &_slots[i];
-	if (!s)
+	if (!s) {
+		noteDeclined();
 		return parent;
+	}
 	int16 *ring = (int16 *)malloc(kRingSamples * sizeof(int16));
-	if (!ring)
+	if (!ring) {
+		noteDeclined();
 		return parent;
+	}
 	const bool stereo = parent->isStereo();
 	const int rate = parent->getRate();
 	s->parent = parent;
@@ -268,6 +281,8 @@ public:
 			}
 			if (!_guard || _guard())
 				input = _pool.wrap(input, type == kSpeechSoundType ? _markMillis : 0);
+			else
+				_pool.noteDeclined();
 		}
 		Audio::MixerImpl::playStream(type, handle, input, id, volume, balance, autofreeStream, permanent, reverseStereo);
 	}

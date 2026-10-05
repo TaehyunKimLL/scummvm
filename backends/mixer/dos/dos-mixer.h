@@ -23,6 +23,7 @@
 #define BACKENDS_MIXER_DOS_H
 
 #include "backends/mixer/mixer.h"
+#include "backends/mixer/dos/dos-audio-stats.h"
 
 struct SDL_AudioStream;
 
@@ -84,8 +85,20 @@ public:
 		millis = _callbackMillis;
 	}
 
+	/**
+	 * Milliseconds between handing the mixer a sample now and the card
+	 * playing it, as far as can be told: what SDL's stream and the Sound
+	 * Blaster's ring hold, the DMA half queued at the last interrupt and,
+	 * on average, half of the one playing. 0 without a Sound Blaster.
+	 */
+	uint32 outputLatencyMillis() const;
+
+	/** The counters behind the debug socket's `audio` (DOS::audioStats()). */
+	void fillStats(DOS::AudioStats &s);
+
 private:
 	static void sdlCallback(void *userdata, SDL_AudioStream *stream, int additionalAmount, int totalAmount);
+	static void onSpeech(void *ctx);
 
 	/**
 	 * Preallocated, so the callback never allocates. Bigger requests are
@@ -111,6 +124,10 @@ private:
 	int _devRate;			///< the card's rate
 	int _devBytesPerFrame;	///< the card's sample format x channels
 	bool _soundBlaster;		///< SDL's driver is "soundblaster"
+	DOS::AudioStats _stats;	///< pieces, pieceMaxTsc, prefetchTsc, mixTsc
+	bool _haveTsc;
+	bool _mark;				///< dos_audio_mark
+	uint32 _declinedLogged;	///< PrefetchPool::declined() as last logged
 };
 
 #endif

@@ -114,7 +114,9 @@ public:
 		for (int i = 0; i < DOS::PrefetchPool::kSlots; i++)
 			p[i] = pool.wrap(new FakeStream(10000, false, &deleted));
 		FakeStream *extra = new FakeStream(10000, false, &deleted);
+		TS_ASSERT_EQUALS(pool.declined(), 0u);
 		TS_ASSERT_EQUALS(pool.wrap(extra), (Audio::AudioStream *)extra);
+		TS_ASSERT_EQUALS(pool.declined(), 1u);
 		delete extra;
 		for (int i = 0; i < DOS::PrefetchPool::kSlots; i++)
 			delete p[i];
@@ -180,6 +182,7 @@ public:
 		TS_ASSERT_EQUALS(pool.countSlots(DOS::PrefetchPool::kLive), 2);
 		TS_ASSERT_EQUALS(mixer->speechStarts(), 1u);
 		TS_ASSERT_EQUALS(mixer->musicStarts(), 1u);
+		TS_ASSERT_EQUALS(pool.declined(), 0u);
 		delete mixer;
 		TS_ASSERT_EQUALS(deleted, 1);	// the SFX stream; the wrapped two wait for reap()
 		pool.reap();
@@ -220,6 +223,7 @@ public:
 		m.playStream(Audio::Mixer::kSpeechSoundType, &h, new FakeStream(3000, false, &deleted));
 		TS_ASSERT_EQUALS(calls, 1);
 		TS_ASSERT_EQUALS(pool.countSlots(DOS::PrefetchPool::kLive), 0);
+		TS_ASSERT_EQUALS(pool.declined(), 1u);	// the guard refused: counted, not logged here
 		delete mixer;
 		TS_ASSERT_EQUALS(deleted, 1);
 	}

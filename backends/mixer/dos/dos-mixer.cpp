@@ -23,16 +23,22 @@
 
 #if defined(DOS_DJGPP)
 
+#include <pc.h>
 #include <SDL3/SDL.h>
 
 #include "backends/mixer/dos/dos-mixer.h"
 #include "backends/mixer/dos/dos-audio-config.h"
+#include "backends/mixer/dos/dos-audio-stats.h"
 #include "backends/mixer/dos/prefetch.h"
 #include "backends/platform/dos/dos-exit.h"
+#include "backends/platform/dos/dos-irq.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/system.h"
 #include "common/textconsole.h"
+
+// sdl3-sb-stats.patch (link-checked through DOS_SBStatsChecked in dos-irq.cpp).
+extern "C" void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *minAvail, int *chunk, int resetMin);
 
 namespace {
 
@@ -44,15 +50,34 @@ bool interruptsOn() {
 	return (flags & 0x200) != 0;
 }
 
+DosMixerManager *s_manager = nullptr;
+
+// dos_audio_mark: a 10 ms 2 kHz tone on the PC speaker (PIT channel 2),
+// which reaches the speaker at once, unlike the Sound Blaster's queue.
+void speakerClick() {
+	const uint16 div = 1193182 / 2000;
+	outportb(0x43, 0xB6);
+	outportb(0x42, div & 0xff);
+	outportb(0x42, div >> 8);
+	outportb(0x61, inportb(0x61) | 3);
+	const uint32 t0 = g_system->getMillis();
+	while (g_system->getMillis() - t0 < 10) {
+	}
+	outportb(0x61, inportb(0x61) & ~3);
+}
+
 } // End of anonymous namespace
 
 DosMixerManager::DosMixerManager()
 	: _stream(nullptr), _buffer(new byte[kBufferBytes]), _subsystemInitialized(false), _framesMixed(0),
 	  _callbackMillis(0), _pool(nullptr), _prefetchMixer(nullptr), _deviceFrames(DOS::kDefaultAudioFrames),
-	  _mixRate(0), _devRate(0), _devBytesPerFrame(0), _soundBlaster(false) {
+	  _mixRate(0), _devRate(0), _devBytesPerFrame(0), _soundBlaster(false), _haveTsc(false), _mark(false),
+	  _declinedLogged(0) {
 }
 
 DosMixerManager::~DosMixerManager() {
+	if (s_manager == this)
+		s_manager = nullptr;
 	if (_mixer)
 		_mixer->setReady(false);
 	if (_stream)
@@ -125,8 +150,15 @@ void DosMixerManager::init() {
 	_pool = new DOS::PrefetchPool();
 	_prefetchMixer = new DOS::PrefetchMixer(*_pool, spec.freq, true, frames > 0 ? frames : _deviceFrames);
 	_prefetchMixer->setWrapGuard(interruptsOn);
+	_prefetchMixer->setSpeechHook(onSpeech, this);
+	ConfMan.registerDefault("dos_audio_mark", false);
+	_mark = ConfMan.getBool("dos_audio_mark");
+	if (_mark)
+		_prefetchMixer->setMarkMillis(10);
+	_haveTsc = DOS::haveTsc();
 	_mixer = _prefetchMixer;
 	_mixer->setReady(true);
+	s_manager = this;
 	// Streams from SDL_OpenAudioDeviceStream() start paused.
 	SDL_ResumeAudioStreamDevice(_stream);
 }
@@ -134,6 +166,8 @@ void DosMixerManager::init() {
 // On SDL3's audio thread, interrupts on.
 void DosMixerManager::sdlCallback(void *userdata, SDL_AudioStream *stream, int additionalAmount, int totalAmount) {
 	DosMixerManager *manager = (DosMixerManager *)userdata;
+	DOS::AudioStats &st = manager->_stats;
+	const bool tsc = manager->_haveTsc;
 	// Whole frames (4 bytes); more than asked for is fine.
 	uint left = (additionalAmount > 0) ? ((uint)additionalAmount + 3) & ~3u : 0;
 	while (left > 0) {
@@ -143,8 +177,18 @@ void DosMixerManager::sdlCallback(void *userdata, SDL_AudioStream *stream, int a
 			// (interrupts off) only copies the speech and music rings.
 			// Same context as mixCallback() (SDL3's cooperative audio thread;
 			// the SB IRQ only drains DMA): no lock.
+			const uint64 t0 = tsc ? DOS::irqRdtsc() : 0;
 			manager->_pool->prefetchAll();
+			const uint64 t1 = tsc ? DOS::irqRdtsc() : 0;
 			manager->_mixer->mixCallback(manager->_buffer + off, MIN(kMixPieceBytes, n - off));
+			if (tsc) {
+				const uint64 t2 = DOS::irqRdtsc();
+				st.prefetchTsc += t1 - t0;
+				st.mixTsc += t2 - t1;
+				if (t2 - t1 > st.pieceMaxTsc)
+					st.pieceMaxTsc = t2 - t1;
+			}
+			st.pieces++;
 		}
 		// Interrupts are on again: SDL may be called.
 		SDL_PutAudioStreamData(stream, manager->_buffer, n);
@@ -154,6 +198,13 @@ void DosMixerManager::sdlCallback(void *userdata, SDL_AudioStream *stream, int a
 	// What the mixer let go of (a finished line's decoder and file) is
 	// freed here, interrupts on, not under its mutex.
 	manager->_pool->reap();
+	// Streams that played unwrapped (wrap() cannot log: it may run in an
+	// interrupt): say so here, interrupts on.
+	const uint32 declined = manager->_pool->declined();
+	if (declined != manager->_declinedLogged) {
+		manager->_declinedLogged = declined;
+		debug(1, "DOS: prefetch declined %u", (uint)declined);
+	}
 	manager->_callbackMillis = g_system->getMillis();
 }
 
@@ -174,6 +225,51 @@ int DosMixerManager::resumeAudio() {
 		return -1;
 	_audioSuspended = false;
 	return 0;
+}
+
+uint32 DosMixerManager::outputLatencyMillis() const {
+	if (!_stream || !_soundBlaster || _devRate <= 0 || _devBytesPerFrame <= 0 || _mixRate <= 0)
+		return 0;
+	int irqs, under, queued, minAvail, chunk;
+	DOS_SBGetStats(&irqs, &under, &queued, &minAvail, &chunk, 0);
+	const int streamBytes = SDL_GetAudioStreamQueued(_stream);
+	const uint64 streamMs = (streamBytes > 0) ? (uint64)(streamBytes / 4) * 1000 / _mixRate : 0;
+	const int deviceBytes = MAX(0, queued) + MAX(0, chunk) + MAX(0, chunk) / 2;
+	const uint64 deviceMs = (uint64)(deviceBytes / _devBytesPerFrame) * 1000 / _devRate;
+	return (uint32)(streamMs + deviceMs);
+}
+
+void DosMixerManager::fillStats(DOS::AudioStats &s) {
+	s = _stats;
+	s.millis = g_system->getMillis();
+	s.tsc = _haveTsc ? DOS::irqRdtsc() : 0;
+	s.misses = _pool ? _pool->misses() : 0;
+	s.speech = _prefetchMixer ? _prefetchMixer->speechStarts() : 0;
+	s.music = _prefetchMixer ? _prefetchMixer->musicStarts() : 0;
+	if (_soundBlaster)
+		DOS_SBGetStats(&s.sbIrqs, &s.sbUnderruns, &s.sbQueued, &s.sbMinAvail, &s.sbChunk, 1);
+	s.rate = _mixRate;
+	s.frames = _deviceFrames;
+	_stats.pieceMaxTsc = 0;
+}
+
+// Main thread, at every speech stream's start (PrefetchMixer::playStream).
+// A line started from a timer proc (interrupts off) is not marked or logged:
+// the click waits on getMillis(), and SDL and the log must not be entered.
+void DosMixerManager::onSpeech(void *ctx) {
+	DosMixerManager *m = (DosMixerManager *)ctx;
+	if (!interruptsOn())
+		return;
+	if (m->_mark)
+		speakerClick();
+	debug(1, "DOS: speech %u latency %u ms", (uint)m->_prefetchMixer->speechStarts(), (uint)m->outputLatencyMillis());
+}
+
+bool DOS::audioStats(DOS::AudioStats &s) {
+	if (!s_manager)
+		return false;
+	s_manager->fillStats(s);
+	return true;
 }
 
 #endif
