@@ -269,7 +269,12 @@ public:
 		_latencyFn = fn;
 		_latencyCtx = ctx;
 	}
-	uint32 getOutputLatencyMillis() const override { return _latencyFn ? _latencyFn(_latencyCtx) : 0; }
+	uint32 getOutputLatencyMillis() const override {
+		// The provider may enter the device driver: not with interrupts off.
+		if (!_latencyFn || (_guard && !_guard()))
+			return 0;
+		return _latencyFn(_latencyCtx);
+	}
 	/** When it returns false the stream plays unwrapped (DOS: interrupts are off). */
 	void setWrapGuard(WrapGuard fn) { _guard = fn; }
 	/** dos_audio_mark: a 1 kHz square of this length in front of every speech stream. */

@@ -72,6 +72,9 @@ Sound::Sound(ScummEngine *parent, Audio::Mixer *mixer, bool useReplacementAudioT
 	_endOfMouthSync(false),
 	_curSoundPos(0),
 	_speechTimerDelay(0),
+	_speechHoldTicks(0),
+	_speechTailDelay(0),
+	_speechTailArmed(false),
 	_currentMusic(0),
 	_lastSound(0),
 	_soundsPaused(false),
@@ -395,7 +398,20 @@ void Sound::processSfxQueues() {
 			if (a->isInCurrentRoom()) {
 				_speechTimerMutex.lock();
 
-				if (finished || (isMouthSyncOff(_curSoundPos) && _mouthSyncMode)) {
+				// The stream is drained one output latency before the voice ends at the
+				// speaker. When the start was held back, hold the stop back by as much
+				// (counted from the drain, in speech ticks). Only the mouth waits;
+				// `finished` still ends the line for the scripts and the text.
+				bool mouthFinished = finished;
+				if (finished && _speechHoldTicks) {
+					if (!_speechTailArmed) {
+						_speechTailArmed = true;
+						_speechTailDelay = _speechHoldTicks;
+					}
+					mouthFinished = (_speechTailDelay == 0);
+				}
+
+				if (mouthFinished || (isMouthSyncOff(_curSoundPos) && _mouthSyncMode)) {
 					a->runActorTalkScript(a->_talkStopFrame);
 					_mouthSyncMode = 0;
 				} else if (isMouthSyncOff(_curSoundPos) == 0 && !_mouthSyncMode) {
@@ -816,8 +832,14 @@ void Sound::startTalkSound(uint32 offset, uint32 length, int mode, Audio::SoundH
 				if (mode == DIGI_SND_MODE_TALKIE) {
 					const uint32 ms = _mixer->getOutputLatencyMillis();
 					if (ms) {
-						Common::StackLock lock(_speechTimerMutex);
-						_speechTimerDelay = (uint)(ms * (_vm->getTimerFrequency() / 4) / 1000 + 0.5);
+						{
+							Common::StackLock lock(_speechTimerMutex);
+							// Ticks counted while the stream was being built are not
+							// part of the voice: restart the count with the hold-back.
+							_curSoundPos = 0;
+							_speechTimerDelay = (uint)(ms * (_vm->getTimerFrequency() / 4) / 1000 + 0.5);
+							_speechHoldTicks = _speechTimerDelay;
+						}
 						debugC(DEBUG_SOUND, "startTalkSound: mouth held back %u ms", (uint)ms);
 					}
 				}
@@ -1234,6 +1256,8 @@ void Sound::incrementSpeechTimer() {
 			_speechTimerDelay--;
 		else
 			_curSoundPos++;
+		if (_speechTailDelay)
+			_speechTailDelay--;
 	}
 }
 
@@ -1241,6 +1265,9 @@ void Sound::resetSpeechTimer() {
 	Common::StackLock lock(_speechTimerMutex);
 	_curSoundPos = 0;
 	_speechTimerDelay = 0;
+	_speechHoldTicks = 0;
+	_speechTailDelay = 0;
+	_speechTailArmed = false;
 }
 
 static void speechTimerHandler(void *refCon) {

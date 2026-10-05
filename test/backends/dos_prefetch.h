@@ -5,6 +5,13 @@
 
 namespace {
 
+bool interruptsOff() {
+	return false;
+}
+bool interruptsOn() {
+	return true;
+}
+
 uint32 fixedLatency(void *ctx) {
 	return *(uint32 *)ctx;
 }
@@ -268,6 +275,18 @@ public:
 		TS_ASSERT_EQUALS(m.getOutputLatencyMillis(), 0u);
 		uint32 ms = 412;
 		mixer.setLatencyProvider(fixedLatency, &ms);
+		TS_ASSERT_EQUALS(m.getOutputLatencyMillis(), 412u);
+	}
+
+	void test_no_latency_is_asked_for_with_interrupts_off() {
+		DOS::PrefetchPool pool;
+		DOS::PrefetchMixer mixer(pool, 44100, true, 1024);
+		const Audio::Mixer &m = mixer;
+		uint32 ms = 412;
+		mixer.setLatencyProvider(fixedLatency, &ms);
+		mixer.setWrapGuard(interruptsOff);
+		TS_ASSERT_EQUALS(m.getOutputLatencyMillis(), 0u);
+		mixer.setWrapGuard(interruptsOn);
 		TS_ASSERT_EQUALS(m.getOutputLatencyMillis(), 412u);
 	}
 };
