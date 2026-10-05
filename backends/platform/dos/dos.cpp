@@ -53,6 +53,9 @@
 #include "backends/platform/dos/dos-heap.h"
 #include "backends/platform/dos/dos-irq.h"
 #include "backends/platform/dos/dos-memory.h"
+#ifdef USE_VORBIS
+#include "backends/platform/dos/dos-vorbis-selftest.h"
+#endif
 #include "backends/platform/dos/dos-loading.h"
 #include "backends/platform/dos/dos-silence.h"
 #include "backends/platform/dos/blaster.h"
@@ -223,6 +226,14 @@ void OSystem_DOS::initBackend() {
 	// physical memory at the start; 0 is off.
 	ConfMan.registerDefault("dos_pagefault_selftest", 0);
 	ConfMan.registerDefault("dos_pagefault_selftest_hz", 100);
+#ifdef USE_VORBIS
+	// dos_vorbis_selftest=<speech file, e.g. D:/MONKEY2.SOG>: opens, primes and decodes
+	// dos_vorbis_selftest_clips clips (from index dos_vorbis_selftest_from on, or spread over the file)
+	// with the TSC and logs the cost (dos-vorbis-selftest.cpp).
+	ConfMan.registerDefault("dos_vorbis_selftest", "");
+	ConfMan.registerDefault("dos_vorbis_selftest_clips", 24);
+	ConfMan.registerDefault("dos_vorbis_selftest_from", -1);
+#endif
 	// dos_loading_screen=false: no loading screen (DOS::Loading), the
 	// launcher's mode set at once as before.
 	ConfMan.registerDefault("dos_loading_screen", true);
@@ -305,6 +316,11 @@ void OSystem_DOS::initBackend() {
 	if (ConfMan.getInt("dos_pagefault_selftest") != 0)
 		DOS::pagefaultSelftestStart(ConfMan.getInt("dos_pagefault_selftest"),
 			ConfMan.getInt("dos_pagefault_selftest_hz"));
+#ifdef USE_VORBIS
+	if (!ConfMan.get("dos_vorbis_selftest").empty())
+		DOS::vorbisSelftest(ConfMan.get("dos_vorbis_selftest"), ConfMan.getInt("dos_vorbis_selftest_clips"),
+			ConfMan.getInt("dos_vorbis_selftest_from"));
+#endif
 }
 
 static volatile uint32 g_selftestCalls = 0;

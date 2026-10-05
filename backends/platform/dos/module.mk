@@ -12,6 +12,14 @@ MODULE_OBJS := \
 	../../mutex/dos/dos-mutex.o \
 	../../timer/dos/dos-timer.o
 
+# dos-vorbis-selftest.cpp: only where Vorbis is linked (SCUMM.EXE), so SCI.EXE is unchanged.
+# configure --disable-vorbis --with-tremor-prefix leaves USE_VORBIS out of config.mk
+# (Tremor sets USE_TREMOR there; only config.h gets #define USE_VORBIS), so both
+# make variables are tested: ifdef USE_VORBIS alone does not link the object here.
+ifneq ($(USE_VORBIS)$(USE_TREMOR),)
+MODULE_OBJS += dos-vorbis-selftest.o
+endif
+
 # dos-heap.cpp: the heap functions run with interrupts off.
 LDFLAGS += -Wl,--wrap=malloc,--wrap=free,--wrap=realloc,--wrap=calloc,--wrap=memalign
 # dos-loading.cpp: counts the bytes files give, for the loading screen.
