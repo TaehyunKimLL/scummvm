@@ -57,6 +57,15 @@ directory, when PLAY ends. Messages name paths with backslashes.
 Both refuse to run, and create nothing, when neither the profile INI nor
 `ID.INI` in the current folder exists.
 
+### Codecs (SCUMM.EXE only)
+
+`backends/platform/dos/build-deps.sh codecs` builds libFLAC 1.4.3, libogg 1.3.5
+and Tremor (xiph git 820fb32, integer Vorbis) for DJGPP into ~/opt/codecs-dos
+(`DOS_CODECS` moves it); `build-dos.sh scumm` links them and stages their
+licences as FLAC.TXT and VORBIS.TXT. `build-deps.sh host` builds flac and
+metaflac for this machine into ~/opt/flac-host, for `mkute.py` and its tests.
+SCI.EXE links no codec.
+
 ## Settings
 
 In SCUMMVM.INI, `[scummvm]` or a game's section:
