@@ -4,12 +4,14 @@ build-dos.sh links $SDL3_DOS_MIN (default ~/opt/sdl3-dos-min). Source:
 libsdl-org/SDL 1ce4c5bc2916702e8e0f6df1f612dbd8633011da with
 sdl3-irq-code.patch, sdl3-cpuid.patch, sdl3-sb-shutdown.patch, sdl3-sb-open-fail.patch, sdl3-sb-probe.patch and then
 sdl3-sb-stats.patch applied (see their headers; ~/opt/src/SDL3, branch
-dos-sb-stats = dos-sb-probe d67c987 + the counters: dos-486 2df4ec6 = dos-irq-lock 11ca8a4 plus the
-CPUID check and its DOS_CPUIDChecked mark, then the Sound Blaster close fix
-and its DOS_SBShutdownChecked mark, then the failed-open fix and its
-DOS_SBOpenFailChecked mark, then the DMA channel probe and its
-DOS_SBProbeChecked mark, then the counters and their DOS_SBStatsChecked
-mark). Without sdl3-cpuid.patch SDL_Init() dies with
+dos-sb-stats 1500973 = dos-sb-probe d67c987 + the counters (c5ad490, then
+1500973: cli/sti window, counting from after the open probe) and their
+DOS_SBStatsChecked mark; dos-sb-probe d67c987 = dos-sb-shutdown f6cc527 +
+the DMA channel probe f5652a4 and its first-interrupt wait fix d67c987, with
+the DOS_SBProbeChecked mark; dos-sb-shutdown f6cc527 = dos-486 2df4ec6 + the
+Sound Blaster close fix fbd0d18 (DOS_SBShutdownChecked) and the failed-open
+fix f6cc527 (DOS_SBOpenFailChecked); dos-486 2df4ec6 = dos-irq-lock 11ca8a4
+plus the CPUID check and its DOS_CPUIDChecked mark). Without sdl3-cpuid.patch SDL_Init() dies with
 an invalid opcode on a 486 without CPUID; without sdl3-sb-shutdown.patch a
 Sound Blaster that sends no interrupts (BLASTER's D not the card's DMA
 channel) hangs the exit; without sdl3-sb-open-fail.patch a Sound Blaster
