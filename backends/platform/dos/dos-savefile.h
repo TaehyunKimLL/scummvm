@@ -33,18 +33,19 @@ namespace DOS {
  * A save written by the main thread holds it for as long as it takes to
  * serialize and write, and SDL3's audio thread (the Sound Blaster driver's
  * refill) runs only when the main thread yields: the driver's ring holds
- * about 465 ms, a 100 KB save on a Pentium 75 is ~400 ms of work, and the
+ * about 465 ms, a 100 KB save on a Pentium 75 is 600-800 ms of work, and the
  * ring ran dry at every autosave. This stream yields (delayMillis(0) runs
  * the other threads once) whenever kYieldMs have passed since the last
  * yield. Everything else is forwarded unchanged.
  */
-class YieldingWriteStream : public Common::WriteStream {
+class YieldingWriteStream : public Common::SeekableWriteStream {
 public:
 	// A yield refills one 93 ms chunk, so one per 30 ms of work outpaces the
 	// ring's drain; each costs a mixer pass.
 	enum { kYieldMs = 30 };
 
-	YieldingWriteStream(Common::WriteStream *w) : _wrapped(w), _last(g_system->getMillis()) {}
+	YieldingWriteStream(Common::WriteStream *w) : _wrapped(w),
+		_seekable(dynamic_cast<Common::SeekableWriteStream *>(w)), _last(g_system->getMillis()) {}
 	~YieldingWriteStream() override { delete _wrapped; }
 
 	bool err() const override { return _wrapped->err(); }
@@ -52,6 +53,20 @@ public:
 	bool flush() override { return _wrapped->flush(); }
 	void finalize() override { _wrapped->finalize(); }
 	int64 pos() const override { return _wrapped->pos(); }
+
+	bool seek(int64 offset, int whence) override {
+		if (_seekable)
+			return _seekable->seek(offset, whence);
+		warning("Seeking isn't supported for compressed save files");
+		return false;
+	}
+
+	int64 size() const override {
+		if (_seekable)
+			return _seekable->size();
+		warning("Size isn't supported for compressed save files");
+		return -1;
+	}
 
 	uint32 write(const void *dataPtr, uint32 dataSize) override {
 		const uint32 n = _wrapped->write(dataPtr, dataSize);
@@ -69,6 +84,7 @@ public:
 
 private:
 	Common::WriteStream *_wrapped;
+	Common::SeekableWriteStream *_seekable;
 	uint32 _last;
 };
 
