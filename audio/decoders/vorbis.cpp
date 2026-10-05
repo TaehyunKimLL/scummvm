@@ -35,9 +35,8 @@
 #include "common/textconsole.h"
 #include "common/util.h"
 
-// The cache needs the tested private codec_setup layout for the expansion
-// guard. Mainline Tremor's layout is supplied by the DOS dependency build;
-// an unknown layout (including libvorbis) uses the uncached path.
+// This cache needs the tested private Tremor codec_setup layout and an
+// explicit build opt-in. Unknown layouts retain the regular vorbisfile path.
 #if defined(USE_OGG) && defined(VORBIS_SETUP_INTERNALS) && defined(USE_TREMOR)
 #define VORBIS_SETUP_CACHE
 #endif
