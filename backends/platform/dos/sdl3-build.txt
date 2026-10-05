@@ -4,7 +4,7 @@ build-dos.sh links $SDL3_DOS_MIN (default ~/opt/sdl3-dos-min). Source:
 libsdl-org/SDL 1ce4c5bc2916702e8e0f6df1f612dbd8633011da with
 sdl3-irq-code.patch, sdl3-cpuid.patch, sdl3-sb-shutdown.patch, sdl3-sb-open-fail.patch, sdl3-sb-probe.patch, sdl3-sb-stats.patch,
 sdl3-sb-highspeed.patch and then sdl3-sb-ring.patch applied (see their headers;
-~/opt/src/SDL3, branch dos-sb-ring 3ed5eb3 = dos-sb-stats 9a55c71 + the
+~/opt/src/SDL3, branch dos-sb-ring 45125d4 = dos-sb-stats 9a55c71 + the
 five-buffer Sound Blaster ring and its DOS_SBRingChunks mark; dos-sb-stats
 9a55c71 = 1500973 + the SB Pro high-speed DMA fix (no mark);
 1500973 = dos-sb-probe d67c987 + the counters (c5ad490, then
