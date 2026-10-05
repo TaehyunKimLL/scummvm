@@ -182,10 +182,19 @@ void DosMixerManager::sdlCallback(void *userdata, SDL_AudioStream *stream, int a
 			// the SB IRQ only drains DMA): no lock.
 			const uint64 t0 = tsc ? DOS::irqRdtsc() : 0;
 			manager->_pool->prefetchAll();
-			const uint64 t1 = tsc ? DOS::irqRdtsc() : 0;
-			manager->_mixer->mixCallback(manager->_buffer + off, MIN(kMixPieceBytes, n - off));
+			uint64 t1 = 0, t2 = 0;
+			{
+				// The mixer's own mutex, nested: DOS mutexes count one depth for
+				// all of them (dos-mutex.cpp), so mixCallback()'s unlock does not
+				// turn interrupts back on. t1 and t2 are read with them off:
+				// the unlock would run any IRQ0 work that came due during the
+				// cli (the OPL timer proc) inside the measurement.
+				Common::StackLock lock(manager->_mixer->mutex());
+				t1 = tsc ? DOS::irqRdtsc() : 0;
+				manager->_mixer->mixCallback(manager->_buffer + off, MIN(kMixPieceBytes, n - off));
+				t2 = tsc ? DOS::irqRdtsc() : 0;
+			}
 			if (tsc) {
-				const uint64 t2 = DOS::irqRdtsc();
 				st.prefetchTsc += t1 - t0;
 				st.mixTsc += t2 - t1;
 				if (t2 - t1 > st.pieceMaxTsc)
