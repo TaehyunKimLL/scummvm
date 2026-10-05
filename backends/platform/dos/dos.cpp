@@ -161,6 +161,7 @@ OSystem_DOS::OSystem_DOS() : _eventSource(nullptr), _nullMixer(nullptr), _statsL
 
 OSystem_DOS::~OSystem_DOS() {
 	SDL_SetLogOutputFunction(SDL_GetDefaultLogOutputFunction(), nullptr);	// logMessage() goes with us
+	logAudioStats("quit");
 	// The timer first: its interrupt handler runs timer procs that may
 	// use the mixer, which ModularMixerBackend's destructor deletes.
 	DosTimerManager::logStats();
