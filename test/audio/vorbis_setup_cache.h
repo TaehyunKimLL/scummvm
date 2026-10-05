@@ -8,7 +8,7 @@
 #include "common/memstream.h"
 #include "common/str.h"
 
-#if defined(USE_VORBIS) && defined(USE_OGG)
+#if defined(USE_VORBIS) && defined(USE_OGG) && defined(USE_TREMOR)
 #define VORBIS_SETUP_CACHE_TESTS
 
 // Ogg Vorbis clips for the setup header cache, made with
@@ -425,7 +425,8 @@ const Clip *const kClips[] = { &kA1, &kA2, &kA3, &kB, &kC };
 
 #endif
 
-// cxxtestgen sees every test whatever the #if, so each body has its own.
+// cxxtestgen still discovers the class in a conditional block; module.mk
+// excludes this file entirely unless the cache is built.
 class VorbisSetupCacheTestSuite : public CxxTest::TestSuite {
 public:
 	void setUp() {
@@ -465,6 +466,132 @@ public:
 				TS_ASSERT(decodeClip(*kClips[i]) == plain[i]);
 		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().misses, 3u);
 		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().hits, 7u);
+#endif
+	}
+
+	void test_nonseekable_stream_is_uncached() {
+#ifdef VORBIS_SETUP_CACHE_TESTS
+		Audio::VorbisSetupCache::setEnabled(false);
+		const Common::Array<int16> expected = decodeClip(kA1);
+		Audio::VorbisSetupCache::setEnabled(true);
+		Common::String data(kA1.b64);
+		Common::SeekableReadStream *raw = Common::b64DecodeStream(data, kA1.size);
+		TS_ASSERT(raw);
+		if (!raw)
+			return;
+		class NonSeekable : public Common::SeekableReadStream {
+		public:
+			explicit NonSeekable(Common::SeekableReadStream *s) : _s(s) {}
+			~NonSeekable() { delete _s; }
+			uint32 read(void *dst, uint32 n) override { return _s->read(dst, n); }
+			bool eos() const override { return _s->eos(); }
+			bool err() const override { return _s->err(); }
+			void clearErr() override { _s->clearErr(); }
+			int64 pos() const override { return _s->pos(); }
+			int64 size() const override { return _s->size(); }
+			bool seek(int64, int = SEEK_SET) override { return false; }
+		private:
+			Common::SeekableReadStream *_s;
+		};
+		Audio::SeekableAudioStream *s = Audio::makeVorbisStream(new NonSeekable(raw), DisposeAfterUse::YES);
+		TS_ASSERT(s);
+		if (s)
+			TS_ASSERT(readAll(s) == expected);
+		delete s;
+		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().hits, 0u);
+		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().misses, 0u);
+#endif
+	}
+
+	void test_rewind_failure_replays_headers_without_sharing() {
+#ifdef VORBIS_SETUP_CACHE_TESTS
+		Audio::VorbisSetupCache::setEnabled(false);
+		const Common::Array<int16> expected = decodeClip(kA1);
+		Audio::VorbisSetupCache::setEnabled(true);
+		Common::String data(kA1.b64);
+		Common::SeekableReadStream *raw = Common::b64DecodeStream(data, kA1.size);
+		TS_ASSERT(raw);
+		if (!raw)
+			return;
+		class FailingRewind : public Common::SeekableReadStream {
+		public:
+			explicit FailingRewind(Common::SeekableReadStream *s) : _s(s) {}
+			~FailingRewind() { delete _s; }
+			uint32 read(void *dst, uint32 n) override { return _s->read(dst, n); }
+			bool eos() const override { return _s->eos(); }
+			bool err() const override { return _s->err(); }
+			void clearErr() override { _s->clearErr(); }
+			int64 pos() const override { return _s->pos(); }
+			int64 size() const override { return _s->size(); }
+			bool seek(int64 offs, int whence = SEEK_SET) override {
+				if (whence == SEEK_SET && offs == 0 && _s->pos() > 0)
+					return false;
+				return _s->seek(offs, whence);
+			}
+		private:
+			Common::SeekableReadStream *_s;
+		};
+		Audio::SeekableAudioStream *s = Audio::makeVorbisStream(new FailingRewind(raw), DisposeAfterUse::YES);
+		TS_ASSERT(s);
+		if (s)
+			TS_ASSERT(readAll(s) == expected);
+		delete s;
+		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().hits, 0u);
+		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().misses, 0u);
+#endif
+	}
+
+	void test_decode_error_does_not_invalidate_shared_setup() {
+#ifdef VORBIS_SETUP_CACHE_TESTS
+		Audio::SeekableAudioStream *valid = openClip(kA1);
+		TS_ASSERT(valid);
+		if (!valid)
+			return;
+		Common::String data(kA2.b64);
+		Common::SeekableReadStream *raw = Common::b64DecodeStream(data, kA2.size);
+		TS_ASSERT(raw);
+		if (!raw) {
+			delete valid;
+			return;
+		}
+		class Truncated : public Common::SeekableReadStream {
+		public:
+			explicit Truncated(Common::SeekableReadStream *s) : _s(s), _reads(0), _failed(false) {}
+			bool failed() const { return _failed; }
+			~Truncated() { delete _s; }
+			uint32 read(void *dst, uint32 n) override {
+				if (++_reads > 1) {
+					_failed = true;
+					return 0;
+				}
+				return _s->read(dst, n);
+			}
+			bool eos() const override { return _s->eos(); }
+			bool err() const override { return _s->err() || _failed; }
+			void clearErr() override { _failed = false; _s->clearErr(); }
+			int64 pos() const override { return _s->pos(); }
+			int64 size() const override { return _s->size(); }
+			bool seek(int64 offs, int whence = SEEK_SET) override { return _s->seek(offs, whence); }
+		private:
+			Common::SeekableReadStream *_s;
+			uint _reads;
+			bool _failed;
+		};
+		Truncated *input = new Truncated(raw);
+		Audio::SeekableAudioStream *broken = Audio::makeVorbisStream(input, DisposeAfterUse::NO);
+		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().hits, 1u);
+		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().entries, 1u);
+		if (broken) {
+			int16 samples[200];
+			for (int i = 0; i < 20; ++i)
+				broken->readBuffer(samples, 200);
+		}
+		delete broken;
+		TS_ASSERT(input->failed());
+		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().entries, 1u);
+		delete input;
+		TS_ASSERT_LESS_THAN(5000u, readAll(valid).size());
+		delete valid;
 #endif
 	}
 
