@@ -99,6 +99,9 @@ protected:
 	uint16 _mouthSyncTimes[64];
 	uint _curSoundPos;
 	uint _speechTimerDelay;	// speech timer ticks to skip before _curSoundPos counts (output latency)
+	uint _speechHoldTicks;	// the hold-back applied to the current line, in speech timer ticks (0: none)
+	uint _speechTailDelay;	// ticks left before the mouth may stop, once the stream has drained
+	bool _speechTailArmed;
 
 	int16 _currentMusic;	// used by HE games
 
