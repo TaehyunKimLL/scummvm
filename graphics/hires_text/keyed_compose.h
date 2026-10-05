@@ -58,7 +58,18 @@ extern const RowsFn rowsMmx;
 /** The CPU has MMX (CPUID, after the EFLAGS ID-bit check a 486 needs). */
 bool haveMmx();
 
-/** rowsMmx when built and haveMmx(), else rowsScalar; chosen at the first call. */
+/**
+ * Whether rows() may use MMX (default true). A platform where MMX
+ * instructions fault although the CPU has them (CR0.EM set: the DPMI host
+ * emulates the FPU) turns it off before the first rows(); @p why goes in the
+ * log. Takes effect at the next rows().
+ */
+void setMmxAllowed(bool allowed, const char *why = nullptr);
+
+/** rows() runs MMX: built, allowed and haveMmx(). */
+bool usesMmx();
+
+/** rowsMmx when usesMmx(), else rowsScalar; chosen at the first call. */
 void rows(byte *dst, const byte *src, int srcSkip, const byte *text, int textSkip,
 		  int width, int height, int m, byte key);
 
