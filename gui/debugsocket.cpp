@@ -57,6 +57,7 @@
 #include <pc.h>
 #include <dpmi.h>
 #include "backends/platform/dos/dos-memory.h"
+#include "backends/mixer/dos/dos-audio-stats.h"
 #endif
 
 namespace GUI {
@@ -702,6 +703,15 @@ bool DebugSocket::genericCommand(const Common::String &cmd, const Common::String
 			m.freeKB, m.largestKB, m.physFreeKB, m.physTotalKB);
 #else
 		out = "n/a";
+#endif
+		return true;
+	}
+	if (cmd == "audio") {
+#if defined(DOS_DJGPP)
+		DOS::AudioStats st;
+		out = DOS::audioStats(st) ? DOS::formatAudioStats(st) : Common::String("FAIL no audio device");
+#else
+		out = "FAIL no DOS mixer here";
 #endif
 		return true;
 	}
