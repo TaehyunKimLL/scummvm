@@ -486,7 +486,7 @@ void OSystem_DOS::mixerSelftest() {
 	// Let the device's ring fill first.
 	for (int i = 0; i < 50; ++i)
 		delayMillis(10);
-	// The SDL buffers the device takes are 2048 frames, too coarse for a
+	// The SDL buffers the device takes are dos_audio_frames (4096 by default), too coarse for a
 	// count over three seconds (+-3% at 22050 Hz): the rate is the frames
 	// between the first and the last callback in the window over the time
 	// between them.

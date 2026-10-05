@@ -26,9 +26,15 @@
 
 struct SDL_AudioStream;
 
+namespace DOS {
+class PrefetchPool;
+class PrefetchMixer;
+}
+
 /**
  * ScummVM's mixer on SDL3's DOS Sound Blaster driver: 16-bit stereo,
- * 2048-frame device buffers, mixed at the rate the card was opened at.
+ * dos_audio_frames-frame device buffers (4096 by default), mixed at the
+ * rate the card was opened at.
  *
  * SDL3 opens the card at its default rate, 44100 Hz, whatever the stream
  * asks for; the driver brings cards before the SB16 down to 22050 Hz.
@@ -45,7 +51,9 @@ struct SDL_AudioStream;
  * which holds the mixer's Common::Mutex -- interrupts off -- so it mixes
  * in short pieces (the IRQ0 timer must not miss a tick), and it calls SDL
  * only after each piece, with interrupts back on: SDL3's DOS mutex does an
- * unconditional sti.
+ * unconditional sti. Speech and music streams are decoded ahead outside
+ * the mutex (prefetch.h): before each piece the callback tops their rings
+ * up, interrupts on, and after the last it frees what the mixer let go of.
  *
  * If there is no audio device, init() leaves the mixer unset (as
  * SdlMixerManager does) and the caller falls back to NullMixerManager.
@@ -76,8 +84,6 @@ public:
 		millis = _callbackMillis;
 	}
 
-	static const int kDeviceFrames = 2048;
-
 private:
 	static void sdlCallback(void *userdata, SDL_AudioStream *stream, int additionalAmount, int totalAmount);
 
@@ -98,6 +104,13 @@ private:
 	bool _subsystemInitialized;
 	volatile uint32 _framesMixed;
 	volatile uint32 _callbackMillis;
+	DOS::PrefetchPool *_pool;
+	DOS::PrefetchMixer *_prefetchMixer;	///< _mixer, as what it is
+	int _deviceFrames;		///< dos_audio_frames
+	int _mixRate;			///< the mixer's rate
+	int _devRate;			///< the card's rate
+	int _devBytesPerFrame;	///< the card's sample format x channels
+	bool _soundBlaster;		///< SDL's driver is "soundblaster"
 };
 
 #endif
