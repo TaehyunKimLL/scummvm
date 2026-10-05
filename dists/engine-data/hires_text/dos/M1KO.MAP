@@ -9,6 +9,8 @@
 #   face (tools/korean/scumm-fonts/m1l.tsv), drawn hard-edged.
 # Cells per charset: cs0 22x24, cs1/cs3 16x16, cs2 18x18, cs4 26x24; both
 # presets bake the same cells. Charsets that share a cell share one SVF.
+# Charset 6 (the Ultimate Talkie verb bar) has no section of its own: the engine lays it out on
+# font 0's 11x12 cell and the hi-res layer borrows the nearest cell, cs0's (M1U0/M1L0).
 # Licences: see M12FONT.TXT beside this file.
 [map]
 version=2

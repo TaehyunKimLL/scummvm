@@ -207,18 +207,29 @@ original`, say) bakes with the plain four-argument form.
 The shipped MI1/MI2 SVFs are baked this way:
 
 ```sh
-G=~/work/scummvm/gamedata D=dists/engine-data/hires_text/dos
-python3 tools/korean/scummtext.py $G/mi1kor mi1.txt
+G=~/work/scummvm/gamedata D=dists/engine-data/hires_text/dos W=/tmp/m1bake
+mkdir -p $W
+python3 tools/korean/scummtext.py $G/mi1kor $W/mi1.txt
 printf '\xe2\x80\xa6\n' > ellipsis.txt
-# U presets: the map's remap targets, U+2026 and U+2122.
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1u.tsv $G/mi1kor $D mi1.txt $D/M1KO.MAP 2026,2122
+# MI1 text: the DUMB scan plus the Ultimate Talkie korean.trs, as one plain
+# text input (not the .trs itself: that would switch on --require, which the
+# scan's Greek/Cyrillic/kana noise and the pixel face's gaps fail).
+python3 -c "import sys; sys.path.insert(0,'tools/korean'); import mkfont; print(''.join(sorted({chr(c) if isinstance(c,int) else c for c in mkfont.chars_from_trs(sys.argv[1])})))" $G/mi1ute-kor/korean.trs > $W/ute-trs.txt
+{ cat $W/ute-trs.txt $W/mi1.txt; printf '\xe2\x80\xa6\xe2\x84\xa2\n'; } > $W/m1u-union.txt
+{ cat $W/ute-trs.txt $W/mi1.txt; printf '\xe2\x80\xa6\n'; } > $W/m1l-union.txt
+# U presets: the map's remap targets, U+2026 and U+2122; and the five
+# UHC-only syllables the Ultimate Talkie text uses (outside ksx1001-nohanja).
+UHC=AD3B,AD41,B2A2,B548,D25D
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1u.tsv $G/mi1ute-kor $D $W/m1u-union.txt $D/M1KO.MAP 2026,2122,$UHC
 tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m2u.tsv $G/mi2kor $D $G/mi2kor/korean.trs $D/M2KO.MAP 2026,2122
 # L presets: U+2026 only (0x5e = u+2026 holds for clut8 too; 0x0f stays the
 # game's glyph there, and neodgm has no U+2122). MI2's .trs bake checks
 # --require, which the map's U+2122 would fail, so it takes the ellipsis alone.
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1l.tsv $G/mi1kor $D mi1.txt $D/M1KO.MAP 2026
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1l.tsv $G/mi1ute-kor $D $W/m1l-union.txt $D/M1KO.MAP 2026,$UHC
 tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m2l.tsv $G/mi2kor $D $G/mi2kor/korean.trs ellipsis.txt 2026
 ```
+
+The MI1 SVFs cover the DUMB floppy text (mi1ko/mi1kol/mi1kop of the MI1 game zip) and the Ultimate Talkie korean.trs (the MI1UTE pack's mi1ko/mi1kol); both use M1KO.MAP and the same cells (the UTE translation ships the DUMB korean0N.fnt byte for byte). What the bake leaves out: the scan's non-text symbols (Cyrillic, kana, Greek, and the like), which no UTE text uses, and the control codes and the Hanja U+9999 that korean.trs holds.
 
 The Indiana Jones 3 and 4 SVFs (`I3KO.MAP`, `I4KO.MAP`) are baked from each
 game's own `korean.trs` the same way:
