@@ -39,6 +39,10 @@
 
 // sdl3-sb-stats.patch (link-checked through DOS_SBStatsChecked in dos-irq.cpp).
 extern "C" void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *minAvail, int *chunk, int resetMin);
+// sdl3-sb-ring.patch: the device buffers the Sound Blaster's ring queues
+// ahead of the card (5: 465 ms at 4096 frames and 44100 Hz, what a Korean
+// hi-res frame of the MI1 talkie needs at P75; the link fails without it).
+extern "C" const int DOS_SBRingChunks;
 
 namespace {
 
@@ -102,11 +106,12 @@ DosMixerManager::~DosMixerManager() {
 
 void DosMixerManager::init() {
 	// dos_audio_frames: device buffer frames, a power of two from 512 to
-	// 4096, 4096 by default. The Sound Blaster driver keeps four buffers in
-	// its ring: at 44100 Hz 4096 frames give 93 ms interrupts and 372 ms of
-	// cushion for a main thread that does not yield (a room load on a
-	// Pentium 75 blocks it for more than 186 ms: the FLAC spike saw 1-2
-	// underruns at 2048 frames and none at 4096). The DMA buffer is two
+	// 4096, 4096 by default. The Sound Blaster driver keeps five buffers in
+	// its ring (DOS_SBRingChunks): at 44100 Hz 4096 frames give 93 ms
+	// interrupts and 465 ms of cushion for a main thread that does not yield
+	// (a room load on a Pentium 75 blocks it for more than 186 ms: the FLAC
+	// spike saw 1-2 underruns at 2048 frames and none at 4096; the Korean
+	// MI1 talkie's room entry, 460 ms, needed the fifth). The DMA buffer is two
 	// buffers (32 KB at 16-bit stereo), and SDL takes twice that below 1 MB
 	// so that it does not cross a 64 KB page.
 	ConfMan.registerDefault("dos_audio_frames", DOS::kDefaultAudioFrames);
@@ -149,8 +154,9 @@ void DosMixerManager::init() {
 		}
 		_devRate = device.freq;
 		_devBytesPerFrame = SDL_AUDIO_BYTESIZE(device.format) * device.channels;
-		debug(1, "DOS: audio %s at %d Hz, %d channels, format 0x%x, %d frames; mixer at %d Hz",
-			SDL_GetCurrentAudioDriver(), device.freq, device.channels, (uint)device.format, frames, spec.freq);
+		debug(1, "DOS: audio %s at %d Hz, %d channels, format 0x%x, %d frames x %d queued; mixer at %d Hz",
+			SDL_GetCurrentAudioDriver(), device.freq, device.channels, (uint)device.format, frames,
+			_soundBlaster ? DOS_SBRingChunks : 0, spec.freq);
 	}
 	_mixRate = spec.freq;
 
