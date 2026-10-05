@@ -17,8 +17,7 @@ TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/image/*.h \
 	$(srcdir)/test/backends/surfacesdl_hwformat.h \
 	$(srcdir)/test/backends/dos_*.h
-# The decoder can only share setups when matching Tremor source internals
-# are available for the codebook expansion guard. Other builds keep ov_open.
+# Cache opt-in requires the exact Tremor private codec_setup layout.
 ifdef USE_TREMOR
 ifneq ($(wildcard $(TREMOR_SETUP_SRC)/codec_internal.h),)
 audio/decoders/vorbis.o: CPPFLAGS += -DVORBIS_SETUP_INTERNALS -I$(TREMOR_SETUP_SRC)
