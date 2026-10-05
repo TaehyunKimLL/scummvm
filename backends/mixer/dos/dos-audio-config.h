@@ -30,13 +30,13 @@ namespace DOS {
 /** dos_audio_frames' default: 93 ms buffers and a 372 ms ring at 44100 Hz. */
 const int kDefaultAudioFrames = 4096;
 const int kMinAudioFrames = 512;
-/** SDL3's Sound Blaster driver takes at most 32 KB a buffer: 8192 16-bit stereo frames. */
-const int kMaxAudioFrames = 8192;
+/** 8192 frames make a 64 KB DMA buffer: SDL's allocator then asks for 128 KB and can cross a 128 KB page. */
+const int kMaxAudioFrames = 4096;
 
 /**
  * The device buffer size dos_audio_frames asks for: decimal digits, rounded
  * down to a power of two (the driver's ring needs one); anything else, or a
- * value outside [512, 8192], gives the default.
+ * value outside [512, 4096], gives the default.
  */
 inline int audioDeviceFrames(const Common::String &value) {
 	if (value.empty() || value.size() > 6)

@@ -46,7 +46,9 @@ namespace DOS {
  * reap() on SDL3's audio thread, which is cooperative and runs only while
  * the main thread yields, so the two never interleave. A proxy may be
  * deleted from any context, an interrupt included: that only sets its
- * slot's state, which nothing but reap() acts on.
+ * slot's state, which nothing but reap() acts on. A wrapped stream's
+ * readBuffer() and destructor must never call SDL or yield: prefetchAll()
+ * is safe against wrap() and reap() only because they cannot interleave.
  */
 class PrefetchPool {
 public:
