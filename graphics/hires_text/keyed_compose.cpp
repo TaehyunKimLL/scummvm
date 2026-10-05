@@ -21,6 +21,59 @@
 
 
 #include "graphics/hires_text/keyed_compose.h"
+#include "common/debug.h"
+
+// MMX: x86 only, built for the one function with the target attribute (the
+// rest of the program stays plain i586: a Pentium 75 has no MMX).
+#if defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+#define KEYED_COMPOSE_MMX 1
+#include <cpuid.h>
+#include <mmintrin.h>
+
+namespace {
+
+/// m == 2: eight game pixels doubled to sixteen, selected against sixteen
+/// text pixels, per step; the rest of a row as the scalar loop does it.
+__attribute__((target("mmx")))
+void rowsMmxImpl(byte *dst, const byte *src, int srcSkip, const byte *text, int textSkip,
+				 int width, int height, int m, byte key) {
+	if (m != 2) {
+		Graphics::KeyedCompose::rowsScalar(dst, src, srcSkip, text, textSkip, width, height, m, key);
+		return;
+	}
+	const __m64 keys = _mm_set1_pi8((char)key);
+	const int outWidth = width * 2;
+	const int blocks = width / 8;
+	for (int h = 0; h < height * 2; ++h) {
+		const byte *srcRow = src + (h / 2) * (width + srcSkip);
+		for (int b = 0; b < blocks; ++b) {
+			__m64 bg, t0, t1;
+			memcpy(&bg, srcRow + 8 * b, 8);
+			memcpy(&t0, text + 16 * b, 8);
+			memcpy(&t1, text + 16 * b + 8, 8);
+			const __m64 lo = _mm_unpacklo_pi8(bg, bg);	// pixels 0-3, each twice
+			const __m64 hi = _mm_unpackhi_pi8(bg, bg);	// pixels 4-7
+			const __m64 k0 = _mm_cmpeq_pi8(t0, keys);
+			const __m64 k1 = _mm_cmpeq_pi8(t1, keys);
+			const __m64 o0 = _mm_or_si64(_mm_and_si64(k0, lo), _mm_andnot_si64(k0, t0));
+			const __m64 o1 = _mm_or_si64(_mm_and_si64(k1, hi), _mm_andnot_si64(k1, t1));
+			memcpy(dst + 16 * b, &o0, 8);
+			memcpy(dst + 16 * b + 8, &o1, 8);
+		}
+		for (int x = blocks * 8; x < width; ++x) {
+			const byte bg = srcRow[x];
+			const byte a = text[2 * x], c = text[2 * x + 1];
+			dst[2 * x] = (a == key) ? bg : a;
+			dst[2 * x + 1] = (c == key) ? bg : c;
+		}
+		dst += outWidth;
+		text += outWidth + textSkip;
+	}
+	_mm_empty();	// EMMS: the x87 registers are the FPU's again
+}
+
+} // End of anonymous namespace
+#endif
 
 namespace Graphics {
 namespace KeyedCompose {
@@ -50,9 +103,35 @@ void rowsScalar(byte *dst, const byte *src, int srcSkip, const byte *text, int t
 	}
 }
 
+#ifdef KEYED_COMPOSE_MMX
+const RowsFn rowsMmx = rowsMmxImpl;
+#else
+const RowsFn rowsMmx = nullptr;
+#endif
+
+bool haveMmx() {
+#ifdef KEYED_COMPOSE_MMX
+	// __get_cpuid() checks the highest leaf first, and on i386 that check
+	// first flips EFLAGS.ID: a 486 without CPUID answers no instead of
+	// faulting.
+	unsigned int a, b, c, d;
+	if (!__get_cpuid(1, &a, &b, &c, &d))
+		return false;
+	return (d & bit_MMX) != 0;
+#else
+	return false;
+#endif
+}
+
 void rows(byte *dst, const byte *src, int srcSkip, const byte *text, int textSkip,
 		  int width, int height, int m, byte key) {
-	rowsScalar(dst, src, srcSkip, text, textSkip, width, height, m, key);
+	static RowsFn chosen = nullptr;
+	if (!chosen) {
+		const bool mmx = rowsMmx && haveMmx();
+		chosen = mmx ? rowsMmx : rowsScalar;
+		debug(1, "hi-res text: keyed compose %s", mmx ? "MMX" : "scalar");
+	}
+	chosen(dst, src, srcSkip, text, textSkip, width, height, m, key);
 }
 
 } // End of namespace KeyedCompose

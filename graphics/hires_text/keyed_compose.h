@@ -48,7 +48,17 @@ typedef void (*RowsFn)(byte *dst, const byte *src, int srcSkip, const byte *text
 void rowsScalar(byte *dst, const byte *src, int srcSkip, const byte *text, int textSkip,
 				int width, int height, int m, byte key);
 
-/** The implementation to use. */
+/**
+ * The same with MMX for m == 2 (rowsScalar() for any other m), byte for byte
+ * its output. Only call it when haveMmx() says so; null where it is not
+ * built (not x86 GCC). Leaves the FPU usable (EMMS).
+ */
+extern const RowsFn rowsMmx;
+
+/** The CPU has MMX (CPUID, after the EFLAGS ID-bit check a 486 needs). */
+bool haveMmx();
+
+/** rowsMmx when built and haveMmx(), else rowsScalar; chosen at the first call. */
 void rows(byte *dst, const byte *src, int srcSkip, const byte *text, int textSkip,
 		  int width, int height, int m, byte key);
 
