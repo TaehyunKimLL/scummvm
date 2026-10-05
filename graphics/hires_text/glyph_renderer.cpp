@@ -273,6 +273,36 @@ void HiResGlyphRenderer::dilate(const GlyphBitmap &glyph, const DilationKernel &
 	}
 }
 
+void HiResGlyphRenderer::dilateKeyed(const GlyphBitmap &glyph, const DilationKernel &k, byte *out,
+									 byte binaryAt) {
+	const int mw = glyph.width + 2 * k.reach;
+	const int mh = glyph.height + 2 * k.reach;
+	memset(out, 0, mw * mh);
+
+	// A covered pixel is 0xFF once cut, so dilate() lands MIN(k, 255) from
+	// each tap and the cut keeps it exactly when that reaches the threshold.
+	int offsets[DilationKernel::kMaxTaps];
+	int n = 0;
+	for (int t = 0; t < k.taps; ++t) {
+		if (MIN<int>(k.k[t], 255) >= kKeyedDecorationThreshold)
+			offsets[n++] = k.dy[t] * mw + k.dx[t];
+	}
+	if (!n)
+		return;
+
+	for (int gy = 0; gy < glyph.height; ++gy) {
+		const byte *row = glyph.pixels + gy * glyph.pitch;
+		byte *centreRow = out + (gy + k.reach) * mw + k.reach;
+		for (int gx = 0; gx < glyph.width; ++gx) {
+			if (glyphCoverage(row, gx, glyph.bpp) < binaryAt)
+				continue;
+			byte *centre = centreRow + gx;
+			for (int t = 0; t < n; ++t)
+				centre[offsets[t]] = 0xFF;
+		}
+	}
+}
+
 bool HiResGlyphRenderer::drawGlyph(Surface &dest, BandedPlane *coverage,
 								   const HiResBitmapFont &font, int index,
 								   int x, int y, const GlyphStyle &style,
@@ -374,12 +404,10 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 		if (scratch.size() < (uint)(mw * mh))
 			scratch.resize(mw * mh);
 		byte *alpha = scratch.begin();
-		dilate(glyph, kernel, alpha, solid ? inkMin : 0);
-
-		if (solid) {
-			for (int i = 0; i < mw * mh; ++i)
-				alpha[i] = (alpha[i] >= kKeyedDecorationThreshold) ? 0xFF : 0;
-		}
+		if (solid)
+			dilateKeyed(glyph, kernel, alpha, inkMin);
+		else
+			dilate(glyph, kernel, alpha, 0);
 
 		// The area both layers can reach: the mask, and the mask moved.
 		const int sdx = deco.shadow ? deco.shadowDx : 0;
@@ -389,60 +417,85 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 
 		const byte shadowAlpha = solid ? 0xFF : deco.shadowAlpha;
 
-		for (int my = top; my < bottom; ++my) {
-			const int py = baseY - pad + my;
-			if (py < 0 || py >= dest.h)
-				continue;
-
-			for (int mx = left; mx < right; ++mx) {
-				const int px = baseX - pad + mx;
-				if (px < 0 || px >= dest.w)
-					continue;
-
-				byte a = 0, s = 0;
-				if (deco.outline && mx >= 0 && mx < mw && my >= 0 && my < mh)
-					a = alpha[my * mw + mx];
-				if (deco.shadow) {
-					const int sx = mx - sdx, sy = my - sdy;
-					if (sx >= 0 && sx < mw && sy >= 0 && sy < mh) {
-						s = alpha[sy * mw + sx];
-						if (shadowAlpha != 0xFF)
-							s = (byte)((s * shadowAlpha + 127) / 255);
-					}
+		const int y0 = MAX(top, pad - baseY), y1 = MIN(bottom, dest.h - baseY + pad);
+		const int x0 = MAX(left, pad - baseX), x1 = MIN(right, dest.w - baseX + pad);
+		if (!uCov && !cov && !deco.shadow) {
+			// Keyed, the outline alone (the mask is 0 or 0xFF): the loop
+			// below with its clipping hoisted out.
+			for (int my = MAX(y0, 0); my < MIN(y1, mh); ++my) {
+				const byte *a = alpha + my * mw;
+				byte *d = (byte *)dest.getBasePtr(0, baseY - pad + my) + (baseX - pad);
+				for (int mx = MAX(x0, 0); mx < MIN(x1, mw); ++mx) {
+					if (a[mx] && d[mx] != style.color)
+						d[mx] = deco.outlineColor;
 				}
-				if (!a && !s)
+			}
+		} else if (!uCov && !cov && !deco.outline) {
+			// Keyed, the drop shadow alone: the same, the mask moved.
+			for (int my = MAX(y0, sdy); my < MIN(y1, mh + sdy); ++my) {
+				const byte *sr = alpha + (my - sdy) * mw - sdx;
+				byte *d = (byte *)dest.getBasePtr(0, baseY - pad + my) + (baseX - pad);
+				for (int mx = MAX(x0, sdx); mx < MIN(x1, mw + sdx); ++mx) {
+					if (sr[mx] && d[mx] != style.color)
+						d[mx] = deco.shadowColor;
+				}
+			}
+		} else {
+			for (int my = top; my < bottom; ++my) {
+				const int py = baseY - pad + my;
+				if (py < 0 || py >= dest.h)
 					continue;
 
-				const byte colour = (a >= s) ? deco.outlineColor : deco.shadowColor;
+				for (int mx = left; mx < right; ++mx) {
+					const int px = baseX - pad + mx;
+					if (px < 0 || px >= dest.w)
+						continue;
 
-				if (uCov) {
-					// Its own layer: the strongest decoration wins, whichever
-					// glyph drew it, and the body planes are not touched.
-					if (!fits(uCov, px, py) || !fits(uIdx, px, py))
+					byte a = 0, s = 0;
+					if (deco.outline && mx >= 0 && mx < mw && my >= 0 && my < mh)
+						a = alpha[my * mw + mx];
+					if (deco.shadow) {
+						const int sx = mx - sdx, sy = my - sdy;
+						if (sx >= 0 && sx < mw && sy >= 0 && sy < mh) {
+							s = alpha[sy * mw + sx];
+							if (shadowAlpha != 0xFF)
+								s = (byte)((s * shadowAlpha + 127) / 255);
+						}
+					}
+					if (!a && !s)
 						continue;
-					const byte v = MAX(a, s);
-					if (v <= uCov->get(px, py))
-						continue;
-					uCov->set(px, py, v);
-					uIdx->set(px, py, colour);
-				} else if (cov) {
-					// Sharing the body's planes, the stroke must yield to body
-					// ink already there, or each character would erase the
-					// tail of the one before it - including its antialiased
-					// edge, which is faint but still the letterform.
-					if (!fits(cov, px, py))
-						continue;
-					if (cov->get(px, py))
-						continue;
-					cov->set(px, py, 0xFF);
-					*(byte *)dest.getBasePtr(px, py) = colour;
-				} else {
-					// Keyed, there is no coverage to consult, but the text
-					// colour is: an earlier glyph's body stays.
-					byte &d = *(byte *)dest.getBasePtr(px, py);
-					if (d == style.color)
-						continue;
-					d = colour;
+
+					const byte colour = (a >= s) ? deco.outlineColor : deco.shadowColor;
+
+					if (uCov) {
+						// Its own layer: the strongest decoration wins, whichever
+						// glyph drew it, and the body planes are not touched.
+						if (!fits(uCov, px, py) || !fits(uIdx, px, py))
+							continue;
+						const byte v = MAX(a, s);
+						if (v <= uCov->get(px, py))
+							continue;
+						uCov->set(px, py, v);
+						uIdx->set(px, py, colour);
+					} else if (cov) {
+						// Sharing the body's planes, the stroke must yield to body
+						// ink already there, or each character would erase the
+						// tail of the one before it - including its antialiased
+						// edge, which is faint but still the letterform.
+						if (!fits(cov, px, py))
+							continue;
+						if (cov->get(px, py))
+							continue;
+						cov->set(px, py, 0xFF);
+						*(byte *)dest.getBasePtr(px, py) = colour;
+					} else {
+						// Keyed, there is no coverage to consult, but the text
+						// colour is: an earlier glyph's body stays.
+						byte &d = *(byte *)dest.getBasePtr(px, py);
+						if (d == style.color)
+							continue;
+						d = colour;
+					}
 				}
 			}
 		}
@@ -453,6 +506,19 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 
 	// The body, drawn over the stroke with its antialiasing intact.
 	{
+		if (!cov && glyph.bpp == 8) {
+			// Keyed, 8bpp (what the engines hand over): the loop below with
+			// its clipping hoisted out.
+			const int gx0 = MAX(0, -baseX), gx1 = MIN(glyph.width, dest.w - baseX);
+			for (int gy = MAX(0, -baseY); gy < MIN(glyph.height, dest.h - baseY); ++gy) {
+				const byte *row = glyph.pixels + gy * glyph.pitch;
+				byte *d = (byte *)dest.getBasePtr(0, baseY + gy) + baseX;
+				for (int gx = gx0; gx < gx1; ++gx) {
+					if (row[gx] >= inkMin)
+						d[gx] = style.color;
+				}
+			}
+		} else
 		for (int gy = 0; gy < glyph.height; ++gy) {
 			const int py = baseY + gy;
 			if (py < 0 || py >= dest.h)

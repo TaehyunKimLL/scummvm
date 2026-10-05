@@ -4,6 +4,7 @@
 #include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/banded_plane.h"
 #include "graphics/hires_text/glyph_renderer.h"
+#include "graphics/hires_text/text_compose.h"
 #include "graphics/surface.h"
 
 /**
@@ -1443,6 +1444,182 @@ public:
 		// Cut at a coverage first, the faint pixel counts as solid.
 		Graphics::HiResGlyphRenderer::dilate(p.g, k, out.begin(), 0x40);
 		TS_ASSERT_EQUALS(out[2 * mw + 5], 128);
+	}
+
+	/// The keyed path as it was drawn pixel by pixel before the loops were
+	/// specialised: the reference test_keyed_draw_matches_the_reference uses.
+	static void referenceKeyed(Graphics::Surface &dest, const Graphics::GlyphBitmap &glyph, int x, int y,
+							   const Graphics::GlyphStyle &style) {
+		typedef Graphics::HiResGlyphRenderer R;
+		const byte inkMin = R::kKeyedInkThreshold;
+		Graphics::GlyphDecoration deco = R::decorationFor(style);
+		if (deco.outlineColor == style.color)
+			deco.outline = false;
+		if (deco.shadowColor == style.color)
+			deco.shadow = false;
+		if (deco.shadow && deco.shadowAlpha < 128)
+			deco.shadow = false;
+		const int baseX = x + glyph.originX, baseY = y + glyph.originY;
+		if (deco.outline || deco.shadow) {
+			Graphics::DilationKernel k;
+			if (deco.outline)
+				R::buildKernel(k, deco.outlineQ, deco.shape, deco.legacyTable, deco.step);
+			else
+				R::buildKernel(k, 0, Graphics::kHiResOutlineSquare, Graphics::kHiResShadowOutline, 1);
+			const int pad = k.reach, mw = glyph.width + 2 * pad, mh = glyph.height + 2 * pad;
+			Common::Array<byte> alpha(mw * mh);
+			R::dilate(glyph, k, alpha.begin(), inkMin);
+			for (uint i = 0; i < alpha.size(); ++i)
+				alpha[i] = (alpha[i] >= R::kKeyedDecorationThreshold) ? 0xFF : 0;
+			const int sdx = deco.shadow ? deco.shadowDx : 0, sdy = deco.shadow ? deco.shadowDy : 0;
+			for (int my = MIN(0, sdy); my < mh + MAX(0, sdy); ++my) {
+				const int py = baseY - pad + my;
+				if (py < 0 || py >= dest.h)
+					continue;
+				for (int mx = MIN(0, sdx); mx < mw + MAX(0, sdx); ++mx) {
+					const int px = baseX - pad + mx;
+					if (px < 0 || px >= dest.w)
+						continue;
+					byte a = 0, sv = 0;
+					if (deco.outline && mx >= 0 && mx < mw && my >= 0 && my < mh)
+						a = alpha[my * mw + mx];
+					if (deco.shadow) {
+						const int sx = mx - sdx, sy = my - sdy;
+						if (sx >= 0 && sx < mw && sy >= 0 && sy < mh)
+							sv = alpha[sy * mw + sx];
+					}
+					if (!a && !sv)
+						continue;
+					byte &d = *(byte *)dest.getBasePtr(px, py);
+					if (d == style.color)
+						continue;
+					d = (a >= sv) ? deco.outlineColor : deco.shadowColor;
+				}
+			}
+		}
+		for (int gy = 0; gy < glyph.height; ++gy) {
+			const int py = baseY + gy;
+			if (py < 0 || py >= dest.h)
+				continue;
+			for (int gx = 0; gx < glyph.width; ++gx) {
+				const int px = baseX + gx;
+				if (Graphics::TextCompose::expandCoverage(glyph.pixels + gy * glyph.pitch, gx, glyph.bpp) < inkMin ||
+					px < 0 || px >= dest.w)
+					continue;
+				*(byte *)dest.getBasePtr(px, py) = style.color;
+			}
+		}
+	}
+
+	/**
+	 * Keyed (no coverage plane), drawGlyph() writes exactly what the
+	 * pixel-by-pixel reference does: outlines of every shape, the drop
+	 * shadow, the stroke (outline and shadow at once), a shadow in the text's
+	 * own colour, at 1, 2 and 8 bpp, clipped at every edge of the surface, over
+	 * a surface that already holds the text colour in places.
+	 */
+	void test_keyed_draw_matches_the_reference() {
+		uint32 seed = 777;
+		int cases = 0, bad = 0;
+		const int sw = 23, sh = 19;
+		for (int styleNo = 0; styleNo < 8; ++styleNo) {
+			Graphics::GlyphStyle style;
+			style.color = 7;
+			style.shadowColor = 3;
+			switch (styleNo) {
+			case 0: style.shadowMode = Graphics::kHiResShadowOutline; style.outlineQ = 6; break;
+			case 1: style.shadowMode = Graphics::kHiResShadowOutline; style.outlineQ = 10; style.outlineShape = Graphics::kHiResOutlineSquare; break;
+			case 2: style.shadowMode = Graphics::kHiResShadowOutline; style.outlineShape = Graphics::kHiResOutlineLegacy; style.shadowOffset = 2; break;
+			case 3: style.shadowMode = Graphics::kHiResShadowDrop; style.shadowOffset = 1; break;
+			case 4: style.shadowMode = Graphics::kHiResShadowDrop; style.shadowOffset = 2; break;
+			case 5: style.shadowMode = Graphics::kHiResShadowStroke; style.outlineQ = 6; break;
+			case 6: style.shadowMode = Graphics::kHiResShadowDrop; style.shadowShiftSet = true; style.shadowDx = -2; style.shadowDy = 1; break;
+			default: style.shadowMode = Graphics::kHiResShadowOutline; style.outlineQ = 6; style.shadowColor = 7; break;
+			}
+			for (int bpp = 1; bpp <= 8; bpp *= 2) {
+				if (bpp == 4)
+					continue;
+				const int w = 9 + styleNo % 3, h = 8;
+				const int pitch = (w * bpp + 7) / 8;
+				Common::Array<byte> pix(pitch * h);
+				for (int pos = 0; pos < 6; ++pos) {
+					for (uint i = 0; i < pix.size(); ++i)
+						pix[i] = (byte)((seed = seed * 1103515245 + 12345) >> 16);
+					Graphics::GlyphBitmap g;
+					g.pixels = pix.begin();
+					g.pitch = pitch;
+					g.width = w;
+					g.height = h;
+					g.bpp = bpp;
+					static const int px[] = { 5, -4, sw - 6, 3, -1, sw - 2 };
+					static const int py[] = { 4, -3, sh - 5, -6, sh - 3, 2 };
+					Graphics::Surface a, b;
+					a.create(sw, sh, Graphics::PixelFormat::createFormatCLUT8());
+					b.create(sw, sh, Graphics::PixelFormat::createFormatCLUT8());
+					for (int i = 0; i < sw * sh; ++i) {
+						const uint32 r = (seed = seed * 1103515245 + 12345) >> 16;
+						((byte *)a.getPixels())[i] = ((byte *)b.getPixels())[i] = (r & 3) ? 0 : (r & 4) ? 7 : 5;
+					}
+					Graphics::HiResGlyphRenderer::drawGlyph(Graphics::GlyphPlanes(&a, nullptr), g, px[pos], py[pos], style, nullptr);
+					referenceKeyed(b, g, px[pos], py[pos], style);
+					for (int i = 0; i < sw * sh; ++i)
+						bad += (((byte *)a.getPixels())[i] != ((byte *)b.getPixels())[i]) ? 1 : 0;
+					a.free();
+					b.free();
+					++cases;
+				}
+			}
+		}
+		TS_ASSERT_EQUALS(cases, 8 * 3 * 6);
+		TS_ASSERT_EQUALS(bad, 0);
+	}
+
+	/**
+	 * The keyed decoration's one-pass dilation gives byte for byte what
+	 * dilate() at the same cut and then kKeyedDecorationThreshold give, for
+	 * every pen shape, width and legacy table, on glyphs of every coverage.
+	 */
+	void test_keyed_dilation_matches_dilate_then_cut() {
+		uint32 seed = 4242;
+		int compared = 0, bad = 0;
+		for (int pen = 0; pen < 12; ++pen) {
+			Graphics::DilationKernel k;
+			if (pen < 5)
+				Graphics::HiResGlyphRenderer::buildKernel(k, pen * 3, Graphics::kHiResOutlineRound);
+			else if (pen < 8)
+				Graphics::HiResGlyphRenderer::buildKernel(k, (pen - 4) * 4, Graphics::kHiResOutlineSquare);
+			else
+				Graphics::HiResGlyphRenderer::buildKernel(k, 4, Graphics::kHiResOutlineLegacy,
+														  (pen & 1) ? Graphics::kHiResShadowStroke : Graphics::kHiResShadowOutline,
+														  pen - 7);
+			for (int bpp = 1; bpp <= 8; bpp *= 8) {
+				const int w = 13, h = 11;
+				const int pitch = (bpp == 1) ? (w + 7) / 8 : w;
+				Common::Array<byte> pix(pitch * h);
+				for (uint i = 0; i < pix.size(); ++i)
+					pix[i] = (byte)((seed = seed * 1103515245 + 12345) >> 16);
+				Graphics::GlyphBitmap g;
+				g.pixels = pix.begin();
+				g.pitch = pitch;
+				g.width = w;
+				g.height = h;
+				g.bpp = bpp;
+				const int mw = w + 2 * k.reach, mh = h + 2 * k.reach;
+				for (int cut = 0; cut < 2; ++cut) {
+					const byte binaryAt = cut ? 0x40 : 1;
+					Common::Array<byte> want(mw * mh), got(mw * mh);
+					Graphics::HiResGlyphRenderer::dilate(g, k, want.begin(), binaryAt);
+					for (uint i = 0; i < want.size(); ++i)
+						want[i] = (want[i] >= Graphics::HiResGlyphRenderer::kKeyedDecorationThreshold) ? 0xFF : 0;
+					Graphics::HiResGlyphRenderer::dilateKeyed(g, k, got.begin(), binaryAt);
+					for (uint i = 0; i < want.size(); ++i)
+						bad += (want[i] != got[i]) ? 1 : 0;
+					++compared;
+				}
+			}
+		}
+		TS_ASSERT_EQUALS(compared, 48);
+		TS_ASSERT_EQUALS(bad, 0);
 	}
 
 	/**
