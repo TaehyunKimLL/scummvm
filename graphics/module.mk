@@ -33,6 +33,7 @@ MODULE_OBJS := \
 	hires_text/glyph_source_ttf.o \
 	hires_text/hires_options.o \
 	hires_text/id_plan.o \
+	hires_text/keyed_compose.o \
 	hires_text/latin_advance.o \
 	hires_text/text_compose.o \
 	hires_text/text_layout.o \

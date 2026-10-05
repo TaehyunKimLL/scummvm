@@ -20,6 +20,7 @@
  */
 
 #include "common/system.h"
+#include "graphics/hires_text/keyed_compose.h"
 #include "scumm/actor.h"
 #include "scumm/charset.h"
 #include "scumm/hires_composite.h"
@@ -841,8 +842,10 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 		// buffer at the text surface's size, which for m > 1 runs off the
 		// end of it.
 		if (_hiResText.enabled() && m > 1 && _outputPixelFormat.bytesPerPixel == 1) {
-			// A null coverage plane means every text pixel is opaque, so the
-			// compositor never asks this sink to blend.
+			// Every text pixel is opaque here (no coverage plane): a pixel is
+			// the text's, or the game's where the text is transparent - one
+			// select per pixel (Graphics::KeyedCompose), which is what
+			// compositeText() with a HiResIndexSink writes.
 			byte colorMap[16];
 			const bool remap = hiResTextColorMap(vs, colorMap);
 
@@ -850,11 +853,9 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 			const int bandRows = compositeBandRows(width, m, 1);
 			for (int band = 0; band < height; band += bandRows) {
 				const int rows = MIN(bandRows, height - band);
-				HiResIndexSink sink(_compositeBuf);
-				compositeText(sink, (const byte *)src + band * vs->pitch, vs->pitch - width,
-							  (const byte *)_textSurface.getBasePtr(x * m, (y + band) * m),
-							  _textSurface.pitch - width * m,
-							  nullptr, 0, width, rows, m);
+				Graphics::KeyedCompose::rows(_compositeBuf, (const byte *)src + band * vs->pitch, vs->pitch - width,
+											 (const byte *)_textSurface.getBasePtr(x * m, (y + band) * m),
+											 _textSurface.pitch - width * m, width, rows, m, kHiResTextTransparent);
 
 				if (remap)
 					remapIndices(_compositeBuf, width * m * rows * m, colorMap, ARRAYSIZE(colorMap));

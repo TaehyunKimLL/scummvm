@@ -2,6 +2,7 @@
 
 #include "engines/scumm/hires_composite.h"
 #include "engines/scumm/hires_sinks.h"
+#include "graphics/hires_text/keyed_compose.h"
 
 /**
  * The compositor's choice of what each output pixel is (C19).
@@ -151,6 +152,48 @@ public:
 				}
 			TS_ASSERT_EQUALS(bad, 0);
 		}
+	}
+
+	/// Graphics::KeyedCompose (the paletted screen's select per pixel) writes
+	/// byte for byte what compositeText() with a HiResIndexSink and no
+	/// coverage writes, at every scale, width and padding, over rows with no
+	/// text, some, and only text (index 0 included: opaque without coverage).
+	static void keyedCase(int m, int w, int h, int srcPad, int pad, uint32 &seed, int &bad, bool useRows) {
+		const int outW = w * m, planePitch = outW + pad, srcPitch = w + srcPad;
+		Common::Array<byte> src(srcPitch * h), text(planePitch * h * m);
+		for (uint i = 0; i < src.size(); ++i)
+			src[i] = (byte)((seed = seed * 1103515245 + 12345) >> 16);
+		for (int y = 0; y < h * m; ++y)
+			for (int x = 0; x < planePitch; ++x) {
+				const uint32 r = (seed = seed * 1103515245 + 12345) >> 8;
+				const int kind = (y + (int)(r >> 20)) % 4;
+				text[y * planePitch + x] = kind == 0 ? kNone : kind == 1 ? (byte)(r >> 4) : ((r & 3) ? kNone : (byte)(r & 0x40));
+			}
+		Common::Array<byte> want(outW * h * m), got(outW * h * m + 1);
+		Scumm::HiResIndexSink sink(want.begin());
+		Scumm::compositeText(sink, src.begin(), srcPad, text.begin(), pad, nullptr, 0, w, h, m);
+		got[outW * h * m] = 0x5A;	// a canary past the end
+		if (useRows)
+			Graphics::KeyedCompose::rows(got.begin(), src.begin(), srcPad, text.begin(), pad, w, h, m, kNone);
+		else
+			Graphics::KeyedCompose::rowsScalar(got.begin(), src.begin(), srcPad, text.begin(), pad, w, h, m, kNone);
+		for (int i = 0; i < outW * h * m; ++i)
+			bad += (want[i] != got[i]) ? 1 : 0;
+		bad += (got[outW * h * m] != 0x5A) ? 1 : 0;
+	}
+
+	void test_keyed_compose_matches_the_index_sink() {
+		uint32 seed = 2024;
+		int bad = 0, cases = 0;
+		for (int m = 1; m <= 4; ++m)
+			for (int w = 1; w <= 19; ++w)
+				for (int pad = 0; pad <= 3; pad += 3) {
+					keyedCase(m, w, 3, pad, pad * m, seed, bad, false);
+					keyedCase(m, w, 3, pad, pad * m, seed, bad, true);
+					cases += 2;
+				}
+		TS_ASSERT_EQUALS(cases, 4 * 19 * 2 * 2);
+		TS_ASSERT_EQUALS(bad, 0);
 	}
 
 	/// The under planes are read at their own pitch, like the others.
