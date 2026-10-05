@@ -1,0 +1,96 @@
+SDL3 change the ScummVM DOS port needs for its audio statistics and lip sync:
+the Sound Blaster handler counts the interrupts that found the ring empty
+(underruns: silence played) and the least data in the ring at an interrupt,
+and DOS_SBGetStats() reads those, the interrupt count, the ring's fill and the
+DMA half size with interrupts off. The build defines DOS_SBStatsChecked, which
+build-dos.sh looks for and the port links against.
+
+Base: the five earlier patches applied (~/opt/src/SDL3 branch dos-sb-stats =
+dos-sb-probe d67c987 + this). Apply after those five (git apply skips this text):
+  git -C SDL3 apply sdl3-irq-code.patch && git -C SDL3 apply sdl3-cpuid.patch \
+    && git -C SDL3 apply sdl3-sb-shutdown.patch && git -C SDL3 apply sdl3-sb-open-fail.patch \
+    && git -C SDL3 apply sdl3-sb-probe.patch && git -C SDL3 apply sdl3-sb-stats.patch
+
+diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
+index 93424e1..9ddf264 100644
+--- a/src/audio/dos/SDL_dosaudio_sb.c
++++ b/src/audio/dos/SDL_dosaudio_sb.c
+@@ -90,6 +90,8 @@ static Uint8 ReadSoundBlasterDSP(void)
+ // ISR-cached copies of device state (avoids chasing heap pointers in IRQ context).
+ static volatile int isr_irq_ack_port = 0;
+ static volatile int isr_irq_count = 0; // interrupts seen, for telling whether the card plays at all
++static volatile int isr_underruns = 0;          // interrupts that found the ring empty (played silence)
++static volatile int isr_min_avail = 0x7fffffff; // least ring data at an interrupt since the last reset
+ 
+ // ISR-visible ring buffer state (all memory-locked).
+ static volatile int isr_ring_read = 0;
+@@ -164,6 +166,9 @@ static DOS_IRQ_CODE void SoundBlasterIRQHandler(void)
+ 
+     // How many bytes are available in the ring?
+     const int avail = isr_ring_write - isr_ring_read; // both are monotonic
++    if (avail < isr_min_avail) {
++        isr_min_avail = avail;
++    }
+ 
+     if (avail >= isr_chunk_size) {
+         RingCopyOut(dma_dst, isr_ring_read, isr_chunk_size);
+@@ -171,6 +176,7 @@ static DOS_IRQ_CODE void SoundBlasterIRQHandler(void)
+     } else {
+         // Ring underrun: fill with silence so we don't replay stale audio.
+         ISR_Fill(dma_dst, isr_silence_value, isr_chunk_size);
++        isr_underruns++;
+     }
+ }
+ 
+@@ -258,6 +264,33 @@ static bool DOSSOUNDBLASTER_OpenFailed(struct SDL_PrivateAudioData *hidden)
+ extern const int DOS_SBProbeChecked;
+ const int DOS_SBProbeChecked = 1;
+ 
++/* Marks a build with DOS_SBGetStats(): the ScummVM DOS port's audio statistics
++   (its debug socket's `audio` command, the output latency for lip sync) read
++   the handler's counters through it, and the port refuses (and fails to link
++   against) an SDL3 without it. */
++extern const int DOS_SBStatsChecked;
++const int DOS_SBStatsChecked = 1;
++
++/* One reading of the handler's counters, taken with interrupts off: interrupts
++   so far, how many of them found the ring empty, bytes in the ring now, the
++   least bytes in it at an interrupt since the last reading with reset_min (-1
++   if no interrupt came), and bytes per DMA half. */
++extern void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avail, int *chunk, int reset_min);
++void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avail, int *chunk, int reset_min)
++{
++    Uint32 flags;
++    __asm__ __volatile__("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
++    *irqs = isr_irq_count;
++    *underruns = isr_underruns;
++    *queued = isr_ring_write - isr_ring_read;
++    *min_avail = (isr_min_avail == 0x7fffffff) ? -1 : isr_min_avail;
++    *chunk = isr_chunk_size;
++    if (reset_min) {
++        isr_min_avail = 0x7fffffff;
++    }
++    __asm__ __volatile__("pushl %0; popfl" : : "r"(flags) : "memory");
++}
++
+ #define SB_PROBE_MS 250
+ 
+ static bool CheckForSoundBlaster(void);
+@@ -544,6 +577,8 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+     isr_ring_buffer = hidden->ring_buffer;
+     isr_ring_read = 0;
+     isr_ring_write = 0;
++    isr_underruns = 0;
++    isr_min_avail = 0x7fffffff;
+     isr_ring_size = hidden->ring_size;
+     isr_ring_mask = hidden->ring_size - 1;
+     isr_chunk_size = hidden->chunk_size;
+@@ -573,6 +608,8 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+         locked = (DOS_LockVariable(isr_silence_value) == 0) && locked;
+         locked = (DOS_LockVariable(isr_irq_ack_port) == 0) && locked;
+         locked = (DOS_LockVariable(isr_irq_count) == 0) && locked;
++        locked = (DOS_LockVariable(isr_underruns) == 0) && locked;
++        locked = (DOS_LockVariable(isr_min_avail) == 0) && locked;
+         locked = (DOS_LockVariable(soundblaster_irq) == 0) && locked;
+         if (!locked) {
+             SDL_SetError("Couldn't lock the Sound Blaster interrupt handler's memory");
