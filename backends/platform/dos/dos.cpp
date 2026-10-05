@@ -64,6 +64,7 @@
 #include "backends/timer/dos/dos-timer.h"
 #include "backends/events/default/default-events.h"
 #include "backends/events/dos/dos-events.h"
+#include "backends/mixer/dos/dos-audio-stats.h"
 #include "backends/mixer/dos/dos-mixer.h"
 #include "backends/mixer/null/null-mixer.h"
 #include "audio/audiostream.h"
@@ -152,7 +153,7 @@ void logMemInfo(const char *phase) {
 
 }
 
-OSystem_DOS::OSystem_DOS() : _eventSource(nullptr), _nullMixer(nullptr) {
+OSystem_DOS::OSystem_DOS() : _eventSource(nullptr), _nullMixer(nullptr), _statsLogMs(0), _statsNextMs(0) {
 	// Runs after the timer's teardown (registered later, run earlier).
 	atexit(flushDeferredLogAtExit);
 	_fsFactory = new POSIXFilesystemFactory();
@@ -252,6 +253,11 @@ void OSystem_DOS::initBackend() {
 	// screen's last line and in EXITLOG.TXT (dos-exit.h).
 	ConfMan.registerDefault("dos_exit_trace", false);
 	DOS::exitTraceStart(ConfMan.getBool("dos_exit_trace"));
+	// dos_stats_log=<seconds>: a "DOS: audio" line (the mixer's counters)
+	// that often as well as at quit; 0 logs the quit line only.
+	ConfMan.registerDefault("dos_stats_log", 0);
+	_statsLogMs = (uint32)CLIP(ConfMan.getInt("dos_stats_log"), 0, 3600) * 1000;
+	_statsNextMs = getMillis() + _statsLogMs;
 
 	// ScummVM's splash goes to the overlay, which this backend does not
 	// show yet (it draws nothing), and deciding whether to show it made
@@ -862,6 +868,10 @@ void pagefaultSelftestStop() {
 bool OSystem_DOS::pollEvent(Common::Event &event) {
 	flushDeferredLog();
 	DOS::pagefaultSelftestPoll();
+	if (_statsLogMs && (int32)(getMillis() - _statsNextMs) >= 0) {
+		_statsNextMs += _statsLogMs;
+		logAudioStats("tick");
+	}
 	// The IRQ0 handler runs the timers; this is the fallback should it
 	// not have gone in, or not be able to.
 	if (DosTimerManager::procsOnMainThread()) {
@@ -875,6 +885,12 @@ bool OSystem_DOS::pollEvent(Common::Event &event) {
 	if (((DosGraphicsManager *)_graphicsManager)->loadingPoll(got, event))
 		return false;
 	return got;
+}
+
+void OSystem_DOS::logAudioStats(const char *phase) {
+	DOS::AudioStats st;
+	if (DOS::audioStats(st))
+		logMessage(LogMessageType::kInfo, Common::String::format("DOS: audio %s %s\n", phase, DOS::formatAudioStats(st).c_str()).c_str());
 }
 
 void OSystem_DOS::engineInit() {
@@ -1050,6 +1066,7 @@ static void quitSdl(int firstStep) {
 
 void OSystem_DOS::quit() {
 	DOS::exitMark(DOS::kExitQuit, "quit()");
+	logAudioStats("quit");
 	DOS::logMemInfo("quit");
 	DOS::exitMark(DOS::kExitQuitMemInfo, "memory logged");
 	DOS::pagefaultSelftestStop();
