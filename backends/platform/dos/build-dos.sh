@@ -61,6 +61,13 @@ if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q 
 	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-sb-probe.patch)." >&2
 	exit 1
 fi
+# And sdl3-sb-stats.patch: the mixer reads the Sound Blaster handler's
+# counters (underruns, ring fill) through DOS_SBGetStats().
+if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q ' [TDR] _DOS_SBStatsChecked$'; then
+	echo "build-dos.sh: $sdl_lib lacks the Sound Blaster counters (no DOS_SBStatsChecked)." >&2
+	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-sb-stats.patch)." >&2
+	exit 1
+fi
 # SCUMM.EXE plays compressed speech and CD tracks (the Ultimate Talkie
 # editions: FLAC MONKEY.SOF, Vorbis MONKEY2.SOG, FLAC tracks) with the
 # libraries build-deps.sh builds; SCI.EXE links none.
