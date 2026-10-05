@@ -70,7 +70,7 @@ DosMixerManager::~DosMixerManager() {
 
 void DosMixerManager::init() {
 	// dos_audio_frames: device buffer frames, a power of two from 512 to
-	// 8192, 4096 by default. The Sound Blaster driver keeps four buffers in
+	// 4096, 4096 by default. The Sound Blaster driver keeps four buffers in
 	// its ring: at 44100 Hz 4096 frames give 93 ms interrupts and 372 ms of
 	// cushion for a main thread that does not yield (a room load on a
 	// Pentium 75 blocks it for more than 186 ms: the FLAC spike saw 1-2
@@ -141,7 +141,8 @@ void DosMixerManager::sdlCallback(void *userdata, SDL_AudioStream *stream, int a
 		for (uint off = 0; off < n; off += kMixPieceBytes) {
 			// Interrupts on: decode ahead, so that the piece below
 			// (interrupts off) only copies the speech and music rings.
-			// Same context as mixCallback() (SDL3's cooperative audio thread; the SB IRQ only drains DMA): no lock.
+			// Same context as mixCallback() (SDL3's cooperative audio thread;
+			// the SB IRQ only drains DMA): no lock.
 			manager->_pool->prefetchAll();
 			manager->_mixer->mixCallback(manager->_buffer + off, MIN(kMixPieceBytes, n - off));
 		}
@@ -159,6 +160,10 @@ void DosMixerManager::sdlCallback(void *userdata, SDL_AudioStream *stream, int a
 void DosMixerManager::suspendAudio() {
 	if (_stream)
 		SDL_PauseAudioStreamDevice(_stream);
+	// Main thread, interrupts on, audio thread not running: free what the
+	// mixer let go of, so a finished line does not keep its file open.
+	if (_pool)
+		_pool->reap();
 	_audioSuspended = true;
 }
 
