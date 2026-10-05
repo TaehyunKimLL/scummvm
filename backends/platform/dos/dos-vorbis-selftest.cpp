@@ -52,15 +52,21 @@ bool readIndex(const Common::Path &name, Common::Array<Clip> &clips) {
 	if (!f.open(name))
 		return false;
 	const uint32 n = f.readUint32BE();
-	if (f.err() || n == 0 || n % 16 || n + 4 > (uint32)f.size())
+	const uint32 size = (uint32)f.size();
+	if (f.err() || n == 0 || n % 16 || n + 4 > size)
 		return false;
+	uint32 last = 0;
 	for (uint32 i = 0; i < n; i += 16) {
-		f.readUint32BE();	// original offset
+		const uint32 org = f.readUint32BE();
 		const uint32 newOff = f.readUint32BE();
 		const uint32 tags = f.readUint32BE();
 		Clip c;
 		c.size = f.readUint32BE();
-		c.start = newOff + n + 4 + tags;
+		const uint64 start = (uint64)newOff + n + 4 + tags;
+		if ((i && org <= last) || start + c.size > size)
+			return false;
+		c.start = (uint32)start;
+		last = org;
 		clips.push_back(c);
 	}
 	return !f.err();
