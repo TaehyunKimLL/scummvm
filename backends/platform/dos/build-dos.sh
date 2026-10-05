@@ -4,7 +4,7 @@
 # configured again (see config_current below).
 # Usage: backends/platform/dos/build-dos.sh [sci|scumm] [extra configure args]
 #   sci (default): build-dos/,       engines/sci (not sci32)             -> dist/dos/SCI.EXE
-#   scumm:         build-dos-scumm/, engines/scumm (not scumm_7_8, he)   -> dist/dos/SCUMM.EXE
+#   scumm: build-dos-scumm/, engines/scumm (not scumm_7_8, he), FLAC + Tremor -> dist/dos/SCUMM.EXE
 # A first argument that is neither "sci" nor "scumm" is not consumed, so old
 # calls (build-dos.sh --foo) still build the sci edition with that as a
 # configure argument.
@@ -61,20 +61,34 @@ if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q 
 	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-sb-probe.patch)." >&2
 	exit 1
 fi
+# SCUMM.EXE plays compressed speech and CD tracks (the Ultimate Talkie
+# editions: FLAC MONKEY.SOF, Vorbis MONKEY2.SOG, FLAC tracks) with the
+# libraries build-deps.sh builds; SCI.EXE links none.
+codecs="${DOS_CODECS:-$HOME/opt/codecs-dos}"
 if [ "$edition" = scumm ]; then
 	out="$src/build-dos-scumm"
 	engine_args=(--enable-engine=scumm --disable-engine=scumm_7_8,he)
 	exe=SCUMM.EXE
+	for l in libFLAC.a libogg.a libvorbisidec.a; do
+		if [ ! -f "$codecs/lib/$l" ]; then
+			echo "build-dos.sh: no $codecs/lib/$l (set DOS_CODECS)." >&2
+			echo "  Run backends/platform/dos/build-deps.sh codecs." >&2
+			exit 1
+		fi
+	done
+	codec_args=(--disable-vorbis --with-tremor-prefix="$codecs" --with-ogg-prefix="$codecs"
+		--with-flac-prefix="$codecs" --disable-mad)
 else
 	out="$src/build-dos"
 	engine_args=(--enable-engine=sci --disable-engine=sci32)
 	exe=SCI.EXE
+	codec_args=(--disable-vorbis --disable-tremor --disable-flac --disable-mad)
 fi
 conf_args=(--host=i586-pc-msdosdjgpp
 	--disable-all-engines "${engine_args[@]}"
 	--disable-mt32emu --disable-fluidsynth --disable-timidity
 	--disable-zlib --disable-png --disable-jpeg --disable-gif
-	--disable-vorbis --disable-tremor --disable-flac --disable-mad
+	"${codec_args[@]}"
 	--disable-theoradec --disable-mpeg2 --disable-faad --disable-a52
 	--disable-freetype2 --disable-fribidi --disable-lua
 	--disable-detection-full --disable-gui --disable-translation --enable-release)
@@ -107,6 +121,14 @@ if ! config_current || ! grep -q '^DISABLE_GUI = 1$' config.mk; then
 	echo "build-dos.sh: $out/config.mk is not the DOS configuration after configure; not building." >&2
 	exit 1
 fi
+if [ "$edition" = scumm ] && ! { grep -q '^#define USE_FLAC$' config.h && grep -q '^#define USE_TREMOR$' config.h; }; then
+	echo "build-dos.sh: configure did not take libFLAC and Tremor from $codecs; not building." >&2
+	exit 1
+fi
+if [ "$edition" = sci ] && grep -qE '^#define USE_(FLAC|TREMOR|VORBIS|MAD)$' config.h; then
+	echo "build-dos.sh: the sci edition must link no codec; not building." >&2
+	exit 1
+fi
 make -j"$(nproc)"
 # Interrupt handler code may reach nothing outside its locked range.
 if ! python3 "$src/backends/platform/dos/irqcheck.py" scummvm.exe; then
@@ -114,6 +136,11 @@ if ! python3 "$src/backends/platform/dos/irqcheck.py" scummvm.exe; then
 	exit 1
 fi
 cp scummvm.exe "$src/dist/dos/$exe"
+if [ "$edition" = scumm ]; then
+	# The codecs' BSD licences ask for their notices next to the program.
+	cp "$codecs/share/licenses/FLAC.TXT" "$src/dist/dos/FLAC.TXT"
+	cat "$codecs/share/licenses/OGG.TXT" "$codecs/share/licenses/TREMOR.TXT" > "$src/dist/dos/VORBIS.TXT"
+fi
 cp "$CWSDPMI_EXE" "$src/dist/dos/CWSDPMI.EXE"
 # A fresh DATA: a map or font removed from dists must not stay behind from an earlier build.
 rm -rf "$src/dist/dos/DATA"
