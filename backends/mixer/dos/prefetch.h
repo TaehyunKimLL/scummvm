@@ -122,7 +122,8 @@ public:
 	 * only: wrap() may run in an interrupt, which must not log.
 	 */
 	uint32 declined() const { return _declined; }
-	void noteDeclined() { _declined = _declined + 1; }
+	/** One atomic increment: a timer proc in IRQ0 may race the main thread. */
+	void noteDeclined() { __sync_fetch_and_add(&_declined, 1u); }
 
 	int countSlots(State st) const {
 		int n = 0;

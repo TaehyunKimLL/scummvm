@@ -90,6 +90,7 @@ public:
 	 * playing it, as far as can be told: what SDL's stream and the Sound
 	 * Blaster's ring hold, the DMA half queued at the last interrupt and,
 	 * on average, half of the one playing. 0 without a Sound Blaster.
+	 * Interrupts on only (DOS_SBGetStats re-enables them).
 	 */
 	uint32 outputLatencyMillis() const;
 
