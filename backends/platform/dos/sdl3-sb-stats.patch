@@ -12,7 +12,7 @@ dos-sb-probe d67c987 + this). Apply after those five (git apply skips this text)
     && git -C SDL3 apply sdl3-sb-probe.patch && git -C SDL3 apply sdl3-sb-stats.patch
 
 diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
-index 93424e1..9ddf264 100644
+index 93424e1..fc33ec1 100644
 --- a/src/audio/dos/SDL_dosaudio_sb.c
 +++ b/src/audio/dos/SDL_dosaudio_sb.c
 @@ -90,6 +90,8 @@ static Uint8 ReadSoundBlasterDSP(void)
@@ -42,7 +42,7 @@ index 93424e1..9ddf264 100644
      }
  }
  
-@@ -258,6 +264,33 @@ static bool DOSSOUNDBLASTER_OpenFailed(struct SDL_PrivateAudioData *hidden)
+@@ -258,6 +264,36 @@ static bool DOSSOUNDBLASTER_OpenFailed(struct SDL_PrivateAudioData *hidden)
  extern const int DOS_SBProbeChecked;
  const int DOS_SBProbeChecked = 1;
  
@@ -54,14 +54,17 @@ index 93424e1..9ddf264 100644
 +const int DOS_SBStatsChecked = 1;
 +
 +/* One reading of the handler's counters, taken with interrupts off: interrupts
-+   so far, how many of them found the ring empty, bytes in the ring now, the
-+   least bytes in it at an interrupt since the last reading with reset_min (-1
-+   if no interrupt came), and bytes per DMA half. */
++   so far, how many of them found the ring empty, bytes in the ring now (write
++   minus read), the least bytes in it at an interrupt since the last reading
++   with reset_min (-1 if no interrupt came; sampled at interrupt entry, before
++   the handler takes its chunk), and bytes per DMA half. All five out-pointers
++   are required (NULL is not accepted). Callers run with interrupts on: the
++   window is a plain cli/sti, as PlayDevice's (popf cannot be relied on to
++   restore IF under a DPMI host). */
 +extern void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avail, int *chunk, int reset_min);
 +void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avail, int *chunk, int reset_min)
 +{
-+    Uint32 flags;
-+    __asm__ __volatile__("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
++    DOS_DisableInterrupts();
 +    *irqs = isr_irq_count;
 +    *underruns = isr_underruns;
 +    *queued = isr_ring_write - isr_ring_read;
@@ -70,13 +73,13 @@ index 93424e1..9ddf264 100644
 +    if (reset_min) {
 +        isr_min_avail = 0x7fffffff;
 +    }
-+    __asm__ __volatile__("pushl %0; popfl" : : "r"(flags) : "memory");
++    DOS_EnableInterrupts();
 +}
 +
  #define SB_PROBE_MS 250
  
  static bool CheckForSoundBlaster(void);
-@@ -544,6 +577,8 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+@@ -544,6 +580,8 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
      isr_ring_buffer = hidden->ring_buffer;
      isr_ring_read = 0;
      isr_ring_write = 0;
@@ -85,7 +88,7 @@ index 93424e1..9ddf264 100644
      isr_ring_size = hidden->ring_size;
      isr_ring_mask = hidden->ring_size - 1;
      isr_chunk_size = hidden->chunk_size;
-@@ -573,6 +608,8 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+@@ -573,6 +611,8 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
          locked = (DOS_LockVariable(isr_silence_value) == 0) && locked;
          locked = (DOS_LockVariable(isr_irq_ack_port) == 0) && locked;
          locked = (DOS_LockVariable(isr_irq_count) == 0) && locked;
@@ -94,3 +97,16 @@ index 93424e1..9ddf264 100644
          locked = (DOS_LockVariable(soundblaster_irq) == 0) && locked;
          if (!locked) {
              SDL_SetError("Couldn't lock the Sound Blaster interrupt handler's memory");
+@@ -592,6 +632,12 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+         return DOSSOUNDBLASTER_OpenFailed(hidden);
+     }
+ 
++    // The probe's interrupts (silence, nothing mixed yet) are not the program's: count from here on.
++    DOS_DisableInterrupts();
++    isr_underruns = 0;
++    isr_min_avail = 0x7fffffff;
++    DOS_EnableInterrupts();
++
+     device->hidden = hidden; // set only once nothing can fail any more
+     SDL_Log("SoundBlaster opened!");
+     return true;
