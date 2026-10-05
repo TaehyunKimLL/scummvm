@@ -126,6 +126,8 @@ build_codecs() (
 	cp "$work/flac/COPYING.Xiph" "$codecs/share/licenses/FLAC.TXT"
 	# Tremor: its autotools do not know DJGPP; the library is these sources
 	unpack "$TREMOR_TAR" tremor
+	# Limit backward page reads on short Ogg clips; exact seeks are unchanged.
+	patch -d "$work/tremor" -p1 --forward < "$here/patches/tremor-chunksize.patch"
 	for f in $TREMOR_OBJS; do
 		run_logged "$work/tremor.log" i586-pc-msdosdjgpp-gcc $CFLAGS_DOS \
 			-DBYTE_ORDER=1234 -DLITTLE_ENDIAN=1234 -DBIG_ENDIAN=4321 \
