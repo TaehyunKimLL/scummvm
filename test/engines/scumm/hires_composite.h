@@ -1,6 +1,7 @@
 #include <cxxtest/TestSuite.h>
 
 #include "engines/scumm/hires_composite.h"
+#include "engines/scumm/hires_sinks.h"
 
 /**
  * The compositor's choice of what each output pixel is (C19).
@@ -116,6 +117,39 @@ public:
 									 uIdx + off, uCov + off, pad);
 			}
 			TS_ASSERT(banded.out == whole.out);
+		}
+	}
+
+	/// The paletted 2x screen's path (no coverage, no decoration): each game
+	/// pixel fills an m x m block wherever the text plane is transparent, and
+	/// the text wins everywhere else - in rows with no text at all, rows with
+	/// some, and rows that are all text.
+	void test_scaled_picture_with_keyed_text() {
+		for (int m = 1; m <= 3; ++m) {
+			const int w = 7, h = 5, srcPad = 3, pad = 2;
+			const int outW = w * m, planePitch = outW + pad, srcPitch = w + srcPad;
+			Common::Array<byte> src(srcPitch * h), text(planePitch * h * m);
+			uint32 seed = 99;
+			for (uint i = 0; i < src.size(); ++i)
+				src[i] = (byte)((seed = seed * 1103515245 + 12345) >> 16);
+			for (int y = 0; y < h * m; ++y)
+				for (int x = 0; x < planePitch; ++x) {
+					const uint32 r = (seed = seed * 1103515245 + 12345) >> 8;
+					// Rows 0 and 1 (of the output) no text, the last row all text.
+					const bool none = y < 2, all = y == h * m - 1;
+					text[y * planePitch + x] = none ? kNone : all ? (byte)(r | 1) : ((r & 3) ? kNone : (byte)(r >> 4));
+				}
+			Common::Array<byte> out(outW * h * m);
+			Scumm::HiResIndexSink sink(out.begin());
+			Scumm::compositeText(sink, src.begin(), srcPad, text.begin(), pad, nullptr, 0, w, h, m);
+			int bad = 0;
+			for (int y = 0; y < h * m; ++y)
+				for (int x = 0; x < outW; ++x) {
+					const byte t = text[y * planePitch + x];
+					const byte want = (t == kNone) ? src[(y / m) * srcPitch + x / m] : t;
+					bad += (out[y * outW + x] != want) ? 1 : 0;
+				}
+			TS_ASSERT_EQUALS(bad, 0);
 		}
 	}
 
