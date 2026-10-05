@@ -57,50 +57,89 @@ static Common::String unescape(const Common::String &s) {
 	return out;
 }
 
+// One or more ASCII digits at @p p, value 0..65534 (0xFFFF is kAnyRoom).
+// Advances @p p past the digits.
+static bool readNum(const Common::String &line, uint &p, uint16 &out) {
+	const uint start = p;
+	uint32 v = 0;
+	while (p < line.size() && Common::isDigit(line[p])) {
+		v = v * 10 + (line[p] - '0');
+		p++;
+		if (v > 65534)
+			return false;
+	}
+	out = (uint16)v;
+	return p > start;
+}
+
+ScriptStrings::LineKind ScriptStrings::parseLine(const Common::String &line, Key &key,
+		Common::String &text, const char *&error) {
+	if (line.empty() || line[0] == '#')
+		return kLineSkip;
+
+	// script <TAB> id <TAB> text
+	// script <TAB> id <TAB> room <TAB> text
+	// The key is checked byte for byte: a key that parsed loosely would put
+	// a translation in the wrong place, which nobody would notice.
+	uint p = 0;
+	if (!readNum(line, p, key.script) || p >= line.size() || line[p] != '\t') {
+		error = "bad script number";
+		return kLineError;
+	}
+	p++;
+	if (!readNum(line, p, key.id) || p >= line.size() || line[p] != '\t') {
+		error = "bad string id";
+		return kLineError;
+	}
+	p++;
+
+	// The third field is the room only if it is a number AND another tab
+	// follows it; otherwise the text starts there and runs to the end of
+	// the line, tabs included.
+	key.room = Key::kAnyRoom;
+	uint q = p;
+	uint16 room;
+	if (readNum(line, q, room) && q < line.size() && line[q] == '\t') {
+		key.room = room;
+		p = q + 1;
+	}
+	text = Common::String(line.c_str() + p);
+	return kLineEntry;
+}
+
 bool ScriptStrings::loadFromStream(Common::SeekableReadStream &in) {
 	_entries.clear();
 	_loaded = false;
 	_present = false;
 
+	Common::HashMap<uint64, uint> firstLine;
 	uint lineNo = 0;
 	while (!in.eos()) {
 		Common::String line = in.readLine();
 		lineNo++;
-		if (line.empty() || line[0] == '#')
+		if (lineNo == 1 && line.hasPrefix("\xEF\xBB\xBF"))
+			line.erase(0, 3);
+
+		Key key;
+		Common::String text;
+		const char *error = nullptr;
+		const LineKind kind = parseLine(line, key, text, error);
+		if (kind == kLineSkip)
 			continue;
-
-		// script <TAB> id <TAB> text
-		// script <TAB> id <TAB> room <TAB> text
-		// The first two fields end at a tab. The third is the room only if
-		// it is all digits AND another tab follows it; otherwise the text
-		// starts there and runs to the end of the line, tabs included.
-		uint p = 0;
-		uint16 nums[2];
-		for (int n = 0; n < 2; n++) {
-			uint q = p;
-			while (q < line.size() && line[q] != '	')
-				q++;
-			if (q == line.size()) {
-				warning("ScriptStrings: line %u has too few fields", lineNo);
-				return false;
-			}
-			nums[n] = (uint16)atoi(Common::String(line.c_str() + p, q - p).c_str());
-			p = q + 1;
+		if (kind == kLineError) {
+			warning("ScriptStrings: line %u: %s", lineNo, error);
+			_entries.clear();
+			return false;
 		}
-		const uint16 script = nums[0];
-		const uint16 id = nums[1];
 
-		uint16 room = Key::kAnyRoom;
-		uint q = p;
-		while (q < line.size() && Common::isDigit(line[q]))
-			q++;
-		if (q > p && q < line.size() && line[q] == '	') {
-			room = (uint16)atoi(Common::String(line.c_str() + p, q - p).c_str());
-			p = q + 1;
-		}
-		const Common::String text(line.c_str() + p);
-
-		_entries[placeId(script, id, room)] = unescape(text);
+		// The later line wins, so a fix can be appended to a generated
+		// file; say so, in case it was not meant.
+		const uint64 place = placeId(key.script, key.id, key.room);
+		if (firstLine.contains(place))
+			warning("ScriptStrings: line %u duplicates line %u", lineNo, firstLine[place]);
+		else
+			firstLine[place] = lineNo;
+		_entries[place] = unescape(text);
 	}
 
 	_present = true;

@@ -88,6 +88,74 @@ public:
 		TS_ASSERT_EQUALS(out, Common::String("1234"));
 	}
 
+	void test_digits_then_tab_is_a_room_but_digits_alone_are_text() {
+		Sci::ScriptStrings t;
+		TS_ASSERT(load(t, "0\t7\t12\t\n0\t8\t12\n0\t9\t70000\tx\n"));
+		Common::String out;
+		TS_ASSERT(t.lookup(Sci::ScriptStrings::Key(0, 7, 12), out));
+		TS_ASSERT_EQUALS(out, Common::String(""));
+		TS_ASSERT(!t.lookup(Sci::ScriptStrings::Key(0, 7), out));
+		TS_ASSERT(t.lookup(Sci::ScriptStrings::Key(0, 8), out));
+		TS_ASSERT_EQUALS(out, Common::String("12"));
+		// Not a valid room, so not a room: the digits are text.
+		TS_ASSERT(t.lookup(Sci::ScriptStrings::Key(0, 9), out));
+		TS_ASSERT_EQUALS(out, Common::String("70000\tx"));
+	}
+
+	void test_bom_is_stripped() {
+		Sci::ScriptStrings t;
+		TS_ASSERT(load(t, "\xEF\xBB\xBF" "995\t4\tx\n"));
+		Common::String out;
+		TS_ASSERT(t.lookup(Sci::ScriptStrings::Key(995, 4), out));
+		TS_ASSERT_EQUALS(out, Common::String("x"));
+	}
+
+	void test_non_numeric_key_rejects_the_table() {
+		Sci::ScriptStrings t;
+		TS_ASSERT(!load(t, "0\t1\tok\n99a\t4\tx\n"));
+		TS_ASSERT(!t.isPresent());
+		TS_ASSERT_EQUALS(t.entryCount(), 0u);
+		TS_ASSERT(!load(t, "\t4\tx\n"));
+		TS_ASSERT(!load(t, "995\t\tx\n"));
+		TS_ASSERT(!load(t, "995\t4x\tx\n"));
+		TS_ASSERT(!load(t, "-1\t4\tx\n"));
+
+		Sci::ScriptStrings::Key key;
+		Common::String text;
+		const char *error = nullptr;
+		TS_ASSERT_EQUALS(Sci::ScriptStrings::parseLine("99a\t4\tx", key, text, error), Sci::ScriptStrings::kLineError);
+		TS_ASSERT_EQUALS(Common::String(error), Common::String("bad script number"));
+		TS_ASSERT_EQUALS(Sci::ScriptStrings::parseLine("99\t4a\tx", key, text, error), Sci::ScriptStrings::kLineError);
+		TS_ASSERT_EQUALS(Common::String(error), Common::String("bad string id"));
+	}
+
+	void test_key_over_65534_rejects_the_table() {
+		Sci::ScriptStrings t;
+		TS_ASSERT(!load(t, "70000\t4\tx\n"));
+		TS_ASSERT(!load(t, "1\t65535\tx\n"));
+		TS_ASSERT(!load(t, "99999999999\t4\tx\n"));
+		TS_ASSERT(load(t, "65534\t65534\tx\n"));
+		Common::String out;
+		TS_ASSERT(t.lookup(Sci::ScriptStrings::Key(65534, 65534), out));
+	}
+
+	void test_indented_line_rejects_the_table() {
+		Sci::ScriptStrings t;
+		TS_ASSERT(!load(t, " #c\n"));
+		TS_ASSERT(!load(t, "   \n"));
+		TS_ASSERT(!load(t, " 995\t4\tx\n"));
+		TS_ASSERT(!t.isPresent());
+	}
+
+	void test_duplicate_key_later_line_wins() {
+		Sci::ScriptStrings t;
+		TS_ASSERT(load(t, "995\t4\tfirst\n995\t4\tsecond\n"));
+		TS_ASSERT_EQUALS(t.entryCount(), 1u);
+		Common::String out;
+		TS_ASSERT(t.lookup(Sci::ScriptStrings::Key(995, 4), out));
+		TS_ASSERT_EQUALS(out, Common::String("second"));
+	}
+
 	void test_comments_blank_lines_and_escaped_newlines() {
 		Sci::ScriptStrings t;
 		TS_ASSERT(load(t,
