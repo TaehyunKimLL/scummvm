@@ -50,7 +50,19 @@ struct TextPixelFg {
  *  (HIRES_COMPOSITOR_DESIGN.md §3.2). */
 namespace TextCompose {
 
-byte expandCoverage(const byte *row, int x, int bpp);
+/** Coverage of pixel @p x of a glyph row: a 1bpp stencil reads 0 or 255,
+ *  2bpp its level times 85, 8bpp the byte. Inline: the glyph loops call it
+ *  once per pixel. */
+inline byte expandCoverage(const byte *row, int x, int bpp) {
+	switch (bpp) {
+	case 1:
+		return (row[x >> 3] & (0x80 >> (x & 7))) ? 255 : 0;
+	case 2:
+		return ((row[x >> 2] >> (6 - ((x & 3) * 2))) & 3) * 85;
+	default:
+		return row[x];
+	}
+}
 void expandGlyphRow(byte *dstCoverage, const byte *row, int width, int bpp, bool greyed, int screenY, int screenX0);
 
 inline byte blend(byte dst, byte src, byte a) {

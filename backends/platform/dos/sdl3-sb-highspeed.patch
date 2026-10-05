@@ -1,0 +1,69 @@
+SDL3 change for the Sound Blaster Pro (DSP 3.x): 8-bit stereo at 22050 Hz is
+44.1 kHz interleaved (time constant 234), above what normal-speed auto-init DMA
+(0x1C) does: real hardware tops out near 23 kHz, and DOSBox-X clamps the time
+constant to 212, so the card played at half rate (voice an octave low, twice
+the latency). Above time constant 212 the driver now starts the high-speed
+auto-init transfer (0x90) and, because that mode takes no command but a reset,
+resets the DSP when the device closes. SB16 and mono paths are unchanged.
+There is no Checked mark for this one: an SDL3 without it still builds and
+runs, only the SB Pro plays at half rate.
+
+Base: the six earlier patches applied (~/opt/src/SDL3 branch dos-sb-stats =
+1500973 + this, 9a55c71). Apply after those six (git apply skips this text):
+  git -C SDL3 apply sdl3-sb-highspeed.patch
+
+diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
+index fc33ec1..fa96a22 100644
+--- a/src/audio/dos/SDL_dosaudio_sb.c
++++ b/src/audio/dos/SDL_dosaudio_sb.c
+@@ -336,7 +336,7 @@ static void DOSSOUNDBLASTER_ProgramDMA(const struct SDL_PrivateAudioData *hidden
+ }
+ 
+ // Speaker on, then the rate and the auto-initialize DMA transfer.
+-static void DOSSOUNDBLASTER_StartPlayback(const SDL_AudioDevice *device, const struct SDL_PrivateAudioData *hidden)
++static void DOSSOUNDBLASTER_StartPlayback(const SDL_AudioDevice *device, struct SDL_PrivateAudioData *hidden)
+ {
+     WriteSoundBlasterDSP(0xD1); // turn on the speaker
+     // The speaker-on command takes up to 112 ms to complete on real hardware.
+@@ -394,7 +394,11 @@ static void DOSSOUNDBLASTER_StartPlayback(const SDL_AudioDevice *device, const s
+         // NOTE: DSP 1.x does not support auto-init (0x1C). Those cards are extremely
+         // rare and would need single-cycle transfers re-triggered from the ISR.
+         // For now we use 0x1C anyway and hope for the best on DSP 1.x hardware.
+-        WriteSoundBlasterDSP(0x1C); // 8-bit auto-init DMA playback
++        // Normal-speed DMA tops out near 23 kHz (DOSBox-X clamps the time constant
++        // to 212): above that the high-speed command is needed. In high-speed mode
++        // the DSP takes no command but a reset until the transfer is stopped.
++        hidden->highspeed = (time_constant > 212);
++        WriteSoundBlasterDSP(hidden->highspeed ? 0x90 : 0x1C); // 8-bit auto-init DMA playback
+     }
+ }
+ 
+@@ -686,8 +690,14 @@ static void DOSSOUNDBLASTER_CloseDevice(SDL_AudioDevice *device)
+             WriteSoundBlasterDSP(0xDA); // exit 16-bit auto-init DMA
+             WriteSoundBlasterDSP(0xD3); // turn off the speaker
+         } else {
+-            WriteSoundBlasterDSP(0xD0); // halt 8-bit DMA
+-            WriteSoundBlasterDSP(0xDA); // exit auto-init DMA
++            if (hidden->highspeed) {
++                // Only a reset stops high-speed DMA (0xD0/0xDA would be ignored).
++                CheckForSoundBlaster(); // resets the DSP and waits for it to come back
++                hidden->highspeed = false;
++            } else {
++                WriteSoundBlasterDSP(0xD0); // halt 8-bit DMA
++                WriteSoundBlasterDSP(0xDA); // exit auto-init DMA
++            }
+             WriteSoundBlasterDSP(0xD3); // turn off the speaker
+ 
+             // SB Pro: reset stereo bit in mixer register 0x0E
+diff --git a/src/audio/dos/SDL_dosaudio_sb.h b/src/audio/dos/SDL_dosaudio_sb.h
+index 5c03188..76f6894 100644
+--- a/src/audio/dos/SDL_dosaudio_sb.h
++++ b/src/audio/dos/SDL_dosaudio_sb.h
+@@ -32,6 +32,7 @@ struct SDL_PrivateAudioData
+     size_t dma_buflen;
+     int dma_channel;
+     bool is_16bit;
++    bool highspeed; // 8-bit DMA runs in the DSP's high-speed mode (only a reset stops it)
+     _go32_dpmi_seginfo dma_seginfo;
+     DOS_InterruptHook interrupt_hook;
+ 

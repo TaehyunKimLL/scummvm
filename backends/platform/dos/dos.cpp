@@ -47,6 +47,8 @@
 #include <SDL3/SDL.h>
 
 #include "backends/platform/dos/dos.h"
+#include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/keyed_compose.h"
 #include "backends/platform/dos/dos-exit.h"
 #include "backends/platform/dos/dos-heap.h"
 #include "backends/platform/dos/dos-irq.h"
@@ -192,6 +194,12 @@ void OSystem_DOS::initBackend() {
 	if (DOS::fpuEmulated())
 		logMessage(LogMessageType::kInfo,
 			"DOS: no FPU: the built-in emulator stands in (slow); timer procs run on the main thread\n");
+	// With 387=N the DPMI host sets CR0.EM for us, and then an MMX
+	// instruction is an invalid opcode even on a CPU that has MMX (only
+	// x87 opcodes are trapped for the emulator): no MMX in the keyed
+	// hi-res text compose.
+	if (DOS::fpuEmulated())
+		Graphics::KeyedCompose::setMmxAllowed(false, "FPU emulated: CR0.EM is set");
 
 	SDL_SetLogOutputFunction(sdlLog, nullptr);
 	SDL_SetHint(SDL_HINT_DOS_ALLOW_DIRECT_FRAMEBUFFER, "1");
@@ -222,6 +230,21 @@ void OSystem_DOS::initBackend() {
 	// scale limits (Graphics::hiResScaleLimits()) read this default, so no
 	// engine or shared code needs a DOS #ifdef.
 	ConfMan.registerDefault("hires_text_platform_scale", "2");
+	// dos_svf_preload_kb: a hi-res SVF font with at most this many KB of
+	// glyphs is read into memory whole when it opens, instead of a block
+	// at a time as lines are drawn: a Korean line otherwise reads the font
+	// file 10-20 times in the frame that draws it (MI1 talkie credits and
+	// room entry), each a DOS seek and read - cheap under DOSBox, a disk
+	// seek on a real PC without a cache. 512 holds every MI1/MI2 Korean
+	// font (M1L* 0.6 MB, M1U* 1.1 MB together); DOTT's 1.6 MB face still
+	// streams. 0 streams them all. Read here, so from the global section
+	// or the command line only (a per-game section does not apply).
+	ConfMan.registerDefault("dos_svf_preload_kb", 512);
+	{
+		const int kb = MIN(ConfMan.getInt("dos_svf_preload_kb"), 4096);	// 4 MB: *1024 cannot wrap
+		if (kb >= 0)
+			Graphics::HiResBitmapFont::setStreamThreshold((uint32)kb * 1024);
+	}
 	// The GUI's two overlay-sized screens (600 KB each at 640x480 RGB565)
 	// are given back while no dialog is open.
 	ConfMan.registerDefault("gui_release_buffers", true);
@@ -486,7 +509,7 @@ void OSystem_DOS::mixerSelftest() {
 	// Let the device's ring fill first.
 	for (int i = 0; i < 50; ++i)
 		delayMillis(10);
-	// The SDL buffers the device takes are 2048 frames, too coarse for a
+	// The SDL buffers the device takes are dos_audio_frames (4096 by default), too coarse for a
 	// count over three seconds (+-3% at 22050 Hz): the rate is the frames
 	// between the first and the last callback in the window over the time
 	// between them.

@@ -64,6 +64,9 @@ extern "C" const int DOS_SBOpenFailChecked;
 // And sdl3-sb-probe.patch's: without it a Sound Blaster wired to another 8-bit
 // DMA channel than BLASTER's D plays nothing and nothing says why.
 extern "C" const int DOS_SBProbeChecked;
+// And sdl3-sb-stats.patch's: the mixer's statistics and output latency read
+// the Sound Blaster handler's counters (DOS_SBGetStats()).
+extern "C" const int DOS_SBStatsChecked;
 
 namespace DOS {
 
@@ -152,6 +155,7 @@ void chooseLockRegime() {
 	(void)*(const volatile int *)&DOS_SBShutdownChecked;
 	(void)*(const volatile int *)&DOS_SBOpenFailChecked;
 	(void)*(const volatile int *)&DOS_SBProbeChecked;
+	(void)*(const volatile int *)&DOS_SBStatsChecked;
 	int flags = 0;
 	char vendor[128];
 	memset(vendor, 0, sizeof(vendor));

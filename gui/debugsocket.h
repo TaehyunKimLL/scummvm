@@ -142,6 +142,12 @@ public:
  *                        phys_total=<KB>" (backends/platform/dos/dos-memory.h
  *                        formats the same reading into the log at engine
  *                        start, first frame and quit); elsewhere "n/a"
+ *   audio                DOS: the mixer's counters now, one line of name=value
+ *                        (backends/mixer/dos/dos-audio-stats.h): getMillis()
+ *                        and the TSC, decode and mix time, the longest
+ *                        interrupts-off piece since the last `audio`, ring
+ *                        misses, speech/music starts, the Sound Blaster's
+ *                        interrupts, underruns and ring fill; elsewhere FAIL
  *
  * Input goes through g_system->getEventManager()->pushEvent(), one key per
  * poll at most every 40 ms, so a game that reads one key per frame sees

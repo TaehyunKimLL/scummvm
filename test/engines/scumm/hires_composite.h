@@ -1,6 +1,8 @@
 #include <cxxtest/TestSuite.h>
 
 #include "engines/scumm/hires_composite.h"
+#include "engines/scumm/hires_sinks.h"
+#include "graphics/hires_text/keyed_compose.h"
 
 /**
  * The compositor's choice of what each output pixel is (C19).
@@ -117,6 +119,134 @@ public:
 			}
 			TS_ASSERT(banded.out == whole.out);
 		}
+	}
+
+	/// The paletted 2x screen's path (no coverage, no decoration): each game
+	/// pixel fills an m x m block wherever the text plane is transparent, and
+	/// the text wins everywhere else - in rows with no text at all, rows with
+	/// some, and rows that are all text.
+	void test_scaled_picture_with_keyed_text() {
+		for (int m = 1; m <= 3; ++m) {
+			const int w = 7, h = 5, srcPad = 3, pad = 2;
+			const int outW = w * m, planePitch = outW + pad, srcPitch = w + srcPad;
+			Common::Array<byte> src(srcPitch * h), text(planePitch * h * m);
+			uint32 seed = 99;
+			for (uint i = 0; i < src.size(); ++i)
+				src[i] = (byte)((seed = seed * 1103515245 + 12345) >> 16);
+			for (int y = 0; y < h * m; ++y)
+				for (int x = 0; x < planePitch; ++x) {
+					const uint32 r = (seed = seed * 1103515245 + 12345) >> 8;
+					// Rows 0 and 1 (of the output) no text, the last row all text.
+					const bool none = y < 2, all = y == h * m - 1;
+					text[y * planePitch + x] = none ? kNone : all ? (byte)(r | 1) : ((r & 3) ? kNone : (byte)(r >> 4));
+				}
+			Common::Array<byte> out(outW * h * m);
+			Scumm::HiResIndexSink sink(out.begin());
+			Scumm::compositeText(sink, src.begin(), srcPad, text.begin(), pad, nullptr, 0, w, h, m);
+			int bad = 0;
+			for (int y = 0; y < h * m; ++y)
+				for (int x = 0; x < outW; ++x) {
+					const byte t = text[y * planePitch + x];
+					const byte want = (t == kNone) ? src[(y / m) * srcPitch + x / m] : t;
+					bad += (out[y * outW + x] != want) ? 1 : 0;
+				}
+			TS_ASSERT_EQUALS(bad, 0);
+		}
+	}
+
+	/// Graphics::KeyedCompose (the paletted screen's select per pixel) writes
+	/// byte for byte what compositeText() with a HiResIndexSink and no
+	/// coverage writes, at every scale, width and padding, over rows with no
+	/// text, some, and only text (index 0 included: opaque without coverage).
+	static void keyedCase(int m, int w, int h, int srcPad, int pad, uint32 &seed, int &bad, bool useRows) {
+		const int outW = w * m, planePitch = outW + pad, srcPitch = w + srcPad;
+		Common::Array<byte> src(srcPitch * h), text(planePitch * h * m);
+		for (uint i = 0; i < src.size(); ++i)
+			src[i] = (byte)((seed = seed * 1103515245 + 12345) >> 16);
+		for (int y = 0; y < h * m; ++y)
+			for (int x = 0; x < planePitch; ++x) {
+				const uint32 r = (seed = seed * 1103515245 + 12345) >> 8;
+				const int kind = (y + (int)(r >> 20)) % 4;
+				text[y * planePitch + x] = kind == 0 ? kNone : kind == 1 ? (byte)(r >> 4) : ((r & 3) ? kNone : (byte)(r & 0x40));
+			}
+		Common::Array<byte> want(outW * h * m), got(outW * h * m + 1);
+		Scumm::HiResIndexSink sink(want.begin());
+		Scumm::compositeText(sink, src.begin(), srcPad, text.begin(), pad, nullptr, 0, w, h, m);
+		got[outW * h * m] = 0x5A;	// a canary past the end
+		if (useRows)
+			Graphics::KeyedCompose::rows(got.begin(), src.begin(), srcPad, text.begin(), pad, w, h, m, kNone);
+		else
+			Graphics::KeyedCompose::rowsScalar(got.begin(), src.begin(), srcPad, text.begin(), pad, w, h, m, kNone);
+		for (int i = 0; i < outW * h * m; ++i)
+			bad += (want[i] != got[i]) ? 1 : 0;
+		bad += (got[outW * h * m] != 0x5A) ? 1 : 0;
+	}
+
+	/// The MMX implementation (where built and the CPU has it) writes byte
+	/// for byte what the scalar reference writes: widths around its 8-pixel
+	/// step, odd paddings, single rows, keys that are every byte value.
+	void test_keyed_compose_mmx_matches_scalar() {
+		if (!Graphics::KeyedCompose::rowsMmx || !Graphics::KeyedCompose::haveMmx()) {
+			TS_WARN("no MMX here: nothing to compare");
+			return;
+		}
+		uint32 seed = 99991;
+		int bad = 0, cases = 0;
+		for (int m = 1; m <= 3; ++m)
+			for (int w = 1; w <= 41; ++w)
+				for (int srcPad = 0; srcPad <= 5; srcPad += 5)
+					for (int pad = 0; pad <= 7; pad += 7) {
+						const int h = 1 + (w % 3), outW = w * m;
+						const byte key = (byte)((seed = seed * 1103515245 + 12345) >> 16);
+						Common::Array<byte> src((w + srcPad) * h), text((outW + pad) * h * m);
+						for (uint i = 0; i < src.size(); ++i)
+							src[i] = (byte)((seed = seed * 1103515245 + 12345) >> 16);
+						for (uint i = 0; i < text.size(); ++i) {
+							const uint32 r = (seed = seed * 1103515245 + 12345) >> 12;
+							text[i] = (r & 1) ? key : (byte)(r >> 4);
+						}
+						Common::Array<byte> a(outW * h * m + 16, 0x77), b(outW * h * m + 16, 0x77);
+						Graphics::KeyedCompose::rowsScalar(a.begin(), src.begin(), srcPad, text.begin(), pad, w, h, m, key);
+						Graphics::KeyedCompose::rowsMmx(b.begin(), src.begin(), srcPad, text.begin(), pad, w, h, m, key);
+						for (uint i = 0; i < a.size(); ++i)
+							bad += (a[i] != b[i]) ? 1 : 0;
+						++cases;
+					}
+		TS_ASSERT_EQUALS(cases, 3 * 41 * 2 * 2);
+		TS_ASSERT_EQUALS(bad, 0);
+		// The FPU works after it. (x87 on x86_64 only for long double; real
+		// MMX/EMMS coverage comes from the DJGPP build and the pentium_mmx gate.)
+		volatile long double x = 1.5L;
+		TS_ASSERT_EQUALS(x * 2.0L, 3.0L);
+	}
+
+	/// With MMX turned off (a DPMI host that emulates the FPU) rows() takes
+	/// the scalar path and writes the same bytes.
+	void test_keyed_compose_mmx_forced_off() {
+		const bool before = Graphics::KeyedCompose::usesMmx();
+		Graphics::KeyedCompose::setMmxAllowed(false, "test");
+		TS_ASSERT(!Graphics::KeyedCompose::usesMmx());
+		int bad = 0;
+		uint32 seed = 5;
+		for (int w = 1; w <= 20; ++w)
+			keyedCase(2, w, 3, 1, 2, seed, bad, true);
+		TS_ASSERT_EQUALS(bad, 0);
+		Graphics::KeyedCompose::setMmxAllowed(true);
+		TS_ASSERT_EQUALS(Graphics::KeyedCompose::usesMmx(), before);
+	}
+
+	void test_keyed_compose_matches_the_index_sink() {
+		uint32 seed = 2024;
+		int bad = 0, cases = 0;
+		for (int m = 1; m <= 4; ++m)
+			for (int w = 1; w <= 19; ++w)
+				for (int pad = 0; pad <= 3; pad += 3) {
+					keyedCase(m, w, 3, pad, pad * m, seed, bad, false);
+					keyedCase(m, w, 3, pad, pad * m, seed, bad, true);
+					cases += 2;
+				}
+		TS_ASSERT_EQUALS(cases, 4 * 19 * 2 * 2);
+		TS_ASSERT_EQUALS(bad, 0);
 	}
 
 	/// The under planes are read at their own pitch, like the others.

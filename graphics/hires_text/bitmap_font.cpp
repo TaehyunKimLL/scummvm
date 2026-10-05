@@ -27,6 +27,8 @@
 #include "common/textconsole.h"
 #include "common/ustr.h"
 
+#include <new>
+
 namespace Graphics {
 
 // The header this format opens with. The engine's own bitmap fonts have no
@@ -138,14 +140,24 @@ void HiResBitmapFont::clearLookupCache() {
 }
 
 bool HiResBitmapFont::load(Common::SeekableReadStream &stream, uint32 sizeLimit) {
+	bool noMemory = false;
+	return loadWhole(stream, sizeLimit, noMemory);
+}
+
+bool HiResBitmapFont::loadWhole(Common::SeekableReadStream &stream, uint32 sizeLimit, bool &noMemory) {
 	free();
+	noMemory = false;
 
 	const int64 size64 = stream.size();
 	if (size64 < kHeaderSize || (uint64)size64 > sizeLimit)
 		return false;
 
 	const uint32 size = (uint32)size64;
-	byte *raw = new byte[size];
+	byte *raw = new (std::nothrow) byte[size];
+	if (!raw) {
+		noMemory = true;
+		return false;
+	}
 	if (stream.read(raw, size) != size) {
 		delete[] raw;
 		return false;
@@ -195,11 +207,15 @@ bool HiResBitmapFont::loadStreamed(Common::SeekableReadStream *stream, DisposeAf
 	}
 
 	if (layout.dataSize <= _streamThreshold) {
-		// Small: whole, and the file closed.
-		const bool ok = stream->seek(0) && load(*stream, sizeLimit);
-		if (dispose == DisposeAfterUse::YES)
-			delete stream;
-		return ok;
+		// Small: whole, and the file closed. Without the memory for it,
+		// streamed like a large one.
+		bool noMemory = false;
+		const bool ok = stream->seek(0) && loadWhole(*stream, sizeLimit, noMemory);
+		if (!noMemory) {
+			if (dispose == DisposeAfterUse::YES)
+				delete stream;
+			return ok;
+		}
 	}
 
 	// Only the tables are kept: the metrics (4 bytes a glyph) and the code

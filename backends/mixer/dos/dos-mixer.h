@@ -23,12 +23,19 @@
 #define BACKENDS_MIXER_DOS_H
 
 #include "backends/mixer/mixer.h"
+#include "backends/mixer/dos/dos-audio-stats.h"
 
 struct SDL_AudioStream;
 
+namespace DOS {
+class PrefetchPool;
+class PrefetchMixer;
+}
+
 /**
  * ScummVM's mixer on SDL3's DOS Sound Blaster driver: 16-bit stereo,
- * 2048-frame device buffers, mixed at the rate the card was opened at.
+ * dos_audio_frames-frame device buffers (4096 by default), mixed at the
+ * rate the card was opened at.
  *
  * SDL3 opens the card at its default rate, 44100 Hz, whatever the stream
  * asks for; the driver brings cards before the SB16 down to 22050 Hz.
@@ -45,7 +52,9 @@ struct SDL_AudioStream;
  * which holds the mixer's Common::Mutex -- interrupts off -- so it mixes
  * in short pieces (the IRQ0 timer must not miss a tick), and it calls SDL
  * only after each piece, with interrupts back on: SDL3's DOS mutex does an
- * unconditional sti.
+ * unconditional sti. Speech and music streams are decoded ahead outside
+ * the mutex (prefetch.h): before each piece the callback tops their rings
+ * up, interrupts on, and after the last it frees what the mixer let go of.
  *
  * If there is no audio device, init() leaves the mixer unset (as
  * SdlMixerManager does) and the caller falls back to NullMixerManager.
@@ -76,10 +85,21 @@ public:
 		millis = _callbackMillis;
 	}
 
-	static const int kDeviceFrames = 2048;
+	/**
+	 * Milliseconds between handing the mixer a sample now and the card
+	 * playing it, as far as can be told: what SDL's stream and the Sound
+	 * Blaster's ring hold, the DMA half queued at the last interrupt and,
+	 * on average, half of the one playing. 0 without a Sound Blaster.
+	 * Interrupts on only (DOS_SBGetStats re-enables them).
+	 */
+	uint32 outputLatencyMillis() const;
+
+	/** The counters behind the debug socket's `audio` (DOS::audioStats()). */
+	void fillStats(DOS::AudioStats &s);
 
 private:
 	static void sdlCallback(void *userdata, SDL_AudioStream *stream, int additionalAmount, int totalAmount);
+	static void onSpeech(void *ctx);
 
 	/**
 	 * Preallocated, so the callback never allocates. Bigger requests are
@@ -98,6 +118,17 @@ private:
 	bool _subsystemInitialized;
 	volatile uint32 _framesMixed;
 	volatile uint32 _callbackMillis;
+	DOS::PrefetchPool *_pool;
+	DOS::PrefetchMixer *_prefetchMixer;	///< _mixer, as what it is
+	int _deviceFrames;		///< dos_audio_frames
+	int _mixRate;			///< the mixer's rate
+	int _devRate;			///< the card's rate
+	int _devBytesPerFrame;	///< the card's sample format x channels
+	bool _soundBlaster;		///< SDL's driver is "soundblaster"
+	DOS::AudioStats _stats;	///< pieces, pieceMaxTsc, prefetchTsc, mixTsc
+	bool _haveTsc;
+	bool _mark;				///< dos_audio_mark
+	uint32 _declinedLogged;	///< PrefetchPool::declined() as last logged
 };
 
 #endif

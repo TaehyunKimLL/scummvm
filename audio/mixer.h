@@ -392,6 +392,15 @@ public:
 	virtual uint getOutputBufSize() const = 0;
 
 	/**
+	 * How long a sample handed to the mixer now takes to reach the speaker,
+	 * in milliseconds, as far as the backend can tell (the audio it has
+	 * already queued for the device). An engine that drives animation from
+	 * its own timer, such as lip sync, can hold it back by this much.
+	 * 0 when the backend does not know.
+	 */
+	virtual uint32 getOutputLatencyMillis() const { return 0; }
+
+	/**
 	 * Return the output sample size of the system.
 	 *
 	 * The return value is measured in bytes.

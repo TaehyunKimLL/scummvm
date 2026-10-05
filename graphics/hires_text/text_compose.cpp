@@ -20,23 +20,23 @@
  */
 
 #include "common/endian.h"
+#include "common/util.h"
 #include "graphics/hires_text/text_compose.h"
 
 namespace Graphics {
 namespace TextCompose {
 
-byte expandCoverage(const byte *row, int x, int bpp) {
-	switch (bpp) {
-	case 1:
-		return (row[x >> 3] & (0x80 >> (x & 7))) ? 255 : 0;
-	case 2:
-		return ((row[x >> 2] >> (6 - ((x & 3) * 2))) & 3) * 85;
-	default:
-		return row[x];
-	}
-}
-
 void expandGlyphRow(byte *dstCoverage, const byte *row, int width, int bpp, bool greyed, int screenY, int screenX0) {
+	if (!greyed && bpp == 1) {
+		// A stencil, the common case: a byte at a time, no switch per pixel.
+		for (int x = 0; x < width; x += 8) {
+			const byte bits = row[x >> 3];
+			const int n = MIN(8, width - x);
+			for (int i = 0; i < n; i++)
+				dstCoverage[x + i] = (bits & (0x80 >> i)) ? 255 : 0;
+		}
+		return;
+	}
 	for (int x = 0; x < width; x++) {
 		byte c = expandCoverage(row, x, bpp);
 		// The engine's checkerboard for disabled text: drop every other pixel.

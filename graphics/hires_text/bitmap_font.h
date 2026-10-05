@@ -185,6 +185,9 @@ private:
 	};
 	/// @p have bytes of the file's start at @p raw, of a file of @p size bytes.
 	static bool readLayout(const byte *raw, uint32 have, uint32 size, Layout &out);
+
+	/// load() that says whether it failed for want of memory (@p noMemory).
+	bool loadWhole(Common::SeekableReadStream &stream, uint32 sizeLimit, bool &noMemory);
 	/// Checks a version 2 table's indices; @p order gets a sorted order when the table is not sorted.
 	static bool checkCodePointTable(const byte *table, int glyphs, Common::Array<uint16> &order);
 	void adopt(const Layout &layout, const byte *metrics, const byte *cmapTable, Common::Array<uint16> &cmapOrder);
