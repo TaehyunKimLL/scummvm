@@ -71,6 +71,7 @@ Sound::Sound(ScummEngine *parent, Audio::Mixer *mixer, bool useReplacementAudioT
 	_mouthSyncMode(false),
 	_endOfMouthSync(false),
 	_curSoundPos(0),
+	_speechTimerDelay(0),
 	_currentMusic(0),
 	_lastSound(0),
 	_soundsPaused(false),
@@ -808,6 +809,18 @@ void Sound::startTalkSound(uint32 offset, uint32 length, int mode, Audio::SoundH
 				_mixer->playStream(Audio::Mixer::kSFXSoundType, handle, input, id);
 			} else {
 				_mixer->playStream(Audio::Mixer::kSpeechSoundType, handle, input, id);
+				// The mouth follows _curSoundPos, which counts from here; a backend
+				// with a deep output queue plays the voice that much later, so hold
+				// the count back by it. The speech timer ticks at getTimerFrequency() / 4
+				// (see speechTimerHandler), i.e. 60 Hz for the v5 timer.
+				if (mode == DIGI_SND_MODE_TALKIE) {
+					const uint32 ms = _mixer->getOutputLatencyMillis();
+					if (ms) {
+						Common::StackLock lock(_speechTimerMutex);
+						_speechTimerDelay = (uint)(ms * (_vm->getTimerFrequency() / 4) / 1000 + 0.5);
+						debugC(DEBUG_SOUND, "startTalkSound: mouth held back %u ms", (uint)ms);
+					}
+				}
 			}
 		}
 	}
@@ -1216,13 +1229,18 @@ bool Sound::isSfxFinished() const {
 void Sound::incrementSpeechTimer() {
 	Common::StackLock lock(_speechTimerMutex);
 
-	if (!_soundsPaused)
-		_curSoundPos++;
+	if (!_soundsPaused) {
+		if (_speechTimerDelay)
+			_speechTimerDelay--;
+		else
+			_curSoundPos++;
+	}
 }
 
 void Sound::resetSpeechTimer() {
 	Common::StackLock lock(_speechTimerMutex);
 	_curSoundPos = 0;
+	_speechTimerDelay = 0;
 }
 
 static void speechTimerHandler(void *refCon) {

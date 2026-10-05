@@ -98,6 +98,7 @@ protected:
 	bool _endOfMouthSync;
 	uint16 _mouthSyncTimes[64];
 	uint _curSoundPos;
+	uint _speechTimerDelay;	// speech timer ticks to skip before _curSoundPos counts (output latency)
 
 	int16 _currentMusic;	// used by HE games
 
