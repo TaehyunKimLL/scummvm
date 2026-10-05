@@ -17,7 +17,7 @@ src="${DOS_DEPS_SRC:-$HOME/opt/src/flac-dos}"
 codecs="${DOS_CODECS:-$HOME/opt/codecs-dos}"
 host="${DOS_FLAC_HOST:-$HOME/opt/flac-host}"
 work="$(mktemp -d "${TMPDIR:-/tmp}/dos-deps.XXXXXX")"
-trap 'rm -rf "$work"' EXIT
+trap 'rc=$?; [ $rc = 0 ] && rm -rf "$work"; exit $rc' EXIT
 
 FLAC_TAR=flac-1.4.3.tar.xz
 FLAC_SHA=6c58e69cd22348f441b861092b825e591d0b822e106de6eb0ee4d05d27205b70
@@ -34,11 +34,11 @@ TREMOR_OBJS="block codebook floor0 floor1 info mapping0 mdct registry res012 sha
 fetch() {	# tarball url
 	if [ ! -f "$src/$1" ]; then
 		mkdir -p "$src"
-		curl -fL -o "$src/$1" "$2"
+		curl -fL -o "$src/$1.part" "$2" && mv "$src/$1.part" "$src/$1"
 	fi
 }
 check_sha() {	# tarball sha256
-	echo "$2  $src/$1" | sha256sum -c --quiet - || { echo "build-deps.sh: $src/$1 has the wrong SHA-256" >&2; exit 1; }
+	echo "$2  $src/$1" | sha256sum -c --quiet - || { echo "build-deps.sh: $src/$1 has the wrong SHA-256; delete it and rerun" >&2; exit 1; }
 }
 unpack() {	# tarball dir
 	mkdir -p "$work/$2"
@@ -48,7 +48,7 @@ run_logged() {	# log command...
 	local log="$1"; shift
 	if ! "$@" >>"$log" 2>&1; then
 		tail -30 "$log" >&2
-		echo "build-deps.sh: failed: $* (log $log)" >&2
+		echo "build-deps.sh: failed: $* (log $log, kept)" >&2
 		exit 1
 	fi
 }
@@ -61,8 +61,8 @@ build_host() {
 	  run_logged "$work/hflac.log" ./configure --prefix="$host" --disable-shared --enable-static \
 		--disable-ogg --disable-cpplibs --disable-examples --disable-doxygen-docs \
 		--disable-xmms-plugin --disable-thorough-tests --disable-version-from-git &&
-	  run_logged "$work/hflac.log" make -j"$(nproc)" &&
-	  run_logged "$work/hflac.log" make install )
+	  run_logged "$work/hflac.log" make -j"$(nproc)" LDFLAGS=-all-static &&	# libtool: plain -static is not enough
+	  run_logged "$work/hflac.log" make install LDFLAGS=-all-static )
 	"$host/bin/metaflac" --version
 }
 
@@ -71,7 +71,7 @@ build_codecs() (
 	fetch "$FLAC_TAR" "$FLAC_URL"; check_sha "$FLAC_TAR" "$FLAC_SHA"
 	fetch "$OGG_TAR" "$OGG_URL"; check_sha "$OGG_TAR" "$OGG_SHA"
 	fetch "$TREMOR_TAR" "$TREMOR_URL"
-	got="$(gzip -dc "$src/$TREMOR_TAR" | git get-tar-commit-id)"
+	got="$(gzip -dc "$src/$TREMOR_TAR" | git get-tar-commit-id)" || got=none
 	if [ "$got" != "$TREMOR_COMMIT" ]; then
 		echo "build-deps.sh: $src/$TREMOR_TAR is tremor $got, not $TREMOR_COMMIT" >&2
 		exit 1
