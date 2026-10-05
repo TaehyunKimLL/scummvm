@@ -137,6 +137,95 @@ class MkuteTest(unittest.TestCase):
             mkute.check_sof(p)
         self.assertEqual(len(mkute.check_sof(os.path.join(self.ute, "monkey.sof"))), 2)
 
+    def tree(self, root):
+        """{relative path: content} of every file under root."""
+        found = {}
+        for d, _, files in os.walk(root):
+            for f in files:
+                p = os.path.join(d, f)
+                with open(p, "rb") as fh:
+                    found[os.path.relpath(p, root)] = fh.read()
+        return found
+
+    def refused(self, ute, out, korean=None):
+        """make_pack must raise PackError and leave every file under the temp root as it was."""
+        before = self.tree(self.tmp.name)
+        with self.assertRaisesRegex(mkute.PackError, "Nothing was changed"):
+            mkute.make_pack(ute, out, korean=korean, metaflac=METAFLAC, flac=FLAC, log=lambda *a: None)
+        self.assertEqual(self.tree(self.tmp.name), before)
+        self.assertTrue(all(os.path.exists(p) for p in (ute, korean) if p))
+
+    def test_refuses_source_equal_to_pack(self):
+        pack = os.path.join(self.out, "MI1UTE")
+        os.makedirs(self.out)
+        os.rename(self.ute, pack)           # the user keeps the game in a folder called MI1UTE
+        self.refused(pack, self.out)
+
+    def test_refuses_source_inside_pack(self):
+        inner = os.path.join(self.out, "MI1UTE", "GAMES", "MI1UTE")
+        os.makedirs(os.path.dirname(inner))
+        os.rename(self.ute, inner)
+        self.refused(inner, self.out)
+
+    def test_refuses_pack_inside_source(self):
+        # OUT inside UTE: the pack folder lies under the source folder
+        self.refused(self.ute, os.path.join(self.ute, "out"))
+        self.refused(self.ute, self.ute)
+
+    def test_refuses_korean_inside_pack(self):
+        inner = os.path.join(self.out, "MI1UTE", "kor")
+        os.makedirs(os.path.dirname(inner))
+        os.rename(self.kor, inner)
+        self.refused(self.ute, self.out, korean=inner)
+
+    def test_refuses_source_through_symlink(self):
+        os.makedirs(self.out)
+        link = os.path.join(self.out, "MI1UTE")
+        os.symlink(self.ute, link)
+        self.refused(self.ute, self.out)
+
+    def test_refuses_leftover_tmp_folder(self):
+        os.makedirs(os.path.join(self.out, "MI1UTE.tmp"))
+        with open(os.path.join(self.out, "MI1UTE.tmp", "keep.txt"), "wb") as f:
+            f.write(b"x")
+        self.refused(self.ute, self.out)
+
+    def test_rebuild_replaces_pack_and_failure_keeps_it(self):
+        pack = self.make()
+        with open(os.path.join(pack, "stale.txt"), "wb") as f:
+            f.write(b"old")
+        os.remove(os.path.join(self.ute, "monkey.001"))     # a failing run: file check fails first
+        with self.assertRaises(mkute.PackError):
+            self.make()
+        self.assertTrue(os.path.exists(os.path.join(pack, "stale.txt")))
+        # a failure while copying: the old pack stays, no temporary folder is left
+        with open(os.path.join(self.ute, "monkey.001"), "wb") as f:
+            f.write(b"monkey.001" * 10)
+        real = mkute.add_seekpoints
+
+        def boom(*a, **k):
+            raise RuntimeError("boom")
+        mkute.add_seekpoints = boom
+        try:
+            with self.assertRaises(RuntimeError):
+                self.make()
+        finally:
+            mkute.add_seekpoints = real
+        self.assertTrue(os.path.exists(os.path.join(pack, "stale.txt")))
+        self.assertEqual(sorted(os.listdir(self.out)), ["MI1UTE"])
+        # a good run replaces the pack: stale file gone, nothing else left in OUT
+        self.make()
+        self.assertFalse(os.path.exists(os.path.join(pack, "stale.txt")))
+        self.assertEqual(sorted(os.listdir(self.out)), ["MI1UTE"])
+        self.assertEqual(sorted(os.listdir(pack)), ["GAMES", "MI1.BAT", "MI1UTE.INI"])
+
+    def test_main_exit_code_when_refused(self):
+        pack = os.path.join(self.out, "MI1UTE")
+        os.makedirs(self.out)
+        os.rename(self.ute, pack)
+        self.assertEqual(mkute.main([pack, self.out, "--metaflac", METAFLAC]), 1)
+        self.assertTrue(os.path.exists(os.path.join(pack, "monkey.000")))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
