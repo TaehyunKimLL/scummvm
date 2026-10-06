@@ -183,6 +183,82 @@ public:
 		return later;
 	}
 
+	// Runs @p pieces pieces of prefetchAll() then reads, from empty rings, on
+	// @p count in-phase streams of @p channels channels. Piece p takes
+	// @p perPiece[p % period] samples from every stream, in reads of @p chunk
+	// samples (one read of the whole amount when @p chunk is 0). Returns in
+	// @p added the samples all the parents were asked for in each piece's
+	// prefetchAll(). The decision under test is how much a ring is topped up
+	// by: the larger of the last two pieces' consumption.
+	static void runPattern(int count, int channels, const int *perPiece, int period, int chunk, int pieces, int *added) {
+		int deleted = 0;
+		DOS::PrefetchPool pool;
+		FakeStream *fake[DOS::PrefetchPool::kSlots];
+		Audio::AudioStream *proxy[DOS::PrefetchPool::kSlots];
+		for (int i = 0; i < count; i++) {
+			fake[i] = new FakeStream(1000000, channels == 2, &deleted);
+			proxy[i] = pool.wrap(fake[i]);
+		}
+		int16 buf[4096];
+		for (int piece = 0; piece < pieces; piece++) {
+			int before = 0, after = 0;
+			for (int i = 0; i < count; i++)
+				before += fake[i]->pos();
+			pool.prefetchAll();
+			for (int i = 0; i < count; i++)
+				after += fake[i]->pos();
+			added[piece] = after - before;
+			const int n = perPiece[piece % period];
+			for (int i = 0; i < count; i++)
+				for (int done = 0; done < n;) {
+					const int k = chunk ? MIN(chunk, n - done) : n;
+					TS_ASSERT_EQUALS(proxy[i]->readBuffer(buf, k), k);
+					done += k;
+				}
+		}
+		for (int i = 0; i < count; i++)
+			delete proxy[i];
+		pool.reap();
+		TS_ASSERT_EQUALS(deleted, count);
+	}
+
+	void test_demand_is_the_larger_of_the_last_two_pieces_when_it_alternates() {
+		// Four mono streams in phase take 256 then 768 samples a piece: a
+		// piece's demand is 4 * 768 = 3072 > the 1024 burst, in every piece
+		// once two have run. From the last piece alone it would swing between
+		// 1024 and 3072, from the one before it alone it would lag a piece.
+		const int perPiece[] = {256, 768};
+		int added[12];
+		runPattern(4, 1, perPiece, 2, 0, 12, added);
+		TS_ASSERT_EQUALS(added[0], 1024);
+		TS_ASSERT_EQUALS(added[1], 1024);
+		for (int piece = 2; piece < 12; piece++)
+			TS_ASSERT_EQUALS(added[piece], 3072);
+	}
+
+	void test_demand_of_a_stereo_stream_that_alternates_one_and_three_chunks() {
+		// One stereo stream; the rate converter reads 512 samples at a time:
+		// a piece takes 512 (one chunk) or 1536 (three), alternating. The
+		// ring is topped up by 1536 in every piece once two have run, not
+		// by 1536 and 1024 in turns (last piece alone) or a piece late
+		// (the one before it alone).
+		const int perPiece[] = {512, 1536};
+		int added[12];
+		runPattern(1, 2, perPiece, 2, 512, 12, added);
+		TS_ASSERT_EQUALS(added[0], 1024);
+		TS_ASSERT_EQUALS(added[1], 1024);
+		for (int piece = 2; piece < 12; piece++)
+			TS_ASSERT_EQUALS(added[piece], 1536);
+	}
+
+	void test_demand_of_a_stereo_stream_that_alternates_two_and_four_chunks() {
+		const int perPiece[] = {1024, 2048};
+		int added[12];
+		runPattern(1, 2, perPiece, 2, 512, 12, added);
+		for (int piece = 2; piece < 12; piece++)
+			TS_ASSERT_EQUALS(added[piece], 2048);
+	}
+
 	void test_music_and_speech_at_a_22050_output_are_served_ahead() {
 		// MI1 on a Sound Blaster Pro: 44.1 kHz stereo FLAC music needs 1024
 		// samples a piece, 44.1 kHz mono speech 512: 1536 > the 1024 burst.
