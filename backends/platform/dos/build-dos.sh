@@ -150,7 +150,10 @@ if [ "$edition" = scumm ]; then
 	if [ -f "$codecs/include/tremor/codec_internal.h" ]; then
 		setup_flags="-DVORBIS_SETUP_INTERNALS -I$codecs/include/tremor"
 	fi
-	make -B audio/decoders/vorbis.o DOS_VORBIS_SETUP_CPPFLAGS="$setup_flags"
+	# Force this object only: -B would also rebuild config.mk and rerun
+	# configure on every invocation. A prior prefix may have used other flags.
+	rm -f audio/decoders/vorbis.o
+	make audio/decoders/vorbis.o DOS_VORBIS_SETUP_CPPFLAGS="$setup_flags"
 	make -j"$(nproc)" DOS_VORBIS_SETUP_CPPFLAGS="$setup_flags"
 else
 	make -j"$(nproc)"
