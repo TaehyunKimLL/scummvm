@@ -54,7 +54,9 @@ class PrefetchMixer;
  * only after each piece, with interrupts back on: SDL3's DOS mutex does an
  * unconditional sti. Speech and music streams are decoded ahead outside
  * the mutex (prefetch.h): before each piece the callback tops their rings
- * up, interrupts on, and after the last it frees what the mixer let go of.
+ * up (by what they took in the last two pieces, plus a burst of 1024
+ * samples per piece; a callback mixes several pieces), interrupts on, and
+ * after the last it frees what the mixer let go of.
  *
  * If there is no audio device, init() leaves the mixer unset (as
  * SdlMixerManager does) and the caller falls back to NullMixerManager.
