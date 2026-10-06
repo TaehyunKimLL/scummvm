@@ -580,13 +580,16 @@ public:
 			delete valid;
 			return;
 		}
+		// Trigger a read failure after open and at least one successful
+		// post-open PCM read, not in the header scan or vorbisfile tail scan.
 		class Truncated : public Common::SeekableReadStream {
 		public:
-			explicit Truncated(Common::SeekableReadStream *s) : _s(s), _reads(0), _failed(false) {}
+			explicit Truncated(Common::SeekableReadStream *s) : _s(s), _armed(false), _failed(false) {}
+			void arm() { _armed = true; }
 			bool failed() const { return _failed; }
 			~Truncated() { delete _s; }
 			uint32 read(void *dst, uint32 n) override {
-				if (++_reads > 1) {
+				if (_armed) {
 					_failed = true;
 					return 0;
 				}
@@ -600,16 +603,19 @@ public:
 			bool seek(int64 offs, int whence = SEEK_SET) override { return _s->seek(offs, whence); }
 		private:
 			Common::SeekableReadStream *_s;
-			uint _reads;
+			bool _armed;
 			bool _failed;
 		};
 		Truncated *input = new Truncated(raw);
 		Audio::SeekableAudioStream *broken = Audio::makeVorbisStream(input, DisposeAfterUse::NO);
+		TS_ASSERT(broken);
 		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().hits, 1u);
 		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().entries, 1u);
 		if (broken) {
 			int16 samples[200];
-			for (int i = 0; i < 20; ++i)
+			TS_ASSERT_LESS_THAN(0, broken->readBuffer(samples, 200));
+			input->arm();
+			for (int i = 0; i < 100 && !input->failed(); ++i)
 				broken->readBuffer(samples, 200);
 		}
 		delete broken;
