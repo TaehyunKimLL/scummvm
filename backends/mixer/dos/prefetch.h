@@ -42,7 +42,7 @@ namespace DOS {
  * the slot is only marked, and reap() - interrupts on - deletes the decoder
  * and closes its file.
  *
- * Contexts: wrap() and its prime run on the main thread; prefetchAll() and
+ * Contexts: wrap() runs on the main thread; prefetchAll() and
  * reap() on SDL3's audio thread, which is cooperative and runs only while
  * the main thread yields, so the two never interleave. A proxy may be
  * deleted from any context, an interrupt included: that only sets its
@@ -55,8 +55,8 @@ public:
 	static const int kSlots = 4;
 	/** Samples per ring: 32 KB, 186 ms of 44.1 kHz stereo or 372 ms mono. */
 	static const int kRingSamples = 16384;
-	/** Samples decoded on the main thread when a stream starts. */
-	static const int kPrimeSamples = 4096;
+	/** Maximum samples decoded per live stream in one prefetchAll() call. */
+	static const int kBurstSamples = 4096;
 
 	enum State { kFree = 0, kLive = 1, kOrphan = 2 };
 
@@ -92,18 +92,18 @@ public:
 	}
 
 	/**
-	 * Main thread. A proxy that reads @p parent through a ring, primed with
-	 * kPrimeSamples; @p parent itself when no slot or memory is free.
+	 * Main thread. A proxy that reads @p parent through an initially empty
+	 * ring; @p parent itself when no slot or memory is free.
 	 * @p markMillis > 0 puts a 1 kHz square of that length in front of the
 	 * stream (dos_audio_mark: the lip-sync measurement finds it in a recording).
 	 */
 	Audio::AudioStream *wrap(Audio::AudioStream *parent, int markMillis = 0);
 
-	/** Audio thread, interrupts on: tops every live ring up. */
+	/** Audio thread, interrupts on: add at most one bounded burst per live ring. */
 	void prefetchAll() {
 		for (int i = 0; i < kSlots; i++)
 			if (_slots[i].state == kLive)
-				fill(_slots[i], kRingSamples);
+				fill(_slots[i], MIN(kRingSamples, _slots[i].fill + kBurstSamples));
 	}
 
 	/** Interrupts on: deletes the streams whose proxies the mixer let go of. */
@@ -239,7 +239,6 @@ inline Audio::AudioStream *PrefetchPool::wrap(Audio::AudioStream *parent, int ma
 	s->markPeriod = MAX(2, rate / 1000);
 	s->markLeft = (markMillis > 0) ? rate * markMillis / 1000 * s->channels : 0;
 	s->markPos = 0;
-	fill(*s, kPrimeSamples);
 	s->state = kLive;
 	return new PrefetchProxy(*this, *s, rate, stereo);
 }

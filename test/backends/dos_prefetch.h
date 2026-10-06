@@ -53,13 +53,15 @@ bool refuse() {
 
 class DosPrefetchPoolTestSuite : public CxxTest::TestSuite {
 public:
-	void test_wrap_primes_on_the_spot_and_only_reap_deletes() {
+	void test_wrap_starts_empty_and_only_reap_deletes() {
 		int deleted = 0;
 		DOS::PrefetchPool pool;
 		FakeStream *f = new FakeStream(100000, false, &deleted);
 		Audio::AudioStream *p = pool.wrap(f);
 		TS_ASSERT_DIFFERS(p, (Audio::AudioStream *)f);
-		TS_ASSERT_EQUALS(f->pos(), DOS::PrefetchPool::kPrimeSamples);
+		TS_ASSERT_EQUALS(f->pos(), 0);
+		TS_ASSERT(!p->endOfData());
+		TS_ASSERT(!p->endOfStream());
 		TS_ASSERT_EQUALS(pool.countSlots(DOS::PrefetchPool::kLive), 1);
 		delete p;
 		TS_ASSERT_EQUALS(deleted, 0);
@@ -67,6 +69,46 @@ public:
 		pool.reap();
 		TS_ASSERT_EQUALS(deleted, 1);
 		TS_ASSERT_EQUALS(pool.countSlots(DOS::PrefetchPool::kFree), DOS::PrefetchPool::kSlots);
+	}
+
+	void test_prefetch_caps_each_call_without_extra_misses() {
+		int deleted = 0;
+		DOS::PrefetchPool pool;
+		FakeStream *f = new FakeStream(100000, false, &deleted);
+		Audio::AudioStream *p = pool.wrap(f);
+		int16 buf[512];
+		for (int i = 0; i < 48; i++) {
+			const int before = f->pos();
+			pool.prefetchAll();
+			TS_ASSERT(f->pos() - before <= DOS::PrefetchPool::kBurstSamples);
+			TS_ASSERT_EQUALS(p->readBuffer(buf, 512), 512);
+			for (int j = 0; j < 512; j++)
+				TS_ASSERT_EQUALS(buf[j], (int16)((i * 512 + j) & 0x7fff));
+		}
+		TS_ASSERT_EQUALS(f->pos(), 48 * 512 + DOS::PrefetchPool::kRingSamples - 512);
+		TS_ASSERT_EQUALS(pool.misses(), 0u);
+		delete p;
+		pool.reap();
+	}
+
+	void test_prefetch_caps_stereo_bursts_at_the_ring_edge() {
+		int deleted = 0;
+		DOS::PrefetchPool pool;
+		FakeStream *f = new FakeStream(100000, true, &deleted);
+		Audio::AudioStream *p = pool.wrap(f);
+		int16 buf[564];
+		for (int i = 0; i < 48; i++) {
+			const int before = f->pos();
+			pool.prefetchAll();
+			TS_ASSERT(f->pos() - before <= DOS::PrefetchPool::kBurstSamples);
+			TS_ASSERT_EQUALS(f->pos() % 2, 0);
+			TS_ASSERT_EQUALS(p->readBuffer(buf, 564), 564);
+			for (int j = 0; j < 564; j++)
+				TS_ASSERT_EQUALS(buf[j], (int16)((i * 564 + j) & 0x7fff));
+		}
+		TS_ASSERT_EQUALS(pool.misses(), 0u);
+		delete p;
+		pool.reap();
 	}
 
 	void test_reads_come_in_order_across_the_ring_edge() {
@@ -96,11 +138,14 @@ public:
 		int deleted = 0;
 		DOS::PrefetchPool pool;
 		Audio::AudioStream *p = pool.wrap(new FakeStream(100000, false, &deleted));
-		int16 buf[DOS::PrefetchPool::kPrimeSamples];
-		TS_ASSERT_EQUALS(p->readBuffer(buf, DOS::PrefetchPool::kPrimeSamples), DOS::PrefetchPool::kPrimeSamples);
-		TS_ASSERT_EQUALS(pool.misses(), 0u);
+		int16 buf[100];
 		TS_ASSERT_EQUALS(p->readBuffer(buf, 100), 100);
-		TS_ASSERT_EQUALS(buf[0], (int16)DOS::PrefetchPool::kPrimeSamples);
+		TS_ASSERT_EQUALS(buf[0], 0);
+		TS_ASSERT_EQUALS(buf[99], 99);
+		TS_ASSERT_EQUALS(pool.misses(), 1u);
+		pool.prefetchAll();
+		TS_ASSERT_EQUALS(p->readBuffer(buf, 100), 100);
+		TS_ASSERT_EQUALS(buf[0], 100);
 		TS_ASSERT_EQUALS(pool.misses(), 1u);
 		delete p;
 		pool.reap();
