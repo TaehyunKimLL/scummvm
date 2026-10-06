@@ -78,8 +78,9 @@ SeekableAudioStream *makeVorbisStream(
  *
  * The cache keeps the last kDefaultCapacity setups that were used; a setup
  * dropped from it lives on while a stream still uses it. It is shared by
- * all threads (a mutex guards it). Builds without libogg (USE_OGG) have no
- * cache: there these functions do nothing and the stats stay 0.
+ * all threads (a mutex guards it). Only Tremor builds with the matching
+ * private codec_setup layout and VORBIS_SETUP_INTERNALS opt-in have this
+ * cache. libvorbis and other Tremor builds report zero stats.
  *
  * The functions below are for tests and measurements.
  */
