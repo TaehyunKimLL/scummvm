@@ -124,6 +124,15 @@ def check_sof(path, magic=b"fLaC", kind="FLAC"):
             f.seek(start)
             if f.read(len(magic)) != magic:
                 raise PackError("%s: clip %d (original offset %d) is not %s" % (path, i // 16, org, kind))
+            if magic == b"OggS":
+                # An Ogg file is not necessarily Vorbis (Opus, Ogg FLAC): the
+                # first packet of the first page must be the Vorbis ident header.
+                f.seek(start + 26)
+                nseg = f.read(1)
+                lacing = f.read(nseg[0]) if nseg else b""
+                if not nseg or len(lacing) != nseg[0] or f.read(7) != b"\x01vorbis":
+                    raise PackError("%s: clip %d (original offset %d) is not %s (its first Ogg packet is not a Vorbis header)"
+                                    % (path, i // 16, org, kind))
             clips.append((start, csize))
     return clips
 
@@ -147,10 +156,19 @@ def tremor_clips(tool, path, clips, log):
     except OSError as e:
         raise PackError("cannot run %s: %s" % (tool, e))
     out = r.stdout.decode("utf-8", "replace").strip().splitlines()
-    if r.returncode:
+    err = r.stderr.decode("utf-8", "replace").strip()
+    if r.returncode == 1:
+        # tremor-check's own verdict: it ran and some clips did not decode.
         bad = [l for l in out if l.startswith("FAIL")]
         raise PackError("%s: Tremor cannot decode %d clips, first: %s" % (
-            path, len(bad), bad[0] if bad else r.stderr.decode("utf-8", "replace").strip()))
+            path, len(bad), bad[0] if bad else (err or "see tremor-check output")))
+    if r.returncode:
+        # 2: usage or the file did not open; anything else: the tool died.
+        raise PackError("%s: %s failed (exit status %d): %s" % (
+            path, tool, r.returncode, err or (out[-1] if out else "no message")))
+    if not out:
+        raise PackError("%s: %s printed nothing (expected a summary line)%s" % (
+            path, tool, ": " + err if err else ""))
     log("MONKEY2.SOG: all %d clips decode with Tremor (%s)" % (len(clips), out[-1]))
 
 

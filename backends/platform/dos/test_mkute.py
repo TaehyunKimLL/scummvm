@@ -141,6 +141,67 @@ class MkuteTest(unittest.TestCase):
 TREMOR = os.environ.get("TREMOR_CHECK", mkute.TREMOR_CHECK)
 
 
+def ogg_page(payload, serial=1, seq=0, header=2):
+    """One Ogg page (the checksum is not computed: mkute only looks at the payload)."""
+    assert len(payload) < 255
+    return (b"OggS" + bytes([0, header]) + struct.pack("<QIII", 0, serial, seq, 0)
+            + bytes([1, len(payload)]) + payload)
+
+
+class Mi2FormatTest(unittest.TestCase):
+    """MONKEY2.SOG checks that need neither Tremor nor ffmpeg."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.sog = os.path.join(self.tmp.name, "monkey2.sog")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def tool(self, body):
+        path = os.path.join(self.tmp.name, "fake-tremor-check")
+        with open(path, "w") as f:
+            f.write("#!/bin/sh\n" + body)
+        os.chmod(path, 0o755)
+        return path
+
+    def test_vorbis_first_page_is_accepted(self):
+        write_sof(self.sog, [(8, b"\0\1", ogg_page(b"\x01vorbis" + b"\0" * 23))])
+        self.assertEqual(len(mkute.check_sof(self.sog, b"OggS", "Ogg Vorbis")), 1)
+
+    def test_foreign_ogg_is_refused_naming_the_file(self):
+        write_sof(self.sog, [(8, b"\0\1", ogg_page(b"OpusHead" + b"\0" * 11))])
+        with self.assertRaisesRegex(mkute.PackError, r"monkey2\.sog: clip 0 .*is not Ogg Vorbis"):
+            mkute.check_sof(self.sog, b"OggS", "Ogg Vorbis")
+
+    def test_ogg_flac_is_refused(self):
+        write_sof(self.sog, [(8, b"\0\1", ogg_page(b"\x7fFLAC" + b"\0" * 20))])
+        with self.assertRaisesRegex(mkute.PackError, "monkey2.sog: clip 0 .*is not Ogg Vorbis"):
+            mkute.check_sof(self.sog, b"OggS", "Ogg Vorbis")
+
+    def test_clip_too_short_for_a_page_is_refused(self):
+        write_sof(self.sog, [(8, b"\0\1", b"OggS\0\2")])
+        with self.assertRaisesRegex(mkute.PackError, "is not Ogg Vorbis"):
+            mkute.check_sof(self.sog, b"OggS", "Ogg Vorbis")
+
+    def test_empty_tool_output_is_a_pack_error(self):
+        tool = self.tool("cat >/dev/null\nexit 0\n")
+        with self.assertRaisesRegex(mkute.PackError, "printed nothing"):
+            mkute.tremor_clips(tool, self.sog, [(0, 10)], lambda *a: None)
+
+    def test_exit_status_2_reports_the_tools_own_message(self):
+        tool = self.tool("echo 'tremor-check: monkey2.sog: No such file' >&2\nexit 2\n")
+        with self.assertRaises(mkute.PackError) as cm:
+            mkute.tremor_clips(tool, self.sog, [(0, 10)], lambda *a: None)
+        self.assertIn("No such file", str(cm.exception))
+        self.assertNotIn("cannot decode", str(cm.exception))
+
+    def test_exit_status_1_lists_the_failed_clips(self):
+        tool = self.tool("cat >/dev/null\necho 'FAIL clip 3 at 100: -132'\necho 'clips 5 bad 1'\nexit 1\n")
+        with self.assertRaisesRegex(mkute.PackError, "Tremor cannot decode 1 clips, first: FAIL clip 3"):
+            mkute.tremor_clips(tool, self.sog, [(0, 10)] * 5, lambda *a: None)
+
+
 def write_ogg(path, secs=1, rate=44100):
     """A mono Ogg Vorbis file from the host ffmpeg (libvorbis); returns False without one."""
     try:
