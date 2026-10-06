@@ -46,9 +46,13 @@
 #include "common/types.h"
 
 namespace Audio {
-/** Interleaved PCM samples per VorbisStream refill and DOS prefetch burst. */
+/**
+ * Interleaved PCM samples per VorbisStream refill. 4096 on every platform;
+ * the DOS build defines VORBIS_REFILL_SAMPLES=1024 for every object (the
+ * class layout depends on it) so that one refill stays short there.
+ */
 #ifndef VORBIS_REFILL_SAMPLES
-#define VORBIS_REFILL_SAMPLES 1024
+#define VORBIS_REFILL_SAMPLES 4096
 #endif
 enum { kVorbisRefillSamples = VORBIS_REFILL_SAMPLES };
 }
