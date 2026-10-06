@@ -61,7 +61,7 @@ protected:
 
 	OggVorbis_File _ovFile;
 
-	int16 _buffer[4096];
+	int16 _buffer[1024];
 	const int16 *_bufferEnd;
 	const int16 *_pos;
 
