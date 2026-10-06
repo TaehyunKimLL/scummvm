@@ -127,6 +127,108 @@ public:
 		TS_ASSERT_EQUALS(deleted, 2);
 	}
 
+	// A mix piece of 256 output frames at @p mixRate takes
+	// ceil(256 * srcRate / mixRate) frames of every stream. Runs @p pieces
+	// pieces of prefetchAll() then one read per stream, from empty rings,
+	// and returns the misses taken after the first piece.
+	struct Model {
+		int rate;
+		bool stereo;
+		int total;
+	};
+	static uint32 runPieces(const Model *streams, int count, int mixRate, int pieces, int *maxAdded = nullptr) {
+		int deleted = 0;
+		DOS::PrefetchPool pool;
+		FakeStream *fake[DOS::PrefetchPool::kSlots];
+		Audio::AudioStream *proxy[DOS::PrefetchPool::kSlots];
+		int consumed[DOS::PrefetchPool::kSlots];
+		for (int i = 0; i < count; i++) {
+			fake[i] = new FakeStream(streams[i].total, streams[i].stereo, &deleted, streams[i].rate);
+			proxy[i] = pool.wrap(fake[i]);
+			consumed[i] = 0;
+		}
+		uint32 missesAfterFirst = 0;
+		int16 buf[4096];
+		if (maxAdded)
+			*maxAdded = 0;
+		for (int piece = 0; piece < pieces; piece++) {
+			int before = 0;
+			for (int i = 0; i < count; i++)
+				before += fake[i]->pos();
+			pool.prefetchAll();
+			int after = 0;
+			for (int i = 0; i < count; i++)
+				after += fake[i]->pos();
+			if (maxAdded && piece > 0 && after - before > *maxAdded)
+				*maxAdded = after - before;
+			for (int i = 0; i < count; i++) {
+				const int ch = streams[i].stereo ? 2 : 1;
+				const int frames = (256 * streams[i].rate + mixRate - 1) / mixRate;
+				TS_ASSERT_EQUALS(proxy[i]->readBuffer(buf, frames * ch), frames * ch);
+				for (int j = 0; j < frames * ch; j++)
+					if (buf[j] != (int16)((consumed[i] + j) & 0x7fff)) {
+						TS_FAIL("out of order");
+						break;
+					}
+				consumed[i] += frames * ch;
+			}
+			if (piece == 0)
+				missesAfterFirst = pool.misses();
+		}
+		const uint32 later = pool.misses() - missesAfterFirst;
+		for (int i = 0; i < count; i++)
+			delete proxy[i];
+		pool.reap();
+		TS_ASSERT_EQUALS(deleted, count);
+		return later;
+	}
+
+	void test_music_and_speech_at_a_22050_output_are_served_ahead() {
+		// MI1 on a Sound Blaster Pro: 44.1 kHz stereo FLAC music needs 1024
+		// samples a piece, 44.1 kHz mono speech 512: 1536 > the 1024 burst.
+		const Model streams[] = {{44100, true, 400000}, {44100, false, 400000}};
+		TS_ASSERT_EQUALS(runPieces(streams, 2, 22050, 200), 0u);
+	}
+
+	void test_four_stereo_streams_at_a_44100_output_are_served_ahead() {
+		const Model streams[] = {{44100, true, 400000}, {44100, true, 400000}, {44100, true, 400000}, {44100, true, 400000}};
+		int maxAdded = 0;
+		TS_ASSERT_EQUALS(runPieces(streams, 4, 44100, 200, &maxAdded), 0u);
+		// total per piece is max(1024, demand); demand is 4 * 512 here
+		TS_ASSERT(maxAdded <= 2048);
+	}
+
+	void test_one_48k_stereo_stream_at_a_22050_output_is_served_ahead() {
+		// 256 * 48000 / 22050 = 557 frames: 1114 samples a piece
+		const Model streams[] = {{48000, true, 400000}};
+		TS_ASSERT_EQUALS(runPieces(streams, 1, 22050, 200), 0u);
+	}
+
+	void test_one_48k_stereo_stream_at_a_44100_output_is_served_ahead() {
+		const Model streams[] = {{48000, true, 400000}};
+		TS_ASSERT_EQUALS(runPieces(streams, 1, 44100, 200), 0u);
+	}
+
+	void test_low_demand_still_gets_the_whole_burst() {
+		// One 48 kHz mono stream at a 48 kHz output takes 256 samples a
+		// piece; the burst stays 1024 (the ring runs ahead of it).
+		int deleted = 0;
+		DOS::PrefetchPool pool;
+		FakeStream *f = new FakeStream(100000, false, &deleted, 48000);
+		Audio::AudioStream *p = pool.wrap(f);
+		int16 buf[256];
+		pool.prefetchAll();
+		TS_ASSERT_EQUALS(f->pos(), DOS::PrefetchPool::kBurstSamples);
+		for (int i = 0; i < 10; i++) {
+			TS_ASSERT_EQUALS(p->readBuffer(buf, 256), 256);
+			const int before = f->pos();
+			pool.prefetchAll();
+			TS_ASSERT_EQUALS(f->pos() - before, DOS::PrefetchPool::kBurstSamples);
+		}
+		delete p;
+		pool.reap();
+	}
+
 	void test_prefetch_caps_stereo_bursts_at_the_ring_edge() {
 		int deleted = 0;
 		DOS::PrefetchPool pool;
