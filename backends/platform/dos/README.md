@@ -66,6 +66,50 @@ licences as FLAC.TXT and VORBIS.TXT. `build-deps.sh host` builds flac and
 metaflac for this machine into ~/opt/flac-host, for `mkute.py` and its tests.
 SCI.EXE links no codec.
 
+## Ultimate Talkie packs (`mkute.py`)
+
+`mkute.py` makes the DOS pack of The Secret of Monkey Island (`--game mi1`,
+the default) or Monkey Island 2: LeChuck's Revenge (`--game mi2`), Ultimate
+Talkie Edition, from the user's own copy of the game. The release kit holds
+the script and its instructions, never game data.
+
+For Monkey Island 2:
+
+    python3 mkute.py --game mi2 <MI2 folder> <out> [--korean <folder>] [--test-clips]
+
+The MI2 folder has `monkey2.000`, `monkey2.001` and `monkey2.sog`. The pack is
+`<out>\MI2UTE` (the game in `GAMES\MI2UTE`, `MI2UTE.INI`, the BATs); copy it to
+the DOS machine's hard disk, not to a CD. The targets are `mi2` (English),
+`mi2ko` (Korean, true colour screen) and `mi2kol` (Korean, 8-bit screen).
+`mi2kol` is the supported Korean target; `mi2ko` is informational and slower.
+
+The speech (`monkey2.sog`, 6808 Ogg Vorbis clips) is decoded by Tremor
+(SCUMM.EXE only). The music is AdLib by default (`PLAY --sound=` changes it);
+this edition has no CD tracks. `--test-clips` decodes every clip with the host
+`tremor-check` program (`build-deps.sh host` builds it; `--tremor-check PATH`
+names another).
+
+Diagnostic keys, off by default (SCUMMVM.INI, `[scummvm]`):
+
+- `dos_vorbis_selftest=<speech file>`: opens, primes and decodes clips of an
+  Ogg Vorbis speech file the way a talk line does, with the TSC, and logs one
+  `DOS: vorbis selftest` line. `dos_vorbis_selftest_clips=<n>` (24) is the
+  number of clips, `dos_vorbis_selftest_from=<index>` (-1) starts at that
+  clip instead of spreading them over the file, and
+  `dos_vorbis_selftest_no_cache=true` turns the Vorbis setup cache off.
+
+Measured in DOSBox-X at `cycles=fixed 40000` (about a Pentium 75), not on
+real hardware:
+
+- Tremor decoding one 48 kHz mono stream takes 31.5 % of the CPU.
+- Opening and priming one speech line takes about 64 ms on average (94 ms at
+  most) when its Vorbis setup is cached. The first line of each of the 4
+  setups takes about 150-180 ms.
+- The audio gate, intro scenario: `mi2u` 9.76 loops/s,
+  `mi2ukol` 9.64 loops/s (the game's own pace is 10.0), 0 underruns. These
+  loops/s are a Pentium 75 estimate from DOSBox-X, not a real-hardware
+  measurement.
+
 ## Settings
 
 In SCUMMVM.INI, `[scummvm]` or a game's section:
