@@ -184,6 +184,21 @@ class Mi2FormatTest(unittest.TestCase):
         with self.assertRaisesRegex(mkute.PackError, "is not Ogg Vorbis"):
             mkute.check_sof(self.sog, b"OggS", "Ogg Vorbis")
 
+    def test_ident_header_must_lie_inside_the_clip(self):
+        # The clip ends after the page header; the next clip's tag bytes
+        # happen to start with "\x01vorbis", which a read past the clip's
+        # size would take for the ident header.
+        page = ogg_page(b"\x01vorbis" + b"\0" * 23)
+        write_sof(self.sog, [(8, b"\0\1", page[:28]),
+                             (16, b"\x01vorbis" + b"\0" * 23, page)])
+        with self.assertRaisesRegex(mkute.PackError, r"monkey2\.sog: clip 0 .*is not Ogg Vorbis"):
+            mkute.check_sof(self.sog, b"OggS", "Ogg Vorbis")
+
+    def test_first_packet_shorter_than_the_ident_header_is_refused(self):
+        write_sof(self.sog, [(8, b"\0\1", ogg_page(b"\x01vorbis" + b"\0" * 5) + b"\0" * 40)])
+        with self.assertRaisesRegex(mkute.PackError, r"monkey2\.sog: clip 0 .*is not Ogg Vorbis"):
+            mkute.check_sof(self.sog, b"OggS", "Ogg Vorbis")
+
     def test_empty_tool_output_is_a_pack_error(self):
         tool = self.tool("cat >/dev/null\nexit 0\n")
         with self.assertRaisesRegex(mkute.PackError, "printed nothing"):

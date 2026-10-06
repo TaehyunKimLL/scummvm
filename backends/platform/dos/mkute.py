@@ -127,10 +127,19 @@ def check_sof(path, magic=b"fLaC", kind="FLAC"):
             if magic == b"OggS":
                 # An Ogg file is not necessarily Vorbis (Opus, Ogg FLAC): the
                 # first packet of the first page must be the Vorbis ident header.
-                f.seek(start + 26)
-                nseg = f.read(1)
-                lacing = f.read(nseg[0]) if nseg else b""
-                if not nseg or len(lacing) != nseg[0] or f.read(7) != b"\x01vorbis":
+                # The 30-byte ident header must be the first packet and lie
+                # inside the clip (csize), not in the bytes of the next one.
+                f.seek(start)
+                page = f.read(min(csize, 27 + 255 + 7))
+                nseg = page[26] if len(page) > 26 else 0
+                lacing = page[27:27 + nseg]
+                plen = 0
+                for v in lacing:
+                    plen += v
+                    if v < 255:
+                        break
+                if (not nseg or len(lacing) != nseg or plen < 30 or 27 + nseg + 30 > csize
+                        or page[27 + nseg:27 + nseg + 7] != b"\x01vorbis"):
                     raise PackError("%s: clip %d (original offset %d) is not %s (its first Ogg packet is not a Vorbis header)"
                                     % (path, i // 16, org, kind))
             clips.append((start, csize))
