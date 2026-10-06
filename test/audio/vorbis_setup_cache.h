@@ -506,6 +506,16 @@ public:
 	void test_rewind_failure_replays_headers_without_sharing() {
 #ifdef VORBIS_SETUP_CACHE_TESTS
 		Audio::VorbisSetupCache::setEnabled(false);
+		Audio::SeekableAudioStream *baseline = openClip(kA1);
+		TS_ASSERT(baseline);
+		if (!baseline)
+			return;
+		const Audio::Timestamp length = baseline->getLength();
+		const Audio::Timestamp target(0, 5000, baseline->getRate());
+		TS_ASSERT(baseline->seek(target));
+		int16 plain[256];
+		const int plainN = baseline->readBuffer(plain, ARRAYSIZE(plain));
+		delete baseline;
 		const Common::Array<int16> expected = decodeClip(kA1);
 		Audio::VorbisSetupCache::setEnabled(true);
 		Common::String data(kA1.b64);
@@ -515,7 +525,8 @@ public:
 			return;
 		class FailingRewind : public Common::SeekableReadStream {
 		public:
-			explicit FailingRewind(Common::SeekableReadStream *s) : _s(s) {}
+			explicit FailingRewind(Common::SeekableReadStream *s) : _s(s), _failed(false) {}
+			bool failed() const { return _failed; }
 			~FailingRewind() { delete _s; }
 			uint32 read(void *dst, uint32 n) override { return _s->read(dst, n); }
 			bool eos() const override { return _s->eos(); }
@@ -524,18 +535,33 @@ public:
 			int64 pos() const override { return _s->pos(); }
 			int64 size() const override { return _s->size(); }
 			bool seek(int64 offs, int whence = SEEK_SET) override {
-				if (whence == SEEK_SET && offs == 0 && _s->pos() > 0)
+				if (!_failed && whence == SEEK_SET && offs == 0 && _s->pos() > 0) {
+					_failed = true;
 					return false;
+				}
 				return _s->seek(offs, whence);
 			}
 		private:
 			Common::SeekableReadStream *_s;
+			bool _failed;
 		};
-		Audio::SeekableAudioStream *s = Audio::makeVorbisStream(new FailingRewind(raw), DisposeAfterUse::YES);
+		FailingRewind *input = new FailingRewind(raw);
+		Audio::SeekableAudioStream *s = Audio::makeVorbisStream(input, DisposeAfterUse::NO);
+		TS_ASSERT(input->failed());
 		TS_ASSERT(s);
-		if (s)
+		if (s) {
+			TS_ASSERT(s->getLength() == length);
+			TS_ASSERT(s->seek(target));
+			int16 got[256];
+			const int gotN = s->readBuffer(got, ARRAYSIZE(got));
+			TS_ASSERT_EQUALS(gotN, plainN);
+			if (gotN == plainN)
+				TS_ASSERT_EQUALS(memcmp(got, plain, gotN * sizeof(int16)), 0);
+			TS_ASSERT(s->rewind());
 			TS_ASSERT(readAll(s) == expected);
+		}
 		delete s;
+		delete input;
 		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().hits, 0u);
 		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().misses, 0u);
 #endif
