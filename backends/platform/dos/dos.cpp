@@ -233,6 +233,7 @@ void OSystem_DOS::initBackend() {
 	ConfMan.registerDefault("dos_vorbis_selftest", "");
 	ConfMan.registerDefault("dos_vorbis_selftest_clips", 24);
 	ConfMan.registerDefault("dos_vorbis_selftest_from", -1);
+	ConfMan.registerDefault("dos_vorbis_selftest_no_cache", false);
 #endif
 	// dos_loading_screen=false: no loading screen (DOS::Loading), the
 	// launcher's mode set at once as before.
