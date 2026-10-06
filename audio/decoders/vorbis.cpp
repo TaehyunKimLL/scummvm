@@ -79,12 +79,6 @@ static const ov_callbacks g_stream_wrap = {
 
 
 
-// A null seek callback indicates a streaming source; the original callback
-// is kept for the regular (seekable) path.
-static const ov_callbacks g_nonseek_stream_wrap = {
-	read_stream_wrap, nullptr, close_stream_wrap, tell_stream_wrap
-};
-
 #pragma mark -
 #pragma mark --- Setup header cache ---
 #pragma mark -
@@ -540,7 +534,10 @@ VorbisStream::VorbisStream(Common::SeekableReadStream *inStream, DisposeAfterUse
 	const char *initial = positioned || !headers.rewound ?
 		(headers.initial.empty() ? nullptr : (const char *)headers.initial.begin()) : nullptr;
 	const long ibytes = initial ? headers.initial.size() : 0;
-	const ov_callbacks &callbacks = !headers.rewound && initial ? g_nonseek_stream_wrap : g_stream_wrap;
+	// A single failed speculative rewind does not mean a stream is
+	// non-seekable. The initial buffer leaves it at the correct position,
+	// so preserve the seek callback and let vorbisfile check later seeks.
+	const ov_callbacks &callbacks = g_stream_wrap;
 #else
 	const char *initial = nullptr;
 	const long ibytes = 0;
