@@ -156,6 +156,7 @@ if [ "$edition" = scumm ]; then
 	# Recompile this object on every invocation: a previous build may have
 	# used another prefix (or no private header) without changing its mtime.
 	setup_flags=
+	bash "$src/backends/platform/dos/check-tremor-cache.sh" "$codecs"
 	if [ -f "$codecs/include/tremor/codec_internal.h" ]; then
 		setup_flags="-DVORBIS_SETUP_INTERNALS -I$codecs/include/tremor"
 	fi
