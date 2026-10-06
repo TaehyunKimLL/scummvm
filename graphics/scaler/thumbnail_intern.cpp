@@ -180,23 +180,32 @@ static bool grabScreen565(Graphics::Surface *surf) {
 
 	surf->create(screen->w, screen->h, Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0));
 
-	byte *palette = 0;
 	if (screenFormat.bytesPerPixel == 1) {
-		palette = new byte[256 * 3];
-		assert(palette);
+		byte palette[256 * 3];
 		g_system->getPaletteManager()->grabPalette(palette, 0, 256);
+
+		// The palette converted once, not once per pixel: a 640x400 screen
+		// is 256,000 pixels, which took ~270 ms on a Pentium 75.
+		uint16 palette565[256];
+		for (int i = 0; i < 256; ++i)
+			palette565[i] = surf->format.RGBToColor(palette[i * 3 + 0], palette[i * 3 + 1], palette[i * 3 + 2]);
+
+		for (int y = 0; y < screen->h; ++y) {
+			const uint8 *src = (const uint8 *)screen->getBasePtr(0, y);
+			uint16 *dst = (uint16 *)surf->getBasePtr(0, y);
+			for (int x = 0; x < screen->w; ++x)
+				*dst++ = palette565[*src++];
+		}
+
+		g_system->unlockScreen();
+		return true;
 	}
 
 	for (int y = 0; y < screen->h; ++y) {
 		for (int x = 0; x < screen->w; ++x) {
 			byte r = 0, g = 0, b = 0;
 
-			if (screenFormat.bytesPerPixel == 1) {
-				uint8 pixel = *(uint8 *)screen->getBasePtr(x, y);
-				r = palette[pixel * 3 + 0];
-				g = palette[pixel * 3 + 1];
-				b = palette[pixel * 3 + 2];
-			} else if (screenFormat.bytesPerPixel == 2) {
+			if (screenFormat.bytesPerPixel == 2) {
 				uint16 col = READ_UINT16(screen->getBasePtr(x, y));
 				screenFormat.colorToRGB(col, r, g, b);
 			} else if (screenFormat.bytesPerPixel == 4) {
@@ -207,8 +216,6 @@ static bool grabScreen565(Graphics::Surface *surf) {
 			*((uint16 *)surf->getBasePtr(x, y)) = surf->format.RGBToColor(r, g, b);
 		}
 	}
-
-	delete[] palette;
 
 	g_system->unlockScreen();
 	return true;
