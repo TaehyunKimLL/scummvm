@@ -108,6 +108,10 @@ conf_args=(--host=i586-pc-msdosdjgpp
 	--disable-detection-full --disable-gui --disable-translation --enable-release)
 mkdir -p "$out" "$src/dist/dos"
 cd "$out"
+# audio/decoders/vorbis.h: VorbisStream refills 4096 samples everywhere else;
+# here 1024, so that one refill stays short. Every object gets the define
+# (vorbis.cpp and the Nancy subclass both lay VorbisStream out from it).
+dos_cppflags="-DVORBIS_REFILL_SAMPLES=1024"
 # Configure again when there is no config.mk, when extra arguments are
 # given, or when the one there was made with other flags or another SDL3
 # (its SAVED_CONFIGFLAGS must start with conf_args - extra arguments of an
@@ -116,9 +120,10 @@ cd "$out"
 # stale flags and SDL3 of the old config.mk after a change to configure.
 config_current() {
 	[ -f config.mk ] || return 1
-	local saved pkg
+	local saved pkg cpp
 	saved="$(sed -n 's/^SAVED_CONFIGFLAGS *:= *//p' config.mk)"
 	pkg="$(sed -n 's/^SAVED_PKG_CONFIG_LIBDIR *:= *//p' config.mk)"
+	cpp="$(sed -n 's/^SAVED_CPPFLAGS *:= *//p' config.mk)"
 	case "$saved" in
 		"${conf_args[*]}"|"${conf_args[*]} "*) ;;
 		*) echo "build-dos.sh: $out/config.mk has other configure flags; configuring again." >&2; return 1 ;;
@@ -127,9 +132,13 @@ config_current() {
 		echo "build-dos.sh: $out/config.mk uses another SDL3 ($pkg); configuring again." >&2
 		return 1
 	fi
+	case " $cpp " in
+		*" $dos_cppflags "*) ;;
+		*) echo "build-dos.sh: $out/config.mk lacks $dos_cppflags; configuring again." >&2; return 1 ;;
+	esac
 }
 if [ -n "$*" ] || ! config_current; then
-	"$src/configure" "${conf_args[@]}" "$@"
+	CPPFLAGS="${CPPFLAGS:+$CPPFLAGS }$dos_cppflags" "$src/configure" "${conf_args[@]}" "$@"
 fi
 if ! config_current || ! grep -q '^DISABLE_GUI = 1$' config.mk; then
 	echo "build-dos.sh: $out/config.mk is not the DOS configuration after configure; not building." >&2
