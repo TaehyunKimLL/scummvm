@@ -108,6 +108,10 @@ conf_args=(--host=i586-pc-msdosdjgpp
 	--disable-detection-full --disable-gui --disable-translation --enable-release)
 mkdir -p "$out" "$src/dist/dos"
 cd "$out"
+# audio/decoders/vorbis.h: VorbisStream refills 4096 samples everywhere else;
+# here 1024, so that one refill stays short. Every object gets the define
+# (vorbis.cpp and the Nancy subclass both lay VorbisStream out from it).
+dos_cppflags="-DVORBIS_REFILL_SAMPLES=1024"
 # Configure again when there is no config.mk, when extra arguments are
 # given, or when the one there was made with other flags or another SDL3
 # (its SAVED_CONFIGFLAGS must start with conf_args - extra arguments of an
@@ -116,9 +120,10 @@ cd "$out"
 # stale flags and SDL3 of the old config.mk after a change to configure.
 config_current() {
 	[ -f config.mk ] || return 1
-	local saved pkg
+	local saved pkg cpp
 	saved="$(sed -n 's/^SAVED_CONFIGFLAGS *:= *//p' config.mk)"
 	pkg="$(sed -n 's/^SAVED_PKG_CONFIG_LIBDIR *:= *//p' config.mk)"
+	cpp="$(sed -n 's/^SAVED_CPPFLAGS *:= *//p' config.mk)"
 	case "$saved" in
 		"${conf_args[*]}"|"${conf_args[*]} "*) ;;
 		*) echo "build-dos.sh: $out/config.mk has other configure flags; configuring again." >&2; return 1 ;;
@@ -127,9 +132,13 @@ config_current() {
 		echo "build-dos.sh: $out/config.mk uses another SDL3 ($pkg); configuring again." >&2
 		return 1
 	fi
+	case " $cpp " in
+		*" $dos_cppflags "*) ;;
+		*) echo "build-dos.sh: $out/config.mk lacks $dos_cppflags; configuring again." >&2; return 1 ;;
+	esac
 }
 if [ -n "$*" ] || ! config_current; then
-	"$src/configure" "${conf_args[@]}" "$@"
+	CPPFLAGS="${CPPFLAGS:+$CPPFLAGS }$dos_cppflags" "$src/configure" "${conf_args[@]}" "$@"
 fi
 if ! config_current || ! grep -q '^DISABLE_GUI = 1$' config.mk; then
 	echo "build-dos.sh: $out/config.mk is not the DOS configuration after configure; not building." >&2
@@ -143,7 +152,22 @@ if [ "$edition" = sci ] && grep -qE '^#define USE_(FLAC|TREMOR|VORBIS|MAD)$' con
 	echo "build-dos.sh: the sci edition must link no codec; not building." >&2
 	exit 1
 fi
-make -j"$(nproc)"
+if [ "$edition" = scumm ]; then
+	# Recompile this object on every invocation: a previous build may have
+	# used another prefix (or no private header) without changing its mtime.
+	setup_flags=
+	bash "$src/backends/platform/dos/check-tremor-cache.sh" "$codecs"
+	if [ -f "$codecs/include/tremor/codec_internal.h" ]; then
+		setup_flags="-DVORBIS_SETUP_INTERNALS -I$codecs/include/tremor"
+	fi
+	# Force this object only: -B would also rebuild config.mk and rerun
+	# configure on every invocation. A prior prefix may have used other flags.
+	rm -f audio/decoders/vorbis.o
+	make audio/decoders/vorbis.o DOS_VORBIS_SETUP_CPPFLAGS="$setup_flags"
+	make -j"$(nproc)" DOS_VORBIS_SETUP_CPPFLAGS="$setup_flags"
+else
+	make -j"$(nproc)"
+fi
 # Interrupt handler code may reach nothing outside its locked range.
 if ! python3 "$src/backends/platform/dos/irqcheck.py" scummvm.exe; then
 	echo "build-dos.sh: scummvm.exe failed the interrupt code check (irqcheck.py); not staged." >&2
