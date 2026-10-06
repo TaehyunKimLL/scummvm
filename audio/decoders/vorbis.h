@@ -45,6 +45,14 @@
 #include "common/scummsys.h"
 #include "common/types.h"
 
+namespace Audio {
+/** Interleaved PCM samples per VorbisStream refill and DOS prefetch burst. */
+#ifndef VORBIS_REFILL_SAMPLES
+#define VORBIS_REFILL_SAMPLES 1024
+#endif
+enum { kVorbisRefillSamples = VORBIS_REFILL_SAMPLES };
+}
+
 #ifdef USE_VORBIS
 
 namespace Common {
