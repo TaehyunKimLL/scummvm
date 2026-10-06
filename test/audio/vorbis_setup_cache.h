@@ -595,6 +595,42 @@ public:
 #endif
 	}
 
+	void test_duplicate_insert_discards_losing_expansion() {
+#ifdef VORBIS_SETUP_CACHE_TESTS
+		Audio::VorbisSetupCache::setEnabled(false);
+		const Common::Array<int16> plain1 = decodeClip(kA1), plain2 = decodeClip(kA2);
+		Audio::VorbisSetupCache::setEnabled(true);
+		Audio::SeekableAudioStream *winner = openClip(kA1);
+		TS_ASSERT(winner);
+		if (!winner)
+			return;
+		const uint frees = Audio::VorbisSetupCache::duplicateInsertFrees();
+		Audio::VorbisSetupCache::forceDuplicateInsertOnce();
+		Audio::SeekableAudioStream *loser = openClip(kA2);
+		TS_ASSERT(loser);
+		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().entries, 1u);
+		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().misses, 1u);
+		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().hits, 0u);
+		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::duplicateInsertFrees(), frees + 1);
+		if (loser)
+			TS_ASSERT(readAll(loser) == plain2);
+		delete loser;
+		TS_ASSERT(readAll(winner) == plain1);
+		delete winner;
+		// Exercise the other destructor order with a still-live loser.
+		winner = openClip(kA1);
+		Audio::VorbisSetupCache::forceDuplicateInsertOnce();
+		loser = openClip(kA2);
+		TS_ASSERT(loser);
+		delete winner;
+		if (loser)
+			TS_ASSERT(readAll(loser) == plain2);
+		delete loser;
+		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::duplicateInsertFrees(), frees + 2);
+		TS_ASSERT_EQUALS(Audio::VorbisSetupCache::getStats().misses, 1u);
+#endif
+	}
+
 	void test_second_open_with_same_setup_hits() {
 #ifdef VORBIS_SETUP_CACHE_TESTS
 		delete openClip(kA1);

@@ -102,6 +102,9 @@ void setCapacity(uint n);
 /** Drop every cached setup and reset the stats. */
 void clear();
 Stats getStats();
+/** Test-only, linked only when VORBIS_SETUP_CACHE_TEST_HOOK builds vorbis.o. */
+void forceDuplicateInsertOnce();
+uint duplicateInsertFrees();
 
 } // End of namespace VorbisSetupCache
 
