@@ -97,6 +97,11 @@ Diagnostic keys, off by default (SCUMMVM.INI, `[scummvm]`):
   number of clips, `dos_vorbis_selftest_from=<index>` (-1) starts at that
   clip instead of spreading them over the file, and
   `dos_vorbis_selftest_no_cache=true` turns the Vorbis setup cache off.
+  The line ends `cold_clips=<n> requested=<wanted> failed=<n> cache_off=<0|1>`:
+  `requested` is the number of clips tried (the key, capped to what the file
+  has from `from` on), `failed` the clips whose file or stream did not open
+  (they are not in `clips`). A `clips` of 0 or less logs
+  `DOS: vorbis selftest: no clips requested` and does nothing.
 
 Measured in DOSBox-X at `cycles=fixed 40000` (about a Pentium 75), not on
 real hardware:

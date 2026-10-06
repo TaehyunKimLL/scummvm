@@ -36,7 +36,7 @@ namespace DOS {
  * the rest, with the TSC, and logs one "DOS: vorbis selftest" line. Does
  * nothing, and says so, without Vorbis.
  */
-void vorbisSelftest(const Common::String &path, uint clips, int from);
+void vorbisSelftest(const Common::String &path, int clips, int from);
 
 } // End of namespace DOS
 

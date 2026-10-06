@@ -75,7 +75,12 @@ bool readIndex(const Common::Path &name, Common::Array<Clip> &clips) {
 
 } // End of anonymous namespace
 
-void vorbisSelftest(const Common::String &path, uint wanted, int from) {
+void vorbisSelftest(const Common::String &path, int requestedClips, int from) {
+	if (requestedClips <= 0) {
+		g_system->logMessage(LogMessageType::kInfo, "DOS: vorbis selftest: no clips requested\n");
+		return;
+	}
+	uint wanted = requestedClips;
 	// The file is found through SearchMan, as the engine finds MONKEY2.SOG.
 	const Common::Path full(path, '/');
 	const Common::Path name = full.getLastComponent();
@@ -112,7 +117,7 @@ void vorbisSelftest(const Common::String &path, uint wanted, int from) {
 		from = clips.size() - 1;
 	if (wanted > clips.size() - (from < 0 ? 0 : from))
 		wanted = clips.size() - (from < 0 ? 0 : from);
-	uint done = 0, stereo = 0, rateMin = 0, rateMax = 0;
+	uint done = 0, failed = 0, stereo = 0, rateMin = 0, rateMax = 0;
 	uint64 samples = 0, decode = 0, openSum = 0, primeSum = 0;
 	uint32 openMax = 0, primeMax = 0, openPrimeMax = 0;
 	uint64 warmOpenSum = 0;
@@ -126,6 +131,7 @@ void vorbisSelftest(const Common::String &path, uint wanted, int from) {
 		Common::File *file = new Common::File;
 		if (!file->open(name)) {
 			delete file;
+			++failed;
 			continue;
 		}
 		Audio::SeekableAudioStream *s = Audio::makeVorbisStream(
@@ -133,8 +139,10 @@ void vorbisSelftest(const Common::String &path, uint wanted, int from) {
 			DisposeAfterUse::YES);
 		const uint64 t1 = DOS::irqRdtsc();
 		const Audio::VorbisSetupCache::Stats after = Audio::VorbisSetupCache::getStats();
-		if (!s)
+		if (!s) {
+			++failed;
 			continue;
+		}
 		const int ch = s->isStereo() ? 2 : 1;
 		const uint rate = s->getRate();
 		int got = s->readBuffer(buf, 4096 * ch);
@@ -175,19 +183,19 @@ void vorbisSelftest(const Common::String &path, uint wanted, int from) {
 		"open_us=%u/%u prime_us=%u/%u openprime_max_us=%u tsc_per_us=%u "
 		"cold_open_us=%u cold_prime_us=%u cold_openprime_us=%u "
 		"warm_clips=%u warm_open_us=%u/%u warm_openprime_max_us=%u "
-		"cold_clips=%u cache_off=%u\n",
+		"cold_clips=%u requested=%u failed=%u cache_off=%u\n",
 		done, stereo, rateMin, rateMax, (uint)samples, (uint)(decode / 1000),
 		done ? (uint)(openSum / tscPerUs / done) : 0, openMax,
 		done ? (uint)(primeSum / tscPerUs / done) : 0, primeMax, openPrimeMax, tscPerUs,
 		coldOpen, coldPrime, coldOpenPrime, warmCount,
 		warmCount ? (uint)(warmOpenSum / warmCount) : 0, warmOpenMax, warmOpenPrimeMax,
-		coldCount, noCache ? 1u : 0u).c_str());
+		coldCount, wanted, failed, noCache ? 1u : 0u).c_str());
 	Audio::VorbisSetupCache::setEnabled(true);
 }
 
 #else
 
-void vorbisSelftest(const Common::String &, uint, int) {
+void vorbisSelftest(const Common::String &, int, int) {
 	g_system->logMessage(LogMessageType::kInfo, "DOS: vorbis selftest: this build has no Vorbis\n");
 }
 
