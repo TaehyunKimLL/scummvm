@@ -544,9 +544,10 @@ VorbisStream::VorbisStream(Common::SeekableReadStream *inStream, DisposeAfterUse
 	if (scan && headers.rewound && !positioned)
 		headers.rewound = inStream->seek(start) && inStream->pos() == start;
 	const bool haveHeaders = positioned && scan && headers.rewound;
-	if (!positioned && !headers.rewound &&
-	    inStream->pos() != start + (int64)headers.initial.size()) {
-		// A failed reposition must not feed vorbisfile a misaligned source.
+	if (!positioned && !headers.rewound) {
+		// The rewind failed (twice, when the scan itself succeeded) and
+		// there is no retained prefix to replay: whatever pos() says, a
+		// failed reposition must not feed vorbisfile a misaligned source.
 		memset(&_ovFile, 0, sizeof(_ovFile));
 		_pos = _bufferEnd;
 		return;
