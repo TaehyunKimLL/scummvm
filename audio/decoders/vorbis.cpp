@@ -42,7 +42,9 @@
 #endif
 
 #ifdef VORBIS_SETUP_CACHE
+extern "C" {
 #include <codec_internal.h>
+}
 #endif
 
 namespace Audio {
@@ -333,13 +335,14 @@ struct HeaderPackets {
  */
 bool readHeaderPackets(Common::SeekableReadStream *stream, HeaderPackets &hp) {
 	const int64 start = stream->pos();
-	// The seek must succeed before reading anything: otherwise run the
-	// ordinary uncached open on the original source position.
-	if (start < 0 || !stream->seek(start) || stream->pos() != start || !stream->seek(0, SEEK_CUR))
+	// Verify the source can seek before scanning. Even if the final
+	// speculative rewind fails, the retained bytes can be replayed.
+	if (start < 0 || !stream->seek(0, SEEK_CUR) || stream->pos() != start)
 		return false;
 	ogg_sync_state oy;
 	ogg_stream_state os;
 	ogg_sync_init(&oy);
+	hp.initial.reserve(8192);
 	bool haveStream = false, bad = false;
 	int got = 0;
 	uint32 total = 0;
@@ -356,8 +359,9 @@ bool readHeaderPackets(Common::SeekableReadStream *stream, HeaderPackets &hp) {
 			if (!n)
 				break;
 			// Retain the exact read buffer for vorbisfile's initial input.
-			for (uint32 i = 0; i < n; ++i)
-				hp.initial.push_back((byte)buf[i]);
+			const uint32 oldSize = hp.initial.size();
+			hp.initial.resize(oldSize + n);
+			memcpy(hp.initial.begin() + oldSize, buf, n);
 			ogg_sync_wrote(&oy, n);
 			total += n;
 			continue;
@@ -433,15 +437,23 @@ static void *share(OggVorbis_File &vf, HeaderPackets &hp, bool &failedExpansion)
 #endif
 		e = cache().acquire(hp.data[2], vi->channels, blocksizes);
 	if (!e) {
-		// Expand the setup parsed by this very ov_open, not a second parse.
-		vorbis_dsp_state vd;
-		if (vorbis_synthesis_init(&vd, vi)) {
-			// A failed expansion leaves partially built tables. The old
-			// refill would also fail; do not initialize them a second time.
+		// Expand the books in this stream's parsed setup, without allocating
+		// throwaway DSP/PCM/mapping lookups merely to populate the cache.
+		ci->fullbooks = (codebook *)calloc(ci->books, sizeof(*ci->fullbooks));
+		if (!ci->fullbooks) {
 			failedExpansion = true;
 			return nullptr;
 		}
-		vorbis_dsp_clear(&vd);
+		for (int i = 0; i < ci->books; ++i) {
+			if (vorbis_book_init_decode(ci->fullbooks + i, ci->book_param[i])) {
+				// vorbis_info_clear owns both the expanded and still-packed
+				// books on this failure path; do not try a second expansion.
+				failedExpansion = true;
+				return nullptr;
+			}
+			vorbis_staticbook_destroy(ci->book_param[i]);
+			ci->book_param[i] = nullptr;
+		}
 		e = cache().insert(hp.data[2], vi->channels, blocksizes, vi);
 	} else {
 		freeCodecSetup(vi->codec_setup);
@@ -516,12 +528,17 @@ VorbisStream::VorbisStream(Common::SeekableReadStream *inStream, DisposeAfterUse
 	// Feed the exact scanned header bytes to vorbisfile rather than
 	// rereading a possibly changing source; position it after that buffer.
 	// The setup key then describes the bytes vorbisfile actually parsed.
-	const bool positioned = scan && headers.rewound &&
-		inStream->seek(start + headers.initial.size()) &&
-		inStream->pos() == start + (int64)headers.initial.size();
+	// The scan consumed exactly its retained prefix. Let vorbisfile read
+	// these same bytes even when the rewind failed; a seekable source
+	// remains seekable for the tail scan and later PCM seeks.
+	const bool positioned =
+		((scan && headers.rewound && inStream->seek(start + headers.initial.size()) &&
+		  inStream->pos() == start + (int64)headers.initial.size()) ||
+		 (!headers.rewound && !headers.initial.empty() &&
+		  inStream->pos() == start + (int64)headers.initial.size()));
 	if (scan && headers.rewound && !positioned)
 		headers.rewound = inStream->seek(start) && inStream->pos() == start;
-	const bool haveHeaders = positioned;
+	const bool haveHeaders = positioned && scan && headers.rewound;
 	if (!positioned && !headers.rewound &&
 	    inStream->pos() != start + (int64)headers.initial.size()) {
 		// A failed reposition must not feed vorbisfile a misaligned source.
@@ -529,9 +546,9 @@ VorbisStream::VorbisStream(Common::SeekableReadStream *inStream, DisposeAfterUse
 		_pos = _bufferEnd;
 		return;
 	}
-	// Without a successful rewind and subsequent positioning, the source
-	// remains advanced after the scan. Replay its bytes on the uncached path.
-	const char *initial = positioned || !headers.rewound ?
+	// If positioning failed after a successful rewind, replay is not
+	// guaranteed; only the original offset is safe for an ordinary open.
+	const char *initial = positioned ?
 		(headers.initial.empty() ? nullptr : (const char *)headers.initial.begin()) : nullptr;
 	const long ibytes = initial ? headers.initial.size() : 0;
 	// A single failed speculative rewind does not mean a stream is
