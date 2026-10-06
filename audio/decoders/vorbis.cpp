@@ -27,6 +27,11 @@
 #include "audio/decoders/vorbis.h"
 #include "audio/decoders/vorbis_intern.h"
 
+#ifdef __DJGPP__
+// build-dos.sh defines VORBIS_REFILL_SAMPLES=1024 for every object; vorbis.cpp
+// and the Nancy subclass must agree on the VorbisStream layout.
+static_assert(Audio::kVorbisRefillSamples == 1024, "the DOS build must compile with -DVORBIS_REFILL_SAMPLES=1024");
+#endif
 #ifdef USE_VORBIS
 
 #include "common/array.h"
