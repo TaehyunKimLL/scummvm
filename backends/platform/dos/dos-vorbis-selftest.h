@@ -30,9 +30,11 @@ namespace DOS {
  * dos_vorbis_selftest=<speech file>: opens @p clips clips of an Ogg Vorbis
  * speech file (monkey2.sog) the way SCUMM does for a talk line (a File, a
  * SeekableSubReadStream, makeVorbisStream; spread evenly over the index, or
- * the consecutive clips from index @p from if that is not negative), decodes the first 4096 frames
- * (what the mixer's priming costs) and then the rest, with the TSC, and logs
- * one "DOS: vorbis selftest" line. Does nothing, and says so, without Vorbis.
+ * the consecutive clips from index @p from if that is not negative), decodes
+ * the first 4096 frames (a conservative stand-in for what the prefetch ring
+ * reads ahead of a new line; the mixer itself no longer primes) and then
+ * the rest, with the TSC, and logs one "DOS: vorbis selftest" line. Does
+ * nothing, and says so, without Vorbis.
  */
 void vorbisSelftest(const Common::String &path, uint clips, int from);
 

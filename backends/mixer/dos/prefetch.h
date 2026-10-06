@@ -23,7 +23,6 @@
 #define BACKENDS_MIXER_DOS_PREFETCH_H
 
 #include "audio/audiostream.h"
-#include "audio/decoders/vorbis.h"
 #include "audio/mixer_intern.h"
 #include "common/scummsys.h"
 #include "common/util.h"
@@ -56,8 +55,13 @@ public:
 	static const int kSlots = 4;
 	/** Samples per ring: 32 KB, 186 ms of 44.1 kHz stereo or 372 ms mono. */
 	static const int kRingSamples = 16384;
-	/** Maximum samples decoded across all slots in one prefetchAll() call. */
-	static const int kBurstSamples = Audio::kVorbisRefillSamples;
+	/**
+	 * Samples copied into the rings in one prefetchAll() call (one mix piece;
+	 * a callback mixes several pieces) beyond the demand the slots measured:
+	 * the total is max(kBurstSamples, the sum of the slots' demand). Samples
+	 * copied, not decoded: a FLAC readBuffer(n) may decode a whole frame.
+	 */
+	static const int kBurstSamples = 1024;
 
 	enum State { kFree = 0, kLive = 1, kOrphan = 2 };
 
@@ -71,6 +75,8 @@ public:
 		int markLeft;	///< marker samples still to send before the stream's own
 		int markPos;	///< marker samples sent
 		int markPeriod;	///< marker period, in frames
+		int taken;		///< samples read() took since the last prefetchAll(): ring copies and miss decodes
+		int takenPrev;	///< the same for the piece before
 	};
 
 	PrefetchPool() : _nextSlot(0), _misses(0), _declined(0) {
@@ -83,6 +89,7 @@ public:
 			s.channels = 1;
 			s.markLeft = s.markPos = 0;
 			s.markPeriod = 2;
+			s.taken = s.takenPrev = 0;
 		}
 	}
 
@@ -100,7 +107,17 @@ public:
 	 */
 	Audio::AudioStream *wrap(Audio::AudioStream *parent, int markMillis = 0);
 
-	/** Audio thread, interrupts on: one shared burst, split by channel rate over live rings. */
+	/**
+	 * Audio thread, interrupts on, once per mix piece. Each live ring is
+	 * first topped up by what read() took from it in the last two pieces
+	 * (the larger of the two: its measured demand); what is left of the
+	 * kBurstSamples burst is then split over the live rings by channel
+	 * count. The total is max(kBurstSamples, the sum of the demand), so a
+	 * demand above the burst (44.1 kHz stereo music and speech at a 22050 Hz
+	 * output) is served ahead instead of being decoded under the mixer's
+	 * mutex. A stream wrapped this piece has no history and only gets the
+	 * shared headroom. The burst is per mix piece, not per callback.
+	 */
 	void prefetchAll() {
 		int weight = 0;
 		for (int i = 0; i < kSlots; i++)
@@ -109,6 +126,24 @@ public:
 		int budget = kBurstSamples;
 		const int start = _nextSlot;
 		_nextSlot = (_nextSlot + 1) % kSlots;
+		// Demand first. read() only adds to taken (under the mixer's mutex);
+		// this runs on the same cooperative thread, between pieces.
+		for (int i = 0; i < kSlots; i++) {
+			Slot &s = _slots[(start + i) % kSlots];
+			if (s.state != kLive)
+				continue;
+			int need = MAX(s.taken, s.takenPrev);
+			need -= need % s.channels;
+			s.takenPrev = s.taken;
+			s.taken = 0;
+			if (need > 0) {
+				const int before = s.fill;
+				fill(s, MIN(kRingSamples, s.fill + need));
+				budget -= s.fill - before;
+			}
+		}
+		if (budget < 0)
+			budget = 0;
 		for (int i = 0; i < kSlots && weight; i++) {
 			Slot &s = _slots[(start + i) % kSlots];
 			if (s.state != kLive)
@@ -163,12 +198,15 @@ public:
 			s.head = (s.head + k) % kRingSamples;
 			s.fill -= k;
 			done += k;
+			s.taken += k;
 		}
 		if (done < n && !s.parent->endOfData()) {
 			_misses++;
 			const int got = s.parent->readBuffer(buf + done, n - done);
-			if (got > 0)
+			if (got > 0) {
 				done += got;
+				s.taken += got;
+			}
 		}
 		return done;
 	}
@@ -197,6 +235,7 @@ private:
 		s.ring = nullptr;
 		s.head = s.fill = 0;
 		s.markLeft = s.markPos = 0;
+		s.taken = s.takenPrev = 0;
 		s.state = kFree;
 	}
 
@@ -256,6 +295,7 @@ inline Audio::AudioStream *PrefetchPool::wrap(Audio::AudioStream *parent, int ma
 	s->markPeriod = MAX(2, rate / 1000);
 	s->markLeft = (markMillis > 0) ? rate * markMillis / 1000 * s->channels : 0;
 	s->markPos = 0;
+	s->taken = s->takenPrev = 0;
 	s->state = kLive;
 	return new PrefetchProxy(*this, *s, rate, stereo);
 }
