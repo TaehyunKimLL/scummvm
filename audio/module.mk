@@ -174,5 +174,11 @@ MODULE_OBJS += \
 	soundfont/vab/vab.o
 endif
 
+# Only the DOS Tremor build explicitly opts into the private setup layout.
+# build-dos.sh supplies this from the same prefix as libvorbisidec.a.
+ifeq ($(BACKEND),dos)
+audio/decoders/vorbis.o: CPPFLAGS += $(DOS_VORBIS_SETUP_CPPFLAGS)
+endif
+
 # Include common rules
 include $(srcdir)/rules.mk

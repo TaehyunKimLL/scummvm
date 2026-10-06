@@ -32,10 +32,16 @@
 #include "backends/mixer/dos/prefetch.h"
 #include "backends/platform/dos/dos-exit.h"
 #include "backends/platform/dos/dos-irq.h"
+#include "audio/decoders/vorbis.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/system.h"
 #include "common/textconsole.h"
+
+// build-dos.sh defines VORBIS_REFILL_SAMPLES=1024 for every object; vorbis.cpp
+// and the Nancy subclass must agree on the VorbisStream layout. The check lives
+// here (compiled into SCUMM.EXE and SCI.EXE alike) so shared code has no DOS ifdef.
+static_assert(Audio::kVorbisRefillSamples == 1024, "the DOS build must compile with -DVORBIS_REFILL_SAMPLES=1024");
 
 // sdl3-sb-stats.patch (link-checked through DOS_SBStatsChecked in dos-irq.cpp).
 extern "C" void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *minAvail, int *chunk, int resetMin);

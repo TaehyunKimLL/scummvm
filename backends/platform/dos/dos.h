@@ -94,9 +94,13 @@ private:
 	void timerSelftest();
 	/** dos_mixer_selftest=true: checks the Sound Blaster mixer (see dos.cpp). */
 	void mixerSelftest();
+	/** Logs the mixer's counters (the debug socket's `audio`) as "DOS: audio <phase> ..." */
+	void logAudioStats(const char *phase);
 
 	Common::EventSource *_eventSource;	///< a DosEventSource
 	NullMixerManager *_nullMixer;	///< _mixerManager, when there is no audio device
+	uint32 _statsLogMs;	///< dos_stats_log in ms; 0 logs only at quit
+	uint32 _statsNextMs;	///< getMillis() of the next periodic reading
 };
 
 #endif

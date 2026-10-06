@@ -53,6 +53,9 @@
 #include "backends/platform/dos/dos-heap.h"
 #include "backends/platform/dos/dos-irq.h"
 #include "backends/platform/dos/dos-memory.h"
+#ifdef USE_VORBIS
+#include "backends/platform/dos/dos-vorbis-selftest.h"
+#endif
 #include "backends/platform/dos/dos-loading.h"
 #include "backends/platform/dos/dos-silence.h"
 #include "backends/platform/dos/blaster.h"
@@ -60,10 +63,11 @@
 #include "common/textconsole.h"
 #include "backends/fs/posix/posix-fs-factory.h"
 #include "backends/mutex/dos/dos-mutex.h"
-#include "backends/saves/default/default-saves.h"
+#include "backends/platform/dos/dos-savefile.h"
 #include "backends/timer/dos/dos-timer.h"
 #include "backends/events/default/default-events.h"
 #include "backends/events/dos/dos-events.h"
+#include "backends/mixer/dos/dos-audio-stats.h"
 #include "backends/mixer/dos/dos-mixer.h"
 #include "backends/mixer/null/null-mixer.h"
 #include "audio/audiostream.h"
@@ -152,7 +156,7 @@ void logMemInfo(const char *phase) {
 
 }
 
-OSystem_DOS::OSystem_DOS() : _eventSource(nullptr), _nullMixer(nullptr) {
+OSystem_DOS::OSystem_DOS() : _eventSource(nullptr), _nullMixer(nullptr), _statsLogMs(0), _statsNextMs(0) {
 	// Runs after the timer's teardown (registered later, run earlier).
 	atexit(flushDeferredLogAtExit);
 	_fsFactory = new POSIXFilesystemFactory();
@@ -160,6 +164,7 @@ OSystem_DOS::OSystem_DOS() : _eventSource(nullptr), _nullMixer(nullptr) {
 
 OSystem_DOS::~OSystem_DOS() {
 	SDL_SetLogOutputFunction(SDL_GetDefaultLogOutputFunction(), nullptr);	// logMessage() goes with us
+	logAudioStats("quit");
 	// The timer first: its interrupt handler runs timer procs that may
 	// use the mixer, which ModularMixerBackend's destructor deletes.
 	DosTimerManager::logStats();
@@ -223,6 +228,15 @@ void OSystem_DOS::initBackend() {
 	// physical memory at the start; 0 is off.
 	ConfMan.registerDefault("dos_pagefault_selftest", 0);
 	ConfMan.registerDefault("dos_pagefault_selftest_hz", 100);
+#ifdef USE_VORBIS
+	// dos_vorbis_selftest=<speech file, e.g. D:/MONKEY2.SOG>: opens, primes and decodes
+	// dos_vorbis_selftest_clips clips (from index dos_vorbis_selftest_from on, or spread over the file)
+	// with the TSC and logs the cost (dos-vorbis-selftest.cpp).
+	ConfMan.registerDefault("dos_vorbis_selftest", "");
+	ConfMan.registerDefault("dos_vorbis_selftest_clips", 24);
+	ConfMan.registerDefault("dos_vorbis_selftest_from", -1);
+	ConfMan.registerDefault("dos_vorbis_selftest_no_cache", false);
+#endif
 	// dos_loading_screen=false: no loading screen (DOS::Loading), the
 	// launcher's mode set at once as before.
 	ConfMan.registerDefault("dos_loading_screen", true);
@@ -252,6 +266,11 @@ void OSystem_DOS::initBackend() {
 	// screen's last line and in EXITLOG.TXT (dos-exit.h).
 	ConfMan.registerDefault("dos_exit_trace", false);
 	DOS::exitTraceStart(ConfMan.getBool("dos_exit_trace"));
+	// dos_stats_log=<seconds>: a "DOS: audio" line (the mixer's counters)
+	// that often as well as at quit; 0 logs the quit line only.
+	ConfMan.registerDefault("dos_stats_log", 0);
+	_statsLogMs = (uint32)CLIP(ConfMan.getInt("dos_stats_log"), 0, 3600) * 1000;
+	_statsNextMs = getMillis() + _statsLogMs;
 
 	// ScummVM's splash goes to the overlay, which this backend does not
 	// show yet (it draws nothing), and deciding whether to show it made
@@ -273,7 +292,7 @@ void OSystem_DOS::initBackend() {
 	// the PIT, before the timer sets it to 1 kHz.
 	_timerManager = new DosTimerManager();
 	_eventManager = new DefaultEventManager(this);
-	_savefileManager = new DefaultSaveFileManager("SAVES");
+	_savefileManager = new DOS::SaveFileManager("SAVES");
 	_mixerManager = new DosMixerManager();
 	_mixerManager->init();
 	if (!_mixerManager->getMixer()) {
@@ -305,6 +324,11 @@ void OSystem_DOS::initBackend() {
 	if (ConfMan.getInt("dos_pagefault_selftest") != 0)
 		DOS::pagefaultSelftestStart(ConfMan.getInt("dos_pagefault_selftest"),
 			ConfMan.getInt("dos_pagefault_selftest_hz"));
+#ifdef USE_VORBIS
+	if (!ConfMan.get("dos_vorbis_selftest").empty())
+		DOS::vorbisSelftest(ConfMan.get("dos_vorbis_selftest"), ConfMan.getInt("dos_vorbis_selftest_clips"),
+			ConfMan.getInt("dos_vorbis_selftest_from"));
+#endif
 }
 
 static volatile uint32 g_selftestCalls = 0;
@@ -862,6 +886,10 @@ void pagefaultSelftestStop() {
 bool OSystem_DOS::pollEvent(Common::Event &event) {
 	flushDeferredLog();
 	DOS::pagefaultSelftestPoll();
+	if (_statsLogMs && (int32)(getMillis() - _statsNextMs) >= 0) {
+		_statsNextMs += _statsLogMs;
+		logAudioStats("tick");
+	}
 	// The IRQ0 handler runs the timers; this is the fallback should it
 	// not have gone in, or not be able to.
 	if (DosTimerManager::procsOnMainThread()) {
@@ -875,6 +903,12 @@ bool OSystem_DOS::pollEvent(Common::Event &event) {
 	if (((DosGraphicsManager *)_graphicsManager)->loadingPoll(got, event))
 		return false;
 	return got;
+}
+
+void OSystem_DOS::logAudioStats(const char *phase) {
+	DOS::AudioStats st;
+	if (DOS::audioStats(st))
+		logMessage(LogMessageType::kInfo, Common::String::format("DOS: audio %s %s\n", phase, DOS::formatAudioStats(st).c_str()).c_str());
 }
 
 void OSystem_DOS::engineInit() {
@@ -1050,6 +1084,7 @@ static void quitSdl(int firstStep) {
 
 void OSystem_DOS::quit() {
 	DOS::exitMark(DOS::kExitQuit, "quit()");
+	logAudioStats("quit");
 	DOS::logMemInfo("quit");
 	DOS::exitMark(DOS::kExitQuitMemInfo, "memory logged");
 	DOS::pagefaultSelftestStop();
