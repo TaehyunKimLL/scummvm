@@ -53,13 +53,15 @@ bool refuse() {
 
 class DosPrefetchPoolTestSuite : public CxxTest::TestSuite {
 public:
-	void test_wrap_primes_on_the_spot_and_only_reap_deletes() {
+	void test_wrap_starts_empty_and_only_reap_deletes() {
 		int deleted = 0;
 		DOS::PrefetchPool pool;
 		FakeStream *f = new FakeStream(100000, false, &deleted);
 		Audio::AudioStream *p = pool.wrap(f);
 		TS_ASSERT_DIFFERS(p, (Audio::AudioStream *)f);
-		TS_ASSERT_EQUALS(f->pos(), DOS::PrefetchPool::kPrimeSamples);
+		TS_ASSERT_EQUALS(f->pos(), 0);
+		TS_ASSERT(!p->endOfData());
+		TS_ASSERT(!p->endOfStream());
 		TS_ASSERT_EQUALS(pool.countSlots(DOS::PrefetchPool::kLive), 1);
 		delete p;
 		TS_ASSERT_EQUALS(deleted, 0);
@@ -67,6 +69,82 @@ public:
 		pool.reap();
 		TS_ASSERT_EQUALS(deleted, 1);
 		TS_ASSERT_EQUALS(pool.countSlots(DOS::PrefetchPool::kFree), DOS::PrefetchPool::kSlots);
+	}
+
+	void test_prefetch_caps_each_call_without_extra_misses() {
+		int deleted = 0;
+		DOS::PrefetchPool pool;
+		FakeStream *f = new FakeStream(100000, false, &deleted);
+		Audio::AudioStream *p = pool.wrap(f);
+		int16 buf[512];
+		for (int i = 0; i < 48; i++) {
+			const int before = f->pos();
+			pool.prefetchAll();
+			TS_ASSERT(f->pos() - before <= DOS::PrefetchPool::kBurstSamples);
+			TS_ASSERT_EQUALS(p->readBuffer(buf, 512), 512);
+			for (int j = 0; j < 512; j++)
+				TS_ASSERT_EQUALS(buf[j], (int16)((i * 512 + j) & 0x7fff));
+		}
+		TS_ASSERT_EQUALS(f->pos(), 48 * 512 + DOS::PrefetchPool::kRingSamples - 512);
+		TS_ASSERT_EQUALS(pool.misses(), 0u);
+		delete p;
+		pool.reap();
+	}
+
+	void test_two_cold_streams_share_one_burst_at_full_rate() {
+		int deleted = 0;
+		DOS::PrefetchPool pool;
+		FakeStream *speech = new FakeStream(100000, false, &deleted, 48000);
+		FakeStream *music = new FakeStream(100000, true, &deleted, 44100);
+		Audio::AudioStream *voice = pool.wrap(speech);
+		Audio::AudioStream *track = pool.wrap(music);
+		// Conservatively consume 279 speech samples every piece (48 kHz
+		// resampling of 256 frames at 44.1 kHz) and 512 stereo music samples.
+		int16 voiceBuf[280], musicBuf[512];
+		int voiceRead = 0, musicRead = 0;
+		for (int piece = 0; piece < 128; piece++) {
+			const int before = speech->pos() + music->pos();
+			pool.prefetchAll();
+			const int added = speech->pos() + music->pos() - before;
+			TS_ASSERT(added <= DOS::PrefetchPool::kBurstSamples);
+			TS_ASSERT(added > 0);
+			const int voiceN = 279;
+			TS_ASSERT_EQUALS(voice->readBuffer(voiceBuf, voiceN), voiceN);
+			TS_ASSERT_EQUALS(track->readBuffer(musicBuf, 512), 512);
+			for (int i = 0; i < voiceN; i++)
+				TS_ASSERT_EQUALS(voiceBuf[i], (int16)((voiceRead + i) & 0x7fff));
+			for (int i = 0; i < 512; i++)
+				TS_ASSERT_EQUALS(musicBuf[i], (int16)((musicRead + i) & 0x7fff));
+			voiceRead += voiceN;
+			musicRead += 512;
+		}
+		TS_ASSERT_EQUALS(pool.misses(), 0u);
+		TS_ASSERT(speech->pos() > voiceRead);
+		TS_ASSERT(music->pos() > musicRead);
+		delete voice;
+		delete track;
+		pool.reap();
+		TS_ASSERT_EQUALS(deleted, 2);
+	}
+
+	void test_prefetch_caps_stereo_bursts_at_the_ring_edge() {
+		int deleted = 0;
+		DOS::PrefetchPool pool;
+		FakeStream *f = new FakeStream(100000, true, &deleted);
+		Audio::AudioStream *p = pool.wrap(f);
+		int16 buf[564];
+		for (int i = 0; i < 48; i++) {
+			const int before = f->pos();
+			pool.prefetchAll();
+			TS_ASSERT(f->pos() - before <= DOS::PrefetchPool::kBurstSamples);
+			TS_ASSERT_EQUALS(f->pos() % 2, 0);
+			TS_ASSERT_EQUALS(p->readBuffer(buf, 564), 564);
+			for (int j = 0; j < 564; j++)
+				TS_ASSERT_EQUALS(buf[j], (int16)((i * 564 + j) & 0x7fff));
+		}
+		TS_ASSERT_EQUALS(pool.misses(), 0u);
+		delete p;
+		pool.reap();
 	}
 
 	void test_reads_come_in_order_across_the_ring_edge() {
@@ -96,11 +174,14 @@ public:
 		int deleted = 0;
 		DOS::PrefetchPool pool;
 		Audio::AudioStream *p = pool.wrap(new FakeStream(100000, false, &deleted));
-		int16 buf[DOS::PrefetchPool::kPrimeSamples];
-		TS_ASSERT_EQUALS(p->readBuffer(buf, DOS::PrefetchPool::kPrimeSamples), DOS::PrefetchPool::kPrimeSamples);
-		TS_ASSERT_EQUALS(pool.misses(), 0u);
+		int16 buf[100];
 		TS_ASSERT_EQUALS(p->readBuffer(buf, 100), 100);
-		TS_ASSERT_EQUALS(buf[0], (int16)DOS::PrefetchPool::kPrimeSamples);
+		TS_ASSERT_EQUALS(buf[0], 0);
+		TS_ASSERT_EQUALS(buf[99], 99);
+		TS_ASSERT_EQUALS(pool.misses(), 1u);
+		pool.prefetchAll();
+		TS_ASSERT_EQUALS(p->readBuffer(buf, 100), 100);
+		TS_ASSERT_EQUALS(buf[0], 100);
 		TS_ASSERT_EQUALS(pool.misses(), 1u);
 		delete p;
 		pool.reap();
