@@ -567,6 +567,60 @@ public:
 #endif
 	}
 
+	void test_failed_reposition_and_failed_rewind_ends_the_stream_without_reading() {
+#ifdef VORBIS_SETUP_CACHE_TESTS
+		Audio::VorbisSetupCache::setEnabled(true);
+		Common::String data(kA1.b64);
+		Common::SeekableReadStream *raw = Common::b64DecodeStream(data, kA1.size);
+		TS_ASSERT(raw);
+		if (!raw)
+			return;
+		// The header scan and its rewind succeed. Then the seek to the end
+		// of the scanned bytes "fails" but moves there, and the second
+		// rewind fails where it stands: the source is at start + scanned
+		// bytes with no way back, which is where the old pos() check was
+		// fooled into opening vorbisfile from the wrong place.
+		class StuckAfterScan : public Common::SeekableReadStream {
+		public:
+			explicit StuckAfterScan(Common::SeekableReadStream *s) : _s(s), _seeks(0), _readsAfter(0) {}
+			~StuckAfterScan() { delete _s; }
+			int readsAfterStuck() const { return _readsAfter; }
+			int seeks() const { return _seeks; }
+			uint32 read(void *dst, uint32 n) override {
+				if (_seeks >= 4)
+					++_readsAfter;
+				return _s->read(dst, n);
+			}
+			bool eos() const override { return _s->eos(); }
+			bool err() const override { return _s->err(); }
+			void clearErr() override { _s->clearErr(); }
+			int64 pos() const override { return _s->pos(); }
+			int64 size() const override { return _s->size(); }
+			bool seek(int64 offs, int whence = SEEK_SET) override {
+				++_seeks;
+				if (_seeks == 3) {
+					_s->seek(offs, whence);
+					return false;
+				}
+				if (_seeks == 4)
+					return false;
+				return _s->seek(offs, whence);
+			}
+		private:
+			Common::SeekableReadStream *_s;
+			int _seeks;
+			int _readsAfter;
+		};
+		StuckAfterScan *input = new StuckAfterScan(raw);
+		Audio::SeekableAudioStream *s = Audio::makeVorbisStream(input, DisposeAfterUse::NO);
+		TS_ASSERT(!s);
+		delete s;
+		TS_ASSERT_EQUALS(input->seeks(), 4);
+		TS_ASSERT_EQUALS(input->readsAfterStuck(), 0);
+		delete input;
+#endif
+	}
+
 	void test_decode_error_does_not_invalidate_shared_setup() {
 #ifdef VORBIS_SETUP_CACHE_TESTS
 		Audio::SeekableAudioStream *valid = openClip(kA1);
