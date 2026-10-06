@@ -111,6 +111,15 @@ namespace {
 
 // Header packets beyond this many bytes from the start are not looked for.
 const uint32 kMaxHeaderBytes = 65536;
+#ifdef VORBIS_SETUP_CACHE_TEST_HOOK
+bool g_forceDuplicateInsert = false;
+uint g_duplicateInsertFrees = 0;
+bool forceDuplicateInsert() {
+	const bool force = g_forceDuplicateInsert;
+	g_forceDuplicateInsert = false;
+	return force;
+}
+#endif
 
 struct Entry {
 	Common::Array<byte> setup;	///< the setup header packet
@@ -208,6 +217,9 @@ public:
 			// failure/destructor must see only the winner's live setup.
 			donor->codec_setup = e->codecSetup;
 			freeCodecSetup(codecSetup);
+#ifdef VORBIS_SETUP_CACHE_TEST_HOOK
+			++g_duplicateInsertFrees;
+#endif
 		}
 		destroy(dead);
 		return e;
@@ -420,7 +432,12 @@ static void *share(OggVorbis_File &vf, HeaderPackets &hp, bool &failedExpansion)
 		if (!ci->book_param[i])
 			return nullptr;
 	const int blocksizes[2] = { vorbis_info_blocksize(vi, 0), vorbis_info_blocksize(vi, 1) };
-	Entry *e = cache().acquire(hp.data[2], vi->channels, blocksizes);
+	Entry *e = nullptr;
+#ifdef VORBIS_SETUP_CACHE_TEST_HOOK
+	// Deterministically exercise a second insert after the first lookup misses.
+	if (!forceDuplicateInsert())
+#endif
+		e = cache().acquire(hp.data[2], vi->channels, blocksizes);
 	if (!e) {
 		// Expand the setup parsed by this very ov_open, not a second parse.
 		vorbis_dsp_state vd;
@@ -450,6 +467,14 @@ static void unshare(OggVorbis_File &vf, void *entry) {
 void setEnabled(bool enabled) {
 	cache().setEnabled(enabled);
 }
+#ifdef VORBIS_SETUP_CACHE_TEST_HOOK
+void forceDuplicateInsertOnce() {
+	g_forceDuplicateInsert = true;
+}
+uint duplicateInsertFrees() {
+	return g_duplicateInsertFrees;
+}
+#endif
 
 void setCapacity(uint n) {
 	cache().setCapacity(n);

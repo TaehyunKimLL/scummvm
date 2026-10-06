@@ -20,7 +20,7 @@ TESTS        := $(srcdir)/test/common/*.h \
 # Cache opt-in requires the exact Tremor private codec_setup layout.
 ifdef USE_TREMOR
 ifneq ($(wildcard $(TREMOR_SETUP_SRC)/codec_internal.h),)
-audio/decoders/vorbis.o: CPPFLAGS += -DVORBIS_SETUP_INTERNALS -I$(TREMOR_SETUP_SRC)
+audio/decoders/vorbis.o: CPPFLAGS += -DVORBIS_SETUP_INTERNALS -DVORBIS_SETUP_CACHE_TEST_HOOK -I$(TREMOR_SETUP_SRC)
 endif
 endif
 
