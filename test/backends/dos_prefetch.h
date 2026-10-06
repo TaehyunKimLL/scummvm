@@ -91,6 +91,42 @@ public:
 		pool.reap();
 	}
 
+	void test_two_cold_streams_share_one_burst_at_full_rate() {
+		int deleted = 0;
+		DOS::PrefetchPool pool;
+		FakeStream *speech = new FakeStream(100000, false, &deleted, 48000);
+		FakeStream *music = new FakeStream(100000, true, &deleted, 44100);
+		Audio::AudioStream *voice = pool.wrap(speech);
+		Audio::AudioStream *track = pool.wrap(music);
+		// Conservatively consume 279 speech samples every piece (48 kHz
+		// resampling of 256 frames at 44.1 kHz) and 512 stereo music samples.
+		int16 voiceBuf[280], musicBuf[512];
+		int voiceRead = 0, musicRead = 0;
+		for (int piece = 0; piece < 128; piece++) {
+			const int before = speech->pos() + music->pos();
+			pool.prefetchAll();
+			const int added = speech->pos() + music->pos() - before;
+			TS_ASSERT(added <= DOS::PrefetchPool::kBurstSamples);
+			TS_ASSERT(added > 0);
+			const int voiceN = 279;
+			TS_ASSERT_EQUALS(voice->readBuffer(voiceBuf, voiceN), voiceN);
+			TS_ASSERT_EQUALS(track->readBuffer(musicBuf, 512), 512);
+			for (int i = 0; i < voiceN; i++)
+				TS_ASSERT_EQUALS(voiceBuf[i], (int16)((voiceRead + i) & 0x7fff));
+			for (int i = 0; i < 512; i++)
+				TS_ASSERT_EQUALS(musicBuf[i], (int16)((musicRead + i) & 0x7fff));
+			voiceRead += voiceN;
+			musicRead += 512;
+		}
+		TS_ASSERT_EQUALS(pool.misses(), 0u);
+		TS_ASSERT(speech->pos() > voiceRead);
+		TS_ASSERT(music->pos() > musicRead);
+		delete voice;
+		delete track;
+		pool.reap();
+		TS_ASSERT_EQUALS(deleted, 2);
+	}
+
 	void test_prefetch_caps_stereo_bursts_at_the_ring_edge() {
 		int deleted = 0;
 		DOS::PrefetchPool pool;

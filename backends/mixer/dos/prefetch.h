@@ -23,6 +23,7 @@
 #define BACKENDS_MIXER_DOS_PREFETCH_H
 
 #include "audio/audiostream.h"
+#include "audio/decoders/vorbis.h"
 #include "audio/mixer_intern.h"
 #include "common/scummsys.h"
 #include "common/util.h"
@@ -55,8 +56,8 @@ public:
 	static const int kSlots = 4;
 	/** Samples per ring: 32 KB, 186 ms of 44.1 kHz stereo or 372 ms mono. */
 	static const int kRingSamples = 16384;
-	/** Maximum samples decoded per live stream in one prefetchAll() call. */
-	static const int kBurstSamples = 4096;
+	/** Maximum samples decoded across all slots in one prefetchAll() call. */
+	static const int kBurstSamples = Audio::kVorbisRefillSamples;
 
 	enum State { kFree = 0, kLive = 1, kOrphan = 2 };
 
@@ -72,7 +73,7 @@ public:
 		int markPeriod;	///< marker period, in frames
 	};
 
-	PrefetchPool() : _misses(0), _declined(0) {
+	PrefetchPool() : _nextSlot(0), _misses(0), _declined(0) {
 		for (int i = 0; i < kSlots; i++) {
 			Slot &s = _slots[i];
 			s.state = kFree;
@@ -99,11 +100,26 @@ public:
 	 */
 	Audio::AudioStream *wrap(Audio::AudioStream *parent, int markMillis = 0);
 
-	/** Audio thread, interrupts on: add at most one bounded burst per live ring. */
+	/** Audio thread, interrupts on: one shared burst, split by channel rate over live rings. */
 	void prefetchAll() {
+		int weight = 0;
 		for (int i = 0; i < kSlots; i++)
 			if (_slots[i].state == kLive)
-				fill(_slots[i], MIN(kRingSamples, _slots[i].fill + kBurstSamples));
+				weight += _slots[i].channels;
+		int budget = kBurstSamples;
+		const int start = _nextSlot;
+		_nextSlot = (_nextSlot + 1) % kSlots;
+		for (int i = 0; i < kSlots && weight; i++) {
+			Slot &s = _slots[(start + i) % kSlots];
+			if (s.state != kLive)
+				continue;
+			int allotment = budget * s.channels / weight;
+			allotment -= allotment % s.channels;
+			const int before = s.fill;
+			fill(s, MIN(kRingSamples, s.fill + allotment));
+			budget -= s.fill - before;
+			weight -= s.channels;
+		}
 	}
 
 	/** Interrupts on: deletes the streams whose proxies the mixer let go of. */
@@ -185,6 +201,7 @@ private:
 	}
 
 	Slot _slots[kSlots];
+	int _nextSlot;
 	uint32 _misses;
 	volatile uint32 _declined;
 };
@@ -258,7 +275,7 @@ public:
 		: Audio::MixerImpl(sampleRate, stereo, outBufSize), _pool(pool), _hook(nullptr), _hookCtx(nullptr),
 		  _guard(nullptr), _latencyFn(nullptr), _latencyCtx(nullptr), _markMillis(0), _speechStarts(0), _musicStarts(0) {}
 
-	/** Called at every speech stream's start, before its prime. */
+	/** Called at every speech stream's start, before it is wrapped. */
 	void setSpeechHook(SpeechHook fn, void *ctx) {
 		_hook = fn;
 		_hookCtx = ctx;
