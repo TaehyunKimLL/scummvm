@@ -9,7 +9,7 @@ TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/common/compression/*.h \
 	$(srcdir)/test/base/*.h \
 	$(srcdir)/test/common/formats/*.h \
-	$(srcdir)/test/audio/*.h \
+	$(filter-out $(srcdir)/test/audio/vorbis_setup_cache.h,$(wildcard $(srcdir)/test/audio/*.h)) \
 	$(srcdir)/test/math/*.h \
 	$(srcdir)/test/graphics/hires_text*.h \
 	$(srcdir)/test/graphics/korfont.h \
@@ -17,9 +17,28 @@ TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/image/*.h \
 	$(srcdir)/test/backends/surfacesdl_hwformat.h \
 	$(srcdir)/test/backends/dos_*.h
+# Cache opt-in requires the exact Tremor private codec_setup layout. This hook
+# (and the -I for Tremor's private header) is for the host test runner only:
+# the DOS build gets its own flags from build-dos.sh and must never take it.
+ifneq ($(BACKEND),dos)
+ifdef USE_TREMOR
+ifneq ($(wildcard $(TREMOR_SETUP_SRC)/codec_internal.h),)
+audio/decoders/vorbis.o: CPPFLAGS += -DVORBIS_SETUP_INTERNALS -DVORBIS_SETUP_CACHE_TEST_HOOK -I$(TREMOR_SETUP_SRC)
+endif
+endif
+endif
+
 # The debug socket's wire protocol and the hi-res text screen popup's logic
 # only; the rest of gui/ is not linked.
 TEST_LIBS    := gui/debugsocket-protocol.o gui/hirestextoptions.o
+
+ifdef USE_OGG
+ifdef USE_TREMOR
+ifneq ($(wildcard $(TREMOR_SETUP_SRC)/codec_internal.h),)
+TESTS += $(srcdir)/test/audio/vorbis_setup_cache.h
+endif
+endif
+endif
 
 ifdef POSIX
 TEST_LIBS += test/system/null_osystem.o \

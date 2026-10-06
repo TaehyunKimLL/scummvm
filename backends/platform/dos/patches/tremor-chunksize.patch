@@ -1,0 +1,11 @@
+--- a/ivorbisfile.h
++++ b/ivorbisfile.h
+@@ -26,7 +26,7 @@
+ #include <stdio.h>
+ #include "ivorbiscodec.h"
+ 
+-#define CHUNKSIZE 65535
++#define CHUNKSIZE 4096
+ #define READSIZE  1024
+ /* The function prototypes for the callbacks are basically the same as for
+  * the stdio functions fread, fseek, fclose, ftell. 

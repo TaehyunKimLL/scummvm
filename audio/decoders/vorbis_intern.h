@@ -39,6 +39,7 @@
 #include "common/stream.h"
 
 #include "audio/audiostream.h"
+#include "audio/decoders/vorbis.h"
 #include "audio/timestamp.h"
 
 #ifdef USE_TREMOR
@@ -61,9 +62,12 @@ protected:
 
 	OggVorbis_File _ovFile;
 
-	int16 _buffer[4096];
+	int16 _buffer[kVorbisRefillSamples];
 	const int16 *_bufferEnd;
 	const int16 *_pos;
+
+	/** The shared setup _ovFile decodes with, or nullptr (see VorbisSetupCache). */
+	void *_sharedSetup;
 
 public:
 	VorbisStream(Common::SeekableReadStream *inStream, DisposeAfterUse::Flag dispose);
