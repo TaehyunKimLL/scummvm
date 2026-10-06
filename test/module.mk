@@ -17,10 +17,14 @@ TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/image/*.h \
 	$(srcdir)/test/backends/surfacesdl_hwformat.h \
 	$(srcdir)/test/backends/dos_*.h
-# Cache opt-in requires the exact Tremor private codec_setup layout.
+# Cache opt-in requires the exact Tremor private codec_setup layout. This hook
+# (and the -I for Tremor's private header) is for the host test runner only:
+# the DOS build gets its own flags from build-dos.sh and must never take it.
+ifneq ($(BACKEND),dos)
 ifdef USE_TREMOR
 ifneq ($(wildcard $(TREMOR_SETUP_SRC)/codec_internal.h),)
 audio/decoders/vorbis.o: CPPFLAGS += -DVORBIS_SETUP_INTERNALS -DVORBIS_SETUP_CACHE_TEST_HOOK -I$(TREMOR_SETUP_SRC)
+endif
 endif
 endif
 
