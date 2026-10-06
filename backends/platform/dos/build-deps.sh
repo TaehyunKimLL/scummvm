@@ -138,6 +138,9 @@ build_codecs() (
 	mkdir -p "$codecs/include/tremor"
 	cp "$work/tremor/ivorbiscodec.h" "$work/tremor/ivorbisfile.h" "$work/tremor/config_types.h" \
 		"$codecs/include/tremor/"
+	# The opt-in setup cache uses these private layouts from the same Tremor
+	# source as libvorbisidec.a; codec_internal.h includes codebook.h.
+	cp "$work/tremor/codec_internal.h" "$work/tremor/codebook.h" "$codecs/include/tremor/"
 	cp "$work/tremor/COPYING" "$codecs/share/licenses/TREMOR.TXT"
 	ls -l "$codecs/lib"/*.a
 )

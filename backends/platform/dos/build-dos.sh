@@ -143,7 +143,18 @@ if [ "$edition" = sci ] && grep -qE '^#define USE_(FLAC|TREMOR|VORBIS|MAD)$' con
 	echo "build-dos.sh: the sci edition must link no codec; not building." >&2
 	exit 1
 fi
-make -j"$(nproc)"
+if [ "$edition" = scumm ]; then
+	# Recompile this object on every invocation: a previous build may have
+	# used another prefix (or no private header) without changing its mtime.
+	setup_flags=
+	if [ -f "$codecs/include/tremor/codec_internal.h" ]; then
+		setup_flags="-DVORBIS_SETUP_INTERNALS -I$codecs/include/tremor"
+	fi
+	make -B audio/decoders/vorbis.o DOS_VORBIS_SETUP_CPPFLAGS="$setup_flags"
+	make -j"$(nproc)" DOS_VORBIS_SETUP_CPPFLAGS="$setup_flags"
+else
+	make -j"$(nproc)"
+fi
 # Interrupt handler code may reach nothing outside its locked range.
 if ! python3 "$src/backends/platform/dos/irqcheck.py" scummvm.exe; then
 	echo "build-dos.sh: scummvm.exe failed the interrupt code check (irqcheck.py); not staged." >&2
