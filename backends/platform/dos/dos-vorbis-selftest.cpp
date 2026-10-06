@@ -29,6 +29,7 @@
 #include "common/system.h"
 #include "common/array.h"
 #include "common/archive.h"
+#include "common/config-manager.h"
 #include "common/fs.h"
 
 #ifdef USE_VORBIS
@@ -103,6 +104,10 @@ void vorbisSelftest(const Common::String &path, uint wanted, int from) {
 	if (!tscPerUs)
 		tscPerUs = 1;
 
+	// The switch affects this DOS measurement only, never the game.
+	const bool noCache = ConfMan.getBool("dos_vorbis_selftest_no_cache");
+	Audio::VorbisSetupCache::setEnabled(!noCache);
+	Audio::VorbisSetupCache::clear();
 	if (from >= (int)clips.size())
 		from = clips.size() - 1;
 	if (wanted > clips.size() - (from < 0 ? 0 : from))
@@ -110,13 +115,13 @@ void vorbisSelftest(const Common::String &path, uint wanted, int from) {
 	uint done = 0, stereo = 0, rateMin = 0, rateMax = 0;
 	uint64 samples = 0, decode = 0, openSum = 0, primeSum = 0;
 	uint32 openMax = 0, primeMax = 0, openPrimeMax = 0;
-	// First successful clip is cold; later clips are warm candidates.
 	uint64 warmOpenSum = 0;
 	uint32 coldOpen = 0, coldPrime = 0, coldOpenPrime = 0, warmOpenMax = 0, warmOpenPrimeMax = 0;
-	uint warmCount = 0;
+	uint warmCount = 0, coldCount = 0;
 	static int16 buf[4096 * 2];
 	for (uint i = 0; i < wanted; ++i) {
 		const Clip &c = clips[from >= 0 ? from + i : (uint32)((uint64)i * clips.size() / wanted)];
+		const Audio::VorbisSetupCache::Stats before = Audio::VorbisSetupCache::getStats();
 		const uint64 t0 = DOS::irqRdtsc();
 		Common::File *file = new Common::File;
 		if (!file->open(name)) {
@@ -127,6 +132,7 @@ void vorbisSelftest(const Common::String &path, uint wanted, int from) {
 			new Common::SeekableSubReadStream(file, c.start, c.start + c.size, DisposeAfterUse::YES),
 			DisposeAfterUse::YES);
 		const uint64 t1 = DOS::irqRdtsc();
+		const Audio::VorbisSetupCache::Stats after = Audio::VorbisSetupCache::getStats();
 		if (!s)
 			continue;
 		const int ch = s->isStereo() ? 2 : 1;
@@ -150,10 +156,11 @@ void vorbisSelftest(const Common::String &path, uint wanted, int from) {
 		openMax = openUs > openMax ? openUs : openMax;
 		primeMax = primeUs > primeMax ? primeUs : primeMax;
 		openPrimeMax = openUs + primeUs > openPrimeMax ? openUs + primeUs : openPrimeMax;
-		if (done == 1) {
-			coldOpen = openUs;
-			coldPrime = primeUs;
-			coldOpenPrime = openUs + primeUs;
+		if (noCache || after.misses != before.misses || after.hits == before.hits) {
+			++coldCount;
+			coldOpen = MAX(coldOpen, openUs);
+			coldPrime = MAX(coldPrime, primeUs);
+			coldOpenPrime = MAX(coldOpenPrime, openUs + primeUs);
 		} else {
 			++warmCount;
 			warmOpenSum += openUs;
@@ -167,12 +174,15 @@ void vorbisSelftest(const Common::String &path, uint wanted, int from) {
 		"DOS: vorbis selftest clips=%u stereo=%u rate=%u-%u samples=%u decode_kcyc=%u "
 		"open_us=%u/%u prime_us=%u/%u openprime_max_us=%u tsc_per_us=%u "
 		"cold_open_us=%u cold_prime_us=%u cold_openprime_us=%u "
-		"warm_clips=%u warm_open_us=%u/%u warm_openprime_max_us=%u\n",
+		"warm_clips=%u warm_open_us=%u/%u warm_openprime_max_us=%u "
+		"cold_clips=%u cache_off=%u\n",
 		done, stereo, rateMin, rateMax, (uint)samples, (uint)(decode / 1000),
 		done ? (uint)(openSum / tscPerUs / done) : 0, openMax,
 		done ? (uint)(primeSum / tscPerUs / done) : 0, primeMax, openPrimeMax, tscPerUs,
 		coldOpen, coldPrime, coldOpenPrime, warmCount,
-		warmCount ? (uint)(warmOpenSum / warmCount) : 0, warmOpenMax, warmOpenPrimeMax).c_str());
+		warmCount ? (uint)(warmOpenSum / warmCount) : 0, warmOpenMax, warmOpenPrimeMax,
+		coldCount, noCache ? 1u : 0u).c_str());
+	Audio::VorbisSetupCache::setEnabled(true);
 }
 
 #else
