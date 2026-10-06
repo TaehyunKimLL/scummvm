@@ -110,6 +110,10 @@ void vorbisSelftest(const Common::String &path, uint wanted, int from) {
 	uint done = 0, stereo = 0, rateMin = 0, rateMax = 0;
 	uint64 samples = 0, decode = 0, openSum = 0, primeSum = 0;
 	uint32 openMax = 0, primeMax = 0, openPrimeMax = 0;
+	// First successful clip is cold; later clips are warm candidates.
+	uint64 warmOpenSum = 0;
+	uint32 coldOpen = 0, coldPrime = 0, coldOpenPrime = 0, warmOpenMax = 0, warmOpenPrimeMax = 0;
+	uint warmCount = 0;
 	static int16 buf[4096 * 2];
 	for (uint i = 0; i < wanted; ++i) {
 		const Clip &c = clips[from >= 0 ? from + i : (uint32)((uint64)i * clips.size() / wanted)];
@@ -146,15 +150,29 @@ void vorbisSelftest(const Common::String &path, uint wanted, int from) {
 		openMax = openUs > openMax ? openUs : openMax;
 		primeMax = primeUs > primeMax ? primeUs : primeMax;
 		openPrimeMax = openUs + primeUs > openPrimeMax ? openUs + primeUs : openPrimeMax;
+		if (done == 1) {
+			coldOpen = openUs;
+			coldPrime = primeUs;
+			coldOpenPrime = openUs + primeUs;
+		} else {
+			++warmCount;
+			warmOpenSum += openUs;
+			warmOpenMax = MAX(warmOpenMax, openUs);
+			warmOpenPrimeMax = MAX(warmOpenPrimeMax, openUs + primeUs);
+		}
 	}
 	SearchMan.remove("dosVorbisSelftest");
 	// decode: kilocycles of the prime read + the rest (not the open); samples: all channels
 	g_system->logMessage(LogMessageType::kInfo, Common::String::format(
 		"DOS: vorbis selftest clips=%u stereo=%u rate=%u-%u samples=%u decode_kcyc=%u "
-		"open_us=%u/%u prime_us=%u/%u openprime_max_us=%u tsc_per_us=%u\n",
+		"open_us=%u/%u prime_us=%u/%u openprime_max_us=%u tsc_per_us=%u "
+		"cold_open_us=%u cold_prime_us=%u cold_openprime_us=%u "
+		"warm_clips=%u warm_open_us=%u/%u warm_openprime_max_us=%u\n",
 		done, stereo, rateMin, rateMax, (uint)samples, (uint)(decode / 1000),
 		done ? (uint)(openSum / tscPerUs / done) : 0, openMax,
-		done ? (uint)(primeSum / tscPerUs / done) : 0, primeMax, openPrimeMax, tscPerUs).c_str());
+		done ? (uint)(primeSum / tscPerUs / done) : 0, primeMax, openPrimeMax, tscPerUs,
+		coldOpen, coldPrime, coldOpenPrime, warmCount,
+		warmCount ? (uint)(warmOpenSum / warmCount) : 0, warmOpenMax, warmOpenPrimeMax).c_str());
 }
 
 #else
