@@ -181,12 +181,24 @@ public:
 	 */
 	bool hangulInputEnabled() const { return _hangulInputEnabled; }
 
+	/**
+	 * The last finished character an operating-system input method handed
+	 * over (a Unicode code point above Latin-1), or 0.
+	 *
+	 * A parser prompt is opened by a keypress and the script copies that key
+	 * into the new line as one byte, which for a Hangul syllable is a
+	 * meaningless low byte. The edit control uses this to put the real
+	 * character there instead.
+	 */
+	uint16 lastOsImeKey() const { return _lastOsImeKey; }
+
 private:
 	SciEvent getScummVMEvent();
 
 	const bool _fontIsExtended;
 	const bool _hangulInputAvailable;
 	bool _hangulInputEnabled;
+	uint16 _lastOsImeKey;
 
 	/**
 	 * The on-screen badge for the state above.

@@ -152,7 +152,8 @@ EventManager::EventManager(bool fontIsExtended) :
 	// `sci_hangul_start` begins in Korean mode, so a Korean target need not be
 	// toggled before the first command is typed.
 	_hangulInputEnabled(_hangulInputAvailable && ConfMan.hasKey("sci_hangul_start") &&
-						ConfMan.getBool("sci_hangul_start"))
+						ConfMan.getBool("sci_hangul_start")),
+	_lastOsImeKey(0)
 #ifdef ENABLE_SCI32
 	, _hotRectanglesActive(false)
 	, _activeRectIndex(-1)
@@ -356,6 +357,8 @@ SciEvent EventManager::getScummVMEvent() {
 	// after the user bound another one.
 
 	input.character = ev.kbd.ascii;
+	if (ev.type == Common::EVENT_KEYDOWN && hangulInputAvailable())
+		_lastOsImeKey = (scummVMKeycode == Common::KEYCODE_INVALID && ev.kbd.ascii >= 0x100) ? ev.kbd.ascii : 0;
 
 	if (scummVMKeycode >= Common::KEYCODE_KP0 && scummVMKeycode <= Common::KEYCODE_KP9 && !(scummVMKeyFlags & Common::KBD_NUM)) {
 		// TODO: Leaky abstractions from SDL should not be handled in game

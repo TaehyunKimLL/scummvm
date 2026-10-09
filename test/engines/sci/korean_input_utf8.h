@@ -107,4 +107,19 @@ public:
 			TS_ASSERT_EQUALS(chars, walked);
 		}
 	}
+
+	// A finished character from an operating-system input method.
+	void test_os_ime_code_point_is_encoded_for_the_game() {
+		Sci::KoreanComposer comp;
+		comp.setEncoding(Sci::KoreanComposer::kUtf8);
+		TS_ASSERT_EQUALS(comp.encodeCodePoint(0xD55C), utf8Of(0xD55C));
+		TS_ASSERT_EQUALS(comp.encodeCodePoint(0xAC01), utf8Of(0xAC01));
+
+		comp.setEncoding(Sci::KoreanComposer::kCp949);
+		const Common::String han = comp.encodeCodePoint(0xD55C);
+		TS_ASSERT_EQUALS(han.size(), 2u);
+		TS_ASSERT_EQUALS(han, Sci::KoreanComposer::encode(0xD55C));
+		// A syllable outside KS X 1001 has no glyph in the CP949 font: refused.
+		TS_ASSERT(comp.encodeCodePoint(0xAC02).empty() == !Sci::KoreanComposer::isDrawable(0xAC02));
+	}
 };
