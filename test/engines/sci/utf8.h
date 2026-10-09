@@ -219,5 +219,7 @@ public:
 		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset(s, 99), 4u);
 		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset((const byte *)"abc", 2), 2u);
 		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset((const byte *)"", 0), 0u);
+		// inside 가 (bytes 1..3): that character counts as before the offset
+		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset(s, 2), 2u);
 	}
 };
