@@ -922,6 +922,27 @@ void GfxText16::Box(const char *text, uint16 languageSplitter, bool show, const 
 	_ports->penColor(previousPenColor);
 }
 
+GuiResourceId GfxText16::FontIdForLine(const char *text, uint16 languageSplitter) {
+	GuiResourceId previousFontId = GetFontId();
+	GuiResourceId lineFontId = previousFontId;
+	if (g_sci->usesKoreanText() && SwitchToFont1001OnKorean(text, languageSplitter))
+		lineFontId = GetFontId();
+	SetFont(previousFontId);
+	return lineFontId;
+}
+
+int16 GfxText16::EditTextWidth(const char *text, uint bytes) {
+	int16 width = 0;
+	uint i = 0;
+	while (i < bytes && text[i]) {
+		int charBytes = 1;
+		const uint32 chr = readChar(text + i, charBytes);
+		width += getGlyphWidth(chr);
+		i += charBytes;
+	}
+	return width;
+}
+
 void GfxText16::DrawString(const Common::String &textOrig) {
 	GuiResourceId previousFontId = GetFontId();
 	int16 previousPenColor = _ports->_curPort->penClr;

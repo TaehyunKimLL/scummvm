@@ -149,9 +149,16 @@ public:
 	void test_edit_control_steps_by_character_not_by_byte() {
 		Common::String src = readControls16();
 
-		// Backspace and Delete must go through the boundary helpers.
-		TS_ASSERT(contains(src, "stepCharLeft(text, cursorPos)"));
-		TS_ASSERT(contains(src, "stepCharRight(text, cursorPos)"));
+		// Backspace and Delete go through the boundary helpers: the EUC-KR
+		// pair steps for a Korean code-page game, the UTF-8 code point steps
+		// for UTF-8 text (one lambda pair serves both, see stepBack and
+		// stepForward in kernelTexteditChange).
+		TS_ASSERT(contains(src, "stepCharLeft(text, pos)"));
+		TS_ASSERT(contains(src, "stepCharRight(text, pos)"));
+		TS_ASSERT(contains(src, "utf8PrevBoundary(bytes, textSize, pos)"));
+		TS_ASSERT(contains(src, "utf8NextBoundary(bytes, textSize, pos)"));
+		TS_ASSERT(contains(src, "stepBack(cursorPos)"));
+		TS_ASSERT(contains(src, "stepForward(cursorPos)"));
 
 		// And the byte-at-a-time forms they replaced must be gone. These
 		// are what left half a character behind.
