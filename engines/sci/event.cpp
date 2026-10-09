@@ -149,7 +149,10 @@ EventManager::EventManager(bool fontIsExtended) :
 	// synthesized at all, and it must not change under a running game.
 	_hangulInputAvailable(ConfMan.hasKey("sci_hangul_input") &&
 						  ConfMan.getBool("sci_hangul_input")),
-	_hangulInputEnabled(false)
+	// `sci_hangul_start` begins in Korean mode, so a Korean target need not be
+	// toggled before the first command is typed.
+	_hangulInputEnabled(_hangulInputAvailable && ConfMan.hasKey("sci_hangul_start") &&
+						ConfMan.getBool("sci_hangul_start"))
 #ifdef ENABLE_SCI32
 	, _hotRectanglesActive(false)
 	, _activeRectIndex(-1)
