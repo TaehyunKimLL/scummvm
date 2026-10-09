@@ -65,4 +65,23 @@ public:
 		byte h[] = { 6, 0, 0, 0, 0x00, 0x00, 'x', 0 };
 		TS_ASSERT_EQUALS(Sci::ScriptStrings::sci11StringsStart(h, sizeof(h)), 4u);
 	}
+
+	void test_two_objects_then_strings() {
+		byte h[] = {
+			0, 0, 0, 0,
+			0x34, 0x12, 0x03, 0x00, 0, 0,
+			0x34, 0x12, 0x02, 0x00,
+			0, 0, 'A', 0
+		};
+		h[0] = sizeof(h);
+		TS_ASSERT_EQUALS(Sci::ScriptStrings::sci11StringsStart(h, sizeof(h)), 14u);
+	}
+
+	void test_truncated_heaps_are_bounded() {
+		byte tiny[] = { 4, 0, 0 };
+		TS_ASSERT_EQUALS(Sci::ScriptStrings::sci11StringsStart(tiny, sizeof(tiny)), 3u);
+		// an object whose property count runs past the end of the heap
+		byte cut[] = { 12, 0, 0, 0, 0x34, 0x12, 0xFF, 0x00 };
+		TS_ASSERT_EQUALS(Sci::ScriptStrings::sci11StringsStart(cut, sizeof(cut)), (uint)sizeof(cut));
+	}
 };
