@@ -364,7 +364,7 @@ SciEvent EventManager::getScummVMEvent() {
 
 	input.character = ev.kbd.ascii;
 	if (ev.type == Common::EVENT_KEYDOWN && hangulInputAvailable())
-		_lastOsImeKey = (scummVMKeycode == Common::KEYCODE_INVALID && ev.kbd.ascii >= 0x100) ? ev.kbd.ascii : 0;
+		_lastOsImeKey = (ev.kbd.ascii >= 0x100) ? ev.kbd.ascii : 0;
 
 	if (scummVMKeycode >= Common::KEYCODE_KP0 && scummVMKeycode <= Common::KEYCODE_KP9 && !(scummVMKeyFlags & Common::KBD_NUM)) {
 		// TODO: Leaky abstractions from SDL should not be handled in game

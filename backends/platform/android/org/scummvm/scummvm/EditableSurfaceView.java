@@ -281,11 +281,18 @@ public class EditableSurfaceView extends SurfaceView {
 
 		@Override
 		public boolean finishComposingText() {
-			if (_pendingComposition != null) {
-				flushPendingComposition();
-				return true;
-			}
+			flushPendingComposition();
 			return super.finishComposingText();
+		}
+
+		// An Enter or other key sent while a syllable is still composing must
+		// not overtake it.
+		@Override
+		public boolean sendKeyEvent(KeyEvent event) {
+			if (event.getAction() == KeyEvent.ACTION_DOWN) {
+				flushPendingComposition();
+			}
+			return super.sendKeyEvent(event);
 		}
 
 		// This method is called INSTEAD of generating a KEYCODE_DEL event, by
@@ -337,6 +344,11 @@ public class EditableSurfaceView extends SurfaceView {
 			// removed the test for an upper limit on the version; the fix will remain in place ad
 			// infinitum - but only when TYPE_NULL is used, so it *should* be harmless even when
 			// the keyboard does not have the problem...
+			if (_pendingComposition != null) {
+				// The delete removes the syllable the input method was composing.
+				_pendingComposition = null;
+				return true;
+			}
 			if ((Build.VERSION.SDK_INT >= 14) // && (Build.VERSION.SDK_INT < 19)
 				&& (beforeLength == 1 && afterLength == 0)) {
 				//Send Backspace key down and up events to replace the ones omitted
