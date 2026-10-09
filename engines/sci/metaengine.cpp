@@ -737,6 +737,10 @@ Common::KeymapArray SciMetaEngine::initKeymaps(const char *target) const {
 	act->addDefaultInputMapping("RALT");
 	act->addDefaultInputMapping("C+SPACE");
 	act->addDefaultInputMapping("S+SPACE");
+	// Windows' Korean IME takes right Alt, Ctrl+Space and Shift+Space before
+	// the application (DOSBox-X included) sees them; these two pass through.
+	act->addDefaultInputMapping("SCROLLOCK");
+	act->addDefaultInputMapping("F12");
 	hangulKeymap->addAction(act);
 
 	keymaps.push_back(hangulKeymap);
