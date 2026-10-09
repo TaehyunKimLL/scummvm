@@ -29,6 +29,7 @@
 
 #include "sci/sci.h"
 #include "sci/engine/vm_types.h"
+#include "sci/parser/korvocab.h"
 #include "sci/util.h"
 
 namespace Common {
@@ -409,6 +410,13 @@ private:
 	ParseRuleList *_parserRules; /**< GNF rules used in the parser algorithm */
 	Common::Array<parse_tree_branch_t> _parserBranches;
 	WordMap _parserWords;
+	/**
+	 * Korean words, kept apart from _parserWords because they cannot go in
+	 * it: the vocab loader masks every stored byte with 0x7F. Consulted by
+	 * lookupWord() only after every English route has failed, so a game
+	 * without the data file behaves exactly as before.
+	 */
+	KoreanVocabulary _koreanVocab;
 	SynonymList _synonyms; /**< The list of synonyms */
 	Common::Array<Common::List<AltInput> > _altInputs;
 

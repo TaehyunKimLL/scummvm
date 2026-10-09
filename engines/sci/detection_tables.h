@@ -6816,6 +6816,20 @@ static const struct ADGameDescription SciGameDescriptions[] = {
 	FANMADE("Betrayed Alliance Book 2 Demo 1.0", "b5b21ca4d1ad3c576e9776bf96845656", 4524, "57150380af9bf05b07851177e01c5066", 3309884),
 	FANMADE("Bluntman and Chronic (Politically Correct Version)", "c3ef9fa6c7c5fb840078bf28d87c7f8b", 1362, "441636a9f6f86710844868fded868ee7", 596688),
 	FANMADE("Cascade Quest", "c94efc10d18c040b6e22a1dc6d3adfe1", 3468, "8ada33dfa945f81531e5508240b573de", 1432195),
+	// Cascade Quest - Korean translation, as a patch set over the English
+	// demo. The game's own resources are byte-identical to the row above;
+	// what distinguishes the two is the translated TEXT patch file, which
+	// the Korean release adds and the English one does not have. Listing it
+	// gives this row three matching files against the English row's two, so
+	// detectGame() prefers it where the patch is present and skips it (file
+	// absent) where it is not - no `language=` key needed either way.
+	{"sci-fanmade", "Cascade Quest", {
+		{"resource.map", 0, "c94efc10d18c040b6e22a1dc6d3adfe1", 3468},
+		{"resource.001", 0, "8ada33dfa945f81531e5508240b573de", 1432195},
+		{"text.901", 0, "6130f7d3bae71afcad2b6c6df4deb277", 2319},
+		AD_LISTEND},
+		Common::KO_KOR, Common::kPlatformDOS,
+		ADGF_USEEXTRAASTITLE | ADGF_AUTOGENTARGET, GUIO_STD16 },
 	FANMADE("Circus Quest", "35871f6b4e1df56af4113c0203a0b223", 630, "7d6f97d7935d8733f488d4cb74315e5b", 279627),
 	FANMADE("Curt's Quest 1.0", "b0e555370380d218968a40a68eaaaffc", 1146, "c851182cdf6fc6a81b840f4d4875f1a0", 307165),
 	FANMADE("Curt's Quest 1.1", "54084c29346683296e45ef32d7ae74f3", 1128, "c851182cdf6fc6a81b840f4d4875f1a0", 302000),

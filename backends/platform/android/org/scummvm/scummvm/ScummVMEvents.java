@@ -597,6 +597,22 @@ public class ScummVMEvents implements
 	}
 
 	/**
+	 * Finished text from the input method, one key press per character.
+	 * Characters the key map cannot produce (Hangul) have no key code, so
+	 * the native side takes the character itself.
+	 */
+	public void pushText(CharSequence text) {
+		for (int i = 0; i < text.length(); i++) {
+			final char c = text.charAt(i);
+			if (Character.isSurrogate(c)) {
+				continue;
+			}
+			_scummvm.pushEvent(JE_KEY, KeyEvent.ACTION_DOWN, 0, c, 0, 0, 0);
+			_scummvm.pushEvent(JE_KEY, KeyEvent.ACTION_UP, 0, c, 0, 0, 0);
+		}
+	}
+
+	/**
 	 * This gets called only on Android < Q
 	 */
 	@SuppressWarnings({"deprecation", "RedundantSuppression"})

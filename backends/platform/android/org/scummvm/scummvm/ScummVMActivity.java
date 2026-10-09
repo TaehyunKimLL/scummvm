@@ -1258,6 +1258,7 @@ public class ScummVMActivity extends Activity {
 		setupKeyboardVisibilityListener();
 
 		_main_surface.setOnKeyListener(_events);
+		_main_surface.setTextCommitListener(_events::pushText);
 		_main_surface.setOnTouchListener(_events);
 		if (mouseHelper != null) {
 			_main_surface.setOnHoverListener(mouseHelper);

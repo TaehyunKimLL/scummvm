@@ -97,7 +97,8 @@ DosGraphicsManager::DosGraphicsManager() :
 	_window(nullptr), _screenChangeID(0), _pendingW(0), _pendingH(0), _screen(_frame.screen().surface()),
 	_overlay(640, 480, DOS::rgb565()), _overlayVisible(false), _paletteDirty(false), _shakeX(0), _shakeY(0),
 	_fullDirty(false), _cursorW(0), _cursorH(0), _cursorHotX(0), _cursorHotY(0), _cursorKey(0),
-	_cursorPaletteEnabled(false), _cursorFormatWarned(false), _cursorVisible(false), _mouseX(0), _mouseY(0),
+	_cursorPaletteEnabled(false), _cursorFormatWarned(false), _badgeW(0), _badgeH(0), _badgeBpp(0), _badgeStale(false),
+	_badgePix(nullptr), _badgePitch(0), _badgeDstW(0), _badgeDstH(0), _cursorVisible(false), _mouseX(0), _mouseY(0),
 	_deferModes(false), _engineStarted(false), _modeOwed(false), _loadingShown(false), _loadingAbort(false),
 	_loadingSawUpdate(false), _loadingLitSeen(false), _loadingStart(0), _loadingLastDraw(0), _loadingLastFill(-1), _loadingLastLabel(nullptr),
 	_loadingDraws(0), _loadingDrawMs(0), _loadingCheckMs(0), _loadingChecks(0),
@@ -214,6 +215,7 @@ OSystem::TransactionError DosGraphicsManager::switchMode(uint w, uint h, const G
 	const bool hadDirect = _frame.screen().direct();
 	if (hadDirect) {
 		_cursor.forget();
+		_badge.forget();
 		_frame.screen().free();
 	}
 	// dos_frame_buffer=true: the frame stays a buffer of its own, copied into
@@ -227,6 +229,7 @@ OSystem::TransactionError DosGraphicsManager::switchMode(uint w, uint h, const G
 			warning("DosGraphicsManager: cannot restore the previous mode either");
 			_modeIndex = -1;
 			_cursor.forget();
+			_badge.forget();
 			_frame.screen().free();
 		} else if (_modeIndex >= 0 && hadDirect) {
 			// The old picture went with the frame: a cleared one, and the
@@ -247,6 +250,7 @@ OSystem::TransactionError DosGraphicsManager::switchMode(uint w, uint h, const G
 	// The old frame, cursor included, is gone; the full repaint that
 	// follows draws the cursor afresh.
 	_cursor.forget();
+	_badge.forget();
 	_modeOwed = false;
 	return OSystem::kTransactionSuccess;
 }
@@ -361,6 +365,7 @@ void DosGraphicsManager::prepareWrite() {
 	if (!_frame.screen().direct())
 		return;
 	SDL_Surface *s = SDL_GetWindowSurface(_window);
+	restoreBadge();
 	const Common::Rect r = _cursor.restore((byte *)s->pixels, s->pitch);
 	if (!r.isEmpty()) {
 		if (_cursorBack.isEmpty())
@@ -483,6 +488,7 @@ void DosGraphicsManager::updateScreen() {
 	}
 
 	Common::Array<Common::Rect> send;
+	restoreBadge();
 	Common::Rect back = _cursor.restore((byte *)s->pixels, s->pitch);
 	if (!back.isEmpty())
 		send.push_back(back);
@@ -529,6 +535,20 @@ void DosGraphicsManager::updateScreen() {
 		Common::Rect c = _cursor.draw((byte *)s->pixels, s->pitch, SDL_BYTESPERPIXEL(s->format), s->w, s->h, _mouseX, y);
 		if (!c.isEmpty())
 			send.push_back(c);
+	}
+
+	if (_badgeW) {
+		const uint bpp = SDL_BYTESPERPIXEL(s->format);
+		if (_badgeStale || _badgeBpp != bpp || (bpp == 1 && _paletteDirty))
+			convertBadge();
+		const Common::Rect b = _badge.draw((byte *)s->pixels, s->pitch, bpp, s->w, s->h, s->w - _badgeW - 2, 2);
+		if (!b.isEmpty()) {
+			_badgePix = (byte *)s->pixels;
+			_badgePitch = s->pitch;
+			_badgeDstW = s->w;
+			_badgeDstH = s->h;
+			send.push_back(b);
+		}
 	}
 
 	if (!send.empty() || _paletteDirty) {
@@ -597,6 +617,7 @@ const DOS::FrameWindow *DosGraphicsManager::frameWindow(DOS::FrameWindow &out) c
 
 void DosGraphicsManager::createFrame(uint w, uint h, const Graphics::PixelFormat &f) {
 	_cursor.forget();
+	_badge.forget();
 	_cursorBack = Common::Rect();
 	// The old frame may be a buffer the loading screen locked: unlocked
 	// before it is freed (CWSDPMI keeps no lock count).
@@ -617,6 +638,8 @@ void DosGraphicsManager::syncFrame(bool frameTick) {
 		unlockRegion(_lockAddr[1], _lockSize[1]);
 	DOS::FrameWindow win;
 	const DOS::FrameWindow *w = frameWindow(win);
+	// A frame that moves takes the window's pixels with it, badge included.
+	restoreBadge();
 	switch (_frame.sync(w, _loadingShown, _shakeX, _shakeY, frameTick, w ? &_cursor : nullptr, &_cursorBack)) {
 	case DOS::FrameKeeper::kSame:
 		break;
@@ -1008,6 +1031,7 @@ void DosGraphicsManager::finishLoading(const char *why) {
 	_fullDirty = true;
 	_paletteDirty = true;
 	_cursor.forget();
+	_badge.forget();
 	syncFrame(false);	// the frame can be the window again
 }
 
@@ -1178,6 +1202,101 @@ void DosGraphicsManager::convertCursor() {
 		}
 		break;
 	}
+}
+
+void DosGraphicsManager::restoreBadge() {
+	if (!_badge.drawn())
+		return;
+	SDL_Surface *s = _window ? SDL_GetWindowSurface(_window) : nullptr;
+	// Only into the surface it was drawn in: a new one is another picture.
+	if (!s || (byte *)s->pixels != _badgePix || s->pitch != _badgePitch || s->w != _badgeDstW || s->h != _badgeDstH) {
+		_badge.forget();
+		return;
+	}
+	const Common::Rect r = _badge.restore(_badgePix, _badgePitch);
+	if (r.isEmpty())
+		return;
+	if (_cursorBack.isEmpty())
+		_cursorBack = r;
+	else
+		_cursorBack.extend(r);
+}
+
+void DosGraphicsManager::displayActivityIconOnOSD(const Graphics::Surface *icon) {
+	restoreBadge();
+	_badge.clearImage();
+	_badgeStale = true;
+	if (!icon || icon->format.bytesPerPixel != 4 || !icon->w || !icon->h) {
+		_badgeW = _badgeH = 0;
+		_badgeSrc.clear();
+		return;
+	}
+	_badgeW = icon->w;
+	_badgeH = icon->h;
+	_badgeSrc.resize(_badgeW * _badgeH);
+	for (uint y = 0; y < _badgeH; ++y) {
+		for (uint x = 0; x < _badgeW; ++x) {
+			uint8 a, r, g, b;
+			icon->format.colorToARGB(icon->getPixel(x, y), a, r, g, b);
+			// The badge is opaque; ARGB32 here is just its container.
+			_badgeSrc[y * _badgeW + x] = (r << 16) | (g << 8) | b;
+		}
+	}
+	// Sent at the next updateScreen(), which draws it; the area it leaves
+	// is in _cursorBack when it was on screen.
+}
+
+void DosGraphicsManager::convertBadge() {
+	_badgeStale = false;
+	if (!_badgeW || !_screen.getPixels())
+		return;
+	const uint bpp = _screen.format.bytesPerPixel;
+	Common::Array<byte> image(_badgeW * _badgeH * bpp);
+	// The badge has few distinct colours; match each once.
+	uint32 seen[32];
+	uint32 mapped[32];
+	uint nseen = 0;
+	for (uint i = 0; i < _badgeSrc.size(); ++i) {
+		const uint32 rgb = _badgeSrc[i];
+		uint32 v = 0;
+		uint k = 0;
+		while (k < nseen && seen[k] != rgb)
+			++k;
+		if (k < nseen) {
+			v = mapped[k];
+		} else {
+			const int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+			if (bpp == 1) {
+				int best = 0;
+				int bestD = 0x7FFFFFFF;
+				for (int c = 0; c < 256; ++c) {
+					const int dr = r - _palette[c * 3], dg = g - _palette[c * 3 + 1], db = b - _palette[c * 3 + 2];
+					const int d = dr * dr * 3 + dg * dg * 4 + db * db * 2;
+					if (d < bestD) {
+						bestD = d;
+						best = c;
+					}
+				}
+				v = best;
+			} else {
+				v = _screen.format.RGBToColor(r, g, b);
+			}
+			if (nseen < ARRAYSIZE(seen)) {
+				seen[nseen] = rgb;
+				mapped[nseen++] = v;
+			}
+		}
+		byte *d = &image[i * bpp];
+		if (bpp == 1)
+			*d = (byte)v;
+		else if (bpp == 2)
+			WRITE_UINT16(d, v);
+		else
+			WRITE_UINT32(d, v);
+	}
+	// A key no pixel can have: the badge is a solid rectangle.
+	_badge.setImage(&image[0], _badgeW, _badgeH, 0, 0, 0xFFFFFFFFu, bpp);
+	_badgeBpp = bpp;
 }
 
 #endif

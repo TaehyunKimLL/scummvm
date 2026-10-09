@@ -22,6 +22,11 @@
 // Main vocabulary support functions and word lookup
 
 #include "sci/parser/vocabulary.h"
+#include "sci/parser/lowercase.h"
+#include "sci/utf8.h"
+#include "common/config-manager.h"
+#include "common/debug.h"
+#include "common/debug-channels.h"
 #include "sci/resource/resource.h"
 #include "sci/engine/state.h"
 #include "sci/engine/kernel.h"
@@ -70,6 +75,16 @@ Vocabulary::Vocabulary(ResourceManager *resMan, bool foreign) : _resMan(resMan),
 	}
 
 	loadAltInputs();
+
+	// Korean parser input, gated on the same option that enables Korean
+	// text entry. Loading is attempted only when the game has a parser at
+	// all, and a missing file is not an error - it just leaves Korean
+	// resolving nothing.
+	if (g_sci->hasParser() &&
+	    ConfMan.hasKey("sci_hangul_input") &&
+	    ConfMan.getBool("sci_hangul_input")) {
+		_koreanVocab.load();
+	}
 
 	parser_event = NULL_REG;
 	parserIsValid = false;
@@ -449,6 +464,27 @@ bool Vocabulary::checkAltInput(Common::String &text, uint16 &cursorPos) {
 }
 
 // we assume that *word points to an already lowercased word
+// UTF-8 -> cp949 for one parser word. False when a code point has no pair.
+static bool utf8ToCp949(const Common::String &in, Common::String &out) {
+	out.clear();
+	const byte *p = (const byte *)in.c_str();
+	while (*p) {
+		int n = 1;
+		const uint32 cp = decodeUtf8Char(p, n);
+		if (cp < 0x80) {
+			out += (char)cp;
+		} else {
+			const uint32 pair = encodeCodePagePair(cp, Common::kWindows949);
+			if (!pair)
+				return false;
+			out += (char)(pair & 0xFF);
+			out += (char)((pair >> 8) & 0xFF);
+		}
+		p += n;
+	}
+	return true;
+}
+
 void Vocabulary::lookupWord(ResultWordList& retval, const char *word, int word_len) {
 	retval.clear();
 
@@ -517,6 +553,31 @@ void Vocabulary::lookupWord(ResultWordList& retval, const char *word, int word_l
 
 	if (!retval.empty())
 		return;
+
+	// Korean: the word cannot be in _parserWords, because vocab.000's
+	// loader masks every stored byte with 0x7F and so every dictionary
+	// entry is 7-bit ASCII. The mapping therefore lives in its own file
+	// and is consulted only here, after every English route has failed,
+	// which is what keeps this invisible to non-Korean games.
+	if (_koreanVocab.isLoaded()) {
+		uint16 kgroup = 0, kclass = 0;
+		// scikor.dat holds cp949 words. In a UTF-8 manifest game the typed
+		// word is UTF-8, so it is converted back before the lookup; a word
+		// with a character that has no KS X 1001 syllable cannot be in it.
+		Common::String kword = tempword;
+		if (g_sci->heapStringsAreUtf8() && !utf8ToCp949(tempword, kword))
+			return;
+		if (_koreanVocab.lookup(kword.c_str(), kword.size(),
+		                        kgroup, kclass)) {
+			// kclass is already in _parserWords' layout: k6bake.py takes
+			// it straight from the vocab entry, where the class is the
+			// composed (byte << 4 | nibble) value this loader builds. It
+			// must NOT be shifted again here.
+			ResultWord tmp = { kclass, kgroup };
+			retval.push_back(tmp);
+			return;
+		}
+	}
 
 	// No match so far? Check if it's a number.
 	if (getSciVersion() > SCI_VERSION_0_EARLY) {
@@ -678,64 +739,23 @@ void Vocabulary::debugDecipherSaidBlock(const SciSpan<const byte> &data) {
 	} while (nextItem != 0xff && addr != data.cend());
 }
 
-static const byte lowerCaseMap[256] = {
-	0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, // 0x00
-	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, // 0x10
-	0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, // 0x20
-	0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, // 0x30
-	0x40,  'a',  'b',  'c',  'd',  'e',  'f',  'g',  'h',  'i',  'j',  'k',  'l',  'm',  'n',  'o', // 0x40
-	 'p',  'q',  'r',  's',  't',  'u',  'v',  'w',  'x',  'y',  'z', 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, // 0x50
-	0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, // 0x60
-	0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f, // 0x70
-	0x87, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x84, 0x86, // 0x80
-	//^^                                                                                ^^^^  ^^^^
-	0x82, 0x91, 0x91, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x94, 0x81, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f, // 0x90
-	//^^        ^^^^                                      ^^^^  ^^^^
-	0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa4, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, // 0xa0
-	//                            ^^^^
-	0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf, // 0xb0
-	0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, // 0xc0
-	0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, // 0xd0
-	0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, // 0xe0
-	0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff  // 0xf0
-};
-
-static const byte lowerCaseMap866[256] = {
-	0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, // 0x00
-	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, // 0x10
-	0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, // 0x20
-	0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, // 0x30
-	0x40,  'a',  'b',  'c',  'd',  'e',  'f',  'g',  'h',  'i',  'j',  'k',  'l',  'm',  'n',  'o', // 0x40
-	 'p',  'q',  'r',  's',  't',  'u',  'v',  'w',  'x',  'y',  'z', 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, // 0x50
-	0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, // 0x60
-	0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f, // 0x70
-	0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, // 0x80
-	0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, // 0x90
-	0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, // 0xa0
-	0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf, // 0xb0
-	0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, // 0xc0
-	0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, // 0xd0
-	0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, // 0xe0
-	0xa5, 0xa5, 0xf3, 0xf3, 0xf5, 0xf5, 0xf7, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff  // 0xf0
-};
-
 bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence, char **error) {
 	char currentWord[VOCAB_MAX_WORDLENGTH] = "";
 	int pos_in_sentence = 0;
 	unsigned char c;
 	int wordLen = 0;
-	const byte *lcMap = lowerCaseMap;
+	bool sawKorean = false;
 
 	*error = nullptr;
-
-	if (g_sci->getLanguage() == Common::RU_RUS)
-		lcMap = lowerCaseMap866;
 
 	do {
 		c = sentence[pos_in_sentence++];
 
-		if (Common::isAlnum(c) || (c == '-' && wordLen) || (c >= 0x80)) {
-			currentWord[wordLen] = lcMap[c];
+		if ((Common::isAlnum(c) || (c == '-' && wordLen) || (c >= 0x80)) && wordLen < VOCAB_MAX_WORDLENGTH - 1) {
+			// Collect the word as typed. Lower-casing happens once the word
+			// is complete, because in a double-byte encoding the fold that
+			// applies to a byte depends on the byte before it.
+			currentWord[wordLen] = c;
 			++wordLen;
 		} else if (c == ' ' || c == '\0') {
 			// Continue on this word. Words may contain a '-', but may not start with
@@ -744,8 +764,32 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 			if (wordLen) { // Finished a word?
 				ResultWordList lookup_result;
 
+				if (g_sci->heapStringsAreUtf8()) {
+					// UTF-8: the single-byte fold would rewrite continuation
+					// bytes, so only the ASCII letters are folded.
+					for (int i = 0; i < wordLen; ++i)
+						if (currentWord[i] >= 'A' && currentWord[i] <= 'Z')
+							currentWord[i] += 'a' - 'A';
+				} else {
+					parserLowerCaseWord((byte *)currentWord, wordLen, g_sci->getLanguage());
+				}
+
 				// Look it up
 				lookupWord(lookup_result, currentWord, wordLen);
+
+				if (DebugMan.isDebugChannelEnabled(kDebugLevelHangul) && wordLen) {
+					Common::String line;
+					for (ResultWordList::const_iterator r = lookup_result.begin(); r != lookup_result.end(); ++r) {
+						Common::String en;
+						for (WordMap::const_iterator w = _parserWords.begin(); w != _parserWords.end(); ++w)
+							for (ResultWordList::const_iterator x = w->_value.begin(); x != w->_value.end(); ++x)
+								if (x->_group == r->_group && en.size() < 40)
+									en += (en.empty() ? "" : "/") + w->_key;
+						line += Common::String::format(" [grp %d cls %03x = %s]", r->_group, r->_class, en.c_str());
+					}
+					debugC(1, kDebugLevelHangul, "[parse] word '%.*s' ->%s", wordLen, currentWord,
+					       line.empty() ? " (unknown)" : line.c_str());
+				}
 
 				if (lookup_result.empty()) { // Not found?
 					lookupWordPrefix(retval, lookup_result, currentWord, wordLen);
@@ -758,6 +802,10 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 					}
 				}
 
+				for (int i = 0; i < wordLen; ++i)
+					if ((byte)currentWord[i] >= 0x80)
+						sawKorean = true;
+
 				// Copy into list
 				retval.push_back(lookup_result);
 			}
@@ -766,6 +814,39 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 		}
 
 	} while (c); // Until terminator is hit
+
+	// Korean puts the verb last ("옷을 가져와"), the said() specs expect it
+	// first ("get clothes"): move a trailing verb to the front.
+	const uint16 verbClass = VOCAB_CLASS_IMPERATIVE_VERB << 4;
+	if (sawKorean && retval.size() > 1) {
+		bool lastIsVerb = false, firstIsVerb = false;
+		for (ResultWordList::const_iterator r = retval.back().begin(); r != retval.back().end(); ++r)
+			lastIsVerb |= (r->_class & verbClass) != 0;
+		for (ResultWordList::const_iterator r = retval.front().begin(); r != retval.front().end(); ++r)
+			firstIsVerb |= (r->_class & verbClass) != 0;
+		if (lastIsVerb && !firstIsVerb) {
+			ResultWordList verb = retval.back();
+			retval.pop_back();
+			retval.push_front(verb);
+		}
+	}
+
+	if (sawKorean && DebugMan.isDebugChannelEnabled(kDebugLevelHangul)) {
+		Common::String en;
+		for (ResultWordListList::const_iterator l = retval.begin(); l != retval.end(); ++l) {
+			Common::String w;
+			if (!l->empty()) {
+				for (WordMap::const_iterator m = _parserWords.begin(); m != _parserWords.end() && w.empty(); ++m)
+					for (ResultWordList::const_iterator x = m->_value.begin(); x != m->_value.end(); ++x)
+						if (x->_group == l->front()._group) {
+							w = m->_key;
+							break;
+						}
+			}
+			en += (en.empty() ? "" : " ") + (w.empty() ? Common::String("?") : w);
+		}
+		debugC(1, kDebugLevelHangul, "[parse] sentence '%s' => %s", sentence, en.c_str());
+	}
 
 	return true;
 }

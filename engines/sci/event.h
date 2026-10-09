@@ -25,6 +25,8 @@
 #include "common/list.h"
 #include "common/rect.h"
 
+#include "sci/graphics/koreaninput.h"
+
 namespace Sci {
 
 enum SciEventType {
@@ -157,10 +159,70 @@ public:
 	SciEvent getSciEvent(SciEventType mask);
 	void flushEvents();
 
+	/**
+	 * Was Korean text entry asked for in the configuration?
+	 *
+	 * When false - which it is unless `sci_hangul_input` is set - the
+	 * Han/Yeong key is never acted on, so nothing downstream can observe any
+	 * of the Korean input path.
+	 */
+	bool hangulInputAvailable() const { return _hangulInputAvailable; }
+
+	/**
+	 * Is the built-in Han/Yeong composer offered at all?
+	 *
+	 * `sci_hangul_builtin=false` turns it off for a platform whose operating
+	 * system supplies the input method: the toggle key is ignored, no badge
+	 * is shown, and only finished characters from the OS are accepted. It
+	 * defaults to off on Android and to on elsewhere. Implies
+	 * hangulInputAvailable().
+	 */
+	bool hangulBuiltinAvailable() const { return _hangulBuiltinAvailable; }
+
+	/**
+	 * Is the text edit control's Korean composer switched on right now?
+	 *
+	 * The state lives here rather than in GfxControls16 because the key that
+	 * flips it must be consumed before the game's scripts run. An event put
+	 * into the SCI event stream is dispatched to the game first, and a key no
+	 * script recognises can be swallowed there - measured: of two Han/Yeong
+	 * presses in one session, the first never reached kernelTexteditChange.
+	 * Swallowing it here makes that structurally impossible, and is also what
+	 * K2 did on the AGI side for the same reason.
+	 */
+	bool hangulInputEnabled() const { return _hangulInputEnabled; }
+
+	/**
+	 * The last finished character an operating-system input method handed
+	 * over (a Unicode code point above Latin-1), or 0.
+	 *
+	 * A parser prompt is opened by a keypress and the script copies that key
+	 * into the new line as one byte, which for a Hangul syllable is a
+	 * meaningless low byte. The edit control uses this to put the real
+	 * character there instead.
+	 */
+	uint16 lastOsImeKey() const { return _lastOsImeKey; }
+
 private:
 	SciEvent getScummVMEvent();
 
 	const bool _fontIsExtended;
+	const bool _hangulInputAvailable;
+	const bool _hangulBuiltinAvailable;
+	bool _hangulInputEnabled;
+	uint16 _lastOsImeKey;
+
+	/**
+	 * The on-screen badge for the state above.
+	 *
+	 * It lives with the state rather than with the edit control because the
+	 * state does: the control is not running when the toggle is pressed, and
+	 * it redraws only when the text changes - measured, twice in a session
+	 * where the control was entered about 1,550 times. See the class comment
+	 * in graphics/koreaninput.h for what that ruled out.
+	 */
+	KoreanInputIndicator _hangulIndicator;
+
 	Common::List<SciEvent> _events;
 #ifdef ENABLE_SCI32
 public:

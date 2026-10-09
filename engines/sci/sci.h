@@ -122,6 +122,7 @@ enum kDebugLevels {
 	kDebugLevelWorkarounds,
 	kDebugLevelVideo,
 	kDebugLevelGame,
+	kDebugLevelHangul,   ///< Korean text entry: keys, composer, buffer, draw
 };
 
 
@@ -135,6 +136,12 @@ enum kLanguage {
 	K_LANG_GERMAN = 49,
 	K_LANG_JAPANESE = 81,
 	K_LANG_PORTUGUESE = 351
+};
+
+/** Keymapper actions this engine defines. */
+enum SciAction {
+	kSciActionNone = 0,
+	kSciActionHangulToggle      ///< Han/Yeong: Korean text input on/off
 };
 
 class SciEngine : public Engine {
