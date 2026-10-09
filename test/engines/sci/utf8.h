@@ -222,4 +222,14 @@ public:
 		// inside 가 (bytes 1..3): that character counts as before the offset
 		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset(s, 2), 2u);
 	}
+
+	void test_edit_steps_over_four_byte_sequences() {
+		// a(0) U+1F600 (1..4) b(5), 6 bytes
+		const byte *s = (const byte *)"a\xF0\x9F\x98\x80" "b";
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(s, 6, 1), 5u);
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(s, 6, 5), 1u);
+		// a valid sequence that ends exactly at len
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(s, 5, 1), 5u);
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(s, 5, 5), 1u);
+	}
 };

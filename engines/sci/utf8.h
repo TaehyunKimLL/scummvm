@@ -91,7 +91,8 @@ uint32 utf8IndexOfOffset(const byte *p, uint32 offset);
  * Byte offset where the code point that ends at byte @p pos of the
  * @p len-byte UTF-8 text @p p begins (what BackSpace and Left step to).
  * A byte that is not part of a well-formed sequence is one step by itself.
- * @p pos must be 1..len.
+ * @p pos must be 1..len. @p p must be NUL-terminated at @p len (a heap
+ * string is), so a truncated tail stops at the terminator.
  */
 uint32 utf8PrevBoundary(const byte *p, uint32 len, uint32 pos);
 
