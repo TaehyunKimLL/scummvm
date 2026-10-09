@@ -118,7 +118,7 @@ uint32 utf8OffsetOf(const byte *p, uint32 index) {
 }
 
 bool utf8IndexIsPastEnd(const byte *p, uint32 index) {
-	return index > utf8Length(p);
+	return index > Common::strnlen((const char *)p, 0xFFFFFFFFU);
 }
 
 uint32 decodeCodePagePair(byte lead, byte trail, Common::CodePage codePage) {

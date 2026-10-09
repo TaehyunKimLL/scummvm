@@ -183,8 +183,10 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 			// own layout (the save list is fixed-size records, and the
 			// dialog asks (StrAt text 36) whether a next record exists),
 			// so the index is a byte offset.
-			if ((int)offset >= dest_r.maxSize)
-				return NULL_REG;
+			if ((int)offset >= dest_r.maxSize) {
+				warning("kStrAt offset %X exceeds maxSize", offset);
+				return s->r_acc;
+			}
 			return make_reg(0, strAtByte(dest_r, offset, false, 0));
 		}
 		const uint32 byteOff = utf8OffsetOf(p, offset);
@@ -194,6 +196,9 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 		return make_reg(0, decodeUtf8Char(p + byteOff, bytes) & 0xFFFF);
 	}
 
+	// (A write at a record offset past a multibyte first record still takes
+	// the append mapping below; the LSL1 copy loop needs it and no known
+	// caller writes into such a buffer.)
 	// A write takes the same units, or a script that copies a string with
 	// it breaks: LSL1's age quiz drops the answer digit off each question
 	// with (StrAt dst i (StrAt src (+ i 1))), and with code-point reads but
