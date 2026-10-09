@@ -135,6 +135,14 @@ public:
 
 	static uint32 bufferId(uint16 segment, uint16 offset) { return ((uint32)segment << 16) | offset; }
 
+	/**
+	 * Offset, in an SCI1.1 heap resource, of the first string: the end of
+	 * the object instances. String id 1 starts here even when it is empty,
+	 * which is how the extractor (tools/korean/sci11_kr_extract.py) counts.
+	 * @p size bounds every read; a truncated heap yields @p size.
+	 */
+	static uint sci11StringsStart(const byte *heap, uint size);
+
 private:
 	/// (script, id, room) packed exactly; no two places share a value.
 	static uint64 placeId(uint16 script, uint16 id, uint16 room) {

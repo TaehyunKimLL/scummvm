@@ -475,6 +475,12 @@ void Script::identifyOffsets() {
 
 		_codeOffset = hunkPtr - *_buf;
 
+		// The loop above consumed the word that ended the instances, which
+		// is the first two bytes of the strings: a heap whose strings open
+		// with a NUL pair (QFG1 script 990) lost its first two ids, and every
+		// sci-<lang>.str entry after them hit the wrong string.
+		scriptDataPtr = _heap.subspan(ScriptStrings::sci11StringsStart(_heap.getUnsafeDataAt(0, _heap.size()), _heap.size()));
+
 		// now scriptDataPtr points to right at the start of the strings
 		if (scriptDataPtr > endOfStringPtr)
 			error("Script::identifyOffsets(): string block / end-of-string block mismatch in script %d", _nr);
