@@ -15,6 +15,7 @@ MODULE_OBJS := \
 	file.o \
 	fs.o \
 	gui_options.o \
+	hangul.o \
 	hashmap.o \
 	language.o \
 	localization.o \

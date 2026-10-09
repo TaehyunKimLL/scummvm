@@ -443,12 +443,21 @@ bool FontKoreanWansung::loadData(const char *fontFile) {
 }
 
 const uint8 *FontKoreanWansung::getCharData(uint16 ch) const {
-	if (isASCII(ch) && _englishFontData) {
+	if (isASCII(ch)) {
+		// english.fnt is optional - englishLoadData()'s result is discarded
+		// by loadData() - so a font that ships without it leaves
+		// _englishFontData null. Falling through to the Hangul branch below
+		// would then index it with (ch - 0xb0) * 94, which is negative for
+		// every ASCII character and reads far in front of the allocation.
+		if (!_englishFontData)
+			return nullptr;
 		const uint offset = ((_englishFontWidth + 7) / 8) * _englishFontHeight * (ch & 0xFF);
 		assert(offset <= _englishFontDataSize);
 		return _englishFontData + offset;
 	} else {
 		int idx = ((ch % 256) - 0xb0) * 94 + (ch / 256) - 0xa1;
+		if (idx < 0 || (uint)(((_fontWidth + 7) / 8) * _fontHeight * (idx + 1)) > _fontDataSize)
+			return nullptr;
 		return _fontData + ((_fontWidth + 7) / 8) * _fontHeight * idx;
 	}
 }

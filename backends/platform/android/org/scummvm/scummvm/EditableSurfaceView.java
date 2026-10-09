@@ -39,6 +39,29 @@ import android.view.inputmethod.InputConnection;
 import androidx.annotation.RequiresApi;
 
 public class EditableSurfaceView extends SurfaceView {
+	/**
+	 * Receives finished text from the input method (for instance a Hangul
+	 * syllable), which has no key code and cannot travel as a key event.
+	 */
+	public interface TextCommitListener {
+		void onTextCommit(CharSequence text);
+	}
+
+	private TextCommitListener _textCommitListener;
+
+	public void setTextCommitListener(TextCommitListener listener) {
+		_textCommitListener = listener;
+	}
+
+	private static boolean hasWideChar(CharSequence text) {
+		for (int i = 0; i < text.length(); i++) {
+			if (text.charAt(i) >= 0x100) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	final Context _context;
 	final boolean _allowHideSystemMousePointer;
 	private boolean _mouseIsInCapturedState;
@@ -219,6 +242,59 @@ public class EditableSurfaceView extends SurfaceView {
 			}
 		}
 
+		// The syllable the input method is still composing. It is shown by the
+		// input method, not by the game, and is handed over once it is final.
+		private CharSequence _pendingComposition = null;
+
+		private void flushPendingComposition() {
+			final CharSequence pending = _pendingComposition;
+			_pendingComposition = null;
+			if (pending != null && pending.length() > 0 && _textCommitListener != null) {
+				_textCommitListener.onTextCommit(pending);
+			}
+		}
+
+		@Override
+		public boolean setComposingText(CharSequence text, int newCursorPosition) {
+			if (_textCommitListener != null && hasWideChar(text)) {
+				_pendingComposition = text.toString();
+				return true;
+			}
+			if (text.length() == 0) {
+				_pendingComposition = null;
+			}
+			return super.setComposingText(text, newCursorPosition);
+		}
+
+		@Override
+		public boolean commitText(CharSequence text, int newCursorPosition) {
+			if (_textCommitListener != null && (hasWideChar(text) || _pendingComposition != null)) {
+				// The commit replaces whatever was being composed.
+				_pendingComposition = null;
+				if (text.length() > 0) {
+					_textCommitListener.onTextCommit(text);
+				}
+				return true;
+			}
+			return super.commitText(text, newCursorPosition);
+		}
+
+		@Override
+		public boolean finishComposingText() {
+			flushPendingComposition();
+			return super.finishComposingText();
+		}
+
+		// An Enter or other key sent while a syllable is still composing must
+		// not overtake it.
+		@Override
+		public boolean sendKeyEvent(KeyEvent event) {
+			if (event.getAction() == KeyEvent.ACTION_DOWN) {
+				flushPendingComposition();
+			}
+			return super.sendKeyEvent(event);
+		}
+
 		// This method is called INSTEAD of generating a KEYCODE_DEL event, by
 		// versions of Latin IME that have the bug described in Issue 42904.
 		@Override
@@ -268,6 +344,11 @@ public class EditableSurfaceView extends SurfaceView {
 			// removed the test for an upper limit on the version; the fix will remain in place ad
 			// infinitum - but only when TYPE_NULL is used, so it *should* be harmless even when
 			// the keyboard does not have the problem...
+			if (_pendingComposition != null) {
+				// The delete removes the syllable the input method was composing.
+				_pendingComposition = null;
+				return true;
+			}
 			if ((Build.VERSION.SDK_INT >= 14) // && (Build.VERSION.SDK_INT < 19)
 				&& (beforeLength == 1 && afterLength == 0)) {
 				//Send Backspace key down and up events to replace the ones omitted

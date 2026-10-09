@@ -80,6 +80,30 @@ uint32 utf8OffsetOf(const byte *p, uint32 index);
 bool utf8IndexIsPastEnd(const byte *p, uint32 index);
 
 /**
+ * Index of the code point that starts at byte @p offset of the
+ * NUL-terminated UTF-8 string @p p: the number of code points before it.
+ * The inverse of utf8OffsetOf(); an offset inside a character counts that
+ * character as before it, and one past the terminator is the length.
+ */
+uint32 utf8IndexOfOffset(const byte *p, uint32 offset);
+
+/**
+ * Byte offset where the code point that ends at byte @p pos of the
+ * @p len-byte UTF-8 text @p p begins (what BackSpace and Left step to).
+ * A byte that is not part of a well-formed sequence is one step by itself.
+ * @p pos must be 1..len. @p p must be NUL-terminated at @p len (a heap
+ * string is), so a truncated tail stops at the terminator.
+ */
+uint32 utf8PrevBoundary(const byte *p, uint32 len, uint32 pos);
+
+/**
+ * Byte offset just after the code point that begins at byte @p pos (what
+ * Delete and Right step to); @p pos + 1 for a malformed byte; @p pos
+ * itself at @p len. @p pos must be a boundary.
+ */
+uint32 utf8NextBoundary(const byte *p, uint32 len, uint32 pos);
+
+/**
  * The code point of one double-byte character of a code page (lead byte,
  * then trail byte), or 0 when the pair does not decode.
  *

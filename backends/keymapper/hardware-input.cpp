@@ -215,6 +215,12 @@ const KeyTableEntry defaultKeys[] = {
 	{"AUDIOREWIND", KEYCODE_AUDIOREWIND, "Audio rewind"},
 	{"AUDIOFASTFORWARD", KEYCODE_AUDIOFASTFORWARD, "Audio fast-forward"},
 
+	// Input-method keys. A Korean keyboard has a dedicated Han/Yeong key
+	// right of the space bar; listing it here is what lets a user bind it,
+	// and lets a user WITHOUT one bind something else to the same action.
+	{"HANGUL", KEYCODE_HANGUL, "Han/Yeong"},
+	{"HANJA",  KEYCODE_HANJA,  "Hanja"},
+
 	// Modifier keys
 	{"SCROLLOCK", KEYCODE_SCROLLOCK, "Scroll lock"          },
 	{"CAPSLOCK",  KEYCODE_CAPSLOCK,  "Caps lock"            },

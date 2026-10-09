@@ -58,6 +58,7 @@ MODULE_OBJS := \
 	graphics/fontset.o \
 	graphics/fontunicode.o \
 	graphics/fontsjis.o \
+	graphics/koreaninput.o \
 	graphics/hirestextsettings.o \
 	graphics/hirestextstate.o \
 	graphics/macfont.o \
@@ -93,6 +94,9 @@ MODULE_OBJS := \
 	graphics/drivers/win16col.o \
 	graphics/drivers/win256col.o \
 	parser/grammar.o \
+	parser/korstem.o \
+	parser/korvocab.o \
+	parser/lowercase.o \
 	parser/said.o \
 	parser/vocabulary.o \
 	resource/decompressor.o \

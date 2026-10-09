@@ -135,7 +135,14 @@ endif
 
 ifeq ($(ENABLE_SCI), STATIC_PLUGIN)
 	TESTS += $(srcdir)/test/engines/sci/*.h
-	TEST_LIBS += engines/sci/libsci.a
+	# libsci.a draws on libgraphics (the Korean input badge asks FontMan for
+	# the GUI font), and those come after it so the linker resolves them.
+	TEST_LIBS += engines/sci/libsci.a graphics/libgraphics.a \
+		common/compression/libcompression.a common/libcommon.a
+	# The parser lower-case test reads the fold table and the detection
+	# table back out of the tree the runner was built from, so it needs to
+	# know where that tree is.
+	SCI_TEST_DEFINES := -DSCI_TEST_SRCDIR=\"$(srcdir)\"
 endif
 
 #
@@ -145,6 +152,7 @@ TEST_LDFLAGS := $(LDFLAGS) $(LIBS)
 TEST_CXXFLAGS  := $(filter-out -Wglobal-constructors,$(CXXFLAGS))
 TEST_CXXFLAGS += -Wno-self-assign-overloaded
 TEST_CXXFLAGS += $(SCUMM_TEST_DEFINES) $(AGS_TEST_DEFINES)
+TEST_CXXFLAGS += $(SCI_TEST_DEFINES)
 
 ifdef WIN32
 TEST_LDFLAGS := $(filter-out -mwindows,$(TEST_LDFLAGS))

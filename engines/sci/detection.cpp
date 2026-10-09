@@ -62,6 +62,7 @@ static const DebugChannelDef debugFlagList[] = {
 	{Sci::kDebugLevelResMan, "ResMan", "Resource manager debugging"},
 	{Sci::kDebugLevelOnStartup, "OnStartup", "Enter debugger at start of game"},
 	{Sci::kDebugLevelDebugMode, "DebugMode", "Enable game debug mode at start of game"},
+	{Sci::kDebugLevelHangul, "Hangul", "Korean text entry: keys, composer state, buffer bytes, drawing"},
 	DEBUG_CHANNEL_END
 };
 

@@ -185,4 +185,51 @@ public:
 		TS_ASSERT(Sci::utf8IndexIsPastEnd(k, 7));
 		TS_ASSERT(!Sci::utf8IndexIsPastEnd((const byte *)"", 0));
 	}
+
+	void test_edit_steps_are_whole_code_points() {
+		// "a 가 b" : a(0) 가(1..3) b(4), 5 bytes
+		const byte *s = (const byte *)"a\xEA\xB0\x80" "b";
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(s, 5, 5), 4u);
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(s, 5, 4), 1u);
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(s, 5, 1), 0u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(s, 5, 0), 1u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(s, 5, 1), 4u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(s, 5, 4), 5u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(s, 5, 5), 5u);
+		// ASCII stays one byte per step
+		const byte *e = (const byte *)"abc";
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(e, 3, 3), 2u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(e, 3, 1), 2u);
+		// Malformed bytes are one step each: a stray continuation byte, a
+		// lead byte whose tail was cut off
+		const byte *bad = (const byte *)"\x80" "a\xEA\xB0";
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(bad, 4, 1), 0u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(bad, 4, 0), 1u);
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(bad, 4, 4), 3u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(bad, 4, 2), 3u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(bad, 4, 3), 4u);
+	}
+
+	void test_code_point_index_and_byte_offset_round_trip() {
+		// a(0) 가(1..3) 나(4..6) b(7), 8 bytes
+		const byte *s = (const byte *)"a\xEA\xB0\x80\xEB\x82\x98" "b";
+		for (uint32 i = 0; i <= 4; i++)
+			TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset(s, Sci::utf8OffsetOf(s, i)), i);
+		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset(s, 8), 4u);
+		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset(s, 99), 4u);
+		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset((const byte *)"abc", 2), 2u);
+		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset((const byte *)"", 0), 0u);
+		// inside 가 (bytes 1..3): that character counts as before the offset
+		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset(s, 2), 2u);
+	}
+
+	void test_edit_steps_over_four_byte_sequences() {
+		// a(0) U+1F600 (1..4) b(5), 6 bytes
+		const byte *s = (const byte *)"a\xF0\x9F\x98\x80" "b";
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(s, 6, 1), 5u);
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(s, 6, 5), 1u);
+		// a valid sequence that ends exactly at len
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(s, 5, 1), 5u);
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(s, 5, 5), 1u);
+	}
 };
