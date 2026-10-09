@@ -92,6 +92,7 @@ private:
 	// Textedit-Control related
 	Common::Rect _texteditCursorRect;
 	bool _texteditCursorVisible;
+	bool _texteditCursorKorean;
 	uint32 _texteditBlinkTime;
 
 	// Korean text entry. Inert unless the sci_hangul_input config key is set:
