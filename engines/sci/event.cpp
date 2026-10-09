@@ -149,9 +149,15 @@ EventManager::EventManager(bool fontIsExtended) :
 	// synthesized at all, and it must not change under a running game.
 	_hangulInputAvailable(ConfMan.hasKey("sci_hangul_input") &&
 						  ConfMan.getBool("sci_hangul_input")),
+	_hangulBuiltinAvailable(_hangulInputAvailable &&
+#ifdef ANDROID_BACKEND
+						  ConfMan.hasKey("sci_hangul_builtin") && ConfMan.getBool("sci_hangul_builtin")),
+#else
+						  !(ConfMan.hasKey("sci_hangul_builtin") && !ConfMan.getBool("sci_hangul_builtin"))),
+#endif
 	// `sci_hangul_start` begins in Korean mode, so a Korean target need not be
 	// toggled before the first command is typed.
-	_hangulInputEnabled(_hangulInputAvailable && ConfMan.hasKey("sci_hangul_start") &&
+	_hangulInputEnabled(_hangulBuiltinAvailable && ConfMan.hasKey("sci_hangul_start") &&
 						ConfMan.getBool("sci_hangul_start")),
 	_lastOsImeKey(0)
 #ifdef ENABLE_SCI32
@@ -327,7 +333,7 @@ SciEvent EventManager::getScummVMEvent() {
 		ev.customType == kSciActionHangulToggle) {
 		debugC(1, kDebugLevelHangul, "[key] Han/Yeong toggle action; korean %d -> %d",
 		       (int)_hangulInputEnabled, (int)!_hangulInputEnabled);
-		if (hangulInputAvailable())
+		if (_hangulBuiltinAvailable)
 			_hangulInputEnabled = !_hangulInputEnabled;
 		return noEvent;
 	}
@@ -503,7 +509,7 @@ SciEvent EventManager::getSciEvent(SciEventType mask) {
 	// Gated on the config key, which is what keeps every existing game from
 	// ever seeing it: without `sci_hangul_input` this is never called at all
 	// and no icon is ever handed to the backend.
-	if (_hangulInputAvailable)
+	if (_hangulBuiltinAvailable)
 		_hangulIndicator.show(_hangulInputEnabled);
 
 	if (getSciVersion() < SCI_VERSION_2) {
