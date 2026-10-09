@@ -125,10 +125,18 @@ void GfxControls16::drawListControl(Common::Rect rect, reg_t obj, int16 maxChars
 
 void GfxControls16::texteditCursorDraw(Common::Rect rect, const char *text, uint16 curPos) {
 	if (!_texteditCursorVisible) {
+		// In UTF-8 text a glyph spans several bytes: measure code points.
+		const bool utf8 = g_sci->heapStringsAreUtf8();
+		auto glyphAt = [&](int16 pos, int &bytes) -> uint32 {
+			bytes = 1;
+			return utf8 ? decodeUtf8Char((const byte *)text + pos, bytes) : (unsigned char)text[pos];
+		};
 		int16 textWidth = 0;
-		for (int16 i = 0; i < curPos; i++) {
-			textWidth += _text16->getGlyphWidth((unsigned char)text[i]);
+		int bytes;
+		for (int16 i = 0; i < curPos; i += bytes) {
+			textWidth += _text16->getGlyphWidth(glyphAt(i, bytes));
 		}
+		const uint16 cursorWidth = text[curPos] == 0 ? 1 : _text16->getGlyphWidth(glyphAt(curPos, bytes));
 		if (!g_sci->isLanguageRTL())
 			_texteditCursorRect.left = rect.left + textWidth;
 		else
@@ -136,9 +144,9 @@ void GfxControls16::texteditCursorDraw(Common::Rect rect, const char *text, uint
 		_texteditCursorRect.top = rect.top;
 		_texteditCursorRect.bottom = _texteditCursorRect.top + _text16->_font->getHeight();
 		if (!g_sci->isLanguageRTL())
-			_texteditCursorRect.right = _texteditCursorRect.left + (text[curPos] == 0 ? 1 : _text16->getGlyphWidth((unsigned char)text[curPos]));
+			_texteditCursorRect.right = _texteditCursorRect.left + cursorWidth;
 		else
-			_texteditCursorRect.left = _texteditCursorRect.right - (text[curPos] == 0 ? 1 : _text16->getGlyphWidth((unsigned char)text[curPos]));
+			_texteditCursorRect.left = _texteditCursorRect.right - cursorWidth;
 		_paint16->invertRect(_texteditCursorRect);
 		_paint16->bitsShow(_texteditCursorRect);
 		_texteditCursorVisible = true;
