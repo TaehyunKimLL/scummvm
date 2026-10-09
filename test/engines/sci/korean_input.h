@@ -790,6 +790,7 @@ public:
 		TS_ASSERT(me.contains("addDefaultInputMapping(\"HANGUL\")"));
 		TS_ASSERT(me.contains("addDefaultInputMapping(\"RALT\")"));
 		TS_ASSERT(me.contains("addDefaultInputMapping(\"C+SPACE\")"));
+		TS_ASSERT(me.contains("addDefaultInputMapping(\"S+SPACE\")"));
 
 		// Still gated on the one config key: an SCI game that did not ask
 		// for Korean input gets no keymap and no bindings.

@@ -727,14 +727,16 @@ Common::KeymapArray SciMetaEngine::initKeymaps(const char *target) const {
 
 	Action *act = new Action("HANGULTOGGLE", _("Han/Yeong (Korean input on/off)"));
 	act->setCustomEngineActionEvent(kSciActionHangulToggle);
-	// Three defaults because one key does not exist everywhere. HANGUL is
+	// Four defaults because one key does not exist everywhere. HANGUL is
 	// the dedicated key a Korean keyboard has and Windows reports as its
 	// own scancode; RALT is the same physical key as X11 usually reports
 	// it; Ctrl+Space is the fallback for a keyboard with neither, and is
-	// what Korean IMEs themselves use as the alternate toggle.
+	// what Korean IMEs themselves use as the alternate toggle; Shift+Space
+	// is the other common IME toggle.
 	act->addDefaultInputMapping("HANGUL");
 	act->addDefaultInputMapping("RALT");
 	act->addDefaultInputMapping("C+SPACE");
+	act->addDefaultInputMapping("S+SPACE");
 	hangulKeymap->addAction(act);
 
 	keymaps.push_back(hangulKeymap);
