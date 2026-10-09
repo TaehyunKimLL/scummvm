@@ -276,6 +276,33 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 		_koreanRunObject = controlObject;
 		_koreanRunStart = text.size();
 		_koreanRunText = text;
+
+		// A parser prompt is opened BY a keypress: the script drops that key
+		// into the new line as plain ASCII before any edit event reaches us,
+		// so with Han/Yeong on the first jamo would stay a Latin letter and
+		// the rest of the word would compose after it. A lone printable
+		// character with the cursor behind it in a line we did not write is that key; run it
+		// through the composer as if it had been typed into the control.
+		if (g_sci->getEventManager()->hangulInputEnabled() && text.size() == 1 &&
+			(byte)text[0] > 32 && (byte)text[0] < 127 && cursorPos == 1) {
+			koreanTextBefore = text;
+			const char seedKey = text[0];
+			text.clear();
+			_koreanInput.setEnabled(true);
+			_koreanInput.setEncoding(utf8 ? KoreanComposer::kUtf8 : KoreanComposer::kCp949);
+			_koreanRunStart = 0;
+			if (_koreanInput.feed(seedKey, text, _koreanRunStart)) {
+				cursorPos = text.size();
+				textChanged = true;
+				koreanAddChar = true;
+				debugC(1, kDebugLevelHangul, "[edit]   SEED key '%c' -> %s", seedKey, hangulDump(text).c_str());
+			} else {
+				text = koreanTextBefore;
+				_koreanInput.reset();
+				_koreanRunStart = text.size();
+			}
+			_koreanRunText = text;
+		}
 	}
 
 	uint16 oldCursorPos = cursorPos;

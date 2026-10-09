@@ -836,6 +836,15 @@ private:
 	}
 
 public:
+	void test_the_key_that_opens_a_parser_prompt_is_composed() {
+		const Common::String ctl = readSource("engines/sci/graphics/controls16.cpp");
+		// the opening key is already ASCII in the new line; the guard feeds it to the composer
+		TS_ASSERT(ctl.contains("(byte)text[0] > 32 && (byte)text[0] < 127 && cursorPos == 1"));
+		TS_ASSERT(ctl.contains("_koreanInput.feed(seedKey, text, _koreanRunStart)"));
+		// a refused seed puts the original byte back
+		TS_ASSERT(ctl.contains("text = koreanTextBefore;"));
+	}
+
 	void test_review_fixes_are_in_the_edit_control() {
 		const Common::String ctl = readSource("engines/sci/graphics/controls16.cpp");
 		// composed text goes in at the cursor, not at the end of the line
