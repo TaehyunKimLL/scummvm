@@ -227,6 +227,15 @@ bool HangulComposer::feed(char ascii) {
 		return true;
 	}
 
+	if (!_cho) {
+		// A lone vowel has no syllable to take a final: the consonant after
+		// it starts the next one. Setting _jong here would be dropped by
+		// composeSyllable().
+		flush();
+		_cho = choIdx;
+		return true;
+	}
+
 	if (!_jong) {
 		if (jongIdx) {
 			_jong = jongIdx;
