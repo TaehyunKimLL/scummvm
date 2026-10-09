@@ -294,7 +294,25 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 		// the rest of the word would compose after it. A lone printable
 		// character with the cursor behind it in a line we did not write is that key; run it
 		// through the composer as if it had been typed into the control.
-		if (g_sci->getEventManager()->hangulInputEnabled() && text.size() == 1 &&
+		// The same holds for a syllable an operating-system input method
+		// finished: the script copied only its low byte, so the real
+		// character is put there instead.
+		const uint16 osKey = g_sci->getEventManager()->lastOsImeKey();
+		if (osKey >= 0x100 && text.size() == 1 && cursorPos == 1 &&
+			(byte)text[0] == (osKey & 0xFF)) {
+			_koreanInput.setEncoding(utf8 ? KoreanComposer::kUtf8 : KoreanComposer::kCp949);
+			const Common::String encoded = _koreanInput.encodeCodePoint(osKey);
+			if (!encoded.empty() && encoded.size() <= maxChars) {
+				koreanTextBefore = text;
+				text = encoded;
+				cursorPos = text.size();
+				_koreanRunStart = cursorPos;
+				textChanged = true;
+				koreanAddChar = true;
+				debugC(1, kDebugLevelHangul, "[edit]   SEED OS-IME U+%04X -> %s", osKey, hangulDump(text).c_str());
+			}
+			_koreanRunText = text;
+		} else if (g_sci->getEventManager()->hangulInputEnabled() && text.size() == 1 &&
 			(byte)text[0] > 32 && (byte)text[0] < 127 && cursorPos == 1) {
 			koreanTextBefore = text;
 			const char seedKey = text[0];
@@ -476,6 +494,29 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 				       "[edit]   RELEASE run before editing switch -> runStart=%u owns=%d %s",
 				       _koreanRunStart, (int)_koreanInput.ownsRun(),
 				       hangulDump(text).c_str());
+			}
+
+			// An operating-system input method (Windows IME, Android keyboard,
+			// ibus) hands over finished text: the key's value is a Unicode
+			// code point above the Latin-1 range, not a keystroke. It needs no
+			// composing, so it is encoded for the game and inserted at the
+			// cursor whatever the built-in Han/Yeong state is. Any run the built-in
+			// composer owned has just been released, so the two never share a syllable.
+			if (g_sci->getEventManager()->hangulInputAvailable() && eventKey >= 0x100 &&
+				!(modifiers & (kSciKeyModCtrl | kSciKeyModAlt))) {
+				const Common::String encoded = _koreanInput.encodeCodePoint(eventKey);
+				debugC(1, kDebugLevelHangul,
+				       "[edit]   OS-IME U+%04X -> %s", eventKey,
+				       encoded.empty() ? "(no glyph, dropped)" : hangulDump(encoded).c_str());
+				if (!encoded.empty() && text.size() + encoded.size() <= maxChars) {
+					koreanTextBefore = text;
+					text.insertString(encoded, cursorPos);
+					cursorPos += encoded.size();
+					_koreanRunStart = cursorPos;
+					textChanged = true;
+					koreanAddChar = true;
+				}
+				break;
 			}
 
 			switch (eventKey) {

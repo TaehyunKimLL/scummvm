@@ -39,6 +39,29 @@ import android.view.inputmethod.InputConnection;
 import androidx.annotation.RequiresApi;
 
 public class EditableSurfaceView extends SurfaceView {
+	/**
+	 * Receives finished text from the input method (for instance a Hangul
+	 * syllable), which has no key code and cannot travel as a key event.
+	 */
+	public interface TextCommitListener {
+		void onTextCommit(CharSequence text);
+	}
+
+	private TextCommitListener _textCommitListener;
+
+	public void setTextCommitListener(TextCommitListener listener) {
+		_textCommitListener = listener;
+	}
+
+	private static boolean hasWideChar(CharSequence text) {
+		for (int i = 0; i < text.length(); i++) {
+			if (text.charAt(i) >= 0x100) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	final Context _context;
 	final boolean _allowHideSystemMousePointer;
 	private boolean _mouseIsInCapturedState;
@@ -217,6 +240,52 @@ public class EditableSurfaceView extends SurfaceView {
 				//Default behavior for keyboards that do not require any fix
 				return super.getEditable();
 			}
+		}
+
+		// The syllable the input method is still composing. It is shown by the
+		// input method, not by the game, and is handed over once it is final.
+		private CharSequence _pendingComposition = null;
+
+		private void flushPendingComposition() {
+			final CharSequence pending = _pendingComposition;
+			_pendingComposition = null;
+			if (pending != null && pending.length() > 0 && _textCommitListener != null) {
+				_textCommitListener.onTextCommit(pending);
+			}
+		}
+
+		@Override
+		public boolean setComposingText(CharSequence text, int newCursorPosition) {
+			if (_textCommitListener != null && hasWideChar(text)) {
+				_pendingComposition = text.toString();
+				return true;
+			}
+			if (text.length() == 0) {
+				_pendingComposition = null;
+			}
+			return super.setComposingText(text, newCursorPosition);
+		}
+
+		@Override
+		public boolean commitText(CharSequence text, int newCursorPosition) {
+			if (_textCommitListener != null && (hasWideChar(text) || _pendingComposition != null)) {
+				// The commit replaces whatever was being composed.
+				_pendingComposition = null;
+				if (text.length() > 0) {
+					_textCommitListener.onTextCommit(text);
+				}
+				return true;
+			}
+			return super.commitText(text, newCursorPosition);
+		}
+
+		@Override
+		public boolean finishComposingText() {
+			if (_pendingComposition != null) {
+				flushPendingComposition();
+				return true;
+			}
+			return super.finishComposingText();
 		}
 
 		// This method is called INSTEAD of generating a KEYCODE_DEL event, by
