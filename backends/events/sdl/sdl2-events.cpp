@@ -324,6 +324,13 @@ Common::KeyCode SdlEventSource::SDLToOSystemKeycode(const SDL_Keycode key) {
 	case SDLK_KP_9: return Common::KEYCODE_KP9;
 	case SDLK_PERCENT: return Common::KEYCODE_PERCENT;
 	case SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_GRAVE): return Common::KEYCODE_TILDE;
+	// CJK input-method keys. SDL has no SDLK_ name for these, so they are
+	// reached through their scancodes: a Korean keyboard's Han/Yeong key is
+	// LANG1, and it arrives here on Windows where X11 instead reports the
+	// same physical key as right Alt. Without these two lines it falls to
+	// the default below and becomes KEYCODE_INVALID.
+	case SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_LANG1): return Common::KEYCODE_HANGUL;
+	case SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_LANG2): return Common::KEYCODE_HANJA;
 	case SDLK_F16: return Common::KEYCODE_F16;
 	case SDLK_F17: return Common::KEYCODE_F17;
 	case SDLK_F18: return Common::KEYCODE_F18;

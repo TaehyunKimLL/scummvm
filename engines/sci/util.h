@@ -132,7 +132,12 @@ class SciSpanImpl : public Common::NamedSpanImpl<ValueType, Derived> {
 	typedef Derived<ValueType> derived_type;
 
 	template <typename T, template <typename> class U> friend class SciSpanImpl;
-#if defined(CXXTEST_RUNNING) && CXXTEST_RUNNING
+	// CXXTEST_RUNNING is defined with no value (test/runner.cpp:4), so the
+	// `&& CXXTEST_RUNNING` that used to be here expanded to `&&` with no
+	// right operand and failed to compile the moment any SCI header reached
+	// the test runner. It never did before: the one SCI test in the tree
+	// includes parser/lowercase.h, which does not pull this file in.
+#ifdef CXXTEST_RUNNING
 	friend class ::SpanTestSuite;
 #endif
 

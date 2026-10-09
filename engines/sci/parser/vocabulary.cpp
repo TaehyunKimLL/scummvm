@@ -23,6 +23,7 @@
 
 #include "sci/parser/vocabulary.h"
 #include "sci/parser/lowercase.h"
+#include "common/config-manager.h"
 #include "sci/resource/resource.h"
 #include "sci/engine/state.h"
 #include "sci/engine/kernel.h"
@@ -71,6 +72,16 @@ Vocabulary::Vocabulary(ResourceManager *resMan, bool foreign) : _resMan(resMan),
 	}
 
 	loadAltInputs();
+
+	// Korean parser input, gated on the same option that enables Korean
+	// text entry. Loading is attempted only when the game has a parser at
+	// all, and a missing file is not an error - it just leaves Korean
+	// resolving nothing.
+	if (g_sci->hasParser() &&
+	    ConfMan.hasKey("sci_hangul_input") &&
+	    ConfMan.getBool("sci_hangul_input")) {
+		_koreanVocab.load();
+	}
 
 	parser_event = NULL_REG;
 	parserIsValid = false;
@@ -518,6 +529,25 @@ void Vocabulary::lookupWord(ResultWordList& retval, const char *word, int word_l
 
 	if (!retval.empty())
 		return;
+
+	// Korean: the word cannot be in _parserWords, because vocab.000's
+	// loader masks every stored byte with 0x7F and so every dictionary
+	// entry is 7-bit ASCII. The mapping therefore lives in its own file
+	// and is consulted only here, after every English route has failed,
+	// which is what keeps this invisible to non-Korean games.
+	if (_koreanVocab.isLoaded()) {
+		uint16 kgroup = 0, kclass = 0;
+		if (_koreanVocab.lookup(tempword.c_str(), tempword.size(),
+		                        kgroup, kclass)) {
+			// kclass is already in _parserWords' layout: k6bake.py takes
+			// it straight from the vocab entry, where the class is the
+			// composed (byte << 4 | nibble) value this loader builds. It
+			// must NOT be shifted again here.
+			ResultWord tmp = { kclass, kgroup };
+			retval.push_back(tmp);
+			return;
+		}
+	}
 
 	// No match so far? Check if it's a number.
 	if (getSciVersion() > SCI_VERSION_0_EARLY) {

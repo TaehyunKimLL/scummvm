@@ -313,6 +313,9 @@ Common::KeyCode SdlEventSource::SDLToOSystemKeycode(const SDL_Keycode key) {
 	case SDLK_KP_9: return Common::KEYCODE_KP9;
 	case SDLK_PERCENT: return Common::KEYCODE_PERCENT;
 	case SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_GRAVE): return Common::KEYCODE_TILDE;
+	// CJK input-method keys; see the identical block in sdl2-events.cpp.
+	case SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_LANG1): return Common::KEYCODE_HANGUL;
+	case SDL_SCANCODE_TO_KEYCODE(SDL_SCANCODE_LANG2): return Common::KEYCODE_HANJA;
 	case SDLK_F16: return Common::KEYCODE_F16;
 	case SDLK_F17: return Common::KEYCODE_F17;
 	case SDLK_F18: return Common::KEYCODE_F18;

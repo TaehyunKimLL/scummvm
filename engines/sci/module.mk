@@ -93,6 +93,8 @@ MODULE_OBJS := \
 	graphics/drivers/win16col.o \
 	graphics/drivers/win256col.o \
 	parser/grammar.o \
+	parser/korstem.o \
+	parser/korvocab.o \
 	parser/lowercase.o \
 	parser/said.o \
 	parser/vocabulary.o \
