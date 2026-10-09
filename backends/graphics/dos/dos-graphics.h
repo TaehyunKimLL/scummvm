@@ -100,6 +100,7 @@ public:
 	void setMouseCursor(const void *buf, uint w, uint h, int hotspotX, int hotspotY, uint32 keycolor,
 						const Graphics::PixelFormat *format, const byte *mask, frac_t scaleX, frac_t scaleY) override;
 	void setCursorPalette(const byte *colors, uint start, uint num) override;
+	void displayActivityIconOnOSD(const Graphics::Surface *icon) override;
 
 	/**
 	 * The window surface as it was last sent, cursor included: raw rows
@@ -189,6 +190,9 @@ private:
 	void prepareWrite();
 	void blit(SDL_Surface *s, const Common::Rect &r);
 	void convertCursor();
+	void convertBadge();
+	/** Take the OSD badge off the window surface (before the cursor, which was drawn first). */
+	void restoreBadge();
 
 	Common::Array<DOS::VideoMode> _modes;
 	Common::Array<SDL_DisplayMode> _sdlModes;	///< SDL3's own copy of _modes[i], as SDL_SetWindowFullscreenMode() takes it
@@ -218,6 +222,14 @@ private:
 	bool _fullDirty;
 
 	DOS::SoftCursor _cursor;
+	// The OSD badge (displayActivityIconOnOSD()): drawn after the cursor,
+	// at the window's top right, and taken off before it.
+	DOS::SoftCursor _badge;
+	Common::Array<uint32> _badgeSrc;	///< ARGB32, as the engine gave it
+	uint _badgeW, _badgeH, _badgeBpp;	///< _badgeBpp: the pixel size _badge was converted to
+	bool _badgeStale;	///< _badge needs convertBadge() (new icon, palette or mode)
+	byte *_badgePix;	///< the window surface the badge was drawn into
+	int _badgePitch, _badgeDstW, _badgeDstH;
 	// The cursor as the engine gave it; convertCursor() makes _cursor from it.
 	Common::Array<byte> _cursorSrc;
 	uint _cursorW, _cursorH;

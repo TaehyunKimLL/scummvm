@@ -97,6 +97,9 @@ public:
 		return r;
 	}
 
+	/** Whether a draw() is on the screen, not yet restored. */
+	bool drawn() const { return !_saved.isEmpty(); }
+
 	/** Drop what draw() saved without writing it back (the frame it came from is gone). */
 	void forget() { _saved = Common::Rect(); }
 
