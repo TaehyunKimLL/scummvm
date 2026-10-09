@@ -347,7 +347,8 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 				// back after it.
 				const uint16 headEnd = cursorPos;
 				const Common::String tail(text.c_str() + headEnd);
-				text.erase(headEnd);
+				if (headEnd < text.size()) // String::erase asserts when pos >= size
+					text.erase(headEnd);
 				const bool backspaced = _koreanInput.backspace(text, _koreanRunStart);
 				cursorPos = backspaced ? text.size() : headEnd;
 				text += tail;
@@ -374,7 +375,8 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 				// Composed text goes in at the cursor: the composer sees the
 				// head of the line and the tail is rejoined after its run.
 				const Common::String tail(text.c_str() + cursorPos);
-				text.erase(cursorPos);
+				if (cursorPos < text.size()) // String::erase asserts when pos >= size
+					text.erase(cursorPos);
 				if (!_koreanInput.ownsRun())
 					_koreanRunStart = text.size();
 				const bool fed = _koreanInput.feed((char)eventKey, text, _koreanRunStart);
