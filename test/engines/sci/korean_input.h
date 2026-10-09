@@ -836,6 +836,13 @@ private:
 	}
 
 public:
+	void test_korean_sentences_put_the_verb_first_and_are_logged() {
+		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
+		TS_ASSERT(voc.contains("retval.push_front(verb);"));
+		TS_ASSERT(voc.contains("sawKorean && retval.size() > 1"));
+		TS_ASSERT(voc.contains("\"[parse] sentence '%s' => %s\""));
+	}
+
 	void test_the_key_that_opens_a_parser_prompt_is_composed() {
 		const Common::String ctl = readSource("engines/sci/graphics/controls16.cpp");
 		// the opening key is already ASCII in the new line; the guard feeds it to the composer

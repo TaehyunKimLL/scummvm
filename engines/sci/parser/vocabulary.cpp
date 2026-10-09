@@ -25,6 +25,8 @@
 #include "sci/parser/lowercase.h"
 #include "sci/utf8.h"
 #include "common/config-manager.h"
+#include "common/debug.h"
+#include "common/debug-channels.h"
 #include "sci/resource/resource.h"
 #include "sci/engine/state.h"
 #include "sci/engine/kernel.h"
@@ -742,6 +744,7 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 	int pos_in_sentence = 0;
 	unsigned char c;
 	int wordLen = 0;
+	bool sawKorean = false;
 
 	*error = nullptr;
 
@@ -774,6 +777,20 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 				// Look it up
 				lookupWord(lookup_result, currentWord, wordLen);
 
+				if (DebugMan.isDebugChannelEnabled(kDebugLevelHangul) && wordLen) {
+					Common::String line;
+					for (ResultWordList::const_iterator r = lookup_result.begin(); r != lookup_result.end(); ++r) {
+						Common::String en;
+						for (WordMap::const_iterator w = _parserWords.begin(); w != _parserWords.end(); ++w)
+							for (ResultWordList::const_iterator x = w->_value.begin(); x != w->_value.end(); ++x)
+								if (x->_group == r->_group && en.size() < 40)
+									en += (en.empty() ? "" : "/") + w->_key;
+						line += Common::String::format(" [grp %d cls %03x = %s]", r->_group, r->_class, en.c_str());
+					}
+					debugC(1, kDebugLevelHangul, "[parse] word '%.*s' ->%s", wordLen, currentWord,
+					       line.empty() ? " (unknown)" : line.c_str());
+				}
+
 				if (lookup_result.empty()) { // Not found?
 					lookupWordPrefix(retval, lookup_result, currentWord, wordLen);
 
@@ -785,6 +802,10 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 					}
 				}
 
+				for (int i = 0; i < wordLen; ++i)
+					if ((byte)currentWord[i] >= 0x80)
+						sawKorean = true;
+
 				// Copy into list
 				retval.push_back(lookup_result);
 			}
@@ -793,6 +814,39 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 		}
 
 	} while (c); // Until terminator is hit
+
+	// Korean puts the verb last ("옷을 가져와"), the said() specs expect it
+	// first ("get clothes"): move a trailing verb to the front.
+	const uint16 verbClass = VOCAB_CLASS_IMPERATIVE_VERB << 4;
+	if (sawKorean && retval.size() > 1) {
+		bool lastIsVerb = false, firstIsVerb = false;
+		for (ResultWordList::const_iterator r = retval.back().begin(); r != retval.back().end(); ++r)
+			lastIsVerb |= (r->_class & verbClass) != 0;
+		for (ResultWordList::const_iterator r = retval.front().begin(); r != retval.front().end(); ++r)
+			firstIsVerb |= (r->_class & verbClass) != 0;
+		if (lastIsVerb && !firstIsVerb) {
+			ResultWordList verb = retval.back();
+			retval.pop_back();
+			retval.push_front(verb);
+		}
+	}
+
+	if (sawKorean && DebugMan.isDebugChannelEnabled(kDebugLevelHangul)) {
+		Common::String en;
+		for (ResultWordListList::const_iterator l = retval.begin(); l != retval.end(); ++l) {
+			Common::String w;
+			if (!l->empty()) {
+				for (WordMap::const_iterator m = _parserWords.begin(); m != _parserWords.end() && w.empty(); ++m)
+					for (ResultWordList::const_iterator x = m->_value.begin(); x != m->_value.end(); ++x)
+						if (x->_group == l->front()._group) {
+							w = m->_key;
+							break;
+						}
+			}
+			en += (en.empty() ? "" : " ") + (w.empty() ? Common::String("?") : w);
+		}
+		debugC(1, kDebugLevelHangul, "[parse] sentence '%s' => %s", sentence, en.c_str());
+	}
 
 	return true;
 }
