@@ -100,6 +100,12 @@ public:
 		TS_ASSERT_EQUALS(Sci::stepCharRight(t, 2), 4u);
 	}
 
+	// A position inside a character steps to the end of that character only.
+	void test_right_from_inside_a_character_ends_that_character() {
+		Common::String t = mun() + eul();
+		TS_ASSERT_EQUALS(Sci::stepCharRight(t, 1), 2u);
+	}
+
 	void test_right_moves_one_byte_through_ascii() {
 		Common::String t("abc");
 		TS_ASSERT_EQUALS(Sci::stepCharRight(t, 0), 1u);

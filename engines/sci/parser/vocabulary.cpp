@@ -751,7 +751,7 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 	do {
 		c = sentence[pos_in_sentence++];
 
-		if (Common::isAlnum(c) || (c == '-' && wordLen) || (c >= 0x80)) {
+		if ((Common::isAlnum(c) || (c == '-' && wordLen) || (c >= 0x80)) && wordLen < VOCAB_MAX_WORDLENGTH - 1) {
 			// Collect the word as typed. Lower-casing happens once the word
 			// is complete, because in a double-byte encoding the fold that
 			// applies to a byte depends on the byte before it.

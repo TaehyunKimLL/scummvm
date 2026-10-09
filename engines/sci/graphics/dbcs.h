@@ -113,7 +113,7 @@ inline uint stepCharRight(const Common::String &text, uint pos) {
 	while (i < text.size()) {
 		const uint next =
 		    i + ((isEucKrLeadByte((byte)text[i]) && i + 1 < text.size()) ? 2 : 1);
-		if (i >= pos)
+		if (next > pos)
 			return MIN<uint>(next, text.size());
 		i = next;
 	}
