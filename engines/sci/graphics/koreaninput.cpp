@@ -20,7 +20,6 @@
  */
 
 #include "common/scummsys.h"
-#include "common/str-enc.h"
 #include "common/system.h"
 #include "common/ustr.h"
 
@@ -30,6 +29,7 @@
 #include "sci/graphics/dbcs.h"
 #include "sci/graphics/koreaninput.h"
 #include "sci/sci.h"
+#include "sci/utf8.h"
 
 namespace Sci {
 
@@ -37,26 +37,18 @@ bool KoreanComposer::isDrawable(uint32 codePoint) {
 	if (codePoint < 0x80)
 		return true;
 
-	Common::U32String one;
-	one += codePoint;
-	Common::String encoded = Common::convertFromU32String(one, Common::kWindows949);
-
-	// Not encodable at all: convertFromU32String substitutes an error
-	// character, which is one byte, so anything that did not come back as a
-	// pair is not a Korean character this font could hold.
-	if (encoded.size() != 2)
-		return false;
-
-	// Encodable is not drawable. kWindows949 is UHC and encodes all 11172
-	// modern syllables; FontKoreanWansung::getCharData() indexes
+	// Encodable is not drawable. CP949 (UHC) encodes all 11172 modern
+	// syllables, but FontKoreanWansung::getCharData() indexes
 	// ((ch % 256) - 0xb0) * 94 + (ch / 256) - 0xa1, i.e. lead 0xB0..0xC8 and
-	// trail 0xA1..0xFE - 2350 of them. The other 8822 encode cleanly and then
-	// index outside the glyph table. The compatibility jamo a half-composed
-	// syllable is shown as (U+3131..U+3163) encode too, into the 0xA4 row,
-	// and are likewise undrawable.
-	const byte lead = (byte)encoded[0];
-	const byte trail = (byte)encoded[1];
-	return lead >= 0xB0 && lead <= 0xC8 && trail >= 0xA1 && trail <= 0xFE;
+	// trail 0xA1..0xFE - the 2350 KS X 1001 syllables. The other 8822 encode
+	// cleanly and then index outside the glyph table. The compatibility jamo
+	// a half-composed syllable is shown as (U+3131..U+3163) encode too, into
+	// the 0xA4 row, and are likewise undrawable. The pair comes from
+	// encodeCodePagePair(), which needs no encoding.dat for these syllables.
+	const uint32 packed = encodeCodePagePair(codePoint, Common::kWindows949);
+	const byte lead = packed & 0xFF;
+	const byte trail = (packed >> 8) & 0xFF;
+	return packed != 0 && lead >= 0xB0 && lead <= 0xC8 && trail >= 0xA1 && trail <= 0xFE;
 }
 
 Common::String KoreanComposer::encode(uint32 codePoint) {
@@ -66,9 +58,25 @@ Common::String KoreanComposer::encode(uint32 codePoint) {
 	if (codePoint < 0x80)
 		return Common::String((char)codePoint);
 
-	Common::U32String one;
-	one += codePoint;
-	return Common::convertFromU32String(one, Common::kWindows949);
+	const uint32 packed = encodeCodePagePair(codePoint, Common::kWindows949);
+	Common::String out;
+	out += (char)(packed & 0xFF);
+	out += (char)((packed >> 8) & 0xFF);
+	return out;
+}
+
+bool KoreanComposer::canDraw(uint32 codePoint) const {
+	return _encoding == kUtf8 ? codePoint != 0 : isDrawable(codePoint);
+}
+
+Common::String KoreanComposer::encodeCodePoint(uint32 codePoint) const {
+	if (_encoding != kUtf8)
+		return encode(codePoint);
+	if (!canDraw(codePoint))
+		return Common::String();
+	byte buf[4];
+	const int n = encodeUtf8Char(codePoint, buf);
+	return Common::String((const char *)buf, n);
 }
 
 Common::String KoreanComposer::encodedRun(bool &committedOk) const {
@@ -80,7 +88,7 @@ Common::String KoreanComposer::encodedRun(bool &committedOk) const {
 
 	for (uint i = 0; i < composed.size(); ++i) {
 		const bool isPending = (pending != 0 && i + 1 == composed.size());
-		Common::String encoded = encode(composed[i]);
+		Common::String encoded = encodeCodePoint(composed[i]);
 
 		if (encoded.empty()) {
 			if (isPending) {
@@ -139,7 +147,7 @@ bool KoreanComposer::feed(char key, Common::String &text, uint &runStart) {
 	// already committed stays where it is - it is in `text` already, and
 	// runStart re-anchors past it.
 	if (!Common::HangulComposer::isJamoKey(key) && isComposing() &&
-		!isDrawable(_hangul.preedit())) {
+		!canDraw(_hangul.preedit())) {
 		debugC(1, kDebugLevelHangul,
 		       "[comp] non-jamo '%c' ends an UNDRAWABLE composition "
 		       "(preedit=U+%04X) -> jamo dropped, runStart=%u",
