@@ -76,6 +76,24 @@ public:
 		Box(text, 0, show, rect, alignment, fontId);
 	}
 
+	/**
+	 * The font that will draw @p text when Box() lays it out: font 1001 for
+	 * a line of legacy Korean text, the current font otherwise (and always
+	 * the current font for a font set, which covers the text itself). The
+	 * query behind Box()'s font switch, without the side effect, so what
+	 * measures a line - the edit control's text cursor - uses the metrics of
+	 * the font that draws it. The current font is left unchanged.
+	 */
+	GuiResourceId FontIdForLine(const char *text, uint16 languageSplitter);
+
+	/**
+	 * Advance of the first @p bytes bytes of @p text in the current font,
+	 * walking it character by character (UTF-8 or code page, as readChar()
+	 * decodes it) rather than byte by byte. A character that straddles
+	 * @p bytes counts whole.
+	 */
+	int16 EditTextWidth(const char *text, uint bytes);
+
 	void DrawString(const Common::String &str);
 	void DrawStatus(const Common::String &str);
 
