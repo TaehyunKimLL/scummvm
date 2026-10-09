@@ -108,6 +108,11 @@ bool DosEventSource::pollEvent(Common::Event &event) {
 			// (SDL3's default keymap maps a shifted letter scancode to 'A'..'Z',
 			// outside Common::KeyCode's range) cannot split a press/release pair.
 			event.kbd.keycode = toKeyCode(SDL_GetKeyFromScancode(ev.key.scancode, SDL_KMOD_NONE, true));
+			// SDL's default keymap has no keycode for the Korean Han/Yeong and Hanja keys.
+			if (ev.key.scancode == SDL_SCANCODE_LANG1)
+				event.kbd.keycode = Common::KEYCODE_HANGUL;
+			else if (ev.key.scancode == SDL_SCANCODE_LANG2)
+				event.kbd.keycode = Common::KEYCODE_HANJA;
 			event.kbd.flags = toFlags(ev.key.mod);
 			// The shifted character for this layout, e.g. 'A' or '!'.
 			const SDL_Keycode shifted = SDL_GetKeyFromScancode(ev.key.scancode, ev.key.mod, true);
