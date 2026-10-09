@@ -161,4 +161,28 @@ public:
 		TS_ASSERT_EQUALS(Sci::utf8WriteOffset(shortStr, 5), 5u);
 		TS_ASSERT_EQUALS(Sci::utf8WriteOffset((const byte *)"", 0), 0u);
 	}
+
+	void test_index_past_the_terminator_is_a_byte_offset() {
+		// The save list is one buffer of fixed-size records, and the
+		// dialog asks (StrAt text 36) whether a second record exists.
+		// The first record ends long before byte 36, so that index is the
+		// record layout's, not a count of characters.
+		const byte *rec = (const byte *)"Camelot 1";
+		TS_ASSERT(Sci::utf8IndexIsPastEnd(rec, 36));
+		// Within the string it is a code point index, the terminator
+		// included: a 프 b is 3 characters
+		const byte *s = (const byte *)"a\xED\x94\x84" "b";
+		TS_ASSERT(!Sci::utf8IndexIsPastEnd(s, 0));
+		TS_ASSERT(!Sci::utf8IndexIsPastEnd(s, 2));
+		TS_ASSERT(!Sci::utf8IndexIsPastEnd(s, 3));
+		TS_ASSERT(!Sci::utf8IndexIsPastEnd(s, 5));
+		TS_ASSERT(Sci::utf8IndexIsPastEnd(s, 6));
+		// 6 bytes, 2 characters: indexes 3..6 are not a record offset
+		// (a script reading one past the end must still see the end)
+		const byte *k = (const byte *)"\xEA\xB0\x80\xEA\xB0\x80";
+		TS_ASSERT(!Sci::utf8IndexIsPastEnd(k, 3));
+		TS_ASSERT(!Sci::utf8IndexIsPastEnd(k, 6));
+		TS_ASSERT(Sci::utf8IndexIsPastEnd(k, 7));
+		TS_ASSERT(!Sci::utf8IndexIsPastEnd((const byte *)"", 0));
+	}
 };
