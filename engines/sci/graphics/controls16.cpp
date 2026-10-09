@@ -51,6 +51,7 @@ GfxControls16::GfxControls16(SegManager *segMan, GfxPorts *ports, GfxPaint16 *pa
 	: _segMan(segMan), _ports(ports), _paint16(paint16), _text16(text16), _screen(screen) {
 	_texteditBlinkTime = 0;
 	_texteditCursorVisible = false;
+	_texteditCursorKorean = false;
 	_koreanRunStart = 0;
 	_koreanRunObject = NULL_REG;
 
@@ -187,6 +188,16 @@ void GfxControls16::texteditCursorDraw(Common::Rect rect, const char *text, uint
 		int16 cursorWidth = 1;
 		if (text[curPos] != 0)
 			cursorWidth = _text16->EditTextWidth(text + curPos, 1);
+		// With Korean input available the cursor tells the mode: a block the
+		// size of a syllable while composing Korean, a thin bar in English.
+		_texteditCursorKorean = false;
+		if (g_sci->getEventManager()->hangulInputAvailable()) {
+			_texteditCursorKorean = g_sci->getEventManager()->hangulInputEnabled();
+			if (_texteditCursorKorean)
+				cursorWidth = MAX<int16>(cursorWidth, _text16->_font->getHeight());
+			else
+				cursorWidth = 2;
+		}
 		if (!g_sci->isLanguageRTL())
 			_texteditCursorRect.right = _texteditCursorRect.left + cursorWidth;
 		else
@@ -638,7 +649,14 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 			debugC(1, kDebugLevelHangul,
 			       "[edit]   NO REDRAW (textChanged=0) after key %d; heap=%s",
 			       eventKey, hangulDump(text).c_str());
-		if (g_system->getMillis() >= _texteditBlinkTime) {
+		if (g_sci->getEventManager()->hangulInputAvailable() &&
+			g_sci->getEventManager()->hangulInputEnabled() != _texteditCursorKorean) {
+			// Han/Yeong was toggled: redraw the cursor in the new shape now
+			// instead of at the next key.
+			rect = g_sci->_gfxCompare->getNSRect(controlObject);
+			texteditCursorErase();
+			texteditCursorDraw(rect, text.c_str(), cursorPos);
+		} else if (g_system->getMillis() >= _texteditBlinkTime) {
 			_paint16->invertRect(_texteditCursorRect);
 			_paint16->bitsShow(_texteditCursorRect);
 			_texteditCursorVisible = !_texteditCursorVisible;
@@ -779,6 +797,7 @@ void GfxControls16::kernelDrawTextEdit(Common::Rect rect, reg_t obj, const char 
 
 	rect.grow(1);
 	_texteditCursorVisible = false;
+	_texteditCursorKorean = false;
 	texteditCursorErase();
 	_paint16->eraseRect(rect);
 	_text16->Box(text, languageSplitter, false, textRect, SCI_TEXT16_ALIGNMENT_LEFT, fontId);
