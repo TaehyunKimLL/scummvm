@@ -80,6 +80,14 @@ uint32 utf8OffsetOf(const byte *p, uint32 index);
 bool utf8IndexIsPastEnd(const byte *p, uint32 index);
 
 /**
+ * Index of the code point that starts at byte @p offset of the
+ * NUL-terminated UTF-8 string @p p: the number of code points before it.
+ * The inverse of utf8OffsetOf(); an offset inside a character counts that
+ * character as before it, and one past the terminator is the length.
+ */
+uint32 utf8IndexOfOffset(const byte *p, uint32 offset);
+
+/**
  * Byte offset where the code point that ends at byte @p pos of the
  * @p len-byte UTF-8 text @p p begins (what BackSpace and Left step to).
  * A byte that is not part of a well-formed sequence is one step by itself.

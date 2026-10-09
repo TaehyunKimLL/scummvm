@@ -175,6 +175,12 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 	if (g_sci->getSciDebugger())
 		g_sci->getSciDebugger()->noteInput(text);
 
+	// Scripts count the cursor in characters (kStrLen is a code point count
+	// in UTF-8 mode); the code below works on byte offsets.
+	const bool utf8 = g_sci->heapStringsAreUtf8();
+	if (utf8)
+		cursorPos = utf8OffsetOf((const byte *)text.c_str(), cursorPos);
+
 	uint16 oldCursorPos = cursorPos;
 
 	if (!eventObject.isNull()) {
@@ -183,7 +189,6 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 
 		// In UTF-8 text a cursor step is one code point, so Backspace, Delete
 		// and the arrows never land inside a multi-byte character.
-		const bool utf8 = g_sci->heapStringsAreUtf8();
 		const byte *bytes = (const byte *)text.c_str();
 		auto stepBack = [&](uint16 pos) -> uint16 {
 			return utf8 ? (uint16)utf8PrevBoundary(bytes, textSize, pos) : pos - 1;
@@ -319,6 +324,8 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 		}
 	}
 
+	if (utf8)
+		cursorPos = utf8IndexOfOffset((const byte *)text.c_str(), cursorPos);
 	writeSelectorValue(_segMan, controlObject, SELECTOR(cursor), cursorPos);
 }
 
