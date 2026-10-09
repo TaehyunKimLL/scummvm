@@ -175,10 +175,14 @@ public:
 		TS_ASSERT(!Sci::utf8IndexIsPastEnd(s, 0));
 		TS_ASSERT(!Sci::utf8IndexIsPastEnd(s, 2));
 		TS_ASSERT(!Sci::utf8IndexIsPastEnd(s, 3));
-		TS_ASSERT(Sci::utf8IndexIsPastEnd(s, 4));
-		// 6 bytes but 2 characters: byte 3 is past the end
+		TS_ASSERT(!Sci::utf8IndexIsPastEnd(s, 5));
+		TS_ASSERT(Sci::utf8IndexIsPastEnd(s, 6));
+		// 6 bytes, 2 characters: indexes 3..6 are not a record offset
+		// (a script reading one past the end must still see the end)
 		const byte *k = (const byte *)"\xEA\xB0\x80\xEA\xB0\x80";
-		TS_ASSERT(Sci::utf8IndexIsPastEnd(k, 3));
+		TS_ASSERT(!Sci::utf8IndexIsPastEnd(k, 3));
+		TS_ASSERT(!Sci::utf8IndexIsPastEnd(k, 6));
+		TS_ASSERT(Sci::utf8IndexIsPastEnd(k, 7));
 		TS_ASSERT(!Sci::utf8IndexIsPastEnd((const byte *)"", 0));
 	}
 };
