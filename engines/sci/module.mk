@@ -58,6 +58,7 @@ MODULE_OBJS := \
 	graphics/fontset.o \
 	graphics/fontunicode.o \
 	graphics/fontsjis.o \
+	graphics/koreaninput.o \
 	graphics/hirestextsettings.o \
 	graphics/hirestextstate.o \
 	graphics/macfont.o \

@@ -30,7 +30,9 @@ namespace Sci {
 
 /**
  * The SCI side of Korean text entry: a Hangul composer whose output is
- * EUC-KR bytes rather than code points.
+ * bytes in the game's own text encoding rather than code points: EUC-KR for
+ * a code-page game (the description below), UTF-8 for a game whose heap
+ * strings are UTF-8 (setEncoding()).
  *
  * The composer in common/ is deliberately encoding-free, and SCI cannot use
  * its code points directly. Unlike AGI, which widened its prompt buffer to
@@ -52,7 +54,21 @@ namespace Sci {
  */
 class KoreanComposer {
 public:
-	KoreanComposer() : _enabled(false) {}
+	/** What the composer writes into the caller's string. */
+	enum Encoding {
+		kCp949,	///< EUC-KR byte pairs, for a game that draws code-page text
+		kUtf8	///< UTF-8, for a game whose heap strings are UTF-8 (heapStringsAreUtf8())
+	};
+
+	KoreanComposer() : _enabled(false), _encoding(kCp949) {}
+
+	/**
+	 * Choose the encoding the run is written in. Applied to the next key, so
+	 * it must not change while the composer owns a run: both engines fix it
+	 * for the life of a game.
+	 */
+	void setEncoding(Encoding encoding) { _encoding = encoding; }
+	Encoding encoding() const { return _encoding; }
 
 	/** Is the composer switched on? Off by default; nothing is synthesized. */
 	bool isEnabled() const { return _enabled; }
@@ -96,6 +112,17 @@ public:
 	 * cannot draw it.
 	 */
 	static Common::String encode(uint32 codePoint);
+
+	/**
+	 * isDrawable() for this composer's encoding. In UTF-8 mode every code
+	 * point can be stored, and the hi-res font set draws whatever it holds
+	 * (including the compatibility jamo of a half-composed syllable), so the
+	 * 25x94 grid of the legacy font does not apply.
+	 */
+	bool canDraw(uint32 codePoint) const;
+
+	/** encode() for this composer's encoding (empty when canDraw() is false). */
+	Common::String encodeCodePoint(uint32 codePoint) const;
 
 	/**
 	 * Feed one key, and rewrite the composer's run of @p text in place.
@@ -142,6 +169,7 @@ private:
 	Common::String encodedRun(bool &committedOk) const;
 
 	bool _enabled;
+	Encoding _encoding;
 	Common::HangulComposer _hangul;
 };
 

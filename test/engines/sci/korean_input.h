@@ -421,10 +421,10 @@ public:
 		// Every Korean branch in the control is behind isEnabled(): the
 		// toggle mirror reads it twice (compare, then flip), the backspace
 		// and printable-key paths once each, and the Hangul debug logging
-		// reports it three times more. The run release before the editing
+		// reports it twice more. The run release before the editing
 		// switch is gated on ownsRun() instead, which implies isEnabled() -
 		// a disabled composer owns nothing.
-		TS_ASSERT_EQUALS(koreanBranches, 7);
+		TS_ASSERT_EQUALS(koreanBranches, 6);
 
 		// The run must be released before the ordinary editing switch, or
 		// an abandoned syllable comes back on the next keypress. See
