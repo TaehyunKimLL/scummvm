@@ -138,6 +138,23 @@ void ScriptStrings::tagBuffer(uint32 buffer, const Key &key, const Common::Strin
 	_bufferTags[buffer] = t;
 }
 
+uint ScriptStrings::sci11StringsStart(const byte *heap, uint size) {
+	// A 4-byte header, then instances that each start with the 0x1234 magic
+	// and a property count. The first word that is not a magic belongs to
+	// the strings: it must not be consumed (Script::identifyOffsets() did,
+	// so a heap whose strings open with a NUL pair lost its first two).
+	if (size < 4)
+		return size;
+	uint p = (heap[2] | (heap[3] << 8)) * 2 + 4;
+	while (p + 4 <= size && (heap[p] | (heap[p + 1] << 8)) == 0x1234) {
+		const uint props = heap[p + 2] | (heap[p + 3] << 8);
+		if (props < 2)
+			break;
+		p += props * 2;
+	}
+	return p < size ? p : size;
+}
+
 ScriptStrings::Key ScriptStrings::keyOf(uint32 buffer, const Common::String &text) const {
 	if (!_bufferTags.contains(buffer))
 		return Key();
