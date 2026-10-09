@@ -25,6 +25,8 @@
 #include "common/list.h"
 #include "common/rect.h"
 
+#include "sci/graphics/koreaninput.h"
+
 namespace Sci {
 
 enum SciEventType {
@@ -157,10 +159,46 @@ public:
 	SciEvent getSciEvent(SciEventType mask);
 	void flushEvents();
 
+	/**
+	 * Was Korean text entry asked for in the configuration?
+	 *
+	 * When false - which it is unless `sci_hangul_input` is set - the
+	 * Han/Yeong key is never acted on, so nothing downstream can observe any
+	 * of the Korean input path.
+	 */
+	bool hangulInputAvailable() const { return _hangulInputAvailable; }
+
+	/**
+	 * Is the text edit control's Korean composer switched on right now?
+	 *
+	 * The state lives here rather than in GfxControls16 because the key that
+	 * flips it must be consumed before the game's scripts run. An event put
+	 * into the SCI event stream is dispatched to the game first, and a key no
+	 * script recognises can be swallowed there - measured: of two Han/Yeong
+	 * presses in one session, the first never reached kernelTexteditChange.
+	 * Swallowing it here makes that structurally impossible, and is also what
+	 * K2 did on the AGI side for the same reason.
+	 */
+	bool hangulInputEnabled() const { return _hangulInputEnabled; }
+
 private:
 	SciEvent getScummVMEvent();
 
 	const bool _fontIsExtended;
+	const bool _hangulInputAvailable;
+	bool _hangulInputEnabled;
+
+	/**
+	 * The on-screen badge for the state above.
+	 *
+	 * It lives with the state rather than with the edit control because the
+	 * state does: the control is not running when the toggle is pressed, and
+	 * it redraws only when the text changes - measured, twice in a session
+	 * where the control was entered about 1,550 times. See the class comment
+	 * in graphics/koreaninput.h for what that ruled out.
+	 */
+	KoreanInputIndicator _hangulIndicator;
+
 	Common::List<SciEvent> _events;
 #ifdef ENABLE_SCI32
 public:

@@ -184,5 +184,6 @@ cp "$CWSDPMI_EXE" "$src/dist/dos/CWSDPMI.EXE"
 rm -rf "$src/dist/dos/DATA"
 mkdir -p "$src/dist/dos/DATA" && cp "$src"/dists/engine-data/hires_text/dos/* "$src/dist/dos/DATA/"
 cp "$src/dists/engine-data/encoding.dat" "$src/dist/dos/DATA/ENCODING.DAT"
+cp "$src/dists/engine-data/scikor.dat" "$src/dist/dos/DATA/SCIKOR.DAT"
 "$src/backends/platform/dos/launcher/build-play.sh" >/dev/null
 ls -la "$src/dist/dos"

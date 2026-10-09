@@ -19,6 +19,7 @@
  *
  */
 
+#include "common/config-manager.h"
 #include "common/system.h"
 #include "common/events.h"
 #include "common/file.h"
@@ -143,7 +144,12 @@ static const MouseEventConversion mouseEventMappings[] = {
 };
 
 EventManager::EventManager(bool fontIsExtended) :
-	_fontIsExtended(fontIsExtended)
+	_fontIsExtended(fontIsExtended),
+	// Read once: this decides whether a key that SSCI never produced can be
+	// synthesized at all, and it must not change under a running game.
+	_hangulInputAvailable(ConfMan.hasKey("sci_hangul_input") &&
+						  ConfMan.getBool("sci_hangul_input")),
+	_hangulInputEnabled(false)
 #ifdef ENABLE_SCI32
 	, _hotRectanglesActive(false)
 	, _activeRectIndex(-1)
@@ -301,6 +307,25 @@ SciEvent EventManager::getScummVMEvent() {
 		}
 	}
 
+	// Han/Yeong, as a keymapper action.
+	//
+	// This is the path that carries the key on a machine where the physical
+	// Han/Yeong key is not right Alt - measured: Windows delivers it as its
+	// own scancode (SDL LANG1), which right Alt's keycode can never match.
+	// Going through the keymapper also makes the binding editable, which is
+	// the answer for a keyboard that has no such key at all.
+	//
+	// Consumed here and turned into no event, for the same reason the direct
+	// keycode path below is: an event handed to the SCI event stream reaches
+	// the game's own scripts first, and a key no script recognises can be
+	// swallowed there before the edit control ever runs.
+	if (ev.type == Common::EVENT_CUSTOM_ENGINE_ACTION_START &&
+		ev.customType == kSciActionHangulToggle) {
+		if (hangulInputAvailable())
+			_hangulInputEnabled = !_hangulInputEnabled;
+		return noEvent;
+	}
+
 	// Handle keyboard events for the rest of the function
 	if (ev.type != Common::EVENT_KEYDOWN && ev.type != Common::EVENT_KEYUP) {
 		return noEvent;
@@ -313,6 +338,14 @@ SciEvent EventManager::getScummVMEvent() {
 	}
 
 	const Common::KeyCode scummVMKeycode = ev.kbd.keycode;
+
+	// Han/Yeong used to be matched here as a raw keycode (right Alt or
+	// KEYCODE_MODE). That has moved to the keymapper action handled above,
+	// for two measured reasons. Right Alt is only what X11 reports for the
+	// physical Han/Yeong key; Windows reports a dedicated scancode, so the
+	// keycode test could never fire there. And matching the raw keycode as
+	// well would make rebinding a lie - the old key would keep working
+	// after the user bound another one.
 
 	input.character = ev.kbd.ascii;
 
@@ -449,6 +482,18 @@ SciEvent EventManager::getSciEvent(SciEventType mask) {
 #else
 	SciEvent event = { kSciEventNone, kSciKeyModNone, 0, Common::Point() };
 #endif
+
+	// The Han/Yeong badge. Posted from the pump rather than from the toggle
+	// branch so it is on screen before the first press too - a player who
+	// has not pressed anything still needs to be told which mode they are
+	// starting in, and that was the actual complaint. KoreanInputIndicator
+	// is idempotent, so reaching it at poll rate costs one bool compare.
+	//
+	// Gated on the config key, which is what keeps every existing game from
+	// ever seeing it: without `sci_hangul_input` this is never called at all
+	// and no icon is ever handed to the backend.
+	if (_hangulInputAvailable)
+		_hangulIndicator.show(_hangulInputEnabled);
 
 	if (getSciVersion() < SCI_VERSION_2) {
 		updateScreen();

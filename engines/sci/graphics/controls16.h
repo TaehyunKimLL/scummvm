@@ -22,6 +22,8 @@
 #ifndef SCI_GRAPHICS_CONTROLS16_H
 #define SCI_GRAPHICS_CONTROLS16_H
 
+#include "sci/graphics/koreaninput.h"
+
 namespace Sci {
 
 enum controlStateFlags {
@@ -70,6 +72,15 @@ private:
 	void texteditCursorErase();
 	int getPicNotValid();
 
+	/**
+	 * Hex + readable rendering of a string, for the Hangul debug channel.
+	 *
+	 * The whole point of this log is to see bytes the screen cannot show, so
+	 * it prints every byte as hex and marks the EUC-KR pairs. Never call it
+	 * outside a debugC() - it builds a string.
+	 */
+	static Common::String hangulDump(const Common::String &s);
+
 	SegManager *_segMan;
 	GfxPorts *_ports;
 	GfxPaint16 *_paint16;
@@ -80,6 +91,22 @@ private:
 	Common::Rect _texteditCursorRect;
 	bool _texteditCursorVisible;
 	uint32 _texteditBlinkTime;
+
+	// Korean text entry. Inert unless the sci_hangul_input config key is set:
+	// without it the Han/Yeong key is never synthesized, so _koreanInput is
+	// never enabled and every branch below it is unreachable.
+	KoreanComposer _koreanInput;
+	/// Byte offset in the edit string where the composer's run begins.
+	uint _koreanRunStart;
+	/// The object whose string _koreanRunStart refers to; a different control
+	/// means the run belongs to someone else and must not be reused.
+	reg_t _koreanRunObject;
+	/// The string as this control last left it. A run describes bytes in a
+	/// SPECIFIC string: if anything else rewrote it - a script clearing the
+	/// line after Enter, restoring a default, or loading a save - the run is
+	/// stale even when the offset still happens to be in range. Comparing
+	/// lengths cannot see that; comparing the bytes can.
+	Common::String _koreanRunText;
 };
 
 } // End of namespace Sci
