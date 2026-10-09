@@ -321,6 +321,8 @@ SciEvent EventManager::getScummVMEvent() {
 	// swallowed there before the edit control ever runs.
 	if (ev.type == Common::EVENT_CUSTOM_ENGINE_ACTION_START &&
 		ev.customType == kSciActionHangulToggle) {
+		debugC(1, kDebugLevelHangul, "[key] Han/Yeong toggle action; korean %d -> %d",
+		       (int)_hangulInputEnabled, (int)!_hangulInputEnabled);
 		if (hangulInputAvailable())
 			_hangulInputEnabled = !_hangulInputEnabled;
 		return noEvent;
@@ -338,6 +340,9 @@ SciEvent EventManager::getScummVMEvent() {
 	}
 
 	const Common::KeyCode scummVMKeycode = ev.kbd.keycode;
+	if (ev.type == Common::EVENT_KEYDOWN && hangulInputAvailable())
+		debugC(1, kDebugLevelHangul, "[key] keydown keycode=%d flags=0x%02x ascii=%d",
+		       (int)scummVMKeycode, (unsigned)ev.kbd.flags, (int)ev.kbd.ascii);
 
 	// Han/Yeong used to be matched here as a raw keycode (right Alt or
 	// KEYCODE_MODE). That has moved to the keymapper action handled above,
