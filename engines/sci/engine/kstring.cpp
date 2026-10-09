@@ -178,9 +178,18 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 	if (g_sci->heapStringsAreUtf8() && argc <= 2) {
 		const Common::String str = s->_segMan->getString(argv[0]);
 		const byte *p = (const byte *)str.c_str();
+		if (utf8IndexIsPastEnd(p, offset)) {
+			// Past the terminator the script is addressing the buffer's
+			// own layout (the save list is fixed-size records, and the
+			// dialog asks (StrAt text 36) whether a next record exists),
+			// so the index is a byte offset.
+			if ((int)offset >= dest_r.maxSize)
+				return NULL_REG;
+			return make_reg(0, strAtByte(dest_r, offset, false, 0));
+		}
 		const uint32 byteOff = utf8OffsetOf(p, offset);
 		if (byteOff >= str.size())
-			return NULL_REG;	// past the end, as a byte read past NUL would be
+			return NULL_REG;	// the terminator, as a byte read of NUL would be
 		int bytes;
 		return make_reg(0, decodeUtf8Char(p + byteOff, bytes) & 0xFFFF);
 	}

@@ -70,6 +70,15 @@ uint32 utf8WriteOffset(const byte *p, uint32 index);
 uint32 utf8OffsetOf(const byte *p, uint32 index);
 
 /**
+ * Whether @p index lies beyond the terminator of the NUL-terminated UTF-8
+ * string @p p, counting code points (the terminator itself is index
+ * length, so it is not beyond). A script that reads past a string's end is
+ * addressing the buffer's own layout, such as a list of fixed-size records,
+ * so there the index is a byte offset and not a character count.
+ */
+bool utf8IndexIsPastEnd(const byte *p, uint32 index);
+
+/**
  * The code point of one double-byte character of a code page (lead byte,
  * then trail byte), or 0 when the pair does not decode.
  *
