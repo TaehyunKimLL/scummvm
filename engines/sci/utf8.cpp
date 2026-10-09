@@ -121,6 +121,29 @@ bool utf8IndexIsPastEnd(const byte *p, uint32 index) {
 	return index > Common::strnlen((const char *)p, 0xFFFFFFFFU);
 }
 
+uint32 utf8PrevBoundary(const byte *p, uint32 len, uint32 pos) {
+	// A code point is at most 4 bytes: try each start that would end at pos
+	// and take the earliest one that decodes to exactly that span.
+	for (uint32 back = 4; back >= 2; back--) {
+		if (pos < back)
+			continue;
+		const uint32 start = pos - back;
+		int bytes;
+		decodeUtf8Char(p + start, bytes);
+		if ((uint32)bytes == back && start + back <= len)
+			return start;
+	}
+	return pos - 1;
+}
+
+uint32 utf8NextBoundary(const byte *p, uint32 len, uint32 pos) {
+	if (pos >= len)
+		return pos;
+	int bytes;
+	decodeUtf8Char(p + pos, bytes);
+	return MIN<uint32>(pos + bytes, len);
+}
+
 uint32 decodeCodePagePair(byte lead, byte trail, Common::CodePage codePage) {
 	if (codePage == Common::kWindows949) {
 		const uint32 cp = Graphics::KoreanCodePage::decodeEucKrPair(lead, trail);

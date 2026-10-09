@@ -185,4 +185,28 @@ public:
 		TS_ASSERT(Sci::utf8IndexIsPastEnd(k, 7));
 		TS_ASSERT(!Sci::utf8IndexIsPastEnd((const byte *)"", 0));
 	}
+
+	void test_edit_steps_are_whole_code_points() {
+		// "a 가 b" : a(0) 가(1..3) b(4), 5 bytes
+		const byte *s = (const byte *)"a\xEA\xB0\x80" "b";
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(s, 5, 5), 4u);
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(s, 5, 4), 1u);
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(s, 5, 1), 0u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(s, 5, 0), 1u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(s, 5, 1), 4u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(s, 5, 4), 5u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(s, 5, 5), 5u);
+		// ASCII stays one byte per step
+		const byte *e = (const byte *)"abc";
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(e, 3, 3), 2u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(e, 3, 1), 2u);
+		// Malformed bytes are one step each: a stray continuation byte, a
+		// lead byte whose tail was cut off
+		const byte *bad = (const byte *)"\x80" "a\xEA\xB0";
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(bad, 4, 1), 0u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(bad, 4, 0), 1u);
+		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(bad, 4, 4), 3u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(bad, 4, 2), 3u);
+		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(bad, 4, 3), 4u);
+	}
 };
