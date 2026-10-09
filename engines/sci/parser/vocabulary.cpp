@@ -23,6 +23,7 @@
 
 #include "sci/parser/vocabulary.h"
 #include "sci/parser/lowercase.h"
+#include "sci/utf8.h"
 #include "common/config-manager.h"
 #include "sci/resource/resource.h"
 #include "sci/engine/state.h"
@@ -461,6 +462,27 @@ bool Vocabulary::checkAltInput(Common::String &text, uint16 &cursorPos) {
 }
 
 // we assume that *word points to an already lowercased word
+// UTF-8 -> cp949 for one parser word. False when a code point has no pair.
+static bool utf8ToCp949(const Common::String &in, Common::String &out) {
+	out.clear();
+	const byte *p = (const byte *)in.c_str();
+	while (*p) {
+		int n = 1;
+		const uint32 cp = decodeUtf8Char(p, n);
+		if (cp < 0x80) {
+			out += (char)cp;
+		} else {
+			const uint32 pair = encodeCodePagePair(cp, Common::kWindows949);
+			if (!pair)
+				return false;
+			out += (char)(pair & 0xFF);
+			out += (char)((pair >> 8) & 0xFF);
+		}
+		p += n;
+	}
+	return true;
+}
+
 void Vocabulary::lookupWord(ResultWordList& retval, const char *word, int word_len) {
 	retval.clear();
 
@@ -537,7 +559,13 @@ void Vocabulary::lookupWord(ResultWordList& retval, const char *word, int word_l
 	// which is what keeps this invisible to non-Korean games.
 	if (_koreanVocab.isLoaded()) {
 		uint16 kgroup = 0, kclass = 0;
-		if (_koreanVocab.lookup(tempword.c_str(), tempword.size(),
+		// scikor.dat holds cp949 words. In a UTF-8 manifest game the typed
+		// word is UTF-8, so it is converted back before the lookup; a word
+		// with a character that has no KS X 1001 syllable cannot be in it.
+		Common::String kword = tempword;
+		if (g_sci->heapStringsAreUtf8() && !utf8ToCp949(tempword, kword))
+			return;
+		if (_koreanVocab.lookup(kword.c_str(), kword.size(),
 		                        kgroup, kclass)) {
 			// kclass is already in _parserWords' layout: k6bake.py takes
 			// it straight from the vocab entry, where the class is the
@@ -733,7 +761,15 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 			if (wordLen) { // Finished a word?
 				ResultWordList lookup_result;
 
-				parserLowerCaseWord((byte *)currentWord, wordLen, g_sci->getLanguage());
+				if (g_sci->heapStringsAreUtf8()) {
+					// UTF-8: the single-byte fold would rewrite continuation
+					// bytes, so only the ASCII letters are folded.
+					for (int i = 0; i < wordLen; ++i)
+						if (currentWord[i] >= 'A' && currentWord[i] <= 'Z')
+							currentWord[i] += 'a' - 'A';
+				} else {
+					parserLowerCaseWord((byte *)currentWord, wordLen, g_sci->getLanguage());
+				}
 
 				// Look it up
 				lookupWord(lookup_result, currentWord, wordLen);

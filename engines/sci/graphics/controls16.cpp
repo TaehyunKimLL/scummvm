@@ -71,6 +71,9 @@ const char controlListUpArrow[2]	= { 0x18, 0 };
 const char controlListDownArrow[2]	= { 0x19, 0 };
 
 Common::String GfxControls16::hangulDump(const Common::String &s) {
+	// debugC() is a function: its arguments are built even with the channel off.
+	if (!DebugMan.isDebugChannelEnabled(kDebugLevelHangul))
+		return Common::String();
 	const bool utf8 = g_sci->heapStringsAreUtf8();
 	Common::String out = Common::String::format("len=%u [", s.size());
 	for (uint i = 0; i < s.size(); ++i) {
@@ -248,6 +251,8 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 	const bool utf8 = g_sci->heapStringsAreUtf8();
 	if (utf8)
 		cursorPos = utf8OffsetOf((const byte *)text.c_str(), cursorPos);
+	if (cursorPos > text.size())
+		cursorPos = text.size();
 
 	// The composer's run is a byte range in THIS control's string. It stops
 	// describing anything real when the control changes, but also - and this
@@ -306,13 +311,14 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 			eventKey = readSelectorValue(_segMan, eventObject, SELECTOR(message));
 			modifiers = readSelectorValue(_segMan, eventObject, SELECTOR(modifiers));
 
-			debugC(1, kDebugLevelHangul,
-			       "[edit] KEY %d (0x%02x)%s mod=0x%04x korean=%d",
-			       eventKey, eventKey,
-			       (eventKey > 31 && eventKey < 127)
-			           ? Common::String::format(" '%c'", (char)eventKey).c_str()
-			           : "",
-			       modifiers, (int)_koreanInput.isEnabled());
+			if (DebugMan.isDebugChannelEnabled(kDebugLevelHangul))
+				debugC(1, kDebugLevelHangul,
+				       "[edit] KEY %d (0x%02x)%s mod=0x%04x korean=%d",
+				       eventKey, eventKey,
+				       (eventKey > 31 && eventKey < 127)
+				           ? Common::String::format(" '%c'", (char)eventKey).c_str()
+				           : "",
+				       modifiers, (int)_koreanInput.isEnabled());
 
 			// The Han/Yeong state is owned by the event manager, which flips
 			// it and emits no event at all. Mirroring it into the composer
@@ -336,8 +342,16 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 			// the string and the composer disagreeing about what was typed.
 			if (_koreanInput.isEnabled() && eventKey == kSciKeyBackspace &&
 				_koreanInput.ownsRun()) {
-				if (_koreanInput.backspace(text, _koreanRunStart)) {
-					cursorPos = text.size();
+				// The composer works on the head of the line (everything
+				// before the cursor); whatever follows the cursor is put
+				// back after it.
+				const uint16 headEnd = cursorPos;
+				const Common::String tail(text.c_str() + headEnd);
+				text.erase(headEnd);
+				const bool backspaced = _koreanInput.backspace(text, _koreanRunStart);
+				cursorPos = backspaced ? text.size() : headEnd;
+				text += tail;
+				if (backspaced) {
 					textChanged = true;
 					debugC(1, kDebugLevelHangul,
 					       "[edit]   BKSP composer -> %s runStart=%u owns=%d",
@@ -351,17 +365,29 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 			// which rewrites its run of the string in the game's encoding.
 			// Enter is not one: it ends the line, and the game's script
 			// handles it.
+			// Ctrl and Alt chords are commands, not text (Ctrl+C clears the line
+			// further down), so they bypass the composer.
 			if (_koreanInput.isEnabled() && eventKey > 31 && eventKey < 256 &&
-				eventKey != kSciKeyEnter) {
+				eventKey != kSciKeyEnter &&
+				!(modifiers & (kSciKeyModCtrl | kSciKeyModAlt))) {
 				koreanTextBefore = text;
-				if (_koreanInput.feed((char)eventKey, text, _koreanRunStart)) {
+				// Composed text goes in at the cursor: the composer sees the
+				// head of the line and the tail is rejoined after its run.
+				const Common::String tail(text.c_str() + cursorPos);
+				text.erase(cursorPos);
+				if (!_koreanInput.ownsRun())
+					_koreanRunStart = text.size();
+				const bool fed = _koreanInput.feed((char)eventKey, text, _koreanRunStart);
+				const uint16 headSize = text.size();
+				text += tail;
+				if (fed) {
 					debugC(1, kDebugLevelHangul,
 					       "[edit]   FEED ok -> %s runStart=%u owns=%d composing=%d (max=%d)",
 					       hangulDump(text).c_str(), _koreanRunStart,
 					       (int)_koreanInput.ownsRun(),
 					       (int)_koreanInput.isComposing(), maxChars);
 					if (text.size() <= maxChars) {
-						cursorPos = text.size();
+						cursorPos = headSize;
 						textChanged = true;
 						koreanAddChar = true;
 						break;
@@ -382,6 +408,7 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 					writeSelectorValue(_segMan, controlObject, SELECTOR(cursor), cursorPos);
 					return;
 				}
+				text = koreanTextBefore;
 				debugC(1, kDebugLevelHangul,
 				       "[edit]   FEED refused (not consumed as Korean) -> falls "
 				       "through to ASCII; runStart=%u owns=%d",
@@ -519,7 +546,7 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 				_koreanInput.reset();
 				_koreanRunStart = text.size();
 				_koreanRunText = text;
-				cursorPos = MIN<uint16>(cursorPos, text.size());
+				cursorPos = MIN<uint16>(oldCursorPos, text.size());
 				_text16->SetFont(oldFontId);
 				if (utf8)
 					cursorPos = utf8IndexOfOffset((const byte *)text.c_str(), cursorPos);
@@ -539,10 +566,11 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 		// not be pushed again afterwards: that copies the empty background
 		// back over the glyphs, which is why a Korean edit control drew
 		// nothing. kernelDrawButton and kernelDrawText already follow this
-		// rule. It is only true of the double-byte glyphs: a single-byte
+		// rule. Limited to Korean text: the PC-98 edit control keeps its
+		// original draw order. It is only true of the double-byte glyphs: a single-byte
 		// character still goes through the low-res buffer, and Box()'s
 		// `show` argument pushes exactly those lines.
-		const bool driverDrawsText = _screen->gfxDriver()->driverBasedTextRendering();
+		const bool driverDrawsText = g_sci->usesKoreanText() && _screen->gfxDriver()->driverBasedTextRendering();
 		if (driverDrawsText && !getPicNotValid())
 			_paint16->bitsShow(rect);
 		_text16->Box(text.c_str(), driverDrawsText, rect, SCI_TEXT16_ALIGNMENT_LEFT, -1);
@@ -575,7 +603,7 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 		// otherwise a digit typed after a lone jamo vanished on the next
 		// vowel.
 		if (!_koreanInput.ownsRun())
-			_koreanRunStart = text.size();
+			_koreanRunStart = cursorPos;
 	} else {
 		if (eventKey)
 			debugC(1, kDebugLevelHangul,

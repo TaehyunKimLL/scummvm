@@ -87,6 +87,13 @@ public:
 		assertText("gksrmf", "D55C AE00");
 	}
 
+	void test_lone_vowel_then_consonant_keeps_both() {
+		// `kr` -> ㅏㄱ. A vowel with no initial cannot take a final; the
+		// consonant used to be stored as one and then vanished.
+		assertText("kr", "314F 3131");
+		assertText("krk", "314F AC00");
+	}
+
 	void test_k2_backspace_removes_jung_leaving_cho() {
 		// `rk~` -> ㄱ. Mid-syllable: cho+jung, the jung is removed and the
 		// lone initial is shown as the COMPATIBILITY jamo U+3131, not the

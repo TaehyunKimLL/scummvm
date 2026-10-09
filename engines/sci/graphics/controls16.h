@@ -78,8 +78,8 @@ private:
 	 * Hex + readable rendering of a string, for the Hangul debug channel.
 	 *
 	 * The whole point of this log is to see bytes the screen cannot show, so
-	 * it prints every byte as hex and marks the EUC-KR pairs. Never call it
-	 * outside a debugC() - it builds a string.
+	 * it prints every byte as hex and marks the EUC-KR pairs. Returns an
+	 * empty string unless the channel is enabled.
 	 */
 	static Common::String hangulDump(const Common::String &s);
 

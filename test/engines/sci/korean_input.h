@@ -833,4 +833,26 @@ private:
 		TS_ASSERT_LESS_THAN(0u, out.size());
 		return out;
 	}
+
+public:
+	void test_review_fixes_are_in_the_edit_control() {
+		const Common::String ctl = readSource("engines/sci/graphics/controls16.cpp");
+		// composed text goes in at the cursor, not at the end of the line
+		TS_ASSERT(ctl.contains("text.erase(cursorPos);"));
+		TS_ASSERT(ctl.contains("text += tail;"));
+		// Ctrl/Alt chords bypass the composer
+		TS_ASSERT(ctl.contains("!(modifiers & (kSciKeyModCtrl | kSciKeyModAlt))"));
+		// a rejected composed key leaves the caret where it was
+		TS_ASSERT(ctl.contains("MIN<uint16>(oldCursorPos, text.size())"));
+		// the debug dump costs nothing with the channel off
+		TS_ASSERT(ctl.contains("if (!DebugMan.isDebugChannelEnabled(kDebugLevelHangul))"));
+		// PC-98 keeps its original draw order
+		TS_ASSERT(ctl.contains("g_sci->usesKoreanText() && _screen->gfxDriver()->driverBasedTextRendering()"));
+	}
+
+	void test_parser_converts_utf8_words_before_the_cp949_lookup() {
+		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
+		TS_ASSERT(voc.contains("utf8ToCp949(tempword, kword)"));
+		TS_ASSERT(voc.contains("if (g_sci->heapStringsAreUtf8())"));
+	}
 };
