@@ -689,6 +689,9 @@ void SciMetaEngine::registerDefaultSettings(const Common::String &target) const 
 	for (const PopUpOptionsMap *entry = popUpOptionsList; entry->guioFlag; ++entry)
 		ConfMan.registerDefault(entry->configOption, entry->defaultState);
 
+	for (const HangulOptionsMap *entry = hangulOptionsList; entry->configOption; ++entry)
+		ConfMan.registerDefault(entry->configOption, entry->defaultState);
+
 	// enable_high_resolution_graphics is normally enabled by default,
 	// except for KQ6 where it overrides the DOS platform with Windows.
 	// If it were enabled by default for KQ6, then the DOS platform
