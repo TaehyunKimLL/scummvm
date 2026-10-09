@@ -46,6 +46,21 @@ struct PopUpOptionsMap {
 
 #define POPUP_OPTIONS_TERMINATOR { nullptr, nullptr, nullptr, nullptr, 0, { POPUP_OPTIONS_ITEMS_TERMINATOR } }
 
+/**
+ * A Korean parser input checkbox. These are not GUIO-gated like optionsList:
+ * the keys are read by the engine at start-up for any target, so the dialog
+ * shows them whenever the target is Korean or already has sci_hangul_input.
+ */
+struct HangulOptionsMap {
+	const char *label;
+	const char *tooltip;
+	const char *configOption;
+	bool defaultState;
+	uint32 cmd;
+};
+
+#define HANGUL_OPTIONS_TERMINATOR { nullptr, nullptr, nullptr, false, 0 }
+
 class OptionsWidget : public GUI::OptionsContainerWidget {
 public:
 	explicit OptionsWidget(GuiObject *boss, const Common::String &name, const Common::String &domain);
@@ -53,18 +68,23 @@ public:
 	// OptionsContainerWidget API
 	void load() override;
 	bool save() override;
+	void handleCommand(GUI::CommandSender *sender, uint32 cmd, uint32 data) override;
 
 private:
+	void updateHangulDependents();
+
 	// OptionsContainerWidget API
 	void defineLayout(GUI::ThemeEval &layouts, const Common::String &layoutName, const Common::String &overlayedLayout) const override;
 
 	Common::String _guiOptions;
+	bool _hangulShown;
 	Common::HashMap<Common::String, GUI::CheckboxWidget *> _checkboxes;
 	Common::HashMap<Common::String, GUI::PopUpWidget *> _popUps;
 };
 
 extern const ADExtraGuiOptionsMap optionsList[];
 extern const PopUpOptionsMap popUpOptionsList[];
+extern const HangulOptionsMap hangulOptionsList[];
 
 } // End of namespace Sci
 
