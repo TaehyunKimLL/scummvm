@@ -169,6 +169,17 @@ public:
 	bool hangulInputAvailable() const { return _hangulInputAvailable; }
 
 	/**
+	 * Is the built-in Han/Yeong composer offered at all?
+	 *
+	 * `sci_hangul_builtin=false` turns it off for a platform whose operating
+	 * system supplies the input method: the toggle key is ignored, no badge
+	 * is shown, and only finished characters from the OS are accepted. It
+	 * defaults to off on Android and to on elsewhere. Implies
+	 * hangulInputAvailable().
+	 */
+	bool hangulBuiltinAvailable() const { return _hangulBuiltinAvailable; }
+
+	/**
 	 * Is the text edit control's Korean composer switched on right now?
 	 *
 	 * The state lives here rather than in GfxControls16 because the key that
@@ -197,6 +208,7 @@ private:
 
 	const bool _fontIsExtended;
 	const bool _hangulInputAvailable;
+	const bool _hangulBuiltinAvailable;
 	bool _hangulInputEnabled;
 	uint16 _lastOsImeKey;
 

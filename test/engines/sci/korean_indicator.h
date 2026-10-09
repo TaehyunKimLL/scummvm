@@ -150,7 +150,7 @@ public:
 	void test_the_indicator_is_behind_the_config_gate() {
 		Common::String ev = readSource("engines/sci/event.cpp");
 
-		const int gate = ev.find("if (_hangulInputAvailable)");
+		const int gate = ev.find("if (_hangulBuiltinAvailable)\n		_hangulIndicator");
 		const int show = ev.find("_hangulIndicator.show(_hangulInputEnabled)");
 		TS_ASSERT_LESS_THAN(0, gate);
 		TS_ASSERT_LESS_THAN(0, show);
@@ -164,6 +164,23 @@ public:
 		// show() is the only way the indicator is driven, so there is no
 		// second, ungated path.
 		TS_ASSERT_EQUALS(count(ev, "_hangulIndicator."), 1);
+	}
+
+	/**
+	 * `sci_hangul_builtin` switches the built-in composer off as a whole:
+	 * toggle, badge and initial state all hang off one flag that implies
+	 * the Korean-input key.
+	 */
+	void test_the_builtin_composer_has_one_switch() {
+		Common::String ev = readSource("engines/sci/event.cpp");
+		TS_ASSERT(ev.contains("_hangulBuiltinAvailable(_hangulInputAvailable &&"));
+		TS_ASSERT(ev.contains("ConfMan.getBool(\"sci_hangul_builtin\")"));
+		TS_ASSERT(ev.contains("_hangulInputEnabled(_hangulBuiltinAvailable &&"));
+		const int toggle = ev.find("if (_hangulBuiltinAvailable)\n			_hangulInputEnabled = !_hangulInputEnabled;");
+		TS_ASSERT_LESS_THAN(0, toggle);
+
+		Common::String me = readSource("engines/sci/metaengine.cpp");
+		TS_ASSERT(me.contains("sci_hangul_builtin"));
 	}
 
 	/**

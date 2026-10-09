@@ -723,6 +723,18 @@ Common::KeymapArray SciMetaEngine::initKeymaps(const char *target) const {
 		return keymaps;
 	}
 
+	// No toggle to bind when the built-in composer is off (the default on
+	// Android, where the system keyboard supplies Hangul).
+#ifdef ANDROID_BACKEND
+	if (!ConfMan.hasKey("sci_hangul_builtin", target) ||
+		!ConfMan.getBool("sci_hangul_builtin", target))
+		return keymaps;
+#else
+	if (ConfMan.hasKey("sci_hangul_builtin", target) &&
+		!ConfMan.getBool("sci_hangul_builtin", target))
+		return keymaps;
+#endif
+
 	Keymap *hangulKeymap = new Keymap(Keymap::kKeymapTypeGame, "sci-hangul", _("SCI - Korean input"));
 
 	Action *act = new Action("HANGULTOGGLE", _("Han/Yeong (Korean input on/off)"));
