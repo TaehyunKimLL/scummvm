@@ -121,6 +121,17 @@ bool utf8IndexIsPastEnd(const byte *p, uint32 index) {
 	return index > Common::strnlen((const char *)p, 0xFFFFFFFFU);
 }
 
+uint32 utf8IndexOfOffset(const byte *p, uint32 offset) {
+	uint32 pos = 0, index = 0;
+	int bytes;
+	while (p[pos] && pos < offset) {
+		decodeUtf8Char(p + pos, bytes);
+		pos += bytes;
+		index++;
+	}
+	return index;
+}
+
 uint32 utf8PrevBoundary(const byte *p, uint32 len, uint32 pos) {
 	// A code point is at most 4 bytes: try each start that would end at pos
 	// and take the earliest one that decodes to exactly that span.

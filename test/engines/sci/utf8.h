@@ -209,4 +209,15 @@ public:
 		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(bad, 4, 2), 3u);
 		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(bad, 4, 3), 4u);
 	}
+
+	void test_code_point_index_and_byte_offset_round_trip() {
+		// a(0) 가(1..3) 나(4..6) b(7), 8 bytes
+		const byte *s = (const byte *)"a\xEA\xB0\x80\xEB\x82\x98" "b";
+		for (uint32 i = 0; i <= 4; i++)
+			TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset(s, Sci::utf8OffsetOf(s, i)), i);
+		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset(s, 8), 4u);
+		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset(s, 99), 4u);
+		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset((const byte *)"abc", 2), 2u);
+		TS_ASSERT_EQUALS(Sci::utf8IndexOfOffset((const byte *)"", 0), 0u);
+	}
 };
