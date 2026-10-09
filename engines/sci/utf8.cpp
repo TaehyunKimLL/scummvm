@@ -117,6 +117,10 @@ uint32 utf8OffsetOf(const byte *p, uint32 index) {
 	return (uint32)(p - start);
 }
 
+bool utf8IndexIsPastEnd(const byte *p, uint32 index) {
+	return index > Common::strnlen((const char *)p, 0xFFFFFFFFU);
+}
+
 uint32 decodeCodePagePair(byte lead, byte trail, Common::CodePage codePage) {
 	if (codePage == Common::kWindows949) {
 		const uint32 cp = Graphics::KoreanCodePage::decodeEucKrPair(lead, trail);
