@@ -1,0 +1,74 @@
+SDL3 change: deliver the Korean Han/Yeong (0xF2) and Hanja (0xF1) keys. A Korean
+keyboard sends these two bytes on press and nothing on release; the DOS key
+pump took bit 7 for a break code of 0x72/0x71, which has no table entry, and
+dropped the key, so the port's Han/Yeong toggle never fired from the real key.
+The pump now emits SDL_SCANCODE_LANG1 (Han/Yeong) and LANG2 (Hanja) press and
+release for that form, and pairs a 0x72/0x71 make with its 0xF2/0xF1 break for
+emulators that send the key as an ordinary make/break pair. SDL3 has no default
+keycode for LANG1/LANG2, so the port's DOS event source (backends/events/dos) maps
+them to Common::KEYCODE_HANGUL/HANJA, which the keymapper's HANGUL input matches.
+The build defines DOS_KbdHangulChecked, which the port links against; build-dos.sh
+refuses an SDL3 without it.
+
+Base: the eight earlier patches applied (~/opt/src/SDL3 branch dos-kbd-hangul =
+dos-sb-ring 45125d4 + this, 8361783). Apply after those (git apply skips this text):
+  git -C SDL3 apply sdl3-kbd-hangul.patch
+
+diff --git a/src/video/dos/SDL_dosevents.c b/src/video/dos/SDL_dosevents.c
+index f558dea..3512330 100644
+--- a/src/video/dos/SDL_dosevents.c
++++ b/src/video/dos/SDL_dosevents.c
+@@ -46,6 +46,17 @@ DOS_IRQ_CODE_RANGE(kbd);
+ #define SCANCODE_PREFIX_EXTENDED 0xE0 // extended key prefix
+ #define SCANCODE_PREFIX_PAUSE    0xE1 // pause key sequence prefix
+ 
++// Korean 106-key keyboards: Han/Yeong sends 0xF2 and Hanja 0xF1 on press and
++// nothing on release (the byte has the release bit set, so it is not a break
++// code). Some emulators send them as an ordinary 0x72/0x71 make plus a
++// 0xF2/0xF1 break instead; both forms are handled.
++#define SCANCODE_HANGUL 0x72
++#define SCANCODE_HANJA  0x71
++
++// Checked at link time by the port, which needs the keys to arrive.
++extern const int DOS_KbdHangulChecked;
++const int DOS_KbdHangulChecked = 1;
++
+ // VGA Input Status Register 1 (for vblank detection)
+ #define VGA_STATUS_PORT   0x3DA
+ #define VGA_STATUS_VBLANK 0x08 // bit 3: vertical retrace active
+@@ -279,6 +290,8 @@ void DOSVESA_PumpEvents(SDL_VideoDevice *device)
+ 
+     static bool is_extended = false;
+     static int pause_sequence_remaining = 0;
++    static bool hangul_down = false;
++    static bool hanja_down = false;
+ 
+     while (keyevents_head != keyevents_tail) {
+         const Uint8 event = keyevents_ringbuffer[keyevents_tail];
+@@ -303,6 +316,26 @@ void DOSVESA_PumpEvents(SDL_VideoDevice *device)
+             continue;
+         }
+ 
++        if (!is_extended &&
++            ((event & SCANCODE_MASK) == SCANCODE_HANGUL || (event & SCANCODE_MASK) == SCANCODE_HANJA)) {
++            const bool hangul = ((event & SCANCODE_MASK) == SCANCODE_HANGUL);
++            const SDL_Scancode key = hangul ? SDL_SCANCODE_LANG1 : SDL_SCANCODE_LANG2;
++            bool *down = hangul ? &hangul_down : &hanja_down;
++            if ((event & SCANCODE_RELEASE) == 0) {
++                if (!*down) {
++                    SDL_SendKeyboardKey(0, SDL_GLOBAL_KEYBOARD_ID, 0, key, true);
++                    *down = true;
++                }
++            } else {
++                if (!*down) {
++                    SDL_SendKeyboardKey(0, SDL_GLOBAL_KEYBOARD_ID, 0, key, true);
++                }
++                SDL_SendKeyboardKey(0, SDL_GLOBAL_KEYBOARD_ID, 0, key, false);
++                *down = false;
++            }
++            continue;
++        }
++
+         const int scancode = (int)(event & SCANCODE_MASK);
+         const bool pressed = ((event & SCANCODE_RELEASE) == 0);
+ 

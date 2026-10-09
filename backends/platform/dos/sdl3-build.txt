@@ -1,10 +1,11 @@
 SDL3 for the DOS build, trimmed to what the port uses.
 
-build-dos.sh links $SDL3_DOS_MIN (default ~/opt/sdl3-dos-min). Source:
+build-dos.sh links $SDL3_DOS_MIN (default ~/opt/sdl3-dos-min-kbd). Source:
 libsdl-org/SDL 1ce4c5bc2916702e8e0f6df1f612dbd8633011da with
 sdl3-irq-code.patch, sdl3-cpuid.patch, sdl3-sb-shutdown.patch, sdl3-sb-open-fail.patch, sdl3-sb-probe.patch, sdl3-sb-stats.patch,
-sdl3-sb-highspeed.patch and then sdl3-sb-ring.patch applied (see their headers;
-~/opt/src/SDL3, branch dos-sb-ring 45125d4 = dos-sb-stats 9a55c71 + the
+sdl3-sb-highspeed.patch, sdl3-sb-ring.patch and then sdl3-kbd-hangul.patch applied (see their headers;
+~/opt/src/SDL3, branch dos-kbd-hangul 8361783 = dos-sb-ring 45125d4 + the Han/Yeong and
+Hanja key fix (DOS_KbdHangulChecked); dos-sb-ring 45125d4 = dos-sb-stats 9a55c71 + the
 five-buffer Sound Blaster ring and its DOS_SBRingChunks mark; dos-sb-stats
 9a55c71 = 1500973 + the SB Pro high-speed DMA fix (no mark);
 1500973 = dos-sb-probe d67c987 + the counters (c5ad490, then
@@ -38,6 +39,7 @@ talkie underruns at P75).
   git -C SDL3 apply sdl3-sb-shutdown.patch && git -C SDL3 apply sdl3-sb-open-fail.patch
   git -C SDL3 apply sdl3-sb-probe.patch && git -C SDL3 apply sdl3-sb-stats.patch
   git -C SDL3 apply sdl3-sb-highspeed.patch && git -C SDL3 apply sdl3-sb-ring.patch
+  git -C SDL3 apply sdl3-kbd-hangul.patch
 
   cmake -S SDL3 -B SDL3/build-dos-min \
     -DCMAKE_TOOLCHAIN_FILE=build-scripts/i586-pc-msdosdjgpp.cmake \
@@ -48,7 +50,7 @@ talkie underruns at P75).
     -DSDL_CAMERA=OFF -DSDL_DUMMYCAMERA=OFF -DSDL_DIALOG=OFF -DSDL_TRAY=OFF -DSDL_POWER=OFF \
     -DSDL_DISKAUDIO=OFF -DSDL_DUMMYAUDIO=OFF -DSDL_DUMMYVIDEO=OFF -DSDL_OFFSCREEN=OFF \
     "-DCMAKE_C_FLAGS=-ffunction-sections -DSDL_DISABLE_STB" \
-    -DCMAKE_INSTALL_PREFIX=$HOME/opt/sdl3-dos-min
+    -DCMAKE_INSTALL_PREFIX=$HOME/opt/sdl3-dos-min-kbd
   cmake --build SDL3/build-dos-min && cmake --install SDL3/build-dos-min
 
 (The toolchain file path is relative to the SDL3 source directory: run cmake
