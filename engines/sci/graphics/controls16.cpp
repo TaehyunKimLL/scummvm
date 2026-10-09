@@ -26,6 +26,7 @@
 #include "graphics/primitives.h"
 
 #include "sci/sci.h"
+#include "sci/utf8.h"
 #include "sci/console.h"
 #include "sci/event.h"
 #include "sci/engine/kernel.h"
@@ -180,6 +181,17 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 		uint16 textSize = text.size();
 		uint16 eventType = readSelectorValue(_segMan, eventObject, SELECTOR(type));
 
+		// In UTF-8 text a cursor step is one code point, so Backspace, Delete
+		// and the arrows never land inside a multi-byte character.
+		const bool utf8 = g_sci->heapStringsAreUtf8();
+		const byte *bytes = (const byte *)text.c_str();
+		auto stepBack = [&](uint16 pos) -> uint16 {
+			return utf8 ? (uint16)utf8PrevBoundary(bytes, textSize, pos) : pos - 1;
+		};
+		auto stepForward = [&](uint16 pos) -> uint16 {
+			return utf8 ? (uint16)utf8NextBoundary(bytes, textSize, pos) : pos + 1;
+		};
+
 		switch (eventType) {
 		case kSciEventMousePress:
 			// TODO: Implement mouse support for cursor change
@@ -190,13 +202,15 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 			switch (eventKey) {
 			case kSciKeyBackspace:
 				if (cursorPos > 0) {
-					cursorPos--; text.deleteChar(cursorPos);
+					const uint16 start = stepBack(cursorPos);
+					text.erase(start, cursorPos - start);
+					cursorPos = start;
 					textChanged = true;
 				}
 				break;
 			case kSciKeyDelete:
 				if (cursorPos < textSize) {
-					text.deleteChar(cursorPos);
+					text.erase(cursorPos, stepForward(cursorPos) - cursorPos);
 					textChanged = true;
 				}
 				break;
@@ -209,22 +223,22 @@ void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject)
 			case kSciKeyLeft:
 				if (!g_sci->isLanguageRTL()) {
 					if (cursorPos > 0) {
-						cursorPos--; textChanged = true;
+						cursorPos = stepBack(cursorPos); textChanged = true;
 					}
 				} else {
 					if (cursorPos + 1 <= textSize) {
-						cursorPos++; textChanged = true;
+						cursorPos = stepForward(cursorPos); textChanged = true;
 					}
 				}
 				break;
 			case kSciKeyRight:
 				if (!g_sci->isLanguageRTL()) {
 					if (cursorPos + 1 <= textSize) {
-						cursorPos++; textChanged = true;
+						cursorPos = stepForward(cursorPos); textChanged = true;
 					}
 				} else {
 					if (cursorPos > 0) {
-						cursorPos--; textChanged = true;
+						cursorPos = stepBack(cursorPos); textChanged = true;
 					}
 				}
 				break;
