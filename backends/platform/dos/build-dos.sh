@@ -16,7 +16,7 @@ esac
 source ~/opt/dos-dev/env.sh
 src="$(cd "$(dirname "$0")/../../.." && pwd)"
 # The trimmed SDL3 build (sdl3-build.txt): SDL3_DOS_MIN overrides where it is.
-export SDL3_DOS="${SDL3_DOS_MIN:-$HOME/opt/sdl3-dos-min}"
+export SDL3_DOS="${SDL3_DOS_MIN:-$HOME/opt/sdl3-dos-min-kbd}"
 export PKG_CONFIG_LIBDIR="$SDL3_DOS/lib/pkgconfig"
 # SDL3 must carry sdl3-irq-code.patch: without it its Sound Blaster handler's
 # code is not locked, and the link would fail late on DOS_IRQCodeChecked.
@@ -73,6 +73,13 @@ fi
 if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q ' [TDR] _DOS_SBRingChunks$'; then
 	echo "build-dos.sh: $sdl_lib lacks the 5-buffer Sound Blaster ring (no DOS_SBRingChunks)." >&2
 	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-sb-ring.patch)." >&2
+	exit 1
+fi
+# And sdl3-kbd-hangul.patch: the Korean Han/Yeong and Hanja keys (bytes 0xF2 and
+# 0xF1, press only) reach the engine as LANG1/LANG2; without it the key is lost.
+if ! "$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-nm" "$sdl_lib" 2>/dev/null | grep -q ' [TDR] _DOS_KbdHangulChecked$'; then
+	echo "build-dos.sh: $sdl_lib drops the Han/Yeong key (no DOS_KbdHangulChecked)." >&2
+	echo "  Rebuild SDL3 as backends/platform/dos/sdl3-build.txt says (with sdl3-kbd-hangul.patch)." >&2
 	exit 1
 fi
 # SCUMM.EXE plays compressed speech and CD tracks (the Ultimate Talkie
