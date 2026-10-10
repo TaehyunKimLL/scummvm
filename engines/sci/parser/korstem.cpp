@@ -261,49 +261,50 @@ struct Particle {
 	uint16 cp[3];
 	uint8 after;
 	uint8 kind;
+	uint8 role; ///< KoreanRole a case particle gives the noun
 };
 
 static const Particle kParticles[] = {
-	{ 3, { 0xC5D0, 0xAC8C, 0xC11C }, kAfterAny, kCase },             // 에게서
-	{ 3, { 0xD55C, 0xD14C, 0xC11C }, kAfterAny, kCase },             // 한테서
-	{ 3, { 0xC73C, 0xB85C, 0xC368 }, kAfterConsonant, kCase },       // 으로써
-	{ 3, { 0xC73C, 0xB85C, 0xC11C }, kAfterConsonant, kCase },       // 으로서
-	{ 2, { 0xC5D0, 0xC11C }, kAfterAny, kCase },                     // 에서
-	{ 2, { 0xC5D0, 0xAC8C }, kAfterAny, kCase },                     // 에게
-	{ 2, { 0xD55C, 0xD14C }, kAfterAny, kCase },                     // 한테
-	{ 2, { 0xAED8, 0xC11C }, kAfterAny, kCase },                     // 께서
-	{ 2, { 0xC73C, 0xB85C }, kAfterConsonant, kCase },               // 으로
-	{ 2, { 0xB85C, 0xC368 }, kAfterVowelOrRieul, kCase },            // 로써
-	{ 2, { 0xB85C, 0xC11C }, kAfterVowelOrRieul, kCase },            // 로서
-	{ 2, { 0xBD80, 0xD130 }, kAfterAny, kAux },                     // 부터
-	{ 2, { 0xAE4C, 0xC9C0 }, kAfterAny, kAux },                     // 까지
-	{ 2, { 0xCC98, 0xB7FC }, kAfterAny, kAux },                     // 처럼
-	{ 2, { 0xBCF4, 0xB2E4 }, kAfterAny, kAux },                     // 보다
-	{ 2, { 0xD558, 0xACE0 }, kAfterAny, kCase },                     // 하고
-	{ 2, { 0xC774, 0xB791 }, kAfterConsonant, kCase },               // 이랑
-	{ 2, { 0xC774, 0xB098 }, kAfterConsonant, kCase },               // 이나
-	{ 2, { 0xC774, 0xC57C }, kAfterConsonant, kAux },               // 이야
-	{ 2, { 0xC774, 0xB2E4 }, kAfterConsonant, kAux },               // 이다
-	{ 2, { 0xC870, 0xCC28 }, kAfterAny, kAux },                     // 조차
-	{ 2, { 0xB9C8, 0xC800 }, kAfterAny, kAux },                     // 마저
-	{ 2, { 0xBC16, 0xC5D0 }, kAfterAny, kAux },                     // 밖에
-	{ 1, { 0xC744 }, kAfterConsonant, kCase },                       // 을
-	{ 1, { 0xB97C }, kAfterVowel, kCase },                           // 를
-	{ 1, { 0xC774 }, kAfterConsonant, kCase },                       // 이
-	{ 1, { 0xAC00 }, kAfterVowel, kCase },                           // 가
-	{ 1, { 0xC740 }, kAfterConsonant, kAux },                       // 은
-	{ 1, { 0xB294 }, kAfterVowel, kAux },                           // 는
-	{ 1, { 0xC758 }, kAfterAny, kAux },                             // 의
-	{ 1, { 0xC5D0 }, kAfterAny, kCase },                             // 에
-	{ 1, { 0xB85C }, kAfterVowelOrRieul, kCase },                    // 로
-	{ 1, { 0xC640 }, kAfterVowel, kCase },                           // 와
-	{ 1, { 0xACFC }, kAfterConsonant, kCase },                       // 과
-	{ 1, { 0xB791 }, kAfterVowel, kCase },                           // 랑
-	{ 1, { 0xB3C4 }, kAfterAny, kAux },                             // 도
-	{ 1, { 0xB9CC }, kAfterAny, kAux },                             // 만
-	{ 1, { 0xAED8 }, kAfterAny, kCase },                             // 께
-	{ 1, { 0xC57C }, kAfterVowel, kAux },                           // 야
-	{ 1, { 0xB4E4 }, kAfterAny, kPlural },                             // 들
+	{ 3, { 0xC5D0, 0xAC8C, 0xC11C }, kAfterAny, kCase, kKoreanRoleFrom },             // 에게서
+	{ 3, { 0xD55C, 0xD14C, 0xC11C }, kAfterAny, kCase, kKoreanRoleFrom },             // 한테서
+	{ 3, { 0xC73C, 0xB85C, 0xC368 }, kAfterConsonant, kCase, kKoreanRoleWith },       // 으로써
+	{ 3, { 0xC73C, 0xB85C, 0xC11C }, kAfterConsonant, kCase, kKoreanRoleWith },       // 으로서
+	{ 2, { 0xC5D0, 0xC11C }, kAfterAny, kCase, kKoreanRoleFrom },                     // 에서
+	{ 2, { 0xC5D0, 0xAC8C }, kAfterAny, kCase, kKoreanRoleTo },                     // 에게
+	{ 2, { 0xD55C, 0xD14C }, kAfterAny, kCase, kKoreanRoleTo },                     // 한테
+	{ 2, { 0xAED8, 0xC11C }, kAfterAny, kCase, kKoreanRoleNone },                     // 께서
+	{ 2, { 0xC73C, 0xB85C }, kAfterConsonant, kCase, kKoreanRoleWith },               // 으로
+	{ 2, { 0xB85C, 0xC368 }, kAfterVowelOrRieul, kCase, kKoreanRoleWith },            // 로써
+	{ 2, { 0xB85C, 0xC11C }, kAfterVowelOrRieul, kCase, kKoreanRoleWith },            // 로서
+	{ 2, { 0xBD80, 0xD130 }, kAfterAny, kAux, kKoreanRoleNone },                     // 부터
+	{ 2, { 0xAE4C, 0xC9C0 }, kAfterAny, kAux, kKoreanRoleNone },                     // 까지
+	{ 2, { 0xCC98, 0xB7FC }, kAfterAny, kAux, kKoreanRoleNone },                     // 처럼
+	{ 2, { 0xBCF4, 0xB2E4 }, kAfterAny, kAux, kKoreanRoleNone },                     // 보다
+	{ 2, { 0xD558, 0xACE0 }, kAfterAny, kCase, kKoreanRoleWith },                     // 하고
+	{ 2, { 0xC774, 0xB791 }, kAfterConsonant, kCase, kKoreanRoleWith },               // 이랑
+	{ 2, { 0xC774, 0xB098 }, kAfterConsonant, kCase, kKoreanRoleNone },               // 이나
+	{ 2, { 0xC774, 0xC57C }, kAfterConsonant, kAux, kKoreanRoleNone },               // 이야
+	{ 2, { 0xC774, 0xB2E4 }, kAfterConsonant, kAux, kKoreanRoleNone },               // 이다
+	{ 2, { 0xC870, 0xCC28 }, kAfterAny, kAux, kKoreanRoleNone },                     // 조차
+	{ 2, { 0xB9C8, 0xC800 }, kAfterAny, kAux, kKoreanRoleNone },                     // 마저
+	{ 2, { 0xBC16, 0xC5D0 }, kAfterAny, kAux, kKoreanRoleNone },                     // 밖에
+	{ 1, { 0xC744 }, kAfterConsonant, kCase, kKoreanRoleObject },                       // 을
+	{ 1, { 0xB97C }, kAfterVowel, kCase, kKoreanRoleObject },                           // 를
+	{ 1, { 0xC774 }, kAfterConsonant, kCase, kKoreanRoleObject },                       // 이
+	{ 1, { 0xAC00 }, kAfterVowel, kCase, kKoreanRoleObject },                           // 가
+	{ 1, { 0xC740 }, kAfterConsonant, kAux, kKoreanRoleObject },                       // 은
+	{ 1, { 0xB294 }, kAfterVowel, kAux, kKoreanRoleObject },                           // 는
+	{ 1, { 0xC758 }, kAfterAny, kAux, kKoreanRoleOf },                             // 의
+	{ 1, { 0xC5D0 }, kAfterAny, kCase, kKoreanRoleAt },                             // 에
+	{ 1, { 0xB85C }, kAfterVowelOrRieul, kCase, kKoreanRoleWith },                    // 로
+	{ 1, { 0xC640 }, kAfterVowel, kCase, kKoreanRoleWith },                           // 와
+	{ 1, { 0xACFC }, kAfterConsonant, kCase, kKoreanRoleWith },                       // 과
+	{ 1, { 0xB791 }, kAfterVowel, kCase, kKoreanRoleWith },                           // 랑
+	{ 1, { 0xB3C4 }, kAfterAny, kAux, kKoreanRoleNone },                             // 도
+	{ 1, { 0xB9CC }, kAfterAny, kAux, kKoreanRoleNone },                             // 만
+	{ 1, { 0xAED8 }, kAfterAny, kCase, kKoreanRoleTo },                             // 께
+	{ 1, { 0xC57C }, kAfterVowel, kAux, kKoreanRoleNone },                           // 야
+	{ 1, { 0xB4E4 }, kAfterAny, kPlural, kKoreanRoleNone },                             // 들
 };
 
 Common::U32String KoreanStems::get(uint i) const {
@@ -323,8 +324,9 @@ public:
 
 	uint count() const { return _out.count; }
 
-	/** Append a candidate if it is new, fits, and there is room. */
-	void add(const U32 &u32) {
+	/** Append a candidate if it is new, fits, and there is room. @p role
+	 *  is the KoreanRole of the particle the reading lost, if any. */
+	void add(const U32 &u32, uint8 role = kKoreanRoleNone) {
 		// The typed word itself was looked up before any of this ran.
 		if (_out.count >= KoreanStems::kMaxCount || u32.empty() ||
 		    u32.size() > KoreanStems::kMaxLen || u32 == _typed)
@@ -345,6 +347,7 @@ public:
 		for (uint i = 0; i < u32.size(); ++i)
 			dst[i] = (uint16)u32[i];
 		_out.len[_out.count] = (uint8)u32.size();
+		_out.role[_out.count] = role;
 		_out.count++;
 	}
 
@@ -691,7 +694,11 @@ static bool particleMayFollow(uint8 inner, uint8 outer) {
 	}
 }
 
-static void stripParticles(Collector &c, const U32 &w, uint8 outer) {
+// @p role is the KoreanRole of the case particle already stripped from
+// outside (나무꾼에게는 loses 는 first, then 에게); a reading keeps the role
+// of its case particle through the plural stripped after it (친구들에게 ->
+// 친구들 -> 친구, both "to").
+static void stripParticles(Collector &c, const U32 &w, uint8 outer, uint8 role) {
 	for (uint p = 0; p < ARRAYSIZE(kParticles); ++p) {
 		if (!particleMayFollow(kParticles[p].kind, outer))
 			continue;
@@ -700,8 +707,11 @@ static void stripParticles(Collector &c, const U32 &w, uint8 outer) {
 		const U32 stem = head(w, kParticles[p].len);
 		if (!particleFits(stem, kParticles[p].after))
 			continue;
-		c.add(stem);
-		stripParticles(c, stem, kParticles[p].kind);
+		// The innermost particle that places the noun wins: 나무꾼에게는 is
+		// "to", 왕의 is "of"; a bare 도 or 만 keeps what is inside it.
+		const uint8 r = kParticles[p].role != kKoreanRoleNone ? kParticles[p].role : role;
+		c.add(stem, r);
+		stripParticles(c, stem, kParticles[p].kind, r);
 	}
 }
 
@@ -722,7 +732,7 @@ uint koreanStemCandidates(const Common::U32String &word, KoreanStems &out) {
 	// Tried last so a verb form never loses to a particle that happens to
 	// look like its ending; what keeps a noun from losing to a verb is the
 	// ending table above, which holds none of the particle shapes.
-	stripParticles(c, word, kNoParticle);
+	stripParticles(c, word, kNoParticle, kKoreanRoleNone);
 
 	return c.count();
 }

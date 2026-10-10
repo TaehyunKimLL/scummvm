@@ -838,9 +838,23 @@ private:
 public:
 	void test_korean_sentences_put_the_verb_first_and_are_logged() {
 		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
-		TS_ASSERT(voc.contains("retval.push_front(verb);"));
-		TS_ASSERT(voc.contains("sawKorean && retval.size() > 1"));
+		TS_ASSERT(voc.contains("if (sawKorean && !retval.empty()) {\n\t\tResultWordListList fallback;\n\t\tarrangeKorean(retval, roles, fallback);"));
 		TS_ASSERT(voc.contains("\"[parse] sentence '%s' => %s\""));
+	}
+
+	// One tree cannot say both "climb on beanstalk" and "climb beanstalk",
+	// and the specs want one or the other: said() tries the parsed
+	// arrangement first and the fallback (verb first, typed order, no
+	// added preposition) when a spec rejects it. Only a Korean sentence
+	// that gained a prepositional phrase has a fallback.
+	void test_said_retries_the_korean_fallback_arrangement() {
+		const Common::String sd = readSource("engines/sci/parser/said.cpp");
+		TS_ASSERT(sd.contains("static int saidOnce(const byte *spec, bool verbose)"));
+		TS_ASSERT(sd.contains("if (voc->_koreanArrangements.size() < 2 || !voc->parserIsValid)\n\t\treturn saidOnce(spec, verbose);"));
+		TS_ASSERT(sd.contains("if (!useKoreanArrangement(voc, i))"));
+		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
+		TS_ASSERT(voc.contains("_koreanArrangements.clear();"));
+		TS_ASSERT(voc.contains("if (!phrases.empty()) {\n\t\tif (verb >= 0)\n\t\t\tfallback.push_back(tok[verb]);"));
 	}
 
 	void test_the_key_that_opens_a_parser_prompt_is_composed() {
@@ -874,7 +888,33 @@ public:
 	void test_verb_last_reorder_sees_both_verb_classes() {
 		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
 		TS_ASSERT(voc.contains("const uint16 verbClass = (VOCAB_CLASS_IMPERATIVE_VERB | VOCAB_CLASS_INDICATIVE_VERB) << 4;"));
-		TS_ASSERT(voc.contains("if (lastIsVerb && !firstIsVerb)"));
+		TS_ASSERT(voc.contains("if (tok.size() > 1 && hasClass(tok.back(), verbClass) &&\n\t    !(hasClass(tok.front(), verbClass) && !hasClass(tok.front(), nounClass) && hasClass(tok.back(), nounClass)))"));
+	}
+
+	// The said() specs are English and were written for English order:
+	// "give bowl to woodcutter" puts the woodcutter in the indirect-object
+	// branch, and "give/bowl" fails when both nouns sit in the object
+	// branch (which is what 나무꾼에게 그릇을 줘 parsed as). So a noun's case
+	// particle becomes an English preposition in front of it, with every
+	// reading of an ambiguous particle as alternatives (에: in, on, at,
+	// into), and such phrases follow the plain objects.
+	void test_korean_case_particles_become_english_prepositional_phrases() {
+		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
+		TS_ASSERT(voc.contains("void Vocabulary::arrangeKorean(ResultWordListList &words, const Common::Array<uint8> &roles, ResultWordListList &fallback) const"));
+		TS_ASSERT(voc.contains("static const char *const kTo[] = { \"to\", nullptr };"));
+		TS_ASSERT(voc.contains("static const char *const kAt[] = { \"in\", \"on\", \"at\", \"into\", nullptr };"));
+		TS_ASSERT(voc.contains("koreanPreposition(role[k], prep);"));
+		// A postposition the map knows as an English preposition (안, 위,
+		// 대해) moves in front of its noun.
+		TS_ASSERT(voc.contains("if (isPrepositionOnly(tok[k]) && plainUnits && hasClass(plain.back(), nounClass)) {"));
+		// A bare noun before a noun modifies it: 나무 구멍 안을 is "in tree hole".
+		TS_ASSERT(voc.contains("(role[start - 1] == kKoreanRoleNone || role[start - 1] == kKoreanRoleOf))"));
+		// Only a Korean sentence is rearranged, after every word is known.
+		TS_ASSERT(voc.contains("if (sawKorean && !retval.empty()) {\n\t\tResultWordListList fallback;\n\t\tarrangeKorean(retval, roles, fallback);"));
+		// Every pair of a word reaches the parser, as for an English word.
+		TS_ASSERT(voc.contains("_koreanVocab.lookupAll(kword, kgroups, kclasses, kMaxKoreanMeanings, _koreanRole)"));
+		const Common::String kv = readSource("engines/sci/parser/korvocab.cpp");
+		TS_ASSERT(kv.contains("while (first > 0 && sameWord(first - 1, first))"));
 	}
 
 	// 물을 내린다 is one action (flush) that Korean says in two words. The
@@ -896,7 +936,7 @@ public:
 		// cp949 from the edit control, UTF-8 in a UTF-8 manifest game; the
 		// table holds code points, so this is the one conversion.
 		TS_ASSERT(voc.contains("g_sci->heapStringsAreUtf8() ? Common::kUtf8 : Common::kWindows949"));
-		TS_ASSERT(voc.contains("_koreanVocab.lookup(kword, kgroup, kclass)"));
+		TS_ASSERT(voc.contains("_koreanVocab.lookupAll(kword, kgroups, kclasses, kMaxKoreanMeanings, _koreanRole)"));
 		TS_ASSERT(!voc.contains("utf8ToCp949"));
 	}
 };
