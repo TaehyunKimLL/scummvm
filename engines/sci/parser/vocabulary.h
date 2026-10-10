@@ -417,6 +417,9 @@ private:
 	 * without the data file behaves exactly as before.
 	 */
 	KoreanVocabulary _koreanVocab;
+
+	/** Two adjacent Korean words the map knows as one (물을 내린다) become one. */
+	Common::String joinKoreanPairs(const char *sentence) const;
 	SynonymList _synonyms; /**< The list of synonyms */
 	Common::Array<Common::List<AltInput> > _altInputs;
 
