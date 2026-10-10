@@ -857,7 +857,7 @@ public:
 		TS_ASSERT(!sd.contains("parseGNF("));
 		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
 		TS_ASSERT(voc.contains("_koreanArrangements.clear();"));
-		TS_ASSERT(voc.contains("if (!phrases.empty()) {\n\t\tif (verb >= 0)\n\t\t\tfallback.push_back(tok[verb]);"));
+		TS_ASSERT(voc.contains("if (rolePhrases)\n\t\tarrangeTokens(tok, role, verb, verbTail, unitStart, false, fallback);"));
 	}
 
 	void test_the_key_that_opens_a_parser_prompt_is_composed() {
@@ -891,7 +891,21 @@ public:
 	void test_verb_last_reorder_sees_both_verb_classes() {
 		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
 		TS_ASSERT(voc.contains("const uint16 verbClass = (VOCAB_CLASS_IMPERATIVE_VERB | VOCAB_CLASS_INDICATIVE_VERB) << 4;"));
-		TS_ASSERT(voc.contains("if (tok.size() > 1 && hasClass(tok.back(), verbClass) &&\n\t    !(hasClass(tok.front(), verbClass) && !hasClass(tok.front(), nounClass) && hasClass(tok.back(), nounClass)))"));
+		TS_ASSERT(voc.contains("if (last > 1 && hasClass(tok[last - 1], verbClass) &&\n\t    !(hasClass(tok.front(), verbClass) && !hasClass(tok.front(), nounClass) && hasClass(tok[last - 1], nounClass)))"));
+	}
+
+	// One Korean word can be two English ones: 들여다봐 is "look in",
+	// 밀방망이 "rolling pin". The table marks the rows before the last
+	// with kSequenceFlag; the parser emits one token per row, the
+	// particle on the last, and a verb's tail (in) goes out right after it.
+	void test_korean_sequence_words_become_several_tokens() {
+		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
+		TS_ASSERT(voc.contains("const bool sequence = n > 1 && (kclasses[0] & KoreanVocabulary::kSequenceFlag);"));
+		TS_ASSERT(voc.contains("_koreanExtraTokens.push_back(one);"));
+		TS_ASSERT(voc.contains("roles.back() = kKoreanRoleNone;"));
+		TS_ASSERT(voc.contains("const uint verbTail = (verb >= 0 && (uint)verb == last - 1) ? tok.size() - last : 0;"));
+		const Common::String kv = readSource("engines/sci/parser/korvocab.h");
+		TS_ASSERT(kv.contains("enum { kSequenceFlag = 0x8000 };"));
 	}
 
 	// The said() specs are English and were written for English order:
@@ -906,7 +920,9 @@ public:
 		TS_ASSERT(voc.contains("void Vocabulary::arrangeKorean(ResultWordListList &words, const Common::Array<uint8> &roles, ResultWordListList &fallback) const"));
 		TS_ASSERT(voc.contains("static const char *const kTo[] = { \"to\", nullptr };"));
 		TS_ASSERT(voc.contains("static const char *const kAt[] = { \"in\", \"on\", \"at\", \"into\", nullptr };"));
-		TS_ASSERT(voc.contains("koreanPreposition(role[k], prep);"));
+		TS_ASSERT(voc.contains("if (useRoles && !isPrepositionOnly(tok[k]) && !nextIsPostposition)\n\t\t\tkoreanPreposition(role[k], prep);"));
+		// "about" and "with" carry class 0x008, not the preposition bit.
+		TS_ASSERT(voc.contains("static const uint16 kPrepositionClasses = (VOCAB_CLASS_PREPOSITION << 4) | 0x008;"));
 		// A postposition the map knows as an English preposition (안, 위,
 		// 대해) moves in front of its noun.
 		TS_ASSERT(voc.contains("if (isPrepositionOnly(tok[k]) && plainUnits && hasClass(plain.back(), nounClass)) {"));

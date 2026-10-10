@@ -104,6 +104,13 @@ public:
 	 */
 	uint lookupAll(const Common::U32String &word, uint16 *groups, uint16 *classes, uint max, uint8 &role) const;
 
+	/**
+	 * Class flag of a row that continues into the next row of the same
+	 * word: the rows are a sequence of English tokens (들여다봐 is "look
+	 * in"), not alternatives. k6bake.py sets it from a "g1+g2" map value.
+	 */
+	enum { kSequenceFlag = 0x8000 };
+
 private:
 	/** Exact bsearch over the blob, sorted by code unit. */
 	bool find(const uint16 *word, uint len, uint16 &group, uint16 &wclass) const;
