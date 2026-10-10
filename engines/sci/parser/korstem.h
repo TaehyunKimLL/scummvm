@@ -28,26 +28,27 @@
 namespace Sci {
 
 /** Upper bound on what koreanStemCandidates() can return. */
-enum { kMaxKoreanStems = 20 };
+enum { kMaxKoreanStems = 48 };
 
 /**
  * Dictionary-form candidates for an inflected Korean word.
  *
- * The mapping is built around citation forms (-다) because that is what a
- * generated dictionary naturally contains, while a player types the plain
- * or imperative form. Measured on the Cascade Quest map: -다 accounts for
- * 249 entries and -라 for 116, against only 30 in -어.
+ * The map holds citation forms (열다, 가방) while a player types what a
+ * Korean sentence needs: 연다, 열어봐, 열어주세요, 가방을, 방에서는. The
+ * rules undo that in layers - final ending, auxiliary verb (어 보다, 어
+ * 주다, 고 있다), prefinal ending (았/었, 시, 겠), then the stem's own
+ * shape: a fused vowel (봐, 줘, 해, 써, 잠가), a dropped ㄹ (연다, 엽니다,
+ * 여세요) and the ㄷ, ㅂ, ㅅ, 르, ㅎ irregulars (들어, 도와, 지어, 불러,
+ * 그래). Nouns lose case markers and auxiliary particles, two deep, with
+ * the allomorph rule (을 after a consonant, 를 after a vowel) deciding
+ * which strip is even tried.
  *
- * Every rule here REMOVES something and optionally re-attaches 다. None
- * of them invents a conjugation: a generated form that is not a real word
- * can still collide with a real entry, and the AGI chain measured that
- * generating endings lowered accuracy (15/18 -> 14/18) while stripping
- * them did not. A stripped candidate only matters when it hits an entry
- * that already exists.
- *
- * Irregular short forms (봐, 가져, 해) are deliberately NOT handled here.
- * No suffix rule reaches them - 봐 comes from 보 + 아 fused - so they are
- * requested at generation time and stored as their own entries instead.
+ * Every candidate is a reading of the typed word, never a form made up
+ * and then searched for: a candidate only matters when it hits an entry
+ * that already exists. The order is the preference when several do:
+ * explicit endings first, regular stems before irregular readings, and
+ * particle strips last so a verb form never loses to a particle that
+ * looks like its ending.
  *
  * @param word        EUC-KR bytes as typed
  * @param len         length in bytes
