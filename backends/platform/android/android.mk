@@ -48,6 +48,13 @@ $(PATH_BUILD)/mainAssets/build.gradle: $(PATH_DIST)/mainAssets.gradle | $(PATH_B
 $(PATH_BUILD_ASSETS)/MD5SUMS: config.mk $(DIST_FILES_THEMES) $(DIST_FILES_ENGINEDATA) $(DIST_FILES_ENGINEDATA_BIG) $(DIST_FILES_SOUNDFONTS) $(DIST_FILES_NETWORKING) $(DIST_FILES_VKEYBD) $(DIST_FILES_DOCS) $(DIST_FILES_PLATFORM) $(DIST_FILES_SHADERS) | $(PATH_BUILD)
 	$(INSTALL) -d $(PATH_BUILD_ASSETS)/assets/
 	$(INSTALL) -c -m 644 $(DIST_FILES_THEMES) $(DIST_FILES_ENGINEDATA) $(DIST_FILES_ENGINEDATA_BIG) $(DIST_FILES_SOUNDFONTS) $(DIST_FILES_NETWORKING) $(DIST_FILES_VKEYBD) $(DIST_FILES_PLATFORM) $(PATH_BUILD_ASSETS)/assets/
+	# Hi-res text maps and TrueType fonts, with their folders: a map names a
+	# font as data:hires_text/fonts/<family>/<file>, and the engine finds
+	# such a path in the APK's assets when no data folder holds it.
+	for d in $(DIST_DIRS_HIRES_TEXT); do \
+		$(INSTALL) -d $(PATH_BUILD_ASSETS)/assets/$$d; \
+		find $(srcdir)/dists/engine-data/$$d -maxdepth 1 -type f -exec $(INSTALL) -c -m 644 {} $(PATH_BUILD_ASSETS)/assets/$$d/ \; ; \
+	done
 ifneq ($(DIST_FILES_SHADERS),)
 	$(INSTALL) -d $(PATH_BUILD_ASSETS)/assets/shaders
 	$(INSTALL) -c -m 644 $(DIST_FILES_SHADERS) $(PATH_BUILD_ASSETS)/assets/shaders

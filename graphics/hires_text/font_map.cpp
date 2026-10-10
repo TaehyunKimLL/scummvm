@@ -130,6 +130,12 @@ Common::Path HiResFontMap::resolveDataPath(const Common::String &relative,
 			if (resolveFontFace(candidate, file, faceIndex, exists))
 				return candidate;
 		}
+		// No folder holds it: an archive may (the APK's assets on Android),
+		// under the relative name itself.
+		Common::Path file;
+		int32 faceIndex;
+		if (resolveFontFace(rel, file, faceIndex, exists))
+			return rel;
 	}
 	return Common::Path(Common::String(kDataPrefix) + relative);
 }
@@ -1700,8 +1706,7 @@ bool HiResFontMap::loadMapFile(const Common::Path &mapPath, const Common::Array<
 	out.clear();
 	out.quietLoad = options.quiet;
 
-	Common::FSNode mapNode(mapPath);
-	Common::SeekableReadStream *stream = mapNode.createReadStream();
+	Common::SeekableReadStream *stream = openDataFile(mapPath);
 	if (!stream) {
 		hiResWarn(out, Common::String::format(
 			"%s %s: not a version 2 map; regenerate it (graphics/hires_text/README.md)",

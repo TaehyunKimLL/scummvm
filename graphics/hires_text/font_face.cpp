@@ -21,6 +21,7 @@
 
 #include "graphics/hires_text/font_face.h"
 
+#include "common/archive.h"
 #include "common/fs.h"
 #include "common/stream.h"
 
@@ -49,7 +50,18 @@ bool splitFontFaceIndex(const Common::String &name, Common::String &file, int32 
 
 bool fontFileExists(const Common::Path &path) {
 	const Common::FSNode node(path);
-	return node.exists() && !node.isDirectory();
+	if (node.exists())
+		return !node.isDirectory();
+	// Not a file on disk: a member of the archives ScummVM searches its
+	// own data in - on Android the APK's assets, where a data: path lives.
+	return SearchMan.hasFile(path);
+}
+
+Common::SeekableReadStream *openDataFile(const Common::Path &path) {
+	const Common::FSNode node(path);
+	if (node.exists() && !node.isDirectory())
+		return node.createReadStream();
+	return SearchMan.createReadStreamForMember(path);
 }
 
 bool resolveFontFace(const Common::Path &path, Common::Path &file, int32 &faceIndex,
@@ -77,11 +89,11 @@ Common::SeekableReadStream *openFontFace(const Common::Path &path, int32 &faceIn
 	// exists(), then isDirectory(), then the read itself.
 	if (!resolveFontFace(path, file, faceIndex)) {
 		const Common::FSNode node(path);
-		if (!node.exists())
+		if (!node.exists() && !SearchMan.hasFile(path))
 			error = "does not exist";
-		else if (node.isDirectory())
+		else if (node.exists() && node.isDirectory())
 			error = "is a directory";
-		else if (Common::SeekableReadStream *stream = node.createReadStream())
+		else if (Common::SeekableReadStream *stream = openDataFile(path))
 			return stream;
 		else
 			error = "could not open the file";
@@ -92,7 +104,7 @@ Common::SeekableReadStream *openFontFace(const Common::Path &path, int32 &faceIn
 		faceIndex = 0;
 		return nullptr;
 	}
-	Common::SeekableReadStream *stream = Common::FSNode(file).createReadStream();
+	Common::SeekableReadStream *stream = openDataFile(file);
 	if (!stream)
 		error = "could not open the file";
 	return stream;

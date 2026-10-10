@@ -96,7 +96,7 @@ void HiresTextState::load(bool applies) {
 				for (uint i = 0; i < ARRAYSIZE(candidates) && !_haveMapPath; ++i) {
 					// Quietly: a DOS build ships neither, and that is not a fault.
 					const Common::Path p = Graphics::HiResFontMap::resolveDataPath(candidates[i], roots);
-					if (!Graphics::HiResFontMap::isDataPath(p.toString('/')) && Common::FSNode(p).exists()) {
+					if (!Graphics::HiResFontMap::isDataPath(p.toString('/')) && Graphics::fontFileExists(p)) {
 						_mapPath = p;
 						_haveMapPath = true;
 						debug(1, "SCI: hi-res text: no map configured; using the shipped data:%s", candidates[i].c_str());
