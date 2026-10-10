@@ -7,6 +7,7 @@
 #include "common/ustr.h"
 #include "../../system/null_osystem.h"
 
+#include "engines/sci/event.h"
 #include "engines/sci/graphics/koreaninput.h"
 
 /**
@@ -867,6 +868,31 @@ public:
 		TS_ASSERT(ctl.contains("_koreanInput.feed(seedKey, text, _koreanRunStart)"));
 		// a refused seed puts the original byte back
 		TS_ASSERT(ctl.contains("text = koreanTextBefore;"));
+	}
+
+	// A syllable finished by an OS input method (Windows IME, Android,
+	// ibus) reaches the script as a plain letter: Laura Bow 1 never opened
+	// the parser prompt on the code point itself, so "변기 써" typed that
+	// way arrived as "써" (the space opened the line). The edit control
+	// swaps the real character in wherever it meets the letter while the
+	// event manager still holds the code point.
+	void test_an_os_ime_syllable_reaches_the_script_as_a_letter() {
+		const Common::String ev = readSource("engines/sci/event.cpp");
+		TS_ASSERT(ev.contains("input.character = kOsImeSurrogateKey;"));
+		const Common::String evh = readSource("engines/sci/event.h");
+		TS_ASSERT(evh.contains("enum { kOsImeSurrogateKey = 'x' };"));
+		TS_ASSERT_EQUALS((int)Sci::EventManager::kOsImeSurrogateKey, (int)'x');
+		TS_ASSERT(Sci::EventManager::kOsImeSurrogateKey > 32 && Sci::EventManager::kOsImeSurrogateKey < 127);
+		const Common::String ctl = readSource("engines/sci/graphics/controls16.cpp");
+		// the letter that opened the line is replaced by the syllable (or removed)
+		TS_ASSERT(ctl.contains("(byte)text[0] == EventManager::kOsImeSurrogateKey"));
+		TS_ASSERT(ctl.contains("text = (encoded.size() <= maxChars) ? encoded : Common::String();"));
+		// in an open line the letter inserts the syllable; the composer never takes it for a jamo
+		TS_ASSERT(ctl.contains("osKey >= 0x100 && eventKey == EventManager::kOsImeSurrogateKey"));
+		TS_ASSERT(ctl.contains("_koreanInput.isEnabled() && !osImeKey && eventKey > 31"));
+		TS_ASSERT(ctl.contains("if (osImeKey) {"));
+		// the raw code point no longer reaches the control
+		TS_ASSERT(!ctl.contains("eventKey >= 0x100"));
 	}
 
 	void test_review_fixes_are_in_the_edit_control() {

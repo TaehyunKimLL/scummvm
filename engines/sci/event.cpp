@@ -363,8 +363,17 @@ SciEvent EventManager::getScummVMEvent() {
 	// after the user bound another one.
 
 	input.character = ev.kbd.ascii;
-	if (ev.type == Common::EVENT_KEYDOWN && hangulInputAvailable())
+	if (ev.type == Common::EVENT_KEYDOWN && hangulInputAvailable()) {
 		_lastOsImeKey = (ev.kbd.ascii >= 0x100) ? ev.kbd.ascii : 0;
+		// A finished syllable from an OS input method is handed to the
+		// script as a plain letter (see kOsImeSurrogateKey): the script
+		// never opened the parser prompt on the code point itself.
+		if (_lastOsImeKey) {
+			debugC(1, kDebugLevelHangul, "[key] OS-IME U+%04X goes to the script as '%c'",
+			       _lastOsImeKey, (char)kOsImeSurrogateKey);
+			input.character = kOsImeSurrogateKey;
+		}
+	}
 
 	if (scummVMKeycode >= Common::KEYCODE_KP0 && scummVMKeycode <= Common::KEYCODE_KP9 && !(scummVMKeyFlags & Common::KBD_NUM)) {
 		// TODO: Leaky abstractions from SDL should not be handled in game
