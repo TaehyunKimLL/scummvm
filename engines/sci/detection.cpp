@@ -24,6 +24,7 @@
 #include "common/file.h"
 #include "common/hashmap.h"
 #include "common/ptr.h"
+#include "common/tokenizer.h"
 
 #include "gui/ThemeEval.h"
 #include "gui/widget.h"
@@ -230,8 +231,61 @@ private:
 	void addFileToDetectedGame(const Common::Path &name, const FileMap &allFiles, MD5Properties md5Prop, ADDetectedGame &game) const;
 };
 
+// The languages of the sci-<lang>.str tables in a game folder: the UTF-8
+// script-string manifests a fan translation lays over the original
+// resources (engines/sci/engine/translation.cpp).
+static Common::Array<Common::Language> manifestLanguages(const Common::FSList &fslist) {
+	Common::Array<Common::Language> out;
+	for (const Common::FSNode &node : fslist) {
+		Common::String name = node.getName();
+		name.toLowercase();
+		if (!name.hasPrefix("sci-") || !name.hasSuffix(".str") || name.size() <= 8)
+			continue;
+		const Common::Language lang = Common::parseLanguage(Common::String(name.c_str() + 4, name.size() - 8));
+		if (lang == Common::UNK_LANG)
+			continue;
+		bool seen = false;
+		for (uint i = 0; i < out.size(); ++i)
+			seen |= out[i] == lang;
+		if (!seen)
+			out.push_back(lang);
+	}
+	return out;
+}
+
 DetectedGames SciMetaEngineDetection::detectGames(const Common::FSList &fslist, uint32 skipADFlags, bool skipIncomplete) {
 	DetectedGames games = AdvancedMetaEngineDetection::detectGames(fslist, skipADFlags, skipIncomplete);
+
+	// A folder with the original resources and a sci-<lang>.str table over
+	// them matches the original's entry, so it would be offered only in the
+	// shipped language and the table would never load - the engine reads it
+	// for the target's language (SciEngine::getLanguage(), _utf8Manifest).
+	// Offer the translation too, and first: that is what the folder is for.
+	const Common::Array<Common::Language> manifests = manifestLanguages(fslist);
+	const uint matched = games.size();
+	for (uint m = 0; m < manifests.size(); ++m) {
+		for (uint i = 0; i < matched; ++i) {
+			const DetectedGame &game = games[i];
+			if (game.language == manifests[m] || game.hasUnknownFiles)
+				continue;
+			const char *title = game.gameId.c_str();
+			for (const PlainGameDescriptor *pgd = s_sciGameTitles; pgd->gameId; ++pgd)
+				if (game.gameId.equals(pgd->gameId))
+					title = pgd->description;
+			DetectedGame variant(getName(), game.gameId, title, manifests[m], game.platform, game.extra);
+			variant.preferredTarget = game.preferredTarget + "-" + Common::getLanguageCode(manifests[m]);
+			// The original's options minus its language, which the loop
+			// below re-attaches from the language the variant carries.
+			Common::String options;
+			for (const Common::String &token : Common::StringTokenizer(game.getGUIOptions(), " ").split()) {
+				if (!token.hasPrefix("lang_"))
+					options += token + " ";
+			}
+			variant.setGUIOptions(options);
+			variant.appendGUIOptions(getGameGUIOptionsDescriptionLanguage(manifests[m]));
+			games.insert_at(0, variant);
+		}
+	}
 
 	for (DetectedGame &game : games) {
 		const GameIdStrToEnum *g = gameIdStrToEnum;
