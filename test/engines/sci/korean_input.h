@@ -867,6 +867,16 @@ public:
 		TS_ASSERT(ctl.contains("g_sci->usesKoreanText() && _screen->gfxDriver()->driverBasedTextRendering()"));
 	}
 
+	// Korean puts the verb last and the said() specs want it first; the
+	// move must see both verb classes, because Laura Bow 1's "use" (and
+	// go, say, tell in the other games) is an indicative verb only, and
+	// "변기 써" parsed as "toilet use" until it did.
+	void test_verb_last_reorder_sees_both_verb_classes() {
+		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
+		TS_ASSERT(voc.contains("const uint16 verbClass = (VOCAB_CLASS_IMPERATIVE_VERB | VOCAB_CLASS_INDICATIVE_VERB) << 4;"));
+		TS_ASSERT(voc.contains("if (lastIsVerb && !firstIsVerb)"));
+	}
+
 	void test_parser_decodes_the_typed_word_by_the_games_encoding() {
 		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
 		// cp949 from the edit control, UTF-8 in a UTF-8 manifest game; the
