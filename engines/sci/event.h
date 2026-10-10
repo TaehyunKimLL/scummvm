@@ -203,6 +203,20 @@ public:
 	 */
 	uint16 lastOsImeKey() const { return _lastOsImeKey; }
 
+	/**
+	 * The key value such a character reaches the script as.
+	 *
+	 * The scripts open the parser prompt only on a key they take for a
+	 * printable ASCII character: Laura Bow 1 dropped U+BCC0 (변) and
+	 * U+AE30 (기) on the floor and opened the line on the space after
+	 * them, so the first word of every command typed through an OS input
+	 * method was lost. A finished syllable therefore goes to the script
+	 * as this plain letter, and the edit control, seeing the letter while
+	 * lastOsImeKey() is set, puts the real character in its place - both
+	 * in the line the letter just opened and in one already open.
+	 */
+	enum { kOsImeSurrogateKey = 'x' };
+
 private:
 	SciEvent getScummVMEvent();
 
