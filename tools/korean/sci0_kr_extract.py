@@ -23,8 +23,10 @@ Commands:
       SCI0 resource headers); entries for resources that only exist in the
       new volume are dropped.
 
-  extract ENDIR KRDIR OUTDIR [--game-name NAME]
-      ENDIR: the English original; KRDIR: the fan build. Writes
+  extract ENDIR KRDIR OUTDIR [--game-name NAME] [--early] [--kr-patches]
+      ENDIR: the English original; KRDIR: the fan build. With --kr-patches
+      KRDIR is a folder of loose EUC-KR patch files (text.NNN, script.NNN,
+      e.g. the LSL2 KR folder) rather than a volume build. Writes
         OUTDIR/text.NNN      every TEXT resource the build changed, UTF-8,
                              as a patch file (0x83 0x00 + NUL-separated
                              strings)
@@ -56,6 +58,7 @@ from collections import defaultdict
 TYPES = ['view', 'pic', 'script', 'text', 'sound', 'memory', 'vocab', 'font',
          'cursor', 'patch']
 T_SCRIPT, T_TEXT, T_FONT = 2, 3, 7
+PATCH_VOL = 1000  # PatchDir's pseudo volume number
 SCI_OBJ_STRINGS = 5
 
 
@@ -177,6 +180,37 @@ class Game:
         else:
             raise ValueError('%s.%d: compression %d not supported' % (TYPES[t], n, meth))
         return v, meth, data
+
+
+class PatchDir:
+    """A fan translation shipped as loose SCI0 patch files (text.NNN,
+    script.NNN, each with the 0x8T 0x00 header) instead of a volume; the
+    same interface as Game, every resource in one pseudo volume PATCH_VOL."""
+    PREFIX = {T_TEXT: 'text', T_SCRIPT: 'script', T_FONT: 'font'}
+
+    def __init__(self, d):
+        self.dir = d
+        self.map = []
+        self.where = {}
+        self.files = {}
+        for f in sorted(os.listdir(d)):
+            stem, _, ext = f.lower().partition('.')
+            t = next((t for t, p in self.PREFIX.items() if p == stem), None)
+            if t is None or not ext.isdigit():
+                continue
+            n = int(ext)
+            self.map.append((t, n, PATCH_VOL, 0))
+            self.where[(t, n)] = (PATCH_VOL, 0)
+            self.files[(t, n)] = os.path.join(d, f)
+
+    def ids(self, t):
+        return sorted(n for tt, n in self.where if tt == t)
+
+    def raw(self, t, n):
+        d = open(self.files[(t, n)], 'rb').read()
+        if d[0] & 0x7F != t:
+            raise ValueError('%s: header type 0x%02x' % (self.files[(t, n)], d[0]))
+        return PATCH_VOL, 0, d[2 + d[1]:]
 
 
 # ---- script strings (Script::identifyOffsets, SCI0) -------------------
@@ -326,8 +360,8 @@ def check_glyph_banks(kr, en, used, report):
     return unresolved
 
 
-def cmd_extract(endir, krdir, outdir, early, name):
-    en, kr = Game(endir), Game(krdir)
+def cmd_extract(endir, krdir, outdir, early, name, patches=False):
+    en, kr = Game(endir), (PatchDir(krdir) if patches else Game(krdir))
     newvol = max(v for t, n, v, o in kr.map)
     os.makedirs(outdir, exist_ok=True)
     report = []
@@ -393,6 +427,10 @@ def cmd_extract(endir, krdir, outdir, early, name):
             if e[2] == k[2]:
                 continue
             t = decode(k[2], report, 'script.%03d#%d' % (n, k[0]))
+            # A build that overwrites a string in place pads it with spaces
+            # to the English length (LSL2's script 0); drop that padding.
+            if not e[2].endswith(b' '):
+                t = t.rstrip(' ')
             used.update(c for c in t if ord(c) > 127)
             lines.append((n, e[0], escape(t), escape(e[2].decode('latin-1'))))
             mapped += 1
@@ -436,6 +474,8 @@ def main():
     a.add_argument('outdir')
     a.add_argument('--early', action='store_true', help='SCI_VERSION_0_EARLY scripts (2-byte prefix)')
     a.add_argument('--game-name', default='Conquests of Camelot')
+    a.add_argument('--kr-patches', action='store_true',
+                   help='KRDIR holds loose patch files (text.NNN, script.NNN) instead of a volume build')
     a = sub.add_parser('script-strings')
     a.add_argument('dir')
     a.add_argument('--early', action='store_true')
@@ -443,7 +483,7 @@ def main():
     if args.cmd == 'rebuild-map':
         cmd_rebuild_map(args.krdir, args.out)
     elif args.cmd == 'extract':
-        cmd_extract(args.endir, args.krdir, args.outdir, args.early, args.game_name)
+        cmd_extract(args.endir, args.krdir, args.outdir, args.early, args.game_name, args.kr_patches)
     else:
         cmd_script_strings(args.dir, args.early)
 
