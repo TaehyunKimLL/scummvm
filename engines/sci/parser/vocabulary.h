@@ -428,6 +428,9 @@ private:
 	enum { kMaxKoreanMeanings = 8 };
 	/** The KoreanRole of the last Korean word lookupWord() resolved. */
 	uint8 _koreanRole;
+	/** The tokens after the first when that word is an English sequence
+	 *  (들여다봐 is "look in"); empty otherwise. */
+	ResultWordListList _koreanExtraTokens;
 
 	/**
 	 * The English preposition(s) a KoreanRole stands for, as the game's
@@ -444,6 +447,10 @@ private:
 	 * prepositional phrase. 나무꾼에게 그릇을 줘 -> give bowl to woodcutter.
 	 */
 	void arrangeKorean(ResultWordListList &words, const Common::Array<uint8> &roles, ResultWordListList &fallback) const;
+	/** One arrangement; with @p useRoles the case particles become
+	 *  prepositions. Returns whether any did. */
+	bool arrangeTokens(const Common::Array<ResultWordList> &tok, const Common::Array<uint8> &role, int verb, uint verbTail,
+	                   const Common::Array<uint> &unitStart, bool useRoles, ResultWordListList &out) const;
 	SynonymList _synonyms; /**< The list of synonyms */
 	Common::Array<Common::List<AltInput> > _altInputs;
 

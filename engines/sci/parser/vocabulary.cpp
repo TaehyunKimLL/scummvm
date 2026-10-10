@@ -466,6 +466,7 @@ bool Vocabulary::checkAltInput(Common::String &text, uint16 &cursorPos) {
 // we assume that *word points to an already lowercased word
 void Vocabulary::lookupWord(ResultWordList& retval, const char *word, int word_len) {
 	_koreanRole = kKoreanRoleNone;
+	_koreanExtraTokens.clear();
 	retval.clear();
 
 	Common::String tempword(word, word_len);
@@ -550,13 +551,23 @@ void Vocabulary::lookupWord(ResultWordList& retval, const char *word, int word_l
 		// English word in several groups; the said() tree keeps them as
 		// alternatives and a spec matches on any of them.
 		const uint n = _koreanVocab.lookupAll(kword, kgroups, kclasses, kMaxKoreanMeanings, _koreanRole);
+		// Rows flagged kSequenceFlag continue into the next: the word is
+		// a sequence of English tokens (들여다봐: look, in), the first
+		// returned here and the rest in _koreanExtraTokens.
+		const bool sequence = n > 1 && (kclasses[0] & KoreanVocabulary::kSequenceFlag);
 		for (uint i = 0; i < n; ++i) {
 			// kclass is already in _parserWords' layout: k6bake.py takes
 			// it straight from the vocab entry, where the class is the
 			// composed (byte << 4 | nibble) value this loader builds. It
 			// must NOT be shifted again here.
-			ResultWord tmp = { kclasses[i], kgroups[i] };
-			retval.push_back(tmp);
+			ResultWord tmp = { (uint16)(kclasses[i] & ~KoreanVocabulary::kSequenceFlag), kgroups[i] };
+			if (sequence && i > 0) {
+				ResultWordList one;
+				one.push_back(tmp);
+				_koreanExtraTokens.push_back(one);
+			} else {
+				retval.push_back(tmp);
+			}
 		}
 		if (n)
 			return;
@@ -779,10 +790,15 @@ static bool onlyClass(const ResultWordList &w, uint16 mask) {
 	return true;
 }
 
+// The preposition classes: 0x010 is VOCAB_CLASS_PREPOSITION; "about" and
+// "with" carry 0x008 in every SCI0 vocabulary seen, their own class, and
+// the grammar places them like prepositions.
+static const uint16 kPrepositionClasses = (VOCAB_CLASS_PREPOSITION << 4) | 0x008;
+
 // A token that is a preposition and nothing else: 안 (in), 위 (on), 대해
 // (about). Korean puts it after its noun, English before.
 static bool isPrepositionOnly(const ResultWordList &w) {
-	return onlyClass(w, VOCAB_CLASS_PREPOSITION << 4);
+	return onlyClass(w, kPrepositionClasses);
 }
 
 void Vocabulary::koreanPreposition(uint8 role, ResultWordList &out) const {
@@ -798,13 +814,12 @@ void Vocabulary::koreanPreposition(uint8 role, ResultWordList &out) const {
 	case kKoreanRoleWith: names = kWith; break;
 	default: return;
 	}
-	const uint16 prep = VOCAB_CLASS_PREPOSITION << 4;
 	for (; *names; ++names) {
 		WordMap::const_iterator it = _parserWords.find(*names);
 		if (it == _parserWords.end())
 			continue;
 		for (ResultWordList::const_iterator r = it->_value.begin(); r != it->_value.end(); ++r) {
-			if (!(r->_class & prep))
+			if (!(r->_class & kPrepositionClasses))
 				continue;
 			bool dup = false;
 			for (ResultWordList::const_iterator o = out.begin(); o != out.end() && !dup; ++o)
@@ -833,12 +848,20 @@ void Vocabulary::arrangeKorean(ResultWordListList &words, const Common::Array<ui
 	// A word that is noun and verb at once (KQ1's fiddle) stays the
 	// object: the last token is the verb unless the first is a verb and
 	// nothing else while the last could be a noun ("look 나무를").
+	// A sequence verb's tail (들여다봐: look, in) follows the verb: the
+	// trailing prepositions and adverbs are stepped over to find it, and
+	// go out right after it.
+	uint last = tok.size();
+	while (last > 1 && (isPrepositionOnly(tok[last - 1]) || onlyClass(tok[last - 1], VOCAB_CLASS_ADVERB << 4)) &&
+	       hasClass(tok[last - 2], verbClass))
+		--last;
 	int verb = -1;
-	if (tok.size() > 1 && hasClass(tok.back(), verbClass) &&
-	    !(hasClass(tok.front(), verbClass) && !hasClass(tok.front(), nounClass) && hasClass(tok.back(), nounClass)))
-		verb = (int)tok.size() - 1;
+	if (last > 1 && hasClass(tok[last - 1], verbClass) &&
+	    !(hasClass(tok.front(), verbClass) && !hasClass(tok.front(), nounClass) && hasClass(tok[last - 1], nounClass)))
+		verb = (int)last - 1;
 	else if (!tok.empty() && hasClass(tok.front(), verbClass))
 		verb = 0;
+	const uint verbTail = (verb >= 0 && (uint)verb == last - 1) ? tok.size() - last : 0;
 
 	// A noun unit is the noun with the bare or 의-marked nouns before it
 	// that modify it: 나무 구멍 안을 is "in tree hole", as the game's own
@@ -858,10 +881,24 @@ void Vocabulary::arrangeKorean(ResultWordListList &words, const Common::Array<ui
 		unitStart.push_back(start);
 	}
 
+	// The primary arrangement, and the fallback for said() when a case
+	// particle became a preposition: the same without those, so a spec
+	// that wants the bare noun ("climb [<up] / beanstalk" against 콩나무에
+	// 올라가) gets it. Postpositions (안, 대해) are kept in both.
+	const bool rolePhrases = arrangeTokens(tok, role, verb, verbTail, unitStart, true, words);
+	fallback.clear();
+	if (rolePhrases)
+		arrangeTokens(tok, role, verb, verbTail, unitStart, false, fallback);
+}
+
+bool Vocabulary::arrangeTokens(const Common::Array<ResultWordList> &tok, const Common::Array<uint8> &role, int verb, uint verbTail,
+                               const Common::Array<uint> &unitStart, bool useRoles, ResultWordListList &out) const {
+	const uint16 nounClass = VOCAB_CLASS_NOUN << 4;
 	Common::Array<ResultWordList> plain, phrases;
 	uint plainUnits = 0; // tokens of plain that belong to the last unit
+	bool rolePhrases = false;
 	for (uint k = 0; k < tok.size(); ++k) {
-		if ((int)k == verb)
+		if ((int)k == verb || (verb >= 0 && k > (uint)verb && k <= (uint)verb + verbTail))
 			continue;
 		if (isPrepositionOnly(tok[k]) && plainUnits && hasClass(plain.back(), nounClass)) {
 			// 구멍 안을 봐: the postposition and its noun unit become "in hole".
@@ -873,11 +910,14 @@ void Vocabulary::arrangeKorean(ResultWordListList &words, const Common::Array<ui
 			plainUnits = 0;
 			continue;
 		}
+		// 성배에 대해: the postposition after the noun takes it, not the 에.
+		const bool nextIsPostposition = k + 1 < tok.size() && (int)(k + 1) != verb && isPrepositionOnly(tok[k + 1]);
 		ResultWordList prep;
-		if (!isPrepositionOnly(tok[k]))
+		if (useRoles && !isPrepositionOnly(tok[k]) && !nextIsPostposition)
 			koreanPreposition(role[k], prep);
 		if (!prep.empty()) {
 			// 나무꾼에게: "to woodcutter", after the plain object.
+			rolePhrases = true;
 			phrases.push_back(prep);
 			for (uint u = unitStart[k]; u <= k; ++u)
 				phrases.push_back(tok[u]);
@@ -890,25 +930,15 @@ void Vocabulary::arrangeKorean(ResultWordListList &words, const Common::Array<ui
 		plainUnits = k + 1 - unitStart[k];
 	}
 
-	words.clear();
+	out.clear();
 	if (verb >= 0)
-		words.push_back(tok[verb]);
+		for (uint k = (uint)verb; k <= (uint)verb + verbTail; ++k)
+			out.push_back(tok[k]);
 	for (uint k = 0; k < plain.size(); ++k)
-		words.push_back(plain[k]);
+		out.push_back(plain[k]);
 	for (uint k = 0; k < phrases.size(); ++k)
-		words.push_back(phrases[k]);
-
-	// The fallback for said(): the verb first and every typed token in its
-	// order, no preposition added. A spec that wants the bare noun ("climb
-	// [<up] / beanstalk" against 콩나무에 올라가) gets this one.
-	fallback.clear();
-	if (!phrases.empty()) {
-		if (verb >= 0)
-			fallback.push_back(tok[verb]);
-		for (uint k = 0; k < tok.size(); ++k)
-			if ((int)k != verb)
-				fallback.push_back(tok[k]);
-	}
+		out.push_back(phrases[k]);
+	return rolePhrases;
 }
 
 bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence, char **error) {
@@ -992,6 +1022,13 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 				// Copy into list
 				retval.push_back(lookup_result);
 				roles.push_back(korean ? _koreanRole : (uint8)kKoreanRoleNone);
+				// A sequence word's further tokens; its particle belongs to
+				// the last of them (밀방망이를: rolling, pin-as-object).
+				for (ResultWordListList::const_iterator x = _koreanExtraTokens.begin(); x != _koreanExtraTokens.end(); ++x) {
+					roles.back() = kKoreanRoleNone;
+					retval.push_back(*x);
+					roles.push_back(korean ? _koreanRole : (uint8)kKoreanRoleNone);
+				}
 			}
 
 			wordLen = 0;
