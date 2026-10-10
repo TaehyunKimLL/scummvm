@@ -20,14 +20,16 @@
  */
 
 #include "common/scummsys.h"
-#include "common/str-enc.h"
 #include "common/ustr.h"
 
 #include "sci/parser/korstem.h"
 
 namespace Sci {
 
-// Precomposed Hangul: U+AC00 + (cho * 21 + jung) * 28 + jong.
+// Precomposed Hangul: U+AC00 + (cho * 21 + jung) * 28 + jong. Every rule
+// below is arithmetic on that, which is what makes a precomposed code
+// point as good as a jamo-composed one: the three parts are three
+// divisions away.
 static const uint32 kSyllableBase = 0xAC00;
 static const uint32 kSyllableCount = 11172;
 static const uint32 kJungCount = 21;
@@ -44,6 +46,27 @@ enum Jong {
 	kJongSiot = 19, kJongSsang = 20, kJongHieut = 27
 };
 
+// The syllables the rules name on their own.
+enum Syl {
+	kSylDa = 0xB2E4,      // 다
+	kSylEo = 0xC5B4,      // 어
+	kSylA = 0xC544,       // 아
+	kSylYeo = 0xC5EC,     // 여
+	kSylYo = 0xC694,      // 요
+	kSylGo = 0xACE0,      // 고
+	kSylSi = 0xC2DC,      // 시
+	kSylSyeoss = 0xC168,  // 셨
+	kSylSyeo = 0xC154,    // 셔
+	kSylEu = 0xC73C,      // 으
+	kSylAss = 0xC558,     // 았
+	kSylEoss = 0xC5C8,    // 었
+	kSylYeoss = 0xC600,   // 였
+	kSylGess = 0xACA0,    // 겠
+	kSylI = 0xC774,       // 이
+	kSylHa = 0xD558,      // 하
+	kSylU = 0xC6B0,       // 우
+};
+
 static bool isSyllable(uint32 c) {
 	return c >= kSyllableBase && c < kSyllableBase + kSyllableCount;
 }
@@ -56,15 +79,28 @@ static uint32 compose(uint32 ch, uint32 ju, uint32 jo) {
 	return kSyllableBase + (ch * kJungCount + ju) * kJongCount + jo;
 }
 
+// Rules build their readings as U32String temporaries. Those stay in the
+// string's inline storage (29 code points) for any word this is given,
+// so nothing here touches the heap: the input is capped at
+// KoreanStems::kMaxLen and no rule adds more than two syllables.
 typedef Common::U32String U32;
 
-static U32 utf8(const char *s) {
-	return Common::convertToU32String(s, Common::kUtf8);
+static bool endsWithCps(const U32 &s, const uint16 *cp, uint n) {
+	if (s.size() <= n)
+		return false;
+	const uint base = s.size() - n;
+	for (uint i = 0; i < n; ++i)
+		if (s[base + i] != cp[i])
+			return false;
+	return true;
 }
 
-static bool endsWith(const U32 &s, const U32 &tail) {
-	return s.size() > tail.size() &&
-	       U32(s.c_str() + s.size() - tail.size(), tail.size()) == tail;
+static bool endsWithSyl(const U32 &s, uint32 c) {
+	return s.size() > 1 && s[s.size() - 1] == c;
+}
+
+static bool endsWithSyl2(const U32 &s, uint32 a, uint32 b) {
+	return s.size() > 2 && s[s.size() - 2] == a && s[s.size() - 1] == b;
 }
 
 static U32 head(const U32 &s, uint drop) {
@@ -79,117 +115,129 @@ static U32 withLast(const U32 &s, uint32 c) {
 	return r;
 }
 
+static U32 plusSyl(const U32 &s, uint32 c) {
+	U32 r = s;
+	r += c;
+	return r;
+}
+
 // Everything the rules know about the ending they just removed.
 enum StemFlags {
 	kStemPlain = 0,
 	// A ㄹ-final stem drops its ㄹ before this ending (ㄴ, ㅂ, ㅅ, 오):
 	// 연다, 엽니다, 여세요 are all 열다.
 	kStemRieul = 1 << 0,
-	// The ending was a separate 어/아/여 syllable, so the stem is bare and
+	// The ending was a separate 어/아 syllable, so the stem is bare and
 	// may be a ㄷ or ㅅ irregular (들어 -> 듣다, 지어 -> 짓다).
 	kStemExplicitVowel = 1 << 1,
 	// The stem's last syllable still carries a fused 어/아 (봐, 줘, 해, 써,
 	// 잠가, 불러, 도와) that has to be undone.
 	kStemFused = 1 << 2,
-	// The remainder is in its 어/아 form, explicit or fused: 라, 서, 도
-	// and 야 attach to that form (봐라, 해서, 열어도).
+	// The remainder is in its 어/아 form, explicit or fused: 라 and 서
+	// attach to that form (봐라, 해서, 열어도).
 	kStemVowelForm = 1 << 3,
 	// The ending's own consonant sits in the stem's last syllable: ㅂ니다
 	// leaves 합, ㄴ다 leaves 간.
 	kStemJongBieup = 1 << 4,
 	kStemJongNieun = 1 << 5,
-	// ㄹ까, ㄹ래: the ㄹ is the ending's after a vowel stem (볼까 is 보다)
-	// and the stem's own after a ㄹ stem (열까 is 열다), so both are read.
-	kStemJongRieul = 1 << 8,
 	// 여, 여요, 여라, 여서: an ㅣ stem's 어 (붙여 is 붙이 + 어) or 하's own
 	// 여 (하여). Never a bare consonant stem's.
 	kStemYeo = 1 << 6,
 	// An 으 ending (으세요, 으십시오): only a consonant stem takes it, and
 	// a ㄹ or vowel final before it is the ㄷ or ㅅ irregular (물으세요 is
 	// 묻다, 지으세요 is 짓다).
-	kStemAfterEu = 1 << 7
+	kStemAfterEu = 1 << 7,
+	// ㄹ까, ㄹ래: the ㄹ is the ending's after a vowel stem (볼까 is 보다)
+	// and the stem's own after a ㄹ stem (열까 is 열다), so both are read.
+	kStemJongRieul = 1 << 8
 };
 
 struct Ending {
-	const char *text;
-	uint flags;
+	uint8 len;
+	uint16 cp[4];
+	uint16 flags;
 };
 
 // The endings a player types after a verb at a parser prompt: plain and
 // polite statements, requests (열어줄래, 열어볼까), imperatives, and the
 // 고/서 that join two commands. Other questions, modifiers and nominal
-// endings are left out on purpose: 집을, 안은, 사도 and 하나 would otherwise read as 집다, 안다, 사다
-// and 하다 before the particle strip gets its turn, and a wrong verb is
-// worse than a missing one. Longest first within a shared tail, so 어라
-// is removed before 라 would be; the loop relies on the table order.
+// endings are left out on purpose: 집을, 안은, 사도 and 하나 would otherwise
+// read as 집다, 안다, 사다 and 하다 before the particle strip gets its turn,
+// and a wrong verb is worse than a missing one. Longest first within a
+// shared tail, so 어라 is removed before 라 would be; the loop relies on
+// the table order. Stored as code points so a match is a compare, never
+// a decode.
 static const Ending kEndings[] = {
-	{ "\xec\x9c\xbc\xec\x8b\xad\xec\x8b\x9c\xec\x98\xa4", kStemAfterEu },          // 으십시오
-	{ "\xec\x8b\xad\xec\x8b\x9c\xec\x98\xa4", kStemRieul },                        // 십시오
-	{ "\xec\x8a\xb5\xeb\x8b\x88\xeb\x8b\xa4", kStemPlain },                        // 습니다
-	{ "\xec\x8a\xb5\xeb\x8b\x88\xea\xb9\x8c", kStemPlain },                        // 습니까
-	{ "\xec\x9d\x8d\xec\x8b\x9c\xeb\x8b\xa4", kStemPlain },                        // 읍시다
-	{ "\xeb\x8b\x88\xeb\x8b\xa4", kStemJongBieup },                                // ㅂ니다
-	{ "\xeb\x8b\x88\xea\xb9\x8c", kStemJongBieup },                                // ㅂ니까
-	{ "\xec\x8b\x9c\xeb\x8b\xa4", kStemJongBieup },                                // ㅂ시다
-	{ "\xec\x9c\xbc\xec\x84\xb8\xec\x9a\x94", kStemAfterEu },                      // 으세요
-	{ "\xec\x84\xb8\xec\x9a\x94", kStemRieul },                                    // 세요
-	{ "\xec\x9c\xbc\xec\x8b\x9c\xec\x98\xa4", kStemAfterEu },                      // 으시오
-	{ "\xec\x8b\x9c\xec\x98\xa4", kStemRieul },                                    // 시오
-	{ "\xec\x96\xb4\xeb\x9d\xbc", kStemExplicitVowel },                            // 어라
-	{ "\xec\x95\x84\xeb\x9d\xbc", kStemExplicitVowel },                            // 아라
-	{ "\xec\x97\xac\xeb\x9d\xbc", kStemYeo },                                     // 여라
-	{ "\xec\x96\xb4\xec\x9a\x94", kStemExplicitVowel },                            // 어요
-	{ "\xec\x95\x84\xec\x9a\x94", kStemExplicitVowel },                            // 아요
-	{ "\xec\x97\xac\xec\x9a\x94", kStemYeo },                                     // 여요
-	{ "\xec\x96\xb4\xec\x84\x9c", kStemExplicitVowel },                            // 어서
-	{ "\xec\x95\x84\xec\x84\x9c", kStemExplicitVowel },                            // 아서
-	{ "\xec\x97\xac\xec\x84\x9c", kStemYeo },                                     // 여서
-	{ "\xea\xb1\xb0\xeb\x9d\xbc", kStemPlain },                                    // 거라
-	{ "\xeb\x84\x88\xeb\x9d\xbc", kStemPlain },                                    // 너라
-	{ "\xeb\x8a\x94\xeb\x8b\xa4", kStemPlain },                                    // 는다
-	{ "\xec\x9d\x84\xea\xb9\x8c", kStemPlain },                                    // 을까
-	{ "\xec\x9d\x84\xeb\x9e\x98", kStemPlain },                                    // 을래
-	{ "\xea\xb9\x8c", kStemJongRieul },                                            // ㄹ까
-	{ "\xeb\x9e\x98", kStemJongRieul },                                            // ㄹ래
-	{ "\xeb\x8b\xa4", kStemJongNieun },                                            // 다, ㄴ다
-	{ "\xec\x96\xb4", kStemExplicitVowel },                                        // 어
-	{ "\xec\x95\x84", kStemExplicitVowel },                                        // 아
-	{ "\xec\x97\xac", kStemYeo },                                                 // 여
-	{ "\xeb\x9d\xbc", kStemVowelForm },                                            // 라
-	{ "\xec\x84\x9c", kStemVowelForm },                                            // 서
-	{ "\xec\x9e\x90", kStemPlain },                                                // 자
-	{ "\xea\xb3\xa0", kStemPlain },                                                // 고
-	{ nullptr, 0 }
+	{ 4, { 0xC73C, 0xC2ED, 0xC2DC, 0xC624 }, kStemAfterEu },  // 으십시오
+	{ 3, { 0xC2ED, 0xC2DC, 0xC624 }, kStemRieul },            // 십시오
+	{ 3, { 0xC2B5, 0xB2C8, 0xB2E4 }, kStemPlain },            // 습니다
+	{ 3, { 0xC2B5, 0xB2C8, 0xAE4C }, kStemPlain },            // 습니까
+	{ 3, { 0xC74D, 0xC2DC, 0xB2E4 }, kStemPlain },            // 읍시다
+	{ 2, { 0xB2C8, 0xB2E4 }, kStemJongBieup },                // 니다
+	{ 2, { 0xB2C8, 0xAE4C }, kStemJongBieup },                // 니까
+	{ 2, { 0xC2DC, 0xB2E4 }, kStemJongBieup },                // 시다
+	{ 3, { 0xC73C, 0xC138, 0xC694 }, kStemAfterEu },          // 으세요
+	{ 2, { 0xC138, 0xC694 }, kStemRieul },                    // 세요
+	{ 3, { 0xC73C, 0xC2DC, 0xC624 }, kStemAfterEu },          // 으시오
+	{ 2, { 0xC2DC, 0xC624 }, kStemRieul },                    // 시오
+	{ 2, { 0xC5B4, 0xB77C }, kStemExplicitVowel },            // 어라
+	{ 2, { 0xC544, 0xB77C }, kStemExplicitVowel },            // 아라
+	{ 2, { 0xC5EC, 0xB77C }, kStemYeo },                      // 여라
+	{ 2, { 0xC5B4, 0xC694 }, kStemExplicitVowel },            // 어요
+	{ 2, { 0xC544, 0xC694 }, kStemExplicitVowel },            // 아요
+	{ 2, { 0xC5EC, 0xC694 }, kStemYeo },                      // 여요
+	{ 2, { 0xC5B4, 0xC11C }, kStemExplicitVowel },            // 어서
+	{ 2, { 0xC544, 0xC11C }, kStemExplicitVowel },            // 아서
+	{ 2, { 0xC5EC, 0xC11C }, kStemYeo },                      // 여서
+	{ 2, { 0xAC70, 0xB77C }, kStemPlain },                    // 거라
+	{ 2, { 0xB108, 0xB77C }, kStemPlain },                    // 너라
+	{ 2, { 0xB294, 0xB2E4 }, kStemPlain },                    // 는다
+	{ 2, { 0xC744, 0xAE4C }, kStemPlain },                    // 을까
+	{ 2, { 0xC744, 0xB798 }, kStemPlain },                    // 을래
+	{ 1, { 0xAE4C }, kStemJongRieul },                        // 까
+	{ 1, { 0xB798 }, kStemJongRieul },                        // 래
+	{ 1, { 0xB2E4 }, kStemJongNieun },                        // 다
+	{ 1, { 0xC5B4 }, kStemExplicitVowel },                    // 어
+	{ 1, { 0xC544 }, kStemExplicitVowel },                    // 아
+	{ 1, { 0xC5EC }, kStemYeo },                              // 여
+	{ 1, { 0xB77C }, kStemVowelForm },                        // 라
+	{ 1, { 0xC11C }, kStemVowelForm },                        // 서
+	{ 1, { 0xC790 }, kStemPlain },                            // 자
+	{ 1, { 0xACE0 }, kStemPlain },                            // 고
 };
 
-// Auxiliary verbs that follow the 어/아 form inside one word: 열어봐,
-// 열어줘, 열어보세요, 가져와. The aux is removed and the head is stemmed.
 struct Aux {
-	const char *text;
+	uint8 len;
+	uint16 cp[2];
 	// 가, 오 and 내 also make compounds and nouns (나가, 새가): they only
 	// count after a separate 어/아/여, never after a fused head.
 	bool fusedHead;
 };
 
+// Auxiliary verbs that follow the 어/아 form inside one word: 열어봐,
+// 열어줘, 열어보세요, 가져와. The aux is removed and the head is stemmed.
 static const Aux kAuxAfterVowel[] = {
-	{ "\xeb\x93\x9c\xeb\xa6\xac", true },    // 드리
-	{ "\xeb\xb2\x84\xeb\xa6\xac", true },    // 버리
-	{ "\xeb\xb3\xb4", true },                // 보
-	{ "\xec\xa3\xbc", true },                // 주
-	{ "\xeb\x86\x93", true },                // 놓
-	{ "\xeb\x91\x90", true },                // 두
-	{ "\xea\xb0\x80", false },               // 가
-	{ "\xec\x98\xa4", false },               // 오
-	{ "\xeb\x82\xb4", false },               // 내
-	{ "\xec\x9e\x88", true },                // 있
-	{ nullptr, false }
+	{ 2, { 0xB4DC, 0xB9AC }, true },                // 드리
+	{ 2, { 0xBC84, 0xB9AC }, true },                // 버리
+	{ 1, { 0xBCF4 }, true },                        // 보
+	{ 1, { 0xC8FC }, true },                        // 주
+	{ 1, { 0xB193 }, true },                        // 놓
+	{ 1, { 0xB450 }, true },                        // 두
+	{ 1, { 0xAC00 }, false },                        // 가
+	{ 1, { 0xC624 }, false },                        // 오
+	{ 1, { 0xB0B4 }, false },                        // 내
+	{ 1, { 0xC788 }, true },                        // 있
+};
+
+struct AuxGo {
+	uint8 len;
+	uint16 cp[1];
 };
 
 // 고 있다, 고 싶다.
-static const char *const kAuxAfterGo[] = {
-	"\xec\x9e\x88",               // 있
-	"\xec\x8b\xb6",               // 싶
-	nullptr
+static const AuxGo kAuxAfterGo[] = {
+	{ 1, { 0xC788 } },   // 있
+	{ 1, { 0xC2F6 } },   // 싶
 };
 
 // Case markers and auxiliary particles a player attaches to a noun. A
@@ -203,90 +251,106 @@ static const char *const kAuxAfterGo[] = {
 enum ParticleAfter { kAfterAny, kAfterConsonant, kAfterVowel, kAfterVowelOrRieul };
 
 struct Particle {
-	const char *text;
-	ParticleAfter after;
+	uint8 len;
+	uint16 cp[3];
+	uint8 after;
 };
 
 static const Particle kParticles[] = {
-	{ "\xec\x97\x90\xea\xb2\x8c\xec\x84\x9c", kAfterAny },        // 에게서
-	{ "\xed\x95\x9c\xed\x85\x8c\xec\x84\x9c", kAfterAny },        // 한테서
-	{ "\xec\x9c\xbc\xeb\xa1\x9c\xec\x8d\xa8", kAfterConsonant },  // 으로써
-	{ "\xec\x9c\xbc\xeb\xa1\x9c\xec\x84\x9c", kAfterConsonant },  // 으로서
-	{ "\xec\x97\x90\xec\x84\x9c", kAfterAny },                    // 에서
-	{ "\xec\x97\x90\xea\xb2\x8c", kAfterAny },                    // 에게
-	{ "\xed\x95\x9c\xed\x85\x8c", kAfterAny },                    // 한테
-	{ "\xea\xbb\x98\xec\x84\x9c", kAfterAny },                    // 께서
-	{ "\xec\x9c\xbc\xeb\xa1\x9c", kAfterConsonant },              // 으로
-	{ "\xeb\xa1\x9c\xec\x8d\xa8", kAfterVowelOrRieul },           // 로써
-	{ "\xeb\xa1\x9c\xec\x84\x9c", kAfterVowelOrRieul },           // 로서
-	{ "\xeb\xb6\x80\xed\x84\xb0", kAfterAny },                    // 부터
-	{ "\xea\xb9\x8c\xec\xa7\x80", kAfterAny },                    // 까지
-	{ "\xec\xb2\x98\xeb\x9f\xbc", kAfterAny },                    // 처럼
-	{ "\xeb\xb3\xb4\xeb\x8b\xa4", kAfterAny },                    // 보다
-	{ "\xed\x95\x98\xea\xb3\xa0", kAfterAny },                    // 하고
-	{ "\xec\x9d\xb4\xeb\x9e\x91", kAfterConsonant },              // 이랑
-	{ "\xec\x9d\xb4\xeb\x82\x98", kAfterConsonant },              // 이나
-	{ "\xec\x9d\xb4\xec\x95\xbc", kAfterConsonant },              // 이야
-	{ "\xec\x9d\xb4\xeb\x8b\xa4", kAfterConsonant },              // 이다
-	{ "\xec\xa1\xb0\xec\xb0\xa8", kAfterAny },                    // 조차
-	{ "\xeb\xa7\x88\xec\xa0\x80", kAfterAny },                    // 마저
-	{ "\xeb\xb0\x96\xec\x97\x90", kAfterAny },                    // 밖에
-	{ "\xec\x9d\x84", kAfterConsonant },                          // 을
-	{ "\xeb\xa5\xbc", kAfterVowel },                              // 를
-	{ "\xec\x9d\xb4", kAfterConsonant },                          // 이
-	{ "\xea\xb0\x80", kAfterVowel },                              // 가
-	{ "\xec\x9d\x80", kAfterConsonant },                          // 은
-	{ "\xeb\x8a\x94", kAfterVowel },                              // 는
-	{ "\xec\x9d\x98", kAfterAny },                                // 의
-	{ "\xec\x97\x90", kAfterAny },                                // 에
-	{ "\xeb\xa1\x9c", kAfterVowelOrRieul },                       // 로
-	{ "\xec\x99\x80", kAfterVowel },                              // 와
-	{ "\xea\xb3\xbc", kAfterConsonant },                          // 과
-	{ "\xeb\x9e\x91", kAfterVowel },                              // 랑
-	{ "\xeb\x8f\x84", kAfterAny },                                // 도
-	{ "\xeb\xa7\x8c", kAfterAny },                                // 만
-	{ "\xea\xbb\x98", kAfterAny },                                // 께
-	{ "\xec\x95\xbc", kAfterVowel },                              // 야
-	{ "\xeb\x93\xa4", kAfterAny },                                // 들
-	{ nullptr, kAfterAny }
+	{ 3, { 0xC5D0, 0xAC8C, 0xC11C }, kAfterAny },             // 에게서
+	{ 3, { 0xD55C, 0xD14C, 0xC11C }, kAfterAny },             // 한테서
+	{ 3, { 0xC73C, 0xB85C, 0xC368 }, kAfterConsonant },       // 으로써
+	{ 3, { 0xC73C, 0xB85C, 0xC11C }, kAfterConsonant },       // 으로서
+	{ 2, { 0xC5D0, 0xC11C }, kAfterAny },                     // 에서
+	{ 2, { 0xC5D0, 0xAC8C }, kAfterAny },                     // 에게
+	{ 2, { 0xD55C, 0xD14C }, kAfterAny },                     // 한테
+	{ 2, { 0xAED8, 0xC11C }, kAfterAny },                     // 께서
+	{ 2, { 0xC73C, 0xB85C }, kAfterConsonant },               // 으로
+	{ 2, { 0xB85C, 0xC368 }, kAfterVowelOrRieul },            // 로써
+	{ 2, { 0xB85C, 0xC11C }, kAfterVowelOrRieul },            // 로서
+	{ 2, { 0xBD80, 0xD130 }, kAfterAny },                     // 부터
+	{ 2, { 0xAE4C, 0xC9C0 }, kAfterAny },                     // 까지
+	{ 2, { 0xCC98, 0xB7FC }, kAfterAny },                     // 처럼
+	{ 2, { 0xBCF4, 0xB2E4 }, kAfterAny },                     // 보다
+	{ 2, { 0xD558, 0xACE0 }, kAfterAny },                     // 하고
+	{ 2, { 0xC774, 0xB791 }, kAfterConsonant },               // 이랑
+	{ 2, { 0xC774, 0xB098 }, kAfterConsonant },               // 이나
+	{ 2, { 0xC774, 0xC57C }, kAfterConsonant },               // 이야
+	{ 2, { 0xC774, 0xB2E4 }, kAfterConsonant },               // 이다
+	{ 2, { 0xC870, 0xCC28 }, kAfterAny },                     // 조차
+	{ 2, { 0xB9C8, 0xC800 }, kAfterAny },                     // 마저
+	{ 2, { 0xBC16, 0xC5D0 }, kAfterAny },                     // 밖에
+	{ 1, { 0xC744 }, kAfterConsonant },                       // 을
+	{ 1, { 0xB97C }, kAfterVowel },                           // 를
+	{ 1, { 0xC774 }, kAfterConsonant },                       // 이
+	{ 1, { 0xAC00 }, kAfterVowel },                           // 가
+	{ 1, { 0xC740 }, kAfterConsonant },                       // 은
+	{ 1, { 0xB294 }, kAfterVowel },                           // 는
+	{ 1, { 0xC758 }, kAfterAny },                             // 의
+	{ 1, { 0xC5D0 }, kAfterAny },                             // 에
+	{ 1, { 0xB85C }, kAfterVowelOrRieul },                    // 로
+	{ 1, { 0xC640 }, kAfterVowel },                           // 와
+	{ 1, { 0xACFC }, kAfterConsonant },                       // 과
+	{ 1, { 0xB791 }, kAfterVowel },                           // 랑
+	{ 1, { 0xB3C4 }, kAfterAny },                             // 도
+	{ 1, { 0xB9CC }, kAfterAny },                             // 만
+	{ 1, { 0xAED8 }, kAfterAny },                             // 께
+	{ 1, { 0xC57C }, kAfterVowel },                           // 야
+	{ 1, { 0xB4E4 }, kAfterAny },                             // 들
 };
+
+Common::U32String KoreanStems::get(uint i) const {
+	U32 r;
+	if (i >= count)
+		return r;
+	for (uint k = 0; k < len[i]; ++k)
+		r += (uint32)cp[i][k];
+	return r;
+}
 
 class Collector {
 public:
-	Collector(Common::String *out, const U32 &typed) : _out(out), _n(0), _typed(typed), _da(utf8("\xeb\x8b\xa4")) {}
+	Collector(KoreanStems &out, const U32 &typed) : _out(out), _typed(typed) {
+		_out.count = 0;
+	}
 
-	uint count() const { return _n; }
+	uint count() const { return _out.count; }
 
-	/** Append a candidate if it is new and there is room. */
+	/** Append a candidate if it is new, fits, and there is room. */
 	void add(const U32 &u32) {
 		// The typed word itself was looked up before any of this ran.
-		if (_n >= kMaxKoreanStems || u32.empty() || u32 == _typed)
+		if (_out.count >= KoreanStems::kMaxCount || u32.empty() ||
+		    u32.size() > KoreanStems::kMaxLen || u32 == _typed)
 			return;
-		// Back to EUC-KR, because that is what the table is sorted in and
-		// what the caller will search with.
-		Common::String enc = Common::convertFromU32String(u32, Common::kWindows949);
-		if (enc.empty())
-			return;
-		for (uint i = 0; i < _n; ++i)
-			if (_out[i] == enc)
+		for (uint i = 0; i < u32.size(); ++i)
+			if (u32[i] > 0xFFFF)
 				return;
-		_out[_n++] = enc;
+		for (uint i = 0; i < _out.count; ++i) {
+			if (_out.len[i] != u32.size())
+				continue;
+			uint k = 0;
+			while (k < u32.size() && _out.cp[i][k] == u32[k])
+				++k;
+			if (k == u32.size())
+				return;
+		}
+		uint16 *dst = _out.cp[_out.count];
+		for (uint i = 0; i < u32.size(); ++i)
+			dst[i] = (uint16)u32[i];
+		_out.len[_out.count] = (uint8)u32.size();
+		_out.count++;
 	}
 
 	/** A stem as a dictionary entry: stem + 다, unless it is one already. */
 	void addLemma(const U32 &stem) {
-		if (stem.empty() || endsWith(stem, _da))
+		if (stem.empty() || last(stem) == kSylDa)
 			return;
-		add(stem + _da);
+		add(plusSyl(stem, kSylDa));
 	}
 
-	const U32 &da() const { return _da; }
-
 private:
-	Common::String *_out;
-	uint _n;
+	KoreanStems &_out;
 	U32 _typed;
-	U32 _da;
 };
 
 static bool lastIsFusedVowel(const U32 &s) {
@@ -347,12 +411,12 @@ static void addStem(Collector &c, const U32 &s, uint flags) {
 
 	// ㅡ elision across a syllable: 모아 is 모으 + 아, 치러 is 치르 + 어.
 	if ((flags & kStemExplicitVowel) && jong(L) == kJongNone)
-		c.addLemma(s + compose(kChoIeung, kJungEu, kJongNone));
+		c.addLemma(plusSyl(s, kSylEu));
 
 	if ((flags & kStemRieul) && jong(L) == kJongNone) {
 		c.addLemma(withLast(s, L + kJongRieul));
 		// ㅂ irregular before an 으 ending: 도우세요 -> 돕다.
-		if (hasPrev && L == compose(kChoIeung, kJungU, kJongNone) && jong(P) == kJongNone)
+		if (hasPrev && L == kSylU && jong(P) == kJongNone)
 			c.addLemma(withLast(head(s, 1), P + kJongBieup));
 	}
 
@@ -420,36 +484,38 @@ static void addStem(Collector &c, const U32 &s, uint flags) {
 	}
 }
 
-static bool endsWithUtf8(const U32 &s, const char *tail, U32 &out) {
-	const U32 t = utf8(tail);
-	if (!endsWith(s, t))
-		return false;
-	out = head(s, t.size());
-	return true;
-}
-
 static void processStem(Collector &c, U32 r, uint flags);
 
 // The stem that an auxiliary verb followed: 열어보 -> 열, 도와주 -> 돕,
 // 사용해보 -> 사용하, 가지고있 -> 가지.
 static void addAuxHead(Collector &c, const U32 &r) {
-	U32 h;
-	for (uint i = 0; kAuxAfterGo[i]; ++i) {
-		if (endsWithUtf8(r, kAuxAfterGo[i], h) && endsWithUtf8(h, "\xea\xb3\xa0", h)) // 고
-			addStem(c, h, kStemPlain);
-	}
-	for (uint i = 0; kAuxAfterVowel[i].text; ++i) {
-		if (!endsWithUtf8(r, kAuxAfterVowel[i].text, h) || h.empty())
+	for (uint i = 0; i < ARRAYSIZE(kAuxAfterGo); ++i) {
+		if (!endsWithCps(r, kAuxAfterGo[i].cp, kAuxAfterGo[i].len))
 			continue;
-		U32 stem;
-		if (endsWithUtf8(h, "\xec\x96\xb4", stem) || endsWithUtf8(h, "\xec\x95\x84", stem)) { // 어 아
-			addStem(c, stem, kStemExplicitVowel);
-		} else if (endsWithUtf8(h, "\xec\x97\xac", stem)) {                            // 여
-			processStem(c, stem, kStemYeo);
-		} else if (kAuxAfterVowel[i].fusedHead && lastIsFusedVowel(h)) {
-			addStem(c, h, kStemFused);
-		}
+		const U32 h = head(r, kAuxAfterGo[i].len);
+		if (endsWithSyl(h, kSylGo))
+			addStem(c, head(h, 1), kStemPlain);
 	}
+	for (uint i = 0; i < ARRAYSIZE(kAuxAfterVowel); ++i) {
+		if (!endsWithCps(r, kAuxAfterVowel[i].cp, kAuxAfterVowel[i].len))
+			continue;
+		const U32 h = head(r, kAuxAfterVowel[i].len);
+		if (endsWithSyl(h, kSylEo) || endsWithSyl(h, kSylA))
+			addStem(c, head(h, 1), kStemExplicitVowel);
+		else if (endsWithSyl(h, kSylYeo))
+			processStem(c, head(h, 1), kStemYeo);
+		else if (kAuxAfterVowel[i].fusedHead && lastIsFusedVowel(h))
+			addStem(c, h, kStemFused);
+	}
+}
+
+// The ㄷ/ㅅ irregular readings of a stem an 으 ending followed.
+static void addAfterEu(Collector &c, const U32 &r) {
+	const uint32 L = last(r);
+	if (jong(L) == kJongRieul)
+		c.addLemma(withLast(r, L - kJongRieul + kJongDigeut));
+	else if (jong(L) == kJongNone)
+		c.addLemma(withLast(r, L + kJongSiot));
 }
 
 // The stem left after an ending came off: strip the prefinal layer
@@ -460,19 +526,15 @@ static void processStem(Collector &c, U32 r, uint flags) {
 		return;
 
 	if (flags & kStemYeo) {
-		if (endsWith(r, utf8("\xed\x95\x98")) || r == utf8("\xed\x95\x98")) {        // 하
+		if (last(r) == kSylHa) {
 			flags = kStemPlain;
 		} else {
-			addStem(c, r + utf8("\xec\x9d\xb4"), kStemPlain);                       // 이
+			addStem(c, plusSyl(r, kSylI), kStemPlain);
 			flags = kStemExplicitVowel;
 		}
 	}
 	if (flags & kStemAfterEu) {
-		const uint32 L = last(r);
-		if (jong(L) == kJongRieul)
-			c.addLemma(withLast(r, L - kJongRieul + kJongDigeut));
-		else if (jong(L) == kJongNone)
-			c.addLemma(withLast(r, L + kJongSiot));
+		addAfterEu(c, r);
 		flags = kStemPlain;
 	}
 	if (flags & kStemJongBieup) {
@@ -498,44 +560,42 @@ static void processStem(Collector &c, U32 r, uint flags) {
 
 	// Prefinal endings, innermost last: 하셨다 is 하 + 시 + 었 + 다.
 	for (int guard = 0; guard < 3; ++guard) {
-		U32 h;
-		if (endsWithUtf8(r, "\xec\x9c\xbc\xec\x85\xa8", h) ||                      // 으셨
-		    endsWithUtf8(r, "\xec\x9c\xbc\xec\x85\x94", h) ||                      // 으시
-		    endsWithUtf8(r, "\xec\x9c\xbc\xec\x8b\x9c", h)) {                      // 으셔
+		if (endsWithSyl2(r, kSylEu, kSylSyeoss) || endsWithSyl2(r, kSylEu, kSylSyeo) ||
+		    endsWithSyl2(r, kSylEu, kSylSi)) {                                     // 으셨 으셔 으시
 			// The 으 may be the stem's own: 모으셔요 is 모으다.
-			addStem(c, h + utf8("\xec\x9c\xbc"), kStemPlain);
-			r = h;
+			addStem(c, head(r, 1), kStemPlain);
+			r = head(r, 2);
 			flags = kStemAfterEu;
 			continue;
 		}
-		if (endsWithUtf8(r, "\xec\x85\xa8", h) || endsWithUtf8(r, "\xec\x85\x94", h)) { // 셨 셔
+		if (endsWithSyl(r, kSylSyeoss) || endsWithSyl(r, kSylSyeo)) {               // 셨 셔
 			// 마셨다 is 마시 + 었 + 다 as well as an honorific 마 + 시 + 었.
-			addStem(c, h + utf8("\xec\x8b\x9c"), kStemPlain);
-			r = h;
+			addStem(c, withLast(r, kSylSi), kStemPlain);
+			r = head(r, 1);
 			flags = kStemRieul;
 			continue;
 		}
-		if (endsWithUtf8(r, "\xec\x8b\x9c", h)) {                                   // 시
+		if (endsWithSyl(r, kSylSi)) {                                                // 시
 			// 꼬신다 is 꼬시다 before it is an honorific 꼬다.
 			addStem(c, r, flags & ~kStemVowelForm);
-			r = h;
+			r = head(r, 1);
 			flags = kStemRieul;
 			continue;
 		}
-		if (endsWithUtf8(r, "\xec\x98\x80", h)) {                                   // 였
+		if (endsWithSyl(r, kSylYeoss)) {                                             // 였
 			// 기울였다 is 기울이 + 었, 하였다 is 하 + 였.
-			addStem(c, h + utf8("\xec\x9d\xb4"), kStemPlain);
-			r = h;
+			addStem(c, withLast(r, kSylI), kStemPlain);
+			r = head(r, 1);
 			flags = kStemExplicitVowel;
 			continue;
 		}
-		if (endsWithUtf8(r, "\xec\x95\x98", h) || endsWithUtf8(r, "\xec\x97\x88", h)) { // 았 었
-			r = h;
+		if (endsWithSyl(r, kSylAss) || endsWithSyl(r, kSylEoss)) {                   // 았 었
+			r = head(r, 1);
 			flags = kStemExplicitVowel;
 			continue;
 		}
-		if (endsWithUtf8(r, "\xea\xb2\xa0", h)) {                                  // 겠
-			r = h;
+		if (endsWithSyl(r, kSylGess)) {                                              // 겠
+			r = head(r, 1);
 			flags = kStemPlain;
 			continue;
 		}
@@ -553,33 +613,29 @@ static void processStem(Collector &c, U32 r, uint flags) {
 		return;
 
 	if (flags & kStemAfterEu) {
-		const uint32 L = last(r);
-		if (jong(L) == kJongRieul)
-			c.addLemma(withLast(r, L - kJongRieul + kJongDigeut));
-		else if (jong(L) == kJongNone)
-			c.addLemma(withLast(r, L + kJongSiot));
+		addAfterEu(c, r);
 		flags = kStemPlain;
 	}
 
 	U32 auxBase = r;
 	if (flags & kStemVowelForm) {
-		U32 h;
-		if (endsWithUtf8(r, "\xec\x97\xac", h)) {                                   // 여
+		if (endsWithSyl(r, kSylYeo)) {                                               // 여
 			// 보여라 is 보이 + 어 + 라; 하여라 is 하 + 여 + 라.
-			if (!endsWith(h, utf8("\xed\x95\x98")) && h != utf8("\xed\x95\x98"))       // 하
-				addStem(c, h + utf8("\xec\x9d\xb4"), kStemPlain);                   // 이
+			const U32 h = head(r, 1);
+			if (last(h) != kSylHa)
+				addStem(c, plusSyl(h, kSylI), kStemPlain);
 			r = h;
 			flags = kStemExplicitVowel;
 			auxBase = r;
-		} else if (endsWithUtf8(r, "\xec\x96\xb4", h) || endsWithUtf8(r, "\xec\x95\x84", h)) { // 어 아
-			r = h;
+		} else if (endsWithSyl(r, kSylEo) || endsWithSyl(r, kSylA)) {                // 어 아
+			r = head(r, 1);
 			flags = kStemExplicitVowel;
 			auxBase = r;
 		} else if (lastIsFusedVowel(r)) {
 			flags = kStemFused;
 			auxBase = regularUnfuse(r);
 		} else {
-			// 집도 is 집 + 도, not a verb: 라, 서 and 도 only ever follow an
+			// 집도 is 집 + 도, not a verb: 라 and 서 only ever follow an
 			// 어/아 form.
 			return;
 		}
@@ -590,15 +646,14 @@ static void processStem(Collector &c, U32 r, uint flags) {
 }
 
 static void deinflect(Collector &c, const U32 &w) {
-	for (uint e = 0; kEndings[e].text; ++e) {
-		U32 r;
-		if (endsWithUtf8(w, kEndings[e].text, r))
-			processStem(c, r, kEndings[e].flags);
+	for (uint e = 0; e < ARRAYSIZE(kEndings); ++e) {
+		if (endsWithCps(w, kEndings[e].cp, kEndings[e].len))
+			processStem(c, head(w, kEndings[e].len), kEndings[e].flags);
 	}
 
 	// A fused 어/아 form with nothing after it: 봐, 해, 써, 잠가, 열어봐. A
 	// word ending in 다 is a citation form, not an 어/아 form.
-	if (lastIsFusedVowel(w) && !endsWith(w, c.da()))
+	if (lastIsFusedVowel(w) && last(w) != kSylDa)
 		processStem(c, w, kStemVowelForm);
 
 	// A bare stem typed on its own: 읽 -> 읽다. 가 and 켜 reach their own
@@ -606,7 +661,7 @@ static void deinflect(Collector &c, const U32 &w) {
 	addStem(c, w, kStemPlain);
 }
 
-static bool particleFits(const U32 &stem, ParticleAfter after) {
+static bool particleFits(const U32 &stem, uint8 after) {
 	const uint32 L = last(stem);
 	if (!isSyllable(L))
 		return after == kAfterAny;
@@ -621,10 +676,10 @@ static bool particleFits(const U32 &stem, ParticleAfter after) {
 // Nouns: 문을 -> 문, 방에서는 -> 방에서 -> 방. Two rounds, because a case
 // marker can carry an auxiliary particle behind it.
 static void stripParticles(Collector &c, const U32 &w, int rounds) {
-	for (uint p = 0; kParticles[p].text; ++p) {
-		U32 stem;
-		if (!endsWithUtf8(w, kParticles[p].text, stem))
+	for (uint p = 0; p < ARRAYSIZE(kParticles); ++p) {
+		if (!endsWithCps(w, kParticles[p].cp, kParticles[p].len))
 			continue;
+		const U32 stem = head(w, kParticles[p].len);
 		if (!particleFits(stem, kParticles[p].after))
 			continue;
 		c.add(stem);
@@ -633,33 +688,24 @@ static void stripParticles(Collector &c, const U32 &w, int rounds) {
 	}
 }
 
-uint koreanStemCandidates(const char *word, uint len,
-                          Common::String *outCands) {
-	if (!word || !len || !outCands)
+uint koreanStemCandidates(const Common::U32String &word, KoreanStems &out) {
+	out.count = 0;
+	if (word.empty() || word.size() > KoreanStems::kMaxLen || !isSyllable(last(word)))
 		return 0;
 
-	// Work in code points. The rules are about syllables, and a syllable is
-	// two bytes in EUC-KR but the arithmetic that splits off a final
-	// consonant only holds for the Unicode form.
-	Common::String raw(word, len);
-	U32 u = Common::convertToU32String(raw.c_str(), Common::kWindows949);
-	if (u.empty() || !isSyllable(last(u)))
-		return 0;
+	Collector c(out, word);
 
-	Collector c(outCands, u);
-
-	deinflect(c, u);
+	deinflect(c, word);
 
 	// The polite 요 sits outside everything else: 열어봐요, 하세요 (as 하세 +
 	// 요 would be wrong, 세요 is in the table in its own right).
-	U32 h;
-	if (endsWithUtf8(u, "\xec\x9a\x94", h) && isSyllable(last(h)))
-		deinflect(c, h);
+	if (endsWithSyl(word, kSylYo) && isSyllable(word[word.size() - 2]))
+		deinflect(c, head(word, 1));
 
 	// Tried last so a verb form never loses to a particle that happens to
 	// look like its ending; what keeps a noun from losing to a verb is the
 	// ending table above, which holds none of the particle shapes.
-	stripParticles(c, u, 2);
+	stripParticles(c, word, 2);
 
 	return c.count();
 }

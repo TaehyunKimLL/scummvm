@@ -23,12 +23,27 @@
 #define SCI_PARSER_KORSTEM_H
 
 #include "common/scummsys.h"
-#include "common/str.h"
+#include "common/ustr.h"
 
 namespace Sci {
 
-/** Upper bound on what koreanStemCandidates() can return. */
-enum { kMaxKoreanStems = 48 };
+/**
+ * The readings of one typed word, as a fixed buffer: no heap, and small
+ * enough to live on the stack of a parser lookup on DOS. Hangul syllables
+ * are BMP code points, so 16 bits hold each one.
+ */
+struct KoreanStems {
+	enum { kMaxCount = 48, kMaxLen = 16 };
+
+	uint16 cp[kMaxCount][kMaxLen];
+	uint8 len[kMaxCount];
+	uint count;
+
+	KoreanStems() : count(0) {}
+
+	/** Candidate @p i as a string; empty past the end. */
+	Common::U32String get(uint i) const;
+};
 
 /**
  * Dictionary-form candidates for an inflected Korean word.
@@ -52,13 +67,17 @@ enum { kMaxKoreanStems = 48 };
  * last so a verb form never loses to a particle that looks like its
  * ending.
  *
- * @param word        EUC-KR bytes as typed
- * @param len         length in bytes
- * @param outCands    filled with at most kMaxKoreanStems candidates
+ * Works on code points throughout - the rules are syllable arithmetic on
+ * precomposed Hangul - and allocates nothing: the tables are code points,
+ * the temporaries fit a U32String's inline storage, and the result is a
+ * fixed buffer.
+ *
+ * @param word   the typed word, decoded; longer than KoreanStems::kMaxLen
+ *               or not ending in a Hangul syllable yields nothing
+ * @param out    receives the candidates, best first
  * @return number of candidates written
  */
-uint koreanStemCandidates(const char *word, uint len,
-                          Common::String *outCands);
+uint koreanStemCandidates(const Common::U32String &word, KoreanStems &out);
 
 } // End of namespace Sci
 

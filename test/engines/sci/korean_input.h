@@ -867,9 +867,12 @@ public:
 		TS_ASSERT(ctl.contains("g_sci->usesKoreanText() && _screen->gfxDriver()->driverBasedTextRendering()"));
 	}
 
-	void test_parser_converts_utf8_words_before_the_cp949_lookup() {
+	void test_parser_decodes_the_typed_word_by_the_games_encoding() {
 		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
-		TS_ASSERT(voc.contains("utf8ToCp949(tempword, kword)"));
-		TS_ASSERT(voc.contains("if (g_sci->heapStringsAreUtf8())"));
+		// cp949 from the edit control, UTF-8 in a UTF-8 manifest game; the
+		// table holds code points, so this is the one conversion.
+		TS_ASSERT(voc.contains("g_sci->heapStringsAreUtf8() ? Common::kUtf8 : Common::kWindows949"));
+		TS_ASSERT(voc.contains("_koreanVocab.lookup(kword, kgroup, kclass)"));
+		TS_ASSERT(!voc.contains("utf8ToCp949"));
 	}
 };

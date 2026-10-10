@@ -28,10 +28,13 @@
 
 namespace Sci {
 
-// "SCIKOR\0\0", then {u32 version, u32 count}, then count * 8-byte entries,
-// then the blob. Written by harness/k6bake.py.
+// "SCIKOR\0\0", then {u32 version, u32 count}, then count * 8-byte entries
+// {u16 offset, u16 len, u16 group, u16 class}, then the blob of UTF-16LE
+// code units the offsets index, sorted by code unit. Written by
+// harness/k6bake.py. Version 1 held EUC-KR bytes; that cost every lookup
+// an encode of each candidate and the encoder its 128 KB reverse table.
 static const char kMagic[8] = { 'S', 'C', 'I', 'K', 'O', 'R', 0, 0 };
-static const uint32 kVersion = 1;
+static const uint32 kVersion = 2;
 static const uint32 kHeaderSize = 16;
 static const uint32 kEntrySize = 8;
 
@@ -93,14 +96,14 @@ bool KoreanVocabulary::load(const Common::String &filename) {
 	_entries = buf + kHeaderSize;
 	_blob = _entries + (uint32)count * kEntrySize;
 
-	// Every entry must address bytes inside the blob. Checked once here so
-	// the lookup path needs no bounds test per probe.
-	const uint32 blobSize = fileSize - (uint32)(_blob - buf);
+	// Every entry must address code units inside the blob. Checked once
+	// here so the lookup path needs no bounds test per probe.
+	const uint32 blobUnits = (fileSize - (uint32)(_blob - buf)) / 2;
 	for (uint32 i = 0; i < count; ++i) {
 		const byte *e = _entries + i * kEntrySize;
 		const uint16 off = READ_LE_UINT16(e);
 		const uint16 len = READ_LE_UINT16(e + 2);
-		if ((uint32)off + len > blobSize) {
+		if ((uint32)off + len > blobUnits) {
 			warning("%s entry %u runs past the end of its string table",
 			        filename.c_str(), i);
 			unload();
@@ -122,7 +125,7 @@ void KoreanVocabulary::unload() {
 	_blob = nullptr;
 }
 
-bool KoreanVocabulary::find(const char *word, uint len,
+bool KoreanVocabulary::find(const uint16 *word, uint len,
                             uint16 &group, uint16 &wclass) const {
 	if (!_data || !len)
 		return false;
@@ -134,16 +137,15 @@ bool KoreanVocabulary::find(const char *word, uint len,
 		const byte *e = _entries + (uint32)mid * kEntrySize;
 		const uint16 off = READ_LE_UINT16(e);
 		const uint16 elen = READ_LE_UINT16(e + 2);
+		const byte *entry = _blob + (uint32)off * 2;
 
-		// Compare as UNSIGNED bytes. EUC-KR lead bytes are >= 0x80 and a
-		// signed char comparison orders them below ASCII, which would not
-		// match the order k6bake.py sorted the table in - the search would
-		// then miss entries that are present.
+		// Code unit by code unit, unsigned, which is the order k6bake.py
+		// sorted the table in.
 		const uint n = MIN<uint>(len, elen);
 		int cmp = 0;
 		for (uint i = 0; i < n; ++i) {
-			const byte a = (byte)word[i];
-			const byte b = _blob[off + i];
+			const uint16 a = word[i];
+			const uint16 b = READ_LE_UINT16(entry + i * 2);
 			if (a != b) {
 				cmp = (a < b) ? -1 : 1;
 				break;
@@ -165,24 +167,29 @@ bool KoreanVocabulary::find(const char *word, uint len,
 	return false;
 }
 
-bool KoreanVocabulary::lookup(const char *word, uint len,
+bool KoreanVocabulary::lookup(const Common::U32String &word,
                               uint16 &group, uint16 &wclass) const {
-	if (!_data || !len)
+	if (!_data || word.empty() || word.size() > KoreanStems::kMaxLen)
 		return false;
 
-	if (find(word, len, group, wclass)) {
+	uint16 typed[KoreanStems::kMaxLen];
+	for (uint i = 0; i < word.size(); ++i) {
+		if (word[i] > 0xFFFF)
+			return false;
+		typed[i] = (uint16)word[i];
+	}
+	if (find(typed, word.size(), group, wclass)) {
 		debugC(2, kDebugLevelHangul, "[korvocab] exact -> group %u class %u",
 		       group, wclass);
 		return true;
 	}
 
-	// Stemming: 먹는다 is stored as 먹다. Each candidate is a SHORTER or
-	// re-suffixed form of what was typed; nothing is invented and then
-	// searched for.
-	Common::String candidates[kMaxKoreanStems];
-	const uint n = koreanStemCandidates(word, len, candidates);
+	// The readings of the word, best first: 연다 is stored as 열다, 가방을
+	// as 가방. The first one the table holds wins.
+	KoreanStems stems;
+	const uint n = koreanStemCandidates(word, stems);
 	for (uint i = 0; i < n; ++i) {
-		if (find(candidates[i].c_str(), candidates[i].size(), group, wclass)) {
+		if (find(stems.cp[i], stems.len[i], group, wclass)) {
 			debugC(2, kDebugLevelHangul,
 			       "[korvocab] stem -> group %u class %u", group, wclass);
 			return true;

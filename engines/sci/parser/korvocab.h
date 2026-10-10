@@ -24,6 +24,7 @@
 
 #include "common/scummsys.h"
 #include "common/str.h"
+#include "common/ustr.h"
 
 namespace Sci {
 
@@ -47,9 +48,11 @@ namespace Sci {
  * The class travels with the group because parseGNF() tests both: a word
  * inserted with the right group and the wrong class still fails to parse.
  *
- * The file is produced offline by harness/k6bake.py and holds EUC-KR,
- * which is what the edit control leaves in the game's heap string - so
- * there is no conversion at lookup time and none to get wrong.
+ * The file is produced offline by harness/k6bake.py and holds code
+ * points, sorted. The typed word is decoded once - from the cp949 the
+ * edit control leaves in the game's heap string, or from UTF-8 - and the
+ * stemmer's readings are code points already, so a lookup is a compare
+ * and nothing is ever encoded.
  */
 class KoreanVocabulary {
 public:
@@ -73,7 +76,7 @@ public:
 	uint32 size() const { return _count; }
 
 	/**
-	 * Look up one EUC-KR word.
+	 * Look up one typed word, decoded to code points.
 	 *
 	 * Exact match first, then the readings korstem.cpp gives the word - a
 	 * typed 연다, 열어봐 or 열어주세요 has to reach the stored 열다, and
@@ -83,17 +86,16 @@ public:
 	 * generating lowers accuracy. The first reading the map holds wins,
 	 * so korstem.cpp orders them by likelihood at a parser prompt.
 	 *
-	 * @param word    EUC-KR bytes, no terminator required
-	 * @param len     length in bytes
+	 * @param word    the word as typed, decoded (cp949 or UTF-8, per game)
 	 * @param group   out: vocab group id
 	 * @param wclass  out: the class mask to insert it with
 	 * @return true when resolved
 	 */
-	bool lookup(const char *word, uint len, uint16 &group, uint16 &wclass) const;
+	bool lookup(const Common::U32String &word, uint16 &group, uint16 &wclass) const;
 
 private:
-	/** Exact bsearch over the sorted EUC-KR blob. */
-	bool find(const char *word, uint len, uint16 &group, uint16 &wclass) const;
+	/** Exact bsearch over the blob, sorted by code unit. */
+	bool find(const uint16 *word, uint len, uint16 &group, uint16 &wclass) const;
 
 	byte *_data;
 	uint32 _size;
