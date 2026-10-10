@@ -276,6 +276,10 @@ static const Particle kParticles[] = {
 	{ 2, { 0xC73C, 0xB85C }, kAfterConsonant, kCase, kKoreanRoleWith },               // 으로
 	{ 2, { 0xB85C, 0xC368 }, kAfterVowelOrRieul, kCase, kKoreanRoleWith },            // 로써
 	{ 2, { 0xB85C, 0xC11C }, kAfterVowelOrRieul, kCase, kKoreanRoleWith },            // 로서
+	{ 3, { 0xC774, 0xB77C, 0xACE0 }, kAfterConsonant, kAux, kKoreanRoleNone },  // 이라고 (say X: 피터라고 해)
+	{ 3, { 0xC774, 0xB0D0, 0xACE0 }, kAfterConsonant, kAux, kKoreanRoleNone },  // 이냐고 (ask who: 누구냐고 물어)
+	{ 2, { 0xB77C, 0xACE0 }, kAfterVowel, kAux, kKoreanRoleNone },             // 라고
+	{ 2, { 0xB0D0, 0xACE0 }, kAfterAny, kAux, kKoreanRoleNone },               // 냐고
 	{ 2, { 0xBD80, 0xD130 }, kAfterAny, kAux, kKoreanRoleNone },                     // 부터
 	{ 2, { 0xAE4C, 0xC9C0 }, kAfterAny, kAux, kKoreanRoleNone },                     // 까지
 	{ 2, { 0xCC98, 0xB7FC }, kAfterAny, kAux, kKoreanRoleNone },                     // 처럼
@@ -305,6 +309,7 @@ static const Particle kParticles[] = {
 	{ 1, { 0xAED8 }, kAfterAny, kCase, kKoreanRoleTo },                             // 께
 	{ 1, { 0xC57C }, kAfterVowel, kAux, kKoreanRoleNone },                           // 야
 	{ 1, { 0xB4E4 }, kAfterAny, kPlural, kKoreanRoleNone },                             // 들
+	{ 1, { 0xB2E4 }, kAfterVowel, kAux, kKoreanRoleNone },                           // 다 (copula: 방패다)
 };
 
 Common::U32String KoreanStems::get(uint i) const {

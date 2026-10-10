@@ -496,4 +496,17 @@ public:
 		// A verb form has no particle.
 		TS_ASSERT_EQUALS(roleOf("열어", "열다"), (uint8)Sci::kKoreanRoleNone);
 	}
+
+	// Camelot's "say X" and "ask who": the quotative and question endings
+	// and the copula come off a noun, and place nothing.
+	void test_quotative_question_and_copula_endings() {
+		TS_ASSERT_EQUALS(roleOf("피터라고", "피터"), (uint8)Sci::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("방패라고", "방패"), (uint8)Sci::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("사랑이라고", "사랑"), (uint8)Sci::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("누구냐고", "누구"), (uint8)Sci::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("뭐냐고", "뭐"), (uint8)Sci::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("시험이냐고", "시험"), (uint8)Sci::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("방패다", "방패"), (uint8)Sci::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("피터다", "피터"), (uint8)Sci::kKoreanRoleNone);
+	}
 };
