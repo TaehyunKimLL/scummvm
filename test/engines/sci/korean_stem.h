@@ -46,52 +46,49 @@
 // nonsense cases check that no rule invents a match out of noise.
 
 class KoreanStemTestSuite : public CxxTest::TestSuite {
-	// Helpers: the engine works in EUC-KR because that is what the edit
-	// control leaves in the game's heap, so the tests speak it too.
-	static Common::String toEuc(const char *utf8) {
-		Common::U32String u = Common::convertToU32String(utf8, Common::kUtf8);
-		return Common::convertFromU32String(u, Common::kWindows949);
+	// Helpers. The engine works in code points - the typed word is decoded
+	// once from cp949 (or UTF-8) and every rule is syllable arithmetic -
+	// so the tests speak UTF-8 and compare code points.
+	static Common::U32String toU32(const char *utf8) {
+		return Common::convertToU32String(utf8, Common::kUtf8);
 	}
 
-	static Common::String toUtf8(const Common::String &euckr) {
-		Common::U32String u = Common::convertToU32String(euckr.c_str(),
-		                                                 Common::kWindows949);
+	static Common::String toUtf8(const Common::U32String &u) {
 		return Common::convertFromU32String(u, Common::kUtf8);
+	}
+
+	static uint stems(const char *typedUtf8, Sci::KoreanStems &out) {
+		return Sci::koreanStemCandidates(toU32(typedUtf8), out);
 	}
 
 	// The first candidate that is one of the given dictionary words, as
 	// UTF-8; empty when none is. This is what the engine's lookup sees,
 	// because it takes the first candidate the map holds.
 	static Common::String firstOf(const char *typedUtf8, const char *const *dictUtf8) {
-		Common::String typedEuc = toEuc(typedUtf8);
-		Common::String cands[Sci::kMaxKoreanStems];
-		uint n = Sci::koreanStemCandidates(typedEuc.c_str(), typedEuc.size(), cands);
+		Sci::KoreanStems out;
+		uint n = stems(typedUtf8, out);
 		for (uint i = 0; i < n; ++i)
 			for (uint d = 0; dictUtf8[d]; ++d)
-				if (cands[i] == toEuc(dictUtf8[d]))
+				if (out.get(i) == toU32(dictUtf8[d]))
 					return dictUtf8[d];
 		return Common::String();
 	}
 
 	// Does the candidate list contain this word?
 	static bool has(const char *typedUtf8, const char *wantUtf8) {
-		Common::String typedEuc = toEuc(typedUtf8);
-		Common::String wantEuc = toEuc(wantUtf8);
-		Common::String cands[Sci::kMaxKoreanStems];
-		uint n = Sci::koreanStemCandidates(typedEuc.c_str(), typedEuc.size(),
-		                                   cands);
+		Sci::KoreanStems out;
+		uint n = stems(typedUtf8, out);
+		const Common::U32String want = toU32(wantUtf8);
 		for (uint i = 0; i < n; ++i) {
-			if (cands[i] == wantEuc)
+			if (out.get(i) == want)
 				return true;
 		}
 		return false;
 	}
 
 	static uint count(const char *typedUtf8) {
-		Common::String typedEuc = toEuc(typedUtf8);
-		Common::String cands[Sci::kMaxKoreanStems];
-		return Sci::koreanStemCandidates(typedEuc.c_str(), typedEuc.size(),
-		                                 cands);
+		Sci::KoreanStems out;
+		return stems(typedUtf8, out);
 	}
 
 public:
@@ -165,43 +162,44 @@ public:
 			"\xeb\xac\xb8",                           // 문
 		};
 		for (int k = 0; k < 4; ++k) {
-			Common::String in = toEuc(inputs[k]);
-			Common::String cands[Sci::kMaxKoreanStems];
-			uint n = Sci::koreanStemCandidates(in.c_str(), in.size(), cands);
+			Sci::KoreanStems out;
+			uint n = stems(inputs[k], out);
+			const uint typed = toU32(inputs[k]).size();
 			for (uint i = 0; i < n; ++i) {
-				// +2 bytes is one EUC-KR syllable, the 다 a rule may add.
-				TS_ASSERT_LESS_THAN_EQUALS(cands[i].size(), in.size() + 2);
+				TS_ASSERT_LESS_THAN_EQUALS((uint)out.len[i], typed + 1);
 			}
 		}
 	}
 
-	// Never more candidates than the caller's buffer holds.
+	// Never more candidates than the buffer holds.
 	void test_candidate_count_is_bounded() {
 		TS_ASSERT_LESS_THAN_EQUALS(count("\xec\x9d\xbd\xec\x96\xb4\xeb\x9d\xbc"),
-		                           (uint)Sci::kMaxKoreanStems);
+		                           (uint)Sci::KoreanStems::kMaxCount);
 		TS_ASSERT_LESS_THAN_EQUALS(count("\xeb\xa8\xb9\xeb\x8a\x94\xeb\x8b\xa4"),
-		                           (uint)Sci::kMaxKoreanStems);
+		                           (uint)Sci::KoreanStems::kMaxCount);
 	}
 
 	// Degenerate input must not crash or produce anything.
-	void test_empty_and_null_input() {
-		Common::String cands[Sci::kMaxKoreanStems];
-		TS_ASSERT_EQUALS(Sci::koreanStemCandidates(nullptr, 0, cands), 0u);
-		TS_ASSERT_EQUALS(Sci::koreanStemCandidates("", 0, cands), 0u);
+	void test_empty_and_overlong_input() {
+		Sci::KoreanStems out;
+		TS_ASSERT_EQUALS(Sci::koreanStemCandidates(Common::U32String(), out), 0u);
+		// Seventeen syllables: longer than any parser word, and longer than
+		// the buffer, so it is left alone rather than truncated.
+		Common::U32String longWord;
+		for (int i = 0; i < 17; ++i)
+			longWord += (uint32)0xAC00;
+		TS_ASSERT_EQUALS(Sci::koreanStemCandidates(longWord, out), 0u);
+		TS_ASSERT_EQUALS(out.count, 0u);
 	}
 
 	// ASCII must be left alone: English goes through the real vocabulary,
 	// and a rule firing on it would be a regression for every other game.
 	void test_ascii_is_not_stemmed() {
-		Common::String cands[Sci::kMaxKoreanStems];
-		uint n = Sci::koreanStemCandidates("look", 4, cands);
-		for (uint i = 0; i < n; ++i)
-			TS_ASSERT_DIFFERS(cands[i], Common::String("look"));
+		TS_ASSERT_EQUALS(count("look"), 0u);
+		// Nor a word whose last character is not Hangul.
+		TS_ASSERT_EQUALS(count("\xea\xb0\x80\xeb\xb0\xa9!"), 0u);  // 가방!
 	}
 
-	// Particles. The map stores bare nouns, so 문을 has to reach 문 - this
-	// is the case that made "문을 열어라" fail with everything else working:
-	// 열어라 resolved and 문을 did not.
 	void test_case_markers_are_stripped() {
 		TS_ASSERT(has("\xeb\xac\xb8\xec\x9d\x84", "\xeb\xac\xb8"));   // 문을 -> 문
 		TS_ASSERT(has("\xeb\xac\xb8\xec\x9d\xb4", "\xeb\xac\xb8"));   // 문이 -> 문
@@ -223,15 +221,15 @@ public:
 			"\xec\xa2\x85\xec\x9d\xb4",
 		};
 		for (int k = 0; k < 3; ++k) {
-			Common::String in = toEuc(words[k]);
-			Common::String cands[Sci::kMaxKoreanStems];
-			uint n = Sci::koreanStemCandidates(in.c_str(), in.size(), cands);
+			Sci::KoreanStems out;
+			uint n = stems(words[k], out);
 			// The caller tries the word itself before any candidate, so what
 			// matters is that stemming did not REPLACE it - a stripped form
 			// is only ever an extra thing to try.
-			TS_ASSERT_LESS_THAN_EQUALS(n, (uint)Sci::kMaxKoreanStems);
+			TS_ASSERT_LESS_THAN_EQUALS(n, (uint)Sci::KoreanStems::kMaxCount);
 		}
 	}
+
 	// ================================================= the layered rules
 
 	// An auxiliary verb inside the word comes off with its ending, and
@@ -385,7 +383,7 @@ public:
 		Common::String text = readSource("test/engines/sci/korean_stem_corpus.txt");
 		TS_ASSERT_LESS_THAN(0u, text.size());
 
-		Common::Array<Common::String> surfaces, lemmas;
+		Common::Array<Common::U32String> surfaces, lemmas;
 		Common::HashMap<Common::String, bool> lemmaSet;
 		uint lineStart = 0;
 		for (uint i = 0; i <= text.size(); ++i) {
@@ -399,23 +397,24 @@ public:
 			const int t2 = line.find('\t', t1 + 1);
 			TS_ASSERT_LESS_THAN(0, t1);
 			TS_ASSERT_LESS_THAN(t1, t2);
-			surfaces.push_back(toEuc(Common::String(line.c_str() + t1 + 1, t2 - t1 - 1).c_str()));
-			lemmas.push_back(toEuc(Common::String(line.c_str() + t2 + 1).c_str()));
-			lemmaSet[lemmas.back()] = true;
+			surfaces.push_back(toU32(Common::String(line.c_str() + t1 + 1, t2 - t1 - 1).c_str()));
+			lemmas.push_back(toU32(Common::String(line.c_str() + t2 + 1).c_str()));
+			lemmaSet[Common::String(line.c_str() + t2 + 1)] = true;
 		}
 		TS_ASSERT_LESS_THAN(500u, surfaces.size());
 
 		uint reached = 0, firstRight = 0;
 		for (uint k = 0; k < surfaces.size(); ++k) {
-			Common::String cands[Sci::kMaxKoreanStems];
-			uint n = Sci::koreanStemCandidates(surfaces[k].c_str(), surfaces[k].size(), cands);
+			Sci::KoreanStems out;
+			uint n = Sci::koreanStemCandidates(surfaces[k], out);
 			bool found = false;
-			Common::String first;
+			Common::U32String first;
 			for (uint i = 0; i < n; ++i) {
-				if (cands[i] == lemmas[k])
+				const Common::U32String cand = out.get(i);
+				if (cand == lemmas[k])
 					found = true;
-				if (first.empty() && lemmaSet.contains(cands[i]))
-					first = cands[i];
+				if (first.empty() && lemmaSet.contains(toUtf8(cand)))
+					first = cand;
 			}
 			if (found)
 				reached++;

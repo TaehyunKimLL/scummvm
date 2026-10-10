@@ -464,27 +464,6 @@ bool Vocabulary::checkAltInput(Common::String &text, uint16 &cursorPos) {
 }
 
 // we assume that *word points to an already lowercased word
-// UTF-8 -> cp949 for one parser word. False when a code point has no pair.
-static bool utf8ToCp949(const Common::String &in, Common::String &out) {
-	out.clear();
-	const byte *p = (const byte *)in.c_str();
-	while (*p) {
-		int n = 1;
-		const uint32 cp = decodeUtf8Char(p, n);
-		if (cp < 0x80) {
-			out += (char)cp;
-		} else {
-			const uint32 pair = encodeCodePagePair(cp, Common::kWindows949);
-			if (!pair)
-				return false;
-			out += (char)(pair & 0xFF);
-			out += (char)((pair >> 8) & 0xFF);
-		}
-		p += n;
-	}
-	return true;
-}
-
 void Vocabulary::lookupWord(ResultWordList& retval, const char *word, int word_len) {
 	retval.clear();
 
@@ -561,14 +540,11 @@ void Vocabulary::lookupWord(ResultWordList& retval, const char *word, int word_l
 	// which is what keeps this invisible to non-Korean games.
 	if (_koreanVocab.isLoaded()) {
 		uint16 kgroup = 0, kclass = 0;
-		// scikor.dat holds cp949 words. In a UTF-8 manifest game the typed
-		// word is UTF-8, so it is converted back before the lookup; a word
-		// with a character that has no KS X 1001 syllable cannot be in it.
-		Common::String kword = tempword;
-		if (g_sci->heapStringsAreUtf8() && !utf8ToCp949(tempword, kword))
-			return;
-		if (_koreanVocab.lookup(kword.c_str(), kword.size(),
-		                        kgroup, kclass)) {
+		// scikor.dat holds code points. The typed word is cp949 from the
+		// edit control, or UTF-8 in a UTF-8 manifest game; either is
+		// decoded once here and never encoded again.
+		const Common::U32String kword(tempword, g_sci->heapStringsAreUtf8() ? Common::kUtf8 : Common::kWindows949);
+		if (_koreanVocab.lookup(kword, kgroup, kclass)) {
 			// kclass is already in _parserWords' layout: k6bake.py takes
 			// it straight from the vocab entry, where the class is the
 			// composed (byte << 4 | nibble) value this loader builds. It
