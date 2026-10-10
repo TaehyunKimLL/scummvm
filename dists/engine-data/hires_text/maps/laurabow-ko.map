@@ -1,0 +1,56 @@
+; Hi-res text map: Laura Bow: The Colonel's Bequest (SCI0), Korean UTF-8
+; translation.
+;
+; Picked up on its own when the game's language is Korean and no map is
+; configured; or name it: hires_text_map=data:hires_text/maps/laurabow-ko.map
+;
+; The status line, the parser line and the menus (the default face, font 0)
+; in NanumGothic Bold; the dialogue fonts (1, 4, 8) and the large title
+; fonts (40, 41) in Gowun Batang Bold. Latin text, digits and punctuation
+; are drawn by the same face as the Korean, on the same baseline, and
+; advance by the face's own widths; font 8 keeps the game's own advances,
+; as the DOS pack's LB1KO.MAP does, because its text is laid out in columns.
+;
+; blend=auto anti-aliases the faces on a true-colour screen.
+[map]
+version=2
+
+[render]
+scale=2
+blend=auto
+
+[fonts]
+ko=data:hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf
+batang=data:hires_text/fonts/gowunbatang/GowunBatang-Bold.ttf
+
+[font]
+face=ko
+shift=0
+range.basic-latin=same
+advance.basic-latin=font
+
+[font.0]
+face=ko
+
+[font.1]
+face=batang
+size=18
+
+[font.4]
+face=batang
+size=18
+
+[font.8]
+face=batang
+size=18
+advance.basic-latin=game
+
+[font.40]
+face=batang
+cell=glyph
+size=18
+
+[font.41]
+face=batang
+cell=glyph
+size=18
