@@ -102,6 +102,15 @@ public:
 		              "\xed\x83\x80\xeb\x8b\xa4"));             // 타다
 	}
 
+	// ㄹ-final stems drop the ㄹ before ㄴ, so the fused ㄴ of 연다 stands
+	// for 열다 ("가방을 연다" in Laura Bow) and 만든다 for 만들다.
+	void test_fused_nieun_restores_rieul() {
+		TS_ASSERT(has("\xec\x97\xb0\xeb\x8b\xa4",               // 연다
+		              "\xec\x97\xb4\xeb\x8b\xa4"));             // 열다
+		TS_ASSERT(has("\xeb\xa7\x8c\xeb\x93\xa0\xeb\x8b\xa4",               // 만든다
+		              "\xeb\xa7\x8c\xeb\x93\xa4\xeb\x8b\xa4"));             // 만들다
+	}
+
 	// A bare stem typed alone should still reach its citation form.
 	void test_bare_stem_gets_da() {
 		TS_ASSERT(has("\xec\x9d\xbd",                           // 읽

@@ -32,6 +32,7 @@ static const uint32 kSyllableBase = 0xAC00;
 static const uint32 kSyllableCount = 11172;
 static const uint32 kJongCount = 28;
 static const uint32 kJongNieun = 4;      // ㄴ in the jongseong table
+static const uint32 kJongRieul = 8;      // ㄹ in the jongseong table
 
 static bool isSyllable(uint32 c) {
 	return c >= kSyllableBase && c < kSyllableBase + kSyllableCount;
@@ -155,6 +156,13 @@ uint koreanStemCandidates(const char *word, uint len,
 			cand += (uint32)(prev - kJongNieun);
 			cand += da;
 			addCandidate(outCands, n, cand);
+
+			// 연다 -> 열다, 만든다 -> 만들다. A ㄹ-final stem loses its ㄹ
+			// before ㄴ, so the same fused ㄴ can stand for ㄹ as well.
+			Common::U32String rieul(u.c_str(), u.size() - 2);
+			rieul += (uint32)(prev - kJongNieun + kJongRieul);
+			rieul += da;
+			addCandidate(outCands, n, rieul);
 		}
 	}
 
