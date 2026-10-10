@@ -353,6 +353,19 @@ public:
 		TS_ASSERT_EQUALS(firstOf("\xec\xa7\x91\xec\x96\xb4", houseOrPick), Common::String("\xec\xa7\x91\xeb\x8b\xa4"));
 	}
 
+	// Particles stack in one order only - plural, case marker, auxiliary -
+	// so a second strip is tried only in that order. 단도를 is 단도 + 를 and
+	// must never become 단 + 도 (which is a word of its own); the same trap
+	// holds for every noun ending in 도, 는, 은 or 만.
+	void test_a_second_strip_follows_the_particle_order() {
+		TS_ASSERT(has("\xeb\x8b\xa8\xeb\x8f\x84\xeb\xa5\xbc", "\xeb\x8b\xa8\xeb\x8f\x84"));       // 단도를 -> 단도
+		TS_ASSERT(!has("\xeb\x8b\xa8\xeb\x8f\x84\xeb\xa5\xbc", "\xeb\x8b\xa8"));      // ... but not 단
+		TS_ASSERT(!has("\xec\xa7\x80\xeb\x8f\x84\xeb\xa5\xbc", "\xec\xa7\x80"));      // 지도를 -> not 지
+		TS_ASSERT(!has("\xea\xb0\x80\xeb\xa9\xb4\xec\x9d\x84", "\xea\xb0\x80"));      // 가면을 -> not 가
+		TS_ASSERT(has("\xec\x82\xac\xeb\x9e\x8c\xeb\x93\xa4\xec\x9d\x84", "\xec\x82\xac\xeb\x9e\x8c"));       // 사람들을 -> 사람
+		TS_ASSERT(has("\xec\x82\xac\xeb\x9e\x8c\xeb\x93\xa4\xec\x97\x90\xea\xb2\x8c\xeb\x8f\x84", "\xec\x82\xac\xeb\x9e\x8c"));       // 사람들에게도 -> 사람
+	}
+
 	// Auxiliary particles stack on a case marker: 방에서는 -> 방.
 	void test_stacked_particles_are_stripped() {
 		TS_ASSERT(has("\xeb\xb0\xa9\xec\x97\x90\xec\x84\x9c\xeb\x8a\x94", "\xeb\xb0\xa9"));
