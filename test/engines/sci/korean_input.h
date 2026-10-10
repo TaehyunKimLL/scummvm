@@ -877,6 +877,20 @@ public:
 		TS_ASSERT(voc.contains("if (lastIsVerb && !firstIsVerb)"));
 	}
 
+	// 물을 내린다 is one action (flush) that Korean says in two words. The
+	// map holds the joined form, and the parser joins the typed pair before
+	// looking it up - only when the map answers the joined form.
+	void test_adjacent_korean_words_the_map_knows_as_one_are_joined() {
+		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
+		TS_ASSERT(voc.contains("Common::String Vocabulary::joinKoreanPairs(const char *sentence) const"));
+		TS_ASSERT(voc.contains("const Common::String joined = words[i] + words[i + 1];"));
+		TS_ASSERT(voc.contains("if (_koreanVocab.lookup(kword, group, wclass)) {"));
+		// Before the word loop, and only with a map loaded.
+		const int gate = voc.find("if (_koreanVocab.isLoaded()) {\n\t\tjoinedSentence = joinKoreanPairs(sentence);");
+		TS_ASSERT_LESS_THAN(0, gate);
+		TS_ASSERT_LESS_THAN(gate, voc.find("c = sentence[pos_in_sentence++];"));
+	}
+
 	void test_parser_decodes_the_typed_word_by_the_games_encoding() {
 		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
 		// cp949 from the edit control, UTF-8 in a UTF-8 manifest game; the

@@ -715,6 +715,46 @@ void Vocabulary::debugDecipherSaidBlock(const SciSpan<const byte> &data) {
 	} while (nextItem != 0xff && addr != data.cend());
 }
 
+// A Korean action often comes as noun + verb where English has one verb:
+// "물을 내린다" is flush. The map can hold the joined form (물을내리다),
+// and here two adjacent Korean words whose joined form the map answers
+// become one word before the lookup. The joined form is only ever found
+// when the map holds it on purpose, so a pair that reads as two words
+// (가방을 열어: no 가방을열다) is left alone.
+Common::String Vocabulary::joinKoreanPairs(const char *sentence) const {
+	Common::Array<Common::String> words;
+	Common::String cur;
+	for (const char *p = sentence; ; ++p) {
+		if (*p == ' ' || *p == '\0') {
+			if (!cur.empty())
+				words.push_back(cur);
+			cur.clear();
+			if (!*p)
+				break;
+		} else {
+			cur += *p;
+		}
+	}
+	const bool utf8 = g_sci->heapStringsAreUtf8();
+	Common::String out;
+	for (uint i = 0; i < words.size(); ++i) {
+		if (i + 1 < words.size() && (byte)words[i][0] >= 0x80 && (byte)words[i + 1][0] >= 0x80) {
+			const Common::String joined = words[i] + words[i + 1];
+			const Common::U32String kword(joined, utf8 ? Common::kUtf8 : Common::kWindows949);
+			uint16 group = 0, wclass = 0;
+			if (_koreanVocab.lookup(kword, group, wclass)) {
+				debugC(1, kDebugLevelHangul, "[parse] joined '%s' + '%s'", words[i].c_str(), words[i + 1].c_str());
+				words[i] = joined;
+				words.remove_at(i + 1);
+			}
+		}
+		if (!out.empty())
+			out += ' ';
+		out += words[i];
+	}
+	return out;
+}
+
 bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence, char **error) {
 	char currentWord[VOCAB_MAX_WORDLENGTH] = "";
 	int pos_in_sentence = 0;
@@ -723,6 +763,12 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 	bool sawKorean = false;
 
 	*error = nullptr;
+
+	Common::String joinedSentence;
+	if (_koreanVocab.isLoaded()) {
+		joinedSentence = joinKoreanPairs(sentence);
+		sentence = joinedSentence.c_str();
+	}
 
 	do {
 		c = sentence[pos_in_sentence++];
