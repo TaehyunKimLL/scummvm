@@ -269,7 +269,8 @@ public:
 	 *			nodes or if the sentence structure in 'words' is not part of the
 	 *			language described by the grammar passed in 'rules'.
 	 */
-	int parseGNF(const ResultWordListList &words, bool verbose = false);
+	/** @p nodes: the tree to build; the parser's own (_parserNodes) when null. */
+	int parseGNF(const ResultWordListList &words, bool verbose = false, ParseTreeNode *nodes = nullptr);
 
 	/**
 	 * Find and store reference for future pronouns
@@ -469,8 +470,10 @@ public:
 	 * fall back to. Set by tokenizeString().
 	 */
 	Common::Array<ResultWordListList> _koreanArrangements;
-	/** Which of _koreanArrangements is in _parserNodes now. */
-	uint _koreanTreeIndex;
+	/** The fallback arrangement's tree, built by parseGNF() with the
+	 *  primary one; valid when _koreanFallbackValid. */
+	ParseTreeNode _parserNodesFallback[VOCAB_TREE_NODES];
+	bool _koreanFallbackValid;
 };
 
 /**

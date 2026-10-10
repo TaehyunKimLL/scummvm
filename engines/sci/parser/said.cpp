@@ -1003,10 +1003,8 @@ static int augment_parse_nodes(ParseTreeNode *parseT, ParseTreeNode *saidT) {
 /**** Main code ****/
 /*******************/
 
-static int saidOnce(const byte *spec, bool verbose) {
+static int saidOnce(const byte *spec, bool verbose, ParseTreeNode *parse_tree_ptr) {
 	Vocabulary *voc = g_sci->getVocabulary();
-
-	ParseTreeNode *parse_tree_ptr = voc->_parserNodes;
 
 	if (voc->parserIsValid) {
 		if (said_parse_spec(spec))
@@ -1027,141 +1025,15 @@ static int saidOnce(const byte *spec, bool verbose) {
 	return SAID_NO_MATCH;
 }
 
-// Make arrangement @p index of the Korean sentence the parse tree.
-static bool useKoreanArrangement(Vocabulary *voc, uint index) {
-	if (voc->_koreanTreeIndex == index)
-		return true;
-	ResultWordListList words = voc->_koreanArrangements[index];
-	voc->synonymizeTokens(words);
-	if (voc->parseGNF(words))
-		return false;
-	voc->_koreanTreeIndex = index;
-	return true;
-}
-
 int said(const byte *spec, bool verbose) {
 	Vocabulary *voc = g_sci->getVocabulary();
-	if (voc->_koreanArrangements.size() < 2 || !voc->parserIsValid)
-		return saidOnce(spec, verbose);
-
-	// A Korean sentence has fallback arrangements (tokenizeString): the
-	// first is tried as always, and a spec that rejects it gets the
-	// others, so 콩나무에 올라가 is "climb on beanstalk" to one spec and
-	// "climb beanstalk" to the next. The tree stays whatever was tried
-	// last; the next spec starts over from the first arrangement.
-	int res = SAID_NO_MATCH;
-	for (uint i = 0; i < voc->_koreanArrangements.size(); ++i) {
-		if (!useKoreanArrangement(voc, i))
-			continue;
-		res = saidOnce(spec, verbose);
-		if (res != SAID_NO_MATCH)
-			break;
-	}
+	int res = saidOnce(spec, verbose, voc->_parserNodes);
+	// A Korean sentence has a fallback tree (parseGNF): a spec that
+	// rejects "climb on beanstalk" is tried on "climb beanstalk". No
+	// parsing happens here; both trees were built with the sentence.
+	if (res == SAID_NO_MATCH && voc->_koreanFallbackValid)
+		res = saidOnce(spec, verbose, voc->_parserNodesFallback);
 	return res;
 }
-
-
-/*
-
-Some test expressions for in the ScummVM debugging console, using
-Codename: ICEMAN's vocabulary:
-
-
-
-said green board & [!*] / 8af < 1f6
-True
-
-said get green board & [!*] / 8af < 1f6
-False
-
-said green board & [!*] / 8af [< 1f6 ]
-True
-
-said climb up & 19b , 426 [< 142 ] [/ 81e ]
-True
-
-said climb up ladder & 19b , 426 [< 142 ] [/ 81e ]
-True
-
-said climb down & 19b , 426 [< 142 ] [/ 81e ]
-False
-
-said climb up tree & 19b , 426 [< 142 ] [/ 81e ]
-False
-
-said climb up & 19b , 446 , 426 [< 143 ] [/ 81e ]
-False
-
-said climb down & 19b , 446 , 426 [< 143 ] [/ 81e ]
-True
-
-said use green device & 1a5 / 8c1 [< 21d ]
-False
-
-said use electronic device & 1a5 / 8c1 [< 21d ]
-True
-
-said use device & 1a5 / 8c1 [< 21d ]
-True
-
-said eat & 429 [/ !* ]
-True
-
-said eat ladder & 429 [/ !* ]
-False
-
-said look at the ladder & 3f8 / 81e [< !* ]
-True
-
-said look at the green ladder & 3f8 / 81e [< !* ]
-False
-
-said look green book & / 7f6 [< 8d2 ]
-False
-
-said look green book & 3f8 [< ca ]
-True
-
-said get a blue board for the green ladder & 3f9 / 8af [ < 1f6 ] / 81e < 1f6
-False
-
-said get a board for the green ladder & 3f9 / 8af [ < 1f6 ] / 81e < 1f6
-True
-
-said get a blue board & 3f9 / 8af [ < 1f6 ]
-False
-
-said get up  & ( 3f8 , 3f9 ) [ < ( 142 , 143 ) ]
-True
-
-said get left  & ( 3f8 , 3f9 ) [ < ( 142 , 143 ) ]
-False
-
-said look down & ( 3f8 , 3f9 ) [ < ( 142 , 143 ) ]
-True
-
-said get & ( 3f8 , 3f9 ) [ < ( 142 , 143 ) ]
-True
-
-said put washer on shaft & 455 , ( 3fa < cb ) / 8c6
-True
-
-said depth correct & [!*] < 8b1 / 22b
-True
-
-said depth acknowledged & / 46d , 460 , 44d < 8b1
-True
-
-said depth confirmed & / 46d , 460 , 44d < 8b1
-True
-
-said depth attained & / 46d , 460 , 44d < 8b1
-True
-
-
-*/
-
-
-
 
 } // End of namespace Sci

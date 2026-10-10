@@ -34,7 +34,7 @@
 
 namespace Sci {
 
-Vocabulary::Vocabulary(ResourceManager *resMan, bool foreign) : _resMan(resMan), _foreign(foreign), _koreanRole(kKoreanRoleNone), _koreanTreeIndex(0) {
+Vocabulary::Vocabulary(ResourceManager *resMan, bool foreign) : _resMan(resMan), _foreign(foreign), _koreanRole(kKoreanRoleNone), _koreanFallbackValid(false) {
 	_parserRules = nullptr;
 
 	memset(_parserNodes, 0, sizeof(_parserNodes));
@@ -919,7 +919,7 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 	bool sawKorean = false;
 	Common::Array<uint8> roles; // the KoreanRole of each token
 	_koreanArrangements.clear();
-	_koreanTreeIndex = 0;
+	_koreanFallbackValid = false;
 
 	*error = nullptr;
 

@@ -849,9 +849,12 @@ public:
 	// that gained a prepositional phrase has a fallback.
 	void test_said_retries_the_korean_fallback_arrangement() {
 		const Common::String sd = readSource("engines/sci/parser/said.cpp");
-		TS_ASSERT(sd.contains("static int saidOnce(const byte *spec, bool verbose)"));
-		TS_ASSERT(sd.contains("if (voc->_koreanArrangements.size() < 2 || !voc->parserIsValid)\n\t\treturn saidOnce(spec, verbose);"));
-		TS_ASSERT(sd.contains("if (!useKoreanArrangement(voc, i))"));
+		TS_ASSERT(sd.contains("static int saidOnce(const byte *spec, bool verbose, ParseTreeNode *parse_tree_ptr)"));
+		TS_ASSERT(sd.contains("if (res == SAID_NO_MATCH && voc->_koreanFallbackValid)\n\t\tres = saidOnce(spec, verbose, voc->_parserNodesFallback);"));
+		// The fallback tree is built once, with the sentence, never per spec.
+		const Common::String gr = readSource("engines/sci/parser/grammar.cpp");
+		TS_ASSERT(gr.contains("_koreanFallbackValid = parseGNF(fallback, false, _parserNodesFallback) == 0;"));
+		TS_ASSERT(!sd.contains("parseGNF("));
 		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
 		TS_ASSERT(voc.contains("_koreanArrangements.clear();"));
 		TS_ASSERT(voc.contains("if (!phrases.empty()) {\n\t\tif (verb >= 0)\n\t\t\tfallback.push_back(tok[verb]);"));
