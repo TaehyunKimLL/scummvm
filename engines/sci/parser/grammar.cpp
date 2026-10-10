@@ -532,8 +532,13 @@ static int _vbpt_write_subexpression(ParseTreeNode *nodes, int *pos, ParseRule *
 	return rulepos;
 }
 
-int Vocabulary::parseGNF(const ResultWordListList &words, bool verbose) {
+int Vocabulary::parseGNF(const ResultWordListList &words, bool verbose, ParseTreeNode *nodes) {
 	Console *con = g_sci->getSciDebugger();
+	const bool primary = nodes == nullptr;
+	if (primary) {
+		nodes = _parserNodes;
+		_koreanFallbackValid = false;
+	}
 	// Get the start rules:
 	ParseRuleList *work = _vocab_clone_rule_list_by_id(_parserRules, _parserBranches[0].data[1]);
 	ParseRuleList *results = nullptr;
@@ -611,26 +616,35 @@ int Vocabulary::parseGNF(const ResultWordListList &words, bool verbose) {
 	{
 		int temp, pos;
 
-		_parserNodes[0].type = kParseTreeBranchNode;
-		_parserNodes[0].left = &_parserNodes[1];
-		_parserNodes[0].right = &_parserNodes[2];
+		nodes[0].type = kParseTreeBranchNode;
+		nodes[0].left = &nodes[1];
+		nodes[0].right = &nodes[2];
 
-		_parserNodes[1].type = kParseTreeLeafNode;
-		_parserNodes[1].value = 0x141;
-		_parserNodes[1].right = nullptr;
+		nodes[1].type = kParseTreeLeafNode;
+		nodes[1].value = 0x141;
+		nodes[1].right = nullptr;
 
-		_parserNodes[2].type = kParseTreeBranchNode;
-		_parserNodes[2].left = nullptr;
-		_parserNodes[2].right = nullptr;
+		nodes[2].type = kParseTreeBranchNode;
+		nodes[2].left = nullptr;
+		nodes[2].right = nullptr;
 
 		pos = 2;
 
-		temp = _vbpt_append(_parserNodes, &pos, 2, _parserBranches[0].id);
+		temp = _vbpt_append(nodes, &pos, 2, _parserBranches[0].id);
 		//_vbpt_write_subexpression(nodes, &pos, results[_vocab_rule_list_length(results)].rule, 0, temp);
-		_vbpt_write_subexpression(_parserNodes, &pos, results->rule, 0, temp);
+		_vbpt_write_subexpression(nodes, &pos, results->rule, 0, temp);
 	}
 
 	freeRuleList(results);
+
+	// A Korean sentence's fallback arrangement (tokenizeString) is parsed
+	// once, here, into its own tree: said() then matches a spec against
+	// both trees and never parses again.
+	if (primary && _koreanArrangements.size() >= 2) {
+		ResultWordListList fallback = _koreanArrangements[1];
+		synonymizeTokens(fallback);
+		_koreanFallbackValid = parseGNF(fallback, false, _parserNodesFallback) == 0;
+	}
 
 	return 0;
 }
