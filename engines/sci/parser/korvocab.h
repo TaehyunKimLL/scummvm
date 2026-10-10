@@ -75,11 +75,13 @@ public:
 	/**
 	 * Look up one EUC-KR word.
 	 *
-	 * Exact match first, then the stemming rules in korstem.cpp - a typed
-	 * 먹는다 has to reach the stored 먹다. Stemming only ever STRIPS: it
-	 * never manufactures a form and then looks for it, because a generated
-	 * conjugation that is not a real word is a false match waiting to
-	 * happen, and the AGI chain measured that generating lowers accuracy.
+	 * Exact match first, then the readings korstem.cpp gives the word - a
+	 * typed 연다, 열어봐 or 열어주세요 has to reach the stored 열다, and
+	 * 가방을 the stored 가방. Every reading undoes an ending or a sound
+	 * change of the typed word; none is a conjugation generated from a
+	 * stem and then searched for, because the AGI chain measured that
+	 * generating lowers accuracy. The first reading the map holds wins,
+	 * so korstem.cpp orders them by likelihood at a parser prompt.
 	 *
 	 * @param word    EUC-KR bytes, no terminator required
 	 * @param len     length in bytes
