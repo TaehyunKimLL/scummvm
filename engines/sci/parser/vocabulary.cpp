@@ -793,7 +793,9 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 
 	// Korean puts the verb last ("옷을 가져와"), the said() specs expect it
 	// first ("get clothes"): move a trailing verb to the front.
-	const uint16 verbClass = VOCAB_CLASS_IMPERATIVE_VERB << 4;
+	// Either verb class: Laura Bow 1's "use" is an indicative verb only,
+	// and its said() specs take it as the command all the same.
+	const uint16 verbClass = (VOCAB_CLASS_IMPERATIVE_VERB | VOCAB_CLASS_INDICATIVE_VERB) << 4;
 	if (sawKorean && retval.size() > 1) {
 		bool lastIsVerb = false, firstIsVerb = false;
 		for (ResultWordList::const_iterator r = retval.back().begin(); r != retval.back().end(); ++r)
