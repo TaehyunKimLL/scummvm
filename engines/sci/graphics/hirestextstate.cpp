@@ -28,6 +28,7 @@
 #include "common/stream.h"
 #include "common/textconsole.h"
 #include "graphics/hires_text/font_face.h"
+#include "graphics/hires_text/font_map.h"
 #include "graphics/hires_text/glyph_source_file.h"
 #include "graphics/hires_text/id_plan.h"
 #include "graphics/pixelformat.h"
@@ -83,6 +84,25 @@ void HiresTextState::load(bool applies) {
 		} else {
 			_mapPath = Graphics::findDefaultHiResMap(_gameDir);
 			_haveMapPath = !_mapPath.empty();
+			if (!_haveMapPath && g_sci->getLanguage() == Common::KO_KOR) {
+				// A Korean game with no map at all would draw its hangul
+				// with the game's own font, which has none. The shipped
+				// maps stand in: the game's own, else the general one.
+				const Common::String candidates[] = {
+					Common::String::format("hires_text/maps/%s-ko.map", g_sci->getGameIdStr()),
+					"hires_text/maps/korean-default.map"
+				};
+				const Common::Array<Common::Path> roots = Graphics::HiResFontMap::dataRoots();
+				for (uint i = 0; i < ARRAYSIZE(candidates) && !_haveMapPath; ++i) {
+					// Quietly: a DOS build ships neither, and that is not a fault.
+					const Common::Path p = Graphics::HiResFontMap::resolveDataPath(candidates[i], roots);
+					if (!Graphics::HiResFontMap::isDataPath(p.toString('/')) && Common::FSNode(p).exists()) {
+						_mapPath = p;
+						_haveMapPath = true;
+						debug(1, "SCI: hi-res text: no map configured; using the shipped data:%s", candidates[i].c_str());
+					}
+				}
+			}
 		}
 
 		if (_haveMapPath) {
