@@ -3,8 +3,13 @@
 #include "common/fs.h"
 #include "common/scummsys.h"
 #include "common/str.h"
+#include "common/archive.h"
+#include "common/array.h"
 #include "common/stream.h"
 #include "../../system/null_osystem.h"
+
+#include "graphics/hires_text/font_face.h"
+#include "graphics/hires_text/font_map.h"
 
 /**
  * A Korean game folder must be offered as Korean, and must draw Korean.
@@ -60,7 +65,7 @@ public:
 		// about either (a DOS build has neither): the quiet resolver, then
 		// an existence check.
 		TS_ASSERT(st.contains("Graphics::HiResFontMap::resolveDataPath(candidates[i], roots)"));
-		TS_ASSERT(st.contains("!Graphics::HiResFontMap::isDataPath(p.toString('/')) && Common::FSNode(p).exists()"));
+		TS_ASSERT(st.contains("!Graphics::HiResFontMap::isDataPath(p.toString('/')) && Graphics::fontFileExists(p)"));
 		TS_ASSERT(!st.contains("resolvePath(candidates"));
 
 		// The shipped maps exist, and the per-game ones draw Latin with the
@@ -72,6 +77,35 @@ public:
 			TS_ASSERT(exists(rel.c_str()));
 			TS_ASSERT(readSource(rel.c_str()).contains("range.basic-latin=same"));
 		}
+	}
+
+	// On Android the shipped maps and fonts are APK assets, an archive in
+	// the search set rather than a folder, and no data root holds them:
+	// the resolver falls back to the archive and the opener reads from it.
+	void test_shipped_maps_and_fonts_resolve_from_the_search_set() {
+		Common::FSNode data(Common::Path(Common::String(SCI_TEST_SRCDIR) + "/dists/engine-data", '/'));
+		TS_ASSERT(data.isDirectory());
+		SearchMan.addDirectory("korean_detect_data", data, 0, 4);
+
+		const Common::Array<Common::Path> noRoots;
+		const Common::Path map = Graphics::HiResFontMap::resolveDataPath("hires_text/maps/kq1-ko.map", noRoots);
+		TS_ASSERT(!Graphics::HiResFontMap::isDataPath(map.toString('/')));
+		TS_ASSERT(Graphics::fontFileExists(map));
+		Common::SeekableReadStream *stream = Graphics::openDataFile(map);
+		TS_ASSERT(stream != nullptr);
+		delete stream;
+
+		int32 face = -1;
+		Common::String error;
+		stream = Graphics::openFontFace(Common::Path("hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf"), face, error);
+		TS_ASSERT(stream != nullptr);
+		TS_ASSERT_EQUALS(face, 0);
+		delete stream;
+
+		SearchMan.remove("korean_detect_data");
+		// Gone from the search set, the same name is nowhere: back to data:.
+		const Common::Path gone = Graphics::HiResFontMap::resolveDataPath("hires_text/maps/kq1-ko.map", noRoots);
+		TS_ASSERT(Graphics::HiResFontMap::isDataPath(gone.toString('/')));
 	}
 
 private:

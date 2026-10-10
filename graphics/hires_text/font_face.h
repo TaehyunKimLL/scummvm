@@ -62,6 +62,13 @@ bool fontFileExists(const Common::Path &path);
  *    face N (-1 when N is out of range, which the opener must refuse);
  *  - otherwise false, with @p file the path as given and face 0.
  */
+/**
+ * Open a map or font file: from disk when @p path is a file there, else
+ * from the archives ScummVM searches its own data in (the APK's assets on
+ * Android). Null when neither has it.
+ */
+Common::SeekableReadStream *openDataFile(const Common::Path &path);
+
 bool resolveFontFace(const Common::Path &path, Common::Path &file, int32 &faceIndex,
                      FontFileExistsFn exists = fontFileExists);
 
