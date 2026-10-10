@@ -472,10 +472,12 @@ void DebugSocket::poll() {
 	paceInput();
 	if (_ext)
 		_ext->poll();
-	if (busy())
-		return;		// one thing at a time: no new command while waiting
+	// Pending commands run back to back (a harness pipelines hundreds of
+	// `said` checks; one per poll made each cost a frame). A command that
+	// starts a wait ends the batch - one thing at a time - and so does
+	// the bound, so a flood cannot stall the frame.
 	Common::String line;
-	if (readLine(line))
+	for (int n = 0; n < 64 && !busy() && readLine(line); ++n)
 		runCommand(line);
 }
 
