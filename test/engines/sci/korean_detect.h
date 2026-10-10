@@ -63,9 +63,15 @@ public:
 		TS_ASSERT(st.contains("!Graphics::HiResFontMap::isDataPath(p.toString('/')) && Common::FSNode(p).exists()"));
 		TS_ASSERT(!st.contains("resolvePath(candidates"));
 
-		// Both shipped maps exist.
+		// The shipped maps exist, and the per-game ones draw Latin with the
+		// Korean face too, as the DOS packs' baked maps do.
 		TS_ASSERT(exists("dists/engine-data/hires_text/maps/korean-default.map"));
-		TS_ASSERT(exists("dists/engine-data/hires_text/maps/kq1-ko.map"));
+		static const char *const perGame[] = { "kq1", "laurabow", "camelot", nullptr };
+		for (uint i = 0; perGame[i]; ++i) {
+			const Common::String rel = Common::String::format("dists/engine-data/hires_text/maps/%s-ko.map", perGame[i]);
+			TS_ASSERT(exists(rel.c_str()));
+			TS_ASSERT(readSource(rel.c_str()).contains("range.basic-latin=same"));
+		}
 	}
 
 private:
