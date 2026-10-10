@@ -1003,7 +1003,7 @@ static int augment_parse_nodes(ParseTreeNode *parseT, ParseTreeNode *saidT) {
 /**** Main code ****/
 /*******************/
 
-int said(const byte *spec, bool verbose) {
+static int saidOnce(const byte *spec, bool verbose) {
 	Vocabulary *voc = g_sci->getVocabulary();
 
 	ParseTreeNode *parse_tree_ptr = voc->_parserNodes;
@@ -1025,6 +1025,39 @@ int said(const byte *spec, bool verbose) {
 	}
 
 	return SAID_NO_MATCH;
+}
+
+// Make arrangement @p index of the Korean sentence the parse tree.
+static bool useKoreanArrangement(Vocabulary *voc, uint index) {
+	if (voc->_koreanTreeIndex == index)
+		return true;
+	ResultWordListList words = voc->_koreanArrangements[index];
+	voc->synonymizeTokens(words);
+	if (voc->parseGNF(words))
+		return false;
+	voc->_koreanTreeIndex = index;
+	return true;
+}
+
+int said(const byte *spec, bool verbose) {
+	Vocabulary *voc = g_sci->getVocabulary();
+	if (voc->_koreanArrangements.size() < 2 || !voc->parserIsValid)
+		return saidOnce(spec, verbose);
+
+	// A Korean sentence has fallback arrangements (tokenizeString): the
+	// first is tried as always, and a spec that rejects it gets the
+	// others, so 콩나무에 올라가 is "climb on beanstalk" to one spec and
+	// "climb beanstalk" to the next. The tree stays whatever was tried
+	// last; the next spec starts over from the first arrangement.
+	int res = SAID_NO_MATCH;
+	for (uint i = 0; i < voc->_koreanArrangements.size(); ++i) {
+		if (!useKoreanArrangement(voc, i))
+			continue;
+		res = saidOnce(spec, verbose);
+		if (res != SAID_NO_MATCH)
+			break;
+	}
+	return res;
 }
 
 

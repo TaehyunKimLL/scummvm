@@ -125,10 +125,9 @@ void KoreanVocabulary::unload() {
 	_blob = nullptr;
 }
 
-bool KoreanVocabulary::find(const uint16 *word, uint len,
-                            uint16 &group, uint16 &wclass) const {
+int KoreanVocabulary::findIndex(const uint16 *word, uint len) const {
 	if (!_data || !len)
-		return false;
+		return -1;
 
 	int lo = 0;
 	int hi = (int)_count - 1;
@@ -154,48 +153,88 @@ bool KoreanVocabulary::find(const uint16 *word, uint len,
 		if (cmp == 0 && len != elen)
 			cmp = (len < elen) ? -1 : 1;
 
-		if (cmp == 0) {
-			group = READ_LE_UINT16(e + 4);
-			wclass = READ_LE_UINT16(e + 6);
-			return true;
-		}
+		if (cmp == 0)
+			return mid;
 		if (cmp > 0)
 			lo = mid + 1;
 		else
 			hi = mid - 1;
 	}
-	return false;
+	return -1;
+}
+
+bool KoreanVocabulary::sameWord(uint32 a, uint32 b) const {
+	const byte *ea = _entries + a * kEntrySize;
+	const byte *eb = _entries + b * kEntrySize;
+	const uint16 la = READ_LE_UINT16(ea + 2);
+	if (la != READ_LE_UINT16(eb + 2))
+		return false;
+	const byte *wa = _blob + (uint32)READ_LE_UINT16(ea) * 2;
+	const byte *wb = _blob + (uint32)READ_LE_UINT16(eb) * 2;
+	return memcmp(wa, wb, (uint32)la * 2) == 0;
+}
+
+uint KoreanVocabulary::collect(int index, uint16 *groups, uint16 *classes, uint max) const {
+	if (index < 0)
+		return 0;
+	// k6bake.py sorts by word only, so a word's entries sit together.
+	uint32 first = (uint32)index;
+	while (first > 0 && sameWord(first - 1, first))
+		--first;
+	uint n = 0;
+	for (uint32 i = first; i < _count && n < max && (i == first || sameWord(first, i)); ++i) {
+		const byte *e = _entries + i * kEntrySize;
+		groups[n] = READ_LE_UINT16(e + 4);
+		classes[n] = READ_LE_UINT16(e + 6);
+		++n;
+	}
+	return n;
+}
+
+bool KoreanVocabulary::find(const uint16 *word, uint len,
+                            uint16 &group, uint16 &wclass) const {
+	return collect(findIndex(word, len), &group, &wclass, 1) == 1;
 }
 
 bool KoreanVocabulary::lookup(const Common::U32String &word,
                               uint16 &group, uint16 &wclass) const {
-	if (!_data || word.empty() || word.size() > KoreanStems::kMaxLen)
-		return false;
+	uint8 role;
+	return lookupAll(word, &group, &wclass, 1, role) == 1;
+}
+
+uint KoreanVocabulary::lookupAll(const Common::U32String &word, uint16 *groups,
+                                 uint16 *classes, uint max, uint8 &role) const {
+	role = kKoreanRoleNone;
+	if (!_data || word.empty() || word.size() > KoreanStems::kMaxLen || !max)
+		return 0;
 
 	uint16 typed[KoreanStems::kMaxLen];
 	for (uint i = 0; i < word.size(); ++i) {
 		if (word[i] > 0xFFFF)
-			return false;
+			return 0;
 		typed[i] = (uint16)word[i];
 	}
-	if (find(typed, word.size(), group, wclass)) {
-		debugC(2, kDebugLevelHangul, "[korvocab] exact -> group %u class %u",
-		       group, wclass);
-		return true;
+	uint n = collect(findIndex(typed, word.size()), groups, classes, max);
+	if (n) {
+		debugC(2, kDebugLevelHangul, "[korvocab] exact -> %u pair(s), group %u class %u",
+		       n, groups[0], classes[0]);
+		return n;
 	}
 
 	// The readings of the word, best first: 연다 is stored as 열다, 가방을
 	// as 가방. The first one the table holds wins.
 	KoreanStems stems;
-	const uint n = koreanStemCandidates(word, stems);
-	for (uint i = 0; i < n; ++i) {
-		if (find(stems.cp[i], stems.len[i], group, wclass)) {
+	const uint count = koreanStemCandidates(word, stems);
+	for (uint i = 0; i < count; ++i) {
+		n = collect(findIndex(stems.cp[i], stems.len[i]), groups, classes, max);
+		if (n) {
+			role = stems.role[i];
 			debugC(2, kDebugLevelHangul,
-			       "[korvocab] stem -> group %u class %u", group, wclass);
-			return true;
+			       "[korvocab] stem -> %u pair(s), group %u class %u, role %u", n, groups[0], classes[0], role);
+			return n;
 		}
 	}
-	return false;
+	return 0;
 }
 
 } // End of namespace Sci

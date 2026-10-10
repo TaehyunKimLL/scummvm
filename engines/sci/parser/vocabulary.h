@@ -25,10 +25,12 @@
 #include "common/str.h"
 #include "common/hashmap.h"
 #include "common/hash-str.h"
+#include "common/array.h"
 #include "common/list.h"
 
 #include "sci/sci.h"
 #include "sci/engine/vm_types.h"
+#include "sci/parser/korstem.h"
 #include "sci/parser/korvocab.h"
 #include "sci/util.h"
 
@@ -420,6 +422,27 @@ private:
 
 	/** Two adjacent Korean words the map knows as one (물을 내린다) become one. */
 	Common::String joinKoreanPairs(const char *sentence) const;
+
+	/** Korean-only: every (group, class) pair a word can carry. */
+	enum { kMaxKoreanMeanings = 8 };
+	/** The KoreanRole of the last Korean word lookupWord() resolved. */
+	uint8 _koreanRole;
+
+	/**
+	 * The English preposition(s) a KoreanRole stands for, as the game's
+	 * own vocabulary entries: every alternative the said() tree may take
+	 * (에 is in, on, at or into). Empty when the game has none of them.
+	 */
+	void koreanPreposition(uint8 role, ResultWordList &out) const;
+
+	/**
+	 * Put a Korean sentence's tokens in the order the English said()
+	 * specs were written for: the verb first, then the plain objects,
+	 * then each noun that carried a case particle (에게, 에, 에서, 로) or
+	 * was followed by a postposition (안, 위, 대해) as an English
+	 * prepositional phrase. 나무꾼에게 그릇을 줘 -> give bowl to woodcutter.
+	 */
+	void arrangeKorean(ResultWordListList &words, const Common::Array<uint8> &roles, ResultWordListList &fallback) const;
 	SynonymList _synonyms; /**< The list of synonyms */
 	Common::Array<Common::List<AltInput> > _altInputs;
 
@@ -437,6 +460,17 @@ public:
 	// Parser data:
 	reg_t parser_event; /**< The event passed to Parse() and later used by Said() */
 	bool parserIsValid; /**< If something has been correctly parsed */
+
+	/**
+	 * A Korean sentence's token arrangements, [0] the one parsed into
+	 * _parserNodes and the rest fallbacks for said(): 콩나무에 올라가 is
+	 * first "climb on beanstalk" and, when a spec rejects that, "climb
+	 * beanstalk". Empty for an English sentence or one with nothing to
+	 * fall back to. Set by tokenizeString().
+	 */
+	Common::Array<ResultWordListList> _koreanArrangements;
+	/** Which of _koreanArrangements is in _parserNodes now. */
+	uint _koreanTreeIndex;
 };
 
 /**

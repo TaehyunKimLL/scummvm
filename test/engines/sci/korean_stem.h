@@ -91,6 +91,17 @@ class KoreanStemTestSuite : public CxxTest::TestSuite {
 		return stems(typedUtf8, out);
 	}
 
+	// The KoreanRole of the reading that is this stem; 0xFF when the
+	// stem is not among the readings.
+	static uint8 roleOf(const char *typedUtf8, const char *stemUtf8) {
+		Sci::KoreanStems out;
+		uint n = stems(typedUtf8, out);
+		for (uint i = 0; i < n; ++i)
+			if (out.get(i) == toU32(stemUtf8))
+				return out.role[i];
+		return 0xFF;
+	}
+
 public:
 	void setUp() {
 #if NULL_OSYSTEM_IS_AVAILABLE
@@ -458,5 +469,31 @@ private:
 		delete[] buf;
 		delete in;
 		return out;
+	}
+
+public:
+	// The case particle a reading lost is reported, so the parser can put
+	// the noun into an English prepositional phrase: 나무꾼에게 그릇을 줘 is
+	// "give bowl to woodcutter". A plain object or subject marker places
+	// nothing; the role survives an auxiliary particle outside it and a
+	// plural inside it.
+	void test_case_particle_roles() {
+		TS_ASSERT_EQUALS(roleOf("나무꾼에게", "나무꾼"), (uint8)Sci::kKoreanRoleTo);
+		TS_ASSERT_EQUALS(roleOf("나무꾼에게는", "나무꾼"), (uint8)Sci::kKoreanRoleTo);
+		TS_ASSERT_EQUALS(roleOf("왕한테", "왕"), (uint8)Sci::kKoreanRoleTo);
+		TS_ASSERT_EQUALS(roleOf("왕께", "왕"), (uint8)Sci::kKoreanRoleTo);
+		TS_ASSERT_EQUALS(roleOf("친구들에게", "친구"), (uint8)Sci::kKoreanRoleTo);
+		TS_ASSERT_EQUALS(roleOf("오븐에", "오븐"), (uint8)Sci::kKoreanRoleAt);
+		TS_ASSERT_EQUALS(roleOf("상자에서", "상자"), (uint8)Sci::kKoreanRoleFrom);
+		TS_ASSERT_EQUALS(roleOf("칼로", "칼"), (uint8)Sci::kKoreanRoleWith);
+		TS_ASSERT_EQUALS(roleOf("열쇠로", "열쇠"), (uint8)Sci::kKoreanRoleWith);
+		TS_ASSERT_EQUALS(roleOf("왕과", "왕"), (uint8)Sci::kKoreanRoleWith);
+		TS_ASSERT_EQUALS(roleOf("그릇을", "그릇"), (uint8)Sci::kKoreanRoleObject);
+		TS_ASSERT_EQUALS(roleOf("왕이", "왕"), (uint8)Sci::kKoreanRoleObject);
+		TS_ASSERT_EQUALS(roleOf("왕은", "왕"), (uint8)Sci::kKoreanRoleObject);
+		TS_ASSERT_EQUALS(roleOf("왕의", "왕"), (uint8)Sci::kKoreanRoleOf);
+		TS_ASSERT_EQUALS(roleOf("왕도", "왕"), (uint8)Sci::kKoreanRoleNone);
+		// A verb form has no particle.
+		TS_ASSERT_EQUALS(roleOf("열어", "열다"), (uint8)Sci::kKoreanRoleNone);
 	}
 };

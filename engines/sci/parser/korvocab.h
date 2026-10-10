@@ -93,9 +93,26 @@ public:
 	 */
 	bool lookup(const Common::U32String &word, uint16 &group, uint16 &wclass) const;
 
+	/**
+	 * Every (group, class) pair the table holds for the word, or else
+	 * for its best reading - several when the Korean word stands for an
+	 * English word that is in several groups (KQ1's "get" is in two) or
+	 * is a homonym (요정: elf, fairy), exactly as _parserWords holds
+	 * several pairs for such an English word. @p role receives the
+	 * KoreanRole of the reading that answered (which case particle it
+	 * lost). Returns how many pairs were written, at most @p max.
+	 */
+	uint lookupAll(const Common::U32String &word, uint16 *groups, uint16 *classes, uint max, uint8 &role) const;
+
 private:
 	/** Exact bsearch over the blob, sorted by code unit. */
 	bool find(const uint16 *word, uint len, uint16 &group, uint16 &wclass) const;
+	/** Index of an entry for the word, or -1. */
+	int findIndex(const uint16 *word, uint len) const;
+	/** All entries with the same word as entry @p index (they are adjacent
+	 *  in the sorted table). */
+	uint collect(int index, uint16 *groups, uint16 *classes, uint max) const;
+	bool sameWord(uint32 a, uint32 b) const;
 
 	byte *_data;
 	uint32 _size;

@@ -32,11 +32,30 @@ namespace Sci {
  * enough to live on the stack of a parser lookup on DOS. Hangul syllables
  * are BMP code points, so 16 bits hold each one.
  */
+/**
+ * What the case particle a reading lost says about the noun's place in
+ * the sentence. The said() specs are English, so Vocabulary turns the
+ * role into an English preposition in front of the noun: 나무꾼에게 그릇을
+ * 줘 becomes "give bowl to woodcutter", which is the order the specs
+ * were written for.
+ */
+enum KoreanRole {
+	kKoreanRoleNone = 0, ///< no particle (a bare noun before another noun modifies it: 나무 구멍 is "tree hole"), or 도, 만
+	kKoreanRoleObject,   ///< 을/를, 이/가, 은/는: the plain object (or subject) of the verb
+	kKoreanRoleOf,       ///< 의: modifies the noun after it (나무의 구멍)
+	kKoreanRoleTo,       ///< 에게, 한테, 께: to
+	kKoreanRoleAt,       ///< 에: in, on, at, into
+	kKoreanRoleFrom,     ///< 에서, 에게서, 한테서: from, in
+	kKoreanRoleWith      ///< (으)로, 와/과, 하고, (이)랑: with, into, to
+};
+
 struct KoreanStems {
 	enum { kMaxCount = 48, kMaxLen = 16 };
 
 	uint16 cp[kMaxCount][kMaxLen];
 	uint8 len[kMaxCount];
+	/** The KoreanRole of each reading: which case particle it lost. */
+	uint8 role[kMaxCount];
 	uint count;
 
 	KoreanStems() : count(0) {}
