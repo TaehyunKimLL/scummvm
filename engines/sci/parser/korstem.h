@@ -46,9 +46,11 @@ enum { kMaxKoreanStems = 48 };
  * Every candidate is a reading of the typed word, never a form made up
  * and then searched for: a candidate only matters when it hits an entry
  * that already exists. The order is the preference when several do:
- * explicit endings first, regular stems before irregular readings, and
- * particle strips last so a verb form never loses to a particle that
- * looks like its ending.
+ * explicit endings first; after a separate 어/아 the ㄷ and ㅅ irregular
+ * readings before the regular stem (걸어 is walk before hang, 지어 build
+ * before lose) and elsewhere the regular stem first; particle strips
+ * last so a verb form never loses to a particle that looks like its
+ * ending.
  *
  * @param word        EUC-KR bytes as typed
  * @param len         length in bytes

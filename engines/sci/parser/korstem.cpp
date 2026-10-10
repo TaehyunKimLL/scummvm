@@ -33,7 +33,7 @@ static const uint32 kSyllableCount = 11172;
 static const uint32 kJungCount = 21;
 static const uint32 kJongCount = 28;
 
-enum Cho { kChoRieul = 5, kChoIeung = 11, kChoHieut = 18 };
+enum Cho { kChoRieul = 5, kChoIeung = 11, kChoPieup = 17, kChoHieut = 18 };
 enum Jung {
 	kJungA = 0, kJungAe = 1, kJungYae = 3, kJungEo = 4, kJungE = 5, kJungYeo = 6, kJungYe = 7, kJungO = 8,
 	kJungWa = 9, kJungWae = 10, kJungOe = 11, kJungU = 13, kJungWo = 14, kJungEu = 18,
@@ -98,6 +98,9 @@ enum StemFlags {
 	// leaves 합, ㄴ다 leaves 간.
 	kStemJongBieup = 1 << 4,
 	kStemJongNieun = 1 << 5,
+	// ㄹ까, ㄹ래: the ㄹ is the ending's after a vowel stem (볼까 is 보다)
+	// and the stem's own after a ㄹ stem (열까 is 열다), so both are read.
+	kStemJongRieul = 1 << 8,
 	// 여, 여요, 여라, 여서: an ㅣ stem's 어 (붙여 is 붙이 + 어) or 하's own
 	// 여 (하여). Never a bare consonant stem's.
 	kStemYeo = 1 << 6,
@@ -113,9 +116,9 @@ struct Ending {
 };
 
 // The endings a player types after a verb at a parser prompt: plain and
-// polite statements, requests, imperatives, and the 고/서 that join two
-// commands. Questions, modifiers and nominal endings are left out on
-// purpose: 집을, 안은, 사도 and 하나 would otherwise read as 집다, 안다, 사다
+// polite statements, requests (열어줄래, 열어볼까), imperatives, and the
+// 고/서 that join two commands. Other questions, modifiers and nominal
+// endings are left out on purpose: 집을, 안은, 사도 and 하나 would otherwise read as 집다, 안다, 사다
 // and 하다 before the particle strip gets its turn, and a wrong verb is
 // worse than a missing one. Longest first within a shared tail, so 어라
 // is removed before 라 would be; the loop relies on the table order.
@@ -144,6 +147,10 @@ static const Ending kEndings[] = {
 	{ "\xea\xb1\xb0\xeb\x9d\xbc", kStemPlain },                                    // 거라
 	{ "\xeb\x84\x88\xeb\x9d\xbc", kStemPlain },                                    // 너라
 	{ "\xeb\x8a\x94\xeb\x8b\xa4", kStemPlain },                                    // 는다
+	{ "\xec\x9d\x84\xea\xb9\x8c", kStemPlain },                                    // 을까
+	{ "\xec\x9d\x84\xeb\x9e\x98", kStemPlain },                                    // 을래
+	{ "\xea\xb9\x8c", kStemJongRieul },                                            // ㄹ까
+	{ "\xeb\x9e\x98", kStemJongRieul },                                            // ㄹ래
 	{ "\xeb\x8b\xa4", kStemJongNieun },                                            // 다, ㄴ다
 	{ "\xec\x96\xb4", kStemExplicitVowel },                                        // 어
 	{ "\xec\x95\x84", kStemExplicitVowel },                                        // 아
@@ -397,6 +404,9 @@ static void addStem(Collector &c, const U32 &s, uint flags) {
 			break;
 		// ㅡ elision: 써 -> 쓰다, 잠가 -> 잠그다, 따라 -> 따르다.
 		c.addLemma(withLast(s, compose(ch, kJungEu, kJongNone)));
+		// 퍼 -> 푸다, the one ㅜ irregular.
+		if (jung(L) == kJungEo && ch == kChoPieup)
+			c.addLemma(withLast(s, compose(ch, kJungU, kJongNone)));
 		// 르 irregular: 불러 -> 부르다, 골라 -> 고르다.
 		if (ch == kChoRieul && hasPrev && jong(P) == kJongRieul) {
 			U32 r = head(s, 2);
@@ -470,6 +480,14 @@ static void processStem(Collector &c, U32 r, uint flags) {
 			return;
 		r = withLast(r, last(r) - kJongBieup);
 		flags = kStemRieul;
+	}
+	if (flags & kStemJongRieul) {
+		if (jong(last(r)) != kJongRieul)
+			return;
+		// 열까 keeps its ㄹ; 볼까 and 열어줄래 lose the ending's.
+		processStem(c, r, kStemPlain);
+		r = withLast(r, last(r) - kJongRieul);
+		flags = kStemPlain;
 	}
 	if (flags & kStemJongNieun) {
 		flags = kStemPlain;
@@ -605,7 +623,7 @@ static bool particleFits(const U32 &stem, ParticleAfter after) {
 static void stripParticles(Collector &c, const U32 &w, int rounds) {
 	for (uint p = 0; kParticles[p].text; ++p) {
 		U32 stem;
-		if (!endsWithUtf8(w, kParticles[p].text, stem) || stem.empty())
+		if (!endsWithUtf8(w, kParticles[p].text, stem))
 			continue;
 		if (!particleFits(stem, kParticles[p].after))
 			continue;
@@ -639,7 +657,8 @@ uint koreanStemCandidates(const char *word, uint len,
 		deinflect(c, h);
 
 	// Tried last so a verb form never loses to a particle that happens to
-	// look like its ending.
+	// look like its ending; what keeps a noun from losing to a verb is the
+	// ending table above, which holds none of the particle shapes.
 	stripParticles(c, u, 2);
 
 	return c.count();
