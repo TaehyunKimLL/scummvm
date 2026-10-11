@@ -36,6 +36,7 @@
 #include "graphics/hires_text/glyph_source_svfn.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
 #include "graphics/hires_text/latin_advance.h"
+#include "graphics/hires_text/map_pick.h"
 #include "graphics/hires_text/text_compose.h"
 #include "graphics/hires_text/text_layout.h"
 #include "graphics/hires_text/unicode_props.h"
@@ -2624,7 +2625,24 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 	Common::Path mapPath;
 	bool haveMapPath = false;
 	if (_ini.enabled) {
-		if (_ini.mapSet) {
+		// A font kind chosen for the game (hires_text_font), or no
+		// hires_text_map: the game folder's map of the first kind whose
+		// faces are all there (Graphics::pickHiResMap()), else HIRESTXT.MAP.
+		if (Graphics::hiResFontPicksMap(_ini)) {
+			Common::Array<Common::String> notes;
+			Graphics::HiResFontKind kind;
+			haveMapPath = Graphics::pickHiResMap(_ini, gameDir, qualifiers, Graphics::kHiResKeysScumm, mapPath, kind, notes);
+			const bool chosen = _ini.fontSet && _ini.font != Graphics::kHiResFontAuto;
+			for (uint i = 0; i < notes.size(); ++i) {
+				if (chosen)
+					warning("SCUMM: hi-res text: %s", notes[i].c_str());
+				else
+					debug(1, "SCUMM: hi-res text: %s", notes[i].c_str());
+			}
+		}
+		if (haveMapPath) {
+			// picked above
+		} else if (_ini.mapSet && !Graphics::hiResFontPicksMap(_ini)) {
 			if (!_ini.map.empty()) {
 				mapPath = Graphics::HiResFontMap::resolvePath(_ini.map, gameDir);
 				haveMapPath = true;

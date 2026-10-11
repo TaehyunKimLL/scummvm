@@ -20,6 +20,7 @@
  */
 
 #include "graphics/hires_text/hires_options.h"
+#include "graphics/hires_text/font_map.h"
 
 #include "common/config-manager.h"
 #include "common/fs.h"
@@ -338,6 +339,7 @@ int clampScale(int requested, int engineMin, int engineMax, const HiResScaleLimi
 HiResIniOverrides::HiResIniOverrides() :
 		enabled(true),
 		mapSet(false),
+		fontSet(false), font(kHiResFontAuto),
 		faceSet(false),
 		sizeSet(false), size(0),
 		scaleSet(false), scale(0),
@@ -345,6 +347,19 @@ HiResIniOverrides::HiResIniOverrides() :
 		advanceSet(false), advance(kHiResAdvanceEngine),
 		targetSet(false), target(kHiResTargetAuto),
 		log(false) {
+	for (int i = 0; i < kHiResFontKinds; ++i)
+		kindMapSet[i] = false;
+}
+
+static bool parseFontKind(const Common::String &value, HiResFontKind &kind) {
+	static const HiResFontKind kAll[] = { kHiResFontAuto, kHiResFontTtf, kHiResFontSvf, kHiResFontBitmap };
+	for (uint i = 0; i < ARRAYSIZE(kAll); ++i) {
+		if (value.equalsIgnoreCase(hiResFontKindName(kAll[i]))) {
+			kind = kAll[i];
+			return true;
+		}
+	}
+	return false;
 }
 
 HiResIniOverrides readHiResIni(HiResIniGetFn get, void *ctx, Common::Array<Common::String> &warnings) {
@@ -362,6 +377,27 @@ HiResIniOverrides readHiResIni(HiResIniGetFn get, void *ctx, Common::Array<Commo
 	if (get("hires_text_map", false, value, ctx)) {
 		out.mapSet = true;
 		out.map = value;
+	}
+
+	if (get("hires_text_font", false, value, ctx)) {
+		HiResFontKind k;
+		if (parseFontKind(value, k)) {
+			out.fontSet = true;
+			out.font = k;
+		} else {
+			addInvalidWarning(warnings, "hires_text_font", value, "auto, ttf, svf or bitmap");
+		}
+	}
+
+	for (int k = kHiResFontTtf; k <= kHiResFontBitmap; ++k) {
+		if (get(hiResFontKindMapKey((HiResFontKind)k), false, value, ctx)) {
+			if (value.empty()) {
+				addInvalidWarning(warnings, hiResFontKindMapKey((HiResFontKind)k), value, "a file name");
+			} else {
+				out.kindMapSet[k - 1] = true;
+				out.kindMap[k - 1] = value;
+			}
+		}
 	}
 
 	if (get("hires_text_face", false, value, ctx)) {
@@ -496,15 +532,114 @@ bool hiResTextEnabled(const Common::String &domain) {
 	return Common::parseBool(value, on) ? on : true;
 }
 
+const char *hiResFontKindName(HiResFontKind kind) {
+	switch (kind) {
+	case kHiResFontTtf:
+		return "ttf";
+	case kHiResFontSvf:
+		return "svf";
+	case kHiResFontBitmap:
+		return "bitmap";
+	default:
+		return "auto";
+	}
+}
+
+const char *hiResFontKindMapKey(HiResFontKind kind) {
+	switch (kind) {
+	case kHiResFontTtf:
+		return "hires_text_map_ttf";
+	case kHiResFontSvf:
+		return "hires_text_map_svf";
+	case kHiResFontBitmap:
+		return "hires_text_map_bitmap";
+	default:
+		return "hires_text_map";
+	}
+}
+
+const char *hiResFontKindDefaultMap(HiResFontKind kind) {
+	switch (kind) {
+	case kHiResFontTtf:
+		return "HIRESTTF.MAP";
+	case kHiResFontSvf:
+		return "HIRESVF.MAP";
+	case kHiResFontBitmap:
+		return "HIRESBIT.MAP";
+	default:
+		return "HIRESTXT.MAP";
+	}
+}
+
+bool hiResFontKindBuilt(HiResFontKind kind) {
+#ifdef USE_FREETYPE2
+	return kind != kHiResFontAuto;
+#else
+	return kind == kHiResFontSvf || kind == kHiResFontBitmap;
+#endif
+}
+
+Common::Array<HiResFontKind> hiResFontOrder(HiResFontKind preferred) {
+	static const HiResFontKind kOrder[] = { kHiResFontTtf, kHiResFontSvf, kHiResFontBitmap };
+	Common::Array<HiResFontKind> order;
+	if (preferred != kHiResFontAuto && hiResFontKindBuilt(preferred))
+		order.push_back(preferred);
+	for (uint i = 0; i < ARRAYSIZE(kOrder); ++i) {
+		if (kOrder[i] != preferred && hiResFontKindBuilt(kOrder[i]))
+			order.push_back(kOrder[i]);
+	}
+	return order;
+}
+
+bool hiResFontPicksMap(const HiResIniOverrides &ini) {
+	return (ini.fontSet && ini.font != kHiResFontAuto) || !ini.mapSet;
+}
+
+Common::Path findGameMapFile(const Common::Path &gameDir, const Common::String &name) {
+	if (name.empty())
+		return Common::Path();
+	if (!HiResFontMap::isDataPath(name) && !name.contains('/') && !name.contains('\\')) {
+		if (gameDir.empty())
+			return Common::Path();
+		const Common::Path direct = gameDir.appendComponent(name);
+		if (Common::FSNode(direct).exists())
+			return direct;
+		Common::FSNode dir(gameDir);
+		Common::FSList children;
+		if (dir.isDirectory() && dir.getChildren(children, Common::FSNode::kListFilesOnly)) {
+			for (uint i = 0; i < children.size(); ++i) {
+				if (children[i].getName().equalsIgnoreCase(name))
+					return children[i].getPath();
+			}
+		}
+		return Common::Path();
+	}
+	const Common::Path path = HiResFontMap::resolvePath(name, gameDir);
+	if (HiResFontMap::isDataPath(path.toString('/')) || !Common::FSNode(path).exists())
+		return Common::Path();
+	return path;
+}
+
 bool hiResTextNamed(const Common::String &domain) {
 	Common::String value;
 	if (confManGameValue("hires_text_face", domain, value))
 		return true;
-	if (confManGameValue("hires_text_map", domain, value))
+	HiResFontKind font = kHiResFontAuto;
+	const bool fontChosen = confManGameValue("hires_text_font", domain, value) &&
+		parseFontKind(value, font) && font != kHiResFontAuto;
+	if (!fontChosen && confManGameValue("hires_text_map", domain, value))
 		return !value.empty();
 	if (!confManGameValue("path", domain, value))
 		return false;
-	return !findDefaultHiResMap(Common::Path::fromConfig(value)).empty();
+	const Common::Path gameDir = Common::Path::fromConfig(value);
+	const Common::Array<HiResFontKind> order = hiResFontOrder(font);
+	for (uint i = 0; i < order.size(); ++i) {
+		Common::String name = hiResFontKindDefaultMap(order[i]);
+		confManGameValue(hiResFontKindMapKey(order[i]), domain, name);
+		if (!findGameMapFile(gameDir, name).empty())
+			return true;
+	}
+	return !findDefaultHiResMap(gameDir).empty();
 }
 
 bool hiResTextConfigured(const Common::String &domain) {

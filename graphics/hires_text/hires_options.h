@@ -203,12 +203,31 @@ int clampScale(int requested, int engineMin, int engineMax, const HiResScaleLimi
  * companion says whether the ini set it at all - an unset field keeps
  * whatever the map/engine default supplies.
  */
+/**
+ * `hires_text_font`: which of a game folder's three maps is used. A Korean
+ * game pack carries one map per kind of face; this picks the kind, and
+ * `hires_text_map_ttf` / `_svf` / `_bitmap` rename the file of a kind.
+ */
+enum HiResFontKind {
+	kHiResFontAuto = 0, ///< this build's order (hiResFontOrder())
+	kHiResFontTtf,      ///< HIRESTTF.MAP: TrueType faces, FreeType builds only
+	kHiResFontSvf,      ///< HIRESVF.MAP: anti-aliased (2 bpp) SVF faces
+	kHiResFontBitmap    ///< HIRESBIT.MAP: 1 bpp faces
+};
+
+/** The number of kinds besides auto; kind k's per-kind fields are at k - 1. */
+static const int kHiResFontKinds = 3;
+
 struct HiResIniOverrides {
 	HiResIniOverrides();
 
 	bool enabled;              ///< hires_text (default true)
 	bool mapSet;
 	Common::String map;        ///< hires_text_map (empty value allowed: "no map")
+	bool fontSet;
+	HiResFontKind font;        ///< hires_text_font
+	bool kindMapSet[kHiResFontKinds];
+	Common::String kindMap[kHiResFontKinds]; ///< hires_text_map_ttf/_svf/_bitmap
 	bool faceSet;
 	Common::String face;       ///< hires_text_face, unparsed (names need the map)
 	bool sizeSet;
@@ -268,6 +287,41 @@ bool confManGameBool(const char *key, const Common::String &domain, bool fallbac
  */
 Common::Path findDefaultHiResMap(const Common::Path &gameDir);
 
+/** `ttf`, `svf`, `bitmap` (`auto` for kHiResFontAuto): the hires_text_font values. */
+const char *hiResFontKindName(HiResFontKind kind);
+
+/** `hires_text_map_ttf` ...: the ini key that renames @p kind's map (not auto). */
+const char *hiResFontKindMapKey(HiResFontKind kind);
+
+/** `HIRESTTF.MAP`, `HIRESVF.MAP`, `HIRESBIT.MAP`: @p kind's map file by default. */
+const char *hiResFontKindDefaultMap(HiResFontKind kind);
+
+/** false for kHiResFontTtf in a build without FreeType: its faces cannot be drawn. */
+bool hiResFontKindBuilt(HiResFontKind kind);
+
+/**
+ * The kinds tried, in order: @p preferred first (unless auto), then this
+ * build's preference - TrueType, SVF, bitmap - leaving out a kind the build
+ * cannot draw (hiResFontKindBuilt()).
+ */
+Common::Array<HiResFontKind> hiResFontOrder(HiResFontKind preferred);
+
+/**
+ * Whether the font kind picks the map (pickHiResMap()) rather than the
+ * plain `hires_text_map`: `hires_text_font` is set to a kind - a choice made
+ * for this game wins over a map named in its section - or there is no
+ * `hires_text_map` at all.
+ */
+bool hiResFontPicksMap(const HiResIniOverrides &ini);
+
+/**
+ * @p name in @p gameDir: a bare file name is matched case-insensitively
+ * (as HIRESTXT.MAP is), a relative path is the game folder's, and a `data:`
+ * or absolute path is resolved as HiResFontMap::resolvePath() does. Empty
+ * when no such file exists.
+ */
+Common::Path findGameMapFile(const Common::Path &gameDir, const Common::String &name);
+
 /**
  * Whether `hires_text` is on for @p domain (design section 11): the game
  * domain's value, else `[scummvm]`'s, else true. An invalid value counts as
@@ -277,8 +331,9 @@ bool hiResTextEnabled(const Common::String &domain);
 
 /**
  * Whether @p domain names hi-res text, whatever `hires_text` says:
- * `hires_text_map` is set non-empty, or `hires_text_face` is set, or (with
- * no `hires_text_map` at all) the game folder (`path`) holds HIRESTXT.MAP.
+ * `hires_text_map` is set non-empty, or `hires_text_face` is set, or (when
+ * the font kind picks the map) the game folder (`path`) holds one of the
+ * kinds' maps or HIRESTXT.MAP.
  * An empty `hires_text_map` means "no map", as the engines read it.
  */
 bool hiResTextNamed(const Common::String &domain);
