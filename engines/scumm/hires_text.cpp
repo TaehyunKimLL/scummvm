@@ -2242,13 +2242,12 @@ bool ScummHiResText::loadFonts(const Common::Path &gameDir) {
 					continue;
 				attempted[paths[i]] = true;
 
-				Common::FSNode node(Common::Path(paths[i], '/'));
-				if (!node.exists()) {
-					warning("SCUMM: cannot open hi-res font '%s'", paths[i].c_str());
-					_failedFaces[paths[i]] = true;
-					continue;
-				}
-				Common::SeekableReadStream *stream = node.createReadStream();
+				// openFontFace(), as openPlanFace() opens it: a data: face can be
+				// a member of an archive rather than a file (fonts-cjk.dat's Noto
+				// Sans KR, the APK's assets), which an FSNode does not see.
+				int32 faceIndex = 0;
+				Common::String openError;
+				Common::SeekableReadStream *stream = Graphics::openFontFace(Common::Path(paths[i], '/'), faceIndex, openError);
 				if (!stream) {
 					warning("SCUMM: cannot open hi-res font '%s'", paths[i].c_str());
 					_failedFaces[paths[i]] = true;
