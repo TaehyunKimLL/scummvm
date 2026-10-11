@@ -363,7 +363,7 @@ SciEvent EventManager::getScummVMEvent() {
 
 	input.character = ev.kbd.ascii;
 	if (ev.type == Common::EVENT_KEYDOWN && hangulInputAvailable()) {
-		_lastOsImeKey = (ev.kbd.ascii >= 0x100) ? ev.kbd.ascii : 0;
+		_lastOsImeKey = isOsImeCharacter(ev.kbd) ? ev.kbd.ascii : 0;
 		// A finished syllable from an OS input method is handed to the
 		// script as a plain letter (see kOsImeSurrogateKey): the script
 		// never opened the parser prompt on the code point itself.
