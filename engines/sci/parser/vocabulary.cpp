@@ -889,6 +889,63 @@ void Vocabulary::arrangeKorean(ResultWordListList &words, const Common::Array<ui
 	fallback.clear();
 	if (rolePhrases)
 		arrangeTokens(tok, role, verb, verbTail, unitStart, false, fallback);
+	koreanAskAbout(words);
+	koreanAskAbout(fallback);
+}
+
+void Vocabulary::koreanAskAbout(ResultWordListList &words) const {
+	// "펜러스 물어봐" means "ask about fenrus", not "ask fenrus": Korean
+	// often drops 에 대해. A conversation game's specs want the topic after
+	// "about" (QFG2: ask , tell / / *), so a bare topic of ask/tell gets it.
+	if (words.size() < 2)
+		return;
+	WordMap::const_iterator about = _parserWords.find("about");
+	if (about == _parserWords.end())
+		return;
+	ResultWordList aboutWord;
+	for (ResultWordList::const_iterator r = about->_value.begin(); r != about->_value.end(); ++r)
+		if (r->_class & kPrepositionClasses)
+			aboutWord.push_back(*r);
+	if (aboutWord.empty())
+		return;
+	bool isAskOrTell = false;
+	static const char *const kVerbs[] = { "ask", "tell" };
+	for (uint v = 0; v < ARRAYSIZE(kVerbs) && !isAskOrTell; v++) {
+		WordMap::const_iterator it = _parserWords.find(kVerbs[v]);
+		if (it == _parserWords.end())
+			continue;
+		for (ResultWordList::const_iterator r = it->_value.begin(); r != it->_value.end() && !isAskOrTell; ++r)
+			for (ResultWordList::const_iterator f = words.front().begin(); f != words.front().end() && !isAskOrTell; ++f)
+				isAskOrTell = f->_group == r->_group;
+	}
+	if (!isAskOrTell)
+		return;
+	const uint16 nounClass = VOCAB_CLASS_NOUN << 4;
+	ResultWordListList::iterator second = words.begin();
+	++second;
+	// "샤민에게 말해" is "talk to shameen": tell with nothing to tell but
+	// someone to tell it to becomes the game's talk.
+	if (words.size() == 3 && isPrepositionOnly(*second) && second->front()._group != aboutWord.front()._group) {
+		WordMap::const_iterator tell = _parserWords.find("tell");
+		WordMap::const_iterator talk = _parserWords.find("talk");
+		bool isTell = false;
+		if (tell != _parserWords.end())
+			for (ResultWordList::const_iterator r = tell->_value.begin(); r != tell->_value.end(); ++r)
+				isTell = isTell || words.front().front()._group == r->_group;
+		if (isTell && talk != _parserWords.end()) {
+			words.front() = talk->_value;
+			return;
+		}
+	}
+	// Only a topic straight after the verb: "to shameen" (에게) or an
+	// "about" already there leave the line as it is.
+	if (isPrepositionOnly(*second) || !hasClass(*second, nounClass))
+		return;
+	for (ResultWordListList::const_iterator t = words.begin(); t != words.end(); ++t)
+		for (ResultWordList::const_iterator r = t->begin(); r != t->end(); ++r)
+			if (r->_group == aboutWord.front()._group)
+				return;
+	words.insert(second, aboutWord);
 }
 
 bool Vocabulary::arrangeTokens(const Common::Array<ResultWordList> &tok, const Common::Array<uint8> &role, int verb, uint verbTail,
