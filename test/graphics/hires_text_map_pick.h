@@ -192,6 +192,27 @@ public:
 		TS_ASSERT_EQUALS(pick(read(fake, warnings), dir, kind, notes), ttf ? "HIRESTTF.MAP" : "HIRESBIT.MAP");
 		TS_ASSERT_EQUALS(notes[0], "svf map NONE.MAP: not in the game folder");
 
+		// A face chain needs one face of it: the font pack's first, then the
+		// binary's own (fonts-cjk.dat).
+		{
+			Common::DumpFile f;
+			TS_ASSERT(f.open(dir.appendComponent("HIRESTTF.MAP")));
+			f.writeString("[map]\nversion=2\n[fonts]\npack=PACK.TTF\ncjk=CJK.OTF\n[font]\nface=pack,cjk\n");
+			f.close();
+		}
+		fake.game.erase("hires_text_font");
+		fake.game.erase("hires_text_map_svf");
+		presentFaces().clear();
+		presentFaces().push_back("CJK.OTF");
+		notes.clear();
+		TS_ASSERT_EQUALS(pick(read(fake, warnings), dir, kind, notes), ttf ? "HIRESTTF.MAP" : "");
+		presentFaces().clear();
+		notes.clear();
+		TS_ASSERT_EQUALS(pick(read(fake, warnings), dir, kind, notes), "");
+		if (ttf)
+			TS_ASSERT_EQUALS(notes[0], "ttf map HIRESTTF.MAP: face " + dir.appendComponent("PACK.TTF").toString('/') +
+									   ", " + dir.appendComponent("CJK.OTF").toString('/') + " is missing");
+
 		const char *files[] = { "HIRESTTF.MAP", "hiresvf.map", "HIRESBIT.MAP", "OTHERVF.MAP" };
 		for (uint i = 0; i < ARRAYSIZE(files); ++i)
 			remove(dir.appendComponent(files[i]).toString('/').c_str());

@@ -51,7 +51,7 @@ wwwroot:
 # Rule to explicitly rebuild the fonts archive
 fonts.dat:
 	$(srcdir)/devtools/make-fonts-archive.py $(srcdir)/dists/engine-data/fonts/fonts $(srcdir)/dists/engine-data/fonts.dat
-	$(srcdir)/devtools/make-fonts-archive.py $(srcdir)/dists/engine-data/fonts/fonts-cjk $(srcdir)/dists/engine-data/fonts-cjk.dat
+	$(srcdir)/devtools/make-fonts-cjk-ko.py $(srcdir)/dists/engine-data/fonts/fonts-cjk $(srcdir)/dists/engine-data/fonts-cjk.dat
 	$(srcdir)/devtools/make-fonts-archive.py $(srcdir)/dists/engine-data/fonts/fonts-imgui $(srcdir)/dists/engine-data/fonts-imgui.dat
 
 #

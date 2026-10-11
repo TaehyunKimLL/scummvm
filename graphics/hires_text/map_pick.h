@@ -36,8 +36,9 @@ namespace Graphics {
  * hiResFontOrder(@p ini.font) in turn, its file named by hires_text_map_<kind>
  * or by default (HIRESTTF.MAP, HIRESVF.MAP, HIRESBIT.MAP) and found by
  * findGameMapFile(). A kind is skipped - and the next one tried - when its map
- * is missing, does not load, or names a face that is not there (a font pack
- * not unzipped, say). The first kind left is the answer: @p mapPath and
+ * is missing, does not load, or has a font value none of whose faces is
+ * there (a font pack not unzipped, say; a value's faces are a fallback
+ * chain, so one face of it is enough). The first kind left is the answer: @p mapPath and
  * @p kind set, true. False when none is left; the caller then falls back to
  * HIRESTXT.MAP and its own defaults.
  *
