@@ -528,7 +528,11 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 
 	*target = 0; /* Terminate string */
 
-	s->_segMan->strcpy_(dest, targetbuf);
+	// A Korean template leaves its particles open ("%s을(를)"); now that
+	// the word is in, pick them. Never longer, so it fits in place.
+	Common::String formatted(targetbuf);
+	ScriptStrings::resolveParticles(formatted);
+	s->_segMan->strcpy_(dest, formatted.c_str());
 
 	return dest; /* Return target addr */
 }

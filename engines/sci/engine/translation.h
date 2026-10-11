@@ -106,6 +106,17 @@ public:
 	static LineKind parseLine(const Common::String &line, Key &key,
 	                          Common::String &text, const char *&error);
 
+	/**
+	 * Pick the Korean particles a translation leaves open after an inserted
+	 * word: "%s을(를) 열 수 없다." becomes "문을 열 수 없다." or "상자를 열
+	 * 수 없다." by the last syllable's final consonant. The markers are
+	 * 을(를) 이(가) 은(는) 과(와) with either form first, (이) and (으); a
+	 * digit is read as its Korean numeral and a Latin letter by l, m, n
+	 * ending in a consonant. Quotes and brackets between the word and the
+	 * marker are looked through. The result is never longer.
+	 */
+	static void resolveParticles(Common::String &s);
+
 	bool isLoaded() const { return _loaded; }
 
 	/**

@@ -233,4 +233,35 @@ public:
 		TS_ASSERT(!missing.isPresent());
 		TS_ASSERT(!missing.isLoaded());
 	}
+
+	static Common::String particles(const char *in) {
+		Common::String s(in);
+		Sci::ScriptStrings::resolveParticles(s);
+		return s;
+	}
+
+	// QFG2's "You can't open %s." with the noun in: 문 ends in a consonant,
+	// 상자 does not; 길 ends in ㄹ, which takes 로 like a vowel.
+	void test_particles_follow_the_last_syllable() {
+		TS_ASSERT_EQUALS(particles("\xEB\xAC\xB8\xEC\x9D\x84(\xEB\xA5\xBC)"), "\xEB\xAC\xB8\xEC\x9D\x84");
+		TS_ASSERT_EQUALS(particles("\xEC\x83\x81\xEC\x9E\x90\xEC\x9D\x84(\xEB\xA5\xBC)"), "\xEC\x83\x81\xEC\x9E\x90\xEB\xA5\xBC");
+		TS_ASSERT_EQUALS(particles("\xEC\x83\x81\xEC\x9E\x90(\xEC\x9D\xB4)\xEB\x8B\xA4."), "\xEC\x83\x81\xEC\x9E\x90\xEB\x8B\xA4.");
+		TS_ASSERT_EQUALS(particles("\xEB\xAC\xB8(\xEC\x9D\xB4)\xEB\x8B\xA4."), "\xEB\xAC\xB8\xEC\x9D\xB4\xEB\x8B\xA4.");
+		TS_ASSERT_EQUALS(particles("\xEA\xB8\xB8(\xEC\x9C\xBC)\xEB\xA1\x9C"), "\xEA\xB8\xB8\xEB\xA1\x9C");
+		TS_ASSERT_EQUALS(particles("\xEB\xAC\xB8(\xEC\x9C\xBC)\xEB\xA1\x9C"), "\xEB\xAC\xB8\xEC\x9C\xBC\xEB\xA1\x9C");
+		TS_ASSERT_EQUALS(particles("\xEA\xB8\xB8\xEC\x9D\xB4(\xEA\xB0\x80)"), "\xEA\xB8\xB8\xEC\x9D\xB4");
+	}
+
+	void test_particles_look_through_quotes_and_read_digits() {
+		// "WIT"는 / 3을 / 2를
+		TS_ASSERT_EQUALS(particles("\"WIT\"\xEC\x9D\x80(\xEB\x8A\x94)"), "\"WIT\"\xEB\x8A\x94");
+		TS_ASSERT_EQUALS(particles("3\xEC\x9D\x84(\xEB\xA5\xBC)"), "3\xEC\x9D\x84");
+		TS_ASSERT_EQUALS(particles("2\xEC\x9D\x84(\xEB\xA5\xBC)"), "2\xEB\xA5\xBC");
+	}
+
+	void test_particles_without_a_word_or_marker_stay() {
+		TS_ASSERT_EQUALS(particles("(\xEC\x9D\xB4)"), "(\xEC\x9D\xB4)");
+		TS_ASSERT_EQUALS(particles("Score (100)"), "Score (100)");
+		TS_ASSERT_EQUALS(particles("no markers"), "no markers");
+	}
 };
