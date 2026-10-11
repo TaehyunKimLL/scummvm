@@ -421,6 +421,16 @@ private:
 	 */
 	KoreanVocabulary _koreanVocab;
 
+public:
+	/**
+	 * The parsed line in the game's own English words, one per token (the
+	 * shortest English word of the token's group), space separated; empty
+	 * when a token has none. For scripts that read the typed line itself
+	 * instead of the parse: see kParse.
+	 */
+	Common::String englishLine(const ResultWordListList &words) const;
+
+private:
 	/** Two adjacent Korean words the map knows as one (물을 내린다) become one. */
 	Common::String joinKoreanPairs(const char *sentence) const;
 

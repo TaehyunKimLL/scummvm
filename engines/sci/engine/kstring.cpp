@@ -29,6 +29,7 @@
 #include "sci/engine/state.h"
 #include "sci/engine/selector.h"
 #include "sci/engine/tts.h"
+#include "sci/parser/vocabulary.h"
 
 namespace Sci {
 
@@ -154,6 +155,35 @@ static byte strAtByte(SegmentRef &r, uint16 offset, bool write, byte newvalue) {
 	return value;
 }
 
+// QFG2's Aziza (room 199) asks questions in an edit box and checks the
+// answer with script 2's own substring search, StrLen and StrAt over the
+// typed text, for English words ("fenrus", "air"); no said() is involved.
+// A Korean answer whose every word the Korean parser table knows reads, to
+// these two calls only, as the game's own English words, so the search
+// finds them; the box still shows what was typed.
+static bool koreanAnswerView(EngineState *s, reg_t str, Common::String &out) {
+	if (g_sci->getGameId() != GID_QFG2 || s->currentRoomNumber() != 199 || !g_sci->hasParser())
+		return false;
+	const Common::String typed = s->_segMan->getString(str);
+	bool ascii = true;
+	for (uint i = 0; i < typed.size() && ascii; i++)
+		ascii = (byte)typed[i] < 0x80;
+	if (ascii)
+		return false;
+	static Common::String lastTyped, lastView;
+	if (typed != lastTyped) {
+		lastTyped = typed;
+		lastView.clear();
+		ResultWordListList words;
+		char *error = nullptr;
+		if (g_sci->getVocabulary()->tokenizeString(words, typed.c_str(), &error) && !error)
+			lastView = g_sci->getVocabulary()->englishLine(words);
+		free(error);
+	}
+	out = lastView;
+	return !out.empty();
+}
+
 reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 	if (argv[0] == SIGNAL_REG) {
 		warning("Attempt to perform kStrAt() on a signal reg");
@@ -172,6 +202,10 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 		newvalue = argv[2].toSint16();
 
 	g_sci->_tts->setMessage(s->_segMan->getString(argv[0]));
+
+	Common::String view;
+	if (argc <= 2 && koreanAnswerView(s, argv[0], view))
+		return make_reg(0, offset < view.size() ? (byte)view[offset] : 0);
 
 	// With UTF-8 in the heap, the index the script hands us counts code
 	// points, and a read returns the whole code point.
@@ -538,6 +572,9 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kStrLen(EngineState *s, int argc, reg_t *argv) {
+	Common::String view;
+	if (koreanAnswerView(s, argv[0], view))
+		return make_reg(0, view.size());
 	// Code points, not bytes, once the heap holds UTF-8. A script that
 	// sizes an edit box or centres a caption by this value wants the
 	// number of characters it will see, and under UTF-8 those differ.
