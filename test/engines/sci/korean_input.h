@@ -794,8 +794,9 @@ public:
 		TS_ASSERT(me.contains("addDefaultInputMapping(\"S+SPACE\")"));
 
 		// Still gated on the one config key: an SCI game that did not ask
-		// for Korean input gets no keymap and no bindings.
-		TS_ASSERT(me.contains("hasKey(\"sci_hangul_input\", target)"));
+		// for Korean input gets no keymap and no bindings. Read as the
+		// running game sees it (--set=sci_hangul_input= wins).
+		TS_ASSERT(me.contains("confManGameBool(\"sci_hangul_input\", target, false)"));
 	}
 
 private:

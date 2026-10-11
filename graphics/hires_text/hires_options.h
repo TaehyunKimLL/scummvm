@@ -241,11 +241,25 @@ typedef bool (*HiResIniGetFn)(const char *key, bool globalFallback, Common::Stri
 HiResIniOverrides readHiResIni(HiResIniGetFn get, void *ctx, Common::Array<Common::String> &warnings);
 
 /**
- * `readHiResIni`'s ConfMan-backed callback: `ConfMan.hasKey(key,
- * gameDomain)`, then - for global fallback - `ConfMan.hasKey(key,
- * Common::ConfigManager::kApplicationDomain)`.
+ * `readHiResIni`'s ConfMan-backed callback: confManGameValue(key,
+ * gameDomain) (the command line, then the game domain), then - for global
+ * fallback - `ConfMan.hasKey(key, Common::ConfigManager::kApplicationDomain)`.
  */
 HiResIniOverrides readHiResIniFromConfMan(const Common::String &gameDomain, Common::Array<Common::String> &warnings);
+
+/**
+ * A per-game setting as the running game sees it: when @p domain is the
+ * active domain and the transient domain has @p key (a command-line option,
+ * --set=KEY=VALUE included), that value; otherwise @p domain's own. Returns
+ * false, leaving @p value alone, when neither has it. Code that reads a
+ * setting of "this game" by domain name goes through this, so a value given
+ * on the command line wins over the game's section as it does for
+ * ConfMan.get(key).
+ */
+bool confManGameValue(const char *key, const Common::String &domain, Common::String &value);
+
+/** confManGameValue() parsed as a boolean; @p fallback when unset or invalid. */
+bool confManGameBool(const char *key, const Common::String &domain, bool fallback);
 
 /**
  * The game folder's own map (design section 4): `HIRESTXT.MAP` in

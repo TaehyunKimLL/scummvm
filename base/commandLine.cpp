@@ -27,6 +27,7 @@
 #include "engines/advancedDetector.h"
 #include "engines/metaengine.h"
 #include "base/commandLine.h"
+#include "base/set-option.h"
 #include "base/plugins.h"
 #include "base/version.h"
 
@@ -110,6 +111,8 @@ static const char HELP_STRING1[] =
 	"\n"
 	"  -c, --config=CONFIG      Use alternate configuration file path\n"
 	"  -i, --initial-cfg=CONFIG Load an initial configuration file if no configuration file has been saved yet\n"
+	"  --set=KEY=VALUE          Set any configuration key for this run only, over the\n"
+	"                           game's and the global section (may be repeated)\n"
 #if defined(SDL_BACKEND)
 	"  -l, --logfile=PATH       Use alternate path for log file\n"
 	"  --screenshotpath=PATH    Specify path where screenshot files are created\n"
@@ -768,6 +771,17 @@ Common::String parseCommandLine(Common::StringMap &settings, int argc, const cha
 			END_COMMAND
 
 			DO_OPTION('c', "config")
+			END_OPTION
+
+			DO_LONG_OPTION("set")
+				// Any configuration key, for keys with no option of their own:
+				// stored under the key itself, so it lands in the transient
+				// domain with every other option (processSettings).
+				Common::String key, value;
+				if (!parseSetOption(option, key, value))
+					usage("--set: expected KEY=VALUE, got '%s'", option);
+				settings.erase("set");
+				settings[key] = value;
 			END_OPTION
 
 			DO_OPTION('i', "initial-cfg")
