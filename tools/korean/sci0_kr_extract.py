@@ -148,6 +148,85 @@ def unlzw(src, size):
     return bytes(out)
 
 
+def unhuffman(src, size):
+    """SCI0 Huffman (method 2): node table, MSB-first bits.
+    Mirrors DecompressorHuffman::unpack()."""
+    numnodes, term = src[0], src[1] | 0x100
+    nodes = src[2:2 + numnodes * 2]
+    pos, bit = (2 + numnodes * 2) * 8, 0
+    nbits = len(src) * 8
+
+    def bits(k):
+        nonlocal pos
+        v = 0
+        for _ in range(k):
+            if pos >= nbits:
+                raise EOFError
+            v = (v << 1) | ((src[pos >> 3] >> (7 - (pos & 7))) & 1)
+            pos += 1
+        return v
+
+    out = bytearray()
+    try:
+        while len(out) < size:
+            n = 0
+            while nodes[n + 1]:
+                if bits(1):
+                    nxt = nodes[n + 1] & 0x0F
+                    if nxt == 0:
+                        c = bits(8) | 0x100
+                        break
+                else:
+                    nxt = nodes[n + 1] >> 4
+                n += nxt << 1
+            else:
+                c = nodes[n] | (nodes[n + 1] << 8)
+            if c == term:
+                break
+            out.append(c & 0xFF)
+    except EOFError:
+        pass
+    return bytes(out)
+
+
+def unlzw1(src, size):
+    """SCI01 LZW (method 2 in games the engine counts as SCI01, QFG2 among
+    them): MSB-first codes, width grows one code early. Mirrors
+    DecompressorLZW::unpackLZW() with kCompLZW1; None on a bad code."""
+    out = bytearray()
+    pos, nbits = 0, len(src) * 8
+    width, table, limit = 9, 258, 511
+    offs = [0] * 4096
+    lens = [0] * 4096
+    while len(out) < size and pos + width <= nbits:
+        code = 0
+        for _ in range(width):
+            code = (code << 1) | ((src[pos >> 3] >> (7 - (pos & 7))) & 1)
+            pos += 1
+        if code == 257:
+            break
+        if code == 256:
+            width, table, limit = 9, 258, 511
+            continue
+        if code >= table:
+            return None
+        start = len(out)
+        if code <= 255:
+            out.append(code)
+        else:
+            for i in range(lens[code]):
+                out.append(out[offs[code] + i])
+        if table >= 4096:
+            continue
+        if table == limit and width < 12:
+            width += 1
+            limit = (1 << width) - 1
+        offs[table] = start
+        lens[table] = len(out) - start + 1
+        table += 1
+    return bytes(out[:size])
+
+
 class Game:
     def __init__(self, d, mapname='resource.map'):
         self.dir = d
@@ -177,6 +256,11 @@ class Game:
             data = body[:ds]
         elif meth == 1:
             data = unlzw(body, ds)
+        elif meth == 2:
+            # Huffman in SCI0, LZW1 in SCI01; the volume does not say which.
+            data = unlzw1(body, ds)
+            if data is None or len(data) != ds:
+                data = unhuffman(body, ds)
         else:
             raise ValueError('%s.%d: compression %d not supported' % (TYPES[t], n, meth))
         return v, meth, data
