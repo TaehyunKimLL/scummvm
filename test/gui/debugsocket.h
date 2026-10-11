@@ -175,6 +175,10 @@ public:
 		TS_ASSERT(GUI::DebugSocketProtocol::parseKey(args("282"), k, err));	// F1, no ascii
 		TS_ASSERT_EQUALS(k.keycode, Common::KEYCODE_F1);
 		TS_ASSERT_EQUALS(k.ascii, 0);
+		// Keycode 0 with a character: OS input method text (EventManager::isOsImeCharacter)
+		TS_ASSERT(GUI::DebugSocketProtocol::parseKey(args("0", "54620"), k, err));
+		TS_ASSERT_EQUALS(k.keycode, Common::KEYCODE_INVALID);
+		TS_ASSERT_EQUALS(k.ascii, 54620);
 	}
 
 	void test_key_rejects_bad() {
@@ -184,6 +188,7 @@ public:
 		TS_ASSERT(!GUI::DebugSocketProtocol::parseKey(args("NoSuchKey"), k, err));	// unknown name
 		TS_ASSERT(!GUI::DebugSocketProtocol::parseKey(args("99999"), k, err));		// keycode out of range
 		TS_ASSERT(!GUI::DebugSocketProtocol::parseKey(args("00"), k, err));		// KEYCODE_INVALID
+		TS_ASSERT(!GUI::DebugSocketProtocol::parseKey(args("0", "65"), k, err));	// ... with an ASCII character
 		TS_ASSERT(!GUI::DebugSocketProtocol::parseKey(args("13", "-1"), k, err));	// negative ascii
 		TS_ASSERT(!GUI::DebugSocketProtocol::parseKey(args("13", "x"), k, err));	// non-numeric ascii
 		TS_ASSERT(!GUI::DebugSocketProtocol::parseKey(args("13", "65536"), k, err));	// ascii > 16 bits

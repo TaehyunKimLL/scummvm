@@ -177,7 +177,9 @@ bool DebugSocketProtocol::parseKey(const Common::StringArray &a, KeySpec &out, C
 		return false;
 	}
 	const Common::String &k = a[0];
-	bool numeric = k.size() > 1;
+	// One digit alone is the digit key; followed by an ascii it is a keycode
+	// ("0 <code point>": text with no key, as an OS input method sends it).
+	bool numeric = k.size() > 1 || a.size() > 1;
 	for (uint i = 0; i < k.size() && numeric; i++)
 		numeric = (k[i] >= '0' && k[i] <= '9');
 	if (!numeric) {
@@ -193,12 +195,18 @@ bool DebugSocketProtocol::parseKey(const Common::StringArray &a, KeySpec &out, C
 		return true;
 	}
 	uint32 code, ascii = 0, flags = 0;
-	if (!parseUInt(k, Common::KEYCODE_LAST - 1, code) || code == Common::KEYCODE_INVALID) {
-		err = Common::String::format("bad keycode '%s' (1..%d)", k.c_str(), (int)Common::KEYCODE_LAST - 1);
+	if (!parseUInt(k, Common::KEYCODE_LAST - 1, code)) {
+		err = Common::String::format("bad keycode '%s' (0..%d)", k.c_str(), (int)Common::KEYCODE_LAST - 1);
 		return false;
 	}
 	if (a.size() > 1 && !parseUInt(a[1], 0xFFFF, ascii)) {
 		err = Common::String::format("bad ascii '%s' (0..65535)", a[1].c_str());
+		return false;
+	}
+	// KEYCODE_INVALID only carries a character beyond ASCII: an OS input
+	// method's text (a finished Hangul syllable) arrives that way.
+	if (code == Common::KEYCODE_INVALID && ascii < 0x80) {
+		err = "keycode 0 needs a character of 128 or more (OS input method text)";
 		return false;
 	}
 	if (a.size() > 2 && !parseUInt(a[2], Common::KBD_NON_STICKY | Common::KBD_STICKY, flags)) {
