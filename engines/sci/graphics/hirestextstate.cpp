@@ -27,6 +27,7 @@
 #include "common/platform.h"
 #include "common/stream.h"
 #include "common/textconsole.h"
+#include "graphics/hires_text/map_pick.h"
 #include "graphics/hires_text/font_face.h"
 #include "graphics/hires_text/font_map.h"
 #include "graphics/hires_text/glyph_source_file.h"
@@ -71,17 +72,40 @@ void HiresTextState::load(bool applies) {
 
 	_active = applies && _ini.enabled;
 	if (_active) {
-		// The map (design section 4): the file hires_text_map names, else
-		// the game folder's own HIRESTXT.MAP when it exists. A relative
-		// hires_text_map is the game folder's, not the current directory.
-		if (_ini.mapSet) {
+		Common::Array<Common::String> qualifiers;
+		const char *platform = Common::getPlatformCode(g_sci->getPlatform());
+		if (platform && *platform)
+			qualifiers.push_back(platform);
+
+		// The map (design section 4). A font kind chosen for the game
+		// (hires_text_font), or no hires_text_map at all: the game folder's
+		// map of the first kind whose faces are all there - HIRESTTF.MAP,
+		// HIRESVF.MAP, HIRESBIT.MAP in this build's order, the chosen kind
+		// first. Else the file hires_text_map names; a relative one is the
+		// game folder's, not the current directory. Last, HIRESTXT.MAP.
+		if (Graphics::hiResFontPicksMap(_ini)) {
+			Common::Array<Common::String> notes;
+			Graphics::HiResFontKind kind;
+			_haveMapPath = Graphics::pickHiResMap(_ini, _gameDir, qualifiers, Graphics::kHiResKeysSci, _mapPath, kind, notes);
+			// The kinds passed over are news only when the user chose a kind.
+			const bool chosen = _ini.fontSet && _ini.font != Graphics::kHiResFontAuto;
+			for (uint i = 0; i < notes.size(); i++) {
+				if (chosen)
+					warning("SCI: hi-res text: %s", notes[i].c_str());
+				else
+					debug(1, "SCI: hi-res text: %s", notes[i].c_str());
+			}
+			if (_haveMapPath)
+				debug(1, "SCI: hi-res text: %s map %s", Graphics::hiResFontKindName(kind), _mapPath.toString().c_str());
+		}
+		if (!_haveMapPath && _ini.mapSet && !Graphics::hiResFontPicksMap(_ini)) {
 			if (_ini.map.empty()) {
 				warning("hires_text_map: empty path; no map is used");
 			} else {
 				_mapPath = Graphics::HiResFontMap::resolvePath(_ini.map, _gameDir);
 				_haveMapPath = true;
 			}
-		} else {
+		} else if (!_haveMapPath) {
 			_mapPath = Graphics::findDefaultHiResMap(_gameDir);
 			_haveMapPath = !_mapPath.empty();
 			if (!_haveMapPath && g_sci->getLanguage() == Common::KO_KOR) {
@@ -107,10 +131,6 @@ void HiresTextState::load(bool applies) {
 
 		if (_haveMapPath) {
 			_mapDir = _mapPath.getParent();
-			Common::Array<Common::String> qualifiers;
-			const char *platform = Common::getPlatformCode(g_sci->getPlatform());
-			if (platform && *platform)
-				qualifiers.push_back(platform);
 
 			// Phase 1: no target sections, quiet. GfxCache's phase-2 load
 			// reports every warning of a map that loads; a refused map is
