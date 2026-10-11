@@ -151,9 +151,11 @@ public:
 		TS_ASSERT(hr.latinBaselineByFace('A', kCs));
 	}
 
-	/// A TrueType face has its own rule (latinStepsByFace): origin=face is
-	/// about bitmap faces and does not apply to it.
-	void test_truetype_face_is_unaffected() {
+	/// A TrueType face follows origin=face too: its Latin stands on the face's
+	/// baseline, without the charset's shared line offset (Indy 4's credit
+	/// font, cut to its ink, dropped ':' below the Hangul by that offset).
+	/// Without the key it keeps its own rule (latinStepsByFace).
+	void test_truetype_face_follows_origin_face() {
 #ifdef USE_FREETYPE2
 #if NULL_OSYSTEM_IS_AVAILABLE
 		static const char *const kFonts[] = {
@@ -178,7 +180,18 @@ public:
 		hr.setCharsetGrid(2, 9, 9);
 		TS_ASSERT(hr.loadFonts(Common::Path()));
 		TS_ASSERT(hr.latinStepsByFace('A', 2));
-		TS_ASSERT(!hr.latinBaselineByFace('A', 2));
+		TS_ASSERT(hr.latinBaselineByFace('A', 2));
+
+		Scumm::HiResOverlay overlay2;
+		overlay2.create(64, 40, true);
+		Scumm::ScummHiResText hr2;
+		const Common::String body2 = Common::String::format("[font.2]\nface=%s\nadvance.basic-latin=font\n", ttf);
+		TS_ASSERT(open(hr2, overlay2, body2.c_str()));
+		hr2.noteGameCharset(2, 9, 9);
+		hr2.setCharsetGrid(2, 9, 9);
+		TS_ASSERT(hr2.loadFonts(Common::Path()));
+		TS_ASSERT(hr2.latinStepsByFace('A', 2));
+		TS_ASSERT(!hr2.latinBaselineByFace('A', 2));
 #else
 		TS_SKIP("needs the null OSystem");
 #endif
@@ -284,9 +297,12 @@ public:
 		TS_ASSERT_EQUALS(x, -1);
 		TS_ASSERT_EQUALS(y, 1);
 
+		// A TrueType face with origin=face: the face's baseline alone, not the
+		// charset's shared line offset either (Indy 4's credit colon sat that
+		// many game pixels below the Hangul beside it).
 		x = -1; y = 1;
 		Scumm::CharsetRendererClassic::latinGlyphOffsets(true, true, 4, x, y);
 		TS_ASSERT_EQUALS(x, 0);
-		TS_ASSERT_EQUALS(y, 4);
+		TS_ASSERT_EQUALS(y, 0);
 	}
 };
