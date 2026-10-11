@@ -387,13 +387,6 @@ Common::String ScummHiResText::targetNote(Graphics::HiResRenderTarget wanted, bo
 								  Graphics::renderTargetName(wanted), Graphics::renderTargetName(actual));
 }
 
-bool ScummHiResText::blendCheckboxState(Graphics::HiResBlend configured, bool running,
-										Graphics::HiResBlend runningWith, bool runningBlends) {
-	if (running && configured == runningWith)
-		return runningBlends;
-	return Graphics::blendActive(configured, true, false);
-}
-
 Common::List<Graphics::PixelFormat> ScummHiResText::screenRequest(const Common::List<Graphics::PixelFormat> &supported) const {
 	Common::String note; // adoptScreen() warns once, against the screen actually set
 	if (_target == Graphics::kHiResTargetClut8)

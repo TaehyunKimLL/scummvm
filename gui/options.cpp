@@ -212,6 +212,8 @@ void OptionsDialog::init() {
 	_hiResTextCheckbox = nullptr;
 	_hiResFontPopUpDesc = nullptr;
 	_hiResFontPopUp = nullptr;
+	_hiResBlendPopUpDesc = nullptr;
+	_hiResBlendPopUp = nullptr;
 	_rotationModePopUp = nullptr;
 	_rotationModePopUpDesc = nullptr;
 	_stretchPopUp = nullptr;
@@ -1323,6 +1325,12 @@ void OptionsDialog::loadHiResTextControls() {
 			Graphics::parseHiResFontKind(ConfMan.get("hires_text_font", _domain), kind);
 		_hiResFontPopUp->setSelectedTag(kind);
 	}
+	if (_hiResBlendPopUp) {
+		Graphics::HiResBlend blend = Graphics::kHiResBlendAuto;
+		if (ConfMan.hasKey("hires_text_blend", _domain))
+			Graphics::parseBlend(ConfMan.get("hires_text_blend", _domain), blend);
+		_hiResBlendPopUp->setSelectedTag(blend);
+	}
 }
 
 bool OptionsDialog::saveHiResTextControls() {
@@ -1344,6 +1352,20 @@ bool OptionsDialog::saveHiResTextControls() {
 				ConfMan.removeKey("hires_text_font", _domain);
 			else
 				ConfMan.set("hires_text_font", Graphics::hiResFontKindName(kind), _domain);
+			changed = true;
+		}
+	}
+	if (_hiResBlendPopUp) {
+		static const char *const kBlendNames[] = { "auto", "on", "off" };
+		const Graphics::HiResBlend blend = (Graphics::HiResBlend)_hiResBlendPopUp->getSelectedTag();
+		Graphics::HiResBlend stored = Graphics::kHiResBlendAuto;
+		if (ConfMan.hasKey("hires_text_blend", _domain))
+			Graphics::parseBlend(ConfMan.get("hires_text_blend", _domain), stored);
+		if (blend != stored) {
+			if (blend == Graphics::kHiResBlendAuto)
+				ConfMan.removeKey("hires_text_blend", _domain);
+			else
+				ConfMan.set("hires_text_blend", kBlendNames[blend], _domain);
 			changed = true;
 		}
 	}
@@ -1754,6 +1776,15 @@ void OptionsDialog::addGraphicControls(GuiObject *boss, const Common::String &pr
 			_hiResFontPopUp->appendEntry(_("TrueType (HIRESTTF.MAP)"), Graphics::kHiResFontTtf);
 			_hiResFontPopUp->appendEntry(_("Anti-aliased bitmap (HIRESVF.MAP)"), Graphics::kHiResFontSvf);
 			_hiResFontPopUp->appendEntry(_("1-bit bitmap (HIRESBIT.MAP)"), Graphics::kHiResFontBitmap);
+
+			const Common::U32String blendTip = _("Blend the hi-res glyphs into the picture (smooth), or draw them hard-edged, "
+												 "which suits a pixelated game and costs nothing to draw. Auto smooths on a "
+												 "16-bit or true-colour screen. Takes effect the next time the game starts.");
+			_hiResBlendPopUpDesc = new StaticTextWidget(boss, prefix + "grHiResBlendPopupDesc", _("Hi-res smoothing:"), blendTip);
+			_hiResBlendPopUp = new PopUpWidget(boss, prefix + "grHiResBlendPopup", blendTip);
+			_hiResBlendPopUp->appendEntry(_("Auto"), Graphics::kHiResBlendAuto);
+			_hiResBlendPopUp->appendEntry(_("On (smooth)"), Graphics::kHiResBlendOn);
+			_hiResBlendPopUp->appendEntry(_("Off (hard edges)"), Graphics::kHiResBlendOff);
 		}
 	}
 

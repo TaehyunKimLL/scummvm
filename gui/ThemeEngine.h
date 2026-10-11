@@ -38,7 +38,7 @@
 #include "gui/theme-screens.h"
 
 
-#define SCUMMVM_THEME_VERSION_STR "SCUMMVM_STX0.9.26"
+#define SCUMMVM_THEME_VERSION_STR "SCUMMVM_STX0.9.27"
 
 class OSystem;
 

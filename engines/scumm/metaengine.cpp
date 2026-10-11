@@ -958,15 +958,6 @@ const ExtraGuiOption enableRebel1NoDamage = {
 	0
 };
 
-static const ExtraGuiOption enableHiResText = {
-	_s("Use hi-res fonts from the game folder"),
-	_s("Read HIRESTXT.MAP and the fonts it names. Turn this off to ignore them and draw text exactly as the original game did."),
-	"hires_text",
-	true,
-	0,
-	0
-};
-
 /**
  * Whether a target has hi-res fonts to switch. Checked here so the checkbox
  * only appears where it does something; for every other game the dialog is
@@ -1031,9 +1022,6 @@ const ExtraGuiOptions ScummMetaEngine::getExtraGuiOptions(const Common::String &
 	}
 	if (target.empty() || guiOptions.contains(GAMEOPTION_COPY_PROTECTION)) {
 		options.push_back(enableCopyProtection);
-	}
-	if (target.empty() || targetHasHiResText(target)) {
-		options.push_back(enableHiResText);
 	}
 	if (target.empty() || guiOptions.contains(GAMEOPTION_ENHANCEMENTS)) {
 		options.push_back(enableEnhancements);

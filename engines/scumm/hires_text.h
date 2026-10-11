@@ -289,18 +289,6 @@ struct ScummHiResText {
 									 Graphics::HiResRenderTarget actual);
 
 	/**
-	 * What the "Smooth the hi-res text" checkbox shows (design section 7.2:
-	 * the effective state). @p configured is the stored hires_text_blend
-	 * (`auto` when unset). While this target is running with that same
-	 * setting (@p running, @p runningWith), the answer is what the game
-	 * does (@p runningBlends, alphaActive()); otherwise - the launcher, or
-	 * a setting changed since the game started - the best case of
-	 * @p configured, which is "not off".
-	 */
-	static bool blendCheckboxState(Graphics::HiResBlend configured, bool running,
-								   Graphics::HiResBlend runningWith, bool runningBlends);
-
-	/**
 	 * design section 7.4's scale resolution for SCUMM: `hires_text_scale`
 	 * (@p ini) beats `[render] scale` (@p map, when @p mapLoaded) beats 2,
 	 * clamped to SCUMM's own 1..3 and then @p platform (Graphics::clampScale()).
