@@ -241,25 +241,6 @@ protected:
 	void createEnhancementsWidget(GuiObject *boss, const Common::String &name);
 	GUI::ThemeEval &addEnhancementsLayout(GUI::ThemeEval &layouts) const;
 	GUI::CheckboxWidget *createOriginalGUICheckbox(GuiObject *boss, const Common::String &name);
-	// Returns nullptr when the target has no hi-res fonts, so a dialog can add
-	// the row only where it does something; load()/save() tolerate the null.
-	GUI::CheckboxWidget *createHiResTextCheckbox(GuiObject *boss, const Common::String &name);
-	void loadHiResTextCheckbox(GUI::CheckboxWidget *checkbox) const;
-	void saveHiResTextCheckbox(GUI::CheckboxWidget *checkbox) const;
-
-	// The companion switch: whether those fonts are blended or drawn hard.
-	// Same null-tolerant shape, and null for the same reason. Writes
-	// hires_text_blend=on|off (design section 7.2) only when the box's state
-	// at save() differs from the one it was given at load() - an untouched
-	// dialog leaves the key alone.
-	GUI::CheckboxWidget *createHiResTextBlendCheckbox(GuiObject *boss, const Common::String &name);
-	void loadHiResTextBlendCheckbox(GUI::CheckboxWidget *checkbox) const;
-	void saveHiResTextBlendCheckbox(GUI::CheckboxWidget *checkbox) const;
-	// The state loadHiResTextBlendCheckbox() set the box to, so save() can
-	// tell whether the player actually touched it: comparing against the
-	// current state alone cannot, since the box holds no other memory of
-	// where it started.
-	mutable bool _hiResTextBlendOpenedState = true;
 	GUI::CheckboxWidget *createGammaCorrectionCheckbox(GuiObject *boss, const Common::String &name);
 	GUI::CheckboxWidget *createSegaShadowModeCheckbox(GuiObject *boss, const Common::String &name);
 	GUI::CheckboxWidget *createSegaCdWaitCursorWhenPausedCheckbox(GuiObject *boss, const Common::String &name);
@@ -296,7 +277,6 @@ private:
 
 	ExtraGuiOptions _options;
 	Common::Array<GUI::CheckboxWidget *> _checkboxes;
-	GUI::CheckboxWidget *_hiResTextBlendCheckbox = nullptr;
 };
 
 /**
@@ -323,7 +303,6 @@ private:
 #ifdef USE_TTS
 	GUI::CheckboxWidget *_enableTTSCheckbox = nullptr;
 #endif
-	GUI::CheckboxWidget *_hiResTextBlendCheckbox = nullptr;
 
 	GUI::SliderWidget *_overtureTicksSlider = nullptr;
 	GUI::StaticTextWidget *_overtureTicksValue = nullptr;
@@ -355,7 +334,6 @@ private:
 #ifdef USE_TTS
 	GUI::CheckboxWidget *_enableTTSCheckbox = nullptr;
 #endif
-	GUI::CheckboxWidget *_hiResTextBlendCheckbox = nullptr;
 	GUI::SliderWidget *_sndQualitySlider = nullptr;
 	GUI::StaticTextWidget *_sndQualityValue = nullptr;
 	int _quality = 0;
@@ -385,8 +363,6 @@ private:
 	GUI::CheckboxWidget *_enableTTSCheckbox = nullptr;
 #endif
 
-	GUI::CheckboxWidget *_hiResTextCheckbox = nullptr;
-	GUI::CheckboxWidget *_hiResTextBlendCheckbox = nullptr;
 
 	GUI::SliderWidget *_playbackAdjustmentSlider = nullptr;
 	GUI::StaticTextWidget *_playbackAdjustmentValue = nullptr;
@@ -420,7 +396,6 @@ private:
 #ifdef USE_TTS
 	GUI::CheckboxWidget *_enableTTSCheckbox = nullptr;
 #endif
-	GUI::CheckboxWidget *_hiResTextBlendCheckbox = nullptr;
 
 	GUI::SliderWidget *_introAdjustmentSlider = nullptr;
 	GUI::StaticTextWidget *_introAdjustmentValue = nullptr;

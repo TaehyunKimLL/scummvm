@@ -1210,77 +1210,6 @@ GUI::CheckboxWidget *ScummOptionsContainerWidget::createOriginalGUICheckbox(GuiO
 	);
 }
 
-GUI::CheckboxWidget *ScummOptionsContainerWidget::createHiResTextCheckbox(GuiObject *boss, const Common::String &name) {
-	if (!ScummMetaEngine::targetHasHiResText(_domain))
-		return nullptr;
-
-	return new GUI::CheckboxWidget(boss, name,
-		_("Use hi-res fonts from the game folder"),
-		_("Read HIRESTXT.MAP and the fonts it names. Turn this off to ignore them and draw text exactly as the original game did.")
-	);
-}
-
-void ScummOptionsContainerWidget::loadHiResTextCheckbox(GUI::CheckboxWidget *checkbox) const {
-	if (!checkbox)
-		return;
-	bool on = true;
-	if (ConfMan.hasKey("hires_text", _domain))
-		on = ConfMan.getBool("hires_text", _domain);
-	checkbox->setState(on);
-}
-
-void ScummOptionsContainerWidget::saveHiResTextCheckbox(GUI::CheckboxWidget *checkbox) const {
-	if (checkbox)
-		ConfMan.setBool("hires_text", checkbox->getState(), _domain);
-}
-
-GUI::CheckboxWidget *ScummOptionsContainerWidget::createHiResTextBlendCheckbox(GuiObject *boss, const Common::String &name) {
-	if (!ScummMetaEngine::targetHasHiResText(_domain))
-		return nullptr;
-
-	return new GUI::CheckboxWidget(boss, name,
-		_("Smooth the hi-res text"),
-		_("Blend the replacement glyphs into the picture. Turn this off for hard-edged text, which suits a pixelated game and costs nothing to draw. Takes effect the next time the game starts.")
-	);
-}
-
-void ScummOptionsContainerWidget::loadHiResTextBlendCheckbox(GUI::CheckboxWidget *checkbox) const {
-	if (!checkbox)
-		return;
-	// The effective state (design section 7.2). In game, while the stored
-	// setting is the one the game started with, that is what the game does;
-	// the launcher has no map or screen to ask, so it shows the best case.
-	Graphics::HiResBlend blend = Graphics::kHiResBlendAuto;
-	if (ConfMan.hasKey("hires_text_blend", _domain)) {
-		Graphics::HiResBlend parsed;
-		if (Graphics::parseBlend(ConfMan.get("hires_text_blend", _domain), parsed))
-			blend = parsed;
-	}
-	bool running = false;
-	Graphics::HiResBlend runningWith = Graphics::kHiResBlendAuto;
-	bool runningBlends = false;
-	if (g_engine && ConfMan.getActiveDomainName() == _domain) {
-		// This widget is built by the SCUMM metaengine for its own target,
-		// so the running engine of that target is a ScummEngine.
-		const ScummHiResText &hiResText = static_cast<ScummEngine *>(g_engine)->_hiResText;
-		running = true;
-		runningWith = hiResText.iniBlend();
-		runningBlends = hiResText.alphaActive();
-	}
-	_hiResTextBlendOpenedState = ScummHiResText::blendCheckboxState(blend, running, runningWith, runningBlends);
-	checkbox->setState(_hiResTextBlendOpenedState);
-}
-
-void ScummOptionsContainerWidget::saveHiResTextBlendCheckbox(GUI::CheckboxWidget *checkbox) const {
-	if (!checkbox)
-		return;
-	// Write only when the player actually toggled it (design section 7.2):
-	// an untouched dialog must leave hires_text_blend alone.
-	if (checkbox->getState() == _hiResTextBlendOpenedState)
-		return;
-	ConfMan.set("hires_text_blend", checkbox->getState() ? "on" : "off", _domain);
-}
-
 GUI::CheckboxWidget *ScummOptionsContainerWidget::createGammaCorrectionCheckbox(GuiObject *boss, const Common::String &name) {
 	return new GUI::CheckboxWidget(boss, name,
 		_("Enable gamma correction"),
@@ -1367,12 +1296,10 @@ ScummGameOptionsWidget::ScummGameOptionsWidget(GuiObject *boss, const Common::St
 		}
 		_checkboxes.push_back(checkbox);
 	}
-	_hiResTextBlendCheckbox = createHiResTextBlendCheckbox(widgetsBoss(), _dialogLayout + ".HiResTextBlend");
 }
 
 void ScummGameOptionsWidget::load() {
 	ScummOptionsContainerWidget::load();
-	loadHiResTextBlendCheckbox(_hiResTextBlendCheckbox);
 
 	for (uint i = 0; i < _options.size(); i++) {
 		if (!_checkboxes[i])
@@ -1390,7 +1317,6 @@ void ScummGameOptionsWidget::load() {
 
 bool ScummGameOptionsWidget::save() {
 	ScummOptionsContainerWidget::save();
-	saveHiResTextBlendCheckbox(_hiResTextBlendCheckbox);
 
 	for (uint i = 0; i < _options.size(); i++) {
 		if (_checkboxes[i])
@@ -1414,8 +1340,6 @@ void ScummGameOptionsWidget::defineLayout(GUI::ThemeEval &layouts, const Common:
 			hasEnhancements = true;
 	}
 
-	if (_hiResTextBlendCheckbox)
-		layouts.addWidget("HiResTextBlend", "Checkbox");
 
 	if (hasEnhancements) {
 		addEnhancementsLayout(layouts);
@@ -1469,7 +1393,6 @@ LoomEgaGameOptionsWidget::LoomEgaGameOptionsWidget(GuiObject *boss, const Common
 #ifdef USE_TTS
 	_enableTTSCheckbox = createEnableTTSCheckbox(widgetsBoss(), "LoomEgaGameOptionsDialog.EnableTTS");
 #endif
-	_hiResTextBlendCheckbox = createHiResTextBlendCheckbox(widgetsBoss(), "LoomEgaGameOptionsDialog.HiResTextBlend");
 }
 
 void LoomEgaGameOptionsWidget::load() {
@@ -1488,7 +1411,6 @@ void LoomEgaGameOptionsWidget::load() {
 #ifdef USE_TTS
 	_enableTTSCheckbox->setState(ConfMan.getBool("tts_enabled", _domain));
 #endif
-	loadHiResTextBlendCheckbox(_hiResTextBlendCheckbox);
 }
 
 bool LoomEgaGameOptionsWidget::save() {
@@ -1500,7 +1422,6 @@ bool LoomEgaGameOptionsWidget::save() {
 #ifdef USE_TTS
 	ConfMan.setBool("tts_enabled", _enableTTSCheckbox->getState(), _domain);
 #endif
-	saveHiResTextBlendCheckbox(_hiResTextBlendCheckbox);
 	return true;
 }
 
@@ -1516,8 +1437,6 @@ void LoomEgaGameOptionsWidget::defineLayout(GUI::ThemeEval &layouts, const Commo
 #ifdef USE_TTS
 	layouts.addWidget("EnableTTS", "Checkbox");
 #endif
-	if (_hiResTextBlendCheckbox)
-		layouts.addWidget("HiResTextBlend", "Checkbox");
 
 	addEnhancementsLayout(layouts)
 		.closeLayout()
@@ -1573,7 +1492,6 @@ MacGameOptionsWidget::MacGameOptionsWidget(GuiObject *boss, const Common::String
 #ifdef USE_TTS
 	_enableTTSCheckbox = createEnableTTSCheckbox(widgetsBoss(), "MacGameOptionsWidget.EnableTTS");
 #endif
-	_hiResTextBlendCheckbox = createHiResTextBlendCheckbox(widgetsBoss(), "MacGameOptionsWidget.HiResTextBlend");
 }
 
 void MacGameOptionsWidget::load() {
@@ -1602,7 +1520,6 @@ void MacGameOptionsWidget::load() {
 #ifdef USE_TTS
 	_enableTTSCheckbox->setState(ConfMan.getBool("tts_enabled", _domain));
 #endif
-	loadHiResTextBlendCheckbox(_hiResTextBlendCheckbox);
 }
 
 bool MacGameOptionsWidget::save() {
@@ -1617,7 +1534,6 @@ bool MacGameOptionsWidget::save() {
 #ifdef USE_TTS
 	ConfMan.setBool("tts_enabled", _enableTTSCheckbox->getState(), _domain);
 #endif
-	saveHiResTextBlendCheckbox(_hiResTextBlendCheckbox);
 
 	return res;
 }
@@ -1637,8 +1553,6 @@ void MacGameOptionsWidget::defineLayout(GUI::ThemeEval &layouts, const Common::S
 #ifdef USE_TTS
 	layouts.addWidget("EnableTTS", "Checkbox");
 #endif
-	if (_hiResTextBlendCheckbox)
-		layouts.addWidget("HiResTextBlend", "Checkbox");
 
 	addEnhancementsLayout(layouts)
 			.closeLayout()
@@ -1707,8 +1621,6 @@ LoomVgaGameOptionsWidget::LoomVgaGameOptionsWidget(GuiObject *boss, const Common
 #ifdef USE_TTS
 	_enableTTSCheckbox = createEnableTTSCheckbox(widgetsBoss(), "LoomVgaGameOptionsDialog.EnableTTS");
 #endif
-	_hiResTextCheckbox = createHiResTextCheckbox(widgetsBoss(), "LoomVgaGameOptionsDialog.HiResText");
-	_hiResTextBlendCheckbox = createHiResTextBlendCheckbox(widgetsBoss(), "LoomVgaGameOptionsDialog.HiResTextBlend");
 }
 
 void LoomVgaGameOptionsWidget::load() {
@@ -1726,8 +1638,6 @@ void LoomVgaGameOptionsWidget::load() {
 #ifdef USE_TTS
 	_enableTTSCheckbox->setState(ConfMan.getBool("tts_enabled", _domain));
 #endif
-	loadHiResTextCheckbox(_hiResTextCheckbox);
-	loadHiResTextBlendCheckbox(_hiResTextBlendCheckbox);
 }
 
 bool LoomVgaGameOptionsWidget::save() {
@@ -1737,8 +1647,6 @@ bool LoomVgaGameOptionsWidget::save() {
 #ifdef USE_TTS
 	ConfMan.setBool("tts_enabled", _enableTTSCheckbox->getState(), _domain);
 #endif
-	saveHiResTextCheckbox(_hiResTextCheckbox);
-	saveHiResTextBlendCheckbox(_hiResTextBlendCheckbox);
 	return true;
 }
 
@@ -1753,10 +1661,6 @@ void LoomVgaGameOptionsWidget::defineLayout(GUI::ThemeEval &layouts, const Commo
 #ifdef USE_TTS
 	layouts.addWidget("EnableTTS", "Checkbox");
 #endif
-	if (_hiResTextCheckbox)
-		layouts.addWidget("HiResText", "Checkbox");
-	if (_hiResTextBlendCheckbox)
-		layouts.addWidget("HiResTextBlend", "Checkbox");
 
 	addEnhancementsLayout(layouts)
 			.closeLayout()
@@ -1831,7 +1735,6 @@ MI1CdGameOptionsWidget::MI1CdGameOptionsWidget(GuiObject *boss, const Common::St
 	_outlookAdjustmentValue->setFlags(GUI::WIDGET_CLEARBG);
 
 	createEnhancementsWidget(widgetsBoss(), "MI1CdGameOptionsDialog");
-	_hiResTextBlendCheckbox = createHiResTextBlendCheckbox(widgetsBoss(), "MI1CdGameOptionsDialog.HiResTextBlend");
 }
 
 void MI1CdGameOptionsWidget::load() {
@@ -1865,7 +1768,6 @@ void MI1CdGameOptionsWidget::load() {
 #ifdef USE_TTS
 	_enableTTSCheckbox->setState(ConfMan.getBool("tts_enabled", _domain));
 #endif
-	loadHiResTextBlendCheckbox(_hiResTextBlendCheckbox);
 }
 
 bool MI1CdGameOptionsWidget::save() {
@@ -1883,7 +1785,6 @@ bool MI1CdGameOptionsWidget::save() {
 #ifdef USE_TTS
 	ConfMan.setBool("tts_enabled", _enableTTSCheckbox->getState(), _domain);
 #endif
-	saveHiResTextBlendCheckbox(_hiResTextBlendCheckbox);
 	return true;
 }
 
@@ -1906,8 +1807,6 @@ void MI1CdGameOptionsWidget::defineLayout(GUI::ThemeEval &layouts, const Common:
 #ifdef USE_TTS
 	layouts.addWidget("EnableTTS", "Checkbox");
 #endif
-	if (_hiResTextBlendCheckbox)
-		layouts.addWidget("HiResTextBlend", "Checkbox");
 
 	addEnhancementsLayout(layouts)
 			.closeLayout()

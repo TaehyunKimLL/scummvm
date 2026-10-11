@@ -539,21 +539,4 @@ public:
 		TS_ASSERT(!hr.anyCoverage());
 		TS_ASSERT(!hr.wantsAlpha());
 	}
-
-	/// The in-game "Smooth the hi-res text" box shows what the running game
-	/// does while the setting is the one it started with, and the
-	/// best case of the stored setting otherwise (the launcher, or after
-	/// the player changed it without restarting).
-	void test_blend_checkbox_state() {
-		using Scumm::ScummHiResText;
-		// Launcher: nothing running.
-		TS_ASSERT(ScummHiResText::blendCheckboxState(Graphics::kHiResBlendAuto, false, Graphics::kHiResBlendAuto, false));
-		TS_ASSERT(!ScummHiResText::blendCheckboxState(Graphics::kHiResBlendOff, false, Graphics::kHiResBlendAuto, false));
-		// In game, the setting unchanged: the effective state.
-		TS_ASSERT(!ScummHiResText::blendCheckboxState(Graphics::kHiResBlendAuto, true, Graphics::kHiResBlendAuto, false));
-		TS_ASSERT(ScummHiResText::blendCheckboxState(Graphics::kHiResBlendAuto, true, Graphics::kHiResBlendAuto, true));
-		// In game, changed since the start: what was stored.
-		TS_ASSERT(ScummHiResText::blendCheckboxState(Graphics::kHiResBlendOn, true, Graphics::kHiResBlendAuto, false));
-		TS_ASSERT(!ScummHiResText::blendCheckboxState(Graphics::kHiResBlendOff, true, Graphics::kHiResBlendAuto, true));
-	}
 };

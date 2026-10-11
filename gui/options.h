@@ -141,6 +141,9 @@ protected:
 	CheckboxWidget *_hiResTextCheckbox;
 	StaticTextWidget *_hiResFontPopUpDesc;
 	PopUpWidget *_hiResFontPopUp;
+	/// "Hi-res smoothing" (hires_text_blend: auto, on, off), a game's options only.
+	StaticTextWidget *_hiResBlendPopUpDesc;
+	PopUpWidget *_hiResBlendPopUp;
 
 	PathWidget *_shader;
 	ButtonWidget *_shaderClearButton;
