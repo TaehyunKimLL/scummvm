@@ -380,6 +380,15 @@ Common::String SciEngine::translated(const Common::String &str, const ScriptStri
 	return str;
 }
 
+Common::String SciEngine::translatedHeap(reg_t ptr, const Common::String &str) {
+	if (!_scriptStrings.isLoaded())
+		return str;
+	ScriptStrings::Key key = _gamestate->_segMan->stringKey(ptr);
+	if (!key.isSet())
+		key = _scriptStrings.keyOf(ScriptStrings::bufferId(ptr.getSegment(), ptr.getOffset()), str);
+	return translated(str, key);
+}
+
 Common::String SciEngine::strSplitHeap(reg_t ptr, const Common::String &str, uint16 *languageSplitter, const char *sep) {
 	ScriptStrings::Key key = _gamestate->_segMan->stringKey(ptr);
 	if (!key.isSet())
