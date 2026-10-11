@@ -2581,6 +2581,15 @@ void ScummHiResText::noteTranslatedString(const byte *s, uint32 maxLen) {
 			++p;
 			continue;
 		}
+		// The game splits Korean text the way is2ByteCharacter() does: only
+		// 0xB0-0xD0 starts a two-byte character, and any other high byte is a
+		// glyph of the game's own font, drawn as one (MI1 UTE's "St.\xfaKitts",
+		// kept in the translation). Decoding the whole range as CP949 would pair
+		// it with the next byte and sample a character nobody draws (U+9999).
+		if (_encoding == Common::kWindows949 && *p >= 0x80 && !(*p >= 0xB0 && *p <= 0xD0)) {
+			++p;
+			continue;
+		}
 		const uint32 cp = decodeNext(p, end);
 		if (cp && cp != 0xFFFD)
 			_translationCps.add(cp);
