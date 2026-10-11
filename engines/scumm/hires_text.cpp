@@ -863,7 +863,7 @@ bool ScummHiResText::adoptFace(const Common::String &resolvedPath, Graphics::HiR
 	_faceBySource[(uint64)(uintptr)face->source] = face;
 	_fontsLoaded = true;
 
-	debug(1, "SCUMM: hi-res font <- %s: %dx%d cell, %d bpp, %d glyphs, %s, codepage %s%s",
+	debug("SCUMM: hi-res font <- %s: %dx%d cell, %d bpp, %d glyphs, %s, codepage %s%s",
 		  resolvedPath.c_str(), font->cellWidth(), font->cellHeight(), font->bpp(),
 		  font->glyphCount(), font->isProportional() ? "proportional" : "fixed width",
 		  codePageName(font->codePage()), font->bpp() > 1 ? ", anti-aliased" : ", stencil");
@@ -967,7 +967,7 @@ Graphics::UnicodeGlyphSource *ScummHiResText::openPlanFace(const Common::Path &p
 		return nullptr;
 	}
 	ttf->setCoverageGamma(_map.coverageGamma);
-	debug(1, "SCUMM: hi-res TrueType font %s opened at %dpx: %u probe glyphs rasterised in %u ms",
+	debug("SCUMM: hi-res TrueType font %s opened at %dpx: %u probe glyphs rasterised in %u ms",
 		  path.baseName().c_str(), pixelSize, ttf->rasterCount(), ttf->totalRenderMs());
 	Face *face = new Face();
 	face->source = ttf;
@@ -2099,7 +2099,7 @@ ScummHiResText::Face *ScummHiResText::openTtfChain(const Common::Array<Common::P
 			continue;
 		}
 		ttf->setCoverageGamma(_map.coverageGamma);
-		debug(1, "SCUMM: hi-res TrueType font %s opened at %dpx: %u probe glyphs rasterised in %u ms",
+		debug("SCUMM: hi-res TrueType font %s opened at %dpx: %u probe glyphs rasterised in %u ms",
 			  chain[i].baseName().c_str(), pixelSize, ttf->rasterCount(), ttf->totalRenderMs());
 		sources.push_back(ttf);
 		names.push_back(chain[i].baseName());
@@ -2715,7 +2715,7 @@ void ScummHiResText::loadConfig(const Common::Path &gameDir, const Common::Strin
 		_haveMap = Graphics::HiResFontMap::loadMapFile(mapPath, qualifiers, Graphics::kHiResKeysScumm, _map, p2opts);
 		for (uint i = 0; i < _map.warnings.size(); ++i)
 			_shownWarnings.push_back(_map.warnings[i]);
-		debug(1, "SCUMM: hi-res map %s: '%s'%s", _haveMap ? "read" : "REJECTED",
+		debug("SCUMM: hi-res map %s: '%s'%s", _haveMap ? "read" : "REJECTED",
 			  mapPath.toString().c_str(), _ini.mapSet ? " (from the config)" : " (found in the game folder)");
 	}
 
