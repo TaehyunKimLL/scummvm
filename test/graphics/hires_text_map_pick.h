@@ -48,6 +48,11 @@ class HiResMapPickTestSuite : public CxxTest::TestSuite {
 		return false;
 	}
 
+	// The binary's own faces (fonts-cjk.dat's): .OTF here.
+	static bool faceBuiltin(const Common::Path &face) {
+		return face.baseName().hasSuffixIgnoreCase(".OTF");
+	}
+
 	static void writeMap(const Common::Path &dir, const char *file, const char *face) {
 		Common::DumpFile f;
 		TS_ASSERT(f.open(dir.appendComponent(file)));
@@ -60,7 +65,7 @@ class HiResMapPickTestSuite : public CxxTest::TestSuite {
 		Common::Path path;
 		kind = Graphics::kHiResFontAuto;
 		if (!Graphics::pickHiResMap(ini, dir, Common::Array<Common::String>(), Graphics::kHiResKeysSci,
-									path, kind, notes, &faceExists))
+									path, kind, notes, &faceExists, &faceBuiltin))
 			return "";
 		return path.baseName();
 	}
@@ -205,7 +210,22 @@ public:
 		presentFaces().clear();
 		presentFaces().push_back("CJK.OTF");
 		notes.clear();
+		// Only the built-in face: every map fails pass 1, pass 2 takes the TTF map.
 		TS_ASSERT_EQUALS(pick(read(fake, warnings), dir, kind, notes), ttf ? "HIRESTTF.MAP" : "");
+		if (ttf)
+			TS_ASSERT_EQUALS(notes.back(), "no map has its own fonts; ttf map HIRESTTF.MAP draws with the built-in ones");
+		// The built-in face does not keep the SVF and bitmap maps from their turn.
+		presentFaces().push_back("AA.SVF");
+		notes.clear();
+		TS_ASSERT_EQUALS(pick(read(fake, warnings), dir, kind, notes), "hiresvf.map");
+		presentFaces().remove_at(1);
+		presentFaces().push_back("MONO.SVF");
+		notes.clear();
+		TS_ASSERT_EQUALS(pick(read(fake, warnings), dir, kind, notes), "HIRESBIT.MAP");
+		// The font pack's own face wins in pass 1.
+		presentFaces().push_back("PACK.TTF");
+		notes.clear();
+		TS_ASSERT_EQUALS(pick(read(fake, warnings), dir, kind, notes), ttf ? "HIRESTTF.MAP" : "HIRESBIT.MAP");
 		presentFaces().clear();
 		notes.clear();
 		TS_ASSERT_EQUALS(pick(read(fake, warnings), dir, kind, notes), "");
