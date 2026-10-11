@@ -418,6 +418,13 @@ public:
 	static Common::Array<Common::Path> dataRoots();
 
 	/**
+	 * Whether @p face (a resolved path) is one of the binary's own
+	 * fonts-cjk.dat faces - not a file on disk - which a map lists as the
+	 * last resort after a font pack's face.
+	 */
+	static bool isBuiltinFace(const Common::Path &face);
+
+	/**
 	 * The root folders of the file-system directories in @p set that hold
 	 * at least one file, in the set's priority order, each once. Archives
 	 * that are not folders (zips, Win32 resources) are skipped. The root

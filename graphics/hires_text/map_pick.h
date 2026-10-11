@@ -42,14 +42,23 @@ namespace Graphics {
  * @p kind set, true. False when none is left; the caller then falls back to
  * HIRESTXT.MAP and its own defaults.
  *
- * @p exists tells whether a resolved face file is there (tests pass their own).
+ * Two passes. The first counts a face only when it is the game's or a font
+ * pack's - HiResFontMap::isBuiltinFace() faces (fonts-cjk.dat's, the GUI's
+ * Korean font a map may list last) count as missing - so every kind is tried
+ * with its own fonts first: TTF, SVF, bitmap. Only when none passes does a
+ * second pass let the built-in faces count (the TTF map drawn with Noto Sans
+ * KR, typically).
+ *
+ * @p exists tells whether a resolved face file is there, @p builtin whether
+ * it is a built-in one (tests pass their own).
  * @p notes gets one line per kind tried and why it was passed over, for the
  * caller to log (a warning when the user chose the kind, else debug).
  */
 bool pickHiResMap(const HiResIniOverrides &ini, const Common::Path &gameDir,
 				  const Common::Array<Common::String> &qualifiers, const HiResEngineKeys &keys,
 				  Common::Path &mapPath, HiResFontKind &kind, Common::Array<Common::String> &notes,
-				  FontFileExistsFn exists = fontFileExists);
+				  FontFileExistsFn exists = fontFileExists,
+				  FontFileExistsFn builtin = HiResFontMap::isBuiltinFace);
 
 } // End of namespace Graphics
 

@@ -127,8 +127,10 @@ namespace {
  * first time a data: path is looked for among the archives; found where
  * Graphics::loadTTFFontFromArchive() finds it (the extrapath, then SearchMan).
  */
+const char *const kCjkArchiveName = "hires_text:fonts-cjk.dat";
+
 void mountCjkFontArchive() {
-	static const char *const kArchiveName = "hires_text:fonts-cjk.dat";
+	static const char *const kArchiveName = kCjkArchiveName;
 	if (SearchMan.hasArchive(kArchiveName))
 		return;
 	Common::SeekableReadStream *stream = nullptr;
@@ -146,6 +148,13 @@ void mountCjkFontArchive() {
 }
 
 } // End of anonymous namespace
+
+bool HiResFontMap::isBuiltinFace(const Common::Path &face) {
+	if (Common::FSNode(face).exists())
+		return false;
+	const Common::Archive *archive = SearchMan.getArchive(kCjkArchiveName);
+	return archive && archive->hasFile(face);
+}
 
 Common::Path HiResFontMap::resolveDataPath(const Common::String &relative,
 										   const Common::Array<Common::Path> &roots,
