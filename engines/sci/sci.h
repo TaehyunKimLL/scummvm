@@ -409,6 +409,13 @@ public:
 	 */
 	Common::String translated(const Common::String &str, const ScriptStrings::Key &key = ScriptStrings::Key()) const;
 
+	/**
+	 * translated() for a string that lives at @p ptr on the heap, keyed the
+	 * way strSplitHeap() keys it. For callers that keep the text and split
+	 * it later (the menu bar), so a translation replaces it up front.
+	 */
+	Common::String translatedHeap(reg_t ptr, const Common::String &str);
+
 	// Check if vocabulary needs to get switched (in multilingual parser games)
 	void checkVocabularySwitch();
 
