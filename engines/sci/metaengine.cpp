@@ -719,22 +719,19 @@ Common::KeymapArray SciMetaEngine::initKeymaps(const char *target) const {
 	// other SCI game has no use for into the keymap editor, and would let
 	// a stray binding swallow a key in a game that never wanted one.
 	//
-	// hasKey first: the key has no registered default, and getBool on a
-	// missing key is a fatal error rather than a false.
-	if (!ConfMan.hasKey("sci_hangul_input", target) ||
-		!ConfMan.getBool("sci_hangul_input", target)) {
+	// confManGameBool, not getBool: the key has no registered default (a
+	// missing key is a fatal error for getBool), and --set=sci_hangul_input=
+	// on the command line wins over the target's section.
+	if (!Graphics::confManGameBool("sci_hangul_input", target, false))
 		return keymaps;
-	}
 
 	// No toggle to bind when the built-in composer is off (the default on
 	// Android, where the system keyboard supplies Hangul).
 #ifdef ANDROID_BACKEND
-	if (!ConfMan.hasKey("sci_hangul_builtin", target) ||
-		!ConfMan.getBool("sci_hangul_builtin", target))
+	if (!Graphics::confManGameBool("sci_hangul_builtin", target, false))
 		return keymaps;
 #else
-	if (ConfMan.hasKey("sci_hangul_builtin", target) &&
-		!ConfMan.getBool("sci_hangul_builtin", target))
+	if (!Graphics::confManGameBool("sci_hangul_builtin", target, true))
 		return keymaps;
 #endif
 

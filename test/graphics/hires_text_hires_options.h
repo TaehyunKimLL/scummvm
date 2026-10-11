@@ -273,6 +273,40 @@ public:
 		ConfMan.removeGameDomain("hrconf-test");
 	}
 
+	// A command-line value (the transient domain) wins over the game's
+	// section, but only for the game that runs: another target's options
+	// still show that target's own values.
+	void test_command_line_wins_for_the_running_game() {
+		ConfMan.addGameDomain("hrcli-test");
+		ConfMan.addGameDomain("hrcli-other");
+		ConfMan.set("hires_text_map", "HIRESVF.MAP", "hrcli-test");
+		ConfMan.set("hires_text_map", "OTHER.MAP", "hrcli-other");
+		ConfMan.set("sci_hangul_input", "true", "hrcli-test");
+		ConfMan.setActiveDomain("hrcli-test");
+		ConfMan.set("hires_text_map", "HIRESBIT.MAP", Common::ConfigManager::kTransientDomain);
+		ConfMan.set("sci_hangul_input", "false", Common::ConfigManager::kTransientDomain);
+
+		Common::String value;
+		TS_ASSERT(Graphics::confManGameValue("hires_text_map", "hrcli-test", value));
+		TS_ASSERT_EQUALS(value, "HIRESBIT.MAP");
+		TS_ASSERT(Graphics::confManGameValue("hires_text_map", "hrcli-other", value));
+		TS_ASSERT_EQUALS(value, "OTHER.MAP");
+		TS_ASSERT(!Graphics::confManGameBool("sci_hangul_input", "hrcli-test", true));
+		TS_ASSERT(!Graphics::confManGameValue("hires_text_face", "hrcli-test", value));
+		TS_ASSERT_EQUALS(value, "OTHER.MAP");   // untouched when unset
+		TS_ASSERT(Graphics::confManGameBool("hires_text_face", "hrcli-test", true));   // fallback
+
+		Common::Array<Common::String> warnings;
+		const Graphics::HiResIniOverrides ini = Graphics::readHiResIniFromConfMan("hrcli-test", warnings);
+		TS_ASSERT_EQUALS(ini.map, "HIRESBIT.MAP");
+
+		ConfMan.removeKey("hires_text_map", Common::ConfigManager::kTransientDomain);
+		ConfMan.removeKey("sci_hangul_input", Common::ConfigManager::kTransientDomain);
+		ConfMan.setActiveDomain("");
+		ConfMan.removeGameDomain("hrcli-test");
+		ConfMan.removeGameDomain("hrcli-other");
+	}
+
 	void test_default_map_in_the_game_folder() {
 #if NULL_OSYSTEM_IS_AVAILABLE
 		Common::install_null_g_system();

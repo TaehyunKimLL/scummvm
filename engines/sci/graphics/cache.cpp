@@ -39,6 +39,7 @@
 #include "graphics/hires_text/font_face.h"
 #include "graphics/hires_text/font_value.h"
 #include "graphics/hires_text/glyph_source_file.h"
+#include "graphics/hires_text/hires_options.h"
 #include "graphics/hires_text/glyph_source_fallback.h"
 #include "graphics/hires_text/glyph_source_ranged.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
@@ -839,8 +840,7 @@ bool GfxCache::isTextLogEnabled() {
 		// logging is useful on an English game too, which the predicate
 		// would otherwise refuse hires_text_face itself on.
 		const Common::String &domain = ConfMan.getActiveDomainName();
-		_textLog = ConfMan.hasKey("hires_text_log", domain) &&
-				   ConfMan.getBool("hires_text_log", domain);
+		_textLog = Graphics::confManGameBool("hires_text_log", domain, false);
 	}
 	return _textLog;
 }

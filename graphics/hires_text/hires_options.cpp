@@ -430,14 +430,33 @@ HiResIniOverrides readHiResIni(HiResIniGetFn get, void *ctx, Common::Array<Commo
 	return out;
 }
 
+bool confManGameValue(const char *key, const Common::String &domain, Common::String &value) {
+	if (!domain.empty() && domain == ConfMan.getActiveDomainName() &&
+		ConfMan.hasKey(key, Common::ConfigManager::kTransientDomain)) {
+		value = ConfMan.get(key, Common::ConfigManager::kTransientDomain);
+		return true;
+	}
+	if (ConfMan.hasKey(key, domain)) {
+		value = ConfMan.get(key, domain);
+		return true;
+	}
+	return false;
+}
+
+bool confManGameBool(const char *key, const Common::String &domain, bool fallback) {
+	Common::String value;
+	bool b;
+	if (confManGameValue(key, domain, value) && Common::parseBool(value, b))
+		return b;
+	return fallback;
+}
+
 namespace {
 
 bool confManGet(const char *key, bool globalFallback, Common::String &value, void *ctx) {
 	const Common::String &gameDomain = *static_cast<const Common::String *>(ctx);
-	if (ConfMan.hasKey(key, gameDomain)) {
-		value = ConfMan.get(key, gameDomain);
+	if (confManGameValue(key, gameDomain, value))
 		return true;
-	}
 	if (globalFallback && ConfMan.hasKey(key, Common::ConfigManager::kApplicationDomain)) {
 		value = ConfMan.get(key, Common::ConfigManager::kApplicationDomain);
 		return true;
@@ -478,13 +497,14 @@ bool hiResTextEnabled(const Common::String &domain) {
 }
 
 bool hiResTextNamed(const Common::String &domain) {
-	if (ConfMan.hasKey("hires_text_face", domain))
+	Common::String value;
+	if (confManGameValue("hires_text_face", domain, value))
 		return true;
-	if (ConfMan.hasKey("hires_text_map", domain))
-		return !ConfMan.get("hires_text_map", domain).empty();
-	if (!ConfMan.hasKey("path", domain))
+	if (confManGameValue("hires_text_map", domain, value))
+		return !value.empty();
+	if (!confManGameValue("path", domain, value))
 		return false;
-	return !findDefaultHiResMap(ConfMan.getPath("path", domain)).empty();
+	return !findDefaultHiResMap(Common::Path::fromConfig(value)).empty();
 }
 
 bool hiResTextConfigured(const Common::String &domain) {
