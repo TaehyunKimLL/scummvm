@@ -102,6 +102,11 @@ static uint16 jamoForKey(char key) {
 		if (kKeyMap[i].key == key)
 			return kKeyMap[i].jamo;
 	}
+	// A shifted key with no shifted jamo of its own types the unshifted one,
+	// as every two-beolsik IME does (Shift+A is still ㅁ). Caps Lock and an
+	// on-screen keyboard left in its shift layout then still type Hangul.
+	if (key >= 'A' && key <= 'Z')
+		return jamoForKey(key - 'A' + 'a');
 	return 0;
 }
 

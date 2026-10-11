@@ -90,6 +90,8 @@ public:
 	static bool isConnectionLimited();
 	static void showVirtualKeyboard(bool enable);
 	static void showOnScreenControls(int enableMask);
+	static void setSystemKeyboard(bool enable);
+	static void setHangulKeyboard(int mode);
 	static void setTouchMode(int touchMode);
 	static int getTouchMode();
 	static void setOrientation(int touchMode);
@@ -154,6 +156,8 @@ private:
 	static jmethodID _MID_setWindowCaption;
 	static jmethodID _MID_showVirtualKeyboard;
 	static jmethodID _MID_showOnScreenControls;
+	static jmethodID _MID_setSystemKeyboard;
+	static jmethodID _MID_setHangulKeyboard;
 	static jmethodID _MID_setTouchMode;
 	static jmethodID _MID_getTouchMode;
 	static jmethodID _MID_setOrientation;

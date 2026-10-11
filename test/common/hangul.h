@@ -87,6 +87,16 @@ public:
 		assertText("gksrmf", "D55C AE00");
 	}
 
+	void test_shifted_key_without_its_own_jamo_types_the_unshifted_one() {
+		// `DKSSUD` -> 안녕: only QWERTOP have shifted jamo; the other capitals
+		// are the plain ones, so Caps Lock does not drop out of Hangul.
+		assertText("DKSSUD", "C548 B155");
+		// Q still gives the tense ㅃ, not ㅂ: `Qk` -> 빠.
+		assertText("Qk", "BE60");
+		TS_ASSERT(Common::HangulComposer::isJamoKey('A'));
+		TS_ASSERT(!Common::HangulComposer::isJamoKey('1'));
+	}
+
 	void test_lone_vowel_then_consonant_keeps_both() {
 		// `kr` -> ㅏㄱ. A vowel with no initial cannot take a final; the
 		// consonant used to be stored as one and then vanished.

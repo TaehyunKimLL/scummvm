@@ -114,6 +114,10 @@ public abstract class ScummVM implements SurfaceHolder.Callback,
 	/** @noinspection unused */ @Keep
 	abstract protected void showOnScreenControls(int enableMask);
 	/** @noinspection unused */ @Keep
+	abstract protected void setSystemKeyboard(boolean enable);
+	/** @noinspection unused */ @Keep
+	abstract protected void setHangulKeyboard(int mode);
+	/** @noinspection unused */ @Keep
 	abstract protected void setTouchMode(int touchMode);
 	/** @noinspection unused */ @Keep
 	abstract protected int getTouchMode();

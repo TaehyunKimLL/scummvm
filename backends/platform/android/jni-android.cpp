@@ -94,6 +94,8 @@ jmethodID JNI::_MID_isConnectionLimited = 0;
 jmethodID JNI::_MID_setWindowCaption = 0;
 jmethodID JNI::_MID_showVirtualKeyboard = 0;
 jmethodID JNI::_MID_showOnScreenControls = 0;
+jmethodID JNI::_MID_setSystemKeyboard = 0;
+jmethodID JNI::_MID_setHangulKeyboard = 0;
 jmethodID JNI::_MID_setTouchMode = 0;
 jmethodID JNI::_MID_getTouchMode = 0;
 jmethodID JNI::_MID_setOrientation = 0;
@@ -434,6 +436,32 @@ void JNI::showOnScreenControls(int enableMask) {
 
 	if (env->ExceptionCheck()) {
 		LOGE("Error trying to show on screen controls");
+
+		env->ExceptionDescribe();
+		env->ExceptionClear();
+	}
+}
+
+void JNI::setSystemKeyboard(bool enable) {
+	JNIEnv *env = JNI::getEnv();
+
+	env->CallVoidMethod(_jobj, _MID_setSystemKeyboard, enable);
+
+	if (env->ExceptionCheck()) {
+		LOGE("Error trying to choose the on-screen keyboard");
+
+		env->ExceptionDescribe();
+		env->ExceptionClear();
+	}
+}
+
+void JNI::setHangulKeyboard(int mode) {
+	JNIEnv *env = JNI::getEnv();
+
+	env->CallVoidMethod(_jobj, _MID_setHangulKeyboard, mode);
+
+	if (env->ExceptionCheck()) {
+		LOGE("Error trying to set the Korean keyboard layout");
 
 		env->ExceptionDescribe();
 		env->ExceptionClear();
@@ -807,6 +835,8 @@ void JNI::create(JNIEnv *env, jobject self, jobject asset_manager,
 	FIND_METHOD(, setWindowCaption, "(Ljava/lang/String;)V");
 	FIND_METHOD(, showVirtualKeyboard, "(Z)V");
 	FIND_METHOD(, showOnScreenControls, "(I)V");
+	FIND_METHOD(, setSystemKeyboard, "(Z)V");
+	FIND_METHOD(, setHangulKeyboard, "(I)V");
 	FIND_METHOD(, setTouchMode, "(I)V");
 	FIND_METHOD(, getTouchMode, "()I");
 	FIND_METHOD(, setOrientation, "(I)V");
