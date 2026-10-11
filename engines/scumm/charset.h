@@ -242,19 +242,21 @@ protected:
 public:
 	/**
 	 * What printChar() leaves of the game glyph's offsets for a Latin glyph
-	 * the hi-res layer places itself: stepped by a TrueType face (@p faceStep:
-	 * no offsX, the charset's shared @p lineOffsY) or by the origin rule of
-	 * a bitmap face (@p baselineFace, origin=face: neither, the baked
-	 * baseline is the only placement). Neither: the game's stay. Inline,
-	 * as glyphOffset() is, so a unit test needs no engine to link.
+	 * the hi-res layer places itself: placed by the origin rule (@p
+	 * baselineFace, origin=face: neither offset - the face's baseline, the
+	 * one the Hangul beside it stands on, is the only placement, for a
+	 * bitmap and a TrueType face alike) or else stepped by a TrueType face
+	 * (@p faceStep: no offsX, the charset's shared @p lineOffsY). Neither:
+	 * the game's stay. Inline, as glyphOffset() is, so a unit test needs no
+	 * engine to link.
 	 */
 	static void latinGlyphOffsets(bool faceStep, bool baselineFace, int lineOffsY, int &offsX, int &offsY) {
-		if (faceStep) {
-			offsX = 0;
-			offsY = lineOffsY;
-		} else if (baselineFace) {
+		if (baselineFace) {
 			offsX = 0;
 			offsY = 0;
+		} else if (faceStep) {
+			offsX = 0;
+			offsY = lineOffsY;
 		}
 	}
 

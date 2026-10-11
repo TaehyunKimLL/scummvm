@@ -1561,8 +1561,12 @@ bool ScummHiResText::latinBaselineByFace(int chr, int charsetId) const {
 		return false;
 	bool declined = false;
 	Graphics::UnicodeGlyphSource *src = faceForCodePoint(id, (uint32)chr, cp, declined);
-	if (!src || isSourceTtf(src))
-		return false; // a TrueType face is handled by latinStepsByFace(); the space has no ink to place
+	if (!src)
+		return false;
+	// A TrueType face too: without origin=face it already drops the glyph's
+	// offsX and keeps the charset's shared line offset (latinStepsByFace());
+	// with it, it stands on its own baseline like a bitmap face. The space
+	// has no ink to place.
 	if (!glyphInk(src, cp, nullptr))
 		return false;
 	return _plans[id].originFor(cp) == Graphics::kHiResOriginFace;
