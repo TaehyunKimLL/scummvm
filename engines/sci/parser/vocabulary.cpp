@@ -941,6 +941,29 @@ bool Vocabulary::arrangeTokens(const Common::Array<ResultWordList> &tok, const C
 	return rolePhrases;
 }
 
+Common::String Vocabulary::englishLine(const ResultWordListList &words) const {
+	Common::String line;
+	for (ResultWordListList::const_iterator t = words.begin(); t != words.end(); ++t) {
+		if (t->empty())
+			return Common::String();
+		const int group = t->front()._group;
+		Common::String best;
+		for (WordMap::const_iterator w = _parserWords.begin(); w != _parserWords.end(); ++w) {
+			for (ResultWordList::const_iterator r = w->_value.begin(); r != w->_value.end(); ++r) {
+				if (r->_group == group && (best.empty() || w->_key.size() < best.size() ||
+				                           (w->_key.size() == best.size() && w->_key < best)))
+					best = w->_key;
+			}
+		}
+		if (best.empty())
+			return Common::String();
+		if (!line.empty())
+			line += ' ';
+		line += best;
+	}
+	return line;
+}
+
 bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence, char **error) {
 	char currentWord[VOCAB_MAX_WORDLENGTH] = "";
 	int pos_in_sentence = 0;
