@@ -896,6 +896,24 @@ public:
 		TS_ASSERT(!ctl.contains("eventKey >= 0x100"));
 	}
 
+	// Only text from an input method counts: it comes with no key code
+	// (SDL TEXTINPUT, Android's committed text). SDL's mapKey() also puts
+	// the arrow and page keys' own key codes (273..281) and F1..F12 (315..)
+	// into ascii; taking those for code points turned the cursor keys into
+	// the surrogate letter 'x' on Windows.
+	void test_only_keyless_text_is_an_os_ime_character() {
+		TS_ASSERT(Sci::EventManager::isOsImeCharacter(Common::KeyState(Common::KEYCODE_INVALID, 0xBCC0)));  // 변
+		TS_ASSERT(Sci::EventManager::isOsImeCharacter(Common::KeyState(Common::KEYCODE_INVALID, 0x3131)));  // ㄱ
+		TS_ASSERT(!Sci::EventManager::isOsImeCharacter(Common::KeyState(Common::KEYCODE_UP, Common::KEYCODE_UP)));
+		TS_ASSERT(!Sci::EventManager::isOsImeCharacter(Common::KeyState(Common::KEYCODE_LEFT, Common::KEYCODE_LEFT)));
+		TS_ASSERT(!Sci::EventManager::isOsImeCharacter(Common::KeyState(Common::KEYCODE_PAGEDOWN, Common::KEYCODE_PAGEDOWN)));
+		TS_ASSERT(!Sci::EventManager::isOsImeCharacter(Common::KeyState(Common::KEYCODE_F1, Common::ASCII_F1)));
+		TS_ASSERT(!Sci::EventManager::isOsImeCharacter(Common::KeyState(Common::KEYCODE_a, 'a')));
+		TS_ASSERT(!Sci::EventManager::isOsImeCharacter(Common::KeyState(Common::KEYCODE_INVALID, 0xE9)));   // Latin-1
+		const Common::String ev = readSource("engines/sci/event.cpp");
+		TS_ASSERT(ev.contains("_lastOsImeKey = isOsImeCharacter(ev.kbd) ? ev.kbd.ascii : 0;"));
+	}
+
 	void test_review_fixes_are_in_the_edit_control() {
 		const Common::String ctl = readSource("engines/sci/graphics/controls16.cpp");
 		// composed text goes in at the cursor, not at the end of the line

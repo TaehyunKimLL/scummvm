@@ -22,6 +22,7 @@
 #ifndef SCI_EVENT_H
 #define SCI_EVENT_H
 
+#include "common/keyboard.h"
 #include "common/list.h"
 #include "common/rect.h"
 
@@ -216,6 +217,17 @@ public:
 	 * in the line the letter just opened and in one already open.
 	 */
 	enum { kOsImeSurrogateKey = 'x' };
+
+	/**
+	 * Whether @p kbd is a character from an operating-system input method:
+	 * a code point above Latin-1 that came with no key code (SDL's
+	 * TEXTINPUT, Android's committed text). SDL's mapKey() also gives the
+	 * arrow and page keys their own key code (273..281) and F1..F12
+	 * 315 and up as ascii; those are keys, not characters.
+	 */
+	static bool isOsImeCharacter(const Common::KeyState &kbd) {
+		return kbd.keycode == Common::KEYCODE_INVALID && kbd.ascii >= 0x100;
+	}
 
 private:
 	SciEvent getScummVMEvent();
