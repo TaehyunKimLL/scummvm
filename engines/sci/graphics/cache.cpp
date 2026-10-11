@@ -632,7 +632,7 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(GuiResourceId fontId, FontS
 	cached.top = firstTop;
 	cached.declinedTargets = failedTargetCodes;
 
-	debug(1, "SCI: font %d hi-res chain %s (%u faces%s)", fontId, chainName.c_str(), (uint)unionPaths.size(),
+	debug("SCI: font %d hi-res chain %s (%u faces%s)", fontId, chainName.c_str(), (uint)unionPaths.size(),
 		  uniNormalized ? ", then the .uni fonts" : "");
 	return ranged;
 }

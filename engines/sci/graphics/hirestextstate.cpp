@@ -131,6 +131,8 @@ void HiresTextState::load(bool applies) {
 
 		if (_haveMapPath) {
 			_mapDir = _mapPath.getParent();
+			// Which map, on the console whatever the debug level.
+			debug("SCI: hi-res text map: %s", _mapPath.toString().c_str());
 
 			// Phase 1: no target sections, quiet. GfxCache's phase-2 load
 			// reports every warning of a map that loads; a refused map is
