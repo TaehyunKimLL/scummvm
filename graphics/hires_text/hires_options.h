@@ -290,6 +290,9 @@ Common::Path findDefaultHiResMap(const Common::Path &gameDir);
 /** `ttf`, `svf`, `bitmap` (`auto` for kHiResFontAuto): the hires_text_font values. */
 const char *hiResFontKindName(HiResFontKind kind);
 
+/** Parse a hires_text_font value (auto, ttf, svf, bitmap; any case). */
+bool parseHiResFontKind(const Common::String &value, HiResFontKind &kind);
+
 /** `hires_text_map_ttf` ...: the ini key that renames @p kind's map (not auto). */
 const char *hiResFontKindMapKey(HiResFontKind kind);
 

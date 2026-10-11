@@ -20,6 +20,7 @@
  */
 
 #include "gui/editgamedialog.h"
+#include "graphics/hires_text/hires_options.h"
 
 #include "backends/keymapper/keymapper.h"
 #include "graphics/hotspot_renderer.h"
@@ -174,7 +175,9 @@ EditGameDialog::EditGameDialog(const Common::String &domain)
 		_globalGraphicsOverride = new CheckboxWidget(graphicsContainer, "GameOptions_Graphics_Container.EnableTabCheckbox", _c("Override global graphic settings", "lowres"), Common::U32String(), kCmdGlobalGraphicsOverride);
 
 	// The "Hi-res text screen" popup only for a game that draws hi-res text.
-	_hiResTargetAllowed = enginePlugin && enginePlugin->get<MetaEngine>().hasHiResText(_domain);
+	// Also while hi-res text is switched off for the game, so it can be switched back on.
+	_hiResTargetAllowed = enginePlugin && (enginePlugin->get<MetaEngine>().hasHiResText(_domain) ||
+										   Graphics::hiResTextNamed(_domain));
 	addGraphicControls(graphicsContainer, "GameOptions_Graphics_Container.");
 
 	//

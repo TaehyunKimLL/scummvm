@@ -209,6 +209,9 @@ void OptionsDialog::init() {
 	_hiResTargetAllowed = true;
 	_hiResTargetPopUp = nullptr;
 	_hiResTargetPopUpDesc = nullptr;
+	_hiResTextCheckbox = nullptr;
+	_hiResFontPopUpDesc = nullptr;
+	_hiResFontPopUp = nullptr;
 	_rotationModePopUp = nullptr;
 	_rotationModePopUpDesc = nullptr;
 	_stretchPopUp = nullptr;
@@ -351,6 +354,7 @@ void OptionsDialog::build() {
 
 		if (_hiResTargetPopUp)
 			loadHiResTargetPopUp();
+		loadHiResTextControls();
 
 		if (g_system->hasFeature(OSystem::kFeatureRotationMode)) {
 			_rotationModePopUp->setSelected(0);
@@ -807,6 +811,11 @@ void OptionsDialog::apply() {
 		}
 	}
 
+	// Hi-res text on/off and the map's font kind: this game's own choice,
+	// saved whatever "Override global graphic settings" says.
+	if (saveHiResTextControls())
+		hiResTargetChanged = true;
+
 	Common::Path previousShader;
 
 	// Shader options
@@ -1145,7 +1154,7 @@ void OptionsDialog::apply() {
 
 	// The screen format is chosen when the game starts.
 	if (hiResTargetChanged && g_engine) {
-		GUI::MessageDialog dialog(_("The hi-res text screen changes the next time the game starts."));
+		GUI::MessageDialog dialog(_("The hi-res text settings change the next time the game starts."));
 		dialog.runModal();
 	}
 }
@@ -1303,6 +1312,42 @@ void OptionsDialog::loadHiResTargetPopUp() {
 	for (uint i = 0; i < entries.size(); ++i)
 		_hiResTargetPopUp->appendEntry(renderTargetLabel(entries[i]), entries[i].target);
 	_hiResTargetPopUp->setSelectedTag(storedSet ? stored : Graphics::kHiResTargetAuto);
+}
+
+void OptionsDialog::loadHiResTextControls() {
+	if (_hiResTextCheckbox)
+		_hiResTextCheckbox->setState(Graphics::hiResTextEnabled(_domain));
+	if (_hiResFontPopUp) {
+		Graphics::HiResFontKind kind = Graphics::kHiResFontAuto;
+		if (ConfMan.hasKey("hires_text_font", _domain))
+			Graphics::parseHiResFontKind(ConfMan.get("hires_text_font", _domain), kind);
+		_hiResFontPopUp->setSelectedTag(kind);
+	}
+}
+
+bool OptionsDialog::saveHiResTextControls() {
+	bool changed = false;
+	if (_hiResTextCheckbox) {
+		const bool on = _hiResTextCheckbox->getState();
+		if (on != Graphics::hiResTextEnabled(_domain)) {
+			ConfMan.setBool("hires_text", on, _domain);
+			changed = true;
+		}
+	}
+	if (_hiResFontPopUp) {
+		const Graphics::HiResFontKind kind = (Graphics::HiResFontKind)_hiResFontPopUp->getSelectedTag();
+		Graphics::HiResFontKind stored = Graphics::kHiResFontAuto;
+		if (ConfMan.hasKey("hires_text_font", _domain))
+			Graphics::parseHiResFontKind(ConfMan.get("hires_text_font", _domain), stored);
+		if (kind != stored) {
+			if (kind == Graphics::kHiResFontAuto)
+				ConfMan.removeKey("hires_text_font", _domain);
+			else
+				ConfMan.set("hires_text_font", Graphics::hiResFontKindName(kind), _domain);
+			changed = true;
+		}
+	}
+	return changed;
 }
 
 void OptionsDialog::setGraphicSettingsState(bool enabled) {
@@ -1694,6 +1739,21 @@ void OptionsDialog::addGraphicControls(GuiObject *boss, const Common::String &pr
 			if (ConfMan.isKeyTemporary("render_target"))
 				_hiResTargetPopUpDesc->setFontColor(ThemeEngine::FontColor::kFontColorOverride);
 			_hiResTargetPopUp = new PopUpWidget(boss, prefix + "grHiResTargetPopup", tooltip);
+		}
+
+		_hiResTextCheckbox = new CheckboxWidget(boss, prefix + "grHiResTextCheckbox", _("Hi-res text"),
+			_("Draw the game's text with the hi-res fonts of its map; off, the game's own font draws it. "
+			  "Takes effect the next time the game starts."));
+		if (_domain != Common::ConfigManager::kApplicationDomain) {
+			const Common::U32String fontTip = _("Which of the game folder's maps draws the hi-res text. Auto takes the first "
+												"whose fonts are there: TrueType, then the anti-aliased bitmap fonts, then the "
+												"1-bit ones. Takes effect the next time the game starts.");
+			_hiResFontPopUpDesc = new StaticTextWidget(boss, prefix + "grHiResFontPopupDesc", _("Hi-res text font:"), fontTip);
+			_hiResFontPopUp = new PopUpWidget(boss, prefix + "grHiResFontPopup", fontTip);
+			_hiResFontPopUp->appendEntry(_("Auto"), Graphics::kHiResFontAuto);
+			_hiResFontPopUp->appendEntry(_("TrueType (HIRESTTF.MAP)"), Graphics::kHiResFontTtf);
+			_hiResFontPopUp->appendEntry(_("Anti-aliased bitmap (HIRESVF.MAP)"), Graphics::kHiResFontSvf);
+			_hiResFontPopUp->appendEntry(_("1-bit bitmap (HIRESBIT.MAP)"), Graphics::kHiResFontBitmap);
 		}
 	}
 
