@@ -89,7 +89,7 @@ public:
 	 * @p lines (in bundle order). The body is read once, in order and
 	 * SCUMM_TRS_SCAN_BLOCK bytes at a time, for the index of the originals;
 	 * @p seen, if given, is handed each translation on the way (its end
-	 * included). False, with @p file deleted and nothing kept, if a read
+	 * included) - except a line's that is its original's own bytes. False, with @p file deleted and nothing kept, if a read
 	 * fails or the originals are not in sorted order (the caller then keeps
 	 * the body in memory, as before).
 	 */
@@ -122,7 +122,11 @@ public:
 				readFailed = _readFailed;
 				break;
 			}
-			if (seen && _lines[i].trans < _bodySize && readString(_lines[i].trans, trans))
+			// A line left untranslated - the original's own bytes - is not
+			// text for the hi-res layer: bundles carry the game's data strings
+			// that way (Indy 4's puzzle grids), whose high bytes are no text.
+			if (seen && _lines[i].trans < _bodySize && readString(_lines[i].trans, trans) &&
+				!(trans.size() == cur.size() && !memcmp(trans.begin(), cur.begin(), cur.size())))
 				seen(seenCtx, trans.begin(), trans.size());
 			hashes[i] = hash(cur.begin(), cur.size());
 			if (i > 0) {

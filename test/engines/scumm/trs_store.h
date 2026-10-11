@@ -237,6 +237,24 @@ public:
 		TS_ASSERT(store.stats().used <= store.stats().capacity);
 	}
 
+	// A line left untranslated (its translation the original's own bytes) is
+	// not handed over: those are the game's data strings - Indy 4's puzzle
+	// grids and tables - whose high bytes decode as nonsense in the bundle's
+	// code page and sent bogus characters to the hi-res layer's coverage check.
+	void test_open_skips_lines_whose_translation_is_the_original() {
+		Fixture f;
+		build(f, 40);
+		f.lines[5].trans = f.lines[5].orig;
+		f.lines[11].trans = f.lines[11].orig;
+		Common::Array<Common::Array<byte> > seen;
+		Scumm::TrsStore store;
+		TS_ASSERT(store.open(streamOf(f.body, 0), 0, f.body.size(), f.lines.begin(), f.lines.size(), 5, 0, "q.trs",
+							 SCUMM_TRS_CACHE_KB * 1024, &countSeen, &seen));
+		TS_ASSERT_EQUALS(seen.size(), f.lines.size() - 2);
+		for (uint i = 0; i < seen.size(); ++i)
+			TS_ASSERT_EQUALS(seen[i][0], (byte)'T');	// every translation the fixture made
+	}
+
 	void test_a_small_cache_keeps_to_its_size() {
 		Fixture f;
 		build(f, 300);

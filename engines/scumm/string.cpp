@@ -2668,8 +2668,15 @@ void ScummEngine::loadLanguageBundle() {
 	if (_hiResText.enabled() && !_trsStore) {
 		for (int i = 0; i < _numTranslatedLines; i++) {
 			const uint32 off = _translatedLines[i].translatedTextOffset;
-			if (off < bodySize)
-				_hiResText.noteTranslatedString(_languageBuffer + off, bodySize - off);
+			const uint32 orig = _translatedLines[i].originalTextOffset;
+			if (off >= bodySize)
+				continue;
+			// A line left untranslated is the game's own bytes (data strings
+			// such as Indy 4's puzzle grids), not text: as TrsStore::open().
+			if (orig < bodySize && !strncmp((const char *)_languageBuffer + orig, (const char *)_languageBuffer + off,
+											bodySize - MAX(orig, off)))
+				continue;
+			_hiResText.noteTranslatedString(_languageBuffer + off, bodySize - off);
 		}
 	}
 
