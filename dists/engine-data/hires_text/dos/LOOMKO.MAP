@@ -29,6 +29,10 @@ cs2=LOOML2.SVF
 missing=u+25a1
 range.basic-latin=same
 advance.basic-latin=font
+# The baked SVF already sets the baseline the Hangul stands on: drop the game
+# glyph's own offsets for Latin and punctuation, or ':' '.' sit low (Indy 4's credits).
+origin.basic-latin=face
+origin.general-punctuation=face
 
 [font.1]
 face=cs1
