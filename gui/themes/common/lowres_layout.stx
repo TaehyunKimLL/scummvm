@@ -614,6 +614,19 @@
 				/>
 			</layout>
 			<layout type = 'horizontal' padding = '0, 0, 0, 0' spacing = '6' align = 'center'>
+				<widget name = 'grHiResTextCheckbox'
+						type = 'Checkbox'
+				/>
+			</layout>
+			<layout type = 'horizontal' padding = '0, 0, 0, 0' spacing = '6' align = 'center'>
+				<widget name = 'grHiResFontPopupDesc'
+						type = 'OptionsLabel'
+				/>
+				<widget name = 'grHiResFontPopup'
+						type = 'PopUp'
+				/>
+			</layout>
+			<layout type = 'horizontal' padding = '0, 0, 0, 0' spacing = '6' align = 'center'>
 				<widget name = 'grRotationModePopupDesc'
 						type = 'OptionsLabel'
 				/>

@@ -351,7 +351,7 @@ HiResIniOverrides::HiResIniOverrides() :
 		kindMapSet[i] = false;
 }
 
-static bool parseFontKind(const Common::String &value, HiResFontKind &kind) {
+bool parseHiResFontKind(const Common::String &value, HiResFontKind &kind) {
 	static const HiResFontKind kAll[] = { kHiResFontAuto, kHiResFontTtf, kHiResFontSvf, kHiResFontBitmap };
 	for (uint i = 0; i < ARRAYSIZE(kAll); ++i) {
 		if (value.equalsIgnoreCase(hiResFontKindName(kAll[i]))) {
@@ -381,7 +381,7 @@ HiResIniOverrides readHiResIni(HiResIniGetFn get, void *ctx, Common::Array<Commo
 
 	if (get("hires_text_font", false, value, ctx)) {
 		HiResFontKind k;
-		if (parseFontKind(value, k)) {
+		if (parseHiResFontKind(value, k)) {
 			out.fontSet = true;
 			out.font = k;
 		} else {
@@ -626,7 +626,7 @@ bool hiResTextNamed(const Common::String &domain) {
 		return true;
 	HiResFontKind font = kHiResFontAuto;
 	const bool fontChosen = confManGameValue("hires_text_font", domain, value) &&
-		parseFontKind(value, font) && font != kHiResFontAuto;
+		parseHiResFontKind(value, font) && font != kHiResFontAuto;
 	if (!fontChosen && confManGameValue("hires_text_map", domain, value))
 		return !value.empty();
 	if (!confManGameValue("path", domain, value))

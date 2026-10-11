@@ -96,6 +96,21 @@ public:
 		TS_ASSERT_EQUALS(warnings.size(), 2U);
 	}
 
+	void test_kind_names_parse_back() {
+		const Graphics::HiResFontKind kinds[] = { Graphics::kHiResFontAuto, Graphics::kHiResFontTtf,
+												   Graphics::kHiResFontSvf, Graphics::kHiResFontBitmap };
+		for (uint i = 0; i < ARRAYSIZE(kinds); ++i) {
+			Graphics::HiResFontKind k = Graphics::kHiResFontBitmap;
+			TS_ASSERT(Graphics::parseHiResFontKind(Graphics::hiResFontKindName(kinds[i]), k));
+			TS_ASSERT_EQUALS(k, kinds[i]);
+		}
+		Graphics::HiResFontKind k = Graphics::kHiResFontSvf;
+		TS_ASSERT(Graphics::parseHiResFontKind("TTF", k));
+		TS_ASSERT_EQUALS(k, Graphics::kHiResFontTtf);
+		TS_ASSERT(!Graphics::parseHiResFontKind("pixel", k));
+		TS_ASSERT_EQUALS(k, Graphics::kHiResFontTtf);	// untouched
+	}
+
 	void test_order_puts_the_chosen_kind_first() {
 		const bool ttf = Graphics::hiResFontKindBuilt(Graphics::kHiResFontTtf);
 		Common::Array<Graphics::HiResFontKind> order = Graphics::hiResFontOrder(Graphics::kHiResFontAuto);

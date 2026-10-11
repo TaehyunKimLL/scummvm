@@ -132,6 +132,15 @@ protected:
 	bool _hiResTargetAllowed;
 	StaticTextWidget *_hiResTargetPopUpDesc;
 	PopUpWidget *_hiResTargetPopUp;
+	/**
+	 * "Hi-res text" (hires_text) and, in a game's options, "Hi-res text
+	 * font" (hires_text_font: which of the game folder's maps). Shown with
+	 * the popup above; unlike the other graphics settings they do not follow
+	 * "Override global graphic settings" - they are this game's choice.
+	 */
+	CheckboxWidget *_hiResTextCheckbox;
+	StaticTextWidget *_hiResFontPopUpDesc;
+	PopUpWidget *_hiResFontPopUp;
 
 	PathWidget *_shader;
 	ButtonWidget *_shaderClearButton;
@@ -182,6 +191,8 @@ private:
 	StaticTextWidget *_rotationModePopUpDesc;
 	PopUpWidget *_rotationModePopUp;
 	void loadHiResTargetPopUp();
+	void loadHiResTextControls();
+	bool saveHiResTextControls();
 
 	//
 	// Audio controls
