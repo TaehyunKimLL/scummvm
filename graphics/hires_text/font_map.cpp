@@ -24,6 +24,7 @@
 #include "common/config-manager.h"
 #include "common/formats/ini-file.h"
 #include "common/archive.h"
+#include "common/compression/unzip.h"
 #include "common/fs.h"
 #include "common/stream.h"
 #include "common/textconsole.h"
@@ -116,6 +117,36 @@ bool HiResFontMap::isSafeDataRelative(const Common::String &relative) {
 	return true;
 }
 
+namespace {
+
+/**
+ * fonts-cjk.dat - the CJK fonts ScummVM's own GUI draws Korean, Chinese and
+ * Japanese with - as an archive a data: path can name a member of
+ * (data:NotoSansKR-Bold.otf), so a map can fall back to the font the binary
+ * already carries when no font pack is there. Mounted in SearchMan the
+ * first time a data: path is looked for among the archives; found where
+ * Graphics::loadTTFFontFromArchive() finds it (the extrapath, then SearchMan).
+ */
+void mountCjkFontArchive() {
+	static const char *const kArchiveName = "hires_text:fonts-cjk.dat";
+	if (SearchMan.hasArchive(kArchiveName))
+		return;
+	Common::SeekableReadStream *stream = nullptr;
+	if (ConfMan.hasKey("extrapath")) {
+		Common::FSDirectory extrapath(ConfMan.getPath("extrapath"));
+		stream = extrapath.createReadStreamForMember("fonts-cjk.dat");
+	}
+	if (!stream)
+		stream = SearchMan.createReadStreamForMember("fonts-cjk.dat");
+	if (!stream)
+		return;
+	Common::Archive *archive = Common::makeZipArchive(stream);
+	if (archive)
+		SearchMan.add(kArchiveName, archive, -10);
+}
+
+} // End of anonymous namespace
+
 Common::Path HiResFontMap::resolveDataPath(const Common::String &relative,
 										   const Common::Array<Common::Path> &roots,
 										   FontFileExistsFn exists) {
@@ -130,8 +161,9 @@ Common::Path HiResFontMap::resolveDataPath(const Common::String &relative,
 			if (resolveFontFace(candidate, file, faceIndex, exists))
 				return candidate;
 		}
-		// No folder holds it: an archive may (the APK's assets on Android),
-		// under the relative name itself.
+		// No folder holds it: an archive may (the APK's assets on Android,
+		// fonts-cjk.dat), under the relative name itself.
+		mountCjkFontArchive();
 		Common::Path file;
 		int32 faceIndex;
 		if (resolveFontFace(rel, file, faceIndex, exists))

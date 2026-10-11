@@ -22,24 +22,72 @@
 
 #include "graphics/hires_text/map_pick.h"
 #include "graphics/hires_text/font_face.h"
-#include "graphics/hires_text/id_plan.h"
+#include "graphics/hires_text/font_value.h"
 
 namespace Graphics {
 
 namespace {
 
-struct FaceCheck {
-	FontFileExistsFn exists;
-	Common::String missing; ///< the first face that is not there
-};
+// A font value is there when it names no file at all (same, original) or
+// when any one of its files is: the entries are a fallback chain, so a map
+// may list a font pack's face first and fonts-cjk.dat's after it.
+// @p missing gets the chain as written when none of its files is there.
+bool valueAvailable(const HiResFontValue &value, FontFileExistsFn exists, Common::String &missing) {
+	bool anyFile = false;
+	Common::String written;
+	for (uint i = 0; i < value.entries.size(); ++i) {
+		const HiResFaceEntry &e = value.entries[i];
+		if (e.kind != kHiResFaceFile)
+			continue;
+		if (exists(e.path))
+			return true;
+		anyFile = true;
+		if (!written.empty())
+			written += ", ";
+		written += e.path.toString('/');
+	}
+	if (anyFile && missing.empty())
+		missing = written;
+	return !anyFile;
+}
 
-// Called for every distinct face of the map; always "no coverage", so that
-// mapHasCoverage() walks them all.
-bool noteMissingFace(const Common::Path &face, void *ctx) {
-	FaceCheck *check = static_cast<FaceCheck *>(ctx);
-	if (check->missing.empty() && !check->exists(face))
-		check->missing = face.toString('/');
-	return false;
+bool scopeAvailable(const HiResFontScope &scope, FontFileExistsFn exists, Common::String &missing) {
+	bool ok = valueAvailable(scope.face, exists, missing);
+	for (uint i = 0; i < scope.rangeValues.size(); ++i)
+		ok = valueAvailable(scope.rangeValues[i], exists, missing) && ok;
+	return ok;
+}
+
+bool glyphsAvailable(const HiResGlyphTable &table, FontFileExistsFn exists, Common::String &missing) {
+	bool ok = true;
+	for (HiResGlyphTable::const_iterator it = table.begin(); it != table.end(); ++it) {
+		const HiResGlyphRule &rule = it->_value;
+		if (rule.kind != kHiResGlyphTarget && rule.kind != kHiResGlyphTargetOffset)
+			continue;
+		HiResFontValue one;
+		one.entries.push_back(rule.face);
+		ok = valueAvailable(one, exists, missing) && ok;
+	}
+	return ok;
+}
+
+// Every font value the map (and the ini's hires_text_face) draws with.
+bool facesAvailable(const HiResMap &map, const HiResIniOverrides &ini, const Common::Path &mapDir,
+					const Common::Path &gameDir, FontFileExistsFn exists, Common::String &missing) {
+	bool ok = true;
+	if (ini.faceSet) {
+		HiResFontValue fv;
+		Common::Array<Common::String> localWarnings;
+		parseFontValue(ini.face, map.faces, mapDir, gameDir, fv, localWarnings);
+		ok = valueAvailable(fv, exists, missing) && ok;
+	}
+	ok = scopeAvailable(map.font, exists, missing) && ok;
+	for (Common::HashMap<int, HiResFontScope>::const_iterator it = map.fontIds.begin(); it != map.fontIds.end(); ++it)
+		ok = scopeAvailable(it->_value, exists, missing) && ok;
+	ok = glyphsAvailable(map.glyphs, exists, missing) && ok;
+	for (Common::HashMap<int, HiResGlyphTable>::const_iterator it = map.glyphIds.begin(); it != map.glyphIds.end(); ++it)
+		ok = glyphsAvailable(it->_value, exists, missing) && ok;
+	return ok;
 }
 
 } // End of anonymous namespace
@@ -74,12 +122,10 @@ bool pickHiResMap(const HiResIniOverrides &ini, const Common::Path &gameDir,
 			continue;
 		}
 
-		FaceCheck check;
-		check.exists = exists;
-		mapHasCoverage(map, true, ini, path.getParent(), gameDir, &noteMissingFace, &check);
-		if (!check.missing.empty()) {
+		Common::String missing;
+		if (!facesAvailable(map, ini, path.getParent(), gameDir, exists, missing)) {
 			notes.push_back(Common::String::format("%s map %s: face %s is missing", hiResFontKindName(k), name.c_str(),
-												   check.missing.c_str()));
+												   missing.c_str()));
 			continue;
 		}
 
