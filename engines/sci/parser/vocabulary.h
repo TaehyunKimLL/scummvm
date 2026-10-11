@@ -431,6 +431,9 @@ public:
 	Common::String englishLine(const ResultWordListList &words) const;
 
 private:
+	/** A bare topic after ask/tell gets the game's "about" (펜러스 물어봐). */
+	void koreanAskAbout(ResultWordListList &words) const;
+
 	/** Two adjacent Korean words the map knows as one (물을 내린다) become one. */
 	Common::String joinKoreanPairs(const char *sentence) const;
 
