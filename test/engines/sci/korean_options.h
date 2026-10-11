@@ -57,12 +57,10 @@ public:
 		Common::String me = readSource("engines/sci/metaengine.cpp");
 		TS_ASSERT(me.contains("for (const HangulOptionsMap *entry = hangulOptionsList; entry->configOption; ++entry)\n\t\tConfMan.registerDefault"));
 
-		// Built-in composer: on everywhere except Android, as in event.cpp.
+		// Built-in composer: on everywhere (Android included), as in event.cpp.
 		Common::String dlg = readSource("engines/sci/dialogs.cpp");
-		const int android = dlg.find("#ifdef ANDROID_BACKEND\n\t\tfalse,\n#else\n\t\ttrue,\n#endif");
-		const int key = dlg.find("\"sci_hangul_builtin\",");
-		TS_ASSERT_LESS_THAN(0, android);
-		TS_ASSERT_LESS_THAN(key, android);
+		TS_ASSERT(dlg.contains("\"sci_hangul_builtin\",\n\t\ttrue,"));
+		TS_ASSERT(!dlg.contains("ANDROID_BACKEND"));
 
 		// Input and start are off by default.
 		TS_ASSERT(dlg.contains("\"sci_hangul_input\",\n\t\tfalse,"));

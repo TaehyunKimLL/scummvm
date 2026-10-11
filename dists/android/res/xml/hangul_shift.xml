@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<!-- Korean 2-set layout, Hangul mode, shifted. Generated from qwerty_shift.xml; same key codes, only the labels and the bottom row differ. -->
+<CustomKeyboard xmlns:scummvm="http://schemas.android.com/apk/res-auto"
+	scummvm:keyWidth="10%p"
+	scummvm:horizontalGap="0px"
+	scummvm:verticalGap="0px"
+	scummvm:keyHeight="10%p">
+	<CustomRow>
+		<CustomKey scummvm:codes="45" scummvm:keyLabel="ㅃ" scummvm:isRepeatable="true" scummvm:keyEdgeFlags="left"/>
+		<CustomKey scummvm:codes="51" scummvm:keyLabel="ㅉ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="33" scummvm:keyLabel="ㄸ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="46" scummvm:keyLabel="ㄲ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="48" scummvm:keyLabel="ㅆ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="53" scummvm:keyLabel="ㅛ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="49" scummvm:keyLabel="ㅕ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="37" scummvm:keyLabel="ㅑ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="43" scummvm:keyLabel="ㅒ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="44" scummvm:keyLabel="ㅖ" scummvm:isRepeatable="true" scummvm:keyEdgeFlags="right"/>
+	</CustomRow>
+	<CustomRow>
+		<CustomKey scummvm:codes="29" scummvm:keyLabel="ㅁ" scummvm:isRepeatable="true" scummvm:keyEdgeFlags="left"/>
+		<CustomKey scummvm:codes="47" scummvm:keyLabel="ㄴ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="32" scummvm:keyLabel="ㅇ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="34" scummvm:keyLabel="ㄹ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="35" scummvm:keyLabel="ㅎ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="36" scummvm:keyLabel="ㅗ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="38" scummvm:keyLabel="ㅓ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="39" scummvm:keyLabel="ㅏ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="40" scummvm:keyLabel="ㅣ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="74" scummvm:keyLabel=":" scummvm:isRepeatable="true" scummvm:keyEdgeFlags="right"/>
+	</CustomRow>
+	<CustomRow>
+		<CustomKey scummvm:codes="-1" scummvm:keyLabel="⇫" scummvm:keyEdgeFlags="left"/>
+		<CustomKey scummvm:codes="54" scummvm:keyLabel="ㅋ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="52" scummvm:keyLabel="ㅌ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="31" scummvm:keyLabel="ㅊ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="50" scummvm:keyLabel="ㅍ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="30" scummvm:keyLabel="ㅠ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="42" scummvm:keyLabel="ㅜ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="41" scummvm:keyLabel="ㅡ" scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="67" scummvm:keyLabel="⬅" scummvm:isRepeatable="true" scummvm:keyWidth="20%p" scummvm:keyEdgeFlags="right"/>
+	</CustomRow>
+	<CustomRow rowEdgeFlags="bottom">
+		<CustomKey scummvm:codes="-6" scummvm:keyLabel="!@#…"  scummvm:keyEdgeFlags="left"/>
+		<CustomKey scummvm:codes="-7" scummvm:keyLabel="한/영" scummvm:keyWidth="20%p"/>
+		<CustomKey scummvm:codes="76" scummvm:keyLabel="\?"    scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="62" scummvm:keyLabel="Space" scummvm:isRepeatable="true" scummvm:keyWidth="20%p"/>
+		<CustomKey scummvm:codes="55" scummvm:keyLabel="&lt;"  scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="56" scummvm:keyLabel="&gt;"  scummvm:isRepeatable="true"/>
+		<CustomKey scummvm:codes="66" scummvm:keyLabel="Enter" scummvm:isRepeatable="true" scummvm:keyWidth="20%p" scummvm:keyEdgeFlags="right"/>
+	</CustomRow>
+</CustomKeyboard>

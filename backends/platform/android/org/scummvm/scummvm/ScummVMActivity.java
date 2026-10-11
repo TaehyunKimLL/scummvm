@@ -159,6 +159,17 @@ public class ScummVMActivity extends Activity {
 
 	public View _screenKeyboard = null;
 	private boolean keyboardWithoutTextInputShown = false;
+	// Show the system input method (Gboard ...) instead of the built-in keyboard; set from the
+	// android_system_keyboard setting of the running game (or the launcher's global one).
+	private volatile boolean _useSystemKeyboard = false;
+	// Korean layouts of the built-in keyboard, for a game whose engine composes 2-set Hangul
+	// itself (SCI's sci_hangul_input): HANGUL_KEYBOARD_* from the running game, and whether the
+	// keyboard is in Hangul mode. The mode outlives hiding the keyboard, as the game's does.
+	static final int HANGUL_KEYBOARD_OFF = 0;
+	static final int HANGUL_KEYBOARD_HANGUL = 1;
+	static final int HANGUL_KEYBOARD_LATIN = 2;
+	private int _hangulKeyboard = HANGUL_KEYBOARD_OFF;
+	private boolean _hangulMode = false;
 
 	private InputMethodManager _inputManager = null;
 
@@ -204,7 +215,24 @@ public class ScummVMActivity extends Activity {
 	}
 
 	public boolean isKeyboardOverlayShown() {
+		forgetDismissedSystemKeyboard();
 		return keyboardWithoutTextInputShown;
+	}
+
+	// The system input method can close itself (its own back key or hide button) without telling
+	// us. Drop our "shown" state then, or the next back key and the toggle would act on a keyboard
+	// that is gone.
+	private void forgetDismissedSystemKeyboard() {
+		if (!_useSystemKeyboard || !keyboardWithoutTextInputShown || _screenKeyboard != null
+			|| Build.VERSION.SDK_INT < Build.VERSION_CODES.R || _main_surface == null) {
+			return;
+		}
+		final android.view.WindowInsets insets = _main_surface.getRootWindowInsets();
+		if (insets != null && !insets.isVisible(android.view.WindowInsets.Type.ime())) {
+			keyboardWithoutTextInputShown = false;
+			_main_surface.captureMouse(true);
+			_scummvm.syncVirtkeyboardState(false);
+		}
 	}
 
 	public void showScreenKeyboardWithoutTextInputField(final int keyboard) {
@@ -333,7 +361,12 @@ public class ScummVMActivity extends Activity {
 									// or pressing one of the special keyboard keys that change the layout (eg "123...")
 									//
 									int idx = (shift ? 1 : 0) + (alt ? 2 : 0);
-									setKeyboard(new CustomKeyboard(ScummVMActivity.this, TextInputKeyboardList[idx][keyboard]));
+									int layout = TextInputKeyboardList[idx][keyboard];
+									if (_hangulKeyboard != HANGUL_KEYBOARD_OFF && !alt) {
+										layout = _hangulMode ? (shift ? R.xml.hangul_shift : R.xml.hangul)
+											: (shift ? R.xml.qwerty_hangul_shift : R.xml.qwerty_hangul);
+									}
+									setKeyboard(new CustomKeyboard(ScummVMActivity.this, layout));
 									setPreviewEnabled(false);
 									setProximityCorrectionEnabled(false);
 
@@ -409,6 +442,21 @@ public class ScummVMActivity extends Activity {
 										return;
 									}
 
+									if (key == CustomKeyboard.KEYCODE_HANGUL) {
+										// The game owns the real Han/Yeong state: F12 is one of its
+										// default bindings for the toggle.
+										_hangulMode = !_hangulMode;
+										builtinKeyboard.shift = false;
+										builtinKeyboard.ChangeKeyboard();
+										builtinKeyboard.resetEventAndTimestamps();
+										final long now = SystemClock.uptimeMillis();
+										_main_surface.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN,
+											KeyEvent.KEYCODE_F12, 0, 0, 0, 0, KeyEvent.FLAG_SOFT_KEYBOARD));
+										_main_surface.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP,
+											KeyEvent.KEYCODE_F12, 0, 0, 0, 0, KeyEvent.FLAG_SOFT_KEYBOARD));
+										return;
+									}
+
 									if (key == CustomKeyboard.KEYCODE_ALT) {
 										builtinKeyboard.alt = !builtinKeyboard.alt;
 										if (!builtinKeyboard.alt) {
@@ -465,6 +513,14 @@ public class ScummVMActivity extends Activity {
 
 									_main_surface.dispatchKeyEvent(compiledKeyEvent);
 									builtinKeyboard.resetEventAndTimestamps();
+
+									// Shift on the Hangul layout is for one tense consonant or
+									// ㅒ/ㅖ at a time, as on phone keyboards.
+									if (_hangulKeyboard != HANGUL_KEYBOARD_OFF && _hangulMode
+										&& builtinKeyboard.shift && !builtinKeyboard.alt) {
+										builtinKeyboard.shift = false;
+										builtinKeyboard.ChangeKeyboard();
+									}
 
 									// Excluding the CAPS LOCK NUM LOCK AND SCROLL LOCK keys,
 									// clear the state of all other sticky keys that are used in a key combo
@@ -607,7 +663,7 @@ public class ScummVMActivity extends Activity {
 
 	public void showScreenKeyboard(boolean force) {
 		final boolean bGlobalsCompatibilityHacksTextInputEmulatesHwKeyboard = true;
-		final int dGlobalsTextInputKeyboard = 1;
+		final int dGlobalsTextInputKeyboard = _useSystemKeyboard ? 0 : 1;
 
 		if (!force && isHWKeyboardConnected()) {
 			return;
@@ -636,7 +692,7 @@ public class ScummVMActivity extends Activity {
 
 	public void hideScreenKeyboard() {
 
-		final int dGlobalsTextInputKeyboard = 1;
+		final int dGlobalsTextInputKeyboard = _useSystemKeyboard ? 0 : 1;
 		if (_main_surface != null) {
 			if (keyboardWithoutTextInputShown) {
 				showScreenKeyboardWithoutTextInputField(dGlobalsTextInputKeyboard);
@@ -649,7 +705,7 @@ public class ScummVMActivity extends Activity {
 	}
 
 	public void toggleScreenKeyboard() {
-		if (isScreenKeyboardShown()) {
+		if (isScreenKeyboardShown() || isKeyboardOverlayShown()) {
 			hideScreenKeyboard();
 		} else {
 			showScreenKeyboard(true);
@@ -840,6 +896,36 @@ public class ScummVMActivity extends Activity {
 			runOnUiThread(new Runnable() {
 				public void run() {
 					showToggleOnScreenBtnIcons(enableMask);
+				}
+			});
+		}
+
+		@Override
+		protected void setHangulKeyboard(final int mode) {
+			runOnUiThread(new Runnable() {
+				public void run() {
+					_hangulKeyboard = mode;
+					_hangulMode = (mode == HANGUL_KEYBOARD_HANGUL);
+					// A keyboard already on screen is closed; the next one has the new layout.
+					if (_screenKeyboard != null) {
+						hideScreenKeyboard();
+					}
+				}
+			});
+		}
+
+		@Override
+		protected void setSystemKeyboard(final boolean enable) {
+			runOnUiThread(new Runnable() {
+				public void run() {
+					if (_useSystemKeyboard == enable) {
+						return;
+					}
+					// Close the keyboard of the old kind before switching.
+					if (keyboardWithoutTextInputShown) {
+						hideScreenKeyboard();
+					}
+					_useSystemKeyboard = enable;
 				}
 			});
 		}

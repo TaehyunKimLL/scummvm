@@ -75,6 +75,8 @@ public class CustomKeyboard {
 	public static final int KEYCODE_DONE = -4;
 	public static final int KEYCODE_DELETE = -5;
 	public static final int KEYCODE_ALT = -6;
+	// Han/Yeong on the Korean layouts: swaps the jamo and Latin labels and sends F12 to the game
+	public static final int KEYCODE_HANGUL = -7;
 
 	/** Keyboard label **/
 	private CharSequence mLabel;

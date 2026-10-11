@@ -149,12 +149,11 @@ EventManager::EventManager(bool fontIsExtended) :
 	// synthesized at all, and it must not change under a running game.
 	_hangulInputAvailable(ConfMan.hasKey("sci_hangul_input") &&
 						  ConfMan.getBool("sci_hangul_input")),
+	// On by default everywhere: Android's on-screen keyboard is ScummVM's own
+	// (a TYPE_NULL view gets only Latin keys from Gboard), so there too the
+	// composer is what turns 2-set keys into Hangul.
 	_hangulBuiltinAvailable(_hangulInputAvailable &&
-#ifdef ANDROID_BACKEND
-						  ConfMan.hasKey("sci_hangul_builtin") && ConfMan.getBool("sci_hangul_builtin")),
-#else
 						  !(ConfMan.hasKey("sci_hangul_builtin") && !ConfMan.getBool("sci_hangul_builtin"))),
-#endif
 	// `sci_hangul_start` begins in Korean mode, so a Korean target need not be
 	// toggled before the first command is typed.
 	_hangulInputEnabled(_hangulBuiltinAvailable && ConfMan.hasKey("sci_hangul_start") &&

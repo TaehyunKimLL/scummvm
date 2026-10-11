@@ -54,11 +54,7 @@ const HangulOptionsMap hangulOptionsList[] = {
 		_s("Compose Hangul from a 2-set keyboard inside ScummVM and show the Han/Yeong indicator. "
 		   "Turn this off to type with the operating system's input method. Takes effect the next time the game starts"),
 		"sci_hangul_builtin",
-#ifdef ANDROID_BACKEND
-		false,
-#else
 		true,
-#endif
 		kHangulBuiltinCmd
 	},
 	{

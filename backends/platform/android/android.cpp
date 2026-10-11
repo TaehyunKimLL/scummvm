@@ -363,6 +363,9 @@ void OSystem_Android::initBackend() {
 	// Also see declaration of support for feature kFeatureKbdMouseSpeed bellow
 	ConfMan.registerDefault("kbdmouse_speed", 2);
 	ConfMan.registerDefault("joystick_deadzone", 3);
+	// true: the on-screen keyboard is the system input method (Gboard, Samsung ...) instead of
+	// the built-in one, so a Korean (or any) IME can type into games that take text.
+	ConfMan.registerDefault("android_system_keyboard", false);
 
 	// explicitly set this, since fullscreen cannot be changed from GUI
 	// and for Android it should be persisted (and ConfMan.hasKey("fullscreen") check should return true for it)
@@ -460,6 +463,20 @@ void OSystem_Android::initBackend() {
 	_audiocdManager = new DefaultAudioCDManager();
 
 	BaseBackend::initBackend();
+
+	JNI::setSystemKeyboard(ConfMan.getBool("android_system_keyboard", Common::ConfigManager::kApplicationDomain));
+}
+
+// Which layouts the built-in keyboard offers the running game, as ScummVMActivity's
+// HANGUL_KEYBOARD_*: 0 the plain ones; for a game whose engine composes 2-set Hangul from
+// Latin keys (SCI with sci_hangul_input, unless sci_hangul_builtin is off) the Korean ones,
+// starting in Hangul (1, sci_hangul_start) or Latin (2) mode like the game.
+static int hangulKeyboardMode() {
+	if (!ConfMan.hasKey("sci_hangul_input") || !ConfMan.getBool("sci_hangul_input"))
+		return 0;
+	if (ConfMan.hasKey("sci_hangul_builtin") && !ConfMan.getBool("sci_hangul_builtin"))
+		return 0;
+	return ConfMan.hasKey("sci_hangul_start") && ConfMan.getBool("sci_hangul_start") ? 1 : 2;
 }
 
 void OSystem_Android::engineInit() {
@@ -468,12 +485,17 @@ void OSystem_Android::engineInit() {
 	dynamic_cast<AndroidGraphicsManager *>(_graphicsManager)->applyTouchSettings();
 
 	JNI::setCurrentGame(ConfMan.getActiveDomainName());
+	// The game's own value (or --set=android_system_keyboard=...) wins over the global one.
+	JNI::setSystemKeyboard(ConfMan.getBool("android_system_keyboard"));
+	JNI::setHangulKeyboard(hangulKeyboardMode());
 }
 
 void OSystem_Android::engineDone() {
 	_engineRunning = false;
 	updateOnScreenControls();
 	JNI::setCurrentGame("");
+	JNI::setHangulKeyboard(0);
+	JNI::setSystemKeyboard(ConfMan.getBool("android_system_keyboard", Common::ConfigManager::kApplicationDomain));
 }
 
 void OSystem_Android::updateStartSettings(const Common::String &executable, Common::String &command, Common::StringMap &settings, Common::StringArray& additionalArgs) {
