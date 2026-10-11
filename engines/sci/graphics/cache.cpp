@@ -433,8 +433,6 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(GuiResourceId fontId, FontS
 		for (uint i = 0; i < plan.ruleChains[c].faces.size(); i++)
 			openChainFace(plan.ruleChains[c].faces[i].path.toString('/'), false);
 
-	if (!order.empty())
-		firstRaw = opened.contains(order[0]) ? opened[order[0]] : nullptr;
 
 	// design 6.7: every [glyphs] target face, fitted to exactly its own
 	// targeted code points (several targets sharing one face share one
@@ -558,12 +556,16 @@ Graphics::UnicodeGlyphSource *GfxCache::faceChainFor(GuiResourceId fontId, FontS
 			normalized[unionPaths[i]] = nullptr;
 		}
 	}
-	// The id chain's own first face, in the chain's one shared cell - what
-	// GlyphPlacement measures against - and the row it now sits at.
-	if (!order.empty()) {
+	// The chain's first face that opened, in the chain's one shared cell -
+	// what GlyphPlacement measures against - and the row it now sits at.
+	// Not simply the first face written: when that one is missing (a map
+	// naming a font pack's face, then fonts-cjk.dat's) the face that draws
+	// is the next one, and its baseline is the one to place.
+	for (uint o = 0; o < order.size() && !firstRaw; o++) {
 		for (uint i = 0; i < unionPaths.size(); i++) {
-			if (unionPaths[i] == order[0]) {
-				firstNormalized = normalized.contains(order[0]) ? normalized[order[0]] : nullptr;
+			if (unionPaths[i] == order[o]) {
+				firstRaw = opened[order[o]];
+				firstNormalized = normalized.contains(order[o]) ? normalized[order[o]] : nullptr;
 				firstTop = layout.tops[i];
 				break;
 			}
