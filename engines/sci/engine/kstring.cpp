@@ -158,11 +158,18 @@ static byte strAtByte(SegmentRef &r, uint16 offset, bool write, byte newvalue) {
 // QFG2's Aziza (room 199) asks questions in an edit box and checks the
 // answer with script 2's own substring search, StrLen and StrAt over the
 // typed text, for English words ("fenrus", "air"); no said() is involved.
+// QFG1 EGA does the same with script 802's search for the gargoyle's
+// questions (room 29) and the hut's rhyme (room 22).
 // A Korean answer whose every word the Korean parser table knows reads, to
 // these two calls only, as the game's own English words, so the search
 // finds them; the box still shows what was typed.
 static bool koreanAnswerView(EngineState *s, reg_t str, Common::String &out) {
-	if (g_sci->getGameId() != GID_QFG2 || s->currentRoomNumber() != 199 || !g_sci->hasParser())
+	// QFG2: Aziza's door (199). QFG1 EGA: the gargoyle at Erasmus's gate (29)
+	// and Baba Yaga's hut (22).
+	const int room = s->currentRoomNumber();
+	const bool answerRoom = (g_sci->getGameId() == GID_QFG2 && room == 199) ||
+		(g_sci->getGameId() == GID_QFG1 && (room == 29 || room == 22));
+	if (!answerRoom || !g_sci->hasParser())
 		return false;
 	const Common::String typed = s->_segMan->getString(str);
 	bool ascii = true;
@@ -499,6 +506,14 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 					while (strLength-- > 1)
 						*target++ = ' '; /* Format into the text */
 				char argchar = arguments[paramindex++];
+				// The English plural "s" a script adds to a name ("Dagger%c")
+				// has no place after a Korean noun.
+				if ((argchar == 's' || argchar == 'S') && target - targetbuf >= 3) {
+					const byte *t = (const byte *)target - 3;
+					const uint32 cp = ((t[0] & 0x0F) << 12) | ((t[1] & 0x3F) << 6) | (t[2] & 0x3F);
+					if ((t[0] & 0xF0) == 0xE0 && cp >= 0xAC00 && cp <= 0xD7A3)
+						argchar = 0;
+				}
 				if (argchar)
 					*target++ = argchar;
 				mode = 0;

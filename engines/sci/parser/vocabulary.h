@@ -423,10 +423,10 @@ private:
 
 public:
 	/**
-	 * The parsed line in the game's own English words, one per token (the
-	 * shortest English word of the token's group), space separated; empty
-	 * when a token has none. For scripts that read the typed line itself
-	 * instead of the parse: see kParse.
+	 * The parsed line in the game's own English words: for each token,
+	 * every English word of every group it may be, space separated; empty
+	 * when a token has none. For scripts that search the typed line itself
+	 * for a word instead of parsing it (see koreanAnswerView in kstring.cpp).
 	 */
 	Common::String englishLine(const ResultWordListList &words) const;
 
