@@ -509,4 +509,27 @@ public:
 		TS_ASSERT_EQUALS(roleOf("방패다", "방패"), (uint8)Sci::kKoreanRoleNone);
 		TS_ASSERT_EQUALS(roleOf("피터다", "피터"), (uint8)Sci::kKoreanRoleNone);
 	}
+
+	static bool particleOnly(const char *utf8, uint8 &role) {
+		return Sci::koreanParticleRole(toU32(utf8), role);
+	}
+
+	// An English word with a Korean particle (door를, fenrus에, guard에게는):
+	// the Hangul after it must be nothing but particles, stacked in order.
+	void test_particle_only_suffix_after_an_english_word() {
+		uint8 role;
+		TS_ASSERT(particleOnly("\xEB\xA5\xBC", role));                       // 를
+		TS_ASSERT_EQUALS(role, (uint8)Sci::kKoreanRoleObject);
+		TS_ASSERT(particleOnly("\xEC\x97\x90", role));                       // 에
+		TS_ASSERT_EQUALS(role, (uint8)Sci::kKoreanRoleAt);
+		TS_ASSERT(particleOnly("\xEC\x97\x90\xEA\xB2\x8C\xEB\x8A\x94", role)); // 에게는
+		TS_ASSERT_EQUALS(role, (uint8)Sci::kKoreanRoleTo);
+		TS_ASSERT(particleOnly("\xEB\x93\xA4\xEC\x9D\x84", role));           // 들을
+		TS_ASSERT_EQUALS(role, (uint8)Sci::kKoreanRoleObject);
+		// Not particles: a verb ending, a noun, a wrong stacking (는를).
+		TS_ASSERT(!particleOnly("\xEC\x97\xB4\xEC\x96\xB4", role));          // 열어
+		TS_ASSERT(!particleOnly("\xEB\xAC\xB8", role));                       // 문
+		TS_ASSERT(!particleOnly("\xEB\x8A\x94\xEB\xA5\xBC", role));          // 는를
+		TS_ASSERT(!particleOnly("", role));
+	}
 };

@@ -541,6 +541,24 @@ void Vocabulary::lookupWord(ResultWordList& retval, const char *word, int word_l
 	// and is consulted only here, after every English route has failed,
 	// which is what keeps this invisible to non-Korean games.
 	if (_koreanVocab.isLoaded()) {
+		// An English word with a Korean particle (door를, fenrus에): the
+		// English part is looked up as English, the particle gives the role.
+		uint split = 0;
+		while (split < tempword.size() && (byte)tempword[split] < 0x80)
+			++split;
+		if (split > 0 && split < tempword.size()) {
+			const Common::U32String suffix(Common::String(tempword.c_str() + split),
+			                               g_sci->heapStringsAreUtf8() ? Common::kUtf8 : Common::kWindows949);
+			uint8 role;
+			if (koreanParticleRole(suffix, role)) {
+				lookupWord(retval, tempword.c_str(), split);
+				if (!retval.empty()) {
+					_koreanRole = role;
+					return;
+				}
+			}
+		}
+
 		uint16 kgroups[kMaxKoreanMeanings], kclasses[kMaxKoreanMeanings];
 		// scikor.dat holds code points. The typed word is cp949 from the
 		// edit control, or UTF-8 in a UTF-8 manifest game; either is

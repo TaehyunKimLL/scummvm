@@ -98,6 +98,15 @@ struct KoreanStems {
  */
 uint koreanStemCandidates(const Common::U32String &word, KoreanStems &out);
 
+/**
+ * Whether @p suffix is only Korean particles (를, 에, 에게는, 들에게 ...), as
+ * after an English word a player typed in a Korean sentence (door를,
+ * fenrus에). The allomorph rule (을 after a consonant) is not checked: an
+ * English word has no Hangul final to check it against. @p role receives
+ * the KoreanRole of the particle that places the noun.
+ */
+bool koreanParticleRole(const Common::U32String &suffix, uint8 &role);
+
 } // End of namespace Sci
 
 #endif // SCI_PARSER_KORSTEM_H
