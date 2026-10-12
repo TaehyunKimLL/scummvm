@@ -28,6 +28,7 @@
 #include "graphics/hires_text/glyph_source_ttf.h"
 
 #include "../../system/null_osystem.h"
+#include "../../hires_test_fonts.h"
 
 #include "ags/shared/font/glyph_font_draw.h"
 #include "ags/shared/font/hires_font_chain.h"
@@ -93,12 +94,10 @@ struct AgsChainFiles {
 };
 
 const char *agsChainTtf() {
-#ifdef AGS_TEST_SRCDIR
-	static const Common::String kNanum =
-		Common::String(AGS_TEST_SRCDIR) + "/dists/engine-data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf";
-	if (Common::FSNode(Common::Path(kNanum, '/')).exists())
-		return kNanum.c_str();
-#endif
+	// The committed NotoSansKR, by absolute path.
+	static const Common::String kFace = HiResTestFonts::cjkRegularPath();
+	if (Common::FSNode(Common::Path(kFace, '/')).exists())
+		return kFace.c_str();
 	return nullptr;
 }
 
@@ -190,7 +189,7 @@ public:
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		const char *ttf = agsChainTtf();
 		if (!ttf) {
-			TS_SKIP("NanumGothic-Bold.ttf not found");
+			TS_SKIP("NotoSansKR-Regular.otf not found");
 			return;
 		}
 		AGS3::HiResFontChain c;
@@ -209,7 +208,7 @@ public:
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		const char *ttf = agsChainTtf();
 		if (!ttf) {
-			TS_SKIP("NanumGothic-Bold.ttf not found");
+			TS_SKIP("NotoSansKR-Regular.otf not found");
 			return;
 		}
 		AGS3::HiResFontChain c;
@@ -232,7 +231,7 @@ public:
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		const char *ttf = agsChainTtf();
 		if (!ttf) {
-			TS_SKIP("NanumGothic-Bold.ttf not found");
+			TS_SKIP("NotoSansKR-Regular.otf not found");
 			return;
 		}
 		AGS3::HiResFontChain c;

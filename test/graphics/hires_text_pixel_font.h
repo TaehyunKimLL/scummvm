@@ -41,6 +41,7 @@
 #include "graphics/hires_text/glyph_source_ttf.h"
 
 #include "../system/null_osystem.h"
+#include "../hires_test_fonts.h"
 
 #ifdef USE_FREETYPE2
 #include "common/fs.h"
@@ -48,23 +49,18 @@
 
 using Graphics::TtfGlyphSource;
 
-// The Galmuri faces (OFL, github.com/quiple/galmuri) live in a folder named
-// by SCUMMVM_TEST_PIXEL_FONT_DIR, else <SCUMMVM_TEST_I18N_DATA>/../fonts/
-// pixel/galmuri; a test whose face is absent is skipped, visibly.
+// The Galmuri faces (OFL, github.com/quiple/galmuri) are the pixel fonts
+// committed with the engine data (dists/engine-data/hires_text/fonts/
+// galmuri), opened by an absolute path. A pixel font is what these tests
+// need: its coverage is only ever 0 or 255, which a scalable face is not.
+// Galmuri11 is the committed Galmuri11-Bold (same 12 px design size).
 #ifdef USE_FREETYPE2
 #if NULL_OSYSTEM_IS_AVAILABLE
-#pragma push_macro("getenv")
-#undef getenv
 static Common::String pixelFontTestPath(const char *file) {
-	const char *dir = getenv("SCUMMVM_TEST_PIXEL_FONT_DIR");
-	if (dir && *dir)
-		return Common::String::format("%s/%s", dir, file);
-	const char *data = getenv("SCUMMVM_TEST_I18N_DATA");
-	if (data && *data)
-		return Common::String::format("%s/../fonts/pixel/galmuri/%s", data, file);
-	return Common::String();
+	if (Common::String(file) == "Galmuri11.ttf")
+		file = "Galmuri11-Bold.ttf";
+	return HiResTestFonts::srcDir() + "/dists/engine-data/hires_text/fonts/galmuri/" + file;
 }
-#pragma pop_macro("getenv")
 #endif
 #endif
 
@@ -152,7 +148,7 @@ public:
 		if (!s1 || !s2) {
 			delete s1;
 			delete s2;
-			TS_SKIP("Galmuri9.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
+			TS_SKIP("Galmuri9.ttf not found in the source tree");
 			return;
 		}
 		Common::String error;
@@ -191,7 +187,7 @@ public:
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		Common::SeekableReadStream *s = openFont("Galmuri9.ttf");
 		if (!s) {
-			TS_SKIP("Galmuri9.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
+			TS_SKIP("Galmuri9.ttf not found in the source tree");
 			return;
 		}
 		Common::String error;
@@ -211,7 +207,7 @@ public:
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		Common::SeekableReadStream *s = openFont("Galmuri11.ttf");
 		if (!s) {
-			TS_SKIP("Galmuri11.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
+			TS_SKIP("Galmuri11.ttf not found in the source tree");
 			return;
 		}
 		Common::String error;
@@ -240,7 +236,7 @@ public:
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		Common::SeekableReadStream *s = openFont("Galmuri9.ttf");
 		if (!s) {
-			TS_SKIP("Galmuri9.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
+			TS_SKIP("Galmuri9.ttf not found in the source tree");
 			return;
 		}
 		Common::String error;
@@ -269,7 +265,7 @@ public:
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		Common::SeekableReadStream *s = openFont("Galmuri7.ttf");
 		if (!s) {
-			TS_SKIP("Galmuri7.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
+			TS_SKIP("Galmuri7.ttf not found in the source tree");
 			return;
 		}
 		Common::String error;
@@ -298,7 +294,7 @@ public:
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		Common::SeekableReadStream *s = openFont("Galmuri9.ttf");
 		if (!s) {
-			TS_SKIP("Galmuri9.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
+			TS_SKIP("Galmuri9.ttf not found in the source tree");
 			return;
 		}
 		Common::String error;
@@ -324,7 +320,7 @@ public:
 		TS_ASSERT(!TtfGlyphSource::createPixel(nullptr, DisposeAfterUse::YES, 12, 10, error));
 		Common::SeekableReadStream *s = openFont("Galmuri9.ttf");
 		if (!s) {
-			TS_SKIP("Galmuri9.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
+			TS_SKIP("Galmuri9.ttf not found in the source tree");
 			return;
 		}
 		TS_ASSERT(!TtfGlyphSource::createPixel(s, DisposeAfterUse::YES, 12, 0, error));

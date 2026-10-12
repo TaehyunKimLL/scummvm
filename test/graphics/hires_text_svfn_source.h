@@ -10,6 +10,7 @@
 #include "graphics/hires_text/unicode_props.h"
 
 #include "../system/null_osystem.h"
+#include "../hires_test_fonts.h"
 
 #ifdef USE_FREETYPE2
 #include "common/fs.h"
@@ -363,10 +364,8 @@ public:
 private:
 	static void bakeAndCheck() {
 #ifdef USE_FREETYPE2
-		Common::FSNode node("/System/Library/Fonts/AppleSDGothicNeo.ttc");
-		if (!node.exists())
-			return;	// no such face on this machine: nothing to bake
-		Common::SeekableReadStream *stream = node.createReadStream();
+		Common::SeekableReadStream *stream = HiResTestFonts::openCjk();
+		TS_ASSERT(stream != nullptr);
 		if (!stream)
 			return;
 		Graphics::Font *face = Graphics::loadTTFFont(stream, DisposeAfterUse::YES, 16,
@@ -380,7 +379,7 @@ private:
 		cps.push_back(0xD7A3);
 		cps.push_back(0x0041);
 		Common::Array<byte> baked;
-		TS_ASSERT(Graphics::HiResFontBaker::bake(*face, cps, 0, 0, true, baked));
+		TS_ASSERT(Graphics::HiResFontBaker::bake(*face, cps, 24, 0, true, baked));
 		delete face;
 
 		Graphics::HiResBitmapFont font;

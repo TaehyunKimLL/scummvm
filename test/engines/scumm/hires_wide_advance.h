@@ -13,6 +13,7 @@
 #include "engines/scumm/hires_text.h"
 
 #include "support/hires_fixture.h"
+#include "../../hires_test_fonts.h"
 
 /**
  * The C31 legacy grid rule (design section 8's advance=, kHiResAdvanceEngine:
@@ -124,32 +125,13 @@ public:
 		TS_ASSERT_EQUALS(hr.advanceFor(0xAC00, kCs, 2), 5);
 	}
 
+	// The committed NotoSansKR face, by absolute path (HIRES_TEST_SRCDIR): a
+	// relative path would be resolved against the game folder by the font map.
 	static const char *systemTtf() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		// The repo's own Hangul TrueType face, tried first: SCUMM_HIRES_CENSUS_SRCDIR
-		// (test/module.mk's -D for hires_hook_census.h, defined whenever
-		// this file is - both are only compiled with ENABLE_SCUMM) gives an
-		// absolute path to the source tree regardless of the runner's own
-		// working directory ("dists/engine-data" alone, a path relative to
-		// cwd, is not reachable from every build's actual `make test`
-		// invocation - only from the source root, unlike
-		// hires_text_font_map.h's identically-named precedent test, which
-		// TS_SKIPs itself when it is not). DejaVuSans/AppleSDGothicNeo below
-		// have no Hangul/Han/most fullwidth forms at all - see
-		// findRealWideGlyph()'s comment.
-#ifdef SCUMM_HIRES_CENSUS_SRCDIR
-		static const Common::String kNanumGothic =
-			Common::String(SCUMM_HIRES_CENSUS_SRCDIR) + "/dists/engine-data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf";
-		if (Common::FSNode(Common::Path(kNanumGothic, '/')).exists())
-			return kNanumGothic.c_str();
-#endif
-		static const char *const kFonts[] = {
-			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-			"/System/Library/Fonts/AppleSDGothicNeo.ttc",
-		};
-		for (uint i = 0; i < ARRAYSIZE(kFonts); ++i)
-			if (Common::FSNode(kFonts[i]).exists())
-				return kFonts[i];
+		static const Common::String kFace = HiResTestFonts::cjkRegularPath();
+		if (Common::FSNode(Common::Path(kFace, '/')).exists())
+			return kFace.c_str();
 #endif
 		return nullptr;
 	}

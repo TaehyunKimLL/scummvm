@@ -34,6 +34,7 @@
 #include "graphics/hires_text/glyph_source_ttf.h"
 
 #include "../system/null_osystem.h"
+#include "../hires_test_fonts.h"
 
 #ifdef USE_FREETYPE2
 #include "common/fs.h"
@@ -155,17 +156,19 @@ public:
 // keeps a freetype-less build's test runner buildable.
 #ifdef USE_FREETYPE2
 #if NULL_OSYSTEM_IS_AVAILABLE
-	static const char *sdGothicPath() {
-		return "/System/Library/Fonts/AppleSDGothicNeo.ttc";
+	// A two-face collection built at test time from the committed
+	// NotoSansKR Regular (face 0) and Bold (face 1): see hires_test_fonts.h.
+	static Common::String collectionPath() {
+		return HiResTestFonts::cjkCollectionPath();
 	}
 
 	// TS_SKIP does not leave the test in this runner (built without
 	// exceptions): every real-font test returns right after it.
-	static bool haveFont(const char *path) {
-		Common::FSNode node{Common::Path(path)};
-		if (node.exists() && !node.isDirectory())
+	static bool haveFont(const Common::String &path) {
+		Common::FSNode node{Common::Path(path, '/')};
+		if (!path.empty() && node.exists() && !node.isDirectory())
 			return true;
-		TS_SKIP(Common::String::format("no font at '%s'", path).c_str());
+		TS_SKIP(Common::String::format("no font at '%s'", path.c_str()).c_str());
 		return false;
 	}
 
@@ -184,8 +187,8 @@ public:
 		return out;
 	}
 
-	static Graphics::TtfGlyphSource *open(const char *path, int32 faceIndex, Common::String &error, bool explicitIndex = true) {
-		Common::SeekableReadStream *stream = Common::FSNode(Common::Path(path)).createReadStream();
+	static Graphics::TtfGlyphSource *open(const Common::String &path, int32 faceIndex, Common::String &error, bool explicitIndex = true) {
+		Common::SeekableReadStream *stream = Common::FSNode(Common::Path(path, '/')).createReadStream();
 		if (!stream)
 			return nullptr;
 		if (!explicitIndex)
@@ -197,14 +200,14 @@ public:
 #endif
 
 public:
-	void test_face_6_draws_differently_from_face_0() {
+	void test_face_1_draws_differently_from_face_0() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		if (!haveFont(sdGothicPath()))
+		if (!haveFont(collectionPath()))
 			return;
 		Common::String error;
-		Graphics::TtfGlyphSource *regular = open(sdGothicPath(), 0, error);
+		Graphics::TtfGlyphSource *regular = open(collectionPath(), 0, error);
 		TS_ASSERT(regular);
-		Graphics::TtfGlyphSource *bold = open(sdGothicPath(), 6, error);
+		Graphics::TtfGlyphSource *bold = open(collectionPath(), 1, error);
 		TS_ASSERT(bold);
 		if (regular && bold) {
 			const Common::Array<byte> a = glyphBytes(regular), b = glyphBytes(bold);
@@ -220,11 +223,11 @@ public:
 
 	void test_no_index_is_face_0_byte_for_byte() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		if (!haveFont(sdGothicPath()))
+		if (!haveFont(collectionPath()))
 			return;
 		Common::String error;
-		Graphics::TtfGlyphSource *plain = open(sdGothicPath(), 0, error, false);
-		Graphics::TtfGlyphSource *zero = open(sdGothicPath(), 0, error);
+		Graphics::TtfGlyphSource *plain = open(collectionPath(), 0, error, false);
+		Graphics::TtfGlyphSource *zero = open(collectionPath(), 0, error);
 		TS_ASSERT(plain && zero);
 		if (plain && zero) {
 			TS_ASSERT_EQUALS(plain->faceSize(), zero->faceSize());
@@ -240,15 +243,15 @@ public:
 
 	void test_bad_face_index_fails_with_an_error() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		if (!haveFont(sdGothicPath()))
+		if (!haveFont(collectionPath()))
 			return;
 		Common::String error;
-		Graphics::TtfGlyphSource *src = open(sdGothicPath(), 99, error);
+		Graphics::TtfGlyphSource *src = open(collectionPath(), 99, error);
 		TS_ASSERT(!src);
 		TS_ASSERT(error.contains("99"));
 		delete src;
 		error.clear();
-		src = open(sdGothicPath(), -1, error);
+		src = open(collectionPath(), -1, error);
 		TS_ASSERT(!src);
 		TS_ASSERT(!error.empty());
 		delete src;
@@ -259,25 +262,25 @@ public:
 
 	void test_open_font_face_on_a_real_collection() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		if (!haveFont(sdGothicPath()))
+		if (!haveFont(collectionPath()))
 			return;
 		int32 index = -2;
 		Common::String error;
-		Common::SeekableReadStream *s = Graphics::openFontFace(Common::Path(Common::String(sdGothicPath()) + "#6"), index, error);
+		Common::SeekableReadStream *s = Graphics::openFontFace(Common::Path(collectionPath() + "#1", '/'), index, error);
 		TS_ASSERT(s);
-		TS_ASSERT_EQUALS(index, 6);
+		TS_ASSERT_EQUALS(index, 1);
 		delete s;
-		s = Graphics::openFontFace(Common::Path(sdGothicPath()), index, error);
+		s = Graphics::openFontFace(Common::Path(collectionPath(), '/'), index, error);
 		TS_ASSERT(s);
 		TS_ASSERT_EQUALS(index, 0);
 		delete s;
-		s = Graphics::openFontFace(Common::Path(Common::String(sdGothicPath()) + "#70000"), index, error);
+		s = Graphics::openFontFace(Common::Path(collectionPath() + "#70000", '/'), index, error);
 		TS_ASSERT(!s);
 		TS_ASSERT_EQUALS(error, "face index out of range (0..65535)");
 		s = Graphics::openFontFace(Common::Path("/nonexistent-c21/none.ttc#6"), index, error);
 		TS_ASSERT(!s);
 		TS_ASSERT_EQUALS(error, "does not exist");
-		s = Graphics::openFontFace(Common::Path("/System/Library/Fonts"), index, error);
+		s = Graphics::openFontFace(Common::Path(HiResTestFonts::cjkDir(), '/'), index, error);
 		TS_ASSERT(!s);
 		TS_ASSERT_EQUALS(error, "is a directory");
 #else

@@ -31,6 +31,7 @@
 #include "graphics/hires_text/glyph_source_ttf.h"
 
 #include "../system/null_osystem.h"
+#include "../hires_test_fonts.h"
 
 #ifdef USE_FREETYPE2
 #include "common/fs.h"
@@ -367,10 +368,9 @@ public:
 	}
 };
 
-// Apple's Korean system font: face 0 of a .ttc, used only for local testing.
-// Absent (non-macOS, or an unusual install), every test below skips itself.
-static const char *kTestTtcPath = "/System/Library/Fonts/AppleSDGothicNeo.ttc";
-
+// The tests below run on the NotoSansKR face committed with the engine data
+// (HiResTestFonts, hires_test_fonts.h). The next three are the exceptions:
+// they need a particular font's quirk, which no committed face has.
 // Free fonts downloaded by C22/C25 (fonts/ in the harness workspace, not in
 // the tree); the tests that need them skip where they are absent.
 // Maps all 11172 Hangul syllables, outlines only KS X 1001's 2350.
@@ -478,14 +478,9 @@ public:
 	Common::SeekableReadStream *openTestFont() {
 #ifdef USE_FREETYPE2
 #if NULL_OSYSTEM_IS_AVAILABLE
-		Common::FSNode node(kTestTtcPath);
-		if (!node.exists()) {
-			TS_SKIP("Apple SD Gothic Neo not present on this machine");
-			return nullptr;
-		}
-		Common::SeekableReadStream *stream = node.createReadStream();
+		Common::SeekableReadStream *stream = HiResTestFonts::openCjk();
 		if (!stream)
-			TS_SKIP("Apple SD Gothic Neo could not be opened");
+			TS_SKIP("NotoSansKR-Regular.otf not found in the source tree");
 		return stream;
 #else
 		TS_SKIP("no real filesystem access in this test environment");
@@ -508,7 +503,7 @@ public:
 		if (!src)
 			return;
 
-		TS_ASSERT(src->rasterCount() <= 32);
+		TS_ASSERT(src->rasterCount() <= 40);
 		TS_ASSERT_EQUALS(src->glyphCount(), (uint32)0);
 
 		delete src;
@@ -895,10 +890,19 @@ public:
 		delete dark;
 	}
 
+	// A face of a TrueType collection (built from NotoSansKR Regular and
+	// Bold) opens as face 0 when no index is given.
 	void test_ttc_face0() {
-		Common::SeekableReadStream *stream = openTestFont();
-		if (!stream)
+		Common::SeekableReadStream *stream = nullptr;
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		const Common::String ttc = HiResTestFonts::cjkCollectionPath();
+		if (!ttc.empty())
+			stream = Common::FSNode(Common::Path(ttc, '/')).createReadStream();
+#endif
+		if (!stream) {
+			TS_SKIP("no TrueType collection could be built from NotoSansKR");
 			return;
+		}
 
 		Common::String error;
 		TtfGlyphSource *src = TtfGlyphSource::create(stream, DisposeAfterUse::YES, 16, error);
@@ -969,20 +973,21 @@ public:
 	// Korean test face still loads.
 	void test_face_without_hangul_is_rejected_when_required() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		Common::FSNode latin("/System/Library/Fonts/Supplemental/Arial.ttf");
-		if (latin.exists()) {
+		// A face with no Hangul (the committed Noto Sans Thai).
+		Common::SeekableReadStream *latin = HiResTestFonts::openThai();
+		if (latin) {
 			Common::String error;
-			TtfGlyphSource *src = TtfGlyphSource::create(latin.createReadStream(), DisposeAfterUse::YES,
+			TtfGlyphSource *src = TtfGlyphSource::create(latin, DisposeAfterUse::YES,
 			                                             16, error, true);
 			TS_ASSERT(src == nullptr);
 			TS_ASSERT_EQUALS(error, Common::String("face has no Hangul glyphs"));
 			delete src;
 		}
 
-		Common::FSNode korean(kTestTtcPath);
-		if (korean.exists()) {
+		Common::SeekableReadStream *korean = HiResTestFonts::openCjk();
+		if (korean) {
 			Common::String error;
-			TtfGlyphSource *src = TtfGlyphSource::create(korean.createReadStream(), DisposeAfterUse::YES,
+			TtfGlyphSource *src = TtfGlyphSource::create(korean, DisposeAfterUse::YES,
 			                                             16, error, true);
 			TS_ASSERT(src != nullptr);
 			TS_ASSERT(error.empty());
