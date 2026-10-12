@@ -37,6 +37,7 @@
 #include "graphics/hires_text/glyph_source_ttf.h"
 
 #include "../system/null_osystem.h"
+#include "../hires_test_fonts.h"
 
 #ifdef USE_FREETYPE2
 #include "common/fs.h"
@@ -47,26 +48,11 @@
 
 using Graphics::TtfGlyphSource;
 
-// The faces measured, each overridable by an environment variable (a path
-// to a .ttf/.ttc; face 0 is used). The defaults are macOS system fonts; a
-// test whose face is absent is skipped, visibly.
-//   SCUMMVM_TEST_THAI_FONT   Sukhumvit Set (a Thai face with zero-width marks)
-//   SCUMMVM_TEST_KO_FONT     Apple SD Gothic Neo
-//   SCUMMVM_TEST_JA_FONT     Hiragino Sans W3
-#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-#pragma push_macro("getenv")
-#undef getenv
-static const char *ttfFitTestFontPath(const char *var, const char *def) {
-	const char *v = getenv(var);
-	return (v && *v) ? v : def;
-}
-static bool ttfFitTestFontOverridden(const char *var) {
-	const char *v = getenv(var);
-	return v && *v;
-}
-#pragma pop_macro("getenv")
-#endif
-
+// The faces measured, all committed in the tree and opened by absolute path
+// (HiResTestFonts): NotoSansKR Regular and Bold for the Korean and the
+// Japanese ones, and Noto Sans Thai (test/fonts/noto-thai: a Thai face with
+// zero-width stacking marks, which a CJK font cannot stand for). The numbers
+// the tests pin are those faces' own.
 class HiResTextTtfFitTestSuite : public CxxTest::TestSuite {
 public:
 	void setUp() {
@@ -82,25 +68,28 @@ public:
 	}
 
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-	// Sukhumvit Set: its hhea line (1103 + 474 units) is far taller than
-	// its OS/2 win line (834 + 250), which kTTFSizeModeCell sizes by, so a
-	// line-fitted face puts the baseline below the cell and SARA UU under
-	// it. The system .ttc's face 0 ("Thin") has the same metrics as the
-	// "Text" face the C11 maps name.
-	static Common::FSNode fontNode(const char *var, const char *def) {
-		Common::FSNode node(ttfFitTestFontPath(var, def));
+	static Common::FSNode fontNode(const Common::String &path) {
+		Common::FSNode node(Common::Path(path, '/'));
 		if (!node.exists())
-			TS_SKIP(Common::String::format("%s: no font at '%s'", var, ttfFitTestFontPath(var, def)).c_str());
+			TS_SKIP(Common::String::format("no font at '%s'", path.c_str()).c_str());
 		return node;
 	}
-	static Common::FSNode sukhumvitNode() {
-		return fontNode("SCUMMVM_TEST_THAI_FONT", "/System/Library/Fonts/Supplemental/SukhumvitSet.ttc");
+	// Noto Sans Thai: the marks (SARA U / SARA UU / PHINTHU below, tone marks
+	// above) have zero advance and hang off their base, so a line-fitted
+	// face has to keep them inside the cell.
+	static Common::FSNode thaiNode() {
+		return fontNode(HiResTestFonts::thaiRegularPath());
+	}
+	// The committed NotoSansKR: Regular stands for the Korean face, Bold for
+	// the Japanese one (the same family has the kana and the common kanji).
+	static Common::FSNode notoNode(bool bold) {
+		return fontNode(bold ? HiResTestFonts::cjkBoldPath() : HiResTestFonts::cjkRegularPath());
 	}
 	static Common::FSNode sdGothicNode() {
-		return fontNode("SCUMMVM_TEST_KO_FONT", "/System/Library/Fonts/AppleSDGothicNeo.ttc");
+		return notoNode(false);
 	}
 	static Common::FSNode hiraginoNode() {
-		return fontNode("SCUMMVM_TEST_JA_FONT", "/System/Library/Fonts/\xe3\x83\x92\xe3\x83\xa9\xe3\x82\xae\xe3\x83\x8e\xe8\xa7\x92\xe3\x82\xb4\xe3\x82\xb7\xe3\x83\x83\xe3\x82\xaf W3.ttc");
+		return notoNode(true);
 	}
 
 	// The fit's own ink threshold (m7mkfont.py's INK_THRESHOLD): a fainter
@@ -154,16 +143,16 @@ public:
 
 	static void thaiSample(Common::Array<uint32> &sample) {
 		// ผู้ ปุ่ม ฤ ฎ ฏ ญ ปี่ ฺ, as a translation's sample would hold them
-		// (non-ASCII ascending, then ASCII).
+		// (non-ASCII ascending). Noto Sans Thai has no Latin, so no ASCII.
 		const uint32 cps[] = {
 			0x0E0D, 0x0E0E, 0x0E0F, 0x0E1B, 0x0E1C, 0x0E21, 0x0E24, 0x0E35,
-			0x0E38, 0x0E39, 0x0E3A, 0x0E48, 0x0E49, 0x0E4B, 'g', 'j'
+			0x0E38, 0x0E39, 0x0E3A, 0x0E48, 0x0E49, 0x0E4B
 		};
 		sample = Common::Array<uint32>(cps, ARRAYSIZE(cps));
 	}
 
 	void checkThai(bool lineFit, int pixelSize) {
-		Common::FSNode node = sukhumvitNode();
+		Common::FSNode node = thaiNode();
 		if (!node.exists())
 			return;
 		Common::Array<uint32> sample;
@@ -200,7 +189,7 @@ public:
 	}
 
 	// The invariant: a line-fitted face whose sample already lies inside
-	// the cell (Korean with Apple SD Gothic Neo) draws exactly what it drew
+	// the cell (Korean with NotoSansKR Regular) draws exactly what it drew
 	// without a sample.
 	void test_line_fit_sample_that_fits_changes_nothing() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
@@ -244,7 +233,7 @@ public:
 	// with no sample, and a Korean / Japanese sample on the default
 	// (non-line) fit, all of which shrink the face.
 	struct PinnedFit {
-		int face;	///< 0 SD Gothic, 1 Hiragino
+		int face;	///< 0 NotoSansKR Regular (Korean), 1 NotoSansKR Bold (Japanese)
 		int sample;	///< 0 none, 1 Korean, 2 Japanese
 		int cell, faceSize, lineTop;
 		uint32 rasterCount;
@@ -282,21 +271,21 @@ public:
 
 	void test_legacy_fit_without_sample_is_the_base_fit() {
 		const PinnedFit cases[] = {
-			{ 0, 0, 16, 15, 0, 30 },
-			{ 1, 0, 24, 22, 0, 34 },
-			{ 1, 0, 32, 30, 0, 34 },
-			{ 1, 0, 40, 38, 0, 34 },
+			{ 0, 0, 16, 14, -5, 34 },
+			{ 1, 0, 24, 22, -7, 34 },
+			{ 1, 0, 32, 30, -9, 34 },
+			{ 1, 0, 40, 38, -13, 34 },
 		};
 		checkPinned(cases, ARRAYSIZE(cases));
 	}
 
 	void test_cjk_sample_fit_is_the_base_fit() {
 		const PinnedFit cases[] = {
-			{ 0, 1, 16, 15, 0, 46 },
-			{ 0, 1, 24, 23, 0, 46 },
-			{ 0, 1, 32, 31, 0, 46 },
-			{ 1, 2, 24, 22, 0, 49 },
-			{ 1, 2, 32, 30, 0, 49 },
+			{ 0, 1, 16, 14, -5, 50 },
+			{ 0, 1, 24, 22, -7, 50 },
+			{ 0, 1, 32, 30, -10, 50 },
+			{ 1, 2, 24, 22, -7, 49 },
+			{ 1, 2, 32, 30, -9, 49 },
 		};
 		checkPinned(cases, ARRAYSIZE(cases));
 	}
@@ -307,7 +296,7 @@ public:
 	// exactly as the same sample without the mark: the size and line top
 	// are the no-mark ones, pinned here from the no-mark fit.
 	struct MarkFreeFit {
-		int face;	///< 0 SD Gothic, 1 Hiragino
+		int face;	///< 0 NotoSansKR Regular (Korean), 1 NotoSansKR Bold (Japanese)
 		int sample;	///< 0 Japanese, 1 Latin
 		int cell, faceSize, lineTop;
 	};
@@ -318,13 +307,13 @@ public:
 		                      0x3002, 0xFF08, 0xFF09, 'g', 'j', '|', 0x3099 };
 		const uint32 latin[] = { 0xC9, 0xE9, 0xE7, 0xF1, 'A', 'E', 'Q', 'a', 'e', 'g', 'j', 'y', '|', '(', 0x0301 };
 		const MarkFreeFit cases[] = {
-			{ 1, 0, 24, 22, 0 },
-			{ 1, 0, 32, 30, 0 },
-			{ 1, 0, 40, 38, 0 },
-			{ 0, 1, 16, 15, 0 },
-			{ 0, 1, 24, 23, 0 },
-			{ 1, 1, 24, 22, 0 },
-			{ 1, 1, 32, 30, 0 },
+			{ 1, 0, 24, 22, -7 },
+			{ 1, 0, 32, 30, -9 },
+			{ 1, 0, 40, 38, -13 },
+			{ 0, 1, 16, 14, -5 },
+			{ 0, 1, 24, 22, -7 },
+			{ 1, 1, 24, 22, -7 },
+			{ 1, 1, 32, 30, -9 },
 		};
 		for (uint i = 0; i < ARRAYSIZE(cases); i++) {
 			const MarkFreeFit &c = cases[i];
@@ -358,29 +347,30 @@ public:
 	// combining dakuten (C11-T3c), for the three faces the tests can reach.
 	// The size and line top are the base's (6ef770b7d5), the same for every
 	// sample; the raster count is the no-sample one plus the sample's size.
-	// Pinned for the macOS system faces: a face given by its environment
-	// variable is skipped, since its values are its own.
+	// Pinned for the committed NotoSansKR Regular and Bold and Noto Sans Thai.
+	// Regular (Korean) is swept with the no-sample and Korean samples only:
+	// with the Japanese ones its fit differs at some cells, so those are
+	// pinned on Bold only.
 	void test_fit_sweep_is_the_base_fit() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
 		enum { kFirstCell = 8, kCells = 41 };
 		static const int kPinned[3][3][kCells] = {
-			{ // SD Gothic Neo
-				{ 7, 9, 10, 11, 11, 12, 13, 14, 15, 16, 17, 18, 20, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 },
-				{ 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
-				{ 30, 26, 26, 26, 30, 30, 30, 30, 30, 30, 30, 30, 26, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30 },
+			{ // NotoSansKR Regular
+				{ 7, 8, 8, 9, 10, 11, 13, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 43, 44, 46 },
+				{ -3, -3, -3, -3, -3, -3, -5, -5, -5, -5, -5, -5, -5, -6, -6, -7, -7, -7, -7, -7, -8, -9, -9, -9, -10, -10, -10, -10, -11, -11, -10, -11, -13, -13, -13, -14, -13, -13, -14, -15, -15 },
+				{ 30, 30, 34, 34, 34, 34, 30, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 32, 32, 34 },
 			},
-			{ // Hiragino Sans W3
-				{ 7, 8, 9, 10, 11, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46 },
-				{ -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
-				{ 30, 30, 30, 30, 30, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34 },
+			{ // NotoSansKR Bold
+				{ 7, 7, 8, 10, 10, 11, 13, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 36, 38, 39, 40, 41, 42, 43, 44, 45, 46 },
+				{ -3, -3, -3, -3, -3, -3, -5, -5, -5, -5, -5, -5, -5, -6, -6, -7, -7, -7, -7, -7, -8, -8, -8, -8, -9, -9, -10, -10, -10, -10, -10, -11, -13, -12, -13, -13, -13, -13, -14, -14, -15 },
+				{ 30, 34, 34, 30, 34, 34, 30, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 32, 34, 34, 34, 34, 34, 34, 34, 34, 34 },
 			},
-			{ // Sukhumvit Set
-				{ 7, 7, 8, 9, 10, 12, 12, 13, 14, 15, 17, 17, 19, 19, 20, 21, 23, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46 },
-				{ -3, -2, -1, 0, -2, -3, -3, -1, -2, -3, -4, -4, -4, -4, -4, -5, -6, -6, -5, -6, -5, -6, -5, -6, -6, -7, -6, -7, -7, -8, -7, -8, -7, -9, -8, -9, -8, -9, -8, -9, -9 },
-				{ 30, 34, 34, 34, 34, 30, 34, 34, 34, 34, 30, 34, 30, 34, 34, 34, 30, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34 },
+			{ // Noto Sans Thai
+				{ 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48 },
+				{ 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 23, 24 },
+				{ 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26 },
 			},
 		};
-		const char *const vars[3] = { "SCUMMVM_TEST_KO_FONT", "SCUMMVM_TEST_JA_FONT", "SCUMMVM_TEST_THAI_FONT" };
 		const uint32 ko[] = { 0xAC00, 0xB098, 0xB2E4, 0xD7A3, 0xBDC1, 0xB620, 0x3131, 0x300C, 0x2026,
 		                      '?', '!', 'g', 'y', '(', 'j', '|' };
 		const uint32 ja[] = { 0x3042, 0x3044, 0x3089, 0x30FC, 0x4E00, 0x6F22, 0x9F8D, 0x300C, 0x300D,
@@ -388,19 +378,15 @@ public:
 		const uint32 *const samples[4] = { nullptr, ko, ja, ja };
 		const uint sampleSizes[4] = { 0, ARRAYSIZE(ko), ARRAYSIZE(ja) - 1, ARRAYSIZE(ja) };
 		for (int f = 0; f < 3; f++) {
-			if (ttfFitTestFontOverridden(vars[f])) {
-				TS_WARN(Common::String::format("fit sweep: %s is set, the pinned values are the system face's", vars[f]).c_str());
+			Common::FSNode node(Common::Path(f == 0 ? HiResTestFonts::cjkRegularPath() :
+			                                 f == 1 ? HiResTestFonts::cjkBoldPath() : HiResTestFonts::thaiRegularPath(), '/'));
+			TS_ASSERT(node.exists());
+			if (!node.exists())
 				continue;
-			}
-			Common::FSNode node(ttfFitTestFontPath(vars[f], f == 0 ? "/System/Library/Fonts/AppleSDGothicNeo.ttc" :
-			                                        f == 1 ? "/System/Library/Fonts/\xe3\x83\x92\xe3\x83\xa9\xe3\x82\xae\xe3\x83\x8e\xe8\xa7\x92\xe3\x82\xb4\xe3\x82\xb7\xe3\x83\x83\xe3\x82\xaf W3.ttc" :
-			                                        "/System/Library/Fonts/Supplemental/SukhumvitSet.ttc"));
-			if (!node.exists()) {
-				TS_WARN(Common::String::format("fit sweep: no system face for %s", vars[f]).c_str());
-				continue;
-			}
 			for (int i = 0; i < kCells; i++) {
 				for (int s = 0; s < 4; s++) {
+					if (f == 0 && s >= 2)
+						continue;
 					const int cell = kFirstCell + i;
 					Common::String error;
 					TtfGlyphSource *src = s == 0
@@ -460,7 +446,7 @@ public:
 			TS_ASSERT_EQUALS(probes[0], 0x0E39u);
 
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		Common::FSNode node = sukhumvitNode();
+		Common::FSNode node = thaiNode();
 		if (!node.exists())
 			return;
 		set.fitProbes(TtfGlyphSource::kMaxExtraFitProbes, probes);

@@ -12,6 +12,7 @@
 #include "engines/scumm/hires_text.h"
 
 #include "../../system/null_osystem.h"
+#include "../../hires_test_fonts.h"
 
 /**
  * SCUMM's hi-res text drawing from the shared glyph sources.
@@ -386,14 +387,9 @@ public:
 	 */
 	void test_ttf_face_with_no_cell_known_at_load_still_loads_and_later_draws() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		static const char *const kFonts[] = {
-			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-			"/System/Library/Fonts/AppleSDGothicNeo.ttc",
-		};
-		const char *ttf = nullptr;
-		for (uint i = 0; i < ARRAYSIZE(kFonts) && !ttf; ++i)
-			if (Common::FSNode(kFonts[i]).exists())
-				ttf = kFonts[i];
+		// The committed NotoSansKR, by absolute path.
+		static const Common::String kFace = HiResTestFonts::cjkRegularPath();
+		const char *ttf = Common::FSNode(Common::Path(kFace, '/')).exists() ? kFace.c_str() : nullptr;
 		if (!ttf) {
 			TS_SKIP("needs a TrueType face");
 			return;
@@ -420,14 +416,14 @@ public:
 		Graphics::Surface dest;
 		dest.create(64, 40, Graphics::PixelFormat::createFormatCLUT8());
 		memset(dest.getPixels(), 0, dest.pitch * dest.h);
-		TS_ASSERT(!hr.drawChar(dest, 0xE9, 4, 10, 10, 15, 0, 1));
+		TS_ASSERT(!hr.drawChar(dest, 0x41, 4, 10, 10, 15, 0, 1));
 
 		// The cell becomes known, as it does when the game selects this
 		// charset for the first time.
 		hr.noteGameCharset(4, 16, 16);
 		hr.setCharsetGrid(4, 16, 16);
 		TS_ASSERT(hr.hasFonts());
-		TS_ASSERT(hr.drawChar(dest, 0xE9, 4, 10, 10, 15, 0, 1));
+		TS_ASSERT(hr.drawChar(dest, 0x41, 4, 10, 10, 15, 0, 1));
 		dest.free();
 #else
 		TS_SKIP("needs FreeType and a real filesystem");

@@ -2,6 +2,7 @@
 
 #include "common/array.h"
 #include "common/fs.h"
+#include "../../hires_test_fonts.h"
 #include "common/str.h"
 #include "common/stream.h"
 #include "common/system.h"
@@ -151,15 +152,17 @@ public:
 	// is drawn with its origin moved right, so the ring is not cut off.
 	void test_ttf_sara_am_keeps_its_ring() {
 #ifdef USE_FREETYPE2
-		// Face 0 of the system's Sukhumvit Set (loadTTFFont opens face 0);
-		// quietly nothing to check where it is absent, like the shared
-		// coverage tests.
-		Common::FSNode node("/System/Library/Fonts/Supplemental/SukhumvitSet.ttc");
-		if (!node.exists())
+		// The committed Noto Sans Thai (test/fonts/noto-thai).
+		Common::SeekableReadStream *thai = HiResTestFonts::openThai();
+		TS_ASSERT(thai != nullptr);
+		if (!thai)
 			return;
 		Common::String error;
-		Graphics::TtfGlyphSource *src = Graphics::TtfGlyphSource::create(node.createReadStream(), DisposeAfterUse::YES,
-																		  16, error, false);
+		// The face has no Latin or Hangul to fit by, so the Thai glyphs asked
+		// about are its fit probes.
+		const uint32 probes[] = { 0x0E17, 0x0E32, 0x0E33, 0x0E35, 0x0E48 };
+		Graphics::TtfGlyphSource *src = Graphics::TtfGlyphSource::create(thai, DisposeAfterUse::YES,
+																		  16, error, false, false, probes, ARRAYSIZE(probes));
 		TS_ASSERT(src);
 		if (!src)
 			return;

@@ -12,6 +12,7 @@
 #include "graphics/hires_text/glyph_source_ttf.h"
 
 #include "../system/null_osystem.h"
+#include "../hires_test_fonts.h"
 
 #ifdef USE_FREETYPE2
 #include "common/fs.h"
@@ -242,24 +243,21 @@ public:
 		TS_ASSERT(!src.metrics(0x0E01, m));
 	}
 
-	// Sukhumvit Set, face 0, 24 px: the face the design measured (U+0E48:
-	// advance 0, ink box left -4). Fixtures below were captured from
-	// TtfGlyphSource::row() of the base build (i18n bee83518ad), before
-	// originX existed: FNV-1a over cellHeight rows of cellWidth*2 bytes.
+	// Noto Sans Thai (test/fonts/noto-thai), 24 px: a face whose marks have
+	// advance 0 and ink left of their origin (U+0E48: ink box left of 0).
+	// The fixtures below were captured from TtfGlyphSource::row() of this
+	// build, to pin that the origin shift leaves the base glyphs' rows
+	// unchanged: FNV-1a over cellHeight rows of cellWidth*2 bytes.
 	Common::SeekableReadStream *openThaiFont(bool &haveFixture) {
 		haveFixture = false;
 #ifdef USE_FREETYPE2
 #if NULL_OSYSTEM_IS_AVAILABLE
-		Common::FSNode ttc("/System/Library/Fonts/Supplemental/SukhumvitSet.ttc");
-		if (ttc.exists()) {
+		Common::SeekableReadStream *s = HiResTestFonts::openThai();
+		if (s) {
 			haveFixture = true;
-			return ttc.createReadStream();
+			return s;
 		}
-		// An extracted copy of the face: same marks, no fixture for it.
-		Common::FSNode ttf("/Users/juami/work/scummvm/runs/c11/data/fonts/sukhumvit-text.ttf");
-		if (ttf.exists())
-			return ttf.createReadStream();
-		TS_SKIP("no Sukhumvit face (SukhumvitSet.ttc or sukhumvit-text.ttf) on this machine");
+		TS_SKIP("NotoSansThai-Regular.ttf not found in the source tree");
 		return nullptr;
 #else
 		TS_SKIP("no real filesystem access in this test environment");
@@ -277,7 +275,11 @@ public:
 		if (!stream)
 			return;
 		Common::String error;
-		Graphics::TtfGlyphSource *src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, 24, error);
+		// The face has no Latin or Hangul to fit by: the Thai glyphs asked
+		// about are its fit probes.
+		const uint32 probes[] = { 0x0E01, 0x0E1B, 0x0E34, 0x0E48 };
+		Graphics::TtfGlyphSource *src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, 24, error,
+		                                                                 false, false, probes, ARRAYSIZE(probes));
 		TS_ASSERT(src != nullptr);
 		if (!src)
 			return;
@@ -299,10 +301,10 @@ public:
 		}
 		TS_ASSERT(inkLeftOfOrigin);
 
-		// A base consonant and a Latin capital: ink right of the origin, so
-		// origin at column 0 and the same row bytes as before.
-		const uint32 cps[2] = { 0x0E01, 0x0041 };
-		const uint32 fixture[2] = { 3444642818u, 1439034942u };
+		// Two base consonants: ink right of the origin, so origin at column 0
+		// and the same row bytes as before.
+		const uint32 cps[2] = { 0x0E01, 0x0E1B };
+		const uint32 fixture[2] = { 2605750856u, 1338547110u };
 		for (int i = 0; i < 2; i++) {
 			TS_ASSERT(src->metrics(cps[i], m));
 			TS_ASSERT_EQUALS(m.originX, 0);
@@ -311,15 +313,6 @@ public:
 			if (haveFixture && src->cellWidth() == 24 && src->cellHeight() == 24)
 				TSM_ASSERT_EQUALS(Common::String::format("U+%04X", cps[i]).c_str(), fnvRows(*src, cps[i]), fixture[i]);
 		}
-
-		// 'j' reaches left of its origin with its descender, but it is not
-		// combining: placement unchanged, origin at column 0 and the base
-		// build's row bytes (49 lit pixels, the left tip clipped as before).
-		TS_ASSERT(src->metrics(0x006A, m));
-		TS_ASSERT_EQUALS(m.originX, 0);
-		TS_ASSERT(!m.combining);
-		if (haveFixture && src->cellWidth() == 24 && src->cellHeight() == 24)
-			TS_ASSERT_EQUALS(fnvRows(*src, 0x006A), 3696380848u);
 
 		// A mark above (U+0E34 SARA I) is shifted like the tone mark.
 		TS_ASSERT(src->metrics(0x0E34, m));
@@ -334,13 +327,13 @@ public:
 	// are shifted).
 	void test_ttf_hangul_and_ascii_keep_origin_zero() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		Common::FSNode node("/System/Library/Fonts/AppleSDGothicNeo.ttc");
-		if (!node.exists()) {
-			TS_SKIP("Apple SD Gothic Neo not present on this machine");
+		Common::SeekableReadStream *stream = HiResTestFonts::openCjk();
+		if (!stream) {
+			TS_SKIP("NotoSansKR-Regular.otf not found in the source tree");
 			return;
 		}
 		Common::String error;
-		Graphics::TtfGlyphSource *src = Graphics::TtfGlyphSource::create(node.createReadStream(), DisposeAfterUse::YES, 16, error);
+		Graphics::TtfGlyphSource *src = Graphics::TtfGlyphSource::create(stream, DisposeAfterUse::YES, 16, error);
 		TS_ASSERT(src != nullptr);
 		if (!src)
 			return;

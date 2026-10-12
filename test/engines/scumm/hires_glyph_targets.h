@@ -11,6 +11,7 @@
 #include "engines/scumm/hires_text.h"
 
 #include "support/hires_fixture.h"
+#include "../../hires_test_fonts.h"
 
 /**
  * [glyphs] targeted glyphs (design section 6.7): `0xNN = <face>:u+XXXX` draws
@@ -270,14 +271,9 @@ public:
 	/// _failedFaces" gate in checkIdOnceReady() waited forever.
 	void test_ttf_only_id_binds_and_runs_its_checks() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		static const char *const kFonts[] = {
-			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-			"/System/Library/Fonts/AppleSDGothicNeo.ttc",
-		};
-		const char *ttf = nullptr;
-		for (uint i = 0; i < ARRAYSIZE(kFonts) && !ttf; ++i)
-			if (Common::FSNode(kFonts[i]).exists())
-				ttf = kFonts[i];
+		// The committed Noto Sans Thai (it has no Hangul), by absolute path.
+		static const Common::String kFace = HiResTestFonts::thaiRegularPath();
+		const char *ttf = Common::FSNode(Common::Path(kFace, '/')).exists() ? kFace.c_str() : nullptr;
 		if (!ttf) {
 			TS_SKIP("needs a TrueType face");
 			return;
@@ -285,8 +281,7 @@ public:
 		Scumm::HiResOverlay overlay;
 		overlay.create(64, 40, true);
 		Scumm::ScummHiResText hr;
-		// DejaVuSans has broad symbol coverage (it has U+25A1, the fixture's
-		// default missing= box) but no Hangul: override missing= to U+AC00
+		// Noto Sans Thai has no Hangul: override missing= to U+AC00
 		// for this id specifically.
 		const Common::String body = Common::String::format("[font.4]\nface=%s\nmissing=u+ac00\n", ttf);
 		TS_ASSERT(open(hr, overlay, body.c_str()));

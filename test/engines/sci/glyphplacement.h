@@ -40,6 +40,7 @@
 #include "sci/graphics/textlayout16.h"
 
 #include "../../system/null_osystem.h"
+#include "../../hires_test_fonts.h"
 
 using Sci::FontSettings;
 using Sci::GlyphPlacement;
@@ -470,17 +471,8 @@ public:
 	// draws narrow (U+00B7, U+2018: advance 8) half of one.
 	void test_ko2350_ambiguous_symbols_advance_as_drawn() {
 #if NULL_OSYSTEM_IS_AVAILABLE
-		// The source root, from this header's own path (the runner may run
-		// from an out-of-tree build folder).
-		Common::String root = __FILE__;
-		const size_t cut = root.rfind("test/engines/sci/");
-		if (cut == Common::String::npos) {
-			TS_SKIP("source root not known");
-			return;
-		}
-		root = Common::String(root.c_str(), cut);
 		Common::install_null_g_system();
-		const Common::FSNode node(Common::Path(root + "dists/engine-data/hires_text/dos/KO2350.SVF", '/'));
+		const Common::FSNode node(Common::Path(HiResTestFonts::srcDir() + "/dists/engine-data/hires_text/dos/KO2350.SVF", '/'));
 		Common::SeekableReadStream *stream = node.exists() ? node.createReadStream() : nullptr;
 		Graphics::HiResBitmapFont font;
 		const bool loaded = stream && font.load(*stream);

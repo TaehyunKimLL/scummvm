@@ -11,6 +11,7 @@
 #include "engines/scumm/hires_text.h"
 
 #include "support/hires_fixture.h"
+#include "../../hires_test_fonts.h"
 
 /**
  * latinStepsByFace() (design section 8's advance=): true exactly when
@@ -27,25 +28,14 @@ class ScummHiResLatinAdvanceTestSuite : public CxxTest::TestSuite {
 		return ScummHiResFixture::open(hr, overlay, body);
 	}
 
+	// The committed NotoSansKR face, by absolute path (HIRES_TEST_SRCDIR): a
+	// relative path would be resolved against the game folder by the font map.
 	static const char *systemTtf() {
-		// The repo's own Hangul/Latin TrueType face, tried first: an
-		// absolute, SCUMM_HIRES_CENSUS_SRCDIR-anchored path (see
-		// hires_wide_advance.h's systemTtf() for why a bare relative
-		// "dists/engine-data" path is not reachable from this build's
-		// actual `make test` working directory).
-#ifdef SCUMM_HIRES_CENSUS_SRCDIR
-		static const Common::String kNanumGothic =
-			Common::String(SCUMM_HIRES_CENSUS_SRCDIR) + "/dists/engine-data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf";
-		if (Common::FSNode(Common::Path(kNanumGothic, '/')).exists())
-			return kNanumGothic.c_str();
+#if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
+		static const Common::String kFace = HiResTestFonts::cjkRegularPath();
+		if (Common::FSNode(Common::Path(kFace, '/')).exists())
+			return kFace.c_str();
 #endif
-		static const char *const kFonts[] = {
-			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-			"/System/Library/Fonts/AppleSDGothicNeo.ttc",
-		};
-		for (uint i = 0; i < ARRAYSIZE(kFonts); ++i)
-			if (Common::FSNode(kFonts[i]).exists())
-				return kFonts[i];
 		return nullptr;
 	}
 

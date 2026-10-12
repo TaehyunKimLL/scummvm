@@ -23,6 +23,7 @@
 #include <cxxtest/TestSuite.h>
 
 #include "common/fs.h"
+#include "../../hires_test_fonts.h"
 #include "common/hashmap.h"
 #include "common/system.h"
 #include "graphics/pixelformat.h"
@@ -320,16 +321,16 @@ public:
 	}
 
 	void test_real_face_pens_and_box() {
-		// Arial at 10 px and at 20 px (baselines 8 and 17: the row shift
+		// NotoSansKR (Latin text) at 10 px and at 20 px (the row shift
 		// matters): the line stays inside 2 x its game box (vertically
 		// exactly), and starts and ends within a pixel or two of 2 x where
 		// the game's does.
-		Graphics::TtfGlyphSource *small = agsOpenTtf("/System/Library/Fonts/Supplemental/Arial.ttf", 10);
-		Graphics::TtfGlyphSource *big = agsOpenTtf("/System/Library/Fonts/Supplemental/Arial.ttf", 20);
+		Graphics::TtfGlyphSource *small = agsOpenTtf(HiResTestFonts::cjkRegularPath().c_str(), 10);
+		Graphics::TtfGlyphSource *big = agsOpenTtf(HiResTestFonts::cjkRegularPath().c_str(), 20);
 		if (!small || !big) {
 			delete small;
 			delete big;
-			TS_SKIP("Arial.ttf not available");
+			TS_SKIP("NotoSansKR-Regular.otf not found in the source tree");
 			return;
 		}
 		AgsTtfScaled scaled(small, big, 2);
@@ -374,12 +375,12 @@ public:
 		// over the base's columns, as at game resolution.
 		// the translation's marks in the vertical fit, as SetTranslationSample() does
 		const uint32 probes[] = { 0x0E17, 0x0E35, 0x0E48 };
-		Graphics::TtfGlyphSource *small = agsOpenTtf("/System/Library/Fonts/Supplemental/Ayuthaya.ttf", 12, probes, 3);
-		Graphics::TtfGlyphSource *big = agsOpenTtf("/System/Library/Fonts/Supplemental/Ayuthaya.ttf", 24, probes, 3);
+		Graphics::TtfGlyphSource *small = agsOpenTtf(HiResTestFonts::thaiRegularPath().c_str(), 12, probes, 3);
+		Graphics::TtfGlyphSource *big = agsOpenTtf(HiResTestFonts::thaiRegularPath().c_str(), 24, probes, 3);
 		if (!small || !big) {
 			delete small;
 			delete big;
-			TS_SKIP("Ayuthaya.ttf not available");
+			TS_SKIP("NotoSansThai-Regular.ttf not found in the source tree");
 			return;
 		}
 		AgsTtfScaled scaled(small, big, 2);

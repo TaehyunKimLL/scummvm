@@ -8,6 +8,7 @@
 #include "graphics/hires_text/font_map.h"
 
 #include "../system/null_osystem.h"
+#include "../hires_test_fonts.h"
 
 /**
  * Tests for HiResFontMap's path and code page helpers.
@@ -137,8 +138,7 @@ public:
 #if NULL_OSYSTEM_IS_AVAILABLE
 		typedef Graphics::HiResFontMap M;
 		Common::install_null_g_system();
-		// An in-tree build runs the runner from the source root.
-		const Common::FSNode dir("dists/engine-data");
+		const Common::FSNode dir(Common::Path(HiResTestFonts::srcDir() + "/dists/engine-data", '/'));
 		if (!dir.getChild("hires_text").getChild("maps").getChild("kq1-ko.map").exists()) {
 			Common::uninstall_null_g_system();
 			TS_SKIP("dists/engine-data/hires_text is not reachable from the runner's folder");

@@ -10,6 +10,7 @@
 #include "graphics/hires_text/glyph_source_ttf.h"
 
 #include "../system/null_osystem.h"
+#include "../hires_test_fonts.h"
 
 #ifdef USE_FREETYPE2
 #include "common/fs.h"
@@ -426,12 +427,15 @@ public:
 
 	void test_legacy_require_hangul_unchanged() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		Common::FSNode latin("/System/Library/Fonts/Supplemental/Arial.ttf");
-		if (!latin.exists())
+		// A face with no Hangul at all (the committed Noto Sans Thai) is refused
+		// when Hangul is required.
+		Common::SeekableReadStream *noHangul = HiResTestFonts::openThai();
+		TS_ASSERT(noHangul != nullptr);
+		if (!noHangul)
 			return;
 		Common::String error;
 		Graphics::TtfGlyphSource *src = Graphics::TtfGlyphSource::create(
-			latin.createReadStream(), DisposeAfterUse::YES, 16, error, true);
+			noHangul, DisposeAfterUse::YES, 16, error, true);
 		TS_ASSERT(src == nullptr);
 		TS_ASSERT_EQUALS(error, Common::String("face has no Hangul glyphs"));
 		delete src;
@@ -442,9 +446,9 @@ public:
 	// with them the load stays within the fixed set + extras + 6 retries.
 	void test_create_extra_fit_probes() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		Common::FSNode node("/System/Library/Fonts/Supplemental/SukhumvitSet.ttc");
-		if (!node.exists())
-			node = Common::FSNode("/Users/juami/work/scummvm/runs/c11/data/fonts/sukhumvit-text.ttf");
+		// The committed Noto Sans Thai (zero-width marks).
+		Common::FSNode node(Common::Path(HiResTestFonts::thaiRegularPath(), '/'));
+		TS_ASSERT(node.exists());
 		if (!node.exists())
 			return;
 
@@ -475,13 +479,15 @@ public:
 #endif
 	}
 
-	// The design's two Thai faces: Sukhumvit Set draws marks with zero
-	// advance, Thonburi as spacing glyphs.
+	// A Thai face with zero-width marks (the committed Noto Sans Thai) has no
+	// spacing marks; where the macOS Thonburi (marks as spacing glyphs) is
+	// installed, it is reported as having them.
 	void test_real_faces_spacing_marks() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		Common::FSNode sukhumvit("/System/Library/Fonts/Supplemental/SukhumvitSet.ttc");
+		Common::FSNode sukhumvit(Common::Path(HiResTestFonts::thaiRegularPath(), '/'));
 		Common::FSNode thonburi("/System/Library/Fonts/Supplemental/Thonburi.ttc");
-		if (!sukhumvit.exists() || !thonburi.exists())
+		TS_ASSERT(sukhumvit.exists());
+		if (!sukhumvit.exists())
 			return;
 		Common::Array<uint32> sample;
 		const uint32 cps[] = { 0x0E17, 0x0E35, 0x0E48, 0x0E48, 0x0E34, 0x0E01 };
@@ -490,14 +496,16 @@ public:
 		Common::String error;
 		Graphics::TtfGlyphSource *s = Graphics::TtfGlyphSource::create(
 			sukhumvit.createReadStream(), DisposeAfterUse::YES, 24, error, sample.data(), sample.size());
-		Graphics::TtfGlyphSource *t = Graphics::TtfGlyphSource::create(
-			thonburi.createReadStream(), DisposeAfterUse::YES, 24, error, sample.data(), sample.size());
-		TS_ASSERT(s && t);
-		if (s && t) {
+		Graphics::TtfGlyphSource *t = thonburi.exists() ? Graphics::TtfGlyphSource::create(
+			thonburi.createReadStream(), DisposeAfterUse::YES, 24, error, sample.data(), sample.size()) : nullptr;
+		TS_ASSERT(s != nullptr);
+		if (s) {
 			Graphics::CoverageReport rs = Graphics::checkCoverage(s, sample);
-			Graphics::CoverageReport rt = Graphics::checkCoverage(t, sample);
 			TS_ASSERT_EQUALS(rs.missing, 0u);
 			TS_ASSERT_EQUALS(rs.spacingMarks, 0u);
+		}
+		if (t) {
+			Graphics::CoverageReport rt = Graphics::checkCoverage(t, sample);
 			TS_ASSERT_EQUALS(rt.missing, 0u);
 			TS_ASSERT(rt.spacingMarks > 0);
 		}

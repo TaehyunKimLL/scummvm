@@ -32,6 +32,7 @@
 #include "graphics/hires_text/hires_options.h"
 
 #include "ags/shared/font/hires_font_config.h"
+#include "../../hires_test_fonts.h"
 
 namespace {
 
@@ -251,20 +252,10 @@ public:
 
 	void test_scaled_pixel_face_opens_at_n_times_the_small_ppem() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		Common::String path;
-		{
-#pragma push_macro("getenv")
-#undef getenv
-			const char *dir = getenv("SCUMMVM_TEST_PIXEL_FONT_DIR");
-			const char *data = getenv("SCUMMVM_TEST_I18N_DATA");
-#pragma pop_macro("getenv")
-			if (dir && *dir)
-				path = Common::String::format("%s/Galmuri9.ttf", dir);
-			else if (data && *data)
-				path = Common::String::format("%s/../fonts/pixel/galmuri/Galmuri9.ttf", data);
-		}
-		if (path.empty() || !Common::FSNode(Common::Path(path, '/')).exists()) {
-			TS_SKIP("Galmuri9.ttf not found (SCUMMVM_TEST_PIXEL_FONT_DIR)");
+		// The Galmuri9 pixel face committed with the engine data.
+		const Common::String path = HiResTestFonts::srcDir() + "/dists/engine-data/hires_text/fonts/galmuri/Galmuri9.ttf";
+		if (!Common::FSNode(Common::Path(path, '/')).exists()) {
+			TS_SKIP("Galmuri9.ttf not found in the source tree");
 			return;
 		}
 		AGS3::HiResFontPlan p;

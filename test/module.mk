@@ -86,7 +86,7 @@ ifeq ($(ENABLE_SCUMM), STATIC_PLUGIN)
 		common/compression/libcompression.a common/libcommon.a
 	# The hi-res hook census reads charset.h/charset.cpp back out of the tree
 	# the runner was built from, so it needs to know where that tree is.
-	SCUMM_TEST_DEFINES := -DSCUMM_HIRES_CENSUS_SRCDIR=\"$(srcdir)\"
+	SCUMM_TEST_DEFINES := -DSCUMM_HIRES_CENSUS_SRCDIR=\"$(abspath $(srcdir))\"
 endif
 
 ifeq ($(ENABLE_WINTERMUTE), STATIC_PLUGIN)
@@ -122,7 +122,7 @@ ifeq ($(ENABLE_AGS), STATIC_PLUGIN)
 		engines/ags/shared/font/text_twin.o graphics/libgraphics.a \
 		common/libcommon.a
 	# The face-chain tests open the repo's own TrueType face.
-	AGS_TEST_DEFINES := -DAGS_TEST_SRCDIR=\"$(srcdir)\"
+	AGS_TEST_DEFINES := -DAGS_TEST_SRCDIR=\"$(abspath $(srcdir))\"
 endif
 
 ifeq ($(ENABLE_GRIM), STATIC_PLUGIN)
@@ -142,7 +142,7 @@ ifeq ($(ENABLE_SCI), STATIC_PLUGIN)
 	# The parser lower-case test reads the fold table and the detection
 	# table back out of the tree the runner was built from, so it needs to
 	# know where that tree is.
-	SCI_TEST_DEFINES := -DSCI_TEST_SRCDIR=\"$(srcdir)\"
+	SCI_TEST_DEFINES := -DSCI_TEST_SRCDIR=\"$(abspath $(srcdir))\"
 endif
 
 #
@@ -153,6 +153,10 @@ TEST_CXXFLAGS  := $(filter-out -Wglobal-constructors,$(CXXFLAGS))
 TEST_CXXFLAGS += -Wno-self-assign-overloaded
 TEST_CXXFLAGS += $(SCUMM_TEST_DEFINES) $(AGS_TEST_DEFINES)
 TEST_CXXFLAGS += $(SCI_TEST_DEFINES)
+# The hi-res text tests read the fonts committed in the source tree (see
+# test/hires_test_fonts.h) by absolute path: an in-tree build has a relative
+# $(srcdir), which a font map would resolve against the game folder.
+TEST_CXXFLAGS += -DHIRES_TEST_SRCDIR=\"$(abspath $(srcdir))\"
 
 ifdef WIN32
 TEST_LDFLAGS := $(filter-out -mwindows,$(TEST_LDFLAGS))

@@ -12,6 +12,7 @@
 #include "engines/scumm/hires_text.h"
 
 #include "support/hires_fixture.h"
+#include "../../hires_test_fonts.h"
 
 /**
  * origin=face (design section 8):
@@ -158,14 +159,9 @@ public:
 	void test_truetype_face_follows_origin_face() {
 #ifdef USE_FREETYPE2
 #if NULL_OSYSTEM_IS_AVAILABLE
-		static const char *const kFonts[] = {
-			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-			"/System/Library/Fonts/AppleSDGothicNeo.ttc",
-		};
-		const char *ttf = nullptr;
-		for (uint i = 0; i < ARRAYSIZE(kFonts) && !ttf; ++i)
-			if (Common::FSNode(kFonts[i]).exists())
-				ttf = kFonts[i];
+		// The committed NotoSansKR, by absolute path.
+		static const Common::String kFace = HiResTestFonts::cjkRegularPath();
+		const char *ttf = Common::FSNode(Common::Path(kFace, '/')).exists() ? kFace.c_str() : nullptr;
 		if (!ttf) {
 			TS_SKIP("needs a TrueType face");
 			return;
@@ -208,14 +204,9 @@ public:
 	/// is latinBaselineByFace()'s separate, game-offset-dropping meaning.
 	void test_latin_svfn_on_ttf_baseline() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		static const char *const kFonts[] = {
-			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-			"/System/Library/Fonts/AppleSDGothicNeo.ttc",
-		};
-		const char *ttf = nullptr;
-		for (uint i = 0; i < ARRAYSIZE(kFonts) && !ttf; ++i)
-			if (Common::FSNode(kFonts[i]).exists())
-				ttf = kFonts[i];
+		// The committed NotoSansKR, by absolute path.
+		static const Common::String kFace = HiResTestFonts::cjkRegularPath();
+		const char *ttf = Common::FSNode(Common::Path(kFace, '/')).exists() ? kFace.c_str() : nullptr;
 		if (!ttf) {
 			TS_SKIP("needs a TrueType face");
 			return;
@@ -234,7 +225,7 @@ public:
 		// A code point outside basic-latin so it resolves to the id's own
 		// (TrueType) chain, not the range.basic-latin companion - just to
 		// read the primary's own baselineRow().
-		uint32 cpFace = 0xE9; // e-acute: Latin-1 Supplement, DejaVuSans has it
+		uint32 cpFace = 0xE9; // e-acute: Latin-1 Supplement, NotoSansKR has it
 		Graphics::UnicodeGlyphSource *ttfSrc = hr.perGlyphSourceFor(kCs, cpFace);
 		uint32 cpLatin = 'A';
 		Graphics::UnicodeGlyphSource *svfSrc = hr.perGlyphSourceFor(kCs, cpLatin);
