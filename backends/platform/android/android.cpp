@@ -366,6 +366,8 @@ void OSystem_Android::initBackend() {
 	// true: the on-screen keyboard is the system input method (Gboard, Samsung ...) instead of
 	// the built-in one, so a Korean (or any) IME can type into games that take text.
 	ConfMan.registerDefault("android_system_keyboard", false);
+	// true: the on-screen keyboard opens with the game and stays open; the game cannot close it.
+	ConfMan.registerDefault("android_keyboard_pinned", false);
 
 	// explicitly set this, since fullscreen cannot be changed from GUI
 	// and for Android it should be persisted (and ConfMan.hasKey("fullscreen") check should return true for it)
@@ -488,12 +490,14 @@ void OSystem_Android::engineInit() {
 	// The game's own value (or --set=android_system_keyboard=...) wins over the global one.
 	JNI::setSystemKeyboard(ConfMan.getBool("android_system_keyboard"));
 	JNI::setHangulKeyboard(hangulKeyboardMode());
+	JNI::setKeyboardPinned(ConfMan.getBool("android_keyboard_pinned"));
 }
 
 void OSystem_Android::engineDone() {
 	_engineRunning = false;
 	updateOnScreenControls();
 	JNI::setCurrentGame("");
+	JNI::setKeyboardPinned(false);
 	JNI::setHangulKeyboard(0);
 	JNI::setSystemKeyboard(ConfMan.getBool("android_system_keyboard", Common::ConfigManager::kApplicationDomain));
 }

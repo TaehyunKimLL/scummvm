@@ -159,6 +159,9 @@ public class ScummVMActivity extends Activity {
 
 	public View _screenKeyboard = null;
 	private boolean keyboardWithoutTextInputShown = false;
+	// android_keyboard_pinned of the running game: the keyboard opens with the game and the game
+	// never closes it; only the player does.
+	private boolean _keyboardPinned = false;
 	// Show the system input method (Gboard ...) instead of the built-in keyboard; set from the
 	// android_system_keyboard setting of the running game (or the launcher's global one).
 	private volatile boolean _useSystemKeyboard = false;
@@ -668,6 +671,10 @@ public class ScummVMActivity extends Activity {
 		if (!force && isHWKeyboardConnected()) {
 			return;
 		}
+		// Showing toggles the keyboard below, so a second request from the game would close it.
+		if (isKeyboardOverlayShown()) {
+			return;
+		}
 
 		if (_main_surface != null) {
 
@@ -884,7 +891,7 @@ public class ScummVMActivity extends Activity {
 					//showKeyboard(enable);
 					if (enable) {
 						showScreenKeyboard(false);
-					} else {
+					} else if (!_keyboardPinned) {
 						hideScreenKeyboard();
 					}
 				}
@@ -909,6 +916,18 @@ public class ScummVMActivity extends Activity {
 					// A keyboard already on screen is closed; the next one has the new layout.
 					if (_screenKeyboard != null) {
 						hideScreenKeyboard();
+					}
+				}
+			});
+		}
+
+		@Override
+		protected void setKeyboardPinned(final boolean enable) {
+			runOnUiThread(new Runnable() {
+				public void run() {
+					_keyboardPinned = enable;
+					if (enable) {
+						showScreenKeyboard(false);
 					}
 				}
 			});

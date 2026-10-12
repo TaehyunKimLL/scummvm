@@ -76,6 +76,7 @@ private:
 
 	GUI::CheckboxWidget *_onscreenCheckbox;
 	GUI::CheckboxWidget *_ignoreGameSafeAreaCheckbox;
+	GUI::CheckboxWidget *_keyboardPinnedCheckbox;
 	GUI::StaticTextWidget *_preferredTouchModeDesc;
 	GUI::StaticTextWidget *_preferredTMMenusDesc;
 	GUI::PopUpWidget *_preferredTMMenusPopUp;
@@ -136,6 +137,7 @@ AndroidOptionsWidget::AndroidOptionsWidget(GuiObject *boss, const Common::String
 
 	_onscreenCheckbox = new GUI::CheckboxWidget(widgetsBoss(), "AndroidOptionsDialog.OnScreenControl", _("Show On-screen control"));
 	_ignoreGameSafeAreaCheckbox = new GUI::CheckboxWidget(widgetsBoss(), "AndroidOptionsDialog.IgnoreGameSafeArea", _("Ignore safe areas in-game"));
+	_keyboardPinnedCheckbox = new GUI::CheckboxWidget(widgetsBoss(), "AndroidOptionsDialog.KeyboardPinned", _("Keep the on-screen keyboard open"), _("The keyboard opens with the game and stays open until you close it"));
 	_preferredTouchModeDesc = new GUI::StaticTextWidget(widgetsBoss(), "AndroidOptionsDialog.PreferredTouchModeText", _("Choose the preferred touch mode:"));
 	if (inAppDomain) {
 		_preferredTMMenusDesc = new GUI::StaticTextWidget(widgetsBoss(), "AndroidOptionsDialog.TMMenusText", _("In menus"));
@@ -212,6 +214,7 @@ void AndroidOptionsWidget::defineLayout(GUI::ThemeEval &layouts, const Common::S
 	            .addPadding(0, 0, 0, 0)
 	            .addWidget("OnScreenControl", "Checkbox")
 	            .addWidget("IgnoreGameSafeArea", "Checkbox")
+	            .addWidget("KeyboardPinned", "Checkbox")
 	            .addWidget("PreferredTouchModeText", "", -1, layouts.getVar("Globals.Line.Height"));
 
 	if (inAppDomain) {
@@ -365,6 +368,7 @@ void AndroidOptionsWidget::load() {
 
 	_onscreenCheckbox->setState(ConfMan.getBool("onscreen_control", _domain));
 	_ignoreGameSafeAreaCheckbox->setState(ConfMan.getBool("ignore_game_safe_area", _domain));
+	_keyboardPinnedCheckbox->setState(ConfMan.getBool("android_keyboard_pinned", _domain));
 
 	// When in application domain, we don't have default entry so we must have a value
 	if (inAppDomain) {
@@ -421,6 +425,7 @@ bool AndroidOptionsWidget::save() {
 	if (_enabled) {
 		ConfMan.setBool("onscreen_control", _onscreenCheckbox->getState(), _domain);
 		ConfMan.setBool("ignore_game_safe_area", _ignoreGameSafeAreaCheckbox->getState(), _domain);
+		ConfMan.setBool("android_keyboard_pinned", _keyboardPinnedCheckbox->getState(), _domain);
 
 		if (inAppDomain) {
 			saveTouchMode("touch_mode_menus", _preferredTMMenusPopUp->getSelectedTag());
@@ -435,6 +440,7 @@ bool AndroidOptionsWidget::save() {
 	} else {
 		ConfMan.removeKey("onscreen_control", _domain);
 		ConfMan.removeKey("ignore_game_safe_area", _domain);
+		ConfMan.removeKey("android_keyboard_pinned", _domain);
 
 		if (inAppDomain) {
 			ConfMan.removeKey("touch_mode_menus", _domain);
@@ -454,6 +460,7 @@ bool AndroidOptionsWidget::save() {
 bool AndroidOptionsWidget::hasKeys() {
 	return ConfMan.hasKey("onscreen_control", _domain) ||
 	       ConfMan.hasKey("ignore_game_safe_area", _domain) ||
+	       ConfMan.hasKey("android_keyboard_pinned", _domain) ||
 	       (_domain.equalsIgnoreCase(Common::ConfigManager::kApplicationDomain) && ConfMan.hasKey("touch_mode_menus", _domain)) ||
 	       ConfMan.hasKey("touch_mode_2d_games", _domain) ||
 	       ConfMan.hasKey("touch_mode_3d_games", _domain) ||
@@ -468,6 +475,7 @@ void AndroidOptionsWidget::setEnabled(bool e) {
 
 	_onscreenCheckbox->setEnabled(e);
 	_ignoreGameSafeAreaCheckbox->setEnabled(e);
+	_keyboardPinnedCheckbox->setEnabled(e);
 
 	if (inAppDomain) {
 		_preferredTMMenusDesc->setEnabled(e);

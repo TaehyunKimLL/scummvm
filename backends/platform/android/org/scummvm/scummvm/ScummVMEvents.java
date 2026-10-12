@@ -115,6 +115,8 @@ public class ScummVMEvents implements
 
 	protected View _currentView;
 	protected int _touchMode;
+	// The current touch gesture started on the built-in keyboard.
+	private boolean _touchOnKeyboard = false;
 
 	protected boolean _doubleTapMode;
 
@@ -715,14 +717,23 @@ public class ScummVMEvents implements
 //			Log.d(ScummVM.LOG_TAG,prefixDBGMsg + "Single touch event:: x: " + xPos + " y: " + yPos);
 //		}
 
-		if (_activity.isKeyboardOverlayShown()
-		    && _activity.isScreenKeyboardShown()
-		    && _activity.getScreenKeyboard().getY() <= event.getY() ) {
-			event.offsetLocation(-_activity.getScreenKeyboard().getX(), -_activity.getScreenKeyboard().getY());
-			// TODO maybe call the onTouchEvent of something else here?
-			_activity.getScreenKeyboard().onTouchEvent(event);
-			// correct the offset for continuing handling the event
-			event.offsetLocation(_activity.getScreenKeyboard().getX(), _activity.getScreenKeyboard().getY());
+		// A gesture belongs to where it started: one that starts on the keyboard is typing, and the
+		// game never sees it; one that starts above it reaches the game even if it ends on the keys.
+		if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+			_touchOnKeyboard = _activity.isKeyboardOverlayShown()
+				&& _activity.isScreenKeyboardShown()
+				&& _activity.getScreenKeyboard().getY() <= event.getY();
+		}
+		if (_touchOnKeyboard) {
+			if (_activity.isScreenKeyboardShown()) {
+				event.offsetLocation(-_activity.getScreenKeyboard().getX(), -_activity.getScreenKeyboard().getY());
+				_activity.getScreenKeyboard().onTouchEvent(event);
+				event.offsetLocation(_activity.getScreenKeyboard().getX(), _activity.getScreenKeyboard().getY());
+			}
+			if (event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+				_touchOnKeyboard = false;
+			}
+			return true;
 		}
 
 		if (_mouseHelper != null) {

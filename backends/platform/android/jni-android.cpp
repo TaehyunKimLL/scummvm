@@ -95,6 +95,7 @@ jmethodID JNI::_MID_setWindowCaption = 0;
 jmethodID JNI::_MID_showVirtualKeyboard = 0;
 jmethodID JNI::_MID_showOnScreenControls = 0;
 jmethodID JNI::_MID_setSystemKeyboard = 0;
+jmethodID JNI::_MID_setKeyboardPinned = 0;
 jmethodID JNI::_MID_setHangulKeyboard = 0;
 jmethodID JNI::_MID_setTouchMode = 0;
 jmethodID JNI::_MID_getTouchMode = 0;
@@ -449,6 +450,19 @@ void JNI::setSystemKeyboard(bool enable) {
 
 	if (env->ExceptionCheck()) {
 		LOGE("Error trying to choose the on-screen keyboard");
+
+		env->ExceptionDescribe();
+		env->ExceptionClear();
+	}
+}
+
+void JNI::setKeyboardPinned(bool enable) {
+	JNIEnv *env = JNI::getEnv();
+
+	env->CallVoidMethod(_jobj, _MID_setKeyboardPinned, enable);
+
+	if (env->ExceptionCheck()) {
+		LOGE("Error trying to pin the on-screen keyboard");
 
 		env->ExceptionDescribe();
 		env->ExceptionClear();
@@ -836,6 +850,7 @@ void JNI::create(JNIEnv *env, jobject self, jobject asset_manager,
 	FIND_METHOD(, showVirtualKeyboard, "(Z)V");
 	FIND_METHOD(, showOnScreenControls, "(I)V");
 	FIND_METHOD(, setSystemKeyboard, "(Z)V");
+	FIND_METHOD(, setKeyboardPinned, "(Z)V");
 	FIND_METHOD(, setHangulKeyboard, "(I)V");
 	FIND_METHOD(, setTouchMode, "(I)V");
 	FIND_METHOD(, getTouchMode, "()I");
