@@ -720,6 +720,36 @@ static void stripParticles(Collector &c, const U32 &w, uint8 outer, uint8 role) 
 	}
 }
 
+// @p s is nothing but particles, stacked in their order; @p role gets the
+// innermost one that places the noun, as stripParticles() gives it.
+static bool peelParticles(const U32 &s, uint8 outer, uint8 &role) {
+	if (s.empty())
+		return true;
+	for (uint p = 0; p < ARRAYSIZE(kParticles); ++p) {
+		const uint n = kParticles[p].len;
+		// endsWithCps() wants a stem before the particle; here the whole
+		// string may be the particle.
+		if (!particleMayFollow(kParticles[p].kind, outer) || s.size() < n)
+			continue;
+		bool match = true;
+		for (uint i = 0; i < n && match; ++i)
+			match = s[s.size() - n + i] == kParticles[p].cp[i];
+		if (!match)
+			continue;
+		uint8 inner = kKoreanRoleNone;
+		if (peelParticles(head(s, kParticles[p].len), kParticles[p].kind, inner)) {
+			role = inner != kKoreanRoleNone ? inner : kParticles[p].role;
+			return true;
+		}
+	}
+	return false;
+}
+
+bool koreanParticleRole(const Common::U32String &suffix, uint8 &role) {
+	role = kKoreanRoleNone;
+	return !suffix.empty() && peelParticles(suffix, kNoParticle, role);
+}
+
 uint koreanStemCandidates(const Common::U32String &word, KoreanStems &out) {
 	out.count = 0;
 	if (word.empty() || word.size() > KoreanStems::kMaxLen || !isSyllable(last(word)))
