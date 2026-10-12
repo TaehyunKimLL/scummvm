@@ -189,6 +189,21 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	SearchMan.addSubDirectoryMatching(gameDataDir, "Voices/AUD#"); // LSL6 Mac audio36 files
 	SearchMan.addSubDirectoryMatching(gameDataDir, "VMD Folder"); // Mac VMD files
 
+	// A Korean pack ships its parser table, SCIKOR.DAT. Where the player
+	// has not chosen, that turns Korean typing on and starts in Korean, as
+	// the pack's own INI does: a game added in the launcher (on Android
+	// always) has none of these settings, and Android's built-in keyboard
+	// offers the Hangul layout only with them. Transient, so nothing is
+	// written to the player's configuration.
+	// The game folder joins SearchMan only after the engine is built, so
+	// look in it directly (FSDirectory matches names case-insensitively).
+	if (Common::FSDirectory(gameDataDir).hasFile("scikor.dat")) {
+		if (!ConfMan.hasKey("sci_hangul_input"))
+			ConfMan.setBool("sci_hangul_input", true, Common::ConfigManager::kTransientDomain);
+		if (!ConfMan.hasKey("sci_hangul_start"))
+			ConfMan.setBool("sci_hangul_start", true, Common::ConfigManager::kTransientDomain);
+	}
+
 	// Add the patches directory, except for KQ6CD; The patches folder in some versions of KQ6CD
 	// (e.g. KQ Collection 1997) is for the demo of Phantasmagoria, included in the disk
 	if (_gameId != GID_KQ6) {
