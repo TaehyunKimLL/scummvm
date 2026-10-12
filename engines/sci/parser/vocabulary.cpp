@@ -24,6 +24,7 @@
 #include "sci/parser/vocabulary.h"
 #include "sci/parser/lowercase.h"
 #include "sci/utf8.h"
+#include "common/algorithm.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/debug-channels.h"
@@ -1017,24 +1018,33 @@ bool Vocabulary::arrangeTokens(const Common::Array<ResultWordList> &tok, const C
 }
 
 Common::String Vocabulary::englishLine(const ResultWordListList &words) const {
+	// Every English word of every group a token may be: a script that looks
+	// for one word ("stefan") must find it whichever synonym ("baron") or
+	// reading ("마법사": wizard, mage ...) the Korean word maps to.
 	Common::String line;
 	for (ResultWordListList::const_iterator t = words.begin(); t != words.end(); ++t) {
 		if (t->empty())
 			return Common::String();
-		const int group = t->front()._group;
-		Common::String best;
+		Common::Array<Common::String> found;
 		for (WordMap::const_iterator w = _parserWords.begin(); w != _parserWords.end(); ++w) {
 			for (ResultWordList::const_iterator r = w->_value.begin(); r != w->_value.end(); ++r) {
-				if (r->_group == group && (best.empty() || w->_key.size() < best.size() ||
-				                           (w->_key.size() == best.size() && w->_key < best)))
-					best = w->_key;
+				bool inToken = false;
+				for (ResultWordList::const_iterator a = t->begin(); a != t->end() && !inToken; ++a)
+					inToken = a->_group == r->_group;
+				if (inToken) {
+					found.push_back(w->_key);
+					break;
+				}
 			}
 		}
-		if (best.empty())
+		if (found.empty())
 			return Common::String();
-		if (!line.empty())
-			line += ' ';
-		line += best;
+		Common::sort(found.begin(), found.end());
+		for (uint i = 0; i < found.size(); ++i) {
+			if (!line.empty())
+				line += ' ';
+			line += found[i];
+		}
 	}
 	return line;
 }
