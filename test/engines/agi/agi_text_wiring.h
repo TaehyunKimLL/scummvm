@@ -124,6 +124,15 @@ public:
 		TS_ASSERT(c.contains("registerCmd(\"parse\""));
 	}
 
+	// A ScummVM-dialog save name may be any Unicode: both byte cuts keep whole characters in UTF-8 mode.
+	void test_save_description_cut_on_character_boundary() {
+		const Common::String s = readSource("engines/agi/saveload.cpp");
+		TS_ASSERT(s.contains("desc = TextCells::clipBytes(desc.c_str(), 28, textIsUtf8());"));
+		TS_ASSERT(!s.contains("desc = Common::String(desc.c_str(), 28);"));
+		TS_ASSERT(s.contains("utf8Desc = TextCells::clipBytes(descriptionString.c_str(), SAVEDGAME_DESCRIPTION_LEN - 1, true);"));
+		TS_ASSERT(s.contains("Common::strlcpy(description, descriptionStringC, SAVEDGAME_DESCRIPTION_LEN);"));
+	}
+
 	void test_korean_interpreter_strings() {
 		const Common::String s = readSource("engines/agi/systemui.cpp");
 		TS_ASSERT(s.contains("case Common::KO_KOR:"));
