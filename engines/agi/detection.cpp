@@ -22,6 +22,7 @@
 #include "common/config-manager.h"
 #include "common/system.h"
 #include "common/debug.h"
+#include "common/language.h"
 #include "common/md5.h"
 
 #include "base/plugins.h"
@@ -314,8 +315,19 @@ ADDetectedGames AgiMetaEngineDetection::detectGame(
 	uint32 skipADFlags,
 	bool skipIncomplete) {
 
+	// A target set to another language than the table's (language=ko on an
+	// English game) is a translation overlay, not a different release: when
+	// agi-<lang>.str sits in the game folder, detect without the language
+	// filter. The engine reads the overlay itself (loadTranslationOverlay).
+	Common::Language detectLanguage = language;
+	if (language != Common::UNK_LANG && language != Common::EN_ANY) {
+		const Common::String overlayName = Common::String::format("agi-%s.str", Common::getLanguageCode(language));
+		if (allFiles.contains(Common::Path(overlayName, Common::Path::kNoSeparator)))
+			detectLanguage = Common::UNK_LANG;
+	}
+
 	// Run the file-based detection first, if it finds a match then do not search for disk images.
-	ADDetectedGames matched = AdvancedMetaEngineDetection::detectGame(parent, allFiles, language, platform, extra, skipADFlags, skipIncomplete);
+	ADDetectedGames matched = AdvancedMetaEngineDetection::detectGame(parent, allFiles, detectLanguage, platform, extra, skipADFlags, skipIncomplete);
 
 	// Detect games within PC disk images. This detection will find one game at most.
 	if (matched.empty() &&

@@ -58,6 +58,7 @@ Console::Console(AgiEngine *vm) : GUI::Debugger() {
 	registerCmd("vmflags",         WRAP_METHOD(Console, Cmd_VmFlags));
 	registerCmd("disableautosave", WRAP_METHOD(Console, Cmd_DisableAutomaticSave));
 	registerCmd("diskdump",        WRAP_METHOD(Console, Cmd_DiskDump));
+	registerCmd("koverlay",        WRAP_METHOD(Console, Cmd_KOverlay));
 }
 
 bool Console::Cmd_SetVar(int argc, const char **argv) {
@@ -748,6 +749,51 @@ WinnieConsole::WinnieConsole(WinnieEngine *winnie) : GUI::Debugger() {
 bool WinnieConsole::Cmd_CurRoom(int argc, const char **argv) {
 	_winnie->debugCurRoom();
 
+	return true;
+}
+
+bool Console::Cmd_KOverlay(int argc, const char **argv) {
+	if (!_vm->textIsUtf8()) {
+		debugPrintf("no translation overlay (UTF-8 text mode is off)\n");
+		return true;
+	}
+	debugPrintf("entries %u\n", _vm->_overlay.entryCount());
+	Common::Array<TextOverlay::Key> keys;
+	_vm->_overlay.collectKeys(keys);
+	Common::Array<Common::String> stale;
+	for (uint i = 0; i < keys.size(); i++) {
+		const TextOverlay::Key &k = keys[i];
+		bool ok;
+		if (k.kind == TextOverlay::kKeyObject) {
+			ok = k.number < _vm->_game.numObjects;
+		} else {
+			int count = 0;
+			ok = _vm->rawLogicMessageCount(k.logic, count) && k.number <= count;
+		}
+		if (!ok)
+			stale.push_back(TextOverlay::keyName(k));
+	}
+	debugPrintf("stale %u\n", stale.size());
+	for (uint i = 0; i < stale.size() && i < 20; i++)
+		debugPrintf("  %s\n", stale[i].c_str());
+	uint untranslated = 0;
+	for (int16 nr = 0; nr < MAX_DIRECTORY_ENTRIES; nr++) {
+		if (_vm->_game.dirLogic[nr].offset == _EMPTY)
+			continue;
+		uint8 *data = _vm->_loader->loadVolumeResource(&_vm->_game.dirLogic[nr]);
+		if (!data)
+			continue;
+		const uint16 size = READ_LE_UINT16(data);
+		const int count = data[2 + size];
+		const int pos = 2 + size;
+		for (int n = 1; n <= count; n++) {
+			const uint16 off = READ_LE_UINT16(data + pos + 3 + (n - 1) * 2);
+			if (off && !_vm->_overlay.message(nr, n))
+				untranslated++;
+		}
+		free(data);
+	}
+	debugPrintf("untranslated %u\n", untranslated);
 	return true;
 }
 

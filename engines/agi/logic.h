@@ -34,6 +34,8 @@ struct AgiLogic {
 	int cIP;            /**< current IP */
 	int numTexts;       /**< number of messages */
 	const char **texts; /**< message list */
+	const char **rawTexts; /**< UTF-8 text mode: the game's own bytes of each message (texts[] is translated) */
+	char *utf8Pool;        /**< UTF-8 text mode: untranslated messages converted from the code page */
 
 	void reset() {
 		data = nullptr;
@@ -42,6 +44,8 @@ struct AgiLogic {
 		cIP = 0;
 		numTexts = 0;
 		texts = nullptr;
+		rawTexts = nullptr;
+		utf8Pool = nullptr;
 	}
 
 	AgiLogic() { reset(); }

@@ -84,9 +84,58 @@ int AgiEngine::decodeLogic(int16 logicNr) {
 		}
 	}
 
+	if (textIsUtf8())
+		translateLogicTexts(logicNr);
+
 	// set loaded flag
 	dirLogic.flags |= RES_LOADED;
 	return errOK;
+}
+
+/**
+ * UTF-8 text mode: point every message at its translation, or at a UTF-8
+ * copy of the game's own text. The game's bytes stay reachable through
+ * rawTexts (compare.strings accepts an answer's English original, design
+ * 5.3). Overlay strings live as long as the engine; converted ones go in
+ * one block per logic, freed with it.
+ */
+void AgiEngine::translateLogicTexts(int16 logicNr) {
+	AgiLogic &logic = _game.logics[logicNr];
+	logic.rawTexts = (const char **)calloc(1 + logic.numTexts, sizeof(char *));
+	if (!logic.rawTexts)
+		return;
+	Common::Array<char> pool;
+	Common::Array<int> poolOffset;
+	poolOffset.resize(logic.numTexts);
+	for (int i = 0; i < logic.numTexts; i++) {
+		logic.rawTexts[i] = logic.texts[i];
+		poolOffset[i] = -1;
+		const Common::String *t = _overlay.message(logicNr, i + 1);
+		if (t) {
+			logic.texts[i] = t->c_str();
+			continue;
+		}
+		bool high = false;
+		for (const char *p = logic.texts[i]; *p && !high; p++)
+			high = (byte)*p >= 0x80;
+		if (!high)
+			continue;
+		const Common::String u = TextOverlay::legacyToUtf8(logic.texts[i], Common::kDos850);
+		poolOffset[i] = pool.size();
+		for (uint k = 0; k < u.size(); k++)
+			pool.push_back(u[k]);
+		pool.push_back('\0');
+	}
+	if (pool.empty())
+		return;
+	logic.utf8Pool = (char *)malloc(pool.size());
+	if (!logic.utf8Pool)
+		return;
+	memcpy(logic.utf8Pool, pool.data(), pool.size());
+	for (int i = 0; i < logic.numTexts; i++) {
+		if (poolOffset[i] >= 0)
+			logic.texts[i] = logic.utf8Pool + poolOffset[i];
+	}
 }
 
 /**
@@ -104,6 +153,10 @@ void AgiEngine::unloadLogic(int16 logicNr) {
 		logic.data = nullptr;
 		free(logic.texts);
 		logic.texts = nullptr;
+		free(logic.rawTexts);
+		logic.rawTexts = nullptr;
+		free(logic.utf8Pool);
+		logic.utf8Pool = nullptr;
 		logic.numTexts = 0;
 		dirLogic.flags &= ~RES_LOADED;
 	}
