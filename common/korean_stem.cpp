@@ -22,9 +22,9 @@
 #include "common/scummsys.h"
 #include "common/ustr.h"
 
-#include "sci/parser/korstem.h"
+#include "common/korean_stem.h"
 
-namespace Sci {
+namespace Common {
 
 // Precomposed Hangul: U+AC00 + (cho * 21 + jung) * 28 + jong. Every rule
 // below is arithmetic on that, which is what makes a precomposed code
@@ -772,4 +772,4 @@ uint koreanStemCandidates(const Common::U32String &word, KoreanStems &out) {
 	return c.count();
 }
 
-} // End of namespace Sci
+} // End of namespace Common

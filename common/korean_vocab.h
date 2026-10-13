@@ -19,14 +19,15 @@
  *
  */
 
-#ifndef SCI_PARSER_KORVOCAB_H
-#define SCI_PARSER_KORVOCAB_H
+#ifndef COMMON_KOREAN_VOCAB_H
+#define COMMON_KOREAN_VOCAB_H
 
 #include "common/scummsys.h"
 #include "common/str.h"
 #include "common/ustr.h"
+#include "common/stream.h"
 
-namespace Sci {
+namespace Common {
 
 /**
  * Korean words for the SCI0 parser, held outside the game's own vocabulary.
@@ -56,18 +57,33 @@ namespace Sci {
  */
 class KoreanVocabulary {
 public:
-	KoreanVocabulary() : _data(nullptr), _size(0), _count(0),
-	                     _entries(nullptr), _blob(nullptr) {}
+	explicit KoreanVocabulary(uint32 debugChannel = 0) : _data(nullptr), _size(0), _count(0),
+	                     _entries(nullptr), _blob(nullptr), _debugChannel(debugChannel) {}
 	~KoreanVocabulary() { unload(); }
 
+	/** The engine's debug channel for the [korvocab] lines; 0 logs nothing. */
+	void setDebugChannel(uint32 channel) { _debugChannel = channel; }
+
 	/**
-	 * Load `scikor.dat` through SearchMan.
+	 * Load a word table through SearchMan: SCIKOR.DAT for SCI, AGIKOR.DAT
+	 * for AGI. @p magic is the file's 6-letter tag ("SCIKOR", "AGIKOR"),
+	 * followed in the file by two NULs.
 	 *
 	 * @return false when the file is absent or malformed. Absent is not an
 	 *         error: without it Korean simply resolves nothing, exactly as
 	 *         before this feature.
 	 */
-	bool load(const Common::String &filename = "scikor.dat");
+	bool load(const Common::String &filename, const char *magic);
+
+	/** load() once the file is open; @p name is for the warnings. */
+	bool loadFromStream(Common::SeekableReadStream &in, const char *magic, const Common::String &name);
+
+	/**
+	 * The (group, class) pairs stored for exactly @p word - no stemmer
+	 * reading. AGI tries two typed words joined (켄이 보냈다) and must not
+	 * let a reading of the pair (나다 -> 나) swallow two words.
+	 */
+	uint lookupExact(const Common::U32String &word, uint16 *groups, uint16 *classes, uint max) const;
 
 	void unload();
 
@@ -126,8 +142,9 @@ private:
 	uint32 _count;
 	const byte *_entries;
 	const byte *_blob;
+	uint32 _debugChannel;
 };
 
-} // End of namespace Sci
+} // End of namespace Common
 
-#endif // SCI_PARSER_KORVOCAB_H
+#endif // COMMON_KOREAN_VOCAB_H

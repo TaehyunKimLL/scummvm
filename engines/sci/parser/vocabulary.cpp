@@ -84,7 +84,8 @@ Vocabulary::Vocabulary(ResourceManager *resMan, bool foreign) : _resMan(resMan),
 	if (g_sci->hasParser() &&
 	    ConfMan.hasKey("sci_hangul_input") &&
 	    ConfMan.getBool("sci_hangul_input")) {
-		_koreanVocab.load();
+		_koreanVocab.setDebugChannel(kDebugLevelHangul);
+		_koreanVocab.load("scikor.dat", "SCIKOR");
 	}
 
 	parser_event = NULL_REG;

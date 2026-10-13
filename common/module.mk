@@ -16,6 +16,8 @@ MODULE_OBJS := \
 	fs.o \
 	gui_options.o \
 	hangul.o \
+	korean_stem.o \
+	korean_vocab.o \
 	hashmap.o \
 	language.o \
 	localization.o \

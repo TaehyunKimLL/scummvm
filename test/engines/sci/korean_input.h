@@ -949,7 +949,7 @@ public:
 		TS_ASSERT(voc.contains("_koreanExtraTokens.push_back(one);"));
 		TS_ASSERT(voc.contains("roles.back() = kKoreanRoleNone;"));
 		TS_ASSERT(voc.contains("const uint verbTail = (verb >= 0 && (uint)verb == last - 1) ? tok.size() - last : 0;"));
-		const Common::String kv = readSource("engines/sci/parser/korvocab.h");
+		const Common::String kv = readSource("common/korean_vocab.h");
 		TS_ASSERT(kv.contains("enum { kSequenceFlag = 0x8000 };"));
 	}
 
@@ -977,7 +977,7 @@ public:
 		TS_ASSERT(voc.contains("if (sawKorean && !retval.empty()) {\n\t\tResultWordListList fallback;\n\t\tarrangeKorean(retval, roles, fallback);"));
 		// Every pair of a word reaches the parser, as for an English word.
 		TS_ASSERT(voc.contains("_koreanVocab.lookupAll(kword, kgroups, kclasses, kMaxKoreanMeanings, _koreanRole)"));
-		const Common::String kv = readSource("engines/sci/parser/korvocab.cpp");
+		const Common::String kv = readSource("common/korean_vocab.cpp");
 		TS_ASSERT(kv.contains("while (first > 0 && sameWord(first - 1, first))"));
 	}
 

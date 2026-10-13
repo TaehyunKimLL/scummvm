@@ -88,6 +88,18 @@ private:
 	int _jong;  // 1..27
 };
 
+/**
+ * Pick the Korean particles a translation leaves open after an inserted
+ * word: "%s을(를) 열 수 없다." becomes "문을 열 수 없다." or "상자를 열 수
+ * 없다." by the last syllable's final consonant. The markers are 을(를)
+ * 이(가) 은(는) 과(와) with either form first, (이) and (으); a digit is read
+ * as its Korean numeral and a Latin letter by l, m, n ending in a consonant.
+ * Quotes and brackets between the word and the marker are looked through.
+ * UTF-8 in and out; the result is never longer. (Was
+ * Sci::ScriptStrings::resolveParticles.)
+ */
+void resolveKoreanParticles(String &s);
+
 } // End of namespace Common
 
 #endif
