@@ -133,6 +133,18 @@ ifeq ($(ENABLE_GRIM), STATIC_PLUGIN)
 		common/libcommon.a
 endif
 
+ifeq ($(ENABLE_AGI), STATIC_PLUGIN)
+	TESTS += $(srcdir)/test/engines/agi/*.h
+	# The Korean pieces of the AGI engine that need no engine instance:
+	# the overlay, the cell helpers, the composer line, the parser's
+	# candidates, the save strings and the hi-res text adapter. Only the
+	# objects they need are pulled from the archive.
+	TEST_LIBS += engines/agi/libagi.a graphics/libgraphics.a \
+		common/compression/libcompression.a common/libcommon.a
+	# The keymap test reads the engine's wiring back out of the tree.
+	AGI_TEST_DEFINES := -DAGI_TEST_SRCDIR=\"$(abspath $(srcdir))\"
+endif
+
 ifeq ($(ENABLE_SCI), STATIC_PLUGIN)
 	TESTS += $(srcdir)/test/engines/sci/*.h
 	# libsci.a draws on libgraphics (the Korean input badge asks FontMan for
@@ -152,7 +164,7 @@ TEST_LDFLAGS := $(LDFLAGS) $(LIBS)
 TEST_CXXFLAGS  := $(filter-out -Wglobal-constructors,$(CXXFLAGS))
 TEST_CXXFLAGS += -Wno-self-assign-overloaded
 TEST_CXXFLAGS += $(SCUMM_TEST_DEFINES) $(AGS_TEST_DEFINES)
-TEST_CXXFLAGS += $(SCI_TEST_DEFINES)
+TEST_CXXFLAGS += $(SCI_TEST_DEFINES) $(AGI_TEST_DEFINES)
 # The hi-res text tests read the fonts committed in the source tree (see
 # test/hires_test_fonts.h) by absolute path: an in-tree build has a relative
 # $(srcdir), which a font map would resolve against the game folder.
