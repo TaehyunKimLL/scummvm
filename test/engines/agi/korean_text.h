@@ -329,6 +329,45 @@ public:
 		TS_ASSERT(!isHangulSyllable(0x3131));
 	}
 
+	void test_decode_rejects_overlong_surrogate_and_out_of_range() {
+		using Agi::TextCells::decode;
+		uint32 cp = 0;
+		// Well-formed edges still decode.
+		TS_ASSERT_EQUALS(decode("\xC2\x80", true, cp), 2);
+		TS_ASSERT_EQUALS(cp, 0x80u);
+		TS_ASSERT_EQUALS(decode("\xE0\xA0\x80", true, cp), 3);
+		TS_ASSERT_EQUALS(cp, 0x800u);
+		TS_ASSERT_EQUALS(decode("\xED\x9F\xBF", true, cp), 3);
+		TS_ASSERT_EQUALS(cp, 0xD7FFu);
+		TS_ASSERT_EQUALS(decode("\xEE\x80\x80", true, cp), 3);
+		TS_ASSERT_EQUALS(cp, 0xE000u);
+		TS_ASSERT_EQUALS(decode("\xF0\x90\x80\x80", true, cp), 4);
+		TS_ASSERT_EQUALS(cp, 0x10000u);
+		TS_ASSERT_EQUALS(decode("\xF4\x8F\xBF\xBF", true, cp), 4);
+		TS_ASSERT_EQUALS(cp, 0x10FFFFu);
+		// Overlong forms: the lead byte is one cell.
+		TS_ASSERT_EQUALS(decode("\xC0\x80", true, cp), 1);
+		TS_ASSERT_EQUALS(cp, 0xC0u);
+		TS_ASSERT_EQUALS(decode("\xC1\xBF", true, cp), 1);
+		TS_ASSERT_EQUALS(cp, 0xC1u);
+		TS_ASSERT_EQUALS(decode("\xE0\x9F\xBF", true, cp), 1);
+		TS_ASSERT_EQUALS(cp, 0xE0u);
+		TS_ASSERT_EQUALS(decode("\xF0\x8F\xBF\xBF", true, cp), 1);
+		TS_ASSERT_EQUALS(cp, 0xF0u);
+		// Surrogates.
+		TS_ASSERT_EQUALS(decode("\xED\xA0\x80", true, cp), 1);
+		TS_ASSERT_EQUALS(cp, 0xEDu);
+		TS_ASSERT_EQUALS(decode("\xED\xBF\xBF", true, cp), 1);
+		TS_ASSERT_EQUALS(cp, 0xEDu);
+		// Past U+10FFFF.
+		TS_ASSERT_EQUALS(decode("\xF4\x90\x80\x80", true, cp), 1);
+		TS_ASSERT_EQUALS(cp, 0xF4u);
+		TS_ASSERT_EQUALS(decode("\xF7\xBF\xBF\xBF", true, cp), 1);
+		TS_ASSERT_EQUALS(cp, 0xF7u);
+		// A rejected sequence is one cell per byte, as other malformed input.
+		TS_ASSERT_EQUALS(Agi::TextCells::cellLen("a\xED\xA0\x80" "b", true), 5);
+	}
+
 	void test_compare_strings_fold() {
 		using Agi::TextCells::agiStringsEqual;
 		TS_ASSERT(agiStringsEqual("Open-Sesame!", "open sesame"));
