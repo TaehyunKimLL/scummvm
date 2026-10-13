@@ -319,13 +319,14 @@ int play(DirGuard &guard, const std::string &home, const std::string &pack, cons
 				Play::dosPath(p.ini).c_str(), target.c_str(), Play::dosPath(sample).c_str());
 	const std::string engine = Play::engineOf(iniText, target);
 	// One EXE per engine family: the INI's engineid says which.
-	const char *const first = engine == "scumm" ? "SCUMM.EXE" : "SCI.EXE";
-	const char *const second = engine == "scumm" ? "SCI.EXE" : "SCUMM.EXE";
-	std::string exe = Play::join(home, first);
-	if (!isFile(exe))
-		exe = Play::join(home, second);
-	if (!isFile(exe))
-		return fail("no SCI.EXE or SCUMM.EXE in", home);
+	const std::vector<std::string> exes = Play::exesFor(engine);
+	std::string exe;
+	for (size_t i = 0; i < exes.size() && exe.empty(); ++i) {
+		if (isFile(Play::join(home, exes[i])))
+			exe = Play::join(home, exes[i]);
+	}
+	if (exe.empty())
+		return fail(engine == "agi" ? "no AGI.EXE in" : "no SCI.EXE or SCUMM.EXE in", home);
 
 	std::string gameDir = Play::join(Play::join(pack, "GAMES"), Play::Detail::upper(id));
 	// Started from the home folder, GAMES\ID is the profile: a --path to it would hide the INI's own.

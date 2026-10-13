@@ -631,6 +631,10 @@ bool AgiEngine::handleController(uint16 key) {
 }
 
 bool AgiEngine::showPredictiveDialog() {
+#ifdef DISABLE_GUI
+	// The DOS build has no GUI library, so no predictive dialog.
+	return false;
+#else
 	GUI::PredictiveDialog predictiveDialog;
 
 	runDialog(predictiveDialog);
@@ -661,6 +665,7 @@ bool AgiEngine::showPredictiveDialog() {
 		return true;
 	}
 	return false;
+#endif
 }
 
 int AgiEngine::waitKey() {

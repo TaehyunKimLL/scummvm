@@ -323,4 +323,18 @@ public:
 		TS_ASSERT(!Play::isReservedId("DEFAULT2"));
 		TS_ASSERT(Play::validId("DEFAULT"));
 	}
+
+	void test_the_engine_picks_its_exe() {
+		std::vector<std::string> agi = Play::exesFor("agi");
+		TS_ASSERT_EQUALS(agi.size(), 1u);
+		TS_ASSERT_EQUALS(agi[0], "AGI.EXE");
+		std::vector<std::string> scumm = Play::exesFor("scumm");
+		TS_ASSERT_EQUALS(scumm.size(), 2u);
+		TS_ASSERT_EQUALS(scumm[0], "SCUMM.EXE");
+		TS_ASSERT_EQUALS(scumm[1], "SCI.EXE");
+		std::vector<std::string> sci = Play::exesFor("sci");
+		TS_ASSERT_EQUALS(sci[0], "SCI.EXE");
+		TS_ASSERT_EQUALS(sci[1], "SCUMM.EXE");
+		TS_ASSERT_EQUALS(Play::exesFor("")[0], "SCI.EXE");
+	}
 };
