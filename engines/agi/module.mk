@@ -13,6 +13,7 @@ MODULE_OBJS := \
 	hirestext.o \
 	inv.o \
 	keyboard.o \
+	korparse.o \
 	loader.o \
 	loader_a2.o \
 	loader_gal.o \
