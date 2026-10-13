@@ -41,6 +41,7 @@ MODULE_OBJS := \
 	sprite.o \
 	systemui.o \
 	text.o \
+	translation.o \
 	view.o \
 	words.o \
 	preagi/preagi.o \
