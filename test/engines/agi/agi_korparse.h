@@ -92,6 +92,47 @@ public:
 		TS_ASSERT(!Agi::lookupKoreanToken(_voc, "\xEC\x97\xB4\xEC\x87\xA0\xEB\xA5\xBC", out, true)); // exact only
 	}
 
+	void test_exact_only_takes_a_stored_form() {
+		Agi::AgiSentence out;
+		TS_ASSERT(Agi::lookupKoreanToken(_voc, "\xEC\x97\xB4\xEC\x87\xA0", out, true)); // 열쇠
+		TS_ASSERT_EQUALS(ids(out), v(12));
+		TS_ASSERT_EQUALS(out[0].role, (uint8)Common::kKoreanRoleNone);
+	}
+
+	// 5.5: 들여다봐 = look+in. The tail of a sequence stays behind its verb
+	// in every re-ordering, or said(look, in, box) is never reached.
+	void test_sequence_tail_stays_with_its_verb() {
+		Agi::AgiSentence typed;
+		TS_ASSERT(Agi::lookupKoreanToken(_voc, "\xEC\x83\x81\xEC\x9E\x90\xEB\xA5\xBC", typed)); // 상자를
+		TS_ASSERT(Agi::lookupKoreanToken(_voc, "\xEB\x93\xA4\xEC\x97\xAC\xEB\x8B\xA4\xEB\xB4\x90", typed)); // 들여다봐
+		TS_ASSERT_EQUALS(ids(typed), v(40, 30, 169));
+		TS_ASSERT(!typed[1].cont);
+		TS_ASSERT(typed[2].cont);
+		Common::Array<Agi::AgiSentence> c;
+		Agi::buildKoreanCandidates(typed, Agi::AgiPrepositions(), 20, c);
+		TS_ASSERT_EQUALS(c.size(), 2u);
+		TS_ASSERT_EQUALS(ids(c[0]), v(30, 169, 40));
+		TS_ASSERT_EQUALS(ids(c[1]), v(40, 30, 169));
+		const uint16 spec[] = { 30, 169, 40 };
+		TS_ASSERT(Agi::saidMatches(c[0], spec, 3));
+	}
+
+	void test_of_swap_moves_a_sequence_whole() {
+		Agi::AgiSentence typed;
+		typed.push_back(w(60, Common::kKoreanRoleOf));          // 나무의
+		typed.push_back(w(61));                                 // 구멍에 (a sequence:
+		Agi::AgiWord tail = w(62, Common::kKoreanRoleAt);       // the role is on its tail)
+		tail.cont = true;
+		typed.push_back(tail);
+		typed.push_back(w(30, Common::kKoreanRoleNone, true));  // 봐
+		Common::Array<Agi::AgiSentence> c;
+		Agi::buildKoreanCandidates(typed, Agi::AgiPrepositions(), 20, c);
+		TS_ASSERT_EQUALS(c.size(), 3u);
+		TS_ASSERT_EQUALS(ids(c[0]), v(30, 60, 61, 62));
+		TS_ASSERT_EQUALS(ids(c[1]), v(60, 61, 62, 30));
+		TS_ASSERT_EQUALS(ids(c[2]), v(30, 61, 62, 60)); // (d): 구멍 moved whole
+	}
+
 	void test_verb_last_becomes_verb_first() {
 		Agi::AgiSentence typed;
 		typed.push_back(w(12));

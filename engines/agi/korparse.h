@@ -38,7 +38,8 @@ struct AgiWord {
 	uint8 role;          ///< Common::KoreanRole: the case particle a Korean noun lost
 	bool verb;           ///< the group starts some said() of the game (AGIKOR class 0x0001)
 	bool korean;
-	AgiWord() : id(0), role(0), verb(false), korean(false) {}
+	bool cont;           ///< continues the word before it (a sequence row's tail: the "in" of 들여다봐)
+	AgiWord() : id(0), role(0), verb(false), korean(false), cont(false) {}
 };
 
 typedef Common::Array<AgiWord> AgiSentence;
@@ -66,14 +67,18 @@ struct AgiPrepositions {
 /**
  * One Korean token (UTF-8) through AGIKOR.DAT: exact, then the stemmer's
  * readings. A sequence row set (들여다봐 = look in) gives several words, the
- * role on the last; a homonym gives its first group; group 0 (좀) gives no
+ * role on the last and cont on all but the first; a homonym gives its first group; group 0 (좀) gives no
  * word. False when the table has no reading of the token. @p exactOnly
  * takes only a stored form (a joined pair of typed words).
  */
 bool lookupKoreanToken(const Common::KoreanVocabulary &voc, const Common::String &utf8, AgiSentence &out,
                        bool exactOnly = false);
 
-/** Design 5.5's candidates (a)-(d) of a sentence with Korean in it, duplicates dropped. */
+/**
+ * Design 5.5's candidates (a)-(d) of a sentence with Korean in it, duplicates
+ * dropped. A word with cont moves with the word before it, so a sequence
+ * (look in) is never split by a re-ordering.
+ */
 void buildKoreanCandidates(const AgiSentence &typed, const AgiPrepositions &preps, uint maxWords,
                            Common::Array<AgiSentence> &out);
 
