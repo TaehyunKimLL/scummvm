@@ -90,6 +90,7 @@ void GfxMenu::addMenu(const char *menuText) {
 		// Cut menu name in case menu bar is full
 		// Happens in at least the fan game Get Outta Space Quest
 		// Original interpreter had graphical issues in this case
+		// TODO: this whole code needs to get reworked anyway to support different types of menu bars depending on platform
 		// Cut by cells, never inside a character (a UTF-8 translation).
 		curColumnEnd += menuEntry->textLen;
 		if (menuEntry->textLen && curColumnEnd > 40) {
