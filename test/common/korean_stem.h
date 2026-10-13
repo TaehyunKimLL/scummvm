@@ -28,9 +28,9 @@
 #include "common/str-enc.h"
 #include "common/stream.h"
 #include "common/ustr.h"
-#include "../../system/null_osystem.h"
+#include "../system/null_osystem.h"
 
-#include "sci/parser/korstem.h"
+#include "common/korean_stem.h"
 
 // Korean stemming for parser input.
 //
@@ -57,15 +57,15 @@ class KoreanStemTestSuite : public CxxTest::TestSuite {
 		return Common::convertFromU32String(u, Common::kUtf8);
 	}
 
-	static uint stems(const char *typedUtf8, Sci::KoreanStems &out) {
-		return Sci::koreanStemCandidates(toU32(typedUtf8), out);
+	static uint stems(const char *typedUtf8, Common::KoreanStems &out) {
+		return Common::koreanStemCandidates(toU32(typedUtf8), out);
 	}
 
 	// The first candidate that is one of the given dictionary words, as
 	// UTF-8; empty when none is. This is what the engine's lookup sees,
 	// because it takes the first candidate the map holds.
 	static Common::String firstOf(const char *typedUtf8, const char *const *dictUtf8) {
-		Sci::KoreanStems out;
+		Common::KoreanStems out;
 		uint n = stems(typedUtf8, out);
 		for (uint i = 0; i < n; ++i)
 			for (uint d = 0; dictUtf8[d]; ++d)
@@ -76,7 +76,7 @@ class KoreanStemTestSuite : public CxxTest::TestSuite {
 
 	// Does the candidate list contain this word?
 	static bool has(const char *typedUtf8, const char *wantUtf8) {
-		Sci::KoreanStems out;
+		Common::KoreanStems out;
 		uint n = stems(typedUtf8, out);
 		const Common::U32String want = toU32(wantUtf8);
 		for (uint i = 0; i < n; ++i) {
@@ -87,14 +87,14 @@ class KoreanStemTestSuite : public CxxTest::TestSuite {
 	}
 
 	static uint count(const char *typedUtf8) {
-		Sci::KoreanStems out;
+		Common::KoreanStems out;
 		return stems(typedUtf8, out);
 	}
 
 	// The KoreanRole of the reading that is this stem; 0xFF when the
 	// stem is not among the readings.
 	static uint8 roleOf(const char *typedUtf8, const char *stemUtf8) {
-		Sci::KoreanStems out;
+		Common::KoreanStems out;
 		uint n = stems(typedUtf8, out);
 		for (uint i = 0; i < n; ++i)
 			if (out.get(i) == toU32(stemUtf8))
@@ -173,7 +173,7 @@ public:
 			"\xeb\xac\xb8",                           // 문
 		};
 		for (int k = 0; k < 4; ++k) {
-			Sci::KoreanStems out;
+			Common::KoreanStems out;
 			uint n = stems(inputs[k], out);
 			const uint typed = toU32(inputs[k]).size();
 			for (uint i = 0; i < n; ++i) {
@@ -185,21 +185,21 @@ public:
 	// Never more candidates than the buffer holds.
 	void test_candidate_count_is_bounded() {
 		TS_ASSERT_LESS_THAN_EQUALS(count("\xec\x9d\xbd\xec\x96\xb4\xeb\x9d\xbc"),
-		                           (uint)Sci::KoreanStems::kMaxCount);
+		                           (uint)Common::KoreanStems::kMaxCount);
 		TS_ASSERT_LESS_THAN_EQUALS(count("\xeb\xa8\xb9\xeb\x8a\x94\xeb\x8b\xa4"),
-		                           (uint)Sci::KoreanStems::kMaxCount);
+		                           (uint)Common::KoreanStems::kMaxCount);
 	}
 
 	// Degenerate input must not crash or produce anything.
 	void test_empty_and_overlong_input() {
-		Sci::KoreanStems out;
-		TS_ASSERT_EQUALS(Sci::koreanStemCandidates(Common::U32String(), out), 0u);
+		Common::KoreanStems out;
+		TS_ASSERT_EQUALS(Common::koreanStemCandidates(Common::U32String(), out), 0u);
 		// Seventeen syllables: longer than any parser word, and longer than
 		// the buffer, so it is left alone rather than truncated.
 		Common::U32String longWord;
 		for (int i = 0; i < 17; ++i)
 			longWord += (uint32)0xAC00;
-		TS_ASSERT_EQUALS(Sci::koreanStemCandidates(longWord, out), 0u);
+		TS_ASSERT_EQUALS(Common::koreanStemCandidates(longWord, out), 0u);
 		TS_ASSERT_EQUALS(out.count, 0u);
 	}
 
@@ -232,12 +232,12 @@ public:
 			"\xec\xa2\x85\xec\x9d\xb4",
 		};
 		for (int k = 0; k < 3; ++k) {
-			Sci::KoreanStems out;
+			Common::KoreanStems out;
 			uint n = stems(words[k], out);
 			// The caller tries the word itself before any candidate, so what
 			// matters is that stemming did not REPLACE it - a stripped form
 			// is only ever an extra thing to try.
-			TS_ASSERT_LESS_THAN_EQUALS(n, (uint)Sci::KoreanStems::kMaxCount);
+			TS_ASSERT_LESS_THAN_EQUALS(n, (uint)Common::KoreanStems::kMaxCount);
 		}
 	}
 
@@ -404,7 +404,7 @@ public:
 	// candidate that is any corpus lemma must be the right one, because
 	// that is the candidate the engine will take.
 	void test_oracle_corpus_resolves_to_the_right_lemma() {
-		Common::String text = readSource("test/engines/sci/korean_stem_corpus.txt");
+		Common::String text = readSource("test/common/korean_stem_corpus.txt");
 		TS_ASSERT_LESS_THAN(0u, text.size());
 
 		Common::Array<Common::U32String> surfaces, lemmas;
@@ -429,8 +429,8 @@ public:
 
 		uint reached = 0, firstRight = 0;
 		for (uint k = 0; k < surfaces.size(); ++k) {
-			Sci::KoreanStems out;
-			uint n = Sci::koreanStemCandidates(surfaces[k], out);
+			Common::KoreanStems out;
+			uint n = Common::koreanStemCandidates(surfaces[k], out);
 			bool found = false;
 			Common::U32String first;
 			for (uint i = 0; i < n; ++i) {
@@ -454,7 +454,7 @@ public:
 
 private:
 	Common::String readSource(const char *rel) {
-		Common::String path = Common::String(SCI_TEST_SRCDIR) + "/" + rel;
+		Common::String path = Common::String(HIRES_TEST_SRCDIR) + "/" + rel;
 		Common::FSNode node(Common::Path(path, '/'));
 		Common::SeekableReadStream *in = node.createReadStream();
 		if (!in) {
@@ -478,40 +478,40 @@ public:
 	// nothing; the role survives an auxiliary particle outside it and a
 	// plural inside it.
 	void test_case_particle_roles() {
-		TS_ASSERT_EQUALS(roleOf("나무꾼에게", "나무꾼"), (uint8)Sci::kKoreanRoleTo);
-		TS_ASSERT_EQUALS(roleOf("나무꾼에게는", "나무꾼"), (uint8)Sci::kKoreanRoleTo);
-		TS_ASSERT_EQUALS(roleOf("왕한테", "왕"), (uint8)Sci::kKoreanRoleTo);
-		TS_ASSERT_EQUALS(roleOf("왕께", "왕"), (uint8)Sci::kKoreanRoleTo);
-		TS_ASSERT_EQUALS(roleOf("친구들에게", "친구"), (uint8)Sci::kKoreanRoleTo);
-		TS_ASSERT_EQUALS(roleOf("오븐에", "오븐"), (uint8)Sci::kKoreanRoleAt);
-		TS_ASSERT_EQUALS(roleOf("상자에서", "상자"), (uint8)Sci::kKoreanRoleFrom);
-		TS_ASSERT_EQUALS(roleOf("칼로", "칼"), (uint8)Sci::kKoreanRoleWith);
-		TS_ASSERT_EQUALS(roleOf("열쇠로", "열쇠"), (uint8)Sci::kKoreanRoleWith);
-		TS_ASSERT_EQUALS(roleOf("왕과", "왕"), (uint8)Sci::kKoreanRoleWith);
-		TS_ASSERT_EQUALS(roleOf("그릇을", "그릇"), (uint8)Sci::kKoreanRoleObject);
-		TS_ASSERT_EQUALS(roleOf("왕이", "왕"), (uint8)Sci::kKoreanRoleObject);
-		TS_ASSERT_EQUALS(roleOf("왕은", "왕"), (uint8)Sci::kKoreanRoleObject);
-		TS_ASSERT_EQUALS(roleOf("왕의", "왕"), (uint8)Sci::kKoreanRoleOf);
-		TS_ASSERT_EQUALS(roleOf("왕도", "왕"), (uint8)Sci::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("나무꾼에게", "나무꾼"), (uint8)Common::kKoreanRoleTo);
+		TS_ASSERT_EQUALS(roleOf("나무꾼에게는", "나무꾼"), (uint8)Common::kKoreanRoleTo);
+		TS_ASSERT_EQUALS(roleOf("왕한테", "왕"), (uint8)Common::kKoreanRoleTo);
+		TS_ASSERT_EQUALS(roleOf("왕께", "왕"), (uint8)Common::kKoreanRoleTo);
+		TS_ASSERT_EQUALS(roleOf("친구들에게", "친구"), (uint8)Common::kKoreanRoleTo);
+		TS_ASSERT_EQUALS(roleOf("오븐에", "오븐"), (uint8)Common::kKoreanRoleAt);
+		TS_ASSERT_EQUALS(roleOf("상자에서", "상자"), (uint8)Common::kKoreanRoleFrom);
+		TS_ASSERT_EQUALS(roleOf("칼로", "칼"), (uint8)Common::kKoreanRoleWith);
+		TS_ASSERT_EQUALS(roleOf("열쇠로", "열쇠"), (uint8)Common::kKoreanRoleWith);
+		TS_ASSERT_EQUALS(roleOf("왕과", "왕"), (uint8)Common::kKoreanRoleWith);
+		TS_ASSERT_EQUALS(roleOf("그릇을", "그릇"), (uint8)Common::kKoreanRoleObject);
+		TS_ASSERT_EQUALS(roleOf("왕이", "왕"), (uint8)Common::kKoreanRoleObject);
+		TS_ASSERT_EQUALS(roleOf("왕은", "왕"), (uint8)Common::kKoreanRoleObject);
+		TS_ASSERT_EQUALS(roleOf("왕의", "왕"), (uint8)Common::kKoreanRoleOf);
+		TS_ASSERT_EQUALS(roleOf("왕도", "왕"), (uint8)Common::kKoreanRoleNone);
 		// A verb form has no particle.
-		TS_ASSERT_EQUALS(roleOf("열어", "열다"), (uint8)Sci::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("열어", "열다"), (uint8)Common::kKoreanRoleNone);
 	}
 
 	// Camelot's "say X" and "ask who": the quotative and question endings
 	// and the copula come off a noun, and place nothing.
 	void test_quotative_question_and_copula_endings() {
-		TS_ASSERT_EQUALS(roleOf("피터라고", "피터"), (uint8)Sci::kKoreanRoleNone);
-		TS_ASSERT_EQUALS(roleOf("방패라고", "방패"), (uint8)Sci::kKoreanRoleNone);
-		TS_ASSERT_EQUALS(roleOf("사랑이라고", "사랑"), (uint8)Sci::kKoreanRoleNone);
-		TS_ASSERT_EQUALS(roleOf("누구냐고", "누구"), (uint8)Sci::kKoreanRoleNone);
-		TS_ASSERT_EQUALS(roleOf("뭐냐고", "뭐"), (uint8)Sci::kKoreanRoleNone);
-		TS_ASSERT_EQUALS(roleOf("시험이냐고", "시험"), (uint8)Sci::kKoreanRoleNone);
-		TS_ASSERT_EQUALS(roleOf("방패다", "방패"), (uint8)Sci::kKoreanRoleNone);
-		TS_ASSERT_EQUALS(roleOf("피터다", "피터"), (uint8)Sci::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("피터라고", "피터"), (uint8)Common::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("방패라고", "방패"), (uint8)Common::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("사랑이라고", "사랑"), (uint8)Common::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("누구냐고", "누구"), (uint8)Common::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("뭐냐고", "뭐"), (uint8)Common::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("시험이냐고", "시험"), (uint8)Common::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("방패다", "방패"), (uint8)Common::kKoreanRoleNone);
+		TS_ASSERT_EQUALS(roleOf("피터다", "피터"), (uint8)Common::kKoreanRoleNone);
 	}
 
 	static bool particleOnly(const char *utf8, uint8 &role) {
-		return Sci::koreanParticleRole(toU32(utf8), role);
+		return Common::koreanParticleRole(toU32(utf8), role);
 	}
 
 	// An English word with a Korean particle (door를, fenrus에, guard에게는):
@@ -519,13 +519,13 @@ public:
 	void test_particle_only_suffix_after_an_english_word() {
 		uint8 role;
 		TS_ASSERT(particleOnly("\xEB\xA5\xBC", role));                       // 를
-		TS_ASSERT_EQUALS(role, (uint8)Sci::kKoreanRoleObject);
+		TS_ASSERT_EQUALS(role, (uint8)Common::kKoreanRoleObject);
 		TS_ASSERT(particleOnly("\xEC\x97\x90", role));                       // 에
-		TS_ASSERT_EQUALS(role, (uint8)Sci::kKoreanRoleAt);
+		TS_ASSERT_EQUALS(role, (uint8)Common::kKoreanRoleAt);
 		TS_ASSERT(particleOnly("\xEC\x97\x90\xEA\xB2\x8C\xEB\x8A\x94", role)); // 에게는
-		TS_ASSERT_EQUALS(role, (uint8)Sci::kKoreanRoleTo);
+		TS_ASSERT_EQUALS(role, (uint8)Common::kKoreanRoleTo);
 		TS_ASSERT(particleOnly("\xEB\x93\xA4\xEC\x9D\x84", role));           // 들을
-		TS_ASSERT_EQUALS(role, (uint8)Sci::kKoreanRoleObject);
+		TS_ASSERT_EQUALS(role, (uint8)Common::kKoreanRoleObject);
 		// Not particles: a verb ending, a noun, a wrong stacking (는를).
 		TS_ASSERT(!particleOnly("\xEC\x97\xB4\xEC\x96\xB4", role));          // 열어
 		TS_ASSERT(!particleOnly("\xEB\xAC\xB8", role));                       // 문

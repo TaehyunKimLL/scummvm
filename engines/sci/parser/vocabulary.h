@@ -30,8 +30,8 @@
 
 #include "sci/sci.h"
 #include "sci/engine/vm_types.h"
-#include "sci/parser/korstem.h"
-#include "sci/parser/korvocab.h"
+#include "common/korean_stem.h"
+#include "common/korean_vocab.h"
 #include "sci/util.h"
 
 namespace Common {
@@ -41,6 +41,21 @@ class Serializer;
 }
 
 namespace Sci {
+
+// The Korean stemmer and word table live in common/ (AGI uses them too).
+using Common::KoreanVocabulary;
+using Common::KoreanStems;
+using Common::KoreanRole;
+using Common::kKoreanRoleNone;
+using Common::kKoreanRoleObject;
+using Common::kKoreanRoleOf;
+using Common::kKoreanRoleTo;
+using Common::kKoreanRoleAt;
+using Common::kKoreanRoleFrom;
+using Common::kKoreanRoleWith;
+using Common::koreanStemCandidates;
+using Common::koreanParticleRole;
+
 
 class ResourceManager;
 

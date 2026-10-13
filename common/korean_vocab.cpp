@@ -19,36 +19,47 @@
  *
  */
 
+#include "common/debug.h"
 #include "common/file.h"
+#include "common/stream.h"
 #include "common/textconsole.h"
 
-#include "sci/sci.h"
-#include "sci/parser/korvocab.h"
-#include "sci/parser/korstem.h"
+#include "common/korean_vocab.h"
+#include "common/korean_stem.h"
 
-namespace Sci {
+namespace Common {
 
-// "SCIKOR\0\0", then {u32 version, u32 count}, then count * 8-byte entries
+// "SCIKOR\0\0" (or "AGIKOR\0\0"), then {u32 version, u32 count}, then count * 8-byte entries
 // {u16 offset, u16 len, u16 group, u16 class}, then the blob of UTF-16LE
 // code units the offsets index, sorted by code unit. Written by
 // harness/k6bake.py. Version 1 held EUC-KR bytes; that cost every lookup
 // an encode of each candidate and the encoder its 128 KB reverse table.
-static const char kMagic[8] = { 'S', 'C', 'I', 'K', 'O', 'R', 0, 0 };
 static const uint32 kVersion = 2;
 static const uint32 kHeaderSize = 16;
 static const uint32 kEntrySize = 8;
 
-bool KoreanVocabulary::load(const Common::String &filename) {
+#define KV_DEBUG(level, ...) \
+	do { if (_debugChannel) debugC(level, _debugChannel, __VA_ARGS__); } while (0)
+
+bool KoreanVocabulary::load(const Common::String &filename, const char *magic) {
 	unload();
 
 	Common::File f;
 	if (!f.open(Common::Path(filename))) {
 		// Absent is not an error - it means no Korean mapping is installed.
-		debugC(1, kDebugLevelHangul,
-		       "[korvocab] %s not found; Korean input will resolve nothing",
-		       filename.c_str());
+		KV_DEBUG(1, "[korvocab] %s not found; Korean input will resolve nothing",
+		         filename.c_str());
 		return false;
 	}
+	return loadFromStream(f, magic, filename);
+}
+
+bool KoreanVocabulary::loadFromStream(Common::SeekableReadStream &f, const char *magic,
+                                      const Common::String &filename) {
+	unload();
+
+	char kMagic[8] = { 0 };
+	memcpy(kMagic, magic, MIN<size_t>(strlen(magic), 6));
 
 	const uint32 fileSize = (uint32)f.size();
 	if (fileSize < kHeaderSize) {
@@ -67,7 +78,7 @@ bool KoreanVocabulary::load(const Common::String &filename) {
 
 	if (memcmp(buf, kMagic, sizeof(kMagic)) != 0) {
 		free(buf);
-		warning("%s is not a Korean vocabulary (bad magic)", filename.c_str());
+		warning("%s is not a %s word table (bad magic)", filename.c_str(), magic);
 		return false;
 	}
 
@@ -111,7 +122,7 @@ bool KoreanVocabulary::load(const Common::String &filename) {
 		}
 	}
 
-	debugC(1, kDebugLevelHangul, "[korvocab] loaded %u Korean words from %s",
+	KV_DEBUG(1, "[korvocab] loaded %u Korean words from %s",
 	       _count, filename.c_str());
 	return true;
 }
@@ -216,7 +227,7 @@ uint KoreanVocabulary::lookupAll(const Common::U32String &word, uint16 *groups,
 	}
 	uint n = collect(findIndex(typed, word.size()), groups, classes, max);
 	if (n) {
-		debugC(2, kDebugLevelHangul, "[korvocab] exact -> %u pair(s), group %u class %u",
+		KV_DEBUG(2, "[korvocab] exact -> %u pair(s), group %u class %u",
 		       n, groups[0], classes[0]);
 		return n;
 	}
@@ -229,7 +240,7 @@ uint KoreanVocabulary::lookupAll(const Common::U32String &word, uint16 *groups,
 		n = collect(findIndex(stems.cp[i], stems.len[i]), groups, classes, max);
 		if (n) {
 			role = stems.role[i];
-			debugC(2, kDebugLevelHangul,
+			KV_DEBUG(2,
 			       "[korvocab] stem -> %u pair(s), group %u class %u, role %u", n, groups[0], classes[0], role);
 			return n;
 		}
@@ -237,4 +248,17 @@ uint KoreanVocabulary::lookupAll(const Common::U32String &word, uint16 *groups,
 	return 0;
 }
 
-} // End of namespace Sci
+uint KoreanVocabulary::lookupExact(const Common::U32String &word, uint16 *groups,
+                                   uint16 *classes, uint max) const {
+	if (!_data || word.empty() || word.size() > KoreanStems::kMaxLen || !max)
+		return 0;
+	uint16 typed[KoreanStems::kMaxLen];
+	for (uint i = 0; i < word.size(); ++i) {
+		if (word[i] > 0xFFFF)
+			return 0;
+		typed[i] = (uint16)word[i];
+	}
+	return collect(findIndex(typed, word.size()), groups, classes, max);
+}
+
+} // End of namespace Common

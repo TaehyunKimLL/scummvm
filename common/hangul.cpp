@@ -20,6 +20,7 @@
  */
 
 #include "common/hangul.h"
+#include "common/util.h"
 
 namespace Common {
 
@@ -282,6 +283,80 @@ Common::U32String HangulComposer::text() const {
 	if (c)
 		s += c;
 	return s;
+}
+
+// The final consonant of the code point before @p end in @p s, looking
+// back through quotes and brackets: 0 none, 1 a consonant, 2 ㄹ (which
+// takes 로, not 으로); -1 when there is nothing to read it from.
+static int finalConsonant(const String &s, uint end) {
+	while (end > 0) {
+		const byte c = s[end - 1];
+		if (c == '"' || c == '\'' || c == ')' || c == ']') {
+			end--;
+			continue;
+		}
+		if (c < 0x80) {
+			if (isDigit(c))
+				return c == '1' || c == '7' || c == '8' ? 2 : (c == '0' || c == '3' || c == '6') ? 1 : 0;
+			if (!isAlpha(c))
+				return -1;
+			const byte l = c | 0x20;
+			return l == 'l' ? 2 : (l == 'm' || l == 'n') ? 1 : 0;
+		}
+		// A three-byte UTF-8 Hangul syllable, U+AC00..U+D7A3.
+		if (end >= 3 && (byte)s[end - 3] >= 0xEA && (byte)s[end - 3] <= 0xED) {
+			const uint32 cp = (((byte)s[end - 3] & 0x0F) << 12) | (((byte)s[end - 2] & 0x3F) << 6) |
+			                  ((byte)s[end - 1] & 0x3F);
+			if (cp >= 0xAC00 && cp <= 0xD7A3) {
+				const uint jong = (cp - 0xAC00) % 28;
+				return jong == 0 ? 0 : jong == 8 ? 2 : 1;
+			}
+		}
+		return -1;
+	}
+	return -1;
+}
+
+void resolveKoreanParticles(String &s) {
+	// marker, form after a consonant, form after a vowel (or ㄹ for (으))
+	static const char *const kPairs[][3] = {
+		{ "\xEC\x9D\x84(\xEB\xA5\xBC)", "\xEC\x9D\x84", "\xEB\xA5\xBC" }, // 을(를)
+		{ "\xEB\xA5\xBC(\xEC\x9D\x84)", "\xEC\x9D\x84", "\xEB\xA5\xBC" }, // 를(을)
+		{ "\xEC\x9D\xB4(\xEA\xB0\x80)", "\xEC\x9D\xB4", "\xEA\xB0\x80" }, // 이(가)
+		{ "\xEA\xB0\x80(\xEC\x9D\xB4)", "\xEC\x9D\xB4", "\xEA\xB0\x80" }, // 가(이)
+		{ "\xEC\x9D\x80(\xEB\x8A\x94)", "\xEC\x9D\x80", "\xEB\x8A\x94" }, // 은(는)
+		{ "\xEB\x8A\x94(\xEC\x9D\x80)", "\xEC\x9D\x80", "\xEB\x8A\x94" }, // 는(은)
+		{ "\xEA\xB3\xBC(\xEC\x99\x80)", "\xEA\xB3\xBC", "\xEC\x99\x80" }, // 과(와)
+		{ "\xEC\x99\x80(\xEA\xB3\xBC)", "\xEA\xB3\xBC", "\xEC\x99\x80" }, // 와(과)
+		{ "(\xEC\x9D\xB4)", "\xEC\x9D\xB4", "" },                        // (이)
+		{ "(\xEC\x9C\xBC)", "\xEC\x9C\xBC", "" },                        // (으)
+	};
+	if (!s.contains('('))
+		return;
+	String out;
+	uint i = 0;
+	while (i < s.size()) {
+		bool done = false;
+		if ((byte)s[i] >= 0x80 || s[i] == '(') {
+			for (uint k = 0; k < ARRAYSIZE(kPairs) && !done; k++) {
+				const uint len = strlen(kPairs[k][0]);
+				if (s.size() - i < len || memcmp(s.c_str() + i, kPairs[k][0], len))
+					continue;
+				const int fc = finalConsonant(out, out.size());
+				const bool isEu = k == ARRAYSIZE(kPairs) - 1;
+				// Nothing to read: keep both forms, as written.
+				if (fc < 0)
+					out += String(s.c_str() + i, len);
+				else
+					out += kPairs[k][(fc == 1 || (fc == 2 && !isEu)) ? 1 : 2];
+				i += len;
+				done = true;
+			}
+		}
+		if (!done)
+			out += s[i++];
+	}
+	s = out;
 }
 
 } // End of namespace Common

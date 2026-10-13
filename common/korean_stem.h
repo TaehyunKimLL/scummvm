@@ -19,13 +19,13 @@
  *
  */
 
-#ifndef SCI_PARSER_KORSTEM_H
-#define SCI_PARSER_KORSTEM_H
+#ifndef COMMON_KOREAN_STEM_H
+#define COMMON_KOREAN_STEM_H
 
 #include "common/scummsys.h"
 #include "common/ustr.h"
 
-namespace Sci {
+namespace Common {
 
 /**
  * The readings of one typed word, as a fixed buffer: no heap, and small
@@ -107,6 +107,6 @@ uint koreanStemCandidates(const Common::U32String &word, KoreanStems &out);
  */
 bool koreanParticleRole(const Common::U32String &suffix, uint8 &role);
 
-} // End of namespace Sci
+} // End of namespace Common
 
-#endif // SCI_PARSER_KORSTEM_H
+#endif // COMMON_KOREAN_STEM_H
