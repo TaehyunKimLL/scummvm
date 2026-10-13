@@ -616,6 +616,17 @@ void run_vm(EngineState *s) {
 		Console *con = g_sci->getSciDebugger();
 		con->onFrame();
 
+		// A console command run above (`send`, from scriptDebug() or from a
+		// debug socket polled by onFrame()) can run a nested VM. Its final
+		// ret leaves s->variables[] on the nested frame and only sets
+		// _executionStackPosChanged, so this instruction would read and
+		// write the nested frame's temps and params: in PQ2 room 5 a
+		// `send ?ego posn` landing between `sat 0` and `lat 0` of
+		// sounds::eachElementDo (script 999 @ 0210) gave "Uninitialized read
+		// for temp 0". Reload the current frame before executing.
+		if (s->_executionStackPosChanged)
+			continue;
+
 		if (s->xs->sp < s->xs->fp)
 			error("run_vm(): stack underflow, sp: %04x:%04x, fp: %04x:%04x",
 			PRINT_REG(*s->xs->sp), PRINT_REG(*s->xs->fp));
