@@ -54,6 +54,18 @@ public:
 		TS_ASSERT_EQUALS(stale[1], "");
 	}
 
+	// A version-11 slot is code page 850; in a UTF-8 session it becomes UTF-8.
+	void test_legacy_slots_become_utf8() {
+		char table[3][161];
+		memset(table, 0, sizeof(table));
+		Common::strlcpy(table[0], "caf\x82", 161);      // CP850 0x82 = e-acute
+		Common::strlcpy(table[1], "plain text", 161);
+		Agi::convertLegacyStrings(&table[0][0], 161, 3, 39);
+		TS_ASSERT_EQUALS(Common::String(table[0]), "caf\xC3\xA9");
+		TS_ASSERT_EQUALS(Common::String(table[1]), "plain text");
+		TS_ASSERT_EQUALS(Common::String(table[2]), "");
+	}
+
 	void test_a_slot_longer_than_the_table_is_refused() {
 		const byte bad[] = { 200 };
 		Common::MemoryReadStream in(bad, sizeof(bad));

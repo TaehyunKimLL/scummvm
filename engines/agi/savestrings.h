@@ -19,6 +19,13 @@ void writeUtf8Strings(Common::WriteStream &out, const char *table, uint stride, 
 /** Read what writeUtf8Strings() wrote; false on a bad length or a short stream. */
 bool readUtf8Strings(Common::ReadStream &in, char *table, uint stride, uint count, Common::String *answers);
 
+/**
+ * A version-11 save read in a UTF-8 session: each of the @p count slots holds
+ * code page 850 text; turn it into UTF-8, clipped to @p maxCells cells.
+ * Pure ASCII is left as it is.
+ */
+void convertLegacyStrings(char *table, uint stride, uint count, int16 maxCells);
+
 } // End of namespace Agi
 
 #endif

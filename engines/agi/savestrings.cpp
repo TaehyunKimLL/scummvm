@@ -2,6 +2,8 @@
 
 #include "common/array.h"
 #include "agi/savestrings.h"
+#include "agi/textcells.h"
+#include "agi/translation.h"
 
 namespace Agi {
 
@@ -44,6 +46,16 @@ bool readUtf8Strings(Common::ReadStream &in, char *table, uint stride, uint coun
 		answers[i] = buf.data();
 	}
 	return true;
+}
+
+void convertLegacyStrings(char *table, uint stride, uint count, int16 maxCells) {
+	for (uint i = 0; i < count; i++) {
+		char *slot = table + i * stride;
+		if (!TextCells::hasHighBytes(slot))
+			continue;
+		const Common::String u = TextCells::clipCells(TextOverlay::legacyToUtf8(slot, Common::kDos850).c_str(), maxCells, true);
+		Common::strlcpy(slot, u.c_str(), stride);
+	}
 }
 
 } // End of namespace Agi
