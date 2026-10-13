@@ -24,6 +24,7 @@
 #include "common/debug.h"
 #include "common/language.h"
 #include "common/md5.h"
+#include "common/tokenizer.h"
 
 #include "base/plugins.h"
 #include "engines/advancedDetector.h"
@@ -117,6 +118,8 @@ public:
 	ADDetectedGame fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const override;
 
 	ADDetectedGames detectGame(const Common::FSNode &parent, const FileMap &allFiles, Common::Language language, Common::Platform platform, const Common::String &extra, uint32 skipADFlags, bool skipIncomplete) override;
+
+	DetectedGames detectGames(const Common::FSList &fslist, uint32 skipADFlags, bool skipIncomplete) override;
 
 private:
 	static void getPotentialDiskImages(const FileMap &allFiles, const char * const *imageExtensions, size_t extensionCount, Common::Array<Common::Path> &imageFiles);
@@ -301,6 +304,63 @@ ADDetectedGame AgiMetaEngineDetection::fallbackDetect(const FileMap &allFilesXXX
 	}
 
 	return ADDetectedGame();
+}
+
+// The languages of the agi-<lang>.str overlays in a game folder: the UTF-8
+// translation tables laid over the original resources (agi/translation.cpp).
+static Common::Array<Common::Language> overlayLanguages(const Common::FSList &fslist) {
+	Common::Array<Common::Language> out;
+	for (const Common::FSNode &node : fslist) {
+		Common::String name = node.getName();
+		name.toLowercase();
+		if (!name.hasPrefix("agi-") || !name.hasSuffix(".str") || name.size() <= 8)
+			continue;
+		const Common::Language lang = Common::parseLanguage(Common::String(name.c_str() + 4, name.size() - 8));
+		if (lang == Common::UNK_LANG)
+			continue;
+		bool seen = false;
+		for (uint i = 0; i < out.size(); ++i)
+			seen |= out[i] == lang;
+		if (!seen)
+			out.push_back(lang);
+	}
+	return out;
+}
+
+DetectedGames AgiMetaEngineDetection::detectGames(const Common::FSList &fslist, uint32 skipADFlags, bool skipIncomplete) {
+	DetectedGames games = AdvancedMetaEngineDetection::detectGames(fslist, skipADFlags, skipIncomplete);
+
+	// A folder with the original files and an agi-<lang>.str overlay matches
+	// the original's entry only, so the launcher would add it in the shipped
+	// language and the overlay would never load (the engine reads it for the
+	// target's language). Offer the translation too, and first, as SCI does
+	// for sci-<lang>.str; launching it goes through detectGame()'s overlay
+	// rule below.
+	const Common::Array<Common::Language> overlays = overlayLanguages(fslist);
+	const uint matched = games.size();
+	for (uint m = 0; m < overlays.size(); ++m) {
+		for (uint i = 0; i < matched; ++i) {
+			const DetectedGame &game = games[i];
+			if (game.language == overlays[m] || game.hasUnknownFiles)
+				continue;
+			const char *title = game.gameId.c_str();
+			for (const PlainGameDescriptor *pgd = agiGames; pgd->gameId; ++pgd)
+				if (game.gameId.equals(pgd->gameId))
+					title = pgd->description;
+			DetectedGame variant(getName(), game.gameId, title, overlays[m], game.platform, game.extra);
+			variant.preferredTarget = game.preferredTarget + "-" + Common::getLanguageCode(overlays[m]);
+			// The original's options (getGUIOptions() holds their descriptions,
+			// which appendGUIOptions() takes as they are) minus its language;
+			// the variant's goes on.
+			for (const Common::String &token : Common::StringTokenizer(game.getGUIOptions(), " ").split()) {
+				if (!token.hasPrefix("lang_"))
+					variant.appendGUIOptions(token);
+			}
+			variant.appendGUIOptions(getGameGUIOptionsDescriptionLanguage(overlays[m]));
+			games.insert_at(0, variant);
+		}
+	}
+	return games;
 }
 
 /**
