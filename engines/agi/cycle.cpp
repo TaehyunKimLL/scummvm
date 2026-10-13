@@ -211,11 +211,16 @@ void AgiEngine::interpretCycle() {
 }
 
 // We return the current key, or 0 if no key was pressed
-uint16 AgiEngine::processAGIEvents() {
+int AgiEngine::processAGIEvents() {
 	ScreenObjEntry *screenObjEgo = &_game.screenObjTable[SCREENOBJECTS_EGO_ENTRY];
 
 	wait(10);
-	uint16 key = doPollKeyboard();
+	// AGI_KEY_CODEPOINT / AGI_KEY_HANGUL_TOGGLE (UTF-8 text mode) go to the
+	// prompt and get.string only; the mouse, the controllers, the menus and
+	// the message boxes see no key.
+	const int rawKey = doPollKeyboard();
+	const bool wideKey = rawKey >= AGI_KEY_CODEPOINT;
+	uint16 key = wideKey ? 0 : (uint16)rawKey;
 
 	if (!cycleInnerLoopIsActive()) {
 		// Click-to-walk mouse interface
@@ -247,7 +252,10 @@ uint16 AgiEngine::processAGIEvents() {
 	if (!cycleInnerLoopIsActive()) {
 		// no inner loop active at the moment, regular processing
 
-		if (key) {
+		if (wideKey) {
+			if (_text->promptIsEnabled())
+				_text->promptKeyPress(rawKey);
+		} else if (key) {
 			if (!handleController(key)) {
 				// Only set VAR_KEY, when no controller/direction was detected
 				setVar(VM_VAR_KEY, key & 0xFF);
@@ -267,7 +275,9 @@ uint16 AgiEngine::processAGIEvents() {
 		switch (_game.cycleInnerLoopType) {
 		case CYCLE_INNERLOOP_GETSTRING: // loop called from TextMgr::stringEdit()
 		case CYCLE_INNERLOOP_GETNUMBER:
-			if (key) {
+			if (wideKey) {
+				_text->stringKeyPress(rawKey);
+			} else if (key) {
 				_text->stringKeyPress(key);
 			}
 			break;
@@ -319,7 +329,7 @@ uint16 AgiEngine::processAGIEvents() {
 
 	_gfx->updateScreen();
 
-	return key;
+	return wideKey ? rawKey : key;
 }
 
 void AgiEngine::playGame() {

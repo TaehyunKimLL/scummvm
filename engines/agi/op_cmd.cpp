@@ -827,12 +827,12 @@ void cmdLog(AgiGame *state, AgiEngine *vm, uint8 *parameter) {
 	uint16 textNr = parameter[0];
 	if (state->_curLogic->texts != nullptr && (textNr - 1) <= state->_curLogic->numTexts) {
 		byte currentRoom = vm->getVar(VM_VAR_CURRENT_ROOM);
-		const char *inputLine = (char *)vm->_text->_promptPrevious;
+		const Common::String inputLineText = vm->_text->promptPreviousGetText();
 		const char *message = state->_curLogic->texts[textNr - 1];
 
 		Common::String logMessage = Common::String::format("Room %hhu\nInput line: %s\n%s\n",
 														   currentRoom,
-														   inputLine,
+														   inputLineText.c_str(),
 														   vm->_text->stringPrintf(message));
 
 		debugCN(1, kDebugLevelScripts, "%s", logMessage.c_str());
@@ -2047,7 +2047,7 @@ void cmdGetString(AgiGame *state, AgiEngine *vm, uint8 *parameter) {
 
 	// copy string to destination
 	// TODO: not sure if set all the time or only when ENTER is pressed
-	vm->_game.setString(stringDestNr, (char *)textMgr->_inputString);
+	vm->_game.setString(stringDestNr, textMgr->stringGetText().c_str());
 
 	textMgr->charPos_Pop();
 
@@ -2090,7 +2090,7 @@ void cmdGetNum(AgiGame *state, AgiEngine *vm, uint8 *parameter) {
 
 	textMgr->promptRedraw();
 
-	number = atoi((char *)textMgr->_inputString);
+	number = atoi(textMgr->stringGetText().c_str());
 	vm->setVar(numberDestVarNr, number);
 
 	debugC(4, kDebugLevelScripts, "[%s] -> %d", state->getString(MAX_STRINGS), number);

@@ -86,4 +86,26 @@ public:
 		TS_ASSERT(t.contains("TextCells::agiStringsEqual(_game.stringAnswer[s1].c_str(), b)"));
 		TS_ASSERT(t.contains("TextCells::agiStringsEqual(a, _game.stringAnswer[s2].c_str())"));
 	}
+
+	void test_edit_lines_hold_code_points() {
+		const Common::String h = readSource("engines/agi/text.h");
+		TS_ASSERT(h.contains("uint32 _prompt[42];"));
+		TS_ASSERT(h.contains("uint32 _promptPrevious[42];"));
+		TS_ASSERT(h.contains("uint32 _inputString[42];"));
+		const Common::String k = readSource("engines/agi/keyboard.cpp");
+		TS_ASSERT(k.contains("keyEnqueue(AGI_KEY_CODEPOINT | event.kbd.ascii);"));
+		const Common::String kh = readSource("engines/agi/keyboard.h");
+		TS_ASSERT(kh.contains("#define AGI_KEY_CODEPOINT     0x10000"));
+		TS_ASSERT(kh.contains("#define AGI_KEY_HANGUL_TOGGLE 0x20000"));
+		const Common::String c = readSource("engines/agi/cycle.cpp");
+		TS_ASSERT(c.contains("int AgiEngine::processAGIEvents() {"));
+		TS_ASSERT(c.contains("const bool wideKey = rawKey >= AGI_KEY_CODEPOINT;"));
+		const Common::String op = readSource("engines/agi/op_cmd.cpp");
+		TS_ASSERT(op.contains("textMgr->stringGetText().c_str()"));
+		TS_ASSERT(!op.contains("(char *)textMgr->_inputString"));
+		TS_ASSERT(!readSource("engines/agi/systemui.cpp").contains("(char *)_text->_inputString"));
+		// D8: the save name is ASCII only, even in a Korean session
+		TS_ASSERT(readSource("engines/agi/systemui.cpp").contains("_text->_inputStringAscii = true;\n\t_text->stringEdit(30);"));
+		TS_ASSERT(readSource("engines/agi/text.cpp").contains("acceptableInput = utf8 && cell >= 0x80 && !_inputStringAscii;"));
+	}
 };

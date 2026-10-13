@@ -836,7 +836,7 @@ public:
 
 public:
 	void decrypt(uint8 *mem, int len);
-	uint16 processAGIEvents();
+	int processAGIEvents();
 	int runGame();
 
 	void newRoom(int16 newRoomNr);

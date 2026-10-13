@@ -22,6 +22,7 @@
 
 #include "agi/agi.h"
 #include "agi/graphics.h"
+#include "agi/keyboard.h"
 #include "agi/opcodes.h"
 #include "agi/textcells.h"
 #include "agi/words.h"
@@ -130,11 +131,12 @@ void condHaveKey(AgiGame *state, AgiEngine *vm, uint8 *p) {
 	}
 	// we are not really an inner loop, but we stop processAGIEvents() from doing regular cycle work by setting it up
 	vm->cycleInnerLoopActive(CYCLE_INNERLOOP_HAVEKEY);
-	uint16 key = vm->processAGIEvents();
+	int key = vm->processAGIEvents();
 	vm->cycleInnerLoopInactive();
 	if (key) {
 		debugC(5, kDebugLevelInput, "keypress = %02x", key);
-		vm->setVar(VM_VAR_KEY, key);
+		// a Korean character is "a key" but has no AGI key code
+		vm->setVar(VM_VAR_KEY, key >= AGI_KEY_CODEPOINT ? 0 : key);
 		state->testResult = true;
 #ifdef USE_TTS
 		vm->stopTextToSpeech(false);
