@@ -172,7 +172,7 @@ void wordWrap(const char *originalText, int16 maxWidth, bool utf8, bool hangulAn
               int16 &width, int16 &height, bool *truncated) {
 	int16 boxWidth = 0, boxHeight = 0, lineWidth = 0, lineWidthLeft = maxWidth;
 	int16 wordStartPos = 0, curReadPos = 0;
-	bool stopped = false;
+	bool stopped = false, droppedWord = false;
 	out.clear();
 
 	while (originalText[curReadPos]) {
@@ -230,6 +230,7 @@ void wordWrap(const char *originalText, int16 maxWidth, bool utf8, bool hangulAn
 			lineWidthLeft = maxWidth;
 			if (boxHeight >= kHeightMax) {
 				stopped = true;
+				droppedWord = true; // the word that did not fit is lost whatever follows
 				break;
 			}
 		}
@@ -262,7 +263,7 @@ void wordWrap(const char *originalText, int16 maxWidth, bool utf8, bool hangulAn
 	width = boxWidth;
 	height = boxHeight;
 	if (truncated)
-		*truncated = stopped && originalText[curReadPos] != 0;
+		*truncated = droppedWord || (stopped && originalText[curReadPos] != 0);
 }
 
 } // End of namespace TextCells
