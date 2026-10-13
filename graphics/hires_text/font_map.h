@@ -202,7 +202,7 @@ struct HiResEngineKeys {
 	uint32 honoured;
 };
 
-extern const HiResEngineKeys kHiResKeysSci, kHiResKeysScumm, kHiResKeysAgs;
+extern const HiResEngineKeys kHiResKeysSci, kHiResKeysScumm, kHiResKeysAgs, kHiResKeysAgi;
 
 /**
  * A fully parsed version-2 map (design section 3): every `:q` qualifier

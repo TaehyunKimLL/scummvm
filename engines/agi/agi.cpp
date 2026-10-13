@@ -42,6 +42,7 @@
 #include "agi/detection.h"
 #include "agi/font.h"
 #include "agi/graphics.h"
+#include "agi/hirestext.h"
 #include "agi/inv.h"
 #include "agi/loader.h"
 #include "agi/sprite.h"
@@ -348,6 +349,7 @@ AgiBase::AgiBase(OSystem *syst, const AGIGameDescription *gameDesc) : Engine(sys
 	_noSaveLoadAllowed = false;
 	_textUtf8 = false;
 	_overlayLanguage = Common::UNK_LANG;
+	_hiresText = nullptr;
 
 	_rnd = new Common::RandomSource("agi");
 	_sound = nullptr;
@@ -359,6 +361,15 @@ AgiBase::AgiBase(OSystem *syst, const AGIGameDescription *gameDesc) : Engine(sys
 AgiBase::~AgiBase() {
 	delete _rnd;
 	delete _sound;
+	delete _hiresText;
+}
+
+bool AgiBase::hiresTextActive() const {
+	return _hiresText && _hiresText->isActive();
+}
+
+bool AgiBase::hiresHangulAny() const {
+	return _hiresText && _hiresText->hangulAny();
 }
 
 void AgiBase::initRenderMode() {
@@ -524,6 +535,29 @@ void AgiEngine::initialize() {
 	loadTranslationOverlay();
 
 	initRenderMode();
+
+	if (textIsUtf8()) {
+		_hiresText = new HiresText();
+		if (!_hiresText->load(ConfMan.getActiveDomainName(), ConfMan.getPath("path"))) {
+			warning("AGI: this translation needs a hi-res text map (hires_text_map or hires_text_font); its characters draw as '?'");
+			delete _hiresText;
+			_hiresText = nullptr;
+		} else {
+			// D3: Korean is drawn in the upscaled PC EGA rendering only, so
+			// every other render mode (VGA too, preflight ruling F11) gives
+			// way to EGA. An AGI256 game keeps the VGA it needs for its
+			// 256-colour pictures.
+			if (_renderMode != Common::kRenderEGA && !(getFeatures() & GF_AGI256)) {
+				warning("AGI: render mode %s is not used with this translation; EGA instead",
+				        Common::getRenderModeDescription(_renderMode));
+				_renderMode = Common::kRenderEGA;
+			}
+			if (ConfMan.getBool("herculesfont")) {
+				warning("AGI: the Hercules font is not used with this translation");
+				ConfMan.setBool("herculesfont", false, Common::ConfigManager::kTransientDomain);
+			}
+		}
+	}
 
 	setDebugger(new Console(this));
 	_words = new Words(this);

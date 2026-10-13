@@ -22,12 +22,15 @@
 #include "agi/agi.h"
 #include "agi/opcodes.h"
 #include "agi/graphics.h"
+#include "agi/hirestext.h"
 #include "agi/loader.h"
+#include "agi/textcells.h"
 
 #include "agi/preagi/preagi.h"
 #include "agi/preagi/mickey.h"
 #include "agi/preagi/winnie.h"
 
+#include "common/algorithm.h"
 #include "common/file.h"
 
 namespace Agi {
@@ -794,6 +797,41 @@ bool Console::Cmd_KOverlay(int argc, const char **argv) {
 		free(data);
 	}
 	debugPrintf("untranslated %u\n", untranslated);
+
+	// Characters no face can draw, and message boxes that would not fit
+	// (more than 20 wrapped lines at AGI's default box width, 30 cells).
+	Common::Array<uint32> missing;
+	Common::Array<Common::String> tall;
+	for (uint i = 0; i < keys.size(); i++) {
+		const TextOverlay::Key &k = keys[i];
+		const Common::String *t = k.kind == TextOverlay::kKeyObject ? _vm->_overlay.object(k.number)
+		                                                             : _vm->_overlay.message(k.logic, k.number);
+		if (!t)
+			continue;
+		for (const char *p = t->c_str(); *p;) {
+			uint32 cp;
+			p += TextCells::decode(p, true, cp);
+			if (cp == '\n' || cp == '\t')
+				continue;
+			const bool ok = _vm->_hiresText ? _vm->_hiresText->canDraw(cp) : cp < 0x80;
+			if (!ok && Common::find(missing.begin(), missing.end(), cp) == missing.end())
+				missing.push_back(cp);
+		}
+		if (k.kind == TextOverlay::kKeyMessage) {
+			Common::String out;
+			int16 w, h;
+			bool truncated = false;
+			TextCells::wordWrap(t->c_str(), 30, true, _vm->hiresHangulAny(), out, w, h, &truncated);
+			if (truncated || h > 20)
+				tall.push_back(TextOverlay::keyName(k));
+		}
+	}
+	debugPrintf("missing glyphs %u\n", missing.size());
+	for (uint i = 0; i < missing.size() && i < 20; i++)
+		debugPrintf("  U+%04X\n", missing[i]);
+	debugPrintf("boxes over 20 lines %u\n", tall.size());
+	for (uint i = 0; i < tall.size() && i < 20; i++)
+		debugPrintf("  %s\n", tall[i].c_str());
 	return true;
 }
 

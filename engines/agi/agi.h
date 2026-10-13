@@ -555,6 +555,7 @@ struct AgiGame {
 
 class AgiLoader;
 class GfxFont;
+class HiresText;
 class GfxMgr;
 class SpritesMgr;
 class InventoryMgr;
@@ -626,6 +627,10 @@ public:
 	/** The overlay's language; UNK_LANG without one (getLanguage()). */
 	Common::Language _overlayLanguage;
 	bool textIsUtf8() const { return _textUtf8; }
+	/** The hi-res text adapter in UTF-8 text mode with a map; nullptr otherwise. */
+	HiresText *_hiresText;
+	bool hiresTextActive() const;
+	bool hiresHangulAny() const;
 
 	virtual bool promptIsEnabled() {
 		return false;

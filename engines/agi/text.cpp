@@ -1188,7 +1188,7 @@ char *TextMgr::stringWordWrap(const char *originalText, int16 maxWidth, int16 *c
 	// Widths are cells (the 40-column grid), positions bytes: TextCells
 	// keeps the two apart and never cuts inside a character (K5).
 	const bool utf8 = _vm->textIsUtf8();
-	TextCells::wordWrap(originalText, maxWidth, utf8, false, wrapped, boxWidth, boxHeight);
+	TextCells::wordWrap(originalText, maxWidth, utf8, utf8 && _vm->hiresHangulAny(), wrapped, boxWidth, boxHeight);
 	Common::strlcpy(resultWrappedBuffer, wrapped.c_str(), sizeof(resultWrappedBuffer));
 
 	if (calculatedWidthPtr) {
