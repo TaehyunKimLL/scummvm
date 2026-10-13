@@ -215,9 +215,9 @@ int AgiEngine::processAGIEvents() {
 	ScreenObjEntry *screenObjEgo = &_game.screenObjTable[SCREENOBJECTS_EGO_ENTRY];
 
 	wait(10);
-	// AGI_KEY_CODEPOINT / AGI_KEY_HANGUL_TOGGLE (UTF-8 text mode) go to the
-	// prompt and get.string only; the mouse, the controllers, the menus and
-	// the message boxes see no key.
+	// AGI_KEY_CODEPOINT (UTF-8 text mode) goes to the prompt and get.string
+	// only; the mouse, the controllers, the menus and the message boxes see
+	// no key. Han/Yeong never gets here: doPollKeyboard() handles it.
 	const int rawKey = doPollKeyboard();
 	const bool wideKey = rawKey >= AGI_KEY_CODEPOINT;
 	uint16 key = wideKey ? 0 : (uint16)rawKey;
@@ -253,9 +253,7 @@ int AgiEngine::processAGIEvents() {
 		// no inner loop active at the moment, regular processing
 
 		if (wideKey) {
-			if (rawKey == AGI_KEY_HANGUL_TOGGLE)
-				_text->hangulToggle();
-			else if (_text->promptIsEnabled())
+			if (_text->promptIsEnabled())
 				_text->promptKeyPress(rawKey);
 		} else if (key) {
 			if (!handleController(key)) {
@@ -277,9 +275,7 @@ int AgiEngine::processAGIEvents() {
 		switch (_game.cycleInnerLoopType) {
 		case CYCLE_INNERLOOP_GETSTRING: // loop called from TextMgr::stringEdit()
 		case CYCLE_INNERLOOP_GETNUMBER:
-			if (rawKey == AGI_KEY_HANGUL_TOGGLE) {
-				_text->hangulToggle();
-			} else if (wideKey) {
+			if (wideKey) {
 				_text->stringKeyPress(rawKey);
 			} else if (key) {
 				_text->stringKeyPress(key);

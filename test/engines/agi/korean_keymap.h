@@ -53,12 +53,54 @@ public:
 		TS_ASSERT(!kbd.contains("KEYCODE_MODE"));
 	}
 
-	void test_the_toggle_is_consumed_before_the_controllers() {
-		const Common::String cyc = readSource("engines/agi/cycle.cpp");
-		const int toggle = cyc.find("rawKey == AGI_KEY_HANGUL_TOGGLE");
-		const int controller = cyc.find("handleController(key)");
-		TS_ASSERT_LESS_THAN(0, toggle);
-		TS_ASSERT_LESS_THAN(toggle, controller);
-		TS_ASSERT(readSource("engines/agi/text.cpp").contains("void TextMgr::hangulToggle()"));
+	// Final review Minor 2: the toggle is handled once, where every loop and
+	// every wait takes its keys, and it is never a key press - a message box,
+	// a menu, the inventory, have.key and waitKey/waitAnyKey all see 0.
+	void test_the_toggle_is_handled_once_for_every_loop_and_wait() {
+		const Common::String kbd = readSource("engines/agi/keyboard.cpp");
+		const int poll = kbd.find("int AgiEngine::doPollKeyboard()");
+		const int take = kbd.find("key = getKeypress();", poll);
+		const int toggle = kbd.find("if (key == AGI_KEY_HANGUL_TOGGLE) {", take);
+		const int call = kbd.find("_text->hangulToggle();", toggle);
+		const int zero = kbd.find("key = 0;", call);
+		const int ret = kbd.find("return key;", zero);
+		const int end = kbd.find("bool AgiEngine::handleMouseClicks(", poll);
+		TS_ASSERT_LESS_THAN(0, poll);
+		TS_ASSERT_LESS_THAN(poll, take);
+		TS_ASSERT_LESS_THAN(take, toggle);
+		TS_ASSERT_LESS_THAN(toggle, call);
+		TS_ASSERT_LESS_THAN(call, zero);
+		TS_ASSERT_LESS_THAN(zero, ret);
+		TS_ASSERT_LESS_THAN(ret, end);
+		// doPollKeyboard is the one place a key leaves the queue (clearKeyQueue drops them).
+		int takes = 0;
+		for (int at = kbd.find("getKeypress();"); at >= 0; at = kbd.find("getKeypress();", at + 1))
+			takes++;
+		TS_ASSERT_EQUALS(takes, 2);
+		TS_ASSERT_LESS_THAN(kbd.find("void AgiEngine::clearKeyQueue()"), kbd.rfind("getKeypress();"));
+		static const char *const others[] = { "engines/agi/cycle.cpp", "engines/agi/op_test.cpp", "engines/agi/op_cmd.cpp",
+		                                       "engines/agi/text.cpp", "engines/agi/menu.cpp", "engines/agi/inv.cpp",
+		                                       "engines/agi/systemui.cpp", "engines/agi/agi.cpp" };
+		for (uint i = 0; i < ARRAYSIZE(others); i++) {
+			const Common::String src = readSource(others[i]);
+			TS_ASSERT(!src.contains("getKeypress()"));
+			// text.cpp uses it only as the code-point range's upper bound
+			TS_ASSERT(!src.contains("== AGI_KEY_HANGUL_TOGGLE"));
+		}
+		// waitKey and waitAnyKey take their keys from doPollKeyboard, so the toggle never ends them.
+		const int waitKey = kbd.find("int AgiEngine::waitKey()");
+		const int waitAny = kbd.find("int AgiEngine::waitAnyKey()");
+		TS_ASSERT_LESS_THAN(waitKey, kbd.find("key = doPollKeyboard();", waitKey));
+		TS_ASSERT_LESS_THAN(kbd.find("key = doPollKeyboard();", waitKey), waitAny);
+		TS_ASSERT_LESS_THAN(waitAny, kbd.find("key = doPollKeyboard();", waitAny));
+		// D8 still holds inside hangulToggle(): the save name ignores it.
+		const Common::String txt = readSource("engines/agi/text.cpp");
+		const int def = txt.find("void TextMgr::hangulToggle()");
+		const int d8 = txt.find("if (_inputStringAscii) {", def);
+		const int flip = txt.find("_hangulMode = !_hangulMode;", def);
+		TS_ASSERT_LESS_THAN(0, def);
+		TS_ASSERT_LESS_THAN(def, d8);
+		TS_ASSERT_LESS_THAN(d8, flip);
+		TS_ASSERT_LESS_THAN(flip, txt.find("hangulUpdateBadge();", flip));
 	}
 };
