@@ -294,60 +294,38 @@ bool AgiEngine::testObjRight(uint8 n, uint8 x1, uint8 y1, uint8 x2, uint8 y2) {
 
 // When player has entered something, it is parsed elsewhere
 bool AgiEngine::testSaid(uint8 nwords, uint8 *cc) {
-	AgiGame *state = &_game;
-	AgiEngine *vm = state->_vm;
-	Words *words = vm->_words;
-	int n = words->getEgoWordCount();
-	int z = 0;
-
-	if (vm->getFlag(VM_FLAG_SAID_ACCEPTED_INPUT) || !vm->getFlag(VM_FLAG_ENTERED_CLI))
+	if (getFlag(VM_FLAG_SAID_ACCEPTED_INPUT) || !getFlag(VM_FLAG_ENTERED_CLI))
 		return false;
+	uint16 spec[256];
+	for (int i = 0; i < nwords; i++)
+		spec[i] = READ_LE_UINT16(cc + 2 * i);
+	return testSaidSpec(spec, nwords);
+}
 
-	// FR:
-	// I think the reason for the code below is to add some speed....
-	//
-	//      if (nwords != num_ego_words)
-	//              return false;
-	//
-	// In the disco scene in Larry 1 when you type "examine blonde",
-	// inside the logic is expected ( said("examine", "blonde", "rol") )
-	// where word("rol") = 9999
-	//
-	// According to the interpreter code 9999 means that whatever the
-	// user typed should be correct, but it looks like code 9999 means that
-	// if the string is empty at this point, the entry is also correct...
-	//
-	// With the removal of this code, the behavior of the scene was
-	// corrected
-
-	for (int c = 0; nwords && n; c++, nwords--, n--) {
-		z = READ_LE_UINT16(cc);
-		cc += 2;
-
-		switch (z) {
-		case 9999:  // rest of line (empty string counts to...)
-			nwords = 1;
-			break;
-		case 1: // any word
-			break;
-		default:
-			if (words->getEgoWordId(c) != z)
-				return false;
-			break;
+// The words must match the spec positionally (saidMatches(), the
+// interpreter's loop). A Korean line has up to four orderings: each said()
+// tries them best first, and the first that matches becomes the line, so
+// every later said(), %w and word.to.string see one sentence (design 5.5).
+bool AgiEngine::testSaidSpec(const uint16 *spec, int nwords) {
+	if (_words->hasCandidates()) {
+		for (uint i = 0; i < _words->candidateCount(); i++) {
+			if (saidMatches(_words->candidate(i), spec, nwords)) {
+				_words->commitCandidate(i);
+				setFlag(VM_FLAG_SAID_ACCEPTED_INPUT, true);
+				return true;
+			}
 		}
+		return false;
 	}
-
-	// The entry string should be entirely parsed, or last word = 9999
-	if (n && z != 9999)
+	AgiSentence ego;
+	for (int c = 0; c < _words->getEgoWordCount(); c++) {
+		AgiWord w;
+		w.id = _words->getEgoWordId(c);
+		ego.push_back(w);
+	}
+	if (!saidMatches(ego, spec, nwords))
 		return false;
-
-	// The interpreter string shouldn't be entirely parsed, but next
-	// word must be 9999.
-	if (nwords != 0 && READ_LE_UINT16(cc) != 9999)
-		return false;
-
 	setFlag(VM_FLAG_SAID_ACCEPTED_INPUT, true);
-
 	return true;
 }
 

@@ -45,6 +45,7 @@
 #include "agi/logic.h"
 #include "agi/sound.h"
 #include "agi/translation.h"
+#include "agi/saidscan.h"
 
 namespace Common {
 class RandomSource;
@@ -902,6 +903,8 @@ public:
 	bool testObjInBox(uint8 n, uint8 x1, uint8 y1, uint8 x2, uint8 y2);
 	bool testPosn(uint8 n, uint8 x1, uint8 y1, uint8 x2, uint8 y2);
 	bool testSaid(uint8 nwords, uint8 *cc);
+	bool testSaidSpec(const uint16 *spec, int nwords);
+	void collectSaids(int16 onlyLogic, Common::Array<SaidSpec> &out);
 	bool testController(uint8 cont);
 	bool testCompareStrings(uint8 s1, uint8 s2);
 
@@ -1010,6 +1013,7 @@ private:
 
 public:
 	const AgiOpCodeEntry *getOpCodesTable() { return _opCodes; }
+	const AgiOpCodeEntry *getOpCodesCondTable() { return _opCodesCond; }
 
 private:
 	void goldRushClockTimeWorkaround_OnReadVar();

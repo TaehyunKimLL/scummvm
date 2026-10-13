@@ -33,6 +33,7 @@ MODULE_OBJS := \
 	op_test.o \
 	picture.o \
 	picture_gal.o \
+	saidscan.o \
 	saveload.o \
 	sound.o \
 	sound_2gs.o \

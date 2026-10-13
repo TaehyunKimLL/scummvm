@@ -158,6 +158,8 @@ int AgiEngine::agiInit() {
 	// note: demos has no words.tok
 	if (ec == errOK)
 		ec = _loader->loadWords();
+	if (ec == errOK && textIsUtf8())
+		_words->loadKoreanTable();
 
 	// Load logic 0 into memory
 	if (ec == errOK)
@@ -977,6 +979,20 @@ void AgiGame::setSpeedLevel(byte s) {
 	case 4:
 		_vm->_text->messageBox("Slow speed.");
 		break;
+	}
+}
+
+void AgiEngine::collectSaids(int16 onlyLogic, Common::Array<SaidSpec> &out) {
+	if (getVersion() < 0x2000)
+		return; // v1 said() opcodes differ
+	for (int16 nr = 0; nr < MAX_DIRECTORY_ENTRIES; nr++) {
+		if ((onlyLogic >= 0 && nr != onlyLogic) || _game.dirLogic[nr].offset == _EMPTY)
+			continue;
+		uint8 *data = _loader->loadVolumeResource(&_game.dirLogic[nr]);
+		if (!data)
+			continue;
+		SaidScanner::scan(data + 2, READ_LE_UINT16(data), _opCodes, _opCodesCond, nr, out);
+		free(data);
 	}
 }
 
