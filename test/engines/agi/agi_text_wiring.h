@@ -109,4 +109,18 @@ public:
 		TS_ASSERT_LESS_THAN(0, (int)t.find("_hangulLine.feed("));
 		TS_ASSERT_EQUALS(t.find("_hangulLine.feed("), t.rfind("_hangulLine.feed("));
 	}
+
+	void test_korean_parse_wiring() {
+		const Common::String w = readSource("engines/agi/words.cpp");
+		TS_ASSERT(w.contains("void Words::analyze(const char *rawUserInput, ParseResult &out) const"));
+		TS_ASSERT(w.contains("_korean.load(\"agikor.dat\", \"AGIKOR\")"));
+		TS_ASSERT(w.contains("buildKoreanCandidates(typed, _preps, MAX_WORDS, out.candidates);"));
+		const Common::String t = readSource("engines/agi/op_test.cpp");
+		TS_ASSERT(t.contains("bool AgiEngine::testSaidSpec(const uint16 *spec, int nwords)"));
+		TS_ASSERT(t.contains("_words->commitCandidate(i);"));
+		const Common::String c = readSource("engines/agi/console.cpp");
+		TS_ASSERT(c.contains("registerCmd(\"saids\""));
+		TS_ASSERT(c.contains("registerCmd(\"said\""));
+		TS_ASSERT(c.contains("registerCmd(\"parse\""));
+	}
 };

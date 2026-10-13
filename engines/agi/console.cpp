@@ -26,6 +26,8 @@
 #include "agi/loader.h"
 #include "agi/text.h"
 #include "agi/textcells.h"
+#include "agi/words.h"
+#include "agi/korparse.h"
 
 #include "agi/preagi/preagi.h"
 #include "agi/preagi/mickey.h"
@@ -65,6 +67,9 @@ Console::Console(AgiEngine *vm) : GUI::Debugger() {
 	registerCmd("disableautosave", WRAP_METHOD(Console, Cmd_DisableAutomaticSave));
 	registerCmd("diskdump",        WRAP_METHOD(Console, Cmd_DiskDump));
 	registerCmd("koverlay",        WRAP_METHOD(Console, Cmd_KOverlay));
+	registerCmd("saids",           WRAP_METHOD(Console, Cmd_Saids));
+	registerCmd("parse",           WRAP_METHOD(Console, Cmd_Parse));
+	registerCmd("said",            WRAP_METHOD(Console, Cmd_Said));
 }
 
 bool Console::Cmd_SetVar(int argc, const char **argv) {
@@ -869,6 +874,105 @@ bool Console::Cmd_KOverlay(int argc, const char **argv) {
 	debugPrintf("boxes over 20 lines %u\n", tall.size());
 	for (uint i = 0; i < tall.size() && i < 20; i++)
 		debugPrintf("  %s\n", tall[i].c_str());
+	return true;
+}
+
+static Common::String joinArgs(int from, int to, const char **argv) {
+	Common::String s;
+	for (int i = from; i < to; i++) {
+		if (i > from)
+			s += ' ';
+		s += argv[i];
+	}
+	return s;
+}
+
+static Common::String describe(const AgiSentence &s) {
+	static const char *const roles[] = { "", "obj", "of", "to", "at", "from", "with", "", "" };
+	Common::String out;
+	for (uint i = 0; i < s.size(); i++) {
+		out += Common::String::format("%s%s=%u", i ? " " : "", s[i].word.c_str(), s[i].id);
+		if (s[i].role)
+			out += Common::String::format("[%s]", roles[MIN<uint>(s[i].role, 8)]);
+		if (s[i].verb)
+			out += "[v]";
+	}
+	return out;
+}
+
+bool Console::Cmd_Saids(int argc, const char **argv) {
+	const int16 only = (argc > 1 && strcmp(argv[1], "*")) ? (int16)atoi(argv[1]) : -1;
+	Common::Array<SaidSpec> specs;
+	_vm->collectSaids(only, specs);
+	for (uint i = 0; i < specs.size(); i++) {
+		Common::String line = Common::String::format("%u %u %u", i, specs[i].logic, specs[i].offset);
+		for (uint k = 0; k < specs[i].words.size(); k++)
+			line += Common::String::format(" %u", specs[i].words[k]);
+		debugPrintf("%s\n", line.c_str());
+	}
+	return true;
+}
+
+bool Console::Cmd_Parse(int argc, const char **argv) {
+	if (argc < 2) {
+		debugPrintf("Usage: %s <sentence>\n", argv[0]);
+		return true;
+	}
+	Words::ParseResult r;
+	_vm->_words->analyze(joinArgs(1, argc, argv).c_str(), r);
+	if (r.unknownPos && !r.candidates.empty() && r.unknownPos <= r.candidates[0].size())
+		debugPrintf("unknown %u %s\n", r.unknownPos, r.candidates[0][r.unknownPos - 1].word.c_str());
+	else if (r.unknownPos)
+		debugPrintf("unknown %u\n", r.unknownPos);
+	for (uint i = 0; i < r.candidates.size(); i++)
+		debugPrintf("#%u: %s\n", i, describe(r.candidates[i]).c_str());
+	return true;
+}
+
+bool Console::Cmd_Said(int argc, const char **argv) {
+	int sep = argc;
+	for (int i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--")) {
+			sep = i;
+			break;
+		}
+	}
+	if (sep < 2) {
+		debugPrintf("Usage: %s <sentence> [-- g1 g2 ...]\n", argv[0]);
+		return true;
+	}
+	Words::ParseResult r;
+	_vm->_words->analyze(joinArgs(1, sep, argv).c_str(), r);
+	if (r.unknownPos) {
+		debugPrintf("unknown %u\n", r.unknownPos);
+		return true;
+	}
+	if (sep < argc) {
+		Common::Array<uint16> spec;
+		for (int i = sep + 1; i < argc; i++)
+			spec.push_back((uint16)atoi(argv[i]));
+		for (uint k = 0; k < r.candidates.size(); k++) {
+			if (saidMatches(r.candidates[k], spec.data(), spec.size())) {
+				debugPrintf("match rank %u\n", k);
+				return true;
+			}
+		}
+		debugPrintf("no match\n");
+		return true;
+	}
+	Common::Array<SaidSpec> specs;
+	_vm->collectSaids(-1, specs);
+	uint matches = 0;
+	for (uint i = 0; i < specs.size(); i++) {
+		for (uint k = 0; k < r.candidates.size(); k++) {
+			if (saidMatches(r.candidates[k], specs[i].words.data(), specs[i].words.size())) {
+				debugPrintf("spec %u logic %u offset %u rank %u\n", i, specs[i].logic, specs[i].offset, k);
+				matches++;
+				break;
+			}
+		}
+	}
+	debugPrintf("matches %u\n", matches);
 	return true;
 }
 

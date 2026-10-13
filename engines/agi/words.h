@@ -22,6 +22,9 @@
 #ifndef AGI_WORDS_H
 #define AGI_WORDS_H
 
+#include "common/korean_vocab.h"
+#include "agi/korparse.h"
+
 namespace Agi {
 
 #define DICTIONARY_RESULT_UNKNOWN -1
@@ -66,9 +69,32 @@ public:
 	void clearEgoWords();
 	void parseUsingDictionary(const char *rawUserInput);
 
+	/** A parse without side effects: the console's parse/said use it, and so does a Korean line. */
+	struct ParseResult {
+		Common::Array<AgiSentence> candidates; ///< [0] becomes the ego words
+		uint16 unknownPos;                     ///< 1-based typed position of the unknown word, 0 = none
+		ParseResult() : unknownPos(0) {}
+	};
+	void analyze(const char *rawUserInput, ParseResult &out) const;
+
+	/** UTF-8 text mode: AGIKOR.DAT and the game's groups for to/in/on/at/into/from/with/of. */
+	void loadKoreanTable();
+	bool hasCandidates() const { return _candidates.size() > 1; }
+	uint candidateCount() const { return _candidates.size(); }
+	const AgiSentence &candidate(uint i) const { return _candidates[i]; }
+	/** said() matched candidate @p i: it becomes the ego words (%w, word.to.string). */
+	void commitCandidate(uint i);
+
 private:
-	void  cleanUpInput(const char *userInput, Common::String &cleanInput);
-	int16 findWordInDictionary(const Common::String &userInputLowercase, uint16 userInputLen, uint16 userInputPos, uint16 &foundWordLen);
+	Common::KoreanVocabulary _korean;
+	AgiPrepositions _preps;
+	Common::Array<AgiSentence> _candidates;
+	void applyParse(const ParseResult &r);
+	/** A Korean pair typed as two words that the table stores as one (켄이 보냈다). */
+	bool lookupJoinedPair(const Common::String &first, const Common::String &second, AgiSentence &out) const;
+
+	void  cleanUpInput(const char *userInput, Common::String &cleanInput) const;
+	int16 findWordInDictionary(const Common::String &userInputLowercase, uint16 userInputLen, uint16 userInputPos, uint16 &foundWordLen) const;
 
 	bool handleSpeedCommands(const Common::String &userInputLowercase);
 	static void convertRussianUserInput(Common::String &userInputLowercase);

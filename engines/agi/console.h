@@ -70,6 +70,9 @@ private:
 	bool Cmd_DisableAutomaticSave(int argc, const char **argv);
 	bool Cmd_DiskDump(int argc, const char **argv);
 	bool Cmd_KOverlay(int argc, const char **argv);
+	bool Cmd_Saids(int argc, const char **argv);
+	bool Cmd_Parse(int argc, const char **argv);
+	bool Cmd_Said(int argc, const char **argv);
 
 	bool parseInteger(const char *argument, int &result);
 
