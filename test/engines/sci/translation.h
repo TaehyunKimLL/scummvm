@@ -204,6 +204,106 @@ public:
 		TS_ASSERT(!t.keyOf(ScriptStrings::bufferId(0x10, 0x2c4), "You are carrying nothing!").isSet());
 	}
 
+	// The PQ2 inventory: StrCpy "You are carrying..." (997:19) into a
+	// buffer, StrCat a script string, StrCat plain text (an item name
+	// kFormat already wrote), display the buffer.
+	static void buildInventoryLine(Sci::ScriptStrings &t, uint32 buf) {
+		using Sci::ScriptStrings;
+		t.tagBuffer(buf, ScriptStrings::Key(997, 19, 1), "You are carrying...");
+		t.appendToBuffer(buf, "You are carrying...", ScriptStrings::Key(995, 7, 1),
+		                 ScriptStrings::Key::kNoBuffer, " a ");
+		t.appendToBuffer(buf, "You are carrying... a ", ScriptStrings::Key(),
+		                 ScriptStrings::bufferId(0x10, 0x100), "머니 클립.");
+	}
+
+	void test_strcat_onto_a_tagged_buffer_translates_each_part() {
+		using Sci::ScriptStrings;
+		ScriptStrings t;
+		TS_ASSERT(load(t,
+			"997\t19\t가진 것...\n"
+			"995\t7\t: \n"));
+		const uint32 buf = ScriptStrings::bufferId(0x10, 0x2c2);
+		buildInventoryLine(t, buf);
+
+		ScriptStrings::Key k = t.keyOf(buf, "You are carrying... a 머니 클립.");
+		TS_ASSERT(k.isSet());
+		TS_ASSERT(k.isBuffer());
+		Common::String out;
+		TS_ASSERT(t.lookup(k, out));
+		TS_ASSERT_EQUALS(out, Common::String("가진 것...: 머니 클립."));
+
+		// Print StrCpy's the sentence into its own buffer: the tag goes along.
+		const uint32 print = ScriptStrings::bufferId(0x10, 0x582);
+		t.copyBufferTag(print, buf, "You are carrying... a 머니 클립.");
+		out.clear();
+		TS_ASSERT(t.lookup(t.keyOf(print, "You are carrying... a 머니 클립."), out));
+		TS_ASSERT_EQUALS(out, Common::String("가진 것...: 머니 클립."));
+		// A copy of other text into it takes no tag.
+		t.copyBufferTag(print, ScriptStrings::bufferId(0x10, 0x600), "Other");
+		TS_ASSERT(!t.keyOf(print, "Other").isSet());
+		// The buffer reused: no key, never a stale translation.
+		TS_ASSERT(!t.keyOf(buf, "You are carrying... a ").isSet());
+		TS_ASSERT(!t.keyOf(buf, "Something else").isSet());
+	}
+
+	void test_strcat_part_without_translation_stays_as_written() {
+		using Sci::ScriptStrings;
+		ScriptStrings t;
+		TS_ASSERT(load(t, "997\t19\t가진 것...\n"));
+		const uint32 buf = ScriptStrings::bufferId(0x10, 0x2c2);
+		buildInventoryLine(t, buf);
+		Common::String out;
+		TS_ASSERT(t.lookup(t.keyOf(buf, "You are carrying... a 머니 클립."), out));
+		TS_ASSERT_EQUALS(out, Common::String("가진 것... a 머니 클립."));
+	}
+
+	void test_strcat_with_no_translation_changes_nothing() {
+		using Sci::ScriptStrings;
+		// No table: lookup never answers, the display keeps the buffer.
+		{
+			ScriptStrings t;
+			const uint32 buf = ScriptStrings::bufferId(0x10, 0x2c2);
+			buildInventoryLine(t, buf);
+			Common::String out;
+			TS_ASSERT(!t.lookup(t.keyOf(buf, "You are carrying... a 머니 클립."), out));
+		}
+		// A table without these strings: same.
+		{
+			ScriptStrings t;
+			TS_ASSERT(load(t, "14\t2\t거울이다.\n"));
+			const uint32 buf = ScriptStrings::bufferId(0x10, 0x2c2);
+			buildInventoryLine(t, buf);
+			Common::String out;
+			TS_ASSERT(!t.lookup(t.keyOf(buf, "You are carrying... a 머니 클립."), out));
+		}
+	}
+
+	void test_strcat_onto_an_untagged_buffer_stays_untagged() {
+		using Sci::ScriptStrings;
+		ScriptStrings t;
+		TS_ASSERT(load(t, "995\t7\t: \n"));
+		const uint32 buf = ScriptStrings::bufferId(0x10, 0x2c2);
+		t.appendToBuffer(buf, "Score: ", ScriptStrings::Key(995, 7), ScriptStrings::Key::kNoBuffer, " a ");
+		TS_ASSERT(!t.keyOf(buf, "Score:  a ").isSet());
+		TS_ASSERT(!t.keyOf(buf, " a ").isSet());
+	}
+
+	void test_strcat_of_a_tagged_buffer_carries_its_parts() {
+		using Sci::ScriptStrings;
+		ScriptStrings t;
+		TS_ASSERT(load(t,
+			"997\t19\t가진 것...\n"
+			"995\t7\t: \n"));
+		const uint32 a = ScriptStrings::bufferId(0x10, 0x2c2);
+		const uint32 b = ScriptStrings::bufferId(0x10, 0x300);
+		t.tagBuffer(a, ScriptStrings::Key(997, 19), "You are carrying...");
+		t.tagBuffer(b, ScriptStrings::Key(995, 7), " a ");
+		t.appendToBuffer(a, "You are carrying...", ScriptStrings::Key(), b, " a ");
+		Common::String out;
+		TS_ASSERT(t.lookup(t.keyOf(a, "You are carrying... a "), out));
+		TS_ASSERT_EQUALS(out, Common::String("가진 것...: "));
+	}
+
 	void test_unloaded_table_translates_nothing() {
 		Sci::ScriptStrings t;
 		TS_ASSERT(!t.isLoaded());
