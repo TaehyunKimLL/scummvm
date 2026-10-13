@@ -83,6 +83,9 @@ namespace Agi {
 #define MAX_WORDS                  20
 #define MAX_STRINGS                24         // MAX_STRINGS + 1 used for get.num
 #define MAX_STRINGLEN              40
+// MAX_STRINGLEN counts cells (39 and a terminator, as always); a UTF-8
+// string of that many cells needs up to 4 bytes a cell.
+#define MAX_STRINGBYTES            (MAX_STRINGLEN * 4 + 1)
 #define MAX_CONTROLLER_KEYMAPPINGS 39
 
 #define SAVEDGAME_DESCRIPTION_LEN 30
@@ -409,7 +412,13 @@ struct AgiGame {
 	bool controllerOccurred[MAX_CONTROLLERS];  /**< keyboard keypress events */
 	AgiControllerKeyMapping controllerKeyMapping[MAX_CONTROLLER_KEYMAPPINGS];
 
-	char strings[MAX_STRINGS + 1][MAX_STRINGLEN]; /**< strings */
+	char strings[MAX_STRINGS + 1][MAX_STRINGBYTES]; /**< strings */
+	/**
+	 * UTF-8 text mode: the English original of a translated message that
+	 * set.string copied into the slot, so compare.strings accepts the
+	 * player typing either (design 5.3, D2). Cleared by any other write.
+	 */
+	Common::String stringAnswer[MAX_STRINGS + 1];
 
 	// directory entries for resources
 	AgiDir dirLogic[MAX_DIRECTORY_ENTRIES];
@@ -462,6 +471,7 @@ struct AgiGame {
 
 	const char *getString(int number);
 	void setString(int number, const char *str);
+	void setStringFromMessage(int number, uint16 textIndex);
 	/**
 	 * Sets the speed level and displays a message box.
 	 */

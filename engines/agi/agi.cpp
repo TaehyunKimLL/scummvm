@@ -46,6 +46,7 @@
 #include "agi/loader.h"
 #include "agi/sprite.h"
 #include "agi/text.h"
+#include "agi/textcells.h"
 #include "agi/keyboard.h"
 #include "agi/menu.h"
 #include "agi/systemui.h"
@@ -888,10 +889,28 @@ const char *AgiGame::getString(int number) {
 
 void AgiGame::setString(int number, const char *str) {
 	if (0 <= number && number <= MAX_STRINGS) {
-		Common::strlcpy(strings[number], str, MAX_STRINGLEN);
+		if (_vm->textIsUtf8()) {
+			// 39 cells, cut on a character boundary.
+			const Common::String clipped = TextCells::clipCells(str, MAX_STRINGLEN - 1, true);
+			Common::strlcpy(strings[number], clipped.c_str(), MAX_STRINGBYTES);
+			stringAnswer[number].clear();
+		} else {
+			Common::strlcpy(strings[number], str, MAX_STRINGLEN);
+		}
 	} else {
 		// Occurs in Groza, number = 150
 		warning("invalid string number: %d, '%s'", number, str);
+	}
+}
+
+void AgiGame::setStringFromMessage(int number, uint16 textIndex) {
+	setString(number, _curLogic->texts[textIndex]);
+	if (!_vm->textIsUtf8() || number < 0 || number > MAX_STRINGS || !_curLogic->rawTexts)
+		return;
+	const char *raw = _curLogic->rawTexts[textIndex];
+	if (raw && raw != _curLogic->texts[textIndex]) {
+		const Common::String english = TextOverlay::legacyToUtf8(raw, Common::kDos850);
+		stringAnswer[number] = TextCells::clipCells(english.c_str(), MAX_STRINGLEN - 1, true);
 	}
 }
 

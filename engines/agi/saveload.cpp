@@ -567,8 +567,10 @@ int AgiEngine::loadGame(const Common::String &fileName, bool checkId) {
 		}
 	}
 
-	for (i = 0; i < MAX_STRINGS; i++)
+	for (i = 0; i < MAX_STRINGS; i++) {
 		in->read(_game.strings[i], MAX_STRINGLEN);
+		_game.strings[i][MAX_STRINGLEN - 1] = 0;
+	}
 
 	for (i = 0; i < MAX_DIRECTORY_ENTRIES; i++) {
 		if (in->readByte() & RES_LOADED)
