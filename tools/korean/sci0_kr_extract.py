@@ -72,14 +72,17 @@ def ifind(d, name):
 
 # ---- SCI0 resource files ----------------------------------------------
 
-def read_map(path):
+def read_map(path, volbits=6):
+    """SCI0 map entries (type, nr, volume, offset): 6-bit volume, 26-bit
+    offset; volbits=4 reads the SCI01 / SCI1 middle form (LSL1 remake)."""
     m = open(path, 'rb').read()
     ents = []
+    sh = 32 - volbits
     for i in range(0, len(m) - 5, 6):
         a, b = struct.unpack_from('<HI', m, i)
         if a == 0xFFFF:
             break
-        ents.append((a >> 11, a & 0x7FF, b >> 26, b & 0x3FFFFFF))
+        ents.append((a >> 11, a & 0x7FF, b >> sh, b & ((1 << sh) - 1)))
     return ents
 
 
@@ -231,6 +234,9 @@ class Game:
     def __init__(self, d, mapname='resource.map'):
         self.dir = d
         self.map = read_map(ifind(d, mapname))
+        # An SCI01 map read as SCI0 names volumes that do not exist.
+        if any(ifind(d, 'resource.%03d' % v) is None for v in {e[2] for e in self.map}):
+            self.map = read_map(ifind(d, mapname), 4)
         self.vols = {}
         self.where = {}
         for t, n, v, o in self.map:

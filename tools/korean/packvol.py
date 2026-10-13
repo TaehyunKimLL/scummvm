@@ -63,10 +63,10 @@ def find(dirpath, name):
     return None
 
 
-def read_sci0_map(data):
+def read_sci0_map(data, volbits=6):
     """Entries (type, number, volume, offset) of an SCI0 RESOURCE.MAP, in file
-    order: 6-bit volume, 26-bit offset. (An SCI01 map with 4-bit volumes shows
-    up as volumes that do not exist, which main() refuses.)"""
+    order: 6-bit volume, 26-bit offset; volbits=4 reads the SCI01 / SCI1
+    middle form (LSL1 remake) with 4-bit volumes and 28-bit offsets."""
     if len(data) % 6 or data[-6:] != b'\xff' * 6:
         die('RESOURCE.MAP is not an SCI0 map (no 6-byte 0xFF terminator)')
     out = []
@@ -74,7 +74,8 @@ def read_sci0_map(data):
         rid, off = struct.unpack_from('<HI', data, i)
         if rid == 0xFFFF and off == 0xFFFFFFFF:
             die('RESOURCE.MAP has a terminator before its end')
-        out.append((rid >> 11, rid & 0x7FF, off >> 26, off & 0x3FFFFFF))
+        sh = 32 - volbits
+        out.append((rid >> 11, rid & 0x7FF, off >> sh, off & ((1 << sh) - 1)))
     return out
 
 
@@ -203,11 +204,18 @@ def main():
             die('unknown type %s (SCI0 types: %s)' % (t, ', '.join(TYPES)))
     excl = {e.lower() for e in a.exclude}
 
-    entries = read_sci0_map(open(mapfile, 'rb').read())
+    mapdata = open(mapfile, 'rb').read()
     vols = {int(f.split('.')[1]) for f in os.listdir(src) if re.match(r'^resource\.\d{3}$', f, re.I)}
-    for t, n, v, o in entries:
-        if v not in vols:
-            die('RESOURCE.MAP names volume %d, which is missing (not a plain SCI0 map?)' % v)
+    # An SCI01 map (4-bit volumes) read as SCI0 names volumes that do not exist.
+    for volbits in (6, 4):
+        entries = read_sci0_map(mapdata, volbits)
+        missing = sorted({v for t, n, v, o in entries} - vols)
+        if not missing:
+            break
+    else:
+        die('RESOURCE.MAP names volume %d, which is missing (not an SCI0 or SCI01 map?)' % missing[0])
+    if volbits == 4 and a.mode == 'map':
+        die('--mode map writes SCI0 maps only; use --mode msg for this SCI01 game')
 
     res = []
     packed_files = []
