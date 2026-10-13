@@ -9,6 +9,7 @@ MODULE_OBJS := \
 	font.o \
 	global.o \
 	graphics.o \
+	hangulline.o \
 	hirestext.o \
 	inv.o \
 	keyboard.o \

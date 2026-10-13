@@ -194,7 +194,7 @@ public:
 	 * one", because the alternative is re-measuring S4's erase defect.
 	 */
 	void test_the_badge_goes_through_the_backend_not_the_engine() {
-		Common::String ki = readSource("engines/sci/graphics/koreaninput.cpp");
+		Common::String ki = readSource("graphics/korean_badge.cpp");
 
 		TS_ASSERT(ki.contains("g_system->displayActivityIconOnOSD(&badge)"));
 		TS_ASSERT(ki.contains("g_system->displayActivityIconOnOSD(nullptr)"));
@@ -219,7 +219,7 @@ public:
 	 * like the bug being fixed.
 	 */
 	void test_show_is_idempotent_per_state() {
-		Common::String ki = readSource("engines/sci/graphics/koreaninput.cpp");
+		Common::String ki = readSource("graphics/korean_badge.cpp");
 		const int fn = ki.find("void KoreanInputIndicator::show(");
 		const int end = ki.find("void KoreanInputIndicator::clear(");
 		TS_ASSERT_LESS_THAN(0, fn);
@@ -243,7 +243,7 @@ public:
 	 * that reads as boxes on exactly the builds this feature targets.
 	 */
 	void test_the_label_is_ascii() {
-		Common::String ki = readSource("engines/sci/graphics/koreaninput.cpp");
+		Common::String ki = readSource("graphics/korean_badge.cpp");
 		TS_ASSERT(ki.contains("hangulEnabled ? \"KO\" : \"EN\""));
 	}
 

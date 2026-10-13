@@ -45,6 +45,7 @@ public:
 
 private:
 	bool Cmd_AgiState(int argc, const char **argv);
+	bool Cmd_Prompt(int argc, const char **argv);
 	bool Cmd_SetVar(int argc, const char **argv);
 	bool Cmd_SetFlag(int argc, const char **argv);
 	bool Cmd_SetObj(int argc, const char **argv);

@@ -43,6 +43,7 @@ Console::Console(AgiEngine *vm) : GUI::Debugger() {
 	registerCmd("cont",            WRAP_METHOD(Console, Cmd_Cont));
 	registerCmd("agiver",          WRAP_METHOD(Console, Cmd_Agiver));
 	registerCmd("agistate",        WRAP_METHOD(Console, Cmd_AgiState));
+	registerCmd("prompt",          WRAP_METHOD(Console, Cmd_Prompt));
 	registerCmd("version",         WRAP_METHOD(Console, Cmd_Version));
 	registerCmd("flags",           WRAP_METHOD(Console, Cmd_Flags));
 	registerCmd("logic0",          WRAP_METHOD(Console, Cmd_Logic0));
@@ -147,15 +148,26 @@ bool Console::Cmd_AgiState(int argc, const char **argv) {
 			esc += '\\';
 		esc += prompt[i];
 	}
+	const Graphics::KoreanInputIndicator &badge = _vm->_text->_badge;
 	debugPrintf("{\"room\": %d, \"ego\": [%d, %d], \"prompt\": \"%s\", \"promptEnabled\": %s, "
 	            "\"inner\": %d, \"window\": %s, \"utf8\": %s, \"hires\": %s, \"hangul\": %s, "
-	            "\"preedit\": %u, \"screen\": [%d, %d]}\n",
+	            "\"preedit\": %u, \"badge\": \"%s\", \"screen\": [%d, %d]}\n",
 	            _vm->getVar(VM_VAR_CURRENT_ROOM), ego.xPos, ego.yPos, esc.c_str(),
 	            _vm->_text->promptIsEnabled() ? "true" : "false",
 	            _vm->cycleInnerLoopIsActive() ? (int)_vm->_game.cycleInnerLoopType : -1,
 	            _vm->_text->_messageState.window_Active ? "true" : "false",
 	            _vm->textIsUtf8() ? "true" : "false", _vm->hiresTextActive() ? "true" : "false",
-	            "false", 0u, g_system->getWidth(), g_system->getHeight());
+	            _vm->_text->hangulMode() ? "true" : "false", _vm->_text->hangulPreedit(),
+	            !badge.isShown() ? "" : (badge.shownEnabled() ? "KO" : "EN"),
+	            g_system->getWidth(), g_system->getHeight());
+	return true;
+}
+
+bool Console::Cmd_Prompt(int argc, const char **argv) {
+	debugPrintf("%s\n", _vm->_text->promptGetText().c_str());
+	if (_vm->_text->hangulPreedit())
+		debugPrintf("preedit U+%04X\n", _vm->_text->hangulPreedit());
+	debugPrintf("mode %s\n", _vm->_text->hangulMode() ? "Korean" : "English");
 	return true;
 }
 

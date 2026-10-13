@@ -29,6 +29,11 @@
 #include "graphics/thumbnail.h"
 #include "graphics/surface.h"
 
+#include "backends/keymapper/action.h"
+#include "backends/keymapper/keymapper.h"
+
+#include "graphics/hires_text/hires_options.h"
+
 #include "base/plugins.h"
 #include "engines/advancedDetector.h"
 
@@ -255,7 +260,39 @@ public:
 	SaveStateDescriptor querySaveMetaInfos(const char *target, int slot) const override;
 
 	bool hasFeature(MetaEngineFeature f) const override;
+
+	Common::KeymapArray initKeymaps(const char *target) const override;
 };
+
+Common::KeymapArray AgiMetaEngine::initKeymaps(const char *target) const {
+	using namespace Common;
+
+	KeymapArray keymaps = MetaEngine::initKeymaps(target);
+
+	// Only for a game that asked for Korean typing with the built-in
+	// composer: every other AGI game keeps its keys (S9 a9fe2374373).
+	if (!Graphics::confManGameBool("agi_hangul_input", target, false))
+		return keymaps;
+	if (!Graphics::confManGameBool("agi_hangul_builtin", target, true))
+		return keymaps;
+
+	Keymap *hangulKeymap = new Keymap(Keymap::kKeymapTypeGame, "agi-hangul", _("AGI - Korean input"));
+	Action *act = new Action("HANGULTOGGLE", _("Han/Yeong (Korean input on/off)"));
+	act->setCustomEngineActionEvent(Agi::kAgiActionHangulToggle);
+	// SCI's defaults (engines/sci/metaengine.cpp): the dedicated key, what
+	// X11 calls it, the two IME toggles, and two keys Windows' Korean IME
+	// lets through to DOSBox-X.
+	act->addDefaultInputMapping("HANGUL");
+	act->addDefaultInputMapping("RALT");
+	act->addDefaultInputMapping("C+SPACE");
+	act->addDefaultInputMapping("S+SPACE");
+	act->addDefaultInputMapping("SCROLLOCK");
+	act->addDefaultInputMapping("F12");
+	hangulKeymap->addAction(act);
+
+	keymaps.push_back(hangulKeymap);
+	return keymaps;
+}
 
 bool AgiMetaEngine::hasFeature(MetaEngineFeature f) const {
 	return

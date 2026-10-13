@@ -21,6 +21,7 @@
 
 #include "common/md5.h"
 #include "common/file.h"
+#include "common/fs.h"
 #include "common/language.h"
 #include "common/memstream.h"
 #include "common/savefile.h"
@@ -431,6 +432,17 @@ AgiEngine::AgiEngine(OSystem *syst, const AGIGameDescription *gameDesc) : AgiBas
 	syncSoundSettings();
 
 	memset(&_debug, 0, sizeof(struct AgiDebug));
+
+	// A Korean pack ships AGIKOR.DAT. Where the player has not chosen, that
+	// turns Korean typing on and starts in Korean, as the pack's INI does (a
+	// game added in the launcher has none of these keys). Transient, and set
+	// here, before initKeymaps() reads them. As SciEngine does for SCIKOR.DAT.
+	if (Common::FSDirectory(ConfMan.getPath("path")).hasFile("agikor.dat")) {
+		if (!ConfMan.hasKey("agi_hangul_input"))
+			ConfMan.setBool("agi_hangul_input", true, Common::ConfigManager::kTransientDomain);
+		if (!ConfMan.hasKey("agi_hangul_start"))
+			ConfMan.setBool("agi_hangul_start", true, Common::ConfigManager::kTransientDomain);
+	}
 
 	_game.mouseEnabled = ConfMan.getBool("mousesupport");
 	_game.mouseHidden = !_game.mouseEnabled;
