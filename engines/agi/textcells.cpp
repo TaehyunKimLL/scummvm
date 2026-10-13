@@ -155,6 +155,12 @@ bool isHangulSyllable(uint32 cp) {
 	return cp >= 0xAC00 && cp <= 0xD7A3;
 }
 
+int16 dropDownColumn(int16 menuColumn, int16 itemCells, int16 screenColumns) {
+	if (itemCells + menuColumn < (screenColumns - 1))
+		return menuColumn;
+	return (screenColumns - 1) - itemCells;
+}
+
 static Common::String fold(const char *s) {
 	Common::String out;
 	for (; *s; s++) {

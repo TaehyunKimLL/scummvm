@@ -54,6 +54,16 @@ int16 cellCount(const uint32 *cells);
 bool isHangulSyllable(uint32 cp);
 
 /**
+ * GfxMenu::addMenuItem()'s drop-down item column (left to right languages):
+ * under the menu name, or moved left so that an item of itemCells ends at
+ * column screenColumns - 2 (the box border takes the last column). The
+ * original passes the first item's length; UTF-8 text mode passes the
+ * longest item's, since a translation does not pad its items to the first
+ * one's length.
+ */
+int16 dropDownColumn(int16 menuColumn, int16 itemCells, int16 screenColumns);
+
+/**
  * compare.strings (op_test.cpp): drop space, tab, - . , : ; ! and the
  * apostrophe, fold ASCII letters to lower case, compare the rest byte for
  * byte. Bytes >= 0x80 are never folded (they are Hangul in UTF-8 mode and
