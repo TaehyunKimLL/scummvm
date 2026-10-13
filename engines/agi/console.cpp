@@ -812,6 +812,8 @@ bool Console::Cmd_KOverlay(int argc, const char **argv) {
 		bool ok;
 		if (k.kind == TextOverlay::kKeyObject) {
 			ok = k.number < _vm->_game.numObjects;
+		} else if (k.kind == TextOverlay::kKeyView) {
+			ok = k.number < MAX_DIRECTORY_ENTRIES && _vm->_game.dirView[k.number].offset != _EMPTY;
 		} else {
 			int count = 0;
 			ok = _vm->rawLogicMessageCount(k.logic, count) && k.number <= count;
@@ -848,7 +850,8 @@ bool Console::Cmd_KOverlay(int argc, const char **argv) {
 	for (uint i = 0; i < keys.size(); i++) {
 		const TextOverlay::Key &k = keys[i];
 		const Common::String *t = k.kind == TextOverlay::kKeyObject ? _vm->_overlay.object(k.number)
-		                                                             : _vm->_overlay.message(k.logic, k.number);
+		                        : k.kind == TextOverlay::kKeyView   ? _vm->_overlay.view(k.number)
+		                                                            : _vm->_overlay.message(k.logic, k.number);
 		if (!t)
 			continue;
 		for (const char *p = t->c_str(); *p;) {
@@ -860,7 +863,7 @@ bool Console::Cmd_KOverlay(int argc, const char **argv) {
 			if (!ok && Common::find(missing.begin(), missing.end(), cp) == missing.end())
 				missing.push_back(cp);
 		}
-		if (k.kind == TextOverlay::kKeyMessage) {
+		if (k.kind != TextOverlay::kKeyObject) {
 			Common::String out;
 			int16 w, h;
 			bool truncated = false;

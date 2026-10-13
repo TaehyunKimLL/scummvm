@@ -23,6 +23,7 @@
 #include "agi/sprite.h"
 #include "agi/graphics.h"
 #include "agi/text.h"
+#include "agi/textcells.h"
 
 namespace Agi {
 
@@ -415,7 +416,20 @@ void SpritesMgr::showObject(int16 viewNr) {
 	drawCel(&screenObj);
 	showSprite(&screenObj);
 
-	_vm->_text->messageBox((char *)_vm->_game.views[viewNr].description);
+	// UTF-8 text mode: the translated description (v<view>), or the game's
+	// own in UTF-8.
+	const char *description = (const char *)_vm->_game.views[viewNr].description;
+	Common::String utf8Description;
+	if (_vm->textIsUtf8() && description) {
+		const Common::String *t = _vm->_overlay.view(viewNr);
+		if (t)
+			utf8Description = *t;
+		else
+			utf8Description = TextCells::hasHighBytes(description) ? TextOverlay::legacyToUtf8(description, Common::kDos850)
+			                                                       : Common::String(description);
+		description = utf8Description.c_str();
+	}
+	_vm->_text->messageBox(description);
 
 	_gfx->block_restore(screenObj.xPos, (screenObj.yPos - screenObj.ySize + 1), screenObj.xSize, screenObj.ySize, backgroundBuffer);
 	showSprite(&screenObj);

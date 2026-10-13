@@ -93,8 +93,15 @@ TextOverlay::LineKind TextOverlay::parseLine(const Common::String &line, Key &ke
 			error = "bad object index";
 			return kLineError;
 		}
+	} else if (line[0] == 'v') {
+		key.kind = kKeyView;
+		key.logic = 0;
+		if (!readNum(line, p, 255, key.number)) {
+			error = "bad view number";
+			return kLineError;
+		}
 	} else {
-		error = "unknown key prefix (m<logic>:<n> or o<index>)";
+		error = "unknown key prefix (m<logic>:<n>, o<index> or v<view>)";
 		return kLineError;
 	}
 	if (p >= line.size() || line[p] != '\t') {
@@ -150,6 +157,8 @@ Common::String TextOverlay::legacyToUtf8(const char *bytes, Common::CodePage pag
 Common::String TextOverlay::keyName(const Key &key) {
 	if (key.kind == kKeyObject)
 		return Common::String::format("o%u", key.number);
+	if (key.kind == kKeyView)
+		return Common::String::format("v%u", key.number);
 	return Common::String::format("m%u:%u", key.logic, key.number);
 }
 
@@ -168,6 +177,11 @@ const Common::String *TextOverlay::message(uint16 logic, uint16 number) const {
 
 const Common::String *TextOverlay::object(uint16 index) const {
 	Common::HashMap<uint32, Common::String>::const_iterator it = _entries.find(pack(kKeyObject, 0, index));
+	return it == _entries.end() ? nullptr : &it->_value;
+}
+
+const Common::String *TextOverlay::view(uint16 nr) const {
+	Common::HashMap<uint32, Common::String>::const_iterator it = _entries.find(pack(kKeyView, 0, nr));
 	return it == _entries.end() ? nullptr : &it->_value;
 }
 

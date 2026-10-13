@@ -4,7 +4,8 @@
 #include "agi/translation.h"
 
 // The AGI overlay agi-<lang>.str (design 8.1): key TAB text, keys
-// m<logic>:<n> (n 1-based, as scripts number messages) and o<index>.
+// m<logic>:<n> (n 1-based, as scripts number messages), o<index> and v<view>
+// (a view's description: show.obj's inventory close-up text).
 class AgiOverlayTestSuite : public CxxTest::TestSuite {
 	static bool load(Agi::TextOverlay &o, const char *text) {
 		Common::MemoryReadStream s((const byte *)text, strlen(text));
@@ -25,6 +26,16 @@ public:
 		TS_ASSERT(!o.message(5, 2));
 		TS_ASSERT(!o.object(5));
 		TS_ASSERT(!o.message(3, 0));
+	}
+
+	void test_view_descriptions_are_their_own_keys() {
+		Agi::TextOverlay o;
+		TS_ASSERT(load(o, "o3\tobject\nv3\tview\nm3:3\tmessage\n"));
+		TS_ASSERT_EQUALS(o.entryCount(), 3u);
+		TS_ASSERT_EQUALS(*o.object(3), "object");
+		TS_ASSERT_EQUALS(*o.view(3), "view");
+		TS_ASSERT_EQUALS(*o.message(3, 3), "message");
+		TS_ASSERT(!o.view(4));
 	}
 
 	void test_comments_only_is_present_but_not_loaded() {
@@ -72,6 +83,11 @@ public:
 		TS_ASSERT_EQUALS(Agi::TextOverlay::parseLine("o7\t", k, t, err), Agi::TextOverlay::kLineEntry);
 		TS_ASSERT_EQUALS(k.kind, Agi::TextOverlay::kKeyObject);
 		TS_ASSERT_EQUALS(Agi::TextOverlay::keyName(k), "o7");
+		TS_ASSERT_EQUALS(Agi::TextOverlay::parseLine("v121\tring", k, t, err), Agi::TextOverlay::kLineEntry);
+		TS_ASSERT_EQUALS(k.kind, Agi::TextOverlay::kKeyView);
+		TS_ASSERT_EQUALS(k.number, 121);
+		TS_ASSERT_EQUALS(Agi::TextOverlay::keyName(k), "v121");
+		TS_ASSERT_EQUALS(Agi::TextOverlay::parseLine("v300\tx", k, t, err), Agi::TextOverlay::kLineError);
 		TS_ASSERT_EQUALS(Agi::TextOverlay::parseLine("", k, t, err), Agi::TextOverlay::kLineSkip);
 		TS_ASSERT_EQUALS(Agi::TextOverlay::parseLine("# c", k, t, err), Agi::TextOverlay::kLineSkip);
 	}
