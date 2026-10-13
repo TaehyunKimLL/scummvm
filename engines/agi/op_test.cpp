@@ -23,6 +23,7 @@
 #include "agi/agi.h"
 #include "agi/graphics.h"
 #include "agi/opcodes.h"
+#include "agi/textcells.h"
 #include "agi/words.h"
 
 #include "common/endian.h"
@@ -231,56 +232,20 @@ void condUnknown(AgiGame *state, AgiEngine *vm, uint8 *p) {
 }
 
 bool AgiEngine::testCompareStrings(uint8 s1, uint8 s2) {
-	char ms1[MAX_STRINGLEN];
-	char ms2[MAX_STRINGLEN];
-	int j, k, l;
-
-	Common::strlcpy(ms1, _game.getString(s1), MAX_STRINGLEN);
-	Common::strlcpy(ms2, _game.getString(s2), MAX_STRINGLEN);
-
-	l = strlen(ms1);
-	for (k = 0, j = 0; k < l; k++) {
-		switch (ms1[k]) {
-		case 0x20:
-		case 0x09:
-		case '-':
-		case '.':
-		case ',':
-		case ':':
-		case ';':
-		case '!':
-		case '\'':
-			break;
-
-		default:
-			ms1[j++] = tolower(ms1[k]);
-			break;
-		}
-	}
-	ms1[j] = 0x0;
-
-	l = strlen(ms2);
-	for (k = 0, j = 0; k < l; k++) {
-		switch (ms2[k]) {
-		case 0x20:
-		case 0x09:
-		case '-':
-		case '.':
-		case ',':
-		case ':':
-		case ';':
-		case '!':
-		case '\'':
-			break;
-
-		default:
-			ms2[j++] = tolower(ms2[k]);
-			break;
-		}
-	}
-	ms2[j] = 0x0;
-
-	return !strcmp(ms1, ms2);
+	const char *a = _game.getString(s1);
+	const char *b = _game.getString(s2);
+	if (TextCells::agiStringsEqual(a, b))
+		return true;
+	if (!textIsUtf8())
+		return false;
+	// D2: a translated answer also matches its English original.
+	if (s1 <= MAX_STRINGS && !_game.stringAnswer[s1].empty() &&
+	    TextCells::agiStringsEqual(_game.stringAnswer[s1].c_str(), b))
+		return true;
+	if (s2 <= MAX_STRINGS && !_game.stringAnswer[s2].empty() &&
+	    TextCells::agiStringsEqual(a, _game.stringAnswer[s2].c_str()))
+		return true;
+	return false;
 }
 
 bool AgiEngine::testController(uint8 cont) {

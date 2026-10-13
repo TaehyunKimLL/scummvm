@@ -2137,7 +2137,7 @@ void cmdSetString(AgiGame *state, AgiEngine *vm, uint8 *parameter) {
 	uint16 stringNr = parameter[0];
 	uint16 textNr = parameter[1] - 1;
 
-	state->setString(stringNr, state->_curLogic->texts[textNr]);
+	state->setStringFromMessage(stringNr, textNr);
 }
 
 void cmdDisplay(AgiGame *state, AgiEngine *vm, uint8 *parameter) {

@@ -71,4 +71,19 @@ public:
 		// Save descriptions are ASCII only (D8): that path stays bytes.
 		TS_ASSERT(sys.contains("actualDescriptionLen = strlen(actualDescription);"));
 	}
+
+	void test_string_table_and_answers() {
+		const Common::String h = readSource("engines/agi/agi.h");
+		TS_ASSERT(h.contains("#define MAX_STRINGBYTES            (MAX_STRINGLEN * 4 + 1)"));
+		TS_ASSERT(h.contains("char strings[MAX_STRINGS + 1][MAX_STRINGBYTES];"));
+		TS_ASSERT(h.contains("Common::String stringAnswer[MAX_STRINGS + 1];"));
+		const Common::String a = readSource("engines/agi/agi.cpp");
+		TS_ASSERT(a.contains("TextCells::clipCells(str, MAX_STRINGLEN - 1, true)"));
+		TS_ASSERT(a.contains("Common::strlcpy(strings[number], str, MAX_STRINGLEN);"));
+		const Common::String op = readSource("engines/agi/op_cmd.cpp");
+		TS_ASSERT(op.contains("state->setStringFromMessage(stringNr, textNr);"));
+		const Common::String t = readSource("engines/agi/op_test.cpp");
+		TS_ASSERT(t.contains("TextCells::agiStringsEqual(_game.stringAnswer[s1].c_str(), b)"));
+		TS_ASSERT(t.contains("TextCells::agiStringsEqual(a, _game.stringAnswer[s2].c_str())"));
+	}
 };
