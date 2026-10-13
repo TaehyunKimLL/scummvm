@@ -232,4 +232,15 @@ public:
 		TS_ASSERT_EQUALS(Sci::utf8NextBoundary(s, 5, 1), 5u);
 		TS_ASSERT_EQUALS(Sci::utf8PrevBoundary(s, 5, 5), 1u);
 	}
+
+	void test_edit_control_cursor_index_is_not_a_byte_offset() {
+		// kDrawControl hands the edit control the script's cursor selector,
+		// a code point index. "파일 봐" reopened with the cursor at its end
+		// has cursor 4; read as a byte offset that is the middle byte 0x9D
+		// of 일, which the cursor-width measure drew as a box (U+009D).
+		const byte *s = (const byte *)"\xED\x8C\x8C\xEC\x9D\xBC \xEB\xB4\x90";
+		TS_ASSERT_EQUALS(s[4], 0x9D);
+		TS_ASSERT_EQUALS(Sci::utf8OffsetOf(s, 4), 10u);
+		TS_ASSERT_EQUALS(Sci::utf8OffsetOf(s, 2), 6u);
+	}
 };
