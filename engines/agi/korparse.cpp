@@ -65,6 +65,7 @@ bool lookupKoreanToken(const Common::KoreanVocabulary &voc, const Common::String
 		return false;
 	const bool sequence = n > 1 && (classes[0] & Common::KoreanVocabulary::kSequenceFlag);
 	const uint rows = sequence ? n : 1;
+	bool pushed = false;
 	for (uint i = 0; i < rows; i++) {
 		if (groups[i] == 0)
 			continue; // a word the game ignores
@@ -74,7 +75,9 @@ bool lookupKoreanToken(const Common::KoreanVocabulary &voc, const Common::String
 		a.korean = true;
 		a.verb = (classes[i] & kAgiKoreanVerbClass) != 0;
 		a.role = (i + 1 == rows) ? role : (uint8)Common::kKoreanRoleNone;
+		a.cont = pushed; // a sequence's tail rides on its first word
 		out.push_back(a);
+		pushed = true;
 	}
 	return true;
 }
@@ -104,31 +107,52 @@ static void addUnique(Common::Array<AgiSentence> &out, AgiSentence s, uint maxWo
 	out.push_back(s);
 }
 
+typedef Common::Array<AgiSentence> AgiUnits;
+
+/** The typed words as units: a word and the cont words after it. */
+static void splitUnits(const AgiSentence &typed, AgiUnits &units) {
+	for (uint i = 0; i < typed.size(); i++) {
+		if (typed[i].cont && !units.empty())
+			units.back().push_back(typed[i]);
+		else
+			units.push_back(AgiSentence(1, typed[i]));
+	}
+}
+
+static void appendUnits(AgiSentence &to, const AgiUnits &from) {
+	for (uint i = 0; i < from.size(); i++)
+		append(to, from[i]);
+}
+
 void buildKoreanCandidates(const AgiSentence &typed, const AgiPrepositions &preps, uint maxWords,
                            Common::Array<AgiSentence> &out) {
 	out.clear();
-	AgiSentence verbs, plain, marked, rest;
-	for (uint i = 0; i < typed.size(); i++) {
-		if (typed[i].verb)
-			verbs.push_back(typed[i]);
-		else if (roleMarked(typed[i].role))
-			marked.push_back(typed[i]);
+	AgiUnits units, verbs, plain, marked, rest;
+	splitUnits(typed, units);
+	// A unit is a verb by its first word; its role is on its last.
+	for (uint i = 0; i < units.size(); i++) {
+		if (units[i][0].verb)
+			verbs.push_back(units[i]);
+		else if (roleMarked(units[i].back().role))
+			marked.push_back(units[i]);
 		else
-			plain.push_back(typed[i]);
-		if (!typed[i].verb)
-			rest.push_back(typed[i]);
+			plain.push_back(units[i]);
+		if (!units[i][0].verb)
+			rest.push_back(units[i]);
 	}
 	// (a) verbs, plain objects in typed order, role-marked nouns
-	AgiSentence a = verbs;
-	append(a, plain);
-	append(a, marked);
+	AgiSentence a;
+	appendUnits(a, verbs);
+	appendUnits(a, plain);
+	appendUnits(a, marked);
 	addUnique(out, a, maxWords);
 	// (b) the game's own preposition before each role-marked noun
-	AgiSentence b = verbs;
-	append(b, plain);
+	AgiSentence b;
+	appendUnits(b, verbs);
+	appendUnits(b, plain);
 	bool inserted = false;
 	for (uint i = 0; i < marked.size(); i++) {
-		const uint8 r = marked[i].role;
+		const uint8 r = marked[i].back().role;
 		if (r < 8 && preps.group[r]) {
 			AgiWord p;
 			p.word = preps.word[r];
@@ -136,7 +160,7 @@ void buildKoreanCandidates(const AgiSentence &typed, const AgiPrepositions &prep
 			b.push_back(p);
 			inserted = true;
 		}
-		b.push_back(marked[i]);
+		append(b, marked[i]);
 	}
 	if (inserted)
 		addUnique(out, b, maxWords);
@@ -145,15 +169,16 @@ void buildKoreanCandidates(const AgiSentence &typed, const AgiPrepositions &prep
 	// (d) X의 Y -> Y X, verbs first
 	bool swapped = false;
 	for (uint i = 0; i + 1 < rest.size(); i++) {
-		if (rest[i].role == Common::kKoreanRoleOf) {
+		if (rest[i].back().role == Common::kKoreanRoleOf) {
 			SWAP(rest[i], rest[i + 1]);
 			swapped = true;
 			i++;
 		}
 	}
 	if (swapped) {
-		AgiSentence d = verbs;
-		append(d, rest);
+		AgiSentence d;
+		appendUnits(d, verbs);
+		appendUnits(d, rest);
 		addUnique(out, d, maxWords);
 	}
 	if (out.size() > 4)
