@@ -35,6 +35,7 @@ MODULE_OBJS := \
 	picture_gal.o \
 	saidscan.o \
 	saveload.o \
+	savestrings.o \
 	sound.o \
 	sound_2gs.o \
 	sound_a2.o \
