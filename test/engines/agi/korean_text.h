@@ -221,6 +221,24 @@ public:
 		TS_ASSERT(!truncated);
 	}
 
+	void test_truncated_when_the_last_word_is_dropped() {
+		// 19 lines of "line\n", then a word that needs line 21 and is the last text
+		Common::String text, out;
+		for (int i = 0; i < 19; i++)
+			text += "line\n";
+		text += "ab";
+		int16 w, h;
+		bool truncated = false;
+		Agi::TextCells::wordWrap(text.c_str(), 30, true, false, out, w, h, &truncated);
+		TS_ASSERT(!truncated); // fits on line 20
+		text = Common::String();
+		for (int i = 0; i < 19; i++)
+			text += "line\n";
+		text += "aaaa " + Common::String(30, 'x');
+		Agi::TextCells::wordWrap(text.c_str(), 30, true, false, out, w, h, &truncated);
+		TS_ASSERT(truncated);
+	}
+
 	void test_english_ab_against_the_byte_loop() {
 		static const char *const corpus[] = {
 			"open door", "  Lake Michigan!", "supercalifragilisticexpialidocious and more",
