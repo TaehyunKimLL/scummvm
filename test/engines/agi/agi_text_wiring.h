@@ -123,4 +123,10 @@ public:
 		TS_ASSERT(c.contains("registerCmd(\"said\""));
 		TS_ASSERT(c.contains("registerCmd(\"parse\""));
 	}
+
+	void test_korean_interpreter_strings() {
+		const Common::String s = readSource("engines/agi/systemui.cpp");
+		TS_ASSERT(s.contains("case Common::KO_KOR:"));
+		TS_ASSERT(s.contains("_textStatusScore = \"\\xEC\\xA0\\x90\\xEC\\x88\\x98:%v3 / %v7\";"));
+	}
 };
