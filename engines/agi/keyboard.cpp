@@ -131,6 +131,14 @@ void AgiEngine::processScummVMEvents() {
 			break;
 		case Common::EVENT_KEYDOWN:
 			key = event.kbd.ascii;
+			// UTF-8 text mode: text with no key - an OS input method's finished
+			// syllable, Sci::EventManager::isOsImeCharacter()'s test - is one
+			// character of the edit line. Without an overlay it is dropped below,
+			// as it always was (key > 0xFF).
+			if (textIsUtf8() && event.kbd.keycode == Common::KEYCODE_INVALID && event.kbd.ascii >= 0x100) {
+				keyEnqueue(AGI_KEY_CODEPOINT | event.kbd.ascii);
+				break;
+			}
 			if (event.kbd.keycode >= Common::KEYCODE_KP0 && event.kbd.keycode <= Common::KEYCODE_KP9) {
 				if (!(event.kbd.flags & Common::KBD_NUM)) {
 					// HACK: Num-Lock not enabled

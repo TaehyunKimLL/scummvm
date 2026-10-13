@@ -24,6 +24,7 @@
 #include "agi/graphics.h"
 #include "agi/hirestext.h"
 #include "agi/loader.h"
+#include "agi/text.h"
 #include "agi/textcells.h"
 
 #include "agi/preagi/preagi.h"
@@ -41,6 +42,7 @@ Console::Console(AgiEngine *vm) : GUI::Debugger() {
 	registerCmd("debug",           WRAP_METHOD(Console, Cmd_Debug));
 	registerCmd("cont",            WRAP_METHOD(Console, Cmd_Cont));
 	registerCmd("agiver",          WRAP_METHOD(Console, Cmd_Agiver));
+	registerCmd("agistate",        WRAP_METHOD(Console, Cmd_AgiState));
 	registerCmd("version",         WRAP_METHOD(Console, Cmd_Version));
 	registerCmd("flags",           WRAP_METHOD(Console, Cmd_Flags));
 	registerCmd("logic0",          WRAP_METHOD(Console, Cmd_Logic0));
@@ -131,6 +133,29 @@ bool Console::Cmd_RunOpcode(int argc, const char **argv) {
 
 	debugPrintf("Unknown opcode\n");
 
+	return true;
+}
+
+// One JSON line for the harness (harness/i18n/agigame.py): what a script
+// driving the game needs to wait on.
+bool Console::Cmd_AgiState(int argc, const char **argv) {
+	const ScreenObjEntry &ego = _vm->_game.screenObjTable[SCREENOBJECTS_EGO_ENTRY];
+	const Common::String prompt = _vm->_text->promptGetText();
+	Common::String esc;
+	for (uint i = 0; i < prompt.size(); i++) {
+		if (prompt[i] == '"' || prompt[i] == '\\')
+			esc += '\\';
+		esc += prompt[i];
+	}
+	debugPrintf("{\"room\": %d, \"ego\": [%d, %d], \"prompt\": \"%s\", \"promptEnabled\": %s, "
+	            "\"inner\": %d, \"window\": %s, \"utf8\": %s, \"hires\": %s, \"hangul\": %s, "
+	            "\"preedit\": %u, \"screen\": [%d, %d]}\n",
+	            _vm->getVar(VM_VAR_CURRENT_ROOM), ego.xPos, ego.yPos, esc.c_str(),
+	            _vm->_text->promptIsEnabled() ? "true" : "false",
+	            _vm->cycleInnerLoopIsActive() ? (int)_vm->_game.cycleInnerLoopType : -1,
+	            _vm->_text->_messageState.window_Active ? "true" : "false",
+	            _vm->textIsUtf8() ? "true" : "false", _vm->hiresTextActive() ? "true" : "false",
+	            "false", 0u, g_system->getWidth(), g_system->getHeight());
 	return true;
 }
 

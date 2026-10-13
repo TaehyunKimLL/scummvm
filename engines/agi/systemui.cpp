@@ -296,7 +296,7 @@ bool SystemUI::askForCommand(Common::String &commandText) {
 	}
 
 	commandText.clear();
-	commandText += (char *)_text->_inputString;
+	commandText += _text->stringGetText();
 	return true;
 }
 
@@ -385,7 +385,11 @@ bool SystemUI::askForSaveGameDescription(int16 slotId, Common::String &newDescri
 	}
 
 	_vm->cycleInnerLoopActive(CYCLE_INNERLOOP_GETSTRING);
-	_text->stringEdit(30); // only allow up to 30 characters
+	// D8: a save name is ASCII, in a Korean session too (no composer, no
+	// IME characters); the 30-byte description field stays as it is.
+	_text->_inputStringAscii = true;
+	_text->stringEdit(30);
+	_text->_inputStringAscii = false;
 
 	_text->charAttrib_Pop();
 	_text->charPos_Pop();
@@ -402,12 +406,12 @@ bool SystemUI::askForSaveGameDescription(int16 slotId, Common::String &newDescri
 	}
 
 	// Now verify that the user really wants to do this
-	if (!askForSavedGameVerification(_textSaveGameVerify, _textSaveGameVerifyButton1, _textSaveGameVerifyButton2, (char *)_text->_inputString, slotId)) {
+	if (!askForSavedGameVerification(_textSaveGameVerify, _textSaveGameVerifyButton1, _textSaveGameVerifyButton2, _text->stringGetText().c_str(), slotId)) {
 		return false;
 	}
 
 	newDescription.clear();
-	newDescription += (char *)_text->_inputString;
+	newDescription += _text->stringGetText();
 	return true;
 }
 

@@ -22,6 +22,8 @@
 #ifndef AGI_TEXT_H
 #define AGI_TEXT_H
 
+#include "common/str.h"
+
 namespace Agi {
 
 struct TextPos_Struct {
@@ -168,8 +170,10 @@ public:
 	bool  _promptEnabled;
 	int16 _promptRow;
 	int16 _promptCursorPos;
-	byte  _prompt[42];
-	byte  _promptPrevious[42];
+	// One slot is one cell: a code point (a byte without an overlay). The
+	// index is the column, so the 1:1 relation is in the type (K2 45516bb90d5).
+	uint32 _prompt[42];
+	uint32 _promptPrevious[42];
 
 	bool inputGetEditStatus();
 	void inputEditOn();
@@ -184,7 +188,7 @@ public:
 
 	void promptRow_Set(int16 row);
 	int16 promptRow_Get();
-	void promptKeyPress(uint16 newKey);
+	void promptKeyPress(int newKey);
 	void promptCancelLine();
 	void promptEchoLine();
 	void promptRedraw();
@@ -193,19 +197,26 @@ public:
 
 	void promptCommandWindow(bool recallLastCommand, uint16 newKey);
 
+	/** The line as text: UTF-8 in UTF-8 text mode, else the bytes typed. */
+	Common::String promptGetText() const;
+	Common::String promptPreviousGetText() const;
+	void promptSetFromText(const Common::String &text); // cells only; the cursor is left alone
+	Common::String stringGetText() const;
+
 	int16 _inputStringRow;
 	int16 _inputStringColumn;
 	bool  _inputStringEntered;
 	int16 _inputStringMaxLen;
 	int16 _inputStringCursorPos;
-	byte  _inputString[42];
+	uint32 _inputString[42];
+	bool _inputStringAscii; // D8: the save name takes ASCII only
 
 	bool stringWasEntered();
 	void stringPos_Get(int16 &row, int16 &column);
 	int16 stringGetMaxLen();
 	void stringSet(const char *text);
 	void stringEdit(int16 stringMaxLen);
-	void stringKeyPress(uint16 newKey);
+	void stringKeyPress(int newKey);
 	void stringRememberForAutoComplete(bool entered = false); // for auto-completion
 
 	char *stringPrintf(const char *originalText);
