@@ -316,6 +316,25 @@ inline std::string engineOf(const std::string &ini, const std::string &target = 
 	return found.empty() ? first : found;
 }
 
+/**
+ * The programs that can run an engine family, best first: one EXE per family
+ * (the INI's engineid says which). An AGI game has only AGI.EXE; SCI and
+ * SCUMM fall back to each other as before (an INI with no engineid).
+ */
+inline std::vector<std::string> exesFor(const std::string &engine) {
+	std::vector<std::string> out;
+	if (engine == "agi") {
+		out.push_back("AGI.EXE");
+	} else if (engine == "scumm") {
+		out.push_back("SCUMM.EXE");
+		out.push_back("SCI.EXE");
+	} else {
+		out.push_back("SCI.EXE");
+		out.push_back("SCUMM.EXE");
+	}
+	return out;
+}
+
 /** True when the INI text has a section named `target` with at least one setting, in any case. */
 inline bool hasTarget(const std::string &ini, const std::string &target) {
 	const std::string want = Detail::lower(target);

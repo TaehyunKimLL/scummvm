@@ -676,10 +676,12 @@ void GfxFont::loadFontHercules() {
 	} else {
 		// Continue, if no file was not found
 		warning("Could not open/use file 'hgc_font' for Hercules hires font");
+#ifndef DISABLE_GUI
 		if (GUI::GuiManager::hasInstance()) {
 			GUI::MessageDialog dialog(_("Could not open/use file 'hgc_font' for Hercules hires font.\nIf you have such file in other AGI (Sierra) game, you can copy it to the game directory"));
 			dialog.runModal();
 		}
+#endif
 	}
 }
 

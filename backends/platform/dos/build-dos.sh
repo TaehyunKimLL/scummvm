@@ -2,16 +2,17 @@
 # Configure and build the DOS port out of tree, then stage dist/dos.
 # A build directory configured with other flags or another SDL3 is
 # configured again (see config_current below).
-# Usage: backends/platform/dos/build-dos.sh [sci|scumm] [extra configure args]
+# Usage: backends/platform/dos/build-dos.sh [sci|scumm|agi] [extra configure args]
 #   sci (default): build-dos/,       engines/sci (not sci32)             -> dist/dos/SCI.EXE
 #   scumm: build-dos-scumm/, engines/scumm (not scumm_7_8, he), FLAC + Tremor -> dist/dos/SCUMM.EXE
+#   agi: build-dos-agi/, engines/agi                                      -> dist/dos/AGI.EXE
 # A first argument that is neither "sci" nor "scumm" is not consumed, so old
 # calls (build-dos.sh --foo) still build the sci edition with that as a
 # configure argument.
 set -e
 edition=sci
 case "$1" in
-	sci|scumm) edition="$1"; shift ;;
+	sci|scumm|agi) edition="$1"; shift ;;
 esac
 source ~/opt/dos-dev/env.sh
 src="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -99,6 +100,11 @@ if [ "$edition" = scumm ]; then
 	done
 	codec_args=(--disable-vorbis --with-tremor-prefix="$codecs" --with-ogg-prefix="$codecs"
 		--with-flac-prefix="$codecs" --disable-mad)
+elif [ "$edition" = agi ]; then
+	out="$src/build-dos-agi"
+	engine_args=(--enable-engine=agi)
+	exe=AGI.EXE
+	codec_args=(--disable-vorbis --disable-tremor --disable-flac --disable-mad)
 else
 	out="$src/build-dos"
 	engine_args=(--enable-engine=sci --disable-engine=sci32)
