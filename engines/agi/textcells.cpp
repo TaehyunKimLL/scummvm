@@ -102,18 +102,6 @@ Common::String clipCells(const char *text, int16 maxCells, bool utf8) {
 	return Common::String(text, p - text);
 }
 
-Common::String clipBytes(const char *text, uint maxBytes, bool utf8) {
-	uint pos = 0;
-	while (text[pos]) {
-		uint32 cp;
-		const int n = decode(text + pos, utf8, cp);
-		if (pos + n > maxBytes)
-			break;
-		pos += n;
-	}
-	return Common::String(text, pos);
-}
-
 Common::String fromCells(const uint32 *cells, bool utf8) {
 	if (!utf8) {
 		Common::String out;

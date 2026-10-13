@@ -313,8 +313,6 @@ public:
 		TS_ASSERT_EQUALS(cellLen("a" KO_GA "b", false), 5);
 		TS_ASSERT_EQUALS(clipCells("a" KO_GA KO_GAK, 2, true), "a" KO_GA);
 		TS_ASSERT_EQUALS(clipCells("abc", 2, false), "ab");
-		TS_ASSERT_EQUALS(clipBytes(KO_GA KO_GAK, 5, true), KO_GA);
-		TS_ASSERT_EQUALS(clipBytes("abcdef", 4, false), "abcd");
 		uint32 cells[8];
 		TS_ASSERT_EQUALS(toCells("x" KO_GA, cells, 8, true), 2);
 		TS_ASSERT_EQUALS(cells[1], 0xAC00u);
