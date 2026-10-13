@@ -5,6 +5,7 @@
 #include "common/file.h"
 #include "common/fs.h"
 #include "common/str.h"
+#include "common/ustr.h"
 #include "agi/textcells.h"
 #include "../../system/null_osystem.h"
 
@@ -327,6 +328,31 @@ public:
 		TS_ASSERT_EQUALS(cellCount(cells), 3);
 		TS_ASSERT(isHangulSyllable(0xAC00));
 		TS_ASSERT(!isHangulSyllable(0x3131));
+	}
+
+	void test_clip_bytes_keeps_whole_characters() {
+		using Agi::TextCells::clipBytes;
+		// "래리 첫번째 저장 게임": 9 syllables of 3 bytes and 3 spaces = 30 bytes.
+		const char *desc = "\xEB\x9E\x98\xEB\xA6\xAC \xEC\xB2\xAB\xEB\xB2\x88\xEC\xA7\xB8 "
+		                   "\xEC\xA0\x80\xEC\x9E\xA5 \xEA\xB2\x8C\xEC\x9E\x84";
+		// A 28-byte cut lands inside the last syllable (bytes 27..29).
+		const Common::String c28 = clipBytes(desc, 28, true);
+		TS_ASSERT_LESS_THAN_EQUALS(c28.size(), 28u);
+		TS_ASSERT_EQUALS(Common::String(desc, c28.size()), c28);
+		TS_ASSERT_EQUALS(c28.size(), 27u); // 8 syllables + 3 spaces
+		TS_ASSERT_EQUALS(Agi::TextCells::cellLen(c28.c_str(), true), 11);
+		TS_ASSERT_EQUALS(clipBytes(desc, 29, true).size(), 27u);
+		TS_ASSERT_EQUALS(clipBytes(desc, 30, true).size(), 30u);
+		// Every cut lands on a code-point boundary: no malformed tail.
+		for (int16 n = 0; n <= 30; n++) {
+			const Common::String c = clipBytes(desc, n, true);
+			TS_ASSERT_LESS_THAN_EQUALS((int)c.size(), (int)n);
+			TS_ASSERT_EQUALS(Common::U32String(c.c_str(), Common::kUtf8).encode(Common::kUtf8), c);
+		}
+		// Byte mode (English) is the old byte cut.
+		TS_ASSERT_EQUALS(clipBytes("0123456789012345678901234567890123", 28, false), "0123456789012345678901234567");
+		TS_ASSERT_EQUALS(clipBytes(desc, 28, false), Common::String(desc, 28));
+		TS_ASSERT_EQUALS(clipBytes("short", 28, true), "short");
 	}
 
 	void test_decode_rejects_overlong_surrogate_and_out_of_range() {

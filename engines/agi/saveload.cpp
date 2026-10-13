@@ -43,6 +43,7 @@
 #include "agi/systemui.h"
 #include "agi/words.h"
 #include "agi/savestrings.h"
+#include "agi/textcells.h"
 
 // 12: UTF-8 text mode (a translation overlay): the script strings as
 // length + UTF-8 bytes and their answer originals. An English session keeps
@@ -90,7 +91,13 @@ int AgiEngine::saveGame(const Common::String &fileName, const Common::String &de
 
 	const char *descriptionStringC;
 	Common::U32String hebDesc;
-	if (_game._vm->getLanguage() != Common::HE_ISR) {
+	Common::String utf8Desc;
+	if (textIsUtf8()) {
+		// A description from ScummVM's save dialog may be any Unicode: cut
+		// it on a character boundary to what strlcpy below keeps.
+		utf8Desc = TextCells::clipBytes(descriptionString.c_str(), SAVEDGAME_DESCRIPTION_LEN - 1, true);
+		descriptionStringC = utf8Desc.c_str();
+	} else if (_game._vm->getLanguage() != Common::HE_ISR) {
 		descriptionStringC = descriptionString.c_str();
 	} else {
 		hebDesc = descriptionString.substr(0, SAVEDGAME_DESCRIPTION_LEN / 2 - 3).decode(Common::kWindows1255);
@@ -805,7 +812,7 @@ int AgiEngine::scummVMSaveLoadDialog(bool isSave) {
 		}
 
 		if (desc.size() > 28)
-			desc = Common::String(desc.c_str(), 28);
+			desc = TextCells::clipBytes(desc.c_str(), 28, textIsUtf8());
 	} else {
 		dialog = new GUI::SaveLoadChooser(false);
 		slot = dialog->runModalWithCurrentTarget();

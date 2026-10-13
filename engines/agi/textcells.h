@@ -46,6 +46,8 @@ int decode(const char *text, bool utf8, uint32 &cp);
 int16 cellLen(const char *text, bool utf8);
 int16 measure(const char *text, int16 byteLen, bool utf8, int16 maxCells = -1, int16 *bytesForMaxCells = nullptr);
 Common::String clipCells(const char *text, int16 maxCells, bool utf8);
+/** The longest prefix of whole characters that is at most maxBytes bytes. */
+Common::String clipBytes(const char *text, int16 maxBytes, bool utf8);
 Common::String fromCells(const uint32 *cells, bool utf8);
 int16 toCells(const char *text, uint32 *cells, int16 capacity, bool utf8);
 int16 cellCount(const uint32 *cells);
