@@ -73,6 +73,7 @@ private:
 	bool Cmd_Saids(int argc, const char **argv);
 	bool Cmd_Parse(int argc, const char **argv);
 	bool Cmd_Said(int argc, const char **argv);
+	bool Cmd_String(int argc, const char **argv);
 
 	bool parseInteger(const char *argument, int &result);
 

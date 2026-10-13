@@ -42,8 +42,13 @@
 #include "agi/menu.h"
 #include "agi/systemui.h"
 #include "agi/words.h"
+#include "agi/savestrings.h"
 
-#define SAVEGAME_CURRENT_VERSION 11
+// 12: UTF-8 text mode (a translation overlay): the script strings as
+// length + UTF-8 bytes and their answer originals. An English session keeps
+// writing 11, so its saves stay readable by upstream ScummVM.
+#define SAVEGAME_CURRENT_VERSION 12
+#define SAVEGAME_ENGLISH_VERSION 11
 
 //
 // Version 0 (Sarien):   view table has 64 entries
@@ -100,8 +105,9 @@ int AgiEngine::saveGame(const Common::String &fileName, const Common::String &de
 	assert(SAVEDGAME_DESCRIPTION_LEN + 1 == 31); // safety
 	out->write(description, 31);
 
-	out->writeByte(SAVEGAME_CURRENT_VERSION);
-	debugC(5, kDebugLevelSavegame, "Writing save game version (%d)", SAVEGAME_CURRENT_VERSION);
+	const byte saveVersion = textIsUtf8() ? SAVEGAME_CURRENT_VERSION : SAVEGAME_ENGLISH_VERSION;
+	out->writeByte(saveVersion);
+	debugC(5, kDebugLevelSavegame, "Writing save game version (%d)", saveVersion);
 
 	// Thumbnail
 	Graphics::saveThumbnail(*out);
@@ -215,8 +221,12 @@ int AgiEngine::saveGame(const Common::String &fileName, const Common::String &de
 	out->writeByte(_keyHoldMode);
 
 	// game.ev_keyp
-	for (i = 0; i < MAX_STRINGS; i++)
-		out->write(_game.getString(i), MAX_STRINGLEN);
+	if (saveVersion >= 12) {
+		writeUtf8Strings(*out, &_game.strings[0][0], MAX_STRINGBYTES, MAX_STRINGS, _game.stringAnswer);
+	} else {
+		for (i = 0; i < MAX_STRINGS; i++)
+			out->write(_game.getString(i), MAX_STRINGLEN);
+	}
 
 	// record info about loaded resources
 	for (i = 0; i < MAX_DIRECTORY_ENTRIES; i++) {
@@ -567,9 +577,20 @@ int AgiEngine::loadGame(const Common::String &fileName, bool checkId) {
 		}
 	}
 
-	for (i = 0; i < MAX_STRINGS; i++) {
-		in->read(_game.strings[i], MAX_STRINGLEN);
-		_game.strings[i][MAX_STRINGLEN - 1] = 0;
+	// No slot may keep a stale English alternative across a restore.
+	for (i = 0; i <= MAX_STRINGS; i++)
+		_game.stringAnswer[i].clear();
+	if (saveVersion >= 12) {
+		if (!readUtf8Strings(*in, &_game.strings[0][0], MAX_STRINGBYTES, MAX_STRINGS, _game.stringAnswer)) {
+			warning("Saved game %s has a broken string table", fileName.c_str());
+			delete in;
+			return errBadFileOpen;
+		}
+	} else {
+		for (i = 0; i < MAX_STRINGS; i++) {
+			in->read(_game.strings[i], MAX_STRINGLEN);
+			_game.strings[i][MAX_STRINGLEN - 1] = 0;
+		}
 	}
 
 	for (i = 0; i < MAX_DIRECTORY_ENTRIES; i++) {

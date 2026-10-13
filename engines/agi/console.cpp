@@ -70,6 +70,7 @@ Console::Console(AgiEngine *vm) : GUI::Debugger() {
 	registerCmd("saids",           WRAP_METHOD(Console, Cmd_Saids));
 	registerCmd("parse",           WRAP_METHOD(Console, Cmd_Parse));
 	registerCmd("said",            WRAP_METHOD(Console, Cmd_Said));
+	registerCmd("string",          WRAP_METHOD(Console, Cmd_String));
 }
 
 bool Console::Cmd_SetVar(int argc, const char **argv) {
@@ -926,6 +927,28 @@ bool Console::Cmd_Parse(int argc, const char **argv) {
 		debugPrintf("unknown %u\n", r.unknownPos);
 	for (uint i = 0; i < r.candidates.size(); i++)
 		debugPrintf("#%u: %s\n", i, describe(r.candidates[i]).c_str());
+	return true;
+}
+
+// string <n> [text]: show script string n, or set it (setString(): cells
+// clipped in UTF-8 text mode). The harness's A7 save/load check uses it.
+bool Console::Cmd_String(int argc, const char **argv) {
+	if (argc < 2) {
+		debugPrintf("Usage: %s <n> [text]\n", argv[0]);
+		return true;
+	}
+	const int n = atoi(argv[1]);
+	if (n < 0 || n > MAX_STRINGS) {
+		debugPrintf("string %d out of range\n", n);
+		return true;
+	}
+	if (argc > 2) {
+		Common::String text;
+		for (int i = 2; i < argc; i++)
+			text += Common::String(i > 2 ? " " : "") + argv[i];
+		_vm->_game.setString(n, text.c_str());
+	}
+	debugPrintf("%s\n", _vm->_game.getString(n));
 	return true;
 }
 
