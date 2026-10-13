@@ -33,7 +33,8 @@ namespace Agi {
  * French fonts have real glyphs at 0x80-0xFF, so `utf8` must come from
  * AgiBase::textIsUtf8() and nowhere else.
  *
- * A malformed UTF-8 sequence is its first byte, one cell: a translation is
+ * A malformed UTF-8 sequence (a bad lead or continuation byte, an overlong
+ * form, a surrogate, a value past U+10FFFF) is its first byte, one cell: a translation is
  * not guaranteed to be valid, and a decoder that ran off a truncated
  * sequence would swallow the rest of the string.
  */

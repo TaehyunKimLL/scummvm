@@ -57,6 +57,12 @@ int decode(const char *text, bool utf8, uint32 &cp) {
 		if (valid) {
 			for (int i = 1; i <= extra; i++)
 				v = (v << 6) | ((byte)text[i] & 0x3F);
+			// The shortest form only, no surrogates, nothing past U+10FFFF:
+			// anything else is malformed, its lead byte one cell.
+			static const uint32 kMinForExtra[4] = { 0, 0x80, 0x800, 0x10000 };
+			valid = v >= kMinForExtra[extra] && !(v >= 0xD800 && v <= 0xDFFF) && v <= 0x10FFFF;
+		}
+		if (valid) {
 			cp = v;
 			return extra + 1;
 		}
