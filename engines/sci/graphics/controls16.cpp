@@ -855,6 +855,14 @@ void GfxControls16::kernelDrawTextEdit(Common::Rect rect, reg_t obj, const char 
 	if (style & SCI_CONTROLS_STYLE_SELECTED) {
 		_text16->SetFont(fontId);
 		rect.grow(-1);
+		// The script's cursor selector counts characters (kStrLen is a code
+		// point count in UTF-8 mode), texteditCursorDraw() takes a byte
+		// offset, as kernelTexteditChange() already converts it. Passed raw,
+		// the cursor of a reopened "파일 봐" (4) pointed at byte 4, the
+		// middle byte 0x9D of 일, and the cursor-width measure drew that
+		// lone byte as a box (U+009D).
+		if (g_sci->heapStringsAreUtf8() && cursorPos > 0)
+			cursorPos = utf8OffsetOf((const byte *)text, cursorPos);
 		texteditCursorDraw(rect, text, cursorPos);
 		_text16->SetFont(oldFontId);
 		rect.grow(1);
