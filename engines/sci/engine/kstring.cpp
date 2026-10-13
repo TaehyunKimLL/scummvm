@@ -43,6 +43,7 @@ reg_t kStrEnd(EngineState *s, int argc, reg_t *argv) {
 reg_t kStrCat(EngineState *s, int argc, reg_t *argv) {
 	Common::String s1 = s->_segMan->getString(argv[0]);
 	Common::String s2 = s->_segMan->getString(argv[1]);
+	const Common::String before = s1;
 
 	// Japanese PC-9801 interpreter splits strings here
 	//  see bug #5834
@@ -61,6 +62,21 @@ reg_t kStrCat(EngineState *s, int argc, reg_t *argv) {
 
 	s1 += s2;
 	s->_segMan->strcpy_(argv[0], s1.c_str());
+
+	// A buffer kStrCpy tagged keeps its tag through the append: the tag
+	// gains s2 as one more part, keyed when s2 is a script string (or a
+	// buffer that holds some), so the display can translate the prefix
+	// and each keyed part and keep the rest as text. Design and the PQ2
+	// inventory case: ScriptStrings::appendToBuffer(). Only with a table
+	// loaded, like the tag itself; an untagged buffer is left alone.
+	if (g_sci->scriptStrings().isLoaded()) {
+		ScriptStrings::Key key = s->_segMan->stringKey(argv[1]);
+		if (key.isSet())
+			key.room = s->currentRoomNumber();
+		g_sci->scriptStrings().appendToBuffer(ScriptStrings::bufferId(argv[0].getSegment(), argv[0].getOffset()),
+		                                      before, key,
+		                                      ScriptStrings::bufferId(argv[1].getSegment(), argv[1].getOffset()), s2);
+	}
 	return argv[0];
 }
 
@@ -89,12 +105,19 @@ reg_t kStrCpy(EngineState *s, int argc, reg_t *argv) {
 	//
 	// Only the plain, full-length copy: a length-limited strncpy or a
 	// negative-length memcpy is the script moving bytes, not text.
+	//
+	// A copy of a tagged buffer carries the tag: PQ2's Print (script 255)
+	// StrCpy's the inventory sentence script 995 built (StrCpy + StrCat,
+	// see kStrCat) into its own buffer before drawing it.
 	if (argc <= 2 && g_sci->scriptStrings().isLoaded()) {
 		ScriptStrings::Key key = s->_segMan->stringKey(argv[1]);
+		const uint32 dest = ScriptStrings::bufferId(argv[0].getSegment(), argv[0].getOffset());
 		if (key.isSet()) {
 			key.room = s->currentRoomNumber();
-			g_sci->scriptStrings().tagBuffer(ScriptStrings::bufferId(argv[0].getSegment(), argv[0].getOffset()),
-			                                  key, s->_segMan->getString(argv[1]));
+			g_sci->scriptStrings().tagBuffer(dest, key, s->_segMan->getString(argv[1]));
+		} else {
+			g_sci->scriptStrings().copyBufferTag(dest, ScriptStrings::bufferId(argv[1].getSegment(), argv[1].getOffset()),
+			                                     s->_segMan->getString(argv[1]));
 		}
 	}
 	if (argc > 2) {

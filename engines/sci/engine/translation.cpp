@@ -161,6 +161,12 @@ void ScriptStrings::collectTexts(Common::Array<Common::String> &out) const {
 bool ScriptStrings::lookup(const Key &key, Common::String &out) const {
 	if (!_loaded || !key.isSet())
 		return false;
+	if (key.isBuffer())
+		return lookupBuffer(key.buffer, out);
+	return lookupPlace(key, out);
+}
+
+bool ScriptStrings::lookupPlace(const Key &key, Common::String &out) const {
 	if (key.room != Key::kAnyRoom) {
 		const uint64 exact = placeId(key.script, key.id, key.room);
 		if (_entries.contains(exact)) {
@@ -177,10 +183,94 @@ bool ScriptStrings::lookup(const Key &key, Common::String &out) const {
 }
 
 void ScriptStrings::tagBuffer(uint32 buffer, const Key &key, const Common::String &text) {
+	BufferPart p;
+	p.key = key;
+	p.key.buffer = Key::kNoBuffer;
+	p.text = text;
 	BufferTag t;
-	t.key = key;
+	t.parts.push_back(p);
 	t.text = text;
 	_bufferTags[buffer] = t;
+}
+
+// A tag after StrCat. The PQ2 inventory (script 995) builds its sentence
+// in one buffer: StrCpy "You are carrying..." (997:19), then per item
+// StrCat the item name kFormat wrote into another buffer (" 머니 클립",
+// already Korean: kFormat translates its %s), then StrCat "." (995:6);
+// Print (255) StrCpy's the result into its own buffer and draws that
+// (measured: kStrCpy/kStrCat/strSplitHeap traced in room 1). The tag
+// follows the buffer: it keeps every part with its own key - a script
+// string's, or none for text - and the joined text, which is what the
+// buffer holds while nobody else writes to it; a StrCpy of the buffer
+// carries the tag along (copyBufferTag()). The display asks keyOf() with
+// the text it read; a match gives a buffer key, and lookup() joins the
+// parts, each its translation or, without one, its own text:
+// "가진 것..." + " 머니 클립" + ".". A part with no translation is
+// byte for byte what the script wrote, so a buffer none of whose parts is
+// translated answers false and the display keeps the original.
+//
+// Only an existing tag grows, and only while it still matches: StrCat
+// on an untagged or reused buffer leaves it untagged. Nothing is tagged
+// unless a translation is loaded (kStrCpy/kStrCat check), so another
+// language or an untranslated game is not touched.
+void ScriptStrings::appendToBuffer(uint32 buffer, const Common::String &before, const Key &key,
+                                   uint32 source, const Common::String &text) {
+	if (!_bufferTags.contains(buffer))
+		return;
+	BufferTag &t = _bufferTags.getVal(buffer);
+	if (t.text != before) {
+		// Reused since it was tagged; the tag can never match again.
+		_bufferTags.erase(buffer);
+		return;
+	}
+	if (key.isSet() && !key.isBuffer()) {
+		BufferPart p;
+		p.key = key;
+		p.text = text;
+		t.parts.push_back(p);
+	} else if (source != Key::kNoBuffer && source != buffer && _bufferTags.contains(source)
+	           && _bufferTags.getVal(source).text == text) {
+		const Common::Array<BufferPart> &from = _bufferTags.getVal(source).parts;
+		for (uint i = 0; i < from.size(); ++i)
+			t.parts.push_back(from[i]);
+	} else {
+		BufferPart p;
+		p.text = text;
+		t.parts.push_back(p);
+	}
+	t.text += text;
+}
+
+void ScriptStrings::copyBufferTag(uint32 buffer, uint32 source, const Common::String &text) {
+	if (buffer == source)
+		return;
+	if (_bufferTags.contains(source) && _bufferTags.getVal(source).text == text) {
+		const BufferTag t = _bufferTags.getVal(source);
+		_bufferTags[buffer] = t;
+	}
+	// Otherwise the buffer's own tag stays: keyOf() already refuses it
+	// once the text differs, exactly as before StrCat was followed.
+}
+
+bool ScriptStrings::lookupBuffer(uint32 buffer, Common::String &out) const {
+	if (!_bufferTags.contains(buffer))
+		return false;
+	const BufferTag &t = _bufferTags.getVal(buffer);
+	Common::String joined;
+	bool any = false;
+	for (uint i = 0; i < t.parts.size(); ++i) {
+		Common::String part;
+		if (lookupPlace(t.parts[i].key, part)) {
+			any = true;
+			joined += part;
+		} else {
+			joined += t.parts[i].text;
+		}
+	}
+	if (!any)
+		return false;
+	out = joined;
+	return true;
 }
 
 uint ScriptStrings::sci11StringsStart(const byte *heap, uint size) {
@@ -207,7 +297,10 @@ ScriptStrings::Key ScriptStrings::keyOf(uint32 buffer, const Common::String &tex
 	// The buffer has been reused for something else: the tag is stale.
 	if (t.text != text)
 		return Key();
-	return t.key;
+	Key k = t.parts[0].key;
+	if (t.parts.size() > 1)
+		k.buffer = buffer;
+	return k;
 }
 
 } // End of namespace Sci
