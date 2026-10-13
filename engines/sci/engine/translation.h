@@ -69,13 +69,23 @@ public:
 	struct Key {
 		static const uint16 kAnyRoom = 0xFFFF;
 
+		static const uint32 kNoBuffer = 0xFFFFFFFF;
+
 		uint16 script;
 		uint16 id;
 		uint16 room;
+		/**
+		 * Set only by keyOf() for a buffer built by StrCpy + StrCat: the
+		 * key then names the whole buffer, script/id/room are its first
+		 * part's, and lookup() answers with the parts joined (see
+		 * appendToBuffer()).
+		 */
+		uint32 buffer;
 
-		Key() : script(0xFFFF), id(0xFFFF), room(kAnyRoom) {}
-		Key(uint16 s, uint16 i, uint16 r = kAnyRoom) : script(s), id(i), room(r) {}
+		Key() : script(0xFFFF), id(0xFFFF), room(kAnyRoom), buffer(kNoBuffer) {}
+		Key(uint16 s, uint16 i, uint16 r = kAnyRoom) : script(s), id(i), room(r), buffer(kNoBuffer) {}
 		bool isSet() const { return script != 0xFFFF; }
+		bool isBuffer() const { return buffer != kNoBuffer; }
 	};
 
 	ScriptStrings() : _loaded(false), _present(false) {}
@@ -156,7 +166,37 @@ public:
 	 */
 	void tagBuffer(uint32 buffer, const Key &key, const Common::String &text);
 
-	/** The key recorded for @p buffer, if it still holds @p text. */
+	/**
+	 * Record that StrCat appended @p text to @p buffer, which held
+	 * @p before. @p key is the appended string's own key when it is a
+	 * script string; otherwise, if @p source (a bufferId, or kNoBuffer) is
+	 * itself a tagged buffer still holding @p text, its parts are
+	 * appended; otherwise @p text is appended as plain text.
+	 *
+	 * Only a tag that still matches @p before grows: an untagged or stale
+	 * buffer stays untagged, so the display sees exactly what it saw
+	 * before StrCat was followed.
+	 *
+	 * After the call the tag holds the parts in order - the StrCpy'd
+	 * script string, then each appended string with its key or none - and
+	 * their joined text, which is what the buffer now holds.
+	 */
+	void appendToBuffer(uint32 buffer, const Common::String &before, const Key &key,
+	                    uint32 source, const Common::String &text);
+
+	/**
+	 * Record a plain copy of @p text from @p source into @p buffer: the
+	 * buffer gets @p source's tag if @p source still holds @p text;
+	 * otherwise nothing changes.
+	 */
+	void copyBufferTag(uint32 buffer, uint32 source, const Common::String &text);
+
+	/**
+	 * The key recorded for @p buffer, if it still holds @p text. For a
+	 * buffer of more than one part (appendToBuffer()) it is a buffer key:
+	 * lookup() with it gives each part translated, or as it was when it
+	 * has no translation, joined; false when no part has one.
+	 */
 	Key keyOf(uint32 buffer, const Common::String &text) const;
 
 	static uint32 bufferId(uint16 segment, uint16 offset) { return ((uint32)segment << 16) | offset; }
@@ -170,6 +210,11 @@ public:
 	static uint sci11StringsStart(const byte *heap, uint size);
 
 private:
+	/// lookup() for one place, never a buffer key.
+	bool lookupPlace(const Key &key, Common::String &out) const;
+	/// lookup() for a buffer key: the parts joined, false if none translates.
+	bool lookupBuffer(uint32 buffer, Common::String &out) const;
+
 	/// (script, id, room) packed exactly; no two places share a value.
 	static uint64 placeId(uint16 script, uint16 id, uint16 room) {
 		return ((uint64)room << 32) | ((uint32)script << 16) | id;
@@ -179,8 +224,15 @@ private:
 	bool _present;
 	Common::HashMap<uint64, Common::String> _entries;
 
-	struct BufferTag {
+	/// One string a buffer was built from: a script string (key set) or text.
+	struct BufferPart {
 		Key key;
+		Common::String text;
+	};
+
+	/// parts[0] is the StrCpy'd script string; text is the parts joined.
+	struct BufferTag {
+		Common::Array<BufferPart> parts;
 		Common::String text;
 	};
 	Common::HashMap<uint32, BufferTag> _bufferTags;
