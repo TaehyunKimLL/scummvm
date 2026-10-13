@@ -20,6 +20,7 @@
  */
 
 #include "agi/agi.h"
+#include "agi/textcells.h"
 
 namespace Agi {
 
@@ -115,10 +116,7 @@ void AgiEngine::translateLogicTexts(int16 logicNr) {
 			logic.texts[i] = t->c_str();
 			continue;
 		}
-		bool high = false;
-		for (const char *p = logic.texts[i]; *p && !high; p++)
-			high = (byte)*p >= 0x80;
-		if (!high)
+		if (!TextCells::hasHighBytes(logic.texts[i]))
 			continue;
 		const Common::String u = TextOverlay::legacyToUtf8(logic.texts[i], Common::kDos850);
 		poolOffset[i] = pool.size();

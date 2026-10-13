@@ -20,6 +20,7 @@
  */
 
 #include "agi/agi.h"
+#include "agi/textcells.h"
 
 #include "common/textconsole.h"
 
@@ -80,10 +81,7 @@ int AgiEngine::decodeObjects(uint8 *mem, uint32 flen) {
 			if (t) {
 				_objects[i].name = *t;
 			} else {
-				bool high = false;
-				for (uint k = 0; k < _objects[i].name.size() && !high; k++)
-					high = (byte)_objects[i].name[k] >= 0x80;
-				if (high)
+				if (TextCells::hasHighBytes(_objects[i].name.c_str()))
 					_objects[i].name = TextOverlay::legacyToUtf8(_objects[i].name.c_str(), Common::kDos850);
 			}
 		}
