@@ -340,6 +340,16 @@ reg_t kReadNumber(EngineState *s, int argc, reg_t *argv) {
 ** Formats the text from text.textresnr (offset index_inside_res) or heap_text_addr according to
 ** the supplied parameters and writes it to the targ_address.
 */
+// Whether the UTF-8 text before end closes with a Hangul syllable
+// (U+AC00..U+D7A3): an English plural "s" does not belong after it.
+static bool endsWithHangulSyllable(const char *start, const char *end) {
+	if (end - start < 3)
+		return false;
+	const byte *t = (const byte *)end - 3;
+	const uint32 cp = ((t[0] & 0x0F) << 12) | ((t[1] & 0x3F) << 6) | (t[2] & 0x3F);
+	return (t[0] & 0xF0) == 0xE0 && cp >= 0xAC00 && cp <= 0xD7A3;
+}
+
 reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 	enum {
 		ALIGN_NONE   = 0,
@@ -446,6 +456,9 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 				Common::String tempsource = g_sci->getKernel()->lookupText(reg,
 				                                  arguments[paramindex + 1], &argKey);
 				tempsource = g_sci->translated(tempsource, argKey);
+				// Likewise a plural "s" a script passes as a string ("%d buck%s").
+				if ((tempsource == "s" || tempsource == "S") && !strLength && endsWithHangulSyllable(targetbuf, target))
+					tempsource.clear();
 				int slen = tempsource.size();
 				int extralen = strLength - slen;
 				assert((target - targetbuf) + extralen <= maxsize);
@@ -508,12 +521,8 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 				char argchar = arguments[paramindex++];
 				// The English plural "s" a script adds to a name ("Dagger%c")
 				// has no place after a Korean noun.
-				if ((argchar == 's' || argchar == 'S') && target - targetbuf >= 3) {
-					const byte *t = (const byte *)target - 3;
-					const uint32 cp = ((t[0] & 0x0F) << 12) | ((t[1] & 0x3F) << 6) | (t[2] & 0x3F);
-					if ((t[0] & 0xF0) == 0xE0 && cp >= 0xAC00 && cp <= 0xD7A3)
-						argchar = 0;
-				}
+				if ((argchar == 's' || argchar == 'S') && endsWithHangulSyllable(targetbuf, target))
+					argchar = 0;
 				if (argchar)
 					*target++ = argchar;
 				mode = 0;
