@@ -406,6 +406,16 @@ int AgiEngine::doPollKeyboard() {
 		key = getKeypress();
 
 		debugC(3, kDebugLevelInput, "key %02x pressed", key);
+
+		// Han/Yeong (UTF-8 text mode) is handled here, once for every loop
+		// and every wait - the prompt, get.string, message boxes, menus,
+		// the inventory, have.key, waitKey/waitAnyKey - and is never a key
+		// press. D8 (the save name ignores it) is hangulToggle()'s.
+		if (key == AGI_KEY_HANGUL_TOGGLE) {
+			if (_text != nullptr)
+				_text->hangulToggle();
+			key = 0;
+		}
 	}
 
 	return key;
