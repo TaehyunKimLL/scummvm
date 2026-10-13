@@ -199,6 +199,7 @@ public:
 	void drawStringOnDisplay(int16 x, int16 y, const char *text, byte foreground, byte background);
 	void drawStringOnDisplay(int16 x, int16 adjX, int16 y, int16 adjY, const char *text, byte foregroundColor, byte backgroundColor);
 	void drawCharacterOnDisplay(int16 x, int16 y, uint32 character, byte foreground, byte background, byte transformXOR = 0, byte transformOR = 0);
+	void drawCoverageOnDisplay(int16 x, int16 y, const uint16 *rows, byte foreground, byte background, byte transformXOR, byte transformOR);
 
 	void shakeScreen(int16 repeatCount);
 	void updateScreen();

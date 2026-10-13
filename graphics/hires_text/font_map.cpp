@@ -643,6 +643,15 @@ const HiResEngineKeys kHiResKeysAgs = {
 	kHiResKeyBlend | kHiResKeyScale | kHiResKeyGamma | kHiResKeyLayout
 };
 
+// AGI (design 5.7 of the AGI Korean spec): one font, a fixed cell, so no
+// target, cell or [font.N]; no text encoding (the overlay is UTF-8), no
+// mirror or shadow.
+const HiResEngineKeys kHiResKeysAgi = {
+	"AGI",
+	kHiResKeyBlend | kHiResKeyScale | kHiResKeyGamma | kHiResKeyLayout | kHiResKeyShift |
+	kHiResKeyAlign | kHiResKeyMissing | kHiResKeyAdvance | kHiResKeyRange | kHiResKeyGlyphs
+};
+
 namespace {
 
 // The default map's own name, for every version-2 warning text (design
