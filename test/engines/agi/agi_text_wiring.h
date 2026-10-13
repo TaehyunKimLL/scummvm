@@ -101,6 +101,10 @@ public:
 		TS_ASSERT_LESS_THAN(replay, back);
 		// F12/D10: the badge needs agi_hangul_input in UTF-8 mode, not the composer
 		TS_ASSERT(t.contains("_hangulBadge = _vm->textIsUtf8() && Graphics::confManGameBool(\"agi_hangul_input\", domain, false);"));
+		// Final review Minor 3: Korean start mode only with the built-in composer (the one toggle)
+		TS_ASSERT(t.contains("_hangulInput = _hangulBadge && Graphics::confManGameBool(\"agi_hangul_builtin\", domain, true);"));
+		TS_ASSERT(t.contains("_hangulMode = _hangulInput && Graphics::confManGameBool(\"agi_hangul_start\", domain, false);"));
+		TS_ASSERT(!t.contains("_hangulMode = _hangulBadge &&"));
 		// F13: one helper edits the run for both lines
 		int calls = 0;
 		for (int at = t.find("hangulEditKey("); at >= 0; at = t.find("hangulEditKey(", at + 1))

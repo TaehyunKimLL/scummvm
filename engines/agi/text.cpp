@@ -103,7 +103,10 @@ void TextMgr::init(SystemUI *systemUI) {
 	const Common::String domain = ConfMan.getActiveDomainName();
 	_hangulBadge = _vm->textIsUtf8() && Graphics::confManGameBool("agi_hangul_input", domain, false);
 	_hangulInput = _hangulBadge && Graphics::confManGameBool("agi_hangul_builtin", domain, true);
-	_hangulMode = _hangulBadge && Graphics::confManGameBool("agi_hangul_start", domain, false);
+	// Start in Korean mode only when the built-in composer runs (as SCI's
+	// sci_hangul_start): without it no toggle exists and typed letters stay
+	// ASCII, so a KO badge would be a mode the player cannot change.
+	_hangulMode = _hangulInput && Graphics::confManGameBool("agi_hangul_start", domain, false);
 	_hangulLine.reset();
 	hangulUpdateBadge();
 }
