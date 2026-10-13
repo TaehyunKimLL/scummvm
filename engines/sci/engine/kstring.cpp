@@ -178,6 +178,21 @@ static byte strAtByte(SegmentRef &r, uint16 offset, bool write, byte newvalue) {
 	return value;
 }
 
+// The string at r up to its NUL (or the end of the buffer), read byte by
+// byte without SegManager::getString()'s warning about reg_t slots that
+// hold no characters: a buffer being written by StrAt has not-yet-written
+// slots after the part the script has built.
+static Common::String strAtPrefix(SegmentRef &r) {
+	Common::String str;
+	for (int i = 0; i < r.maxSize; i++) {
+		const byte b = strAtByte(r, (uint16)i, false, 0);
+		if (!b)
+			break;
+		str += (char)b;
+	}
+	return str;
+}
+
 // QFG2's Aziza (room 199) asks questions in an edit box and checks the
 // answer with script 2's own substring search, StrLen and StrAt over the
 // typed text, for English words ("fenrus", "air"); no said() is involved.
@@ -231,7 +246,11 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 	if (argc > 2)
 		newvalue = argv[2].toSint16();
 
-	g_sci->_tts->setMessage(s->_segMan->getString(argv[0]));
+	// A write is a script building the string, often in an uninitialised
+	// stack buffer (LSL1's age quiz copies each question that way); reading
+	// it whole would warn once per character it has not written yet.
+	if (argc <= 2)
+		g_sci->_tts->setMessage(s->_segMan->getString(argv[0]));
 
 	Common::String view;
 	if (argc <= 2 && koreanAnswerView(s, argv[0], view))
@@ -274,7 +293,7 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 	// overwrite its neighbour (it cannot move the bytes after it); no game
 	// is known to do that to translated text.
 	if (g_sci->heapStringsAreUtf8() && argc > 2) {
-		const Common::String str = s->_segMan->getString(argv[0]);
+		const Common::String str = strAtPrefix(dest_r);
 		const byte *p = (const byte *)str.c_str();
 		const uint32 byteOff = utf8WriteOffset(p, offset);
 		uint16 old = 0;
