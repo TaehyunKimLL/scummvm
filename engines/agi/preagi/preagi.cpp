@@ -163,7 +163,7 @@ void PreAgiEngine::drawStr(int row, int col, int attr, const char *buffer) {
 			break;
 
 		default:
-			_gfx->drawCharacter(row, col, code, foreground, background, false);
+			_gfx->drawCharacter(row, col, (byte)code, foreground, background, false);
 
 			if (++col == 320 / 8) {
 				col = 0;

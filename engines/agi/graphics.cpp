@@ -1223,8 +1223,12 @@ void GfxMgr::drawCharacterOnDisplay(int16 x, int16 y, uint32 character, byte for
 	// AGI's font has 256 glyphs. In UTF-8 text mode a code point above
 	// ASCII that no face drew (Task 11) has no glyph there: '?' rather
 	// than whatever CP437 has at its low byte.
-	if (character > 0xFF || (character >= 0x80 && _vm->textIsUtf8()))
-		character = '?';
+	if (_vm->textIsUtf8()) {
+		if (character >= 0x80)
+			character = '?';
+	} else {
+		character = (byte)character; // the old byte path
+	}
 
 	int16       curX, curY;
 	const byte *fontData;
