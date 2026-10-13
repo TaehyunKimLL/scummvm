@@ -94,11 +94,19 @@ void GfxPaint16::drawPicture(GuiResourceId pictureId, bool mirroredFlag, bool ad
 	// do we add to a picture? if not -> clear screen with white
 	if (!addToFlag) {
 		clearScreen(_screen->getColorWhite());
-		// A full new picture replaces everything on screen, so no hires glyph
-		// from the previous room survives it. Without this the title screen's
-		// menu entries stayed remembered and were painted back over the intro
-		// - measured as four stale menu lines across the first room.
-		_screen->clearTextLayer();
+		// A full new picture replaces everything in the port it is drawn
+		// in, so no hires glyph from the previous room survives there.
+		// Without this the title screen's menu entries stayed remembered
+		// and were painted back over the intro - measured as four stale
+		// menu lines across the first room. Only the port, as clearScreen()
+		// above: the SCI0 status line sits above the picture port and
+		// keeps its text, as it keeps its pixels. Clearing the whole layer
+		// here left the status line's glyphs on the output while the layer
+		// no longer held them, and the next update of the bar (closing the
+		// menu bar) wiped them (PQ2 room 1).
+		Common::Rect picRect = _ports->_curPort->rect;
+		_ports->offsetRect(picRect);
+		_screen->clearTextLayerRect(picRect);
 	}
 
 	// Draw the picture

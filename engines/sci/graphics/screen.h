@@ -151,6 +151,11 @@ public:
 
 	/// Forget every glyph in the text layer.
 	void clearTextLayer();
+	/// Forget the glyphs inside this LOWRES rect (screen coordinates).
+	void clearTextLayerRect(const Common::Rect &lowres) {
+		if (_textLayer)
+			_textLayer->clearLowresRect(lowres);
+	}
 
 	/// An invert recolours text: swap colours a and b in the text layer
 	/// inside this LOWRES rect, as the invert swaps them on the visual plane.
