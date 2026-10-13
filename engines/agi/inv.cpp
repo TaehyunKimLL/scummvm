@@ -25,6 +25,7 @@
 #include "agi/text.h"
 #include "agi/keyboard.h"
 #include "agi/systemui.h"
+#include "agi/textcells.h"
 
 namespace Agi {
 
@@ -66,13 +67,13 @@ void InventoryMgr::getPlayerInventory() {
 			if (!_vm->isLanguageRTL()) {
 				if (inventoryEntry.column > 1) {
 					// right side, adjust column accordingly
-					inventoryEntry.column -= Common::strnlen(inventoryEntry.name, FONT_COLUMN_CHARACTERS);
+					inventoryEntry.column -= MIN<int16>(TextCells::cellLen(inventoryEntry.name, _vm->textIsUtf8()), FONT_COLUMN_CHARACTERS);
 				}
 			} else {
 				// mirror the sides
 				if (inventoryEntry.column == 1) {
 					// right side, adjust column accordingly
-					inventoryEntry.column = FONT_COLUMN_CHARACTERS - 1 - Common::strnlen(inventoryEntry.name, FONT_COLUMN_CHARACTERS);
+					inventoryEntry.column = FONT_COLUMN_CHARACTERS - 1 - MIN<int16>(TextCells::cellLen(inventoryEntry.name, _vm->textIsUtf8()), FONT_COLUMN_CHARACTERS);
 				} else {
 					// left side, adjust column accordingly
 					inventoryEntry.column = 1;
@@ -99,7 +100,7 @@ void InventoryMgr::getPlayerInventory() {
 		inventoryEntry.objectNr = 0;
 		inventoryEntry.name = _systemUI->getInventoryTextNothing();
 		inventoryEntry.row = 2;
-		inventoryEntry.column = 19 - (strlen(inventoryEntry.name) / 2);
+		inventoryEntry.column = 19 - (TextCells::cellLen(inventoryEntry.name, _vm->textIsUtf8()) / 2);
 		_array.push_back(inventoryEntry);
 	}
 }

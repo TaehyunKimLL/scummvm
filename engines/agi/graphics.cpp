@@ -33,6 +33,7 @@
 #include "agi/palette.h"
 #include "agi/picture.h"
 #include "agi/text.h"
+#include "agi/textcells.h"
 
 namespace Agi {
 
@@ -1157,7 +1158,7 @@ void GfxMgr::drawDisplayRectCGA(int16 x, int16 y, int16 width, int16 height, byt
 /**
  * Draw a character to the display screen using text row and column coordinates
  */
-void GfxMgr::drawCharacter(int16 row, int16 column, byte character, byte foreground, byte background, bool disabledLook) {
+void GfxMgr::drawCharacter(int16 row, int16 column, uint32 character, byte foreground, byte background, bool disabledLook) {
 	int16 x = column;
 	int16 y = row;
 	byte  transformXOR = 0;
@@ -1185,9 +1186,11 @@ void GfxMgr::drawCharacter(int16 row, int16 column, byte character, byte foregro
  * For internal use by SystemUI.
  */
 void GfxMgr::drawStringOnDisplay(int16 x, int16 y, const char *text, byte foregroundColor, byte backgroundColor) {
+	const bool utf8 = _vm->textIsUtf8();
 	while (*text) {
-		drawCharacterOnDisplay(x, y, *text, foregroundColor, backgroundColor);
-		text++;
+		uint32 character;
+		text += TextCells::decode(text, utf8, character);
+		drawCharacterOnDisplay(x, y, character, foregroundColor, backgroundColor);
 		x += _displayFontWidth;
 	}
 }
@@ -1216,7 +1219,13 @@ void GfxMgr::drawStringOnDisplay(int16 x, int16 adjX, int16 y, int16 adjY, const
 /**
  * Draw a character to the display screen using text row and column coordinates
  */
-void GfxMgr::drawCharacterOnDisplay(int16 x, int16 y, const byte character, byte foreground, byte background, byte transformXOR, byte transformOR) {
+void GfxMgr::drawCharacterOnDisplay(int16 x, int16 y, uint32 character, byte foreground, byte background, byte transformXOR, byte transformOR) {
+	// AGI's font has 256 glyphs. In UTF-8 text mode a code point above
+	// ASCII that no face drew (Task 11) has no glyph there: '?' rather
+	// than whatever CP437 has at its low byte.
+	if (character > 0xFF || (character >= 0x80 && _vm->textIsUtf8()))
+		character = '?';
+
 	int16       curX, curY;
 	const byte *fontData;
 	bool        fontIsHires = _font->isFontHires();

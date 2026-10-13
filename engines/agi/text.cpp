@@ -21,11 +21,13 @@
 
 #include "common/config-manager.h"
 #include "common/unicode-bidi.h"
+#include "common/hangul.h"
 #include "agi/agi.h"
 #include "agi/sprite.h"     // for commit_both()
 #include "agi/graphics.h"
 #include "agi/keyboard.h"
 #include "agi/text.h"
+#include "agi/textcells.h"
 #include "agi/systemui.h"
 #include "agi/words.h"
 
@@ -350,19 +352,18 @@ void TextMgr::displayText(const char *textPtr, bool disabledLook) {
 		textPtr = textString.c_str();
 	}
 
+	// One character per cell: a code point in UTF-8 text mode, else a byte
+	// (the Russian, Hebrew and French fonts have glyphs at 0x80-0xFF).
+	const bool utf8 = _vm->textIsUtf8();
 	const char *curTextPtr = textPtr;
-
-	while (1) {
-		byte curCharacter = *curTextPtr;
-		if (!curCharacter)
-			break;
-
-		curTextPtr++;
-		displayCharacter(curCharacter, disabledLook);
+	while (*curTextPtr) {
+		uint32 character;
+		curTextPtr += TextCells::decode(curTextPtr, utf8, character);
+		displayCharacter(character, disabledLook);
 	}
 }
 
-void TextMgr::displayCharacter(byte character, bool disabledLook) {
+void TextMgr::displayCharacter(uint32 character, bool disabledLook) {
 	TextPos_Struct charCurPos;
 
 	charPos_Get(&charCurPos);
@@ -663,7 +664,7 @@ void TextMgr::statusDraw(bool ttsVoiceScore, bool ttsVoiceSound) {
 		if (!_vm->isLanguageRTL())
 			charPos_Set(_statusRow, 1);
 		else
-			charPos_Set(_statusRow, FONT_COLUMN_CHARACTERS - Common::strnlen(statusTextPtr, FONT_COLUMN_CHARACTERS) - 1);
+			charPos_Set(_statusRow, FONT_COLUMN_CHARACTERS - MIN<int16>(TextCells::cellLen(statusTextPtr, _vm->textIsUtf8()), FONT_COLUMN_CHARACTERS) - 1);
 		displayText(statusTextPtr);
 
 #ifdef USE_TTS
@@ -827,7 +828,7 @@ void TextMgr::promptKeyPress(uint16 newKey) {
 	if (_messageState.dialogue_Open) {
 		maxChars = TEXT_STRING_MAX_SIZE - 4;
 	} else {
-		maxChars = TEXT_STRING_MAX_SIZE - strlen(_vm->_game.getString(0)); // string 0 is the prompt string prefix
+		maxChars = TEXT_STRING_MAX_SIZE - TextCells::cellLen(_vm->_game.getString(0), _vm->textIsUtf8()); // string 0 is the prompt string prefix
 	}
 
 	if (_promptCursorPos)
@@ -1183,100 +1184,12 @@ char *TextMgr::stringWordWrap(const char *originalText, int16 maxWidth, int16 *c
 	static char resultWrappedBuffer[2000];
 	int16 boxWidth = 0;
 	int16 boxHeight = 0;
-	int16 lineWidth = 0; // width of current line
-
-	int16 lineWidthLeft = maxWidth; // width left of current line
-
-	int16 wordStartPos = 0;
-	int16 curReadPos = 0;
-	int16 curWritePos = 0;
-
-	//memset(resultWrappedBuffer, 0, sizeof(resultWrappedBuffer)); for debugging
-
-	// Good testcases:
-	// King's Quest 1 intro:              the scrolling text is filled up with spaces, so that old lines are erased
-	// Apple IIgs restart system UI:      spaces used to make the window larger
-	// Gold Rush Stagecoach path room 60: "  Lake Michigan!", with max length 9 -> should get split into "  Lake" / "Michigan!"
-
-	while (originalText[curReadPos]) {
-		// Try to find out length of next word
-
-		// If first character is a space, skip it, so that we process at least this space
-		if (originalText[curReadPos] == ' ')
-			curReadPos++;
-
-		while (originalText[curReadPos]) {
-			if (originalText[curReadPos] == ' ')
-				break;
-			if (originalText[curReadPos] == 0x0A)
-				break;
-			curReadPos++;
-		}
-		byte wordEndChar = originalText[curReadPos];
-
-		// Calculate word length
-		int16 wordLen = curReadPos - wordStartPos;
-
-		if (wordLen >= lineWidthLeft) {
-			// Not enough space left
-
-			// If first character right after the new line is a space, skip over it
-			if (wordLen) {
-				if (originalText[wordStartPos] == ' ') {
-					wordStartPos++;
-					wordLen--;
-				}
-			}
-
-			if (wordLen > maxWidth) {
-				// Word way too long, split it in half
-				curReadPos = curReadPos - (wordLen - maxWidth);
-				wordLen = maxWidth;
-			}
-
-			// Add new line
-			resultWrappedBuffer[curWritePos++] = 0x0A;
-			if (lineWidth > boxWidth)
-				boxWidth = lineWidth;
-			boxHeight++; lineWidth = 0;
-			lineWidthLeft = maxWidth;
-
-			// Reached absolute maximum? -> exit now
-			if (boxHeight >= HEIGHT_MAX)
-				break;
-		}
-
-		// Copy current word over
-		memcpy(&resultWrappedBuffer[curWritePos], &originalText[wordStartPos], wordLen);
-		lineWidth += wordLen;
-		lineWidthLeft -= wordLen;
-		curWritePos += wordLen;
-
-		if (wordEndChar == 0x0A) {
-			// original text had a new line, so force it
-			curReadPos++;
-
-			resultWrappedBuffer[curWritePos++] = 0x0A;
-			if (lineWidth > boxWidth)
-				boxWidth = lineWidth;
-			boxHeight++; lineWidth = 0;
-			lineWidthLeft = maxWidth;
-
-			// Reached absolute maximum? -> exit now
-			if (boxHeight >= HEIGHT_MAX)
-				break;
-		}
-
-		wordStartPos = curReadPos;
-	}
-
-	resultWrappedBuffer[curWritePos] = 0;
-
-	if (curReadPos > 0) {
-		if (lineWidth > boxWidth)
-			boxWidth = lineWidth;
-		boxHeight++;
-	}
+	Common::String wrapped;
+	// Widths are cells (the 40-column grid), positions bytes: TextCells
+	// keeps the two apart and never cuts inside a character (K5).
+	const bool utf8 = _vm->textIsUtf8();
+	TextCells::wordWrap(originalText, maxWidth, utf8, false, wrapped, boxWidth, boxHeight);
+	Common::strlcpy(resultWrappedBuffer, wrapped.c_str(), sizeof(resultWrappedBuffer));
 
 	if (calculatedWidthPtr) {
 		*calculatedWidthPtr = boxWidth;
@@ -1376,6 +1289,11 @@ char *TextMgr::stringPrintf(const char *originalText) {
 			break;
 		}
 	}
+
+	// %0 %w %s %m %g put words into a translation whose particle follows
+	// them as a marker: the particle after the inserted noun is resolved.
+	if (_vm->textIsUtf8())
+		Common::resolveKoreanParticles(resultString);
 
 	assert(resultString.size() < sizeof(resultPrintfBuffer));
 	Common::strlcpy(resultPrintfBuffer, resultString.c_str(), 2000);

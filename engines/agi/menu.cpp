@@ -26,6 +26,7 @@
 #include "agi/text.h"
 #include "agi/keyboard.h"
 #include "agi/menu.h"
+#include "agi/textcells.h"
 
 namespace Agi {
 
@@ -82,18 +83,20 @@ void GfxMenu::addMenu(const char *menuText) {
 		if (menuEntry->text == " Special ")
 			menuEntry->text = "Special ";
 
-	menuEntry->textLen = menuEntry->text.size();
+	const bool utf8 = _vm->textIsUtf8();
+	menuEntry->textLen = TextCells::cellLen(menuEntry->text.c_str(), utf8);
 
 	if (!_vm->isLanguageRTL()) {
 		// Cut menu name in case menu bar is full
 		// Happens in at least the fan game Get Outta Space Quest
 		// Original interpreter had graphical issues in this case
-		// TODO: this whole code needs to get reworked anyway to support different types of menu bars depending on platform
+		// Cut by cells, never inside a character (a UTF-8 translation).
 		curColumnEnd += menuEntry->textLen;
-		while ((menuEntry->textLen) && (curColumnEnd > 40)) {
-			menuEntry->text.deleteLastChar();
-			menuEntry->textLen--;
-			curColumnEnd--;
+		if (menuEntry->textLen && curColumnEnd > 40) {
+			const int16 keep = MAX<int16>(0, menuEntry->textLen - (curColumnEnd - 40));
+			menuEntry->text = TextCells::clipCells(menuEntry->text.c_str(), keep, utf8);
+			curColumnEnd -= menuEntry->textLen - keep;
+			menuEntry->textLen = keep;
 		}
 	}
 
@@ -130,7 +133,7 @@ void GfxMenu::addMenuItem(const char *menuItemText, uint16 controllerSlot) {
 
 	menuItemEntry->enabled = true;
 	menuItemEntry->text = menuItemText;
-	menuItemEntry->textLen = menuItemEntry->text.size();
+	menuItemEntry->textLen = TextCells::cellLen(menuItemEntry->text.c_str(), _vm->textIsUtf8());
 	menuItemEntry->controllerSlot = controllerSlot;
 
 	// Original interpreter on PC used the length of the first item for drawing

@@ -24,6 +24,7 @@
 #include "agi/text.h"
 #include "agi/keyboard.h"
 #include "agi/systemui.h"
+#include "agi/textcells.h"
 
 namespace Agi {
 
@@ -866,13 +867,13 @@ bool SystemUI::askForVerification(const char *verifyText, const char *button1Tex
 		buttonEntry.active = false;
 		if (button1Text) {
 			buttonEntry.text = button1Text;
-			buttonEntry.textWidth = strlen(button1Text) * _gfx->getDisplayFontWidth();
+			buttonEntry.textWidth = TextCells::cellLen(button1Text, _vm->textIsUtf8()) * _gfx->getDisplayFontWidth();
 			buttonEntry.isDefault = true;
 			_buttonArray.push_back(buttonEntry);
 		}
 		if (button2Text) {
 			buttonEntry.text = button2Text;
-			buttonEntry.textWidth = strlen(button2Text) * _gfx->getDisplayFontWidth();
+			buttonEntry.textWidth = TextCells::cellLen(button2Text, _vm->textIsUtf8()) * _gfx->getDisplayFontWidth();
 			buttonEntry.isDefault = false;
 			_buttonArray.push_back(buttonEntry);
 		}
