@@ -144,14 +144,17 @@ void GfxMenu::addMenuItem(const char *menuItemText, uint16 controllerSlot) {
 		curMenuEntry->maxItemTextLen = menuItemEntry->textLen;
 	}
 
-	if (curMenuEntry->itemCount == 0) {
+	if (_vm->textIsUtf8() && !_vm->isLanguageRTL()) {
+		// UTF-8 text mode: place the drop-down by its longest item so far
+		// and move the items already added with it, so no item runs past
+		// column 39.
+		_setupMenuItemColumn = TextCells::dropDownColumn(curMenuEntry->column, curMenuEntry->maxItemTextLen, FONT_COLUMN_CHARACTERS);
+		for (uint nr = curMenuEntry->firstItemNr; nr < _itemArray.size(); nr++)
+			_itemArray[nr]->column = _setupMenuItemColumn;
+	} else if (curMenuEntry->itemCount == 0) {
 		if (!_vm->isLanguageRTL()) {
 			// for first menu item of menu calculated column
-			if (menuItemEntry->textLen + curMenuEntry->column < (FONT_COLUMN_CHARACTERS - 1)) {
-				_setupMenuItemColumn = curMenuEntry->column;
-			} else {
-				_setupMenuItemColumn = (FONT_COLUMN_CHARACTERS - 1) - menuItemEntry->textLen;
-			}
+			_setupMenuItemColumn = TextCells::dropDownColumn(curMenuEntry->column, menuItemEntry->textLen, FONT_COLUMN_CHARACTERS);
 		} else {
 			_setupMenuItemColumn = curMenuEntry->column + curMenuEntry->textLen - menuItemEntry->textLen;
 			if (_setupMenuItemColumn < 2)
