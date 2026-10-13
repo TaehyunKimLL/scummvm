@@ -54,12 +54,12 @@ namespace Agi {
  */
 class TextOverlay {
 public:
-	enum KeyKind { kKeyMessage = 0, kKeyObject = 1 };
+	enum KeyKind { kKeyMessage = 0, kKeyObject = 1, kKeyView = 2 };
 
 	struct Key {
 		KeyKind kind;
 		uint16 logic;   ///< messages only
-		uint16 number;  ///< message number (1-based) or object index (0-based)
+		uint16 number;  ///< message number (1-based), object index or view number (0-based)
 		Key() : kind(kKeyMessage), logic(0), number(0) {}
 	};
 
@@ -76,7 +76,8 @@ public:
 	/**
 	 * One line, its end stripped: blank and '#' lines are skipped; anything
 	 * else is an entry or kLineError with @p error saying why. Numbers are
-	 * decimal, logic 0..255, message 1..255, object 0..255.
+	 * decimal, logic 0..255, message 1..255, object 0..255, view 0..255
+	 * (v<view>: the view's description).
 	 */
 	static LineKind parseLine(const Common::String &line, Key &key, Common::String &text, const char *&error);
 
@@ -97,6 +98,8 @@ public:
 
 	const Common::String *message(uint16 logic, uint16 number) const;
 	const Common::String *object(uint16 index) const;
+	/** A view's description (show.obj's inventory close-up text). */
+	const Common::String *view(uint16 nr) const;
 
 	void collectKeys(Common::Array<Key> &out) const;
 
