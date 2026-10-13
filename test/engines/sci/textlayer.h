@@ -215,5 +215,30 @@ public:
 		TS_ASSERT_EQUALS(l.row(3)[3].fgCoverage, 200);
 		TS_ASSERT_EQUALS(l.row(3)[3].fgIndex, 9);
 	}
+
+	// A new SCI0 picture clears the picture port (0,10)-(320,200) only
+	// (GfxPaint16::drawPicture): the status line above it keeps its text,
+	// so the menu bar's underbits save it and closing the menu brings it
+	// back (PQ2 room 1).
+	void test_new_picture_keeps_the_status_line_text() {
+		Sci::TextLayer l(640, 400, 2);
+		Common::Array<byte> cov = fill(16, 16, 255);
+		l.putGlyph(4, 2, cov.begin(), 16, 16, 0);	// status line, lowres rows 1..8
+		l.putGlyph(100, 100, cov.begin(), 16, 16, 15);	// in the room
+		l.clearLowresRect(Common::Rect(0, 10, 320, 200));
+		TS_ASSERT_EQUALS(l.row(10)[10].fgCoverage, 255);
+		TS_ASSERT_EQUALS(l.row(108)[108].fgCoverage, 0);
+		const Common::Rect bar(0, 0, 320, 10);
+		TS_ASSERT_EQUALS(l.saveSize(bar), 1u + 640 * 20 * 2);
+		Common::Array<byte> mem;
+		mem.resize(l.saveSize(bar));
+		byte *w = mem.begin();
+		l.save(bar, w);
+		l.clearLowresRect(bar);		// the menu bar is drawn over it
+		const byte *rd = mem.begin();
+		l.restore(bar, rd);		// and closed
+		TS_ASSERT_EQUALS(l.row(10)[10].fgCoverage, 255);
+		TS_ASSERT_EQUALS(l.row(10)[10].fgIndex, 0);
+	}
 };
 
