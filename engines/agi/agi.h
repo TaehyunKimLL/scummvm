@@ -44,6 +44,7 @@
 #include "agi/picture.h"
 #include "agi/logic.h"
 #include "agi/sound.h"
+#include "agi/translation.h"
 
 namespace Common {
 class RandomSource;
@@ -605,6 +606,17 @@ public:
 
 	bool _noSaveLoadAllowed;
 
+	/**
+	 * A translation overlay (agi-<lang>.str) is active: every displayed
+	 * string is UTF-8 and every layout site counts cells (code points).
+	 * Off for every game without an overlay, which then takes the byte
+	 * paths it always took.
+	 */
+	bool _textUtf8;
+	/** The overlay's language; UNK_LANG without one (getLanguage()). */
+	Common::Language _overlayLanguage;
+	bool textIsUtf8() const { return _textUtf8; }
+
 	virtual bool promptIsEnabled() {
 		return false;
 	}
@@ -727,6 +739,11 @@ private:
 
 public:
 	Common::Array<AgiObject> _objects;    // objects in the game
+	TextOverlay _overlay;                 // agi-<lang>.str, when the target has one
+	void loadTranslationOverlay();
+	void translateLogicTexts(int16 logicNr);
+	/** Message count of a logic read straight from its volume (no load); false if absent. */
+	bool rawLogicMessageCount(int16 logicNr, int &count);
 
 	SavedGameSlotIdArray getSavegameSlotIds();
 	bool getSavegameInformation(int16 slotId, Common::String &saveDescription, uint32 &saveDate, uint32 &saveTime, bool &saveIsValid);

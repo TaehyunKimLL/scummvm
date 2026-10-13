@@ -55,6 +55,11 @@ Common::Platform AgiBase::getPlatform() const {
 }
 
 Common::Language AgiBase::getLanguage() const {
+	// A translation overlay names the language the player reads, whatever
+	// the game was detected as (SQ0 is an English game; with agi-ko.str it
+	// is played in Korean). As SciEngine::getLanguage().
+	if (_overlayLanguage != Common::UNK_LANG)
+		return _overlayLanguage;
 	if (_gameDescription->desc.language != Common::UNK_LANG)
 		return _gameDescription->desc.language;
 	else if (ConfMan.hasKey("language"))

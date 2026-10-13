@@ -21,6 +21,7 @@
 
 #include "common/md5.h"
 #include "common/file.h"
+#include "common/language.h"
 #include "common/memstream.h"
 #include "common/savefile.h"
 #include "common/config-manager.h"
@@ -344,6 +345,8 @@ struct GameSettings {
 
 AgiBase::AgiBase(OSystem *syst, const AGIGameDescription *gameDesc) : Engine(syst), _gameDescription(gameDesc) {
 	_noSaveLoadAllowed = false;
+	_textUtf8 = false;
+	_overlayLanguage = Common::UNK_LANG;
 
 	_rnd = new Common::RandomSource("agi");
 	_sound = nullptr;
@@ -515,6 +518,10 @@ void AgiEngine::initialize() {
 		}
 	}
 
+	// The overlay decides UTF-8 text mode, and that decides the screen mode
+	// and the render mode (design 5.1), so it is read before either.
+	loadTranslationOverlay();
+
 	initRenderMode();
 
 	setDebugger(new Console(this));
@@ -574,6 +581,33 @@ void AgiEngine::initialize() {
 		break;
 	}
 #endif
+}
+
+void AgiEngine::loadTranslationOverlay() {
+	_textUtf8 = false;
+	_overlayLanguage = Common::UNK_LANG;
+	if (!ConfMan.hasKey("language"))
+		return;
+	const Common::Language lang = Common::parseLanguage(ConfMan.get("language"));
+	if (lang == Common::UNK_LANG || lang == _gameDescription->desc.language)
+		return;
+	if (!_overlay.load(Common::getLanguageCode(lang)))
+		return;
+	_textUtf8 = true;
+	_overlayLanguage = lang;
+	debug(0, "AGI: agi-%s.str, %u entries: UTF-8 text mode", Common::getLanguageCode(lang), _overlay.entryCount());
+}
+
+bool AgiEngine::rawLogicMessageCount(int16 logicNr, int &count) {
+	if (logicNr < 0 || logicNr >= MAX_DIRECTORY_ENTRIES || _game.dirLogic[logicNr].offset == _EMPTY)
+		return false;
+	uint8 *data = _loader->loadVolumeResource(&_game.dirLogic[logicNr]);
+	if (!data)
+		return false;
+	const uint16 bytecodeSize = READ_LE_UINT16(data);
+	count = data[2 + bytecodeSize];
+	free(data);
+	return true;
 }
 
 bool AgiEngine::promptIsEnabled() {

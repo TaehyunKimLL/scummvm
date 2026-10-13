@@ -72,6 +72,21 @@ int AgiEngine::decodeObjects(uint8 *mem, uint32 flen) {
 		// game Beyond the Titanic 2 (bug #5523).
 		if (_objects[i].name == "?" && _objects[i].location == EGO_OWNED)
 			_objects[i].location = 0;
+
+		// UTF-8 text mode: the translated name, or the game's own in UTF-8.
+		// "?" (the unused object) is never translated.
+		if (textIsUtf8() && _objects[i].name != "?") {
+			const Common::String *t = _overlay.object(i);
+			if (t) {
+				_objects[i].name = *t;
+			} else {
+				bool high = false;
+				for (uint k = 0; k < _objects[i].name.size() && !high; k++)
+					high = (byte)_objects[i].name[k] >= 0x80;
+				if (high)
+					_objects[i].name = TextOverlay::legacyToUtf8(_objects[i].name.c_str(), Common::kDos850);
+			}
+		}
 	}
 	debug(0, "Reading objects: %d objects read.", _game.numObjects);
 
