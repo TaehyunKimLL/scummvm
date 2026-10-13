@@ -129,6 +129,14 @@ void AgiEngine::processScummVMEvents() {
 				_mouse.pos.y = event.mouse.y;
 			}
 			break;
+		case Common::EVENT_CUSTOM_ENGINE_ACTION_START:
+			// Han/Yeong as a keymapper action: it enters the queue as a
+			// pseudo-key above every AGI key, so no script ever sees it.
+			if (event.customType == kAgiActionHangulToggle) {
+				if (_text != nullptr && _text->hangulInputAvailable())
+					keyEnqueue(AGI_KEY_HANGUL_TOGGLE);
+			}
+			break;
 		case Common::EVENT_KEYDOWN:
 			key = event.kbd.ascii;
 			// UTF-8 text mode: text with no key - an OS input method's finished

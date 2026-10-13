@@ -253,7 +253,9 @@ int AgiEngine::processAGIEvents() {
 		// no inner loop active at the moment, regular processing
 
 		if (wideKey) {
-			if (_text->promptIsEnabled())
+			if (rawKey == AGI_KEY_HANGUL_TOGGLE)
+				_text->hangulToggle();
+			else if (_text->promptIsEnabled())
 				_text->promptKeyPress(rawKey);
 		} else if (key) {
 			if (!handleController(key)) {
@@ -275,7 +277,9 @@ int AgiEngine::processAGIEvents() {
 		switch (_game.cycleInnerLoopType) {
 		case CYCLE_INNERLOOP_GETSTRING: // loop called from TextMgr::stringEdit()
 		case CYCLE_INNERLOOP_GETNUMBER:
-			if (wideKey) {
+			if (rawKey == AGI_KEY_HANGUL_TOGGLE) {
+				_text->hangulToggle();
+			} else if (wideKey) {
 				_text->stringKeyPress(rawKey);
 			} else if (key) {
 				_text->stringKeyPress(key);

@@ -1,36 +1,13 @@
 #include <cxxtest/TestSuite.h>
 
-#include "common/fs.h"
-#include "common/str.h"
-#include "common/stream.h"
-#include "../../system/null_osystem.h"
+#include "support/read_source.h"
 
 // The UTF-8 text mode wiring that needs a running engine to exercise, pinned
 // by reading the engine back (the pattern of test/engines/sci/korean_input.h).
 // The behaviour itself is covered by the pure units (korean_text.h) and by the
 // harness play checks (harness/agi/lsl1_play.py).
 class AgiTextWiringTestSuite : public CxxTest::TestSuite {
-	Common::String readSource(const char *rel) {
-#if !NULL_OSYSTEM_IS_AVAILABLE
-		TS_SKIP("no file access in this test environment");
-		return Common::String();
-#else
-		Common::FSNode node(Common::Path(Common::String(AGI_TEST_SRCDIR) + "/" + rel, '/'));
-		Common::SeekableReadStream *in = node.createReadStream();
-		if (!in) {
-			TS_FAIL(Common::String::format("cannot read %s", rel).c_str());
-			return Common::String();
-		}
-		const uint32 len = (uint32)in->size();
-		char *buf = new char[len + 1];
-		const uint32 got = in->read(buf, len);
-		buf[got] = 0;
-		Common::String out(buf, got);
-		delete[] buf;
-		delete in;
-		return out;
-#endif
-	}
+	static Common::String readSource(const char *rel) { return AgiTest::readSource(rel); }
 
 public:
 	void setUp() {
@@ -107,5 +84,29 @@ public:
 		// D8: the save name is ASCII only, even in a Korean session
 		TS_ASSERT(readSource("engines/agi/systemui.cpp").contains("_text->_inputStringAscii = true;\n\t_text->stringEdit(30);"));
 		TS_ASSERT(readSource("engines/agi/text.cpp").contains("acceptableInput = utf8 && cell >= 0x80 && !_inputStringAscii;"));
+	}
+
+	// Task 13 rulings on the composer's place in the edit lines.
+	void test_korean_mode_rulings() {
+		const Common::String t = readSource("engines/agi/text.cpp");
+		// D8: never in the save name
+		TS_ASSERT(t.contains("_hangulInput && _hangulMode && !_inputStringAscii &&\n\t\t_vm->_game.cycleInnerLoopType == CYCLE_INNERLOOP_GETSTRING"));
+		// F4: the echoed line is replayed in English, then the mode is back
+		const int echo = t.find("void TextMgr::promptEchoLine()");
+		const int off = t.find("_hangulMode = false;", echo);
+		const int replay = t.find("promptKeyPress(", echo);
+		const int back = t.find("_hangulMode = hangulMode;", echo);
+		TS_ASSERT_LESS_THAN(echo, off);
+		TS_ASSERT_LESS_THAN(off, replay);
+		TS_ASSERT_LESS_THAN(replay, back);
+		// F12/D10: the badge needs agi_hangul_input in UTF-8 mode, not the composer
+		TS_ASSERT(t.contains("_hangulBadge = _vm->textIsUtf8() && Graphics::confManGameBool(\"agi_hangul_input\", domain, false);"));
+		// F13: one helper edits the run for both lines
+		int calls = 0;
+		for (int at = t.find("hangulEditKey("); at >= 0; at = t.find("hangulEditKey(", at + 1))
+			calls++;
+		TS_ASSERT_EQUALS(calls, 3); // the definition, the prompt, get.string
+		TS_ASSERT_LESS_THAN(0, (int)t.find("_hangulLine.feed("));
+		TS_ASSERT_EQUALS(t.find("_hangulLine.feed("), t.rfind("_hangulLine.feed("));
 	}
 };

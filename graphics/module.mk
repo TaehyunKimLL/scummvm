@@ -54,6 +54,7 @@ MODULE_OBJS := \
 	framelimiter.o \
 	hotspot_renderer.o \
 	image-archive.o \
+	korean_badge.o \
 	korfont.o \
 	larryScale.o \
 	maccursor.o \

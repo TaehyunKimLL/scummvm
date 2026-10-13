@@ -22,6 +22,7 @@
 #include "common/config-manager.h"
 #include "common/unicode-bidi.h"
 #include "common/hangul.h"
+#include "graphics/hires_text/hires_options.h"
 #include "agi/agi.h"
 #include "agi/sprite.h"     // for commit_both()
 #include "agi/graphics.h"
@@ -74,6 +75,10 @@ TextMgr::TextMgr(AgiEngine *vm, Words *words, GfxMgr *gfx) {
 	_inputString[0] = 0;
 	_inputStringAscii = false;
 
+	_hangulInput = false;
+	_hangulBadge = false;
+	_hangulMode = false;
+
 	configureScreen(2);
 
 	_messageBoxCancelled = false;
@@ -86,10 +91,88 @@ TextMgr::TextMgr(AgiEngine *vm, Words *words, GfxMgr *gfx) {
 }
 
 TextMgr::~TextMgr() {
+	_badge.clear();
 }
 
 void TextMgr::init(SystemUI *systemUI) {
 	_systemUI = systemUI;
+
+	// D10: the badge needs Korean typing only (an OS input method types
+	// without the composer); the composer and Han/Yeong need the built-in
+	// composer as well, as the keymap does (metaengine.cpp).
+	const Common::String domain = ConfMan.getActiveDomainName();
+	_hangulBadge = _vm->textIsUtf8() && Graphics::confManGameBool("agi_hangul_input", domain, false);
+	_hangulInput = _hangulBadge && Graphics::confManGameBool("agi_hangul_builtin", domain, true);
+	_hangulMode = _hangulBadge && Graphics::confManGameBool("agi_hangul_start", domain, false);
+	_hangulLine.reset();
+	hangulUpdateBadge();
+}
+
+void TextMgr::hangulUpdateBadge() {
+	updateKoreanBadge(_badge, _hangulBadge, _hangulMode && !_inputStringAscii);
+}
+
+void TextMgr::redrawInputTail(const uint32 *cells, int16 oldLen, int16 from, int16 newLen) {
+	for (int16 i = from; i < oldLen; i++)
+		displayCharacter(0x08);
+	for (int16 i = from; i < newLen; i++) {
+		const bool preedit = (i == newLen - 1) && _hangulLine.preedit() != 0;
+		if (preedit) {
+			charAttrib_Push();
+			charAttrib_Set(_textAttrib.background, _textAttrib.foreground);
+		}
+		displayCharacter(cells[i]);
+		if (preedit)
+			charAttrib_Pop();
+	}
+}
+
+void TextMgr::hangulEndRun(const uint32 *cells, int16 len) {
+	const bool wasComposing = _hangulLine.composing();
+	_hangulLine.commit(len);
+	if (wasComposing && len > 0)
+		redrawInputTail(cells, len, len - 1, len);
+}
+
+bool TextMgr::hangulEditKey(int newKey, uint32 *cells, int16 &cursorPos, int16 maxCells) {
+	const bool jamo = newKey >= 0x20 && newKey < 0x7F && Common::HangulComposer::isJamoKey((char)newKey);
+	if (!jamo && !(newKey == AGI_KEY_BACKSPACE && _hangulLine.composing()))
+		return false;
+
+	const int16 oldLen = cursorPos;
+	const int16 from = _hangulLine.composing() ? _hangulLine.runStart() : oldLen;
+	int16 len = cursorPos;
+	if (jamo)
+		_hangulLine.feed((char)newKey, cells, len, maxCells);
+	else
+		_hangulLine.backspace(cells, len);
+	redrawInputTail(cells, oldLen, MIN<int16>(from, len), len);
+	cursorPos = len;
+	return true;
+}
+
+void TextMgr::hangulToggle() {
+	if (!_hangulInput)
+		return;
+	if (_inputStringAscii) {
+		// D8: the save name is ASCII; Korean mode stays as it was
+		debugC(1, kDebugLevelInput, "[key] Han/Yeong ignored in the save name");
+		return;
+	}
+	const bool inString = _vm->cycleInnerLoopIsActive() &&
+		(_vm->_game.cycleInnerLoopType == CYCLE_INNERLOOP_GETSTRING || _vm->_game.cycleInnerLoopType == CYCLE_INNERLOOP_GETNUMBER);
+	uint32 *cells = inString ? _inputString : _prompt;
+	const int16 len = inString ? _inputStringCursorPos : _promptCursorPos;
+	if (_hangulLine.composing() && (inString || _promptEnabled)) {
+		inputEditOn();
+		hangulEndRun(cells, len);
+		inputEditOff();
+	} else {
+		_hangulLine.commit(len);
+	}
+	_hangulMode = !_hangulMode;
+	debugC(1, kDebugLevelInput, "[key] Han/Yeong -> %s", _hangulMode ? "Korean" : "English");
+	hangulUpdateBadge();
 }
 
 void TextMgr::configureScreen(uint16 gameRow) {
@@ -778,6 +861,7 @@ int16 TextMgr::promptRow_Get() {
 }
 
 void TextMgr::promptReset() {
+	_hangulLine.reset();
 	_promptCursorPos = 0;
 	memset(_prompt, 0, sizeof(_prompt));
 	memset(_promptPrevious, 0, sizeof(_promptPrevious));
@@ -847,6 +931,16 @@ void TextMgr::promptKeyPress(int newKey) {
 		maxChars = scriptsInputLen;
 
 	inputEditOn();
+
+	// Built-in Hangul composer (Korean mode): a jamo key edits the syllable
+	// run at the end of the line; backspace edits it first; anything else
+	// ends it as it stands.
+	if (_hangulInput && _hangulMode && hangulEditKey(newKey, _prompt, _promptCursorPos, maxChars)) {
+		promptRememberForAutoComplete();
+		inputEditOff();
+		return;
+	}
+	hangulEndRun(_prompt, _promptCursorPos);
 
 	switch (newKey) {
 	case AGI_KEY_BACKSPACE: {
@@ -938,6 +1032,10 @@ void TextMgr::promptEchoLine() {
 	if (_promptCursorPos < previousLen) {
 		inputEditOn();
 
+		// F4: the echo replays the previous line as keys; in Korean mode its
+		// ASCII would be composed into Hangul. Replay in English.
+		const bool hangulMode = _hangulMode;
+		_hangulMode = false;
 		while (_promptPrevious[_promptCursorPos]) {
 			const uint32 c = _promptPrevious[_promptCursorPos];
 			const int16 before = _promptCursorPos;
@@ -945,6 +1043,7 @@ void TextMgr::promptEchoLine() {
 			if (_promptCursorPos == before)
 				break; // refused (budget full): the old loop spun here
 		}
+		_hangulMode = hangulMode;
 		promptRememberForAutoComplete();
 
 		inputEditOff();
@@ -1076,12 +1175,22 @@ void TextMgr::stringEdit(int16 stringMaxLen) {
 	_inputStringMaxLen = stringMaxLen;
 	_inputStringEntered = false;
 
+	// The composer starts afresh on this line (a run on the prompt is left
+	// as it stands); the save name shows English (D8).
+	_hangulLine.commit(_inputStringCursorPos);
+	hangulUpdateBadge();
+
 	if (!_vm->isLanguageRTL())
 		inputEditOff();
 
 	do {
 		_vm->processAGIEvents();
 	} while (_vm->cycleInnerLoopIsActive() && !(_vm->shouldQuit() || _vm->_restartGame));
+
+	// The line is closed: its run with it. _inputStringAscii is still set
+	// here (SystemUI clears it), so the badge is put back by mode alone.
+	_hangulLine.reset();
+	updateKoreanBadge(_badge, _hangulBadge, _hangulMode);
 
 	inputEditOn();
 	// Fix deletion of first letter after ENTER.
@@ -1102,6 +1211,17 @@ void TextMgr::stringKeyPress(int newKey) {
 	const uint32 cell = codePoint ? (uint32)(newKey & 0xFFFF) : (uint32)newKey;
 
 	inputEditOn();
+
+	// The composer works for get.string alone: get.num takes digits only and
+	// the save name ASCII only (D8).
+	const bool composerHere = _hangulInput && _hangulMode && !_inputStringAscii &&
+		_vm->_game.cycleInnerLoopType == CYCLE_INNERLOOP_GETSTRING;
+	if (composerHere && hangulEditKey(newKey, _inputString, _inputStringCursorPos, _inputStringMaxLen)) {
+		stringRememberForAutoComplete();
+		inputEditOff();
+		return;
+	}
+	hangulEndRun(_inputString, _inputStringCursorPos);
 
 	switch (newKey) {
 	case 0x3:       // ctrl-c

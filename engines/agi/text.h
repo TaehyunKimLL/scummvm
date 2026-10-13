@@ -24,6 +24,8 @@
 
 #include "common/str.h"
 
+#include "agi/hangulline.h"
+
 namespace Agi {
 
 struct TextPos_Struct {
@@ -210,6 +212,31 @@ public:
 	int16 _inputStringCursorPos;
 	uint32 _inputString[42];
 	bool _inputStringAscii; // D8: the save name takes ASCII only
+
+	// Korean typing (UTF-8 text mode). agi_hangul_input puts up the KO/EN
+	// badge (D10); the built-in composer and Han/Yeong also need
+	// agi_hangul_builtin (default true). agi_hangul_start is the first mode.
+	bool _hangulInput; // composer and Han/Yeong
+	bool _hangulBadge; // the badge is up
+	bool _hangulMode;  // Korean (true) or English
+	HangulLine _hangulLine;
+	Graphics::KoreanInputIndicator _badge;
+	bool hangulInputAvailable() const { return _hangulInput; }
+	bool hangulMode() const { return _hangulMode; }
+	uint32 hangulPreedit() const { return (_hangulInput && _hangulMode) ? _hangulLine.preedit() : 0; }
+	void hangulToggle();
+	/** Badge for the current mode; English while the save name is edited (D8). */
+	void hangulUpdateBadge();
+	/** Redraw cells[from..newLen) after erasing back from oldLen; the preedit cell inverted. */
+	void redrawInputTail(const uint32 *cells, int16 oldLen, int16 from, int16 newLen);
+	/** End a syllable run on @p cells, redrawing its last cell plainly. */
+	void hangulEndRun(const uint32 *cells, int16 len);
+	/**
+	 * The composer's share of an edit line (the prompt, get.string): a jamo
+	 * key edits the syllable run at the end of @p cells, a backspace edits it
+	 * first while one is being composed. True when @p newKey was consumed.
+	 */
+	bool hangulEditKey(int newKey, uint32 *cells, int16 &cursorPos, int16 maxCells);
 
 	bool stringWasEntered();
 	void stringPos_Get(int16 &row, int16 &column);
