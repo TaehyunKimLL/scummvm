@@ -403,6 +403,12 @@ int AgiEngine::loadGame(const Common::String &fileName, bool checkId) {
 	if (saveVersion > SAVEGAME_CURRENT_VERSION)
 		error("Saved game was created with a newer version of ScummVM. Unable to load.");
 
+	if (saveVersion >= 12 && !textIsUtf8()) {
+		warning("Saved game %s was made in UTF-8 text mode (translated game); it cannot be loaded in an English session", fileName.c_str());
+		delete in;
+		return errBadFileOpen;
+	}
+
 	if (saveVersion >= 4) {
 		// We don't need the thumbnail here, so just read it and discard it
 		Graphics::skipThumbnail(*in);
@@ -588,9 +594,12 @@ int AgiEngine::loadGame(const Common::String &fileName, bool checkId) {
 		}
 	} else {
 		for (i = 0; i < MAX_STRINGS; i++) {
+			memset(_game.strings[i], 0, MAX_STRINGBYTES);
 			in->read(_game.strings[i], MAX_STRINGLEN);
 			_game.strings[i][MAX_STRINGLEN - 1] = 0;
 		}
+		if (textIsUtf8())
+			convertLegacyStrings(&_game.strings[0][0], MAX_STRINGBYTES, MAX_STRINGS, MAX_STRINGLEN - 1);
 	}
 
 	for (i = 0; i < MAX_DIRECTORY_ENTRIES; i++) {
@@ -926,6 +935,13 @@ bool AgiEngine::getSavegameInformation(int16 slotId, Common::String &saveDescrip
 			warning("save from a future ScummVM, not supported");
 			delete in;
 			saveDescription += "[ScummVM: not supported]";
+			return true;
+		}
+
+		if (saveVersion >= 12 && !textIsUtf8()) {
+			warning("save made in UTF-8 text mode, not loadable in an English session");
+			delete in;
+			saveDescription += "[needs Korean text mode]";
 			return true;
 		}
 
