@@ -39,7 +39,7 @@ JSET block, little-endian:
 ```
 4  "JSET"
 2  version (1)
-1  LC  lead classes   (1..4)      2  TC  tail classes (1..4)
+1  LC  lead classes   (1..4)      1  TC  tail classes (1..4)
 1  NI  initial sets   (1..16)     1  NM  medial sets  (1..16)     1  NF final sets (1..16)
 1  advance            syllable advance in px; 0 = the cell width
 19 leadClass[19]      class of each initial (ㄱ..ㅎ), < LC

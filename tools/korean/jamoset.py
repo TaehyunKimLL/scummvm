@@ -47,6 +47,7 @@ HEADER = "<4sHHBBHHBBBBHIII"
 HEADER_V2 = 36
 FLAG_VARIABLE = 1 << 0
 FLAG_JAMO = 1 << 1
+FLAG_MARKS_AT_ORIGIN = 1 << 2
 SHADOW_NONE = 0xFF
 CODEPAGE = 949
 PIECE_BASE = 0xF0000
@@ -71,7 +72,9 @@ HT_FCON2 = (0, 0, 5, 5, 5, 5, 5, 5, 0, 0, 5, 5, 5, 6, 8, 8, 0, 0, 8, 6, 7, 9, 9,
 HT_VBASE = (0, 0, 0, 311, 314, 317, 320, 323, 0, 0, 326, 329, 332, 335, 339, 343, 0, 0, 347, 351, 355, 358, 361, 364,
             0, 0, 367, 370, 374, 378)
 HT_VKIND = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0)
-HT_LMAP = (0, 0, 0, 0, 2, 0, 2, 1, 0, 0, 2, 1, 2, 3, 0, 0, 0, 0, 0, 3, 3, 1, 1, 1, 0, 0, 3, 3, 0, 1)
+# Final variant by medial value: the 8x4x4 final table F844 (research doc 3.4). kfont.py's HT_LMAP had 0 for
+# wae/oe/ui and 1 for we; the finals' stems in johabm16/p16/iyagi16 line up with the vowel stroke only with F844.
+HT_LMAP = (0, 0, 0, 0, 2, 0, 2, 1, 0, 0, 2, 1, 2, 3, 0, 2, 0, 0, 1, 3, 3, 1, 2, 1, 0, 0, 3, 3, 1, 1)
 # Dokkaebi printer fonts (dkb_fnt.py, from DP09/DP24/DP40/DP48.COM)
 P16_INIT0 = [0] * 8 + [1, 3, 3, 3, 1, 2, 3, 3, 3, 2, 1, 3, 0]
 P16_INIT1 = [4] * 8 + [5, 6, 6, 6, 5, 5, 6, 6, 6, 5, 5, 6, 4]
@@ -173,6 +176,14 @@ def open_raw844(d, face=0, path=""):
     return Source(px, px, 360, lambda i: g_rowmajor(d, off + i * gb, px, px))
 
 
+def open_ihnm(d, face=0, path=""):
+    """SAGA IHNM's 8x4x4: the 360 jamo glyphs (11,520 bytes, 16x16) may be followed by other glyphs, which are ignored."""
+    if len(d) < 360 * 32:
+        raise SourceError(f"size {len(d)} is shorter than the 11520 bytes of 360 16x16 jamo glyphs")
+    check_blank_slots(d, 0, 32, slots_of(8, 4, 4, 160, 248))
+    return Source(16, 16, 360, lambda i: g_rowmajor(d, i * 32, 16, 16))
+
+
 def open_1044(d, face=0, path=""):
     if len(d) != 12800:
         raise SourceError("10x4x4 san needs 12800 bytes")
@@ -228,12 +239,25 @@ def open_bdf_glyphs(d, face=0, path=""):
     ascent = int(asc.group(1)) if asc else bh + by0
     h = ascent + (int(desc.group(1)) if desc else -by0)
     chars = {}
-    for cm in re.finditer(r"ENCODING\s+(-?\d+).*?BBX\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+).*?BITMAP\s*\n(.*?)ENDCHAR",
-                          t, re.S):
-        enc, bw, bhh, bx, by = (int(cm.group(k)) for k in range(1, 6))
+    for block in t.split("STARTCHAR")[1:]:
+        block = block.split("ENDCHAR")[0]
+        enc = re.search(r"^ENCODING\s+(-?\d+)", block, re.M)
+        if not enc:
+            raise SourceError("BDF glyph without ENCODING")
+        enc = int(enc.group(1))
+        bbx = re.search(r"^BBX\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", block, re.M)
+        bm = re.search(r"^BITMAP[ \t]*\n(.*)", block, re.M | re.S)
+        if not bbx or not bm:
+            raise SourceError(f"BDF glyph {enc} has no BBX or BITMAP")
+        bw, bhh, bx, by = map(int, bbx.groups())
         nb = (bw + 7) // 8
-        rows = [int(line[:nb * 2], 16) >> (nb * 8 - bw) for line in cm.group(6).split()[:bhh]]
-        chars[enc] = (bw, bhh, bx, by, rows)
+        lines = bm.group(1).split()
+        if len(lines) < bhh or any(len(x) < nb * 2 for x in lines[:bhh]):
+            raise SourceError(f"BDF glyph {enc}: BITMAP has {len(lines)} of {bhh} rows")
+        chars[enc] = (bw, bhh, bx, by, [int(x[:nb * 2], 16) >> (nb * 8 - bw) for x in lines[:bhh]])
+    missing = [i for i in range(529) if i not in chars]
+    if missing:
+        raise SourceError(f"BDF lacks glyph ENCODING {missing[0]} of the 529 johab-1 glyphs ({len(missing)} missing)")
 
     def get(i):
         c = chars.get(i)
@@ -279,7 +303,7 @@ def _has_tail(T):
 
 def _844(name, flip):
     """8x4x4; flip=1 swaps the medial sets of initials g/k and the rest (IHNM)."""
-    return Layout(name, open_raw844, 2, 2, 8, 4, 4, _kk_class, _has_tail,
+    return Layout(name, open_ihnm if flip else open_raw844, 2, 2, 8, 4, 4, _kk_class, _has_tail,
                   lambda lc, v, tc: (I844_FIN if tc else I844_NOFIN)[v],
                   lambda lc, v, tc: (lc ^ flip) + 2 * tc,
                   lambda lc, v, tc: F844[v] if tc else 0,
@@ -548,7 +572,7 @@ def parse_svfn(data):
     return f
 
 
-def write_svfn(cell_w, cell_h, ascent, glyphs, jset):
+def write_svfn(cell_w, cell_h, ascent, glyphs, jset, extra_flags=0):
     """@p glyphs: [(cp, packed bytes, advance, ink_x, ink_w)]. Layout: header, code points, JSET, metrics, glyphs."""
     glyphs = list(glyphs)
     n = len(glyphs)
@@ -561,7 +585,7 @@ def write_svfn(cell_w, cell_h, ascent, glyphs, jset):
     cmap_off = HEADER_V2
     metrics_off = cmap_off + len(cmap) + len(jset)
     data_off = metrics_off + len(metrics)
-    head = struct.pack(HEADER, MAGIC, VERSION_CMAP, FLAG_VARIABLE | FLAG_JAMO, 1, SHADOW_NONE, CODEPAGE, n,
+    head = struct.pack(HEADER, MAGIC, VERSION_CMAP, FLAG_VARIABLE | FLAG_JAMO | extra_flags, 1, SHADOW_NONE, CODEPAGE, n,
                        cell_w, cell_h, min(255, ascent), 0, 0, metrics_off, data_off, len(data))
     return head + struct.pack("<I", cmap_off) + cmap + jset + metrics + data
 
@@ -598,6 +622,7 @@ def build(layout, data, face=0, eng=None, base=None, path=""):
     w, h = src.w, src.h
     ascent = max(1, round(h * 0.875))
     glyphs = {}
+    flags = 0
     for s in used:
         g = src.glyph(s)
         ix, iw = g.ink()
@@ -607,6 +632,7 @@ def build(layout, data, face=0, eng=None, base=None, path=""):
         if (b.bpp, b.cell_w, b.cell_h) != (1, w, h):
             raise SourceError(f"base is {b.cell_w}x{b.cell_h} {b.bpp} bpp, the pieces are {w}x{h} 1 bpp")
         ascent = b.ascent or ascent
+        flags |= b.flags & FLAG_MARKS_AT_ORIGIN
         for cp, gbytes in b.glyphs.items():
             if 0xAC00 <= cp <= 0xD7A3 or cp >= PIECE_BASE:
                 continue
@@ -618,7 +644,7 @@ def build(layout, data, face=0, eng=None, base=None, path=""):
             ix, iw = g.ink()
             glyphs[cp] = (g.to_bytes(), min(adv, w // 2) if w < 16 else adv, ix, iw)
     jset = pack(pieces)
-    out = write_svfn(w, h, ascent, [(cp, g[0], g[1], g[2], g[3]) for cp, g in sorted(glyphs.items())], jset)
+    out = write_svfn(w, h, ascent, [(cp, g[0], g[1], g[2], g[3]) for cp, g in sorted(glyphs.items())], jset, flags)
     return out, mapping, src
 
 

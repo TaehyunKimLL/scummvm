@@ -20,9 +20,26 @@ sys.path.insert(0, HERE)
 import jamoset  # noqa: E402
 import johab844  # noqa: E402
 
-JUNG_FIELD = jamoset.JUNG_FIELD
+# The reference tables are literals typed from the research doc / kfont.py / dkb_fnt.py, not imported from jamoset,
+# so a wrong entry in jamoset cannot also change the reference. Vowel order ㅏ ㅐ ㅑ ㅒ ㅓ ㅔ ㅕ ㅖ ㅗ ㅘ ㅙ ㅚ ㅛ ㅜ ㅝ ㅞ ㅟ ㅠ ㅡ ㅢ ㅣ.
 KK = (0, 15)
-I844_NOFIN, I844_FIN, F844 = jamoset.I844_NOFIN, jamoset.I844_FIN, jamoset.F844
+JUNG_FIELD = (3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21, 22, 23, 26, 27, 28, 29)
+I844_NOFIN = (0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 3, 3, 1, 2, 4, 4, 4, 2, 1, 3, 0)
+I844_FIN = (5, 5, 5, 5, 5, 5, 5, 5, 6, 7, 7, 7, 6, 6, 7, 7, 7, 6, 6, 7, 5)
+F844 = (0, 2, 0, 2, 1, 2, 1, 2, 3, 0, 2, 1, 3, 3, 1, 2, 1, 3, 3, 1, 1)
+R621_NOFIN = (0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 2, 2, 1, 1, 2, 2, 2, 1, 1, 2, 0)
+R621_FIN = (3, 3, 3, 3, 3, 3, 3, 3, 4, 5, 5, 5, 4, 4, 5, 5, 5, 4, 4, 5, 3)
+R_FCON1 = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 3, 0, 0, 3, 1, 2, 4, 4, 4, 0, 0, 2, 1, 3, 0)
+R_FCON2 = (0, 0, 5, 5, 5, 5, 5, 5, 0, 0, 5, 5, 5, 6, 8, 8, 0, 0, 8, 6, 7, 9, 9, 9, 0, 0, 7, 6, 8, 5)
+R_VBASE = (0, 0, 0, 311, 314, 317, 320, 323, 0, 0, 326, 329, 332, 335, 339, 343, 0, 0, 347, 351, 355, 358, 361, 364,
+           0, 0, 367, 370, 374, 378)
+R_VKIND = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0)
+# hanterm final variant by medial value: the 8x4x4 final table (research doc 3.4), measured on the real fonts (M1)
+R_LMAP = (0, 0, 0, 0, 2, 0, 2, 1, 0, 0, 2, 1, 2, 3, 0, 2, 0, 0, 1, 3, 3, 1, 2, 1, 0, 0, 3, 3, 1, 1)
+R_P16_INIT0 = (0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 3, 3, 1, 2, 3, 3, 3, 2, 1, 3, 0)
+R_P16_INIT1 = (4, 4, 4, 4, 4, 4, 4, 4, 5, 6, 6, 6, 5, 5, 6, 6, 6, 5, 5, 6, 4)
+R_P16_FIN = (0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0)
+R_P40 = (0, 1, 0, 1, 0, 1, 0, 1, 2, 4, 5, 4, 2, 3, 4, 5, 4, 3, 2, 4, 0)
 
 
 def lvt(cp):
@@ -51,7 +68,7 @@ def sel_1044(L, V, T):
 
 
 def sel_621(L, V, T):
-    out = [(jamoset.I621_FIN if T else jamoset.I621_NOFIN)[V] * 20 + L + 1, 120 + (22 if T else 0) + V + 1]
+    out = [(R621_FIN if T else R621_NOFIN)[V] * 20 + L + 1, 120 + (22 if T else 0) + V + 1]
     if T:
         out.append(164 + T)
     return out
@@ -74,29 +91,29 @@ HT_LKIND = (0, 0, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1,
 
 def sel_hanterm(L, V, T):
     f, m, l = johab_fields(L, V, T)
-    out = [f * 10 + (jamoset.HT_FCON2 if l > 1 else jamoset.HT_FCON1)[m] - 19]
-    ind = jamoset.HT_VBASE[m]
-    if jamoset.HT_VKIND[m] == 0:
+    out = [f * 10 + (R_FCON2 if l > 1 else R_FCON1)[m] - 19]
+    ind = R_VBASE[m]
+    if R_VKIND[m] == 0:
         ind += HT_LKIND[l]
     else:
         ind += (0 if f in (2, 17) else 1) + (2 if l > 1 else 0)
     out.append(ind)
     if l != 1:
-        out.append(l * 4 + jamoset.HT_LMAP[m] + (397 if l < 18 else 393))
+        out.append(l * 4 + R_LMAP[m] + (397 if l < 18 else 393))
     return out
 
 
 def sel_dkb16(L, V, T):
     f = T > 0
-    out = [(jamoset.P16_INIT1 if f else jamoset.P16_INIT0)[V] * 20 + L + 1, 140 + f * 22 + V + 1]
+    out = [(R_P16_INIT1 if f else R_P16_INIT0)[V] * 20 + L + 1, 140 + f * 22 + V + 1]
     if f:
-        out.append(184 + jamoset.P16_FIN[V] * 28 + T)
+        out.append(184 + R_P16_FIN[V] * 28 + T)
     return out
 
 
 def sel_dkb40(L, V, T):
     f = T > 0
-    out = [(jamoset.P40_CLASS[V] + 6 * f) * 20 + L + 1, 240 + (2 * f + (L not in KK)) * 22 + V + 1]
+    out = [(R_P40[V] + 6 * f) * 20 + L + 1, 240 + (2 * f + (L not in KK)) * 22 + V + 1]
     if f:
         out.append(328 + F844[V] * 28 + T)
     return out
@@ -116,7 +133,7 @@ HAND = {
     "621": ((1, 121), (61, 143, 165), (79, 143, 168), (52, 140), (108, 158, 173), (99, 161, 173)),
     "kyra-lok": ((1, 192), (2, 193, 277), (182, 195, 289), (117, 270), (80, 255, 311), (184, 267, 312)),
     # hanterm: han uses the nieun-final medial variant (2), the others variant 1.
-    "hanterm-johab": ((1, 311), (6, 312, 405), (186, 313, 417), (114, 375), (80, 362, 438), (187, 373, 440)),
+    "hanterm-johab": ((1, 311), (6, 312, 405), (186, 313, 417), (114, 375), (80, 362, 439), (187, 373, 440)),
     "dkb-printer-7x2x2": ((1, 141), (81, 163, 185), (99, 163, 188), (72, 160), (128, 178, 221), (119, 181, 221)),
     "dkb-printer-12x4x4": ((1, 241), (121, 285, 329), (139, 307, 332), (92, 282), (228, 322, 393), (179, 325, 421)),
 }
@@ -161,6 +178,33 @@ def make_bdf(seed=1):
         out.append("ENDCHAR")
     out.append("ENDFONT")
     return ("\n".join(out) + "\n").encode("latin-1")
+
+
+def raw_piece(name, data, i):
+    """Glyph i of a synthetic source as the SVFN 1bpp rows, read straight from the bytes (not through jamoset)."""
+    if name in ("844", "844-ihnm", "1044-san"):
+        return data[i * 32:(i + 1) * 32]
+    if name == "kyra-lok":			# 15 columns: two bytes a row, the 16th bit is padding (zero in make_source)
+        return data[i * 30:(i + 1) * 30]
+    if name == "dkb-printer-12x4x4":
+        return data[i * 200:(i + 1) * 200]
+    if name == "621":				# two columns of sixteen bytes
+        g = data[i * 32:(i + 1) * 32]
+        return bytes(b for y in range(16) for b in (g[y], g[16 + y]))
+    if name == "dkb-printer-7x2x2":		# sixteen columns of two bytes, MSB = top row
+        g = data[i * 32:(i + 1) * 32]
+        rows = [0] * 16
+        for c in range(16):
+            col = g[c * 2] << 8 | g[c * 2 + 1]
+            for r in range(16):
+                rows[r] |= (col >> (15 - r) & 1) << (15 - c)
+        return b"".join(r.to_bytes(2, "big") for r in rows)
+    if name == "hanterm-johab":			# the glyph's hex rows, top first (BBX 16 16 0 -2, ascent 14)
+        text = data.decode("latin-1")
+        at = text.index("ENCODING %d\n" % i)
+        rows = text[text.index("BITMAP\n", at) + 7:text.index("ENDCHAR", at)].split()
+        return b"".join(int(r, 16).to_bytes(2, "big") for r in rows)
+    raise KeyError(name)
 
 
 def source_for(name):
@@ -252,7 +296,7 @@ class WrittenFile(unittest.TestCase):
             for cp in range(0xAC00, 0xD7A4):
                 want = bytearray(((src.w + 7) // 8) * src.h)
                 for i in ref(*lvt(cp)):
-                    for k, b in enumerate(src.glyph(i).to_bytes()):
+                    for k, b in enumerate(raw_piece(name, data, i)):
                         want[k] |= b
                 self.assertEqual(jamoset.compose(f, t, cp), bytes(want), f"{name} U+{cp:04X}")
 
@@ -357,6 +401,73 @@ class JsetCodec(unittest.TestCase):
             with self.assertRaises(ValueError, msg=what) as cm:
                 jamoset.unpack(data)
             self.assertIn(what.split()[0], str(cm.exception))
+
+
+class ReviewFixes(unittest.TestCase):
+    def test_ihnm_accepts_trailing_glyphs_and_reads_the_first_360(self):
+        # SOL-1: the IHNM file is the 360 jamo glyphs and then other glyphs; only the jamo are read.
+        layout = jamoset.LAYOUTS["844-ihnm"]
+        base = make_source("844")
+        data = base + random.Random(9).randbytes(126 * 32)
+        self.assertEqual(len(data), 15552)
+        out, mapping, src = jamoset.build(layout, data)
+        out0, _, _ = jamoset.build(layout, base)
+        self.assertEqual(out, out0)
+        with self.assertRaises(jamoset.SourceError):
+            layout.opener(base[:-1], 0, "")
+        # the plain 8x4x4 layout keeps its exact-size whitelist
+        with self.assertRaises(jamoset.SourceError):
+            jamoset.LAYOUTS["844"].opener(data, 0, "")
+
+    def test_base_keeps_the_marks_at_origin_flag(self):
+        # SOL-2: flag bit 2 of the base survives, with the negative-bearing mark it governs.
+        mark = (0x0301, bytes([0x0F] * 32), 0, -3, 4)
+        for flags, want in ((1 | 4, 7), (1, 3)):
+            base = bytearray(jamoset.write_svfn(16, 16, 14, [mark], b""))
+            struct.pack_into("<H", base, 6, flags)
+            out, _, _ = jamoset.build(jamoset.LAYOUTS["844"], make_source("844"), base=bytes(base))
+            f = jamoset.parse_svfn(out)
+            self.assertEqual(f.flags, want)
+            self.assertEqual(f.metrics[0x0301], (0, -3, 4))
+            self.assertEqual(f.glyphs[0x0301], bytes([0x0F] * 32))
+
+    def test_bdf_without_a_required_encoding_is_refused(self):
+        text = make_bdf().decode("latin-1")
+        cut = text.replace("ENCODING 311\n", "ENCODING 9999\n")
+        self.assertNotEqual(cut, text)
+        with self.assertRaises(jamoset.SourceError) as cm:
+            jamoset.open_bdf_glyphs(cut.encode("latin-1"))
+        self.assertIn("311", str(cm.exception))
+        nolines = text.replace("ENCODING 311\n", "")
+        with self.assertRaises(jamoset.SourceError):
+            jamoset.open_bdf_glyphs(nolines.encode("latin-1"))
+
+    def test_bdf_with_a_truncated_bitmap_is_refused(self):
+        text = make_bdf().decode("latin-1")
+        start = text.index("ENCODING 311\n")
+        bm = text.index("BITMAP\n", start) + 7
+        first_row_end = text.index("\n", bm) + 1
+        cut = text[:first_row_end] + text[text.index("ENDCHAR", start):]
+        with self.assertRaises(jamoset.SourceError) as cm:
+            jamoset.open_bdf_glyphs(cut.encode("latin-1"))
+        self.assertIn("311", str(cm.exception))
+
+    def test_an_explicitly_present_blank_glyph_stays_valid(self):
+        src = jamoset.open_bdf_glyphs(make_bdf())
+        self.assertEqual(src.glyph(0).rows, [0] * 16)
+        self.assertEqual(src.count, 529)
+
+    def test_hanterm_final_variant_of_wae_oe_we_ui_follows_the_8x4x4_table(self):
+        # M1: the stems of the finals were measured against each vowel's stroke in the real johabm16/p16/iyagi16
+        # fonts: wae/we (stroke like ae/e) take variant 2, oe/ui (stroke like eo) variant 1.
+        t = jamoset.tables_for(jamoset.LAYOUTS["hanterm-johab"])
+        def fin(L, V, T):
+            return jamoset.pieces_of(t, 0xAC00 + (L * 21 + V) * 28 + T)[2]
+        # gwaen (L0 wae V10 T4 nieun), goen (V11), gwen (V15), gui (V19): final glyph 405 + 4*(T-1) + variant
+        self.assertEqual(fin(0, 10, 4), 405 + 12 + 2)
+        self.assertEqual(fin(0, 11, 4), 405 + 12 + 1)
+        self.assertEqual(fin(0, 15, 4), 405 + 12 + 2)
+        self.assertEqual(fin(0, 19, 4), 405 + 12 + 1)
 
 
 class CommandLine(unittest.TestCase):
