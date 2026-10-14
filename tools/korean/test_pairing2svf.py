@@ -171,6 +171,14 @@ class MapTest(unittest.TestCase):
         self.assertIn("width=2.25", s["shadow.4"])
         self.assertIn("offset=3", s["shadow.4"])
 
+    def test_an_undecorated_original_turns_the_decoration_off(self):
+        # DOTT cs4: the patch byte asks for an outline the 1bpp original never had
+        fonts = [{"id": "cs4", "lineh": 8, "korean": {"key": "a", "label": "a", "bpp": 1, "h": 16}}]
+        text = p2s.make_map("[map]\n[shadow]\nmode=game\n[font]\nface=ui\n", "G", fonts, {"a": "kp1"}, "auto",
+                            decorations={"cs4": {"none": True}})
+        s = {n: l for n, l in p2s.parse_sections(text) if n}
+        self.assertIn("mode=none", s["shadow.4"])
+
     def test_sci_fonts_get_no_shadow_section(self):
         text = p2s.make_map("[map]\n[font]\nface=ui\n", "LB1", [{"id": "300", "lineh": 12,
                             "korean": {"key": "a", "label": "a", "bpp": 1, "h": 24}}], {"a": "kp1"}, "off")

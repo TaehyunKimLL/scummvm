@@ -117,5 +117,17 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(deco.classify(list(faces["cs4"][1].values())), {"o": 1})
 
 
+class FaceTest(unittest.TestCase):
+    def test_a_1bpp_classic_face_has_none(self):
+        # DOTT cs4: one colour, and CharsetRendererClassic draws Latin text unshadowed
+        self.assertEqual(deco.face_decoration(1, {ord("A"): letter()}), {"none": True})
+
+    def test_a_2bpp_face_is_classified(self):
+        self.assertEqual(deco.face_decoration(2, {ord("A"): dropped(letter(), 1, 1)}), {"d": [1, 1]})
+
+    def test_a_2bpp_face_without_colour_2_has_none(self):
+        self.assertEqual(deco.face_decoration(2, {ord("A"): letter()}), {"none": True})
+
+
 if __name__ == "__main__":
     unittest.main()

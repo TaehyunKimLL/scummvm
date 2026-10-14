@@ -13,7 +13,9 @@ Each font is scored against models of where colour 2 should be:
 The model whose pixels best match colour 2 over the face's letters and digits
 (Jaccard index) is the face's decoration, in game pixels, the form
 pairing2svf.py and the font-pairing page read (see classify): a drop
-{"d": [dx, dy]}, an outline {"o": r}, or both {"o": r, "d": [dx, dy]}.
+{"d": [dx, dy]}, an outline {"o": r}, or both {"o": r, "d": [dx, dy]}. A face
+with no colour 2 (every 1bpp one) is {"none": true}: the classic renderer draws
+its Latin text undecorated, whatever the Korean patch byte says.
 
 Resources (CharsetRendererClassic, see scumm_fontmeasure notes in
 docs/johab/2026-10-14-font-pairing.md):
@@ -124,6 +126,8 @@ def classify(glyphs):
 
 
 def describe(d):
+    if d.get("none"):
+        return "none"
     if "o" in d and "d" in d:
         return "outline %d + drop %d,%d" % (d["o"], *d["d"])
     return "outline %d" % d["o"] if "o" in d else "drop %d,%d" % tuple(d["d"])
@@ -205,6 +209,17 @@ def read_game(kind, files):
     return read_v56(*files)
 
 
+def face_decoration(bpp, glyphs):
+    """A charset's decoration: classify() on a 2bpp face's letters; {"none": True}
+    for a face with no colour 2 - a 1bpp one, which CharsetRendererClassic draws
+    unshadowed (only the patch's double-byte glyphs get the patch byte's
+    decoration); None when colour 2 is there but no model explains it."""
+    rows = letters(glyphs)
+    if bpp != 2 or not any(v == 2 for g in rows for r in g for v in r):
+        return {"none": True}
+    return classify(rows)
+
+
 def letters(glyphs):
     return [rows for c, rows in glyphs.items() if chr(c).isalnum() and c < 0x80]
 
@@ -219,9 +234,7 @@ def measure(games=GAMES):
             continue
         row = {}
         for fid, (bpp, glyphs) in faces.items():
-            if bpp != 2:
-                continue
-            d = classify(letters(glyphs))
+            d = face_decoration(bpp, glyphs)
             if d:
                 row[fid] = d
         table[game] = dict(sorted(row.items(), key=lambda kv: int(kv[0][2:])))

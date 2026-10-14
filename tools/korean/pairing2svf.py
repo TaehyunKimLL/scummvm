@@ -270,7 +270,11 @@ def make_map(template_text, game, fonts, aliases, blend, decorations=None):
             shadow_secs.append(lines)
             continue
         # The mode is the original's, not the patch byte's (mode=game): DOTT's
-        # patch asks cs3 for an outline where the original drops a shadow.
+        # patch asks cs3 for an outline where the original drops a shadow, and
+        # cs4, a 1bpp face drawn plain, for an outline too.
+        if m.get("none"):
+            shadow_secs.append(lines + ["mode=none"])
+            continue
         lines.append("mode=" + ("stroke" if "o" in m and "d" in m else "outline" if "o" in m else "drop"))
         if "o" in m:
             lines.append(f"width={round(0.75 * m['o'] * mult * 4) / 4:g}")

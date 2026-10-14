@@ -128,9 +128,10 @@ python3 tools/korean/pairing2svf.py 선택.json --data <korean*.json 폴더> --o
 | MI2 cs7, Indy4 cs3·cs4 | 12–15 | 외곽선 1 + 그림자 (-1,+1) = 엔진의 stroke |
 | MI cs6, DOTT cs3·cs5 | 12–14 | 그림자 (1,1) |
 | DOTT cs6 | 28 | 그림자 (2,2) |
+| 1bpp 폰트 전부 (MI·Loom cs1·cs3, MI2 cs5, Indy4 cs1·cs5, DOTT cs1·cs4·cs7) | – | 없음 (classic 렌더러는 영문을 그림자 없이 그림) |
 
 한글 패치의 꾸밈 바이트(`mode=game`)는 원본과 다른 곳이 있다: DOTT cs3은 외곽선, cs5는 없음, cs6은 항목
-없음(없음). 그래서 `[shadow.N]`은 `mode=`를 원본대로 적는다.
+없음(없음), 1bpp인 cs4는 외곽선. 그래서 `[shadow.N]`은 `mode=`를 원본대로 적는다.
 
 엔진은 맵의 `[shadow]` 하나로 모든 charset을 같게 그렸다(2× 기준 외곽선 1.5 px, 그림자는 반 게임 px인 1 px — 지금은 1 게임 px인 2 px). 이 브랜치에서
 `[shadow.N]`(charset N 전용, 키마다 `[shadow]`로 대체)이 들어갔다 — `engines/scumm/HIRES_TEXT_DECORATIONS.md`
