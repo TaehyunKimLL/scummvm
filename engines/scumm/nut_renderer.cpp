@@ -510,6 +510,12 @@ int NutRenderer::draw2byte(byte *buffer, Common::Rect &clipRect, int x, int y, i
 	if (width <= 0 || height <= 0)
 		return 0;
 
+	// Wholly above or left of the clip: no row or column is drawn, and
+	// skipping to the first visible one would read past the glyph (a SMUSH
+	// subtitle may sit thousands of rows above). It still takes its step.
+	if (minY >= height || minX >= width)
+		return width + _spacing;
+
 	const byte *src = _vm->get2byteCharPtr(chr);
 
 	if (minY) {
