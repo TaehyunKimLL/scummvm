@@ -218,6 +218,8 @@ struct HiResShadowSpec {
 	bool offsetPair;
 	int offsetDx;
 	int offsetDy;
+	bool fill;                    ///< fill=on: a drop swept from the glyph to its offset
+	bool fillSet;
 	byte color;
 	bool colorSet;
 	/// Outline radius in quarters of an output pixel (width=1.5 is 6);
@@ -239,6 +241,7 @@ struct HiResShadowSpec {
 		mode = kHiResShadowGame; modeSet = false;
 		offset = -1; offsetSet = false;
 		offsetPair = false; offsetDx = offsetDy = 0;
+		fill = false; fillSet = false;
 		color = 0; colorSet = false;
 		widthQ = -1; widthSet = false;
 		style = kHiResOutlineRound; styleSet = false;

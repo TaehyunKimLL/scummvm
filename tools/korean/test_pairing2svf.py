@@ -141,7 +141,7 @@ class MapTest(unittest.TestCase):
         s = {n: l for n, l in p2s.parse_sections(text) if n}
         self.assertIn("width=3", s["shadow.3"])          # 0.75 x 2 x 2 x (30/30)
         self.assertIn("mode=outline", s["shadow.3"])
-        self.assertIn("offset=4", s["shadow.6"])         # 2 x 2 x (56/56)
+        self.assertIn("offset=4,4", s["shadow.6"])       # (2, 2) x 56/28
         self.assertIn("mode=drop", s["shadow.6"])        # a drop even where the patch byte says outline
         # cs1 has no measurement: the patch byte (mode=game) picks the mode, the
         # sizes still grow with the face - 16 px on an 8 px line is 2x
@@ -158,7 +158,7 @@ class MapTest(unittest.TestCase):
         s = {n: l for n, l in p2s.parse_sections(text) if n}
         self.assertIn("mode=stroke", s["shadow.3"])
         self.assertIn("width=1.5", s["shadow.3"])        # 0.75 x 2 x 1
-        self.assertIn("shadow=-2,2", s["shadow.3"])      # (-1, +1) game px x 2
+        self.assertIn("offset=-2,2", s["shadow.3"])      # (-1, +1) game px x 2
 
     def test_a_big_face_gets_its_multiple(self):
         # 36 px on a 12 px line is 3x: drop 1 game px -> 3, unmeasured outline 0.75 x 3
@@ -167,9 +167,19 @@ class MapTest(unittest.TestCase):
         text = p2s.make_map("[map]\n[shadow]\nmode=game\n[font]\nface=ui\n", "G", fonts, {"a": "kp1"}, "auto",
                             decorations={"cs3": {"d": [1, 1]}})
         s = {n: l for n, l in p2s.parse_sections(text) if n}
-        self.assertIn("offset=3", s["shadow.3"])
+        self.assertIn("offset=3,3", s["shadow.3"])
         self.assertIn("width=2.25", s["shadow.4"])
         self.assertIn("offset=3", s["shadow.4"])
+
+    def test_a_filled_drop_says_so(self):
+        # DOTT cs5: the drop fills right, below and the corner
+        fonts = [{"id": "cs5", "lineh": 12, "korean": {"key": "a", "label": "a", "bpp": 2, "h": 24}}]
+        text = p2s.make_map("[map]\n[shadow]\nmode=game\n[font]\nface=ui\n", "G", fonts, {"a": "kp1"}, "auto",
+                            decorations={"cs5": {"d": [1, 1], "fill": True}})
+        s = {n: l for n, l in p2s.parse_sections(text) if n}
+        self.assertIn("mode=drop", s["shadow.5"])
+        self.assertIn("offset=2,2", s["shadow.5"])
+        self.assertIn("fill=on", s["shadow.5"])
 
     def test_an_undecorated_original_turns_the_decoration_off(self):
         # DOTT cs4: the patch byte asks for an outline the 1bpp original never had

@@ -256,6 +256,8 @@ charset and fall back to them when unset; `[shadow.N:q]` > `[shadow.N]` >
 mode=outline        ; none | drop | outline | stroke | game (unchanged)
 color=0             ; decoration colour (unchanged)
 offset=1            ; shadow distance, and the width when width= is absent
+                    ; offset=dx,dy: a drop's / stroke copy's vector, both legs
+fill=off            ; on: a drop swept from the glyph to its offset
 width=1.5           ; outline radius, output pixels, to a quarter (0..8)
 style=round         ; round | square | legacy
 shadow=-1,1         ; a shadow of the outline, dx,dy output px; none = off

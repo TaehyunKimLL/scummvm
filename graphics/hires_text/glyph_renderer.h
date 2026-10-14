@@ -71,7 +71,7 @@ struct GlyphBitmap {
 struct GlyphStyle {
 	GlyphStyle() :
 		color(0), shadowColor(0), shadowMode(kHiResShadowNone), shadowOffset(1),
-		offsetPair(false), offsetDx(0), offsetDy(0),
+		offsetPair(false), offsetDx(0), offsetDy(0), shadowFill(false),
 		outlineQ(-1), outlineShape(kHiResOutlineRound),
 		shadowShiftSet(false), shadowDx(0), shadowDy(0),
 		shadowShiftColor(0), shadowShiftColorSet(false), shadowAlpha(255) {}
@@ -85,6 +85,9 @@ struct GlyphStyle {
 	bool offsetPair;
 	int offsetDx;
 	int offsetDy;
+	/// A drop swept from the glyph to its offset, every step drawn (DOTT
+	/// cs5's shadow fills right, below and the corner); a drop only.
+	bool shadowFill;
 
 	/// Outline radius in quarters of a destination pixel; -1 = shadowOffset.
 	int outlineQ;
@@ -126,7 +129,7 @@ struct GlyphPlanes {
  */
 struct GlyphDecoration {
 	GlyphDecoration() : outline(false), outlineQ(0), shape(kHiResOutlineRound), legacyTable(kHiResShadowNone),
-		step(1), shadow(false), shadowDx(0), shadowDy(0), shadowAlpha(255),
+		step(1), shadow(false), fill(false), shadowDx(0), shadowDy(0), shadowAlpha(255),
 		outlineColor(0), shadowColor(0) {}
 
 	bool outline;                   ///< the glyph is dilated
@@ -135,6 +138,7 @@ struct GlyphDecoration {
 	HiResShadowMode legacyTable;    ///< for kHiResOutlineLegacy: which mode's table
 	int step;                       ///< for kHiResOutlineLegacy: the table's scale
 	bool shadow;                    ///< a shifted copy of the outline (or of the glyph without one)
+	bool fill;                      ///< the shadow swept from (0, 0) to (shadowDx, shadowDy); no outline
 	int shadowDx;
 	int shadowDy;
 	byte shadowAlpha;

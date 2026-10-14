@@ -618,6 +618,7 @@ HiResShadowSpec HiResShadowSpec::overlaid(const HiResShadowSpec &over) const {
 		r.offset = over.offset; r.offsetSet = true;
 		r.offsetPair = over.offsetPair; r.offsetDx = over.offsetDx; r.offsetDy = over.offsetDy;
 	}
+	if (over.fillSet) { r.fill = over.fill; r.fillSet = true; }
 	if (over.colorSet) { r.color = over.color; r.colorSet = true; }
 	if (over.widthSet) { r.widthQ = over.widthQ; r.widthSet = true; }
 	if (over.styleSet) { r.style = over.style; r.styleSet = true; }
@@ -860,7 +861,7 @@ bool classifyFontKey(const Common::String &key, uint32 &flag) {
 
 bool classifyShadowKey(const Common::String &key, uint32 &flag) {
 	static const char *const kKeys[] = {
-		"mode", "offset", "color", "width", "style", "shadow", "shadow_color", "shadow_alpha"
+		"mode", "offset", "fill", "color", "width", "style", "shadow", "shadow_color", "shadow_alpha"
 	};
 	for (uint i = 0; i < ARRAYSIZE(kKeys); ++i) {
 		if (key.equalsIgnoreCase(kKeys[i])) {
@@ -1621,6 +1622,15 @@ void buildShadowSection(const Common::INIFile &ini, const Common::Array<Common::
 		} else
 			hiResWarn(out, Common::String::format(
 				"%s: [%s] offset '%s' is invalid; ignoring it", kHiResMapName, section.c_str(), value.c_str()));
+	}
+	if (getKey(ini, qualifiers, section.c_str(), "fill", value)) {
+		if (value.equalsIgnoreCase("on"))
+			{ spec.fill = true; spec.fillSet = true; }
+		else if (value.equalsIgnoreCase("off"))
+			{ spec.fill = false; spec.fillSet = true; }
+		else
+			hiResWarn(out, Common::String::format(
+				"%s: [%s] fill '%s' is not on or off; ignoring it", kHiResMapName, section.c_str(), value.c_str()));
 	}
 	if (getKey(ini, qualifiers, section.c_str(), "color", value)) {
 		int color;

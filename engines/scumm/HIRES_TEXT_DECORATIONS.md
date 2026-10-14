@@ -57,6 +57,8 @@ both - the renderer.
 [shadow]
 mode=outline     ; none | drop | outline | stroke | game
 offset=2         ; shadow distance; the outline width too when width= is absent
+                 ; offset=dx,dy: a drop's (or a stroke copy's) vector, both legs
+fill=off         ; on: a drop swept from the glyph to its offset (DOTT cs5)
 color=8          ; palette index of the decoration
 width=1.5        ; outline radius in output pixels (C19), to a quarter
 style=round      ; round | square | legacy (the old binary tables)
@@ -83,6 +85,12 @@ the value (`HIRES_TEXT_SETUP.md`, "The map file", has the exact rule).
   In a game with no such font the byte is unset and draws nothing. v7 keeps
   no decoration.
 - `drop` has no outline, `outline` has no shadow, `stroke` has both.
+- A single `offset=n` moves a drop by (n, n) and a stroke's copy by (-n, +n);
+  `offset=dx,dy` gives the vector, which then also replaces the stroke's own
+  direction. The longer leg is the outline width when `width=` is absent.
+  `fill=on` draws every step from the glyph to that vector (the glyph dilated
+  by the box between them), as DOTT's cs5 fills right, below and the corner;
+  it applies to `drop` only.
 - Every length is in **output** pixels, so it scales with `[hires] scale`;
   the defaults follow the scale.
 - `style=legacy` gives the look from before C19: binary, the old offset
@@ -114,14 +122,16 @@ decoration; each face scored against drop and per-side outline models), kept in
 |---|---|---|---|
 | MI1/MI2/Loom cs2, cs4, MI2 cs8, Indy4 cs2, DOTT cs2 | 8-15 | outline 1 | 2 px |
 | MI2 cs7, Indy4 cs3, cs4 | 12-15 | outline 1 + drop (-1,+1): a stroke | 2 px, shadow -2,2 |
-| MI cs6, DOTT cs3, cs5 | 12-14 | drop (1,1) | 2,2 px |
+| MI cs6, DOTT cs3 | 12-14 | drop (1,1) | 2,2 px |
+| DOTT cs5 | 12 | filled drop (1,1): right, below and the corner | 2,2 px, fill=on |
 | DOTT cs6 | 28 | drop (2,2) | 4,4 px |
 | every 1bpp face (MI/Loom cs1, cs3, MI2 cs5, Indy4 cs1, cs5, DOTT cs1, cs4, cs7) | - | none: the classic renderer draws Latin text unshadowed | none |
 
 `tools/korean/pairing2svf.py` writes a `[shadow.N]` for every SCUMM charset it
 pairs, grown to the Korean face by its multiple m = face height / original
 line height (2 for a face twice the line): `width` = 0.75 x reach x m in
-quarter pixels, `offset` = drop x m, a stroke's `shadow` = (dx, dy) x m. A
+quarter pixels, `offset` = (dx, dy) x m for a drop or a stroke's copy, and
+`fill=on` for a filled drop. A
 measured charset also gets the original's `mode` - not the patch byte's,
 which asks DOTT cs3 for an outline, cs5 for nothing and the 1bpp cs4 for an
 outline (`mode=none` there). Any other charset
@@ -135,10 +145,14 @@ mode=game
 [shadow.3]        ; Indy4 cs3: outline plus a lower-left copy
 mode=stroke
 width=1.5
-shadow=-2,2
+offset=-2,2
+[shadow.5]        ; DOTT cs5: a filled (1,1) drop at 2x
+mode=drop
+offset=2,2
+fill=on
 [shadow.6]        ; DOTT cs6: a (2,2) drop at 2x
 mode=drop
-offset=4
+offset=4,4
 ```
 
 ## Trap 1: the stroke colour is platform-specific

@@ -79,6 +79,7 @@ GlyphDecoration HiResGlyphRenderer::decorationFor(const GlyphStyle &style) {
 		d.shadowDx = style.offsetPair ? style.offsetDx : offset;
 		d.shadowDy = style.offsetPair ? style.offsetDy : offset;
 		d.shadow = (d.shadowDx || d.shadowDy);
+		d.fill = d.shadow && style.shadowFill;
 		break;
 	case kHiResShadowOutline:
 	case kHiResShadowStroke:
@@ -118,6 +119,7 @@ void HiResGlyphRenderer::applyShadow(GlyphStyle &style, const HiResShadowSpec &s
 	// One game pixel, as the legacy fonts' shadows were: the distance grows
 	// with the scale as the outline width does.
 	style.shadowOffset = (spec.offset >= 0) ? MAX(1, spec.offset) : scale;
+	style.shadowFill = spec.fill;
 	style.offsetPair = spec.offsetPair;
 	style.offsetDx = spec.offsetDx;
 	style.offsetDy = spec.offsetDy;
@@ -235,6 +237,32 @@ static const DilationKernel &cachedKernel(int q, HiResOutlineShape shape, HiResS
 		key[1] = (int)shape;
 		key[2] = (int)table;
 		key[3] = step;
+	}
+	return kernel;
+}
+
+/**
+ * The pen of a filled drop: every point of the box from (0, 0) to (dx, dy),
+ * so the glyph dilated by it is the glyph swept along its shadow's offset.
+ */
+static const DilationKernel &cachedFillKernel(int dx, int dy) {
+	static DilationKernel kernel;
+	static int key[2] = { 0, 0 };
+	if (!kernel.taps || key[0] != dx || key[1] != dy) {
+		kernel.taps = 0;
+		kernel.reach = MAX(ABS(dx), ABS(dy));
+		for (int y = MIN(0, dy); y <= MAX(0, dy); ++y)
+			for (int x = MIN(0, dx); x <= MAX(0, dx); ++x) {
+				if (kernel.taps >= DilationKernel::kMaxTaps)
+					continue;
+				kernel.dx[kernel.taps] = x;
+				kernel.dy[kernel.taps] = y;
+				kernel.k[kernel.taps] = 255;
+				kernel.w[kernel.taps] = 255;
+				++kernel.taps;
+			}
+		key[0] = dx;
+		key[1] = dy;
 	}
 	return kernel;
 }
@@ -394,8 +422,12 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 	// rim for an antialiased outline of any width. A shadow is that alpha
 	// moved; the drop shadow moves the glyph itself.
 	if (deco.outline || deco.shadow) {
+		// A filled drop is the glyph swept to its offset: the mask is already
+		// where the shadow goes, and is drawn unmoved.
+		const bool fill = deco.fill && !deco.outline;
 		const DilationKernel &kernel = deco.outline
 			? cachedKernel(deco.outlineQ, deco.shape, deco.legacyTable, deco.step)
+			: fill ? cachedFillKernel(deco.shadowDx, deco.shadowDy)
 			: cachedKernel(0, kHiResOutlineSquare, kHiResShadowOutline, 1);   // the glyph itself: one tap
 
 		const int pad = kernel.reach;
@@ -414,8 +446,8 @@ bool HiResGlyphRenderer::drawGlyph(const GlyphPlanes &planes, const GlyphBitmap 
 			dilate(glyph, kernel, alpha, 0);
 
 		// The area both layers can reach: the mask, and the mask moved.
-		const int sdx = deco.shadow ? deco.shadowDx : 0;
-		const int sdy = deco.shadow ? deco.shadowDy : 0;
+		const int sdx = (deco.shadow && !fill) ? deco.shadowDx : 0;
+		const int sdy = (deco.shadow && !fill) ? deco.shadowDy : 0;
 		const int left = MIN(0, sdx), top = MIN(0, sdy);
 		const int right = mw + MAX(0, sdx), bottom = mh + MAX(0, sdy);
 

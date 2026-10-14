@@ -104,7 +104,9 @@ def scores(glyphs):
 def classify(glyphs):
     """The face's decoration in game px, or None when it has no colour 2 or no
     model explains it (score below MIN_SCORE):
-      {"d": [dx, dy]}               a drop (shifted, or a box grown one way);
+      {"d": [dx, dy]}               a drop: the letter shifted;
+      {"d": [dx, dy], "fill": true} a filled drop: the letter swept to the shift
+                                    (a box grown one way, DOTT cs5);
       {"o": r}                      an outline r px on every side;
       {"o": r, "d": [dx, dy]}       an outline r plus a drop - a box thicker on
                                     two sides, as Indy4 cs3's (-1, +1): the
@@ -121,7 +123,7 @@ def classify(glyphs):
     m = min(arg)
     drop = [right - left, down - up]
     if not m:
-        return {"d": drop}
+        return {"d": drop, "fill": True}
     return {"o": m, "d": drop} if any(drop) else {"o": m}
 
 
@@ -130,6 +132,8 @@ def describe(d):
         return "none"
     if "o" in d and "d" in d:
         return "outline %d + drop %d,%d" % (d["o"], *d["d"])
+    if d.get("fill"):
+        return "filled drop %d,%d" % tuple(d["d"])
     return "outline %d" % d["o"] if "o" in d else "drop %d,%d" % tuple(d["d"])
 
 

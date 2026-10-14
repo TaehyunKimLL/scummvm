@@ -68,10 +68,10 @@ class ClassifyTest(unittest.TestCase):
         g = outlined(letter(), 0, box=(2, 1, 1, 2))
         self.assertEqual(deco.classify([g] * 5), {"o": 1, "d": [-1, 1]})
 
-    def test_a_filled_drop_is_a_drop(self):
+    def test_a_filled_drop_is_a_drop_with_fill(self):
         # DOTT cs5: colour 2 fills right, below and the corner
         g = outlined(letter(), 0, box=(0, 0, 1, 1))
-        self.assertEqual(deco.classify([g] * 5), {"d": [1, 1]})
+        self.assertEqual(deco.classify([g] * 5), {"d": [1, 1], "fill": True})
 
     def test_no_colour_2_is_no_decoration(self):
         self.assertIsNone(deco.classify([letter()] * 5))

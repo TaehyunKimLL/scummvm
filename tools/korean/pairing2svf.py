@@ -278,11 +278,12 @@ def make_map(template_text, game, fonts, aliases, blend, decorations=None):
         lines.append("mode=" + ("stroke" if "o" in m and "d" in m else "outline" if "o" in m else "drop"))
         if "o" in m:
             lines.append(f"width={round(0.75 * m['o'] * mult * 4) / 4:g}")
-            if "d" in m:
-                dx, dy = (round(v * mult) for v in m["d"])
-                lines.append(f"shadow={dx},{dy}")
-        else:
-            lines.append(f"offset={max(1, round(max(map(abs, m['d'])) * mult))}")
+        if "d" in m:
+            # Both legs: a drop's, or a stroke's copy's (offset=dx,dy).
+            dx, dy = (round(v * mult) for v in m["d"])
+            lines.append(f"offset={dx},{dy}")
+            if m.get("fill"):
+                lines.append("fill=on")
         shadow_secs.append(lines)
 
     fonts_sec = ["[fonts]"] + [f"{a}={svf_name(k)}" for k, a in aliases.items()] + \

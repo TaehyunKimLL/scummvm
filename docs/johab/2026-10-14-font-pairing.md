@@ -108,8 +108,8 @@ python3 tools/korean/pairing2svf.py 선택.json --data <korean*.json 폴더> --o
 - **대체 사슬.** `face=kpN,<예전 폰트>,cjk` — 고른 폰트에 없는 기호는 예전 폰트(폰트 팩 SVF, KS X 1001 기호
   전부)가, 그것도 없으면 바이너리의 `fonts-cjk.dat` Noto Sans KR(FreeType 빌드만)이 그린다.
 - **꾸밈 크기.** SCUMM charset마다 `[shadow.N]`을 쓴다. 배수 m = 한글 높이 / 원래 줄 높이(2×면 2).
-  외곽선 `width = 0.75 × 원래 폭 × m`(0.25 단위), 그림자 `offset = 원래 이동 × m`, 외곽선+그림자는
-  `mode=stroke`에 `shadow = (dx, dy) × m`. `original-decoration.json`에 있는 폰트는 `mode=`도 원본대로,
+  외곽선 `width = 0.75 × 원래 폭 × m`(0.25 단위), 그림자(외곽선+그림자의 사본도) `offset = dx,dy`
+  (원래 이동 × m, 두 축 모두), 채움 그림자는 `fill=on`. `original-decoration.json`에 있는 폰트는 `mode=`도 원본대로,
   없는 폰트는 `mode=game`(패치 바이트)에 원래 1 게임 px의 크기(`width = 0.75 × m`, `offset = m`).
   엔진 기본값은 렌더 배율만 따라(2×에서 외곽선 1.5 px, 그림자 2 px) 줄의 2배보다 큰 폰트에서 작다. 페이지의 "원본 비례"와 같은 식.
 - 출력 `<out>/<게임>/`에 맵과 SVF, `<out>/MANIFEST.md`에 대응표. 게임에서는 `hires_text_map=HIRESKP.MAP`
@@ -126,7 +126,8 @@ python3 tools/korean/pairing2svf.py 선택.json --data <korean*.json 폴더> --o
 |---|---|---|
 | MI1/MI2/Loom cs2·cs4, MI2 cs8, Indy4 cs2, DOTT cs2 | 8–15 | 외곽선 1 |
 | MI2 cs7, Indy4 cs3·cs4 | 12–15 | 외곽선 1 + 그림자 (-1,+1) = 엔진의 stroke |
-| MI cs6, DOTT cs3·cs5 | 12–14 | 그림자 (1,1) |
+| MI cs6, DOTT cs3 | 12–14 | 그림자 (1,1) |
+| DOTT cs5 | 12 | 채움 그림자 (1,1): 오른쪽·아래·모서리 |
 | DOTT cs6 | 28 | 그림자 (2,2) |
 | 1bpp 폰트 전부 (MI·Loom cs1·cs3, MI2 cs5, Indy4 cs1·cs5, DOTT cs1·cs4·cs7) | – | 없음 (classic 렌더러는 영문을 그림자 없이 그림) |
 

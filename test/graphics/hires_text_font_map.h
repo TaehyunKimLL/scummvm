@@ -825,6 +825,16 @@ public:
 		TS_ASSERT_EQUALS(s0.offset, 2);
 	}
 
+	void test_shadow_fill() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[shadow.5]\nmode=drop\noffset=2\nfill=on\n[shadow.6]\nfill=maybe\n", m));
+		TS_ASSERT(m.shadowFor(5).fillSet);
+		TS_ASSERT(m.shadowFor(5).fill);
+		TS_ASSERT(!m.shadowFor(0).fill);
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [shadow.6] fill 'maybe' is not on or off; ignoring it"));
+		TS_ASSERT(!m.shadowFor(6).fillSet);
+	}
+
 	void test_shadow_offset_bad_pair_warns() {
 		Graphics::HiResMap m;
 		TS_ASSERT(load("[map]\nversion=2\n[shadow.3]\noffset=1,x\n", m));

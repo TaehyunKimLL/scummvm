@@ -357,6 +357,55 @@ public:
 		dest.free();
 	}
 
+	/// fill: the drop is swept from the glyph to its offset, every step drawn.
+	void test_filled_drop_sweeps_to_its_offset() {
+		Common::Array<byte> bytes = makeFont(8, 1, 2, 2);
+		setPixel8(bytes, 0, 2, 2, 0, 0, 0xFF);
+
+		Graphics::HiResBitmapFont font;
+		TS_ASSERT(loadFont(font, bytes));
+
+		Graphics::Surface dest;
+		dest.create(8, 8, Graphics::PixelFormat::createFormatCLUT8());
+
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		style.shadowMode = Graphics::kHiResShadowDrop;
+		style.shadowOffset = 2;
+		style.shadowFill = true;
+
+		TS_ASSERT(Graphics::HiResGlyphRenderer::drawGlyph(dest, nullptr, font, 0, 2, 2, style));
+
+		TS_ASSERT_EQUALS(at(dest, 2, 2), 7);   // the glyph
+		for (int y = 2; y <= 4; ++y)
+			for (int x = 2; x <= 4; ++x)
+				if (x != 2 || y != 2)
+					TS_ASSERT_EQUALS(at(dest, x, y), 1);
+		TS_ASSERT_EQUALS(inkCount(dest), 9);
+		TS_ASSERT_EQUALS(at(dest, 1, 1), 0);   // nothing up or left
+
+		dest.free();
+	}
+
+	/// fill with offset=dx,dy sweeps that way; a stroke ignores fill.
+	void test_filled_drop_follows_an_offset_pair() {
+		Graphics::GlyphStyle style;
+		style.shadowMode = Graphics::kHiResShadowDrop;
+		style.shadowFill = true;
+		style.offsetPair = true;
+		style.offsetDx = -1;
+		style.offsetDy = 2;
+		Graphics::GlyphDecoration d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(d.shadow);
+		TS_ASSERT(d.fill);
+		TS_ASSERT_EQUALS(d.shadowDx, -1);
+		TS_ASSERT_EQUALS(d.shadowDy, 2);
+		style.shadowMode = Graphics::kHiResShadowStroke;
+		d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(!d.fill);
+	}
+
 	void test_outline_surrounds_the_glyph() {
 		Common::Array<byte> bytes = makeFont(8, 1, 1, 1);
 		setPixel8(bytes, 0, 1, 1, 0, 0, 0xFF);
