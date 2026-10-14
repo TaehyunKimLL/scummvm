@@ -117,11 +117,15 @@ decoration; each face scored against drop and per-side outline models), kept in
 | MI cs6, DOTT cs3, cs5 | 12-14 | drop (1,1) | 2,2 px |
 | DOTT cs6 | 28 | drop (2,2) | 4,4 px |
 
-`tools/korean/pairing2svf.py` writes these for the charsets it pairs, grown to
-the Korean face (ratio = face height / (2 x line height)): `mode` the
-original's - not the patch byte's, which asks DOTT cs3 for an outline and cs5
-for nothing - `width` = 0.75 x 2 x reach x ratio in quarter pixels, `offset`
-the drop likewise, and a stroke's `shadow` = 2 x (dx, dy) x ratio.
+`tools/korean/pairing2svf.py` writes a `[shadow.N]` for every SCUMM charset it
+pairs, grown to the Korean face by its multiple m = face height / original
+line height (2 for a face twice the line): `width` = 0.75 x reach x m in
+quarter pixels, `offset` = drop x m, a stroke's `shadow` = (dx, dy) x m. A
+measured charset also gets the original's `mode` - not the patch byte's,
+which asks DOTT cs3 for an outline and cs5 for nothing. Any other charset
+keeps `mode=game` with the sizes of a 1 game px decoration at m: the built-in
+sizes follow the render scale alone (a 1 px drop at 2x, half the original's
+game pixel), too small on a large face.
 
 ```ini
 [shadow]          ; every charset

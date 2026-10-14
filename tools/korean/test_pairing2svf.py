@@ -143,7 +143,9 @@ class MapTest(unittest.TestCase):
         self.assertIn("mode=outline", s["shadow.3"])
         self.assertIn("offset=4", s["shadow.6"])         # 2 x 2 x (56/56)
         self.assertIn("mode=drop", s["shadow.6"])        # a drop even where the patch byte says outline
-        self.assertNotIn("shadow.1", s)
+        # cs1 has no measurement: the patch byte (mode=game) picks the mode, the
+        # sizes still grow with the face - 16 px on an 8 px line is 2x
+        self.assertEqual([l for l in s["shadow.1"][1:] if l and not l.startswith(";")], ["width=1.5", "offset=2"])
         self.assertIn("mode=game", s["shadow"])
         names = [n for n, _ in p2s.parse_sections(text) if n]
         self.assertGreater(names.index("shadow.3"), names.index("fonts"))
@@ -157,6 +159,22 @@ class MapTest(unittest.TestCase):
         self.assertIn("mode=stroke", s["shadow.3"])
         self.assertIn("width=1.5", s["shadow.3"])        # 0.75 x 2 x 1
         self.assertIn("shadow=-2,2", s["shadow.3"])      # (-1, +1) game px x 2
+
+    def test_a_big_face_gets_its_multiple(self):
+        # 36 px on a 12 px line is 3x: drop 1 game px -> 3, unmeasured outline 0.75 x 3
+        fonts = [{"id": "cs3", "lineh": 12, "korean": {"key": "a", "label": "a", "bpp": 2, "h": 36}},
+                 {"id": "cs4", "lineh": 12, "korean": {"key": "a", "label": "a", "bpp": 1, "h": 36}}]
+        text = p2s.make_map("[map]\n[shadow]\nmode=game\n[font]\nface=ui\n", "G", fonts, {"a": "kp1"}, "auto",
+                            decorations={"cs3": {"d": [1, 1]}})
+        s = {n: l for n, l in p2s.parse_sections(text) if n}
+        self.assertIn("offset=3", s["shadow.3"])
+        self.assertIn("width=2.25", s["shadow.4"])
+        self.assertIn("offset=3", s["shadow.4"])
+
+    def test_sci_fonts_get_no_shadow_section(self):
+        text = p2s.make_map("[map]\n[font]\nface=ui\n", "LB1", [{"id": "300", "lineh": 12,
+                            "korean": {"key": "a", "label": "a", "bpp": 1, "h": 24}}], {"a": "kp1"}, "off")
+        self.assertNotIn("shadow.300", [n for n, _ in p2s.parse_sections(text)])
 
 
 if __name__ == "__main__":

@@ -107,10 +107,11 @@ python3 tools/korean/pairing2svf.py 선택.json --data <korean*.json 폴더> --o
   고른 폰트를 넣는다. 렌더 대상별 구역(`[fonts:clut8]` 등)은 버리고, 2bpp가 있으면 `blend=auto`.
 - **대체 사슬.** `face=kpN,<예전 폰트>,cjk` — 고른 폰트에 없는 기호는 예전 폰트(폰트 팩 SVF, KS X 1001 기호
   전부)가, 그것도 없으면 바이너리의 `fonts-cjk.dat` Noto Sans KR(FreeType 빌드만)이 그린다.
-- **꾸밈 크기.** `tools/korean/scumm-fonts/original-decoration.json`(측정값)이 있는 SCUMM 폰트는
-  `[shadow.N]`을 쓴다: 외곽선 `width = 0.75 × 2 × 원래 폭 × (한글 높이 / (2 × 원래 줄 높이))`(0.25 단위),
-  그림자 `offset = 2 × 원래 이동 × 같은 비율`, 외곽선+그림자는 `mode=stroke`에 `shadow=2×dx,2×dy`(같은 비율).
-  `mode=`는 원본 꾸밈대로 쓴다. 페이지의 "원본 비례"와 같은 식.
+- **꾸밈 크기.** SCUMM charset마다 `[shadow.N]`을 쓴다. 배수 m = 한글 높이 / 원래 줄 높이(2×면 2).
+  외곽선 `width = 0.75 × 원래 폭 × m`(0.25 단위), 그림자 `offset = 원래 이동 × m`, 외곽선+그림자는
+  `mode=stroke`에 `shadow = (dx, dy) × m`. `original-decoration.json`에 있는 폰트는 `mode=`도 원본대로,
+  없는 폰트는 `mode=game`(패치 바이트)에 원래 1 게임 px의 크기(`width = 0.75 × m`, `offset = m`).
+  엔진 기본값은 렌더 배율만 따라(2×에서 그림자 1 px) 큰 폰트에서 너무 작다. 페이지의 "원본 비례"와 같은 식.
 - 출력 `<out>/<게임>/`에 맵과 SVF, `<out>/MANIFEST.md`에 대응표. 게임에서는 `hires_text_map=HIRESKP.MAP`
   (SCUMM은 `M1KP.MAP` 등).
 

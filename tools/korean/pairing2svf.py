@@ -250,27 +250,35 @@ def make_map(template_text, game, fonts, aliases, blend, decorations=None):
     if "render" in by_name:
         by_name["render"][1] = set_key(by_name["render"][1], "blend", blend)
 
-    # A charset whose original face has a measured outline or drop gets it
-    # back, grown to the Korean face: [shadow.N] over the map's [shadow].
+    # Every SCUMM charset's decoration grows with its face: the multiple is the
+    # Korean face height over the original line height (2 at the plain 2x), and
+    # outline width and drop offset are both that many times the original's game
+    # px. A charset whose original face has a measured decoration gets it back,
+    # mode and all; any other keeps mode=game (the patch byte) with the sizes the
+    # patch's 1 game px decoration would have at that multiple - the engine's own
+    # default is fixed by the render scale, 1 px of drop at 2x on any face.
     shadow_secs = []
     for f in fonts:
-        m = (decorations or {}).get(f["id"])
         n = font_section(f["id"])
-        if not m or not n:
+        if not n or not f["id"].startswith("cs"):
             continue
-        ratio = f["korean"].get("h", 0) / (2 * f.get("lineh", 0)) if f.get("lineh") else 1.0
+        mult = f["korean"].get("h", 0) / f["lineh"] if f.get("lineh") else 2.0
+        m = (decorations or {}).get(f["id"])
+        lines = [f"[shadow.{n.split('.')[1]}]"]
+        if not m:
+            lines += [f"width={round(0.75 * mult * 4) / 4:g}", f"offset={max(1, round(mult))}"]
+            shadow_secs.append(lines)
+            continue
         # The mode is the original's, not the patch byte's (mode=game): DOTT's
         # patch asks cs3 for an outline where the original drops a shadow.
-        lines = [f"[shadow.{n.split('.')[1]}]",
-                 "mode=" + ("stroke" if "o" in m and "d" in m else "outline" if "o" in m else "drop")]
+        lines.append("mode=" + ("stroke" if "o" in m and "d" in m else "outline" if "o" in m else "drop"))
         if "o" in m:
-            width = round(0.75 * 2 * m["o"] * ratio * 4) / 4
-            lines.append(f"width={width:g}")
+            lines.append(f"width={round(0.75 * m['o'] * mult * 4) / 4:g}")
             if "d" in m:
-                dx, dy = (round(2 * v * ratio) for v in m["d"])
+                dx, dy = (round(v * mult) for v in m["d"])
                 lines.append(f"shadow={dx},{dy}")
         else:
-            lines.append(f"offset={max(1, round(2 * max(map(abs, m['d'])) * ratio))}")
+            lines.append(f"offset={max(1, round(max(map(abs, m['d'])) * mult))}")
         shadow_secs.append(lines)
 
     fonts_sec = ["[fonts]"] + [f"{a}={svf_name(k)}" for k, a in aliases.items()] + \
