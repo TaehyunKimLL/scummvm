@@ -52,10 +52,15 @@
 | 4 영문 | raw 8×16 × 256 / 128 / 96, 8×14 × 128 | 8×16 | 256 / 128 / 96 | 4,096 / 2,048 / 1,536 / 1,792 B + 글자 모양 검사 | 예 (`open_eng`) | `dos/font-eng_SAN.ENG.png` |
 | 4 영문 | HBIOS 12×24 (셀 16×30), 태백 `*ASCII*.PFT`, HWP3 `ENG*.FNT`, TBM ASCII, Hanme `E`, DKBB.COM 데이터 | 6–24 | 128–269 | 크기/매직 | 예 | `os/PCDOS-HBIOS__KROHN24.FNT.png`, `dos/FONT_ENG16_0.FNT.png` |
 | – | HWP 2.0 HFT, HWP 3.0 "Han Unified Font File" HFT, VFT | ? | ? | 매직 | 아니오 | – |
-| – | HWP 1.x SFT/PFT 한글·기호 | 16, 24, 14×24 | 1,193 / 980 조각 등 | 매직 `HWP Font Editor v1.0` | 아니오 (한자 4,888만 예) | – |
+| 1 벌 | HWP 1.20 `HANGUL.SFT` / `HANGULn.PFT` | 16×16 / 24×24 (PFT 열 우선) | 3서체 × 31/29/31조각 벌: SFT 10/4/4·7/2/2·6/2/2 = 1,193, PFT 7/2/3·7/2/2·5/2/2 = 980 | 매직 `HWP Font Editor v1.0`(또는 `FE\x1a`) + 개수 | 예 (`open_hwp1_sft`, `hwp1_fnt.py`) | `printer/HANGUL.SFT.png`, `printer/HANGUL1.PFT.png` |
+| 4 영문 | HWP 1.20 `ASCII.SFT/PFT` | 8×16 / 14×24 | 109 + 6서체 × 147 | 같음, 개수 991 | 예 | `printer/ASCII.SFT.sheet.png` |
+| – | HWP 1.20 `SPECIAL1/2`, `JAPAN`, `USER1/2`, `SYSTEM` | 16×16, 8×16, 24×24, 14×24 | 95자 단위 세트 | 같음 | 글리프는 읽지만 Unicode 매핑 없음(HWP 1.x 고유 코드) | `printer/*.sheet.png` |
+| 1 벌 | Mac HangulTalk 1.0 `fbit` (Gotic12, Munjo12/16/24) | 12, 16, 24 | 45개 조각 세트, 68k `fdef` 표로 선택 | `.rsrc`에 `fbit`+`fdef` 리소스 | 예 (`open_mac`, `mac_kfont.py`) | `mac/kh10_Munjo16.png` |
+| 2 완성형 | Mac 7.5.3–8.6 FFIL `sfnt` + `bloc`/`bdat` 1비트 스트라이크 | 9–24 ppem | 2,350 + 한자 4,888 + 기호 (Mac 한국어 코드) | `.rsrc`에 `bloc`이 있는 `sfnt` | 예 (`open_mac`) | `mac/kh753_AppleMyungjo.png` |
+| – | Mac 7.1.x `Seoul12` fbit(세트 표 없음), 'JM' 압축 `splt` | 12, 24 | ? | – | 아니오 | `mac/kh712_Seoul12_fbit_raw_glyphs_index24.png`(원시 글리프) |
 | – | GSVIP GSF, Makkoya FNT/CSF, Hanme HFNT, Family Production FX4/5, KTH | ? | ? | 매직 | 아니오 | – |
 
-표본은 모두 450장이다(`samples/README.md`). 계열별 수는 `samples/PROGRESS.md`에 있다.
+표본은 모두 491장이다(이 생성기가 그린 450장 + `hwp1_fnt.py`가 그린 21장 + `mac_kfont.py`가 그린 20장)(`samples/README.md`). 계열별 수는 `samples/PROGRESS.md`에 있다.
 
 ---
 
@@ -223,7 +228,6 @@
 |---|---|---|---|
 | Iyagi `I.FNT`(LZEXE로 압축된 MZ) | 16,267 B | 사본을 `unlzexe`로 풀었다(53,772 B, 실행 안 함). 풀린 이미지 파일 오프셋 7,152부터 hanterm `iyagi16.bdf`(johab-1)의 글리프가 32 B 단위로 그대로 나온다(528개 중 430개 일치). 초성은 23칸 묶음의 set-major로 보인다(ㄱ=0, ㄲ=1 …, 다음 벌 +23) | 배치 일부만 확인, **UNVERIFIED**, 디코더 없음. 같은 글꼴은 `iyagi16.bdf`로 렌더됨 |
 | Iyagi `IKS.FNT`, `ICON.FNT` | 19,228 / 7,260 B | 풀었으나 iyagi16 글리프가 나오지 않음 | 미해독 |
-| HWP 1.20 `HANGUL.SFT` 1,193조각, `HANGUL1/2.PFT` 980조각 | 38,208 / 70,592 B | 32 B 헤더(`HWP Font Editor v1.0`, BE16 count @0x1C, w−1/h−1 @0x1E) | 조각 의미 미해독 |
 | Makkoya `KSSM.FNT`/`10X13.FNT`, `*.CSF` | 6,133 B 등 | `"MAKKOYA FNT\x1a"` 30 B 헤더, 10×13 비트 연속 17 B, 358–359글리프 | 미해독(8×4×4로 추정) |
 | GSVIP `*.GSF` | 2–7 KB, 190 KB | `"GSVIP Font 0.87 H-H"`, 압축 | 미해독 |
 | Hanme Drawing Tool `HFNT` `*.FNT` | 1.7–85 KB | 획(stroke) 데이터 | 비트맵 아님 |
@@ -233,6 +237,44 @@
 | iolo fed `*_HAN.fnt` | 5,888 B | 6×2×1에서 8글리프 적음 | 미해독 |
 
 ---
+
+### 2.13 HWP 1.20 `HANGUL.SFT` / `HANGULn.PFT` (31/29/31조각 벌, 3서체)
+해독: `notes/hwp1.md`, `tools/hwp1_fnt.py`(HWP.EXE를 바이트로 읽고 정적 해석한 결과. 실행하지 않음). `kfont.open_hwp1_sft(path, face=0..2)`가 감싼다.
+- **컨테이너**: 32 B 헤더 `"HWP Font Editor v1.0" 1A 00 …`, BE16 글리프 수 @0x1C, (w−1, h−1) @0x1E, 이어서 글리프. `HPFT3.LZH`의 `HANGUL3.PFT`만 매직이 `"FE" 1A`다.
+  - `*.SFT`(화면): 행 우선, MSB 왼쪽. `*.PFT`(프린터): **열 우선**(24핀 헤드 순서), 열마다 3 B, MSB 위쪽. 24×24 = 72 B, 14×24 = 42 B. 파일 크기 = 32 + 개수 × 글리프 크기로 정확히 맞는다.
+- **배치**: 한 파일에 서체 3개가 이어진다(서체 번호 0/1/2; HWP.EXE 메뉴 순서로 명조/고딕/샘물로 추정, 증명 안 됨). 서체 = [초성 세트들][중성 세트들][종성 세트들], 세트 하나 = 초성 31 / 중성 29 / 종성 31조각(조각 0 = "없음"은 저장하지 않음, 조각 n → 세트 안 글리프 n−1). 옛한글 조각도 들어 있다.
+  | 파일 | 서체 0 | 서체 1 | 서체 2 | 글리프 |
+  |---|---|---|---|---|
+  | `HANGUL.SFT` 16×16 | 10/4/4 = 550 | 7/2/2 = 337 | 6/2/2 = 306 | 1,193 |
+  | `HANGUL1/2/3.PFT` 24×24 | 7/2/3 = 368 | 7/2/2 = 337 | 5/2/2 = 275 | 980 |
+- **선택** (HWP.EXE 화면 합성 루틴 image 0xF268, 표는 DS 0x438A–0x4466, 세트 표 화면 DS 0x44A8 / 프린터 DS 0x4578 + 서체×0x44):
+  ```
+  l = L_IDX[초성 5비트]  v = V_IDX[중성 5비트]  t = T_IDX[종성 5비트]       # 조각 번호, 0 = 없음
+  lc = L_CLS[l] (0 = ㄱ·ㅋ)   vc = V_CLS[v] (모음 모양 1..15)   tc = T_CLS[t] (0 = 받침 없음)
+  초성 세트 = S_ini[tc][vc]   중성 세트 = S_vow[tc*2 + lc]   종성 세트 = S_fin[vc]
+  초성 = l0 + 세트*31 + l−1;  중성 = v0 + 세트*29 + v−1;  종성 = t0 + 세트*31 + t−1      (OR 합성)
+  ```
+  표 값(`L_IDX`, `V_IDX`, `T_IDX`, `L_CLS`, `V_CLS`, `T_CLS`, `SEL['sft'|'pft']`, `SETS`)은 `hwp1_fnt.py`에 그대로 옮겨져 있다. 중성 세트도 ㄱ·ㅋ에서 갈린다(8×4×4와 같은 방향).
+- **나머지 파일**(HWP 1.x 16비트 문자 코드로 주소를 정한다; `notes/hwp1.md`):
+  - `ASCII.SFT/PFT` 991 = 앞 109 + 6서체 × 147(0x20부터). `kfont`는 `open_hwp1_sft`로 영문 서체를 연다(개수 991).
+  - `HANJA.SFT` 4,888(코드 − 0x4000, KS 순서). 3.8절.
+  - `JAPAN`(2서체 × 170), `SPECIAL1`(9세트 × 95, PFT 8세트), `SPECIAL2`(8 × 95, 반각), `USER1/2`, `SYSTEM.PFT`(39): Unicode 대응이 없어 원시 글리프 표만 그렸다(`printer/*.sheet.png`).
+- **짝 영문**: 같은 폴더의 `ASCII.SFT`/`ASCII.PFT`.
+- **LZH 변형**: `HANGUL.LZH`(HANGUL1/2/3.PFT, 1990년 9–12월, 디자인 다름), `HPFT3.LZH`(HANGUL3.PFT). deark로 풀었고(`lzh/`), 같은 표로 디코드된다.
+- **검증**: 표본 문장, 가 각 꽉 의 한 뷁, `SAMPLE.HWP`(HWP 1.10 문서) 본문 40줄이 SFT 서체 0–2, PFT 서체 0–2에서 바르게 나온다(`hwp1_fnt.py`가 렌더). 서체 번호와 서체 이름의 대응은 **UNVERIFIED**.
+- **변환**: `kfont.py to-korean-fnt HANGUL.SFT OUT`(서체 0)으로 2,350자를 합성할 수 있다.
+- **표본**: `samples/printer/HANGUL.SFT.png`, `HANGUL1.PFT.png`, `HANGUL2.PFT.png`, `LZH_HANGUL.LZH_HANGUL1/2/3.PFT.png`, `LZH_HPFT3.LZH_HANGUL3.PFT.png`, `SAMPLE.HWP.text.png`, `*.sheet.png`(13장).
+
+### 2.14 Mac HangulTalk 1.0 `fbit` 자모 평면 폰트 (System 4.1, 1988)
+해독: `notes/mac.md`, `tools/mac_kfont.py`(68k `fdef` 코드의 표를 읽어 옮긴 것, 실행·에뮬레이션 안 함). `kfont.open_mac(path)`가 감싼다. 디스크 이미지는 machfs로 풀었고, 파일은 `<이름>.rsrc`(리소스 포크)로 저장되어 있다.
+- **파일**: `Gotic12`, `Munjo12`, `Munjo16`, `Munjo24`(type `fbit`, creator `hfnt`). 리소스 `fbit`(글리프 세트), `fdef` 3(68k 합성 코드 2,398 B, 넷 모두 같음), `hfnt` 0.
+- **`fbit` 배치**(big endian): `80 00 'fbit'` 헤더(0x54까지, 0x48 = 평면 수 3), 0x54 = 세트 표 크기 0x21C, **0x56부터 세트 45개 × 12 B**(u16 행 비트/4, u32 글리프 영역 오프셋, u16 높이, 0, 0), 0x272부터 글리프. 글리프는 cell×cell, 행 사이 패딩 없이 비트를 이어 붙인다(12 px 18 B, 16 px 32 B, 24 px 72 B).
+- **세트**: 0–7 초성(받침 없음, 모음 모양 8가지, 19자), 8–9 초성 25자(19 + ㄴㄷㄸㄹㅌㅍ 변형 6), 10–17 초성(받침 있음), 18–20 세로 모음 중성(9/13/13), 21–25 가로 모음 중성(11/10×4), 26–40 겹모음 중성(7자 × 15위치), 41–44 종성(27자, 모음에 따라 4가지).
+- **선택**: 입력은 조합형 코드. `fdef`의 표 A–R(오프셋 0x524–0x6F6)이 세트와 글리프 번호를 정한다. 요약: 초성 세트 = 받침 없으면 B[V]/2, 있으면 8 + (C[V]&0x3F)/2(+1 if D[T] bit7), 세로 모음 18 / 19 + D[T], 가로 모음 21 / 22 + J[L]/2, 겹모음 26 / 31 / 36 + O[L]/2, 종성 41 + (P[V]&0x3F)/2(+1 조건부), 글리프 R[T]. 세부는 `mac_kfont.py` `compose()`.
+- **짝 영문**: System 파일의 Mac `FONT` 리소스(14220/14226/14232 = Munjo 12/18/24, 23052 = Gotic 12).
+- **검증**: 24 px로 5개 초성 × 21모음 × 여러 받침, 표본 문장을 렌더해 확인. 표본 `samples/mac/kh10_Gotic12.png`, `kh10_Munjo12/16/24.png`, 세트 표 `kh10_Munjo12_fbit_sets_x3.png`, `kh10_Munjo16_fbit_sets_x2.png`.
+- **변환**: `mac_kfont.py korean-fnt` 또는 `kfont.write_korean_fnt`로 2,350자를 합성한다(Munjo16 시험함).
+- **미해독**: HangulTalk 7.1.x의 `Seoul12` `fbit`(8,760 B)는 세트 표가 없고(글리프 0x66부터 481 × 18 B), 합성 규칙이 압축된(`dcmp`) `FDEF`/`hglc` 리소스에 있어 풀지 못했다. 원시 글리프만 `samples/mac/kh712_Seoul12_fbit_raw_glyphs_index24.png`(**UNVERIFIED**).
 
 ## 3. 계열 2: 완성형(KS X 1001) 폰트
 
@@ -333,7 +375,7 @@ OS/2 한글판 CD에는 부팅용 `OS2DBCS.FNT`(비압축)와 시스템 폰트 `
 | 태백 `SPC24/40/48.PFT` | 94,752 / 263,200 / 379,008 | 기호 1,316(1–14행; ①과 ㉠의 위치로 확인) | 같음 | `dos/FNT_SPC24.PFT.png` 등 |
 | HWP3 `HAJ16_0.FNT` | 156,488 | 72 B 헤더 + 한자 4,888 | `open_hwp3_fnt` | `dos/FONT_HAJ16_0.FNT.png` |
 | Hanme `HANJA.FNT` | 196,736 | 0x80 헤더(섹션 오프셋 u32 ×3 @0x50) + 한자 4,888 + 기호 1,128 + 그림 128 | `open_hanme_hanja` | `dos/hh31_HANJA.FNT.png` |
-| HWP 1.20 `HANJA.SFT` | 156,448 | 32 B 헤더 + 한자 4,888 | `open_hwp1_sft` | (HAJ16과 렌더 중복) |
+| HWP 1.20 `HANJA.SFT` | 156,448 | 32 B 헤더 + 한자 4,888 (HWP 1.x 코드 − 0x4000) | `open_hwp1_sft` | (HAJ16과 렌더 중복) |
 - 표본 렌더에서 Iyagi `IHANJA.FNT`와 HWP 1.20 `HANJA.SFT`는 HWP3 `HAJ16_0.FNT`와 같았다.
 - Dokkaebi `SPEC16/24/40/48.FNT`(40,192 B = 1,256 × 32 등)는 순서를 확인하지 못해 디코더가 없다.
 - 변환: korean.fnt는 한글만 담으므로 이 폰트들은 쓰이지 않는다. 기호·한자는 기존 대체 체인(조사 문서 8.2절)에 맡긴다.
@@ -343,6 +385,16 @@ OS/2 한글판 CD에는 부팅용 `OS2DBCS.FNT`(비압축)와 시스템 폰트 `
 - CCIC HBF `Hangul16.bin`/`Hangul24.bin`: 호환 자모 94 + 괄호 29 + 원 28 + 음절 2,350(Unicode 1.1의 U+3400–3D2D, KS 순서). 음절은 151번부터. `.hbf` 헤더 없이도 연다(`open_hbf_bin_hangul`). 렌더 확인. 표본 `samples/printer/Hangul16.bin.png`, `Hangul24.bin.png`(렌더 비교로 kaist `hanglm16/24`와 같은 글리프였다).
 
 ---
+
+### 3.10 Mac 7.5.3 / 7.6 / 8.5 / 8.6 FFIL `sfnt` 비트맵 스트라이크 (`bloc`/`bdat`)
+- FFIL 서체 가방의 리소스 포크: `FOND`, Latin `NFNT` 8개, `sfnt`(Elex Computer, 1994–1995). "Bitmap 서체 설치" 폴더의 사본은 **비트맵만 있는 sfnt**(`bdat bhed bloc cmap …`), Font Folder 사본은 `glyf/loca`를 더 갖지만 `bdat`는 같다.
+- `bloc`(Apple, 0x00020000): 스트라이크 8개(9, 10, 12, 14, 16, 18, 20, 24 ppem; HeadLineA는 18/20/24). 스트라이크마다 색인 부표 2개: 글리프 0–231 = 1바이트 문자(색인 형식 1, `bdat` 이미지 형식 2, 비례폭 Latin), **232–9888 = 2바이트 문자(색인 형식 2 고정 크기, 이미지 형식 5 = 글리프별 메트릭 없음, ppem×ppem 비트를 패딩 없이 이어 붙임)**.
+- 주소: `cmap` (1, 3) 형식 2(Mac 한국어 = EUC-KR 확장, 9,799 코드), 글리프 이름 `uni` + 2바이트 코드. KS X 1001 2,350자 전부 + 한자 4,888(GongJak, TaeGraphic, Script, HeadLineA에는 한자 없음) + 기호. `cmap` (1, 0)은 Mac Roman 1바이트.
+- 서체: Seoul, AppleGothic, AppleMyungjo, #PC명조, #신명조, #궁서체, #중고딕, #공작체, #태그래픽, #필기체, #헤드라인A(7.5.3; 7.6.1·7.5.3 rev 2.2는 같음), 8.5에서 Seoul의 `bdat`가 바뀌고 한강체(Hangang)가 더해짐.
+- `mac_kfont.SfntBitmapFont`(ppem 선택). fontTools는 `cmap`/글리프 이름 조회에만 쓰고(`tools/.venv/lib`), `bloc`/`bdat`는 직접 파싱한다.
+- 검증: 비트맵 전용 서체 11종 × 모든 스트라이크에서 KS 2,350자가 모두 있고 비어 있지 않음. 표본 `samples/mac/kh753_*.png`(11장, 12/16/24 px), `kh851_Hangang.png`, `kh851_Seoul.png`.
+- 변환: `mac_kfont.py korean-fnt FORK.rsrc OUT --ppem 16`(셀 모드, 줄 높이 여백 제거). AppleMyungjo 12/16/24에서 2,350자 시험함.
+- **미해독**: 7.1.2의 12/24 px 비트맵(`AppleGothic12/24`, `AppleMyungjo12/24`, `KSSymbol12/24`, `Hanja24`, `GHanja24`, `GSymbol24`, `Seoul12`)은 Installer `splt` 파일이고 `'JM'` 압축(20 B 헤더 뒤 엔트로피 7.87 bit/B 스트림, zlib 아님)이라 풀지 못했다. 7.5.1 설치 디스크의 `ircp`/`idcp` 압축 토움, Language Kit 패키지도 풀지 못했다. 7.1.2의 AppleGothic/AppleMyungjo는 외곽선(TrueType)만 있다.
 
 ## 4. 계열 3: BDF / PCF / HBF
 
@@ -396,13 +448,13 @@ OS/2 한글판 CD에는 부팅용 `OS2DBCS.FNT`(비압축)와 시스템 폰트 `
   - 셀 크기는 원본 그대로 헤더에 적는다. 16×16이 아닌 크기(15×15 Kyra, 16×14 KOEI, 24×24)를 엔진이 어떻게 다루는지는 확인하지 않았다(**UNVERIFIED**).
   - 왕복 검사: HWP `HAN16_2` → korean.fnt → `open_korean_fnt`, 2,350자 불일치 0.
 - **SVFN / SVM**: 11,172자 전부를 쓰려면 이쪽이다. `kfont`의 `JamoFont.glyph(cp)`가 U+AC00–D7A3 전부를 돌려주므로 굽는 도구는 이 API를 그대로 쓰면 된다. `tools/korean/mkfont.py`에 비트맵 입력 경로를 붙이는 일은 이 작업 범위 밖이다.
-- **런타임 Johab glyph source**(조사 문서 8.2절)의 프로파일은 `kfont`의 `sel_*` 함수와 1:1로 대응한다: `844` = `sel_844`, `844-ihnm` = `sel_844_ihnm`, `1044-san` = `sel_1044_san`, `kyra-lok` = `sel_kyra`, `hanterm-johab` = `sel_hanterm`, `hbios24`/`hwp3-fnt` = 같은 `sel_844`에 오프셋·crop만 다르다. 이번에 6×2×1, Dokkaebi 7×2×2·12×4×4, Hanme 5×2×3이 더해졌다.
+- **런타임 Johab glyph source**(조사 문서 8.2절)의 프로파일은 `kfont`의 `sel_*` 함수와 1:1로 대응한다: `844` = `sel_844`, `844-ihnm` = `sel_844_ihnm`, `1044-san` = `sel_1044_san`, `kyra-lok` = `sel_kyra`, `hanterm-johab` = `sel_hanterm`, `hbios24`/`hwp3-fnt` = 같은 `sel_844`에 오프셋·crop만 다르다. 이번에 6×2×1, Dokkaebi 7×2×2·12×4×4, Hanme 5×2×3, HWP 1.20 31/29/31조각 벌, Mac fbit 45세트가 더해졌다.
 
 ---
 
 ## 7. 렌더하지 못한 것과 이유
 
-`samples/skipped.tsv`(830행, 같은 형식이 여러 사본으로 되풀이됨)를 형식별로 묶으면 다음과 같다.
+`samples/skipped.tsv`(814행, 같은 형식이 여러 사본으로 되풀이됨)를 형식별로 묶으면 다음과 같다.
 
 | 형식 | 파일 수 | 이유 |
 |---|---|---|
@@ -410,11 +462,12 @@ OS/2 한글판 CD에는 부팅용 `OS2DBCS.FNT`(비압축)와 시스템 폰트 `
 | HWP 3.0 "Han Unified Font File 1.0" HFT | 326 | 형식 미해독(벡터일 가능성) |
 | HWP 2.0 HFT | 43 | 형식 미해독 |
 | GSVIP GSF | 21 | 압축, 미해독 |
-| HWP 1.x SFT/PFT(한자 외) | 17 | 1,193/980조각 등의 의미 미해독 |
+| HWP 1.x 형식의 `HDR30.ICO` | 1 | 같은 컨테이너의 아이콘(120 × 26×26), 폰트 아님 |
 | 영문 후보 탈락 | 33 | 같은 크기의 비폰트 파일, Apple II 8×8 폰트 등 |
 | 8×4×4 후보 탈락 | 4 | 같은 크기의 게임 데이터 |
 | HBF | 3 | 혼합 폭, bin 없음, 델타 파일 |
 | OS/2 `$SYS1Z16/24` | 2 | 비KS 조각 표, 셀 크기 미해독 |
+- Mac: 'JM' 압축 `splt`, `Seoul12` fbit 규칙, `ircp`/`idcp` 설치 토움(3.10절, 2.14절). mac 영역은 이 생성기가 훑지 않고 `mac_kfont.py`의 그림을 등록한다.
 - 크기 규칙에 맞는 디코더가 없어 아예 후보가 되지 않은 것: 2.12절 표, Dokkaebi `SPEC*.FNT`, Family Production FX4/FX5, Super Beemger KTH, TeX PK(`han`, `han1`, HLaTeX, htex; PK 디코더 없음), 창세기전 ISZ.
 - `kfont.py scan ROOT`는 수집본 전체(1,000 B–8 MB 파일)에 검출 규칙을 돌려 결과를 tsv로 낸다.
 
@@ -425,4 +478,4 @@ OS/2 한글판 CD에는 부팅용 `OS2DBCS.FNT`(비압축)와 시스템 폰트 `
 - 객체: `Glyph(w, h, rows, adv)`, `Font.glyph(cp)`, `TableFont`(번호 배열 + cp→번호), `JamoFont`(조각 배열 + 선택 함수), `BitmapCharFont`(BDF/PCF), `StackFont`(한글 폰트 → 짝 영문 → 내장 대체 순서).
 - 열기: `open_font(path, part=None)`가 `sniff()`로 형식을 고른다. 형식을 알면 `open_*`를 직접 부른다.
 - CLI: `info`, `text`(ASCII 아트), `png`, `sample`, `scan`, `to-korean-fnt`. 모두 `python3 -I`로 실행한다.
-- 표본 재생성: `python3 -I tools/kfont_samples.py` (`samples/`를 다시 만든다. 450장, 약 20초).
+- 표본 재생성: `python3 -I tools/kfont_samples.py` (491장 목록, 약 20초. HWP 1.20과 Mac 그림은 각 디코더가 그린 것을 등록만 한다. `samples/`를 지우지 않고 덮어쓴다).
