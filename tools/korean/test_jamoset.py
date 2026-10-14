@@ -495,5 +495,287 @@ class CommandLine(unittest.TestCase):
             self.assertIn("not an 8x4x4 size", r.stderr)
 
 
+# ---- fitting pieces to precomposed faces (jamofit.py, --from-svf / --from-ttf) -------------------------------------
+
+import jamofit  # noqa: E402
+
+NOTO = jamoset.default_mask_font()
+LIBS = jamofit.libs_available()
+PYLIB = []
+if LIBS:		# the tool runs under python -I, which ignores PYTHONPATH: hand it the directory
+    import freetype
+    PYLIB = ["--pylib", os.path.dirname(os.path.dirname(os.path.abspath(freetype.__file__)))]
+
+
+def ks2350():
+    out = []
+    for hi in range(0xB0, 0xC9):
+        for lo in range(0xA1, 0xFF):
+            out.append(ord(bytes([hi, lo]).decode("cp949")) - 0xAC00)
+    return sorted(out)
+
+
+def region_source(seed=3, cell=16):
+    """A raw 8x4x4 source whose pieces keep to separate regions (initial top left, medial right, final bottom), every
+    piece with its own random pixels, so some zero-error decomposition of the OR of any three exists."""
+    rnd = random.Random(seed)
+    assert cell == 16
+    data = bytearray(360 * 32)
+    for i in range(360):
+        if i < 160:
+            if i % 20 == 0:
+                continue
+            xs, ys = range(0, 9), range(0, 10)
+        elif i < 248:
+            if (i - 160) % 22 == 0:
+                continue
+            xs, ys = range(9, 16), range(0, 11)
+        else:
+            if (i - 248) % 28 == 0:
+                continue
+            xs, ys = range(0, 16), range(11, 16)
+        for y in ys:
+            row = 0
+            for x in xs:
+                if rnd.random() < 0.4:
+                    row |= 0x8000 >> x
+            data[i * 32 + y * 2:i * 32 + y * 2 + 2] = row.to_bytes(2, "big")
+    return bytes(data)
+
+
+ASCII_METRICS = {cp: (8 + cp % 3, cp % 2, 5 + cp % 4) for cp in range(0x20, 0x7F)}
+
+
+def make_face(syllables, w=16, h=16, ascent=12, flags=5, shadow=255, codepage=0, seed=9):
+    """A plain 1 bpp SVFN v2 face: ASCII with random glyphs and metrics, @p syllables {index: packed glyph}, one
+    compatibility jamo. Returns (bytes, {cp: glyph bytes})."""
+    rnd = random.Random(seed)
+    nb = (w + 7) // 8
+    glyphs = {cp: rnd.randbytes(nb * h) for cp in ASCII_METRICS}
+    glyphs[0x3131] = rnd.randbytes(nb * h)
+    for s, g in syllables.items():
+        glyphs[0xAC00 + s] = g
+    cps = sorted(glyphs)
+    n = len(cps)
+    cmap_off = 36
+    metrics_off = cmap_off + 8 * n
+    data_off = metrics_off + 4 * n
+    metrics = b"".join(struct.pack("<BbBB", *(ASCII_METRICS.get(cp, (w, 0, w))), 0) for cp in cps)
+    head = struct.pack(jamoset.HEADER, b"SVFN", 2, flags, 1, shadow, codepage, n, w, h, ascent, 0, 0, metrics_off,
+                       data_off, n * nb * h)
+    out = head + struct.pack("<I", cmap_off) + b"".join(struct.pack("<II", cp, i) for i, cp in enumerate(cps))
+    out += metrics + b"".join(glyphs[cp] for cp in cps)
+    return out, glyphs
+
+
+def composed_face(present, blank=(), seed=3):
+    """(face bytes, source bytes, {syllable: target glyph}) of the 844 pieces of region_source over @p present."""
+    src = region_source(seed)
+    target = {s: (bytes(32) if s in blank else johab844.compose(src, 0xAC00 + s)) for s in present}
+    face, _ = make_face(target)
+    return face, src, target
+
+
+class FitFromFace(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.present = ks2350()
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.dir = cls.tmp.name
+        cls.face, cls.src, cls.target = composed_face(cls.present)
+        cls.path = os.path.join(cls.dir, "FACE.SVF")
+        open(cls.path, "wb").write(cls.face)
+        cls.out = os.path.join(cls.dir, "OUT.SVF")
+        cls.r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "jamoset.py"), "--layout", "844",
+                                "--from-svf", cls.path, "--mask", "none", "-o", cls.out, "--check",
+                                "--report", os.path.join(cls.dir, "r.json")], capture_output=True, text=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_ran(self):
+        self.assertEqual(self.r.returncode, 0, self.r.stderr)
+        self.assertIn("composed 11172 syllables", self.r.stdout)
+
+    def test_composition_equals_the_target_for_every_present_syllable(self):
+        out = open(self.out, "rb").read()
+        f = jamoset.parse_svfn(out)
+        t = jamoset.unpack(f.jset)
+        for s in self.present:
+            self.assertEqual(jamoset.compose(f, t, 0xAC00 + s), self.target[s], f"U+{0xAC00 + s:04X}")
+
+    def test_report_is_perfect(self):
+        import json
+        q = json.load(open(os.path.join(self.dir, "r.json")))["quality"]
+        self.assertEqual(q["present"], 2350)
+        self.assertEqual((q["iou_mean"], q["iou_p5"], q["f1_tol1_mean"], q["exact"]), (1.0, 1.0, 1.0, 2350))
+        self.assertEqual((q["blob_merged"], q["blob_split"]), (0, 0))
+        self.assertIn("IoU 1.000", self.r.stdout)
+
+    def test_parses_back_as_a_jamo_set_font(self):
+        f = jamoset.parse_svfn(open(self.out, "rb").read())
+        self.assertTrue(f.flags & jamoset.FLAG_JAMO)
+        t = jamoset.unpack(f.jset)
+        self.assertEqual((t.lc, t.tc, t.ni, t.nm, t.nf), (2, 2, 8, 4, 4))
+        self.assertTrue(all(0xAC00 + s not in f.glyphs for s in self.present))
+        self.assertTrue(any(cp >= jamoset.PIECE_BASE for cp in f.glyphs))
+
+    def test_keeps_non_hangul_glyphs_cell_baseline_metrics_and_flags(self):
+        _, want = make_face({})
+        f = jamoset.parse_svfn(open(self.out, "rb").read())
+        for cp, g in want.items():
+            self.assertEqual(f.glyphs[cp], g, f"U+{cp:04X}")
+        for cp, m in ASCII_METRICS.items():
+            self.assertEqual(f.metrics[cp], m, f"U+{cp:04X}")
+        self.assertEqual((f.cell_w, f.cell_h, f.ascent, f.bpp), (16, 16, 12, 1))
+        self.assertEqual((f.flags & ~jamoset.FLAG_JAMO, f.shadow, f.codepage), (5, 255, 0))
+        self.assertTrue(f.flags & jamoset.FLAG_JAMO)
+
+    def test_deterministic(self):
+        out2 = os.path.join(self.dir, "OUT2.SVF")
+        r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "jamoset.py"), "--layout", "844", "--from-svf",
+                            self.path, "--mask", "none", "-o", out2], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(open(out2, "rb").read(), open(self.out, "rb").read())
+
+
+class FitPresentOnly(unittest.TestCase):
+    def test_blank_syllables_do_not_pull_pieces_toward_empty(self):
+        present = ks2350()
+        rnd = random.Random(11)
+        blank = set(rnd.sample(present, 1600))		# 68 % blank: every pixel's majority would be off
+        face, src, target = composed_face(present, blank)
+        layout = jamoset.LAYOUTS["844"]
+        targets = jamoset.svf_targets(jamoset.parse_svfn(face))
+        self.assertEqual(sorted(targets), sorted(set(present) - blank))
+        out, info = jamoset.fit_font(layout, targets, 16, 16, 12, base=face, keep_header=True)
+        f = jamoset.parse_svfn(out)
+        t = jamoset.unpack(f.jset)
+        for s in targets:
+            self.assertEqual(jamoset.compose(f, t, 0xAC00 + s), target[s], f"U+{0xAC00 + s:04X}")
+        q = jamoset.fit_report(out, targets, 16, 16)
+        self.assertEqual((q["present"], q["iou_mean"]), (750, 1.0))
+
+    def test_unseen_pieces_borrow_a_sibling_not_blank(self):
+        present = ks2350()[:600]
+        face, src, target = composed_face(present)
+        targets = jamoset.svf_targets(jamoset.parse_svfn(face))
+        out, info = jamoset.fit_font(jamoset.LAYOUTS["844"], targets, 16, 16, 12, base=face, keep_header=True)
+        self.assertGreater(info["unseen_pieces"]["sibling"], 0)
+        f = jamoset.parse_svfn(out)
+        t = jamoset.unpack(f.jset)
+        seen = [set(), set(), set()]
+        for s in present:
+            for k, v in enumerate(jamoset.decompose(0xAC00 + s)):
+                seen[k].add(v)
+        checked = 0
+        for cp in range(0xAC00, 0xD7A4):		# a syllable made of jamo the face draws never loses a piece
+            if all(v in seen[k] for k, v in enumerate(jamoset.decompose(cp))):
+                checked += 1
+                for p in jamoset.pieces_of(t, cp):
+                    self.assertTrue(any(f.glyphs[jamoset.PIECE_BASE + p]), f"U+{cp:04X} piece {p}")
+        self.assertGreater(checked, 1000)
+
+
+class Metrics(unittest.TestCase):
+    W = H = 8
+
+    def g(self, *rows):
+        return jamofit.from_rows([int(r, 2) for r in rows] + [0] * (self.H - len(rows)), self.W)
+
+    def test_rows_round_trip(self):
+        g = self.g("10000001", "01100110", "00000001")
+        self.assertEqual(jamofit.to_rows(g, 8, 8)[:3], [0x81, 0x66, 0x01])
+        self.assertEqual(g & 1, 1)				# top left pixel is bit 0
+
+    def test_components_are_eight_connected(self):
+        full = jamofit.full_mask(8, 8)
+        self.assertEqual(jamofit.components(self.g("11000000", "00110000", "00001100"), 8, full), 1)
+        self.assertEqual(jamofit.components(self.g("10000001", "00000000", "10000001"), 8, full), 4)
+        self.assertEqual(jamofit.components(0, 8, full), 0)
+        self.assertEqual(jamofit.components(self.g("10000001"), 8, full), 2)	# no wrap from the last column to the next row
+
+    def test_iou_and_f1(self):
+        full = jamofit.full_mask(8, 8)
+        a, b = self.g("11110000"), self.g("00111100")
+        self.assertAlmostEqual(jamofit.iou(a, b), 2 / 6)
+        self.assertEqual(jamofit.iou(0, 0), 1.0)
+        self.assertEqual(jamofit.f1_tol1(a, a, 8, full), 1.0)
+        shifted = self.g("01111000")
+        self.assertEqual(jamofit.f1_tol1(a, shifted, 8, full), 1.0)		# one pixel off is within tolerance
+        self.assertLess(jamofit.f1_tol1(a, self.g("00000000", "00000000", "11110000"), 8, full), 1.0)
+
+    def test_blob_metric_counts_merged_strokes(self):
+        two = self.g("10001000", "10001000")
+        one = self.g("11111000", "10001000")
+        same = self.g("10001000", "10001000")
+        q = jamofit.quality_report({0: two, 1: two, 2: one}, {0: one, 1: same, 2: one}, 8, 8)
+        self.assertEqual((q["blob_merged"], q["blob_split"], q["present"]), (1, 0, 3))
+        q = jamofit.quality_report({0: one}, {0: two}, 8, 8)
+        self.assertEqual((q["blob_merged"], q["blob_split"]), (0, 1))
+
+    def test_percentile(self):
+        self.assertEqual(jamofit.percentile([1, 2, 3, 4, 5], 50), 3)
+        self.assertAlmostEqual(jamofit.percentile(list(range(101)), 5), 5)
+
+
+class FitErrors(unittest.TestCase):
+    def run_tool(self, *args, env=None):
+        e = dict(os.environ)
+        e.pop("JAMOSET_PYLIB", None)
+        e.update(env or {})
+        return subprocess.run([sys.executable, "-I", os.path.join(HERE, "jamoset.py")] + list(args),
+                              capture_output=True, text=True, env=e)
+
+    def test_one_mode_only(self):
+        r = self.run_tool("--layout", "844", "-o", "/dev/null")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("exactly one", r.stderr)
+
+    def test_already_jamo_set_face_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, out = os.path.join(d, "G.KOR"), os.path.join(d, "J.SVF")
+            open(src, "wb").write(make_source("844"))
+            self.assertEqual(self.run_tool("--layout", "844", src, "-o", out).returncode, 0)
+            r = self.run_tool("--layout", "844", "--from-svf", out, "--mask", "none", "-o", os.path.join(d, "x.svf"))
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("already a jamo-set", r.stderr)
+
+    @unittest.skipIf(LIBS, "freetype and uharfbuzz are importable here")
+    def test_missing_libraries_say_what_to_install(self):
+        r = self.run_tool("--layout", "844", "--from-ttf", "/nonexistent.ttf", "--size", "16", "-o", "/dev/null")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("pip install freetype-py uharfbuzz", r.stderr)
+        self.assertIn("JAMOSET_PYLIB", r.stderr)
+
+
+@unittest.skipUnless(LIBS and NOTO, "needs freetype-py, uharfbuzz and the NotoSansKR mask font")
+class FitFromOutlineFont(unittest.TestCase):
+    def test_from_ttf_with_noto_masks(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            out, rep = os.path.join(d, "N.SVF"), os.path.join(d, "r.json")
+            r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "jamoset.py"), "--layout", "844",
+                                "--from-ttf", NOTO, "--size", "16", "--present-only", "-o", out, "--check",
+                                "--report", rep] + PYLIB, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            f = jamoset.parse_svfn(open(out, "rb").read())
+            self.assertTrue(f.flags & jamoset.FLAG_JAMO)
+            self.assertEqual((f.cell_w, f.cell_h), (16, 16))
+            self.assertIn(0x41, f.glyphs)					# ASCII from the font
+            q = json.load(open(rep))
+            self.assertGreater(q["quality"]["present"], 11000)
+            self.assertGreater(q["quality"]["f1_tol1_mean"], 0.9)
+            self.assertEqual(q["mask_font"], os.path.basename(NOTO))
+
+    def test_present_only_skips_notdef(self):
+        jf = jamoset._jamofit()
+        # Noto has all syllables, so a font with none of them (U+AC00 range empty) is simulated by the flag alone
+        targets, w, h, ascent, info, _ = jamoset.ttf_targets(NOTO, 16, None, None, True)
+        self.assertEqual(len(targets), info["fitted"])
+        self.assertTrue(all(targets.values()))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,7 @@ import os
 import re
 import struct
 import sys
+import time
 
 # ---- SVFN / JSET constants (graphics/hires_text/README.md) -------------------
 
@@ -553,6 +554,7 @@ def parse_svfn(data):
     (cmap_off,) = struct.unpack_from("<I", data, HEADER_V2 - 4)
     f = Svfn()
     f.flags, f.bpp, f.cell_w, f.cell_h, f.ascent, f.count = flags, bpp, cw, ch, ascent, count
+    f.shadow, f.codepage = shadow, codepage
     pitch = (cw * bpp + 7) // 8
     stride = pitch * ch
     f.glyphs, f.metrics = {}, {}
@@ -572,7 +574,7 @@ def parse_svfn(data):
     return f
 
 
-def write_svfn(cell_w, cell_h, ascent, glyphs, jset, extra_flags=0):
+def write_svfn(cell_w, cell_h, ascent, glyphs, jset, extra_flags=0, shadow=SHADOW_NONE, codepage=CODEPAGE):
     """@p glyphs: [(cp, packed bytes, advance, ink_x, ink_w)]. Layout: header, code points, JSET, metrics, glyphs."""
     glyphs = list(glyphs)
     n = len(glyphs)
@@ -585,7 +587,7 @@ def write_svfn(cell_w, cell_h, ascent, glyphs, jset, extra_flags=0):
     cmap_off = HEADER_V2
     metrics_off = cmap_off + len(cmap) + len(jset)
     data_off = metrics_off + len(metrics)
-    head = struct.pack(HEADER, MAGIC, VERSION_CMAP, FLAG_VARIABLE | FLAG_JAMO | extra_flags, 1, SHADOW_NONE, CODEPAGE, n,
+    head = struct.pack(HEADER, MAGIC, VERSION_CMAP, FLAG_VARIABLE | FLAG_JAMO | extra_flags, 1, shadow, codepage, n,
                        cell_w, cell_h, min(255, ascent), 0, 0, metrics_off, data_off, len(data))
     return head + struct.pack("<I", cmap_off) + cmap + jset + metrics + data
 
@@ -614,25 +616,38 @@ def eng_glyph(eng, cp, w, h):
 
 def build(layout, data, face=0, eng=None, base=None, path=""):
     """The font file's bytes, and the (source index -> piece number) mapping."""
-    src = layout.opener(data, face, path)
+    return build_from_source(layout, layout.opener(data, face, path), eng, base)
+
+
+def build_from_source(layout, src, eng=None, base=None, ascent=None, extra=None, keep_header=False):
+    """Write the font from @p src's pieces. @p extra: {cp: (packed glyph, advance, ink x, ink w)} added first (the base
+    and --eng glyphs override it). @p keep_header: take the base's shadow byte, code page and all flag bits except the
+    two this tool sets, not just MARKS_AT_ORIGIN."""
     tables = tables_for(layout)
     used = used_pieces(tables)
     mapping = {s: n for n, s in enumerate(used)}
     pieces = renumber(tables, mapping)
     w, h = src.w, src.h
-    ascent = max(1, round(h * 0.875))
+    ascent = ascent or max(1, round(h * 0.875))
     glyphs = {}
     flags = 0
+    shadow, codepage = SHADOW_NONE, CODEPAGE
     for s in used:
         g = src.glyph(s)
         ix, iw = g.ink()
         glyphs[PIECE_BASE + mapping[s]] = (g.to_bytes(), w, ix, iw)
+    if extra:
+        glyphs.update(extra)
     if base is not None:
         b = parse_svfn(base)
         if (b.bpp, b.cell_w, b.cell_h) != (1, w, h):
             raise SourceError(f"base is {b.cell_w}x{b.cell_h} {b.bpp} bpp, the pieces are {w}x{h} 1 bpp")
         ascent = b.ascent or ascent
-        flags |= b.flags & FLAG_MARKS_AT_ORIGIN
+        if keep_header:
+            flags |= b.flags & ~(FLAG_VARIABLE | FLAG_JAMO)
+            shadow, codepage = b.shadow, b.codepage
+        else:
+            flags |= b.flags & FLAG_MARKS_AT_ORIGIN
         for cp, gbytes in b.glyphs.items():
             if 0xAC00 <= cp <= 0xD7A3 or cp >= PIECE_BASE:
                 continue
@@ -644,7 +659,8 @@ def build(layout, data, face=0, eng=None, base=None, path=""):
             ix, iw = g.ink()
             glyphs[cp] = (g.to_bytes(), min(adv, w // 2) if w < 16 else adv, ix, iw)
     jset = pack(pieces)
-    out = write_svfn(w, h, ascent, [(cp, g[0], g[1], g[2], g[3]) for cp, g in sorted(glyphs.items())], jset, flags)
+    out = write_svfn(w, h, ascent, [(cp, g[0], g[1], g[2], g[3]) for cp, g in sorted(glyphs.items())], jset, flags,
+                     shadow, codepage)
     return out, mapping, src
 
 
@@ -678,7 +694,7 @@ def check(out_bytes, layout, src_bytes):
             raise ValueError(f"piece {p} has no glyph")
     composed = {cp: compose(f, t, cp) for cp in range(0xAC00, 0xD7A4)}
     msg = f"composed 11172 syllables from {len(f.glyphs)} glyphs, JSET {len(f.jset)} bytes"
-    if layout.name == "844" and (f.cell_w, f.cell_h) == (16, 16):
+    if layout.name == "844" and (f.cell_w, f.cell_h) == (16, 16) and src_bytes is not None:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))	# python -I drops the script's directory
         import johab844
         off = 2 if len(src_bytes) == 11522 else 0
@@ -690,28 +706,290 @@ def check(out_bytes, layout, src_bytes):
     return msg
 
 
+# ---- fitting pieces to precomposed syllables (--from-ttf, --from-svf) ---------------------------------------
+
+DEFAULT_MASK_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "dists", "engine-data", "fonts",
+                                 "fonts-cjk", "NotoSansKR-Regular.otf")
+
+
+def _jamofit():
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))	# python -I drops the script's directory
+    import jamofit
+    return jamofit
+
+
+def default_mask_font():
+    """--mask-font's default: $JAMOSET_MASK_FONT, else the NotoSansKR the engine data ships, if it is there."""
+    for p in (os.environ.get("JAMOSET_MASK_FONT"), DEFAULT_MASK_FONT):
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+def auto_radius(w, h):
+    n = max(w, h)
+    return 1 if n <= 16 else 2 if n <= 24 else 3
+
+
+class FittedSource:
+    """Pieces as a Source: a glyph per source index, from the fit (blank where nothing fills it)."""
+
+    def __init__(self, w, h, rows_by_piece, count):
+        self.w, self.h, self.count = w, h, count
+        self._rows = rows_by_piece
+
+    def glyph(self, i):
+        return Glyph(self.w, self.h, list(self._rows.get(i) or [0] * self.h))
+
+
+def piece_roles(layout):
+    """{source index: (slot, set, jamo)} for every piece the layout's tables name (slot 0 initial, 1 medial, 2 final)."""
+    t = tables_for(layout)
+    roles = {}
+    for slot, (lst, n) in enumerate(((t.init_piece, 19), (t.med_piece, 21), (t.fin_piece, 27))):
+        for i, p in enumerate(lst):
+            if p != BLANK:
+                roles.setdefault(p, (slot, i // n, i % n))
+    return t, roles
+
+
+AUTO_EXACT = 0.995		# a free fit this good means the face already is an OR of pieces: nothing for a mask to decide
+
+
+def fit_font(layout, targets, w, h, ascent=None, eng=None, base=None, extra=None, keep_header=False,
+             mask_font=None, radius=None, passes=12, pylib=None, mask_auto=False):
+    """Fit the layout's pieces to @p targets ({syllable index: gint}) and write the font.
+
+    With @p mask_auto the free fit comes first; if its mean IoU is at least AUTO_EXACT the face is itself an OR of
+    pieces (a DOS face made from a jamo set) and the free pieces are kept, since a mask can only move them away from
+    the exact answer; otherwise the masked fit is used. Returns (font bytes, info dict). Pieces no target syllable uses (a (set, jamo) pair the face never draws) take the
+    same jamo's piece of another set (the one with most users) and, failing that, the mask font's variant.
+    """
+    jf = _jamofit()
+    t, roles = piece_roles(layout)
+    syl_keys = {}
+    for s in range(11172):
+        ps = pieces_of(t, 0xAC00 + s)
+        syl_keys[s] = tuple(None if p == BLANK else p for p in ps) + (None,) * (3 - len(ps))
+    masks, mask_all, info = None, {}, {"mask_font": None}
+    full = jf.full_mask(w, h)
+    keys = {s: syl_keys[s] for s in targets}
+    P = finfo = None
+    if mask_font and mask_auto:
+        P, finfo = jf.fit_pieces(keys, targets, w, h, None, passes)
+        free_iou = jf.mean_iou(P, keys, targets)
+        info["free_fit_iou"] = round(free_iou, 4)
+        if free_iou >= AUTO_EXACT:
+            info["mask_decision"] = "free fit kept (it already composes the face)"
+            mask_font = None
+        else:
+            info["mask_decision"] = "masked fit (the free fit is not exact)"
+            P = None
+    if mask_font:
+        mask_all, minfo = jf.mask_pieces(mask_font, syl_keys, w, h, targets, pylib)
+        r = radius if radius is not None else auto_radius(w, h)
+        masks = {k: jf.dilate(g, w, full, r) for k, g in mask_all.items()}
+        info.update(minfo, mask_radius=r)
+    if P is None:
+        P, finfo = jf.fit_pieces(keys, targets, w, h, masks, passes)
+    users = finfo.pop("users")
+    info.update(finfo)
+    rows = {k: jf.to_rows(g, w, h) for k, g in P.items()}
+    fallback = {"sibling": 0, "mask": 0, "blank": 0}
+    for p in sorted(used_pieces(t)):
+        if p in P:
+            continue
+        slot, st, jm = roles.get(p, (None, 0, 0))
+        sib = [(users[q], -q) for q, (sl, s2, j2) in roles.items() if sl == slot and j2 == jm and q in P]
+        if sib:
+            rows[p] = rows[-max(sib)[1]]
+            fallback["sibling"] += 1
+        elif p in mask_all:
+            rows[p] = jf.to_rows(mask_all[p], w, h)
+            fallback["mask"] += 1
+        else:
+            fallback["blank"] += 1
+    info["unseen_pieces"] = fallback
+    count = max(roles) + 1 if roles else 0
+    out, mapping, _ = build_from_source(layout, FittedSource(w, h, rows, count), eng, base, ascent, extra, keep_header)
+    info["pieces"] = len(mapping)
+    return out, info
+
+
+def glyph_gint(gbytes, w, h):
+    nb = (w + 7) // 8
+    jf = _jamofit()
+    return jf.from_rows([int.from_bytes(gbytes[y * nb:(y + 1) * nb], "big") >> (nb * 8 - w) for y in range(h)], w)
+
+
+def fit_report(out, targets, w, h):
+    """Parse the written font back, compose every target syllable with the engine's rule, score against the targets."""
+    jf = _jamofit()
+    f = parse_svfn(out)
+    if not f.flags & FLAG_JAMO or f.jset is None:
+        raise ValueError("flag bit 1 or the JSET block is missing")
+    t = unpack(f.jset)
+    composed = {s: glyph_gint(compose(f, t, 0xAC00 + s), w, h) for s in targets}
+    return jf.quality_report(targets, composed, w, h)
+
+
+def svf_targets(face):
+    """{syllable index: gint} of the non-blank precomposed syllables of a parsed 1 bpp SVFN face."""
+    w, h = face.cell_w, face.cell_h
+    out = {}
+    for cp, gb in face.glyphs.items():
+        if 0xAC00 <= cp <= 0xD7A3 and any(gb):
+            out[cp - 0xAC00] = glyph_gint(gb, w, h)
+    return out
+
+
+def ttf_targets(path, size, cell, baseline, present_only, pylib=None):
+    """Render the font's 11,172 syllables 1 bpp at @p size px into a cell.
+
+    The frame puts the union ink box of the drawn syllables in the middle of the cell (the baseline row may be
+    given instead of centred). Returns (targets, w, h, ascent, info, ascii_glyphs).
+    """
+    jf = _jamofit()
+    font = jf.OutlineFont(path, size, pylib)
+    w, h = cell or (size, size)
+    raws, boxes = {}, []
+    for s in range(11172):
+        gid = font.gid(0xAC00 + s)
+        r = font.raw(gid) if (gid or not present_only) else ([], 0, 0, 0)
+        raws[s] = (gid, r)
+        b = jf.raw_box(r) if gid else None
+        if b:
+            boxes.append(b)
+    if not boxes:
+        raise SourceError(f"{path}: draws none of the Hangul syllables")
+    left, top = min(b[0] for b in boxes), max(b[1] for b in boxes)
+    right, bottom = max(b[2] for b in boxes), min(b[3] for b in boxes)
+    iw, ih = right - left + 1, top - bottom + 1
+    ox = -left + (w - iw) // 2
+    oy = baseline if baseline is not None else top + (h - ih) // 2
+    targets = {}
+    for s, (gid, r) in raws.items():
+        g = jf.place(r, ox, oy, w, h)
+        if g or not present_only:
+            targets[s] = g
+    info = {"font": os.path.basename(path), "size": size, "cell": [w, h], "baseline": oy, "origin_x": ox,
+            "ink_box": [iw, ih], "clipped": bool(iw > w or ih > h or oy - top < 0 or oy - bottom > h),
+            "drawn": sum(1 for s in raws if raws[s][0] and any(raws[s][1][0])), "fitted": len(targets)}
+    ascii_glyphs = {}
+    for cp in range(0x20, 0x7F):
+        gid = font.gid(cp)
+        r = font.raw(gid) if gid else ([], 0, 0, 0)
+        g = jf.place(r, ox, oy, w, h)
+        gl = Glyph(w, h, jf.to_rows(g, w, h))
+        ix, iwid = gl.ink()
+        ascii_glyphs[cp] = (gl.to_bytes(), min(255, int(round(font.advance(gid))) if gid else w // 2), ix, iwid)
+    return targets, w, h, oy, info, ascii_glyphs
+
+
+def write_report(path, info):
+    import json
+    with open(path, "w") as fh:
+        json.dump(info, fh, indent=1, sort_keys=True, ensure_ascii=False)
+        fh.write("\n")
+
+
+def summary_line(label, q):
+    return (f"{label}: {q['present']} syllables, IoU {q['iou_mean']:.3f} (p5 {q['iou_p5']:.3f}), "
+            f"F1 tol1 {q['f1_tol1_mean']:.3f} (p5 {q['f1_tol1_p5']:.3f}), exact {q['exact']}, "
+            f"blobs merged {q['blob_merged']} split {q['blob_split']}")
+
+
 def main():
-    ap = argparse.ArgumentParser(description="DOS Johab jamo-set font -> jamo-set SVF")
-    ap.add_argument("source", help="the source font file")
+    ap = argparse.ArgumentParser(description="DOS Johab jamo-set font or outline font / precomposed face -> jamo-set SVF")
+    ap.add_argument("source", nargs="?", help="the source font file (DOS Johab sources; not with --from-ttf/--from-svf)")
     ap.add_argument("--layout", required=True, choices=sorted(LAYOUTS))
     ap.add_argument("--face", type=int, default=0, help="typeface of a printer font (0 or 1)")
     ap.add_argument("--eng", help="raw 8x16 English font for ASCII (2048 or 4096 bytes)")
     ap.add_argument("--base", help="SVFN v2 whose non-syllable glyphs are kept (same cell, 1 bpp)")
     ap.add_argument("-o", "--output", required=True)
     ap.add_argument("--check", action="store_true", help="compose all 11,172 syllables from the output and verify")
+    ap.add_argument("--from-ttf", metavar="FONT", help="fit the pieces to the outline font's syllables at --size")
+    ap.add_argument("--from-svf", metavar="FACE.SVF", help="decompose a 1 bpp precomposed SVFN face (its present "
+                    "syllables); keeps its other glyphs, cell, baseline, metrics and flags")
+    ap.add_argument("--size", type=int, help="--from-ttf: pixel size")
+    ap.add_argument("--cell", help="--from-ttf: cell WxH (default SIZExSIZE)")
+    ap.add_argument("--baseline", type=int, help="--from-ttf: baseline row from the cell top (default: ink box centred)")
+    ap.add_argument("--present-only", action="store_true",
+                    help="--from-ttf: fit and score only syllables the font draws (--from-svf always does)")
+    ap.add_argument("--mask-font", "--mask", dest="mask_font", metavar="FONT|none",
+                    help="font with OpenType ljmo/vjmo/tjmo that confines the pieces. Default: $JAMOSET_MASK_FONT or "
+                    "the shipped NotoSansKR when freetype/uharfbuzz are importable, used unless a free fit already "
+                    "composes the target (IoU >= 0.995); an explicit FONT is always used; 'none' = free pieces")
+    ap.add_argument("--mask-radius", type=int, help="mask dilation in pixels (default 1 up to 16 px, 2 up to 24, else 3)")
+    ap.add_argument("--passes", type=int, default=12, help="most coordinate-descent passes (default 12)")
+    ap.add_argument("--pylib", help="directory holding freetype and uharfbuzz (also $JAMOSET_PYLIB)")
+    ap.add_argument("--report", metavar="FILE.json", help="write the quality report (IoU, F1, blobs) as JSON")
     args = ap.parse_args()
     layout = LAYOUTS[args.layout]
-    data = open(args.source, "rb").read()
+    modes = [m for m in (args.source, args.from_ttf, args.from_svf) if m]
+    if len(modes) != 1:
+        ap.error("give exactly one of: a source font file, --from-ttf, --from-svf")
+    label = modes[0]
     try:
         eng = read_eng(open(args.eng, "rb").read()) if args.eng else None
         base = open(args.base, "rb").read() if args.base else None
-        out, mapping, src = build(layout, data, args.face, eng, base, args.source)
+        if args.from_ttf or args.from_svf:
+            started = time.time()
+            jf = _jamofit()
+            mask = args.mask_font
+            mask_auto = mask is None
+            if mask is None:
+                mask = default_mask_font()
+                if mask and not jf.libs_available(args.pylib):
+                    print("jamoset: no freetype/uharfbuzz, fitting without the mask font (" + jf._LIB_HELP + ")",
+                          file=sys.stderr)
+                    mask = None
+            elif mask.lower() == "none":
+                mask = None
+            elif not os.path.exists(mask):
+                raise SourceError(f"mask font {mask} does not exist")
+            if args.from_ttf:
+                if not args.size:
+                    ap.error("--from-ttf needs --size")
+                cell = tuple(int(x) for x in args.cell.lower().split("x")) if args.cell else None
+                targets, w, h, ascent, tinfo, ascii_glyphs = ttf_targets(args.from_ttf, args.size, cell, args.baseline,
+                                                                          args.present_only, args.pylib)
+                extra = None if (eng is not None or base is not None) else ascii_glyphs
+                out, info = fit_font(layout, targets, w, h, ascent, eng, base, extra, False, mask, args.mask_radius,
+                                     args.passes, args.pylib, mask_auto)
+                info["source"] = tinfo
+            else:
+                face = parse_svfn(open(args.from_svf, "rb").read())
+                if face.bpp != 1:
+                    raise SourceError(f"{args.from_svf} is {face.bpp} bpp, not 1")
+                if face.flags & FLAG_JAMO:
+                    raise SourceError(f"{args.from_svf} is already a jamo-set font")
+                w, h = face.cell_w, face.cell_h
+                targets = svf_targets(face)
+                if not targets:
+                    raise SourceError(f"{args.from_svf} has no non-blank Hangul syllables")
+                out, info = fit_font(layout, targets, w, h, face.ascent, eng, open(args.from_svf, "rb").read(), None,
+                                     True, mask, args.mask_radius, args.passes, args.pylib, mask_auto)
+                info["source"] = {"face": os.path.basename(args.from_svf), "cell": [w, h], "ascent": face.ascent,
+                                  "size": os.path.getsize(args.from_svf)}
+            open(args.output, "wb").write(out)
+            q = fit_report(out, targets, w, h)
+            info.update(quality=q, layout=layout.name, output_bytes=len(out), seconds=round(time.time() - started, 1))
+            print(f"{args.output}: {len(out)} bytes, {info['pieces']} pieces of {w}x{h} fitted from {label}"
+                  f" in {info['seconds']} s")
+            print(summary_line("fit", q))
+            if args.check:
+                print("check:", check(out, layout, None))
+            if args.report:
+                write_report(args.report, info)
+            return
+        out, mapping, src = build(layout, open(args.source, "rb").read(), args.face, eng, base, args.source)
         open(args.output, "wb").write(out)
         print(f"{args.output}: {len(out)} bytes, {len(mapping)} pieces of {src.w}x{src.h} from {args.source}")
         if args.check:
-            print("check:", check(out, layout, data))
-    except (SourceError, ValueError) as e:
-        sys.exit(f"{args.source}: {e}")
+            print("check:", check(out, layout, open(args.source, "rb").read()))
+    except (SourceError, ValueError, _jamofit().FitError) as e:
+        sys.exit(f"{label}: {e}")
 
 
 if __name__ == "__main__":
