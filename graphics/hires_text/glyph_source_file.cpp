@@ -34,13 +34,11 @@ bool isSvfnFile(const byte *head, uint32 size) {
 	return size >= 4 && head[0] == 'S' && head[1] == 'V' && head[2] == 'F' && head[3] == 'N';
 }
 
-/**
- * The source for a loaded font: composing syllables from jamo pieces when the
- * file says so (flags bit 1) and its table holds up, else the file's own
- * glyphs. A font whose table does not is used as a plain font, with one
- * warning naming it (@p name, which may be empty: a stream source has none).
- */
-static UnicodeGlyphSource *openSource(HiResBitmapFont *font, const Common::String &name) {
+// Composing syllables from jamo pieces when the file says so (flags bit 1) and
+// its table holds up, else the file's own glyphs. A font whose table does not
+// is used as a plain font, with one warning naming it (@p name, which may be
+// empty: a stream source has none).
+UnicodeGlyphSource *createSvfnSource(HiResBitmapFont *font, const Common::String &name) {
 	if (font->jamoSets() || !font->jamoSetError().empty()) {
 		Common::String why;
 		if (JamoGlyphSource::usable(*font, why)) {
@@ -64,7 +62,7 @@ UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common:
 		delete font;
 		return nullptr;
 	}
-	return openSource(font, Common::String());
+	return createSvfnSource(font, Common::String());
 }
 
 UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
@@ -75,7 +73,7 @@ UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, Dispose
 		delete font;
 		return nullptr;
 	}
-	return openSource(font, name);
+	return createSvfnSource(font, name);
 }
 
 void unbufferCacheStream(Common::SeekableReadStream *stream) {

@@ -708,6 +708,29 @@ public:
 		TS_ASSERT_EQUALS(src->cells(Graphics::kJamoPieceBase + 5), 1);	// pieces are plain glyphs
 		delete src;
 	}
+	void test_source_for_a_font_loaded_by_the_caller() {
+		// Engines that load the font themselves (SCUMM's faces) hand it over.
+		const Bytes bytes = makeFont(pieceCps(), make844Jset());
+		Graphics::HiResBitmapFont *font = loadFont(bytes, true);
+		Graphics::UnicodeGlyphSource *src = Graphics::createSvfnSource(font, "OWN.SVF");
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+		expectInk(inkOf(*src, 0xAC01), pieceInk(3, 101, 205, 249));
+		delete src;	// and with it the font
+
+		warned().clear();
+		Bytes jset = make844Jset();
+		jset.pop_back();
+		const Bytes bad = makeFont(pieceCps(), jset);
+		const Common::LogWatcher before = Common::getLogWatcher();
+		Common::setLogWatcher(watch);
+		src = Graphics::createSvfnSource(loadFont(bad, false), "OWNBAD.SVF");
+		Common::setLogWatcher(before);
+		TS_ASSERT_EQUALS(ignoredWarnings("OWNBAD.SVF"), 1u);
+		TS_ASSERT_EQUALS(src->cells(0xAC01), 0);
+		delete src;
+	}
 };
 
 const byte HiResTextJamoTestSuite::kInitNoFin[21] = { 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 3, 3, 1, 2, 4, 4, 4, 2, 1, 3, 0 };

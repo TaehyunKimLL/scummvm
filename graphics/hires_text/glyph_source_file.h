@@ -31,6 +31,7 @@ class String;
 
 namespace Graphics {
 
+class HiResBitmapFont;
 class UnicodeGlyphSource;
 
 /**
@@ -64,6 +65,15 @@ UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common:
  */
 UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 									 Common::String &error, const Common::String &name);
+
+/**
+ * The source for a font the caller loaded itself (HiResBitmapFont::load() or
+ * loadStreamed()): a JamoGlyphSource for a jamo-set font (flags bit 1) whose
+ * table holds up, else a plain SvfnGlyphSource, with one warning when the
+ * table does not. Takes ownership of @p font; @p name names the cache and the
+ * warning, and may be empty.
+ */
+UnicodeGlyphSource *createSvfnSource(HiResBitmapFont *font, const Common::String &name);
 
 /**
  * A stream a cache keeps open and reads in blocks of its own: when it is a

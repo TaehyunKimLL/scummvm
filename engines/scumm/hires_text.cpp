@@ -857,9 +857,7 @@ bool ScummHiResText::adoptFace(const Common::String &resolvedPath, Graphics::HiR
 	}
 
 	Face *face = new Face();
-	Graphics::SvfnGlyphSource *svf = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
-	svf->setName(Common::Path(resolvedPath, '/').baseName());
-	face->source = svf;
+	face->source = Graphics::createSvfnSource(font, Common::Path(resolvedPath, '/').baseName());
 	_sources[resolvedPath] = face;
 	_faceBySource[(uint64)(uintptr)face->source] = face;
 	_fontsLoaded = true;
@@ -1982,9 +1980,7 @@ bool ScummHiResText::loadSimpleBitmapFile(const Common::Path &gameDir, const Com
 		face = it->_value;
 	} else {
 		face = new Face();
-		Graphics::SvfnGlyphSource *svf = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
-		svf->setName(name);
-		face->source = svf;
+		face->source = Graphics::createSvfnSource(font, name);
 		_sources[key] = face;
 		_faceBySource[(uint64)(uintptr)face->source] = face;
 	}
