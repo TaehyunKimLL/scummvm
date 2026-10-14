@@ -277,7 +277,9 @@ def make_map(template_text, game, fonts, aliases, blend, decorations=None):
             continue
         lines.append("mode=" + ("stroke" if "o" in m and "d" in m else "outline" if "o" in m else "drop"))
         if "o" in m:
-            lines.append(f"width={round(0.75 * m['o'] * mult * 4) / 4:g}")
+            # The original's outline is whole game pixels, eight neighbours
+            # deep: the full width, not the engine default's 0.75 of one.
+            lines.append(f"width={round(m['o'] * mult * 4) / 4:g}")
         if "d" in m:
             # Both legs: a drop's, or a stroke's copy's (offset=dx,dy).
             dx, dy = (round(v * mult) for v in m["d"])

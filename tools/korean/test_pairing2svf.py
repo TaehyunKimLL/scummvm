@@ -139,7 +139,7 @@ class MapTest(unittest.TestCase):
         text = p2s.make_map("[map]\n[shadow]\nmode=game\n[font]\nface=ui\n", "G", fonts,
                             {"a": "kp1", "b": "kp2"}, "auto", decorations=deco)
         s = {n: l for n, l in p2s.parse_sections(text) if n}
-        self.assertIn("width=3", s["shadow.3"])          # 0.75 x 2 x 2 x (30/30)
+        self.assertIn("width=4", s["shadow.3"])          # a full 2 game px x 30/15
         self.assertIn("mode=outline", s["shadow.3"])
         self.assertIn("offset=4,4", s["shadow.6"])       # (2, 2) x 56/28
         self.assertIn("mode=drop", s["shadow.6"])        # a drop even where the patch byte says outline
@@ -157,7 +157,7 @@ class MapTest(unittest.TestCase):
                             decorations={"cs3": {"o": 1, "d": [-1, 1]}})
         s = {n: l for n, l in p2s.parse_sections(text) if n}
         self.assertIn("mode=stroke", s["shadow.3"])
-        self.assertIn("width=1.5", s["shadow.3"])        # 0.75 x 2 x 1
+        self.assertIn("width=2", s["shadow.3"])          # a full game px x 2 (Indy4: 1 px on 2 px stems)
         self.assertIn("offset=-2,2", s["shadow.3"])      # (-1, +1) game px x 2
 
     def test_a_big_face_gets_its_multiple(self):

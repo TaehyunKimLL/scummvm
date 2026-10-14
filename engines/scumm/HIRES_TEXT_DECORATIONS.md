@@ -120,7 +120,7 @@ decoration; each face scored against drop and per-side outline models), kept in
 
 | face | line | original decoration (game px) | at 2x |
 |---|---|---|---|
-| MI1/MI2/Loom cs2, cs4, MI2 cs8, Indy4 cs2, DOTT cs2 | 8-15 | outline 1 | 2 px |
+| MI1/MI2/Loom cs2, cs4, MI2 cs8, Indy4 cs2, DOTT cs2 | 8-15 | outline 1, all eight neighbours | 2 px |
 | MI2 cs7, Indy4 cs3, cs4 | 12-15 | outline 1 + drop (-1,+1): a stroke | 2 px, shadow -2,2 |
 | MI cs6, DOTT cs3 | 12-14 | drop (1,1) | 2,2 px |
 | DOTT cs5 | 12 | filled drop (1,1): right, below and the corner | 2,2 px, fill=on |
@@ -129,7 +129,8 @@ decoration; each face scored against drop and per-side outline models), kept in
 
 `tools/korean/pairing2svf.py` writes a `[shadow.N]` for every SCUMM charset it
 pairs, grown to the Korean face by its multiple m = face height / original
-line height (2 for a face twice the line): `width` = 0.75 x reach x m in
+line height (2 for a face twice the line): `width` = reach x m (the original's
+outline is whole game pixels; the 0.75 is the built-in default's) in
 quarter pixels, `offset` = (dx, dy) x m for a drop or a stroke's copy, and
 `fill=on` for a filled drop. A
 measured charset also gets the original's `mode` - not the patch byte's,
@@ -144,7 +145,7 @@ larger than twice its line.
 mode=game
 [shadow.3]        ; Indy4 cs3: outline plus a lower-left copy
 mode=stroke
-width=1.5
+width=2
 offset=-2,2
 [shadow.5]        ; DOTT cs5: a filled (1,1) drop at 2x
 mode=drop
