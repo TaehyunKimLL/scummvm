@@ -5,8 +5,9 @@
 #   dialogue, verbs and the sentence line in a gothic face, the title/credit
 #   card in a serif face. With them in the bare sections, render_target=auto
 #   picks true colour.
-#   render_target=clut8 (8-bit palette): M2L*.SVF, 1 bpp, baked from a pixel
-#   face (tools/korean/scumm-fonts/m2l.tsv), drawn hard-edged.
+#   render_target=clut8 (8-bit palette): M2L*.SVF, 1 bpp, drawn hard-edged: M2L1/2 are a pixel
+#   face baked by tools/korean/scumm-fonts/m2l.tsv, and the 24 px tall cells (M2L0, M2L4; cs7 shares M2L4) a real 24 dot
+#   face (Baekmuk, tools/korean/bdfface.py), 24x24 cells that step as the game's cell does.
 # Cells per charset: cs0/cs6 22x24, cs1/cs3/cs5/cs8 16x16, cs2 18x18, cs4 26x24,
 # cs7 24x24; both presets bake the same cells. Charsets that share a cell share
 # one SVF; the 2 bpp set bakes charset 8 on its own (M2U8.SVF), the 1 bpp set
@@ -37,7 +38,7 @@ dlg=M2L0.SVF
 small=M2L1.SVF
 sent=M2L2.SVF
 card=M2L4.SVF
-card7=M2L7.SVF
+card7=M2L4.SVF
 card8=M2L1.SVF
 
 [font]
