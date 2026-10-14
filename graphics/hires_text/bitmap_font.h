@@ -27,6 +27,7 @@
 #include "common/str-enc.h"
 #include "common/types.h"
 #include "graphics/hires_text/glyph_source.h"
+#include "graphics/hires_text/jamo_set.h"
 
 namespace Common {
 class SeekableReadStream;
@@ -175,6 +176,16 @@ public:
 	/// Whether that table had to be given a sorted order of its own.
 	bool codePointTableNeedsOrder() const { return !_cmapOrder.empty(); }
 
+	/**
+	 * Flags bit 1: the glyphs are jamo pieces and a JSET block after the code
+	 * point table says how syllables are composed from them (jamo_set.h).
+	 * Read in memory with the tables, streamed or not. Null for a font
+	 * without the flag, or whose block failed validation (the font is then a
+	 * plain one; jamoSetError() says why, empty when there is nothing to say).
+	 */
+	const JamoSetTable *jamoSets() const { return _jamoOk ? &_jamo : nullptr; }
+	const Common::String &jamoSetError() const { return _jamoError; }
+
 private:
 	/// The header's fields, checked against a file of @p size bytes.
 	struct Layout {
@@ -182,6 +193,8 @@ private:
 		int bpp, glyphs, cellW, cellH, ascent, rowPitch;
 		uint32 glyphStride, metricsOff, dataOff, dataSize, cmapOff;
 		bool metricsOk;	///< there is a metrics table, and it fits
+		bool jamo;		///< flags bit 1: a JSET block follows the code point table
+		uint32 jsetOff, jsetSize;	///< where it starts and the bytes up to the next table or the file's end
 	};
 	/// @p have bytes of the file's start at @p raw, of a file of @p size bytes.
 	static bool readLayout(const byte *raw, uint32 have, uint32 size, Layout &out);
@@ -190,6 +203,8 @@ private:
 	bool loadWhole(Common::SeekableReadStream &stream, uint32 sizeLimit, bool &noMemory);
 	/// Checks a version 2 table's indices; @p order gets a sorted order when the table is not sorted.
 	static bool checkCodePointTable(const byte *table, int glyphs, Common::Array<uint16> &order);
+	/// Parses the JSET block of a jamo-set font from its jsetSize bytes at @p block (null: unread).
+	void adoptJamoSets(const Layout &layout, const byte *block);
 	void adopt(const Layout &layout, const byte *metrics, const byte *cmapTable, Common::Array<uint16> &cmapOrder);
 
 	int legacyGlyphIndex(uint32 codepoint) const;
@@ -229,6 +244,10 @@ private:
 	mutable Common::Array<int> _failedBlocks;	///< first glyph of each block whose read failed
 
 	const byte *_metrics;
+
+	JamoSetTable _jamo;
+	bool _jamoOk;
+	Common::String _jamoError;
 
 	int _bpp;
 	int _cellW;

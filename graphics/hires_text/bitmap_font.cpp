@@ -50,13 +50,18 @@ static const uint16 kMaxVersion = 2;
 
 enum {
 	kFlagProportional = 1 << 0,
-	// Bit 1 (glyphs are jamo, composed at run time) is reserved.
+	// Glyphs are jamo pieces, composed at run time by a JSET block (jamo_set.h).
+	kFlagJamoSets = 1 << 1,
 	kFlagMarksAtOrigin = 1 << 2
 };
 
 // Bytes per entry in the metrics table: advance, left bearing, ink width, and
 // one still unused.
 static const int kMetricsEntrySize = 4;
+
+// The most bytes a valid JSET block takes (jamoSetSize(4, 4, 16, 16, 16)); a
+// span longer than that cannot be one, and is not read when streaming.
+static const uint32 kJsetMaxSize = 4096;
 
 // Bytes per entry in the code point table of a version 2 font.
 static const int kCmapEntrySize = 8;
@@ -75,6 +80,7 @@ HiResBitmapFont::HiResBitmapFont() {
 	_readClock = _readCount = _readBytes = 0;
 	_pixels = nullptr;
 	_metrics = nullptr;
+	_jamoOk = false;
 	_bpp = 0;
 	_cellW = 0;
 	_cellH = 0;
@@ -110,6 +116,9 @@ void HiResBitmapFont::free() {
 	_readClock = _readCount = _readBytes = 0;
 	_pixels = nullptr;
 	_metrics = nullptr;
+	_jamo = JamoSetTable();
+	_jamoOk = false;
+	_jamoError.clear();
 	_bpp = 0;
 	_cellW = 0;
 	_cellH = 0;
@@ -180,6 +189,7 @@ bool HiResBitmapFont::loadWhole(Common::SeekableReadStream &stream, uint32 sizeL
 	_data = raw;
 	_pixels = raw + layout.dataOff;
 	adopt(layout, metrics, cmapTable, cmapOrder);
+	adoptJamoSets(layout, layout.jamo ? raw + layout.jsetOff : nullptr);
 	return true;
 }
 
@@ -247,6 +257,20 @@ bool HiResBitmapFont::loadStreamed(Common::SeekableReadStream *stream, DisposeAf
 	_tablesSize = metricsSize + cmapSize;
 	_glyphsPerBlock = MAX<int>(1, (int)(HIRES_SVF_READ_BLOCK / layout.glyphStride));
 	adopt(layout, metricsSize ? tables : nullptr, cmapTable, cmapOrder);
+
+	// The JSET block is small (3313 bytes at most): read now with the tables,
+	// parsed into the table, and not kept.
+	if (layout.jamo) {
+		Common::Array<byte> block;
+		if (layout.jsetSize <= kJsetMaxSize) {
+			block.resize(layout.jsetSize);
+			if (!stream->seek(layout.jsetOff) || stream->read(block.begin(), layout.jsetSize) != layout.jsetSize) {
+				stream->clearErr();
+				block.clear();
+			}
+		}
+		adoptJamoSets(layout, block.size() == layout.jsetSize ? block.begin() : nullptr);
+	}
 	return true;
 }
 
@@ -327,6 +351,21 @@ bool HiResBitmapFont::readLayout(const byte *raw, uint32 have, uint32 size, Layo
 		}
 	}
 
+	out.jamo = (flags & kFlagJamoSets) != 0;
+	out.jsetOff = out.jsetSize = 0;
+	if (out.jamo && version >= 2) {
+		// The block follows the code point table. It ends where the next table
+		// the header names starts, or at the end of the file.
+		const uint32 start = cmapOff + (uint32)glyphs * kCmapEntrySize;
+		uint32 end = size;
+		if (metricsOk && metricsOff >= start && metricsOff < end)
+			end = metricsOff;
+		if (dataOff >= start && dataOff < end)
+			end = dataOff;
+		out.jsetOff = start;
+		out.jsetSize = end - start;
+	}
+
 	out.version = version;
 	out.flags = flags;
 	out.bpp = bpp;
@@ -372,6 +411,19 @@ bool HiResBitmapFont::checkCodePointTable(const byte *table, int glyphs, Common:
 		Common::sort(order.begin(), order.end(), CmapEntryLess(table));
 	}
 	return true;
+}
+
+void HiResBitmapFont::adoptJamoSets(const Layout &layout, const byte *block) {
+	_jamoOk = false;
+	_jamoError.clear();
+	if (!layout.jamo)
+		return;
+	if (layout.version < 2)
+		_jamoError = "jamo sets need a version 2 font";
+	else if (!block)
+		_jamoError = Common::String::format("JSET length %u could not be read", layout.jsetSize);
+	else
+		_jamoOk = parseJamoSetTable(block, layout.jsetSize, _jamo, _jamoError);
 }
 
 void HiResBitmapFont::adopt(const Layout &layout, const byte *metrics, const byte *cmapTable,
