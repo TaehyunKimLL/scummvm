@@ -648,12 +648,13 @@ struct ScummHiResText {
 	 * The colours and decoration a replacement glyph is drawn with (C19).
 	 *
 	 * The mode comes from resolveShadow(); its geometry from @p map's
-	 * [shadow] keys at @p scale (HiResGlyphRenderer::applyMap()). For
+	 * [shadow] keys, with [shadow.@p charsetId]'s over them, at @p scale
+	 * (HiResGlyphRenderer::applyShadow()). For
 	 * the Korean patch bytes at 2x that gives: 0 (patch) and 4+ a round
 	 * outline 1.5 px wide, 2 a drop of the glyph by (1, 1), 3 that outline
 	 * plus a copy of it moved (-1, +1) in place of the old stroke table.
 	 */
-	static Graphics::GlyphStyle glyphStyle(const Graphics::HiResMap &map, int scale,
+	static Graphics::GlyphStyle glyphStyle(const Graphics::HiResMap &map, int charsetId, int scale,
 										   int gameShadow, bool korPatchShadow,
 										   byte color, byte shadowColor);
 
@@ -1143,7 +1144,7 @@ private:
 						 int x, int y, byte color, byte shadowColor, int gameShadow,
 						 Common::Rect *dirty, bool withCoverage, int gameAdvance);
 	/// @p mirror flips the glyph; across, about [@p axisLeft, @p axisRight).
-	bool drawRows(Graphics::Surface &dest, Graphics::UnicodeGlyphSource &src, uint32 cp, int width,
+	bool drawRows(Graphics::Surface &dest, Graphics::UnicodeGlyphSource &src, uint32 cp, int width, int charsetId,
 				  int x, int y, byte color, byte shadowColor, int gameShadow,
 				  Common::Rect *dirty, bool withCoverage,
 				  Graphics::HiResMirror mirror = Graphics::kHiResMirrorNone,

@@ -1167,7 +1167,7 @@ bool ScummHiResText::glyphInk(Graphics::UnicodeGlyphSource *src, uint32 cp, int 
 	return true;
 }
 
-bool ScummHiResText::drawRows(Graphics::Surface &dest, Graphics::UnicodeGlyphSource &src, uint32 cp, int width,
+bool ScummHiResText::drawRows(Graphics::Surface &dest, Graphics::UnicodeGlyphSource &src, uint32 cp, int width, int charsetId,
 							  int x, int y, byte color, byte shadowColor, int gameShadow,
 							  Common::Rect *dirty, bool withCoverage,
 							  Graphics::HiResMirror mirror, int axisLeft, int axisRight) {
@@ -1197,7 +1197,7 @@ bool ScummHiResText::drawRows(Graphics::Surface &dest, Graphics::UnicodeGlyphSou
 	glyph.height = height;
 	glyph.bpp = 8;
 
-	const Graphics::GlyphStyle style = glyphStyle(_map, _scale, gameShadow, _korPatchShadow, color, shadowColor);
+	const Graphics::GlyphStyle style = glyphStyle(_map, charsetId, _scale, gameShadow, _korPatchShadow, color, shadowColor);
 	const bool decorated = style.shadowMode != Graphics::kHiResShadowNone;
 
 	Graphics::GlyphPlanes planes(&dest, (withCoverage && (bpp > 1 || decorated)) ? coverage() : nullptr);
@@ -1294,7 +1294,7 @@ bool ScummHiResText::drawGlyphPlaced(Graphics::Surface &dest, int chr, int chars
 	// originShiftFor() itself answers 0 when @p src already is the primary.
 	const int baselineShift = originShiftFor(src, id);
 
-	return drawRows(dest, *src, cp, width, drawX, y + baselineShift, color, shadowColor, gameShadow, dirty,
+	return drawRows(dest, *src, cp, width, charsetId, drawX, y + baselineShift, color, shadowColor, gameShadow, dirty,
 					withCoverage, mirrorFor(charsetId), axisLeft, axisRight);
 }
 
@@ -1353,7 +1353,7 @@ bool ScummHiResText::drawChar(Graphics::Surface &dest, int chr, int charsetId,
 	int advance = face->source->advance(cp);
 	if (advance <= 0)
 		advance = width;
-	return drawRows(dest, *face->source, cp, width, x, y + baselineShift, color, shadowColor,
+	return drawRows(dest, *face->source, cp, width, charsetId, x, y + baselineShift, color, shadowColor,
 					gameShadow, dirty, withCoverage, mirror, x, x + advance);
 }
 
@@ -2459,14 +2459,15 @@ void ScummHiResText::retireGlyphsByCell(const Common::Rect &painted, Common::Arr
 	}
 }
 
-Graphics::GlyphStyle ScummHiResText::glyphStyle(const Graphics::HiResMap &map, int scale,
+Graphics::GlyphStyle ScummHiResText::glyphStyle(const Graphics::HiResMap &map, int charsetId, int scale,
 												 int gameShadow, bool korPatchShadow,
 												 byte color, byte shadowColor) {
+	const Graphics::HiResShadowSpec spec = map.shadowFor(charsetId);
 	Graphics::GlyphStyle style;
 	style.color = color;
-	style.shadowColor = map.shadow.colorSet ? map.shadow.color : shadowColor;
-	style.shadowMode = resolveShadow(map.shadow.mode, gameShadow, korPatchShadow);
-	Graphics::HiResGlyphRenderer::applyMap(style, map, MAX(1, scale));
+	style.shadowColor = spec.colorSet ? spec.color : shadowColor;
+	style.shadowMode = resolveShadow(spec.mode, gameShadow, korPatchShadow);
+	Graphics::HiResGlyphRenderer::applyShadow(style, spec, MAX(1, scale));
 	return style;
 }
 

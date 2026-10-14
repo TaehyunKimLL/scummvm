@@ -54,7 +54,7 @@ public:
 	static Graphics::GlyphDecoration drawn(int shadow, bool korPatch, int scale = 2) {
 		Graphics::HiResMap map;
 		const Graphics::GlyphStyle style =
-			Scumm::ScummHiResText::glyphStyle(map, scale, shadow, korPatch, 15, 0);
+			Scumm::ScummHiResText::glyphStyle(map, 0, scale, shadow, korPatch, 15, 0);
 		TS_ASSERT_EQUALS(style.color, 15);
 		TS_ASSERT_EQUALS(style.shadowColor, 0);
 		return Graphics::HiResGlyphRenderer::decorationFor(style);
@@ -116,7 +116,7 @@ public:
 		map.shadow.colorSet = true;
 		map.shadow.widthQ = 4;
 		map.shadow.style = Graphics::kHiResOutlineLegacy;
-		const Graphics::GlyphStyle style = Scumm::ScummHiResText::glyphStyle(map, 2, 0, true, 15, 0);
+		const Graphics::GlyphStyle style = Scumm::ScummHiResText::glyphStyle(map, 0, 2, 0, true, 15, 0);
 		TS_ASSERT_EQUALS(style.shadowColor, 8);
 		const Graphics::GlyphDecoration d = Graphics::HiResGlyphRenderer::decorationFor(style);
 		TS_ASSERT(d.outline);
@@ -139,5 +139,43 @@ public:
 		TS_ASSERT_EQUALS(Scumm::ScummHiResText::gameRectFor(Common::Rect(5, 5, 9, 9), 1),
 						 Common::Rect(5, 5, 9, 9));
 		TS_ASSERT(Scumm::ScummHiResText::gameRectFor(Common::Rect(), 2).isEmpty());
+	}
+
+	void test_each_charset_takes_its_own_shadow_section() {
+		Graphics::HiResMap map;
+		map.shadow.mode = Graphics::kHiResShadowOutline;
+		map.shadow.modeSet = true;
+		Graphics::HiResShadowSpec cs3;
+		cs3.widthQ = 12; cs3.widthSet = true;            // 3 px
+		map.shadowIds[3] = cs3;
+		Graphics::HiResShadowSpec cs6;
+		cs6.mode = Graphics::kHiResShadowDrop; cs6.modeSet = true;
+		cs6.offset = 4; cs6.offsetSet = true;
+		map.shadowIds[6] = cs6;
+
+		const Graphics::GlyphStyle s3 = Scumm::ScummHiResText::glyphStyle(map, 3, 2, 0, false, 15, 0);
+		TS_ASSERT_EQUALS(s3.shadowMode, Graphics::kHiResShadowOutline);
+		TS_ASSERT_EQUALS(s3.outlineQ, 12);
+		const Graphics::GlyphStyle s6 = Scumm::ScummHiResText::glyphStyle(map, 6, 2, 0, false, 15, 0);
+		TS_ASSERT_EQUALS(s6.shadowMode, Graphics::kHiResShadowDrop);
+		TS_ASSERT_EQUALS(s6.shadowOffset, 4);
+		const Graphics::GlyphStyle s1 = Scumm::ScummHiResText::glyphStyle(map, 1, 2, 0, false, 15, 0);
+		TS_ASSERT_EQUALS(s1.outlineQ, 6);                // the scale's 0.75 game px
+		TS_ASSERT_EQUALS(s1.shadowOffset, 1);
+	}
+
+	void test_a_map_without_shadow_ids_draws_as_before() {
+		Graphics::HiResMap map;
+		for (int id = 0; id < 9; ++id) {
+			const Graphics::GlyphStyle a = Scumm::ScummHiResText::glyphStyle(map, id, 2, 0, true, 15, 0);
+			Graphics::GlyphStyle b;
+			b.color = 15;
+			b.shadowColor = 0;
+			b.shadowMode = Scumm::ScummHiResText::resolveShadow(map.shadow.mode, 0, true);
+			Graphics::HiResGlyphRenderer::applyShadow(b, map.shadow, 2);
+			TS_ASSERT_EQUALS(a.shadowMode, b.shadowMode);
+			TS_ASSERT_EQUALS(a.outlineQ, b.outlineQ);
+			TS_ASSERT_EQUALS(a.shadowOffset, b.shadowOffset);
+		}
 	}
 };
