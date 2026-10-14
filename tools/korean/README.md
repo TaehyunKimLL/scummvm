@@ -257,6 +257,26 @@ tools/korean/sci0_kr_extract.py script-strings ENDIR             # = dump_script
   ink there. Camelot: banks 500-524 (8 px) and 525-549 (9 px, the outlined
   intro text), 1135 syllables, none missing and none unused.
 
+## Byte fixes to a translation bundle
+
+`trs_fix.py` applies a table of byte fixes to a `korean.trs` (any SCVMTRS
+bundle): one fix a line, the line index, the bytes of the translation before
+and after in hex, and a note. The bytes must occur once in that translation;
+the strings after it move and the index offsets follow, everything else
+(encoding, file order, room ranges) is kept. `trs-fixes/` holds the tables for
+the Kor. Project bundles: bytes of the game's own character set (0x92 the
+apostrophe, 0x83 a-circumflex) left in CP949 text, where two of them read as a
+syllable outside KS X 1001 and draw as a box in the hi-res text.
+
+```sh
+cp gamedata/mi2kor/korean.trs gamedata/mi2kor/korean.trs.orig     # once
+tools/korean/trs_fix.py tools/korean/trs-fixes/mi2kor.tsv \
+    gamedata/mi2kor/korean.trs.orig -o gamedata/mi2kor/korean.trs
+```
+
+Same for `mi1ute-kor`. Lines with such syllables are found with
+`mkfont.py`'s `.trs` reader (every Hangul syllable not in KS X 1001).
+
 ## A UTF-8 `korean.trs` for a SCUMM release from existing translations
 
 `scumm_trs_from_patch.py` writes a UTF-8 SCVMTRS bundle for an English SCUMM
