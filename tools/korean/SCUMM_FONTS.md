@@ -277,6 +277,30 @@ tools/korean/bake-scumm-fonts.sh $P/dottu.tsv "$G/dott/Day Of the Tentacle (DOS 
 tools/korean/bake-scumm-fonts.sh $P/dottl.tsv "$G/dott/Day Of the Tentacle (DOS Floppy)" $D dott-all.txt $D/DOTTKO.MAP
 ```
 
+The shipped DOTT, MI1 and MI2 L faces are not these bakes as they come out of
+`bake-scumm-fonts.sh`: each is converted to a jamo set (1 bpp, flag bit 1) in
+place, so the pack carries 344 pieces of the cell instead of every syllable.
+`--from-svf` decomposes the precomposed face's present syllables and keeps its
+other glyphs, cell, baseline, metrics and flags, and the step of its syllables
+(the JSET advance byte: 16 for these faces, 32 for the 46x54 and 36x36 DOTT
+cells, even in a 26 px cell - the engine centres a syllable that steps less than
+the game cell, so a 0 here would shift every line); the engine composes the same
+pixels back (IoU 1.000, every present syllable exact, for all 15 faces; sizes
+2,001,044 -> 366,742 B for DOTT, 621,962 -> 167,024 B for MI1, 498,506 ->
+175,911 B for MI2). Run it after the L bakes above, with the same `$D`:
+
+```sh
+D=dists/engine-data/hires_text/dos
+for f in DOTTL0 DOTTL1 DOTTL2 DOTTL3 DOTTL4 DOTTL7 M1L0 M1L1 M1L2 M1L4 M2L0 M2L1 M2L2 M2L4 M2L7; do
+  python3 tools/korean/jamoset.py --from-svf $D/$f.SVF --layout 844 -o /tmp/$f.jamo.SVF \
+    --report /tmp/$f.json && mv /tmp/$f.jamo.SVF $D/$f.SVF
+done
+```
+
+Each run prints `fit: N syllables, IoU 1.000 ... exact N`; a face that is not
+exact stays precomposed (check the line before the `mv`). The U faces (2 bpp)
+stay precomposed. The maps are unchanged: same face names.
+
 Notes per game:
 
 * The cells are 2x the game's `korean0N.fnt` header, as everywhere: MM/Zak
