@@ -4,6 +4,9 @@
 #include "common/memstream.h"
 #include "common/algorithm.h"
 #include "graphics/hires_text/bitmap_font.h"
+#include "common/log.h"
+#include "common/str.h"
+#include "graphics/hires_text/glyph_source_file.h"
 #include "graphics/hires_text/glyph_source_jamo.h"
 #include "graphics/hires_text/glyph_source_svfn.h"
 #include "graphics/hires_text/jamo_set.h"
@@ -600,6 +603,110 @@ public:
 		}
 		// And what was prefetched still draws right.
 		expectInk(inkOf(src, 0xAC01), pieceInk(3, 101, 205, 249));
+	}
+	// ---- createSvfnSource() ----------------------------------------------
+
+	static Common::Array<Common::String> &warned() {
+		static Common::Array<Common::String> messages;
+		return messages;
+	}
+
+	static void watch(LogMessageType::Type type, int level, uint32 channel, const char *message) {
+		if (type == LogMessageType::kWarning)
+			warned().push_back(message);
+	}
+
+	/// Warnings of the kind this layer gives when it drops a font's jamo sets.
+	static uint ignoredWarnings(const char *needle) {
+		uint n = 0;
+		for (uint i = 0; i < warned().size(); ++i)
+			if (warned()[i].contains("jamo sets ignored") && warned()[i].contains(needle))
+				++n;
+		return n;
+	}
+
+	Graphics::UnicodeGlyphSource *open(const Bytes &bytes, bool streamed, const char *name = "TEST.SVF") {
+		Common::String error;
+		if (streamed)
+			return Graphics::createSvfnSource(new Common::MemoryReadStream(bytes.begin(), bytes.size()),
+											  DisposeAfterUse::YES, error, name);
+		Common::MemoryReadStream stream(bytes.begin(), bytes.size());
+		return Graphics::createSvfnSource(stream, error);
+	}
+
+public:
+	void test_file_with_jamo_sets_composes() {
+		for (int streamed = 0; streamed < 2; ++streamed) {
+			const Bytes bytes = makeFont(pieceCps(), make844Jset());
+			Graphics::UnicodeGlyphSource *src = open(bytes, streamed != 0);
+			TS_ASSERT(src != nullptr);
+			if (!src)
+				return;
+			TS_ASSERT_EQUALS(src->cells(0xAC01), 2);
+			expectInk(inkOf(*src, 0xAC01), pieceInk(3, 101, 205, 249));
+			TS_ASSERT_EQUALS(src->cells('A'), 1);
+			delete src;
+		}
+	}
+
+	void test_invalid_jamo_block_opens_as_plain_font_with_one_warning() {
+		Bytes jset = make844Jset();
+		jset.pop_back();
+		const Bytes bytes = makeFont(pieceCps(), jset);
+		const Common::LogWatcher before = Common::getLogWatcher();
+		for (int streamed = 0; streamed < 2; ++streamed) {
+			warned().clear();
+			Common::setLogWatcher(watch);
+			Graphics::UnicodeGlyphSource *src = open(bytes, streamed != 0, "BADJ.SVF");
+			Common::setLogWatcher(before);
+			TS_ASSERT(src != nullptr);
+			if (!src)
+				return;
+			TS_ASSERT_EQUALS(ignoredWarnings("length"), 1u);
+			if (streamed)
+				TS_ASSERT_EQUALS(ignoredWarnings("BADJ.SVF"), 1u);
+			// Plain: the file's own glyphs only, a syllable falls through.
+			TS_ASSERT_EQUALS(src->cells(0xAC01), 0);
+			TS_ASSERT_EQUALS(src->cells('A'), 1);
+			// Used a lot: no further warnings.
+			inkOf(*src, 'A');
+			TS_ASSERT_EQUALS(ignoredWarnings("length"), 1u);
+			delete src;
+		}
+	}
+
+	void test_piece_without_a_glyph_opens_as_plain_font_with_one_warning() {
+		Common::Array<uint32> cps = pieceCps();
+		cps.pop_back();	// piece 359
+		const Bytes bytes = makeFont(cps, make844Jset());
+		warned().clear();
+		const Common::LogWatcher before = Common::getLogWatcher();
+		Common::setLogWatcher(watch);
+		Graphics::UnicodeGlyphSource *src = open(bytes, false);
+		Common::setLogWatcher(before);
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+		TS_ASSERT_EQUALS(ignoredWarnings("359"), 1u);
+		TS_ASSERT_EQUALS(src->cells(0xAC00), 0);
+		delete src;
+	}
+
+	void test_font_without_the_flag_is_unchanged() {
+		const Bytes bytes = makeFont(pieceCps(), make844Jset(), false);
+		warned().clear();
+		const Common::LogWatcher before = Common::getLogWatcher();
+		Common::setLogWatcher(watch);
+		Graphics::UnicodeGlyphSource *src = open(bytes, false);
+		Common::setLogWatcher(before);
+		TS_ASSERT(src != nullptr);
+		if (!src)
+			return;
+		TS_ASSERT_EQUALS(ignoredWarnings(""), 0u);
+		TS_ASSERT_EQUALS(src->cells(0xAC00), 0);	// no syllables: a KO2350-like plain font's gap
+		TS_ASSERT_EQUALS(src->cells('A'), 1);
+		TS_ASSERT_EQUALS(src->cells(Graphics::kJamoPieceBase + 5), 1);	// pieces are plain glyphs
+		delete src;
 	}
 };
 

@@ -23,13 +23,38 @@
 
 #include "common/str.h"
 #include "common/stream.h"
+#include "common/textconsole.h"
 #include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/glyph_source_jamo.h"
 #include "graphics/hires_text/glyph_source_svfn.h"
 
 namespace Graphics {
 
 bool isSvfnFile(const byte *head, uint32 size) {
 	return size >= 4 && head[0] == 'S' && head[1] == 'V' && head[2] == 'F' && head[3] == 'N';
+}
+
+/**
+ * The source for a loaded font: composing syllables from jamo pieces when the
+ * file says so (flags bit 1) and its table holds up, else the file's own
+ * glyphs. A font whose table does not is used as a plain font, with one
+ * warning naming it (@p name, which may be empty: a stream source has none).
+ */
+static UnicodeGlyphSource *openSource(HiResBitmapFont *font, const Common::String &name) {
+	if (font->jamoSets() || !font->jamoSetError().empty()) {
+		Common::String why;
+		if (JamoGlyphSource::usable(*font, why)) {
+			JamoGlyphSource *src = new JamoGlyphSource(font, DisposeAfterUse::YES);
+			if (!name.empty())
+				src->setName(name);
+			return src;
+		}
+		warning("%s: jamo sets ignored: %s", name.empty() ? "SVF" : name.c_str(), why.c_str());
+	}
+	SvfnGlyphSource *src = new SvfnGlyphSource(font, DisposeAfterUse::YES);
+	if (!name.empty())
+		src->setName(name);
+	return src;
 }
 
 UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common::String &error) {
@@ -39,7 +64,7 @@ UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common:
 		delete font;
 		return nullptr;
 	}
-	return new SvfnGlyphSource(font, DisposeAfterUse::YES);
+	return openSource(font, Common::String());
 }
 
 UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
@@ -50,9 +75,7 @@ UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, Dispose
 		delete font;
 		return nullptr;
 	}
-	SvfnGlyphSource *src = new SvfnGlyphSource(font, DisposeAfterUse::YES);
-	src->setName(name);
-	return src;
+	return openSource(font, name);
 }
 
 void unbufferCacheStream(Common::SeekableReadStream *stream) {

@@ -188,6 +188,59 @@ Korean targets): U+AC00 maps to glyph 0 and U+D79D to glyph 2349 in the 2350
 glyph Korean sets, 'A' maps to glyph 65 in the Latin sets, and the engine's own
 legacy `.fnt` files are rejected so the caller can fall back.
 
+### Jamo-set fonts (flags bit 1)
+
+A face holding every syllable precomposed is large (DOTT's 1bpp faces total
+1,954 KB); a DOS Hangul system held positional jamo pieces and drew a syllable
+as the OR of two or three. An SVFN v2 whose header flags carry bit 1 (0x2)
+is such a font: its code point table is followed immediately by a **JSET**
+block, and `createSvfnSource()` returns a `JamoGlyphSource` for it, so a map
+names the file like any face (`ui=data:DOTTJ0.SVF`). An older reader ignores
+the bit and the block and sees a plain font.
+
+- The pieces are glyphs at code point U+F0000 + piece number (plane 15, private
+  use). The numbers are the font's own; the JSET tables name them.
+- Any other glyph (ASCII, symbols, compatibility jamo stored whole) is looked
+  up as in any SVFN.
+- The block ends where the next table the header names begins (metrics table
+  or glyph data), or at the end of the file; its length must equal what its
+  counts give. A block that fails validation (counts, classes, sets out of
+  range, a length that does not add up, a piece number with no glyph) makes
+  the font load as a plain SVFN with one warning naming the file.
+- U+AC00..U+D7A3 are composed from the pieces by the maximum coverage at each
+  pixel (the OR of a 1bpp stencil; 2bpp and 8bpp work too); U+3131..U+3163 with
+  a compatPiece are that piece alone. A syllable is two cells wide.
+
+JSET block, little-endian:
+
+```
+4  "JSET"
+2  version (1)
+1  LC  lead classes   (1..4)
+1  TC  tail classes   (1..4)
+1  NI  initial sets   (1..16)
+1  NM  medial sets    (1..16)
+1  NF  final sets     (1..16)
+1  advance            syllable advance in px; 0 = the cell width
+19 leadClass[19]      class of each initial (ㄱ..ㅎ), < LC
+28 tailClass[28]      class of each tail, index 0 = no tail, < TC
+LC*21*TC initSet      set of the initial for (leadClass, vowel, tailClass), < NI
+LC*21*TC medSet       set of the medial
+LC*21*TC finSet       set of the final (read only when tail != 0)
+NI*19 u16 initPiece   piece number per (set, initial); 0xFFFF = blank
+NM*21 u16 medPiece    per (set, vowel)
+NF*27 u16 finPiece    per (set, tail 1..27)
+51 u16 compatPiece    U+3131..U+3163 drawn from one piece; 0xFFFF = not by piece
+```
+
+The three set tables are indexed `(leadClass * 21 + vowel) * TC + tailClass`
+(vowel 0..20 in Unicode order, ㅏ..ㅣ); a piece table is indexed
+`set * 19 + initial`, `set * 21 + vowel`, `set * 27 + tail - 1`. A final set
+is validated and read only for tail classes some tail 1..27 belongs to. The
+DOS set systems (8x4x4, 10x4x4, hanterm's 10x(3|4)x4, 6x2x1, the Dokkaebi
+printer sets, Kyra's jamo-major order) are all expressible; `tools/korean/jamoset.py`
+writes such fonts.
+
 ## Glyph rendering (G3)
 
 `HiResGlyphRenderer::drawGlyph` draws one glyph of a `HiResBitmapFont` onto a
