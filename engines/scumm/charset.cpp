@@ -920,6 +920,42 @@ void CharsetRendererPC::setShadowMode(ShadowType mode) {
 	_shadowType = mode;
 }
 
+// A glyph the hi-res layer left to the game (no replacement face covers it)
+// still goes to the text surface, which is _textSurfaceMultiplier times the
+// game's resolution. Drawn there by the game's own routines it would come out
+// 1:1, a small glyph in the top-left of its cell. Draw it at the game's size
+// into a scratch surface with those routines (shadow and outline included),
+// then put every pixel down as an m x m block at the cell's place.
+template<typename Draw>
+static void drawGameGlyphMagnified(ScummEngine *vm, int gameX, int gameY, int width, int height, Draw draw) {
+	const int pad = 3;	// the widest shadow reaches two pixels out (drawBits1Kor)
+	Graphics::Surface tmp;
+	tmp.create(width + 2 * pad, height + 2 * pad, Graphics::PixelFormat::createFormatCLUT8());
+	tmp.fillRect(Common::Rect(tmp.w, tmp.h), CHARSET_MASK_TRANSPARENCY);
+	draw(tmp, pad);
+
+	Graphics::Surface &ts = vm->_textSurface;
+	const int m = vm->_textSurfaceMultiplier;
+	for (int ty = 0; ty < tmp.h; ++ty) {
+		for (int tx = 0; tx < tmp.w; ++tx) {
+			const byte c = *(const byte *)tmp.getBasePtr(tx, ty);
+			if (c == CHARSET_MASK_TRANSPARENCY)
+				continue;
+			const int x0 = (gameX - pad + tx) * m;
+			const int y0 = (gameY - pad + ty) * m;
+			for (int r = 0; r < m; ++r) {
+				if (y0 + r < 0 || y0 + r >= ts.h)
+					continue;
+				for (int q = 0; q < m; ++q) {
+					if (x0 + q >= 0 && x0 + q < ts.w)
+						*(byte *)ts.getBasePtr(x0 + q, y0 + r) = c;
+				}
+			}
+		}
+	}
+	tmp.free();
+}
+
 void CharsetRendererPC::drawBits1(Graphics::Surface &dest, int x, int y, const byte *src, int drawTop, int width, int height) {
 	if (_vm->_useCJKMode && _vm->isScummvmKorTarget()) {
 		drawBits1Kor(dest, x, y, src, drawTop, width, height);
@@ -1261,6 +1297,14 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	else if (_vm->_game.platform == Common::kPlatformFMTowns && vs->number == kBannerVirtScreen)
 		drawBits1(*vs, _left * _vm->_textSurfaceMultiplier, drawTop * _vm->_textSurfaceMultiplier, charPtr, drawTop, origWidth, origHeight);
 #endif
+	else if (_vm->_textSurfaceMultiplier > 1
+#ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
+			 && _vm->_game.platform != Common::kPlatformFMTowns
+#endif
+			 )
+		drawGameGlyphMagnified(_vm, _left, _top, origWidth, origHeight, [&](Graphics::Surface &t, int pad) {
+			drawBits1(t, pad, pad, charPtr, pad, origWidth, origHeight);
+		});
 	else
 		drawBits1(_vm->_textSurface, _left * _vm->_textSurfaceMultiplier, _top * _vm->_textSurfaceMultiplier, charPtr, drawTop, origWidth, origHeight);
 
@@ -1689,7 +1733,15 @@ void CharsetRendererClassic::printCharIntern(bool is2byte, const byte *charPtr, 
 			drawTop = _top - _vm->_screenTop;
 		}
 
-		if (is2byte && _vm->_game.platform != Common::kPlatformFMTowns)
+		if (!ignoreCharsetMask && vs->hasTwoBuffers && !_blitAlso && _vm->_textSurfaceMultiplier > 1 &&
+			_vm->_game.platform != Common::kPlatformFMTowns) {
+			drawGameGlyphMagnified(_vm, _left, drawTop, origWidth, origHeight, [&](Graphics::Surface &t, int pad) {
+				if (is2byte)
+					drawBits1(t, pad, pad, charPtr, pad, origWidth, origHeight);
+				else
+					drawBitsN(t, (byte *)t.getBasePtr(pad, pad), charPtr, *_fontPtr, pad, origWidth, origHeight);
+			});
+		} else if (is2byte && _vm->_game.platform != Common::kPlatformFMTowns)
 			drawBits1(dstSurface, (ignoreCharsetMask || !vs->hasTwoBuffers) ? _left + vs->xstart : _left, drawTop, charPtr, drawTop, origWidth, origHeight);
 		else
 			drawBitsN(dstSurface, dstPtr, charPtr, *_fontPtr, drawTop, origWidth, origHeight);
