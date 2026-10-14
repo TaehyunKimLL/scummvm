@@ -351,7 +351,14 @@ byte *ScummEngine::get2byteCharPtr(int idx) {
 	case Common::KO_KOR:
 		if (!_2byteFontPtr)
 			loadDeferredMultiFont();
-		idx = ((idx % 256) - 0xb0) * 94 + (idx / 256) - 0xa1;
+		idx = koreanFontIndex(idx);
+		if (idx < 0) {
+			// Not in the font: reading it would run past (or before) the
+			// 2350 glyphs. A blank cell of the largest size a font header
+			// can give draws nothing, and every caller can take it.
+			static const byte kBlank[((255 + 7) / 8) * 255] = {};
+			return const_cast<byte *>(kBlank);
+		}
 		break;
 	case Common::JA_JPN:
 		if ((_game.id == GID_MONKEY && _game.platform == Common::kPlatformSegaCD) || _isIndy4Jap) {

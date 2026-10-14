@@ -88,6 +88,18 @@ static inline bool is2ByteCharacter(Common::Language lang, byte c) {
 	return false;
 }
 
+// korean.fnt holds the 2350 KS X 1001 Hangul syllables: lead bytes 0xB0-0xC8,
+// trail bytes 0xA1-0xFE. @p code is the pair as the text holds it, lead in the
+// low byte. A code outside them (lead 0xC9-0xD0, which is2ByteCharacter()
+// accepts, or a UHC trail below 0xA1) has no glyph there: -1.
+static inline int koreanFontIndex(int code) {
+	const int lead = code & 0xFF;
+	const int trail = (code >> 8) & 0xFF;
+	if (lead < 0xB0 || lead > 0xC8 || trail < 0xA1 || trail > 0xFE)
+		return -1;
+	return (lead - 0xB0) * 94 + (trail - 0xA1);
+}
+
 class CharsetRenderer {
 public:
 
