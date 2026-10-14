@@ -46,11 +46,7 @@ DebugSocket::~DebugSocket() {
 int DebugSocket::mouseScale() const {
 	if (_vm->_renderMode == Common::kRenderHercA || _vm->_renderMode == Common::kRenderHercG)
 		return 1;
-	if (_vm->_textSurfaceMultiplier > 2)
-		return _vm->_textSurfaceMultiplier;
-	if (_vm->_textSurfaceMultiplier == 2 || _vm->_macScreen || _vm->_renderMode == Common::kRenderCGA_BW || _vm->_enableEGADithering)
-		return 2;
-	return 1;
+	return _vm->screenScale();
 }
 
 // `click`/`move` take game pixels: a harness's points are the same on a

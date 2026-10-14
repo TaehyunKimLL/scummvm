@@ -691,6 +691,17 @@ bool ScummEngine::stripCompositesPerPixel(const VirtScreen *vs) const {
 	return _outputPixelFormat.bytesPerPixel == 2;
 }
 
+bool ScummEngine::rendersFixedScreen() const {
+	return _renderMode == Common::kRenderHercA || _renderMode == Common::kRenderHercG ||
+		_renderMode == Common::kRenderCGA_BW || _enableEGADithering;
+}
+
+int ScummEngine::screenScale() const {
+	if (_macScreen || _renderMode == Common::kRenderCGA_BW || _enableEGADithering)
+		return 2;
+	return MAX(_textSurfaceMultiplier, 1);
+}
+
 void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, int bottom) {
 	// Short-circuit if nothing has to be drawn
 	if (bottom <= top || top >= vs->h)
@@ -5237,8 +5248,12 @@ void ScummEngine::dissolveEffect(int width, int height) {
 		// palette indices. When the display is scaled or true colour (hi-res
 		// text), it would land as a small unscaled patch in the corner -
 		// Loom CD's room changes, whose dissolve is one pixel at a time - so
-		// those strips go through the composite instead.
-		if (IS_ALIGNED(width, 4) || stripCompositesPerPixel(vs))
+		// those strips go through the composite instead. Without hi-res text
+		// (16-bit output alone) the direct write stays, and so it does on the
+		// screens that scale and dither here themselves.
+		if (IS_ALIGNED(width, 4) ||
+			(stripCompositesPerPixel(vs) && (_textSurfaceMultiplier > 1 || _hiResText.alphaActive()) &&
+			 !rendersFixedScreen()))
 			drawStripToScreen(vs, x, width, y, y + height);
 		else {
 			const byte *src = vs->getPixels(x, y);
