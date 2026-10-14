@@ -11,6 +11,7 @@ section 3, docs/johab/2026-10-14-johab-font-formats.md section 2):
 
   844              8x4x4, the DOS standard (iolo, san, HMJ, $K*ZN16; 16/24/40/48 px)
   844-ihnm         8x4x4 with medial sets 1/3 for initials g and k (SAGA IHNM)
+  844-hbios24      the jamo half of a 24x30 HBIOS / Taebaek 3.5 face ($KMYZN24, GOTHIC24, MY24, PILGI24; 243,900 bytes)
   1044-san         10x4x4 of san-1.0 (12,800 bytes)
   621              6x2x1, Apple II (6,144 bytes, byte-column glyphs)
   hanterm-johab    hanterm johab-1 BDF, 10x(3|4)x4
@@ -177,6 +178,16 @@ def open_raw844(d, face=0, path=""):
     return Source(px, px, 360, lambda i: g_rowmajor(d, off + i * gb, px, px))
 
 
+def open_hbios24(d, face=0, path=""):
+    """The jamo half of an IBM HBIOS / Taebaek 3.5 24 px face ($KMYZN24.FNT, GOTHIC24.FNT, MY24.FNT, PILGI24.FNT, 243,900
+    bytes): 2,710 glyphs of 90 bytes (24 wide, 3 bytes a row, a 30 row cell with the ink in rows 3-26), the first 360 an
+    8x4x4 set; the 2,350 syllables after them are not read."""
+    if len(d) != 243900:
+        raise SourceError(f"size {len(d)} is not an HBIOS 24x30 face (243900)")
+    check_blank_slots(d, 0, 90, slots_of(8, 4, 4, 160, 248))
+    return Source(24, 24, 360, lambda i: Glyph(24, 24, g_rowmajor(d, i * 90, 24, 30).rows[3:27]))
+
+
 def open_ihnm(d, face=0, path=""):
     """SAGA IHNM's 8x4x4: the 360 jamo glyphs (11,520 bytes, 16x16) may be followed by other glyphs, which are ignored."""
     if len(d) < 360 * 32:
@@ -302,9 +313,9 @@ def _has_tail(T):
     return 1 if T else 0
 
 
-def _844(name, flip):
+def _844(name, flip, opener=None):
     """8x4x4; flip=1 swaps the medial sets of initials g/k and the rest (IHNM)."""
-    return Layout(name, open_ihnm if flip else open_raw844, 2, 2, 8, 4, 4, _kk_class, _has_tail,
+    return Layout(name, opener or (open_ihnm if flip else open_raw844), 2, 2, 8, 4, 4, _kk_class, _has_tail,
                   lambda lc, v, tc: (I844_FIN if tc else I844_NOFIN)[v],
                   lambda lc, v, tc: (lc ^ flip) + 2 * tc,
                   lambda lc, v, tc: F844[v] if tc else 0,
@@ -389,7 +400,7 @@ def _dkb12():
                   lambda s, T: 328 + s * 28 + T)
 
 
-LAYOUTS = {l.name: l for l in (_844("844", 0), _844("844-ihnm", 1), _san1044(), _621(), _hanterm(), _dkb7(),
+LAYOUTS = {l.name: l for l in (_844("844", 0), _844("844-ihnm", 1), _844("844-hbios24", 0, open_hbios24), _san1044(), _621(), _hanterm(), _dkb7(),
                                _dkb12(), _kyra())}
 
 
@@ -594,14 +605,48 @@ def write_svfn(cell_w, cell_h, ascent, glyphs, jset, extra_flags=0, shadow=SHADO
 
 # ---- the font -----------------------------------------------------------------
 
+class EngCell:
+    """A 12x24 ASCII face: glyph(cp) -> (rows, advance) at the face's own size, and the baseline row (the row below the
+    ink of 'H')."""
+
+    def __init__(self, w, h, getter, name):
+        self.w, self.h, self._get, self.name = w, h, getter, name
+        rows = self._get(ord("H"))
+        used = [y for y, r in enumerate(rows) if r]
+        self.baseline = used[-1] + 1 if used else h
+
+    def glyph(self, cp, bold=False):
+        rows = self._get(cp)
+        if bold:
+            rows = [r | (r >> 1) for r in rows]
+        return rows
+
+
 def read_eng(d):
+    """A raw 8x16 English font (2048 or 4096 bytes, row major) as bytes, or an EngCell for the 12x24 faces: an HBIOS
+    $KROHN24 / Taebaek ROMAN24 / SANS24 (15,360 bytes: 256 glyphs of 60 bytes in a 16x30 cell, ink 12x24 in rows 3-26) or a
+    Taebaek GASCII24 / MASCII24 .PFT (12,288 bytes: 256 glyphs of 48 bytes, 12x24 in 2 bytes a row)."""
+    if len(d) == 15360:
+        return EngCell(12, 24, lambda cp: [r >> 4 for r in g_rowmajor(d, cp * 60, 16, 30).rows[3:27]], "hbios12x24")
+    if len(d) == 12288:
+        return EngCell(12, 24, lambda cp: [r >> 4 for r in g_rowmajor(d, cp * 48, 16, 24).rows], "pft12x24")
     if len(d) not in (2048, 4096):
-        raise SourceError(f"a raw 8x16 English font has 2048 or 4096 bytes, not {len(d)}")
+        raise SourceError(f"an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24) or 12288 (PFT 12x24), "
+                          f"not {len(d)}")
     return d
 
 
-def eng_glyph(eng, cp, w, h):
-    """An 8x16 ASCII glyph scaled by whole numbers (k = h // 16, at least 1), top left of a w x h cell."""
+def eng_glyph(eng, cp, w, h, bold=False):
+    """An ASCII glyph in a w x h cell: an 8x16 one scaled by whole numbers (k = h // 16, at least 1), top left; an EngCell
+    one at its own size, centred in height. Returns (Glyph, advance)."""
+    if isinstance(eng, EngCell):
+        rows = eng.glyph(cp, bold)
+        y0 = (h - eng.h) // 2
+        out = [0] * h
+        for y, r in enumerate(rows):
+            if 0 <= y0 + y < h:
+                out[y0 + y] = r << (w - eng.w)
+        return Glyph(w, h, out), eng.w
     k = max(1, h // 16)
     y0 = (h - 16 * k) // 2 if h > 16 * k else 0
     rows = [0] * h
@@ -611,7 +656,45 @@ def eng_glyph(eng, cp, w, h):
         for x in range(min(w, 8 * k)):
             r |= (src >> (7 - x // k) & 1) << (w - 1 - x)
         rows[y0 + y] = r
+    if bold:
+        rows = [r | (r >> 1) for r in rows]
     return Glyph(w, h, rows), 8 * k
+
+
+def symbol_glyphs(w, h, ascent, adv):
+    """{cp: (packed, advance, ink x, ink w)} for U+2026 (three 3x3 dots on the baseline, 4 px apart, centred in @p adv) and
+    U+25A1 (the missing-glyph box, a 2 px outline 16 px square on the baseline), drawn for faces that bring neither."""
+    left = (adv - 11) // 2
+    dots = [0] * h
+    for y in range(max(0, ascent - 3), ascent):
+        for k in range(3):
+            dots[y] |= 0b111 << (w - (left + k * 4 + 3))
+    n = min(16, h - 2)
+    x0 = (w - n) // 2
+    box = [0] * h
+    for k in range(n):
+        y = ascent - n + k
+        if 0 <= y < h:
+            box[y] = (((1 << n) - 1) << (w - x0 - n)) if k in (0, 1, n - 2, n - 1) else \
+                (0b11 << (w - x0 - 2)) | (0b11 << (w - x0 - n))
+    out = {}
+    for cp, rows, a in ((0x2026, dots, adv), (0x25A1, box, w)):
+        g = Glyph(w, h, rows)
+        ix, iw = g.ink()
+        out[cp] = (g.to_bytes(), a, ix, iw)
+    return out
+
+
+class BoldSource:
+    """A Source whose pieces are each ORed with themselves shifted right one pixel (a 1 px horizontal embolden; the OR of
+    emboldened pieces is the emboldened syllable, so it stays a jamo set)."""
+
+    def __init__(self, src):
+        self.w, self.h, self.count, self._src = src.w, src.h, src.count, src
+
+    def glyph(self, i):
+        g = self._src.glyph(i)
+        return Glyph(g.w, g.h, [r | (r >> 1) for r in g.rows])
 
 
 def build(layout, data, face=0, eng=None, base=None, path=""):
@@ -619,11 +702,15 @@ def build(layout, data, face=0, eng=None, base=None, path=""):
     return build_from_source(layout, layout.opener(data, face, path), eng, base)
 
 
-def build_from_source(layout, src, eng=None, base=None, ascent=None, extra=None, keep_header=False, advance=None):
+def build_from_source(layout, src, eng=None, base=None, ascent=None, extra=None, keep_header=False, advance=None,
+                      bold=False, symbols=False):
     """Write the font from @p src's pieces. @p extra: {cp: (packed glyph, advance, ink x, ink w)} added first (the base
     and --eng glyphs override it). @p keep_header: take the base's shadow byte, code page and all flag bits except the
     two this tool sets, not just MARKS_AT_ORIGIN. @p advance: the JSET advance byte (what a composed syllable steps
-    by; 0 means the cell width), instead of the layout's."""
+    by; 0 means the cell width), instead of the layout's. @p bold: embolden the pieces and the ASCII 1 px to the right.
+    @p symbols: add U+2026 and U+25A1 (symbol_glyphs) unless the base or @p extra bring them."""
+    if bold:
+        src = BoldSource(src)
     tables = tables_for(layout)
     if advance is not None:
         tables.advance = advance
@@ -631,6 +718,8 @@ def build_from_source(layout, src, eng=None, base=None, ascent=None, extra=None,
     mapping = {s: n for n, s in enumerate(used)}
     pieces = renumber(tables, mapping)
     w, h = src.w, src.h
+    if ascent is None and isinstance(eng, EngCell):
+        ascent = (h - eng.h) // 2 + eng.baseline
     ascent = ascent or max(1, round(h * 0.875))
     glyphs = {}
     flags = 0
@@ -658,9 +747,13 @@ def build_from_source(layout, src, eng=None, base=None, ascent=None, extra=None,
             glyphs[cp] = (gbytes, m[0] if m else w, m[1] if m else 0, m[2] if m else 0)
     if eng is not None:
         for cp in range(0x20, 0x7F):
-            g, adv = eng_glyph(eng, cp, w, h)
+            g, adv = eng_glyph(eng, cp, w, h, bold)
             ix, iw = g.ink()
             glyphs[cp] = (g.to_bytes(), min(adv, w // 2) if w < 16 else adv, ix, iw)
+    if symbols:
+        adv = glyphs[0x20][1] if 0x20 in glyphs else w // 2
+        for cp, g in symbol_glyphs(w, h, ascent, adv).items():
+            glyphs.setdefault(cp, g)
     jset = pack(pieces)
     out = write_svfn(w, h, ascent, [(cp, g[0], g[1], g[2], g[3]) for cp, g in sorted(glyphs.items())], jset, flags,
                      shadow, codepage)
@@ -929,6 +1022,12 @@ def main():
     ap.add_argument("--eng", help="raw 8x16 English font for ASCII (2048 or 4096 bytes)")
     ap.add_argument("--base", help="SVFN v2 whose non-syllable glyphs are kept (same cell, 1 bpp)")
     ap.add_argument("-o", "--output", required=True)
+    ap.add_argument("--advance", type=int, help="the step of a composed syllable (JSET advance byte; default: the layout's, "
+                    "0 = the cell width)")
+    ap.add_argument("--ascent", type=int, help="the SVF's baseline row (default: the --eng face's baseline for a 12x24 face, "
+                    "else 7/8 of the cell)")
+    ap.add_argument("--embolden", action="store_true", help="OR every piece and ASCII glyph with itself shifted right 1 px")
+    ap.add_argument("--symbols", action="store_true", help="add U+2026 (three baseline dots) and U+25A1 (a box)")
     ap.add_argument("--check", action="store_true", help="compose all 11,172 syllables from the output and verify")
     ap.add_argument("--from-ttf", metavar="FONT", help="fit the pieces to the outline font's syllables at --size")
     ap.add_argument("--from-svf", metavar="FACE.SVF", help="decompose a 1 bpp precomposed SVFN face (its present "
@@ -1007,7 +1106,9 @@ def main():
             if args.report:
                 write_report(args.report, info)
             return
-        out, mapping, src = build(layout, open(args.source, "rb").read(), args.face, eng, base, args.source)
+        out, mapping, src = build_from_source(layout, layout.opener(open(args.source, "rb").read(), args.face, args.source),
+                                               eng, base, args.ascent, None, False, args.advance, args.embolden,
+                                               args.symbols)
         open(args.output, "wb").write(out)
         print(f"{args.output}: {len(out)} bytes, {len(mapping)} pieces of {src.w}x{src.h} from {args.source}")
         if args.check:

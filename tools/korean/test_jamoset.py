@@ -120,7 +120,8 @@ def sel_dkb40(L, V, T):
 
 
 REFERENCE = {"844": sel_844, "844-ihnm": sel_ihnm, "1044-san": sel_1044, "621": sel_621, "hanterm-johab": sel_hanterm,
-             "dkb-printer-7x2x2": sel_dkb16, "dkb-printer-12x4x4": sel_dkb40, "kyra-lok": sel_kyra}
+             "dkb-printer-7x2x2": sel_dkb16, "dkb-printer-12x4x4": sel_dkb40, "kyra-lok": sel_kyra,
+             "844-hbios24": sel_844}
 
 # 가 각 한 의 뷁 흙, by hand from the research doc's formulas (3.2, 3.3, 3.4, 6.1, formats 2.5-2.9).
 SAMPLES = (0xAC00, 0xAC01, 0xD55C, 0xC758, 0xBDC1, 0xD759)
@@ -144,6 +145,8 @@ def make_source(layout_name, seed=1):
     rnd = random.Random(seed)
     if layout_name in ("844", "844-ihnm"):
         gb, n, blanks = 32, 360, [s * 20 for s in range(8)] + [160 + s * 22 for s in range(4)] + [248 + s * 28 for s in range(4)]
+    elif layout_name == "844-hbios24":
+        return DosFace24.hbios(seed)
     elif layout_name == "1044-san":
         gb, n, blanks = 32, 400, [s * 20 for s in range(10)] + [200 + s * 22 for s in range(4)] + [288 + s * 28 for s in range(4)]
     elif layout_name == "621":
@@ -184,6 +187,8 @@ def raw_piece(name, data, i):
     """Glyph i of a synthetic source as the SVFN 1bpp rows, read straight from the bytes (not through jamoset)."""
     if name in ("844", "844-ihnm", "1044-san"):
         return data[i * 32:(i + 1) * 32]
+    if name == "844-hbios24":			# 90 byte glyphs of a 24x30 cell: ink rows 3-26 are the 24 rows
+        return data[i * 90 + 9:i * 90 + 81]
     if name == "kyra-lok":			# 15 columns: two bytes a row, the 16th bit is padding (zero in make_source)
         return data[i * 30:(i + 1) * 30]
     if name == "dkb-printer-12x4x4":
@@ -810,6 +815,102 @@ class FitFromOutlineFont(unittest.TestCase):
         targets, w, h, ascent, info, _ = jamoset.ttf_targets(NOTO, 16, None, None, True)
         self.assertEqual(len(targets), info["fitted"])
         self.assertTrue(all(targets.values()))
+
+
+class DosFace24(unittest.TestCase):
+    """The HBIOS 24x30 jamo half, the 12x24 ASCII faces, --advance/--ascent/--embolden/--symbols."""
+
+    @staticmethod
+    def hbios(seed=3):
+        """243,900 bytes: 2,710 glyphs of 90 bytes; the first 360 an 8x4x4 set (ink in rows 3-26), blank slots blank."""
+        rnd = random.Random(seed)
+        data = bytearray(90 * 2710)
+        for i in range(360):
+            if i in [s * 20 for s in range(8)] + [160 + s * 22 for s in range(4)] + [248 + s * 28 for s in range(4)]:
+                continue
+            for y in range(3, 27):
+                data[i * 90 + y * 3:i * 90 + y * 3 + 3] = rnd.randbytes(3)
+        return bytes(data)
+
+    def test_hbios_pieces_are_the_cropped_rows(self):
+        data = self.hbios()
+        src = jamoset.open_hbios24(data)
+        self.assertEqual((src.w, src.h, src.count), (24, 24, 360))
+        g = src.glyph(1)
+        self.assertEqual(g.rows[0], int.from_bytes(data[90 + 9:90 + 12], "big"))		# file row 3 is cell row 0
+        self.assertEqual(g.rows[23], int.from_bytes(data[90 + 26 * 3:90 + 27 * 3], "big"))
+
+    def test_hbios_refuses_other_sizes(self):
+        with self.assertRaises(jamoset.SourceError):
+            jamoset.open_hbios24(bytes(243899))
+
+    def test_layout_composes_like_844(self):
+        data = self.hbios()
+        out, _, _ = jamoset.build_from_source(jamoset.LAYOUTS["844-hbios24"], jamoset.open_hbios24(data))
+        f = jamoset.parse_svfn(out)
+        t = jamoset.unpack(f.jset)
+        ref = jamoset.LAYOUTS["844"]
+        self.assertEqual(jamoset.tables_for(jamoset.LAYOUTS["844-hbios24"]).init_set, jamoset.tables_for(ref).init_set)
+        self.assertEqual(len(jamoset.compose(f, t, 0xD55C)), 72)
+
+    def test_12x24_eng_faces(self):
+        pft = bytearray(12288)
+        pft[ord("H") * 48 + 2 * 20] = 0xFF		# row 20, columns 0-7 (12 wide, left aligned in 2 bytes)
+        e = jamoset.read_eng(bytes(pft))
+        self.assertEqual((e.w, e.h, e.baseline), (12, 24, 21))
+        hb = bytearray(15360)
+        hb[ord("H") * 60 + (3 + 5) * 2] = 0xFF		# cell row 5 (file row 8) of a 16x30 cell
+        e = jamoset.read_eng(bytes(hb))
+        self.assertEqual(e.baseline, 6)
+        self.assertEqual(e.glyph(ord("H"))[5], 0xFF0)
+
+    def test_eng_goes_at_the_left_steps_12_and_sets_the_ascent(self):
+        pft = bytearray(12288)
+        pft[ord("A") * 48 + 2 * 20] = 0xC0
+        pft[ord("H") * 48 + 2 * 20] = 0xC0
+        e = jamoset.read_eng(bytes(pft))
+        out, _, _ = jamoset.build_from_source(jamoset.LAYOUTS["844-hbios24"], jamoset.open_hbios24(self.hbios()), e,
+                                              advance=24)
+        f = jamoset.parse_svfn(out)
+        self.assertEqual(f.ascent, 21)
+        self.assertEqual(f.metrics[ord("A")][0], 12)
+        self.assertEqual(jamoset.unpack(f.jset).advance, 24)
+        nb = 3
+        row = int.from_bytes(f.glyphs[ord("A")][20 * nb:21 * nb], "big")
+        self.assertEqual(row, 0xC00 << 12)
+
+    def test_embolden_ors_each_piece_and_ascii_with_itself_shifted_right(self):
+        data = self.hbios()
+        plain = jamoset.build_from_source(jamoset.LAYOUTS["844-hbios24"], jamoset.open_hbios24(data))[0]
+        bold = jamoset.build_from_source(jamoset.LAYOUTS["844-hbios24"], jamoset.open_hbios24(data), bold=True)[0]
+        a, b = jamoset.parse_svfn(plain), jamoset.parse_svfn(bold)
+        n = jamoset.PIECE_BASE + 5
+        pa = int.from_bytes(a.glyphs[n][:3], "big")
+        self.assertEqual(int.from_bytes(b.glyphs[n][:3], "big"), pa | (pa >> 1))
+
+    def test_symbols_are_drawn_unless_the_base_has_them(self):
+        out, _, _ = jamoset.build_from_source(jamoset.LAYOUTS["844-hbios24"], jamoset.open_hbios24(self.hbios()),
+                                              ascent=21, symbols=True)
+        f = jamoset.parse_svfn(out)
+        rows = [int.from_bytes(f.glyphs[0x2026][y * 3:y * 3 + 3], "big") for y in range(24)]
+        self.assertEqual([y for y, r in enumerate(rows) if r], [18, 19, 20])
+        self.assertIn(0x25A1, f.glyphs)
+
+    def test_command_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, eng, out = (os.path.join(d, n) for n in ("GOTHIC24.FNT", "GASCII24.PFT", "O.SVF"))
+            pft = bytearray(12288)
+            pft[ord("H") * 48 + 40] = 0xFF
+            for path, blob in ((src, self.hbios()), (eng, bytes(pft))):
+                with open(path, "wb") as fh:
+                    fh.write(blob)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "jamoset.py"), "--layout", "844-hbios24", src, "--eng",
+                                eng, "--advance", "24", "--symbols", "--embolden", "--check", "-o", out],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("composed 11172", r.stdout)
+            with open(out, "rb") as fh:
+                self.assertEqual(jamoset.parse_svfn(fh.read()).ascent, 21)
 
 
 if __name__ == "__main__":
