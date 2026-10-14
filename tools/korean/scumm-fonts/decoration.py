@@ -17,16 +17,19 @@ pairing2svf.py and the font-pairing page read (see classify): a drop
 with no colour 2 (every 1bpp one) is {"none": true}: the classic renderer draws
 its Latin text undecorated, whatever the Korean patch byte says.
 
-Resources (CharsetRendererClassic, see scumm_fontmeasure notes in
-docs/johab/2026-10-14-font-pairing.md):
+Resources:
+  v3   99.LFL is charset 0, 98.LFL charset 1, XOR 0xFF, 1bpp 8x8 glyphs
+       (CharsetRendererV3). Its text is drawn plain; a game shadows it only
+       when a script sets the colour's 0x80 bit, which no resource records.
+CharsetRendererClassic:
   v4   charset N is 90N.LFL, plain; the font starts at byte 21.
   v5/6 CHAR blocks in the XOR 0x69 data file; the charset id comes from the
        index file's DCHR table (room, offset) and the data file's LOFF.
   font: u8 bpp, u8 height, u16 numChars, u32 offsets[numChars] from the font
   start (0 = absent); glyph: u8 w, u8 h, s8 xoff, s8 yoff, w*h pixels, MSB first.
 
-Game folders resolve against $GAMEDATA (default ~/work/scummvm/gamedata); Indy4
-against $INDY4 (the unpacked Multi-Platform zip). A game whose files are absent
+Game folders resolve against $GAMEDATA (default ~/work/scummvm/gamedata); Indy3
+and Indy4 against $INDY3 and $INDY4 (the unpacked Multi-Platform zips). A game whose files are absent
 is skipped and reported.
 """
 
@@ -42,6 +45,7 @@ JSON = os.path.join(HERE, "original-decoration.json")
 MIN_SCORE = 0.5     # below this neither model explains colour 2: report, do not guess
 
 G = os.environ.get("GAMEDATA", os.path.expanduser("~/work/scummvm/gamedata"))
+I3 = os.environ.get("INDY3", os.path.join(G, "indy3", "Indiana Jones and the Last Crusade (Multi-Platform)"))
 I4 = os.environ.get("INDY4", os.path.join(G, "indy4", "Indiana Jones and the Fate of Atlantis (Multi-Platform)"))
 M2 = os.path.join(G, "Monkey Island 2 LeChuck's Revenge (Multi-Platform)",
                   "Monkey Island 2 LeChuck's Revenge (Multi-Platform)", "Monkey Island 2 LeChuck's Revenge (DOS VGA)")
@@ -53,6 +57,8 @@ GAMES = [
     ("MI1 EGA/VGA floppy", "v4", os.path.join(G, "mi1vga", "90?.LFL")),
     ("MI1 CD", "v5", (os.path.join(G, "mi1en", "MONKEY1.000"), os.path.join(G, "mi1en", "MONKEY1.001"))),
     ("MI2 DOS VGA", "v5", (os.path.join(M2, "MONKEY2.000"), os.path.join(M2, "MONKEY2.001"))),
+    ("Indy3 VGA", "v3", os.path.join(I3, "Indiana Jones and the Last Crusade (DOS VGA)", "9[89].LFL")),
+    ("Indy3 EGA", "v3", os.path.join(I3, "Indiana Jones and the Last Crusade (DOS EGA)", "9[89].LFL")),
     ("Indy4 DOS CD", "v5", (os.path.join(I4CD, "ATLANTIS.000"), os.path.join(I4CD, "ATLANTIS.001"))),
     ("Indy4 DOS floppy", "v5", (os.path.join(I4FL, "ATLANTIS.000"), os.path.join(I4FL, "ATLANTIS.001"))),
     ("Loom CD (VGA talkie)", "v4", os.path.join(G, "loomkor", "90?.LFL")),
@@ -170,6 +176,25 @@ def read_v4(paths):
     return faces
 
 
+def read_v3(paths):
+    """{"csN": (1, glyphs)} from v3 99.LFL (charset 0) and 98.LFL (charset 1):
+    XOR 0xFF, u16 size, then [4] numChars, [5] height, numChars widths and
+    numChars 8x8 1bpp glyphs, MSB left (CharsetRendererV3)."""
+    faces = {}
+    for p in sorted(paths):
+        name = os.path.basename(p).upper()
+        if name not in ("98.LFL", "99.LFL"):
+            continue
+        b = bytes(x ^ 0xFF for x in open(p, "rb").read())
+        res = b[2:]
+        n = res[4]
+        gl = res[6 + n:]
+        glyphs = {c: [[(r >> (7 - x)) & 1 for x in range(8)] for r in gl[8 * c:8 * c + 8]]
+                  for c in range(n) if len(gl) >= 8 * c + 8}
+        faces["cs%d" % (99 - int(name[:2]))] = (1, glyphs)
+    return faces
+
+
 def _blocks(b):
     p, out = 0, {}
     while p + 8 <= len(b):
@@ -205,9 +230,9 @@ def read_v56(index, data, key=0x69):
 
 
 def read_game(kind, files):
-    if kind == "v4":
+    if kind in ("v3", "v4"):
         paths = glob.glob(files)
-        return read_v4(paths) if paths else None
+        return (read_v3 if kind == "v3" else read_v4)(paths) if paths else None
     if not all(os.path.exists(f) for f in files):
         return None
     return read_v56(*files)

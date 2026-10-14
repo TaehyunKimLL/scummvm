@@ -129,7 +129,7 @@ python3 tools/korean/pairing2svf.py 선택.json --data <korean*.json 폴더> --o
 | MI cs6, DOTT cs3 | 12–14 | 그림자 (1,1) |
 | DOTT cs5 | 12 | 채움 그림자 (1,1): 오른쪽·아래·모서리 |
 | DOTT cs6 | 28 | 그림자 (2,2) |
-| 1bpp 폰트 전부 (MI·Loom cs1·cs3, MI2 cs5, Indy4 cs1·cs5, DOTT cs1·cs4·cs7) | – | 없음 (classic 렌더러는 영문을 그림자 없이 그림) |
+| 1bpp 폰트 전부 (MI·Loom cs1·cs3, MI2 cs5, Indy3 cs0·cs1, Indy4 cs1·cs5, DOTT cs1·cs4·cs7) | – | 없음 (classic 렌더러는 영문을 그림자 없이 그림) |
 
 한글 패치의 꾸밈 바이트(`mode=game`)는 원본과 다른 곳이 있다: DOTT cs3은 외곽선, cs5는 없음, cs6은 항목
 없음(없음), 1bpp인 cs4는 외곽선. 그래서 `[shadow.N]`은 `mode=`를 원본대로 적는다.

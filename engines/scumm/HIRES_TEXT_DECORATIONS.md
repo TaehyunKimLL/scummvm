@@ -125,7 +125,7 @@ decoration; each face scored against drop and per-side outline models), kept in
 | MI cs6, DOTT cs3 | 12-14 | drop (1,1) | 2,2 px |
 | DOTT cs5 | 12 | filled drop (1,1): right, below and the corner | 2,2 px, fill=on |
 | DOTT cs6 | 28 | drop (2,2) | 4,4 px |
-| every 1bpp face (MI/Loom cs1, cs3, MI2 cs5, Indy4 cs1, cs5, DOTT cs1, cs4, cs7) | - | none: the classic renderer draws Latin text unshadowed | none |
+| every 1bpp face (MI/Loom cs1, cs3, MI2 cs5, Indy3 cs0, cs1, Indy4 cs1, cs5, DOTT cs1, cs4, cs7) | - | none: the classic renderer draws Latin text unshadowed | none |
 
 `tools/korean/pairing2svf.py` writes a `[shadow.N]` for every SCUMM charset it
 pairs, grown to the Korean face by its multiple m = face height / original

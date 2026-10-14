@@ -116,6 +116,24 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(list(faces), ["cs4"])
         self.assertEqual(deco.classify(list(faces["cs4"][1].values())), {"o": 1})
 
+    def test_a_v3_charset_file(self):
+        # Indy3: 98.LFL is charset 1, XOR 0xFF; u16 size, then [4]=numChars,
+        # [5]=height, a width table and numChars 8x8 1bpp glyphs
+        n = 128
+        res = bytearray(4) + bytes([n, 8]) + bytes([8] * n) + bytes(8 * n)
+        res[6 + n + 8 * ord("A")] = 0x18
+        blob = struct.pack("<H", len(res) + 2) + bytes(res)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "98.LFL")
+            with open(path, "wb") as f:
+                f.write(bytes(b ^ 0xFF for b in blob))
+            faces = deco.read_v3([path])
+        self.assertEqual(list(faces), ["cs1"])
+        bpp, glyphs = faces["cs1"]
+        self.assertEqual(bpp, 1)
+        self.assertEqual(glyphs[ord("A")][0], [0, 0, 0, 1, 1, 0, 0, 0])
+        self.assertEqual(deco.face_decoration(bpp, glyphs), {"none": True})
+
 
 class FaceTest(unittest.TestCase):
     def test_a_1bpp_classic_face_has_none(self):
