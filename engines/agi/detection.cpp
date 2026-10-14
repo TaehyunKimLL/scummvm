@@ -338,6 +338,7 @@ DetectedGames AgiMetaEngineDetection::detectGames(const Common::FSList &fslist, 
 	// rule below.
 	const Common::Array<Common::Language> overlays = overlayLanguages(fslist);
 	const uint matched = games.size();
+	DetectedGames variants;
 	for (uint m = 0; m < overlays.size(); ++m) {
 		for (uint i = 0; i < matched; ++i) {
 			const DetectedGame &game = games[i];
@@ -347,19 +348,28 @@ DetectedGames AgiMetaEngineDetection::detectGames(const Common::FSList &fslist, 
 			for (const PlainGameDescriptor *pgd = agiGames; pgd->gameId; ++pgd)
 				if (game.gameId.equals(pgd->gameId))
 					title = pgd->description;
-			DetectedGame variant(getName(), game.gameId, title, overlays[m], game.platform, game.extra);
+			// A copy keeps the original's support level, matched files and
+			// add-ability; only the language and what follows from it change.
+			DetectedGame variant = game;
+			variant.language = overlays[m];
+			variant.description = DetectedGame(getName(), game.gameId, title, overlays[m], game.platform, game.extra).description;
 			variant.preferredTarget = game.preferredTarget + "-" + Common::getLanguageCode(overlays[m]);
 			// The original's options (getGUIOptions() holds their descriptions,
 			// which appendGUIOptions() takes as they are) minus its language;
 			// the variant's goes on.
+			variant.setGUIOptions("");
 			for (const Common::String &token : Common::StringTokenizer(game.getGUIOptions(), " ").split()) {
 				if (!token.hasPrefix("lang_"))
 					variant.appendGUIOptions(token);
 			}
 			variant.appendGUIOptions(getGameGUIOptionsDescriptionLanguage(overlays[m]));
-			games.insert_at(0, variant);
+			variants.push_back(variant);
 		}
 	}
+	// Collected apart and put in front once: inserting while walking the
+	// originals would shift them under the loop.
+	for (uint i = 0; i < variants.size(); ++i)
+		games.insert_at(i, variants[i]);
 	return games;
 }
 
@@ -391,7 +401,7 @@ ADDetectedGames AgiMetaEngineDetection::detectGame(
 
 	// Detect games within PC disk images. This detection will find one game at most.
 	if (matched.empty() &&
-		(language == Common::UNK_LANG || language == Common::EN_ANY) &&
+		(detectLanguage == Common::UNK_LANG || detectLanguage == Common::EN_ANY) &&
 		(platform == Common::kPlatformUnknown || platform == Common::kPlatformDOS)) {
 		ADDetectedGame game = detectPcDiskImageGame(allFiles, skipADFlags);
 		if (game.desc != nullptr) {
@@ -401,7 +411,7 @@ ADDetectedGames AgiMetaEngineDetection::detectGame(
 
 	// Detect games within Apple II disk images. This detection will find one game at most.
 	if (matched.empty() &&
-		(language == Common::UNK_LANG || language == Common::EN_ANY) &&
+		(detectLanguage == Common::UNK_LANG || detectLanguage == Common::EN_ANY) &&
 		(platform == Common::kPlatformUnknown || platform == Common::kPlatformApple2)) {
 		ADDetectedGame game = detectA2DiskImageGame(allFiles, skipADFlags);
 		if (game.desc != nullptr) {

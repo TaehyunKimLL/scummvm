@@ -263,6 +263,7 @@ DetectedGames SciMetaEngineDetection::detectGames(const Common::FSList &fslist, 
 	// Offer the translation too, and first: that is what the folder is for.
 	const Common::Array<Common::Language> manifests = manifestLanguages(fslist);
 	const uint matched = games.size();
+	DetectedGames variants;
 	for (uint m = 0; m < manifests.size(); ++m) {
 		for (uint i = 0; i < matched; ++i) {
 			const DetectedGame &game = games[i];
@@ -272,7 +273,11 @@ DetectedGames SciMetaEngineDetection::detectGames(const Common::FSList &fslist, 
 			for (const PlainGameDescriptor *pgd = s_sciGameTitles; pgd->gameId; ++pgd)
 				if (game.gameId.equals(pgd->gameId))
 					title = pgd->description;
-			DetectedGame variant(getName(), game.gameId, title, manifests[m], game.platform, game.extra);
+			// A copy keeps the original's support level, matched files and
+			// add-ability; only the language and what follows from it change.
+			DetectedGame variant = game;
+			variant.language = manifests[m];
+			variant.description = DetectedGame(getName(), game.gameId, title, manifests[m], game.platform, game.extra).description;
 			variant.preferredTarget = game.preferredTarget + "-" + Common::getLanguageCode(manifests[m]);
 			// The original's options minus its language, which the loop
 			// below re-attaches from the language the variant carries.
@@ -283,9 +288,13 @@ DetectedGames SciMetaEngineDetection::detectGames(const Common::FSList &fslist, 
 			}
 			variant.setGUIOptions(options);
 			variant.appendGUIOptions(getGameGUIOptionsDescriptionLanguage(manifests[m]));
-			games.insert_at(0, variant);
+			variants.push_back(variant);
 		}
 	}
+	// Collected apart and put in front once: inserting while walking the
+	// originals would shift them under the loop.
+	for (uint i = 0; i < variants.size(); ++i)
+		games.insert_at(i, variants[i]);
 
 	for (DetectedGame &game : games) {
 		const GameIdStrToEnum *g = gameIdStrToEnum;

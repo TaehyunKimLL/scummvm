@@ -40,8 +40,12 @@ public:
 		// The manifest's name is the engine's own convention (translation.cpp).
 		TS_ASSERT(det.contains("name.hasPrefix(\"sci-\") || !name.hasSuffix(\".str\")"));
 		TS_ASSERT(det.contains("manifestLanguages(fslist)"));
-		// In front, so the launcher's chooser leads with the translation.
-		TS_ASSERT(det.contains("games.insert_at(0, variant)"));
+		// In front, so the launcher's chooser leads with the translation;
+		// collected apart first, so the loop over the originals sees each once.
+		TS_ASSERT(det.contains("variants.push_back(variant)"));
+		TS_ASSERT(det.contains("games.insert_at(i, variants[i])"));
+		// A copy of the original, so its support level and files carry over.
+		TS_ASSERT(det.contains("DetectedGame variant = game;"));
 		// Only for a full match, and never a second copy of the same language.
 		TS_ASSERT(det.contains("if (game.language == manifests[m] || game.hasUnknownFiles)"));
 		// The variant is its own target, so both can be added from one folder.
