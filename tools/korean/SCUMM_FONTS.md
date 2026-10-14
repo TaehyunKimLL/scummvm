@@ -288,11 +288,12 @@ the game cell, so a 0 here would shift every line); the engine composes the same
 pixels back (IoU 1.000, every present syllable exact, for all 15 faces; sizes
 2,001,044 -> 366,742 B for DOTT, 621,962 -> 167,024 B for MI1, 498,506 ->
 175,911 B for MI2 with their 24 px faces as neodgm; the MI1/MI2 L0, L4 and L7 faces
-are since written from a DOS jamo set, below, and not converted). Run it after the L bakes above, with the same `$D`:
+are since written from a DOS jamo set, below, and the L2 faces are a hinted NanumGothic Bold, neither converted:
+a hinted 17 px TrueType face is not an OR of 8x4x4 pieces, jamoset --from-svf measures IoU 0.81 on M2L2). Run it after the L bakes above, with the same `$D`:
 
 ```sh
 D=dists/engine-data/hires_text/dos
-for f in DOTTL0 DOTTL1 DOTTL2 DOTTL3 DOTTL4 DOTTL7 M1L1 M1L2 M2L1 M2L2; do
+for f in DOTTL0 DOTTL1 DOTTL2 DOTTL3 DOTTL4 DOTTL7 M1L1 M2L1; do
   python3 tools/korean/jamoset.py --from-svf $D/$f.SVF --layout 844 -o /tmp/$f.jamo.SVF \
     --report /tmp/$f.json && mv /tmp/$f.jamo.SVF $D/$f.SVF
 done
@@ -326,6 +327,20 @@ for g in M1L4 M2L4; do python3 tools/korean/jamoset.py --layout 844-hbios24 $T/M
 
 M2KO.MAP's `card7` (clut8) names M2L4.SVF: the cs4 and cs7 cards share one 24x24 face, so M2L7.SVF is gone.
 (`tools/korean/bdfface.py` bakes a precomposed face from a KS X 1001 BDF; no shipped face uses it now.)
+
+### MI1 and MI2: the dialogue face (M1L2, M2L2)
+
+Dialogue is charset 2, an 18x18 cell (korean02.fnt 9x9 doubled), so no 24 dot face can go there: a line steps
+18 screen px and a syllable steps 20. M1L2/M2L2 are NanumGothic Bold (NHN's hinted original, OFL: OFLNANUM.TXT)
+at 17 px drawn by FreeType's monochrome renderer with the font's hinting, `mkfont.py --mono-hint`
+(Pillow `fontmode "1"`): the instructions in the font snap the stems to whole pixels, so the strokes are an even
+width and nothing blobs (an anti-aliased bake cut at half coverage, and the unhinted `--from-ttf` render, do not
+have that). The ink is at most 17x17 in the 18x18 cell, ascent 14, nothing clipped. The plan lines are in
+`m1l.tsv` / `m2l.tsv` (the bakes above), so they come out of the L bake commands, precomposed (a jamo fit of the face
+is IoU 0.81, so it is not converted); sizes 144 KB (MI1) and 85 KB (MI2). `FONTS` needs `nanum` (a link to the
+fonts-nanum folder, e.g. `~/.local/sysroot/usr/share/fonts/truetype/nanum`).
+Judged on real dialogue lines at 1x and 2x against neodgm: `runs/mi24/gallery18/` (25 TrueType faces hinted mono,
+and the other renderers: light autohint, forced autohint, 16/18 px, for the best four).
 
 Notes per game:
 
