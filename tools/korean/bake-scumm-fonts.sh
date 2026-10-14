@@ -16,7 +16,8 @@
 # A plan line may carry a seventh field, a --limit of its own that replaces
 # ascii,ksx1001-nohanja for that line only (EXTRA_LIMIT is still appended): for a face that
 # lacks a symbol the bundle's non-text records decode to, which --require would otherwise
-# refuse although no text ever draws it.
+# refuse although no text ever draws it ("-" keeps the default). An eighth field is extra mkfont.py
+# flags for that line (e.g. --mono-hint).
 set -e
 FONTS="${FONTS:-$HOME/scummvm-i18n/fonts}"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -45,7 +46,7 @@ mkdir -p "$outdir"
 declare -A baked
 
 n=0
-while IFS=$'\t' read -r name charset ttf size bpp ascent row_limit || [ -n "$name" ]; do
+while IFS=$'\t' read -r name charset ttf size bpp ascent row_limit row_flags || [ -n "$name" ]; do
 	n=$((n + 1))
 	trimmed="${name#"${name%%[![:space:]]*}"}"
 	if [ -z "$trimmed" ] || [ "${trimmed:0:1}" = "#" ]; then
@@ -68,7 +69,8 @@ while IFS=$'\t' read -r name charset ttf size bpp ascent row_limit || [ -n "$nam
 	cell_h=$((h * 2))
 
 	out="$outdir/$name"
-	key="$ttf|$size|$bpp|$cell_w|$cell_h|${ascent:--}|$row_limit"
+	[ "$row_limit" = "-" ] && row_limit=
+	key="$ttf|$size|$bpp|$cell_w|$cell_h|${ascent:--}|$row_limit|$row_flags"
 	if [ -n "${baked[$key]}" ]; then
 		echo "== $name: same as ${baked[$key]} ($key) - copying =="
 		cp "${baked[$key]}" "$out"
@@ -100,7 +102,7 @@ while IFS=$'\t' read -r name charset ttf size bpp ascent row_limit || [ -n "$nam
 	echo "== $name: charset $charset ($korfont: ${w}x${h} -> cell ${cell_w}x${cell_h}), $ttf ${size}px ${bpp}bpp =="
 	python3 "$here/mkfont.py" "$ttf" "$out" --size "$size" --cell "$cell_h" --width "$cell_w" \
 		--bpp "$bpp" --clip-cell "${ascent_args[@]}" --unicode ascii \
-		--chars-from "${chars_from_args[@]}" --limit "$limit" "${require_args[@]}"
+		--chars-from "${chars_from_args[@]}" --limit "$limit" "${require_args[@]}" $row_flags
 
 	baked[$key]="$out"
 done < "$plan"

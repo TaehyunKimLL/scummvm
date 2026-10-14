@@ -511,6 +511,12 @@ def choose_ascent(font, cell_h, latin=False):
     return choose_ascent_from(ascent, descent, probe[1], probe[3], cell_h, latin)
 
 
+# --mono-hint: a 1 bpp face is drawn with FreeType's monochrome renderer and the font's own hinting (Pillow's
+# fontmode "1", FT_LOAD_TARGET_MONO) instead of anti-aliasing and cutting at half coverage. A hinted TrueType face
+# snaps its stems to whole pixels, so the strokes come out an even width.
+MONO_HINT = False
+
+
 def render(font, ch, cell_w, cell_h, ascent, bpp, center=False, mark_origin=False, nudge=True):
     """글자 하나를 셀에 그려 (픽셀들, 잉크왼쪽, 잉크폭) 로 돌려준다.
 
@@ -553,6 +559,8 @@ def render(font, ch, cell_w, cell_h, ascent, bpp, center=False, mark_origin=Fals
                 dx = (cell_w - ink_w) // 2 - left
 
     draw = ImageDraw.Draw(img)
+    if MONO_HINT and bpp == 1:
+        draw.fontmode = "1"
     try:
         draw.text((dx, dy), ch, font=font, fill=255, anchor="ls")
     except (ValueError, OSError):
@@ -751,6 +759,9 @@ def main():
     ap.add_argument("--bpp", type=int, choices=(1, 2, 8), default=8,
                     help="픽셀당 비트: 1 (스텐실), 2 (커버리지 4단계, 8bpp 의 "
                          "1/4 크기), 8 (커버리지 256단계)")
+    ap.add_argument("--mono-hint", action="store_true",
+                    help="--bpp 1: FreeType 모노크롬 렌더러와 글꼴 자체의 힌팅으로 그린다 (기본은 안티앨리어싱 후 "
+                         "50% 에서 자름)")
     ap.add_argument("--codepage", type=int, choices=sorted(CODEPAGES), default=949)
     ap.add_argument("--center", action="store_true",
                     help="잉크를 셀 가운데에 놓는다. 비례폭 글꼴을 고정폭 셀에 "
@@ -827,6 +838,10 @@ def main():
                          "0 이 아닌 종료 코드로 끝나며, 파일을 쓰지 않는다")
     args = ap.parse_args()
 
+    global MONO_HINT
+    MONO_HINT = args.mono_hint
+    if MONO_HINT and args.bpp != 1:
+        sys.exit("--mono-hint is for --bpp 1")
     cell_h = args.cell or args.size
     cell_w = args.width or cell_h
 

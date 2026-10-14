@@ -482,6 +482,40 @@ class TwoBppBakeTest(unittest.TestCase):
 
 
 @unittest.skipUnless(NANUM_BOLD, "NanumGothicBold.ttf not found (SCUMMVM_TEST_KO_BOLD_TTF)")
+class MonoHintTest(unittest.TestCase):
+    """--mono-hint: a 1 bpp bake with FreeType's monochrome renderer and the font's hinting, not cut at half coverage."""
+
+    UNICODE = "ascii,AC00-AC40,B620,D7A3"
+
+    def bake(self, *extra):
+        import subprocess
+        import tempfile
+        out = tempfile.NamedTemporaryFile(suffix=".fnt", delete=False).name
+        try:
+            subprocess.run([sys.executable, mkfont.__file__, NANUM_BOLD, out, "--size", "17", "--cell", "18", "--width", "18",
+                            "--bpp", "1", "--unicode", self.UNICODE, *extra], check=True, capture_output=True)
+            with open(out, "rb") as f:
+                return read_svfn(f.read())
+        finally:
+            os.unlink(out)
+
+    def test_hinted_mono_differs_from_the_cut_antialiased_bake(self):
+        plain, mono = self.bake(), self.bake("--mono-hint")
+        self.assertEqual(sorted(plain["glyphs"]), sorted(mono["glyphs"]))
+        diff = sum(1 for cp in plain["glyphs"] if plain["glyphs"][cp][1] != mono["glyphs"][cp][1])
+        self.assertGreater(diff, len(plain["glyphs"]) // 4)
+        for cp, (m, rows) in mono["glyphs"].items():
+            self.assertTrue(any(any(r) for r in rows) or cp == 0x20, hex(cp))
+
+    def test_mono_hint_needs_one_bpp(self):
+        import subprocess
+        r = subprocess.run([sys.executable, mkfont.__file__, NANUM_BOLD, os.devnull, "--size", "17", "--bpp", "2",
+                            "--mono-hint", "--unicode", "ascii"], capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--mono-hint", r.stderr)
+
+
+@unittest.skipUnless(NANUM_BOLD, "NanumGothicBold.ttf not found (SCUMMVM_TEST_KO_BOLD_TTF)")
 class CharsFromLimitCliTest(unittest.TestCase):
     """--chars-from/--limit/--require/--fail-on-drop, mkfont.py 를 실제로 불러서."""
 
