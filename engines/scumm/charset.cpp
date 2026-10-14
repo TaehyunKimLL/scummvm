@@ -1189,10 +1189,19 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	}
 	setDrawCharIntern(gameChar(chr));
 
-	// Drawing has to step by the same amount getCharWidth() reported, or a
-	// centred line drifts and glyphs land on each other.
+	// The glyph's own bitmap width: the drawing routines read the bitmap by it.
+	const int glyphWidth = width;
+
+	// A Korean patch's cell is in game pixels, like the Latin ones; FM-Towns
+	// Japanese draws its double-byte cell at the text surface's size.
+	const bool cellInGamePixels = !is2byte || _vm->isScummvmKorTarget();
+
+	// Drawing has to step by the same amount getStringWidth() measured, or a
+	// centred line drifts and glyphs land on each other: for Korean that is
+	// the cell and its one-pixel gap (cjkCellAdvance(), as the Classic
+	// renderer steps).
 	if (is2byte)
-		width = _vm->_hiResText.advanceFor(chr, _curId, width);
+		width = _vm->_hiResText.advanceFor(chr, _curId, _vm->isScummvmKorTarget() ? _vm->cjkCellAdvance() : width);
 
 	origWidth = width;
 	origHeight = height;
@@ -1262,15 +1271,15 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	Common::Rect hiResCell;
 	{
 		const int m = _vm->_textSurfaceMultiplier;
-		const int w = is2byte ? width : width * m;
-		const int h = is2byte ? height : height * m;
+		const int w = cellInGamePixels ? width * m : width;
+		const int h = cellInGamePixels ? height * m : height;
 		hiResCell = Common::Rect(_left * m, _top * m, _left * m + w, _top * m + h);
 	}
 	if (!ignoreCharsetMask) {
-		// A double-byte cell is already in surface pixels here.
+		// FM-Towns' double-byte cell is already in surface pixels here.
 		const int m = _vm->_textSurfaceMultiplier;
-		const int w = is2byte ? width : width * m;
-		const int h = is2byte ? height : height * m;
+		const int w = cellInGamePixels ? width * m : width;
+		const int h = cellInGamePixels ? height * m : height;
 		noteMaskedArea(hiResDrawn ? hiResArea
 								  : Common::Rect(_left * m, _top * m, _left * m + w, _top * m + h));
 	} else if (hiResDrawn && vs->number == kMainVirtScreen && vs->hasTwoBuffers
@@ -1292,29 +1301,29 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 		&& (_vm->_game.platform != Common::kPlatformFMTowns)
 #endif
 		)
-		drawBits1(*vs, _left + vs->xstart, drawTop, charPtr, drawTop, origWidth, origHeight);
+		drawBits1(*vs, _left + vs->xstart, drawTop, charPtr, drawTop, glyphWidth, origHeight);
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	else if (_vm->_game.platform == Common::kPlatformFMTowns && vs->number == kBannerVirtScreen)
-		drawBits1(*vs, _left * _vm->_textSurfaceMultiplier, drawTop * _vm->_textSurfaceMultiplier, charPtr, drawTop, origWidth, origHeight);
+		drawBits1(*vs, _left * _vm->_textSurfaceMultiplier, drawTop * _vm->_textSurfaceMultiplier, charPtr, drawTop, glyphWidth, origHeight);
 #endif
 	else if (_vm->_textSurfaceMultiplier > 1
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 			 && _vm->_game.platform != Common::kPlatformFMTowns
 #endif
 			 )
-		drawGameGlyphMagnified(_vm, _left, _top, origWidth, origHeight, [&](Graphics::Surface &t, int pad) {
-			drawBits1(t, pad, pad, charPtr, pad, origWidth, origHeight);
+		drawGameGlyphMagnified(_vm, _left, _top, glyphWidth, origHeight, [&](Graphics::Surface &t, int pad) {
+			drawBits1(t, pad, pad, charPtr, pad, glyphWidth, origHeight);
 		});
 	else
-		drawBits1(_vm->_textSurface, _left * _vm->_textSurfaceMultiplier, _top * _vm->_textSurfaceMultiplier, charPtr, drawTop, origWidth, origHeight);
+		drawBits1(_vm->_textSurface, _left * _vm->_textSurfaceMultiplier, _top * _vm->_textSurfaceMultiplier, charPtr, drawTop, glyphWidth, origHeight);
 
-	if (is2byte) {
+	// FM-Towns' double-byte cell is in surface pixels; the game steps by
+	// game pixels. A Korean patch's cell is in game pixels already: halving
+	// it stepped a syllable the layer left to the game by half a cell and
+	// shrank a V2/V3 verb's hit box to half its row.
+	if (!cellInGamePixels) {
 		origWidth /= _vm->_textSurfaceMultiplier;
-		// A Korean patch's cell is in game pixels, so its height is the
-		// text line's already; halving it shrank a V2/V3 verb's hit box
-		// to half its row.
-		if (!_vm->isScummvmKorTarget())
-			height /= _vm->_textSurfaceMultiplier;
+		height /= _vm->_textSurfaceMultiplier;
 	}
 
 	if (_str.left > _left)
