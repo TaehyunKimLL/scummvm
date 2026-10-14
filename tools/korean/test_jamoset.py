@@ -678,6 +678,41 @@ class FitPresentOnly(unittest.TestCase):
         self.assertGreater(checked, 1000)
 
 
+class SyllableAdvance(unittest.TestCase):
+    """--from-svf keeps the step of the face's syllables (a 16 px glyph in a 26 px cell steps 16, and the engine
+    centres what steps less than the game cell); without metrics the JSET advance stays 0, the cell width."""
+
+    def face(self, advance, w=24):
+        present = ks2350()[:30]
+        glyphs = {s: bytes([0xFF] * (((w + 7) // 8) * 16)) for s in present}
+        out, _ = make_face(glyphs, w=w)
+        f = jamoset.parse_svfn(out)
+        # one more syllable at the odd step, the rest at @p advance
+        for cp in f.glyphs:
+            if 0xAC00 <= cp <= 0xD7A3:
+                f.metrics[cp] = (advance, 1, advance - 2)
+        f.metrics[0xAC00 + present[0]] = (advance + 4, 0, 4)
+        return f
+
+    def test_modal_advance_of_the_drawn_syllables(self):
+        self.assertEqual(jamoset.svf_advance(self.face(16)), 16)
+
+    def test_no_metrics_or_too_wide_gives_none(self):
+        f = self.face(16)
+        f.metrics = {}
+        self.assertIsNone(jamoset.svf_advance(f))
+        self.assertIsNone(jamoset.svf_advance(self.face(300)))
+
+    def test_written_into_the_jset_block(self):
+        present = ks2350()
+        face, _, _ = composed_face(present)
+        targets = jamoset.svf_targets(jamoset.parse_svfn(face))
+        out, _ = jamoset.fit_font(jamoset.LAYOUTS["844"], targets, 16, 16, 12, base=face, keep_header=True, advance=12)
+        self.assertEqual(unpack_advance(out), 12)
+        out, _ = jamoset.fit_font(jamoset.LAYOUTS["844"], targets, 16, 16, 12, base=face, keep_header=True)
+        self.assertEqual(unpack_advance(out), 0)
+
+
 class Metrics(unittest.TestCase):
     W = H = 8
 

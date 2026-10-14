@@ -619,11 +619,14 @@ def build(layout, data, face=0, eng=None, base=None, path=""):
     return build_from_source(layout, layout.opener(data, face, path), eng, base)
 
 
-def build_from_source(layout, src, eng=None, base=None, ascent=None, extra=None, keep_header=False):
+def build_from_source(layout, src, eng=None, base=None, ascent=None, extra=None, keep_header=False, advance=None):
     """Write the font from @p src's pieces. @p extra: {cp: (packed glyph, advance, ink x, ink w)} added first (the base
     and --eng glyphs override it). @p keep_header: take the base's shadow byte, code page and all flag bits except the
-    two this tool sets, not just MARKS_AT_ORIGIN."""
+    two this tool sets, not just MARKS_AT_ORIGIN. @p advance: the JSET advance byte (what a composed syllable steps
+    by; 0 means the cell width), instead of the layout's."""
     tables = tables_for(layout)
+    if advance is not None:
+        tables.advance = advance
     used = used_pieces(tables)
     mapping = {s: n for n, s in enumerate(used)}
     pieces = renumber(tables, mapping)
@@ -757,7 +760,7 @@ AUTO_EXACT = 0.995		# a free fit this good means the face already is an OR of pi
 
 
 def fit_font(layout, targets, w, h, ascent=None, eng=None, base=None, extra=None, keep_header=False,
-             mask_font=None, radius=None, passes=12, pylib=None, mask_auto=False):
+             mask_font=None, radius=None, passes=12, pylib=None, mask_auto=False, advance=None):
     """Fit the layout's pieces to @p targets ({syllable index: gint}) and write the font.
 
     With @p mask_auto the free fit comes first; if its mean IoU is at least AUTO_EXACT the face is itself an OR of
@@ -811,7 +814,7 @@ def fit_font(layout, targets, w, h, ascent=None, eng=None, base=None, extra=None
             fallback["blank"] += 1
     info["unseen_pieces"] = fallback
     count = max(roles) + 1 if roles else 0
-    out, mapping, _ = build_from_source(layout, FittedSource(w, h, rows, count), eng, base, ascent, extra, keep_header)
+    out, mapping, _ = build_from_source(layout, FittedSource(w, h, rows, count), eng, base, ascent, extra, keep_header, advance)
     info["pieces"] = len(mapping)
     return out, info
 
@@ -831,6 +834,25 @@ def fit_report(out, targets, w, h):
     t = unpack(f.jset)
     composed = {s: glyph_gint(compose(f, t, 0xAC00 + s), w, h) for s in targets}
     return jf.quality_report(targets, composed, w, h)
+
+
+def svf_advance(face):
+    """The step of the face's drawn syllables (the most common advance among them), or None for a face with no
+    metrics table or one whose advance does not fit the JSET byte.
+
+    A precomposed face keeps a syllable's advance in its metrics (neodgm's 16 in a 26 px cell); a jamo set steps by
+    its JSET advance, which is the cell width when 0. Without this the composed syllable would step by the cell and
+    the engine, which centres a syllable stepping less than the game cell, would no longer centre it.
+    """
+    count = {}
+    for cp, gb in face.glyphs.items():
+        m = face.metrics.get(cp)
+        if m and 0xAC00 <= cp <= 0xD7A3 and any(gb):
+            count[m[0]] = count.get(m[0], 0) + 1
+    if not count:
+        return None
+    adv = max(count, key=lambda a: (count[a], a))
+    return adv if 0 < adv < 256 else None
 
 
 def svf_targets(face):
@@ -969,9 +991,11 @@ def main():
                 if not targets:
                     raise SourceError(f"{args.from_svf} has no non-blank Hangul syllables")
                 out, info = fit_font(layout, targets, w, h, face.ascent, eng, open(args.from_svf, "rb").read(), None,
-                                     True, mask, args.mask_radius, args.passes, args.pylib, mask_auto)
+                                     True, mask, args.mask_radius, args.passes, args.pylib, mask_auto,
+                                     svf_advance(face))
                 info["source"] = {"face": os.path.basename(args.from_svf), "cell": [w, h], "ascent": face.ascent,
-                                  "size": os.path.getsize(args.from_svf)}
+                                  "size": os.path.getsize(args.from_svf),
+                                  "syllable_advance": svf_advance(face)}
             open(args.output, "wb").write(out)
             q = fit_report(out, targets, w, h)
             info.update(quality=q, layout=layout.name, output_bytes=len(out), seconds=round(time.time() - started, 1))
