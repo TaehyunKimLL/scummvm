@@ -428,6 +428,30 @@ void ScummEngine::updateCursor() {
 	if (_macScreen && _game.version == 6 && _game.heversion == 0)
 		mac_scaleCursor(cursor, hotspotX, hotspotY, width, height);
 
+	// With hi-res text the screen is _textSurfaceMultiplier times the game's,
+	// and the backend draws the cursor 1:1. The v5 built-in cursors are built
+	// at that size already (setBuiltinCursor); the v0-v2 ones and the v6
+	// cursors taken from the game's graphics are not, so they would show at
+	// half size (a third at scale 3). Scale a copy: _grabbedCursor stays at
+	// the game's size for the code that saves and restores it.
+	const int m = _textSurfaceMultiplier;
+	Common::Array<byte> scaled;
+	if (m > 1 && !_macScreen && (_game.version <= 2 || (_game.version == 6 && _game.heversion == 0))) {
+		const int bpp = _bytesPerPixel;
+		scaled.resize(width * m * height * m * bpp);
+		for (int y = 0; y < height * m; ++y) {
+			const byte *srcRow = cursor + (y / m) * width * bpp;
+			byte *dstRow = &scaled[y * width * m * bpp];
+			for (int x = 0; x < width * m; ++x)
+				memcpy(dstRow + x * bpp, srcRow + (x / m) * bpp, bpp);
+		}
+		cursor = scaled.data();
+		width *= m;
+		height *= m;
+		hotspotX *= m;
+		hotspotY *= m;
+	}
+
 	// Cursor data is palette indices whatever the screen is. With blending
 	// active the screen is true colour, and declaring the cursor in the screen
 	// format would have the backend read one index byte per channel.
