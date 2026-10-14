@@ -111,32 +111,32 @@ GlyphDecoration HiResGlyphRenderer::decorationFor(const GlyphStyle &style) {
 	return d;
 }
 
-void HiResGlyphRenderer::applyMap(GlyphStyle &style, const HiResMap &map, int scale) {
+void HiResGlyphRenderer::applyShadow(GlyphStyle &style, const HiResShadowSpec &spec, int scale) {
 	scale = MAX(1, scale);
 
 	// Half a game pixel, rounded up: the legacy fonts' shadows were one game
 	// pixel, which at 2x is a heavy two.
-	style.shadowOffset = (map.shadowOffset >= 0) ? MAX(1, map.shadowOffset) : (scale + 1) / 2;
+	style.shadowOffset = (spec.offset >= 0) ? MAX(1, spec.offset) : (scale + 1) / 2;
 
 	// style=legacy keeps the old step exactly: the map's offset as written,
 	// else 1 at every scale.
-	if (map.shadowStyle == kHiResOutlineLegacy)
-		style.shadowOffset = (map.shadowOffset >= 0) ? map.shadowOffset : 1;
+	if (spec.style == kHiResOutlineLegacy)
+		style.shadowOffset = (spec.offset >= 0) ? spec.offset : 1;
 
-	if (map.shadowWidthQ >= 0)
-		style.outlineQ = map.shadowWidthQ;
-	else if (map.shadowOffset >= 0)
-		style.outlineQ = MAX(1, map.shadowOffset) * 4;
+	if (spec.widthQ >= 0)
+		style.outlineQ = spec.widthQ;
+	else if (spec.offset >= 0)
+		style.outlineQ = MAX(1, spec.offset) * 4;
 	else
 		style.outlineQ = 3 * scale;     // 0.75 of a game pixel
 
-	style.outlineShape = map.shadowStyle;
-	style.shadowShiftSet = map.shadowShiftSet;
-	style.shadowDx = map.shadowDx;
-	style.shadowDy = map.shadowDy;
-	style.shadowShiftColorSet = map.shadowShiftColorSet;
-	style.shadowShiftColor = map.shadowShiftColor;
-	style.shadowAlpha = map.shadowAlpha;
+	style.outlineShape = spec.style;
+	style.shadowShiftSet = spec.shiftSet;
+	style.shadowDx = spec.dx;
+	style.shadowDy = spec.dy;
+	style.shadowShiftColorSet = spec.shiftColorSet;
+	style.shadowShiftColor = spec.shiftColor;
+	style.shadowAlpha = spec.alpha;
 }
 
 void HiResGlyphRenderer::buildKernel(DilationKernel &k, int quarterRadius, HiResOutlineShape shape,

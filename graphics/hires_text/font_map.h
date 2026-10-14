@@ -205,6 +205,46 @@ struct HiResEngineKeys {
 extern const HiResEngineKeys kHiResKeysSci, kHiResKeysScumm, kHiResKeysAgs, kHiResKeysAgi;
 
 /**
+ * One [shadow] or [shadow.N] section's keys. A key the section sets has its
+ * *Set flag; HiResMap::shadowFor() lays a [shadow.N]'s set keys over [shadow].
+ */
+struct HiResShadowSpec {
+	HiResShadowMode mode;
+	bool modeSet;
+	int offset;                   ///< scaled pixels; -1 = follow the scale
+	bool offsetSet;
+	byte color;
+	bool colorSet;
+	/// Outline radius in quarters of an output pixel (width=1.5 is 6);
+	/// -1 = offset when that is set, else 0.75 of the scale.
+	int widthQ;
+	bool widthSet;
+	HiResOutlineShape style;      ///< style=round|square|legacy
+	bool styleSet;
+	bool shiftSet;                ///< shadow=dx,dy (or none) was given
+	int dx;                       ///< output pixels
+	int dy;
+	byte shiftColor;              ///< shadow_color; defaults to color
+	bool shiftColorSet;
+	byte alpha;                   ///< shadow_alpha as 0..255; 255 = solid
+	bool alphaSet;
+
+	HiResShadowSpec() { clear(); }
+	void clear() {
+		mode = kHiResShadowGame; modeSet = false;
+		offset = -1; offsetSet = false;
+		color = 0; colorSet = false;
+		widthQ = -1; widthSet = false;
+		style = kHiResOutlineRound; styleSet = false;
+		shiftSet = false; dx = dy = 0;
+		shiftColor = 0; shiftColorSet = false;
+		alpha = 255; alphaSet = false;
+	}
+	/// This spec with @p over's set keys in place of its own.
+	HiResShadowSpec overlaid(const HiResShadowSpec &over) const;
+};
+
+/**
  * A fully parsed version-2 map (design section 3): every `:q` qualifier
  * already merged into its scope, every removed/unknown/unhonoured key
  * reported in @ref warnings, nothing left for a caller to re-derive.
@@ -245,21 +285,8 @@ struct HiResMap {
 	HiResGlyphTable glyphs;
 	Common::HashMap<int, HiResGlyphTable> glyphIds;
 
-	// --- [shadow] ------------------------------------------------------------
-	HiResShadowMode shadowMode;
-	int shadowOffset;                     ///< scaled pixels; -1 = follow the scale
-	byte shadowColor;
-	bool shadowColorSet;
-	/// Outline radius in quarters of an output pixel (width=1.5 is 6);
-	/// -1 = offset when that is set, else 0.75 of the scale.
-	int shadowWidthQ;
-	HiResOutlineShape shadowStyle;        ///< style=round|square|legacy
-	bool shadowShiftSet;                  ///< shadow=dx,dy was given
-	int shadowDx;                         ///< output pixels
-	int shadowDy;
-	byte shadowShiftColor;                ///< shadow_color; defaults to color
-	bool shadowShiftColorSet;
-	byte shadowAlpha;                     ///< shadow_alpha as 0..255; 255 = solid
+	// --- [shadow], [shadow.N] ------------------------------------------------
+	HiResShadowSpec shadow;                          ///< [shadow]
 
 	/// Every warning the last load raised (design section 10), in the order
 	/// raised; each was also printed with warning(), unless the load was

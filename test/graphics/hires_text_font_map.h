@@ -338,7 +338,7 @@ public:
 		TS_ASSERT(!m.targetSet);
 		TS_ASSERT(!m.scaleSet);
 		TS_ASSERT(!m.font.advanceSet);
-		TS_ASSERT_EQUALS(m.shadowMode, Graphics::kHiResShadowGame);
+		TS_ASSERT_EQUALS(m.shadow.mode, Graphics::kHiResShadowGame);
 		TS_ASSERT_EQUALS(m.warnings.size(), 4u);
 	}
 
@@ -447,13 +447,13 @@ public:
 		TS_ASSERT(!m.layout.kinsokuSet);
 		TS_ASSERT(!m.layout.thaiSet);
 		TS_ASSERT(!m.encodingSet);
-		TS_ASSERT_EQUALS(m.shadowOffset, -1);
-		TS_ASSERT(!m.shadowColorSet);
-		TS_ASSERT_EQUALS(m.shadowWidthQ, -1);
-		TS_ASSERT_EQUALS(m.shadowStyle, Graphics::kHiResOutlineRound);
-		TS_ASSERT(!m.shadowShiftSet);
-		TS_ASSERT(!m.shadowShiftColorSet);
-		TS_ASSERT_EQUALS(m.shadowAlpha, 255);
+		TS_ASSERT_EQUALS(m.shadow.offset, -1);
+		TS_ASSERT(!m.shadow.colorSet);
+		TS_ASSERT_EQUALS(m.shadow.widthQ, -1);
+		TS_ASSERT_EQUALS(m.shadow.style, Graphics::kHiResOutlineRound);
+		TS_ASSERT(!m.shadow.shiftSet);
+		TS_ASSERT(!m.shadow.shiftColorSet);
+		TS_ASSERT_EQUALS(m.shadow.alpha, 255);
 		// A representative sample of the actual warning texts, so a future
 		// change that drops the warning call itself (rather than the value
 		// check) would still be caught.
@@ -468,18 +468,18 @@ public:
 		Graphics::HiResMap m;
 		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nmode=outline\noffset=2\ncolor=7\nwidth=1.5\nstyle=square\n"
 					   "shadow=-1, 2\nshadow_color=9\nshadow_alpha=60\n", m));
-		TS_ASSERT_EQUALS(m.shadowMode, Graphics::kHiResShadowOutline);
-		TS_ASSERT_EQUALS(m.shadowOffset, 2);
-		TS_ASSERT(m.shadowColorSet);
-		TS_ASSERT_EQUALS(m.shadowColor, 7);
-		TS_ASSERT_EQUALS(m.shadowWidthQ, 6);
-		TS_ASSERT_EQUALS(m.shadowStyle, Graphics::kHiResOutlineSquare);
-		TS_ASSERT(m.shadowShiftSet);
-		TS_ASSERT_EQUALS(m.shadowDx, -1);
-		TS_ASSERT_EQUALS(m.shadowDy, 2);
-		TS_ASSERT(m.shadowShiftColorSet);
-		TS_ASSERT_EQUALS(m.shadowShiftColor, 9);
-		TS_ASSERT_EQUALS(m.shadowAlpha, 153);      // 60 % of 255, rounded
+		TS_ASSERT_EQUALS(m.shadow.mode, Graphics::kHiResShadowOutline);
+		TS_ASSERT_EQUALS(m.shadow.offset, 2);
+		TS_ASSERT(m.shadow.colorSet);
+		TS_ASSERT_EQUALS(m.shadow.color, 7);
+		TS_ASSERT_EQUALS(m.shadow.widthQ, 6);
+		TS_ASSERT_EQUALS(m.shadow.style, Graphics::kHiResOutlineSquare);
+		TS_ASSERT(m.shadow.shiftSet);
+		TS_ASSERT_EQUALS(m.shadow.dx, -1);
+		TS_ASSERT_EQUALS(m.shadow.dy, 2);
+		TS_ASSERT(m.shadow.shiftColorSet);
+		TS_ASSERT_EQUALS(m.shadow.shiftColor, 9);
+		TS_ASSERT_EQUALS(m.shadow.alpha, 153);      // 60 % of 255, rounded
 		TS_ASSERT(m.warnings.empty());
 
 		static const struct { const char *mode; Graphics::HiResShadowMode want; } kModes[] = {
@@ -490,7 +490,7 @@ public:
 		for (uint i = 0; i < ARRAYSIZE(kModes); ++i) {
 			const Common::String text = Common::String::format("[map]\nversion=2\n[shadow]\nmode=%s\n", kModes[i].mode);
 			TS_ASSERT(load(text.c_str(), m));
-			TS_ASSERT_EQUALS(m.shadowMode, kModes[i].want);
+			TS_ASSERT_EQUALS(m.shadow.mode, kModes[i].want);
 			TS_ASSERT(m.warnings.empty());
 		}
 
@@ -500,30 +500,30 @@ public:
 		for (uint i = 0; i < ARRAYSIZE(kWidths); ++i) {
 			const Common::String text = Common::String::format("[map]\nversion=2\n[shadow]\nwidth=%s\n", kWidths[i].width);
 			TS_ASSERT(load(text.c_str(), m));
-			TS_ASSERT_EQUALS(m.shadowWidthQ, kWidths[i].quarters);
+			TS_ASSERT_EQUALS(m.shadow.widthQ, kWidths[i].quarters);
 		}
 
 		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nstyle=legacy\nshadow=none\nshadow_alpha=0\noffset=-1\n", m));
-		TS_ASSERT_EQUALS(m.shadowStyle, Graphics::kHiResOutlineLegacy);
-		TS_ASSERT(m.shadowShiftSet);
-		TS_ASSERT_EQUALS(m.shadowDx, 0);
-		TS_ASSERT_EQUALS(m.shadowDy, 0);
-		TS_ASSERT_EQUALS(m.shadowAlpha, 0);
-		TS_ASSERT_EQUALS(m.shadowOffset, -1);
+		TS_ASSERT_EQUALS(m.shadow.style, Graphics::kHiResOutlineLegacy);
+		TS_ASSERT(m.shadow.shiftSet);
+		TS_ASSERT_EQUALS(m.shadow.dx, 0);
+		TS_ASSERT_EQUALS(m.shadow.dy, 0);
+		TS_ASSERT_EQUALS(m.shadow.alpha, 0);
+		TS_ASSERT_EQUALS(m.shadow.offset, -1);
 		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nstyle=round\nshadow=2,-3\nshadow_alpha=100\n", m));
-		TS_ASSERT_EQUALS(m.shadowStyle, Graphics::kHiResOutlineRound);
-		TS_ASSERT_EQUALS(m.shadowDx, 2);
-		TS_ASSERT_EQUALS(m.shadowDy, -3);
-		TS_ASSERT_EQUALS(m.shadowAlpha, 255);
+		TS_ASSERT_EQUALS(m.shadow.style, Graphics::kHiResOutlineRound);
+		TS_ASSERT_EQUALS(m.shadow.dx, 2);
+		TS_ASSERT_EQUALS(m.shadow.dy, -3);
+		TS_ASSERT_EQUALS(m.shadow.alpha, 255);
 
 		// A qualified section's colour wins over the bare one; an inline
 		// comment ends the value.
 		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nmode=outline\ncolor=0\n[shadow:fmtowns]\ncolor=15 ; FM-Towns white\n",
 					   m, Graphics::kHiResKeysScumm, "fmtowns"));
-		TS_ASSERT_EQUALS(m.shadowMode, Graphics::kHiResShadowOutline);
-		TS_ASSERT_EQUALS(m.shadowColor, 15);
+		TS_ASSERT_EQUALS(m.shadow.mode, Graphics::kHiResShadowOutline);
+		TS_ASSERT_EQUALS(m.shadow.color, 15);
 		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nmode=outline\ncolor=0\n[shadow:fmtowns]\ncolor=15 ; FM-Towns white\n", m));
-		TS_ASSERT_EQUALS(m.shadowColor, 0);
+		TS_ASSERT_EQUALS(m.shadow.color, 0);
 	}
 
 	// Within one [glyphs] section every range is applied before every
@@ -657,12 +657,12 @@ public:
 		TS_ASSERT_EQUALS(m.faces["ko"], "my;font.ttf");
 		TS_ASSERT_EQUALS(m.font.face.entries[0].written, "A.TTF#1");
 		TS_ASSERT_EQUALS(m.font.face.entries[0].path.toString('/'), "/maps/A.TTF#1");
-		TS_ASSERT(m.shadowColorSet);
-		TS_ASSERT_EQUALS(m.shadowColor, 7);
+		TS_ASSERT(m.shadow.colorSet);
+		TS_ASSERT_EQUALS(m.shadow.color, 7);
 		TS_ASSERT(load("[map]\nversion=2\n[shadow]\ncolor= ; nothing\n", m));
-		TS_ASSERT(!m.shadowColorSet);
+		TS_ASSERT(!m.shadow.colorSet);
 		TS_ASSERT(load("[map]\nversion=2\n[shadow]\ncolor=2;3\n", m));
-		TS_ASSERT(!m.shadowColorSet);   // "2;3" is the value, and not a number
+		TS_ASSERT(!m.shadow.colorSet);   // "2;3" is the value, and not a number
 	}
 
 	// A map that is not a valid INI file is refused whole, with the
@@ -713,9 +713,9 @@ public:
 		TS_ASSERT(m.fontIds.empty());
 		TS_ASSERT(m.glyphs.empty());
 		TS_ASSERT(m.glyphIds.empty());
-		TS_ASSERT_EQUALS(m.shadowMode, Graphics::kHiResShadowGame);
-		TS_ASSERT(!m.shadowColorSet);
-		TS_ASSERT_EQUALS(m.shadowWidthQ, -1);
+		TS_ASSERT_EQUALS(m.shadow.mode, Graphics::kHiResShadowGame);
+		TS_ASSERT(!m.shadow.colorSet);
+		TS_ASSERT_EQUALS(m.shadow.widthQ, -1);
 		TS_ASSERT(m.warnings.empty());
 	}
 

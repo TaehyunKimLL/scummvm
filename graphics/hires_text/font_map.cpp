@@ -595,18 +595,7 @@ void HiResMap::clear() {
 	glyphs.clear();
 	glyphIds.clear();
 
-	shadowMode = kHiResShadowGame;
-	shadowOffset = -1;
-	shadowColor = 0;
-	shadowColorSet = false;
-	shadowWidthQ = -1;
-	shadowStyle = kHiResOutlineRound;
-	shadowShiftSet = false;
-	shadowDx = 0;
-	shadowDy = 0;
-	shadowShiftColor = 0;
-	shadowShiftColorSet = false;
-	shadowAlpha = 255;
+	shadow.clear();
 
 	warnings.clear();
 	loadedFor = kHiResTargetAuto;
@@ -614,6 +603,19 @@ void HiResMap::clear() {
 }
 
 HiResMapLoadOptions::HiResMapLoadOptions() : target(kHiResTargetAuto), quiet(false) {
+}
+
+HiResShadowSpec HiResShadowSpec::overlaid(const HiResShadowSpec &over) const {
+	HiResShadowSpec r = *this;
+	if (over.modeSet) { r.mode = over.mode; r.modeSet = true; }
+	if (over.offsetSet) { r.offset = over.offset; r.offsetSet = true; }
+	if (over.colorSet) { r.color = over.color; r.colorSet = true; }
+	if (over.widthSet) { r.widthQ = over.widthQ; r.widthSet = true; }
+	if (over.styleSet) { r.style = over.style; r.styleSet = true; }
+	if (over.shiftSet) { r.shiftSet = true; r.dx = over.dx; r.dy = over.dy; }
+	if (over.shiftColorSet) { r.shiftColor = over.shiftColor; r.shiftColorSet = true; }
+	if (over.alphaSet) { r.alpha = over.alpha; r.alphaSet = true; }
+	return r;
 }
 
 const HiResFontScope *HiResMap::fontIdScope(int id) const {
@@ -1573,86 +1575,87 @@ bool parseHiResShadowMode(const Common::String &value, HiResShadowMode &out) {
 	return false;
 }
 
-void buildShadowSection(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers, HiResMap &out) {
+void buildShadowSection(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+                         const Common::String &section, HiResShadowSpec &spec, HiResMap &out) {
 	Common::String value;
-	if (getKey(ini, qualifiers, "shadow", "mode", value)) {
+	if (getKey(ini, qualifiers, section.c_str(), "mode", value)) {
 		HiResShadowMode m;
 		if (parseHiResShadowMode(value, m))
-			out.shadowMode = m;
+			{ spec.mode = m; spec.modeSet = true; }
 		else
 			hiResWarn(out, Common::String::format(
-				"%s: [shadow] mode '%s' is not game, none, drop, outline or stroke; ignoring it", kHiResMapName, value.c_str()));
+				"%s: [%s] mode '%s' is not game, none, drop, outline or stroke; ignoring it", kHiResMapName, section.c_str(), value.c_str()));
 	}
-	if (getKey(ini, qualifiers, "shadow", "offset", value)) {
+	if (getKey(ini, qualifiers, section.c_str(), "offset", value)) {
 		int offset;
 		if (value == "-1")
-			out.shadowOffset = -1;
+			{ spec.offset = -1; spec.offsetSet = true; }
 		else if (parseInteger(value, 4096, offset))
-			out.shadowOffset = offset;
+			{ spec.offset = offset; spec.offsetSet = true; }
 		else
 			hiResWarn(out, Common::String::format(
-				"%s: [shadow] offset '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+				"%s: [%s] offset '%s' is invalid; ignoring it", kHiResMapName, section.c_str(), value.c_str()));
 	}
-	if (getKey(ini, qualifiers, "shadow", "color", value)) {
+	if (getKey(ini, qualifiers, section.c_str(), "color", value)) {
 		int color;
 		if (parseInteger(value, 255, color)) {
-			out.shadowColor = color;
-			out.shadowColorSet = true;
+			spec.color = color;
+			spec.colorSet = true;
 		} else {
 			hiResWarn(out, Common::String::format(
-				"%s: [shadow] color '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+				"%s: [%s] color '%s' is invalid; ignoring it", kHiResMapName, section.c_str(), value.c_str()));
 		}
 	}
-	if (getKey(ini, qualifiers, "shadow", "width", value)) {
+	if (getKey(ini, qualifiers, section.c_str(), "width", value)) {
 		int q;
 		if (parseQuarterPixels(value, kMaxShadowWidthQ, q))
-			out.shadowWidthQ = q;
+			{ spec.widthQ = q; spec.widthSet = true; }
 		else
 			hiResWarn(out, Common::String::format(
-				"%s: [shadow] width '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+				"%s: [%s] width '%s' is invalid; ignoring it", kHiResMapName, section.c_str(), value.c_str()));
 	}
-	if (getKey(ini, qualifiers, "shadow", "style", value)) {
+	if (getKey(ini, qualifiers, section.c_str(), "style", value)) {
 		if (value.equalsIgnoreCase("round"))
-			out.shadowStyle = kHiResOutlineRound;
+			{ spec.style = kHiResOutlineRound; spec.styleSet = true; }
 		else if (value.equalsIgnoreCase("square"))
-			out.shadowStyle = kHiResOutlineSquare;
+			{ spec.style = kHiResOutlineSquare; spec.styleSet = true; }
 		else if (value.equalsIgnoreCase("legacy"))
-			out.shadowStyle = kHiResOutlineLegacy;
+			{ spec.style = kHiResOutlineLegacy; spec.styleSet = true; }
 		else
 			hiResWarn(out, Common::String::format(
-				"%s: [shadow] style '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+				"%s: [%s] style '%s' is invalid; ignoring it", kHiResMapName, section.c_str(), value.c_str()));
 	}
-	if (getKey(ini, qualifiers, "shadow", "shadow", value)) {
+	if (getKey(ini, qualifiers, section.c_str(), "shadow", value)) {
 		int dx, dy;
 		if (value.equalsIgnoreCase("none")) {
-			out.shadowShiftSet = true;
-			out.shadowDx = out.shadowDy = 0;
+			spec.shiftSet = true;
+			spec.dx = spec.dy = 0;
 		} else if (parseSignedPair(value, kMaxShadowShift, dx, dy)) {
-			out.shadowShiftSet = true;
-			out.shadowDx = dx;
-			out.shadowDy = dy;
+			spec.shiftSet = true;
+			spec.dx = dx;
+			spec.dy = dy;
 		} else {
 			hiResWarn(out, Common::String::format(
-				"%s: [shadow] shadow '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+				"%s: [%s] shadow '%s' is invalid; ignoring it", kHiResMapName, section.c_str(), value.c_str()));
 		}
 	}
-	if (getKey(ini, qualifiers, "shadow", "shadow_color", value)) {
+	if (getKey(ini, qualifiers, section.c_str(), "shadow_color", value)) {
 		int color;
 		if (parseInteger(value, 255, color)) {
-			out.shadowShiftColor = color;
-			out.shadowShiftColorSet = true;
+			spec.shiftColor = color;
+			spec.shiftColorSet = true;
 		} else {
 			hiResWarn(out, Common::String::format(
-				"%s: [shadow] shadow_color '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+				"%s: [%s] shadow_color '%s' is invalid; ignoring it", kHiResMapName, section.c_str(), value.c_str()));
 		}
 	}
-	if (getKey(ini, qualifiers, "shadow", "shadow_alpha", value)) {
+	if (getKey(ini, qualifiers, section.c_str(), "shadow_alpha", value)) {
 		int percent;
 		if (parseInteger(value, 100, percent))
-			out.shadowAlpha = (byte)((percent * 255 + 50) / 100);
+			{ spec.alpha = (byte)((percent * 255 + 50) / 100); spec.alphaSet = true; }
 		else
 			hiResWarn(out, Common::String::format(
-				"%s: [shadow] shadow_alpha '%s' is invalid; ignoring it", kHiResMapName, value.c_str()));
+				"%s: [%s] shadow_alpha '%s' is invalid; ignoring it", kHiResMapName, section.c_str(), value.c_str()));
 	}
 }
 
@@ -1690,7 +1693,7 @@ void buildHiResMap(const Common::INIFile &ini, const Common::Array<Common::Strin
 		out.glyphIds[glyphIds[i]] = table;
 	}
 
-	buildShadowSection(ini, qualifiers, out);
+	buildShadowSection(ini, qualifiers, "shadow", out.shadow, out);
 }
 
 } // End of anonymous namespace

@@ -112,10 +112,10 @@ public:
 	/// A map's own colour and geometry still win.
 	void test_the_map_geometry_applies_to_the_game_modes() {
 		Graphics::HiResMap map;
-		map.shadowColor = 8;
-		map.shadowColorSet = true;
-		map.shadowWidthQ = 4;
-		map.shadowStyle = Graphics::kHiResOutlineLegacy;
+		map.shadow.color = 8;
+		map.shadow.colorSet = true;
+		map.shadow.widthQ = 4;
+		map.shadow.style = Graphics::kHiResOutlineLegacy;
 		const Graphics::GlyphStyle style = Scumm::ScummHiResText::glyphStyle(map, 2, 0, true, 15, 0);
 		TS_ASSERT_EQUALS(style.shadowColor, 8);
 		const Graphics::GlyphDecoration d = Graphics::HiResGlyphRenderer::decorationFor(style);

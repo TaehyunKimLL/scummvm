@@ -1933,7 +1933,7 @@ public:
 	 */
 	void test_legacy_keeps_the_old_step_at_every_scale() {
 		Graphics::HiResMap map;
-		map.shadowStyle = Graphics::kHiResOutlineLegacy;
+		map.shadow.style = Graphics::kHiResOutlineLegacy;
 		Graphics::GlyphStyle style;
 		style.shadowColor = 1;
 		style.color = 7;
@@ -1948,7 +1948,7 @@ public:
 		d = Graphics::HiResGlyphRenderer::decorationFor(style);
 		TS_ASSERT_EQUALS(d.step, 1);
 
-		map.shadowOffset = 0;
+		map.shadow.offset = 0;
 		Graphics::HiResGlyphRenderer::applyMap(style, map, 2);
 		TS_ASSERT_EQUALS(style.shadowOffset, 0);
 		d = Graphics::HiResGlyphRenderer::decorationFor(style);
@@ -1956,8 +1956,8 @@ public:
 		TS_ASSERT(!d.shadow);
 
 		// The other styles follow the scale.
-		map.shadowStyle = Graphics::kHiResOutlineRound;
-		map.shadowOffset = -1;
+		map.shadow.style = Graphics::kHiResOutlineRound;
+		map.shadow.offset = -1;
 		Graphics::HiResGlyphRenderer::applyMap(style, map, 3);
 		TS_ASSERT_EQUALS(style.shadowOffset, 2);
 	}
@@ -2071,20 +2071,20 @@ public:
 		TS_ASSERT_EQUALS(style.shadowOffset, 2);
 
 		// offset= alone: the width it always gave, and the shadow distance.
-		map.shadowOffset = 2;
+		map.shadow.offset = 2;
 		Graphics::HiResGlyphRenderer::applyMap(style, map, 2);
 		TS_ASSERT_EQUALS(style.outlineQ, 8);
 		TS_ASSERT_EQUALS(style.shadowOffset, 2);
 
 		// width= wins for the width; the rest is carried across.
-		map.shadowWidthQ = 5;
-		map.shadowStyle = Graphics::kHiResOutlineSquare;
-		map.shadowShiftSet = true;
-		map.shadowDx = -1;
-		map.shadowDy = 1;
-		map.shadowShiftColor = 3;
-		map.shadowShiftColorSet = true;
-		map.shadowAlpha = 128;
+		map.shadow.widthQ = 5;
+		map.shadow.style = Graphics::kHiResOutlineSquare;
+		map.shadow.shiftSet = true;
+		map.shadow.dx = -1;
+		map.shadow.dy = 1;
+		map.shadow.shiftColor = 3;
+		map.shadow.shiftColorSet = true;
+		map.shadow.alpha = 128;
 		Graphics::HiResGlyphRenderer::applyMap(style, map, 2);
 		TS_ASSERT_EQUALS(style.outlineQ, 5);
 		TS_ASSERT_EQUALS(style.outlineShape, Graphics::kHiResOutlineSquare);

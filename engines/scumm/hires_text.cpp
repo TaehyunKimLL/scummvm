@@ -2464,8 +2464,8 @@ Graphics::GlyphStyle ScummHiResText::glyphStyle(const Graphics::HiResMap &map, i
 												 byte color, byte shadowColor) {
 	Graphics::GlyphStyle style;
 	style.color = color;
-	style.shadowColor = map.shadowColorSet ? map.shadowColor : shadowColor;
-	style.shadowMode = resolveShadow(map.shadowMode, gameShadow, korPatchShadow);
+	style.shadowColor = map.shadow.colorSet ? map.shadow.color : shadowColor;
+	style.shadowMode = resolveShadow(map.shadow.mode, gameShadow, korPatchShadow);
 	Graphics::HiResGlyphRenderer::applyMap(style, map, MAX(1, scale));
 	return style;
 }
