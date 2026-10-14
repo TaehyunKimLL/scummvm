@@ -246,6 +246,10 @@ void ScummEngine::parseEvent(Common::Event event) {
 				_mouse.y = _mouse.y * 4 / 7;
 			}
 
+		} else if (_textSurfaceMultiplier > 2) {
+			// Hi-res text at scale 3: the screen is three times the game's.
+			_mouse.x /= _textSurfaceMultiplier;
+			_mouse.y /= _textSurfaceMultiplier;
 		} else if ((_textSurfaceMultiplier == 2 || _macScreen) || _renderMode == Common::kRenderCGA_BW || _enableEGADithering) {
 			_mouse.x >>= 1;
 			_mouse.y >>= 1;
