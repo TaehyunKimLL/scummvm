@@ -27,6 +27,7 @@
 
 #include "scumm/actor.h"
 #include "scumm/scumm.h"
+#include "scumm/text_log.h"
 
 namespace Scumm {
 
@@ -63,7 +64,8 @@ Common::Point DebugSocket::fromBackend(const Common::Point &p) {
 
 // ---- strings -------------------------------------------------------------
 
-void DebugSocket::noteString(int charset, const byte *raw, int len, const Common::U32String &text, const Common::Rect &rect) {
+void DebugSocket::noteString(int charset, const byte *raw, int len, const Common::U32String &text, const Common::Rect &rect,
+                             const Common::String &face, const Common::String &deco) {
 	DrawnString s;
 	s.seq = _stringSeq++;
 	s.loop = _loop + 1;	// the loop running now, as `OK <loop>` will count it
@@ -72,9 +74,15 @@ void DebugSocket::noteString(int charset, const byte *raw, int len, const Common
 	for (int i = 0; i < len; i++)
 		s.raw.push_back(raw[i]);
 	s.rect = rect;
+	s.face = face;
+	s.deco = deco;
 	if (_strings.size() >= kRing)
 		_strings.remove_at(0);
 	_strings.push_back(s);
+	if (_textLog.size() >= kLogRing)
+		_textLog.remove_at(0);
+	_textLog.push_back(s);
+	debug(1, "SCUMM text: %s", textLogLine(s.loop, charset, face, deco, s.utf8).c_str());
 }
 
 // ---- state ---------------------------------------------------------------
@@ -109,6 +117,21 @@ static Common::String jsonString(const Common::String &s) {
 	return out + "\"";
 }
 
+Common::String DebugSocket::drawnJson(const DrawnString &d) const {
+	const int m = _vm->_textSurfaceMultiplier > 0 ? _vm->_textSurfaceMultiplier : 1;
+	Common::String hex;
+	for (uint k = 0; k < d.raw.size(); k++)
+		hex += Common::String::format("%02x", d.raw[k]);
+	// The text surface starts at the top of the screen, not the room.
+	const int top = d.rect.top - _vm->_screenTop, bottom = d.rect.bottom - _vm->_screenTop;
+	return Common::String::format("{\"charset\":%d,\"loop\":%u,\"text\":%s,\"hex\":\"%s\","
+	                              "\"rect\":[%d,%d,%d,%d],\"game\":[%d,%d,%d,%d],\"face\":%s,\"deco\":%s}",
+	                              d.charset, d.loop, jsonString(d.utf8).c_str(), hex.c_str(),
+	                              d.rect.left * m, top * m, d.rect.right * m, bottom * m,
+	                              d.rect.left, d.rect.top, d.rect.right, d.rect.bottom,
+	                              jsonString(d.face).c_str(), jsonString(d.deco).c_str());
+}
+
 Common::String DebugSocket::stateJson() const {
 	const SocketSnapshot s = snapshot();
 
@@ -122,21 +145,9 @@ Common::String DebugSocket::stateJson() const {
 		}
 	}
 
-	const int m = _vm->_textSurfaceMultiplier > 0 ? _vm->_textSurfaceMultiplier : 1;
 	Common::String texts;
-	for (uint i = 0; i < _strings.size(); i++) {
-		const DrawnString &d = _strings[i];
-		Common::String hex;
-		for (uint k = 0; k < d.raw.size(); k++)
-			hex += Common::String::format("%02x", d.raw[k]);
-		// The text surface starts at the top of the screen, not the room.
-		const int top = d.rect.top - _vm->_screenTop, bottom = d.rect.bottom - _vm->_screenTop;
-		texts += Common::String::format("%s{\"charset\":%d,\"loop\":%u,\"text\":%s,\"hex\":\"%s\","
-		                                "\"rect\":[%d,%d,%d,%d],\"game\":[%d,%d,%d,%d]}",
-		                                i ? "," : "", d.charset, d.loop, jsonString(d.utf8).c_str(), hex.c_str(),
-		                                d.rect.left * m, top * m, d.rect.right * m, bottom * m,
-		                                d.rect.left, d.rect.top, d.rect.right, d.rect.bottom);
-	}
+	for (uint i = 0; i < _strings.size(); i++)
+		texts += (i ? "," : "") + drawnJson(_strings[i]);
 
 	return Common::String::format(
 		"{\"loop\":%u,\"room\":%d,\"ego\":{\"actor\":%d,\"x\":%d,\"y\":%d},\"talking\":%d,\"haveMsg\":%d,"
@@ -310,6 +321,19 @@ void DebugSocket::loopDone() {
 bool DebugSocket::handle(const Common::String &cmd, const Common::StringArray &args, Common::String &out) {
 	if (cmd == "state") {
 		out = stateJson();
+		return true;
+	}
+	if (cmd == "textlog") {
+		if (args.size() > 1 || (args.size() == 1 && args[0] != "peek")) {
+			out = "ERR usage: textlog [peek]";
+			return true;
+		}
+		out = "[";
+		for (uint i = 0; i < _textLog.size(); i++)
+			out += (i ? "," : "") + drawnJson(_textLog[i]);
+		out += "]";
+		if (args.empty())
+			_textLog.clear();
 		return true;
 	}
 	if (cmd == "wait") {

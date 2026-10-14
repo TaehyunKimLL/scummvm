@@ -46,6 +46,14 @@ class ScummEngine;
  *                         drawn (charset, UTF-8 text, the game's bytes in
  *                         hex, the rectangle on the text surface and in game
  *                         pixels, the loop it was drawn in)
+ *   textlog [peek]        the last 200 strings drawn, oldest first, as one
+ *                         JSON array and then cleared (`peek`: kept). An
+ *                         entry is a `state` text plus "face" (the hi-res
+ *                         face(s) as "FILE (WxH, Nbpp)", or "game font")
+ *                         and "deco" (mode, outline width in px, drop
+ *                         offset or shadow shift, colour, and the
+ *                         [shadow]/[shadow.N] it came from). The same
+ *                         line goes to debug(1) as "SCUMM text: ...".
  *   wait <cond> [timeout N] [freeze]
  *                         reply `OK <loop>` at the end of the first loop the
  *                         condition holds in, `TIMEOUT <loop>` after N loops
@@ -111,7 +119,8 @@ public:
 	 * drawn (a line break as 0x0A), @p text the same decoded, @p rect where
 	 * it went, in game pixels.
 	 */
-	void noteString(int charset, const byte *raw, int len, const Common::U32String &text, const Common::Rect &rect);
+	void noteString(int charset, const byte *raw, int len, const Common::U32String &text, const Common::Rect &rect,
+	                const Common::String &face, const Common::String &deco);
 
 	SocketSnapshot snapshot() const;
 
@@ -123,7 +132,11 @@ private:
 		Common::String utf8;
 		Common::Array<byte> raw;
 		Common::Rect rect;	///< game pixels
+		Common::String face;	///< the face(s) drawing it (text_log.h)
+		Common::String deco;	///< the decoration it gets (text_log.h)
 	};
+
+	Common::String drawnJson(const DrawnString &d) const;
 
 	Common::String stateJson() const;
 	Common::String dumpBuffers(const Common::String &prefix);
@@ -143,6 +156,8 @@ private:
 
 	static const uint kRing = 8;
 	Common::Array<DrawnString> _strings;	///< oldest first, at most kRing
+	static const uint kLogRing = 200;
+	Common::Array<DrawnString> _textLog;	///< oldest first, at most kLogRing; `textlog`
 	uint32 _stringSeq;		///< strings noted so far
 	uint32 _textEpoch;		///< `text`/`seen` see strings with seq >= this (see above)
 

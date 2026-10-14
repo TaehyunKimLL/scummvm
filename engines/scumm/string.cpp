@@ -43,6 +43,7 @@
 #include "scumm/macgui/macgui.h"
 #include "scumm/resource.h"
 #include "scumm/scumm.h"
+#include "scumm/text_log.h"
 #include "scumm/scumm_v2.h"
 #include "scumm/scumm_v6.h"
 #include "scumm/scumm_v7.h"
@@ -2911,7 +2912,16 @@ void ScummEngine::noteDrawnString(const Common::String &drawn) {
 	} else {
 		text = Common::U32String(drawn, getDialogCodePage());
 	}
-	_debugSocket->noteString(_charset->getCurID(), (const byte *)drawn.c_str(), drawn.size(), text, _charset->_str);
+	const int charsetId = _charset->getCurID();
+	Common::String face, deco;
+	if (_hiResText.enabled()) {
+		face = _hiResText.describeFaces(charsetId);
+		deco = _hiResText.describeDecorationFor(charsetId, _2byteShadow);
+	} else {
+		face = "game font";
+		deco = describeGameDecoration(_2byteShadow);
+	}
+	_debugSocket->noteString(charsetId, (const byte *)drawn.c_str(), drawn.size(), text, _charset->_str, face, deco);
 }
 
 Common::CodePage ScummEngine::getDialogCodePage() const {

@@ -528,6 +528,17 @@ struct ScummHiResText {
 	const Graphics::HiResMap &map() const { return _map; }
 
 	/**
+	 * The faces a string of charset @p charsetId is drawn with, for the
+	 * text log: each distinct open face as "NAME (WxH, Nbpp)", joined by
+	 * " | ", the charset's primary face first; "game font" when none.
+	 */
+	Common::String describeFaces(int charsetId) const;
+
+	/// The text log's words for the decoration charset @p charsetId gets
+	/// with the game's shadow byte @p gameShadow (describeDecoration()).
+	Common::String describeDecorationFor(int charsetId, int gameShadow) const;
+
+	/**
 	 * Decode the next character of a game string.
 	 *
 	 * This is the only place that knows how many bytes a character takes, so
@@ -976,6 +987,8 @@ private:
 	int ttfCellWidth(int charsetId) const;
 
 	// --- map-less, name-only form (probeSimpleFonts()) -------------------
+	/// The path (or "ttf:..." key) @p src was opened under, else "?".
+	Common::String sourceName(Graphics::UnicodeGlyphSource *src) const;
 	Face *_simpleCjkFaces[kMaxFonts] = {};     ///< by charset id
 	Face *_simpleLatinFaces[kMaxFonts] = {};   ///< Latin companion, by charset id
 	mutable Face *_ttfFaces[kMaxFonts] = {};

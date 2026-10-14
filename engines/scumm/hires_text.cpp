@@ -20,6 +20,7 @@
  */
 
 #include "scumm/hires_text.h"
+#include "scumm/text_log.h"
 #include "scumm/text_utf8.h"
 
 #include "common/config-manager.h"
@@ -1000,6 +1001,56 @@ Graphics::UnicodeGlyphSource *ScummHiResText::primarySourceFor(int charsetId) co
 	}
 	Face *f = _simpleCjkFaces[charsetId];
 	return f ? f->source : nullptr;
+}
+
+Common::String ScummHiResText::sourceName(Graphics::UnicodeGlyphSource *src) const {
+	for (Common::HashMap<Common::String, Face *>::const_iterator it = _sources.begin(); it != _sources.end(); ++it) {
+		if (it->_value && it->_value->source == src) {
+			const Common::String &k = it->_key;
+			// A file's name, not the whole path.
+			const char *slash = nullptr;
+			for (const char *c = k.c_str(); *c; ++c)
+				if (*c == '/' || *c == '\\')
+					slash = c;
+			return slash ? Common::String(slash + 1) : k;
+		}
+	}
+	return "?";
+}
+
+Common::String ScummHiResText::describeFaces(int charsetId) const {
+	if (!_enabled || !_fontsLoaded)
+		return "game font";
+	Common::Array<Graphics::UnicodeGlyphSource *> seen;
+	Graphics::UnicodeGlyphSource *primary = primarySourceFor(charsetId);
+	if (primary)
+		seen.push_back(primary);
+	if (_perGlyph && charsetId >= 0 && charsetId < kMaxFonts) {
+		for (uint c = 0; c < _chainSources[charsetId].size(); ++c)
+			for (uint i = 0; i < _chainSources[charsetId][c].size(); ++i) {
+				Graphics::UnicodeGlyphSource *s = _chainSources[charsetId][c][i];
+				bool dup = (s == nullptr);
+				for (uint k = 0; !dup && k < seen.size(); ++k)
+					dup = (seen[k] == s);
+				if (!dup)
+					seen.push_back(s);
+			}
+	}
+	if (seen.empty())
+		return "game font";
+	Common::String out;
+	for (uint i = 0; i < seen.size(); ++i) {
+		if (i)
+			out += " | ";
+		out += describeFace(sourceName(seen[i]), seen[i]->cellWidth(), seen[i]->cellHeight(), seen[i]->bitsPerPixel());
+	}
+	return out;
+}
+
+Common::String ScummHiResText::describeDecorationFor(int charsetId, int gameShadow) const {
+	const Graphics::GlyphStyle style = glyphStyle(_map, charsetId, _scale, gameShadow, _korPatchShadow, 0, 0);
+	return describeDecoration(_map.shadowFor(charsetId), _map.shadowIds.contains(charsetId), charsetId, style,
+							  gameShadow, _korPatchShadow);
 }
 
 int ScummHiResText::originShiftFor(Graphics::UnicodeGlyphSource *drawn, int charsetId) const {
