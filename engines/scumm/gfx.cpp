@@ -681,6 +681,16 @@ int ScummEngine::compositeBandRows(int width, int m, int bytesPerPixel) const {
  * arrays which map 'strips' (sections of the real screen) to dirty areas as
  * specified by top/bottom coordinate in the virtual screen.
  */
+bool ScummEngine::stripCompositesPerPixel(const VirtScreen *vs) const {
+	if (_game.version >= 7)
+		return false;
+	if (_hiResText.alphaActive() && _hiResText.coverage() && vs->format.bytesPerPixel == 1)
+		return true;
+	if (_hiResText.enabled() && _textSurfaceMultiplier > 1 && _outputPixelFormat.bytesPerPixel == 1)
+		return true;
+	return _outputPixelFormat.bytesPerPixel == 2;
+}
+
 void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, int bottom) {
 	// Short-circuit if nothing has to be drawn
 	if (bottom <= top || top >= vs->h)
@@ -743,8 +753,10 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 
 		// The values x, width, etc. are all multiples of 8 at this point,
 		// so loop unrolloing might be a good idea...
-		assert(IS_ALIGNED(text, 4));
-		assert(0 == (width & 3));
+		// The four-pixels-at-a-time loop below needs both; the per-pixel
+		// composites take any strip (Loom CD's dissolve is one pixel wide).
+		assert(stripCompositesPerPixel(vs) || IS_ALIGNED(text, 4));
+		assert(stripCompositesPerPixel(vs) || 0 == (width & 3));
 
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 		if (_game.platform == Common::kPlatformFMTowns) {
@@ -5221,7 +5233,12 @@ void ScummEngine::dissolveEffect(int width, int height) {
 			towns_drawStripToScreen(vs, x, y + vs->topline, x, y, width, height);
 		else
 #endif
-		if (IS_ALIGNED(width, 4))
+		// The direct write below is at the game's resolution and in its
+		// palette indices. When the display is scaled or true colour (hi-res
+		// text), it would land as a small unscaled patch in the corner -
+		// Loom CD's room changes, whose dissolve is one pixel at a time - so
+		// those strips go through the composite instead.
+		if (IS_ALIGNED(width, 4) || stripCompositesPerPixel(vs))
 			drawStripToScreen(vs, x, width, y, y + height);
 		else {
 			const byte *src = vs->getPixels(x, y);

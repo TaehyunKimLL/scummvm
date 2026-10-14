@@ -1560,6 +1560,10 @@ protected:
 	virtual void drawDirtyScreenParts();
 	void updateDirtyScreen(VirtScreenNumber slot);
 	void drawStripToScreen(VirtScreen *vs, int x, int width, int top, int bottom);
+	// Whether drawStripToScreen() composites this screen a pixel at a time
+	// (the hi-res text paths and 16-bit output), which takes any strip width
+	// and draws at the display's size, not the game's.
+	bool stripCompositesPerPixel(const VirtScreen *vs) const;
 
 	void mac_markScreenAsDirty(int x, int y, int w, int h);
 	void mac_drawStripToScreen(VirtScreen *vs, int top, int x, int y, int width, int height);
