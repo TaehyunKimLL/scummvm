@@ -2,7 +2,10 @@
 
 #include "common/array.h"
 #include "common/memstream.h"
+#include "common/algorithm.h"
 #include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/glyph_source_jamo.h"
+#include "graphics/hires_text/glyph_source_svfn.h"
 #include "graphics/hires_text/jamo_set.h"
 
 /**
@@ -45,10 +48,10 @@ private:
 
 	/// A JSET for the 8x4x4 system: lead classes {ㄱ ㅋ} and the rest, tail
 	/// classes {none} and {some}. Pieces are numbered as johab844.py does.
-	static Bytes make844Jset() {
+	static Bytes make844Jset(byte advance = 0) {
 		const int LC = 2, TC = 2;
 		Bytes b;
-		const byte head[] = { 'J', 'S', 'E', 'T', 1, 0, (byte)LC, (byte)TC, 8, 4, 4, 0 };
+		const byte head[] = { 'J', 'S', 'E', 'T', 1, 0, (byte)LC, (byte)TC, 8, 4, 4, advance };
 		for (uint i = 0; i < sizeof(head); ++i)
 			b.push_back(head[i]);
 		for (int l = 0; l < 19; ++l)
@@ -88,15 +91,24 @@ private:
 	/// Size of the valid 8x4x4 block.
 	static uint32 sizeOf(const Bytes &b) { return b.size(); }
 
+	/// A pixel a glyph is given in place of the default one (makeFont()).
+	struct Px {
+		uint32 cp;
+		byte x, y, level;
+	};
+
 	/**
-	 * A version 2 SVFN, 16x16 1bpp, one glyph per code point in @p cps (each
-	 * with the single pixel (n % 16, n / 16 % 16) for n = cp - U+F0000, else
-	 * (0, 0)), the code point table last and @p jset right after it. @p jset
-	 * may be empty (no block).
+	 * A version 2 SVFN, 16x16 at @p bpp, one glyph per code point in @p cps
+	 * (each with the single pixel (n % 16, n / 16 % 16) at the top level for
+	 * n = cp - U+F0000, else (0, 0), unless @p px names the glyph's pixel),
+	 * the code point table last and @p jset right after it. @p jset may be
+	 * empty (no block).
 	 */
-	static Bytes makeFont(const Common::Array<uint32> &cps, const Bytes &jset, bool flag = true) {
+	static Bytes makeFont(const Common::Array<uint32> &cps, const Bytes &jset, bool flag = true, int bpp = 1,
+						  const Common::Array<Px> &px = Common::Array<Px>()) {
 		const uint32 glyphs = cps.size();
-		const uint32 stride = 32;
+		const uint32 pitch = (16 * bpp + 7) / 8;
+		const uint32 stride = pitch * 16;
 		const uint32 dataOff = 36;
 		const uint32 cmapOff = dataOff + glyphs * stride;
 		Bytes b;
@@ -106,7 +118,7 @@ private:
 		b[0] = 'S'; b[1] = 'V'; b[2] = 'F'; b[3] = 'N';
 		put16(b, 4, 2);
 		put16(b, 6, flag ? 2 : 0);
-		b[8] = 1;
+		b[8] = bpp;
 		put16(b, 12, glyphs);
 		b[14] = 16;
 		b[15] = 16;
@@ -116,8 +128,20 @@ private:
 		put32(b, 32, cmapOff);
 		for (uint i = 0; i < glyphs; ++i) {
 			const uint32 n = cps[i] >= Graphics::kJamoPieceBase ? cps[i] - Graphics::kJamoPieceBase : 0;
-			const uint x = n % 16, y = n / 16 % 16;
-			b[dataOff + i * stride + y * 2 + x / 8] |= 0x80 >> (x & 7);
+			uint x = n % 16, y = n / 16 % 16, level = (1 << bpp) - 1;
+			if (bpp == 8)
+				level = 255;
+			for (uint k = 0; k < px.size(); ++k)
+				if (px[k].cp == cps[i]) {
+					x = px[k].x;
+					y = px[k].y;
+					level = px[k].level;
+				}
+			byte *row = &b[dataOff + i * stride + y * pitch];
+			if (bpp == 8)
+				row[x] = level;
+			else
+				row[x * bpp / 8] |= level << (8 - bpp - (x * bpp & 7));
 			put32(b, cmapOff + i * 8, cps[i]);
 			put32(b, cmapOff + i * 8 + 4, i);
 		}
@@ -318,6 +342,264 @@ public:
 		TS_ASSERT(font.load(s2));
 		TS_ASSERT(font.jamoSets() == nullptr);
 		TS_ASSERT(font.jamoSetError().empty());
+	}
+	// ---- JamoGlyphSource -------------------------------------------------
+
+	/// Every pixel with coverage in a glyph's rows (both cells), as x | y << 8 | level << 16, in reading order.
+	static Common::Array<uint32> inkOf(Graphics::UnicodeGlyphSource &src, uint32 cp) {
+		Common::Array<uint32> out;
+		const int bpp = src.bitsPerPixel();
+		for (int y = 0; y < src.cellHeight(); ++y) {
+			const byte *row = src.row(cp, y);
+			if (!row)
+				continue;
+			for (int x = 0; x < src.cellWidth() * 2; ++x) {
+				int level;
+				if (bpp == 8)
+					level = row[x];
+				else
+					level = (row[x * bpp / 8] >> (8 - bpp - (x * bpp & 7))) & ((1 << bpp) - 1);
+				if (level)
+					out.push_back(x | y << 8 | level << 16);
+			}
+		}
+		return out;
+	}
+
+	/// The pixels of pieces @p a, @p b[, @p c] of the default fixture font at the top level.
+	static Common::Array<uint32> pieceInk(int count, uint16 a, uint16 b, uint16 c = 0) {
+		Common::Array<uint32> out;
+		const uint16 n[3] = { a, b, c };
+		for (int i = 0; i < count; ++i)
+			out.push_back(n[i] % 16 | (n[i] / 16 % 16) << 8 | 1 << 16);
+		Common::sort(out.begin(), out.end(), [](uint32 p, uint32 q) { return (p & 0xFFFF) < (q & 0xFFFF) || ((p & 0xFFFF) == (q & 0xFFFF) && p < q); });
+		return out;
+	}
+
+	/// Row-major order (y first), as inkOf() lists them.
+	static void sortReading(Common::Array<uint32> &v) {
+		Common::sort(v.begin(), v.end(), [](uint32 p, uint32 q) {
+			const uint32 py = p >> 8 & 0xFF, qy = q >> 8 & 0xFF;
+			return py < qy || (py == qy && (p & 0xFF) < (q & 0xFF));
+		});
+	}
+
+	static void expectInk(const Common::Array<uint32> &got, Common::Array<uint32> want) {
+		sortReading(want);
+		TS_ASSERT_EQUALS(got.size(), want.size());
+		for (uint i = 0; i < got.size() && i < want.size(); ++i)
+			TS_ASSERT_EQUALS(got[i], want[i]);
+	}
+
+	static Graphics::HiResBitmapFont *loadFont(const Bytes &bytes, bool streamed) {
+		Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
+		bool ok;
+		if (streamed)
+			ok = font->loadStreamed(new Common::MemoryReadStream(bytes.begin(), bytes.size()), DisposeAfterUse::YES);
+		else {
+			Common::MemoryReadStream stream(bytes.begin(), bytes.size());
+			ok = font->load(stream);
+		}
+		TS_ASSERT(ok);
+		TS_ASSERT_EQUALS(font->isStreamed(), streamed);
+		return font;
+	}
+
+	void checkComposition(bool streamed) {
+		const Bytes bytes = makeFont(pieceCps(), make844Jset());
+		Graphics::JamoGlyphSource src(loadFont(bytes, streamed), DisposeAfterUse::YES);
+		TS_ASSERT_EQUALS(src.cellWidth(), 16);
+		TS_ASSERT_EQUALS(src.bitsPerPixel(), 1);
+		TS_ASSERT_EQUALS(src.cells(0xAC00), 2);
+		TS_ASSERT_EQUALS(src.cells(0xD7A3), 2);
+		// 가 is pieces 1 and 161: two pixels. The second cell stays blank.
+		expectInk(inkOf(src, 0xAC00), pieceInk(2, 1, 161));
+		expectInk(inkOf(src, 0xAC01), pieceInk(3, 101, 205, 249));	// 각
+		expectInk(inkOf(src, 0xBDC1), pieceInk(3, 148, 242, 313));	// 뷁
+		expectInk(inkOf(src, 0xD759), pieceInk(3, 139, 245, 341));	// 흙
+		TS_ASSERT_EQUALS(src.composed(), 4u);
+		// Asked again: from the cache.
+		expectInk(inkOf(src, 0xAC01), pieceInk(3, 101, 205, 249));
+		TS_ASSERT_EQUALS(src.composed(), 4u);
+	}
+
+public:
+	void test_composes_from_pieces() { checkComposition(false); }
+	void test_composes_from_streamed_pieces() { checkComposition(true); }
+
+	void test_row_pointer_survives_asking_the_same_glyph_again() {
+		const Bytes bytes = makeFont(pieceCps(), make844Jset());
+		Graphics::JamoGlyphSource src(loadFont(bytes, true), DisposeAfterUse::YES);
+		const byte *r0 = src.row(0xAC01, 0);
+		TS_ASSERT(r0 != nullptr);
+		TS_ASSERT(src.row(0xAC01, 15) != nullptr);
+		TS_ASSERT(src.row(0xAC01, 16) == nullptr);
+		TS_ASSERT_EQUALS(r0, src.row(0xAC01, 0));
+	}
+
+	void test_other_glyphs_come_from_the_file() {
+		const Bytes bytes = makeFont(pieceCps(), make844Jset());
+		Graphics::JamoGlyphSource src(loadFont(bytes, false), DisposeAfterUse::YES);
+		TS_ASSERT_EQUALS(src.cells('A'), 1);
+		Common::Array<uint32> want;
+		want.push_back(0 | 0 << 8 | 1 << 16);
+		expectInk(inkOf(src, 'A'), want);
+		TS_ASSERT_EQUALS(src.cells('B'), 0);
+		TS_ASSERT_EQUALS(src.cells(0x3132), 0);		// ㄲ is not by piece, and the font has no glyph for it
+		TS_ASSERT_EQUALS(src.glyphCount(), 361u);
+		TS_ASSERT_EQUALS(src.baselineRow(), 14);
+		Graphics::GlyphMetrics m;
+		TS_ASSERT(src.metrics('A', m));
+		TS_ASSERT(!m.wide);
+		TS_ASSERT(!src.metrics('B', m));
+	}
+
+	void test_compat_jamo_is_its_piece() {
+		const Bytes bytes = makeFont(pieceCps(), make844Jset());
+		Graphics::JamoGlyphSource src(loadFont(bytes, false), DisposeAfterUse::YES);
+		TS_ASSERT_EQUALS(src.cells(0x3131), 2);
+		expectInk(inkOf(src, 0x3131), pieceInk(1, 1, 0));
+	}
+
+	void test_advance_and_metrics_of_syllables() {
+		Bytes bytes = makeFont(pieceCps(), make844Jset());
+		{
+			Graphics::JamoGlyphSource src(loadFont(bytes, false), DisposeAfterUse::YES);
+			TS_ASSERT_EQUALS(src.advance(0xAC00), 16);	// 0: the cell width
+			Graphics::GlyphMetrics m;
+			TS_ASSERT(src.metrics(0xAC00, m));
+			TS_ASSERT(m.wide);
+			TS_ASSERT_EQUALS(m.advance, 16);
+			TS_ASSERT_EQUALS(m.originX, 0);
+			TS_ASSERT_EQUALS(m.height, 16);
+		}
+		bytes = makeFont(pieceCps(), make844Jset(14));
+		Graphics::JamoGlyphSource src(loadFont(bytes, false), DisposeAfterUse::YES);
+		TS_ASSERT_EQUALS(src.advance(0xAC00), 14);
+		TS_ASSERT_EQUALS(src.advance(0x3131), 14);
+		TS_ASSERT_EQUALS(src.advance('A'), 0);		// the inner source: no metrics table
+	}
+
+	void test_blank_pieces_add_nothing() {
+		Bytes jset = make844Jset();
+		// initPiece of set 0, initial ㄱ (the first of the piece tables): blank.
+		const uint pieceTables = kTables + 3 * 2 * 21 * 2;
+		put16(jset, pieceTables, 0xFFFF);
+		const Bytes bytes = makeFont(pieceCps(), jset);
+		Graphics::JamoGlyphSource src(loadFont(bytes, false), DisposeAfterUse::YES);
+		Common::String why;
+		TS_ASSERT(Graphics::JamoGlyphSource::usable(*loadFont(bytes, false), why));
+		expectInk(inkOf(src, 0xAC00), pieceInk(1, 161, 0));	// 가 is its medial alone
+	}
+
+	void test_coverage_is_the_maximum_not_the_or() {
+		// 가 is pieces 1 and 161; both are put at (5, 5).
+		Common::Array<Px> px;
+		const Px a = { Graphics::kJamoPieceBase + 1, 5, 5, 0 }, b = { Graphics::kJamoPieceBase + 161, 5, 5, 0 };
+		const byte levels[][2] = { { 1, 2 }, { 2, 1 }, { 1, 3 }, { 3, 2 }, { 2, 2 } };
+		for (int i = 0; i < 5; ++i) {
+			px.clear();
+			Px pa = a, pb = b;
+			pa.level = levels[i][0];
+			pb.level = levels[i][1];
+			px.push_back(pa);
+			px.push_back(pb);
+			const Bytes bytes = makeFont(pieceCps(), make844Jset(), true, 2, px);
+			Graphics::JamoGlyphSource src(loadFont(bytes, false), DisposeAfterUse::YES);
+			TS_ASSERT_EQUALS(src.bitsPerPixel(), 2);
+			Common::Array<uint32> want;
+			want.push_back(5 | 5 << 8 | MAX(levels[i][0], levels[i][1]) << 16);
+			expectInk(inkOf(src, 0xAC00), want);
+		}
+		// 8bpp: 100 | 200 would be 236.
+		px.clear();
+		Px pa = a, pb = b;
+		pa.level = 100;
+		pb.level = 200;
+		px.push_back(pa);
+		px.push_back(pb);
+		const Bytes bytes = makeFont(pieceCps(), make844Jset(), true, 8, px);
+		Graphics::JamoGlyphSource src(loadFont(bytes, true), DisposeAfterUse::YES);
+		Common::Array<uint32> want;
+		want.push_back(5 | 5 << 8 | 200 << 16);
+		expectInk(inkOf(src, 0xAC00), want);
+	}
+
+	void test_syllable_with_a_missing_piece_is_not_usable() {
+		Common::Array<uint32> cps = pieceCps();
+		Common::Array<uint32> fewer;
+		for (uint i = 0; i < cps.size(); ++i)
+			if (cps[i] != Graphics::kJamoPieceBase + 249)	// 각's final
+				fewer.push_back(cps[i]);
+		Common::String why;
+		const Bytes bytes = makeFont(fewer, make844Jset());
+		Graphics::HiResBitmapFont *font = loadFont(bytes, false);
+		TS_ASSERT(!Graphics::JamoGlyphSource::usable(*font, why));
+		TS_ASSERT(why.contains("249"));
+		delete font;
+
+		const Bytes good = makeFont(cps, make844Jset());
+		font = loadFont(good, false);
+		TS_ASSERT(Graphics::JamoGlyphSource::usable(*font, why));
+		delete font;
+
+		const Bytes plain = makeFont(cps, Bytes(), false);
+		font = loadFont(plain, false);
+		TS_ASSERT(!Graphics::JamoGlyphSource::usable(*font, why));
+		TS_ASSERT(why.contains("JSET"));
+		delete font;
+	}
+
+	void test_font_without_a_table_draws_the_file_only() {
+		const Bytes bytes = makeFont(pieceCps(), Bytes(), false);
+		Graphics::JamoGlyphSource src(loadFont(bytes, false), DisposeAfterUse::YES);
+		TS_ASSERT_EQUALS(src.cells(0xAC00), 0);
+		TS_ASSERT_EQUALS(src.cells('A'), 1);
+	}
+
+	void test_cache_survives_more_syllables_than_it_holds() {
+		const Bytes bytes = makeFont(pieceCps(), make844Jset());
+		Graphics::JamoGlyphSource src(loadFont(bytes, true), DisposeAfterUse::YES);
+		const uint32 n = src.cacheEntries() + 44;
+		TS_ASSERT(n >= 300);
+		Graphics::JamoSetTable t;
+		Common::String err;
+		const Bytes jset = make844Jset();
+		TS_ASSERT(parse(jset, t, err, jset.size()));
+		for (uint32 i = 0; i < n; ++i) {
+			const uint32 cp = 0xAC00 + i * 37;
+			uint16 p[3];
+			int count;
+			TS_ASSERT(t.pieces(cp, p, count));
+			expectInk(inkOf(src, cp), pieceInk(count, p[0], p[1], count == 3 ? p[2] : 0));
+		}
+		TS_ASSERT_EQUALS(src.composed(), n);
+		expectInk(inkOf(src, 0xAC00), pieceInk(2, 1, 161));
+		TS_ASSERT_EQUALS(src.composed(), n + 1);
+		// The newest are still kept.
+		const uint32 last = 0xAC00 + (n - 1) * 37;
+		inkOf(src, last);
+		TS_ASSERT_EQUALS(src.composed(), n + 1);
+	}
+
+	void test_prefetch_takes_out_what_it_composes() {
+		const Bytes bytes = makeFont(pieceCps(), make844Jset());
+		Graphics::JamoGlyphSource src(loadFont(bytes, true), DisposeAfterUse::YES);
+		Common::Array<uint32> cps;
+		cps.push_back(0xAC00);
+		cps.push_back('A');
+		cps.push_back(0x3131);
+		cps.push_back(0x1234);	// not in the font
+		cps.push_back(0xAC01);
+		cps.push_back('Z');		// not in the font
+		src.prefetch(cps);
+		TS_ASSERT_EQUALS(cps.size(), 2u);
+		if (cps.size() == 2) {
+			TS_ASSERT_EQUALS(cps[0], 0x1234u);
+			TS_ASSERT_EQUALS(cps[1], (uint32)'Z');
+		}
+		// And what was prefetched still draws right.
+		expectInk(inkOf(src, 0xAC01), pieceInk(3, 101, 205, 249));
 	}
 };
 

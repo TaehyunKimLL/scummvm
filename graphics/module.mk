@@ -26,6 +26,7 @@ MODULE_OBJS := \
 	hires_text/glyph_renderer.o \
 	hires_text/glyph_source_fallback.o \
 	hires_text/glyph_source_file.o \
+	hires_text/glyph_source_jamo.o \
 	hires_text/glyph_source_missing.o \
 	hires_text/glyph_source_ranged.o \
 	hires_text/glyph_source_scvmuni.o \
