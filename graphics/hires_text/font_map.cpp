@@ -572,6 +572,11 @@ HiResMap::HiResMap() {
 	clear();
 }
 
+HiResShadowSpec HiResMap::shadowFor(int id) const {
+	Common::HashMap<int, HiResShadowSpec>::const_iterator it = shadowIds.find(id);
+	return it == shadowIds.end() ? shadow : shadow.overlaid(it->_value);
+}
+
 void HiResMap::clear() {
 	version = 0;
 
@@ -596,6 +601,7 @@ void HiResMap::clear() {
 	glyphIds.clear();
 
 	shadow.clear();
+	shadowIds.clear();
 
 	warnings.clear();
 	loadedFor = kHiResTargetAuto;
@@ -689,12 +695,13 @@ enum HiResSectionFamily {
 	kHSecFontId,
 	kHSecGlyphs,
 	kHSecGlyphsId,
-	kHSecShadow
+	kHSecShadow,
+	kHSecShadowId
 };
 
 struct HiResSectionInfo {
 	HiResSectionFamily family;
-	int id;                    ///< for kHSecFontId/kHSecGlyphsId/kHSecOldGlyphsCs
+	int id;                    ///< for kHSecFontId/kHSecGlyphsId/kHSecShadowId/kHSecOldGlyphsCs
 	Common::String base;       ///< section name before ':' ("font.4")
 	Common::String qualifier;  ///< after the first ':' (may itself contain ':'); empty if bare
 	Common::Array<Common::String> qualifierParts; ///< @ref qualifier split at every ':' (design 3.4)
@@ -784,6 +791,16 @@ void classifyHiResSection(const Common::String &name, HiResSectionInfo &info) {
 		int id;
 		if (parseSectionId(Common::String(info.base.c_str() + 7), id)) {
 			info.family = kHSecGlyphsId;
+			info.id = id;
+			return;
+		}
+		info.family = kHSecUnknown;
+		return;
+	}
+	if (info.base.hasPrefixIgnoreCase("shadow.")) {
+		int id;
+		if (parseSectionId(Common::String(info.base.c_str() + 7), id)) {
+			info.family = kHSecShadowId;
 			info.id = id;
 			return;
 		}
@@ -986,6 +1003,7 @@ void scanHiResSections(const Common::INIFile &ini, const Common::Array<Common::S
 				flag = kHiResKeyGlyphs;
 				break;
 			case kHSecShadow:
+			case kHSecShadowId:
 				known = classifyShadowKey(k->key, flag);
 				break;
 			default:
@@ -1694,6 +1712,14 @@ void buildHiResMap(const Common::INIFile &ini, const Common::Array<Common::Strin
 	}
 
 	buildShadowSection(ini, qualifiers, "shadow", out.shadow, out);
+
+	Common::Array<int> shadowIds;
+	collectRelevantIds(ini, qualifiers, "shadow.", shadowIds);
+	for (uint i = 0; i < shadowIds.size(); ++i) {
+		HiResShadowSpec spec;
+		buildShadowSection(ini, qualifiers, Common::String::format("shadow.%d", shadowIds[i]), spec, out);
+		out.shadowIds[shadowIds[i]] = spec;
+	}
 }
 
 } // End of anonymous namespace

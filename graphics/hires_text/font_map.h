@@ -287,6 +287,10 @@ struct HiResMap {
 
 	// --- [shadow], [shadow.N] ------------------------------------------------
 	HiResShadowSpec shadow;                          ///< [shadow]
+	Common::HashMap<int, HiResShadowSpec> shadowIds; ///< [shadow.N]
+
+	/// [shadow] with [shadow.@p id]'s set keys laid over it.
+	HiResShadowSpec shadowFor(int id) const;
 
 	/// Every warning the last load raised (design section 10), in the order
 	/// raised; each was also printed with warning(), unless the load was

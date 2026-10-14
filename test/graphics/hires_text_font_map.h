@@ -774,6 +774,72 @@ public:
 		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font.8] mirror 'false' is not off, horizontal, vertical or both; ignoring it"));
 		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [font.9] mirror 'rotate' is not off, horizontal, vertical or both; ignoring it"));
 	}
+
+	void test_shadow_id_overrides_key_by_key() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nmode=outline\nwidth=1.5\ncolor=3\n"
+					   "[shadow.6]\nmode=drop\noffset=4\n", m));
+		const Graphics::HiResShadowSpec s6 = m.shadowFor(6);
+		TS_ASSERT_EQUALS(s6.mode, Graphics::kHiResShadowDrop);
+		TS_ASSERT_EQUALS(s6.offset, 4);
+		TS_ASSERT_EQUALS(s6.widthQ, 6);              // [shadow]'s 1.5 px
+		TS_ASSERT(s6.colorSet);
+		TS_ASSERT_EQUALS(s6.color, 3);
+		const Graphics::HiResShadowSpec s2 = m.shadowFor(2);   // no [shadow.2]
+		TS_ASSERT_EQUALS(s2.mode, Graphics::kHiResShadowOutline);
+		TS_ASSERT_EQUALS(s2.offset, -1);
+	}
+
+	void test_shadow_id_takes_every_key() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[shadow.3]\nmode=stroke\noffset=2\ncolor=8\nwidth=3\nstyle=square\n"
+					   "shadow=-2,2\nshadow_color=1\nshadow_alpha=50\n", m));
+		TS_ASSERT(m.warnings.empty());
+		const Graphics::HiResShadowSpec s = m.shadowFor(3);
+		TS_ASSERT_EQUALS(s.mode, Graphics::kHiResShadowStroke);
+		TS_ASSERT_EQUALS(s.offset, 2);
+		TS_ASSERT_EQUALS(s.color, 8);
+		TS_ASSERT_EQUALS(s.widthQ, 12);
+		TS_ASSERT_EQUALS(s.style, Graphics::kHiResOutlineSquare);
+		TS_ASSERT(s.shiftSet);
+		TS_ASSERT_EQUALS(s.dx, -2);
+		TS_ASSERT_EQUALS(s.dy, 2);
+		TS_ASSERT_EQUALS(s.shiftColor, 1);
+		TS_ASSERT_EQUALS(s.alpha, 128);
+	}
+
+	void test_shadow_id_bad_value_names_its_section_and_falls_back() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nwidth=2\n[shadow.6]\nwidth=lots\n", m));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [shadow.6] width 'lots' is invalid; ignoring it"));
+		TS_ASSERT_EQUALS(m.shadowFor(6).widthQ, 8);
+	}
+
+	void test_shadow_id_qualifier_precedence() {
+		const char *text = "[map]\nversion=2\n[shadow]\noffset=1\n[shadow:clut8]\noffset=2\n"
+						   "[shadow.6]\noffset=3\n[shadow.6:clut8]\noffset=4\n";
+		Graphics::HiResMap clut8, rgb;
+		TS_ASSERT(load(text, clut8, Graphics::kHiResKeysScumm, "clut8"));
+		TS_ASSERT_EQUALS(clut8.shadowFor(6).offset, 4);
+		TS_ASSERT_EQUALS(clut8.shadowFor(1).offset, 2);
+		TS_ASSERT(load(text, rgb, Graphics::kHiResKeysScumm, "rgb888"));
+		TS_ASSERT_EQUALS(rgb.shadowFor(6).offset, 3);
+		TS_ASSERT_EQUALS(rgb.shadowFor(1).offset, 1);
+	}
+
+	void test_shadow_bad_id_is_an_unknown_section() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[shadow.x]\nmode=drop\n[shadow.-1]\nmode=drop\n", m));
+		TS_ASSERT(m.shadowIds.empty());
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown section [shadow.x]"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: unknown section [shadow.-1]"));
+	}
+
+	void test_sci_warns_on_shadow_id() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[shadow.4]\nmode=outline\n", m, Graphics::kHiResKeysSci));
+		TS_ASSERT(hasWarning(m, "SCI does not use [shadow.4] mode"));
+	}
 };
 
 class HiResMapTargetTestSuite : public CxxTest::TestSuite {
