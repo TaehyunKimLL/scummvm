@@ -178,13 +178,16 @@ static byte strAtByte(SegmentRef &r, uint16 offset, bool write, byte newvalue) {
 	return value;
 }
 
-// The string at r up to its NUL (or the end of the buffer), read byte by
-// byte without SegManager::getString()'s warning about reg_t slots that
-// hold no characters: a buffer being written by StrAt has not-yet-written
-// slots after the part the script has built.
+// The string at r up to its NUL, the first reg_t slot that holds no
+// characters, or the end of the buffer, read byte by byte without
+// SegManager::getString()'s warning about such slots: a buffer being written
+// by StrAt has not-yet-written slots after the part the script has built,
+// and their garbage is not part of the string.
 static Common::String strAtPrefix(SegmentRef &r) {
 	Common::String str;
 	for (int i = 0; i < r.maxSize; i++) {
+		if (!r.isRaw && r.reg[(i + (r.skipByte ? 1 : 0)) / 2].getSegment() != 0)
+			break;
 		const byte b = strAtByte(r, (uint16)i, false, 0);
 		if (!b)
 			break;
