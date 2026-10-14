@@ -281,12 +281,14 @@ DetectedGames SciMetaEngineDetection::detectGames(const Common::FSList &fslist, 
 			variant.preferredTarget = game.preferredTarget + "-" + Common::getLanguageCode(manifests[m]);
 			// The original's options minus its language, which the loop
 			// below re-attaches from the language the variant carries.
-			Common::String options;
+			// getGUIOptions() holds their descriptions, which setGUIOptions()
+			// would read as option codes and drop; appendGUIOptions() takes
+			// them as they are.
+			variant.setGUIOptions("");
 			for (const Common::String &token : Common::StringTokenizer(game.getGUIOptions(), " ").split()) {
 				if (!token.hasPrefix("lang_"))
-					options += token + " ";
+					variant.appendGUIOptions(token);
 			}
-			variant.setGUIOptions(options);
 			variant.appendGUIOptions(getGameGUIOptionsDescriptionLanguage(manifests[m]));
 			variants.push_back(variant);
 		}
