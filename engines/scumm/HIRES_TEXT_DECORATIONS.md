@@ -92,6 +92,42 @@ the value (`HIRES_TEXT_SETUP.md`, "The map file", has the exact rule).
   Minkowski sum) rather than multiplied, so it has none of the old gaps; that
   is the one intended difference.
 
+### Per charset: [shadow.N]
+
+The originals do not decorate every charset alike, so a map may carry
+`[shadow.N]` sections, N the id `[font.N]` and `[glyphs.N]` use (a SCUMM
+charset number). A `[shadow.N]` key overrides the same `[shadow]` key for glyphs
+drawn in charset N; a key it does not set falls back to `[shadow]`, and keys
+`[shadow]` does not set fall back to the built-in defaults. All eight keys
+(`mode offset color width style shadow shadow_color shadow_alpha`) work, with
+the same syntax and limits. Render-target qualifiers follow the `[glyphs.N]`
+order: `[shadow.6:clut8]` beats `[shadow.6]`, which beats `[shadow:clut8]`,
+which beats `[shadow]`. SCUMM only; SCI and AGI warn that they do not use it,
+as for `[shadow]`.
+
+Measured from the colour-2 pixels of the English 2bpp SCUMM faces:
+
+| face | line | original decoration (game px) | at 2x |
+|---|---|---|---|
+| MI1/MI2/Loom cs2, cs4, Indy4 cs2, DOTT cs2 | 9-15 | outline, reach 1 | 2 px |
+| MI2 cs7, Indy4 cs3, cs4 | 12-15 | outline, reach 2 | 4 px |
+| MI cs6, DOTT cs3, cs5 | 12-14 | drop (1,1) | 2,2 px |
+| DOTT cs6 | 28 | drop (2,2) | 4,4 px |
+
+`tools/korean/pairing2svf.py` writes these for the charsets it pairs
+(`tools/korean/scumm-fonts/original-decoration.json`), grown to the Korean
+face: `width` = 0.75 x 2 x reach x (face height / (2 x line height)) in quarter
+pixels, `offset` the drop likewise.
+
+```ini
+[shadow]          ; every charset
+mode=game
+[shadow.3]        ; Indy4 cs3: a 2-game-pixel outline
+width=3
+[shadow.6]        ; DOTT cs6: a (2,2) drop at 2x
+offset=4
+```
+
 ## Trap 1: the stroke colour is platform-specific
 
 A black outline is naturally written `color=0`. That is wrong on two
