@@ -433,10 +433,13 @@ void ScummEngine::updateCursor() {
 	// at that size already (setBuiltinCursor); the v0-v2 ones and the v6
 	// cursors taken from the game's graphics are not, so they would show at
 	// half size (a third at scale 3). Scale a copy: _grabbedCursor stays at
-	// the game's size for the code that saves and restores it.
-	const int m = _textSurfaceMultiplier;
+	// the game's size for the code that saves and restores it. Hercules,
+	// CGA_BW and EGA dithering double their cursors themselves
+	// (adaptCursorToVideoMode(), ditherCursor()).
+	const int m = screenScale();
 	Common::Array<byte> scaled;
-	if (m > 1 && !_macScreen && (_game.version <= 2 || (_game.version == 6 && _game.heversion == 0))) {
+	if (m > 1 && !_macScreen && !rendersFixedScreen() &&
+		(_game.version <= 2 || (_game.version == 6 && _game.heversion == 0))) {
 		const int bpp = _bytesPerPixel;
 		scaled.resize(width * m * height * m * bpp);
 		for (int y = 0; y < height * m; ++y) {

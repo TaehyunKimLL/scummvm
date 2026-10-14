@@ -1706,15 +1706,9 @@ void ScummEngine::saveLoadWithSerializer(Common::Serializer &s) {
 			x *= 2;
 			x += (kHercWidth - _screenWidth * 2) / 2;
 			y = y * 7 / 4;
-		} else if (_textSurfaceMultiplier > 2) {
-			x *= _textSurfaceMultiplier;
-			y *= _textSurfaceMultiplier;
-		} else if (_textSurfaceMultiplier == 2 || _renderMode == Common::kRenderCGA_BW || _enableEGADithering) {
-			x *= 2;
-			y *= 2;
-		} else if (_macScreen) {
-			x *= 2;
-			y *= 2;
+		} else {
+			x *= screenScale();
+			y *= screenScale();
 		}
 
 		updateCursor();

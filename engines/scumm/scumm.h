@@ -1564,6 +1564,14 @@ protected:
 	// (the hi-res text paths and 16-bit output), which takes any strip width
 	// and draws at the display's size, not the game's.
 	bool stripCompositesPerPixel(const VirtScreen *vs) const;
+	// Hercules, CGA_BW and EGA dithering set a screen of their own size,
+	// whatever the text surface's multiplier is, and draw the game, its
+	// dissolves and its cursors to it themselves.
+	bool rendersFixedScreen() const;
+	// How many screen pixels a game pixel is across, for the mouse: 2 on the
+	// doubled CGA_BW, EGA-dithered and Mac screens, else the text surface's
+	// multiplier. Hercules maps its own way (720x350) and is not covered.
+	int screenScale() const;
 
 	void mac_markScreenAsDirty(int x, int y, int w, int h);
 	void mac_drawStripToScreen(VirtScreen *vs, int top, int x, int y, int width, int height);
