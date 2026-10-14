@@ -84,19 +84,19 @@ public:
 		TS_ASSERT(!d.shadow);
 	}
 
-	/// 2: a drop of the glyph itself, half a game pixel down and right.
-	void test_byte_2_is_a_drop_of_half_a_game_pixel() {
+	/// 2: a drop of the glyph itself, one game pixel down and right.
+	void test_byte_2_is_a_drop_of_a_game_pixel() {
 		Graphics::GlyphDecoration d = drawn(2, true);
 		TS_ASSERT(!d.outline);
 		TS_ASSERT(d.shadow);
-		TS_ASSERT_EQUALS(d.shadowDx, 1);
-		TS_ASSERT_EQUALS(d.shadowDy, 1);
-		d = drawn(2, true, 3);
 		TS_ASSERT_EQUALS(d.shadowDx, 2);
+		TS_ASSERT_EQUALS(d.shadowDy, 2);
+		d = drawn(2, true, 3);
+		TS_ASSERT_EQUALS(d.shadowDx, 3);
 	}
 
 	/**
-	 * 3: the outline plus a copy of it half a game pixel to the lower left,
+	 * 3: the outline plus a copy of it one game pixel to the lower left,
 	 * in place of the eleven-offset stroke table.
 	 */
 	void test_byte_3_is_an_outline_and_its_lower_left_shadow() {
@@ -104,8 +104,8 @@ public:
 		TS_ASSERT(d.outline);
 		TS_ASSERT_EQUALS(d.outlineQ, 6);
 		TS_ASSERT(d.shadow);
-		TS_ASSERT_EQUALS(d.shadowDx, -1);
-		TS_ASSERT_EQUALS(d.shadowDy, 1);
+		TS_ASSERT_EQUALS(d.shadowDx, -2);
+		TS_ASSERT_EQUALS(d.shadowDy, 2);
 		TS_ASSERT_EQUALS(d.shadowColor, 0);
 	}
 
@@ -161,7 +161,7 @@ public:
 		TS_ASSERT_EQUALS(s6.shadowOffset, 4);
 		const Graphics::GlyphStyle s1 = Scumm::ScummHiResText::glyphStyle(map, 1, 2, 0, false, 15, 0);
 		TS_ASSERT_EQUALS(s1.outlineQ, 6);                // the scale's 0.75 game px
-		TS_ASSERT_EQUALS(s1.shadowOffset, 1);
+		TS_ASSERT_EQUALS(s1.shadowOffset, 2);              // the scale's 1 game px
 	}
 
 	void test_a_map_without_shadow_ids_draws_as_before() {

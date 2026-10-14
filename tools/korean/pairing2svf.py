@@ -256,7 +256,7 @@ def make_map(template_text, game, fonts, aliases, blend, decorations=None):
     # px. A charset whose original face has a measured decoration gets it back,
     # mode and all; any other keeps mode=game (the patch byte) with the sizes the
     # patch's 1 game px decoration would have at that multiple - the engine's own
-    # default is fixed by the render scale, 1 px of drop at 2x on any face.
+    # default is fixed by the render scale, a 2 px drop at 2x on any face.
     shadow_secs = []
     for f in fonts:
         n = font_section(f["id"])

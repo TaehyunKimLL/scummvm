@@ -247,7 +247,7 @@ shadow's offset.
 these defaults for text drawn `scale` output pixels per game pixel: outline
 width 0.75 x scale (1.5 px at 2x), round; `offset=` alone still sets the width
 (as it always has) and the shadow distance; without it the shadow distance is
-half a game pixel rounded up. Map keys, all in `[shadow]` (and in each
+one game pixel (scale). Map keys, all in `[shadow]` (and in each
 `[shadow.N]`, a SCUMM charset's own section, whose keys override these for that
 charset and fall back to them when unset; `[shadow.N:q]` > `[shadow.N]` >
 `[shadow:q]` > `[shadow]`):

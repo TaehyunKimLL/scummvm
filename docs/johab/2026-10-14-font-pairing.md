@@ -39,7 +39,7 @@ pixel), 쓰임이 붙는다.
 - 종류: 게임 기본(SCUMM 한국어 패치 `korean0N.fnt` 1번 바이트: 1 없음, 0/4+ 외곽선, 2 그림자, 3 외곽선+그림자),
   없음, 외곽선, 그림자, 외곽선+그림자.
 - 크기: "원본 비례"(원래 폰트의 측정한 꾸밈 × 2를 한글 폰트 크기에 맞춤, 측정이 없으면 16 px을 엔진 기본으로 놓고 비례)
-  또는 "엔진 기본"(외곽선 1.5 px, 그림자 1 px). 카드 설명에 실제 크기를 적는다.
+  또는 "엔진 기본"(외곽선 1.5 px, 그림자 2 px = 1 게임 px). 카드 설명에 실제 크기를 적는다.
 - 색: 검정 / 진회색 / 회색. 검정 배경에서는 검정 외곽선이 안 보이므로 배경을 파랑·회색으로 바꿔 본다.
 
 **내보내기.** "이 게임 선택 복사" / "전체 게임 복사"가 선택을 JSON(`scummvm-ko-font-pairing/1`)으로
@@ -111,7 +111,7 @@ python3 tools/korean/pairing2svf.py 선택.json --data <korean*.json 폴더> --o
   외곽선 `width = 0.75 × 원래 폭 × m`(0.25 단위), 그림자 `offset = 원래 이동 × m`, 외곽선+그림자는
   `mode=stroke`에 `shadow = (dx, dy) × m`. `original-decoration.json`에 있는 폰트는 `mode=`도 원본대로,
   없는 폰트는 `mode=game`(패치 바이트)에 원래 1 게임 px의 크기(`width = 0.75 × m`, `offset = m`).
-  엔진 기본값은 렌더 배율만 따라(2×에서 그림자 1 px) 큰 폰트에서 너무 작다. 페이지의 "원본 비례"와 같은 식.
+  엔진 기본값은 렌더 배율만 따라(2×에서 외곽선 1.5 px, 그림자 2 px) 줄의 2배보다 큰 폰트에서 작다. 페이지의 "원본 비례"와 같은 식.
 - 출력 `<out>/<게임>/`에 맵과 SVF, `<out>/MANIFEST.md`에 대응표. 게임에서는 `hires_text_map=HIRESKP.MAP`
   (SCUMM은 `M1KP.MAP` 등).
 
@@ -132,7 +132,7 @@ python3 tools/korean/pairing2svf.py 선택.json --data <korean*.json 폴더> --o
 한글 패치의 꾸밈 바이트(`mode=game`)는 원본과 다른 곳이 있다: DOTT cs3은 외곽선, cs5는 없음, cs6은 항목
 없음(없음). 그래서 `[shadow.N]`은 `mode=`를 원본대로 적는다.
 
-엔진은 맵의 `[shadow]` 하나로 모든 charset을 같게 그렸다(2× 기준 외곽선 1.5 px, 그림자 1 px). 이 브랜치에서
+엔진은 맵의 `[shadow]` 하나로 모든 charset을 같게 그렸다(2× 기준 외곽선 1.5 px, 그림자는 반 게임 px인 1 px — 지금은 1 게임 px인 2 px). 이 브랜치에서
 `[shadow.N]`(charset N 전용, 키마다 `[shadow]`로 대체)이 들어갔다 — `engines/scumm/HIRES_TEXT_DECORATIONS.md`
 "Per charset: [shadow.N]".
 

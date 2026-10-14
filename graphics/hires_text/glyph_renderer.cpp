@@ -114,9 +114,9 @@ GlyphDecoration HiResGlyphRenderer::decorationFor(const GlyphStyle &style) {
 void HiResGlyphRenderer::applyShadow(GlyphStyle &style, const HiResShadowSpec &spec, int scale) {
 	scale = MAX(1, scale);
 
-	// Half a game pixel, rounded up: the legacy fonts' shadows were one game
-	// pixel, which at 2x is a heavy two.
-	style.shadowOffset = (spec.offset >= 0) ? MAX(1, spec.offset) : (scale + 1) / 2;
+	// One game pixel, as the legacy fonts' shadows were: the distance grows
+	// with the scale as the outline width does.
+	style.shadowOffset = (spec.offset >= 0) ? MAX(1, spec.offset) : scale;
 
 	// style=legacy keeps the old step exactly: the map's offset as written,
 	// else 1 at every scale.

@@ -215,7 +215,7 @@ public:
 	 * map leaves them out:
 	 * - outline width 0.75 x scale (1.5 pixels at 2x), round;
 	 * - offset= alone keeps meaning the outline width, as it always has;
-	 * - shadow distance offset=, else half a game pixel rounded up.
+	 * - shadow distance offset=, else one game pixel (scale).
 	 */
 	static void applyShadow(GlyphStyle &style, const HiResShadowSpec &spec, int scale);
 	static void applyMap(GlyphStyle &style, const HiResMap &map, int scale) { applyShadow(style, map.shadow, scale); }

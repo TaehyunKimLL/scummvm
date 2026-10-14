@@ -77,8 +77,8 @@ the value (`HIRES_TEXT_SETUP.md`, "The map file", has the exact rule).
   |---|---|---|
   | 1 | none | none |
   | 0 (patch font), 4+ | 8-direction outline | round outline, 0.75 x s wide (1.5 px at 2x) |
-  | 2 | drop (1,1) | drop of the glyph's coverage by (s/2, s/2) rounded up |
-  | 3 | stroke + lower-left | that outline plus a copy of it moved (-s/2, +s/2) |
+  | 2 | drop (1,1) | drop of the glyph's coverage by (s, s), one game pixel |
+  | 3 | stroke + lower-left | that outline plus a copy of it moved (-s, +s) |
 
   In a game with no such font the byte is unset and draws nothing. v7 keeps
   no decoration.
@@ -87,7 +87,7 @@ the value (`HIRES_TEXT_SETUP.md`, "The map file", has the exact rule).
   the defaults follow the scale.
 - `style=legacy` gives the look from before C19: binary, the old offset
   table of the mode, at the old step - `offset` as written, else 1 at every
-  scale (the other styles' default shadow distance is half a game pixel, 2 at
+  scale (the other styles' default shadow distance is one game pixel, 3 at
   3x). It is pixel-exact at step 1. At a step above 1 the table is grown (a
   Minkowski sum) rather than multiplied, so it has none of the old gaps; that
   is the one intended difference.
@@ -124,8 +124,8 @@ quarter pixels, `offset` = drop x m, a stroke's `shadow` = (dx, dy) x m. A
 measured charset also gets the original's `mode` - not the patch byte's,
 which asks DOTT cs3 for an outline and cs5 for nothing. Any other charset
 keeps `mode=game` with the sizes of a 1 game px decoration at m: the built-in
-sizes follow the render scale alone (a 1 px drop at 2x, half the original's
-game pixel), too small on a large face.
+sizes follow the render scale alone (a 2 px drop at 2x), too small on a face
+larger than twice its line.
 
 ```ini
 [shadow]          ; every charset

@@ -1955,10 +1955,12 @@ public:
 		TS_ASSERT(!d.outline);
 		TS_ASSERT(!d.shadow);
 
-		// The other styles follow the scale.
+		// The other styles follow the scale: one game pixel.
 		map.shadow.style = Graphics::kHiResOutlineRound;
 		map.shadow.offset = -1;
 		Graphics::HiResGlyphRenderer::applyMap(style, map, 3);
+		TS_ASSERT_EQUALS(style.shadowOffset, 3);
+		Graphics::HiResGlyphRenderer::applyMap(style, map, 2);
 		TS_ASSERT_EQUALS(style.shadowOffset, 2);
 	}
 
@@ -2059,7 +2061,7 @@ public:
 
 		Graphics::HiResGlyphRenderer::applyMap(style, map, 2);
 		TS_ASSERT_EQUALS(style.outlineQ, 6);          // 1.5 px at 2x
-		TS_ASSERT_EQUALS(style.shadowOffset, 1);      // half a game pixel
+		TS_ASSERT_EQUALS(style.shadowOffset, 2);      // one game pixel
 		TS_ASSERT_EQUALS(style.outlineShape, Graphics::kHiResOutlineRound);
 		TS_ASSERT(!style.shadowShiftSet);
 
@@ -2068,7 +2070,7 @@ public:
 		TS_ASSERT_EQUALS(style.shadowOffset, 1);
 		Graphics::HiResGlyphRenderer::applyMap(style, map, 3);
 		TS_ASSERT_EQUALS(style.outlineQ, 9);
-		TS_ASSERT_EQUALS(style.shadowOffset, 2);
+		TS_ASSERT_EQUALS(style.shadowOffset, 3);
 
 		// offset= alone: the width it always gave, and the shadow distance.
 		map.shadow.offset = 2;
