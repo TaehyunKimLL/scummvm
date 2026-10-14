@@ -20,6 +20,7 @@
  */
 
 #include "graphics/font.h"
+#include "graphics/hires_text/banded_plane.h"
 #include "scumm/charset.h"
 #include "scumm/file.h"
 #include "scumm/scumm.h"
@@ -936,6 +937,11 @@ static void drawGameGlyphMagnified(ScummEngine *vm, int gameX, int gameY, int wi
 
 	Graphics::Surface &ts = vm->_textSurface;
 	const int m = vm->_textSurfaceMultiplier;
+	// With blending, a text pixel of index 0 and no coverage counts as
+	// cleared, not drawn, so the black shadow and outline would vanish; and
+	// a hi-res glyph's partial coverage left there would blend this one.
+	// Every pixel drawn here is opaque.
+	Graphics::BandedPlane *cov = vm->_hiResText.alphaActive() ? vm->_hiResText.coverage() : nullptr;
 	for (int ty = 0; ty < tmp.h; ++ty) {
 		for (int tx = 0; tx < tmp.w; ++tx) {
 			const byte c = *(const byte *)tmp.getBasePtr(tx, ty);
@@ -947,8 +953,11 @@ static void drawGameGlyphMagnified(ScummEngine *vm, int gameX, int gameY, int wi
 				if (y0 + r < 0 || y0 + r >= ts.h)
 					continue;
 				for (int q = 0; q < m; ++q) {
-					if (x0 + q >= 0 && x0 + q < ts.w)
+					if (x0 + q >= 0 && x0 + q < ts.w) {
 						*(byte *)ts.getBasePtr(x0 + q, y0 + r) = c;
+						if (cov && x0 + q < cov->width() && y0 + r < cov->height())
+							cov->set(x0 + q, y0 + r, 0xFF);
+					}
 				}
 			}
 		}
@@ -1213,6 +1222,10 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	int clipWidth = origWidth;
 	if (!is2byte && _vm->_hiResText.latinStepsByFace(chr, _curId))
 		clipWidth = MIN(origWidth, _vm->_hiResText.advanceFor(chr, _curId, origWidth));
+	// A Korean syllable is clipped by its cell, not the gap after it, as
+	// CharsetRendererClassic clips a double-byte glyph.
+	if (is2byte && _vm->isScummvmKorTarget())
+		clipWidth = MIN(origWidth, glyphWidth);
 	if (_left + clipWidth > _right + 1)
 		return;
 
@@ -1306,7 +1319,7 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	else if (_vm->_game.platform == Common::kPlatformFMTowns && vs->number == kBannerVirtScreen)
 		drawBits1(*vs, _left * _vm->_textSurfaceMultiplier, drawTop * _vm->_textSurfaceMultiplier, charPtr, drawTop, glyphWidth, origHeight);
 #endif
-	else if (_vm->_textSurfaceMultiplier > 1
+	else if (_vm->_textSurfaceMultiplier > 1 && cellInGamePixels
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 			 && _vm->_game.platform != Common::kPlatformFMTowns
 #endif
