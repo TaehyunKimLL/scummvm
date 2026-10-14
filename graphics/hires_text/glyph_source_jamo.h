@@ -52,7 +52,7 @@ struct JamoSetTable;
  * A composed syllable is cells() 2 and drawn in the rows SvfnGlyphSource
  * gives a glyph of the font (stride cellWidth()*2 pixels, the piece's cell
  * first, the rest blank). Composed rows are kept like SvfnGlyphSource's
- * (HIRES_SVF_CACHE_KB, least recently used); a pointer from row() holds
+ * (least recently used; with the pieces' rows HIRES_SVF_CACHE_KB in all); a pointer from row() holds
  * until another code point is first asked for.
  */
 class JamoGlyphSource : public UnicodeGlyphSource {
@@ -73,6 +73,13 @@ public:
 	uint32 composed() const { return _composed; }
 	/// Syllables whose rows are kept.
 	uint32 cacheEntries() const { return _maxEntries; }
+	/// Pieces whose rows the inner source keeps.
+	uint32 pieceCacheEntries() const;
+	/**
+	 * Keep @p bytes worth of rows in all, half for composed syllables and half for pieces, and at least
+	 * @p minEntries of each. The default is HIRES_SVF_CACHE_KB, what one SvfnGlyphSource takes.
+	 */
+	void setCacheBytes(uint32 bytes, uint32 minEntries = 32);
 
 	void prefetch(Common::Array<uint32> &cps) override;
 

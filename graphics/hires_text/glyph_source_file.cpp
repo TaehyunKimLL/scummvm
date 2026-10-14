@@ -55,14 +55,15 @@ UnicodeGlyphSource *createSvfnSource(HiResBitmapFont *font, const Common::String
 	return src;
 }
 
-UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common::String &error) {
+UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common::String &error,
+									 const Common::String &name) {
 	HiResBitmapFont *font = new HiResBitmapFont();
 	if (!font->load(stream)) {
 		error = "not a valid SVFN bitmap font";
 		delete font;
 		return nullptr;
 	}
-	return createSvfnSource(font, Common::String());
+	return createSvfnSource(font, name);
 }
 
 UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,

@@ -52,9 +52,9 @@ SvfnGlyphSource::SvfnGlyphSource(HiResBitmapFont *font, DisposeAfterUse::Flag di
 // the allocator's headers, about.
 static const uint32 kEntryOverhead = 64;
 
-void SvfnGlyphSource::setCacheBytes(uint32 bytes) {
+void SvfnGlyphSource::setCacheBytes(uint32 bytes, uint32 minEntries) {
 	const uint32 each = _rowBytes * _cellHeight + kEntryOverhead;
-	_maxEntries = MAX<uint32>(32, bytes / each);
+	_maxEntries = MAX<uint32>(minEntries, bytes / each);
 	_stats.capacity = _maxEntries * each;
 	while (_entries.size() > _maxEntries) {
 		// The least recently used go.

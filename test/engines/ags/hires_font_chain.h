@@ -23,6 +23,7 @@
 #include <cxxtest/TestSuite.h>
 
 #include "common/fs.h"
+#include "common/log.h"
 #include "common/memstream.h"
 #include "graphics/surface.h"
 #include "graphics/hires_text/glyph_source_ttf.h"
@@ -174,6 +175,39 @@ public:
 		TS_ASSERT(!AGS3::openHiResFontChain(plan("/mem/BROKEN.SVF"), 0, 14, Common::Array<uint32>(), c, AgsChainFiles::open));
 		TS_ASSERT(c.faces.empty());
 		TS_ASSERT(agsChainWarned(c, "is not a readable SVFN font"));
+	}
+
+	void test_bad_jamo_block_warns_with_the_file_name() {
+		struct Watch {
+			static Common::Array<Common::String> &seen() {
+				static Common::Array<Common::String> v;
+				return v;
+			}
+			static void log(LogMessageType::Type type, int level, uint32 channel, const char *message) {
+				if (type == LogMessageType::kWarning)
+					seen().push_back(message);
+			}
+		};
+		// Flag bit 1 and a 5-byte block after the code point table: too short to be a JSET.
+		Common::Array<byte> jamo = agsMakeSvf(16, 0xE000, 'A');
+		agsPut16(jamo, 6, 2);
+		const byte block[5] = { 'J', 'S', 'E', 'T', 1 };
+		for (int i = 0; i < 5; i++)
+			jamo.push_back(block[i]);
+		AgsChainFiles::files()["/mem/BADJAMO.SVF"] = jamo;
+		Watch::seen().clear();
+		const Common::LogWatcher before = Common::getLogWatcher();
+		Common::setLogWatcher(Watch::log);
+		AGS3::HiResFontChain c;
+		const bool ok = AGS3::openHiResFontChain(plan("/mem/BADJAMO.SVF"), 0, 14, Common::Array<uint32>(), c, AgsChainFiles::open);
+		Common::setLogWatcher(before);
+		TS_ASSERT(ok);
+		uint named = 0;
+		for (uint i = 0; i < Watch::seen().size(); i++)
+			if (Watch::seen()[i].contains("jamo sets ignored") && Watch::seen()[i].contains("BADJAMO.SVF"))
+				named++;
+		TS_ASSERT_EQUALS(named, 1u);
+		c.free();
 	}
 
 	void test_svf_cell_height_must_match_the_first_svf() {

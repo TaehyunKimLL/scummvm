@@ -41,7 +41,26 @@ JamoGlyphSource::JamoGlyphSource(HiResBitmapFont *font, DisposeAfterUse::Flag di
 	_bpp = _font->bpp();
 	_cellHeight = (uint32)_font->cellHeight();
 	_rowBytes = ((uint32)_font->cellWidth() * 2 * _bpp + 7) / 8;
-	_maxEntries = MAX<uint32>(32, HIRES_SVF_CACHE_KB * 1024 / (_rowBytes * _cellHeight + kEntryOverhead));
+	setCacheBytes(HIRES_SVF_CACHE_KB * 1024);
+}
+
+void JamoGlyphSource::setCacheBytes(uint32 bytes, uint32 minEntries) {
+	// One face, one budget: composed syllables and their pieces share it.
+	_inner->setCacheBytes(bytes / 2, minEntries);
+	_maxEntries = MAX<uint32>(minEntries, bytes / 2 / MAX<uint32>(1, _rowBytes * _cellHeight + kEntryOverhead));
+	while (_entries.size() > _maxEntries) {
+		uint oldest = 0;
+		for (uint i = 1; i < _entries.size(); ++i)
+			if (_entries[i]->lastUse < _entries[oldest]->lastUse)
+				oldest = i;
+		_byCp.erase(_entries[oldest]->cp);
+		delete _entries[oldest];
+		_entries.remove_at(oldest);
+	}
+}
+
+uint32 JamoGlyphSource::pieceCacheEntries() const {
+	return _inner->cacheEntries();
 }
 
 JamoGlyphSource::~JamoGlyphSource() {

@@ -93,7 +93,7 @@ bool openHiResFontChain(const HiResFontPlan &plan, int fontNumber, int size, con
 		const uint32 got = stream->read(head, sizeof(head));
 		stream->seek(0);
 		if (Graphics::isSvfnFile(head, got)) {
-			Graphics::UnicodeGlyphSource *svf = Graphics::createSvfnSource(*stream, error);
+			Graphics::UnicodeGlyphSource *svf = Graphics::createSvfnSource(*stream, error, pathText);
 			delete stream;
 			if (!svf) {
 				out.warnings.push_back(Common::String::format("hires text: %s '%s' is not a readable SVFN font",

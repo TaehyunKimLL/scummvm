@@ -22,6 +22,7 @@
 #ifndef GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_FILE_H
 #define GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_FILE_H
 
+#include "common/str.h"
 #include "common/types.h"
 
 namespace Common {
@@ -53,9 +54,11 @@ bool isSvfnFile(const byte *head, uint32 size);
  * On success the returned source owns the underlying HiResBitmapFont. On
  * failure this returns null and fills error with a one-line reason (the
  * stream failed HiResBitmapFont::load(), e.g. because it was truncated or
- * carries an unsupported version).
+ * carries an unsupported version). @p name, if given, names the file in the
+ * cache counters and in a warning about its jamo sets.
  */
-UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common::String &error);
+UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common::String &error,
+									 const Common::String &name = Common::String());
 
 /**
  * The same, with the glyphs left in the file (HiResBitmapFont::loadStreamed()):

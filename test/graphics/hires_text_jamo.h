@@ -100,6 +100,14 @@ private:
 		byte x, y, level;
 	};
 
+	static void setPixel(Bytes &b, uint glyphAt, uint pitch, int bpp, uint x, uint y, byte level) {
+		byte *row = &b[glyphAt + y * pitch];
+		if (bpp == 8)
+			row[x] = level;
+		else
+			row[x * bpp / 8] |= level << (8 - bpp - (x * bpp & 7));
+	}
+
 	/**
 	 * A version 2 SVFN, 16x16 at @p bpp, one glyph per code point in @p cps
 	 * (each with the single pixel (n % 16, n / 16 % 16) at the top level for
@@ -131,25 +139,55 @@ private:
 		put32(b, 32, cmapOff);
 		for (uint i = 0; i < glyphs; ++i) {
 			const uint32 n = cps[i] >= Graphics::kJamoPieceBase ? cps[i] - Graphics::kJamoPieceBase : 0;
-			uint x = n % 16, y = n / 16 % 16, level = (1 << bpp) - 1;
-			if (bpp == 8)
-				level = 255;
-			for (uint k = 0; k < px.size(); ++k)
-				if (px[k].cp == cps[i]) {
-					x = px[k].x;
-					y = px[k].y;
-					level = px[k].level;
-				}
-			byte *row = &b[dataOff + i * stride + y * pitch];
-			if (bpp == 8)
-				row[x] = level;
-			else
-				row[x * bpp / 8] |= level << (8 - bpp - (x * bpp & 7));
+			const uint dx = n % 16, dy = n / 16 % 16;
+			const byte top = bpp == 8 ? 255 : (1 << bpp) - 1;
+			bool named = false;
+			for (uint k = 0; k < px.size(); ++k) {
+				if (px[k].cp != cps[i])
+					continue;
+				named = true;
+				setPixel(b, dataOff + i * stride, pitch, bpp, px[k].x, px[k].y, px[k].level);
+			}
+			if (!named)
+				setPixel(b, dataOff + i * stride, pitch, bpp, dx, dy, top);
 			put32(b, cmapOff + i * 8, cps[i]);
 			put32(b, cmapOff + i * 8 + 4, i);
 		}
 		for (uint i = 0; i < jset.size(); ++i)
 			b.push_back(jset[i]);
+		return b;
+	}
+
+	/**
+	 * The font as tools/korean/jamoset.py writes it: header, code point table, the JSET block, then the metrics
+	 * table (when @p withMetrics) and the glyph rows, so the block ends where the next table starts.
+	 */
+	static Bytes makeToolOrderFont(const Common::Array<uint32> &cps, const Bytes &jset, bool withMetrics) {
+		const Bytes plain = makeFont(cps, Bytes());
+		const uint32 glyphs = cps.size(), stride = 32;
+		const uint32 cmapOff = 36, metricsOff = cmapOff + glyphs * 8 + jset.size();
+		const uint32 dataOff = metricsOff + (withMetrics ? glyphs * 4 : 0);
+		Bytes b;
+		for (uint i = 0; i < 36; ++i)
+			b.push_back(plain[i]);
+		put16(b, 6, withMetrics ? 3 : 2);		// jamo sets, and proportional when there are metrics
+		put32(b, 20, withMetrics ? metricsOff : 0);
+		put32(b, 24, dataOff);
+		put32(b, 32, cmapOff);
+		for (uint i = 36 + glyphs * stride; i < plain.size(); ++i)		// the code point table
+			b.push_back(plain[i]);
+		for (uint i = 0; i < jset.size(); ++i)
+			b.push_back(jset[i]);
+		if (withMetrics)
+			for (uint i = 0; i < glyphs; ++i) {
+				const byte w = cps[i] < 0x80 ? 8 : 16;
+				b.push_back(w);		// advance
+				b.push_back(0);		// bearingX
+				b.push_back(w);		// ink width
+				b.push_back(0);
+			}
+		for (uint i = 0; i < glyphs * stride; ++i)
+			b.push_back(plain[36 + i]);
 		return b;
 	}
 
@@ -491,7 +529,9 @@ public:
 		const Bytes bytes = makeFont(pieceCps(), jset);
 		Graphics::JamoGlyphSource src(loadFont(bytes, false), DisposeAfterUse::YES);
 		Common::String why;
-		TS_ASSERT(Graphics::JamoGlyphSource::usable(*loadFont(bytes, false), why));
+		Graphics::HiResBitmapFont *again = loadFont(bytes, false);
+		TS_ASSERT(Graphics::JamoGlyphSource::usable(*again, why));
+		delete again;
 		expectInk(inkOf(src, 0xAC00), pieceInk(1, 161, 0));	// 가 is its medial alone
 	}
 
@@ -526,6 +566,76 @@ public:
 		Common::Array<uint32> want;
 		want.push_back(5 | 5 << 8 | 200 << 16);
 		expectInk(inkOf(src, 0xAC00), want);
+	}
+
+	void test_2bpp_maximum_is_per_pixel_when_two_pixels_share_a_byte() {
+		// Pixels 4 and 5 of a row share byte 1 at 2bpp. Piece A: (4,5)=3, (5,5)=1; piece B: (5,5)=2. The per-pixel
+		// maximum is {3, 2}; a byte-wise maximum would give A's byte {3, 1}, and an OR 3 and 3.
+		Common::Array<Px> px;
+		const Px list[] = { { Graphics::kJamoPieceBase + 1, 4, 5, 3 }, { Graphics::kJamoPieceBase + 1, 5, 5, 1 },
+							{ Graphics::kJamoPieceBase + 161, 5, 5, 2 } };
+		for (int i = 0; i < 3; ++i)
+			px.push_back(list[i]);
+		const Bytes bytes = makeFont(pieceCps(), make844Jset(), true, 2, px);
+		Graphics::JamoGlyphSource src(loadFont(bytes, false), DisposeAfterUse::YES);
+		Common::Array<uint32> want;
+		want.push_back(4 | 5 << 8 | 3 << 16);
+		want.push_back(5 | 5 << 8 | 2 << 16);
+		expectInk(inkOf(src, 0xAC00), want);
+		// The same at 8bpp, where a byte is a pixel and the maximum is plain.
+		px.clear();
+		for (int i = 0; i < 3; ++i) {
+			Px q = list[i];
+			q.level = q.level * 60;
+			px.push_back(q);
+		}
+		const Bytes bytes8 = makeFont(pieceCps(), make844Jset(), true, 8, px);
+		Graphics::JamoGlyphSource src8(loadFont(bytes8, false), DisposeAfterUse::YES);
+		want.clear();
+		want.push_back(4 | 5 << 8 | 180 << 16);
+		want.push_back(5 | 5 << 8 | 120 << 16);
+		expectInk(inkOf(src8, 0xAC00), want);
+	}
+
+	void test_compose_does_not_hold_a_piece_row_across_the_next_piece() {
+		// With room for one piece in the inner cache, a pointer to the first piece's row is overwritten by the
+		// second piece's: compose() must use each row before asking for the next piece.
+		const Bytes bytes = makeFont(pieceCps(), make844Jset());
+		for (int streamed = 0; streamed < 2; ++streamed) {
+			Graphics::JamoGlyphSource src(loadFont(bytes, streamed != 0), DisposeAfterUse::YES);
+			src.setCacheBytes(0, 1);
+			TS_ASSERT_EQUALS(src.pieceCacheEntries(), 1u);
+			expectInk(inkOf(src, 0xAC01), pieceInk(3, 101, 205, 249));
+			expectInk(inkOf(src, 0xBDC1), pieceInk(3, 148, 242, 313));
+			expectInk(inkOf(src, 0xAC00), pieceInk(2, 1, 161));
+		}
+	}
+
+	void test_one_budget_covers_the_composed_and_the_piece_cache() {
+		// A face costs HIRES_SVF_CACHE_KB in all, as an SvfnGlyphSource does.
+		const Bytes bytes = makeFont(pieceCps(), make844Jset());
+		Graphics::JamoGlyphSource src(loadFont(bytes, false), DisposeAfterUse::YES);
+		const uint32 each = 4 * 16 + 64;	// a 16x16 1bpp glyph in the wide rows, and the entry's overhead
+		TS_ASSERT((src.cacheEntries() + src.pieceCacheEntries()) * each <= (uint32)HIRES_SVF_CACHE_KB * 1024);
+		TS_ASSERT(src.cacheEntries() >= 32);
+		TS_ASSERT(src.pieceCacheEntries() >= 32);
+	}
+
+	void test_block_before_the_metrics_and_glyph_tables() {
+		// The layout jamoset.py writes: the block ends where the metrics table (or, with none, the glyph rows) starts.
+		for (int withMetrics = 0; withMetrics < 2; ++withMetrics)
+			for (int streamed = 0; streamed < 2; ++streamed) {
+				const Bytes bytes = makeToolOrderFont(pieceCps(), make844Jset(), withMetrics != 0);
+				Graphics::HiResBitmapFont *font = loadFont(bytes, streamed != 0);
+				TS_ASSERT(font->jamoSetError().empty());
+				TS_ASSERT(font->jamoSets() != nullptr);
+				Common::String why;
+				TS_ASSERT(Graphics::JamoGlyphSource::usable(*font, why));
+				Graphics::JamoGlyphSource src(font, DisposeAfterUse::YES);
+				expectInk(inkOf(src, 0xAC01), pieceInk(3, 101, 205, 249));
+				expectInk(inkOf(src, 0xBDC1), pieceInk(3, 148, 242, 313));
+				TS_ASSERT_EQUALS(src.cells('A'), 1);
+			}
 	}
 
 	void test_syllable_with_a_missing_piece_is_not_usable() {
@@ -564,7 +674,7 @@ public:
 		const Bytes bytes = makeFont(pieceCps(), make844Jset());
 		Graphics::JamoGlyphSource src(loadFont(bytes, true), DisposeAfterUse::YES);
 		const uint32 n = src.cacheEntries() + 44;
-		TS_ASSERT(n >= 300);
+		TS_ASSERT(n >= 100);
 		Graphics::JamoSetTable t;
 		Common::String err;
 		const Bytes jset = make844Jset();
@@ -689,6 +799,22 @@ public:
 			return;
 		TS_ASSERT_EQUALS(ignoredWarnings("359"), 1u);
 		TS_ASSERT_EQUALS(src->cells(0xAC00), 0);
+		delete src;
+	}
+
+	void test_whole_file_overload_names_the_file_in_the_warning() {
+		Bytes jset = make844Jset();
+		jset.pop_back();
+		const Bytes bytes = makeFont(pieceCps(), jset);
+		warned().clear();
+		const Common::LogWatcher before = Common::getLogWatcher();
+		Common::setLogWatcher(watch);
+		Common::MemoryReadStream stream(bytes.begin(), bytes.size());
+		Common::String error;
+		Graphics::UnicodeGlyphSource *src = Graphics::createSvfnSource(stream, error, "WHOLE.SVF");
+		Common::setLogWatcher(before);
+		TS_ASSERT(src != nullptr);
+		TS_ASSERT_EQUALS(ignoredWarnings("WHOLE.SVF"), 1u);
 		delete src;
 	}
 

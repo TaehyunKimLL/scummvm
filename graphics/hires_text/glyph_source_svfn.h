@@ -71,7 +71,8 @@ public:
 	uint32 glyphReads() const { return _glyphReads; }
 	/// Code points whose rows are kept: HIRES_SVF_CACHE_KB worth, or @p bytes worth (at least 32).
 	uint32 cacheEntries() const { return _maxEntries; }
-	void setCacheBytes(uint32 bytes);
+	/// Keep @p bytes worth of rows, but at least @p minEntries entries (a few suffice for a caller that uses a row at once).
+	void setCacheBytes(uint32 bytes, uint32 minEntries = 32);
 	/// The file the counters name.
 	void setName(const Common::String &name) { _stats.name = name; }
 	const Common::FileCacheStats &stats() const { return _stats; }
