@@ -103,26 +103,28 @@ class MapTest(unittest.TestCase):
         self.sections = {n: l for n, l in p2s.parse_sections(self.text) if n}
 
     def test_fonts_name_the_new_files_and_presets_are_gone(self):
-        self.assertEqual(self.sections["fonts"][1:], [f"kp1={p2s.svf_name('a')}", f"kp2={p2s.svf_name('b')}"])
+        fonts = [l for l in self.sections["fonts"][1:] if not l.startswith(";")]
+        self.assertEqual(fonts, [f"kp1={p2s.svf_name('a')}", f"kp2={p2s.svf_name('b')}",
+                                 "ui=data:KO2350G.SVF", "body=data:KO2350B.SVF", "cjk=data:NotoSansKR-Bold.otf"])
         self.assertNotIn("fonts:clut8", self.sections)
         self.assertNotIn("render:clut8", self.sections)
         self.assertIn("blend=auto", self.sections["render"])
 
-    def test_each_font_id_gets_its_face_and_the_rest_the_default(self):
-        self.assertIn("face=kp1", self.sections["font.0"])
-        self.assertIn("face=kp2", self.sections["font.1"])
-        self.assertIn("face=kp2", self.sections["font.4"])
-        self.assertIn("face=kp1", self.sections["font"])
-        # font 40 was not in the selection: its old face falls back, its size stays
-        self.assertIn("face=kp1", self.sections["font.40"])
+    def test_each_font_id_gets_its_face_with_the_old_one_behind_it(self):
+        self.assertIn("face=kp1,ui,cjk", self.sections["font.0"])      # new section: [font]'s old face
+        self.assertIn("face=kp2,body,cjk", self.sections["font.1"])
+        self.assertIn("face=kp2,ui,cjk", self.sections["font.4"])
+        self.assertIn("face=kp1,ui,cjk", self.sections["font"])
+        # font 40 was not in the selection: the default first, its old face behind, its size stays
+        self.assertIn("face=kp1,body,cjk", self.sections["font.40"])
         self.assertIn("size=18", self.sections["font.40"])
         self.assertIn("0x5e = u+2026", self.sections["glyphs"])
 
     def test_the_one_game_font_goes_to_font_or_font_0(self):
         agi = p2s.make_map("[map]\n[font]\nface=ui\n", "LSL1 AGI", [pick("builtin", "a")], {"a": "kp1"}, "off")
-        self.assertIn("face=kp1", dict((n, l) for n, l in p2s.parse_sections(agi) if n)["font"])
+        self.assertIn("face=kp1,cjk", dict((n, l) for n, l in p2s.parse_sections(agi) if n)["font"])
         mm = p2s.make_map("[map]\n[font]\n[font.0]\nface=dlg\n", "MM", [pick("builtin", "a")], {"a": "kp1"}, "off")
-        self.assertIn("face=kp1", dict((n, l) for n, l in p2s.parse_sections(mm) if n)["font.0"])
+        self.assertIn("face=kp1,cjk", dict((n, l) for n, l in p2s.parse_sections(mm) if n)["font.0"])
 
     def test_charset_ids_map_to_their_number(self):
         self.assertEqual(p2s.font_section("cs2"), "font.2")
