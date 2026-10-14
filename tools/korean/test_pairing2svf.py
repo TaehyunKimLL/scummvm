@@ -140,11 +140,23 @@ class MapTest(unittest.TestCase):
                             {"a": "kp1", "b": "kp2"}, "auto", decorations=deco)
         s = {n: l for n, l in p2s.parse_sections(text) if n}
         self.assertIn("width=3", s["shadow.3"])          # 0.75 x 2 x 2 x (30/30)
+        self.assertIn("mode=outline", s["shadow.3"])
         self.assertIn("offset=4", s["shadow.6"])         # 2 x 2 x (56/56)
+        self.assertIn("mode=drop", s["shadow.6"])        # a drop even where the patch byte says outline
         self.assertNotIn("shadow.1", s)
         self.assertIn("mode=game", s["shadow"])
         names = [n for n, _ in p2s.parse_sections(text) if n]
         self.assertGreater(names.index("shadow.3"), names.index("fonts"))
+
+    def test_an_outline_with_a_drop_is_a_stroke(self):
+        # Indy4 cs3: a 1 px outline plus a copy at (-1, +1), Korean face 30 px on a 15 px line
+        fonts = [{"id": "cs3", "lineh": 15, "korean": {"key": "a", "label": "a", "bpp": 2, "h": 30}}]
+        text = p2s.make_map("[map]\n[shadow]\nmode=game\n[font]\nface=ui\n", "G", fonts, {"a": "kp1"}, "auto",
+                            decorations={"cs3": {"o": 1, "d": [-1, 1]}})
+        s = {n: l for n, l in p2s.parse_sections(text) if n}
+        self.assertIn("mode=stroke", s["shadow.3"])
+        self.assertIn("width=1.5", s["shadow.3"])        # 0.75 x 2 x 1
+        self.assertIn("shadow=-2,2", s["shadow.3"])      # (-1, +1) game px x 2
 
 
 if __name__ == "__main__":

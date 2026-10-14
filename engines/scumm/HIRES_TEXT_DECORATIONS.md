@@ -105,26 +105,33 @@ order: `[shadow.6:clut8]` beats `[shadow.6]`, which beats `[shadow:clut8]`,
 which beats `[shadow]`. SCUMM only; SCI and AGI warn that they do not use it,
 as for `[shadow]`.
 
-Measured from the colour-2 pixels of the English 2bpp SCUMM faces:
+Read off the games' own charset resources by
+`tools/korean/scumm-fonts/decoration.py` (colour 1 = letter, colour 2 =
+decoration; each face scored against drop and per-side outline models), kept in
+`tools/korean/scumm-fonts/original-decoration.json`:
 
 | face | line | original decoration (game px) | at 2x |
 |---|---|---|---|
-| MI1/MI2/Loom cs2, cs4, Indy4 cs2, DOTT cs2 | 9-15 | outline, reach 1 | 2 px |
-| MI2 cs7, Indy4 cs3, cs4 | 12-15 | outline, reach 2 | 4 px |
+| MI1/MI2/Loom cs2, cs4, MI2 cs8, Indy4 cs2, DOTT cs2 | 8-15 | outline 1 | 2 px |
+| MI2 cs7, Indy4 cs3, cs4 | 12-15 | outline 1 + drop (-1,+1): a stroke | 2 px, shadow -2,2 |
 | MI cs6, DOTT cs3, cs5 | 12-14 | drop (1,1) | 2,2 px |
 | DOTT cs6 | 28 | drop (2,2) | 4,4 px |
 
-`tools/korean/pairing2svf.py` writes these for the charsets it pairs
-(`tools/korean/scumm-fonts/original-decoration.json`), grown to the Korean
-face: `width` = 0.75 x 2 x reach x (face height / (2 x line height)) in quarter
-pixels, `offset` the drop likewise.
+`tools/korean/pairing2svf.py` writes these for the charsets it pairs, grown to
+the Korean face (ratio = face height / (2 x line height)): `mode` the
+original's - not the patch byte's, which asks DOTT cs3 for an outline and cs5
+for nothing - `width` = 0.75 x 2 x reach x ratio in quarter pixels, `offset`
+the drop likewise, and a stroke's `shadow` = 2 x (dx, dy) x ratio.
 
 ```ini
 [shadow]          ; every charset
 mode=game
-[shadow.3]        ; Indy4 cs3: a 2-game-pixel outline
-width=3
+[shadow.3]        ; Indy4 cs3: outline plus a lower-left copy
+mode=stroke
+width=1.5
+shadow=-2,2
 [shadow.6]        ; DOTT cs6: a (2,2) drop at 2x
+mode=drop
 offset=4
 ```
 

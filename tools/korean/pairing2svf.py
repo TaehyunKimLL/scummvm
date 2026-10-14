@@ -259,12 +259,18 @@ def make_map(template_text, game, fonts, aliases, blend, decorations=None):
         if not m or not n:
             continue
         ratio = f["korean"].get("h", 0) / (2 * f.get("lineh", 0)) if f.get("lineh") else 1.0
-        lines = [f"[shadow.{n.split('.')[1]}]"]
+        # The mode is the original's, not the patch byte's (mode=game): DOTT's
+        # patch asks cs3 for an outline where the original drops a shadow.
+        lines = [f"[shadow.{n.split('.')[1]}]",
+                 "mode=" + ("stroke" if "o" in m and "d" in m else "outline" if "o" in m else "drop")]
         if "o" in m:
             width = round(0.75 * 2 * m["o"] * ratio * 4) / 4
             lines.append(f"width={width:g}")
+            if "d" in m:
+                dx, dy = (round(2 * v * ratio) for v in m["d"])
+                lines.append(f"shadow={dx},{dy}")
         else:
-            lines.append(f"offset={max(1, round(2 * max(m['d']) * ratio))}")
+            lines.append(f"offset={max(1, round(2 * max(map(abs, m['d'])) * ratio))}")
         shadow_secs.append(lines)
 
     fonts_sec = ["[fonts]"] + [f"{a}={svf_name(k)}" for k, a in aliases.items()] + \

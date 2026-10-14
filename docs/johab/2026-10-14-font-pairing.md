@@ -109,20 +109,27 @@ python3 tools/korean/pairing2svf.py 선택.json --data <korean*.json 폴더> --o
   전부)가, 그것도 없으면 바이너리의 `fonts-cjk.dat` Noto Sans KR(FreeType 빌드만)이 그린다.
 - **꾸밈 크기.** `tools/korean/scumm-fonts/original-decoration.json`(측정값)이 있는 SCUMM 폰트는
   `[shadow.N]`을 쓴다: 외곽선 `width = 0.75 × 2 × 원래 폭 × (한글 높이 / (2 × 원래 줄 높이))`(0.25 단위),
-  그림자 `offset = 2 × 원래 이동 × 같은 비율`. 페이지의 "원본 비례"와 같은 식.
+  그림자 `offset = 2 × 원래 이동 × 같은 비율`, 외곽선+그림자는 `mode=stroke`에 `shadow=2×dx,2×dy`(같은 비율).
+  `mode=`는 원본 꾸밈대로 쓴다. 페이지의 "원본 비례"와 같은 식.
 - 출력 `<out>/<게임>/`에 맵과 SVF, `<out>/MANIFEST.md`에 대응표. 게임에서는 `hires_text_map=HIRESKP.MAP`
   (SCUMM은 `M1KP.MAP` 등).
 
 ## 5. 꾸밈: 측정과 엔진
 
-원래 2bpp SCUMM 폰트의 색 2 픽셀로 잰 꾸밈(`vision/shadow_measure.py`, `shadow-measure.md`):
+원래 2bpp SCUMM 폰트의 꾸밈은 게임의 charset 리소스(v4 `90N.LFL`, v5/v6 `CHAR` 블록)에서 직접 읽는다:
+`tools/korean/scumm-fonts/decoration.py`가 색 1(글자)과 색 2(꾸밈)를 그림자 모델(이동 dx,dy)과 방향별
+외곽선 모델(왼·위·오른·아래 두께)에 맞춰 보고, 가장 잘 맞는 것을 `original-decoration.json`에 쓴다
+(`--write`; `--check`는 JSON과 리소스가 다르면 1로 끝남). 페이지와 `pairing2svf.py`는 이 JSON만 읽는다.
 
 | 폰트 | 줄 | 원래 꾸밈(게임 px) |
 |---|---|---|
-| MI1/MI2/Loom cs2·cs4, Indy4 cs2, DOTT cs2 | 9–15 | 외곽선 1 |
-| MI2 cs7, Indy4 cs3·cs4 | 12–15 | 외곽선 2 |
+| MI1/MI2/Loom cs2·cs4, MI2 cs8, Indy4 cs2, DOTT cs2 | 8–15 | 외곽선 1 |
+| MI2 cs7, Indy4 cs3·cs4 | 12–15 | 외곽선 1 + 그림자 (-1,+1) = 엔진의 stroke |
 | MI cs6, DOTT cs3·cs5 | 12–14 | 그림자 (1,1) |
 | DOTT cs6 | 28 | 그림자 (2,2) |
+
+한글 패치의 꾸밈 바이트(`mode=game`)는 원본과 다른 곳이 있다: DOTT cs3은 외곽선, cs5는 없음, cs6은 항목
+없음(없음). 그래서 `[shadow.N]`은 `mode=`를 원본대로 적는다.
 
 엔진은 맵의 `[shadow]` 하나로 모든 charset을 같게 그렸다(2× 기준 외곽선 1.5 px, 그림자 1 px). 이 브랜치에서
 `[shadow.N]`(charset N 전용, 키마다 `[shadow]`로 대체)이 들어갔다 — `engines/scumm/HIRES_TEXT_DECORATIONS.md`
