@@ -614,7 +614,10 @@ HiResMapLoadOptions::HiResMapLoadOptions() : target(kHiResTargetAuto), quiet(fal
 HiResShadowSpec HiResShadowSpec::overlaid(const HiResShadowSpec &over) const {
 	HiResShadowSpec r = *this;
 	if (over.modeSet) { r.mode = over.mode; r.modeSet = true; }
-	if (over.offsetSet) { r.offset = over.offset; r.offsetSet = true; }
+	if (over.offsetSet) {
+		r.offset = over.offset; r.offsetSet = true;
+		r.offsetPair = over.offsetPair; r.offsetDx = over.offsetDx; r.offsetDy = over.offsetDy;
+	}
 	if (over.colorSet) { r.color = over.color; r.colorSet = true; }
 	if (over.widthSet) { r.widthQ = over.widthQ; r.widthSet = true; }
 	if (over.styleSet) { r.style = over.style; r.styleSet = true; }
@@ -1605,12 +1608,17 @@ void buildShadowSection(const Common::INIFile &ini, const Common::Array<Common::
 				"%s: [%s] mode '%s' is not game, none, drop, outline or stroke; ignoring it", kHiResMapName, section.c_str(), value.c_str()));
 	}
 	if (getKey(ini, qualifiers, section.c_str(), "offset", value)) {
-		int offset;
+		int offset, dx, dy;
 		if (value == "-1")
-			{ spec.offset = -1; spec.offsetSet = true; }
+			{ spec.offset = -1; spec.offsetSet = true; spec.offsetPair = false; }
 		else if (parseInteger(value, 4096, offset))
-			{ spec.offset = offset; spec.offsetSet = true; }
-		else
+			{ spec.offset = offset; spec.offsetSet = true; spec.offsetPair = false; }
+		else if (value.contains(',') && parseSignedPair(value, kMaxShadowShift, dx, dy)) {
+			spec.offsetSet = spec.offsetPair = true;
+			spec.offsetDx = dx;
+			spec.offsetDy = dy;
+			spec.offset = MAX(ABS(dx), ABS(dy));
+		} else
 			hiResWarn(out, Common::String::format(
 				"%s: [%s] offset '%s' is invalid; ignoring it", kHiResMapName, section.c_str(), value.c_str()));
 	}

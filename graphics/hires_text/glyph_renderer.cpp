@@ -76,8 +76,9 @@ GlyphDecoration HiResGlyphRenderer::decorationFor(const GlyphStyle &style) {
 	switch (style.shadowMode) {
 	case kHiResShadowDrop:
 		d.shadow = true;
-		d.shadowDx = offset;
-		d.shadowDy = offset;
+		d.shadowDx = style.offsetPair ? style.offsetDx : offset;
+		d.shadowDy = style.offsetPair ? style.offsetDy : offset;
+		d.shadow = (d.shadowDx || d.shadowDy);
 		break;
 	case kHiResShadowOutline:
 	case kHiResShadowStroke:
@@ -92,9 +93,9 @@ GlyphDecoration HiResGlyphRenderer::decorationFor(const GlyphStyle &style) {
 		} else if (style.shadowMode == kHiResShadowStroke) {
 			// The legacy stroke is an outline with one more copy of it to the
 			// lower left: that copy is a shadow of the outline.
-			d.shadow = true;
-			d.shadowDx = -offset;
-			d.shadowDy = offset;
+			d.shadowDx = style.offsetPair ? style.offsetDx : -offset;
+			d.shadowDy = style.offsetPair ? style.offsetDy : offset;
+			d.shadow = (d.shadowDx || d.shadowDy);
 		}
 		break;
 	default:
@@ -117,6 +118,9 @@ void HiResGlyphRenderer::applyShadow(GlyphStyle &style, const HiResShadowSpec &s
 	// One game pixel, as the legacy fonts' shadows were: the distance grows
 	// with the scale as the outline width does.
 	style.shadowOffset = (spec.offset >= 0) ? MAX(1, spec.offset) : scale;
+	style.offsetPair = spec.offsetPair;
+	style.offsetDx = spec.offsetDx;
+	style.offsetDy = spec.offsetDy;
 
 	// style=legacy keeps the old step exactly: the map's offset as written,
 	// else 1 at every scale.

@@ -213,6 +213,11 @@ struct HiResShadowSpec {
 	bool modeSet;
 	int offset;                   ///< scaled pixels; -1 = follow the scale
 	bool offsetSet;
+	/// offset=dx,dy: the shadow's vector (a drop's, a stroke's copy's);
+	/// offset then holds the longer leg, the width it stands in for.
+	bool offsetPair;
+	int offsetDx;
+	int offsetDy;
 	byte color;
 	bool colorSet;
 	/// Outline radius in quarters of an output pixel (width=1.5 is 6);
@@ -233,6 +238,7 @@ struct HiResShadowSpec {
 	void clear() {
 		mode = kHiResShadowGame; modeSet = false;
 		offset = -1; offsetSet = false;
+		offsetPair = false; offsetDx = offsetDy = 0;
 		color = 0; colorSet = false;
 		widthQ = -1; widthSet = false;
 		style = kHiResOutlineRound; styleSet = false;

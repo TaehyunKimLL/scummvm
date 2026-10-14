@@ -71,6 +71,7 @@ struct GlyphBitmap {
 struct GlyphStyle {
 	GlyphStyle() :
 		color(0), shadowColor(0), shadowMode(kHiResShadowNone), shadowOffset(1),
+		offsetPair(false), offsetDx(0), offsetDy(0),
 		outlineQ(-1), outlineShape(kHiResOutlineRound),
 		shadowShiftSet(false), shadowDx(0), shadowDy(0),
 		shadowShiftColor(0), shadowShiftColorSet(false), shadowAlpha(255) {}
@@ -79,6 +80,11 @@ struct GlyphStyle {
 	byte shadowColor;
 	HiResShadowMode shadowMode;
 	int shadowOffset;   ///< distance from the glyph, in destination pixels
+	/// offset=dx,dy: a drop moves by (offsetDx, offsetDy), and so does a
+	/// stroke's copy, in place of (offset, offset) and (-offset, +offset).
+	bool offsetPair;
+	int offsetDx;
+	int offsetDy;
 
 	/// Outline radius in quarters of a destination pixel; -1 = shadowOffset.
 	int outlineQ;

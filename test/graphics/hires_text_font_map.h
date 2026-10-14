@@ -808,6 +808,30 @@ public:
 		TS_ASSERT_EQUALS(s.alpha, 128);
 	}
 
+	/// offset=dx,dy: a drop or stroke shadow's direction and distance both.
+	void test_shadow_offset_takes_a_pair() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nmode=drop\noffset=2\n"
+					   "[shadow.3]\nmode=stroke\noffset=-2,3\n", m));
+		TS_ASSERT(m.warnings.empty());
+		const Graphics::HiResShadowSpec s = m.shadowFor(3);
+		TS_ASSERT(s.offsetSet);
+		TS_ASSERT(s.offsetPair);
+		TS_ASSERT_EQUALS(s.offsetDx, -2);
+		TS_ASSERT_EQUALS(s.offsetDy, 3);
+		TS_ASSERT_EQUALS(s.offset, 3);               // the longer leg, for the width it stands in for
+		const Graphics::HiResShadowSpec s0 = m.shadowFor(0);   // a single value is no pair
+		TS_ASSERT(!s0.offsetPair);
+		TS_ASSERT_EQUALS(s0.offset, 2);
+	}
+
+	void test_shadow_offset_bad_pair_warns() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[shadow.3]\noffset=1,x\n", m));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [shadow.3] offset '1,x' is invalid; ignoring it"));
+		TS_ASSERT(!m.shadowFor(3).offsetSet);
+	}
+
 	void test_shadow_id_bad_value_names_its_section_and_falls_back() {
 		Graphics::HiResMap m;
 		TS_ASSERT(load("[map]\nversion=2\n[shadow]\nwidth=2\n[shadow.6]\nwidth=lots\n", m));

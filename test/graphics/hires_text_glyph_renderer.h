@@ -2053,6 +2053,38 @@ public:
 		TS_ASSERT_EQUALS(d.outlineQ, 8);
 	}
 
+	/// offset=dx,dy moves a drop and a stroke's copy by that vector; an outline has no shadow to move.
+	void test_an_offset_pair_moves_the_shadow() {
+		Graphics::HiResShadowSpec spec;
+		spec.offsetSet = true;
+		spec.offsetPair = true;
+		spec.offsetDx = -2;
+		spec.offsetDy = 3;
+		spec.offset = 3;
+		Graphics::GlyphStyle style;
+		style.color = 7;
+		style.shadowColor = 1;
+		Graphics::HiResGlyphRenderer::applyShadow(style, spec, 2);
+
+		style.shadowMode = Graphics::kHiResShadowDrop;
+		Graphics::GlyphDecoration d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(d.shadow);
+		TS_ASSERT_EQUALS(d.shadowDx, -2);
+		TS_ASSERT_EQUALS(d.shadowDy, 3);
+
+		style.shadowMode = Graphics::kHiResShadowStroke;
+		d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(d.outline);
+		TS_ASSERT_EQUALS(d.shadowDx, -2);
+		TS_ASSERT_EQUALS(d.shadowDy, 3);
+
+		style.shadowMode = Graphics::kHiResShadowOutline;
+		d = Graphics::HiResGlyphRenderer::decorationFor(style);
+		TS_ASSERT(d.outline);
+		TS_ASSERT(!d.shadow);
+		TS_ASSERT_EQUALS(d.outlineQ, 12);             // no width=: the longer leg, 3 px
+	}
+
 	/// A map's [shadow] keys, and their defaults at each scale.
 	void test_apply_map_defaults_follow_the_scale() {
 		Graphics::HiResMap map;
