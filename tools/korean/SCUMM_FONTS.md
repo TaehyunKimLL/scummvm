@@ -288,7 +288,7 @@ the game cell, so a 0 here would shift every line); the engine composes the same
 pixels back (IoU 1.000, every present syllable exact, for all 15 faces; sizes
 2,001,044 -> 366,742 B for DOTT, 621,962 -> 167,024 B for MI1, 498,506 ->
 175,911 B for MI2 with their 24 px faces as neodgm; the MI1/MI2 L0, L4 and L7 faces
-are since drawn from Baekmuk, below, and not converted). Run it after the L bakes above, with the same `$D`:
+are since written from a DOS jamo set, below, and not converted). Run it after the L bakes above, with the same `$D`:
 
 ```sh
 D=dists/engine-data/hires_text/dos
@@ -304,34 +304,28 @@ stay precomposed. The maps are unchanged: same face names.
 
 ### MI1 and MI2: the 24 dot faces (M1L0, M1L4, M2L0, M2L4)
 
-The L preset's 24 px tall cells hold a real 24 dot Hangul face, not neodgm's 16 px in a 24 cell:
-M1L0 and M2L0 (cs0, 22x24 in the game: MI2's verb bar, MI1 Ultimate Talkie's verb bar through cs6) are
-Baekmuk Gulim Bold, M1L4, M2L4 (cs4 26x24, and cs7 24x24 through the same file) are Baekmuk Batang Bold,
-the serif of the title and credit cards. Dialogue (cs2, 18x18) and the sentence line and verbs of MI1 (cs1/cs3,
-16x16) are smaller cells and stay neodgm 16 px. `bdfface.py` writes them precomposed (a KS X 1001 BDF is
-not a jamo set, and 1,865 / 1,200 syllables of 72 bytes are 165 / 109 KB a face): the cell is 24x24, a
-syllable steps 24 (the game steps a cs0 syllable 24 and a cs4 one 28, and centres the 24 px glyph in it), ASCII
-is the Sony 12x24 face on its own baseline (row 22, the SVF's ascent), U+2026 and U+25A1 are drawn by the
-tool, and the 5 (MI1) / 6 (MI2) requested syllables outside KS X 1001 (the five UHC syllables of the MI1
-Ultimate Talkie text, among them) are composed from jamo pieces fitted to the face, by `--fill-absent`
-(roughly drawn, but not a box). The text inputs are the L bakes' own; the BDFs are Baekmuk 2.2's
-(`baekmuk-bdf-2.2/bdf/{gulim24b,batang24b}.bdf`) and Sony's `12x24.hbf` (HBF, from the Unihan / HBF
-collection, with `12x24.bin.gz` beside it), run after the L bakes and the jamo conversion above:
+The L preset's 24 px tall cells hold a real 24 dot DOS Hangul face, not neodgm's 16 px in a 24 cell:
+M1L0 and M2L0 (cs0, 22x24 in the game: MI2's verb bar, MI1 Ultimate Talkie's through cs6) are Taebaek 3.5's
+GOTHIC24 with its GASCII24, 1 px emboldened (the thin 1 px strokes are weak on the purple verb buttons);
+M1L4, M2L4 (cs4 26x24, and cs7 24x24 through the same file) are Taebaek's MY24 with MASCII24, the serif of the
+title and credit cards. They are jamo sets (28-38 KB, all 11,172 syllables, the original 8x4x4 pieces:
+lossless), written by `jamoset.py --layout 844-hbios24` from the HBIOS 24x30 face's jamo half. The syllable
+advance is 24 (JSET advance): the game steps a cs0 syllable 24 and a cs4 one 28 (the engine centres the glyph),
+ASCII keeps the face's 12 px step on its baseline (row 21, the ascent), `--symbols` adds U+2026 on the
+baseline and U+25A1. The faces carry no licence text (LICENCE NOT STATED, M12FONT.TXT). Dialogue (cs2, 18x18) and
+the sentence line and verbs of MI1 (cs1/cs3, 16x16) are smaller cells. Run after the L bakes and the jamo
+conversion above, from the Taebaek 3.5 `FNT/` folder:
 
 ```sh
-BM=baekmuk-bdf-2.2/bdf; SONY=hbf/12x24.hbf     # wherever the collection is
-export JAMOSET_PYLIB=...                      # freetype-py + uharfbuzz for the fit's mask font (optional)
-for g in gulim:M1L0:$W/m1l-union.txt batang:M1L4:$W/m1l-union.txt \
-         gulim:M2L0:$G/mi2kor/korean.trs batang:M2L4:$G/mi2kor/korean.trs; do
-  IFS=: read face out chars <<<"$g"
-  python3 tools/korean/bdfface.py --hangul $BM/${face}24b.bdf --ascii $SONY --cell 24x24 --fill-absent \
-      --chars-from "$chars" -o $D/$out.SVF
-done
+T=tb351/FNT     # wherever the Taebaek 3.5 FNT folder is
+for g in M1L0 M2L0; do python3 tools/korean/jamoset.py --layout 844-hbios24 $T/GOTHIC24.FNT --eng $T/GASCII24.PFT \
+    --advance 24 --symbols --embolden --check -o $D/$g.SVF; done
+for g in M1L4 M2L4; do python3 tools/korean/jamoset.py --layout 844-hbios24 $T/MY24.FNT --eng $T/MASCII24.PFT \
+    --advance 24 --symbols --check -o $D/$g.SVF; done
 ```
 
 M2KO.MAP's `card7` (clut8) names M2L4.SVF: the cs4 and cs7 cards share one 24x24 face, so M2L7.SVF is gone.
-Baekmuk's and Sony's licence texts ship beside the maps (BAEKMUK.TXT, SONY.TXT) and M12FONT.TXT names them.
-`tools/korean/test_bdfface.py` tests the tool.
+(`tools/korean/bdfface.py` bakes a precomposed face from a KS X 1001 BDF; no shipped face uses it now.)
 
 Notes per game:
 

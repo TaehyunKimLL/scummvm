@@ -8,7 +8,7 @@
 # Charset 6 (the verb line, 22x24) has no korean06.fnt in the game, so it cannot be a row here;
 # the map points it at M2L0.SVF, the 22x24 charset 0 file.
 # The TTF field starts with $FONTS (default ~/scummvm-i18n/fonts; set FONTS=... to move it).
-# The 24 px tall cells (M2L0, M2L4, M2L7) are not baked from neodgm: tools/korean/bdfface.py draws them from Baekmuk
+# The 24 px tall cells (M2L0, M2L4, M2L7) are not baked from neodgm: jamoset.py writes them from Taebaek's 24 dot faces
 # (SCUMM_FONTS.md, "24 dot faces"), so they have no row here.
 M2L1.SVF	1	$FONTS/pixel/neodgm/neodgm.ttf	16	1	-
 M2L2.SVF	2	$FONTS/pixel/neodgm/neodgm.ttf	16	1	13

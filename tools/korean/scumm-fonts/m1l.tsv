@@ -8,7 +8,7 @@
 # Charset 3 has the same 16x16 cell as charset 1, so one file serves both (M1KO.MAP's
 # [fonts:clut8] names both M1L1.SVF); no korean05/06.fnt exists in this patch.
 # The TTF field starts with $FONTS (default ~/scummvm-i18n/fonts; set FONTS=... to move it).
-# The 24 px tall cells (M1L0, M1L4) are not baked from neodgm: tools/korean/bdfface.py draws them from Baekmuk
+# The 24 px tall cells (M1L0, M1L4) are not baked from neodgm: jamoset.py writes them from Taebaek's 24 dot faces
 # (SCUMM_FONTS.md, "24 dot faces"), so they have no row here.
 M1L1.SVF	1	$FONTS/pixel/neodgm/neodgm.ttf	16	1	-
 M1L2.SVF	2	$FONTS/pixel/neodgm/neodgm.ttf	16	1	13

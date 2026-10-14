@@ -7,7 +7,7 @@
 #   picks true colour.
 #   render_target=clut8 (8-bit palette): M1L*.SVF, 1 bpp, drawn hard-edged: M1L1/2 are a pixel
 #   face baked by tools/korean/scumm-fonts/m1l.tsv, and the 24 px tall cells (M1L0, M1L4) a real 24 dot
-#   face (Baekmuk, tools/korean/bdfface.py), 24x24 cells that step as the game's cell does.
+#   DOS Hangul face (Taebaek jamo set, jamoset.py --layout 844-hbios24), 24x24 cells that step as the game's cell does.
 # Cells per charset: cs0 22x24, cs1/cs3 16x16, cs2 18x18, cs4 26x24; both
 # presets bake the same cells. Charsets that share a cell share one SVF.
 # Charset 6 (the Ultimate Talkie verb bar) has no section of its own: the engine lays it out on
