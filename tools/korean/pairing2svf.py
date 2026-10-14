@@ -191,7 +191,7 @@ def key_value(line):
     return k.strip().lower(), v.split(";")[0].split(" #")[0].strip()
 
 
-def make_map(template_text, game, fonts, aliases, blend):
+def make_map(template_text, game, fonts, aliases, blend, decorations=None):
     """The game's map with the chosen faces in place of the old ones.
 
     A section's old face stays behind the new one in its chain (face=kp1,ui),
@@ -250,6 +250,23 @@ def make_map(template_text, game, fonts, aliases, blend):
     if "render" in by_name:
         by_name["render"][1] = set_key(by_name["render"][1], "blend", blend)
 
+    # A charset whose original face has a measured outline or drop gets it
+    # back, grown to the Korean face: [shadow.N] over the map's [shadow].
+    shadow_secs = []
+    for f in fonts:
+        m = (decorations or {}).get(f["id"])
+        n = font_section(f["id"])
+        if not m or not n:
+            continue
+        ratio = f["korean"].get("h", 0) / (2 * f.get("lineh", 0)) if f.get("lineh") else 1.0
+        lines = [f"[shadow.{n.split('.')[1]}]"]
+        if "o" in m:
+            width = round(0.75 * 2 * m["o"] * ratio * 4) / 4
+            lines.append(f"width={width:g}")
+        else:
+            lines.append(f"offset={max(1, round(2 * max(m['d']) * ratio))}")
+        shadow_secs.append(lines)
+
     fonts_sec = ["[fonts]"] + [f"{a}={svf_name(k)}" for k, a in aliases.items()] + \
         ["; the map's own faces, behind the chosen ones for the symbols they lack"] + old_fonts + \
         ([] if has_cjk else [f"{CJK_ALIAS}={CJK_FACE}"])
@@ -268,6 +285,8 @@ def make_map(template_text, game, fonts, aliases, blend):
             inserted = True
     if not inserted:
         out += fonts_sec
+    for lines in shadow_secs:
+        out += lines
     return "\n".join(out).rstrip("\n") + "\n"
 
 
@@ -307,6 +326,9 @@ def main():
     if missing:
         sys.exit(f"faces not in {args.data}: {', '.join(sorted(missing))}")
 
+    table_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scumm-fonts", "original-decoration.json")
+    table = json.load(open(table_path, encoding="utf-8"))
+
     os.makedirs(args.out, exist_ok=True)
     blobs = {k: svfn_bytes(f) for k, f in faces.items()}
     manifest = ["# Font-pairing output", "", f"Selection: {os.path.basename(args.selection)} "
@@ -328,7 +350,8 @@ def main():
             folder = os.path.join(args.out, slug if len(templates[g["game"]]) == 1
                                   else slug + "-" + map_name.split(".")[0].lower())
             os.makedirs(folder, exist_ok=True)
-            text = make_map(open(template, encoding="utf-8").read(), g["game"], fonts, aliases, blend)
+            text = make_map(open(template, encoding="utf-8").read(), g["game"], fonts, aliases, blend,
+                            decorations=table.get(g["game"]))
             open(os.path.join(folder, map_name), "w", encoding="utf-8").write(text)
             for k in aliases:
                 open(os.path.join(folder, svf_name(k)), "wb").write(blobs[k])

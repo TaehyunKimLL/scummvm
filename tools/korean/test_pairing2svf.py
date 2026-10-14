@@ -131,6 +131,21 @@ class MapTest(unittest.TestCase):
         self.assertEqual(p2s.font_section("300"), "font.300")
         self.assertIsNone(p2s.font_section("builtin"))
 
+    def test_measured_fonts_get_their_shadow_section(self):
+        fonts = [{"id": "cs3", "lineh": 15, "korean": {"key": "a", "label": "a", "bpp": 2, "h": 30}},
+                 {"id": "cs6", "lineh": 28, "korean": {"key": "b", "label": "b", "bpp": 2, "h": 56}},
+                 {"id": "cs1", "lineh": 8, "korean": {"key": "a", "label": "a", "bpp": 2, "h": 16}}]
+        deco = {"cs3": {"o": 2}, "cs6": {"d": [2, 2]}}
+        text = p2s.make_map("[map]\n[shadow]\nmode=game\n[font]\nface=ui\n", "G", fonts,
+                            {"a": "kp1", "b": "kp2"}, "auto", decorations=deco)
+        s = {n: l for n, l in p2s.parse_sections(text) if n}
+        self.assertIn("width=3", s["shadow.3"])          # 0.75 x 2 x 2 x (30/30)
+        self.assertIn("offset=4", s["shadow.6"])         # 2 x 2 x (56/56)
+        self.assertNotIn("shadow.1", s)
+        self.assertIn("mode=game", s["shadow"])
+        names = [n for n, _ in p2s.parse_sections(text) if n]
+        self.assertGreater(names.index("shadow.3"), names.index("fonts"))
+
 
 if __name__ == "__main__":
     unittest.main()
