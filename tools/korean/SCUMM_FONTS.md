@@ -19,7 +19,9 @@ TrueType `--size`, or the bitmap face's own height), not the cell:
 | `NEODG` | Neo Dunggeunmo 1.601 (neodgm) | OFL.TXT, NEODGM.TXT |
 | `NGOTB` | NanumGothic Bold (2 bpp: the Google Fonts build; 1 bpp: NHN's hinted original, `--mono-hint`) | OFLNANUM.TXT, NANUMGOT.TXT |
 | `GBATB` | Gowun Batang Bold | OFLGOWUN.TXT, GOWUNBAT.TXT |
-| `TBGOB`, `TBMY`, `TBGHC` | Taebaek 3.5 GOTHIC24 (emboldened) and MY24 (myeongjo); GHANC24/48 printer faces (gothic, 8x4x4) | TAEBAEK.TXT |
+| `TBGOB`, `TBMY`, `TBGHC`, `TBGHN`, `TBTHG` | Taebaek 3.5 GOTHIC24 (emboldened) and MY24 (myeongjo); GHANC24/48 printer faces (gothic, 8x4x4); GHAN40 printer face (precomposed); T-Hangul TBG1 (gothic, 16 px) | TAEBAEK.TXT |
+| `DKBHG` | Dokkaebi Hangul 5.1 printer HANGUL24.FNT face 0 | DKBHG.TXT |
+| `SMYJO`, `AMYJO`, `JGODK` | Mac Korean system font strikes: Sinmyungjo, AppleMyungjo, Jung-Gothic | MACHAN.TXT (AMYJO20: APPLEMJ.TXT, gone) |
 | `SANGAM`, `IYAGI` | san 1.0 GAM.KOR and IYG.KOR | SAN10.TXT |
 | `HWPHG`, `HWPHM` | HWP 1.20 HANGUL3.PFT face 0 and HWP 1.x HANGUL1.PFT (serif) | HWP120.TXT |
 | `HTERM` | hanterm-font 3.1 `8-4-4/h01.bdf` | HTERM.TXT |
@@ -50,8 +52,10 @@ beside them list the games that use each):
 
 | face | source | px | cell | bpp | layout | glyphs | was |
 |---|---|---|---|---|---|---|---|
+| AMYJO18 | Mac Hangul AppleMyungjo 18 px strike | 18 | 18x20 | 1 | precomposed | 2453 (2,350 + symbols, no ASCII) | LSL1 EGA (font 359) |
 | BHSAN28 | Black Han Sans | 28 | 28x28 | 2 | precomposed | 1214 (game subset) | Q1T28 |
 | COUSB24 | Coustard Black | 24 | 28x28 | 2 | precomposed | 95 | Q1L28 |
+| DKBHG24 | Dokkaebi HANGUL24.FNT face 0 (printer) | 24 | 24x24 | 1 | jamo | 11,172 composed | LSL1 EGA (fonts 1, 60) |
 | DIPHY36 | Diphylleia Regular, 1 bpp mono render | 36 | 36x36 | 1 | precomposed | 2358 (2,350 + symbols, no ASCII) | LB1 (font 40) |
 | GBATB14 | Gowun Batang Bold, AA | 14 | 16x16 | 2 | precomposed | 2446 | M2U8 |
 | GBATB17 | Gowun Batang Bold, AA | 17 | 16x16 | 2 | precomposed | 3155 | KO2350B |
@@ -65,6 +69,7 @@ beside them list the games that use each):
 | GBATB31 | Gowun Batang Bold, AA | 31 | 32x32 | 2 | precomposed | 1121 (game subset) | I4U3 |
 | GBATB35 | Gowun Batang Bold, AA | 35 | 36x36 | 2 | precomposed | 2446 | DOTTU7 |
 | GBATB47 | Gowun Batang Bold, AA | 47 | 46x54 | 2 | precomposed | 2446 | DOTTU0 |
+| JGODK18 | Mac Hangul Jung-Gothic 18 px strike | 18 | 18x18 | 1 | precomposed | 2453 (2,350 + symbols, no ASCII) | LSL1 EGA (font 1207) |
 | HTERM16 | hanterm-font 3.1 8-4-4/h01.bdf | 16 | 16x16 | 1 | jamo | 11,172 composed | KQ1KO (font 0) |
 | HWPHM24 | HWP 1.x HANGUL1.PFT (serif) | 24 | 24x24 | 1 | jamo | 11,172 composed | - |
 | IYAGI16 | san 1.0 IYG.KOR (Iyagi) + SAN.ENG | 16 | 16x16 | 1 | jamo | 11,172 composed | KQ1 |
@@ -100,8 +105,11 @@ beside them list the games that use each):
 | NGOTB21A | NanumGothic Bold (Google), AA | 21 | 22x24 | 2 | precomposed | 2446 | M1U0, M2U0 |
 | NGOTB22 | NanumGothic Bold (Google), AA | 22 | 22x22 | 2 | precomposed | 1216 (game subset) | Q1G22 |
 | SANGAM16 | san 1.0 GAM.KOR + SAN.ENG | 16 | 16x16 | 1 | jamo | 11,172 composed | KOJ16 |
+| SMYJO18 | Mac Hangul Sinmyungjo 18 px strike | 19 | 19x18 | 1 | precomposed | 2453 (2,350 + symbols, no ASCII) | LSL1 EGA (font 59) |
 | TBGHC48 | Taebaek 3.5 GHANC48.PFT | 48 | 48x48 | 1 | jamo | 11,172 composed | - |
+| TBGHN40 | Taebaek 3.5 GHAN40 printer face (gothic) | 40 | 40x40 | 1 | precomposed | 2351 (2,350 + U+25A1, no ASCII) | LSL1 EGA (font 19) |
 | TBGOB24 | Taebaek 3.5 GOTHIC24.FNT + GASCII24.PFT, 1 px emboldened | 24 | 24x24 | 1 | jamo | 11,172 composed | M1L0, M2L0 |
+| TBTHG16 | Taebaek T-Hangul TBG1 (gothic) | 16 | 16x16 | 1 | jamo | 11,172 composed | LSL1 EGA (font 4) |
 | TBMY24 | Taebaek 3.5 MY24.FNT + MASCII24.PFT | 24 | 24x24 | 1 | jamo | 11,172 composed | M1L4, M2L4 |
 | YOUTH36 | Youth (청춘체), 1 bpp mono render | 36 | 36x36 | 1 | precomposed | 2358 (2,350 + symbols, no ASCII) | LB1 (font 41) |
 | GBA14X2 | supplement (of GBATB14) |  | 16x16 | 2 | precomposed | 4 | M2U8X |
@@ -689,6 +697,18 @@ section). Licences: SAN10.TXT, HWP120.TXT, TAEBAEK.TXT, HTERM.TXT, MUNJO.TXT (th
 `DIPHY36` and `YOUTH36` are precomposed bakes of the pairing export's cells (`korean-ttf-s36b1-2.json` `diphylleia-36-1`, `youth-36-1`,
 rendered by `runs/fontmeasure/export/ttf_sizes.py 36 1`) through `pairing2svf.svfn_bytes` with the ASCII cells dropped (the game font draws
 Latin); one-game faces, so they sit in the LB1 game folder (and the engine DATA), not in a font pack.
+
+### LSL1 EGA remake (SCI1): the 8-bit preset on the pairing picks (2026-10-15)
+
+`harness/dos/release/lsl1e/HIRESBIT.MAP` (the game has no engine map): font 0 (menu/dialog buttons, status) `SANGAM16`, 1 and 60
+(message boxes) `DKBHG24` (Dokkaebi HANGUL24.FNT face 0, 24 px, `size=24 cell=glyph`), 4 `TBTHG16` (Taebaek T-Hangul TBG1), 19 `TBGHN40`
+(Taebaek 3.5 GHAN40, 40 px precomposed, streamed, `align=game`), 59 `SMYJO18` (Mac Sinmyungjo 18 px strike, 19x18), 359 `AMYJO18` (Mac
+AppleMyungjo, 18x20), 1207 `JGODK18` (Mac Jung-Gothic), 999 `IYAGI16`; English is the game's own font. The scripts pass font ids with an
+extra high bit (2048 or 4096 + the resource id: 2107 = font 59, the default message font; the resource loader masks with 0x7ff), and the
+map matches the raw id, so each section is repeated for +2048 and +4096. Faces come from the pairing export's cells
+(`pairing2svf.svfn_bytes`, ASCII dropped for the precomposed ones); jamo sets: `jamoset --layout 844 --from-svf tbg1.svf --symbols --check`
+(TBTHG16, IoU 1.000) and `--layout dkb-printer-7x2x2 --from-svf` (DKBHG24, exact 2350/2350). The text needs nothing beyond ASCII and the
+2,350 syllables: no supplement.
 
 ### KQ4 (SCI0): SANGAM16, HWPHM24, IYAGI16 and WCOMM16 (the user's pairing picks, 2026-10-15)
 
