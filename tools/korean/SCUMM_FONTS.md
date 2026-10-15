@@ -1,13 +1,12 @@
 # SCUMM Korean fonts: mkfont.py --chars-from \*.trs, scummtext.py, bake-scumm-fonts.sh
 
-Font tooling specific to the SCUMM engine's Korean targets (MI1/MI2 and
-Indiana Jones 3/4 on the DOS port). The general `mkfont.py` usage, cell-size rule and
-`--chars-from`/`--limit` design are in `README.md`; this file only covers
-what SCUMM adds: reading a `.trs` bundle for `--chars-from`, recovering text
-from a patch that never shipped one, and baking a game's charsets from a
-plan table. (This file exists separately from `README.md` because another
-change was mid-flight against that file when this one was written; expect it
-to be folded in later.)
+Font tooling specific to the Korean targets of the SCUMM and SCI games on the DOS port
+(MI1/MI2, Indiana Jones 3/4, Loom, DOTT, Maniac Mansion, Zak; KQ1, KQ4). The general `mkfont.py` usage, cell-size
+rule and `--chars-from`/`--limit` design, the jamo-set tools (`jamoset.py`), `bake-supplements.py`,
+`facecoverage.py` and `charsetchars.py` are in `README.md`; this file covers the per-game recipes: reading a
+`.trs` bundle for `--chars-from`, recovering text from a patch that never shipped one, baking a game's charsets
+from a plan table, the base-plus-supplement faces, the preload lists, and how each shipped jamo-set face was made
+(the sections from "Maniac Mansion and Zak" on, KQ1 and KQ4 last).
 
 ## `mkfont.py --chars-from *.trs`
 
@@ -308,20 +307,15 @@ whose bytes the translation's converter had mangled) and four map/puzzle
 tables restored to the game's own bytes; the bake reads the bundle as it
 stands in the game folder.
 
-Maniac Mansion, Zak McKracken, Loom and Day of the Tentacle (`MMKO.MAP`,
-`ZAKKO.MAP`, `LOOMKO.MAP`, `DOTTKO.MAP`) use the same plan-table bake, one U
-and one L plan each (`mm`, `zak`, `loom`, `dott` + `u`/`l` + `.tsv`). Every
+Loom and Day of the Tentacle (`LOOMKO.MAP`, `DOTTKO.MAP`) use the same plan-table
+bake, one U and one L plan each (`loom`, `dott` + `u`/`l` + `.tsv`). (Maniac
+Mansion and Zak McKracken left it: they draw with `KQ1G16.SVF`, below.) Every
 SVF comes out byte for byte from these commands:
 
 ```sh
 G=~/work/scummvm/gamedata D=dists/engine-data/hires_text/dos
 P=tools/korean/scumm-fonts
 printf '\xe2\x80\xa6\n' > ellipsis.txt
-# MM and Zak: one charset (0), 0x5e = u+2026, 0x60 = u+0022.
-tools/korean/bake-scumm-fonts.sh $P/mmu.tsv $G/mmkor $D $G/mmkor/korean.trs $D/MMKO.MAP 2026
-tools/korean/bake-scumm-fonts.sh $P/mml.tsv $G/mmkor $D $G/mmkor/korean.trs $D/MMKO.MAP 2026
-tools/korean/bake-scumm-fonts.sh $P/zaku.tsv $G/zakkor $D $G/zakkor/korean.trs $D/ZAKKO.MAP 2026
-tools/korean/bake-scumm-fonts.sh $P/zakl.tsv $G/zakkor $D $G/zakkor/korean.trs ellipsis.txt 2026
 # Loom: charsets 1 and 2. U also takes (TM) and (C) from the map (0x0f, 0x3d); L keeps the
 # game's 0x0f and only needs the ellipsis.
 tools/korean/bake-scumm-fonts.sh $P/loomu.tsv $G/loomkor $D $G/loomkor/korean.trs $D/LOOMKO.MAP 2026,2122,a9
@@ -363,6 +357,22 @@ repairs a face converted before that (M1L1 had 42). `--from-ttf` fits only the s
 Each run prints `fit: N syllables, IoU 1.000 ... exact N`; a face that is not
 exact stays precomposed (check the line before the `mv`). The U faces (2 bpp)
 stay precomposed. The maps are unchanged: same face names.
+
+### Maniac Mansion and Zak McKracken: the san 16 px jamo set (KQ1G16)
+
+`MMKO.MAP` and `ZAKKO.MAP` (V2 DOS, one charset: the game's 8 px cell at scale 2 is 16 px) draw with `KQ1G16.SVF`, the user's
+pairing selection (2026-10-15): san-1.0's GAM.KOR 16 px, layout 844, ascent 14, with SAN.ENG for ASCII, 1 bpp, the same in every
+render_target (`blend=off`; the earlier NanumGothic 2 bpp U and neodgm 1 bpp L presets, `MMU0/MML0/ZAKU0/ZAKL0.SVF`, are gone).
+It is the face KQ1 had before KQ1I16 and KQ4KO.MAP still uses, so it is one file for all three (no per-game copy). The two
+translations hold only ASCII and KS X 1001 syllables plus the `[glyphs]` targets U+2026 and U+0022, so there is no supplement
+(`facecoverage.py --base-check` passes for both). Bake (identical bytes to the shipped file):
+
+```sh
+B=~/work/johab-fonts/dos/raw/gh_drypot__san-1.0
+python3 tools/korean/jamoset.py --layout 844 $B/font-kor/GAM.KOR --eng $B/font-eng/SAN.ENG --symbols --check -o $D/KQ1G16.SVF
+```
+
+Licences: KQ4FONT.TXT and KQ1FONT.TXT (san is MIT).
 
 ### MI1 and MI2: the 24 dot faces (M1L0, M1L4, M2L0, M2L4)
 
@@ -406,7 +416,7 @@ and the other renderers: light autohint, forced autohint, 16/18 px, for the best
 Notes per game:
 
 * The cells are 2x the game's `korean0N.fnt` header, as everywhere: MM/Zak
-  charset 0 (the patch's one font), Loom cs1 16x16 and cs2 18x18, DOTT cs0 46x54,
+  charset 0 (the patch's one font; 16x16, now `KQ1G16.SVF`), Loom cs1 16x16 and cs2 18x18, DOTT cs0 46x54,
   cs1 16x16, cs2 20x24, cs3/5/8 18x24, cs4 22x22, cs7 36x36. DOTT has no
   `korean06.fnt`, so `[font.6]` uses the cs0 face; cs5 and cs8 use cs3's SVF.
 * L is neodgm at 16 px (32 px for the 46x54 and 36x36 DOTT cells, ascent
