@@ -6,11 +6,13 @@
 ; decorated it is. A line is the game height x 2 hi-res px; each face is baked
 ; in a cell two px smaller (the leading), on one baseline, ink clipped to the
 ; cell. Baked by tools/korean/bake-qfg1-fonts.sh from the characters the
-; translation uses.
+; translation uses; fonts 0, 3, 4 use NGOTB16.SVF, the shared NanumGothic Bold
+; 16 px KS X 1001 face of the same cell and baseline (its glyphs are the ones
+; the QFG1 subset had, byte for byte).
 ;
 ;   id    game px  look                               line  face
 ;   999       8     tiny, plain                         16   NGOTB14  NanumGothic-Bold 14
-;   0,3,4     9     plain: status bar, dialogue, UI     18   NGOTB16C NanumGothic-Bold 16
+;   0,3,4     9     plain: status bar, dialogue, UI     18   NGOTB16  NanumGothic-Bold 16
 ;   2107     10     calligraphic                        20   GBATB18A GowunBatang-Bold 18
 ;   1        12     plain, larger                       24   NGOTB22  NanumGothic-Bold 22
 ;   300      12     calligraphic: message boxes         24   GBATB21  GowunBatang-Bold 21
@@ -28,7 +30,7 @@ blend=auto
 
 [fonts]
 g14=NGOTB14.SVF
-g16=NGOTB16C.SVF
+g16=NGOTB16.SVF
 b18=GBATB18A.SVF
 g22=NGOTB22.SVF
 b22=GBATB21.SVF

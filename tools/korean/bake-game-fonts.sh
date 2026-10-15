@@ -1,7 +1,7 @@
 #!/bin/bash
 # Bake a per-game ("sparse") subset Korean font pair: only the code points a
 # game's own UTF-8 translation actually uses, further limited to what its
-# preset's shared font (bake-dos-fonts.sh's NEODG16.SVF / NGOTB16A.SVF) could
+# preset's shared font (bake-dos-fonts.sh's NEODG16.SVF / the NanumGothic-Bold cp949 bake) could
 # draw in the first place. See tools/korean/README.md, "Only what a game
 # uses: --chars-from, --limit".
 #
@@ -21,8 +21,8 @@
 #
 # Writes to OUTDIR <NAME>L.SVF (NEODG16 settings: neodgm, 16px, 1bpp, KS X
 # 1001 without Hanja) and the U preset's two faces, named by NAME less a
-# trailing KO: <SHORT>GOT.SVF (UI; NGOTB16A settings: NanumGothic-Bold 16px,
-# 2bpp, cp949) and <SHORT>BAT.SVF (body; GBATB17A settings: Gowun Batang Bold
+# trailing KO: <SHORT>GOT.SVF (UI; cp949 bake settings: NanumGothic-Bold 16px,
+# 2bpp, cp949) and <SHORT>BAT.SVF (body; Gowun Batang bake settings: Gowun Batang Bold
 # 17px, 2bpp, Hangul + KS X 1001 symbols). NAME becomes the 8.3 stem - keep
 # it to 5 characters (KQ1KO -> KQ1KOL.SVF, KQ1GOT.SVF, KQ1BAT.SVF).
 #
@@ -50,10 +50,10 @@ mkdir -p "$out"
 # L preset source: neodgm, as bake-dos-fonts.sh's NEODG16.SVF.
 # NEODGM=/path/to/neodgm.ttf bakes another copy.
 neodgm="${NEODGM:-$here/../../dists/engine-data/hires_text/fonts/neodgm/neodgm.ttf}"
-# U preset source: NanumGothic-Bold, as bake-dos-fonts.sh's NGOTB16A.SVF.
+# U preset source: NanumGothic-Bold, as bake-dos-fonts.sh's NGOTB16.SVF (cp949 here).
 # NANUMGOTHIC_BOLD=/path/to/NanumGothic-Bold.ttf bakes another copy.
 nanum="${NANUMGOTHIC_BOLD:-$here/../../dists/engine-data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf}"
-# Body face: Gowun Batang Bold, as bake-dos-fonts.sh's GBATB17A.SVF.
+# Body face: Gowun Batang Bold, as bake-dos-fonts.sh's GBATB17.SVF (Hangul + symbols here).
 gowun="${GOWUNBATANG_BOLD:-$here/../../dists/engine-data/hires_text/fonts/gowunbatang/GowunBatang-Bold.ttf}"
 for f in "$neodgm" "$nanum" "$gowun"; do
 	if [ ! -f "$f" ]; then
@@ -90,14 +90,14 @@ echo "== $name L (NEODG16 settings: neodgm 16px 1bpp, KS X 1001 without Hanja) =
 python3 "$here/mkfont.py" "$neodgm" "$out/${name}L.SVF" --size 16 --cell 16 --bpp 1 \
 	--chars-from "${srcs[@]}" --limit ascii,ksx1001-nohanja --require
 
-# The U preset's two faces (bake-dos-fonts.sh's NGOTB16A.SVF and GBATB17A.SVF
-# settings), named by NAME without its KO: KQ1KO -> KQ1GOT.SVF (UI) and
+# The U preset's two faces (bake-dos-fonts.sh's NGOTB16 and GBATB17 settings,
+# with the cp949 / 11172-syllable limits), named by NAME without its KO: KQ1KO -> KQ1GOT.SVF (UI) and
 # KQ1BAT.SVF (body).
 short="${name%KO}"
-echo "== $name UI: ${short}GOT.SVF (NGOTB16A settings: NanumGothic-Bold 16px 2bpp, cp949) =="
+echo "== $name UI: ${short}GOT.SVF (NanumGothic-Bold 16px 2bpp, cp949) =="
 python3 "$here/mkfont.py" "$nanum" "$out/${short}GOT.SVF" --size 16 --cell 16 --clip-cell --ascent 14 \
 	--bpp 2 --chars-from "${srcs[@]}" --limit ascii,cp949 --require
 
-echo "== $name body: ${short}BAT.SVF (GBATB17A settings: Gowun Batang Bold 17px 2bpp) =="
+echo "== $name body: ${short}BAT.SVF (Gowun Batang Bold 17px 2bpp) =="
 python3 "$here/mkfont.py" "$gowun" "$out/${short}BAT.SVF" --size 17 --cell 16 --clip-cell --ascent 15 \
 	--bpp 2 --chars-from "${srcs[@]}" --limit ascii,cp949-hangul,ksx1001-symbols

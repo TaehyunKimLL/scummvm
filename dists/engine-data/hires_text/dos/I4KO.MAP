@@ -5,7 +5,7 @@
 #   dialogue, verbs and the sentence line in a gothic face, the credit titles
 #   in a serif face. With them in the bare sections, render_target=auto
 #   picks true colour.
-#   render_target=clut8 (8-bit palette): NEODG16I/NEODG16L/NEODG32B.SVF, 1 bpp, baked from a pixel
+#   render_target=clut8 (8-bit palette): NEODG16 (the shared KS X 1001 face)/NEODG16L/NEODG32B.SVF, 1 bpp, baked from a pixel
 #   face (tools/korean/scumm-fonts/i4l.tsv), drawn hard-edged.
 # Charsets (atlantis.001): cs1 16x16 (verbs, sentence line), cs2 20x18
 # (dialogue), cs3 32x32 (credit titles); both presets bake the same cells.
@@ -30,7 +30,7 @@ small=NGOTB15B.SVF
 dlg=NGOTB16E.SVF
 card=GBATB31.SVF
 [fonts:clut8]
-small=NEODG16I.SVF
+small=NEODG16.SVF
 dlg=NEODG16L.SVF
 card=NEODG32B.SVF
 

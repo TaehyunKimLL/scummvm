@@ -6,5 +6,5 @@
 # The cell is the charset's korean<NN>.fnt header doubled (bake-scumm-fonts.sh): cs1 16x16,
 # cs2 18x18. A cell taller than 16 puts the face in the middle: ascent = 12 + (cell height - 16) / 2.
 # The TTF field starts with $FONTS (default ~/scummvm-i18n/fonts; set FONTS=... to move it).
-NEODG16G.SVF	1	$FONTS/pixel/neodgm/neodgm.ttf	16	1	-
+# cs1 (16x16) is the shared 16x16 face NEODG16.SVF (bake-dos-fonts.sh; the same glyphs byte for byte as this row baked), so it has no row.
 NEODG16J.SVF	2	$FONTS/pixel/neodgm/neodgm.ttf	16	1	13

@@ -5,7 +5,7 @@
 #   dialogue, verbs and the sentence line in a gothic face, the title card
 #   in a serif face. With them in the bare sections, render_target=auto
 #   picks true colour.
-#   render_target=clut8 (8-bit palette): NEODG16H.SVF and NEODG16K.SVF, 1 bpp, baked from a pixel
+#   render_target=clut8 (8-bit palette): NEODG16.SVF (the shared KS X 1001 face) and NEODG16K.SVF, 1 bpp, baked from a pixel
 #   face (tools/korean/scumm-fonts/i3l.tsv), drawn hard-edged.
 # The game has two charsets (98.LFL, 99.LFL): cs0 16x16 (dialogue, verbs,
 # sentence line) and cs1 18x18 (the title card); both presets bake the same
@@ -26,7 +26,7 @@ encoding=cp949
 dlg=NGOTB15A.SVF
 card=GBATB18.SVF
 [fonts:clut8]
-dlg=NEODG16H.SVF
+dlg=NEODG16.SVF
 card=NEODG16K.SVF
 
 [font]

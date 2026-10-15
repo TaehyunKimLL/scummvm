@@ -71,7 +71,7 @@ its 4888 Hanja).
 
 ### Only what a game uses: `--chars-from`, `--limit`
 
-A shared font (`bake-dos-fonts.sh`'s `NEODG16.SVF`/`NGOTB16A.SVF`) has to cover
+A shared font (`bake-dos-fonts.sh`'s `NEODG16.SVF`/`NGOTB16.SVF`) has to cover
 every game; a single game's translation uses far fewer code points, and a
 per-game bake of just those is smaller. `--chars-from <file>...` collects
 every code point a game's translation actually writes and unions it into
@@ -183,8 +183,8 @@ font id, `[font.N] face=`):
 
 | file | face | size | ascent | cut (full cp949 / Hangul set) |
 |---|---|---|---|---|
-| `NGOTB16A.SVF` (UI) | NanumGothic-Bold | 16 px | 14 | 478 of 11693 glyphs, 641 fringe px |
-| `GBATB17A.SVF` (body) | Gowun Batang Bold | 17 px | 15 | 8480 of 11968 glyphs, 3679 full + 28754 fringe px |
+| NanumGothic cp949 bake (UI; no longer shipped) | NanumGothic-Bold | 16 px | 14 | 478 of 11693 glyphs, 641 fringe px |
+| Gowun Batang 11172 bake (body; no longer shipped) | Gowun Batang Bold | 17 px | 15 | 8480 of 11968 glyphs, 3679 full + 28754 fringe px |
 
 Gowun Batang's ink is 17 rows at 17 px, so most of its glyphs lose a row
 of mostly antialiased fringe at the bottom; the SCI engine clips glyph ink

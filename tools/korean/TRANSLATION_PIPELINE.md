@@ -494,7 +494,7 @@ script-strings`/`extract` 두 서브커맨드가 사실상 전부다 — SCI1 �
   `bake-game-fonts.sh`는 여전히 "게임별 `.MAP`의 자체 `missing=` 점검"과
   SCI 외 다른 패키지에 쓰인다(`bake-dos-fonts.sh:5-7` 주석).
 - `tools/korean/bake-dos-fonts.sh`(1-60행+) — **DOS 공용 L/U 프리셋**
-  (`NEODG16.SVF`, `NGOTB16A.SVF`/`GBATB17A.SVF`, 그리고 2350로 좁힌
+  (`NEODG16.SVF`, cp949 전체 판(2026-10-15 삭제), 그리고 2350로 좁힌
   `NGOTB16.SVF`/`GBATB17.SVF`)을 굽는다. "common2350" 게이트: 출시된 모든
   SCI 번역(KQ1/LB1/Camelot의 UTF-8 TEXT.*/SCI-KO.STR/RESOURCE.MSG, LB2의
   네이티브 CP949 RESOURCE.MSG)이 실제로 쓰는 코드포인트를 `ascii+

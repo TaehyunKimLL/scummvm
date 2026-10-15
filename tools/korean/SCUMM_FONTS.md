@@ -51,7 +51,6 @@ beside them list the games that use each):
 | COUSB24 | Coustard Black | 24 | 28x28 | 2 | precomposed | 95 | Q1L28 |
 | GBATB14 | Gowun Batang Bold, AA | 14 | 16x16 | 2 | precomposed | 2446 | M2U8 |
 | GBATB17 | Gowun Batang Bold, AA | 17 | 16x16 | 2 | precomposed | 3155 | KO2350B |
-| GBATB17A | Gowun Batang Bold, AA | 17 | 16x16 | 2 | precomposed | 11970 | KOBATANG |
 | GBATB17B | Gowun Batang Bold, AA | 17 | 26x24 | 2 | precomposed | 2446 | M1U4 |
 | GBATB17O | Gowun Batang Bold, AA, outline | 17 | 20x20 | 2 | precomposed | 1231 (game subset) | CAMOUU |
 | GBATB18 | Gowun Batang Bold, AA | 18 | 18x18 | 2 | precomposed | 942 (game subset) | I3U1 |
@@ -71,9 +70,6 @@ beside them list the games that use each):
 | NEODG16D | neodgm | 16 | 22x22 | 1 | jamo | 11,172 composed | DOTTL4 |
 | NEODG16E | neodgm | 16 | 18x24 | 1 | jamo | 11,172 composed | DOTTL3 |
 | NEODG16F | neodgm | 16 | 20x24 | 1 | jamo | 11,172 composed | DOTTL2 |
-| NEODG16G | neodgm | 16 | 16x16 | 1 | precomposed | 779 (game subset) | LOOML1 |
-| NEODG16H | neodgm | 16 | 16x16 | 1 | precomposed | 942 (game subset) | I3L0 |
-| NEODG16I | neodgm | 16 | 16x16 | 1 | precomposed | 1120 (game subset) | I4L1 |
 | NEODG16J | neodgm | 16 | 18x18 | 1 | precomposed | 779 (game subset) | LOOML2 |
 | NEODG16K | neodgm | 16 | 18x18 | 1 | precomposed | 942 (game subset) | I3L1 |
 | NEODG16L | neodgm | 16 | 20x18 | 1 | precomposed | 1120 (game subset) | I4L2 |
@@ -87,9 +83,7 @@ beside them list the games that use each):
 | NGOTB15B | NanumGothic Bold (Google), AA | 15 | 16x16 | 2 | precomposed | 1123 (game subset) | I4U1 |
 | NGOTB15C | NanumGothic Bold (Google), AA | 15 | 16x16 | 2 | precomposed | 781 (game subset) | LOOMU1 |
 | NGOTB16 | NanumGothic Bold (Google), AA | 16 | 16x16 | 2 | precomposed | 2880 | KO2350G |
-| NGOTB16A | NanumGothic Bold (Google), AA | 16 | 16x16 | 2 | precomposed | 11695 | KOCP949 |
 | NGOTB16B | NanumGothic Bold (Google), AA | 16 | 18x18 | 2 | precomposed | 2446 | M1U2, M2U2 |
-| NGOTB16C | NanumGothic Bold (Google), AA | 16 | 16x16 | 2 | precomposed | 1216 (game subset) | Q1G16 |
 | NGOTB16D | NanumGothic Bold (Google), AA | 16 | 18x18 | 2 | precomposed | 781 (game subset) | LOOMU2 |
 | NGOTB16E | NanumGothic Bold (Google), AA | 16 | 20x18 | 2 | precomposed | 1123 (game subset) | I4U2 |
 | NGOTB17 | NanumGothic Bold (NHN), mono hinted | 17 | 18x18 | 1 | precomposed | 2446 | M1L2, M2L2 |
@@ -116,6 +110,12 @@ beside them list the games that use each):
 | NGO21AX2 | supplement (of NGOTB21A) |  | 22x24 | 2 | precomposed | 4 | M2U0X |
 | TBG24X2 | supplement (of TBGOB24) |  | 24x24 | 1 | precomposed | 2 | M2L0X |
 | TBM24X2 | supplement (of TBMY24) |  | 24x24 | 1 | precomposed | 2 | M2L4X |
+
+Removed and merged later the same day (the letters stay unused, names are not reassigned): NGOTB16A and GBATB17A
+(ex KOCP949, KOBATANG: full cp949 / 11,172-syllable bakes no map named) are gone; NEODG16G, NEODG16H, NEODG16I (ex
+LOOML1, I3L0, I4L1) and NGOTB16C (ex Q1G16) were game subsets of NEODG16 / NGOTB16 with byte-identical glyphs,
+metrics, cell, ascent and flags, so Loom cs1, Indy3 cs0, Indy4 cs1/cs5 (8-bit) and QFG1 VGA fonts 0, 3, 4 now name
+the shared face (frame buffers before and after identical).
 
 ## The fallback face SANGAM16.SVF
 

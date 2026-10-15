@@ -2,7 +2,7 @@
 # render_target picks one.
 #   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): NGOTB15C/NGOTB16D.SVF,
 #   2 bpp, anti-aliased (blend=auto), baked by tools/korean/scumm-fonts/loomu.tsv from a gothic face.
-#   render_target=clut8 (8-bit palette): NEODG16G/NEODG16J.SVF, 1 bpp, baked from a pixel face
+#   render_target=clut8 (8-bit palette): NEODG16 (the shared KS X 1001 face)/NEODG16J.SVF, 1 bpp, baked from a pixel face
 #   (tools/korean/scumm-fonts/looml.tsv), drawn hard-edged.
 # The patch ships korean01.fnt (16x16) and korean02.fnt (18x18); both presets bake those cells.
 # Licences: see NANUMGOT.TXT and NEODGM.TXT beside this file.
@@ -22,7 +22,7 @@ encoding=cp949
 cs1=NGOTB15C.SVF
 cs2=NGOTB16D.SVF
 [fonts:clut8]
-cs1=NEODG16G.SVF
+cs1=NEODG16.SVF
 cs2=NEODG16J.SVF
 
 [font]

@@ -11,8 +11,8 @@
 # Every line takes a limit of its own (seventh field): the bundle's map and puzzle tables
 # (records 20 and 83, never drawn) decode to a few KS X 1001 symbols, three of which (U+0421 С,
 # U+2160 Ⅰ, U+30B3 コ) neodgm lacks; the text itself uses Hangul, one jamo (ㅊ) and ASCII only.
-# Charsets 4 and 5 have no korean0N.fnt; I4KO.MAP points them at NEODG16L.SVF and NEODG16I.SVF.
+# Charsets 4 and 5 have no korean0N.fnt; I4KO.MAP points them at NEODG16L.SVF and NEODG16.SVF.
 # The TTF field starts with $FONTS (default ~/scummvm-i18n/fonts; set FONTS=... to move it).
-NEODG16I.SVF	1	$FONTS/pixel/neodgm/neodgm.ttf	16	1	-	ascii,ksx1001-hangul,3131-318e
+# cs1 (16x16) is the shared 16x16 face NEODG16.SVF (bake-dos-fonts.sh; the same glyphs byte for byte as this row baked), so it has no row.
 NEODG16L.SVF	2	$FONTS/pixel/neodgm/neodgm.ttf	16	1	13	ascii,ksx1001-hangul,3131-318e
 NEODG32B.SVF	3	$FONTS/pixel/neodgm/neodgm.ttf	32	1	24	ascii,ksx1001-hangul,3131-318e

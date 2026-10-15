@@ -9,7 +9,7 @@
 # QFG1's fonts, game height (px) x 2 = the hi-res line, and the face chosen by
 # height and decoration. The cell is the line less 2 px of leading:
 #   999   8  plain, tiny           line 16  NGOTB14  NanumGothic-Bold  14
-#   0,3,4 9  plain (UI, dialogue)  line 18  NGOTB16C  NanumGothic-Bold  16
+#   0,3,4 9  plain (UI, dialogue)  line 18  NGOTB16   NanumGothic-Bold  16 (shared)
 #   2107 10  calligraphic          line 20  GBATB18A  GowunBatang-Bold  18
 #   1    12  plain, larger         line 24  NGOTB22  NanumGothic-Bold  22
 #   300  12  calligraphic body     line 24  GBATB21  GowunBatang-Bold  22
@@ -29,7 +29,8 @@ bake() { # ttf out size cell ascent [unicode-limit]
 		--chars-from "$text" "$str" --limit "${6:-ascii,ksx1001-nohanja}"
 }
 bake "$nanum" NGOTB14.SVF 14 14 12
-bake "$nanum" NGOTB16C.SVF 16 16 14
+# fonts 0, 3, 4: NGOTB16.SVF, the shared face of bake-dos-fonts.sh (same size, cell, ascent:
+# the glyphs this line used to bake are byte for byte its own), so no bake here
 bake "$gowun" GBATB18A.SVF 18 18 16
 bake "$nanum" NGOTB22.SVF 22 22 19
 bake "$gowun" GBATB21.SVF 21 22 19
