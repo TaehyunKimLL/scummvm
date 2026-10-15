@@ -1,43 +1,30 @@
-; King's Quest I (SCI remake), Korean UTF-8 translation. One map, two presets;
-; the ini's render_target picks one.
+; King's Quest I (SCI remake), Korean UTF-8 translation. One map; the same two faces
+; in every render_target (1 bpp, hard-edged, so no preset differs).
 ;
-; Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): two faces,
-; picked by the game's font id:
-;   body - font 300, the message boxes and narration: KO2350B.SVF (Gowun
-;          Batang Bold, 17 px, 2 bpp, ASCII + ksx1001-nohanja: 2350 Hangul +
-;          KS X 1001 symbols);
-;   ui   - everything else (font 0: status line, menu bar, parser line;
-;          font 4: the title menu's buttons; any other id): KO2350G.SVF
-;          (NanumGothic-Bold, 16 px, 2 bpp, same charset).
-; Both are baked on one baseline in a 16x16 cell (bake-dos-fonts.sh,
-; --clip-cell): align=cell puts them on the game's 16-row line with no
-; offset and no ink above or below it. The 16 px KO2350.SVF does not back
-; them up: its other baseline would make the face chain 18 rows and move
-; every glyph up a row; KQ1's text needs none of the symbols it holds.
-; blend=auto anti-aliases the 2 bpp faces on a true-colour screen; with
-; them in the bare sections, render_target=auto picks true colour.
-;
-; render_target=clut8 (8-bit palette): every id on KO2350.SVF (16 px, 1 bpp)
-; on the game baseline, drawn hard-edged.
-;
-; Characters no face has draw U+25A1. KQ1's translation needs nothing
-; outside the 2350 Hangul.
+; Faces, picked by the game's font id (the user's pairing selection, 2026-10-15):
+;   ui   - font 0 (status line, menu bar, parser line), font 4 (the title menu's
+;          buttons) and any other id: KQ1G16.SVF, san-1.0's GAM.KOR 16 px sans with
+;          its SAN.ENG ASCII, a jamo set (all 11,172 syllables, 20 KB, lossless);
+;   body - font 300 (message boxes, narration): KQ1M24.SVF, HBIOS $KMYZN24 myeongjo
+;          24 px with $KROHN24 ASCII (12 px), a jamo set (38 KB, lossless).
+; The game draws at 320x200 and the map doubles it (scale=2): the 16 px cell is the
+; engine's default layout cell (the 8-row status/menu line); font 300 sets size=24
+; cell=glyph so the layout cell is the face's 24 px (the 12-row message line) -
+; without that the engine keeps its 16 px cell and draws the 24 px glyph 4 px off
+; its pen, overlapping its neighbours. Text wraps by the game's pixel width with the
+; faces' advances (ASCII 8/12 px, Hangul 16/24 px at 640 wide).
+; Both bases hold ASCII and every Hangul syllable; KQ1's text uses no other
+; character, so there is no supplement face. Licences: see KQ1FONT.TXT beside this file.
 [map]
 version=2
 
 [render]
 scale=2
-blend=auto
-[render:clut8]
 blend=off
 
 [fonts]
-ui=KO2350G.SVF
-body=KO2350B.SVF
-[fonts:clut8]
-; the 8-bit preset: one 1 bpp face under both names
-ui=KO2350.SVF
-body=KO2350.SVF
+ui=KQ1G16.SVF
+body=KQ1M24.SVF
 
 [font]
 face=ui
@@ -46,9 +33,8 @@ align=cell
 ; ASCII from the same SVF as the Hangul, stepped by its own widths
 range.basic-latin=same
 advance.basic-latin=font
-[font:clut8]
-; the 1 bpp ink sits on the game baseline
-align=game
 
 [font.300]
 face=body
+size=24
+cell=glyph

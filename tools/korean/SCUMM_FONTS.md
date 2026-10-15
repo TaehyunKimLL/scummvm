@@ -494,3 +494,18 @@ What follows from that:
    (charset 4: `.` 9, `a` 4, `A` 0), which is 18 rows at scale 2: a `.`
    baked at row 21 is drawn at row 39 of a 24-row cell. With
    `origin.basic-latin=face` the baked baseline is the only placement.
+
+### KQ1 (SCI remake): the san 16 px and HBIOS 24 px jamo sets (KQ1G16, KQ1M24)
+
+KQ1KO.MAP draws the game's fonts with two jamo sets, the user's pairing selection (the same in every render_target, 1 bpp):
+font 0 (status line, menu bar, parser line), 4 (title buttons) and any other id: `KQ1G16.SVF`, san-1.0's GAM.KOR 16 px with SAN.ENG
+(the face KOGAMJ.SVF was built from); font 300 (message boxes, narration): `KQ1M24.SVF`, HBIOS $KMYZN24 myeongjo 24 px with $KROHN24
+ASCII. Font 300 needs `size=24` and `cell=glyph` in its section: the engine's default layout cell is 16 px, and a 24 px face drawn
+in it lands 4 px off its pen (overlapped, sheared-looking syllables). The text has no character outside ASCII + KS X 1001 (the
+bases are complete), so there is no supplement. Licences: KQ1FONT.TXT (san is MIT; the HBIOS face's is not stated).
+
+```sh
+D=dists/engine-data/hires_text/dos; B=~/work/johab-fonts/dos/raw/gh_drypot__san-1.0; H=~/work/johab-fonts/os/extracted/PCDOS-HBIOS
+python3 tools/korean/jamoset.py --layout 844 $B/font-kor/GAM.KOR --eng $B/font-eng/SAN.ENG --symbols --check -o $D/KQ1G16.SVF
+python3 tools/korean/jamoset.py --layout 844-hbios24 "$H/\$KMYZN24.FNT" --eng "$H/\$KROHN24.FNT" --advance 24 --symbols --check -o $D/KQ1M24.SVF
+```
