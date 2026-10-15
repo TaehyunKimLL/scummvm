@@ -27,7 +27,9 @@
 ;   4   IYAGI16.SVF   Iyagi IYG.KOR, 16 px jamo set (also any other id: 999 debug)
 ;   7   TBGHC48.SVF   Taebaek GHANC48, 48 px jamo set (the printer font; the id is not drawn in play)
 ;   8   MUNJO24.SVF   Mac HangulTalk 1.0 Munjo24, 24 px jamo set (mac-fbit-45sets: 8 lead classes, 20 initial sets)
-;   40, 41  TBGHC24.SVF  Taebaek GHANC24, 24 px jamo set (the GHANC strikes are 24, 40, 48; 40 was too tall for the 36 px lines)
+;   40      DIPHY36.SVF  Diphylleia 36 px, 1 bpp precomposed (user pick; no 30-36 px jamo strike exists): the 1925 caption
+;   41      YOUTH36.SVF  Youth (청춘체) 36 px, 1 bpp precomposed: opening credits, act titles
+; Both stream and preload (DIPHY36.HOT, YOUTH36.HOT: the Hangul each font draws). One-game faces: they sit in the game folder of the LB1 pack.
 ; The game's own font draws every basic-Latin character (range.basic-latin=original, game widths): the
 ; faces carry Hangul only (the sets compose all 11,172). Faces of 24 px and up set size= and cell=glyph, so the
 ; layout cell is the face's (a face taller than 16 px drawn in the 16 px game cell lands off its pen).
@@ -54,7 +56,8 @@ hterm=HTERM16.SVF
 hwp=HWPHM24.SVF
 iyagi=IYAGI16.SVF
 munjo=MUNJO24.SVF
-gh24=TBGHC24.SVF
+cap=DIPHY36.SVF
+credit=YOUTH36.SVF
 gh48=TBGHC48.SVF
 fb=SANGAM16.SVF
 
@@ -111,9 +114,9 @@ face=body
 cell=glyph
 size=18
 [font.40:clut8]
-face=gh24,fb
+face=cap,fb
 cell=glyph
-size=24
+size=36
 align=game
 
 [font.41]
@@ -121,7 +124,15 @@ face=body
 cell=glyph
 size=18
 [font.41:clut8]
-face=gh24,fb
+face=credit,fb
 cell=glyph
-size=24
+size=36
 align=game
+
+[load:clut8]
+cap=stream
+credit=stream
+
+[preload:clut8]
+cap=DIPHY36.HOT
+credit=YOUTH36.HOT

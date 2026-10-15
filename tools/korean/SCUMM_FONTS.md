@@ -25,6 +25,8 @@ TrueType `--size`, or the bitmap face's own height), not the cell:
 | `HTERM` | hanterm-font 3.1 `8-4-4/h01.bdf` | HTERM.TXT |
 | `MUNJO` | Mac HangulTalk 1.0 Munjo (myeongjo) 'fbit' | MUNJO.TXT |
 | `AMYJO` | Mac AppleMyungjo bitmap strike | APPLEMJ.TXT |
+| `DIPHY` | Diphylleia Regular (1 bpp: FreeType mono render) | OFLDIPHY.TXT, DIPHY.TXT |
+| `YOUTH` | Youth (청춘체) (1 bpp: FreeType mono render) | YOUTH.TXT |
 | `BHSAN`, `COUSB` | Black Han Sans, Coustard Black | OFLBHS.TXT, OFLCOUS.TXT |
 
 Variant letter: when several files share a font and px (another cell, bit depth, layout or character set), the first
@@ -51,6 +53,7 @@ beside them list the games that use each):
 | AMYJO20 | Mac AppleMyungjo 20 px bitmap strike | 20 | 20x21 | 1 | precomposed | 2454 | KQ4A20 |
 | BHSAN28 | Black Han Sans | 28 | 28x28 | 2 | precomposed | 1214 (game subset) | Q1T28 |
 | COUSB24 | Coustard Black | 24 | 28x28 | 2 | precomposed | 95 | Q1L28 |
+| DIPHY36 | Diphylleia Regular, 1 bpp mono render | 36 | 36x36 | 1 | precomposed | 2358 (2,350 + symbols, no ASCII) | LB1 (font 40) |
 | GBATB14 | Gowun Batang Bold, AA | 14 | 16x16 | 2 | precomposed | 2446 | M2U8 |
 | GBATB17 | Gowun Batang Bold, AA | 17 | 16x16 | 2 | precomposed | 3155 | KO2350B |
 | GBATB17B | Gowun Batang Bold, AA | 17 | 26x24 | 2 | precomposed | 2446 | M1U4 |
@@ -98,10 +101,10 @@ beside them list the games that use each):
 | NGOTB21A | NanumGothic Bold (Google), AA | 21 | 22x24 | 2 | precomposed | 2446 | M1U0, M2U0 |
 | NGOTB22 | NanumGothic Bold (Google), AA | 22 | 22x22 | 2 | precomposed | 1216 (game subset) | Q1G22 |
 | SANGAM16 | san 1.0 GAM.KOR + SAN.ENG | 16 | 16x16 | 1 | jamo | 11,172 composed | KOJ16 |
-| TBGHC24 | Taebaek 3.5 GHANC24.PFT | 24 | 24x24 | 1 | jamo | 11,172 composed | LB1 (fonts 40, 41) |
 | TBGHC48 | Taebaek 3.5 GHANC48.PFT | 48 | 48x48 | 1 | jamo | 11,172 composed | - |
 | TBGOB24 | Taebaek 3.5 GOTHIC24.FNT + GASCII24.PFT, 1 px emboldened | 24 | 24x24 | 1 | jamo | 11,172 composed | M1L0, M2L0 |
 | TBMY24 | Taebaek 3.5 MY24.FNT + MASCII24.PFT | 24 | 24x24 | 1 | jamo | 11,172 composed | M1L4, M2L4 |
+| YOUTH36 | Youth (청춘체), 1 bpp mono render | 36 | 36x36 | 1 | precomposed | 2358 (2,350 + symbols, no ASCII) | LB1 (font 41) |
 | GBA14X2 | supplement (of GBATB14) |  | 16x16 | 2 | precomposed | 4 | M2U8X |
 | GBA17BX1 | supplement (of GBATB17B) |  | 26x24 | 2 | precomposed | 3 | M1U4X |
 | GBA23X2 | supplement (of GBATB23) |  | 24x24 | 2 | precomposed | 4 | M2U7X |
@@ -677,34 +680,39 @@ PY
 python3 tools/korean/jamoset.py --layout 844 --from-svf /tmp/hwp24.svf --symbols --check -o $D/HWPHG24.SVF
 ```
 
-### LB1 (SCI0): the 8-bit preset's faces per font id (HTERM16, HWPHM24, IYAGI16, TBGHC48, MUNJO24, TBGHC24)
+### LB1 (SCI0): the 8-bit preset's faces per font id (HTERM16, HWPHM24, IYAGI16, TBGHC48, MUNJO24, DIPHY36, YOUTH36)
 
 LB1KO.MAP's `:clut8` sections and `harness/dos/release/lb1/HIRESBIT.MAP` are the user's pairing picks (2026-10-15), one 1 bpp
 jamo set per font id: 0 (status line, menu bar, parser line) `HTERM16`, hanterm-font 3.1 h01.bdf, 16 px, ascent 14; 1 (message boxes)
 `HWPHM24`, HWP 1.x HANGUL1.PFT, 24 px serif; 4 (dialogue, narration, copy protection) and any other id `IYAGI16` (KQ1's face); 7 (not drawn in
-play) `TBGHC48`, Taebaek GHANC48, 48 px; 8 (cast names under the intro portraits) `MUNJO24`, Mac HangulTalk 1.0 Munjo24; 40 and 41 (the
-"1925" caption, credits and act titles) `TBGHC24`, GHANC24 with `align=game` (TBGHC40 first, 40 px, was too tall for the
-36 px lines: lines nearly touched; the printer family has strikes of 24, 40 and 48 px only, so 24 is the nearest original below 40, and
-`align=game` puts its baseline on the game font's, as `align=cell` left the Hangul about 4 px above the Latin). Basic Latin is the game's own font in every id
+play) `TBGHC48`, Taebaek GHANC48, 48 px; 8 (cast names under the intro portraits) `MUNJO24`, Mac HangulTalk 1.0 Munjo24; 40 (the "1925" caption)
+`DIPHY36`, Diphylleia 36 px and 41 (opening credits, act titles) `YOUTH36`, Youth (청춘체) 36 px: both the user's picks, 1 bpp
+precomposed faces (no 30-36 px jamo strike exists: the GHANC family has 24, 40 and 48 px; TBGHC40 was too tall for the 36 px lines,
+TBGHC24 small), `size=36`, `cell=glyph`, `align=game` (the face baseline on the game font's), `[load:clut8]` stream and
+`[preload:clut8]` lists `DIPHY36.HOT` (the caption's 10 syllables) and `YOUTH36.HOT` (the 82 the credits draw, from the engine's
+`hires_text_log` of the intro and the end credits). Looked at against TBGHC24, NGOTB34, SNAMS34 (Seoul Namsan M 34), GMKTB34:
+runs/lb1-pair/report3.md. Basic Latin is the game's own font in every id
 (`range.basic-latin=original`, game widths); the faces carry Hangul only. Faces of 24 px and up set `size=` and `cell=glyph`.
 The true-colour preset (NGOTB16 / GBATB17) is unchanged. `SANGAM16` is the last face of every chain (`fb`).
 
 The four pairing faces are fitted from the pairing export's precomposed cells (`pairing2svf.svfn_bytes` of the
 `korean-johab-16-6.json` key `8-4-4-h01-bdf`, `korean.json` `hwp1-pft-1`, `korean-printer-large-1bpp.json` `tb-ghanc48`,
-`korean-printer-40.json` `tb-ghanc40` for the 40 px face since dropped; TBGHC24 from `GHANC24.PFT` + `GASCII24.PFT` by
-`kfont.open_raw844`, the same `entry()`) with `jamoset --layout 844 --from-svf F.svf --symbols --check` (fit IoU 1.000, exact
+`korean-printer-40.json` `tb-ghanc40`, and TBGHC24 from `GHANC24.PFT`, both since dropped) with `jamoset --layout 844 --from-svf F.svf --symbols --check` (fit IoU 1.000, exact
 2350/2350; the jamo sets compose all 11,172):
 
 ```sh
 python3 tools/korean/jamoset.py --layout 844 --from-svf htermh01.svf --symbols --check -o $D/HTERM16.SVF
 python3 tools/korean/jamoset.py --layout 844 --from-svf hwphm24.svf  --symbols --check -o $D/HWPHM24.SVF
-python3 tools/korean/jamoset.py --layout 844 --from-svf tbghc24.svf  --symbols --check -o $D/TBGHC24.SVF
 python3 tools/korean/jamoset.py --layout 844 --from-svf tbghc48.svf  --symbols --check -o $D/TBGHC48.SVF
 ```
 
 `MUNJO24` is the Mac layout: `jamoset --layout mac-fbit-45sets Munjo24.rsrc --symbols --check -o $D/MUNJO24.SVF` (58,839 B;
 all 11,172 syllables identical to the Mac rendering; needs the JSET limits 8 lead classes / 24 initial sets, see jamoset README
 section). Licences: SAN10.TXT, HWP120.TXT, TAEBAEK.TXT, HTERM.TXT, MUNJO.TXT (the last three not stated).
+
+`DIPHY36` and `YOUTH36` are precomposed bakes of the pairing export's cells (`korean-ttf-s36b1-2.json` `diphylleia-36-1`, `youth-36-1`,
+rendered by `runs/fontmeasure/export/ttf_sizes.py 36 1`) through `pairing2svf.svfn_bytes` with the ASCII cells dropped (the game font draws
+Latin); one-game faces, so they sit in the LB1 game folder (and the engine DATA), not in a font pack.
 
 ### KQ4 (SCI0): san 16 px shared with KQ1, Mac AppleMyungjo 20 px (AMYJO20)
 
