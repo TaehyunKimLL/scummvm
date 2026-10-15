@@ -24,7 +24,9 @@ Only syllables that are really present (non-blank, and for a TTF not mapped to .
 Metrics (quality_report): per-syllable IoU and a 1 px tolerant F1 (a pixel is matched if the other glyph has ink
 within one pixel, 8-neighbourhood), mean and 5th percentile (linear interpolation); and the blob metric: the number
 of syllables whose composed glyph has fewer 8-connected ink components than the target's, i.e. composing merged
-strokes the target keeps apart ("blob_merged"); "blob_split" counts the opposite.
+strokes the target keeps apart ("blob_merged"); "blob_split" counts the opposite. Stray ink: composed pixels more
+than a pixel away from any target ink ("stray_px_mean" per syllable, "stray_syllables" with any) - the noise a
+piece carrying a fragment of another jamo leaves where that jamo is not drawn.
 """
 
 import os
@@ -180,8 +182,12 @@ def quality_report(target, composed, w, h):
     ious, f1s = [], []
     merged = split = exact = 0
     cc_t = cc_c = 0
+    stray = stray_syl = 0
     for s in sorted(target):
         t, c = target[s], composed[s]
+        far = (c & ~spread8(t, w, full)).bit_count()
+        stray += far
+        stray_syl += far > 0
         ious.append(iou(t, c))
         f1s.append(f1_tol1(t, c, w, full))
         ct, cc_ = components(t, w, full), components(c, w, full)
@@ -202,6 +208,8 @@ def quality_report(target, composed, w, h):
         "blob_split": split,
         "components_target_mean": round(cc_t / n, 3) if n else 0.0,
         "components_composed_mean": round(cc_c / n, 3) if n else 0.0,
+        "stray_px_mean": round(stray / n, 4) if n else 0.0,
+        "stray_syllables": stray_syl,
     }
 
 
@@ -221,12 +229,14 @@ def _bits(g):
 STRICT_PASSES = 1
 
 
-def fit_pieces(syl_pieces, targets, w, h, masks=None, passes=12):
+def fit_pieces(syl_pieces, targets, w, h, masks=None, passes=12, strict_first=None):
     """Fit pieces to targets.
 
     @p syl_pieces: {syllable: (initial piece key, medial key, final key or None)}; a key is any hashable (None or
     BLANK-like entries are given as None and skipped); each key belongs to one slot. @p targets: {syllable: gint}, the
     present syllables only. @p masks: {key: gint} limiting where a piece may have ink, or None for free pieces.
+    @p strict_first: start with the strict pass (default: for free pieces only; the donor-support masks of --clean
+    are loose enough to need it too).
     Returns ({key: gint} for the keys that some target uses, info dict).
     """
     syls = sorted(targets)
@@ -267,7 +277,7 @@ def fit_pieces(syl_pieces, targets, w, h, masks=None, passes=12):
         # Free pieces start from nothing, and a plain majority in the first pass lets an initial piece swallow
         # whatever most vowels draw (the medial pieces are still empty); the swallowed pixels then hide the medials'
         # own ink from them and the error never falls. So the first passes ask for ink in every user of a pixel.
-        strict = it < STRICT_PASSES and masks is None
+        strict = it < STRICT_PASSES and (masks is None if strict_first is None else strict_first)
         for slot in (0, 1, 2):
             o1, o2 = [j for j in range(3) if j != slot]
             a, b = ink_of(o1), ink_of(o2)

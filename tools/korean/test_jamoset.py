@@ -1533,5 +1533,7 @@ class MacCommandLine(unittest.TestCase):
                 self.assertIn("golden: ok", r.stdout, name)
 
 
+from test_jamoaa import *  # noqa: E402,F401,F403  (the 2 bpp / outline tests run with the rest)
+
 if __name__ == "__main__":
     unittest.main()

@@ -497,7 +497,8 @@ def renumber(t, mapping):
     out = Tables(t.lc, t.tc, t.ni, t.nm, t.nf, t.advance)
     out.lead_class, out.tail_class = list(t.lead_class), list(t.tail_class)
     out.init_set, out.med_set, out.fin_set = list(t.init_set), list(t.med_set), list(t.fin_set)
-    conv = lambda ps: [p if p == BLANK else mapping[p] for p in ps]
+    # a piece no syllable can reach (an adaptive set only some lead classes use) is left blank
+    conv = lambda ps: [p if p == BLANK else mapping.get(p, BLANK) for p in ps]
     out.init_piece, out.med_piece, out.fin_piece, out.compat = (conv(t.init_piece), conv(t.med_piece),
                                                                 conv(t.fin_piece), conv(t.compat))
     return out
@@ -594,11 +595,12 @@ def parse_svfn(data):
     return f
 
 
-def write_svfn(cell_w, cell_h, ascent, glyphs, jset, extra_flags=0, shadow=SHADOW_NONE, codepage=CODEPAGE):
-    """@p glyphs: [(cp, packed bytes, advance, ink_x, ink_w)]. Layout: header, code points, JSET, metrics, glyphs."""
+def write_svfn(cell_w, cell_h, ascent, glyphs, jset, extra_flags=0, shadow=SHADOW_NONE, codepage=CODEPAGE, bpp=1):
+    """@p glyphs: [(cp, packed bytes, advance, ink_x, ink_w)]. Layout: header, code points, JSET, metrics, glyphs.
+    @p bpp: 1, 2 or 8 (rows of cell_w * bpp bits, padded to a byte)."""
     glyphs = list(glyphs)
     n = len(glyphs)
-    stride = ((cell_w + 7) // 8) * cell_h
+    stride = ((cell_w * bpp + 7) // 8) * cell_h
     if any(len(g[1]) != stride for g in glyphs):
         raise ValueError("a glyph is not cell sized")
     cmap = b"".join(struct.pack("<II", cp, i) for cp, i in sorted((g[0], i) for i, g in enumerate(glyphs)))
@@ -607,7 +609,7 @@ def write_svfn(cell_w, cell_h, ascent, glyphs, jset, extra_flags=0, shadow=SHADO
     cmap_off = HEADER_V2
     metrics_off = cmap_off + len(cmap) + len(jset)
     data_off = metrics_off + len(metrics)
-    head = struct.pack(HEADER, MAGIC, VERSION_CMAP, FLAG_VARIABLE | FLAG_JAMO | extra_flags, 1, shadow, codepage, n,
+    head = struct.pack(HEADER, MAGIC, VERSION_CMAP, FLAG_VARIABLE | FLAG_JAMO | extra_flags, bpp, shadow, codepage, n,
                        cell_w, cell_h, min(255, ascent), 0, 0, metrics_off, data_off, len(data))
     return head + struct.pack("<I", cmap_off) + cmap + jset + metrics + data
 
@@ -809,18 +811,32 @@ def blank_whole_compat(data):
 # ---- composing and checking --------------------------------------------------------
 
 def compose(svfn, t, cp):
-    """The syllable as the engine draws it: the OR of its pieces' rows (None if not a syllable)."""
+    """The syllable as the engine draws it: the maximum coverage of its pieces at each pixel, i.e. the OR of their rows
+    at 1 bpp (glyph_source_jamo.cpp maxRow). None if not a syllable."""
     nums = pieces_of(t, cp)
     if nums is None:
         return None
-    stride = ((svfn.cell_w + 7) // 8) * svfn.cell_h
+    bpp = getattr(svfn, "bpp", 1)
+    stride = ((svfn.cell_w * bpp + 7) // 8) * svfn.cell_h
     out = bytearray(stride)
     for n in nums:
         if n == BLANK:
             continue
         piece = svfn.glyphs[PIECE_BASE + n]
-        for k in range(stride):
-            out[k] |= piece[k]
+        if bpp == 1:
+            for k in range(stride):
+                out[k] |= piece[k]
+        elif bpp == 8:
+            for k in range(stride):
+                out[k] = max(out[k], piece[k])
+        else:
+            for k in range(stride):
+                a, b = out[k], piece[k]
+                if b:
+                    v = 0
+                    for sh in (6, 4, 2, 0):
+                        v |= max((a >> sh) & 3, (b >> sh) & 3) << sh
+                    out[k] = v
     return bytes(out)
 
 
@@ -836,6 +852,12 @@ def check(out_bytes, layout, src_bytes):
             raise ValueError(f"piece {p} has no glyph")
     composed = {cp: compose(f, t, cp) for cp in range(0xAC00, 0xD7A4)}
     msg = f"composed 11172 syllables from {len(f.glyphs)} glyphs, JSET {len(f.jset)} bytes"
+    if layout.name == "adaptive":
+        want = tables_for(layout)
+        for attr in ("lead_class", "tail_class", "init_set", "med_set", "fin_set"):
+            if getattr(t, attr) != getattr(want, attr):
+                raise ValueError(f"the written JSET {attr} differs from the adaptive layout")
+        msg += f"; tables are the adaptive layout's ({t.ni}/{t.nm}/{t.nf} sets, {t.lc}x{t.tc} classes)"
     if layout.name == "844" and (f.cell_w, f.cell_h) == (16, 16) and src_bytes is not None:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))	# python -I drops the script's directory
         import johab844
@@ -852,6 +874,12 @@ def check(out_bytes, layout, src_bytes):
 
 DEFAULT_MASK_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "dists", "engine-data", "fonts",
                                  "fonts-cjk", "NotoSansKR-Regular.otf")
+
+
+def _jamoaa():
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))	# python -I drops the script's directory
+    import jamoaa
+    return jamoaa
 
 
 def _jamofit():
@@ -895,17 +923,33 @@ def piece_roles(layout):
     return t, roles
 
 
+def _ancestor_piece(layout, roles, have, slot, st, jm):
+    """For a layout with set ancestry (jamoadapt: Layout.fallback), the same jamo's piece in the nearest set this one
+    was split from that @p have holds; else None."""
+    order = getattr(layout, "fallback", None)
+    if order is None or slot is None:
+        return None
+    for anc in order(slot, st):
+        for q, r in roles.items():
+            if r == (slot, anc, jm) and q in have:
+                return q
+    return None
+
+
 AUTO_EXACT = 0.995		# a free fit this good means the face already is an OR of pieces: nothing for a mask to decide
 
 
 def fit_font(layout, targets, w, h, ascent=None, eng=None, base=None, extra=None, keep_header=False,
-             mask_font=None, radius=None, passes=12, pylib=None, mask_auto=False, advance=None):
+             mask_font=None, radius=None, passes=12, pylib=None, mask_auto=False, advance=None, piece_masks=None,
+             speck=0):
     """Fit the layout's pieces to @p targets ({syllable index: gint}) and write the font.
 
     With @p mask_auto the free fit comes first; if its mean IoU is at least AUTO_EXACT the face is itself an OR of
     pieces (a DOS face made from a jamo set) and the free pieces are kept, since a mask can only move them away from
     the exact answer; otherwise the masked fit is used. Returns (font bytes, info dict). Pieces no target syllable uses (a (set, jamo) pair the face never draws) take the
     same jamo's piece of another set (the one with most users) and, failing that, the mask font's variant.
+    @p piece_masks: {piece: gint} confining the pieces (jamoaa.donor_masks; used instead of a mask font). @p speck:
+    then drop components of at most this many pixels that the composed syllables do not need (jamoaa.remove_specks).
     """
     jf = _jamofit()
     t, roles = piece_roles(layout)
@@ -917,6 +961,10 @@ def fit_font(layout, targets, w, h, ascent=None, eng=None, base=None, extra=None
     full = jf.full_mask(w, h)
     keys = {s: syl_keys[s] for s in targets}
     P = finfo = None
+    if piece_masks is not None:
+        mask_font = None
+        masks = piece_masks
+        info["mask_font"] = "donor support"
     if mask_font and mask_auto:
         P, finfo = jf.fit_pieces(keys, targets, w, h, None, passes)
         free_iou = jf.mean_iou(P, keys, targets)
@@ -933,9 +981,11 @@ def fit_font(layout, targets, w, h, ascent=None, eng=None, base=None, extra=None
         masks = {k: jf.dilate(g, w, full, r) for k, g in mask_all.items()}
         info.update(minfo, mask_radius=r)
     if P is None:
-        P, finfo = jf.fit_pieces(keys, targets, w, h, masks, passes)
+        P, finfo = jf.fit_pieces(keys, targets, w, h, masks, passes, True if piece_masks is not None else None)
     users = finfo.pop("users")
     info.update(finfo)
+    if speck:
+        info["specks_removed"] = _jamoaa().remove_specks(P, keys, targets, w, h, speck)
     rows = {k: jf.to_rows(g, w, h) for k, g in P.items()}
     fallback = {"sibling": 0, "mask": 0, "blank": 0}
     for p in sorted(used_pieces(t)):
@@ -943,7 +993,11 @@ def fit_font(layout, targets, w, h, ascent=None, eng=None, base=None, extra=None
             continue
         slot, st, jm = roles.get(p, (None, 0, 0))
         sib = [(users[q], -q) for q, (sl, s2, j2) in roles.items() if sl == slot and j2 == jm and q in P]
-        if sib:
+        anc = _ancestor_piece(layout, roles, P, slot, st, jm)
+        if anc is not None:
+            rows[p] = rows[anc]
+            fallback["parent"] = fallback.get("parent", 0) + 1
+        elif sib:
             rows[p] = rows[-max(sib)[1]]
             fallback["sibling"] += 1
         elif p in mask_all:
@@ -1339,11 +1393,32 @@ def summary_line(label, q):
             f"blobs merged {q['blob_merged']} split {q['blob_split']}")
 
 
+def _layout_arg(v):
+    if v in LAYOUTS or v == MAC_LAYOUT:
+        return v
+    m = re.fullmatch(r"adaptive(?::(\d+),(\d+),(\d+))?", v)
+    if m:
+        lim = tuple(int(x) for x in m.groups()) if m.group(1) else (24, 16, 16)
+        if not (8 <= lim[0] <= 24 and 4 <= lim[1] <= 16 and 4 <= lim[2] <= 16):
+            raise argparse.ArgumentTypeError("adaptive limits are NI 8..24, NM 4..16, NF 4..16 (844 is 8,4,4)")
+        return v
+    raise argparse.ArgumentTypeError(f"unknown layout {v}")
+
+
+def adaptive_limits(name):
+    """(NI, NM, NF) of an 'adaptive[:NI,NM,NF]' layout argument, or None."""
+    if not name.startswith("adaptive"):
+        return None
+    return tuple(int(x) for x in name.split(":")[1].split(",")) if ":" in name else (24, 16, 16)
+
+
 def make_parser():
     ap = argparse.ArgumentParser(description="DOS Johab jamo-set font or outline font / precomposed face -> jamo-set SVF")
     ap.add_argument("source", nargs="?", help="the source font file (DOS Johab sources; not with --from-ttf/--from-svf)")
-    ap.add_argument("--layout", required=True, choices=sorted(LAYOUTS) + [MAC_LAYOUT],
-                    help=f"a set system; {MAC_LAYOUT} takes a HangulTalk 1.0 'fbit' resource fork (see MacFbit)")
+    ap.add_argument("--layout", required=True, type=_layout_arg, metavar="{" + ",".join(sorted(LAYOUTS) + [MAC_LAYOUT]) + ",adaptive[:NI,NM,NF]}",
+                    help=f"a set system; {MAC_LAYOUT} takes a HangulTalk 1.0 'fbit' resource fork (see MacFbit); "
+                    "adaptive (--from-ttf/--from-svf) starts from 844 and splits sets where the syllables sharing a "
+                    "piece disagree, up to NI,NM,NF sets (default and most 24,16,16; jamoadapt.py)")
     ap.add_argument("--face", type=int, default=0, help="typeface of a printer font (0 or 1)")
     ap.add_argument("--eng", help="raw 8x16 English font for ASCII (2048 or 4096 bytes)")
     ap.add_argument("--base", help="SVFN v2 whose non-syllable glyphs are kept (same cell, 1 bpp)")
@@ -1374,6 +1449,20 @@ def make_parser():
     ap.add_argument("--passes", type=int, default=12, help="most coordinate-descent passes (default 12)")
     ap.add_argument("--pylib", help="directory holding freetype and uharfbuzz (also $JAMOSET_PYLIB)")
     ap.add_argument("--report", metavar="FILE.json", help="write the quality report (IoU, F1, blobs) as JSON")
+    ap.add_argument("--bpp", type=int, choices=(1, 2), default=1,
+                    help="--from-ttf: 2 = anti-aliased pieces, 4 levels (jamoaa.py: contours assigned to the jamo of a 1 bpp "
+                    "region fit, per-pixel median over the syllables, composed by the maximum; needs fontTools)")
+    ap.add_argument("--aa-refine", type=int, default=2, metavar="N",
+                    help="--bpp 2: passes of the level-error refinement after the median (default 2, 0 = median only)")
+    ap.add_argument("--binarize", choices=("mono", "threshold", "ridge"), default="mono",
+                    help="--from-ttf 1 bpp targets: mono = FreeType's monochrome renderer (the default); threshold = "
+                    "exact-area coverage >= --threshold; ridge = that plus one-pixel ridges of faint strokes (fontTools)")
+    ap.add_argument("--threshold", type=float, default=0.5, help="--binarize threshold|ridge: coverage cut (default 0.5)")
+    ap.add_argument("--clean", action=argparse.BooleanOptionalAction, default=None,
+                    help="noise cleanup (default on for --bpp 2 and --layout adaptive, off otherwise): pieces confined "
+                    "to where their jamo's own contours (an outline source) or region (a bitmap source) put ink in at "
+                    "least a quarter of the syllables, outlier syllables dropped from the consensus, specks the "
+                    "composition does not need removed, faint AA levels only where half the syllables have them")
     return ap
 
 
@@ -1417,12 +1506,95 @@ def main_mac(ap, args):
         sys.exit(f"{args.source}: {e}")
 
 
+def main_aa(ap, args, layout, eng, base, started, limits=None, clean=True):
+    """--from-ttf FONT --bpp 2: the anti-aliased jamo set (jamoaa.build), its quality against the direct 2 bpp renders."""
+    jamoaa = _jamoaa()
+    if not args.from_ttf:
+        ap.error("--bpp 2 works from an outline font (--from-ttf)")
+    if not args.size:
+        ap.error("--from-ttf needs --size")
+    bad = [o for o, v in (("--eng", eng), ("--base", base), ("--embolden", args.embolden),
+                          ("--no-present-only", not args.present_only), ("--binarize", args.binarize != "mono")) if v]
+    if bad:
+        ap.error(f"--bpp 2 does not take {', '.join(bad)}")
+    cell = tuple(int(x) for x in args.cell.lower().split("x")) if args.cell else None
+    out, info = jamoaa.build(layout, args.from_ttf, args.size, cell, args.baseline, args.passes, args.aa_refine,
+                             args.symbols, args.advance, args.pylib, keep=True, clean=clean, adaptive=limits)
+    ctx = info.pop("ctx")
+    open(args.output, "wb").write(out)
+    w, h = ctx["w"], ctx["h"]
+    comp = jamoaa.composed_levels(out, ctx["direct"])
+    q = jamoaa.aa_quality(ctx["direct"], comp, w, h)
+    if limits:
+        print(f"adaptive: {info['sets'][0]}/{info['sets'][1]}/{info['sets'][2]} sets, {info['classes'][0]} lead and "
+              f"{info['classes'][1]} tail classes")
+    info.update(aa_quality=q, join_loss=jamoaa.join_loss(ctx["donors"], ctx["direct"], w, h),
+                output_bytes=len(out), seconds=round(time.time() - started, 1))
+    print(f"{args.output}: {len(out)} bytes, {info['pieces']} pieces of {w}x{h} at 2 bpp from {args.from_ttf} in "
+          f"{info['seconds']} s")
+    print(f"aa: {q['present']} syllables, level error {q['level_mae']:.4f} (ink {q['level_mae_ink']:.3f}), exact ink "
+          f"pixels {q['exact_pixels_ink']:.3f}, IoU at level 2 {q['iou_t2_mean']:.3f} (p5 {q['iou_t2_p5']:.3f}), "
+          f"exact {q['exact']}; contours {info['contours']}")
+    if args.check:
+        print("check:", check(out, ctx["layout"], None))
+    if args.report:
+        write_report(args.report, info)
+
+
+def fit_prep(layout, targets, w, h, origin, limits, clean, passes, outline=None, pylib=None, log=None, rounds=None):
+    """Before a 1 bpp fit with --clean or --layout adaptive: the donors (each syllable's raster per slot: its own
+    contours from @p outline (font path, size), placed at the targets' @p origin (ox, oy), when fontTools can read
+    it, else the target split by a free region fit), the adaptive layout, and the donor-support masks. Donors depend
+    on the region fit they are split by, so for an adaptive layout the regions are fitted again with the layout found
+    and the layout made again from the new donors (@p rounds, default 3 from regions, 1 from contours). Returns
+    (layout, masks or None, info)."""
+    jf = _jamofit()
+    aa = _jamoaa()
+    info = {}
+    face = None
+    if outline:
+        try:
+            face = aa.OutlineFace(outline[0], outline[1], pylib)
+        except jf.FitError as e:
+            print(f"jamoset: {e}; donors from the 1 bpp regions instead", file=sys.stderr)
+    rounds = rounds or (1 if face else 3)
+    region_layout = LAYOUTS["844"]
+    history = []
+    for r in range(rounds if limits else 1):
+        keys_r, _, _ = aa.syllable_keys(region_layout)
+        P_r, _ = jf.fit_pieces({s: keys_r[s] for s in targets}, targets, w, h, None, passes)
+        if face:
+            donors, cinfo = aa.contour_donors(face, sorted(targets), keys_r, P_r, origin[0], origin[1], w, h)
+            info["donors"], info["contours"] = "contours", cinfo
+        else:
+            donors = aa.pixel_donors(targets, keys_r, P_r, w, h)
+            info["donors"] = "regions"
+        if not limits:
+            break
+        import jamoadapt
+        region_layout, ainfo = jamoadapt.adapt(donors, 1, limits, log=log)
+        history.append(ainfo["sets"])
+        info["adaptive"] = {k: v for k, v in ainfo.items() if k != "history"}
+    if limits:
+        layout = region_layout
+        info["adaptive"]["rounds"] = history
+    masks = None
+    if clean:
+        keys, _, _ = aa.syllable_keys(layout)
+        masks = aa.donor_masks(keys, donors, w, h, 128, 0.25, 1)
+    return layout, masks, info
+
+
 def main():
     ap = make_parser()
     args = ap.parse_args()
     if args.layout == MAC_LAYOUT:
         return main_mac(ap, args)
-    layout = LAYOUTS[args.layout]
+    limits = adaptive_limits(args.layout)
+    if limits and not (args.from_ttf or args.from_svf):
+        ap.error("--layout adaptive fits pieces: give --from-ttf or --from-svf")
+    layout = LAYOUTS["844"] if limits else LAYOUTS[args.layout]
+    clean = args.clean if args.clean is not None else bool(limits or args.bpp == 2)
     modes = [m for m in (args.source, args.from_ttf, args.from_svf, args.blank_compat) if m]
     if len(modes) != 1:
         ap.error("give exactly one of: a source font file, --from-ttf, --from-svf, --blank-compat")
@@ -1435,6 +1607,8 @@ def main():
             return
         eng = read_eng(open(args.eng, "rb").read()) if args.eng else None
         base = open(args.base, "rb").read() if args.base else None
+        if args.bpp == 2:
+            return main_aa(ap, args, layout, eng, base, time.time(), limits, clean)
         if args.from_ttf or args.from_svf:
             started = time.time()
             jf = _jamofit()
@@ -1454,11 +1628,25 @@ def main():
                 if not args.size:
                     ap.error("--from-ttf needs --size")
                 cell = tuple(int(x) for x in args.cell.lower().split("x")) if args.cell else None
-                targets, w, h, ascent, tinfo, ascii_glyphs = ttf_targets(args.from_ttf, args.size, cell, args.baseline,
-                                                                          args.present_only, args.pylib)
+                if args.binarize != "mono":
+                    if not args.present_only:
+                        ap.error("--binarize threshold|ridge fits the drawn syllables only (--present-only)")
+                    jamoaa = _jamoaa()
+                    targets, w, h, ascent, tinfo, ascii_glyphs = jamoaa.outline_targets(
+                        args.from_ttf, args.size, cell, args.baseline, args.binarize, args.threshold, args.pylib)
+                else:
+                    targets, w, h, ascent, tinfo, ascii_glyphs = ttf_targets(args.from_ttf, args.size, cell,
+                                                                              args.baseline, args.present_only,
+                                                                              args.pylib)
                 extra = None if (eng is not None or base is not None) else ascii_glyphs
+                pmasks, pinfo = None, {}
+                if clean or limits:
+                    layout, pmasks, pinfo = fit_prep(layout, targets, w, h, (tinfo["origin_x"], ascent), limits, clean,
+                                                     args.passes, (args.from_ttf, args.size), args.pylib)
                 out, info = fit_font(layout, targets, w, h, ascent, eng, base, extra, False, mask, args.mask_radius,
-                                     args.passes, args.pylib, mask_auto, args.advance)
+                                     args.passes, args.pylib, mask_auto, args.advance, pmasks,
+                                     _jamoaa().speck_size(w, h) if clean else 0)
+                info.update(pinfo)
                 info["source"] = tinfo
             else:
                 face = parse_svfn(open(args.from_svf, "rb").read())
@@ -1470,9 +1658,14 @@ def main():
                 targets = svf_targets(face)
                 if not targets:
                     raise SourceError(f"{args.from_svf} has no non-blank Hangul syllables")
+                pmasks, pinfo = None, {}
+                if clean or limits:
+                    layout, pmasks, pinfo = fit_prep(layout, targets, w, h, None, limits, clean, args.passes)
                 out, info = fit_font(layout, targets, w, h, face.ascent, eng, open(args.from_svf, "rb").read(), None,
                                      True, mask, args.mask_radius, args.passes, args.pylib, mask_auto,
-                                     args.advance if args.advance is not None else svf_advance(face))
+                                     args.advance if args.advance is not None else svf_advance(face), pmasks,
+                                     _jamoaa().speck_size(w, h) if clean else 0)
+                info.update(pinfo)
                 info["source"] = {"face": os.path.basename(args.from_svf), "cell": [w, h], "ascent": face.ascent,
                                   "size": os.path.getsize(args.from_svf),
                                   "syllable_advance": svf_advance(face)}
@@ -1482,6 +1675,8 @@ def main():
             print(f"{args.output}: {len(out)} bytes, {info['pieces']} pieces of {w}x{h} fitted from {label}"
                   f" in {info['seconds']} s")
             print(summary_line("fit", q))
+            if limits:
+                print(f"adaptive: {layout.ni}/{layout.nm}/{layout.nf} sets, {layout.lc} lead and {layout.tc} tail classes")
             if args.check:
                 print("check:", check(out, layout, None))
             if args.report:

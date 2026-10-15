@@ -192,9 +192,10 @@ private:
 	 * The font as tools/korean/jamoset.py writes it: header, code point table, the JSET block, then the metrics
 	 * table (when @p withMetrics) and the glyph rows, so the block ends where the next table starts.
 	 */
-	static Bytes makeToolOrderFont(const Common::Array<uint32> &cps, const Bytes &jset, bool withMetrics) {
-		const Bytes plain = makeFont(cps, Bytes());
-		const uint32 glyphs = cps.size(), stride = 32;
+	static Bytes makeToolOrderFont(const Common::Array<uint32> &cps, const Bytes &jset, bool withMetrics, int bpp = 1,
+								   const Common::Array<Px> &px = Common::Array<Px>()) {
+		const Bytes plain = makeFont(cps, Bytes(), true, bpp, px);
+		const uint32 glyphs = cps.size(), stride = (16 * bpp + 7) / 8 * 16;
 		const uint32 cmapOff = 36, metricsOff = cmapOff + glyphs * 8 + jset.size();
 		const uint32 dataOff = metricsOff + (withMetrics ? glyphs * 4 : 0);
 		Bytes b;
@@ -717,6 +718,69 @@ public:
 				expectInk(inkOf(src, 0xBDC1), pieceInk(3, 148, 242, 313));
 				TS_ASSERT_EQUALS(src.cells('A'), 1);
 			}
+	}
+
+	void test_2bpp_face_in_the_tools_file_order_composes_by_the_maximum() {
+		// What jamoset.py --bpp 2 writes: code points, JSET, metrics, then 2bpp rows (4 bytes a row at 16 px).
+		// 가 = pieces 1 and 161; they overlap at (5,2) and share bytes with their neighbours.
+		Common::Array<Px> px;
+		const Px list[] = { { Graphics::kJamoPieceBase + 1, 3, 2, 1 }, { Graphics::kJamoPieceBase + 1, 4, 2, 3 },
+							{ Graphics::kJamoPieceBase + 1, 5, 2, 1 }, { Graphics::kJamoPieceBase + 161, 5, 2, 2 },
+							{ Graphics::kJamoPieceBase + 161, 6, 2, 2 }, { Graphics::kJamoPieceBase + 161, 15, 9, 3 },
+							{ 'A', 1, 1, 2 } };
+		for (uint i = 0; i < ARRAYSIZE(list); ++i)
+			px.push_back(list[i]);
+		for (int streamed = 0; streamed < 2; ++streamed) {
+			const Bytes bytes = makeToolOrderFont(pieceCps(), make844Jset(), true, 2, px);
+			Graphics::HiResBitmapFont *font = loadFont(bytes, streamed != 0);
+			TS_ASSERT(font->jamoSetError().empty());
+			TS_ASSERT_EQUALS(font->bpp(), 2);
+			Graphics::JamoGlyphSource src(font, DisposeAfterUse::YES);
+			TS_ASSERT_EQUALS(src.bitsPerPixel(), 2);
+			Common::Array<uint32> want;
+			want.push_back(3 | 2 << 8 | 1 << 16);
+			want.push_back(4 | 2 << 8 | 3 << 16);
+			want.push_back(5 | 2 << 8 | 2 << 16);	// max(1, 2), not 1 | 2 = 3
+			want.push_back(6 | 2 << 8 | 2 << 16);
+			want.push_back(15 | 9 << 8 | 3 << 16);
+			expectInk(inkOf(src, 0xAC00), want);
+			want.clear();
+			want.push_back(1 | 1 << 8 | 2 << 16);
+			expectInk(inkOf(src, 'A'), want);
+			TS_ASSERT_EQUALS(src.advance('A'), 8);
+		}
+	}
+
+	void test_largest_set_counts_compose_from_glyphs() {
+		// An adaptive layout at the limits (24 initial, 16 medial, 16 final sets, 8 lead and 8 tail classes):
+		// the pieces makeLimitsJset() names, each a pixel, compose as the table says.
+		Common::Array<uint32> cps;
+		for (uint n = 1; n <= 24 * 19; ++n)
+			cps.push_back(Graphics::kJamoPieceBase + n);
+		for (uint n = 1000; n < 1000 + 16 * 21; ++n)
+			cps.push_back(Graphics::kJamoPieceBase + n);
+		for (uint n = 2000; n < 2000 + 16 * 27; ++n)
+			cps.push_back(Graphics::kJamoPieceBase + n);
+		const Bytes bytes = makeFont(cps, makeLimitsJset());
+		Graphics::HiResBitmapFont *font = loadFont(bytes, false);
+		TS_ASSERT(font->jamoSetError().empty());
+		Common::String why;
+		TS_ASSERT(Graphics::JamoGlyphSource::usable(*font, why));
+		Graphics::JamoGlyphSource src(font, DisposeAfterUse::YES);
+		const uint32 samples[] = { 0xAC00, 0xAC07, 0xAC0E, 0xB5A0, 0xC870, 0xD7A3, 0xD58D };
+		for (uint i = 0; i < ARRAYSIZE(samples); ++i) {
+			const uint32 s = samples[i] - 0xAC00;
+			const uint lead = s / 588, v = (s / 28) % 21, tail = s % 28;
+			const uint cell = ((lead % 8) * 21 + v) * 8 + (tail ? 1 + (tail - 1) % 7 : 0);
+			uint32 n[3] = { 1 + (cell % 24) * 19 + lead, 1000 + (cell % 16) * 21 + v, 2000 + (cell % 16) * 27 + tail - 1 };
+			Common::Array<uint32> want;
+			for (int k = 0; k < (tail ? 3 : 2); ++k) {
+				const uint32 p = n[k] % 16 | (n[k] / 16 % 16) << 8 | 1 << 16;
+				if (Common::find(want.begin(), want.end(), p) == want.end())
+					want.push_back(p);
+			}
+			expectInk(inkOf(src, samples[i]), want);
+		}
 	}
 
 	void test_syllable_with_a_missing_piece_is_not_usable() {
