@@ -444,7 +444,9 @@ is validated and read only for tail classes some tail 1..27 belongs to. The
 DOS set systems (8x4x4, 10x4x4, hanterm's 10x(3|4)x4, 6x2x1, the Dokkaebi
 printer sets, Kyra's jamo-major order, and the Mac HangulTalk 1.0 'fbit' fonts with their 8 lead classes and
 20 initial sets) are all expressible; `tools/korean/jamoset.py`
-writes such fonts.
+writes such fonts, also at 2 bpp from an outline font (`--bpp 2`, anti-aliased
+pieces composed by the maximum) and with set systems fitted to the font
+(`--layout adaptive`, up to the limits above).
 
 ## Glyph rendering (G3)
 

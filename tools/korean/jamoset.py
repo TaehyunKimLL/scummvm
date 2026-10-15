@@ -1561,10 +1561,11 @@ def fit_prep(layout, targets, w, h, origin, limits, clean, passes, outline=None,
     region_layout = LAYOUTS["844"]
     history = []
     for r in range(rounds if limits else 1):
-        keys_r, _, _ = aa.syllable_keys(region_layout)
+        keys_r, _, roles_r = aa.syllable_keys(region_layout)
         P_r, _ = jf.fit_pieces({s: keys_r[s] for s in targets}, targets, w, h, None, passes)
         if face:
-            donors, cinfo = aa.contour_donors(face, sorted(targets), keys_r, P_r, origin[0], origin[1], w, h)
+            donors, cinfo = aa.contour_donors(face, sorted(targets), keys_r, P_r, origin[0], origin[1], w, h, targets,
+                                              roles_r)
             info["donors"], info["contours"] = "contours", cinfo
         else:
             donors = aa.pixel_donors(targets, keys_r, P_r, w, h)

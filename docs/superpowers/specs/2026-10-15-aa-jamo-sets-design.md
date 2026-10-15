@@ -14,6 +14,8 @@ past 8x4x4 where the font needs it (the engine allows 8 lead / 8 tail classes, 2
 
 ## Decisions
 
+- **Advance.** A `--bpp 2` face steps a syllable by the font's most common syllable advance when that is below the
+  cell (NanumGothic Bold 21 px in a 22x24 cell steps 20, as the precomposed NGOTB21A does).
 - **Rasteriser.** Outlines are read through a fontTools pen (glyf or CFF; composites decomposed) and rasterised in
   Python with exact-area signed accumulation (font-rs). It is linear in the contours, so a contour is rasterised
   once and any subset of a syllable's contours is a sum. No FreeType or numpy is needed for `--bpp 2` (the 1 bpp
@@ -23,11 +25,17 @@ past 8x4x4 where the font needs it (the engine allows 8 lead / 8 tail classes, 2
 - **Regions.** A free 1 bpp fit (jamofit) of the 844 pieces to the coverage thresholded at 0.5 says which pixels
   each (set, jamo) piece owns.
 - **Contour assignment** (generic: no font units, no donor glyph names). Contours are grouped by containment (90 %
-  of a contour's ink inside a larger one: a hole or an overlapping part). A group goes to the slot whose fitted
-  region (dilated 1 px) holds most of it. A group is a merged outline, split pixel by pixel by the regions, only
-  when no single region holds 85 % of it and a second piece's own pixels hold 20 %: the free fit may hand a whole
-  column of one jamo to a neighbour's piece when every user inks it, and that must not split a contour. The
-  result per syllable is a raster per slot ("donors").
+  of a contour's ink inside a larger one: a hole or an overlapping part). A group that no single fitted region
+  (dilated 1 px) holds 85 % of while a second piece's own pixels hold 20 % is a merged outline, split pixel by pixel
+  by the regions. Otherwise the other syllables decide ("peers"): for each slot, the syllables of the same set of
+  that slot with the same jamo there (and other jamo elsewhere) against those with another jamo there; a group the
+  slot draws is present in the first and absent from the second, a group another slot draws is in both alike. The
+  presence is the share of the group's ink in the peer's ink, half at the best one-pixel shift and half in place
+  (a dilation would let the bar of ㅡ stand for the bar and tick of ㅗ). The slot whose difference is >= 0.15 and
+  0.05 above the next wins; else the group goes to the region holding most of it. The region fit alone is not
+  enough: the free fit hands a stroke every user of a piece shares (the bar of ㅗ ㅛ ㅜ ㅠ ㅡ under one initial set)
+  to the initial, and then a composed syllable outside the fitted ones (Paperlogy draws 2,780 of 11,172) loses its
+  vowel's bar (똠 drawn as 뜸). The result per syllable is a raster per slot ("donors").
 - **Consensus.** A piece is the per-pixel median of its donors over all syllables that use it, then refined by L1
   coordinate descent of its levels against the direct 2 bpp renders of the composed syllables (the exact per-pixel
   optimum given the other slots, as the 1 bpp fit does for Hamming error), `--aa-refine 2` passes.
@@ -42,7 +50,7 @@ past 8x4x4 where the font needs it (the engine allows 8 lead / 8 tail classes, 2
 - **Adaptive sets** (`--layout adaptive[:NI,NM,NF]`, default 24,16,16). Lead classes: {ㄱ,ㅋ} plus the other 17
   initials clustered into 7 by how the medials after them look; tail classes: none plus the 27 tails clustered into
   7 by how the initials/medials above them look. A slot's set is a function of an item (initial: vowel x tail
-  class; medial: lead class x tail class x vowel; final: vowel x lead class), starting from 844. Greedy: the
+  class; medial: lead class x tail class; final: vowel x lead class), starting from 844. Greedy: the
   2-medians split (L1 of thermometer-coded levels) with the largest drop in donor-to-median distance, while under
   the limit, each side >= 10 syllables and the gain >= 0.3 % of the start; then Lloyd passes move misplaced items.
   Unused (set, jamo) pieces take the piece of the set they were split from. From a bitmap source the regions are

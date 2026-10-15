@@ -433,10 +433,103 @@ def _pixels(g, w, h):
     return out
 
 
-def assign(groups_cov, cores, w, h):
+PEER_SURE = 0.15	# a group (not a merged outline) whose presence one slot's jamo explains this much ...
+PEER_MARGIN = 0.05	# ... and this much more than any other slot's jamo is that slot's
+
+
+class Peers:
+    """Which slot a contour group belongs to, judged by the other syllables. For a slot, take the syllables that use
+    the same set of that slot (the jamo drawn in the same place): those with the same jamo there (and other jamo in
+    the other slots: "same"), and those with another jamo there ("other"). A group the slot draws is in the first and
+    much less in the second; a group another slot draws does not care which jamo this slot has, so it is in both
+    alike. The score is the difference of the presence. This decides what a 1 bpp region fit cannot: the free fit
+    hands a stroke every user of a piece shares (the bar of ㅗ, ㅛ, ㅜ, ㅠ, ㅡ under one initial set) to the initial,
+    slot order first, and the same bar is in every syllable of that initial set and of the matching final set."""
+
+    def __init__(self, targets, keys, roles, w, h, sample=24):
+        import jamofit as jf
+        full = jf.full_mask(w, h)
+        self.w, self.h, self.sample = w, h, sample
+        W = w + 1
+        # each peer's ink at the 9 one-pixel shifts: a stroke may sit a pixel off between syllables
+        self.dil = {}
+        for s, g in targets.items():
+            sh = []
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    d = dy * W + dx
+                    v = (g << d) if d >= 0 else (g >> -d)
+                    sh.append(v & full)
+            self.dil[s] = sh
+        self.keys, self.roles = keys, roles
+        self.by_set, self.by_slot = {}, {}
+        for s in sorted(targets):
+            for slot, k in enumerate(keys[s]):
+                if k is not None and k in roles:
+                    self.by_set.setdefault((slot, roles[k][1]), []).append(s)
+                    self.by_slot.setdefault((slot, s % 28 > 0), []).append(s)
+        self._cache = {}
+
+    @staticmethod
+    def jamo(s, slot):
+        return (s // 588, (s // 28) % 21, s % 28)[slot]
+
+    def _sample(self, cand):
+        step = max(1, len(cand) // self.sample)
+        return cand[::step][:self.sample]
+
+    def peers(self, s, slot):
+        """(same, other): syllables of the same set of @p slot with the same jamo there and other jamo elsewhere, and
+        with another jamo there."""
+        key = (s, slot)
+        if key in self._cache:
+            return self._cache[key]
+        k = self.keys[s][slot]
+        mine = self.jamo(s, slot)
+        others = [j for j in range(3) if j != slot and not (j == 2 and s % 28 == 0)]
+        out = ([], [])
+        # the slot's set (the jamo in the same place); if it has no such peers (a medial set only the initials ㄱ ㅋ
+        # use, say), every syllable with a final or every one without, as @p s
+        for pool in (self.by_set.get((slot, self.roles[k][1]), ()) if k in self.roles else (),
+                     self.by_slot.get((slot, s % 28 > 0), ())):
+            same = [p for p in pool if p != s and self.jamo(p, slot) == mine
+                    and all(self.jamo(p, j) != self.jamo(s, j) for j in others)]
+            other = [p for p in pool if self.jamo(p, slot) != mine]
+            if same and other:
+                out = (self._sample(same), self._sample(other))
+                break
+        if len(self._cache) > 4096:
+            self._cache.clear()
+        self._cache[key] = out
+        return out
+
+    def presence(self, g, n, ps):
+        # half at the best one-pixel shift, half in place (index 4 is the unshifted ink): a shift also lines up a
+        # neighbour's stroke a pixel away, the in-place share tells those apart
+        return sum(max((g & v).bit_count() for v in self.dil[p]) + (g & self.dil[p][4]).bit_count()
+                   for p in ps) / (2 * n * len(ps))
+
+    def scores(self, s, g):
+        """{slot: presence of the group's ink @p g (gint) in the "same" peers minus in the "other" peers}."""
+        n = g.bit_count()
+        out = {}
+        if not n:
+            return out
+        for slot in range(3):
+            if self.keys[s][slot] is None:
+                continue
+            same, other = self.peers(s, slot)
+            if same and other:
+                out[slot] = self.presence(g, n, same) - self.presence(g, n, other)
+        return out
+
+
+def assign(groups_cov, cores, w, h, peer_scores=None):
     """Give each contour group's coverage to a slot. @p groups_cov: coverage lists (0..1); @p cores: the syllable's
-    fitted 1 bpp pieces as gints per slot (None where the syllable has no final). Returns ([coverage per slot],
-    {"groups", "straddled", "orphans"})."""
+    fitted 1 bpp pieces as gints per slot (None where the syllable has no final). @p peer_scores: a function of a
+    group's coverage giving {slot: score} (Peers.scores); a group that is not a merged outline and that one slot's
+    peers clearly hold better goes there whole; the regions decide the rest.
+    Returns ([coverage per slot], {"groups", "straddled", "orphans", "by_peers"})."""
     import jamofit as jf
     n = w * h
     full = jf.full_mask(w, h)
@@ -445,7 +538,7 @@ def assign(groups_cov, cores, w, h):
     near = {k: [_pixels(jf.dilate(cores[k], w, full, r), w, h) for r in (1, 2, 3)] for k in slots}
     own = {k: core_px[k] - set().union(*[core_px[j] for j in slots if j != k]) for k in slots}
     out = [[0.0] * n for _ in range(3)]
-    info = {"groups": 0, "straddled": 0, "orphans": 0}
+    info = {"groups": 0, "straddled": 0, "orphans": 0, "by_peers": 0}
 
     def score(cov, k):
         # how much of the group the piece's region (dilated a pixel) holds; its own pixels break ties
@@ -471,6 +564,15 @@ def assign(groups_cov, cores, w, h):
                 for k in owners or [excl[0][1]]:
                     out[k][i] = max(out[k][i], v)
             continue
+        if peer_scores is not None:
+            ps = sorted(((v, k) for k, v in peer_scores(cov).items() if k in slots), reverse=True)
+            if ps and ps[0][0] >= PEER_SURE and (len(ps) == 1 or ps[0][0] - ps[1][0] >= PEER_MARGIN):
+                info["by_peers"] += 1
+                k = ps[0][1]
+                for i, v in enumerate(cov):
+                    if v:
+                        out[k][i] = min(1.0, out[k][i] + v)
+                continue
         scores = [(score(cov, k), excl_k, k) for excl_k, k in excl]
         best = max(scores)
         if best[0] <= 0:
@@ -667,20 +769,30 @@ def stacks_of(keys, donors, syllables=None):
     return stacks
 
 
-def contour_donors(face, syllables, keys, P, ox, oy, w, h):
+def contour_donors(face, syllables, keys, P, ox, oy, w, h, targets=None, roles=None):
     """{syllable: [coverage bytes 0..255 per slot, None where the syllable has no final]}: the syllable's contours
-    given to its initial, medial and final by the fitted 1 bpp regions @p P of the pieces @p keys name. Returns
-    (donors, info)."""
+    given to its initial, medial and final - by the other syllables sharing a jamo (Peers, over @p targets) where
+    they decide, else by the fitted 1 bpp regions @p P of the pieces @p keys name. Returns (donors, info)."""
     n = w * h
+    W = w + 1
     donors = {}
-    info = {"groups": 0, "straddled": 0, "orphans": 0, "syllables_straddled": 0}
+    info = {"groups": 0, "straddled": 0, "orphans": 0, "by_peers": 0, "syllables_straddled": 0}
+    peers = Peers(targets, keys, roles, w, h) if targets and roles else None
     for s in syllables:
         signed = [rasterize(c, ox, oy, w, h) for c in face.contours(0xAC00 + s)]
         groups = group_contours(signed)
         gcov = [coverage(add([signed[i] for i in g], n)) for g in groups]
         cores = [P.get(k, 0) if k is not None else None for k in keys[s]]
-        slots, ai = assign(gcov, cores, w, h)
-        for k2 in ("groups", "straddled", "orphans"):
+        ps = None
+        if peers is not None:
+            def ps(cov, s=s):
+                g = 0
+                for i, v in enumerate(cov):
+                    if v >= 0.5:
+                        g |= 1 << ((i // w) * W + i % w)
+                return peers.scores(s, g)
+        slots, ai = assign(gcov, cores, w, h, ps)
+        for k2 in ("groups", "straddled", "orphans", "by_peers"):
             info[k2] += ai[k2]
         info["syllables_straddled"] += ai["straddled"] > 0
         donors[s] = [None if keys[s][j] is None else bytes(int(round(v * 255)) for v in slots[j]) for j in range(3)]
@@ -859,10 +971,10 @@ def build(layout, path, size, cell=None, baseline=None, passes=12, refine_passes
             targets[s] = g
     fit_syl = sorted(direct if train is None else (set(train) & set(direct)))
     say(f"rendered {len(cps)} syllables")
-    keys844, t844, _ = syllable_keys(J.LAYOUTS["844"])
+    keys844, t844, roles844 = syllable_keys(J.LAYOUTS["844"])
     tt = {s: targets[s] for s in fit_syl if s in targets}
     P844, fit_info = jf.fit_pieces({s: keys844[s] for s in tt}, tt, w, h, None, passes)
-    donors, cinfo = contour_donors(face, sorted(direct), keys844, P844, ox, oy, w, h)
+    donors, cinfo = contour_donors(face, sorted(direct), keys844, P844, ox, oy, w, h, tt, roles844)
     say(f"contours: {cinfo}")
     ainfo = None
     if adaptive:
@@ -917,6 +1029,15 @@ def build(layout, path, size, cell=None, baseline=None, passes=12, refine_passes
                 lv = [3 if rows[y] >> (w - 1 - x) & 1 else 0 for y in range(h) for x in range(w)]
                 extra[cp] = (pack_levels(lv, w, h), a, ix, iw)
     tables = J.tables_for(layout)
+    if advance is None:
+        # a composed syllable steps as the font's syllables do (their most common advance), when that is less than
+        # the cell: a 22 px cell for a 21 px face would otherwise space the text a pixel or two wider than the font
+        adv = {}
+        for cp in cps:
+            a = int(round(face.advance(cp)))
+            adv[a] = adv.get(a, 0) + 1
+        common = max(adv, key=lambda a: (adv[a], a))
+        advance = common if 0 < common < w else None
     if advance is not None:
         tables.advance = advance
     J.blank_compat(tables, {cp for cp, g in extra.items() if any(g[0])})
@@ -936,7 +1057,8 @@ def build(layout, path, size, cell=None, baseline=None, passes=12, refine_passes
     info = {"source": finfo, "pieces": len(mapping), "region_fit": {k: v for k, v in fit_info.items() if k != "users"},
             "contours": cinfo, "unseen_pieces": fallback, "refine_history": hist, "bpp": 2, "clean": bool(clean),
             "outlier_donors_dropped": kept, "cleaned_pixels": cleaned, "layout": layout.name,
-            "sets": [layout.ni, layout.nm, layout.nf], "classes": [layout.lc, layout.tc]}
+            "sets": [layout.ni, layout.nm, layout.nf], "classes": [layout.lc, layout.tc],
+            "syllable_advance": tables.advance}
     if ainfo:
         info["adaptive"] = {k: v for k, v in ainfo.items() if k != "history"}
     if keep:

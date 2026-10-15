@@ -265,12 +265,30 @@ tools/korean/jamoset.py --layout mac-fbit-45sets Munjo24.rsrc --symbols --check 
 | `--mask-font FONT\|none` | a font with OpenType `ljmo`/`vjmo`/`tjmo` variants (Noto Sans KR) that confines the pieces; used unless a free fit already composes the target (IoU >= 0.995). `--pylib DIR` or `$JAMOSET_PYLIB` points at freetype-py and uharfbuzz |
 | `--blank-compat SVF` | rewrite a jamo-set face with every compatibility jamo it has a whole glyph for left to that glyph |
 | `--report FILE.json` | the fit's quality numbers |
+| `--bpp 2` | (`--from-ttf`) anti-aliased pieces, 4 levels, composed by the maximum (`jamoaa.py`; needs fontTools only, `--pylib` may name its directory). Prints the level error and the IoU at level 2 against the font's own 2 bpp renders |
+| `--aa-refine N` | `--bpp 2`: passes of the level-error refinement after the per-pixel median (default 2) |
+| `--clean`, `--no-clean` | noise cleanup: pieces confined to where their jamo's own contours (a bitmap source: its region) ink in a quarter of the syllables, outlier syllables out of the consensus, specks and unsupported faint levels removed. Default on for `--bpp 2` and `--layout adaptive`, off for the plain 1 bpp fit |
+| `--layout adaptive[:NI,NM,NF]` | (`--from-ttf`/`--from-svf`) start from 844 and split sets where the syllables sharing a piece disagree, up to 24/16/16 sets and 8 lead / 8 tail classes (`jamoadapt.py`); the JSET tables carry the result |
+| `--binarize ridge`, `--threshold T` | (`--from-ttf`, 1 bpp) targets from exact-area coverage >= T plus 1 px ridges of faint strokes, instead of FreeType's mono renderer |
 
 A fit prints the per-syllable IoU and a 1 px tolerant F1 (`exact N` is the number
 of syllables composed identically to the source). A precomposed 1 bpp face made
 by the HBIOS/Johab tools decomposes with IoU 1.000; a hinted TrueType bake is not
 an OR of pieces, so its fit is lower (measured 0.81 for NGOTB17). `jamofit.py` is
 the fitting library (no command line); `jamoset.py --from-ttf/--from-svf` call it.
+
+`--bpp 2` writes an anti-aliased jamo set: a syllable's contours are given to its
+initial, medial and final (by the other syllables sharing each jamo, else by a
+1 bpp region fit), each piece is the per-pixel median of its syllables' rasters,
+refined against the font's own 2 bpp renders and quantised as `mkfont.py` does.
+A 24 px NanumGothic Bold face with all 11,172 syllables is about 180 KB (adaptive
+sets). Measurements: docs/superpowers/specs/2026-10-15-aa-jamo-sets-design.md and
+`runs/aa-jamo/report.md`.
+
+```sh
+tools/korean/jamoset.py --layout adaptive --from-ttf NanumGothic-Bold.ttf --size 21 --cell 22x24 --baseline 19 \
+    --bpp 2 --symbols --check -o NGBAJ21.SVF
+```
 `bdfface.py --hangul KS.BDF --ascii ASCII.BDF --chars-from ... -o OUT.SVF`
 bakes a precomposed face from a KS X 1001 BDF (no shipped face uses it now);
 `--fill-absent` composes the requested syllables outside KS X 1001 from fitted pieces.

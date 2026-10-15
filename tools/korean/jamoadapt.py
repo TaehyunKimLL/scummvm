@@ -179,10 +179,11 @@ def _844_set(slot, lc844, V, T):
 
 def item_of(slot, cell):
     """The context a slot's set is chosen by: cells pooled so each holds enough syllables. An initial's set by (vowel,
-    tail class) over all lead classes, a medial's by (lead class, tail class, vowel), a final's by (vowel, lead class)
-    over all tail classes (a final's own tail is its jamo). These are what the 844 tables look at, at finer classes."""
+    tail class) over all lead classes, a medial's by (lead class, tail class) over all vowels, a final's by (vowel,
+    lead class) over all tail classes (a final's own tail is its jamo): what the 844 tables look at, at finer classes.
+    An item holds several jamo of its slot, so two items compare by the jamo they share."""
     lc, v, tc = cell
-    return ((v, tc), (lc, tc, v), (v, lc))[slot]
+    return ((v, tc), (lc, tc), (v, lc))[slot]
 
 
 def adapt(donors, nlev, limits=LIMITS, min_gain=0.003, min_users=10, log=None):
@@ -200,7 +201,7 @@ def adapt(donors, nlev, limits=LIMITS, min_gain=0.003, min_users=10, log=None):
     mapping = [{}, {}, {}]
     for c in cells:
         for k in range(3):
-            mapping[k].setdefault(item_of(k, c), _844_set(k, 0 if c[0] == 0 else 1, c[1], c[2]))
+            mapping[k].setdefault(item_of(k, c), _844_of_item(k, item_of(k, c)))
     counts = [8, 4, 4]
     parent = [dict(), dict(), dict()]
     by_item = [{}, {}, {}]
@@ -329,8 +330,8 @@ def _844_of_item(slot, item):
         v, tc = item
         return _844_set(0, 1, v, tc)
     if slot == 1:
-        lc, tc, v = item
-        return _844_set(1, 0 if lc == 0 else 1, v, tc)
+        lc, tc = item
+        return _844_set(1, 0 if lc == 0 else 1, 0, tc)
     v, lc = item
     return _844_set(2, 0 if lc == 0 else 1, v, 1)
 

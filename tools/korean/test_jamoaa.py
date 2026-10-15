@@ -280,7 +280,7 @@ class Quality(unittest.TestCase):
 UPEM = 1600		# at --size 16 a pixel is 100 units
 
 
-def design_glyphs():
+def design_glyphs(shared_column=False):
     """{syllable code point: [contour, ...]} in cell pixels, y down (baseline row 13). Jamo keep a pixel apart."""
     def cho(L, fin):
         b = 6 if fin else 8					# bottom row edge
@@ -293,6 +293,8 @@ def design_glyphs():
         b = 9 if fin else 10
         if V == 0:						# ㅏ: bar with a half-pixel right edge, stub to column 15
             return [[(10, 1), (11.5, 1), (11.5, b), (10, b)], [(11.5, 4), (15, 4), (15, 5), (11.5, 5)]]
+        if V == 4 and shared_column:			# ㅓ with its bar in column 10 like the others: every user of an
+            return [[(10, 1), (11, 1), (11, b), (10, b)], [(8, 4), (10, 4), (10, 5), (8, 5)]]	# initial set inks it
         if V == 4:						# ㅓ (its bar in another column: the vowels do not all ink one column,
             return [[(12, 1), (13, 1), (13, b), (12, b)], [(8, 4), (12, 4), (12, 5), (8, 5)]]	# as in real fonts)
         return [[(10.5, 1), (12, 1), (12, b), (10.5, b)]]	# ㅣ: half-pixel left edge
@@ -309,10 +311,10 @@ def design_glyphs():
     return out
 
 
-def build_test_font(path):
+def build_test_font(path, shared_column=False):
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.ttGlyphPen import TTGlyphPen
-    glyphs = design_glyphs()
+    glyphs = design_glyphs(shared_column)
     names = [".notdef", "space", "A"] + ["uni%04X" % cp for cp in sorted(glyphs)]
     fb = FontBuilder(UPEM, isTTF=True)
     fb.setupGlyphOrder(names)
@@ -414,6 +416,12 @@ class FromOutlineFont(unittest.TestCase):
         self.assertEqual(at(A, 1, 5), 3)			# ASCII at 2 bpp from the same frame
         self.assertEqual(f.metrics[0x41][0], 8)
 
+    def test_syllables_step_by_the_fonts_advance_in_a_wider_cell(self):
+        out, info = jamoaa.build(jamoset.LAYOUTS["844"], self.ttf, 16, cell=(18, 16))
+        self.assertEqual(jamoset.unpack(jamoset.parse_svfn(out).jset).advance, 16)
+        out, info = jamoaa.build(jamoset.LAYOUTS["844"], self.ttf, 16)
+        self.assertEqual(jamoset.unpack(jamoset.parse_svfn(out).jset).advance, 0)		# the cell width
+
     def test_1bpp_default_is_unchanged_by_the_options(self):
         ap = jamoset.make_parser()
         a = ap.parse_args(["--layout", "844", "--from-ttf", self.ttf, "--size", "16", "-o", "o"])
@@ -481,6 +489,43 @@ class Cleanup(unittest.TestCase):
 
 
 @unittest.skipUnless(FONTTOOLS, "needs fontTools")
+class PeersDecideWhatRegionsCannot(unittest.TestCase):
+    """Every vowel inks column 10, so the free region fit gives that column to the initials' pieces (all their users
+    ink it). The bars of ㅏ and ㅣ must still go to the medials: the syllables sharing the vowel have them, those
+    with another vowel in the same set do not. (ㅓ's bar is column 10 exactly, as every vowel's: nothing can tell
+    whose it is, and the regions decide.)"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.ttf = os.path.join(cls.tmp.name, "s.ttf")
+        cls.glyphs = build_test_font(cls.ttf, shared_column=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def error(self):
+        out, info = jamoaa.build(jamoset.LAYOUTS["844"], self.ttf, 16, keep=True)
+        ctx = info["ctx"]
+        comp = jamoaa.composed_levels(out, ctx["direct"])
+        return jamoaa.aa_quality(ctx["direct"], comp, 16, 16)["level_mae"], ctx, info
+
+    def test_vowel_bars_go_to_the_medial(self):
+        err, ctx, info = self.error()
+        for ch in "가기":
+            s = ord(ch) - 0xAC00
+            self.assertEqual(sum(1 for v in ctx["donors"][s][0] if v), 6 + 7 - 1, ch)	# ㄱ alone in the initial
+        self.assertTrue(info["contours"]["by_peers"] > 0)
+        sure = jamoaa.PEER_SURE
+        try:
+            jamoaa.PEER_SURE = 99.0					# the regions alone
+            err_regions, _, _ = self.error()
+        finally:
+            jamoaa.PEER_SURE = sure
+        self.assertLess(err, err_regions)
+
+
 class CleanAndAdaptiveFromOutline(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
