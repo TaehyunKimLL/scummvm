@@ -1016,7 +1016,7 @@ class HiResMapTargetTestSuite : public CxxTest::TestSuite {
 	}
 
 	static const char *twoPresets() {
-		return "[fonts]\nui=KO2350G.SVF\nbody=KO2350B.SVF\n[fonts:clut8]\nui=KO2350.SVF\nbody=KO2350.SVF\n"
+		return "[fonts]\nui=NGOTB16.SVF\nbody=GBATB17.SVF\n[fonts:clut8]\nui=NEODG16.SVF\nbody=NEODG16.SVF\n"
 			   "[render]\nblend=auto\n[render:clut8]\nblend=off\n"
 			   "[font]\nface=ui\nalign=cell\nmissing=u+25a1\n[font:clut8]\nalign=game\n"
 			   "[font.4]\nface=body\n[font.40]\nface=body\ncell=glyph\nsize=18\n[font.40:clut8]\ncell=game\nsize=16\n";
@@ -1029,8 +1029,8 @@ public:
 		for (uint i = 0; i < ARRAYSIZE(targets); ++i) {
 			Graphics::HiResMap m;
 			TS_ASSERT(load(twoPresets(), m, targets[i]));
-			TS_ASSERT_EQUALS(facePath(&m.font), "/maps/KO2350G.SVF");
-			TS_ASSERT_EQUALS(facePath(m.fontIdScope(4)), "/maps/KO2350B.SVF");
+			TS_ASSERT_EQUALS(facePath(&m.font), "/maps/NGOTB16.SVF");
+			TS_ASSERT_EQUALS(facePath(m.fontIdScope(4)), "/maps/GBATB17.SVF");
 			TS_ASSERT_EQUALS(m.font.align, Graphics::kHiResAlignCell);
 			TS_ASSERT_EQUALS(m.blend, Graphics::kHiResBlendAuto);
 			TS_ASSERT_EQUALS(m.fontIdScope(40)->size, 18);
@@ -1042,8 +1042,8 @@ public:
 	void test_clut8_sections_win_key_by_key() {
 		Graphics::HiResMap m;
 		TS_ASSERT(load(twoPresets(), m, Graphics::kHiResTargetClut8));
-		TS_ASSERT_EQUALS(facePath(&m.font), "/maps/KO2350.SVF");          // [fonts:clut8] refines the name
-		TS_ASSERT_EQUALS(facePath(m.fontIdScope(4)), "/maps/KO2350.SVF");
+		TS_ASSERT_EQUALS(facePath(&m.font), "/maps/NEODG16.SVF");          // [fonts:clut8] refines the name
+		TS_ASSERT_EQUALS(facePath(m.fontIdScope(4)), "/maps/NEODG16.SVF");
 		TS_ASSERT_EQUALS(m.font.align, Graphics::kHiResAlignGame);
 		TS_ASSERT_EQUALS(m.font.missing, 0x25A1u);                         // not in [font:clut8]: the bare key
 		TS_ASSERT_EQUALS(m.blend, Graphics::kHiResBlendOff);

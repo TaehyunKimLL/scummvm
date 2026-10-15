@@ -74,10 +74,10 @@ blend=off
 [render:clut8]
 blend=off
 [fonts]
-ui=data:KO2350G.SVF
-body=data:KO2350B.SVF
+ui=data:NGOTB16.SVF
+body=data:GBATB17.SVF
 [fonts:clut8]
-ui=data:KO2350.SVF
+ui=data:NEODG16.SVF
 [font]
 face=ui
 missing=u+25a1
@@ -105,7 +105,7 @@ class MapTest(unittest.TestCase):
     def test_fonts_name_the_new_files_and_presets_are_gone(self):
         fonts = [l for l in self.sections["fonts"][1:] if not l.startswith(";")]
         self.assertEqual(fonts, [f"kp1={p2s.svf_name('a')}", f"kp2={p2s.svf_name('b')}",
-                                 "ui=data:KO2350G.SVF", "body=data:KO2350B.SVF", "cjk=data:NotoSansKR-Bold.otf"])
+                                 "ui=data:NGOTB16.SVF", "body=data:GBATB17.SVF", "cjk=data:NotoSansKR-Bold.otf"])
         self.assertNotIn("fonts:clut8", self.sections)
         self.assertNotIn("render:clut8", self.sections)
         self.assertIn("blend=auto", self.sections["render"])

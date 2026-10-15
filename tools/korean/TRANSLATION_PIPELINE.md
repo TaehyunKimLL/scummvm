@@ -494,8 +494,8 @@ script-strings`/`extract` 두 서브커맨드가 사실상 전부다 — SCI1 �
   `bake-game-fonts.sh`는 여전히 "게임별 `.MAP`의 자체 `missing=` 점검"과
   SCI 외 다른 패키지에 쓰인다(`bake-dos-fonts.sh:5-7` 주석).
 - `tools/korean/bake-dos-fonts.sh`(1-60행+) — **DOS 공용 L/U 프리셋**
-  (`KO2350.SVF`, `KOCP949.SVF`/`KOBATANG.SVF`, 그리고 2350로 좁힌
-  `KO2350G.SVF`/`KO2350B.SVF`)을 굽는다. "common2350" 게이트: 출시된 모든
+  (`NEODG16.SVF`, `NGOTB16A.SVF`/`GBATB17A.SVF`, 그리고 2350로 좁힌
+  `NGOTB16.SVF`/`GBATB17.SVF`)을 굽는다. "common2350" 게이트: 출시된 모든
   SCI 번역(KQ1/LB1/Camelot의 UTF-8 TEXT.*/SCI-KO.STR/RESOURCE.MSG, LB2의
   네이티브 CP949 RESOURCE.MSG)이 실제로 쓰는 코드포인트를 `ascii+
   ksx1001-nohanja`(2350 음절, 한자 제외)와 대조한 결과, LB2만 그 밖의
@@ -537,7 +537,7 @@ the result" 이하)를 그대로 쓴다 — SCI 전용 테스트 스크립트는
   Info-Zip의 "copy mode"(`zip old --out new -x pattern...`)로 안 바뀐
   엔트리는 재압축 없이 그대로 복사하고, `SCUMMVM.EXE`/`COMMIT.TXT`/
   `VERSION.TXT`/`DATA/*`만 갱신한다. `--f2350`은 게임별 서브셋 폰트에서
-  공유 KO2350 폰트로 마이그레이션할 때 `DATA/`를 통째로 교체하고
+  공유 NEODG16 폰트로 마이그레이션할 때 `DATA/`를 통째로 교체하고
   `SCUMMVM.INI`의 `hires_text_map=`을 새 표준 이름으로 고쳐 쓴다(LB1의
   `LB1U8U.MAP`→`LB1KOU.MAP` 등). `--unify`는 게임당 맵 하나(`<X>KO.MAP`)로
   `DATA/`를 다시 꾸미고 INI를 섹션별로 고쳐 쓴다: `extrapath=DATA` +

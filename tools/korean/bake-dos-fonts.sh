@@ -18,7 +18,7 @@
 # pixel font) and even NanumGothic-Bold/Gowun Batang Bold lack glyphs for
 # plenty of ksx1001-nohanja's symbol-table code points (Greek, Cyrillic, kana,
 # roman numerals, ...) that this bake has always silently dropped - the same
-# as the pre-existing KO2350.SVF/KOCP949/KOBATANG bakes below, which never
+# as the pre-existing NEODG16.SVF/NGOTB16A/GBATB17A bakes below, which never
 # used --require either. No game needs Hanja or anything else outside
 # ascii+ksx1001-nohanja+EXTRA_REQUIRE.
 set -e
@@ -38,33 +38,33 @@ if [ ! -f "$src" ]; then
 	echo "bake-dos-fonts: no font at $src" >&2
 	exit 1
 fi
-python3 "$here/mkfont.py" "$src" "$out/KO2350.SVF" --size 16 --cell 16 --bpp 1 \
+python3 "$here/mkfont.py" "$src" "$out/NEODG16.SVF" --size 16 --cell 16 --bpp 1 \
 	--unicode "ascii,ksx1001-nohanja,$EXTRA_REQUIRE"
 
 # U preset, two faces (the U maps pick one per SCI font id):
 # - UI (status/menu bar, parser line, system dialogs, buttons) and the
-#   default: KOCP949.SVF, NanumGothic-Bold 16 px, 2 bpp, ASCII + cp949.
-# - body (dialogue, narration, message boxes, titles): KOBATANG.SVF, Gowun
+#   default: NGOTB16A.SVF, NanumGothic-Bold 16 px, 2 bpp, ASCII + cp949.
+# - body (dialogue, narration, message boxes, titles): GBATB17A.SVF, Gowun
 #   Batang Bold 17 px, 2 bpp, ASCII + the 11172 syllables + KS X 1001 symbols.
 # Both in a 16x16 cell on one baseline (--clip-cell): ink a glyph has above
 # or below the 16-row SCI line is cut rather than left for the game to miss
 # when it erases the line (README.md). Neither file carries a font name, so
 # NanumGothic's Reserved Font Names are not used.
 #
-# KO2350G.SVF / KO2350B.SVF: the new shared U-preset pair, same faces, sizes,
-# cell, ascent, clip and bpp as KOCP949/KOBATANG, but ascii+ksx1001-nohanja
+# NGOTB16.SVF / GBATB17.SVF: the new shared U-preset pair, same faces, sizes,
+# cell, ascent, clip and bpp as NGOTB16A/GBATB17A, but ascii+ksx1001-nohanja
 # (2350 Hangul + EXTRA_REQUIRE) instead of the full 11172-syllable cp949/
 # cp949-hangul sets. ksx1001-nohanja already carries every KS X 1001 symbol/
-# jamo KOBATANG had (_ksx1001_symbols() in mkfont.py), so this is also the
-# union of what KOCP949/KOBATANG held outside Hangul, Hanja aside - Hanja is
-# left out on purpose (as KO2350.SVF already does): it roughly doubles KS X
+# jamo GBATB17A had (_ksx1001_symbols() in mkfont.py), so this is also the
+# union of what NGOTB16A/GBATB17A held outside Hangul, Hanja aside - Hanja is
+# left out on purpose (as NEODG16.SVF already does): it roughly doubles KS X
 # 1001's glyph count for characters no SCI DOS translation here uses, and
 # none of neodgm/NanumGothic-Bold/Gowun Batang Bold carry the handful of
 # Hanja the coverage gate found garbled in LB2's own resource (see
 # common2350-report.md) - those still draw missing= (U+25A1), same as before.
-# Ruling: KOCP949.SVF/KOBATANG.SVF STAY in dists (non-DOS/UTF-8 consumers may
+# Ruling: NGOTB16A.SVF/GBATB17A.SVF STAY in dists (non-DOS/UTF-8 consumers may
 # still want full cp949 coverage); the DOS .MAPs just stop referencing them,
-# in favour of KO2350G.SVF/KO2350B.SVF.
+# in favour of NGOTB16.SVF/GBATB17.SVF.
 # NANUMGOTHIC_BOLD / GOWUNBATANG_BOLD=/path/to/font.ttf bake other copies.
 nanum="${NANUMGOTHIC_BOLD:-$here/../../dists/engine-data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf}"
 gowun="${GOWUNBATANG_BOLD:-$here/../../dists/engine-data/hires_text/fonts/gowunbatang/GowunBatang-Bold.ttf}"
@@ -74,12 +74,12 @@ for f in "$nanum" "$gowun"; do
 		exit 1
 	fi
 done
-python3 "$here/mkfont.py" "$nanum" "$out/KOCP949.SVF" --size 16 --cell 16 --clip-cell --ascent 14 \
+python3 "$here/mkfont.py" "$nanum" "$out/NGOTB16A.SVF" --size 16 --cell 16 --clip-cell --ascent 14 \
 	--bpp 2 --unicode ascii,cp949
-python3 "$here/mkfont.py" "$gowun" "$out/KOBATANG.SVF" --size 17 --cell 16 --clip-cell --ascent 15 \
+python3 "$here/mkfont.py" "$gowun" "$out/GBATB17A.SVF" --size 17 --cell 16 --clip-cell --ascent 15 \
 	--bpp 2 --unicode ascii,cp949-hangul,ksx1001-symbols
 
-python3 "$here/mkfont.py" "$nanum" "$out/KO2350G.SVF" --size 16 --cell 16 --clip-cell --ascent 14 \
+python3 "$here/mkfont.py" "$nanum" "$out/NGOTB16.SVF" --size 16 --cell 16 --clip-cell --ascent 14 \
 	--bpp 2 --unicode "ascii,ksx1001-nohanja,$EXTRA_REQUIRE"
-python3 "$here/mkfont.py" "$gowun" "$out/KO2350B.SVF" --size 17 --cell 16 --clip-cell --ascent 15 \
+python3 "$here/mkfont.py" "$gowun" "$out/GBATB17.SVF" --size 17 --cell 16 --clip-cell --ascent 15 \
 	--bpp 2 --unicode "ascii,ksx1001-nohanja,$EXTRA_REQUIRE"

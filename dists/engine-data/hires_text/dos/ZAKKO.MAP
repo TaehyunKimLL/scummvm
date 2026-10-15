@@ -1,10 +1,10 @@
 # Zak McKracken (V2 DOS, zakkor Korean patch). One map, one face in every render_target
-# (1 bpp, hard-edged). The pairing selection (2026-10-15): KOJ16.SVF, the 16 px san-1.0
+# (1 bpp, hard-edged). The pairing selection (2026-10-15): SANGAM16.SVF, the 16 px san-1.0
 # GAM.KOR jamo set (layout 844, ascent 14) with SAN.ENG for ASCII, shared with
-# KQ4 (KOJFONT.TXT). It replaces the earlier two presets (a true colour
+# KQ4 (SAN10.TXT). It replaces the earlier two presets (a true colour
 # 2 bpp gothic face and a clut8 pixel face).
 # The game has one charset (cs0), 16x16 cells at scale 2 (the game's 8 px cell).
-# Licences: see KOJFONT.TXT and KQ1FONT.TXT beside this file (san 1.0, MIT).
+# Licence: see SAN10.TXT beside this file (san 1.0, MIT).
 [map]
 version=2
 
@@ -16,7 +16,7 @@ blend=off
 encoding=cp949
 
 [fonts]
-dlg=KOJ16.SVF
+dlg=SANGAM16.SVF
 
 [font]
 missing=u+25a1

@@ -268,13 +268,13 @@ class Validation(unittest.TestCase):
 
 
 HOT_MAP = """[fonts]
-dlg=data:M2U0.SVF
-card=M2U4.SVF
-card7=M2U4.SVF
-dlgx=M2U0X.SVF
+dlg=data:NGOTB21A.SVF
+card=GBATB23A.SVF
+card7=GBATB23A.SVF
+dlgx=NGO21AX2.SVF
 [fonts:clut8]
-card=M2L4.SVF
-card7=M2L4.SVF
+card=TBMY24.SVF
+card7=TBMY24.SVF
 [font]
 missing=u+25a1
 [font.0]
@@ -293,20 +293,20 @@ class HotLists(unittest.TestCase):
 
     def test_one_list_per_face_file_the_union_of_the_charsets_that_use_it(self):
         lists = C.hot_lists(self.sets, HOT_MAP, ('U',))
-        self.assertEqual(sorted(lists), ['M2U0', 'M2U0X', 'M2U4'])
+        self.assertEqual(sorted(lists), ['GBATB23A', 'NGO21AX2', 'NGOTB21A'])
         ascii_ = set(range(0x20, 0x7F))
         extra = {0x2026, 0x25A1}                                # [glyphs] and missing=
-        self.assertEqual(lists['M2U0'][0], ascii_ | {ord(c) for c in '가나'} | extra)
-        self.assertEqual(lists['M2U4'][0], ascii_ | {ord(c) for c in '다라'} | extra)    # cs4 and cs7 share the file
-        self.assertEqual(lists['M2U4'][1], [('U', 4), ('U', 7)])
-        self.assertNotIn(ord('마'), lists['M2U4'][0])           # charset 9 has no font id in the map
+        self.assertEqual(lists['NGOTB21A'][0], ascii_ | {ord(c) for c in '가나'} | extra)
+        self.assertEqual(lists['GBATB23A'][0], ascii_ | {ord(c) for c in '다라'} | extra)    # cs4 and cs7 share the file
+        self.assertEqual(lists['GBATB23A'][1], [('U', 4), ('U', 7)])
+        self.assertNotIn(ord('마'), lists['GBATB23A'][0])           # charset 9 has no font id in the map
 
     def test_presets_and_face_names(self):
         both = C.hot_lists(self.sets, HOT_MAP, ('U', 'L'))
-        self.assertEqual(sorted(both), ['M2L4', 'M2U0', 'M2U0X', 'M2U4'])
-        self.assertEqual(sorted(C.hot_lists(self.sets, HOT_MAP, ('L',))), ['M2L4', 'M2U0', 'M2U0X'])  # dlg is not renamed
+        self.assertEqual(sorted(both), ['GBATB23A', 'NGO21AX2', 'NGOTB21A', 'TBMY24'])
+        self.assertEqual(sorted(C.hot_lists(self.sets, HOT_MAP, ('L',))), ['NGO21AX2', 'NGOTB21A', 'TBMY24'])  # dlg is not renamed
         only = C.hot_lists(self.sets, HOT_MAP, ('U', 'L'), only=['card'])
-        self.assertEqual(sorted(only), ['M2L4', 'M2U4'])
+        self.assertEqual(sorted(only), ['GBATB23A', 'TBMY24'])
 
     def test_file_is_utf8_with_comments_and_every_character(self):
         d = tempfile.mkdtemp()
@@ -314,16 +314,16 @@ class HotLists(unittest.TestCase):
         with open(mp, 'w') as f:
             f.write(HOT_MAP)
         done = C.write_hot(self.sets, mp, os.path.join(d, 'hot'), ('U',), ['card'], 'charsetchars.py g --map T.MAP')
-        self.assertEqual(list(done), ['M2U4.HOT'])
-        with open(os.path.join(d, 'hot', 'M2U4.HOT'), encoding='utf-8') as f:
+        self.assertEqual(list(done), ['GBATB23A.HOT'])
+        with open(os.path.join(d, 'hot', 'GBATB23A.HOT'), encoding='utf-8') as f:
             text = f.read()
         lines = text.split('\n')
-        self.assertTrue(lines[0].startswith('# Preload list for M2U4'))
+        self.assertTrue(lines[0].startswith('# Preload list for GBATB23A'))
         self.assertIn('charsetchars.py g --map T.MAP', text)
         body = ''.join(l for l in lines if l and not l.startswith('#'))
         self.assertEqual(set(body), {chr(c) for c in range(0x21, 0x7F)} | set('다라') | {'\u2026', '\u25a1'})
         self.assertEqual(len(body), len(set(body)))            # each once
-        self.assertEqual(done['M2U4.HOT'], len(body))
+        self.assertEqual(done['GBATB23A.HOT'], len(body))
 
     def test_from_json_unions_earlier_runs(self):
         import subprocess
@@ -337,7 +337,7 @@ class HotLists(unittest.TestCase):
         subprocess.run([sys.executable, os.path.join(HERE, 'charsetchars.py'), '--from-json', os.path.join(d, 'a.json'),
                         os.path.join(d, 'b.json'), '--map', mp, '--preset', 'U', '--hot-faces', 'card', '--hot-dir',
                         os.path.join(d, 'hot')], check=True, capture_output=True)
-        with open(os.path.join(d, 'hot', 'M2U4.HOT'), encoding='utf-8') as f:
+        with open(os.path.join(d, 'hot', 'GBATB23A.HOT'), encoding='utf-8') as f:
             body = ''.join(l for l in f.read().split('\n') if l and not l.startswith('#'))
         self.assertTrue(set('다라마') <= set(body))      # cs4 of both runs, cs7 shares the file
 

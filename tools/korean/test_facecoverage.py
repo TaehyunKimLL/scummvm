@@ -154,13 +154,13 @@ class SupplementBakeTest(unittest.TestCase):
 SHIPPED = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'dists', 'engine-data', 'hires_text', 'dos')
 
 
-@unittest.skipUnless(os.path.exists(os.path.join(SHIPPED, 'M2L1.SVF')), 'shipped faces not there')
+@unittest.skipUnless(os.path.exists(os.path.join(SHIPPED, 'NEODG16B.SVF')), 'shipped faces not there')
 class JamoSetTest(unittest.TestCase):
     def test_a_jamo_set_composes_every_syllable_and_a_precomposed_base_has_all_2350(self):
-        self.assertEqual(len([c for c in fc.face_chars(os.path.join(SHIPPED, 'M2L1.SVF')) if 0xAC00 <= c <= 0xD7A3]), 11172)
+        self.assertEqual(len([c for c in fc.face_chars(os.path.join(SHIPPED, 'NEODG16B.SVF')) if 0xAC00 <= c <= 0xD7A3]), 11172)
         base = fc.base_set()
-        self.assertFalse(base - fc.face_chars(os.path.join(SHIPPED, 'M2L1.SVF')))
-        self.assertFalse(base - fc.face_chars(os.path.join(SHIPPED, 'M2U2.SVF')))
+        self.assertFalse(base - fc.face_chars(os.path.join(SHIPPED, 'NEODG16B.SVF')))
+        self.assertFalse(base - fc.face_chars(os.path.join(SHIPPED, 'NGOTB16B.SVF')))
 
     def test_every_shipped_map_of_the_two_games_has_a_base_and_covers_its_bundle(self):
         # the bundles live outside the repo (gamedata); the shipped maps' own claim is checked whenever they are there

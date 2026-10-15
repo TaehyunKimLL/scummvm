@@ -9,13 +9,13 @@
 ; translation uses.
 ;
 ;   id    game px  look                               line  face
-;   999      8     tiny, plain                          16   Q1G14  NanumGothic-Bold 14
-;   0,3,4    9     plain: status bar, dialogue, UI      18   Q1G16  NanumGothic-Bold 16
-;   2107    10     calligraphic                         20   Q1B18  GowunBatang-Bold 18
-;   1       12     plain, larger                        24   Q1G22  NanumGothic-Bold 22
-;   300     12     calligraphic: message boxes          24   Q1B22  GowunBatang-Bold 22
-;   123     15     blackletter display: titles          30   Q1T28  BlackHanSans 28 (Hangul)
-;                                                             Q1L28  Coustard-Black 24 (Latin)
+;   999       8     tiny, plain                         16   NGOTB14  NanumGothic-Bold 14
+;   0,3,4     9     plain: status bar, dialogue, UI     18   NGOTB16C NanumGothic-Bold 16
+;   2107     10     calligraphic                        20   GBATB18A GowunBatang-Bold 18
+;   1        12     plain, larger                       24   NGOTB22  NanumGothic-Bold 22
+;   300      12     calligraphic: message boxes         24   GBATB21  GowunBatang-Bold 21
+;   123      15     blackletter display: titles         30   BHSAN28  BlackHanSans 28 (Hangul)
+;                                                             COUSB24  Coustard-Black 24 (Latin)
 ;
 ; True colour only (the faces are 2 bpp). A render_target=clut8 screen
 ; needs 1 bpp faces, which this map does not provide yet.
@@ -27,13 +27,13 @@ scale=2
 blend=auto
 
 [fonts]
-g14=Q1G14.SVF
-g16=Q1G16.SVF
-b18=Q1B18.SVF
-g22=Q1G22.SVF
-b22=Q1B22.SVF
-t28=Q1T28.SVF
-l28=Q1L28.SVF
+g14=NGOTB14.SVF
+g16=NGOTB16C.SVF
+b18=GBATB18A.SVF
+g22=NGOTB22.SVF
+b22=GBATB21.SVF
+t28=BHSAN28.SVF
+l28=COUSB24.SVF
 
 [font]
 face=g16

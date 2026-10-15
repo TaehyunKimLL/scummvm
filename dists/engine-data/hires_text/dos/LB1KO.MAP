@@ -12,15 +12,15 @@
 ;
 ; Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): two faces,
 ; picked by the font id:
-;   body - KO2350B.SVF, Gowun Batang Bold 17 px, 2 bpp: fonts 1, 4, 8, 40, 41;
-;   ui   - KO2350G.SVF, NanumGothic-Bold 16 px, 2 bpp: font 0 and any other id.
+;   body - GBATB17.SVF, Gowun Batang Bold 17 px, 2 bpp: fonts 1, 4, 8, 40, 41;
+;   ui   - NGOTB16.SVF, NanumGothic-Bold 16 px, 2 bpp: font 0 and any other id.
 ; Both are baked on one baseline in a 16x16 cell (--clip-cell); align=cell
 ; puts every glyph on its line with no offset, so no ink lies outside the
 ; line the game erases. blend=auto anti-aliases the 2 bpp faces on a
 ; true-colour screen; with them in the bare sections, render_target=auto
 ; picks true colour.
 ;
-; render_target=clut8 (8-bit palette): every id on KO2350.SVF (16 px, 1 bpp)
+; render_target=clut8 (8-bit palette): every id on NEODG16.SVF (16 px, 1 bpp)
 ; on the game baseline, drawn hard-edged. Its ink is rows 1-13 (baseline row
 ; 12, descenders to row 14); on the game baseline it fits every line but
 ; font 0's, which is moved up a row. Fonts 40/41 keep the 16 px cell there:
@@ -38,12 +38,12 @@ blend=auto
 blend=off
 
 [fonts]
-ui=KO2350G.SVF
-body=KO2350B.SVF
+ui=NGOTB16.SVF
+body=GBATB17.SVF
 [fonts:clut8]
 ; the 8-bit preset: one 1 bpp face under both names
-ui=KO2350.SVF
-body=KO2350.SVF
+ui=NEODG16.SVF
+body=NEODG16.SVF
 
 [font]
 face=ui

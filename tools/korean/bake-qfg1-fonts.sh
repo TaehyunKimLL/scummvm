@@ -8,12 +8,12 @@
 #
 # QFG1's fonts, game height (px) x 2 = the hi-res line, and the face chosen by
 # height and decoration. The cell is the line less 2 px of leading:
-#   999   8  plain, tiny           line 16  Q1G14  NanumGothic-Bold  14
-#   0,3,4 9  plain (UI, dialogue)  line 18  Q1G16  NanumGothic-Bold  16
-#   2107 10  calligraphic          line 20  Q1B18  GowunBatang-Bold  18
-#   1    12  plain, larger         line 24  Q1G22  NanumGothic-Bold  22
-#   300  12  calligraphic body     line 24  Q1B22  GowunBatang-Bold  22
-#   123  15  ornate display        line 30  Q1T28  BlackHanSans 28 + Q1L28 Coustard-Black Latin
+#   999   8  plain, tiny           line 16  NGOTB14  NanumGothic-Bold  14
+#   0,3,4 9  plain (UI, dialogue)  line 18  NGOTB16C  NanumGothic-Bold  16
+#   2107 10  calligraphic          line 20  GBATB18A  GowunBatang-Bold  18
+#   1    12  plain, larger         line 24  NGOTB22  NanumGothic-Bold  22
+#   300  12  calligraphic body     line 24  GBATB21  GowunBatang-Bold  22
+#   123  15  ornate display        line 30  BHSAN28  BlackHanSans 28 + COUSB24 Coustard-Black Latin
 set -e
 here="$(cd "$(dirname "$0")" && pwd)"
 out="$here/../../dists/engine-data/hires_text/dos"
@@ -28,11 +28,11 @@ bake() { # ttf out size cell ascent [unicode-limit]
 	python3 "$here/mkfont.py" "$1" "$out/$2" --size "$3" --cell "$4" --clip-cell --ascent "$5" --bpp 2 \
 		--chars-from "$text" "$str" --limit "${6:-ascii,ksx1001-nohanja}"
 }
-bake "$nanum" Q1G14.SVF 14 14 12
-bake "$nanum" Q1G16.SVF 16 16 14
-bake "$gowun" Q1B18.SVF 18 18 16
-bake "$nanum" Q1G22.SVF 22 22 19
-bake "$gowun" Q1B22.SVF 21 22 19
-bake "$black" Q1T28.SVF 28 28 23
+bake "$nanum" NGOTB14.SVF 14 14 12
+bake "$nanum" NGOTB16C.SVF 16 16 14
+bake "$gowun" GBATB18A.SVF 18 18 16
+bake "$nanum" NGOTB22.SVF 22 22 19
+bake "$gowun" GBATB21.SVF 21 22 19
+bake "$black" BHSAN28.SVF 28 28 23
 # Latin for the title face: the Hangul face has none worth keeping, Coustard has no Hangul
-bake "$coust" Q1L28.SVF 24 28 23 ascii
+bake "$coust" COUSB24.SVF 24 28 23 ascii

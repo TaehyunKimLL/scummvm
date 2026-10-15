@@ -872,7 +872,7 @@ public:
 		if (!src)
 			return;
 		TS_ASSERT_EQUALS(ignoredWarnings(""), 0u);
-		TS_ASSERT_EQUALS(src->cells(0xAC00), 0);	// no syllables: a KO2350-like plain font's gap
+		TS_ASSERT_EQUALS(src->cells(0xAC00), 0);	// no syllables: a NEODG16-like plain font's gap
 		TS_ASSERT_EQUALS(src->cells('A'), 1);
 		TS_ASSERT_EQUALS(src->cells(Graphics::kJamoPieceBase + 5), 1);	// pieces are plain glyphs
 		delete src;

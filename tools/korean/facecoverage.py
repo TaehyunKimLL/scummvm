@@ -178,7 +178,7 @@ def check(text_cps, map_text, faces, presets=('U', 'L'), data_dirs=(), base_chec
 
 def hot_stem(value):
     """The preload list's name for the face file a [fonts] value names: the file's stem, upper case
-    (data:M2U7.SVF -> M2U7); charsetchars.py --hot-dir writes <stem>.HOT."""
+    (data:GBATB23.SVF -> GBATB23); charsetchars.py --hot-dir writes <stem>.HOT."""
     if value.lower().startswith('data:'):
         value = value[5:]
     return os.path.splitext(value.replace('\\', '/').rsplit('/', 1)[-1])[0].upper()

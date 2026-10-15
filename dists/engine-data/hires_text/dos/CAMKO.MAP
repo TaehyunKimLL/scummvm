@@ -15,23 +15,24 @@
 ;        103, several times, one game pixel apart)
 ;
 ; Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888):
-;   body - KO2350B.SVF, Gowun Batang Bold 17 px, 2 bpp: fonts 1, 4, 103;
-;   ui   - KO2350G.SVF, NanumGothic-Bold 16 px, 2 bpp: font 0 and any other id;
-;   out  - CAMOUU.SVF: font 104.
-; KO2350G.SVF/KO2350B.SVF are baked on one baseline in a 16x16 cell
+;   body - GBATB17.SVF, Gowun Batang Bold 17 px, 2 bpp: fonts 1, 4, 103;
+;   ui   - NGOTB16.SVF, NanumGothic-Bold 16 px, 2 bpp: font 0 and any other id;
+;   out  - GBATB17O.SVF: font 104.
+; NGOTB16.SVF/GBATB17.SVF are baked on one baseline in a 16x16 cell
 ; (--clip-cell); align=cell puts every glyph on its line with no offset, so
 ; no ink lies outside the line the game erases. blend=auto anti-aliases the
 ; 2 bpp faces on a true-colour screen; with them in the bare sections,
 ; render_target=auto picks true colour.
 ;
-; render_target=clut8 (8-bit palette): fonts 0-103 on KO2350.SVF (16 px,
-; 1 bpp) on the game baseline, font 104 on CAMOUL.SVF, drawn hard-edged.
+; render_target=clut8 (8-bit palette): fonts 0-103 on NEODG16.SVF (16 px,
+; 1 bpp) on the game baseline, font 104 on NEODG16O.SVF, drawn hard-edged.
 ;
-; Font 104 is drawn black under 103: CAMOUU.SVF / CAMOUL.SVF are dilated by
-; 2 px (1 game px) in a 20x20 cell from Camelot's own body glyphs
-; (svfoutline.py - not in this tree; both are copied through unchanged,
-; since they already cover every character Camelot's body face draws), so
-; the narration has the black outline the original has.
+; Font 104 is drawn black under 103: GBATB17O.SVF / NEODG16O.SVF (the O is
+; for outline) are the Gowun Batang Bold 17 px / neodgm 16 px glyphs of the
+; characters Camelot's text uses (a bake-game-fonts.sh subset), dilated by
+; 2 px (1 game px) in a 20x20 cell (svfoutline.py - not in this tree; both
+; are copied through unchanged), so the narration has the black outline the
+; original has. Licences: GOWUNBAT.TXT, NEODGM.TXT.
 ;
 ; Characters no face has draw U+25A1. Camelot's translation needs nothing
 ; outside the 2350 Hangul.
@@ -45,14 +46,14 @@ blend=auto
 blend=off
 
 [fonts]
-ui=KO2350G.SVF
-body=KO2350B.SVF
-out=CAMOUU.SVF
+ui=NGOTB16.SVF
+body=GBATB17.SVF
+out=GBATB17O.SVF
 [fonts:clut8]
 ; the 8-bit preset: one 1 bpp face under both text names
-ui=KO2350.SVF
-body=KO2350.SVF
-out=CAMOUL.SVF
+ui=NEODG16.SVF
+body=NEODG16.SVF
+out=NEODG16O.SVF
 
 [font]
 face=ui

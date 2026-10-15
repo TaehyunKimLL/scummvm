@@ -474,7 +474,7 @@ charset and not in another.
 ### The double shift
 
 The cell of a hi-res glyph, with the rows numbered from its top (the numbers
-are MI2 charset 7, the difficulty card, baked as `M2U7.SVF`: cell 24 rows,
+are MI2 charset 7, the difficulty card, baked as `GBATB23.SVF`: cell 24 rows,
 baseline at row 21; the game's own glyphs are cut to a 14 px cell):
 
 ```
@@ -517,7 +517,7 @@ row 349.
 
 Charset 4, the title card, is worse because its cell is taller: game height
 15, `offsY` of `.` 9, of `a` 4 (of `x` 4, of `g` 3, of `A` 0), baked in
-`M2U4.SVF` (26x24, baseline row 21). The `.` lands at row 21 + 18 = 39, 15
+`GBATB23A.SVF` (26x24, baseline row 21). The `.` lands at row 21 + 18 = 39, 15
 rows under the cell bottom.
 
 Why `0` and not the charset's "shared line offset" (`latinLineOffsY()`,

@@ -2,11 +2,11 @@
 """Bake a 1 bpp SVF from a precomposed Hangul bitmap font (BDF) and an ASCII bitmap font (BDF or HBF).
 
 The MI1/MI2 L faces for the 24 px tall cells would be drawn from a real 24 dot Hangul face
-rather than a 16 px face in a 24 px cell (the shipped M1L0, M1L4, M2L0 and M2L4 are written by jamoset.py from Taebaek's
-HBIOS faces instead, and the cs7 card shares M2L4; this tool stays for a face made from a KS X 1001 BDF):
+rather than a 16 px face in a 24 px cell (the shipped TBGOB24, TBMY24, TBGOB24 and TBMY24 are written by jamoset.py from Taebaek's
+HBIOS faces instead, and the cs7 card shares TBMY24; this tool stays for a face made from a KS X 1001 BDF):
 
     python3 bdfface.py --hangul batang24b.bdf --ascii 12x24.hbf --cell 24x24 \\
-        --chars-from korean.trs -o M2L4.SVF
+        --chars-from korean.trs -o TBMY24.SVF
 
 --hangul    a BDF whose ENCODING is a KS X 1001 GL code (CHARSET_REGISTRY ksx1001 / ksc5601, as Baekmuk's
             bdf/*.bdf) or a Unicode code point (iso10646). Only the syllables --chars-from names are written.

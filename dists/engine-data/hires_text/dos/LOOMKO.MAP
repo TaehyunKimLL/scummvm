@@ -1,11 +1,11 @@
 # Loom (VGA talkie, loomkor Korean patch). One map, two presets; the ini's
 # render_target picks one.
-#   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): LOOMU1/2.SVF,
+#   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): NGOTB15C/NGOTB16D.SVF,
 #   2 bpp, anti-aliased (blend=auto), baked by tools/korean/scumm-fonts/loomu.tsv from a gothic face.
-#   render_target=clut8 (8-bit palette): LOOML1/2.SVF, 1 bpp, baked from a pixel face
+#   render_target=clut8 (8-bit palette): NEODG16G/NEODG16J.SVF, 1 bpp, baked from a pixel face
 #   (tools/korean/scumm-fonts/looml.tsv), drawn hard-edged.
 # The patch ships korean01.fnt (16x16) and korean02.fnt (18x18); both presets bake those cells.
-# Licences: see MZLDFONT.TXT beside this file.
+# Licences: see NANUMGOT.TXT and NEODGM.TXT beside this file.
 [map]
 version=2
 
@@ -19,11 +19,11 @@ blend=off
 encoding=cp949
 
 [fonts]
-cs1=LOOMU1.SVF
-cs2=LOOMU2.SVF
+cs1=NGOTB15C.SVF
+cs2=NGOTB16D.SVF
 [fonts:clut8]
-cs1=LOOML1.SVF
-cs2=LOOML2.SVF
+cs1=NEODG16G.SVF
+cs2=NEODG16J.SVF
 
 [font]
 missing=u+25a1

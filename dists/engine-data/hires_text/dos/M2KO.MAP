@@ -1,19 +1,19 @@
 # Monkey Island 2 (mi2kor Korean patch). One map, two presets; the ini's
 # render_target picks one.
-#   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): M2U*.SVF, 2 bpp,
+#   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): NanumGothic Bold (NGOTB*) and Gowun Batang Bold (GBATB*) faces, 2 bpp,
 #   anti-aliased (blend=auto), baked by tools/korean/scumm-fonts/m2u.tsv:
 #   dialogue, verbs and the sentence line in a gothic face, the title/credit
 #   card in a serif face. With them in the bare sections, render_target=auto
 #   picks true colour.
-#   render_target=clut8 (8-bit palette): M2L*.SVF, 1 bpp, drawn hard-edged: M2L1 is a pixel
-#   face and M2L2 (dialogue) NanumGothic Bold hinted at 17 px, baked by tools/korean/scumm-fonts/m2l.tsv, and the 24 px tall cells (M2L0, M2L4; cs7 shares M2L4) a real 24 dot
+#   render_target=clut8 (8-bit palette): 1 bpp faces, drawn hard-edged: NEODG16B is a pixel
+#   face and NGOTB17 (dialogue) NanumGothic Bold hinted at 17 px, baked by tools/korean/scumm-fonts/m2l.tsv, and the 24 px tall cells (TBGOB24, TBMY24; cs7 shares TBMY24) a real 24 dot
 #   DOS Hangul face (Taebaek jamo set, jamoset.py --layout 844-hbios24), 24x24 cells that step as the game's cell does.
 # Cells per charset: cs0/cs6 22x24, cs1/cs3/cs5/cs8 16x16, cs2 18x18, cs4 26x24,
 # cs7 24x24; both presets bake the same cells. Charsets that share a cell share
-# one SVF; the 2 bpp set bakes charset 8 on its own (M2U8.SVF), the 1 bpp set
+# one SVF; the 2 bpp set bakes charset 8 on its own (GBATB14.SVF), the 1 bpp set
 # serves it with the charset 1 file.
 # MI2 draws its verb line in charset 6, which has no korean06.fnt: it uses the
-# charset 0 file. Licences: see M12FONT.TXT beside this file.
+# charset 0 file. Licences: see NANUMGOT.TXT, GOWUNBAT.TXT, NEODGM.TXT and TAEBAEK.TXT beside this file.
 [map]
 version=2
 
@@ -31,40 +31,40 @@ encoding=cp949
 # (a-circumflex and e-acute of "Papier-Mache", the ellipsis and trademark sign the map remaps to). Same cell and
 # baseline as its base.
 [fonts]
-dlg=M2U0.SVF
-small=M2U1.SVF
-sent=M2U2.SVF
-card=M2U4.SVF
-card7=M2U7.SVF
-card8=M2U8.SVF
-dlgx=M2U0X.SVF
-smallx=M2U1X.SVF
-sentx=M2U2X.SVF
-cardx=M2U4X.SVF
-card7x=M2U7X.SVF
-card8x=M2U8X.SVF
+dlg=NGOTB21A.SVF
+small=NGOTB15.SVF
+sent=NGOTB16B.SVF
+card=GBATB23A.SVF
+card7=GBATB23.SVF
+card8=GBATB14.SVF
+dlgx=NGO21AX2.SVF
+smallx=NGO15X2.SVF
+sentx=NGO16BX2.SVF
+cardx=GBA23AX2.SVF
+card7x=GBA23X2.SVF
+card8x=GBA14X2.SVF
 [fonts:clut8]
-dlg=M2L0.SVF
-small=M2L1.SVF
-sent=M2L2.SVF
-card=M2L4.SVF
-card7=M2L4.SVF
-card8=M2L1.SVF
-dlgx=M2L0X.SVF
-smallx=M2L1X.SVF
-sentx=M2L2X.SVF
-cardx=M2L4X.SVF
-card7x=M2L4X.SVF
-card8x=M2L1X.SVF
-fb=KOJ16.SVF
+dlg=TBGOB24.SVF
+small=NEODG16B.SVF
+sent=NGOTB17.SVF
+card=TBMY24.SVF
+card7=TBMY24.SVF
+card8=NEODG16B.SVF
+dlgx=TBG24X2.SVF
+smallx=NEO16BX2.SVF
+sentx=NGO17X2.SVF
+cardx=TBM24X2.SVF
+card7x=TBM24X2.SVF
+card8x=NEO16BX2.SVF
+fb=SANGAM16.SVF
 
-# True colour keeps the three card faces (M2U4 440 KB, M2U7 382 KB, M2U8 186 KB) in their files instead of
-# in memory: [load] streams them. M2U4 and M2U8 (title, credits, difficulty cards) also get a [preload] list,
+# True colour keeps the three card faces (GBATB23A 440 KB, GBATB23 382 KB, GBATB14 186 KB) in their files instead of
+# in memory: [load] streams them. GBATB23A and GBATB14 (title, credits, difficulty cards) also get a [preload] list,
 # the characters the game draws with them (the .HOT files beside this map, made by tools/korean/charsetchars.py,
 # see SCUMM_FONTS.md): read at start, they are then in the cache and anything else comes from the file when it
-# is drawn. Charset 7 is drawn with some 1,000 syllables by that analysis, enough to read all of M2U7 at start and
-# hold more than the whole face (a cache entry keeps two cells), so card7 is only streamed; M2U7.HOT is shipped
-# for a try (card7=M2U7.HOT). The 8-bit faces are small (20-38 KB): whole, as before.
+# is drawn. Charset 7 is drawn with some 1,000 syllables by that analysis, enough to read all of GBATB23 at start and
+# hold more than the whole face (a cache entry keeps two cells), so card7 is only streamed; GBATB23.HOT is shipped
+# for a try (card7=GBATB23.HOT). The 8-bit faces are small (20-38 KB): whole, as before.
 [load]
 card=stream
 card7=stream
@@ -74,9 +74,9 @@ card=auto
 card7=auto
 card8=auto
 [preload]
-card=M2U4.HOT
-#card7=M2U7.HOT
-card8=M2U8.HOT
+card=GBATB23A.HOT
+#card7=GBATB23.HOT
+card8=GBATB14.HOT
 [preload:clut8]
 card=
 card8=
@@ -112,9 +112,9 @@ face=card7,card7x
 [font.8]
 face=card8,card8x
 
-# fb=KOJ16.SVF (engine data, KOJFONT.TXT) ends each chain of a face that lives in the jamo font pack, so a missing
+# fb=SANGAM16.SVF (engine data, SAN10.TXT) ends each chain of a face that lives in the jamo font pack, so a missing
 # font pack still shows Korean (16 px; only the 8-bit preset has jamo-set faces).
-# The jamo-set faces (M2L0, M2L1, M2L4) come from the font pack. fb is last after the 16 px faces (M2L1: the
+# The jamo-set faces (TBGOB24, NEODG16B, TBMY24) come from the font pack. fb is last after the 16 px faces (NEODG16B: the
 # supplement draws its own characters, not fb) but before the supplement of the 24 px faces: without the pack
 # a 24 px supplement alone would set the cell height and drop the 16 px fb (the supplement's two glyphs are
 # lost then; with the pack present fb is dropped there anyway, its height differs).

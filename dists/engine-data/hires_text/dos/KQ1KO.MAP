@@ -3,9 +3,9 @@
 ;
 ; Faces, picked by the game's font id (the user's pairing selection, 2026-10-15):
 ;   ui   - font 0 (status line, menu bar, parser line), font 4 (the title menu's
-;          buttons) and any other id: KQ1I16.SVF, Iyagi IYG.KOR (san-1.0's font-kor) 16 px
+;          buttons) and any other id: IYAGI16.SVF, Iyagi IYG.KOR (san-1.0's font-kor) 16 px
 ;          with its SAN.ENG ASCII, a jamo set (all 11,172 syllables, 20 KB, lossless);
-;   body - font 300 (message boxes, narration): KQ1H24.SVF, HWP 1.20 printer font
+;   body - font 300 (message boxes, narration): HWPHG24.SVF, HWP 1.20 printer font
 ;          HANGUL3.PFT face 0 at 24 px with the HWP ASCII.PFT (14x24), a jamo set
 ;          (38 KB, lossless).
 ; The game draws at 320x200 and the map doubles it (scale=2): the 16 px cell is the
@@ -15,9 +15,9 @@
 ; its pen, overlapping its neighbours. Text wraps by the game's pixel width with the
 ; faces' advances (ASCII 8/14 px, Hangul 16/24 px at 640 wide).
 ; Both bases hold ASCII and every Hangul syllable; KQ1's text uses no other
-; character, so there is no supplement face. Licences: see KQ1FONT.TXT beside this file.
-; Fallback: KOJ16.SVF (engine data, 20 KB) is the last face of every chain whose faces live in the
-; jamo font pack, so a missing font pack still shows Korean (16 px; see KOJFONT.TXT).
+; character, so there is no supplement face. Licences: SAN10.TXT, HWP120.TXT beside this file.
+; Fallback: SANGAM16.SVF (engine data, 20 KB) is the last face of every chain whose faces live in the
+; jamo font pack, so a missing font pack still shows Korean (16 px; see SAN10.TXT).
 [map]
 version=2
 
@@ -26,9 +26,9 @@ scale=2
 blend=off
 
 [fonts]
-ui=KQ1I16.SVF
-body=KQ1H24.SVF
-fb=KOJ16.SVF
+ui=IYAGI16.SVF
+body=HWPHG24.SVF
+fb=SANGAM16.SVF
 
 [font]
 face=ui,fb

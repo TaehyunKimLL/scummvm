@@ -1,4 +1,4 @@
-# Preload list for M2U8: the characters its game draws with this face (union over the
+# Preload list for GBATB14: the characters its game draws with this face (union over the
 # charsets whose font chain uses it: U cs8), plus ASCII.
 # Made by: charsetchars.py mi2kor --v5 monkey2 --trs korean.trs --map M2KO.MAP --preset U --hot-faces card,card7,card8 --hot-dir dos
 # UTF-8; a line starting with # is a comment; order and line breaks do not matter.

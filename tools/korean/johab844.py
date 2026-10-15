@@ -10,7 +10,7 @@ whether there is a final (docs/johab/2026-10-14-johab-font-research.md, 3).
 The output is the base SVFN with every Hangul syllable it carries redrawn
 from the Johab font; everything else (ASCII, symbols, compatibility jamo)
 stays the base's, so a map keeps the same coverage. The base must be a 16x16
-1 bpp font (KO2350.SVF), the size of a 16x16 8x4x4 file. If it carries a
+1 bpp font (NEODG16.SVF), the size of a 16x16 8x4x4 file. If it carries a
 width table, a redrawn syllable keeps its advance and gets its own ink box.
 
 With --eng, the printable ASCII comes from a raw 8x16 DOS English font
@@ -18,7 +18,7 @@ With --eng, the printable ASCII comes from a raw 8x16 DOS English font
 the cell and stepping 8: the DOS Hangul systems paired each Johab font with
 one, so the Latin keeps the face's look.
 
-  python3 johab844.py GAM.KOR KO2350.SVF KOGAM.SVF --eng SAN.ENG
+  python3 johab844.py GAM.KOR NEODG16.SVF OUT.SVF --eng SAN.ENG
 """
 
 import argparse

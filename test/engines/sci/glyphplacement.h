@@ -464,7 +464,7 @@ public:
 		TS_ASSERT_EQUALS(Sci::bitmapFontBaseline([](uint32) { return -1; }), -1);
 	}
 
-	// The DOS L preset's KO2350.SVF in a code-page game's layout (per-glyph
+	// The DOS L preset's NEODG16.SVF in a code-page game's layout (per-glyph
 	// off, as LB1's EUC-KR text is laid out): the East Asian Ambiguous
 	// symbols neodgm draws full width (U+25CB, U+25A1, U+2015: advance 16)
 	// advance a whole cell, 8 game px - as far as they draw - and the ones it
@@ -472,7 +472,7 @@ public:
 	void test_ko2350_ambiguous_symbols_advance_as_drawn() {
 #if NULL_OSYSTEM_IS_AVAILABLE
 		Common::install_null_g_system();
-		const Common::FSNode node(Common::Path(HiResTestFonts::srcDir() + "/dists/engine-data/hires_text/dos/KO2350.SVF", '/'));
+		const Common::FSNode node(Common::Path(HiResTestFonts::srcDir() + "/dists/engine-data/hires_text/dos/NEODG16.SVF", '/'));
 		Common::SeekableReadStream *stream = node.exists() ? node.createReadStream() : nullptr;
 		Graphics::HiResBitmapFont font;
 		const bool loaded = stream && font.load(*stream);

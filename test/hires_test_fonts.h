@@ -226,7 +226,7 @@ inline Common::String cjkCollectionPath() {
  * Bake the committed face into an SVF (SVFN) file at test time with the
  * engine's own baker, under the temporary directory.
  *
- * @param name         file name to write (e.g. "KO2350.SVF")
+ * @param name         file name to write (e.g. "NEODG16.SVF")
  * @param pixelSize    the face's pixel size
  * @param codepoints   what to bake
  * @param cellW,cellH  the cell; 0 for the face's own

@@ -1,18 +1,18 @@
 # Monkey Island 1 (mi1kor Korean patch). One map, two presets; the ini's
 # render_target picks one.
-#   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): M1U*.SVF, 2 bpp,
+#   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): NanumGothic Bold (NGOTB*) and Gowun Batang Bold (GBATB*) faces, 2 bpp,
 #   anti-aliased (blend=auto), baked by tools/korean/scumm-fonts/m1u.tsv:
 #   dialogue, verbs and the sentence line in a gothic face, the title/credit
 #   card in a serif face. With them in the bare sections, render_target=auto
 #   picks true colour.
-#   render_target=clut8 (8-bit palette): M1L*.SVF, 1 bpp, drawn hard-edged: M1L1 is a pixel
-#   face and M1L2 (dialogue) NanumGothic Bold hinted at 17 px, baked by tools/korean/scumm-fonts/m1l.tsv, and the 24 px tall cells (M1L0, M1L4) a real 24 dot
+#   render_target=clut8 (8-bit palette): 1 bpp faces, drawn hard-edged: NEODG16C is a pixel
+#   face and NGOTB17 (dialogue) NanumGothic Bold hinted at 17 px, baked by tools/korean/scumm-fonts/m1l.tsv, and the 24 px tall cells (TBGOB24, TBMY24) a real 24 dot
 #   DOS Hangul face (Taebaek jamo set, jamoset.py --layout 844-hbios24), 24x24 cells that step as the game's cell does.
 # Cells per charset: cs0 22x24, cs1/cs3 16x16, cs2 18x18, cs4 26x24; both
 # presets bake the same cells. Charsets that share a cell share one SVF.
 # Charset 6 (the Ultimate Talkie verb bar) has no section of its own: the engine lays it out on
-# font 0's 11x12 cell and the hi-res layer borrows the nearest cell, cs0's (M1U0/M1L0).
-# Licences: see M12FONT.TXT beside this file.
+# font 0's 11x12 cell and the hi-res layer borrows the nearest cell, cs0's (NGOTB21A/TBGOB24).
+# Licences: see NANUMGOT.TXT, GOWUNBAT.TXT, NEODGM.TXT and TAEBAEK.TXT beside this file.
 [map]
 version=2
 
@@ -27,34 +27,34 @@ blend=off
 # beyond that (the syllable outside KS X 1001, the ellipsis and trademark sign the map remaps to). Same cell and
 # baseline as its base; the jamo sets need none.
 [fonts]
-cs0=M1U0.SVF
-cs1=M1U1.SVF
-cs2=M1U2.SVF
-cs4=M1U4.SVF
-cs0x=M1U0X.SVF
-cs1x=M1U1X.SVF
-cs2x=M1U2X.SVF
-cs4x=M1U4X.SVF
+cs0=NGOTB21A.SVF
+cs1=NGOTB15.SVF
+cs2=NGOTB16B.SVF
+cs4=GBATB17B.SVF
+cs0x=NGO21AX1.SVF
+cs1x=NGO15X1.SVF
+cs2x=NGO16BX1.SVF
+cs4x=GBA17BX1.SVF
 [fonts:clut8]
-cs0=M1L0.SVF
-cs1=M1L1.SVF
-cs2=M1L2.SVF
-cs4=M1L4.SVF
-cs2x=M1L2X.SVF
-fb=KOJ16.SVF
+cs0=TBGOB24.SVF
+cs1=NEODG16C.SVF
+cs2=NGOTB17.SVF
+cs4=TBMY24.SVF
+cs2x=NGO17X1.SVF
+fb=SANGAM16.SVF
 
-# True colour keeps the title/credit card face (M1U4, 440 KB) in its file instead of in memory: [load] streams
-# it and a glyph is read when it is first drawn (title and credits). M1U4.HOT, the characters the game can draw
+# True colour keeps the title/credit card face (GBATB17B, 440 KB) in its file instead of in memory: [load] streams
+# it and a glyph is read when it is first drawn (title and credits). GBATB17B.HOT, the characters the game can draw
 # with it by tools/korean/charsetchars.py (see SCUMM_FONTS.md), is shipped beside this map but not used: the
-# analysis finds about 870 characters, enough to read nearly all of M1U4 at start and hold 350 KB of it
-# (a cache entry keeps two cells), little less than the whole face. [preload] cs4=M1U4.HOT turns it on.
-# The 8-bit face (M1L4, 38 KB) stays whole.
+# analysis finds about 870 characters, enough to read nearly all of GBATB17B at start and hold 350 KB of it
+# (a cache entry keeps two cells), little less than the whole face. [preload] cs4=GBATB17B.HOT turns it on.
+# The 8-bit face (TBMY24, 38 KB) stays whole.
 [load]
 cs4=stream
 [load:clut8]
 cs4=auto
 #[preload]
-#cs4=M1U4.HOT
+#cs4=GBATB17B.HOT
 
 [font]
 missing=u+25a1
@@ -80,7 +80,7 @@ face=cs1,cs1x
 face=cs4,cs4x
 
 # The 8-bit preset chains a supplement only after the dialogue face (charset 2); its other faces are jamo sets.
-# fb=KOJ16.SVF (engine data, KOJFONT.TXT) ends each chain of a face that lives in the jamo font pack, so a missing
+# fb=SANGAM16.SVF (engine data, SAN10.TXT) ends each chain of a face that lives in the jamo font pack, so a missing
 # font pack still shows Korean (16 px; only the 8-bit preset has jamo-set faces).
 [font.0:clut8]
 face=cs0,fb

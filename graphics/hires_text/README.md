@@ -57,7 +57,7 @@ rule everywhere:
    game and global `extrapath`, then `dists/engine-data/`, `DATA_PATH` and
    SearchMan's folders; on DOS `C:\SCUMMVM\DATA`). A `..` or an absolute path
    after `data:` is refused. Shipped game packs name their faces this way
-   (`ui=data:KQ1I16.SVF`), so the faces live once in the engine data or in a
+   (`ui=data:IYAGI16.SVF`), so the faces live once in the engine data or in a
    font pack.
 2. An absolute path is used as written.
 3. A relative path is relative to the folder of the file that names it (the map).
@@ -120,9 +120,9 @@ the true-colour preset bare and the 8-bit preset as `:clut8`:
 
 ```ini
 [fonts]
-dlg=M2U0.SVF        ; true colour (render_target=auto or rgb565/rgb888)
+dlg=NGOTB21A.SVF       ; true colour (render_target=auto or rgb565/rgb888)
 [fonts:clut8]
-dlg=M2L0.SVF        ; 8-bit screen
+dlg=TBGOB24.SVF        ; 8-bit screen
 [render:clut8]
 blend=off
 ```
@@ -174,8 +174,8 @@ version=2
 scale=2            ; 320x200 game drawn on a 640x400 text surface
 blend=off          ; 1 bpp faces: hard-edged, nothing to blend
 [fonts]
-ui=KQ1I16.SVF      ; Iyagi 16 px jamo set (a pack's copy says data:KQ1I16.SVF)
-body=KQ1H24.SVF    ; HWP 24 px jamo set
+ui=IYAGI16.SVF         ; Iyagi 16 px jamo set (a pack's copy says data:IYAGI16.SVF)
+body=HWPHG24.SVF       ; HWP 24 px jamo set
 [font]             ; every id without its own section
 face=ui
 missing=u+25a1     ; a character no face has draws a box
@@ -204,17 +204,17 @@ blend=off
 [text]
 encoding=cp949             ; the game's own strings
 [fonts]
-card=M2U4.SVF              ; base: ASCII + KS X 1001 (or a jamo set)
-cardx=M2U4X.SVF            ; supplement: only what the text adds, same cell
+card=GBATB23A.SVF      ; base: ASCII + KS X 1001 (or a jamo set)
+cardx=GBA23AX2.SVF     ; supplement: only what the text adds, same cell
 [fonts:clut8]
-card=M2L4.SVF
-cardx=M2L4X.SVF
+card=TBMY24.SVF
+cardx=TBM24X2.SVF
 [load]
 card=stream                ; read glyphs from the file as they are drawn
 [load:clut8]
 card=auto                  ; the 8-bit face is small: the size rule
 [preload]
-card=M2U4.HOT              ; characters read into the cache when the map loads (a path, or data:X.HOT)
+card=GBATB23A.HOT      ; characters read into the cache when the map loads (a path, or data:X.HOT)
 [preload:clut8]
 card=                      ; empty value: no list
 [font]
@@ -317,8 +317,8 @@ every second and which are drawn once, on a title card:
 
 ```ini
 [fonts]
-dlg=M2U0.SVF
-card=M2U4.SVF
+dlg=NGOTB21A.SVF
+card=GBATB23A.SVF
 
 [load]
 dlg=whole        ; always in memory, however large
@@ -356,12 +356,12 @@ map is loaded, instead of one by one during play:
 
 ```ini
 [fonts]
-dlg=M2U2.SVF
-card=M2U7.SVF
+dlg=NGOTB16B.SVF
+card=GBATB23.SVF
 
 [preload]
-dlg=M2U2.HOT            ; characters to keep in memory for this face
-card=data:M2U7.HOT      ; a path next to the map, or data:
+dlg=NGOTB16B.HOT       ; characters to keep in memory for this face
+card=data:GBATB23.HOT  ; a path next to the map, or data:
 ```
 
 A `.HOT` file is UTF-8 text: the characters in any order with any line breaks;

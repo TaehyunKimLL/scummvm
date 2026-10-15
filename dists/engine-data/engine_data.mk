@@ -111,8 +111,8 @@ endif
 ifdef ENABLE_AGI
 DIST_FILES_LIST += dists/pred.dic
 endif
-# The one jamo-set Korean face the hi-res text maps chain last (data:KOJ16.SVF),
+# The one jamo-set Korean face the hi-res text maps chain last (data:SANGAM16.SVF),
 # so a game pack still shows Korean without its font pack; the other faces are
-# font packs. Its source and licence note: KOJFONT.TXT.
-DIST_FILES_LIST += dists/engine-data/hires_text/dos/KOJ16.SVF
-DIST_FILES_LIST += dists/engine-data/hires_text/dos/KOJFONT.TXT
+# font packs. Its source and licence note: SAN10.TXT.
+DIST_FILES_LIST += dists/engine-data/hires_text/dos/SANGAM16.SVF
+DIST_FILES_LIST += dists/engine-data/hires_text/dos/SAN10.TXT

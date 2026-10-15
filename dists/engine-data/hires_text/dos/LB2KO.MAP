@@ -5,13 +5,13 @@
 ;
 ; One face serves every font id:
 ;   default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888):
-;     KO2350G.SVF (NanumGothic-Bold, 16 px, 2 bpp, ASCII + ksx1001-nohanja,
+;     NGOTB16.SVF (NanumGothic-Bold, 16 px, 2 bpp, ASCII + ksx1001-nohanja,
 ;     one baseline in a 16x16 cell - bake-dos-fonts.sh). align=cell: the
 ;     16-row glyph sits on the 16-row line with no offset, nothing above or
 ;     below it for the game to leave behind when it erases the line.
 ;     blend=auto anti-aliases it on a true-colour screen; with it in the
 ;     bare sections, render_target=auto picks true colour.
-;   render_target=clut8 (8-bit palette): KO2350.SVF (16 px, 1 bpp) on the
+;   render_target=clut8 (8-bit palette): NEODG16.SVF (16 px, 1 bpp) on the
 ;     game baseline, drawn hard-edged.
 ; Characters the face lacks draw U+25A1. LB2's translation needs 7 code
 ; points outside the 2350 Hangul (KS X 1001 extension syllables, e.g.
@@ -27,9 +27,9 @@ blend=auto
 blend=off
 
 [fonts]
-ko=KO2350G.SVF
+ko=NGOTB16.SVF
 [fonts:clut8]
-ko=KO2350.SVF
+ko=NEODG16.SVF
 
 [font]
 face=ko

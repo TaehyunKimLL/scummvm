@@ -1,18 +1,18 @@
 # Indiana Jones and the Fate of Atlantis (CD data, English, text only, with the
 # korean.trs translation). One map, two presets; the ini's render_target picks one.
-#   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): I4U*.SVF, 2 bpp,
+#   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): NGOTB15B/NGOTB16E.SVF and GBATB31.SVF, 2 bpp,
 #   anti-aliased (blend=auto), baked by tools/korean/scumm-fonts/i4u.tsv:
 #   dialogue, verbs and the sentence line in a gothic face, the credit titles
 #   in a serif face. With them in the bare sections, render_target=auto
 #   picks true colour.
-#   render_target=clut8 (8-bit palette): I4L*.SVF, 1 bpp, baked from a pixel
+#   render_target=clut8 (8-bit palette): NEODG16I/NEODG16L/NEODG32B.SVF, 1 bpp, baked from a pixel
 #   face (tools/korean/scumm-fonts/i4l.tsv), drawn hard-edged.
 # Charsets (atlantis.001): cs1 16x16 (verbs, sentence line), cs2 20x18
 # (dialogue), cs3 32x32 (credit titles); both presets bake the same cells.
 # The translation ships fonts for these three only. cs4 (12 px high) and cs5
 # (8 px high) get the file of the nearest cell: cs4 the cs2 file, cs5 the cs1
 # file, so no Korean text falls back to the game's font.
-# Licences: see I34FONT.TXT beside this file.
+# Licences: see NANUMGOT.TXT, GOWUNBAT.TXT and NEODGM.TXT beside this file.
 [map]
 version=2
 
@@ -26,13 +26,13 @@ blend=off
 encoding=cp949
 
 [fonts]
-small=I4U1.SVF
-dlg=I4U2.SVF
-card=I4U3.SVF
+small=NGOTB15B.SVF
+dlg=NGOTB16E.SVF
+card=GBATB31.SVF
 [fonts:clut8]
-small=I4L1.SVF
-dlg=I4L2.SVF
-card=I4L3.SVF
+small=NEODG16I.SVF
+dlg=NEODG16L.SVF
+card=NEODG32B.SVF
 
 [font]
 missing=u+25a1

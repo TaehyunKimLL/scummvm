@@ -15,6 +15,10 @@ tools/korean/bakecells.sh  ~/games/mi2kor 2        # bake them
 tools/korean/makemaps.py   ~/games/mi2kor          # write HIRESTXT.MAP (version 2)
 ```
 
+A face that ships is named after its source font, not the game: `<font><px>[variant].SVF` (NEODG16, NGOTB21A,
+GBATB17, SANGAM16 ...); a per-game supplement adds `X` and the game. The scheme and every shipped face:
+`SCUMM_FONTS.md`, "Face file names".
+
 ### The cell size is decided by the game
 
 The game lays text out on its own font's grid, so a replacement only fits
@@ -67,7 +71,7 @@ its 4888 Hanja).
 
 ### Only what a game uses: `--chars-from`, `--limit`
 
-A shared font (`bake-dos-fonts.sh`'s `KO2350.SVF`/`KOCP949.SVF`) has to cover
+A shared font (`bake-dos-fonts.sh`'s `NEODG16.SVF`/`NGOTB16A.SVF`) has to cover
 every game; a single game's translation uses far fewer code points, and a
 per-game bake of just those is smaller. `--chars-from <file>...` collects
 every code point a game's translation actually writes and unions it into
@@ -152,7 +156,7 @@ choice). Each size tried is reported with how many glyphs would overflow it
 and ascent chosen:
 
 ```sh
-tools/korean/mkfont.py NanumGothic-Bold.ttf KOCP949.SVF --size 18 --cell 16 \
+tools/korean/mkfont.py NanumGothic-Bold.ttf OUT.SVF --size 18 --cell 16 \
     --fit-cell --ascent 14 --bpp 2 --unicode ascii,cp949
 # --fit-cell: 18px: ink 19 rows ... 11345 overflow
 # --fit-cell: 17px: ink 19 rows ... 7660 overflow
@@ -179,8 +183,8 @@ font id, `[font.N] face=`):
 
 | file | face | size | ascent | cut (full cp949 / Hangul set) |
 |---|---|---|---|---|
-| `KOCP949.SVF` (UI) | NanumGothic-Bold | 16 px | 14 | 478 of 11693 glyphs, 641 fringe px |
-| `KOBATANG.SVF` (body) | Gowun Batang Bold | 17 px | 15 | 8480 of 11968 glyphs, 3679 full + 28754 fringe px |
+| `NGOTB16A.SVF` (UI) | NanumGothic-Bold | 16 px | 14 | 478 of 11693 glyphs, 641 fringe px |
+| `GBATB17A.SVF` (body) | Gowun Batang Bold | 17 px | 15 | 8480 of 11968 glyphs, 3679 full + 28754 fringe px |
 
 Gowun Batang's ink is 17 rows at 17 px, so most of its glyphs lose a row
 of mostly antialiased fringe at the bottom; the SCI engine clips glyph ink
@@ -219,9 +223,9 @@ instead of 100-400 KB and holds all 11,172 syllables
 
 ```sh
 # a DOS Johab font (a named layout) + its raw 8x16 English font
-tools/korean/jamoset.py --layout 844 GAM.KOR --eng SAN.ENG --symbols --check -o KOJ16.SVF
+tools/korean/jamoset.py --layout 844 GAM.KOR --eng SAN.ENG --symbols --check -o SANGAM16.SVF
 # a precomposed 1 bpp SVF -> pieces fitted to its syllables
-tools/korean/jamoset.py --layout 844 --from-svf KO2350.SVF --symbols --check -o KO2350J.SVF
+tools/korean/jamoset.py --layout 844 --from-svf NEODG16.SVF --symbols --check -o OUT.SVF
 # an outline font -> pieces fitted to its syllables at a size (needs freetype-py, uharfbuzz)
 tools/korean/jamoset.py --layout 844 --from-ttf NanumGothic-Bold.ttf --size 16 --symbols --check -o NG16J.SVF
 ```
@@ -252,7 +256,7 @@ source formats are in docs/johab/2026-10-14-johab-font-formats.md.
 A fit prints the per-syllable IoU and a 1 px tolerant F1 (`exact N` is the number
 of syllables composed identically to the source). A precomposed 1 bpp face made
 by the HBIOS/Johab tools decomposes with IoU 1.000; a hinted TrueType bake is not
-an OR of pieces, so its fit is lower (measured 0.81 for M2L2). `jamofit.py` is
+an OR of pieces, so its fit is lower (measured 0.81 for NGOTB17). `jamofit.py` is
 the fitting library (no command line); `jamoset.py --from-ttf/--from-svf` call it.
 `bdfface.py --hangul KS.BDF --ascii ASCII.BDF --chars-from ... -o OUT.SVF`
 bakes a precomposed face from a KS X 1001 BDF (no shipped face uses it now);
@@ -522,8 +526,8 @@ save/load and options dialogs.
 
 `--map MAP --hot-dir DIR [--preset U|L|both] [--hot-faces a,b]` also writes the preload
 lists a hi-res map's `[preload]` section names (graphics/hires_text/README.md,
-"Preloading the glyphs a game draws"): one `<face stem>.HOT` (`M2U7.SVF` ->
-`M2U7.HOT`) for every face file the map's `[font.N]` chains use, UTF-8, a comment
+"Preloading the glyphs a game draws"): one `<face stem>.HOT` (`GBATB23.SVF` ->
+`GBATB23.HOT`) for every face file the map's `[font.N]` chains use, UTF-8, a comment
 header saying which charsets and what command made it, then the characters 32 to
 a line. A list is the union of the sets of the charsets (font ids; id N is charset
 N) whose chain uses the face, the code points `[glyphs]` and `missing=` draw in the
