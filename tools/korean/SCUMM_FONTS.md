@@ -495,19 +495,45 @@ What follows from that:
    baked at row 21 is drawn at row 39 of a 24-row cell. With
    `origin.basic-latin=face` the baked baseline is the only placement.
 
-### KQ1 (SCI remake): the san 16 px and HBIOS 24 px jamo sets (KQ1G16, KQ1M24)
+### KQ1 (SCI remake): the Iyagi 16 px and HWP 1.20 24 px jamo sets (KQ1I16, KQ1H24)
 
 KQ1KO.MAP draws the game's fonts with two jamo sets, the user's pairing selection (the same in every render_target, 1 bpp):
-font 0 (status line, menu bar, parser line), 4 (title buttons) and any other id: `KQ1G16.SVF`, san-1.0's GAM.KOR 16 px with SAN.ENG
-(the face KOGAMJ.SVF was built from); font 300 (message boxes, narration): `KQ1M24.SVF`, HBIOS $KMYZN24 myeongjo 24 px with $KROHN24
-ASCII. Font 300 needs `size=24` and `cell=glyph` in its section: the engine's default layout cell is 16 px, and a 24 px face drawn
-in it lands 4 px off its pen (overlapped, sheared-looking syllables). The text has no character outside ASCII + KS X 1001 (the
-bases are complete), so there is no supplement. Licences: KQ1FONT.TXT (san is MIT; the HBIOS face's is not stated).
+font 0 (status line, menu bar, parser line), 4 (title buttons) and any other id: `KQ1I16.SVF`, Iyagi IYG.KOR (san-1.0's
+font-kor) 16 px with SAN.ENG, ascent 15; font 300 (message boxes, narration): `KQ1H24.SVF`, HWP 1.20 printer font
+HANGUL3.PFT face 0 (24x24) with the same package's ASCII.PFT (14x24, advance 14, kept at its own rows: baseline row 20, so
+ASCII sits above the Hangul baseline like HWP's), ascent 24. Font 300 needs `size=24` and `cell=glyph` in its section: the
+engine's default layout cell is 16 px, and a 24 px face drawn in it lands 4 px off its pen (overlapped, sheared-looking
+syllables). The text has no character outside ASCII + KS X 1001 (the bases are complete), so there is no supplement.
+KQ1G16.SVF (GAM.KOR, the previous KQ1 face) stays: KQ4KO.MAP uses it. Licences: KQ1FONT.TXT (san is MIT; HWP's is not stated).
+
+The HWP PFT is a 7/2/3-set font that kfont composes, so it is exported as a precomposed SVFN (ASCII + all 11,172 syllables;
+`pairing2svf.svfn_bytes`) and then fitted to 844 pieces (IoU 1.000, exact for all 11,172):
 
 ```sh
-D=dists/engine-data/hires_text/dos; B=~/work/johab-fonts/dos/raw/gh_drypot__san-1.0; H=~/work/johab-fonts/os/extracted/PCDOS-HBIOS
-python3 tools/korean/jamoset.py --layout 844 $B/font-kor/GAM.KOR --eng $B/font-eng/SAN.ENG --symbols --check -o $D/KQ1G16.SVF
-python3 tools/korean/jamoset.py --layout 844-hbios24 "$H/\$KMYZN24.FNT" --eng "$H/\$KROHN24.FNT" --advance 24 --symbols --check -o $D/KQ1M24.SVF
+D=dists/engine-data/hires_text/dos; B=~/work/johab-fonts/dos/raw/gh_drypot__san-1.0
+python3 tools/korean/jamoset.py --layout 844 $B/font-kor/IYG.KOR --eng $B/font-eng/SAN.ENG --ascent 15 --symbols --check -o $D/KQ1I16.SVF
+python3 - <<'PY'
+import sys, os, base64
+sys.path[:0] = [os.path.expanduser("~/work/johab-fonts/tools"), "tools/korean"]
+import kfont, pairing2svf as p
+R = os.path.expanduser("~/work/johab-fonts/printer/extracted/ia-HWP120.zip/")
+kor, eng = kfont.open_font(R + "lzh/hangul.002.HANGUL3.PFT"), kfont.open_font(R + "ASCII.PFT")
+def cell(g):
+    d = bytearray()
+    for r in g.rows[:24]:
+        b = bytearray(3)
+        for x in range(min(g.w, 24)):
+            if r >> (g.w - 1 - x) & 1: b[x >> 3] |= 0x80 >> (x & 7)
+        d += b
+    return d + bytes(3 * (24 - len(g.rows)))
+cps = list(range(0x20, 0x7f)) + [0xAC00 + i for i in range(11172)]
+data = b"".join(bytes(cell((eng if cp < 0x80 else kor).glyph(cp))) for cp in cps)
+adv = [14 if cp < 0x80 else 24 for cp in cps]
+face = {"key": "hwp120-h3-f0", "w": 24, "h": 24, "bpp": 1, "ascent": 24, "adv": adv,
+        "chars": "".join(map(chr, cps)), "data": base64.b64encode(data).decode()}
+open("/tmp/hwp24.svf", "wb").write(p.svfn_bytes(face))
+PY
+python3 tools/korean/jamoset.py --layout 844 --from-svf /tmp/hwp24.svf --symbols --check -o $D/KQ1H24.SVF
 ```
 
 ### KQ4 (SCI0): san 16 px shared with KQ1, Mac AppleMyungjo 20 px (KQ4A20)
