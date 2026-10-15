@@ -538,7 +538,7 @@ class JsetCodec(unittest.TestCase):
             "magic": b"X" + g[1:],
             "length": g[:-1],
             "length extra": g + b"\0",
-            "lead classes": g[:6] + b"\x05" + g[7:],
+            "lead classes": g[:6] + b"\x09" + g[7:],
             "leadClass": g[:12 + 3] + b"\x02" + g[12 + 4:],
             "initSet": g[:59 + 5] + b"\x08" + g[59 + 6:],
         }
@@ -1346,6 +1346,81 @@ class FromSvfAdvance(unittest.TestCase):
                 code, out = run_main(["--layout", "844", "--from-svf", a, "--mask", "none", "-o", o] + extra)
                 self.assertIsNone(code, out)
                 self.assertEqual(jamoset.unpack(jamoset.parse_svfn(open(o, "rb").read()).jset).advance, want, extra)
+
+MAC_MUNJO24 = os.path.expanduser("~/work/johab-fonts/mac/extracted/kh10_system_disk/System Folder/Munjo24.rsrc")
+MAC_TOOLS = os.path.expanduser("~/work/johab-fonts/tools")
+
+
+class MacFbit45Sets(unittest.TestCase):
+    """--layout mac-fbit-45sets: HangulTalk 1.0 'fbit' Munjo/Gotic (45 glyph sets, planes chosen by the 'fdef' rules).
+
+    The reference is the research tool mac_kfont.py (a literal transliteration of the 68k driver), which is outside
+    this repository: the tests skip where ~/work/johab-fonts is not collected. The Mac composition needs 8 lead
+    classes and 20 initial sets (JSET took 4 and 16 until this layout), and every one of the 11,172 syllables must
+    compose to the Mac rendering bit for bit."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not os.path.exists(MAC_MUNJO24) or not os.path.isdir(MAC_TOOLS):
+            raise unittest.SkipTest("Munjo24.rsrc / mac_kfont.py not collected here")
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.out = os.path.join(cls.tmp.name, "MUNJO24.SVF")
+        cls.r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "jamoset.py"), "--layout", "mac-fbit-45sets",
+                                MAC_MUNJO24, "--symbols", "--check", "-o", cls.out], capture_output=True, text=True)
+        sys.path.insert(0, MAC_TOOLS)
+        import mac_kfont
+        import kfont
+        rs = mac_kfont.parse_rsrc(open(MAC_MUNJO24, "rb").read())
+        cls.ref = mac_kfont.HfntFont("Munjo24", list(rs[b"fbit"].values())[0][1], rs[b"fdef"][3][1])
+        cls.kfont = kfont
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, "tmp"):
+            cls.tmp.cleanup()
+
+    def mac_glyph(self, s):
+        a, b, c = self.kfont.johab_fields(s // 588, (s // 28) % 21, s % 28)
+        g = self.ref.johab(0x8000 | a << 10 | b << 5 | c)
+        return jamoset.glyph_gint(jamoset.Glyph(24, 24, g.rows).to_bytes(), 24, 24)
+
+    def test_ran_and_every_syllable_is_identical(self):
+        self.assertEqual(self.r.returncode, 0, self.r.stderr)
+        self.assertIn("composed 11172 syllables", self.r.stdout)
+        self.assertIn("differing syllables: 0", self.r.stdout)
+
+    def test_every_syllable_is_the_mac_rendering_of_the_reference_port(self):
+        f = jamoset.parse_svfn(open(self.out, "rb").read())
+        t = jamoset.unpack(f.jset)
+        self.assertEqual((f.cell_w, f.cell_h, f.ascent, f.bpp), (24, 24, 24, 1))
+        for s in range(11172):
+            got = jamoset.glyph_gint(jamoset.compose(f, t, 0xAC00 + s), 24, 24)
+            self.assertEqual(got, self.mac_glyph(s), f"U+{0xAC00 + s:04X}")
+
+    def test_the_tables_are_what_the_rule_needs(self):
+        t = jamoset.unpack(jamoset.parse_svfn(open(self.out, "rb").read()).jset)
+        self.assertEqual((t.lc, t.tc, t.ni, t.nf), (8, 4, 20, 4))
+        self.assertLessEqual(t.nm, 16)
+
+    def test_symbols_and_no_ascii(self):
+        f = jamoset.parse_svfn(open(self.out, "rb").read())
+        self.assertIn(0x2026, f.glyphs)
+        self.assertIn(0x25A1, f.glyphs)
+        self.assertNotIn(0x41, f.glyphs)
+
+    def test_layout_is_not_a_source_layout(self):
+        self.assertNotIn("mac-fbit-45sets", jamoset.LAYOUTS)
+        self.assertEqual(jamoset.make_parser().parse_args(["--layout", "mac-fbit-45sets", "-o", "x"]).layout,
+                         "mac-fbit-45sets")
+
+    def test_wrong_file_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = os.path.join(d, "x")
+            open(f, "wb").write(b"\0" * 64)
+            r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "jamoset.py"), "--layout", "mac-fbit-45sets", f,
+                                "-o", os.path.join(d, "o")], capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertNotIn("Traceback", r.stderr)
 
 
 if __name__ == "__main__":

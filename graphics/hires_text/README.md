@@ -421,9 +421,9 @@ JSET block, little-endian:
 ```
 4  "JSET"
 2  version (1)
-1  LC  lead classes   (1..4)
-1  TC  tail classes   (1..4)
-1  NI  initial sets   (1..16)
+1  LC  lead classes   (1..8)
+1  TC  tail classes   (1..8)
+1  NI  initial sets   (1..24)
 1  NM  medial sets    (1..16)
 1  NF  final sets     (1..16)
 1  advance            syllable advance in px; 0 = the cell width
@@ -443,7 +443,8 @@ The three set tables are indexed `(leadClass * 21 + vowel) * TC + tailClass`
 `set * 19 + initial`, `set * 21 + vowel`, `set * 27 + tail - 1`. A final set
 is validated and read only for tail classes some tail 1..27 belongs to. The
 DOS set systems (8x4x4, 10x4x4, hanterm's 10x(3|4)x4, 6x2x1, the Dokkaebi
-printer sets, Kyra's jamo-major order) are all expressible; `tools/korean/jamoset.py`
+printer sets, Kyra's jamo-major order, and the Mac HangulTalk 1.0 'fbit' fonts with their 8 lead classes and
+20 initial sets) are all expressible; `tools/korean/jamoset.py`
 writes such fonts.
 
 ## Glyph rendering (G3)

@@ -239,6 +239,19 @@ Taebaek face), `1044-san` (san-1.0's 10x4x4), `621` (Apple II 6x2x1),
 `HANGUL16/24/40/48.FNT`, `--face 0|1`) and `kyra-lok` (Kyra LoK `MK15.BIT`). The
 source formats are in docs/johab/2026-10-14-johab-font-formats.md.
 
+`mac-fbit-45sets` reads a classic Mac HangulTalk 1.0 `fbit` font (Munjo12/16/24, Gotic12/16 of Korean
+System 4.1; the raw resource fork, e.g. `Munjo24.rsrc`): 45 glyph sets, a syllable the OR of an initial, a
+medial and a final glyph picked by the 68k `fdef` driver's 18 lookup tables. The tool derives the JSET
+tables from that rule (8 lead classes, 4 tail classes, 20 initial sets, up to 15 medial sets, 4 final
+sets: the JSET limits are 8/8/24/16/16) and `--check` composes all 11,172 syllables and compares them with
+the Mac rendering: identical, bit for bit (`tools/korean/test_jamoset.py`, class `MacFbit45Sets`, against
+`~/work/johab-fonts/tools/mac_kfont.py`; skipped where that is not collected). It takes no `--eng`; an
+engine older than the 8/8/24 limits skips such a face (its map chains a fallback):
+
+```sh
+tools/korean/jamoset.py --layout mac-fbit-45sets Munjo24.rsrc --symbols --check -o MUNJO24.SVF
+```
+
 | option | effect |
 |--------|--------|
 | `--eng FILE` | raw 8x16 English font for ASCII (2048 or 4096 bytes), scaled by whole numbers to the cell |

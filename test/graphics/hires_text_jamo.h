@@ -273,7 +273,7 @@ public:
 		TS_ASSERT(err.contains("version"));
 
 		b = good;
-		b[kLC] = 5;
+		b[kLC] = 9;
 		TS_ASSERT(!parse(b, t, err, sizeOf(b)));
 		TS_ASSERT(err.contains("lead classes"));
 
@@ -283,7 +283,7 @@ public:
 		TS_ASSERT(err.contains("tail classes"));
 
 		b = good;
-		b[kNI] = 17;
+		b[kNI] = 25;
 		TS_ASSERT(!parse(b, t, err, sizeOf(b)));
 		TS_ASSERT(err.contains("initial sets"));
 

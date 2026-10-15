@@ -526,7 +526,7 @@ def unpack(data):
     version, lc, tc, ni, nm, nf, adv = struct.unpack_from("<HBBBBBB", data, 4)
     if version != 1:
         raise ValueError(f"JSET version {version} is not supported")
-    for name, v, hi in (("lead classes", lc, 4), ("tail classes", tc, 4), ("initial sets", ni, 16),
+    for name, v, hi in (("lead classes", lc, 8), ("tail classes", tc, 8), ("initial sets", ni, 24),
                         ("medial sets", nm, 16), ("final sets", nf, 16)):
         if not 1 <= v <= hi:
             raise ValueError(f"JSET {name} {v} is not 1..{hi}")
@@ -1004,6 +1004,240 @@ def svf_targets(face):
     return out
 
 
+# ---- Mac HangulTalk 1.0 'fbit' fonts (--layout mac-fbit-45sets) --------------------------------------------------------
+#
+# Gotic12/16 and Munjo12/16/24 of Korean System 4.1 (resource fork, type 'fbit'): 45 glyph sets of one cell size, a syllable
+# is the OR of an initial, a medial and (with a final) a final glyph, picked by the 68k 'fdef' driver from 18 lookup tables
+# (research: ~/work/johab-fonts/notes/mac.md, tools/mac_kfont.py). The set system is not a fixed table: mac_layout() derives
+# the JSET tables from the font's own rule - lead and tail classes are the sets of jamo that no syllable tells apart, the
+# initial sets are the distinct columns of initial glyphs, the medial sets are numbered per vowel - and every syllable
+# composes to the Mac rendering bit for bit. It needs 8 lead classes, 4 tail classes and 20 initial sets, more than the
+# first JSET readers took (4 / 4 / 16): the JSET limits are now 8 / 8 / 24 for classes and initial sets (16 medial, 16 final).
+
+MAC_PLANE_TABLES = dict(A=(0x524, 32), B=(0x558, 32), C=(0x578, 32), D=(0x598, 32), Gm=(0x5b8, 32), G=(0x5d8, 10),
+                        S=(0x5e2, 32), F=(0x602, 32), I=(0x622, 32), H=(0x642, 6), J=(0x648, 32), M=(0x668, 6),
+                        O=(0x66e, 32), N=(0x68e, 8), K=(0x696, 32), R=(0x6b6, 32), P=(0x6d6, 32), Q=(0x6f6, 32))
+MAC_LAYOUT = "mac-fbit-45sets"
+MAC_REMAP = (0, 1, 0x13, 0x14, 0x15, 0x16, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0x17, 0x18, 0x12)
+
+
+def mac_resources(d):
+    """{type (bytes): {id: data}} of a raw Mac resource fork."""
+    dofs, mofs, dlen, mlen = struct.unpack(">4I", d[:16])
+    m = d[mofs:mofs + mlen]
+    tl, nl, n1 = struct.unpack(">HHH", m[24:30])
+    out = {}
+    for i in range((n1 + 1) & 0xFFFF):
+        typ, cnt1, rofs = struct.unpack(">4sHH", m[tl + 2 + i * 8:tl + 10 + i * 8])
+        for j in range(cnt1 + 1):
+            rid, _noff, ao = struct.unpack(">hHI", m[tl + rofs + j * 12:tl + rofs + j * 12 + 8])
+            doff = dofs + (ao & 0xFFFFFF)
+            ln = struct.unpack(">I", d[doff:doff + 4])[0]
+            out.setdefault(typ, {})[rid] = d[doff + 4:doff + 4 + ln]
+    return out
+
+
+def mac_compose(tb, L, V, T):
+    """Johab 5-bit fields -> [(set, glyph)] of the initial, medial and final planes (the 'fdef' driver of HangulTalk 1.0)."""
+    out = []
+    if L != 1:
+        g = tb["A"][L]
+        if T == 1:
+            s = tb["B"][V] // 2
+        else:
+            c = tb["C"][V]
+            s = 8 + (c & 0x3f) // 2
+            if c & 0xc0:
+                if tb["D"][T] & 0x80:
+                    s += 1
+                if c & 0x40:
+                    g = MAC_REMAP[g]
+        out.append((s, g))
+    if V != 2:
+        g = tb["Gm"][V]
+        sel = tb["S"][V]
+        if sel == 0:
+            if T == 1:
+                s = 18
+            else:
+                s = 19 + (1 if tb["D"][T] & 0x80 else 0)
+                if tb["F"][L] & 0x80:
+                    g = tb["G"][g]
+        elif sel == 2:
+            if T == 1:
+                s = 21
+                d0, d4 = tb["H"][g], tb["I"][L]
+                mod = True
+            else:
+                s = 22 + tb["J"][L] // 2
+                d0 = tb["K"][T]
+                d4 = tb["M"][g] if d0 & 0xc0 else 0
+                mod = bool(d0 & 0xc0)
+            if mod and (d0 & 0xf0) & (d4 & 0xf0):
+                g = (g + ((d0 + d4) & 0xf)) & 0xff
+        else:
+            s = 26
+            if T != 1:
+                s = 31
+                d4 = tb["K"][T]
+                d0 = tb["N"][g]
+                if (d0 & 0xf0) & (d4 & 0xf0):
+                    s = 36
+            s += tb["O"][L] // 2
+        out.append((s, g))
+    if T != 1:
+        s = 41
+        d0 = tb["P"][V]
+        if d0 & 0x80 and tb["Q"][L] & 0x80:
+            s += 1
+        s += (d0 & 0x3f) // 2
+        out.append((s, tb["R"][T]))
+    return out
+
+
+class MacFbit:
+    """A HangulTalk 1.0 'fbit' font file (a raw resource fork): its glyph sets and the 'fdef' lookup tables."""
+
+    def __init__(self, data):
+        try:
+            res = mac_resources(data)
+            self.fbit = next(iter(res[b"fbit"].values()))
+            fdef = res[b"fdef"][3]
+        except (KeyError, StopIteration, struct.error, IndexError):
+            raise SourceError("not a HangulTalk 1.0 'fbit' resource fork (no fbit or fdef 3 resource)")
+        if self.fbit[2:6] != b"fbit" or len(fdef) < 0x716:
+            raise SourceError("not a HangulTalk 1.0 'fbit' font")
+        self.tb = {k: fdef[o:o + n] for k, (o, n) in MAC_PLANE_TABLES.items()}
+        nset = struct.unpack(">H", self.fbit[0x54:0x56])[0] // 12
+        if nset != 45:
+            raise SourceError(f"{nset} glyph sets, not the 45 of mac-fbit-45sets")
+        self.sets = []
+        for i in range(nset):
+            w0, hi, off, h = struct.unpack(">4H", self.fbit[0x56 + i * 12:0x56 + i * 12 + 8])
+            self.sets.append((w0 * 4, (hi << 16) | off, h))
+        self.base = 0x56 + nset * 12
+        self.w, self.h = self.sets[0][0], self.sets[0][2]
+
+    def set_glyph(self, s, g):
+        bpr, off, h = self.sets[s]
+        gb = bpr * h // 8
+        o = self.base + off + g * gb
+        v = int.from_bytes(self.fbit[o:o + gb], "big")
+        return Glyph(bpr, h, [(v >> (gb * 8 - (y + 1) * bpr)) & ((1 << bpr) - 1) for y in range(h)])
+
+    def syllable(self, s):
+        """The Mac rendering of syllable index @p s (U+AC00 + s) as a Glyph."""
+        L, V, T = s // 588, (s // 28) % 21, s % 28
+        r = None
+        for st, g in mac_compose(self.tb, L + 2, JUNG_FIELD[V], T + 1 if T <= 16 else T + 2):
+            gl = self.set_glyph(st, g)
+            r = gl if r is None else Glyph(gl.w, gl.h, [a | b for a, b in zip(r.rows, gl.rows)])
+        return r
+
+
+def ks_x_1001_syllables():
+    """Syllable indices (U+AC00 + n) of the 2,350 KS X 1001 Hangul."""
+    return sorted(ord(bytes([hi, lo]).decode("cp949")) - 0xAC00 for hi in range(0xB0, 0xC9) for lo in range(0xA1, 0xFF))
+
+
+class MacSource:
+    """The pieces of a MacFbit as a Source: piece n is the glyph numbered n over all 45 sets, in set order."""
+
+    def __init__(self, mac):
+        self.w, self.h, self.mac = mac.w, mac.h, mac
+        starts = [off for _, off, _ in mac.sets] + [len(mac.fbit) - mac.base]
+        self.first, n = [], 0
+        for i, (bpr, off, h) in enumerate(mac.sets):
+            self.first.append(n)
+            n += (starts[i + 1] - off) // (bpr * h // 8)
+        self.count = n
+
+    def index(self, s, g):
+        return self.first[s] + g
+
+    def glyph(self, i):
+        s = max(k for k in range(len(self.first)) if self.first[k] <= i)
+        return self.mac.set_glyph(s, i - self.first[s])
+
+
+def mac_layout(mac):
+    """(Layout, MacSource) of a MacFbit, the JSET tables derived from its rule and checked against it by build/check."""
+    src = MacSource(mac)
+    jam = lambda L, V, T: (L + 2, JUNG_FIELD[V], T + 1 if T <= 16 else T + 2)
+
+    def planes(L, V, T):
+        d = {"i": None, "m": None, "f": None}
+        for s, g in mac_compose(mac.tb, *jam(L, V, T)):
+            d["i" if s <= 17 else "m" if s <= 40 else "f"] = (s, g)
+        return d
+
+    def classes(n, sig):
+        ids, out = {}, []
+        for x in range(n):
+            out.append(ids.setdefault(sig(x), len(ids)))
+        return out, len(ids)
+
+    lead, lc = classes(19, lambda L: tuple((lambda d: (d["m"], d["f"] and d["f"][0]))(planes(L, V, T))
+                                           for V in range(21) for T in range(28)))
+    tail, tc = classes(28, lambda T: tuple((lambda d: (d["i"], d["m"], d["f"] and d["f"][0]))(planes(L, V, T))
+                                           for L in range(19) for V in range(21)))
+    rep_l = {c: lead.index(c) for c in range(lc)}
+    rep_t = {c: tail.index(c) for c in range(tc)}
+    init_cols, init_id = [], {}
+    med_keys = [[] for _ in range(21)]
+    fin_keys = []
+    cell_init, cell_med, cell_fin = {}, {}, {}
+    for c in range(lc):
+        for V in range(21):
+            for k in range(tc):
+                L, T = rep_l[c], rep_t[k]
+                col = tuple(planes(x, V, T)["i"] for x in range(19))
+                if col not in init_id:
+                    init_id[col] = len(init_cols)
+                    init_cols.append(col)
+                cell_init[c, V, k] = init_id[col]
+                d = planes(L, V, T)
+                if d["m"] not in med_keys[V]:
+                    med_keys[V].append(d["m"])
+                cell_med[c, V, k] = med_keys[V].index(d["m"])
+                if d["f"] is not None:
+                    if d["f"][0] not in fin_keys:
+                        fin_keys.append(d["f"][0])
+                    cell_fin[c, V, k] = fin_keys.index(d["f"][0])
+    final_tc = {tail[T] for T in range(1, 28)}
+    ni, nm, nf = len(init_cols), max(len(m) for m in med_keys), max(1, len(fin_keys))
+
+    def init_src(s, L):
+        x = init_cols[s][L]
+        return None if x is None else src.index(*x)
+
+    def med_src(s, V):
+        return src.index(*med_keys[V][s]) if s < len(med_keys[V]) and med_keys[V][s] else None
+
+    def fin_src(s, T):
+        return src.index(fin_keys[s] if s < len(fin_keys) else 41, mac.tb["R"][jam(0, 0, T)[2]])
+
+    layout = Layout(MAC_LAYOUT, None, lc, tc, ni, nm, nf, lambda L: lead[L], lambda T: tail[T],
+                    lambda c, V, k: cell_init[c, V, k], lambda c, V, k: cell_med[c, V, k],
+                    lambda c, V, k: cell_fin.get((c, V, k), 0), init_src, med_src, fin_src, advance=0)
+    layout.final_tail_classes = final_tc
+    return layout, src
+
+
+def mac_targets(mac):
+    """{syllable index: gint} of the Mac rendering of all 11,172 syllables."""
+    return {s: glyph_gint(mac.syllable(s).to_bytes(), mac.w, mac.h) for s in range(11172)}
+
+
+def mac_compare(out, targets, w, h):
+    """Compose every syllable of the written font and compare it with the Mac rendering: (quality report, the syllable
+    indices that differ)."""
+    f = parse_svfn(out)
+    t = unpack(f.jset)
+    composed = {s: glyph_gint(compose(f, t, 0xAC00 + s), w, h) for s in range(11172)}
+    return _jamofit().quality_report(targets, composed, w, h), [s for s in range(11172) if composed[s] != targets[s]]
+
+
 def ink_clipped(iw, ih, w, h, oy, top, bottom):
     """Whether the union ink box (iw x ih, pen-relative @p top and @p bottom rows) does not fit the w x h cell with the baseline
     at row @p oy: its top row is oy - top and its bottom row oy - bottom, which must be 0..h-1 (so oy - bottom == h is clipped)."""
@@ -1069,7 +1303,8 @@ def summary_line(label, q):
 def make_parser():
     ap = argparse.ArgumentParser(description="DOS Johab jamo-set font or outline font / precomposed face -> jamo-set SVF")
     ap.add_argument("source", nargs="?", help="the source font file (DOS Johab sources; not with --from-ttf/--from-svf)")
-    ap.add_argument("--layout", required=True, choices=sorted(LAYOUTS))
+    ap.add_argument("--layout", required=True, choices=sorted(LAYOUTS) + [MAC_LAYOUT],
+                    help=f"a set system; {MAC_LAYOUT} takes a HangulTalk 1.0 'fbit' resource fork (see MacFbit)")
     ap.add_argument("--face", type=int, default=0, help="typeface of a printer font (0 or 1)")
     ap.add_argument("--eng", help="raw 8x16 English font for ASCII (2048 or 4096 bytes)")
     ap.add_argument("--base", help="SVFN v2 whose non-syllable glyphs are kept (same cell, 1 bpp)")
@@ -1103,9 +1338,37 @@ def make_parser():
     return ap
 
 
+def main_mac(ap, args):
+    """--layout mac-fbit-45sets SOURCE.rsrc: the JSET tables from the font's own rule, then compare with the Mac rendering."""
+    if not args.source or args.from_ttf or args.from_svf or args.blank_compat or args.eng or args.base:
+        ap.error(f"{MAC_LAYOUT} takes the 'fbit' resource fork file as its source (no --from-*, --eng or --base)")
+    started = time.time()
+    try:
+        mac = MacFbit(open(args.source, "rb").read())
+        layout, src = mac_layout(mac)
+        out, mapping, _ = build_from_source(layout, src, None, None, args.ascent or mac.h, None, False, args.advance,
+                                            args.embolden, args.symbols)
+        open(args.output, "wb").write(out)
+        print(f"{args.output}: {len(out)} bytes, {len(mapping)} pieces of {mac.w}x{mac.h} from {args.source}; "
+              f"{layout.lc} lead classes, {layout.tc} tail classes, {layout.ni}/{layout.nm}/{layout.nf} sets")
+        if args.check:
+            print("check:", check(out, layout, None))
+            q, bad = mac_compare(out, mac_targets(MacFbit(open(args.source, "rb").read())), mac.w, mac.h)
+            print(summary_line("mac", q) + f"; differing syllables: {len(bad)}")
+            if bad:
+                raise ValueError(f"{len(bad)} syllables differ from the Mac rendering, first U+{0xAC00 + bad[0]:04X}")
+        if args.report:
+            write_report(args.report, {"layout": MAC_LAYOUT, "output_bytes": len(out), "pieces": len(mapping),
+                                       "seconds": round(time.time() - started, 1)})
+    except (SourceError, ValueError) as e:
+        sys.exit(f"{args.source}: {e}")
+
+
 def main():
     ap = make_parser()
     args = ap.parse_args()
+    if args.layout == MAC_LAYOUT:
+        return main_mac(ap, args)
     layout = LAYOUTS[args.layout]
     modes = [m for m in (args.source, args.from_ttf, args.from_svf, args.blank_compat) if m]
     if len(modes) != 1:

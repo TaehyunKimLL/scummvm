@@ -59,9 +59,9 @@ enum {
 // one still unused.
 static const int kMetricsEntrySize = 4;
 
-// The most bytes a valid JSET block takes (jamoSetSize(4, 4, 16, 16, 16)); a
+// The most bytes a valid JSET block takes (jamoSetSize(8, 8, 24, 16, 16) = 6641); a
 // span longer than that cannot be one, and is not read when streaming.
-static const uint32 kJsetMaxSize = 4096;
+static const uint32 kJsetMaxSize = 8192;
 
 // Bytes per entry in the code point table of a version 2 font.
 static const int kCmapEntrySize = 8;

@@ -82,16 +82,16 @@ bool parseJamoSetTable(const byte *data, uint32 size, JamoSetTable &out, Common:
 		return false;
 	}
 	const uint lc = data[6], tc = data[7], ni = data[8], nm = data[9], nf = data[10];
-	if (lc < 1 || lc > 4) {
-		error = Common::String::format("JSET lead classes %u is not 1..4", lc);
+	if (lc < 1 || lc > 8) {
+		error = Common::String::format("JSET lead classes %u is not 1..8", lc);
 		return false;
 	}
-	if (tc < 1 || tc > 4) {
-		error = Common::String::format("JSET tail classes %u is not 1..4", tc);
+	if (tc < 1 || tc > 8) {
+		error = Common::String::format("JSET tail classes %u is not 1..8", tc);
 		return false;
 	}
-	if (ni < 1 || ni > 16) {
-		error = Common::String::format("JSET initial sets %u is not 1..16", ni);
+	if (ni < 1 || ni > 24) {
+		error = Common::String::format("JSET initial sets %u is not 1..24", ni);
 		return false;
 	}
 	if (nm < 1 || nm > 16) {
