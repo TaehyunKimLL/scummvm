@@ -96,6 +96,15 @@ protected:
 	void stopScriptCommon(int script);
 
 	void drawSentence() override;
+	/// drawSentence() for a Korean translation: korean_sentence.h's composer, fitted to the line.
+	void buildKoreanSentence(int slot);
+	Common::String translatedSentencePart(const byte *text);
+	/// Whether verb @p verbId's "with" names the tool as object B (MM's Unlock and Fix).
+	bool sentenceToolIsObject2(int verbId) const;
+	enum {
+		kMMVerbFix = 6,		// MM's verb ids (VAR_SENTENCE_VERB), from its scripts
+		kMMVerbUnlock = 8
+	};
 	void resetSentence() override;
 	void setUserState(byte state);
 

@@ -51,6 +51,7 @@
 #include "scumm/he/sound_he.h"
 
 #include "scumm/ks_check.h"
+#include "scumm/korean_sentence.h"
 
 namespace Scumm {
 
@@ -955,7 +956,12 @@ void ScummEngine_v2::drawSentence() {
 	else
 		return;
 
-	if (VAR(VAR_SENTENCE_OBJECT1) > 0) {
+	// A Korean translation: each part translated, Korean order, verb last
+	// (korean_sentence.h). Every other game builds the English-order line below.
+	const bool korean = koreanSentenceApplies(_game.version, _game.platform, _language, hasTranslationBundle());
+	if (korean)
+		buildKoreanSentence(slot);
+	else if (VAR(VAR_SENTENCE_OBJECT1) > 0) {
 		temp = getObjOrActorName(VAR(VAR_SENTENCE_OBJECT1));
 		if (temp) {
 			_sentenceBuf += " ";
@@ -974,11 +980,11 @@ void ScummEngine_v2::drawSentence() {
 		}
 	}
 
-	if (0 < VAR(VAR_SENTENCE_PREPOSITION) && VAR(VAR_SENTENCE_PREPOSITION) <= 4) {
+	if (!korean && 0 < VAR(VAR_SENTENCE_PREPOSITION) && VAR(VAR_SENTENCE_PREPOSITION) <= 4) {
 		drawPreposition(VAR(VAR_SENTENCE_PREPOSITION));
 	}
 
-	if (VAR(VAR_SENTENCE_OBJECT2) > 0) {
+	if (!korean && VAR(VAR_SENTENCE_OBJECT2) > 0) {
 		temp = getObjOrActorName(VAR(VAR_SENTENCE_OBJECT2));
 		if (temp) {
 			_sentenceBuf += " ";
@@ -999,30 +1005,17 @@ void ScummEngine_v2::drawSentence() {
 		_string[2].color = 13;
 	}
 
-	byte string[80];
+	byte string[256];
 #ifdef USE_TTS
 	Common::String oldSentence = _sentenceBuf;
 #endif
-	const char *ptr = _sentenceBuf.c_str();
-	int i = 0, len = 0;
-
-	// Maximum length of printable characters
-	int maxChars = (_game.platform == Common::kPlatformNES) ? 60 : 40;
-	while (*ptr) {
-		if (*ptr != '@')
-			len++;
-		if (len > maxChars) {
-			break;
-		}
-
-		string[i++] = *ptr++;
-
-		if (_game.platform == Common::kPlatformNES && len == 30) {
-			string[i++] = 0xFF;
-			string[i++] = 8;
-		}
+	if (korean) {
+		// Already fitted to the line's width, whole characters only.
+		Common::strlcpy((char *)string, _sentenceBuf.c_str(), sizeof(string));
+	} else {
+		// At most 40 printable characters (60 on the NES)
+		cutV2Sentence(_sentenceBuf.c_str(), _game.platform == Common::kPlatformNES, string, sizeof(string));
 	}
-	string[i] = 0;
 
 	if (_game.platform == Common::kPlatformNES) {
 		sentenceline.top = _virtscr[kVerbVirtScreen].topline;
@@ -1044,6 +1037,62 @@ void ScummEngine_v2::drawSentence() {
 #endif
 
 	drawString(2, (byte *)string);
+}
+
+namespace {
+
+struct SentenceWidthCtx {
+	CharsetRenderer *charset;
+};
+
+int sentenceWidth(const Common::String &text, void *ctx) {
+	return static_cast<SentenceWidthCtx *>(ctx)->charset->getStringWidth(0, (const byte *)text.c_str());
+}
+
+} // End of anonymous namespace
+
+Common::String ScummEngine_v2::translatedSentencePart(const byte *text) {
+	byte buf[256];
+	translateText(text, buf, sizeof(buf));
+	return Common::String((const char *)buf);
+}
+
+bool ScummEngine_v2::sentenceToolIsObject2(int verbId) const {
+	// Unlock and Fix ... with <B>: B is the tool, "<B>(으)로 <A> <verb>".
+	// Use ... with <B> uses B as the target ("<B>에 <A> 사용하기"), and Zak has
+	// no other two-object verb with "with". Verb ids from MM's scripts.
+	return _game.id == GID_MANIAC && (verbId == kMMVerbUnlock || verbId == kMMVerbFix);
+}
+
+void ScummEngine_v2::buildKoreanSentence(int slot) {
+	KoreanSentenceParts parts;
+	parts.verb = _sentenceBuf;	// the verb resource, translated when it was made
+	parts.prep = VAR(VAR_SENTENCE_PREPOSITION);
+	if (parts.prep < 0 || parts.prep > 4)
+		parts.prep = 0;
+
+	const int obj1 = VAR(VAR_SENTENCE_OBJECT1);
+	const int obj2 = VAR(VAR_SENTENCE_OBJECT2);
+	const byte *name;
+	if (obj1 > 0 && (name = getObjOrActorName(obj1)) != nullptr) {
+		parts.objA = translatedSentencePart(name);
+		parts.hasA = true;
+	}
+	if (obj2 > 0 && (name = getObjOrActorName(obj2)) != nullptr) {
+		parts.objB = translatedSentencePart(name);
+		parts.hasB = true;
+		parts.bIsActor = objIsActor(obj2);
+	}
+	parts.instrumentB = parts.prep == 2 && sentenceToolIsObject2(VAR(VAR_SENTENCE_VERB));
+
+	debug(5, "drawSentence: verb %d (slot %d) obj %d prep %d obj %d", (int)VAR(VAR_SENTENCE_VERB), slot, obj1, parts.prep, obj2);
+
+	// Measured as drawString() will draw it: charset 1, the hi-res faces.
+	SentenceWidthCtx ctx = { _charset };
+	const int oldId = _charset->getCurID();
+	_charset->setCurID(1);
+	_sentenceBuf = fitKoreanSentence(parts, _textUtf8, _virtscr[kVerbVirtScreen].w, sentenceWidth, &ctx);
+	_charset->setCurID(oldId);
 }
 
 void ScummEngine::displayDialog() {
