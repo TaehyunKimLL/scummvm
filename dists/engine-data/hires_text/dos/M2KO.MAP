@@ -26,6 +26,10 @@ blend=off
 [text]
 encoding=cp949
 
+# Every base face holds ASCII and the 2,350 KS X 1001 syllables (the Taebaek jamo sets compose all 11,172); the
+# X face chained after it, baked by tools/korean/scumm-fonts/m2x.tsv, holds only what the text draws beyond that
+# (a-circumflex and e-acute of "Papier-Mache", the ellipsis and trademark sign the map remaps to). Same cell and
+# baseline as its base.
 [fonts]
 dlg=M2U0.SVF
 small=M2U1.SVF
@@ -33,6 +37,12 @@ sent=M2U2.SVF
 card=M2U4.SVF
 card7=M2U7.SVF
 card8=M2U8.SVF
+dlgx=M2U0X.SVF
+smallx=M2U1X.SVF
+sentx=M2U2X.SVF
+cardx=M2U4X.SVF
+card7x=M2U7X.SVF
+card8x=M2U8X.SVF
 [fonts:clut8]
 dlg=M2L0.SVF
 small=M2L1.SVF
@@ -40,6 +50,12 @@ sent=M2L2.SVF
 card=M2L4.SVF
 card7=M2L4.SVF
 card8=M2L1.SVF
+dlgx=M2L0X.SVF
+smallx=M2L1X.SVF
+sentx=M2L2X.SVF
+cardx=M2L4X.SVF
+card7x=M2L4X.SVF
+card8x=M2L1X.SVF
 
 [font]
 missing=u+25a1
@@ -54,23 +70,23 @@ origin.basic-latin=face
 origin.general-punctuation=face
 
 [font.0]
-face=dlg
+face=dlg,dlgx
 [font.1]
-face=small
+face=small,smallx
 [font.2]
-face=sent
+face=sent,sentx
 [font.3]
-face=small
+face=small,smallx
 [font.4]
-face=card
+face=card,cardx
 [font.5]
-face=small
+face=small,smallx
 [font.6]
-face=dlg
+face=dlg,dlgx
 [font.7]
-face=card7
+face=card7,card7x
 [font.8]
-face=card8
+face=card8,card8x
 
 # MI2's own pictogram: the skull-and-crossbones dialogue bullet at 0x07 (always the
 # first byte of a spoken line in korean.trs; no Latin face has anything for it) stays

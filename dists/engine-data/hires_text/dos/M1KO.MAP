@@ -22,16 +22,25 @@ blend=auto
 [render:clut8]
 blend=off
 
+# Every base face holds ASCII and the 2,350 KS X 1001 syllables (the Taebaek and neodgm jamo sets compose all
+# 11,172); the X face chained after it, baked by tools/korean/scumm-fonts/m1x.tsv, holds only what the text draws
+# beyond that (the syllable outside KS X 1001, the ellipsis and trademark sign the map remaps to). Same cell and
+# baseline as its base; the jamo sets need none.
 [fonts]
 cs0=M1U0.SVF
 cs1=M1U1.SVF
 cs2=M1U2.SVF
 cs4=M1U4.SVF
+cs0x=M1U0X.SVF
+cs1x=M1U1X.SVF
+cs2x=M1U2X.SVF
+cs4x=M1U4X.SVF
 [fonts:clut8]
 cs0=M1L0.SVF
 cs1=M1L1.SVF
 cs2=M1L2.SVF
 cs4=M1L4.SVF
+cs2x=M1L2X.SVF
 
 [font]
 missing=u+25a1
@@ -45,15 +54,25 @@ origin.basic-latin=face
 origin.general-punctuation=face
 
 [font.0]
-face=cs0
+face=cs0,cs0x
 [font.1]
-face=cs1
+face=cs1,cs1x
 [font.2]
-face=cs2
+face=cs2,cs2x
 [font.3]
 # the same 16x16 cell as charset 1
-face=cs1
+face=cs1,cs1x
 [font.4]
+face=cs4,cs4x
+
+# The 8-bit preset chains a supplement only after the dialogue face (charset 2); its other faces are jamo sets.
+[font.0:clut8]
+face=cs0
+[font.1:clut8]
+face=cs1
+[font.3:clut8]
+face=cs1
+[font.4:clut8]
 face=cs4
 
 # An ellipsis on the baseline, not a caret; present in every charset (mi1kor/hires_text.map,
