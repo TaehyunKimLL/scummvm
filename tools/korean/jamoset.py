@@ -1558,7 +1558,8 @@ def fit_prep(layout, targets, w, h, origin, limits, clean, passes, outline=None,
         except jf.FitError as e:
             print(f"jamoset: {e}; donors from the 1 bpp regions instead", file=sys.stderr)
     rounds = rounds or (1 if face else 3)
-    region_layout = LAYOUTS["844"]
+    # contours are given to slots by peers over the region layout; a bitmap's pixels are split by an 844 fit
+    region_layout = aa.region_layout() if face else LAYOUTS["844"]
     history = []
     for r in range(rounds if limits else 1):
         keys_r, _, roles_r = aa.syllable_keys(region_layout)

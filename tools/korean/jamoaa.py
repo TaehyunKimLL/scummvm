@@ -435,6 +435,8 @@ def _pixels(g, w, h):
 
 PEER_SURE = 0.15	# a group (not a merged outline) whose presence one slot's jamo explains this much ...
 PEER_MARGIN = 0.05	# ... and this much more than any other slot's jamo is that slot's
+PEER_MIN = 2		# "same" peers needed in a set before the wider pool is used
+PEER_PIXEL = 0.05	# a pixel of a group split by its peers: its slot leads by this much, else the regions decide
 
 
 class Peers:
@@ -495,7 +497,9 @@ class Peers:
             same = [p for p in pool if p != s and self.jamo(p, slot) == mine
                     and all(self.jamo(p, j) != self.jamo(s, j) for j in others)]
             other = [p for p in pool if self.jamo(p, slot) != mine]
-            if same and other:
+            # a set only a few syllables share (the medial set of the initials ㄱ ㅋ: 가 has only 카) is no evidence:
+            # ㄱ is inside ㅋ, so ㄱ would look like the medial's
+            if len(same) >= PEER_MIN and other:
                 out = (self._sample(same), self._sample(other))
                 break
         if len(self._cache) > 4096:
@@ -557,10 +561,10 @@ class Peers:
 def assign(groups_cov, cores, w, h, peer_scores=None, peer_pixels=None):
     """Give each contour group's coverage to a slot. @p groups_cov: coverage lists (0..1); @p cores: the syllable's
     fitted 1 bpp pieces as gints per slot (None where the syllable has no final). @p peer_scores: a function of a
-    group's coverage giving {slot: score} (Peers.scores); a group that is not a merged outline and that one slot's
-    peers clearly hold better goes there whole. @p peer_pixels: a function of a group's coverage giving {slot:
+    group's coverage giving {slot: score} (Peers.scores); a group that one slot's peers clearly explain better goes
+    there whole (a merged outline does not: two slots' jamo explain parts of it). @p peer_pixels: a function of a group's coverage giving {slot:
     {pixel index: score}} (Peers.pixel_scores); a group they do not settle whole is split pixel by pixel by them where
-    a slot leads by PEER_MARGIN, else by the regions.
+    a slot leads by PEER_PIXEL, else by the regions.
     Returns ([coverage per slot], {"groups", "straddled", "orphans", "by_peers"})."""
     import jamofit as jf
     n = w * h
@@ -570,20 +574,22 @@ def assign(groups_cov, cores, w, h, peer_scores=None, peer_pixels=None):
     near = {k: [_pixels(jf.dilate(cores[k], w, full, r), w, h) for r in (1, 2, 3)] for k in slots}
     own = {k: core_px[k] - set().union(*[core_px[j] for j in slots if j != k]) for k in slots}
     out = [[0.0] * n for _ in range(3)]
-    info = {"groups": 0, "straddled": 0, "orphans": 0, "by_peers": 0}
+    info = {"groups": 0, "straddled": 0, "orphans": 0, "by_peers": 0, "to": []}
 
     def score(cov, k):
         # how much of the group the piece's region (dilated a pixel) holds; its own pixels break ties
         return sum(cov[i] for i in near[k][0]) + 0.01 * sum(cov[i] for i in core_px[k])
 
     def split(cov, pix):
+        """Pixel by pixel; returns {slot: share of the group's coverage it took}."""
+        took = {}
         for i, v in enumerate(cov):
             if not v:
                 continue
             owners = []
             if pix:
                 sc = sorted(((d.get(i, -1.0), k) for k, d in pix.items() if k in slots), reverse=True)
-                if sc and sc[0][0] >= PEER_MARGIN and (len(sc) == 1 or sc[0][0] - sc[1][0] >= PEER_MARGIN):
+                if sc and sc[0][0] >= PEER_PIXEL and (len(sc) == 1 or sc[0][0] - sc[1][0] >= PEER_PIXEL):
                     owners = [sc[0][1]]
             if not owners:
                 owners = [k for k in slots if i in core_px[k]]
@@ -593,18 +599,16 @@ def assign(groups_cov, cores, w, h, peer_scores=None, peer_pixels=None):
                 owners = [k for k in slots if i in near[k][r]]
             for k in owners or [max(slots, key=lambda k: sum(cov[j] for j in near[k][0]))]:
                 out[k][i] = max(out[k][i], v)
+                took[k] = took.get(k, 0.0) + v
+        tot = sum(cov) or 1.0
+        return {k: round(v / tot, 3) for k, v in took.items()}
 
     for cov in groups_cov:
         total = sum(cov)
         if total <= 0:
+            info["to"].append(None)
             continue
         info["groups"] += 1
-        excl = sorted(((sum(cov[i] for i in own[k]) / total, k) for k in slots), reverse=True)
-        inside = max(sum(cov[i] for i in near[k][0]) for k in slots) / total
-        if inside < CONTAINED and len(excl) > 1 and excl[1][0] >= STRADDLE and excl[1][0] * total >= 1.0:
-            info["straddled"] += 1
-            split(cov, peer_pixels(cov) if peer_pixels else None)
-            continue
         if peer_scores is not None:
             ps = sorted(((v, k) for k, v in peer_scores(cov).items() if k in slots), reverse=True)
             if ps and ps[0][0] >= PEER_SURE and (len(ps) == 1 or ps[0][0] - ps[1][0] >= PEER_MARGIN):
@@ -613,12 +617,19 @@ def assign(groups_cov, cores, w, h, peer_scores=None, peer_pixels=None):
                 for i, v in enumerate(cov):
                     if v:
                         out[k][i] = min(1.0, out[k][i] + v)
+                info["to"].append(k)
                 continue
+        excl = sorted(((sum(cov[i] for i in own[k]) / total, k) for k in slots), reverse=True)
+        inside = max(sum(cov[i] for i in near[k][0]) for k in slots) / total
+        if inside < CONTAINED and len(excl) > 1 and excl[1][0] >= STRADDLE and excl[1][0] * total >= 1.0:
+            info["straddled"] += 1
+            info["to"].append(split(cov, peer_pixels(cov) if peer_pixels else None))
+            continue
         if peer_pixels is not None:
             pix = peer_pixels(cov)
             if pix:
                 info["by_peer_pixels"] = info.get("by_peer_pixels", 0) + 1
-                split(cov, pix)
+                info["to"].append(split(cov, pix))
                 continue
         scores = [(score(cov, k), excl_k, k) for excl_k, k in excl]
         best = max(scores)
@@ -633,6 +644,7 @@ def assign(groups_cov, cores, w, h, peer_scores=None, peer_pixels=None):
         for i, v in enumerate(cov):
             if v:
                 out[k][i] = min(1.0, out[k][i] + v)
+        info["to"].append(k)
     return out, info
 
 
@@ -816,10 +828,12 @@ def stacks_of(keys, donors, syllables=None):
     return stacks
 
 
-def contour_donors(face, syllables, keys, P, ox, oy, w, h, targets=None, roles=None):
+def contour_donors(face, syllables, keys, P, ox, oy, w, h, targets=None, roles=None, record=None):
     """{syllable: [coverage bytes 0..255 per slot, None where the syllable has no final]}: the syllable's contours
     given to its initial, medial and final - by the other syllables sharing a jamo (Peers, over @p targets) where
-    they decide, else by the fitted 1 bpp regions @p P of the pieces @p keys name. Returns (donors, info)."""
+    they decide, else by the fitted 1 bpp regions @p P of the pieces @p keys name. With @p record (a dict), record
+    [syllable] = [(contour indices of a group, its slot, or for a group split pixel by pixel {slot: share of its
+    coverage})]. Returns (donors, info)."""
     n = w * h
     W = w + 1
     donors = {}
@@ -847,6 +861,8 @@ def contour_donors(face, syllables, keys, P, ox, oy, w, h, targets=None, roles=N
                 return {k: {(b.bit_length() - 1) // W * w + (b.bit_length() - 1) % W: v for b, v in d.items()}
                         for k, d in res.items()}
         slots, ai = assign(gcov, cores, w, h, ps, pp)
+        if record is not None:
+            record[s] = [(g, k) for g, k in zip(groups, ai["to"]) if k is not None]
         info["by_peer_pixels"] = info.get("by_peer_pixels", 0) + ai.get("by_peer_pixels", 0)
         for k2 in ("groups", "straddled", "orphans", "by_peers"):
             info[k2] += ai[k2]
@@ -939,6 +955,31 @@ def aa_quality(targets, composed, w, h):
     }
 
 
+def collisions(pieces, bpp):
+    """Pixels two or more of a syllable's pieces ink (1 bpp: any ink; 2 bpp: level >= 2 in both): where the jamo
+    of the composed syllable run into each other."""
+    cut = 1 if bpp == 1 else 2
+    n = len(pieces[0]) if pieces else 0
+    return sum(1 for i in range(n) if sum(1 for p in pieces if p[i] >= cut) >= 2)
+
+
+CLEARANCE_TEST = "국궉귁개객게각"
+
+
+def clearance(med, fin, direct, w, h, bpp):
+    """(composed gap, the original has a gap) between the medial's lowest ink and the final's highest: the gap is the
+    blank rows between them in the composed pieces; the original has one when the direct render has a blank row
+    just above the final's top (any of the 2 rows above it)."""
+    cut = 1 if bpp == 1 else 2
+    rows = lambda lv: [y for y in range(h) if any(lv[y * w + x] >= cut for x in range(w))]
+    mr, fr = rows(med), rows(fin)
+    if not mr or not fr:
+        return None, False
+    ftop, mbot = fr[0], max(y for y in mr if y < fr[0]) if any(y < fr[0] for y in mr) else mr[-1]
+    blank = lambda y: 0 <= y < h and not any(direct[y * w + x] >= cut for x in range(w))
+    return ftop - mbot - 1, any(blank(y) for y in (ftop - 1, ftop - 2))
+
+
 def join_loss(donors, direct, w, h):
     """What composing by the maximum costs by itself: each syllable's own per-slot contour rasters (@p donors:
     {syllable: [bytes 0..255 per slot, None where absent]}) composed by max and by a clamped sum, quantised, against the direct
@@ -962,6 +1003,16 @@ def join_loss(donors, direct, w, h):
 
 
 # ---- the build -----------------------------------------------------------------------------------------------------------
+
+def region_layout():
+    """844 with one medial set per tail class for all initials: the layout of the region fit and of the peers. In 844
+    the initials ㄱ ㅋ have their own medial sets; the free fit then gives ㄱ's stroke, which every user of such a set
+    draws, to the vowel, and a peer vote among them (가 has only 카) cannot tell ㄱ from ㅋ's ㄱ."""
+    import jamoset as J
+    lay = J._844("844-regions", 0)
+    lay.med_set = lambda lc, v, tc: 1 + 2 * tc
+    return lay
+
 
 def syllable_keys(layout):
     """({syllable: (initial, medial, final piece or None)} for all 11,172, tables, roles)."""
@@ -1027,7 +1078,7 @@ def build(layout, path, size, cell=None, baseline=None, passes=12, refine_passes
             targets[s] = g
     fit_syl = sorted(direct if train is None else (set(train) & set(direct)))
     say(f"rendered {len(cps)} syllables")
-    keys844, t844, roles844 = syllable_keys(J.LAYOUTS["844"])
+    keys844, t844, roles844 = syllable_keys(region_layout())
     tt = {s: targets[s] for s in fit_syl if s in targets}
     P844, fit_info = jf.fit_pieces({s: keys844[s] for s in tt}, tt, w, h, None, passes)
     donors, cinfo = contour_donors(face, sorted(direct), keys844, P844, ox, oy, w, h, tt, roles844)

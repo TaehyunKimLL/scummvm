@@ -66,3 +66,27 @@ past 8x4x4 where the font needs it (the engine allows 8 lead / 8 tail classes, 2
 
 Hinting/grid fitting of pieces, gamma, 8 bpp jamo sets, changing the engine's max composition (the join loss of
 max vs sum is measured instead: it is below 0.01 levels per pixel for the fonts tried, jamo rarely share a pixel).
+
+## Follow-ups (2026-10-15, later the same day)
+
+- **Region layout.** The region fit and the peers use 844 with one medial set per tail class for all initials
+  (`jamoaa.region_layout`): in 844 the initials ㄱ ㅋ have their own medial sets, the free fit gives ㄱ's stroke to
+  the vowel and a vote among 가/카 cannot tell ㄱ from ㅋ's ㄱ. Peers need 2 "same" syllables in a set, else the
+  pool of all syllables with (or without) a final is used. A bitmap source keeps the 844 region fit (its pixels
+  are split by it).
+- **Adaptive, harder.** ㄱ and ㅋ are lead classes of their own (the other 17 initials cluster into 6); splits are
+  taken down to a gain of 0.05 % with 4 syllables a side, so the faces reach 24/16/16. `adapt()` reports the
+  (set, jamo) groups that still conflict; `class_limit` and larger set limits simulate a bigger engine table.
+- **Vector masters** (`jamovec.py master FONT -o M.json`, `jamovec.py render M.json --size N --bpp 1|2`): the
+  separation once per font at a decision size (48 px), a master piece per (set, jamo) is one donor's own contours
+  (the medoid of the donors' rasters, preferring donors whose slot holds whole contour groups), stored in font
+  units with the frame box, ASCII and the tables; every size is only rasterised from them. Measured on Paperlogy
+  Regular it scores below the per-size fit (runs/aa-jamo/report.md): one donor's outline cannot follow the
+  context variation a per-size consensus averages over.
+- **Vector segmentation** (`jamoseg.py`, experimental): grouping by containment, a vote by "twin" groups (same
+  size and area, centre within 0.12 em) in the peers, median boxes per piece as regions, templates (the font's own
+  outline of the jamo from another syllable, placed in the group's box) to find jamo inside a merged outline, and
+  path-boolean clipping (skia-pathops, optional) of merged outlines. On Paperlogy, whose outlines often merge two
+  jamo (거 = ㄱ+ㅓ, 효 = ㅎ ring + ㅛ) and whose vowel shapes change with the initial, it still misassigns many
+  syllables (review sheets in runs/aa-jamo/page/seg-*.png); not used by the face builders.
+- **Metrics**: collisions (pixels two pieces ink) and the clearance between medial and final in 국 궉 귁 개 객 게 각.

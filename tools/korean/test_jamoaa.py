@@ -194,6 +194,24 @@ class Consensus(unittest.TestCase):
         self.assertEqual(jamoaa.median_consensus([bytes([10]), bytes([20]), bytes([30]), bytes([200])]), [25])
 
 
+class CollisionAndClearance(unittest.TestCase):
+    def test_collisions_count_pixels_two_pieces_ink(self):
+        self.assertEqual(jamoaa.collisions([[1, 1, 0, 0], [0, 1, 1, 0], [0, 1, 0, 0]], 1), 1)
+        self.assertEqual(jamoaa.collisions([[3, 1, 2], [2, 1, 1]], 2), 1)		# only both >= 2 counts
+
+    def test_clearance_gap_and_whether_the_original_has_one(self):
+        w, h = 3, 8
+        med = [0] * 24
+        fin = [0] * 24
+        for x in range(3):
+            med[2 * w + x] = 1					# medial down to row 2
+            fin[5 * w + x] = 1					# final from row 5
+        direct = [max(a, b) for a, b in zip(med, fin)]
+        self.assertEqual(jamoaa.clearance(med, fin, direct, w, h, 1), (2, True))
+        med[4 * w] = 1						# the medial reaches row 4: no gap left
+        self.assertEqual(jamoaa.clearance(med, fin, direct, w, h, 1)[0], 0)
+
+
 class Levels2bpp(unittest.TestCase):
     def test_pack_round_trip_and_layout(self):
         w, h = 5, 2
@@ -640,6 +658,47 @@ class AdaptiveFromBitmap(unittest.TestCase):
                             "--from-svf", "x", "-o", "y"], capture_output=True, text=True)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("NI 8..24", r.stderr)
+
+
+# ---- vector masters and vector segmentation (jamovec.py, jamoseg.py) -------------------------------------------------
+
+@unittest.skipUnless(FONTTOOLS, "needs fontTools")
+class VectorMasters(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.ttf = os.path.join(cls.tmp.name, "t.ttf")
+        cls.glyphs = build_test_font(cls.ttf)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_master_once_render_any_size_composes_the_direct_render(self):
+        import jamovec
+        m = jamovec.build_master(self.ttf, None, 32)
+        json.loads(json.dumps(m))					# a plain JSON document
+        for size in (16, 32):
+            out, info = jamovec.render(m, size, 2)
+            f = jamoset.parse_svfn(out)
+            t = jamoset.unpack(f.jset)
+            face = jamoaa.OutlineFace(self.ttf, size)
+            for cp in self.glyphs:
+                want = jamoaa.direct_levels(face, cp, info["origin_x"], info["baseline"], size, size)
+                self.assertEqual(jamoaa.unpack_levels(jamoset.compose(f, t, cp), size, size, 2), want, (size, chr(cp)))
+        out, _ = jamovec.render(m, 16, 1)
+        self.assertEqual(jamoset.parse_svfn(out).bpp, 1)
+
+    def test_segmenter_groups_holes_and_gives_each_jamo_its_contours(self):
+        import jamoseg
+        face = jamoaa.OutlineFace(self.ttf, 1600)
+        outl = {cp - 0xAC00: face.contours(cp) for cp in self.glyphs}
+        self.assertEqual(sorted(len(g) for g in jamoseg.group(outl[0xC544 - 0xAC00])), [1, 1, 2])	# 아: ㅇ's ring + hole
+        keys, t, roles = jamoaa.syllable_keys(jamoaa.region_layout())
+        parts, rec, counts = jamoseg.Segmenter(outl, keys, roles, 1600).run()
+        self.assertEqual(len(parts[0]), 3)
+        ga = parts[0]						# 가: ㄱ's one contour, ㅏ's two
+        self.assertEqual((len(ga[0]), len(ga[1]), len(ga[2])), (1, 2, 0))
 
 
 if __name__ == "__main__":

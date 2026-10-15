@@ -11,8 +11,8 @@ Input: "donors", each present syllable's own raster per slot (initial, medial, f
 donor is compared as thermometer bit planes (level >= 1, >= 2, >= 3 as gints), so the L1 level distance of two
 rasters is the summed popcount of the planes' XOR and the per-pixel median of a group is the per-plane majority.
 
-  1. Classes. Initials are grouped into lead classes by how the medial donors after them look ({ㄱ,ㅋ} stays one
-     class as in 844, the other 17 initials are clustered into the remaining 7), tails into tail classes by how the
+  1. Classes. Initials are grouped into lead classes by how the medial donors after them look (ㄱ and ㅋ, 844's
+     class, are classes 0 and 1, the other 17 initials are clustered into the remaining 6), tails into tail classes by how the
      initial and medial donors above them look (no tail is class 0, the 27 tails are clustered into 7). Average
      linkage on the mean L1 distance of per-context medians.
   2. Items. A cell is (lead class, vowel, tail class); each slot's set is a function of an item, the cells pooled
@@ -20,7 +20,7 @@ rasters is the summed popcount of the planes' XOR and the per-pixel median of a 
   3. Splits. For every set, a 2-medians clustering of its cells (seeded by its largest cell and the cell farthest
      from it) proposes a split; its gain is the drop in summed L1 distance of the donors to their piece's median.
      The best split over all slots is taken while the slot is under its limit, each side keeps at least
-     @p min_users syllables, and the gain is at least @p min_gain of the starting cost. Lloyd passes then move
+     @p min_users syllables (4), and the gain is at least @p min_gain (0.05 %) of the starting cost. Lloyd passes then move
      items a split left on the wrong side (reassign). Items no present syllable falls in follow the nearest item
      with users that 844 puts in the same set.
 
@@ -123,26 +123,28 @@ def _profile_dist(med, a, b):
     return tot / cnt if cnt else None
 
 
-def classes(P, npl):
+def classes(P, npl, class_limit=None):
     """(lead class per initial [19], tail class per tail [28]) from the donors (see the module comment)."""
     syls = sorted(P)
     medj = _ctx_medians(syls, 1, lambda s: (s // 588, ((s // 28) % 21, s % 28 > 0)), P, npl)
     rest = [L for L in range(19) if L not in J.KK]
     present = {n for n, _ in medj}
     known = [L for L in rest if L in present]
-    groups = _cluster(known, lambda a, b: _profile_dist(medj, a, b), min(CLASS_LIMIT - 1, len(known))) if known else []
+    groups = _cluster(known, lambda a, b: _profile_dist(medj, a, b), min((class_limit or CLASS_LIMIT) - 2, len(known))) if known else []
+    # ㄱ and ㅋ are classes 0 and 1 (844's class {ㄱ,ㅋ}, split: 고 and 코 draw ㅗ apart), the others from 2
     lead = [0] * 19
+    lead[J.KK[1]] = 1
     for ci, g in enumerate(groups):
         for L in g:
-            lead[L] = ci + 1
+            lead[L] = ci + 2
     if groups:
-        big = 1 + max(range(len(groups)), key=lambda i: len(groups[i]))
+        big = 2 + max(range(len(groups)), key=lambda i: len(groups[i]))
         for L in rest:
             if L not in present:
                 lead[L] = big
     else:
         for L in rest:
-            lead[L] = 1
+            lead[L] = 2
     medc = _ctx_medians(syls, 0, lambda s: (s % 28, (s // 28) % 21), P, npl)
     medv = _ctx_medians(syls, 1, lambda s: (s % 28, (s // 28) % 21), P, npl)
 
@@ -152,7 +154,7 @@ def classes(P, npl):
             return None
         return (x or 0) + (y or 0)
     tails = [T for T in range(1, 28) if any(n == T for n, _ in medc) or any(n == T for n, _ in medv)]
-    tgroups = _cluster(tails, tdist, min(CLASS_LIMIT - 1, len(tails))) if tails else []
+    tgroups = _cluster(tails, tdist, min((class_limit or CLASS_LIMIT) - 1, len(tails))) if tails else []
     tail = [0] * 28
     for ci, g in enumerate(tgroups):
         for T in g:
@@ -186,12 +188,13 @@ def item_of(slot, cell):
     return ((v, tc), (lc, tc), (v, lc))[slot]
 
 
-def adapt(donors, nlev, limits=LIMITS, min_gain=0.003, min_users=10, log=None):
-    """The adaptive Layout from @p donors {syllable: [raster 0..255 per slot or None]}. Returns (layout, info)."""
+def adapt(donors, nlev, limits=LIMITS, min_gain=0.0005, min_users=4, log=None, class_limit=None):
+    """The adaptive Layout from @p donors {syllable: [raster 0..255 per slot or None]}. Returns (layout, info).
+    @p class_limit: lead/tail classes (default the engine's 8; more only to simulate a bigger table)."""
     say = log or (lambda *a: None)
     P = {s: [None if d is None else planes(d, nlev) for d in ds] for s, ds in donors.items()}
     npl = 1 if nlev == 1 else 3
-    lead, tail = classes(P, npl)
+    lead, tail = classes(P, npl, class_limit)
     LC, TC = max(lead) + 1, max(tail) + 1
     cell_of = lambda s: (lead[s // 588], (s // 28) % 21, tail[s % 28])
     jamo_of = (lambda s: s // 588, lambda s: (s // 28) % 21, lambda s: s % 28)
@@ -318,10 +321,25 @@ def adapt(donors, nlev, limits=LIMITS, min_gain=0.003, min_users=10, log=None):
             near = min(same, key=lambda u: (sum(1 for x, y in zip(u, c) if x != y), u))
             mapping[slot][c] = mapping[slot][near]
     end = [sum(cost_of(slot, members(slot, st)) for st in range(counts[slot])) for slot in range(3)]
+    # what still conflicts at the end: the (set, jamo) groups with the most donor-to-median distance
+    conflicts = []
+    for slot in range(3):
+        for st in range(counts[slot]):
+            groups = {}
+            for c in members(slot, st):
+                for s in by_item[slot].get(c, ()):
+                    groups.setdefault(jamo_of[slot](s), []).append((s, P[s][slot]))
+            for j, lst in groups.items():
+                cst = group_cost([d for _, d in lst], npl)
+                conflicts.append((cst, ("initial", "medial", "final")[slot], st, j, len(lst),
+                                  sorted({item_of(slot, cell_of(s)) for s, _ in lst})[:6]))
+    conflicts.sort(reverse=True)
     cell_map = [{c: mapping[k][item_of(k, c)] for c in cells} for k in range(3)]
     layout = make_layout(lead, tail, cell_map, counts, parent)
     info = {"lead_class": lead, "tail_class": tail, "sets": counts, "classes": [LC, TC], "splits": len(history),
-            "items_moved": moves, "cost_start": start, "cost_end": end, "history": history}
+            "items_moved": moves, "cost_start": start, "cost_end": end, "history": history,
+            "conflicts": [dict(cost=c, slot=sl, set=st, jamo=j, users=u, items=[list(x) for x in it])
+                          for c, sl, st, j, u, it in conflicts[:15]]}
     return layout, info
 
 
@@ -331,9 +349,9 @@ def _844_of_item(slot, item):
         return _844_set(0, 1, v, tc)
     if slot == 1:
         lc, tc = item
-        return _844_set(1, 0 if lc == 0 else 1, 0, tc)
+        return _844_set(1, 0 if lc <= 1 else 1, 0, tc)
     v, lc = item
-    return _844_set(2, 0 if lc == 0 else 1, v, 1)
+    return _844_set(2, 0 if lc <= 1 else 1, v, 1)
 
 
 def reassign(items, mapping, counts, by_item, P, jamo_of, npl, rounds=4):
