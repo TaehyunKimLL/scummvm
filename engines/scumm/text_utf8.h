@@ -28,6 +28,11 @@
 #include "common/str-enc.h"
 #include "graphics/hires_text/text_layout.h"
 
+namespace Common {
+class ReadStream;
+class WriteStream;
+}
+
 namespace Scumm {
 
 /**
@@ -193,6 +198,65 @@ void transcodeScummText(const byte *src, uint32 len, Common::CodePage from, Comm
 /** The legacy code page a UTF-8 bundle of this language falls back to with
  *  hi-res text off; kCodePageInvalid when it has none. */
 Common::CodePage legacyTextPage(Common::Language lang);
+
+/**
+ * The encoding of the translated text a save holds (verb, object and actor
+ * names, string resources: what loadPtrToResource() stored, translated).
+ * A save says it in a trailer after its serialized state (see
+ * writeSavedTextEncoding()); a save without one is kSavedTextUnknown.
+ */
+enum SavedTextEncoding {
+	kSavedTextUnknown = -1,
+	kSavedTextLegacy = 0,    ///< the language's code page (or no translation)
+	kSavedTextUtf8 = 1
+};
+
+/**
+ * Write the trailer: tag 'TENC' and one byte, 1 when the text is UTF-8.
+ * It follows the serialized state, so a build without it never reads it.
+ */
+void writeSavedTextEncoding(Common::WriteStream &out, bool utf8);
+
+/** Read the trailer at the stream's position; kSavedTextUnknown without one. */
+SavedTextEncoding readSavedTextEncoding(Common::ReadStream &in);
+
+/**
+ * Whether SCUMM text reads as UTF-8: it has at least one multi-byte UTF-8
+ * sequence, and every other byte >= 0x80 outside the escapes is one that
+ * never starts or continues a sequence and is no CJK lead byte either
+ * (F5-FD: a raw game byte such as MI1's 0xFA). Code-page text fails at its
+ * first pair whose lead byte is a continuation byte, or whose trail byte is
+ * not one.
+ */
+bool scummTextLooksUtf8(const byte *s, uint32 len, int version);
+
+/**
+ * Code-page SCUMM text to UTF-8, split into characters the way the game
+ * splits it (is2ByteCharacter() of @p lang): each pair is decoded in the
+ * language's code page (legacyTextPage()). Escapes with their argument
+ * bytes, ASCII, '@', a pair that does not decode and every other byte -
+ * the game's own glyphs, such as 0x92 or 0xFA - are copied as they are.
+ */
+void legacyScummTextToUtf8(const byte *s, uint32 len, Common::Language lang, int version,
+						   Common::Array<byte> &out);
+
+/**
+ * Convert one text resource of a loaded save to the encoding the active
+ * translation is drawn in. @p buf holds a SCUMM string (its end found by
+ * scummTextLength()) and whatever follows it in the resource (the NUL, the
+ * rest of a string buffer); only the string is converted.
+ *
+ *  - @p nowUtf8 (the text is drawn as UTF-8): a legacy save's text is
+ *    converted with legacyScummTextToUtf8(); an unmarked save's text only
+ *    when it does not look like UTF-8 (scummTextLooksUtf8()).
+ *  - otherwise a save marked UTF-8 is transcoded to the language's code
+ *    page (transcodeScummText()); an unmarked one is kept.
+ *
+ * Nothing is converted for a language without a legacy code page.
+ * Returns false, and leaves @p out undefined, when the text stays as it is.
+ */
+bool convertSavedText(const byte *buf, uint32 size, Common::Language lang, int version,
+					  SavedTextEncoding saved, bool nowUtf8, Common::Array<byte> &out);
 
 } // End of namespace Scumm
 

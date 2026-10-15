@@ -375,6 +375,16 @@ unmarked body that validates as UTF-8 logs a hint.
 - Only the classic PC renderers (v1-v6) take a UTF-8 bundle; on any other
   (v7/v8, HE, FM-Towns, PC Engine, Sega CD, NES, Mac Loom/Indy3) the bundle
   is ignored with one warning.
+- **Saves keep working across the switch.** A save holds the names a
+  script set (verbs, objects, actors, string resources) already
+  translated, in the encoding they were drawn in. A save now ends with a
+  small trailer saying whether that was UTF-8 (other builds ignore it). On
+  load, text in the language's code page is converted to UTF-8 when the
+  bundle is drawn as UTF-8, and UTF-8 text back to the code page when it is
+  not. A save made before the trailer is judged string by string: text
+  that reads as UTF-8 is kept, anything else is taken as code-page text.
+  Bytes the game splits as single characters (MI1's `0xFA`, `0x92`) are
+  kept as they are.
 
 ### Per-game sections
 

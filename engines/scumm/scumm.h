@@ -1022,6 +1022,13 @@ protected:
 	void saveResource(Common::Serializer &ser, ResType type, ResId idx);
 	void loadResource(Common::Serializer &ser, ResType type, ResId idx);
 	void loadResourceOLD(Common::Serializer &ser, ResType type, ResId idx);	// "Obsolete"
+	/**
+	 * Bring the text a loaded save holds (verb, object and actor names,
+	 * v1-v5 string resources, the message being printed) into the encoding
+	 * the active translation is drawn in. @p saved is a SavedTextEncoding
+	 * (scumm/text_utf8.h): what the save's trailer says, or unknown.
+	 */
+	void convertLoadedText(int saved);
 
 	virtual int checkSoundEngineSaveDataSize(Serializer &s);
 

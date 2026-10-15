@@ -22,6 +22,7 @@
 #include "scumm/text_utf8.h"
 
 #include "common/memstream.h"
+#include "common/stream.h"
 #include "common/str.h"
 #include "common/ustr.h"
 #include "scumm/charset.h"
@@ -557,6 +558,123 @@ Common::CodePage legacyTextPage(Common::Language lang) {
 	default:
 		return Common::kCodePageInvalid;
 	}
+}
+
+static const uint32 kSavedTextTag = MKTAG('T', 'E', 'N', 'C');
+
+void writeSavedTextEncoding(Common::WriteStream &out, bool utf8) {
+	out.writeUint32BE(kSavedTextTag);
+	out.writeByte(utf8 ? 1 : 0);
+}
+
+SavedTextEncoding readSavedTextEncoding(Common::ReadStream &in) {
+	const uint32 tag = in.readUint32BE();
+	if (in.eos() || in.err() || tag != kSavedTextTag)
+		return kSavedTextUnknown;
+	const byte v = in.readByte();
+	if (in.eos() || in.err() || v > 1)
+		return kSavedTextUnknown;
+	return v ? kSavedTextUtf8 : kSavedTextLegacy;
+}
+
+bool scummTextLooksUtf8(const byte *s, uint32 len, int version) {
+	const ScummTextDecoder esc(version, false, 0);
+	const Graphics::Utf8TextDecoder utf8;
+	const byte *p = s;
+	const byte *end = s + len;
+	bool multi = false;
+	while (p < end) {
+		const int e = esc.escapeLength(p, end);
+		if (e > 0) {
+			p += e;
+			continue;
+		}
+		if (*p < 0x80) {
+			p++;
+			continue;
+		}
+		uint32 cp = 0;
+		byte flags = 0;
+		const int n = utf8.decode(p, end, cp, flags);
+		if (n > 1 && cp != 0xFFFD) {
+			multi = true;
+			p += n;
+			continue;
+		}
+		if (*p >= 0xF5) {    // never UTF-8: a raw game byte
+			p++;
+			continue;
+		}
+		return false;
+	}
+	return multi;
+}
+
+static void appendUtf8(Common::Array<byte> &out, uint32 cp) {
+	const Common::String enc = Common::U32String(Common::u32char_type_t(cp)).encode(Common::kUtf8);
+	for (uint k = 0; k < enc.size(); k++)
+		out.push_back((byte)enc[k]);
+}
+
+void legacyScummTextToUtf8(const byte *s, uint32 len, Common::Language lang, int version,
+						   Common::Array<byte> &out) {
+	out.clear();
+	const Common::CodePage page = legacyTextPage(lang);
+	const ScummTextDecoder esc(version, false, 0);
+	const byte *p = s;
+	const byte *end = s + len;
+	while (p < end) {
+		const int e = esc.escapeLength(p, end);
+		if (e > 0) {
+			for (int k = 0; k < e; k++)
+				out.push_back(p[k]);
+			p += e;
+			continue;
+		}
+		if (page != Common::kCodePageInvalid && is2ByteCharacter(lang, *p) && end - p >= 2 && p[1] != 0) {
+			const Common::U32String decoded(Common::String((const char *)p, 2), page);
+			if (decoded.size() == 1 && decoded[0] >= 0x80 && decoded[0] != 0xFFFD) {
+				appendUtf8(out, decoded[0]);
+				p += 2;
+				continue;
+			}
+			// Not a character of the page: both bytes as they are, as
+			// the game took them together.
+			out.push_back(*p++);
+			out.push_back(*p++);
+			continue;
+		}
+		out.push_back(*p++);
+	}
+}
+
+bool convertSavedText(const byte *buf, uint32 size, Common::Language lang, int version,
+					  SavedTextEncoding saved, bool nowUtf8, Common::Array<byte> &out) {
+	const Common::CodePage page = legacyTextPage(lang);
+	if (page == Common::kCodePageInvalid || !buf || !size)
+		return false;
+	const uint32 len = (uint32)scummTextLength(buf, size, version);
+
+	Common::Array<byte> text;
+	if (nowUtf8) {
+		if (saved == kSavedTextUtf8 || (saved == kSavedTextUnknown && scummTextLooksUtf8(buf, len, version)))
+			return false;
+		legacyScummTextToUtf8(buf, len, lang, version, text);
+	} else {
+		if (saved != kSavedTextUtf8)
+			return false;
+		transcodeScummText(buf, len, Common::kUtf8, page, text, nullptr);
+	}
+	if (text.size() == len && (len == 0 || memcmp(text.begin(), buf, len) == 0))
+		return false;
+
+	out.clear();
+	out.reserve(text.size() + (size - len));
+	for (uint32 i = 0; i < text.size(); i++)
+		out.push_back(text[i]);
+	for (uint32 i = len; i < size; i++)
+		out.push_back(buf[i]);
+	return true;
 }
 
 } // End of namespace Scumm

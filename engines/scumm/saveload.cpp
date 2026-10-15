@@ -39,6 +39,7 @@
 #include "scumm/scumm_v7.h"
 #include "scumm/scumm_v8.h"
 #include "scumm/sound.h"
+#include "scumm/text_utf8.h"
 #include "scumm/he/sprite_he.h"
 #include "scumm/verbs.h"
 
@@ -634,6 +635,9 @@ bool ScummEngine::saveState(Common::SeekableWriteStream *out, bool writeHeader) 
 	Serializer ser(nullptr, out);
 	ser.setVersion(CURRENT_VER);
 	saveLoadWithSerializer(ser);
+	// After the state, where a build without it never reads: whether the
+	// translated text in this save is UTF-8 (convertLoadedText()).
+	writeSavedTextEncoding(*out, _textUtf8);
 	return true;
 }
 
@@ -819,7 +823,10 @@ bool ScummEngine::loadState(int slot, bool compat, Common::String &filename) {
 	Serializer ser(in, nullptr);
 	ser.setVersion(hdr.ver);
 	saveLoadWithSerializer(ser);
+	const SavedTextEncoding savedText = readSavedTextEncoding(*in);
 	delete in;
+
+	convertLoadedText(savedText);
 
 	// Init NES costume data
 	if (_game.platform == Common::kPlatformNES) {
@@ -2497,6 +2504,69 @@ void ScummEngine::loadResource(Common::Serializer &ser, ResType type, ResId idx)
 			ser.syncAsUint16LE(_newNames[idx]);
 		}
 	}
+}
+
+void ScummEngine::convertLoadedText(int saved) {
+	// The translations that can be UTF-8 are those of the v1-v6 renderers
+	// (probeLanguageBundle()); the language's code page is the other side.
+	if (_game.heversion != 0 || _game.version > 6 || !hasTranslationBundle() ||
+		legacyTextPage(_language) == Common::kCodePageInvalid)
+		return;
+	const SavedTextEncoding enc = (SavedTextEncoding)saved;
+	if (enc == (_textUtf8 ? kSavedTextUtf8 : kSavedTextLegacy))
+		return;
+
+	// What loadPtrToResource() stores, translated. A v6 string resource is
+	// an array, not text; a verb that is an object image holds no text.
+	static const ResType kTextTypes[] = { rtVerb, rtObjectName, rtActorName, rtString };
+	Common::Array<byte> out;
+	int converted = 0;
+	for (uint t = 0; t < ARRAYSIZE(kTextTypes); t++) {
+		const ResType type = kTextTypes[t];
+		if (type == rtString && _game.version >= 6)
+			continue;
+		for (ResId idx = 0; idx < _res->_types[type].size(); idx++) {
+			const byte *ptr = _res->_types[type][idx]._address;
+			if (!ptr)
+				continue;
+			if (type == rtVerb && (idx >= _numVerbs || _verbs[idx].type != kTextVerbType))
+				continue;
+			if (!convertSavedText(ptr, _res->_types[type][idx]._size, _language, _game.version, enc,
+								  _textUtf8, out))
+				continue;
+			byte *dst = _res->createResource(type, idx, out.size());
+			if (dst) {
+				memcpy(dst, out.begin(), out.size());
+				converted++;
+			}
+		}
+	}
+
+	// The message being printed (the save holds its first 256 bytes), cut
+	// on a character or escape if it no longer fits the buffer.
+	if (convertSavedText(_charsetBuffer, 256, _language, _game.version, enc, _textUtf8, out)) {
+		const ScummTextDecoder esc(_game.version, false, 0);
+		const byte *text = out.begin();
+		const byte *end = text + scummTextLength(text, out.size(), _game.version);
+		int cut = 0;
+		for (int at = 0; text + at < end;) {
+			int n = esc.escapeLength(text + at, end);
+			if (n <= 0)
+				n = textCharLength(text + at, end);
+			if (at + n > (int)sizeof(_charsetBuffer) - 1)
+				break;
+			at += n;
+			cut = at;
+		}
+		memset(_charsetBuffer, 0, sizeof(_charsetBuffer));
+		memcpy(_charsetBuffer, text, cut);
+		converted++;
+	}
+
+	if (converted)
+		debug(1, "SCUMM: converted %d text resources of a %s save to %s", converted,
+			  enc == kSavedTextUnknown ? "pre-trailer" : (enc == kSavedTextUtf8 ? "UTF-8" : "code-page"),
+			  _textUtf8 ? "UTF-8" : "the language's code page");
 }
 
 int ScummEngine::checkSoundEngineSaveDataSize(Serializer &s) {
