@@ -33,6 +33,7 @@ cs2=DOTTL2.SVF
 cs3=DOTTL3.SVF
 cs4=DOTTL4.SVF
 cs7=DOTTL7.SVF
+fb=KOJ16.SVF
 
 [font]
 missing=u+25a1
@@ -61,6 +62,27 @@ face=cs0
 face=cs7
 [font.8]
 face=cs3
+
+# fb=KOJ16.SVF (engine data, KOJFONT.TXT) ends each chain of a face that lives in the jamo font pack, so a missing
+# font pack still shows Korean (16 px; only the 8-bit preset has jamo-set faces).
+[font.0:clut8]
+face=cs0,fb
+[font.1:clut8]
+face=cs1,fb
+[font.2:clut8]
+face=cs2,fb
+[font.3:clut8]
+face=cs3,fb
+[font.4:clut8]
+face=cs4,fb
+[font.5:clut8]
+face=cs3,fb
+[font.6:clut8]
+face=cs0,fb
+[font.7:clut8]
+face=cs7,fb
+[font.8:clut8]
+face=cs3,fb
 
 [glyphs]
 0x01-0x1f = original

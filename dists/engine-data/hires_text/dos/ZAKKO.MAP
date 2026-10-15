@@ -17,6 +17,8 @@ encoding=cp949
 
 [fonts]
 dlg=KQ1G16.SVF
+# the engine data's fallback jamo set (KOJFONT.TXT): the face when the font pack is missing
+fb=KOJ16.SVF
 
 [font]
 missing=u+25a1
@@ -30,7 +32,7 @@ origin.basic-latin=face
 origin.general-punctuation=face
 
 [font.0]
-face=dlg
+face=dlg,fb
 
 # The control range 0x01-0x1F holds only the game's own pictures, never text: the
 # inventory scroll arrows (0x01-0x04) and the box pieces after them. No face has a

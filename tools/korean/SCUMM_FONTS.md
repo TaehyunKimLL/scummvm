@@ -8,6 +8,17 @@ rule and `--chars-from`/`--limit` design, the jamo-set tools (`jamoset.py`), `ba
 from a plan table, the base-plus-supplement faces, the preload lists, and how each shipped jamo-set face was made
 (the sections from "Maniac Mansion and Zak" on, KQ1 and KQ4 last).
 
+## The fallback face KOJ16.SVF
+
+The DOS engine zip leaves the jamo-set faces out (they are in the jamo font pack, `build_font_pack.py --pack
+jamo-ko1`, chosen by the SVFN header flag 0x2) and keeps one: `KOJ16.SVF`, the same bytes as `KQ1G16.SVF`
+(san 1.0 GAM.KOR, 16 px; `KOJFONT.TXT`). A map whose faces live in the pack names it as `fb=KOJ16.SVF` in
+`[fonts]` and chains it last: `face=ui,fb`. An SVF that cannot be opened is skipped, so with the pack missing the
+first face that opens (`fb`) sets the chain's cell height and the text is drawn in it; with the pack present a
+`fb` of another cell height than the first face is dropped with a "cell height ... not used" warning. Put `fb`
+before a supplement face (`face=dlg,fb,dlgx`): a supplement alone would set the height and drop `fb`. Only
+the 8-bit presets (`[fonts:clut8]`, `[font.N:clut8]`) of M1KO, M2KO and DOTTKO have jamo-set faces.
+
 ## `mkfont.py --chars-from *.trs`
 
 A `.trs` (SCVMTRS bundle - `engines/scumm/trs_bundle.h`, content rules in

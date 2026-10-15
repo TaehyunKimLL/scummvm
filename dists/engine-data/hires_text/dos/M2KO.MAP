@@ -56,6 +56,7 @@ sentx=M2L2X.SVF
 cardx=M2L4X.SVF
 card7x=M2L4X.SVF
 card8x=M2L1X.SVF
+fb=KOJ16.SVF
 
 # True colour keeps the three card faces (M2U4 440 KB, M2U7 382 KB, M2U8 186 KB) in their files instead of
 # in memory: [load] streams them. M2U4 and M2U8 (title, credits, difficulty cards) also get a [preload] list,
@@ -110,6 +111,27 @@ face=dlg,dlgx
 face=card7,card7x
 [font.8]
 face=card8,card8x
+
+# fb=KOJ16.SVF (engine data, KOJFONT.TXT) ends each chain of a face that lives in the jamo font pack, so a missing
+# font pack still shows Korean (16 px; only the 8-bit preset has jamo-set faces).
+# The jamo-set faces (M2L0, M2L1, M2L4) come from the font pack: the fallback goes right after them, before the
+# supplement (a supplement alone would set the cell height and drop the 16 px fallback).
+[font.0:clut8]
+face=dlg,fb,dlgx
+[font.1:clut8]
+face=small,fb,smallx
+[font.3:clut8]
+face=small,fb,smallx
+[font.4:clut8]
+face=card,fb,cardx
+[font.5:clut8]
+face=small,fb,smallx
+[font.6:clut8]
+face=dlg,fb,dlgx
+[font.7:clut8]
+face=card7,fb,card7x
+[font.8:clut8]
+face=card8,fb,card8x
 
 # MI2's own pictogram: the skull-and-crossbones dialogue bullet at 0x07 (always the
 # first byte of a spoken line in korean.trs; no Latin face has anything for it) stays

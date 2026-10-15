@@ -12,6 +12,8 @@
 ;           KQ4's translation needs no other character (no supplement).
 ; Font 1 sets size=20 and cell=glyph: the engine's default 16 px layout cell would
 ; draw the 20 px glyphs off their pens, overlapping.
+; Fallback: KOJ16.SVF (engine data, 20 KB) is the last face of every chain whose faces live in the
+; jamo font pack, so a missing font pack still shows Korean (16 px; see KOJFONT.TXT).
 [map]
 version=2
 
@@ -22,9 +24,10 @@ blend=off
 [fonts]
 ui=KQ1G16.SVF
 large=KQ4A20.SVF
+fb=KOJ16.SVF
 
 [font]
-face=ui
+face=ui,fb
 missing=u+25a1
 align=cell
 ; ASCII from the same SVF as the Hangul, stepped by its own widths
