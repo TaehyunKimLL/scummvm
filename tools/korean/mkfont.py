@@ -773,7 +773,7 @@ def main():
                          "1/4 크기), 8 (커버리지 256단계)")
     ap.add_argument("--mono-hint", action="store_true",
                     help="--bpp 1: FreeType 모노크롬 렌더러와 글꼴 자체의 힌팅으로 그린다 (기본은 안티앨리어싱 후 "
-                         "50% 에서 자름)")
+                         "50%% 에서 자름)")
     ap.add_argument("--codepage", type=int, choices=sorted(CODEPAGES), default=949)
     ap.add_argument("--center", action="store_true",
                     help="잉크를 셀 가운데에 놓는다. 비례폭 글꼴을 고정폭 셀에 "
