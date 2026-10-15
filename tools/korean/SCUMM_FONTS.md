@@ -249,6 +249,34 @@ takes those from B, the NHN NanumGothic Bold, at the same size (`mkfont.py --fal
 is NHN NanumGothic Bold and M2L4X Gowun Batang Bold (the U preset's serif card face), both FreeType-hinted mono at
 23 px, whose capitals are as tall as Taebaek's (17 rows) on the base's baseline.
 
+### Preload lists (`M1U4.HOT`, `M2U4.HOT`, `M2U7.HOT`, `M2U8.HOT`)
+
+The true-colour card faces (MI2 `card`, `card7`, `card8` = M2U4, M2U7, M2U8; MI1 `cs4` = M1U4) are `[load]`
+`stream` in the maps. M2U4 and M2U8 also have a `[preload]` list, so the characters the game draws with them are
+read once at start and the rest of the face stays in the file (graphics/hires_text/README.md, "Preloading"). M2U7
+(about 1,040 characters by the analysis) and M1U4 (about 870) are not preloaded: a cache entry keeps two cells plus
+its bookkeeping (about 2.4 times the stored glyph), so a list that long holds as much as the whole face and reads
+all of it at start (DOS measurements in runs/preload/report.md); their lists are shipped for a try
+(`#card7=M2U7.HOT`, `#cs4=M1U4.HOT` in the maps). The 8-bit preset (`[load:clut8]` auto) keeps its small faces whole.
+The lists are made from the scripts and bundles by `charsetchars.py` (union over the font ids whose chain uses the
+face, the `[glyphs]` and `missing=` targets, ASCII) and shipped next to the maps; regenerate them whenever a bundle
+or a map changes:
+
+```sh
+G=~/work/scummvm/gamedata; D=dists/engine-data/hires_text/dos
+tools/korean/charsetchars.py $G/mi2kor --v5 monkey2 --trs $G/mi2kor/korean.trs -o /tmp/mi2.json \
+    --map $D/M2KO.MAP --preset U --hot-faces card,card7,card8 --hot-dir $D
+# MI1: the Ultimate Talkie text and the floppy text (mi1kor, no bundle: the scripts' own CP949) share M1U4
+tools/korean/charsetchars.py <UTE game folder with MONKEY.000> --v5 MONKEY --trs $G/mi1ute-kor/korean.trs -o /tmp/mi1ute.json
+tools/korean/charsetchars.py $G/mi1kor -o /tmp/mi1dumb.json
+tools/korean/charsetchars.py --from-json /tmp/mi1ute.json /tmp/mi1dumb.json \
+    --map $D/M1KO.MAP --preset U --hot-faces cs4 --hot-dir $D
+tools/korean/facecoverage.py --trs $G/mi2kor/korean.trs --map $D/M2KO.MAP --hot $D   # list sizes and coverage (informational)
+```
+
+The sets are conservative supersets (a script reached in several charsets counts for all), so a list is longer than
+what one play draws; a character missing from a list costs one read of the file, never a wrong glyph.
+
 `facecoverage.py` is the check: for every font id of both presets it resolves the face chain and lists the
 characters the chain lacks (a bitmap face by its table, a jamo set by composing, a TrueType face by its cmap);
 `--base-check` also demands ASCII and the 2,350 syllables of the chain's first face; exit status 1 on any gap.

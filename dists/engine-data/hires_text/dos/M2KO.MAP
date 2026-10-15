@@ -57,6 +57,29 @@ cardx=M2L4X.SVF
 card7x=M2L4X.SVF
 card8x=M2L1X.SVF
 
+# True colour keeps the three card faces (M2U4 440 KB, M2U7 382 KB, M2U8 186 KB) in their files instead of
+# in memory: [load] streams them. M2U4 and M2U8 (title, credits, difficulty cards) also get a [preload] list,
+# the characters the game draws with them (the .HOT files beside this map, made by tools/korean/charsetchars.py,
+# see SCUMM_FONTS.md): read at start, they are then in the cache and anything else comes from the file when it
+# is drawn. Charset 7 is drawn with some 1,000 syllables by that analysis, enough to read all of M2U7 at start and
+# hold more than the whole face (a cache entry keeps two cells), so card7 is only streamed; M2U7.HOT is shipped
+# for a try (card7=M2U7.HOT). The 8-bit faces are small (20-38 KB): whole, as before.
+[load]
+card=stream
+card7=stream
+card8=stream
+[load:clut8]
+card=auto
+card7=auto
+card8=auto
+[preload]
+card=M2U4.HOT
+#card7=M2U7.HOT
+card8=M2U8.HOT
+[preload:clut8]
+card=
+card8=
+
 [font]
 missing=u+25a1
 # ASCII from each charset's own SVF (never the game's internal font),

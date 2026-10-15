@@ -1,0 +1,10 @@
+# Preload list for M2U4: the characters its game draws with this face (union over the
+# charsets whose font chain uses it: U cs4), plus ASCII.
+# Made by: charsetchars.py mi2kor --v5 monkey2 --trs korean.trs --map M2KO.MAP --preset U --hot-faces card,card7,card8 --hot-dir dos
+# UTF-8; a line starting with # is a comment; order and line breaks do not matter.
+!"#$%&'()*+,-./0123456789:;<=>?@
+ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`
+abcdefghijklmnopqrstuvwxyz{|}~…™
+□가간갇게고과관귀기끝낮낸는다당데되두드든또랙러레려르를리먹며몇
+박밤뱀버보부브블상새생서섬섯속스시심아악안않어에연요용워으윽을의
+이자장저쥐지진쨌찮척충카캡텨파편폭품풍하한해허현후힌

@@ -42,6 +42,19 @@ cs2=M1L2.SVF
 cs4=M1L4.SVF
 cs2x=M1L2X.SVF
 
+# True colour keeps the title/credit card face (M1U4, 440 KB) in its file instead of in memory: [load] streams
+# it and a glyph is read when it is first drawn (title and credits). M1U4.HOT, the characters the game can draw
+# with it by tools/korean/charsetchars.py (see SCUMM_FONTS.md), is shipped beside this map but not used: the
+# analysis finds about 870 characters, enough to read nearly all of M1U4 at start and hold 350 KB of it
+# (a cache entry keeps two cells), little less than the whole face. [preload] cs4=M1U4.HOT turns it on.
+# The 8-bit face (M1L4, 38 KB) stays whole.
+[load]
+cs4=stream
+[load:clut8]
+cs4=auto
+#[preload]
+#cs4=M1U4.HOT
+
 [font]
 missing=u+25a1
 # ASCII from each charset's own SVF (never the game's internal font),
