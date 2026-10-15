@@ -541,6 +541,8 @@ class JsetCodec(unittest.TestCase):
             "lead classes": g[:6] + b"\x09" + g[7:],
             "leadClass": g[:12 + 3] + b"\x02" + g[12 + 4:],
             "initSet": g[:59 + 5] + b"\x08" + g[59 + 6:],
+            "tail classes": g[:7] + b"\x09" + g[8:],
+            "initial sets": g[:8] + b"\x19" + g[9:],
         }
         for what, data in cases.items():
             with self.assertRaises(ValueError, msg=what) as cm:
@@ -1421,6 +1423,114 @@ class MacFbit45Sets(unittest.TestCase):
                                 "-o", os.path.join(d, "o")], capture_output=True, text=True)
             self.assertNotEqual(r.returncode, 0)
             self.assertNotIn("Traceback", r.stderr)
+
+
+GOLDEN = os.path.join(HERE, "testdata", "mac-fbit-golden.json")
+SHIPPED_MUNJO24 = os.path.join(HERE, "..", "..", "dists", "engine-data", "hires_text", "dos", "MUNJO24.SVF")
+MAC_DISK = os.path.expanduser("~/work/johab-fonts/mac/extracted/kh10_system_disk/System Folder/")
+
+
+class MacGolden(unittest.TestCase):
+    """The Mac syllables against bitmaps rendered by the research tool (testdata/mac-fbit-golden.json), so that
+    --check does not rest on jamoset's own copy of the 'fdef' rule, and these tests run without ~/work/johab-fonts."""
+
+    def test_shipped_munjo24_is_the_golden_rendering(self):
+        entry = jamoset.mac_golden("Munjo24.rsrc")
+        self.assertEqual((entry["w"], entry["h"], entry["count"]), (24, 24, 2350))
+        self.assertEqual(jamoset.mac_golden_problems(open(SHIPPED_MUNJO24, "rb").read(), entry), [])
+
+    def test_a_changed_piece_is_found(self):
+        entry = jamoset.mac_golden("munjo24")
+        f = jamoset.parse_svfn(open(SHIPPED_MUNJO24, "rb").read())
+        t = jamoset.unpack(f.jset)
+        n = t.init_piece[0]
+        glyphs = [(cp, bytes(b ^ 0xFF for b in g) if cp == jamoset.PIECE_BASE + n else g, *f.metrics.get(cp, (24, 0, 24)))
+                  for cp, g in f.glyphs.items()]
+        bad = jamoset.write_svfn(f.cell_w, f.cell_h, f.ascent, glyphs, f.jset, f.flags & 4, f.shadow, f.codepage)
+        probs = jamoset.mac_golden_problems(bad, entry)
+        self.assertTrue(probs)
+        self.assertIn("sha256", " ".join(probs))
+
+    def test_no_golden_for_an_unknown_font(self):
+        self.assertIsNone(jamoset.mac_golden("Other.rsrc"))
+
+    def test_golden_fixture_is_whole(self):
+        import json
+        faces = json.load(open(GOLDEN))["faces"]
+        for name, e in faces.items():
+            self.assertEqual(e["count"], 2350, name)
+            self.assertGreaterEqual(len(e["samples"]), 40, name)
+            self.assertEqual(len(e["sha256"]), 64, name)
+
+
+class MacFbitValidation(unittest.TestCase):
+    """MacFbit refuses a damaged font instead of raising struct.error or reading short."""
+
+    def fake(self, fbit, fdef_len=0x716):
+        old = jamoset.mac_resources
+        jamoset.mac_resources = lambda d: {b"fbit": {1: fbit}, b"fdef": {3: bytes(fdef_len)}}
+        self.addCleanup(setattr, jamoset, "mac_resources", old)
+        return jamoset.MacFbit(b"x")
+
+    def header(self, nset=45):
+        h = bytearray(0x56)
+        h[2:6] = b"fbit"
+        h[0x54:0x56] = (nset * 12).to_bytes(2, "big")
+        return h
+
+    def sets(self, w0=6, hi=0, off=0, h=24, n=45):
+        return b"".join(w0.to_bytes(2, "big") + hi.to_bytes(2, "big") + off.to_bytes(2, "big") + h.to_bytes(2, "big") + bytes(4)
+                        for _ in range(n))
+
+    def test_short_fbit(self):
+        with self.assertRaises(jamoset.SourceError):
+            self.fake(bytes(self.header()) + bytes(10))
+
+    def test_zero_dimensions(self):
+        for kw in ({"w0": 0}, {"h": 0}):
+            with self.assertRaises(jamoset.SourceError, msg=str(kw)):
+                self.fake(bytes(self.header()) + self.sets(**kw) + bytes(200))
+
+    def test_set_offset_beyond_the_resource(self):
+        with self.assertRaises(jamoset.SourceError):
+            self.fake(bytes(self.header()) + self.sets(off=60000) + bytes(200))
+
+    def test_good_header_is_accepted(self):
+        m = self.fake(bytes(self.header()) + self.sets() + bytes(200))
+        self.assertEqual((m.w, m.h), (24, 24))
+
+
+class MacCommandLine(unittest.TestCase):
+    def run_tool(self, *argv):
+        return subprocess.run([sys.executable, "-I", os.path.join(HERE, "jamoset.py"), "--layout", "mac-fbit-45sets", *argv],
+                              capture_output=True, text=True)
+
+    def test_missing_source_is_an_error_not_a_traceback(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = self.run_tool(os.path.join(d, "nope.rsrc"), "-o", os.path.join(d, "o"))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn("nope.rsrc", r.stderr)
+
+    @unittest.skipUnless(os.path.exists(MAC_DISK + "Munjo24.rsrc"), "Munjo24.rsrc not collected here")
+    def test_check_uses_the_golden_and_embolden_skips_the_mac_comparison(self):
+        with tempfile.TemporaryDirectory() as d:
+            o = os.path.join(d, "o.svf")
+            r = self.run_tool(MAC_DISK + "Munjo24.rsrc", "--check", "-o", o)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("golden: ok", r.stdout)
+            r = self.run_tool(MAC_DISK + "Munjo24.rsrc", "--check", "--embolden", "-o", o)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("skipped", r.stdout)
+            self.assertNotIn("differing syllables", r.stdout)
+
+    @unittest.skipUnless(os.path.exists(MAC_DISK + "Munjo16.rsrc"), "Munjo16.rsrc not collected here")
+    def test_other_faces_match_their_golden(self):
+        for name in ("Munjo16", "Gotic12"):
+            with tempfile.TemporaryDirectory() as d:
+                r = self.run_tool(MAC_DISK + name + ".rsrc", "--check", "-o", os.path.join(d, "o.svf"))
+                self.assertEqual(r.returncode, 0, name + r.stderr)
+                self.assertIn("golden: ok", r.stdout, name)
 
 
 if __name__ == "__main__":

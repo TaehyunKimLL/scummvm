@@ -1105,17 +1105,23 @@ class MacFbit:
             fdef = res[b"fdef"][3]
         except (KeyError, StopIteration, struct.error, IndexError):
             raise SourceError("not a HangulTalk 1.0 'fbit' resource fork (no fbit or fdef 3 resource)")
-        if self.fbit[2:6] != b"fbit" or len(fdef) < 0x716:
+        if len(self.fbit) < 0x56 or self.fbit[2:6] != b"fbit" or len(fdef) < 0x716:
             raise SourceError("not a HangulTalk 1.0 'fbit' font")
         self.tb = {k: fdef[o:o + n] for k, (o, n) in MAC_PLANE_TABLES.items()}
         nset = struct.unpack(">H", self.fbit[0x54:0x56])[0] // 12
         if nset != 45:
             raise SourceError(f"{nset} glyph sets, not the 45 of mac-fbit-45sets")
+        self.base = 0x56 + nset * 12
+        if len(self.fbit) < self.base:
+            raise SourceError(f"'fbit' resource is {len(self.fbit)} bytes, shorter than its {nset} set descriptors ({self.base})")
         self.sets = []
         for i in range(nset):
             w0, hi, off, h = struct.unpack(">4H", self.fbit[0x56 + i * 12:0x56 + i * 12 + 8])
+            if not w0 or not h:
+                raise SourceError(f"glyph set {i} has a zero width or height")
+            if self.base + ((hi << 16) | off) > len(self.fbit):
+                raise SourceError(f"glyph set {i} starts beyond the end of the 'fbit' resource")
             self.sets.append((w0 * 4, (hi << 16) | off, h))
-        self.base = 0x56 + nset * 12
         self.w, self.h = self.sets[0][0], self.sets[0][2]
 
     def set_glyph(self, s, g):
@@ -1222,6 +1228,39 @@ def mac_layout(mac):
                     lambda c, V, k: cell_fin.get((c, V, k), 0), init_src, med_src, fin_src, advance=0)
     layout.final_tail_classes = final_tc
     return layout, src
+
+
+MAC_GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "testdata", "mac-fbit-golden.json")
+
+
+def mac_golden(source):
+    """The golden entry (testdata/mac-fbit-golden.json) for the Mac font file named @p source (Munjo24.rsrc -> "munjo24"), or None.
+    The golden bitmaps come from the research renderer mac_kfont.py, not from this file's mac_compose()."""
+    import json
+    try:
+        with open(MAC_GOLDEN) as fh:
+            faces = json.load(fh)["faces"]
+    except (OSError, ValueError, KeyError):
+        return None
+    return faces.get(os.path.splitext(os.path.basename(source))[0].lower())
+
+
+def mac_golden_problems(out, entry):
+    """What differs between the font @p out (SVFN bytes) and a golden entry: the 2,350 KS X 1001 syllables composed from the
+    font, hashed, and the sampled ones compared one by one. [] when identical."""
+    import hashlib
+    f = parse_svfn(out)
+    t = unpack(f.jset)
+    probs = []
+    if (f.cell_w, f.cell_h) != (entry["w"], entry["h"]):
+        return [f"cell {f.cell_w}x{f.cell_h}, golden is {entry['w']}x{entry['h']}"]
+    bits = [compose(f, t, 0xAC00 + s) for s in ks_x_1001_syllables()]
+    if hashlib.sha256(b"".join(bits)).hexdigest() != entry["sha256"]:
+        probs.append("sha256 of the 2,350 KS X 1001 syllables differs")
+    for cp, hexa in entry["samples"].items():
+        if compose(f, t, int(cp, 16)).hex() != hexa:
+            probs.append(f"U+{cp} differs")
+    return probs
 
 
 def mac_targets(mac):
@@ -1344,23 +1383,37 @@ def main_mac(ap, args):
         ap.error(f"{MAC_LAYOUT} takes the 'fbit' resource fork file as its source (no --from-*, --eng or --base)")
     started = time.time()
     try:
-        mac = MacFbit(open(args.source, "rb").read())
+        with open(args.source, "rb") as fh:
+            mac = MacFbit(fh.read())
         layout, src = mac_layout(mac)
         out, mapping, _ = build_from_source(layout, src, None, None, args.ascent or mac.h, None, False, args.advance,
                                             args.embolden, args.symbols)
-        open(args.output, "wb").write(out)
+        with open(args.output, "wb") as fh:
+            fh.write(out)
         print(f"{args.output}: {len(out)} bytes, {len(mapping)} pieces of {mac.w}x{mac.h} from {args.source}; "
               f"{layout.lc} lead classes, {layout.tc} tail classes, {layout.ni}/{layout.nm}/{layout.nf} sets")
         if args.check:
             print("check:", check(out, layout, None))
-            q, bad = mac_compare(out, mac_targets(MacFbit(open(args.source, "rb").read())), mac.w, mac.h)
-            print(summary_line("mac", q) + f"; differing syllables: {len(bad)}")
-            if bad:
-                raise ValueError(f"{len(bad)} syllables differ from the Mac rendering, first U+{0xAC00 + bad[0]:04X}")
+            if args.embolden:
+                print("mac: comparison skipped (--embolden changes the pieces; the Mac rendering is not emboldened)")
+            else:
+                q, bad = mac_compare(out, mac_targets(mac), mac.w, mac.h)
+                print(summary_line("mac (jamoset.py's own copy of the rule, self-consistency only)", q)
+                      + f"; differing syllables: {len(bad)}")
+                if bad:
+                    raise ValueError(f"{len(bad)} syllables differ from the Mac rendering, first U+{0xAC00 + bad[0]:04X}")
+                golden = mac_golden(args.source)
+                if golden is None:
+                    print("golden: none for this font (no independent reference)")
+                else:
+                    probs = mac_golden_problems(out, golden)
+                    if probs:
+                        raise ValueError(f"differs from the golden rendering of {golden['key']}: {'; '.join(probs[:4])}")
+                    print(f"golden: ok, 2350 KS X 1001 syllables identical to {golden['key']} (research renderer)")
         if args.report:
             write_report(args.report, {"layout": MAC_LAYOUT, "output_bytes": len(out), "pieces": len(mapping),
                                        "seconds": round(time.time() - started, 1)})
-    except (SourceError, ValueError) as e:
+    except (SourceError, ValueError, OSError) as e:
         sys.exit(f"{args.source}: {e}")
 
 
