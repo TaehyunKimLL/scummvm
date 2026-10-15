@@ -11,13 +11,15 @@ from a plan table, the base-plus-supplement faces, the preload lists, and how ea
 ## The fallback face KOJ16.SVF
 
 The DOS engine zip leaves the jamo-set faces out (they are in the jamo font pack, `build_font_pack.py --pack
-jamo-ko1`, chosen by the SVFN header flag 0x2) and keeps one: `KOJ16.SVF`, the same bytes as `KQ1G16.SVF`
-(san 1.0 GAM.KOR, 16 px; `KOJFONT.TXT`). A map whose faces live in the pack names it as `fb=KOJ16.SVF` in
+jamo-ko1`, chosen by the SVFN header flag 0x2) and keeps one: `KOJ16.SVF`
+(san 1.0 GAM.KOR, 16 px; `KOJFONT.TXT`; also the face of KQ4KO, MMKO and ZAKKO). A map whose faces live in the pack names it as `fb=KOJ16.SVF` in
 `[fonts]` and chains it last: `face=ui,fb`. An SVF that cannot be opened is skipped, so with the pack missing the
 first face that opens (`fb`) sets the chain's cell height and the text is drawn in it; with the pack present a
-`fb` of another cell height than the first face is dropped with a "cell height ... not used" warning. Put `fb`
-before a supplement face (`face=dlg,fb,dlgx`): a supplement alone would set the height and drop `fb`. Only
-the 8-bit presets (`[fonts:clut8]`, `[font.N:clut8]`) of M1KO, M2KO and DOTTKO have jamo-set faces.
+`fb` of another cell height than the first face is dropped with a "cell height ... not used" warning. `fb` goes
+after a supplement face of the same height (`face=small,smallx,fb`, so the supplement draws its characters), but
+before the supplement of a taller face (`face=dlg,fb,dlgx`): without the pack that supplement alone would set the
+height and drop `fb`. Only the 8-bit presets (`[fonts:clut8]`, `[font.N:clut8]`) of M1KO, M2KO and DOTTKO have
+jamo-set faces. KQ4KO, MMKO and ZAKKO name `KOJ16.SVF` directly (no chain).
 
 ## `mkfont.py --chars-from *.trs`
 
@@ -320,7 +322,7 @@ stands in the game folder.
 
 Loom and Day of the Tentacle (`LOOMKO.MAP`, `DOTTKO.MAP`) use the same plan-table
 bake, one U and one L plan each (`loom`, `dott` + `u`/`l` + `.tsv`). (Maniac
-Mansion and Zak McKracken left it: they draw with `KQ1G16.SVF`, below.) Every
+Mansion and Zak McKracken left it: they draw with `KOJ16.SVF`, below.) Every
 SVF comes out byte for byte from these commands:
 
 ```sh
@@ -369,21 +371,21 @@ Each run prints `fit: N syllables, IoU 1.000 ... exact N`; a face that is not
 exact stays precomposed (check the line before the `mv`). The U faces (2 bpp)
 stay precomposed. The maps are unchanged: same face names.
 
-### Maniac Mansion and Zak McKracken: the san 16 px jamo set (KQ1G16)
+### Maniac Mansion and Zak McKracken: the san 16 px jamo set (KOJ16)
 
-`MMKO.MAP` and `ZAKKO.MAP` (V2 DOS, one charset: the game's 8 px cell at scale 2 is 16 px) draw with `KQ1G16.SVF`, the user's
+`MMKO.MAP` and `ZAKKO.MAP` (V2 DOS, one charset: the game's 8 px cell at scale 2 is 16 px) draw with `KOJ16.SVF`, the user's
 pairing selection (2026-10-15): san-1.0's GAM.KOR 16 px, layout 844, ascent 14, with SAN.ENG for ASCII, 1 bpp, the same in every
 render_target (`blend=off`; the earlier NanumGothic 2 bpp U and neodgm 1 bpp L presets, `MMU0/MML0/ZAKU0/ZAKL0.SVF`, are gone).
-It is the face KQ1 had before KQ1I16 and KQ4KO.MAP still uses, so it is one file for all three (no per-game copy). The two
+It is the face KQ1 had before KQ1I16 (then `KQ1G16.SVF`) and KQ4KO.MAP uses, so it is one file for all three (no per-game copy). The two
 translations hold only ASCII and KS X 1001 syllables plus the `[glyphs]` targets U+2026 and U+0022, so there is no supplement
 (`facecoverage.py --base-check` passes for both). Bake (identical bytes to the shipped file):
 
 ```sh
 B=~/work/johab-fonts/dos/raw/gh_drypot__san-1.0
-python3 tools/korean/jamoset.py --layout 844 $B/font-kor/GAM.KOR --eng $B/font-eng/SAN.ENG --symbols --check -o $D/KQ1G16.SVF
+python3 tools/korean/jamoset.py --layout 844 $B/font-kor/GAM.KOR --eng $B/font-eng/SAN.ENG --symbols --check -o $D/KOJ16.SVF
 ```
 
-Licences: KQ4FONT.TXT and KQ1FONT.TXT (san is MIT).
+Licences: KOJFONT.TXT, KQ4FONT.TXT and KQ1FONT.TXT (san is MIT).
 
 ### MI1 and MI2: the 24 dot faces (M1L0, M1L4, M2L0, M2L4)
 
@@ -427,7 +429,7 @@ and the other renderers: light autohint, forced autohint, 16/18 px, for the best
 Notes per game:
 
 * The cells are 2x the game's `korean0N.fnt` header, as everywhere: MM/Zak
-  charset 0 (the patch's one font; 16x16, now `KQ1G16.SVF`), Loom cs1 16x16 and cs2 18x18, DOTT cs0 46x54,
+  charset 0 (the patch's one font; 16x16, now `KOJ16.SVF`), Loom cs1 16x16 and cs2 18x18, DOTT cs0 46x54,
   cs1 16x16, cs2 20x24, cs3/5/8 18x24, cs4 22x22, cs7 36x36. DOTT has no
   `korean06.fnt`, so `[font.6]` uses the cs0 face; cs5 and cs8 use cs3's SVF.
 * L is neodgm at 16 px (32 px for the 46x54 and 36x36 DOTT cells, ascent
@@ -525,7 +527,7 @@ HANGUL3.PFT face 0 (24x24) with the same package's ASCII.PFT (14x24, advance 14,
 ASCII sits above the Hangul baseline like HWP's), ascent 24. Font 300 needs `size=24` and `cell=glyph` in its section: the
 engine's default layout cell is 16 px, and a 24 px face drawn in it lands 4 px off its pen (overlapped, sheared-looking
 syllables). The text has no character outside ASCII + KS X 1001 (the bases are complete), so there is no supplement.
-KQ1G16.SVF (GAM.KOR, the previous KQ1 face) stays: KQ4KO.MAP uses it. Licences: KQ1FONT.TXT (san is MIT; HWP's is not stated).
+KOJ16.SVF (GAM.KOR, the previous KQ1 face, was KQ1G16.SVF) stays: KQ4KO.MAP uses it. Licences: KQ1FONT.TXT (san is MIT; HWP's is not stated).
 
 The HWP PFT is a 7/2/3-set font that kfont composes, so it is exported as a precomposed SVFN (ASCII + all 11,172 syllables;
 `pairing2svf.svfn_bytes`) and then fitted to 844 pieces (IoU 1.000, exact for all 11,172):
@@ -559,7 +561,7 @@ python3 tools/korean/jamoset.py --layout 844 --from-svf /tmp/hwp24.svf --symbols
 
 ### KQ4 (SCI0): san 16 px shared with KQ1, Mac AppleMyungjo 20 px (KQ4A20)
 
-KQ4KO.MAP: fonts 0, 4 and any other id on `KQ1G16.SVF` (the KQ1 face, same 16 px cell); font 1 on `KQ4A20.SVF` with `size=20`,
+KQ4KO.MAP: fonts 0, 4 and any other id on `KOJ16.SVF` (the former KQ1 face, same 16 px cell); font 1 on `KQ4A20.SVF` with `size=20`,
 `cell=glyph`. In the game font 1 is the default message font (parser replies, the "enter" prompt, inventory and other boxes);
 font 4 shows only the first-run and copy-protection boxes. HAN24_1 is a precomposed KS X 1001 source (a jamo fit is IoU 0.815),
 so KQ4H24 is a precomposed 1 bpp base (ASCII from ENG24_0 at 12 px + 2,350 syllables + U+25A1; 205 KB), written from the

@@ -219,7 +219,7 @@ instead of 100-400 KB and holds all 11,172 syllables
 
 ```sh
 # a DOS Johab font (a named layout) + its raw 8x16 English font
-tools/korean/jamoset.py --layout 844 GAM.KOR --eng SAN.ENG --symbols --check -o KQ1G16.SVF
+tools/korean/jamoset.py --layout 844 GAM.KOR --eng SAN.ENG --symbols --check -o KOJ16.SVF
 # a precomposed 1 bpp SVF -> pieces fitted to its syllables
 tools/korean/jamoset.py --layout 844 --from-svf KO2350.SVF --symbols --check -o KO2350J.SVF
 # an outline font -> pieces fitted to its syllables at a size (needs freetype-py, uharfbuzz)

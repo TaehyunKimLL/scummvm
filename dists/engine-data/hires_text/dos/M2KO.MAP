@@ -114,24 +114,26 @@ face=card8,card8x
 
 # fb=KOJ16.SVF (engine data, KOJFONT.TXT) ends each chain of a face that lives in the jamo font pack, so a missing
 # font pack still shows Korean (16 px; only the 8-bit preset has jamo-set faces).
-# The jamo-set faces (M2L0, M2L1, M2L4) come from the font pack: the fallback goes right after them, before the
-# supplement (a supplement alone would set the cell height and drop the 16 px fallback).
+# The jamo-set faces (M2L0, M2L1, M2L4) come from the font pack. fb is last after the 16 px faces (M2L1: the
+# supplement draws its own characters, not fb) but before the supplement of the 24 px faces: without the pack
+# a 24 px supplement alone would set the cell height and drop the 16 px fb (the supplement's two glyphs are
+# lost then; with the pack present fb is dropped there anyway, its height differs).
 [font.0:clut8]
 face=dlg,fb,dlgx
 [font.1:clut8]
-face=small,fb,smallx
+face=small,smallx,fb
 [font.3:clut8]
-face=small,fb,smallx
+face=small,smallx,fb
 [font.4:clut8]
 face=card,fb,cardx
 [font.5:clut8]
-face=small,fb,smallx
+face=small,smallx,fb
 [font.6:clut8]
 face=dlg,fb,dlgx
 [font.7:clut8]
 face=card7,fb,card7x
 [font.8:clut8]
-face=card8,fb,card8x
+face=card8,card8x,fb
 
 # MI2's own pictogram: the skull-and-crossbones dialogue bullet at 0x07 (always the
 # first byte of a spoken line in korean.trs; no Latin face has anything for it) stays

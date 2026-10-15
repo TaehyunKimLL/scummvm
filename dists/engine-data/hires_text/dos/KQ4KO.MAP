@@ -1,8 +1,8 @@
 ; King's Quest IV (SCI0), Korean UTF-8 translation. One map; the same faces in every
 ; render_target (1 bpp, hard-edged). The pairing selection (2026-10-15):
 ;   ui    - fonts 0 (status line, menu bar, parser line, system dialogs), 4 (the
-;           copy-protection and first-run boxes) and any other id: KQ1G16.SVF, the
-;           16 px san-1.0 GAM.KOR jamo set shared with KQ1 (KQ1FONT.TXT);
+;           copy-protection and first-run boxes) and any other id: KOJ16.SVF, the
+;           16 px san-1.0 GAM.KOR jamo set (KOJFONT.TXT);
 ;   large - font 1 (parser replies, the "enter" prompt, inventory and other message
 ;           boxes: the game's default message font): KQ4A20.SVF, the Mac Hangul
 ;           AppleMyungjo 20 px strike (cell 20x21), precomposed: its own ASCII (8-20
@@ -12,8 +12,6 @@
 ;           KQ4's translation needs no other character (no supplement).
 ; Font 1 sets size=20 and cell=glyph: the engine's default 16 px layout cell would
 ; draw the 20 px glyphs off their pens, overlapping.
-; Fallback: KOJ16.SVF (engine data, 20 KB) is the last face of every chain whose faces live in the
-; jamo font pack, so a missing font pack still shows Korean (16 px; see KOJFONT.TXT).
 [map]
 version=2
 
@@ -22,12 +20,11 @@ scale=2
 blend=off
 
 [fonts]
-ui=KQ1G16.SVF
+ui=KOJ16.SVF
 large=KQ4A20.SVF
-fb=KOJ16.SVF
 
 [font]
-face=ui,fb
+face=ui
 missing=u+25a1
 align=cell
 ; ASCII from the same SVF as the Hangul, stepped by its own widths
