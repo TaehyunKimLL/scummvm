@@ -22,6 +22,8 @@
 #ifndef GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_FILE_H
 #define GRAPHICS_HIRES_TEXT_GLYPH_SOURCE_FILE_H
 
+#include "common/array.h"
+#include "common/path.h"
 #include "common/str.h"
 #include "common/types.h"
 #include "graphics/hires_text/bitmap_font.h"
@@ -82,6 +84,22 @@ UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, Dispose
  * warning, and may be empty.
  */
 UnicodeGlyphSource *createSvfnSource(HiResBitmapFont *font, const Common::String &name);
+
+/**
+ * The characters of a preload list (.HOT file, README "Preloading"): UTF-8
+ * text, any order, any line breaks; a line starting with '#' is a comment.
+ * Whitespace, control characters, the byte order mark and bytes that are not
+ * UTF-8 are skipped. @p out gets each character once, in first-seen order.
+ */
+void parsePreloadList(const byte *data, uint32 size, Common::Array<uint32> &out);
+
+/**
+ * The map's list for a face: read @p listPath (like a map's data files:
+ * from disk or ScummVM's data archives) and hand its characters to
+ * @p src->preload(). A list that cannot be read is one warning naming
+ * @p faceName and no preload. Returns the glyphs the face read in.
+ */
+uint32 preloadFaceFromList(UnicodeGlyphSource *src, const Common::Path &listPath, const Common::String &faceName);
 
 /**
  * A stream a cache keeps open and reads in blocks of its own: when it is a

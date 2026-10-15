@@ -1,6 +1,7 @@
 #include <cxxtest/TestSuite.h>
 
 #include "common/array.h"
+#include "common/file-cache-stats.h"
 #include "common/memstream.h"
 #include "common/algorithm.h"
 #include "graphics/hires_text/bitmap_font.h"
@@ -693,6 +694,48 @@ public:
 		const uint32 last = 0xAC00 + (n - 1) * 37;
 		inkOf(src, last);
 		TS_ASSERT_EQUALS(src.composed(), n + 1);
+	}
+
+	// A list of syllables is expanded to the pieces the file holds: those are
+	// sized for, read in file order, and then draw without a read.
+	void test_preload_expands_syllables_to_pieces() {
+		const Bytes bytes = makeFont(pieceCps(), make844Jset());
+		const uint before = Common::FileCacheRegistry::all().size();
+		Graphics::JamoGlyphSource src(loadFont(bytes, true), DisposeAfterUse::YES);
+		src.setName("JP.SVF");
+		const Common::FileCacheStats *stats = nullptr;
+		for (uint i = before; i < Common::FileCacheRegistry::all().size(); ++i)
+			if (Common::FileCacheRegistry::all()[i]->name == "JP.SVF")
+				stats = Common::FileCacheRegistry::all()[i];
+		TS_ASSERT(stats != nullptr);
+		if (!stats)
+			return;
+		Common::Array<uint32> list;
+		list.push_back(0xAC00);	// pieces 1, 161
+		list.push_back(0xAC01);	// pieces 101, 205, 249
+		list.push_back('A');
+		list.push_back(0xAC00);
+		TS_ASSERT_EQUALS(src.preload(list), 6u);
+		// Five pieces and 'A', in glyph slots 0, 2, 102, 162, 206, 250: two 128-glyph blocks.
+		TS_ASSERT_EQUALS(stats->listed, 6u);
+		TS_ASSERT_EQUALS(stats->preloaded, 6u);
+		TS_ASSERT_EQUALS(stats->reads, 2u);
+		expectInk(inkOf(src, 0xAC00), pieceInk(2, 1, 161));
+		expectInk(inkOf(src, 0xAC01), pieceInk(3, 101, 205, 249));
+		TS_ASSERT_EQUALS(stats->reads, 2u);
+		// A syllable not listed reads its pieces on demand.
+		expectInk(inkOf(src, 0xD759), pieceInk(3, 139, 245, 341));
+		TS_ASSERT(stats->reads > 2u);
+	}
+
+	// A face held whole ignores the list.
+	void test_preload_is_ignored_by_a_whole_jamo_face() {
+		const Bytes bytes = makeFont(pieceCps(), make844Jset());
+		Graphics::JamoGlyphSource src(loadFont(bytes, false), DisposeAfterUse::YES);
+		Common::Array<uint32> list;
+		list.push_back(0xAC00);
+		TS_ASSERT_EQUALS(src.preload(list), 0u);
+		expectInk(inkOf(src, 0xAC00), pieceInk(2, 1, 161));
 	}
 
 	void test_prefetch_takes_out_what_it_composes() {

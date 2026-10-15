@@ -194,7 +194,8 @@ enum HiResKeyFlag {
 	kHiResKeyMirror       = 1 << 13, ///< [font]/[font.N] mirror=
 	kHiResKeyGlyphs       = 1 << 14, ///< [glyphs]/[glyphs.N]
 	kHiResKeyShadow       = 1 << 15, ///< [shadow]
-	kHiResKeyLoad         = 1 << 16  ///< [load]
+	kHiResKeyLoad         = 1 << 16, ///< [load]
+	kHiResKeyPreload      = 1 << 17  ///< [preload]
 };
 
 /// One engine's name (for the "<engine> does not use ..." warning, design
@@ -301,6 +302,16 @@ struct HiResMap {
 	/// How the map wants the SVF at @p resolvedPath held; kHiResLoadAuto when
 	/// it says nothing (every map without a [load] section).
 	HiResLoadMode loadModeFor(const Common::Path &resolvedPath) const;
+
+	// --- [preload] -----------------------------------------------------------
+	/// [preload], qualified entries merged: the resolved path (toString('/')) of
+	/// a [fonts] face to the resolved path of its list of characters to keep in
+	/// memory (a .HOT file). A face not in here has no list.
+	Common::HashMap<Common::String, Common::String> preloads;
+
+	/// The list file the map gives the SVF at @p resolvedPath; an empty path
+	/// when it gives none (every map without a [preload] section).
+	Common::Path preloadFor(const Common::Path &resolvedPath) const;
 
 	// --- [glyphs], [glyphs.N] ------------------------------------------------
 	HiResGlyphTable glyphs;

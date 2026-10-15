@@ -104,6 +104,8 @@ Graphics::UnicodeGlyphSource *HiresText::openFace(const Graphics::HiResFaceEntry
 			_map.loadModeFor(e.path));
 		if (!src)
 			warning("AGI hi-res text: %s: %s", e.written.c_str(), error.c_str());
+		else if (!_map.preloadFor(e.path).empty())
+			Graphics::preloadFaceFromList(src, _map.preloadFor(e.path), e.path.baseName());
 		return src;
 	}
 #ifdef USE_FREETYPE2

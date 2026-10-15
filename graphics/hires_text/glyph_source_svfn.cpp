@@ -22,11 +22,14 @@
 #include "graphics/hires_text/glyph_source_svfn.h"
 
 #include "common/algorithm.h"
+#include <new>
 #include "common/textconsole.h"
 #include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/unicode_props.h"
 
 namespace Graphics {
+
+uint32 SvfnGlyphSource::_preloadMemoryLimit = 0xFFFFFFFF;
 
 SvfnGlyphSource::SvfnGlyphSource(HiResBitmapFont *font, DisposeAfterUse::Flag dispose)
 	: _font(font), _dispose(dispose), _cellWidth(0), _cellHeight(0), _bitsPerPixel(1), _rowBytes(0), _maxEntries(32),
@@ -63,6 +66,8 @@ void SvfnGlyphSource::setCacheBytes(uint32 bytes, uint32 minEntries) {
 			if (_entries[i]->lastUse < _entries[oldest]->lastUse)
 				oldest = i;
 		_byCp.erase(_entries[oldest]->cp);
+		if (_listed.contains(_entries[oldest]->cp))
+			++_stats.listedEvicted;
 		delete _entries[oldest];
 		_entries.remove_at(oldest);
 	}
@@ -99,6 +104,8 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::takeEntry(uint32 cp) {
 			if (_entries[i]->lastUse < entry->lastUse)
 				entry = _entries[i];
 		_byCp.erase(entry->cp);
+		if (_listed.contains(entry->cp))
+			++_stats.listedEvicted;
 	}
 	entry->cp = cp;
 	entry->cells = 0;
@@ -226,6 +233,70 @@ void SvfnGlyphSource::prefetch(Common::Array<uint32> &cps) {
 	_stats.lookups = lookups;
 	_stats.hits = hits;
 	_lastCp = 0xFFFFFFFF;
+}
+
+uint32 SvfnGlyphSource::preload(const Common::Array<uint32> &cps) {
+	if (!_rowBytes || !_font->isStreamed() || !_listed.empty())
+		return 0;
+	struct Want {
+		int index;
+		uint32 cp;
+	};
+	Common::Array<Want> want;
+	Common::HashMap<uint32, bool> seen;
+	for (uint i = 0; i < cps.size(); ++i) {
+		if (seen.contains(cps[i]))
+			continue;
+		seen[cps[i]] = true;
+		const int index = _font->glyphIndex(cps[i]);
+		if (index >= 0) {
+			Want w = { index, cps[i] };
+			want.push_back(w);
+		}
+	}
+	if (want.empty())
+		return 0;
+
+	// The glyphs as stored, rounded up to a read block, and as many entries.
+	const uint32 stored = (uint32)_font->glyphPitch() * _cellHeight;
+	const uint32 rounded = ((uint32)want.size() * stored + HIRES_SVF_READ_BLOCK - 1) / HIRES_SVF_READ_BLOCK *
+						   HIRES_SVF_READ_BLOCK;
+	const uint32 entries = MAX<uint32>(want.size(), rounded / MAX<uint32>(1, stored));
+	const uint32 each = _rowBytes * _cellHeight + kEntryOverhead;
+
+	// The rows are made one by one; without memory for them all, the face
+	// keeps the cache it has and the list is dropped.
+	byte *probe = (size_t)entries * each <= _preloadMemoryLimit ? new (std::nothrow) byte[(size_t)entries * each] : nullptr;
+	if (!probe) {
+		warning("SVF %s: no memory for a cache of the %u listed glyphs; keeping the default cache, no preload",
+				_stats.name.c_str(), (uint)want.size());
+		return 0;
+	}
+	delete[] probe;
+
+	for (uint i = 0; i < want.size(); ++i)
+		_listed[want[i].cp] = true;
+	_stats.listed = want.size();
+	setCacheBytes(entries * each);
+
+	Common::sort(want.begin(), want.end(), [](const Want &a, const Want &b) { return a.index < b.index; });
+	// Not uses: the counters start at the first draw.
+	const uint32 lookups = _stats.lookups, hits = _stats.hits;
+	for (uint i = 0; i < want.size(); ++i)
+		ensure(want[i].cp);
+	_stats.lookups = lookups;
+	_stats.hits = hits;
+	_lastCp = 0xFFFFFFFF;
+
+	uint32 loaded = 0;
+	for (uint i = 0; i < want.size(); ++i) {
+		const Entry *e = find(want[i].cp);
+		if (e && e->cells)
+			++loaded;
+	}
+	_stats.preloaded = loaded;
+	updateStats();
+	return loaded;
 }
 
 byte SvfnGlyphSource::cellsFor(uint32 cp, int index) const {

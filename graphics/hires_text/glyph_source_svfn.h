@@ -85,6 +85,19 @@ public:
 	 */
 	void prefetch(Common::Array<uint32> &cps) override;
 
+	/**
+	 * A streamed face with a preload list: the cache is sized to hold the
+	 * glyphs of @p cps this font has (their stored bytes, rounded up to
+	 * HIRES_SVF_READ_BLOCK, as entries; never fewer than 32), and those are
+	 * read into it now, in the font's order so that neighbours share a read.
+	 * Afterwards the cache is the plain LRU one. A face held whole ignores
+	 * the list; when the memory is not there the cache keeps its size, nothing
+	 * is read and one warning says so. Returns the glyphs read in.
+	 */
+	uint32 preload(const Common::Array<uint32> &cps) override;
+	/// Tests: the most bytes preload() will try to get (as if memory ran out above it).
+	static void setPreloadMemoryLimit(uint32 bytes) { _preloadMemoryLimit = bytes; }
+
 	byte cellWidth() const override { return _cellWidth; }
 	byte cellHeight() const override { return _cellHeight; }
 	byte advanceNarrow() const override { return _cellWidth / 2; }
@@ -131,6 +144,8 @@ private:
 	uint32 _maxEntries;
 	uint32 _clock;
 	uint32 _glyphReads;
+	/// The code points of the preload list that the font has (empty without one).
+	Common::HashMap<uint32, bool> _listed;
 	uint32 _lastCp;	///< the last code point looked up, counted once however often in a row
 	/// A glyph the font has whose read failed: blank rows at its width, for
 	/// the use that asked (_failedCp); the next use reads again.
@@ -139,6 +154,7 @@ private:
 	bool _readFailWarned;
 	Common::FileCacheStats _stats;
 	bool _registered;
+	static uint32 _preloadMemoryLimit;
 };
 
 } // End of namespace Graphics

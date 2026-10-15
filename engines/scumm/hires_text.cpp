@@ -860,6 +860,10 @@ bool ScummHiResText::adoptFace(const Common::String &resolvedPath, Graphics::HiR
 
 	Face *face = new Face();
 	face->source = Graphics::createSvfnSource(font, Common::Path(resolvedPath, '/').baseName());
+	// A streamed face the map gives a preload list: its cache is sized for the list and filled now.
+	const Common::Path preloadList = _map.preloadFor(Common::Path(resolvedPath, '/'));
+	if (font->isStreamed() && !preloadList.empty())
+		Graphics::preloadFaceFromList(face->source, preloadList, Common::Path(resolvedPath, '/').baseName());
 	_sources[resolvedPath] = face;
 	_faceBySource[(uint64)(uintptr)face->source] = face;
 	_fontsLoaded = true;

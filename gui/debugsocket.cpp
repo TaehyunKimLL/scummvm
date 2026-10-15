@@ -675,9 +675,10 @@ bool DebugSocket::genericCommand(const Common::String &cmd, const Common::String
 		if (!a.empty() && a[0] == "all") {
 			const Common::Array<Common::FileCacheStats *> &l = Common::FileCacheRegistry::all();
 			for (uint i = 0; i < l.size(); ++i)
-				out += Common::String::format("%s%s %s used=%u cap=%u lookups=%u hits=%u reads=%u read=%u", i ? "; " : "",
-											  l[i]->kind.c_str(), l[i]->name.c_str(), l[i]->used, l[i]->capacity,
-											  l[i]->lookups, l[i]->hits, l[i]->reads, l[i]->readBytes);
+				out += Common::String::format("%s%s %s used=%u cap=%u lookups=%u hits=%u reads=%u read=%u misses=%u list=%u preloaded=%u listevict=%u",
+											  i ? "; " : "", l[i]->kind.c_str(), l[i]->name.c_str(), l[i]->used, l[i]->capacity,
+											  l[i]->lookups, l[i]->hits, l[i]->reads, l[i]->readBytes,
+											  l[i]->lookups - l[i]->hits, l[i]->listed, l[i]->preloaded, l[i]->listedEvicted);
 		} else {
 			out = Common::FileCacheRegistry::summary();
 		}

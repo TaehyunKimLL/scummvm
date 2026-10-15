@@ -129,6 +129,14 @@ public:
 	 * the rest are for the sources after it. Nothing else changes.
 	 */
 	virtual void prefetch(Common::Array<uint32> &cps) {}
+
+	/**
+	 * A map's preload list (README "Preloading"): @p cps are the characters
+	 * this face is expected to draw. A source that reads its glyphs from a
+	 * file sizes its cache for them and reads them now; every other source
+	 * ignores it. Returns the glyphs it read into the cache.
+	 */
+	virtual uint32 preload(const Common::Array<uint32> &cps) { return 0; }
 };
 
 } // End of namespace Graphics

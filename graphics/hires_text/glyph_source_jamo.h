@@ -83,6 +83,11 @@ public:
 
 	void prefetch(Common::Array<uint32> &cps) override;
 
+	/// A preload list: the syllables are expanded to the pieces the file holds,
+	/// and SvfnGlyphSource::preload() takes those (and the other characters
+	/// as they are). The composed syllables keep their own cache.
+	uint32 preload(const Common::Array<uint32> &cps) override;
+
 	byte cellWidth() const override;
 	byte cellHeight() const override;
 	byte advanceNarrow() const override;

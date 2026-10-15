@@ -296,6 +296,11 @@ Graphics::UnicodeGlyphSource *GfxCache::svfnSource(const Common::String &path, c
 	const Graphics::HiResLoadMode mode = _hiresMapLoaded ? _hiresMap.loadModeFor(nativePath) : Graphics::kHiResLoadAuto;
 	Graphics::UnicodeGlyphSource *src = Graphics::createSvfnSource(stream, DisposeAfterUse::YES, error,
 		nativePath.baseName(), mode);
+	if (src && _hiresMapLoaded) {
+		const Common::Path list = _hiresMap.preloadFor(nativePath);
+		if (!list.empty())
+			Graphics::preloadFaceFromList(src, list, nativePath.baseName());
+	}
 	if (src)
 		debug(1, "SCI: %s %s opened as a %dx%d bitmap font", what, path.c_str(), src->cellWidth(), src->cellHeight());
 	else

@@ -329,6 +329,59 @@ public:
 		TS_ASSERT_EQUALS(a.loadModeFor(card), Graphics::kHiResLoadAuto);
 	}
 
+	void test_preload_section_names_a_list_per_face() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[fonts]\ndlg=DLG.SVF\ncard=CARD.SVF\nplain=PLAIN.SVF\n"
+					   "[preload]\ncard=CARD.HOT ; the card text\ndlg=/abs/DLG.HOT\n", m));
+		TS_ASSERT_EQUALS(m.warnings.size(), 0u);
+		TS_ASSERT_EQUALS(m.preloadFor(Common::Path("/maps/DLG.SVF", '/')).toString('/'), Common::String("/abs/DLG.HOT"));
+		TS_ASSERT_EQUALS(m.preloadFor(Common::Path("/maps/CARD.SVF", '/')).toString('/'), Common::String("/maps/CARD.HOT"));
+		TS_ASSERT(m.preloadFor(Common::Path("/maps/PLAIN.SVF", '/')).empty());
+		TS_ASSERT(m.preloadFor(Common::Path("/maps/OTHER.SVF", '/')).empty());
+	}
+
+	void test_a_map_without_preload_has_no_lists() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[fonts]\ndlg=DLG.SVF\n[load]\ndlg=stream\n", m));
+		TS_ASSERT_EQUALS(m.warnings.size(), 0u);
+		TS_ASSERT(m.preloads.empty());
+		TS_ASSERT(m.preloadFor(Common::Path("/maps/DLG.SVF", '/')).empty());
+	}
+
+	void test_preload_section_follows_the_qualifiers() {
+		const char *text = "[map]\nversion=2\n[fonts]\ncard=CARD.SVF\n[fonts:clut8]\ncard=CARD8.SVF\n"
+						   "[preload]\ncard=CARD.HOT\n[preload:clut8]\ncard=CARD8.HOT\n";
+		Graphics::HiResMap plain;
+		TS_ASSERT(load(text, plain));
+		TS_ASSERT_EQUALS(plain.preloadFor(Common::Path("/maps/CARD.SVF", '/')).toString('/'), Common::String("/maps/CARD.HOT"));
+		Graphics::HiResMap q;
+		TS_ASSERT(load(text, q, Graphics::kHiResKeysScumm, "clut8"));
+		TS_ASSERT_EQUALS(q.preloadFor(Common::Path("/maps/CARD8.SVF", '/')).toString('/'), Common::String("/maps/CARD8.HOT"));
+		TS_ASSERT(q.preloadFor(Common::Path("/maps/CARD.SVF", '/')).empty());
+		// An empty value in the qualified section drops the bare list.
+		Graphics::HiResMap none;
+		TS_ASSERT(load("[map]\nversion=2\n[fonts]\ncard=CARD.SVF\n[preload]\ncard=CARD.HOT\n[preload:v2]\ncard=\n", none,
+					   Graphics::kHiResKeysScumm, "v2"));
+		TS_ASSERT_EQUALS(none.warnings.size(), 0u);
+		TS_ASSERT(none.preloadFor(Common::Path("/maps/CARD.SVF", '/')).empty());
+	}
+
+	void test_preload_section_warns_about_what_it_cannot_use() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[fonts]\ncard=CARD.SVF\ntwin=CARD.SVF\n"
+					   "[preload]\nnope=X.HOT\nbad name=X.HOT\ncard=A.HOT\ntwin=B.HOT\n", m));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [preload] nope is not a [fonts] name; ignoring it"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [preload] 'bad name' is not a valid font name; ignoring it"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [preload] twin names /maps/CARD.SVF, which another name already gave a list; keeping that"));
+		TS_ASSERT_EQUALS(m.warnings.size(), 3u);
+		TS_ASSERT_EQUALS(m.preloadFor(Common::Path("/maps/CARD.SVF", '/')).toString('/'), Common::String("/maps/A.HOT"));
+
+		// AGS reads no [preload]: it says so, like any key the engine ignores.
+		Graphics::HiResMap g;
+		TS_ASSERT(load("[map]\nversion=2\n[fonts]\ncard=CARD.SVF\n[preload]\ncard=CARD.HOT\n", g, Graphics::kHiResKeysAgs));
+		TS_ASSERT(hasWarning(g, "AGS does not use [preload] card"));
+	}
+
 	void test_load_section_warns_about_what_it_cannot_use() {
 		Graphics::HiResMap m;
 		TS_ASSERT(load("[map]\nversion=2\n[fonts]\ncard=CARD.SVF\n[load]\ncard=lazy\nnope=stream\nbad name=whole\n", m));

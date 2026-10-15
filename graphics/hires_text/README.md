@@ -231,6 +231,51 @@ AGS loads every face whole and warns that it does not use it. A face reached by
 a path in an ini key (`hires_text_face`) rather than a `[fonts]` name is always
 `auto`.
 
+### Preloading the glyphs a game draws: the `[preload]` section
+
+A streamed face costs a disk read the first time each glyph is drawn. A map can
+say which characters a face is expected to draw, so they are read once, when the
+map is loaded, instead of one by one during play:
+
+```ini
+[fonts]
+dlg=M2U2.SVF
+card=M2U7.SVF
+
+[preload]
+dlg=data:M2KO2.HOT      ; characters to keep in memory for this face
+card=data:M2KO7.HOT
+```
+
+A `.HOT` file is UTF-8 text: the characters in any order with any line breaks;
+a line whose first character is `#` is a comment; whitespace and a byte order
+mark are skipped. `tools/korean/charsetchars.py --hot-dir` writes one for every
+face of a map from the game's scripts and translation (union of the charsets
+whose chain uses the face, plus ASCII); it can be edited by hand. Keys and
+qualifiers follow `[load]`: keys are `[fonts]` names, `[preload:clut8]` overlays
+the bare section (an empty value drops a list), a face has one list (two names on
+one file: the first wins, with a warning), an unknown name is a warning, and a
+list file that cannot be read is one warning and no preload. A map without
+`[preload]` loads exactly as before.
+
+What the engine does, when it opens a face that streams (`stream`, or `auto`
+above the threshold): the face's glyph cache is sized to the list - the stored
+bytes of the glyphs of the list that the face has, rounded up to
+`HIRES_SVF_READ_BLOCK`, as that many cache entries, never fewer than 32 - and the
+glyphs are read into it right away, sorted by their place in the file so that
+glyphs in one read block cost one read. After that the cache is the usual LRU one:
+a glyph outside the list pushes out the least recently used, which can be a listed
+one (read again on its next use). A face held whole ignores the list. A jamo-set
+face expands the list's syllables to the pieces the file holds and preloads those.
+When the memory for the cache is not there, the face keeps the cache it has, reads
+nothing and one warning says so. SCUMM, SCI and AGI read the section; AGS warns
+that it does not use it.
+
+The debug socket's `caches all` shows, per face, `list` (glyphs the list named that
+the face has), `preloaded` (of those, read at open), `misses` (lookups that were not
+hits) and `listevict` (listed glyphs pushed out since); `hits`, `reads` and `read`
+count as before from the first draw on, the preload's own reads included in `reads`.
+
 ### Jamo-set fonts (flags bit 1)
 
 A face holding every syllable precomposed is large (DOTT's 1bpp faces total

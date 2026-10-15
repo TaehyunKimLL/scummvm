@@ -244,4 +244,19 @@ void JamoGlyphSource::prefetch(Common::Array<uint32> &cps) {
 			cps.push_back(ask[i]);
 }
 
+uint32 JamoGlyphSource::preload(const Common::Array<uint32> &cps) {
+	Common::Array<uint32> ask;
+	for (uint i = 0; i < cps.size(); ++i) {
+		uint32 pieces[3];
+		const int n = piecesOf(cps[i], pieces);
+		if (n < 0) {
+			ask.push_back(cps[i]);
+			continue;
+		}
+		for (int k = 0; k < n; ++k)
+			ask.push_back(pieces[k]);
+	}
+	return _inner->preload(ask);
+}
+
 } // End of namespace Graphics

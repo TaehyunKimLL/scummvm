@@ -35,7 +35,7 @@ namespace Common {
  * they had to read.
  */
 struct FileCacheStats {
-	FileCacheStats() : capacity(0), used(0), lookups(0), hits(0), reads(0), readBytes(0) {}
+	FileCacheStats() : capacity(0), used(0), lookups(0), hits(0), reads(0), readBytes(0), listed(0), preloaded(0), listedEvicted(0) {}
 
 	String kind;		///< what is cached ("svf", "trs")
 	String name;		///< which file
@@ -45,6 +45,9 @@ struct FileCacheStats {
 	uint32 hits;		///< uses served from memory
 	uint32 reads;		///< reads of the file
 	uint32 readBytes;	///< bytes read
+	uint32 listed;		///< entries a preload list named (0: no list)
+	uint32 preloaded;	///< of those, read into the cache when it was opened
+	uint32 listedEvicted;	///< listed entries pushed out since, by others
 };
 
 /** The live FileCacheStats; main thread only. */
@@ -80,6 +83,9 @@ public:
 			t.hits += l[i]->hits;
 			t.reads += l[i]->reads;
 			t.readBytes += l[i]->readBytes;
+			t.listed += l[i]->listed;
+			t.preloaded += l[i]->preloaded;
+			t.listedEvicted += l[i]->listedEvicted;
 		}
 		return t;
 	}

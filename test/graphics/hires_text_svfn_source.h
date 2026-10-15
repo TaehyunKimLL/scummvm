@@ -2,8 +2,10 @@
 
 #include "common/array.h"
 #include "common/file-cache-stats.h"
+#include "common/log.h"
 #include "common/memstream.h"
 #include "graphics/hires_text/bitmap_font.h"
+#include "graphics/hires_text/glyph_source_file.h"
 #include "graphics/hires_text/glyph_source_missing.h"
 #include "graphics/hires_text/glyph_source_svfn.h"
 #include "graphics/hires_text/text_compose.h"
@@ -636,6 +638,210 @@ public:
 		TS_ASSERT(again.empty());
 		TS_ASSERT_EQUALS(src->stats().reads, reads);
 		delete src;
+	}
+
+	// ---- preload lists ----------------------------------------------------
+
+	/// 256 glyphs of 16x16 at 8bpp (256 bytes, 16 to a read block), a pixel reading glyph + offset.
+	static Common::Array<byte> makeBig256() {
+		const int cell = 16, glyphs = 256;
+		const uint32 dataOff = 32, dataSize = cell * cell * glyphs;
+		Common::Array<byte> b;
+		b.resize(dataOff + dataSize);
+		for (uint i = 0; i < b.size(); ++i)
+			b[i] = 0;
+		b[0] = 'S'; b[1] = 'V'; b[2] = 'F'; b[3] = 'N';
+		put16(b, 4, 1);
+		b[8] = 8;
+		put16(b, 12, glyphs);
+		b[14] = cell;
+		b[15] = cell;
+		b[16] = 12;
+		put32(b, 24, dataOff);
+		put32(b, 28, dataSize);
+		for (uint32 i = 0; i < dataSize; ++i)
+			b[dataOff + i] = (byte)(i / (cell * cell) * 3 + i % (cell * cell));
+		return b;
+	}
+
+	static bool bigRowIs(Graphics::UnicodeGlyphSource &src, uint32 cp) {
+		const byte *row = src.row(cp, 5);
+		return row && row[0] == (byte)(cp * 3 + 5 * 16) && row[7] == (byte)(cp * 3 + 5 * 16 + 7);
+	}
+
+	static Graphics::SvfnGlyphSource *bigSource(const Common::Array<byte> &bytes, bool streamed) {
+		Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
+		byte *copy = (byte *)malloc(bytes.size());
+		memcpy(copy, bytes.begin(), bytes.size());
+		if (streamed) {
+			TS_ASSERT(font->loadStreamed(new Common::MemoryReadStream(copy, bytes.size(), DisposeAfterUse::YES),
+										 DisposeAfterUse::YES));
+		} else {
+			Common::MemoryReadStream stream(copy, bytes.size());
+			TS_ASSERT(font->load(stream));
+			free(copy);
+		}
+		Graphics::SvfnGlyphSource *src = new Graphics::SvfnGlyphSource(font, DisposeAfterUse::YES);
+		src->setName("BIG.SVF");
+		return src;
+	}
+
+	static Common::Array<uint32> listOf40() {
+		Common::Array<uint32> cps;
+		for (uint32 cp = 16; cp < 32; ++cp)	// block 1
+			cps.push_back(cp);
+		for (uint32 cp = 63; cp >= 48; --cp)	// block 3, listed backwards
+			cps.push_back(cp);
+		for (uint32 cp = 96; cp < 104; ++cp)	// block 6
+			cps.push_back(cp);
+		cps.push_back(0x3042);	// not in the font
+		cps.push_back(20);		// twice
+		return cps;
+	}
+
+public:
+	// The cache is sized from the list (its glyph bytes rounded up to a read
+	// block), filled by sorted reads, and the listed glyphs then draw without
+	// touching the file; an unlisted one is read on demand.
+	void test_preload_sizes_the_cache_and_fills_it() {
+		const Common::Array<byte> bytes = makeBig256();
+		Graphics::SvfnGlyphSource *src = bigSource(bytes, true);
+		TS_ASSERT_EQUALS(src->cacheEntries(), HIRES_SVF_CACHE_KB * 1024 / (32 * 16 + 64) > 32u ? HIRES_SVF_CACHE_KB * 1024 / (32 * 16 + 64) : 32u);
+		const uint32 loaded = src->preload(listOf40());
+		TS_ASSERT_EQUALS(loaded, 40u);
+		// 40 glyphs of 256 bytes = 10240, rounded up to 12288 = 48 entries.
+		TS_ASSERT_EQUALS(src->cacheEntries(), 48u);
+		TS_ASSERT_EQUALS(src->stats().listed, 40u);
+		TS_ASSERT_EQUALS(src->stats().preloaded, 40u);
+		TS_ASSERT_EQUALS(src->stats().capacity, 48u * (32 * 16 + 64));
+		// Three blocks hold them: one read each, 4096 bytes.
+		TS_ASSERT_EQUALS(src->stats().reads, 3u);
+		TS_ASSERT_EQUALS(src->stats().readBytes, 3u * 4096u);
+		TS_ASSERT_EQUALS(src->stats().lookups, 0u);
+		// Drawing every listed glyph reads nothing more, and all are hits.
+		for (uint32 cp = 16; cp < 32; ++cp)
+			TS_ASSERT(bigRowIs(*src, cp));
+		for (uint32 cp = 48; cp < 64; ++cp)
+			TS_ASSERT(bigRowIs(*src, cp));
+		for (uint32 cp = 96; cp < 104; ++cp)
+			TS_ASSERT(bigRowIs(*src, cp));
+		TS_ASSERT_EQUALS(src->stats().reads, 3u);
+		TS_ASSERT_EQUALS(src->stats().lookups, src->stats().hits);
+		// One that is not listed is read when it is first drawn.
+		TS_ASSERT(bigRowIs(*src, 200));
+		TS_ASSERT_EQUALS(src->stats().reads, 4u);
+		TS_ASSERT_EQUALS(src->stats().hits + 1, src->stats().lookups);
+		// Within the capacity nothing listed is pushed out (40 + 1 <= 48).
+		TS_ASSERT_EQUALS(src->stats().listedEvicted, 0u);
+		// Past it, the least recently used go, listed or not, and are counted.
+		for (uint32 cp = 130; cp < 140; ++cp)
+			TS_ASSERT(bigRowIs(*src, cp));
+		TS_ASSERT(src->stats().listedEvicted > 0u);
+		// A listed one that was pushed out reads back, the same.
+		TS_ASSERT(bigRowIs(*src, 16));
+		delete src;
+	}
+
+	void test_preload_is_ignored_by_a_whole_face() {
+		const Common::Array<byte> bytes = makeBig256();
+		Graphics::SvfnGlyphSource *src = bigSource(bytes, false);
+		const uint32 entries = src->cacheEntries();
+		TS_ASSERT_EQUALS(src->preload(listOf40()), 0u);
+		TS_ASSERT_EQUALS(src->cacheEntries(), entries);
+		TS_ASSERT_EQUALS(src->stats().listed, 0u);
+		TS_ASSERT(bigRowIs(*src, 16));
+		delete src;
+	}
+
+	// A list of few glyphs keeps the cache's least size; a list of none, or
+	// of glyphs the font lacks, changes nothing.
+	void test_preload_small_and_empty_lists() {
+		const Common::Array<byte> bytes = makeBig256();
+		Graphics::SvfnGlyphSource *src = bigSource(bytes, true);
+		Common::Array<uint32> few;
+		few.push_back(1);
+		few.push_back(2);
+		TS_ASSERT_EQUALS(src->preload(few), 2u);
+		TS_ASSERT_EQUALS(src->cacheEntries(), 32u);
+		TS_ASSERT_EQUALS(src->stats().reads, 1u);
+		delete src;
+
+		src = bigSource(bytes, true);
+		const uint32 entries = src->cacheEntries();
+		Common::Array<uint32> none, lacking;
+		lacking.push_back(0x3042);
+		TS_ASSERT_EQUALS(src->preload(none), 0u);
+		TS_ASSERT_EQUALS(src->preload(lacking), 0u);
+		TS_ASSERT_EQUALS(src->cacheEntries(), entries);
+		TS_ASSERT_EQUALS(src->stats().listed, 0u);
+		TS_ASSERT_EQUALS(src->stats().reads, 0u);
+		delete src;
+	}
+
+	// Without the memory for the list, the cache keeps its size, nothing is read, one warning.
+	static Common::Array<Common::String> &preloadWarnings() {
+		static Common::Array<Common::String> messages;
+		return messages;
+	}
+	static void watchPreload(LogMessageType::Type type, int level, uint32 channel, const char *message) {
+		if (type == LogMessageType::kWarning)
+			preloadWarnings().push_back(message);
+	}
+
+	void test_preload_without_memory_keeps_the_default_cache() {
+		const Common::Array<byte> bytes = makeBig256();
+		Graphics::SvfnGlyphSource *src = bigSource(bytes, true);
+		const uint32 entries = src->cacheEntries();
+		Graphics::SvfnGlyphSource::setPreloadMemoryLimit(100);
+		preloadWarnings().clear();
+		const Common::LogWatcher before = Common::getLogWatcher();
+		Common::setLogWatcher(watchPreload);
+		const uint32 loaded = src->preload(listOf40());
+		Common::setLogWatcher(before);
+		Graphics::SvfnGlyphSource::setPreloadMemoryLimit(0xFFFFFFFF);
+		TS_ASSERT_EQUALS(loaded, 0u);
+		TS_ASSERT_EQUALS(preloadWarnings().size(), 1u);
+		TS_ASSERT_EQUALS(src->cacheEntries(), entries);
+		TS_ASSERT_EQUALS(src->stats().listed, 0u);
+		TS_ASSERT_EQUALS(src->stats().reads, 0u);
+		// Plain LRU as before.
+		TS_ASSERT(bigRowIs(*src, 16));
+		TS_ASSERT_EQUALS(src->stats().reads, 1u);
+		delete src;
+	}
+
+	void test_an_unreadable_list_is_one_warning_and_no_preload() {
+#if NULL_OSYSTEM_IS_AVAILABLE
+		const Common::Array<byte> bytes = makeBig256();
+		Graphics::SvfnGlyphSource *src = bigSource(bytes, true);
+		const uint32 entries = src->cacheEntries();
+		preloadWarnings().clear();
+		const Common::LogWatcher before = Common::getLogWatcher();
+		Common::setLogWatcher(watchPreload);
+		Common::install_null_g_system();
+		const uint32 loaded = Graphics::preloadFaceFromList(src, Common::Path("/no/such/dir/NOPE.HOT", '/'), "BIG.SVF");
+		Common::uninstall_null_g_system();
+		Common::setLogWatcher(before);
+		TS_ASSERT_EQUALS(loaded, 0u);
+		TS_ASSERT_EQUALS(preloadWarnings().size(), 1u);
+		TS_ASSERT(preloadWarnings().size() && preloadWarnings()[0].contains("NOPE.HOT"));
+		TS_ASSERT_EQUALS(src->cacheEntries(), entries);
+		TS_ASSERT_EQUALS(src->stats().reads, 0u);
+		delete src;
+#endif
+	}
+
+	void test_parse_preload_list() {
+		const char *text = "\xEF\xBB\xBF# made by a tool: \xEA\xB0\x80 is not read\n"
+						   "AB\xEA\xB0\x80 \xEB\x82\x98\r\n\n #\n"
+						   "A\xEA\xB0\x80\x80\xE2\x82\tZ\xF0\x9F\x98\x80";
+		Common::Array<uint32> cps;
+		Graphics::parsePreloadList((const byte *)text, strlen(text), cps);
+		// A B, U+AC00, U+B098, '#', ('A' and U+AC00 again are dropped), a stray 0x80 and a cut sequence are skipped, Z, U+1F600.
+		const uint32 want[] = { 'A', 'B', 0xAC00, 0xB098, '#', 'Z', 0x1F600 };
+		TS_ASSERT_EQUALS(cps.size(), 7u);
+		for (uint i = 0; i < cps.size() && i < 7; ++i)
+			TS_ASSERT_EQUALS(cps[i], want[i]);
 	}
 };
 
