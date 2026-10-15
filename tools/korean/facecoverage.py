@@ -19,7 +19,6 @@ Prints the missing characters per preset and font id; exit status 1 if there are
 """
 import argparse
 import os
-import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
