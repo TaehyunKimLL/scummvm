@@ -1,0 +1,19 @@
+# MI2 (korean.trs) supplements, bake-supplements.py: what the text and M2KO.MAP draw that a base face lacks, in the
+# base's cell and baseline. Fields: supplement, base face, TTF, size, [mkfont.py flags]; the TTF and size are the
+# base's own (m2u.tsv, m2l.tsv) wherever the base is a TrueType bake. The Google NanumGothic-Bold of the U bases has
+# no a-circumflex or e-acute (nor Nanum Myeongjo): "A|B" takes those from B, the NHN NanumGothic Bold, at the same size.
+# U (2 bpp)
+M2U0X.SVF	M2U0.SVF	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf|$FONTS/nanum/NanumGothicBold.ttf	21
+M2U1X.SVF	M2U1.SVF	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf|$FONTS/nanum/NanumGothicBold.ttf	15
+M2U2X.SVF	M2U2.SVF	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf|$FONTS/nanum/NanumGothicBold.ttf	16
+M2U4X.SVF	M2U4.SVF	$FONTS/styled/gowunbatang/GowunBatang-Bold.ttf	23
+M2U7X.SVF	M2U7.SVF	$FONTS/styled/gowunbatang/GowunBatang-Bold.ttf	23
+M2U8X.SVF	M2U8.SVF	$FONTS/styled/gowunbatang/GowunBatang-Bold.ttf	14
+# L (1 bpp). M2L1 is neodgm (it has Latin-1); M2L2 is the same hinted Nanum Gothic Bold as its base. M2L0 and
+# M2L4 are Taebaek's jamo faces, whose 12x24 ASCII halves draw 0x80-0xFF as Hangul DOS pictographs, no Latin-1:
+# the letters come from the hinted Nanum Gothic Bold (M2L0, the gothic verbs) and Gowun Batang Bold (M2L4, the
+# serif cards, as in the U preset) at the size whose capital height matches the Taebaek ASCII (17 rows).
+M2L0X.SVF	M2L0.SVF	$FONTS/nanum/NanumGothicBold.ttf	23	--mono-hint
+M2L1X.SVF	M2L1.SVF	$FONTS/pixel/neodgm/neodgm.ttf	16
+M2L2X.SVF	M2L2.SVF	$FONTS/nanum/NanumGothicBold.ttf	17	--mono-hint
+M2L4X.SVF	M2L4.SVF	$FONTS/styled/gowunbatang/GowunBatang-Bold.ttf	23	--mono-hint

@@ -517,6 +517,18 @@ def choose_ascent(font, cell_h, latin=False):
 MONO_HINT = False
 
 
+def cmap_has(path, cp):
+    """Whether the font file's cmap maps cp; None when fontTools is not there to ask."""
+    try:
+        from fontTools.ttLib import TTFont
+    except ImportError:
+        return None
+    cache = cmap_has.__dict__.setdefault("cache", {})
+    if path not in cache:
+        cache[path] = TTFont(path, lazy=True, fontNumber=0).getBestCmap()
+    return cp in cache[path]
+
+
 def render(font, ch, cell_w, cell_h, ascent, bpp, center=False, mark_origin=False, nudge=True):
     """글자 하나를 셀에 그려 (픽셀들, 잉크왼쪽, 잉크폭) 로 돌려준다.
 
@@ -829,6 +841,12 @@ def main():
                          "무관하게 남는다. 예: --chars-from TEXT.* SCI-KO.STR "
                          "--limit ascii,ksx1001-nohanja (게임이 쓴 글자 중 KS X 1001 "
                          "에 있는 것만)")
+    ap.add_argument("--only-listed", action="store_true",
+                    help="ASCII 와 U+25A1 을 항상 싣지 않고 --unicode/--chars-from 이 부른 글자만 담는다 "
+                         "(기본 글꼴 뒤에 이어 붙이는 보충 글꼴 용: bake-supplements.py)")
+    ap.add_argument("--fallback-ttf", default="",
+                    help="--unicode 로 구울 때, 원본 TTF 의 cmap 에 없는 글자를 이 TTF 에서 같은 크기로 그린다 "
+                         "(보충 글꼴: 기본 글꼴이 그 글자를 안 가진 경우)")
     ap.add_argument("--fail-on-drop", action="store_true",
                     help="--limit 이 --chars-from 의 글자를 하나라도 뺐으면 "
                          "0 이 아닌 종료 코드로 실패한다")
@@ -861,7 +879,7 @@ def main():
             if cp not in seen:
                 seen.add(cp)
                 unicode_cps.append(cp)
-        for cp in ALWAYS_KEEP:
+        for cp in (() if args.only_listed else sorted(ALWAYS_KEEP)):
             if cp not in seen:
                 seen.add(cp)
                 unicode_cps.append(cp)
@@ -876,7 +894,7 @@ def main():
             limit_cps = set(parse_ranges(args.limit))
         except ValueError as e:
             sys.exit(f"--limit 을 읽을 수 없다: {e}")
-        keep = limit_cps | ALWAYS_KEEP
+        keep = limit_cps | (set() if args.only_listed else ALWAYS_KEEP)
         dropped = sorted(cp for cp in set(chars_from_cps) if cp not in keep)
         unicode_cps = [cp for cp in unicode_cps if cp in keep]
         if not unicode_cps:
@@ -985,12 +1003,29 @@ def main():
         nd_img, _, nd_w = render(font, "\U0010FFFF", cell_w, cell_h, ascent, args.bpp)
         if nd_w:
             notdef = nd_img.tobytes()
+    fallback = None
+    fallback_notdef = None
+    if args.fallback_ttf:
+        fallback = ImageFont.truetype(args.fallback_ttf, size)
+        fb_img, _, fb_w = render(fallback, "\U0010FFFF", cell_w, cell_h, ascent, args.bpp)
+        if fb_w:
+            fallback_notdef = fb_img.tobytes()
+    primary = font
     for idx, ch in chars:
+        font = primary
+        if fallback is not None and ch is not None and cmap_has(args.input, ord(ch)) is False:
+            font = fallback
+        if font is not primary:
+            notdef_used = fallback_notdef
+        else:
+            notdef_used = notdef
         img, ink_x, ink_w = render(font, ch, cell_w, cell_h, ascent,
                                          args.bpp, center=center,
                                          mark_origin=bool(unicode_cps),
                                          nudge=not args.clip_cell)
-        absent = notdef is not None and ch is not None and img.tobytes() == notdef
+        absent = notdef_used is not None and ch is not None and img.tobytes() == notdef_used
+        if unicode_cps and ch is not None and cmap_has(args.input if font is primary else args.fallback_ttf, ord(ch)) is False:
+            absent = True   # the file's own cmap says no: a blank .notdef would pass the picture test
         if ch is None or ink_w == 0 or absent:
             missing += 1
         if unicode_cps and absent:

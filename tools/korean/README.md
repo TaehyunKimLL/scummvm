@@ -277,6 +277,37 @@ tools/korean/trs_fix.py tools/korean/trs-fixes/mi2kor.tsv \
 Same for `mi1ute-kor`. Lines with such syllables are found with
 `mkfont.py`'s `.trs` reader (every Hangul syllable not in KS X 1001).
 
+### The bundle in UTF-8
+
+`--utf8` makes the same run write a UTF-8 bundle (a BOM at the body start, which is
+what `decideTrsUtf8()` reads), converting every translation the way
+`scumm_trs_from_patch.legacy_to_utf8()` does: Hangul and KS X 1001 symbols
+become UTF-8, escapes `FF xx` (and their arguments) and every other byte stay.
+The originals (the lookup keys), the index order and the room table are not
+touched, only the offsets move. A table row may carry a fifth column, the UTF-8
+bytes (hex) for the fix's new bytes: CP949 cannot spell MI2 line 7179's
+"Papier-Mâché" (its bytes 83 63 read as one syllable), so the CP949 bundle has
+"Papier-Mache" and the UTF-8 one U+00E2 and U+00E9. Every high byte left raw is
+listed with its line (a raw byte draws as the game's own glyph): MI2 has none,
+MI1's Ultimate Talkie bundle one, 0xFA (the game's hard space) in line 1854 and
+its key; `FE 01` and `FE 08` are the v5 escapes and are not listed.
+
+```sh
+tools/korean/trs_fix.py tools/korean/trs-fixes/mi2kor.tsv \
+    gamedata/mi2kor/korean.trs.orig -o gamedata/mi2kor/korean.trs --utf8
+tools/korean/trs_fix.py tools/korean/trs-fixes/mi1ute-kor.tsv \
+    gamedata/mi1ute-kor/korean.trs.orig -o gamedata/mi1ute-kor/korean.trs --utf8
+```
+
+The bundle must be run from the `.orig` (the table's old bytes are looked up in
+it). A save made with the CP949 bundle keeps its already translated verb and
+inventory strings in CP949 and shows them as boxes under the UTF-8 one until a
+script sets them again; make new saves.
+
+`facecoverage.py` checks the result against a map: every font id's face chain must
+hold every character of the bundle (and the map's remap targets), and its first face
+must be a base face (SCUMM_FONTS.md, "Base and supplement faces").
+
 ## A UTF-8 `korean.trs` for a SCUMM release from existing translations
 
 `scumm_trs_from_patch.py` writes a UTF-8 SCVMTRS bundle for an English SCUMM

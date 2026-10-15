@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""facecoverage.py: do a hi-res map's faces hold every character a translation bundle draws?
+
+    facecoverage.py --trs korean.trs [--trs ...] --map M2KO.MAP [--faces DIR] [--preset U|L|both]
+                    [--data DIR ...] [--base-check]
+
+For every font id ([font.N]) of every preset, the id's face chain (face=a,b through [fonts]) must
+cover each character of the bundle's text plus the code points the map draws in place of a byte
+([glyphs] 0x5e = u+2026) and its missing= box. A chain covers a character when one of its faces has
+it: a bitmap face (SVF) in its code point table, or - flag bit 1 - by composing the syllable from its
+jamo pieces; a TrueType face in its cmap. Nothing falls back to the game's own font here: a character
+only the game's glyph draws is a character the face lacks.
+
+--base-check also requires the first face of every chain to be a base face: ASCII 0x20-0x7E and all
+2,350 KS X 1001 syllables, whatever the game text uses (a jamo set composes all of them). What the
+text needs beyond that belongs to the supplement face chained after the base.
+
+Prints the missing characters per preset and font id; exit status 1 if there are any.
+"""
+import argparse
+import os
+import struct
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import jamoset  # noqa: E402
+import mkfont  # noqa: E402
+
+
+def parse_map(text):
+    """{section name (lower case, qualifiers kept): [(key, value)]} in file order, ';' comments cut."""
+    sections = {}
+    cur = None
+    for raw in text.splitlines():
+        line = mkfont._strip_ini_comment(raw).strip()
+        if not line or line[0] in '#;':
+            continue
+        if line[0] == '[' and line[-1] == ']':
+            cur = sections.setdefault(line[1:-1].strip().lower(), [])
+            continue
+        if cur is None or '=' not in line:
+            continue
+        k, _, v = line.partition('=')
+        cur.append((k.strip().lower(), v.strip()))
+    return sections
+
+
+def section(sections, name, preset):
+    """The [name] keys with [name:clut8] merged over them for the L preset."""
+    out = dict(sections.get(name, []))
+    if preset == 'L':
+        out.update(dict(sections.get(name + ':clut8', [])))
+    return out
+
+
+def plan(sections, preset):
+    """({font id: [face names]}, {font id: {cp}} the targets the map draws, the missing= cp or None)."""
+    fonts = section(sections, 'fonts', preset)
+    ids = sorted(int(n.split('.')[1]) for n in sections if n.startswith('font.') and n.split('.')[1].isdigit())
+    base = section(sections, 'font', preset)
+    chains = {}
+    targets = {}
+    glyphs = section(sections, 'glyphs', preset)
+    miss = base.get('missing')
+    missing = mkfont._parse_code_value(miss) if miss else None
+    for i in ids:
+        own = section(sections, 'font.%d' % i, preset)
+        face = own.get('face', base.get('face', ''))
+        names = [n.strip() for n in face.split(',') if n.strip()]
+        chains[i] = [fonts.get(n, n) for n in names]
+        g = dict(glyphs)
+        g.update(section(sections, 'glyphs.%d' % i, preset))
+        t = set()
+        for v in g.values():
+            if v.lower() in ('keep', 'original') or v.startswith('+') or ':' in v:
+                continue
+            cp = mkfont._parse_code_value(v)
+            if cp is not None:
+                t.add(cp)
+        if own.get('missing'):
+            m = mkfont._parse_code_value(own['missing'])
+            if m is not None:
+                t.add(m)
+        elif missing is not None:
+            t.add(missing)
+        targets[i] = t
+    return chains, targets
+
+
+def svf_chars(data):
+    """The code points an SVF draws: its table, and every syllable its jamo set composes."""
+    s = jamoset.parse_svfn(data)
+    cps = {c for c in s.glyphs if c < jamoset.PIECE_BASE}
+    if s.flags & jamoset.FLAG_JAMO and s.jset:
+        t = jamoset.unpack(s.jset)
+        for cp in range(0xAC00, 0xD7A4):
+            nums = jamoset.pieces_of(t, cp)
+            lead = (cp - 0xAC00) // 588
+            drawn = [n != jamoset.BLANK and jamoset.PIECE_BASE + n in s.glyphs for n in nums]
+            # the initial of ㅇ (index 11) has no ink; the medial and any final must
+            if drawn[1] and (drawn[0] or lead == 11) and all(drawn[2:]):
+                cps.add(cp)
+    return cps
+
+
+_cache = {}
+
+
+def face_chars(path):
+    """The code points of a face file (SVF or TrueType/OpenType), cached."""
+    if path not in _cache:
+        with open(path, 'rb') as f:
+            data = f.read()
+        if data[:4] == b'SVFN':
+            _cache[path] = svf_chars(data)
+        else:
+            from fontTools.ttLib import TTFont
+            _cache[path] = set(TTFont(path, lazy=True).getBestCmap())
+    return _cache[path]
+
+
+def resolve(value, faces, data_dirs):
+    """The file a [fonts] value names, or None. data:NAME is looked up in the data dirs, else beside the map."""
+    if value.lower().startswith('data:'):
+        name = value[5:]
+        for d in data_dirs + [faces]:
+            for cand in (os.path.join(d, name), os.path.join(d, os.path.basename(name))):
+                if os.path.isfile(cand):
+                    return cand
+        return None
+    for cand in (value, os.path.join(faces, value)):
+        if os.path.isfile(cand):
+            return cand
+    for fn in os.listdir(faces):                       # a case-insensitive 8.3 name, as on DOS
+        if fn.lower() == value.lower():
+            return os.path.join(faces, fn)
+    return None
+
+
+def base_set():
+    return set(range(0x20, 0x7F)) | {ord(c) for c in (bytes([h, l]).decode('cp949', 'ignore')
+                                                       for h in range(0xB0, 0xC9) for l in range(0xA1, 0xFF)) if c}
+
+
+def check(text_cps, map_text, faces, presets=('U', 'L'), data_dirs=(), base_check=False):
+    """[(preset, font id, kind, [missing cps], note)] kind 'text' (the chain lacks characters the text draws),
+    'base' (the first face is not a base face) or 'file' (a face that cannot be opened: note names it)."""
+    sections = parse_map(map_text)
+    problems = []
+    base = base_set()
+    for preset in presets:
+        chains, targets = plan(sections, preset)
+        for i, chain in chains.items():
+            have = set()
+            first = None
+            for k, value in enumerate(chain):
+                path = resolve(value, faces, list(data_dirs))
+                if path is None:
+                    problems.append((preset, i, 'file', [], value))
+                    continue
+                chars = face_chars(path)
+                have |= chars
+                if k == 0:
+                    first = chars
+            need = set(text_cps) | targets[i]
+            miss = sorted(need - have)
+            if miss:
+                problems.append((preset, i, 'text', miss, ' + '.join(chain)))
+            if base_check and first is not None and (base - first):
+                problems.append((preset, i, 'base', sorted(base - first), chain[0]))
+    return problems
+
+
+def bundle_chars(paths):
+    cps = set()
+    for p in paths:
+        for c in mkfont.chars_from_trs(p):
+            cp = ord(c) if isinstance(c, str) else c
+            if cp >= 0x20 and cp != 0xFFFD:
+                cps.add(cp)
+    return cps
+
+
+def show(cps):
+    return ' '.join('%s(U+%04X)' % (chr(c) if c > 0x20 else '', c) for c in cps[:40]) + (
+        ' ... %d more' % (len(cps) - 40) if len(cps) > 40 else '')
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--trs', action='append', required=True)
+    ap.add_argument('--map', required=True)
+    ap.add_argument('--faces', help='folder of the faces (default: the map\'s folder)')
+    ap.add_argument('--preset', choices=('U', 'L', 'both'), default='both')
+    ap.add_argument('--data', action='append', default=[], help='folder a data: face is looked up in')
+    ap.add_argument('--base-check', action='store_true')
+    a = ap.parse_args(argv)
+    faces = a.faces or os.path.dirname(os.path.abspath(a.map))
+    with open(a.map, encoding='utf-8', errors='replace') as f:
+        text = f.read()
+    presets = ('U', 'L') if a.preset == 'both' else (a.preset,)
+    problems = check(bundle_chars(a.trs), text, faces, presets, a.data, a.base_check)
+    for preset, i, kind, miss, note in problems:
+        if kind == 'file':
+            print('%s font %d: cannot open face %s' % (preset, i, note))
+        elif kind == 'base':
+            print('%s font %d: first face %s is no base face, lacks %d of ASCII + KS X 1001: %s'
+                  % (preset, i, note, len(miss), show(miss)))
+        else:
+            print('%s font %d (%s): lacks %d: %s' % (preset, i, note, len(miss), show(miss)))
+    if not problems:
+        print('every face chain covers the text of %s (%s)' % (', '.join(os.path.basename(p) for p in a.trs),
+                                                                  os.path.basename(a.map)))
+    return 1 if problems else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

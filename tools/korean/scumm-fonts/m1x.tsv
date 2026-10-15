@@ -1,0 +1,9 @@
+# MI1 (the Ultimate Talkie korean.trs) supplements, bake-supplements.py: what the text and M1KO.MAP draw that a base
+# face lacks (the one syllable outside KS X 1001, the ellipsis and trademark sign the map remaps to), in the base's
+# cell and baseline. Fields: supplement, base face, TTF, size, [mkfont.py flags]; see m2x.tsv. The Taebaek jamo sets
+# (M1L0, M1L4) and neodgm's (M1L1) compose every syllable and carry U+2026 and U+25A1: they need none.
+M1U0X.SVF	M1U0.SVF	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf|$FONTS/nanum/NanumGothicBold.ttf	21
+M1U1X.SVF	M1U1.SVF	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf|$FONTS/nanum/NanumGothicBold.ttf	15
+M1U2X.SVF	M1U2.SVF	$FONTS/gongu/x/nanumgothic-gf/NanumGothic-Bold.ttf|$FONTS/nanum/NanumGothicBold.ttf	16
+M1U4X.SVF	M1U4.SVF	$FONTS/styled/gowunbatang/GowunBatang-Bold.ttf	17
+M1L2X.SVF	M1L2.SVF	$FONTS/nanum/NanumGothicBold.ttf	17	--mono-hint

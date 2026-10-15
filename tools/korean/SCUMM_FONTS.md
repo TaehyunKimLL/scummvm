@@ -32,11 +32,10 @@ Rules (`mkfont.chars_from_trs()`):
 * A string's encoding is decided once for the whole bundle, from whether its
   body (right after the room/script table, before the first string) starts
   with the UTF-8 BOM `EF BB BF` (`trsBodyIsUtf8()`'s rule): UTF-8 if so, CP949
-  otherwise. Measured on the two real bundles this task used - `korean.trs`
-  from a UTE Monkey Island 1 conversion and from `gamedata/mi2kor` - **both
-  are CP949**, not UTF-8, despite having been called "the UTF-8 trs" earlier
-  in the M5 plan; the BOM check is what actually decides it, not a bundle's
-  name or provenance.
+  otherwise. The Kor. Project's `korean.trs` of MI1 (Ultimate Talkie) and MI2 came as CP949
+  (`README.md`, "Byte fixes to a translation bundle"; the shipped game folders now hold them in UTF-8,
+  `trs_fix.py --utf8`); the BOM check is what decides it, not a bundle's name or provenance. A raw game
+  byte (not UTF-8, not an escape) in a UTF-8 bundle is dropped like any undecodable byte.
 * A string's end is `resStrLen()`'s rule, not the next NUL byte: `0xFF`
   introduces a SCUMM escape (one code byte, then two more argument bytes
   unless the code is 1, 2, 3 or 8), and a `0x00` inside those argument bytes
@@ -54,8 +53,8 @@ Rules (`mkfont.chars_from_trs()`):
   string), and decoding them best-effort rather than aborting keeps the tool
   usable without hand-editing the bundle first.
 
-`--chars-from mi2kor/korean.trs --limit ascii,ksx1001-nohanja` collects 1286
-distinct code points and drops 6: U+AD3B/AE1F/AE32/B2A2/BB69/BBB9 (괻 긟 긲
+With the CP949 bundle before its byte fixes, `--chars-from mi2kor/korean.trs --limit ascii,ksx1001-nohanja` collected 1286
+distinct code points and dropped 6: U+AD3B/AE1F/AE32/B2A2/BB69/BBB9 (괻 긟 긲
 늢 뭩 뮹). These six are real CP949 characters - Microsoft's extended
 Wansung/UHC region, lead byte 0x82-0x92 - so `mi2kor/korean.trs`, while
 CP949 end to end, is not confined to plain EUC-KR/KS X 1001's 0xA1-0xFE lead
@@ -204,32 +203,61 @@ preset whose SVF needs the remapped glyph takes these two arguments; a
 preset that keeps the byte as the game's own glyph (`[glyphs:clut8] 0x5e =
 original`, say) bakes with the plain four-argument form.
 
-The shipped MI1/MI2 SVFs are baked this way:
+The shipped MI1/MI2 SVFs are a base face and a supplement face per cell and preset (below). The bases
+(`M1U0-4`, `M1L2`, `M2U0-8`, `M2L2`; the jamo sets `M1L0/L1/L4`, `M2L0/L1/L4` are older and already complete)
+are baked from the same plan tables, but from the 2,350 syllables of KS X 1001 rather than from what one game's
+text uses:
 
 ```sh
 G=~/work/scummvm/gamedata D=dists/engine-data/hires_text/dos W=/tmp/m1bake
 mkdir -p $W
-python3 tools/korean/scummtext.py $G/mi1kor $W/mi1.txt
-printf '\xe2\x80\xa6\n' > ellipsis.txt
-# MI1 text: the DUMB scan plus the Ultimate Talkie korean.trs, as one plain
-# text input (not the .trs itself: that would switch on --require, which the
-# scan's Greek/Cyrillic/kana noise and the pixel face's gaps fail).
-python3 -c "import sys; sys.path.insert(0,'tools/korean'); import mkfont; print(''.join(sorted({chr(c) if isinstance(c,int) else c for c in mkfont.chars_from_trs(sys.argv[1])})))" $G/mi1ute-kor/korean.trs > $W/ute-trs.txt
-{ cat $W/ute-trs.txt $W/mi1.txt; printf '\xe2\x80\xa6\xe2\x84\xa2\n'; } > $W/m1u-union.txt
-{ cat $W/ute-trs.txt $W/mi1.txt; printf '\xe2\x80\xa6\n'; } > $W/m1l-union.txt
-# U presets: the map's remap targets, U+2026 and U+2122; and the five
-# UHC-only syllables the Ultimate Talkie text uses (outside ksx1001-nohanja).
-UHC=AD3B,AD41,B2A2,B548,D25D
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1u.tsv $G/mi1ute-kor $D $W/m1u-union.txt $D/M1KO.MAP 2026,2122,$UHC
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m2u.tsv $G/mi2kor $D $G/mi2kor/korean.trs $D/M2KO.MAP 2026,2122
-# L presets: U+2026 and the five UHC syllables (0x5e = u+2026 holds for clut8 too; 0x0f stays the
-# game's glyph there, and neodgm has no U+2122). MI2's .trs bake checks
-# --require, which the map's U+2122 would fail, so it takes the ellipsis alone.
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1l.tsv $G/mi1ute-kor $D $W/m1l-union.txt $D/M1KO.MAP 2026,$UHC
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m2l.tsv $G/mi2kor $D $G/mi2kor/korean.trs ellipsis.txt 2026
+python3 -c "print(''.join(bytes([h,l]).decode('cp949') for h in range(0xb0,0xc9) for l in range(0xa1,0xff)))" > $W/ks2350.txt
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1u.tsv $G/mi1ute-kor $D $W/ks2350.txt
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m2u.tsv $G/mi2kor $D $W/ks2350.txt
+# L: bake into $W and copy only M1L2 and M2L2; M1L1/M2L1 are the neodgm jamo sets (jamoset --from-svf, below),
+# M?L0/M?L4 the Taebaek ones.
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1l.tsv $G/mi1ute-kor $W $W/ks2350.txt
+tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m2l.tsv $G/mi2kor $W $W/ks2350.txt
+cp $W/M1L2.SVF $W/M2L2.SVF $D/
 ```
 
-The MI1 SVFs cover the DUMB floppy text (mi1ko/mi1kol/mi1kop of the MI1 game zip) and the Ultimate Talkie korean.trs (the MI1UTE pack's mi1ko/mi1kol); both use M1KO.MAP and the same cells (the UTE translation ships the DUMB korean0N.fnt byte for byte). What the bake leaves out: the scan's non-text symbols (Cyrillic, kana, Greek, and the like), which no UTE text uses, and the control codes and the Hanja U+9999 that korean.trs holds.
+### Base and supplement faces
+
+A base face has ASCII and all 2,350 KS X 1001 syllables whatever the game's text uses (a jamo set composes all
+11,172 and counts as a base). What the game's `korean.trs` and the map draw beyond that - Latin-1 letters such as
+the a-circumflex and e-acute of MI2's "Papier-Mâché", the ellipsis and trademark sign `[glyphs]` remaps
+to, a syllable outside KS X 1001 (U+D25D in the MI1 Ultimate Talkie text) - is a small supplement face, baked by
+`bake-supplements.py` and chained after its base in the map (`[font.2] face=sent,sentx`, with `sentx=M2U2X.SVF`
+under `[fonts]` and the 8-bit face under `[fonts:clut8]`). The supplement has its base's cell, bit depth and
+baseline (read from the base file) and exactly the characters its base lacks: the bundle's characters plus the
+`[glyphs]` and `missing=` targets of every font id whose chain starts with that base, minus the base's own. A base
+that lacks nothing gets none (the Taebaek and neodgm jamo sets of MI1; the 24 px MI2 ones need only the two
+letters). `scumm-fonts/m1x.tsv`, `m2x.tsv` are the plans (supplement, base, TTF, size, flags):
+
+```sh
+tools/korean/bake-supplements.py tools/korean/scumm-fonts/m2x.tsv --trs $G/mi2kor/korean.trs \
+    --map $D/M2KO.MAP --faces $D
+tools/korean/bake-supplements.py tools/korean/scumm-fonts/m1x.tsv --trs $G/mi1ute-kor/korean.trs \
+    --map $D/M1KO.MAP --faces $D
+tools/korean/facecoverage.py --trs $G/mi2kor/korean.trs --map $D/M2KO.MAP --base-check   # exit 0, or what is missing
+```
+
+Source fonts: the supplement is baked from the face the base came from where that face has the glyph. The U
+bases' Google NanumGothic-Bold has no a-circumflex or e-acute (nor has any Nanum Myeongjo): `A|B` in the TTF field
+takes those from B, the NHN NanumGothic Bold, at the same size (`mkfont.py --fallback-ttf`). The Taebaek jamo sets
+(M2L0, M2L4) have a 12x24 ASCII half that draws 0x80-0xFF as DOS Hangul pictographs and no Latin-1 letters: M2L0X
+is NHN NanumGothic Bold and M2L4X Gowun Batang Bold (the U preset's serif card face), both FreeType-hinted mono at
+23 px, whose capitals are as tall as Taebaek's (17 rows) on the base's baseline.
+
+`facecoverage.py` is the check: for every font id of both presets it resolves the face chain and lists the
+characters the chain lacks (a bitmap face by its table, a jamo set by composing, a TrueType face by its cmap);
+`--base-check` also demands ASCII and the 2,350 syllables of the chain's first face; exit status 1 on any gap.
+`test_facecoverage.py` runs it over the shipped maps whenever the bundles are in `gamedata/`.
+
+The MI1 faces cover the Ultimate Talkie korean.trs and, as syllables of KS X 1001, the DUMB floppy text
+(mi1ko/mi1kol/mi1kop of the MI1 game zip, same M1KO.MAP and cells: the UTE translation ships the DUMB korean0N.fnt
+byte for byte). Not covered since the bases stopped being baked from a scan: the scan's non-text noise (Hanja, kana,
+Greek, compatibility jamo) which the earlier bakes carried over.
 
 The Indiana Jones 3 and 4 SVFs (`I3KO.MAP`, `I4KO.MAP`) are baked from each
 game's own `korean.trs` the same way:
