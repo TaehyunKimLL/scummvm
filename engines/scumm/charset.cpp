@@ -908,11 +908,16 @@ void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth, int
 }
 
 int CharsetRendererV2::getCharWidth(uint16 chr) const {
-	// A UTF-8 code point over a CJK patch's cells steps as printChar() steps
-	// it (is2byte there): the cell and its gap, or the hi-res layer's advance.
-	// Measuring a Korean line by a flat 8 would let it run past the edge.
-	if (chr >= 256 && _vm->_useCJKMode)
-		return _vm->_hiResText.advanceFor(chr, _curId, _vm->cjkCellAdvance());
+	// UTF-8 text (_useCJKMode stays off; see ScummEngine::_textUtf8): a code
+	// point past ASCII is drawn through printChar() with the game's 8 px as
+	// the width and stepped by advanceFor() on that - its cell and gap, or
+	// the hi-res face's step. Measuring has to take the same step, with the
+	// same carry, or a Korean sentence line is fitted too wide and the
+	// renderer drops its last glyphs. printChar() asks for the width of the
+	// game's own '?' (gameChar()), never of the code point, so this is only
+	// the measuring side.
+	if (chr >= 256 && _vm->_textUtf8)
+		return _vm->_hiResText.advanceFor(chr, _curId, 8, &_hiResCarry);
 	return 8;
 }
 
