@@ -509,6 +509,36 @@ class Peers:
         return sum(max((g & v).bit_count() for v in self.dil[p]) + (g & self.dil[p][4]).bit_count()
                    for p in ps) / (2 * n * len(ps))
 
+    def pixel_scores(self, s, g):
+        """{slot: {pixel bit: share of "same" peers inked there (within a pixel) - share of "other" peers}} for the
+        ink of @p g: which jamo explains each pixel of a merged outline (ㄴ and ㅗ drawn as one contour)."""
+        out = {}
+        bits = []
+        x = g
+        while x:
+            low = x & -x
+            bits.append(low)
+            x ^= low
+        for slot in range(3):
+            if self.keys[s][slot] is None:
+                continue
+            same, other = self.peers(s, slot)
+            if not (same and other):
+                continue
+            def share(ps):
+                acc = {b: 0 for b in bits}
+                for p in ps:
+                    u = 0
+                    for v in self.dil[p]:
+                        u |= v
+                    for b in bits:
+                        if u & b:
+                            acc[b] += 1
+                return {b: c / len(ps) for b, c in acc.items()}
+            a, o = share(same), share(other)
+            out[slot] = {b: a[b] - o[b] for b in bits}
+        return out
+
     def scores(self, s, g):
         """{slot: presence of the group's ink @p g (gint) in the "same" peers minus in the "other" peers}."""
         n = g.bit_count()
@@ -524,11 +554,13 @@ class Peers:
         return out
 
 
-def assign(groups_cov, cores, w, h, peer_scores=None):
+def assign(groups_cov, cores, w, h, peer_scores=None, peer_pixels=None):
     """Give each contour group's coverage to a slot. @p groups_cov: coverage lists (0..1); @p cores: the syllable's
     fitted 1 bpp pieces as gints per slot (None where the syllable has no final). @p peer_scores: a function of a
     group's coverage giving {slot: score} (Peers.scores); a group that is not a merged outline and that one slot's
-    peers clearly hold better goes there whole; the regions decide the rest.
+    peers clearly hold better goes there whole. @p peer_pixels: a function of a group's coverage giving {slot:
+    {pixel index: score}} (Peers.pixel_scores); a group they do not settle whole is split pixel by pixel by them where
+    a slot leads by PEER_MARGIN, else by the regions.
     Returns ([coverage per slot], {"groups", "straddled", "orphans", "by_peers"})."""
     import jamofit as jf
     n = w * h
@@ -544,6 +576,24 @@ def assign(groups_cov, cores, w, h, peer_scores=None):
         # how much of the group the piece's region (dilated a pixel) holds; its own pixels break ties
         return sum(cov[i] for i in near[k][0]) + 0.01 * sum(cov[i] for i in core_px[k])
 
+    def split(cov, pix):
+        for i, v in enumerate(cov):
+            if not v:
+                continue
+            owners = []
+            if pix:
+                sc = sorted(((d.get(i, -1.0), k) for k, d in pix.items() if k in slots), reverse=True)
+                if sc and sc[0][0] >= PEER_MARGIN and (len(sc) == 1 or sc[0][0] - sc[1][0] >= PEER_MARGIN):
+                    owners = [sc[0][1]]
+            if not owners:
+                owners = [k for k in slots if i in core_px[k]]
+            for r in range(3):
+                if owners:
+                    break
+                owners = [k for k in slots if i in near[k][r]]
+            for k in owners or [max(slots, key=lambda k: sum(cov[j] for j in near[k][0]))]:
+                out[k][i] = max(out[k][i], v)
+
     for cov in groups_cov:
         total = sum(cov)
         if total <= 0:
@@ -553,16 +603,7 @@ def assign(groups_cov, cores, w, h, peer_scores=None):
         inside = max(sum(cov[i] for i in near[k][0]) for k in slots) / total
         if inside < CONTAINED and len(excl) > 1 and excl[1][0] >= STRADDLE and excl[1][0] * total >= 1.0:
             info["straddled"] += 1
-            for i, v in enumerate(cov):
-                if not v:
-                    continue
-                owners = [k for k in slots if i in core_px[k]]
-                for r in range(3):
-                    if owners:
-                        break
-                    owners = [k for k in slots if i in near[k][r]]
-                for k in owners or [excl[0][1]]:
-                    out[k][i] = max(out[k][i], v)
+            split(cov, peer_pixels(cov) if peer_pixels else None)
             continue
         if peer_scores is not None:
             ps = sorted(((v, k) for k, v in peer_scores(cov).items() if k in slots), reverse=True)
@@ -572,6 +613,12 @@ def assign(groups_cov, cores, w, h, peer_scores=None):
                 for i, v in enumerate(cov):
                     if v:
                         out[k][i] = min(1.0, out[k][i] + v)
+                continue
+        if peer_pixels is not None:
+            pix = peer_pixels(cov)
+            if pix:
+                info["by_peer_pixels"] = info.get("by_peer_pixels", 0) + 1
+                split(cov, pix)
                 continue
         scores = [(score(cov, k), excl_k, k) for excl_k, k in excl]
         best = max(scores)
@@ -783,15 +830,24 @@ def contour_donors(face, syllables, keys, P, ox, oy, w, h, targets=None, roles=N
         groups = group_contours(signed)
         gcov = [coverage(add([signed[i] for i in g], n)) for g in groups]
         cores = [P.get(k, 0) if k is not None else None for k in keys[s]]
-        ps = None
+        ps = pp = None
         if peers is not None:
-            def ps(cov, s=s):
+            def ink(cov, cut):
                 g = 0
                 for i, v in enumerate(cov):
-                    if v >= 0.5:
+                    if v >= cut:
                         g |= 1 << ((i // w) * W + i % w)
-                return peers.scores(s, g)
-        slots, ai = assign(gcov, cores, w, h, ps)
+                return g
+
+            def ps(cov, s=s):
+                return peers.scores(s, ink(cov, 0.5))
+
+            def pp(cov, s=s):
+                res = peers.pixel_scores(s, ink(cov, 1e-9))
+                return {k: {(b.bit_length() - 1) // W * w + (b.bit_length() - 1) % W: v for b, v in d.items()}
+                        for k, d in res.items()}
+        slots, ai = assign(gcov, cores, w, h, ps, pp)
+        info["by_peer_pixels"] = info.get("by_peer_pixels", 0) + ai.get("by_peer_pixels", 0)
         for k2 in ("groups", "straddled", "orphans", "by_peers"):
             info[k2] += ai[k2]
         info["syllables_straddled"] += ai["straddled"] > 0

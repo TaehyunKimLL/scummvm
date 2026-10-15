@@ -32,7 +32,9 @@ past 8x4x4 where the font needs it (the engine allows 8 lead / 8 tail classes, 2
   slot draws is present in the first and absent from the second, a group another slot draws is in both alike. The
   presence is the share of the group's ink in the peer's ink, half at the best one-pixel shift and half in place
   (a dilation would let the bar of ㅡ stand for the bar and tick of ㅗ). The slot whose difference is >= 0.15 and
-  0.05 above the next wins; else the group goes to the region holding most of it. The region fit alone is not
+  0.05 above the next wins whole. A group they do not settle (a merged outline: NanumGothic draws ㄴ and ㅗ of 녹
+  as one contour) is split pixel by pixel by the same difference taken per pixel, and the regions decide the pixels
+  no slot leads by 0.05. The region fit alone is not
   enough: the free fit hands a stroke every user of a piece shares (the bar of ㅗ ㅛ ㅜ ㅠ ㅡ under one initial set)
   to the initial, and then a composed syllable outside the fitted ones (Paperlogy draws 2,780 of 11,172) loses its
   vowel's bar (똠 drawn as 뜸). The result per syllable is a raster per slot ("donors").
