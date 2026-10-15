@@ -19,7 +19,7 @@ TrueType `--size`, or the bitmap face's own height), not the cell:
 | `NEODG` | Neo Dunggeunmo 1.601 (neodgm) | OFL.TXT, NEODGM.TXT |
 | `NGOTB` | NanumGothic Bold (2 bpp: the Google Fonts build; 1 bpp: NHN's hinted original, `--mono-hint`) | OFLNANUM.TXT, NANUMGOT.TXT |
 | `GBATB` | Gowun Batang Bold | OFLGOWUN.TXT, GOWUNBAT.TXT |
-| `TBGOB`, `TBMY`, `TBGHC` | Taebaek 3.5 GOTHIC24 (emboldened) and MY24 (myeongjo); GHANC40/48 printer faces (gothic, 8x4x4) | TAEBAEK.TXT |
+| `TBGOB`, `TBMY`, `TBGHC` | Taebaek 3.5 GOTHIC24 (emboldened) and MY24 (myeongjo); GHANC24/48 printer faces (gothic, 8x4x4) | TAEBAEK.TXT |
 | `SANGAM`, `IYAGI` | san 1.0 GAM.KOR and IYG.KOR | SAN10.TXT |
 | `HWPHG`, `HWPHM` | HWP 1.20 HANGUL3.PFT face 0 and HWP 1.x HANGUL1.PFT (serif) | HWP120.TXT |
 | `HTERM` | hanterm-font 3.1 `8-4-4/h01.bdf` | HTERM.TXT |
@@ -98,7 +98,7 @@ beside them list the games that use each):
 | NGOTB21A | NanumGothic Bold (Google), AA | 21 | 22x24 | 2 | precomposed | 2446 | M1U0, M2U0 |
 | NGOTB22 | NanumGothic Bold (Google), AA | 22 | 22x22 | 2 | precomposed | 1216 (game subset) | Q1G22 |
 | SANGAM16 | san 1.0 GAM.KOR + SAN.ENG | 16 | 16x16 | 1 | jamo | 11,172 composed | KOJ16 |
-| TBGHC40 | Taebaek 3.5 GHANC40.PFT | 40 | 40x40 | 1 | jamo | 11,172 composed | - |
+| TBGHC24 | Taebaek 3.5 GHANC24.PFT | 24 | 24x24 | 1 | jamo | 11,172 composed | LB1 (fonts 40, 41) |
 | TBGHC48 | Taebaek 3.5 GHANC48.PFT | 48 | 48x48 | 1 | jamo | 11,172 composed | - |
 | TBGOB24 | Taebaek 3.5 GOTHIC24.FNT + GASCII24.PFT, 1 px emboldened | 24 | 24x24 | 1 | jamo | 11,172 composed | M1L0, M2L0 |
 | TBMY24 | Taebaek 3.5 MY24.FNT + MASCII24.PFT | 24 | 24x24 | 1 | jamo | 11,172 composed | M1L4, M2L4 |
@@ -677,25 +677,28 @@ PY
 python3 tools/korean/jamoset.py --layout 844 --from-svf /tmp/hwp24.svf --symbols --check -o $D/HWPHG24.SVF
 ```
 
-### LB1 (SCI0): the 8-bit preset's faces per font id (HTERM16, HWPHM24, IYAGI16, TBGHC48, MUNJO24, TBGHC40)
+### LB1 (SCI0): the 8-bit preset's faces per font id (HTERM16, HWPHM24, IYAGI16, TBGHC48, MUNJO24, TBGHC24)
 
 LB1KO.MAP's `:clut8` sections and `harness/dos/release/lb1/HIRESBIT.MAP` are the user's pairing picks (2026-10-15), one 1 bpp
 jamo set per font id: 0 (status line, menu bar, parser line) `HTERM16`, hanterm-font 3.1 h01.bdf, 16 px, ascent 14; 1 (message boxes)
 `HWPHM24`, HWP 1.x HANGUL1.PFT, 24 px serif; 4 (dialogue, narration, copy protection) and any other id `IYAGI16` (KQ1's face); 7 (not drawn in
 play) `TBGHC48`, Taebaek GHANC48, 48 px; 8 (cast names under the intro portraits) `MUNJO24`, Mac HangulTalk 1.0 Munjo24; 40 and 41 (the
-"1925" caption, credits and act titles) `TBGHC40`, GHANC40. Basic Latin is the game's own font in every id
+"1925" caption, credits and act titles) `TBGHC24`, GHANC24 with `align=game` (TBGHC40 first, 40 px, was too tall for the
+36 px lines: lines nearly touched; the printer family has strikes of 24, 40 and 48 px only, so 24 is the nearest original below 40, and
+`align=game` puts its baseline on the game font's, as `align=cell` left the Hangul about 4 px above the Latin). Basic Latin is the game's own font in every id
 (`range.basic-latin=original`, game widths); the faces carry Hangul only. Faces of 24 px and up set `size=` and `cell=glyph`.
 The true-colour preset (NGOTB16 / GBATB17) is unchanged. `SANGAM16` is the last face of every chain (`fb`).
 
 The four pairing faces are fitted from the pairing export's precomposed cells (`pairing2svf.svfn_bytes` of the
 `korean-johab-16-6.json` key `8-4-4-h01-bdf`, `korean.json` `hwp1-pft-1`, `korean-printer-large-1bpp.json` `tb-ghanc48`,
-`korean-printer-40.json` `tb-ghanc40`) with `jamoset --layout 844 --from-svf F.svf --symbols --check` (fit IoU 1.000, exact
+`korean-printer-40.json` `tb-ghanc40` for the 40 px face since dropped; TBGHC24 from `GHANC24.PFT` + `GASCII24.PFT` by
+`kfont.open_raw844`, the same `entry()`) with `jamoset --layout 844 --from-svf F.svf --symbols --check` (fit IoU 1.000, exact
 2350/2350; the jamo sets compose all 11,172):
 
 ```sh
 python3 tools/korean/jamoset.py --layout 844 --from-svf htermh01.svf --symbols --check -o $D/HTERM16.SVF
 python3 tools/korean/jamoset.py --layout 844 --from-svf hwphm24.svf  --symbols --check -o $D/HWPHM24.SVF
-python3 tools/korean/jamoset.py --layout 844 --from-svf tbghc40.svf  --symbols --check -o $D/TBGHC40.SVF
+python3 tools/korean/jamoset.py --layout 844 --from-svf tbghc24.svf  --symbols --check -o $D/TBGHC24.SVF
 python3 tools/korean/jamoset.py --layout 844 --from-svf tbghc48.svf  --symbols --check -o $D/TBGHC48.SVF
 ```
 
