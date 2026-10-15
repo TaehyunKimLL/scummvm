@@ -41,15 +41,22 @@ card=data:M2KO7.HOT
 
 ### The engine
 
-- At open of a streamed face with a list: map each listed code point to its glyph index (cmap), drop those the face
-  lacks (a chain's later face can list them too), sort the indices and read them in runs of adjacent indices
-  (coalesced reads; glyphs are stored in code-point order, so a game's syllables are scattered - more seeks than a
-  contiguous prefix, accepted by the user) into a resident store that the LRU cache never evicts. Other glyphs
-  stream through the cache as today.
-- Allocation failure: no preload, plain streaming, one warning.
-- Prefetch skips resident glyphs. Jamo-set faces: the list's syllables are expanded to their pieces (the pieces are
-  what is stored), and pieces are preloaded.
-- Debug: `caches all` reports per face: preload list size, resident glyphs/bytes, resident hits, cold misses.
+User decision (2026-10-15): "캐시 사이즈를 맵 사이즈 round 버퍼 크기로 하고 처음에 맵 파일 로딩해서 처리하면 될듯".
+No separate resident store: the face's existing LRU glyph cache does it.
+
+- When the map is loaded (the face-open sweep), a streamed face with a `[preload]` list gets its cache sized from the
+  list: capacity = the list's glyph bytes (glyphs the face has x glyph stride) rounded up to the read buffer
+  (`HIRES_SVF_READ_BLOCK`), and never below the cache's current minimum entries. The list is then read into the cache
+  right away: the indices sorted, adjacent ones read as one run (coalesced reads; a game's syllables are scattered in
+  code-point order, so more seeks than one contiguous read - accepted).
+- Afterwards the cache behaves as today (LRU). A glyph outside the list evicts the least recently used one, which may
+  be a listed glyph; it is read back on its next use. With an accurate list that is rare; the debug counters show it.
+- Faces without a list keep today's cache size (`HIRES_SVF_CACHE_KB`). `whole` faces (and `auto` under the threshold)
+  ignore the list.
+- Allocation failure: today's cache size, no preload, one warning.
+- Jamo-set faces: the list's syllables are expanded to their pieces (what is stored) for sizing and preloading.
+- Debug: `caches all` reports per face: list size, cache capacity, preloaded glyphs, hits, misses, evictions of
+  listed glyphs.
 
 ### The analysis (tools)
 
