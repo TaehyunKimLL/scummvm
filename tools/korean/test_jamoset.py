@@ -34,12 +34,134 @@ R_FCON2 = (0, 0, 5, 5, 5, 5, 5, 5, 0, 0, 5, 5, 5, 6, 8, 8, 0, 0, 8, 6, 7, 9, 9, 
 R_VBASE = (0, 0, 0, 311, 314, 317, 320, 323, 0, 0, 326, 329, 332, 335, 339, 343, 0, 0, 347, 351, 355, 358, 361, 364,
            0, 0, 367, 370, 374, 378)
 R_VKIND = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0)
-# hanterm final variant by medial value: the 8x4x4 final table (research doc 3.4), measured on the real fonts (M1)
-R_LMAP = (0, 0, 0, 0, 2, 0, 2, 1, 0, 0, 2, 1, 2, 3, 0, 2, 0, 0, 1, 3, 3, 1, 2, 1, 0, 0, 3, 3, 1, 1)
+# hanterm final variant by medial value: lcon_map[] of hanterm's own source (hfont.c in hanterm-xf 2.0.0 / 2.0.6,
+# hangul.c in hanterm 3.1-3.3.1p18 - the same 30 numbers in all seven). It is NOT the 8x4x4 final table: wae, oe, we
+# and ui (values 15, 18, 22, 28) are 0, 0, 1, 0 there, not 2, 1, 2, 1.
+R_LMAP = (0, 0, 0, 0, 2, 0, 2, 1, 0, 0, 2, 1, 2, 3, 0, 0, 0, 0, 0, 3, 3, 1, 1, 1, 0, 0, 3, 3, 0, 1)
 R_P16_INIT0 = (0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 3, 3, 1, 2, 3, 3, 3, 2, 1, 3, 0)
 R_P16_INIT1 = (4, 4, 4, 4, 4, 4, 4, 4, 5, 6, 6, 6, 5, 5, 6, 6, 6, 5, 5, 6, 4)
 R_P16_FIN = (0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0)
 R_P40 = (0, 1, 0, 1, 0, 1, 0, 1, 2, 4, 5, 4, 2, 3, 4, 5, 4, 3, 2, 4, 0)
+
+
+HANTERM_BDF = os.path.expanduser("~/work/johab-fonts/x11-unix/extracted/hanterm-font-3.1/hanterm-font/10-6-6/johabm16.bdf")
+
+# A straight port of hanterm-xf hfont.c: convert_johab_to_3() and convert_3_to_johabfont() (hanterm-xf 2.0.0-167).
+# The tables are typed from the C source, indexed by the 5-bit Johab value like the original.
+C_FCON_MAP1 = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 3, 0, 0, 3, 1, 2, 4, 4, 4, 0, 0, 2, 1, 3, 0)
+C_FCON_MAP2 = (0, 0, 5, 5, 5, 5, 5, 5, 0, 0, 5, 5, 5, 6, 8, 8, 0, 0, 8, 6, 7, 9, 9, 9, 0, 0, 7, 6, 8, 5)
+C_VOW_BASE = (0, 0, 0, 311, 314, 317, 320, 323, 0, 0, 326, 329, 332, 335, 339, 343, 0, 0, 347, 351, 355, 358, 361, 364,
+              0, 0, 367, 370, 374, 378)
+C_VOW_KIND = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0)
+C_LCON_KIND = (0, 0, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+C_LCON_MAP = (0, 0, 0, 0, 2, 0, 2, 1, 0, 0, 2, 1, 2, 3, 0, 0, 0, 0, 0, 3, 3, 1, 1, 1, 0, 0, 3, 3, 0, 1)
+
+
+def hanterm_c_glyphs(cp):
+    src = chr(cp).encode("johab")			# Python's own Johab codec, independent of jamoset
+    f = (src[0] >> 2) & 0x1f
+    m = ((src[0] << 3) | (src[1] >> 5)) & 0x1f
+    l = src[1] & 0x1f
+    out = []
+    if f != 1:
+        out.append(f * 10 + (C_FCON_MAP2[m] if l > 1 else C_FCON_MAP1[m]) - 19)
+    if m != 2:
+        ind = C_VOW_BASE[m]
+        if C_VOW_KIND[m] == 0:
+            ind += C_LCON_KIND[l]
+        else:
+            ind += (0 if (f == 2 or f == 17) else 1) + (2 if l > 1 else 0)
+        out.append(ind)
+    if l != 1:
+        out.append(l * 4 + C_LCON_MAP[m] + (397 if l < 18 else 393))
+    return out
+
+
+
+# ---- straight ports of other decoders, written from their sources (not from kfont.py / jamoset) ----------------------
+
+def hanterm_844_glyphs(cp):
+    """hanterm-xf hfont.c convert_3_to_jo844font(), same johab input as hanterm_c_glyphs()."""
+    src = chr(cp).encode("johab")
+    f = (src[0] >> 2) & 0x1f
+    m = ((src[0] << 3) | (src[1] >> 5)) & 0x1f
+    l = src[1] & 0x1f
+    index1 = (0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    index2 = (0, 0, 0, 1, 2, 3, 4, 5, 0, 0, 6, 7, 8, 9, 10, 11, 0, 0, 12, 13, 14, 15, 16, 17, 0, 0, 18, 19, 20, 21, 0, 0)
+    index3 = (0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 0, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+              27, 0, 0)
+    type1_no = (0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 3, 3, 1, 2, 4, 4, 4, 2, 1, 3, 0)
+    type1_yes = (5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 7, 7, 7, 6, 6, 7, 7, 7, 6, 6, 7, 5)
+    type3_t = (0, 0, 2, 0, 2, 1, 2, 1, 2, 3, 0, 2, 1, 3, 3, 1, 2, 1, 3, 3, 1, 1)
+    h1, h2, h3 = index1[f], index2[m], index3[l]
+    type1 = (type1_yes if h3 else type1_no)[h2]
+    type2 = (0 if h1 in (0, 1, 16) else 1) + (2 if h3 else 0)
+    type3 = type3_t[h2]
+    out = []
+    if h1:
+        out.append(type1 * 20 + h1)
+    if h2:
+        out.append(type2 * 22 + h2 + 160)
+    if h3:
+        out.append(type3 * 28 + h3 + 160 + 88)
+    return out
+
+
+def iolo_glyphs(cp, kinds):
+    """iolo 8x4x4-fonts / 6x2x1-fonts generate_hangul_syllables.py: the (cho, jung, jong) kinds of a syllable as the
+    index of each piece in the raw font (kind sets in file order, the filler first in the initial and medial sets)."""
+    cho, jung, jong = lvt(cp)
+    num_cho, num_jung, num_jong = 19, 21, 28
+    if kinds == "8x4x4":
+        no, yes = (0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 3, 3, 1, 2, 4, 4, 4, 2, 1, 3, 0), (5, 5, 5, 5, 5, 5, 5, 5, 6, 7, 7, 7, 6, 6, 7, 7, 7, 6, 6, 7, 5)
+        jong_by_jung = (0, 2, 0, 2, 1, 2, 1, 2, 3, 0, 2, 1, 3, 3, 1, 2, 1, 3, 3, 1, 1)
+        if jong == 0:
+            cho_kind, jung_kind = no[jung], 0 if cho in (0, 15) else 1
+        else:
+            cho_kind, jung_kind = yes[jung], 2 if cho in (0, 15) else 3
+        jong_kind = jong_by_jung[jung]
+        cho_kinds, jung_kinds = 8, 4
+    else:
+        no, yes = (0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 2, 2, 1, 1, 2, 2, 2, 1, 1, 2, 0), (3, 3, 3, 3, 3, 3, 3, 3, 4, 5, 5, 5, 4, 4, 5, 5, 5, 4, 4, 5, 3)
+        cho_kind, jung_kind = (no if jong == 0 else yes)[jung], 0 if jong == 0 else 1
+        jong_kind = 0
+        cho_kinds, jung_kinds = 6, 2
+    pua_jung = (num_cho + 1) * cho_kinds
+    pua_jong = pua_jung + (num_jung + 1) * jung_kinds
+    out = [(num_cho + 1) * cho_kind + cho + 1, pua_jung + (num_jung + 1) * jung_kind + jung + 1]
+    if jong:
+        out.append(pua_jong + num_jong * jong_kind + jong)
+    return out
+
+
+def san_10_4_4_glyphs(cp):
+    """drypot/san-1.0 HANDRV.C Draw10_4_4(): run the MemCopy/MemOR calls on glyphs that are sets of source pieces,
+    then read the syllable's initial+medial glyph from the table it builds; the final comes from the final sets
+    (source pieces 288.., set chosen by the medial as in hanterm's _type3)."""
+    cho = (0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 3, 3, 1, 2, 4, 4, 4, 2, 1, 3, 0)
+    mid = (0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1)
+    font = [frozenset([i]) for i in range(400)]
+    han = []
+    for i in range(22):
+        han.append(font[10 * 20 + i])
+    for i in range(1, 20):
+        han.append(font[i])
+        for j in range(1, 22):
+            han.append(font[cho[j] * 20 + i] | font[10 * 20 + mid[i] * 22 + j])
+    for i in range(22):
+        han.append(font[10 * 20 + 2 * 22 + i])
+    for i in range(1, 20):
+        han.append(font[5 * 20 + i])
+        for j in range(1, 22):
+            han.append(font[(cho[j] + 5) * 20 + i] | font[10 * 20 + (mid[i] + 2) * 22 + j])
+    L, V, T = lvt(cp)
+    i, j = L + 1, V + 1
+    base = 22 + (i - 1) * 22 if T == 0 else 22 + 19 * 22 + 22 + (i - 1) * 22
+    glyph = han[base + j]
+    pieces = sorted(glyph)
+    if T:
+        pieces.append(288 + (0, 2, 0, 2, 1, 2, 1, 2, 3, 0, 2, 1, 3, 3, 1, 2, 1, 3, 3, 1, 1)[V] * 28 + T)
+    return pieces
 
 
 def lvt(cp):
@@ -133,8 +255,8 @@ HAND = {
     "1044-san": ((1, 201), (101, 245, 289), (119, 267, 292), (72, 242), (188, 282, 353), (139, 285, 381)),
     "621": ((1, 121), (61, 143, 165), (79, 143, 168), (52, 140), (108, 158, 173), (99, 161, 173)),
     "kyra-lok": ((1, 192), (2, 193, 277), (182, 195, 289), (117, 270), (80, 255, 311), (184, 267, 312)),
-    # hanterm: han uses the nieun-final medial variant (2), the others variant 1.
-    "hanterm-johab": ((1, 311), (6, 312, 405), (186, 313, 417), (114, 375), (80, 362, 439), (187, 373, 440)),
+    # hanterm: han uses the nieun-final medial variant (2), the others variant 1; bwel final: lcon_map[we] = 1.
+    "hanterm-johab": ((1, 311), (6, 312, 405), (186, 313, 417), (114, 375), (80, 362, 438), (187, 373, 440)),
     "dkb-printer-7x2x2": ((1, 141), (81, 163, 185), (99, 163, 188), (72, 160), (128, 178, 221), (119, 181, 221)),
     "dkb-printer-12x4x4": ((1, 241), (121, 285, 329), (139, 307, 332), (92, 282), (228, 322, 393), (179, 325, 421)),
 }
@@ -227,6 +349,24 @@ class TablesMatchResearchTools(unittest.TestCase):
             ref = REFERENCE[name]
             for cp in range(0xAC00, 0xD7A4):
                 self.assertEqual(jamoset.pieces_of(t, cp), ref(*lvt(cp)), f"{name} U+{cp:04X}")
+
+    def test_844_and_hbios24_equal_hanterms_own_844_code_and_ioloS_script(self):
+        for name in ("844", "844-hbios24"):
+            t = jamoset.tables_for(jamoset.LAYOUTS[name])
+            for cp in range(0xAC00, 0xD7A4):
+                self.assertEqual(jamoset.pieces_of(t, cp), hanterm_844_glyphs(cp), f"{name} U+{cp:04X}")
+                self.assertEqual(jamoset.pieces_of(t, cp), iolo_glyphs(cp, "8x4x4"), f"{name} U+{cp:04X}")
+
+    def test_621_equals_ioloS_6x2x1_script(self):
+        t = jamoset.tables_for(jamoset.LAYOUTS["621"])
+        for cp in range(0xAC00, 0xD7A4):
+            self.assertEqual(jamoset.pieces_of(t, cp), iolo_glyphs(cp, "6x2x1"), f"U+{cp:04X}")
+
+    def test_1044_san_equals_the_san_driver_port(self):
+        t = jamoset.tables_for(jamoset.LAYOUTS["1044-san"])
+        for cp in range(0xAC00, 0xD7A4):
+            self.assertEqual(jamoset.pieces_of(t, cp), san_10_4_4_glyphs(cp), f"U+{cp:04X}")
+
 
     def test_hand_checked_syllables(self):
         for name, expected in HAND.items():
@@ -462,17 +602,43 @@ class ReviewFixes(unittest.TestCase):
         self.assertEqual(src.glyph(0).rows, [0] * 16)
         self.assertEqual(src.count, 529)
 
-    def test_hanterm_final_variant_of_wae_oe_we_ui_follows_the_8x4x4_table(self):
-        # M1: the stems of the finals were measured against each vowel's stroke in the real johabm16/p16/iyagi16
-        # fonts: wae/we (stroke like ae/e) take variant 2, oe/ui (stroke like eo) variant 1.
+    def test_hanterm_final_variant_of_wae_oe_we_ui_follows_hantermS_lcon_map(self):
+        # hanterm's lcon_map[] (hfont.c convert_3_to_johabfont): wae 0, oe 0, we 1, ui 0 - not the 8x4x4 table
         t = jamoset.tables_for(jamoset.LAYOUTS["hanterm-johab"])
         def fin(L, V, T):
             return jamoset.pieces_of(t, 0xAC00 + (L * 21 + V) * 28 + T)[2]
         # gwaen (L0 wae V10 T4 nieun), goen (V11), gwen (V15), gui (V19): final glyph 405 + 4*(T-1) + variant
-        self.assertEqual(fin(0, 10, 4), 405 + 12 + 2)
-        self.assertEqual(fin(0, 11, 4), 405 + 12 + 1)
-        self.assertEqual(fin(0, 15, 4), 405 + 12 + 2)
-        self.assertEqual(fin(0, 19, 4), 405 + 12 + 1)
+        self.assertEqual(fin(0, 10, 4), 405 + 12 + 0)
+        self.assertEqual(fin(0, 11, 4), 405 + 12 + 0)
+        self.assertEqual(fin(0, 15, 4), 405 + 12 + 1)
+        self.assertEqual(fin(0, 19, 4), 405 + 12 + 0)
+
+    def test_hanterm_literal_lcon_map(self):
+        self.assertEqual(jamoset.HT_LMAP, (0, 0, 0, 0, 2, 0, 2, 1, 0, 0, 2, 1, 2, 3, 0, 0, 0, 0, 0, 3, 3, 1, 1, 1,
+                                           0, 0, 3, 3, 0, 1))
+
+    def test_all_11172_syllables_equal_a_straight_port_of_hanterm_c(self):
+        t = jamoset.tables_for(jamoset.LAYOUTS["hanterm-johab"])
+        for cp in range(0xAC00, 0xD7A4):
+            self.assertEqual(jamoset.pieces_of(t, cp), hanterm_c_glyphs(cp), f"U+{cp:04X}")
+
+    def test_composed_pixels_of_a_real_hanterm_font_equal_the_port(self):
+        path = HANTERM_BDF
+        if not os.path.exists(path):
+            self.skipTest("johabm16.bdf not collected here")
+        with open(path, "rb") as fh:
+            data = fh.read()
+        layout = jamoset.LAYOUTS["hanterm-johab"]
+        src = layout.opener(data, 0, "")
+        out, _, _ = jamoset.build(layout, data)
+        f = jamoset.parse_svfn(out)
+        t = jamoset.unpack(f.jset)
+        for cp in range(0xAC00, 0xD7A4):
+            want = bytearray(((src.w + 7) // 8) * src.h)
+            for n in hanterm_c_glyphs(cp):
+                for k, b in enumerate(src.glyph(n).to_bytes()):
+                    want[k] |= b
+            self.assertEqual(jamoset.compose(f, t, cp), bytes(want), f"U+{cp:04X}")
 
 
 class CommandLine(unittest.TestCase):

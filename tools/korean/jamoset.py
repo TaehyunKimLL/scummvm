@@ -74,9 +74,10 @@ HT_FCON2 = (0, 0, 5, 5, 5, 5, 5, 5, 0, 0, 5, 5, 5, 6, 8, 8, 0, 0, 8, 6, 7, 9, 9,
 HT_VBASE = (0, 0, 0, 311, 314, 317, 320, 323, 0, 0, 326, 329, 332, 335, 339, 343, 0, 0, 347, 351, 355, 358, 361, 364,
             0, 0, 367, 370, 374, 378)
 HT_VKIND = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0)
-# Final variant by medial value: the 8x4x4 final table F844 (research doc 3.4). kfont.py's HT_LMAP had 0 for
-# wae/oe/ui and 1 for we; the finals' stems in johabm16/p16/iyagi16 line up with the vowel stroke only with F844.
-HT_LMAP = (0, 0, 0, 0, 2, 0, 2, 1, 0, 0, 2, 1, 2, 3, 0, 2, 0, 0, 1, 3, 3, 1, 2, 1, 0, 0, 3, 3, 1, 1)
+# Final variant by medial value: lcon_map[] of hanterm's own source (hfont.c in hanterm-xf 2.0.0/2.0.6, hangul.c in
+# hanterm 3.1-3.3.1p18: identical in all seven). It is not the 8x4x4 final table F844: wae, oe, we, ui (15, 18, 22, 28)
+# are 0, 0, 1, 0 here.
+HT_LMAP = (0, 0, 0, 0, 2, 0, 2, 1, 0, 0, 2, 1, 2, 3, 0, 0, 0, 0, 0, 3, 3, 1, 1, 1, 0, 0, 3, 3, 0, 1)
 # Dokkaebi printer fonts (dkb_fnt.py, from DP09/DP24/DP40/DP48.COM)
 P16_INIT0 = [0] * 8 + [1, 3, 3, 3, 1, 2, 3, 3, 3, 2, 1, 3, 0]
 P16_INIT1 = [4] * 8 + [5, 6, 6, 6, 5, 5, 6, 6, 6, 5, 5, 6, 4]
