@@ -291,8 +291,11 @@ Graphics::UnicodeGlyphSource *GfxCache::svfnSource(const Common::String &path, c
 	isSvfn = true;
 	stream->seek(0);
 	// The source keeps the file and reads each glyph as it is first drawn.
+	// (or whole, when the map's [load] says so)
+	const Common::Path nativePath(path, Common::Path::kNativeSeparator);
+	const Graphics::HiResLoadMode mode = _hiresMapLoaded ? _hiresMap.loadModeFor(nativePath) : Graphics::kHiResLoadAuto;
 	Graphics::UnicodeGlyphSource *src = Graphics::createSvfnSource(stream, DisposeAfterUse::YES, error,
-		Common::Path(path, Common::Path::kNativeSeparator).baseName());
+		nativePath.baseName(), mode);
 	if (src)
 		debug(1, "SCI: %s %s opened as a %dx%d bitmap font", what, path.c_str(), src->cellWidth(), src->cellHeight());
 	else

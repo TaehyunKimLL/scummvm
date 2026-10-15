@@ -844,8 +844,10 @@ bool ScummHiResText::addFace(const Common::String &resolvedPath, Common::Seekabl
 
 	// The glyphs stay in the file, read as they are drawn: an SVF of 2350
 	// syllables is some 400 KB, of which a scene draws a few hundred glyphs.
+	// The map's [load] can have a face whole or streamed whatever its size.
 	Graphics::HiResBitmapFont *font = new Graphics::HiResBitmapFont();
-	return adoptFace(resolvedPath, font, font->loadStreamed(stream, dispose));
+	return adoptFace(resolvedPath, font,
+					 font->loadStreamed(stream, dispose, _map.loadModeFor(Common::Path(resolvedPath, '/'))));
 }
 
 bool ScummHiResText::adoptFace(const Common::String &resolvedPath, Graphics::HiResBitmapFont *font, bool loaded) const {

@@ -100,7 +100,8 @@ Graphics::UnicodeGlyphSource *HiresText::openFace(const Graphics::HiResFaceEntry
 	s->read(head, 4);
 	s->seek(0);
 	if (Graphics::isSvfnFile(head, 4)) {
-		Graphics::UnicodeGlyphSource *src = Graphics::createSvfnSource(s, DisposeAfterUse::YES, error, e.path.toString());
+		Graphics::UnicodeGlyphSource *src = Graphics::createSvfnSource(s, DisposeAfterUse::YES, error, e.path.toString(),
+			_map.loadModeFor(e.path));
 		if (!src)
 			warning("AGI hi-res text: %s: %s", e.written.c_str(), error.c_str());
 		return src;
