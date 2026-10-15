@@ -1,129 +1,246 @@
-# Hi-res text: font map reader (G1)
+# Hi-res text: font maps, faces and glyph drawing
 
-This stage parses configuration only. No engine calls it yet. It does not load
-fonts, decode translations, lay out text or change rendering.
+This directory holds the engine-independent half of hi-res text: the map
+reader (`font_map.cpp`), the face formats (SVFN bitmap fonts, jamo-set fonts,
+TrueType), glyph drawing and decoration. SCI, SCUMM and AGI (and, in part, AGS)
+read a **map** that says which face draws which character. This file is the
+format reference for the map and the faces; `engines/scumm/HIRES_TEXT_SETUP.md`
+covers the ini keys, `tools/korean/README.md` the tools that build faces and
+maps. A map without `[map] version=2` is refused. The older (version 1)
+sections `[hires]`, `[latin]`, `[bitmap]`, `[encoding]`, `[sizes]` and
+`[translation]` are not read any more; a map that still has one loads with one
+warning that names it.
 
-`HiResFontMap::loadFromStream` accepts an INI stream, its base directory, and
-opaque qualifier strings in most-specific-first order. Keys fall back through
-qualified sections to the bare section. Height-role maps merge in the reverse
-order. The parser does not access engine types, ConfigManager or FreeType.
+## Map file reference (version 2)
 
-Example (a value ends at a `;` with whitespace before it, e.g. `scale=3 ;
-comment`; without that whitespace the `;` stays part of the value, e.g.
-`single=my;font.fnt`; a line whose first character is `;` or `#` is a
-whole-line comment either way):
+An INI file. `HiResFontMap::loadFromStream` takes the stream, the map's folder
+and the qualifiers the engine passes (most specific first); it touches no engine
+type, ConfigManager or FreeType, and it does not open any font file.
+
+- Section and key names are case-insensitive. A line starting with `;` or `#` is
+  a comment. A `;` after whitespace ends a value and starts a comment
+  (`scale=3 ; why`); a `;` without whitespace before it is part of the value.
+  `#` never starts an inline comment (it is the TTC face suffix).
+- Numbers are decimal or `0x` hex. A code point is `u+XXXX` or `0xXXXX`. `u+` is
+  a **value** form; as a key it works only in `range.`, `advance.` and `origin.`
+  (`range.U+2026`), because `Common::INIFile` rejects other characters in key names.
+  `[glyphs]` keys are plain `0x..`/decimal codes or ranges of them.
+- Unknown sections and keys, bad values and removed keys are one warning each;
+  the entry is skipped and the next level down applies. Keys an engine does not
+  use (for instance `cell=` in SCUMM) are parsed, then warned about once.
+
+| Section | Keys | Read by |
+|---------|------|---------|
+| `[map]` | `version=2` (required) | all |
+| `[render]` | `target=auto\|clut8\|rgb565\|rgb888`, `blend=auto\|on\|off`, `scale=1..3`, `gamma=0.5..4` | SCI, SCUMM (AGS and AGI: blend, scale, gamma) |
+| `[text]` | `encoding=` a code page (list below): the code page of the game's own strings | SCUMM |
+| `[layout]` | `hangul=word\|any`, `kinsoku=on\|off`, `thai=on\|off` | all |
+| `[fonts]` | `<name>=<path>`: the name table (below) | all |
+| `[font]`, `[font.N]` | `face`, `size`, `pixel`, `shift`, `cell`, `align`, `missing`, `advance`, `advance.<spec>`, `origin`, `origin.<spec>`, `range.<spec>`, `mirror` | see the key table |
+| `[load]` | `<name>=whole\|stream\|auto` | SCUMM, SCI, AGI |
+| `[preload]` | `<name>=data:X.HOT` | SCUMM, SCI, AGI |
+| `[glyphs]`, `[glyphs.N]` | game code -> `original`, `u+XXXX`, `+0xN`, `<face>:u+XXXX` | SCI, SCUMM, AGI |
+| `[shadow]`, `[shadow.N]` | `mode`, `offset`, `fill`, `color`, `width`, `style`, `shadow`, `shadow_color`, `shadow_alpha` | SCUMM |
+
+`N` is the engine's font id: the SCI font number, the SCUMM charset id. Any
+section of this table except `[map]`, `[text]` and `[layout]` may carry
+qualifiers; see "Qualifiers".
+
+### `[fonts]`, paths and font values
+
+`[fonts]` maps a name (`A-Za-z0-9_-`; not `same`, `original` or `data`) to a
+file. A face file is recognised by content: the `SVFN` magic is a bitmap face
+(a jamo set too), anything else opens as TrueType. A path is resolved by one
+rule everywhere:
+
+1. `data:<relative>` is searched in ScummVM's data roots (command-line,
+   game and global `extrapath`, then `dists/engine-data/`, `DATA_PATH` and
+   SearchMan's folders; on DOS `C:\SCUMMVM\DATA`). A `..` or an absolute path
+   after `data:` is refused. Shipped game packs name their faces this way
+   (`ui=data:KQ1I16.SVF`), so the faces live once in the engine data or in a
+   font pack.
+2. An absolute path is used as written.
+3. A relative path is relative to the folder of the file that names it (the map).
+
+A **font value** (`face=`, a `range.` value) is a comma-separated chain of
+entries: a `[fonts]` name, a path, `same` or `original`. A TrueType path may end
+in `#N` for face N of a collection (below). `original` ends the chain: the game's
+own font draws. `same` in a `range.` value stands for the id's chain; in
+`[font.N] face=` it means "inherit"; in `[font] face=` it is ignored with a warning.
+The first face of a chain that has the glyph draws it. An SVF in a chain must have
+the same cell height as the first SVF of that id's chain, or it is dropped with a
+warning.
+
+### `[font]` and `[font.N]`
+
+`[font]` is the default for every id; `[font.N]` overrides it for id N. Each key
+falls back from `[font.N:q]` to `[font.N]` to `[font:q]` to `[font]`.
+
+| Key | Values | Meaning |
+|-----|--------|---------|
+| `face` | font value | the id's chain: first face with the glyph draws it |
+| `size` | 8..64 | pixel size of a TrueType face at the hi-res scale; an SVF keeps its baked glyphs. With `cell=glyph` (SCI) it is also the layout cell |
+| `pixel` | 1..64 | a pixel TrueType face held on its grid at a whole multiple |
+| `shift` | -32..32 | SCI/AGI: draw glyphs this many hi-res pixels lower |
+| `cell` | `game`, `glyph` | SCI: layout cell is the engine's 16 px (`game`) or `size=` (`glyph`). A face larger than 16 px needs `cell=glyph`, or its glyphs draw off their pens |
+| `align` | `game`, `cell`, `font` | SCI/AGI: vertical placement of the face on the line. `game` puts the face's baseline on the game font's; `cell` centres the face's fitted box on the cell (the Korean SCI maps use it); `font` uses the face's own ascent, as FreeType lays a line out |
+| `missing` | `u+25a1` or `off` | code point drawn when no face of the chain has a character (from the first chain face that has it) |
+| `advance` | `game`, `font`, `cell` | id-wide advance rule: the game font's width, the face's own, or the cell (a wide cell, half for narrow) |
+| `range.<spec>` | font value | the chain for a code range |
+| `advance.<spec>`, `origin.<spec>` | as `advance`; `origin` is `game`\|`face` | per range; `origin=face` (SCUMM) uses the face's baked baseline instead of the game glyph's offsets |
+| `mirror` | `off`, `horizontal`, `vertical`, `both` | SCUMM: draw the id's glyphs flipped |
+
+`<spec>` is a block name (`basic-latin`, `latin-1`, `latin-ext-a`, `latin-ext-b`,
+`thai`, `hangul-jamo`, `general-punctuation`, `letterlike`, `arrows`,
+`geometric-shapes`, `cjk-symbols`, `hiragana`, `katakana`, `hangul-compat-jamo`,
+`cjk-unified`, `hangul-syllables`, `pua`, `fullwidth-forms`, `box-drawing`,
+`misc-symbols`), `U+XXXX-YYYY`, one `U+XXXX`, or `wide` (every wide character;
+least specific). The narrowest matching range wins, and a rule in `[font.N]` beats
+one in `[font]`. Two spellings of one span, or two overlapping spans of equal width
+in one section, warn and the later line is ignored.
+`range.basic-latin=same` with `advance.basic-latin=font`, as in the Korean maps,
+draws ASCII from the same face as the Hangul, stepped by its own widths.
+The SCUMM and AGI defaults are in `engines/scumm/HIRES_TEXT.md`.
+
+`[text] encoding` names: cp932/sjis, cp936/gbk, cp949/uhc, cp950/big5, johab,
+utf8; cp1250..cp1257, iso-8859-1/latin1, iso-8859-2, iso-8859-5, macroman,
+maccentraleurope, cp850, cp862, cp866, ascii. ksc5601/euc-kr select the CP949
+decoder (a compatible superset, not strict EUC-KR validation).
+
+### Qualifiers
+
+A section may take one engine qualifier and/or one render-target qualifier:
+`[font.4:monkey2]`, `[fonts:clut8]`, `[font.4:monkey2:clut8]` (engine first, target
+last). Targets are `clut8`, `rgb565`, `rgb888`. With engine qualifiers `e1, e2`
+(most specific first) and the screen's target `t`, a key is looked up in
+`[S:e1:t] [S:e2:t] ... [S:e1] [S:e2] ... [S:t] [S]`: the first that sets it wins;
+`range./advance./origin.` rules merge span by span, `[glyphs]` code by code,
+`[fonts]` name by name. A target never reads another target's sections, so write
+the true-colour preset bare and the 8-bit preset as `:clut8`:
 
 ```ini
-[hires]
-scale=3
-alpha=true
-
-[encoding]
-codepage=utf8
-
-[bitmap]
-single=subtitle.fnt
-
-[render]
-metrics=font
-
 [fonts]
-default=fonts/subtitle.ttf
-
-[sizes]
-default=12pt
-
-[map]
-height_12=default
-
-[glyphs]
-0x5e=keep
-0x7f=u+2192
+dlg=M2U0.SVF        ; true colour (render_target=auto or rgb565/rgb888)
+[fonts:clut8]
+dlg=M2L0.SVF        ; 8-bit screen
+[render:clut8]
+blend=off
 ```
 
-`codepage` records an adapter's source encoding choice, not a renderer gate.
-Supported names: cp932/sjis, cp936/gbk, cp949/uhc, cp950/big5, johab, utf8/utf-8;
-also cp1250..cp1257, iso-8859-1/latin1, iso-8859-2, iso-8859-5, macroman,
-maccentraleurope, cp850, cp862, cp866 and ascii.
-ksc5601/euc-kr select the CP949 decoder (a compatible superset, not strict EUC-KR
-validation). UTF-16 input and engine control-token handling are later stages.
+`[render:t] target=` is refused (the target is chosen first). `[text]` and
+`[layout]` take no target qualifier. A bad qualifier ignores the section with a
+warning.
 
-New `render.metrics=game|font` applies to all text, independent of script or
-encoded byte length. `game` is the parser's default (`metricsSource`). SCUMM (engines/scumm/HIRES_TEXT.md) reads an **unset** key
-differently for a TrueType face: wide glyphs (C31) and Latin (C34, C36) step by
-the face's own advance; only an explicitly set `metrics=game` (`[render]`,
-`[font.N]`, `[latin]`, or the ini's `hires_text_metrics`) keeps the game's
-widths. `metricsSourceSet`, `HiResFontIdSettings::metricsSet` and
-`latinMetricsSet` tell the two apart. Old `[latin]` data is isolated
-in `LegacyFontMapOptions` for adapter compatibility; it must not become the
-generic renderer's character classification. Legacy `metrics=ttf` and
-`metrics=bitmap` retain separate settings. Naming a legacy TTF font does not
-implicitly enable it; a legacy bitmap name does, as in the original parser.
+### `[glyphs]`: exceptions per game code
 
-`[latin] baseline=game|face` (`latinBaselineFace`, default `game`) is read here
-and used by the SCUMM engine only: with `face`, Latin drawn by a bitmap face is
-placed by the baseline baked into the face and the game glyph's own offsets are
-dropped (trimmed card fonts such as MI2's would otherwise draw a `.` far below
-the line). SCI ignores it. It is map-wide (no `[font.N]` override) and unrelated to the
-numeric `[hires] baseline=` pixel shift, which is another key in another section.
-Details, diagrams and a before/after:
-`engines/scumm/HIRES_TEXT.md`, "Baselines and glyph offsets".
+A game reuses character codes for pictograms (MI2's skull at 0x07, DOTT's
+arrows). `[glyphs]` (and `[glyphs.N]` for id N) says what each code draws:
 
-Size syntax: `N` physical pixels, `NxM` size N with supersampling M, `Npt` legacy
-logical pixels (not typographic points). Logical sizes remain unresolved until
-an adapter has applied explicit user scale overrides. Bounds: scale 1..3,
-size 1..4096, supersampling 1..16, shadow offset -1 or 0..4096, shadow width
-0..8 px in quarters, shadow shift -16..16, shadow alpha 0..100, coverage gamma
-0.5..4 in hundredths, palette color 0..255, glyph count 1..0x110000, height key
-1..65535. These parser limits are not promises that every backend can allocate
-that size; loaders must check products and memory budgets. Numeric overflow and trailing junk are rejected. Invalid
-optional values preserve existing values. Unknown sections/keys are ignored.
-Malformed INI or stream errors return false without modifying the output.
+```ini
+[glyphs]
+0x07=original        ; the game's own glyph
+0x5e=u+2026          ; draw this code point (it then goes through the range rules)
+0x21-0x7E=+0xFEE0    ; a range, offset form: ASCII to the fullwidth block
+0x80-0x9F=icons:+0xE000   ; targeted: that face only, no chain
+```
 
-TTF paths are resolved relative to the map. Legacy bitmap templates and
-translation names remain opaque adapter data. Never pass a bitmap template as
-an unchecked printf format. The parser performs no allocations based on glyph
-count and does not open referenced font or translation files.
+Keys are `0x5e`, decimal, or a range `<code>-<code>` (end at most `0xFFFF`). A
+value is `original`, `u+XXXX`, `+<n>` (`0x..` or decimal; an offset, never `u+`),
+or `<face>:u+XXXX` / `<face>:+<n>` where `<face>` is one `[fonts]` name or path (or
+`same`); the value is split at its last colon. A single code beats a range that
+covers it; between two ranges in a section the later wins; a qualified section beats
+the bare one. A range takes only `original` or an offset (an absolute target would
+draw many codes as one glyph). Ranges add at most 131072 codes per load. A
+targeted face that cannot open or lacks the glyph falls back to the game's glyph,
+with one warning.
 
-`[glyphs]` records per-character exceptions: `keep` for a code the caller
-should not draw from a replacement font at all, or a code point value to draw
-in its place. Both sides accept `0x5e`, decimal, or `u+2192`; values above
-0x10FFFF and trailing junk are rejected, and a rejected entry is skipped
-rather than failing the map. The parser attaches no meaning to either action -
-what "keep" does is the adapter's business.
+### `[shadow]`, `[shadow.N]`
 
-A key may also be a range, `<code>-<code>` (each half parsed the same as a
-single key, so `0x21 - 0x7E` works too): `<code>-<code>=keep`, or
-`<code>-<code>=+<n>` to remap every code in the range by the same offset
-(`<n>` is `0x..` or decimal, never `u+` - an offset is a distance, not a
-code point; an absolute target on a range is rejected, since it would draw
-every code in the range as one glyph). `+<n>` is also accepted on a single
-code. Within one section a single code always beats a range that covers it;
-between two ranges in one section the later one wins for the codes they
-share; a qualified section beats the bare one as usual. Bounds: a range must
-not end before it starts, its end is capped at `0xFFFF`, and `end + offset`
-at `U+10FFFF`; a bad range warns and is skipped, like a bad single entry.
-Ranges may add at most 131072 codes per load, summed across the common table
-and every scope - a range that would cross that limit is skipped whole, with
-one warning.
+Outline or shadow for the replacement glyphs (SCUMM). `[shadow.N]` is charset N's
+own section: its keys override `[shadow]` and fall back to it when unset
+(`[shadow.N:q]` > `[shadow.N]` > `[shadow:q]` > `[shadow]`). Keys are listed under
+"Decoration" below.
 
-Sections may also be narrowed by a caller-supplied **scope**, passed to
-`load()` as an array of names. `[glyphs:cs1]` fills
-`scopedGlyphOverrides[1]` when the caller listed `"cs1"` second, and
-`glyphOverride(code, out, scope)` prefers a scope's table over the common one.
-Scopes exist because which characters are repurposed can differ per font
-within one game; the parser treats the names as opaque, exactly as it does
-qualifiers.
+### Annotated examples
 
-Note `Common::INIFile` restricts **key** names to alphanumerics, `-`, `_`,
-`.`, `:` and space, and rejects the entire file on anything else - so a
-`u+XXXX` form is usable as a value but not as a key.
+SCI, one map for every screen (`dists/engine-data/hires_text/dos/KQ1KO.MAP`,
+comments shortened). Two 1 bpp jamo-set faces by font id; the same faces for every
+render target, so no `:clut8` section is needed:
+
+```ini
+[map]
+version=2
+[render]
+scale=2            ; 320x200 game drawn on a 640x400 text surface
+blend=off          ; 1 bpp faces: hard-edged, nothing to blend
+[fonts]
+ui=KQ1I16.SVF      ; Iyagi 16 px jamo set (a pack's copy says data:KQ1I16.SVF)
+body=KQ1H24.SVF    ; HWP 24 px jamo set
+[font]             ; every id without its own section
+face=ui
+missing=u+25a1     ; a character no face has draws a box
+align=cell
+range.basic-latin=same     ; ASCII from the same SVF as the Hangul,
+advance.basic-latin=font   ; stepped by its own widths
+[font.300]         ; message boxes, narration
+face=body
+size=24
+cell=glyph         ; layout cell is the face's 24 px, not the engine's 16
+```
+
+SCUMM, true colour and 8-bit in one map (`M2KO.MAP`, excerpt): a base face plus a
+supplement per charset, streaming for the large title-card faces, a preload list,
+and a per-charset shadow (the `[shadow.N]` lines are illustrative, the shipped map
+sets no shadow):
+
+```ini
+[map]
+version=2
+[render]
+scale=2
+blend=auto
+[render:clut8]
+blend=off
+[text]
+encoding=cp949             ; the game's own strings
+[fonts]
+card=M2U4.SVF              ; base: ASCII + KS X 1001 (or a jamo set)
+cardx=M2U4X.SVF            ; supplement: only what the text adds, same cell
+[fonts:clut8]
+card=M2L4.SVF
+cardx=M2L4X.SVF
+[load]
+card=stream                ; read glyphs from the file as they are drawn
+[load:clut8]
+card=auto                  ; the 8-bit face is small: the size rule
+[preload]
+card=M2U4.HOT              ; characters read into the cache when the map loads (a path, or data:X.HOT)
+[preload:clut8]
+card=                      ; empty value: no list
+[font]
+missing=u+25a1
+range.basic-latin=same
+advance.basic-latin=font
+origin.basic-latin=face    ; SCUMM: the face's baseline, not the game glyph's offsets
+[font.4]
+face=card,cardx            ; base first, supplement behind it
+[glyphs]
+0x07=original
+0x5e=u+2026
+[shadow]
+mode=outline
+[shadow.4]                 ; charset 4 only
+mode=drop
+offset=2
+```
+
+## Face formats and loading
 
 ### A face of a font collection (`<file>.ttc#<N>`, C21)
 
 A TrueType collection (`.ttc`) holds several faces; `Graphics::loadTTFFont`
 opens the first unless given `faceIndex`. Anywhere a map names a TrueType face -
-`[fonts]` entries, `[hires] face=` and `[font.N] face=` chains, SCUMM's legacy
+`[fonts]` entries, `[font] face=` and `[font.N] face=` chains, SCUMM's legacy
 `hires_text_font`, SCI's and AGS's faces - the path may end in `#<N>` to open
 face N instead:
 
@@ -243,8 +360,8 @@ dlg=M2U2.SVF
 card=M2U7.SVF
 
 [preload]
-dlg=data:M2KO2.HOT      ; characters to keep in memory for this face
-card=data:M2KO7.HOT
+dlg=M2U2.HOT            ; characters to keep in memory for this face
+card=data:M2U7.HOT      ; a path next to the map, or data:
 ```
 
 A `.HOT` file is UTF-8 text: the characters in any order with any line breaks;
@@ -439,15 +556,15 @@ coverage back out of the alpha byte. It caches the last glyph, bounds the box a
 face may ask for, and can box-filter a supersampled raster back down, which
 keeps a pixel font on its native grid when the line box is not a multiple of it.
 
-### Coverage gamma (`[hires] gamma=`, C20)
+### Coverage gamma (`[render] gamma=`, C20)
 
 A thin face blended over a dark outline reads grey: a stem that covers half a
 pixel is blended at half strength in gamma space, where linear light would
-show it at about three quarters. `[hires] gamma=` is an opt-in curve applied to
+show it at about three quarters. `[render] gamma=` is an opt-in curve applied to
 every TrueType glyph's coverage as `TtfGlyphSource` rasterises it:
 
 ```ini
-[hires]
+[render]
 gamma=1.8   ; 0.5..4, to the nearest hundredth; 1 (the default) is off
 ```
 
@@ -463,7 +580,7 @@ What changes on screen depends on the path:
   base. The outline does widen with the body, because C19's `dilate()` reads
   coverage as distance: about +0.23 px at 2.2, up to +0.47 px at 4. That is
   intended; the outline follows the heavier edge.
-- Keyed (`alpha=false`): the body is cut at 0x40 and the decoration at 0x80,
+- Keyed (`blend=off`): the body is cut at 0x40 and the decoration at 0x80,
   so a pixel whose coverage now crosses a cut becomes a whole solid pixel.
   Keyed text and its outline grow; below 1, thin keyed strokes can drop out.
 
@@ -485,7 +602,7 @@ the **layout cell** (`cellHeight()`, the box the engine lays text out on):
 | Map | ppem | Cell | Probe fit |
 |---|---|---|---|
 | no `size=`, no `pixel=` (SCUMM only: the line fit) | `round(upm * cell / (usWinAscent + usWinDescent))` (`kTTFSizeModeCell`) | the game's own cell times the scale | none (only a translation sample that leaves the cell moves or shrinks it) |
-| `size=N` (SCUMM `[font.N]`/`[hires]`, SCI, AGS - AGS uses the game font height when no size is given) | N, stepped down until the fixed probe set (Hangul, `A g j y Å`, brackets, CJK quotes) plus the translation sample fits N rows | **N** | yes |
+| `size=N` (SCUMM `[font.N]`/`[font]`, SCI, AGS - AGS uses the game font height when no size is given) | N, stepped down until the fixed probe set (Hangul, `A g j y Å`, brackets, CJK quotes) plus the translation sample fits N rows | **N** | yes |
 | `pixel=D` | `D * k`, the largest multiple of D the cell holds (D itself in a smaller cell) | the engine's cell, unchanged: SCUMM the game cell times the scale, or `size=` when set; SCI `size=` (16 by default); AGS `size=` times the game's size multiplier, else the game font's height | none |
 
 **`size=` also changes the layout cell.** In SCUMM a charset with
@@ -524,10 +641,10 @@ the ink itself is taller; the ppem never changes, and ink outside the cell is
 clipped. The faces behind it in a chain (`face=ko, ja, th`) are fallbacks
 for what it lacks and are opened as usual (line fit, or `size=` with its
 probe fit, and the translation sample's fit), in the same cell.
-`[hires] pixel=` sets it for every font; `[font.N] pixel=` wins. It
+`[font] pixel=` sets it for every font; `[font.N] pixel=` wins. It
 describes a face the map names: a face from the ini (`hires_text_font`) is
 never opened as a pixel face, and when SCI falls back from a `[font.N]`
-face to the face every font gets, that face takes `[hires] pixel=`, not the
+face to the face every font gets, that face takes `[font] pixel=`, not the
 `[font.N]` one.
 SCUMM, SCI and AGS read it; Grim does not use `TtfGlyphSource`. AGS text
 drawn N times larger (C23's N x path) opens the pixel face at exactly N

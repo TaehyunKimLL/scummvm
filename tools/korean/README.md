@@ -195,6 +195,96 @@ em - NanumGothic says 15.05 for 가, 이 and 무 alike - while their ink is 14,
 proportional in name only, and one pixel too narrow everywhere, so syllables
 touch. `--ink-advance` measures the ink instead.
 
+### Hinted 1 bpp bakes: `--mono-hint`
+
+By default a 1 bpp bake draws the glyph anti-aliased and cuts it at half
+coverage, which leaves strokes of uneven width in a small pixel face.
+`mkfont.py --mono-hint` (1 bpp only) draws it with FreeType's monochrome renderer
+and the font's own hinting, so a hinted face snaps its stems to whole pixels:
+
+```sh
+tools/korean/mkfont.py dists/engine-data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf \
+    /tmp/ng17.svf --size 17 --cell 16 --bpp 1 --mono-hint --unicode ascii,ksx1001-hangul
+```
+
+(`mkfont.py --help` currently stops with a ValueError, see the report of the docs
+pass; the options above are read from the source.)
+
+## Jamo-set faces: `jamoset.py`, `jamofit.py`, `bdfface.py`
+
+A DOS Hangul system held no syllables, only positional jamo pieces, and drew a
+syllable as the OR of two or three of them. An SVF built that way is 20-40 KB
+instead of 100-400 KB and holds all 11,172 syllables
+(graphics/hires_text/README.md, "Jamo-set fonts"). `jamoset.py` writes one:
+
+```sh
+# a DOS Johab font (a named layout) + its raw 8x16 English font
+tools/korean/jamoset.py --layout 844 GAM.KOR --eng SAN.ENG --symbols --check -o KQ1G16.SVF
+# a precomposed 1 bpp SVF -> pieces fitted to its syllables
+tools/korean/jamoset.py --layout 844 --from-svf KO2350.SVF --symbols --check -o KO2350J.SVF
+# an outline font -> pieces fitted to its syllables at a size (needs freetype-py, uharfbuzz)
+tools/korean/jamoset.py --layout 844 --from-ttf NanumGothic-Bold.ttf --size 16 --symbols --check -o NG16J.SVF
+```
+
+`--layout` names how the source selects pieces (the sets of initials, medials and
+finals a syllable takes): `844` (8x4x4, the DOS standard: iolo, san, HMJ, `$K*ZN16`),
+`844-ihnm` (SAGA IHNM's variant), `844-hbios24` (the jamo half of a 24x30 HBIOS /
+Taebaek face), `1044-san` (san-1.0's 10x4x4), `621` (Apple II 6x2x1),
+`hanterm-johab` (a hanterm johab-1 BDF; its final variants follow hanterm's own
+`lcon_map`), `dkb-printer-7x2x2` and `dkb-printer-12x4x4` (Dokkaebi printer
+`HANGUL16/24/40/48.FNT`, `--face 0|1`) and `kyra-lok` (Kyra LoK `MK15.BIT`). The
+source formats are in docs/johab/2026-10-14-johab-font-formats.md.
+
+| option | effect |
+|--------|--------|
+| `--eng FILE` | raw 8x16 English font for ASCII (2048 or 4096 bytes), scaled by whole numbers to the cell |
+| `--base SVF` | an SVFN whose non-syllable glyphs are kept (same cell, 1 bpp) |
+| `--advance N` | the step of a composed syllable (JSET advance byte; default the layout's, 0 = the cell width) |
+| `--ascent N` | the baseline row (default the English face's, or 7/8 of the cell) |
+| `--embolden` | OR every piece and ASCII glyph with itself shifted right 1 px |
+| `--symbols` | add U+2026 and a drawn U+25A1 box |
+| `--check` | compose all 11,172 syllables from the output and verify the JSET block |
+| `--from-ttf FONT`, `--from-svf SVF` | fit the pieces to an outline font (`--size`, `--cell WxH`, `--baseline`) or decompose a precomposed face (keeps its other glyphs, cell, baseline and metrics) |
+| `--mask-font FONT\|none` | a font with OpenType `ljmo`/`vjmo`/`tjmo` variants (Noto Sans KR) that confines the pieces; used unless a free fit already composes the target (IoU >= 0.995). `--pylib DIR` or `$JAMOSET_PYLIB` points at freetype-py and uharfbuzz |
+| `--blank-compat SVF` | rewrite a jamo-set face with every compatibility jamo it has a whole glyph for left to that glyph |
+| `--report FILE.json` | the fit's quality numbers |
+
+A fit prints the per-syllable IoU and a 1 px tolerant F1 (`exact N` is the number
+of syllables composed identically to the source). A precomposed 1 bpp face made
+by the HBIOS/Johab tools decomposes with IoU 1.000; a hinted TrueType bake is not
+an OR of pieces, so its fit is lower (measured 0.81 for M2L2). `jamofit.py` is
+the fitting library (no command line); `jamoset.py --from-ttf/--from-svf` call it.
+`bdfface.py --hangul KS.BDF --ascii ASCII.BDF --chars-from ... -o OUT.SVF`
+bakes a precomposed face from a KS X 1001 BDF (no shipped face uses it now);
+`--fill-absent` composes the requested syllables outside KS X 1001 from fitted pieces.
+
+## Base and supplement faces, coverage and preload lists
+
+A game's face is a **base** plus, when its text needs more, a **supplement**
+chained after it in the map (`face=dlg,dlgx`): the base holds ASCII and the 2,350 KS
+X 1001 syllables (or a jamo set, which composes all 11,172) whatever the game
+uses; the supplement holds only what the translation and the map's `[glyphs]` /
+`missing=` targets draw beyond that, in the base's cell, depth and baseline.
+No glyph is ever drawn as a runtime box that a face could have drawn.
+Dialogue faces are jamo sets; decorative title faces are precomposed and streamed
+with a preload list. The workflow, with the real command lines, is in
+SCUMM_FONTS.md ("Base and supplement faces", "Preload lists").
+
+```sh
+# bake the supplements named in a plan table (one row a supplement)
+tools/korean/bake-supplements.py tools/korean/scumm-fonts/m2x.tsv --trs mi2kor/korean.trs \
+    --map dists/engine-data/hires_text/dos/M2KO.MAP --faces FACES --check     # --check lists, bakes nothing
+# do the faces hold everything the bundle draws? (exit 1 if not; --base-check also demands base faces)
+tools/korean/facecoverage.py --trs mi2kor/korean.trs --map dists/engine-data/hires_text/dos/M2KO.MAP \
+    --faces FACES --preset both --base-check [--hot DIR]
+# the characters each charset draws, and the .HOT lists a map's [preload] names
+tools/korean/charsetchars.py GAMEDIR --trs korean.trs --map X.MAP --hot-dir DIR [--preset U|L|both] [--hot-faces a,b]
+```
+
+`facecoverage.py` finds `data:` faces with `--data DIR`. `charsetchars.py` also
+takes `--v5 NAME` (v5 file stem), `--validate LOG...` and `--from-json` (union
+earlier runs for a map that serves several releases).
+
 ## Packing a translation's patch files (DOS start-up)
 
 A UTF-8 translation ships one `TEXT.nnn` patch file per text resource. Under
@@ -299,10 +389,16 @@ tools/korean/trs_fix.py tools/korean/trs-fixes/mi1ute-kor.tsv \
     gamedata/mi1ute-kor/korean.trs.orig -o gamedata/mi1ute-kor/korean.trs --utf8
 ```
 
+`trs_fix.py --compare OLD.trs NEW.trs` checks a CP949 bundle against its UTF-8
+conversion: same lines, same index order, and it lists every translation whose text
+differs (the fixed bytes only).
+
 The bundle must be run from the `.orig` (the table's old bytes are looked up in
 it). A save made with the CP949 bundle keeps its already translated verb and
-inventory strings in CP949 and shows them as boxes under the UTF-8 one until a
-script sets them again; make new saves.
+inventory strings in CP949; the engine converts them on load (a `TENC` trailer in
+the save says which encoding it holds; an older save is judged string by string:
+text that reads as UTF-8 is kept, anything else is taken as CP949), so old saves
+keep working (engines/scumm/HIRES_TEXT_SETUP.md, "UTF-8 translation bundles").
 
 `facecoverage.py` checks the result against a map: every font id's face chain must
 hold every character of the bundle (and the map's remap targets), and its first face

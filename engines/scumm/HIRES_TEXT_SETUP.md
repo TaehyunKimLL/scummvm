@@ -162,8 +162,39 @@ Three older keys are still read for compatibility and do the same as their
 
 ## The map file
 
+> **Version 1 maps are not read any more.** The map is now `HIRESTXT.MAP` (in the
+> game folder, or named by `hires_text_map`) and must start with `[map]` /
+> `version=2`; the section list, every key, the qualifiers (`[fonts:clut8]`),
+> `[load]`, `[preload]` and annotated examples are in
+> `graphics/hires_text/README.md` ("Map file reference (version 2)"). A map
+> without the version line is refused, and a version 2 map that still has
+> `[hires]`, `[latin]`, `[bitmap]`, `[encoding]`, `[sizes]` or `[translation]`
+> gets one warning per section. The rest of this section (down to "Shared with
+> SCI") describes those version 1 sections and the ini keys `hires_text_font*`,
+> which the unified loader removed; read it as history, and convert a map with
+> this table:
+>
+> | version 1 | version 2 |
+> |---|---|
+> | `[encoding] codepage=` | `[text] encoding=` |
+> | `[hires] scale=`, `alpha=` | `[render] scale=`, `blend=` (and `target=`) |
+> | `[bitmap] single=X` / `multi=pattern` | a `[fonts]` name, then `[font.N] face=name` |
+> | `[latin] enabled/bitmap` | `range.basic-latin=same` (or a face) with `advance.basic-latin=font` |
+> | `[latin] mode=off` | `range.basic-latin=original` |
+> | `[latin] baseline=face` | `origin.basic-latin=face` |
+> | `[render] metrics=font` | `advance=font` |
+> | `[glyphs] 0x07=keep` | `[glyphs] 0x07=original` |
+> | `[glyphs:csN]` | `[glyphs.N]` |
+> | `[hires] baseline=N` | `[font] shift=N` |
+> | `[fonts] default=` | `[fonts] <name>=` and `face=<name>` |
+>
+> The ini keys `hires_text_font`, `hires_text_latin*`, `hires_text_metrics` and
+> `hires_text_alpha` are replaced by `hires_text_face`, `hires_text_advance` and
+> `hires_text_blend`; the current list is in
+> `docs/superpowers/specs/2026-09-30-hires-config-unify-design.md`, section 11.
+
 An ini-format file, by default `hires_text.map` beside the game data. A full
-one:
+version 1 one:
 
 ```ini
 [hires]
