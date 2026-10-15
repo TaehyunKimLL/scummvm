@@ -158,5 +158,20 @@ class BdfFaceTest(unittest.TestCase):
             bdfface.read_face(self.path("x.bdf"))
 
 
+class SmallCellSymbols(unittest.TestCase):
+    def test_dots_and_box_in_narrow_and_short_cells(self):
+        for cell_w, cell_h, ascent, adv in ((8, 8, 6, 8), (8, 16, 13, 4), (6, 8, 2, 6), (4, 4, 3, 4), (24, 24, 21, 12)):
+            for rows in (bdfface.dots(cell_w, cell_h, ascent, adv), bdfface.box(cell_w, cell_h, ascent)):
+                self.assertEqual(len(rows), cell_h)
+                self.assertTrue(all(0 <= r < 1 << cell_w for r in rows), (cell_w, cell_h, ascent))
+
+    def test_dots_clip_at_the_cell_and_do_not_wrap_to_the_bottom(self):
+        rows = bdfface.dots(8, 8, 6, 8)
+        self.assertEqual([y for y, r in enumerate(rows) if r], [3, 4, 5])
+        self.assertEqual(rows[5], 0b10111011)		# the 11 px run overhangs 2 px each side: columns 0, 2-4, 6-7
+        rows = bdfface.dots(8, 8, 2, 8)		# ascent 2: only rows 0-1 exist above the baseline
+        self.assertEqual([y for y, r in enumerate(rows) if r], [0, 1])
+
+
 if __name__ == "__main__":
     unittest.main()

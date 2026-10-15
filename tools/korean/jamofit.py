@@ -299,7 +299,7 @@ def mean_iou(P, syl_pieces, targets):
             if key is not None:
                 c |= P[key]
         tot += iou(t, c)
-    return tot / len(targets)
+    return tot / len(targets) if targets else 0.0
 
 
 # ---- outline fonts ------------------------------------------------------------------------------------------------

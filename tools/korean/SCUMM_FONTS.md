@@ -327,6 +327,11 @@ for f in DOTTL0 DOTTL1 DOTTL2 DOTTL3 DOTTL4 DOTTL7 M1L1 M2L1; do
 done
 ```
 
+A compat jamo (U+3131..3163) the face draws whole stays whole: the engine reads the jamo set's piece table first, so
+`jamoset.py` leaves those entries blank when the base has the glyph. `jamoset.py --layout 844 --blank-compat F.SVF -o OUT`
+repairs a face converted before that (M1L1 had 42). `--from-ttf` fits only the syllables the font draws
+(`--no-present-only` also fits `.notdef`), and `--advance` overrides the step in `--from-ttf` and `--from-svf`.
+
 Each run prints `fit: N syllables, IoU 1.000 ... exact N`; a face that is not
 exact stays precomposed (check the line before the `mv`). The U faces (2 bpp)
 stay precomposed. The maps are unchanged: same face names.
@@ -340,7 +345,7 @@ M1L4, M2L4 (cs4 26x24, and cs7 24x24 through the same file) are Taebaek's MY24 w
 title and credit cards. They are jamo sets (28-38 KB, all 11,172 syllables, the original 8x4x4 pieces:
 lossless), written by `jamoset.py --layout 844-hbios24` from the HBIOS 24x30 face's jamo half. The syllable
 advance is 24 (JSET advance): the game steps a cs0 syllable 24 and a cs4 one 28 (the engine centres the glyph),
-ASCII keeps the face's 12 px step on its baseline (row 21, the ascent), `--symbols` adds U+2026 on the
+ASCII keeps the face's 12 px step on its baseline (the ascent, row 20: capitals end on row 19; the glyphs keep all 16 bits of the .PFT row, so MASCII24's right serifs in columns 12-15 are drawn), `--symbols` adds U+2026 on the
 baseline and U+25A1. The faces carry no licence text (LICENCE NOT STATED, M12FONT.TXT). Dialogue (cs2, 18x18) and
 the sentence line and verbs of MI1 (cs1/cs3, 16x16) are smaller cells. Run after the L bakes and the jamo
 conversion above, from the Taebaek 3.5 `FNT/` folder:

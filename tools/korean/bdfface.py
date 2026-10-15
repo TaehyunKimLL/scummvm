@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Bake a 1 bpp SVF from a precomposed Hangul bitmap font (BDF) and an ASCII bitmap font (BDF or HBF).
 
-The MI1/MI2 L faces for the 24 px tall cells (M1L0, M1L4, M2L0, M2L4, M2L7) are drawn from a real 24 dot Hangul face
-rather than a 16 px face in a 24 px cell (tools/korean/SCUMM_FONTS.md has the commands):
+The MI1/MI2 L faces for the 24 px tall cells would be drawn from a real 24 dot Hangul face
+rather than a 16 px face in a 24 px cell (the shipped M1L0, M1L4, M2L0 and M2L4 are written by jamoset.py from Taebaek's
+HBIOS faces instead, and the cs7 card shares M2L4; this tool stays for a face made from a KS X 1001 BDF):
 
     python3 bdfface.py --hangul batang24b.bdf --ascii 12x24.hbf --cell 24x24 \\
         --chars-from korean.trs -o M2L4.SVF
@@ -161,20 +162,19 @@ def place(glyph, cell_w, cell_h, ascent):
 
 
 def dots(cell_w, cell_h, ascent, adv):
-    """U+2026: three 3x3 dots with their bottom on the baseline row, 4 px apart, centred in the advance."""
+    """U+2026: three 3x3 dots with their bottom on the baseline row, 4 px apart, centred in the advance. What falls outside
+    the cell (a cell or advance narrower than the 11 px run, an ascent under 3) is clipped."""
     left = (adv - 11) // 2
+    run = jamoset.clipped_row(cell_w, [(left + k * 4, left + k * 4 + 2) for k in range(3)])
     rows = [0] * cell_h
-    for y in range(ascent - 3, ascent):
-        v = 0
-        for k in range(3):
-            v |= 0b111 << (cell_w - (left + k * 4 + 3))
-        rows[y] = v
+    for y in range(max(0, ascent - 3), min(cell_h, ascent)):
+        rows[y] = run
     return rows
 
 
 def box(cell_w, cell_h, ascent):
-    """U+25A1: a 2 px square outline, 16 px wide and 16 px tall, standing on the baseline."""
-    n = 16
+    """U+25A1: a 2 px square outline, 16 px wide and 16 px tall, standing on the baseline (smaller in a smaller cell)."""
+    n = max(0, min(16, cell_w, cell_h))
     x0 = (cell_w - n) // 2
     rows = [0] * cell_h
     for k in range(n):
@@ -182,10 +182,9 @@ def box(cell_w, cell_h, ascent):
         if not 0 <= y < cell_h:
             continue
         if k in (0, 1, n - 2, n - 1):
-            v = ((1 << n) - 1) << (cell_w - x0 - n)
+            rows[y] = jamoset.clipped_row(cell_w, [(x0, x0 + n - 1)])
         else:
-            v = (0b11 << (cell_w - x0 - 2)) | (0b11 << (cell_w - x0 - n))
-        rows[y] = v
+            rows[y] = jamoset.clipped_row(cell_w, [(x0, x0 + 1), (x0 + n - 2, x0 + n - 1)])
     return rows
 
 

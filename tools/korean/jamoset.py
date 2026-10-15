@@ -474,6 +474,14 @@ def tables_for(layout):
     return t
 
 
+def blank_compat(t, have):
+    """Leave the compatibility jamo (U+3131..U+3163) in @p have, which the font draws as whole glyphs, to those glyphs: the
+    engine reads the piece table first (JamoGlyphSource::piecesOf), so a piece number there would hide them."""
+    for k in range(51):
+        if 0x3131 + k in have:
+            t.compat[k] = BLANK
+
+
 def used_pieces(t):
     """Piece numbers (source indices) any syllable or compatibility jamo can draw, sorted."""
     used = set()
@@ -606,20 +614,18 @@ def write_svfn(cell_w, cell_h, ascent, glyphs, jset, extra_flags=0, shadow=SHADO
 # ---- the font -----------------------------------------------------------------
 
 class EngCell:
-    """A 12x24 ASCII face: glyph(cp) -> (rows, advance) at the face's own size, and the baseline row (the row below the
-    ink of 'H')."""
+    """A 12x24 ASCII face: glyph(cp) -> its rows as 16 bit ints (the file's two bytes, MSB left; MASCII24's right serifs and
+    wide glyphs reach columns 12-15), the step @p adv (12) and the baseline row (the row below the ink of 'H')."""
 
-    def __init__(self, w, h, getter, name):
+    def __init__(self, w, h, getter, name, adv=None):
         self.w, self.h, self._get, self.name = w, h, getter, name
+        self.adv = adv if adv is not None else w
         rows = self._get(ord("H"))
         used = [y for y, r in enumerate(rows) if r]
         self.baseline = used[-1] + 1 if used else h
 
-    def glyph(self, cp, bold=False):
-        rows = self._get(cp)
-        if bold:
-            rows = [r | (r >> 1) for r in rows]
-        return rows
+    def glyph(self, cp):
+        return self._get(cp)
 
 
 def read_eng(d):
@@ -627,9 +633,9 @@ def read_eng(d):
     $KROHN24 / Taebaek ROMAN24 / SANS24 (15,360 bytes: 256 glyphs of 60 bytes in a 16x30 cell, ink 12x24 in rows 3-26) or a
     Taebaek GASCII24 / MASCII24 .PFT (12,288 bytes: 256 glyphs of 48 bytes, 12x24 in 2 bytes a row)."""
     if len(d) == 15360:
-        return EngCell(12, 24, lambda cp: [r >> 4 for r in g_rowmajor(d, cp * 60, 16, 30).rows[3:27]], "hbios12x24")
+        return EngCell(16, 24, lambda cp: g_rowmajor(d, cp * 60, 16, 30).rows[3:27], "hbios12x24", 12)
     if len(d) == 12288:
-        return EngCell(12, 24, lambda cp: [r >> 4 for r in g_rowmajor(d, cp * 48, 16, 24).rows], "pft12x24")
+        return EngCell(16, 24, lambda cp: g_rowmajor(d, cp * 48, 16, 24).rows, "pft12x24", 12)
     if len(d) not in (2048, 4096):
         raise SourceError(f"an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24) or 12288 (PFT 12x24), "
                           f"not {len(d)}")
@@ -640,13 +646,14 @@ def eng_glyph(eng, cp, w, h, bold=False):
     """An ASCII glyph in a w x h cell: an 8x16 one scaled by whole numbers (k = h // 16, at least 1), top left; an EngCell
     one at its own size, centred in height. Returns (Glyph, advance)."""
     if isinstance(eng, EngCell):
-        rows = eng.glyph(cp, bold)
+        rows = eng.glyph(cp)
         y0 = (h - eng.h) // 2
         out = [0] * h
         for y, r in enumerate(rows):
             if 0 <= y0 + y < h:
-                out[y0 + y] = r << (w - eng.w)
-        return Glyph(w, h, out), eng.w
+                r = (r << (w - eng.w)) if w >= eng.w else (r >> (eng.w - w))
+                out[y0 + y] = (r | (r >> 1)) if bold else r		# placed in the cell first: column 15 gains column 16
+        return Glyph(w, h, out), eng.adv
     k = max(1, h // 16)
     y0 = (h - 16 * k) // 2 if h > 16 * k else 0
     rows = [0] * h
@@ -661,22 +668,32 @@ def eng_glyph(eng, cp, w, h, bold=False):
     return Glyph(w, h, rows), 8 * k
 
 
+def clipped_row(w, spans):
+    """A w bit row (MSB left) with the columns of each (x0, x1) span set, clipped to 0..w-1."""
+    v = 0
+    for x0, x1 in spans:
+        for x in range(max(0, x0), min(w, x1 + 1)):
+            v |= 1 << (w - 1 - x)
+    return v
+
+
 def symbol_glyphs(w, h, ascent, adv):
     """{cp: (packed, advance, ink x, ink w)} for U+2026 (three 3x3 dots on the baseline, 4 px apart, centred in @p adv) and
-    U+25A1 (the missing-glyph box, a 2 px outline 16 px square on the baseline), drawn for faces that bring neither."""
+    U+25A1 (the missing-glyph box, a 2 px outline up to 16 px square on the baseline), drawn for faces that bring neither.
+    Whatever does not fit the cell (a cell narrower than the 11 px run of dots or the 16 px box) is clipped, not wrapped."""
     left = (adv - 11) // 2
+    run = clipped_row(w, [(left + k * 4, left + k * 4 + 2) for k in range(3)])
     dots = [0] * h
-    for y in range(max(0, ascent - 3), ascent):
-        for k in range(3):
-            dots[y] |= 0b111 << (w - (left + k * 4 + 3))
-    n = min(16, h - 2)
+    for y in range(max(0, ascent - 3), min(h, ascent)):
+        dots[y] = run
+    n = max(0, min(16, h - 2, w))
     x0 = (w - n) // 2
     box = [0] * h
     for k in range(n):
         y = ascent - n + k
         if 0 <= y < h:
-            box[y] = (((1 << n) - 1) << (w - x0 - n)) if k in (0, 1, n - 2, n - 1) else \
-                (0b11 << (w - x0 - 2)) | (0b11 << (w - x0 - n))
+            box[y] = clipped_row(w, [(x0, x0 + n - 1)]) if k in (0, 1, n - 2, n - 1) else \
+                clipped_row(w, [(x0, x0 + 1), (x0 + n - 2, x0 + n - 1)])
     out = {}
     for cp, rows, a in ((0x2026, dots, adv), (0x25A1, box, w)):
         g = Glyph(w, h, rows)
@@ -714,6 +731,10 @@ def build_from_source(layout, src, eng=None, base=None, ascent=None, extra=None,
     tables = tables_for(layout)
     if advance is not None:
         tables.advance = advance
+    parsed = parse_svfn(base) if base is not None else None
+    whole = {cp for cp, g in (parsed.glyphs.items() if parsed else ()) if any(g)}
+    whole |= {cp for cp, g in (extra or {}).items() if any(g[0])}
+    blank_compat(tables, whole)
     used = used_pieces(tables)
     mapping = {s: n for n, s in enumerate(used)}
     pieces = renumber(tables, mapping)
@@ -731,7 +752,7 @@ def build_from_source(layout, src, eng=None, base=None, ascent=None, extra=None,
     if extra:
         glyphs.update(extra)
     if base is not None:
-        b = parse_svfn(base)
+        b = parsed
         if (b.bpp, b.cell_w, b.cell_h) != (1, w, h):
             raise SourceError(f"base is {b.cell_w}x{b.cell_h} {b.bpp} bpp, the pieces are {w}x{h} 1 bpp")
         ascent = b.ascent or ascent
@@ -758,6 +779,30 @@ def build_from_source(layout, src, eng=None, base=None, ascent=None, extra=None,
     out = write_svfn(w, h, ascent, [(cp, g[0], g[1], g[2], g[3]) for cp, g in sorted(glyphs.items())], jset, flags,
                      shadow, codepage)
     return out, mapping, src
+
+
+def blank_whole_compat(data):
+    """The jamo-set face @p data with every compat jamo it has a whole glyph for left to that glyph (blank_compat), and the
+    pieces nothing draws any more dropped. For faces written before build_from_source did this."""
+    f = parse_svfn(data)
+    if not f.flags & FLAG_JAMO or f.jset is None:
+        raise ValueError("not a jamo-set font (flag bit 1 or the JSET block is missing)")
+    t = unpack(f.jset)
+    blank_compat(t, {cp for cp, g in f.glyphs.items() if cp < PIECE_BASE and any(g)})
+    used = used_pieces(t)
+    mapping = {p: n for n, p in enumerate(used)}
+    t = renumber(t, mapping)
+    glyphs = []
+    for cp, g in f.glyphs.items():
+        new = cp
+        if cp >= PIECE_BASE:
+            if cp - PIECE_BASE not in mapping:
+                continue
+            new = PIECE_BASE + mapping[cp - PIECE_BASE]
+        m = f.metrics[cp]
+        glyphs.append((new, g, m[0], m[1], m[2]))
+    return write_svfn(f.cell_w, f.cell_h, f.ascent, glyphs, pack(t), f.flags & ~(FLAG_VARIABLE | FLAG_JAMO), f.shadow,
+                      f.codepage)
 
 
 # ---- composing and checking --------------------------------------------------------
@@ -958,6 +1003,12 @@ def svf_targets(face):
     return out
 
 
+def ink_clipped(iw, ih, w, h, oy, top, bottom):
+    """Whether the union ink box (iw x ih, pen-relative @p top and @p bottom rows) does not fit the w x h cell with the baseline
+    at row @p oy: its top row is oy - top and its bottom row oy - bottom, which must be 0..h-1 (so oy - bottom == h is clipped)."""
+    return bool(iw > w or ih > h or oy - top < 0 or oy - bottom >= h)
+
+
 def ttf_targets(path, size, cell, baseline, present_only, pylib=None):
     """Render the font's 11,172 syllables 1 bpp at @p size px into a cell.
 
@@ -988,7 +1039,7 @@ def ttf_targets(path, size, cell, baseline, present_only, pylib=None):
         if g or not present_only:
             targets[s] = g
     info = {"font": os.path.basename(path), "size": size, "cell": [w, h], "baseline": oy, "origin_x": ox,
-            "ink_box": [iw, ih], "clipped": bool(iw > w or ih > h or oy - top < 0 or oy - bottom > h),
+            "ink_box": [iw, ih], "clipped": ink_clipped(iw, ih, w, h, oy, top, bottom),
             "drawn": sum(1 for s in raws if raws[s][0] and any(raws[s][1][0])), "fitted": len(targets)}
     ascii_glyphs = {}
     for cp in range(0x20, 0x7F):
@@ -1014,7 +1065,7 @@ def summary_line(label, q):
             f"blobs merged {q['blob_merged']} split {q['blob_split']}")
 
 
-def main():
+def make_parser():
     ap = argparse.ArgumentParser(description="DOS Johab jamo-set font or outline font / precomposed face -> jamo-set SVF")
     ap.add_argument("source", nargs="?", help="the source font file (DOS Johab sources; not with --from-ttf/--from-svf)")
     ap.add_argument("--layout", required=True, choices=sorted(LAYOUTS))
@@ -1035,8 +1086,11 @@ def main():
     ap.add_argument("--size", type=int, help="--from-ttf: pixel size")
     ap.add_argument("--cell", help="--from-ttf: cell WxH (default SIZExSIZE)")
     ap.add_argument("--baseline", type=int, help="--from-ttf: baseline row from the cell top (default: ink box centred)")
-    ap.add_argument("--present-only", action="store_true",
-                    help="--from-ttf: fit and score only syllables the font draws (--from-svf always does)")
+    ap.add_argument("--present-only", action=argparse.BooleanOptionalAction, default=True,
+                    help="--from-ttf: fit and score only syllables the font draws (the default; --from-svf always does). "
+                    "--no-present-only also fits .notdef for every syllable the font lacks")
+    ap.add_argument("--blank-compat", metavar="FACE.SVF", help="rewrite a jamo-set face with every compat jamo it has a whole "
+                    "glyph for left to that glyph, and the pieces nothing draws dropped (-o OUT)")
     ap.add_argument("--mask-font", "--mask", dest="mask_font", metavar="FONT|none",
                     help="font with OpenType ljmo/vjmo/tjmo that confines the pieces. Default: $JAMOSET_MASK_FONT or "
                     "the shipped NotoSansKR when freetype/uharfbuzz are importable, used unless a free fit already "
@@ -1045,13 +1099,23 @@ def main():
     ap.add_argument("--passes", type=int, default=12, help="most coordinate-descent passes (default 12)")
     ap.add_argument("--pylib", help="directory holding freetype and uharfbuzz (also $JAMOSET_PYLIB)")
     ap.add_argument("--report", metavar="FILE.json", help="write the quality report (IoU, F1, blobs) as JSON")
+    return ap
+
+
+def main():
+    ap = make_parser()
     args = ap.parse_args()
     layout = LAYOUTS[args.layout]
-    modes = [m for m in (args.source, args.from_ttf, args.from_svf) if m]
+    modes = [m for m in (args.source, args.from_ttf, args.from_svf, args.blank_compat) if m]
     if len(modes) != 1:
-        ap.error("give exactly one of: a source font file, --from-ttf, --from-svf")
+        ap.error("give exactly one of: a source font file, --from-ttf, --from-svf, --blank-compat")
     label = modes[0]
     try:
+        if args.blank_compat:
+            out = blank_whole_compat(open(args.blank_compat, "rb").read())
+            open(args.output, "wb").write(out)
+            print(f"{args.output}: {len(out)} bytes, compat jamo with a whole glyph left to the glyph")
+            return
         eng = read_eng(open(args.eng, "rb").read()) if args.eng else None
         base = open(args.base, "rb").read() if args.base else None
         if args.from_ttf or args.from_svf:
@@ -1077,7 +1141,7 @@ def main():
                                                                           args.present_only, args.pylib)
                 extra = None if (eng is not None or base is not None) else ascii_glyphs
                 out, info = fit_font(layout, targets, w, h, ascent, eng, base, extra, False, mask, args.mask_radius,
-                                     args.passes, args.pylib, mask_auto)
+                                     args.passes, args.pylib, mask_auto, args.advance)
                 info["source"] = tinfo
             else:
                 face = parse_svfn(open(args.from_svf, "rb").read())
@@ -1091,7 +1155,7 @@ def main():
                     raise SourceError(f"{args.from_svf} has no non-blank Hangul syllables")
                 out, info = fit_font(layout, targets, w, h, face.ascent, eng, open(args.from_svf, "rb").read(), None,
                                      True, mask, args.mask_radius, args.passes, args.pylib, mask_auto,
-                                     svf_advance(face))
+                                     args.advance if args.advance is not None else svf_advance(face))
                 info["source"] = {"face": os.path.basename(args.from_svf), "cell": [w, h], "ascent": face.ascent,
                                   "size": os.path.getsize(args.from_svf),
                                   "syllable_advance": svf_advance(face)}

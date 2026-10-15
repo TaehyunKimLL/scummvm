@@ -857,12 +857,12 @@ class DosFace24(unittest.TestCase):
         pft = bytearray(12288)
         pft[ord("H") * 48 + 2 * 20] = 0xFF		# row 20, columns 0-7 (12 wide, left aligned in 2 bytes)
         e = jamoset.read_eng(bytes(pft))
-        self.assertEqual((e.w, e.h, e.baseline), (12, 24, 21))
+        self.assertEqual((e.w, e.h, e.adv, e.baseline), (16, 24, 12, 21))		# 16 bit rows, steps 12
         hb = bytearray(15360)
         hb[ord("H") * 60 + (3 + 5) * 2] = 0xFF		# cell row 5 (file row 8) of a 16x30 cell
         e = jamoset.read_eng(bytes(hb))
         self.assertEqual(e.baseline, 6)
-        self.assertEqual(e.glyph(ord("H"))[5], 0xFF0)
+        self.assertEqual(e.glyph(ord("H"))[5], 0xFF00)
 
     def test_eng_goes_at_the_left_steps_12_and_sets_the_ascent(self):
         pft = bytearray(12288)
@@ -911,6 +911,275 @@ class DosFace24(unittest.TestCase):
             self.assertIn("composed 11172", r.stdout)
             with open(out, "rb") as fh:
                 self.assertEqual(jamoset.parse_svfn(fh.read()).ascent, 21)
+
+
+class FakeOutline:
+    """Stands in for jamofit.OutlineFont (no FreeType needed): a font that draws every 100th syllable and ASCII, and a box for
+    .notdef (gid 0), so a fit that includes .notdef targets shows up as 11,172 targets instead of 112."""
+
+    def __init__(self, path, px, pylib=None):
+        self.px = px
+
+    @staticmethod
+    def drawn(cp):
+        return 0x20 <= cp < 0x7F or (0xAC00 <= cp <= 0xD7A3 and (cp - 0xAC00) % 100 == 0)
+
+    def gid(self, cp):
+        return cp if self.drawn(cp) else 0
+
+    def raw(self, gid, dx=0.0, dy=0.0):
+        if gid == 0:
+            return [0xFF] * 10, 8, 1, 12
+        return [((gid * 2654435761 >> r) & 0xFF) | 0x18 for r in range(10)], 8, 1, 12
+
+    def advance(self, gid):
+        return 8.0
+
+
+def run_main(argv):
+    """jamoset.main() in this process with FakeOutline in place of FreeType; returns (exit code or None, stdout)."""
+    import contextlib
+    import io
+    jf = jamoset._jamofit()
+    old_argv, old_font = sys.argv, jf.OutlineFont
+    sys.argv, jf.OutlineFont = ["jamoset.py"] + argv, FakeOutline
+    out = io.StringIO()
+    code = None
+    try:
+        with contextlib.redirect_stdout(out):
+            jamoset.main()
+    except SystemExit as e:
+        code = e.code
+    finally:
+        sys.argv, jf.OutlineFont = old_argv, old_font
+    return code, out.getvalue()
+
+
+def whole_glyph_face(layout_name="844", cps=(0x3131, 0x3134)):
+    """(plain jamo-set face, the same with a whole glyph for each of @p cps added behind the tool's back, the source): the
+    second is what the tool wrote before compat jamo the base has were left to the base."""
+    layout = jamoset.LAYOUTS[layout_name]
+    src = region_source()
+    plain = jamoset.build_from_source(layout, layout.opener(src, 0, ""))[0]
+    f = jamoset.parse_svfn(plain)
+    glyphs = [(cp, f.glyphs[cp], *f.metrics[cp]) if cp in f.metrics else (cp, f.glyphs[cp], 16, 0, 16) for cp in f.glyphs]
+    for k, cp in enumerate(cps):
+        glyphs.append((cp, bytes([k + 1]) * 32, 16, 0, 16))
+    old = jamoset.write_svfn(f.cell_w, f.cell_h, f.ascent, glyphs, f.jset, f.flags & 4, f.shadow, f.codepage)
+    return plain, old, src
+
+
+class WholeCompatJamo(unittest.TestCase):
+    """A compat jamo the base face draws whole must not also map to pieces: the engine looks at the piece table first."""
+
+    def test_base_glyph_blanks_the_compat_piece(self):
+        layout = jamoset.LAYOUTS["844"]
+        face, _ = make_face({})		# has U+3131 as a whole glyph
+        out = jamoset.build_from_source(layout, layout.opener(region_source(), 0, ""), base=face)[0]
+        t = jamoset.unpack(jamoset.parse_svfn(out).jset)
+        self.assertEqual(t.compat[0], jamoset.BLANK)			# U+3131 is the base's
+        self.assertNotEqual(t.compat[1], jamoset.BLANK)			# U+3132 still comes from pieces
+        self.assertIn(0x3131, jamoset.parse_svfn(out).glyphs)
+        self.assertEqual(jamoset.parse_svfn(out).glyphs[0x3131], jamoset.parse_svfn(face).glyphs[0x3131])
+
+    def test_a_blank_base_glyph_does_not_count(self):
+        layout = jamoset.LAYOUTS["844"]
+        face, _ = make_face({})
+        f = jamoset.parse_svfn(face)
+        glyphs = [(cp, bytes(32) if cp == 0x3131 else g, *f.metrics[cp]) for cp, g in f.glyphs.items()]
+        blank = jamoset.write_svfn(16, 16, 12, glyphs, b"", 0)
+        # write_svfn of a jamo-less face: build the base by hand through the flag-free path
+        out = jamoset.build_from_source(layout, layout.opener(region_source(), 0, ""), base=blank)[0]
+        t = jamoset.unpack(jamoset.parse_svfn(out).jset)
+        self.assertNotEqual(t.compat[0], jamoset.BLANK)
+
+    def test_no_piece_glyph_is_left_unreferenced(self):
+        layout = jamoset.LAYOUTS["844"]
+        face, _ = make_face({})
+        f = jamoset.parse_svfn(jamoset.build_from_source(layout, layout.opener(region_source(), 0, ""), base=face)[0])
+        t = jamoset.unpack(f.jset)
+        used = {jamoset.PIECE_BASE + p for lst in (t.init_piece, t.med_piece, t.fin_piece, t.compat) for p in lst
+                if p != jamoset.BLANK}
+        used |= {jamoset.PIECE_BASE + p for cp in range(0xAC00, 0xD7A4) for p in jamoset.pieces_of(t, cp)
+                 if p != jamoset.BLANK}
+        self.assertEqual({cp for cp in f.glyphs if cp >= jamoset.PIECE_BASE}, used)
+
+    def test_blank_whole_compat_repairs_an_old_face(self):
+        plain, old, src = whole_glyph_face()
+        before = jamoset.unpack(jamoset.parse_svfn(old).jset)
+        self.assertNotEqual(before.compat[0], jamoset.BLANK)
+        fixed = jamoset.blank_whole_compat(old)
+        f = jamoset.parse_svfn(fixed)
+        t = jamoset.unpack(f.jset)
+        self.assertEqual((t.compat[0], t.compat[3]), (jamoset.BLANK, jamoset.BLANK))	# U+3131, U+3134
+        self.assertEqual(t.compat[1:3] + t.compat[4:], before.compat[1:3] + before.compat[4:])
+        self.assertEqual(f.glyphs[0x3131], bytes([1]) * 32)
+        o = jamoset.parse_svfn(old)
+        for cp in range(0xAC00, 0xD7A4):		# syllables compose as before
+            self.assertEqual(jamoset.compose(f, t, cp), jamoset.compose(o, before, cp))
+        self.assertEqual((f.cell_w, f.cell_h, f.ascent, f.flags), (o.cell_w, o.cell_h, o.ascent, o.flags))
+        self.assertEqual(jamoset.blank_whole_compat(fixed), fixed)		# idempotent
+
+    def test_blank_whole_compat_command(self):
+        plain, old, src = whole_glyph_face()
+        with tempfile.TemporaryDirectory() as d:
+            a, b = os.path.join(d, "A.SVF"), os.path.join(d, "B.SVF")
+            open(a, "wb").write(old)
+            r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "jamoset.py"), "--layout", "844",
+                                "--blank-compat", a, "-o", b], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(open(b, "rb").read(), jamoset.blank_whole_compat(old))
+
+
+class WholeCompatFromSvf(unittest.TestCase):
+    def test_from_svf_leaves_compat_jamo_the_face_has_to_the_face(self):
+        with tempfile.TemporaryDirectory() as d:
+            face, _, _ = composed_face(ks2350())
+            a, b = os.path.join(d, "F.SVF"), os.path.join(d, "O.SVF")
+            open(a, "wb").write(face)
+            r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "jamoset.py"), "--layout", "844", "--from-svf", a,
+                                "--mask", "none", "-o", b], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            t = jamoset.unpack(jamoset.parse_svfn(open(b, "rb").read()).jset)
+            self.assertEqual(t.compat[0], jamoset.BLANK)			# make_face draws U+3131 whole
+            self.assertNotEqual(t.compat[1], jamoset.BLANK)
+
+
+class Eng12x24(unittest.TestCase):
+    """The 12x24 faces' 16 bit rows: MASCII24's right serifs sit in columns 12-15 and must survive; the step stays 12."""
+
+    def pft(self):
+        pft = bytearray(12288)
+        pft[ord("H") * 48 + 2 * 20] = 0x80			# row 20, column 0 (the baseline row)
+        pft[ord("H") * 48 + 2 * 20 + 1] = 0x08		# row 20, column 12: a right serif
+        pft[ord("I") * 48 + 2 * 5 + 1] = 0x01		# row 5, column 15
+        return jamoset.read_eng(bytes(pft))
+
+    def test_pft_keeps_columns_12_to_15(self):
+        e = self.pft()
+        self.assertEqual(e.glyph(ord("H"))[20], 0x8008)
+        self.assertEqual(e.glyph(ord("I"))[5], 0x0001)
+        self.assertEqual(e.adv, 12)
+
+    def test_hbios_keeps_columns_12_to_15(self):
+        hb = bytearray(15360)
+        hb[ord("H") * 60 + (3 + 5) * 2 + 1] = 0x04		# cell row 5, column 13
+        e = jamoset.read_eng(bytes(hb))
+        self.assertEqual(e.glyph(ord("H"))[5], 0x0004)
+        self.assertEqual(e.adv, 12)
+
+    def test_written_ascii_has_the_serif_and_steps_12(self):
+        e = self.pft()
+        out, _, _ = jamoset.build_from_source(jamoset.LAYOUTS["844-hbios24"], jamoset.open_hbios24(DosFace24.hbios()), e,
+                                              advance=24)
+        f = jamoset.parse_svfn(out)
+        self.assertEqual(f.metrics[ord("H")][0], 12)
+        row = int.from_bytes(f.glyphs[ord("H")][20 * 3:21 * 3], "big")
+        self.assertEqual(row, 0x8008 << 8)				# 24 bit cell, glyph at the left
+        self.assertEqual(f.metrics[ord("H")][2], 13)			# ink width runs to column 12
+
+    def test_embolden_widens_before_it_shifts(self):
+        e = self.pft()
+        out, _, _ = jamoset.build_from_source(jamoset.LAYOUTS["844-hbios24"], jamoset.open_hbios24(DosFace24.hbios()), e,
+                                              advance=24, bold=True)
+        f = jamoset.parse_svfn(out)
+        row = int.from_bytes(f.glyphs[ord("I")][5 * 3:6 * 3], "big")
+        self.assertEqual(row, (0x0001 << 8) | (0x0001 << 7))		# column 15 and its copy in column 16
+        h = int.from_bytes(f.glyphs[ord("H")][20 * 3:21 * 3], "big")
+        self.assertEqual(h, 0x8008 << 8 | 0x4004 << 8)
+
+
+class SmallCellSymbols(unittest.TestCase):
+    def check(self, w, h, ascent, adv):
+        for cp, (packed, a, ix, iw) in jamoset.symbol_glyphs(w, h, ascent, adv).items():
+            nb = (w + 7) // 8
+            self.assertEqual(len(packed), nb * h, (cp, w, h))
+            for y in range(h):
+                v = int.from_bytes(packed[y * nb:(y + 1) * nb], "big") >> (nb * 8 - w)
+                self.assertLess(v, 1 << w)
+            self.assertLessEqual(ix + iw, w)
+
+    def test_narrow_and_short_cells_do_not_raise_or_spill(self):
+        for w, h, ascent, adv in ((8, 8, 6, 8), (8, 16, 13, 4), (6, 8, 2, 6), (16, 16, 12, 8), (24, 24, 21, 12), (4, 4, 3, 4)):
+            self.check(w, h, ascent, adv)
+
+    def test_dots_are_clipped_not_shifted_wrong(self):
+        packed = jamoset.symbol_glyphs(8, 8, 6, 8)[0x2026][0]
+        rows = [packed[y] for y in range(8)]
+        self.assertEqual([y for y, r in enumerate(rows) if r], [3, 4, 5])
+        # centred in an 8 px advance the 11 px run overhangs by 2 px each side: dots at columns 0, 2-4 and 6-7
+        self.assertEqual(rows[5], 0b10111011)
+
+
+class MeanIouEmpty(unittest.TestCase):
+    def test_no_targets_scores_zero(self):
+        self.assertEqual(jamofit.mean_iou({}, {}, {}), 0.0)
+
+
+class InkClipped(unittest.TestCase):
+    def test_bottom_row_on_the_cell_edge_is_clipped(self):
+        # baseline row oy, ink down to pen-relative bottom: the lowest ink row is oy - bottom
+        self.assertTrue(jamoset.ink_clipped(10, 10, 16, 16, oy=16, top=12, bottom=0))		# row 16 is outside 0..15
+        self.assertFalse(jamoset.ink_clipped(10, 10, 16, 16, oy=15, top=12, bottom=0))		# row 15 is the last
+        self.assertTrue(jamoset.ink_clipped(10, 10, 16, 16, oy=3, top=12, bottom=0))		# top row -9
+        self.assertFalse(jamoset.ink_clipped(10, 10, 16, 16, oy=12, top=12, bottom=0))
+        self.assertTrue(jamoset.ink_clipped(17, 10, 16, 16, oy=12, top=12, bottom=0))		# wider than the cell
+
+
+class TtfDefaults(unittest.TestCase):
+    def test_present_only_is_the_default_and_can_be_turned_off(self):
+        ap = jamoset.make_parser()
+        a = ap.parse_args(["--layout", "844", "--from-ttf", "x.ttf", "--size", "16", "-o", "o"])
+        self.assertTrue(a.present_only)
+        a = ap.parse_args(["--layout", "844", "--from-ttf", "x.ttf", "--size", "16", "--no-present-only", "-o", "o"])
+        self.assertFalse(a.present_only)
+        a = ap.parse_args(["--layout", "844", "--from-ttf", "x.ttf", "--size", "16", "--present-only", "-o", "o"])
+        self.assertTrue(a.present_only)
+
+    def test_a_font_without_most_syllables_is_fitted_to_the_ones_it_draws(self):
+        with tempfile.TemporaryDirectory() as d:
+            rep = os.path.join(d, "r.json")
+            code, out = run_main(["--layout", "844", "--from-ttf", "fake.ttf", "--size", "16", "--mask", "none",
+                                  "-o", os.path.join(d, "o.svf"), "--report", rep])
+            self.assertIsNone(code)
+            import json
+            info = json.load(open(rep))
+            self.assertEqual(info["source"]["fitted"], 112)		# not 11,172 (.notdef boxes)
+            self.assertEqual(info["quality"]["present"], 112)
+
+    def test_off_fits_every_syllable_to_notdef(self):
+        targets, w, h, ascent, info, _ = jamoset.ttf_targets("fake.ttf", 16, None, None, False, None) \
+            if self.patched() else (None,) * 6
+        self.assertEqual(info["fitted"], 11172)
+
+    def patched(self):
+        jf = jamoset._jamofit()
+        self._old = jf.OutlineFont
+        jf.OutlineFont = FakeOutline
+        self.addCleanup(setattr, jf, "OutlineFont", self._old)
+        return True
+
+    def test_advance_is_honoured_by_from_ttf(self):
+        with tempfile.TemporaryDirectory() as d:
+            for extra, want in (([], 0), (["--advance", "20"], 20)):
+                o = os.path.join(d, "o.svf")
+                code, out = run_main(["--layout", "844", "--from-ttf", "fake.ttf", "--size", "16", "--mask", "none",
+                                      "-o", o] + extra)
+                self.assertIsNone(code)
+                self.assertEqual(jamoset.unpack(jamoset.parse_svfn(open(o, "rb").read()).jset).advance, want, extra)
+
+
+class FromSvfAdvance(unittest.TestCase):
+    def test_explicit_advance_overrides_the_faces_own(self):
+        with tempfile.TemporaryDirectory() as d:
+            face, _, _ = composed_face(list(range(0, 11172, 40)))
+            a = os.path.join(d, "F.SVF")
+            open(a, "wb").write(face)
+            for extra, want in (([], 16), (["--advance", "20"], 20)):
+                o = os.path.join(d, "o.svf")
+                code, out = run_main(["--layout", "844", "--from-svf", a, "--mask", "none", "-o", o] + extra)
+                self.assertIsNone(code, out)
+                self.assertEqual(jamoset.unpack(jamoset.parse_svfn(open(o, "rb").read()).jset).advance, want, extra)
 
 
 if __name__ == "__main__":
