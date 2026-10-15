@@ -175,13 +175,12 @@ scale=2            ; 320x200 game drawn on a 640x400 text surface
 blend=off          ; 1 bpp faces: hard-edged, nothing to blend
 [fonts]
 ui=IYAGI16.SVF         ; Iyagi 16 px jamo set (a pack's copy says data:IYAGI16.SVF)
-body=HWPHG24.SVF       ; HWP 24 px jamo set
+body=MUNJO24.SVF       ; Mac Munjo 24 px jamo set (no ASCII)
 [font]             ; every id without its own section
 face=ui
 missing=u+25a1     ; a character no face has draws a box
 align=cell
-range.basic-latin=same     ; ASCII from the same SVF as the Hangul,
-advance.basic-latin=font   ; stepped by its own widths
+range.basic-latin=original ; English in the game's own font
 [font.300]         ; message boxes, narration
 face=body
 size=24

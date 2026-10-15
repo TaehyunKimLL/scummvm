@@ -66,11 +66,10 @@ beside them list the games that use each):
 | GBATB31 | Gowun Batang Bold, AA | 31 | 32x32 | 2 | precomposed | 1121 (game subset) | I4U3 |
 | GBATB35 | Gowun Batang Bold, AA | 35 | 36x36 | 2 | precomposed | 2446 | DOTTU7 |
 | GBATB47 | Gowun Batang Bold, AA | 47 | 46x54 | 2 | precomposed | 2446 | DOTTU0 |
-| HWPHG24 | HWP 1.20 HANGUL3.PFT face 0 + ASCII.PFT | 24 | 24x24 | 1 | jamo | 11,172 composed | KQ1H24 |
-| HTERM16 | hanterm-font 3.1 8-4-4/h01.bdf | 16 | 16x16 | 1 | jamo | 11,172 composed | - |
+| HTERM16 | hanterm-font 3.1 8-4-4/h01.bdf | 16 | 16x16 | 1 | jamo | 11,172 composed | KQ1KO (font 0) |
 | HWPHM24 | HWP 1.x HANGUL1.PFT (serif) | 24 | 24x24 | 1 | jamo | 11,172 composed | - |
-| IYAGI16 | san 1.0 IYG.KOR (Iyagi) + SAN.ENG | 16 | 16x16 | 1 | jamo | 11,172 composed | KQ1I16 |
-| MUNJO24 | Mac HangulTalk 1.0 Munjo24 'fbit' (mac-fbit-45sets) | 24 | 24x24 | 1 | jamo | 11,172 composed | - |
+| IYAGI16 | san 1.0 IYG.KOR (Iyagi) + SAN.ENG | 16 | 16x16 | 1 | jamo | 11,172 composed | KQ1 |
+| MUNJO24 | Mac HangulTalk 1.0 Munjo24 'fbit' (mac-fbit-45sets) | 24 | 24x24 | 1 | jamo | 11,172 composed | KQ1KO (font 300) |
 | NEODG16 | neodgm | 16 | 16x16 | 1 | precomposed | 2905 | KO2350 |
 | NEODG16A | neodgm | 16 | 16x16 | 1 | jamo | 11,172 composed | DOTTL1 |
 | NEODG16B | neodgm | 16 | 16x16 | 1 | jamo | 11,172 composed | M2L1 |
@@ -639,46 +638,23 @@ What follows from that:
    baked at row 21 is drawn at row 39 of a 24-row cell. With
    `origin.basic-latin=face` the baked baseline is the only placement.
 
-### KQ1 (SCI remake): the Iyagi 16 px and HWP 1.20 24 px jamo sets (IYAGI16, HWPHG24)
+### KQ1 (SCI remake): HTERM16 (font 0), IYAGI16 (font 4 and others), MUNJO24 (font 300), English in the game font
 
-KQ1KO.MAP draws the game's fonts with two jamo sets, the user's pairing selection (the same in every render_target, 1 bpp):
-font 0 (status line, menu bar, parser line), 4 (title buttons) and any other id: `IYAGI16.SVF`, Iyagi IYG.KOR (san-1.0's
-font-kor) 16 px with SAN.ENG, ascent 15; font 300 (message boxes, narration): `HWPHG24.SVF`, HWP 1.20 printer font
-HANGUL3.PFT face 0 (24x24) with the same package's ASCII.PFT (14x24, advance 14, kept at its own rows: baseline row 20, so
-ASCII sits above the Hangul baseline like HWP's), ascent 24. Font 300 needs `size=24` and `cell=glyph` in its section: the
-engine's default layout cell is 16 px, and a 24 px face drawn in it lands 4 px off its pen (overlapped, sheared-looking
-syllables). The text has no character outside ASCII + KS X 1001 (the bases are complete), so there is no supplement.
-SANGAM16.SVF (GAM.KOR, the previous KQ1 face, was KQ1G16.SVF) stays: KQ4KO.MAP uses it. Licences: SAN10.TXT (san is MIT), HWP120.TXT (not stated).
-
-The HWP PFT is a 7/2/3-set font that kfont composes, so it is exported as a precomposed SVFN (ASCII + all 11,172 syllables;
-`pairing2svf.svfn_bytes`) and then fitted to 844 pieces (IoU 1.000, exact for all 11,172):
-
-```sh
-D=dists/engine-data/hires_text/dos; B=~/work/johab-fonts/dos/raw/gh_drypot__san-1.0
-python3 tools/korean/jamoset.py --layout 844 $B/font-kor/IYG.KOR --eng $B/font-eng/SAN.ENG --ascent 15 --symbols --check -o $D/IYAGI16.SVF
-python3 - <<'PY'
-import sys, os, base64
-sys.path[:0] = [os.path.expanduser("~/work/johab-fonts/tools"), "tools/korean"]
-import kfont, pairing2svf as p
-R = os.path.expanduser("~/work/johab-fonts/printer/extracted/ia-HWP120.zip/")
-kor, eng = kfont.open_font(R + "lzh/hangul.002.HANGUL3.PFT"), kfont.open_font(R + "ASCII.PFT")
-def cell(g):
-    d = bytearray()
-    for r in g.rows[:24]:
-        b = bytearray(3)
-        for x in range(min(g.w, 24)):
-            if r >> (g.w - 1 - x) & 1: b[x >> 3] |= 0x80 >> (x & 7)
-        d += b
-    return d + bytes(3 * (24 - len(g.rows)))
-cps = list(range(0x20, 0x7f)) + [0xAC00 + i for i in range(11172)]
-data = b"".join(bytes(cell((eng if cp < 0x80 else kor).glyph(cp))) for cp in cps)
-adv = [14 if cp < 0x80 else 24 for cp in cps]
-face = {"key": "hwp120-h3-f0", "w": 24, "h": 24, "bpp": 1, "ascent": 24, "adv": adv,
-        "chars": "".join(map(chr, cps)), "data": base64.b64encode(data).decode()}
-open("/tmp/hwp24.svf", "wb").write(p.svfn_bytes(face))
-PY
-python3 tools/korean/jamoset.py --layout 844 --from-svf /tmp/hwp24.svf --symbols --check -o $D/HWPHG24.SVF
-```
+KQ1KO.MAP draws the game's fonts with three 1 bpp jamo sets, the user's pairing selection of 2026-10-15 (the same in every
+render_target): font 0 (status line, menu bar, parser line) `HTERM16.SVF`, hanterm-font 3.1 h01.bdf 16 px (layout 844); font 4 (title buttons),
+font 999 and any other id `IYAGI16.SVF`, Iyagi IYG.KOR (san-1.0's font-kor) 16 px; font 300 (message boxes, narration) `MUNJO24.SVF`, Mac
+HangulTalk Munjo24, 24 px (mac-fbit-45sets, no ASCII). Font 300 needs `size=24` and `cell=glyph` in its section: the engine's default
+layout cell is 16 px, and a 24 px face drawn in it lands 4 px off its pen (overlapped, sheared-looking syllables). English is the game's
+own font on every id (`range.basic-latin=original`, the user's direction "영문은 원본 사용"): the faces' ASCII is not used and MUNJO24 has
+none. On the 24 px font 300 the original Latin is 16 px, so commas, periods and quotes look small next to the Hangul; the alternative
+tried (`face=munjo,hwp,fb` with `range.basic-latin=same`, HWPHG24's 14x24 ASCII) is in runs/kq1-pair3/ and was not applied. The status
+line fits: the right-hand title ("킹스 퀘스트 I") sits at its own position and is not cut off (runs/kq1-pair3/report.md). The text has no
+character outside ASCII + KS X 1001. Pre-2026-10-15 history: font 300 was `HWPHG24.SVF` (HWP 1.20 HANGUL3.PFT face 0 + ASCII.PFT, 24 px) and
+font 0/4 `IYAGI16` with its ASCII; HWPHG24 was removed when nothing referenced it (git history has the file and its export recipe).
+SANGAM16.SVF (GAM.KOR, the earlier KQ1 face) stays: KQ4KO.MAP and every map's fallback chain use it. Licences: SAN10.TXT (san is MIT),
+HTERM.TXT, MUNJO.TXT (the last two not stated). The three faces' build commands are in the LB1 section below (HTERM16, MUNJO24) and above
+(IYAGI16: `jamoset --layout 844 $B/font-kor/IYG.KOR --eng $B/font-eng/SAN.ENG --ascent 15 --symbols --check -o $D/IYAGI16.SVF`,
+$B = ~/work/johab-fonts/dos/raw/gh_drypot__san-1.0).
 
 ### LB1 (SCI0): the 8-bit preset's faces per font id (HTERM16, HWPHM24, IYAGI16, TBGHC48, MUNJO24, DIPHY36, YOUTH36)
 

@@ -1,21 +1,22 @@
-; King's Quest I (SCI remake), Korean UTF-8 translation. One map; the same two faces
+; King's Quest I (SCI remake), Korean UTF-8 translation. One map; the same three faces
 ; in every render_target (1 bpp, hard-edged, so no preset differs).
 ;
 ; Faces, picked by the game's font id (the user's pairing selection, 2026-10-15):
-;   ui   - font 0 (status line, menu bar, parser line), font 4 (the title menu's
-;          buttons) and any other id: IYAGI16.SVF, Iyagi IYG.KOR (san-1.0's font-kor) 16 px
-;          with its SAN.ENG ASCII, a jamo set (all 11,172 syllables, 20 KB, lossless);
-;   body - font 300 (message boxes, narration): HWPHG24.SVF, HWP 1.20 printer font
-;          HANGUL3.PFT face 0 at 24 px with the HWP ASCII.PFT (14x24), a jamo set
-;          (38 KB, lossless).
+;   status - font 0 (status line, menu bar, parser line): HTERM16.SVF, hanterm h01.bdf
+;            16 px, jamo layout 844 (a jamo set, all 11,172 syllables);
+;   ui     - font 4 (the title menu's buttons), font 999 and any other id: IYAGI16.SVF,
+;            Iyagi IYG.KOR (san-1.0's font-kor) 16 px, a jamo set (lossless);
+;   body   - font 300 (message boxes, narration): MUNJO24.SVF, Mac HangulTalk Munjo
+;            24 px, the mac-fbit-45sets jamo set.
+; English (every id) is the game's own font: range.basic-latin=original, advances and
+; origin from the game. HTERM16 and IYAGI16 carry ASCII but it is not used; MUNJO24 has
+; no ASCII at all. KQ1's text uses no non-ASCII character other than Hangul.
 ; The game draws at 320x200 and the map doubles it (scale=2): the 16 px cell is the
 ; engine's default layout cell (the 8-row status/menu line); font 300 sets size=24
 ; cell=glyph so the layout cell is the face's 24 px (the 12-row message line) -
 ; without that the engine keeps its 16 px cell and draws the 24 px glyph 4 px off
-; its pen, overlapping its neighbours. Text wraps by the game's pixel width with the
-; faces' advances (ASCII 8/14 px, Hangul 16/24 px at 640 wide).
-; Both bases hold ASCII and every Hangul syllable; KQ1's text uses no other
-; character, so there is no supplement face. Licences: SAN10.TXT, HWP120.TXT beside this file.
+; its pen, overlapping its neighbours. Text wraps by the game's pixel width.
+; Licences: HTERM.TXT, IYAGI (SAN10.TXT), MUNJO.TXT beside this file.
 ; Fallback: SANGAM16.SVF (engine data, 20 KB) is the last face of every chain whose faces live in the
 ; jamo font pack, so a missing font pack still shows Korean (16 px; see SAN10.TXT).
 [map]
@@ -26,19 +27,22 @@ scale=2
 blend=off
 
 [fonts]
+hterm=HTERM16.SVF
 ui=IYAGI16.SVF
-body=HWPHG24.SVF
+munjo=MUNJO24.SVF
 fb=SANGAM16.SVF
 
 [font]
 face=ui,fb
 missing=u+25a1
 align=cell
-; ASCII from the same SVF as the Hangul, stepped by its own widths
-range.basic-latin=same
-advance.basic-latin=font
+; English in the game's own font
+range.basic-latin=original
+
+[font.0]
+face=hterm,fb
 
 [font.300]
-face=body,fb
+face=munjo,fb
 size=24
 cell=glyph
