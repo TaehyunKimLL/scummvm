@@ -1,17 +1,20 @@
 ; King's Quest IV (SCI0), Korean UTF-8 translation. One map; the same faces in every
-; render_target (1 bpp, hard-edged). The pairing selection (2026-10-15):
-;   ui    - fonts 0 (status line, menu bar, parser line, system dialogs), 4 (the
-;           copy-protection and first-run boxes) and any other id: SANGAM16.SVF, the
-;           16 px san-1.0 GAM.KOR jamo set (SAN10.TXT);
-;   large - font 1 (parser replies, the "enter" prompt, inventory and other message
-;           boxes: the game's default message font): AMYJO20.SVF, the Mac Hangul
-;           AppleMyungjo 20 px strike (cell 20x21, APPLEMJ.TXT), precomposed: its own ASCII (8-20
-;           px advances) + the 2,350 KS X 1001 syllables + 6 quotation marks and
-;           dots + U+25A1. The original font 1 is 12 rows with glyphs of at most 10,
-;           so a 20 px face keeps its leading at 2x (a 24 px one fills the line).
-;           KQ4's translation needs no other character (no supplement).
-; Font 1 sets size=20 and cell=glyph: the engine's default 16 px layout cell would
-; draw the 20 px glyphs off their pens, overlapping.
+; render_target (1 bpp, hard-edged). The pairing selection (2026-10-15, step 1):
+;   ui    - font 0 (status line, menu bar, parser line, system dialogs) and any other id:
+;           SANGAM16.SVF, the 16 px san-1.0 GAM.KOR jamo set (SAN10.TXT), engine data
+;           (also the engine's fallback face);
+;   large - font 1 (large message boxes: parser replies, the "enter" prompt, inventory):
+;           HWPHM24.SVF, HWP 1.x HANGUL1.PFT 24 px serif jamo set (HWP120.TXT);
+;   msg   - font 4 (message boxes, narration, parser replies; the copy-protection and
+;           first-run boxes): IYAGI16.SVF, san-1.0 Iyagi IYG.KOR 16 px jamo set;
+;   dbg   - font 999 (debug): WCOMM16.SVF, han_wcomm.fnt of the iolo 6x2x1-fonts
+;           collection (Wordcom), 16 px jamo set, ascent 15 (WCOMM.TXT).
+; English is the game's own font on every id (range.basic-latin=original, game widths):
+; the faces carry Hangul only, so "of Rosella", digits and punctuation are as in the
+; English game. Font 1 sets size=24 and cell=glyph: the engine's default 16 px layout
+; cell would draw 24 px glyphs off their pens, overlapping.
+; Fallback: SANGAM16.SVF is the last face of every chain whose face lives in the jamo
+; font pack, so a missing pack still shows Korean (16 px).
 [map]
 version=2
 
@@ -21,17 +24,25 @@ blend=off
 
 [fonts]
 ui=SANGAM16.SVF
-large=AMYJO20.SVF
+large=HWPHM24.SVF
+msg=IYAGI16.SVF
+dbg=WCOMM16.SVF
+fb=SANGAM16.SVF
 
 [font]
 face=ui
 missing=u+25a1
 align=cell
-; ASCII from the same SVF as the Hangul, stepped by its own widths
-range.basic-latin=same
-advance.basic-latin=font
+range.basic-latin=original
+advance.basic-latin=game
 
 [font.1]
-face=large
-size=20
+face=large,fb
+size=24
 cell=glyph
+
+[font.4]
+face=msg,fb
+
+[font.999]
+face=dbg,fb

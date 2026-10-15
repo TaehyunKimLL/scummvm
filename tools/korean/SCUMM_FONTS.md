@@ -24,7 +24,7 @@ TrueType `--size`, or the bitmap face's own height), not the cell:
 | `HWPHG`, `HWPHM` | HWP 1.20 HANGUL3.PFT face 0 and HWP 1.x HANGUL1.PFT (serif) | HWP120.TXT |
 | `HTERM` | hanterm-font 3.1 `8-4-4/h01.bdf` | HTERM.TXT |
 | `MUNJO` | Mac HangulTalk 1.0 Munjo (myeongjo) 'fbit' | MUNJO.TXT |
-| `AMYJO` | Mac AppleMyungjo bitmap strike | APPLEMJ.TXT |
+| `WCOMM` | han_wcomm.fnt (Wordcom, iolo 6x2x1-fonts) | WCOMM.TXT |
 | `DIPHY` | Diphylleia Regular (1 bpp: FreeType mono render) | OFLDIPHY.TXT, DIPHY.TXT |
 | `YOUTH` | Youth (청춘체) (1 bpp: FreeType mono render) | YOUTH.TXT |
 | `BHSAN`, `COUSB` | Black Han Sans, Coustard Black | OFLBHS.TXT, OFLCOUS.TXT |
@@ -50,7 +50,6 @@ beside them list the games that use each):
 
 | face | source | px | cell | bpp | layout | glyphs | was |
 |---|---|---|---|---|---|---|---|
-| AMYJO20 | Mac AppleMyungjo 20 px bitmap strike | 20 | 20x21 | 1 | precomposed | 2454 | KQ4A20 |
 | BHSAN28 | Black Han Sans | 28 | 28x28 | 2 | precomposed | 1214 (game subset) | Q1T28 |
 | COUSB24 | Coustard Black | 24 | 28x28 | 2 | precomposed | 95 | Q1L28 |
 | DIPHY36 | Diphylleia Regular, 1 bpp mono render | 36 | 36x36 | 1 | precomposed | 2358 (2,350 + symbols, no ASCII) | LB1 (font 40) |
@@ -69,6 +68,7 @@ beside them list the games that use each):
 | HTERM16 | hanterm-font 3.1 8-4-4/h01.bdf | 16 | 16x16 | 1 | jamo | 11,172 composed | KQ1KO (font 0) |
 | HWPHM24 | HWP 1.x HANGUL1.PFT (serif) | 24 | 24x24 | 1 | jamo | 11,172 composed | - |
 | IYAGI16 | san 1.0 IYG.KOR (Iyagi) + SAN.ENG | 16 | 16x16 | 1 | jamo | 11,172 composed | KQ1 |
+| WCOMM16 | han_wcomm.fnt (iolo 6x2x1-fonts) | 16 | 16x16 | 1 | jamo | 11,172 composed | - |
 | MUNJO24 | Mac HangulTalk 1.0 Munjo24 'fbit' (mac-fbit-45sets) | 24 | 24x24 | 1 | jamo | 11,172 composed | KQ1KO (font 300) |
 | NEODG16 | neodgm | 16 | 16x16 | 1 | precomposed | 2905 | KO2350 |
 | NEODG16A | neodgm | 16 | 16x16 | 1 | jamo | 11,172 composed | DOTTL1 |
@@ -690,20 +690,25 @@ section). Licences: SAN10.TXT, HWP120.TXT, TAEBAEK.TXT, HTERM.TXT, MUNJO.TXT (th
 rendered by `runs/fontmeasure/export/ttf_sizes.py 36 1`) through `pairing2svf.svfn_bytes` with the ASCII cells dropped (the game font draws
 Latin); one-game faces, so they sit in the LB1 game folder (and the engine DATA), not in a font pack.
 
-### KQ4 (SCI0): san 16 px shared with KQ1, Mac AppleMyungjo 20 px (AMYJO20)
+### KQ4 (SCI0): SANGAM16, HWPHM24, IYAGI16 and WCOMM16 (the user's pairing picks, 2026-10-15)
 
-KQ4KO.MAP: fonts 0, 4 and any other id on `SANGAM16.SVF` (the former KQ1 face, same 16 px cell); font 1 on `AMYJO20.SVF` with `size=20`,
-`cell=glyph`. In the game font 1 is the default message font (parser replies, the "enter" prompt, inventory and other boxes);
-font 4 shows only the first-run and copy-protection boxes. HAN24_1 is a precomposed KS X 1001 source (a jamo fit is IoU 0.815),
-so KQ4H24 is a precomposed 1 bpp base (ASCII from ENG24_0 at 12 px + 2,350 syllables + U+25A1; 205 KB), written from the
-pairing export `korean-hwp3.json` (key hwp3-7, `runs/fontmeasure/export/hwp3_export.py`) by `pairing2svf.svfn_bytes`:
+KQ4KO.MAP, one 1 bpp set for every render_target: font 0 (status/menu bar, parser line, system dialogs) and any other id on
+`SANGAM16.SVF` (san-1.0 GAM.KOR 16 px, also the engine's fallback); font 1 (large message boxes) on `HWPHM24.SVF` (HWP 1.x HANGUL1.PFT
+24 px serif, the LB1 face; `size=24`, `cell=glyph`); font 4 (message boxes, narration, parser replies) on `IYAGI16.SVF`; font 999
+(debug) on `WCOMM16.SVF`. English is the game's own font on every id (`range.basic-latin=original`, `advance.basic-latin=game`): the
+faces carry Hangul only. Fonts 1, 4 and 999 chain `fb=SANGAM16.SVF`. The previous font 1 face (Mac AppleMyungjo 20 px, AMYJO20) and its
+note APPLEMJ.TXT are gone. The text (ko.tsv) has no character outside ASCII and the 2,350 syllables: no supplement.
+
+`WCOMM16` is han_wcomm.fnt of the iolo 6x2x1-fonts collection (`~/work/johab-fonts/dos/raw/gh_iolo__6x2x1-fonts/src/han_wcomm.fnt`, a
+6x2x1 johab font: 16x16 Hangul, 8x16 ASCII), fitted like HTERM16 from the pairing export's precomposed cells
+(`korean-johab-16-4.json` key `src-han-wcomm-fnt`, ascent 15; IoU 1.000, 2350 of 2350 exact, 20,497 B):
 
 ```sh
 python3 -c "
 import sys, json; sys.path.insert(0, 'tools/korean'); import pairing2svf as p
-f = [x for x in json.load(open('runs/fontmeasure/export/korean.json'))['fonts'] if x['key'] == 'mac-applemyungjo-20'][0]
-open('dists/engine-data/hires_text/dos/AMYJO20.SVF', 'wb').write(p.svfn_bytes(f))"
+f = [x for x in json.load(open('korean-johab-16-4.json'))['fonts'] if x['key'] == 'src-han-wcomm-fnt'][0]
+open('wcomm.svf', 'wb').write(p.svfn_bytes(f))"
+python3 tools/korean/jamoset.py --layout 844 --from-svf wcomm.svf --symbols --check -o $D/WCOMM16.SVF
 ```
 
-The text (ko.tsv) has no character outside ASCII and the 2,350 syllables: no supplement; `facecoverage` (base_check) passes.
-Licences: SAN10.TXT, APPLEMJ.TXT.
+Licences: SAN10.TXT, HWP120.TXT, WCOMM.TXT (the last two not stated).
