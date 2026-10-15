@@ -677,6 +677,50 @@ public:
 		checkStreamedLikeLoaded(unsorted, points);
 	}
 
+	// A map's [load] decides per face; the size rule is only for auto.
+	void test_load_mode_overrides_the_stream_threshold() {
+		using namespace Graphics;
+		Common::Array<byte> small = makeFont(8, 949, 16, 8, 8, 6, false);     // ~1 KB of glyphs
+		Common::Array<byte> big = makeFont(8, 949, 2350, 24, 24, 17, false);  // ~1.3 MB of glyphs
+		HiResBitmapFont::setStreamThreshold(64 * 1024);
+
+		// auto: the threshold rule, as loadStreamed() without a mode.
+		HiResBitmapFont f;
+		bool deleted = false;
+		TS_ASSERT(f.loadStreamed(new WatchedStream(small, &deleted), DisposeAfterUse::YES, kHiResLoadAuto));
+		TS_ASSERT(!f.isStreamed());
+		TS_ASSERT(deleted);
+		deleted = false;
+		TS_ASSERT(f.loadStreamed(new WatchedStream(big, &deleted), DisposeAfterUse::YES, kHiResLoadAuto));
+		TS_ASSERT(f.isStreamed());
+		TS_ASSERT(!deleted);
+
+		// stream: a small face stays in its file. (Each case has its own flag:
+		// loading again lets the previous stream go.)
+		bool smallDeleted = false;
+		TS_ASSERT(f.loadStreamed(new WatchedStream(small, &smallDeleted), DisposeAfterUse::YES, kHiResLoadStream));
+		TS_ASSERT(f.isStreamed());
+		TS_ASSERT(!smallDeleted);
+		TS_ASSERT(f.glyphData(3) != nullptr);
+
+		// whole: a big face is read in and the file let go.
+		bool bigDeleted = false;
+		TS_ASSERT(f.loadStreamed(new WatchedStream(big, &bigDeleted), DisposeAfterUse::YES, kHiResLoadWhole));
+		TS_ASSERT(!f.isStreamed());
+		TS_ASSERT(bigDeleted);
+		HiResBitmapFont ref;
+		TS_ASSERT(loadFont(ref, big));
+		TS_ASSERT_EQUALS(memcmp(f.glyphData(2000), ref.glyphData(2000), f.glyphPitch() * f.cellHeight()), 0);
+
+		// A mode never changes what the font says.
+		HiResBitmapFont s;
+		bool sDeleted = false;
+		TS_ASSERT(s.loadStreamed(new WatchedStream(big, &sDeleted), DisposeAfterUse::YES, kHiResLoadStream));
+		TS_ASSERT(s.isStreamed());
+		TS_ASSERT_EQUALS(s.glyphCount(), f.glyphCount());
+		TS_ASSERT_EQUALS(memcmp(s.glyphData(2000), f.glyphData(2000), f.glyphPitch() * f.cellHeight()), 0);
+	}
+
 	void test_a_streamed_font_refuses_what_load_refuses_and_drops_the_stream() {
 		Common::Array<byte> bytes = makeFont(8, 949, 16, 24, 24, 17, true);
 		Common::Array<byte> cut = bytes;

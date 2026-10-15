@@ -48,6 +48,16 @@ class SeekableReadStream;
 
 namespace Graphics {
 
+/**
+ * How a hi-res map wants one SVF face held ([load], graphics/hires_text/README.md):
+ * the glyph data in memory, in the file, or by the size rule.
+ */
+enum HiResLoadMode {
+	kHiResLoadAuto = 0,  ///< streamed when the glyph data exceeds HiResBitmapFont::streamThreshold()
+	kHiResLoadWhole,     ///< always in memory (streamed anyway if the allocation fails)
+	kHiResLoadStream     ///< always read from the file as drawn
+};
+
 // GlyphMetrics (advance, bearingX, bearingY, width, height, and the
 // glyph-source fields originX, combining, wide) is declared in
 // glyph_source.h, shared with UnicodeGlyphSource::metrics().
@@ -97,6 +107,15 @@ public:
 	 */
 	bool loadStreamed(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 					  uint32 sizeLimit = 64 * 1024 * 1024);
+
+	/**
+	 * loadStreamed() where @p mode overrides the threshold: kHiResLoadWhole
+	 * reads the glyphs into memory however many there are (streaming only if
+	 * the memory is not there), kHiResLoadStream keeps them in the file
+	 * however few, kHiResLoadAuto is the rule above.
+	 */
+	bool loadStreamed(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+					  HiResLoadMode mode, uint32 sizeLimit = 64 * 1024 * 1024);
 
 	void free();
 

@@ -68,8 +68,13 @@ UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common:
 
 UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 									 Common::String &error, const Common::String &name) {
+	return createSvfnSource(stream, dispose, error, name, kHiResLoadAuto);
+}
+
+UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+									 Common::String &error, const Common::String &name, HiResLoadMode mode) {
 	HiResBitmapFont *font = new HiResBitmapFont();
-	if (!font->loadStreamed(stream, dispose)) {
+	if (!font->loadStreamed(stream, dispose, mode)) {
 		error = "not a valid SVFN bitmap font";
 		delete font;
 		return nullptr;

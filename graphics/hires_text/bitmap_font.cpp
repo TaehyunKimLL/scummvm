@@ -195,6 +195,11 @@ bool HiResBitmapFont::loadWhole(Common::SeekableReadStream &stream, uint32 sizeL
 
 bool HiResBitmapFont::loadStreamed(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 								   uint32 sizeLimit) {
+	return loadStreamed(stream, dispose, kHiResLoadAuto, sizeLimit);
+}
+
+bool HiResBitmapFont::loadStreamed(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+								   HiResLoadMode mode, uint32 sizeLimit) {
 	free();
 	if (!stream)
 		return false;
@@ -216,8 +221,8 @@ bool HiResBitmapFont::loadStreamed(Common::SeekableReadStream *stream, DisposeAf
 		return false;
 	}
 
-	if (layout.dataSize <= _streamThreshold) {
-		// Small: whole, and the file closed. Without the memory for it,
+	if (mode == kHiResLoadWhole || (mode == kHiResLoadAuto && layout.dataSize <= _streamThreshold)) {
+		// Small (or asked for): whole, and the file closed. Without the memory for it,
 		// streamed like a large one.
 		bool noMemory = false;
 		const bool ok = stream->seek(0) && loadWhole(*stream, sizeLimit, noMemory);

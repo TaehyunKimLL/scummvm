@@ -28,6 +28,7 @@
 #include "common/path.h"
 #include "common/str.h"
 #include "common/str-enc.h"
+#include "graphics/hires_text/bitmap_font.h"
 #include "graphics/hires_text/font_face.h"
 #include "graphics/hires_text/font_value.h"
 #include "graphics/hires_text/glyph_mirror.h"
@@ -192,7 +193,8 @@ enum HiResKeyFlag {
 	kHiResKeyRange        = 1 << 12, ///< [font]/[font.N] range.<spec>=
 	kHiResKeyMirror       = 1 << 13, ///< [font]/[font.N] mirror=
 	kHiResKeyGlyphs       = 1 << 14, ///< [glyphs]/[glyphs.N]
-	kHiResKeyShadow       = 1 << 15  ///< [shadow]
+	kHiResKeyShadow       = 1 << 15, ///< [shadow]
+	kHiResKeyLoad         = 1 << 16  ///< [load]
 };
 
 /// One engine's name (for the "<engine> does not use ..." warning, design
@@ -289,6 +291,16 @@ struct HiResMap {
 
 	/// The [font.N] scope for @p id, or nullptr if the map has none.
 	const HiResFontScope *fontIdScope(int id) const;
+
+	// --- [load] --------------------------------------------------------------
+	/// [load], qualified entries merged: the resolved path (toString('/')) of
+	/// every [fonts] face the map set to `whole` or `stream`. A face not in
+	/// here is `auto`.
+	Common::HashMap<Common::String, HiResLoadMode> loads;
+
+	/// How the map wants the SVF at @p resolvedPath held; kHiResLoadAuto when
+	/// it says nothing (every map without a [load] section).
+	HiResLoadMode loadModeFor(const Common::Path &resolvedPath) const;
 
 	// --- [glyphs], [glyphs.N] ------------------------------------------------
 	HiResGlyphTable glyphs;

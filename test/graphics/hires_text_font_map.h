@@ -290,6 +290,60 @@ public:
 		TS_ASSERT(sawC && sawB);
 	}
 
+	void test_load_section_sets_whole_or_stream_per_face() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[fonts]\ndlg=DLG.SVF\ncard=CARD.SVF\nsmall=SMALL.SVF\n"
+					   "[load]\ncard=stream\ndlg=WHOLE ; kept\nsmall=auto\n", m));
+		TS_ASSERT_EQUALS(m.warnings.size(), 0u);
+		TS_ASSERT_EQUALS(m.loadModeFor(Common::Path("/maps/CARD.SVF", '/')), Graphics::kHiResLoadStream);
+		TS_ASSERT_EQUALS(m.loadModeFor(Common::Path("/maps/DLG.SVF", '/')), Graphics::kHiResLoadWhole);
+		TS_ASSERT_EQUALS(m.loadModeFor(Common::Path("/maps/SMALL.SVF", '/')), Graphics::kHiResLoadAuto);
+		TS_ASSERT_EQUALS(m.loadModeFor(Common::Path("/maps/OTHER.SVF", '/')), Graphics::kHiResLoadAuto);
+	}
+
+	void test_a_map_without_load_is_all_auto() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[fonts]\ndlg=DLG.SVF\n[font]\nface=dlg\n", m));
+		TS_ASSERT_EQUALS(m.warnings.size(), 0u);
+		TS_ASSERT(m.loads.empty());
+		TS_ASSERT_EQUALS(m.loadModeFor(Common::Path("/maps/DLG.SVF", '/')), Graphics::kHiResLoadAuto);
+	}
+
+	void test_load_section_follows_the_qualifiers() {
+		const char *text = "[map]\nversion=2\n[fonts]\ncard=CARD.SVF\n[fonts:clut8]\ncard=CARD8.SVF\n"
+						   "[load]\ncard=stream\n[load:clut8]\ncard=whole\n";
+		const Common::Path card("/maps/CARD.SVF", '/'), card8("/maps/CARD8.SVF", '/');
+		Graphics::HiResMap plain;
+		TS_ASSERT(load(text, plain));
+		TS_ASSERT_EQUALS(plain.loadModeFor(card), Graphics::kHiResLoadStream);
+		Graphics::HiResMap q;
+		TS_ASSERT(load(text, q, Graphics::kHiResKeysScumm, "clut8"));
+		// The qualified section refines the bare one by name, and the
+		// path is the one [fonts:clut8] gives the name.
+		TS_ASSERT_EQUALS(q.loadModeFor(card8), Graphics::kHiResLoadWhole);
+		TS_ASSERT_EQUALS(q.loadModeFor(card), Graphics::kHiResLoadAuto);
+		// An explicit auto in the qualified section undoes the bare one.
+		Graphics::HiResMap a;
+		TS_ASSERT(load("[map]\nversion=2\n[fonts]\ncard=CARD.SVF\n[load]\ncard=stream\n[load:v2]\ncard=auto\n", a,
+					   Graphics::kHiResKeysScumm, "v2"));
+		TS_ASSERT_EQUALS(a.loadModeFor(card), Graphics::kHiResLoadAuto);
+	}
+
+	void test_load_section_warns_about_what_it_cannot_use() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=2\n[fonts]\ncard=CARD.SVF\n[load]\ncard=lazy\nnope=stream\nbad name=whole\n", m));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [load] card=lazy is not whole, stream or auto; using auto"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [load] nope is not a [fonts] name; ignoring it"));
+		TS_ASSERT(hasWarning(m, "HIRESTXT.MAP: [load] 'bad name' is not a valid font name; ignoring it"));
+		TS_ASSERT_EQUALS(m.warnings.size(), 3u);
+		TS_ASSERT_EQUALS(m.loadModeFor(Common::Path("/maps/CARD.SVF", '/')), Graphics::kHiResLoadAuto);
+
+		// AGS reads no [load]: it says so, like any key the engine ignores.
+		Graphics::HiResMap g;
+		TS_ASSERT(load("[map]\nversion=2\n[fonts]\ncard=CARD.SVF\n[load]\ncard=stream\n", g, Graphics::kHiResKeysAgs));
+		TS_ASSERT(hasWarning(g, "AGS does not use [load] card"));
+	}
+
 	void test_glyphs_sections() {
 		Graphics::HiResMap m;
 		TS_ASSERT(load("[map]\nversion=2\n[fonts]\nsym=SYM.SVF\n"

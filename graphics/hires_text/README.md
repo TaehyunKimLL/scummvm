@@ -188,6 +188,49 @@ Korean targets): U+AC00 maps to glyph 0 and U+D79D to glyph 2349 in the 2350
 glyph Korean sets, 'A' maps to glyph 65 in the Latin sets, and the engine's own
 legacy `.fnt` files are rejected so the caller can fall back.
 
+### Whole or streamed: the `[load]` section
+
+An SVF is either read into memory whole, or only its tables are (4 and 8 bytes a
+glyph) and each glyph is read from the file as it is drawn (a cache of
+`HIRES_SVF_CACHE_KB`, a per-line prefetch). By default the size decides: glyph
+data up to the threshold is read whole (64 KB, `HIRES_SVF_STREAM_MIN`; the DOS
+port raises it to 512 KB, `dos_svf_preload_kb`), anything larger streams. A map
+can decide per face instead, because it knows which faces carry the dialogue
+every second and which are drawn once, on a title card:
+
+```ini
+[fonts]
+dlg=M2U0.SVF
+card=M2U4.SVF
+
+[load]
+dlg=whole        ; always in memory, however large
+card=stream      ; always read from the file, however small
+[load:clut8]
+card=auto        ; the size rule again for the 8-bit set
+```
+
+The keys are `[fonts]` names (a face is not named by a path here), the values:
+
+| value | the face |
+|-------|----------|
+| `whole` | is read into memory whatever its size; when the allocation fails it still falls back to streaming |
+| `stream` | stays in its file whatever its size |
+| `auto` | follows the size rule above; the default for every face the section does not name |
+
+`[load:<qualifier>]` follows the rules of `[fonts]`: the bare section and then
+each qualifier, least specific first, so a qualified entry replaces the bare one
+for that name (`auto` included, which undoes a bare `whole`/`stream`). The
+choice belongs to the file, not the name: two names that resolve to one file
+share one loaded face, and if they disagree the first one in the section wins and
+a warning says so. A name the map's `[fonts]` does not hold, or a value that is
+not `whole`, `stream` or `auto`, is warned about once and means `auto`. A map
+without `[load]` loads exactly as before. A jamo-set face (below) honours the
+choice as well, as it wraps the same font. SCUMM, SCI and AGI read the section;
+AGS loads every face whole and warns that it does not use it. A face reached by
+a path in an ini key (`hires_text_face`) rather than a `[fonts]` name is always
+`auto`.
+
 ### Jamo-set fonts (flags bit 1)
 
 A face holding every syllable precomposed is large (DOTT's 1bpp faces total

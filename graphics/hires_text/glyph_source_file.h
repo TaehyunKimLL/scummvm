@@ -24,6 +24,7 @@
 
 #include "common/str.h"
 #include "common/types.h"
+#include "graphics/hires_text/bitmap_font.h"
 
 namespace Common {
 class SeekableReadStream;
@@ -68,6 +69,10 @@ UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream &stream, Common:
  */
 UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
 									 Common::String &error, const Common::String &name);
+
+/// The same, with @p mode choosing whole or streamed loading (HiResLoadMode).
+UnicodeGlyphSource *createSvfnSource(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose,
+									 Common::String &error, const Common::String &name, HiResLoadMode mode);
 
 /**
  * The source for a font the caller loaded itself (HiResBitmapFont::load() or

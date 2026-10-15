@@ -594,6 +594,7 @@ void HiResMap::clear() {
 	layout = HiResLayoutSettings();
 
 	faces.clear();
+	loads.clear();
 	font = HiResFontScope();
 	fontIds.clear();
 
@@ -628,6 +629,11 @@ HiResShadowSpec HiResShadowSpec::overlaid(const HiResShadowSpec &over) const {
 	return r;
 }
 
+HiResLoadMode HiResMap::loadModeFor(const Common::Path &resolvedPath) const {
+	Common::HashMap<Common::String, HiResLoadMode>::const_iterator it = loads.find(resolvedPath.toString('/'));
+	return it == loads.end() ? kHiResLoadAuto : it->_value;
+}
+
 const HiResFontScope *HiResMap::fontIdScope(int id) const {
 	Common::HashMap<int, HiResFontScope>::const_iterator it = fontIds.find(id);
 	if (it == fontIds.end())
@@ -640,14 +646,14 @@ const HiResEngineKeys kHiResKeysSci = {
 	"SCI",
 	kHiResKeyTarget | kHiResKeyBlend | kHiResKeyScale | kHiResKeyGamma | kHiResKeyLayout |
 	kHiResKeyShift | kHiResKeyCell | kHiResKeyAlign | kHiResKeyMissing | kHiResKeyAdvance |
-	kHiResKeyRange | kHiResKeyGlyphs
+	kHiResKeyRange | kHiResKeyGlyphs | kHiResKeyLoad
 };
 
 const HiResEngineKeys kHiResKeysScumm = {
 	"SCUMM",
 	kHiResKeyTarget | kHiResKeyBlend | kHiResKeyScale | kHiResKeyGamma | kHiResKeyTextEncoding |
 	kHiResKeyLayout | kHiResKeyMissing | kHiResKeyAdvance | kHiResKeyOrigin | kHiResKeyRange |
-	kHiResKeyMirror | kHiResKeyGlyphs | kHiResKeyShadow
+	kHiResKeyMirror | kHiResKeyGlyphs | kHiResKeyShadow | kHiResKeyLoad
 };
 
 const HiResEngineKeys kHiResKeysAgs = {
@@ -661,7 +667,7 @@ const HiResEngineKeys kHiResKeysAgs = {
 const HiResEngineKeys kHiResKeysAgi = {
 	"AGI",
 	kHiResKeyBlend | kHiResKeyScale | kHiResKeyGamma | kHiResKeyLayout | kHiResKeyShift |
-	kHiResKeyAlign | kHiResKeyMissing | kHiResKeyAdvance | kHiResKeyRange | kHiResKeyGlyphs
+	kHiResKeyAlign | kHiResKeyMissing | kHiResKeyAdvance | kHiResKeyRange | kHiResKeyGlyphs | kHiResKeyLoad
 };
 
 namespace {
@@ -695,6 +701,7 @@ enum HiResSectionFamily {
 	kHSecText,
 	kHSecLayout,
 	kHSecFonts,
+	kHSecLoad,
 	kHSecFont,
 	kHSecFontId,
 	kHSecGlyphs,
@@ -756,6 +763,7 @@ void classifyHiResSection(const Common::String &name, HiResSectionInfo &info) {
 	if (info.base.equalsIgnoreCase("text")) { info.family = kHSecText; return; }
 	if (info.base.equalsIgnoreCase("layout")) { info.family = kHSecLayout; return; }
 	if (info.base.equalsIgnoreCase("fonts")) { info.family = kHSecFonts; return; }
+	if (info.base.equalsIgnoreCase("load")) { info.family = kHSecLoad; return; }
 	if (info.base.equalsIgnoreCase("font")) { info.family = kHSecFont; return; }
 	if (info.base.equalsIgnoreCase("glyphs")) {
 		int csId;
@@ -1006,6 +1014,10 @@ void scanHiResSections(const Common::INIFile &ini, const Common::Array<Common::S
 				known = true;
 				flag = kHiResKeyGlyphs;
 				break;
+			case kHSecLoad:
+				known = true; // a face name: buildLoadSection() warns about a bad one itself
+				flag = kHiResKeyLoad;
+				break;
 			case kHSecShadow:
 			case kHSecShadowId:
 				known = classifyShadowKey(k->key, flag);
@@ -1058,6 +1070,75 @@ void collectFaceNames(const Common::INIFile &ini, const Common::Array<Common::St
 			}
 			out.faces[it->key] = stripInlineComment(it->value);
 		}
+	}
+}
+
+/// [load]: one face name per key, whole | stream | auto. Least specific
+/// merged first, as [fonts] is, so `[load:clut8]` refines `[load]` per name.
+/// A name the map's [fonts] does not hold, or a value that is none of the
+/// three, is warned about once and means auto. HiResMap::loads is keyed by the
+/// face's resolved path, which is what an engine has when it opens a file.
+void buildLoadSection(const Common::INIFile &ini, const Common::Array<Common::String> &qualifiers,
+					   const Common::Path &mapDir, HiResMap &out) {
+	Common::Array<Common::String> sections;
+	sections.push_back("load");
+	for (int i = (int)qualifiers.size() - 1; i >= 0; --i) {
+		if (!qualifiers[i].empty())
+			sections.push_back(Common::String::format("load:%s", qualifiers[i].c_str()));
+	}
+
+	Common::Array<Common::String> aliases;
+	Common::Array<HiResLoadMode> modes;
+	for (uint s = 0; s < sections.size(); ++s) {
+		if (!ini.hasSection(sections[s]))
+			continue;
+		const Common::INIFile::SectionKeyList keys = ini.getKeys(sections[s]);
+		for (Common::INIFile::SectionKeyList::const_iterator it = keys.begin(); it != keys.end(); ++it) {
+			if (!isValidFaceName(it->key)) {
+				hiResWarn(out, Common::String::format("%s: [%s] '%s' is not a valid font name; ignoring it",
+														kHiResMapName, sections[s].c_str(), it->key.c_str()));
+				continue;
+			}
+			if (!out.faces.contains(it->key)) {
+				hiResWarn(out, Common::String::format("%s: [%s] %s is not a [fonts] name; ignoring it",
+														kHiResMapName, sections[s].c_str(), it->key.c_str()));
+				continue;
+			}
+			Common::String value = stripInlineComment(it->value);
+			value.trim();
+			HiResLoadMode mode = kHiResLoadAuto;
+			if (value.equalsIgnoreCase("whole")) {
+				mode = kHiResLoadWhole;
+			} else if (value.equalsIgnoreCase("stream")) {
+				mode = kHiResLoadStream;
+			} else if (!value.equalsIgnoreCase("auto")) {
+				hiResWarn(out, Common::String::format("%s: [%s] %s=%s is not whole, stream or auto; using auto",
+														kHiResMapName, sections[s].c_str(), it->key.c_str(), value.c_str()));
+			}
+			uint at = 0;
+			while (at < aliases.size() && !aliases[at].equalsIgnoreCase(it->key))
+				++at;
+			if (at == aliases.size()) {
+				aliases.push_back(it->key);
+				modes.push_back(mode);
+			} else {
+				modes[at] = mode;
+			}
+		}
+	}
+
+	for (uint i = 0; i < aliases.size(); ++i) {
+		if (modes[i] == kHiResLoadAuto)
+			continue;
+		const Common::String path = HiResFontMap::resolvePath(out.faces[aliases[i]], mapDir).toString('/');
+		Common::HashMap<Common::String, HiResLoadMode>::const_iterator it = out.loads.find(path);
+		if (it != out.loads.end()) {
+			if (it->_value != modes[i])
+				hiResWarn(out, Common::String::format("%s: [load] %s names %s, which another name already set the other way; keeping that",
+														kHiResMapName, aliases[i].c_str(), path.c_str()));
+			continue;
+		}
+		out.loads[path] = modes[i];
 	}
 }
 
@@ -1705,6 +1786,7 @@ void buildShadowSection(const Common::INIFile &ini, const Common::Array<Common::
 void buildHiResMap(const Common::INIFile &ini, const Common::Array<Common::String> &engineQualifiers,
 					const Common::Array<Common::String> &qualifiers, const Common::Path &mapDir, HiResMap &out) {
 	collectFaceNames(ini, qualifiers, out);
+	buildLoadSection(ini, qualifiers, mapDir, out);
 
 	buildRenderSection(ini, engineQualifiers, qualifiers, out);
 	buildTextSection(ini, engineQualifiers, out);
