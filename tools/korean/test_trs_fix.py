@@ -56,7 +56,61 @@ class TrsFixTest(unittest.TestCase):
 
     def test_the_table_reads_hex_and_skips_comments(self):
         rows = trs_fix.read_table(['# line\told\tnew\tnote', '0\t41 92\t41\tdrop the apostrophe', ''])
-        self.assertEqual(rows, [(0, b'A\x92', b'A')])
+        self.assertEqual(rows, [(0, b'A\x92', b'A', None)])
+
+    def test_a_fifth_column_is_the_utf8_form(self):
+        rows = trs_fix.read_table(['0\t41 83\t41 61\tnote\t41 c3 a2'])
+        self.assertEqual(rows, [(0, b'A\x83', b'Aa', b'A\xc3\xa2')])
+
+
+class Utf8Test(unittest.TestCase):
+    def setUp(self):
+        self.data = trs_fix.apply(bundle(list(zip(EN, KO))), [(0, KO[0], '팻 시장의 보초'.encode('cp949')),
+                                                              (1, KO[1], '가이브러시의 엄마'.encode('cp949'))])
+
+    def test_translations_become_utf8_and_the_rest_stays(self):
+        out, raw = trs_fix.to_utf8(self.data)
+        self.assertEqual(raw, [])
+        recs, rooms, body = stp.parse_trs(out, 'out')
+        self.assertEqual(out[body:body + 3], stp.BOM)
+        self.assertEqual(rooms, {1: {7: (0, 2)}})
+        lines = trs_fix.lines(out)
+        for i, (o, t) in trs_fix.lines(self.data).items():
+            self.assertEqual(lines[i][0], o)                       # keys byte for byte
+            self.assertEqual(lines[i][1], t.decode('cp949').encode('utf-8'))
+        self.assertEqual([r[0] for r in recs], [r[0] for r in stp.parse_trs(self.data, 'in')[0]])   # index order
+
+    def test_escapes_and_their_high_arguments_are_kept(self):
+        d = bundle([(b'a\xffb\x80\x81z', b'\xbc\xbc\xff\x04\xc0\xce\x07\x07')])
+        out, raw = trs_fix.to_utf8(d)
+        self.assertEqual(trs_fix.lines(out)[0][1], '세'.encode() + b'\xff\x04\xc0\xce\x07\x07')
+        self.assertEqual(raw, [])
+
+    def test_a_raw_high_byte_is_reported_with_its_line(self):
+        d = bundle([(b'x', b'\xbc\xbc'), (b'St.\xfaK', b'\xc6\xae\xfa\xc5\xb0 \xfe\x01')])
+        out, raw = trs_fix.to_utf8(d)
+        self.assertEqual([(r[0], r[1]) for r in raw], [(1, 0xFA)])
+        self.assertEqual(trs_fix.lines(out)[1][1], '트'.encode() + b'\xfa' + '키'.encode() + b' \xfe\x01')
+
+    def test_the_utf8_form_of_a_fix(self):
+        d = bundle([(b'papier-mache', b'Papier-M\x83ch\x83')])
+        fixes = [(0, b'\x83ch\x83', b'ache', '\u00e2ch\u00e9'.encode())]
+        out, raw = trs_fix.to_utf8(trs_fix.apply(d, fixes), fixes)
+        self.assertEqual(trs_fix.lines(out)[0][1], 'Papier-M\u00e2ch\u00e9'.encode())
+        self.assertEqual(trs_fix.lines(trs_fix.apply(d, fixes))[0][1], b'Papier-Mache')   # the CP949 path
+
+    def test_compare_lists_only_the_intended_differences(self):
+        d = bundle([(b'a', '팻 시장'.encode('cp949')), (b'papier', b'Papier-M\x83ch\x83')])
+        fixes = [(1, b'\x83ch\x83', b'ache', '\u00e2ch\u00e9'.encode())]
+        fixed = trs_fix.apply(d, fixes)
+        out, _ = trs_fix.to_utf8(fixed, fixes)
+        self.assertEqual(trs_fix.compare(fixed, out), [(1, 'Papier-Mache', 'Papier-M\u00e2ch\u00e9')])
+        self.assertEqual(trs_fix.compare(fixed, trs_fix.to_utf8(fixed)[0]), [])
+
+    def test_a_bundle_that_is_utf8_already_is_refused(self):
+        out, _ = trs_fix.to_utf8(self.data)
+        with self.assertRaises(SystemExit):
+            trs_fix.to_utf8(out)
 
 
 if __name__ == '__main__':
