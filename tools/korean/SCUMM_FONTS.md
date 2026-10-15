@@ -19,9 +19,11 @@ TrueType `--size`, or the bitmap face's own height), not the cell:
 | `NEODG` | Neo Dunggeunmo 1.601 (neodgm) | OFL.TXT, NEODGM.TXT |
 | `NGOTB` | NanumGothic Bold (2 bpp: the Google Fonts build; 1 bpp: NHN's hinted original, `--mono-hint`) | OFLNANUM.TXT, NANUMGOT.TXT |
 | `GBATB` | Gowun Batang Bold | OFLGOWUN.TXT, GOWUNBAT.TXT |
-| `TBGOB`, `TBMY` | Taebaek 3.5 GOTHIC24 (emboldened) and MY24 (myeongjo) | TAEBAEK.TXT |
+| `TBGOB`, `TBMY`, `TBGHC` | Taebaek 3.5 GOTHIC24 (emboldened) and MY24 (myeongjo); GHANC40/48 printer faces (gothic, 8x4x4) | TAEBAEK.TXT |
 | `SANGAM`, `IYAGI` | san 1.0 GAM.KOR and IYG.KOR | SAN10.TXT |
-| `HWPHG` | HWP 1.20 HANGUL3.PFT | HWP120.TXT |
+| `HWPHG`, `HWPHM` | HWP 1.20 HANGUL3.PFT face 0 and HWP 1.x HANGUL1.PFT (serif) | HWP120.TXT |
+| `HTERM` | hanterm-font 3.1 `8-4-4/h01.bdf` | HTERM.TXT |
+| `MUNJO` | Mac HangulTalk 1.0 Munjo (myeongjo) 'fbit' | MUNJO.TXT |
 | `AMYJO` | Mac AppleMyungjo bitmap strike | APPLEMJ.TXT |
 | `BHSAN`, `COUSB` | Black Han Sans, Coustard Black | OFLBHS.TXT, OFLCOUS.TXT |
 
@@ -62,7 +64,10 @@ beside them list the games that use each):
 | GBATB35 | Gowun Batang Bold, AA | 35 | 36x36 | 2 | precomposed | 2446 | DOTTU7 |
 | GBATB47 | Gowun Batang Bold, AA | 47 | 46x54 | 2 | precomposed | 2446 | DOTTU0 |
 | HWPHG24 | HWP 1.20 HANGUL3.PFT face 0 + ASCII.PFT | 24 | 24x24 | 1 | jamo | 11,172 composed | KQ1H24 |
+| HTERM16 | hanterm-font 3.1 8-4-4/h01.bdf | 16 | 16x16 | 1 | jamo | 11,172 composed | - |
+| HWPHM24 | HWP 1.x HANGUL1.PFT (serif) | 24 | 24x24 | 1 | jamo | 11,172 composed | - |
 | IYAGI16 | san 1.0 IYG.KOR (Iyagi) + SAN.ENG | 16 | 16x16 | 1 | jamo | 11,172 composed | KQ1I16 |
+| MUNJO24 | Mac HangulTalk 1.0 Munjo24 'fbit' (mac-fbit-45sets) | 24 | 24x24 | 1 | jamo | 11,172 composed | - |
 | NEODG16 | neodgm | 16 | 16x16 | 1 | precomposed | 2905 | KO2350 |
 | NEODG16A | neodgm | 16 | 16x16 | 1 | jamo | 11,172 composed | DOTTL1 |
 | NEODG16B | neodgm | 16 | 16x16 | 1 | jamo | 11,172 composed | M2L1 |
@@ -93,6 +98,8 @@ beside them list the games that use each):
 | NGOTB21A | NanumGothic Bold (Google), AA | 21 | 22x24 | 2 | precomposed | 2446 | M1U0, M2U0 |
 | NGOTB22 | NanumGothic Bold (Google), AA | 22 | 22x22 | 2 | precomposed | 1216 (game subset) | Q1G22 |
 | SANGAM16 | san 1.0 GAM.KOR + SAN.ENG | 16 | 16x16 | 1 | jamo | 11,172 composed | KOJ16 |
+| TBGHC40 | Taebaek 3.5 GHANC40.PFT | 40 | 40x40 | 1 | jamo | 11,172 composed | - |
+| TBGHC48 | Taebaek 3.5 GHANC48.PFT | 48 | 48x48 | 1 | jamo | 11,172 composed | - |
 | TBGOB24 | Taebaek 3.5 GOTHIC24.FNT + GASCII24.PFT, 1 px emboldened | 24 | 24x24 | 1 | jamo | 11,172 composed | M1L0, M2L0 |
 | TBMY24 | Taebaek 3.5 MY24.FNT + MASCII24.PFT | 24 | 24x24 | 1 | jamo | 11,172 composed | M1L4, M2L4 |
 | GBA14X2 | supplement (of GBATB14) |  | 16x16 | 2 | precomposed | 4 | M2U8X |
@@ -669,6 +676,32 @@ open("/tmp/hwp24.svf", "wb").write(p.svfn_bytes(face))
 PY
 python3 tools/korean/jamoset.py --layout 844 --from-svf /tmp/hwp24.svf --symbols --check -o $D/HWPHG24.SVF
 ```
+
+### LB1 (SCI0): the 8-bit preset's faces per font id (HTERM16, HWPHM24, IYAGI16, TBGHC48, MUNJO24, TBGHC40)
+
+LB1KO.MAP's `:clut8` sections and `harness/dos/release/lb1/HIRESBIT.MAP` are the user's pairing picks (2026-10-15), one 1 bpp
+jamo set per font id: 0 (status line, menu bar, parser line) `HTERM16`, hanterm-font 3.1 h01.bdf, 16 px, ascent 14; 1 (message boxes)
+`HWPHM24`, HWP 1.x HANGUL1.PFT, 24 px serif; 4 (dialogue, narration, copy protection) and any other id `IYAGI16` (KQ1's face); 7 (not drawn in
+play) `TBGHC48`, Taebaek GHANC48, 48 px; 8 (cast names under the intro portraits) `MUNJO24`, Mac HangulTalk 1.0 Munjo24; 40 and 41 (the
+"1925" caption, credits and act titles) `TBGHC40`, GHANC40. Basic Latin is the game's own font in every id
+(`range.basic-latin=original`, game widths); the faces carry Hangul only. Faces of 24 px and up set `size=` and `cell=glyph`.
+The true-colour preset (NGOTB16 / GBATB17) is unchanged. `SANGAM16` is the last face of every chain (`fb`).
+
+The four pairing faces are fitted from the pairing export's precomposed cells (`pairing2svf.svfn_bytes` of the
+`korean-johab-16-6.json` key `8-4-4-h01-bdf`, `korean.json` `hwp1-pft-1`, `korean-printer-large-1bpp.json` `tb-ghanc48`,
+`korean-printer-40.json` `tb-ghanc40`) with `jamoset --layout 844 --from-svf F.svf --symbols --check` (fit IoU 1.000, exact
+2350/2350; the jamo sets compose all 11,172):
+
+```sh
+python3 tools/korean/jamoset.py --layout 844 --from-svf htermh01.svf --symbols --check -o $D/HTERM16.SVF
+python3 tools/korean/jamoset.py --layout 844 --from-svf hwphm24.svf  --symbols --check -o $D/HWPHM24.SVF
+python3 tools/korean/jamoset.py --layout 844 --from-svf tbghc40.svf  --symbols --check -o $D/TBGHC40.SVF
+python3 tools/korean/jamoset.py --layout 844 --from-svf tbghc48.svf  --symbols --check -o $D/TBGHC48.SVF
+```
+
+`MUNJO24` is the Mac layout: `jamoset --layout mac-fbit-45sets Munjo24.rsrc --symbols --check -o $D/MUNJO24.SVF` (58,839 B;
+all 11,172 syllables identical to the Mac rendering; needs the JSET limits 8 lead classes / 24 initial sets, see jamoset README
+section). Licences: SAN10.TXT, HWP120.TXT, TAEBAEK.TXT, HTERM.TXT, MUNJO.TXT (the last three not stated).
 
 ### KQ4 (SCI0): san 16 px shared with KQ1, Mac AppleMyungjo 20 px (AMYJO20)
 

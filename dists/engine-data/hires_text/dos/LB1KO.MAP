@@ -20,12 +20,20 @@
 ; true-colour screen; with them in the bare sections, render_target=auto
 ; picks true colour.
 ;
-; render_target=clut8 (8-bit palette): every id on NEODG16.SVF (16 px, 1 bpp)
-; on the game baseline, drawn hard-edged. Its ink is rows 1-13 (baseline row
-; 12, descenders to row 14); on the game baseline it fits every line but
-; font 0's, which is moved up a row. Fonts 40/41 keep the 16 px cell there:
-; the glyphs are 16 px wide.
-;
+; render_target=clut8 (8-bit palette): hard-edged 1 bpp faces, one per font id, the user's
+; pairing picks (2026-10-15):
+;   0   HTERM16.SVF   hanterm-font 3.1 h01.bdf, 16 px jamo set, ascent 14
+;   1   HWPHM24.SVF   HWP 1.x HANGUL1.PFT, 24 px serif jamo set
+;   4   IYAGI16.SVF   Iyagi IYG.KOR, 16 px jamo set (also any other id: 999 debug)
+;   7   TBGHC48.SVF   Taebaek GHANC48, 48 px jamo set (the printer font; the id is not drawn in play)
+;   8   MUNJO24.SVF   Mac HangulTalk 1.0 Munjo24, 24 px jamo set (mac-fbit-45sets: 8 lead classes, 20 initial sets)
+;   40, 41  TBGHC40.SVF  Taebaek GHANC40, 40 px jamo set
+; The game's own font draws every basic-Latin character (range.basic-latin=original, game widths): the
+; faces carry Hangul only (the sets compose all 11,172). Faces of 24 px and up set size= and cell=glyph, so the
+; layout cell is the face's (a face taller than 16 px drawn in the 16 px game cell lands off its pen).
+; MUNJO24 needs an engine with JSET limits 8 lead classes / 24 initial sets (older ones skip it: SANGAM16 draws font 8).
+; The jamo sets are in the jamo font pack (the engine zip leaves them out): SANGAM16.SVF (fb), the
+; engine's fallback, is the last face of each chain and draws the text if the pack is missing.
 ; Characters no face has draw U+25A1. LB1's translation needs nothing
 ; outside the 2350 Hangul.
 [map]
@@ -41,9 +49,14 @@ blend=off
 ui=NGOTB16.SVF
 body=GBATB17.SVF
 [fonts:clut8]
-; the 8-bit preset: one 1 bpp face under both names
-ui=NEODG16.SVF
-body=NEODG16.SVF
+; the 8-bit preset: one 1 bpp face per font id (the 16 px SANGAM16.SVF is every chain's fallback)
+hterm=HTERM16.SVF
+hwp=HWPHM24.SVF
+iyagi=IYAGI16.SVF
+munjo=MUNJO24.SVF
+gh40=TBGHC40.SVF
+gh48=TBGHC48.SVF
+fb=SANGAM16.SVF
 
 [font]
 face=ui
@@ -53,25 +66,43 @@ align=cell
 range.basic-latin=same
 advance.basic-latin=font
 [font:clut8]
-; the 1 bpp ink sits on the game baseline
-align=game
+face=iyagi,fb
+align=cell
+; basic Latin from the game's own font, at the game's widths
+range.basic-latin=original
+advance.basic-latin=game
 
-; status line, menu bar, parser line, system dialogs: 16 px lines; the 1 bpp
-; ink on rows 2-15 instead of 3-16
+; status line, menu bar, parser line, system dialogs: 16 px lines
 [font.0:clut8]
-shift=-1
+face=hterm,fb
 
 [font.1]
 face=body
+[font.1:clut8]
+face=hwp,fb
+size=24
+cell=glyph
 
 [font.4]
 face=body
+[font.4:clut8]
+face=iyagi,fb
+
+; font 7 (the printer's 46 px line) is not drawn in play; its pick is here for completeness
+[font.7:clut8]
+face=gh48,fb
+size=48
+cell=glyph
 
 ; the cast names are lined up under the portraits with runs of spaces:
 ; spaces and Latin keep the game font's widths
 [font.8]
 face=body
 advance.basic-latin=game
+[font.8:clut8]
+face=munjo,fb
+size=24
+cell=glyph
 
 ; credits and act titles, caption: the game font is 18 game px tall; the
 ; true-colour glyphs get an 18 px cell (cell=glyph) so they never touch
@@ -80,13 +111,15 @@ face=body
 cell=glyph
 size=18
 [font.40:clut8]
-cell=game
-size=16
+face=gh40,fb
+cell=glyph
+size=40
 
 [font.41]
 face=body
 cell=glyph
 size=18
 [font.41:clut8]
-cell=game
-size=16
+face=gh40,fb
+cell=glyph
+size=40
