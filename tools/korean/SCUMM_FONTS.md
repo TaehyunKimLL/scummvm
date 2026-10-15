@@ -509,3 +509,21 @@ D=dists/engine-data/hires_text/dos; B=~/work/johab-fonts/dos/raw/gh_drypot__san-
 python3 tools/korean/jamoset.py --layout 844 $B/font-kor/GAM.KOR --eng $B/font-eng/SAN.ENG --symbols --check -o $D/KQ1G16.SVF
 python3 tools/korean/jamoset.py --layout 844-hbios24 "$H/\$KMYZN24.FNT" --eng "$H/\$KROHN24.FNT" --advance 24 --symbols --check -o $D/KQ1M24.SVF
 ```
+
+### KQ4 (SCI0): san 16 px shared with KQ1, HWP 3.0 24 px myeongjo (KQ4H24)
+
+KQ4KO.MAP: fonts 0, 4 and any other id on `KQ1G16.SVF` (the KQ1 face, same 16 px cell); font 1 on `KQ4H24.SVF` with `size=24`,
+`cell=glyph`. In the game font 1 is the default message font (parser replies, the "enter" prompt, inventory and other boxes);
+font 4 shows only the first-run and copy-protection boxes. HAN24_1 is a precomposed KS X 1001 source (a jamo fit is IoU 0.815),
+so KQ4H24 is a precomposed 1 bpp base (ASCII from ENG24_0 at 12 px + 2,350 syllables + U+25A1; 205 KB), written from the
+pairing export `korean-hwp3.json` (key hwp3-7, `runs/fontmeasure/export/hwp3_export.py`) by `pairing2svf.svfn_bytes`:
+
+```sh
+python3 -c "
+import sys, json; sys.path.insert(0, 'tools/korean'); import pairing2svf as p
+f = [x for x in json.load(open('runs/fontmeasure/export/korean-hwp3.json'))['fonts'] if x['key'] == 'hwp3-7'][0]
+open('dists/engine-data/hires_text/dos/KQ4H24.SVF', 'wb').write(p.svfn_bytes(f))"
+```
+
+The text (ko.tsv) has no character outside ASCII and the 2,350 syllables: no supplement; `facecoverage` (base_check) passes.
+Licences: KQ4FONT.TXT.
