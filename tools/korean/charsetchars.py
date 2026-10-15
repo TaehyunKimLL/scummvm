@@ -6,6 +6,12 @@ Output: {"cs1": "...", "cs2": "...", "unknown": "..."} on stdout (or -o): each v
 translated through the bundle (or, with no bundle, the script's own CP949 text), of every string the scripts draw
 with that charset. "unknown" holds the strings whose charset a script picks through a variable; they are also in
 every charset the game uses.
+
+With --map MAP --hot-dir DIR it also writes the preload lists the map's [preload] section names, one
+<face stem>.HOT per face file the map's font chains use: the union of the sets of the charsets (font ids) whose
+chain uses the face, the code points the map draws in place of a byte ([glyphs], missing=), and ASCII.
+--preset U|L|both picks the presets (default both: a file used by both is the union); --hot-faces a,b limits it
+to those [fonts] names. See graphics/hires_text/README.md, "Preloading the glyphs a game draws".
 """
 import argparse
 import collections
@@ -402,31 +408,109 @@ def validate(sets, entries, ascii_too=False):
     return len(seen), misses
 
 
+# ---- preload lists (.HOT) ----------------------------------------------------------------------------------------
+
+def hot_lists(sets, map_text, presets=('U', 'L'), only=None):
+    """{stem: (code points, [(preset, font id)] that use the face file)} for the faces of a map.
+
+    sets: {charset: set of characters} (decorate()); the map is read as facecoverage.py does, so a font id
+    is the charset of the same number. only: [fonts] names to limit to (names, not files)."""
+    import facecoverage as FC
+    sections = FC.parse_map(map_text)
+    out = {}
+    for preset in presets:
+        names = FC.section(sections, 'fonts', preset)
+        chains, targets = FC.plan(sections, preset)
+        for i, chain in sorted(chains.items()):
+            for value in chain:
+                if only is not None and not any(names.get(n) == value for n in only):
+                    continue
+                cps, users = out.setdefault(FC.hot_stem(value), (set(range(0x20, 0x7F)), []))
+                cps |= {ord(c) for c in sets.get(i, ())} | targets[i]
+                if (preset, i) not in users:
+                    users.append((preset, i))
+    return out
+
+
+def hot_text(stem, cps, users, command):
+    """The .HOT file: a comment header, then the characters in code point order, 32 to a line."""
+    lines = ['# Preload list for %s: the characters its game draws with this face (union over the' % stem,
+             '# charsets whose font chain uses it: %s), plus ASCII.' % ', '.join('%s cs%d' % u for u in users),
+             '# Made by: %s' % command,
+             '# UTF-8; a line starting with # is a comment; order and line breaks do not matter.']
+    chars = [chr(c) for c in sorted(cps) if c > 0x20 and c != 0x7F and not 0xD800 <= c < 0xE000]
+    for k in range(0, len(chars), 32):
+        lines.append(''.join(chars[k:k + 32]))
+    return '\n'.join(lines) + '\n'
+
+
+def write_hot(sets, map_path, out_dir, presets, only, command):
+    """Writes the lists; returns {file name: number of characters}."""
+    with open(map_path, encoding='utf-8', errors='replace') as f:
+        text = f.read()
+    os.makedirs(out_dir, exist_ok=True)
+    done = {}
+    for stem, (cps, users) in sorted(hot_lists(sets, text, presets, only).items()):
+        name = stem + '.HOT'
+        with open(os.path.join(out_dir, name), 'w', encoding='utf-8', newline='\n') as f:
+            f.write(hot_text(stem, cps, users, command))
+        done[name] = len([c for c in cps if c > 0x20])
+    return done
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('gamedir')
+    ap.add_argument('gamedir', nargs='?', help='the game folder (not with --from-json)')
     ap.add_argument('--v5', metavar='NAME', help='v5 file name stem (monkey for monkey.000)')
     ap.add_argument('--trs', help='the translation bundle (default: none, the script text is Korean already)')
     ap.add_argument('--validate', nargs='+', metavar='LOG', help='engine text logs to check against the sets')
     ap.add_argument('--ascii', action='store_true', help='validate ASCII characters too')
     ap.add_argument('--sentence-charset', type=int, default=SENTENCE_CHARSET)
     ap.add_argument('-o', '--out', help='write the JSON here')
+    ap.add_argument('--map', help='the hi-res map whose faces get preload lists (with --hot-dir)')
+    ap.add_argument('--hot-dir', help='write one <face>.HOT per face of --map here')
+    ap.add_argument('--preset', choices=('U', 'L', 'both'), default='both', help='which presets of --map (default both)')
+    ap.add_argument('--from-json', nargs='+', metavar='JSON',
+                    help='no analysis: the sets of earlier runs (-o files), unioned, for --hot-dir (a map that serves '
+                         'several games or releases)')
+    ap.add_argument('--hot-faces', help='comma separated [fonts] names to write lists for (default every face)')
     a = ap.parse_args()
-    units = list(S.units(a.gamedir, a.v5))
-    an = analyze(units)
-    bundle = Bundle(a.trs) if a.trs else None
-    sets, unknown, used = decorate(an, bundle, a.sentence_charset)
-    js = to_json(sets, unknown)
-    text = json.dumps(js, ensure_ascii=False, indent=1) + '\n'
-    if a.out:
-        open(a.out, 'w', encoding='utf-8').write(text)
+    if a.from_json:
+        if a.gamedir or not a.hot_dir:
+            ap.error('--from-json takes no gamedir and needs --hot-dir')
+        sets = {}
+        for path in a.from_json:
+            with open(path, encoding='utf-8') as f:
+                for k, v in json.load(f).items():
+                    if k.startswith('cs'):
+                        sets.setdefault(int(k[2:]), set()).update(v)
     else:
-        sys.stdout.write(text)
-    print('# charsets used: %s; left set by scripts: %s; verbs created with: %s' % (
-        used, sorted(an.rest), sorted(an.verbnew)), file=sys.stderr)
-    for k, (syl, n) in sizes(js).items():
-        print('# %-8s %5d syllables %5d chars' % (k, syl, n), file=sys.stderr)
-    if a.validate:
+        if not a.gamedir:
+            ap.error('a game folder, or --from-json')
+        units = list(S.units(a.gamedir, a.v5))
+        an = analyze(units)
+        bundle = Bundle(a.trs) if a.trs else None
+        sets, unknown, used = decorate(an, bundle, a.sentence_charset)
+        js = to_json(sets, unknown)
+        text = json.dumps(js, ensure_ascii=False, indent=1) + '\n'
+        if a.out:
+            open(a.out, 'w', encoding='utf-8').write(text)
+        else:
+            sys.stdout.write(text)
+        print('# charsets used: %s; left set by scripts: %s; verbs created with: %s' % (
+            used, sorted(an.rest), sorted(an.verbnew)), file=sys.stderr)
+        for k, (syl, n) in sizes(js).items():
+            print('# %-8s %5d syllables %5d chars' % (k, syl, n), file=sys.stderr)
+    if a.hot_dir:
+        if not a.map:
+            ap.error('--hot-dir needs --map')
+        presets = ('U', 'L') if a.preset == 'both' else (a.preset,)
+        only = [n.strip() for n in a.hot_faces.split(',') if n.strip()] if a.hot_faces else None
+        command = 'charsetchars.py %s' % ' '.join(
+            os.path.basename(x) if os.path.exists(x) else x for x in sys.argv[1:])
+        for name, n in sorted(write_hot(sets, a.map, a.hot_dir, presets, only, command).items()):
+            print('# %s: %d characters' % (name, n), file=sys.stderr)
+    if a.validate and not a.from_json:
         every = set()
         for path in a.validate:
             entries = read_log(path)

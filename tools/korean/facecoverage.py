@@ -16,6 +16,12 @@ only the game's glyph draws is a character the face lacks.
 text needs beyond that belongs to the supplement face chained after the base.
 
 Prints the missing characters per preset and font id; exit status 1 if there are any.
+
+--hot DIR adds an informational report (never an error: a miss is a disk read, not a box): for every face
+file of the map that has a preload list DIR/<STEM>.HOT (charsetchars.py --hot-dir), how many characters the
+list has, how many of them the face holds, and how many characters of the bundle's text the face holds but
+the list leaves out. The last number counts the whole bundle against every face, so for a face only one
+charset draws with it is an upper bound; it is the number to compare between two lists of one face.
 """
 import argparse
 import os
@@ -170,6 +176,47 @@ def check(text_cps, map_text, faces, presets=('U', 'L'), data_dirs=(), base_chec
     return problems
 
 
+def hot_stem(value):
+    """The preload list's name for the face file a [fonts] value names: the file's stem, upper case
+    (data:M2U7.SVF -> M2U7); charsetchars.py --hot-dir writes <stem>.HOT."""
+    if value.lower().startswith('data:'):
+        value = value[5:]
+    return os.path.splitext(value.replace('\\', '/').rsplit('/', 1)[-1])[0].upper()
+
+
+def read_hot(path):
+    """The characters of a .HOT file as code points (UTF-8, '#' comment lines, whitespace skipped)."""
+    cps = set()
+    with open(path, encoding='utf-8', errors='replace') as f:
+        for line in f:
+            if line.startswith('#'):
+                continue
+            cps |= {ord(c) for c in line if c > ' ' and c != '\x7f' and c != '\ufeff'}
+    return cps
+
+
+def hot_report(text_cps, map_text, faces, hot_dir, presets=('U', 'L'), data_dirs=()):
+    """[(preset, face value, list size, in the face, text characters the face has that the list lacks)] for every
+    face file of the map with a list in hot_dir (<STEM>.HOT, upper case, a case-insensitive match), one a file."""
+    sections = parse_map(map_text)
+    lists = {fn.upper(): os.path.join(hot_dir, fn) for fn in os.listdir(hot_dir)} if os.path.isdir(hot_dir) else {}
+    rows = []
+    seen = set()
+    for preset in presets:
+        chains, _ = plan(sections, preset)
+        for chain in chains.values():
+            for value in chain:
+                path = resolve(value, faces, list(data_dirs))
+                hot = lists.get(hot_stem(value) + '.HOT')
+                if path is None or hot is None or (preset, path) in seen:
+                    continue
+                seen.add((preset, path))
+                listed = read_hot(hot)
+                have = face_chars(path)
+                rows.append((preset, value, len(listed), len(listed & have), len((set(text_cps) & have) - listed)))
+    return rows
+
+
 def bundle_chars(paths):
     cps = set()
     for p in paths:
@@ -193,6 +240,7 @@ def main(argv=None):
     ap.add_argument('--preset', choices=('U', 'L', 'both'), default='both')
     ap.add_argument('--data', action='append', default=[], help='folder a data: face is looked up in')
     ap.add_argument('--base-check', action='store_true')
+    ap.add_argument('--hot', metavar='DIR', help='folder of preload lists (.HOT): report their coverage (informational)')
     a = ap.parse_args(argv)
     faces = a.faces or os.path.dirname(os.path.abspath(a.map))
     with open(a.map, encoding='utf-8', errors='replace') as f:
@@ -207,6 +255,11 @@ def main(argv=None):
                   % (preset, i, note, len(miss), show(miss)))
         else:
             print('%s font %d (%s): lacks %d: %s' % (preset, i, note, len(miss), show(miss)))
+    if a.hot:
+        text_cps = bundle_chars(a.trs)
+        for preset, value, n, inface, lacking in hot_report(text_cps, text, faces, a.hot, presets, a.data):
+            print('%s %s preload list: %d characters, the face has %d of them; the text has %d more the face holds'
+                  % (preset, value, n, inface, lacking))
     if not problems:
         print('every face chain covers the text of %s (%s)' % (', '.join(os.path.basename(p) for p in a.trs),
                                                                   os.path.basename(a.map)))

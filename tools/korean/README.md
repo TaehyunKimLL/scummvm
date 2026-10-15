@@ -424,7 +424,20 @@ that charset's set. ASCII is in every hot set anyway (`--ascii` checks it
 too). It cannot see strings the engine draws that are not in a script: the
 save/load and options dialogs.
 
-`test_charsetchars.py` runs synthetic scripts for the attribution logic.
+`--map MAP --hot-dir DIR [--preset U|L|both] [--hot-faces a,b]` also writes the preload
+lists a hi-res map's `[preload]` section names (graphics/hires_text/README.md,
+"Preloading the glyphs a game draws"): one `<face stem>.HOT` (`M2U7.SVF` ->
+`M2U7.HOT`) for every face file the map's `[font.N]` chains use, UTF-8, a comment
+header saying which charsets and what command made it, then the characters 32 to
+a line. A list is the union of the sets of the charsets (font ids; id N is charset
+N) whose chain uses the face, the code points `[glyphs]` and `missing=` draw in the
+map, and ASCII; a file both presets use gets both. `--hot-faces` names `[fonts]`
+aliases (`card,card7,card8`) to limit it. `facecoverage.py --hot DIR` reports each
+list's size, how many of its characters the face holds and how many characters of
+the bundle's text the face holds but the list leaves out (informational).
+
+`test_charsetchars.py` runs synthetic scripts for the attribution logic and the
+list files.
 
 ## Checking the result
 

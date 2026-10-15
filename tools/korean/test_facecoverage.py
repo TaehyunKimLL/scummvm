@@ -101,6 +101,24 @@ class CheckTest(unittest.TestCase):
         self.assertNotIn(0xFFFD, cps)     # a raw game byte is not a code point to find in a face
 
 
+class HotReportTest(unittest.TestCase):
+    def test_list_coverage_is_counted_per_face_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name, cps in (('A.SVF', ASCII | {0xAC00, 0xAC01, 0xAC02}), ('AX.SVF', {0x2026})):
+                with open(os.path.join(d, name), 'wb') as f:
+                    f.write(svf(cps))
+            os.mkdir(os.path.join(d, 'hot'))
+            with open(os.path.join(d, 'hot', 'A.HOT'), 'w', encoding='utf-8') as f:
+                f.write('# comment 가\nab\n\ufeff가 \u2026 \ud55c\n')
+            text = {0xAC00, 0xAC01, ord('a')}
+            rows = fc.hot_report(text, MAP, d, os.path.join(d, 'hot'), ('U',))
+            # list: a b 가 U+2026 한 = 5; the face holds a b 가 = 3; the text has 가 U+AC01 a: AC01 and 'a' are held,
+            # 'a' is listed, so one more (U+AC01)
+            self.assertEqual(rows, [('U', 'A.SVF', 5, 3, 1)])
+            self.assertEqual(fc.read_hot(os.path.join(d, 'hot', 'A.HOT')), {ord('a'), ord('b'), 0xAC00, 0x2026, 0xD55C})
+            self.assertEqual(fc.hot_report(text, MAP, d, os.path.join(d, 'none'), ('U',)), [])
+
+
 NEODGM = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'dists', 'engine-data', 'hires_text', 'fonts',
                       'neodgm', 'neodgm.ttf')
 DEJAVU = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'

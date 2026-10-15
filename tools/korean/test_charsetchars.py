@@ -267,6 +267,81 @@ class Validation(unittest.TestCase):
         self.assertEqual(C.read_log(lg), [(2, '한\n두 줄'), (3, "it's")])
 
 
+HOT_MAP = """[fonts]
+dlg=data:M2U0.SVF
+card=M2U4.SVF
+card7=M2U4.SVF
+dlgx=M2U0X.SVF
+[fonts:clut8]
+card=M2L4.SVF
+card7=M2L4.SVF
+[font]
+missing=u+25a1
+[font.0]
+face=dlg,dlgx
+[font.4]
+face=card
+[font.7]
+face=card7
+[glyphs]
+0x5e = u+2026
+"""
+
+
+class HotLists(unittest.TestCase):
+    sets = {0: set('가나'), 4: set('다'), 7: set('라다'), 9: set('마')}
+
+    def test_one_list_per_face_file_the_union_of_the_charsets_that_use_it(self):
+        lists = C.hot_lists(self.sets, HOT_MAP, ('U',))
+        self.assertEqual(sorted(lists), ['M2U0', 'M2U0X', 'M2U4'])
+        ascii_ = set(range(0x20, 0x7F))
+        extra = {0x2026, 0x25A1}                                # [glyphs] and missing=
+        self.assertEqual(lists['M2U0'][0], ascii_ | {ord(c) for c in '가나'} | extra)
+        self.assertEqual(lists['M2U4'][0], ascii_ | {ord(c) for c in '다라'} | extra)    # cs4 and cs7 share the file
+        self.assertEqual(lists['M2U4'][1], [('U', 4), ('U', 7)])
+        self.assertNotIn(ord('마'), lists['M2U4'][0])           # charset 9 has no font id in the map
+
+    def test_presets_and_face_names(self):
+        both = C.hot_lists(self.sets, HOT_MAP, ('U', 'L'))
+        self.assertEqual(sorted(both), ['M2L4', 'M2U0', 'M2U0X', 'M2U4'])
+        self.assertEqual(sorted(C.hot_lists(self.sets, HOT_MAP, ('L',))), ['M2L4', 'M2U0', 'M2U0X'])  # dlg is not renamed
+        only = C.hot_lists(self.sets, HOT_MAP, ('U', 'L'), only=['card'])
+        self.assertEqual(sorted(only), ['M2L4', 'M2U4'])
+
+    def test_file_is_utf8_with_comments_and_every_character(self):
+        d = tempfile.mkdtemp()
+        mp = os.path.join(d, 'T.MAP')
+        with open(mp, 'w') as f:
+            f.write(HOT_MAP)
+        done = C.write_hot(self.sets, mp, os.path.join(d, 'hot'), ('U',), ['card'], 'charsetchars.py g --map T.MAP')
+        self.assertEqual(list(done), ['M2U4.HOT'])
+        with open(os.path.join(d, 'hot', 'M2U4.HOT'), encoding='utf-8') as f:
+            text = f.read()
+        lines = text.split('\n')
+        self.assertTrue(lines[0].startswith('# Preload list for M2U4'))
+        self.assertIn('charsetchars.py g --map T.MAP', text)
+        body = ''.join(l for l in lines if l and not l.startswith('#'))
+        self.assertEqual(set(body), {chr(c) for c in range(0x21, 0x7F)} | set('다라') | {'\u2026', '\u25a1'})
+        self.assertEqual(len(body), len(set(body)))            # each once
+        self.assertEqual(done['M2U4.HOT'], len(body))
+
+    def test_from_json_unions_earlier_runs(self):
+        import subprocess
+        d = tempfile.mkdtemp()
+        mp = os.path.join(d, 'T.MAP')
+        with open(mp, 'w') as f:
+            f.write(HOT_MAP)
+        for n, js in (('a.json', {'cs4': '다', 'unknown': ''}), ('b.json', {'cs4': '라', 'cs7': '마'})):
+            with open(os.path.join(d, n), 'w', encoding='utf-8') as f:
+                json.dump(js, f, ensure_ascii=False)
+        subprocess.run([sys.executable, os.path.join(HERE, 'charsetchars.py'), '--from-json', os.path.join(d, 'a.json'),
+                        os.path.join(d, 'b.json'), '--map', mp, '--preset', 'U', '--hot-faces', 'card', '--hot-dir',
+                        os.path.join(d, 'hot')], check=True, capture_output=True)
+        with open(os.path.join(d, 'hot', 'M2U4.HOT'), encoding='utf-8') as f:
+            body = ''.join(l for l in f.read().split('\n') if l and not l.startswith('#'))
+        self.assertTrue(set('다라마') <= set(body))      # cs4 of both runs, cs7 shares the file
+
+
 class Output(unittest.TestCase):
     def test_json_has_one_key_per_charset_and_unknown(self):
         js = C.to_json({2: set('나가'), 4: set('a')}, set('z'))
