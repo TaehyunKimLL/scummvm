@@ -66,8 +66,7 @@ namespace {
 // UTF-8 text in it was drawn as code-page pairs (Korean) or as the low byte
 // of each code point (any other language).
 bool fontResourceExists(ResourceManager *resMan, GuiResourceId fontId) {
-	return resMan->testResource(ResourceId(kResourceTypeFont, fontId)) ||
-		resMan->testResource(ResourceId(kResourceTypeFont, fontId & 0x7ff));
+	return resMan->testResource(ResourceId(kResourceTypeFont, resolveFontResourceId(resMan, fontId))) != nullptr;
 }
 
 bool isExcluded(const Common::Array<Common::String> &excludedPaths, const Common::String &path) {
@@ -193,7 +192,13 @@ FontSettings GfxCache::fontSettingsFor(GuiResourceId fontId) {
 	resolveHiresText();
 	if (!_hiresApplies || !_hiresIni.enabled)
 		return FontSettings();
-	return resolveFontSettings(_hiresMap, _hiresMapLoaded, fontId, _hiresIni, _hiresMapDir, _hiresGameDir);
+	// The map follows the font resource the engine draws this id with
+	// ([font.59] applies to lsl1sci's 2107 = 2048 + 59), unless it names the
+	// raw id itself.
+	const int mapId = hiresMapFontId(_hiresMap, _hiresMapLoaded, fontId, resolveFontResourceId(_resMan, fontId));
+	if (mapId != fontId)
+		debug(1, "SCI: font %d takes the map's [font.%d] sections (the font resource it draws with)", fontId, mapId);
+	return resolveFontSettings(_hiresMap, _hiresMapLoaded, mapId, _hiresIni, _hiresMapDir, _hiresGameDir);
 }
 
 Graphics::TtfGlyphSource *GfxCache::ttfSource(const Common::String &path, int size, FaceProbes probes,

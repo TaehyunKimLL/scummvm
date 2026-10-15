@@ -62,6 +62,14 @@ Graphics::HiResFontScope sciEngineScope() {
 	return scope;
 }
 
+int hiresMapFontId(const Graphics::HiResMap &map, bool mapLoaded, int fontId, int resourceId) {
+	if (!mapLoaded || fontId == resourceId)
+		return resourceId;
+	if (map.fontIdScope(fontId) || map.glyphIds.contains(fontId))
+		return fontId;
+	return resourceId;
+}
+
 FontSettings resolveFontSettings(const Graphics::HiResMap &map, bool mapLoaded, int fontId,
 								 const Graphics::HiResIniOverrides &ini, const Common::Path &mapDir,
 								 const Common::Path &gameDir) {

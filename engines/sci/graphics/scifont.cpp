@@ -184,6 +184,13 @@ static const byte sci32SystemFont[] = {
 };
 #endif
 
+GuiResourceId resolveFontResourceId(ResourceManager *resMan, GuiResourceId fontId) {
+	// Negative ids (SCI32's built-in system font) name no resource.
+	if (fontId < 0 || resMan->testResource(ResourceId(kResourceTypeFont, fontId)))
+		return fontId;
+	return fontId & 0x7ff;
+}
+
 GfxFontFromResource::GfxFontFromResource(ResourceManager *resMan, GfxScreen *screen, GuiResourceId resourceId)
 	: _resourceId(resourceId), _screen(screen), _resMan(resMan) {
 	if (getSciVersion() < SCI_VERSION_2) {
@@ -198,8 +205,7 @@ GfxFontFromResource::GfxFontFromResource(ResourceManager *resMan, GfxScreen *scr
 #endif
 		// Workaround: lsl1sci mixes its own internal fonts with the global
 		// SCI ones, so we translate them here, by removing their extra bits
-		if (!resMan->testResource(ResourceId(kResourceTypeFont, resourceId)))
-			resourceId = resourceId & 0x7ff;
+		resourceId = resolveFontResourceId(resMan, resourceId);
 
 		_resource = resMan->findResource(ResourceId(kResourceTypeFont, resourceId), true);
 		if (!_resource) {

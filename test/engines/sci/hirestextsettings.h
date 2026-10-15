@@ -434,6 +434,27 @@ public:
 		TS_ASSERT_EQUALS(Sci::resolveFontSettings(plain, true, 0, Graphics::HiResIniOverrides(), mapDir(), gameDir()).pixel, 0);
 	}
 
+	// lsl1sci passes font ids with high bits set (2107 = 2048 + 59, 4115 =
+	// 4096 + 19); the engine loads FONT.059 for 2107 when no FONT.2107
+	// exists (GfxFontFromResource), so [font.59] is the section that applies.
+	void test_map_scope_follows_the_resolved_font_resource() {
+		const Graphics::HiResMap map = parseMap("[font]\npixel=16\n[font.59]\npixel=12\n[glyphs.19]\nU+0041=U+0042\n");
+		TS_ASSERT_EQUALS(Sci::hiresMapFontId(map, true, 2107, 59), 59);
+		TS_ASSERT_EQUALS(Sci::hiresMapFontId(map, true, 4115, 19), 19);
+		TS_ASSERT_EQUALS(Sci::hiresMapFontId(map, true, 59, 59), 59);
+		TS_ASSERT_EQUALS(Sci::resolveFontSettings(map, true, Sci::hiresMapFontId(map, true, 2107, 59),
+												  Graphics::HiResIniOverrides(), mapDir(), gameDir()).pixel, 12);
+	}
+
+	// A map that names the raw id itself keeps it: an exact [font.N] or
+	// [glyphs.N] section wins over the resolved resource's one.
+	void test_map_scope_exact_id_section_wins() {
+		const Graphics::HiResMap map = parseMap("[font.59]\npixel=12\n[font.2107]\npixel=14\n[glyphs.4115]\nU+0041=U+0042\n");
+		TS_ASSERT_EQUALS(Sci::hiresMapFontId(map, true, 2107, 59), 2107);
+		TS_ASSERT_EQUALS(Sci::hiresMapFontId(map, true, 4115, 19), 4115);
+		TS_ASSERT_EQUALS(Sci::hiresMapFontId(map, false, 2107, 59), 59);
+	}
+
 	// The ini sets only size=; the map's own face still applies.
 	void test_ini_size_only_keeps_the_maps_face() {
 		const Graphics::HiResMap map = parseMap("[font.4]\nface=Four.SVF\nsize=12\n");

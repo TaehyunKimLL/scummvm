@@ -81,6 +81,19 @@ struct FontSettings {
 Graphics::HiResFontScope sciEngineScope();
 
 /**
+ * The id whose [font.N] / [glyphs.N] sections apply to SCI font @p fontId.
+ *
+ * Scripts may pass a font id with extra high bits (lsl1sci: 2107 =
+ * 2048 + 59, 4115 = 4096 + 19), and the engine draws such text with the
+ * font resource @p resourceId it resolves the id to
+ * (resolveFontResourceId(): the raw id when FONT.<id> exists, otherwise
+ * id & 0x7ff). The map follows the same resource, so [font.59] applies to
+ * 2107. A section written for the raw id itself ([font.2107] or
+ * [glyphs.2107]) still wins, so maps that spelled the raw ids keep working.
+ */
+int hiresMapFontId(const Graphics::HiResMap &map, bool mapLoaded, int fontId, int resourceId);
+
+/**
  * The settings for @p fontId: HIRESTXT.MAP's `[font]`/`[font.N]` scopes
  * plus @p ini's overrides, compiled into one plan
  * (Graphics::compileIdPlan()) against sciEngineScope(), and unpacked into

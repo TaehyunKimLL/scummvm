@@ -59,6 +59,16 @@ public:
 
 
 /**
+ * The FONT resource number the engine draws font id @p fontId with.
+ *
+ * lsl1sci mixes its own font ids (extra high bits: 2107 = 2048 + 59,
+ * 4115 = 4096 + 19) with the global ones; such an id names FONT.<id & 0x7ff>
+ * unless a font resource with the raw id exists. GfxFontFromResource loads
+ * this id, and the hi-res text map follows it (hiresMapFontId()).
+ */
+GuiResourceId resolveFontResourceId(ResourceManager *resMan, GuiResourceId fontId);
+
+/**
  * Font class, handles loading of font resources and drawing characters to screen
  *  every font resource has its own instance of this class
  */
