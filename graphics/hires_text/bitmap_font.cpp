@@ -263,7 +263,7 @@ bool HiResBitmapFont::loadStreamed(Common::SeekableReadStream *stream, DisposeAf
 	_glyphsPerBlock = MAX<int>(1, (int)(HIRES_SVF_READ_BLOCK / layout.glyphStride));
 	adopt(layout, metricsSize ? tables : nullptr, cmapTable, cmapOrder);
 
-	// The JSET block is small (3313 bytes at most): read now with the tables,
+	// The JSET block is small (6641 bytes at most, kJamoSetMaxSize): read now with the tables,
 	// parsed into the table, and not kept.
 	if (layout.jamo) {
 		Common::Array<byte> block;

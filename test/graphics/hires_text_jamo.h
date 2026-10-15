@@ -88,6 +88,35 @@ private:
 		return b;
 	}
 
+	/// A JSET at every limit: 8 lead classes, 8 tail classes, 24 initial sets (16 medial, 16 final). Lead class
+	/// of lead l is l % 8, tail class of final t is 1 + (t - 1) % 7 (so class 7 holds finals 7 and 14, 21 and 28
+	/// are not there); set of cell c is c % 24 / c % 16 / c % 16; pieces are numbered 1 + index, 1000 + index
+	/// and 2000 + index.
+	static Bytes makeLimitsJset() {
+		const int LC = 8, TC = 8, NI = 24, NM = 16, NF = 16;
+		Bytes b;
+		const byte head[] = { 'J', 'S', 'E', 'T', 1, 0, (byte)LC, (byte)TC, (byte)NI, (byte)NM, (byte)NF, 0 };
+		for (uint i = 0; i < sizeof(head); ++i)
+			b.push_back(head[i]);
+		for (int l = 0; l < 19; ++l)
+			b.push_back(l % LC);
+		for (int t = 0; t < 28; ++t)
+			b.push_back(t == 0 ? 0 : 1 + (t - 1) % 7);
+		const int mod[3] = { NI, NM, NF };
+		for (int which = 0; which < 3; ++which)
+			for (int c = 0; c < LC * 21 * TC; ++c)
+				b.push_back(c % mod[which]);
+		for (int i = 0; i < NI * 19; ++i)
+			append16(b, 1 + i);
+		for (int i = 0; i < NM * 21; ++i)
+			append16(b, 1000 + i);
+		for (int i = 0; i < NF * 27; ++i)
+			append16(b, 2000 + i);
+		for (int c = 0; c < 51; ++c)
+			append16(b, 0xFFFF);
+		return b;
+	}
+
 	static bool parse(const Bytes &b, Graphics::JamoSetTable &t, Common::String &err, uint32 size) {
 		return Graphics::parseJamoSetTable(b.begin(), size, t, err);
 	}
@@ -257,6 +286,52 @@ public:
 		expect(t, 0xAC01, 3, 101, 205, 249);
 	}
 
+	void test_limits_parse_and_compose() {
+		Graphics::JamoSetTable t;
+		Common::String err;
+		const Bytes jset = makeLimitsJset();
+		TS_ASSERT_EQUALS(sizeOf(jset), Graphics::kJamoSetMaxSize);
+		TS_ASSERT(parse(jset, t, err, sizeOf(jset)));
+		TS_ASSERT(err.empty());
+		TS_ASSERT_EQUALS(t.leadClasses, 8);
+		TS_ASSERT_EQUALS(t.tailClasses, 8);
+		TS_ASSERT_EQUALS(t.initSets, 24);
+		// Every syllable composes to the piece the formula names, finals in tail class 7 (7, 14) and lead classes 0..7 included.
+		for (uint32 cp = 0xAC00; cp <= 0xD7A3; ++cp) {
+			const uint32 s = cp - 0xAC00;
+			const uint lead = s / 588, v = (s / 28) % 21, tail = s % 28;
+			const uint lc = lead % 8, tc = tail ? 1 + (tail - 1) % 7 : 0;
+			const uint cell = (lc * 21 + v) * 8 + tc;
+			uint16 out[3] = { 0, 0, 0 };
+			int n = 0;
+			TS_ASSERT(t.pieces(cp, out, n));
+			TS_ASSERT_EQUALS(n, tail ? 3 : 2);
+			TS_ASSERT_EQUALS(out[0], 1 + (cell % 24) * 19 + lead);
+			TS_ASSERT_EQUALS(out[1], 1000 + (cell % 16) * 21 + v);
+			if (tail)
+				TS_ASSERT_EQUALS(out[2], 2000 + (cell % 16) * 27 + tail - 1);
+		}
+		TS_ASSERT_EQUALS(t.tailClass[7], 7);
+		TS_ASSERT_EQUALS(t.leadClass[7], 7);
+	}
+
+	void test_limits_reject_one_over() {
+		Graphics::JamoSetTable t;
+		Common::String err;
+		Bytes b = makeLimitsJset();
+		b[kTC] = 9;
+		TS_ASSERT(!parse(b, t, err, sizeOf(b)));
+		TS_ASSERT(err.contains("tail classes"));
+		b = makeLimitsJset();
+		b[kLC] = 9;
+		TS_ASSERT(!parse(b, t, err, sizeOf(b)));
+		TS_ASSERT(err.contains("lead classes"));
+		b = makeLimitsJset();
+		b[kNI] = 25;
+		TS_ASSERT(!parse(b, t, err, sizeOf(b)));
+		TS_ASSERT(err.contains("initial sets"));
+	}
+
 	void test_malformed_blocks() {
 		Graphics::JamoSetTable t;
 		Common::String err;
@@ -279,6 +354,11 @@ public:
 
 		b = good;
 		b[kTC] = 0;
+		TS_ASSERT(!parse(b, t, err, sizeOf(b)));
+		TS_ASSERT(err.contains("tail classes"));
+
+		b = good;
+		b[kTC] = 9;
 		TS_ASSERT(!parse(b, t, err, sizeOf(b)));
 		TS_ASSERT(err.contains("tail classes"));
 

@@ -29,7 +29,7 @@ namespace Graphics {
 // classes, initial, medial and final sets, advance.
 static const uint32 kHeaderSize = 12;
 static const uint16 kVersion = 1;
-static const uint kCompat = 51;
+static const uint kCompat = kJamoCompat;
 
 JamoSetTable::JamoSetTable() : leadClasses(0), tailClasses(0), initSets(0), medSets(0), finSets(0), advance(0) {
 	for (int i = 0; i < 19; ++i)
@@ -82,24 +82,24 @@ bool parseJamoSetTable(const byte *data, uint32 size, JamoSetTable &out, Common:
 		return false;
 	}
 	const uint lc = data[6], tc = data[7], ni = data[8], nm = data[9], nf = data[10];
-	if (lc < 1 || lc > 8) {
-		error = Common::String::format("JSET lead classes %u is not 1..8", lc);
+	if (lc < 1 || lc > kJamoMaxLeadClasses) {
+		error = Common::String::format("JSET lead classes %u is not 1..%u", lc, kJamoMaxLeadClasses);
 		return false;
 	}
-	if (tc < 1 || tc > 8) {
-		error = Common::String::format("JSET tail classes %u is not 1..8", tc);
+	if (tc < 1 || tc > kJamoMaxTailClasses) {
+		error = Common::String::format("JSET tail classes %u is not 1..%u", tc, kJamoMaxTailClasses);
 		return false;
 	}
-	if (ni < 1 || ni > 24) {
-		error = Common::String::format("JSET initial sets %u is not 1..24", ni);
+	if (ni < 1 || ni > kJamoMaxInitSets) {
+		error = Common::String::format("JSET initial sets %u is not 1..%u", ni, kJamoMaxInitSets);
 		return false;
 	}
-	if (nm < 1 || nm > 16) {
-		error = Common::String::format("JSET medial sets %u is not 1..16", nm);
+	if (nm < 1 || nm > kJamoMaxMedSets) {
+		error = Common::String::format("JSET medial sets %u is not 1..%u", nm, kJamoMaxMedSets);
 		return false;
 	}
-	if (nf < 1 || nf > 16) {
-		error = Common::String::format("JSET final sets %u is not 1..16", nf);
+	if (nf < 1 || nf > kJamoMaxFinSets) {
+		error = Common::String::format("JSET final sets %u is not 1..%u", nf, kJamoMaxFinSets);
 		return false;
 	}
 	const uint32 want = jamoSetSize(lc, tc, ni, nm, nf);
@@ -123,7 +123,7 @@ bool parseJamoSetTable(const byte *data, uint32 size, JamoSetTable &out, Common:
 		}
 	p += 19;
 	// Which tail classes a final can be in: the final set matters only there.
-	bool tailUsed[4] = { false, false, false, false };
+	bool tailUsed[kJamoMaxTailClasses] = { false };
 	for (int i = 0; i < 28; ++i) {
 		if ((t.tailClass[i] = p[i]) >= tc) {
 			error = Common::String::format("JSET tailClass[%d] = %u is not below %u", i, p[i], tc);

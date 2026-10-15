@@ -32,6 +32,15 @@ namespace Graphics {
 /// (plane 15, private use).
 static const uint32 kJamoPieceBase = 0xF0000;
 
+/// Limits of a JSET block: classes of lead and of tail, initial/medial/final sets.
+static const uint kJamoMaxLeadClasses = 8;
+static const uint kJamoMaxTailClasses = 8;
+static const uint kJamoMaxInitSets = 24;
+static const uint kJamoMaxMedSets = 16;
+static const uint kJamoMaxFinSets = 16;
+/// Compatibility jamo U+3131..U+3163 plus the rest of the table's 51 entries.
+static const uint kJamoCompat = 51;
+
 /**
  * The JSET block of a jamo-set SVFN (graphics/hires_text/README.md): how a
  * DOS Hangul system picked, for a syllable, the pieces (initial, medial,
@@ -49,7 +58,7 @@ struct JamoSetTable {
 	byte leadClass[19], tailClass[28];	///< tailClass[0]: the class of "no final"
 	Common::Array<byte> initSet, medSet, finSet;	///< LC * 21 * TC each
 	Common::Array<uint16> initPiece, medPiece, finPiece;	///< NI * 19, NM * 21, NF * 27
-	uint16 compatPiece[51];
+	uint16 compatPiece[kJamoCompat];
 
 	/**
 	 * Pieces (piece numbers) of syllable @p cp in draw order: initial, medial
@@ -64,6 +73,10 @@ struct JamoSetTable {
 
 /// Bytes a JSET block with these counts takes.
 uint32 jamoSetSize(uint lead, uint tail, uint init, uint med, uint fin);
+
+/// Bytes of the largest valid JSET block (every count at its limit).
+static const uint32 kJamoSetMaxSize = 12 + 19 + 28 + 3 * kJamoMaxLeadClasses * 21 * kJamoMaxTailClasses +
+	2 * (kJamoMaxInitSets * 19 + kJamoMaxMedSets * 21 + kJamoMaxFinSets * 27 + kJamoCompat);
 
 /// Parses @p size bytes at @p data; false with @p error set (naming the field) when malformed.
 bool parseJamoSetTable(const byte *data, uint32 size, JamoSetTable &out, Common::String &error);
