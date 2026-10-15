@@ -384,6 +384,48 @@ string can hold 0x00 inside an `FF` escape. It decodes only operand sizes
 linearly; on the MI1 Ultimate Talkie data it finds exactly the 5153 keys of
 that bundle.
 
+### Characters each charset draws
+
+`charsetchars.py <gamedir> [--trs korean.trs] [--validate LOG...] [-o FILE]` writes
+`{"cs1": "...", "cs2": "...", "unknown": "..."}`: for every SCUMM charset
+the sorted characters its strings can draw. It is the analysis behind the
+hot-glyph set of a streamed hi-res face (docs/superpowers/specs/
+2026-10-15-hot-glyph-preload-design.md); a miss costs a disk read, never a
+wrong glyph.
+
+It reuses `scummscript.py`'s block walk (now `units()`, which also gives the
+entry offsets of verb blocks) and adds control flow: every block is decoded
+instruction by instruction, `cursorCommand` sub-op 13 (initCharset) sets the
+charset and the state is carried over jumps (conditional ones both ways;
+`beginOverride`'s jump is the ESC handler and sees every charset of the
+cutscene). A print reachable with several charsets goes to all of them. A
+block is entered with the charset its callers have at the `startScript` /
+`chainScript` that starts it (a charset a callee leaves set is carried back to
+its caller); a block nobody calls starts in the charset the game rests in
+(what the boot script, global script 1, sets itself) and, in a room, with what
+the room's entry script leaves. A charset taken from a variable makes every
+string after it `unknown`, which is also added to every charset the game sets.
+
+Which charset draws what: print/printEgo with the charset at the print;
+verb names with the charset the verb was created with (verbOps "new", by verb
+id) and with the sentence line (charset 1, `drawSentence()`); object, actor
+and OBNA names with the sentence line, the verbs whose text is a name
+(inventory) and the charsets of prints carrying `FF 06`; `FF 07 <n>` strings
+with the charsets of the prints that show string `<n>`. Text is read through
+the bundle the way `translateText()` does it (the script's range, the room's,
+the whole file; names and verbs through every translation of the original,
+since they are drawn without a script), or, without `--trs`, as the script's
+own CP949 read the way the engine reads it (a lead byte takes the next byte).
+
+`--validate` takes engine text logs (`textlog.json` / `*.log.json`, or a
+`run.log` with its `SCUMM text: loop N, charset C, ... text '...'` lines) and
+lists every distinct (charset, text) whose non-ASCII characters are not in
+that charset's set. ASCII is in every hot set anyway (`--ascii` checks it
+too). It cannot see strings the engine draws that are not in a script: the
+save/load and options dialogs.
+
+`test_charsetchars.py` runs synthetic scripts for the attribution logic.
+
 ## Checking the result
 
 ```sh

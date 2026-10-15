@@ -87,6 +87,11 @@ class Walker:
         self.v = version
         self.small = version <= 4
         self.strings = []
+        self.jumps = []          # absolute targets of the jumps read since the caller last cleared it
+        self.charsets = []       # initCharset operands read: (is_var, value)
+        self.verbnews = 0        # verbOps "new verb" sub-ops read
+        self.string_ids = {}     # text offset -> (is_var, id) of the string variable a stringOps text fills
+        self.verb_ids = []       # the verb operand of each verbOps read: (is_var, id)
 
     def b(self):
         x = self.d[self.p]
@@ -105,10 +110,15 @@ class Walker:
         return x
 
     def B(self, op, mask):
-        self.var() if op & mask else self.b()
+        return (True, self.var()) if op & mask else (False, self.b())
+
+    def jump(self):
+        off = struct.unpack_from('<h', self.d, self.p)[0]
+        self.p += 2
+        self.jumps.append(self.p + off)
 
     def W(self, op, mask):
-        self.var() if op & mask else self.w()
+        return (True, self.var()) if op & mask else (False, self.w())
 
     def vararg(self):
         while True:
@@ -181,7 +191,7 @@ class Walker:
                 raise BadOpcode('actorOps sub-op %02x' % s)
 
     def verb_ops(self, op):
-        self.B(op, 0x80)
+        self.verb_ids.append(self.B(op, 0x80))
         while True:
             s = self.b()
             if s == 0xFF:
@@ -195,7 +205,9 @@ class Walker:
                 self.B(s, 0x80)
             elif c == 5:
                 self.W(s, 0x80); self.W(s, 0x40)
-            elif c in (6, 7, 8, 9, 17, 19):
+            elif c == 7:
+                self.verbnews += 1
+            elif c in (6, 8, 9, 17, 19):
                 pass
             elif c == 22:
                 self.W(s, 0x80); self.B(s, 0x40)
@@ -235,7 +247,9 @@ class Walker:
         s = self.b()
         c = s & 0x1F
         if c == 1:
-            self.B(s, 0x80); self.text('string')
+            sid = self.B(s, 0x80)
+            self.string_ids[self.p] = sid
+            self.text('string')
         elif c in (2, 5):
             self.B(s, 0x80); self.B(s, 0x40)
         elif c == 3:
@@ -253,7 +267,7 @@ class Walker:
         if small and op & 0x1F == 0x05:            # v4 drawObject: obj, x, y
             W(op, 0x80); W(op, 0x40); W(op, 0x20)
         elif small and op in (0x0F, 0x8F):         # v4 ifState
-            W(op, 0x80); B(op, 0x40); self.w()
+            W(op, 0x80); B(op, 0x40); self.jump()
         elif small and op in (0x22, 0xA2):         # v4 saveLoadGame
             self.var(); B(op, 0x80)
         elif small and op in (0x5C, 0xDC):         # v4 oldRoomEffect
@@ -261,7 +275,7 @@ class Walker:
             if s & 0x1F == 3:
                 W(s, 0x80)
         elif op in (0x2F, 0x6F, 0xAF, 0xEF, 0x4F, 0xCF):   # ifState / ifNotState
-            W(op, 0x80); B(op, 0x40); self.w()
+            W(op, 0x80); B(op, 0x40); self.jump()
         elif op in (0x14, 0x94):
             B(op, 0x80); self.parse_string('print')
         elif op == 0xD8:
@@ -294,8 +308,10 @@ class Walker:
                 B(s, 0x80); B(s, 0x40)
             elif c == 11:
                 B(s, 0x80); B(s, 0x40); B(s, 0x20)
-            elif c in (12, 13):
+            elif c == 12:
                 B(s, 0x80)
+            elif c == 13:
+                self.charsets.append(B(s, 0x80))
             elif c == 14:
                 self.vararg()
         elif op in (0x30, 0xB0):                   # matrixOps
@@ -339,7 +355,7 @@ class Walker:
             if a == 'R':
                 self.var()
             elif a == 'J':
-                self.w()
+                self.jump()
             elif a == 'b':
                 self.b()
             elif a == 'w':
@@ -391,7 +407,12 @@ def _walk_small(d, off, end, out, lf):
     return out
 
 
-def v4_strings(gamedir):
+# A code block to walk: ctx = (room, where, number); roots = the offsets the engine can start it at;
+# 'obname' units are a name string at start (no code).
+Unit = collections.namedtuple('Unit', 'ctx tag d start end roots disk block version')
+
+
+def v4_units(gamedir):
     idx = open(os.path.join(gamedir, '000.LFL'), 'rb').read()
     if idx[4:6] != b'RN':
         idx = dexor(idx)
@@ -405,7 +426,6 @@ def v4_strings(gamedir):
                 if room:
                     glob[(room, o)] = i
         off += sz
-    out = []
     for disk in range(1, 10):
         path = os.path.join(gamedir, 'DISK%02d.LEC' % disk)
         if not os.path.exists(path):
@@ -416,6 +436,7 @@ def v4_strings(gamedir):
                 continue
             room, lfoff = lf
             body, end = boff + 6, boff + sz
+            roots = None
             if tag == b'SC':
                 ctx, start = (0, WIO_GLOBAL, glob.get((room, boff - lfoff - 8), -1)), body
             elif tag in (b'EN', b'EX'):
@@ -425,7 +446,7 @@ def v4_strings(gamedir):
             elif tag == b'OC':
                 name = boff + d[boff + 18]
                 n = res_str_len(d, name)
-                out.append(Rec(room, WIO_ROOM, 0, 'obname', d[name:name + n], disk, bi, name))
+                yield Unit((room, WIO_ROOM, 0), 'obname', d, name, name + n, [], disk, bi, 4)
                 entries = []
                 q = boff + 19
                 while d[q]:
@@ -434,17 +455,13 @@ def v4_strings(gamedir):
                 if not entries:
                     continue
                 ctx, start = (room, WIO_ROOM, 0), max(boff + min(entries), name + n + 1)
+                roots = [boff + e for e in entries]
             else:
                 continue
-            try:
-                strings = Walker(d, start, end, 4).run()
-            except (BadOpcode, IndexError) as e:
-                raise SystemExit('%s: %s block at 0x%x (room %d): %s' % (path, tag.decode(), boff, room, e))
-            out += [Rec(*ctx, kind, s, disk, bi, so) for so, kind, s in strings]
-    return out
+            yield Unit(ctx, tag.decode(), d, start, end, roots or [start], disk, bi, 4)
 
 
-def v5_strings(gamedir, name):
+def v5_units(gamedir, name):
     for ext in ('.000', '.001'):
         if not os.path.isfile(os.path.join(gamedir, name + ext)):
             raise SystemExit('%s: no %s%s' % (gamedir, name, ext))
@@ -484,13 +501,13 @@ def v5_strings(gamedir, name):
             off += sz
     walk(0, len(d), None)
 
-    out = []
     room = room_off = None
     for bi, (tag, boff, sz, obcd) in enumerate(blocks):
         if tag == b'ROOM':
             room, room_off = roomat.get(boff), boff
             continue
         body, end = boff + 8, boff + sz
+        roots = None
         if tag == b'SCRP':
             ctx, start = (0, WIO_GLOBAL, glob.get((room, boff - room_off), -1)), body
         elif tag in (b'ENCD', b'EXCD'):
@@ -499,7 +516,7 @@ def v5_strings(gamedir, name):
             ctx, start = (room, WIO_LOCAL, d[body]), body + 1
         elif tag == b'OBNA':
             n = res_str_len(d, body)
-            out.append(Rec(room, WIO_ROOM, 0, 'obname', d[body:body + n], 0, bi, body))
+            yield Unit((room, WIO_ROOM, 0), 'obname', d, body, body + n, [], 0, bi, 5)
             continue
         elif tag == b'VERB':
             entries = []
@@ -510,14 +527,47 @@ def v5_strings(gamedir, name):
             if not entries:
                 continue
             ctx, start = (room, WIO_ROOM, 0), boff + min(entries)
+            roots = [boff + e for e in entries]
         else:
             continue
+        yield Unit(ctx, tag.decode(), d, start, end, roots or [start], 0, bi, 5)
+
+
+def units(gamedir, v5name=None):
+    if not os.path.isdir(gamedir):
+        raise SystemExit('%s: no such game folder' % gamedir)
+    if v5name:
+        return v5_units(gamedir, v5name)
+    if os.path.exists(os.path.join(gamedir, '000.LFL')):
+        return v4_units(gamedir)
+    for n in os.listdir(gamedir):
+        if n.lower().endswith('.000'):
+            return v5_units(gamedir, n[:-4])
+    raise SystemExit('%s: no 000.LFL and no <name>.000' % gamedir)
+
+
+def _strings(it):
+    out = []
+    for u in it:
+        if u.tag == 'obname':
+            out.append(Rec(*u.ctx, 'obname', u.d[u.start:u.end], u.disk, u.block, u.start))
+            continue
         try:
-            strings = Walker(d, start, end, 5).run()
+            strings = Walker(u.d, u.start, u.end, u.version).run()
         except (BadOpcode, IndexError) as e:
-            raise SystemExit('%s block at 0x%x (room %s): %s' % (tag.decode(), boff, room, e))
-        out += [Rec(*ctx, kind, s, 0, bi, so) for so, kind, s in strings]
+            if u.version == 4:
+                raise SystemExit('DISK%02d.LEC: %s block at 0x%x (room %d): %s' % (u.disk, u.tag, u.start, u.ctx[0], e))
+            raise SystemExit('%s block at 0x%x (room %s): %s' % (u.tag, u.start, u.ctx[0], e))
+        out += [Rec(*u.ctx, kind, s, u.disk, u.block, so) for so, kind, s in strings]
     return out
+
+
+def v4_strings(gamedir):
+    return _strings(v4_units(gamedir))
+
+
+def v5_strings(gamedir, name):
+    return _strings(v5_units(gamedir, name))
 
 
 def game_strings(gamedir, v5name=None):
