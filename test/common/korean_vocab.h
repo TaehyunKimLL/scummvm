@@ -64,6 +64,64 @@ public:
 		TS_ASSERT_EQUALS(g[1], 169);
 	}
 
+	static bool loadJoinRows(Common::KoreanVocabulary &v) {
+		static const KoreanVocabFixture::Row rows[] = {
+			{ "나무", 10, 0 },          // tree
+			{ "보다", 11, 1 },          // look (verb)
+			{ "물을내리다", 12, 1 },    // flush (verb, stored joined)
+			{ "고기", 13, 0 },          // meat
+			{ "고다", 14, 1 },          // a verb that 고기 must not become
+			{ "사다", 15, 1 },          // buy
+			{ "웃다", 16, 1 },          // laugh
+		};
+		const Common::Array<byte> img = KoreanVocabFixture::build("SCIKOR", rows, ARRAYSIZE(rows));
+		Common::MemoryReadStream s(img.data(), img.size());
+		return v.loadFromStream(s, "SCIKOR", "fixture");
+	}
+
+	// Two typed words are one word only when the table stores them joined:
+	// the joined form as typed, or the first word as typed with a reading
+	// of the second (물을 내린다 -> 물을내리다). A reading of the joined
+	// string must never swallow the second word: 나무 보다 is tree + look,
+	// not 나무보다 read as 나무 + the comparative particle.
+	void test_a_pair_joins_only_on_a_stored_joined_form() {
+		Common::KoreanVocabulary v;
+		TS_ASSERT(loadJoinRows(v));
+		TS_ASSERT(v.lookupJoined(u("물을"), u("내린다")));
+		TS_ASSERT(v.lookupJoined(u("물을"), u("내리다")));
+		TS_ASSERT(!v.lookupJoined(u("나무"), u("보다")));
+		TS_ASSERT(!v.lookupJoined(u("나무"), u("처럼")));
+		TS_ASSERT(!v.lookupJoined(u("나무"), u("이다")));
+		TS_ASSERT(!v.lookupJoined(u("나무를"), u("보라")));
+		// An auxiliary verb typed apart is still the verb's own ending: 사
+		// 줘 is 사줘 (buy), 웃어 봐 is 웃어봐 (laugh). The reading reaches
+		// past the first word, so the second word was read, not dropped.
+		TS_ASSERT(v.lookupJoined(u("사"), u("줘")));
+		TS_ASSERT(v.lookupJoined(u("웃어"), u("봐")));
+		// The attached comparative is still a reading of one word.
+		uint16 g[4], c[4];
+		uint8 role;
+		TS_ASSERT_EQUALS(v.lookupAll(u("나무보다"), g, c, 4, role), 1u);
+		TS_ASSERT_EQUALS(g[0], 10);
+	}
+
+	// A noun the table holds wins over a verb reading of it: 고기 is meat,
+	// never 고다 + the -기 nominaliser; 보기 is a reading of 보다.
+	void test_a_stored_noun_wins_over_a_gi_reading() {
+		Common::KoreanVocabulary v;
+		TS_ASSERT(loadJoinRows(v));
+		uint16 g[4], c[4];
+		uint8 role;
+		TS_ASSERT_EQUALS(v.lookupAll(u("고기"), g, c, 4, role), 1u);
+		TS_ASSERT_EQUALS(g[0], 13);
+		TS_ASSERT_EQUALS(v.lookupAll(u("고기를"), g, c, 4, role), 1u);
+		TS_ASSERT_EQUALS(g[0], 13);
+		TS_ASSERT_EQUALS(v.lookupAll(u("보기"), g, c, 4, role), 1u);
+		TS_ASSERT_EQUALS(g[0], 11);
+		TS_ASSERT_EQUALS(v.lookupAll(u("보라"), g, c, 4, role), 1u);
+		TS_ASSERT_EQUALS(g[0], 11);
+	}
+
 	void test_truncated_table_is_refused() {
 		static const byte bad[] = { 'A', 'G', 'I', 'K', 'O', 'R', 0, 0, 2, 0, 0, 0, 9, 0, 0, 0 };
 		Common::MemoryReadStream s(bad, sizeof(bad));

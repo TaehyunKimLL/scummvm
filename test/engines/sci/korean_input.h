@@ -988,7 +988,11 @@ public:
 		const Common::String voc = readSource("engines/sci/parser/vocabulary.cpp");
 		TS_ASSERT(voc.contains("Common::String Vocabulary::joinKoreanPairs(const char *sentence) const"));
 		TS_ASSERT(voc.contains("const Common::String joined = words[i] + words[i + 1];"));
-		TS_ASSERT(voc.contains("if (_koreanVocab.lookup(kword, group, wclass)) {"));
+		// The first word as typed, the second as typed or one of its
+		// readings: a reading of the joined string would let a particle
+		// swallow the second word (나무 보다 -> 나무보다, "than a tree").
+		TS_ASSERT(voc.contains("if (_koreanVocab.lookupJoined(first, second)) {"));
+		TS_ASSERT(!voc.contains("if (_koreanVocab.lookup(kword, group, wclass)) {"));
 		// Before the word loop, and only with a map loaded.
 		const int gate = voc.find("if (_koreanVocab.isLoaded()) {\n\t\tjoinedSentence = joinKoreanPairs(sentence);");
 		TS_ASSERT_LESS_THAN(0, gate);

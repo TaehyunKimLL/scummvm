@@ -85,6 +85,17 @@ public:
 	 */
 	uint lookupExact(const Common::U32String &word, uint16 *groups, uint16 *classes, uint max) const;
 
+	/**
+	 * Whether two adjacent typed words are one stored word: the table
+	 * holds @p first + @p second as typed, or @p first as typed joined to
+	 * a reading of @p second (물을 내린다 -> 물을내리다), or the reading of
+	 * the joined string that lookupAll() takes reaches past the first
+	 * word (사 줘 -> 사다: an auxiliary typed apart). A reading that ends
+	 * inside the first word dropped the second as a particle, and does
+	 * not count: 나무 보다 is tree, look - not 나무보다, "than a tree".
+	 */
+	bool lookupJoined(const Common::U32String &first, const Common::U32String &second) const;
+
 	void unload();
 
 	bool isLoaded() const { return _data != nullptr; }

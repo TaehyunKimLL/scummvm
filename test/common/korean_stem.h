@@ -510,6 +510,66 @@ public:
 		TS_ASSERT_EQUALS(roleOf("피터다", "피터"), (uint8)Common::kKoreanRoleNone);
 	}
 
+	// The nominalised -기 form is what a verb panel or a typing habit
+	// leaves at the prompt: 보기 is look, 열기 open. Any verb stem takes
+	// it, an auxiliary inside it comes off as well, and a noun that ends
+	// in 기 is untouched because the typed word is looked up before any
+	// reading (KoreanVocabulary::lookupAll).
+	void test_nominaliser_gi_reaches_the_verb() {
+		TS_ASSERT(has("보기", "보다"));
+		TS_ASSERT(has("열기", "열다"));
+		TS_ASSERT(has("집기", "집다"));
+		TS_ASSERT(has("가지기", "가지다"));
+		TS_ASSERT(has("먹기", "먹다"));
+		TS_ASSERT(has("사용하기", "사용하다"));
+		TS_ASSERT(has("부르기", "부르다"));
+		TS_ASSERT(has("열어보기", "열다"));
+		// A noun with a particle never reaches a verb through 기.
+		TS_ASSERT(!has("고기를", "고다"));
+		TS_ASSERT(has("고기를", "고기"));
+	}
+
+	// The written imperative -(으)라: 보라, 열라 (ㄹ stem), 집으라, 먹으라,
+	// 하라, and the ㄷ irregular before 으 (들으라 is 듣다).
+	void test_imperative_eura_reaches_the_verb() {
+		TS_ASSERT(has("보라", "보다"));
+		TS_ASSERT(has("주라", "주다"));
+		TS_ASSERT(has("쓰라", "쓰다"));
+		TS_ASSERT(has("마시라", "마시다"));
+		TS_ASSERT(has("버리라", "버리다"));
+		TS_ASSERT(has("열라", "열다"));
+		TS_ASSERT(has("만들라", "만들다"));
+		TS_ASSERT(has("집으라", "집다"));
+		TS_ASSERT(has("먹으라", "먹다"));
+		TS_ASSERT(has("하라", "하다"));
+		TS_ASSERT(has("가라", "가다"));
+		static const char *const hearOrLift[] = { "듣다", "들다", nullptr };
+		TS_ASSERT_EQUALS(firstOf("들으라", hearOrLift), Common::String("듣다"));
+		// The fused 르 irregular keeps its reading ahead of a ㄹ stem: 골라 is
+		// 고르다 before it is 골다, 몰라 모르다 before 몰다.
+		static const char *const chooseOrSnore[] = { "고르다", "골다", nullptr };
+		TS_ASSERT_EQUALS(firstOf("골라", chooseOrSnore), Common::String("고르다"));
+		static const char *const knowOrDrive[] = { "모르다", "몰다", nullptr };
+		TS_ASSERT_EQUALS(firstOf("몰라", knowOrDrive), Common::String("모르다"));
+		// 봐라 and 해라 stay the 어/아 form.
+		TS_ASSERT(has("봐라", "보다"));
+		TS_ASSERT(has("해라", "하다"));
+		// 라 after a consonant stem other than ㄹ is no imperative: 집라
+		// is not 집다 (the imperative is 집으라).
+		TS_ASSERT(!has("집라", "집다"));
+	}
+
+	// 보다 as a separate word is the verb; only attached to a noun is it
+	// the comparative particle (나무보다). The stemmer never reads a word
+	// as nothing but a particle.
+	void test_comparative_boda_only_attached() {
+		TS_ASSERT(has("나무보다", "나무"));
+		Common::KoreanStems out;
+		const uint n = stems("보다", out);
+		for (uint i = 0; i < n; ++i)
+			TS_ASSERT_DIFFERS(out.len[i], 0);
+	}
+
 	static bool particleOnly(const char *utf8, uint8 &role) {
 		return Common::koreanParticleRole(toU32(utf8), role);
 	}

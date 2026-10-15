@@ -758,7 +758,9 @@ void Vocabulary::debugDecipherSaidBlock(const SciSpan<const byte> &data) {
 // and here two adjacent Korean words whose joined form the map answers
 // become one word before the lookup. The joined form is only ever found
 // when the map holds it on purpose, so a pair that reads as two words
-// (가방을 열어: no 가방을열다) is left alone.
+// (가방을 열어: no 가방을열다) is left alone. A reading may undo the second
+// word's ending (내린다 -> 내리다, 사 줘 -> 사다) but never drop it whole as
+// a particle: 나무 보다 (look at the tree) is not 나무보다, "than a tree".
 Common::String Vocabulary::joinKoreanPairs(const char *sentence) const {
 	Common::Array<Common::String> words;
 	Common::String cur;
@@ -778,9 +780,9 @@ Common::String Vocabulary::joinKoreanPairs(const char *sentence) const {
 	for (uint i = 0; i < words.size(); ++i) {
 		if (i + 1 < words.size() && (byte)words[i][0] >= 0x80 && (byte)words[i + 1][0] >= 0x80) {
 			const Common::String joined = words[i] + words[i + 1];
-			const Common::U32String kword(joined, utf8 ? Common::kUtf8 : Common::kWindows949);
-			uint16 group = 0, wclass = 0;
-			if (_koreanVocab.lookup(kword, group, wclass)) {
+			const Common::CodePage cp = utf8 ? Common::kUtf8 : Common::kWindows949;
+			const Common::U32String first(words[i], cp), second(words[i + 1], cp);
+			if (_koreanVocab.lookupJoined(first, second)) {
 				debugC(1, kDebugLevelHangul, "[parse] joined '%s' + '%s'", words[i].c_str(), words[i + 1].c_str());
 				words[i] = joined;
 				words.remove_at(i + 1);

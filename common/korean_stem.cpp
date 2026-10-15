@@ -65,6 +65,7 @@ enum Syl {
 	kSylI = 0xC774,       // 이
 	kSylHa = 0xD558,      // 하
 	kSylU = 0xC6B0,       // 우
+	kSylRa = 0xB77C,      // 라
 };
 
 static bool isSyllable(uint32 c) {
@@ -149,7 +150,11 @@ enum StemFlags {
 	kStemAfterEu = 1 << 7,
 	// ㄹ까, ㄹ래: the ㄹ is the ending's after a vowel stem (볼까 is 보다)
 	// and the stem's own after a ㄹ stem (열까 is 열다), so both are read.
-	kStemJongRieul = 1 << 8
+	kStemJongRieul = 1 << 8,
+	// The written imperative 라 on a bare stem (보라, 주라, 열라, 마시라):
+	// only a vowel or ㄹ final takes it without 으, and a fused 어/아 is
+	// the 어라 form the 라 entry of the table already reads.
+	kStemBareRa = 1 << 9
 };
 
 struct Ending {
@@ -159,11 +164,14 @@ struct Ending {
 };
 
 // The endings a player types after a verb at a parser prompt: plain and
-// polite statements, requests (열어줄래, 열어볼까), imperatives, and the
-// 고/서 that join two commands. Other questions, modifiers and nominal
+// polite statements, requests (열어줄래, 열어볼까), imperatives (written
+// 으라 too: 집으라), the 고/서 that join two commands, and the -기 a verb
+// panel leaves (보기, 열기). Other questions, modifiers and nominal
 // endings are left out on purpose: 집을, 안은, 사도 and 하나 would otherwise
 // read as 집다, 안다, 사다 and 하다 before the particle strip gets its turn,
-// and a wrong verb is worse than a missing one. Longest first within a
+// and a wrong verb is worse than a missing one. 기 is no particle shape,
+// and a noun ending in 기 (고기, 비행기) is found as typed before any
+// reading is tried. Longest first within a
 // shared tail, so 어라 is removed before 라 would be; the loop relies on
 // the table order. Stored as code points so a match is a compare, never
 // a decode.
@@ -178,6 +186,7 @@ static const Ending kEndings[] = {
 	{ 2, { 0xC2DC, 0xB2E4 }, kStemJongBieup },                // 시다
 	{ 3, { 0xC73C, 0xC138, 0xC694 }, kStemAfterEu },          // 으세요
 	{ 2, { 0xC138, 0xC694 }, kStemRieul },                    // 세요
+	{ 2, { 0xC73C, 0xB77C }, kStemAfterEu },                  // 으라
 	{ 3, { 0xC73C, 0xC2DC, 0xC624 }, kStemAfterEu },          // 으시오
 	{ 2, { 0xC2DC, 0xC624 }, kStemRieul },                    // 시오
 	{ 2, { 0xC5B4, 0xB77C }, kStemExplicitVowel },            // 어라
@@ -204,6 +213,7 @@ static const Ending kEndings[] = {
 	{ 1, { 0xC11C }, kStemVowelForm },                        // 서
 	{ 1, { 0xC790 }, kStemPlain },                            // 자
 	{ 1, { 0xACE0 }, kStemPlain },                            // 고
+	{ 1, { 0xAE30 }, kStemPlain },                            // 기 (보기, 열기: the nominalised verb)
 };
 
 struct Aux {
@@ -540,6 +550,13 @@ static void processStem(Collector &c, U32 r, uint flags) {
 	if (r.empty() || !isSyllable(last(r)))
 		return;
 
+	if (flags & kStemBareRa) {
+		const uint32 jo = jong(last(r));
+		if ((jo != kJongNone && jo != kJongRieul) || lastIsFusedVowel(r))
+			return;
+		flags = kStemPlain;
+	}
+
 	if (flags & kStemYeo) {
 		if (last(r) == kSylHa) {
 			flags = kStemPlain;
@@ -670,6 +687,12 @@ static void deinflect(Collector &c, const U32 &w) {
 	// word ending in 다 is a citation form, not an 어/아 form.
 	if (lastIsFusedVowel(w) && last(w) != kSylDa)
 		processStem(c, w, kStemVowelForm);
+
+	// The written imperative on a bare stem: 보라, 열라, 마시라. After the
+	// fused reading, so 골라 and 몰라 are 고르다 and 모르다 before they are
+	// 골다 and 몰다.
+	if (endsWithSyl(w, kSylRa))
+		processStem(c, head(w, 1), kStemBareRa);
 
 	// A bare stem typed on its own: 읽 -> 읽다. 가 and 켜 reach their own
 	// dictionary forms here as well.

@@ -248,6 +248,36 @@ uint KoreanVocabulary::lookupAll(const Common::U32String &word, uint16 *groups,
 	return 0;
 }
 
+bool KoreanVocabulary::lookupJoined(const Common::U32String &first, const Common::U32String &second) const {
+	uint16 g, c;
+	if (lookupExact(first + second, &g, &c, 1))
+		return true;
+	KoreanStems stems;
+	const uint n = koreanStemCandidates(second, stems);
+	for (uint i = 0; i < n; ++i) {
+		Common::U32String joined = first;
+		for (uint k = 0; k < stems.len[i]; ++k)
+			joined += (Common::u32char_type_t)stems.cp[i][k];
+		if (lookupExact(joined, &g, &c, 1))
+			return true;
+	}
+	// A reading of the joined string, the one lookupAll() would take,
+	// counts only when it reaches past the first word: 사 줘 -> 사다 and
+	// 웃어 봐 -> 웃다 read the second word as the verb's auxiliary, while
+	// 나무 보다 -> 나무 would have dropped it as a particle.
+	const Common::U32String joined = first + second;
+	const uint m = koreanStemCandidates(joined, stems);
+	for (uint i = 0; i < m; ++i) {
+		if (!lookupExact(stems.get(i), &g, &c, 1))
+			continue;
+		bool insideFirst = stems.len[i] <= first.size();
+		for (uint k = 0; insideFirst && k < stems.len[i]; ++k)
+			insideFirst = stems.cp[i][k] == first[k];
+		return !insideFirst;
+	}
+	return false;
+}
+
 uint KoreanVocabulary::lookupExact(const Common::U32String &word, uint16 *groups,
                                    uint16 *classes, uint max) const {
 	if (!_data || word.empty() || word.size() > KoreanStems::kMaxLen || !max)
