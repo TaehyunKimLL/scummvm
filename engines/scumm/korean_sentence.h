@@ -114,6 +114,15 @@ Common::String fitKoreanSentence(const KoreanSentenceParts &parts, bool utf8, in
 bool koreanSentenceApplies(int version, Common::Platform platform, Common::Language language, bool hasBundle);
 
 /**
+ * Whether @p verb (the verb resource, translated when it was made) came out
+ * Korean: it has a non-ASCII byte. A translation that leaves the verbs in
+ * English ("Give" mapped to itself) would otherwise give English words in
+ * Korean order ("Annie에게 token Give"), so the line keeps the engine's
+ * English order then.
+ */
+bool koreanVerbTranslated(const Common::String &verb);
+
+/**
  * The v2 sentence line's length cut, as drawSentence() has always done it:
  * at most 40 printable characters (60 on the NES, with a line break after
  * 30), '@' not counted. Writes at most @p outSize bytes, NUL included.

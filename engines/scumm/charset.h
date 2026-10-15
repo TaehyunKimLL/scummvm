@@ -414,7 +414,7 @@ public:
 	~CharsetRendererV2() override;
 
 	void setCurID(int32 id) override {}
-	int getCharWidth(uint16 chr) const override { return 8; }
+	int getCharWidth(uint16 chr) const override;
 	bool measuresLatinThroughHiRes() const override { return false; }
 
 #ifdef USE_TTS

@@ -128,9 +128,12 @@ Common::String compose(const Common::String &verb, const Common::String &a, cons
 		return line;
 	}
 
-	if (p.prep >= 1 && p.prep <= 4) {
+	// A B that was chosen but has no name shows nothing, not "...".
+	const bool unnamedB = p.hasB && b.empty();
+
+	if (p.prep >= 1 && p.prep <= 4 && !unnamedB) {
 		const PrepRule &rule = kPrepRules[p.prep];
-		const bool chosen = p.hasB && !b.empty();
+		const bool chosen = p.hasB;
 		const KoreanJosa josa = p.instrumentB ? rule.tool : ((!chosen || p.bIsActor) ? rule.person : rule.thing);
 		join(line, (chosen ? b : Common::String(kPlaceholder)) + koreanJosa(chosen ? bFinal : kKoFinalUnknown, josa, utf8));
 		join(line, a);
@@ -243,11 +246,21 @@ Common::String fitKoreanSentence(const KoreanSentenceParts &parts, bool utf8, in
 		fit = next;
 		pos += n;
 	}
+	while (!fit.empty() && fit.lastChar() == ' ')	// a cut after a space leaves it hanging
+		fit.deleteLastChar();
 	return fit;
 }
 
 bool koreanSentenceApplies(int version, Common::Platform platform, Common::Language language, bool hasBundle) {
 	return version == 2 && platform != Common::kPlatformNES && language == Common::KO_KOR && hasBundle;
+}
+
+bool koreanVerbTranslated(const Common::String &verb) {
+	for (uint i = 0; i < verb.size(); i++) {
+		if ((byte)verb[i] >= 0x80)
+			return true;
+	}
+	return false;
 }
 
 void cutV2Sentence(const char *sentence, bool nes, byte *out, int outSize) {

@@ -907,6 +907,15 @@ void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth, int
 	setCurID(oldID);
 }
 
+int CharsetRendererV2::getCharWidth(uint16 chr) const {
+	// A UTF-8 code point over a CJK patch's cells steps as printChar() steps
+	// it (is2byte there): the cell and its gap, or the hi-res layer's advance.
+	// Measuring a Korean line by a flat 8 would let it run past the edge.
+	if (chr >= 256 && _vm->_useCJKMode)
+		return _vm->_hiResText.advanceFor(chr, _curId, _vm->cjkCellAdvance());
+	return 8;
+}
+
 int CharsetRendererV3::getCharWidth(uint16 chr) const {
 	int spacing = 0;
 

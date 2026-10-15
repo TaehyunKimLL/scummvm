@@ -958,7 +958,10 @@ void ScummEngine_v2::drawSentence() {
 
 	// A Korean translation: each part translated, Korean order, verb last
 	// (korean_sentence.h). Every other game builds the English-order line below.
-	const bool korean = koreanSentenceApplies(_game.version, _game.platform, _language, hasTranslationBundle());
+	// Only when the verb really came out Korean: a bundle that leaves the verbs
+	// in English would give English words in Korean order.
+	const bool korean = koreanSentenceApplies(_game.version, _game.platform, _language, hasTranslationBundle()) &&
+						koreanVerbTranslated(_sentenceBuf);
 	if (korean)
 		buildKoreanSentence(slot);
 	else if (VAR(VAR_SENTENCE_OBJECT1) > 0) {
@@ -1087,12 +1090,10 @@ void ScummEngine_v2::buildKoreanSentence(int slot) {
 
 	debug(5, "drawSentence: verb %d (slot %d) obj %d prep %d obj %d", (int)VAR(VAR_SENTENCE_VERB), slot, obj1, parts.prep, obj2);
 
-	// Measured as drawString() will draw it: charset 1, the hi-res faces.
+	// Measured by the renderer drawString() draws with (v2 has one charset, so
+	// there is no id to select).
 	SentenceWidthCtx ctx = { _charset };
-	const int oldId = _charset->getCurID();
-	_charset->setCurID(1);
 	_sentenceBuf = fitKoreanSentence(parts, _textUtf8, _virtscr[kVerbVirtScreen].w, sentenceWidth, &ctx);
-	_charset->setCurID(oldId);
 }
 
 void ScummEngine::displayDialog() {

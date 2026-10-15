@@ -233,11 +233,30 @@ public:
 	void test_fit_hard_cut() {
 		Scumm::KoreanSentenceParts p = parts("사용하기", "열쇠", 1, "문");
 		const Common::String fit = Scumm::fitKoreanSentence(p, true, 30, fakeWidth, kUtf8);
-		TS_ASSERT_EQUALS(fit, "문에 ");   // 9+9+8 = 26; the next syllable would make 35
+		TS_ASSERT_EQUALS(fit, "문에");   // 9+9 = 18 (+8 for the space = 26); the next syllable would make 35, and no space is left hanging
 		TS_ASSERT(wholeChars(fit, true));
 	}
 
+	// A chosen B whose name is empty (only '@' padding) is not the "..." of a B still to come.
+	void test_empty_chosen_b_is_not_the_placeholder() {
+		Scumm::KoreanSentenceParts p = parts("주기", "티켓", 4, "@@");
+		TS_ASSERT_EQUALS(Scumm::composeKoreanSentence(p, true), "티켓 주기");
+		Scumm::KoreanSentenceParts q = parts("주기", "티켓", 4);	// B not chosen yet
+		TS_ASSERT_EQUALS(Scumm::composeKoreanSentence(q, true), "...에게 티켓 주기");
+	}
+
 	// --- where it applies, and the English line ------------------------------
+
+	// An untranslated verb ("Give" kept by a translation that maps it to itself)
+	// keeps the English order; a Korean one composes.
+	void test_verb_translated() {
+		TS_ASSERT(Scumm::koreanVerbTranslated("주기@@"));
+		TS_ASSERT(Scumm::koreanVerbTranslated("\xc1\xd6\xb1\xe2"));
+		TS_ASSERT(Scumm::koreanVerbTranslated("이게 뭐지?"));
+		TS_ASSERT(!Scumm::koreanVerbTranslated("Give@@"));
+		TS_ASSERT(!Scumm::koreanVerbTranslated("What is@@"));
+		TS_ASSERT(!Scumm::koreanVerbTranslated(""));
+	}
 
 	void test_applies_only_to_korean_v2_with_bundle() {
 		TS_ASSERT(Scumm::koreanSentenceApplies(2, Common::kPlatformDOS, Common::KO_KOR, true));
