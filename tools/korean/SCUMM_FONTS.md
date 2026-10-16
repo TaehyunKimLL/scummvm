@@ -111,7 +111,7 @@ beside them list the games that use each):
 | NGOTB21A | NanumGothic Bold (Google), AA | 21 | 22x24 | 2 | precomposed | 2446 | M1U0, M2U0 |
 | NGOTB22 | NanumGothic Bold (Google), AA | 22 | 22x22 | 2 | precomposed | 1216 (game subset) | Q1G22 |
 | PAPLG16 | Paperlogy 4 Regular, AA, Latin companion (ASCII, U+2026, U+2122, compat jamo; space 6, punctuation +1) | 16 | 18x18 | 2 | precomposed | 149 | - (new: Indy4 dialogue, behind PAPLG18) |
-| PAPLG18 | Paperlogy 4 Regular, AA, vector pieces, 24/16/16 sets, 8x8 classes | 18 | 18x18 | 2 | jamo | 11,172 composed | - (new: Indy4 dialogue) |
+| PAPLG18 | Paperlogy 4 Regular, AA, vector pieces, 24/16/16 sets, 12x12 classes, usage-weighted (needs the 2026-10 engine) | 18 | 18x18 | 2 | jamo | 11,172 composed | - (new: Indy4 dialogue) |
 | SANGAM16 | san 1.0 GAM.KOR + SAN.ENG | 16 | 16x16 | 1 | jamo | 11,172 composed | KOJ16 |
 | SMYJO18 | Mac Hangul Sinmyungjo 18 px strike | 19 | 19x18 | 1 | precomposed | 2453 (2,350 + symbols, no ASCII) | LSL1 EGA (font 59) |
 | TBGHC48 | Taebaek 3.5 GHANC48.PFT | 48 | 48x48 | 1 | jamo | 11,172 composed | - |
