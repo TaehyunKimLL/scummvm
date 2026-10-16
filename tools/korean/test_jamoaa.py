@@ -701,5 +701,107 @@ class VectorMasters(unittest.TestCase):
         self.assertEqual((len(ga[0]), len(ga[1]), len(ga[2])), (1, 2, 0))
 
 
+# ---- composite syllable glyphs (jamovec.py master --components) -------------------------------------------------------
+
+def build_composite_font(path):
+    """A 1000-unit font whose syllables 가 각 갈 나 낙 날 갸 난 are composites of an initial, a medial and a final glyph
+    (낙 listed final, initial, medial: a permuted file order; 갸 has two components); 아 is a flat glyph."""
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+
+    def rect(x0, y0, x1, y1):
+        pen = TTGlyphPen(None)
+        pen.moveTo((x0, y0))
+        pen.lineTo((x0, y1))
+        pen.lineTo((x1, y1))
+        pen.lineTo((x1, y0))
+        pen.closePath()
+        return pen.glyph()
+    parts = {"cho_g": rect(100, 450, 400, 700), "cho_n": rect(100, 450, 200, 700), "jung_a": rect(550, 150, 650, 700),
+             "jung_ya": rect(550, 150, 800, 700), "jong_g": rect(150, 50, 700, 130), "jong_l": rect(150, 50, 400, 300)}
+    mk = {}
+
+    def comp(names):
+        pen = TTGlyphPen({k: None for k in parts})
+        for n in names:
+            pen.addComponent(n, (1, 0, 0, 1, 0, 0))
+        return pen.glyph()
+    spec = {0xAC00: ("cho_g", "jung_a"), 0xAC01: ("cho_g", "jung_a", "jong_g"), 0xAC08: ("cho_g", "jung_a", "jong_l"),
+            0xB098: ("cho_n", "jung_a"), 0xB099: ("jong_g", "cho_n", "jung_a"), 0xB0A0: ("cho_n", "jung_a", "jong_l"),
+            0xAC38: ("cho_g", "jung_ya"), 0xB09C: ("cho_n", "jung_a", "jong_l")}
+    names = [".notdef"] + list(parts) + ["uni%04X" % cp for cp in sorted(spec)] + ["uniC544"]
+    fb = FontBuilder(1000, isTTF=True)
+    fb.setupGlyphOrder(names)
+    fb.setupCharacterMap({**{cp: "uni%04X" % cp for cp in spec}, 0xC544: "uniC544"})
+    glyphs = {".notdef": rect(0, 0, 0, 0), **parts, "uniC544": rect(100, 450, 700, 700)}
+    for cp, nm in spec.items():
+        glyphs["uni%04X" % cp] = comp(nm)
+    fb.setupGlyf(glyphs)
+    fb.setupHorizontalMetrics({n: (1000, 0) for n in names})
+    fb.setupHorizontalHeader(ascent=900, descent=-100)
+    fb.setupNameTable({"familyName": "JamoComp", "styleName": "Regular"})
+    fb.setupOS2()
+    fb.setupPost()
+    fb.save(path)
+    return sorted(spec)
+
+
+class ComponentOrder(unittest.TestCase):
+    def test_file_order_is_kept_when_plausible_and_fixed_by_position_otherwise(self):
+        import jamovec
+        cho, jung, jong = (10, 50, 40, 90), (60, 10, 90, 90), (20, -50, 80, -10)
+        self.assertEqual(jamovec.order_parts([cho, jung, jong], True), [0, 1, 2])
+        self.assertEqual(jamovec.order_parts([jong, cho, jung], True), [1, 2, 0])
+        self.assertEqual(jamovec.order_parts([cho, jong, jung], True), [0, 2, 1])
+        self.assertEqual(jamovec.order_parts([jung, cho], False), [1, 0])
+        self.assertEqual(jamovec.order_parts([cho, None, jong], True), [0, 1, 2])
+
+
+@unittest.skipUnless(FONTTOOLS, "needs fontTools")
+class ComponentMasters(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.ttf = os.path.join(cls.tmp.name, "c.ttf")
+        cls.cps = build_composite_font(cls.ttf)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_components_are_the_pieces_and_a_permuted_file_order_is_fixed(self):
+        import jamovec
+        m = jamovec.build_master(self.ttf, None, 32, components=True)
+        info = m["info"]["contours"]
+        self.assertEqual((info["composite"], info["flat_left_out"], info["reordered"], info["bad_shape"]), (8, 1, 1, 0))
+        self.assertEqual(info["reordered_syllables"], chr(0xB099))
+        face = jamoaa.OutlineFace(self.ttf, 1000)
+        parts, reordered, total = jamovec.composite_parts(face, 0xB099)
+        self.assertTrue(reordered)
+        self.assertEqual([len(cs) for cs, _ in parts], [1, 1, 1])
+        self.assertEqual(parts[2][0][0][0][1], 50)			# the final is the bar at the bottom
+        self.assertEqual(m["info"]["medoids"]["empty"], 0)
+
+    def test_composite_syllables_compose_exactly_and_the_flat_one_is_not_a_donor(self):
+        import jamovec
+        m = jamovec.build_master(self.ttf, None, 32, components=True)
+        out, info = jamovec.render(m, 20, 2)
+        f = jamoset.parse_svfn(out)
+        t = jamoset.unpack(f.jset)
+        face = jamoaa.OutlineFace(self.ttf, 20)
+        for cp in self.cps:
+            want = jamoaa.direct_levels(face, cp, info["origin_x"], info["baseline"], 20, 20)
+            self.assertEqual(jamoaa.unpack_levels(jamoset.compose(f, t, cp), 20, 20, 2), want, chr(cp))
+
+    def test_a_font_without_composites_is_refused(self):
+        import jamovec
+        flat = os.path.join(self.tmp.name, "t.ttf")
+        build_test_font(flat)
+        with self.assertRaises(jamoset.SourceError):
+            jamovec.build_master(flat, None, 32, components=True)
+        self.assertEqual(jamovec.build_master(self.ttf, None, 32, components="auto")["info"]["contours"]["mode"],
+                         "components")
+
+
 if __name__ == "__main__":
     unittest.main()

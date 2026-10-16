@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Vector master pieces: separate a font's jamo once, as outlines, and render every size from them.
 
-  jamovec.py master FONT -o MASTER.json [--adaptive] [--decision-px 48]
+  jamovec.py master FONT -o MASTER.json [--adaptive] [--decision-px 48] [--components]
   jamovec.py render MASTER.json --size N [--bpp 1|2] [--binarize threshold|ridge] -o OUT.SVF
 
 The per-size fit (jamoset.py --from-ttf) separates and fits pieces again at every size, from rasters. Here the
@@ -18,6 +18,16 @@ separation happens once per font:
      outline, the whole outline (it then carries a stroke of the neighbouring jamo; counted).
   4. The master stores, in font units: the pieces' contours, the union ink box of the drawn syllables (the frame of
      any size), ASCII outlines and advances, and the JSET tables.
+
+With --components (a font whose Hangul syllables are composite glyphs: each syllable = initial + medial [+ final]
+component glyphs, as GothicA1, SingleDay, Dovemayo, NeoDunggeunmo and the KS 2,479 of NanumSquareRoundR are) step 1 is
+skipped: the components ARE the pieces. composite_parts() reads each syllable's components from the glyf table
+(glyph.components, getComponentInfo() -> (name, transform)), flattens each one's outline with the transform applied,
+and puts them in the order initial, medial, final: the file order where it is geometrically plausible (the final the
+lowest, the initial up-left of the medial), else by position (the file order of some fonts is permuted for some
+syllables; counted and listed in info). Each component rendered at the decision size is that slot's donor and its
+contours are the slot's record, so steps 2 and 3 run unchanged. Syllables that are not composite in a partly composite
+font are left out of the donors (their sets are chosen by the others, their pieces borrowed as for unused ones).
 
 Rendering a size is only: the frame from the stored box, each master outline rasterised by exact area at that
 size (jamoaa.rasterize), quantised (2 bpp as mkfont.py does; 1 bpp by coverage >= 0.5, or ridge). No fitting.
@@ -50,8 +60,112 @@ def tables_from(d):
     return t
 
 
-def build_master(path, adaptive=None, decision_px=48, passes=12, pylib=None, log=None, class_limit=None):
-    """The master dict of the outline font @p path (see the module comment)."""
+def _glyf_components(face, cp):
+    """[(glyph name, transform)] of the composite glyph of @p cp, or None (flat glyph, no glyf table, not drawn)."""
+    name = face.cmap.get(cp)
+    try:
+        glyf = face.font["glyf"]
+        gl = glyf[name] if name is not None else None
+    except KeyError:
+        return None
+    if gl is None or not gl.isComposite():
+        return None
+    return [c.getComponentInfo() for c in gl.components]
+
+
+def order_parts(boxes, has_final):
+    """Indices into @p boxes (ink boxes (x0, y0, x1, y1) of the components in file order, y up, or None for an empty
+    component) in the order initial, medial[, final]. The file order is kept where it is plausible: the final's
+    centre lower than the others', the initial up-left of the medial (its centre's y - x the larger); otherwise the
+    final is the lowest and the initial the more up-left of the other two. Empty components keep their file place."""
+    k = len(boxes)
+    order = list(range(k))
+    if None in boxes:
+        return order
+
+    def cen(i):
+        b = boxes[i]
+        return (b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0
+
+    def upleft(i):
+        x, y = cen(i)
+        return y - x
+    if has_final and k == 3:
+        if cen(2)[1] < min(cen(0)[1], cen(1)[1]) and upleft(0) >= upleft(1):
+            return order
+        fin = min(range(3), key=lambda i: cen(i)[1])
+        a, b = [i for i in range(3) if i != fin]
+        return [a, b, fin] if upleft(a) >= upleft(b) else [b, a, fin]
+    if k == 2:
+        return order if upleft(0) >= upleft(1) else [1, 0]
+    return order
+
+
+def composite_parts(face, cp, has_final=None):
+    """([contours of the initial, of the medial, of the final], reordered, n) of the composite syllable @p cp: each
+    component flattened (pen-relative pixels, y up) with its transform; n is the contour count of the whole glyph
+    in file order (the numbering of face.contours(cp)). None if the glyph is not a composite of 2 or 3 components
+    that fits the syllable (3 for a final, 2 without), or reordered=True when the file order was permuted."""
+    comps = _glyf_components(face, cp)
+    if not comps:
+        return None
+    s = cp - 0xAC00
+    has_final = s % 28 != 0 if has_final is None else has_final
+    if len(comps) != 2 + bool(has_final):
+        return None
+    from fontTools.pens.transformPen import TransformPen
+    parts, boxes, first = [], [], []
+    total = 0
+    for name, t in comps:
+        pen = A._FlatPen(face.glyphs, face.scale)
+        face.glyphs[name].draw(TransformPen(pen, t))
+        cs = [c for c in pen.contours if len(c) >= 3]
+        parts.append(cs)
+        boxes.append(A.glyph_box(cs))
+        first.append(total)
+        total += len(cs)
+    order = order_parts(boxes, has_final)
+    return [(parts[i], list(range(first[i], first[i] + len(parts[i])))) for i in order], order != sorted(order), total
+
+
+def component_donors(face, cps, ox, oy, D, say):
+    """(donors, record, info) of the composite syllables among @p cps (see the module comment)."""
+    n = D * D
+    donors, record = {}, {}
+    info = {"mode": "components", "drawn": len(cps), "composite": 0, "flat_left_out": 0, "bad_shape": 0,
+            "reordered": 0, "reordered_syllables": "", "contour_mismatch": 0}
+    swapped = []
+    for cp in cps:
+        s = cp - 0xAC00
+        r = composite_parts(face, cp)
+        if r is None:
+            info["flat_left_out" if _glyf_components(face, cp) is None else "bad_shape"] += 1
+            continue
+        parts, reordered, total = r
+        if total != len(face.contours(cp)):
+            info["contour_mismatch"] += 1
+            continue
+        info["composite"] += 1
+        if reordered:
+            info["reordered"] += 1
+            swapped.append(chr(cp))
+        d, rec = [], []
+        for cs, idx in parts:
+            cov = A.coverage(A.add([A.rasterize(c, ox, oy, D, D) for c in cs], n)) if cs else [0.0] * n
+            d.append(bytes(int(round(v * 255)) for v in cov))
+            rec.append((idx, len(d) - 1))
+        donors[s] = d + [None] * (3 - len(d))
+        record[s] = [(idx, slot) for idx, slot in rec if idx]
+    info["reordered_syllables"] = "".join(swapped[:200])
+    say(f"components: {info}")
+    return donors, record, info
+
+
+def build_master(path, adaptive=None, decision_px=48, passes=12, pylib=None, log=None, class_limit=None,
+                 components=False):
+    """The master dict of the outline font @p path (see the module comment). @p components: True takes each
+    syllable's pieces from its composite glyph's components (False: the raster separation; "auto": components if
+    most drawn syllables are composite)."""
     import jamofit as jf
     say = log or (lambda *a: None)
     D = decision_px
@@ -61,19 +175,27 @@ def build_master(path, adaptive=None, decision_px=48, passes=12, pylib=None, log
     if not cps:
         raise J.SourceError(f"{path}: draws none of the Hangul syllables")
     ox, oy, finfo = A.frame(face, cps, D, D, None)
-    targets, direct = {}, {}
-    for cp in cps:
-        cov = A.render_coverage(face, cp, ox, oy, D, D)
-        g = A.binarize(cov, D, D, "threshold", 0.5)
-        if g:
-            targets[cp - 0xAC00] = g
-    say(f"decision renders: {len(cps)} syllables at {D} px")
-    keys844, _, roles844 = A.syllable_keys(A.region_layout())
-    P844, _ = jf.fit_pieces({s: keys844[s] for s in targets}, targets, D, D, None, passes)
-    say("region fit done")
-    record = {}
-    donors, cinfo = A.contour_donors(face, sorted(targets), keys844, P844, ox, oy, D, D, targets, roles844, record)
-    say(f"contours: {cinfo}")
+    if components == "auto":
+        components = sum(_glyf_components(face, cp) is not None for cp in cps) * 2 > len(cps)
+    if components:
+        donors, record, cinfo = component_donors(face, cps, ox, oy, D, say)
+        if not donors:
+            raise J.SourceError(f"{path}: no composite syllable glyphs (--components needs a glyf table with "
+                                "composite Hangul syllables)")
+    else:
+        targets, direct = {}, {}
+        for cp in cps:
+            cov = A.render_coverage(face, cp, ox, oy, D, D)
+            g = A.binarize(cov, D, D, "threshold", 0.5)
+            if g:
+                targets[cp - 0xAC00] = g
+        say(f"decision renders: {len(cps)} syllables at {D} px")
+        keys844, _, roles844 = A.syllable_keys(A.region_layout())
+        P844, _ = jf.fit_pieces({s: keys844[s] for s in targets}, targets, D, D, None, passes)
+        say("region fit done")
+        record = {}
+        donors, cinfo = A.contour_donors(face, sorted(targets), keys844, P844, ox, oy, D, D, targets, roles844, record)
+        say(f"contours: {cinfo}")
     ainfo = None
     if adaptive:
         import jamoadapt
@@ -266,6 +388,8 @@ def main():
     m.add_argument("--adaptive", nargs="?", const="24,16,16", help="adaptive sets up to NI,NM,NF (default 24,16,16)")
     m.add_argument("--decision-px", type=int, default=48)
     m.add_argument("--class-limit", type=int, help="lead/tail classes (default 8; more only to simulate a bigger table)")
+    m.add_argument("--components", action="store_true",
+                   help="take the pieces from the composite syllable glyphs' components (no raster separation)")
     m.add_argument("--pylib")
     r = sub.add_parser("render")
     r.add_argument("master")
@@ -281,7 +405,7 @@ def main():
     if args.cmd == "master":
         lim = tuple(int(x) for x in args.adaptive.split(",")) if args.adaptive else None
         mst = build_master(args.font, lim, args.decision_px, pylib=args.pylib, log=lambda *a: print(*a, flush=True),
-                           class_limit=args.class_limit)
+                           class_limit=args.class_limit, components=args.components)
         with open(args.output, "w") as fh:
             json.dump(mst, fh, ensure_ascii=False)
         print(f"{args.output}: {len(mst['pieces'])} pieces, {mst['info']['medoids']}")
