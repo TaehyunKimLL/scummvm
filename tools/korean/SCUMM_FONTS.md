@@ -206,6 +206,18 @@ PAPLG16.SVF with 6 and +1. The engine puts a chain's later face on the first fac
 the companion is baked with its baseline higher (ascent 14 against PAPLG18's 17) and its descenders stay inside the
 18 rows.
 
+## `svfdy.py`: Latin drawn lower than its cell (per-glyph dy)
+
+A jamo-set face whose Hangul stand on a baseline near the bottom of the cell has no room below it for `g j p q y`:
+baked on that baseline the descenders are cut, baked higher the Latin floats above the Hangul (the MaruBuri faces
+lost 2-8 rows of baseline that way, or 1-5 px of size). An SVFN glyph may carry a **dy** (metrics byte 3, the range in
+header bytes 17/18; graphics/hires_text/README.md, "Per-glyph dy"): it is stored in the cell as before and drawn dy
+rows lower, its descender past the cell bottom. `svfdy.py IN OUT --range 0x20-0x7e --dy 3` (or `--set CPS=DY`,
+`--json {cp: dy}`, `--clear`, `--show`) sets it on an existing face and changes no other byte (the Hangul stay
+byte-identical; it refuses a dy on a jamo piece); `jamoset.py` reads it, keeps it when it rebuilds a face from a base
+and `check` reports it. An engine without dy draws every glyph at its cell position, so a face that uses dy says so
+where it ships ("Latin descenders need the per-glyph dy engine"); an old engine draws such a glyph dy rows high.
+
 ## `mkfont.py --chars-from *.trs`
 
 A `.trs` (SCVMTRS bundle - `engines/scumm/trs_bundle.h`, content rules in

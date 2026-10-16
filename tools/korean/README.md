@@ -277,6 +277,10 @@ by the HBIOS/Johab tools decomposes with IoU 1.000; a hinted TrueType bake is no
 an OR of pieces, so its fit is lower (measured 0.81 for NGOTB17). `jamofit.py` is
 the fitting library (no command line); `jamoset.py --from-ttf/--from-svf` call it.
 
+A face may carry a per-glyph vertical delta (dy: metrics byte 3, the range in header bytes 17/18;
+graphics/hires_text/README.md, "Per-glyph dy"): `jamoset.py` keeps the dy of the glyphs it keeps and `--check`
+reports it (and refuses one on a jamo piece); `svfdy.py` sets it on an existing face (SCUMM_FONTS.md, "`svfdy.py`").
+
 `--bpp 2` writes an anti-aliased jamo set: a syllable's contours are given to its
 initial, medial and final (by the other syllables sharing each jamo, else by a
 1 bpp region fit), each piece is the per-pixel median of its syllables' rasters,

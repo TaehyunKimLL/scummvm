@@ -455,6 +455,53 @@ classes of either kind (the font then loads as a plain SVFN, its syllables
 from the next source), so faces with 9..12 classes need a current engine;
 every older face loads unchanged.
 
+### Per-glyph dy (header bytes 17 and 18, metrics byte 3)
+
+The SVFN header, little-endian (version 2 adds bytes 32..35):
+
+```
+0  "SVFN"      4  u16 version (1, 2)   6  u16 flags (bit 0 metrics table, bit 1 JSET, bit 2 marks at origin)
+8  bpp (1, 2, 8)   9  shadow   10 u16 code page   12 u16 glyphs   14 cell width   15 cell height
+16 ascent (baseline row)   17 dy_min (int8, <= 0)   18 dy_max (int8, >= 0)   19 unused (0)
+20 u32 metrics offset   24 u32 glyph data offset   28 u32 glyph data size   32 u32 code point table offset (v2)
+```
+
+A metrics entry is 4 bytes: advance, left bearing (int8), ink width, and **dy**
+(int8): the glyph is drawn `dy` rows below its cell position (negative: above),
+`dy_min <= dy <= dy_max`. The glyph's rows are stored in the cell as always; dy
+only moves where they are drawn, and ink that then lies outside the cell is
+drawn, not clipped. A Latin face whose letters must stand on a Hangul baseline
+near the bottom of the cell stores them high enough for their descenders and
+draws them lower by dy (`tools/korean/svfdy.py` sets it; `jamoset.py` reads and
+keeps it).
+
+- Every file written before this had a meaning holds 0 in all of these bytes,
+  and draws exactly as before. An engine that predates it ignores them: every
+  glyph is drawn at its cell position (a face that uses dy should say so where
+  it ships).
+- Only a font with a metrics table has a dy per glyph. A range given without
+  one, a range with `dy_min > 0` or `dy_max < 0`, or one reaching more than the
+  cell height above or below the cell is ignored with a warning (dy 0 for
+  every glyph). A glyph whose dy lies outside the range is drawn at dy 0; one
+  warning at load counts them.
+- `GlyphMetrics::dy` is the glyph's dy, `bearingY` (baseline to the top of the
+  stored glyph as drawn) is `ascent - dy`. The cell keeps its meaning:
+  `baselineRow()`, the face chain layout, line heights and the cell-height
+  checks of a map all use the cell, not the range.
+- Buffer rule: `UnicodeGlyphSource::inkRowsAbove()` / `inkRowsBelow()` are
+  `-dy_min` / `dy_max` (0 for every other source; a chain takes the largest of
+  its faces, a `NormalizedGlyphSource` what leaves its own cell). `row(cp, y)`
+  answers `y` from `-inkRowsAbove()` to `cellHeight() + inkRowsBelow() - 1`,
+  the glyph already moved by its dy; a drawer sizes its glyph buffer once per
+  face as `inkRowsAbove() + cellHeight() + inkRowsBelow()` rows and draws it
+  `inkRowsAbove()` rows above the cell top (a null row outside the cell is
+  blank). SCUMM (a vertical mirror turns the glyph within its cell), SCI, AGI
+  (within its 16-row box), AGS and `HiResGlyphRenderer::drawGlyph(font)` do;
+  SCI's placement path still clips to the text line, and Grim draws the cell
+  rows only (the glyph moved, clipped to the cell).
+- A jamo-set face composes its syllables at dy 0; a piece must not carry a dy
+  (`jamoset.py check` refuses one). Its other glyphs (Latin) may.
+
 ## Glyph rendering (G3)
 
 `HiResGlyphRenderer::drawGlyph` draws one glyph of a `HiResBitmapFont` onto a
