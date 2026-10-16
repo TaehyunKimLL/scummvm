@@ -188,7 +188,9 @@ How they were made (research scripts, outside the source tree like the Paperlogy
    drops a little and the usage-weighted IoU rises (Gothic A1 20 px 1 bpp: 0.945 -> 0.940 all, 0.901 -> 0.985 by
    usage, 0.905 -> 0.971 over the 500 most frequent; FACES.TSV quality_freq, quality_top500). File sizes change
    by -2..+8%. They need an engine with the 12 x 12 limits; older engines reject them (more than 8 classes) and fall
-   back to the next face.
+   back to the next face. Exception: Single Day (SGDAY) and Neo Dunggeunmo Pro (NDGPR) keep the first 8x8, equal-weight
+   build (12x12 and weights gained nothing on them, already 0.998+, and only made the files bigger), so they still load
+   in older engines.
 3. `mkfont.py FONT --size PX --cell PX --unicode ascii,2026 --only-listed --space-advance 0.3*PX --punct-extra 1
    --clip-cell --ascent A` bakes the Latin; `pickascent.py` takes the baseline row A (from the Hangul's baseline down
    to 5 rows higher) with no clipped letter or digit, then the fewest clipped ink pixels; `addlatin.py` adds those
