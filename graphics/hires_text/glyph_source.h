@@ -44,13 +44,17 @@ namespace Graphics {
  */
 struct GlyphMetrics {
 	GlyphMetrics() : advance(0), bearingX(0), bearingY(0), width(0), height(0),
-		originX(0), combining(false), wide(false) {}
+		dy(0), originX(0), combining(false), wide(false) {}
 
 	int16 advance;   ///< how far the pen moves for this glyph; 0 for a combining mark
 	int16 bearingX;  ///< pen position to the left edge of the ink (SVFN)
-	int16 bearingY;  ///< baseline to the top edge of the cell (SVFN)
+	int16 bearingY;  ///< baseline to the top edge of the stored glyph as drawn (SVFN: ascent - dy)
 	uint16 width;    ///< width of the ink, 0 for a blank glyph (SVFN)
 	uint16 height;   ///< height of the cell the glyph is stored in (SVFN)
+	/// Rows the stored glyph is drawn below its cell position (SVFN metrics
+	/// byte 3, within the font's dy range; README "Per-glyph dy"). row(cp, y)
+	/// already holds the glyph moved, so a drawer reads it only to know.
+	int8 dy;
 
 	int16 originX;   ///< column of the pen origin inside row(cp, y); 0 unless ink lies left of the origin
 	bool combining;  ///< Unicode::isCombining(cp)
@@ -80,6 +84,21 @@ public:
 
 	/** Packed row y of cp's glyph; only valid when cells(cp) > 0. */
 	virtual const byte *row(uint32 cp, int y) = 0;
+
+	/**
+	 * Rows above and below the cell that row() may draw ink in: a face
+	 * whose glyphs carry a vertical delta (SVFN per-glyph dy, README
+	 * "Per-glyph dy") draws a glyph up to inkRowsAbove() rows higher and
+	 * inkRowsBelow() rows lower than its cell. row(cp, y) then answers every
+	 * y from -inkRowsAbove() to cellHeight() + inkRowsBelow() - 1, the
+	 * glyph moved by its dy; rows 0 .. cellHeight() - 1 are still the cell
+	 * (the line, the baseline, the dirty area a layout reserves). A drawer
+	 * that wants the whole glyph sizes its buffer by all of them and puts
+	 * row y at cell top + y; outside the cell a null row is blank. Both 0
+	 * (the default) for every face without such a glyph.
+	 */
+	virtual int inkRowsAbove() const { return 0; }
+	virtual int inkRowsBelow() const { return 0; }
 
 	/**
 	 * The face's own advance for cp, in hi-res (source) pixels, or 0 when

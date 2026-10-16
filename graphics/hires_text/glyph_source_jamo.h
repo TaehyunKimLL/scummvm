@@ -94,7 +94,11 @@ public:
 	byte advanceWide() const override;
 	int bitsPerPixel() const override;
 	int cells(uint32 cp) override;
+	/** A composed syllable: its cell rows, null (blank) outside the cell; any other glyph as the font has it. */
 	const byte *row(uint32 cp, int y) override;
+	/** The font's dy range (its Latin may be moved); a composed syllable is at dy 0. */
+	int inkRowsAbove() const override;
+	int inkRowsBelow() const override;
 	int advance(uint32 cp) override;
 	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	uint32 glyphCount() const override;

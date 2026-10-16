@@ -1171,10 +1171,14 @@ int ScummHiResText::scannedInkRight(Face *owner, Graphics::UnicodeGlyphSource *s
 	int right = 0;
 	const int w = src->cellWidth() * 2;
 	const int bpp = src->bitsPerPixel();
-	for (int y = 0; y < src->cellHeight(); ++y) {
+	const int rowEnd = src->cellHeight() + src->inkRowsBelow();
+	for (int y = -src->inkRowsAbove(); y < rowEnd; ++y) {
 		const byte *row = src->row(cp, y);
-		if (!row)
+		if (!row) {
+			if (y < 0)
+				continue;
 			break;
+		}
 		for (int x = w - 1; x >= right; --x) {
 			if (Graphics::TextCompose::expandCoverage(row, x, bpp)) {
 				right = x + 1;
@@ -1226,21 +1230,36 @@ bool ScummHiResText::drawRows(Graphics::Surface &dest, Graphics::UnicodeGlyphSou
 							  int x, int y, byte color, byte shadowColor, int gameShadow,
 							  Common::Rect *dirty, bool withCoverage,
 							  Graphics::HiResMirror mirror, int axisLeft, int axisRight) {
-	const int height = src.cellHeight();
+	// The buffer holds the cell and the rows above and below it that the
+	// face's per-glyph dy may draw in (both 0 for every face without one): a
+	// glyph moved down by its dy keeps its descender, and the buffer is
+	// drawn that many rows above the cell top.
+	const int cellH = src.cellHeight();
+	const int above = src.inkRowsAbove();
+	const int height = above + cellH + src.inkRowsBelow();
 	const int bpp = src.bitsPerPixel();
 	Common::Array<byte> glyphBuf;
 	glyphBuf.resize(width * height);
 	for (int gy = 0; gy < height; ++gy) {
-		const byte *row = src.row(cp, gy);
-		if (!row)
-			return false;
+		const int cy = gy - above;
+		const byte *row = src.row(cp, cy);
+		if (!row) {
+			if (cy >= 0 && cy < cellH)
+				return false;
+			memset(&glyphBuf[gy * width], 0, width);	// outside the cell: blank
+			continue;
+		}
 		Graphics::TextCompose::expandGlyphRow(&glyphBuf[gy * width], row, width, bpp, false, 0, 0);
 	}
+	y -= above;
 
 	// A flipped charset (C27): the rows turned within the cell, the glyph
 	// reflected about its box across, so the string's order is kept.
 	if (mirror != Graphics::kHiResMirrorNone && mirror != Graphics::kHiResMirrorGame) {
 		Graphics::flipGlyph(glyphBuf.begin(), width, width, height, mirror);
+		// Turned upside down, the rows below the cell come out on top.
+		if (mirror == Graphics::kHiResMirrorVertical || mirror == Graphics::kHiResMirrorBoth)
+			y += above - src.inkRowsBelow();
 		if (mirror == Graphics::kHiResMirrorHorizontal || mirror == Graphics::kHiResMirrorBoth)
 			x = Graphics::mirroredLeft(x, width, axisLeft, axisRight);
 	}

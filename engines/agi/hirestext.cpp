@@ -178,7 +178,11 @@ bool HiresText::glyph(uint32 cp, uint16 rows[16]) {
 	const int x0 = (16 - w) / 2;
 	const int y0 = CLIP<int>((16 - h) / 2 + _plan.shift, 0, 16 - h);
 	memset(rows, 0, 16 * sizeof(uint16));
-	for (int y = 0; y < h; y++) {
+	// With the rows a face's per-glyph dy may draw in around its cell, as
+	// far as the 16-row box reaches.
+	for (int y = -_source->inkRowsAbove(); y < h + _source->inkRowsBelow(); y++) {
+		if (y0 + y < 0 || y0 + y >= 16)
+			continue;
 		const byte *row = _source->row(cp, y);
 		if (!row)
 			continue;

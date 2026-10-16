@@ -125,6 +125,9 @@ public:
 	int bitsPerPixel() const override;
 	int cells(uint32 cp) override;
 	const byte *row(uint32 cp, int y) override;
+	/** The most any source given draws above / below the cell (per-glyph dy). */
+	int inkRowsAbove() const override;
+	int inkRowsBelow() const override;
 	int advance(uint32 cp) override;
 	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	/** The sum of glyphCount() over every distinct source given (each counted once). */

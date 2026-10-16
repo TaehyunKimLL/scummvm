@@ -54,6 +54,8 @@ public:
 	int bitsPerPixel() const override { return _inner->bitsPerPixel(); }
 	int cells(uint32 cp) override;
 	const byte *row(uint32 cp, int y) override;
+	int inkRowsAbove() const override { return _inner->inkRowsAbove(); }
+	int inkRowsBelow() const override { return _inner->inkRowsBelow(); }
 	int advance(uint32 cp) override;
 	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	uint32 glyphCount() const override { return _inner->glyphCount(); }

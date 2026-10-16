@@ -137,7 +137,10 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 	if (cells <= 0)
 		return;
 
-	const int cellHeight = _source->cellHeight();
+	// The rows a face's per-glyph dy may draw in around the cell (0 and 0
+	// for every face without one): the buffer starts that many rows above it.
+	const int above = _source->inkRowsAbove();
+	const int cellHeight = above + _source->cellHeight() + _source->inkRowsBelow();
 	const int bpp = _source->bitsPerPixel();
 	const int w = _source->cellWidth() * cells;
 
@@ -153,9 +156,9 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 	_glyphScratch.resize((uint)w * cellHeight);
 	byte *cov = _glyphScratch.begin();
 	for (int y = 0; y < cellHeight; y++) {
-		const byte *row = coverageRow(chr, y);
+		const byte *row = coverageRow(chr, y - above);
 		if (row)
-			Graphics::TextCompose::expandGlyphRow(cov + y * w, row, w, bpp, greyedOutput, top + y, left);
+			Graphics::TextCompose::expandGlyphRow(cov + y * w, row, w, bpp, greyedOutput, top + y - above, left);
 		else
 			memset(cov + y * w, 0, w);	// a row a source could not give: blank
 	}
@@ -192,13 +195,13 @@ void GfxFontUnicode::draw(uint32 chr, int16 top, int16 left, byte color,
 		_placement.lineRows(top << 1, gameLine, lineTop, lineBottom);
 		const Common::Rect line(-0x4000, lineTop, 0x4000, lineBottom);
 		_screen->putHiresCoverageGlyphAt(cov, w, cellHeight, hiresX + _placement.offsetX(cells == 2),
-										 (top << 1) + _placement.offsetY(), color, true, &line);
+										 (top << 1) + _placement.offsetY() - above, color, true, &line);
 		return;
 	}
-	if (hiresX == (left << 1))
+	if (hiresX == (left << 1) && above == 0)
 		_screen->putHiresCoverageGlyph(cov, w, cellHeight, left, top, color);
 	else
-		_screen->putHiresCoverageGlyphAt(cov, w, cellHeight, hiresX, top << 1, color);
+		_screen->putHiresCoverageGlyphAt(cov, w, cellHeight, hiresX, (top << 1) - above, color);
 }
 
 void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,
@@ -216,7 +219,8 @@ void GfxFontUnicode::drawToBuffer(uint32 chr, int16 top, int16 left, byte color,
 
 	const int offX = _placement.active() ? _placement.offsetX(cells == 2) : 0;
 	const int offY = _placement.active() ? _placement.offsetY() : 0;
-	for (int y = 0; y < cellHeight; y++) {
+	// With the rows a per-glyph dy may draw in around the cell.
+	for (int y = -_source->inkRowsAbove(); y < cellHeight + _source->inkRowsBelow(); y++) {
 		const int destY = top + offY + y;
 		if (destY < 0 || destY >= height)
 			continue;

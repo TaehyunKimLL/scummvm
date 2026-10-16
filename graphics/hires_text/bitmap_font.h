@@ -134,6 +134,18 @@ public:
 	int ascent() const { return _ascent; }
 	int glyphCount() const { return _glyphs; }
 
+	/**
+	 * Header bytes 17 and 18 (graphics/hires_text/README.md, "Per-glyph dy"):
+	 * the smallest and the largest per-glyph dy of the font, dyMin() <= 0 <=
+	 * dyMax(). A glyph is drawn dy rows below its cell position (metrics byte
+	 * 3), so its ink may reach -dyMin() rows above the cell and dyMax() rows
+	 * below it. Both 0 for a font without a metrics table, for every font
+	 * written before the bytes had a meaning, and for a font whose range is
+	 * not valid (a warning says so).
+	 */
+	int dyMin() const { return _dyMin; }
+	int dyMax() const { return _dyMax; }
+
 	/// True when the file carries a metrics table, i.e. glyphs may differ in
 	/// width. A false here means every glyph advances by the cell width.
 	bool isProportional() const { return _metrics != nullptr; }
@@ -210,6 +222,7 @@ private:
 	struct Layout {
 		uint16 version, flags, codePage;
 		int bpp, glyphs, cellW, cellH, ascent, rowPitch;
+		int dyMin, dyMax;	///< header bytes 17 and 18, checked (0, 0 when not valid or without metrics)
 		uint32 glyphStride, metricsOff, dataOff, dataSize, cmapOff;
 		bool metricsOk;	///< there is a metrics table, and it fits
 		bool jamo;		///< flags bit 1: a JSET block follows the code point table
@@ -272,6 +285,7 @@ private:
 	int _cellW;
 	int _cellH;
 	int _ascent;
+	int _dyMin, _dyMax;
 	bool _marksAtOrigin;
 	int _glyphs;
 	int _rowPitch;

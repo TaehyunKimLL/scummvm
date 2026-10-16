@@ -100,6 +100,9 @@ public:
 
 	byte cellWidth() const override { return _cellWidth; }
 	byte cellHeight() const override { return _cellHeight; }
+	/// The font's dy range (HiResBitmapFont::dyMin()/dyMax()): -dyMin() and dyMax().
+	int inkRowsAbove() const override { return _above; }
+	int inkRowsBelow() const override { return _below; }
 	byte advanceNarrow() const override { return _cellWidth / 2; }
 	byte advanceWide() const override { return _cellWidth; }
 	int bitsPerPixel() const override { return _bitsPerPixel; }
@@ -109,7 +112,7 @@ public:
 	int bearingX(uint32 cp) const;         // SVFN bearingX, for proportional placement
 	/** The default metrics with originX 0 (the stored row starts at the
 	 *  pen), plus the SVFN fields as data: bearingX (signed, as the format
-	 *  specifies), bearingY, width, height. */
+	 *  specifies), bearingY (ascent - dy), width, height, dy. */
 	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	uint32 glyphCount() const override;
 	/** The SVFN ascent, held to the cell; -1 for a font that records none (0). */
@@ -120,7 +123,7 @@ private:
 		uint32 cp = 0;
 		uint32 lastUse = 0;
 		byte cells = 0;               ///< 0: the font has no glyph for this code point
-		Common::Array<byte> rows;     ///< cellHeight() rows of _rowBytes, or none
+		Common::Array<byte> rows;     ///< _rows rows of _rowBytes (the glyph moved by its dy), or none
 	};
 
 	Entry &ensure(uint32 cp);
@@ -137,6 +140,8 @@ private:
 	byte _cellHeight;
 	int _bitsPerPixel;
 	uint32 _rowBytes;                 ///< bytes per row at the two-cell stride
+	int _above, _below;               ///< rows above and below the cell a glyph's dy may reach
+	uint32 _rows;                     ///< rows an entry holds: _above + cellHeight() + _below
 
 	/// At most _maxEntries entries, never moved once made (row() hands out pointers into them).
 	Common::Array<Entry *> _entries;

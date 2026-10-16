@@ -350,6 +350,11 @@ bool HiResGlyphRenderer::drawGlyph(Surface &dest, BandedPlane *coverage,
 	glyph.height = font.cellHeight();
 	glyph.bpp = font.bpp();
 
+	// A glyph with a per-glyph dy is drawn that many rows below its cell.
+	GlyphMetrics m;
+	if (font.glyphMetrics(index, m))
+		y += m.dy;
+
 	return drawGlyph(GlyphPlanes(&dest, coverage), glyph, x, y, style, dirty);
 }
 

@@ -32,7 +32,7 @@ namespace Graphics {
 uint32 SvfnGlyphSource::_preloadMemoryLimit = 0xFFFFFFFF;
 
 SvfnGlyphSource::SvfnGlyphSource(HiResBitmapFont *font, DisposeAfterUse::Flag dispose)
-	: _font(font), _dispose(dispose), _cellWidth(0), _cellHeight(0), _bitsPerPixel(1), _rowBytes(0), _maxEntries(32),
+	: _font(font), _dispose(dispose), _cellWidth(0), _cellHeight(0), _bitsPerPixel(1), _rowBytes(0), _above(0), _below(0), _rows(0), _maxEntries(32),
 	  _clock(0), _glyphReads(0), _lastCp(0xFFFFFFFF), _failedCp(0xFFFFFFFF), _readFailWarned(false), _registered(false) {
 	_stats.kind = "svf";
 	if (!_font || !_font->isLoaded()) {
@@ -44,6 +44,11 @@ SvfnGlyphSource::SvfnGlyphSource(HiResBitmapFont *font, DisposeAfterUse::Flag di
 	_cellHeight = (byte)_font->cellHeight();
 	_bitsPerPixel = _font->bpp();
 	_rowBytes = ((uint32)_cellWidth * 2 * _bitsPerPixel + 7) / 8;
+	// A font whose glyphs carry a dy keeps the rows they may be moved into;
+	// every other font keeps its cell, as it always did.
+	_above = -_font->dyMin();
+	_below = _font->dyMax();
+	_rows = (uint32)(_above + _cellHeight + _below);
 	setCacheBytes(HIRES_SVF_CACHE_KB * 1024);
 	if (_font->isStreamed()) {
 		Common::FileCacheRegistry::add(&_stats);
@@ -56,7 +61,7 @@ SvfnGlyphSource::SvfnGlyphSource(HiResBitmapFont *font, DisposeAfterUse::Flag di
 static const uint32 kEntryOverhead = 64;
 
 void SvfnGlyphSource::setCacheBytes(uint32 bytes, uint32 minEntries) {
-	const uint32 each = _rowBytes * _cellHeight + kEntryOverhead;
+	const uint32 each = _rowBytes * _rows + kEntryOverhead;
 	_maxEntries = MAX<uint32>(minEntries, bytes / each);
 	_stats.capacity = _maxEntries * each;
 	while (_entries.size() > _maxEntries) {
@@ -160,7 +165,7 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
 		_failedCp = cp;
 		_failed.cp = cp;
 		_failed.cells = cellsFor(cp, index);
-		_failed.rows.resize(_rowBytes * _cellHeight);
+		_failed.rows.resize(_rowBytes * _rows);
 		memset(_failed.rows.begin(), 0, _failed.rows.size());
 		updateStats();
 		return _failed;
@@ -173,10 +178,17 @@ SvfnGlyphSource::Entry &SvfnGlyphSource::ensure(uint32 cp) {
 
 	const uint32 pitch = (uint32)_font->glyphPitch();
 	entry.cells = cellsFor(cp, index);
-	// The rows of the entry's last code point, if any, are all overwritten.
-	entry.rows.resize(_rowBytes * _cellHeight);
+	// The rows of the entry's last code point, if any, are all overwritten:
+	// the cell's by the glyph, those a dy range adds blank around it.
+	entry.rows.resize(_rowBytes * _rows);
+	uint32 top = 0;
+	if (_above || _below) {
+		memset(entry.rows.begin(), 0, entry.rows.size());
+		GlyphMetrics gm;
+		top = (uint32)(_above + (_font->glyphMetrics(index, gm) ? gm.dy : 0));
+	}
 	for (uint32 y = 0; y < _cellHeight; y++) {
-		byte *dst = &entry.rows[y * _rowBytes];
+		byte *dst = &entry.rows[(top + y) * _rowBytes];
 		memcpy(dst, glyph + y * pitch, pitch);
 		memset(dst + pitch, 0, _rowBytes - pitch);
 		// Packed below 8bpp, the last byte of a row may hold bits past the
@@ -262,7 +274,7 @@ uint32 SvfnGlyphSource::preload(const Common::Array<uint32> &cps) {
 	const uint32 rounded = ((uint32)want.size() * stored + HIRES_SVF_READ_BLOCK - 1) / HIRES_SVF_READ_BLOCK *
 						   HIRES_SVF_READ_BLOCK;
 	const uint32 entries = MAX<uint32>(want.size(), rounded / MAX<uint32>(1, stored));
-	const uint32 each = _rowBytes * _cellHeight + kEntryOverhead;
+	const uint32 each = _rowBytes * _rows + kEntryOverhead;
 
 	// The rows are made one by one; without memory for them all, the face
 	// keeps the cache it has and the list is dropped.
@@ -330,9 +342,9 @@ const byte *SvfnGlyphSource::row(uint32 cp, int y) {
 	if (y == 0 && cp == _failedCp)
 		_failedCp = 0xFFFFFFFF;
 	Entry &entry = ensure(cp);
-	if (!entry.cells || y < 0 || y >= _cellHeight)
+	if (!entry.cells || y < -_above || y >= _cellHeight + _below)
 		return nullptr; // contract: only called when cells(cp) > 0
-	return &entry.rows[(uint32)y * _rowBytes];
+	return &entry.rows[(uint32)(y + _above) * _rowBytes];
 }
 
 int SvfnGlyphSource::advance(uint32 cp) {
@@ -368,6 +380,7 @@ bool SvfnGlyphSource::metrics(uint32 cp, GlyphMetrics &m) {
 		m.bearingY = font.bearingY;
 		m.width = font.width;
 		m.height = font.height;
+		m.dy = font.dy;
 		// With flags bit 2 a combining mark was stored with the pen at
 		// column max(0, -bearingX) - the rule TtfGlyphSource draws marks by
 		// - so the ink left of the pen is in the row and the drawer places

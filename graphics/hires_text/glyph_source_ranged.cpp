@@ -318,6 +318,30 @@ const byte *RangeRoutedGlyphSource::row(uint32 cp, int y) {
 	return src ? src->row(_cachedPick.cp, y) : nullptr;
 }
 
+int RangeRoutedGlyphSource::inkRowsAbove() const {
+	int n = 0;
+	for (uint c = 0; c < _chainSources.size(); ++c)
+		for (uint f = 0; f < _chainSources[c].size(); ++f)
+			if (_chainSources[c][f])
+				n = MAX(n, _chainSources[c][f]->inkRowsAbove());
+	for (uint t = 0; t < _targetSources.size(); ++t)
+		if (_targetSources[t])
+			n = MAX(n, _targetSources[t]->inkRowsAbove());
+	return n;
+}
+
+int RangeRoutedGlyphSource::inkRowsBelow() const {
+	int n = 0;
+	for (uint c = 0; c < _chainSources.size(); ++c)
+		for (uint f = 0; f < _chainSources[c].size(); ++f)
+			if (_chainSources[c][f])
+				n = MAX(n, _chainSources[c][f]->inkRowsBelow());
+	for (uint t = 0; t < _targetSources.size(); ++t)
+		if (_targetSources[t])
+			n = MAX(n, _targetSources[t]->inkRowsBelow());
+	return n;
+}
+
 int RangeRoutedGlyphSource::advance(uint32 cp) {
 	UnicodeGlyphSource *src = sourceFor(pick(cp));
 	return src ? src->advance(_cachedPick.cp) : 0;

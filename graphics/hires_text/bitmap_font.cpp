@@ -56,8 +56,11 @@ enum {
 };
 
 // Bytes per entry in the metrics table: advance, left bearing, ink width, and
-// one still unused.
+// the glyph's dy (signed: drawn that many rows below its cell position, within
+// the header's [dy_min, dy_max]; 0 in every file written before it had a meaning).
 static const int kMetricsEntrySize = 4;
+static const int kDyMinField = 17;
+static const int kDyMaxField = 18;
 
 // The most bytes a valid JSET block takes (jamoSetSize(12, 12, 24, 16, 16) = 11681); a
 // span longer than that cannot be one, and is not read when streaming.
@@ -85,6 +88,7 @@ HiResBitmapFont::HiResBitmapFont() {
 	_cellW = 0;
 	_cellH = 0;
 	_ascent = 0;
+	_dyMin = _dyMax = 0;
 	_marksAtOrigin = false;
 	_glyphs = 0;
 	_rowPitch = 0;
@@ -123,6 +127,7 @@ void HiResBitmapFont::free() {
 	_cellW = 0;
 	_cellH = 0;
 	_ascent = 0;
+	_dyMin = _dyMax = 0;
 	_marksAtOrigin = false;
 	_glyphs = 0;
 	_rowPitch = 0;
@@ -346,6 +351,23 @@ bool HiResBitmapFont::readLayout(const byte *raw, uint32 have, uint32 size, Layo
 		}
 	}
 
+	// The per-glyph dy range. Only a font with a metrics table has a dy per
+	// glyph; the range is no larger than the cell (a glyph moved further
+	// would leave its line altogether). A range that breaks either rule is
+	// dropped, and every glyph drawn at its cell position.
+	int dyMin = (int8)raw[kDyMinField];
+	int dyMax = (int8)raw[kDyMaxField];
+	if (dyMin || dyMax) {
+		if (!metricsOk) {
+			warning("HiResText: font gives a dy range (%d..%d) but no metrics table; ignored", dyMin, dyMax);
+			dyMin = dyMax = 0;
+		} else if (dyMin > 0 || dyMax < 0 || -dyMin > cellH || dyMax > cellH) {
+			warning("HiResText: font dy range %d..%d is not valid for a %d row cell; every glyph drawn at dy 0",
+					dyMin, dyMax, cellH);
+			dyMin = dyMax = 0;
+		}
+	}
+
 	uint32 cmapOff = 0;
 	if (version >= 2) {
 		cmapOff = READ_LE_UINT32(raw + kCmapOffField);
@@ -379,6 +401,8 @@ bool HiResBitmapFont::readLayout(const byte *raw, uint32 have, uint32 size, Layo
 	out.cellW = cellW;
 	out.cellH = cellH;
 	out.ascent = raw[16];
+	out.dyMin = dyMin;
+	out.dyMax = dyMax;
 	out.rowPitch = rowPitch;
 	out.glyphStride = glyphStride;
 	out.metricsOff = metricsOff;
@@ -439,6 +463,8 @@ void HiResBitmapFont::adopt(const Layout &layout, const byte *metrics, const byt
 	_cellW = layout.cellW;
 	_cellH = layout.cellH;
 	_ascent = layout.ascent;
+	_dyMin = layout.dyMin;
+	_dyMax = layout.dyMax;
 	_marksAtOrigin = (layout.flags & kFlagMarksAtOrigin) != 0;
 	_glyphs = layout.glyphs;
 	_rowPitch = layout.rowPitch;
@@ -448,6 +474,23 @@ void HiResBitmapFont::adopt(const Layout &layout, const byte *metrics, const byt
 	_cmapOrder.swap(cmapOrder);
 	clearLookupCache();
 	_legacyMap.clear();
+
+	// A glyph whose dy lies outside the header's range is drawn at dy 0
+	// (glyphMetrics()); said once, at load, with how many there are.
+	if (_metrics) {
+		int bad = 0, first = -1;
+		for (int i = 0; i < _glyphs; ++i) {
+			const int dy = (int8)_metrics[(uint32)i * kMetricsEntrySize + 3];
+			if (dy < _dyMin || dy > _dyMax) {
+				if (first < 0)
+					first = i;
+				++bad;
+			}
+		}
+		if (bad)
+			warning("HiResText: %d glyph(s) of the font (the first glyph %d) have a dy outside %d..%d; drawn at dy 0",
+					bad, first, _dyMin, _dyMax);
+	}
 
 	const uint16 codePage = layout.codePage;
 	if (layout.version >= 2) {
@@ -637,6 +680,7 @@ bool HiResBitmapFont::glyphMetrics(int index, GlyphMetrics &out) const {
 
 	out.bearingY = _ascent;
 	out.height = _cellH;
+	out.dy = 0;
 
 	if (!_metrics) {
 		// A font with no metrics table is drawn on a fixed grid.
@@ -650,6 +694,12 @@ bool HiResBitmapFont::glyphMetrics(int index, GlyphMetrics &out) const {
 	out.advance = entry[0];
 	out.bearingX = entry[1];
 	out.width = entry[2];
+	const int dy = (int8)entry[3];
+	if (dy >= _dyMin && dy <= _dyMax) {
+		// Drawn dy rows lower: the baseline is that much nearer its top.
+		out.dy = (int8)dy;
+		out.bearingY = (int16)(_ascent - dy);
+	}
 	return true;
 }
 

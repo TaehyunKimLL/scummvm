@@ -58,6 +58,9 @@ public:
 	int bitsPerPixel() const override;
 	int cells(uint32 cp) override;
 	const byte *row(uint32 cp, int y) override;
+	/** The most any face of the chain draws above / below the cell (per-glyph dy). */
+	int inkRowsAbove() const override;
+	int inkRowsBelow() const override;
 	int advance(uint32 cp) override;
 	bool metrics(uint32 cp, GlyphMetrics &m) override;
 	/** The sum over every source. */
@@ -109,6 +112,9 @@ public:
 	int cells(uint32 cp) override { return _src->cells(cp); }
 	/** Valid until the next call. */
 	const byte *row(uint32 cp, int y) override;
+	/** The source's rows above / below its own cell, as far as they leave this cell. */
+	int inkRowsAbove() const override;
+	int inkRowsBelow() const override;
 	int advance(uint32 cp) override { return _src->advance(cp); }
 	bool metrics(uint32 cp, GlyphMetrics &m) override { return _src->metrics(cp, m); }
 	uint32 glyphCount() const override { return _src->glyphCount(); }

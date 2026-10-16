@@ -105,6 +105,20 @@ const byte *FallbackGlyphSource::row(uint32 cp, int y) {
 	return src ? src->row(cp, y) : nullptr;
 }
 
+int FallbackGlyphSource::inkRowsAbove() const {
+	int n = 0;
+	for (uint i = 0; i < _lookup.size(); i++)
+		n = MAX(n, _lookup[i]->inkRowsAbove());
+	return n;
+}
+
+int FallbackGlyphSource::inkRowsBelow() const {
+	int n = 0;
+	for (uint i = 0; i < _lookup.size(); i++)
+		n = MAX(n, _lookup[i]->inkRowsBelow());
+	return n;
+}
+
 int FallbackGlyphSource::advance(uint32 cp) {
 	UnicodeGlyphSource *src = answering(cp);
 	return src ? src->advance(cp) : 0;
@@ -169,7 +183,7 @@ const byte *NormalizedGlyphSource::row(uint32 cp, int y) {
 
 	byte *out = _scratch.begin();
 	memset(out, 0, _scratch.size());
-	if (y < 0 || y >= _src->cellHeight())
+	if (y < -_src->inkRowsAbove() || y >= _src->cellHeight() + _src->inkRowsBelow())
 		return out;
 	const byte *in = _src->row(cp, y);
 	if (!in)
@@ -178,6 +192,14 @@ const byte *NormalizedGlyphSource::row(uint32 cp, int y) {
 	for (int x = 0; x < w; x++)
 		out[x] = TextCompose::expandCoverage(in, x, bpp);
 	return out;
+}
+
+int NormalizedGlyphSource::inkRowsAbove() const {
+	return MAX(0, _src->inkRowsAbove() - _topRow);
+}
+
+int NormalizedGlyphSource::inkRowsBelow() const {
+	return MAX(0, _topRow + _src->cellHeight() + _src->inkRowsBelow() - _cellHeight);
 }
 
 } // End of namespace Graphics

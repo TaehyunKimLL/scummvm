@@ -124,6 +124,8 @@ byte JamoGlyphSource::advanceWide() const { return _inner->advanceWide(); }
 int JamoGlyphSource::bitsPerPixel() const { return _inner->bitsPerPixel(); }
 uint32 JamoGlyphSource::glyphCount() const { return _inner->glyphCount(); }
 int JamoGlyphSource::baselineRow() const { return _inner->baselineRow(); }
+int JamoGlyphSource::inkRowsAbove() const { return _inner->inkRowsAbove(); }
+int JamoGlyphSource::inkRowsBelow() const { return _inner->inkRowsBelow(); }
 
 int JamoGlyphSource::cells(uint32 cp) {
 	uint32 pieces[3];

@@ -117,8 +117,9 @@ void GlyphTextDrawer::drawGlyph(Graphics::Surface &dst, const Common::Rect &area
 	const bool blend = _alpha && (bytesPP == 2 || bytesPP == 4);
 	const int bpp = src->bitsPerPixel();
 	const int rowWidth = src->cellWidth() * 2;
-	const int rows = src->cellHeight();
-	for (int ry = 0; ry < rows; ry++) {
+	// With the rows a face's per-glyph dy may draw in around its cell.
+	const int rows = src->cellHeight() + src->inkRowsBelow();
+	for (int ry = -src->inkRowsAbove(); ry < rows; ry++) {
 		const int py = gy + ry;
 		if (py < area.top || py >= area.bottom)
 			continue;

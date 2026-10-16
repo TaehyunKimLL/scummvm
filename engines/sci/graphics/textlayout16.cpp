@@ -124,7 +124,8 @@ GlyphPlacement::Input buildChainPlacementInput(Graphics::UnicodeGlyphSource *cha
 		if (chainFirst->cells(cp) <= 0)
 			return -1;
 		const int w = chainFirst->cellWidth() * chainFirst->cells(cp), bpp = chainFirst->bitsPerPixel();
-		for (int y = chainFirst->cellHeight() - 1; y >= 0; y--) {
+		// The ink as drawn: a face's per-glyph dy may move it out of the cell.
+		for (int y = chainFirst->cellHeight() + chainFirst->inkRowsBelow() - 1; y >= -chainFirst->inkRowsAbove(); y--) {
 			const byte *row = chainFirst->row(cp, y);
 			for (int x = 0; row && x < w; x++)
 				if (Graphics::TextCompose::expandCoverage(row, x, bpp) >= 128)
