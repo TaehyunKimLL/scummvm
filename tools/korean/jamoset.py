@@ -580,14 +580,20 @@ def parse_svfn(data):
     f = Svfn()
     f.flags, f.bpp, f.cell_w, f.cell_h, f.ascent, f.count = flags, bpp, cw, ch, ascent, count
     f.shadow, f.codepage = shadow, codepage
+    # Header bytes 17 and 18: the per-glyph dy range (signed; README "Per-glyph dy"). f.dy holds the glyphs whose
+    # metrics byte 3 (their dy, signed) is not 0; f.metrics stays (advance, ink x, ink w).
+    f.dy_min, f.dy_max = struct.unpack_from("<bb", data, 17)
     pitch = (cw * bpp + 7) // 8
     stride = pitch * ch
-    f.glyphs, f.metrics = {}, {}
+    f.glyphs, f.metrics, f.dy = {}, {}, {}
     for k in range(count):
         cp, idx = struct.unpack_from("<II", data, cmap_off + 8 * k)
         f.glyphs[cp] = data[data_off + idx * stride:data_off + (idx + 1) * stride]
         if flags & FLAG_VARIABLE:
-            f.metrics[cp] = struct.unpack_from("<BbBB", data, metrics_off + idx * 4)[:3]
+            adv, ix, iw, dy = struct.unpack_from("<BbBb", data, metrics_off + idx * 4)
+            f.metrics[cp] = (adv, ix, iw)
+            if dy:
+                f.dy[cp] = dy
     f.jset = None
     if flags & FLAG_JAMO:
         start = cmap_off + 8 * count
@@ -599,22 +605,36 @@ def parse_svfn(data):
     return f
 
 
-def write_svfn(cell_w, cell_h, ascent, glyphs, jset, extra_flags=0, shadow=SHADOW_NONE, codepage=CODEPAGE, bpp=1):
+def dy_range(dy, cell_h):
+    """(dy_min, dy_max) of the per-glyph dy {cp: dy}: dy_min <= 0 <= dy_max, each within the cell's height."""
+    vals = [int(v) for v in (dy or {}).values()]
+    lo, hi = min([0] + vals), max([0] + vals)
+    if -lo > cell_h or hi > cell_h or lo < -128 or hi > 127:
+        raise ValueError(f"dy range {lo}..{hi} does not fit a {cell_h} row cell")
+    return lo, hi
+
+
+def write_svfn(cell_w, cell_h, ascent, glyphs, jset, extra_flags=0, shadow=SHADOW_NONE, codepage=CODEPAGE, bpp=1,
+               dy=None):
     """@p glyphs: [(cp, packed bytes, advance, ink_x, ink_w)]. Layout: header, code points, JSET, metrics, glyphs.
-    @p bpp: 1, 2 or 8 (rows of cell_w * bpp bits, padded to a byte)."""
+    @p bpp: 1, 2 or 8 (rows of cell_w * bpp bits, padded to a byte). @p dy: {cp: dy} drawn dy rows below the cell
+    position (metrics byte 3), the range in header bytes 17/18; None or {} writes 0 everywhere, as before."""
     glyphs = list(glyphs)
     n = len(glyphs)
     stride = ((cell_w * bpp + 7) // 8) * cell_h
     if any(len(g[1]) != stride for g in glyphs):
         raise ValueError("a glyph is not cell sized")
+    dy = {cp: int(v) for cp, v in (dy or {}).items() if v}
+    dy_min, dy_max = dy_range(dy, cell_h)
     cmap = b"".join(struct.pack("<II", cp, i) for cp, i in sorted((g[0], i) for i, g in enumerate(glyphs)))
-    metrics = b"".join(struct.pack("<BbBB", min(255, g[2]), g[3], g[4], 0) for g in glyphs)
+    metrics = b"".join(struct.pack("<BbBb", min(255, g[2]), g[3], g[4], dy.get(g[0], 0)) for g in glyphs)
     data = b"".join(g[1] for g in glyphs)
     cmap_off = HEADER_V2
     metrics_off = cmap_off + len(cmap) + len(jset)
     data_off = metrics_off + len(metrics)
     head = struct.pack(HEADER, MAGIC, VERSION_CMAP, FLAG_VARIABLE | FLAG_JAMO | extra_flags, bpp, shadow, codepage, n,
-                       cell_w, cell_h, min(255, ascent), 0, 0, metrics_off, data_off, len(data))
+                       cell_w, cell_h, min(255, ascent), dy_min & 0xFF, dy_max & 0xFF, metrics_off, data_off,
+                       len(data))
     return head + struct.pack("<I", cmap_off) + cmap + jset + metrics + data
 
 
@@ -750,6 +770,7 @@ def build_from_source(layout, src, eng=None, base=None, ascent=None, extra=None,
         ascent = (h - eng.h) // 2 + eng.baseline
     ascent = ascent or max(1, round(h * 0.875))
     glyphs = {}
+    dy = {}
     flags = 0
     shadow, codepage = SHADOW_NONE, CODEPAGE
     for s in used:
@@ -773,8 +794,11 @@ def build_from_source(layout, src, eng=None, base=None, ascent=None, extra=None,
                 continue
             m = b.metrics.get(cp)
             glyphs[cp] = (gbytes, m[0] if m else w, m[1] if m else 0, m[2] if m else 0)
+            if cp in b.dy:
+                dy[cp] = b.dy[cp]
     if eng is not None:
         for cp in range(0x20, 0x7F):
+            dy.pop(cp, None)
             g, adv = eng_glyph(eng, cp, w, h, bold)
             ix, iw = g.ink()
             glyphs[cp] = (g.to_bytes(), min(adv, w // 2) if w < 16 else adv, ix, iw)
@@ -784,7 +808,7 @@ def build_from_source(layout, src, eng=None, base=None, ascent=None, extra=None,
             glyphs.setdefault(cp, g)
     jset = pack(pieces)
     out = write_svfn(w, h, ascent, [(cp, g[0], g[1], g[2], g[3]) for cp, g in sorted(glyphs.items())], jset, flags,
-                     shadow, codepage)
+                     shadow, codepage, dy=dy)
     return out, mapping, src
 
 
@@ -800,6 +824,7 @@ def blank_whole_compat(data):
     mapping = {p: n for n, p in enumerate(used)}
     t = renumber(t, mapping)
     glyphs = []
+    dy = {}
     for cp, g in f.glyphs.items():
         new = cp
         if cp >= PIECE_BASE:
@@ -808,8 +833,10 @@ def blank_whole_compat(data):
             new = PIECE_BASE + mapping[cp - PIECE_BASE]
         m = f.metrics[cp]
         glyphs.append((new, g, m[0], m[1], m[2]))
+        if cp in f.dy:
+            dy[new] = f.dy[cp]
     return write_svfn(f.cell_w, f.cell_h, f.ascent, glyphs, pack(t), f.flags & ~(FLAG_VARIABLE | FLAG_JAMO), f.shadow,
-                      f.codepage)
+                      f.codepage, dy=dy)
 
 
 # ---- composing and checking --------------------------------------------------------
@@ -844,6 +871,19 @@ def compose(svfn, t, cp):
     return bytes(out)
 
 
+def check_dy(f):
+    """The per-glyph dy of the parsed face @p f: within its header range, the range within the cell, and none on a
+    piece (the engine composes a syllable in its cell; a piece moved by a dy would move part of it)."""
+    if f.dy_min > 0 or f.dy_max < 0 or -f.dy_min > f.cell_h or f.dy_max > f.cell_h:
+        raise ValueError(f"dy range {f.dy_min}..{f.dy_max} is not valid for a {f.cell_h} row cell")
+    out = [cp for cp, v in f.dy.items() if not f.dy_min <= v <= f.dy_max]
+    if out:
+        raise ValueError(f"{len(out)} glyphs have a dy outside {f.dy_min}..{f.dy_max}, first U+{min(out):04X}")
+    pieces = [cp for cp in f.dy if cp >= PIECE_BASE]
+    if pieces:
+        raise ValueError(f"{len(pieces)} jamo pieces have a dy, first U+{min(pieces):04X}")
+
+
 def check(out_bytes, layout, src_bytes):
     """Parse the written font back and compose all 11,172 syllables with the engine's rule. For layout 844 at
     16x16 the result must equal johab844.py's composition of the source, byte for byte. Returns a message."""
@@ -856,6 +896,9 @@ def check(out_bytes, layout, src_bytes):
             raise ValueError(f"piece {p} has no glyph")
     composed = {cp: compose(f, t, cp) for cp in range(0xAC00, 0xD7A4)}
     msg = f"composed 11172 syllables from {len(f.glyphs)} glyphs, JSET {len(f.jset)} bytes"
+    check_dy(f)
+    if f.dy:
+        msg += f"; dy {f.dy_min}..{f.dy_max} on {len(f.dy)} glyphs"
     if layout.name == "adaptive":
         want = tables_for(layout)
         for attr in ("lead_class", "tail_class", "init_set", "med_set", "fin_set"):

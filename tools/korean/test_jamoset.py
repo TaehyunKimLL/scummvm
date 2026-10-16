@@ -1570,6 +1570,97 @@ class MacCommandLine(unittest.TestCase):
                 self.assertIn("golden: ok", r.stdout, name)
 
 
+class GlyphDy(unittest.TestCase):
+    """The per-glyph dy (header bytes 17/18, metrics byte 3; graphics/hires_text/README.md "Per-glyph dy")."""
+
+    GLYPHS = [(ord("a"), bytes(range(32)), 9, 1, 7), (ord("p"), bytes([0x30] * 32), 9, 2, 5),
+              (ord("t"), bytes([0x18] * 32), 6, 1, 3)]
+
+    def test_no_dy_writes_zeros_as_before(self):
+        out = jamoset.write_svfn(16, 16, 14, self.GLYPHS, b"")
+        self.assertEqual(out[17:20], b"\0\0\0")
+        self.assertEqual(out, jamoset.write_svfn(16, 16, 14, self.GLYPHS, b"", dy={}))
+        f = jamoset.parse_svfn(out)
+        self.assertEqual((f.dy_min, f.dy_max, f.dy), (0, 0, {}))
+        self.assertEqual(f.metrics[ord("p")], (9, 2, 5))
+
+    def test_dy_round_trips_with_its_range(self):
+        out = jamoset.write_svfn(16, 16, 14, self.GLYPHS, b"", dy={ord("p"): 3, ord("t"): -2, ord("a"): 0})
+        self.assertEqual(struct.unpack_from("<bbB", out, 17), (-2, 3, 0))
+        f = jamoset.parse_svfn(out)
+        self.assertEqual((f.dy_min, f.dy_max), (-2, 3))
+        self.assertEqual(f.dy, {ord("p"): 3, ord("t"): -2})
+        self.assertEqual(f.metrics[ord("t")], (6, 1, 3))
+        jamoset.check_dy(f)
+        with self.assertRaises(ValueError):
+            jamoset.write_svfn(16, 16, 14, self.GLYPHS, b"", dy={ord("p"): 17})
+
+    def test_check_refuses_a_dy_out_of_range_or_on_a_piece(self):
+        out = bytearray(jamoset.write_svfn(16, 16, 14, self.GLYPHS, b"", dy={ord("p"): 3}))
+        out[18] = 2		# the range no longer holds p's 3
+        with self.assertRaises(ValueError):
+            jamoset.check_dy(jamoset.parse_svfn(bytes(out)))
+        piece = self.GLYPHS + [(jamoset.PIECE_BASE + 1, bytes(32), 16, 0, 16)]
+        out = jamoset.write_svfn(16, 16, 14, piece, b"", dy={jamoset.PIECE_BASE + 1: 1})
+        with self.assertRaises(ValueError):
+            jamoset.check_dy(jamoset.parse_svfn(out))
+
+    def test_rebuilding_keeps_the_dy_of_kept_glyphs(self):
+        base = bytearray(jamoset.write_svfn(16, 16, 14, self.GLYPHS, b"", dy={ord("p"): 3}))
+        struct.pack_into("<H", base, 6, 1)		# a plain proportional font: no jamo flag
+        out, _, _ = jamoset.build(jamoset.LAYOUTS["844"], make_source("844"), base=bytes(base))
+        f = jamoset.parse_svfn(out)
+        self.assertEqual(f.dy, {ord("p"): 3})
+        self.assertEqual((f.dy_min, f.dy_max), (0, 3))
+        msg = jamoset.check(out, jamoset.LAYOUTS["844"], None)
+        self.assertIn("dy 0..3 on 1 glyphs", msg)
+        self.assertEqual(jamoset.parse_svfn(jamoset.blank_whole_compat(out)).dy, {ord("p"): 3})
+
+
+class SvfDy(unittest.TestCase):
+    """svfdy.py: patches only the dy fields."""
+
+    def face(self):
+        base = bytearray(jamoset.write_svfn(16, 16, 14, GlyphDy.GLYPHS, b""))
+        struct.pack_into("<H", base, 6, 1)
+        return jamoset.build(jamoset.LAYOUTS["844"], make_source("844"), base=bytes(base))[0]
+
+    def test_apply_changes_only_the_dy_bytes(self):
+        import svfdy
+        face = self.face()
+        out, info = svfdy.apply(face, {ord("p"): 3, ord("t"): -1, 0x41: 2})
+        self.assertEqual((info["set"], info["missing"], info["dy_min"], info["dy_max"]), (2, [0x41], -1, 3))
+        f = svfdy.verify(face, out)
+        self.assertEqual(f.dy, {ord("p"): 3, ord("t"): -1})
+        before, after = jamoset.parse_svfn(face), f
+        t = jamoset.unpack(after.jset)
+        for cp in range(0xAC00, 0xD7A4, 97):
+            self.assertEqual(jamoset.compose(before, t, cp), jamoset.compose(after, t, cp))
+        cleared, info = svfdy.apply(out, {}, clear=True)
+        self.assertEqual(cleared, face)
+        with self.assertRaises(ValueError):
+            svfdy.apply(face, {jamoset.PIECE_BASE + 1: 1})
+
+    def test_command(self):
+        face = self.face()
+        with tempfile.TemporaryDirectory() as d:
+            a, b, c, j = (os.path.join(d, n) for n in ("a.svf", "b.svf", "c.svf", "dy.json"))
+            open(a, "wb").write(face)
+            tool = os.path.join(HERE, "svfdy.py")
+            r = subprocess.run([sys.executable, tool, a, b, "--range", "0x61-0x7a", "--dy", "2", "--set", "t=-1"],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("range -1..2", r.stdout)
+            f = jamoset.parse_svfn(open(b, "rb").read())
+            self.assertEqual(f.dy, {ord("a"): 2, ord("p"): 2, ord("t"): -1})
+            open(j, "w").write('{"0x70": 4}')
+            r = subprocess.run([sys.executable, tool, b, c, "--clear", "--json", j], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(jamoset.parse_svfn(open(c, "rb").read()).dy, {ord("p"): 4})
+            r = subprocess.run([sys.executable, tool, c, "--show"], capture_output=True, text=True)
+            self.assertIn("dy range 0..4, 1 glyphs", r.stdout)
+
+
 from test_jamoaa import *  # noqa: E402,F401,F403  (the 2 bpp / outline tests run with the rest)
 
 if __name__ == "__main__":
