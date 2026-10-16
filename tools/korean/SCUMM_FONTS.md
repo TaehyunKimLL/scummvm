@@ -32,7 +32,7 @@ TrueType `--size`, or the bitmap face's own height), not the cell:
 | `PAPLG` | Paperlogy 4 Regular 1.000 (PT&; the jamo set PAPLG18 from vector pieces, the Latin companion PAPLG16 by `scumm-fonts/bake-paperlogy.sh`) | OFLPAPLG.TXT, PAPLG.TXT |
 | `GOTHA`, `GOTHB` | Gothic A1 Regular, Bold 2.50 (HanYang I&C; jamo sets, composite glyphs; `jamo-extra/`, pack `jamo-ko2`) | OFLGOTHA.TXT |
 | `SGDAY` | Single Day 1.00 (DXKorea; jamo sets, `jamo-extra/`) | OFLSGDAY.TXT |
-| `DOVMY` | Dovemayo Gothic 1.0 (jamo sets, `jamo-extra/`) | DOVMY.TXT (author's permission, not OFL) |
+| `DOVMY` | Dovemayo Gothic 1.0 (jamo sets for internal tests only, not shipped: `runs/comp-pack/internal/`) | author's permission, not OFL |
 | `NSQRR`, `NSQRB` | NanumSquareRound Regular, Bold 1.000 (NAVER; jamo sets, `jamo-extra/`) | OFLNSQR.TXT |
 | `NDGPR` | Neo Dunggeunmo Pro 1.020 (Dalgona; pixel jamo sets, `jamo-extra/`) | OFLNDGPR.TXT |
 | `BHSAN`, `COUSB` | Black Han Sans, Coustard Black | OFLBHS.TXT, OFLCOUS.TXT |
@@ -157,14 +157,16 @@ jamo-set faces. KQ4KO, MMKO and ZAKKO name `SANGAM16.SVF` directly (no chain).
 
 ## Extra jamo faces from composite-glyph fonts (`jamo-extra/`, pack `jamo-ko2`)
 
-`dists/engine-data/hires_text/jamo-extra/` holds 50 jamo-set faces that no game map names yet (the maps pick them by
+`dists/engine-data/hires_text/jamo-extra/` holds 42 jamo-set faces that no game map names yet (the maps pick them by
 `[fonts] name=FILE`; the engine zip and `jamo-ko1` do not carry them). `FACES.TSV` there is the table (family, px,
 bpp, sets, quality, licence, baselines); `build_font_pack.py --pack jamo-ko2` packs the folder with its README
 `FONTKO2.TXT`. Names are `<stem><px>[A].SVF`: `A` = 2 bpp anti-aliased, none = 1 bpp (GOTHA16 = Gothic A1 16 px 1 bpp,
-GOTHA20A = 20 px AA). Sizes 16, 18, 20, 24 for Gothic A1 Regular/Bold, Single Day, Dovemayo Gothic, NanumSquareRound
+GOTHA20A = 20 px AA). Sizes 16, 18, 20, 24 for Gothic A1 Regular/Bold, Single Day, NanumSquareRound
 Regular/Bold, each 1 bpp and AA; Neo Dunggeunmo Pro (a pixel font) 16 and 32 px, 1 bpp. Not included: Exqt (the
 author only says "free to use except selling the font"; nothing about modifying or redistributing, no licence in the
-font file) and Neo Dunggeunmo 1.601 (already NEODG16A.. / NEODG32 in jamo-ko1).
+font file), Neo Dunggeunmo 1.601 (already NEODG16A.. / NEODG32 in jamo-ko1) and Dovemayo Gothic (its licence is
+the author's permission, not OFL: its DOVMY faces are built the same way for internal tests only, kept outside the
+repository in `runs/comp-pack/internal/`).
 
 How they were made (research scripts, outside the source tree like the Paperlogy ones: `runs/comp-pack/scripts/`):
 
