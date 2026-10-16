@@ -1,3 +1,4 @@
+; 2026-10-16 (runs/maps-pm mkmaps3.py): font-pairing picks 4(TC)=paperfb-paperb-18-aa (first in the chain; English original)
 # Indiana Jones and the Fate of Atlantis (CD data, English, text only, with the
 # korean.trs translation). One map, two presets; the ini's render_target picks one.
 #   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): NGOTB15B/NGOTB16E.SVF and GBATB31.SVF, 2 bpp,
@@ -34,6 +35,7 @@ dlg=NGOTB16E.SVF
 dlgp=PAPLG18.SVF
 dlgl=PAPLG16.SVF
 card=GBATB31.SVF
+paplb18a=PAPLB18A.SVF
 [fonts:clut8]
 small=NEODG16.SVF
 dlg=NEODG16L.SVF
@@ -59,7 +61,15 @@ face=dlg
 [font.3]
 face=card
 [font.4]
+face=paplb18a,dlg
+range.basic-latin=original
+advance.basic-latin=game
+origin.basic-latin=game
+[font.4:clut8]
 face=dlg
+range.basic-latin=same
+advance.basic-latin=font
+origin.basic-latin=face
 [font.5]
 face=small
 

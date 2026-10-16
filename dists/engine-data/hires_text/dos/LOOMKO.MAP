@@ -1,3 +1,4 @@
+; 2026-10-16 (runs/maps-pm mkmaps3.py): font-pairing picks 2(TC)=paperfb-paperb-18-aa (first in the chain; English original)
 # Loom (VGA talkie, loomkor Korean patch). One map, two presets; the ini's
 # render_target picks one.
 #   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): NGOTB15C/NGOTB16D.SVF,
@@ -21,6 +22,7 @@ encoding=cp949
 [fonts]
 cs1=NGOTB15C.SVF
 cs2=NGOTB16D.SVF
+paplb18a=PAPLB18A.SVF
 [fonts:clut8]
 cs1=NEODG16.SVF
 cs2=NEODG16J.SVF
@@ -37,9 +39,17 @@ origin.general-punctuation=face
 [font.1]
 face=cs1
 [font.2]
-face=cs2
+face=paplb18a,cs2
 # The patch has no korean03.fnt or korean04.fnt: those two charsets hold no Korean, so they
 # stay the game's own.
+range.basic-latin=original
+advance.basic-latin=game
+origin.basic-latin=game
+[font.2:clut8]
+face=cs2
+range.basic-latin=same
+advance.basic-latin=font
+origin.basic-latin=face
 [font.3]
 face=original
 [font.4]

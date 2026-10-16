@@ -1,3 +1,4 @@
+; 2026-10-16 (runs/maps-pm mkmaps3.py): font-pairing picks 2(TC)=paperfb-paperb-18-aa, 4(TC)=marufb-marub-24-aa, 6(TC)=marufb-marub-20-aa, 8(TC)=paperfb-paperb-16-aa (first in the chain; English original)
 # Monkey Island 2 (mi2kor Korean patch). One map, two presets; the ini's
 # render_target picks one.
 #   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): NanumGothic Bold (NGOTB*) and Gowun Batang Bold (GBATB*) faces, 2 bpp,
@@ -43,6 +44,10 @@ sentx=NGO16BX2.SVF
 cardx=GBA23AX2.SVF
 card7x=GBA23X2.SVF
 card8x=GBA14X2.SVF
+paplb18a=PAPLB18A.SVF
+marub24a=MARUB24A.SVF
+marub20a=MARUB20A.SVF
+paplb16a=PAPLB16A.SVF
 [fonts:clut8]
 dlg=TBGOB24.SVF
 small=NEODG16B.SVF
@@ -98,19 +103,33 @@ face=dlg,dlgx
 [font.1]
 face=small,smallx
 [font.2]
+face=paplb18a,sent,sentx
+range.basic-latin=original
+advance.basic-latin=game
+origin.basic-latin=game
+[font.2:clut8]
 face=sent,sentx
+range.basic-latin=same
+advance.basic-latin=font
+origin.basic-latin=face
 [font.3]
 face=small,smallx
 [font.4]
-face=card,cardx
+face=marub24a,card,cardx
+range.basic-latin=original
+advance.basic-latin=game
+origin.basic-latin=game
 [font.5]
 face=small,smallx
 [font.6]
-face=dlg,dlgx
+face=marub20a,dlg,dlgx
+range.basic-latin=original
+advance.basic-latin=game
+origin.basic-latin=game
 [font.7]
 face=card7,card7x
 [font.8]
-face=card8,card8x
+face=paplb16a,card8,card8x
 
 # fb=SANGAM16.SVF (engine data, SAN10.TXT) ends each chain of a face that lives in the jamo font pack, so a missing
 # font pack still shows Korean (16 px; only the 8-bit preset has jamo-set faces).
@@ -118,6 +137,9 @@ face=card8,card8x
 # supplement draws its own characters, not fb) but before the supplement of the 24 px faces: without the pack
 # a 24 px supplement alone would set the cell height and drop the 16 px fb (the supplement's two glyphs are
 # lost then; with the pack present fb is dropped there anyway, its height differs).
+range.basic-latin=original
+advance.basic-latin=game
+origin.basic-latin=game
 [font.0:clut8]
 face=dlg,fb,dlgx
 [font.1:clut8]
@@ -126,10 +148,16 @@ face=small,smallx,fb
 face=small,smallx,fb
 [font.4:clut8]
 face=card,fb,cardx
+range.basic-latin=same
+advance.basic-latin=font
+origin.basic-latin=face
 [font.5:clut8]
 face=small,smallx,fb
 [font.6:clut8]
 face=dlg,fb,dlgx
+range.basic-latin=same
+advance.basic-latin=font
+origin.basic-latin=face
 [font.7:clut8]
 face=card7,fb,card7x
 [font.8:clut8]
@@ -145,6 +173,9 @@ face=card8,card8x,fb
 #   0x60 double quote, both opening and closing (one byte serves both roles in the text,
 #     so there is no separate open/close code to distinguish)
 #   0x0f trademark sign (korean.trs: "Ash-2-Life\x0f")
+range.basic-latin=same
+advance.basic-latin=font
+origin.basic-latin=face
 [glyphs]
 0x07 = original
 0x5e = u+2026

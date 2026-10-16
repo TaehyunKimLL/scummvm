@@ -1,3 +1,4 @@
+; 2026-10-16 (runs/maps-pm mkmaps3.py): font-pairing picks 0(8-bit)=cur-hterm16, 0(TC)=paperfb-paperb-16-aa, 300(8-bit)=lzh-hangul-002-hangul3-pft-face0, 300(TC)=maruf-marus-24-aa, 4(8-bit)=cur-sangam16, 4(TC)=paperf-paper-18-aa, 999(8-bit)=cur-sangam16, 999(TC)=paperf-paper-16-aa (first in the chain; English original)
 ; King's Quest I (SCI remake), Korean UTF-8 translation. One map; the same three faces
 ; in every render_target (1 bpp, hard-edged, so no preset differs).
 ;
@@ -24,14 +25,22 @@ version=2
 
 [render]
 scale=2
-blend=off
+blend=auto
 
+[render:clut8]
+blend=off
 [fonts]
 hterm=HTERM16.SVF
 ui=IYAGI16.SVF
 munjo=MUNJO24.SVF
 fb=SANGAM16.SVF
+paplb16a=PAPLB16A.SVF
+marus24a=MARUS24A.SVF
+paper18a=PAPER18A.SVF
+paper16a=PAPER16A.SVF
 
+[fonts:clut8]
+hwphg24=HWPHG24.SVF
 [font]
 face=ui,fb
 missing=u+25a1
@@ -40,9 +49,67 @@ align=cell
 range.basic-latin=original
 
 [font.0]
-face=hterm,fb
+face=paplb16a,hterm,fb
+size=16
+cell=glyph
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
 
+[font.0:clut8]
+face=hterm,fb
+size=16
+cell=glyph
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
 [font.300]
-face=munjo,fb
+face=marus24a,munjo,fb
 size=24
 cell=glyph
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
+[font.300:clut8]
+face=hwphg24,munjo,fb
+size=24
+cell=glyph
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
+[font.4:clut8]
+face=fb,ui
+size=16
+cell=glyph
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
+[font.4]
+face=paper18a,ui,fb
+size=18
+cell=glyph
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
+[font.999:clut8]
+face=fb,ui
+size=16
+cell=glyph
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
+[font.999]
+face=paper16a,ui,fb
+size=16
+cell=glyph
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game

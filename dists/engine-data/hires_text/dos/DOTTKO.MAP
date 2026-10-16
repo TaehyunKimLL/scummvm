@@ -1,3 +1,4 @@
+; 2026-10-16 (runs/maps-pm mkmaps3.py): font-pairing picks 2(TC)=paperfb-paperb-20-aa (first in the chain; English original)
 # Day of the Tentacle (DOS floppy, Korean patch). One map, two presets; the ini's
 # render_target picks one.
 #   Default (true colour: render_target=auto): NanumGothic Bold (NGOTB*) and Gowun Batang Bold (GBATB*) faces, 2 bpp, anti-aliased (blend=auto), baked by
@@ -26,6 +27,7 @@ cs2=NGOTB19.SVF
 cs3=NGOTB17A.SVF
 cs4=NGOTB21.SVF
 cs7=GBATB35.SVF
+paplb20a=PAPLB20A.SVF
 [fonts:clut8]
 cs0=NEODG32A.SVF
 cs1=NEODG16A.SVF
@@ -49,7 +51,10 @@ face=cs0
 [font.1]
 face=cs1
 [font.2]
-face=cs2
+face=paplb20a,cs2
+range.basic-latin=original
+advance.basic-latin=game
+origin.basic-latin=game
 [font.3]
 face=cs3
 [font.4]
@@ -71,6 +76,9 @@ face=cs0,fb
 face=cs1,fb
 [font.2:clut8]
 face=cs2,fb
+range.basic-latin=same
+advance.basic-latin=font
+origin.basic-latin=face
 [font.3:clut8]
 face=cs3,fb
 [font.4:clut8]

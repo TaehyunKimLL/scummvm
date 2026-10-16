@@ -1,3 +1,4 @@
+; 2026-10-16 (runs/maps-pm mkmaps3.py): font-pairing picks 1(8-bit)=maruf-marus-24-1, 1(TC)=maruf-marus-24-aa, 40(8-bit)=jamo2-nsqrr-36-1, 40(TC)=jamo2-nsqrr-36-aa, 41(8-bit)=jamo2-nsqrb-36-1, 41(TC)=jamo2-nsqrb-36-aa, 7(8-bit)=dkb-hangul40-1, 7(TC)=dkb-hangul40-1, 8(8-bit)=cur-munjo24, 8(TC)=cur-munjo24 (first in the chain; English original)
 ; Laura Bow 1 (The Colonel's Bequest), Korean UTF-8 translation (GAMES\LB1KO:
 ; MESSAGE.MAP + RESOURCE.MSG, packed text resources + SCI-KO.STR,
 ; language=ko). One map, two presets; the ini's render_target picks one.
@@ -50,6 +51,12 @@ blend=off
 [fonts]
 ui=NGOTB16.SVF
 body=GBATB17.SVF
+munjo=MUNJO24.SVF
+fb=SANGAM16.SVF
+marus24a=MARUS24A.SVF
+nsqrr36a=NSQRR36A.SVF
+nsqrb36a=NSQRB36A.SVF
+dkbhg40=DKBHG40.SVF
 [fonts:clut8]
 ; the 8-bit preset: one 1 bpp face per font id (the 16 px SANGAM16.SVF is every chain's fallback)
 hterm=HTERM16.SVF
@@ -60,6 +67,10 @@ cap=DIPHY36.SVF
 credit=YOUTH36.SVF
 gh48=TBGHC48.SVF
 fb=SANGAM16.SVF
+marus24=MARUS24.SVF
+nsqrr36=NSQRR36.SVF
+nsqrb36=NSQRB36.SVF
+dkbhg40=DKBHG40.SVF
 
 [font]
 face=ui
@@ -80,11 +91,21 @@ advance.basic-latin=game
 face=hterm,fb
 
 [font.1]
-face=body
-[font.1:clut8]
-face=hwp,fb
+face=marus24a,body
 size=24
 cell=glyph
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
+[font.1:clut8]
+face=marus24,hwp,fb
+size=24
+cell=glyph
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
 
 [font.4]
 face=body
@@ -93,15 +114,24 @@ face=iyagi,fb
 
 ; font 7 (the printer's 46 px line) is not drawn in play; its pick is here for completeness
 [font.7:clut8]
-face=gh48,fb
-size=48
+face=dkbhg40,gh48,fb
+size=40
 cell=glyph
 
 ; the cast names are lined up under the portraits with runs of spaces:
 ; spaces and Latin keep the game font's widths
-[font.8]
-face=body
+align=cell
+shift=0
+range.basic-latin=original
 advance.basic-latin=game
+[font.8]
+face=munjo,fb
+advance.basic-latin=game
+size=24
+cell=glyph
+range.basic-latin=original
+align=cell
+shift=0
 [font.8:clut8]
 face=munjo,fb
 size=24
@@ -109,26 +139,52 @@ cell=glyph
 
 ; credits and act titles, caption: the game font is 18 game px tall; the
 ; true-colour glyphs get an 18 px cell (cell=glyph) so they never touch
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
 [font.40]
-face=body
-cell=glyph
-size=18
-[font.40:clut8]
-face=cap,fb
+face=nsqrr36a,body
 cell=glyph
 size=36
-align=game
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
+[font.40:clut8]
+face=nsqrr36,cap,fb
+cell=glyph
+size=36
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
 
 [font.41]
-face=body
-cell=glyph
-size=18
-[font.41:clut8]
-face=credit,fb
+face=nsqrb36a,body
 cell=glyph
 size=36
-align=game
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
+[font.41:clut8]
+face=nsqrb36,credit,fb
+cell=glyph
+size=36
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
 
+[font.7]
+face=dkbhg40,ui
+size=40
+cell=glyph
+align=cell
+shift=0
+range.basic-latin=original
+advance.basic-latin=game
 [load:clut8]
 cap=stream
 credit=stream

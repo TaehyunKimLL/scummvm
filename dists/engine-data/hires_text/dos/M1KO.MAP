@@ -1,3 +1,4 @@
+; 2026-10-16 (runs/maps-pm mkmaps3.py): font-pairing picks 2(TC)=paperfb-paperb-18-aa, 4(TC)=marufb-marub-24-aa, 6(TC)=marufb-marub-20-aa (first in the chain; English original)
 # Monkey Island 1 (mi1kor Korean patch). One map, two presets; the ini's
 # render_target picks one.
 #   Default (true colour: render_target=auto, on DOS rgb565 unless only rgb888 has 640x400; or set rgb565 or rgb888): NanumGothic Bold (NGOTB*) and Gowun Batang Bold (GBATB*) faces, 2 bpp,
@@ -35,6 +36,9 @@ cs0x=NGO21AX1.SVF
 cs1x=NGO15X1.SVF
 cs2x=NGO16BX1.SVF
 cs4x=GBA17BX1.SVF
+paplb18a=PAPLB18A.SVF
+marub24a=MARUB24A.SVF
+marub20a=MARUB20A.SVF
 [fonts:clut8]
 cs0=TBGOB24.SVF
 cs1=NEODG16C.SVF
@@ -72,16 +76,27 @@ face=cs0,cs0x
 [font.1]
 face=cs1,cs1x
 [font.2]
+face=paplb18a,cs2,cs2x
+range.basic-latin=original
+advance.basic-latin=game
+origin.basic-latin=game
+[font.2:clut8]
 face=cs2,cs2x
+range.basic-latin=same
+advance.basic-latin=font
+origin.basic-latin=face
 [font.3]
 # the same 16x16 cell as charset 1
 face=cs1,cs1x
 [font.4]
-face=cs4,cs4x
+face=marub24a,cs4,cs4x
 
 # The 8-bit preset chains a supplement only after the dialogue face (charset 2); its other faces are jamo sets.
 # fb=SANGAM16.SVF (engine data, SAN10.TXT) ends each chain of a face that lives in the jamo font pack, so a missing
 # font pack still shows Korean (16 px; only the 8-bit preset has jamo-set faces).
+range.basic-latin=original
+advance.basic-latin=game
+origin.basic-latin=game
 [font.0:clut8]
 face=cs0,fb
 [font.1:clut8]
@@ -96,6 +111,18 @@ face=cs4,fb
 # punctuation, so it is drawn by the replacement font like any other character.
 # 0x0f is the patch's own trademark sign (DISK0N.LEC: "멜레이 섬\x0f!" Mêlée Island™,
 # "...보물\x0f", "마스터\x0f" Sword Master), real punctuation too.
+range.basic-latin=same
+advance.basic-latin=font
+origin.basic-latin=face
+[font.6]
+face=marub20a
+range.basic-latin=original
+advance.basic-latin=game
+origin.basic-latin=game
+[font.6:clut8]
+range.basic-latin=same
+advance.basic-latin=font
+origin.basic-latin=face
 [glyphs]
 0x5e = u+2026
 0x0f = u+2122
