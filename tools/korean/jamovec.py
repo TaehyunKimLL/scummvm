@@ -387,7 +387,7 @@ def main():
     m.add_argument("-o", "--output", required=True)
     m.add_argument("--adaptive", nargs="?", const="24,16,16", help="adaptive sets up to NI,NM,NF (default 24,16,16)")
     m.add_argument("--decision-px", type=int, default=48)
-    m.add_argument("--class-limit", type=int, help="lead/tail classes (default 8; more only to simulate a bigger table)")
+    m.add_argument("--class-limit", type=int, help="lead/tail classes (default 12, the engine's limit; more only to simulate a bigger table)")
     m.add_argument("--components", action="store_true",
                    help="take the pieces from the composite syllable glyphs' components (no raster separation)")
     m.add_argument("--pylib")

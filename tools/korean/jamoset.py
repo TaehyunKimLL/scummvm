@@ -55,6 +55,10 @@ CODEPAGE = 949
 PIECE_BASE = 0xF0000
 BLANK = 0xFFFF
 JSET_HEADER = 12
+# The engine's JSET class limits (graphics/hires_text/jamo_set.h; 8 and 8 before 2026-10, and engines built then
+# reject a block with more), and its set limits.
+MAX_LEAD_CLASSES = 12
+MAX_TAIL_CLASSES = 12
 
 # ---- Johab jamo helpers (kfont.py) -------------------------------------------
 
@@ -527,7 +531,7 @@ def unpack(data):
     version, lc, tc, ni, nm, nf, adv = struct.unpack_from("<HBBBBBB", data, 4)
     if version != 1:
         raise ValueError(f"JSET version {version} is not supported")
-    for name, v, hi in (("lead classes", lc, 8), ("tail classes", tc, 8), ("initial sets", ni, 24),
+    for name, v, hi in (("lead classes", lc, MAX_LEAD_CLASSES), ("tail classes", tc, MAX_TAIL_CLASSES), ("initial sets", ni, 24),
                         ("medial sets", nm, 16), ("final sets", nf, 16)):
         if not 1 <= v <= hi:
             raise ValueError(f"JSET {name} {v} is not 1..{hi}")
@@ -1066,7 +1070,8 @@ def svf_targets(face):
 # the JSET tables from the font's own rule - lead and tail classes are the sets of jamo that no syllable tells apart, the
 # initial sets are the distinct columns of initial glyphs, the medial sets are numbered per vowel - and every syllable
 # composes to the Mac rendering bit for bit. It needs 8 lead classes, 4 tail classes and 20 initial sets, more than the
-# first JSET readers took (4 / 4 / 16): the JSET limits are now 8 / 8 / 24 for classes and initial sets (16 medial, 16 final).
+# first JSET readers took (4 / 4 / 16): the JSET limits became 8 / 8 / 24 for classes and initial sets (16 medial, 16 final), and in 2026-10 12 / 12 / 24 for
+# more class detail in adaptive faces (MAX_LEAD_CLASSES; engines built before then reject more than 8 classes).
 
 MAC_PLANE_TABLES = dict(A=(0x524, 32), B=(0x558, 32), C=(0x578, 32), D=(0x598, 32), Gm=(0x5b8, 32), G=(0x5d8, 10),
                         S=(0x5e2, 32), F=(0x602, 32), I=(0x622, 32), H=(0x642, 6), J=(0x648, 32), M=(0x668, 6),

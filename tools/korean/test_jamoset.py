@@ -538,16 +538,53 @@ class JsetCodec(unittest.TestCase):
             "magic": b"X" + g[1:],
             "length": g[:-1],
             "length extra": g + b"\0",
-            "lead classes": g[:6] + b"\x09" + g[7:],
+            "lead classes": g[:6] + b"\x0d" + g[7:],
             "leadClass": g[:12 + 3] + b"\x02" + g[12 + 4:],
             "initSet": g[:59 + 5] + b"\x08" + g[59 + 6:],
-            "tail classes": g[:7] + b"\x09" + g[8:],
+            "tail classes": g[:7] + b"\x0d" + g[8:],
             "initial sets": g[:8] + b"\x19" + g[9:],
         }
         for what, data in cases.items():
             with self.assertRaises(ValueError, msg=what) as cm:
                 jamoset.unpack(data)
             self.assertIn(what.split()[0], str(cm.exception))
+
+    @staticmethod
+    def limits_table(lc, tc):
+        """lc x tc classes at 24/16/16 sets, every class, set and piece used (the engine test's makeLimitsJset)."""
+        t = jamoset.Tables(lc, tc, 24, 16, 16)
+        t.lead_class = [L % lc for L in range(19)]
+        t.tail_class = [0] + [1 + (T - 1) % (tc - 1) for T in range(1, 28)]
+        n = lc * 21 * tc
+        t.init_set, t.med_set, t.fin_set = [c % 24 for c in range(n)], [c % 16 for c in range(n)], [c % 16 for c in range(n)]
+        t.init_piece = [1 + i for i in range(24 * 19)]
+        t.med_piece = [1000 + i for i in range(16 * 21)]
+        t.fin_piece = [2000 + i for i in range(16 * 27)]
+        return t
+
+    def test_12x12_classes_round_trip_and_13_is_refused(self):
+        # The class limits are 12 x 12 (8 x 8 before 2026-10): the largest block is 11681 bytes, as in jamo_set.h.
+        self.assertEqual((jamoset.MAX_LEAD_CLASSES, jamoset.MAX_TAIL_CLASSES), (12, 12))
+        for lc, tc in ((12, 12), (8, 8), (12, 4)):
+            data = jamoset.pack(self.limits_table(lc, tc))
+            self.assertEqual(len(data), jamoset.jset_size(lc, tc, 24, 16, 16))
+            t = jamoset.unpack(data)
+            self.assertEqual((t.lc, t.tc), (lc, tc))
+            for cp in (0xAC00, 0xAC0B, 0xC544, 0xD7A3):
+                L, V, T = jamoset.decompose(cp)
+                cell = ((L % lc) * 21 + V) * tc + (1 + (T - 1) % (tc - 1) if T else 0)
+                want = [1 + cell % 24 * 19 + L, 1000 + cell % 16 * 21 + V] + ([2000 + cell % 16 * 27 + T - 1] if T else [])
+                self.assertEqual(jamoset.pieces_of(t, cp), want)
+        self.assertEqual(len(jamoset.pack(self.limits_table(12, 12))), 11681)
+        for what, lc, tc in (("lead classes", 13, 12), ("tail classes", 12, 13)):
+            t = self.limits_table(12, 12)
+            t.lc, t.tc = lc, tc
+            n = lc * 21 * tc
+            t.init_set, t.med_set, t.fin_set = [0] * n, [0] * n, [0] * n
+            with self.assertRaises(ValueError) as cm:
+                jamoset.unpack(jamoset.pack(t))
+            self.assertIn(what, str(cm.exception))
+            self.assertIn("1..12", str(cm.exception))
 
 
 class ReviewFixes(unittest.TestCase):

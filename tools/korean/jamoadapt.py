@@ -3,8 +3,8 @@
 
 A fixed layout (844) decides which syllables share a piece. When a font draws a jamo differently in two contexts the
 844 tables put in one set, the shared piece is a compromise and both contexts compose worse. This module starts from
-844 and splits sets where the syllables that share a piece disagree, up to the engine's JSET limits (8 lead classes,
-8 tail classes, 24 initial / 16 medial / 16 final sets; graphics/hires_text/jamo_set.h).
+844 and splits sets where the syllables that share a piece disagree, up to the engine's JSET limits (12 lead classes,
+12 tail classes, 24 initial / 16 medial / 16 final sets; graphics/hires_text/jamo_set.h; 8 and 8 classes before 2026-10).
 
 Input: "donors", each present syllable's own raster per slot (initial, medial, final) - from the outline's contours
 (jamoaa.contour_donors) or, for a bitmap source, the target split by the 844 region fit (jamoaa.pixel_donors). A
@@ -12,8 +12,8 @@ donor is compared as thermometer bit planes (level >= 1, >= 2, >= 3 as gints), s
 rasters is the summed popcount of the planes' XOR and the per-pixel median of a group is the per-plane majority.
 
   1. Classes. Initials are grouped into lead classes by how the medial donors after them look (ㄱ and ㅋ, 844's
-     class, are classes 0 and 1, the other 17 initials are clustered into the remaining 6), tails into tail classes by how the
-     initial and medial donors above them look (no tail is class 0, the 27 tails are clustered into 7). Average
+     class, are classes 0 and 1, the other 17 initials are clustered into the remaining 10), tails into tail classes by how the
+     initial and medial donors above them look (no tail is class 0, the 27 tails are clustered into 11). Average
      linkage on the mean L1 distance of per-context medians.
   2. Items. A cell is (lead class, vowel, tail class); each slot's set is a function of an item, the cells pooled
      by what that slot's 844 table looks at (item_of), starting from the 844 set of the item's 844 context.
@@ -31,7 +31,7 @@ present syllable uses take the piece of the set it was split from (Layout.fallba
 import jamoset as J
 
 LIMITS = (24, 16, 16)
-CLASS_LIMIT = 8
+CLASS_LIMIT = 12		# the engine's kJamoMaxLeadClasses / kJamoMaxTailClasses (8 before 2026-10)
 
 
 def planes(raster, nlev):
@@ -190,7 +190,7 @@ def item_of(slot, cell):
 
 def adapt(donors, nlev, limits=LIMITS, min_gain=0.0005, min_users=4, log=None, class_limit=None):
     """The adaptive Layout from @p donors {syllable: [raster 0..255 per slot or None]}. Returns (layout, info).
-    @p class_limit: lead/tail classes (default the engine's 8; more only to simulate a bigger table)."""
+    @p class_limit: lead/tail classes (default the engine's 12; more only to simulate a bigger table)."""
     say = log or (lambda *a: None)
     P = {s: [None if d is None else planes(d, nlev) for d in ds] for s, ds in donors.items()}
     npl = 1 if nlev == 1 else 3
