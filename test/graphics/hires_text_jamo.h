@@ -88,12 +88,12 @@ private:
 		return b;
 	}
 
-	/// A JSET at every limit: 8 lead classes, 8 tail classes, 24 initial sets (16 medial, 16 final). Lead class
-	/// of lead l is l % 8, tail class of final t is 1 + (t - 1) % 7 (so class 7 holds finals 7 and 14, 21 and 28
-	/// are not there); set of cell c is c % 24 / c % 16 / c % 16; pieces are numbered 1 + index, 1000 + index
-	/// and 2000 + index.
-	static Bytes makeLimitsJset() {
-		const int LC = 8, TC = 8, NI = 24, NM = 16, NF = 16;
+	/// A JSET of LC lead and TC tail classes with 24 initial sets (16 medial, 16 final), by default at every
+	/// limit (12 x 12). Lead class of lead l is l % LC, tail class of final t is 1 + (t - 1) % (TC - 1) (at 12 x 12
+	/// class 11 holds finals 11 and 22; at the old 8 x 8 limit class 7 holds 7 and 14); set of cell c is
+	/// c % 24 / c % 16 / c % 16; pieces are numbered 1 + index, 1000 + index and 2000 + index.
+	static Bytes makeLimitsJset(int LC = 12, int TC = 12) {
+		const int NI = 24, NM = 16, NF = 16;
 		Bytes b;
 		const byte head[] = { 'J', 'S', 'E', 'T', 1, 0, (byte)LC, (byte)TC, (byte)NI, (byte)NM, (byte)NF, 0 };
 		for (uint i = 0; i < sizeof(head); ++i)
@@ -101,7 +101,7 @@ private:
 		for (int l = 0; l < 19; ++l)
 			b.push_back(l % LC);
 		for (int t = 0; t < 28; ++t)
-			b.push_back(t == 0 ? 0 : 1 + (t - 1) % 7);
+			b.push_back(t == 0 ? 0 : 1 + (t - 1) % (TC - 1));
 		const int mod[3] = { NI, NM, NF };
 		for (int which = 0; which < 3; ++which)
 			for (int c = 0; c < LC * 21 * TC; ++c)
@@ -287,22 +287,21 @@ public:
 		expect(t, 0xAC01, 3, 101, 205, 249);
 	}
 
-	void test_limits_parse_and_compose() {
+	/// Parses @p jset (LC x TC, makeLimitsJset()) and checks every syllable against the formula.
+	static void checkLimits(const Bytes &jset, uint LC, uint TC) {
 		Graphics::JamoSetTable t;
 		Common::String err;
-		const Bytes jset = makeLimitsJset();
-		TS_ASSERT_EQUALS(sizeOf(jset), Graphics::kJamoSetMaxSize);
 		TS_ASSERT(parse(jset, t, err, sizeOf(jset)));
 		TS_ASSERT(err.empty());
-		TS_ASSERT_EQUALS(t.leadClasses, 8);
-		TS_ASSERT_EQUALS(t.tailClasses, 8);
+		TS_ASSERT_EQUALS(t.leadClasses, LC);
+		TS_ASSERT_EQUALS(t.tailClasses, TC);
 		TS_ASSERT_EQUALS(t.initSets, 24);
-		// Every syllable composes to the piece the formula names, finals in tail class 7 (7, 14) and lead classes 0..7 included.
+		// Every syllable composes to the piece the formula names, the last tail class and every lead class included.
 		for (uint32 cp = 0xAC00; cp <= 0xD7A3; ++cp) {
 			const uint32 s = cp - 0xAC00;
 			const uint lead = s / 588, v = (s / 28) % 21, tail = s % 28;
-			const uint lc = lead % 8, tc = tail ? 1 + (tail - 1) % 7 : 0;
-			const uint cell = (lc * 21 + v) * 8 + tc;
+			const uint lc = lead % LC, tc = tail ? 1 + (tail - 1) % (TC - 1) : 0;
+			const uint cell = (lc * 21 + v) * TC + tc;
 			uint16 out[3] = { 0, 0, 0 };
 			int n = 0;
 			TS_ASSERT(t.pieces(cp, out, n));
@@ -312,20 +311,43 @@ public:
 			if (tail)
 				TS_ASSERT_EQUALS(out[2], 2000 + (cell % 16) * 27 + tail - 1);
 		}
-		TS_ASSERT_EQUALS(t.tailClass[7], 7);
-		TS_ASSERT_EQUALS(t.leadClass[7], 7);
+		TS_ASSERT_EQUALS(t.tailClass[TC - 1], TC - 1);
+		TS_ASSERT_EQUALS(t.leadClass[LC - 1], LC - 1);
+	}
+
+	void test_limits_parse_and_compose() {
+		const Bytes jset = makeLimitsJset();
+		TS_ASSERT_EQUALS(sizeOf(jset), Graphics::kJamoSetMaxSize);
+		TS_ASSERT_EQUALS(Graphics::kJamoSetMaxSize, 11681u);
+		checkLimits(jset, 12, 12);
+	}
+
+	void test_old_8x8_limit_still_parses() {
+		// The limit before 12 x 12: faces made then keep loading.
+		const Bytes jset = makeLimitsJset(8, 8);
+		TS_ASSERT_EQUALS(sizeOf(jset), Graphics::jamoSetSize(8, 8, 24, 16, 16));
+		TS_ASSERT_EQUALS(sizeOf(jset), 6641u);
+		checkLimits(jset, 8, 8);
 	}
 
 	void test_limits_reject_one_over() {
 		Graphics::JamoSetTable t;
 		Common::String err;
 		Bytes b = makeLimitsJset();
-		b[kTC] = 9;
+		b[kTC] = 13;
 		TS_ASSERT(!parse(b, t, err, sizeOf(b)));
 		TS_ASSERT(err.contains("tail classes"));
+		TS_ASSERT(err.contains("1..12"));
 		b = makeLimitsJset();
-		b[kLC] = 9;
+		b[kLC] = 13;
 		TS_ASSERT(!parse(b, t, err, sizeOf(b)));
+		TS_ASSERT(err.contains("lead classes"));
+		TS_ASSERT(err.contains("1..12"));
+		// A block whose length matches 13 x 12 is still refused by its count, not its length.
+		Bytes big = makeLimitsJset(12, 12);
+		big[kLC] = 13;
+		big.resize(Graphics::jamoSetSize(13, 12, 24, 16, 16));
+		TS_ASSERT(!parse(big, t, err, sizeOf(big)));
 		TS_ASSERT(err.contains("lead classes"));
 		b = makeLimitsJset();
 		b[kNI] = 25;
@@ -349,7 +371,7 @@ public:
 		TS_ASSERT(err.contains("version"));
 
 		b = good;
-		b[kLC] = 9;
+		b[kLC] = 13;
 		TS_ASSERT(!parse(b, t, err, sizeOf(b)));
 		TS_ASSERT(err.contains("lead classes"));
 
@@ -359,7 +381,7 @@ public:
 		TS_ASSERT(err.contains("tail classes"));
 
 		b = good;
-		b[kTC] = 9;
+		b[kTC] = 13;
 		TS_ASSERT(!parse(b, t, err, sizeOf(b)));
 		TS_ASSERT(err.contains("tail classes"));
 
@@ -752,8 +774,9 @@ public:
 	}
 
 	void test_largest_set_counts_compose_from_glyphs() {
-		// An adaptive layout at the limits (24 initial, 16 medial, 16 final sets, 8 lead and 8 tail classes):
-		// the pieces makeLimitsJset() names, each a pixel, compose as the table says.
+		// An adaptive layout at the limits (24 initial, 16 medial, 16 final sets, 12 lead and 12 tail classes):
+		// the pieces makeLimitsJset() names, each a pixel, compose as the table says. The block (11681 bytes)
+		// is longer than the 8192 bytes streaming read before the limits were 12 x 12; both ways read it.
 		Common::Array<uint32> cps;
 		for (uint n = 1; n <= 24 * 19; ++n)
 			cps.push_back(Graphics::kJamoPieceBase + n);
@@ -762,24 +785,28 @@ public:
 		for (uint n = 2000; n < 2000 + 16 * 27; ++n)
 			cps.push_back(Graphics::kJamoPieceBase + n);
 		const Bytes bytes = makeFont(cps, makeLimitsJset());
-		Graphics::HiResBitmapFont *font = loadFont(bytes, false);
-		TS_ASSERT(font->jamoSetError().empty());
-		Common::String why;
-		TS_ASSERT(Graphics::JamoGlyphSource::usable(*font, why));
-		Graphics::JamoGlyphSource src(font, DisposeAfterUse::YES);
-		const uint32 samples[] = { 0xAC00, 0xAC07, 0xAC0E, 0xB5A0, 0xC870, 0xD7A3, 0xD58D };
-		for (uint i = 0; i < ARRAYSIZE(samples); ++i) {
-			const uint32 s = samples[i] - 0xAC00;
-			const uint lead = s / 588, v = (s / 28) % 21, tail = s % 28;
-			const uint cell = ((lead % 8) * 21 + v) * 8 + (tail ? 1 + (tail - 1) % 7 : 0);
-			uint32 n[3] = { 1 + (cell % 24) * 19 + lead, 1000 + (cell % 16) * 21 + v, 2000 + (cell % 16) * 27 + tail - 1 };
-			Common::Array<uint32> want;
-			for (int k = 0; k < (tail ? 3 : 2); ++k) {
-				const uint32 p = n[k] % 16 | (n[k] / 16 % 16) << 8 | 1 << 16;
-				if (Common::find(want.begin(), want.end(), p) == want.end())
-					want.push_back(p);
+		for (int streamed = 0; streamed < 2; ++streamed) {
+			Graphics::HiResBitmapFont *font = loadFont(bytes, streamed != 0);
+			TS_ASSERT(font->jamoSetError().empty());
+			TS_ASSERT(font->jamoSets() && font->jamoSets()->leadClasses == 12 && font->jamoSets()->tailClasses == 12);
+			Common::String why;
+			TS_ASSERT(Graphics::JamoGlyphSource::usable(*font, why));
+			Graphics::JamoGlyphSource src(font, DisposeAfterUse::YES);
+			// 0xAC0B: tail 11, in the last tail class (11); 0xC544 (아): lead 11, the last lead class.
+			const uint32 samples[] = { 0xAC00, 0xAC07, 0xAC0B, 0xAC0E, 0xB5A0, 0xC544, 0xC870, 0xD7A3, 0xD58D };
+			for (uint i = 0; i < ARRAYSIZE(samples); ++i) {
+				const uint32 s = samples[i] - 0xAC00;
+				const uint lead = s / 588, v = (s / 28) % 21, tail = s % 28;
+				const uint cell = ((lead % 12) * 21 + v) * 12 + (tail ? 1 + (tail - 1) % 11 : 0);
+				uint32 n[3] = { 1 + (cell % 24) * 19 + lead, 1000 + (cell % 16) * 21 + v, 2000 + (cell % 16) * 27 + tail - 1 };
+				Common::Array<uint32> want;
+				for (int k = 0; k < (tail ? 3 : 2); ++k) {
+					const uint32 p = n[k] % 16 | (n[k] / 16 % 16) << 8 | 1 << 16;
+					if (Common::find(want.begin(), want.end(), p) == want.end())
+						want.push_back(p);
+				}
+				expectInk(inkOf(src, samples[i]), want);
 			}
-			expectInk(inkOf(src, samples[i]), want);
 		}
 	}
 

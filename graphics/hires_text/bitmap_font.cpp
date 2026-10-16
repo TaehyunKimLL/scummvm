@@ -59,9 +59,9 @@ enum {
 // one still unused.
 static const int kMetricsEntrySize = 4;
 
-// The most bytes a valid JSET block takes (jamoSetSize(8, 8, 24, 16, 16) = 6641); a
+// The most bytes a valid JSET block takes (jamoSetSize(12, 12, 24, 16, 16) = 11681); a
 // span longer than that cannot be one, and is not read when streaming.
-static const uint32 kJsetMaxSize = 8192;
+static const uint32 kJsetMaxSize = kJamoSetMaxSize;
 
 // Bytes per entry in the code point table of a version 2 font.
 static const int kCmapEntrySize = 8;
@@ -263,7 +263,7 @@ bool HiResBitmapFont::loadStreamed(Common::SeekableReadStream *stream, DisposeAf
 	_glyphsPerBlock = MAX<int>(1, (int)(HIRES_SVF_READ_BLOCK / layout.glyphStride));
 	adopt(layout, metricsSize ? tables : nullptr, cmapTable, cmapOrder);
 
-	// The JSET block is small (6641 bytes at most, kJamoSetMaxSize): read now with the tables,
+	// The JSET block is small (11681 bytes at most, kJamoSetMaxSize): read now with the tables,
 	// parsed into the table, and not kept.
 	if (layout.jamo) {
 		Common::Array<byte> block;

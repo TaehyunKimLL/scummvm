@@ -420,8 +420,8 @@ JSET block, little-endian:
 ```
 4  "JSET"
 2  version (1)
-1  LC  lead classes   (1..8)
-1  TC  tail classes   (1..8)
+1  LC  lead classes   (1..12)
+1  TC  tail classes   (1..12)
 1  NI  initial sets   (1..24)
 1  NM  medial sets    (1..16)
 1  NF  final sets     (1..16)
@@ -447,6 +447,13 @@ printer sets, Kyra's jamo-major order, and the Mac HangulTalk 1.0 'fbit' fonts w
 writes such fonts, also at 2 bpp from an outline font (`--bpp 2`, anti-aliased
 pieces composed by the maximum) and with set systems fitted to the font
 (`--layout adaptive`, up to the limits above).
+
+The class limits were 8 and 8 until 2026-10 (largest block 6641 bytes); they
+are 12 and 12 now (11681 bytes), with the version still 1 since the layout did
+not change. An engine built before that rejects a block with more than 8
+classes of either kind (the font then loads as a plain SVFN, its syllables
+from the next source), so faces with 9..12 classes need a current engine;
+every older face loads unchanged.
 
 ## Glyph rendering (G3)
 

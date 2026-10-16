@@ -33,8 +33,9 @@ namespace Graphics {
 static const uint32 kJamoPieceBase = 0xF0000;
 
 /// Limits of a JSET block: classes of lead and of tail, initial/medial/final sets.
-static const uint kJamoMaxLeadClasses = 8;
-static const uint kJamoMaxTailClasses = 8;
+/// Up to 8 x 8 classes until 2026-10; engines built before then reject more.
+static const uint kJamoMaxLeadClasses = 12;
+static const uint kJamoMaxTailClasses = 12;
 static const uint kJamoMaxInitSets = 24;
 static const uint kJamoMaxMedSets = 16;
 static const uint kJamoMaxFinSets = 16;
