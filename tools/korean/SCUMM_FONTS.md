@@ -174,11 +174,21 @@ How they were made (research scripts, outside the source tree like the Paperlogy
    the initial/medial/final order is fixed by position, `jamovec.order_parts`), no raster separation, and writes
    `pieces/TAG.pkl` in the vector-piece format of `fontbuild2.py` (NanumSquareRound: only its 2,479 composite syllables
    exist). 
-2. `fontbuild2.py TAG PX --sets 24,16,16 --classes 8,8` (the Paperlogy builder: pieces rasterised at PX px, 4x4
-   supersampled, merged to the engine's limits by composed-syllable IoU, SVF 1 bpp and AA via `jamoset`; checked with
-   `jamoset.unpack` and `compose`, 0 mismatches). On GothicA1 20 px it gives IoU 0.921 on KS X 1001 against 0.853 of
-   `jamovec master --components` + `jamoadapt` (SingleDay 0.999 / 0.995, Dovemayo 0.989 / 0.953, NanumSquareRound
-   Regular 0.964 / 0.927), so it is the builder used.
+2. `fontbuild2.py TAG PX --sets 24,16,16 --classes 12,12 --weights syllable-freq.tsv` (the Paperlogy builder: pieces
+   rasterised at PX px, 4x4 supersampled, merged to the engine's limits by composed-syllable IoU, SVF 1 bpp and AA via
+   `jamoset`; checked with `jamoset.unpack` and `compose`, 0 mismatches). On GothicA1 20 px it gave IoU 0.921 on
+   KS X 1001 against 0.853 of `jamovec master --components` + `jamoadapt` (SingleDay 0.999 / 0.995, Dovemayo 0.989 /
+   0.953, NanumSquareRound Regular 0.964 / 0.927), so it is the builder used.
+   Until 2026-10 the faces were built at 8x8 classes and every syllable weighed the same; now (engine limits 12 x 12,
+   `jamo_set.h`; scripts copied to `runs/jset12/cp/scripts/`) at 12x12 with usage weights: a syllable's error weighs
+   sqrt(base + count), count = how often it occurs in the Korean translations of our game packs (1.6 M syllables,
+   `runs/jset12/syllable-freq.tsv`, `runs/jset12/scripts/sylfreq.py`), base 16 for KS X 1001 and 1 otherwise, and an
+   AA piece is the weighted per-pixel median of its syllables' pieces. Equal weights traded a frequent syllable's piece
+   away for many rare ones (GOTHA20A drew 유 and 우 with the narrow ㅇ of 위); weighted, the mean IoU over all 11,172
+   drops a little and the usage-weighted IoU rises (Gothic A1 20 px 1 bpp: 0.945 -> 0.940 all, 0.901 -> 0.985 by
+   usage, 0.905 -> 0.971 over the 500 most frequent; FACES.TSV quality_freq, quality_top500). File sizes change
+   by -2..+8%. They need an engine with the 12 x 12 limits; older engines reject them (more than 8 classes) and fall
+   back to the next face.
 3. `mkfont.py FONT --size PX --cell PX --unicode ascii,2026 --only-listed --space-advance 0.3*PX --punct-extra 1
    --clip-cell --ascent A` bakes the Latin; `pickascent.py` takes the baseline row A (from the Hangul's baseline down
    to 5 rows higher) with no clipped letter or digit, then the fewest clipped ink pixels; `addlatin.py` adds those
