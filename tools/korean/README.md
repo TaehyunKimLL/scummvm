@@ -332,7 +332,7 @@ starts, so `packvol.py` puts them into one volume:
 
 ```sh
 tools/korean/packvol.py GAMES/LB1KO GAMES/LB1KO.PK --exclude SCRIPT.414   # copy
-tools/korean/packvol.py GAMES/KQ1KO --in-place --exclude TEXT.000         # in place
+tools/korean/packvol.py GAMES/KQ1KO --in-place                            # in place
 ```
 
 The default `--mode msg` writes `MESSAGE.MAP` + `RESOURCE.MSG`, the Korean
@@ -340,12 +340,14 @@ fan-patch volume `ResourceManager` already reads (`isKoreanMessageMap()`): with
 `language=ko` its entries replace the game volumes' resources (a loose patch
 file still wins). `RESOURCE.MAP` stays byte-identical, so detection by its md5
 is unchanged. `--mode map` instead writes `RESOURCE.0nn` and rewrites
-`RESOURCE.MAP`; that changes the map's md5, and KQ1 Korean then misses its
-`ADGF_UTF8I18N` detection entry (the generic SCI fallback detects it as
-English; `SCI-KO.STR` still makes the text UTF-8). Keep loose (`--exclude`)
-whatever a detection entry lists (KQ1 Korean: `text.000`) and any patch the
-user may want to delete. Bake the per-game fonts (`bake-game-fonts.sh`,
-`--chars-from TEXT.*`) from the unpacked files.
+`RESOURCE.MAP`; that changes the map's md5, so a detection entry that lists
+the map no longer matches (the generic SCI fallback detects it as English;
+`SCI-KO.STR` still makes the text UTF-8). Keep loose (`--exclude`) a file a
+detection entry must see and any patch the user may want to delete. The KQ1
+Korean pack needs none: its `text.000` is text 0 of `RESOURCE.MSG`, and
+`SCI-KO.STR`, not the `text.000` detection entry, marks the folder as Korean.
+Bake the per-game fonts (`bake-game-fonts.sh`, `--chars-from TEXT.*`) from the
+unpacked files.
 
 ## Converting an SCI0 fan build for the original interpreter
 

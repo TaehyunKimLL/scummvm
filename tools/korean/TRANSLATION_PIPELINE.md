@@ -176,6 +176,9 @@ UTF-8이다. 실례:
 
 - `engines/sci/detection_tables.h:1682-1688` — KQ1 SCI 리메이크, 영문
   볼륨 위에 `text.000`(UTF-8 패치)이 얹힌 엔트리. `ADGF_UTF8I18N` 있음.
+  지금의 KQ1 팩은 `text.000`을 `RESOURCE.MSG`(text 0)에 넣어 낱개로 두지
+  않으므로 영문 엔트리로 감지되고, `SCI-KO.STR` 매니페스트가 한국어 항목과
+  UTF-8 처리를 정한다. 이 엔트리는 낱개 `text.000`이 있는 옛 팩용으로 남는다.
 - `engines/sci/detection_tables.h:1691-1699` — 같은 KQ1이지만
   `resource.msg`(md5 `6f44b032...`, 2,948,975바이트) 하나로 전체를 실은
   레거시 엔트리. `ADGF_NO_FLAGS` — CP949.

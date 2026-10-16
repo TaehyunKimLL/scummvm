@@ -37,7 +37,9 @@ SRC is copied to DST without the packed patch files, then the volume and map
 are written into DST. --in-place writes into DIR and deletes the packed
 patch files. --exclude keeps a patch file loose and out of the volume: use it
 for a patch that must stay deletable (LB1's SCRIPT.414 fingerprint bypass) or
-that a detection entry lists (KQ1 Korean's TEXT.000).
+a file a detection entry must see. (The KQ1 Korean pack no longer needs one:
+SCI-KO.STR marks the folder as the Korean translation, so its TEXT.000 is
+packed with the rest.)
 """
 import argparse
 import os
