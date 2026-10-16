@@ -5,6 +5,9 @@
 #   dialogue, verbs and the sentence line in a gothic face, the credit titles
 #   in a serif face. With them in the bare sections, render_target=auto
 #   picks true colour.
+#   The dialogue (cs2) is drawn in Paperlogy: PAPLG18.SVF (18 px jamo set, 2 bpp; the jamo font pack) for the
+#   Hangul, PAPLG16.SVF (16 px, ascent 14, space 6 px) for ASCII and punctuation, then NGOTB16E.SVF behind them
+#   for whatever neither has (and for the whole line when the jamo pack is not installed). cs4 keeps NGOTB16E.
 #   render_target=clut8 (8-bit palette): NEODG16 (the shared KS X 1001 face)/NEODG16L/NEODG32B.SVF, 1 bpp, baked from a pixel
 #   face (tools/korean/scumm-fonts/i4l.tsv), drawn hard-edged.
 # Charsets (atlantis.001): cs1 16x16 (verbs, sentence line), cs2 20x18
@@ -12,7 +15,7 @@
 # The translation ships fonts for these three only. cs4 (12 px high) and cs5
 # (8 px high) get the file of the nearest cell: cs4 the cs2 file, cs5 the cs1
 # file, so no Korean text falls back to the game's font.
-# Licences: see NANUMGOT.TXT, GOWUNBAT.TXT and NEODGM.TXT beside this file.
+# Licences: see NANUMGOT.TXT, GOWUNBAT.TXT, NEODGM.TXT and PAPLG.TXT beside this file.
 [map]
 version=2
 
@@ -28,6 +31,8 @@ encoding=cp949
 [fonts]
 small=NGOTB15B.SVF
 dlg=NGOTB16E.SVF
+dlgp=PAPLG18.SVF
+dlgl=PAPLG16.SVF
 card=GBATB31.SVF
 [fonts:clut8]
 small=NEODG16.SVF
@@ -48,6 +53,8 @@ origin.general-punctuation=face
 [font.1]
 face=small
 [font.2]
+face=dlgp,dlgl,dlg
+[font.2:clut8]
 face=dlg
 [font.3]
 face=card

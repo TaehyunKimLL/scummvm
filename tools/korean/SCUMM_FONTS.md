@@ -29,6 +29,7 @@ TrueType `--size`, or the bitmap face's own height), not the cell:
 | `WCOMM` | han_wcomm.fnt (Wordcom, iolo 6x2x1-fonts) | WCOMM.TXT |
 | `DIPHY` | Diphylleia Regular (1 bpp: FreeType mono render) | OFLDIPHY.TXT, DIPHY.TXT |
 | `YOUTH` | Youth (청춘체) (1 bpp: FreeType mono render) | YOUTH.TXT |
+| `PAPLG` | Paperlogy 4 Regular 1.000 (PT&; the jamo set PAPLG18 from vector pieces, the Latin companion PAPLG16 by `scumm-fonts/bake-paperlogy.sh`) | OFLPAPLG.TXT, PAPLG.TXT |
 | `BHSAN`, `COUSB` | Black Han Sans, Coustard Black | OFLBHS.TXT, OFLCOUS.TXT |
 
 Variant letter: when several files share a font and px (another cell, bit depth, layout or character set), the first
@@ -104,6 +105,8 @@ beside them list the games that use each):
 | NGOTB21 | NanumGothic Bold (Google), AA | 21 | 22x22 | 2 | precomposed | 2446 | DOTTU4 |
 | NGOTB21A | NanumGothic Bold (Google), AA | 21 | 22x24 | 2 | precomposed | 2446 | M1U0, M2U0 |
 | NGOTB22 | NanumGothic Bold (Google), AA | 22 | 22x22 | 2 | precomposed | 1216 (game subset) | Q1G22 |
+| PAPLG16 | Paperlogy 4 Regular, AA, Latin companion (ASCII, U+2026, U+2122, compat jamo; space 6, punctuation +1) | 16 | 18x18 | 2 | precomposed | 149 | - (new: Indy4 dialogue, behind PAPLG18) |
+| PAPLG18 | Paperlogy 4 Regular, AA, vector pieces, 24/16/16 sets, 8x8 classes | 18 | 18x18 | 2 | jamo | 11,172 composed | - (new: Indy4 dialogue) |
 | SANGAM16 | san 1.0 GAM.KOR + SAN.ENG | 16 | 16x16 | 1 | jamo | 11,172 composed | KOJ16 |
 | SMYJO18 | Mac Hangul Sinmyungjo 18 px strike | 19 | 19x18 | 1 | precomposed | 2453 (2,350 + symbols, no ASCII) | LSL1 EGA (font 59) |
 | TBGHC48 | Taebaek 3.5 GHANC48.PFT | 48 | 48x48 | 1 | jamo | 11,172 composed | - |
@@ -146,6 +149,15 @@ after a supplement face of the same height (`face=small,smallx,fb`, so the suppl
 before the supplement of a taller face (`face=dlg,fb,dlgx`): without the pack that supplement alone would set the
 height and drop `fb`. Only the 8-bit presets (`[fonts:clut8]`, `[font.N:clut8]`) of M1KO, M2KO and DOTTKO have
 jamo-set faces. KQ4KO, MMKO and ZAKKO name `SANGAM16.SVF` directly (no chain).
+
+## `mkfont.py --space-advance N --punct-extra N`
+
+A proportional Latin companion of a face whose Hangul fill the cell (Paperlogy) needs a wider word gap than the
+font's own 4 px space: `--space-advance N` fixes the advance of U+0020 and U+00A0, `--punct-extra N` adds N pixels
+to `. , : ; ! ? '` and the ellipsis (a punctuation mark before a space). `scumm-fonts/bake-paperlogy.sh` bakes
+PAPLG16.SVF with 6 and +1. The engine puts a chain's later face on the first face's baseline (`originShiftFor`), so
+the companion is baked with its baseline higher (ascent 14 against PAPLG18's 17) and its descenders stay inside the
+18 rows.
 
 ## `mkfont.py --chars-from *.trs`
 
