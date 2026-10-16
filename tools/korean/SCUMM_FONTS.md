@@ -168,6 +168,12 @@ font file), Neo Dunggeunmo 1.601 (already NEODG16A.. / NEODG32 in jamo-ko1) and 
 the author's permission, not OFL: its DOVMY faces are built the same way for internal tests only, kept outside the
 repository in `runs/comp-pack/internal/`).
 
+The Latin of every one of these faces is the font's own, rebuilt (2026-10-16) with the per-glyph dy (see `svfdy.py` below): the
+largest size that fits the cell without a clipped glyph, the bottom of x z v w u on the row above the Hangul no-final bottom row
+(baseline delta -1; `FACES.TSV` latin_baseline_row), and a dy of 1-4 rows only on the descender glyphs (g j p q y and some
+punctuation; none on Single Day and the 16 px NanumSquareRound / Neo Dunggeunmo 16 px, which fit). The Hangul are byte-identical to
+the earlier build. An engine without dy draws those few glyphs dy rows higher than the line.
+
 How they were made (research scripts, outside the source tree like the Paperlogy ones: `runs/comp-pack/scripts/`):
 
 1. `mkpieces.py TAG FONT.ttf` reads each syllable's composite glyph (glyf components with their transforms, flattened;
