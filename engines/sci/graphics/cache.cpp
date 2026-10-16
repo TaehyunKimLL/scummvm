@@ -362,8 +362,13 @@ GfxFontUnicode *GfxCache::loadUniBundle() {
 		GfxFontUnicode *f = new GfxFontUnicode(_screen, 0);
 		static const char *const names[] = { "sci.uni", "korean.uni", "towns.uni" };
 		bool ok = false;
+		// A Korean pack played in another language is the original game:
+		// its korean.uni would take every character from the game's font
+		// onto a hi-res plane that is not drawn there.
+		const bool skipKorean = _resMan->isKoreanPackPlayedInAnotherLanguage();
 		for (uint i = 0; i < ARRAYSIZE(names) && !ok; i++)
-			ok = f->load(names[i]);
+			if (!(skipKorean && !strcmp(names[i], "korean.uni")))
+				ok = f->load(names[i]);
 		if (ok) {
 			// Per-glyph advance and placement for a UTF-8 translation only:
 			// a legacy game keeps the bundle's cell widths to the pixel.

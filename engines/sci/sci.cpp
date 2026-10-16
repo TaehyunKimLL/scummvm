@@ -197,7 +197,8 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	// written to the player's configuration.
 	// The game folder joins SearchMan only after the engine is built, so
 	// look in it directly (FSDirectory matches names case-insensitively).
-	if (Common::FSDirectory(gameDataDir).hasFile("scikor.dat")) {
+	// Started in another language, the pack is the original game.
+	if (Common::FSDirectory(gameDataDir).hasFile("scikor.dat") && getLanguage() == Common::KO_KOR) {
 		if (!ConfMan.hasKey("sci_hangul_input"))
 			ConfMan.setBool("sci_hangul_input", true, Common::ConfigManager::kTransientDomain);
 		if (!ConfMan.hasKey("sci_hangul_start"))

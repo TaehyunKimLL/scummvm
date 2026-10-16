@@ -692,6 +692,7 @@ public:
 	/** Returns the file name of the game's Mac executable. */
 	Common::Path getMacExecutableName() const;
 	bool isKoreanMessageMap(ResourceSource *source);
+	bool isKoreanPackPlayedInAnotherLanguage() const;
 
 private:
 	// For better or worse, because the patcher is added as a ResourceSource,

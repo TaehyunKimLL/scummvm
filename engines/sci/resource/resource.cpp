@@ -817,7 +817,10 @@ void ResourceManager::addAppropriateSources() {
 
 	addPatchDir(".");
 
-	if (Common::File::exists("message.map"))
+	// A Korean pack's message.map is the Korean text in its own format
+	// (isKoreanMessageMap()); played in another language the folder is
+	// the original game, so it is left out.
+	if (Common::File::exists("message.map") && !isKoreanPackPlayedInAnotherLanguage())
 		addSource(new VolumeResourceSource("resource.msg", addExternalMap("message.map"), 0));
 
 	if (Common::File::exists("altres.map"))
@@ -1954,6 +1957,25 @@ void ResourceManager::readResourcePatches() {
 					resourceNr = atoi(baseName.c_str() + resname_len + 1);
 					bAdd = true;
 				}
+			}
+
+			// The same for a Korean pack's text patch: Korean text is UTF-8,
+			// so a TEXT patch with a byte above 0x7F is the translation and an
+			// ASCII one is the game's own.
+			if (bAdd && i == kResourceTypeText && isKoreanPackPlayedInAnotherLanguage()) {
+				Common::File patch;
+				if (patch.open(name)) {
+					while (!patch.eos() && !patch.err()) {
+						byte buf[1024];
+						const uint32 n = patch.read(buf, sizeof(buf));
+						for (uint32 b = 0; b < n && bAdd; b++)
+							bAdd = buf[b] < 0x80;
+						if (!bAdd || n == 0)
+							break;
+					}
+				}
+				if (!bAdd)
+					debug(1, "SCI: %s is the Korean translation's - left out in this language", name.toString().c_str());
 			}
 
 			if (bAdd) {
@@ -3244,6 +3266,12 @@ Common::Path ResourceManager::getMacExecutableName() const {
 
 bool ResourceManager::isKoreanMessageMap(ResourceSource *source) {
 	return source->getLocationName() == "message.map" && g_sci && g_sci->getLanguage() == Common::KO_KOR;
+}
+
+// A Korean pack - the original game's files plus SCI-KO.STR, message.map /
+// resource.msg and maybe a UTF-8 text patch - started in another language.
+bool ResourceManager::isKoreanPackPlayedInAnotherLanguage() const {
+	return g_sci && g_sci->getLanguage() != Common::KO_KOR && Common::File::exists("sci-ko.str");
 }
 
 const Common::Path &Resource::getResourceLocation() const {
