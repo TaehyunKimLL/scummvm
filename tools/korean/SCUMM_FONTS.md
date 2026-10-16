@@ -30,6 +30,11 @@ TrueType `--size`, or the bitmap face's own height), not the cell:
 | `DIPHY` | Diphylleia Regular (1 bpp: FreeType mono render) | OFLDIPHY.TXT, DIPHY.TXT |
 | `YOUTH` | Youth (청춘체) (1 bpp: FreeType mono render) | YOUTH.TXT |
 | `PAPLG` | Paperlogy 4 Regular 1.000 (PT&; the jamo set PAPLG18 from vector pieces, the Latin companion PAPLG16 by `scumm-fonts/bake-paperlogy.sh`) | OFLPAPLG.TXT, PAPLG.TXT |
+| `GOTHA`, `GOTHB` | Gothic A1 Regular, Bold 2.50 (HanYang I&C; jamo sets, composite glyphs; `jamo-extra/`, pack `jamo-ko2`) | OFLGOTHA.TXT |
+| `SGDAY` | Single Day 1.00 (DXKorea; jamo sets, `jamo-extra/`) | OFLSGDAY.TXT |
+| `DOVMY` | Dovemayo Gothic 1.0 (jamo sets, `jamo-extra/`) | DOVMY.TXT (author's permission, not OFL) |
+| `NSQRR`, `NSQRB` | NanumSquareRound Regular, Bold 1.000 (NAVER; jamo sets, `jamo-extra/`) | OFLNSQR.TXT |
+| `NDGPR` | Neo Dunggeunmo Pro 1.020 (Dalgona; pixel jamo sets, `jamo-extra/`) | OFLNDGPR.TXT |
 | `BHSAN`, `COUSB` | Black Han Sans, Coustard Black | OFLBHS.TXT, OFLCOUS.TXT |
 
 Variant letter: when several files share a font and px (another cell, bit depth, layout or character set), the first
@@ -149,6 +154,34 @@ after a supplement face of the same height (`face=small,smallx,fb`, so the suppl
 before the supplement of a taller face (`face=dlg,fb,dlgx`): without the pack that supplement alone would set the
 height and drop `fb`. Only the 8-bit presets (`[fonts:clut8]`, `[font.N:clut8]`) of M1KO, M2KO and DOTTKO have
 jamo-set faces. KQ4KO, MMKO and ZAKKO name `SANGAM16.SVF` directly (no chain).
+
+## Extra jamo faces from composite-glyph fonts (`jamo-extra/`, pack `jamo-ko2`)
+
+`dists/engine-data/hires_text/jamo-extra/` holds 50 jamo-set faces that no game map names yet (the maps pick them by
+`[fonts] name=FILE`; the engine zip and `jamo-ko1` do not carry them). `FACES.TSV` there is the table (family, px,
+bpp, sets, quality, licence, baselines); `build_font_pack.py --pack jamo-ko2` packs the folder with its README
+`FONTKO2.TXT`. Names are `<stem><px>[A].SVF`: `A` = 2 bpp anti-aliased, none = 1 bpp (GOTHA16 = Gothic A1 16 px 1 bpp,
+GOTHA20A = 20 px AA). Sizes 16, 18, 20, 24 for Gothic A1 Regular/Bold, Single Day, Dovemayo Gothic, NanumSquareRound
+Regular/Bold, each 1 bpp and AA; Neo Dunggeunmo Pro (a pixel font) 16 and 32 px, 1 bpp. Not included: Exqt (the
+author only says "free to use except selling the font"; nothing about modifying or redistributing, no licence in the
+font file) and Neo Dunggeunmo 1.601 (already NEODG16A.. / NEODG32 in jamo-ko1).
+
+How they were made (research scripts, outside the source tree like the Paperlogy ones: `runs/comp-pack/scripts/`):
+
+1. `mkpieces.py TAG FONT.ttf` reads each syllable's composite glyph (glyf components with their transforms, flattened;
+   the initial/medial/final order is fixed by position, `jamovec.order_parts`), no raster separation, and writes
+   `pieces/TAG.pkl` in the vector-piece format of `fontbuild2.py` (NanumSquareRound: only its 2,479 composite syllables
+   exist). 
+2. `fontbuild2.py TAG PX --sets 24,16,16 --classes 8,8` (the Paperlogy builder: pieces rasterised at PX px, 4x4
+   supersampled, merged to the engine's limits by composed-syllable IoU, SVF 1 bpp and AA via `jamoset`; checked with
+   `jamoset.unpack` and `compose`, 0 mismatches). On GothicA1 20 px it gives IoU 0.921 on KS X 1001 against 0.853 of
+   `jamovec master --components` + `jamoadapt` (SingleDay 0.999 / 0.995, Dovemayo 0.989 / 0.953, NanumSquareRound
+   Regular 0.964 / 0.927), so it is the builder used.
+3. `mkfont.py FONT --size PX --cell PX --unicode ascii,2026 --only-listed --space-advance 0.3*PX --punct-extra 1
+   --clip-cell --ascent A` bakes the Latin; `pickascent.py` takes the baseline row A (from the Hangul's baseline down
+   to 5 rows higher) with no clipped letter or digit, then the fewest clipped ink pixels; `addlatin.py` adds those
+   glyphs to the jamo set (one file, no companion face).
+4. `evalall.py` (composed vs the font's own glyph at PX, every syllable it draws), `sheet.py` (text sheets).
 
 ## `mkfont.py --space-advance N --punct-extra N`
 
