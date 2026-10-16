@@ -44,6 +44,8 @@ MAX_GLYPHS = 0xFFFF
 
 # 잉크가 없어도 싣는 글자: 레이아웃이 그 폭만큼 나아가야 한다.
 BLANK_OK = {0x20, 0xA0, 0x3000}
+SPACE_CPS = {0x20, 0xA0}                # --space-advance
+PUNCT_EXTRA_CHARS = ".,:;!?'\u2026"      # --punct-extra
 
 
 def _ksx1001():
@@ -792,6 +794,12 @@ def main():
                          "한글을 가변폭으로 구우려면 이 옵션이 필요하다")
     ap.add_argument("--variable", action="store_true",
                     help="글자별 전진 폭 표를 넣는다")
+    ap.add_argument("--space-advance", type=int, default=None, metavar="N",
+                    help="가변폭: 스페이스 (U+0020, U+00A0) 의 advance 를 N 픽셀로 고정한다. 한글이 셀을 "
+                         "가득 채우는 얼굴 (Paperlogy) 은 폰트의 4px 로는 어절이 붙어 보인다")
+    ap.add_argument("--punct-extra", type=int, default=0, metavar="N",
+                    help="가변폭: . , : ; ! ? ' … 의 advance 에 N 픽셀을 더한다 (뒤따르는 스페이스 앞이 "
+                         "답답하지 않게)")
     ap.add_argument("--ascent", type=int, default=0,
                     help="기준선 위치, 셀 맨 위에서 몇 행째인지. 생략하면 "
                          "choose_ascent_from() 이 고른다: 글꼴의 ascent + descent 가 "
@@ -1059,6 +1067,10 @@ def main():
                 adv = ink_x + ink_w + 1
             else:
                 adv = int(round(font.getlength(ch))) if ch else cell_w
+            if ch and ord(ch) in SPACE_CPS and args.space_advance is not None:
+                adv = args.space_advance
+            elif ch and ch in PUNCT_EXTRA_CHARS:
+                adv += args.punct_extra
             adv = max(0, min(255, adv))
             metrics += struct.pack("<BbBB", adv, max(-128, min(127, ink_x)),
                                    min(255, ink_w), 0)

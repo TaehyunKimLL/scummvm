@@ -751,5 +751,51 @@ class FitCellBakeTest(unittest.TestCase):
             self.assertEqual(ink_rows[-1] + 1, min(16, 14 + box[3]), chr(cp))
 
 
+@unittest.skipUnless(NANUM_IN_TREE and os.path.exists(NANUM_IN_TREE), "in-tree NanumGothic-Bold not found")
+class LatinAdvanceTest(unittest.TestCase):
+    """--space-advance / --punct-extra: the advance table of a proportional Latin face."""
+
+    def advances(self, *extra):
+        import subprocess
+        import tempfile
+        out = tempfile.NamedTemporaryFile(suffix=".fnt", delete=False).name
+        try:
+            subprocess.run([sys.executable, mkfont.__file__, NANUM_IN_TREE, out, "--size", "16", "--cell", "18",
+                            "--bpp", "1", "--unicode", "ascii,2026"] + list(extra), check=True, capture_output=True)
+            data = pathlib.Path(out).read_bytes()
+        finally:
+            os.unlink(out)
+        hdr = struct.unpack_from("<4sHHBBHHBBBBHIII", data, 0)
+        count, metrics_off = hdr[6], hdr[12]
+        cmap_off = struct.unpack_from("<I", data, 32)[0]
+        out = {}
+        for i in range(count):
+            cp, idx = struct.unpack_from("<II", data, cmap_off + 8 * i)
+            out[cp] = data[metrics_off + 4 * idx]
+        return out
+
+    def test_defaults_keep_the_face_advances(self):
+        a = self.advances()
+        b = self.advances("--space-advance", str(a[0x20]), "--punct-extra", "0")
+        self.assertEqual(a, b)
+
+    def test_space_advance(self):
+        a = self.advances()
+        b = self.advances("--space-advance", "6")
+        self.assertEqual(b[0x20], 6)
+        for cp in a:
+            if cp != 0x20:
+                self.assertEqual(a[cp], b[cp], hex(cp))
+
+    def test_punct_extra(self):
+        a = self.advances()
+        b = self.advances("--punct-extra", "1")
+        for ch in ".,:;!?'\u2026":
+            self.assertEqual(b[ord(ch)], a[ord(ch)] + 1, repr(ch))
+        for ch in "aB1-()":
+            self.assertEqual(b[ord(ch)], a[ord(ch)], repr(ch))
+        self.assertEqual(b[0x20], a[0x20])
+
+
 if __name__ == "__main__":
     unittest.main()
