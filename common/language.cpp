@@ -151,6 +151,76 @@ const char *getLanguageCode(Language id) {
 	return nullptr;
 }
 
+// The ISO 639-1 code of each language (getLanguageFolderCode()). The
+// languages that share a code are listed generic first, which is the one
+// parseLanguageFolderCode() gives for it.
+static const struct {
+	Language id;
+	const char *code;
+} g_languageFolderCodes[] = {
+	{ AR_ARB, "ar" },
+	{ BG_BUL, "bg" },
+	{ CA_ESP, "ca" },
+	{ CS_CZE, "cs" },
+	{ DA_DNK, "da" },
+	{ DE_DEU, "de" },
+	{ EL_GRC, "el" },
+	{ EN_ANY, "en" },
+	{ EN_GRB, "en" },
+	{ EN_USA, "en" },
+	{ ES_ESP, "es" },
+	{ EU_ESP, "eu" },
+	{ ET_EST, "et" },
+	{ FA_IRN, "fa" },
+	{ FI_FIN, "fi" },
+	{ FR_FRA, "fr" },
+	{ FR_CAN, "fr" },
+	{ HE_ISR, "he" },
+	{ HR_HRV, "hr" },
+	{ HU_HUN, "hu" },
+	{ IT_ITA, "it" },
+	{ JA_JPN, "ja" },
+	{ KO_KOR, "ko" },
+	{ LT_LTU, "lt" },
+	{ LV_LVA, "lv" },
+	{ NL_NLD, "nl" },
+	{ NL_BEL, "nl" },
+	{ NB_NOR, "nb" },
+	{ PL_POL, "pl" },
+	{ PT_PRT, "pt" },
+	{ PT_BRA, "pt" },
+	{ RU_RUS, "ru" },
+	{ SV_SWE, "sv" },
+	{ SK_SVK, "sk" },
+	{ SR_SRB, "sr" },
+	{ TR_TUR, "tr" },
+	{ UA_UKR, "uk" },
+	{ ZH_ANY, "zh" },
+	{ ZH_CHN, "zh" },
+	{ ZH_TWN, "zh" },
+	{ TH_THA, "th" },
+	{ VI_VNM, "vi" },
+	{ UNK_LANG, nullptr }
+};
+
+const char *getLanguageFolderCode(Language id) {
+	for (uint i = 0; g_languageFolderCodes[i].code; ++i) {
+		if (g_languageFolderCodes[i].id == id)
+			return g_languageFolderCodes[i].code;
+	}
+	return "";
+}
+
+Language parseLanguageFolderCode(const String &code) {
+	if (code.empty())
+		return UNK_LANG;
+	for (uint i = 0; g_languageFolderCodes[i].code; ++i) {
+		if (code.equalsIgnoreCase(g_languageFolderCodes[i].code))
+			return g_languageFolderCodes[i].id;
+	}
+	return UNK_LANG;
+}
+
 const char *getLanguageLocale(Language id) {
 	const LanguageDescription *l = g_languages;
 	for (; l->code; ++l) {

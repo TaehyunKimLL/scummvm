@@ -320,13 +320,13 @@ static Common::Array<Common::Language> overlayLanguages(const Common::FSList &fs
 		name.toLowercase();
 		Common::Language lang = Common::UNK_LANG;
 		if (node.isDirectory()) {
-			lang = Common::parseLanguage(name);
+			lang = Common::parseLanguageFolderCode(name);
 			if (lang == Common::UNK_LANG || !Common::FSDirectory(node).hasFile(Common::Path("agi-" + name + ".str")))
 				continue;
 		} else {
 			if (!name.hasPrefix("agi-") || !name.hasSuffix(".str") || name.size() <= 8)
 				continue;
-			lang = Common::parseLanguage(Common::String(name.c_str() + 4, name.size() - 8));
+			lang = Common::parseLanguageFolderCode(Common::String(name.c_str() + 4, name.size() - 8));
 		}
 		if (lang == Common::UNK_LANG)
 			continue;
@@ -365,7 +365,7 @@ DetectedGames AgiMetaEngineDetection::detectGames(const Common::FSList &fslist, 
 			DetectedGame variant = game;
 			variant.language = overlays[m];
 			variant.description = DetectedGame(getName(), game.gameId, title, overlays[m], game.platform, game.extra).description;
-			variant.preferredTarget = game.preferredTarget + "-" + Common::getLanguageCode(overlays[m]);
+			variant.preferredTarget = game.preferredTarget + "-" + Common::getLanguageFolderCode(overlays[m]);
 			// The original's options (getGUIOptions() holds their descriptions,
 			// which appendGUIOptions() takes as they are) minus its language;
 			// the variant's goes on.
@@ -404,7 +404,7 @@ ADDetectedGames AgiMetaEngineDetection::detectGame(
 	// the overlay itself (loadTranslationOverlay).
 	Common::Language detectLanguage = language;
 	if (language != Common::UNK_LANG && language != Common::EN_ANY) {
-		const char *code = Common::getLanguageCode(language);
+		const char *code = Common::getLanguageFolderCode(language);
 		const Common::String overlayName = Common::String::format("agi-%s.str", code);
 		bool overlay = allFiles.contains(Common::Path(overlayName, Common::Path::kNoSeparator));
 		if (!overlay && code) {

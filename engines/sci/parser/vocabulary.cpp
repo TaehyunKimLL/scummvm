@@ -87,7 +87,7 @@ Vocabulary::Vocabulary(ResourceManager *resMan, bool foreign) : _resMan(resMan),
 		_koreanVocab.setDebugChannel(kDebugLevelHangul);
 		// sci-ko.dat, by the language code as sci-ko.str is; a pack made
 		// before that has SCIKOR.DAT. Both hold the same "SCIKOR" table.
-		const Common::String name = Common::String::format("sci-%s.dat", Common::getLanguageCode(g_sci->getLanguage()));
+		const Common::String name = Common::String::format("sci-%s.dat", Common::getLanguageFolderCode(g_sci->getLanguage()));
 		if (!_koreanVocab.load(name, "SCIKOR"))
 			_koreanVocab.load("scikor.dat", "SCIKOR");
 	}

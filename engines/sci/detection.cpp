@@ -244,13 +244,13 @@ static Common::Array<Common::Language> manifestLanguages(const Common::FSList &f
 		name.toLowercase();
 		Common::Language lang = Common::UNK_LANG;
 		if (node.isDirectory()) {
-			lang = Common::parseLanguage(name);
+			lang = Common::parseLanguageFolderCode(name);
 			if (lang == Common::UNK_LANG || !Common::FSDirectory(node).hasFile(Common::Path("sci-" + name + ".str")))
 				continue;
 		} else {
 			if (!name.hasPrefix("sci-") || !name.hasSuffix(".str") || name.size() <= 8)
 				continue;
-			lang = Common::parseLanguage(Common::String(name.c_str() + 4, name.size() - 8));
+			lang = Common::parseLanguageFolderCode(Common::String(name.c_str() + 4, name.size() - 8));
 		}
 		if (lang == Common::UNK_LANG)
 			continue;
@@ -288,7 +288,7 @@ DetectedGames SciMetaEngineDetection::detectGames(const Common::FSList &fslist, 
 			DetectedGame variant = game;
 			variant.language = manifests[m];
 			variant.description = DetectedGame(getName(), game.gameId, title, manifests[m], game.platform, game.extra).description;
-			variant.preferredTarget = game.preferredTarget + "-" + Common::getLanguageCode(manifests[m]);
+			variant.preferredTarget = game.preferredTarget + "-" + Common::getLanguageFolderCode(manifests[m]);
 			// The original's options minus its language, which the loop
 			// below re-attaches from the language the variant carries.
 			// getGUIOptions() holds their descriptions, which setGUIOptions()

@@ -92,8 +92,8 @@ public:
 
 	/**
 	 * Load sci-<lang>.str from the game directory, if the game ships one.
-	 * @p languageCode is the ScummVM code ("ko"), which the caller gets
-	 * from Common::getLanguageCode(); taking the string keeps this class
+	 * @p languageCode is the language's ISO 639-1 code ("ko"), which the
+	 * caller gets from Common::getLanguageFolderCode(); taking the string keeps this class
 	 * out of common/language's link dependencies for the unit tests.
 	 */
 	bool load(const Common::String &languageCode);

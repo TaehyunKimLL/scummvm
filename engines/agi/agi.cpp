@@ -454,7 +454,7 @@ AgiEngine::AgiEngine(OSystem *syst, const AGIGameDescription *gameDesc) : AgiBas
 	bool parserTable = gameDir.hasFile("agikor.dat");
 	if (ConfMan.hasKey("language")) {
 		const Common::Language lang = Common::parseLanguage(ConfMan.get("language"));
-		const char *code = lang != Common::UNK_LANG ? Common::getLanguageCode(lang) : nullptr;
+		const char *code = lang != Common::UNK_LANG ? Common::getLanguageFolderCode(lang) : nullptr;
 		if (code && *code) {
 			const Common::Path table(Common::String::format("agi-%s.dat", code));
 			Common::ScopedPtr<Common::FSDirectory> langDir(gameDir.getSubDirectory(code));
@@ -663,11 +663,11 @@ void AgiEngine::loadTranslationOverlay() {
 	const Common::Language lang = Common::parseLanguage(ConfMan.get("language"));
 	if (lang == Common::UNK_LANG || lang == _gameDescription->desc.language)
 		return;
-	if (!_overlay.load(Common::getLanguageCode(lang)))
+	if (!_overlay.load(Common::getLanguageFolderCode(lang)))
 		return;
 	_textUtf8 = true;
 	_overlayLanguage = lang;
-	debug(0, "AGI: agi-%s.str, %u entries: UTF-8 text mode", Common::getLanguageCode(lang), _overlay.entryCount());
+	debug(0, "AGI: agi-%s.str, %u entries: UTF-8 text mode", Common::getLanguageFolderCode(lang), _overlay.entryCount());
 }
 
 bool AgiEngine::rawLogicMessageCount(int16 logicNr, int &count) {

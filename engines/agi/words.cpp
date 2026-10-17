@@ -669,7 +669,7 @@ void Words::loadKoreanTable() {
 	_korean.setDebugChannel(kDebugLevelText);
 	// agi-ko.dat, by the overlay's language code as agi-ko.str is; a pack
 	// made before that has AGIKOR.DAT. Both hold the same "AGIKOR" table.
-	const Common::String name = Common::String::format("agi-%s.dat", Common::getLanguageCode(_vm->getLanguage()));
+	const Common::String name = Common::String::format("agi-%s.dat", Common::getLanguageFolderCode(_vm->getLanguage()));
 	if (!_korean.load(name, "AGIKOR") && !_korean.load("agikor.dat", "AGIKOR"))
 		return;
 	// The English preposition a Korean case particle stands for, as this

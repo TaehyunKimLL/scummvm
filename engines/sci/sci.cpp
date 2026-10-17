@@ -203,7 +203,7 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	// and in its language folder ko\ (below), where a pack keeps its Korean
 	// files since 2026-10-17; the packs before have them in the game folder.
 	// Started in another language, the pack is the original game.
-	const char *langCode = Common::getLanguageCode(getLanguage());
+	const char *langCode = Common::getLanguageFolderCode(getLanguage());
 	Common::FSDirectory gameDir(gameDataDir);
 	Common::ScopedPtr<Common::FSDirectory> langDir(langCode && *langCode ? gameDir.getSubDirectory(langCode) : nullptr);
 	const Common::Path parserTable(Common::String::format("sci-%s.dat", langCode ? langCode : ""));
@@ -265,7 +265,8 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	}
 
 	// A translation's own files may sit in a folder named by the language
-	// code (ko\, en\: Common::getLanguageCode() of the language played,
+	// code (ko\, ja\, en\: Common::getLanguageFolderCode(), the ISO 639-1
+	// code, of the language played,
 	// language= or the detected one). It joins SearchMan above the game
 	// folder, so every file the engine opens by name is found there first:
 	// its patches win over the game folder's - a patch of the same name in
@@ -379,7 +380,7 @@ Common::Error SciEngine::run() {
 	// table present, even with no entries, the TEXT resources are UTF-8
 	// whatever the detection entry says (I18N_TEXT_DESIGN.md section 4.1).
 	// Decided here, before the graphics stack asks heapStringsAreUtf8().
-	if (_scriptStrings.load(Common::getLanguageCode(getLanguage()))) {
+	if (_scriptStrings.load(Common::getLanguageFolderCode(getLanguage()))) {
 		if (_scriptStrings.isLoaded())
 			debug(1, "SCI: script string table active: %u entries", _scriptStrings.entryCount());
 		else
@@ -388,7 +389,7 @@ Common::Error SciEngine::run() {
 	_utf8Manifest = ConfMan.hasKey("language") && _scriptStrings.isPresent();
 	if (_utf8Manifest && !(_gameDescription->flags & ADGF_UTF8I18N) && !_textOverlay.isLoaded())
 		debug(1, "SCI: sci-%s.str marks the TEXT resources as a UTF-8 translation",
-			  Common::getLanguageCode(getLanguage()));
+			  Common::getLanguageFolderCode(getLanguage()));
 
 	// List every FONT resource the game actually contains, so "does this
 	// Japanese release use the SJIS path" is answered from the data rather

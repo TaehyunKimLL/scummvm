@@ -49,7 +49,7 @@ public:
 		// Only for a full match, and never a second copy of the same language.
 		TS_ASSERT(det.contains("if (game.language == manifests[m] || game.hasUnknownFiles)"));
 		// The variant is its own target, so both can be added from one folder.
-		TS_ASSERT(det.contains("variant.preferredTarget = game.preferredTarget + \"-\" + Common::getLanguageCode(manifests[m])"));
+		TS_ASSERT(det.contains("variant.preferredTarget = game.preferredTarget + \"-\" + Common::getLanguageFolderCode(manifests[m])"));
 
 		Common::String tr = readSource("engines/sci/engine/translation.cpp");
 		TS_ASSERT(tr.contains("\"sci-%s.str\""));

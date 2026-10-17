@@ -30,8 +30,8 @@
 namespace Sci {
 
 bool ScriptStrings::load(const Common::String &languageCode) {
-	// The file is named by the ScummVM language code the game was detected
-	// as - "ko" for KO_KOR - so a directory can carry one table per language
+	// The file is named by the ISO 639-1 code of the language the game is
+	// played in (Common::getLanguageFolderCode(): "ko" for KO_KOR) - so a directory can carry one table per language
 	// and the detection, not the file, says which applies.
 	const Common::String name = Common::String::format("sci-%s.str", languageCode.c_str());
 	Common::File f;
