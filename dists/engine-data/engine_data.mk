@@ -56,9 +56,6 @@ endif
 ifdef ENABLE_QUEEN
 DIST_FILES_LIST += dists/engine-data/queen.tbl
 endif
-ifdef ENABLE_SCI
-DIST_FILES_LIST += dists/engine-data/scikor.dat
-endif
 ifdef ENABLE_SKY
 DIST_FILES_LIST += dists/engine-data/sky.cpt
 endif
