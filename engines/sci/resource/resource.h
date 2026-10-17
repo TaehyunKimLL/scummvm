@@ -693,6 +693,7 @@ public:
 	Common::Path getMacExecutableName() const;
 	bool isKoreanMessageMap(ResourceSource *source);
 	bool isKoreanPackPlayedInAnotherLanguage() const;
+	static bool messagePatchHasHighBytes(const Common::Path &name);
 
 private:
 	// For better or worse, because the patcher is added as a ResourceSource,

@@ -1978,6 +1978,15 @@ void ResourceManager::readResourcePatches() {
 					debug(1, "SCI: %s is the Korean translation's - left out in this language", name.toString().c_str());
 			}
 
+			// And a MESSAGE patch (QFG1 VGA's 29/95/815.MSG, which replace the
+			// English game's own patches of those numbers): its records are
+			// binary, so only its strings are looked at. Left out, the message
+			// of that number in the game's volume is read instead.
+			if (bAdd && i == kResourceTypeMessage && isKoreanPackPlayedInAnotherLanguage() && messagePatchHasHighBytes(name)) {
+				bAdd = false;
+				debug(1, "SCI: %s is the Korean translation's - left out in this language", name.toString().c_str());
+			}
+
 			if (bAdd) {
 				psrcPatch = new PatchResourceSource(name);
 				processPatch(psrcPatch, (ResourceType)i, resourceNr);
@@ -3266,6 +3275,37 @@ Common::Path ResourceManager::getMacExecutableName() const {
 
 bool ResourceManager::isKoreanMessageMap(ResourceSource *source) {
 	return source->getLocationName() == "message.map" && g_sci && g_sci->getLanguage() == Common::KO_KOR;
+}
+
+// A MESSAGE patch file (version 3 or 4, as SCI1.1 has them) one of whose
+// strings has a byte above 0x7F: a UTF-8 translation's, not the game's own.
+bool ResourceManager::messagePatchHasHighBytes(const Common::Path &name) {
+	Common::File patch;
+	if (!patch.open(name) || patch.size() < 2 || patch.size() > 0x20000)
+		return false;
+	Common::Array<byte> buf(patch.size());
+	if (patch.read(buf.data(), buf.size()) != buf.size())
+		return false;
+	const uint32 start = 2 + buf[1];
+	if (start + 10 > buf.size())
+		return false;
+	const byte *d = buf.data() + start;
+	const uint32 size = buf.size() - start;
+	const uint32 version = READ_LE_UINT32(d) / 1000;
+	if (version != 3 && version != 4)
+		return false;
+	const uint32 headerSize = version == 3 ? 8 : 10;
+	const uint32 recordSize = version == 3 ? 10 : 11;
+	const uint32 count = READ_LE_UINT16(d + headerSize - 2);
+	if (headerSize + count * recordSize > size)
+		return false;
+	for (uint32 r = 0; r < count; r++) {
+		for (uint32 p = READ_LE_UINT16(d + headerSize + r * recordSize + 5); p < size && d[p]; p++) {
+			if (d[p] >= 0x80)
+				return true;
+		}
+	}
+	return false;
 }
 
 // A Korean pack - the original game's files plus SCI-KO.STR, message.map /
