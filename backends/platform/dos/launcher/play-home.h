@@ -229,7 +229,7 @@ inline bool validId(const std::string &id) {
 	return true;
 }
 
-/** DEFAULT names the music default of all games, so no game can use it. `id` is upper case. */
+/** DEFAULT names the common settings of all games (PLAY --sound DEFAULT), so no game can use it. `id` is upper case. */
 inline bool isReservedId(const std::string &id) {
 	return id == "DEFAULT";
 }
@@ -354,20 +354,30 @@ inline std::string targetOf(const std::vector<std::string> &extra) {
 	return std::string();
 }
 
-/** Where one game's own files are, below the home folder (the writable one). */
+/**
+ * Where one game's own files are, below the home folder (the writable one).
+ * The pack's INI is never copied here: PLAY writes RUN.INI from it for each
+ * run (play-merge.h) and keeps only the player's own settings in USER.INI.
+ */
 struct Profile {
 	std::string dir;   // HOME/GAMES/ID
-	std::string ini;   // HOME/GAMES/ID/SCUMMVM.INI
+	std::string run;   // HOME/GAMES/ID/RUN.INI: written for each run, the engine's --config; deleted after it
+	std::string user;  // HOME/GAMES/ID/USER.INI: only what the player changed
+	std::string oldIni; // HOME/GAMES/ID/SCUMMVM.INI: the copy of the pack's INI an older PLAY made
+	std::string oldBackup; // HOME/GAMES/ID/SCUMMVM.OLD: that copy, once its settings are in USER.INI
 	std::string saves; // HOME/GAMES/ID/SAVES
 	std::string log;   // HOME/GAMES/ID/SCUMMVM.LOG
 	std::string exitLog; // HOME/GAMES/ID/EXITLOG.TXT
-	std::string sound; // HOME/GAMES/ID/SOUND.INI: the game's own music choice, when it has one
+	std::string sound; // HOME/GAMES/ID/SOUND.INI: an older PLAY's music choice of the game
 };
 
 inline Profile profileOf(const std::string &home, const std::string &id) {
 	Profile p;
 	p.dir = join(join(home, "GAMES"), Detail::upper(id));
-	p.ini = join(p.dir, "SCUMMVM.INI");
+	p.run = join(p.dir, "RUN.INI");
+	p.user = join(p.dir, "USER.INI");
+	p.oldIni = join(p.dir, "SCUMMVM.INI");
+	p.oldBackup = join(p.dir, "SCUMMVM.OLD");
 	p.saves = join(p.dir, "SAVES");
 	p.log = join(p.dir, "SCUMMVM.LOG");
 	p.exitLog = join(p.dir, "EXITLOG.TXT");
@@ -376,14 +386,14 @@ inline Profile profileOf(const std::string &home, const std::string &id) {
 }
 
 /**
- * The words after the program name for a game run: the profile's INI and
- * save folder, the game folder when `gameDir` is not empty and `extra` names
+ * The words after the program name for a game run: the run's INI (RUN.INI) and
+ * the save folder, the game folder when `gameDir` is not empty and `extra` names
  * none, then `extra`.
  */
 inline std::vector<std::string> childArgs(const Profile &p, const std::string &gameDir,
 											const std::vector<std::string> &extra) {
 	std::vector<std::string> out;
-	out.push_back("--config=" + p.ini);
+	out.push_back("--config=" + p.run);
 	out.push_back("--savepath=" + p.saves);
 	bool hasPath = false;
 	for (size_t i = 0; i < extra.size(); ++i)

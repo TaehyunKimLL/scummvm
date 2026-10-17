@@ -243,7 +243,10 @@ public:
 	void test_profile_of_a_game_is_below_games_in_the_home_folder() {
 		Play::Profile p = Play::profileOf("C:\\SCUMMVM", "mi1ko");
 		TS_ASSERT_EQUALS(p.dir, "C:/SCUMMVM/GAMES/MI1KO");
-		TS_ASSERT_EQUALS(p.ini, "C:/SCUMMVM/GAMES/MI1KO/SCUMMVM.INI");
+		TS_ASSERT_EQUALS(p.run, "C:/SCUMMVM/GAMES/MI1KO/RUN.INI");
+		TS_ASSERT_EQUALS(p.user, "C:/SCUMMVM/GAMES/MI1KO/USER.INI");
+		TS_ASSERT_EQUALS(p.oldIni, "C:/SCUMMVM/GAMES/MI1KO/SCUMMVM.INI");
+		TS_ASSERT_EQUALS(p.oldBackup, "C:/SCUMMVM/GAMES/MI1KO/SCUMMVM.OLD");
 		TS_ASSERT_EQUALS(p.saves, "C:/SCUMMVM/GAMES/MI1KO/SAVES");
 		TS_ASSERT_EQUALS(p.log, "C:/SCUMMVM/GAMES/MI1KO/SCUMMVM.LOG");
 		TS_ASSERT_EQUALS(p.exitLog, "C:/SCUMMVM/GAMES/MI1KO/EXITLOG.TXT");
@@ -256,7 +259,7 @@ public:
 		extra.push_back("mi1ko");
 		std::vector<std::string> r = Play::childArgs(p, "D:/GAMES/MI1KO", extra);
 		TS_ASSERT_EQUALS(r.size(), 4u);
-		TS_ASSERT_EQUALS(r[0], "--config=C:/SCUMMVM/GAMES/MI1KO/SCUMMVM.INI");
+		TS_ASSERT_EQUALS(r[0], "--config=C:/SCUMMVM/GAMES/MI1KO/RUN.INI");
 		TS_ASSERT_EQUALS(r[1], "--savepath=C:/SCUMMVM/GAMES/MI1KO/SAVES");
 		TS_ASSERT_EQUALS(r[2], "--path=D:/GAMES/MI1KO");
 		TS_ASSERT_EQUALS(r[3], "mi1ko");

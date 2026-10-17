@@ -20,18 +20,25 @@
  */
 
 // PLAY.EXE: starts a game of a (possibly read-only) pack with ScummVM
-// installed on a writable drive, keeping the game's INI, saves and logs in
-// a folder of its own beside the program.
+// installed on a writable drive, keeping the game's saves, logs and the
+// player's own settings in a folder of its own beside the program.
 //
 //   PLAY ID [options] target   run `target` from GAMES\ID of the current folder
-//   PLAY --install ID          create the game's folder and INI, run nothing
-//   PLAY --sound=adlib|mt32|gm ID   set the music output of the game's INI
+//   PLAY --install ID          create the game's folder, run nothing
+//   PLAY --sound=adlib|mt32|gm ID   set the music output of the game (USER.INI)
 //   PLAY --sound ID            ask which music output, then set it
-//   PLAY --sound=default ID    drop the game's own choice: it follows DEFAULT
-//   PLAY --sound[=x] DEFAULT   the same for HOME\DEFAULT.INI, for games with no choice of their own
+//   PLAY --sound=default ID    drop the game's own choice: it follows the common one
+//   PLAY --sound[=x] DEFAULT   the common choice of all games, in HOME\SCUMMVM.INI [scummvm]
+//
+// The pack's ID.INI is read on every run and never copied: each run writes
+// HOME\GAMES\ID\RUN.INI from it, the common [scummvm] of HOME\SCUMMVM.INI and
+// the player's HOME\GAMES\ID\USER.INI (play-merge.h), gives it to the engine,
+// keeps what the engine changed in USER.INI and deletes it. Nothing is
+// written to the pack's folder.
 
 #include <conio.h>
 #include <dir.h>
+#include <dirent.h>
 #include <errno.h>
 #include <process.h>
 #include <signal.h>
@@ -45,19 +52,22 @@
 #include <vector>
 
 #include "play-home.h"
+#include "play-merge.h"
 #include "play-sound.h"
 
 namespace {
 
 const char kUsage[] =
 	"PLAY ID [options] target       run a game of the pack in the current folder\n"
-	"PLAY --install ID              create the game's folder and INI only\n"
-	"PLAY --sound=adlib|mt32|gm ID  set the music output of the game's INI\n"
+	"PLAY --install ID              create the game's folder only\n"
+	"PLAY --sound=adlib|mt32|gm ID  set the music output of the game\n"
 	"PLAY --sound ID                ask which music output, then set it\n"
 	"PLAY --sound=default ID        the game follows the default again\n"
 	"PLAY --sound[=x] DEFAULT       set the default music output of all games\n"
-	"ID is the folder name of the game, like MI1KO. The game's INI, saves and\n"
-	"logs are kept in GAMES\\ID below the folder of PLAY.EXE.\n";
+	"ID is the folder name of the game, like KQ1. Options go to the engine, like\n"
+	"--language=ko or --set=render_target=clut8; --8bit is an 8-bit screen.\n"
+	"The game's saves, logs and your own settings (USER.INI) are kept in\n"
+	"GAMES\\ID below the folder of PLAY.EXE.\n";
 
 std::string driveCwd(char letter) {
 	const int drive = toupper((unsigned char)letter) - 'A';
@@ -184,9 +194,8 @@ bool replaceFile(const std::string &path, const std::string &data) {
 	return done;
 }
 
-// Makes the folder of a game and its INI from the pack's sample when there is
-// none. Returns false when a folder cannot be made.
-bool ensureProfile(const Play::Profile &p, const std::string &sample, bool say) {
+// Makes the folder of a game and its SAVES. Returns false when a folder cannot be made.
+bool ensureProfile(const Play::Profile &p, bool say) {
 	const bool had = isDir(p.dir);
 	if (!makeDirs(p.saves)) {
 		fprintf(stderr, "PLAY: cannot create %s (is the folder of PLAY.EXE writable?)\n", Play::dosPath(p.saves).c_str());
@@ -194,29 +203,58 @@ bool ensureProfile(const Play::Profile &p, const std::string &sample, bool say) 
 	}
 	if (say && !had)
 		printf("Created %s\n", Play::dosPath(p.dir).c_str());
-	if (isFile(p.ini))
-		return true;
-	std::string text;
-	if (!readFile(sample, text)) {
-		fprintf(stderr, "PLAY: no %s in the current folder; %s starts empty.\n", Play::dosPath(sample).c_str(), Play::dosPath(p.ini).c_str());
-		return true;
-	}
-	if (!writeFile(p.ini, text)) {
-		fprintf(stderr, "PLAY: cannot write %s\n", Play::dosPath(p.ini).c_str());
-		return false;
-	}
-	if (say)
-		printf("Created %s from %s\n", Play::dosPath(p.ini).c_str(), Play::dosPath(sample).c_str());
 	return true;
 }
 
-const char *const kSoundLabels[] = { "AdLib / OPL", "Roland MT-32 or CM-32L", "General MIDI" };
-
-// The music choice kept in an INI-format file: a game's SOUND.INI or HOME's DEFAULT.INI.
-bool savedSound(const std::string &path, Play::SoundChoice &out) {
+// An INI file as settings; an empty one when it cannot be read.
+Play::Ini readIni(const std::string &path) {
 	std::string text;
-	return readFile(path, text) && Play::soundChoiceOf(text, out);
+	readFile(path, text);
+	return Play::parseIni(text);
 }
+
+const char kUserHeader[] =
+	"# Your own settings of this game, over the pack's INI and the common\r\n"
+	"# [scummvm] of HOME\\SCUMMVM.INI. PLAY writes the keys you change in the game\r\n"
+	"# here; you may edit or delete this file. RUN.INI is made anew for each run.\r\n";
+
+bool writeUser(const Play::Profile &p, Play::Ini user) {
+	user.dropEmptySections();
+	if (replaceFile(p.user, Play::writeIni(user, kUserHeader)))
+		return true;
+	fail("cannot write", p.user);
+	return false;
+}
+
+// An older PLAY's copy of the pack's INI (SCUMMVM.INI) and its SOUND.INI become
+// USER.INI once: only the player's own choices, the rest came from an older
+// pack. The copy is kept as SCUMMVM.OLD.
+void migrateOldProfile(const Play::Profile &p) {
+	if (isFile(p.user))
+		return;
+	const bool hasOld = isFile(p.oldIni), hasSound = isFile(p.sound);
+	if (!hasOld && !hasSound)
+		return;
+	Play::Ini user;
+	if (hasOld)
+		user = Play::migrateOld(readIni(p.oldIni));
+	Play::SoundChoice choice;
+	std::string text;
+	if (hasSound && readFile(p.sound, text) && Play::soundChoiceOf(text, choice))
+		Play::setSoundChoice(user, choice);
+	if (!writeUser(p, user))
+		return;
+	if (hasOld) {
+		remove(p.oldBackup.c_str());
+		if (rename(p.oldIni.c_str(), p.oldBackup.c_str()) == 0)
+			printf("PLAY: %s is no longer used; your own settings are now in %s (old file: %s)\n",
+				   Play::dosPath(p.oldIni).c_str(), Play::dosPath(p.user).c_str(), Play::dosPath(p.oldBackup).c_str());
+	}
+	if (hasSound)
+		remove(p.sound.c_str());
+}
+
+const char *const kSoundLabels[] = { "AdLib / OPL", "Roland MT-32 or CM-32L", "General MIDI" };
 
 // Asks on the keyboard. `follow` is set by 4 (use the default), offered when `allowFollow`.
 bool askSound(const std::string &what, bool allowFollow, Play::SoundChoice &choice, bool &follow) {
@@ -255,69 +293,128 @@ void blasterNote(Play::SoundChoice choice) {
 		printf("Note: BLASTER has no P (MPU-401 port); 0x330 will be used.\n");
 }
 
-// Puts the music choice of a game (its own SOUND.INI, else the default) into its SCUMMVM.INI.
-// 0 when done or when there is no choice; 1 when the INI cannot be read or written.
-int applySavedSound(const Play::Profile &p, const std::string &defaultIni) {
-	Play::SoundChoice choice;
-	if (!savedSound(p.sound, choice)) {
-		if (isFile(p.sound))
-			fprintf(stderr, "PLAY: no usable music choice in %s; the default is used\n", Play::dosPath(p.sound).c_str());
-		if (!savedSound(defaultIni, choice))
-			return 0;
-	}
-	std::string text;
-	// An unreadable INI must stay as it is, not be rebuilt from a partial read.
-	if (isFile(p.ini) && !readFile(p.ini, text))
-		return fail("cannot read", p.ini);
-	const std::string out = Play::applySoundChoice(text, choice);
-	if (out == text)
-		return 0;
-	return replaceFile(p.ini, out) ? 0 : fail("cannot write", p.ini);
+// The home's common settings: the [scummvm] of HOME\SCUMMVM.INI, over the
+// DEFAULT.INI of an older PLAY (its music choice).
+Play::Ini homeCommon(const std::string &home) {
+	Play::Ini common = readIni(Play::join(home, "DEFAULT.INI"));
+	const Play::Ini main = readIni(Play::join(home, "SCUMMVM.INI"));
+	const Play::Ini::Section *s = main.find("scummvm");
+	for (size_t i = 0; s && i < s->keys.size(); ++i)
+		common.set("scummvm", s->keys[i].first, s->keys[i].second);
+	Play::Ini out;
+	const Play::Ini::Section *c = common.find("scummvm");
+	for (size_t i = 0; c && i < c->keys.size(); ++i)
+		out.set("scummvm", c->keys[i].first, c->keys[i].second);
+	return out;
 }
 
-int setGameSound(const Play::Profile &p, const std::string &defaultIni, const std::string &id, bool follow, Play::SoundChoice choice) {
-	if (follow) {
-		if (remove(p.sound.c_str()) != 0 && errno != ENOENT)
-			return fail("cannot remove", p.sound);
-	} else if (!replaceFile(p.sound, Play::applySoundChoice("", choice)))
-		return fail("cannot write", p.sound);
-	if (applySavedSound(p, defaultIni))
+int setGameSound(const Play::Profile &p, const std::string &home, const std::string &id, bool follow, Play::SoundChoice choice) {
+	Play::Ini user = readIni(p.user);
+	Play::eraseSoundChoice(user);
+	if (!follow)
+		Play::setSoundChoice(user, choice);
+	if (!writeUser(p, user))
 		return 1;
+	remove(p.sound.c_str());
 	if (!follow) {
 		printf("Music output of %s: %s\n", id.c_str(), kSoundLabels[choice]);
 		blasterNote(choice);
 		return 0;
 	}
 	Play::SoundChoice def;
-	if (savedSound(defaultIni, def))
+	if (Play::soundChoiceOf(Play::writeIni(homeCommon(home)), def))
 		printf("Music output of %s: the default, %s\n", id.c_str(), kSoundLabels[def]);
 	else
-		printf("Music output of %s: the default, which is not set (the INI keeps its own setting)\n", id.c_str());
+		printf("Music output of %s: the default, which is not set (the pack's INI decides)\n", id.c_str());
 	return 0;
 }
 
-int setDefaultSound(const std::string &defaultIni, Play::SoundChoice choice) {
+int setDefaultSound(const std::string &home, Play::SoundChoice choice) {
+	const std::string ini = Play::join(home, "SCUMMVM.INI");
 	std::string text;
-	if (isFile(defaultIni) && !readFile(defaultIni, text))
-		return fail("cannot read", defaultIni);
-	if (!replaceFile(defaultIni, Play::applySoundChoice(text, choice)))
-		return fail("cannot write", defaultIni);
+	if (isFile(ini) && !readFile(ini, text))
+		return fail("cannot read", ini);
+	if (!replaceFile(ini, Play::applySoundChoice(text, choice)))
+		return fail("cannot write", ini);
+	// An older PLAY's default; its only settings are the music ones just written.
+	remove(Play::join(home, "DEFAULT.INI").c_str());
 	printf("Default music output: %s\n"
 		   "Games with no choice of their own use it from their next start.\n", kSoundLabels[choice]);
 	blasterNote(choice);
 	return 0;
 }
 
+// The language folders of a game folder (two-letter names, lower case).
+std::vector<std::string> languageFolders(const std::string &gameDir) {
+	std::vector<std::string> out;
+	DIR *d = gameDir.empty() ? nullptr : opendir(gameDir.c_str());
+	if (!d)
+		return out;
+	while (struct dirent *e = readdir(d)) {
+		const std::string n = Play::Detail::lower(e->d_name);
+		if (n.size() == 2 && isalpha((unsigned char)n[0]) && isalpha((unsigned char)n[1]) && isDir(Play::join(gameDir, n)))
+			out.push_back(n);
+	}
+	closedir(d);
+	return out;
+}
+
+std::string joinWords(const std::vector<std::string> &words) {
+	std::string out;
+	for (size_t i = 0; i < words.size(); ++i)
+		out += (i ? " " : "") + words[i];
+	return out;
+}
+
 int play(DirGuard &guard, const std::string &home, const std::string &pack, const std::string &sample,
 		 const Play::Profile &p, const std::string &id, const std::vector<std::string> &extra) {
-	std::string iniText;
-	readFile(p.ini, iniText);
-	const std::string target = Play::targetOf(extra);
-	if (!target.empty() && !Play::hasTarget(iniText, target) && isFile(sample))
-		fprintf(stderr, "PLAY: %s has no [%s] section; the sample %s is not merged into it.\n"
-				"      Delete that INI to take the sample again.\n",
-				Play::dosPath(p.ini).c_str(), target.c_str(), Play::dosPath(sample).c_str());
-	const std::string engine = Play::engineOf(iniText, target);
+	std::string packText;
+	if (!readFile(sample, packText)) {
+		fprintf(stderr, "PLAY: run it from the game's folder: %s not found\n", Play::dosPath(sample).c_str());
+		return 1;
+	}
+	const Play::Ini packIni = Play::parseIni(packText);
+
+	const std::vector<std::string> words = Play::bareWords(extra);
+	if (words.size() != 1) {
+		if (words.empty())
+			fprintf(stderr, "PLAY: no target. Targets of %s: %s\n", Play::dosPath(sample).c_str(), joinWords(packIni.targets()).c_str());
+		else
+			fprintf(stderr, "PLAY: more than one target (%s); give the language as --language=xx\n", joinWords(words).c_str());
+		return 1;
+	}
+	const std::string target = Play::Detail::lower(words[0]);
+	if (!packIni.find(target) || target == "scummvm") {
+		fprintf(stderr, "PLAY: %s has no [%s] section. Targets: %s\n", Play::dosPath(sample).c_str(), target.c_str(), joinWords(packIni.targets()).c_str());
+		return 1;
+	}
+
+	// The game's files; GAMES\ID of the home is also the profile when started there.
+	std::string gameDir = Play::join(Play::join(pack, "GAMES"), Play::Detail::upper(id));
+	if (!isDir(gameDir))
+		gameDir.clear();
+
+	// A language the pack has no files for is an error here, before the engine starts.
+	const std::string lang = Play::languageArg(extra);
+	if (!lang.empty()) {
+		const std::vector<std::string> folders = languageFolders(gameDir);
+		const std::string *packLang = packIni.get(target, "language");
+		const std::string packCode = packLang ? *packLang : std::string();
+		if (!Play::hasLanguage(Play::languageFolderOf(lang), folders, packCode)) {
+			fprintf(stderr, "PLAY: %s has no files for the language '%s'. Languages: %s\n", id.c_str(), lang.c_str(),
+					Play::languagesOf(folders, packCode).c_str());
+			return 1;
+		}
+	}
+
+	const Play::Ini common = homeCommon(home);
+	Play::Ini user = readIni(p.user);
+	const Play::Ini run = Play::mergeRun(packIni, common, user, target);
+	const std::string runText = Play::writeIni(run,
+		"# Made by PLAY for this run from " + Play::dosPath(sample) + ", the [scummvm] of HOME\\SCUMMVM.INI\r\n"
+		"# and USER.INI. Do not edit: it is made anew each time. Edit USER.INI.\r\n");
+
+	const std::string engine = Play::engineOf(runText, target);
 	// One EXE per engine family: the INI's engineid says which.
 	const std::vector<std::string> exes = Play::exesFor(engine);
 	std::string exe;
@@ -328,9 +425,13 @@ int play(DirGuard &guard, const std::string &home, const std::string &pack, cons
 	if (exe.empty())
 		return fail(engine == "agi" ? "no AGI.EXE in" : "no SCI.EXE or SCUMM.EXE in", home);
 
-	std::string gameDir = Play::join(Play::join(pack, "GAMES"), Play::Detail::upper(id));
+	if (!writeFile(p.run, runText)) {
+		remove(p.run.c_str());
+		return fail("cannot write", p.run);
+	}
+
 	// Started from the home folder, GAMES\ID is the profile: a --path to it would hide the INI's own.
-	if (!isDir(gameDir) || Play::samePath(pack, home))
+	if (Play::samePath(pack, home))
 		gameDir.clear();
 	const std::vector<std::string> args = Play::childArgs(p, gameDir, extra);
 
@@ -347,13 +448,23 @@ int play(DirGuard &guard, const std::string &home, const std::string &pack, cons
 	guard.willEnter(home);
 	if (Play::Detail::hasDrive(home.c_str()))
 		setdisk(toupper((unsigned char)home[0]) - 'A');
-	if (chdir(home.c_str()) != 0)
+	if (chdir(home.c_str()) != 0) {
+		remove(p.run.c_str());
 		return fail("cannot enter", home);
+	}
 
 	// Ctrl-C belongs to the game; this program only waits for it.
 	void (*const oldInt)(int) = signal(SIGINT, SIG_IGN);
 	const int rc = spawnv(P_WAIT, exe.c_str(), argv.data());
 	signal(SIGINT, oldInt);
+
+	// What the engine changed is the player's: into USER.INI, nowhere else.
+	std::string afterText;
+	if (readFile(p.run, afterText) && afterText != runText &&
+		Play::captureChanges(run, Play::parseIni(afterText), packIni, common, target, user))
+		writeUser(p, user);
+	remove(p.run.c_str());
+
 	// -1 is a failed start; another negative value is a game killed by a signal, whose logs matter most.
 	if (rc == -1) {
 		fprintf(stderr, "PLAY: cannot run %s: %s\n", Play::dosPath(exe).c_str(), strerror(errno));
@@ -411,7 +522,6 @@ int main(int argc, char *argv[]) {
 	const std::string id = Play::Detail::upper(argv[i++]);
 	const Play::Profile p = Play::profileOf(home, id);
 	const std::string sample = Play::join(pack, id + ".INI");
-	const std::string defaultIni = Play::join(home, "DEFAULT.INI");
 
 	if (Play::isReservedId(id)) {
 		if (!sound || follow) {
@@ -421,24 +531,23 @@ int main(int argc, char *argv[]) {
 		bool unused = false;
 		if (ask && !askSound("the default", false, choice, unused))
 			return 1;
-		return setDefaultSound(defaultIni, choice);
+		return setDefaultSound(home, choice);
 	}
 
-	if ((install || sound) && !isFile(p.ini) && !isFile(sample)) {
+	if ((install || sound) && !isDir(p.dir) && !isFile(sample)) {
 		fprintf(stderr, "PLAY: run it from the game's folder: %s not found\n", Play::dosPath(sample).c_str());
 		return 1;
 	}
-	if (!ensureProfile(p, sample, install || sound))
+	if (!ensureProfile(p, install || sound))
 		return 1;
+	migrateOldProfile(p);
 	if (install)
 		return 0;
 	if (sound) {
 		if (ask && !askSound(id, true, choice, follow))
 			return 1;
-		return setGameSound(p, defaultIni, id, follow, choice);
+		return setGameSound(p, home, id, follow, choice);
 	}
-	if (applySavedSound(p, defaultIni))
-		fputs("PLAY: the game starts with its INI as it is\n", stderr);
 
 	std::vector<const char *> words;
 	words.push_back("");
@@ -446,5 +555,6 @@ int main(int argc, char *argv[]) {
 		words.push_back(argv[k]);
 	std::vector<std::string> extra = Play::absolutizeArgs((int)words.size(), words.data(), pack, driveCwd);
 	extra.erase(extra.begin());
+	extra = Play::engineArgs(extra);
 	return play(guard, home, pack, sample, p, id, extra);
 }

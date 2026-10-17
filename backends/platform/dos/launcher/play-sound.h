@@ -92,6 +92,27 @@ inline bool blasterHasMpuPort(const char *blaster) {
 	return false;
 }
 
+/** One music setting of the [scummvm] section, as `key=value`. */
+struct SoundSetting {
+	const char *key;
+	const char *value;
+};
+
+/** The three settings of a music choice: music_driver, native_mt32, enable_gs. */
+inline const SoundSetting *soundSettingsOf(SoundChoice choice) {
+	static const SoundSetting kAdlib[] = { { "music_driver", "adlib" }, { "native_mt32", "false" }, { "enable_gs", "false" } };
+	static const SoundSetting kMt32[] = { { "music_driver", "mpu401" }, { "native_mt32", "true" }, { "enable_gs", "false" } };
+	static const SoundSetting kGm[] = { { "music_driver", "mpu401" }, { "native_mt32", "false" }, { "enable_gs", "true" } };
+	return choice == kSoundAdlib ? kAdlib : (choice == kSoundMt32 ? kMt32 : kGm);
+}
+
+const int kSoundSettingCount = 3;
+
+/** True for a key a music choice sets (lower case). */
+inline bool isSoundKey(const std::string &key) {
+	return key == "music_driver" || key == "native_mt32" || key == "enable_gs";
+}
+
 namespace SoundDetail {
 
 inline bool isBlank(char c) {
@@ -204,14 +225,7 @@ inline std::string applySoundChoice(const std::string &ini, SoundChoice choice) 
 	if (start < ini.size())
 		lines.push_back(ini.substr(start));
 
-	struct Setting {
-		const char *key;
-		const char *value;
-	};
-	static const Setting kAdlib[] = { { "music_driver", "adlib" }, { "native_mt32", "false" }, { "enable_gs", "false" } };
-	static const Setting kMt32[] = { { "music_driver", "mpu401" }, { "native_mt32", "true" }, { "enable_gs", "false" } };
-	static const Setting kGm[] = { { "music_driver", "mpu401" }, { "native_mt32", "false" }, { "enable_gs", "true" } };
-	const Setting *set = choice == kSoundAdlib ? kAdlib : (choice == kSoundMt32 ? kMt32 : kGm);
+	const SoundSetting *set = soundSettingsOf(choice);
 
 	int header = -1;
 	for (size_t i = 0; i < lines.size(); ++i) {
@@ -223,12 +237,12 @@ inline std::string applySoundChoice(const std::string &ini, SoundChoice choice) 
 	if (header < 0) {
 		lines.insert(lines.begin(), "[scummvm]");
 		header = 0;
-		for (int k = 0; k < 3; ++k)
+		for (int k = 0; k < kSoundSettingCount; ++k)
 			lines.insert(lines.begin() + 1 + k, std::string(set[k].key) + "=" + set[k].value);
 		if (lines.size() > 4)
 			lines.insert(lines.begin() + 4, std::string());
 	} else {
-		for (int k = 0; k < 3; ++k) {
+		for (int k = 0; k < kSoundSettingCount; ++k) {
 			size_t end = lines.size();
 			for (size_t i = header + 1; i < lines.size(); ++i)
 				if (isSection(lines[i])) {
