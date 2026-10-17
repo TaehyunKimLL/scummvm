@@ -24,6 +24,7 @@
 
 #include "common/config-manager.h"
 #include "common/fs.h"
+#include "common/language.h"
 #include "common/util.h"
 
 namespace Graphics {
@@ -506,22 +507,50 @@ HiResIniOverrides readHiResIniFromConfMan(const Common::String &gameDomain, Comm
 	return readHiResIni(confManGet, const_cast<Common::String *>(&gameDomain), warnings);
 }
 
-Common::Path findDefaultHiResMap(const Common::Path &gameDir) {
-	static const char *const kDefaultMapName = "HIRESTXT.MAP";
-	if (gameDir.empty())
+namespace {
+
+// The file (or, with @p directory, the folder) @p name in @p dir, matched
+// case-insensitively. Empty when there is none.
+Common::Path findChild(const Common::Path &dir, const Common::String &name, bool directory) {
+	if (dir.empty() || name.empty())
 		return Common::Path();
-	const Common::Path direct = gameDir.appendComponent(kDefaultMapName);
-	if (Common::FSNode(direct).exists())
+	const Common::Path direct = dir.appendComponent(name);
+	const Common::FSNode directNode(direct);
+	if (directNode.exists() && directNode.isDirectory() == directory)
 		return direct;
-	Common::FSNode dir(gameDir);
+	Common::FSNode node(dir);
 	Common::FSList children;
-	if (dir.isDirectory() && dir.getChildren(children, Common::FSNode::kListFilesOnly)) {
+	if (node.isDirectory() &&
+		node.getChildren(children, directory ? Common::FSNode::kListDirectoriesOnly : Common::FSNode::kListFilesOnly)) {
 		for (uint i = 0; i < children.size(); ++i) {
-			if (children[i].getName().equalsIgnoreCase(kDefaultMapName))
+			if (children[i].getName().equalsIgnoreCase(name))
 				return children[i].getPath();
 		}
 	}
 	return Common::Path();
+}
+
+// A bare file name in the language folder, then in the game folder.
+Common::Path findInGameFolders(const Common::Path &gameDir, const Common::String &name, const Common::String &langFolder) {
+	if (!langFolder.empty()) {
+		const Common::Path inLang = findChild(findChild(gameDir, langFolder, true), name, false);
+		if (!inLang.empty())
+			return inLang;
+	}
+	return findChild(gameDir, name, false);
+}
+
+} // End of anonymous namespace
+
+Common::Path findDefaultHiResMap(const Common::Path &gameDir, const Common::String &langFolder) {
+	return findInGameFolders(gameDir, "HIRESTXT.MAP", langFolder);
+}
+
+Common::String confManLanguageFolder(const Common::String &domain) {
+	Common::String value;
+	if (!confManGameValue("language", domain, value))
+		return Common::String();
+	return Common::getLanguageFolderCode(Common::parseLanguage(value));
 }
 
 bool hiResTextEnabled(const Common::String &domain) {
@@ -595,25 +624,11 @@ bool hiResFontPicksMap(const HiResIniOverrides &ini) {
 	return (ini.fontSet && ini.font != kHiResFontAuto) || !ini.mapSet;
 }
 
-Common::Path findGameMapFile(const Common::Path &gameDir, const Common::String &name) {
+Common::Path findGameMapFile(const Common::Path &gameDir, const Common::String &name, const Common::String &langFolder) {
 	if (name.empty())
 		return Common::Path();
-	if (!HiResFontMap::isDataPath(name) && !name.contains('/') && !name.contains('\\')) {
-		if (gameDir.empty())
-			return Common::Path();
-		const Common::Path direct = gameDir.appendComponent(name);
-		if (Common::FSNode(direct).exists())
-			return direct;
-		Common::FSNode dir(gameDir);
-		Common::FSList children;
-		if (dir.isDirectory() && dir.getChildren(children, Common::FSNode::kListFilesOnly)) {
-			for (uint i = 0; i < children.size(); ++i) {
-				if (children[i].getName().equalsIgnoreCase(name))
-					return children[i].getPath();
-			}
-		}
-		return Common::Path();
-	}
+	if (!HiResFontMap::isDataPath(name) && !name.contains('/') && !name.contains('\\'))
+		return findInGameFolders(gameDir, name, langFolder);
 	const Common::Path path = HiResFontMap::resolvePath(name, gameDir);
 	if (HiResFontMap::isDataPath(path.toString('/')) || !Common::FSNode(path).exists())
 		return Common::Path();
@@ -632,14 +647,15 @@ bool hiResTextNamed(const Common::String &domain) {
 	if (!confManGameValue("path", domain, value))
 		return false;
 	const Common::Path gameDir = Common::Path::fromConfig(value);
+	const Common::String langFolder = confManLanguageFolder(domain);
 	const Common::Array<HiResFontKind> order = hiResFontOrder(font);
 	for (uint i = 0; i < order.size(); ++i) {
 		Common::String name = hiResFontKindDefaultMap(order[i]);
 		confManGameValue(hiResFontKindMapKey(order[i]), domain, name);
-		if (!findGameMapFile(gameDir, name).empty())
+		if (!findGameMapFile(gameDir, name, langFolder).empty())
 			return true;
 	}
-	return !findDefaultHiResMap(gameDir).empty();
+	return !findDefaultHiResMap(gameDir, langFolder).empty();
 }
 
 bool hiResTextConfigured(const Common::String &domain) {

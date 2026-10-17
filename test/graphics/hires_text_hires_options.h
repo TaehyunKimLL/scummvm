@@ -342,4 +342,49 @@ public:
 		Common::uninstall_null_g_system();
 #endif
 	}
+
+	// A bare map name is looked for in the played language's folder first
+	// (ko/, ja/; any case), then in the game folder; another language's
+	// folder is never looked in.
+	void test_a_map_in_the_language_folder() {
+#if NULL_OSYSTEM_IS_AVAILABLE
+		Common::install_null_g_system();
+		char name[] = "hires-langdir-XXXXXX";
+		TS_ASSERT(mkdtemp(name) != nullptr);
+		char *full = realpath(name, nullptr);
+		const Common::String dir = full ? full : name;
+		free(full);
+		const Common::Path gameDir(dir, '/');
+		const Common::String ko = dir + "/KO", ja = dir + "/ja";
+		TS_ASSERT(Common::FSNode(Common::Path(ko, '/')).createDirectory());
+		TS_ASSERT(Common::FSNode(Common::Path(ja, '/')).createDirectory());
+		const Common::Path koMap(ko + "/hiresvf.map", '/'), jaMap(ja + "/HIRESVF.MAP", '/');
+		const Common::Path rootMap(dir + "/HIRESBIT.MAP", '/'), rootVf(dir + "/hiresvf.map", '/');
+		const Common::Path *const files[] = { &koMap, &jaMap, &rootMap, &rootVf };
+		for (uint i = 0; i < ARRAYSIZE(files); ++i) {
+			Common::DumpFile f;
+			TS_ASSERT(f.open(*files[i]));
+			f.writeString("[map]\nversion=2\n");
+			f.close();
+		}
+
+		TS_ASSERT_EQUALS(Graphics::findGameMapFile(gameDir, "HIRESVF.MAP", "ko").toString('/'), koMap.toString('/'));
+		TS_ASSERT_EQUALS(Graphics::findGameMapFile(gameDir, "HIRESVF.MAP", "ja").toString('/'), jaMap.toString('/'));
+		// Not in the language folder: the game folder's.
+		TS_ASSERT_EQUALS(Graphics::findGameMapFile(gameDir, "hiresbit.map", "ko").baseName(), "HIRESBIT.MAP");
+		// No language, or one without a folder: the game folder only.
+		TS_ASSERT_EQUALS(Graphics::findGameMapFile(gameDir, "HIRESVF.MAP").toString('/'), rootVf.toString('/'));
+		TS_ASSERT_EQUALS(Graphics::findGameMapFile(gameDir, "HIRESVF.MAP", "en").toString('/'), rootVf.toString('/'));
+		// A path with a folder is the game folder's, as written.
+		TS_ASSERT_EQUALS(Graphics::findGameMapFile(gameDir, "ja/HIRESVF.MAP", "ko").baseName(), "HIRESVF.MAP");
+		TS_ASSERT(Graphics::findGameMapFile(gameDir, "none.map", "ko").empty());
+
+		for (uint i = 0; i < ARRAYSIZE(files); ++i)
+			remove(files[i]->toString('/').c_str());
+		remove(ko.c_str());
+		remove(ja.c_str());
+		remove(dir.c_str());
+		Common::uninstall_null_g_system();
+#endif
+	}
 };

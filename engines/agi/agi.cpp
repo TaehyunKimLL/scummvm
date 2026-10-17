@@ -575,7 +575,8 @@ void AgiEngine::initialize() {
 
 	if (textIsUtf8()) {
 		_hiresText = new HiresText();
-		if (!_hiresText->load(ConfMan.getActiveDomainName(), ConfMan.getPath("path"))) {
+		if (!_hiresText->load(ConfMan.getActiveDomainName(), ConfMan.getPath("path"),
+							  Common::getLanguageFolderCode(getLanguage()))) {
 			warning("AGI: this translation needs a hi-res text map (hires_text_map or hires_text_font); its characters draw as '?'");
 			delete _hiresText;
 			_hiresText = nullptr;

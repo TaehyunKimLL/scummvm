@@ -20,6 +20,7 @@ MODULE_OBJS := \
 	korean_vocab.o \
 	hashmap.o \
 	language.o \
+	language_folder.o \
 	localization.o \
 	macresman.o \
 	memory.o \

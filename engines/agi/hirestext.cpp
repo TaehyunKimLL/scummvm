@@ -61,7 +61,7 @@ bool HiresText::hangulAny() const {
 	return isActive() && _map.layout.hangulSet && _map.layout.hangul == Graphics::kHangulBreakAny;
 }
 
-bool HiresText::load(const Common::String &domain, const Common::Path &gameDir) {
+bool HiresText::load(const Common::String &domain, const Common::Path &gameDir, const Common::String &langFolder) {
 	Common::Array<Common::String> warnings;
 	const Graphics::HiResIniOverrides ini = Graphics::readHiResIniFromConfMan(domain, warnings);
 	for (uint i = 0; i < warnings.size(); i++)
@@ -72,17 +72,21 @@ bool HiresText::load(const Common::String &domain, const Common::Path &gameDir) 
 	if (Graphics::hiResFontPicksMap(ini)) {
 		Graphics::HiResFontKind kind;
 		Common::Array<Common::String> notes;
-		if (!Graphics::pickHiResMap(ini, gameDir, agiQualifiers(), Graphics::kHiResKeysAgi, mapPath, kind, notes))
-			mapPath = Graphics::findDefaultHiResMap(gameDir);
+		// The language folder (ko/, ja/) first, then the game folder.
+		if (!Graphics::pickHiResMap(ini, gameDir, agiQualifiers(), Graphics::kHiResKeysAgi, mapPath, kind, notes,
+									Graphics::fontFileExists, Graphics::HiResFontMap::isBuiltinFace, langFolder))
+			mapPath = Graphics::findDefaultHiResMap(gameDir, langFolder);
 		for (uint i = 0; i < notes.size(); i++)
 			debug(1, "AGI hi-res text: %s", notes[i].c_str());
 	} else if (!ini.map.empty()) {
-		mapPath = Graphics::findGameMapFile(gameDir, ini.map);
+		mapPath = Graphics::findGameMapFile(gameDir, ini.map, langFolder);
 		if (mapPath.empty())
 			warning("AGI hi-res text: hires_text_map=%s not found", ini.map.c_str());
 	}
 	if (mapPath.empty())
 		return false;
+	// Which map, on the console whatever the debug level (as SCI's).
+	debug("AGI: hi-res text map: %s", mapPath.toString().c_str());
 	return loadMap(mapPath, gameDir, ini);
 }
 

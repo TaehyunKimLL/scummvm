@@ -21,9 +21,11 @@
 
 #include "engines/advancedDetector.h"
 #include "base/plugins.h"
+#include "common/config-manager.h"
 #include "common/file.h"
 #include "common/fs.h"
 #include "common/hashmap.h"
+#include "common/language_folder.h"
 #include "common/ptr.h"
 #include "common/tokenizer.h"
 
@@ -224,6 +226,8 @@ public:
 
 	DetectedGames detectGames(const Common::FSList &fslist, uint32 skipADFlags, bool skipIncomplete) override;
 
+	Common::Error identifyGame(DetectedGame &game, const void **descriptor) override;
+
 	ADDetectedGame fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const override;
 
 	void dumpDetectionEntries() const override;
@@ -232,35 +236,39 @@ private:
 	void addFileToDetectedGame(const Common::Path &name, const FileMap &allFiles, MD5Properties md5Prop, ADDetectedGame &game) const;
 };
 
-// The languages of the sci-<lang>.str tables in a game folder: the UTF-8
-// script-string manifests a fan translation lays over the original
-// resources (engines/sci/engine/translation.cpp). The table is in the game
-// folder or in its language folder, <lang>\sci-<lang>.str (ko\sci-ko.str:
-// SciEngine reads that folder first with language=<lang>).
+// The languages of the translations in a game folder: a language folder
+// named by its ISO 639-1 code holding sci-<code>.str (the UTF-8 script-string
+// manifest a fan translation lays over the original resources,
+// engines/sci/engine/translation.cpp) or a hi-res text map, ko\sci-ko.str,
+// ja\hiresvf.map; or sci-<code>.str in the game folder itself (the packs
+// before the language folders). SciEngine reads that folder first with
+// language=<code>.
 static Common::Array<Common::Language> manifestLanguages(const Common::FSList &fslist) {
-	Common::Array<Common::Language> out;
-	for (const Common::FSNode &node : fslist) {
-		Common::String name = node.getName();
-		name.toLowercase();
-		Common::Language lang = Common::UNK_LANG;
-		if (node.isDirectory()) {
-			lang = Common::parseLanguageFolderCode(name);
-			if (lang == Common::UNK_LANG || !Common::FSDirectory(node).hasFile(Common::Path("sci-" + name + ".str")))
-				continue;
-		} else {
-			if (!name.hasPrefix("sci-") || !name.hasSuffix(".str") || name.size() <= 8)
-				continue;
-			lang = Common::parseLanguageFolderCode(Common::String(name.c_str() + 4, name.size() - 8));
-		}
-		if (lang == Common::UNK_LANG)
-			continue;
-		bool seen = false;
-		for (uint i = 0; i < out.size(); ++i)
-			seen |= out[i] == lang;
-		if (!seen)
-			out.push_back(lang);
+	return Common::translationFolderLanguages(fslist, "sci");
+}
+
+// The launcher's Language list offers only the languages a target's GUI
+// options name: add each of the folder's translations to a game's, so a
+// target added in English can be switched to Korean, a Korean one to
+// Japanese when the folder has both.
+static void allowLanguages(DetectedGame &game, const Common::Array<Common::Language> &languages) {
+	for (uint i = 0; i < languages.size(); ++i) {
+		const Common::String option = getGameGUIOptionsDescriptionLanguage(languages[i]);
+		if (!game.getGUIOptions().contains(option))
+			game.appendGUIOptions(option);
 	}
-	return out;
+}
+
+Common::Error SciMetaEngineDetection::identifyGame(DetectedGame &game, const void **descriptor) {
+	const Common::Error err = AdvancedMetaEngineDetection::identifyGame(game, descriptor);
+	// Started, the target's GUI options are rewritten from the entry it
+	// matched (AdvancedMetaEngineBase::createInstance()): the folder's
+	// translations go on again, or the Language list would lose them.
+	Common::FSList files;
+	if (err.getCode() == Common::kNoError && ConfMan.hasKey("path") &&
+		Common::FSNode(ConfMan.getPath("path")).getChildren(files, Common::FSNode::kListAll))
+		allowLanguages(game, manifestLanguages(files));
+	return err;
 }
 
 DetectedGames SciMetaEngineDetection::detectGames(const Common::FSList &fslist, uint32 skipADFlags, bool skipIncomplete) {
@@ -289,17 +297,8 @@ DetectedGames SciMetaEngineDetection::detectGames(const Common::FSList &fslist, 
 			variant.language = manifests[m];
 			variant.description = DetectedGame(getName(), game.gameId, title, manifests[m], game.platform, game.extra).description;
 			variant.preferredTarget = game.preferredTarget + "-" + Common::getLanguageFolderCode(manifests[m]);
-			// The original's options minus its language, which the loop
-			// below re-attaches from the language the variant carries.
-			// getGUIOptions() holds their descriptions, which setGUIOptions()
-			// would read as option codes and drop; appendGUIOptions() takes
-			// them as they are.
-			variant.setGUIOptions("");
-			for (const Common::String &token : Common::StringTokenizer(game.getGUIOptions(), " ").split()) {
-				if (!token.hasPrefix("lang_"))
-					variant.appendGUIOptions(token);
-			}
-			variant.appendGUIOptions(getGameGUIOptionsDescriptionLanguage(manifests[m]));
+			// The options are the original's, its language among them: the
+			// variant played in the original's language is the original.
 			variants.push_back(variant);
 		}
 	}
@@ -307,6 +306,10 @@ DetectedGames SciMetaEngineDetection::detectGames(const Common::FSList &fslist, 
 	// originals would shift them under the loop.
 	for (uint i = 0; i < variants.size(); ++i)
 		games.insert_at(i, variants[i]);
+	// Every one of them, the originals too, may be played in each of the
+	// folder's translations (allowLanguages()); the loop below keeps them.
+	for (DetectedGame &game : games)
+		allowLanguages(game, manifests);
 
 	for (DetectedGame &game : games) {
 		const GameIdStrToEnum *g = gameIdStrToEnum;

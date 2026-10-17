@@ -24,6 +24,7 @@
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/fs.h"
+#include "common/language.h"
 #include "common/platform.h"
 #include "common/stream.h"
 #include "common/textconsole.h"
@@ -67,6 +68,9 @@ void HiresTextState::load(bool applies) {
 
 	Common::Array<Common::String> iniWarnings;
 	_ini = Graphics::readHiResIniFromConfMan(domain, iniWarnings);
+	// The language folder (ko/, ja/), looked in for a map before the game
+	// folder: a translation keeps its maps there, beside its other files.
+	const Common::String langFolder = Common::getLanguageFolderCode(g_sci->getLanguage());
 	for (uint i = 0; i < iniWarnings.size(); i++)
 		warning("%s", iniWarnings[i].c_str());
 
@@ -83,10 +87,13 @@ void HiresTextState::load(bool applies) {
 		// HIRESVF.MAP, HIRESBIT.MAP in this build's order, the chosen kind
 		// first. Else the file hires_text_map names; a relative one is the
 		// game folder's, not the current directory. Last, HIRESTXT.MAP.
+		// A map's bare name is looked for in the language folder first,
+		// then in the game folder (Graphics::findGameMapFile()).
 		if (Graphics::hiResFontPicksMap(_ini)) {
 			Common::Array<Common::String> notes;
 			Graphics::HiResFontKind kind;
-			_haveMapPath = Graphics::pickHiResMap(_ini, _gameDir, qualifiers, Graphics::kHiResKeysSci, _mapPath, kind, notes);
+			_haveMapPath = Graphics::pickHiResMap(_ini, _gameDir, qualifiers, Graphics::kHiResKeysSci, _mapPath, kind, notes,
+												  Graphics::fontFileExists, Graphics::HiResFontMap::isBuiltinFace, langFolder);
 			// The kinds passed over are news only when the user chose a kind.
 			const bool chosen = _ini.fontSet && _ini.font != Graphics::kHiResFontAuto;
 			for (uint i = 0; i < notes.size(); i++) {
@@ -102,22 +109,29 @@ void HiresTextState::load(bool applies) {
 			if (_ini.map.empty()) {
 				warning("hires_text_map: empty path; no map is used");
 			} else {
-				_mapPath = Graphics::HiResFontMap::resolvePath(_ini.map, _gameDir);
+				// A bare name in the language folder first; one found
+				// nowhere is the game folder's, and its load says so.
+				_mapPath = Graphics::findGameMapFile(_gameDir, _ini.map, langFolder);
+				if (_mapPath.empty())
+					_mapPath = Graphics::HiResFontMap::resolvePath(_ini.map, _gameDir);
 				_haveMapPath = true;
 			}
 		} else if (!_haveMapPath) {
-			_mapPath = Graphics::findDefaultHiResMap(_gameDir);
+			_mapPath = Graphics::findDefaultHiResMap(_gameDir, langFolder);
 			_haveMapPath = !_mapPath.empty();
-			if (!_haveMapPath && g_sci->getLanguage() == Common::KO_KOR) {
-				// A Korean game with no map at all would draw its hangul
-				// with the game's own font, which has none. The shipped
-				// maps stand in: the game's own, else the general one.
-				const Common::String candidates[] = {
-					Common::String::format("hires_text/maps/%s-ko.map", g_sci->getGameIdStr()),
-					"hires_text/maps/korean-default.map"
-				};
+			if (!_haveMapPath && !langFolder.empty() && langFolder != "en") {
+				// A game in another language with no map at all (a CJK
+				// release; the gate above lets English through only as a
+				// UTF-8 translation) would draw its text with the game's own
+				// font, which has none of its characters. The shipped maps
+				// stand in: the game's own, <game>-<code>.map, else for
+				// Korean the general one (named before the codes were).
+				Common::Array<Common::String> candidates;
+				candidates.push_back(Common::String::format("hires_text/maps/%s-%s.map", g_sci->getGameIdStr(), langFolder.c_str()));
+				if (g_sci->getLanguage() == Common::KO_KOR)
+					candidates.push_back("hires_text/maps/korean-default.map");
 				const Common::Array<Common::Path> roots = Graphics::HiResFontMap::dataRoots();
-				for (uint i = 0; i < ARRAYSIZE(candidates) && !_haveMapPath; ++i) {
+				for (uint i = 0; i < candidates.size() && !_haveMapPath; ++i) {
 					// Quietly: a DOS build ships neither, and that is not a fault.
 					const Common::Path p = Graphics::HiResFontMap::resolveDataPath(candidates[i], roots);
 					if (!Graphics::HiResFontMap::isDataPath(p.toString('/')) && Graphics::fontFileExists(p)) {

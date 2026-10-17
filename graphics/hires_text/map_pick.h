@@ -53,12 +53,14 @@ namespace Graphics {
  * it is a built-in one (tests pass their own).
  * @p notes gets one line per kind tried and why it was passed over, for the
  * caller to log (a warning when the user chose the kind, else debug).
+ * @p langFolder is the language folder looked in first (findGameMapFile()).
  */
 bool pickHiResMap(const HiResIniOverrides &ini, const Common::Path &gameDir,
 				  const Common::Array<Common::String> &qualifiers, const HiResEngineKeys &keys,
 				  Common::Path &mapPath, HiResFontKind &kind, Common::Array<Common::String> &notes,
 				  FontFileExistsFn exists = fontFileExists,
-				  FontFileExistsFn builtin = HiResFontMap::isBuiltinFace);
+				  FontFileExistsFn builtin = HiResFontMap::isBuiltinFace,
+				  const Common::String &langFolder = Common::String());
 
 } // End of namespace Graphics
 

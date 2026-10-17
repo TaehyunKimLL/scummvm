@@ -282,10 +282,11 @@ bool confManGameBool(const char *key, const Common::String &domain, bool fallbac
 
 /**
  * The game folder's own map (design section 4): `HIRESTXT.MAP` in
- * @p gameDir, matched case-insensitively. Empty when @p gameDir is empty or
- * holds no such file.
+ * @p gameDir, matched case-insensitively - in its language folder
+ * @p langFolder first (see findGameMapFile()). Empty when @p gameDir is
+ * empty or holds no such file.
  */
-Common::Path findDefaultHiResMap(const Common::Path &gameDir);
+Common::Path findDefaultHiResMap(const Common::Path &gameDir, const Common::String &langFolder = Common::String());
 
 /** `ttf`, `svf`, `bitmap` (`auto` for kHiResFontAuto): the hires_text_font values. */
 const char *hiResFontKindName(HiResFontKind kind);
@@ -322,8 +323,23 @@ bool hiResFontPicksMap(const HiResIniOverrides &ini);
  * (as HIRESTXT.MAP is), a relative path is the game folder's, and a `data:`
  * or absolute path is resolved as HiResFontMap::resolvePath() does. Empty
  * when no such file exists.
+ *
+ * A bare name is looked for in the game's language folder first: the
+ * subfolder of @p gameDir named @p langFolder (the language's ISO 639-1
+ * code, Common::getLanguageFolderCode(): ko/, ja/; matched
+ * case-insensitively), where a translation keeps its files, then in
+ * @p gameDir itself (the packs made before keep their maps there). Only the
+ * language played is looked in, so a Korean and a Japanese translation can
+ * share a folder. An empty @p langFolder: the game folder only.
  */
-Common::Path findGameMapFile(const Common::Path &gameDir, const Common::String &name);
+Common::Path findGameMapFile(const Common::Path &gameDir, const Common::String &name,
+							 const Common::String &langFolder = Common::String());
+
+/**
+ * The language folder code of a game target (getLanguageFolderCode() of its
+ * language= setting): empty when it has none.
+ */
+Common::String confManLanguageFolder(const Common::String &domain);
 
 /**
  * Whether `hires_text` is on for @p domain (design section 11): the game

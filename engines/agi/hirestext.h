@@ -52,7 +52,7 @@ public:
 	~HiresText();
 
 	/** The game's ini keys from ConfMan, then the map they pick. */
-	bool load(const Common::String &domain, const Common::Path &gameDir);
+	bool load(const Common::String &domain, const Common::Path &gameDir, const Common::String &langFolder);
 
 	/** A given map with given ini overrides (tests, and load()). */
 	bool loadMap(const Common::Path &mapPath, const Common::Path &gameDir, const Graphics::HiResIniOverrides &ini);

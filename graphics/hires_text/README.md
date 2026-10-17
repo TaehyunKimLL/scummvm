@@ -46,6 +46,25 @@ type, ConfigManager or FreeType, and it does not open any font file.
 section of this table except `[map]`, `[text]` and `[layout]` may carry
 qualifiers; see "Qualifiers".
 
+### Where the map is found: the game folder and its language folder
+
+SCI and AGI look for a map (`HIRESTTF.MAP`, `HIRESVF.MAP`, `HIRESBIT.MAP` by
+`hires_text_font`, else `HIRESTXT.MAP`; a bare `hires_text_map=` name) first in
+the game's **language folder**, then in the game folder itself. The language
+folder is the subfolder named by the ISO 639-1 code of the language played
+(`Common::getLanguageFolderCode()`: `ko/`, `ja/`, `en/`; every dialect has its
+language's code, `ZH_TWN` is `zh/`), matched case-insensitively, as the file
+names are. Only the language played is looked in, so a Korean and a Japanese
+translation can share a game folder (`ko/hiresvf.map`, `ja/hiresvf.map`);
+a map in the game folder itself (the packs made before the language folders)
+is used by every language the map applies to. A `hires_text_map=` with a `/`
+is the game folder's, as written (`ja/hiresvf.map`); `data:` and an absolute
+path as in rule 1 and 2 below. SCUMM and AGS look in the game folder only.
+
+A map in the language folder names the translation's own faces relative to
+itself (rule 3: `logo=DIPHY36.SVF` is `ko/DIPHY36.SVF`), the shared ones with
+`data:`.
+
 ### `[fonts]`, paths and font values
 
 `[fonts]` maps a name (`A-Za-z0-9_-`; not `same`, `original` or `data`) to a

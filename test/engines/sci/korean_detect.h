@@ -37,9 +37,14 @@ public:
 
 	void test_a_manifest_language_is_offered_first() {
 		Common::String det = readSource("engines/sci/detection.cpp");
-		// The manifest's name is the engine's own convention (translation.cpp).
-		TS_ASSERT(det.contains("name.hasPrefix(\"sci-\") || !name.hasSuffix(\".str\")"));
+		// The manifest's name is the engine's own convention (translation.cpp),
+		// found by the common language folder scan.
+		TS_ASSERT(det.contains("Common::translationFolderLanguages(fslist, \"sci\")"));
 		TS_ASSERT(det.contains("manifestLanguages(fslist)"));
+		// Every game of the folder may be played in each translation, and
+		// keeps that when started (identifyGame()).
+		TS_ASSERT(det.contains("allowLanguages(game, manifests)"));
+		TS_ASSERT(det.contains("allowLanguages(game, manifestLanguages(files))"));
 		// In front, so the launcher's chooser leads with the translation;
 		// collected apart first, so the loop over the originals sees each once.
 		TS_ASSERT(det.contains("variants.push_back(variant)"));
@@ -57,17 +62,18 @@ public:
 
 	void test_a_korean_game_without_a_map_uses_the_shipped_one() {
 		Common::String st = readSource("engines/sci/graphics/hirestextstate.cpp");
-		const int gate = st.find("g_sci->getLanguage() == Common::KO_KOR");
-		const int own = st.find("\"hires_text/maps/%s-ko.map\"");
+		const int gate = st.find("langFolder != \"en\"");
+		const int own = st.find("\"hires_text/maps/%s-%s.map\"");
 		const int general = st.find("\"hires_text/maps/korean-default.map\"");
 		TS_ASSERT_LESS_THAN(0, gate);
 		TS_ASSERT_LESS_THAN(gate, own);
 		TS_ASSERT_LESS_THAN(own, general);
 		// Only after the folder's own HIRESTXT.MAP and an explicit setting.
-		TS_ASSERT_LESS_THAN(st.find("findDefaultHiResMap(_gameDir)"), gate);
+		TS_ASSERT_LESS_THAN(st.find("findDefaultHiResMap(_gameDir, langFolder)"), gate);
 		// A shipped map that is not there is not used, and not complained
 		// about either (a DOS build has neither): the quiet resolver, then
 		// an existence check.
+		TS_ASSERT(st.contains("g_sci->getLanguage() == Common::KO_KOR"));
 		TS_ASSERT(st.contains("Graphics::HiResFontMap::resolveDataPath(candidates[i], roots)"));
 		TS_ASSERT(st.contains("!Graphics::HiResFontMap::isDataPath(p.toString('/')) && Graphics::fontFileExists(p)"));
 		TS_ASSERT(!st.contains("resolvePath(candidates"));

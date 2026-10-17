@@ -100,7 +100,7 @@ bool facesAvailable(const HiResMap &map, const HiResIniOverrides &ini, const Com
 bool pickHiResMap(const HiResIniOverrides &ini, const Common::Path &gameDir,
 				  const Common::Array<Common::String> &qualifiers, const HiResEngineKeys &keys,
 				  Common::Path &mapPath, HiResFontKind &kind, Common::Array<Common::String> &notes,
-				  FontFileExistsFn exists, FontFileExistsFn builtin) {
+				  FontFileExistsFn exists, FontFileExistsFn builtin, const Common::String &langFolder) {
 	const HiResFontKind preferred = ini.fontSet ? ini.font : kHiResFontAuto;
 	if (preferred != kHiResFontAuto && !hiResFontKindBuilt(preferred))
 		notes.push_back(Common::String::format("hires_text_font=%s: this build cannot draw TrueType faces",
@@ -118,7 +118,7 @@ bool pickHiResMap(const HiResIniOverrides &ini, const Common::Path &gameDir,
 	for (uint i = 0; i < order.size(); ++i) {
 		const HiResFontKind k = order[i];
 		const Common::String name = ini.kindMapSet[k - 1] ? ini.kindMap[k - 1] : Common::String(hiResFontKindDefaultMap(k));
-		const Common::Path path = findGameMapFile(gameDir, name);
+		const Common::Path path = findGameMapFile(gameDir, name, langFolder);
 		if (path.empty()) {
 			notes.push_back(Common::String::format("%s map %s: not in the game folder", hiResFontKindName(k), name.c_str()));
 			continue;
