@@ -189,8 +189,9 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	SearchMan.addSubDirectoryMatching(gameDataDir, "Voices/AUD#"); // LSL6 Mac audio36 files
 	SearchMan.addSubDirectoryMatching(gameDataDir, "VMD Folder"); // Mac VMD files
 
-	// A Korean pack ships its parser table, SCIKOR.DAT. Where the player
-	// has not chosen, that turns Korean typing on and starts in Korean, as
+	// A Korean pack ships its parser table, sci-ko.dat (named, as
+	// sci-ko.str is, by the language code; packs made before that call it
+	// SCIKOR.DAT, which is read as well). Where the player has not chosen, that turns Korean typing on and starts in Korean, as
 	// the pack's own INI does: a game added in the launcher (on Android
 	// always) has none of these settings, and Android's built-in keyboard
 	// offers the Hangul layout only with them. Transient, so nothing is
@@ -198,7 +199,9 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	// The game folder joins SearchMan only after the engine is built, so
 	// look in it directly (FSDirectory matches names case-insensitively).
 	// Started in another language, the pack is the original game.
-	if (Common::FSDirectory(gameDataDir).hasFile("scikor.dat") && getLanguage() == Common::KO_KOR) {
+	const Common::FSDirectory gameDir(gameDataDir);
+	const Common::String parserTable = Common::String::format("sci-%s.dat", Common::getLanguageCode(getLanguage()));
+	if ((gameDir.hasFile(Common::Path(parserTable)) || gameDir.hasFile("scikor.dat")) && getLanguage() == Common::KO_KOR) {
 		if (!ConfMan.hasKey("sci_hangul_input"))
 			ConfMan.setBool("sci_hangul_input", true, Common::ConfigManager::kTransientDomain);
 		if (!ConfMan.hasKey("sci_hangul_start"))

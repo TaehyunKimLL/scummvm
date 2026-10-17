@@ -85,7 +85,11 @@ Vocabulary::Vocabulary(ResourceManager *resMan, bool foreign) : _resMan(resMan),
 	    ConfMan.hasKey("sci_hangul_input") &&
 	    ConfMan.getBool("sci_hangul_input")) {
 		_koreanVocab.setDebugChannel(kDebugLevelHangul);
-		_koreanVocab.load("scikor.dat", "SCIKOR");
+		// sci-ko.dat, by the language code as sci-ko.str is; a pack made
+		// before that has SCIKOR.DAT. Both hold the same "SCIKOR" table.
+		const Common::String name = Common::String::format("sci-%s.dat", Common::getLanguageCode(g_sci->getLanguage()));
+		if (!_koreanVocab.load(name, "SCIKOR"))
+			_koreanVocab.load("scikor.dat", "SCIKOR");
 	}
 
 	parser_event = NULL_REG;
