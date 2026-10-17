@@ -136,7 +136,7 @@ that draws hi-res text. They do not follow "Override global graphic settings".
 |---|---|---|
 | **Hi-res text screen** | `render_target` | the screen: auto, 8-bit palette, 16-bit, true colour |
 | **Hi-res text** | `hires_text` | off: the map, the fonts and any face are ignored entirely |
-| **Hi-res text font** | `hires_text_font` | which of the game folder's maps: auto, TrueType, anti-aliased or 1-bit bitmap |
+| **Hi-res text font** | `hires_text_font` | which of the game folder's maps: auto, TrueType, anti-aliased or 1-bit bitmap (SCI and AGI look in the language folder, `ko/`, `ja/`, first: `graphics/hires_text/README.md`) |
 | **Hi-res smoothing** | `hires_text_blend` | auto, on (blended edges) or off (the same fonts, hard-edged) |
 
 Measured on English MI2, distinct colours in the subtitle band:
