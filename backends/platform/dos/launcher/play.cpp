@@ -421,7 +421,12 @@ int play(DirGuard &guard, const std::string &home, const std::string &pack, cons
 
 	const Play::Ini common = homeCommon(home);
 	Play::Ini user = readIni(p.user);
-	const Play::Ini run = Play::mergeRun(packIni, common, user, target);
+	// Started from the home folder, GAMES\ID is the profile: a --path to it would hide the INI's own.
+	if (Play::samePath(pack, home))
+		gameDir.clear();
+	Play::Ini run = Play::mergeRun(packIni, common, user, target);
+	// The game folder the engine gets as --path, also in the target's own domain.
+	Play::setGamePath(run, target, Play::gamePathOf(gameDir, extra));
 	const std::string runText = Play::writeIni(run,
 		"# Made by PLAY for this run from " + Play::dosPath(sample) + ", the [scummvm] of HOME\\SCUMMVM.INI\r\n"
 		"# and USER.INI. Do not edit: it is made anew each time. Edit USER.INI.\r\n");
@@ -442,9 +447,6 @@ int play(DirGuard &guard, const std::string &home, const std::string &pack, cons
 		return fail("cannot write", p.run);
 	}
 
-	// Started from the home folder, GAMES\ID is the profile: a --path to it would hide the INI's own.
-	if (Play::samePath(pack, home))
-		gameDir.clear();
 	const std::vector<std::string> args = Play::childArgs(p, gameDir, extra);
 
 	std::vector<char *> argv;

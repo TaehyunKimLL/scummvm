@@ -39,7 +39,9 @@
 //                                   transient domain, never written back
 //
 // The first three make HOME\GAMES\ID\RUN.INI, the engine's --config. The keys
-// the engine changed in that file during the run go to USER.INI only.
+// the engine changed in that file during the run go to USER.INI only. Over
+// them PLAY sets the target's path= to the game folder it passes as --path
+// (setGamePath()), which no layer can change.
 namespace Play {
 
 /** An INI as ScummVM reads it: sections and keys lower case, values trimmed; order kept. */
@@ -206,6 +208,37 @@ inline Ini mergeRun(const Ini &pack, const Ini &home, const Ini &user, const std
 				run.set(target, us->keys[i].first, us->keys[i].second);
 	}
 	return run;
+}
+
+/**
+ * The game folder the engine is told with --path: the player's own --path=X,
+ * -pX or -p X when the command line has one (the last), else `gameDir`.
+ * Empty when there is none (started from the home folder, where the pack
+ * INI's own path= stands).
+ */
+inline std::string gamePathOf(const std::string &gameDir, const std::vector<std::string> &args) {
+	std::string path = gameDir;
+	for (size_t i = 0; i < args.size(); ++i) {
+		const std::string &a = args[i];
+		if (Detail::startsWith(a, "--path="))
+			path = a.substr(7);
+		else if (a.size() >= 2 && a[0] == '-' && (a[1] == 'p' || a[1] == 'P'))
+			path = a.size() > 2 ? a.substr(2) : (i + 1 < args.size() ? args[++i] : std::string());
+	}
+	return path;
+}
+
+/**
+ * `run` with path=`gamePath` in its [target], over any path= of the pack.
+ * The engine's --path is a transient setting, and code that reads the
+ * target's own domain (SCI's hi-res text: ConfMan.getPath("path", domain))
+ * would not see it, so the run's INI says the same. path is pack owned:
+ * captureChanges() never moves it to USER.INI. An empty `gamePath` leaves
+ * `run` as it is.
+ */
+inline void setGamePath(Ini &run, const std::string &target, const std::string &gamePath) {
+	if (!gamePath.empty())
+		run.set(target, "path", gamePath);
 }
 
 /**

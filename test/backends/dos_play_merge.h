@@ -119,6 +119,69 @@ public:
 		TS_ASSERT_EQUALS(Play::engineOf(Play::writeIni(run), "mi1kol"), "scumm");
 	}
 
+	void test_run_says_the_game_folder_in_the_target() {
+		// The engine's --path is transient; SCI's hi-res text reads the target's own path=.
+		Play::Ini run = Play::mergeRun(pack(), home(), user(), "kq1");
+		const Play::Ini layered = run;
+		Play::setGamePath(run, "kq1", Play::gamePathOf("C:/PLAY/GAMES/KQ1", words("--language=ko", "kq1")));
+		TS_ASSERT_EQUALS(g(run, "kq1", "path"), "C:/PLAY/GAMES/KQ1");
+		TS_ASSERT_EQUALS(g(run, "scummvm", "path"), "<none>");
+		TS_ASSERT_EQUALS(run.sections.size(), 2u);
+		// Only path is added: every layered key keeps its value and its place.
+		const Play::Ini::Section *a = layered.find("kq1"), *b = run.find("kq1");
+		TS_ASSERT_EQUALS(b->keys.size(), a->keys.size() + 1);
+		for (size_t i = 0; i < a->keys.size(); ++i) {
+			TS_ASSERT_EQUALS(b->keys[i].first, a->keys[i].first);
+			TS_ASSERT_EQUALS(b->keys[i].second, a->keys[i].second);
+		}
+		TS_ASSERT_EQUALS(b->keys.back().first, "path");
+		TS_ASSERT_EQUALS(g(run, "kq1", "music_driver"), "adlib");
+		TS_ASSERT_EQUALS(g(run, "scummvm", "music_driver"), "mpu401");
+	}
+
+	void test_plays_game_folder_wins_over_the_packs_path() {
+		Play::Ini p = pack();
+		p.set("kq1", "path", "GAMES\\KQ1");
+		Play::Ini u = user();
+		u.set("kq1", "path", "X:/HACK");
+		Play::Ini run = Play::mergeRun(p, home(), u, "kq1");
+		TS_ASSERT_EQUALS(g(run, "kq1", "path"), "GAMES\\KQ1");
+		Play::setGamePath(run, "kq1", "D:/G/GAMES/KQ1");
+		TS_ASSERT_EQUALS(g(run, "kq1", "path"), "D:/G/GAMES/KQ1");
+		// No game folder (started from the home): the pack's own stands.
+		Play::Ini run2 = Play::mergeRun(p, home(), u, "kq1");
+		Play::setGamePath(run2, "kq1", Play::gamePathOf("", words("kq1")));
+		TS_ASSERT_EQUALS(g(run2, "kq1", "path"), "GAMES\\KQ1");
+	}
+
+	void test_game_path_is_the_one_given_to_the_engine() {
+		TS_ASSERT_EQUALS(Play::gamePathOf("C:/P/GAMES/KQ1", words("kq1")), "C:/P/GAMES/KQ1");
+		TS_ASSERT_EQUALS(Play::gamePathOf("C:/P/GAMES/KQ1", words("--path=D:/MINE", "kq1")), "D:/MINE");
+		TS_ASSERT_EQUALS(Play::gamePathOf("C:/P/GAMES/KQ1", words("-pD:/MINE", "kq1")), "D:/MINE");
+		TS_ASSERT_EQUALS(Play::gamePathOf("C:/P/GAMES/KQ1", words("-p", "D:/MINE", "kq1")), "D:/MINE");
+		TS_ASSERT_EQUALS(Play::gamePathOf("", words("kq1")), "");
+	}
+
+	void test_game_path_never_goes_to_user_ini() {
+		Play::Ini u = user();
+		const Play::Ini before = u;
+		Play::Ini run = Play::mergeRun(pack(), home(), u, "kq1");
+		Play::setGamePath(run, "kq1", "C:/P/GAMES/KQ1");
+		// The engine keeps path= (or normalises it): never the player's choice.
+		Play::Ini after = run;
+		after.set("kq1", "path", "C:/P/GAMES/KQ1/");
+		TS_ASSERT(!Play::captureChanges(run, after, pack(), home(), "kq1", u));
+		TS_ASSERT(!Play::captureChanges(run, run, pack(), home(), "kq1", u));
+		TS_ASSERT_EQUALS(Play::writeIni(u), Play::writeIni(before));
+		TS_ASSERT_EQUALS(g(u, "kq1", "path"), "<none>");
+		// A changed setting beside it is still kept, path still not.
+		after.set("kq1", "talkspeed", "120");
+		TS_ASSERT(Play::captureChanges(run, after, pack(), home(), "kq1", u));
+		TS_ASSERT_EQUALS(g(u, "kq1", "talkspeed"), "120");
+		TS_ASSERT_EQUALS(g(u, "kq1", "path"), "<none>");
+		TS_ASSERT_EQUALS(g(u, "scummvm", "path"), "<none>");
+	}
+
 	void test_capture_keeps_what_the_engine_changed() {
 		Play::Ini u = user();
 		Play::Ini run = Play::mergeRun(pack(), home(), u, "kq1");
