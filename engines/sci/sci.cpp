@@ -255,6 +255,19 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	default:
 		break;
 	}
+
+	// A translation's own patch files may sit in a folder named by the
+	// language code (ko\, en\: Common::getLanguageCode() of the language
+	// played, language= or the detected one). Its patches win over the game
+	// folder's - a patch of the same name in both is opened from it, as
+	// SearchMan gives the higher priority's file - and those still win over
+	// a Korean pack's message.map and the volumes. Without such a folder
+	// only the game folder's patches are read, as before. So a Korean pack
+	// can ship ko\29.MSG beside the English game's own 29.MSG: language=ko
+	// reads the Korean one, language=en the English one.
+	const char *langFolder = Common::getLanguageCode(getLanguage());
+	if (langFolder && *langFolder)
+		SearchMan.addSubDirectoryMatching(gameDataDir, langFolder, 1);
 }
 
 SciEngine::~SciEngine() {
