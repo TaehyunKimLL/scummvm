@@ -58,16 +58,21 @@
 namespace {
 
 const char kUsage[] =
-	"PLAY ID [options] target       run a game of the pack in the current folder\n"
+	"PLAY ID [options] target       play a game of the pack in the current folder\n"
 	"PLAY --install ID              create the game's folder only\n"
 	"PLAY --sound=adlib|mt32|gm ID  set the music output of the game\n"
 	"PLAY --sound ID                ask which music output, then set it\n"
 	"PLAY --sound=default ID        the game follows the default again\n"
 	"PLAY --sound[=x] DEFAULT       set the default music output of all games\n"
-	"ID is the folder name of the game, like KQ1. Options go to the engine, like\n"
-	"--language=ko or --set=render_target=clut8; --8bit is an 8-bit screen.\n"
-	"The game's saves, logs and your own settings (USER.INI) are kept in\n"
-	"GAMES\\ID below the folder of PLAY.EXE.\n";
+	"Options of a game:\n"
+	"  --language=xx    the language: en, or one the game has files for (ko ...)\n"
+	"  --8bit           an 8-bit screen with the 8-bit fonts\n"
+	"  --set=KEY=VALUE  any setting, for this run only (other ScummVM options too)\n"
+	"ID is the folder name of the game, target its section in ID.INI:\n"
+	"  PLAY KQ1 --language=ko kq1\n"
+	"Each run makes GAMES\\ID\\RUN.INI below the folder of PLAY.EXE from ID.INI,\n"
+	"the [scummvm] of SCUMMVM.INI there and GAMES\\ID\\USER.INI. What you change\n"
+	"in the game is kept in USER.INI; saves and logs are kept in GAMES\\ID.\n";
 
 std::string driveCwd(char letter) {
 	const int drive = toupper((unsigned char)letter) - 'A';
@@ -247,8 +252,9 @@ void migrateOldProfile(const Play::Profile &p) {
 	if (hasOld) {
 		remove(p.oldBackup.c_str());
 		if (rename(p.oldIni.c_str(), p.oldBackup.c_str()) == 0)
-			printf("PLAY: %s is no longer used; your own settings are now in %s (old file: %s)\n",
-				   Play::dosPath(p.oldIni).c_str(), Play::dosPath(p.user).c_str(), Play::dosPath(p.oldBackup).c_str());
+			printf("PLAY: %s is not used any more.\n"
+				   "      Your own settings in it (volumes, subtitles, text speed, music output)\n"
+				   "      are now in USER.INI; the old file is SCUMMVM.OLD.\n", Play::dosPath(p.oldIni).c_str());
 	}
 	if (hasSound)
 		remove(p.sound.c_str());
@@ -263,7 +269,7 @@ bool askSound(const std::string &what, bool allowFollow, Play::SoundChoice &choi
 		   "  2) Roland MT-32 or CM-32L\n"
 		   "  3) General MIDI\n", what.c_str());
 	if (allowFollow)
-		printf("  4) Use the default\n");
+		printf("  4) Use the default of all games\n");
 	printf(allowFollow ? "Choice (1,2,3,4, Esc to cancel): " : "Choice (1,2,3, Esc to cancel): ");
 	fflush(stdout);
 	for (;;) {
@@ -317,7 +323,7 @@ int setGameSound(const Play::Profile &p, const std::string &home, const std::str
 		return 1;
 	remove(p.sound.c_str());
 	if (!follow) {
-		printf("Music output of %s: %s\n", id.c_str(), kSoundLabels[choice]);
+		printf("Music output of %s: %s (in %s)\n", id.c_str(), kSoundLabels[choice], Play::dosPath(p.user).c_str());
 		blasterNote(choice);
 		return 0;
 	}
@@ -325,7 +331,7 @@ int setGameSound(const Play::Profile &p, const std::string &home, const std::str
 	if (Play::soundChoiceOf(Play::writeIni(homeCommon(home)), def))
 		printf("Music output of %s: the default, %s\n", id.c_str(), kSoundLabels[def]);
 	else
-		printf("Music output of %s: the default, which is not set (the pack's INI decides)\n", id.c_str());
+		printf("Music output of %s: the default, which is not set (the game's INI decides)\n", id.c_str());
 	return 0;
 }
 
@@ -338,8 +344,8 @@ int setDefaultSound(const std::string &home, Play::SoundChoice choice) {
 		return fail("cannot write", ini);
 	// An older PLAY's default; its only settings are the music ones just written.
 	remove(Play::join(home, "DEFAULT.INI").c_str());
-	printf("Default music output: %s\n"
-		   "Games with no choice of their own use it from their next start.\n", kSoundLabels[choice]);
+	printf("Default music output: %s (in %s)\n"
+		   "Games with no choice of their own use it from their next start.\n", kSoundLabels[choice], Play::dosPath(ini).c_str());
 	blasterNote(choice);
 	return 0;
 }
@@ -375,17 +381,23 @@ int play(DirGuard &guard, const std::string &home, const std::string &pack, cons
 	}
 	const Play::Ini packIni = Play::parseIni(packText);
 
+	const std::vector<std::string> targets = packIni.targets();
 	const std::vector<std::string> words = Play::bareWords(extra);
-	if (words.size() != 1) {
-		if (words.empty())
-			fprintf(stderr, "PLAY: no target. Targets of %s: %s\n", Play::dosPath(sample).c_str(), joinWords(packIni.targets()).c_str());
-		else
-			fprintf(stderr, "PLAY: more than one target (%s); give the language as --language=xx\n", joinWords(words).c_str());
+	if (words.empty()) {
+		fprintf(stderr, "PLAY: name the game to play, like PLAY %s %s\n"
+				"      Targets in %s: %s\n", id.c_str(), targets.empty() ? "target" : targets[0].c_str(),
+				Play::dosPath(sample).c_str(), joinWords(targets).c_str());
+		return 1;
+	}
+	if (words.size() > 1) {
+		const std::string hint = Play::languageHint(id, words, targets);
+		fprintf(stderr, "PLAY: one target only, not \"%s\". A language is given as --language=xx", joinWords(words).c_str());
+		fprintf(stderr, hint.empty() ? ".\n" : ":\n      %s\n", hint.c_str());
 		return 1;
 	}
 	const std::string target = Play::Detail::lower(words[0]);
 	if (!packIni.find(target) || target == "scummvm") {
-		fprintf(stderr, "PLAY: %s has no [%s] section. Targets: %s\n", Play::dosPath(sample).c_str(), target.c_str(), joinWords(packIni.targets()).c_str());
+		fprintf(stderr, "PLAY: %s has no target '%s'. Targets: %s\n", Play::dosPath(sample).c_str(), target.c_str(), joinWords(targets).c_str());
 		return 1;
 	}
 

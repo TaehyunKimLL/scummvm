@@ -272,6 +272,15 @@ public:
 		TS_ASSERT_EQUALS(Play::bareWords(words("--8bit")).size(), 0u);
 	}
 
+	void test_language_hint_for_two_target_words() {
+		std::vector<std::string> t(1, "kq1");
+		TS_ASSERT_EQUALS(Play::languageHint("KQ1", words("kq1", "KO"), t), "PLAY KQ1 --language=ko kq1");
+		TS_ASSERT_EQUALS(Play::languageHint("KQ1", words("en", "kq1"), t), "PLAY KQ1 --language=en kq1");
+		TS_ASSERT_EQUALS(Play::languageHint("KQ1", words("kq1", "xx"), t), "");
+		TS_ASSERT_EQUALS(Play::languageHint("KQ1", words("kq2", "ko"), t), "");
+		TS_ASSERT_EQUALS(Play::languageHint("KQ1", words("kq1", "ko", "en"), t), "");
+	}
+
 	void test_8bit_becomes_the_engines_set_options() {
 		std::vector<std::string> a = Play::engineArgs(words("--language=ko", "--8bit", "kq1"));
 		TS_ASSERT_EQUALS(a.size(), 4u);

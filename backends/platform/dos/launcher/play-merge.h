@@ -383,6 +383,25 @@ inline std::vector<std::string> bareWords(const std::vector<std::string> &args) 
 	return out;
 }
 
+/**
+ * For a command line with two target words, one of them a language, like
+ * "PLAY KQ1 kq1 ko": the one meant, "PLAY KQ1 --language=ko kq1". Empty
+ * when no such reading fits. `targets` are the pack's sections (lower case).
+ */
+inline std::string languageHint(const std::string &id, const std::vector<std::string> &words, const std::vector<std::string> &targets) {
+	if (words.size() != 2)
+		return std::string();
+	for (int t = 0; t < 2; ++t) {
+		const std::string target = Detail::lower(words[t]), lang = words[1 - t];
+		bool known = false;
+		for (size_t i = 0; i < targets.size(); ++i)
+			known = known || targets[i] == target;
+		if (known && !languageFolderOf(lang).empty())
+			return "PLAY " + id + " --language=" + Detail::lower(lang) + " " + words[t];
+	}
+	return std::string();
+}
+
 /** The words that --8bit stands for: the L preset, an 8-bit screen with the map's 8-bit faces. */
 inline std::vector<std::string> eightBitArgs() {
 	std::vector<std::string> out;
