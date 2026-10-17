@@ -22,8 +22,10 @@
 #include "common/config-manager.h"
 #include "common/system.h"
 #include "common/debug.h"
+#include "common/fs.h"
 #include "common/language.h"
 #include "common/md5.h"
+#include "common/ptr.h"
 #include "common/tokenizer.h"
 
 #include "base/plugins.h"
@@ -308,14 +310,24 @@ ADDetectedGame AgiMetaEngineDetection::fallbackDetect(const FileMap &allFilesXXX
 
 // The languages of the agi-<lang>.str overlays in a game folder: the UTF-8
 // translation tables laid over the original resources (agi/translation.cpp).
+// The overlay is in the game folder or in its language folder,
+// <lang>\agi-<lang>.str (ko\agi-ko.str: AgiEngine reads that folder first
+// with language=<lang>), as SCI's sci-<lang>.str.
 static Common::Array<Common::Language> overlayLanguages(const Common::FSList &fslist) {
 	Common::Array<Common::Language> out;
 	for (const Common::FSNode &node : fslist) {
 		Common::String name = node.getName();
 		name.toLowercase();
-		if (!name.hasPrefix("agi-") || !name.hasSuffix(".str") || name.size() <= 8)
-			continue;
-		const Common::Language lang = Common::parseLanguage(Common::String(name.c_str() + 4, name.size() - 8));
+		Common::Language lang = Common::UNK_LANG;
+		if (node.isDirectory()) {
+			lang = Common::parseLanguage(name);
+			if (lang == Common::UNK_LANG || !Common::FSDirectory(node).hasFile(Common::Path("agi-" + name + ".str")))
+				continue;
+		} else {
+			if (!name.hasPrefix("agi-") || !name.hasSuffix(".str") || name.size() <= 8)
+				continue;
+			lang = Common::parseLanguage(Common::String(name.c_str() + 4, name.size() - 8));
+		}
 		if (lang == Common::UNK_LANG)
 			continue;
 		bool seen = false;
@@ -387,12 +399,20 @@ ADDetectedGames AgiMetaEngineDetection::detectGame(
 
 	// A target set to another language than the table's (language=ko on an
 	// English game) is a translation overlay, not a different release: when
-	// agi-<lang>.str sits in the game folder, detect without the language
-	// filter. The engine reads the overlay itself (loadTranslationOverlay).
+	// agi-<lang>.str sits in the game folder or in its language folder
+	// (ko\agi-ko.str), detect without the language filter. The engine reads
+	// the overlay itself (loadTranslationOverlay).
 	Common::Language detectLanguage = language;
 	if (language != Common::UNK_LANG && language != Common::EN_ANY) {
-		const Common::String overlayName = Common::String::format("agi-%s.str", Common::getLanguageCode(language));
-		if (allFiles.contains(Common::Path(overlayName, Common::Path::kNoSeparator)))
+		const char *code = Common::getLanguageCode(language);
+		const Common::String overlayName = Common::String::format("agi-%s.str", code);
+		bool overlay = allFiles.contains(Common::Path(overlayName, Common::Path::kNoSeparator));
+		if (!overlay && code) {
+			Common::FSDirectory dir(parent);
+			Common::ScopedPtr<Common::FSDirectory> langDir(dir.getSubDirectory(code));
+			overlay = langDir && langDir->hasFile(Common::Path(overlayName));
+		}
+		if (overlay)
 			detectLanguage = Common::UNK_LANG;
 	}
 

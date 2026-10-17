@@ -22,6 +22,7 @@
 #include "common/md5.h"
 #include "common/file.h"
 #include "common/fs.h"
+#include "common/ptr.h"
 #include "common/language.h"
 #include "common/memstream.h"
 #include "common/savefile.h"
@@ -441,12 +442,25 @@ AgiEngine::AgiEngine(OSystem *syst, const AGIGameDescription *gameDesc) : AgiBas
 	// typing on and starts in Korean, as the pack's INI does (a game added
 	// in the launcher has none of these keys). Transient, and set here,
 	// before initKeymaps() reads them. As SciEngine does for sci-ko.dat.
-	const Common::FSDirectory gameDir(ConfMan.getPath("path"));
+	// The language folder (ko\, named by the overlay's language code) joins
+	// SearchMan above the game folder, so the files a translation keeps
+	// there - since 2026-10-17 a Korean pack has agi-ko.str and agi-ko.dat in
+	// ko\ - are read with that language= and never in another; the folder
+	// is then the English game as it is. Without it only the game folder is
+	// read, as before (the packs before keep their files there). As
+	// SciEngine.
+	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
+	Common::FSDirectory gameDir(gameDataDir);
 	bool parserTable = gameDir.hasFile("agikor.dat");
-	if (!parserTable && ConfMan.hasKey("language")) {
+	if (ConfMan.hasKey("language")) {
 		const Common::Language lang = Common::parseLanguage(ConfMan.get("language"));
-		if (lang != Common::UNK_LANG)
-			parserTable = gameDir.hasFile(Common::Path(Common::String::format("agi-%s.dat", Common::getLanguageCode(lang))));
+		const char *code = lang != Common::UNK_LANG ? Common::getLanguageCode(lang) : nullptr;
+		if (code && *code) {
+			const Common::Path table(Common::String::format("agi-%s.dat", code));
+			Common::ScopedPtr<Common::FSDirectory> langDir(gameDir.getSubDirectory(code));
+			parserTable = parserTable || gameDir.hasFile(table) || (langDir && langDir->hasFile(table));
+			SearchMan.addSubDirectoryMatching(gameDataDir, code, 1);
+		}
 	}
 	if (parserTable) {
 		if (!ConfMan.hasKey("agi_hangul_input"))

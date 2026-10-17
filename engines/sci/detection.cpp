@@ -22,6 +22,7 @@
 #include "engines/advancedDetector.h"
 #include "base/plugins.h"
 #include "common/file.h"
+#include "common/fs.h"
 #include "common/hashmap.h"
 #include "common/ptr.h"
 #include "common/tokenizer.h"
@@ -233,15 +234,24 @@ private:
 
 // The languages of the sci-<lang>.str tables in a game folder: the UTF-8
 // script-string manifests a fan translation lays over the original
-// resources (engines/sci/engine/translation.cpp).
+// resources (engines/sci/engine/translation.cpp). The table is in the game
+// folder or in its language folder, <lang>\sci-<lang>.str (ko\sci-ko.str:
+// SciEngine reads that folder first with language=<lang>).
 static Common::Array<Common::Language> manifestLanguages(const Common::FSList &fslist) {
 	Common::Array<Common::Language> out;
 	for (const Common::FSNode &node : fslist) {
 		Common::String name = node.getName();
 		name.toLowercase();
-		if (!name.hasPrefix("sci-") || !name.hasSuffix(".str") || name.size() <= 8)
-			continue;
-		const Common::Language lang = Common::parseLanguage(Common::String(name.c_str() + 4, name.size() - 8));
+		Common::Language lang = Common::UNK_LANG;
+		if (node.isDirectory()) {
+			lang = Common::parseLanguage(name);
+			if (lang == Common::UNK_LANG || !Common::FSDirectory(node).hasFile(Common::Path("sci-" + name + ".str")))
+				continue;
+		} else {
+			if (!name.hasPrefix("sci-") || !name.hasSuffix(".str") || name.size() <= 8)
+				continue;
+			lang = Common::parseLanguage(Common::String(name.c_str() + 4, name.size() - 8));
+		}
 		if (lang == Common::UNK_LANG)
 			continue;
 		bool seen = false;

@@ -28,6 +28,8 @@
 #include "engines/util.h"
 
 #include "common/file.h"
+#include "common/fs.h"
+#include "common/ptr.h"
 #include "graphics/sjis.h"
 
 #include "sci/sci.h"
@@ -197,11 +199,17 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	// offers the Hangul layout only with them. Transient, so nothing is
 	// written to the player's configuration.
 	// The game folder joins SearchMan only after the engine is built, so
-	// look in it directly (FSDirectory matches names case-insensitively).
+	// look in it directly (FSDirectory matches names case-insensitively),
+	// and in its language folder ko\ (below), where a pack keeps its Korean
+	// files since 2026-10-17; the packs before have them in the game folder.
 	// Started in another language, the pack is the original game.
-	const Common::FSDirectory gameDir(gameDataDir);
-	const Common::String parserTable = Common::String::format("sci-%s.dat", Common::getLanguageCode(getLanguage()));
-	if ((gameDir.hasFile(Common::Path(parserTable)) || gameDir.hasFile("scikor.dat")) && getLanguage() == Common::KO_KOR) {
+	const char *langCode = Common::getLanguageCode(getLanguage());
+	Common::FSDirectory gameDir(gameDataDir);
+	Common::ScopedPtr<Common::FSDirectory> langDir(langCode && *langCode ? gameDir.getSubDirectory(langCode) : nullptr);
+	const Common::Path parserTable(Common::String::format("sci-%s.dat", langCode ? langCode : ""));
+	const bool hasParserTable = gameDir.hasFile(parserTable) || gameDir.hasFile("scikor.dat") ||
+		(langDir && langDir->hasFile(parserTable));
+	if (hasParserTable && getLanguage() == Common::KO_KOR) {
 		if (!ConfMan.hasKey("sci_hangul_input"))
 			ConfMan.setBool("sci_hangul_input", true, Common::ConfigManager::kTransientDomain);
 		if (!ConfMan.hasKey("sci_hangul_start"))
@@ -256,18 +264,22 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 		break;
 	}
 
-	// A translation's own patch files may sit in a folder named by the
-	// language code (ko\, en\: Common::getLanguageCode() of the language
-	// played, language= or the detected one). Its patches win over the game
-	// folder's - a patch of the same name in both is opened from it, as
-	// SearchMan gives the higher priority's file - and those still win over
-	// a Korean pack's message.map and the volumes. Without such a folder
-	// only the game folder's patches are read, as before. So a Korean pack
-	// can ship ko\29.MSG beside the English game's own 29.MSG: language=ko
-	// reads the Korean one, language=en the English one.
-	const char *langFolder = Common::getLanguageCode(getLanguage());
-	if (langFolder && *langFolder)
-		SearchMan.addSubDirectoryMatching(gameDataDir, langFolder, 1);
+	// A translation's own files may sit in a folder named by the language
+	// code (ko\, en\: Common::getLanguageCode() of the language played,
+	// language= or the detected one). It joins SearchMan above the game
+	// folder, so every file the engine opens by name is found there first:
+	// its patches win over the game folder's - a patch of the same name in
+	// both is opened from it - and those still win over the message.map and
+	// the volumes. A Korean pack since 2026-10-17 keeps all its Korean files
+	// there: message.map / resource.msg (isKoreanMessageMap() sees the same
+	// name, "message.map"), sci-ko.str, sci-ko.dat, korean.uni and its UTF-8
+	// patches (QFG1 VGA's ko\29.MSG beside the English game's own 29.MSG).
+	// So language=ko reads them and any other language never sees them: the
+	// folder is the English game, which needs nothing more. Without such a
+	// folder only the game folder is read, as before (the packs before keep
+	// their Korean files there; isKoreanPackPlayedInAnotherLanguage()).
+	if (langCode && *langCode)
+		SearchMan.addSubDirectoryMatching(gameDataDir, langCode, 1);
 }
 
 SciEngine::~SciEngine() {

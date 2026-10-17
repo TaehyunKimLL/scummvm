@@ -31,7 +31,7 @@ namespace Sci {
 
 reg_t kAddMenu(EngineState *s, int argc, reg_t *argv) {
 	// The menu keeps its text and splits it per language only when drawn, so
-	// a script-string translation (SCI-KO.STR) replaces it here.
+	// a script-string translation (sci-ko.str) replaces it here.
 	Common::String title = g_sci->translatedHeap(argv[0], s->_segMan->getString(argv[0]));
 	Common::String content = g_sci->translatedHeap(argv[1], s->_segMan->getString(argv[1]));
 

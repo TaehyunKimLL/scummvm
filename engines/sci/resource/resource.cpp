@@ -818,8 +818,10 @@ void ResourceManager::addAppropriateSources() {
 	addPatchDir(".");
 
 	// A Korean pack's message.map is the Korean text in its own format
-	// (isKoreanMessageMap()); played in another language the folder is
-	// the original game, so it is left out.
+	// (isKoreanMessageMap()). A pack since 2026-10-17 has it in the language
+	// folder ko\ (SciEngine: SearchMan has it only with language=ko); one
+	// before has it in the game folder, which is the original game played
+	// in another language, so it is left out then.
 	if (Common::File::exists("message.map") && !isKoreanPackPlayedInAnotherLanguage())
 		addSource(new VolumeResourceSource("resource.msg", addExternalMap("message.map"), 0));
 
@@ -1959,7 +1961,9 @@ void ResourceManager::readResourcePatches() {
 				}
 			}
 
-			// The same for a Korean pack's text patch: Korean text is UTF-8,
+			// The same for a Korean pack's text patch (the packs before
+			// 2026-10-17 only; a pack since keeps its patches in ko\, which
+			// another language never reads): Korean text is UTF-8,
 			// so a TEXT patch with a byte above 0x7F is the translation and an
 			// ASCII one is the game's own.
 			if (bAdd && i == kResourceTypeText && isKoreanPackPlayedInAnotherLanguage()) {
@@ -3308,8 +3312,13 @@ bool ResourceManager::messagePatchHasHighBytes(const Common::Path &name) {
 	return false;
 }
 
-// A Korean pack - the original game's files plus SCI-KO.STR, message.map /
+// A Korean pack - the original game's files plus sci-ko.str, message.map /
 // resource.msg and maybe a UTF-8 text patch - started in another language.
+// Only the packs made before 2026-10-17 are found so: they have their Korean
+// files in the game folder. A pack since keeps them in the language folder
+// ko\, which SearchMan has only with language=ko (SciEngine), so in another
+// language the folder is the English game as it is and sci-ko.str is not
+// seen here. Kept for the packs already out; do not remove.
 bool ResourceManager::isKoreanPackPlayedInAnotherLanguage() const {
 	return g_sci && g_sci->getLanguage() != Common::KO_KOR && Common::File::exists("sci-ko.str");
 }

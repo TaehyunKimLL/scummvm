@@ -40,7 +40,8 @@ namespace Agi {
  * string of the current logic's message block) and to an object by its
  * index, so a translation can be keyed by where a string lives and swapped
  * in at load: a longer string shifts nothing. The file is agi-<lang>.str in
- * the game folder (AGI-KO.STR on DOS), UTF-8, one entry per line:
+ * the game folder's language folder <lang>\ (ko\agi-ko.str; the packs before
+ * 2026-10-17 have it in the game folder itself), UTF-8, one entry per line:
  *
  *     m<logic>:<n> TAB text      message n (1-based) of LOGIC.<logic>
  *     o<index> TAB text          inventory object <index> (0-based)

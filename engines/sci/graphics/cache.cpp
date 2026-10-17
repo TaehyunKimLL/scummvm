@@ -364,7 +364,9 @@ GfxFontUnicode *GfxCache::loadUniBundle() {
 		bool ok = false;
 		// A Korean pack played in another language is the original game:
 		// its korean.uni would take every character from the game's font
-		// onto a hi-res plane that is not drawn there.
+		// onto a hi-res plane that is not drawn there. (A pack before
+		// 2026-10-17 only; a pack since has korean.uni in its language folder
+		// ko\, which another language does not read.)
 		const bool skipKorean = _resMan->isKoreanPackPlayedInAnotherLanguage();
 		for (uint i = 0; i < ARRAYSIZE(names) && !ok; i++)
 			if (!(skipKorean && !strcmp(names[i], "korean.uni")))
