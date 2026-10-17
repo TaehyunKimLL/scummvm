@@ -249,6 +249,28 @@ Common::Array<Common::Path> HiResFontMap::searchSetRoots(const Common::SearchSet
 	return roots;
 }
 
+namespace {
+
+// Above 0 while a map loads quietly (HiResMapLoadOptions::quiet): a data:
+// face that is not there is then no news. pickHiResMap() loads every kind's
+// map to choose one; a face missing from a map it passes over is one of its
+// notes, and the map it picks is loaded again, aloud.
+int g_quietResolve = 0;
+
+struct QuietResolve {
+	explicit QuietResolve(bool on) : _on(on) {
+		if (_on)
+			++g_quietResolve;
+	}
+	~QuietResolve() {
+		if (_on)
+			--g_quietResolve;
+	}
+	bool _on;
+};
+
+} // End of anonymous namespace
+
 Common::Path HiResFontMap::resolvePath(const Common::String &value, const Common::Path &baseDir) {
 	if (value.empty())
 		return Common::Path();
@@ -261,7 +283,7 @@ Common::Path HiResFontMap::resolvePath(const Common::String &value, const Common
 			return Common::Path(value);
 		}
 		const Common::Path found = resolveDataPath(relative, dataRoots());
-		if (isDataPath(found.toString('/')))
+		if (isDataPath(found.toString('/')) && !g_quietResolve)
 			warning("HiResText: '%s' is not in the extrapath or any ScummVM data folder", value.c_str());
 		return found;
 	}
@@ -1943,6 +1965,7 @@ bool HiResFontMap::loadMap(Common::SeekableReadStream &stream, const Common::Pat
 	out.loadedFor = options.target;
 
 	const Common::Array<Common::String> expanded = qualifiersForTarget(qualifiers, options.target);
+	const QuietResolve quietResolve(options.quiet);
 	scanHiResSections(ini, expanded, engine, out);
 	buildHiResMap(ini, qualifiers, expanded, mapDir, out);
 
