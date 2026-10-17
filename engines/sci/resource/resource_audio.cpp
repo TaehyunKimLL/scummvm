@@ -1222,15 +1222,23 @@ bool ResourceManager::addAudioSources() {
 	Common::List<ResourceId>::iterator itr;
 
 	for (itr = resources.begin(); itr != resources.end(); ++itr) {
-		const Resource *mapResource = _resMap.getVal(*itr);
-		ResourceSource *src = addSource(new IntMapResourceSource(mapResource->getResourceLocation(), 0, itr->getNumber()));
-
+		// An audio map is a source only with its volume: added without one
+		// (detection, where SearchMan does not have the game folder and
+		// RESOURCE.AUD is not found), its scan warned "Failed to find volume
+		// for map.N" - the fallback detection of every CD game started in a
+		// language its detection entries do not have (a Korean pack's
+		// language=ko on the English Laura Bow 2 / Space Quest 4 CD).
+		const char *volume = nullptr;
 		if (itr->getNumber() == 65535 && Common::File::exists("RESOURCE.SFX"))
-			addSource(new AudioVolumeResourceSource(this, "RESOURCE.SFX", src, 0));
+			volume = "RESOURCE.SFX";
 		else if (Common::File::exists("RESOURCE.AUD"))
-			addSource(new AudioVolumeResourceSource(this, "RESOURCE.AUD", src, 0));
+			volume = "RESOURCE.AUD";
 		else
 			return false;
+
+		const Resource *mapResource = _resMap.getVal(*itr);
+		ResourceSource *src = addSource(new IntMapResourceSource(mapResource->getResourceLocation(), 0, itr->getNumber()));
+		addSource(new AudioVolumeResourceSource(this, volume, src, 0));
 	}
 
 	return true;

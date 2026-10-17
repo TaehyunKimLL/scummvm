@@ -3020,17 +3020,6 @@ static const struct ADGameDescription SciGameDescriptions[] = {
 		AD_LISTEND},
 		Common::KO_KOR, Common::kPlatformDOS, ADGF_CD, GUIO_STD16_SPEECH	},
 
-	// Laura Bow 2 - the same Korean translation as a UTF-8 pack (SCI-KO.STR,
-	// message.map / resource.msg built from the UTF-8 master of the messages;
-	// the row above is the fan patch's CP949 resource.msg). A new translation
-	// release changes resource.msg, and with it this row.
-	{"laurabow2", "CD", {
-		{"resource.map", 0, "a70945e61ba7ac7bfea6b7bd72c6aec5", 7274},
-		{"resource.000", 0, "82578b8d5a7e09c4c58891ca49fae35b", 5598672},
-		{"resource.msg", 0, "1b6c541a7f2545d0464fee2c84d49e8a", 705519},
-		AD_LISTEND},
-		Common::KO_KOR, Common::kPlatformDOS, ADGF_CD | ADGF_UTF8I18N, GUIO_STD16_SPEECH	},
-
 	// Laura Bow 2 - French fan translation, based on English DOS CD
 	// Executable scanning reports "1.001.072", VERSION file reports "1.1"
 	{"laurabow2", "CD", {
@@ -6309,15 +6298,6 @@ static const struct ADGameDescription SciGameDescriptions[] = {
 		{"resource.msg", 0, "6ca82305ba1f8ac1cebdd20427168106", 561801},
 		AD_LISTEND},
 		Common::KO_KOR, Common::kPlatformDOS, ADGF_CD, GUIO5(GAMEOPTION_SQ4_SILVER_CURSORS, GAMEOPTION_PREFER_DIGITAL_SFX, GAMEOPTION_ORIGINAL_SAVELOAD, GAMEOPTION_MIDI_MODE, GAMEOPTION_RGB_RENDERING)	},
-
-	// Space Quest 4 - the same Korean translation as a UTF-8 pack (as Laura
-	// Bow 2's above: resource.msg built from the UTF-8 master of the messages)
-	{"sq4", "", {
-		{"resource.map", 0, "ed90a8e3ccc53af6633ff6ab58392bae", 7054},
-		{"resource.000", 0, "63247e3901ab8963d4eece73747832e0", 5157378},
-		{"resource.msg", 0, "6d94fe07d56404eb05c3d75ebae7cfe7", 179921},
-		AD_LISTEND},
-		Common::KO_KOR, Common::kPlatformDOS, ADGF_CD | ADGF_UTF8I18N, GUIO5(GAMEOPTION_SQ4_SILVER_CURSORS, GAMEOPTION_PREFER_DIGITAL_SFX, GAMEOPTION_ORIGINAL_SAVELOAD, GAMEOPTION_MIDI_MODE, GAMEOPTION_RGB_RENDERING)	},
 
 	// Space Quest 4 - English DOS CD "NRS SQ4 Update 1.2" (unofficial patch)
 	// This patch set was distributed as a mixture the CD and floppy versions (the whole game)
