@@ -212,7 +212,7 @@ coverage, which leaves strokes of uneven width in a small pixel face.
 and the font's own hinting, so a hinted face snaps its stems to whole pixels:
 
 ```sh
-dists/svf-fonts/tools/mkfont.py dists/engine-data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf \
+dists/svf-fonts/tools/mkfont.py dists/svf-fonts/ttf/nanumgothic/NanumGothic-Bold.ttf \
     /tmp/ng17.svf --size 17 --cell 16 --bpp 1 --mono-hint --unicode ascii,ksx1001-hangul
 ```
 

@@ -368,7 +368,7 @@ cat dists/engine-data/engine_data.mk dists/engine-data/engine_data_big.mk dists/
 # Use # as delimiter, %FILE% for the filename
 declare -a distfiles=(
   "dists/engine-data/README#%FILE%:"
-  "dists/engine-data/engine_data_combined.mk#DIST_FILES_LIST \+= dists/engine-data/%FILE%"
+  "dists/engine-data/engine_data_combined.mk#DIST_FILES_LIST \+= dists/(engine-data|svf-fonts/cjk)/%FILE%"
   "dists/irix/scummvm.idb#f 0644 root sys usr/ScummVM/share/scummvm/%FILE% %FILE% scummvm.sw.eoe"
 )
 

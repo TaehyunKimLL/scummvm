@@ -145,7 +145,7 @@ class SupplementBakeTest(unittest.TestCase):
             with open(trs, 'wb') as f:
                 f.write(tf.trs_fix.to_utf8(base, fixes)[0])
             subprocess.run([sys.executable, script, os.path.join(d, 'p.tsv'), '--trs', trs, '--map',
-                            os.path.join(d, 'T.MAP'), '--faces', d], check=True, capture_output=True, text=True)
+                            os.path.join(d, 'T.MAP'), '--faces', d, '-o', d], check=True, capture_output=True, text=True)
             self.assertEqual(sorted(fc.face_chars(os.path.join(d, 'AX.SVF'))), [0xE2, 0x2122])
             with open(os.path.join(d, 'T.MAP')) as f:
                 self.assertEqual(fc.check(fc.bundle_chars([trs]), f.read(), d, presets=('U',), base_check=True), [])
@@ -171,6 +171,28 @@ class JamoSetTest(unittest.TestCase):
                 continue
             with open(os.path.join(MAPS, game), encoding='utf-8') as f:
                 self.assertEqual(fc.check(fc.bundle_chars([path]), f.read(), SHIPPED, base_check=True), [], game)
+
+
+class DefaultFacesTest(unittest.TestCase):
+    def test_faces_default_to_the_svf_fonts_dos_folder_of_the_tree(self):
+        want = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(fc.__file__)),
+                                             '..', '..', 'dists', 'svf-fonts', 'svf', 'dos'))
+        self.assertEqual(os.path.normpath(fc.DEFAULT_FACES), want)
+
+    def test_main_without_faces_looks_in_the_default_folder(self):
+        seen = []
+        orig = fc.check
+        fc.check = lambda cps, text, faces, *a, **k: seen.append(faces) or []
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                m = os.path.join(d, 'X.MAP')
+                open(m, 'w').write('')
+                k = os.path.join(d, 'k.trs')
+                open(k, 'wb').write(tf.trs_fix.to_utf8(tf.bundle([(b'x', b'a')]))[0])
+                fc.main(['--map', m, '--trs', k])
+        finally:
+            fc.check = orig
+        self.assertEqual(os.path.normpath(seen[0]), os.path.normpath(fc.DEFAULT_FACES))
 
 
 if __name__ == '__main__':

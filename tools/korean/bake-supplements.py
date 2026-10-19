@@ -73,11 +73,11 @@ def main(argv=None):
     ap.add_argument('--trs', action='append', required=True)
     ap.add_argument('--map', required=True)
     ap.add_argument('--faces', required=True, help='folder of the base faces')
-    ap.add_argument('-o', '--out', help='folder for the supplements (default: --faces)')
+    ap.add_argument('-o', '--out', required=True, help='folder for the supplements (never implied: --faces is the svf-fonts submodule)')
     ap.add_argument('--fonts', default=os.environ.get('FONTS', os.path.expanduser('~/scummvm-i18n/fonts')))
     ap.add_argument('--check', action='store_true', help='list the characters, bake nothing')
     a = ap.parse_args(argv)
-    out = a.out or a.faces
+    out = a.out
     os.makedirs(out, exist_ok=True)
     with open(a.map, encoding='utf-8', errors='replace') as f:
         map_text = f.read()
