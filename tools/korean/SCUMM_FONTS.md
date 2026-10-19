@@ -426,7 +426,7 @@ are baked from the same plan tables, but from the 2,350 syllables of KS X 1001 r
 text uses:
 
 ```sh
-G=~/work/scummvm/gamedata D=dists/engine-data/hires_text/dos W=/tmp/m1bake
+G=~/work/scummvm/gamedata D=dists/svf-fonts/svf/dos M=dists/engine-data/hires_text/dos W=/tmp/m1bake
 mkdir -p $W
 python3 -c "print(''.join(bytes([h,l]).decode('cp949') for h in range(0xb0,0xc9) for l in range(0xa1,0xff)))" > $W/ks2350.txt
 dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/m1u.tsv $G/mi1ute-kor $D $W/ks2350.txt
@@ -453,10 +453,10 @@ letters). `scumm-fonts/m1x.tsv`, `m2x.tsv` are the plans (supplement, base, TTF,
 
 ```sh
 tools/korean/bake-supplements.py dists/svf-fonts/tools/scumm-fonts/m2x.tsv --trs $G/mi2kor/korean.trs \
-    --map $D/M2KO.MAP --faces $D
+    --map $M/M2KO.MAP --faces $D
 tools/korean/bake-supplements.py dists/svf-fonts/tools/scumm-fonts/m1x.tsv --trs $G/mi1ute-kor/korean.trs \
-    --map $D/M1KO.MAP --faces $D
-tools/korean/facecoverage.py --trs $G/mi2kor/korean.trs --map $D/M2KO.MAP --base-check   # exit 0, or what is missing
+    --map $M/M1KO.MAP --faces $D
+tools/korean/facecoverage.py --trs $G/mi2kor/korean.trs --map $M/M2KO.MAP --base-check   # exit 0, or what is missing
 ```
 
 Source fonts: the supplement is baked from the face the base came from where that face has the glyph. The U
@@ -480,15 +480,15 @@ face, the `[glyphs]` and `missing=` targets, ASCII) and shipped next to the maps
 or a map changes:
 
 ```sh
-G=~/work/scummvm/gamedata; D=dists/engine-data/hires_text/dos
+G=~/work/scummvm/gamedata; D=dists/svf-fonts/svf/dos M=dists/engine-data/hires_text/dos
 tools/korean/charsetchars.py $G/mi2kor --v5 monkey2 --trs $G/mi2kor/korean.trs -o /tmp/mi2.json \
-    --map $D/M2KO.MAP --preset U --hot-faces card,card7,card8 --hot-dir $D
+    --map $M/M2KO.MAP --preset U --hot-faces card,card7,card8 --hot-dir $D
 # MI1: the Ultimate Talkie text and the floppy text (mi1kor, no bundle: the scripts' own CP949) share GBATB17B
 tools/korean/charsetchars.py <UTE game folder with MONKEY.000> --v5 MONKEY --trs $G/mi1ute-kor/korean.trs -o /tmp/mi1ute.json
 tools/korean/charsetchars.py $G/mi1kor -o /tmp/mi1dumb.json
 tools/korean/charsetchars.py --from-json /tmp/mi1ute.json /tmp/mi1dumb.json \
-    --map $D/M1KO.MAP --preset U --hot-faces cs4 --hot-dir $D
-tools/korean/facecoverage.py --trs $G/mi2kor/korean.trs --map $D/M2KO.MAP --hot $D   # list sizes and coverage (informational)
+    --map $M/M1KO.MAP --preset U --hot-faces cs4 --hot-dir $D
+tools/korean/facecoverage.py --trs $G/mi2kor/korean.trs --map $M/M2KO.MAP --hot $D   # list sizes and coverage (informational)
 ```
 
 The sets are conservative supersets (a script reached in several charsets counts for all), so a list is longer than
@@ -508,14 +508,14 @@ The Indiana Jones 3 and 4 SVFs (`I3KO.MAP`, `I4KO.MAP`) are baked from each
 game's own `korean.trs` the same way:
 
 ```sh
-G=~/work/scummvm/gamedata D=dists/engine-data/hires_text/dos
+G=~/work/scummvm/gamedata D=dists/svf-fonts/svf/dos M=dists/engine-data/hires_text/dos
 printf '\xe2\x80\xa6\n' > ellipsis.txt
 # Indy3: the map's only remap target is U+2026 (0x60 becomes U+0022, ASCII).
-dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/i3u.tsv $G/indy3kor $D $G/indy3kor/korean.trs $D/I3KO.MAP 2026
-dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/i3l.tsv $G/indy3kor $D $G/indy3kor/korean.trs $D/I3KO.MAP 2026
+dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/i3u.tsv $G/indy3kor $D $G/indy3kor/korean.trs $M/I3KO.MAP 2026
+dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/i3l.tsv $G/indy3kor $D $G/indy3kor/korean.trs $M/I3KO.MAP 2026
 # Indy4: U takes U+2026 and U+2122; L the ellipsis alone (neodgm has no U+2122,
 # and clut8 keeps the game's own 0x0f).
-dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/i4u.tsv $G/indy4kor $D $G/indy4kor/korean.trs $D/I4KO.MAP 2026,2122
+dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/i4u.tsv $G/indy4kor $D $G/indy4kor/korean.trs $M/I4KO.MAP 2026,2122
 dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/i4l.tsv $G/indy4kor $D $G/indy4kor/korean.trs ellipsis.txt 2026
 ```
 
@@ -531,18 +531,18 @@ Mansion and Zak McKracken left it: they draw with `SANGAM16.SVF`, below.) Every
 SVF comes out byte for byte from these commands:
 
 ```sh
-G=~/work/scummvm/gamedata D=dists/engine-data/hires_text/dos
+G=~/work/scummvm/gamedata D=dists/svf-fonts/svf/dos M=dists/engine-data/hires_text/dos
 P=dists/svf-fonts/tools/scumm-fonts
 printf '\xe2\x80\xa6\n' > ellipsis.txt
 # Loom: charsets 1 and 2. U also takes (TM) and (C) from the map (0x0f, 0x3d); L keeps the
 # game's 0x0f and only needs the ellipsis.
-dists/svf-fonts/tools/bake-scumm-fonts.sh $P/loomu.tsv $G/loomkor $D $G/loomkor/korean.trs $D/LOOMKO.MAP 2026,2122,a9
+dists/svf-fonts/tools/bake-scumm-fonts.sh $P/loomu.tsv $G/loomkor $D $G/loomkor/korean.trs $M/LOOMKO.MAP 2026,2122,a9
 dists/svf-fonts/tools/bake-scumm-fonts.sh $P/looml.tsv $G/loomkor $D $G/loomkor/korean.trs ellipsis.txt 2026
 # DOTT: no .trs (the Korean text is inside TENTACLE.00N), so the bake covers every KS X 1001
 # syllable (2350). scummtext.py reads TENTACLE.00N too, but it is only a reference here.
 python3 -c "print(''.join(bytes([h,l]).decode('cp949') for h in range(0xb0,0xc9) for l in range(0xa1,0xff)))" > dott-all.txt
-dists/svf-fonts/tools/bake-scumm-fonts.sh $P/dottu.tsv "$G/dott/Day Of the Tentacle (DOS Floppy)" $D dott-all.txt $D/DOTTKO.MAP
-dists/svf-fonts/tools/bake-scumm-fonts.sh $P/dottl.tsv "$G/dott/Day Of the Tentacle (DOS Floppy)" $D dott-all.txt $D/DOTTKO.MAP
+dists/svf-fonts/tools/bake-scumm-fonts.sh $P/dottu.tsv "$G/dott/Day Of the Tentacle (DOS Floppy)" $D dott-all.txt $M/DOTTKO.MAP
+dists/svf-fonts/tools/bake-scumm-fonts.sh $P/dottl.tsv "$G/dott/Day Of the Tentacle (DOS Floppy)" $D dott-all.txt $M/DOTTKO.MAP
 ```
 
 The shipped DOTT, MI1 and MI2 L faces are not these bakes as they come out of
@@ -560,7 +560,7 @@ are since written from a DOS jamo set, below, and the L2 faces are a hinted Nanu
 a hinted 17 px TrueType face is not an OR of 8x4x4 pieces, jamoset --from-svf measures IoU 0.81 on NGOTB17). Run it after the L bakes above, with the same `$D`:
 
 ```sh
-D=dists/engine-data/hires_text/dos
+D=dists/svf-fonts/svf/dos M=dists/engine-data/hires_text/dos
 for f in NEODG32A NEODG16A NEODG16F NEODG16E NEODG16D NEODG32 NEODG16C NEODG16B; do
   python3 dists/svf-fonts/tools/jamoset.py --from-svf $D/$f.SVF --layout 844 -o /tmp/$f.jamo.SVF \
     --report /tmp/$f.json && mv /tmp/$f.jamo.SVF $D/$f.SVF

@@ -524,7 +524,7 @@ the result" 이하)를 그대로 쓴다 — SCI 전용 테스트 스크립트는
   14-20행) 가져오고, `--lb1-zip`(기본 최신 `dist/scummvm-dos-sci-lb1-*.zip`)
   에서 여러 패키지 공통 파일(`CWSDPMI.DOC`, `COPYING`, `SDL3.TXT`,
   `HELP.TXT`, `VERSION.TXT`)을 재사용한다. 맵(`LB2KO.MAP`)과
-  공유 폰트는 `dos/dists/engine-data/hires_text/dos`에서 읽기 전용으로
+  공유 폰트는 `dists/svf-fonts/svf/dos`(맵은 `dists/engine-data/hires_text/dos`)에서 읽기 전용으로
   가져온다(22-30행). 레이아웃은 "한국어 전용, `GAMES/LB2KO`" 한 가지로
   고정 — 영문판을 따로 안 두는 이유가 스크립트 docstring에 설명돼 있다
   (35-40행: RESOURCE.MAP/RESOURCE.000을 영문·한국어가 공유하므로 한

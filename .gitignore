@@ -316,3 +316,8 @@ __pycache__/
 #Ignore Claude instruction files
 CLAUDE.md
 .claude
+
+# Faces belong to the svf-fonts submodule (dists/svf-fonts); a bake must not leave them beside the maps
+/dists/engine-data/hires_text/dos/*.SVF
+/dists/engine-data/hires_text/dos/*.TXT
+/dists/engine-data/hires_text/jamo-extra/
