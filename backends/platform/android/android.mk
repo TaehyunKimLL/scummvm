@@ -54,8 +54,8 @@ $(PATH_BUILD_ASSETS)/MD5SUMS: config.mk $(DIST_FILES_THEMES) $(DIST_FILES_ENGINE
 	# in the APK's assets when no data folder or game folder holds it.
 	rm -rf $(PATH_BUILD_ASSETS)/assets/hires_text
 	for d in $(DIST_DIRS_HIRES_TEXT); do \
-		$(INSTALL) -d $(PATH_BUILD_ASSETS)/assets/$$d; \
-		find $(srcdir)/dists/engine-data/$$d -maxdepth 1 -type f -exec $(INSTALL) -c -m 644 {} $(PATH_BUILD_ASSETS)/assets/$$d/ \; ; \
+		$(INSTALL) -d $(PATH_BUILD_ASSETS)/assets/$${d#*:}; \
+		find $(srcdir)/$${d%%:*} -maxdepth 1 -type f -exec $(INSTALL) -c -m 644 {} $(PATH_BUILD_ASSETS)/assets/$${d#*:}/ \; ; \
 	done
 ifneq ($(DIST_FILES_SHADERS),)
 	$(INSTALL) -d $(PATH_BUILD_ASSETS)/assets/shaders

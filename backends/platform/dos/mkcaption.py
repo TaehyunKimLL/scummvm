@@ -8,7 +8,7 @@ package ships) with the font's own advances, trims it to its ink and
 writes it as a C array, MSB first, rows padded to a byte.
 
     python3 backends/platform/dos/mkcaption.py \
-        dists/engine-data/hires_text/dos/NEODG16.SVF > backends/platform/dos/loading-caption.h
+        dists/svf-fonts/svf/dos/NEODG16.SVF > backends/platform/dos/loading-caption.h
 """
 import struct
 import sys

@@ -89,7 +89,7 @@ ls -l scummvm
 echo
 echo "Next:"
 echo "  1. put your Korean game folder somewhere, with its korean*.fnt files"
-echo "  2. bake replacement fonts:  tools/korean/bakecells.sh <game-folder> 2"
+echo "  2. bake replacement fonts:  dists/svf-fonts/tools/bakecells.sh <game-folder> 2"
 echo "  3. generate the map:        python3 tools/korean/makemaps.py <game-folder>"
 echo "     (it writes <game-folder>/HIRESTXT.MAP, which the game reads by itself)"
 echo "  4. add the game in ScummVM; an 8-bit screen with the map's 8-bit fonts is"

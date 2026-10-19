@@ -41,7 +41,7 @@ private:
 	};
 
 	/**
-	 * A version 2, 16x16, 1 bpp SVFN as tools/korean/jamoset.py lays it out (header, code point table, JSET when
+	 * A version 2, 16x16, 1 bpp SVFN as dists/svf-fonts/tools/jamoset.py lays it out (header, code point table, JSET when
 	 * @p jset is not empty, metrics, glyphs), with header bytes 17/18 = @p dyMin / @p dyMax.
 	 * @p metrics false: no metrics table (and no proportional flag).
 	 */

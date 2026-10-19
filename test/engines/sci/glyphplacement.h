@@ -472,7 +472,7 @@ public:
 	void test_ko2350_ambiguous_symbols_advance_as_drawn() {
 #if NULL_OSYSTEM_IS_AVAILABLE
 		Common::install_null_g_system();
-		const Common::FSNode node(Common::Path(HiResTestFonts::srcDir() + "/dists/engine-data/hires_text/dos/NEODG16.SVF", '/'));
+		const Common::FSNode node(Common::Path(HiResTestFonts::srcDir() + "/dists/svf-fonts/svf/dos/NEODG16.SVF", '/'));
 		Common::SeekableReadStream *stream = node.exists() ? node.createReadStream() : nullptr;
 		Graphics::HiResBitmapFont font;
 		const bool loaded = stream && font.load(*stream);

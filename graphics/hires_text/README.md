@@ -297,6 +297,8 @@ wanted. `fc-scan` or FreeType's `ftdump` list a collection's faces.
 
 ## Bitmap fonts (G2)
 
+The format is specified in `dists/svf-fonts/spec/SVF.md`; this section is how the engine reads it.
+
 `HiResBitmapFont` reads the "SVFN" bitmap font format: 1bpp stencil, or 8bpp or
 2bpp coverage, optional per-glyph metrics. The coverage forms carry anti-aliased
 shapes baked by a tool, so a build without FreeType renders the same glyphs; that
@@ -411,115 +413,11 @@ the face has), `preloaded` (of those, read at open), `misses` (lookups that were
 hits) and `listevict` (listed glyphs pushed out since); `hits`, `reads` and `read`
 count as before from the first draw on, the preload's own reads included in `reads`.
 
-### Jamo-set fonts (flags bit 1)
+### Jamo-set fonts and per-glyph dy
 
-A face holding every syllable precomposed is large (DOTT's 1bpp faces total
-1,954 KB); a DOS Hangul system held positional jamo pieces and drew a syllable
-as the OR of two or three. An SVFN v2 whose header flags carry bit 1 (0x2)
-is such a font: its code point table is followed immediately by a **JSET**
-block, and `createSvfnSource()` returns a `JamoGlyphSource` for it, so a map
-names the file like any face (`ui=data:DOTTJ0.SVF`). An older reader ignores
-the bit and the block and sees a plain font.
-
-- The pieces are glyphs at code point U+F0000 + piece number (plane 15, private
-  use). The numbers are the font's own; the JSET tables name them.
-- Any other glyph (ASCII, symbols, compatibility jamo stored whole) is looked
-  up as in any SVFN.
-- The block ends where the next table the header names begins (metrics table
-  or glyph data), or at the end of the file; its length must equal what its
-  counts give. A block that fails validation (counts, classes, sets out of
-  range, a length that does not add up, a piece number with no glyph) makes
-  the font load as a plain SVFN with one warning naming the file.
-- U+AC00..U+D7A3 are composed from the pieces by the maximum coverage at each
-  pixel (the OR of a 1bpp stencil; 2bpp and 8bpp work too); U+3131..U+3163 with
-  a compatPiece are that piece alone. A syllable is two cells wide.
-
-JSET block, little-endian:
-
-```
-4  "JSET"
-2  version (1)
-1  LC  lead classes   (1..12)
-1  TC  tail classes   (1..12)
-1  NI  initial sets   (1..24)
-1  NM  medial sets    (1..16)
-1  NF  final sets     (1..16)
-1  advance            syllable advance in px; 0 = the cell width
-19 leadClass[19]      class of each initial (ㄱ..ㅎ), < LC
-28 tailClass[28]      class of each tail, index 0 = no tail, < TC
-LC*21*TC initSet      set of the initial for (leadClass, vowel, tailClass), < NI
-LC*21*TC medSet       set of the medial
-LC*21*TC finSet       set of the final (read only when tail != 0)
-NI*19 u16 initPiece   piece number per (set, initial); 0xFFFF = blank
-NM*21 u16 medPiece    per (set, vowel)
-NF*27 u16 finPiece    per (set, tail 1..27)
-51 u16 compatPiece    U+3131..U+3163 drawn from one piece; 0xFFFF = not by piece
-```
-
-The three set tables are indexed `(leadClass * 21 + vowel) * TC + tailClass`
-(vowel 0..20 in Unicode order, ㅏ..ㅣ); a piece table is indexed
-`set * 19 + initial`, `set * 21 + vowel`, `set * 27 + tail - 1`. A final set
-is validated and read only for tail classes some tail 1..27 belongs to. The
-DOS set systems (8x4x4, 10x4x4, hanterm's 10x(3|4)x4, 6x2x1, the Dokkaebi
-printer sets, Kyra's jamo-major order, and the Mac HangulTalk 1.0 'fbit' fonts with their 8 lead classes and
-20 initial sets) are all expressible; `tools/korean/jamoset.py`
-writes such fonts, also at 2 bpp from an outline font (`--bpp 2`, anti-aliased
-pieces composed by the maximum) and with set systems fitted to the font
-(`--layout adaptive`, up to the limits above).
-
-The class limits were 8 and 8 until 2026-10 (largest block 6641 bytes); they
-are 12 and 12 now (11681 bytes), with the version still 1 since the layout did
-not change. An engine built before that rejects a block with more than 8
-classes of either kind (the font then loads as a plain SVFN, its syllables
-from the next source), so faces with 9..12 classes need a current engine;
-every older face loads unchanged.
-
-### Per-glyph dy (header bytes 17 and 18, metrics byte 3)
-
-The SVFN header, little-endian (version 2 adds bytes 32..35):
-
-```
-0  "SVFN"      4  u16 version (1, 2)   6  u16 flags (bit 0 metrics table, bit 1 JSET, bit 2 marks at origin)
-8  bpp (1, 2, 8)   9  shadow   10 u16 code page   12 u16 glyphs   14 cell width   15 cell height
-16 ascent (baseline row)   17 dy_min (int8, <= 0)   18 dy_max (int8, >= 0)   19 unused (0)
-20 u32 metrics offset   24 u32 glyph data offset   28 u32 glyph data size   32 u32 code point table offset (v2)
-```
-
-A metrics entry is 4 bytes: advance, left bearing (int8), ink width, and **dy**
-(int8): the glyph is drawn `dy` rows below its cell position (negative: above),
-`dy_min <= dy <= dy_max`. The glyph's rows are stored in the cell as always; dy
-only moves where they are drawn, and ink that then lies outside the cell is
-drawn, not clipped. A Latin face whose letters must stand on a Hangul baseline
-near the bottom of the cell stores them high enough for their descenders and
-draws them lower by dy (`tools/korean/svfdy.py` sets it; `jamoset.py` reads and
-keeps it).
-
-- Every file written before this had a meaning holds 0 in all of these bytes,
-  and draws exactly as before. An engine that predates it ignores them: every
-  glyph is drawn at its cell position (a face that uses dy should say so where
-  it ships).
-- Only a font with a metrics table has a dy per glyph. A range given without
-  one, a range with `dy_min > 0` or `dy_max < 0`, or one reaching more than the
-  cell height above or below the cell is ignored with a warning (dy 0 for
-  every glyph). A glyph whose dy lies outside the range is drawn at dy 0; one
-  warning at load counts them.
-- `GlyphMetrics::dy` is the glyph's dy, `bearingY` (baseline to the top of the
-  stored glyph as drawn) is `ascent - dy`. The cell keeps its meaning:
-  `baselineRow()`, the face chain layout, line heights and the cell-height
-  checks of a map all use the cell, not the range.
-- Buffer rule: `UnicodeGlyphSource::inkRowsAbove()` / `inkRowsBelow()` are
-  `-dy_min` / `dy_max` (0 for every other source; a chain takes the largest of
-  its faces, a `NormalizedGlyphSource` what leaves its own cell). `row(cp, y)`
-  answers `y` from `-inkRowsAbove()` to `cellHeight() + inkRowsBelow() - 1`,
-  the glyph already moved by its dy; a drawer sizes its glyph buffer once per
-  face as `inkRowsAbove() + cellHeight() + inkRowsBelow()` rows and draws it
-  `inkRowsAbove()` rows above the cell top (a null row outside the cell is
-  blank). SCUMM (a vertical mirror turns the glyph within its cell), SCI, AGI
-  (within its 16-row box), AGS and `HiResGlyphRenderer::drawGlyph(font)` do;
-  SCI's placement path still clips to the text line, and Grim draws the cell
-  rows only (the glyph moved, clipped to the cell).
-- A jamo-set face composes its syllables at dy 0; a piece must not carry a dy
-  (`jamoset.py check` refuses one). Its other glyphs (Latin) may.
+The SVFN format itself - the header, the metrics and code point tables, jamo sets (flags bit 1) and the per-glyph
+vertical delta - is specified in the svf-fonts submodule, `dists/svf-fonts/spec/SVF.md`, which also holds the
+faces and the tools that write them (`dists/svf-fonts/tools/jamoset.py`, `mkfont.py`, `svfdy.py`).
 
 ## Glyph rendering (G3)
 
@@ -737,7 +635,7 @@ load time would cost what the probe budget forbids, and a false positive
 would move ordinary faces. The key is explicit; `runs/c25/coverage.py` in the
 harness reports a face's grid.
 
-A pixel font baked to SVFN with `tools/korean/mkfont.py --unicode` (version 2,
+A pixel font baked to SVFN with `dists/svf-fonts/tools/mkfont.py --unicode` (version 2,
 every code point it draws) is the same bitmap for a build without FreeType.
 
 TrueType is a convenience: everything it produces can be baked ahead of time,

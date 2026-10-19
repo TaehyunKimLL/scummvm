@@ -67,10 +67,12 @@ hadesch_translations.dat:
 This file contains essential data for Hadesch Challenge game.
 
 hires_text/:
-Free fonts (SIL OFL 1.1) and example maps for hi-res game text
-(graphics/hires_text). A hires_text.map names them as "data:hires_text/...".
-Installed with their folders; each font keeps its licence file next to it.
-Authors, licences and sources are in hires_text/fonts/FONTS.md.
+Maps for hi-res game text (graphics/hires_text). A hires_text.map names its
+fonts as "data:hires_text/...". The fonts themselves (SVF faces, the TrueType
+families of hires_text/fonts/ - a link into it - and the Korean fonts-cjk.dat)
+are in the svf-fonts submodule, dists/svf-fonts; installed with their folders,
+each font with its licence file. Authors, licences and sources:
+dists/svf-fonts/ttf/FONTS.md and the .TXT files in dists/svf-fonts/svf/dos.
 
 helpdialog.zip:
 This file contains images for Help Dialog.

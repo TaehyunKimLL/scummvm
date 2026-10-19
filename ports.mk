@@ -28,8 +28,8 @@ endif
 # their folders, so a map can name a font "data:hires_text/fonts/<family>/<file>".
 ifdef USE_FREETYPE2
 	for d in $(DIST_DIRS_HIRES_TEXT); do \
-		$(INSTALL) -d "$(DESTDIR)$(datadir)/$$d"; \
-		$(INSTALL) -c -m 644 $(srcdir)/dists/engine-data/$$d/*.* "$(DESTDIR)$(datadir)/$$d"; \
+		$(INSTALL) -d "$(DESTDIR)$(datadir)/$${d#*:}"; \
+		$(INSTALL) -c -m 644 $(srcdir)/$${d%%:*}/*.* "$(DESTDIR)$(datadir)/$${d#*:}"; \
 	done
 endif
 

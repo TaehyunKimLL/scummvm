@@ -119,8 +119,8 @@ class HotReportTest(unittest.TestCase):
             self.assertEqual(fc.hot_report(text, MAP, d, os.path.join(d, 'none'), ('U',)), [])
 
 
-NEODGM = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'dists', 'engine-data', 'hires_text', 'fonts',
-                      'neodgm', 'neodgm.ttf')
+NEODGM = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'dists', 'svf-fonts', 'ttf', 'neodgm',
+                      'neodgm.ttf')
 DEJAVU = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 
 
@@ -151,7 +151,8 @@ class SupplementBakeTest(unittest.TestCase):
                 self.assertEqual(fc.check(fc.bundle_chars([trs]), f.read(), d, presets=('U',), base_check=True), [])
 
 
-SHIPPED = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'dists', 'engine-data', 'hires_text', 'dos')
+MAPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'dists', 'engine-data', 'hires_text', 'dos')
+SHIPPED = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'dists', 'svf-fonts', 'svf', 'dos')
 
 
 @unittest.skipUnless(os.path.exists(os.path.join(SHIPPED, 'NEODG16B.SVF')), 'shipped faces not there')
@@ -168,7 +169,7 @@ class JamoSetTest(unittest.TestCase):
             path = os.path.join(os.path.expanduser('~/work/scummvm/gamedata'), trs, 'korean.trs')
             if not os.path.exists(path):
                 continue
-            with open(os.path.join(SHIPPED, game), encoding='utf-8') as f:
+            with open(os.path.join(MAPS, game), encoding='utf-8') as f:
                 self.assertEqual(fc.check(fc.bundle_chars([path]), f.read(), SHIPPED, base_check=True), [], game)
 
 

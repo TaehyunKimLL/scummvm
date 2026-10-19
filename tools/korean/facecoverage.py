@@ -28,6 +28,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# jamoset, mkfont: the font tools of the svf-fonts submodule
+sys.path.insert(1, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'dists', 'svf-fonts', 'tools'))
 import jamoset  # noqa: E402
 import mkfont  # noqa: E402
 

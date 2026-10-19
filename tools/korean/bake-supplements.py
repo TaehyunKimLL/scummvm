@@ -27,6 +27,10 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# jamoset, mkfont: the font tools of the svf-fonts submodule
+SVF_TOOLS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'dists', 'svf-fonts',
+                         'tools')
+sys.path.insert(1, SVF_TOOLS)
 import facecoverage as fc  # noqa: E402
 import jamoset  # noqa: E402
 
@@ -95,7 +99,7 @@ def main(argv=None):
             t.write(''.join(chr(c) for c in want) + '\n')
         try:
             main_ttf, _, fallback = ttf.partition('|')
-            cmd = [sys.executable, os.path.join(here, 'mkfont.py'), main_ttf.replace('$FONTS', a.fonts),
+            cmd = [sys.executable, os.path.join(SVF_TOOLS, 'mkfont.py'), main_ttf.replace('$FONTS', a.fonts),
                    os.path.join(out, name), '--size', str(size), '--cell', str(svf.cell_h), '--width',
                    str(svf.cell_w), '--bpp', str(svf.bpp), '--clip-cell', '--ascent', str(svf.ascent),
                    '--only-listed', '--chars-from', t.name,

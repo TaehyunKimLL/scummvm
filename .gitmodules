@@ -1,0 +1,3 @@
+[submodule "dists/svf-fonts"]
+	path = dists/svf-fonts
+	url = https://github.com/TaehyunKimLL/svf-fonts.git

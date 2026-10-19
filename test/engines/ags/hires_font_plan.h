@@ -252,8 +252,8 @@ public:
 
 	void test_scaled_pixel_face_opens_at_n_times_the_small_ppem() {
 #if defined(USE_FREETYPE2) && NULL_OSYSTEM_IS_AVAILABLE
-		// The Galmuri9 pixel face committed with the engine data.
-		const Common::String path = HiResTestFonts::srcDir() + "/dists/engine-data/hires_text/fonts/galmuri/Galmuri9.ttf";
+		// The Galmuri9 pixel face of the svf-fonts submodule.
+		const Common::String path = HiResTestFonts::srcDir() + "/dists/svf-fonts/ttf/galmuri/Galmuri9.ttf";
 		if (!Common::FSNode(Common::Path(path, '/')).exists()) {
 			TS_SKIP("Galmuri9.ttf not found in the source tree");
 			return;

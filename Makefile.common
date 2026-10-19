@@ -439,11 +439,15 @@ DIST_FILES_ENGINEDATA_BIG:=$(addprefix $(srcdir)/,$(DIST_FILES_ENGINEDATA_BASE_B
 # install-data (ports.mk) and into the Android assets. The TrueType fonts the
 # maps name (hires_text/fonts/<family>/, with their licences) ship apart, as
 # the TTF font pack; HIRES_TEXT_FONTS=1 puts them back into the binaries.
+# Each entry is <folder under $(srcdir)>:<folder it is installed as>. The fonts
+# come from the svf-fonts submodule (dists/svf-fonts/ttf/<family>); its
+# ttf/candidates/ (faces no map uses yet) is never installed.
 DIST_DIRS_HIRES_TEXT=
 ifdef USE_FREETYPE2
-DIST_DIRS_HIRES_TEXT:=hires_text/maps
+DIST_DIRS_HIRES_TEXT:=dists/engine-data/hires_text/maps:hires_text/maps
 ifeq ($(HIRES_TEXT_FONTS),1)
-DIST_DIRS_HIRES_TEXT+=hires_text/fonts $(patsubst $(srcdir)/dists/engine-data/%/,%,$(sort $(dir $(wildcard $(srcdir)/dists/engine-data/hires_text/fonts/*/*))))
+HIRES_TEXT_FONT_FAMILIES:=$(filter-out candidates,$(patsubst $(srcdir)/dists/svf-fonts/ttf/%/,%,$(sort $(dir $(wildcard $(srcdir)/dists/svf-fonts/ttf/*/*)))))
+DIST_DIRS_HIRES_TEXT+=dists/svf-fonts/ttf:hires_text/fonts $(foreach f,$(HIRES_TEXT_FONT_FAMILIES),dists/svf-fonts/ttf/$(f):hires_text/fonts/$(f))
 endif
 endif
 

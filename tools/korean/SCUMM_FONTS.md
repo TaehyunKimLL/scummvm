@@ -157,7 +157,7 @@ jamo-set faces. KQ4KO, MMKO and ZAKKO name `SANGAM16.SVF` directly (no chain).
 
 ## Extra jamo faces from composite-glyph fonts (`jamo-extra/`, pack `jamo-ko2`)
 
-`dists/engine-data/hires_text/jamo-extra/` holds 42 jamo-set faces that no game map names yet (the maps pick them by
+`dists/svf-fonts/svf/jamo-extra/` holds 42 jamo-set faces that no game map names yet (the maps pick them by
 `[fonts] name=FILE`; the engine zip and `jamo-ko1` do not carry them). `FACES.TSV` there is the table (family, px,
 bpp, sets, quality, licence, baselines); `build_font_pack.py --pack jamo-ko2` packs the folder with its README
 `FONTKO2.TXT`. Names are `<stem><px>[A].SVF`: `A` = 2 bpp anti-aliased, none = 1 bpp (GOTHA16 = Gothic A1 16 px 1 bpp,
@@ -232,7 +232,7 @@ A `.trs` (SCVMTRS bundle - `engines/scumm/trs_bundle.h`, content rules in
 `--chars-from` input, picked by its `.trs` extension:
 
 ```sh
-tools/korean/mkfont.py NanumGothic-Bold.ttf out.svf --size 16 --bpp 2 \
+dists/svf-fonts/tools/mkfont.py NanumGothic-Bold.ttf out.svf --size 16 --bpp 2 \
     --clip-cell --unicode ascii --chars-from korean.trs \
     --limit ascii,ksx1001-nohanja --require
 ```
@@ -352,7 +352,7 @@ happens to need.
 ## `bake-scumm-fonts.sh`: baking a game's charsets from a plan table
 
 ```sh
-tools/korean/bake-scumm-fonts.sh plan.tsv ~/games/mi2kor /out/dir chars.txt
+dists/svf-fonts/tools/bake-scumm-fonts.sh plan.tsv ~/games/mi2kor /out/dir chars.txt
 ```
 
 `plan.tsv` is tab-separated, one output font per line:
@@ -364,8 +364,8 @@ tools/korean/bake-scumm-fonts.sh plan.tsv ~/games/mi2kor /out/dir chars.txt
 The `<ttf path>` may start with `$FONTS`, written literally in the plan. The
 script replaces it with the `FONTS` environment variable, default
 `~/scummvm-i18n/fonts` (nothing else is expanded, so a plan cannot run
-code). The plans in `tools/korean/scumm-fonts/` use it, so they work
-wherever the fonts are: `FONTS=/data/fonts tools/korean/bake-scumm-fonts.sh ...`.
+code). The plans in `dists/svf-fonts/tools/scumm-fonts/` use it, so they work
+wherever the fonts are: `FONTS=/data/fonts dists/svf-fonts/tools/bake-scumm-fonts.sh ...`.
 
 `<charset>` is the SCUMM charset number
 (`engines/scumm/charset.cpp::loadKorFont()`/`loadCJKCells()`:
@@ -401,7 +401,7 @@ targets - a `[glyphs]` entry that points an in-game byte at a real Unicode
 code point (`0x5e = u+2026`, say), rather than at the game's own glyph:
 
 ```sh
-tools/korean/bake-scumm-fonts.sh plan.tsv ~/games/mi2kor /out/dir chars.txt \
+dists/svf-fonts/tools/bake-scumm-fonts.sh plan.tsv ~/games/mi2kor /out/dir chars.txt \
     HIRESTXT.MAP 2026
 ```
 
@@ -429,12 +429,12 @@ text uses:
 G=~/work/scummvm/gamedata D=dists/engine-data/hires_text/dos W=/tmp/m1bake
 mkdir -p $W
 python3 -c "print(''.join(bytes([h,l]).decode('cp949') for h in range(0xb0,0xc9) for l in range(0xa1,0xff)))" > $W/ks2350.txt
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1u.tsv $G/mi1ute-kor $D $W/ks2350.txt
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m2u.tsv $G/mi2kor $D $W/ks2350.txt
+dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/m1u.tsv $G/mi1ute-kor $D $W/ks2350.txt
+dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/m2u.tsv $G/mi2kor $D $W/ks2350.txt
 # L: bake into $W and copy only NGOTB17 (both plans write the same file); NEODG16C/NEODG16B are the neodgm jamo sets
 # (jamoset --from-svf, below), TBGOB24/TBMY24 the Taebaek ones.
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m1l.tsv $G/mi1ute-kor $W $W/ks2350.txt
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/m2l.tsv $G/mi2kor $W $W/ks2350.txt
+dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/m1l.tsv $G/mi1ute-kor $W $W/ks2350.txt
+dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/m2l.tsv $G/mi2kor $W $W/ks2350.txt
 cp $W/NGOTB17.SVF $D/
 ```
 
@@ -452,9 +452,9 @@ that lacks nothing gets none (the Taebaek and neodgm jamo sets of MI1; the 24 px
 letters). `scumm-fonts/m1x.tsv`, `m2x.tsv` are the plans (supplement, base, TTF, size, flags):
 
 ```sh
-tools/korean/bake-supplements.py tools/korean/scumm-fonts/m2x.tsv --trs $G/mi2kor/korean.trs \
+tools/korean/bake-supplements.py dists/svf-fonts/tools/scumm-fonts/m2x.tsv --trs $G/mi2kor/korean.trs \
     --map $D/M2KO.MAP --faces $D
-tools/korean/bake-supplements.py tools/korean/scumm-fonts/m1x.tsv --trs $G/mi1ute-kor/korean.trs \
+tools/korean/bake-supplements.py dists/svf-fonts/tools/scumm-fonts/m1x.tsv --trs $G/mi1ute-kor/korean.trs \
     --map $D/M1KO.MAP --faces $D
 tools/korean/facecoverage.py --trs $G/mi2kor/korean.trs --map $D/M2KO.MAP --base-check   # exit 0, or what is missing
 ```
@@ -511,12 +511,12 @@ game's own `korean.trs` the same way:
 G=~/work/scummvm/gamedata D=dists/engine-data/hires_text/dos
 printf '\xe2\x80\xa6\n' > ellipsis.txt
 # Indy3: the map's only remap target is U+2026 (0x60 becomes U+0022, ASCII).
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/i3u.tsv $G/indy3kor $D $G/indy3kor/korean.trs $D/I3KO.MAP 2026
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/i3l.tsv $G/indy3kor $D $G/indy3kor/korean.trs $D/I3KO.MAP 2026
+dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/i3u.tsv $G/indy3kor $D $G/indy3kor/korean.trs $D/I3KO.MAP 2026
+dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/i3l.tsv $G/indy3kor $D $G/indy3kor/korean.trs $D/I3KO.MAP 2026
 # Indy4: U takes U+2026 and U+2122; L the ellipsis alone (neodgm has no U+2122,
 # and clut8 keeps the game's own 0x0f).
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/i4u.tsv $G/indy4kor $D $G/indy4kor/korean.trs $D/I4KO.MAP 2026,2122
-tools/korean/bake-scumm-fonts.sh tools/korean/scumm-fonts/i4l.tsv $G/indy4kor $D $G/indy4kor/korean.trs ellipsis.txt 2026
+dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/i4u.tsv $G/indy4kor $D $G/indy4kor/korean.trs $D/I4KO.MAP 2026,2122
+dists/svf-fonts/tools/bake-scumm-fonts.sh dists/svf-fonts/tools/scumm-fonts/i4l.tsv $G/indy4kor $D $G/indy4kor/korean.trs ellipsis.txt 2026
 ```
 
 The Indy4 `korean.trs` these were baked from has seven translated lines
@@ -532,17 +532,17 @@ SVF comes out byte for byte from these commands:
 
 ```sh
 G=~/work/scummvm/gamedata D=dists/engine-data/hires_text/dos
-P=tools/korean/scumm-fonts
+P=dists/svf-fonts/tools/scumm-fonts
 printf '\xe2\x80\xa6\n' > ellipsis.txt
 # Loom: charsets 1 and 2. U also takes (TM) and (C) from the map (0x0f, 0x3d); L keeps the
 # game's 0x0f and only needs the ellipsis.
-tools/korean/bake-scumm-fonts.sh $P/loomu.tsv $G/loomkor $D $G/loomkor/korean.trs $D/LOOMKO.MAP 2026,2122,a9
-tools/korean/bake-scumm-fonts.sh $P/looml.tsv $G/loomkor $D $G/loomkor/korean.trs ellipsis.txt 2026
+dists/svf-fonts/tools/bake-scumm-fonts.sh $P/loomu.tsv $G/loomkor $D $G/loomkor/korean.trs $D/LOOMKO.MAP 2026,2122,a9
+dists/svf-fonts/tools/bake-scumm-fonts.sh $P/looml.tsv $G/loomkor $D $G/loomkor/korean.trs ellipsis.txt 2026
 # DOTT: no .trs (the Korean text is inside TENTACLE.00N), so the bake covers every KS X 1001
 # syllable (2350). scummtext.py reads TENTACLE.00N too, but it is only a reference here.
 python3 -c "print(''.join(bytes([h,l]).decode('cp949') for h in range(0xb0,0xc9) for l in range(0xa1,0xff)))" > dott-all.txt
-tools/korean/bake-scumm-fonts.sh $P/dottu.tsv "$G/dott/Day Of the Tentacle (DOS Floppy)" $D dott-all.txt $D/DOTTKO.MAP
-tools/korean/bake-scumm-fonts.sh $P/dottl.tsv "$G/dott/Day Of the Tentacle (DOS Floppy)" $D dott-all.txt $D/DOTTKO.MAP
+dists/svf-fonts/tools/bake-scumm-fonts.sh $P/dottu.tsv "$G/dott/Day Of the Tentacle (DOS Floppy)" $D dott-all.txt $D/DOTTKO.MAP
+dists/svf-fonts/tools/bake-scumm-fonts.sh $P/dottl.tsv "$G/dott/Day Of the Tentacle (DOS Floppy)" $D dott-all.txt $D/DOTTKO.MAP
 ```
 
 The shipped DOTT, MI1 and MI2 L faces are not these bakes as they come out of
@@ -562,7 +562,7 @@ a hinted 17 px TrueType face is not an OR of 8x4x4 pieces, jamoset --from-svf me
 ```sh
 D=dists/engine-data/hires_text/dos
 for f in NEODG32A NEODG16A NEODG16F NEODG16E NEODG16D NEODG32 NEODG16C NEODG16B; do
-  python3 tools/korean/jamoset.py --from-svf $D/$f.SVF --layout 844 -o /tmp/$f.jamo.SVF \
+  python3 dists/svf-fonts/tools/jamoset.py --from-svf $D/$f.SVF --layout 844 -o /tmp/$f.jamo.SVF \
     --report /tmp/$f.json && mv /tmp/$f.jamo.SVF $D/$f.SVF
 done
 ```
@@ -587,7 +587,7 @@ translations hold only ASCII and KS X 1001 syllables plus the `[glyphs]` targets
 
 ```sh
 B=~/work/johab-fonts/dos/raw/gh_drypot__san-1.0
-python3 tools/korean/jamoset.py --layout 844 $B/font-kor/GAM.KOR --eng $B/font-eng/SAN.ENG --symbols --check -o $D/SANGAM16.SVF
+python3 dists/svf-fonts/tools/jamoset.py --layout 844 $B/font-kor/GAM.KOR --eng $B/font-eng/SAN.ENG --symbols --check -o $D/SANGAM16.SVF
 ```
 
 Licence: SAN10.TXT (san is MIT).
@@ -608,14 +608,14 @@ conversion above, from the Taebaek 3.5 `FNT/` folder:
 
 ```sh
 T=tb351/FNT     # wherever the Taebaek 3.5 FNT folder is
-for g in TBGOB24; do python3 tools/korean/jamoset.py --layout 844-hbios24 $T/GOTHIC24.FNT --eng $T/GASCII24.PFT \
+for g in TBGOB24; do python3 dists/svf-fonts/tools/jamoset.py --layout 844-hbios24 $T/GOTHIC24.FNT --eng $T/GASCII24.PFT \
     --advance 24 --symbols --embolden --check -o $D/$g.SVF; done
-for g in TBMY24; do python3 tools/korean/jamoset.py --layout 844-hbios24 $T/MY24.FNT --eng $T/MASCII24.PFT \
+for g in TBMY24; do python3 dists/svf-fonts/tools/jamoset.py --layout 844-hbios24 $T/MY24.FNT --eng $T/MASCII24.PFT \
     --advance 24 --symbols --check -o $D/$g.SVF; done
 ```
 
 M2KO.MAP's `card7` (clut8) names TBMY24.SVF: the cs4 and cs7 cards share one 24x24 face, so M2L7.SVF is gone.
-(`tools/korean/bdfface.py` bakes a precomposed face from a KS X 1001 BDF; no shipped face uses it now.)
+(`dists/svf-fonts/tools/bdfface.py` bakes a precomposed face from a KS X 1001 BDF; no shipped face uses it now.)
 
 ### MI1 and MI2: the dialogue face (NGOTB17)
 
@@ -762,9 +762,9 @@ The four pairing faces are fitted from the pairing export's precomposed cells (`
 2350/2350; the jamo sets compose all 11,172):
 
 ```sh
-python3 tools/korean/jamoset.py --layout 844 --from-svf htermh01.svf --symbols --check -o $D/HTERM16.SVF
-python3 tools/korean/jamoset.py --layout 844 --from-svf hwphm24.svf  --symbols --check -o $D/HWPHM24.SVF
-python3 tools/korean/jamoset.py --layout 844 --from-svf tbghc48.svf  --symbols --check -o $D/TBGHC48.SVF
+python3 dists/svf-fonts/tools/jamoset.py --layout 844 --from-svf htermh01.svf --symbols --check -o $D/HTERM16.SVF
+python3 dists/svf-fonts/tools/jamoset.py --layout 844 --from-svf hwphm24.svf  --symbols --check -o $D/HWPHM24.SVF
+python3 dists/svf-fonts/tools/jamoset.py --layout 844 --from-svf tbghc48.svf  --symbols --check -o $D/TBGHC48.SVF
 ```
 
 `MUNJO24` is the Mac layout: `jamoset --layout mac-fbit-45sets Munjo24.rsrc --symbols --check -o $D/MUNJO24.SVF` (58,839 B;
@@ -805,7 +805,7 @@ python3 -c "
 import sys, json; sys.path.insert(0, 'tools/korean'); import pairing2svf as p
 f = [x for x in json.load(open('korean-johab-16-4.json'))['fonts'] if x['key'] == 'src-han-wcomm-fnt'][0]
 open('wcomm.svf', 'wb').write(p.svfn_bytes(f))"
-python3 tools/korean/jamoset.py --layout 844 --from-svf wcomm.svf --symbols --check -o $D/WCOMM16.SVF
+python3 dists/svf-fonts/tools/jamoset.py --layout 844 --from-svf wcomm.svf --symbols --check -o $D/WCOMM16.SVF
 ```
 
 Licences: SAN10.TXT, HWP120.TXT, WCOMM.TXT (the last two not stated).

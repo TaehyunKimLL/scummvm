@@ -195,7 +195,8 @@ fi
 cp "$CWSDPMI_EXE" "$src/dist/dos/CWSDPMI.EXE"
 # A fresh DATA: a map or font removed from dists must not stay behind from an earlier build.
 rm -rf "$src/dist/dos/DATA"
-mkdir -p "$src/dist/dos/DATA" && cp "$src"/dists/engine-data/hires_text/dos/* "$src/dist/dos/DATA/"
+# The maps (and their .HOT preload lists) are ScummVM's; the faces and their licence texts come from svf-fonts.
+mkdir -p "$src/dist/dos/DATA" && cp "$src"/dists/engine-data/hires_text/dos/* "$src"/dists/svf-fonts/svf/dos/* "$src/dist/dos/DATA/"
 cp "$src/dists/engine-data/encoding.dat" "$src/dist/dos/DATA/ENCODING.DAT"
 "$src/backends/platform/dos/launcher/build-play.sh" >/dev/null
 ls -la "$src/dist/dos"

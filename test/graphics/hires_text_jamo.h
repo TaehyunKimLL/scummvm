@@ -15,7 +15,7 @@
 /**
  * Tests for the JSET jamo-set block of an SVFN (JamoSetTable) and what
  * builds on it. The fixtures are written byte by byte, so every build runs
- * them: a synthetic 8x4x4 set system (the DOS standard, tools/korean/johab844.py)
+ * them: a synthetic 8x4x4 set system (the DOS standard, dists/svf-fonts/tools/johab844.py)
  * whose pieces are numbered as that script numbers them.
  */
 class HiResTextJamoTestSuite : public CxxTest::TestSuite {
@@ -189,7 +189,7 @@ private:
 	}
 
 	/**
-	 * The font as tools/korean/jamoset.py writes it: header, code point table, the JSET block, then the metrics
+	 * The font as dists/svf-fonts/tools/jamoset.py writes it: header, code point table, the JSET block, then the metrics
 	 * table (when @p withMetrics) and the glyph rows, so the block ends where the next table starts.
 	 */
 	static Bytes makeToolOrderFont(const Common::Array<uint32> &cps, const Bytes &jset, bool withMetrics, int bpp = 1,

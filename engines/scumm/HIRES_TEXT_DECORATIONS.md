@@ -114,9 +114,9 @@ which beats `[shadow]`. SCUMM only; SCI and AGI warn that they do not use it,
 as for `[shadow]`.
 
 Read off the games' own charset resources by
-`tools/korean/scumm-fonts/decoration.py` (colour 1 = letter, colour 2 =
+`dists/svf-fonts/tools/scumm-fonts/decoration.py` (colour 1 = letter, colour 2 =
 decoration; each face scored against drop and per-side outline models), kept in
-`tools/korean/scumm-fonts/original-decoration.json`:
+`dists/svf-fonts/tools/scumm-fonts/original-decoration.json`:
 
 | face | line | original decoration (game px) | at 2x |
 |---|---|---|---|
@@ -127,7 +127,7 @@ decoration; each face scored against drop and per-side outline models), kept in
 | DOTT cs6 | 28 | drop (2,2) | 4,4 px |
 | every 1bpp face (MI/Loom cs1, cs3, MI2 cs5, Indy3 cs0, cs1, Indy4 cs1, cs5, DOTT cs1, cs4, cs7) | - | none: the classic renderer draws Latin text unshadowed | none |
 
-`tools/korean/pairing2svf.py` writes a `[shadow.N]` for every SCUMM charset it
+`dists/svf-fonts/tools/pairing2svf.py` writes a `[shadow.N]` for every SCUMM charset it
 pairs, grown to the Korean face by its multiple m = face height / original
 line height (2 for a face twice the line): `width` = reach x m (the original's
 outline is whole game pixels; the 0.75 is the built-in default's) in

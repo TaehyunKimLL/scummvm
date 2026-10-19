@@ -50,8 +50,8 @@
 using Graphics::TtfGlyphSource;
 
 // The Galmuri faces (OFL, github.com/quiple/galmuri) are the pixel fonts
-// committed with the engine data (dists/engine-data/hires_text/fonts/
-// galmuri), opened by an absolute path. A pixel font is what these tests
+// of the svf-fonts submodule (dists/svf-fonts/ttf/galmuri), opened by an
+// absolute path. A pixel font is what these tests
 // need: its coverage is only ever 0 or 255, which a scalable face is not.
 // Galmuri11 is the committed Galmuri11-Bold (same 12 px design size).
 #ifdef USE_FREETYPE2
@@ -59,7 +59,7 @@ using Graphics::TtfGlyphSource;
 static Common::String pixelFontTestPath(const char *file) {
 	if (Common::String(file) == "Galmuri11.ttf")
 		file = "Galmuri11-Bold.ttf";
-	return HiResTestFonts::srcDir() + "/dists/engine-data/hires_text/fonts/galmuri/" + file;
+	return HiResTestFonts::srcDir() + "/dists/svf-fonts/ttf/galmuri/" + file;
 }
 #endif
 #endif

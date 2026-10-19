@@ -1,5 +1,10 @@
 # Korean hi-res text: tools
 
+The font tools (mkfont.py, jamoset.py, the bake scripts, ...) and the fonts themselves live in the svf-fonts
+submodule, `dists/svf-fonts` (`git submodule update --init`); the commands below name them there. What stays
+here reads a game's text or translation: coverage checks (facecoverage.py, charsetchars.py), supplement bakes
+(bake-supplements.py), extractors and the screen checks.
+
 Scripts for preparing replacement fonts for the Korean fan translations of the
 SCUMM games, and for checking that what reaches the screen is what was
 intended.
@@ -10,8 +15,8 @@ through Pillow; the engine does not.
 ## Preparing fonts
 
 ```sh
-tools/korean/fontplan.py   ~/games/mi2kor          # what cells are needed
-tools/korean/bakecells.sh  ~/games/mi2kor 2        # bake them
+dists/svf-fonts/tools/fontplan.py   ~/games/mi2kor          # what cells are needed
+dists/svf-fonts/tools/bakecells.sh  ~/games/mi2kor 2        # bake them
 tools/korean/makemaps.py   ~/games/mi2kor          # write HIRESTXT.MAP (version 2)
 ```
 
@@ -55,7 +60,7 @@ game's own font draws them. A pixel font
 baked at its design size is its own bitmap exactly:
 
 ```sh
-tools/korean/mkfont.py Galmuri7.ttf galmuri7-8px.fnt --size 8 --cell 9 --bpp 1 \
+dists/svf-fonts/tools/mkfont.py Galmuri7.ttf galmuri7-8px.fnt --size 8 --cell 9 --bpp 1 \
     --unicode ascii,hangul,jamo,cjk-punct
 ```
 
@@ -108,15 +113,15 @@ that also fit that set:
 
 ```sh
 # L preset: this game's characters that KS X 1001 (no Hanja) can draw.
-tools/korean/mkfont.py neodgm.ttf kq1kol.fnt --size 16 --cell 16 --bpp 1 \
+dists/svf-fonts/tools/mkfont.py neodgm.ttf kq1kol.fnt --size 16 --cell 16 --bpp 1 \
     --chars-from KQ1KO/TEXT.* KQ1KO/SCI-KO.STR --limit ascii,ksx1001-nohanja
 
 # U preset: this game's characters that cp949 (all 11172 syllables) can draw.
-tools/korean/mkfont.py NanumGothic-Bold.ttf kq1kou.fnt --size 18 --bpp 2 \
+dists/svf-fonts/tools/mkfont.py NanumGothic-Bold.ttf kq1kou.fnt --size 18 --bpp 2 \
     --chars-from KQ1KO/TEXT.* KQ1KO/SCI-KO.STR --limit ascii,cp949
 
 # Every KS X 1001 syllable regardless of what any game uses (a shared font).
-tools/korean/mkfont.py neodgm.ttf ko2350.fnt --size 16 --cell 16 --bpp 1 \
+dists/svf-fonts/tools/mkfont.py neodgm.ttf ko2350.fnt --size 16 --cell 16 --bpp 1 \
     --unicode ascii,ksx1001-hangul
 ```
 
@@ -156,7 +161,7 @@ choice). Each size tried is reported with how many glyphs would overflow it
 and ascent chosen:
 
 ```sh
-tools/korean/mkfont.py NanumGothic-Bold.ttf OUT.SVF --size 18 --cell 16 \
+dists/svf-fonts/tools/mkfont.py NanumGothic-Bold.ttf OUT.SVF --size 18 --cell 16 \
     --fit-cell --ascent 14 --bpp 2 --unicode ascii,cp949
 # --fit-cell: 18px: ink 19 rows ... 11345 overflow
 # --fit-cell: 17px: ink 19 rows ... 7660 overflow
@@ -207,7 +212,7 @@ coverage, which leaves strokes of uneven width in a small pixel face.
 and the font's own hinting, so a hinted face snaps its stems to whole pixels:
 
 ```sh
-tools/korean/mkfont.py dists/engine-data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf \
+dists/svf-fonts/tools/mkfont.py dists/engine-data/hires_text/fonts/nanumgothic/NanumGothic-Bold.ttf \
     /tmp/ng17.svf --size 17 --cell 16 --bpp 1 --mono-hint --unicode ascii,ksx1001-hangul
 ```
 
@@ -223,11 +228,11 @@ instead of 100-400 KB and holds all 11,172 syllables
 
 ```sh
 # a DOS Johab font (a named layout) + its raw 8x16 English font
-tools/korean/jamoset.py --layout 844 GAM.KOR --eng SAN.ENG --symbols --check -o SANGAM16.SVF
+dists/svf-fonts/tools/jamoset.py --layout 844 GAM.KOR --eng SAN.ENG --symbols --check -o SANGAM16.SVF
 # a precomposed 1 bpp SVF -> pieces fitted to its syllables
-tools/korean/jamoset.py --layout 844 --from-svf NEODG16.SVF --symbols --check -o OUT.SVF
+dists/svf-fonts/tools/jamoset.py --layout 844 --from-svf NEODG16.SVF --symbols --check -o OUT.SVF
 # an outline font -> pieces fitted to its syllables at a size (needs freetype-py, uharfbuzz)
-tools/korean/jamoset.py --layout 844 --from-ttf NanumGothic-Bold.ttf --size 16 --symbols --check -o NG16J.SVF
+dists/svf-fonts/tools/jamoset.py --layout 844 --from-ttf NanumGothic-Bold.ttf --size 16 --symbols --check -o NG16J.SVF
 ```
 
 `--layout` names how the source selects pieces (the sets of initials, medials and
@@ -249,7 +254,7 @@ the Mac rendering: identical, bit for bit (`tools/korean/test_jamoset.py`, class
 engine older than the 8/8/24 limits skips such a face (its map chains a fallback):
 
 ```sh
-tools/korean/jamoset.py --layout mac-fbit-45sets Munjo24.rsrc --symbols --check -o MUNJO24.SVF
+dists/svf-fonts/tools/jamoset.py --layout mac-fbit-45sets Munjo24.rsrc --symbols --check -o MUNJO24.SVF
 ```
 
 | option | effect |
@@ -290,7 +295,7 @@ sets). Measurements: docs/superpowers/specs/2026-10-15-aa-jamo-sets-design.md an
 `runs/aa-jamo/report.md`.
 
 ```sh
-tools/korean/jamoset.py --layout adaptive --from-ttf NanumGothic-Bold.ttf --size 21 --cell 22x24 --baseline 19 \
+dists/svf-fonts/tools/jamoset.py --layout adaptive --from-ttf NanumGothic-Bold.ttf --size 21 --cell 22x24 --baseline 19 \
     --bpp 2 --symbols --check -o NGBAJ21.SVF
 ```
 `bdfface.py --hangul KS.BDF --ascii ASCII.BDF --chars-from ... -o OUT.SVF`
@@ -311,7 +316,7 @@ SCUMM_FONTS.md ("Base and supplement faces", "Preload lists").
 
 ```sh
 # bake the supplements named in a plan table (one row a supplement)
-tools/korean/bake-supplements.py tools/korean/scumm-fonts/m2x.tsv --trs mi2kor/korean.trs \
+tools/korean/bake-supplements.py dists/svf-fonts/tools/scumm-fonts/m2x.tsv --trs mi2kor/korean.trs \
     --map dists/engine-data/hires_text/dos/M2KO.MAP --faces FACES --check     # --check lists, bakes nothing
 # do the faces hold everything the bundle draws? (exit 1 if not; --base-check also demands base faces)
 tools/korean/facecoverage.py --trs mi2kor/korean.trs --map dists/engine-data/hires_text/dos/M2KO.MAP \
