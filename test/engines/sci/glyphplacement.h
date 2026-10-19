@@ -473,6 +473,10 @@ public:
 #if NULL_OSYSTEM_IS_AVAILABLE
 		Common::install_null_g_system();
 		const Common::FSNode node(Common::Path(HiResTestFonts::srcDir() + "/dists/svf-fonts/svf/dos/NEODG16.SVF", '/'));
+		if (!node.exists()) {
+			Common::uninstall_null_g_system();
+			TS_SKIP("NEODG16.SVF not found: run 'git submodule update --init' for the svf-fonts submodule");
+		}
 		Common::SeekableReadStream *stream = node.exists() ? node.createReadStream() : nullptr;
 		Graphics::HiResBitmapFont font;
 		const bool loaded = stream && font.load(*stream);

@@ -8,6 +8,8 @@ So how did ScummVM get its name? Many of the famous LucasArts adventure games, s
 
 While ScummVM was originally designed to run LucasArts’ SCUMM games, over time support has been added for many other games: see the full list [on our wiki](https://wiki.scummvm.org/index.php?title=Category:Supported_Games). Noteworthy titles include Broken Sword, Myst and Blade Runner, although there are countless other hidden gems to explore.
 
+The Korean fonts are in the private submodule dists/svf-fonts: after a `git clone`, run `git submodule update --init` before building the DOS port or running `make install`.
+
 For more information, compatibility lists, details on donating, the
 latest release, progress reports and more, please visit the ScummVM [home
 page](https://www.scummvm.org/).

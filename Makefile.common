@@ -435,6 +435,14 @@ DIST_FILES_ENGINEDATA_BASE_BIG:=$(DIST_FILES_LIST)
 DIST_FILES_ENGINEDATA:=$(addprefix $(srcdir)/,$(DIST_FILES_ENGINEDATA_BASE_CORE) $(DIST_FILES_ENGINEDATA_BASE))
 DIST_FILES_ENGINEDATA_BIG:=$(addprefix $(srcdir)/,$(DIST_FILES_ENGINEDATA_BASE_BIG))
 
+# The Korean fonts live in the private svf-fonts submodule. Installing or
+# packaging without it fails on missing files; stop first and say why.
+ifneq ($(filter-out dist-src,$(filter install% dist% %dist bundle% %bundle %-pack %-data %.zip,$(MAKECMDGOALS))),)
+ifeq ($(wildcard $(srcdir)/dists/svf-fonts/svf/dos/SANGAM16.SVF),)
+$(error The svf-fonts submodule (dists/svf-fonts) is missing. Run 'git submodule update --init' in the source tree, then try again)
+endif
+endif
+
 # Hi-res text example maps, installed with their folders under $(datadir) by
 # install-data (ports.mk) and into the Android assets. The TrueType fonts the
 # maps name (hires_text/fonts/<family>/, with their licences) ship apart, as
