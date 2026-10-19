@@ -16,6 +16,12 @@ case "$1" in
 esac
 source ~/opt/dos-dev/env.sh
 src="$(cd "$(dirname "$0")/../../.." && pwd)"
+# The faces staged into DATA come from the svf-fonts submodule: stop before the long build.
+if [ ! -f "$src/dists/svf-fonts/svf/dos/SANGAM16.SVF" ]; then
+	echo "build-dos.sh: the svf-fonts submodule (dists/svf-fonts) is missing." >&2
+	echo "  Run 'git submodule update --init' in $src, then try again." >&2
+	exit 1
+fi
 # The trimmed SDL3 build (sdl3-build.txt): SDL3_DOS_MIN overrides where it is.
 export SDL3_DOS="${SDL3_DOS_MIN:-$HOME/opt/sdl3-dos-min-kbd}"
 export PKG_CONFIG_LIBDIR="$SDL3_DOS/lib/pkgconfig"
