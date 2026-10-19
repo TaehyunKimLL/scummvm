@@ -84,7 +84,6 @@ enum Language : int8 {
 	ZH_ANY,     // Generic Chinese (when only one game version exist)
 	ZH_CHN,
 	ZH_TWN,
-	TH_THA,
 	VI_VNM,
 
 	UNK_LANG = -1	// Use default language (i.e. none specified)
