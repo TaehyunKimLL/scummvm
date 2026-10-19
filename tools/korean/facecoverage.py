@@ -234,17 +234,20 @@ def show(cps):
         ' ... %d more' % (len(cps) - 40) if len(cps) > 40 else '')
 
 
+DEFAULT_FACES = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'dists', 'svf-fonts', 'svf', 'dos')
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--trs', action='append', required=True)
     ap.add_argument('--map', required=True)
-    ap.add_argument('--faces', help='folder of the faces (default: the map\'s folder)')
+    ap.add_argument('--faces', help='folder of the faces (default: dists/svf-fonts/svf/dos of this tree)')
     ap.add_argument('--preset', choices=('U', 'L', 'both'), default='both')
     ap.add_argument('--data', action='append', default=[], help='folder a data: face is looked up in')
     ap.add_argument('--base-check', action='store_true')
     ap.add_argument('--hot', metavar='DIR', help='folder of preload lists (.HOT): report their coverage (informational)')
     a = ap.parse_args(argv)
-    faces = a.faces or os.path.dirname(os.path.abspath(a.map))
+    faces = a.faces or DEFAULT_FACES
     with open(a.map, encoding='utf-8', errors='replace') as f:
         text = f.read()
     presets = ('U', 'L') if a.preset == 'both' else (a.preset,)
