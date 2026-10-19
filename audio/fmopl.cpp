@@ -74,18 +74,6 @@ OPL *create(Config::OplType type);
 } // End of namespace DosOPL
 #endif
 
-#ifdef USE_NFM
-namespace NfmOPL {
-namespace RealChip {
-OPL *create(Config::OplType type, enum NfmOPL::OplDevice dt);
-} // End of namespace RealChip
-
-namespace EmulatedChip {
-OPL *create(Config::OplType type, enum NfmOPL::OplDevice dt);
-} // End of namespace EmulatedChip
-} // End of namespace NfmOPL
-#endif
-
 // Config implementation
 
 enum OplEmulator {
@@ -101,14 +89,12 @@ enum OplEmulator {
 #ifdef USE_NFM
 	,kNfmNokturnFM2 = 9,
 	kNfmNokturnFM3 = 10,
-	kNfmRWOpl3Express = 11,
-	kNfmOPL2LPT = 12,
-	kNfmOPL3LPT = 13,
-	kNfmCeOPL2AudioBoard = 14,
-	kNfmCeOPL3Duo = 15,
-	kNfmStBusIsaVmeSb = 16,
-	kNfmNatfeatsNull = 17,
-	kNfmNukedOpl3 = 18
+	kNfmOPL2LPT = 11,
+	kNfmOPL3LPT = 12,
+	kNfmCeOPL2AudioBoard = 13,
+	kNfmCeOPL3Duo = 14,
+	kNfmStBusIsaVmeSb = 15,
+	kNfmNatfeatsNull = 16
 #endif
 #ifdef DOS_DJGPP
 	,kDosOPL = 19
@@ -154,14 +140,12 @@ const Config::EmulatorDescription Config::_drivers[] = {
 #ifdef USE_NFM
 	{"nfm_nokturnfm2", _s("[nFM] NokturnFM2 (OPL2)"), kNfmNokturnFM2, kFlagOpl2 },
 	{"nfm_nokturnfm3", _s("[nFM] NokturnFM3 (OPL3)"), kNfmNokturnFM3, kFlagOpl2 | kFlagDualOpl2 | kFlagOpl3},
-	{"nfm_rwopl3", _s("[nFM] RetroWave USB OPL3 Express (OPL3)"), kNfmRWOpl3Express, kFlagOpl2 | kFlagDualOpl2 | kFlagOpl3},
 	{"nfm_opl2lpt", _s("[nFM] Serdaco OPL2LPT (OPL2)"), kNfmOPL2LPT, kFlagOpl2 },
 	{"nfm_opl3lpt", _s("[nFM] Serdaco OPL3LPT (OPL3)"), kNfmOPL3LPT, kFlagOpl2 | kFlagDualOpl2 | kFlagOpl3},
 	{"nfm_ce_opl2ab", _s("[nFM] Cheerful Electronics OPL2 Audio Board (OPL2)"), kNfmCeOPL2AudioBoard, kFlagOpl2 },
 	{"nfm_ce_opl3duo", _s("[nFM] Cheerful Electronics OPL3 Duo! (2xOPL3)"), kNfmCeOPL3Duo, kFlagOpl2 | kFlagDualOpl2 | kFlagOpl3},
 	{"nfm_ce_stbus_isa_vme", _s("[nFM] ST Bus ISA / VME SoundBlaster"), kNfmStBusIsaVmeSb, kFlagOpl2 | kFlagDualOpl2 | kFlagOpl3},
 	{"nfm_natfeats_null", _s("[nFM] NatFeats / NULL"), kNfmNatfeatsNull, kFlagOpl2 | kFlagDualOpl2 | kFlagOpl3},
-	{"nfm_nuked_opl3", _s("[nFM] Nuked-OPL3 softsynth (OPL3)"), kNfmNukedOpl3, kFlagOpl2 | kFlagDualOpl2 | kFlagOpl3},
 #endif
 	{ nullptr, nullptr, 0, 0 }
 };
@@ -360,9 +344,6 @@ static OPL *createUnlogged(Config::DriverId driver, Config::OplType type) {
 	case kNfmNokturnFM3:
 		return NfmOPL::RealChip::create(type, NfmOPL::dtNokturnFM3);
 
-	case kNfmRWOpl3Express:
-		return NfmOPL::RealChip::create(type, NfmOPL::dtRWOpl3Express);
-
 	case kNfmOPL2LPT: {
 		if (type == Config::kOpl2) {
 			return NfmOPL::RealChip::create(type, NfmOPL::dtOPL2LPT);
@@ -389,8 +370,6 @@ static OPL *createUnlogged(Config::DriverId driver, Config::OplType type) {
 		return NfmOPL::RealChip::create(type, NfmOPL::dtStBusIsaVmeSb);
 	case kNfmNatfeatsNull:
 		return NfmOPL::RealChip::create(type, NfmOPL::dtNatfeatsOpl);
-	case kNfmNukedOpl3:
-		return NfmOPL::EmulatedChip::create(type, NfmOPL::dtNukedOpl3);
 #endif
 
 	case kNull:

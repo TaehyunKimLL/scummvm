@@ -50,16 +50,23 @@ public:
 	void resetRoomNpcDialogueState();
 	void syncRuntimeSaveState(Common::Serializer &s);
 	Common::Error runRoomNpcDialogue(const IndexedBitmap &backdrop, const byte *palette,
-		float paletteBrightness, const NpcRecord &npc, const Common::String &usedItemName,
+		float paletteBrightness, const ScriptExecutionContext &executionContext,
+		const NpcRecord &npc, const Common::String &usedItemName,
 		Flow &flow);
 
 private:
+	struct NpcHandlerRegistration {
+		NpcDialogueHandler *handler;
+		Common::Array<const char *> names;
+	};
+
 	void registerNpcHandlers();
+	NpcDialogueHandler *findNpcHandler(const Common::String &npcName) const;
 
 	HarvesterEngine &_engine;
 	Common::Point &_mousePos;
 	DialogueSharedState _sharedDialogueState;
-	Common::Array<NpcDialogueHandler *> _npcHandlers;
+	Common::Array<NpcHandlerRegistration> _npcHandlers;
 };
 
 } // End of namespace Harvester

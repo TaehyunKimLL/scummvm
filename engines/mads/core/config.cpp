@@ -28,6 +28,8 @@
 
 namespace MADS {
 
+static const int DEFAULT_MINIMUM_BLACK_TICKS = 30;
+
 ConfigFile config_file;
 
 void init_config() {
@@ -46,6 +48,7 @@ void init_config() {
 	config_file.screen_fade = SCREEN_FADE_SMOOTH;
 	config_file.panning_speed = PANNING_SMOOTH;
 	config_file.mouse_cursor_fix = MOUSE_MICROSOFT;
+	config_file.animview_minimum_black_ticks = DEFAULT_MINIMUM_BLACK_TICKS;
 }
 
 void read_config_file() {
@@ -59,10 +62,9 @@ void read_config_file() {
 	ConfMan.registerDefault("show_speech_boxes", true);
 	ConfMan.registerDefault("naughtiness", true);
 	ConfMan.registerDefault("difficulty", -1);
+	ConfMan.registerDefault("animview_minimum_black_ticks", -1);
 
-	config_file.music_flag = !ConfMan.getBool("music_mute") && !ConfMan.getBool("mute");
-	config_file.sound_flag = !ConfMan.getBool("sfx_mute") && !ConfMan.getBool("mute");
-	config_file.speech_flag = !ConfMan.getBool("speech_mute") && !ConfMan.getBool("mute");
+	read_sound_settings();
 
 	config_file.interface_hotspots = ConfMan.getBool("interface_hotspots") ? INTERFACE_BRAINDEAD : INTERFACE_MACINTOSH;
 	config_file.inventory_mode = ConfMan.getBool("inventory_mode") ? INVENTORY_SPINNING : INVENTORY_SQUAT;
@@ -72,12 +74,22 @@ void read_config_file() {
 	config_file.quotes_enabled = ConfMan.getBool("quotes_enabled");
 	config_file.screen_fade = ConfMan.getInt("screen_fade");
 	config_file.panning_speed = ConfMan.getInt("panning_speed");
+	config_file.animview_minimum_black_ticks =
+		ConfMan.getInt("animview_minimum_black_ticks");
+	if (config_file.animview_minimum_black_ticks < 0)
+		config_file.animview_minimum_black_ticks = DEFAULT_MINIMUM_BLACK_TICKS;
 
 	config_file.show_speech_boxes = ConfMan.getBool("show_speech_boxes");
 	config_file.original_save_load = ConfMan.getBool("original_menus");
 
 	if (ConfMan.hasKey("difficulty") && !g_engine->isDemo())
 		game.difficulty = ConfMan.getInt("difficulty");
+}
+
+void read_sound_settings() {
+	config_file.music_flag = !ConfMan.getBool("music_mute") && !ConfMan.getBool("mute");
+	config_file.sound_flag = !ConfMan.getBool("sfx_mute") && !ConfMan.getBool("mute");
+	config_file.speech_flag = !ConfMan.getBool("speech_mute") && !ConfMan.getBool("mute");
 }
 
 void write_config_file() {

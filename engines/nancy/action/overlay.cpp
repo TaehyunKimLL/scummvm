@@ -103,6 +103,15 @@ void Overlay::updateGraphics() {
 		setVisible(_isActive);
 	}
 
+	// Nancy16 only shows an overlay for as long as its dependencies hold, e.g. the key
+	// in scene 1383, which goes away when picked up. It comes back once they hold again.
+	if (g_nancy->getGameType() >= kGameTypeNancy16 && _state == kRun && _overlayType == kPlayOverlayStatic &&
+			!_isActive && isVisible()) {
+		setVisible(false);
+		_hasHotspot = false;
+		_currentViewportFrame = -1;
+	}
+
 	// Update inactive animated overlays
 	if (!_isActive && _state == kRun && !_blitDescriptions.empty() && _overlayType == kPlayOverlayAnimated) {
 		uint16 newFrame = NancySceneState.getSceneInfo().frameID;
@@ -425,6 +434,15 @@ Common::String Overlay::getRecordTypeName() const {
 
 void OverlayStaticTerse::readData(Common::SeekableReadStream &stream) {
 	readFilename(stream, _imageName);
+
+	// Workaround: the image name of an overlay in Nancy16 scenes 3509 and 3532 ends
+	// with a dot ("LOB_Ia_OVL."), which keeps the image from being found
+	Common::String imageName = _imageName.toString();
+	if (imageName.hasSuffix(".")) {
+		imageName.deleteLastChar();
+		_imageName = Common::Path(imageName);
+	}
+
 	_transparency = stream.readUint16LE();
 	_z = stream.readUint16LE();
 
@@ -462,6 +480,57 @@ void OverlayMultiframeTerse::readData(Common::SeekableReadStream &stream) {
 	_srcRects.push_back(Common::Rect());
 
 	_overlayType = kPlayOverlayStatic;
+}
+
+void OverlayRandomColor::readData(Common::SeekableReadStream &stream) {
+	readFilename(stream, _imageName);
+	_z = stream.readUint16LE();
+
+	_choices.resize(MAX<int16>(stream.readSint16LE(), 0));
+	for (ColorChoice &choice : _choices) {
+		choice.color = stream.readUint32BE();
+		choice.flag = stream.readSint16LE();
+	}
+
+	uint16 numBlitDescriptions = stream.readUint16LE();
+	_blitDescriptions.resize(numBlitDescriptions);
+	for (auto &bm : _blitDescriptions) {
+		bm.readData(stream);
+	}
+
+	_srcRects.push_back(Common::Rect());
+
+	_overlayType = kPlayOverlayStatic;
+}
+
+void OverlayRandomColor::init() {
+	Overlay::init();
+
+	if (_choices.empty() || _fullSurface.empty()) {
+		return;
+	}
+
+	const ColorChoice &choice = _choices[g_nancy->_randomSource->getRandomNumber(_choices.size() - 1)];
+	const uint colorA = choice.color >> 24;
+	const uint colorR = (choice.color >> 16) & 0xFF;
+	const uint colorG = (choice.color >> 8) & 0xFF;
+	const uint colorB = choice.color & 0xFF;
+
+	for (int y = 0; y < _fullSurface.h; ++y) {
+		for (int x = 0; x < _fullSurface.w; ++x) {
+			byte a, r, g, b;
+			_fullSurface.format.colorToARGB(_fullSurface.getPixel(x, y), a, r, g, b);
+			if (a == 0) {
+				continue;
+			}
+
+			_fullSurface.setPixel(x, y, _fullSurface.format.ARGBToColor(a * colorA / 255, r * colorR / 255, g * colorG / 255, b * colorB / 255));
+		}
+	}
+
+	if (choice.flag != -1) {
+		NancySceneState.setEventFlag(choice.flag, g_nancy->_true);
+	}
 }
 
 void OverlayAnimTerse::readData(Common::SeekableReadStream &stream) {
@@ -518,48 +587,103 @@ void TableIndexOverlay::execute() {
 	}
 }
 
+void TextLineOverlay::init() {
+	if (!_digitImageName.empty()) {
+		g_nancy->_resource->loadImage(_digitImageName, _digitImage);
+	}
+
+	RenderObject::init();
+}
+
 void TextLineOverlay::readData(Common::SeekableReadStream &stream) {
 	_fontID = stream.readUint16LE();
 	_textColor = stream.readUint16LE();
-	_position.x = stream.readSint16LE();
-	stream.skip(2);
-	_position.y = stream.readSint16LE();
-	stream.skip(2);
+	_position.x = stream.readSint32LE();
+	_position.y = stream.readSint32LE();
 	readFilename(stream, _textKey);
 	_tableIndex = stream.readSint16LE();
+
+	if (g_nancy->getGameType() >= kGameTypeNancy14) {
+		_numDigits = stream.readSint16LE();
+
+		Common::String imageName;
+		readFilename(stream, imageName);
+		if (!imageName.empty() && imageName != "NO_FILE") {
+			_digitImageName = Common::Path(imageName);
+			_digitSpacing = stream.readUint16LE();
+			for (uint i = 0; i < 10; ++i) {
+				readRect(stream, _digitSrcRects[i]);
+			}
+		}
+	}
 }
 
 void TextLineOverlay::execute() {
-	if (_isDone) {
-		return;
+	switch (_state) {
+	case kBegin:
+		init();
+		_state = kRun;
+		// fall through
+	case kRun: {
+		// The table value can change while the scene is shown, so the text is
+		// re-evaluated every frame and only redrawn when it differs
+		Common::String text = getText();
+		if (text != _displayedText) {
+			_displayedText = text;
+			if (_digitImageName.empty()) {
+				drawText(text);
+			} else {
+				drawDigitImages(text);
+			}
+		}
+		break;
+	}
+	default:
+		break;
+	}
+}
+
+Common::String TextLineOverlay::getText() const {
+	if (!_textKey.empty()) {
+		return _textKey;
 	}
 
+	int value = 0;
+	if (_tableIndex != kZeroTableIndex) {
+		TableData *playerTable = (TableData *)NancySceneState.getPuzzleData(TableData::getTag());
+		assert(playerTable);
+
+		value = playerTable->getValue(_tableIndex);
+	}
+
+	// An unset value is displayed as zero
+	if (value == kNoTableValue) {
+		value = 0;
+	}
+
+	// Nancy14 keeps only the lowest _numDigits digits of the value
+	if (g_nancy->getGameType() >= kGameTypeNancy14) {
+		int modulus = 1;
+		for (int i = 0; i < _numDigits; ++i) {
+			modulus *= 10;
+		}
+
+		value = (int16)(value % modulus);
+	}
+
+	return Common::String::format("%d", value);
+}
+
+void TextLineOverlay::drawText(const Common::String &text) {
 	const Graphics::Font *font = g_nancy->_graphics->getFont(_fontID);
 	if (!font) {
 		return;
 	}
 
-	Common::String text;
-	if (!_textKey.empty()) {
-		text = _textKey;
-	} else {
-		TableData *playerTable = (TableData *)NancySceneState.getPuzzleData(TableData::getTag());
-		assert(playerTable);
-
-		int16 value = playerTable->getValue(_tableIndex);
-
-		// An unset value is displayed as zero
-		if (value == kNoTableValue) {
-			value = 0;
-		}
-
-		text = Common::String::format("%d", value);
-	}
-
 	uint width = font->getStringWidth(text);
 	uint height = font->getFontHeight();
 	if (!width || !height) {
-		_isDone = true;
+		setVisible(false);
 		return;
 	}
 
@@ -573,8 +697,44 @@ void TextLineOverlay::execute() {
 	setTransparent(true);
 	setVisible(true);
 	registerGraphics();
+}
 
-	_isDone = true;
+void TextLineOverlay::drawDigitImages(const Common::String &text) {
+	// Each digit is drawn with its bottom row on the stored y; the next digit
+	// starts at the previous digit's last column plus the spacing
+	Common::Array<const Common::Rect *> srcRects;
+	Common::Array<int16> offsets;
+	int16 x = 0;
+	int16 width = 0;
+	int16 height = 0;
+	for (uint i = 0; i < text.size(); ++i) {
+		if (text[i] < '0' || text[i] > '9') {
+			continue;
+		}
+
+		const Common::Rect &src = _digitSrcRects[text[i] - '0'];
+		srcRects.push_back(&src);
+		offsets.push_back(x);
+		width = x + src.width();
+		height = MAX<int16>(height, src.height());
+		x += src.width() - 1 + _digitSpacing;
+	}
+
+	if (srcRects.empty() || !width || !height) {
+		setVisible(false);
+		return;
+	}
+
+	_drawSurface.create(width, height, g_nancy->_graphics->getInputPixelFormat());
+	_drawSurface.clear(g_nancy->_graphics->getTransColor());
+	for (uint i = 0; i < srcRects.size(); ++i) {
+		_drawSurface.blitFrom(_digitImage, *srcRects[i], Common::Point(offsets[i], height - srcRects[i]->height()));
+	}
+
+	moveTo(Common::Rect(_position.x, _position.y - height + 1, _position.x + width, _position.y + 1));
+	setTransparent(true);
+	setVisible(true);
+	registerGraphics();
 }
 
 void RolloverOverlay::init() {
@@ -584,6 +744,11 @@ void RolloverOverlay::init() {
 }
 
 void RolloverOverlay::readData(Common::SeekableReadStream &stream) {
+	if (g_nancy->getGameType() >= kGameTypeNancy16) {
+		readDataNancy16(stream);
+		return;
+	}
+
 	readFilename(stream, _imageName);
 	_transparency = stream.readUint16LE();
 	_z = stream.readUint16LE();
@@ -602,10 +767,36 @@ void RolloverOverlay::readData(Common::SeekableReadStream &stream) {
 
 	_sceneChange.sceneID = stream.readUint16LE();
 	_sceneChange.frameID = stream.readUint16LE();
-	int16 verticalOffset = stream.readSint16LE();
-	_sceneChange.verticalOffset = verticalOffset >= 0 ? verticalOffset : 0;
+	_sceneChange.continueSceneSound = kContinueSceneSound;
 
-	_sceneChange.continueSceneSound = stream.readByte();
+	_flagOnClick.label = stream.readSint16LE();
+	_flagOnClick.flag = stream.readByte();
+
+	_clickSound.readData(stream);
+}
+
+// Nancy16 dropped the transparency field and widened the z value
+void RolloverOverlay::readDataNancy16(Common::SeekableReadStream &stream) {
+	readFilename(stream, _imageName);
+	_z = stream.readUint32LE();
+	_hoverCursor = stream.readUint16LE();
+
+	readRect(stream, _hotspotRect);
+	readRect(stream, _srcRect);
+	readRect(stream, _destRect);
+
+	_flagOnHover.label = stream.readSint16LE();
+	_flagOnHover.flag = stream.readByte();
+
+	_hoverSound.readData(stream);
+	_hoverSoundOnce = stream.readByte();
+
+	_sceneChange.sceneID = stream.readUint16LE();
+	_sceneChange.frameID = stream.readUint16LE();
+	_sceneChange.continueSceneSound = kContinueSceneSound;
+
+	_flagOnClick.label = stream.readSint16LE();
+	_flagOnClick.flag = stream.readByte();
 
 	_clickSound.readData(stream);
 }
@@ -687,6 +878,8 @@ void RolloverOverlay::execute() {
 
 		setVisible(false);
 		_hasHotspot = false;
+
+		NancySceneState.setEventFlag(_flagOnClick);
 
 		if (_sceneChange.sceneID != kNoScene) {
 			NancySceneState.changeScene(_sceneChange);

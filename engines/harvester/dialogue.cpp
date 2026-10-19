@@ -23,11 +23,9 @@
 
 #include "common/algorithm.h"
 #include "common/debug.h"
-#include "common/endian.h"
 #include "common/events.h"
 #include "common/ptr.h"
 #include "common/system.h"
-#include "graphics/blit.h"
 #include "graphics/font.h"
 #include "graphics/fontman.h"
 #include "graphics/framelimiter.h"
@@ -87,35 +85,12 @@
 #include "harvester/npc/whaley_dialogue.h"
 #include "harvester/npc/wasp_woman_dialogue.h"
 #include "harvester/resources.h"
-#include "harvester/runtime_entity.h"
+#include "harvester/entity.h"
 #include "harvester/art.h"
 #include "harvester/flow.h"
 #include "harvester/text.h"
 
 namespace Harvester {
-
-class DialogueFlowAccess {
-public:
-	static bool handleSystemEvent(Flow &flow, const Common::Event &event, Common::Error &result) {
-		return flow.handleSystemEvent(event, result);
-	}
-
-	static void executeStartupAudioCommands(Flow &flow, const Common::Array<AudioCommand> &commands) {
-		flow.executeStartupAudioCommands(commands);
-	}
-
-	static void queueDialogueInteraction(Flow &flow, const InteractionResult &interaction) {
-		flow.queueDialogueInteraction(interaction);
-	}
-
-	static void requestMainMenuReturn(Flow &flow) {
-		flow.requestMainMenuReturn();
-	}
-
-	static const MenuTextConfig &getMenuTextConfig(const Flow &flow) {
-		return flow._menuTextConfig;
-	}
-};
 
 namespace {
 
@@ -134,6 +109,9 @@ static const int kDialogueOtherX = 171;
 static const int kDialogueOtherY = 183;
 static const int kDialogueTextEntryX = 208;
 static const int kDialogueTextEntryY = 184;
+static const uint kDialogueTextEntryMaxLength = 26;
+static const int kDialogueTextEntryMaxWidth = 550;
+static const uint32 kDialogueTextEntryBlinkTicks = 0x30;
 static const int kDialogueOtherWidth = 120;
 static const int kDialogueTopicStartX = 168;
 static const int kDialogueTopicEndX = 482;
@@ -144,14 +122,10 @@ static const int kDialogueGenericByeResponseIndex = 13;
 static const char *const kCdChangePromptPalettePath = "1:/GRAPHIC/PAL/CD1.PAL";
 static const char *const kDialogueKeywordBitmapPath = "1:/GRAPHIC/OTHER/KEYWORD.BM";
 static const char *const kDialogueLocalizedKeywordBitmapPath = "GRAPHIC/OTHER/KEYWORD.BM";
-static const char *const kDialogueGameOverBitmapPath = "1:/GRAPHIC/OTHER/GAMEOVER.BM";
-static const char *const kDialogueGameOverPalettePath = "1:/GRAPHIC/PAL/GAMEOVER.PAL";
-static const char *const kDialogueGameOverMusicPath = "SOUND/MUSIC/ANXIETY.CMP";
 
 static const byte kTextColorNormal = 255;
 static const byte kTextColorHover = 251;
 static const byte kShadowColor = 0;
-static const byte kTransparentPaletteIndex = 0;
 
 static bool isDialogueVoiceInterruptEvent(const Common::Event &event) {
 	return event.type == Common::EVENT_LBUTTONDOWN ||
@@ -210,59 +184,11 @@ static void syncDialogueSharedState(Common::Serializer &s, DialogueSharedState &
 	syncDialogueInt(s, state.dialogueStateD2f30);
 }
 
-static const CftFontResource *findStartupFontByName(const HarvesterEngine &engine, const char *fontName) {
-	const Text *text = engine.getText();
-	if (!text || !fontName)
-		return nullptr;
-
-	for (const CftFontResource &font : text->getFonts()) {
-		if (font.name.equalsIgnoreCase(fontName))
-			return &font;
-	}
-
-	return nullptr;
-}
-
 static void blitBitmap(Graphics::Screen &screen, const IndexedBitmap &bitmap, int x, int y) {
 	if (!bitmap.isValid())
 		return;
 
 	screen.copyRectToSurface(bitmap.pixels.data(), bitmap.width, x, y, bitmap.width, bitmap.height);
-}
-
-static void blitTransparentBitmap(Graphics::Screen &screen, const IndexedBitmap &bitmap, int x, int y) {
-	if (!bitmap.isValid())
-		return;
-
-	int srcX = 0;
-	int srcY = 0;
-	int destX = x;
-	int destY = y;
-	int width = (int)bitmap.width;
-	int height = (int)bitmap.height;
-
-	if (destX < 0) {
-		srcX = -destX;
-		width += destX;
-		destX = 0;
-	}
-	if (destY < 0) {
-		srcY = -destY;
-		height += destY;
-		destY = 0;
-	}
-	if (destX >= screen.w || destY >= screen.h || width <= 0 || height <= 0)
-		return;
-
-	width = MIN<int>(width, screen.w - destX);
-	height = MIN<int>(height, screen.h - destY);
-	if (width <= 0 || height <= 0)
-		return;
-
-	const byte *src = bitmap.pixels.data() + srcY * bitmap.width + srcX;
-	byte *dst = (byte *)screen.getBasePtr(destX, destY);
-	Graphics::keyBlit(dst, src, screen.pitch, bitmap.width, width, height,
-		screen.format.bytesPerPixel, kTransparentPaletteIndex);
 }
 
 static void drawShadowedString(Graphics::Screen &screen, const Graphics::Font &font, const Common::String &text,
@@ -284,15 +210,7 @@ static bool loadBitmapResource(ResourceManager &resources, const Common::String 
 		return false;
 
 	bitmap = IndexedBitmap();
-	bitmap.width = READ_LE_UINT32(data.data());
-	bitmap.height = READ_LE_UINT32(data.data() + 4);
-	const uint32 pixelCount = bitmap.width * bitmap.height;
-	if (bitmap.width == 0 || bitmap.height == 0 || data.size() < 12 + pixelCount)
-		return false;
-
-	bitmap.pixels.resize(pixelCount);
-	memcpy(bitmap.pixels.data(), data.data() + 12, pixelCount);
-	return true;
+	return decodeBitmap(data, bitmap);
 }
 
 static bool loadPaletteResource(ResourceManager &resources, const Common::String &path, byte *dest) {
@@ -393,10 +311,10 @@ static void splitDialogueMenuLine(const Common::String &line, Common::Array<Comm
 static void logDialogueMenuItems(const char *label, int sourceLineIndex,
 		const Common::String &rawLine, const Common::Array<Common::String> &items) {
 	if (sourceLineIndex >= 0) {
-		debugC(1, kDebugDialogue, "Harvester: %s source line 0x%x (%d) raw='%s'",
+		debugC(3, kDebugDialogue, "Harvester: %s source line 0x%x (%d) raw='%s'",
 			label, sourceLineIndex, sourceLineIndex + 1, rawLine.c_str());
 	} else {
-		debugC(1, kDebugDialogue, "Harvester: %s source raw='%s'", label, rawLine.c_str());
+		debugC(3, kDebugDialogue, "Harvester: %s source raw='%s'", label, rawLine.c_str());
 	}
 
 	if (items.empty()) {
@@ -405,7 +323,7 @@ static void logDialogueMenuItems(const char *label, int sourceLineIndex,
 	}
 
 	for (uint i = 0; i < items.size(); ++i)
-		debugC(1, kDebugDialogue, "Harvester: %s item[%u]='%s'", label, i + 1, items[i].c_str());
+		debugC(3, kDebugDialogue, "Harvester: %s item[%u]='%s'", label, i + 1, items[i].c_str());
 }
 
 static Common::String buildDialogueHeadId(const Common::String &speakerId, int headVariant) {
@@ -457,6 +375,7 @@ public:
 	struct DialogueResponseOptionLayout {
 		Common::String text;
 		Common::Array<Common::String> wrappedLines;
+		char hotkey = 0;
 		int rowStart = 0;
 		int rowCount = 0;
 	};
@@ -465,7 +384,7 @@ public:
 			const IndexedBitmap &backdrop, const byte *palette, float paletteBrightness,
 			const NpcRecord &npc)
 		: _engine(engine), _mousePos(mousePos), _flow(flow),
-		  _menuTextConfig(DialogueFlowAccess::getMenuTextConfig(flow)), _backdrop(backdrop),
+		  _menuTextConfig(flow.getMenuTextConfig()), _backdrop(backdrop),
 		  _palette(palette), _paletteBrightness(paletteBrightness), _npc(npc),
 		  _script(engine.getScript()), _text(engine.getText()), _art(engine.getArt()),
 		  _entityManager(engine.getRuntimeEntities()),
@@ -480,12 +399,12 @@ public:
 			return;
 		}
 
-		if (const CftFontResource *subtitleFontResource = findStartupFontByName(_engine, "TEXTFONT")) {
+		if (const CftFontResource *subtitleFontResource = _text->findFont("TEXTFONT")) {
 			_subtitleCftFont.reset(new HarvesterCftFont(*subtitleFontResource));
 			if (!_subtitleCftFont->isValid())
 				_subtitleCftFont.reset();
 		}
-		if (const CftFontResource *menuFontResource = findStartupFontByName(_engine, "TEXTFNT2")) {
+		if (const CftFontResource *menuFontResource = _text->findFont("TEXTFNT2")) {
 			_menuCftFont.reset(new HarvesterCftFont(*menuFontResource));
 			if (!_menuCftFont->isValid())
 				_menuCftFont.reset();
@@ -570,7 +489,7 @@ public:
 			Common::Event event;
 			while (g_system->getEventManager()->pollEvent(event)) {
 				Common::Error result = Common::kNoError;
-				if (DialogueFlowAccess::handleSystemEvent(_flow, event, result)) {
+				if (_flow.handleSystemEvent(event, result)) {
 					_engine.stopSpeech();
 					return result;
 				}
@@ -606,7 +525,7 @@ public:
 				Common::Event event;
 				while (g_system->getEventManager()->pollEvent(event)) {
 					Common::Error result = Common::kNoError;
-					if (DialogueFlowAccess::handleSystemEvent(_flow, event, result))
+					if (_flow.handleSystemEvent(event, result))
 						return result;
 
 					if (isDialogueContinueEvent(event))
@@ -696,7 +615,7 @@ public:
 			Common::Event event;
 			while (g_system->getEventManager()->pollEvent(event)) {
 				Common::Error result = Common::kNoError;
-				if (DialogueFlowAccess::handleSystemEvent(_flow, event, result))
+				if (_flow.handleSystemEvent(event, result))
 					return result;
 				if (event.type == Common::EVENT_MOUSEMOVE)
 					_mousePos = event.mouse;
@@ -721,7 +640,7 @@ public:
 
 				while (g_system->getEventManager()->pollEvent(event)) {
 					Common::Error result = Common::kNoError;
-					if (DialogueFlowAccess::handleSystemEvent(_flow, event, result))
+					if (_flow.handleSystemEvent(event, result))
 						return result;
 
 					switch (event.type) {
@@ -777,6 +696,8 @@ public:
 		topics.push_back(_genericByeTopic);
 		debugC(1, kDebugDialogue, "Harvester: keyword menu default topic='%s'", _genericByeTopic.c_str());
 		bool editingOther = false;
+		bool textEntryCursorVisible = false;
+		uint32 textEntryBlinkTimestamp = 0;
 		Common::String typedTopic;
 		Common::Error releaseError = waitForPointerRelease();
 		if (releaseError.getCode() != Common::kNoError)
@@ -784,43 +705,64 @@ public:
 
 		Graphics::FrameLimiter limiter(g_system, 60);
 		for (;;) {
+			const uint32 now = getRuntimeClockTicks();
+			if (editingOther && now - textEntryBlinkTimestamp > kDialogueTextEntryBlinkTicks) {
+				textEntryCursorVisible = !textEntryCursorVisible;
+				textEntryBlinkTimestamp = now;
+			}
 			const int hoveredTopicIndex = editingOther ? -1 : getDialogueMenuItemAt(*_menuFont, topics.size(), _mousePos);
-			const bool hoverOther = !editingOther && isDialogueOtherHit(_mousePos);
+			const bool hoverOther = editingOther || isDialogueOtherHit(_mousePos);
 			drawDialogueOverlay(&_keywordBitmap, nullptr, &topics, hoveredTopicIndex, hoverOther,
-				editingOther ? &typedTopic : nullptr);
+				editingOther ? &typedTopic : nullptr, textEntryCursorVisible);
 
 			Common::Event event;
 			while (g_system->getEventManager()->pollEvent(event)) {
 				Common::Error result = Common::kNoError;
-				if (DialogueFlowAccess::handleSystemEvent(_flow, event, result))
+				if (_flow.handleSystemEvent(event, result)) {
+					if (editingOther && _entityManager)
+						_entityManager->showCursor();
 					return result;
+				}
 
 				if (editingOther) {
+					bool acceptInput = false;
+					bool cancelInput = false;
 					if (event.type == Common::EVENT_KEYDOWN) {
 						if (event.kbd.keycode == Common::KEYCODE_ESCAPE) {
+							cancelInput = true;
+						} else if (event.kbd.keycode == Common::KEYCODE_BACKSPACE ||
+								event.kbd.keycode == Common::KEYCODE_LEFT) {
+							deleteTextEntryCharacter(typedTopic);
+						} else if (event.kbd.keycode == Common::KEYCODE_HOME) {
 							typedTopic.clear();
-							editingOther = false;
-							debugC(1, kDebugDialogue, "Harvester: keyword menu cancelled Other input");
-							if (_entityManager)
-								_entityManager->showCursor();
-						} else if (event.kbd.keycode == Common::KEYCODE_BACKSPACE) {
-							if (!typedTopic.empty())
-								typedTopic.deleteLastChar();
 						} else if (event.kbd.keycode == Common::KEYCODE_RETURN ||
 								event.kbd.keycode == Common::KEYCODE_KP_ENTER) {
-							if (!typedTopic.empty()) {
-								selectedTopic = typedTopic;
-								selection.fromTypedInput = true;
-								debugC(1, kDebugDialogue, "Harvester: keyword menu typed topic='%s'",
-									selectedTopic.c_str());
-								if (_entityManager)
-									_entityManager->showCursor();
-								return Common::kNoError;
-							}
-						} else if (event.kbd.ascii >= 0x20 && event.kbd.ascii <= 0x7e &&
-								typedTopic.size() < 79) {
-							typedTopic += (char)event.kbd.ascii;
+							acceptInput = true;
+						} else if (event.kbd.ascii >= 0x1f && event.kbd.ascii <= 0x80 &&
+								event.kbd.ascii != '~' &&
+								(!_subtitleCftFont || _subtitleCftFont->hasGlyph(event.kbd.ascii))) {
+							appendTextEntryCharacter(typedTopic, *_highlightFont, event.kbd.ascii,
+								kDialogueTextEntryMaxLength, kDialogueTextEntryMaxWidth);
 						}
+					} else if (event.type == Common::EVENT_LBUTTONDOWN) {
+						acceptInput = Common::Rect(3, 460, 318, 477).contains(event.mouse);
+						cancelInput = Common::Rect(321, 460, 636, 477).contains(event.mouse);
+						if (cancelInput)
+							g_system->delayMillis(400);
+					}
+					if (acceptInput || cancelInput) {
+						editingOther = false;
+						if (_entityManager)
+							_entityManager->showCursor();
+						if (acceptInput && !typedTopic.empty()) {
+							selectedTopic = typedTopic;
+							selection.fromTypedInput = true;
+							debugC(1, kDebugDialogue, "Harvester: keyword menu typed topic='%s'",
+								selectedTopic.c_str());
+							return Common::kNoError;
+						}
+						typedTopic.clear();
+						debugC(1, kDebugDialogue, "Harvester: keyword menu cancelled Other input");
 					}
 					continue;
 				}
@@ -842,13 +784,15 @@ public:
 					if (clickedTopic >= 0) {
 						selectedTopic = topics[(uint)clickedTopic];
 						selection.fromGenericBye = clickedTopic == (int)topics.size() - 1;
-						debugC(1, kDebugDialogue, "Harvester: keyword menu selected topic[%d]='%s'",
+						debugC(2, kDebugDialogue, "Harvester: keyword menu selected topic[%d]='%s' via click",
 							clickedTopic + 1, selectedTopic.c_str());
 						return Common::kNoError;
 					}
 					if (isDialogueOtherHit(_mousePos)) {
 						typedTopic.clear();
 						editingOther = true;
+						textEntryCursorVisible = false;
+						textEntryBlinkTimestamp = getRuntimeClockTicks();
 						debugC(1, kDebugDialogue, "Harvester: keyword menu entered Other input");
 						if (_entityManager)
 							_entityManager->hideCursor();
@@ -877,80 +821,17 @@ public:
 	}
 
 	Common::Error runGameOverScreen() override {
-		Graphics::Screen *screen = _engine.getScreen();
-		ResourceManager *resources = _engine.getResources();
-		if (!screen || !resources)
-			return Common::kReadingFailed;
-
-		IndexedBitmap gameOverBitmap;
-		byte gameOverPalette[256 * 3];
-		if (!loadBitmapResource(*resources, kDialogueGameOverBitmapPath, gameOverBitmap) ||
-				!loadPaletteResource(*resources, kDialogueGameOverPalettePath, gameOverPalette)) {
-			return Common::kReadingFailed;
-		}
-
-		_engine.stopSpeech();
-		_engine.stopMusic();
-		_engine.stopSound();
-
-		screen->fillRect(screen->getBounds(), 0);
-		blitBitmap(*screen, gameOverBitmap, 0, 0);
-		setScaledPalette(*screen, gameOverPalette, 1.0f);
-		screen->makeAllDirty();
-		screen->update();
-
-		(void)_engine.playMusic(kDialogueGameOverMusicPath);
-
-		bool dismissed = false;
-		Graphics::FrameLimiter limiter(g_system, 60);
-		while (!dismissed && !SHOULD_QUIT) {
-			Common::Event event;
-			while (g_system->getEventManager()->pollEvent(event)) {
-				Common::Error result = Common::kNoError;
-				if (DialogueFlowAccess::handleSystemEvent(_flow, event, result)) {
-					_engine.stopMusic();
-					return result;
-				}
-
-				switch (event.type) {
-				case Common::EVENT_LBUTTONDOWN:
-				case Common::EVENT_RBUTTONDOWN:
-				case Common::EVENT_KEYDOWN:
-					dismissed = true;
-					break;
-				default:
-					break;
-				}
-			}
-
-			if (_entityManager)
-				(void)_entityManager->syncCursorEntityPosition(_mousePos);
-			if (dismissed)
-				break;
-
-			limiter.delayBeforeSwap();
-			limiter.startFrame();
-		}
-
-		_engine.stopMusic();
-		if (dismissed) {
-			Common::Error releaseError = waitForPointerRelease();
-			if (releaseError.getCode() != Common::kNoError)
-				return releaseError;
-		}
-
-		DialogueFlowAccess::requestMainMenuReturn(_flow);
+		// GOG run_game_over_screen (0x7c540) enters run_main_menu (0x67390)
+		// with GAMEOVER.BM and GAMEOVER.PAL retained as the menu backdrop.
+		debugC(1, kDebugDialogue, "Harvester: dialogue death requesting game-over menu");
+		_flow.requestGameOverReturn();
 		return Common::kNoError;
 	}
 
 	void assignTopicBuffer(Common::String &topicBuffer, int &topicBufferLineIndex,
-			int responseLineIndex, const char *label) override {
+			int responseLineIndex, const char *) override {
 		topicBuffer = _text->getDialogueResponseLine(responseLineIndex);
 		topicBufferLineIndex = responseLineIndex;
-
-		Common::Array<Common::String> topics;
-		splitDialogueMenuLine(topicBuffer, topics);
-		logDialogueMenuItems(label, responseLineIndex, topicBuffer, topics);
 	}
 
 	bool matchesResponseLine(const Common::String &selectedTopic, int responseLineIndex) override {
@@ -984,7 +865,7 @@ public:
 				interaction.lightingCommand != kStartupLightingCommandNone ||
 				interaction.requestPlayerGotoXZ ||
 				!interaction.audioCommands.empty()) {
-			DialogueFlowAccess::queueDialogueInteraction(_flow, interaction);
+			_flow.queueDialogueInteraction(interaction);
 		}
 	}
 
@@ -992,7 +873,7 @@ public:
 		if (!interaction.musicPath.empty())
 			(void)_engine.playMusic(interaction.musicPath);
 		if (!interaction.audioCommands.empty())
-			DialogueFlowAccess::executeStartupAudioCommands(_flow, interaction.audioCommands);
+			_flow.executeStartupAudioCommands(interaction.audioCommands);
 		interaction.musicPath.clear();
 		interaction.audioCommands.clear();
 	}
@@ -1026,7 +907,7 @@ private:
 			Common::Event event;
 			while (g_system->getEventManager()->pollEvent(event)) {
 				Common::Error result = Common::kNoError;
-				if (DialogueFlowAccess::handleSystemEvent(_flow, event, result))
+				if (_flow.handleSystemEvent(event, result))
 					return result;
 			}
 
@@ -1072,7 +953,8 @@ private:
 
 	void drawDialogueOverlay(const IndexedBitmap *overlayBitmap,
 			const Common::Array<Common::String> *subtitleLines, const Common::Array<Common::String> *topics,
-			int hoveredTopicIndex, bool hoverOther, const Common::String *textEntryValue) {
+			int hoveredTopicIndex, bool hoverOther, const Common::String *textEntryValue,
+			bool textEntryCursorVisible = false) {
 		Graphics::Screen *activeScreen = getActiveScreen();
 		if (!activeScreen)
 			return;
@@ -1131,8 +1013,9 @@ private:
 
 		if (textEntryValue) {
 			drawFontString(*_highlightFont, _highlightFontUsesCft,
-				*textEntryValue + "_", kDialogueTextEntryX, kDialogueTextEntryY,
-				kDialogueKeywordTextWidth - 30, kTextColorNormal);
+				*textEntryValue + (textEntryCursorVisible ? "~" : ""),
+				kDialogueTextEntryX, kDialogueTextEntryY, kDialogueTextEntryMaxWidth,
+				kTextColorNormal);
 		}
 
 		if (_entityManager)
@@ -1158,6 +1041,9 @@ private:
 
 			DialogueResponseOptionLayout option;
 			option.text = optionText;
+			if (optionText.size() > 1 && optionText[0] >= '1' && optionText[0] <= '9' &&
+					optionText[1] == '.')
+				option.hotkey = optionText[0];
 			option.rowStart = (int)totalRows;
 			for (const Common::String &explicitLine : explicitLines) {
 				Common::Array<Common::String> wrappedExplicitLines;
@@ -1181,20 +1067,12 @@ private:
 			if (segmentText.empty())
 				return;
 
-			uint digitEnd = 0;
-			while (digitEnd < segmentText.size() && segmentText[digitEnd] >= '0' &&
-					segmentText[digitEnd] <= '9') {
-				++digitEnd;
-			}
-			const bool startsNewOption = digitEnd > 0 && digitEnd < segmentText.size() &&
-				segmentText[digitEnd] == '.';
+			const bool startsNewOption = segmentText.size() > 1 && segmentText[0] >= '1' &&
+				segmentText[0] <= '9' && segmentText[1] == '.';
 			if (startsNewOption) {
 				flushOption();
-
-				Common::String optionLine = segmentText.substr(digitEnd + 1);
-				optionLine.trim();
-				optionText = optionLine;
-				explicitLines.push_back(Common::move(optionLine));
+				optionText = segmentText;
+				explicitLines.push_back(Common::move(segmentText));
 				return;
 			}
 
@@ -1310,8 +1188,11 @@ private:
 		}
 
 		Common::Array<Common::String> optionTexts;
-		for (const DialogueResponseOptionLayout &option : options)
+		for (const DialogueResponseOptionLayout &option : options) {
 			optionTexts.push_back(option.text);
+			debugC(3, kDebugDialogue, "Harvester: response menu option[%u] hotkey=%c rowStart=%d rowCount=%d",
+				optionTexts.size(), option.hotkey ? option.hotkey : '-', option.rowStart, option.rowCount);
+		}
 		logDialogueMenuItems("Response menu", responseLineIndex, responseLine, optionTexts);
 
 		const IndexedBitmap *textboxBitmap = _art->getTextboxBitmap(resolveDialogueResponseTextboxIndex(totalRows));
@@ -1327,47 +1208,48 @@ private:
 			Common::Event event;
 			while (g_system->getEventManager()->pollEvent(event)) {
 				Common::Error result = Common::kNoError;
-				if (DialogueFlowAccess::handleSystemEvent(_flow, event, result))
+				if (_flow.handleSystemEvent(event, result))
 					return result;
 
 				if (event.type == Common::EVENT_KEYDOWN) {
-					if (event.kbd.keycode == Common::KEYCODE_ESCAPE) {
-						if (responseLineIndex >= 0) {
-							debugC(1, kDebugDialogue, "Harvester: response menu line 0x%x (%d) cancelled",
-								responseLineIndex, responseLineIndex + 1);
-						} else {
-							debugC(1, kDebugDialogue, "Harvester: response menu text cancelled");
-						}
-						return Common::kNoError;
-					}
-					if (event.kbd.ascii >= '1' && event.kbd.ascii <= '9') {
-						const int menuIndex = event.kbd.ascii - '0';
-						if (menuIndex >= 1 && menuIndex <= (int)options.size()) {
-							selectedIndex = menuIndex;
+					debugC(3, kDebugDialogue, "Harvester: response menu keycode=%d ascii=%u",
+						(int)event.kbd.keycode, event.kbd.ascii);
+					if (event.kbd.keycode >= Common::KEYCODE_1 && event.kbd.keycode <= Common::KEYCODE_9) {
+						const char hotkey = '1' + event.kbd.keycode - Common::KEYCODE_1;
+						for (int optionIndex = (int)options.size() - 1; optionIndex >= 0; --optionIndex) {
+							const DialogueResponseOptionLayout &option = options[(uint)optionIndex];
+							if (option.hotkey != hotkey)
+								continue;
+							selectedIndex = optionIndex + 1;
 							if (responseLineIndex >= 0) {
-								debugC(1, kDebugDialogue,
-									"Harvester: response menu line 0x%x (%d) selected option[%d]='%s' via hotkey",
+								debugC(2, kDebugDialogue,
+									"Harvester: response menu line 0x%x (%d) selected option[%d]='%s' via hotkey=%c result=%d",
 									responseLineIndex, responseLineIndex + 1,
-									selectedIndex, options[(uint)(selectedIndex - 1)].text.c_str());
+									optionIndex + 1, option.text.c_str(), hotkey, selectedIndex);
 							} else {
-								debugC(1, kDebugDialogue,
-									"Harvester: response menu text selected option[%d]='%s' via hotkey",
-									selectedIndex, options[(uint)(selectedIndex - 1)].text.c_str());
+								debugC(2, kDebugDialogue,
+									"Harvester: response menu text selected option[%d]='%s' via hotkey=%c result=%d",
+									optionIndex + 1, option.text.c_str(), hotkey, selectedIndex);
 							}
 							return waitForPointerRelease();
 						}
 					}
-				} else if (event.type == Common::EVENT_LBUTTONDOWN && hoveredOptionIndex >= 0) {
-					selectedIndex = hoveredOptionIndex + 1;
+				} else if (event.type == Common::EVENT_LBUTTONDOWN) {
+					const int clickedOptionIndex = getResponseMenuItemAt(options, totalRows, event.mouse);
+					if (clickedOptionIndex < 0)
+						continue;
+					selectedIndex = clickedOptionIndex + 1;
 					if (responseLineIndex >= 0) {
-						debugC(1, kDebugDialogue,
-							"Harvester: response menu line 0x%x (%d) selected option[%d]='%s' via click",
+						debugC(2, kDebugDialogue,
+							"Harvester: response menu line 0x%x (%d) selected option[%d]='%s' via click x=%d y=%d result=%d",
 							responseLineIndex, responseLineIndex + 1,
-							selectedIndex, options[(uint)hoveredOptionIndex].text.c_str());
+							selectedIndex, options[(uint)clickedOptionIndex].text.c_str(),
+							event.mouse.x, event.mouse.y, selectedIndex);
 					} else {
-						debugC(1, kDebugDialogue,
-							"Harvester: response menu text selected option[%d]='%s' via click",
-							selectedIndex, options[(uint)hoveredOptionIndex].text.c_str());
+						debugC(2, kDebugDialogue,
+							"Harvester: response menu text selected option[%d]='%s' via click x=%d y=%d result=%d",
+							selectedIndex, options[(uint)clickedOptionIndex].text.c_str(),
+							event.mouse.x, event.mouse.y, selectedIndex);
 					}
 					return waitForPointerRelease();
 				}
@@ -1420,95 +1302,102 @@ DialogueSystem::DialogueSystem(HarvesterEngine &engine, Common::Point &mousePos)
 
 DialogueSystem::~DialogueSystem() {
 	for (uint i = 0; i < _npcHandlers.size(); ++i)
-		delete _npcHandlers[i];
+		delete _npcHandlers[i].handler;
+}
+
+NpcDialogueHandler *DialogueSystem::findNpcHandler(const Common::String &npcName) const {
+	for (const NpcHandlerRegistration &registration : _npcHandlers) {
+		for (const char *name : registration.names) {
+			if (npcName.equalsIgnoreCase(name))
+				return registration.handler;
+		}
+	}
+	return nullptr;
 }
 
 bool DialogueSystem::hasRoomNpcHandler(const Common::String &npcName) const {
-	for (uint i = 0; i < _npcHandlers.size(); ++i) {
-		if (_npcHandlers[i]->matchesNpc(npcName))
-			return true;
-	}
-
-	return false;
+	return findNpcHandler(npcName) != nullptr;
 }
 
 void DialogueSystem::registerNpcHandlers() {
-	_npcHandlers.push_back(new AuthorityDialogueHandler());
-	_npcHandlers.push_back(new BeggarDialogueHandler());
-	_npcHandlers.push_back(new BoyleDialogueHandler());
-	_npcHandlers.push_back(new BusterDialogueHandler());
-	_npcHandlers.push_back(new ButcherDialogueHandler());
-	_npcHandlers.push_back(new DwayneDialogueHandler());
-	_npcHandlers.push_back(new EdnaDialogueHandler());
-	_npcHandlers.push_back(new Fireman1DialogueHandler());
-	_npcHandlers.push_back(new Fireman2DialogueHandler());
-	_npcHandlers.push_back(new ChessmasterDialogueHandler());
-	_npcHandlers.push_back(new CloakAtndDialogueHandler());
-	_npcHandlers.push_back(new CuratorDialogueHandler());
-	_npcHandlers.push_back(new DadDialogueHandler());
-	_npcHandlers.push_back(new DarkWomanDialogueHandler());
-	_npcHandlers.push_back(new JimmyDialogueHandler());
-	_npcHandlers.push_back(new InquisitorDialogueHandler());
-	_npcHandlers.push_back(new KarinDialogueHandler());
-	_npcHandlers.push_back(new WaspWomanDialogueHandler());
-	_npcHandlers.push_back(new GladiatorDialogueHandler());
-	_npcHandlers.push_back(new LibrarianDialogueHandler());
-	_npcHandlers.push_back(new LoomisDialogueHandler());
-	_npcHandlers.push_back(new McknightDialogueHandler());
-	_npcHandlers.push_back(new MembDirDialogueHandler());
-	_npcHandlers.push_back(new MaintManDialogueHandler());
-	_npcHandlers.push_back(new MadamDialogueHandler());
-	_npcHandlers.push_back(new MomDialogueHandler());
-	_npcHandlers.push_back(new MotherDialogueHandler());
-	_npcHandlers.push_back(new MoynahanDialogueHandler());
-	_npcHandlers.push_back(new MrPottsDialogueHandler());
-	_npcHandlers.push_back(new MrsPottsDialogueHandler());
-	_npcHandlers.push_back(new LodgeChefDialogueHandler());
-	_npcHandlers.push_back(new NudeManDialogueHandler());
-	_npcHandlers.push_back(new ParsonsDialogueHandler());
-	_npcHandlers.push_back(new PastorelliDialogueHandler());
-	_npcHandlers.push_back(new PhelpsDialogueHandler());
-	_npcHandlers.push_back(new PriestDialogueHandler());
-	_npcHandlers.push_back(new RyderDialogueHandler());
-	_npcHandlers.push_back(new ValetDialogueHandler());
-	_npcHandlers.push_back(new VetDialogueHandler());
-	_npcHandlers.push_back(new SparkyDialogueHandler());
-	_npcHandlers.push_back(new StephanieDialogueHandler());
-	_npcHandlers.push_back(new SwellDialogueHandler());
-	_npcHandlers.push_back(new WhaleyDialogueHandler());
-	_npcHandlers.push_back(new HankDialogueHandler());
-	_npcHandlers.push_back(new HerrillDialogueHandler());
-	_npcHandlers.push_back(new JohnsonDialogueHandler());
-	_npcHandlers.push_back(new PtaMomDialogueHandler());
+	_npcHandlers.push_back({ new AuthorityDialogueHandler(), { "AUTHORITY", "AUTHORITY2" } });
+	_npcHandlers.push_back({ new BeggarDialogueHandler(), { "BEGGAR" } });
+	_npcHandlers.push_back({ new BoyleDialogueHandler(), { "BOYLE" } });
+	_npcHandlers.push_back({ new BusterDialogueHandler(), { "BUSTER" } });
+	_npcHandlers.push_back({ new ButcherDialogueHandler(), { "BUTCHER" } });
+	_npcHandlers.push_back({ new DwayneDialogueHandler(), { "DWAYNE", "DWAYNE_DNALFT", "DWAYNE_ST_BEDRM" } });
+	_npcHandlers.push_back({ new EdnaDialogueHandler(), { "EDNA" } });
+	_npcHandlers.push_back({ new Fireman1DialogueHandler(), { "FIREMAN1" } });
+	_npcHandlers.push_back({ new Fireman2DialogueHandler(), { "FIREMAN2" } });
+	_npcHandlers.push_back({ new ChessmasterDialogueHandler(), { "CHESSMASTER" } });
+	_npcHandlers.push_back({ new CloakAtndDialogueHandler(), { "CLOAK_ATND" } });
+	_npcHandlers.push_back({ new CuratorDialogueHandler(), { "CURATOR" } });
+	_npcHandlers.push_back({ new DadDialogueHandler(), { "DAD" } });
+	_npcHandlers.push_back({ new DarkWomanDialogueHandler(), { "DARK_WOMAN" } });
+	_npcHandlers.push_back({ new JimmyDialogueHandler(), { "JIMMY" } });
+	_npcHandlers.push_back({ new InquisitorDialogueHandler(), { "INQUISITOR" } });
+	_npcHandlers.push_back({ new KarinDialogueHandler(), { "KARIN", "KARIN_STANDING", "KARIN_CEM10", "KARIN_OFFICE" } });
+	_npcHandlers.push_back({ new WaspWomanDialogueHandler(), { "WASP_WOMAN" } });
+	_npcHandlers.push_back({ new GladiatorDialogueHandler(), { "GLADIATOR" } });
+	_npcHandlers.push_back({ new LibrarianDialogueHandler(), { "LIBRARIAN" } });
+	_npcHandlers.push_back({ new LoomisDialogueHandler(), { "LOOMIS" } });
+	_npcHandlers.push_back({ new McknightDialogueHandler(), { "MCKNIGHT" } });
+	_npcHandlers.push_back({ new MembDirDialogueHandler(), { "MEMB_DIR" } });
+	_npcHandlers.push_back({ new MaintManDialogueHandler(), { "MAINT_MAN" } });
+	_npcHandlers.push_back({ new MadamDialogueHandler(), { "MADAM" } });
+	_npcHandlers.push_back({ new MomDialogueHandler(), { "MOM" } });
+	_npcHandlers.push_back({ new MotherDialogueHandler(), { "MOTHER" } });
+	_npcHandlers.push_back({ new MoynahanDialogueHandler(), { "MOYNAHAN", "MOYNAHAN_MBLM" } });
+	_npcHandlers.push_back({ new MrPottsDialogueHandler(), { "MR_POTTS", "POTTS_FLESH", "MR_POTTS_CEM10", "MR_POTTS_HALL" } });
+	_npcHandlers.push_back({ new MrsPottsDialogueHandler(), { "MRS_POTTS", "MRS_POTTS_ST_BEDRM" } });
+	_npcHandlers.push_back({ new LodgeChefDialogueHandler(), { "LODGE_CHEF" } });
+	_npcHandlers.push_back({ new NudeManDialogueHandler(), { "NUDE_MAN" } });
+	_npcHandlers.push_back({ new ParsonsDialogueHandler(), { "PARSONS" } });
+	_npcHandlers.push_back({ new PastorelliDialogueHandler(), { "PASTORELLI" } });
+	_npcHandlers.push_back({ new PhelpsDialogueHandler(), { "PHELPS" } });
+	_npcHandlers.push_back({ new PriestDialogueHandler(), { "PRIEST" } });
+	_npcHandlers.push_back({ new RyderDialogueHandler(), { "RYDER", "RYDER_TV_OUT" } });
+	_npcHandlers.push_back({ new ValetDialogueHandler(), { "VALET" } });
+	_npcHandlers.push_back({ new VetDialogueHandler(), { "VET" } });
+	_npcHandlers.push_back({ new SparkyDialogueHandler(), { "SPARKY" } });
+	_npcHandlers.push_back({ new StephanieDialogueHandler(), { "STEPHANIE" } });
+	_npcHandlers.push_back({ new SwellDialogueHandler(), { "SWELL" } });
+	_npcHandlers.push_back({ new WhaleyDialogueHandler(), { "WHALEY" } });
+	_npcHandlers.push_back({ new HankDialogueHandler(), { "HANK" } });
+	_npcHandlers.push_back({ new HerrillDialogueHandler(), { "HERRILL", "HERRILL_LOG" } });
+	_npcHandlers.push_back({ new JohnsonDialogueHandler(), { "JOHNSON" } });
+	_npcHandlers.push_back({ new PtaMomDialogueHandler(), { "PTA_MOM1", "PTA_MOM2", "PTA_MOM3", "PTA_MOM4", "PTA_MOM5" } });
 
-	_npcHandlers.push_back(new SergeantDialogueHandler());
-	_npcHandlers.push_back(new StubNpcDialogueHandler("PTA_MOM"));
+	_npcHandlers.push_back({ new SergeantDialogueHandler(), { "SERGEANT" } });
+	_npcHandlers.push_back({ new StubNpcDialogueHandler("PTA_MOM"), { "PTA_MOM" } });
 }
 
 void DialogueSystem::resetRoomNpcDialogueState() {
 	_sharedDialogueState = DialogueSharedState();
 	for (uint i = 0; i < _npcHandlers.size(); ++i)
-		_npcHandlers[i]->resetState();
+		_npcHandlers[i].handler->resetState();
 }
 
 void DialogueSystem::syncRuntimeSaveState(Common::Serializer &s) {
 	syncDialogueSharedState(s, _sharedDialogueState);
 	for (uint i = 0; i < _npcHandlers.size(); ++i)
-		_npcHandlers[i]->syncState(s);
+		_npcHandlers[i].handler->syncState(s);
 	if (s.isLoading()) {
 		for (uint i = 0; i < _npcHandlers.size(); ++i)
-			_npcHandlers[i]->migrateSharedState(_sharedDialogueState);
+			_npcHandlers[i].handler->migrateSharedState(_sharedDialogueState);
 	}
 }
 
 Common::Error DialogueSystem::runRoomNpcDialogue(const IndexedBitmap &backdrop, const byte *palette,
-		float paletteBrightness, const NpcRecord &npc, const Common::String &usedItemName,
+		float paletteBrightness, const ScriptExecutionContext &executionContext,
+		const NpcRecord &npc, const Common::String &usedItemName,
 		Flow &flow) {
 	Script *script = _engine.getScript();
 	Text *text = _engine.getText();
 	if (!script || !text || !backdrop.isValid())
 		return Common::kReadingFailed;
-	if (!hasRoomNpcHandler(npc.npcName)) {
+	NpcDialogueHandler *handler = findNpcHandler(npc.npcName);
+	if (!handler) {
 		debugC(1, kDebugDialogue,
 			"Harvester: blocked room NPC dialogue npc='%s' reason='no handler'",
 			npc.npcName.c_str());
@@ -1522,19 +1411,19 @@ Common::Error DialogueSystem::runRoomNpcDialogue(const IndexedBitmap &backdrop, 
 		return Common::kNoError;
 	}
 
+	if (!usedItemName.empty() && script->addRuntimeObjectToInventory(usedItemName)) {
+		debugC(2, kDebugDialogue, "Harvester: presented item moved to inventory object='%s' npc='%s'",
+			usedItemName.c_str(), npc.npcName.c_str());
+	}
+
 	RoomNpcDialogueSession session(_engine, _mousePos, flow, backdrop, palette, paletteBrightness, npc);
 	if (!session.isValid())
 		return Common::kReadingFailed;
+	// START_DIALOG may invoke an NPC assigned to another room.
 	DialogueRuntime runtime(
-		_engine, *script, *text, flow, npc.roomName, session.getGenericByeTopic(), session);
+		_engine, *script, *text, flow, executionContext, session.getGenericByeTopic(), session);
 
-	for (uint i = 0; i < _npcHandlers.size(); ++i) {
-		if (_npcHandlers[i]->matchesNpc(npc.npcName))
-			return _npcHandlers[i]->handleDialogue(runtime, usedItemName, _sharedDialogueState);
-	}
-
-	debug(1, "Harvester: unsupported room NPC dialogue handler '%s'", npc.npcName.c_str());
-	return Common::kNoError;
+	return handler->handleDialogue(runtime, usedItemName, _sharedDialogueState);
 }
 
 } // End of namespace Harvester

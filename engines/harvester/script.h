@@ -266,6 +266,29 @@ struct RoomSetupState {
 	Common::Array<AudioCommand> audioCommands;
 };
 
+class ScriptExecutionContext {
+public:
+	ScriptExecutionContext() = default;
+
+	static ScriptExecutionContext forNpcDeath(const NpcRecord &npc) {
+		return ScriptExecutionContext(npc.roomName);
+	}
+	static ScriptExecutionContext forMonsterDeath(const MonsterRecord &monster) {
+		return ScriptExecutionContext(monster.roomName);
+	}
+
+	const char *roomName() const {
+		return _roomName ? _roomName->c_str() : "";
+	}
+
+private:
+	friend struct SceneState;
+
+	explicit ScriptExecutionContext(const Common::String &roomName) : _roomName(&roomName) {}
+
+	const Common::String *const _roomName = nullptr;
+};
+
 enum StartupRoomTransitionKind {
 	kStartupRoomTransitionNone = 0,
 	kStartupRoomTransitionChangeRoom,
@@ -369,17 +392,17 @@ public:
 	bool executeRoomEnterCommands(const Common::String &roomName, InteractionResult &result);
 	bool executeRoomExitCommands(const Common::String &roomName, InteractionResult &result);
 	bool resolveObjectInteraction(const ObjectRecord &object, InteractionResult &result,
-		const Common::String &roomName = Common::String());
+		const ScriptExecutionContext &executionContext);
 	bool resolveRegionInteraction(const RegionRecord &region, InteractionResult &result,
-		const Common::String &roomName = Common::String());
+		const ScriptExecutionContext &executionContext);
 	bool resolveUseItemInteraction(const Common::String &itemName, const ObjectRecord &target,
-		InteractionResult &result, const Common::String &roomName = Common::String());
+		InteractionResult &result, const ScriptExecutionContext &executionContext);
 	bool executeDebugCommand(const CommandRecord &command, InteractionResult &result,
 		bool allowTransitions = true);
 	bool executeActionTag(const Common::String &tag, InteractionResult &result,
-		bool allowTransitions = true, const Common::String &roomName = Common::String());
+		bool allowTransitions, const ScriptExecutionContext &executionContext);
 	bool executeTimerAction(const Common::String &timerName, InteractionResult &result,
-		bool allowTransitions = true, const Common::String &roomName = Common::String());
+		bool allowTransitions, const ScriptExecutionContext &executionContext);
 	bool executeNestedActionTag(const Common::String &tag, InteractionResult &result,
 		bool allowTransitions = true);
 	bool isPickupObject(const ObjectRecord &object) const;
@@ -434,6 +457,19 @@ public:
 	bool setRuntimeTimerEnabled(const Common::String &timerName, bool enabled);
 
 private:
+	struct CommandExecutionContext {
+		const char *label;
+		const Common::String &name;
+		const Common::String &roomName;
+		bool allowTransitions;
+	};
+
+	enum CommandOutputPolicy {
+		kCommandOutputsInteraction,
+		// Suppress destination rooms, death movies and main-menu requests.
+		kCommandOutputsRoomExit
+	};
+
 	bool loadConfig(ResourceManager &resources);
 	void decode();
 	void parseTownRecords(ResourceManager &resources);
@@ -459,22 +495,8 @@ private:
 	const TimerRecord *findRuntimeTimer(const Common::String &timerName) const;
 	bool buildRuntimeRoomState(const RoomRecord &room, const EntranceRecord *entrance,
 		ResourceManager &resources, RoomSetupState &state) const;
-	void executeCommandChain(const Common::String &initialTag, const char *contextLabel,
-		const Common::String &contextName, const Common::String &contextRoomName,
-		bool allowTransitions, Common::String *musicPath,
-		Common::Array<AudioCommand> *audioCommands, Common::String *nextRoomName,
-		StartupRoomTransitionKind *roomTransition,
-		Common::String *cutscenePath, Common::String *deathFlicPath, bool *requestMainMenu,
-		bool *requestDemoEnding,
-		int *cdChangeDisc,
-		Common::String *dialogueNpcName, Common::String *dialogueContinuationTag,
-		Common::String *continuationTag, ResolvedText *modalText,
-		StartupLightingCommand *lightingCommand, Common::String *moveEntityToPlayerZName,
-		bool *requestPlayerGotoXZ, bool *requestPlayerGotoZ,
-		int *playerGotoX, int *playerGotoZ,
-		bool *requestPlayerDeath, int *playerDeathDamageType,
-		bool *mutatedRuntimeState, bool *visualRuntimeStateChanged,
-		Common::Array<TimerRecord> *previousTimerRecords, bool *requestCloseupExit);
+	void executeCommandChain(const Common::String &initialTag, const CommandExecutionContext &context,
+		CommandOutputPolicy outputPolicy, InteractionResult &result);
 	bool probePickupBlockingCommandChain(const Common::String &initialTag,
 		const Common::String &contextName, InteractionResult &result, uint recursionDepth) const;
 	bool hasActionableCommandChain(const Common::String &initialTag) const;

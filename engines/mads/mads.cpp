@@ -25,7 +25,6 @@
 #include "engines/util.h"
 #include "graphics/scaler.h"
 #include "mads/mads.h"
-#include "mads/mads.h"
 #include "mads/core/anim.h"
 #include "mads/core/attr.h"
 #include "mads/core/camera.h"
@@ -248,11 +247,12 @@ void MADSEngine::syncGame(Common::Serializer &s) {
 	s.syncAsSint16LE(previous_room);
 }
 
-void MADSEngine::pollEvents() {
+void MADSEngine::pollEvents(bool presentScreen) {
 	// Check for screen update time
 	uint32 time = g_system->getMillis();
 	if (time >= _nextFrameTime) {
-		updateScreen();
+		if (presentScreen)
+			updateScreen();
 		_nextFrameTime = time + GAME_FRAME_TIME;
 		serviceMacintoshUI();
 	}
@@ -386,8 +386,8 @@ void MADSEngine::checkForTimerFunction() {
 	serviceMacintoshSound();
 }
 
-bool MADSEngine::hasPendingKey() {
-	pollEvents();
+bool MADSEngine::hasPendingKey(bool presentScreen) {
+	pollEvents(presentScreen);
 
 	return !_keyEvents.empty();
 }
@@ -427,6 +427,13 @@ void MADSEngine::updateDisplay() {
 	presentScreen(0);
 }
 
+void MADSEngine::pauseEngineIntern(bool pause) {
+	Engine::pauseEngineIntern(pause);
+
+	if (_soundManager != nullptr)
+		_soundManager->pause(pause);
+}
+
 uint32 MADSEngine::getMillis() {
 	pollEvents();
 	return g_system->getMillis();
@@ -442,6 +449,14 @@ void MADSEngine::stopSpeech() {
 
 bool MADSEngine::isSpeechPlaying() const {
 	return _mixer->isSoundHandleActive(_speechHandle);
+}
+
+void MADSEngine::syncSoundSettings() {
+	Engine::syncSoundSettings();
+	read_sound_settings();
+
+	if (_soundManager != nullptr)
+		_soundManager->syncSoundSettings();
 }
 
 SaveStateList MADSEngine::listSaves() const {

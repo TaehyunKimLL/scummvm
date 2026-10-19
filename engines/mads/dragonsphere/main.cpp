@@ -46,6 +46,17 @@ namespace Dragonsphere {
 constexpr bool SHOW_LINES = true;
 constexpr byte LINE_COLOR = 2;
 
+static void runAnimView(const char *resource) {
+	AnimView::Presentation presentation;
+	presentation.bufferHeight = 0;
+	presentation.boundaryLines = AnimView::kBoundaryLinesFromResource;
+	presentation.serviceFramesInline = false;
+	if (ConfMan.hasKey("animview_boundary_lines"))
+		presentation.boundaryLines = ConfMan.getBool("animview_boundary_lines") ?
+			AnimView::kBoundaryLinesShown : AnimView::kBoundaryLinesHidden;
+	AnimView::animview_main(resource, presentation);
+}
+
 static void main_menu_main() {
 	auto &screen = *g_engine->getScreen();
 	Palette palette;
@@ -119,7 +130,6 @@ static void main_cold_data_init() {
 	game.difficulty = g_engine->isDemo() ? 0 : -1;
 
 	Common::strcpy_s(config_file_name, "config.dra");
-	Common::strcpy_s(save_game_key, "drag");
 	Common::strcpy_s(restart_game_key, "dragon");
 
 	Common::strcpy_s(player.series_name, "RAL");
@@ -253,7 +263,7 @@ void dragonsphere_main() {
 			return;
 
 		case 3:
-			AnimView::animview_main("@dragon");
+			runAnimView("@dragon");
 			selected_item = g_engine->isDemo() ? 0 : -1;
 			break;
 
@@ -263,7 +273,7 @@ void dragonsphere_main() {
 
 		case 9:
 			// Demo
-			AnimView::animview_main("@demodisk");
+			runAnimView("@demodisk");
 			selected_item = 0;
 			break;
 

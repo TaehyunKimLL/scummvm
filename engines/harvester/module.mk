@@ -2,6 +2,7 @@ MODULE := engines/harvester
 
 MODULE_OBJS = \
 	art.o \
+	bitmap.o \
 	cft_font.o \
 	cheats.o \
 	console.o \
@@ -16,10 +17,13 @@ MODULE_OBJS = \
 	monster.o \
 	player.o \
 	resources.o \
-	room_combat.o \
-	room_interaction.o \
-	room.o \
-	runtime_entity.o \
+	combat.o \
+	interaction.o \
+	input.o \
+	room_presentation.o \
+	scene_entities.o \
+	scene.o \
+	entity.o \
 	saveload.o \
 	script.o \
 	text.o \

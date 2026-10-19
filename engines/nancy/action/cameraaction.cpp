@@ -29,7 +29,7 @@
 
 #include "engines/nancy/action/cameraaction.h"
 
-#include "engines/nancy/ui/camera.h"
+#include "engines/nancy/ui/taskbar/camera.h"
 
 #include "engines/nancy/state/scene.h"
 
@@ -325,10 +325,12 @@ void CameraAction::execute() {
 
 		break;
 	case kActionTrigger:
-		// Back to the scene the camera was opened from, viewfinder up.
+		// Back to the scene the camera was opened from, viewfinder up. The
+		// camera remembers its item, so it can return to the album after a shot.
+		const int16 cameraItemID = NancySceneState.getPushedInvItemID();
 		NancySceneState.popScene(true);
 		if (UI::Camera *camera = NancySceneState.getCamera()) {
-			camera->activate();
+			camera->activate(cameraItemID);
 		}
 
 		finishExecution();

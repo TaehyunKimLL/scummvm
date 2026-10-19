@@ -19,20 +19,23 @@
  *
  */
 
-#include <math.h>
-
 #include "harvester/player.h"
+#include "harvester/combat.h"
 
 #include "common/debug.h"
 #include "common/system.h"
 #include "harvester/detection.h"
 #include "harvester/harvester.h"
 #include "harvester/resources.h"
-#include "harvester/runtime_entity.h"
+#include "harvester/entity.h"
 
 namespace Harvester {
 
 namespace {
+
+static void syncPlayerAnimationPlacement(RoomPlayerState &playerState);
+static bool setPlayerIdleAnimation(RoomPlayerState &playerState, int facing);
+static void updatePlayerIdleTrigger(RoomIdleAnimationState &idleState);
 
 static const char *const kPlayerActorResourcePath = "1:/GRAPHIC/MONSTERS/PC/PC0.ABM";
 static const float kRoomPlayerHorizontalMoveBase = 8.0f;
@@ -55,7 +58,6 @@ static const float kRoomPlayerAttackUpperYOffset = 144.44f;
 static const float kRoomPlayerAttackMidYOffset = 75.36f;
 static const char *const kPlayerIdleAnimationEntityName = "IDLE_ANIM";
 static const char *const kPlayerIdleAnimationResourcePath = "1:/GRAPHIC/ROOMANIM/PCLOUN02.ABM";
-static const uint32 kRuntimeClockDivisorMs = 10;
 static const uint32 kRoomPlayerIdleDelayTicks = 3000;
 static const int kPlayerHitKnockbackDistance = 18;
 static const int kPlayerHitKnockbackDecayStep = 3;
@@ -296,7 +298,7 @@ static bool playPlayerHitSound(HarvesterEngine &engine) {
 	return engine.playSound(kPlayerHitSoundPaths[soundIndex]);
 }
 
-static bool runtimeEntityHasFrameRange(const Entity &entity, int firstFrame, int lastFrame) {
+static bool playerEntityHasFrameRange(const Entity &entity, int firstFrame, int lastFrame) {
 	if (!entity.hasFrames() || firstFrame < 0 || lastFrame < firstFrame)
 		return false;
 
@@ -305,7 +307,7 @@ static bool runtimeEntityHasFrameRange(const Entity &entity, int firstFrame, int
 
 static bool choosePlayerDeathAnimationRange(const Entity &entity, int firstFrame, int lastFrame,
 		PlayerDeathAnimationRange &range) {
-	if (!runtimeEntityHasFrameRange(entity, firstFrame, lastFrame))
+	if (!playerEntityHasFrameRange(entity, firstFrame, lastFrame))
 		return false;
 
 	range = PlayerDeathAnimationRange(firstFrame, lastFrame);
@@ -482,7 +484,7 @@ static bool resolvePlayerHitAnimationRange(const Entity &entity,
 		return false;
 	}
 
-	if (!runtimeEntityHasFrameRange(entity, candidate.firstFrame, candidate.lastFrame))
+	if (!playerEntityHasFrameRange(entity, candidate.firstFrame, candidate.lastFrame))
 		return false;
 
 	range = candidate;
@@ -579,7 +581,7 @@ static int resolveFacingFromRoomMovement(
 }
 
 static int computeRoomPlayerHorizontalStep(const RoomSetupState &state, float z) {
-	return MAX<int>(1, roundToInt(Player::computeDepthScale(state, z) * kRoomPlayerHorizontalMoveBase));
+	return MAX<int>(1, (int)(Player::computeDepthScale(state, z) * kRoomPlayerHorizontalMoveBase));
 }
 
 static float computeRoomPlayerDepthStep(const RoomSetupState &state) {
@@ -594,17 +596,11 @@ static int computeRoomPlayerVerticalScreenStep() {
 }
 
 static int computePlayerFrameLeftX(const RoomPlayerState &playerState) {
-	if (!playerState.entity)
-		return playerState.centerX;
+	return playerState.entity ? playerState.entity->getScreenRect().left : playerState.centerX;
+}
 
-	int width = 0;
-	int height = 0;
-	int xOffset = 0;
-	int yOffset = 0;
-	if (!playerState.entity->getCurrentFrameMetrics(width, height, xOffset, yOffset))
-		return playerState.centerX;
-
-	return playerState.centerX - width / 2;
+static float computePlayerRenderZ(const RoomPlayerState &playerState) {
+	return playerState.entity ? playerState.entity->getZ() : playerState.z;
 }
 
 static void resetPlayerMoveTargetProgress(RoomPlayerState &playerState) {
@@ -613,22 +609,23 @@ static void resetPlayerMoveTargetProgress(RoomPlayerState &playerState) {
 }
 
 static int resolveMoveTargetHorizontalDirection(const RoomSetupState &state,
-		const RoomPlayerState &playerState) {
-	const float slack = Player::computeDepthScale(state, playerState.z) *
+		const RoomPlayerState &playerState, int regionFacing) {
+	const float slack = Player::computeDepthScale(state, computePlayerRenderZ(playerState)) *
 		kRoomPlayerHorizontalTargetSlackBase;
 	const float frameLeftX = (float)computePlayerFrameLeftX(playerState);
-	if (frameLeftX < (float)playerState.targetX - slack)
+	if (frameLeftX < (float)playerState.targetX - slack || regionFacing == 2)
 		return 1;
-	if ((float)playerState.targetX + slack < frameLeftX)
+	if ((float)playerState.targetX + slack < frameLeftX || regionFacing == 1)
 		return -1;
 
 	return 0;
 }
 
-static int resolveMoveTargetDepthDirection(const RoomPlayerState &playerState) {
-	if (playerState.targetZ < playerState.z - kRoomPlayerDepthTargetSlack)
+static int resolveMoveTargetDepthDirection(const RoomPlayerState &playerState, int regionFacing) {
+	const float z = computePlayerRenderZ(playerState);
+	if (playerState.targetZ < z - kRoomPlayerDepthTargetSlack || regionFacing == 0)
 		return 1;
-	if (playerState.z + kRoomPlayerDepthTargetSlack < playerState.targetZ)
+	if (z + kRoomPlayerDepthTargetSlack < playerState.targetZ || regionFacing == 3)
 		return -1;
 
 	return 0;
@@ -639,13 +636,13 @@ static bool hasPlayerReachedMoveTarget(const RoomPlayerState &playerState) {
 }
 
 static void updatePlayerMoveTargetProgress(const RoomSetupState &state,
-		RoomPlayerState &playerState) {
+		RoomPlayerState &playerState, int regionFacing) {
 	if (!playerState.moveTargetXReached &&
-			resolveMoveTargetHorizontalDirection(state, playerState) == 0) {
+			resolveMoveTargetHorizontalDirection(state, playerState, regionFacing) == 0) {
 		playerState.moveTargetXReached = true;
 	}
 	if (!playerState.moveTargetZReached &&
-			resolveMoveTargetDepthDirection(playerState) == 0) {
+			resolveMoveTargetDepthDirection(playerState, regionFacing) == 0) {
 		playerState.moveTargetZReached = true;
 	}
 }
@@ -693,14 +690,6 @@ static bool consumePlayerMovementTick(RoomPlayerState &playerState) {
 
 	playerState.nextMovementTick = now + interval;
 	return true;
-}
-
-static float stepTowardsFloat(float current, float target, float step) {
-	if (step <= 0.0f || fabsf(target - current) <= kRoomDepthCompareEpsilon)
-		return target;
-	if (current < target)
-		return MIN(current + step, target);
-	return MAX(current - step, target);
 }
 
 static bool shouldIgnoreMovementBlocker(const Entity &entity, const Common::String *ignoredBlockerName) {
@@ -780,6 +769,17 @@ static void reinsertPlayerSceneEntity(HarvesterEngine &engine, const RoomPlayerS
 	}
 }
 
+static void applyPlayerMovementPlacement(const RoomSetupState &state, RoomPlayerState &playerState,
+		int candidateCenterX, int candidateBottomY, float candidateZ) {
+	Entity &entity = *playerState.entity;
+	// advance_entity_animation_frame (0x4c8a0) moves the pre-offset screen base.
+	// rescale_entity_sprite_for_depth (0x4b440) changes bounds without recentering it.
+	const float renderZ = candidateZ - floorf(MAX<float>(entity.getZExtent(), 0.0f) * 0.5f);
+	entity.setPosition(entity.getX() + candidateCenterX - playerState.centerX,
+		entity.getY() + candidateBottomY - playerState.bottomY, renderZ);
+	entity.setDepthScale(Player::computeDepthScale(state, renderZ));
+}
+
 static bool isPlayerMovementBlocked(HarvesterEngine &engine, const RoomSetupState &state,
 		const Common::Array<ObjectRecord> &sceneObjects,
 		const Common::Array<AnimRecord> &sceneAnimations,
@@ -791,19 +791,17 @@ static bool isPlayerMovementBlocked(HarvesterEngine &engine, const RoomSetupStat
 	if (blockerOut)
 		*blockerOut = nullptr;
 
-	const int oldCenterX = playerState.centerX;
-	const int oldBottomY = playerState.bottomY;
-	const float oldZ = playerState.z;
-	candidateBottomY = clampRoomMovementY(state, candidateBottomY);
-	if (!applyRoomActorPlacement(state, *playerState.entity,
-			candidateCenterX, candidateBottomY, candidateZ)) {
-		(void)applyRoomActorPlacement(state, *playerState.entity, oldCenterX, oldBottomY, oldZ);
-		return true;
-	}
+	Entity &entity = *playerState.entity;
+	const int oldX = entity.getX();
+	const int oldY = entity.getY();
+	const float oldZ = entity.getZ();
+	const float oldScale = entity.getDepthScale();
+	applyPlayerMovementPlacement(state, playerState, candidateCenterX, candidateBottomY, candidateZ);
 
 	const Entity *blocker = findPlayerRoomBlocker(engine, sceneObjects, sceneAnimations,
-		*playerState.entity, ignoredBlockerName);
-	(void)applyRoomActorPlacement(state, *playerState.entity, oldCenterX, oldBottomY, oldZ);
+		entity, ignoredBlockerName);
+	entity.setPosition(oldX, oldY, oldZ);
+	entity.setDepthScale(oldScale);
 	if (blockerOut)
 		*blockerOut = blocker;
 	return blocker != nullptr;
@@ -821,7 +819,6 @@ static bool tryApplyPlayerMovement(HarvesterEngine &engine, const RoomSetupState
 		*blockerOut = nullptr;
 
 	candidateCenterX = clampPlayerCenterXToNativeBounds(playerState, candidateCenterX);
-	candidateBottomY = clampRoomMovementY(state, candidateBottomY);
 	candidateZ = clampRoomDepth(state, candidateZ);
 	if (candidateCenterX == playerState.centerX &&
 			candidateBottomY == playerState.bottomY &&
@@ -834,50 +831,12 @@ static bool tryApplyPlayerMovement(HarvesterEngine &engine, const RoomSetupState
 		return false;
 	}
 
-	playerState.centerX = candidateCenterX;
-	playerState.bottomY = candidateBottomY;
+	applyPlayerMovementPlacement(state, playerState, candidateCenterX, candidateBottomY, candidateZ);
 	playerState.z = candidateZ;
-	if (!applyRoomActorPlacement(state, *playerState.entity,
-			playerState.centerX, playerState.bottomY, playerState.z)) {
-		return false;
-	}
+	syncPlayerAnimationPlacement(playerState);
 
 	reinsertPlayerSceneEntity(engine, playerState);
 	return true;
-}
-
-static bool tryApplyPlayerMovementWithFallbacks(HarvesterEngine &engine, const RoomSetupState &state,
-		const Common::Array<ObjectRecord> &sceneObjects,
-		const Common::Array<AnimRecord> &sceneAnimations,
-		RoomPlayerState &playerState,
-		int previousCenterX, int previousBottomY, float previousZ,
-		int candidateCenterX, int candidateBottomY, float candidateZ) {
-	if (tryApplyPlayerMovement(engine, state, sceneObjects, sceneAnimations,
-			playerState, candidateCenterX, candidateBottomY, candidateZ)) {
-		return true;
-	}
-	if (tryApplyPlayerMovement(engine, state, sceneObjects, sceneAnimations,
-			playerState, candidateCenterX, previousBottomY, candidateZ)) {
-		return true;
-	}
-	if (tryApplyPlayerMovement(engine, state, sceneObjects, sceneAnimations,
-			playerState, candidateCenterX, candidateBottomY, previousZ)) {
-		return true;
-	}
-	if (tryApplyPlayerMovement(engine, state, sceneObjects, sceneAnimations,
-			playerState, candidateCenterX, previousBottomY, previousZ)) {
-		return true;
-	}
-	if (tryApplyPlayerMovement(engine, state, sceneObjects, sceneAnimations,
-			playerState, previousCenterX, candidateBottomY, candidateZ)) {
-		return true;
-	}
-	if (tryApplyPlayerMovement(engine, state, sceneObjects, sceneAnimations,
-			playerState, previousCenterX, candidateBottomY, previousZ)) {
-		return true;
-	}
-	return tryApplyPlayerMovement(engine, state, sceneObjects, sceneAnimations,
-		playerState, previousCenterX, previousBottomY, candidateZ);
 }
 
 static bool isPathfindingDebugEnabled() {
@@ -1006,13 +965,67 @@ static bool recordNativePrimaryWalkBlockerHistory(const RoomSetupState &state,
 	return false;
 }
 
+static void playPlayerBlockedWalkSounds(HarvesterEngine &engine, const RoomSetupState &state,
+		const RoomPlayerState &playerState, const Entity &blocker) {
+	const Entity &entity = *playerState.entity;
+	const PlayerAnimationRange range = resolvePlayerAnimationRange(playerState.facing);
+	if (entity.getAnimationRate() != kRoomPlayerWalkAnimationRate ||
+			entity.getCurrentFrame() < range.walkFirstFrame ||
+			entity.getCurrentFrame() > range.walkLastFrame)
+		return;
+
+	const int frameLeftX = computePlayerFrameLeftX(playerState);
+	if ((playerState.facing == 1 && frameLeftX < 30) ||
+			(playerState.facing == 2 && frameLeftX >= 611) ||
+			(playerState.facing == 0 && entity.getZ() <= state.roomMinZ) ||
+			(playerState.facing == 3 && entity.getZ() >= state.roomMaxZ))
+		return;
+
+	(void)engine.playSound("2:/SOUND/EFFECTS/FOOTLFT1.WAV");
+	(void)engine.playSound("2:/SOUND/EFFECTS/FOOTRHT1.WAV");
+	debugC(2, kDebugPlayer, "Harvester: player blocked walk sound blocker='%s' facing=%d",
+		blocker.getName().c_str(), playerState.facing);
+}
+
+static bool tryApplyPlayerWalkMovement(HarvesterEngine &engine, const RoomSetupState &state,
+		const Common::Array<ObjectRecord> &sceneObjects,
+		const Common::Array<AnimRecord> &sceneAnimations, RoomPlayerState &playerState,
+		int candidateCenterX, int candidateBottomY, float candidateZ,
+		int horizontalDirection, int depthDirection, const Entity **blockerOut = nullptr) {
+	const Entity *blocker = findPlayerRoomBlocker(engine, sceneObjects, sceneAnimations,
+		*playerState.entity, nullptr);
+	setPlayerCurrentBlocker(playerState, blocker);
+	if (blockerOut)
+		*blockerOut = nullptr;
+	if (blocker && recordNativePrimaryWalkBlockerHistory(state, playerState, *blocker,
+			horizontalDirection, depthDirection)) {
+		playPlayerBlockedWalkSounds(engine, state, playerState, *blocker);
+		if (blockerOut)
+			*blockerOut = blocker;
+		return false;
+	}
+
+	if (candidateCenterX == playerState.centerX &&
+			candidateBottomY == playerState.bottomY &&
+			fabsf(candidateZ - playerState.z) <= kRoomDepthCompareEpsilon)
+		return false;
+
+	// tick_entity_visual_state (0x4cae0) records overlap after placement.
+	// Region activation gets the resulting frame before the next blocker response.
+	applyPlayerMovementPlacement(state, playerState, candidateCenterX, candidateBottomY, candidateZ);
+	playerState.z = candidateZ;
+	syncPlayerAnimationPlacement(playerState);
+	reinsertPlayerSceneEntity(engine, playerState);
+	return true;
+}
+
 static void setMoveTargetInternal(const RoomSetupState &state, RoomPlayerState &playerState,
 		int targetX, float targetZ, int targetBottomY) {
 	playerState.hasMoveTarget = true;
 	playerState.nextMovementTick = 0;
 	playerState.targetX = CLIP<int>(targetX, 0, 639);
 	playerState.targetBottomY = clampRoomMovementY(state, targetBottomY);
-	playerState.targetZ = clampRoomDepth(state, targetZ);
+	playerState.targetZ = targetZ;
 	resetPlayerMoveTargetProgress(playerState);
 	debugC(1, kDebugPlayer,
 		"Harvester: player move target room='%s' current=(%d,%d,z=%.2f) target=(%d,%d,z=%.2f)",
@@ -1030,7 +1043,7 @@ static void setMoveTargetInternal(const RoomSetupState &state, RoomPlayerState &
 
 static void notePlayerIdleReset(RoomIdleAnimationState &idleState) {
 	idleState.resetTick = Player::getRuntimeClockTicks();
-	Player::updateIdleTrigger(idleState);
+	updatePlayerIdleTrigger(idleState);
 }
 
 static bool setPlayerWalkAnimation(RoomPlayerState &playerState, int facing) {
@@ -1059,7 +1072,7 @@ static void positionPlayerIdleAnimationEntity(const RoomSetupState &state,
 	if (!playerState.entity)
 		return;
 
-	idleEntity.setAnchorMode(kRuntimeEntityAnchorTopLeft);
+	idleEntity.setAnchorMode(kEntityAnchorTopLeft);
 	idleEntity.setDepthScale(Player::computeDepthScale(state, playerState.z));
 	idleEntity.setPosition(playerState.entity->getX(),
 		playerState.entity->getY() + kRoomPlayerIdleYOffset, playerState.z);
@@ -1105,7 +1118,7 @@ static bool finishPlayerIdleAnimation(const RoomSetupState &state, RoomPlayerSta
 	if (playerState.entity) {
 		playerState.entity->setVisible(true);
 		if (idleState.restoreFacing >= 0)
-			(void)Player::setIdleAnimation(playerState, idleState.restoreFacing);
+			(void)setPlayerIdleAnimation(playerState, idleState.restoreFacing);
 	}
 
 	idleState.active = false;
@@ -1119,13 +1132,229 @@ static bool finishPlayerIdleAnimation(const RoomSetupState &state, RoomPlayerSta
 	return true;
 }
 
+static void syncPlayerAnimationPlacement(RoomPlayerState &playerState) {
+	if (!playerState.entity)
+		return;
+
+	const Common::Rect rect = playerState.entity->getScreenRect();
+	const int centerX = rect.left + rect.width() / 2;
+	if (playerState.centerX != centerX || playerState.bottomY != rect.bottom) {
+		debugC(3, kDebugPlayer,
+			"Harvester: player frame bounds frame=%d base=(%d,%d) rect=(%d,%d)-(%d,%d) z=%.2f",
+			playerState.entity->getCurrentFrame(), playerState.entity->getX(), playerState.entity->getY(),
+			rect.left, rect.top, rect.right, rect.bottom, (double)playerState.z);
+	}
+	playerState.centerX = centerX;
+	playerState.bottomY = rect.bottom;
+}
+
+static void updatePlayerIdleTrigger(RoomIdleAnimationState &idleState) {
+	idleState.triggerTick = MAX(idleState.activityTick, idleState.resetTick) + kRoomPlayerIdleDelayTicks;
+}
+
+static bool setPlayerIdleAnimation(RoomPlayerState &playerState, int facing) {
+	if (!playerState.entity)
+		return false;
+
+	const PlayerAnimationRange range = resolvePlayerAnimationRange(facing);
+	const bool changed = playerState.facing != facing ||
+		playerState.entity->getCurrentFrame() != range.idleFrame ||
+		playerState.entity->getAnimationRate() != 0;
+	playerState.facing = facing;
+	playerState.nextMovementTick = 0;
+	playerState.keyboardWalkRequest = -1;
+	playerState.walkHorizontalDirection = 0;
+	playerState.walkDepthDirection = 0;
+	playerState.entity->setAnimationRate(0);
+	playerState.entity->setAnimationFrameRange(range.idleFrame, range.idleFrame, false);
+	playerState.entity->setCurrentFrame(range.idleFrame);
+	if (changed) {
+		debugC(1, kDebugPlayer,
+			"Harvester: player idle animation facing=%d frame=%d",
+			facing, range.idleFrame);
+	}
+	return changed;
+}
+
 } // End of anonymous namespace
+
+void Player::initialize(const RoomSetupState &state, Entity *entity, int combatLoadout) {
+	RoomPlayerState &playerState = _state;
+	playerState.entity = entity;
+	playerState.centerX = state.playerSpawnX;
+	playerState.bottomY = state.playerSpawnY;
+	playerState.z = (float)state.playerSpawnZ;
+	playerState.facing = state.playerFacing;
+	playerState.combatLoadout = combatLoadout;
+	playerState.turnActive = false;
+	playerState.turnTargetFacing = -1;
+}
+
+bool Player::isCombatLocked() const {
+	return _state.attackActive || _state.hitActive || _state.deathActive;
+}
+
+void Player::cancelMovement() {
+	_state.hasMoveTarget = false;
+	_state.turnActive = false;
+	_state.turnTargetFacing = -1;
+}
+
+void Player::cancelMovementForAttack() {
+	cancelMovement();
+	_state.turnFirstFrame = -1;
+	_state.turnLastFrame = -1;
+	_state.turnEndFrame = -1;
+	_state.turnPlayBackwards = false;
+}
+
+bool Player::cancelAttackAnimation() {
+	RoomPlayerState &playerState = _state;
+	if (!playerState.attackActive)
+		return false;
+
+	playerState.attackActive = false;
+	playerState.attackFirstFrame = -1;
+	playerState.attackLastFrame = -1;
+	playerState.attackContactFrame = -1;
+	if (!playerState.entity)
+		return false;
+	playerState.attackSoundPlayed = false;
+	playerState.attackSoundPlaybackFrame = -1;
+	playerState.attackContactResolved = false;
+	playerState.attackTargetName.clear();
+	playerState.attackTargetClassId = -1;
+	const int resumeFacing = playerState.attackResumeFacing >= 0
+		? playerState.attackResumeFacing
+		: (playerState.facing >= 0 ? playerState.facing : 0);
+	playerState.attackResumeFacing = -1;
+	return setIdleAnimation(resumeFacing);
+}
+
+void Player::clearAttackTarget() {
+	_state.attackTargetName.clear();
+	_state.attackTargetClassId = -1;
+}
+
+void Player::captureAttackTarget(const Common::String &name, int classId) {
+	_state.attackTargetName = name;
+	_state.attackTargetClassId = classId;
+}
+
+void Player::markAttackContactResolved() {
+	_state.attackContactResolved = true;
+}
+
+void Player::resetIdleState() {
+	RoomIdleAnimationState &idleState = _idleState;
+	idleState = RoomIdleAnimationState();
+	idleState.activityTick = Player::getRuntimeClockTicks();
+	idleState.resetTick = idleState.activityTick;
+	updatePlayerIdleTrigger(idleState);
+}
+
+void Player::noteActivity() {
+	RoomIdleAnimationState &idleState = _idleState;
+	idleState.activityTick = Player::getRuntimeClockTicks();
+	updatePlayerIdleTrigger(idleState);
+}
+
+void Player::cancelIdleAnimation() {
+	RoomPlayerState &playerState = _state;
+	RoomIdleAnimationState &idleState = _idleState;
+	if (idleState.entity) {
+		idleState.entity->setVisible(false);
+		idleState.entity->setAnimationRate(0);
+	}
+	idleState.active = false;
+	idleState.loopStarted = false;
+	idleState.exiting = false;
+	idleState.restoreFacing = -1;
+	if (playerState.entity)
+		playerState.entity->setVisible(true);
+}
+
+void Player::applyGotoXZ(const RoomSetupState &state, EntityManager *entityManager, int x, int z) {
+	RoomPlayerState &playerState = _state;
+	playerState.hasMoveTarget = false;
+	playerState.turnActive = false;
+	playerState.turnTargetFacing = -1;
+	playerState.centerX = x;
+	playerState.z = (float)z;
+	playerState.bottomY = mapRoomDepthToScreenYForCombat(
+		state, playerState.z, playerState.bottomY);
+	Common::Rect screenRect;
+	bool hasScreenRect = false;
+	float depthScale = 0.0f;
+	if (playerState.entity) {
+		(void)applyRoomActorPlacement(state, *playerState.entity,
+			playerState.centerX, playerState.bottomY, playerState.z);
+		if (entityManager)
+			entityManager->reinsertSceneEntity(playerState.entity);
+		screenRect = playerState.entity->getScreenRect();
+		hasScreenRect = true;
+		depthScale = playerState.entity->getDepthScale();
+	}
+	debugC(1, kDebugPlayer,
+		"Harvester: PC_GOTO_XZ applied x=%d z=%d pos=(%d,%d,z=%.2f) screen_rect=(%d,%d)-(%d,%d) depth_scale=%.3f",
+		x, z, playerState.centerX, playerState.bottomY, (double)playerState.z,
+		hasScreenRect ? screenRect.left : 0, hasScreenRect ? screenRect.top : 0,
+		hasScreenRect ? screenRect.right : 0, hasScreenRect ? screenRect.bottom : 0,
+		(double)depthScale);
+}
+
+void Player::rebindAfterSceneRefresh(HarvesterEngine &engine, const RoomSetupState &state,
+		EntityManager *entityManager, bool preservePlayerPlacement) {
+	RoomPlayerState &playerState = _state;
+	playerState.entity = entityManager ? entityManager->findSceneEntityByName("PLAYER") : nullptr;
+	if (playerState.entity) {
+		if (!preservePlayerPlacement || playerState.facing < 0) {
+			playerState.centerX = state.playerSpawnX;
+			playerState.bottomY = state.playerSpawnY;
+			playerState.z = (float)state.playerSpawnZ;
+			playerState.facing = state.playerFacing;
+		}
+
+		const int facing = playerState.facing >= 0 ? playerState.facing : state.playerFacing;
+		(void)setIdleAnimation(facing);
+		(void)applyRoomActorPlacement(state, *playerState.entity,
+			playerState.centerX, playerState.bottomY, playerState.z);
+	}
+
+	// Death state survives a scene refresh.
+	playerState.hasMoveTarget = false;
+	playerState.turnActive = false;
+	playerState.turnTargetFacing = -1;
+	playerState.attackActive = false;
+	playerState.attackFirstFrame = -1;
+	playerState.attackLastFrame = -1;
+	playerState.attackContactFrame = -1;
+	playerState.attackResumeFacing = -1;
+	playerState.attackSoundPlayed = false;
+	playerState.attackSoundPlaybackFrame = -1;
+	playerState.attackContactResolved = false;
+	playerState.attackTargetName.clear();
+	playerState.attackTargetClassId = -1;
+	playerState.hitActive = false;
+	playerState.hitFirstFrame = -1;
+	playerState.hitLastFrame = -1;
+	playerState.hitResumeFacing = -1;
+	playerState.hitKnockbackRemainingX = 0;
+	playerState.hitKnockbackDecayStep = 0;
+	debugC(2, kDebugPlayer, "Harvester: rebound player after scene refresh room='%s' entity=%d preserve_placement=%d",
+		state.roomName.c_str(), playerState.entity != nullptr, preservePlayerPlacement);
+	playerState.combatLoadout = engine.getScript() ? engine.getScript()->getPlayerCombatLoadout() : 0;
+}
+
+void Player::syncAnimationPlacement() {
+	syncPlayerAnimationPlacement(_state);
+}
 
 float Player::computeDepthScale(const RoomSetupState &state, float z) {
 	float scale = 1.0f;
 	if (state.roomPerspectiveScale != 0.0f) {
 		scale -= (z - (float)state.roomFullScaleZ) * state.roomPerspectiveScale;
-		if (scale <= 0.0f)
+		if (scale < 0.0f)
 			scale = 1.0f;
 	}
 
@@ -1193,7 +1422,7 @@ bool Player::supportsMovementBand(const RoomSetupState &state) {
 }
 
 uint32 Player::getRuntimeClockTicks() {
-	return g_system ? (g_system->getMillis() / kRuntimeClockDivisorMs) : 0;
+	return Harvester::getRuntimeClockTicks();
 }
 
 bool Player::isIdleAnimationExcludedRoom(const Common::String &roomName) {
@@ -1216,33 +1445,29 @@ bool Player::isIdleAnimationExcludedRoom(const Common::String &roomName) {
 	return false;
 }
 
-void Player::updateIdleTrigger(RoomIdleAnimationState &idleState) {
-	idleState.triggerTick = MAX(idleState.activityTick, idleState.resetTick) + kRoomPlayerIdleDelayTicks;
+
+void Player::setMoveTarget(const RoomSetupState &state, int targetX, float targetZ) {
+	RoomPlayerState &playerState = _state;
+	setMoveTargetInternal(state, playerState, targetX, clampRoomDepth(state, targetZ),
+		mapRoomDepthToScreenY(state, targetZ));
 }
 
-void Player::setMoveTarget(const RoomSetupState &state, RoomPlayerState &playerState,
-		int targetX, float targetZ) {
+void Player::setRegionMoveTarget(const RoomSetupState &state, int targetX, float targetZ) {
+	RoomPlayerState &playerState = _state;
 	setMoveTargetInternal(state, playerState, targetX, targetZ,
 		mapRoomDepthToScreenY(state, targetZ));
 }
 
-void Player::setRegionMoveTarget(const RoomSetupState &state, RoomPlayerState &playerState,
-		int targetX, float targetZ) {
-	setMoveTargetInternal(state, playerState, targetX, targetZ,
-		mapRoomDepthToScreenY(state, targetZ));
-}
-
-void Player::setMoveTargetFromScreenPoint(const RoomSetupState &state,
-		RoomPlayerState &playerState, int targetX, int targetBottomY) {
+void Player::setMoveTargetFromScreenPoint(const RoomSetupState &state, int targetX, int targetBottomY) {
+	RoomPlayerState &playerState = _state;
 	const int clampedTargetBottomY = clampRoomMovementY(state, targetBottomY);
 	setMoveTargetInternal(state, playerState, targetX,
 		mapRoomScreenYToDepth(state, clampedTargetBottomY), clampedTargetBottomY);
 }
 
 bool Player::resolveBlockedStartupSpawn(HarvesterEngine &engine, const RoomSetupState &state,
-		const Common::Array<ObjectRecord> &sceneObjects,
-		const Common::Array<AnimRecord> &sceneAnimations,
-		RoomPlayerState &playerState) {
+		const Common::Array<ObjectRecord> &sceneObjects, const Common::Array<AnimRecord> &sceneAnimations) {
+	RoomPlayerState &playerState = _state;
 	if (!playerState.entity)
 		return false;
 
@@ -1293,7 +1518,7 @@ bool Player::resolveBlockedStartupSpawn(HarvesterEngine &engine, const RoomSetup
 
 int Player::resolveRegionTargetX(const RoomSetupState &state, const RegionRecord &region,
 		const RoomPlayerState &playerState) {
-	const Common::Rect bounds(region.left, region.top, region.right + 1, region.bottom + 1);
+	const Common::Rect bounds(region.left, region.top, region.right, region.bottom);
 	int targetX = bounds.left + bounds.width() / 2;
 	if (!playerState.entity)
 		return CLIP<int>(targetX, 0, 639);
@@ -1302,13 +1527,6 @@ int Player::resolveRegionTargetX(const RoomSetupState &state, const RegionRecord
 	if (targetX + kRoomRegionTargetXBias < frameLeftX)
 		targetX -= kRoomRegionTargetXBias;
 
-	const int targetSlack = MAX<int>(1,
-		roundToInt(Player::computeDepthScale(state, playerState.z) *
-			kRoomPlayerHorizontalTargetSlackBase));
-	if (region.desiredFacing == 1)
-		targetX = MIN<int>(targetX, region.right - targetSlack);
-	else if (region.desiredFacing == 2)
-		targetX = MAX<int>(targetX, region.left + targetSlack);
 	return CLIP<int>(targetX, 0, 639);
 }
 
@@ -1321,8 +1539,16 @@ float Player::resolveRegionTargetZ(const RegionRecord &region) {
 	return (float)(region.minZ + (region.maxZ - region.minZ) / 2);
 }
 
-bool Player::syncCombatLoadoutVisual(HarvesterEngine &engine, const RoomSetupState &state,
-		RoomPlayerState &playerState, int loadout) {
+void Player::syncCombatLoadout(HarvesterEngine &engine, const RoomSetupState &state) {
+	if (_state.entity) {
+		(void)syncCombatLoadoutVisual(engine, state, engine.getScript()->getPlayerCombatLoadout());
+	} else if (engine.getScript()) {
+		_state.combatLoadout = engine.getScript()->getPlayerCombatLoadout();
+	}
+}
+
+bool Player::syncCombatLoadoutVisual(HarvesterEngine &engine, const RoomSetupState &state, int loadout) {
+	RoomPlayerState &playerState = _state;
 	if (!playerState.entity)
 		return false;
 
@@ -1355,7 +1581,7 @@ bool Player::syncCombatLoadoutVisual(HarvesterEngine &engine, const RoomSetupSta
 	playerState.hitResumeFacing = -1;
 	playerState.hitKnockbackRemainingX = 0;
 	playerState.hitKnockbackDecayStep = 0;
-	(void)setIdleAnimation(playerState, playerState.facing >= 0 ? playerState.facing : 0);
+	(void)setIdleAnimation(playerState.facing >= 0 ? playerState.facing : 0);
 	if (applyRoomActorPlacement(state, *playerState.entity,
 			playerState.centerX, playerState.bottomY, playerState.z)) {
 		reinsertPlayerSceneEntity(engine, playerState);
@@ -1370,29 +1596,12 @@ bool Player::syncCombatLoadoutVisual(HarvesterEngine &engine, const RoomSetupSta
 	return true;
 }
 
-bool Player::setIdleAnimation(RoomPlayerState &playerState, int facing) {
-	if (!playerState.entity)
-		return false;
-
-	const PlayerAnimationRange range = resolvePlayerAnimationRange(facing);
-	const bool changed = playerState.facing != facing ||
-		playerState.entity->getCurrentFrame() != range.idleFrame ||
-		playerState.entity->getAnimationRate() != 0;
-	playerState.facing = facing;
-	playerState.nextMovementTick = 0;
-	playerState.entity->setAnimationRate(0);
-	playerState.entity->setAnimationFrameRange(range.idleFrame, range.idleFrame, false);
-	playerState.entity->setCurrentFrame(range.idleFrame);
-	if (changed) {
-		debugC(1, kDebugPlayer,
-			"Harvester: player idle animation facing=%d frame=%d",
-			facing, range.idleFrame);
-	}
-	return changed;
+bool Player::setIdleAnimation(int facing) {
+	return setPlayerIdleAnimation(_state, facing);
 }
 
-bool Player::startAttackAnimation(const RoomSetupState &state,
-		RoomPlayerState &playerState, const Common::Point &mousePos) {
+bool Player::startAttackAnimation(const RoomSetupState &state, const Common::Point &mousePos) {
+	RoomPlayerState &playerState = _state;
 	PlayerAttackAnimationRange range;
 	if (!resolvePlayerAttackAnimationRange(state, playerState, mousePos, range))
 		return false;
@@ -1405,7 +1614,8 @@ bool Player::startAttackAnimation(const RoomSetupState &state,
 }
 
 bool Player::startKeyboardAttackAnimation(const RoomSetupState &state,
-		RoomPlayerState &playerState, bool attackLeft, bool attackRight, bool attackUp, bool attackDown) {
+		bool attackLeft, bool attackRight, bool attackUp, bool attackDown) {
+	RoomPlayerState &playerState = _state;
 	(void)state;
 
 	PlayerAttackAnimationRange range;
@@ -1420,8 +1630,8 @@ bool Player::startKeyboardAttackAnimation(const RoomSetupState &state,
 	return true;
 }
 
-bool Player::updateAttackAnimationState(HarvesterEngine &engine,
-		RoomPlayerState &playerState) {
+bool Player::updateAttackAnimationState(HarvesterEngine &engine) {
+	RoomPlayerState &playerState = _state;
 	if (!playerState.attackActive || !playerState.entity)
 		return false;
 	bool changed = false;
@@ -1464,11 +1674,11 @@ bool Player::updateAttackAnimationState(HarvesterEngine &engine,
 	playerState.attackContactResolved = false;
 	playerState.attackTargetName.clear();
 	playerState.attackTargetClassId = -1;
-	return setIdleAnimation(playerState, resumeFacing) || changed;
+	return setIdleAnimation(resumeFacing) || changed;
 }
 
-bool Player::startHitAnimation(HarvesterEngine &engine, RoomPlayerState &playerState,
-		int monsterAttackFirstFrame) {
+bool Player::startHitAnimation(HarvesterEngine &engine, int monsterAttackFirstFrame) {
+	RoomPlayerState &playerState = _state;
 	if (!playerState.entity || playerState.deathActive)
 		return false;
 
@@ -1514,9 +1724,8 @@ bool Player::startHitAnimation(HarvesterEngine &engine, RoomPlayerState &playerS
 }
 
 bool Player::updateHitAnimationState(HarvesterEngine &engine, const RoomSetupState &state,
-		const Common::Array<ObjectRecord> &sceneObjects,
-		const Common::Array<AnimRecord> &sceneAnimations,
-		RoomPlayerState &playerState) {
+		const Common::Array<ObjectRecord> &sceneObjects, const Common::Array<AnimRecord> &sceneAnimations) {
+	RoomPlayerState &playerState = _state;
 	if (!playerState.hitActive || !playerState.entity)
 		return false;
 
@@ -1549,10 +1758,11 @@ bool Player::updateHitAnimationState(HarvesterEngine &engine, const RoomSetupSta
 	playerState.hitResumeFacing = -1;
 	playerState.hitKnockbackRemainingX = 0;
 	playerState.hitKnockbackDecayStep = 0;
-	return setIdleAnimation(playerState, resumeFacing) || changed;
+	return setIdleAnimation(resumeFacing) || changed;
 }
 
-bool Player::startDeathAnimation(RoomPlayerState &playerState, int damageType, bool goreEnabled) {
+bool Player::startDeathAnimation(int damageType, bool goreEnabled) {
+	RoomPlayerState &playerState = _state;
 	if (!playerState.entity || playerState.deathActive)
 		return false;
 
@@ -1603,7 +1813,8 @@ bool Player::startDeathAnimation(RoomPlayerState &playerState, int damageType, b
 	return true;
 }
 
-bool Player::updateDeathAnimationState(RoomPlayerState &playerState) {
+bool Player::updateDeathAnimationState() {
+	RoomPlayerState &playerState = _state;
 	if (!playerState.deathActive || !playerState.entity)
 		return false;
 
@@ -1628,17 +1839,28 @@ bool Player::updateDeathAnimationState(RoomPlayerState &playerState) {
 	return true;
 }
 
-bool Player::startTurnAnimation(RoomPlayerState &playerState, int targetFacing) {
+bool Player::startTurnAnimation(int targetFacing) {
+	RoomPlayerState &playerState = _state;
 	if (!playerState.entity || playerState.hitActive ||
 			playerState.facing < 0 || playerState.facing == targetFacing)
 		return false;
 
+	int nextFacing = targetFacing;
+	if ((playerState.facing == 1 && targetFacing == 2) ||
+			(playerState.facing == 2 && targetFacing == 1))
+		nextFacing = 0;
+	else if ((playerState.facing == 0 && targetFacing == 3) ||
+			(playerState.facing == 3 && targetFacing == 0))
+		nextFacing = 2;
 	PlayerTurnAnimationRange range;
-	if (!resolvePlayerTurnAnimationRange(playerState.facing, targetFacing, range))
+	if (playerState.facing == 3 && targetFacing == 0) {
+		range = PlayerTurnAnimationRange{ 0x28, 0x28, false };
+	} else if (!resolvePlayerTurnAnimationRange(playerState.facing, nextFacing, range)) {
 		return false;
+	}
 
 	playerState.turnActive = true;
-	playerState.turnTargetFacing = targetFacing;
+	playerState.turnTargetFacing = nextFacing;
 	playerState.turnFirstFrame = range.firstFrame;
 	playerState.turnLastFrame = range.lastFrame;
 	playerState.turnEndFrame = range.playBackwards ? range.firstFrame : range.lastFrame;
@@ -1649,13 +1871,14 @@ bool Player::startTurnAnimation(RoomPlayerState &playerState, int targetFacing) 
 	playerState.entity->setAnimationRate(kRoomPlayerWalkAnimationRate);
 	playerState.entity->setCurrentFrame(range.playBackwards ? range.lastFrame : range.firstFrame);
 	debugC(1, kDebugPlayer,
-		"Harvester: player turn animation from=%d to=%d frames=%d..%d backwards=%d rate=%d",
-		playerState.facing, targetFacing, range.firstFrame, range.lastFrame,
-		range.playBackwards, kRoomPlayerWalkAnimationRate);
+		"Harvester: player turn animation from=%d to=%d frames=%d..%d backwards=%d rate=%d requested_facing=%d",
+		playerState.facing, nextFacing, range.firstFrame, range.lastFrame,
+		range.playBackwards, kRoomPlayerWalkAnimationRate, targetFacing);
 	return true;
 }
 
-bool Player::updateTurnAnimationState(RoomPlayerState &playerState) {
+bool Player::updateTurnAnimationState() {
+	RoomPlayerState &playerState = _state;
 	if (!playerState.turnActive || !playerState.entity)
 		return false;
 	if (playerState.entity->getCurrentFrame() != playerState.turnEndFrame)
@@ -1676,25 +1899,36 @@ bool Player::updateTurnAnimationState(RoomPlayerState &playerState) {
 }
 
 bool Player::stepMoveTarget(HarvesterEngine &engine, const RoomSetupState &state,
-		const Common::Array<ObjectRecord> &sceneObjects,
-		const Common::Array<AnimRecord> &sceneAnimations,
-		RoomPlayerState &playerState) {
+		const Common::Array<ObjectRecord> &sceneObjects, const Common::Array<AnimRecord> &sceneAnimations,
+		int regionFacing) {
+	RoomPlayerState &playerState = _state;
 	if (!playerState.entity || !playerState.hasMoveTarget || playerState.turnActive || playerState.hitActive)
 		return false;
 
 	refreshPlayerCurrentBlocker(engine, sceneObjects, sceneAnimations, playerState);
 
-	updatePlayerMoveTargetProgress(state, playerState);
+	// run_harvester_main_loop (0x6dc70) latches the clicked region facing at
+	// 0xc3f0c. update_actor_runtime_state (0x4d750) uses it to keep the matching
+	// target component active inside the usual X/Z stopping tolerance.
+	const PlayerAnimationRange range = resolvePlayerAnimationRange(playerState.facing);
+	const int currentFrame = playerState.entity->getCurrentFrame();
+	const bool walking = playerState.entity->getAnimationRate() == kRoomPlayerWalkAnimationRate &&
+		currentFrame >= range.walkFirstFrame && currentFrame <= range.walkLastFrame;
+	// update_actor_runtime_state (0x4d750) evaluates waypoints only at a bank
+	// endpoint. Between endpoints the current walk state retains frame_z_step.
+	const bool updateTarget = !walking || currentFrame == range.walkLastFrame;
+	if (updateTarget)
+		updatePlayerMoveTargetProgress(state, playerState, regionFacing);
 	if (hasPlayerReachedMoveTarget(playerState)) {
 		playerState.hasMoveTarget = false;
-		return setIdleAnimation(playerState, playerState.facing >= 0 ? playerState.facing : 0);
+		return setIdleAnimation(playerState.facing >= 0 ? playerState.facing : 0);
 	}
 
 	const int previousCenterX = playerState.centerX;
 	const int previousBottomY = playerState.bottomY;
-	int horizontalDirection = playerState.moveTargetXReached
-		? 0
-		: resolveMoveTargetHorizontalDirection(state, playerState);
+	int horizontalDirection = updateTarget
+		? (playerState.moveTargetXReached ? 0 : resolveMoveTargetHorizontalDirection(state, playerState, regionFacing))
+		: playerState.walkHorizontalDirection;
 	if (horizontalDirection != 0 && isHorizontalDirectionBlockedByHistory(playerState, horizontalDirection)) {
 		if (engine.isPathfindingDebugEnabled()) {
 			debugC(1, kDebugPathfinding,
@@ -1707,9 +1941,9 @@ bool Player::stepMoveTarget(HarvesterEngine &engine, const RoomSetupState &state
 		}
 		horizontalDirection = 0;
 	}
-	int depthDirection = horizontalDirection == 0 && !playerState.moveTargetZReached
-		? resolveMoveTargetDepthDirection(playerState)
-		: 0;
+	int depthDirection = updateTarget
+		? (playerState.moveTargetZReached ? 0 : resolveMoveTargetDepthDirection(playerState, regionFacing))
+		: playerState.walkDepthDirection;
 	if (depthDirection != 0 && isDepthDirectionBlockedByHistory(playerState, depthDirection)) {
 		if (engine.isPathfindingDebugEnabled()) {
 			debugC(1, kDebugPathfinding,
@@ -1724,7 +1958,17 @@ bool Player::stepMoveTarget(HarvesterEngine &engine, const RoomSetupState &state
 	}
 	if (horizontalDirection == 0 && depthDirection == 0) {
 		playerState.hasMoveTarget = false;
-		return setIdleAnimation(playerState, playerState.facing >= 0 ? playerState.facing : 0);
+		return setIdleAnimation(playerState.facing >= 0 ? playerState.facing : 0);
+	}
+	const int desiredFacing = resolveFacingFromMoveDirection(
+		horizontalDirection, depthDirection, playerState.facing);
+	if (regionFacing >= 0 && desiredFacing != playerState.facing &&
+			startTurnAnimation(desiredFacing)) {
+		debugC(2, kDebugPlayer,
+			"Harvester: player region target turn room='%s' required_facing=%d movement_facing=%d target=(%d,z=%.2f)",
+			state.roomName.c_str(), regionFacing, desiredFacing,
+			playerState.targetX, (double)playerState.targetZ);
+		return true;
 	}
 	if (!consumePlayerMovementTick(playerState))
 		return false;
@@ -1733,15 +1977,20 @@ bool Player::stepMoveTarget(HarvesterEngine &engine, const RoomSetupState &state
 	int candidateBottomY = playerState.bottomY;
 	float candidateZ = playerState.z;
 	if (horizontalDirection != 0) {
-		const int horizontalStep = computeRoomPlayerHorizontalStep(state, playerState.z);
+		const int horizontalStep = computeRoomPlayerHorizontalStep(state, computePlayerRenderZ(playerState));
 		candidateCenterX = clampPlayerCenterXToNativeBounds(
 			playerState, playerState.centerX + horizontalDirection * horizontalStep);
+		candidateZ = clampRoomDepth(state, playerState.z - depthDirection);
 	} else if (depthDirection != 0) {
 		const int verticalStep = computeRoomPlayerVerticalScreenStep();
 		const float depthStep = computeRoomPlayerDepthStep(state);
-		candidateBottomY = clampRoomMovementY(state,
-			playerState.bottomY + depthDirection * verticalStep);
-		candidateZ = stepTowardsFloat(playerState.z, playerState.targetZ, depthStep);
+		const bool depthBoundaryReached = depthDirection < 0
+			? playerState.z >= (float)state.roomMaxZ
+			: playerState.z <= (float)state.roomMinZ;
+		if (!depthBoundaryReached) {
+			candidateBottomY = playerState.bottomY + depthDirection * verticalStep;
+			candidateZ = clampRoomDepth(state, playerState.z - depthDirection * depthStep);
+		}
 	}
 
 	if (engine.isPathfindingDebugEnabled()) {
@@ -1755,9 +2004,9 @@ bool Player::stepMoveTarget(HarvesterEngine &engine, const RoomSetupState &state
 	}
 
 	const Entity *blocker = nullptr;
-	bool moved = tryApplyPlayerMovement(engine, state, sceneObjects, sceneAnimations,
+	bool moved = tryApplyPlayerWalkMovement(engine, state, sceneObjects, sceneAnimations,
 		playerState, candidateCenterX, candidateBottomY, candidateZ,
-		nullptr, &blocker);
+		horizontalDirection, depthDirection, &blocker);
 	if (!moved) {
 		if (engine.isPathfindingDebugEnabled()) {
 			const Common::Rect blockerRect = blocker ? blocker->getScreenRect() : Common::Rect();
@@ -1771,11 +2020,8 @@ bool Player::stepMoveTarget(HarvesterEngine &engine, const RoomSetupState &state
 				blocker ? (double)blocker->getZExtent() : 0.0);
 		}
 		setPlayerCurrentBlocker(playerState, blocker);
-		if (blocker && recordNativePrimaryWalkBlockerHistory(state, playerState, *blocker,
-				horizontalDirection, depthDirection)) {
-			return setIdleAnimation(playerState,
-				resolveFacingFromMoveDirection(horizontalDirection, depthDirection,
-					playerState.facing));
+		if (blocker) {
+			return setIdleAnimation(resolveFacingFromMoveDirection(horizontalDirection, depthDirection, playerState.facing));
 		}
 
 		playerState.hasMoveTarget = false;
@@ -1786,12 +2032,21 @@ bool Player::stepMoveTarget(HarvesterEngine &engine, const RoomSetupState &state
 			else
 				idleFacing = depthDirection < 0 ? 3 : 0;
 		}
-		return setIdleAnimation(playerState, idleFacing);
+		return setIdleAnimation(idleFacing);
 	}
 
-	const int actualFacing = resolveFacingFromRoomMovement(
-		previousCenterX, previousBottomY, playerState.centerX, playerState.bottomY);
+	const int actualFacing = desiredFacing;
+	playerState.walkHorizontalDirection = horizontalDirection;
+	playerState.walkDepthDirection = depthDirection;
 	(void)setPlayerWalkAnimation(playerState, actualFacing);
+	if (walking && currentFrame == range.walkLastFrame) {
+		playerState.entity->setCurrentFrame(resolvePlayerAnimationRange(actualFacing).walkFirstFrame);
+		debugC(2, kDebugPlayer,
+			"Harvester: player target walk bank restart facing=%d frame=%d render_z=%.2f direction=(%d,%d)",
+			actualFacing, playerState.entity->getCurrentFrame(), (double)computePlayerRenderZ(playerState),
+			horizontalDirection, depthDirection);
+	}
+	syncAnimationPlacement();
 	refreshPlayerCurrentBlocker(engine, sceneObjects, sceneAnimations, playerState);
 	if (engine.isPathfindingDebugEnabled()) {
 		debugC(1, kDebugPathfinding,
@@ -1799,11 +2054,6 @@ bool Player::stepMoveTarget(HarvesterEngine &engine, const RoomSetupState &state
 			state.roomName.c_str(), previousCenterX, previousBottomY,
 			playerState.centerX, playerState.bottomY, (double)playerState.z,
 			actualFacing);
-	}
-	updatePlayerMoveTargetProgress(state, playerState);
-	if (hasPlayerReachedMoveTarget(playerState)) {
-		playerState.hasMoveTarget = false;
-		(void)setIdleAnimation(playerState, actualFacing);
 	}
 	debugC(playerState.hasMoveTarget ? 2 : 1, kDebugPlayer,
 		"Harvester: player move step room='%s' pos=(%d,%d,z=%.2f) target=(%d,%d,z=%.2f) facing=%d frame=%d active=%d moved=%d",
@@ -1815,23 +2065,43 @@ bool Player::stepMoveTarget(HarvesterEngine &engine, const RoomSetupState &state
 }
 
 bool Player::stepKeyboardMovement(HarvesterEngine &engine, const RoomSetupState &state,
-		const Common::Array<ObjectRecord> &sceneObjects,
-		const Common::Array<AnimRecord> &sceneAnimations,
-		RoomPlayerState &playerState, bool moveLeft, bool moveRight, bool moveUp, bool moveDown) {
+		const Common::Array<ObjectRecord> &sceneObjects, const Common::Array<AnimRecord> &sceneAnimations,
+		bool moveLeft, bool moveRight, bool moveUp, bool moveDown) {
+	RoomPlayerState &playerState = _state;
 	if (!playerState.entity || !supportsMovementBand(state))
-		return false;
-
-	const int horizontalInput = (moveRight ? 1 : 0) - (moveLeft ? 1 : 0);
-	const int verticalInput = (moveDown ? 1 : 0) - (moveUp ? 1 : 0);
-	if (horizontalInput == 0 && verticalInput == 0)
 		return false;
 	if (playerState.turnActive || playerState.hitActive)
 		return false;
 
-	const int previousCenterX = playerState.centerX;
-	const int previousBottomY = playerState.bottomY;
-	const float previousZ = playerState.z;
-	const int horizontalStep = computeRoomPlayerHorizontalStep(state, playerState.z);
+	int horizontalInput = (moveRight ? 1 : 0) - (moveLeft ? 1 : 0);
+	int verticalInput = (moveDown ? 1 : 0) - (moveUp ? 1 : 0);
+	const PlayerAnimationRange range = resolvePlayerAnimationRange(playerState.facing);
+	const int currentFrame = playerState.entity->getCurrentFrame();
+	const bool keyboardWalking = !playerState.hasMoveTarget &&
+		playerState.entity->getAnimationRate() == kRoomPlayerWalkAnimationRate &&
+		currentFrame >= range.walkFirstFrame && currentFrame <= range.walkLastFrame;
+	if (keyboardWalking) {
+		if (horizontalInput != 0 || verticalInput != 0)
+			playerState.keyboardWalkRequest = resolveFacingFromMoveDirection(
+				horizontalInput, verticalInput, playerState.facing);
+		if (!playerState.entity->didAnimationAdvanceLastTick())
+			return false;
+		const int stepFacing = currentFrame < range.walkLastFrame
+			? playerState.facing : playerState.keyboardWalkRequest;
+		horizontalInput = stepFacing == 1 ? -1 : stepFacing == 2 ? 1 : 0;
+		verticalInput = stepFacing == 3 ? -1 : stepFacing == 0 ? 1 : 0;
+	} else {
+		playerState.keyboardWalkRequest = -1;
+	}
+	if (horizontalInput == 0 && verticalInput == 0) {
+		if (playerState.hasMoveTarget || playerState.facing < 0)
+			return false;
+		return setIdleAnimation(playerState.facing);
+	}
+
+	const int previousBaseX = playerState.entity->getX();
+	const int previousBaseY = playerState.entity->getY();
+	const int horizontalStep = computeRoomPlayerHorizontalStep(state, computePlayerRenderZ(playerState));
 	const int verticalStep = computeRoomPlayerVerticalScreenStep();
 	const float depthStep = computeRoomPlayerDepthStep(state);
 	int candidateCenterX = clampPlayerCenterXToNativeBounds(
@@ -1840,15 +2110,12 @@ bool Player::stepKeyboardMovement(HarvesterEngine &engine, const RoomSetupState 
 	float candidateZ = playerState.z;
 	bool depthBoundaryReached = false;
 	if (verticalInput != 0) {
-		// update_actor_runtime_state (0x4d750) only emits the paired screen-Y and Z
-		// steps for state 0x04 while min_z < z and state 0x0b while z < max_z.
-		// At either depth limit it zeros both steps and returns to the facing idle state.
+
 		depthBoundaryReached = verticalInput < 0
 			? playerState.z >= (float)state.roomMaxZ
 			: playerState.z <= (float)state.roomMinZ;
 		if (!depthBoundaryReached) {
-			candidateBottomY = clampRoomMovementY(state,
-				playerState.bottomY + verticalInput * verticalStep);
+			candidateBottomY = playerState.bottomY + verticalInput * verticalStep;
 			candidateZ = clampRoomDepth(state, playerState.z - verticalInput * depthStep);
 		}
 	}
@@ -1857,8 +2124,7 @@ bool Player::stepKeyboardMovement(HarvesterEngine &engine, const RoomSetupState 
 			fabsf(candidateZ - playerState.z) <= kRoomDepthCompareEpsilon) {
 		playerState.hasMoveTarget = false;
 		if (depthBoundaryReached) {
-			const bool stopped = setIdleAnimation(
-				playerState, playerState.facing >= 0 ? playerState.facing : 0);
+			const bool stopped = setIdleAnimation(playerState.facing >= 0 ? playerState.facing : 0);
 			if (stopped) {
 				debugC(3, kDebugPathfinding,
 					"Harvester: player keyboard depth boundary room='%s' input_y=%d pos=(%d,%d,z=%.2f) bounds=(%d,%d)",
@@ -1868,37 +2134,51 @@ bool Player::stepKeyboardMovement(HarvesterEngine &engine, const RoomSetupState 
 			}
 			return stopped;
 		}
-		return false;
+		return setIdleAnimation(playerState.facing >= 0 ? playerState.facing : 0);
 	}
 
 	const int desiredFacing = resolveFacingFromRoomMovement(
 		playerState.centerX, playerState.bottomY, candidateCenterX, candidateBottomY);
-	if (desiredFacing != playerState.facing && startTurnAnimation(playerState, desiredFacing))
+	if (desiredFacing != playerState.facing && startTurnAnimation(desiredFacing)) {
+		playerState.keyboardWalkRequest = -1;
 		return true;
+	}
 
 	if (!consumePlayerMovementTick(playerState))
 		return false;
 
 	playerState.hasMoveTarget = false;
-	bool moved = tryApplyPlayerMovementWithFallbacks(engine, state, sceneObjects, sceneAnimations,
-		playerState, previousCenterX, previousBottomY, previousZ,
-		candidateCenterX, candidateBottomY, candidateZ);
+	bool moved = tryApplyPlayerWalkMovement(engine, state, sceneObjects, sceneAnimations,
+		playerState, candidateCenterX, candidateBottomY, candidateZ,
+		horizontalInput, verticalInput);
 	if (!moved)
-		return false;
+		return setIdleAnimation(playerState.facing >= 0 ? playerState.facing : 0);
 
 	const int actualFacing = resolveFacingFromRoomMovement(
-		previousCenterX, previousBottomY, playerState.centerX, playerState.bottomY);
+		previousBaseX, previousBaseY, playerState.entity->getX(), playerState.entity->getY());
+	playerState.walkHorizontalDirection = actualFacing == 1 ? -1 : actualFacing == 2 ? 1 : 0;
+	playerState.walkDepthDirection = actualFacing == 3 ? -1 : actualFacing == 0 ? 1 : 0;
 	(void)setPlayerWalkAnimation(playerState, actualFacing);
+	if (keyboardWalking && currentFrame == range.walkLastFrame) {
+		playerState.keyboardWalkRequest = -1;
+		playerState.entity->setCurrentFrame(resolvePlayerAnimationRange(actualFacing).walkFirstFrame);
+		debugC(2, kDebugPlayer,
+			"Harvester: player keyboard walk bank restart facing=%d frame=%d",
+			actualFacing, playerState.entity->getCurrentFrame());
+	}
+	syncAnimationPlacement();
 	debugC(2, kDebugPlayer,
-		"Harvester: player keyboard move room='%s' input=(%d,%d) pos=(%d,%d,z=%.2f) facing=%d frame=%d moved=%d",
-		state.roomName.c_str(), horizontalInput, verticalInput,
+		"Harvester: player keyboard move room='%s' input=(%d,%d) step=(%d,%d) pos=(%d,%d,z=%.2f) facing=%d frame=%d moved=%d",
+		state.roomName.c_str(), (moveRight ? 1 : 0) - (moveLeft ? 1 : 0),
+		(moveDown ? 1 : 0) - (moveUp ? 1 : 0), horizontalInput, verticalInput,
 		playerState.centerX, playerState.bottomY, (double)playerState.z,
 		playerState.facing, playerState.entity->getCurrentFrame(), moved);
 	return true;
 }
 
-bool Player::requestIdleAnimationExit(const RoomSetupState &state,
-		RoomPlayerState &playerState, RoomIdleAnimationState &idleState) {
+bool Player::requestIdleAnimationExit(const RoomSetupState &state) {
+	RoomPlayerState &playerState = _state;
+	RoomIdleAnimationState &idleState = _idleState;
 	if (!idleState.active || idleState.exiting || !idleState.entity)
 		return false;
 
@@ -1919,8 +2199,9 @@ bool Player::requestIdleAnimationExit(const RoomSetupState &state,
 	return true;
 }
 
-bool Player::startIdleAnimation(HarvesterEngine &engine, const RoomSetupState &state,
-		RoomPlayerState &playerState, RoomIdleAnimationState &idleState) {
+bool Player::startIdleAnimation(HarvesterEngine &engine, const RoomSetupState &state) {
+	RoomPlayerState &playerState = _state;
+	RoomIdleAnimationState &idleState = _idleState;
 	if (!playerState.entity || idleState.active || isIdleAnimationExcludedRoom(state.roomName))
 		return false;
 
@@ -1950,8 +2231,9 @@ bool Player::startIdleAnimation(HarvesterEngine &engine, const RoomSetupState &s
 	return true;
 }
 
-bool Player::updateIdleAnimation(const RoomSetupState &state,
-		RoomPlayerState &playerState, RoomIdleAnimationState &idleState) {
+bool Player::updateIdleAnimation(const RoomSetupState &state) {
+	RoomPlayerState &playerState = _state;
+	RoomIdleAnimationState &idleState = _idleState;
 	if (!idleState.active || !idleState.entity)
 		return false;
 

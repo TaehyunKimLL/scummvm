@@ -32,10 +32,15 @@ namespace Graphics {
 class Font;
 }
 
+namespace Common {
+struct Event;
+}
+
 namespace Harvester {
 
 class HarvesterEngine;
 class Flow;
+class ResourceManager;
 
 struct MenuTextConfig {
 	Common::Array<Common::String> optionItems;
@@ -87,12 +92,28 @@ public:
 	MenuSystem(HarvesterEngine &engine, Common::Point &mousePos,
 		const Common::Array<Common::String> &menuItems);
 
-	Common::Error runMainMenuStub(Flow &flow);
-	Common::Error runRoomMenuStub(const IndexedBitmap &backdrop, const byte *palette,
+	Common::Error runMainMenu(Flow &flow);
+	Common::Error runRoomMenu(const IndexedBitmap &backdrop, const byte *palette,
 		float paletteBrightness, Flow &flow, bool canSaveGame);
 	Common::Error validateParentalPassword(Flow &flow);
+	Common::Error showCdChangePrompt(int discNumber, ResourceManager &resources,
+		Flow &flow, bool &promptCompleted);
 
 private:
+	struct SaveSlotMenu;
+	enum SaveLoadMode { kSaveMode, kLoadMode };
+	enum SaveSlotCommand { kNoSlotCommand, kConfirmSlot, kCancelSlot };
+
+	Common::Error runSaveSlotMenu(Flow &flow, SaveLoadMode mode, bool &completed);
+	void reloadSaveSlotTitles(SaveSlotMenu &menu) const;
+	int getSaveSlotAt(const Common::Point &mousePos) const;
+	SaveSlotCommand getSaveSlotCommand(const Common::Event &event) const;
+	void renderSaveSlotMenu(const SaveSlotMenu &menu, const Common::String *editingText = nullptr) const;
+	Common::Error runSaveSlotEditor(SaveSlotMenu &menu, Flow &flow,
+		Common::String &editedTitle, bool &confirmed);
+	Common::Error saveSelectedSlot(SaveSlotMenu &menu, Flow &flow, bool &saved);
+	void loadSelectedSlot(SaveSlotMenu &menu, bool &loaded);
+
 	Common::Error runLoadGameMenu(const byte *palette, float paletteBrightness,
 		Flow &flow, bool &loadedGame);
 	Common::Error runOptionsMenu(const IndexedBitmap &backdrop, const byte *palette,
@@ -112,8 +133,6 @@ private:
 		bool &accepted) const;
 	Common::Error showGameOverBackdrop(Flow &flow);
 	void clearMainMenuBackdrop();
-	void renderMainMenuStub(const Common::Array<Common::String> &menuItems, int selectedItem,
-		const Common::String &statusMessage) const;
 	void renderMainMenuScreen(int selectedItem, const Common::String &statusMessage,
 		bool drawCursor, const Common::Array<Common::String> &menuItems) const;
 	void renderBackdropMenuScreen(const IndexedBitmap &backdrop, const byte *palette,

@@ -19,9 +19,6 @@
  *
  */
 
-#include <cstdlib>
-#include <cstring>
-
 #include "harvester/media_manager.h"
 
 #include "audio/audiostream.h"
@@ -34,7 +31,7 @@
 #include "graphics/screen.h"
 #include "harvester/art.h"
 #include "harvester/resources.h"
-#include "harvester/runtime_entity.h"
+#include "harvester/entity.h"
 #include "harvester/script.h"
 #include "harvester/text.h"
 

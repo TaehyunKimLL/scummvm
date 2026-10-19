@@ -30,7 +30,7 @@
 #include "harvester/dialogue.h"
 #include "harvester/inventory.h"
 #include "harvester/menu.h"
-#include "harvester/room.h"
+#include "harvester/scene.h"
 #include "harvester/script.h"
 
 namespace Common {
@@ -40,8 +40,6 @@ struct Event;
 namespace Harvester {
 
 class HarvesterEngine;
-class DialogueFlowAccess;
-class RoomInteractionProcessor;
 struct IndexedBitmap;
 
 class Flow {
@@ -52,68 +50,78 @@ public:
 	bool buildDialogueSaveStateBlob(Common::Array<byte> &blob, uint32 saveVersion);
 	bool loadDialogueSaveStateBlob(const Common::Array<byte> &blob, uint32 saveVersion);
 	Common::Error run();
+	Common::Error showCdChangePrompt(int discNumber);
+	bool handleSystemEvent(const Common::Event &event, Common::Error &result);
 
-private:
-	friend class HarvesterEngine;
-	friend class DialogueFlowAccess;
-	friend class DialogueSystem;
-	friend class InventorySystem;
-	friend class MenuSystem;
-	friend class RoomInteractionProcessor;
-	friend class RoomSystem;
+	const MenuTextConfig &getMenuTextConfig() const { return _menuTextConfig; }
+	const Common::Point &getMousePos() const { return _mousePos; }
+	uint getQuickTipCount() const { return _quickTips.size(); }
+	const Common::String &getQuickTip(uint index) const { return _quickTips[index]; }
+	bool hasRoomNpcHandler(const Common::String &npcName) const { return _dialogue.hasRoomNpcHandler(npcName); }
+	bool isNestedRoomLoop() const { return _roomLoopDepth > 1; }
+	RoomHoverState getRoomHoverState(const SceneState &scene) const;
+	void logStartupRoomProbe(const SceneState &scene, const Common::String &entranceName);
 
-	bool loadQuickTips();
-	bool loadMenuItems();
-	Common::Error runQuickTips();
-	Common::Error runDemoIntroduction();
+	void executeStartupAudioCommands(const Common::Array<AudioCommand> &commands);
+	void queueDialogueInteraction(const InteractionResult &interaction);
+	void requestGameOverReturn();
+
+	bool hasQueuedDebugInteraction() const { return _hasQueuedDebugInteraction; }
+	bool queueDebugInteraction(const InteractionResult &interaction);
+	bool requestDebugRoomChange(const Common::String &roomName);
+
 	Common::Error runDemoEnding();
-	Common::Error runMainMenuStub();
-	Common::Error runRoomMenuStub(const IndexedBitmap &backdrop, const byte *palette,
+	Common::Error runRoomMenu(const IndexedBitmap &backdrop, const byte *palette,
 		float paletteBrightness, bool canSaveGame);
 	Common::Error runRoomNpcDialogue(const IndexedBitmap &backdrop, const byte *palette,
-		float paletteBrightness, const NpcRecord &npc, const Common::String &usedItemName);
-	Common::Error runTownMapSelector(const Common::String &mapEntryName, Common::String &destinationEntranceName);
+		float paletteBrightness, const ScriptExecutionContext &executionContext,
+		const NpcRecord &npc, const Common::String &usedItemName);
 	Common::Error runRoomLoop(const Common::String &entranceName);
 	Common::Error resolveRoomTransitionTarget(const Common::String &targetName, Common::String &resolvedTargetName);
-	bool ensureCursorEntity();
+
 	bool populateRoomSceneEntities(RoomSetupState &state,
 		const Common::Array<ObjectRecord> &drawableObjects,
 		const Common::Array<AnimRecord> &drawableAnimations);
 	Common::Error beginRoomSetupTransition();
 	Common::Error waitForRoomSetupTransitionHold();
 	Common::Error fadeInRoomScene(const byte *palette, float targetBrightness);
-	Common::Error fadePalette(const byte *palette, float fromBrightness, float toBrightness);
-	bool pumpTransitionEvents(Common::Error &result);
-	void executeStartupAudioCommands(const Common::Array<AudioCommand> &commands);
-	void queueDialogueInteraction(const InteractionResult &interaction);
+	void resetCursorAnimationSequence();
+	bool tickRuntimeEntities();
+
 	bool takeQueuedDialogueInteraction(InteractionResult &interaction);
-	bool hasQueuedDebugInteraction() const { return _hasQueuedDebugInteraction; }
-	bool queueDebugInteraction(const InteractionResult &interaction);
 	bool takeQueuedDebugInteraction(InteractionResult &interaction);
+
 	void prepareForNewGame();
 	void requestNewGameRestart();
-	bool hasPendingNewGameRestart() const;
 	bool takePendingNewGameRestart();
-	void clearPendingNewGameRestart();
-	void requestGameOverReturn();
-	bool hasPendingGameOverReturn() const;
 	bool takePendingGameOverReturn();
-	void clearPendingGameOverReturn();
 	void requestMainMenuReturn();
 	bool hasPendingMainMenuReturn() const;
 	bool takePendingMainMenuReturn();
-	void clearPendingMainMenuReturn();
 	void requestCloseupParentRestart();
-	bool hasPendingCloseupParentRestart() const;
 	bool takePendingCloseupParentRestart();
-	void clearPendingCloseupParentRestart();
-	bool requestDebugRoomChange(const Common::String &roomName);
 	bool hasPendingDebugRoomChange() const { return !_pendingDebugRoomName.empty(); }
-	Common::String takePendingDebugRoomChange();
 	void resetRoomNpcDialogueState();
-	void resetCursorAnimationSequence();
-	bool tickRuntimeEntities();
-	bool handleSystemEvent(const Common::Event &event, Common::Error &result);
+
+private:
+	bool loadQuickTips();
+	bool loadMenuItems();
+	Common::Error runQuickTips();
+	Common::Error runDemoIntroduction();
+	Common::Error runMainMenu();
+	Common::Error runTownMapSelector(const Common::String &mapEntryName, Common::String &destinationEntranceName);
+	bool ensureCursorEntity();
+	Common::Error fadePalette(const byte *palette, float fromBrightness, float toBrightness);
+	bool waitForPaletteFadeTick(uint32 startTick, Common::Error &result);
+	bool pumpTransitionEvents(Common::Error &result);
+	bool hasPendingNewGameRestart() const;
+	void clearPendingNewGameRestart();
+	bool hasPendingGameOverReturn() const;
+	void clearPendingGameOverReturn();
+	void clearPendingMainMenuReturn();
+	bool hasPendingCloseupParentRestart() const;
+	void clearPendingCloseupParentRestart();
+	Common::String takePendingDebugRoomChange();
 
 	HarvesterEngine &_engine;
 	Common::Array<Common::String> _quickTips;
@@ -124,7 +132,7 @@ private:
 	InventorySystem _inventory;
 	MenuSystem _menu;
 	CheatSystem _cheats;
-	RoomSystem _room;
+	SceneRunner _room;
 	InteractionResult _queuedDialogueInteraction;
 	bool _hasQueuedDialogueInteraction = false;
 	InteractionResult _queuedDebugInteraction;

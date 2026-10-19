@@ -1384,7 +1384,7 @@ bool Script::resolveRoomSetupState(const Common::String &entranceName, RoomSetup
 	if (!buildRuntimeRoomState(*room, entrance, resources, state))
 		return false;
 
-	debugC(1, kDebugRoom,
+	debugC(3, kDebugRoom,
 		"Harvester: resolveRoomSetupState('%s') -> room='%s' entrance='%s' spawn=(%d,%d,%d) facing=%d palette='%s' background='%s' music='%s' brightness=%.2f roomObjects=%u activeObjects=%u roomAnims=%u roomNpcs=%u roomMonsters=%u roomTimers=%u roomRegions=%u",
 		entranceName.c_str(), state.roomName.c_str(), state.entranceName.c_str(),
 		state.playerSpawnX, state.playerSpawnY, state.playerSpawnZ, state.playerFacing,
@@ -1419,7 +1419,7 @@ bool Script::resolveRoomSetupStateByRoomName(const Common::String &roomName, Roo
 	if (!buildRuntimeRoomState(*room, entrance, resources, state))
 		return false;
 
-	debugC(1, kDebugRoom,
+	debugC(3, kDebugRoom,
 		"Harvester: resolveRoomSetupStateByRoomName('%s') -> room='%s' entrance='%s' spawn=(%d,%d,%d) facing=%d palette='%s' background='%s' music='%s' brightness=%.2f roomObjects=%u activeObjects=%u roomAnims=%u roomNpcs=%u roomMonsters=%u roomTimers=%u roomRegions=%u",
 		roomName.c_str(), state.roomName.c_str(), state.entranceName.c_str(),
 		state.playerSpawnX, state.playerSpawnY, state.playerSpawnZ, state.playerFacing,
@@ -1502,7 +1502,7 @@ void Script::logRuntimeSaveState(const char *operation) const {
 			}
 		}
 		if (!baseFlag || flag.value != baseFlag->value) {
-			debugC(1, kDebugGeneral,
+			debugC(3, kDebugGeneral,
 				"Harvester: %s runtime flag '%s' value=%d base=%d defined_in_script=%d",
 				operation, flag.name.c_str(), flag.value, baseFlag ? baseFlag->value : 0,
 				baseFlag != nullptr);
@@ -1533,7 +1533,7 @@ void Script::logRuntimeSaveState(const char *operation) const {
 				object.runtimeVisible != defaultRuntimeVisible ||
 				object.visible != defaultVisible ||
 				object.identShown != defaultIdentShown) {
-			debugC(1, kDebugGeneral,
+			debugC(3, kDebugGeneral,
 				"Harvester: %s runtime object '%s' owner='%s' pos=(%d,%d,%d) visible=%d runtimeVisible=%d identShown=%d base_owner='%s' base_pos=(%d,%d,%d) base_visible=%d base_runtimeVisible=%d base_identShown=%d",
 				operation, object.objectName.c_str(), object.currentOwnerOrRoom.c_str(),
 				object.currentX, object.currentY, object.currentZ,
@@ -1566,7 +1566,7 @@ void Script::logRuntimeSaveState(const char *operation) const {
 				npc.deathDamageType != defaultDeathDamageType ||
 				npc.runtimeSpawned ||
 				npc.runtimeState != defaultRuntimeState) {
-			debugC(1, kDebugGeneral,
+			debugC(3, kDebugGeneral,
 				"Harvester: %s runtime npc '%s' active=%d visible=%d savedVisible=%d spawned=%d runtimeState=%d deathOrMonsterfy=%d damageType=%d base_active=%d base_visible=%d base_savedVisible=%d base_spawned=%d base_runtimeState=%d base_deathOrMonsterfy=%d base_damageType=%d",
 				operation, npc.npcName.c_str(), npc.active, npc.visible, npc.savedVisible,
 				npc.runtimeSpawned, npc.runtimeState, npc.deathOrMonsterfyFlag, npc.deathDamageType,
@@ -1595,7 +1595,7 @@ void Script::logRuntimeSaveState(const char *operation) const {
 				monster.runtimeState != -1 ||
 				monster.screenMinXBound != defaultScreenMinXBound ||
 				monster.screenMaxXBound != defaultScreenMaxXBound) {
-			debugC(1, kDebugGeneral,
+			debugC(3, kDebugGeneral,
 				"Harvester: %s runtime monster '%s' active=%d visible=%d savedVisible=%d spawned=%d runtimeState=%d hp=%d/%d screen_bounds=[%d,%d] base_active=%d base_visible=%d base_savedVisible=%d base_runtimeState=%d base_hp=%d/%d base_screen_bounds=[%d,%d]",
 				operation, monster.monsterName.c_str(), monster.active, monster.visible,
 				monster.savedVisible, monster.runtimeSpawned, monster.runtimeState,
@@ -1627,7 +1627,7 @@ void Script::logRuntimeSaveState(const char *operation) const {
 				timer.enabled != defaultEnabled ||
 				timer.looping != defaultLooping ||
 				timer.global != defaultGlobal) {
-			debugC(1, kDebugGeneral,
+			debugC(3, kDebugGeneral,
 				"Harvester: %s runtime timer '%s' current=%d initial=%d enabled=%d loop=%d global=%d base_current=%d base_initial=%d base_enabled=%d base_loop=%d base_global=%d",
 				operation, timer.timerName.c_str(), timer.currentValue, timer.initialValue,
 				timer.enabled, timer.looping, timer.global,
@@ -1712,18 +1712,10 @@ bool Script::executeRoomEnterCommands(const Common::String &roomName,
 	if (!room)
 		return false;
 
-	executeCommandChain(room->onEnterCommand, "room entry command", room->roomName,
-		room->roomName, true,
-		&result.musicPath, &result.audioCommands, &result.nextRoomName, &result.roomTransition,
-		&result.cutscenePath, &result.deathFlicPath, &result.requestMainMenu,
-		&result.requestDemoEnding, &result.cdChangeDisc,
-		&result.dialogueNpcName, &result.dialogueContinuationTag, &result.continuationTag,
-		&result.modalText, &result.lightingCommand, &result.moveEntityToPlayerZName,
-		&result.requestPlayerGotoXZ, &result.requestPlayerGotoZ,
-		&result.playerGotoX, &result.playerGotoZ,
-		&result.requestPlayerDeath, &result.playerDeathDamageType,
-		&result.mutatedRuntimeState, &result.visualRuntimeStateChanged,
-		&result.previousTimerRecords, &result.requestCloseupExit);
+	const CommandExecutionContext context = {
+		"room entry command", room->roomName, room->roomName, true
+	};
+	executeCommandChain(room->onEnterCommand, context, kCommandOutputsInteraction, result);
 	return true;
 }
 
@@ -1735,23 +1727,16 @@ bool Script::executeRoomExitCommands(const Common::String &roomName,
 	if (!room)
 		return false;
 
-	executeCommandChain(room->onExitCommand, "room exit command", room->roomName,
-		room->roomName, false,
-		&result.musicPath, &result.audioCommands, nullptr, nullptr, &result.cutscenePath,
-		nullptr, nullptr, &result.requestDemoEnding, &result.cdChangeDisc,
-		&result.dialogueNpcName, &result.dialogueContinuationTag,
-		&result.continuationTag, &result.modalText, &result.lightingCommand,
-		&result.moveEntityToPlayerZName,
-		&result.requestPlayerGotoXZ, &result.requestPlayerGotoZ,
-		&result.playerGotoX, &result.playerGotoZ,
-		&result.requestPlayerDeath, &result.playerDeathDamageType,
-		&result.mutatedRuntimeState, &result.visualRuntimeStateChanged,
-		&result.previousTimerRecords, &result.requestCloseupExit);
+	const CommandExecutionContext context = {
+		"room exit command", room->roomName, room->roomName, false
+	};
+	executeCommandChain(room->onExitCommand, context, kCommandOutputsRoomExit, result);
 	return true;
 }
 
 bool Script::resolveObjectInteraction(const ObjectRecord &object, InteractionResult &result,
-		const Common::String &roomName) {
+		const ScriptExecutionContext &executionContext) {
+	const Common::String roomName = executionContext.roomName();
 	result = InteractionResult();
 	Common::String commandRoomName = roomName;
 	if (commandRoomName.empty() &&
@@ -1775,18 +1760,10 @@ bool Script::resolveObjectInteraction(const ObjectRecord &object, InteractionRes
 	if (object.actionTag.empty())
 		return result.mutatedRuntimeState;
 
-	executeCommandChain(object.actionTag, "interaction command", object.objectName,
-		commandRoomName, true,
-		&result.musicPath, &result.audioCommands, &result.nextRoomName, &result.roomTransition,
-		&result.cutscenePath, &result.deathFlicPath, &result.requestMainMenu,
-		&result.requestDemoEnding, &result.cdChangeDisc,
-		&result.dialogueNpcName, &result.dialogueContinuationTag, &result.continuationTag,
-		&result.modalText, &result.lightingCommand, &result.moveEntityToPlayerZName,
-		&result.requestPlayerGotoXZ, &result.requestPlayerGotoZ,
-		&result.playerGotoX, &result.playerGotoZ,
-		&result.requestPlayerDeath, &result.playerDeathDamageType,
-		&result.mutatedRuntimeState, &result.visualRuntimeStateChanged,
-		&result.previousTimerRecords, &result.requestCloseupExit);
+	const CommandExecutionContext context = {
+		"interaction command", object.objectName, commandRoomName, true
+	};
+	executeCommandChain(object.actionTag, context, kCommandOutputsInteraction, result);
 
 	return !result.nextRoomName.empty() || !result.cutscenePath.empty() ||
 		!result.deathFlicPath.empty() || result.requestMainMenu || result.requestDemoEnding ||
@@ -1801,24 +1778,17 @@ bool Script::resolveObjectInteraction(const ObjectRecord &object, InteractionRes
 }
 
 bool Script::resolveRegionInteraction(const RegionRecord &region, InteractionResult &result,
-		const Common::String &roomName) {
+		const ScriptExecutionContext &executionContext) {
+	const Common::String roomName = executionContext.roomName();
 	result = InteractionResult();
 	if (region.actionTag.empty())
 		return false;
 	const Common::String &commandRoomName = roomName.empty() ? region.roomName : roomName;
 
-	executeCommandChain(region.actionTag, "region command", region.regionName,
-		commandRoomName, true,
-		&result.musicPath, &result.audioCommands, &result.nextRoomName, &result.roomTransition,
-		&result.cutscenePath, &result.deathFlicPath, &result.requestMainMenu,
-		&result.requestDemoEnding, &result.cdChangeDisc,
-		&result.dialogueNpcName, &result.dialogueContinuationTag, &result.continuationTag,
-		&result.modalText, &result.lightingCommand, &result.moveEntityToPlayerZName,
-		&result.requestPlayerGotoXZ, &result.requestPlayerGotoZ,
-		&result.playerGotoX, &result.playerGotoZ,
-		&result.requestPlayerDeath, &result.playerDeathDamageType,
-		&result.mutatedRuntimeState, &result.visualRuntimeStateChanged,
-		&result.previousTimerRecords, &result.requestCloseupExit);
+	const CommandExecutionContext context = {
+		"region command", region.regionName, commandRoomName, true
+	};
+	executeCommandChain(region.actionTag, context, kCommandOutputsInteraction, result);
 	return !result.nextRoomName.empty() || !result.cutscenePath.empty() ||
 		!result.deathFlicPath.empty() || result.requestMainMenu || result.requestDemoEnding ||
 		!result.dialogueNpcName.empty() || !result.musicPath.empty() || !result.audioCommands.empty() ||
@@ -1832,7 +1802,8 @@ bool Script::resolveRegionInteraction(const RegionRecord &region, InteractionRes
 }
 
 bool Script::resolveUseItemInteraction(const Common::String &itemName, const ObjectRecord &target,
-		InteractionResult &result, const Common::String &roomName) {
+		InteractionResult &result, const ScriptExecutionContext &executionContext) {
+	const Common::String roomName = executionContext.roomName();
 	result = InteractionResult();
 
 	const UseItemRecord *useItem = findUseItemRecord(itemName, target);
@@ -1845,19 +1816,12 @@ bool Script::resolveUseItemInteraction(const Common::String &itemName, const Obj
 		commandRoomName = target.currentOwnerOrRoom;
 	}
 
-	executeCommandChain(useItem->actionTag, "useitem command",
-		Common::String::format("%s -> %s", itemName.c_str(), target.objectName.c_str()),
-		commandRoomName, true,
-		&result.musicPath, &result.audioCommands, &result.nextRoomName, &result.roomTransition,
-		&result.cutscenePath, &result.deathFlicPath, &result.requestMainMenu,
-		&result.requestDemoEnding, &result.cdChangeDisc,
-		&result.dialogueNpcName, &result.dialogueContinuationTag, &result.continuationTag,
-		&result.modalText, &result.lightingCommand, &result.moveEntityToPlayerZName,
-		&result.requestPlayerGotoXZ, &result.requestPlayerGotoZ,
-		&result.playerGotoX, &result.playerGotoZ,
-		&result.requestPlayerDeath, &result.playerDeathDamageType,
-		&result.mutatedRuntimeState, &result.visualRuntimeStateChanged,
-		&result.previousTimerRecords, &result.requestCloseupExit);
+	const Common::String contextName = Common::String::format("%s -> %s",
+		itemName.c_str(), target.objectName.c_str());
+	const CommandExecutionContext context = {
+		"useitem command", contextName, commandRoomName, true
+	};
+	executeCommandChain(useItem->actionTag, context, kCommandOutputsInteraction, result);
 	return true;
 }
 
@@ -1879,28 +1843,22 @@ bool Script::executeDebugCommand(const CommandRecord &command,
 	CommandRecord debugCommand = command;
 	debugCommand.triggerTag = debugTag;
 	_commands.push_back(Common::move(debugCommand));
-	const bool handled = executeActionTag(debugTag, result, allowTransitions);
+	const bool handled = executeActionTag(debugTag, result, allowTransitions, ScriptExecutionContext());
 	_commands.pop_back();
 	return handled;
 }
 
 bool Script::executeActionTag(const Common::String &tag, InteractionResult &result,
-		bool allowTransitions, const Common::String &roomName) {
+		bool allowTransitions, const ScriptExecutionContext &executionContext) {
+	const Common::String roomName = executionContext.roomName();
 	result = InteractionResult();
 	if (tag.empty())
 		return false;
 
-	executeCommandChain(tag, "action tag", tag, roomName, allowTransitions,
-		&result.musicPath, &result.audioCommands, &result.nextRoomName, &result.roomTransition,
-		&result.cutscenePath, &result.deathFlicPath, &result.requestMainMenu,
-		&result.requestDemoEnding, &result.cdChangeDisc,
-		&result.dialogueNpcName, &result.dialogueContinuationTag, &result.continuationTag,
-		&result.modalText, &result.lightingCommand, &result.moveEntityToPlayerZName,
-		&result.requestPlayerGotoXZ, &result.requestPlayerGotoZ,
-		&result.playerGotoX, &result.playerGotoZ,
-		&result.requestPlayerDeath, &result.playerDeathDamageType,
-		&result.mutatedRuntimeState, &result.visualRuntimeStateChanged,
-		&result.previousTimerRecords, &result.requestCloseupExit);
+	const CommandExecutionContext context = {
+		"action tag", tag, roomName, allowTransitions
+	};
+	executeCommandChain(tag, context, kCommandOutputsInteraction, result);
 
 	return !result.nextRoomName.empty() || !result.cutscenePath.empty() ||
 		!result.deathFlicPath.empty() || result.requestMainMenu || result.requestDemoEnding ||
@@ -1915,7 +1873,8 @@ bool Script::executeActionTag(const Common::String &tag, InteractionResult &resu
 }
 
 bool Script::executeTimerAction(const Common::String &timerName, InteractionResult &result,
-		bool allowTransitions, const Common::String &roomName) {
+		bool allowTransitions, const ScriptExecutionContext &executionContext) {
+	const Common::String roomName = executionContext.roomName();
 	result = InteractionResult();
 	if (timerName.empty())
 		return false;
@@ -1931,18 +1890,10 @@ bool Script::executeTimerAction(const Common::String &timerName, InteractionResu
 	}
 	const Common::String &commandRoomName = roomName.empty() ? timer->arg1 : roomName;
 
-	executeCommandChain(timer->arg2, "timer command", timer->timerName, commandRoomName,
-		allowTransitions,
-		&result.musicPath, &result.audioCommands, &result.nextRoomName, &result.roomTransition,
-		&result.cutscenePath, &result.deathFlicPath, &result.requestMainMenu,
-		&result.requestDemoEnding, &result.cdChangeDisc,
-		&result.dialogueNpcName, &result.dialogueContinuationTag, &result.continuationTag,
-		&result.modalText, &result.lightingCommand, &result.moveEntityToPlayerZName,
-		&result.requestPlayerGotoXZ, &result.requestPlayerGotoZ,
-		&result.playerGotoX, &result.playerGotoZ,
-		&result.requestPlayerDeath, &result.playerDeathDamageType,
-		&result.mutatedRuntimeState, &result.visualRuntimeStateChanged,
-		&result.previousTimerRecords, &result.requestCloseupExit);
+	const CommandExecutionContext context = {
+		"timer command", timer->timerName, commandRoomName, allowTransitions
+	};
+	executeCommandChain(timer->arg2, context, kCommandOutputsInteraction, result);
 
 	return !result.nextRoomName.empty() || !result.cutscenePath.empty() ||
 		!result.deathFlicPath.empty() || result.requestMainMenu || result.requestDemoEnding ||
@@ -1958,7 +1909,7 @@ bool Script::executeTimerAction(const Common::String &timerName, InteractionResu
 
 bool Script::executeNestedActionTag(const Common::String &tag, InteractionResult &result,
 		bool allowTransitions) {
-	const bool handled = executeActionTag(tag, result, allowTransitions);
+	const bool handled = executeActionTag(tag, result, allowTransitions, ScriptExecutionContext());
 	if (handled)
 		result.abortRemainingCommandChain = true;
 
@@ -2412,12 +2363,8 @@ bool Script::consumePlayerCombatResourceUnit(int loadout) {
 	if (maxCount <= 0)
 		return true;
 
-	if (getPlayerCombatResourceCount(loadout) < 1) {
-		debugC(1, kDebugGeneral,
-			"Harvester: PLAYER_ATTACK player combat resource loadout=%d('%s') delta=0 count=0->0 max=%d changed=0",
-			loadout, Player::describeCombatLoadout(loadout), maxCount);
+	if (getPlayerCombatResourceCount(loadout) < 1)
 		return false;
-	}
 
 	return adjustPlayerCombatResourceCount(loadout, -1, maxCount, "PLAYER_ATTACK");
 }
@@ -2743,7 +2690,7 @@ bool Script::buildRuntimeRoomState(const RoomRecord &room, const EntranceRecord 
 		: kDefaultPaletteBrightness;
 
 	for (const ObjectRecord &object : state.roomObjects) {
-		debugC(1, kDebugRoom,
+		debugC(3, kDebugRoom,
 			"Harvester: materialized room object room='%s' object='%s' owner='%s' visible=%d runtimeVisible=%d sprite='%s' alt='%s' pos=(%d,%d,%d) bounds=(%d,%d)-(%d,%d) action='%s'",
 			state.roomName.c_str(), object.objectName.c_str(), object.currentOwnerOrRoom.c_str(),
 			object.visible, object.runtimeVisible, object.spritePath.c_str(), object.altSpritePath.c_str(),
@@ -2751,7 +2698,7 @@ bool Script::buildRuntimeRoomState(const RoomRecord &room, const EntranceRecord 
 			object.currentX, object.currentY, object.boundsX2, object.boundsY2, object.actionTag.c_str());
 	}
 	for (const NpcRecord &npc : state.roomNpcs) {
-		debugC(1, kDebugRoom,
+		debugC(3, kDebugRoom,
 			"Harvester: materialized room npc room='%s' npc='%s' visible=%d active=%d spawned=%d runtimeState=%d damage_type=%d pos=(%d,%d,%d) frame_delay=%d model='%s' on_death='%s' audio='%s'",
 			state.roomName.c_str(), npc.npcName.c_str(), npc.visible, npc.active,
 			npc.runtimeSpawned, npc.runtimeState, npc.deathDamageType,
@@ -2759,7 +2706,7 @@ bool Script::buildRuntimeRoomState(const RoomRecord &room, const EntranceRecord 
 			npc.modelPath.c_str(), npc.onDeathActionTag.c_str(), npc.audioPath.c_str());
 	}
 	for (const MonsterRecord &monster : state.roomMonsters) {
-		debugC(1, kDebugRoom,
+		debugC(3, kDebugRoom,
 			"Harvester: materialized room monster room='%s' monster='%s' visible=%d active=%d spawned=%d runtimeState=%d pos=(%d,%d,%d) facing=%d hp=%d/%d damage=%d engage=%d damage_type='%s' model='%s' on_death='%s'",
 			state.roomName.c_str(), monster.monsterName.c_str(), monster.visible, monster.active,
 			monster.runtimeSpawned, monster.runtimeState,
@@ -2769,13 +2716,13 @@ bool Script::buildRuntimeRoomState(const RoomRecord &room, const EntranceRecord 
 			monster.modelPath.c_str(), monster.onDeathActionTag.c_str());
 	}
 	for (const TimerRecord &timer : state.roomTimers) {
-		debugC(1, kDebugRoom,
+		debugC(3, kDebugRoom,
 			"Harvester: materialized room timer room='%s' timer='%s' current=%d initial=%d enabled=%d loop=%d global=%d",
 			state.roomName.c_str(), timer.timerName.c_str(), timer.currentValue, timer.initialValue,
 			timer.enabled, timer.looping, timer.global);
 	}
 
-	debugC(1, kDebugRoom,
+	debugC(3, kDebugRoom,
 		"Harvester: materializeRoomState room='%s' entrance='%s' spawn=(%d,%d,%d) facing=%d palette='%s' background='%s' music='%s' brightness=%.2f roomObjects=%u roomAnims=%u roomNpcs=%u roomMonsters=%u roomTimers=%u roomRegions=%u",
 		state.roomName.c_str(), state.entranceName.c_str(), state.playerSpawnX, state.playerSpawnY,
 		state.playerSpawnZ, state.playerFacing, state.palettePath.c_str(), state.backgroundPath.c_str(),
@@ -2787,62 +2734,45 @@ bool Script::buildRuntimeRoomState(const RoomRecord &room, const EntranceRecord 
 	return true;
 }
 
-void Script::executeCommandChain(const Common::String &initialTag, const char *contextLabel,
-		const Common::String &contextName, const Common::String &contextRoomName,
-		bool allowTransitions, Common::String *musicPath,
-		Common::Array<AudioCommand> *audioCommands, Common::String *nextRoomName,
-		StartupRoomTransitionKind *roomTransition,
-		Common::String *cutscenePath, Common::String *deathFlicPath, bool *requestMainMenu,
-		bool *requestDemoEnding,
-		int *cdChangeDisc,
-		Common::String *dialogueNpcName, Common::String *dialogueContinuationTag,
-		Common::String *continuationTag, ResolvedText *modalText,
-		StartupLightingCommand *lightingCommand, Common::String *moveEntityToPlayerZName,
-		bool *requestPlayerGotoXZ, bool *requestPlayerGotoZ,
-		int *playerGotoX, int *playerGotoZ,
-		bool *requestPlayerDeath, int *playerDeathDamageType,
-		bool *mutatedRuntimeState, bool *visualRuntimeStateChanged,
-		Common::Array<TimerRecord> *previousTimerRecords, bool *requestCloseupExit) {
+void Script::executeCommandChain(const Common::String &initialTag, const CommandExecutionContext &context,
+		CommandOutputPolicy outputPolicy, InteractionResult &result) {
+	debugC(3, kDebugScene, "Harvester: command chain tag='%s' context='%s' source='%s' room='%s' transitions=%d outputs='%s'",
+		initialTag.c_str(), context.label, context.name.c_str(), context.roomName.c_str(), context.allowTransitions,
+		outputPolicy == kCommandOutputsRoomExit ? "room exit" : "interaction");
+
 	auto isTruthy = [](const Common::String &value) {
 		return value.equalsIgnoreCase("T") || value.equalsIgnoreCase("ON") || value.equalsIgnoreCase("TRUE");
 	};
 	auto noteMutation = [&](bool changed) {
-		if (changed && mutatedRuntimeState)
-			*mutatedRuntimeState = true;
+		if (changed)
+			result.mutatedRuntimeState = true;
 	};
 	auto noteCurrentRoomVisualMutation = [&](bool changed, bool affectsCurrentRoom) {
 		noteMutation(changed);
-		if (changed && affectsCurrentRoom && visualRuntimeStateChanged)
-			*visualRuntimeStateChanged = true;
+		if (changed && affectsCurrentRoom)
+			result.visualRuntimeStateChanged = true;
 	};
 	auto noteTimerMutation = [&](const TimerRecord *previousTimer, bool changed) {
-		if (!changed || !previousTimerRecords || !previousTimer ||
-				previousTimer->timerName.empty()) {
+		if (!changed || !previousTimer || previousTimer->timerName.empty())
 			return;
-		}
 
-		for (const TimerRecord &record : *previousTimerRecords) {
+		for (const TimerRecord &record : result.previousTimerRecords) {
 			if (record.timerName.equalsIgnoreCase(previousTimer->timerName))
 				return;
 		}
 
-		previousTimerRecords->push_back(*previousTimer);
+		result.previousTimerRecords.push_back(*previousTimer);
 	};
 	auto belongsToContextRoom = [&](const Common::String &roomName) {
-		return !contextRoomName.empty() && roomName.equalsIgnoreCase(contextRoomName);
+		return !context.roomName.empty() && roomName.equalsIgnoreCase(context.roomName);
 	};
 	auto hasDeferredInteractionOutputs = [&]() {
-		return (nextRoomName && !nextRoomName->empty()) ||
-			(cutscenePath && !cutscenePath->empty()) ||
-			(deathFlicPath && !deathFlicPath->empty()) ||
-			(requestMainMenu && *requestMainMenu) ||
-			(requestDemoEnding && *requestDemoEnding) ||
-			(dialogueNpcName && !dialogueNpcName->empty()) ||
-			(continuationTag && !continuationTag->empty()) ||
-			(modalText && !modalText->value.empty()) ||
-			(lightingCommand && *lightingCommand != kStartupLightingCommandNone) ||
-			(moveEntityToPlayerZName && !moveEntityToPlayerZName->empty()) ||
-			(requestCloseupExit && *requestCloseupExit);
+		return (outputPolicy == kCommandOutputsInteraction &&
+				(!result.nextRoomName.empty() || !result.deathFlicPath.empty() || result.requestMainMenu)) ||
+			!result.cutscenePath.empty() || result.requestDemoEnding ||
+			!result.dialogueNpcName.empty() || !result.continuationTag.empty() ||
+			!result.modalText.value.empty() || result.lightingCommand != kStartupLightingCommandNone ||
+			!result.moveEntityToPlayerZName.empty() || result.requestCloseupExit;
 	};
 
 	Common::String currentTag = initialTag;
@@ -2850,20 +2780,20 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 		const CommandRecord *command = findCommandRecord(currentTag);
 		if (!command) {
 			debug(1, "Harvester: unresolved %s tag '%s' for '%s'",
-				contextLabel, currentTag.c_str(), contextName.c_str());
+				context.label, currentTag.c_str(), context.name.c_str());
 			break;
 		}
 
-		debugC(1, kDebugScene,
+		debugC(3, kDebugScene,
 			"Harvester: %s '%s' step=%u tag='%s' opcode='%s' args=['%s','%s','%s','%s']",
-			contextLabel, contextName.c_str(), step, currentTag.c_str(), command->opcodeName.c_str(),
+			context.label, context.name.c_str(), step, currentTag.c_str(), command->opcodeName.c_str(),
 			command->arg1.c_str(), command->arg2.c_str(), command->arg3.c_str(), command->arg4.c_str());
 
 		if (command->opcodeName.equalsIgnoreCase("CHECK_FLAG")) {
 			const FlagRecord *flag = findRuntimeFlag(command->arg1);
 			const bool flagValue = flag && flag->value;
-			debugC(1, kDebugScene, "Harvester: %s '%s' flag '%s' -> %d",
-				contextLabel, contextName.c_str(), command->arg1.c_str(), flagValue);
+			debugC(3, kDebugScene, "Harvester: %s '%s' flag '%s' -> %d",
+				context.label, context.name.c_str(), command->arg1.c_str(), flagValue);
 			currentTag = flagValue ? command->arg2 : command->arg3;
 			continue;
 		}
@@ -2894,7 +2824,7 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 			}
 			debugC(1, kDebugGeneral,
 				"Harvester: %s '%s' SET_FLAG '%s' %d -> %d existed=%d changed=%d",
-				contextLabel, contextName.c_str(), command->arg1.c_str(), oldValue, flagValue,
+				context.label, context.name.c_str(), command->arg1.c_str(), oldValue, flagValue,
 				existed, changed);
 			noteMutation(changed);
 			currentTag = command->arg4;
@@ -2902,23 +2832,14 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("SPOOL_MUSIC")) {
-			if (musicPath)
-				*musicPath = command->arg1;
+			result.musicPath = command->arg1;
 			currentTag = command->arg4;
 			continue;
 		}
 
-		if (audioCommands) {
-			if (appendStartupAudioCommand(*command, *audioCommands)) {
-				currentTag = command->arg4;
-				continue;
-			}
-		} else {
-			Common::Array<AudioCommand> ignoredAudioCommands;
-			if (appendStartupAudioCommand(*command, ignoredAudioCommands)) {
-				currentTag = command->arg4;
-				continue;
-			}
+		if (appendStartupAudioCommand(*command, result.audioCommands)) {
+			currentTag = command->arg4;
+			continue;
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("ADD") ||
@@ -2926,7 +2847,7 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 			ObjectRecord *currentObject = findRuntimeObject(command->arg1, command->arg2);
 			if (!currentObject) {
 				debug(1, "Harvester: unresolved object for %s '%s' owner='%s' object='%s'",
-					contextLabel, contextName.c_str(), command->arg1.c_str(), command->arg2.c_str());
+					context.label, context.name.c_str(), command->arg1.c_str(), command->arg2.c_str());
 				currentTag = command->arg4;
 				continue;
 			}
@@ -2958,7 +2879,7 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 			AnimRecord *currentAnimation = findRuntimeAnim(command->arg1);
 			if (!currentAnimation) {
 				debug(1, "Harvester: unresolved anim for %s '%s' anim='%s'",
-					contextLabel, contextName.c_str(), command->arg1.c_str());
+					context.label, context.name.c_str(), command->arg1.c_str());
 				currentTag = command->arg4;
 				continue;
 			}
@@ -2991,7 +2912,7 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 			RegionRecord *currentRegion = findRuntimeRegion(command->arg1);
 			if (!currentRegion) {
 				debug(1, "Harvester: unresolved region for %s '%s' region='%s'",
-					contextLabel, contextName.c_str(), command->arg1.c_str());
+					context.label, context.name.c_str(), command->arg1.c_str());
 				currentTag = command->arg4;
 				continue;
 			}
@@ -3009,7 +2930,7 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 			NpcRecord *currentNpc = findRuntimeNpc(command->arg1);
 			if (!currentNpc) {
 				debug(1, "Harvester: unresolved npc for %s '%s' npc='%s'",
-					contextLabel, contextName.c_str(), command->arg1.c_str());
+					context.label, context.name.c_str(), command->arg1.c_str());
 				currentTag = command->arg4;
 				continue;
 			}
@@ -3027,12 +2948,12 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 
 		if (command->opcodeName.equalsIgnoreCase("SET_MONSTER")) {
 			MonsterRecord monsterLookup;
-			monsterLookup.roomName = contextRoomName;
+			monsterLookup.roomName = context.roomName;
 			monsterLookup.monsterName = command->arg1;
 			MonsterRecord *currentMonster = findRuntimeMonster(monsterLookup);
 			if (!currentMonster) {
 				debug(1, "Harvester: unresolved monster for %s '%s' monster='%s'",
-					contextLabel, contextName.c_str(), command->arg1.c_str());
+					context.label, context.name.c_str(), command->arg1.c_str());
 				currentTag = command->arg4;
 				continue;
 			}
@@ -3089,22 +3010,16 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 			const ExecListRecord *execList = findExecListRecord(command->arg1);
 			if (!execList) {
 				debug(1, "Harvester: unresolved exec list for %s '%s' list='%s'",
-					contextLabel, contextName.c_str(), command->arg1.c_str());
+					context.label, context.name.c_str(), command->arg1.c_str());
 				currentTag = command->arg4;
 				continue;
 			}
 
 			for (const Common::String &entry : execList->entries) {
-				executeCommandChain(entry, "exec list entry", execList->listName,
-					contextRoomName, allowTransitions,
-					musicPath, audioCommands, nextRoomName, roomTransition, cutscenePath,
-					deathFlicPath, requestMainMenu, requestDemoEnding, cdChangeDisc,
-					dialogueNpcName, dialogueContinuationTag,
-					continuationTag, modalText, lightingCommand, moveEntityToPlayerZName,
-					requestPlayerGotoXZ, requestPlayerGotoZ,
-					playerGotoX, playerGotoZ, requestPlayerDeath, playerDeathDamageType,
-					mutatedRuntimeState, visualRuntimeStateChanged,
-					previousTimerRecords, requestCloseupExit);
+				const CommandExecutionContext entryContext = {
+					"exec list entry", execList->listName, context.roomName, context.allowTransitions
+				};
+				executeCommandChain(entry, entryContext, outputPolicy, result);
 				if (hasDeferredInteractionOutputs())
 					return;
 			}
@@ -3113,55 +3028,41 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("START_DIALOG")) {
-			if (!dialogueNpcName || !dialogueContinuationTag) {
-				debug(1, "Harvester: unsupported startup command '%s' for %s '%s' without dialogue context",
-					command->opcodeName.c_str(), contextLabel, contextName.c_str());
-				return;
-			}
 			if (command->arg1.empty()) {
 				currentTag = command->arg4;
 				continue;
 			}
 
-			*dialogueNpcName = command->arg1;
-			*dialogueContinuationTag = command->arg4;
+			result.dialogueNpcName = command->arg1;
+			result.dialogueContinuationTag = command->arg4;
 			return;
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("GOFLIC")) {
-			if (!cutscenePath) {
-				debug(1, "Harvester: deferred startup command '%s' for %s '%s' has no cutscene context",
-					command->opcodeName.c_str(), contextLabel, contextName.c_str());
-				currentTag = command->arg4;
-				continue;
-			}
-
-			*cutscenePath = command->arg1;
-			if (continuationTag)
-				*continuationTag = command->arg4;
+			result.cutscenePath = command->arg1;
+			result.continuationTag = command->arg4;
 			return;
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("GODEATHFLIC")) {
-			if (!deathFlicPath || !requestMainMenu) {
+			if (outputPolicy == kCommandOutputsRoomExit) {
 				debug(1, "Harvester: unsupported startup command '%s' for %s '%s' without menu-exit context",
-					command->opcodeName.c_str(), contextLabel, contextName.c_str());
+					command->opcodeName.c_str(), context.label, context.name.c_str());
 				return;
 			}
 
-			if (allowTransitions) {
-				*deathFlicPath = command->arg1;
-				*requestMainMenu = true;
+			if (context.allowTransitions) {
+				result.deathFlicPath = command->arg1;
+				result.requestMainMenu = true;
 			} else {
 				debugC(1, kDebugScene, "Harvester: skipped transition opcode '%s' while processing %s '%s'",
-					command->opcodeName.c_str(), contextLabel, contextName.c_str());
+					command->opcodeName.c_str(), context.label, context.name.c_str());
 			}
 			return;
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("END_DEMO")) {
-			if (requestDemoEnding)
-				*requestDemoEnding = true;
+			result.requestDemoEnding = true;
 			return;
 		}
 
@@ -3170,7 +3071,7 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 			NpcRecord *currentNpc = findRuntimeNpc(command->arg1);
 			if (!currentNpc) {
 				debug(1, "Harvester: unresolved npc for %s '%s' npc='%s'",
-					contextLabel, contextName.c_str(), command->arg1.c_str());
+					context.label, context.name.c_str(), command->arg1.c_str());
 				currentTag = command->arg4;
 				continue;
 			}
@@ -3178,8 +3079,8 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 			const int deathDamageType = parseDeathDamageType(command->arg2);
 			const bool deferLiveNpcDeathTransition =
 				_deferredLiveNpcDeathTransitionDepth > 0 &&
-				!contextRoomName.empty() &&
-				currentNpc->roomName.equalsIgnoreCase(contextRoomName) &&
+				!context.roomName.empty() &&
+				currentNpc->roomName.equalsIgnoreCase(context.roomName) &&
 				currentNpc->active &&
 				currentNpc->visible &&
 				!currentNpc->deathOrMonsterfyFlag &&
@@ -3193,21 +3094,13 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("SHOW_TEXT")) {
-			if (!modalText) {
-				debug(1, "Harvester: deferred startup command '%s' for %s '%s' has no modal-text context",
-					command->opcodeName.c_str(), contextLabel, contextName.c_str());
-				currentTag = command->arg4;
-				continue;
-			}
-
-			if (!resolveTextRecord(command->arg1, *modalText)) {
+			if (!resolveTextRecord(command->arg1, result.modalText)) {
 				debug(1, "Harvester: unresolved SHOW_TEXT record for %s '%s' key='%s'",
-					contextLabel, contextName.c_str(), command->arg1.c_str());
+					context.label, context.name.c_str(), command->arg1.c_str());
 				currentTag = command->arg4;
 				continue;
 			}
-			if (continuationTag)
-				*continuationTag = command->arg4;
+			result.continuationTag = command->arg4;
 			return;
 		}
 
@@ -3237,17 +3130,14 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("MOVE_BM2PCZ")) {
-			if (moveEntityToPlayerZName)
-				*moveEntityToPlayerZName = command->arg1;
+			result.moveEntityToPlayerZName = command->arg1;
 			currentTag = command->arg4;
 			continue;
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("KILL_PC")) {
-			if (requestPlayerDeath)
-				*requestPlayerDeath = true;
-			if (playerDeathDamageType)
-				*playerDeathDamageType = parseDeathDamageType(command->arg1);
+			result.requestPlayerDeath = true;
+			result.playerDeathDamageType = parseDeathDamageType(command->arg1);
 			noteMutation(setPlayerCurrentHitPoints(0));
 			currentTag = command->arg4;
 			continue;
@@ -3266,106 +3156,70 @@ void Script::executeCommandChain(const Common::String &initialTag, const char *c
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("PC_GOTO_XZ")) {
-			if (!requestPlayerGotoXZ || !playerGotoX || !playerGotoZ) {
-				debug(1, "Harvester: deferred startup command '%s' for %s '%s' has no player-move context",
-					command->opcodeName.c_str(), contextLabel, contextName.c_str());
-				currentTag = command->arg4;
-				continue;
-			}
-
-			*requestPlayerGotoXZ = true;
-			*playerGotoX = parseAsciiIntOrZero(command->arg1);
-			*playerGotoZ = parseAsciiIntOrZero(command->arg2);
+			result.requestPlayerGotoXZ = true;
+			result.playerGotoX = parseAsciiIntOrZero(command->arg1);
+			result.playerGotoZ = parseAsciiIntOrZero(command->arg2);
 			currentTag = command->arg4;
 			continue;
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("PC_GOTO_Z")) {
-			if (!requestPlayerGotoZ || !playerGotoZ) {
-				debug(1, "Harvester: deferred startup command '%s' for %s '%s' has no player-move context",
-					command->opcodeName.c_str(), contextLabel, contextName.c_str());
-				currentTag = command->arg4;
-				continue;
-			}
-
-			*requestPlayerGotoZ = true;
-			*playerGotoZ = parseAsciiIntOrZero(command->arg1);
+			result.requestPlayerGotoZ = true;
+			result.playerGotoZ = parseAsciiIntOrZero(command->arg1);
 			currentTag = command->arg4;
 			continue;
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("CHANGE_LIGHTING")) {
-			if (!lightingCommand) {
-				debug(1, "Harvester: deferred startup command '%s' for %s '%s' has no lighting context",
-					command->opcodeName.c_str(), contextLabel, contextName.c_str());
-				currentTag = command->arg4;
-				continue;
-			}
-
 			if (command->arg1.equalsIgnoreCase("DIM"))
-				*lightingCommand = kStartupLightingCommandDim;
+				result.lightingCommand = kStartupLightingCommandDim;
 			else if (command->arg1.equalsIgnoreCase("NORMAL"))
-				*lightingCommand = kStartupLightingCommandNormal;
+				result.lightingCommand = kStartupLightingCommandNormal;
 			else if (command->arg1.equalsIgnoreCase("NONE"))
-				*lightingCommand = kStartupLightingCommandBlack;
+				result.lightingCommand = kStartupLightingCommandBlack;
 			else if (command->arg1.equalsIgnoreCase("FADE_IN"))
-				*lightingCommand = kStartupLightingCommandFadeIn;
+				result.lightingCommand = kStartupLightingCommandFadeIn;
 			else
 				debug(1, "Harvester: unsupported CHANGE_LIGHTING mode '%s' for %s '%s', preserving control flow",
-					command->arg1.c_str(), contextLabel, contextName.c_str());
-			if (continuationTag)
-				*continuationTag = command->arg4;
+					command->arg1.c_str(), context.label, context.name.c_str());
+			result.continuationTag = command->arg4;
 			return;
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("CHANGE_CD")) {
-			if (!cdChangeDisc) {
-				debug(1, "Harvester: deferred startup command '%s' for %s '%s' has no CD-change context",
-					command->opcodeName.c_str(), contextLabel, contextName.c_str());
-				currentTag = command->arg4;
-				continue;
-			}
-
 			const int requestedDisc = parseAsciiIntOrZero(command->arg1);
 			if (requestedDisc > 0)
-				*cdChangeDisc = requestedDisc;
+				result.cdChangeDisc = requestedDisc;
 			else
 				debug(1, "Harvester: invalid CHANGE_CD target '%s' for %s '%s'",
-					command->arg1.c_str(), contextLabel, contextName.c_str());
+					command->arg1.c_str(), context.label, context.name.c_str());
 			currentTag = command->arg4;
 			continue;
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("CLOSEUP") ||
 			command->opcodeName.equalsIgnoreCase("CHANGE_ROOM")) {
-			if (allowTransitions && nextRoomName) {
-				*nextRoomName = command->arg1;
-				if (roomTransition) {
-					*roomTransition = command->opcodeName.equalsIgnoreCase("CHANGE_ROOM")
-						? kStartupRoomTransitionChangeRoom
-						: kStartupRoomTransitionCloseup;
-				}
+			if (context.allowTransitions && outputPolicy == kCommandOutputsInteraction) {
+				result.nextRoomName = command->arg1;
+				result.roomTransition = command->opcodeName.equalsIgnoreCase("CHANGE_ROOM")
+					? kStartupRoomTransitionChangeRoom
+					: kStartupRoomTransitionCloseup;
 			} else {
 				debugC(1, kDebugScene, "Harvester: skipped transition opcode '%s' while processing %s '%s'",
-					command->opcodeName.c_str(), contextLabel, contextName.c_str());
+					command->opcodeName.c_str(), context.label, context.name.c_str());
 			}
 			currentTag = command->arg4;
 			continue;
 		}
 
 		if (command->opcodeName.equalsIgnoreCase("EXIT_CLOSEUP")) {
-			if (requestCloseupExit) {
-				*requestCloseupExit = true;
-			} else {
-				debug(1, "Harvester: unsupported startup command '%s' for %s '%s' without closeup-exit context",
-					command->opcodeName.c_str(), contextLabel, contextName.c_str());
-			}
+			result.requestCloseupExit = true;
 			currentTag = command->arg4;
 			continue;
 		}
 
 		debug(1, "Harvester: unsupported startup command '%s' for %s '%s', continuing",
-			command->opcodeName.c_str(), contextLabel, contextName.c_str());
+			command->opcodeName.c_str(), context.label, context.name.c_str());
 		currentTag = command->arg4;
 	}
 }

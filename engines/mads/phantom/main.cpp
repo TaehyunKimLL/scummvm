@@ -49,6 +49,17 @@ namespace Phantom {
 constexpr bool SHOW_LINES = true;
 constexpr byte LINE_COLOR = 2;
 
+static void runAnimView(const char *resource) {
+	AnimView::Presentation presentation;
+	presentation.bufferHeight = 0;
+	presentation.boundaryLines = AnimView::kBoundaryLinesFromResource;
+	presentation.serviceFramesInline = false;
+	if (ConfMan.hasKey("animview_boundary_lines"))
+		presentation.boundaryLines = ConfMan.getBool("animview_boundary_lines") ?
+			AnimView::kBoundaryLinesShown : AnimView::kBoundaryLinesHidden;
+	AnimView::animview_main(resource, presentation);
+}
+
 static void main_menu_main() {
 	auto &screen = *g_engine->getScreen();
 	Palette palette;
@@ -136,7 +147,6 @@ static void main_cold_data_init() {
 	game_emergency_save = global_emergency_save;
 
 	Common::strcpy_s(config_file_name, "config.pha");
-	Common::strcpy_s(save_game_key, "phan");
 	Common::strcpy_s(restart_game_key, "phantom");
 
 	Common::strcpy_s(player.series_name, "RAL");
@@ -267,7 +277,7 @@ void phantom_main() {
 			return;
 
 		case 3:
-			AnimView::animview_main("@phantom");
+			runAnimView("@phantom");
 			selected_item = -1;
 			break;
 
@@ -276,7 +286,7 @@ void phantom_main() {
 			return;
 
 		case 9:
-			AnimView::animview_main("@demodisk");
+			runAnimView("@demodisk");
 			selected_item = 0;
 			break;
 

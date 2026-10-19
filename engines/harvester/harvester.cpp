@@ -68,6 +68,10 @@ bool HarvesterEngine::isDemo() const {
 	return (_gameDescription->flags & ADGF_DEMO) != 0;
 }
 
+bool HarvesterEngine::isEuropeanRelease() const {
+	return _gameDescription->extra && Common::String(_gameDescription->extra) == "European Release";
+}
+
 bool HarvesterEngine::canLoadGameStateCurrently(Common::U32String *) {
 	return _script != nullptr;
 }
@@ -328,7 +332,6 @@ Common::Error HarvesterEngine::run() {
 	// The intro FST files play on the narrower startup movie surface.
 	setDisplayMode(320, 200);
 
-	// Set the engine's debugger console
 	setDebugger(new Console());
 
 	if (shouldSkipIntroMoviesForDebug()) {
@@ -355,7 +358,7 @@ Common::Error HarvesterEngine::run() {
 	if (!flow.load())
 		return Common::kReadingFailed;
 
-	if (!_media->loadQuickTipsResources(flow._menuTextConfig.hasQuickTipsHeader()))
+	if (!_media->loadQuickTipsResources(flow.getMenuTextConfig().hasQuickTipsHeader()))
 		return Common::kReadingFailed;
 
 	// If a savegame was selected from the launcher, load it
