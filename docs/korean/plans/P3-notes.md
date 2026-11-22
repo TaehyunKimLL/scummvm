@@ -41,4 +41,5 @@ Base `d7f47c73a07`, N0 = 620 tests (verified, `~/work/tmp/scummvm2026-p3build`).
 - Two changes that touch an English game too, both defensive and left as the plan has them: `Width()`/`Draw()`/`DrawStatus()` loop `while (len-- > 0)` (upstream `while (len--)`; differs only for a negative length, which no caller passes) and `tokenizeString` stops a word at `VOCAB_MAX_WORDLENGTH - 1` bytes (upstream wrote past the buffer).
 - No finding needing a fix commit.
 | 16 | 083cd8b790a | 666 OK | [data] `[korvocab] loaded 1265 Korean words (version 2) from sci-ko.dat` and the sci-ko.dat header warning with vocab=4b7bd270cdc3a1ff3bcec6d56cc4662f. No red possible (needs game data); typed commands exercised in Task 19. |
-| 17 | see below | 666 OK | [data] typed `qhk` through the built-in composer: prompt `입력` with `봐` in the field; after Return the box `에드워드 왕의 성 바깥에 서 있다. 성은 큰뱀으로 / 가득찬 해자로 둘러쌓여 있다.` on two lines (clut8). |
+| 17 | eb5d99713d6 | 666 OK | [data] typed `qhk` through the built-in composer: prompt `입력` with `봐` in the field; after Return the box `에드워드 왕의 성 바깥에 서 있다. 성은 큰뱀으로 / 가득찬 해자로 둘러쌓여 있다.` on two lines (clut8). |
+| 18 | see below | strcheck tests: 4 OK | red: `ModuleNotFoundError: No module named strcheck` (verified); [data] check of the pack table: 380 entries, no header, rc 0 |
