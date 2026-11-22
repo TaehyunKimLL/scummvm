@@ -36,6 +36,9 @@
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/screen.h"
 #include "sci/graphics/text16.h"
+#include "sci/graphics/hirestext.h"
+#include "sci/utf8.h"
+#include "graphics/hires_text/text_layout.h"
 
 namespace Sci {
 
@@ -196,6 +199,8 @@ static const uint16 text16_shiftJIS_punctuation_SCI01[] = {
 //  Conquests of the Longbow - talking with Lobb - one text box of the dialogue contains a longer word,
 //                                                 that will be broken into 2 lines (bug #5159)
 int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId orgFontId) {
+	if (g_sci->getTextMode().utf8())
+		return getLongestUtf8(textPtr, maxWidth);
 	uint16 curChar = 0;
 	const char *textStartPtr = textPtr;
 	const char *lastSpacePtr = nullptr;
@@ -389,9 +394,15 @@ void GfxText16::Width(const char *text, int16 from, int16 len, GuiResourceId org
 	if (_font) {
 		bool escapedNewLine = false;
 		text += from;
-		while (len--) {
-			uint16 curChar = (*(const byte *)text++);
-			if (_font->isDoubleByte(curChar)) {
+		const bool utf8 = g_sci->getTextMode().utf8();
+		while (len-- > 0) {
+			uint32 curChar = (*(const byte *)text++);
+			if (utf8 && curChar >= 0x80) {
+				int bytes;
+				curChar = decodeUtf8Char((const byte *)text - 1, bytes);
+				text += bytes - 1;
+				len -= bytes - 1;
+			} else if (_font->isDoubleByte(curChar)) {
 				curChar |= (*(const byte *)text++) << 8;
 				len--;
 			} else if (escapedNewLine) {
@@ -511,9 +522,15 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 	rect.bottom = rect.top + _ports->_curPort->fontHeight;
 	text += from;
 	bool escapedNewLine = false;
-	while (len--) {
-		uint16 curChar = (*(const byte *)text++);
-		if (_font->isDoubleByte(curChar)) {
+	const bool utf8 = g_sci->getTextMode().utf8();
+	while (len-- > 0) {
+		uint32 curChar = (*(const byte *)text++);
+		if (utf8 && curChar >= 0x80) {
+			int bytes;
+			curChar = decodeUtf8Char((const byte *)text - 1, bytes);
+			text += bytes - 1;
+			len -= bytes - 1;
+		} else if (_font->isDoubleByte(curChar)) {
 			curChar |= (*(const byte *)text++) << 8;
 			len--;
 		} else if (escapedNewLine) {
@@ -712,13 +729,20 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 		str = Common::convertBiDiString(strOrig, g_sci->getLanguage());
 
 	const byte *text = (const byte *)str.c_str();
-	uint16 textLen = str.size();
+	int16 textLen = str.size();
 	Common::Rect rect;
 
 	rect.top = _ports->_curPort->curTop;
 	rect.bottom = rect.top + _ports->_curPort->fontHeight;
-	while (textLen--) {
-		uint16 curChar = *text++;
+	const bool utf8 = g_sci->getTextMode().utf8();
+	while (textLen-- > 0) {
+		uint32 curChar = *text++;
+		if (utf8 && curChar >= 0x80) {
+			int bytes;
+			curChar = decodeUtf8Char(text - 1, bytes);
+			text += bytes - 1;
+			textLen -= bytes - 1;
+		}
 		switch (curChar) {
 		case 0:
 			break;
@@ -733,6 +757,9 @@ void GfxText16::DrawStatus(const Common::String &strOrig) {
 
 // Check for Korean strings, and use font 1001 to render them
 bool GfxText16::SwitchToFont1001OnKorean(const char *text, uint16 languageSplitter) {
+	// A UTF-8 translation draws Hangul through the hi-res fonts, not font 1001.
+	if (g_sci->getTextMode().utf8())
+		return false;
 	const byte* ptr = (const byte *)text;
 	if (languageSplitter != 0x6b23) { // #k prefix as language splitter
 		// Check if the text contains at least one Korean character
@@ -772,6 +799,71 @@ bool GfxText16::SwitchToFont900OnSjis(const char *text, uint16 languageSplitter)
 // Instead, we detect the newline sequences during string processing loops and
 // apply the substitute characters on the fly. PQ2 is the only game known to use
 // this feature. "\n" appears in most of its Japanese strings.
+namespace {
+
+// SCI text as layout units: CR LF, CR and LF end a line; in SCI1.1 a |code|
+// is a zero-width control unit (GfxText16::CodeProcessing()).
+class SciUtf8Decoder : public Graphics::TextDecoder {
+public:
+	explicit SciUtf8Decoder(bool codes) : _codes(codes) {}
+	int decode(const byte *p, const byte *end, uint32 &cp, byte &flags) const override {
+		if (*p == 0x0D || *p == 0x0A) {
+			cp = '\n';
+			flags = Graphics::kUnitNewline;
+			return (*p == 0x0D && p + 1 < end && p[1] == 0x0A) ? 2 : 1;
+		}
+		if (_codes && *p == '|') {
+			const byte *q = p + 1;
+			while (q < end && *q != '|')
+				++q;
+			cp = Graphics::kControlUnit;
+			flags = Graphics::kUnitControl;
+			return (q < end ? q + 1 : end) - p;
+		}
+		return _utf8.decode(p, end, cp, flags);
+	}
+
+private:
+	bool _codes;
+	Graphics::Utf8TextDecoder _utf8;
+};
+
+class SciFontMetrics : public Graphics::LayoutMetrics {
+public:
+	explicit SciFontMetrics(GfxFont *font) : _font(font) {}
+	int advance(uint32 cp) override { return _font->getCharWidth(cp); }
+
+private:
+	GfxFont *_font;
+};
+
+} // End of anonymous namespace
+
+int16 GfxText16::getLongestUtf8(const char *&textPtr, int16 maxWidth) {
+	GetFont();
+	if (!_font || !*textPtr)
+		return 0;
+	// One line at a time: the run ends at the first newline.
+	const char *end = textPtr;
+	while (*end && *end != 0x0D && *end != 0x0A)
+		++end;
+	if (*end == 0x0D && end[1] == 0x0A)
+		end += 2;
+	else if (*end)
+		++end;
+	Graphics::TextRun run;
+	run.decode((const byte *)textPtr, end - textPtr, SciUtf8Decoder(getSciVersion() >= SCI_VERSION_1_1));
+	SciFontMetrics metrics(_font);
+	SciHiResText *hires = g_sci->getHiResText();
+	const Graphics::LineSpan line = Graphics::TextLayout::fitLine(run, 0, maxWidth, metrics,
+	                                                              hires ? hires->getBreakRules() : Graphics::BreakRules());
+	// As the byte loop does: a line ended by a newline counts the newline;
+	// a wrapped line counts what is drawn and skips the spaces after it.
+	const int16 count = line.forced ? line.byteNext : line.byteEnd;
+	textPtr += line.byteNext;
+	return count;
+}
+
 bool GfxText16::isJapaneseNewLine(int16 curChar, int16 nextChar) {
 	return g_sci->getLanguage() == Common::JA_JPN &&
 		curChar == '\\' && (nextChar == 'n' || nextChar == 'N' || nextChar == 'r' || nextChar == 'R');

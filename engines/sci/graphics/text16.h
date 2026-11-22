@@ -89,6 +89,8 @@ public:
 private:
 	void init();
 	bool SwitchToFont1001OnKorean(const char *text, uint16 languageSplitter);
+	/** GetLongest() of a TextMode::kUtf8 game: Graphics::TextLayout over the font's widths. */
+	int16 getLongestUtf8(const char *&textPtr, int16 maxWidth);
 	bool SwitchToFont900OnSjis(const char *text, uint16 languageSplitter);
 	static bool isJapaneseNewLine(int16 curChar, int16 nextChar);
 	int16 macGetLongest(const Common::String &text, uint start, const Graphics::Font *font, int16 maxWidth, int16 *lineWidth);

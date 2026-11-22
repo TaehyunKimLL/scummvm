@@ -28,4 +28,5 @@ Base `d7f47c73a07`, N0 = 620 tests (verified, `~/work/tmp/scummvm2026-p3build`).
 | 11 | 95464d3f0d4 | 666 OK | no red possible (kernel hooks need the game; exercised by the headless runs in Tasks 15/19). The moved kStrAt block differs from base only by `argc > 2` -> `write` and `return value`. |
 | 12 | bcf2c9077e6 | 666 OK | hooks only |
 | 13 | 42e178f833e | 666 OK | driver hook; verified by the smoke runs of Task 15 |
-| 14 | see below | 666 OK | screen/cache hooks; verified by the smoke runs of Task 15 |
+| 14 | 4c0fa3690aa | 666 OK | screen/cache hooks; verified by the smoke runs of Task 15 |
+| 15 | see below | 666 OK | [data] smoke: title shows Hangul buttons (프롤로그 게임시작 / 크레딧 이어서 계속하기) at 2x in the 640x400 window; first room status line `득점: 0 of 158  킹스 퀘스트 I`; same on `render_target=rgb565` (status rows y0-20 pixel-identical to the clut8 shot); English target runs upstream (320x200, English title menu, no `Hi-res text` log line). Log: `Hi-res text: using data:hires_text/maps/korean-default.map` after the two "map version 2" notes. go.sh needed `xdotool windowfocus` for alt+s and a retry loop for the SDL_BlitSurface start flake. PNG mode is RGB for both (the screenshot action converts). |
