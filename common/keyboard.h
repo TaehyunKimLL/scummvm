@@ -238,6 +238,13 @@ enum KeyCode {
 	KEYCODE_AUDIOREWIND      = 355,
 	KEYCODE_AUDIOFASTFORWARD = 356,
 
+	// Input-method keys of CJK keyboards. SDL reports them as their own
+	// scancodes (LANG1, LANG2): the key right of the space bar of a Korean
+	// keyboard is Han/Yeong, which Windows delivers as a key of its own where
+	// X11 often reports right Alt. Without codes they are KEYCODE_INVALID.
+	KEYCODE_HANGUL           = 357,	// Han/Yeong: Korean input mode toggle
+	KEYCODE_HANJA            = 358,	// Hanja conversion
+
 	KEYCODE_LAST
 };
 
