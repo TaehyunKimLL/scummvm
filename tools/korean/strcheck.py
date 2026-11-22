@@ -19,7 +19,7 @@ import sys
 HEADER = re.compile(r"^#![ \t]")
 FIELD = re.compile(r"^([a-z]+)=(\S*)$")
 MD5 = re.compile(r"^[0-9a-fA-F]{32}$")
-NUM = re.compile(r"^(0|[1-9][0-9]{0,4})$")
+NUM = re.compile(r"^[0-9]{1,5}$")  # as ScriptStrings::readNum: digits, leading zeros allowed
 
 
 def parse_header(line):
@@ -53,7 +53,7 @@ def check(lines):
     entries = 0
     for n, raw in enumerate(lines, 1):
         line = raw.rstrip("\r\n")
-        if n == 1 and line.startswith("﻿"):
+        if n == 1 and line.startswith("\ufeff"):
             line = line[1:]
         if n == 1 and line.startswith("#!"):
             try:
@@ -107,7 +107,7 @@ def main(argv=None):
     except ValueError as e:
         print("strcheck: --line: %s" % e, file=sys.stderr)
         return 2
-    if lines and lines[0].lstrip("﻿").startswith("#!"):
+    if lines and lines[0].lstrip("\ufeff").startswith("#!"):
         lines = lines[1:]
     out = open(a.out or a.file, "w", encoding="utf-8", newline="")
     out.write(a.line + "\n")

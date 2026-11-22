@@ -27,6 +27,12 @@ class StrCheckTest(unittest.TestCase):
         self.assertIn((4, "not script<TAB>id[<TAB>room]<TAB>text"), problems)
         self.assertTrue(any(t.startswith("no fingerprint") for t in texts))
 
+    def test_leading_zeros_like_the_engine(self):
+        # ScriptStrings::readNum accepts digits with leading zeros (0..65534)
+        _, entries, problems = strcheck.check([HDR + "\n", "05\t007\tA\n", "0\t5\t014\tB\n"])
+        self.assertEqual(entries, 2)
+        self.assertEqual(problems, [])
+
     def test_bad_headers(self):
         for line in ("#!format=1 game=a fingerprint=%s engine=sci" % ("0" * 32),
                      "#! format=2 game=a fingerprint=%s engine=sci" % ("0" * 32),
@@ -40,7 +46,7 @@ class StrCheckTest(unittest.TestCase):
         try:
             p = os.path.join(d, "sci-ko.str")
             with open(p, "w", encoding="utf-8") as f:
-                f.write("﻿#! format=1 game=old fingerprint=%s engine=sci\n0\t5\tA\n" % ("0" * 32))
+                f.write("\ufeff#! format=1 game=old fingerprint=%s engine=sci\n0\t5\tA\n" % ("0" * 32))
             self.assertEqual(strcheck.main(["header", p, "--line", HDR]), 0)
             with open(p, encoding="utf-8") as f:
                 self.assertEqual(f.read(), HDR + "\n0\t5\tA\n")
