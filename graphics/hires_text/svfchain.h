@@ -43,7 +43,11 @@ public:
 	SvfChain();
 	~SvfChain();
 
-	/** Appends an open face (at most 255). The chain deletes it with DisposeAfterUse::YES. */
+	/**
+	 * Appends an open face (at most 255). With DisposeAfterUse::YES the chain deletes it, but only if this
+	 * returns true: when it returns false (null, closed or the 256th face) the caller still owns the face.
+	 * Do not reopen a face while it is in a chain without calling refresh() afterwards.
+	 */
 	bool addFace(SvfFace *face, DisposeAfterUse::Flag dispose = DisposeAfterUse::NO);
 	uint getFaceCount() const { return _faces.size(); }
 	SvfFace *getFace(uint i) const { return _faces[i]; }
@@ -56,6 +60,8 @@ public:
 	uint getScaleDen() const { return _chain.scale_den ? _chain.scale_den : 1; }
 	/** Gives the chain a composed-syllable cache of @p slots cells (0: none). */
 	bool setSyllableCache(uint slots);
+	/** Rebuilds the scratch cell and empties the syllable cache: call after reopening a face of the chain (svf_chain_cache contract). */
+	void refresh() { update(); }
 
 	/** Rows above the baseline: the largest scaled ascent of the faces. */
 	int getAscent() const;
@@ -70,6 +76,7 @@ public:
 	int getWidth(const char *text, uint32 len) const;
 
 	/** Draws @p text on @p target, the pen starting at (@p x, @p yBaseline). */
+	/** SVF_E_RANGE, drawing nothing, if @p x or @p yBaseline does not fit the renderer's int16 coordinates. */
 	svf_err draw(const char *text, uint32 len, int x, int yBaseline, svf_target &target) const;
 	/** Draws through SVF_T_COVERAGE_CB on a w x h area, clipped to @p clip (nullptr: the whole area). */
 	svf_err drawCoverage(const char *text, uint32 len, int x, int yBaseline, int w, int h, PlotFunc plot, void *ctx,

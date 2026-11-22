@@ -37,13 +37,14 @@ inline Graphics::SvfChain *makeChain(uint num = 1, uint den = 1, uint8 missing =
 	Graphics::SvfChain *chain = new Graphics::SvfChain();
 	Graphics::SvfFace *marks = new Graphics::SvfFace();
 	Graphics::SvfFace *jamo = new Graphics::SvfFace();
-	marks->loadFromMemory(kSvfFixtureMarks, sizeof(kSvfFixtureMarks), "marks");
-	if (streamJamo)
-		jamo->loadStreamed(new Common::MemoryReadStream(kSvfFixtureJamo, sizeof(kSvfFixtureJamo)), DisposeAfterUse::YES, "jamo", 1024, slots);
-	else
-		jamo->loadFromMemory(kSvfFixtureJamo, sizeof(kSvfFixtureJamo), "jamo");
-	chain->addFace(marks, DisposeAfterUse::YES);
-	chain->addFace(jamo, DisposeAfterUse::YES);
+	TS_ASSERT(marks->loadFromMemory(kSvfFixtureMarks, sizeof(kSvfFixtureMarks), "marks"));
+	if (streamJamo) {
+		TS_ASSERT(jamo->loadStreamed(new Common::MemoryReadStream(kSvfFixtureJamo, sizeof(kSvfFixtureJamo)), DisposeAfterUse::YES, "jamo", 1024, slots));
+	} else {
+		TS_ASSERT(jamo->loadFromMemory(kSvfFixtureJamo, sizeof(kSvfFixtureJamo), "jamo"));
+	}
+	TS_ASSERT(chain->addFace(marks, DisposeAfterUse::YES));
+	TS_ASSERT(chain->addFace(jamo, DisposeAfterUse::YES));
 	chain->setScale(num, den);
 	chain->setMissingAdvance(missing);
 	return chain;

@@ -107,4 +107,42 @@ public:
 		TS_ASSERT_EQUALS(chain->getFace(1)->getStreamReads(), reads);
 		delete chain;
 	}
+
+	void test_addFaceRefusal() {
+		Graphics::SvfChain chain;
+		Graphics::SvfFace *closed = new Graphics::SvfFace();
+		TS_ASSERT(!chain.addFace(closed, DisposeAfterUse::YES));	// refused: the caller still owns it
+		TS_ASSERT(!chain.addFace(nullptr, DisposeAfterUse::YES));
+		TS_ASSERT_EQUALS(chain.getFaceCount(), 0u);
+		delete closed;
+	}
+
+	void test_drawOutOfRange() {
+		Graphics::SvfChain *chain = SvfTest::makeChain();
+		byte px[4] = { 0, 0, 0, 0 };
+		svf_target t;
+		svf_target_init(&t, SVF_T_GRAY8, px, sizeof(px), 2, 2, 2);
+		TS_ASSERT_EQUALS(chain->draw("a", 1, 40000, 0, t), SVF_E_RANGE);
+		TS_ASSERT_EQUALS(chain->draw("a", 1, 0, -40000, t), SVF_E_RANGE);
+		delete chain;
+	}
+
+	// Reopening a face of a chain with a syllable cache: refresh() makes the chain consistent again.
+	void test_refreshAfterReopen() {
+		Graphics::SvfChain *chain = SvfTest::makeChain();
+		TS_ASSERT(chain->setSyllableCache(16));
+		const char *text = "\xed\x95\x9c\xea\xb8\x80";
+		byte a[64 * 20], b[64 * 20];
+		memset(a, 0, sizeof(a));
+		memset(b, 0, sizeof(b));
+		svf_target t;
+		svf_target_init(&t, SVF_T_GRAY8, a, sizeof(a), 64, 20, 64);
+		TS_ASSERT_EQUALS(chain->draw(text, strlen(text), 0, 14, t), SVF_OK);
+		TS_ASSERT(chain->getFace(1)->loadFromMemory(kSvfFixtureJamo, sizeof(kSvfFixtureJamo), "jamo"));
+		chain->refresh();
+		svf_target_init(&t, SVF_T_GRAY8, b, sizeof(b), 64, 20, 64);
+		TS_ASSERT_EQUALS(chain->draw(text, strlen(text), 0, 14, t), SVF_OK);
+		TS_ASSERT_EQUALS(memcmp(a, b, sizeof(a)), 0);
+		delete chain;
+	}
 };

@@ -162,7 +162,7 @@ int SvfChain::getWidth(const char *text, uint32 len) const {
 
 svf_err SvfChain::draw(const char *text, uint32 len, int x, int yBaseline, svf_target &target) const {
 	if (!fitsInt16(x) || !fitsInt16(yBaseline))
-		return SVF_OK;
+		return SVF_E_RANGE;
 	return svf_draw_utf8(&_chain, text, len, (int16_t)x, (int16_t)yBaseline, &target, _scratch.data(), _scratch.size());
 }
 
