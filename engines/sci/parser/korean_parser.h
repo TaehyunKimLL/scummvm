@@ -27,6 +27,7 @@
 #include "common/korean_vocab.h"
 #include "common/str.h"
 
+#include "sci/detection.h"
 #include "sci/parser/vocabulary.h"
 
 namespace Sci {
@@ -70,6 +71,14 @@ public:
 	/** ask/tell + a bare topic: "about" is put before it; tell + to + someone is the game's talk. */
 	void askAbout(ResultWordListList &words) const;
 
+	/**
+	 * The parsed line in the game's own English words: for each token, every
+	 * English word of every group it may be, sorted, space separated; empty
+	 * when a token has none. For the scripts of koreanAnswerRoom(), which
+	 * search the typed line for a word instead of parsing it.
+	 */
+	Common::String englishLine(const ResultWordListList &words) const;
+
 private:
 	bool arrangeTokens(const Common::Array<ResultWordList> &tok, const Common::Array<uint8> &role, int verb, uint verbTail,
 	                   const Common::Array<uint> &unitStart, bool useRoles, ResultWordListList &out) const;
@@ -78,6 +87,21 @@ private:
 	const Common::KoreanVocabulary &_vocab;
 	uint32 _debugChannel;
 };
+
+/**
+ * The per-game table (DESIGN.md section 6): a room whose script checks a
+ * typed answer by searching the text itself (StrLen and StrAt over the edit
+ * box) for English words, with no said(). There, to those two calls only, a
+ * Korean answer reads as KoreanParser::englishLine() of it.
+ */
+struct KoreanAnswerRoom {
+	SciGameId game;
+	int16 room;
+	const char *what; ///< for the debug log
+};
+
+/** The table's row for @p room of @p game; nullptr when there is none. */
+const KoreanAnswerRoom *koreanAnswerRoom(SciGameId game, int room);
 
 } // End of namespace Sci
 

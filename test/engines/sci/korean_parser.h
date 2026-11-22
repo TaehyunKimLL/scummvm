@@ -143,4 +143,33 @@ public:
 		TS_ASSERT_EQUALS(p.lookup("\xEC\x9E\x90\xEC\x84\xB8\xED\x9E\x88", w, extra, role), 0u); // 자세히
 		TS_ASSERT(w.empty());
 	}
+
+	void test_englishLineListsEveryWordOfEachGroup() {
+		Sci::KoreanParser p(_words, _vocab);
+		add("portal", kNoun, gDoor); // a synonym in the same group
+		static const char *const typed[] = { "\xEB\xAC\xB8\xEC\x9D\x84", "\xEC\x97\xB4\xEC\x96\xB4", nullptr }; // 문을 열어
+		ResultWordListList words;
+		Common::Array<uint8> roles;
+		tokens(p, typed, words, roles);
+		TS_ASSERT_EQUALS(p.englishLine(words), "door portal open");
+	}
+
+	void test_englishLineIsEmptyForATokenWithNoWord() {
+		Sci::KoreanParser p(_words, _vocab);
+		ResultWordListList words;
+		ResultWordList none;
+		ResultWord r = { kNoun, 0x7FF };
+		none.push_back(r);
+		words.push_back(none);
+		TS_ASSERT_EQUALS(p.englishLine(words), "");
+	}
+
+	void test_answerRoomTable() {
+		TS_ASSERT(Sci::koreanAnswerRoom(Sci::GID_QFG2, 199));
+		TS_ASSERT(Sci::koreanAnswerRoom(Sci::GID_QFG1, 22));
+		TS_ASSERT(Sci::koreanAnswerRoom(Sci::GID_QFG1, 29));
+		TS_ASSERT(!Sci::koreanAnswerRoom(Sci::GID_QFG1VGA, 29));
+		TS_ASSERT(!Sci::koreanAnswerRoom(Sci::GID_QFG2, 198));
+		TS_ASSERT(!Sci::koreanAnswerRoom(Sci::GID_KQ1, 199));
+	}
 };

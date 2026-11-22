@@ -19,6 +19,7 @@
  *
  */
 
+#include "common/algorithm.h"
 #include "common/debug.h"
 #include "common/ustr.h"
 
@@ -306,6 +307,48 @@ bool KoreanParser::arrangeTokens(const Common::Array<ResultWordList> &tok, const
 	for (uint k = 0; k < phrases.size(); ++k)
 		out.push_back(phrases[k]);
 	return rolePhrases;
+}
+
+Common::String KoreanParser::englishLine(const ResultWordListList &words) const {
+	// Every English word of every group a token may be: a script that looks
+	// for one word ("stefan") must find it whichever synonym ("baron") or
+	// reading the Korean word maps to.
+	Common::String line;
+	for (ResultWordListList::const_iterator t = words.begin(); t != words.end(); ++t) {
+		Common::Array<Common::String> found;
+		for (WordMap::const_iterator w = _words.begin(); w != _words.end(); ++w) {
+			bool match = false;
+			for (ResultWordList::const_iterator r = w->_value.begin(); r != w->_value.end() && !match; ++r)
+				for (ResultWordList::const_iterator a = t->begin(); a != t->end() && !match; ++a)
+					match = a->_group == r->_group;
+			if (match)
+				found.push_back(w->_key);
+		}
+		if (found.empty())
+			return Common::String();
+		Common::sort(found.begin(), found.end());
+		for (uint i = 0; i < found.size(); ++i) {
+			if (!line.empty())
+				line += ' ';
+			line += found[i];
+		}
+	}
+	return line;
+}
+
+static const KoreanAnswerRoom s_answerRooms[] = {
+	// QFG1 EGA: script 802's search for the hut's rhyme and the gargoyle's answers (jamo e5295f1b411)
+	{ GID_QFG1, 22, "QFG1 Baba Yaga's hut" },
+	{ GID_QFG1, 29, "QFG1 the gargoyle at Erasmus's gate" },
+	// QFG2: script 2's search for Aziza's questions (jamo 40e65ff93ac)
+	{ GID_QFG2, 199, "QFG2 Aziza's door" }
+};
+
+const KoreanAnswerRoom *koreanAnswerRoom(SciGameId game, int room) {
+	for (uint i = 0; i < ARRAYSIZE(s_answerRooms); ++i)
+		if (s_answerRooms[i].game == game && s_answerRooms[i].room == room)
+			return &s_answerRooms[i];
+	return nullptr;
 }
 
 } // End of namespace Sci
