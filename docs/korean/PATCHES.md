@@ -15,3 +15,8 @@ New files never conflict and are not listed.
 | `ko/01-core` | `graphics/module.mk` | 12 `hires_text/` objects | build the hi-res text core |
 | `ko/01-core` | `test/module.mk` | one glob, `test/graphics/hires_text_*.h` | tests |
 | `ko/01-core` | `LICENSES/COPYING.OFL` | entry for `dists/engine-data/hires_text/NEODG16A.SVF` | notice for the shipped face |
+| `ko/02-common-korean` | `common/keyboard.h` | `KEYCODE_HANGUL`, `KEYCODE_HANJA` before `KEYCODE_LAST` | the Han/Yeong key reaches engines |
+| `ko/02-common-korean` | `backends/keymapper/hardware-input.cpp` | `HANGUL`, `HANJA` in `defaultKeys` | keymaps can bind the keys |
+| `ko/02-common-korean` | `backends/events/sdl/sdl2-events.cpp`, `sdl3-events.cpp` | `SDL_SCANCODE_LANG1/2` cases | SDL delivers the keys |
+| `ko/02-common-korean` | `common/module.mk` | 5 objects (`hangul`, `korean_stem`, `korean_vocab`, `language_folder`, `translation_file`) | build the Korean common code |
+| `ko/02-common-korean` | `test/module.mk` | `TEST_LIBS += backends/keymapper/hardware-input.o` | the key name test |
