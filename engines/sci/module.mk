@@ -5,6 +5,7 @@ MODULE_OBJS := \
 	detection_internal.o \
 	dialogs.o \
 	event.o \
+	korean_input.o \
 	metaengine.o \
 	sci.o \
 	textmode.o \
