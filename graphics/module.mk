@@ -30,6 +30,7 @@ MODULE_OBJS := \
 	hires_text/hires_files.o \
 	hires_text/hires_options.o \
 	hires_text/id_plan.o \
+	hires_text/map_pick.o \
 	hires_text/svfchain.o \
 	hires_text/svfface.o \
 	hires_text/text_compose.o \
