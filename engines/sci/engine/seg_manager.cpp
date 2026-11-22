@@ -699,6 +699,10 @@ void SegManager::strncpy(reg_t dest, const char* src, size_t n) {
 		return;
 	}
 
+	if (g_sci && g_sci->getTextMode().utf8() && dest_r.maxSize >= 0 && Common::strnlen(src, n) >= (size_t)dest_r.maxSize &&
+	    growDynmem(dest, Common::strnlen(src, n) + 1))
+		dest_r = dereference(dest);
+
 	Common::String cut;
 	if (g_sci && g_sci->getTextMode().utf8() && dest_r.maxSize > 0 && Common::strnlen(src, n) >= (size_t)dest_r.maxSize) {
 		// A translation longer than the English buffer: cut it on a code
@@ -750,7 +754,12 @@ void SegManager::strncpy(reg_t dest, reg_t src, size_t n) {
 	}
 
 
-	if (src_r.isRaw) {
+	if (src_r.isRaw && g_sci && g_sci->getTextMode().utf8() && src.getSegment() == dest.getSegment()) {
+		// The copy may grow the destination's block (growDynmem()), which
+		// moves a source in the same block: copy it out first.
+		const Common::String text((const char *)src_r.raw, Common::strnlen((const char *)src_r.raw, MIN<size_t>(n, src_r.maxSize)));
+		strncpy(dest, text.c_str(), MIN<size_t>(n, text.size() + 1));
+	} else if (src_r.isRaw) {
 		// raw -> *
 		strncpy(dest, (const char*)src_r.raw, n);
 	} else if (dest_r.isRaw && !src_r.isRaw) {
@@ -916,7 +925,27 @@ uint32 SegManager::stringCapacity(reg_t pointer) const {
 	}
 }
 
+bool SegManager::growDynmem(reg_t dest, uint32 bytes) {
+	if (dest.getOffset() != 0 || getSegmentType(dest.getSegment()) != SEG_TYPE_DYNMEM)
+		return false;
+	DynMem *mem = (DynMem *)_heap[dest.getSegment()];
+	if (bytes <= mem->_size)
+		return false;
+	byte *grown = (byte *)realloc(mem->_buf, bytes);
+	if (!grown) {
+		warning("SegManager::growDynmem: out of memory growing %04x:%04x to %u bytes", PRINT_REG(dest), bytes);
+		return false;
+	}
+	memset(grown + mem->_size, 0, bytes - mem->_size);
+	debugC(1, kDebugLevelKorean, "%04x:%04x (%s) grown from %u to %u bytes", PRINT_REG(dest), mem->_description.c_str(), mem->_size, bytes);
+	mem->_buf = grown;
+	mem->_size = bytes;
+	return true;
+}
+
 uint SegManager::strcpyBounded(reg_t dest, const Common::String &text) {
+	if (g_sci && g_sci->getTextMode().utf8() && text.size() >= stringCapacity(dest))
+		growDynmem(dest, text.size() + 1);
 	const uint32 capacity = stringCapacity(dest);
 	Common::String out = text;
 	if (g_sci && g_sci->getTextMode().utf8() && capacity && text.size() >= capacity) {

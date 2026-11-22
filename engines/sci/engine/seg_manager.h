@@ -325,6 +325,13 @@ public:
 	 */
 	uint strcpyBounded(reg_t dest, const Common::String &text);
 
+	/**
+	 * Grow the dynamic memory block that starts at @p dest to @p bytes (zero-filled), for a UTF-8
+	 * translation longer than the English text the script sized it for. False, and nothing changes,
+	 * when @p dest is not the start of a DYNMEM block or the block is already that big.
+	 */
+	bool growDynmem(reg_t dest, uint32 bytes);
+
 
 	/**
 	 * Copies a string from src to dest.
