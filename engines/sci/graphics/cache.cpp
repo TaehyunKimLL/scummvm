@@ -70,6 +70,11 @@ GfxFont *GfxCache::hiResFont(GfxFont *font, GuiResourceId fontId) {
 	SciHiResText *hires = g_sci->getHiResText();
 	if (!hires || !_screen->getTextPlane())
 		return font;
+	// The map names the font resource drawn: lsl1sci's ids carry high bits
+	// that GfxFontFromResource drops (2107 is font 59), and so does this.
+	if (!_resMan->testResource(ResourceId(kResourceTypeFont, fontId)))
+		fontId &= 0x7ff;
+	debugC(1, kDebugLevelKorean, "Hi-res font set for font %d", fontId);
 	const Graphics::HiResFontSet *set = hires->getFontSet(fontId);
 	return set ? new GfxFontHiRes(font, *set, *_screen->getTextPlane()) : font;
 }
