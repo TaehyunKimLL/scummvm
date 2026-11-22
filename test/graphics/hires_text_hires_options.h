@@ -21,10 +21,13 @@
 
 #include <cxxtest/TestSuite.h>
 
+#include "common/config-manager.h"
 #include "common/hash-str.h"
 #include "common/hashmap.h"
 
 #include "graphics/hires_text/hires_options.h"
+
+#include "test/system/null_osystem.h"
 
 namespace {
 
@@ -144,5 +147,26 @@ public:
 		TS_ASSERT_EQUALS(Graphics::resolveScale(o, &m, 320, 200), 1);
 		o.scale = 2;
 		TS_ASSERT_EQUALS(Graphics::resolveScale(o, &m, 320, 200), 2);
+	}
+
+	// The ConfMan path: transient keys are read, a bad one is a warning.
+	void test_readThroughConfMan() {
+		Common::install_null_g_system();
+		ConfMan.set("hires_text_scale", " 2 ", Common::ConfigManager::kTransientDomain);
+		ConfMan.set("hangul_break", "any", Common::ConfigManager::kTransientDomain);
+		ConfMan.set("hires_text_blend", "sideways", Common::ConfigManager::kTransientDomain);
+		Common::Array<Common::String> w;
+		const Graphics::HiResOptions o = Graphics::readHiResOptions(w);
+		TS_ASSERT_EQUALS(o.scale, 2);
+		TS_ASSERT(o.hangulBreakSet && o.hangulBreak == Graphics::kHangulBreakAny);
+		TS_ASSERT_EQUALS(w.size(), 1u);
+		ConfMan.removeKey("hires_text_scale", Common::ConfigManager::kTransientDomain);
+		ConfMan.removeKey("hangul_break", Common::ConfigManager::kTransientDomain);
+		ConfMan.removeKey("hires_text_blend", Common::ConfigManager::kTransientDomain);
+		Common::Array<Common::String> w2;
+		const Graphics::HiResOptions d = Graphics::readHiResOptions(w2);
+		TS_ASSERT(w2.empty());
+		TS_ASSERT_EQUALS(d.scale, 0);
+		Common::uninstall_null_g_system();
 	}
 };

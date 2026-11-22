@@ -71,6 +71,7 @@ HiResOptions parseHiResOptions(HiResConfigGetFn get, void *ctx, Common::Array<Co
 		o.mapSet = true;
 	}
 	if (get("hires_text_scale", v, ctx)) {
+		v.trim();
 		if (v.equalsIgnoreCase("auto"))
 			o.scale = 0;
 		else if (v == "1" || v == "2")
