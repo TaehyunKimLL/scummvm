@@ -234,6 +234,7 @@ public:
 	}
 
 	void parseScope(const Common::Array<const Section *> &list, HiResFontScope &s) {
+		Common::Array<uint> rangeFrom, advanceFrom;	// the section each range or advance rule came from
 		for (uint i = 0; i < list.size(); ++i) {
 			for (uint k = 0; k < list[i]->keys.size(); ++k) {
 				const Key &kv = list[i]->keys[k];
@@ -293,21 +294,47 @@ public:
 						warn(kv.line, error);
 						continue;
 					}
+					// A spec already set (the same span, however spelled) is replaced: a qualified
+					// section is more specific than the base one, and a later line beats an earlier.
+					Common::Array<HiResRangeSpec> &specs = range ? s.rangeSpecs : s.advanceSpecs;
+					Common::Array<uint> &from = range ? rangeFrom : advanceFrom;
+					uint at = specs.size();
+					for (uint e = 0; e < specs.size(); ++e) {
+						if (specs[e].kind == spec.kind && (spec.kind != kHiResSpecSpan ||
+						    (specs[e].span.lo == spec.span.lo && specs[e].span.hi == spec.span.hi))) {
+							at = e;
+							break;
+						}
+					}
+					if (at < specs.size() && from[at] == i)
+						warn(kv.line, "'" + kv.key + "' repeats a range of this section; the later line wins");
 					if (range) {
 						HiResFontValue fv;
 						if (!parseValue(v, kv.line, fv))
 							continue;
-						s.rangeSpecs.push_back(spec);
-						s.rangeValues.push_back(fv);
+						if (at < specs.size())
+							s.rangeValues[at] = fv;
+						else
+							s.rangeValues.push_back(fv);
 					} else {
 						HiResAdvance a;
 						if (!parseAdvance(v, a)) {
 							warn(kv.line, "advance '" + v + "' is not font, game or cell");
 							continue;
 						}
-						s.advanceSpecs.push_back(spec);
-						s.advanceValues.push_back(a);
+						if (at < specs.size())
+							s.advanceValues[at] = a;
+						else
+							s.advanceValues.push_back(a);
 					}
+					if (at < specs.size())
+						specs[at] = spec;
+					else
+						specs.push_back(spec);
+					if (at < from.size())
+						from[at] = i;
+					else
+						from.push_back(i);
 				} else if (kv.key == "pixel" || kv.key == "origin" || kv.key.hasPrefix("origin.") || kv.key == "mirror") {
 					warn(kv.line, "'" + kv.key + "' was removed in map version 3; delete it");
 				} else {

@@ -33,6 +33,16 @@ class HiResTextIdPlanTestSuite : public CxxTest::TestSuite {
 		return m;
 	}
 
+	Graphics::HiResMap loadFor(const char *text, const char *engine, Graphics::HiResRenderTarget target) {
+		Common::MemoryReadStream s((const byte *)text, strlen(text));
+		Graphics::HiResMapQualifiers q;
+		q.engine = engine;
+		q.target = target;
+		Graphics::HiResMap m;
+		Graphics::HiResFontMap::load(s, "T.MAP", Common::Path("g"), q, m);
+		return m;
+	}
+
 	Common::String names(const Graphics::HiResFaceChain &c) {
 		Common::String s;
 		for (uint i = 0; i < c.faces.size(); ++i)
@@ -56,6 +66,57 @@ public:
 		TS_ASSERT_EQUALS(p300.shift, 1);
 		TS_ASSERT_EQUALS(p300.missing, 0x25A1u);
 		TS_ASSERT(w.empty());
+	}
+
+	// A range or advance rule of a qualified section replaces the base section's rule for the same span.
+	void test_qualifiedRangesOverride() {
+		const char *text = "[map]\nversion=3\n[fonts]\na=A.SVF\nb=B.SVF\nc=C.SVF\n"
+		                   "[font]\nface=a\nrange.hangul-syllables=b\nadvance.hangul-syllables=font\n"
+		                   "[font:sci]\nrange.hangul-syllables=c\nadvance.u+ac00-d7a3=cell\n";
+		Common::Array<Common::String> w;
+		Graphics::HiResMap m = loadFor(text, "sci", Graphics::kHiResTargetAuto);
+		Graphics::HiResIdPlan p = Graphics::compileIdPlan(m, 0, w);
+		TS_ASSERT_EQUALS(names(p.chains[p.chainFor(0xAC00)]), "c -");
+		TS_ASSERT_EQUALS(p.advanceFor(0xAC00), Graphics::kHiResAdvanceCell);
+		TS_ASSERT(m.warnings.empty());
+		m = loadFor(text, "scumm", Graphics::kHiResTargetAuto);	// the qualified section does not apply
+		p = Graphics::compileIdPlan(m, 0, w);
+		TS_ASSERT_EQUALS(names(p.chains[p.chainFor(0xAC00)]), "b -");
+		TS_ASSERT_EQUALS(p.advanceFor(0xAC00), Graphics::kHiResAdvanceFont);
+		// [font.N] and its qualified sections: the same rule.
+		m = loadFor("[map]\nversion=3\n[fonts]\na=A.SVF\nb=B.SVF\nc=C.SVF\n[font]\nface=a\n"
+		            "[font.1]\nrange.hangul-syllables=b\n[font.1:sci]\nrange.hangul-syllables=c\n", "sci", Graphics::kHiResTargetAuto);
+		p = Graphics::compileIdPlan(m, 1, w);
+		TS_ASSERT_EQUALS(names(p.chains[p.chainFor(0xAC00)]), "c -");
+	}
+
+	// Least to most specific: [S], [S:clut8|rgb], [S:engine], [S:engine:target].
+	void test_qualifierOrder() {
+		const char *text = "[map]\nversion=3\n[fonts]\na=A.SVF\nb=B.SVF\nc=C.SVF\nd=D.SVF\ne=E.SVF\n[font]\nface=a\n"
+		                   "range.hangul-syllables=b\n"
+		                   "[font:sci:clut8]\nrange.hangul-syllables=e\n"
+		                   "[font:sci]\nrange.hangul-syllables=d\n"
+		                   "[font:clut8]\nrange.hangul-syllables=c\n";
+		Common::Array<Common::String> w;
+		Graphics::HiResMap m = loadFor(text, "sci", Graphics::kHiResTargetClut8);
+		TS_ASSERT_EQUALS(names(Graphics::compileIdPlan(m, 0, w).chains[Graphics::compileIdPlan(m, 0, w).chainFor(0xAC00)]), "e -");
+		m = loadFor(text, "sci", Graphics::kHiResTargetRgb565);	// no :rgb section: [S:sci] over [S]
+		TS_ASSERT_EQUALS(names(Graphics::compileIdPlan(m, 0, w).chains[Graphics::compileIdPlan(m, 0, w).chainFor(0xAC00)]), "d -");
+		m = loadFor(text, "scumm", Graphics::kHiResTargetClut8);	// [S:clut8] over [S]
+		TS_ASSERT_EQUALS(names(Graphics::compileIdPlan(m, 0, w).chains[Graphics::compileIdPlan(m, 0, w).chainFor(0xAC00)]), "c -");
+		m = loadFor(text, "scumm", Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(names(Graphics::compileIdPlan(m, 0, w).chains[Graphics::compileIdPlan(m, 0, w).chainFor(0xAC00)]), "b -");
+	}
+
+	// Two rules for one span in one section: the later wins, with a warning (as scalars do).
+	void test_duplicateSpanInOneSection() {
+		const Graphics::HiResMap m = load("[map]\nversion=3\n[fonts]\na=A.SVF\nb=B.SVF\nc=C.SVF\n[font]\nface=a\n"
+		                                  "range.hangul-syllables=b\nrange.u+ac00-d7a3=c\nsize=16\nsize=20\n");
+		Common::Array<Common::String> w;
+		const Graphics::HiResIdPlan p = Graphics::compileIdPlan(m, 0, w);
+		TS_ASSERT_EQUALS(names(p.chains[p.chainFor(0xAC00)]), "c -");
+		TS_ASSERT_EQUALS(p.size, 20);
+		TS_ASSERT_EQUALS(m.warnings.size(), 1u);
 	}
 
 	void test_ranges() {

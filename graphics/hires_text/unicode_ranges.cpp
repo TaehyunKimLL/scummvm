@@ -172,9 +172,9 @@ inline bool spanCovers(const HiResSpan &span, uint32 lo, uint32 hi) {
 }
 
 /** The narrowest span of @p scope covering [lo, hi], if any. Ties (equal
- *  width) keep the first entry in the scope's order (section 6.2.1's
- *  "later line is ignored" is enforced by the loader before this point, so
- *  in practice ties do not occur from a map; here it just needs a rule). */
+ *  width) keep the first entry in the scope's order; the map loader keeps
+ *  one entry per span (a later or more specific rule replaces it), so ties
+ *  do not come from a map. */
 bool narrowestCovering(const HiResRangeScope &scope, uint32 lo, uint32 hi, int &value) {
 	bool found = false;
 	uint32 bestWidth = 0;
