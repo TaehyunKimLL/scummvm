@@ -8,6 +8,7 @@ MODULE_OBJS := \
 	metaengine.o \
 	sci.o \
 	textmode.o \
+	utf8.o \
 	util.o \
 	engine/features.o \
 	engine/file.o \

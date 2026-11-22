@@ -8,4 +8,5 @@ Base `d7f47c73a07`, N0 = 620 tests (verified, `~/work/tmp/scummvm2026-p3build`).
 |---|---|---|---|
 | 0 | (none) | 620 OK | base and interfaces checked; all 12 greps print; KQ1 data and pack zip present |
 | 1 | 6e7b0216a2e | | DISTS: Install the hi-res text fallback map and face |
-| 2 | see below | 626 OK (620+6) | red: `sci/textmode.h: No such file or directory`; the first SCI build in `$BLD` compiled libsci.a for the test runner |
+| 2 | c9b245f6873 | 626 OK | SCI: Add TextMode; red: `sci/textmode.h: No such file or directory` |
+| 3 | see below | 641 OK (620+21) | red: `sci/utf8.h: No such file or directory`; test file identical to jamo minus licence header |
