@@ -20,6 +20,9 @@ install-data:
 	$(INSTALL) -c -m 644 "$(srcdir)/dists/org.scummvm.scummvm.desktop" "$(DESTDIR)$(datarootdir)/applications/org.scummvm.scummvm.desktop"
 	$(INSTALL) -d "$(DESTDIR)$(datarootdir)/metainfo"
 	$(INSTALL) -c -m 644 "$(srcdir)/dists/org.scummvm.scummvm.metainfo.xml" "$(DESTDIR)$(datarootdir)/metainfo/org.scummvm.scummvm.metainfo.xml"
+	$(INSTALL) -d "$(DESTDIR)$(datadir)/hires_text/maps"
+	$(INSTALL) -c -m 644 $(DIST_FILES_HIRES_TEXT) "$(DESTDIR)$(datadir)/hires_text"
+	$(INSTALL) -c -m 644 $(DIST_FILES_HIRES_TEXT_MAPS) "$(DESTDIR)$(datadir)/hires_text/maps"
 ifneq ($(DIST_FILES_SHADERS),)
 	$(INSTALL) -d "$(DESTDIR)$(datadir)/shaders"
 	$(INSTALL) -c -m 644 $(DIST_FILES_SHADERS) "$(DESTDIR)$(datadir)/shaders"

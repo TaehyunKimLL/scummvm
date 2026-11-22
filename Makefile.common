@@ -438,6 +438,10 @@ DIST_FILES_ENGINEDATA_BASE_BIG:=$(DIST_FILES_LIST)
 DIST_FILES_ENGINEDATA:=$(addprefix $(srcdir)/,$(DIST_FILES_ENGINEDATA_BASE_CORE) $(DIST_FILES_ENGINEDATA_BASE))
 DIST_FILES_ENGINEDATA_BIG:=$(addprefix $(srcdir)/,$(DIST_FILES_ENGINEDATA_BASE_BIG))
 
+# Hi-res text (Korean fork): the engine's fallback map and its OFL face, installed into hires_text/ of the data folder
+DIST_FILES_HIRES_TEXT:=$(addprefix $(srcdir)/dists/engine-data/hires_text/,NEODG16A.SVF NEODGM.TXT)
+DIST_FILES_HIRES_TEXT_MAPS:=$(srcdir)/dists/engine-data/hires_text/maps/korean-default.map
+
 # Shaders: install if USE_OPENGL_SHADERS is defined
 DIST_FILES_SHADERS=
 ifneq ($(USE_OPENGL_SHADERS),)
