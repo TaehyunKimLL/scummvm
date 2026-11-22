@@ -134,10 +134,16 @@ long SvfFace::readCallback(void *ctx, uint32_t offset, uint8_t *dst, uint32_t le
 	Common::SeekableReadStream *stream = (Common::SeekableReadStream *)ctx;
 	if (len > 0x7FFFFFFF || !stream->seek(offset))
 		return -1;
-	const uint32 got = stream->read(dst, len);
-	if (stream->err()) {
-		stream->clearErr();
-		return -1;
+	uint32 got = 0;
+	while (got < len) {	// a stream may return fewer bytes than asked; the renderer takes only len
+		const uint32 n = stream->read(dst + got, len - got);
+		if (stream->err()) {
+			stream->clearErr();
+			return -1;
+		}
+		if (n == 0)
+			break;
+		got += n;
 	}
 	return (long)got;
 }

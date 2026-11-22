@@ -39,6 +39,17 @@ public:
 	bool fail;
 };
 
+// A memory stream that returns at most cap bytes per read, as a wrapping or decompressing stream may.
+class SvfShortStream : public Common::MemoryReadStream {
+public:
+	SvfShortStream(const byte *data, uint32 size, uint32 cap) : Common::MemoryReadStream(data, size), _cap(cap) {}
+	uint32 read(void *dataPtr, uint32 dataSize) override {
+		return Common::MemoryReadStream::read(dataPtr, MIN(dataSize, _cap));
+	}
+private:
+	uint32 _cap;
+};
+
 } // End of anonymous namespace
 
 class SvfFaceTestSuite : public CxxTest::TestSuite {
@@ -123,5 +134,14 @@ public:
 		stream.fail = true;
 		byte cell[64];
 		TS_ASSERT_EQUALS(svf_glyph(face.raw(), 'a', cell, sizeof(cell)), SVF_E_IO);
+	}
+
+	void test_streamShortReads() {
+		Graphics::SvfFace face;
+		TS_ASSERT(face.loadStreamed(new SvfShortStream(kSvfFixtureJamo, sizeof(kSvfFixtureJamo), 7), DisposeAfterUse::YES,
+		                            "short", 1024, 8));
+		TS_ASSERT_EQUALS(face.getStatus(), 0);
+		byte cell[64];
+		TS_ASSERT_EQUALS(svf_glyph(face.raw(), 0xD55C, cell, sizeof(cell)), SVF_OK);
 	}
 };
