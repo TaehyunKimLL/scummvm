@@ -95,5 +95,7 @@ public:
 		TS_ASSERT(files.locate(Graphics::HiResFontMap::resolveFace("data:../engine-data/hires_text/NEODG16A.SVF", Common::Path())).empty());
 		TS_ASSERT(!Graphics::HiResDiskFiles::isSafeDataPath(Common::Path("/etc/passwd")));
 		TS_ASSERT(Graphics::HiResDiskFiles::isSafeDataPath(Common::Path("hires_text/X.SVF")));
+		TS_ASSERT(!Graphics::HiResDiskFiles::isSafeDataPath(Common::Path("hires_text\\..\\..\\X.SVF", '/')));
+		TS_ASSERT(!Graphics::HiResDiskFiles::isSafeDataPath(Common::Path("hires_text/C:X.SVF", '/')));
 	}
 };

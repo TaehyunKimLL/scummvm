@@ -60,8 +60,8 @@ bool HiResDiskFiles::isSafeDataPath(const Common::Path &relative) {
 		return false;
 	const Common::StringArray parts = relative.splitComponents();
 	for (uint i = 0; i < parts.size(); ++i)
-		if (parts[i] == "..")
-			return false;
+		if (parts[i] == ".." || parts[i].contains('\\') || parts[i].contains(':'))
+			return false;	// a backslash or a colon is a separator or a drive on Windows
 	return true;
 }
 

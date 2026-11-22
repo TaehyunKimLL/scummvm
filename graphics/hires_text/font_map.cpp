@@ -336,6 +336,7 @@ private:
 };
 
 } // End of anonymous namespace
+
 const char *targetQualifier(HiResRenderTarget target) {
 	switch (target) {
 	case kHiResTargetClut8:
@@ -419,6 +420,7 @@ HiResFaceRef resolveFace(const Common::String &value, const Common::Path &mapDir
 	}
 	return ref;
 }
+
 bool load(Common::SeekableReadStream &stream, const Common::String &name, const Common::Path &mapDir,
           const HiResMapQualifiers &qualifiers, HiResMap &out) {
 	out.clear();
