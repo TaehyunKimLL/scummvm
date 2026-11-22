@@ -28,7 +28,6 @@ namespace Graphics {
 
 SvfFace::SvfFace() : _open(false), _error(SVF_E_ARG), _stream(nullptr), _disposeStream(DisposeAfterUse::NO) {
 	memset(&_face, 0, sizeof(_face));
-	assert(scummvm_svf_face_size == sizeof(svf_face));
 }
 
 SvfFace::~SvfFace() {
@@ -50,12 +49,16 @@ void SvfFace::close() {
 bool SvfFace::loadFromMemory(const byte *data, uint32 size, const Common::String &name) {
 	close();
 	_name = name;
+	if (isAbiMismatch())
+		return finishOpen(SVF_E_ARG);
 	return finishOpen(svf_open_mapped(&_face, data, size));
 }
 
 bool SvfFace::loadWhole(Common::SeekableReadStream &stream, const Common::String &name) {
 	close();
 	_name = name;
+	if (isAbiMismatch())
+		return finishOpen(SVF_E_ARG);
 	const int64 size = stream.size();
 	if (size <= 0 || size > kMaxWholeSize)
 		return finishOpen(size <= 0 ? SVF_E_IO : SVF_E_NOMEM);
@@ -73,6 +76,8 @@ bool SvfFace::loadStreamed(Common::SeekableReadStream *stream, DisposeAfterUse::
 		return finishOpen(SVF_E_ARG);
 	_stream = stream;
 	_disposeStream = dispose;
+	if (isAbiMismatch())
+		return finishOpen(SVF_E_ARG);
 	const int64 size = stream->size();
 	if (size <= 0 || size > (int64)0xFFFFFFFF)
 		return finishOpen(SVF_E_RANGE);
@@ -98,6 +103,14 @@ bool SvfFace::load(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dis
 		return ok;
 	}
 	return loadStreamed(stream, dispose, name);
+}
+
+bool SvfFace::isAbiMismatch() const {
+	if (scummvm_svf_face_size == sizeof(svf_face))
+		return false;
+	warning("SVF %s: the C renderer sees svf_face as %u bytes, the C++ code as %u: built with different SVF_* switches", _name.c_str(),
+	        (uint)scummvm_svf_face_size, (uint)sizeof(svf_face));
+	return true;
 }
 
 bool SvfFace::finishOpen(svf_err err) {

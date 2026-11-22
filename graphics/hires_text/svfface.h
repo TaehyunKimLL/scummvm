@@ -37,12 +37,7 @@ class SeekableReadStream;
 static_assert(SVF_JMAP == 1, "graphics/svf needs -DSVF_JMAP=1: re-run configure");
 static_assert(SVF_JSET_BIG == 1, "graphics/svf needs -DSVF_JSET_BIG=1: re-run configure");
 static_assert(SVF_JMAP_RECOG == 0, "graphics/svf needs -DSVF_JMAP_RECOG=0: re-run configure");
-#if defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__) || defined(_M_ARM64)
-static_assert(sizeof(svf_face) == 96, "svf_face is not the SVF_JMAP layout");
-#elif defined(__i386__) || defined(_M_IX86)
-static_assert(sizeof(svf_face) == 76, "svf_face is not the SVF_JMAP layout");
-#endif
-
+// The size of svf_face is checked at run time against the C side (svf_abi.c): see SvfFace::isAbiMismatch().
 extern "C" const size_t scummvm_svf_face_size;
 
 namespace Graphics {
@@ -101,6 +96,8 @@ public:
 
 private:
 	bool finishOpen(svf_err err);
+	/** True (with a warning) if the C and C++ units disagree on sizeof(svf_face); also in release builds. */
+	bool isAbiMismatch() const;
 	static long readCallback(void *ctx, uint32_t offset, uint8_t *dst, uint32_t len);
 
 	svf_face _face;
