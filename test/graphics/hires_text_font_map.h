@@ -197,5 +197,7 @@ public:
 		TS_ASSERT_EQUALS(r.key(), "game/ko/A.SVF");
 		TS_ASSERT_EQUALS(Graphics::HiResFontMap::resolveFace("/abs/B.SVF", Common::Path("game")).key(), "/abs/B.SVF");
 		TS_ASSERT_EQUALS(Graphics::HiResFontMap::resolveFace("C:\\fonts\\C.SVF", Common::Path("game")).path.toString('/'), "C:/fonts/C.SVF");
+		// a bare "C:" is a drive here as it is when a game's map is looked up (findGameMapFile): not under the map's folder.
+		TS_ASSERT_EQUALS(Graphics::HiResFontMap::resolveFace("C:", Common::Path("game")).key(), "C:");
 	}
 };

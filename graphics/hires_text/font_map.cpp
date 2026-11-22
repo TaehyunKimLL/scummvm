@@ -464,7 +464,7 @@ HiResFaceRef resolveFace(const Common::String &value, const Common::Path &mapDir
 	if (value.hasPrefix(kDataPrefix)) {
 		ref.data = true;
 		ref.path = Common::Path(value.c_str() + strlen(kDataPrefix), '/');
-	} else if (!value.empty() && (value[0] == '/' || value[0] == '\\' || (value.size() > 2 && value[1] == ':'))) {
+	} else if (!value.empty() && (value[0] == '/' || value[0] == '\\' || (value.size() > 1 && value[1] == ':'))) {
 		ref.path = Common::Path(value, value.contains('\\') ? '\\' : '/');
 	} else {
 		ref.path = mapDir.join(Common::Path(value, '/'));
