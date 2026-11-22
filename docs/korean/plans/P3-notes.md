@@ -13,4 +13,5 @@ Base `d7f47c73a07`, N0 = 620 tests (verified, `~/work/tmp/scummvm2026-p3build`).
 | 4 | f5fe0bd6b49 | 649 OK (620+29) | red: header missing; warnings of the mismatch cases not shown in the runner log (make test runs quietly) |
 | 5 | d929fe74d2d | 655 OK (620+35) | red: header missing |
 | 6 | 65eca6bfeaf | 662 OK (620+42) | red: header missing |
-| 7 | see below | 662 OK | mechanical widening; no red possible (a type change is covered only by compiling); scummvm links; per-file diffs identical to the prototype; SCI32 build checked at checkpoint A |
+| 7 | 3b78794feff | 662 OK | mechanical widening; no red possible (a type change is covered only by compiling); scummvm links; per-file diffs identical to the prototype; SCI32 build checked at checkpoint A |
+| 8 | see below | 666 OK (620+46) | red: `sci/graphics/hirestext.h: No such file or directory` |
