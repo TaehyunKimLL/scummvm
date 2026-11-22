@@ -67,12 +67,37 @@ bool SvfFace::loadWhole(Common::SeekableReadStream &stream, const Common::String
 
 bool SvfFace::loadStreamed(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose, const Common::String &name,
                            uint16 blockSize, uint16 slots) {
-	return finishOpen(SVF_E_ARG);
+	close();
+	_name = name;
+	if (!stream)
+		return finishOpen(SVF_E_ARG);
+	_stream = stream;
+	_disposeStream = dispose;
+	const int64 size = stream->size();
+	if (size <= 0 || size > (int64)0xFFFFFFFF)
+		return finishOpen(SVF_E_RANGE);
+
+	svf_err err = SVF_OK;
+	const size_t need = svf_stream_tables_size(readCallback, _stream, (uint32)size, &err);
+	if (need == 0)
+		return finishOpen(err != SVF_OK ? err : SVF_E_NOMEM);
+	_tables.resize(need);
+	if (slots >= 2)
+		_cache.resize((uint)slots * ((uint)blockSize + 8));
+	err = svf_open_stream(&_face, readCallback, _stream, (uint32)size, _tables.data(), _tables.size(),
+	                      _cache.empty() ? nullptr : _cache.data(), _cache.size(), blockSize);
+	return finishOpen(err);
 }
 
 bool SvfFace::load(Common::SeekableReadStream *stream, DisposeAfterUse::Flag dispose, const Common::String &name,
                    uint32 wholeLimit) {
-	return finishOpen(SVF_E_ARG);
+	if (stream && stream->size() > 0 && stream->size() <= (int64)wholeLimit) {
+		const bool ok = loadWhole(*stream, name);
+		if (dispose == DisposeAfterUse::YES)
+			delete stream;
+		return ok;
+	}
+	return loadStreamed(stream, dispose, name);
 }
 
 bool SvfFace::finishOpen(svf_err err) {
@@ -90,6 +115,18 @@ bool SvfFace::finishOpen(svf_err err) {
 	if (status & (SVF_FACE_JSET_BAD | SVF_FACE_JSET_UNREAD | SVF_FACE_JMAP_BAD | SVF_FACE_JMAP_UNREAD))
 		warning("SVF %s: its jamo block is not read (status 0x%04x): Hangul syllables are not composed", _name.c_str(), status);
 	return true;
+}
+
+long SvfFace::readCallback(void *ctx, uint32_t offset, uint8_t *dst, uint32_t len) {
+	Common::SeekableReadStream *stream = (Common::SeekableReadStream *)ctx;
+	if (len > 0x7FFFFFFF || !stream->seek(offset))
+		return -1;
+	const uint32 got = stream->read(dst, len);
+	if (stream->err()) {
+		stream->clearErr();
+		return -1;
+	}
+	return (long)got;
 }
 
 } // End of namespace Graphics

@@ -27,6 +27,20 @@
 
 #include "test/graphics/svf_fixture.h"
 
+namespace {
+
+// A memory stream whose reads fail once fail is set.
+class SvfFlakyStream : public Common::MemoryReadStream {
+public:
+	SvfFlakyStream(const byte *data, uint32 size) : Common::MemoryReadStream(data, size), fail(false) {}
+	uint32 read(void *dataPtr, uint32 dataSize) override {
+		return fail ? 0 : Common::MemoryReadStream::read(dataPtr, dataSize);
+	}
+	bool fail;
+};
+
+} // End of anonymous namespace
+
 class SvfFaceTestSuite : public CxxTest::TestSuite {
 public:
 	void test_abi() {
@@ -82,5 +96,32 @@ public:
 		TS_ASSERT(face.loadWhole(stream, "jamo"));
 		TS_ASSERT_EQUALS(face.getStatus(), 0);
 		TS_ASSERT(!face.isStreamed());
+	}
+
+	void test_loadStreamed() {
+		Graphics::SvfFace face;
+		TS_ASSERT(face.loadStreamed(new Common::MemoryReadStream(kSvfFixtureJamo, sizeof(kSvfFixtureJamo)),
+		                            DisposeAfterUse::YES, "jamo", 1024, 8));
+		TS_ASSERT(face.isStreamed());
+		TS_ASSERT_EQUALS(face.getStatus(), 0);
+		TS_ASSERT(face.isJamo());
+		TS_ASSERT(face.getStreamReads() > 0);
+	}
+
+	void test_loadPicksMappedOrStreamed() {
+		Graphics::SvfFace small, big;
+		TS_ASSERT(small.load(new Common::MemoryReadStream(kSvfFixtureJamo, sizeof(kSvfFixtureJamo)), DisposeAfterUse::YES, "a"));
+		TS_ASSERT(!small.isStreamed());
+		TS_ASSERT(big.load(new Common::MemoryReadStream(kSvfFixtureJamo, sizeof(kSvfFixtureJamo)), DisposeAfterUse::YES, "b", 4096));
+		TS_ASSERT(big.isStreamed());
+	}
+
+	void test_streamReadFailure() {
+		SvfFlakyStream stream(kSvfFixtureJamo, sizeof(kSvfFixtureJamo));
+		Graphics::SvfFace face;
+		TS_ASSERT(face.loadStreamed(&stream, DisposeAfterUse::NO, "flaky", 1024, 0));
+		stream.fail = true;
+		byte cell[64];
+		TS_ASSERT_EQUALS(svf_glyph(face.raw(), 'a', cell, sizeof(cell)), SVF_E_IO);
 	}
 };
