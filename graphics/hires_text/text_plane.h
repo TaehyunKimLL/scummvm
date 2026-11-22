@@ -56,11 +56,12 @@ public:
 
 	/** No pixel holds text. */
 	bool isEmpty() const { return _coverage.bandsHeld() == 0; }
-	/** Whether row @p y may hold text (false: it holds none). */
-	bool rowHasText(int y) const { return _coverage.rowHeld(y); }
+	/** Whether row @p y may hold text (false: it holds none, or it is outside the plane). */
+	bool rowHasText(int y) const { return inside(0, y) && _coverage.rowHeld(y); }
 
-	byte getIndex(int x, int y) const { return _index.get(x, y); }
-	byte getCoverage(int x, int y) const { return _coverage.get(x, y); }
+	/** Both are 0 outside the plane. */
+	byte getIndex(int x, int y) const { return inside(x, y) ? _index.get(x, y) : 0; }
+	byte getCoverage(int x, int y) const { return inside(x, y) ? _coverage.get(x, y) : 0; }
 
 	/**
 	 * Text of colour @p index and coverage @p coverage at (@p x, @p y),
@@ -98,6 +99,7 @@ public:
 	uint32 getBytesHeld() const { return _index.bytesHeld() + _coverage.bytesHeld(); }
 
 private:
+	bool inside(int x, int y) const { return x >= 0 && y >= 0 && x < getWidth() && y < getHeight(); }
 	bool covers(const Common::Rect &r) const;
 
 	int _scale;

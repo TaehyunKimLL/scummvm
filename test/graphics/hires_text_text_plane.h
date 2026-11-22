@@ -43,6 +43,16 @@ public:
 		TS_ASSERT_EQUALS(p.getIndex(10, 20), 0);
 		// One 16-row band of 640 4-bit coverage pixels; index 0 holds no index band.
 		TS_ASSERT_EQUALS(p.getBytesHeld(), 16u * 320);
+
+		// Reads outside the plane (or of a plane that was never created) are no text, not a stray read.
+		Graphics::TextPlane q;
+		TS_ASSERT(!q.rowHasText(0));
+		TS_ASSERT_EQUALS(q.getCoverage(0, 0), 0);
+		TS_ASSERT(!p.rowHasText(-1));
+		TS_ASSERT(!p.rowHasText(400));
+		TS_ASSERT_EQUALS(p.getCoverage(-1, 20), 0);
+		TS_ASSERT_EQUALS(p.getCoverage(640, 20), 0);
+		TS_ASSERT_EQUALS(p.getIndex(10, 400), 0);
 	}
 
 	void test_plotRule() {
