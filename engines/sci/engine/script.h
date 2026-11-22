@@ -289,6 +289,8 @@ public:
 	 * Get the offset array
 	 */
 	const offsetLookupArrayType *getOffsetArray() { return &_offsetLookupArray; };
+	/** The id identifyOffsets() gave the string that holds byte @p offset; 0 when no string does. */
+	uint16 stringIdAtOffset(uint32 offset) const;
 	uint16 getOffsetObjectCount() { return _offsetLookupObjectCount; };
 	uint16 getOffsetStringCount() { return _offsetLookupStringCount; };
 	uint16 getOffsetSaidCount() { return _offsetLookupSaidCount; };

@@ -58,6 +58,7 @@ static const DebugChannelDef debugFlagList[] = {
 	{Sci::kDebugLevelWorkarounds, "Workarounds", "Notifies when workarounds are triggered"},
 	{Sci::kDebugLevelVideo, "Video", "Video (SEQ, VMD, RBT) debugging"},
 	{Sci::kDebugLevelGame, "Game", "Debug calls from game scripts"},
+	{Sci::kDebugLevelKorean, "Korean", "Korean text, input and parser"},
 	{Sci::kDebugLevelGC, "GC", "Garbage Collector debugging"},
 	{Sci::kDebugLevelResMan, "ResMan", "Resource manager debugging"},
 	{Sci::kDebugLevelOnStartup, "OnStartup", "Enter debugger at start of game"},

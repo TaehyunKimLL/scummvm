@@ -26,9 +26,12 @@
 #include "common/macresman.h"
 #include "common/util.h"
 #include "common/random.h"
+#include "common/fs.h"
 #include "sci/engine/vm_types.h"	// for Selector
 #include "sci/debug.h"	// for DebugState
 #include "sci/detection.h" // Shared code between detection and engine
+#include "sci/textmode.h"
+#include "sci/engine/script_strings.h"
 
 struct ADGameDescription;
 
@@ -76,6 +79,7 @@ class GfxRemap;
 class GfxRemap32;
 class GfxPorts;
 class GfxScreen;
+class SciHiResText;
 class GfxText16;
 class GfxText32;
 class GfxTransitions;
@@ -117,6 +121,13 @@ enum kDebugLevels {
 	kDebugLevelWorkarounds,
 	kDebugLevelVideo,
 	kDebugLevelGame,
+	kDebugLevelKorean,
+};
+
+/** Keymapper actions of the engine. */
+enum SciAction {
+	kSciActionNone = 0,
+	kSciActionHangulToggle ///< Han/Yeong: the built-in Hangul composer on or off
 };
 
 
@@ -279,10 +290,26 @@ public:
 	 *						If nullptr is passed then no subtitle will be added to the returned string.
 	 * @return				The processed string.
 	 */
-	Common::String strSplitLanguage(const char *str, uint16 *splitLanguage, const char *sep);
+	Common::String strSplitLanguage(const char *str, uint16 *splitLanguage, const char *sep,
+	                                const ScriptStrings::Key &key = ScriptStrings::Key());
 	Common::String strSplit(const char *str, const char *sep) {
 		return strSplitLanguage(str, NULL, sep);
 	}
+
+	/** The header line a translation of this game carries (DESIGN.md section 4); vocab= for a word table. */
+	Common::TranslationFileHeader translationHeader(bool withVocab) const;
+	/** How text is held and drawn (DESIGN.md section 3); decided in the constructor. */
+	const TextMode &getTextMode() const { return _textMode; }
+	/** The script string table (sci-<code>.str) of a TextMode::kUtf8 game. */
+	ScriptStrings &scriptStrings() { return _scriptStrings; }
+	/** The hi-res text of a TextMode::kUtf8 game; nullptr without. */
+	SciHiResText *getHiResText() const { return _hiresText; }
+	/** @p str, or its translation when @p key has one. */
+	Common::String translated(const Common::String &str, const ScriptStrings::Key &key) const;
+	/** The key of the heap string @p ptr (holding @p str): a script string's, or a tagged buffer's. */
+	ScriptStrings::Key keyOf(reg_t ptr, const Common::String &str) const;
+	/** strSplitLanguage() of the heap string @p ptr, translated. */
+	Common::String strSplitHeap(reg_t ptr, const Common::String &str, uint16 *splitLanguage, const char *sep);
 
 	kLanguage getSciLanguage();
 	void setSciLanguage(kLanguage lang);
@@ -407,6 +434,11 @@ private:
 	const ADGameDescription *_gameDescription;
 	const SciGameId _gameId;
 	ResourceManager *_resMan; /**< The resource manager */
+	TextMode _textMode;
+	Common::String _textModeNotes;
+	TextModeInputs textModeInputs(const Common::FSNode &gameDataDir, SciVersion version) const;
+	ScriptStrings _scriptStrings;
+	SciHiResText *_hiresText;
 	ScriptPatcher *_scriptPatcher; /**< The script patcher */
 	EngineState *_gamestate;
 	Kernel *_kernel;

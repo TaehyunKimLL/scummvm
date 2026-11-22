@@ -358,7 +358,29 @@ void SciEngine::setSciLanguage() {
 	setSciLanguage(getSciLanguage());
 }
 
-Common::String SciEngine::strSplitLanguage(const char *str, uint16 *languageSplitter, const char *sep) {
+Common::String SciEngine::translated(const Common::String &str, const ScriptStrings::Key &key) const {
+	Common::String t;
+	return _scriptStrings.lookup(key, t) ? t : str;
+}
+
+ScriptStrings::Key SciEngine::keyOf(reg_t ptr, const Common::String &str) const {
+	if (!_scriptStrings.isLoaded())
+		return ScriptStrings::Key();
+	ScriptStrings::Key key = _gamestate->_segMan->stringKey(ptr);
+	if (!key.isSet())
+		key = _scriptStrings.keyOf(ScriptStrings::bufferId(ptr.getSegment(), ptr.getOffset()), str);
+	return key;
+}
+
+Common::String SciEngine::strSplitHeap(reg_t ptr, const Common::String &str, uint16 *languageSplitter, const char *sep) {
+	return strSplitLanguage(str.c_str(), languageSplitter, sep, keyOf(ptr, str));
+}
+
+Common::String SciEngine::strSplitLanguage(const char *str, uint16 *languageSplitter, const char *sep,
+                                           const ScriptStrings::Key &key) {
+	Common::String t;
+	if (_scriptStrings.lookup(key, t))
+		return t;
 	kLanguage activeLanguage = getSciLanguage();
 	kLanguage subtitleLanguage = K_LANG_NONE;
 

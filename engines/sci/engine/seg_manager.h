@@ -28,6 +28,7 @@
 #include "sci/engine/vm.h"
 #include "sci/engine/vm_types.h"
 #include "sci/engine/segment.h"
+#include "sci/engine/script_strings.h"
 #ifdef ENABLE_SCI32
 #include "sci/graphics/celobj32.h" // kLowResX, kLowResY
 #endif
@@ -307,6 +308,9 @@ public:
 	 * entries were available.
 	 */
 	Common::String getString(reg_t pointer);
+
+	/** Where the string at @p pointer lives in a script, as a ScriptStrings key; unset for anything else. */
+	ScriptStrings::Key stringKey(reg_t pointer) const;
 
 
 	/**

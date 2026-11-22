@@ -21,6 +21,7 @@
 
 #include "sci/sci.h"
 #include "sci/engine/seg_manager.h"
+#include "sci/utf8.h"
 #include "sci/engine/state.h"
 #include "sci/engine/script.h"
 #ifdef ENABLE_SCI32
@@ -698,6 +699,23 @@ void SegManager::strncpy(reg_t dest, const char* src, size_t n) {
 		return;
 	}
 
+	Common::String cut;
+	if (g_sci && g_sci->getTextMode().utf8() && dest_r.maxSize > 0 && Common::strnlen(src, n) >= (size_t)dest_r.maxSize) {
+		// A translation longer than the English buffer: cut it on a code
+		// point boundary instead of writing past the buffer.
+		uint32 end = 0;
+		while (end < (uint32)dest_r.maxSize - 1) {
+			int bytes;
+			decodeUtf8Char((const byte *)src + end, bytes);
+			if (end + bytes > (uint32)dest_r.maxSize - 1)
+				break;
+			end += bytes;
+		}
+		warning("SegManager::strncpy: \"%s\" cut to %u bytes", src, end);
+		cut = Common::String(src, end);
+		src = cut.c_str();
+		n = end + 1;
+	}
 
 	if (dest_r.isRaw) {
 		forwardCopy<true>(dest_r.raw, (const byte *)src, n);
@@ -872,6 +890,18 @@ size_t SegManager::strlen(reg_t str) {
 	}
 }
 
+
+ScriptStrings::Key SegManager::stringKey(reg_t pointer) const {
+	if (pointer.isNull())
+		return ScriptStrings::Key();
+	const Script *script = getScriptIfLoaded(pointer.getSegment());
+	if (!script)
+		return ScriptStrings::Key();
+	const uint16 id = script->stringIdAtOffset(pointer.getOffset());
+	if (!id)
+		return ScriptStrings::Key();
+	return ScriptStrings::Key((uint16)script->getScriptNumber(), id);
+}
 
 Common::String SegManager::getString(reg_t pointer) {
 	Common::String ret;

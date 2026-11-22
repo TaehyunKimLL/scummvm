@@ -23,6 +23,10 @@
 #include "common/config-manager.h"
 #include "common/debug-channels.h"
 #include "common/translation.h"
+#include "common/fs.h"
+#include "common/language_folder.h"
+#include "common/md5.h"
+#include "common/memstream.h"
 
 #include "engines/advancedDetector.h"
 #include "engines/util.h"
@@ -65,6 +69,8 @@
 #include "sci/graphics/palette16.h"
 #include "sci/graphics/remap.h"
 #include "sci/graphics/screen.h"
+#include "sci/graphics/hirestext.h"
+#include "graphics/hires_text/hires_options.h"
 #include "sci/graphics/text16.h"
 #include "sci/graphics/transitions.h"
 
@@ -126,6 +132,7 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	_gameDescription(desc),
 	_gameId(gameId),
 	_resMan(nullptr),
+	_hiresText(nullptr),
 	_scriptPatcher(nullptr),
 	_gamestate(nullptr),
 	_kernel(nullptr),
@@ -215,6 +222,70 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	default:
 		break;
 	}
+
+	// The fork's translations (DESIGN.md sections 3, 4): the language folder
+	// (ko/) goes before the game folder, so its message.map, patches and
+	// tables win.
+	_textMode = decideTextMode(textModeInputs(gameDataDir, SCI_VERSION_NONE), _textModeNotes);
+	if (_textMode.utf8())
+		SearchMan.addSubDirectoryMatching(gameDataDir, Common::getLanguageFolderCode(_textMode.language), 1);
+}
+
+TextModeInputs SciEngine::textModeInputs(const Common::FSNode &gameDataDir, SciVersion version) const {
+	TextModeInputs in;
+	in.detected = _gameDescription->language;
+	if (ConfMan.hasKey("language"))
+		in.requested = Common::parseLanguage(ConfMan.get("language"));
+	in.koreanText = !ConfMan.hasKey("korean_text") || ConfMan.getBool("korean_text");
+	if (ConfMan.hasKey("text_encoding"))
+		in.textEncoding = ConfMan.get("text_encoding");
+	Common::FSList files;
+	if (in.requested != Common::UNK_LANG && gameDataDir.getChildren(files, Common::FSNode::kListAll)) {
+		const Common::Array<Common::Language> langs = Common::translationFolderLanguages(files, "sci-%s.str");
+		for (uint i = 0; i < langs.size(); ++i)
+			in.translationFolder = in.translationFolder || langs[i] == in.requested;
+		const Common::String table = Common::translationTableName("sci-%s.str", in.requested);
+		const Common::FSNode folder = gameDataDir.getChild(Common::getLanguageFolderCode(in.requested));
+		in.stringTable = gameDataDir.getChild(table).exists() || (folder.isDirectory() && folder.getChild(table).exists());
+	}
+	in.hiresText = !ConfMan.hasKey("hires_text") || ConfMan.getBool("hires_text");
+	in.version = version;
+	return in;
+}
+
+static void appendResource(ResourceManager *resMan, const ResourceId &id, Common::Array<byte> &out) {
+	Resource *res = resMan->findResource(id, false);
+	if (!res)
+		return;
+	const byte *data = res->getUnsafeDataAt(0, res->size());
+	for (uint32 i = 0; i < res->size(); ++i)
+		out.push_back(data[i]);
+}
+
+static Common::String md5Of(const Common::Array<byte> &bytes) {
+	Common::MemoryReadStream s(bytes.data(), bytes.size());
+	return Common::computeStreamMD5AsString(s);
+}
+
+Common::TranslationFileHeader SciEngine::translationHeader(bool withVocab) const {
+	// DESIGN.md section 4: the md5 of what the keys depend on, script 0
+	// followed by the main vocabulary (vocab.000, else vocab.900) when the
+	// game has one; vocab= is the md5 of that vocabulary alone.
+	Common::TranslationFileHeader h;
+	h.format = 1;
+	h.game = _gameDescription->gameId;
+	h.engine = "sci";
+	Common::Array<byte> script, vocab;
+	appendResource(_resMan, ResourceId(kResourceTypeScript, 0), script);
+	appendResource(_resMan, ResourceId(kResourceTypeVocab, 0), vocab);
+	if (vocab.empty())
+		appendResource(_resMan, ResourceId(kResourceTypeVocab, 900), vocab);
+	Common::Array<byte> both(script);
+	both.insert_at(both.size(), vocab);
+	h.fingerprint = md5Of(both);
+	if (withVocab && !vocab.empty())
+		h.vocab = md5Of(vocab);
+	return h;
 }
 
 SciEngine::~SciEngine() {
@@ -247,6 +318,7 @@ SciEngine::~SciEngine() {
 	delete _gfxRemap16;
 	delete _gfxCursor;
 	delete _gfxScreen;
+	delete _hiresText;
 
 	delete _audio;
 	delete _sync;
@@ -297,6 +369,16 @@ Common::Error SciEngine::run() {
 	_scriptPatcher = new ScriptPatcher();
 	SegManager *segMan = new SegManager(_resMan, _scriptPatcher);
 
+	if (_textMode.utf8()) {
+		_textMode = decideTextMode(textModeInputs(Common::FSNode(ConfMan.getPath("path")), getSciVersion()), _textModeNotes);
+		if (!_textModeNotes.empty())
+			debugC(1, kDebugLevelKorean, "Text mode: %s", _textModeNotes.c_str());
+		const Common::TranslationFileHeader expected = translationHeader(false);
+		const Common::String code = Common::getLanguageFolderCode(_textMode.language);
+		if (_scriptStrings.load(code, expected) && !_scriptStrings.getHeader().present())
+			warning("This game's sci-%s.str header line is: %s", code.c_str(), expected.toString().c_str());
+	}
+
 	// Load the Mac executable and fonts if available
 	if (getSciVersion() < SCI_VERSION_2 && getPlatform() == Common::kPlatformMacintosh) {
 		loadMacExecutable();
@@ -333,6 +415,19 @@ Common::Error SciEngine::run() {
 		// if undithering is selected.
 		if (renderMode != Common::kRenderDefault)
 			undither = false;
+
+		if (_textMode.hires) {
+			_hiresText = new SciHiResText();
+			Common::Array<Common::String> notes;
+			const uint32 offered = Graphics::hiResTargetsOffered(g_system->getSupportedFormats());
+			if (!_hiresText->setup(Common::Path(ConfMan.getPath("path")), Common::getLanguageFolderCode(_textMode.language),
+			                       offered, notes)) {
+				delete _hiresText;
+				_hiresText = nullptr;
+			}
+			for (uint i = 0; i < notes.size(); ++i)
+				debugC(1, kDebugLevelKorean, "Hi-res text: %s", notes[i].c_str());
+		}
 
 		// Initialize the game screen
 		_gfxScreen = new GfxScreen(_resMan, renderMode);
@@ -832,7 +927,7 @@ const char *SciEngine::getGameIdStr() const {
 }
 
 Common::Language SciEngine::getLanguage() const {
-	return _gameDescription->language;
+	return _textMode.language;
 }
 
 bool SciEngine::isLanguageRTL() const {
