@@ -1,0 +1,14 @@
+svf-fonts-open C renderer (SVFN v3), vendored by tools/korean/sync-svf.sh
+url: https://github.com/TaehyunKimLL/svf-fonts-open.git
+commit: 3d40de8d940f50ed4a28dfc1851fa776a62f42e5
+date: 2026-11-22T07:14:25+00:00
+build: configure adds -DSVF_JMAP=1 -DSVF_JSET_BIG=1 -DSVF_JMAP_RECOG=0 to DEFINES
+files (sha256, name):
+c585d3c569d49bb8ec0f3f3819f02437e0c10cfaa257ca0cc06aaa2e7d96be50  svf.h
+f1e4d6de79e71147948c1a56dc1486eb023ca752676644f2586b55038d6d7b08  svf_internal.h
+e31e3f9d2efe987072d47744c788addc421d0373dca7d67a6187295eaaf1072d  svf_draw.c
+ca70cf607ce8c55e6ba52abce523f63749e31559cddbfbe5ee91fa5e0e1768e1  svf_face.c
+32aec862fd3ae9b8fa815df7791ce81a41af48a3c5b56a5cc6d8a167a0c60f44  svf_jamo.c
+f736474ffef5686300bc675a76e7bb8be659675c1f9cdb132a054767f9efd45d  svf_scale.c
+32859c95b27c0d3700c39ba7db099f16bc47463c17a0b960cd554e976fabfd56  svf_stream.c
+c89d8c11b8c72fc0f3a602f6480dec000f666d38cf8a132f4c5b46aad28d340c  LICENSE
