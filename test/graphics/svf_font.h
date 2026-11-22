@@ -78,7 +78,7 @@ public:
 		Graphics::SvfFont font(SvfTest::makeChain(), DisposeAfterUse::YES);
 		TS_ASSERT_EQUALS(font.getFontAscent(), 13);	// marks face: ascent 13 of 16
 		TS_ASSERT_EQUALS(font.getFontDescent(), 4);	// jamo face: 16 - 12
-		TS_ASSERT_EQUALS(font.getFontHeight(), 17);
+		TS_ASSERT_EQUALS(font.getFontHeight(), 16);	// the cell height; ascent + descent would be 17
 		TS_ASSERT_EQUALS(font.getMaxCharWidth(), 16);
 		TS_ASSERT_EQUALS(font.getCharWidth(0xD55C), 16);
 		TS_ASSERT_EQUALS(font.getCharWidth('a'), 8);
@@ -91,6 +91,7 @@ public:
 	void test_scaledMetrics() {
 		Graphics::SvfFont font(SvfTest::makeChain(3, 2), DisposeAfterUse::YES);
 		TS_ASSERT_EQUALS(font.getFontAscent(), 20);
+		TS_ASSERT_EQUALS(font.getFontHeight(), 24);
 		TS_ASSERT_EQUALS(font.getCharWidth(0xD55C), 24);
 	}
 

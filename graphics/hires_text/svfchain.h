@@ -61,6 +61,7 @@ public:
 	int getAscent() const;
 	/** Rows below the baseline: the largest scaled cell height minus scaled ascent. */
 	int getDescent() const;
+	int getCellHeight() const;	// largest scaled cell height of the faces
 	int getMaxCellWidth() const;
 	bool has(uint32 cp) const;
 

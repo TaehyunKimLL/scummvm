@@ -129,6 +129,13 @@ int SvfChain::getDescent() const {
 	return descent;
 }
 
+int SvfChain::getCellHeight() const {
+	int h = 0;
+	for (uint i = 0; i < _faces.size(); ++i)
+		h = MAX(h, scaleDimension(_faces[i]->getCellHeight(), getScaleNum(), getScaleDen()));
+	return h;
+}
+
 int SvfChain::getMaxCellWidth() const {
 	int w = scaleLength(_chain.missing_advance, getScaleNum(), getScaleDen());
 	for (uint i = 0; i < _faces.size(); ++i)

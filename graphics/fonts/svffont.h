@@ -40,6 +40,7 @@ public:
 	SvfFont(SvfChain *chain, DisposeAfterUse::Flag dispose);
 	~SvfFont() override;
 
+	/** The largest scaled cell height of the chain's faces (DESIGN 5.2), not ascent + descent: with faces of different ascents that sum is taller than any cell. */
 	int getFontHeight() const override;
 	Common::String getFontName() const override;
 	int getFontAscent() const override;

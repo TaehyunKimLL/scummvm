@@ -83,7 +83,7 @@ SvfFont::~SvfFont() {
 }
 
 int SvfFont::getFontHeight() const {
-	return _chain->getAscent() + _chain->getDescent();
+	return _chain->getCellHeight();
 }
 
 Common::String SvfFont::getFontName() const {
