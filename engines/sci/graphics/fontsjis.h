@@ -40,9 +40,9 @@ public:
 
 	GuiResourceId getResourceId() override;
 	byte getHeight() override;
-	bool isDoubleByte(uint16 chr) override;
-	byte getCharWidth(uint16 chr) override;
-	void draw(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput) override;
+	bool isDoubleByte(uint32 chr) override;
+	byte getCharWidth(uint32 chr) override;
+	void draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) override;
 
 private:
 	GfxScreen *_screen;

@@ -12,4 +12,5 @@ Base `d7f47c73a07`, N0 = 620 tests (verified, `~/work/tmp/scummvm2026-p3build`).
 | 3 | 10cd7d8c7e9 | 641 OK (620+21) | red: `sci/utf8.h: No such file or directory`; test file identical to jamo minus licence header |
 | 4 | f5fe0bd6b49 | 649 OK (620+29) | red: header missing; warnings of the mismatch cases not shown in the runner log (make test runs quietly) |
 | 5 | d929fe74d2d | 655 OK (620+35) | red: header missing |
-| 6 | see below | 662 OK (620+42) | red: header missing |
+| 6 | 65eca6bfeaf | 662 OK (620+42) | red: header missing |
+| 7 | see below | 662 OK | mechanical widening; no red possible (a type change is covered only by compiling); scummvm links; per-file diffs identical to the prototype; SCI32 build checked at checkpoint A |

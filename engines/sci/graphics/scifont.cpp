@@ -261,15 +261,15 @@ uint8 GfxFontFromResource::getHeight() {
 	return _fontHeight;
 }
 
-uint8 GfxFontFromResource::getCharWidth(uint16 chr) {
+uint8 GfxFontFromResource::getCharWidth(uint32 chr) {
 	return chr < _numChars ? _chars[chr].width : 0;
 }
 
-uint8 GfxFontFromResource::getCharHeight(uint16 chr) {
+uint8 GfxFontFromResource::getCharHeight(uint32 chr) {
 	return chr < _numChars ? _chars[chr].height : 0;
 }
 
-SciSpan<const byte> GfxFontFromResource::getCharData(uint16 chr) {
+SciSpan<const byte> GfxFontFromResource::getCharData(uint32 chr) {
 	if (chr >= _numChars) {
 		return SciSpan<const byte>();
 	}
@@ -279,7 +279,7 @@ SciSpan<const byte> GfxFontFromResource::getCharData(uint16 chr) {
 	return _resourceData.subspan(_chars[chr].offset + 2, charDataSize);
 }
 
-void GfxFontFromResource::draw(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput) {
+void GfxFontFromResource::draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput) {
 	if (chr >= _numChars) {
 		// SSCI silently ignores attempts to draw characters that do not exist
 		// in the font; for now, emit warnings if this happens, to learn if
@@ -320,7 +320,7 @@ void GfxFontFromResource::draw(uint16 chr, int16 top, int16 left, byte color, bo
 }
 
 #ifdef ENABLE_SCI32
-void GfxFontFromResource::drawToBuffer(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 bufWidth, int16 bufHeight) {
+void GfxFontFromResource::drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 bufWidth, int16 bufHeight) {
 	if (chr >= _numChars) {
 		// SSCI silently ignores attempts to draw characters that do not exist
 		// in the font; for now, emit warnings if this happens, to learn if

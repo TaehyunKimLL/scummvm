@@ -40,12 +40,12 @@ public:
 
 	GuiResourceId getResourceId();
 	byte getHeight();
-	bool isDoubleByte(uint16 chr);
-	byte getCharWidth(uint16 chr);
-	void draw(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput);
+	bool isDoubleByte(uint32 chr);
+	byte getCharWidth(uint32 chr);
+	void draw(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput);
 #ifdef ENABLE_SCI32
 	// SCI2/2.1 equivalent
-	void drawToBuffer(uint16 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 width, int16 height);
+	void drawToBuffer(uint32 chr, int16 top, int16 left, byte color, bool greyedOutput, byte *buffer, int16 width, int16 height);
 #endif
 
 private:
