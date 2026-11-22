@@ -1,0 +1,14 @@
+#KOREAN-VOCAB 2 (UTF-8 master of a Korean parser word table, sci-ko.dat / agi-ko.dat; trs_master.py)
+@magic SCIKOR
+# A tiny table for test/korean_vocab_golden.h (tools/korean/k6bake.py golden).
+@class 12 0x0800 key
+@class 20 0x0080 get
+@class 30 0x0080 look
+@class 83 0x0800 door
+@class 166 0x0800 doorway
+@class 169 0x0010 in
+열쇠	12	key
+집다	20	get
+들여다봐	30+169	look + in
+문	83,166	door; doorway
+가방	12	key
