@@ -14,4 +14,12 @@ Base `d7f47c73a07`, N0 = 620 tests (verified, `~/work/tmp/scummvm2026-p3build`).
 | 5 | d929fe74d2d | 655 OK (620+35) | red: header missing |
 | 6 | 65eca6bfeaf | 662 OK (620+42) | red: header missing |
 | 7 | 3b78794feff | 662 OK | mechanical widening; no red possible (a type change is covered only by compiling); scummvm links; per-file diffs identical to the prototype; SCI32 build checked at checkpoint A |
-| 8 | see below | 666 OK (620+46) | red: `sci/graphics/hirestext.h: No such file or directory` |
+| 8 | 0bf314e250d | 666 OK (620+46) | red: `sci/graphics/hirestext.h: No such file or directory` |
+
+## Review checkpoint A (after Task 8)
+
+- `$BLD` `make test`: 666 OK. ASan build (`~/work/tmp/scummvm2026-p3asan`): 666 OK, 0 sanitizer lines.
+- No-engine build (`~/work/tmp/scummvm2026-p2verify`): 620 OK (the SCI suites are not compiled). SCI32 build (`~/work/tmp/scummvm2026-p3sci32`, `--enable-engine=sci,sci32`): `scummvm` links, no warning.
+- `sync-svf.sh --check` rc 0, `mkgolden.py --check` rc 0, `test_k6bake.py` OK.
+- `git diff --stat d7f47c73a07..`: only new engine/test files, the six font files, `util.h`, `module.mk`s, `Makefile.common`, `ports.mk`, the map, notes.
+- Self-read: `loadFromStream` returns false on a bad header before any entry is kept; `writeRun` keeps `cursor` inside `text` (the head/tail are cut from a text `adopt()` has verified is the one the line wrote); `GfxFontHiRes` widths round up; the `SciHiResText` destructor deletes the sets before the face cache. No finding, no fix commit.
