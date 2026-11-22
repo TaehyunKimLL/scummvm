@@ -85,3 +85,15 @@ same
 The first sha256 line is the `translations.tsv` column 5 of the KQ1 row; `harness-check` reads all nine masters. The five
 `k3map.json` builds equal the `3e03b854`, `9bcab2d8`, `e80717c8`, `977975ef`, `05c11821` rows above. KQ1 as version 3 is 21,738 bytes
 and `convert --format 2` of it equals the version 2 file (`same`).
+
+## After the review (`P2-review.md`, fixes in `P2-fixes.md`)
+
+- The Task 11 command that builds the version 3 tables of the harness masters needs `--vocab-md5` now (review m3):
+  `... build $m $BLD/korean-vocab/$g.v3.dat --game $g --fingerprint 000...0 --vocab-md5 fedcba9876543210fedcba9876543210`.
+  `--format 2` is unchanged: the KQ1 table is again 1265 entries, 16558 bytes, sha256
+  `48cc43e4720ef98b4790366c6cecb3c2cf4e4f091a9ac3021520e0882645ed75`, and `harness-check` reports nine `ok`.
+- `k6bake.py` refuses words longer than 16 code units (`KoreanStems::kMaxLen`); the harness-table test no longer skips them.
+- `test/common/korean_particles.h` and `common/hangul.h` (ported from `jamo`) now differ from `jamo` by the `ng` rule (m4).
+- The stem corpus `korean_stem_corpus.txt` is a regression guard, not an independent oracle: it was filtered by the Python
+  mirror of the stemmer rules, so a form the rules never reached is not in it. The independent measure is `k16said` (P3/P4).
+- Totals after the fixes: Linux and ASan `make test` 620 tests OK, `KoreanVocabTestSuite` 12 tests OK with `korean-vocab/`.
