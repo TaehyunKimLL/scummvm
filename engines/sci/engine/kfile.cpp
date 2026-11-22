@@ -33,6 +33,7 @@
 
 #include "gui/saveload.h"
 
+#include "sci/utf8.h"
 #include "sci/sci.h"
 #include "sci/engine/file.h"
 #include "sci/engine/state.h"
@@ -1371,7 +1372,9 @@ reg_t kGetSaveFiles(EngineState *s, int argc, reg_t *argv) {
 
 	for (uint i = 0; i < totalSaves; i++) {
 		*slot++ = make_reg(0, saves[i].id + SAVEGAMEID_OFFICIALRANGE_START); // Store the virtual savegame ID (see above)
-		Common::strlcpy(saveNamePtr, saves[i].name, kMaxSaveNameLength);
+		// A long UTF-8 name (saved from the ScummVM dialog) is cut on a code point boundary, not inside a syllable.
+		const Common::String name = g_sci->getTextMode().utf8() ? utf8Truncate(saves[i].name, kMaxSaveNameLength) : Common::String(saves[i].name);
+		Common::strlcpy(saveNamePtr, name.c_str(), kMaxSaveNameLength);
 		saveNamePtr += kMaxSaveNameLength;
 	}
 

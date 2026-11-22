@@ -302,5 +302,10 @@ public:
 		TS_ASSERT_EQUALS(Sci::utf8Truncate("\xEA\xB0\x80\xEB\x82\x98", 6), "\xEA\xB0\x80");
 		TS_ASSERT_EQUALS(Sci::utf8Truncate("\xEA\xB0\x80\xEB\x82\x98", 7), "\xEA\xB0\x80\xEB\x82\x98");
 		TS_ASSERT_EQUALS(Sci::utf8Truncate("\xEA\xB0\x80", 1), "");
+		// a 36-byte save name field (kMaxSaveNameLength) holds 11 syllables, not a cut twelfth
+		const Common::String twelve("\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80"
+		                            "\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80\xEA\xB0\x80");
+		TS_ASSERT_EQUALS(twelve.size(), 36u);
+		TS_ASSERT_EQUALS(Sci::utf8Truncate(twelve, 36).size(), 33u);
 	}
 };
