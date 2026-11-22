@@ -61,6 +61,7 @@ bool KoreanVocabulary::refuse(const String &name, const String &why) {
 bool KoreanVocabulary::loadFromStream(SeekableReadStream &in, const char *magic, const String &name,
                                       const TranslationFileHeader &expected) {
 	unload();
+	in.seek(0);
 	const int64 fileSize = in.size();
 	if (fileSize < (int64)kHeadV2)
 		return refuse(name, "too small to be a Korean word table");
@@ -127,7 +128,9 @@ bool KoreanVocabulary::loadFromStream(SeekableReadStream &in, const char *magic,
 
 	if (_version == 2) {
 		_header = TranslationFileHeader();
-		checkTranslationHeader(_header, expected, name);
+		// A table made before headers has nothing to check; warn only when the game named something to check against.
+		if (!expected.game.empty() || !expected.engine.empty() || !expected.fingerprint.empty() || !expected.vocab.empty())
+			checkTranslationHeader(_header, expected, name);
 	} else if (checkTranslationHeader(_header, expected, name) == kTranslationMismatch) {
 		unload();
 		return false;

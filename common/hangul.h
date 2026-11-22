@@ -43,6 +43,8 @@ namespace Common {
  * It is deliberately free of any encoding knowledge: it emits code points, and
  * a caller that needs bytes converts them into the encoding its text is kept
  * in (an engine's text mode: UTF-8, or CP949 for a CP949 pack).
+ *
+ * The composer does not limit the length of its text (text() copies it); the edit control that owns the line does.
  */
 class HangulComposer {
 public:

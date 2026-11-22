@@ -74,13 +74,13 @@ public:
 	/**
 	 * Load a word table through SearchMan. @p magic is the file's 6-letter tag ("SCIKOR", "AGIKOR"). @p expected
 	 * holds what the game knows about itself (any field empty: not compared); a version 3 file whose header differs
-	 * is refused, a version 2 file loads with a warning (checkTranslationHeader()).
+	 * is refused, a version 2 file loads with a warning (checkTranslationHeader()) when @p expected names anything.
 	 *
 	 * @return false when the file is absent (no warning: no Korean words installed), malformed or refused.
 	 */
 	bool load(const Path &filename, const char *magic, const TranslationFileHeader &expected = TranslationFileHeader());
 
-	/** load() once the file is open; @p name is for the warnings. */
+	/** load() once the file is open; the table is read from the start of @p in, wherever its position is. @p name is for the warnings. */
 	bool loadFromStream(SeekableReadStream &in, const char *magic, const String &name,
 	                    const TranslationFileHeader &expected = TranslationFileHeader());
 

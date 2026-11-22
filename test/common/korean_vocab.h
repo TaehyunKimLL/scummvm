@@ -72,6 +72,17 @@ public:
 		TS_ASSERT(!v.getHeader().present());
 	}
 
+	// The table is read from the start of the stream, wherever the caller left it.
+	void test_stream_position_is_ignored() {
+		const Common::Array<byte> img = rowsImage("SCIKOR", 2);
+		Common::MemoryReadStream s(img.data(), img.size());
+		byte skipped[5];
+		s.read(skipped, sizeof(skipped));
+		Common::KoreanVocabulary v;
+		TS_ASSERT(v.loadFromStream(s, "SCIKOR", "fixture"));
+		TS_ASSERT_EQUALS(v.size(), 4u);
+	}
+
 	void test_exact_and_stemmed_lookup() {
 		for (uint32 version = 2; version <= 3; ++version) {
 			Common::KoreanVocabulary v;
