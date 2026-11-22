@@ -168,21 +168,24 @@ static reg_t strAtUtf8(EngineState *s, SegmentRef &dest_r, reg_t str, uint16 ind
 		int bytes;
 		return make_reg(0, decodeUtf8Char(p + at, bytes) & 0xFFFF);
 	}
-	const uint32 at = utf8WriteOffset(p, index);
-	uint16 old = 0;
-	if (at < text.size()) {
-		int bytes;
-		old = decodeUtf8Char(p + at, bytes) & 0xFFFF;
-	}
-	byte enc[4];
-	const int n = encodeUtf8Char(newvalue, enc);
-	if ((int)(at + n) > dest_r.maxSize) {
-		warning("kStrAt: code point %u does not fit the buffer", index);
+	// Rebuild the string: head, the new code point, the tail after the old one (never byte by byte).
+	Common::String rebuilt = text;
+	uint32 old;
+	switch (utf8ReplaceAt(rebuilt, index, newvalue, (uint32)dest_r.maxSize, old)) {
+	case kUtf8Replaced:
+		s->_segMan->strcpy_(str, rebuilt.c_str());
+		return make_reg(0, old);
+	case kUtf8ByteOffset:
+		// A script walking fixed-size records: the index is a byte offset.
+		if ((int)index >= dest_r.maxSize) {
+			warning("kStrAt: byte offset %u is beyond the buffer", index);
+			return s->r_acc;
+		}
+		return make_reg(0, strAtByte(dest_r, index, true, (byte)newvalue));
+	default:
+		warning("kStrAt: code point %u does not fit the buffer or lies beyond the string", index);
 		return s->r_acc;
 	}
-	for (int i = 0; i < n; i++)
-		strAtByte(dest_r, (uint16)(at + i), true, enc[i]);
-	return make_reg(0, old);
 }
 
 reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {

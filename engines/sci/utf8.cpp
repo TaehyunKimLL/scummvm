@@ -154,4 +154,47 @@ uint32 utf8NextBoundary(const byte *p, uint32 len, uint32 pos) {
 	return MIN<uint32>(pos + bytes, len);
 }
 
+Common::String utf8Truncate(const Common::String &text, uint32 capacity) {
+	if (!capacity || text.size() < capacity)
+		return text;
+	const byte *p = (const byte *)text.c_str();
+	uint32 end = 0;
+	while (end < capacity - 1 && p[end]) {
+		int bytes;
+		decodeUtf8Char(p + end, bytes);
+		if (end + bytes > capacity - 1)
+			break;
+		end += bytes;
+	}
+	return Common::String(text.c_str(), end);
+}
+
+Utf8WriteResult utf8ReplaceAt(Common::String &text, uint32 index, uint32 cp, uint32 capacity, uint32 &old) {
+	const byte *p = (const byte *)text.c_str();
+	const uint32 chars = utf8Length(p);
+	old = 0;
+	if (index > chars)
+		return utf8IndexIsPastEnd(p, index) ? kUtf8ByteOffset : kUtf8Refused;
+	const uint32 at = utf8OffsetOf(p, index);
+	int bytes = 0;
+	if (index < chars)
+		old = decodeUtf8Char(p + at, bytes) & 0xFFFF;
+	Common::String head(text.c_str(), at);
+	Common::String tail(text.c_str() + at + bytes);
+	Common::String enc;
+	if (cp) {
+		byte buf[4];
+		enc = Common::String((const char *)buf, encodeUtf8Char(cp, buf));
+	} else {
+		tail.clear(); // a NUL ends the string
+	}
+	if (capacity) {
+		if (head.size() + enc.size() + 1 > capacity)
+			return kUtf8Refused;
+		tail = utf8Truncate(tail, capacity - head.size() - enc.size());
+	}
+	text = head + enc + tail;
+	return kUtf8Replaced;
+}
+
 } // End of namespace Sci

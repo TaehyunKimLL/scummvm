@@ -222,4 +222,85 @@ public:
 		TS_ASSERT_EQUALS(Sci::utf8OffsetOf(s, 4), 10u);
 		TS_ASSERT_EQUALS(Sci::utf8OffsetOf(s, 2), 6u);
 	}
+
+	// kStrAt writes (the string is rebuilt, never overwritten byte by byte)
+	static Common::String put(const char *text, uint32 index, uint32 cp, uint32 capacity, Sci::Utf8WriteResult &r, uint32 &old) {
+		Common::String t(text);
+		r = Sci::utf8ReplaceAt(t, index, cp, capacity, old);
+		return t;
+	}
+
+	void test_replace_ascii_over_hangul() {
+		Sci::Utf8WriteResult r;
+		uint32 old;
+		// "가나" with StrAt(0, 'A'): "A나", valid UTF-8, the old value comes back
+		TS_ASSERT_EQUALS(put("\xEA\xB0\x80\xEB\x82\x98", 0, 'A', 0, r, old), "A\xEB\x82\x98");
+		TS_ASSERT_EQUALS(r, Sci::kUtf8Replaced);
+		TS_ASSERT_EQUALS(old, 0xAC00u);
+	}
+
+	void test_replace_hangul_over_ascii() {
+		Sci::Utf8WriteResult r;
+		uint32 old;
+		TS_ASSERT_EQUALS(put("abcd", 0, 0xAC00, 0, r, old), "\xEA\xB0\x80" "bcd");
+		TS_ASSERT_EQUALS(old, (uint32)'a');
+	}
+
+	void test_replace_hangul_over_hangul() {
+		Sci::Utf8WriteResult r;
+		uint32 old;
+		TS_ASSERT_EQUALS(put("\xEA\xB0\x80\xEB\x82\x98", 1, 0xB2E4, 0, r, old), "\xEA\xB0\x80\xEB\x8B\xA4");
+		TS_ASSERT_EQUALS(old, 0xB098u);
+	}
+
+	void test_replace_nul_terminates() {
+		Sci::Utf8WriteResult r;
+		uint32 old;
+		TS_ASSERT_EQUALS(put("\xEA\xB0\x80\xEB\x82\x98x", 1, 0, 0, r, old), "\xEA\xB0\x80");
+		TS_ASSERT_EQUALS(r, Sci::kUtf8Replaced);
+	}
+
+	void test_replace_at_end_appends() {
+		Sci::Utf8WriteResult r;
+		uint32 old;
+		TS_ASSERT_EQUALS(put("\xEA\xB0\x80", 1, 'b', 0, r, old), "\xEA\xB0\x80" "b");
+		TS_ASSERT_EQUALS(old, 0u);
+		TS_ASSERT_EQUALS(put("ab", 2, 0xAC00, 0, r, old), "ab\xEA\xB0\x80");
+		TS_ASSERT_EQUALS(put("ab", 2, 0, 0, r, old), "ab");
+	}
+
+	void test_replace_past_end_is_a_byte_offset() {
+		Sci::Utf8WriteResult r;
+		uint32 old;
+		// a fixed-size record: the index is beyond both counts, the caller writes the byte
+		put("ab", 7, 'x', 0, r, old);
+		TS_ASSERT_EQUALS(r, Sci::kUtf8ByteOffset);
+		// between the code point count and the byte length: refused, not a guess
+		put("\xEA\xB0\x80\xEB\x82\x98", 4, 'x', 0, r, old);
+		TS_ASSERT_EQUALS(r, Sci::kUtf8Refused);
+	}
+
+	void test_replace_respects_the_buffer() {
+		Sci::Utf8WriteResult r;
+		uint32 old;
+		// capacity 6 (5 bytes + NUL): 가 + 나 is 6 bytes, so after hangul over 'a' in "abc" the tail is cut
+		// on a code point boundary: "가" (3) + "bc" (2) = 5 fits
+		TS_ASSERT_EQUALS(put("abc", 0, 0xAC00, 6, r, old), "\xEA\xB0\x80" "bc");
+		// capacity 5: 3 + 1 + NUL: "bc" loses its last byte
+		TS_ASSERT_EQUALS(put("abc", 0, 0xAC00, 5, r, old), "\xEA\xB0\x80" "b");
+		// a tail that would be cut inside a syllable loses the whole syllable
+		TS_ASSERT_EQUALS(put("a\xEB\x82\x98", 0, 0xAC00, 6, r, old), "\xEA\xB0\x80");
+		// the new code point itself does not fit
+		put("abc", 0, 0xAC00, 3, r, old);
+		TS_ASSERT_EQUALS(r, Sci::kUtf8Refused);
+	}
+
+	void test_truncate_on_a_boundary() {
+		TS_ASSERT_EQUALS(Sci::utf8Truncate("abc", 0), "abc");
+		TS_ASSERT_EQUALS(Sci::utf8Truncate("abc", 4), "abc");
+		TS_ASSERT_EQUALS(Sci::utf8Truncate("abc", 3), "ab");
+		TS_ASSERT_EQUALS(Sci::utf8Truncate("\xEA\xB0\x80\xEB\x82\x98", 6), "\xEA\xB0\x80");
+		TS_ASSERT_EQUALS(Sci::utf8Truncate("\xEA\xB0\x80\xEB\x82\x98", 7), "\xEA\xB0\x80\xEB\x82\x98");
+		TS_ASSERT_EQUALS(Sci::utf8Truncate("\xEA\xB0\x80", 1), "");
+	}
 };

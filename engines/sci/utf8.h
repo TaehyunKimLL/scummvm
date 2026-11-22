@@ -23,6 +23,7 @@
 #define SCI_UTF8_H
 
 #include "common/scummsys.h"
+#include "common/str.h"
 
 namespace Sci {
 
@@ -101,6 +102,30 @@ uint32 utf8PrevBoundary(const byte *p, uint32 len, uint32 pos);
  * itself at @p len. @p pos must be a boundary.
  */
 uint32 utf8NextBoundary(const byte *p, uint32 len, uint32 pos);
+
+/** What utf8ReplaceAt() did. */
+enum Utf8WriteResult {
+	kUtf8Replaced,   ///< the text was rebuilt: write it back as a whole string
+	kUtf8ByteOffset, ///< @p index is beyond both the code points and the bytes: the caller writes a byte at that offset
+	kUtf8Refused     ///< nothing changed: the index is between the counts, or the code point does not fit
+};
+
+/**
+ * The longest prefix of @p text that, with its NUL, fits @p capacity bytes,
+ * cut on a code point boundary. @p capacity 0 means no bound.
+ */
+Common::String utf8Truncate(const Common::String &text, uint32 capacity);
+
+/**
+ * kStrAt's write on a UTF-8 string: the @p index-th code point becomes
+ * @p cp (0 ends the string there), the bytes after it move, so the text
+ * stays valid UTF-8. @p index equal to the code point count appends.
+ * @p old gets the replaced code point (0 at the end). The result,
+ * including its NUL, is kept within @p capacity bytes (0: no bound): the
+ * tail is cut on a code point boundary, and kUtf8Refused answers when the
+ * new code point alone does not fit.
+ */
+Utf8WriteResult utf8ReplaceAt(Common::String &text, uint32 index, uint32 cp, uint32 capacity, uint32 &old);
 
 } // End of namespace Sci
 
