@@ -17,6 +17,8 @@ along with our theme files:
  * NotoSans-Regular.ttf
  * NotoSansRunic-Regular.ttf
  * SourceCodeVariable-Roman.ttf
+ * test/graphics/svf_fixture.h (kSvfFixtureJamo: font data derived from Neo Dunggeunmo, Copyright (c) 2017-2021,
+   Eunbin Jeong (Dalgona.); a test fixture, not shipped)
 
 Copyright 2010, 2012 Adobe Systems Incorporated (http://www.adobe.com/),
 with Reserved Font Name 'Source'. All Rights Reserved. Source is a
