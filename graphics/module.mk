@@ -27,6 +27,7 @@ MODULE_OBJS := \
 	framelimiter.o \
 	hires_text/banded_plane.o \
 	hires_text/font_map.o \
+	hires_text/id_plan.o \
 	hires_text/svfchain.o \
 	hires_text/svfface.o \
 	hires_text/text_compose.o \
