@@ -26,6 +26,53 @@
 
 namespace Graphics {
 
+namespace {
+
+struct SvfPlot {
+	Surface *dst;
+	uint32 color;
+	bool threshold;
+	uint8 a, r, g, b;
+};
+
+uint8 blendChannel(uint8 bg, uint8 fg, uint8 coverage) {
+	return (uint8)(((uint)bg * (255 - coverage) + (uint)fg * coverage + 127) / 255);
+}
+
+void plotPixel(void *ctx, int16_t x, int16_t y, uint8_t coverage) {
+	const SvfPlot *p = (const SvfPlot *)ctx;
+	void *pixel = p->dst->getBasePtr(x, y);
+	if (p->threshold) {
+		if (coverage >= 128)
+			*(byte *)pixel = (byte)p->color;
+		return;
+	}
+
+	const PixelFormat &format = p->dst->format;
+	uint32 out = p->color;
+	if (coverage < 255) {
+		uint32 bg;
+		if (format.bytesPerPixel == 1)
+			bg = *(const byte *)pixel;
+		else if (format.bytesPerPixel == 2)
+			bg = *(const uint16 *)pixel;
+		else
+			bg = *(const uint32 *)pixel;
+		uint8 a, r, g, b;
+		format.colorToARGB(bg, a, r, g, b);
+		out = format.ARGBToColor(blendChannel(a, p->a, coverage), blendChannel(r, p->r, coverage),
+		                         blendChannel(g, p->g, coverage), blendChannel(b, p->b, coverage));
+	}
+	if (format.bytesPerPixel == 1)
+		*(byte *)pixel = (byte)out;
+	else if (format.bytesPerPixel == 2)
+		*(uint16 *)pixel = (uint16)out;
+	else
+		*(uint32 *)pixel = out;
+}
+
+} // End of anonymous namespace
+
 SvfFont::SvfFont(SvfChain *chain, DisposeAfterUse::Flag dispose) : _chain(chain), _dispose(dispose) {
 	assert(_chain);
 }
@@ -62,6 +109,21 @@ int SvfFont::getCharWidth(uint32 chr) const {
 }
 
 void SvfFont::drawChar(Surface *dst, uint32 chr, int x, int y, uint32 color) const {
+	if (!dst || !dst->getPixels() || dst->w <= 0 || dst->h <= 0)
+		return;
+	const PixelFormat &format = dst->format;
+	if (format.bytesPerPixel != 1 && format.bytesPerPixel != 2 && format.bytesPerPixel != 4)
+		return;
+
+	SvfPlot p;
+	p.dst = dst;
+	p.color = color;
+	p.threshold = format.isCLUT8();
+	format.colorToARGB(color, p.a, p.r, p.g, p.b);
+
+	char text[4];
+	const uint len = encodeUtf8(chr, text);
+	_chain->drawCoverage(text, len, x, y + _chain->getAscent(), dst->w, dst->h, plotPixel, &p);
 }
 
 uint SvfFont::encodeUtf8(uint32 cp, char out[4]) {
