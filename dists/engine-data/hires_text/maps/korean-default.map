@@ -3,13 +3,10 @@
 ;
 ; The engine's last resort and a starting point for a pack's own HIRESBIT.MAP: copy it into the
 ; game's ko/ folder under that name. "data:" is looked up in the extrapaths, then the ScummVM
-; data folder (dists/engine-data in a source build).
+; data folder. Nothing installs dists/engine-data/hires_text there yet: until it is installed, point
+; extrapath at dists/engine-data.
 [map]
 version=3
-
-[render]
-scale=auto
-blend=auto
 
 [fonts]
 neodgm=data:hires_text/NEODG16A.SVF
