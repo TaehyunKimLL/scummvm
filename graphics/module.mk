@@ -71,6 +71,23 @@ MODULE_OBJS := \
 	wincursor.o \
 	yuv_to_rgb.o
 
+# The SVF renderer of svf-fonts-open (graphics/svf, synced by tools/korean/sync-svf.sh) is C99.
+# configure sets up no C compiler, so the C++ compiler builds it in C mode.
+SVF_OBJS := \
+	svf/svf_draw.o \
+	svf/svf_face.o \
+	svf/svf_jamo.o \
+	svf/svf_scale.o \
+	svf/svf_stream.o
+
+MODULE_OBJS += $(SVF_OBJS)
+
+SVF_C_OBJS := $(addprefix $(MODULE)/, $(SVF_OBJS))
+$(SVF_C_OBJS): CC = $(CXX) -x c -std=c99
+$(SVF_C_OBJS): CFLAGS = $(filter-out -std=% -pedantic -fno-operator-names -Wnon-virtual-dtor -Woverloaded-virtual \
+	-Wno-reorder -fno-exceptions -fcheck-new -fno-rtti -Wno-inconsistent-missing-override -fvisibility-inlines-hidden, \
+	$(CXXFLAGS))
+
 ifdef USE_ARM_SCALER_ASM
 MODULE_OBJS += \
 	scaler/downscalerARM.o

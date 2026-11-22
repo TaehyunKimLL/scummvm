@@ -2760,6 +2760,10 @@ if test "$_release_build" = yes; then
 	append_var DEFINES "-DRELEASE_BUILD"
 fi
 
+# The SVF renderer (graphics/svf): one set of switches for every C and C++ unit,
+# since SVF_JMAP changes the layout of svf_face.
+append_var DEFINES "-DSVF_JMAP=1 -DSVF_JSET_BIG=1 -DSVF_JMAP_RECOG=0"
+
 set_flag_if_supported() {
 	echocheck "whether C++ compiler accepts $1"
 	cat > $TMPC << EOF
