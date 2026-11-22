@@ -25,6 +25,7 @@ MODULE_OBJS := \
 	fonts/winfont.o \
 	framelimiter.o \
 	hotspot_renderer.o \
+	hires_text/svfface.o \
 	image-archive.o \
 	korfont.o \
 	larryScale.o \
@@ -78,7 +79,8 @@ SVF_OBJS := \
 	svf/svf_face.o \
 	svf/svf_jamo.o \
 	svf/svf_scale.o \
-	svf/svf_stream.o
+	svf/svf_stream.o \
+	hires_text/svf_abi.o
 
 MODULE_OBJS += $(SVF_OBJS)
 

@@ -11,7 +11,8 @@ TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/audio/*.h \
 	$(srcdir)/test/math/*.h \
 	$(srcdir)/test/image/*.h \
-	$(srcdir)/test/graphics/svf_build.h
+	$(srcdir)/test/graphics/svf_build.h \
+	$(srcdir)/test/graphics/svf_face.h
 TEST_LIBS    :=
 
 ifdef POSIX
