@@ -84,7 +84,14 @@ SVF_OBJS := \
 	svf/svf_stream.o \
 	hires_text/svf_abi.o
 
-MODULE_OBJS += $(SVF_OBJS)
+# create_project does not expand make variables, so MODULE_OBJS lists the objects literally.
+MODULE_OBJS += \
+	svf/svf_draw.o \
+	svf/svf_face.o \
+	svf/svf_jamo.o \
+	svf/svf_scale.o \
+	svf/svf_stream.o \
+	hires_text/svf_abi.o
 
 SVF_C_OBJS := $(addprefix $(MODULE)/, $(SVF_OBJS))
 $(SVF_C_OBJS): CC = $(CXX) -x c -std=c99

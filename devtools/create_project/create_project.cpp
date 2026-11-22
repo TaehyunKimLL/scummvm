@@ -459,6 +459,11 @@ int main(int argc, char *argv[]) {
 	StringList featureDefines = getFeatureDefines(setup.features);
 	setup.defines.splice(setup.defines.begin(), featureDefines);
 
+	// The SVF renderer (graphics/svf): the same switches as configure's DEFINES, so svf_face has one layout.
+	setup.defines.push_back("SVF_JMAP=1");
+	setup.defines.push_back("SVF_JSET_BIG=1");
+	setup.defines.push_back("SVF_JMAP_RECOG=0");
+
 	if (projectType == kProjectXcode) {
 		setup.defines.push_back("POSIX");
 		if (setup.appleEmbedded) {

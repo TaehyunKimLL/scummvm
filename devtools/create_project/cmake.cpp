@@ -385,6 +385,9 @@ void CMakeProvider::writeDefines(const BuildSetup &setup, std::ofstream &output)
 	output << "\tadd_definitions(-DHAS_FSEEKO_OFFT_64)\n";
 	output << "endif()\n";
 
+	// The SVF renderer (graphics/svf): the same switches as configure's DEFINES.
+	output << "add_definitions(-DSVF_JMAP=1 -DSVF_JSET_BIG=1 -DSVF_JMAP_RECOG=0)\n";
+
 	output << "add_definitions(-DSDL_BACKEND)\n";
 	if (setup.useSDL == kSDLVersion2) {
 		output << "add_definitions(-DUSE_SDL2)\n";
