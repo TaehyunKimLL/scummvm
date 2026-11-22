@@ -24,12 +24,12 @@ headers) and version 3 (u32 offsets and the fingerprint header line of common/tr
 library only.
 
 usage:
-  k6bake.py build SOURCE OUT [--format 2|3] [--game ID --fingerprint MD5 [--vocab-md5 MD5]]
+  k6bake.py build SOURCE OUT [--format 2|3] [--game ID --fingerprint MD5 --vocab-md5 MD5]
                              [--targets K2TARGETS] [--magic SCIKOR|AGIKOR] [--verbs K2TARGETS]
       SOURCE is a UTF-8 master (.vocab.tsv, first line "#KOREAN-VOCAB 2 ...", the harness's trs_master.py format) or
       a k3map.json (Korean word -> groups; the classes from --targets, or for AGI --magic AGIKOR --verbs). Format 3
-      (the default) needs --game and --fingerprint; the engine comes from the magic.
-  k6bake.py convert IN OUT [--format 2|3] [--game ID --fingerprint MD5 [--vocab-md5 MD5]]
+      (the default) needs --game, --fingerprint and --vocab-md5; the engine comes from the magic.
+  k6bake.py convert IN OUT [--format 2|3] [--game ID --fingerprint MD5 --vocab-md5 MD5]
       rewrite a version 2 or 3 table in the other version (the rows stay byte for byte).
   k6bake.py dump DAT
       the header line (version 3) and one "word<TAB>group<TAB>0xclass" line per entry, in file order.
@@ -262,6 +262,8 @@ def versioned(magic, rows, args):
     vocab = take(args, "--vocab-md5")
     header = None
     if version == 3:
+        if not vocab:
+            raise BakeError("format 3 needs --vocab-md5 (the md5 of the game's vocabulary resource, DESIGN.md section 4)")
         header = header_line(game, fingerprint, magic[:3].lower(), vocab)
     elif game or fingerprint or vocab:
         raise BakeError("--game, --fingerprint and --vocab-md5 are for format 3")

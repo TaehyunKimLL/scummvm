@@ -23,7 +23,9 @@ Scratch files go to $TMPDIR, or to k6bake-test/ in the working directory when it
 temp dir)."""
 
 import atexit
+import contextlib
 import hashlib
+import io
 import os
 import struct
 import sys
@@ -40,6 +42,7 @@ GOLDEN = os.path.join(ROOT, "test", "korean_vocab_golden.h")
 GOLDEN_ARGS = ["--game", "kq1", "--fingerprint", "0123456789abcdef0123456789abcdef",
                "--vocab-md5", "fedcba9876543210fedcba9876543210"]
 FP = "0123456789abcdef0123456789abcdef"
+VOCAB = "fedcba9876543210fedcba9876543210"
 # Scratch files go under the working directory, never the system temp dir (host convention).
 # Set TMPDIR to put them elsewhere; the folder is removed again when it is empty.
 TMPROOT = os.environ.get("TMPDIR") or os.path.join(os.getcwd(), "k6bake-test")
@@ -95,13 +98,33 @@ class K6BakeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=TMPROOT) as tmp:
             v3 = os.path.join(tmp, "t3.dat")
             v2 = os.path.join(tmp, "t2.dat")
-            self.assertEqual(k6bake.main(["k6bake", "build", MINI, v3, "--game", "kq1", "--fingerprint", FP]), 0)
+            self.assertEqual(k6bake.main(["k6bake", "build", MINI, v3, "--game", "kq1", "--fingerprint", FP,
+                                          "--vocab-md5", VOCAB]), 0)
             self.assertEqual(k6bake.main(["k6bake", "convert", v3, v2, "--format", "2"]), 0)
             magic, rows = k6bake.master_rows(open(MINI, encoding="utf-8").read())
             with open(v2, "rb") as f:
                 self.assertEqual(f.read(), k6bake.table_bytes(magic, rows, 2))
             self.assertEqual(k6bake.main(["k6bake", "build", MINI, v3]), 2)            # format 3 needs --game
             self.assertEqual(k6bake.main(["k6bake", "build", MINI, v2, "--format", "2", "--game", "kq1"]), 2)
+
+    def test_format3_requires_the_vocab_md5(self):
+        # DESIGN.md section 4: a version 3 table carries the md5 of the vocabulary its groups come from; an engine that
+        # passes the game's vocab md5 refuses a table without one.
+        with tempfile.TemporaryDirectory(dir=TMPROOT) as tmp:
+            v3 = os.path.join(tmp, "t3.dat")
+            v2 = os.path.join(tmp, "t2.dat")
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(k6bake.main(["k6bake", "build", MINI, v3, "--game", "kq1", "--fingerprint", FP]), 2)
+            self.assertIn("--vocab-md5", err.getvalue())
+            self.assertFalse(os.path.exists(v3))
+            self.assertEqual(k6bake.main(["k6bake", "build", MINI, v2, "--format", "2"]), 0)
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(k6bake.main(["k6bake", "convert", v2, v3, "--game", "kq1", "--fingerprint", FP]), 2)
+            self.assertIn("--vocab-md5", err.getvalue())
+            self.assertEqual(k6bake.main(["k6bake", "convert", v2, v3, "--game", "kq1", "--fingerprint", FP,
+                                          "--vocab-md5", VOCAB]), 0)
 
     def test_k3map_source(self):
         import json
