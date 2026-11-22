@@ -22,6 +22,8 @@
 // Main vocabulary support functions and word lookup
 
 #include "sci/parser/vocabulary.h"
+#include "sci/parser/korean_parser.h"
+#include "common/language_folder.h"
 #include "sci/resource/resource.h"
 #include "sci/engine/state.h"
 #include "sci/engine/kernel.h"
@@ -70,6 +72,20 @@ Vocabulary::Vocabulary(ResourceManager *resMan, bool foreign) : _resMan(resMan),
 	}
 
 	loadAltInputs();
+
+	_koreanRole = Common::kKoreanRoleNone;
+	_koreanFallbackValid = false;
+	if (g_sci->hasParser() && g_sci->getTextMode().utf8() && !_foreign) {
+		// sci-ko.dat (the packs since 2026-10-17), else SCIKOR.DAT; the
+		// header must be this game's (DESIGN.md decision 4).
+		_koreanVocab.setDebugChannel(kDebugLevelKorean);
+		const Common::TranslationFileHeader expected = g_sci->translationHeader(true);
+		const Common::String name = Common::translationTableName("sci-%s.dat", g_sci->getLanguage());
+		if (!_koreanVocab.load(Common::Path(name), "SCIKOR", expected))
+			_koreanVocab.load(Common::Path("SCIKOR.DAT"), "SCIKOR", expected);
+		if (_koreanVocab.isLoaded() && _koreanVocab.getVersion() < 3)
+			warning("This game's %s header line is: %s", name.c_str(), expected.toString().c_str());
+	}
 
 	parser_event = NULL_REG;
 	parserIsValid = false;
@@ -451,6 +467,8 @@ bool Vocabulary::checkAltInput(Common::String &text, uint16 &cursorPos) {
 // we assume that *word points to an already lowercased word
 void Vocabulary::lookupWord(ResultWordList& retval, const char *word, int word_len) {
 	retval.clear();
+	_koreanRole = Common::kKoreanRoleNone;
+	_koreanExtraTokens.clear();
 
 	Common::String tempword(word, word_len);
 
@@ -516,6 +534,9 @@ void Vocabulary::lookupWord(ResultWordList& retval, const char *word, int word_l
 	}
 
 	if (!retval.empty())
+		return;
+
+	if (_koreanVocab.isLoaded() && lookupKorean(retval, tempword))
 		return;
 
 	// No match so far? Check if it's a number.
@@ -719,14 +740,40 @@ static const byte lowerCaseMap866[256] = {
 	0xa5, 0xa5, 0xf3, 0xf3, 0xf5, 0xf5, 0xf7, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff  // 0xf0
 };
 
+bool Vocabulary::lookupKorean(ResultWordList &retval, const Common::String &word) {
+	// door를, fenrus에: an English word of the game with Korean particles.
+	uint split = 0;
+	while (split < word.size() && (byte)word[split] < 0x80)
+		++split;
+	uint8 role;
+	if (split > 0 && split < word.size() && Common::koreanParticleRole(Common::U32String(word.c_str() + split, Common::kUtf8), role)) {
+		lookupWord(retval, word.c_str(), split);
+		if (!retval.empty()) {
+			_koreanRole = role;
+			return true;
+		}
+	}
+	KoreanParser parser(_parserWords, _koreanVocab, kDebugLevelKorean);
+	return parser.lookup(word, retval, _koreanExtraTokens, _koreanRole) > 0;
+}
+
 bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence, char **error) {
 	char currentWord[VOCAB_MAX_WORDLENGTH] = "";
 	int pos_in_sentence = 0;
 	unsigned char c;
 	int wordLen = 0;
 	const byte *lcMap = lowerCaseMap;
+	const bool korean = _koreanVocab.isLoaded();
+	Common::String joined;
+	Common::Array<uint8> roles;
+	bool sawKorean = false;
 
 	*error = nullptr;
+	_koreanFallback.clear();
+	if (korean) {
+		joined = KoreanParser(_parserWords, _koreanVocab, kDebugLevelKorean).joinPairs(sentence);
+		sentence = joined.c_str();
+	}
 
 	if (g_sci->getLanguage() == Common::RU_RUS)
 		lcMap = lowerCaseMap866;
@@ -734,8 +781,9 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 	do {
 		c = sentence[pos_in_sentence++];
 
-		if (Common::isAlnum(c) || (c == '-' && wordLen) || (c >= 0x80)) {
-			currentWord[wordLen] = lcMap[c];
+		if ((Common::isAlnum(c) || (c == '-' && wordLen) || (c >= 0x80)) && wordLen < VOCAB_MAX_WORDLENGTH - 1) {
+			// UTF-8 bytes are not CP437 letters: only ASCII is folded.
+			currentWord[wordLen] = (g_sci->getTextMode().utf8() && c >= 0x80) ? c : lcMap[c];
 			++wordLen;
 		} else if (c == ' ' || c == '\0') {
 			// Continue on this word. Words may contain a '-', but may not start with
@@ -760,12 +808,25 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 
 				// Copy into list
 				retval.push_back(lookup_result);
+				bool koreanWord = false;
+				for (int k = 0; k < wordLen && !koreanWord; ++k)
+					koreanWord = (byte)currentWord[k] >= 0x80;
+				sawKorean = sawKorean || koreanWord;
+				roles.push_back(koreanWord ? _koreanRole : (uint8)Common::kKoreanRoleNone);
+				for (ResultWordListList::const_iterator x = _koreanExtraTokens.begin(); x != _koreanExtraTokens.end(); ++x) {
+					retval.push_back(*x);
+					roles.push_back(Common::kKoreanRoleNone);
+				}
 			}
 
 			wordLen = 0;
 		}
 
 	} while (c); // Until terminator is hit
+
+	// Korean word order to the order of the said() specs.
+	if (sawKorean && !retval.empty())
+		KoreanParser(_parserWords, _koreanVocab, kDebugLevelKorean).arrange(retval, roles, _koreanFallback);
 
 	return true;
 }

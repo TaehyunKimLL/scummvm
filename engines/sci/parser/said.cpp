@@ -1015,6 +1015,9 @@ int said(const byte *spec, bool verbose) {
 		if (verbose)
 			vocab_dump_parse_tree("Said-tree", said_tree);
 		int retval = augment_parse_nodes(parse_tree_ptr, said_tree);
+		// A Korean sentence matches by its tree without particle phrases too.
+		if (!retval && voc->_koreanFallbackValid)
+			retval = augment_parse_nodes(voc->_parserNodesFallback, said_tree);
 
 		if (!retval)
 			return SAID_NO_MATCH;

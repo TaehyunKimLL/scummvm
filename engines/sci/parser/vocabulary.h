@@ -26,6 +26,7 @@
 #include "common/hashmap.h"
 #include "common/hash-str.h"
 #include "common/list.h"
+#include "common/korean_vocab.h"
 
 #include "sci/sci.h"
 #include "sci/engine/vm_types.h"
@@ -207,6 +208,8 @@ public:
 	 * @param word_len	length of the word to look up
 	 */
 	void lookupWord(ResultWordList &retval, const char *word, int word_len);
+	/** The Korean word table's reading of @p word (UTF-8). */
+	bool lookupKorean(ResultWordList &retval, const Common::String &word);
 
 	/**
 	 * Looks up a single word in the words list, taking into account suffixes, and updating parent_retval if a matching prefix is found
@@ -266,7 +269,7 @@ public:
 	 *			nodes or if the sentence structure in 'words' is not part of the
 	 *			language described by the grammar passed in 'rules'.
 	 */
-	int parseGNF(const ResultWordListList &words, bool verbose = false);
+	int parseGNF(const ResultWordListList &words, bool verbose = false, ParseTreeNode *nodes = nullptr);
 
 	/**
 	 * Find and store reference for future pronouns
@@ -409,6 +412,12 @@ private:
 	ParseRuleList *_parserRules; /**< GNF rules used in the parser algorithm */
 	Common::Array<parse_tree_branch_t> _parserBranches;
 	WordMap _parserWords;
+
+	// Korean input (DESIGN.md section 6; KoreanParser)
+	Common::KoreanVocabulary _koreanVocab;
+	uint8 _koreanRole;                     ///< the particle lookupWord()'s Korean word lost
+	ResultWordListList _koreanExtraTokens; ///< the further tokens of a sequence word
+	ResultWordListList _koreanFallback;    ///< the sentence without particle phrases, for said()
 	SynonymList _synonyms; /**< The list of synonyms */
 	Common::Array<Common::List<AltInput> > _altInputs;
 
@@ -426,6 +435,11 @@ public:
 	// Parser data:
 	reg_t parser_event; /**< The event passed to Parse() and later used by Said() */
 	bool parserIsValid; /**< If something has been correctly parsed */
+
+	/** Whether a Korean word table (sci-<code>.dat) is loaded. */
+	bool hasKoreanWords() const { return _koreanVocab.isLoaded(); }
+	ParseTreeNode _parserNodesFallback[VOCAB_TREE_NODES]; /**< The tree of _koreanFallback */
+	bool _koreanFallbackValid; /**< said() is tried on _parserNodesFallback too */
 };
 
 /**
