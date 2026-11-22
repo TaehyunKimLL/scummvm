@@ -312,18 +312,17 @@ public:
 					const Common::String word(lines[k].c_str(), lines[k].findFirstOf('\t'));
 					uint16 g[16], c[16];
 					const uint n = v.lookupExact(word.decode(Common::kUtf8), g, c, 16);
-					const bool lookedUp = word.decode(Common::kUtf8).size() <= Common::KoreanStems::kMaxLen;
 					uint rows = 0;
 					while (k < lines.size() && lines[k].hasPrefix(word + "\t")) {
-						if (lookedUp && rows < n) {
+						if (rows < n) {
 							const Common::String want = Common::String::format("%s\t%u\t0x%04x", word.c_str(), g[rows], c[rows]);
 							TSM_ASSERT_EQUALS(game.c_str(), lines[k], want);
 						}
 						++rows;
 						++k;
 					}
-					if (lookedUp)
-						TSM_ASSERT_EQUALS((game + " " + word).c_str(), n, rows);
+					// every stored word is findable: k6bake.py refuses a word longer than KoreanStems::kMaxLen
+					TSM_ASSERT_EQUALS((game + " " + word).c_str(), n, rows);
 				}
 			}
 			++games;

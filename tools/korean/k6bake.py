@@ -48,6 +48,7 @@ import struct
 import sys
 
 MASTER_TAG = "#KOREAN-VOCAB 2 (UTF-8 master of a Korean parser word table, sci-ko.dat / agi-ko.dat; trs_master.py)"
+MAX_WORD = 16      # common/korean_stem.h KoreanStems::kMaxLen: the reader looks up no longer word
 SEQ = 0x8000       # class flag: this row continues into the next row of the same word
 MAGICS = ("SCIKOR", "AGIKOR")
 MD5 = re.compile(r"^[0-9a-fA-F]{32}$")
@@ -95,8 +96,11 @@ def table_bytes(magic, rows, version=3, header=None):
     entries, blob = bytearray(), bytearray()
     for word, group, cls in rows:
         u = units(word)
-        if not u or any(c > 0xFFFF for c in u) or len(u) > 0xFFFF:
-            raise BakeError("%r is empty, too long or outside the BMP" % word)
+        if not u or any(c > 0xFFFF for c in u):
+            raise BakeError("%r is empty or outside the BMP" % word)
+        if len(u) > MAX_WORD:
+            raise BakeError("%r is %d code units; the reader finds words of at most %d (KoreanStems::kMaxLen)"
+                            % (word, len(u), MAX_WORD))
         if not (0 <= group <= 0xFFFF and 0 <= cls <= 0xFFFF):
             raise BakeError("%s: group or class out of range" % word)
         offset = len(blob) // 2
@@ -137,6 +141,9 @@ def read_table(data, what="table"):
         off, ln, group, cls = f[0], f[1], f[2], f[3]
         if blob + (off + ln) * 2 > len(data):
             raise BakeError("%s: entry %d runs past the end" % (what, i))
+        if not 0 < ln <= MAX_WORD:
+            raise BakeError("%s: entry %d is %d code units; the reader finds words of 1..%d (KoreanStems::kMaxLen)"
+                            % (what, i, ln, MAX_WORD))
         rows.append((data[blob + off * 2:blob + (off + ln) * 2].decode("utf-16-le"), group, cls))
     if [units(w) for w, _g, _c in rows] != sorted(units(w) for w, _g, _c in rows):
         raise BakeError("%s: the entries are not sorted by code units" % what)

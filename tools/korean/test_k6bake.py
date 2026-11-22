@@ -25,6 +25,7 @@ temp dir)."""
 import atexit
 import hashlib
 import os
+import struct
 import sys
 import tempfile
 import unittest
@@ -130,13 +131,33 @@ class K6BakeTest(unittest.TestCase):
             k6bake.header_line("kq1", "0123", "sci")
         with self.assertRaises(k6bake.BakeError):
             k6bake.header_line("k q", FP, "sci")
-        rows = [("가" * 300 + chr(0xAC00 + i), 1, 0) for i in range(220)]      # 66,220 code units
+        rows = [("가" * 15 + chr(0xAC00 + i), 1, 0) for i in range(4200)]      # 67,200 code units
         with self.assertRaises(k6bake.BakeError):
             k6bake.table_bytes("SCIKOR", rows, 2)
         self.assertEqual(k6bake.read_table(k6bake.table_bytes("SCIKOR", rows, 3, k6bake.header_line("x", FP, "sci")))[3], rows)
         unsorted = k6bake.table_bytes("SCIKOR", [("나", 1, 0), ("가", 1, 0)], 2)
         with self.assertRaises(k6bake.BakeError):
             k6bake.read_table(unsorted)
+
+    def test_word_longer_than_the_reader_looks_up_is_refused(self):
+        # common/korean_stem.h KoreanStems::kMaxLen: a longer stored word could never be found.
+        ok = [("가" * 15 + "나", 1, 0)]
+        self.assertEqual(k6bake.read_table(k6bake.table_bytes("SCIKOR", ok, 2))[3], ok)
+        long_rows = [("가" * 16 + "나", 1, 0)]
+        for version, head in ((2, None), (3, k6bake.header_line("kq1", FP, "sci", FP))):
+            with self.assertRaises(k6bake.BakeError):
+                k6bake.table_bytes("SCIKOR", long_rows, version, head)
+        # a table that already holds one (written by another tool) is refused on reading
+        unit = "가".encode("utf-16-le")
+        raw = (b"SCIKOR\0\0" + struct.pack("<II", 2, 1) + struct.pack("<HHHH", 0, 17, 1, 0) + unit * 17)
+        with self.assertRaises(k6bake.BakeError):
+            k6bake.read_table(raw)
+        with tempfile.TemporaryDirectory(dir=TMPROOT) as tmp:
+            master_path = os.path.join(tmp, "long.vocab.tsv")
+            with open(master_path, "w", encoding="utf-8") as f:
+                f.write(master("가" * 17 + "\t1"))
+            self.assertEqual(k6bake.main(["k6bake", "build", master_path, os.path.join(tmp, "o.dat"), "--format", "2"]), 2)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "o.dat")))
 
 
 if __name__ == "__main__":
