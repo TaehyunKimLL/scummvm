@@ -60,6 +60,11 @@ endif
 	TEST_LIBS += engines/ultima/libultima.a
 endif
 
+ifeq ($(ENABLE_SCI), STATIC_PLUGIN)
+	TESTS += $(srcdir)/test/engines/sci/*.h
+	TEST_LIBS += engines/sci/libsci.a graphics/libgraphics.a common/libcommon.a
+endif
+
 ifeq ($(ENABLE_TWINE), STATIC_PLUGIN)
 	TESTS += $(srcdir)/test/engines/twine/*.h
 	TEST_LIBS += engines/twine/libtwine.a

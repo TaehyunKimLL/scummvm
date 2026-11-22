@@ -7,4 +7,5 @@ Base `d7f47c73a07`, N0 = 620 tests (verified, `~/work/tmp/scummvm2026-p3build`).
 | Task | Commit | Tests | Notes |
 |---|---|---|---|
 | 0 | (none) | 620 OK | base and interfaces checked; all 12 greps print; KQ1 data and pack zip present |
-| 1 | see below | 620 (not re-run: only a Makefile/map comment change; `install-data` prints the 3 files) | red: 0 files before, 3 after |
+| 1 | 6e7b0216a2e | | DISTS: Install the hi-res text fallback map and face |
+| 2 | see below | 626 OK (620+6) | red: `sci/textmode.h: No such file or directory`; the first SCI build in `$BLD` compiled libsci.a for the test runner |
