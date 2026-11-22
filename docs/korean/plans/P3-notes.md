@@ -27,4 +27,5 @@ Base `d7f47c73a07`, N0 = 620 tests (verified, `~/work/tmp/scummvm2026-p3build`).
 | 10 | c6ebf07ac73 | 666 (not re-run, detection only; scummvm links) | [data] red: one `--detect` line (English); green: Korean + English lines, as the plan; run of [kq1-ko] logs the English release entry |
 | 11 | 95464d3f0d4 | 666 OK | no red possible (kernel hooks need the game; exercised by the headless runs in Tasks 15/19). The moved kStrAt block differs from base only by `argc > 2` -> `write` and `return value`. |
 | 12 | bcf2c9077e6 | 666 OK | hooks only |
-| 13 | see below | 666 OK | driver hook; verified by the smoke runs of Task 15 |
+| 13 | 42e178f833e | 666 OK | driver hook; verified by the smoke runs of Task 15 |
+| 14 | see below | 666 OK | screen/cache hooks; verified by the smoke runs of Task 15 |

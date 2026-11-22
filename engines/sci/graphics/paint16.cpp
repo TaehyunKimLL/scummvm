@@ -212,9 +212,10 @@ void GfxPaint16::invertRectViaXOR(const Common::Rect &rect) {
 	for (int16 y = r.top; y < r.bottom; y++) {
 		for (int16 x = r.left; x < r.right; x++) {
 			byte curVisual = _screen->getVisual(x, y);
-			_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, curVisual ^ 0x0f, 0, 0);
+			_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, curVisual ^ 0x0f, 0, 0, true);
 		}
 	}
+	_screen->xorTextRect(r, 0x0f);
 }
 
 void GfxPaint16::eraseRect(const Common::Rect &rect) {
@@ -242,12 +243,13 @@ void GfxPaint16::fillRect(const Common::Rect &rect, int16 drawFlags, byte color,
 				for (x = r.left; x < r.right; x++) {
 					byte curVisual = _screen->getVisual(x, y);
 					if (curVisual == color) {
-						_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, priority, 0, 0);
+						_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, priority, 0, 0, true);
 					} else if (curVisual == priority) {
-						_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, color, 0, 0);
+						_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, color, 0, 0, true);
 					}
 				}
 			}
+			_screen->swapTextColors(r, color, priority);
 		} else { // just fill rect with color
 			for (y = r.top; y < r.bottom; y++) {
 				for (x = r.left; x < r.right; x++) {

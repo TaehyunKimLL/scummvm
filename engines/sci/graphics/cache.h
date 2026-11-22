@@ -41,6 +41,8 @@ public:
 	~GfxCache();
 
 	GfxFont *getFont(GuiResourceId fontId);
+	/** @p font, or a GfxFontHiRes over it when the game draws hi-res text. */
+	GfxFont *hiResFont(GfxFont *font, GuiResourceId fontId);
 	GfxView *getView(GuiResourceId viewId);
 
 	int16 kernelViewGetCelWidth(GuiResourceId viewId, int16 loopNo, int16 celNo);

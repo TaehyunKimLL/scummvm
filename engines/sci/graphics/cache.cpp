@@ -27,6 +27,8 @@
 #include "sci/engine/state.h"
 #include "sci/engine/selector.h"
 #include "sci/graphics/cache.h"
+#include "sci/graphics/hirestext.h"
+#include "sci/graphics/screen.h"
 #include "sci/graphics/scifont.h"
 #include "sci/graphics/fontsjis.h"
 #include "sci/graphics/fontkorean.h"
@@ -61,6 +63,17 @@ void GfxCache::purgeViewCache() {
 	_cachedViews.clear();
 }
 
+GfxFont *GfxCache::hiResFont(GfxFont *font, GuiResourceId fontId) {
+	// A Korean (TextMode::kUtf8) game draws through the map's faces into
+	// the text plane; the font keeps the game's own glyphs for what the map
+	// leaves to it.
+	SciHiResText *hires = g_sci->getHiResText();
+	if (!hires || !_screen->getTextPlane())
+		return font;
+	const Graphics::HiResFontSet *set = hires->getFontSet(fontId);
+	return set ? new GfxFontHiRes(font, *set, *_screen->getTextPlane()) : font;
+}
+
 GfxFont *GfxCache::getFont(GuiResourceId fontId) {
 	if (_cachedFonts.size() >= MAX_CACHED_FONTS)
 		purgeFontCache();
@@ -73,7 +86,7 @@ GfxFont *GfxCache::getFont(GuiResourceId fontId) {
 		else if ((fontId == 900) && (g_sci->getLanguage() == Common::JA_JPN))
 			_cachedFonts[fontId] = new GfxFontSjis(_screen, fontId);
 		else
-			_cachedFonts[fontId] = new GfxFontFromResource(_resMan, _screen, fontId);
+			_cachedFonts[fontId] = hiResFont(new GfxFontFromResource(_resMan, _screen, fontId), fontId);
 	}
 
 	return _cachedFonts[fontId];

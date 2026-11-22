@@ -30,6 +30,7 @@
 #include "graphics/sjis.h"
 #include "graphics/korfont.h"
 #include "graphics/pixelformat.h"
+#include "graphics/hires_text/text_plane.h"
 
 #include "common/rendermode.h"
 
@@ -119,6 +120,12 @@ public:
 		return _unditheringEnabled;
 	}
 	void enableUndithering(bool flag);
+
+	/** The hi-res text plane (SciHiResText), or nullptr when the game draws its own text only. */
+	Graphics::TextPlane *getTextPlane() const { return _textPlane; }
+	void clearTextRect(const Common::Rect &lowres) { if (_textPlane && !_textPlane->isEmpty()) _textPlane->clearLowresRect(lowres); }
+	void xorTextRect(const Common::Rect &lowres, byte mask) { if (_textPlane) _textPlane->xorIndicesLowresRect(lowres, mask); }
+	void swapTextColors(const Common::Rect &lowres, byte a, byte b) { if (_textPlane) _textPlane->swapIndicesLowresRect(lowres, a, b); }
 
 	void putMacChar(const Graphics::Font *commonFont, int16 x, int16 y, uint16 chr, byte color);
 	void putKanjiChar(Graphics::FontSJIS *commonFont, int16 x, int16 y, uint16 chr, byte color);
@@ -237,6 +244,8 @@ private:
 	 */
 	byte *_hiresGlyphBuffer;
 
+	Graphics::TextPlane *_textPlane;
+
 	/**
 	 * This here holds a translation for vertical+horizontal coordinates between native
 	 * (visual) and actual (display) screen.
@@ -253,7 +262,7 @@ private:
 
 	// pixel related code, in header so that it can be inlined for performance
 public:
-	void putPixel(int16 x, int16 y, byte drawMask, byte color, byte priority, byte control) {
+	void putPixel(int16 x, int16 y, byte drawMask, byte color, byte priority, byte control, bool keepText = false) {
 		if (_upscaledHires == GFX_SCREEN_UPSCALED_480x300) {
 			putPixel480x300(x, y, drawMask, color, priority, control);
 			return;
@@ -266,6 +275,8 @@ public:
 			_visualScreen[offset] = color;
 			if (_paletteMapScreen)
 				_paletteMapScreen[offset] = _curPaletteMapValue;
+			if (!keepText)
+				clearTextRect(Common::Rect(x, y, x + 1, y + 1));
 
 			switch (_upscaledHires) {
 			case GFX_SCREEN_UPSCALED_DISABLED:
@@ -334,6 +345,7 @@ public:
 			_displayScreen[offset] = color;
 			if (_paletteMapScreen)
 				_paletteMapScreen[offset] = _curPaletteMapValue;
+			clearTextRect(Common::Rect(x, y, x + 1, y + 1));
 
 		}
 		if (drawMask & GFX_SCREEN_MASK_PRIORITY) {

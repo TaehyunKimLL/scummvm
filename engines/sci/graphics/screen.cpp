@@ -31,6 +31,7 @@
 #include "sci/sci.h"
 #include "sci/engine/state.h"
 #include "sci/graphics/screen.h"
+#include "sci/graphics/hirestext.h"
 #include "sci/graphics/view.h"
 #include "sci/graphics/palette16.h"
 #include "sci/graphics/scifx.h"
@@ -38,7 +39,7 @@
 
 namespace Sci {
 
-GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _resMan(resMan), _hiresGlyphBuffer(nullptr) {
+GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _resMan(resMan), _hiresGlyphBuffer(nullptr), _textPlane(nullptr) {
 
 	// Scale the screen, if needed
 	_upscaledHires = GFX_SCREEN_UPSCALED_DISABLED;
@@ -150,6 +151,15 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
 	if (_gfxDrv->driverBasedTextRendering())
 		_hiresGlyphBuffer = new byte[16 * 16]();
 
+	// Hi-res text (DESIGN.md section 5.1): a 2x plane the driver composites.
+	SciHiResText *hires = g_sci->getHiResText();
+	if (hires && hires->createPlane(_displayWidth, _displayHeight)) {
+		if (_gfxDrv->setTextPlane(&hires->getPlane(), hires->getComposeMode()))
+			_textPlane = &hires->getPlane();
+		else
+			warning("Hi-res text: the graphics driver cannot show it; the game's own font is used");
+	}
+
 	_displayPixels = _displayWidth * _displayHeight;
 
 	// Allocate visual, priority, control and display screen
@@ -210,6 +220,8 @@ GfxScreen::~GfxScreen() {
 	free(_paletteMapScreen);
 	delete[] _backupScreen;
 	delete[] _hiresGlyphBuffer;
+	if (_textPlane)
+		_gfxDrv->setTextPlane(nullptr, 0);
 	delete _gfxDrv;
 }
 
@@ -230,6 +242,8 @@ void GfxScreen::clearForRestoreGame() {
 	memset(_displayScreen, 0, _displayPixels);
 	memset(&_ditheredPicColors, 0, sizeof(_ditheredPicColors));
 	_fontIsUpscaled = false;
+	if (_textPlane)
+		_textPlane->clear();
 	copyToScreen();
 }
 
@@ -535,6 +549,8 @@ int GfxScreen::bitsGetDataSize(Common::Rect rect, byte mask) {
 				byteCount += rectHeight * rectWidth; // _paletteMapScreen (upscaled hires)
 		}
 	}
+	if ((mask & GFX_SCREEN_MASK_VISUAL) && _textPlane)
+		byteCount += _textPlane->saveSize(rect); // the text plane
 	if (mask & GFX_SCREEN_MASK_PRIORITY) {
 		byteCount += pixels; // _priorityScreen
 	}
@@ -553,6 +569,8 @@ void GfxScreen::bitsSave(Common::Rect rect, byte mask, byte *memoryPtr) {
 		bitsSaveDisplayScreen(rect, _displayScreen, memoryPtr);
 		if (_paletteMapScreen)
 			bitsSaveDisplayScreen(rect, _paletteMapScreen, memoryPtr);
+		if (_textPlane)
+			_textPlane->save(rect, memoryPtr);
 	}
 	if (mask & GFX_SCREEN_MASK_PRIORITY) {
 		bitsSaveScreen(rect, _priorityScreen, _width, memoryPtr);
@@ -610,6 +628,11 @@ void GfxScreen::bitsRestore(const byte *memoryPtr) {
 		bitsRestoreDisplayScreen(rect, memoryPtr, _displayScreen);
 		if (_paletteMapScreen)
 			bitsRestoreDisplayScreen(rect, memoryPtr, _paletteMapScreen);
+		if (_textPlane) {
+			const byte *in = memoryPtr;
+			_textPlane->restore(rect, in);
+			memoryPtr = in;
+		}
 	}
 	if (mask & GFX_SCREEN_MASK_PRIORITY) {
 		bitsRestoreScreen(rect, memoryPtr, _priorityScreen, _width);
