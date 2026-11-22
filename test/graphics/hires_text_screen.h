@@ -119,12 +119,26 @@ public:
 	void test_scaledCoverageBlends() {
 		Scene s;
 		bool partial = false;
+		int px = 0, py = 0;
 		for (int y = 60; y < 100 && !partial; ++y)
 			for (int x = 0; x < 320 && !partial; ++x) {
 				const byte c = s.screen.plane.getCoverage(x, y);
-				partial = c && c % 17;
+				partial = c >= 30 && c <= 225 && c % 17;
+				px = x;
+				py = y;
 			}
 		TS_ASSERT(partial);
+		// Presented on RGB565 the pixel is a blend: neither the navy under it nor the yellow text.
+		Graphics::Surface out;
+		s.screen.present(out, kScreenRgb565, Graphics::TextCompose::kBlend);
+		const uint16 blended = *(const uint16 *)out.getBasePtr(px, py);
+		TS_ASSERT(blended != 0x0010);
+		TS_ASSERT(blended != 0xFFE0);
+		// By threshold it is one of the two.
+		s.screen.present(out, kScreenRgb565, Graphics::TextCompose::kThreshold);
+		const uint16 hard = *(const uint16 *)out.getBasePtr(px, py);
+		TS_ASSERT(hard == 0x0010 || hard == 0xFFE0);
+		out.free();
 	}
 
 	// Developer aid: with a directory hires-dump in the working directory, writes the scene as PNG files.
