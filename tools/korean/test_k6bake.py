@@ -126,6 +126,42 @@ class K6BakeTest(unittest.TestCase):
             self.assertEqual(k6bake.main(["k6bake", "convert", v2, v3, "--game", "kq1", "--fingerprint", FP,
                                           "--vocab-md5", VOCAB]), 0)
 
+    def test_bad_input_is_a_message_not_a_traceback(self):
+        import json
+        with tempfile.TemporaryDirectory(dir=TMPROOT) as tmp:
+            def path(name, data=b""):
+                p = os.path.join(tmp, name)
+                with open(p, "wb") as f:
+                    f.write(data)
+                return p
+
+            out = os.path.join(tmp, "out.dat")
+            v3 = k6bake.table_bytes("SCIKOR", [("가", 1, 0)], 3, k6bake.header_line("kq1", FP, "sci", VOCAB))
+            short = path("short.dat", b"SCIKOR\0\0" + struct.pack("<II", 3, 0) + b"\0\0")
+            nonascii = path("na.dat", v3.replace(b"game=kq1", b"game=k\xc3\xa9"))
+            bad_json = path("bad.json", b"{not json")
+            no_map = path("nomap.json", json.dumps({"x": 1}).encode())
+            cases = [
+                ["k6bake", "build", MINI, out, "--format", "x"],
+                ["k6bake", "dump", short],
+                ["k6bake", "dump", nonascii],
+                ["k6bake", "build", bad_json, out],
+                ["k6bake", "build", no_map, out],
+                ["k6bake", "build", os.path.join(tmp, "missing.json"), out],
+                ["k6bake", "build", MINI, out, "--format", "2", "--targets"],
+                ["k6bake", "convert", os.path.join(tmp, "missing.dat"), out, "--format", "2"],
+            ]
+            targets = path("t.json", b"{not json")
+            kmap = path("ok.json", json.dumps({"map": {"문": 1}}).encode())
+            cases.append(["k6bake", "build", kmap, out, "--format", "2", "--targets", targets])
+            cases.append(["k6bake", "build", kmap, out, "--format", "2", "--targets", os.path.join(tmp, "none.json")])
+            for argv in cases:
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    self.assertEqual(k6bake.main(argv), 2, argv)
+                self.assertTrue(err.getvalue().startswith("k6bake: "), (argv, err.getvalue()))
+            self.assertFalse(os.path.exists(out))
+
     def test_k3map_source(self):
         import json
         with tempfile.TemporaryDirectory(dir=TMPROOT) as tmp:

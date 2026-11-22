@@ -59,6 +59,11 @@ class BakeError(Exception):
     pass
 
 
+def slurp(path):
+    with open(path, "rb") as f:
+        return f.read()
+
+
 def units(word):
     return [ord(c) for c in word]
 
@@ -124,11 +129,16 @@ def read_table(data, what="table"):
     if version == 2:
         at, size, fmt = 16, 8, "<HHHH"
     elif version == 3:
+        if len(data) < 20:
+            raise BakeError("%s: too small for a version 3 header" % what)
         (hsize,) = struct.unpack_from("<I", data, 16)
         raw = data[20:20 + hsize]
         if hsize == 0 or hsize % 4 or len(raw) != hsize or b"\0" not in raw:
             raise BakeError("%s: bad header size" % what)
-        header = raw[:raw.index(b"\0")].decode("ascii")
+        try:
+            header = raw[:raw.index(b"\0")].decode("ascii")
+        except UnicodeDecodeError:
+            raise BakeError("%s: the header text is not ASCII" % what)
         at, size, fmt = 20 + hsize, 12, "<IHHHH"
     else:
         raise BakeError("%s: version %d, only 2 and 3 exist" % (what, version))
@@ -246,17 +256,23 @@ def source_rows(path, args):
     with open(path, encoding="utf-8") as f:
         text = f.read()
     if path.endswith(".json"):
-        kmap = json.loads(text)["map"]
-        t = json.load(open(targets, encoding="utf-8")) if targets else None
-        v = json.load(open(verbs, encoding="utf-8")) if verbs else None
-        return magic or "SCIKOR", k3map_rows(kmap, t, v)
+        try:
+            kmap = json.loads(text)["map"]
+            t = json.loads(slurp(targets).decode("utf-8")) if targets else None
+            v = json.loads(slurp(verbs).decode("utf-8")) if verbs else None
+            return magic or "SCIKOR", k3map_rows(kmap, t, v)
+        except (KeyError, TypeError, AttributeError, ValueError) as e:
+            raise BakeError("%s: not a usable k3map.json / targets file (%s: %s)" % (path, type(e).__name__, e))
     if magic or targets or verbs:
         raise BakeError("--magic, --targets and --verbs are for a k3map.json")
     return master_rows(text)
 
 
 def versioned(magic, rows, args):
-    version = int(take(args, "--format", "3"))
+    try:
+        version = int(take(args, "--format", "3"))
+    except ValueError:
+        raise BakeError("--format must be 2 or 3")
     game = take(args, "--game")
     fingerprint = take(args, "--fingerprint")
     vocab = take(args, "--vocab-md5")
@@ -337,7 +353,7 @@ def harness_check(root):
                 want[(f5[1], f5[3])] = f5[4]
     bad = 0
     for (game, master), sha in sorted(want.items()):
-        _magic, rows = master_rows(open(os.path.join(release, game, "translation", master), encoding="utf-8").read())
+        _magic, rows = master_rows(slurp(os.path.join(release, game, "translation", master)).decode("utf-8"))
         data = table_bytes(_magic, rows, 2)
         got = hashlib.sha256(data).hexdigest()
         ok = got == sha
@@ -358,10 +374,10 @@ def main(argv):
             data = versioned(magic, rows, args)
         elif cmd == "convert" and len(args) >= 2:
             src, out = args.pop(0), args.pop(0)
-            magic, _version, _header, rows = read_table(open(src, "rb").read(), src)
+            magic, _version, _header, rows = read_table(slurp(src), src)
             data = versioned(magic, rows, args)
         elif cmd == "dump" and len(args) == 1:
-            magic, version, header, rows = read_table(open(args[0], "rb").read(), args[0])
+            magic, version, header, rows = read_table(slurp(args[0]), args[0])
             print("@magic %s version %d" % (magic, version))
             if header:
                 print(header)
@@ -388,6 +404,9 @@ def main(argv):
                                                                     hashlib.sha256(data).hexdigest()))
         return 0
     except BakeError as e:
+        print("k6bake: %s" % e, file=sys.stderr)
+        return 2
+    except OSError as e:
         print("k6bake: %s" % e, file=sys.stderr)
         return 2
 
