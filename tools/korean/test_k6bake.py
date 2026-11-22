@@ -17,8 +17,12 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Tests of k6bake.py: python3 -I tools/korean/test_k6bake.py (from anywhere; standard library only)."""
+"""Tests of k6bake.py: python3 -I tools/korean/test_k6bake.py (from anywhere; standard library only).
 
+Scratch files go to $TMPDIR, or to k6bake-test/ in the working directory when it is not set (never the system
+temp dir)."""
+
+import atexit
 import hashlib
 import os
 import sys
@@ -35,6 +39,11 @@ GOLDEN = os.path.join(ROOT, "test", "korean_vocab_golden.h")
 GOLDEN_ARGS = ["--game", "kq1", "--fingerprint", "0123456789abcdef0123456789abcdef",
                "--vocab-md5", "fedcba9876543210fedcba9876543210"]
 FP = "0123456789abcdef0123456789abcdef"
+# Scratch files go under the working directory, never the system temp dir (host convention).
+# Set TMPDIR to put them elsewhere; the folder is removed again when it is empty.
+TMPROOT = os.environ.get("TMPDIR") or os.path.join(os.getcwd(), "k6bake-test")
+os.makedirs(TMPROOT, exist_ok=True)
+atexit.register(lambda: os.path.isdir(TMPROOT) and not os.listdir(TMPROOT) and os.rmdir(TMPROOT))
 
 
 def master(*lines):
@@ -82,7 +91,7 @@ class K6BakeTest(unittest.TestCase):
             self.assertEqual(f.read(), k6bake.golden(MINI, list(GOLDEN_ARGS)))
 
     def test_cli_build_convert_dump(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(dir=TMPROOT) as tmp:
             v3 = os.path.join(tmp, "t3.dat")
             v2 = os.path.join(tmp, "t2.dat")
             self.assertEqual(k6bake.main(["k6bake", "build", MINI, v3, "--game", "kq1", "--fingerprint", FP]), 0)
@@ -95,7 +104,7 @@ class K6BakeTest(unittest.TestCase):
 
     def test_k3map_source(self):
         import json
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(dir=TMPROOT) as tmp:
             k3 = os.path.join(tmp, "k3map.json")
             k2 = os.path.join(tmp, "k2targets.json")
             json.dump({"map": {"문": [83, 166], "들여다봐": "30+169", "\U00020000": 1, "\ua960": 5}}, open(k3, "w"))
