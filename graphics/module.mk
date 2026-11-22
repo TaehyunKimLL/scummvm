@@ -21,6 +21,7 @@ MODULE_OBJS := \
 	fonts/macfont.o \
 	fonts/newfont_big.o \
 	fonts/newfont.o \
+	fonts/svffont.o \
 	fonts/ttf.o \
 	fonts/winfont.o \
 	framelimiter.o \
