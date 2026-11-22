@@ -83,6 +83,7 @@ MODULE_OBJS := \
 	graphics/drivers/win16col.o \
 	graphics/drivers/win256col.o \
 	parser/grammar.o \
+	parser/korean_parser.o \
 	parser/said.o \
 	parser/vocabulary.o \
 	resource/decompressor.o \
