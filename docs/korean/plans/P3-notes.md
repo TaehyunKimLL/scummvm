@@ -81,3 +81,17 @@ Pack `~/work/tmp/p3-kq1/pack` (unzipped harness pack), `language=ko`, default ma
 6. mingw: `make test/runner` (the target is `test/runner`, the file `runner.exe`), not `make test/runner.exe`.
 7. Task 19 Step 5: the references are recorded as hashes above; the first-room whole frames differ in the moat animation, so later runs compare the status rows crop (`80ef44ab...`, rows 0-16) and the reply box.
 8. Notes: each task's sha is written in the next task's entry (a commit cannot name itself).
+
+## Review fixes (P3-review.md; details in `P3-fixes.md`)
+
+- M1 f5d8f52909b, M2 b02c20eea39, M3 6ea683f95dd, m1 8e13e94cbbf, m4 16f9be227ab, m7 73d00c8bac1; m2, m3, m6, m8, m9 documented.
+- Test count now 675 (666 + 1 TextMode + 8 utf8 write/truncate).
+- What `kFormat`/`kStrAt` bound: dynamic memory blocks, SCI32 arrays and script strings are bounded to their size (cut on a
+  code point boundary, with a warning); a stack or locals buffer is NOT bounded beyond the segment end, only reported
+  (warning once per format string and length when the Korean result is longer than the English). UNVERIFIED: no KQ1 run
+  reaches a bounded case; `SegManager::stringCapacity()` has no unit test.
+- Edit control `max` is a byte count: a Korean prompt holds `max / 3` syllables (KQ1 parser 13).
+- For the P4 plan (m5): `GfxFontHiRes::getHeight()` is at least `ceil((ascent + descent) / 2)` of the face, so every font of
+  a P4 game with 6 px fonts becomes >= 8 px tall (menus, status bar, text boxes) unless its map routes the id to a
+  smaller face or `original`.
+- Reference run after the fixes: right after the M3 commit the PNG was byte-identical to the P3 reference (sha256 `93cd25075190ef094b6b42a170fc67eae8d3063445cf7d39ed234e6268fa5576`); on the final binary three runs differ from it only inside the moat animation band (y 306-346, timing; as the P3 notes say), and are pixel-identical to it for y < 290 (status line, scene, reply box). The English target is unchanged (320x200, English title menu, no Hi-res/korvocab/sci-ko log line). ASan typed run clean.
