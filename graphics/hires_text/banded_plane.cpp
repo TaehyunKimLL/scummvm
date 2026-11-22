@@ -222,6 +222,10 @@ void BandedPlane::copyFrom(const BandedPlane &other) {
 }
 
 void BandedPlane::readBytes(uint32 offset, byte *dst, uint32 n) const {
+	if (!exists()) {
+		memset(dst, 0, n);
+		return;
+	}
 	while (n) {
 		const int y = offset / _w;
 		const int x = offset % _w;
@@ -238,6 +242,8 @@ void BandedPlane::readBytes(uint32 offset, byte *dst, uint32 n) const {
 }
 
 void BandedPlane::writeBytes(uint32 offset, const byte *src, uint32 n) {
+	if (!exists())
+		return;
 	while (n) {
 		const int y = offset / _w;
 		const int x = offset % _w;

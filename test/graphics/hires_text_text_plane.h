@@ -21,6 +21,7 @@
 
 #include <cxxtest/TestSuite.h>
 
+#include "graphics/hires_text/banded_plane.h"
 #include "graphics/hires_text/text_plane.h"
 
 class HiResTextTextPlaneTestSuite : public CxxTest::TestSuite {
@@ -53,6 +54,18 @@ public:
 		TS_ASSERT_EQUALS(p.getCoverage(-1, 20), 0);
 		TS_ASSERT_EQUALS(p.getCoverage(640, 20), 0);
 		TS_ASSERT_EQUALS(p.getIndex(10, 400), 0);
+	}
+
+	// A plane that was never created reads as zeros and ignores writes (no division by its zero width).
+	void test_bytesOfAnEmptyBandedPlane() {
+		Graphics::BandedPlane b;
+		byte buf[4] = { 1, 2, 3, 4 };
+		b.readBytes(3, buf, 4);
+		TS_ASSERT_EQUALS(buf[0], 0);
+		TS_ASSERT_EQUALS(buf[3], 0);
+		buf[0] = 9;
+		b.writeBytes(0, buf, 4);
+		TS_ASSERT(b.bandsHeld() == 0);
 	}
 
 	void test_plotRule() {
