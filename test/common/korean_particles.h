@@ -26,4 +26,13 @@ public:
 		TS_ASSERT_EQUALS(p("(\xEC\x9D\xB4)"), "(\xEC\x9D\xB4)");
 		TS_ASSERT_EQUALS(p("Score (100)"), "Score (100)");
 	}
+
+	// A Latin word is read by its last letter: l, m, n end in a consonant, so does "ng" (king is read as 킹).
+	void test_latin_ng_ends_in_a_consonant() {
+		TS_ASSERT_EQUALS(p("king\xEC\x9D\xB4(\xEA\xB0\x80)"), "king\xEC\x9D\xB4");
+		TS_ASSERT_EQUALS(p("Wang\xEC\x9D\x84(\xEB\xA5\xBC)"), "Wang\xEC\x9D\x84");
+		TS_ASSERT_EQUALS(p("LING\xEC\x9D\xB4(\xEA\xB0\x80)"), "LING\xEC\x9D\xB4");
+		TS_ASSERT_EQUALS(p("dog\xEC\x9D\xB4(\xEA\xB0\x80)"), "dog\xEA\xB0\x80");
+		TS_ASSERT_EQUALS(p("g\xEC\x9D\xB4(\xEA\xB0\x80)"), "g\xEA\xB0\x80");
+	}
 };

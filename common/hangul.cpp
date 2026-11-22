@@ -301,6 +301,9 @@ static int finalConsonant(const String &s, uint end) {
 			if (!isAlpha(c))
 				return -1;
 			const byte l = c | 0x20;
+			// "ng" is read as the final ㅇ (king: 킹), a lone g as a vowel (dog: 도그).
+			if (l == 'g' && end >= 2 && (s[end - 2] | 0x20) == 'n')
+				return 1;
 			return l == 'l' ? 2 : (l == 'm' || l == 'n') ? 1 : 0;
 		}
 		// A three-byte UTF-8 Hangul syllable, U+AC00..U+D7A3.
