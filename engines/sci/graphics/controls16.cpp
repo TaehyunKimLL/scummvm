@@ -39,6 +39,7 @@
 #include "sci/graphics/screen.h"
 #include "sci/graphics/text16.h"
 #include "sci/graphics/controls16.h"
+#include "sci/utf8.h"
 
 namespace Sci {
 
@@ -122,6 +123,25 @@ void GfxControls16::drawListControl(Common::Rect rect, reg_t obj, int16 maxChars
 }
 
 void GfxControls16::texteditCursorDraw(Common::Rect rect, const char *text, uint16 curPos) {
+	if (!_texteditCursorVisible && g_sci->getTextMode().utf8()) {
+		// curPos counts code points (the script's cursor).
+		const byte *p = (const byte *)text;
+		const uint32 at = utf8OffsetOf(p, curPos);
+		int16 textWidth = 0;
+		int bytes;
+		for (uint32 i = 0; i < at; i += bytes)
+			textWidth += _text16->_font->getCharWidth(decodeUtf8Char(p + i, bytes));
+		const uint32 under = p[at] ? decodeUtf8Char(p + at, bytes) : 0;
+		_texteditCursorRect.left = rect.left + textWidth;
+		_texteditCursorRect.top = rect.top;
+		_texteditCursorRect.bottom = _texteditCursorRect.top + _text16->_font->getHeight();
+		_texteditCursorRect.right = _texteditCursorRect.left + (under ? _text16->_font->getCharWidth(under) : 1);
+		_paint16->invertRect(_texteditCursorRect);
+		_paint16->bitsShow(_texteditCursorRect);
+		_texteditCursorVisible = true;
+		texteditSetBlinkTime();
+		return;
+	}
 	if (!_texteditCursorVisible) {
 		int16 textWidth = 0;
 		for (int16 i = 0; i < curPos; i++) {
@@ -157,7 +177,57 @@ void GfxControls16::texteditSetBlinkTime() {
 	_texteditBlinkTime = g_system->getMillis() + (30 * 1000 / 60);
 }
 
+void GfxControls16::texteditChangeUtf8(reg_t controlObject, reg_t eventObject) {
+	const uint16 maxChars = readSelectorValue(_segMan, controlObject, SELECTOR(max));
+	const reg_t textReference = readSelector(_segMan, controlObject, SELECTOR(text));
+	if (textReference.isNull())
+		error("kEditControl called on object that doesn't have a text reference");
+	Common::String text = _segMan->getString(textReference);
+	// The script's cursor counts code points; the line works in bytes.
+	uint cursor = utf8OffsetOf((const byte *)text.c_str(), readSelectorValue(_segMan, controlObject, SELECTOR(cursor)));
+	EventManager *events = g_sci->getEventManager();
+	bool changed = _koreanLine.adopt(text, cursor, events->hangulMode(), events->lastOsImeKey(), maxChars);
+
+	if (!eventObject.isNull() && readSelectorValue(_segMan, eventObject, SELECTOR(type)) == kSciEventKeyDown) {
+		const uint16 key = readSelectorValue(_segMan, eventObject, SELECTOR(message));
+		const uint16 modifiers = readSelectorValue(_segMan, eventObject, SELECTOR(modifiers));
+		changed = _koreanLine.key(key, (modifiers & kSciKeyModCtrl) != 0, events->hangulMode(), events->lastOsImeKey(), text,
+		                          cursor, maxChars) == KoreanEditLine::kChanged || changed;
+	}
+
+	if (changed) {
+		const GuiResourceId oldFontId = _text16->GetFontId();
+		const Common::Rect rect = g_sci->_gfxCompare->getNSRect(controlObject);
+		_text16->SetFont(readSelectorValue(_segMan, controlObject, SELECTOR(font)));
+		int16 width, height;
+		_text16->StringWidth(text, -1, width, height);
+		if (width >= rect.width()) {
+			// The line is full: the key is taken back.
+			_koreanLine.undo(text, cursor);
+		}
+		const uint16 index = utf8IndexOfOffset((const byte *)text.c_str(), cursor);
+		texteditCursorErase();
+		_paint16->eraseRect(rect);
+		_text16->Box(text.c_str(), false, rect, SCI_TEXT16_ALIGNMENT_LEFT, -1);
+		_paint16->bitsShow(rect);
+		texteditCursorDraw(rect, text.c_str(), index);
+		_text16->SetFont(oldFontId);
+		_segMan->strcpy_(textReference, text.c_str());
+		_koreanLine.remember(text);
+		writeSelectorValue(_segMan, controlObject, SELECTOR(cursor), index);
+	} else if (g_system->getMillis() >= _texteditBlinkTime) {
+		_paint16->invertRect(_texteditCursorRect);
+		_paint16->bitsShow(_texteditCursorRect);
+		_texteditCursorVisible = !_texteditCursorVisible;
+		texteditSetBlinkTime();
+	}
+}
+
 void GfxControls16::kernelTexteditChange(reg_t controlObject, reg_t eventObject) {
+	if (g_sci->getTextMode().utf8()) {
+		texteditChangeUtf8(controlObject, eventObject);
+		return;
+	}
 	uint16 cursorPos = readSelectorValue(_segMan, controlObject, SELECTOR(cursor));
 	uint16 maxChars = readSelectorValue(_segMan, controlObject, SELECTOR(max));
 	reg_t textReference = readSelector(_segMan, controlObject, SELECTOR(text));

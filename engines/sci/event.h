@@ -157,10 +157,19 @@ public:
 	SciEvent getSciEvent(SciEventType mask);
 	void flushEvents();
 
+	/** The built-in Hangul composer is on (Han/Yeong toggles it; DESIGN.md section 6). */
+	bool hangulMode() const { return _hangulMode; }
+	/** The OS-IME syllable behind the last surrogate key a script got, or 0. */
+	uint32 lastOsImeKey() const { return _lastOsImeKey; }
+
 private:
 	SciEvent getScummVMEvent();
 
 	const bool _fontIsExtended;
+	bool _hangulInput;   ///< Korean typing: a TextMode::kUtf8 game with hangul_input
+	bool _hangulBuiltin; ///< hangul_builtin: the composer may be switched on
+	bool _hangulMode;
+	uint32 _lastOsImeKey;
 	Common::List<SciEvent> _events;
 #ifdef ENABLE_SCI32
 public:

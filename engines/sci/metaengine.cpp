@@ -21,6 +21,8 @@
 
 #include "engines/advancedDetector.h"
 #include "base/plugins.h"
+#include "backends/keymapper/action.h"
+#include "backends/keymapper/keymapper.h"
 #include "common/config-manager.h"
 #include "common/file.h"
 #include "common/ptr.h"
@@ -200,6 +202,7 @@ public:
 	ADDetectedGame fallbackDetectExtern(uint md5Bytes, const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const override;
 
 	void registerDefaultSettings(const Common::String &target) const override;
+	Common::KeymapArray initKeymaps(const char *target) const override;
 	GUI::OptionsContainerWidget *buildEngineOptionsWidget(GUI::GuiObject *boss, const Common::String &name, const Common::String &target) const override;
 };
 
@@ -688,6 +691,26 @@ void SciMetaEngine::registerDefaultSettings(const Common::String &target) const 
 	if (ConfMan.get("gameid", target) == "kq6" && ConfMan.get("platform", target) == "pc") {
 		ConfMan.registerDefault("enable_high_resolution_graphics", false);
 	}
+}
+
+Common::KeymapArray SciMetaEngine::initKeymaps(const char *target) const {
+	Common::KeymapArray keymaps = AdvancedMetaEngine::initKeymaps(target);
+	// Korean targets (DESIGN.md section 6): Han/Yeong switches the built-in
+	// Hangul composer; a keyboard without the key has the others.
+	if (ConfMan.get("language", target) != "ko")
+		return keymaps;
+	Common::Keymap *keymap = new Common::Keymap(Common::Keymap::kKeymapTypeGame, "sci-korean", _("Korean input"));
+	Common::Action *act = new Common::Action("HANGULTOGGLE", _("Han/Yeong (Korean input on/off)"));
+	act->setCustomEngineActionEvent(kSciActionHangulToggle);
+	act->addDefaultInputMapping("HANGUL");
+	act->addDefaultInputMapping("RALT");
+	act->addDefaultInputMapping("C+SPACE");
+	act->addDefaultInputMapping("S+SPACE");
+	act->addDefaultInputMapping("SCROLLOCK");
+	act->addDefaultInputMapping("F12");
+	keymap->addAction(act);
+	keymaps.push_back(keymap);
+	return keymaps;
 }
 
 GUI::OptionsContainerWidget *SciMetaEngine::buildEngineOptionsWidget(GUI::GuiObject *boss, const Common::String &name, const Common::String &target) const {

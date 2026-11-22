@@ -25,6 +25,9 @@
 
 #include "sci/sci.h"
 #include "sci/event.h"
+#include "sci/korean_input.h"
+#include "sci/parser/vocabulary.h"
+#include "common/config-manager.h"
 #include "sci/console.h"
 #include "sci/engine/state.h"
 #include "sci/engine/kernel.h"
@@ -142,13 +145,27 @@ static const MouseEventConversion mouseEventMappings[] = {
 	{ Common::EVENT_MBUTTONUP   , kSciEventMouseRelease }
 };
 
+// A key of DESIGN.md section 7 that may say auto: @p autoValue then.
+static bool autoBoolKey(const char *key, bool autoValue) {
+	bool value;
+	if (!ConfMan.hasKey(key) || ConfMan.get(key).equalsIgnoreCase("auto") || !Common::parseBool(ConfMan.get(key), value))
+		return autoValue;
+	return value;
+}
+
 EventManager::EventManager(bool fontIsExtended) :
-	_fontIsExtended(fontIsExtended)
+	_fontIsExtended(fontIsExtended), _lastOsImeKey(0)
 #ifdef ENABLE_SCI32
 	, _hotRectanglesActive(false)
 	, _activeRectIndex(-1)
 #endif
-	{}
+	{
+	// Korean typing: on by default when the game has a Korean word table.
+	const bool korean = g_sci->getTextMode().utf8();
+	_hangulInput = korean && autoBoolKey("hangul_input", g_sci->getVocabulary() && g_sci->getVocabulary()->hasKoreanWords());
+	_hangulBuiltin = _hangulInput && autoBoolKey("hangul_builtin", true);
+	_hangulMode = _hangulBuiltin && autoBoolKey("hangul_start", true);
+}
 
 EventManager::~EventManager() {
 }
@@ -301,6 +318,14 @@ SciEvent EventManager::getScummVMEvent() {
 		}
 	}
 
+	// The Han/Yeong action toggles the composer; the script never sees it.
+	if (ev.type == Common::EVENT_CUSTOM_ENGINE_ACTION_START && ev.customType == kSciActionHangulToggle) {
+		if (_hangulBuiltin)
+			_hangulMode = !_hangulMode;
+		debugC(1, kDebugLevelKorean, "Hangul mode %s", _hangulMode ? "on" : "off");
+		return noEvent;
+	}
+
 	// Handle keyboard events for the rest of the function
 	if (ev.type != Common::EVENT_KEYDOWN && ev.type != Common::EVENT_KEYUP) {
 		return noEvent;
@@ -315,6 +340,14 @@ SciEvent EventManager::getScummVMEvent() {
 	const Common::KeyCode scummVMKeycode = ev.kbd.keycode;
 
 	input.character = ev.kbd.ascii;
+	if (_hangulInput && ev.type == Common::EVENT_KEYDOWN) {
+		// An OS input method's syllable: SCI0 scripts open the parser prompt
+		// only on printable ASCII, so the script gets a surrogate and the
+		// edit control puts the syllable in (memory korean-input-path).
+		_lastOsImeKey = (ev.kbd.keycode == Common::KEYCODE_INVALID && ev.kbd.ascii >= 0x100) ? ev.kbd.ascii : 0;
+		if (_lastOsImeKey)
+			input.character = KoreanEditLine::kOsImeSurrogateKey;
+	}
 
 	if (scummVMKeycode >= Common::KEYCODE_KP0 && scummVMKeycode <= Common::KEYCODE_KP9 && !(scummVMKeyFlags & Common::KBD_NUM)) {
 		// TODO: Leaky abstractions from SDL should not be handled in game

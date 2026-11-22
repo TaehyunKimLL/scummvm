@@ -22,6 +22,8 @@
 #ifndef SCI_GRAPHICS_CONTROLS16_H
 #define SCI_GRAPHICS_CONTROLS16_H
 
+#include "sci/korean_input.h"
+
 namespace Sci {
 
 enum controlStateFlags {
@@ -67,6 +69,8 @@ private:
 
 	void drawListControl(Common::Rect rect, reg_t obj, int16 maxChars, int16 count, const Common::String *entries, GuiResourceId fontId, int16 upperPos, int16 cursorPos, bool isAlias);
 	void texteditCursorDraw(Common::Rect rect, const char *text, uint16 curPos);
+	/** kernelTexteditChange() of a TextMode::kUtf8 game: code points, Hangul (KoreanEditLine). */
+	void texteditChangeUtf8(reg_t controlObject, reg_t eventObject);
 	void texteditCursorErase();
 	int getPicNotValid();
 
@@ -78,6 +82,7 @@ private:
 
 	// Textedit-Control related
 	Common::Rect _texteditCursorRect;
+	KoreanEditLine _koreanLine;
 	bool _texteditCursorVisible;
 	uint32 _texteditBlinkTime;
 };
