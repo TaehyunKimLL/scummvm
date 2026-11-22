@@ -252,9 +252,15 @@ Common::Error SciMetaEngineDetection::identifyGame(DetectedGame &game, const voi
 	if (!translated)
 		return AdvancedMetaEngineDetection::identifyGame(game, descriptor);
 	const Common::String language = ConfMan.get("language");
+	const bool hadTransient = ConfMan.hasKey("language", Common::ConfigManager::kTransientDomain);
+	const Common::String transient = hadTransient ? ConfMan.get("language", Common::ConfigManager::kTransientDomain) : Common::String();
 	ConfMan.set("language", "", Common::ConfigManager::kTransientDomain);
 	Common::Error err = AdvancedMetaEngineDetection::identifyGame(game, descriptor);
-	ConfMan.set("language", language, Common::ConfigManager::kTransientDomain);
+	// Put back exactly what was there: the target's own key must not stay shadowed for the session.
+	if (hadTransient)
+		ConfMan.set("language", transient, Common::ConfigManager::kTransientDomain);
+	else
+		ConfMan.removeKey("language", Common::ConfigManager::kTransientDomain);
 	return err;
 }
 
