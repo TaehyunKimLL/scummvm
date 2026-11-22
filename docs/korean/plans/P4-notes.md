@@ -63,3 +63,43 @@ retry loop spins; not an engine problem).
   a new typed text, the table never changes during play).
 - ASan run of QFG2 (Task b2) at the end, see b2.
 - The "fresh reviewer" of the plan is not available inside this run; the self-read above stands in for it (deviation).
+
+## P4b: QFG2 (scratch data `datah/qfg2`, runs `~/work/tmp/p4/b*`)
+
+Run harness: `go.sh` (Xvfb 800x600, xdotool), console teleport `send ?Trial newRoom 199` as in the plan. A teleported hero
+has no name, so the door's `%s` prints empty (`내 집에 자유로이 들어오게, .`): not a bug of the engine.
+
+- **b1** suite row `QFG2` OK (all seven rows OK on `datah`). Piracy notice viewed: ten centred Hangul lines, legible. clut8 frame
+  sha256 `cf99f8c17e3dc48f...`, rgb565 frame `0dc79494266510e4...`; the two frames differ **only** in the mouse cursor (the cursor
+  sprite is drawn at a different place in the two runs: two 32x32 squares at (300,200) and (559,368)); with those two squares
+  blanked the frames are pixel-identical (checked with PIL), so the 1 bpp text is identical on clut8 and rgb565. Status line
+  after the teleport (`퀘스트 포 글로리 2:  불의 시련  [0 / 500]`, y 0-16) legible. Room-199 frame sha256 (door opened) `99be3da294b2216c...`.
+- **b2 red** (P3 binary, same keys): the door answers `나를 찾기 전에 누가 그대를 보냈는지부터 더 알아보게.` (text 199 #14), no
+  `answer` log line (viewed).
+- **b2 green** (this tree): log `answer "두드려" reads as "knock rap"`, `answer "키폰" reads as "keapon laffin"` (the cache prints a
+  repeated answer once); the door asks the next question. The game picks the question at random but deterministically per
+  keystroke timing: five runs asked #11 (`마법 상점 주인에게 가장 어울리는 원소는 무엇인가?`). Answers tried on it:
+  `공기` (air, `rhdrl`) -> log `reads as "air"`, door goes on to the riddle (#16, `...(영어 철자로 생각해 보라.)`): **passes**;
+  `악마` (demon), `와지르` (`minister vizier wazir`), `전부` (`all every`), `펜러스` (`fenrus mouse rat`) -> all refused with
+  #15 `청하지 않고 온 낯선 이는 만나지 않네.` (negative controls). Riddle answer `아지자` (`dkwlwk`) reads as `aziza azizah
+  enchantress sorceress` -> door opens (#18) and the hero walks in to Aziza's room (score 7/500). Answers to #9 (Rakeesh's
+  leg: `악마` -> `demon`), #10 (Ja'afar: `와지르`), #12 (WIT: `전부`) and #13 (Erasmus's companion: `펜러스` -> `fenrus`) are
+  **UNVERIFIED in play** (the game did not ask those questions in any of the runs); the table reads each as the expected English
+  word(s), which is what the game's search needs. The correct answers to #10/#12 are my reading of the QFG2 walkthrough, not
+  checked against script 2.
+- **b2 step 4** English answer with F12 (composer off): `knock`, `keapon` x2 -> the same next question (#11), no `answer` log line:
+  ASCII keeps the game's own search.
+- **b2 ASan**: the whole door sequence to Aziza's room on `~/work/tmp/scummvm2026-p4asan` (`detect_leaks=0`): no AddressSanitizer or
+  runtime-error line, same `answer` lines.
+- **b3** Aziza's room (room after the door; a town room needs the printed-manual copy protection after a teleport: every
+  teleport to rooms 100/300/400/500 showed `아, 그건 그렇고 ... 이 게임을 무사히 끝내려면 인쇄된 설명서에 담긴 정보가 필요합니다`, not
+  passed; room 150 hangs the interpreter, an invalid room): typed `ansdmf qhk` (문을 봐) -> `현관문이다. 여기로 들어왔다.` (the
+  English game answers "It's the front door. You came in here" to look at door: same meaning); `ansdmf` + Return alone ->
+  `부디 용서하십시오, 에멘디. 천 번 사죄드리지만 무슨 말씀인지 이해하지 못했습니다` (Aziza's "do not understand" reply); the input box shows
+  `문을` while typing. `qhk` alone in this room printed the room description (`공기는 눅눅하고 장식은 온통 바다색이다. 아지자는
+  집을 깔끔하게 가꾼다.`). Save: F5 -> dialog `게임 저장` / `이 저장 게임의 설명을 입력하세요.` with Korean buttons `저장` `취소`
+  (`Change Directory` button English: not a script string), typed `ans` (문), Return -> file `qfg2-ko.001`; F7 `게임 불러오기` lists `문`
+  (the game's list, no boxes). The restore (Return on the list) was not run; `originalsaveload=false` ScummVM dialog not run.
+- **b3 step 3** `grep -c 'cut to\|grown from\|longer than'` over all QFG2 runs: 0.
+- **b4** k16said: pending `ko/07-debugsocket` (`k16said.py --game qfg2` target pass >= 1654 of 1876).
+- Checkpoint B: the answer-room design held: b2 passed with no engine change beyond P4a. No stop needed.
