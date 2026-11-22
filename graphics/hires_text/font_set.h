@@ -78,7 +78,10 @@ public:
 	HiResFontSet();
 	~HiResFontSet();
 
-	/** Opens @p plan's chains through @p faces. False when the id chain has no face that opens and is not original. */
+	/**
+	 * Opens @p plan's chains through @p faces (replacing any chains the set held). The faces belong to @p faces, which
+	 * must outlive the set. False when the id chain has no face that opens and is not original.
+	 */
 	bool build(const HiResIdPlan &plan, const HiResMap &map, HiResFaceCache &faces, Common::Array<Common::String> &warnings);
 	/** Adds a chain (tests, callers with faces of their own); the set deletes it with DisposeAfterUse::YES. */
 	void addChain(SvfChain *chain, bool original, DisposeAfterUse::Flag dispose);
@@ -106,6 +109,7 @@ public:
 	enum { kSyllableCacheSlots = 64 };
 
 private:
+	void clearChains();
 	uint32 substitute(uint32 cp, int chain) const;
 	bool hasReplacement() const;
 

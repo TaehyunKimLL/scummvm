@@ -79,9 +79,16 @@ HiResFontSet::HiResFontSet() {
 }
 
 HiResFontSet::~HiResFontSet() {
+	clearChains();
+}
+
+void HiResFontSet::clearChains() {
 	for (uint i = 0; i < _chains.size(); ++i)
 		if (_dispose[i] == DisposeAfterUse::YES)
 			delete _chains[i];
+	_chains.clear();
+	_original.clear();
+	_dispose.clear();
 }
 
 void HiResFontSet::addChain(SvfChain *chain, bool original, DisposeAfterUse::Flag dispose) {
@@ -92,6 +99,7 @@ void HiResFontSet::addChain(SvfChain *chain, bool original, DisposeAfterUse::Fla
 
 bool HiResFontSet::build(const HiResIdPlan &plan, const HiResMap &map, HiResFaceCache &faces,
                          Common::Array<Common::String> &warnings) {
+	clearChains();
 	_plan = plan;
 	for (uint c = 0; c < plan.chains.size(); ++c) {
 		SvfChain *chain = new SvfChain();

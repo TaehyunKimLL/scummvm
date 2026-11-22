@@ -117,6 +117,10 @@ public:
 		Graphics::HiResFontSet set;
 		TS_ASSERT(set.build(Graphics::compileIdPlan(map, 0, w), map, cache, w));
 		TS_ASSERT(w.empty());
+		// Building again replaces the chains: no growth, no leak.
+		const uint chains = set.getChainCount();
+		TS_ASSERT(set.build(Graphics::compileIdPlan(map, 0, w), map, cache, w));
+		TS_ASSERT_EQUALS(set.getChainCount(), chains);
 		if (!set.getChainCount() || !set.getChain(0)->getFaceCount())
 			return;
 		TS_ASSERT_EQUALS(set.getChain(0)->getFace(0)->getStatus(), 0);
