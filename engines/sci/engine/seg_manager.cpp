@@ -754,11 +754,17 @@ void SegManager::strncpy(reg_t dest, reg_t src, size_t n) {
 	}
 
 
-	if (src_r.isRaw && g_sci && g_sci->getTextMode().utf8() && src.getSegment() == dest.getSegment()) {
+	if (src_r.isRaw && g_sci && g_sci->getTextMode().utf8() && src.getSegment() == dest.getSegment() &&
+	    getSegmentType(dest.getSegment()) == SEG_TYPE_DYNMEM) {
 		// The copy may grow the destination's block (growDynmem()), which
 		// moves a source in the same block: copy it out first.
 		const Common::String text((const char *)src_r.raw, Common::strnlen((const char *)src_r.raw, MIN<size_t>(n, src_r.maxSize)));
 		strncpy(dest, text.c_str(), MIN<size_t>(n, text.size() + 1));
+		// strncpy() with a limit pads the rest of it with NULs
+		const SegmentRef grown = dereference(dest);
+		if (n != 0xFFFFFFFFU)
+			for (size_t i = text.size() + 1; i < n && (int)i < grown.maxSize; ++i)
+				grown.raw[i] = 0;
 	} else if (src_r.isRaw) {
 		// raw -> *
 		strncpy(dest, (const char*)src_r.raw, n);
