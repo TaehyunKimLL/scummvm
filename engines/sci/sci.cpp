@@ -231,6 +231,17 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 		SearchMan.addSubDirectoryMatching(gameDataDir, Common::getLanguageFolderCode(_textMode.language), 1);
 }
 
+// Whether @p folder holds a file named @p name, in any case.
+static bool folderHasFile(const Common::FSNode &folder, const Common::String &name) {
+	Common::FSList children;
+	if (!folder.getChildren(children, Common::FSNode::kListFilesOnly))
+		return false;
+	for (uint i = 0; i < children.size(); ++i)
+		if (children[i].getName().equalsIgnoreCase(name))
+			return true;
+	return false;
+}
+
 TextModeInputs SciEngine::textModeInputs(const Common::FSNode &gameDataDir, SciVersion version) const {
 	TextModeInputs in;
 	in.detected = _gameDescription->language;
@@ -244,9 +255,13 @@ TextModeInputs SciEngine::textModeInputs(const Common::FSNode &gameDataDir, SciV
 		const Common::Array<Common::Language> langs = Common::translationFolderLanguages(files, "sci-%s.str");
 		for (uint i = 0; i < langs.size(); ++i)
 			in.translationFolder = in.translationFolder || langs[i] == in.requested;
+		// Any case, as translationFolderLanguages() matches (ko/SCI-KO.STR, KO/sci-ko.str).
 		const Common::String table = Common::translationTableName("sci-%s.str", in.requested);
-		const Common::FSNode folder = gameDataDir.getChild(Common::getLanguageFolderCode(in.requested));
-		in.stringTable = gameDataDir.getChild(table).exists() || (folder.isDirectory() && folder.getChild(table).exists());
+		const Common::String code = Common::getLanguageFolderCode(in.requested);
+		for (uint i = 0; i < files.size() && !in.stringTable; ++i) {
+			if (files[i].isDirectory() ? files[i].getName().equalsIgnoreCase(code) : files[i].getName().equalsIgnoreCase(table))
+				in.stringTable = !files[i].isDirectory() || folderHasFile(files[i], table);
+		}
 	}
 	in.hiresText = !ConfMan.hasKey("hires_text") || ConfMan.getBool("hires_text");
 	in.version = version;
@@ -375,8 +390,12 @@ Common::Error SciEngine::run() {
 			debugC(1, kDebugLevelKorean, "Text mode: %s", _textModeNotes.c_str());
 		const Common::TranslationFileHeader expected = translationHeader(false);
 		const Common::String code = Common::getLanguageFolderCode(_textMode.language);
-		if (_scriptStrings.load(code, expected) && !_scriptStrings.getHeader().present())
-			warning("This game's sci-%s.str header line is: %s", code.c_str(), expected.toString().c_str());
+		if (_scriptStrings.load(code, expected)) {
+			if (!_scriptStrings.getHeader().present())
+				warning("This game's sci-%s.str header line is: %s", code.c_str(), expected.toString().c_str());
+		} else if (!_scriptStrings.isPresent()) {
+			warning("The %s translation folder has no usable sci-%s.str: script strings stay in English", code.c_str(), code.c_str());
+		}
 	}
 
 	// Load the Mac executable and fonts if available

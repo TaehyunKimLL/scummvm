@@ -62,6 +62,12 @@ TextMode decideTextMode(const TextModeInputs &in, Common::String &notes) {
 		mode.encoding = TextMode::kCp949;
 	else if (korean && in.stringTable)
 		mode.encoding = TextMode::kUtf8;
+	else if (korean && in.translationFolder && mode.language == in.requested) {
+		// A translation folder is a translation even when its table is missing or
+		// misspelt: never the silent CP949 path of an English game.
+		mode.encoding = TextMode::kUtf8;
+		notes += Common::String::format("translation folder has no sci-%s.str; ", Common::getLanguageFolderCode(mode.language));
+	}
 	else if (korean)
 		mode.encoding = TextMode::kCp949;
 	else

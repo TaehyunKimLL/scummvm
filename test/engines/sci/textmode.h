@@ -74,6 +74,23 @@ public:
 		TS_ASSERT_EQUALS(m.language, Common::EN_ANY);
 	}
 
+	void test_translationFolderWithoutTableIsUtf8() {
+		// A ko/ folder with maps or another table spelling but no usable sci-ko.str is still a
+		// translation: never silent CP949 of an English game.
+		Sci::TextModeInputs in = koreanPack();
+		in.stringTable = false;
+		Common::String notes;
+		const Sci::TextMode m = Sci::decideTextMode(in, notes);
+		TS_ASSERT_EQUALS(m.encoding, Sci::TextMode::kUtf8);
+		TS_ASSERT_EQUALS(m.language, Common::KO_KOR);
+		TS_ASSERT(notes.contains("no sci-ko.str"));
+		// A fan CP949 entry without a translation folder keeps its path.
+		in.detected = Common::KO_KOR;
+		in.requested = Common::UNK_LANG;
+		in.translationFolder = false;
+		TS_ASSERT_EQUALS(Sci::decideTextMode(in, notes).encoding, Sci::TextMode::kCp949);
+	}
+
 	void test_sci32HasNoHiresText() {
 		Sci::TextModeInputs in = koreanPack();
 		in.version = Sci::SCI_VERSION_2;
