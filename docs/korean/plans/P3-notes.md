@@ -29,4 +29,14 @@ Base `d7f47c73a07`, N0 = 620 tests (verified, `~/work/tmp/scummvm2026-p3build`).
 | 12 | bcf2c9077e6 | 666 OK | hooks only |
 | 13 | 42e178f833e | 666 OK | driver hook; verified by the smoke runs of Task 15 |
 | 14 | 4c0fa3690aa | 666 OK | screen/cache hooks; verified by the smoke runs of Task 15 |
-| 15 | see below | 666 OK | [data] smoke: title shows Hangul buttons (프롤로그 게임시작 / 크레딧 이어서 계속하기) at 2x in the 640x400 window; first room status line `득점: 0 of 158  킹스 퀘스트 I`; same on `render_target=rgb565` (status rows y0-20 pixel-identical to the clut8 shot); English target runs upstream (320x200, English title menu, no `Hi-res text` log line). Log: `Hi-res text: using data:hires_text/maps/korean-default.map` after the two "map version 2" notes. go.sh needed `xdotool windowfocus` for alt+s and a retry loop for the SDL_BlitSurface start flake. PNG mode is RGB for both (the screenshot action converts). |
+| 15 | a33b0811dbe | 666 OK | [data] smoke: title shows Hangul buttons (프롤로그 게임시작 / 크레딧 이어서 계속하기) at 2x in the 640x400 window; first room status line `득점: 0 of 158  킹스 퀘스트 I`; same on `render_target=rgb565` (status rows y0-20 pixel-identical to the clut8 shot); English target runs upstream (320x200, English title menu, no `Hi-res text` log line). Log: `Hi-res text: using data:hires_text/maps/korean-default.map` after the two "map version 2" notes. go.sh needed `xdotool windowfocus` for alt+s and a retry loop for the SDL_BlitSurface start flake. PNG mode is RGB for both (the screenshot action converts). |
+
+## Review checkpoint B (after Task 15)
+
+- `$BLD` `make test`: 666 OK; no-engine build 620 OK; `sync-svf.sh --check` and `mkgolden.py --check` rc 0.
+- Smoke screens viewed (see Task 15): Hangul legible at 2x, status line, RGB identical in the status rows; the English target is upstream.
+- Self-read, hooks and guards: kstring/kmenu/kgraphics translation lookups return "no key" when no table is loaded; text16 `getLongestUtf8` and the decode loops sit behind `getTextMode().utf8()`; the driver hook behind a non-null plane; screen hooks behind `_textPlane`; vocabulary behind `_koreanVocab.isLoaded()`; event/keymap behind `_hangulInput` / language ko.
+- `bitsGetDataSize` adds `saveSize(rect)` under the same condition (`VISUAL` mask and a plane) as `bitsSave` writes `save(rect)` and `bitsRestore` reads it: symmetric (one flag byte when the rect is empty).
+- `compositeText`: rect clipped to the plane, the row scratch is 1280 px (plane width 640), CLUT8 rows go through `_textScratch` so `_scaledBitmap` never keeps text.
+- Two changes that touch an English game too, both defensive and left as the plan has them: `Width()`/`Draw()`/`DrawStatus()` loop `while (len-- > 0)` (upstream `while (len--)`; differs only for a negative length, which no caller passes) and `tokenizeString` stops a word at `VOCAB_MAX_WORDLENGTH - 1` bytes (upstream wrote past the buffer).
+- No finding needing a fix commit.
