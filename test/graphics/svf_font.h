@@ -131,10 +131,15 @@ public:
 		             kSvfGoldenLine3by2H, kSvfGoldenLine3by2Rows, f.RGBToColor(0, 0, 0), f.RGBToColor(255, 255, 255));
 	}
 
-	void test_edges() {	// cells partly or wholly outside the surface: nothing outside it is written
+	// Cells partly or wholly outside the surface: nothing outside it is written. The 20x10 target is a
+	// sub-area in the middle of a larger surface filled with a sentinel, so a stray pixel is seen without ASan.
+	void test_edges() {
 		Graphics::SvfFont font(SvfTest::makeChain(2, 1), DisposeAfterUse::YES);
-		Graphics::Surface s;
-		s.create(20, 10, Graphics::PixelFormat::createFormatCLUT8());
+		Graphics::Surface big;
+		big.create(100, 60, Graphics::PixelFormat::createFormatCLUT8());
+		big.fillRect(Common::Rect(100, 60), 9);
+		const Common::Rect area(40, 25, 60, 35);
+		Graphics::Surface s = big.getSubArea(area);
 		s.fillRect(Common::Rect(20, 10), 0);
 		const int xs[] = { -40, -20, -7, 0, 9, 19, 40 };
 		const int ys[] = { -40, -9, 0, 5, 9, 40 };
@@ -143,7 +148,19 @@ public:
 				font.drawChar(&s, 0xD55C, xs[i], ys[j], 1);
 		font.drawChar(&s, 0xD55C, 100000, 0, 1);
 		font.drawChar(&s, 0xD55C, 0, -100000, 1);
-		s.free();
+
+		int outside = 0, inside = 0;
+		for (int y = 0; y < big.h; ++y)
+			for (int x = 0; x < big.w; ++x) {
+				const byte v = *(const byte *)big.getBasePtr(x, y);
+				if (area.contains(x, y))
+					inside += (v == 1);
+				else
+					outside += (v != 9);
+			}
+		TS_ASSERT_EQUALS(outside, 0);
+		TS_ASSERT(inside > 0);
+		big.free();
 	}
 
 	// Developer aid: with a directory "svf-dump" in the working directory, writes the CLUT8 and RGB565 test lines
