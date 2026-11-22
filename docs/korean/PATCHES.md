@@ -36,3 +36,8 @@ New files never conflict and are not listed.
 | `ko/03-sci` | `engines/sci/parser/vocabulary.{h,cpp}, grammar.cpp, said.cpp` | word table load, `lookupKorean`, UTF-8 safe case fold, arrangement, second parse tree and `said()` retry | Korean input to the game's `said()` specs |
 | `ko/03-sci` | `engines/sci/event.{h,cpp}, metaengine.cpp, graphics/controls16.{h,cpp}` | Han/Yeong action and keymap, OS-IME surrogate key, `texteditChangeUtf8` | typing Korean |
 | `ko/03-sci` | `engines/sci/engine/kfile.cpp` | `kGetSaveFiles` cuts a UTF-8 save name on a code point boundary | no dangling lead byte in the restore list |
+| `ko/03-sci` | `engines/sci/engine/script.cpp` | (P4) SCI1.1 strings start where `ScriptStrings::sci11StringsStart` says, for UTF-8 games | the translation's string ids on a heap whose strings open with a NUL pair |
+| `ko/03-sci` | `engines/sci/parser/vocabulary.{h,cpp}` | (P4) `Vocabulary::koreanAnswerLine` | a Korean answer as English words for the answer rooms |
+| `ko/03-sci` | `engines/sci/engine/kstring.cpp` | (P4) `koreanAnswerView` in `kStrAt` reads and `kStrLen` | QFG2 room 199, QFG1 EGA rooms 22 and 29 search the typed text |
+| `ko/03-sci` | `engines/sci/engine/seg_manager.{h,cpp}` | (P4) `growDynmem`, used by `strncpy` and `strcpyBounded`; a same-block source is copied out | a dynamic block grows for a longer translation instead of cutting it |
+| `ko/03-sci` | `engines/sci/graphics/cache.cpp` | (P4) `hiResFont` picks the font set of the font resource drawn (`& 0x7ff` as `GfxFontFromResource`) | lsl1sci's font id 2107 draws as font 59 |
