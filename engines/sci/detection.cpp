@@ -20,6 +20,9 @@
  */
 
 #include "engines/advancedDetector.h"
+#include "common/config-manager.h"
+#include "common/fs.h"
+#include "common/language_folder.h"
 #include "base/plugins.h"
 #include "common/file.h"
 #include "common/hashmap.h"
@@ -218,6 +221,8 @@ public:
 
 	DetectedGames detectGames(const Common::FSList &fslist, uint32 skipADFlags, bool skipIncomplete) override;
 
+	Common::Error identifyGame(DetectedGame &game, const void **descriptor) override;
+
 	ADDetectedGame fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const override;
 
 	void dumpDetectionEntries() const override;
@@ -226,8 +231,58 @@ private:
 	void addFileToDetectedGame(const Common::Path &name, const FileMap &allFiles, MD5Properties md5Prop, ADDetectedGame &game) const;
 };
 
+// The languages the game folder holds a fork translation in (ko/sci-ko.str, ko/hires*.map; DESIGN.md section 4).
+static Common::Array<Common::Language> translationLanguages(const Common::FSList &fslist) {
+	return Common::translationFolderLanguages(fslist, "sci-%s.str");
+}
+
+Common::Error SciMetaEngineDetection::identifyGame(DetectedGame &game, const void **descriptor) {
+	// A target made for a translation (language=ko) runs the release the
+	// translation was made for: that release's entry is matched with the
+	// language left out, and the engine takes the language from the target.
+	Common::FSList files;
+	const Common::Language wanted = ConfMan.hasKey("language") ? Common::parseLanguage(ConfMan.get("language")) : Common::UNK_LANG;
+	bool translated = false;
+	if (wanted != Common::UNK_LANG && ConfMan.hasKey("path") &&
+	    Common::FSNode(ConfMan.getPath("path")).getChildren(files, Common::FSNode::kListAll)) {
+		const Common::Array<Common::Language> langs = translationLanguages(files);
+		for (uint i = 0; i < langs.size(); ++i)
+			translated = translated || langs[i] == wanted;
+	}
+	if (!translated)
+		return AdvancedMetaEngineDetection::identifyGame(game, descriptor);
+	const Common::String language = ConfMan.get("language");
+	ConfMan.set("language", "", Common::ConfigManager::kTransientDomain);
+	Common::Error err = AdvancedMetaEngineDetection::identifyGame(game, descriptor);
+	ConfMan.set("language", language, Common::ConfigManager::kTransientDomain);
+	return err;
+}
+
 DetectedGames SciMetaEngineDetection::detectGames(const Common::FSList &fslist, uint32 skipADFlags, bool skipIncomplete) {
 	DetectedGames games = AdvancedMetaEngineDetection::detectGames(fslist, skipADFlags, skipIncomplete);
+
+	// One more target per translation in the game folder: the same release
+	// in that language (gameid-ko), offered first.
+	const Common::Array<Common::Language> translations = translationLanguages(fslist);
+	DetectedGames variants;
+	for (uint t = 0; t < translations.size(); ++t) {
+		for (uint i = 0; i < games.size(); ++i) {
+			const DetectedGame &game = games[i];
+			if (game.language == translations[t] || game.hasUnknownFiles)
+				continue;
+			const char *title = game.gameId.c_str();
+			for (const PlainGameDescriptor *pgd = s_sciGameTitles; pgd->gameId; ++pgd)
+				if (game.gameId.equals(pgd->gameId))
+					title = pgd->description;
+			DetectedGame variant = game;
+			variant.language = translations[t];
+			variant.description = DetectedGame(getName(), game.gameId, title, translations[t], game.platform, game.extra).description;
+			variant.preferredTarget = game.preferredTarget + "-" + Common::getLanguageFolderCode(translations[t]);
+			variants.push_back(variant);
+		}
+	}
+	for (uint i = 0; i < variants.size(); ++i)
+		games.insert_at(i, variants[i]);
 
 	for (DetectedGame &game : games) {
 		const GameIdStrToEnum *g = gameIdStrToEnum;
