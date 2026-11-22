@@ -28,6 +28,9 @@
 #include "sci/engine/state.h"
 #include "sci/engine/selector.h"
 #include "sci/engine/tts.h"
+#include "sci/utf8.h"
+
+#include "common/hangul.h"
 
 namespace Sci {
 
@@ -52,8 +55,17 @@ reg_t kStrCat(EngineState *s, int argc, reg_t *argv) {
 		s2 = g_sci->strSplit(s2.c_str(), nullptr);
 	}
 
+	const Common::String before = s1;
 	s1 += s2;
 	s->_segMan->strcpy_(argv[0], s1.c_str());
+	if (g_sci->scriptStrings().isLoaded()) {
+		// The buffer keeps the keys of its parts (ScriptStrings::appendToBuffer()).
+		ScriptStrings::Key key = s->_segMan->stringKey(argv[1]);
+		if (key.isSet())
+			key.room = s->currentRoomNumber();
+		g_sci->scriptStrings().appendToBuffer(ScriptStrings::bufferId(argv[0].getSegment(), argv[0].getOffset()), before, key,
+		                                      ScriptStrings::bufferId(argv[1].getSegment(), argv[1].getOffset()), s2);
+	}
 	return argv[0];
 }
 
@@ -72,6 +84,18 @@ reg_t kStrCmp(EngineState *s, int argc, reg_t *argv) {
 
 
 reg_t kStrCpy(EngineState *s, int argc, reg_t *argv) {
+	if (argc <= 2 && g_sci->scriptStrings().isLoaded()) {
+		// A copied script string stays translatable: the buffer is tagged with its key.
+		ScriptStrings::Key key = s->_segMan->stringKey(argv[1]);
+		const uint32 dest = ScriptStrings::bufferId(argv[0].getSegment(), argv[0].getOffset());
+		const Common::String text = s->_segMan->getString(argv[1]);
+		if (key.isSet()) {
+			key.room = s->currentRoomNumber();
+			g_sci->scriptStrings().tagBuffer(dest, key, text);
+		} else {
+			g_sci->scriptStrings().copyBufferTag(dest, ScriptStrings::bufferId(argv[1].getSegment(), argv[1].getOffset()), text);
+		}
+	}
 	if (argc > 2) {
 		int length = argv[2].toSint16();
 
@@ -87,37 +111,13 @@ reg_t kStrCpy(EngineState *s, int argc, reg_t *argv) {
 }
 
 
-reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
-	if (argv[0] == SIGNAL_REG) {
-		warning("Attempt to perform kStrAt() on a signal reg");
-		return NULL_REG;
-	}
-
-	SegmentRef dest_r = s->_segMan->dereference(argv[0]);
-	if (!dest_r.isValid()) {
-		warning("Attempt to StrAt at invalid pointer %04x:%04x", PRINT_REG(argv[0]));
-		return NULL_REG;
-	}
-
+// One byte of a string, read and (@p write) replaced by @p newvalue.
+static byte strAtByte(SegmentRef &dest_r, uint16 offset, bool write, byte newvalue) {
 	byte value;
-	byte newvalue = 0;
-	uint16 offset = argv[1].toUint16();
-	if (argc > 2)
-		newvalue = argv[2].toSint16();
-
-	g_sci->_tts->setMessage(s->_segMan->getString(argv[0]));
-
-	// in kq5 this here gets called with offset 0xFFFF
-	//  (in the desert wheng getting the staff)
-	if ((int)offset >= dest_r.maxSize) {
-		warning("kStrAt offset %X exceeds maxSize", offset);
-		return s->r_acc;
-	}
-
 	// FIXME: Move this to segman
 	if (dest_r.isRaw) {
 		value = dest_r.raw[offset];
-		if (argc > 2) /* Request to modify this char */
+		if (write) /* Request to modify this char */
 			dest_r.raw[offset] = newvalue;
 	} else {
 		if (dest_r.skipByte)
@@ -131,7 +131,7 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 
 		if (!oddOffset) {
 			value = tmp.getOffset() & 0x00ff;
-			if (argc > 2) { /* Request to modify this char */
+			if (write) { /* Request to modify this char */
 				uint16 tmpOffset = tmp.toUint16();
 				tmpOffset &= 0xff00;
 				tmpOffset |= newvalue;
@@ -140,7 +140,7 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 			}
 		} else {
 			value = tmp.getOffset() >> 8;
-			if (argc > 2)  { /* Request to modify this char */
+			if (write) { /* Request to modify this char */
 				uint16 tmpOffset = tmp.toUint16();
 				tmpOffset &= 0x00ff;
 				tmpOffset |= newvalue << 8;
@@ -150,7 +150,71 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 		}
 	}
 
-	return make_reg(0, value);
+	return value;
+}
+
+// kStrAt on a UTF-8 heap (TextMode::kUtf8): the index counts code points,
+// as kStrLen does. An index past both the code points and the bytes is a
+// byte offset (a script walking fixed-size records, DESIGN.md section 13).
+static reg_t strAtUtf8(EngineState *s, SegmentRef &dest_r, reg_t str, uint16 index, bool write, uint16 newvalue) {
+	const Common::String text = s->_segMan->getString(str);
+	const byte *p = (const byte *)text.c_str();
+	if (!write) {
+		if (utf8IndexIsPastEnd(p, index))
+			return make_reg(0, (int)index < dest_r.maxSize ? strAtByte(dest_r, index, false, 0) : 0);
+		const uint32 at = utf8OffsetOf(p, index);
+		if (at >= text.size())
+			return NULL_REG;
+		int bytes;
+		return make_reg(0, decodeUtf8Char(p + at, bytes) & 0xFFFF);
+	}
+	const uint32 at = utf8WriteOffset(p, index);
+	uint16 old = 0;
+	if (at < text.size()) {
+		int bytes;
+		old = decodeUtf8Char(p + at, bytes) & 0xFFFF;
+	}
+	byte enc[4];
+	const int n = encodeUtf8Char(newvalue, enc);
+	if ((int)(at + n) > dest_r.maxSize) {
+		warning("kStrAt: code point %u does not fit the buffer", index);
+		return s->r_acc;
+	}
+	for (int i = 0; i < n; i++)
+		strAtByte(dest_r, (uint16)(at + i), true, enc[i]);
+	return make_reg(0, old);
+}
+
+reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
+	if (argv[0] == SIGNAL_REG) {
+		warning("Attempt to perform kStrAt() on a signal reg");
+		return NULL_REG;
+	}
+
+	SegmentRef dest_r = s->_segMan->dereference(argv[0]);
+	if (!dest_r.isValid()) {
+		warning("Attempt to StrAt at invalid pointer %04x:%04x", PRINT_REG(argv[0]));
+		return NULL_REG;
+	}
+
+	byte newvalue = 0;
+	uint16 offset = argv[1].toUint16();
+	if (argc > 2)
+		newvalue = argv[2].toSint16();
+
+	g_sci->_tts->setMessage(s->_segMan->getString(argv[0]));
+
+	if (g_sci->getTextMode().utf8())
+		return strAtUtf8(s, dest_r, argv[0], offset, argc > 2, argc > 2 ? argv[2].toUint16() : 0);
+
+	// in kq5 this here gets called with offset 0xFFFF
+	//  (in the desert wheng getting the staff)
+	if ((int)offset >= dest_r.maxSize) {
+		warning("kStrAt offset %X exceeds maxSize", offset);
+		return s->r_acc;
+	}
+
+	return make_reg(0, strAtByte(dest_r, offset, argc > 2, newvalue));
 }
 
 
@@ -213,6 +277,15 @@ reg_t kReadNumber(EngineState *s, int argc, reg_t *argv) {
 ** Formats the text from text.textresnr (offset index_inside_res) or heap_text_addr according to
 ** the supplied parameters and writes it to the targ_address.
 */
+// Whether the text [start, end) ends in a precomposed Hangul syllable (UTF-8).
+static bool endsWithHangulSyllable(const char *start, const char *end) {
+	if (end - start < 3)
+		return false;
+	const byte *t = (const byte *)end - 3;
+	const uint32 cp = ((t[0] & 0x0F) << 12) | ((t[1] & 0x3F) << 6) | (t[2] & 0x3F);
+	return (t[0] & 0xF0) == 0xE0 && cp >= 0xAC00 && cp <= 0xD7A3;
+}
+
 reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 	enum {
 		ALIGN_NONE   = 0,
@@ -249,6 +322,8 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 
 	int index = (startarg == 3) ? argv[2].toUint16() : 0;
 	Common::String source_str = g_sci->getKernel()->lookupText(position, index);
+	if (position.getSegment())
+		source_str = g_sci->translated(source_str, g_sci->keyOf(position, source_str));
 	const char* source = source_str.c_str();
 
 	debugC(kDebugLevelStrings, "Formatting \"%s\"", source);
@@ -311,6 +386,11 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 
 				Common::String tempsource = g_sci->getKernel()->lookupText(reg,
 				                                  arguments[paramindex + 1]);
+				if (reg.getSegment())
+					tempsource = g_sci->translated(tempsource, g_sci->keyOf(reg, tempsource));
+				// A plural "s" after a Korean word is dropped (사과s).
+				if (g_sci->getTextMode().utf8() && (tempsource == "s" || tempsource == "S") && endsWithHangulSyllable(targetbuf, target))
+					tempsource.clear();
 				int slen = tempsource.size();
 				int extralen = strLength - slen;
 				assert((target - targetbuf) + extralen <= maxsize);
@@ -371,6 +451,8 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 					while (strLength-- > 1)
 						*target++ = ' '; /* Format into the text */
 				char argchar = arguments[paramindex++];
+				if (g_sci->getTextMode().utf8() && (argchar == 's' || argchar == 'S') && endsWithHangulSyllable(targetbuf, target))
+					argchar = 0;
 				if (argchar)
 					*target++ = argchar;
 				mode = 0;
@@ -434,12 +516,21 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 
 	*target = 0; /* Terminate string */
 
+	if (g_sci->getTextMode().utf8()) {
+		// 을(를), 이(가) ... after the inserted words.
+		Common::String formatted(targetbuf);
+		Common::resolveKoreanParticles(formatted);
+		s->_segMan->strcpy_(dest, formatted.c_str());
+		return dest;
+	}
 	s->_segMan->strcpy_(dest, targetbuf);
 
 	return dest; /* Return target addr */
 }
 
 reg_t kStrLen(EngineState *s, int argc, reg_t *argv) {
+	if (g_sci->getTextMode().utf8())
+		return make_reg(0, utf8Length((const byte *)s->_segMan->getString(argv[0]).c_str()));
 	return make_reg(0, s->_segMan->strlen(argv[0]));
 }
 
