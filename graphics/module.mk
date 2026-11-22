@@ -28,6 +28,7 @@ MODULE_OBJS := \
 	hires_text/banded_plane.o \
 	hires_text/svfchain.o \
 	hires_text/svfface.o \
+	hires_text/text_compose.o \
 	hires_text/text_layout.o \
 	hires_text/text_plane.o \
 	hires_text/unicode_props.o \
