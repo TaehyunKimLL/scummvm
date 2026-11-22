@@ -54,6 +54,42 @@ public:
 		TS_ASSERT(m.warnings.empty());
 	}
 
+	void test_crlfLineEnds() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\r\nversion=3\r\n[fonts]\r\na=A.SVF\r\n[font]\r\nface=a\r\nsize=16\r\n", m));
+		TS_ASSERT(m.warnings.empty());
+		TS_ASSERT(m.font.faceSet);
+		TS_ASSERT_EQUALS(m.font.face.faces[0].path.toString('/'), "game/ko/A.SVF");
+		TS_ASSERT_EQUALS(m.font.size, 16);
+	}
+
+	void test_fontIdSpellings() {
+		Graphics::HiResMap m;
+		// [font.01] is the id 1, with a warning; it merges with [font.1] instead of being dropped.
+		TS_ASSERT(load("[map]\nversion=3\n[fonts]\na=A.SVF\n[font.1]\nsize=16\n[font.01]\nshift=2\n", m));
+		TS_ASSERT(warned(m, "font.01"));
+		const Graphics::HiResFontScope *s = m.fontIdScope(1);
+		TS_ASSERT(s && s->sizeSet && s->shiftSet);
+		TS_ASSERT_EQUALS(m.fontIds.size(), 1u);
+		// A blank in the id is no id.
+		TS_ASSERT(load("[map]\nversion=3\n[font. 2]\nsize=16\n", m));
+		TS_ASSERT(warned(m, "font id"));
+		TS_ASSERT(!m.fontIdScope(2));
+	}
+
+	void test_unknownMapKeyAndSurrogateMissing() {
+		Graphics::HiResMap m;
+		TS_ASSERT(load("[map]\nversion=3\nvresion=4\n", m));
+		TS_ASSERT(warned(m, "unknown key 'vresion'"));
+		uint32 cp;
+		TS_ASSERT(!Graphics::HiResFontMap::parseCodePoint("u+d800", cp));
+		TS_ASSERT(!Graphics::HiResFontMap::parseCodePoint("0xDFFF", cp));
+		TS_ASSERT(Graphics::HiResFontMap::parseCodePoint("u+e000", cp));
+		TS_ASSERT(load("[map]\nversion=3\n[font]\nmissing=u+d800\n", m));
+		TS_ASSERT(warned(m, "missing"));
+		TS_ASSERT(!m.font.missingSet);
+	}
+
 	void test_fontsAndFaces() {
 		Graphics::HiResMap m;
 		TS_ASSERT(load("[map]\nversion=3\n"

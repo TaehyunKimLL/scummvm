@@ -114,6 +114,22 @@ bool parseInt(const Common::String &text, int lo, int hi, int &out) {
 	return true;
 }
 
+// The id of a "font.N" section name's N: digits only (no sign, no blank), 0..65535.
+bool parseFontId(const char *text, int &out) {
+	if (!*text)
+		return false;
+	int v = 0;
+	for (; *text; ++text) {
+		if (!Common::isDigit(*text))
+			return false;
+		v = v * 10 + (*text - '0');
+		if (v > 65535)
+			return false;
+	}
+	out = v;
+	return true;
+}
+
 class Loader {
 public:
 	Loader(const Common::String &name, const Common::Path &mapDir, HiResMap &out) : _name(name), _dir(mapDir), _out(out) {}
@@ -158,6 +174,14 @@ public:
 						break;
 					}
 					colon = next;
+				}
+				int id;
+				if (s.base.hasPrefix("font.") && parseFontId(s.base.c_str() + 5, id)) {
+					// One spelling per id: [font.01] is [font.1], so the two merge.
+					const Common::String canonical = Common::String::format("font.%d", id);
+					if (canonical != s.base)
+						warn(lineNo, "[" + s.base + "] is read as [" + canonical + "]");
+					s.base = canonical;
 				}
 				sections.push_back(s);
 				continue;
@@ -428,7 +452,7 @@ bool parseCodePoint(const Common::String &text, uint32 &out) {
 			return false;
 		v = v * 16 + (uint32)(Common::isDigit(*p) ? *p - '0' : (*p | 0x20) - 'a' + 10);
 	}
-	if (v > 0x10FFFF)
+	if (v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF))
 		return false;
 	out = v;
 	return true;
@@ -460,8 +484,12 @@ bool load(Common::SeekableReadStream &stream, const Common::String &name, const 
 	Common::Array<const Section *> list = loader.select(sections, "map", HiResMapQualifiers());
 	for (uint i = 0; i < list.size(); ++i)
 		for (uint k = 0; k < list[i]->keys.size(); ++k)
-			if (list[i]->keys[k].key == "version" && !parseInt(list[i]->keys[k].value, 1, 99, out.version))
-				out.version = -1;
+			if (list[i]->keys[k].key == "version") {
+				if (!parseInt(list[i]->keys[k].value, 1, 99, out.version))
+					out.version = -1;
+			} else {
+				loader.warn(list[i]->keys[k].line, "unknown key '" + list[i]->keys[k].key + "'");
+			}
 	if (out.version != 3) {
 		if (out.version == 2)
 			loader.warn(1, "map version 2 is not read: set [map] version=3 and delete pixel=, gamma=, origin=, mirror=, "
@@ -482,7 +510,7 @@ bool load(Common::SeekableReadStream &stream, const Common::String &name, const 
 			continue;
 		if (b.hasPrefix("font.")) {
 			int id;
-			if (!parseInt(Common::String(b.c_str() + 5), 0, 65535, id))
+			if (!parseFontId(b.c_str() + 5, id))
 				loader.warn(sections[i].line, "[" + b + "]: the font id must be 0..65535");
 			continue;
 		}
@@ -595,7 +623,7 @@ bool load(Common::SeekableReadStream &stream, const Common::String &name, const 
 	loader.parseScope(loader.select(sections, "font", qualifiers), out.font);
 	for (uint i = 0; i < sections.size(); ++i) {
 		int id;
-		if (!sections[i].base.hasPrefix("font.") || !parseInt(Common::String(sections[i].base.c_str() + 5), 0, 65535, id) ||
+		if (!sections[i].base.hasPrefix("font.") || !parseFontId(sections[i].base.c_str() + 5, id) ||
 		    out.fontIds.contains(id))
 			continue;
 		loader.parseScope(loader.select(sections, sections[i].base, qualifiers), out.fontIds[id]);
