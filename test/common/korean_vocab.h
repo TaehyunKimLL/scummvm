@@ -6,6 +6,7 @@
 #include "common/str-enc.h"
 
 #include "test/korean_vocab_fixture.h"
+#include "test/korean_vocab_golden.h"
 #include "test/system/null_osystem.h"
 
 // The word table common/ owns for SCI (SCIKOR.DAT, sci-ko.dat) and AGI (AGIKOR.DAT, agi-ko.dat): one layout, the magic
@@ -155,6 +156,44 @@ public:
 		Common::KoreanVocabulary v;
 		TS_ASSERT(!v.loadFromStream(s, "AGIKOR", "bad"));
 		TS_ASSERT(!v.isLoaded());
+	}
+
+	// Bytes k6bake.py wrote (test/korean_vocab_golden.h) read back as the rows of its master, in both versions.
+	void test_golden_tables_from_k6bake() {
+		Common::KoreanVocabulary v2, v3;
+		Common::MemoryReadStream s2(kKoreanVocabGoldenV2, sizeof(kKoreanVocabGoldenV2));
+		Common::MemoryReadStream s3(kKoreanVocabGoldenV3, sizeof(kKoreanVocabGoldenV3));
+		TS_ASSERT(v2.loadFromStream(s2, "SCIKOR", "golden v2"));
+		TS_ASSERT(v3.loadFromStream(s3, "SCIKOR", "golden v3"));
+		TS_ASSERT_EQUALS(v2.size(), 7u);
+		TS_ASSERT_EQUALS(v3.size(), 7u);
+		TS_ASSERT_EQUALS(v3.getVersion(), 3u);
+		TS_ASSERT_EQUALS(v3.getHeader().toString(), Common::String(header()));
+		TS_ASSERT_EQUALS(v3.getHeader().game, "kq1");
+		TS_ASSERT_EQUALS(v3.getHeader().engine, "sci");
+		const struct {
+			const char *word;
+			uint n;
+			uint16 g0, c0, g1, c1;
+		} want[] = {
+			{ "열쇠", 1, 12, 0x0800, 0, 0 },
+			{ "가방", 1, 12, 0x0800, 0, 0 },
+			{ "집다", 1, 20, 0x0080, 0, 0 },
+			{ "들여다봐", 2, 30, 0x8080, 169, 0x0010 },
+			{ "문", 2, 83, 0x0800, 166, 0x0800 },
+			{ "문들", 0, 0, 0, 0, 0 },
+		};
+		for (uint i = 0; i < ARRAYSIZE(want); ++i) {
+			const Common::KoreanVocabulary *tables[2] = { &v2, &v3 };
+			for (int t = 0; t < 2; ++t) {
+				uint16 g[4] = { 0, 0, 0, 0 }, c[4] = { 0, 0, 0, 0 };
+				TSM_ASSERT_EQUALS(want[i].word, tables[t]->lookupExact(u(want[i].word), g, c, 4), want[i].n);
+				TSM_ASSERT_EQUALS(want[i].word, g[0], want[i].g0);
+				TSM_ASSERT_EQUALS(want[i].word, c[0], want[i].c0);
+				TSM_ASSERT_EQUALS(want[i].word, g[1], want[i].g1);
+				TSM_ASSERT_EQUALS(want[i].word, c[1], want[i].c1);
+			}
+		}
 	}
 
 	// u32 offsets: a blob past 65535 code units, which version 2 cannot address.

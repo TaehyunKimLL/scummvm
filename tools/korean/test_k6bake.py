@@ -77,6 +77,10 @@ class K6BakeTest(unittest.TestCase):
         self.assertEqual((m3, ver3, r3), ("SCIKOR", 3, rows))
         self.assertTrue(h3.startswith("#! format=1 game=kq1 "))
 
+    def test_committed_golden_is_current(self):
+        with open(GOLDEN, encoding="utf-8") as f:
+            self.assertEqual(f.read(), k6bake.golden(MINI, list(GOLDEN_ARGS)))
+
     def test_cli_build_convert_dump(self):
         with tempfile.TemporaryDirectory() as tmp:
             v3 = os.path.join(tmp, "t3.dat")
