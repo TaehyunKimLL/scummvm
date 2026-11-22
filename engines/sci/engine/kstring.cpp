@@ -29,6 +29,8 @@
 #include "sci/engine/selector.h"
 #include "sci/engine/tts.h"
 #include "sci/utf8.h"
+#include "sci/parser/korean_parser.h"
+#include "sci/parser/vocabulary.h"
 
 #include "common/hangul.h"
 
@@ -153,6 +155,21 @@ static byte strAtByte(SegmentRef &dest_r, uint16 offset, bool write, byte newval
 	return value;
 }
 
+// A room of the per-game table (koreanAnswerRoom()): the typed Korean answer
+// as the game's own English words, for StrLen and StrAt reads only.
+static bool koreanAnswerView(EngineState *s, reg_t str, Common::String &out) {
+	if (!g_sci->getTextMode().utf8() || !g_sci->hasParser() || !koreanAnswerRoom(g_sci->getGameId(), s->currentRoomNumber()))
+		return false;
+	const Common::String typed = s->_segMan->getString(str);
+	bool ascii = true;
+	for (uint i = 0; i < typed.size() && ascii; i++)
+		ascii = (byte)typed[i] < 0x80;
+	if (ascii)
+		return false;
+	out = g_sci->getVocabulary()->koreanAnswerLine(typed);
+	return !out.empty();
+}
+
 // kStrAt on a UTF-8 heap (TextMode::kUtf8): the index counts code points,
 // as kStrLen does. An index past both the code points and the bytes is a
 // byte offset (a script walking fixed-size records, DESIGN.md section 13).
@@ -208,6 +225,10 @@ reg_t kStrAt(EngineState *s, int argc, reg_t *argv) {
 		newvalue = argv[2].toSint16();
 
 	g_sci->_tts->setMessage(s->_segMan->getString(argv[0]));
+
+	Common::String view;
+	if (argc <= 2 && koreanAnswerView(s, argv[0], view))
+		return make_reg(0, offset < view.size() ? (byte)view[offset] : 0);
 
 	if (g_sci->getTextMode().utf8())
 		return strAtUtf8(s, dest_r, argv[0], offset, argc > 2, argc > 2 ? argv[2].toUint16() : 0);
@@ -573,6 +594,9 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kStrLen(EngineState *s, int argc, reg_t *argv) {
+	Common::String view;
+	if (koreanAnswerView(s, argv[0], view))
+		return make_reg(0, view.size());
 	if (g_sci->getTextMode().utf8())
 		return make_reg(0, utf8Length((const byte *)s->_segMan->getString(argv[0]).c_str()));
 	return make_reg(0, s->_segMan->strlen(argv[0]));

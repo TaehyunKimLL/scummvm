@@ -418,6 +418,7 @@ private:
 	uint8 _koreanRole;                     ///< the particle lookupWord()'s Korean word lost
 	ResultWordListList _koreanExtraTokens; ///< the further tokens of a sequence word
 	ResultWordListList _koreanFallback;    ///< the sentence without particle phrases, for said()
+	Common::String _answerTyped, _answerLine; ///< koreanAnswerLine()'s last answer
 	SynonymList _synonyms; /**< The list of synonyms */
 	Common::Array<Common::List<AltInput> > _altInputs;
 
@@ -438,6 +439,12 @@ public:
 
 	/** Whether a Korean word table (sci-<code>.dat) is loaded. */
 	bool hasKoreanWords() const { return _koreanVocab.isLoaded(); }
+
+	/**
+	 * KoreanParser::englishLine() of the typed text @p typed; empty when a
+	 * word is unknown. The last answer is kept (StrAt asks once per letter).
+	 */
+	Common::String koreanAnswerLine(const Common::String &typed);
 	ParseTreeNode _parserNodesFallback[VOCAB_TREE_NODES]; /**< The tree of _koreanFallback */
 	bool _koreanFallbackValid; /**< said() is tried on _parserNodesFallback too */
 };

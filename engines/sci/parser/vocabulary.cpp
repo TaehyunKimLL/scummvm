@@ -757,6 +757,23 @@ bool Vocabulary::lookupKorean(ResultWordList &retval, const Common::String &word
 	return parser.lookup(word, retval, _koreanExtraTokens, _koreanRole) > 0;
 }
 
+Common::String Vocabulary::koreanAnswerLine(const Common::String &typed) {
+	if (typed == _answerTyped)
+		return _answerLine;
+	_answerTyped = typed;
+	_answerLine.clear();
+	// tokenizeString() replaces the fallback tree of the last parsed sentence: keep it.
+	const ResultWordListList fallback = _koreanFallback;
+	ResultWordListList words;
+	char *error = nullptr;
+	if (tokenizeString(words, typed.c_str(), &error) && !error)
+		_answerLine = KoreanParser(_parserWords, _koreanVocab, kDebugLevelKorean).englishLine(words);
+	free(error);
+	_koreanFallback = fallback;
+	debugC(1, kDebugLevelKorean, "answer \"%s\" reads as \"%s\"", typed.c_str(), _answerLine.c_str());
+	return _answerLine;
+}
+
 bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence, char **error) {
 	char currentWord[VOCAB_MAX_WORDLENGTH] = "";
 	int pos_in_sentence = 0;
