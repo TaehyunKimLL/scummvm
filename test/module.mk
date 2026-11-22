@@ -38,6 +38,9 @@ TEST_LIBS += test/system/null_osystem.o \
 	backends/platform/sdl/win32/win32_wrapper.o
 endif
 
+# The Han/Yeong key names of the keymapper (test/common/keyboard_hangul.h)
+TEST_LIBS += backends/keymapper/hardware-input.o
+
 ifdef USE_TINYGL
 TESTS += $(srcdir)/test/graphics/tinygl*.h
 endif

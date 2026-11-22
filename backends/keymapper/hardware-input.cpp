@@ -215,6 +215,11 @@ const KeyTableEntry defaultKeys[] = {
 	{"AUDIOREWIND", KEYCODE_AUDIOREWIND, "Audio rewind"},
 	{"AUDIOFASTFORWARD", KEYCODE_AUDIOFASTFORWARD, "Audio fast-forward"},
 
+	// Input-method keys: listed so that a keymap can bind the Han/Yeong key,
+	// and a user without one can bind another key to the same action.
+	{"HANGUL", KEYCODE_HANGUL, "Han/Yeong"},
+	{"HANJA", KEYCODE_HANJA, "Hanja"},
+
 	// Modifier keys
 	{"SCROLLOCK", KEYCODE_SCROLLOCK, "Scroll lock"          },
 	{"CAPSLOCK",  KEYCODE_CAPSLOCK,  "Caps lock"            },
