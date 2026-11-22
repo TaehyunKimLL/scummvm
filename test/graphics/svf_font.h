@@ -21,14 +21,18 @@
 
 #include <cxxtest/TestSuite.h>
 
+#include "common/file.h"
+#include "common/fs.h"
 #include "common/ustr.h"
 
 #include "graphics/fonts/svffont.h"
 #include "graphics/pixelformat.h"
 #include "graphics/surface.h"
+#include "image/png.h"
 
 #include "test/graphics/svf_golden_data.h"
 #include "test/graphics/svf_test_util.h"
+#include "test/system/null_osystem.h"
 
 class SvfFontTestSuite : public CxxTest::TestSuite {
 	static uint32 blend(const Graphics::PixelFormat &f, uint32 bg, uint32 fg, byte cov) {
@@ -139,5 +143,28 @@ public:
 		font.drawChar(&s, 0xD55C, 100000, 0, 1);
 		font.drawChar(&s, 0xD55C, 0, -100000, 1);
 		s.free();
+	}
+
+	// Developer aid: with a directory "svf-dump" in the working directory, writes the CLUT8 and RGB565 test lines
+	// as PNG files there (make test, then look at svf-dump/*.png).
+	void test_dumpWhenAsked() {
+		Common::install_null_g_system();
+		if (Common::FSNode(Common::Path("svf-dump")).isDirectory()) {
+			const Graphics::PixelFormat formats[] = { Graphics::PixelFormat::createFormatCLUT8(), Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0) };
+			const char *names[] = { "svf-dump/clut8.png", "svf-dump/rgb565.png" };
+			for (int i = 0; i < 2; ++i) {
+				Graphics::SvfFont font(SvfTest::makeChain(2, 1), DisposeAfterUse::YES);
+				Graphics::Surface s;
+				s.create(240, 40, formats[i]);
+				s.fillRect(Common::Rect(240, 40), i ? formats[i].RGBToColor(0, 0, 128) : 0);
+				font.drawString(&s, Common::U32String(kSvfGoldenFont1xText), 4, 2, 236, i ? formats[i].RGBToColor(255, 255, 0) : 1);
+				Common::DumpFile out;
+				const byte palette[6] = { 0, 0, 128, 255, 255, 0 };
+				TS_ASSERT(out.open(Common::Path(names[i])));
+				TS_ASSERT(Image::writePNG(out, s, i ? nullptr : palette, 2));
+				s.free();
+			}
+		}
+		Common::uninstall_null_g_system();
 	}
 };
