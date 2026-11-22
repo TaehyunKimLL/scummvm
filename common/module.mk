@@ -18,6 +18,7 @@ MODULE_OBJS := \
 	hangul.o \
 	hashmap.o \
 	korean_stem.o \
+	korean_vocab.o \
 	language.o \
 	localization.o \
 	macresman.o \
