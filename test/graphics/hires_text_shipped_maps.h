@@ -26,6 +26,10 @@
 #include "common/stream.h"
 
 #include "graphics/hires_text/hires_files.h"
+#include "graphics/hires_text/font_set.h"
+#include "graphics/hires_text/id_plan.h"
+#include "graphics/hires_text/svfchain.h"
+#include "graphics/hires_text/text_plane.h"
 
 #include "test/system/null_osystem.h"
 
@@ -97,5 +101,29 @@ public:
 		TS_ASSERT(Graphics::HiResDiskFiles::isSafeDataPath(Common::Path("hires_text/X.SVF")));
 		TS_ASSERT(!Graphics::HiResDiskFiles::isSafeDataPath(Common::Path("hires_text\\..\\..\\X.SVF", '/')));
 		TS_ASSERT(!Graphics::HiResDiskFiles::isSafeDataPath(Common::Path("hires_text/C:X.SVF", '/')));
+	}
+
+	// The engine's fallback map draws Hangul with the shipped OFL face.
+	void test_defaultMapDraws() {
+		Graphics::HiResDiskFiles files;
+		const Common::Path data = tree().join("dists/engine-data");
+		files.addDataRoot(data);
+		const Common::Path path = files.find(data, "hires_text/maps/korean-default.map");
+		Common::ScopedPtr<Common::SeekableReadStream> s(files.open(path));
+		Graphics::HiResMap map;
+		TS_ASSERT(s && Graphics::HiResFontMap::load(*s, "korean-default.map", path.getParent(), Graphics::HiResMapQualifiers(), map));
+		Common::Array<Common::String> w;
+		Graphics::HiResFaceCache cache(files);
+		Graphics::HiResFontSet set;
+		TS_ASSERT(set.build(Graphics::compileIdPlan(map, 0, w), map, cache, w));
+		TS_ASSERT(w.empty());
+		if (!set.getChainCount() || !set.getChain(0)->getFaceCount())
+			return;
+		TS_ASSERT_EQUALS(set.getChain(0)->getFace(0)->getStatus(), 0);
+		Graphics::TextPlane plane;
+		plane.create(40, 10, 2);
+		const char text[] = "\xed\x95\x9c\xea\xb8\x80";	// 한글
+		TS_ASSERT_EQUALS(set.drawText(text, strlen(text), 0, 14, plane, 15), 32);
+		TS_ASSERT(!plane.isEmpty());
 	}
 };

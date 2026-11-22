@@ -27,6 +27,7 @@ MODULE_OBJS := \
 	framelimiter.o \
 	hires_text/banded_plane.o \
 	hires_text/font_map.o \
+	hires_text/font_set.o \
 	hires_text/hires_files.o \
 	hires_text/hires_options.o \
 	hires_text/id_plan.o \
