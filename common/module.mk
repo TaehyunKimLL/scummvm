@@ -45,6 +45,7 @@ MODULE_OBJS := \
 	text-to-speech.o \
 	tokenizer.o \
 	translation.o \
+	translation_file.o \
 	unicode-bidi.o \
 	ustr.o \
 	util.o \
