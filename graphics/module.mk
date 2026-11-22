@@ -25,9 +25,9 @@ MODULE_OBJS := \
 	fonts/ttf.o \
 	fonts/winfont.o \
 	framelimiter.o \
-	hotspot_renderer.o \
 	hires_text/svfchain.o \
 	hires_text/svfface.o \
+	hotspot_renderer.o \
 	image-archive.o \
 	korfont.o \
 	larryScale.o \
@@ -96,7 +96,8 @@ MODULE_OBJS += \
 SVF_C_OBJS := $(addprefix $(MODULE)/, $(SVF_OBJS))
 $(SVF_C_OBJS): CC = $(CXX) -x c -std=c99
 $(SVF_C_OBJS): CFLAGS = $(filter-out -std=% -pedantic -fno-operator-names -Wnon-virtual-dtor -Woverloaded-virtual \
-	-Wno-reorder -fno-exceptions -fcheck-new -fno-rtti -Wno-inconsistent-missing-override -fvisibility-inlines-hidden, \
+	-Wno-reorder -fno-exceptions -fcheck-new -fno-rtti -Wno-inconsistent-missing-override -fvisibility-inlines-hidden \
+	-fno-threadsafe-statics -fuse-cxa-atexit, \
 	$(CXXFLAGS))
 
 ifdef USE_ARM_SCALER_ASM
