@@ -1,0 +1,239 @@
+/* ScummVM - Graphic Adventure Engine
+ *
+ * ScummVM is the legal property of its developers, whose names
+ * are too numerous to list here. Please refer to the COPYRIGHT
+ * file distributed with this source distribution.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+#ifndef SCI_ENGINE_SCRIPT_STRINGS_H
+#define SCI_ENGINE_SCRIPT_STRINGS_H
+
+#include "common/scummsys.h"
+#include "common/str.h"
+#include "common/array.h"
+#include "common/hashmap.h"
+#include "common/translation_file.h"
+
+namespace Common {
+class SeekableReadStream;
+}
+
+namespace Sci {
+
+/**
+ * Translations for the strings a fan translation cannot patch: the ones
+ * embedded in scripts.
+ *
+ * A fan translation replaces the game's TEXT resources with patch files
+ * (text.000, text.079, ...) - the way Sierra's own localisations and every
+ * existing fan patch work, and the way the engine has always loaded them.
+ * Those strings need no help from this class: the resource IS the
+ * translation.
+ *
+ * What a patch cannot reach is a string inside a script's own string block:
+ * an inventory name, a parser reply, "You are carrying nothing!". The code
+ * refers to it by absolute offset (lofsa), so a longer translation would
+ * shift every string after it and every offset into them. KQ1 has 93 such
+ * strings that reach the screen and appear in no TEXT resource. They are
+ * translated at run time instead, from this table, keyed by where they
+ * live: (script number, string id), the id being the one
+ * Script::identifyOffsets() assigns at load and SegManager::stringKey()
+ * reports at display.
+ *
+ * The file is sci-<lang>.str next to the game, one entry per line:
+ *
+ *     script <TAB> id [<TAB> room] <TAB> text
+ *
+ * UTF-8, '#' comments, "\n" for a newline in the text. A room number makes
+ * the entry apply in that room only, for a line that means different things
+ * in different places; an entry without one applies anywhere and loses to
+ * one with a matching room. The language is not in the file: it is the
+ * language the game was detected as, which chooses the file.
+ */
+class ScriptStrings {
+public:
+	/** Where a string lives. */
+	struct Key {
+		static const uint16 kAnyRoom = 0xFFFF;
+
+		static const uint32 kNoBuffer = 0xFFFFFFFF;
+
+		uint16 script;
+		uint16 id;
+		uint16 room;
+		/**
+		 * Set only by keyOf() for a buffer built by StrCpy + StrCat: the
+		 * key then names the whole buffer, script/id/room are its first
+		 * part's, and lookup() answers with the parts joined (see
+		 * appendToBuffer()).
+		 */
+		uint32 buffer;
+
+		Key() : script(0xFFFF), id(0xFFFF), room(kAnyRoom), buffer(kNoBuffer) {}
+		Key(uint16 s, uint16 i, uint16 r = kAnyRoom) : script(s), id(i), room(r), buffer(kNoBuffer) {}
+		bool isSet() const { return script != 0xFFFF; }
+		bool isBuffer() const { return buffer != kNoBuffer; }
+	};
+
+	ScriptStrings() : _loaded(false), _present(false) {}
+
+	/**
+	 * Load sci-<lang>.str through SearchMan (the language folder ko/ is in it
+	 * with language=ko). @p languageCode is Common::getLanguageFolderCode()'s
+	 * code ("ko"). @p expected is what the game knows about itself
+	 * (gameTranslationHeader()); a table whose header differs is refused, one
+	 * without a header loads with a warning (DESIGN.md decision 4).
+	 */
+	bool load(const Common::String &languageCode, const Common::TranslationFileHeader &expected = Common::TranslationFileHeader());
+
+	/**
+	 * Parse a table from a stream; what load() does once the file is open.
+	 * A UTF-8 BOM is skipped; a first line starting with "#!" is the
+	 * fingerprint header. A malformed line rejects the whole table (a wrong
+	 * key would draw a translation in the wrong place, unnoticed); a
+	 * duplicate key is a warning and the later line wins. @p name is for the
+	 * warnings.
+	 */
+	bool loadFromStream(Common::SeekableReadStream &in, const Common::String &name = "sci-ko.str",
+	                    const Common::TranslationFileHeader &expected = Common::TranslationFileHeader());
+
+	/** The header the table had; not present() for a table without one. */
+	const Common::TranslationFileHeader &getHeader() const { return _header; }
+
+	enum LineKind { kLineSkip, kLineEntry, kLineError };
+
+	/**
+	 * Parse one line of the table, line end already stripped: a blank or
+	 * '#' line is skipped; anything else must be an entry, or kLineError
+	 * with @p error saying why. Numbers are decimal digits, 0..65534.
+	 */
+	static LineKind parseLine(const Common::String &line, Key &key,
+	                          Common::String &text, const char *&error);
+
+	bool isLoaded() const { return _loaded; }
+
+	/**
+	 * The file was found and parsed, entries or not. A table with no
+	 * entries (comments only) is present but not loaded.
+	 */
+	bool isPresent() const { return _present; }
+
+	/** Every translated string, for collecting the translation's code points. */
+	void collectTexts(Common::Array<Common::String> &out) const;
+	uint entryCount() const { return _entries.size(); }
+
+	/**
+	 * The translation for the string at @p key, or false to keep the
+	 * original. A room-specific entry wins in its room; an any-room entry
+	 * answers everywhere else. @p out receives UTF-8.
+	 */
+	bool lookup(const Key &key, Common::String &out) const;
+
+	/**
+	 * Remember that @p buffer now holds the script string at @p key.
+	 *
+	 * A script string reaches the screen as a stack buffer: the script
+	 * kStrCpy's it first, and the buffer is what kDisplay / kDrawControl are
+	 * handed - by then nothing says which string it was. So the copy records
+	 * (buffer -> key, text written) here, and the display looks it up.
+	 *
+	 * The buffer is reused freely, so the record carries the text and
+	 * keyOf() answers only while the buffer still holds it. Measured on KQ1
+	 * through the inventory and two parser replies: 28 lookups, 0 stale.
+	 *
+	 * @p buffer is bufferId(segment, offset) rather than a reg_t: reg_t's
+	 * accessors consult the SCI version, which would drag the engine into
+	 * anything that links this class (the unit tests).
+	 */
+	void tagBuffer(uint32 buffer, const Key &key, const Common::String &text);
+
+	/**
+	 * Record that StrCat appended @p text to @p buffer, which held
+	 * @p before. @p key is the appended string's own key when it is a
+	 * script string; otherwise, if @p source (a bufferId, or kNoBuffer) is
+	 * itself a tagged buffer still holding @p text, its parts are
+	 * appended; otherwise @p text is appended as plain text.
+	 *
+	 * Only a tag that still matches @p before grows: an untagged or stale
+	 * buffer stays untagged, so the display sees exactly what it saw
+	 * before StrCat was followed.
+	 *
+	 * After the call the tag holds the parts in order - the StrCpy'd
+	 * script string, then each appended string with its key or none - and
+	 * their joined text, which is what the buffer now holds.
+	 */
+	void appendToBuffer(uint32 buffer, const Common::String &before, const Key &key,
+	                    uint32 source, const Common::String &text);
+
+	/**
+	 * Record a plain copy of @p text from @p source into @p buffer: the
+	 * buffer gets @p source's tag if @p source still holds @p text;
+	 * otherwise nothing changes.
+	 */
+	void copyBufferTag(uint32 buffer, uint32 source, const Common::String &text);
+
+	/**
+	 * The key recorded for @p buffer, if it still holds @p text. For a
+	 * buffer of more than one part (appendToBuffer()) it is a buffer key:
+	 * lookup() with it gives each part translated, or as it was when it
+	 * has no translation, joined; false when no part has one.
+	 */
+	Key keyOf(uint32 buffer, const Common::String &text) const;
+
+	static uint32 bufferId(uint16 segment, uint16 offset) { return ((uint32)segment << 16) | offset; }
+
+	/**
+	 * Offset, in an SCI1.1 heap resource, of the first string: the end of
+	 * the object instances. String id 1 starts here even when it is empty,
+	 * which is how the extractor (tools/korean/sci11_kr_extract.py) counts.
+	 * @p size bounds every read; a truncated heap yields @p size.
+	 */
+	static uint sci11StringsStart(const byte *heap, uint size);
+
+private:
+	/// lookup() for one place, never a buffer key.
+	bool lookupPlace(const Key &key, Common::String &out) const;
+	/// lookup() for a buffer key: the parts joined, false if none translates.
+	bool lookupBuffer(uint32 buffer, Common::String &out) const;
+
+	/// (script, id, room) packed exactly; no two places share a value.
+	static uint64 placeId(uint16 script, uint16 id, uint16 room) {
+		return ((uint64)room << 32) | ((uint32)script << 16) | id;
+	}
+
+	bool _loaded;
+	bool _present;
+	Common::TranslationFileHeader _header;
+	Common::HashMap<uint64, Common::String> _entries;
+
+	/// One string a buffer was built from: a script string (key set) or text.
+	struct BufferPart {
+		Key key;
+		Common::String text;
+	};
+
+	/// parts[0] is the StrCpy'd script string; text is the parts joined.
+	struct BufferTag {
+		Common::Array<BufferPart> parts;
+		Common::String text;
+	};
+	Common::HashMap<uint32, BufferTag> _bufferTags;
+};
+
+} // End of namespace Sci
+
+#endif // SCI_ENGINE_SCRIPT_STRINGS_H

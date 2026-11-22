@@ -35,6 +35,7 @@ MODULE_OBJS := \
 	engine/script.o \
 	engine/scriptdebug.o \
 	engine/script_patches.o \
+	engine/script_strings.o \
 	engine/selector.o \
 	engine/seg_manager.o \
 	engine/segment.o \
