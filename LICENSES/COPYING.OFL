@@ -19,6 +19,8 @@ along with our theme files:
  * SourceCodeVariable-Roman.ttf
  * test/graphics/svf_fixture.h (kSvfFixtureJamo: font data derived from Neo Dunggeunmo, Copyright (c) 2017-2021,
    Eunbin Jeong (Dalgona.); a test fixture, not shipped)
+ * dists/engine-data/hires_text/NEODG16A.SVF (Neo Dunggeunmo jamo face, Copyright (c) 2017-2021,
+   Eunbin Jeong (Dalgona.); see dists/engine-data/hires_text/NEODGM.TXT)
 
 Copyright 2010, 2012 Adobe Systems Incorporated (http://www.adobe.com/),
 with Reserved Font Name 'Source'. All Rights Reserved. Source is a

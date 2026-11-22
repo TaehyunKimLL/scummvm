@@ -1,0 +1,39 @@
+Neo Dunggeunmo faces (NEODG*.SVF, NEO*X?.SVF)
+=============================================
+
+Bitmap faces rasterised from Neo Dunggeunmo 1.601 (neodgm), a 16 px pixel
+font, by mkfont.py; the jamo sets were converted by jamoset.py
+--from-svf. Each is a Modified Version (a rasterised subset) of the font.
+Copyright (c) 2017-2021, Eunbin Jeong (Dalgona.)
+<project-neodgm@dalgona.dev>. SIL Open Font License 1.1: OFL.TXT (Reserved
+Font Names "Neo둥근모", "Neo둥근모 Code", "NeoDunggeunmo", "NeoDunggeunmo Code").
+
+  NEODG16.SVF   16x16 1 bpp precomposed, 2905 glyphs; ASCII + KS X 1001 (no
+                Hanja), the shared 16 px pixel face
+  NEODG16A.SVF  16x16 1 bpp jamo set; 16 px
+  NEODG16B.SVF  16x16 1 bpp jamo set; 16 px, + U+2026
+  NEODG16C.SVF  16x16 1 bpp jamo set; 16 px, + Latin-1, symbols,
+                compatibility jamo
+  NEODG16D.SVF  22x22 1 bpp jamo set; 16 px
+  NEODG16E.SVF  18x24 1 bpp jamo set; 16 px
+  NEODG16F.SVF  20x24 1 bpp jamo set; 16 px
+  NEODG16G.SVF  16x16 1 bpp jamo set, 6x2x1 layout; 16 px, ASCII and all
+                11,172 syllables in 10,684 bytes (the MCU examples' face)
+  NEODG16J.SVF  18x18 1 bpp precomposed, 779 glyphs; subset: the characters of tools/build/cps/<face>.txt
+  NEODG16K.SVF  18x18 1 bpp precomposed, 942 glyphs; subset: the characters of tools/build/cps/<face>.txt
+  NEODG16L.SVF  20x18 1 bpp precomposed, 1120 glyphs; subset: the characters of tools/build/cps/<face>.txt
+  NEODG16O.SVF  20x20 2 bpp precomposed, 1231 glyphs; outline: the 16 px
+                face's glyphs dilated by 2 px (a text outline)
+  NEODG32.SVF   36x36 1 bpp jamo set; 32 px (2x)
+  NEODG32A.SVF  46x54 1 bpp jamo set; 32 px (2x)
+  NEODG32B.SVF  32x32 1 bpp precomposed, 1120 glyphs; 32 px (2x), subset: the characters of tools/build/cps/<face>.txt
+  NEO16BX2.SVF  16x16 1 bpp precomposed, 2 glyphs; supplement of NEODG16B: a-circumflex, e-acute
+
+Names: <font><px>[variant].SVF. <px> is the size the face was drawn at; a
+letter after it tells apart faces of the same font and size (another cell,
+bit depth or character set). A name ending in X<n> is a supplement: the few
+characters a base face lacks, drawn to follow it in a chain. The file names
+are abbreviations, not a Reserved Font Name, and the faces carry no font name
+inside: they are Modified Versions under the SIL OFL 1.1 that do not use the
+Reserved Font Names of the original. How each face is made: tools/build/faces.tsv
+and docs/recipes.md.

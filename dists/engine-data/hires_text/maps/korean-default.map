@@ -1,0 +1,19 @@
+; Hi-res text map: Korean in Neo Dunggeunmo (SIL OFL 1.1, svf-fonts-open svf/dos/NEODG16A.SVF,
+; licence NEODGM.TXT), a 16 px 1 bpp jamo face with every Hangul syllable, at 2x the game screen.
+;
+; The engine's last resort and a starting point for a pack's own HIRESBIT.MAP: copy it into the
+; game's ko/ folder under that name. "data:" is looked up in the extrapaths, then the ScummVM
+; data folder (dists/engine-data in a source build).
+[map]
+version=3
+
+[render]
+scale=auto
+blend=auto
+
+[fonts]
+neodgm=data:hires_text/NEODG16A.SVF
+
+[font]
+face=neodgm
+missing=u+25a1
