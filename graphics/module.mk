@@ -25,6 +25,7 @@ MODULE_OBJS := \
 	fonts/ttf.o \
 	fonts/winfont.o \
 	framelimiter.o \
+	hires_text/banded_plane.o \
 	hires_text/svfchain.o \
 	hires_text/svfface.o \
 	hotspot_renderer.o \
