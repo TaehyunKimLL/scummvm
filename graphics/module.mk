@@ -25,6 +25,7 @@ MODULE_OBJS := \
 	fonts/winfont.o \
 	framelimiter.o \
 	hotspot_renderer.o \
+	hires_text/svfchain.o \
 	hires_text/svfface.o \
 	image-archive.o \
 	korfont.o \
