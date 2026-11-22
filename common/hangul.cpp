@@ -359,4 +359,32 @@ void resolveKoreanParticles(String &s) {
 	s = out;
 }
 
+void normalizeKoreanInput(U32String &s) {
+	U32String out;
+	for (uint i = 0; i < s.size(); ++i) {
+		u32char_type_t c = s[i];
+		if (c >= 0xFF01 && c <= 0xFF5E) {
+			out += (u32char_type_t)(c - 0xFF01 + 0x21);
+			continue;
+		}
+		if (c == 0x3000) {
+			out += (u32char_type_t)' ';
+			continue;
+		}
+		// L V -> LV
+		if (c >= 0x1100 && c <= 0x1112 && i + 1 < s.size() && s[i + 1] >= 0x1161 && s[i + 1] <= 0x1175) {
+			c = 0xAC00 + ((c - 0x1100) * 21 + (s[i + 1] - 0x1161)) * 28;
+			++i;
+		}
+		// LV T -> LVT
+		if (c >= 0xAC00 && c <= 0xD7A3 && (c - 0xAC00) % 28 == 0 && i + 1 < s.size() && s[i + 1] >= 0x11A8 &&
+		    s[i + 1] <= 0x11C2) {
+			c += s[i + 1] - 0x11A7;
+			++i;
+		}
+		out += c;
+	}
+	s = out;
+}
+
 } // End of namespace Common

@@ -98,6 +98,18 @@ private:
  */
 void resolveKoreanParticles(String &s);
 
+/**
+ * Bring typed Korean text to the form a word table holds (DESIGN.md section 6):
+ * conjoining jamo (U+1100..U+1112, U+1161..U+1175, U+11A8..U+11C2), as an input
+ * method that sends decomposed text gives them, are composed into precomposed
+ * syllables by the Unicode Hangul composition (a syllable without a final also
+ * takes a following final jamo); full-width ASCII (U+FF01..U+FF5E) becomes ASCII
+ * and the ideographic space (U+3000) a space. Everything else, compatibility
+ * jamo (U+3131..) included, is kept. Case is not folded (the engine's parser
+ * does that).
+ */
+void normalizeKoreanInput(U32String &s);
+
 } // End of namespace Common
 
 #endif
