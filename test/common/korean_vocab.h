@@ -1,8 +1,10 @@
 #include <cxxtest/TestSuite.h>
 
+#include "common/fs.h"
 #include "common/korean_stem.h"
 #include "common/korean_vocab.h"
 #include "common/memstream.h"
+#include "common/ptr.h"
 #include "common/str-enc.h"
 
 #include "test/korean_vocab_fixture.h"
@@ -268,5 +270,64 @@ public:
 		img = rowsImage("SCIKOR", 2);
 		img[16 + 2] = 200;
 		TS_ASSERT(!loadImage(v, img, "SCIKOR"));
+	}
+
+	// Developer data: when the working directory has korean-vocab/ with <game>.v2.dat, <game>.v3.dat and <game>.tsv
+	// (tools/korean/k6bake.py build --format 2|3 and dump of the harness masters), every word of the dump resolves
+	// exactly to its rows, in both versions. Passes without the directory (as hires-maps/ in P1).
+	void test_harness_tables_when_given() {
+		Common::FSNode dir(Common::Path("korean-vocab"));
+		Common::FSList files;
+		if (!dir.isDirectory() || !dir.getChildren(files, Common::FSNode::kListFilesOnly))
+			return;
+		uint games = 0;
+		for (uint i = 0; i < files.size(); ++i) {
+			const Common::String name = files[i].getName();
+			if (!name.hasSuffix(".tsv"))
+				continue;
+			const Common::String game(name.c_str(), name.size() - 4);
+			Common::ScopedPtr<Common::SeekableReadStream> dump(files[i].createReadStream());
+			TS_ASSERT(dump);
+			if (!dump)
+				continue;
+			Common::String magic = "SCIKOR";
+			Common::Array<Common::String> lines;
+			while (!dump->eos()) {
+				const Common::String line = dump->readLine();
+				if (line.hasPrefix("@magic "))
+					magic = Common::String(line.c_str() + 7, 6);
+				else if (!line.empty() && line[0] != '#' && line[0] != '@')
+					lines.push_back(line);
+			}
+			for (int version = 2; version <= 3; ++version) {
+				Common::KoreanVocabulary v;
+				Common::ScopedPtr<Common::SeekableReadStream> in(
+					dir.getChild(game + Common::String::format(".v%d.dat", version)).createReadStream());
+				TSM_ASSERT(game.c_str(), in && v.loadFromStream(*in, magic.c_str(), game));
+				if (!v.isLoaded())
+					continue;
+				TS_ASSERT_EQUALS(v.size(), lines.size());
+				uint k = 0;
+				while (k < lines.size()) {
+					const Common::String word(lines[k].c_str(), lines[k].findFirstOf('\t'));
+					uint16 g[16], c[16];
+					const uint n = v.lookupExact(word.decode(Common::kUtf8), g, c, 16);
+					const bool lookedUp = word.decode(Common::kUtf8).size() <= Common::KoreanStems::kMaxLen;
+					uint rows = 0;
+					while (k < lines.size() && lines[k].hasPrefix(word + "\t")) {
+						if (lookedUp && rows < n) {
+							const Common::String want = Common::String::format("%s\t%u\t0x%04x", word.c_str(), g[rows], c[rows]);
+							TSM_ASSERT_EQUALS(game.c_str(), lines[k], want);
+						}
+						++rows;
+						++k;
+					}
+					if (lookedUp)
+						TSM_ASSERT_EQUALS((game + " " + word).c_str(), n, rows);
+				}
+			}
+			++games;
+		}
+		TS_ASSERT_LESS_THAN(0u, games);
 	}
 };
