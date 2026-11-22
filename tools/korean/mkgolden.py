@@ -16,6 +16,8 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SVF = os.path.join(ROOT, "dists", "svf-fonts-open")
+if not os.path.isfile(os.path.join(SVF, "tools", "svfline.py")):
+    sys.exit("mkgolden: %s is empty: run git submodule update --init dists/svf-fonts-open" % SVF)
 sys.path.insert(0, os.path.join(SVF, "tools"))
 import svfline  # noqa: E402
 
@@ -103,7 +105,7 @@ def fixture_h(rev, marks, jamo):
 def golden_h(rev, marks, jamo):
 	out = [HEADER % rev, "#ifndef TEST_GRAPHICS_SVF_GOLDEN_DATA_H", "#define TEST_GRAPHICS_SVF_GOLDEN_DATA_H", "",
 	       "#include \"common/scummsys.h\"", "",
-	       "// GRAY8 lines of tools/svfline.py over the chain { kSvfFixtureMarks, kSvfFixtureJamo }: one hex byte a pixel,", 
+	       "// GRAY8 lines of tools/svfline.py over the chain { kSvfFixtureMarks, kSvfFixtureJamo }: one hex byte a pixel,",
 	       "// one string a row.", ""]
 	chain = [marks, jamo]
 	for name, text, x, y, w, h, scale, missing in CASES:
