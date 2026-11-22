@@ -28,6 +28,8 @@ MODULE_OBJS := \
 	hires_text/banded_plane.o \
 	hires_text/svfchain.o \
 	hires_text/svfface.o \
+	hires_text/unicode_props.o \
+	hires_text/unicode_ranges.o \
 	hotspot_renderer.o \
 	image-archive.o \
 	korfont.o \
