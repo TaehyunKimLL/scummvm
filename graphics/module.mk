@@ -29,6 +29,7 @@ MODULE_OBJS := \
 	hires_text/svfchain.o \
 	hires_text/svfface.o \
 	hires_text/text_layout.o \
+	hires_text/text_plane.o \
 	hires_text/unicode_props.o \
 	hires_text/unicode_ranges.o \
 	hotspot_renderer.o \
