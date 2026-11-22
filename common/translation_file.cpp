@@ -54,6 +54,10 @@ bool TranslationFileHeader::parse(const String &line, TranslationFileHeader &out
 		text = String(text.c_str() + 3);
 	if (!text.hasPrefix("#!"))
 		return false;
+	if (text.size() > 2 && text[2] != ' ' && text[2] != '\t') {
+		error = "#! is not followed by a blank";
+		return false;
+	}
 
 	TranslationFileHeader h;
 	bool seen[5] = { false, false, false, false, false };
@@ -88,7 +92,7 @@ bool TranslationFileHeader::parse(const String &line, TranslationFileHeader &out
 		seen[k] = true;
 		switch (k) {
 		case 0:
-			if (value.empty() || value.size() > 4) {
+			if (value.empty() || value.size() > 4 || (value.size() > 1 && value[0] == '0')) {
 				error = "format=" + value + " is not a number";
 				return false;
 			}

@@ -84,6 +84,8 @@ public:
 			"#! format=1 game=kq1 fingerprint=0123456789abcdef0123456789abcdef engine=sci vocab=1",
 			"#! format=1 game=kq1 fingerprint=0123456789abcdef0123456789abcdef engine=sci junk",
 			"#! format=1 game=k/q fingerprint=0123456789abcdef0123456789abcdef engine=sci",
+			"#!format=1 game=kq1 fingerprint=0123456789abcdef0123456789abcdef engine=sci",       // no blank after #!
+			"#! format=0001 game=kq1 fingerprint=0123456789abcdef0123456789abcdef engine=sci",   // not canonical
 		};
 		for (uint i = 0; i < ARRAYSIZE(bad); ++i) {
 			Common::TranslationFileHeader h;
