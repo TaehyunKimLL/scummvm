@@ -312,6 +312,19 @@ public:
 	/** Where the string at @p pointer lives in a script, as a ScriptStrings key; unset for anything else. */
 	ScriptStrings::Key stringKey(reg_t pointer) const;
 
+	/**
+	 * The bytes (NUL included) that the buffer at @p pointer certainly has: what is left of a dynamic
+	 * memory block or array, or of the script string that holds it. 0 when the buffer's size is not known:
+	 * a stack or local buffer has only the segment's end as a bound (the VM does not know the declared size).
+	 */
+	uint32 stringCapacity(reg_t pointer) const;
+
+	/**
+	 * strcpy_() of @p text, cut on a UTF-8 code point boundary to stringCapacity() when that is known.
+	 * @p text is cut with a warning; @return the bytes written (without NUL).
+	 */
+	uint strcpyBounded(reg_t dest, const Common::String &text);
+
 
 	/**
 	 * Copies a string from src to dest.

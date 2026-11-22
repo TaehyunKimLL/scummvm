@@ -703,18 +703,10 @@ void SegManager::strncpy(reg_t dest, const char* src, size_t n) {
 	if (g_sci && g_sci->getTextMode().utf8() && dest_r.maxSize > 0 && Common::strnlen(src, n) >= (size_t)dest_r.maxSize) {
 		// A translation longer than the English buffer: cut it on a code
 		// point boundary instead of writing past the buffer.
-		uint32 end = 0;
-		while (end < (uint32)dest_r.maxSize - 1) {
-			int bytes;
-			decodeUtf8Char((const byte *)src + end, bytes);
-			if (end + bytes > (uint32)dest_r.maxSize - 1)
-				break;
-			end += bytes;
-		}
-		warning("SegManager::strncpy: \"%s\" cut to %u bytes", src, end);
-		cut = Common::String(src, end);
+		cut = utf8Truncate(Common::String(src, Common::strnlen(src, n)), (uint32)dest_r.maxSize);
+		warning("SegManager::strncpy: \"%s\" cut to %u bytes", src, cut.size());
 		src = cut.c_str();
-		n = end + 1;
+		n = cut.size() + 1;
 	}
 
 	if (dest_r.isRaw) {
@@ -901,6 +893,39 @@ ScriptStrings::Key SegManager::stringKey(reg_t pointer) const {
 	if (!id)
 		return ScriptStrings::Key();
 	return ScriptStrings::Key((uint16)script->getScriptNumber(), id);
+}
+
+uint32 SegManager::stringCapacity(reg_t pointer) const {
+	if (pointer.isNull() || pointer.getSegment() >= _heap.size() || !_heap[pointer.getSegment()])
+		return 0;
+	switch (_heap[pointer.getSegment()]->getType()) {
+	case SEG_TYPE_SCRIPT: {
+		const Script *script = getScriptIfLoaded(pointer.getSegment());
+		return script ? script->stringBytesAt(pointer.getOffset()) : 0;
+	}
+	case SEG_TYPE_DYNMEM:
+#ifdef ENABLE_SCI32
+	case SEG_TYPE_ARRAY:
+#endif
+		{
+			const SegmentRef ref = const_cast<SegManager *>(this)->dereference(pointer);
+			return ref.isValid() && ref.maxSize > 0 ? (uint32)ref.maxSize : 0;
+		}
+	default:
+		return 0;
+	}
+}
+
+uint SegManager::strcpyBounded(reg_t dest, const Common::String &text) {
+	const uint32 capacity = stringCapacity(dest);
+	Common::String out = text;
+	if (g_sci && g_sci->getTextMode().utf8() && capacity && text.size() >= capacity) {
+		out = utf8Truncate(text, capacity);
+		warning("SegManager::strcpyBounded: \"%s\" cut to %u of the buffer's %u bytes at %04x:%04x",
+		        text.c_str(), out.size(), capacity, PRINT_REG(dest));
+	}
+	strcpy_(dest, out.c_str());
+	return out.size();
 }
 
 Common::String SegManager::getString(reg_t pointer) {

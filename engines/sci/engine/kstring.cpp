@@ -171,9 +171,11 @@ static reg_t strAtUtf8(EngineState *s, SegmentRef &dest_r, reg_t str, uint16 ind
 	// Rebuild the string: head, the new code point, the tail after the old one (never byte by byte).
 	Common::String rebuilt = text;
 	uint32 old;
-	switch (utf8ReplaceAt(rebuilt, index, newvalue, (uint32)dest_r.maxSize, old)) {
+	const uint32 known = s->_segMan->stringCapacity(str);
+	const uint32 capacity = known ? known : (uint32)dest_r.maxSize;
+	switch (utf8ReplaceAt(rebuilt, index, newvalue, capacity, old)) {
 	case kUtf8Replaced:
-		s->_segMan->strcpy_(str, rebuilt.c_str());
+		s->_segMan->strcpyBounded(str, rebuilt);
 		return make_reg(0, old);
 	case kUtf8ByteOffset:
 		// A script walking fixed-size records: the index is a byte offset.
@@ -289,7 +291,10 @@ static bool endsWithHangulSyllable(const char *start, const char *end) {
 	return (t[0] & 0xF0) == 0xE0 && cp >= 0xAC00 && cp <= 0xD7A3;
 }
 
-reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
+// The formatting of kFormat. @p translate: format and %s strings go through the
+// script string table (a Korean heap); @p result non-null: the text is returned
+// in it and dest is not written.
+static reg_t formatImpl(EngineState *s, int argc, reg_t *argv, bool translate, Common::String *result) {
 	enum {
 		ALIGN_NONE   = 0,
 		ALIGN_RIGHT  = 1,
@@ -325,7 +330,7 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 
 	int index = (startarg == 3) ? argv[2].toUint16() : 0;
 	Common::String source_str = g_sci->getKernel()->lookupText(position, index);
-	if (position.getSegment())
+	if (translate && position.getSegment())
 		source_str = g_sci->translated(source_str, g_sci->keyOf(position, source_str));
 	const char* source = source_str.c_str();
 
@@ -389,10 +394,10 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 
 				Common::String tempsource = g_sci->getKernel()->lookupText(reg,
 				                                  arguments[paramindex + 1]);
-				if (reg.getSegment())
+				if (translate && reg.getSegment())
 					tempsource = g_sci->translated(tempsource, g_sci->keyOf(reg, tempsource));
 				// A plural "s" after a Korean word is dropped (사과s).
-				if (g_sci->getTextMode().utf8() && (tempsource == "s" || tempsource == "S") && endsWithHangulSyllable(targetbuf, target))
+				if (translate && g_sci->getTextMode().utf8() && (tempsource == "s" || tempsource == "S") && endsWithHangulSyllable(targetbuf, target))
 					tempsource.clear();
 				int slen = tempsource.size();
 				int extralen = strLength - slen;
@@ -454,7 +459,7 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 					while (strLength-- > 1)
 						*target++ = ' '; /* Format into the text */
 				char argchar = arguments[paramindex++];
-				if (g_sci->getTextMode().utf8() && (argchar == 's' || argchar == 'S') && endsWithHangulSyllable(targetbuf, target))
+				if (translate && g_sci->getTextMode().utf8() && (argchar == 's' || argchar == 'S') && endsWithHangulSyllable(targetbuf, target))
 					argchar = 0;
 				if (argchar)
 					*target++ = argchar;
@@ -519,16 +524,52 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 
 	*target = 0; /* Terminate string */
 
-	if (g_sci->getTextMode().utf8()) {
+	if (translate && g_sci->getTextMode().utf8()) {
 		// 을(를), 이(가) ... after the inserted words.
 		Common::String formatted(targetbuf);
 		Common::resolveKoreanParticles(formatted);
-		s->_segMan->strcpy_(dest, formatted.c_str());
+		if (result) {
+			*result = formatted;
+			return dest;
+		}
+		s->_segMan->strcpyBounded(dest, formatted);
+		return dest;
+	}
+	if (result) {
+		*result = targetbuf;
 		return dest;
 	}
 	s->_segMan->strcpy_(dest, targetbuf);
 
 	return dest; /* Return target addr */
+}
+
+reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
+	if (!g_sci->getTextMode().utf8() || !g_sci->scriptStrings().isLoaded())
+		return formatImpl(s, argc, argv, true, nullptr);
+
+	// A Korean result is usually longer than the English one, and the buffer is the
+	// script's (a local or a stack array whose declared size the VM does not know).
+	// Format both, so a translation that outgrows the English text is seen.
+	Common::String korean, english;
+	const reg_t dest = formatImpl(s, argc, argv, true, &korean);
+	if (dest.isNull())
+		return dest;
+	formatImpl(s, argc, argv, false, &english);
+	const uint32 capacity = s->_segMan->stringCapacity(argv[0]);
+	if (!capacity && korean.size() > english.size()) {
+		static Common::HashMap<uint32, bool> warned;
+		const uint32 once = ((uint32)argv[1].getSegment() << 16) ^ argv[1].getOffset() ^ ((uint32)korean.size() << 8);
+		if (!warned.contains(once)) {
+			warned[once] = true;
+			const ScriptStrings::Key key = g_sci->keyOf(argv[1], g_sci->getKernel()->lookupText(argv[1], 0));
+			warning("kFormat: the Korean result (%u bytes) is longer than the English one (%u bytes) and the buffer at %04x:%04x has no known size "
+			        "(format %04x:%04x, script string %d:%d): it can overrun what follows",
+			        korean.size(), english.size(), PRINT_REG(argv[0]), PRINT_REG(argv[1]), key.isSet() ? key.script : -1, key.isSet() ? key.id : -1);
+		}
+	}
+	s->_segMan->strcpyBounded(argv[0], korean);
+	return dest;
 }
 
 reg_t kStrLen(EngineState *s, int argc, reg_t *argv) {

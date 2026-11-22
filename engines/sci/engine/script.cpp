@@ -237,6 +237,15 @@ uint16 Script::stringIdAtOffset(uint32 offset) const {
 	return 0;
 }
 
+uint32 Script::stringBytesAt(uint32 offset) const {
+	for (uint i = 0; i < _offsetLookupArray.size(); ++i) {
+		const offsetLookupArrayEntry &e = _offsetLookupArray[i];
+		if (e.type == SCI_SCR_OFFSET_TYPE_STRING && offset >= e.offset && offset < e.offset + e.stringSize)
+			return e.offset + e.stringSize - offset;
+	}
+	return 0;
+}
+
 void Script::identifyOffsets() {
 	offsetLookupArrayEntry arrayEntry;
 	SciSpan<const byte> scriptDataPtr;
