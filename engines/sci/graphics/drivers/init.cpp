@@ -22,6 +22,7 @@
 
 #include "sci/graphics/drivers/gfxdriver.h"
 #include "sci/sci.h"
+#include "sci/graphics/hirestext.h"
 #include "common/config-manager.h"
 #include "common/language.h"
 #include "common/platform.h"
@@ -142,6 +143,9 @@ GfxDriver *create(Common::RenderMode renderMode, int width, int height) {
 	GfxDriver *result = nullptr;
 
 	int requestRGB = (int)(ConfMan.hasKey("palette_mods") && ConfMan.getBool("palette_mods")) || (ConfMan.hasKey("rgb_rendering") && ConfMan.getBool("rgb_rendering"));
+	// Hi-res text picks its own target (render_target, the map's faces).
+	if (g_sci->getHiResText())
+		requestRGB = g_sci->getHiResText()->wantsRgb() ? 1 : 0;
 	SciVersion version = getSciVersion();
 	SciGameId gameId = g_sci->getGameId();
 	Common::Language lang = g_sci->getLanguage();

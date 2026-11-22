@@ -24,6 +24,7 @@
 #define SCI_GRAPHICS_DRIVERS_GFXDRIVER_INTERN_H
 
 #include "common/platform.h"
+#include "common/array.h"
 #include "sci/graphics/drivers/gfxdriver.h"
 
 namespace Sci {
@@ -102,6 +103,7 @@ public:
 	Common::Point getRealCoords(Common::Point &pos) const override;
 	void drawTextFontGlyph(const byte *src, int pitch, int hiresDestX, int hiresDestY, int hiresW, int hiresH, int transpColor, const PaletteMod *palMods, const byte *palModMapping) override; // For HiRes fonts.
 	bool driverBasedTextRendering() const override { return true; }
+	bool setTextPlane(const Graphics::TextPlane *plane, int mode) override;
 protected:
 	UpscaledGfxDriver(uint16 scaledW, uint16 scaledH, int16 textAlignX, bool scaleCursor, bool rgbRendering);
 	void updateScreen(int destX, int destY, int w, int h, const PaletteMod *palMods, const byte *palModMapping);
@@ -115,7 +117,12 @@ protected:
 	uint16 _vScaleMult;
 	uint16 _vScaleDiv;
 	byte *_scaledBitmap;
+	const Graphics::TextPlane *_textPlane;
+	int _textMode;
+	Common::Array<byte> _textScratch;
 private:
+	/** The text plane over @p buff (w x h at destX, destY); a copy when @p buff is _scaledBitmap. */
+	void compositeText(byte *&buff, int &pitch, int destX, int destY, int w, int h);
 	virtual void renderBitmap(const byte *src, int pitch, int dx, int dy, int w, int h, int &realWidth, int &realHeight);
 	const bool _scaleCursor;
 	uint16 _cursorWidth;

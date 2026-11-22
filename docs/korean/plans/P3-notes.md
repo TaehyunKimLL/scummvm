@@ -26,4 +26,5 @@ Base `d7f47c73a07`, N0 = 620 tests (verified, `~/work/tmp/scummvm2026-p3build`).
 | 9 | 877ea2d3045 | 666 OK | [data] check: sci-ko.str headerless warning + header line with fingerprint 87ef5027c321e18e7b81a47bb584c098 (as the plan). No red possible (engine wiring; the observable is the data check: before this task no such lines). Per-file diffs identical to the prototype. |
 | 10 | c6ebf07ac73 | 666 (not re-run, detection only; scummvm links) | [data] red: one `--detect` line (English); green: Korean + English lines, as the plan; run of [kq1-ko] logs the English release entry |
 | 11 | 95464d3f0d4 | 666 OK | no red possible (kernel hooks need the game; exercised by the headless runs in Tasks 15/19). The moved kStrAt block differs from base only by `argc > 2` -> `write` and `return value`. |
-| 12 | see below | 666 OK | hooks only |
+| 12 | bcf2c9077e6 | 666 OK | hooks only |
+| 13 | see below | 666 OK | driver hook; verified by the smoke runs of Task 15 |

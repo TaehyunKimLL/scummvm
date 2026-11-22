@@ -30,6 +30,7 @@
 
 namespace Graphics {
 	class Cursor;
+	class TextPlane;
 }
 
 namespace Sci {
@@ -65,6 +66,12 @@ public:
 	virtual bool supportsPalIntensity() const = 0;
 	virtual bool supportsHiResGraphics() const = 0;
 	virtual bool driverBasedTextRendering() const = 0;
+	/**
+	 * Hi-res text (DESIGN.md section 5.1): @p plane is composited over every
+	 * screen update by @p mode (a Graphics::TextCompose::Mode). False when
+	 * the driver cannot (not a 2x upscaled screen of the plane's size).
+	 */
+	virtual bool setTextPlane(const Graphics::TextPlane *plane, int mode) { return false; }
 	uint16 numColors() const { return _numColors; }
 	byte pixelSize() const { return _pixelSize; }
 

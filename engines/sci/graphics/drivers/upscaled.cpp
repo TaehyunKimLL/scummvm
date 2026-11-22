@@ -22,6 +22,8 @@
 
 #include "common/system.h"
 #include "graphics/cursorman.h"
+#include "graphics/hires_text/text_compose.h"
+#include "graphics/hires_text/text_plane.h"
 #include "sci/graphics/drivers/gfxdriver_intern.h"
 
 namespace Sci {
@@ -32,7 +34,7 @@ UpscaledGfxDriver::UpscaledGfxDriver(int16 textAlignX, bool scaleCursor, bool rg
 
 UpscaledGfxDriver::UpscaledGfxDriver(uint16 scaledW, uint16 scaledH, int16 textAlignX, bool scaleCursor, bool rgbRendering) :
 	GfxDefaultDriver(scaledW, scaledH, false, rgbRendering), _textAlignX(textAlignX), _scaleCursor(scaleCursor), _needCursorBuffer(false),
-	_scaledBitmap(nullptr), _renderScaled(nullptr), _renderGlyph(nullptr), _cursorWidth(0), _cursorHeight(0), _hScaleMult(2), _vScaleMult(2), _vScaleDiv(1) {
+	_scaledBitmap(nullptr), _renderScaled(nullptr), _renderGlyph(nullptr), _cursorWidth(0), _cursorHeight(0), _hScaleMult(2), _vScaleMult(2), _vScaleDiv(1), _textPlane(nullptr), _textMode(0) {
 	_virtualW = 320;
 	_virtualH = 200;
 }
@@ -165,7 +167,50 @@ void UpscaledGfxDriver::updateScreen(int destX, int destY, int w, int h, const P
 		pitch = _screenW *_pixelSize;
 	}
 
+	if (_textPlane && !_textPlane->isEmpty())
+		compositeText(buff, pitch, destX, destY, w, h);
 	g_system->copyRectToScreen(buff, pitch, destX, destY, w, h);
+}
+
+bool UpscaledGfxDriver::setTextPlane(const Graphics::TextPlane *plane, int mode) {
+	if (plane && (_hScaleMult != 2 || _vScaleMult != 2 || _vScaleDiv != 1 || plane->getWidth() != _screenW ||
+	              plane->getHeight() > _screenH))
+		return false;
+	_textPlane = plane;
+	_textMode = mode;
+	return true;
+}
+
+void UpscaledGfxDriver::compositeText(byte *&buff, int &pitch, int destX, int destY, int w, int h) {
+	const Common::Rect r = Common::Rect(destX, destY, destX + w, destY + h).findIntersectingRect(
+		Common::Rect(_textPlane->getWidth(), _textPlane->getHeight()));
+	if (r.isEmpty())
+		return;
+	const byte *scb = _scaledBitmap + destY * _screenW * _srcPixelSize + destX * _srcPixelSize;
+	if (buff == scb) {
+		// Never into _scaledBitmap: the next update would keep the text.
+		_textScratch.resize(w * h * _pixelSize);
+		for (int y = 0; y < h; ++y)
+			memcpy(&_textScratch[y * w * _pixelSize], buff + y * pitch, w * _pixelSize);
+		buff = _textScratch.data();
+		pitch = w * _pixelSize;
+	}
+	byte indexRow[640 * 2], coverageRow[640 * 2];
+	for (int y = r.top; y < r.bottom; ++y) {
+		const byte *index, *coverage;
+		const int n = MIN<int>(r.width(), ARRAYSIZE(indexRow));
+		if (!_textPlane->getRow(y, r.left, n, indexRow, coverageRow, index, coverage))
+			continue;
+		byte *dst = buff + (y - destY) * pitch + (r.left - destX) * _pixelSize;
+		// The screen format is known only after initScreen(): CLUT8 stamps,
+		// RGB blends or thresholds as the text's mode says.
+		if (_pixelSize == 1)
+			Graphics::TextCompose::stampSpan(dst, index, coverage, n);
+		else
+			Graphics::TextCompose::composeSpan(dst, _format, index, coverage, n, _currentPalette,
+			                                   _textMode == Graphics::TextCompose::kStamp ? Graphics::TextCompose::kThreshold
+			                                                                         : (Graphics::TextCompose::Mode)_textMode);
+	}
 }
 
 void UpscaledGfxDriver::adjustCursorBuffer(uint16 newWidth, uint16 newHeight) {
