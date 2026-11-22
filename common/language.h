@@ -104,6 +104,16 @@ extern const char *getLanguageCode(Language id);
 extern const char *getLanguageLocale(Language id);
 extern const char *getLanguageDescription(Language id);
 
+/**
+ * The ISO 639-1 code of a language: the name of the folder a translation keeps its files in (ko/, ja/). Unlike
+ * getLanguageCode() ("cn", "tw", "gb", "br"), every variant has its language's code: ZH_TWN is "zh", PT_BRA "pt".
+ * Empty for UNK_LANG.
+ */
+extern const char *getLanguageFolderCode(Language id);
+
+/** The language a folder code names (any case): the generic one of those sharing it ("en" EN_ANY, "zh" ZH_ANY). */
+extern Language parseLanguageFolderCode(const String &code);
+
 // TODO: Document this GUIO related function
 const String getGameGUIOptionsDescriptionLanguage(Language lang);
 const String getGameGUIOptionsDescriptionLanguages(const List<Language> &languages);
