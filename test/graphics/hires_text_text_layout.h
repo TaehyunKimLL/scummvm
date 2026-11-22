@@ -543,6 +543,30 @@ public:
 		}
 	}
 
+	// A conjoining jamo sequence and the tone marks are one cluster: no break inside it in either mode.
+	void test_hangul_jamo_sequence_and_tone_marks_do_not_break() {
+		Graphics::TextRun run;
+		decodeUtf8(run, "\xE1\x84\x80\xE1\x85\xA1\xE1\x86\xA8");   // leading g, vowel a, trailing g
+		Graphics::BreakRules rules;
+		for (int h = 0; h < 2; h++) {
+			rules.hangul = h ? Graphics::kHangulBreakAny : Graphics::kHangulBreakWord;
+			TS_ASSERT(!Graphics::TextLayout::canBreakBefore(run, 1, rules));
+			TS_ASSERT(!Graphics::TextLayout::canBreakBefore(run, 2, rules));
+		}
+		UnitMetrics m;
+		Common::Array<Graphics::LineSpan> lines;
+		Graphics::TextLayout::breakLines(run, 1, m, rules, lines);	// too narrow: the cluster is not split
+		TS_ASSERT_EQUALS(lines.size(), 1u);
+
+		decodeUtf8(run, "\xEA\xB0\x80\xE3\x80\xAE");   // a syllable and the tone mark U+302E
+		for (int h = 0; h < 2; h++) {
+			rules.hangul = h ? Graphics::kHangulBreakAny : Graphics::kHangulBreakWord;
+			TS_ASSERT(!Graphics::TextLayout::canBreakBefore(run, 1, rules));
+		}
+		decodeUtf8(run, "\xEA\xB0\x80\xEA\xB0\x80");
+		TS_ASSERT(Graphics::TextLayout::canBreakBefore(run, 1, rules));	// two syllables still may (any)
+	}
+
 	void test_emergency_split() {
 		const char s[] = "Supercalifragilistic";
 		Graphics::TextRun run;

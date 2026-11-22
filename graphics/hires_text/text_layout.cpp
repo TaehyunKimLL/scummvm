@@ -265,6 +265,11 @@ bool isHangul(uint32 cp) {
 		|| (cp >= 0xD7B0 && cp <= 0xD7FF);    // Hangul Jamo Extended-B
 }
 
+/** A vowel or trailing consonant jamo, or a Hangul tone mark: it stays with the unit before it (UAX #14 LB26). */
+bool isHangulTrailing(uint32 cp) {
+	return (cp >= 0x1160 && cp <= 0x11FF) || (cp >= 0xD7B0 && cp <= 0xD7FF) || cp == 0x302E || cp == 0x302F;
+}
+
 /** ASCII closers that may not begin a line after a wide unit (JIS X 4051). */
 bool isAsciiCloser(uint32 cp) {
 	return cp == ')' || cp == ']' || cp == '}' || cp == ',' || cp == '.'
@@ -670,7 +675,7 @@ bool canBreakBefore(const TextRun &run, uint32 i, const BreakRules &rules) {
 	if (j >= n)
 		return false;   // trailing escapes stay on the line
 	const byte fb = run.flags(j);
-	if (fb & kUnitCombining)
+	if ((fb & kUnitCombining) || isHangulTrailing(run.cp(j)))
 		return false;
 	if ((fa & kUnitNewline) || (fb & kUnitNewline))
 		return true;
@@ -711,7 +716,7 @@ bool canBreakBefore(const TextRun &run, uint32 i, const BreakRules &rules) {
 bool isClusterBoundary(const TextRun &run, uint32 i) {
 	if (i == 0 || i >= run.size())
 		return true;
-	if (run.flags(i) & kUnitCombining)
+	if ((run.flags(i) & kUnitCombining) || isHangulTrailing(run.cp(i)))
 		return false;
 	return !isGlue(run, i - 1);
 }
