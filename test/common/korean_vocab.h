@@ -278,8 +278,10 @@ public:
 	void test_harness_tables_when_given() {
 		Common::FSNode dir(Common::Path("korean-vocab"));
 		Common::FSList files;
-		if (!dir.isDirectory() || !dir.getChildren(files, Common::FSNode::kListFilesOnly))
+		if (!dir.isDirectory() || !dir.getChildren(files, Common::FSNode::kListFilesOnly)) {
+			TS_WARN("korean-vocab/ is not in the working directory: harness table check skipped");
 			return;
+		}
 		uint games = 0;
 		for (uint i = 0; i < files.size(); ++i) {
 			const Common::String name = files[i].getName();
