@@ -371,7 +371,7 @@ reg_t kTextSize(EngineState *s, int argc, reg_t *argv) {
 	}
 
 	uint16 languageSplitter = 0;
-	Common::String splitText = g_sci->strSplitLanguage(text.c_str(), &languageSplitter, separator);
+	Common::String splitText = g_sci->strSplitHeap(argv[1], text, &languageSplitter, separator);
 
 	int16 textWidth;
 	int16 textHeight;
@@ -916,10 +916,10 @@ void _k_GenericDrawControl(EngineState *s, reg_t controlObject, bool hilite) {
 	switch (type) {
 	case SCI_CONTROLS_TYPE_BUTTON:
 	case SCI_CONTROLS_TYPE_TEXTEDIT:
-		splitText = g_sci->strSplitLanguage(text.c_str(), &languageSplitter, nullptr);
+		splitText = g_sci->strSplitHeap(textReference, text, &languageSplitter, nullptr);
 		break;
 	case SCI_CONTROLS_TYPE_TEXT:
-		splitText = g_sci->strSplitLanguage(text.c_str(), &languageSplitter, g_sci->getGameId() == GID_PQ2 ? "\r" : "\r----------\r");
+		splitText = g_sci->strSplitHeap(textReference, text, &languageSplitter, g_sci->getGameId() == GID_PQ2 ? "\r" : "\r----------\r");
 		break;
 	default:
 		break;
@@ -1230,7 +1230,7 @@ reg_t kNewWindow(EngineState *s, int argc, reg_t *argv) {
 	Common::String title;
 	if (argv[4 + argextra].getSegment()) {
 		title = s->_segMan->getString(argv[4 + argextra]);
-		title = g_sci->strSplit(title.c_str(), nullptr);
+		title = g_sci->strSplitHeap(argv[4 + argextra], title, nullptr, nullptr);
 	}
 
 	return g_sci->_gfxPorts->kernelNewWindow(rect1, rect2, style, priority, colorPen, colorBack, title.c_str());
@@ -1276,7 +1276,8 @@ reg_t kDisplay(EngineState *s, int argc, reg_t *argv) {
 	}
 
 	uint16 languageSplitter = 0;
-	Common::String splitText = g_sci->strSplitLanguage(text.c_str(), &languageSplitter, g_sci->getGameId() == GID_PQ2 ? "\r" : "\r----------\r");
+	Common::String splitText = g_sci->strSplitLanguage(text.c_str(), &languageSplitter, g_sci->getGameId() == GID_PQ2 ? "\r" : "\r----------\r",
+	                                                   textp.getSegment() ? g_sci->keyOf(textp, text) : ScriptStrings::Key());
 
 	return g_sci->_gfxPaint16->kernelDisplay(splitText.c_str(), languageSplitter, argc, argv);
 }

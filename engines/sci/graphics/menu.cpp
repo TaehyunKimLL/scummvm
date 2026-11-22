@@ -313,6 +313,7 @@ void GfxMenu::kernelSetAttribute(uint16 menuId, uint16 itemId, uint16 attributeI
 		break;
 	case SCI_MENU_ATTRIBUTE_TEXT:
 		itemEntry->text = _segMan->getString(value);
+		itemEntry->text = g_sci->translated(itemEntry->text, g_sci->keyOf(value, itemEntry->text));
 		itemEntry->textVmPtr = value;
 		// We assume here that no script ever creates a separatorLine dynamically
 		break;

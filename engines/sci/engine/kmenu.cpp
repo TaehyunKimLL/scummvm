@@ -32,6 +32,8 @@ namespace Sci {
 reg_t kAddMenu(EngineState *s, int argc, reg_t *argv) {
 	Common::String title = s->_segMan->getString(argv[0]);
 	Common::String content = s->_segMan->getString(argv[1]);
+	title = g_sci->translated(title, g_sci->keyOf(argv[0], title));
+	content = g_sci->translated(content, g_sci->keyOf(argv[1], content));
 
 	g_sci->_gfxMenu->kernelAddEntry(title, content, argv[1]);
 	return s->r_acc;
