@@ -44,6 +44,23 @@ public:
 		                               "vocab=fedcba9876543210fedcba9876543210");
 	}
 
+	// A UTF-8 BOM (every Windows editor's default) in front of the header must not hide it.
+	void test_byteOrderMark() {
+		const Common::String bom("\xEF\xBB\xBF");
+		Common::TranslationFileHeader h, expected;
+		Common::String error;
+		TS_ASSERT(Common::TranslationFileHeader::parse(bom + kq1() + "\r", h, error));
+		TS_ASSERT(h.present());
+		TS_ASSERT_EQUALS(h.toString(), kq1());
+		// a header naming another game is refused like any other
+		expected.game = "kq4";
+		TS_ASSERT_EQUALS(Common::checkTranslationHeader(h, expected, "a"), Common::kTranslationMismatch);
+		// a BOM without a header line is no header
+		TS_ASSERT(!Common::TranslationFileHeader::parse(bom + "0\t5\tx", h, error));
+		TS_ASSERT(error.empty());
+		TS_ASSERT(!h.present());
+	}
+
 	void test_notAHeader() {
 		Common::TranslationFileHeader h;
 		Common::String error = "x";

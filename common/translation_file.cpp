@@ -49,6 +49,9 @@ bool TranslationFileHeader::parse(const String &line, TranslationFileHeader &out
 	String text = line;
 	while (!text.empty() && (text.lastChar() == '\r' || text.lastChar() == '\n'))
 		text.deleteLastChar();
+	// A UTF-8 byte order mark is optional at the start of a text file (DESIGN.md section 4).
+	if (text.hasPrefix("\xEF\xBB\xBF"))
+		text = String(text.c_str() + 3);
 	if (!text.hasPrefix("#!"))
 		return false;
 
