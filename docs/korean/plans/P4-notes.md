@@ -217,3 +217,13 @@ Checks that ran on scratch copies (headers added by the plan's section 4 loop, t
 5. QFG1 EGA gargoyle: the later questions of the three never showed on a screenshot; a full pass is unverified.
 6. The plan's key sequence for 에라스무스 (`dpfktmanta`) is a typo (`dpfktmantm`).
 7. KQ4's intro takes about 7 minutes wall time under Xvfb; LB1's about 5.
+
+## Corrections after the review round (see P4-fixes.md)
+
+- Finding 4 above (QFG1 VGA crash) is **our copy path, not "SCI1.1 hi-res text"**: `SegManager::strncpy(reg_t, reg_t)` copied a
+  translated string from a stack temp into a kMemory block sized for the English text without a bound (Opus M1). Fixed in `ddc58af950e`;
+  QFG1 VGA now starts under ASan with 0 reports (block grown 68 -> 159) and the notice renders in Korean.
+- Finding 3 (Alt+S): the Alt guard was added (`b87872963f6`) but the leak was **not** reproduced as a key event: a debug line in
+  `getScummVMEvent` saw only the Alt key-down (keycode 308, flags 2) around a screenshot, never an `s`; the stray `ㄴ` (and the `L` glyph in the
+  empty KQ1 prompt after a screenshot) is still unexplained. Open.
+- QFG2/QFG1 answer rooms: the search is **script 2 (QFG2) and script 802 (QFG1)** (call origin), the words are those of scripts 199, 29 and 22.
