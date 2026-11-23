@@ -58,7 +58,8 @@ uint32 decodeUtf8(const byte *p, const byte *end, int &len);
 /** Appends the UTF-8 of @p cp. */
 void appendUtf8(uint32 cp, Common::Array<byte> &out);
 
-/** Whether [@p p, @p end) (escapes skipped) is valid UTF-8; plain ASCII is. */
+/** Whether [@p p, @p end) (escapes skipped) is valid UTF-8 engine text; plain ASCII is. A 2-byte character above U+00FF is not
+ * (it is far likelier a CP949 syllable such as C4 AB). */
 bool textIsUtf8(const byte *p, const byte *end);
 
 /**

@@ -229,6 +229,7 @@ void ScummEngine::convertLoadedText(int saved) {
 	}
 	if (!textIsUtf8(_charsetBuffer, _charsetBuffer + sizeof(_charsetBuffer))) {
 		byte msg[sizeof(_charsetBuffer)];
+		memset(msg, 0, sizeof(msg));	// toEngineText() writes up to its NUL only: do not copy the stack's rest back
 		toEngineText(_charsetBuffer, sizeof(_charsetBuffer), msg, sizeof(msg));
 		memcpy(_charsetBuffer, msg, sizeof(msg));
 		converted++;

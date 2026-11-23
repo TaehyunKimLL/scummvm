@@ -61,4 +61,19 @@ public:
 		TS_ASSERT(Scumm::textIsUtf8(utf8, utf8 + sizeof(utf8)));
 		TS_ASSERT(!Scumm::textIsUtf8(cp949, cp949 + sizeof(cp949)));
 	}
+
+	void test_cp949_syllable_that_reads_as_utf8() {
+		// 카 is C4 AB in CP949, which is also the UTF-8 of U+012B: a 2-byte character above U+00FF cannot come from the
+		// conversion (it only makes U+0080..U+00FF) and korean.fnt has no glyph for it, so such a text is CP949.
+		uint unmapped = 0;
+		TS_ASSERT_EQUALS(engineText("\xc4\xab", 256, &unmapped), "\xec\xb9\xb4");
+		TS_ASSERT_EQUALS(engineText("\xc7\xd1\xc4\xab"), "\xed\x95\x9c\xec\xb9\xb4");
+		TS_ASSERT_EQUALS(unmapped, 0u);
+		// The charset glyphs stay UTF-8 (U+00E9 = C3 A9), and a converted text passes again unchanged.
+		TS_ASSERT_EQUALS(engineText("\xc3\xa9"), "\xc3\xa9");
+		const byte once[] = "\xec\xb9\xb4\xc3\xa9";
+		TS_ASSERT(Scumm::textIsUtf8(once, once + sizeof(once)));
+		const byte pair[] = "\xc4\xab";
+		TS_ASSERT(!Scumm::textIsUtf8(pair, pair + sizeof(pair)));
+	}
 };

@@ -124,7 +124,11 @@ bool textIsUtf8(const byte *p, const byte *end) {
 			continue;
 		}
 		int len;
-		if (decodeUtf8(p, end, len) == 0xFFFFFFFF)
+		const uint32 cp = decodeUtf8(p, end, len);
+		// A 2-byte character above U+00FF is no engine text: cp949ToUtf8() only makes U+0080..U+00FF of a lone high
+		// byte, and korean.fnt has no glyph for it. Such bytes are a CP949 syllable whose two bytes also form valid
+		// UTF-8 (카 is C4 AB, U+012B) and must be read as CP949.
+		if (cp == 0xFFFFFFFF || (len == 2 && cp > 0xFF))
 			return false;
 		p += len;
 	}
