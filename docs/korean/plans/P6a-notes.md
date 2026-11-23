@@ -116,3 +116,9 @@ written into the log by the next commit.
   Loom 233, Indy4 337 (42 >= 256): the plan's numbers; MI2 245 and MI1 UTE 239 (plan 161/222: I count escape bytes, which the
   engine's buffers hold too); none >= 512. census Indy4: 5 unreadable pairs by Python's cp949 (the engine without
   `encoding.dat` reads 7), 148 charset bytes. `equal` mi2 and mi1ute: 1 line each (above).
+- a12 sha fff425d12a8 (note: the helper script staged the whole tree, so this one commit, titled for the test, also holds
+  `trscheck.py`, its test and the notes of a12; the next commits stage only their paths).
+
+### a13: records
+- `docs/korean/PATCHES.md`: rows for topic `ko/05-scumm`, one per upstream file. This log is `P6a-notes.md` (the plan names
+  `P6-notes.md`; the run's instruction names `P6a-notes.md`).
