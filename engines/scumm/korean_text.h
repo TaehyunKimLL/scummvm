@@ -24,6 +24,7 @@
 
 #include "common/array.h"
 #include "common/scummsys.h"
+#include "common/str-enc.h"
 
 namespace Scumm {
 
@@ -77,6 +78,9 @@ void cp949ToUtf8(const byte *src, const byte *end, Common::Array<byte> &out, uin
  * or escape that fits, then a NUL. Returns the length written.
  */
 int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unmapped = nullptr);
+
+/** The code page engine text of a Korean target is in: UTF-8 for v1-v6 (\p utf8), CP949 for The Dig, FT and COMI. */
+Common::CodePage koreanEngineCodePage(bool utf8);
 
 /** The jongsung bits of the last Hangul syllable in [@p p, @p end) (bit 0: a final, bit 1: ㄹ); 0 without one. */
 int koreanFinalBits(const byte *p, const byte *end);

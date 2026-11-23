@@ -2539,7 +2539,7 @@ bool ScummEngine::reverseIfNeeded(const byte *text, byte *reverseBuf, int revers
 Common::CodePage ScummEngine::getDialogCodePage() const {
 	switch (_language) {
 	case Common::KO_KOR:
-		return Common::kWindows949;
+		return koreanEngineCodePage(_koreanUtf8);	// UTF-8 inside the engine for v1-v6
 	case Common::JA_JPN:
 		return Common::kWindows932;
 	case Common::ZH_CHN:

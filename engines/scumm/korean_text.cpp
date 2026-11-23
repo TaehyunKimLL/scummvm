@@ -212,6 +212,10 @@ int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unma
 	return at;
 }
 
+Common::CodePage koreanEngineCodePage(bool utf8) {
+	return utf8 ? Common::kUtf8 : Common::kWindows949;
+}
+
 int koreanFinalBits(const byte *p, const byte *end) {
 	int bits = 0;
 	while (p < end && *p) {

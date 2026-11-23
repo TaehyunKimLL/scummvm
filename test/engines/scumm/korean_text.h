@@ -76,4 +76,13 @@ public:
 		const byte pair[] = "\xc4\xab";
 		TS_ASSERT(!Scumm::textIsUtf8(pair, pair + sizeof(pair)));
 	}
+
+	void test_dialog_code_page_follows_the_engine_text() {
+		// Save names, dialog texts and TTS decode engine text with it: UTF-8 for v1-v6, CP949 for FT/Dig/COMI.
+		TS_ASSERT_EQUALS(Scumm::koreanEngineCodePage(true), Common::kUtf8);
+		TS_ASSERT_EQUALS(Scumm::koreanEngineCodePage(false), Common::kWindows949);
+		// A UTF-8 save name survives the round trip through that page (no encoding.dat needed), the CP949 one does not.
+		const Common::U32String name("\xed\x95\x9c\xea\xb8\x80 ok", Common::kUtf8);
+		TS_ASSERT_EQUALS(name.encode(Scumm::koreanEngineCodePage(true)), "\xed\x95\x9c\xea\xb8\x80 ok");
+	}
 };
