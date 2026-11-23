@@ -86,6 +86,20 @@ void cp949ToUtf8(const byte *src, const byte *end, Common::Array<byte> &out, uin
  */
 int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unmapped = nullptr);
 
+/**
+ * Text of a save that holds CP949 (no UTF-8 trailer), where the encoding is known and nothing is guessed: true and the
+ * UTF-8 text with its NUL in @p out when @p src is one NUL-terminated string that fills all @p size bytes (no padding, no
+ * interior NUL: a v3-v5 string array is data), has no control byte and holds a KS X 1001 syllable. Anything else (ASCII,
+ * binary, a string with padding) is left as it is.
+ */
+bool legacyCp949Resource(const byte *src, uint32 size, Common::Array<byte> &out);
+
+/**
+ * The 512 byte message buffer of a save that holds CP949: converted in place (cut on a character, zero filled) and
+ * @p pos, the read position in bytes, moved to the same place of the UTF-8 text. False when there is nothing to convert.
+ */
+bool legacyCp949Buffer(byte *buf, int size, int &pos);
+
 /** The code page engine text of a Korean target is in: UTF-8 for v1-v6 (\p utf8), CP949 for The Dig, FT and COMI. */
 Common::CodePage koreanEngineCodePage(bool utf8);
 

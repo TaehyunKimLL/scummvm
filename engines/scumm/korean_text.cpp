@@ -211,6 +211,8 @@ void cp949ToUtf8(const byte *src, const byte *end, Common::Array<byte> &out, uin
 
 namespace {
 
+uint32 cutOnBoundary(const byte *text, uint32 len, int limit);
+
 int utf8HangulCount(const byte *p, const byte *end) {
 	int n = 0;
 	while (p < end && *p) {
@@ -315,6 +317,29 @@ int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unma
 		len = buf.size();
 	}
 	// Cut after the last whole character or escape that fits, never inside one; a truncated escape is dropped.
+	const uint32 at = cutOnBoundary(text, len, dstSize - 1);
+	memmove(dst, text, at);
+	dst[at] = 0;
+	return at;
+}
+
+namespace {
+
+// The end of CP949 text: a lead 0xB0-0xD0 takes the next byte (so a trail 0xFE hides nothing), 0xFF starts an escape.
+const byte *cp949TextEnd(const byte *p, const byte *end) {
+	while (p < end && *p) {
+		if (*p == 0xFF)
+			p += scummEscapeLength(p, end);
+		else if (*p >= 0xB0 && *p <= 0xD0 && p + 1 < end && p[1])
+			p += 2;
+		else
+			p++;
+	}
+	return p;
+}
+
+// The characters of a clean cut: how many bytes of @p text (@p len long) fit into @p limit.
+uint32 cutOnBoundary(const byte *text, uint32 len, int limit) {
 	uint32 at = 0;
 	const byte *tEnd = text + len;
 	while (at < len) {
@@ -323,13 +348,62 @@ int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unma
 			break;
 		if (!n)
 			decodeUtf8(text + at, tEnd, n);
-		if ((int)(at + n) > dstSize - 1)
+		if ((int)(at + n) > limit)
 			break;
 		at += n;
 	}
-	memmove(dst, text, at);
-	dst[at] = 0;
 	return at;
+}
+
+} // End of anonymous namespace
+
+bool legacyCp949Resource(const byte *src, uint32 size, Common::Array<byte> &out) {
+	if (!size || src[size - 1] != 0 || cp949TextEnd(src, src + size) != src + size - 1)
+		return false;
+	int pairs = 0;
+	for (const byte *p = src; p < src + size - 1;) {
+		if (*p == 0xFF) {
+			p += scummEscapeLength(p, src + size - 1);
+		} else if (*p >= 0xB0 && *p <= 0xD0 && p + 1 < src + size - 1) {
+			if (ksx1001CodePoint(p[0], p[1]))
+				pairs++;
+			p += 2;
+		} else if (*p < 0x20 && *p != '\n' && *p != '\r') {
+			return false;
+		} else {
+			p++;
+		}
+	}
+	if (!pairs)
+		return false;
+	out.clear();
+	uint unmapped = 0;
+	cp949ToUtf8(src, src + size - 1, out, unmapped);
+	out.push_back(0);
+	return true;
+}
+
+bool legacyCp949Buffer(byte *buf, int size, int &pos) {
+	const byte *end = cp949TextEnd(buf, buf + size);
+	int pairs = 0;
+	for (const byte *p = buf; p < end; p++) {
+		if (*p >= 0xB0 && *p <= 0xC8 && p + 1 < end && ksx1001CodePoint(p[0], p[1])) {
+			pairs++;
+			p++;
+		}
+	}
+	if (!pairs)
+		return false;
+	Common::Array<byte> text, prefix;
+	uint unmapped = 0;
+	cp949ToUtf8(buf, end, text, unmapped, true);
+	cp949ToUtf8(buf, buf + MIN<ptrdiff_t>(MAX(pos, 0), end - buf), prefix, unmapped, true);
+	const uint32 n = cutOnBoundary(text.begin(), text.size(), size - 1);
+	const uint32 newPos = MIN<uint32>(prefix.size(), n);
+	memset(buf, 0, size);
+	memcpy(buf, text.begin(), n);
+	pos = newPos;
+	return true;
 }
 
 Common::CodePage koreanEngineCodePage(bool utf8) {

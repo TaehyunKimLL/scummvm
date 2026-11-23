@@ -154,4 +154,65 @@ public:
 			}
 		}
 	}
+
+	void test_legacy_resource_is_converted_not_guessed() {
+		// A save without the UTF-8 trailer holds CP949, so C2/C3 rows are syllables there, never Latin-1: 책 = C3 A5
+		// and C3 B2 C3 A2 (챵창) are valid UTF-8 for U+00E5 and U+00F2 U+00E2. (19 real names of Loom, Indy3, Indy4, Zak.)
+		Common::Array<byte> out;
+		const byte chek[] = { 0xC3, 0xA5, '@', '@', 0 };
+		TS_ASSERT(Scumm::legacyCp949Resource(chek, sizeof(chek), out));
+		TS_ASSERT_EQUALS(Common::String((const char *)out.begin(), out.size()), Common::String("\xec\xb1\x85@@\0", 6));
+		const byte bars[] = { 0xC3, 0xB2, 0xC3, 0xA2, 0 };
+		TS_ASSERT(Scumm::legacyCp949Resource(bars, sizeof(bars), out));
+		TS_ASSERT_EQUALS(Common::String((const char *)out.begin()), "\xec\xb1\xb5\xec\xb0\xbd");
+	}
+
+	void test_legacy_resource_leaves_binary_and_ascii_alone() {
+		Common::Array<byte> out;
+		// ASCII: nothing to convert.
+		const byte ascii[] = { 'G', 'i', 'v', 'e', 0 };
+		TS_ASSERT(!Scumm::legacyCp949Resource(ascii, sizeof(ascii), out));
+		// A string array of v3-v5 scripts (o5_stringOps): an interior NUL, the data after it is not text.
+		const byte bin[] = { 0x0F, 0x90, 0x00, 0x05, 0xC7, 0xD1, 0x00, 0x00 };
+		TS_ASSERT(!Scumm::legacyCp949Resource(bin, sizeof(bin), out));
+		// Binary without an interior NUL: control bytes and a high byte, no syllable.
+		const byte bin2[] = { 0x0F, 0x90, 0x05, 0x01, 0 };
+		TS_ASSERT(!Scumm::legacyCp949Resource(bin2, sizeof(bin2), out));
+		// Padding after the string (the resource is larger than its text): not one string filling the resource.
+		const byte padded[] = { 0xC7, 0xD1, 0, 0, 0, 0 };
+		TS_ASSERT(!Scumm::legacyCp949Resource(padded, sizeof(padded), out));
+		// No terminator at all.
+		const byte open[] = { 0xC7, 0xD1 };
+		TS_ASSERT(!Scumm::legacyCp949Resource(open, sizeof(open), out));
+		// The trail byte FE does not hide the terminator.
+		const byte fe[] = { 0xBC, 0xFE, 0 };
+		TS_ASSERT(Scumm::legacyCp949Resource(fe, sizeof(fe), out));
+		TS_ASSERT_EQUALS(Common::String((const char *)out.begin()), "\xec\x88\xad");
+	}
+
+	void test_legacy_charset_buffer_remaps_its_position() {
+		// A save made while a CP949 line was between pages: the read position counts CP949 bytes.
+		byte buf[32];
+		memset(buf, 0, sizeof(buf));
+		const byte line[] = { 0xC7, 0xD1, 0xB1, 0xDB, 0xC7, 0xD1, 0xB1, 0xDB, 'x' };	// 한글한글x
+		memcpy(buf, line, sizeof(line));
+		int pos = 4;	// after 한글
+		TS_ASSERT(Scumm::legacyCp949Buffer(buf, sizeof(buf), pos));
+		TS_ASSERT_EQUALS(pos, 6);	// after 한글 in UTF-8
+		TS_ASSERT_EQUALS(Common::String((const char *)buf + pos), "\xed\x95\x9c\xea\xb8\x80x");
+		TS_ASSERT_EQUALS(buf[sizeof(buf) - 1], 0);
+		// A line that does not fit is cut on a character, never inside one.
+		byte small[8];
+		memset(small, 0, sizeof(small));
+		memcpy(small, line, sizeof(line) - 1);
+		pos = 6;
+		TS_ASSERT(Scumm::legacyCp949Buffer(small, sizeof(small), pos));
+		TS_ASSERT_EQUALS(Common::String((const char *)small), "\xed\x95\x9c\xea\xb8\x80");
+		TS_ASSERT_EQUALS(pos, 6);
+		// Plain ASCII is left alone.
+		byte ascii[8] = { 'a', 'b', 0 };
+		pos = 1;
+		TS_ASSERT(!Scumm::legacyCp949Buffer(ascii, sizeof(ascii), pos));
+		TS_ASSERT_EQUALS(pos, 1);
+	}
 };

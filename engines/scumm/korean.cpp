@@ -200,13 +200,15 @@ byte *ScummEngine::koreanRefusalGlyph() {
 }
 
 void ScummEngine::convertLoadedText(int saved) {
-	// A save of this engine holds UTF-8 (trailer 1). One without the trailer (upstream, the CP949 builds) holds CP949:
-	// every text resource goes through the engine-text boundary, which leaves UTF-8 and ASCII as they are.
+	// A save of this engine holds UTF-8 (trailer 1 or 2). One without the trailer (upstream, the CP949 builds) holds
+	// CP949, which is known: no guessing, every text resource is converted as CP949 (legacyCp949Resource()). Only a
+	// resource that is one NUL-terminated string filling its whole size is touched (a v3-v5 string resource may be a
+	// byte array); it never shrinks, UTF-8 text is as long as its CP949 or longer.
 	if (saved == kSavedTextUtf8)
 		return;
 	static const ResType kTextTypes[] = { rtVerb, rtObjectName, rtActorName, rtString };
 	int converted = 0;
-	Common::Array<byte> tmp;
+	Common::Array<byte> out;
 	for (uint t = 0; t < ARRAYSIZE(kTextTypes); t++) {
 		const ResType type = kTextTypes[t];
 		if (type == rtString && _game.version >= 6)
@@ -218,20 +220,16 @@ void ScummEngine::convertLoadedText(int saved) {
 				continue;
 			if (type == rtVerb && (idx >= _numVerbs || _verbs[idx].type != kTextVerbType))
 				continue;
-			if (textIsUtf8(ptr, ptr + size))
+			if (!legacyCp949Resource(ptr, size, out))
 				continue;
-			tmp.resize(size * 2 + 4);
-			const int len = toEngineText(ptr, size, tmp.begin(), tmp.size());
-			byte *dst = _res->createResource(type, idx, len + 1);
-			memcpy(dst, tmp.begin(), len + 1);
+			byte *dst = _res->createResource(type, idx, out.size());
+			memcpy(dst, out.begin(), out.size());
 			converted++;
 		}
 	}
-	if (!textIsUtf8(_charsetBuffer, _charsetBuffer + sizeof(_charsetBuffer))) {
-		byte msg[sizeof(_charsetBuffer)];
-		memset(msg, 0, sizeof(msg));	// toEngineText() writes up to its NUL only: do not copy the stack's rest back
-		toEngineText(_charsetBuffer, sizeof(_charsetBuffer), msg, sizeof(msg));
-		memcpy(_charsetBuffer, msg, sizeof(msg));
+	int pos = _charsetBufPos;
+	if (legacyCp949Buffer(_charsetBuffer, sizeof(_charsetBuffer), pos)) {
+		_charsetBufPos = pos;
 		converted++;
 	}
 	debug(1, "SCUMM: converted %d text resources of a CP949 save to UTF-8", converted);
