@@ -46,6 +46,29 @@ int ksx1001Index(uint32 cp);
 /** The code point of the CP949 pair if it is one of the 2350 syllables, else 0. */
 uint32 ksx1001CodePoint(byte lead, byte trail);
 
+/** Bytes of the escape at @p p (0xFF/0xFE + code [+ 2]) clipped to @p end; 0 when @p p is no escape. */
+int scummEscapeLength(const byte *p, const byte *end);
+
+/** The NUL that ends the text at @p s, escapes skipped (an argument byte may be 0), or @p end. */
+const byte *scummTextEnd(const byte *s, const byte *end);
+
+/** One strict UTF-8 code point at @p p and its length; 0xFFFFFFFF (length 1) for a byte that starts none. */
+uint32 decodeUtf8(const byte *p, const byte *end, int &len);
+
+/** Appends the UTF-8 of @p cp. */
+void appendUtf8(uint32 cp, Common::Array<byte> &out);
+
+/** Whether [@p p, @p end) (escapes skipped) is valid UTF-8; plain ASCII is. */
+bool textIsUtf8(const byte *p, const byte *end);
+
+/**
+ * CP949 [@p src, @p end) to UTF-8, appended to @p out (no NUL), by upstream's rule: escapes (0xFF/0xFE) copied, a
+ * lead 0xB0-0xD0 takes the next byte (so a trail 0xFE is no escape), any other byte >= 0x80 is a charset glyph and
+ * becomes U+0080..U+00FF. The 2350 syllables come from kKsx1001Hangul; Hanja and extension syllables through
+ * encoding.dat when it is there; what cannot be read becomes '?', counted in @p unmapped.
+ */
+void cp949ToUtf8(const byte *src, const byte *end, Common::Array<byte> &out, uint &unmapped);
+
 } // End of namespace Scumm
 
 #endif
