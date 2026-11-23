@@ -329,6 +329,8 @@ public:
 	 * Grow the dynamic memory block that starts at @p dest to @p bytes (zero-filled), for a UTF-8
 	 * translation longer than the English text the script sized it for. False, and nothing changes,
 	 * when @p dest is not the start of a DYNMEM block or the block is already that big.
+	 * Only the unbounded string copies grow a block (strcpy_(), strcpyBounded(), strncpy() with
+	 * n 0xFFFFFFFF); kStrSplit, the message and the kMemory/kMemoryInfo paths do not.
 	 */
 	bool growDynmem(reg_t dest, uint32 bytes);
 
