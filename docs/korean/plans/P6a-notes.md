@@ -122,3 +122,59 @@ written into the log by the next commit.
 ### a13: records
 - `docs/korean/PATCHES.md`: rows for topic `ko/05-scumm`, one per upstream file. This log is `P6a-notes.md` (the plan names
   `P6-notes.md`; the run's instruction names `P6a-notes.md`).
+- a13 sha fd263c4b384.
+
+### a14: smoke and English (new build, no `encoding.dat`; run folders `~/work/tmp/p6/runs/a14-*`, frames viewed)
+- MM V1 English (`a14-mmen`): English text, 0 lines with Korean/UTF-8/TENC in the log (`scumm-p6a-mm-v1-english.png`).
+- MI1 UTE: UTF-8 bundle on MI1 CD data (`a14-mi1uteu2`): no assertion (the base asserted), Korean credits; CP949 bundle
+  (`a14-mi1utec`): `483698 -> 552956 bytes`, exactly the size of the UTF-8 file. MI2cp (`a14-mi2cp`): `738122 -> 841833`.
+- Loom (`a14-loom`): menu `표준레벨 / 연습레벨 / 전문가레벨`. Indy3 (`a14-indy3`): gym line and Korean verbs. DOTT
+  (`a14-dott2`): subtitles and the title card `번역 - MONSTAR 황승주`. Zak, MI1, Indy4, MM, MI2 as in a6. 0 assertions, 0
+  `has no glyph` lines in every run. Indy4 with `encoding.dat` (7 -> 5 unreadable): NOT run.
+- MI1's centred credit line with 0xFA (the documented 1 px width fix): NOT verified; two runs on the same start timeline
+  differ by animation, so a pixel diff proves nothing. UNVERIFIED.
+- Gallery: `~/work/tmp/ko-screenshots/scumm-p6a-*.png`, captions appended.
+
+### Review checkpoint A
+- Tests (final HEAD): SCUMM-only build **664** (N0 644 + 20) OK; SCUMM+SCI build **743** OK; no-engine build **644** OK;
+  ASan SCUMM build **664** OK; mingw (`x86_64-w64-mingw32`, SCUMM) `test/runner.exe` built (PE32+, run UNVERIFIED: no wine).
+  `tools/korean/sync-svf.sh --check` rc 0 (`graphics/svf matches svf-fonts-open 3d40de8...`; the submodule dir of this
+  worktree was empty, filled with a local clone at the gitlink commit), `python3 -I tools/korean/mkgolden.py --check` rc 0.
+  `python3 -I tools/korean/test_trscheck.py` OK (6), the other tools tests OK.
+- Self-read (UTF-8 vs bytes at every site; fixed-size buffers; terminators):
+  * `nextCJKChar`/`cjkTrailBytes`/`koreanCharsetGlyph` read through `decodeUtf8(p, p + 4)`: it returns at the first
+    non-continuation byte, so it never goes past the string's NUL. `koreanCharStart` is bounded by `s > 0` and 4 bytes,
+    `koreanCharBefore` by `begin`. Verified that for a CP949 (FT) target every addLinebreaks position equals upstream's
+    (cs = pos - 2 / pos - 1 reproduce the old expressions).
+  * Buffers: `drawString` 512; `convertMessageToString` transBuf 2048 and its `dst >= end` guard; `loadPtrToResource`
+    translateBuffer 512, `_charsetBuffer` 512, `string.cpp:157` buf[500], `verbs.cpp` buf[384], dialogs buf[256]: all copies
+    go through `toEngineText` (cut on a boundary, NUL inside) or `convertMessageToString`'s own overflow `error()`;
+    longest translation as UTF-8 337 bytes (Indy4) < 384. The v2 inventory `msg[20]` copy (`verbs.cpp:484`) takes OBCD names
+    (English), unchanged.
+  * Escapes: 0xFF/0xFE never occur in UTF-8; `scummEscapeLength` clips to the end; the cut loop never splits one (test).
+  * wrapSegaCDText hunk passes the byte after the lead to `cjkTrailBytes`, correct only for CP949: the function is Sega CD
+    only (never `_koreanUtf8`), inert; left as in the plan.
+  * English/other targets: `_koreanUtf8` false -> `nextCJKChar` = upstream's `c + b * 256`, `cjkTrailBytes` = 1,
+    `copyTranslatedText` = upstream's memcpy; the saves write no trailer; `loadLanguageBundle` runs for Korean targets only.
+- Findings fixed in their own commits: (1) a translation with a NUL escape argument (a5-fix, red test); (2) a CP949
+  syllable that is also valid UTF-8 (`카` = C4 AB) was left unconverted: `textIsUtf8` now refuses 2-byte characters above
+  U+00FF (red test `test_cp949_syllable_that_reads_as_utf8`); `convertLoadedText` copied uninitialised stack bytes back
+  into `_charsetBuffer` (cleared); (3) ASan `alloc-dealloc-mismatch` at exit of every Korean multi-font target: upstream's
+  `delete _2byteMultiFontPtr[i]` of a `new byte[]` (commit 83ff54fbf39). Remaining known limit: a CP949 single syllable
+  of rows C2/C3 with trail A1-BF (62 syllables) is still ambiguous with Latin-1 UTF-8 (`é` = C3 A9) and is kept as UTF-8.
+- ASan runs (`ASAN_OPTIONS=detect_leaks=0`, `runs/asan2-*`, `runs/asan-save*`): MI2 pack, MI1 floppy, MM, DOTT, Indy4:
+  no report (the first batch `runs/asan-*` showed the `delete` mismatch above on every set). Old CP949 save conversion and the
+  autosave reload under ASan: no report.
+- Upstream lines added in the nine upstream files: 112 (+26 deleted), the plan's budget was 100: the excess is the
+  doc comments of the `scumm.h` declarations.
+
+### Deviations from the plan (summary)
+1. Appendix A omits the `scumm.h` declarations and has hand-written hunk counts (applied with `--recount`).
+2. B.8 `!_hiResText` (S2) dropped.
+3. B.5: a translation runs to its escape-aware end, clipped at the next entry (the plan's NUL split left the tail of MI2/Indy4
+   translations CP949). Numbers now equal the plan's (MI2cp 841833, Zak 102032); Indy4 is 908215, not the plan's 821300.
+4. a11 also accepts the `ko/` folder in detection.
+5. a12: both MI2 and MI1 UTE have one line that differs from their UTF-8 stage (MI2: `Papier-Mâché`), the plan said 8780/8780.
+6. Extra commits: `textIsUtf8` tightening and `delete[]`.
+7. Test totals: N0 = 644 (plan 637); final N0 + 20 (the plan counts N0 + 16).
+8. The commit of a12 titled TEST also holds `trscheck.py` and its test (staging slip).
