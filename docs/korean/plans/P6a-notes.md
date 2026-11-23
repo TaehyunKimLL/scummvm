@@ -192,3 +192,9 @@ Findings, verdicts, commits and evidence: `P6a-fixes.md`. Reports: `P6a-review.m
 - ASan (`fa-*`): MI2 pack, MI1, MM, Indy3, Zak, Loom and DOTT legacy saves: no report.
 - The first notes' claim "the engine gives U+00FA" for MI1 UTE line 334 held only for the CP949 bundle; the UTF-8 pack's
   raw 0xFA is now read per character (fix 7).
+
+## Fix round 2 (re-reviews of 4fd29b336e0)
+Findings and evidence: `P6a-fixes.md` (Round 2). Final HEAD tests: SCUMM-only **684**, ASan SCUMM **684**, SCUMM+SCI **763**,
+no-engine **644**, all OK; mingw `test/runner.exe` built (run UNVERIFIED). Runs: MM with the lone-0x80 bundle under ASan,
+MI2 legacy slots 2 and 6 under ASan (20 and 21 resources converted, 0 reports; slot 2 text rows identical to upstream,
+only the animated water differs under ASan timing), MI2 pack and MM, English MM V1 (0 Korean/UTF-8/TENC lines).

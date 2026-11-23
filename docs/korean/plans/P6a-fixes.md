@@ -28,3 +28,33 @@ Not fixed, with the reason
   prep values 0..3, `toEngineText(dst == src)`, `cp.originals == u8.originals` in `korean_trs_data.h`.
 - Upstream GUI draws 2-byte text at `x + xstart` in a scrolled room (item 1 note): not P6a's, not touched.
 - The ambiguity of C2/C3 A1-BF for in-data CP949 strings of unknown encoding stays a documented heuristic (item 2).
+
+## Round 2 (re-reviews `reviews/P6a-opus-r2.md`, `reviews/P6a-agy-r2.md` of `4fd29b336e0`)
+
+| # | Finding | Verdict | Commit | Evidence |
+|---|---|---|---|---|
+| N1 | `CharsetRendererV2` never set `_numChars`; the `? _numChars : 256` fallback let a lone 0x80 read past the 128-glyph table (Opus major, agy critical) | REAL (my regression of round 1) | f9c7afd559f | V2 sets `_numChars` from the table it ends with (English or Russian), the 0-means-256 fallback is gone (an unset count refuses glyphs >= 0x80, ASCII still draws). A copy of the MM bundle with 412 translations whose lead byte is a lone 0x80/0x81/0x90/0x9F/0xA0/0xAF/0xFD under the ASan build: 0 reports, Korean drawn (`runs/r2-mmbad-asan2`). A unit test of every renderer class is impossible without an engine; the other classes set the count in `setCurID()` (V3: byte, Classic: 16 bit) and fail closed before it is called |
+| N2 | `legacyCp949Resource()` rejects a resource after a valid `0xFE` escape; the buffer converter needed Hangul (agy N2) | REAL | b149e7cb453 | uses `textEscape()`; `test_legacy_resource_matches_an_independent_model` (5000 inputs, escapes FE 01/08 and FF 04, against a model built with `appendUtf8` and the table) plus the St.\xfaKitts buffer. MI2 slot 2 now converts 20 resources (18 before), slot 6 21 |
+| N3 | wide 2-byte UTF-8 unstable between known/unknown readings; 3-byte syllables' continuation bytes counted as CP949 pairs (agy N3, Opus N2) | REAL | b149e7cb453 | wide character is `?` in both readings; pair count skips valid UTF-8 sequences; `test_utf8_syllable_with_a_stray_byte_stays_utf8`, `test_both_readings_are_idempotent_and_agree_on_their_output` (30000 inputs x both modes, cross-mode agreement) |
+| N4 | `cutOnBoundary`/`koreanCopyChars` read every 0xFE as an escape (agy N4) | REAL | b149e7cb453 | `test_trail_fe_does_not_truncate_names_or_cuts` (원숭이 = bf f8 bc fe c0 cc) |
+| N5 | `memmove(dst, nullptr, 0)` (Opus N3, UBSan); "never shrinks" false (Opus N4) | REAL | b149e7cb453, 2ae6fe26791 | guarded; comment corrected: 29 of 33437 fuzzed conversions are shorter (unreadable pair -> '?', cut escape dropped) |
+| N6 | stale comments (agy N5) | REAL | 2ae6fe26791 | saved_text.h (kind 2), PATCHES.md |
+| M5 | missing tests | partly done | 2ae6fe26791 | added: fit fallback, prep 0/1/3, dst == src, originals check of the data test, comment; not added: other prep values (2, 4), Zak/MM specific lines |
+
+Harness (Opus `h/fuzz2` and `h/fuzz`, ASan+UBSan, built from this worktree, 300k/200k/100k inputs):
+
+| Check | Before round 2 | After |
+|---|---|---|
+| hostile `toEngineText`, idempotence failures | 5744 of 300000 | **0** |
+| `h/fuzz` idempotence / outputs not engine UTF-8 / checks failed | - | 0 / 0 / 0 |
+| generated CP949 misread (excluding the documented C2/C3 ambiguity) | 1 | 59 of 200000 |
+| UTF-8 with <= 2 stray bytes, known-UTF-8 wrong | 0 | 0 |
+| UTF-8 with <= 2 stray bytes, unknown encoding wrong | 33180 | 7117 |
+| `legacyCp949Resource` converted / shorter than the resource | 33461 / 30 | 33437 / 29 |
+| `legacyCp949Buffer`, `koreanInsertBreak` problems | 0, 0 | 0, 0 |
+| sanitizer reports | 0 | 0 |
+
+The 59 CP949 "misreads" are the price of not counting the bytes of valid UTF-8 sequences as pairs: the generator mixes
+CP949 syllables with random lone high bytes (D1..FD) that happen to form a valid 3-byte Hangul; real CP949 text has only
+the leads B0-C8 and the few charset glyph bytes (MI1 0xFA), which never do. The 7117 are UTF-8 lines with no Hangul at all
+(Latin-1 characters plus strays): ambiguous by nature, known-UTF-8 sources (bundles) are never wrong.
