@@ -69,6 +69,8 @@ public:
 
 	bool isActive() const { return _active; }
 	Graphics::HiResRenderTarget getTarget() const { return _target; }
+	/** The screen format the target needs: CLUT8, or the RGB format the driver asks the backend for. */
+	Graphics::PixelFormat getScreenFormat() const { return Graphics::hiResTargetFormat(_target); }
 	bool wantsRgb() const { return _active && _target != Graphics::kHiResTargetClut8; }
 	Graphics::TextCompose::Mode getComposeMode() const { return Graphics::composeMode(_target, _blend); }
 	const Graphics::HiResPick &getPick() const { return _pick; }

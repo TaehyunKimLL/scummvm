@@ -77,6 +77,9 @@ uint32 hiResTargetsOffered(const Common::List<PixelFormat> &formats);
  *  8-8-8; auto for anything else. */
 HiResRenderTarget hiResTargetOf(const PixelFormat &format);
 
+/** The pixel format a screen of @p target has: CLUT8, RGB565, RGB555 (no alpha bit), XRGB8888; CLUT8 for auto. */
+PixelFormat hiResTargetFormat(HiResRenderTarget target);
+
 /**
  * The screen hi-res text draws on: render_target unless auto, else the map's
  * target unless auto, else rgb (rgb565, then rgb555, then rgb888: 16 and 15 bit

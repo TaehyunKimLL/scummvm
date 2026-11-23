@@ -51,6 +51,27 @@ public:
 		TS_ASSERT_EQUALS(t.getFontSet(300)->getShift(), 2); // the :clut8 section was merged
 	}
 
+	void test_screenFormatFollowsTheTarget() {
+		HiResTest::MemoryFiles files;
+		files.addText("game/ko/HIRESVF.MAP", gameMap());
+		const Graphics::HiResRenderTarget targets[] = { Graphics::kHiResTargetRgb565, Graphics::kHiResTargetRgb555, Graphics::kHiResTargetRgb888 };
+		for (uint i = 0; i < ARRAYSIZE(targets); ++i) {
+			Sci::SciHiResText t;
+			Common::Array<Common::String> notes;
+			Graphics::HiResOptions o;
+			o.target = targets[i];
+			TS_ASSERT(t.setup(&files, o, Common::Path("game"), "ko", allTargets() | (1 << Graphics::kHiResTargetRgb555), notes));
+			TS_ASSERT_EQUALS(t.getTarget(), targets[i]);
+			TS_ASSERT(t.wantsRgb());
+			TS_ASSERT_EQUALS(Graphics::hiResTargetOf(t.getScreenFormat()), targets[i]);
+			TS_ASSERT_EQUALS(Graphics::HiResFontMap::targetQualifier(t.getTarget()), Common::String("rgb"));
+		}
+		Sci::SciHiResText c;
+		Common::Array<Common::String> notes;
+		TS_ASSERT(c.setup(&files, Graphics::HiResOptions(), Common::Path("game"), "ko", allTargets(), notes));
+		TS_ASSERT(c.getScreenFormat().isCLUT8());
+	}
+
 	void test_fallsBackToTheEngineMap() {
 		HiResTest::MemoryFiles files;
 		files.addText("data/hires_text/maps/korean-default.map",

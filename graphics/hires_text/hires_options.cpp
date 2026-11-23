@@ -150,6 +150,19 @@ HiResRenderTarget hiResTargetOf(const PixelFormat &f) {
 	return kHiResTargetAuto;
 }
 
+PixelFormat hiResTargetFormat(HiResRenderTarget target) {
+	switch (target) {
+	case kHiResTargetRgb565:
+		return PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0);
+	case kHiResTargetRgb555:
+		return PixelFormat(2, 5, 5, 5, 0, 10, 5, 0, 0);
+	case kHiResTargetRgb888:
+		return PixelFormat(4, 8, 8, 8, 0, 16, 8, 0, 0);
+	default:
+		return PixelFormat::createFormatCLUT8();
+	}
+}
+
 uint32 hiResTargetsOffered(const Common::List<PixelFormat> &formats) {
 	uint32 bits = 0;
 	for (Common::List<PixelFormat>::const_iterator it = formats.begin(); it != formats.end(); ++it) {

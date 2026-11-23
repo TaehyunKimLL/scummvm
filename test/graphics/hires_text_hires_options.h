@@ -190,6 +190,24 @@ public:
 		TS_ASSERT_EQUALS(Graphics::composeMode(Graphics::kHiResTargetRgb555, Graphics::kHiResBlendOff), Graphics::TextCompose::kThreshold);
 	}
 
+	// The pixel format the engine asks the backend for, and that it maps back to the same target.
+	void test_targetFormats() {
+		const Graphics::HiResRenderTarget all[] = { Graphics::kHiResTargetClut8, Graphics::kHiResTargetRgb565, Graphics::kHiResTargetRgb555,
+		                                            Graphics::kHiResTargetRgb888 };
+		for (uint i = 0; i < ARRAYSIZE(all); ++i)
+			TS_ASSERT_EQUALS(Graphics::hiResTargetOf(Graphics::hiResTargetFormat(all[i])), all[i]);
+		TS_ASSERT(Graphics::hiResTargetFormat(Graphics::kHiResTargetClut8).isCLUT8());
+		const Graphics::PixelFormat f565 = Graphics::hiResTargetFormat(Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(f565.bytesPerPixel, 2);
+		TS_ASSERT_EQUALS(f565.gBits(), 6);
+		const Graphics::PixelFormat f555 = Graphics::hiResTargetFormat(Graphics::kHiResTargetRgb555);
+		TS_ASSERT_EQUALS(f555.bytesPerPixel, 2);
+		TS_ASSERT_EQUALS(f555.gBits(), 5);
+		TS_ASSERT_EQUALS(f555.aBits(), 0);
+		TS_ASSERT_EQUALS(Graphics::hiResTargetFormat(Graphics::kHiResTargetRgb888).bytesPerPixel, 4);
+		TS_ASSERT(Graphics::hiResTargetFormat(Graphics::kHiResTargetAuto).isCLUT8());	// no RGB wanted: the 8-bit screen
+	}
+
 	void test_modeAndScale() {
 		TS_ASSERT_EQUALS(Graphics::composeMode(Graphics::kHiResTargetClut8, Graphics::kHiResBlendOn), Graphics::TextCompose::kStamp);
 		TS_ASSERT_EQUALS(Graphics::composeMode(Graphics::kHiResTargetRgb565, Graphics::kHiResBlendOff), Graphics::TextCompose::kThreshold);
