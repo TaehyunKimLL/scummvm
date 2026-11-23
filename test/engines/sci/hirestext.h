@@ -106,4 +106,30 @@ public:
 		t.getPlane().clearLowresRect(Common::Rect(20, 10, 20 + w, 10 + font.getHeight()));
 		TS_ASSERT(t.getPlane().isEmpty());
 	}
+
+	// agy 5: shift= is applied once (it was added to the baseline and again inside drawChar()).
+	void test_shiftMovesTheGlyphOnce() {
+		HiResTest::MemoryFiles files;
+		files.addText("game/ko/HIRESVF.MAP", gameMap());
+		Sci::SciHiResText t;
+		Common::Array<Common::String> notes;
+		TS_ASSERT(t.setup(&files, Graphics::HiResOptions(), Common::Path("game"), "ko", allTargets(), notes));
+		TS_ASSERT(t.createPlane(320, 200));
+		Common::String drawn;
+		int topRow[2] = { -1, -1 };
+		const int fonts[2] = { 0, 300 }; // shift 0 and shift 2
+		for (int f = 0; f < 2; ++f) {
+			t.getPlane().clearLowresRect(Common::Rect(0, 0, 320, 200));
+			Sci::GfxFontHiRes font(new FakeFont(&drawn), *t.getFontSet(fonts[f]), t.getPlane());
+			font.draw(0xAC00, 10, 20, 15, false);
+			for (int y = 0; y < t.getPlane().getHeight() && topRow[f] < 0; ++y)
+				for (int x = 0; x < t.getPlane().getWidth(); ++x)
+					if (t.getPlane().getCoverage(x, y)) {
+						topRow[f] = y;
+						break;
+					}
+		}
+		TS_ASSERT(topRow[0] >= 0 && topRow[1] >= 0);
+		TS_ASSERT_EQUALS(topRow[1] - topRow[0], 2);
+	}
 };

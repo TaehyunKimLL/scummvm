@@ -157,7 +157,7 @@ void GfxFontHiRes::draw(uint32 chr, int16 top, int16 left, byte color, bool grey
 	}
 	// The faces' line is centred in the SCI line; shift= moves it down.
 	const int s = SciHiResText::kScale;
-	const int baseline = top * s + (_height * s - _lineHeight) / 2 + _set.getAscent() + _set.getShift();
+	const int baseline = top * s + (_height * s - _lineHeight) / 2 + _set.getAscent(); // drawChar() adds the shift
 	_set.drawChar(chr, left * s, baseline, _plane, color);
 }
 
