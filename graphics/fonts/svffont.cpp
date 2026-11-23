@@ -22,6 +22,7 @@
 #include "graphics/fonts/svffont.h"
 
 #include "graphics/hires_text/svfchain.h"
+#include "graphics/hires_text/text_compose.h"
 #include "graphics/surface.h"
 
 namespace Graphics {
@@ -35,10 +36,6 @@ struct SvfPlot {
 	uint8 a, r, g, b;
 };
 
-uint8 blendChannel(uint8 bg, uint8 fg, uint8 coverage) {
-	return (uint8)(((uint)bg * (255 - coverage) + (uint)fg * coverage + 127) / 255);
-}
-
 void plotPixel(void *ctx, int16_t x, int16_t y, uint8_t coverage) {
 	const SvfPlot *p = (const SvfPlot *)ctx;
 	void *pixel = p->dst->getBasePtr(x, y);
@@ -49,20 +46,16 @@ void plotPixel(void *ctx, int16_t x, int16_t y, uint8_t coverage) {
 	}
 
 	const PixelFormat &format = p->dst->format;
-	uint32 out = p->color;
-	if (coverage < 255) {
-		uint32 bg;
-		if (format.bytesPerPixel == 1)
-			bg = *(const byte *)pixel;
-		else if (format.bytesPerPixel == 2)
-			bg = *(const uint16 *)pixel;
-		else
-			bg = *(const uint32 *)pixel;
-		uint8 a, r, g, b;
-		format.colorToARGB(bg, a, r, g, b);
-		out = format.ARGBToColor(blendChannel(a, p->a, coverage), blendChannel(r, p->r, coverage),
-		                         blendChannel(g, p->g, coverage), blendChannel(b, p->b, coverage));
-	}
+	uint32 bg;
+	if (format.bytesPerPixel == 1)
+		bg = *(const byte *)pixel;
+	else if (format.bytesPerPixel == 2)
+		bg = *(const uint16 *)pixel;
+	else
+		bg = *(const uint32 *)pixel;
+	// The same blend as the hi-res text sinks and the C renderer's RGB565/RGB555 targets (TextCompose::blendPixel); the
+	// text pixel is opaque, also on a surface with a 1 bit alpha over a transparent background.
+	const uint32 out = TextCompose::blendPixel(format, bg, p->r, p->g, p->b, coverage);
 	if (format.bytesPerPixel == 1)
 		*(byte *)pixel = (byte)out;
 	else if (format.bytesPerPixel == 2)

@@ -45,25 +45,6 @@ inline void writePixel(byte *p, int bpp, uint32 c) {
 		WRITE_UINT32(p, c);
 }
 
-// The text over (r, g, b); false when it leaves the pixel as it is.
-inline bool putText(byte &r, byte &g, byte &b, byte index, byte coverage, const byte *pal, Mode mode) {
-	if (!coverage)
-		return false;
-	const byte *c = pal + index * 3;
-	if (mode == kBlend) {
-		r = blend(r, c[0], coverage);
-		g = blend(g, c[1], coverage);
-		b = blend(b, c[2], coverage);
-		return true;
-	}
-	if (coverage < 128)
-		return false;
-	r = c[0];
-	g = c[1];
-	b = c[2];
-	return true;
-}
-
 bool rgbFormat(const PixelFormat &fmt) {
 	return fmt.bytesPerPixel == 2 || fmt.bytesPerPixel == 4;
 }
@@ -76,16 +57,38 @@ void stampSpan(byte *dst, const byte *index, const byte *coverage, int n, byte t
 			dst[i] = index[i];
 }
 
+uint32 blendPixel(const PixelFormat &fmt, uint32 dst, byte r, byte g, byte b, byte cov) {
+	const byte loss[3] = { fmt.rLoss, fmt.gLoss, fmt.bLoss }, shift[3] = { fmt.rShift, fmt.gShift, fmt.bShift };
+	const byte fg[3] = { r, g, b };
+	uint32 out = fmt.RGBToColor(0, 0, 0);	// the alpha field, opaque
+	for (int i = 0; i < 3; ++i) {
+		const uint32 mask = (1u << (8 - loss[i])) - 1;
+		const uint32 bgc = dst >> shift[i] & mask, fgc = fg[i] >> loss[i];
+		out |= ((bgc * (255 - cov) + fgc * cov + 127) / 255) << shift[i];
+	}
+	return out;
+}
+
+namespace {
+
+// The pixel @p dst of @p fmt with the text of palette index @p index at @p coverage put over it.
+inline uint32 putText(const PixelFormat &fmt, uint32 dst, byte index, byte coverage, const byte *pal, Mode mode) {
+	const byte *c = pal + index * 3;
+	if (mode == kBlend)
+		return blendPixel(fmt, dst, c[0], c[1], c[2], coverage);
+	return coverage < 128 ? dst : fmt.RGBToColor(c[0], c[1], c[2]);
+}
+
+} // End of anonymous namespace
+
 void composeSpan(byte *dst, const PixelFormat &fmt, const byte *index, const byte *coverage, int n,
                  const byte *paletteRGB, Mode mode) {
 	const int bpp = fmt.bytesPerPixel;
 	for (int i = 0; i < n; ++i, dst += bpp) {
 		if (!coverage[i])
 			continue;
-		byte r, g, b;
-		fmt.colorToRGB(readPixel(dst, bpp), r, g, b);
-		if (putText(r, g, b, index[i], coverage[i], paletteRGB, mode))
-			writePixel(dst, bpp, fmt.RGBToColor(r, g, b));
+		const uint32 px = readPixel(dst, bpp);
+		writePixel(dst, bpp, putText(fmt, px, index[i], coverage[i], paletteRGB, mode));
 	}
 }
 
@@ -94,10 +97,10 @@ void convertSpan(byte *dst, const PixelFormat &fmt, const byte *frame, const byt
 	const int bpp = fmt.bytesPerPixel;
 	for (int i = 0; i < n; ++i, dst += bpp) {
 		const byte *c = paletteRGB + frame[i] * 3;
-		byte r = c[0], g = c[1], b = c[2];
-		if (coverage)
-			putText(r, g, b, index[i], coverage[i], paletteRGB, mode);
-		writePixel(dst, bpp, fmt.RGBToColor(r, g, b));
+		uint32 px = fmt.RGBToColor(c[0], c[1], c[2]);
+		if (coverage && coverage[i])
+			px = putText(fmt, px, index[i], coverage[i], paletteRGB, mode);
+		writePixel(dst, bpp, px);
 	}
 }
 

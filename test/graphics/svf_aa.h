@@ -450,7 +450,7 @@ public:
 	}
 
 	void checkTarget(const int *faces, int n, const char *text, int x, int y, int w, int h, int num, int den, int missing,
-	                 const char *const *grayRows, const char *const *rgbRows, TargetKind kind, bool big = false, uint16 bit15 = 0) {
+	                 const char *const *grayRows, const char *const *rgbRows, TargetKind kind, bool big = false, uint16 bit15 = 0, int minBetween = 100) {
 		Graphics::SvfChain *chain = makeChain(faces, n, num, den, missing);
 		const bool is888 = kind == kT888;
 		const int bpp = is888 ? 3 : 2;
@@ -506,7 +506,7 @@ public:
 			}
 		}
 		TS_ASSERT_EQUALS(bad, 0);
-		TS_ASSERT(between > 100);
+		TS_ASSERT(between >= minBetween);
 		delete chain;
 	}
 
@@ -523,6 +523,9 @@ public:
 		CHECK_TARGET(kSvfAaGoldenChainPJ3by2, kSvfAaGoldenChainPJ3by2Rgb565Rows, kT565);
 		CHECK_TARGET(kSvfAaGoldenChainPJ3by2, kSvfAaGoldenChainPJ3by2Rgb555Rows, kT555, false, 0x8000);
 		CHECK_TARGET(kSvfAaGoldenChainPJ3by2, kSvfAaGoldenChainPJ3by2Rgb888Rows, kT888);
+		// 8 bpp coverage (every level) through the 16-bit targets
+		CHECK_TARGET(kSvfAaGoldenBpp8, kSvfAaGoldenBpp8Rgb565Rows, kT565, false, 0, 0);
+		CHECK_TARGET(kSvfAaGoldenBpp8, kSvfAaGoldenBpp8Rgb555Rows, kT555, false, 0x8000, 0);
 	}
 
 	// ---- the plane keeps the coverage; the sinks --------------------------------------------------------------
@@ -587,6 +590,77 @@ public:
 		s.free();
 	}
 
+	// ---- exact expectations from the C renderer's goldens (tools/svfline.py), not from the sinks' own formula ------------------
+
+	// The channels of pixel (x, y) of the golden Rgb565 / Rgb555 (little endian, bit 15 ignored) / Rgb888 (B G R) rows, in the
+	// golden's own channel widths.
+	static void goldenChannels(const char *const *rows, int x, int y, int family, uint &r, uint &g, uint &b) {
+		const char *row = rows[y];
+		if (family == 2) {
+			b = SvfTest::hexNibble(row[6 * x]) << 4 | SvfTest::hexNibble(row[6 * x + 1]);
+			g = SvfTest::hexNibble(row[6 * x + 2]) << 4 | SvfTest::hexNibble(row[6 * x + 3]);
+			r = SvfTest::hexNibble(row[6 * x + 4]) << 4 | SvfTest::hexNibble(row[6 * x + 5]);
+			return;
+		}
+		const uint lo = SvfTest::hexNibble(row[4 * x]) << 4 | SvfTest::hexNibble(row[4 * x + 1]);
+		const uint hi = SvfTest::hexNibble(row[4 * x + 2]) << 4 | SvfTest::hexNibble(row[4 * x + 3]);
+		const uint v = hi << 8 | lo;
+		if (family == 0) {
+			r = v >> 11 & 31;
+			g = v >> 5 & 63;
+			b = v & 31;
+		} else {
+			r = v >> 10 & 31;
+			g = v >> 5 & 31;
+			b = v & 31;
+		}
+	}
+
+	// The channel family of @p f: 0 for 5-6-5, 1 for 5-5-5, 2 for 8-8-8.
+	static int familyOf(const Graphics::PixelFormat &f) {
+		return f.gBits() == 6 ? 0 : f.gBits() == 5 ? 1 : 2;
+	}
+
+	// The pixel of @p f with these channels (in its channel widths) and an opaque alpha field when @p opaque.
+	static uint32 pixelOf(const Graphics::PixelFormat &f, uint r, uint g, uint b, bool opaque = true) {
+		uint32 px = r << f.rShift | g << f.gShift | b << f.bShift;
+		if (opaque && f.aBits())
+			px |= ((1u << f.aBits()) - 1) << f.aShift;
+		return px;
+	}
+
+	static void channelsOf(const Graphics::PixelFormat &f, uint32 px, uint &r, uint &g, uint &b) {
+		r = px >> f.rShift & ((1u << f.rBits()) - 1);
+		g = px >> f.gShift & ((1u << f.gBits()) - 1);
+		b = px >> f.bShift & ((1u << f.bBits()) - 1);
+	}
+
+	// The golden rows of ChainPJ at 1x (or 3/2) for the family of @p f.
+	static const char *const *goldenRowsOf(const Graphics::PixelFormat &f, bool scaled) {
+		switch (familyOf(f)) {
+		case 0:
+			return scaled ? kSvfAaGoldenChainPJ3by2Rgb565Rows : kSvfAaGoldenChainPJRgb565Rows;
+		case 1:
+			return scaled ? kSvfAaGoldenChainPJ3by2Rgb555Rows : kSvfAaGoldenChainPJRgb555Rows;
+		default:
+			return scaled ? kSvfAaGoldenChainPJ3by2Rgb888Rows : kSvfAaGoldenChainPJRgb888Rows;
+		}
+	}
+
+	static void pjGeometry(bool scaled, int &w, int &h) {
+		w = scaled ? kSvfAaGoldenChainPJ3by2W : kSvfAaGoldenChainPJW;
+		h = scaled ? kSvfAaGoldenChainPJ3by2H : kSvfAaGoldenChainPJH;
+	}
+
+	// The pixel the C renderer's target made at (x, y) of ChainPJ, in format @p f. Background and text colour are the golden pair
+	// (0x102060 and 0xF0E040: the surface bg is the truncation of it, palette()[3..8] the same two colours).
+	static uint32 goldenPixel(const Graphics::PixelFormat &f, bool scaled, int x, int y, bool opaque = true) {
+		uint r, g, b;
+		goldenChannels(goldenRowsOf(f, scaled), x, y, familyOf(f), r, g, b);
+		return pixelOf(f, r, g, b, opaque);
+	}
+
+	// The compositing sinks of the screen (TextCompose::compositeRect) against the C renderer's pixels, exactly.
 	void checkBlend(const Graphics::PixelFormat &f, Graphics::TextCompose::Mode mode, const char *name) {
 		const int w = kSvfAaGoldenChainPJW, h = kSvfAaGoldenChainPJH;
 		Graphics::TextPlane plane;
@@ -598,32 +672,23 @@ public:
 		s.fillRect(Common::Rect(w, h), bg);
 		TS_ASSERT(Graphics::TextCompose::compositeRect(plane, Common::Rect(w, h), s, palette(), mode));
 		const Common::Array<byte> cov = expected(kSvfAaGoldenChainPJRows, w, h);
-		byte br, bgc, bb;
-		f.colorToRGB(bg, br, bgc, bb);
+		const uint32 bgPixel = goldenPixel(f, false, 0, 0);	// (0, 0) has no text: the background as the golden has it
+		const uint32 fgPixel = pixelOf(f, palette()[3] >> f.rLoss, palette()[4] >> f.gLoss, palette()[5] >> f.bLoss);
+		TS_ASSERT_EQUALS(bg, bgPixel);
 		int bad = 0, strictly = 0, mid = 0;
 		for (int y = 0; y < h; ++y)
 			for (int x = 0; x < w; ++x) {
 				const byte c = cov[y * w + x];
-				uint32 want = bg;
-				if (c) {
-					byte r = br, g = bgc, b = bb;
-					const byte cc = mode == Graphics::TextCompose::kBlend ? c : (c >= 128 ? 255 : 0);
-#define MIX(d, t) (byte)(((uint)(d) * (255 - cc) + (uint)(t) * cc + 127) / 255)
-					r = MIX(br, palette()[3]);
-					g = MIX(bgc, palette()[4]);
-					b = MIX(bb, palette()[5]);
-#undef MIX
-					want = f.RGBToColor(r, g, b);
-				}
+				const uint32 want = mode == Graphics::TextCompose::kBlend ? goldenPixel(f, false, x, y) : (c >= 128 ? fgPixel : bgPixel);
 				const uint32 got = pixelAt(s, x, y);
 				bad += got != want;
 				if (mode == Graphics::TextCompose::kBlend && (c == 85 || c == 170)) {
 					++mid;
-					byte r, g, b;
-					f.colorToRGB(got, r, g, b);
-					byte fr, fg, fb;
-					f.colorToRGB(f.RGBToColor(palette()[3], palette()[4], palette()[5]), fr, fg, fb);
-					// strictly between the background and the text colour in every channel
+					uint r, g, b, br, bgc, bb, fr, fg, fb;
+					channelsOf(f, got, r, g, b);
+					channelsOf(f, bgPixel, br, bgc, bb);
+					channelsOf(f, fgPixel, fr, fg, fb);
+					// strictly between the background and the text colour in every channel (the pair is red up, green up, blue down)
 					strictly += (r > br && r < fr) && (g > bgc && g < fg) && (b < bb && b > fb);
 				}
 			}
@@ -635,24 +700,31 @@ public:
 		s.free();
 	}
 
+	static void sinkFormats(Common::Array<Graphics::PixelFormat> &out) {
+		out.push_back(Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0));	// RGB565
+		out.push_back(Graphics::PixelFormat(2, 5, 6, 5, 0, 0, 5, 11, 0));	// BGR565
+		out.push_back(Graphics::PixelFormat(2, 5, 5, 5, 0, 10, 5, 0, 0));	// RGB555
+		out.push_back(Graphics::PixelFormat(2, 5, 5, 5, 1, 10, 5, 0, 15));	// ARGB1555
+		out.push_back(Graphics::PixelFormat(2, 5, 5, 5, 1, 11, 6, 1, 0));	// RGBA5551
+		out.push_back(Graphics::PixelFormat(2, 5, 5, 5, 0, 0, 5, 10, 0));	// BGR555
+		out.push_back(Graphics::PixelFormat(4, 8, 8, 8, 0, 16, 8, 0, 0));	// XRGB8888
+		out.push_back(Graphics::PixelFormat(4, 8, 8, 8, 8, 16, 8, 0, 24));	// ARGB8888
+		out.push_back(Graphics::PixelFormat(4, 8, 8, 8, 8, 0, 8, 16, 24));	// ABGR8888
+		out.push_back(Graphics::PixelFormat(4, 8, 8, 8, 8, 24, 16, 8, 0));	// RGBA8888
+	}
+
 	void test_rgbSinks() {
-		// formats: the usual and others (RGB555, BGR565, ARGB8888, ABGR8888, RGBA8888)
-		const Graphics::PixelFormat formats[] = {
-			Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0),
-			Graphics::PixelFormat(2, 5, 5, 5, 0, 10, 5, 0, 0),
-			Graphics::PixelFormat(2, 5, 6, 5, 0, 0, 5, 11, 0),
-			Graphics::PixelFormat(4, 8, 8, 8, 8, 16, 8, 0, 24),
-			Graphics::PixelFormat(4, 8, 8, 8, 8, 0, 8, 16, 24),
-			Graphics::PixelFormat(4, 8, 8, 8, 0, 16, 8, 0, 0),
-			Graphics::PixelFormat(4, 8, 8, 8, 8, 24, 16, 8, 0),
-		};
-		for (uint i = 0; i < ARRAYSIZE(formats); ++i) {
-			checkBlend(formats[i], Graphics::TextCompose::kBlend, "blend");
-			checkBlend(formats[i], Graphics::TextCompose::kThreshold, "threshold");
+		Common::Array<Graphics::PixelFormat> formats;
+		sinkFormats(formats);
+		for (uint i = 0; i < formats.size(); ++i) {
+			const Common::String name = Common::String::format("format %u", i);
+			checkBlend(formats[i], Graphics::TextCompose::kBlend, (name + " blend").c_str());
+			checkBlend(formats[i], Graphics::TextCompose::kThreshold, (name + " threshold").c_str());
 		}
 	}
 
-	// A frame of the screen (CLUT8, palette) presented through every sink: kStamp, kThreshold, kBlend.
+	// A frame of the screen (CLUT8, palette) presented through every sink: kThreshold, kBlend, exactly the C renderer's pixels
+	// over the frame colour (the frame colour is cut to the screen's channels first, as the C targets' bg565 is).
 	void test_presentThroughScreen() {
 		const int w = kSvfAaGoldenChainPJW, h = kSvfAaGoldenChainPJH;
 		Graphics::TextPlane plane;
@@ -661,29 +733,31 @@ public:
 		Graphics::Surface frame;
 		frame.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
 		frame.fillRect(Common::Rect(w, h), 2);
-		const Graphics::PixelFormat f565(2, 5, 6, 5, 0, 11, 5, 0, 0);
-		const Graphics::PixelFormat x8888(4, 8, 8, 8, 0, 16, 8, 0, 0);
 		const Common::Array<byte> cov = expected(kSvfAaGoldenChainPJRows, w, h);
-		const Graphics::PixelFormat formats[] = { f565, x8888 };
-		for (uint k = 0; k < 2; ++k) {
+		Common::Array<Graphics::PixelFormat> formats;
+		sinkFormats(formats);
+		for (uint k = 0; k < formats.size(); ++k) {
+			const Graphics::PixelFormat &f = formats[k];
 			Graphics::Surface blended, hard;
-			blended.create(w, h, formats[k]);
-			hard.create(w, h, formats[k]);
+			blended.create(w, h, f);
+			hard.create(w, h, f);
 			TS_ASSERT(Graphics::TextCompose::presentRect(plane, frame, Common::Rect(w, h), blended, palette(), Graphics::TextCompose::kBlend));
 			TS_ASSERT(Graphics::TextCompose::presentRect(plane, frame, Common::Rect(w, h), hard, palette(), Graphics::TextCompose::kThreshold));
-			const uint32 bg = formats[k].RGBToColor(palette()[6], palette()[7], palette()[8]), fg = formats[k].RGBToColor(palette()[3], palette()[4], palette()[5]);
-			int strictly = 0, partial = 0, hardBad = 0;
+			const uint32 bg = goldenPixel(f, false, 0, 0), fg = pixelOf(f, palette()[3] >> f.rLoss, palette()[4] >> f.gLoss, palette()[5] >> f.bLoss);
+			int blendBad = 0, hardBad = 0, strictly = 0, partial = 0;
 			for (int y = 0; y < h; ++y)
 				for (int x = 0; x < w; ++x) {
 					const byte c = cov[y * w + x];
 					const uint32 b = pixelAt(blended, x, y), t = pixelAt(hard, x, y);
+					blendBad += b != goldenPixel(f, false, x, y);
 					hardBad += t != (c >= 128 ? fg : bg);
 					if (c == 85 || c == 170) {
 						++partial;
 						strictly += b != bg && b != fg;
 					}
 				}
-			TS_ASSERT_EQUALS(hardBad, 0);
+			TSM_ASSERT_EQUALS(Common::String::format("format %u blend", k).c_str(), blendBad, 0);
+			TSM_ASSERT_EQUALS(Common::String::format("format %u threshold", k).c_str(), hardBad, 0);
 			TS_ASSERT(partial > 100);
 			TS_ASSERT_EQUALS(strictly, partial);
 			blended.free();
@@ -692,48 +766,59 @@ public:
 		frame.free();
 	}
 
-	// SvfFont (the Graphics::Font the engines use) over the chain: CLUT8 thresholds, RGB blends.
+	// SvfFont (the Graphics::Font the engines use) over the chain: CLUT8 thresholds, RGB blends, each pixel exactly the C
+	// renderer's. A format with an alpha field is drawn on a TRANSPARENT surface: the text pixels come out opaque (every one,
+	// also the faint edge levels), the untouched background stays transparent.
 	void checkSvfFont(const Graphics::PixelFormat &format, bool scaled) {
 		const char *text = scaled ? kSvfAaGoldenChainPJ3by2Text : kSvfAaGoldenChainPJText;
-		const int w = scaled ? kSvfAaGoldenChainPJ3by2W : kSvfAaGoldenChainPJW, h = scaled ? kSvfAaGoldenChainPJ3by2H : kSvfAaGoldenChainPJH;
+		int w, h;
+		pjGeometry(scaled, w, h);
 		const int x = scaled ? kSvfAaGoldenChainPJ3by2X : kSvfAaGoldenChainPJX, y = scaled ? kSvfAaGoldenChainPJ3by2Y : kSvfAaGoldenChainPJY;
 		const char *const *rows = scaled ? kSvfAaGoldenChainPJ3by2Rows : kSvfAaGoldenChainPJRows;
 		Graphics::SvfFont font(makeChain(kSvfAaGoldenChainPJFaces, 2, scaled ? 3 : 1, scaled ? 2 : 1, scaled ? 0 : kSvfAaGoldenChainPJMissing),
 		                       DisposeAfterUse::YES);
 		Graphics::Surface s;
 		s.create(w, h, format);
-		const uint32 bg = format.isCLUT8() ? 3 : format.RGBToColor(16, 32, 96), fg = format.isCLUT8() ? 7 : format.RGBToColor(240, 224, 64);
+		const bool clut = format.isCLUT8();
+		uint32 bg, fg;
+		if (clut) {
+			bg = 3;
+			fg = 7;
+		} else {
+			bg = format.aBits() ? format.ARGBToColor(0, 16, 32, 96) : format.RGBToColor(16, 32, 96);	// transparent where there is alpha
+			fg = format.RGBToColor(240, 224, 64);
+		}
 		s.fillRect(Common::Rect(w, h), bg);
 		font.drawString(&s, Common::U32String(text), x, y - font.getFontAscent(), w, fg);
 		const Common::Array<byte> cov = expected(rows, w, h);
-		int mismatch = 0, partial = 0, partialHit = 0;
+		int mismatch = 0, partial = 0;
 		for (int yy = 0; yy < h; ++yy)
 			for (int xx = 0; xx < w; ++xx) {
 				const byte c = cov[yy * w + xx];
 				const uint32 v = pixelAt(s, xx, yy);
-				if (format.isCLUT8())
+				if (clut) {
 					mismatch += v != (c >= 128 ? fg : bg);
-				else if (c == 0)
-					mismatch += v != bg;
-				else if (c == 255)
-					mismatch += v != fg;
-				else {
-					++partial;
-					partialHit += v != bg && v != fg;
+				} else if (c == 0) {
+					mismatch += v != bg;	// untouched, alpha 0 where the format has alpha
+				} else {
+					mismatch += v != goldenPixel(format, scaled, xx, yy);	// opaque, channels exactly the C renderer's
+					partial += c != 255;
 				}
 			}
-		TSM_ASSERT_EQUALS(Common::String::format("bpp %d clut8 %d scaled %d", format.bytesPerPixel, format.isCLUT8(), scaled).c_str(), mismatch, 0);
-		if (!format.isCLUT8())
-			TS_ASSERT(partialHit * 10 >= partial * 9);	// a blend, not a threshold (565 may round a faint one onto bg)
+		TSM_ASSERT_EQUALS(Common::String::format("bpp %d clut8 %d scaled %d alpha %u", format.bytesPerPixel, clut, scaled, format.aBits()).c_str(),
+		                  mismatch, 0);
+		if (!clut)
+			TS_ASSERT(partial > 100);
 		s.free();
 	}
 
 	void test_svfFontSurfaces() {
+		Common::Array<Graphics::PixelFormat> formats;
+		sinkFormats(formats);
 		for (int scaled = 0; scaled < 2; ++scaled) {
 			checkSvfFont(Graphics::PixelFormat::createFormatCLUT8(), scaled);
-			checkSvfFont(Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0), scaled);
-			checkSvfFont(Graphics::PixelFormat(2, 5, 5, 5, 0, 10, 5, 0, 0), scaled);
-			checkSvfFont(Graphics::PixelFormat::createFormatARGB32(), scaled);
+			for (uint i = 0; i < formats.size(); ++i)
+				checkSvfFont(formats[i], scaled);
 		}
 	}
 
@@ -801,7 +886,7 @@ public:
 			static const struct { const char *name; int faces[2]; int n; } rows[] = {
 				{ "1bpp", { kJamo1, 0 }, 1 }, { "2bpp-precomposed", { kP, 0 }, 1 }, { "2bpp-jamo", { kJA, 0 }, 1 }, { "2bpp-chain", { kP, kJA }, 2 },
 			};
-			const int w = 264, h = 20, zoom = 3, gap = 4;
+			const int w = 290, h = 20, zoom = 3, gap = 4;
 			const int kModes = 3;	// stamp 128, stamp 64, blend
 			Graphics::Surface out;
 			out.create(w * zoom, (int)ARRAYSIZE(rows) * kModes * (h * zoom + gap), Graphics::PixelFormat(4, 8, 8, 8, 0, 16, 8, 0, 0));
@@ -838,7 +923,8 @@ public:
 
 	// ---- 15 and 16 bit: every AA case, the sinks against the renderer's arithmetic --------------------------
 
-	// The blend of the 5/6/5 or 5/5/5 channels the C targets use: (bg * (255 - cov) + fg * cov + 127) / 255 per channel.
+	// The blend of the 5/6/5 or 5/5/5 channels the C targets use (svf_draw.c blend565, blend555): (bg * (255 - cov) + fg * cov + 127) / 255
+	// per channel, written out here independently of the sinks.
 	static uint16 blend16(uint16 bg, uint16 fg, byte cov, bool is555) {
 		const int shift[3] = { is555 ? 10 : 11, 5, 0 }, mask[3] = { 31, is555 ? 31 : 63, 31 };
 		uint16 out = 0;
@@ -878,6 +964,7 @@ public:
 		for (uint c = 0; c < count; ++c) {
 			const AaCase &k = cases[c];
 			const Common::Array<byte> cov = expected(k.rows, k.w, k.h);
+			Common::Array<byte> cTarget[2];	// the C renderer's RGB565 and RGB555 output, mapped faces
 			for (int is555 = 0; is555 < 2; ++is555)
 				for (int streamed = 0; streamed < 2; ++streamed) {
 					Graphics::SvfChain *chain = makeChain(k.faces, k.n, k.num, k.den, k.missing, streamed != 0);
@@ -899,6 +986,8 @@ public:
 						bad += v != (cov[i] ? blend16(bg16, fg16, cov[i], is555) : bg16);
 					}
 					TSM_ASSERT_EQUALS(Common::String::format("%s 555=%d streamed=%d", k.name, is555, streamed).c_str(), bad, 0);
+					if (!streamed)
+						cTarget[is555] = buf;
 					delete chain;
 				}
 
@@ -909,6 +998,20 @@ public:
 				const int scale = (k.num == 2 && k.den == 1) ? 2 : (k.num == 3 && k.den == 2) ? 2 : 1;
 				Graphics::TextPlane plane;
 				drawPlane(plane, k.faces, k.n, k.num, k.den, k.missing, k.text, k.x, k.y, k.w, k.h, scale);
+				// over one background colour the composite is the C renderer's target output, byte for byte (the 1555 alpha bit aside)
+				{
+					Graphics::Surface u;
+					u.create(k.w, k.h, formats[f]);
+					u.fillRect(Common::Rect(k.w, k.h), formats[f].RGBToColor(16, 32, 96));
+					TS_ASSERT(Graphics::TextCompose::compositeRect(plane, Common::Rect(k.w, k.h), u, palette(), Graphics::TextCompose::kBlend));
+					const int is555 = f > 0;
+					const uint16 keep = is555 ? 0x7FFF : 0xFFFF;
+					int differ = 0;
+					for (int i = 0; i < k.w * k.h; ++i)
+						differ += (pixelAt(u, i % k.w, i / k.w) & keep) != (uint16)(cTarget[is555][2 * i + 1] << 8 | cTarget[is555][2 * i]);
+					TSM_ASSERT_EQUALS(Common::String::format("%s composite vs C target, format %u", k.name, f).c_str(), differ, 0);
+					u.free();
+				}
 				Graphics::Surface s;
 				s.create(k.w, k.h, formats[f]);
 				// a background that changes from pixel to pixel (a gradient): the blend is over the local colour
@@ -922,11 +1025,13 @@ public:
 				for (int y = 0; y < k.h; ++y)
 					for (int x = 0; x < k.w; ++x) {
 						const byte cv = cov[y * k.w + x];
-						byte r, g, b;
-						formats[f].colorToRGB(pixelAt(before, x, y), r, g, b);
-#define MIX(d, t) (byte)(((uint)(d) * (255 - cv) + (uint)(t) * cv + 127) / 255)
-						const uint32 want = cv ? formats[f].RGBToColor(MIX(r, palette()[3]), MIX(g, palette()[4]), MIX(b, palette()[5])) : pixelAt(before, x, y);
-#undef MIX
+						// the C renderer's arithmetic in the channel widths of the format over the pixel's own channels
+						uint bc[3], fc[3] = { (uint)palette()[3] >> formats[f].rLoss, (uint)palette()[4] >> formats[f].gLoss, (uint)palette()[5] >> formats[f].bLoss };
+						channelsOf(formats[f], pixelAt(before, x, y), bc[0], bc[1], bc[2]);
+						uint mix[3];
+						for (int ch = 0; ch < 3; ++ch)
+							mix[ch] = (bc[ch] * (255 - cv) + fc[ch] * cv + 127) / 255;
+						const uint32 want = cv ? pixelOf(formats[f], mix[0], mix[1], mix[2]) : pixelAt(before, x, y);
 						bad += pixelAt(s, x, y) != want;
 					}
 				TSM_ASSERT_EQUALS(Common::String::format("%s sink format %u", k.name, f).c_str(), bad, 0);
@@ -980,8 +1085,9 @@ public:
 				checkLevels(formats[f], pairs[p][0], pairs[p][1], Common::String::format("format %u pair %u", f, p).c_str());
 	}
 
-	// The 8 bpp ramp at 5 bits: the blend never goes backwards, at most 32 (5-bit) or 64 (6-bit green) values appear, and
-	// no value is further than half a channel step from the exact blend.
+	// The 8 bpp ramp at 5 bits: the blend never goes backwards, 32 (5-bit) or 64 (6-bit green) values appear, and the sinks'
+	// value for every one of the 256 coverages is the C renderer's (blend565 / blend555 of svf_draw.c), so no value is further
+	// than half a channel step (4.1 of 255 at 5 bits) from the exact blend.
 	void test_eightBitRampAtFiveBits() {
 		const Graphics::PixelFormat formats[] = { Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0), Graphics::PixelFormat(2, 5, 5, 5, 0, 10, 5, 0, 0) };
 		byte idx[256], cov[256];
@@ -995,33 +1101,26 @@ public:
 			for (int i = 0; i < 256; ++i)
 				px[i] = (uint16)formats[f].RGBToColor(0, 0, 0);
 			Graphics::TextCompose::composeSpan((byte *)px, formats[f], idx, cov, 256, pal, Graphics::TextCompose::kBlend);
+			const bool is555 = formats[f].gBits() == 5;
 			int distinct[3] = { 1, 1, 1 }, prev[3] = { 0, 0, 0 };
-			int maxErr = 0;
-			for (int i = 1; i < 256; ++i) {
+			int maxErr = 0, differ = 0;
+			for (int i = 0; i < 256; ++i) {
+				// the C renderer's 5-bit blend of black and white, for coverage i (exact arithmetic of svf_draw.c)
+				differ += px[i] != blend16(0, is555 ? 0x7FFF : 0xFFFF, (byte)i, is555) && i > 0;
 				byte rgb[3];
 				formats[f].colorToRGB(px[i], rgb[0], rgb[1], rgb[2]);
-				for (int c = 0; c < 3; ++c) {
+				for (int c = 0; c < 3 && i > 0; ++c) {
 					TS_ASSERT(rgb[c] >= prev[c]);	// monotonic: no banding inversion
 					distinct[c] += rgb[c] != prev[c];
 					prev[c] = rgb[c];
 					maxErr = MAX<int>(maxErr, ABS<int>(rgb[c] - i));
 				}
 			}
-			const int bitsG = formats[f].gBits();
+			TS_ASSERT_EQUALS(differ, 0);
 			TS_ASSERT_EQUALS(distinct[0], 32);
-			TS_ASSERT_EQUALS(distinct[1], 1 << bitsG);
+			TS_ASSERT_EQUALS(distinct[1], 1 << formats[f].gBits());
 			TS_ASSERT_EQUALS(distinct[2], 32);
-			// The sink blends at 8 bits and PixelFormat::RGBToColor truncates to 5 bits (down to 7 below the exact value).
-			TS_ASSERT(maxErr <= 7);
-			// The C renderer's targets blend the 5-bit channels with rounding: within 4 of the exact blend.
-			const bool is555 = formats[f].gBits() == 5;
-			int cErr = 0;
-			for (int i = 0; i < 256; ++i) {
-				const uint16 v = blend16(0, is555 ? 0x7FFF : 0xFFFF, (byte)i, is555);
-				const int r5 = v >> (is555 ? 10 : 11) & 31;
-				cErr = MAX<int>(cErr, ABS<int>((r5 << 3 | r5 >> 2) - i));
-			}
-			TS_ASSERT(cErr <= 4);
+			TS_ASSERT(maxErr <= 4);	// the 5-bit value read back (bit replication) is within 4 of the exact blend
 		}
 	}
 

@@ -49,6 +49,15 @@ inline byte blend(byte dst, byte src, byte a) {
 	return (byte)(((uint32)dst * (255 - a) + (uint32)src * a + 127) / 255);
 }
 
+/**
+ * The pixel @p dst of @p fmt with the colour (@p r, @p g, @p b) blended in by @p cov, in the channel widths of the format:
+ * per channel (bg * (255 - cov) + fg * cov + 127) / 255 with bg the pixel's own channel value and fg the colour cut to the
+ * channel (as PixelFormat::RGBToColor does). This is the arithmetic of the C renderer's RGB565/RGB555 targets
+ * (graphics/svf/svf_draw.c blend565, blend555) and, at 8 bits a channel, the old 8-bit blend, so a 15/16-bit composite
+ * equals the C targets exactly over one background colour. An alpha field is set opaque (all ones, as RGBToColor does).
+ */
+uint32 blendPixel(const PixelFormat &fmt, uint32 dst, byte r, byte g, byte b, byte cov);
+
 /** CLUT8: @p dst[i] = @p index[i] where @p coverage[i] >= @p threshold. */
 void stampSpan(byte *dst, const byte *index, const byte *coverage, int n, byte threshold = 128);
 
