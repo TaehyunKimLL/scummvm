@@ -53,28 +53,7 @@ void plotPixel(void *ctx, int16_t x, int16_t y, uint8_t coverage) {
 		bg = *(const uint16 *)pixel;
 	else
 		bg = *(const uint32 *)pixel;
-	uint32 out;
-	if (format.aBits() > 1) {
-		// A format with a real alpha: Porter-Duff over, as TTFFont::renderGlyph. The source alpha is the coverage times the
-		// colour's alpha. Over a transparent pixel the text keeps its colour and gets the source alpha (white AA text stays
-		// white); over an opaque one the alpha stays 255 and the colour is the blend by the source alpha.
-		uint8 dA, dR, dG, dB;
-		format.colorToARGB(bg, dA, dR, dG, dB);
-		const uint sA = ((uint)coverage * p->a + 127) / 255;
-		const uint oA = sA + ((uint)dA * (255 - sA) + 127) / 255;
-		if (!oA)
-			return;
-		const uint den = oA * 255;
-		const uint ch[3] = { p->r, p->g, p->b }, dc[3] = { dR, dG, dB };
-		uint o[3];
-		for (int i = 0; i < 3; ++i)
-			o[i] = (ch[i] * sA * 255 + dc[i] * dA * (255 - sA) + den / 2) / den;
-		out = format.ARGBToColor((uint8)oA, (uint8)o[0], (uint8)o[1], (uint8)o[2]);
-	} else {
-		// The same blend as the hi-res text sinks and the C renderer's RGB565/RGB555 targets (TextCompose::blendPixel); a 1-bit
-		// alpha (ARGB1555) comes out opaque where there is text, also over a transparent background.
-		out = TextCompose::blendPixel(format, bg, p->r, p->g, p->b, coverage);
-	}
+	const uint32 out = SvfFont::compositeOver(format, bg, p->r, p->g, p->b, p->a, coverage);
 	if (format.bytesPerPixel == 1)
 		*(byte *)pixel = (byte)out;
 	else if (format.bytesPerPixel == 2)
@@ -84,6 +63,26 @@ void plotPixel(void *ctx, int16_t x, int16_t y, uint8_t coverage) {
 }
 
 } // End of anonymous namespace
+
+uint32 SvfFont::compositeOver(const PixelFormat &format, uint32 bg, uint8 r, uint8 g, uint8 b, uint8 a, uint8 coverage) {
+	if (format.aBits() > 1) {
+		uint8 dA, dR, dG, dB;
+		format.colorToARGB(bg, dA, dR, dG, dB);
+		const uint sA = ((uint)coverage * a + 127) / 255;
+		// The weights of the text (sA * 255) and of the pixel (dA * (255 - sA)) sum to den exactly, so every output channel is a
+		// weighted mean of the two and stays between them (rounding the alpha first made them not sum to den: a channel could wrap).
+		const uint den = sA * 255 + (uint)dA * (255 - sA);
+		const uint oA = (den + 127) / 255;
+		if (!oA)
+			return bg;
+		const uint ch[3] = { r, g, b }, dc[3] = { dR, dG, dB };
+		uint o[3];
+		for (int i = 0; i < 3; ++i)
+			o[i] = (ch[i] * sA * 255 + dc[i] * dA * (255 - sA) + den / 2) / den;
+		return format.ARGBToColor((uint8)oA, (uint8)o[0], (uint8)o[1], (uint8)o[2]);
+	}
+	return TextCompose::blendPixel(format, bg, r, g, b, coverage);
+}
 
 SvfFont::SvfFont(SvfChain *chain, DisposeAfterUse::Flag dispose) : _chain(chain), _dispose(dispose) {
 	assert(_chain);

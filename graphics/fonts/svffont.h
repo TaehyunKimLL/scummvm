@@ -29,6 +29,7 @@
 namespace Graphics {
 
 class SvfChain;
+struct PixelFormat;
 
 /**
  * A Graphics::Font over an SvfChain. Draws on CLUT8 surfaces by threshold (coverage >= 128 writes
@@ -50,6 +51,15 @@ public:
 	void drawChar(Surface *dst, uint32 chr, int x, int y, uint32 color) const override;
 
 	SvfChain &getChain() const { return *_chain; }
+
+	/**
+	 * The pixel @p dst of @p format with the colour (@p r, @p g, @p b, @p a) drawn over it at @p coverage (what drawChar does
+	 * for one pixel of a non-CLUT8 surface; public for the tests). A format with a 1-bit alpha or none gets the hi-res text
+	 * blend (opaque where there is text); a format with more alpha bits the ideal Porter-Duff "over" with the source alpha
+	 * coverage * a: over a transparent pixel the text keeps its colour and gets the faint alpha, over an opaque one the alpha
+	 * stays 255. Every output channel lies between the colour's and the pixel's.
+	 */
+	static uint32 compositeOver(const PixelFormat &format, uint32 dst, uint8 r, uint8 g, uint8 b, uint8 a, uint8 coverage);
 
 	/** UTF-8 of @p cp in @p out; a surrogate or a value past U+10FFFF is the invalid byte 0xFF. */
 	static uint encodeUtf8(uint32 cp, char out[4]);

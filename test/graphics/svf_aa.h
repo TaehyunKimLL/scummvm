@@ -823,7 +823,7 @@ public:
 	}
 
 	// SvfFont on surfaces with alpha, exactly: a 1-bit alpha is made opaque where there is text (the fg alpha is ignored); an
-	// 8-bit alpha is composited like TTFFont::renderGlyph (source alpha = coverage * the colour's alpha, Porter-Duff over): over a
+	// 8-bit alpha is composited as the ideal Porter-Duff over (source alpha = coverage * the colour's alpha; TTFFont::renderGlyph is not the model, it ignores the colour's alpha): over a
 	// transparent background the text keeps its colour and gets alpha = source alpha (white AA text stays white, not dark
 	// opaque fringes), over an opaque background the alpha stays 255 and the colour is the blend by the source alpha.
 	void test_svfFontAlphaSurfaces() {
@@ -874,6 +874,55 @@ public:
 					}
 			}
 		}
+	}
+
+	// SvfFont's "over" for every coverage, text alpha and background alpha: no channel wraps or leaves the range of the colour's and
+	// the pixel's channel (a rounded alpha before the weights are formed made them not sum to one: white over ARGB(1, 255, 255, 255)
+	// at coverage 170 came out PURE BLACK), and the alpha and every premultiplied channel are within 1.5 of an independent model (the source alpha and the channel are rounded to 8 bits) of the ideal
+	// Porter-Duff over computed in floating point.
+	void test_svfFontOverExhaustive() {
+		const Graphics::PixelFormat formats[] = { Graphics::PixelFormat(4, 8, 8, 8, 8, 16, 8, 0, 24), Graphics::PixelFormat(4, 8, 8, 8, 8, 24, 16, 8, 0) };
+		static const uint fgAlpha[] = { 0, 1, 127, 128, 254, 255 };
+		static const uint bgAlpha[] = { 0, 1, 2, 64, 127, 128, 254, 255 };
+		static const uint level[] = { 0, 1, 127, 128, 254, 255 };
+		long wrapped = 0, off = 0, checked = 0;
+		for (uint fi = 0; fi < ARRAYSIZE(formats); ++fi) {
+			const Graphics::PixelFormat &f = formats[fi];
+			for (uint cov = 0; cov < 256; ++cov)
+				for (uint fa = 0; fa < ARRAYSIZE(fgAlpha); ++fa)
+					for (uint ba = 0; ba < ARRAYSIZE(bgAlpha); ++ba)
+						for (uint fc = 0; fc < ARRAYSIZE(level); ++fc)
+							for (uint bc = 0; bc < ARRAYSIZE(level); ++bc) {
+								// the colour channels fg = (level fc, level bc, level fc), bg the other way round: all four mixes of two levels
+								const uint fgc[3] = { level[fc], level[bc], level[fc] }, bgc[3] = { level[bc], level[fc], level[bc] };
+								const uint32 bg = f.ARGBToColor(bgAlpha[ba], bgc[0], bgc[1], bgc[2]);
+								const uint32 got = Graphics::SvfFont::compositeOver(f, bg, fgc[0], fgc[1], fgc[2], fgAlpha[fa], cov);
+								uint8 a, r, g, b;
+								f.colorToARGB(got, a, r, g, b);
+								const double aS = cov / 255.0 * fgAlpha[fa] / 255.0, aD = bgAlpha[ba] / 255.0, oA = aS + aD * (1 - aS);
+								const uint out[3] = { r, g, b };
+								++checked;
+								if (oA < 1e-9) {
+									continue;
+								}
+								off += ABS<int>((int)a - (int)(oA * 255.0 + 0.5)) > 1;
+								for (int k = 0; k < 3; ++k) {
+									const uint lo = MIN(fgc[k], bgc[k]), hi = MAX(fgc[k], bgc[k]);
+									wrapped += out[k] < lo || out[k] > hi;
+									const double ideal = (fgc[k] * aS + bgc[k] * aD * (1 - aS)) / oA;
+									// compared premultiplied: a nearly invisible pixel's colour is not judged (alpha is rounded to 8 bits)
+									off += ABS<double>(out[k] * (a / 255.0) - ideal * oA) > 1.5;
+								}
+							}
+		}
+		TS_ASSERT(checked > 300000);
+		TS_ASSERT_EQUALS(wrapped, 0);
+		TS_ASSERT_EQUALS(off, 0);
+		// the case found by review: white at coverage 170 over ARGB(1, 255, 255, 255) stays white
+		const Graphics::PixelFormat &f = formats[0];
+		uint8 a, r, g, b;
+		f.colorToARGB(Graphics::SvfFont::compositeOver(f, f.ARGBToColor(1, 255, 255, 255), 255, 255, 255, 255, 170), a, r, g, b);
+		TS_ASSERT(r == 255 && g == 255 && b == 255);
 	}
 
 	// Mixed bpp in one line: the 1 bpp glyphs are 255, the 2 bpp glyphs have levels, both reach the plane and the sinks.
