@@ -767,7 +767,7 @@ public:
 	}
 
 	// SvfFont (the Graphics::Font the engines use) over the chain: CLUT8 thresholds, RGB blends, each pixel exactly the C
-	// renderer's. A format with an alpha field is drawn on a TRANSPARENT surface: the text pixels come out opaque (every one,
+	// renderer's. A format with a 1-bit alpha is drawn on a TRANSPARENT surface: the text pixels come out opaque (every one,
 	// also the faint edge levels), the untouched background stays transparent.
 	void checkSvfFont(const Graphics::PixelFormat &format, bool scaled) {
 		const char *text = scaled ? kSvfAaGoldenChainPJ3by2Text : kSvfAaGoldenChainPJText;
@@ -785,7 +785,7 @@ public:
 			bg = 3;
 			fg = 7;
 		} else {
-			bg = format.aBits() ? format.ARGBToColor(0, 16, 32, 96) : format.RGBToColor(16, 32, 96);	// transparent where there is alpha
+			bg = format.aBits() == 1 ? format.ARGBToColor(0, 16, 32, 96) : format.RGBToColor(16, 32, 96);	// 1-bit alpha: transparent (8-bit alpha: test_svfFontAlphaSurfaces)
 			fg = format.RGBToColor(240, 224, 64);
 		}
 		s.fillRect(Common::Rect(w, h), bg);
@@ -819,6 +819,60 @@ public:
 			checkSvfFont(Graphics::PixelFormat::createFormatCLUT8(), scaled);
 			for (uint i = 0; i < formats.size(); ++i)
 				checkSvfFont(formats[i], scaled);
+		}
+	}
+
+	// SvfFont on surfaces with alpha, exactly: a 1-bit alpha is made opaque where there is text (the fg alpha is ignored); an
+	// 8-bit alpha is composited like TTFFont::renderGlyph (source alpha = coverage * the colour's alpha, Porter-Duff over): over a
+	// transparent background the text keeps its colour and gets alpha = source alpha (white AA text stays white, not dark
+	// opaque fringes), over an opaque background the alpha stays 255 and the colour is the blend by the source alpha.
+	void test_svfFontAlphaSurfaces() {
+		const Graphics::PixelFormat alpha8[] = { Graphics::PixelFormat(4, 8, 8, 8, 8, 16, 8, 0, 24), Graphics::PixelFormat(4, 8, 8, 8, 8, 0, 8, 16, 24),
+		                                         Graphics::PixelFormat(4, 8, 8, 8, 8, 24, 16, 8, 0) };
+		const Graphics::PixelFormat alpha1[] = { Graphics::PixelFormat(2, 5, 5, 5, 1, 10, 5, 0, 15), Graphics::PixelFormat(2, 5, 5, 5, 1, 11, 6, 1, 0) };
+		const int w = kSvfAaGoldenChainPJW, h = kSvfAaGoldenChainPJH;
+		const Common::Array<byte> cov = expected(kSvfAaGoldenChainPJRows, w, h);
+		const uint bgA[2] = { 0, 255 }, fgA[2] = { 255, 128 };
+		for (int kind = 0; kind < 2; ++kind) {
+			const uint n = kind ? ARRAYSIZE(alpha1) : ARRAYSIZE(alpha8);
+			for (uint fi = 0; fi < n; ++fi) {
+				const Graphics::PixelFormat &f = kind ? alpha1[fi] : alpha8[fi];
+				for (int bi = 0; bi < 2; ++bi)
+					for (int gi = 0; gi < 2; ++gi) {
+						Graphics::SvfFont font(makeChain(kSvfAaGoldenChainPJFaces, 2, 1, 1, kSvfAaGoldenChainPJMissing), DisposeAfterUse::YES);
+						Graphics::Surface s;
+						s.create(w, h, f);
+						const uint32 bg = f.ARGBToColor(bgA[bi], 16, 32, 96), fg = f.ARGBToColor(fgA[gi], 240, 224, 64);
+						s.fillRect(Common::Rect(w, h), bg);
+						font.drawString(&s, Common::U32String(kSvfAaGoldenChainPJText), kSvfAaGoldenChainPJX,
+						                kSvfAaGoldenChainPJY - font.getFontAscent(), w, fg);
+						int bad = 0, faint = 0;
+						for (int y = 0; y < h; ++y)
+							for (int x = 0; x < w; ++x) {
+								const byte c = cov[y * w + x];
+								const uint32 got = pixelAt(s, x, y);
+								uint32 want = bg;
+								if (c && kind == 1) {
+									want = goldenPixel(f, false, x, y);	// opaque 1-bit alpha, channels the C renderer's
+								} else if (c) {
+									const uint sA = (c * fgA[gi] + 127) / 255;
+									const uint oA = bgA[bi] ? 255 : sA;
+									const uint bc[3] = { 16, 32, 96 }, fc[3] = { 240, 224, 64 };
+									uint ch[3];
+									for (int k = 0; k < 3; ++k)
+										ch[k] = bgA[bi] ? (bc[k] * (255 - sA) + fc[k] * sA + 127) / 255 : fc[k];
+									want = oA << f.aShift | ch[0] << f.rShift | ch[1] << f.gShift | ch[2] << f.bShift;
+									faint += c < 255 && !bgA[bi];
+								}
+								bad += got != want;
+							}
+						TSM_ASSERT_EQUALS(Common::String::format("alpha bits %u format %u bg alpha %u fg alpha %u", f.aBits(), fi, bgA[bi], fgA[gi]).c_str(),
+						                  bad, 0);
+						if (kind == 0 && !bgA[bi])
+							TS_ASSERT(faint > 100);	// the faint levels keep a faint alpha over a transparent surface
+						s.free();
+					}
+			}
 		}
 	}
 

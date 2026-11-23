@@ -53,9 +53,28 @@ void plotPixel(void *ctx, int16_t x, int16_t y, uint8_t coverage) {
 		bg = *(const uint16 *)pixel;
 	else
 		bg = *(const uint32 *)pixel;
-	// The same blend as the hi-res text sinks and the C renderer's RGB565/RGB555 targets (TextCompose::blendPixel); the
-	// text pixel is opaque, also on a surface with a 1 bit alpha over a transparent background.
-	const uint32 out = TextCompose::blendPixel(format, bg, p->r, p->g, p->b, coverage);
+	uint32 out;
+	if (format.aBits() > 1) {
+		// A format with a real alpha: Porter-Duff over, as TTFFont::renderGlyph. The source alpha is the coverage times the
+		// colour's alpha. Over a transparent pixel the text keeps its colour and gets the source alpha (white AA text stays
+		// white); over an opaque one the alpha stays 255 and the colour is the blend by the source alpha.
+		uint8 dA, dR, dG, dB;
+		format.colorToARGB(bg, dA, dR, dG, dB);
+		const uint sA = ((uint)coverage * p->a + 127) / 255;
+		const uint oA = sA + ((uint)dA * (255 - sA) + 127) / 255;
+		if (!oA)
+			return;
+		const uint den = oA * 255;
+		const uint ch[3] = { p->r, p->g, p->b }, dc[3] = { dR, dG, dB };
+		uint o[3];
+		for (int i = 0; i < 3; ++i)
+			o[i] = (ch[i] * sA * 255 + dc[i] * dA * (255 - sA) + den / 2) / den;
+		out = format.ARGBToColor((uint8)oA, (uint8)o[0], (uint8)o[1], (uint8)o[2]);
+	} else {
+		// The same blend as the hi-res text sinks and the C renderer's RGB565/RGB555 targets (TextCompose::blendPixel); a 1-bit
+		// alpha (ARGB1555) comes out opaque where there is text, also over a transparent background.
+		out = TextCompose::blendPixel(format, bg, p->r, p->g, p->b, coverage);
+	}
 	if (format.bytesPerPixel == 1)
 		*(byte *)pixel = (byte)out;
 	else if (format.bytesPerPixel == 2)
