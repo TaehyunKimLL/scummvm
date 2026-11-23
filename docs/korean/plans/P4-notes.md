@@ -146,3 +146,15 @@ New driver for interactive runs: `~/work/tmp/p4/sess.sh RUNDIR start|do|shot|sto
 - **d3 palette** (VGA, clut8): the title/warning picture, the warning box, the age dialog and the room follow each other with the yellow boxes in the right colours; no stale text from the previous screen over the next picture (viewed frame by frame, 4 frames). A fade-specific pair was not taken (no fade of text observed).
 - **d4 quiz**: no quiz question is reachable on the Korean pack (skipped by SCRIPT.720); Ctrl+Alt+X on the title and on the age dialog did nothing visible. `grep -c non-raw run.log` = 3 through the title, warning, age dialog, refusal, room, look replies (the three start-up `kReadNumber` warnings). **Appendix A is not applied** (no growth observed); the quiz path itself remains unmeasured. 
 - `grep -c 'cut to\|grown from\|longer than'` over all d-runs: 0. No k16said (no parser).
+
+## P4e: KQ4 (scratch data `datah/kq4`, runs `~/work/tmp/p4/e1`, `e1r`)
+
+- **e1** suite row `KQ4` OK. Copy protection (`소유권을 확인하기 위해 "킹스 퀘스트 IV" 설명서를 보고 다음 질문에 답하시오. 답은 설명서에 적힌 영어 그대로 입력하시오.`, question `4쪽 세 번째 문단의 마지막 단어는?`, a random one of several: the rgb565 run drew `... 네 번째 단어는?`):
+  typed `a` + Return passes (H7 `SCRIPT.701`). The credits are pictures. clut8 vs rgb565 first frame: identical except the random question's last words and the cursor.
+  Intro narration boxes Korean (`그레이엄 왕이 낡은 모자를 아이들 쪽으로 던지고, 아내 발라니스 왕비가 자랑스럽게 지켜본다.`, `나예요.` 목소리가 말한다. `마법 거울을 보세요.`, Genesta's boxes with the dark title bar `제네스타` / `로젤라`,
+  `... 나는 24시간 안에 죽어요.` with the 16 px digits legible). Escape does not skip the intro; **the intro took about 7 minutes of wall time here** (the plan said about 3) before control was given on the Tamir beach (`자, 이제 혼자가 되었다, 로젤라.`).
+- **e2 first room**: status line `점수: 0 / 230   KQ IV The Perils of Rosella` (the `IV` is a picture glyph); typed `qhk` (봐) -> prompt `입력하세요` with `봐`, Return -> 4-line reply `동쪽에서 흘러온 강이 눈앞의 푸른 바다로 흘러든다. ...`; `바위를 봐` (`qkdnlfmf qhk`) -> `여기에는 바위가 많지 않다.` (a noun + particle sentence parsed by the Korean parser; the English game's reply to look at rock is the "not many rocks" line).
+  Menu bar (Escape): `파일 동작 속도 소리` with `KQ4 정보 CTRLA` / `도움말 F1` in the pull-down, legible.
+  Save (`originalsaveload=true`): F5 `게임 저장` / `저장할 게임의 설명을 입력하십시오.` with `저장 취소 디렉터리 변경`, typed `ans` (문) + Return -> `kq4-ko.001`; F7 `게임 불러오기` / `불러올 게임을 선택하십시오.` lists `문`; Return on it restores the beach room (viewed). Frame sha256: first screen `...` see below; the beach status/reply frame `f66bfc09e6ce137b...` (restored room).
+- `grep -c 'cut to\|grown from\|longer than\|non-raw'` over the whole KQ4 run log: 0.
+- **e2 step 4** k16said `--early` (target >= 464 of 487): pending `ko/07-debugsocket`.
