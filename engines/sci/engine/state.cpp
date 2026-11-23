@@ -369,6 +369,9 @@ ScriptStrings::Key SciEngine::keyOf(reg_t ptr, const Common::String &str) const 
 	ScriptStrings::Key key = _gamestate->_segMan->stringKey(ptr);
 	if (!key.isSet())
 		key = _scriptStrings.keyOf(ScriptStrings::bufferId(ptr.getSegment(), ptr.getOffset()), str);
+	// A room's entry is tried first, the any-room one after (kStrCpy and kStrCat set the room too)
+	if (key.isSet())
+		key.room = _gamestate->currentRoomNumber();
 	return key;
 }
 
