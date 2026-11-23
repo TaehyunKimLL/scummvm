@@ -713,7 +713,7 @@ void SegManager::strncpy(reg_t dest, const char* src, size_t n) {
 				use = utf8CopyPlan(text, (uint32)n, dest_r.maxSize, false);
 		}
 		if (use.cut)
-			warning("SegManager::strncpy: \"%s\" cut to %u bytes", src, use.text.size());
+			warning("SegManager::strncpy: \"%s\" cut to %u bytes", use.text.c_str(), use.text.size());
 		planned = use.text;
 		n = use.limit;
 		src = planned.c_str();
@@ -723,14 +723,13 @@ void SegManager::strncpy(reg_t dest, const char* src, size_t n) {
 		forwardCopy<true>(dest_r.raw, (const byte *)src, n);
 	} else {
 		// raw -> non-raw
-		for (uint i = 0; i < n; i++) {
-			setChar(dest_r, i, src[i]);
-			if (!src[i])
-				break;
-		}
-		// Put an ending NUL to terminate the string
-		if ((size_t)dest_r.maxSize > n)
-			setChar(dest_r, n, 0);
+		class RegSink : public CharSink {
+			SegmentRef &_ref;
+		public:
+			explicit RegSink(SegmentRef &r) : _ref(r) {}
+			void set(uint i, char c) override { setChar(_ref, i, c); }
+		} sink(dest_r);
+		storeString(sink, src, n, dest_r.maxSize > 0 ? (size_t)dest_r.maxSize : 0, g_sci && g_sci->getTextMode().utf8());
 	}
 }
 
@@ -795,6 +794,8 @@ void SegManager::strncpy(reg_t dest, reg_t src, size_t n) {
 	} else {
 		// non-raw -> non-raw
 		for (uint i = 0; i < n; i++) {
+			if (utf8 && (int)i >= dest_r.maxSize)
+				break; // a UTF-8 game never writes past the destination array
 			char c = getChar(src_r, i);
 			setChar(dest_r, i, c);
 			if (!c)

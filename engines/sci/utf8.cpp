@@ -169,6 +169,22 @@ Common::String utf8Truncate(const Common::String &text, uint32 capacity) {
 	return Common::String(text.c_str(), end);
 }
 
+void storeString(CharSink &sink, const char *src, size_t n, size_t maxSize, bool utf8) {
+	bool terminated = false;
+	for (size_t i = 0; i < n; i++) {
+		if (utf8 && i >= maxSize)
+			return;
+		sink.set(i, src[i]);
+		if (!src[i]) {
+			terminated = true;
+			break;
+		}
+	}
+	// Put an ending NUL to terminate the string
+	if (maxSize > n && (!utf8 || !terminated))
+		sink.set(n, 0);
+}
+
 // Drop a code point at the end of @p text that its lead byte says is incomplete.
 static Common::String dropIncompleteTail(const Common::String &text) {
 	const uint32 size = text.size();

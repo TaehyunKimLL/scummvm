@@ -136,6 +136,25 @@ struct Utf8CopyPlan {
  */
 Utf8CopyPlan utf8CopyPlan(const Common::String &text, uint32 n, int32 maxSize, bool growable);
 
+/** Where storeString() puts a character (a stack or locals array: setChar() of each slot). */
+class CharSink {
+public:
+	virtual ~CharSink() {}
+	virtual void set(uint index, char c) = 0;
+};
+
+/**
+ * The copy of SegManager::strncpy() into a non-raw destination (a stack or
+ * locals array of reg_t, where @p maxSize is what is left of the whole
+ * array). Characters up to the NUL or @p n. Upstream then writes a NUL at
+ * offset @p n when the array goes on, also after the terminator; a UTF-8
+ * game writes that only when the loop did not already write one (the
+ * extra NUL would clear the low byte of the neighbouring reg_t, hiding the
+ * next record of a save list or zeroing a pointer), and never at or past
+ * @p maxSize.
+ */
+void storeString(CharSink &sink, const char *src, size_t n, size_t maxSize, bool utf8);
+
 /**
  * kStrAt's write on a UTF-8 string: the @p index-th code point becomes
  * @p cp (0 ends the string there), the bytes after it move, so the text

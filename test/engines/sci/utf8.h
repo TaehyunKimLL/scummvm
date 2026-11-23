@@ -354,4 +354,55 @@ public:
 		TS_ASSERT_EQUALS(a.text, "abc");
 		TS_ASSERT_EQUALS(a.limit, 4u);
 	}
+
+	// agy (round 2): the non-raw store must not write a NUL one byte past the terminator.
+	// The fake array is 2 bytes per slot like reg_t's low/high; the cells after the string are a sentinel.
+	struct FakeSink : public Sci::CharSink {
+		byte mem[16];
+		FakeSink() { memset(mem, 0xAA, sizeof(mem)); }
+		void set(uint i, char c) override { mem[i] = (byte)c; }
+	};
+
+	void test_storeString_keepsTheSentinelAfterTheTerminator() {
+		FakeSink s;
+		Sci::storeString(s, "abc", 0xFFFFFFFFU, 16, true);
+		TS_ASSERT_EQUALS(s.mem[0], 'a');
+		TS_ASSERT_EQUALS(s.mem[3], 0);
+		TS_ASSERT_EQUALS(s.mem[4], 0xAA); // untouched
+		FakeSink t; // the plan's finite limit text.size()+1 does the same
+		Sci::storeString(t, "abc", 4, 16, true);
+		TS_ASSERT_EQUALS(t.mem[3], 0);
+		TS_ASSERT_EQUALS(t.mem[4], 0xAA);
+	}
+
+	void test_storeString_exactFitEmptyAndFiniteLimits() {
+		FakeSink a; // 3 characters and the NUL in a 4 byte buffer
+		Sci::storeString(a, "abc", 0xFFFFFFFFU, 4, true);
+		TS_ASSERT_EQUALS(a.mem[3], 0);
+		TS_ASSERT_EQUALS(a.mem[4], 0xAA);
+		FakeSink e;
+		Sci::storeString(e, "", 0xFFFFFFFFU, 16, true);
+		TS_ASSERT_EQUALS(e.mem[0], 0);
+		TS_ASSERT_EQUALS(e.mem[1], 0xAA);
+		FakeSink shorter; // n shorter than the string: no terminator in the loop, the NUL goes at n
+		Sci::storeString(shorter, "abcdef", 3, 16, true);
+		TS_ASSERT_EQUALS(shorter.mem[2], 'c');
+		TS_ASSERT_EQUALS(shorter.mem[3], 0);
+		TS_ASSERT_EQUALS(shorter.mem[4], 0xAA);
+		FakeSink longer; // n longer than the string: stops at the terminator
+		Sci::storeString(longer, "ab", 10, 16, true);
+		TS_ASSERT_EQUALS(longer.mem[2], 0);
+		TS_ASSERT_EQUALS(longer.mem[3], 0xAA);
+		FakeSink bounded; // never past the array
+		Sci::storeString(bounded, "abcdef", 0xFFFFFFFFU, 3, true);
+		TS_ASSERT_EQUALS(bounded.mem[2], 'c');
+		TS_ASSERT_EQUALS(bounded.mem[3], 0xAA);
+	}
+
+	void test_storeString_upstreamBehaviourForOtherGames() {
+		FakeSink s; // upstream also writes the NUL at offset n after a terminated copy
+		Sci::storeString(s, "ab", 5, 16, false);
+		TS_ASSERT_EQUALS(s.mem[2], 0);
+		TS_ASSERT_EQUALS(s.mem[5], 0);
+	}
 };
