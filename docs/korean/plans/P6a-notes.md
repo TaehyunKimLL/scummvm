@@ -93,3 +93,11 @@ written into the log by the next commit.
   (`runs/a10-reload-new`): `State loaded`, no assertion. (c) plain 2026.4.0 (`build-plain`) loading (b)
   (`runs/a10-reload-plain`): `State loaded`, then `Assertion 'charOffs < 0x14000' failed` at the first Korean verb: **a Korean
   save of this engine cannot be read by upstream**; for the pack README (H11).
+- a10 sha 67bef0f0e53.
+
+### a11: `ko.trs` and the `ko/` folder
+- Detection accepts `korean.trs`, `ko.trs` and a `ko/` folder holding `ko.trs` or `korean.trs` (appendix A hunk 7 only added
+  `ko.trs`; the plan text asks for the folder too); the constructor adds the `ko` sub directory for `KO_KOR`.
+- Red (`runs/a11-red`): MM copy `~/work/tmp/p6/data/mmkodir` with `ko/ko.trs`: no `Loaded N entries`. Green (`runs/a11-green`):
+  `CP949 body converted to UTF-8, 50116 -> 58803 bytes`, `Loaded 1024 entries`; `scummvm --detect` on the folder reports
+  `Maniac Mansion (V2/DOS/Korean)`. 662 tests unchanged (no unit test of detection exists).

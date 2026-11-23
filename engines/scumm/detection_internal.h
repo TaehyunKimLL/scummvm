@@ -234,7 +234,10 @@ static Common::Language detectLanguage(const Common::FSList &fslist, byte id, co
 	if (id != GID_CMI && id != GID_DIG) {
 		// Detect Korean fan translated games
 		Common::FSNode langFile;
-		if (searchFSNode(fslist, "korean.trs", langFile)) {
+		Common::FSNode langDir;
+		if (searchFSNode(fslist, "korean.trs", langFile) || searchFSNode(fslist, "ko.trs", langFile) ||
+		    (searchFSNode(fslist, "ko", langDir) && langDir.isDirectory() &&
+		     (langDir.getChild("ko.trs").exists() || langDir.getChild("korean.trs").exists()))) {
 			debugC(0, kDebugGlobalDetection, "Korean fan translation detected");
 			return Common::KO_KOR;
 		}
