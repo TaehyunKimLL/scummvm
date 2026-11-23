@@ -706,6 +706,20 @@ Common::KeymapArray SciMetaEngine::initKeymaps(const char *target) const {
 	if ((ConfMan.hasKey("hangul_builtin", target) && Common::parseBool(ConfMan.get("hangul_builtin", target), value) && !value) ||
 	    (ConfMan.hasKey("korean_text", target) && Common::parseBool(ConfMan.get("korean_text", target), value) && !value))
 		return keymaps;
+	// hangul_input defaults to "the game has a Korean word table" (EventManager): without
+	// one (LSL1) and without the key set to true, the composer is off and the keys stay the game's.
+	if (!ConfMan.hasKey("hangul_input", target) || !Common::parseBool(ConfMan.get("hangul_input", target), value)) {
+		const Common::FSNode ko = Common::FSNode(ConfMan.getPath("path", target)).getChild("ko");
+		Common::FSList files;
+		bool hasTable = false;
+		if (ko.isDirectory() && ko.getChildren(files, Common::FSNode::kListFilesOnly))
+			for (uint i = 0; i < files.size() && !hasTable; ++i)
+				hasTable = files[i].getName().equalsIgnoreCase("sci-ko.dat");
+		if (!hasTable)
+			return keymaps;
+	} else if (!value) {
+		return keymaps;
+	}
 	Common::Keymap *keymap = new Common::Keymap(Common::Keymap::kKeymapTypeGame, "sci-korean", _("Korean input"));
 	Common::Action *act = new Common::Action("HANGULTOGGLE", _("Han/Yeong (Korean input on/off)"));
 	act->setCustomEngineActionEvent(kSciActionHangulToggle);

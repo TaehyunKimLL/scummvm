@@ -343,6 +343,9 @@ Common::String KoreanParser::englishLine(const ResultWordListList &words, const 
 // strings in the running game (scripts 199, 29 and 22); a phrase is its words
 // in order, so a line holding them all contains the phrase. The search itself
 // is script 2 (QFG2) and script 802 (QFG1), found with the call origin.
+// Not handled: script 199 also holds the phrases "Wizards Institute" and "Institute of Technocery";
+// the line holds their words, so a typed 마법사 연구소 reads "wizard institute", which does not contain
+// "wizards institute". Script 2's matching of them was not read; question #12 accepts the element words.
 static const char *const kAziza[] = {
 	"rakeesh", "omar", "keapon", "laffin", "wit", "wizards", "institute", "of", "technocery", "erasmus", "demon",
 	"wizard", "friend", "air", "earth", "fire", "water", "all", "rat", "fenrus", "mouse", "aziza", nullptr
@@ -351,6 +354,9 @@ static const char *const kGargoyle[] = {
 	"purple", "red", "pink", "hero", "wizard", "fenrus", "erasmus", "african", "european", "42", "forty", "two",
 	"forty-two", "yes", "maybe", "stefan", "erana", nullptr
 };
+// UNVERIFIED and probably inert: the room was never run, and the script searches the phrases
+// "hut of brown" / "now sit down" while the line is built in typed-token order, which an
+// English rhyme order will rarely match (an empty or partial line leaves the typed text as it is).
 static const char *const kHut[] = { "hut", "of", "brown", "now", "sit", "down", nullptr };
 
 static const KoreanAnswerRoom s_answerRooms[] = {
