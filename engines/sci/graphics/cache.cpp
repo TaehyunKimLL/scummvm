@@ -72,7 +72,7 @@ GfxFont *GfxCache::hiResFont(GfxFont *font, GuiResourceId fontId) {
 		return font;
 	// The map names the font resource drawn: lsl1sci's ids carry high bits
 	// that GfxFontFromResource drops (2107 is font 59), and so does this.
-	if (!_resMan->testResource(ResourceId(kResourceTypeFont, fontId)))
+	if (getSciVersion() < SCI_VERSION_2 && !_resMan->testResource(ResourceId(kResourceTypeFont, fontId)))
 		fontId &= 0x7ff;
 	debugC(1, kDebugLevelKorean, "Hi-res font set for font %d", fontId);
 	const Graphics::HiResFontSet *set = hires->getFontSet(fontId);
@@ -85,7 +85,7 @@ GfxFont *GfxCache::getFont(GuiResourceId fontId) {
 
 	if (!_cachedFonts.contains(fontId)) {
 		// Create special Korean font in korean games, when font 1001 is selected
-		if ((fontId == 1001) && (g_sci->getLanguage() == Common::KO_KOR))
+		if ((fontId == 1001) && (g_sci->getLanguage() == Common::KO_KOR) && !g_sci->getTextMode().utf8())
 			_cachedFonts[fontId] = new GfxFontKorean(_screen, fontId);
 		// Create special SJIS font in japanese games, when font 900 is selected
 		else if ((fontId == 900) && (g_sci->getLanguage() == Common::JA_JPN))
