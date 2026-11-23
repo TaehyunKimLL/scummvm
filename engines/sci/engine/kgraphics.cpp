@@ -35,6 +35,7 @@
 #include "sci/engine/guest_additions.h"
 #include "sci/engine/savegame.h"
 #include "sci/engine/state.h"
+#include "sci/utf8.h"
 #include "sci/engine/selector.h"
 #include "sci/engine/tts.h"
 #include "sci/engine/kernel.h"
@@ -942,10 +943,14 @@ void _k_GenericDrawControl(EngineState *s, reg_t controlObject, bool hilite) {
 		mode = readSelectorValue(s->_segMan, controlObject, SELECTOR(mode));
 		maxChars = readSelectorValue(s->_segMan, controlObject, SELECTOR(max));
 		cursorPos = readSelectorValue(s->_segMan, controlObject, SELECTOR(cursor));
-		if (cursorPos > (int)text.size()) {
-			// if cursor is outside of text, adjust accordingly
-			cursorPos = text.size();
-			writeSelectorValue(s->_segMan, controlObject, SELECTOR(cursor), cursorPos);
+		{
+			// the cursor counts code points in a UTF-8 game, bytes otherwise
+			const int textLength = g_sci->getTextMode().utf8() ? (int)utf8Length((const byte *)text.c_str()) : (int)text.size();
+			if (cursorPos > textLength) {
+				// if cursor is outside of text, adjust accordingly
+				cursorPos = textLength;
+				writeSelectorValue(s->_segMan, controlObject, SELECTOR(cursor), cursorPos);
+			}
 		}
 		debugC(kDebugLevelGraphics, "drawing edit control %04x:%04x (text %04x:%04x, '%s') to %d,%d", PRINT_REG(controlObject), PRINT_REG(textReference), text.c_str(), x, y);
 		g_sci->_gfxControls16->kernelDrawTextEdit(rect, controlObject, splitText.c_str(), languageSplitter, fontId, mode, style, cursorPos, maxChars, hilite);
