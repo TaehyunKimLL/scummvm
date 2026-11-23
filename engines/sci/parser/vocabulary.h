@@ -40,6 +40,8 @@ class Serializer;
 
 namespace Sci {
 
+struct KoreanAnswerRoom;
+
 class ResourceManager;
 
 /*#define VOCABULARY_DEBUG */
@@ -419,6 +421,10 @@ private:
 	ResultWordListList _koreanExtraTokens; ///< the further tokens of a sequence word
 	ResultWordListList _koreanFallback;    ///< the sentence without particle phrases, for said()
 	Common::String _answerTyped, _answerLine; ///< koreanAnswerLine()'s last answer
+	const KoreanAnswerRoom *_answerRoom;      ///< ... and the room it was for
+
+	/** tokenizeString(); @p arrange: put the Korean words in said() order (not for an answer). */
+	bool tokenize(ResultWordListList &retval, const char *sentence, char **error, bool arrange);
 	SynonymList _synonyms; /**< The list of synonyms */
 	Common::Array<Common::List<AltInput> > _altInputs;
 
@@ -444,7 +450,7 @@ public:
 	 * KoreanParser::englishLine() of the typed text @p typed; empty when a
 	 * word is unknown. The last answer is kept (StrAt asks once per letter).
 	 */
-	Common::String koreanAnswerLine(const Common::String &typed);
+	Common::String koreanAnswerLine(const Common::String &typed, const KoreanAnswerRoom &room);
 	ParseTreeNode _parserNodesFallback[VOCAB_TREE_NODES]; /**< The tree of _koreanFallback */
 	bool _koreanFallbackValid; /**< said() is tried on _parserNodesFallback too */
 };

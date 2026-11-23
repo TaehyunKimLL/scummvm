@@ -315,39 +315,50 @@ bool KoreanParser::arrangeTokens(const Common::Array<ResultWordList> &tok, const
 	return rolePhrases;
 }
 
-Common::String KoreanParser::englishLine(const ResultWordListList &words) const {
-	// Every English word of every group a token may be: a script that looks
-	// for one word ("stefan") must find it whichever synonym ("baron") or
-	// reading the Korean word maps to.
+Common::String KoreanParser::englishLine(const ResultWordListList &words, const char *const *searchWords) const {
+	// Only the words the room's script searches for, and only as whole
+	// words of a group the token may be: a substring search for "air" must
+	// not be satisfied by "airplane" (그리핀) or "hair".
 	Common::String line;
 	for (ResultWordListList::const_iterator t = words.begin(); t != words.end(); ++t) {
-		Common::Array<Common::String> found;
-		for (WordMap::const_iterator w = _words.begin(); w != _words.end(); ++w) {
+		for (const char *const *w = searchWords; *w; ++w) {
+			const WordMap::const_iterator it = _words.find(*w);
+			if (it == _words.end())
+				continue;
 			bool match = false;
-			for (ResultWordList::const_iterator r = w->_value.begin(); r != w->_value.end() && !match; ++r)
+			for (ResultWordList::const_iterator r = it->_value.begin(); r != it->_value.end() && !match; ++r)
 				for (ResultWordList::const_iterator a = t->begin(); a != t->end() && !match; ++a)
 					match = a->_group == r->_group;
-			if (match)
-				found.push_back(w->_key);
-		}
-		if (found.empty())
-			return Common::String();
-		Common::sort(found.begin(), found.end());
-		for (uint i = 0; i < found.size(); ++i) {
+			if (!match)
+				continue;
 			if (!line.empty())
 				line += ' ';
-			line += found[i];
+			line += *w;
 		}
 	}
 	return line;
 }
 
+// What each room's script searches for, lower case, as `scrs` lists its
+// strings in the running game (scripts 199, 29 and 22); a phrase is its words
+// in order, so a line holding them all contains the phrase. The search itself
+// is script 2 (QFG2) and script 802 (QFG1), found with the call origin.
+static const char *const kAziza[] = {
+	"rakeesh", "omar", "keapon", "laffin", "wit", "wizards", "institute", "of", "technocery", "erasmus", "demon",
+	"wizard", "friend", "air", "earth", "fire", "water", "all", "rat", "fenrus", "mouse", "aziza", nullptr
+};
+static const char *const kGargoyle[] = {
+	"purple", "red", "pink", "hero", "wizard", "fenrus", "erasmus", "african", "european", "42", "forty", "two",
+	"forty-two", "yes", "maybe", "stefan", "erana", nullptr
+};
+static const char *const kHut[] = { "hut", "of", "brown", "now", "sit", "down", nullptr };
+
 static const KoreanAnswerRoom s_answerRooms[] = {
-	// QFG1 EGA: script 802's search for the hut's rhyme and the gargoyle's answers (jamo e5295f1b411)
-	{ GID_QFG1, 22, "QFG1 Baba Yaga's hut" },
-	{ GID_QFG1, 29, "QFG1 the gargoyle at Erasmus's gate" },
-	// QFG2: script 2's search for Aziza's questions (jamo 40e65ff93ac)
-	{ GID_QFG2, 199, "QFG2 Aziza's door" }
+	// QFG1 EGA: the hut's rhyme and the gargoyle's answers (jamo e5295f1b411)
+	{ GID_QFG1, 22, 802, kHut, "QFG1 Baba Yaga's hut" },
+	{ GID_QFG1, 29, 802, kGargoyle, "QFG1 the gargoyle at Erasmus's gate" },
+	// QFG2: Aziza's questions (jamo 40e65ff93ac)
+	{ GID_QFG2, 199, 2, kAziza, "QFG2 Aziza's door" }
 };
 
 const KoreanAnswerRoom *koreanAnswerRoom(SciGameId game, int room) {

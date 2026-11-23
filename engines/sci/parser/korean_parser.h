@@ -79,12 +79,15 @@ public:
 	void askAbout(ResultWordListList &words) const;
 
 	/**
-	 * The parsed line in the game's own English words: for each token, every
-	 * English word of every group it may be, sorted, space separated; empty
-	 * when a token has none. For the scripts of koreanAnswerRoom(), which
-	 * search the typed line for a word instead of parsing it.
+	 * The parsed line as the words an answer room's script searches for:
+	 * for each token, those of @p searchWords (the room's list, a NULL
+	 * terminated array) that are WHOLE English words of one of the token's
+	 * groups, in the list's order, space separated. A token with none is
+	 * left out (an injected preposition, an unrelated word); a line with no
+	 * match at all is empty, and the typed text then stays as it is. Never
+	 * a substring or a synonym that merely contains a search word.
 	 */
-	Common::String englishLine(const ResultWordListList &words) const;
+	Common::String englishLine(const ResultWordListList &words, const char *const *searchWords) const;
 
 private:
 	bool arrangeTokens(const Common::Array<ResultWordList> &tok, const Common::Array<uint8> &role, int verb, uint verbTail,
@@ -98,13 +101,18 @@ private:
 /**
  * The per-game table (DESIGN.md section 6): a room whose script checks a
  * typed answer by searching the text itself (StrLen and StrAt over the edit
- * box) for English words, with no said(). There, to those two calls only, a
- * Korean answer reads as KoreanParser::englishLine() of it.
+ * box) for English words, with no said(). There, to those two calls only,
+ * and only when they are made by @c script, a Korean answer reads as the
+ * words of @c words that its tokens are (KoreanParser::englishLine()).
  */
 struct KoreanAnswerRoom {
 	SciGameId game;
-	int16 room;
-	const char *what; ///< for the debug log
+	uint16 room;
+	uint16 script;                   ///< the script whose search it is: other callers (save lists, edit controls) read the text as typed
+	const char *const *words;        ///< what that script searches for, lower case, NULL terminated
+	const char *what;                ///< for the debug log
+
+	bool appliesTo(int callingScript) const { return callingScript == script; }
 };
 
 /** The table's row for @p room of @p game; nullptr when there is none. */

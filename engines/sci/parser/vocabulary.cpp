@@ -33,6 +33,7 @@ namespace Sci {
 
 Vocabulary::Vocabulary(ResourceManager *resMan, bool foreign) : _resMan(resMan), _foreign(foreign) {
 	_parserRules = nullptr;
+	_answerRoom = nullptr;
 
 	memset(_parserNodes, 0, sizeof(_parserNodes));
 	// Mark parse tree as unused
@@ -757,24 +758,31 @@ bool Vocabulary::lookupKorean(ResultWordList &retval, const Common::String &word
 	return parser.lookup(word, retval, _koreanExtraTokens, _koreanRole) > 0;
 }
 
-Common::String Vocabulary::koreanAnswerLine(const Common::String &typed) {
-	if (typed == _answerTyped)
+Common::String Vocabulary::koreanAnswerLine(const Common::String &typed, const KoreanAnswerRoom &room) {
+	if (&room == _answerRoom && typed == _answerTyped)
 		return _answerLine;
+	_answerRoom = &room;
 	_answerTyped = typed;
 	_answerLine.clear();
-	// tokenizeString() replaces the fallback tree of the last parsed sentence: keep it.
+	// tokenize() replaces the fallback tree of the last parsed sentence: keep it.
 	const ResultWordListList fallback = _koreanFallback;
 	ResultWordListList words;
 	char *error = nullptr;
-	if (tokenizeString(words, typed.c_str(), &error) && !error)
-		_answerLine = KoreanParser(_parserWords, _koreanVocab, kDebugLevelKorean).englishLine(words);
+	// No arrangement: it moves verbs and injects prepositions, and the script
+	// searches the words as typed.
+	if (tokenize(words, typed.c_str(), &error, false) && !error)
+		_answerLine = KoreanParser(_parserWords, _koreanVocab, kDebugLevelKorean).englishLine(words, room.words);
 	free(error);
 	_koreanFallback = fallback;
-	debugC(1, kDebugLevelKorean, "answer \"%s\" reads as \"%s\"", typed.c_str(), _answerLine.c_str());
+	debugC(1, kDebugLevelKorean, "answer \"%s\" reads as \"%s\" (%s)", typed.c_str(), _answerLine.c_str(), room.what);
 	return _answerLine;
 }
 
 bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence, char **error) {
+	return tokenize(retval, sentence, error, true);
+}
+
+bool Vocabulary::tokenize(ResultWordListList &retval, const char *sentence, char **error, bool arrange) {
 	char currentWord[VOCAB_MAX_WORDLENGTH] = "";
 	int pos_in_sentence = 0;
 	unsigned char c;
@@ -844,7 +852,7 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 	} while (c); // Until terminator is hit
 
 	// Korean word order to the order of the said() specs.
-	if (KoreanParser::shouldArrange(korean, sawKorean) && !retval.empty())
+	if (arrange && KoreanParser::shouldArrange(korean, sawKorean) && !retval.empty())
 		KoreanParser(_parserWords, _koreanVocab, kDebugLevelKorean).arrange(retval, roles, _koreanFallback);
 
 	return true;

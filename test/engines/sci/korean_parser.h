@@ -14,7 +14,7 @@ using Sci::WordMap;
 class SciKoreanParserTestSuite : public CxxTest::TestSuite {
 	enum { kVerb = 0x800, kNoun = 0x100, kPrep = 0x010 };
 	enum { gOpen = 0x10, gDoor = 0x20, gGive = 0x30, gBowl = 0x40, gWoodcutter = 0x50, gTo = 0x60, gIn = 0x61,
-	       gLook = 0x70, gAsk = 0x80, gAbout = 0x90, gTree = 0xA0, gHole = 0xA1, gThe = 0xB0, gInside = 0xB1 };
+	       gLook = 0x70, gAsk = 0x80, gAbout = 0x90, gTree = 0xA0, gHole = 0xA1, gThe = 0xB0, gInside = 0xB1, gGriffin = 0xC0, gAir = 0xC1 };
 	enum { kArticle = 0x020 };
 
 	WordMap _words;
@@ -149,24 +149,76 @@ public:
 		TS_ASSERT(w.empty());
 	}
 
-	void test_englishLineListsEveryWordOfEachGroup() {
+	// The words an answer room searches for, as whole words of a token's groups.
+	void test_englishLineEmitsOnlySearchWords() {
 		Sci::KoreanParser p(_words, _vocab);
 		add("portal", kNoun, gDoor); // a synonym in the same group
+		static const char *const search[] = { "door", "open", nullptr };
 		static const char *const typed[] = { "\xEB\xAC\xB8\xEC\x9D\x84", "\xEC\x97\xB4\xEC\x96\xB4", nullptr }; // 문을 열어
 		ResultWordListList words;
 		Common::Array<uint8> roles;
 		tokens(p, typed, words, roles);
-		TS_ASSERT_EQUALS(p.englishLine(words), "door portal open");
+		TS_ASSERT_EQUALS(p.englishLine(words, search), "door open"); // not "portal", in the list's order
 	}
 
-	void test_englishLineIsEmptyForATokenWithNoWord() {
+	void test_englishLineIsEmptyWithoutASearchWord() {
 		Sci::KoreanParser p(_words, _vocab);
 		ResultWordListList words;
 		ResultWordList none;
 		ResultWord r = { kNoun, 0x7FF };
 		none.push_back(r);
 		words.push_back(none);
-		TS_ASSERT_EQUALS(p.englishLine(words), "");
+		static const char *const search[] = { "door", nullptr };
+		TS_ASSERT_EQUALS(p.englishLine(words, search), "");
+	}
+
+	// agy P4 #3 / Opus M2: a word whose English synonym merely contains the search word does not pass.
+	void test_englishLineIsNotASubstringSearch() {
+		Sci::KoreanParser p(_words, _vocab);
+		add("airplane", kNoun, gGriffin);
+		add("griffin", kNoun, gGriffin);
+		add("air", kNoun, gAir);
+		static const KoreanVocabFixture::Row rows[] = {
+			{ "\xEA\xB7\xB8\xEB\xA6\xAC\xED\x95\x80", gGriffin, kNoun }, // 그리핀
+			{ "\xEA\xB3\xB5\xEA\xB8\xB0", gAir, kNoun },                    // 공기
+			{ "\xEB\xAC\xB8", gDoor, kNoun },
+		};
+		_table = KoreanVocabFixture::build("SCIKOR", rows, ARRAYSIZE(rows));
+		Common::MemoryReadStream st(_table.data(), _table.size());
+		Common::KoreanVocabulary v;
+		TS_ASSERT(v.loadFromStream(st, "SCIKOR", "fixture"));
+		Sci::KoreanParser q(_words, v);
+		static const char *const search[] = { "air", nullptr };
+		{
+			static const char *const typed[] = { "\xEA\xB7\xB8\xEB\xA6\xAC\xED\x95\x80", nullptr }; // 그리핀
+			ResultWordListList words;
+			Common::Array<uint8> roles;
+			tokens(q, typed, words, roles);
+			TS_ASSERT_EQUALS(q.englishLine(words, search), "");
+		}
+		{
+			static const char *const typed[] = { "\xEA\xB3\xB5\xEA\xB8\xB0", nullptr }; // 공기
+			ResultWordListList words;
+			Common::Array<uint8> roles;
+			tokens(q, typed, words, roles);
+			TS_ASSERT_EQUALS(q.englishLine(words, search), "air");
+		}
+		{
+			// a case particle on the answer: the token still reads as its word (공기로), the preposition is not an answer word
+			static const char *const typed[] = { "\xEA\xB3\xB5\xEA\xB8\xB0\xEB\xA1\x9C", nullptr };
+			ResultWordListList words;
+			Common::Array<uint8> roles;
+			tokens(q, typed, words, roles);
+			TS_ASSERT_EQUALS(q.englishLine(words, search), "air");
+		}
+		{
+			// 문에: a word that is not an answer word reads as nothing, the typed text stays
+			static const char *const typed[] = { "\xEB\xAC\xB8\xEC\x97\x90", nullptr };
+			ResultWordListList words;
+			Common::Array<uint8> roles;
+			tokens(q, typed, words, roles);
+			TS_ASSERT_EQUALS(q.englishLine(words, search), "");
+		}
 	}
 
 	void test_answerRoomTable() {
@@ -176,6 +228,17 @@ public:
 		TS_ASSERT(!Sci::koreanAnswerRoom(Sci::GID_QFG1VGA, 29));
 		TS_ASSERT(!Sci::koreanAnswerRoom(Sci::GID_QFG2, 198));
 		TS_ASSERT(!Sci::koreanAnswerRoom(Sci::GID_KQ1, 199));
+	}
+
+	// agy P4 #2: only the room's search script gets the view; a save list (SRDialog)
+	// or an edit control of the same room reads what was typed.
+	void test_answerViewOnlyForTheSearchScript() {
+		const Sci::KoreanAnswerRoom *aziza = Sci::koreanAnswerRoom(Sci::GID_QFG2, 199);
+		TS_ASSERT(aziza->appliesTo(aziza->script));
+		TS_ASSERT(!aziza->appliesTo(255));  // DEdit / Dialog
+		TS_ASSERT(!aziza->appliesTo(199));  // the room script itself
+		TS_ASSERT(aziza->words[0] != nullptr);
+		TS_ASSERT_EQUALS(sizeof(aziza->room), 2u);
 	}
 
 	// agy 3: an article that carries a case particle (그에게) is not part of the next noun's unit.

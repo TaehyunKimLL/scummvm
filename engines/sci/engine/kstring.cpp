@@ -156,9 +156,14 @@ static byte strAtByte(SegmentRef &dest_r, uint16 offset, bool write, byte newval
 }
 
 // A room of the per-game table (koreanAnswerRoom()): the typed Korean answer
-// as the game's own English words, for StrLen and StrAt reads only.
+// as the words the room's script searches for, for StrLen and StrAt reads made
+// by that script only (a save list or an edit control of the same room reads
+// the text as typed).
 static bool koreanAnswerView(EngineState *s, reg_t str, Common::String &out) {
-	if (!g_sci->getTextMode().utf8() || !g_sci->hasParser() || !koreanAnswerRoom(g_sci->getGameId(), s->currentRoomNumber()))
+	if (!g_sci->getTextMode().utf8() || !g_sci->hasParser())
+		return false;
+	const KoreanAnswerRoom *row = koreanAnswerRoom(g_sci->getGameId(), s->currentRoomNumber());
+	if (!row)
 		return false;
 	const Common::String typed = s->_segMan->getString(str);
 	bool ascii = true;
@@ -166,7 +171,12 @@ static bool koreanAnswerView(EngineState *s, reg_t str, Common::String &out) {
 		ascii = (byte)typed[i] < 0x80;
 	if (ascii)
 		return false;
-	out = g_sci->getVocabulary()->koreanAnswerLine(typed);
+	const int caller = s->getCurrentCallOrigin().scriptNr;
+	if (!row->appliesTo(caller)) {
+		debugC(1, kDebugLevelKorean, "answer view of \"%s\" not used: read by script %d, the search is script %d", typed.c_str(), caller, row->script);
+		return false;
+	}
+	out = g_sci->getVocabulary()->koreanAnswerLine(typed, *row);
 	return !out.empty();
 }
 
