@@ -36,8 +36,18 @@ class SciKoreanPacksTestSuite : public CxxTest::TestSuite {
 		return h;
 	}
 
+	// A folder or file of @p dir by name, whatever its case (a pack unzipped on a case-sensitive file system).
+	static Common::FSNode child(const Common::FSNode &dir, const char *name) {
+		Common::FSList list;
+		dir.getChildren(list, Common::FSNode::kListAll);
+		for (uint i = 0; i < list.size(); ++i)
+			if (list[i].getName().equalsIgnoreCase(name))
+				return list[i];
+		return dir.getChild(name);
+	}
+
 	static void check(const Common::FSNode &ko, const Pack &p) {
-		Common::ScopedPtr<Common::SeekableReadStream> str(ko.getChild("sci-ko.str").createReadStream());
+		Common::ScopedPtr<Common::SeekableReadStream> str(child(ko, "sci-ko.str").createReadStream());
 		TSM_ASSERT(p.folder, str);
 		if (str) {
 			Sci::ScriptStrings t;
@@ -47,7 +57,7 @@ class SciKoreanPacksTestSuite : public CxxTest::TestSuite {
 		}
 		if (!p.vocab)
 			return;
-		Common::ScopedPtr<Common::SeekableReadStream> dat(ko.getChild("sci-ko.dat").createReadStream());
+		Common::ScopedPtr<Common::SeekableReadStream> dat(child(ko, "sci-ko.dat").createReadStream());
 		TSM_ASSERT(p.folder, dat);
 		if (dat) {
 			Common::KoreanVocabulary v;
@@ -82,9 +92,11 @@ public:
 		}
 		uint seen = 0;
 		for (uint i = 0; i < ARRAYSIZE(packs); ++i) {
-			const Common::FSNode ko = dir.getChild(packs[i].folder).getChild("ko");
-			if (!ko.isDirectory())
+			const Common::FSNode ko = child(child(dir, packs[i].folder), "ko");
+			if (!ko.isDirectory()) {
+				TS_WARN((Common::String("korean-packs/ has no ") + packs[i].folder + "/ko: that pack is not checked").c_str());
 				continue;
+			}
 			check(ko, packs[i]);
 			++seen;
 		}
