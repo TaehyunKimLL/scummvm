@@ -103,3 +103,27 @@ has no name, so the door's `%s` prints empty (`내 집에 자유로이 들어오
 - **b3 step 3** `grep -c 'cut to\|grown from\|longer than'` over all QFG2 runs: 0.
 - **b4** k16said: pending `ko/07-debugsocket` (`k16said.py --game qfg2` target pass >= 1654 of 1876).
 - Checkpoint B: the answer-room design held: b2 passed with no engine change beyond P4a. No stop needed.
+
+## P4c: QFG1 EGA (scratch data `datah/qfg1ega`, runs `~/work/tmp/p4/c*`)
+
+New driver for interactive runs: `~/work/tmp/p4/sess.sh RUNDIR start|do|shot|stop` (one long Xvfb + scummvm session, scratch only).
+
+- **c1** suite row `QFG1EGA` OK. First screen (piracy notice, five lines + closing, Hangul legible) clut8 sha256 `efcae51666868590...`, rgb565
+  `fb58e2ba227d88f4...`; the frames differ only inside one cursor-sized rectangle (300,200)-(352,232) (cursor position), the text is identical.
+- **c2 hero**: character creation viewed in Korean (`CHOOSE YOUR CHARACTER` is a picture; the stats sheet `이름: 힘 지능 민첩 체력 운 ... 게임 시작 취소`
+  is Korean; name `한영웅` typed with the composer, status line `영웅이 되고 싶다고? [점수 1 / 500]`, first narration `모험에 행운을 빌지, 한영웅.`).
+- **c2 gargoyle (room 29)**: teleport with `vmvars g 13 29` (as the memory note says; the plan's `send ?HQ newRoom 29` breaks), then the arrival texts
+  (`완전 무장을 하고 마터호른을 오른 기분이다.`, `입구 위에는 못생긴 가고일이 있다.`), the typed command `가고일에게 말해` (`rkrhdlfdprp akfgo`),
+  the gargoyle's `마법사를 만나려는 자는 먼저 세 가지 질문에 답해야 한다.` and his first question `이름이 무엇이냐?` (text 29 #33) with an edit box. The hero's name
+  answer is accepted; the log shows the view consulted in room 29: `answer "한영웅" reads as ""` (unknown words: read as typed, as designed) and,
+  for `에라스무스` (the plan's key `dpfktmanta` is a typo: it composes `에라스뭇ㅁ`; correct `dpfktmantm`): **`answer "에라스무스" reads as "erasmus wizard"`**.
+  The gargoyle then threw the hero off the gate (wrong answer for the question being asked, which the headless run could not read: after the first question
+  the later question texts never showed on a screenshot taken every second). So the row for room 29 is **proved needed** (the script reads the box with
+  StrLen/StrAt and the view feeds it the English words) but **a full pass of the three questions in Korean is UNVERIFIED** (questions are drawn from text 29 #33-#43;
+  the log lines for the questions that came up are above). The P3-binary red was not run.
+- **c2 hut (room 22)**: not run (needs the walk to Baba Yaga's hut and the rhyme); row stays UNVERIFIED per plan section 0.6 item 1.
+- **c2 step 3** save: `F5` -> `이 저장 게임의 설명을 입력하십시오.` with `저장` `취소` `디렉터리 변경`, typed `ans` (문) + Return, `F7` `불러올 게임을 선택하십시오.` lists `문`
+  (the `Restore` button stays English: not a script string). A typed `ansdmf qhk` in the gate room opened the game's credits window (`하이로즈 퀘스트 I 제작진`, the
+  game's own Korean menu text) rather than a look reply; the parser path itself was proved on QFG2 and KQ4/LB1 runs. `grep -c 'cut to\|grown from\|longer than'` over all
+  c-runs: 0.
+- **c2 step 4** k16said: pending `ko/07-debugsocket` (target >= 855 of 956).
