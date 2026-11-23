@@ -181,8 +181,8 @@ def aa_faces(tmp):
 		key.update(open(path, "rb").read())
 	key.update(commit().encode())
 	key.update(gen_aa_faces.versions().encode())
-	key.update(subprocess.run(["git", "-C", SVF, "status", "--porcelain", "--", "tools", "ttf"], check=True, capture_output=True,
-	                          text=True).stdout.encode())
+	for args in (["status", "--porcelain", "--", "tools", "ttf"], ["diff", "HEAD", "--", "tools", "ttf"]):	# state and content
+		key.update(subprocess.run(["git", "-C", SVF] + args, check=True, capture_output=True, text=True).stdout.encode())
 	parent = os.environ.get("TMPDIR", tempfile.gettempdir())
 	cache = os.path.join(parent, "svf-aa-faces-" + key.hexdigest()[:16])
 	if not all(os.path.isfile(os.path.join(cache, n + ".SVF")) for n in AA_NAMES):
@@ -191,9 +191,12 @@ def aa_faces(tmp):
 			shutil.rmtree(part, ignore_errors=True)
 			sys.exit("mkgolden: gen_aa_faces.py failed")
 		try:
-			os.rename(part, cache)	# atomic; another run may have been first, its faces are the same
+			os.rename(part, cache)	# atomic
 		except OSError:
+			# another run was first (its faces are the same) or a broken cache is in the way: keep the directory only if it is whole
 			shutil.rmtree(part, ignore_errors=True)
+			if not all(os.path.isfile(os.path.join(cache, n + ".SVF")) for n in AA_NAMES):
+				sys.exit("mkgolden: %s exists but lacks faces: remove it and run again" % cache)
 	return {n: os.path.join(cache, n + ".SVF") for n in AA_NAMES}
 
 

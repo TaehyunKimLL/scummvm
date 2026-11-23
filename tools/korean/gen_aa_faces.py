@@ -38,6 +38,9 @@ UNICODE8 = "0020,0031-0033,0041-0045,0061-0065,AC00,B098,D55C,AE00"	# few glyphs
 SIZES = {"NG16P": (BOLD, 16, 16, 16, None, 2), "NG18P": (BOLD, 18, 18, 18, 16, 2), "NG16P8": (BOLD, 16, 16, 16, None, 8)}
 
 
+KNOWN = tuple(SIZES) + ("NG16L", "NG16JA", "NG16J1")
+
+
 def unicode_arg(chars):
 	return "0020-007E,00B7," + ",".join("%04X" % ord(c) for c in sorted(set(chars)))
 
@@ -109,6 +112,10 @@ def main():
 	only = None
 	if len(sys.argv) == 4 and sys.argv[2] == "--only":
 		only = sys.argv[3].split(",")
+		unknown = [n for n in only if n not in KNOWN]
+		if unknown:
+			print("gen_aa_faces: unknown face %s (known: %s)" % (", ".join(unknown), ", ".join(KNOWN)), file=sys.stderr)
+			return 2
 	elif len(sys.argv) != 2:
 		print(__doc__.split("\n\n")[0], file=sys.stderr)
 		return 2
