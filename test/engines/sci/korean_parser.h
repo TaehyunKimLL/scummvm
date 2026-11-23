@@ -203,4 +203,22 @@ public:
 		TS_ASSERT_EQUALS(groups(words).substr(0, 2), "30");
 		TS_ASSERT(words.size() >= 3);
 	}
+
+	// agy 1: a game without a Korean table is never rearranged. "lege schluessel auf tisch" (put key on table)
+	// is verb noun preposition noun: arrange() would turn it around, so the tokenizer must not call it.
+	void test_nonKoreanSentenceIsNotArranged() {
+		TS_ASSERT(!Sci::KoreanParser::shouldArrange(false, true));
+		TS_ASSERT(!Sci::KoreanParser::shouldArrange(false, false));
+		TS_ASSERT(!Sci::KoreanParser::shouldArrange(true, false));
+		TS_ASSERT(Sci::KoreanParser::shouldArrange(true, true));
+		// What arrange() would have done to the German line (verb last? no: key/table are nouns, "auf" a preposition).
+		Sci::KoreanParser p(_words, _vocab);
+		ResultWordListList words, fallback;
+		Common::Array<uint8> roles;
+		static const char *const typed[] = { "\xEB\xAC\xB8", "\xEC\x95\x88", "\xEB\xAC\xB8", "\xEC\x97\xB4\xEC\x96\xB4", nullptr };
+		tokens(p, typed, words, roles);
+		const Common::String before = groups(words);
+		p.arrange(words, roles, fallback);
+		TS_ASSERT(groups(words) != before); // arrange() does reorder: hence the gate
+	}
 };

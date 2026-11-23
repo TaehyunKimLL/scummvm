@@ -825,8 +825,10 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 
 				// Copy into list
 				retval.push_back(lookup_result);
+				// Only a game with a Korean table has Korean words: bytes >= 0x80
+				// are German umlauts or CP866 letters in the other parser games.
 				bool koreanWord = false;
-				for (int k = 0; k < wordLen && !koreanWord; ++k)
+				for (int k = 0; k < wordLen && !koreanWord && korean; ++k)
 					koreanWord = (byte)currentWord[k] >= 0x80;
 				sawKorean = sawKorean || koreanWord;
 				roles.push_back(koreanWord ? _koreanRole : (uint8)Common::kKoreanRoleNone);
@@ -842,7 +844,7 @@ bool Vocabulary::tokenizeString(ResultWordListList &retval, const char *sentence
 	} while (c); // Until terminator is hit
 
 	// Korean word order to the order of the said() specs.
-	if (sawKorean && !retval.empty())
+	if (KoreanParser::shouldArrange(korean, sawKorean) && !retval.empty())
 		KoreanParser(_parserWords, _koreanVocab, kDebugLevelKorean).arrange(retval, roles, _koreanFallback);
 
 	return true;

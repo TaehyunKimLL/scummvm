@@ -46,6 +46,13 @@ public:
 	enum { kMaxMeanings = 8 };
 
 	/**
+	 * Whether a tokenized sentence is put into English order: only with a
+	 * Korean word table, and only when a Korean word was typed. Any other
+	 * parser game (German umlauts, Russian CP866) keeps its typed order.
+	 */
+	static bool shouldArrange(bool koreanTableLoaded, bool sawKoreanWord) { return koreanTableLoaded && sawKoreanWord; }
+
+	/**
 	 * The table's (class, group) pairs for one typed word: into @p retval,
 	 * and for a sequence word (들여다봐: look, in) its further pairs as one
 	 * token each into @p extra. @p role: the particle the word lost.
