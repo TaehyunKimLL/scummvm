@@ -487,7 +487,7 @@ void Script::identifyOffsets() {
 		// a NUL pair loses its first two ids. A translation's keys
 		// (ScriptStrings) count them, so a UTF-8 game starts where they start.
 		if (getSciVersion() == SCI_VERSION_1_1 && g_sci && g_sci->getTextMode().utf8())
-			scriptDataPtr = _heap.subspan(ScriptStrings::sci11StringsStart(_heap.getUnsafeDataAt(0, _heap.size()), _heap.size()));
+			scriptDataPtr = _heap.subspan(ScriptStrings::sci11StringsStart(_heap.getUnsafeDataAt(0, _heap.size()), _heap.size(), g_sci->isBE()));
 
 		// now scriptDataPtr points to right at the start of the strings
 		if (scriptDataPtr > endOfStringPtr)

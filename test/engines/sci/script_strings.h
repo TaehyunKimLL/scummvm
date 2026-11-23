@@ -86,5 +86,10 @@ public:
 		// header (4), one instance: magic 0x1234, 3 properties -> strings at 4 + 2*0 + 6.
 		const byte heap[] = { 0, 0, 0, 0, 0x34, 0x12, 3, 0, 0, 0, 0, 0, 'h', 'i', 0 };
 		TS_ASSERT_EQUALS(Sci::ScriptStrings::sci11StringsStart(heap, sizeof(heap)), 10u);
+		// the same heap with big-endian words (Mac)
+		const byte be[] = { 0, 0, 0, 0, 0x12, 0x34, 0, 3, 0, 0, 0, 0, 'h', 'i', 0 };
+		TS_ASSERT_EQUALS(Sci::ScriptStrings::sci11StringsStart(be, sizeof(be), true), 10u);
+		// read as little-endian it finds no magic and starts at the first instance
+		TS_ASSERT_EQUALS(Sci::ScriptStrings::sci11StringsStart(be, sizeof(be), false), 4u);
 	}
 };

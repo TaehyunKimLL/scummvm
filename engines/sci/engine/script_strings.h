@@ -201,8 +201,9 @@ public:
 	 * the object instances. String id 1 starts here even when it is empty,
 	 * which is how the extractor (tools/korean/sci11_kr_extract.py) counts.
 	 * @p size bounds every read; a truncated heap yields @p size.
+	 * @p bigEndian: the heap's words are big-endian (a Mac script).
 	 */
-	static uint sci11StringsStart(const byte *heap, uint size);
+	static uint sci11StringsStart(const byte *heap, uint size, bool bigEndian = false);
 
 private:
 	/// lookup() for one place, never a buffer key.
