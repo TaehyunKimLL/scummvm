@@ -114,4 +114,17 @@ public:
 		TS_ASSERT_EQUALS(Sci::KoreanEditLine::osImeCodeOf(true, ' '), 0u);          // Space below Latin-1
 		TS_ASSERT_EQUALS(Sci::KoreanEditLine::osImeCodeOf(true, 0xFF), 0u);
 	}
+
+	// Alt+S is ScummVM's screenshot: an Alt-modified key is not text, in either input mode.
+	void test_altKeyIsIgnored() {
+		Sci::KoreanEditLine line;
+		Common::String text;
+		uint cursor = 0;
+		TS_ASSERT_EQUALS(line.key('s', false, true, 0, text, cursor, 20, true), Sci::KoreanEditLine::kIgnored);
+		TS_ASSERT_EQUALS(text, "");
+		TS_ASSERT_EQUALS(line.key('s', false, false, 0, text, cursor, 20, true), Sci::KoreanEditLine::kIgnored);
+		TS_ASSERT_EQUALS(text, "");
+		TS_ASSERT_EQUALS(line.key('s', false, true, 0, text, cursor, 20, false), Sci::KoreanEditLine::kChanged);
+		TS_ASSERT_EQUALS(text, "\xE3\x84\xB4"); // ㄴ without Alt
+	}
 };

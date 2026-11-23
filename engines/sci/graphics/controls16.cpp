@@ -192,7 +192,7 @@ void GfxControls16::texteditChangeUtf8(reg_t controlObject, reg_t eventObject) {
 		const uint16 key = readSelectorValue(_segMan, eventObject, SELECTOR(message));
 		const uint16 modifiers = readSelectorValue(_segMan, eventObject, SELECTOR(modifiers));
 		changed = _koreanLine.key(key, (modifiers & kSciKeyModCtrl) != 0, events->hangulMode(), events->lastOsImeKey(), text,
-		                          cursor, maxChars) == KoreanEditLine::kChanged || changed;
+		                          cursor, maxChars, (modifiers & kSciKeyModAlt) != 0) == KoreanEditLine::kChanged || changed;
 	}
 
 	if (changed) {

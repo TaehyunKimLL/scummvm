@@ -78,9 +78,12 @@ public:
 
 	/**
 	 * One key. @p ctrl: Control held. @p osImeCp: the syllable behind a
-	 * surrogate key (0 for none). @p maxBytes: the field's room.
+	 * surrogate key (0 for none). @p maxBytes: the field's room. @p alt:
+	 * Alt held: the key is the game's or ScummVM's shortcut (Alt+S is the
+	 * screenshot), not text, and is ignored.
 	 */
-	Result key(uint16 key, bool ctrl, bool hangulMode, uint32 osImeCp, Common::String &text, uint &cursor, uint maxBytes);
+	Result key(uint16 key, bool ctrl, bool hangulMode, uint32 osImeCp, Common::String &text, uint &cursor, uint maxBytes,
+	           bool alt = false);
 
 	/** Undoes the last key that returned kChanged (the field could not show it). */
 	void undo(Common::String &text, uint &cursor);

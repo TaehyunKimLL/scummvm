@@ -98,7 +98,9 @@ bool KoreanEditLine::adopt(Common::String &text, uint &cursor, bool hangulMode, 
 }
 
 KoreanEditLine::Result KoreanEditLine::key(uint16 key, bool ctrl, bool hangulMode, uint32 osImeCp,
-                                            Common::String &text, uint &cursor, uint maxBytes) {
+                                            Common::String &text, uint &cursor, uint maxBytes, bool alt) {
+	if (alt)
+		return kIgnored;
 	snapshot(text, cursor);
 	if (cursor > text.size())
 		cursor = text.size();
