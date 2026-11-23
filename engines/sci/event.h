@@ -146,6 +146,13 @@ struct SciEvent {
 	 */
 	int16 hotRectangleIndex;
 #endif
+
+	/**
+	 * For a key-down: the OS-IME syllable behind a surrogate key (see
+	 * KoreanEditLine::kOsImeSurrogateKey), else 0. It travels with the
+	 * event so it is the one the script is handed, not the last one drained.
+	 */
+	uint32 osImeChar;
 };
 
 class EventManager {
@@ -159,7 +166,7 @@ public:
 
 	/** The built-in Hangul composer is on (Han/Yeong toggles it; DESIGN.md section 6). */
 	bool hangulMode() const { return _hangulMode; }
-	/** The OS-IME syllable behind the last surrogate key a script got, or 0. */
+	/** The OS-IME syllable behind the last key-down handed to a script, or 0. */
 	uint32 lastOsImeKey() const { return _lastOsImeKey; }
 
 private:

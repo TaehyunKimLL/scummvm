@@ -53,6 +53,12 @@ public:
 	/** The key the event manager gives a script for an OS-IME syllable (SCI0 opens the prompt only on ASCII). */
 	enum { kOsImeSurrogateKey = 'x' };
 
+	/**
+	 * The OS-IME syllable a key-down carries: the backend gives one as a
+	 * key with no key code and a character above Latin-1; 0 for any other key.
+	 */
+	static uint32 osImeCodeOf(bool noKeyCode, uint32 ascii) { return noKeyCode && ascii >= 0x100 ? ascii : 0; }
+
 	enum Result {
 		kIgnored, ///< not a key of the line
 		kChanged, ///< text or cursor changed

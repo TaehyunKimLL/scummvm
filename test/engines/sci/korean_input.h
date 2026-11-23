@@ -106,4 +106,12 @@ public:
 		line.key('s', false, true, 0, text, cursor, 40);
 		TS_ASSERT_EQUALS(text, "\xEB\xAC\xB8");
 	}
+
+	// agy 8: the OS-IME syllable belongs to the key-down it came with.
+	void test_osImeCodeOf() {
+		TS_ASSERT_EQUALS(Sci::KoreanEditLine::osImeCodeOf(true, 0xBB38), 0xBB38u);  // 문 with no key code
+		TS_ASSERT_EQUALS(Sci::KoreanEditLine::osImeCodeOf(false, 0xBB38), 0u);      // a real key
+		TS_ASSERT_EQUALS(Sci::KoreanEditLine::osImeCodeOf(true, ' '), 0u);          // Space below Latin-1
+		TS_ASSERT_EQUALS(Sci::KoreanEditLine::osImeCodeOf(true, 0xFF), 0u);
+	}
 };

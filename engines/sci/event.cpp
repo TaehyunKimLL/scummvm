@@ -205,11 +205,11 @@ static int altify(char ch) {
 
 SciEvent EventManager::getScummVMEvent() {
 #ifdef ENABLE_SCI32
-	SciEvent input   = { kSciEventNone, kSciKeyModNone, 0, Common::Point(), Common::Point(), -1 };
-	SciEvent noEvent = { kSciEventNone, kSciKeyModNone, 0, Common::Point(), Common::Point(), -1 };
+	SciEvent input   = { kSciEventNone, kSciKeyModNone, 0, Common::Point(), Common::Point(), -1, 0 };
+	SciEvent noEvent = { kSciEventNone, kSciKeyModNone, 0, Common::Point(), Common::Point(), -1, 0 };
 #else
-	SciEvent input   = { kSciEventNone, kSciKeyModNone, 0, Common::Point() };
-	SciEvent noEvent = { kSciEventNone, kSciKeyModNone, 0, Common::Point() };
+	SciEvent input   = { kSciEventNone, kSciKeyModNone, 0, Common::Point(), 0 };
+	SciEvent noEvent = { kSciEventNone, kSciKeyModNone, 0, Common::Point(), 0 };
 #endif
 
 	Common::EventManager *em = g_system->getEventManager();
@@ -344,8 +344,8 @@ SciEvent EventManager::getScummVMEvent() {
 		// An OS input method's syllable: SCI0 scripts open the parser prompt
 		// only on printable ASCII, so the script gets a surrogate and the
 		// edit control puts the syllable in (memory korean-input-path).
-		_lastOsImeKey = (ev.kbd.keycode == Common::KEYCODE_INVALID && ev.kbd.ascii >= 0x100) ? ev.kbd.ascii : 0;
-		if (_lastOsImeKey)
+		input.osImeChar = KoreanEditLine::osImeCodeOf(ev.kbd.keycode == Common::KEYCODE_INVALID, ev.kbd.ascii);
+		if (input.osImeChar)
 			input.character = KoreanEditLine::kOsImeSurrogateKey;
 	}
 
@@ -478,9 +478,9 @@ void EventManager::updateScreen() {
 
 SciEvent EventManager::getSciEvent(SciEventType mask) {
 #ifdef ENABLE_SCI32
-	SciEvent event = { kSciEventNone, kSciKeyModNone, 0, Common::Point(), Common::Point(), -1 };
+	SciEvent event = { kSciEventNone, kSciKeyModNone, 0, Common::Point(), Common::Point(), -1, 0 };
 #else
-	SciEvent event = { kSciEventNone, kSciKeyModNone, 0, Common::Point() };
+	SciEvent event = { kSciEventNone, kSciKeyModNone, 0, Common::Point(), 0 };
 #endif
 
 	if (getSciVersion() < SCI_VERSION_2) {
@@ -503,9 +503,14 @@ SciEvent EventManager::getSciEvent(SciEventType mask) {
 		// Event found
 		event = *iter;
 
-		// If not peeking at the queue, remove the event
-		if (!(mask & kSciEventPeek))
+		// If not peeking at the queue, remove the event; the syllable of an
+		// OS-IME key is the one of the key the script gets, not of the last
+		// key that was drained with it
+		if (!(mask & kSciEventPeek)) {
+			if (event.type == kSciEventKeyDown)
+				_lastOsImeKey = event.osImeChar;
 			_events.erase(iter);
+		}
 	} else {
 		// No event found: we must return a kSciEventNone event.
 
