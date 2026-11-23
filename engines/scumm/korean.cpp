@@ -52,11 +52,91 @@ void ScummEngine::transcodeLanguageBundle(uint32 bodySize) {
 	debug(2, "loadLanguageBundle: CP949 body converted to UTF-8, %u -> %u bytes", bodySize, body.size());
 }
 
+static const int kKoreanRefusal = 0xFFFD;
+
+int ScummEngine::nextCJKChar(int c, const byte *buf, int &pos) {
+	if (!_koreanUtf8)
+		return c + buf[pos++] * 256;
+	int len;
+	const byte *p = buf + pos - 1;
+	const uint32 cp = decodeUtf8(p, p + 4, len);	// a NUL is no continuation byte, so it stops the read
+	pos += len - 1;
+	// U+0080..U+00FF is a glyph of the game's charset (cp949ToUtf8()). korean.fnt has the 2350 KS X 1001 syllables;
+	// anything else is refused visibly (once logged).
+	if (cp >= 0x80 && cp < 0x100)
+		return cp;
+	if (cp == 0xFFFFFFFF || ksx1001Index(cp) < 0) {
+		static bool warned = false;
+		if (!warned) {
+			warning("Korean text: U+%04X has no glyph in korean.fnt, drawn as '?' (further ones not logged)", cp);
+			warned = true;
+		}
+		return kKoreanRefusal;
+	}
+	return cp;
+}
+
+int ScummEngine::koreanCharsetGlyph(const byte *p) const {
+	if (!_koreanUtf8 || (p[0] != 0xC2 && p[0] != 0xC3))
+		return -1;
+	int len;
+	const uint32 cp = decodeUtf8(p, p + 2, len);
+	return (cp >= 0x80 && cp < 0x100) ? (int)cp : -1;
+}
+
+int ScummEngine::cjkTrailBytes(const byte *p) const {
+	if (!_koreanUtf8)
+		return 1;
+	int len;
+	decodeUtf8(p, p + 4, len);
+	return len - 1;
+}
+
+int ScummEngine::koreanCharStart(const byte *str, int pos) const {
+	if (!_koreanUtf8)
+		return pos - 2;
+	int s = pos - 1;
+	while (s > 0 && pos - s < 4 && (str[s] & 0xC0) == 0x80)
+		s--;
+	return s;
+}
+
+bool ScummEngine::koreanBreakableAt(const byte *p) const {
+	if (!_koreanUtf8)
+		return checkKSCode(p[0], p[1]);
+	int len;
+	const uint32 cp = decodeUtf8(p, p + 4, len);
+	return cp >= 0xAC00 && cp <= 0xD7A3;
+}
+
+bool ScummEngine::koreanCharBefore(const byte *begin, const byte *p) const {
+	if (!_koreanUtf8)
+		return p - 2 >= begin && checkKSCode(p[-2], p[-1]);
+	const byte *s = p - 1;
+	while (s > begin && p - s < 4 && (*s & 0xC0) == 0x80)
+		s--;
+	return s >= begin && koreanBreakableAt(s);
+}
+
 void ScummEngine::copyTranslatedText(byte *dst, const byte *src, int dstSize) {
 	if (_koreanUtf8)
 		toEngineText(src, resStrLen(src) + 1, dst, dstSize);
 	else
 		memcpy(dst, src, MIN<int>(resStrLen(src) + 1, dstSize));
+}
+
+byte *ScummEngine::koreanRefusalGlyph() {
+	// '?' scaled into the current 2-byte cell, so the line keeps its metrics.
+	static const byte kQuestion[8] = { 0x3C, 0x66, 0x06, 0x0C, 0x18, 0x18, 0x00, 0x18 };
+	static byte glyph[512];
+	const int w = CLIP(_2byteWidth, 1, 32), h = CLIP(_2byteHeight, 1, 32);
+	const int stride = (w + 7) / 8;
+	memset(glyph, 0, sizeof(glyph));
+	for (int y = 0; y < h; y++)
+		for (int x = 0; x < w; x++)
+			if (kQuestion[y * 8 / h] & (0x80 >> (x * 8 / w)))
+				glyph[y * stride + x / 8] |= 0x80 >> (x % 8);
+	return glyph;
 }
 
 } // End of namespace Scumm

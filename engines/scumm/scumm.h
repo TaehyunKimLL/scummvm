@@ -1796,8 +1796,22 @@ public:
 	bool hasTranslationBundle() const { return _existLanguageFile; }
 	/** Korean text is UTF-8 inside the engine (v1-v6; korean_text.h). */
 	bool _koreanUtf8 = false;
+	/** The character whose first byte @p c was read at buf[pos - 1]: a code point (UTF-8) or c + trail * 256 (CP949). */
+	int nextCJKChar(int c, const byte *buf, int &pos);
+	/** UTF-8 text: the charset glyph U+0080..U+00FF at @p p, else -1 (always -1 for CP949 text). */
+	int koreanCharsetGlyph(const byte *p) const;
+	/** Bytes after the first one of the multi-byte character at @p p (1 in CP949). */
+	int cjkTrailBytes(const byte *p) const;
+	/** Where the character ending at @p pos (exclusive) of @p str starts. */
+	int koreanCharStart(const byte *str, int pos) const;
+	/** Whether a line may break before the character at @p p (a Hangul syllable). */
+	bool koreanBreakableAt(const byte *p) const;
+	/** Whether the character just before @p p (not before @p begin) is a Hangul syllable. */
+	bool koreanCharBefore(const byte *begin, const byte *p) const;
 	/** translateText()'s copy: UTF-8 engine text, cut on a character boundary, NUL-terminated. */
 	void copyTranslatedText(byte *dst, const byte *src, int dstSize);
+	/** The glyph drawn for a character korean.fnt lacks ('?' in the cell). */
+	byte *koreanRefusalGlyph();
 
 //protected:
 	byte *_2byteFontPtr = nullptr;

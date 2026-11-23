@@ -881,7 +881,7 @@ void ScummEngine::wrapSegaCDText() {
 					// let's just skip it...
 					ptrToCurLine++;
 				} else if (_useCJKMode && curChar & 0x80) { // CJK char
-					ptrToCurLine++;
+					ptrToCurLine += cjkTrailBytes(ptrToCurLine);
 				}
 
 				// Line breaks and string termination
@@ -1262,10 +1262,8 @@ void ScummEngine::displayDialog() {
 		}
 
 		if (c & 0x80 && _useCJKMode) {
-			if (is2ByteCharacter(_language, c)) {
-				byte *buffer = _charsetBuffer + _charsetBufPos;
-				c += *buffer++ * 256; //LE
-				_charsetBufPos = buffer - _charsetBuffer;
+			if (_koreanUtf8 || is2ByteCharacter(_language, c)) {
+				c = nextCJKChar(c, _charsetBuffer, _charsetBufPos);
 
 				// The JAP Sega CD version of Monkey Island 1 doesn't just calculate
 				// the font height, but instead relies on the actual string height.
@@ -1354,7 +1352,9 @@ int ScummEngine::countNumberOfWaits() {
 }
 
 void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager::Action ttsAction) {
-	byte buf[270];
+	// 512, not 270: Korean UTF-8 text is up to 1.5 times its CP949 length (Zak's longest line: 208 -> 295 bytes),
+	// and convertMessageToString() stops the engine on a full buffer.
+	byte buf[512];
 	byte *space;
 	int i, c;
 	byte fontHeight = 0;
@@ -1539,8 +1539,8 @@ void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager
 				}
 			}
 			if (c & 0x80 && _useCJKMode) {
-				if (is2ByteCharacter(_language, c))
-					c += buf[i++] * 256;
+				if (_koreanUtf8 || is2ByteCharacter(_language, c))
+					c = nextCJKChar(c, buf, i);
 			}
 
 			// With the code above, we risk missing the termination character.

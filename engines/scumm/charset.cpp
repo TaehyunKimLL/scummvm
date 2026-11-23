@@ -21,6 +21,8 @@
 
 #include "graphics/font.h"
 #include "scumm/charset.h"
+#include "scumm/korean_text.h"
+#include "common/ustr.h"
 #include "scumm/file.h"
 #include "scumm/scumm.h"
 #include "scumm/macgui/macgui.h"
@@ -253,7 +255,11 @@ byte *ScummEngine::get2byteCharPtr(int idx) {
 
 	switch (_language) {
 	case Common::KO_KOR:
-		idx = ((idx % 256) - 0xb0) * 94 + (idx / 256) - 0xa1;
+		// A code point (UTF-8 text) or a CP949 pair (FT): the glyph of korean.fnt, or the refusal glyph when the font
+		// has none, never a read outside the font.
+		idx = _koreanUtf8 ? ksx1001Index(idx) : ((idx % 256) - 0xb0) * 94 + (idx / 256) - 0xa1;
+		if (idx < 0 || idx >= 2350)
+			return koreanRefusalGlyph();
 		break;
 	case Common::JA_JPN:
 		if ((_game.id == GID_MONKEY && _game.platform == Common::kPlatformSegaCD) || _isIndy4Jap) {
@@ -553,6 +559,12 @@ int CharsetRenderer::getStringWidth(int arg, const byte *text) {
 					}
 				}
 			} else if (chr & 0x80) {
+				const int g = _vm->koreanCharsetGlyph(text + pos - 1);
+				if (g >= 0) {	// UTF-8 text: a glyph of the game's charset (U+0080..U+00FF)
+					width += getCharWidth(g);
+					pos++;
+					continue;
+				}
 				if (_vm->_game.platform == Common::kPlatformSegaCD) {
 					// Special character: this one has to be rendered as a space (0x20)
 					// and also inherits its rendering dimensions.
@@ -569,7 +581,7 @@ int CharsetRenderer::getStringWidth(int arg, const byte *text) {
 					}
 				}
 
-				pos++;
+				pos += _vm->cjkTrailBytes(text + pos - 1);
 				continue;
 			}
 		}
@@ -657,8 +669,11 @@ void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth) {
 					// This is the only way to get an accurate text formatting in the MI1 intro.
 					chr = (int8)str[pos++] | (chr << 8);
 				curw += getCharWidth(chr);
-			} else if (chr & 0x80) {
+			} else if (_vm->koreanCharsetGlyph(str + pos - 1) >= 0) {
+				curw += getCharWidth(_vm->koreanCharsetGlyph(str + pos - 1));	// UTF-8: a charset glyph
 				pos++;
+			} else if (chr & 0x80) {
+				pos += _vm->cjkTrailBytes(str + pos - 1);
 				curw += _vm->_2byteWidth;
 				// Original keeps glyph width and character dimensions separately
 				if (_vm->_language == Common::KO_KOR || _vm->_language == Common::ZH_TWN) {
@@ -671,15 +686,17 @@ void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth) {
 			if (_vm->isScummvmKorTarget() && !_center) {
 				// Break Korean words at any character
 				// Used in Korean fan translated games
+				// cs: where the character starts (CP949: 2 bytes before pos; UTF-8: its own length)
+				const int cs = (chr & 0x80) ? _vm->koreanCharStart(str, pos) : pos - 1;
 				if (chr & 0x80) {
-					if (checkKSCode(chr, str[pos - 1])
-					    && !(pos - 4 >= origPos && str[pos - 3] == '`' && str[pos - 4] == ' ')  // prevents hanging quotation mark at the end of line
-					    && !(pos - 4 >= origPos && str[pos - 3] == '\'' && str[pos - 4] == ' ') // prevents hanging single quotation mark at the end of line
-					    && !(pos - 3 >= origPos && str[pos - 3] == '('))  // prevents hanging parenthesis at the end of line
-						lastKoreanLineBreak = pos - 2;
+					if (_vm->koreanBreakableAt(str + cs)
+					    && !(cs - 2 >= origPos && str[cs - 1] == '`' && str[cs - 2] == ' ')  // prevents hanging quotation mark at the end of line
+					    && !(cs - 2 >= origPos && str[cs - 1] == '\'' && str[cs - 2] == ' ') // prevents hanging single quotation mark at the end of line
+					    && !(cs - 1 >= origPos && str[cs - 1] == '('))  // prevents hanging parenthesis at the end of line
+						lastKoreanLineBreak = cs;
 				} else {
-					if (chr == '(' && pos - 3 >= origPos && checkKSCode(str[pos - 3], str[pos - 2]))
-						lastKoreanLineBreak = pos - 1;
+					if (chr == '(' && _vm->koreanCharBefore(str + origPos, str + cs))
+						lastKoreanLineBreak = cs;
 				}
 			}
 		} else {
