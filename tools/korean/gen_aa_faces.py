@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Generates the anti-aliased (2 bpp) SVF test faces of the Korean-support tests from TrueType, with the repository's own tools.
 
-  gen_aa_faces.py OUTDIR      writes the faces below into OUTDIR (nothing is cached: a jamo set takes about 75 s)
+  gen_aa_faces.py OUTDIR [--only NAME,...]
+                              writes the faces below (or those named) into OUTDIR (nothing is cached: a jamo set takes about 75 s)
   gen_aa_faces.py --print     prints the command lines and the TTF sha256 (docs/korean/plans/AA-tests.md quotes them)
 
 All faces come from dists/svf-fonts-open (the pinned submodule) and its OFL TrueType files, Python run with -I:
@@ -41,32 +42,57 @@ def unicode_arg(chars):
 	return "0020-007E,00B7," + ",".join("%04X" % ord(c) for c in sorted(set(chars)))
 
 
-def commands(out):
+def commands(out, only=None):
+	"""The command lines, for the faces in @p only (names without .SVF; default all)."""
+	want = lambda n: only is None or n in only
 	cmds = []
 	for name, (ttf, size, cell, width, ascent, bpp) in SIZES.items():
+		if not want(name):
+			continue
 		c = [sys.executable, "-I", os.path.join(TOOLS, "mkfont.py"), ttf, os.path.join(out, name + ".SVF"), "--size", str(size),
 		     "--cell", str(cell), "--width", str(width), "--bpp", str(bpp), "--clip-cell"]
 		if ascent:
 			c += ["--ascent", str(ascent)]
 		cmds.append(c + ["--unicode", UNICODE8 if bpp == 8 else unicode_arg(FREQUENT), "--only-listed"])
-	cmds.append([sys.executable, "-I", os.path.join(TOOLS, "mkfont.py"), REGULAR, os.path.join(out, "NG16L.SVF"), "--size", "16",
-	             "--cell", "16", "--width", "16", "--bpp", "2", "--clip-cell", "--unicode", "0020-007E,0300-0301", "--only-listed"])
-	cmds.append([sys.executable, "-I", os.path.join(TOOLS, "jamoset.py"), "--layout", "844", "--from-ttf", BOLD, "--size", "16",
-	             "--bpp", "2", "--check", "--pylib", pylib(), "-o", os.path.join(out, "NG16JA.SVF")])
+	if want("NG16L"):
+		cmds.append([sys.executable, "-I", os.path.join(TOOLS, "mkfont.py"), REGULAR, os.path.join(out, "NG16L.SVF"), "--size", "16",
+		             "--cell", "16", "--width", "16", "--bpp", "2", "--clip-cell", "--unicode", "0020-007E,0300-0301", "--only-listed"])
+	if want("NG16JA"):
+		cmds.append([sys.executable, "-I", os.path.join(TOOLS, "jamoset.py"), "--layout", "844", "--from-ttf", BOLD, "--size", "16",
+		             "--bpp", "2", "--check", "--pylib", pylib(), "-o", os.path.join(out, "NG16JA.SVF")])
 	# the 1 bpp pair of the CLUT8 chain: the same TrueType, the jamo set recipe of docs/recipes.md 3 (exact-area rasteriser,
 	# no FreeType), not a fixture (the tests use the 1 bpp NEODG-derived fixture face)
-	cmds.append([sys.executable, "-I", os.path.join(TOOLS, "jamoset.py"), "--layout", "844", "--from-ttf", BOLD, "--size", "16",
-	             "--binarize", "threshold", "--check", "--pylib", pylib(), "-o", os.path.join(out, "NG16J1.SVF")])
+	if want("NG16J1"):
+		cmds.append([sys.executable, "-I", os.path.join(TOOLS, "jamoset.py"), "--layout", "844", "--from-ttf", BOLD, "--size", "16",
+		             "--binarize", "threshold", "--check", "--pylib", pylib(), "-o", os.path.join(out, "NG16J1.SVF")])
 	return cmds
 
 
+def probe(code, pythonpath=None):
+	"""Runs @p code in this interpreter without -I (the user site loads: fontTools lives there); its stdout, or None."""
+	env = dict(os.environ)
+	if pythonpath:
+		env["PYTHONPATH"] = pythonpath
+	r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
+	return r.stdout.strip() if r.returncode == 0 else None
+
+
 def pylib():
-	"""A directory with fontTools alone (jamoset --bpp 2 needs it; -I hides the user site)."""
+	"""A directory holding fontTools (jamoset --bpp 2 needs it; -I hides the user site): $JAMOSET_PYLIB or where this
+	interpreter finds it; an error when it is nowhere."""
 	if os.environ.get("JAMOSET_PYLIB"):
 		return os.environ["JAMOSET_PYLIB"]
-	probe = subprocess.run(["python3", "-c", "import fontTools,os;print(os.path.dirname(os.path.dirname(fontTools.__file__)))"],
-	                       capture_output=True, text=True)
-	return probe.stdout.strip() if probe.returncode == 0 else ""
+	found = probe("import fontTools,os;print(os.path.dirname(os.path.dirname(fontTools.__file__)))")
+	if not found:
+		sys.exit("gen_aa_faces: fontTools is not importable (pip install fonttools, or set JAMOSET_PYLIB to a directory holding it)")
+	return found
+
+
+def versions():
+	"""The versions of what draws the faces: Pillow, its FreeType, fontTools (a cache of the faces depends on them)."""
+	pil = probe("import PIL, PIL.features;print(PIL.__version__, PIL.features.version('freetype2'))")
+	ft = probe("import fontTools;print(fontTools.version)", pylib())
+	return "Pillow %s fontTools %s" % (pil, ft)
 
 
 def sha(path):
@@ -80,12 +106,15 @@ def main():
 		for c in commands("OUT"):
 			print(" ".join(os.path.relpath(a, ROOT) if a.startswith(ROOT) else a for a in c))
 		return 0
-	if len(sys.argv) != 2:
+	only = None
+	if len(sys.argv) == 4 and sys.argv[2] == "--only":
+		only = sys.argv[3].split(",")
+	elif len(sys.argv) != 2:
 		print(__doc__.split("\n\n")[0], file=sys.stderr)
 		return 2
 	out = sys.argv[1]
 	os.makedirs(out, exist_ok=True)
-	for c in commands(out):
+	for c in commands(out, only):
 		r = subprocess.run(c, capture_output=True, text=True)
 		if r.returncode:
 			sys.stderr.write(r.stdout + r.stderr)

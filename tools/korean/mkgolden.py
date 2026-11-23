@@ -10,6 +10,7 @@ reference the C renderer matches byte for byte.
 import argparse
 import hashlib
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -159,6 +160,7 @@ AA_TARGETS = {
 	"ChainPJ": (("rgb565", "Rgb565", False, 0), ("rgb565", "Rgb565Be", True, 0), ("rgb555", "Rgb555", False, 0x8000),
 	            ("rgb555", "Rgb555Be", True, 0), ("rgb888", "Rgb888", False, 0)),
 	"ChainPJ3by2": (("rgb565", "Rgb565", False, 0), ("rgb555", "Rgb555", False, 0x8000), ("rgb888", "Rgb888", False, 0)),
+	"Bpp8": (("rgb565", "Rgb565", False, 0), ("rgb555", "Rgb555", False, 0x8000)),
 }
 AA_FG, AA_BG = 0xF0E040, 0x102060
 
@@ -172,20 +174,26 @@ def rgb555(c):
 
 
 def aa_faces(tmp):
-	"""The face files: the generator's, built once per (generator, submodule commit, TTF) into a cache directory (a jamo set
-	takes about 75 s), and the two 1 bpp faces of the other fixture (written by make_faces)."""
+	"""The face files: the generator's, built once per (generator, TTFs, tool versions, submodule commit and state) into a cache
+	directory (a jamo set takes about 75 s), and nothing else: the 1 bpp pair face is not a fixture."""
 	key = hashlib.sha256()
 	for path in (os.path.join(HERE, "gen_aa_faces.py"), gen_aa_faces.BOLD, gen_aa_faces.REGULAR):
 		key.update(open(path, "rb").read())
 	key.update(commit().encode())
-	cache = os.path.join(os.environ.get("TMPDIR", tempfile.gettempdir()), "svf-aa-faces-" + key.hexdigest()[:16])
+	key.update(gen_aa_faces.versions().encode())
+	key.update(subprocess.run(["git", "-C", SVF, "status", "--porcelain", "--", "tools", "ttf"], check=True, capture_output=True,
+	                          text=True).stdout.encode())
+	parent = os.environ.get("TMPDIR", tempfile.gettempdir())
+	cache = os.path.join(parent, "svf-aa-faces-" + key.hexdigest()[:16])
 	if not all(os.path.isfile(os.path.join(cache, n + ".SVF")) for n in AA_NAMES):
-		part = cache + ".part"
-		subprocess.run(["rm", "-rf", part], check=True)
-		if subprocess.run([sys.executable, "-I", os.path.join(HERE, "gen_aa_faces.py"), part]).returncode:
+		part = tempfile.mkdtemp(prefix="svf-aa-faces-part-", dir=parent)	# unique: two runs do not share it
+		if subprocess.run([sys.executable, "-I", os.path.join(HERE, "gen_aa_faces.py"), part, "--only", ",".join(AA_NAMES)]).returncode:
+			shutil.rmtree(part, ignore_errors=True)
 			sys.exit("mkgolden: gen_aa_faces.py failed")
-		subprocess.run(["rm", "-rf", cache], check=True)
-		os.rename(part, cache)
+		try:
+			os.rename(part, cache)	# atomic; another run may have been first, its faces are the same
+		except OSError:
+			shutil.rmtree(part, ignore_errors=True)
 	return {n: os.path.join(cache, n + ".SVF") for n in AA_NAMES}
 
 
