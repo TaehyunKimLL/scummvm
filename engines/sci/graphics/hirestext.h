@@ -71,8 +71,14 @@ public:
 	Graphics::HiResRenderTarget getTarget() const { return _target; }
 	/** The screen format the target needs: CLUT8, or the RGB format the driver asks the backend for. */
 	Graphics::PixelFormat getScreenFormat() const { return Graphics::hiResTargetFormat(_target); }
-	/** Whether the engine has said (once) that an anti-aliased face is drawn on the CLUT8 screen. */
-	bool warnedCoverageOnClut8() const { return _warnedCoverage; }
+	/** How many times the engine has said that an anti-aliased face is drawn on the CLUT8 screen (once per run at most). */
+	uint coverageOnClut8Warnings() const { return _coverageWarnings; }
+	/**
+	 * The screen the driver really got from the backend. When the text wanted RGB and the screen's target is another (a
+	 * backend that gave another RGB format, or CLUT8 for an RGB request) the text switches to the screen's target: the map is loaded again
+	 * with that target's sections, the font sets are dropped, a note says so (also in @p notes).
+	 */
+	void setScreenFormat(const Graphics::PixelFormat &format, Common::Array<Common::String> &notes);
 	bool wantsRgb() const { return _active && _target != Graphics::kHiResTargetClut8; }
 	Graphics::TextCompose::Mode getComposeMode() const { return Graphics::composeMode(_target, _blend); }
 	const Graphics::HiResPick &getPick() const { return _pick; }
@@ -88,8 +94,12 @@ public:
 
 private:
 	bool anyCoverageFace(Common::Array<Common::String> &notes);
+	/** Loads the pick's map again with the sections of _target ([font:clut8], [font:rgb]). */
+	void loadTargetSections(Common::Array<Common::String> &notes);
 
-	bool _warnedCoverage;
+	uint _coverageWarnings;
+	bool _hangulBreakSet;
+	Graphics::HangulBreak _hangulBreak;
 	bool _active;
 	Graphics::HiResFiles *_files;
 	bool _ownFiles;

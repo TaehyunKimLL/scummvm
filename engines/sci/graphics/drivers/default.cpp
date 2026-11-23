@@ -23,9 +23,9 @@
 #include "common/system.h"
 #include "engines/util.h"
 #include "graphics/cursorman.h"
+#include "graphics/hires_text/hires_options.h"
 #include "graphics/paletteman.h"
 #include "sci/graphics/drivers/gfxdriver_intern.h"
-#include "graphics/hires_text/hires_options.h"
 #include "sci/graphics/hirestext.h"
 #include "sci/sci.h"
 #include "sci/resource/resource.h"
@@ -110,25 +110,23 @@ bool GfxDefaultDriver::initScreen(const Graphics::PixelFormat *srcRGBFormat) {
 		formatList.push_back(format8bt);
 		initGraphics(_screenW, _screenH, formatList);
 	} else if (!srcRGBFormat && _requestRGBMode && g_sci->getHiResText() && g_sci->getHiResText()->wantsRgb()) {
-		// Hi-res text names its target (rgb565, rgb555, rgb888): the backend's formats of that target, in the backend's
-		// order (initGraphics takes the first backend format the list has), else the 8-bit screen.
-		const Graphics::HiResRenderTarget target = g_sci->getHiResText()->getTarget();
-		Common::List<Graphics::PixelFormat> formatList;
-		const Common::List<Graphics::PixelFormat> supported = g_system->getSupportedFormats();
-		for (Common::List<Graphics::PixelFormat>::const_iterator it = supported.begin(); it != supported.end(); ++it)
-			if (Graphics::hiResTargetOf(*it) == target)
-				formatList.push_back(*it);
-		if (formatList.empty())
-			formatList.push_back(g_sci->getHiResText()->getScreenFormat());
-		initGraphics(_screenW, _screenH, formatList);
+		// Hi-res text names its target (rgb888, rgb565, rgb555): the backend's formats of that target, then its other RGB
+		// formats, in the order initGraphics takes the first backend format of (hiResScreenFormats). An empty list gives CLUT8.
+		initGraphics(_screenW, _screenH, Graphics::hiResScreenFormats(g_sci->getHiResText()->getTarget(), g_system->getSupportedFormats()));
 	} else {
 		initGraphics(_screenW, _screenH, srcRGBFormat ? srcRGBFormat : (_requestRGBMode ? nullptr : &format8bt));
 	}
 
 	Graphics::PixelFormat format = g_system->getScreenFormat();
-	if (g_sci->getHiResText() && g_sci->getHiResText()->isActive())
-		debugC(1, kDebugLevelKorean, "Hi-res text: screen format %s for render target %d", format.toString().c_str(),
-		       (int)g_sci->getHiResText()->getTarget());
+	if (g_sci->getHiResText() && g_sci->getHiResText()->isActive()) {
+		// The text follows the screen it got (another RGB format, or CLUT8 for an RGB request).
+		Common::Array<Common::String> notes;
+		g_sci->getHiResText()->setScreenFormat(format, notes);
+		for (uint i = 0; i < notes.size(); ++i)
+			debugC(1, kDebugLevelKorean, "Hi-res text: %s", notes[i].c_str());
+		debugC(1, kDebugLevelKorean, "Hi-res text: screen format %s for render target %s", format.toString().c_str(),
+		       Graphics::HiResFontMap::targetName(g_sci->getHiResText()->getTarget()));
+	}
 	if (srcRGBFormat && *srcRGBFormat != format)
 		return false;
 	_format = format;

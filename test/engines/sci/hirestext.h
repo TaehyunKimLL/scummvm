@@ -121,12 +121,12 @@ public:
 		files.addText("game/ko/HIRESVF.MAP", pairedMap());
 		addAaFaces(files);
 		const uint32 all = allTargets() | (1 << Graphics::kHiResTargetRgb555);
-		// auto: a face has coverage, so RGB (16-bit first), and the [font:rgb] chain is the AA one
+		// auto: a face has coverage, so RGB (32-bit where offered), and the [font:rgb] chain is the AA one
 		{
 			Sci::SciHiResText t;
 			Common::Array<Common::String> notes;
 			TS_ASSERT(t.setup(&files, Graphics::HiResOptions(), Common::Path("game"), "ko", all, notes));
-			TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetRgb565);
+			TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetRgb888);
 			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2 1");
 			TS_ASSERT_EQUALS(levelsOf(t.getFontSet(0)), 7u);	// 85, 170, 255 and nothing else
 		}
@@ -151,7 +151,87 @@ public:
 			TS_ASSERT(!t.wantsRgb());
 			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "1");
 			TS_ASSERT_EQUALS(levelsOf(t.getFontSet(0)), 4u);	// only 255
-			TS_ASSERT(!t.warnedCoverageOnClut8());
+			TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 0u);
+		}
+	}
+
+	// auto with an AA map follows what the backend offers: 888 where offered, else 565, else 555 (never the 1 bpp CLUT8 here).
+	void test_autoPicksByWhatIsOffered() {
+		HiResTest::MemoryFiles files;
+		files.addText("game/ko/HIRESVF.MAP", pairedMap());
+		addAaFaces(files);
+		const uint32 clut = 1 << Graphics::kHiResTargetClut8, r565 = 1 << Graphics::kHiResTargetRgb565, r555 = 1 << Graphics::kHiResTargetRgb555,
+		             r888 = 1 << Graphics::kHiResTargetRgb888;
+		const struct { uint32 offered; Graphics::HiResRenderTarget want; } c[] = {
+			{ clut | r565 | r555 | r888, Graphics::kHiResTargetRgb888 }, { clut | r565 | r555, Graphics::kHiResTargetRgb565 },
+			{ clut | r555, Graphics::kHiResTargetRgb555 }, { clut, Graphics::kHiResTargetClut8 },
+		};
+		for (uint i = 0; i < ARRAYSIZE(c); ++i) {
+			Sci::SciHiResText t;
+			Common::Array<Common::String> notes;
+			TS_ASSERT(t.setup(&files, Graphics::HiResOptions(), Common::Path("game"), "ko", c[i].offered, notes));
+			TS_ASSERT_EQUALS(t.getTarget(), c[i].want);
+			TS_ASSERT_EQUALS(Graphics::hiResTargetOf(t.getScreenFormat()), c[i].want);
+			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), c[i].want == Graphics::kHiResTargetClut8 ? "1" : "2 2 1");
+		}
+	}
+
+	// The backend gave another screen than the text resolved: the text follows it (map sections, font sets, the warning).
+	void test_textFollowsTheScreenItGot() {
+		HiResTest::MemoryFiles files;
+		files.addText("game/ko/HIRESVF.MAP", pairedMap());
+		addAaFaces(files);
+		const uint32 all = allTargets() | (1 << Graphics::kHiResTargetRgb555);
+		Common::Array<Common::String> notes;
+		// 888 resolved, 565 given: still an RGB chain, a note
+		{
+			Sci::SciHiResText t;
+			TS_ASSERT(t.setup(&files, Graphics::HiResOptions(), Common::Path("game"), "ko", all, notes));
+			TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetRgb888);
+			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2 1");
+			Common::Array<Common::String> n;
+			t.setScreenFormat(Graphics::hiResTargetFormat(Graphics::kHiResTargetRgb565), n);
+			TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetRgb565);
+			TS_ASSERT_EQUALS(n.size(), 1u);
+			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2 1");
+			n.clear();
+			t.setScreenFormat(Graphics::hiResTargetFormat(Graphics::kHiResTargetRgb565), n);	// the same: nothing
+			TS_ASSERT(n.empty());
+		}
+		// an RGB request that ended as a CLUT8 screen: the [font:clut8] chain, the 1 bpp face alone
+		{
+			Sci::SciHiResText t;
+			TS_ASSERT(t.setup(&files, Graphics::HiResOptions(), Common::Path("game"), "ko", all, notes));
+			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2 1");
+			Common::Array<Common::String> n;
+			t.setScreenFormat(Graphics::PixelFormat::createFormatCLUT8(), n);
+			TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetClut8);
+			TS_ASSERT(!t.wantsRgb());
+			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "1");
+			TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 0u);
+		}
+		// a map without [font:clut8]: the AA chain stays, and now the warning is given (once)
+		{
+			HiResTest::MemoryFiles f2;
+			f2.addText("game/ko/HIRESVF.MAP", "[map]\nversion=3\n[fonts]\nng=data:aa/NG16P.SVF\nja=data:aa/NG16JA.SVF\n[font]\nface=ng,ja\nsize=16\n");
+			addAaFaces(f2);
+			Sci::SciHiResText t;
+			TS_ASSERT(t.setup(&f2, Graphics::HiResOptions(), Common::Path("game"), "ko", all, notes));
+			Common::Array<Common::String> n;
+			t.setScreenFormat(Graphics::PixelFormat::createFormatCLUT8(), n);
+			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2");
+			TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 1u);
+		}
+		// a CLUT8 text (1 bpp faces, or the user's choice) is left alone on an RGB screen
+		{
+			Sci::SciHiResText t;
+			Graphics::HiResOptions o;
+			o.target = Graphics::kHiResTargetClut8;
+			TS_ASSERT(t.setup(&files, o, Common::Path("game"), "ko", all, notes));
+			Common::Array<Common::String> n;
+			t.setScreenFormat(Graphics::hiResTargetFormat(Graphics::kHiResTargetRgb565), n);
+			TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetClut8);
+			TS_ASSERT(n.empty());
 		}
 	}
 
@@ -167,9 +247,14 @@ public:
 		o.target = Graphics::kHiResTargetClut8;
 		TS_ASSERT(t.setup(&files, o, Common::Path("game"), "ko", allTargets(), notes));
 		TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetClut8);
-		TS_ASSERT(!t.warnedCoverageOnClut8());
+		TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 0u);
 		TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2");
-		TS_ASSERT(t.warnedCoverageOnClut8());
+		TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 1u);
+		// once: the same id again, other font ids and a second call give no second warning
+		TS_ASSERT(t.getFontSet(0));
+		TS_ASSERT(t.getFontSet(300));
+		TS_ASSERT(t.getFontSet(4));
+		TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 1u);
 		TS_ASSERT_EQUALS(levelsOf(t.getFontSet(0)), 7u);	// the plane has the levels; TextCompose::kStamp cuts them at 128
 		TS_ASSERT_EQUALS(t.getComposeMode(), Graphics::TextCompose::kStamp);
 	}

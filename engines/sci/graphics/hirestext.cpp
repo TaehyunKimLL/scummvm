@@ -34,7 +34,7 @@ namespace Sci {
 
 const char *const SciHiResText::kDefaultMap = "data:hires_text/maps/korean-default.map";
 
-SciHiResText::SciHiResText() : _warnedCoverage(false), _active(false), _files(nullptr), _ownFiles(false), _faces(nullptr),
+SciHiResText::SciHiResText() : _coverageWarnings(0), _hangulBreakSet(false), _hangulBreak(Graphics::kHangulBreakWord), _active(false), _files(nullptr), _ownFiles(false), _faces(nullptr),
 	_target(Graphics::kHiResTargetClut8), _blend(Graphics::kHiResBlendAuto) {
 }
 
@@ -83,7 +83,19 @@ bool SciHiResText::setup(Graphics::HiResFiles *files, const Graphics::HiResOptio
 		notes.push_back(note);
 	_blend = Graphics::resolveBlend(options, &_pick.map);
 
-	// Load the map again with the target's sections ([font:clut8], [font:rgb]).
+	loadTargetSections(notes);
+	_breakRules = _pick.map.layout.apply(Graphics::BreakRules());
+	_hangulBreakSet = options.hangulBreakSet;
+	_hangulBreak = options.hangulBreak;
+	if (_hangulBreakSet)
+		_breakRules.hangul = _hangulBreak;
+	_active = true;
+	return true;
+}
+
+void SciHiResText::loadTargetSections(Common::Array<Common::String> &notes) {
+	Graphics::HiResMapQualifiers q;
+	q.engine = "sci";
 	q.target = _target;
 	Common::ScopedPtr<Common::SeekableReadStream> s(_files->open(_pick.path));
 	Graphics::HiResMap map;
@@ -93,11 +105,25 @@ bool SciHiResText::setup(Graphics::HiResFiles *files, const Graphics::HiResOptio
 		notes.push_back("the map did not load again with the target's sections");
 	for (uint i = 0; i < _pick.map.warnings.size(); ++i)
 		notes.push_back(_pick.map.warnings[i]);
+}
+
+void SciHiResText::setScreenFormat(const Graphics::PixelFormat &format, Common::Array<Common::String> &notes) {
+	if (!_active)
+		return;
+	const Graphics::HiResRenderTarget got = Graphics::hiResTargetOf(format);
+	// Only an RGB target follows its screen; a CLUT8 text on an RGB screen (the user's rgb_rendering) is composed by the driver.
+	if (got == Graphics::kHiResTargetAuto || got == _target || _target == Graphics::kHiResTargetClut8)
+		return;
+	notes.push_back(Common::String("the backend gave a ") + Graphics::HiResFontMap::targetName(got) + " screen, not " +
+	                Graphics::HiResFontMap::targetName(_target) + ": the text follows the screen");
+	_target = got;
+	for (Common::HashMap<int, Graphics::HiResFontSet *>::iterator it = _sets.begin(); it != _sets.end(); ++it)
+		delete it->_value;
+	_sets.clear();
+	loadTargetSections(notes);
 	_breakRules = _pick.map.layout.apply(Graphics::BreakRules());
-	if (options.hangulBreakSet)
-		_breakRules.hangul = options.hangulBreak;
-	_active = true;
-	return true;
+	if (_hangulBreakSet)
+		_breakRules.hangul = _hangulBreak;
 }
 
 bool SciHiResText::anyCoverageFace(Common::Array<Common::String> &notes) {
@@ -121,10 +147,10 @@ const Graphics::HiResFontSet *SciHiResText::getFontSet(int fontId) {
 		set = nullptr;
 	}
 	// A face with coverage on a CLUT8 screen is stamped at coverage >= 128 (its edges are cut): say so once.
-	for (uint c = 0; set && _target == Graphics::kHiResTargetClut8 && !_warnedCoverage && c < set->getChainCount(); ++c)
-		for (uint f = 0; f < set->getChain(c)->getFaceCount(); ++f)
-			if (set->getChain(c)->getFace(f)->getBpp() > 1 && !_warnedCoverage) {
-				_warnedCoverage = true;
+	for (uint c = 0; set && _target == Graphics::kHiResTargetClut8 && !_coverageWarnings && c < set->getChainCount(); ++c)
+		for (uint f = 0; f < set->getChain(c)->getFaceCount() && !_coverageWarnings; ++f)
+			if (set->getChain(c)->getFace(f)->getBpp() > 1) {
+				++_coverageWarnings;
 				warning("Hi-res text, font %d: an anti-aliased face on a CLUT8 screen is stamped at coverage >= 128; "
 				        "give the map a [font:clut8] section with a 1 bpp face", fontId);
 			}
