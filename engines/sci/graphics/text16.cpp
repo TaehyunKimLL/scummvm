@@ -859,7 +859,12 @@ int16 GfxText16::getLongestUtf8(const char *&textPtr, int16 maxWidth) {
 	                                                              hires ? hires->getBreakRules() : Graphics::BreakRules());
 	// As the byte loop does: a line ended by a newline counts the newline;
 	// a wrapped line counts what is drawn and skips the spaces after it.
-	const int16 count = line.forced ? line.byteNext : line.byteEnd;
+	int16 count = line.forced ? line.byteNext : line.byteEnd;
+	// Leading spaces and then a word wider than the box: the only break is after
+	// the spaces, which trim to nothing. Return what advances (a blank line, as
+	// the byte loop draws it) rather than 0, which ends Size() and Box() early.
+	if (!line.forced && count == 0 && line.byteNext > 0)
+		count = line.byteNext;
 	textPtr += line.byteNext;
 	return count;
 }
