@@ -608,7 +608,8 @@ void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth, int
 
 	int strLength = _vm->resStrLen(str);
 
-	while ((chr = str[pos++]) != 0) {
+	int charStart;
+	while ((charStart = pos, chr = str[pos++]) != 0) {
 		if (_vm->_game.heversion >= 72) {
 			if (chr == code) {
 				chr = str[pos++];
@@ -690,8 +691,9 @@ void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth, int
 			if (_vm->isScummvmKorTarget() && !_center) {
 				// Break Korean words at any character
 				// Used in Korean fan translated games
-				// cs: where the character starts (CP949: 2 bytes before pos; UTF-8: its own length)
-				const int cs = (chr & 0x80) ? _vm->koreanCharStart(str, pos) : pos - 1;
+				// cs: where the character starts (recorded before the loop stepped over it: a stray continuation byte after a syllable
+				// must not make the previous syllable the break candidate)
+				const int cs = charStart;
 				if (chr & 0x80) {
 					if (_vm->koreanBreakableAt(str + cs)
 					    && !(cs - 2 >= origPos && str[cs - 1] == '`' && str[cs - 2] == ' ')  // prevents hanging quotation mark at the end of line

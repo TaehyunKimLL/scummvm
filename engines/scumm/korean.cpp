@@ -74,14 +74,16 @@ bool ScummEngine_v2::drawKoreanSentence() {
 
 	_sentenceBuf = fitKoreanSentence(parts, _virtscr[kVerbVirtScreen].w, sentenceWidth, _charset);
 
+	// The C64 draws the line one pixel right and down, as drawSentence() does.
+	const int pixelOffset = (_game.platform == Common::kPlatformC64) ? 1 : 0;
 	_string[2].charset = 1;
-	_string[2].ypos = _virtscr[kVerbVirtScreen].topline;
-	_string[2].xpos = 0;
-	_string[2].right = _virtscr[kVerbVirtScreen].w - 1;
+	_string[2].ypos = _virtscr[kVerbVirtScreen].topline + pixelOffset;
+	_string[2].xpos = pixelOffset;
+	_string[2].right = _virtscr[kVerbVirtScreen].w - 1 + pixelOffset;
 	_string[2].color = (_game.platform == Common::kPlatformC64) ? 16 : 13;
 
-	Common::Rect sentenceline(0, _virtscr[kVerbVirtScreen].topline, _virtscr[kVerbVirtScreen].w - 1,
-	                          _virtscr[kVerbVirtScreen].topline + 8);
+	Common::Rect sentenceline(pixelOffset, _virtscr[kVerbVirtScreen].topline + pixelOffset,
+	                          _virtscr[kVerbVirtScreen].w - 1 + pixelOffset, _virtscr[kVerbVirtScreen].topline + 8 + pixelOffset);
 	restoreBackground(sentenceline);
 	drawString(2, (const byte *)_sentenceBuf.c_str());
 	return true;
@@ -150,15 +152,6 @@ int ScummEngine::cjkTrailBytes(const byte *p) const {
 	int len;
 	decodeUtf8(p, p + 4, len);
 	return len - 1;
-}
-
-int ScummEngine::koreanCharStart(const byte *str, int pos) const {
-	if (!_koreanUtf8)
-		return pos - 2;
-	int s = pos - 1;
-	while (s > 0 && pos - s < 4 && (str[s] & 0xC0) == 0x80)
-		s--;
-	return s;
 }
 
 bool ScummEngine::koreanBreakableAt(const byte *p) const {

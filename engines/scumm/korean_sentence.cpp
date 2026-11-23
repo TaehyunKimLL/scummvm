@@ -128,14 +128,11 @@ Common::String compose(const Common::String &verb, const Common::String &a, cons
 } // End of anonymous namespace
 
 int koreanCharLength(const char *p) {
-	// UTF-8; a byte that starts no sequence counts as one character, and never step past a NUL.
-	const byte c = (byte)*p;
-	const int n = (c >= 0xF0) ? 4 : (c >= 0xE0) ? 3 : (c >= 0xC0) ? 2 : 1;
-	for (int i = 1; i < n; i++) {
-		if (!p[i])
-			return i;
-	}
-	return n;
+	// UTF-8 through decodeUtf8(): a byte that starts no valid sequence (a stray continuation byte, 0xFF of an escape) is
+	// one character, and a NUL is no continuation byte, so it never steps past the end.
+	int len;
+	decodeUtf8((const byte *)p, (const byte *)p + 4, len);
+	return len;
 }
 
 KoreanFinal koreanFinalOf(const Common::String &noun) {

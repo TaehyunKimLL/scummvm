@@ -63,4 +63,16 @@ public:
 		TS_ASSERT(!Scumm::koreanVerbTranslated("Give"));
 		TS_ASSERT(Scumm::koreanVerbTranslated(KO_GIVE));
 	}
+
+	void test_char_length_validates_the_sequence() {
+		// A lead byte with no continuation bytes after it is one character, as are a stray continuation byte and the
+		// 0xFF of an escape; a NUL ends the text.
+		TS_ASSERT_EQUALS(Scumm::koreanCharLength("\xed\x95\x9c"), 3);
+		TS_ASSERT_EQUALS(Scumm::koreanCharLength("\xed" "ab"), 1);
+		TS_ASSERT_EQUALS(Scumm::koreanCharLength("\xed\x95"), 1);
+		TS_ASSERT_EQUALS(Scumm::koreanCharLength("\x95\x9c"), 1);
+		TS_ASSERT_EQUALS(Scumm::koreanCharLength("\xff\x01"), 1);
+		TS_ASSERT_EQUALS(Scumm::koreanCharLength("\xc3\xa9"), 2);
+		TS_ASSERT_EQUALS(Scumm::koreanCharLength("a"), 1);
+	}
 };

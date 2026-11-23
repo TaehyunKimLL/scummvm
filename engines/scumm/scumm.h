@@ -1804,8 +1804,6 @@ public:
 	int koreanCharsetGlyph(const byte *p) const;
 	/** Bytes after the first one of the multi-byte character at @p p (1 in CP949). */
 	int cjkTrailBytes(const byte *p) const;
-	/** Where the character ending at @p pos (exclusive) of @p str starts. */
-	int koreanCharStart(const byte *str, int pos) const;
 	/** Whether a line may break before the character at @p p (a Hangul syllable). */
 	bool koreanBreakableAt(const byte *p) const;
 	/** Whether the character just before @p p (not before @p begin) is a Hangul syllable. */
