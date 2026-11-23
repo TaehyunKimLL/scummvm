@@ -92,4 +92,14 @@ public:
 		// read as little-endian it finds no magic and starts at the first instance
 		TS_ASSERT_EQUALS(Sci::ScriptStrings::sci11StringsStart(be, sizeof(be), false), 4u);
 	}
+
+	// agy (round 2): a key that already names a room keeps it.
+	void test_keyInRoom() {
+		const Sci::ScriptStrings::Key any(5, 7);
+		TS_ASSERT_EQUALS(any.inRoom(29).room, 29u);
+		const Sci::ScriptStrings::Key roomA(5, 7, 12);
+		TS_ASSERT_EQUALS(roomA.inRoom(29).room, 12u);
+		TS_ASSERT(!Sci::ScriptStrings::Key().inRoom(29).isSet());
+		TS_ASSERT_EQUALS(Sci::ScriptStrings::Key().inRoom(29).room, (uint16)Sci::ScriptStrings::Key::kAnyRoom);
+	}
 };

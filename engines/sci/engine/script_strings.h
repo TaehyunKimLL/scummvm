@@ -87,6 +87,16 @@ public:
 		Key(uint16 s, uint16 i, uint16 r = kAnyRoom) : script(s), id(i), room(r), buffer(kNoBuffer) {}
 		bool isSet() const { return script != 0xFFFF; }
 		bool isBuffer() const { return buffer != kNoBuffer; }
+		/**
+		 * The key read in @p currentRoom: a set key that names no room gets it; a key that
+		 * already has one (a buffer StrCpy'd in room A, displayed in room B) keeps it.
+		 */
+		Key inRoom(uint16 currentRoom) const {
+			Key k = *this;
+			if (k.isSet() && k.room == kAnyRoom)
+				k.room = currentRoom;
+			return k;
+		}
 	};
 
 	ScriptStrings() : _loaded(false), _present(false) {}

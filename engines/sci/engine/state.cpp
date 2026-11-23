@@ -370,9 +370,7 @@ ScriptStrings::Key SciEngine::keyOf(reg_t ptr, const Common::String &str) const 
 	if (!key.isSet())
 		key = _scriptStrings.keyOf(ScriptStrings::bufferId(ptr.getSegment(), ptr.getOffset()), str);
 	// A room's entry is tried first, the any-room one after (kStrCpy and kStrCat set the room too)
-	if (key.isSet())
-		key.room = _gamestate->currentRoomNumber();
-	return key;
+	return key.inRoom(_gamestate->currentRoomNumber());
 }
 
 Common::String SciEngine::strSplitHeap(reg_t ptr, const Common::String &str, uint16 *languageSplitter, const char *sep) {
