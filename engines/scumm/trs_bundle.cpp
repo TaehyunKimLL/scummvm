@@ -19,6 +19,7 @@
  *
  */
 
+#include "common/algorithm.h"
 #include "common/hashmap.h"
 #include "common/language_folder.h"
 
@@ -51,16 +52,41 @@ bool convertTrsBodyToUtf8(const byte *body, uint32 size, Common::Array<uint32> &
 	Common::HashMap<uint32, bool> isTranslation;
 	for (uint i = 0; i < translations.size(); i++)
 		isTranslation.setVal(translations[i], true);
+	// The offsets where an entry starts, ascending: a translation never runs into the next one.
+	Common::Array<uint32> starts;
+	for (uint i = 0; i < translations.size(); i++)
+		starts.push_back(translations[i]);
+	for (uint i = 0; i < originals.size(); i++)
+		starts.push_back(originals[i]);
+	Common::sort(starts.begin(), starts.end());
 	Common::HashMap<uint32, uint32> moved;
 	const byte *end = body + size;
 	uint32 pos = 0;
+	uint next = 0;
 	while (pos < size) {
 		const byte *s = body + pos;
-		// The bundle's strings are NUL-terminated as the builder wrote them (an escape argument 0 ends one too:
-		// MM's original "sound \xff\x04\xc8" is followed by its NUL).
-		const byte *e = (const byte *)memchr(s, 0, end - s);
-		if (!e)
-			e = end;
+		while (next < starts.size() && starts[next] <= pos)
+			next++;
+		const uint32 limit = (next < starts.size() && starts[next] < size) ? starts[next] : size;
+		const byte *e;
+		int terminator = 1;	// whether the byte at e is this string's NUL
+		if (isTranslation.contains(pos)) {
+			// A translation ends at its NUL outside an escape: an escape argument may be 0 (MI2: FF 0A 00 xx), and
+			// the part after that NUL is still the same string. Where the escape runs on into the next entry (MM's
+			// original "sound FF 04 C8 00": the NUL is the terminator) the string ends at the byte before it.
+			e = scummTextEnd(s, body + limit);
+			if (e == body + limit) {
+				if (e > s && e[-1] == 0)
+					e--;
+				else
+					terminator = 0;	// no NUL: the next entry starts right here
+			}
+		} else {
+			// The bundle's other strings are NUL-terminated as the builder wrote them.
+			e = (const byte *)memchr(s, 0, end - s);
+			if (!e)
+				e = end;
+		}
 		moved.setVal(pos, out.size());
 		if (isTranslation.contains(pos))
 			cp949ToUtf8(s, e, out, unmapped);
@@ -68,9 +94,8 @@ bool convertTrsBodyToUtf8(const byte *body, uint32 size, Common::Array<uint32> &
 			for (const byte *q = s; q < e; q++)
 				out.push_back(*q);
 		out.push_back(0);
-		pos = (uint32)(e - body) + 1;
+		pos = (uint32)(e - body) + ((terminator && e < end) ? 1 : 0);
 	}
-
 	Common::Array<uint32> *lists[2] = { &originals, &translations };
 	for (int l = 0; l < 2; l++) {
 		for (uint i = 0; i < lists[l]->size(); i++) {

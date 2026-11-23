@@ -47,3 +47,12 @@ written into the log by the next commit.
   Python model of the engine rule (`~/work/tmp/p6a/emu.py`) gives 103708 pairs when a translation runs to its
   escape-aware end, which is the plan's `+103711`; the NUL split gives 20027. Fixed in the next commit (translations run to
   their escape-aware end, clipped at the next entry offset, which keeps MM's `sound FF 04 C8 00` working).
+- a5 sha 238d202631d.
+
+### a5-fix: a translation with a NUL escape argument (deviation from appendix B.5)
+- Red: new test `test_translation_runs_past_a_nul_argument` failed (`memcmp ... found (-56 != 0)`), 655 tests, 1 failed.
+- Fix: a translation string runs to its escape-aware end (`scummTextEnd`), clipped at the next entry offset of either
+  list (MM's `sound FF 04 C8 00` still ends at its NUL: the terminator before the next entry); other strings stay
+  NUL-split. Extra test `test_translation_stops_at_the_next_entry` and `test_unterminated_translation_keeps_an_empty_next_entry`.
+  Green: 656 tests (N0 + 12).
+- Evidence: MI2cp now `738122 -> 841833` and Zak `87138 -> 102032`, exactly the plan's numbers.
