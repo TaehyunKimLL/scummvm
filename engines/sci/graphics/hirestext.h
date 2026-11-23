@@ -71,6 +71,8 @@ public:
 	Graphics::HiResRenderTarget getTarget() const { return _target; }
 	/** The screen format the target needs: CLUT8, or the RGB format the driver asks the backend for. */
 	Graphics::PixelFormat getScreenFormat() const { return Graphics::hiResTargetFormat(_target); }
+	/** Whether the engine has said (once) that an anti-aliased face is drawn on the CLUT8 screen. */
+	bool warnedCoverageOnClut8() const { return _warnedCoverage; }
 	bool wantsRgb() const { return _active && _target != Graphics::kHiResTargetClut8; }
 	Graphics::TextCompose::Mode getComposeMode() const { return Graphics::composeMode(_target, _blend); }
 	const Graphics::HiResPick &getPick() const { return _pick; }
@@ -87,6 +89,7 @@ public:
 private:
 	bool anyCoverageFace(Common::Array<Common::String> &notes);
 
+	bool _warnedCoverage;
 	bool _active;
 	Graphics::HiResFiles *_files;
 	bool _ownFiles;

@@ -1,6 +1,7 @@
 #include <cxxtest/TestSuite.h>
 
 #include "test/graphics/hires_support.h"
+#include "test/graphics/svf_fixture_aa.h"
 #include "test/system/null_osystem.h"
 
 #include "sci/graphics/hirestext.h"
@@ -70,6 +71,107 @@ public:
 		Common::Array<Common::String> notes;
 		TS_ASSERT(c.setup(&files, Graphics::HiResOptions(), Common::Path("game"), "ko", allTargets(), notes));
 		TS_ASSERT(c.getScreenFormat().isCLUT8());
+	}
+
+	// AA faces for RGB, a 1 bpp face for CLUT8 (DESIGN 5.1: AA is for the RGB targets): [font:rgb] over [font:clut8].
+	static const char *pairedMap() {
+		return "[map]\nversion=3\n[fonts]\nng=data:aa/NG16P.SVF\nja=data:aa/NG16JA.SVF\nneo=data:fixture/JAMO.SVF\n"
+		       "[font]\nface=neo\nsize=16\n"
+		       "[font:rgb]\nface=ng,ja,neo\n"
+		       "[font:clut8]\nface=neo\n";
+	}
+
+	static void addAaFaces(HiResTest::MemoryFiles &files) {
+		files.addBytes("data/aa/NG16P.SVF", kSvfAaNG16P, sizeof(kSvfAaNG16P));
+		files.addBytes("data/aa/NG16JA.SVF", kSvfAaNG16JA, sizeof(kSvfAaNG16JA));
+	}
+
+	// The bpp of the faces of the chain that draws Hangul in the set of font @p id, "2 2 1".
+	static Common::String chainBpps(const Graphics::HiResFontSet *set) {
+		const Graphics::SvfChain *c = set->getChain(set->route(0xAC00));
+		Common::String out;
+		for (uint i = 0; i < c->getFaceCount(); ++i)
+			out += Common::String::format(i ? " %u" : "%u", c->getFace(i)->getBpp());
+		return out;
+	}
+
+	// The coverage levels the set draws "가똠" with, as a bit set of 0: 85, 1: 170, 2: 255, 3: anything else.
+	static uint levelsOf(const Graphics::HiResFontSet *set) {
+		Graphics::TextPlane plane;
+		plane.create(64, 24, 1);
+		set->drawText("\xea\xb0\x80\xeb\x98\xa0", 6, 2, 16, plane, 1);
+		uint bits = 0;
+		for (int y = 0; y < 24; ++y)
+			for (int x = 0; x < 64; ++x) {
+				const byte c = plane.getCoverage(x, y);
+				if (c == 85)
+					bits |= 1;
+				else if (c == 170)
+					bits |= 2;
+				else if (c == 255)
+					bits |= 4;
+				else if (c)
+					bits |= 8;
+			}
+		return bits;
+	}
+
+	void test_aaForRgbAndOneBppForClut8() {
+		HiResTest::MemoryFiles files;
+		files.addText("game/ko/HIRESVF.MAP", pairedMap());
+		addAaFaces(files);
+		const uint32 all = allTargets() | (1 << Graphics::kHiResTargetRgb555);
+		// auto: a face has coverage, so RGB (16-bit first), and the [font:rgb] chain is the AA one
+		{
+			Sci::SciHiResText t;
+			Common::Array<Common::String> notes;
+			TS_ASSERT(t.setup(&files, Graphics::HiResOptions(), Common::Path("game"), "ko", all, notes));
+			TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetRgb565);
+			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2 1");
+			TS_ASSERT_EQUALS(levelsOf(t.getFontSet(0)), 7u);	// 85, 170, 255 and nothing else
+		}
+		const Graphics::HiResRenderTarget rgb[] = { Graphics::kHiResTargetRgb565, Graphics::kHiResTargetRgb555, Graphics::kHiResTargetRgb888 };
+		for (uint i = 0; i < ARRAYSIZE(rgb); ++i) {
+			Sci::SciHiResText t;
+			Common::Array<Common::String> notes;
+			Graphics::HiResOptions o;
+			o.target = rgb[i];
+			TS_ASSERT(t.setup(&files, o, Common::Path("game"), "ko", all, notes));
+			TS_ASSERT_EQUALS(t.getTarget(), rgb[i]);
+			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2 1");
+		}
+		// CLUT8 asked for: the [font:clut8] chain, the 1 bpp face alone, whole coverage only
+		{
+			Sci::SciHiResText t;
+			Common::Array<Common::String> notes;
+			Graphics::HiResOptions o;
+			o.target = Graphics::kHiResTargetClut8;
+			TS_ASSERT(t.setup(&files, o, Common::Path("game"), "ko", all, notes));
+			TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetClut8);
+			TS_ASSERT(!t.wantsRgb());
+			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "1");
+			TS_ASSERT_EQUALS(levelsOf(t.getFontSet(0)), 4u);	// only 255
+			TS_ASSERT(!t.warnedCoverageOnClut8());
+		}
+	}
+
+	// A map that names an AA face for CLUT8 anyway (no [font:clut8]): the plane keeps the coverage and the sink stamps it at
+	// 128 (the defined fallback); the engine says so once.
+	void test_aaFaceOnClut8IsStampedAndWarnedOnce() {
+		HiResTest::MemoryFiles files;
+		files.addText("game/ko/HIRESVF.MAP", "[map]\nversion=3\n[fonts]\nng=data:aa/NG16P.SVF\nja=data:aa/NG16JA.SVF\n[font]\nface=ng,ja\nsize=16\n");
+		addAaFaces(files);
+		Sci::SciHiResText t;
+		Common::Array<Common::String> notes;
+		Graphics::HiResOptions o;
+		o.target = Graphics::kHiResTargetClut8;
+		TS_ASSERT(t.setup(&files, o, Common::Path("game"), "ko", allTargets(), notes));
+		TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetClut8);
+		TS_ASSERT(!t.warnedCoverageOnClut8());
+		TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2");
+		TS_ASSERT(t.warnedCoverageOnClut8());
+		TS_ASSERT_EQUALS(levelsOf(t.getFontSet(0)), 7u);	// the plane has the levels; TextCompose::kStamp cuts them at 128
+		TS_ASSERT_EQUALS(t.getComposeMode(), Graphics::TextCompose::kStamp);
 	}
 
 	void test_fallsBackToTheEngineMap() {

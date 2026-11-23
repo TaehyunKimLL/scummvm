@@ -34,7 +34,7 @@ namespace Sci {
 
 const char *const SciHiResText::kDefaultMap = "data:hires_text/maps/korean-default.map";
 
-SciHiResText::SciHiResText() : _active(false), _files(nullptr), _ownFiles(false), _faces(nullptr),
+SciHiResText::SciHiResText() : _warnedCoverage(false), _active(false), _files(nullptr), _ownFiles(false), _faces(nullptr),
 	_target(Graphics::kHiResTargetClut8), _blend(Graphics::kHiResBlendAuto) {
 }
 
@@ -120,6 +120,14 @@ const Graphics::HiResFontSet *SciHiResText::getFontSet(int fontId) {
 		delete set;
 		set = nullptr;
 	}
+	// A face with coverage on a CLUT8 screen is stamped at coverage >= 128 (its edges are cut): say so once.
+	for (uint c = 0; set && _target == Graphics::kHiResTargetClut8 && !_warnedCoverage && c < set->getChainCount(); ++c)
+		for (uint f = 0; f < set->getChain(c)->getFaceCount(); ++f)
+			if (set->getChain(c)->getFace(f)->getBpp() > 1 && !_warnedCoverage) {
+				_warnedCoverage = true;
+				warning("Hi-res text, font %d: an anti-aliased face on a CLUT8 screen is stamped at coverage >= 128; "
+				        "give the map a [font:clut8] section with a 1 bpp face", fontId);
+			}
 	for (uint i = 0; i < warnings.size(); ++i)
 		warning("Hi-res text, font %d: %s", fontId, warnings[i].c_str());
 	_sets[fontId] = set;

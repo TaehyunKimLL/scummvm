@@ -108,6 +108,20 @@ public:
 		TS_ASSERT_EQUALS(names(Graphics::compileIdPlan(m, 0, w).chains[Graphics::compileIdPlan(m, 0, w).chainFor(0xAC00)]), "b -");
 	}
 
+	// rgb555 is an rgb target for the qualifiers: [S:rgb] applies to it, [S:clut8] does not.
+	void test_rgb555QualifiesAsRgb() {
+		const char *text = "[map]\nversion=3\n[fonts]\na=A.SVF\nb=B.SVF\nc=C.SVF\n[font]\nface=a\n[font:rgb]\nface=b\n[font:clut8]\nface=c\n";
+		Common::Array<Common::String> w;
+		const Graphics::HiResRenderTarget targets[] = { Graphics::kHiResTargetRgb565, Graphics::kHiResTargetRgb555, Graphics::kHiResTargetRgb888,
+		                                                Graphics::kHiResTargetClut8 };
+		const char *want[] = { "b -", "b -", "b -", "c -" };
+		for (uint i = 0; i < 4; ++i) {
+			const Graphics::HiResMap m = loadFor(text, "sci", targets[i]);
+			const Graphics::HiResIdPlan p = Graphics::compileIdPlan(m, 0, w);
+			TS_ASSERT_EQUALS(names(p.chains[p.chainFor(0xAC00)]), want[i]);
+		}
+	}
+
 	// Two rules for one span in one section: the later wins, with a warning (as scalars do).
 	void test_duplicateSpanInOneSection() {
 		const Graphics::HiResMap m = load("[map]\nversion=3\n[fonts]\na=A.SVF\nb=B.SVF\nc=C.SVF\n[font]\nface=a\n"
