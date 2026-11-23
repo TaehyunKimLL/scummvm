@@ -699,6 +699,13 @@ Common::KeymapArray SciMetaEngine::initKeymaps(const char *target) const {
 	// Hangul composer; a keyboard without the key has the others.
 	if (ConfMan.get("language", target) != "ko")
 		return keymaps;
+	// Only where the composer can be used: with an OS input method
+	// (hangul_builtin=false) or korean_text=false the keys stay the game's
+	// (Shift+Space, Ctrl+Space, RAlt, F12 and ScrollLock would be swallowed).
+	bool value;
+	if ((ConfMan.hasKey("hangul_builtin", target) && Common::parseBool(ConfMan.get("hangul_builtin", target), value) && !value) ||
+	    (ConfMan.hasKey("korean_text", target) && Common::parseBool(ConfMan.get("korean_text", target), value) && !value))
+		return keymaps;
 	Common::Keymap *keymap = new Common::Keymap(Common::Keymap::kKeymapTypeGame, "sci-korean", _("Korean input"));
 	Common::Action *act = new Common::Action("HANGULTOGGLE", _("Han/Yeong (Korean input on/off)"));
 	act->setCustomEngineActionEvent(kSciActionHangulToggle);
