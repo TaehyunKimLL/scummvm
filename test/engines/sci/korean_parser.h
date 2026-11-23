@@ -14,7 +14,8 @@ using Sci::WordMap;
 class SciKoreanParserTestSuite : public CxxTest::TestSuite {
 	enum { kVerb = 0x800, kNoun = 0x100, kPrep = 0x010 };
 	enum { gOpen = 0x10, gDoor = 0x20, gGive = 0x30, gBowl = 0x40, gWoodcutter = 0x50, gTo = 0x60, gIn = 0x61,
-	       gLook = 0x70, gAsk = 0x80, gAbout = 0x90, gTree = 0xA0, gHole = 0xA1 };
+	       gLook = 0x70, gAsk = 0x80, gAbout = 0x90, gTree = 0xA0, gHole = 0xA1, gThe = 0xB0, gInside = 0xB1 };
+	enum { kArticle = 0x020 };
 
 	WordMap _words;
 	Common::Array<byte> _table;
@@ -63,6 +64,7 @@ public:
 		add("about", 0x008, gAbout);
 		add("tree", kNoun, gTree);
 		add("hole", kNoun, gHole);
+		add("the", kArticle, gThe);
 		static const KoreanVocabFixture::Row rows[] = {
 			{ "\xEB\xAC\xB8", gDoor, kNoun },                         // 문
 			{ "\xEC\x97\xB4\xEB\x8B\xA4", gOpen, kVerb },             // 열다
@@ -74,6 +76,9 @@ public:
 			{ "\xEB\x82\x98\xEB\xAC\xB4", gTree, kNoun },             // 나무
 			{ "\xEA\xB5\xAC\xEB\xA9\x8D", gHole, kNoun },             // 구멍
 			{ "\xEB\xAC\xBC\xEC\x96\xB4\xEB\xB3\xB4\xEB\x8B\xA4", gAsk, kVerb }, // 물어보다
+			{ "\xEA\xB7\xB8", gThe, kArticle },                    // 그
+			{ "\xEC\x95\x88", gIn, kPrep },                        // 안
+			{ "\xEB\xB3\xB4\xEB\x8B\xA4", gLook, kVerb },       // 보다
 		};
 		_table = KoreanVocabFixture::build("SCIKOR", rows, ARRAYSIZE(rows));
 		Common::MemoryReadStream s(_table.data(), _table.size());
@@ -171,5 +176,31 @@ public:
 		TS_ASSERT(!Sci::koreanAnswerRoom(Sci::GID_QFG1VGA, 29));
 		TS_ASSERT(!Sci::koreanAnswerRoom(Sci::GID_QFG2, 198));
 		TS_ASSERT(!Sci::koreanAnswerRoom(Sci::GID_KQ1, 199));
+	}
+
+	// agy 3: an article that carries a case particle (그에게) is not part of the next noun's unit.
+	void test_articleWithParticleBeforeNounUnit() {
+		Sci::KoreanParser p(_words, _vocab);
+		// 그에게 문 안을 봐
+		static const char *const typed[] = { "\xEA\xB7\xB8\xEC\x97\x90\xEA\xB2\x8C", "\xEB\xAC\xB8",
+		                                     "\xEC\x95\x88\xEC\x9D\x84", "\xEB\xB4\x90", nullptr };
+		ResultWordListList words, fallback;
+		Common::Array<uint8> roles;
+		tokens(p, typed, words, roles);
+		p.arrange(words, roles, fallback);
+		TS_ASSERT(words.size() >= 3);
+	}
+
+	void test_articleWithParticleThenNounWithParticle() {
+		Sci::KoreanParser p(_words, _vocab);
+		// 그에게 문에게 줘
+		static const char *const typed[] = { "\xEA\xB7\xB8\xEC\x97\x90\xEA\xB2\x8C",
+		                                     "\xEB\xAC\xB8\xEC\x97\x90\xEA\xB2\x8C", "\xEC\xA4\x98", nullptr };
+		ResultWordListList words, fallback;
+		Common::Array<uint8> roles;
+		tokens(p, typed, words, roles);
+		p.arrange(words, roles, fallback);
+		TS_ASSERT_EQUALS(groups(words).substr(0, 2), "30");
+		TS_ASSERT(words.size() >= 3);
 	}
 };

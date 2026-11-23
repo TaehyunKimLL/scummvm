@@ -187,7 +187,8 @@ void KoreanParser::arrange(ResultWordListList &words, const Common::Array<uint8>
 		while (head && start > 0 && (int)(start - 1) != verb &&
 		       ((hasClass(tok[start - 1], nounClass) && !isPrepositionOnly(tok[start - 1]) &&
 		         (role[start - 1] == Common::kKoreanRoleNone || role[start - 1] == Common::kKoreanRoleOf)) ||
-		        onlyClass(tok[start - 1], articleClass)))
+		        (onlyClass(tok[start - 1], articleClass) &&
+		         (role[start - 1] == Common::kKoreanRoleNone || role[start - 1] == Common::kKoreanRoleOf))))
 			--start;
 		unitStart.push_back(start);
 	}
@@ -271,9 +272,10 @@ bool KoreanParser::arrangeTokens(const Common::Array<ResultWordList> &tok, const
 		if (isPrepositionOnly(tok[k]) && plainUnits && hasClass(plain.back(), nounClass)) {
 			// 구멍 안을 봐: the postposition and its noun unit become "in hole".
 			phrases.push_back(tok[k]);
-			for (uint u = plain.size() - plainUnits; u < plain.size(); ++u)
+			const uint units = MIN<uint>(plainUnits, plain.size());
+			for (uint u = plain.size() - units; u < plain.size(); ++u)
 				phrases.push_back(plain[u]);
-			for (uint u = 0; u < plainUnits; ++u)
+			for (uint u = 0; u < units; ++u)
 				plain.pop_back();
 			plainUnits = 0;
 			continue;
@@ -287,15 +289,19 @@ bool KoreanParser::arrangeTokens(const Common::Array<ResultWordList> &tok, const
 			// 나무꾼에게: "to woodcutter", after the plain object.
 			rolePhrases = true;
 			phrases.push_back(prep);
-			for (uint u = unitStart[k]; u <= k; ++u)
-				phrases.push_back(tok[u]);
-			for (uint u = unitStart[k]; u < k; ++u)
+			// The unit's earlier tokens come from plain, and only as many as
+			// plain holds: a token that went elsewhere is not emitted twice.
+			const uint popCount = MIN<uint>(k - unitStart[k], plain.size());
+			for (uint u = plain.size() - popCount; u < plain.size(); ++u)
+				phrases.push_back(plain[u]);
+			phrases.push_back(tok[k]);
+			for (uint u = 0; u < popCount; ++u)
 				plain.pop_back();
 			plainUnits = 0;
 			continue;
 		}
 		plain.push_back(tok[k]);
-		plainUnits = k + 1 - unitStart[k];
+		plainUnits = MIN<uint>(k + 1 - unitStart[k], plain.size());
 	}
 
 	out.clear();
