@@ -185,6 +185,8 @@ def aa_faces(tmp):
 		key.update(subprocess.run(["git", "-C", SVF] + args, check=True, capture_output=True, text=True).stdout.encode())
 	parent = os.environ.get("TMPDIR", tempfile.gettempdir())
 	cache = os.path.join(parent, "svf-aa-faces-" + key.hexdigest()[:16])
+	if os.path.isdir(cache) and not all(os.path.isfile(os.path.join(cache, n + ".SVF")) for n in AA_NAMES):
+		sys.exit("mkgolden: %s exists but lacks faces: remove it and run again" % cache)	# before a 75 s rebuild, not after
 	if not all(os.path.isfile(os.path.join(cache, n + ".SVF")) for n in AA_NAMES):
 		part = tempfile.mkdtemp(prefix="svf-aa-faces-part-", dir=parent)	# unique: two runs do not share it
 		if subprocess.run([sys.executable, "-I", os.path.join(HERE, "gen_aa_faces.py"), part, "--only", ",".join(AA_NAMES)]).returncode:
