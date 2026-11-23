@@ -512,7 +512,7 @@ ScummEngine::~ScummEngine() {
 		delete[] _2byteFontPtr;
 	for (int i = 0; i < 20; i++)
 		if (_2byteMultiFontPtr[i])
-			delete _2byteMultiFontPtr[i];
+			delete[] _2byteMultiFontPtr[i];
 	delete _charset;
 	delete _messageDialog;
 	delete _pauseDialog;
@@ -1037,6 +1037,11 @@ Common::Error ScummEngine::init() {
 	_enableAudioOverride = ConfMan.getBool("audio_override");
 
 	// Add default file directories.
+	if (_language == Common::KO_KOR) {
+		// A Korean translation bundle may sit in a "ko" folder (ko/ko.trs, ko/korean.trs)
+		SearchMan.addSubDirectoryMatching(gameDataDir, "ko");
+	}
+
 	if (((_game.platform == Common::kPlatformAmiga) || (_game.platform == Common::kPlatformAtariST)) && (_game.version <= 4)) {
 		// This is for the Amiga version of Indy3/Loom/Maniac/Zak
 		SearchMan.addSubDirectoryMatching(gameDataDir, "rooms");

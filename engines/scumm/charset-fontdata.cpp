@@ -767,6 +767,10 @@ CharsetRendererV2::CharsetRendererV2(ScummEngine *vm, Common::Language language)
 		break;
 	}
 
+	// The glyph count of the table _fontPtr ends up with (8 bytes a glyph, no header): Korean UTF-8 text may ask for a glyph
+	// U+0080..U+00FF, which must not read past it. The replacement tables are copies of the English one.
+	_numChars = (_fontPtr == russianCharsetDataV2) ? sizeof(russianCharsetDataV2) / 8 : sizeof(englishCharsetDataV2) / 8;
+
 	if (replacementMap && replacementData) {
 		_fontPtr = new byte[sizeof(englishCharsetDataV2)];
 		_deleteFontPtr = true;

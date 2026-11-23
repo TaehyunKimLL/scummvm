@@ -28,6 +28,7 @@
 #include "scumm/scumm_v0.h"
 #include "scumm/scumm_v7.h"
 #include "scumm/string_v7.h"
+#include "scumm/korean_text.h"
 #include "scumm/verbs.h"
 
 namespace Scumm {
@@ -481,9 +482,14 @@ void ScummEngine_v2::redrawV2Inventory() {
 		assert(tmp);
 
 		// Prevent inventory entries from overflowing by truncating the text
-		byte msg[20];
-		msg[maxChars] = 0;
-		strncpy((char *)msg, (const char *)tmp, maxChars);
+		byte msg[20 * 4];
+		if (_koreanUtf8) {
+			// maxChars characters, not bytes: a UTF-8 syllable is 3 bytes and must not be cut
+			koreanCopyChars(tmp, resStrLen(tmp) + 1, maxChars, msg, sizeof(msg));
+		} else {
+			msg[maxChars] = 0;
+			strncpy((char *)msg, (const char *)tmp, maxChars);
+		}
 
 		// Draw it
 		drawString(1, msg);
@@ -1183,7 +1189,10 @@ void ScummEngine::drawVerb(int verb, int mode, Common::TextToSpeechManager::Acti
 
 		if (isRtl)
 			vs->curRect.left = _charset->_str.left;
-		vs->curRect.right = pixelXOffset + ((_game.version <= 2) ? MIN<int>(vs->curRect.left + (getResourceSize(rtVerb, verb) - 1) * 8, _screenWidth) : _charset->_str.right);
+		if (_game.version <= 2 && !_koreanUtf8) // v2 draws 8 pixels a byte; UTF-8 verbs are 3 bytes a syllable of 8 pixels
+			vs->curRect.right = pixelXOffset + MIN<int>(vs->curRect.left + (getResourceSize(rtVerb, verb) - 1) * 8, _screenWidth);
+		else
+			vs->curRect.right = pixelXOffset + _charset->_str.right;
 		vs->curRect.bottom = _charset->_str.bottom + pixelYOffset;
 		vs->oldRect = _charset->_str;
 		_charset->_str.left = _charset->_str.right;

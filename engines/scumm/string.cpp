@@ -40,6 +40,8 @@
 #include "scumm/scumm_v2.h"
 #include "scumm/scumm_v6.h"
 #include "scumm/scumm_v7.h"
+#include "scumm/korean_text.h"
+#include "scumm/trs_bundle.h"
 #include "scumm/verbs.h"
 #include "scumm/he/sound_he.h"
 
@@ -834,7 +836,7 @@ void ScummEngine::wrapSegaCDText() {
 		memcpy(predictionString, _charsetBuffer, sizeof(predictionString));
 
 		// Impose a tentative max string width for the wrapping
-		_charset->addLinebreaks(0, predictionString + _charsetBufPos, 0, predictionMaxWidth);
+		_charset->addLinebreaks(0, predictionString + _charsetBufPos, 0, predictionMaxWidth, sizeof(predictionString) - _charsetBufPos);
 
 		int predictionStringWidth = _charset->getStringWidth(0, predictionString + _charsetBufPos);
 		predictionNextLeft -= predictionStringWidth / 2;
@@ -879,7 +881,7 @@ void ScummEngine::wrapSegaCDText() {
 					// let's just skip it...
 					ptrToCurLine++;
 				} else if (_useCJKMode && curChar & 0x80) { // CJK char
-					ptrToCurLine++;
+					ptrToCurLine += cjkTrailBytes(ptrToCurLine);
 				}
 
 				// Line breaks and string termination
@@ -906,7 +908,7 @@ void ScummEngine::wrapSegaCDText() {
 		finalMaxWidth = _nextLeft;
 	finalMaxWidth *= 2;
 
-	_charset->addLinebreaks(0, _charsetBuffer + _charsetBufPos, 0, finalMaxWidth);
+	_charset->addLinebreaks(0, _charsetBuffer + _charsetBufPos, 0, finalMaxWidth, sizeof(_charsetBuffer) - _charsetBufPos);
 
 	int finalStringWidth = _charset->getStringWidth(0, _charsetBuffer + _charsetBufPos);
 	_nextLeft -= finalStringWidth / 2;
@@ -937,6 +939,9 @@ void ScummEngine_v2::drawSentence() {
 	if (getResourceAddress(rtVerb, slot))
 		_sentenceBuf = (char *)getResourceAddress(rtVerb, slot);
 	else
+		return;
+
+	if (drawKoreanSentence())
 		return;
 
 	if (VAR(VAR_SENTENCE_OBJECT1) > 0) {
@@ -1168,7 +1173,7 @@ void ScummEngine::displayDialog() {
 		// we will take care of it in a different way just below ... :-)
 		if (_game.platform != Common::kPlatformSegaCD ||
 			(_game.platform == Common::kPlatformSegaCD && !_charset->_center)) {
-			_charset->addLinebreaks(0, _charsetBuffer + _charsetBufPos, 0, maxWidth);
+			_charset->addLinebreaks(0, _charsetBuffer + _charsetBufPos, 0, maxWidth, sizeof(_charsetBuffer) - _charsetBufPos);
 		}
 	}
 
@@ -1260,10 +1265,8 @@ void ScummEngine::displayDialog() {
 		}
 
 		if (c & 0x80 && _useCJKMode) {
-			if (is2ByteCharacter(_language, c)) {
-				byte *buffer = _charsetBuffer + _charsetBufPos;
-				c += *buffer++ * 256; //LE
-				_charsetBufPos = buffer - _charsetBuffer;
+			if (_koreanUtf8 || is2ByteCharacter(_language, c)) {
+				c = nextCJKChar(c, _charsetBuffer, _charsetBufPos);
 
 				// The JAP Sega CD version of Monkey Island 1 doesn't just calculate
 				// the font height, but instead relies on the actual string height.
@@ -1352,7 +1355,9 @@ int ScummEngine::countNumberOfWaits() {
 }
 
 void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager::Action ttsAction) {
-	byte buf[270];
+	// 512, not 270: Korean UTF-8 text is up to 1.5 times its CP949 length (Zak's longest line: 208 -> 295 bytes),
+	// and convertMessageToString() stops the engine on a full buffer.
+	byte buf[512];
 	byte *space;
 	int i, c;
 	byte fontHeight = 0;
@@ -1537,8 +1542,8 @@ void ScummEngine::drawString(int a, const byte *msg, Common::TextToSpeechManager
 				}
 			}
 			if (c & 0x80 && _useCJKMode) {
-				if (is2ByteCharacter(_language, c))
-					c += buf[i++] * 256;
+				if (_koreanUtf8 || is2ByteCharacter(_language, c))
+					c = nextCJKChar(c, buf, i);
 			}
 
 			// With the code above, we risk missing the termination character.
@@ -1904,7 +1909,9 @@ int ScummEngine::convertNameMessage(byte *dst, int dstSize, int var) {
 			int increment = convertMessageToString(ptr, dst, dstSize);
 			// Save the final consonant (jongsung) of the last Korean character
 			// Used by Korean fan translated games (monkey1, monkey2)
-			if (isScummvmKorTarget() && _useCJKMode) {
+			if (_koreanUtf8) {
+				_krStrPost = koreanFinalBits(dst, dst + increment);	// of the name as shown (UTF-8)
+			} else if (isScummvmKorTarget() && _useCJKMode) {
 				_krStrPost = 0;
 				int len = resStrLen(ptr);
 				if (len >= 2) {
@@ -1971,7 +1978,9 @@ int ScummEngine::convertStringMessage(byte *dst, int dstSize, int var) {
 			int increment = convertMessageToString(ptr, dst, dstSize);
 			// Save the final consonant (jongsung) of the last Korean character
 			// Used by Korean fan translated games (monkey1, monkey2)
-			if (isScummvmKorTarget() && _useCJKMode) {
+			if (_koreanUtf8) {
+				_krStrPost = koreanFinalBits(dst, dst + increment);
+			} else if (isScummvmKorTarget() && _useCJKMode) {
 				_krStrPost = 0;
 				for (int i = resStrLen(ptr); i > 1; i--) {
 					byte k1 = ptr[i - 2];
@@ -2337,7 +2346,10 @@ void ScummEngine::loadLanguageBundle() {
 	}
 
 	ScummFile file(this);
-	openFile(file, "korean.trs");
+	Common::Array<Common::Path> names;
+	trsBundleNames(_language, names);
+	for (uint n = 0; n < names.size() && !file.isOpen(); n++)
+		openFile(file, names[n]);
 
 	if (!file.isOpen()) {
 		_existLanguageFile = false;
@@ -2407,6 +2419,9 @@ void ScummEngine::loadLanguageBundle() {
 	file.read(_languageBuffer, size - bodyPos);
 	file.close();
 
+	if (_koreanUtf8 && !trsBodyIsUtf8(_languageBuffer, size - bodyPos))
+		transcodeLanguageBundle(size - bodyPos);	// a CP949 bundle: translations to UTF-8, once
+
 	debug(2, "loadLanguageBundle: Loaded %d entries", _numTranslatedLines);
 }
 
@@ -2472,7 +2487,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 					const byte *translatedText = searchTranslatedLine(text, scrpRange, true);
 					if (translatedText) {
 						debug(7, "translateText: Found by heuristic #1");
-						memcpy(trans_buff, translatedText, MIN<int>(resStrLen(translatedText) + 1, transBufferSize));
+						copyTranslatedText(trans_buff, translatedText, transBufferSize, true);
 						return;
 					}
 				}
@@ -2489,7 +2504,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 					const byte *translatedText = searchTranslatedLine(text, scrpRange, true);
 					if (translatedText) {
 						debug(7, "translateText: Found by heuristic #2");
-						memcpy(trans_buff, translatedText, MIN<int>(resStrLen(translatedText) + 1, transBufferSize));
+						copyTranslatedText(trans_buff, translatedText, transBufferSize, true);
 						return;
 					}
 				}
@@ -2500,7 +2515,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 		const byte *translatedText = searchTranslatedLine(text, TranslationRange(0, _numTranslatedLines - 1), false);
 		if (translatedText) {
 			debug(7, "translateText: Found by full search");
-			memcpy(trans_buff, translatedText, MIN<int>(resStrLen(translatedText) + 1, transBufferSize));
+			copyTranslatedText(trans_buff, translatedText, transBufferSize, true);
 			return;
 		}
 
@@ -2508,7 +2523,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 	}
 
 	// Default: just copy the string
-	memcpy(trans_buff, text, MIN<int>(resStrLen(text) + 1, transBufferSize));
+	copyTranslatedText(trans_buff, text, transBufferSize);
 }
 
 bool ScummEngine::reverseIfNeeded(const byte *text, byte *reverseBuf, int reverseBufSize) const {
@@ -2524,7 +2539,7 @@ bool ScummEngine::reverseIfNeeded(const byte *text, byte *reverseBuf, int revers
 Common::CodePage ScummEngine::getDialogCodePage() const {
 	switch (_language) {
 	case Common::KO_KOR:
-		return Common::kWindows949;
+		return koreanEngineCodePage(_koreanUtf8);	// UTF-8 inside the engine for v1-v6
 	case Common::JA_JPN:
 		return Common::kWindows932;
 	case Common::ZH_CHN:

@@ -101,7 +101,7 @@ public:
 	virtual void drawChar(int chr, Graphics::Surface &s, int x, int y) {}
 
 	virtual int getStringWidth(int arg, const byte *text);
-	void addLinebreaks(int a, byte *str, int pos, int maxwidth);
+	void addLinebreaks(int a, byte *str, int pos, int maxwidth, int capacity = 0);
 	void translateColor();
 
 	virtual void setCurID(int32 id) = 0;
