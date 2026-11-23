@@ -227,7 +227,7 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
 	// (ko/) goes before the game folder, so its message.map, patches and
 	// tables win.
 	_textMode = decideTextMode(textModeInputs(gameDataDir, SCI_VERSION_NONE), _textModeNotes);
-	if (_textMode.utf8())
+	if (_textMode.utf8() && *Common::getLanguageFolderCode(_textMode.language))
 		SearchMan.addSubDirectoryMatching(gameDataDir, Common::getLanguageFolderCode(_textMode.language), 1);
 }
 
@@ -390,7 +390,9 @@ Common::Error SciEngine::run() {
 			debugC(1, kDebugLevelKorean, "Text mode: %s", _textModeNotes.c_str());
 		const Common::TranslationFileHeader expected = translationHeader(false);
 		const Common::String code = Common::getLanguageFolderCode(_textMode.language);
-		if (_scriptStrings.load(code, expected)) {
+		if (code.empty()) {
+			// text_encoding=utf8 on a target of unknown language: no sci-<code>.str to look for
+		} else if (_scriptStrings.load(code, expected)) {
 			if (!_scriptStrings.getHeader().present())
 				warning("This game's sci-%s.str header line is: %s", code.c_str(), expected.toString().c_str());
 		} else if (!_scriptStrings.isPresent()) {
