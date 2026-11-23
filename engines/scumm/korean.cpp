@@ -21,11 +21,70 @@
 
 #include "common/str.h"
 #include "scumm/charset.h"
+#include "scumm/korean_sentence.h"
 #include "scumm/resource.h"
+#include "scumm/scumm_v2.h"
 #include "scumm/korean_text.h"
 #include "scumm/trs_bundle.h"
+#include "scumm/verbs.h"
 
 namespace Scumm {
+
+namespace {
+
+int sentenceWidth(const Common::String &text, void *ctx) {
+	return static_cast<CharsetRenderer *>(ctx)->getStringWidth(0, (const byte *)text.c_str());
+}
+
+} // End of anonymous namespace
+
+bool ScummEngine_v2::drawKoreanSentence() {
+	// _sentenceBuf holds the verb, translated when its resource was loaded (loadPtrToResource()).
+	if (!koreanSentenceApplies(_game.version, _game.platform, _language, hasTranslationBundle()) ||
+	    !koreanVerbTranslated(_sentenceBuf))
+		return false;
+
+	KoreanSentenceParts parts;
+	parts.verb = _sentenceBuf;
+	parts.prep = VAR(VAR_SENTENCE_PREPOSITION);
+	if (parts.prep < 0 || parts.prep > 4)
+		parts.prep = 0;
+
+	// Object names come from the room's OBCD, which upstream never translates: look each up in the bundle.
+	byte buf[256];
+	const int obj1 = VAR(VAR_SENTENCE_OBJECT1);
+	const int obj2 = VAR(VAR_SENTENCE_OBJECT2);
+	const byte *name;
+	if (obj1 > 0 && (name = getObjOrActorName(obj1)) != nullptr) {
+		translateText(name, buf, sizeof(buf));
+		parts.objA = (const char *)buf;
+		parts.hasA = true;
+	}
+	if (obj2 > 0 && (name = getObjOrActorName(obj2)) != nullptr) {
+		translateText(name, buf, sizeof(buf));
+		parts.objB = (const char *)buf;
+		parts.hasB = true;
+		parts.bIsActor = objIsActor(obj2);
+	}
+	// Unlock (8) and Fix (6) ... with <B>: B is the tool (MM verb ids; jamo kMMVerbFix/kMMVerbUnlock; Zak has no
+	// such verb).
+	const int verb = VAR(VAR_SENTENCE_VERB);
+	parts.instrumentB = parts.prep == 2 && _game.id == GID_MANIAC && (verb == 6 || verb == 8);
+
+	_sentenceBuf = fitKoreanSentence(parts, _virtscr[kVerbVirtScreen].w, sentenceWidth, _charset);
+
+	_string[2].charset = 1;
+	_string[2].ypos = _virtscr[kVerbVirtScreen].topline;
+	_string[2].xpos = 0;
+	_string[2].right = _virtscr[kVerbVirtScreen].w - 1;
+	_string[2].color = (_game.platform == Common::kPlatformC64) ? 16 : 13;
+
+	Common::Rect sentenceline(0, _virtscr[kVerbVirtScreen].topline, _virtscr[kVerbVirtScreen].w - 1,
+	                          _virtscr[kVerbVirtScreen].topline + 8);
+	restoreBackground(sentenceline);
+	drawString(2, (const byte *)_sentenceBuf.c_str());
+	return true;
+}
 
 void ScummEngine::transcodeLanguageBundle(uint32 bodySize) {
 	Common::Array<uint32> originals, translations;

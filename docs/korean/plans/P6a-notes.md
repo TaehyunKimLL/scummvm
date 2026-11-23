@@ -71,3 +71,14 @@ written into the log by the next commit.
   Indy3, Indy4 (`프로그래밍 : 론 발드윈`, `목소리 관련 : 에릭 월문더`), Loom, MI1 floppy (credits in Korean), DOTT: 0
   `Assertion`, 0 `has no glyph`. Bundle sizes: MM 50116 -> 58803, Zak 102032, Indy3 148571, Loom 85771 -> 100614, **Indy4
   813252 -> 908215** (the plan's 821300 was the NUL-split number; 7 unreadable pairs as planned).
+- a7 sha 9277ae02b38. a7 [data] (hover an inventory object in MI2): not reached, stays UNVERIFIED (as in the plan).
+
+### a8 904ed3fb75e: v2 sentence composer
+- Red: `korean_sentence.h: No such file or directory`. Green: 660 tests (N0 + 16; the plan's "N0 + 13" counts without my three
+  a5-fix tests).
+
+### a9: hook the sentence line
+- Hooks (hunks 13, 16) + `drawKoreanSentence()` in `korean.cpp`. 660 tests, no warning.
+- [data] MM pack (kids, START, Escape x2, verb, hover the sign), run `~/work/tmp/p6/runs/a9-mm`: `이게 뭐지? 표지판`
+  (`scumm-p6a-mm-sentence-sign.png`), and `표지판 닫기` (object before verb). Two-object lines: UNVERIFIED in play (as the plan).
+  The scripted run depends on cutscene timing (two of four attempts clicked before the verbs were live).

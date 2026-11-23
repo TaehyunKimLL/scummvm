@@ -112,6 +112,8 @@ protected:
 	void adaptCursorToVideoMode();
 
 	void drawPreposition(int index);
+	/** The Korean sentence line (korean_sentence.h); true when it was drawn. */
+	bool drawKoreanSentence();
 
 	void walkActorToObject(int actor, int obj);
 

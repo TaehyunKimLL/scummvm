@@ -941,6 +941,9 @@ void ScummEngine_v2::drawSentence() {
 	else
 		return;
 
+	if (drawKoreanSentence())
+		return;
+
 	if (VAR(VAR_SENTENCE_OBJECT1) > 0) {
 		temp = getObjOrActorName(VAR(VAR_SENTENCE_OBJECT1));
 		if (temp) {
