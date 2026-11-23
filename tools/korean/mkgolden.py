@@ -153,13 +153,22 @@ AA_CASES = [
 	("ChainSizes3by2", (1, 3), SHORT, 2, 25, 116, 30, (3, 2), 0),
 	("Bpp8", (4, 0), "한글가나Abc123 똠".encode(), 2, 15, 160, 20, (1, 1), 6),
 ]
-# Cases that also get RGB565 and RGB888 target goldens (svfline.Target): fg, bg.
-AA_TARGET_CASES = ("ChainPJ", "ChainPJ3by2")
+# Cases that also get target goldens (svfline.Target): (kind, tag, big endian, bit 15 of fg565 for RGB555). The cells are
+# drawn over a background filled with the target's bg value; RGB555 with bit 15 set copies it to every drawn pixel.
+AA_TARGETS = {
+	"ChainPJ": (("rgb565", "Rgb565", False, 0), ("rgb565", "Rgb565Be", True, 0), ("rgb555", "Rgb555", False, 0x8000),
+	            ("rgb555", "Rgb555Be", True, 0), ("rgb888", "Rgb888", False, 0)),
+	"ChainPJ3by2": (("rgb565", "Rgb565", False, 0), ("rgb555", "Rgb555", False, 0x8000), ("rgb888", "Rgb888", False, 0)),
+}
 AA_FG, AA_BG = 0xF0E040, 0x102060
 
 
 def rgb565(c):
 	return (c >> 8 & 0xF800) | (c >> 5 & 0x07E0) | (c >> 3 & 0x001F)
+
+
+def rgb555(c):
+	return (c >> 9 & 0x7C00) | (c >> 6 & 0x03E0) | (c >> 3 & 0x001F)
 
 
 def aa_faces(tmp):
@@ -216,7 +225,7 @@ def aa_golden_h(rev, aa, marks, jamo):
 	       "// GRAY8 lines of tools/svfline.py over the chains of the faces kSvfAa* and the 1 bpp kSvfFixtureMarks / kSvfFixtureJamo:",
 	       "// Faces are indexes of FACE_NAMES in tools/korean/mkgolden.py (%s)." % ", ".join(FACE_NAMES),
 	       "// One hex byte a pixel, one string a row; the Target rows are RGB565 (little endian) and RGB888 (B G R) bytes,",
-	       "// fg 0x%06X over bg 0x%06X." % (AA_FG, AA_BG), ""]
+	       "// fg 0x%06X over bg 0x%06X; Be: SVF_TF_RGB16_BIGENDIAN; Rgb555 has bit 15 of fg565 set, Rgb555Be has not." % (AA_FG, AA_BG), ""]
 	for name, faces, text, x, y, w, h, scale, missing in AA_CASES:
 		chain = [paths[i] for i in faces]
 		places = svfline.placements(svfline.load_chain(chain), text, x, y, svfline.is_mark_default, missing, scale)
@@ -233,18 +242,23 @@ def aa_golden_h(rev, aa, marks, jamo):
 		for r in range(h):
 			out.append("\t\"" + bytes(gray[r * w:(r + 1) * w]).hex() + "\",")
 		out.append("};")
-		if name in AA_TARGET_CASES:
-			for kind, tag in (("rgb565", "Rgb565"), ("rgb888", "Rgb888")):
-				t = svfline.Target(kind, w, h, fg565=rgb565(AA_FG), bg565=rgb565(AA_BG), fg888=AA_FG, bg888=AA_BG)
-				# the background is the target's initial content: fill it, then draw the cells
-				bpx = {"rgb565": rgb565(AA_BG).to_bytes(2, "little"), "rgb888": bytes((AA_BG & 255, AA_BG >> 8 & 255, AA_BG >> 16))}[kind]
-				t.buf[:] = bpx * (w * h)
-				svfline.draw_target(places, t)
-				bpp = 2 if kind == "rgb565" else 3
-				out.append("static const char *const %s%sRows[%d] = {" % (p, tag, h))
-				for r in range(h):
-					out.append("\t\"" + bytes(t.buf[r * t.stride:r * t.stride + w * bpp]).hex() + "\",")
-				out.append("};")
+		for kind, tag, big, bit15 in AA_TARGETS.get(name, ()):
+			is555 = kind == "rgb555"
+			fg16 = (rgb555(AA_FG) | bit15) if is555 else rgb565(AA_FG)
+			bg16 = rgb555(AA_BG) if is555 else rgb565(AA_BG)
+			t = svfline.Target(kind, w, h, fg565=fg16, bg565=bg16, fg888=AA_FG, bg888=AA_BG, big_endian=big)
+			# the background is the target's initial content: fill it, then draw the cells
+			if kind == "rgb888":
+				bpx = bytes((AA_BG & 255, AA_BG >> 8 & 255, AA_BG >> 16))
+			else:
+				bpx = bg16.to_bytes(2, "big" if big else "little")
+			t.buf[:] = bpx * (w * h)
+			svfline.draw_target(places, t)
+			bpp = 3 if kind == "rgb888" else 2
+			out.append("static const char *const %s%sRows[%d] = {" % (p, tag, h))
+			for r in range(h):
+				out.append("\t\"" + bytes(t.buf[r * t.stride:r * t.stride + w * bpp]).hex() + "\",")
+			out.append("};")
 		out.append("")
 	out.append("#endif")
 	return "\n".join(out) + "\n"
