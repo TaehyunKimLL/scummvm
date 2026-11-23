@@ -22,6 +22,8 @@
 #include <cxxtest/TestSuite.h>
 
 #include "common/array.h"
+#include "common/file.h"
+#include "common/fs.h"
 #include "common/memstream.h"
 #include "common/ustr.h"
 
@@ -31,11 +33,13 @@
 #include "graphics/hires_text/text_plane.h"
 #include "graphics/pixelformat.h"
 #include "graphics/surface.h"
+#include "image/png.h"
 
 #include "test/graphics/svf_fixture.h"
 #include "test/graphics/svf_fixture_aa.h"
 #include "test/graphics/svf_golden_aa_data.h"
 #include "test/graphics/svf_test_util.h"
+#include "test/system/null_osystem.h"
 
 #define SVF_AA_ARGS(p) p##Text, p##X, p##Y, p##W, p##H, p##ScaleNum, p##ScaleDen, p##Missing, p##Rows
 
@@ -759,5 +763,50 @@ public:
 		TS_ASSERT(partial > 10);
 		TS_ASSERT_EQUALS(strictly, partial);
 		s.free();
+	}
+
+	// Developer aid: with a directory "aa-dump" in the working directory, writes strips of the same text in the 1 bpp
+	// fallback face and the 2 bpp faces as CLUT8 would show them (stamped at 128, at 64) and blended on RGB, each pixel
+	// drawn 3x3 (docs/korean/plans/AA-tests.md, "CLUT8 policy").
+	void test_dumpWhenAsked() {
+		Common::install_null_g_system();
+		if (Common::FSNode(Common::Path("aa-dump")).isDirectory()) {
+			static const char *text = "\xed\x95\x9c\xea\xb8\x80 \xea\xb2\x8c\xec\x9e\x84\xec\x9d\x84 \xec\x8b\x9c\xec\x9e\x91\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4. Hello 123";
+			static const struct { const char *name; int faces[2]; int n; } rows[] = {
+				{ "1bpp", { kJamo1, 0 }, 1 }, { "2bpp-precomposed", { kP, 0 }, 1 }, { "2bpp-jamo", { kJA, 0 }, 1 }, { "2bpp-chain", { kP, kJA }, 2 },
+			};
+			const int w = 264, h = 20, zoom = 3, gap = 4;
+			const int kModes = 3;	// stamp 128, stamp 64, blend
+			Graphics::Surface out;
+			out.create(w * zoom, (int)ARRAYSIZE(rows) * kModes * (h * zoom + gap), Graphics::PixelFormat(4, 8, 8, 8, 0, 16, 8, 0, 0));
+			out.fillRect(Common::Rect(out.w, out.h), 0x102060);
+			for (uint r = 0; r < ARRAYSIZE(rows); ++r) {
+				Graphics::SvfChain *chain = makeChain(rows[r].faces, rows[r].n, 1, 1, 6);
+				const Common::Array<byte> cov = gray(*chain, text, 2, 15, w, h);
+				for (int m = 0; m < kModes; ++m)
+					for (int y = 0; y < h; ++y)
+						for (int x = 0; x < w; ++x) {
+							const byte c = cov[y * w + x];
+							byte shade = 0;
+							if (m == 0)
+								shade = c >= 128 ? 255 : 0;
+							else if (m == 1)
+								shade = c >= 64 ? 255 : 0;
+							else
+								shade = c;
+							const uint32 col = Graphics::PixelFormat(4, 8, 8, 8, 0, 16, 8, 0, 0).RGBToColor(
+								Graphics::TextCompose::blend(0x10, 0xF0, shade), Graphics::TextCompose::blend(0x20, 0xE0, shade),
+								Graphics::TextCompose::blend(0x60, 0x40, shade));
+							const int oy = ((int)r * kModes + m) * (h * zoom + gap) + y * zoom;
+							out.fillRect(Common::Rect(x * zoom, oy, (x + 1) * zoom, oy + zoom), col);
+						}
+				delete chain;
+			}
+			Common::DumpFile f;
+			TS_ASSERT(f.open(Common::Path("aa-dump/clut8-policy.png")));
+			TS_ASSERT(Image::writePNG(f, out));
+			out.free();
+		}
+		Common::uninstall_null_g_system();
 	}
 };
