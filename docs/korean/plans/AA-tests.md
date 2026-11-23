@@ -150,8 +150,8 @@ The first record of this table was wrong for four rows (the Opus review reproduc
 * **Owner's call (left as is):** an `rgb555` request on a backend that offers 888 and not 555 falls to 888, not 565 (the fallback order is 888, 565, 555 whatever was asked).
 * **The text follows the screen it got** (`SciHiResText::setScreenFormat`, called by the driver after `initGraphics`): an RGB text
   whose screen came out as another RGB format, or as CLUT8, takes the screen's target: the map is loaded again with that target's
-  sections (`[font:clut8]` or `[font:rgb]`), the font sets are dropped, a note is logged, and the AA-on-CLUT8 warning applies when
-  the map has no `[font:clut8]`. It also follows CLUT8 to RGB: `render_target=clut8` with the user's `rgb_rendering=true` gives an RGB565 screen (**a behaviour change**: before the first review round the screen was CLUT8, in the first round an RGB screen with the text still CLUT8); the `[font:rgb]` chain is then used, an AA face is blended instead of thresholded, and the CLUT8-screen warning is not given. The Mac QuickTime path (`kvideo.cpp` `initScreen(&videoFormat)`) does not report its temporary video format, and the replaced font sets are kept alive (generation counter, `GfxCache` rebuilds its hi-res fonts): an ASan test reported the use after free of the first version.
+  sections (`[font:clut8]` or `[font:rgb]`), the font sets are replaced, a note is logged, and the AA-on-CLUT8 warning applies when
+  the map has no `[font:clut8]`. It never follows CLUT8 to RGB: an explicit (or resolved) `render_target=clut8` wins over an RGB screen that came from the user's `rgb_rendering`/`palette_mods`. A paired map keeps its 1 bpp `[font:clut8]` chain, an AA-only map is stamped at 128 (the driver thresholds it on that RGB screen) and the one-time warning is given. (Round 2 had made the text follow that RGB screen; screen.cpp had already handed the driver the stamp mode, so the AA box came out two-coloured with no warning while this record claimed blending: reverted in round 3, section 9.2.) The compose mode is handed to the driver again after `initScreen()`. The Mac QuickTime path (`kvideo.cpp` `initScreen(&videoFormat)`) does not report its temporary video format, and the replaced font sets are kept alive (generation counter, `GfxCache` rebuilds its hi-res fonts via `takeStale()`): an ASan test reported the use after free of the first version.
 * `init.cpp` no longer clears the user's `rgb_rendering` / `palette_mods` when the hi-res text uses 1 bpp faces (it only upgrades the
   request). No unit test (the driver needs a running engine); run: KQ1 with a 1 bpp-only map and `rgb_rendering=true`, `render_target`
   unset: `Hi-res text: screen format RGB565@2 for render target clut8` (RGB screen, CLUT8 text); the same map without it:
@@ -237,7 +237,7 @@ The chain-variant frames (retaken in the second review round with the final bina
 (Latin also AA, lighter than the Hangul), `-jamo-first-message.png` (reversed chain: every syllable from the jamo set), `-18px-message.png`
 (NG18P + NG16JA in one box: the 17 against 15 px step makes the spacing slightly uneven), `-3by2-message.png` (the 16 px chain at `size=24`),
 `-clut8-aa-face-stamped-message.png` (informational: no `[font:clut8]`, stamped at 128, one warning logged; with `rgb_rendering=true` the
-same map gives an RGB565 screen and no warning). The hashes below are those of the final binary (unchanged by the later fixes, which do not
+same map gives an RGB565 screen, the same stamped frame and the same warning). The hashes below are those of the final binary (unchanged by the later fixes, which do not
 touch the SCI text path).
 
 Syllables in KQ1's `sci-ko.str`: 563 distinct Hangul syllables, 8,038 occurrences; **473 distinct syllables (3,897 occurrences, 48 %)
@@ -331,7 +331,7 @@ Reports: `reviews/AA-opus-r2.md`, `reviews/AA-agy-r2.md`.
 |---|---|---|---|
 | use after free in `setScreenFormat` (deleted sets under the font cache) and the Mac QuickTime `initScreen(&videoFormat)` mutating the text | real | `d7577920323` | red: the new `test_fontsOutliveTheScreenSwitch` made the ASan build report `heap-use-after-free` in `GfxFontHiRes::getCharWidth` before the fix; after it the ASan suite is clean. The old sets are kept, a generation counter makes `GfxCache` rebuild its hi-res fonts, the driver reports the screen only when `srcRGBFormat` is null. The QuickTime path itself was not run (no Mac data): the guard is the `!srcRGBFormat` condition |
 | `SvfFont` on 8-bit alpha surfaces: opaque dark fringes | real | `06e5d3af72a` | red: `test_svfFontAlphaSurfaces` failed for all three 8-bit formats (547 and 1,138 pixels) before the fix; Porter-Duff over now, exact per pixel for transparent and opaque backgrounds, colour alpha 255 and 128; 1-bit alpha stays opaque |
-| clut8 + `rgb_rendering` + AA map: RGB screen, "CLUT8 screen" warning, AA thresholded | real | `d7577920323` | `test_textFollowsTheScreenItGot`; run: `Hi-res text: the backend gave a rgb565 screen, not clut8: the text follows the screen`, no warning (the same map without `rgb_rendering`: CLUT8 screen and the warning). **Behaviour change**, recorded in section 3 |
+| clut8 + `rgb_rendering` + AA map: RGB screen, "CLUT8 screen" warning, AA thresholded | real, but the round-2 fix was wrong (see 9.2) | `d7577920323`, reverted by `54a15ba204a` | the round-2 text "the text follows the RGB screen, no warning" is **superseded**: the target stays clut8 (decision of round 3) |
 | stale comments and docs (`convertSpan`, "16-bit first", the 1 LSB tolerance in DESIGN 10) | real | docs commit of this round | DESIGN 10 now says: equal to the C targets byte for byte at the same screen format; `auto` gives 888 on a desktop that offers it, 565/555 on DOS |
 | `mkgolden.py` cache robustness, content hash, `--only` validation | real | `412c1dbf35c` | `gen_aa_faces.py x --only NG16Q` exits 2; `mkgolden.py --check` rc 0 |
 | `rgb555` falls to 888 when 565 is not asked and 888 is offered | left | | owner's call (section 3) |
@@ -342,3 +342,31 @@ Mutations of this round (applied alone, tests rebuilt, file reverted): `svffont.
 `test_fontsOutliveTheScreenSwitch`.
 
 Totals after the round: SCI 729 OK, ASan 729 OK (0 sanitizer lines), SCI+SCI32 729 OK, no-engine 647 OK.
+
+### 9.2 Third round (3rd Opus pass: not yet, one major; agy: one critical)
+
+Reports: `reviews/AA-opus-r3.md`, `reviews/AA-agy-r3.md`.
+
+| finding | verdict | commit | evidence |
+|---|---|---|---|
+| M-1: clut8 + `rgb_rendering` + AA map: two-coloured box identical to the CLUT8 stamp, no warning (the stamp mode was handed to the driver before `initScreen()`); the paired map lost its 1 bpp chain | real | `54a15ba204a` | decision: an explicit `render_target=clut8` wins; the text follows the screen only downward (RGB request, CLUT8 or another RGB format delivered). Red: `test_textFollowsTheScreenItGot` (target went to rgb565, generation 1, 2 2 1 chain on a clut8 text). `GfxScreen` hands the driver the compose mode again after `initScreen()` |
+| Critical: `SvfFont` over: rounded alpha before the divisor, a channel could wrap (white at coverage 170 over ARGB(1,255,255,255) came out black) | real | `5a88c37c1d9` | red: `test_svfFontOverExhaustive` (63,726 wrapped channels, 215,034 model misses before the fix; 0 after, premultiplied within 1.5 of a floating-point model over every coverage x text alpha {0,1,127,128,254,255} x background alpha {0,1,2,64,127,128,254,255} x channel pairs incl. 255/255, 255/0) |
+| n-1: comments said "as TTFFont::renderGlyph" | real | `5a88c37c1d9` | the comments say ideal over; renderGlyph pre-multiplies and ignores the colour's alpha |
+| n-2: mkgolden refused an incomplete cache only after regenerating | real | `6f30c3a617c` | checked first |
+| n-3: GfxCache side of the generation check untested | partly | `54a15ba204a` | the check is now `SciHiResText::takeStale()`, tested; `GfxCache::getFont` itself still needs a resource manager and a screen and is covered by reading and by the runs |
+
+Headless matrix (KQ1 room message, final binary, crop (130,175)-(500,215) of the message box; colours counted in that crop, all frames viewed):
+
+| run | log | colours | frame |
+|---|---|---|---|
+| AA-only map, `render_target=clut8`, `rgb_rendering=true` | `screen format RGB565@2 for render target clut8`, the one warning "an anti-aliased face on a CLUT8 screen is stamped" | 3 | text hash `74db61bad482`, message box `627ed3a13a41`: **identical to the plain CLUT8 stamp run** (stamp, warning) |
+| paired map, same options | `RGB565@2 for render target clut8`, no warning | 3 | `8419fed9d74b` / `3be2b4f27669`: **identical to the plain CLUT8 run** (the 1 bpp NG16J1 chain) |
+| paired map, `render_target=rgb565` | `RGB565@2 for render target rgb565` | 5 | `a3308774f7f9` / `5b1e065b15f8`: blended AA (hash as in section 5) |
+| AA-only map, clut8, no `rgb_rendering` | `CLUT8`, the warning | 3 | the same stamp frame |
+| paired map, clut8, no `rgb_rendering` | `CLUT8`, no warning | 3 | the 1 bpp chain |
+
+An RGB request delivered as CLUT8 could not be produced headless (the SDL backend always offers RGB here); it is covered by `test_textFollowsTheScreenItGot` only.
+
+Mutations (alone, reverted): the old rounded-alpha divisor fails `test_svfFontOverExhaustive`; `setScreenFormat` following clut8 to RGB again fails `test_textFollowsTheScreenItGot`; `takeStale()` never true fails `test_fontsOutliveTheScreenSwitch`. The compose-mode refresh in `screen.cpp` has no unit test (the driver needs a running engine): the matrix runs above are its evidence (the AA-only run is stamped, not blended).
+
+Totals: SCI 730 OK, ASan 730 OK (0 sanitizer lines), SCI+SCI32 730 OK, no-engine 648 OK.
