@@ -164,19 +164,20 @@ PixelFormat hiResTargetFormat(HiResRenderTarget target) {
 	}
 }
 
-Common::List<PixelFormat> hiResScreenFormats(HiResRenderTarget target, const Common::List<PixelFormat> &supported) {
-	Common::List<PixelFormat> out;
+bool hiResPickScreenFormat(HiResRenderTarget target, const Common::List<PixelFormat> &supported, PixelFormat &out) {
 	if (target == kHiResTargetClut8 || target == kHiResTargetAuto)
-		return out;
+		return false;
 	const HiResRenderTarget order[] = { target, kHiResTargetRgb888, kHiResTargetRgb565, kHiResTargetRgb555 };
 	for (uint i = 0; i < ARRAYSIZE(order); ++i) {
 		if (i && order[i] == target)
 			continue;
 		for (Common::List<PixelFormat>::const_iterator it = supported.begin(); it != supported.end(); ++it)
-			if (hiResTargetOf(*it) == order[i])
-				out.push_back(*it);
+			if (hiResTargetOf(*it) == order[i]) {
+				out = *it;
+				return true;
+			}
 	}
-	return out;
+	return false;
 }
 
 uint32 hiResTargetsOffered(const Common::List<PixelFormat> &formats) {

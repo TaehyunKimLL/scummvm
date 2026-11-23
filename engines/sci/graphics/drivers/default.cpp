@@ -110,9 +110,14 @@ bool GfxDefaultDriver::initScreen(const Graphics::PixelFormat *srcRGBFormat) {
 		formatList.push_back(format8bt);
 		initGraphics(_screenW, _screenH, formatList);
 	} else if (!srcRGBFormat && _requestRGBMode && g_sci->getHiResText() && g_sci->getHiResText()->wantsRgb()) {
-		// Hi-res text names its target (rgb888, rgb565, rgb555): the backend's formats of that target, then its other RGB
-		// formats, in the order initGraphics takes the first backend format of (hiResScreenFormats). An empty list gives CLUT8.
-		initGraphics(_screenW, _screenH, Graphics::hiResScreenFormats(g_sci->getHiResText()->getTarget(), g_system->getSupportedFormats()));
+		// Hi-res text names its target (rgb888, rgb565, rgb555): the backend's first format of it, else of another RGB target
+		// (hiResPickScreenFormat); initGraphics takes the first BACKEND format its list has, so the list is that one format.
+		// No RGB format at all gives an empty list: CLUT8.
+		Common::List<Graphics::PixelFormat> formatList;
+		Graphics::PixelFormat wanted;
+		if (Graphics::hiResPickScreenFormat(g_sci->getHiResText()->getTarget(), g_system->getSupportedFormats(), wanted))
+			formatList.push_back(wanted);
+		initGraphics(_screenW, _screenH, formatList);
 	} else {
 		initGraphics(_screenW, _screenH, srcRGBFormat ? srcRGBFormat : (_requestRGBMode ? nullptr : &format8bt));
 	}

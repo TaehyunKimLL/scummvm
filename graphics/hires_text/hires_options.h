@@ -78,13 +78,13 @@ uint32 hiResTargetsOffered(const Common::List<PixelFormat> &formats);
 HiResRenderTarget hiResTargetOf(const PixelFormat &format);
 
 /**
- * The formats the SCI driver offers initGraphics() for a screen of @p target, from the backend's @p supported list:
- * first the supported formats that are @p target (in the backend's order), then the other supported RGB formats
- * (rgb888, rgb565, rgb555 first), never CLUT8. Empty for clut8/auto or when no RGB format is supported (initGraphics then
- * gives CLUT8). initGraphics takes the first backend format the list has, so a target the backend lacks falls to another
- * RGB format instead of straight to CLUT8.
+ * The screen format the SCI driver asks initGraphics() for, from the backend's @p supported list: the first supported
+ * format (in the backend's order) of @p target; when the backend has none, the first of the other RGB targets in the order
+ * rgb888, rgb565, rgb555. False (and the driver asks for no format: CLUT8) for clut8/auto or when no RGB format is supported.
+ * The driver hands initGraphics exactly this one format: initGraphics() takes the first BACKEND format its list has, so a
+ * list with several targets would give the backend's favourite, not the wanted target.
  */
-Common::List<PixelFormat> hiResScreenFormats(HiResRenderTarget target, const Common::List<PixelFormat> &supported);
+bool hiResPickScreenFormat(HiResRenderTarget target, const Common::List<PixelFormat> &supported, PixelFormat &out);
 
 /** The pixel format a screen of @p target has: CLUT8, RGB565, RGB555 (no alpha bit), XRGB8888; CLUT8 for auto. */
 PixelFormat hiResTargetFormat(HiResRenderTarget target);
