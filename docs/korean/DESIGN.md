@@ -536,7 +536,10 @@ Commits may be agent-written with an `Assisted-by:` trailer (owner's rule for th
   smoke paths.
 - DOS: DOSBox-X headless (`xvfb-run dosbox-x -conf X -nopromptfolder -fastlaunch`, `cputype=pentium`) and
   DOSBox Staging; `harness/dos/play_test.py`, `twozip_test.py`; screenshots of the first screen compared to the
-  Linux CLUT8 run (identical for 1-bpp maps; RGB runs compared with a tolerance of 1 LSB).
+  Linux CLUT8 run (identical for 1-bpp maps). RGB runs: the text composite equals the C renderer's RGB565/RGB555 targets byte for
+  byte when the screen format is the same (section 10, RGB composite arithmetic); `auto` gives 888 on a Linux desktop that
+  offers it and 565/555 on DOS (VBE), so a DOS RGB frame equals the Linux frame of the same format (`render_target=rgb565`),
+  not the 888 one; compared across formats the tolerance is the channel width (1 LSB of the narrower).
 - Debug socket: kept as the test oracle (`gui/debugsocket*`, SCI and SCUMM extensions, AGI gets `state` and
   `wait text`), compiled only with `--enable-debug-socket`.
 

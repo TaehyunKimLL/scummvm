@@ -71,8 +71,8 @@ void composeSpan(byte *dst, const PixelFormat &fmt, const byte *index, const byt
 
 /**
  * RGB from a CLUT8 hi-res frame row: every pixel of @p dst becomes
- * @p frame's palette colour with the text put over it at 8 bits a channel
- * (so an RGB565 screen rounds once). @p index / @p coverage may be null:
+ * @p frame's palette colour cut to the screen format's channels (as
+ * PixelFormat::RGBToColor does) with the text blended over it in those channel widths (blendPixel()). @p index / @p coverage may be null:
  * no text on the row.
  */
 void convertSpan(byte *dst, const PixelFormat &fmt, const byte *frame, const byte *index, const byte *coverage, int n,
