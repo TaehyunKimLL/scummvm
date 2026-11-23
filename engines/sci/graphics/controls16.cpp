@@ -183,6 +183,7 @@ void GfxControls16::texteditChangeUtf8(reg_t controlObject, reg_t eventObject) {
 	if (textReference.isNull())
 		error("kEditControl called on object that doesn't have a text reference");
 	Common::String text = _segMan->getString(textReference);
+	const Common::String before = text;
 	// The script's cursor counts code points; the line works in bytes.
 	uint cursor = utf8OffsetOf((const byte *)text.c_str(), readSelectorValue(_segMan, controlObject, SELECTOR(cursor)));
 	EventManager *events = g_sci->getEventManager();
@@ -202,8 +203,12 @@ void GfxControls16::texteditChangeUtf8(reg_t controlObject, reg_t eventObject) {
 		int16 width, height;
 		_text16->StringWidth(text, -1, width, height);
 		if (width >= rect.width()) {
-			// The line is full: the key is taken back.
-			_koreanLine.undo(text, cursor);
+			// The line is full: an edit that made it wider is taken back (Backspace, Delete and the
+			// cursor keys of a line that is already full stay).
+			int16 widthBefore, heightBefore;
+			_text16->StringWidth(before, -1, widthBefore, heightBefore);
+			if (width > widthBefore)
+				_koreanLine.undo(text, cursor);
 		}
 		const uint16 index = utf8IndexOfOffset((const byte *)text.c_str(), cursor);
 		texteditCursorErase();
