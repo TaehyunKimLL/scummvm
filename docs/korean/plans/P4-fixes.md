@@ -46,3 +46,27 @@ red/green evidence named; counts: `make test` 679 -> 690.
 `sync-svf.sh --check` and `mkgolden.py --check` rc 0, `test_k6bake.py` and `test_strcheck.py` OK, `check-commit-msg.py` clean on every commit
 (one `Assisted-by: Claude Code`, no Co-Authored-By). Headless (clut8): KQ1 first room as above; QFG1 VGA starts (ASan, 0 reports); QFG2 door sequence on ASan and on the
 normal build; English targets (QFG2, KQ4, LSL1 EGA, LB1) 320x200 with no Korean log line; ASan runs of LSL1 EGA, KQ4, LB1, Camelot clean.
+
+## Round 2 (re-review of 46fd164a9c9)
+
+Inputs: `reviews/P3-agy-r1.md`, `P4-agy-r1.md`, `P3-ocd-r1.md`, `P4-ocd-r1.md`, `P4-rereview.md`. `make test` 690 -> 696.
+
+| Finding | Commit | Evidence |
+|---|---|---|
+| CRITICAL (agy P3+P4): extra NUL one slot past the terminator in the raw -> non-raw copy (`n` is now text+1, so `maxSize > n` was true) | `24ca5a5e60b` | `storeString()` + `CharSink`; 3 unit tests against a fake array with a sentinel (exact fit, empty, finite n shorter/longer, bounded array, upstream behaviour pinned for non-UTF-8); red: with the old condition the sentinel test failed (`mem[4] == 0xAA` found 0); the cut warning prints the bounded text; non-raw -> non-raw gets the array bound for UTF-8; raw -> raw and same-block take their count from the plan (never above the buffer): same off-by-one class checked by reading, not affected |
+| agy P3 (new): `keyOf()` overwrote an existing room | `233c1807626` | `Key::inRoom()` + unit test (any-room, own room kept, unset) |
+| Opus re-review (4): article tests only checked no-abort | `73c862e978a` | assert `70 60 b0 61 20` and `30 60 b0 60 20` |
+| agy P3 #9 remainder: `adopt()` mutated before `writeRun()` | `d7cd457d104` | red/green test; the `_last` collision does not exist (an empty prompt already resets it): test pins it |
+| agy P3 #9(c): cursor clamp in bytes | `71fa44cf6f5` | by reading |
+| Opus re-review (3): keymap with no word table | `32474a89593` | registered only with `hangul_input=true` or a `ko/sci-ko.dat` |
+| agy P3 skipped: kStrAt past the buffer, kFormat diagnostic | `c73b76d0dd3` | by reading (needs the game) |
+| agy P3 #17: empty folder code | `d56d3abb609` | by reading |
+| agy P3 #16: strcheck duplicates | `7a8f8ae9e9d` | red/green test in `test_strcheck.py` |
+
+Not done, with reasons:
+- Opus re-review (1) phrases ("Wizards Institute", "Institute of Technocery"): not implemented. Script 2's matching of the phrases was not read, and question #12 accepts element words; the limitation is documented in the row comment (`korean_parser.cpp`).
+- Opus re-review (2) hut: not run (the hut was never reached), not removed: an unmatched line leaves the typed text as it is, so the row is harmless; the comment says UNVERIFIED and probably inert.
+- Alt+S leak: still open (see P4-notes.md).
+
+Checks: `make test` 696 OK (normal and ASan, 0 sanitizer lines), no-engine 620 OK, SCI32 and mingw build with no warnings, both `--check` scripts rc 0, `test_k6bake.py` and `test_strcheck.py` OK, `check-commit-msg.py` clean on all 10 new commits.
+Headless: KQ1 first room (`문을 열어` reply as before, `rmdprp ans dksdmf qhk` and `rmdprp ansdprp wnj` answered, no assertion, F5 save `문` listed by F7 clean); QFG1 VGA (ASan) starts, 0 reports, `grown from 68 to 159`; QFG2 Aziza door on ASan (`키폰`, `공기` -> air, `아지자` -> aziza); LSL1 EGA and KQ4 first screens on ASan clean; English targets (QFG2, KQ4, LSL1 EGA, LB1) 320x200, no Korean log line. No LB1/Camelot save in this round (the KQ1 save/restore was used).
