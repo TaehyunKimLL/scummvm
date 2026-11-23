@@ -203,6 +203,9 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
 
 	// Initialize the actual screen
 	_gfxDrv->initScreen();
+	// initScreen() may have changed the text's target (SciHiResText::setScreenFormat): the driver gets the compose mode again.
+	if (_textPlane)
+		_gfxDrv->setTextPlane(_textPlane, g_sci->getHiResText()->getComposeMode());
 
 	if (_gfxDrv->pixelSize() != 1 && _paletteModsEnabled)
 		_paletteMapScreen = (byte *)calloc(_displayPixels, 1);

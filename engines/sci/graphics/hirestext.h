@@ -74,13 +74,22 @@ public:
 	/** How many times the engine has said that an anti-aliased face is drawn on the CLUT8 screen (once per run at most). */
 	uint coverageOnClut8Warnings() const { return _coverageWarnings; }
 	/**
-	 * The screen the driver really got from the backend. When the text wanted RGB and the screen's target is another (a
-	 * backend that gave another RGB format, or CLUT8 for an RGB request) the text switches to the screen's target: the map is loaded again
-	 * with that target's sections, the font sets are replaced (the old ones are kept alive, the generation changes), a note says so (also in @p notes).
+	 * The screen the driver really got from the backend. When the text wanted RGB and the screen is another target (another
+	 * RGB format, or CLUT8: an RGB request the backend could not give) the text switches to the screen's target: the map is
+	 * loaded again with that target's sections, the font sets are replaced (the old ones are kept alive, the generation
+	 * changes) and a note says so (also in @p notes). A CLUT8 text never follows an RGB screen (render_target=clut8 wins over
+	 * the user's rgb_rendering). The caller hands the driver getComposeMode() again afterwards.
 	 */
 	void setScreenFormat(const Graphics::PixelFormat &format, Common::Array<Common::String> &notes);
 	/** Changes whenever the font sets were replaced (setScreenFormat): fonts built over the old sets are stale. */
 	uint getGeneration() const { return _generation; }
+	/** True, and @p seen updated, when the font sets were replaced since @p seen (the font cache then rebuilds its fonts). */
+	bool takeStale(uint &seen) const {
+		if (seen == _generation)
+			return false;
+		seen = _generation;
+		return true;
+	}
 	bool wantsRgb() const { return _active && _target != Graphics::kHiResTargetClut8; }
 	Graphics::TextCompose::Mode getComposeMode() const { return Graphics::composeMode(_target, _blend); }
 	const Graphics::HiResPick &getPick() const { return _pick; }

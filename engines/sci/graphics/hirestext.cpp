@@ -113,9 +113,10 @@ void SciHiResText::setScreenFormat(const Graphics::PixelFormat &format, Common::
 	if (!_active)
 		return;
 	const Graphics::HiResRenderTarget got = Graphics::hiResTargetOf(format);
-	// The text follows the screen it got: RGB to another RGB format or CLUT8, and CLUT8 to RGB (render_target=clut8 with the user's
-	// rgb_rendering gives an RGB screen: an AA face is then blended, not thresholded, and no CLUT8 warning is given).
-	if (got == Graphics::kHiResTargetAuto || got == _target)
+	// The text follows the screen only when it is LESS capable than the text asked for (an RGB target but a CLUT8 screen, or another
+	// RGB format). A CLUT8 text stays CLUT8 on an RGB screen (the user's rgb_rendering or palette_mods): an explicit
+	// render_target=clut8 wins, a paired map keeps its 1 bpp [font:clut8] chain and an AA-only map is stamped, with the warning.
+	if (got == Graphics::kHiResTargetAuto || got == _target || _target == Graphics::kHiResTargetClut8)
 		return;
 	notes.push_back(Common::String("the backend gave a ") + Graphics::HiResFontMap::targetName(got) + " screen, not " +
 	                Graphics::HiResFontMap::targetName(_target) + ": the text follows the screen");

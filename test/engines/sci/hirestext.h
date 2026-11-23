@@ -199,6 +199,11 @@ public:
 		TS_ASSERT(font.getCharWidth(0xAC00) > 0);
 		font.draw(0xAC00, 10, 20, 15, false);
 		TS_ASSERT(!t.getPlane().isEmpty());
+		// the font cache's side: it asks takeStale() with the generation it built its fonts at (GfxCache::getFont), once per change
+		uint seen = generation;
+		TS_ASSERT(t.takeStale(seen));
+		TS_ASSERT_EQUALS(seen, t.getGeneration());
+		TS_ASSERT(!t.takeStale(seen));
 		// the same text on the same screen again changes nothing
 		const uint g2 = t.getGeneration();
 		t.setScreenFormat(Graphics::PixelFormat::createFormatCLUT8(), n);
@@ -232,12 +237,15 @@ public:
 			Sci::SciHiResText t;
 			TS_ASSERT(t.setup(&files, Graphics::HiResOptions(), Common::Path("game"), "ko", all, notes));
 			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2 1");
+			TS_ASSERT_EQUALS(t.getComposeMode(), Graphics::TextCompose::kBlend);
 			Common::Array<Common::String> n;
 			t.setScreenFormat(Graphics::PixelFormat::createFormatCLUT8(), n);
 			TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetClut8);
 			TS_ASSERT(!t.wantsRgb());
 			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "1");
 			TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 0u);
+			// the compose mode the driver is handed again after initScreen: the stamp now, the blend before
+			TS_ASSERT_EQUALS(t.getComposeMode(), Graphics::TextCompose::kStamp);
 		}
 		// a map without [font:clut8]: the AA chain stays, and now the warning is given (once)
 		{
@@ -251,8 +259,8 @@ public:
 			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2");
 			TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 1u);
 		}
-		// a CLUT8 text on an RGB screen (render_target=clut8 with the user's rgb_rendering) follows the screen too: the [font:rgb] chain
-		// is blended instead of an AA face being thresholded, and no "CLUT8 screen" warning is given
+		// an explicit render_target=clut8 wins over an RGB screen (the user's rgb_rendering): a paired map keeps its 1 bpp [font:clut8]
+		// chain, the target and the generation do not change
 		{
 			Sci::SciHiResText t;
 			Graphics::HiResOptions o;
@@ -261,11 +269,13 @@ public:
 			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "1");
 			Common::Array<Common::String> n;
 			t.setScreenFormat(Graphics::hiResTargetFormat(Graphics::kHiResTargetRgb565), n);
-			TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetRgb565);
-			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2 1");
-			TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 0u);
+			TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetClut8);
+			TS_ASSERT(n.empty());
+			TS_ASSERT_EQUALS(t.getGeneration(), 0u);
+			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "1");
+			TS_ASSERT_EQUALS(t.getComposeMode(), Graphics::TextCompose::kStamp);
 		}
-		// an AA-only map, clut8 asked, an RGB screen got: the face is blended, nothing is said about CLUT8
+		// an AA-only map on clut8 on an RGB screen: the stamp (the driver thresholds it there) and the one-time warning stay
 		{
 			HiResTest::MemoryFiles f3;
 			f3.addText("game/ko/HIRESVF.MAP", "[map]\nversion=3\n[fonts]\nng=data:aa/NG16P.SVF\nja=data:aa/NG16JA.SVF\n[font]\nface=ng,ja\nsize=16\n");
@@ -276,10 +286,10 @@ public:
 			TS_ASSERT(t.setup(&f3, o, Common::Path("game"), "ko", all, notes));
 			Common::Array<Common::String> n;
 			t.setScreenFormat(Graphics::hiResTargetFormat(Graphics::kHiResTargetRgb565), n);
-			TS_ASSERT(t.wantsRgb());
-			TS_ASSERT_EQUALS(t.getComposeMode(), Graphics::TextCompose::kBlend);
+			TS_ASSERT(!t.wantsRgb());
+			TS_ASSERT_EQUALS(t.getComposeMode(), Graphics::TextCompose::kStamp);
 			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2");
-			TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 0u);
+			TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 1u);
 		}
 		// an unknown screen format (RGBA4444) changes nothing
 		{

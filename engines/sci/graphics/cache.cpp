@@ -83,10 +83,8 @@ GfxFont *GfxCache::hiResFont(GfxFont *font, GuiResourceId fontId) {
 GfxFont *GfxCache::getFont(GuiResourceId fontId) {
 	// Hi-res fonts built for another screen target (SciHiResText::setScreenFormat) are stale: build them again.
 	SciHiResText *hires = g_sci->getHiResText();
-	if (hires && hires->getGeneration() != _hiresGeneration) {
+	if (hires && hires->takeStale(_hiresGeneration))
 		purgeFontCache();
-		_hiresGeneration = hires->getGeneration();
-	}
 	if (_cachedFonts.size() >= MAX_CACHED_FONTS)
 		purgeFontCache();
 
