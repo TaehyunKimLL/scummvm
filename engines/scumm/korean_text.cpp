@@ -426,6 +426,33 @@ bool koreanInsertBreak(byte *str, int &strLength, int at, int capacity) {
 	return true;
 }
 
+int koreanCopyChars(const byte *src, int srcSize, int maxChars, byte *dst, int dstSize) {
+	if (dstSize <= 0)
+		return 0;
+	const byte *end = scummTextEnd(src, src + srcSize);
+	int at = 0, chars = 0;
+	const byte *p = src;
+	while (p < end && *p) {
+		int n = scummEscapeFull(p, end);
+		if (n < 0)
+			break;
+		const bool isChar = !n;
+		if (isChar) {
+			if (chars >= maxChars)
+				break;
+			decodeUtf8(p, end, n);
+		}
+		if (at + n > dstSize - 1)
+			break;
+		memcpy(dst + at, p, n);
+		at += n;
+		p += n;
+		chars += isChar;
+	}
+	dst[at] = 0;
+	return at;
+}
+
 Common::CodePage koreanEngineCodePage(bool utf8) {
 	return utf8 ? Common::kUtf8 : Common::kWindows949;
 }

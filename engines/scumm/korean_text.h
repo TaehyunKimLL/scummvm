@@ -111,6 +111,13 @@ bool legacyCp949Buffer(byte *buf, int size, int &pos);
  */
 bool koreanInsertBreak(byte *str, int &strLength, int at, int capacity);
 
+/**
+ * Copies at most @p maxChars characters (an escape counts for none) of the engine text at @p src (@p srcSize bytes) to @p dst (@p dstSize
+ * bytes), cut on a character boundary, NUL-terminated; returns the bytes written. The v2 inventory keeps a name to 18
+ * characters: counting bytes cut a UTF-8 name (3 bytes a syllable) inside a character.
+ */
+int koreanCopyChars(const byte *src, int srcSize, int maxChars, byte *dst, int dstSize);
+
 /** The code page engine text of a Korean target is in: UTF-8 for v1-v6 (\p utf8), CP949 for The Dig, FT and COMI. */
 Common::CodePage koreanEngineCodePage(bool utf8);
 

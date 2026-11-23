@@ -256,4 +256,22 @@ public:
 		TS_ASSERT(!Scumm::koreanInsertBreak(buf, len, -1, sizeof(buf)));
 		TS_ASSERT(!Scumm::koreanInsertBreak(buf, len, 20, sizeof(buf)));
 	}
+
+	void test_copy_chars_cuts_on_a_character() {
+		byte dst[32];
+		// 20 bytes of UTF-8 would cut the 7th syllable: 6 characters of 18 stay whole.
+		const byte name[] = "\xed\x95\x9c\xea\xb8\x80 \xec\xa0\x80\xec\x9e\xa5\xed\x95\x98\xea\xb8\xb0";	// 한글 저장하기
+		int n = Scumm::koreanCopyChars(name, sizeof(name), 18, dst, sizeof(dst));
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), Common::String((const char *)name));
+		n = Scumm::koreanCopyChars(name, sizeof(name), 4, dst, sizeof(dst));
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xed\x95\x9c\xea\xb8\x80 \xec\xa0\x80");
+		// The room in dst cuts on a boundary too, and an escape is whole or absent and counts for no character.
+		n = Scumm::koreanCopyChars(name, sizeof(name), 18, dst, 8);
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xed\x95\x9c\xea\xb8\x80 ");
+		const byte esc[] = "a\xff\x04\x01\x02" "b";
+		n = Scumm::koreanCopyChars(esc, sizeof(esc), 1, dst, sizeof(dst));
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "a\xff\x04\x01\x02");
+		n = Scumm::koreanCopyChars(esc, sizeof(esc), 18, dst, 5);
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "a");
+	}
 };
