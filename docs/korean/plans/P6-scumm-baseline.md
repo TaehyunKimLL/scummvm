@@ -119,3 +119,21 @@ same, as expected from the empty `engines/scumm` diff. The branch's shared chang
 - Two-object v2 sentences in play, Zak's sentence line, the 40-character cut of the English path on Korean bytes.
 - Loom dialogue, MI1/Indy4/DOTT beyond the first scenes, palette cycling (MI2 room 33), room transitions with text up.
 - FT and Dig (v7), every non-DOS platform, the DOS port, ASan runs.
+
+## 8. Addendum: DOTT with Single Day Regular AA (owner request, 2026-11-23)
+
+The S2 spike was run on the DOTT pack: Single Day Regular 2 bpp faces generated from the Google Fonts TTF with the
+submodule's `jamoset.py`/`mkfont.py`, drawn at 2x into `_textSurface` and blended over the palette frame on RGB565,
+RGB555 and XRGB8888; CLUT8 with the shipped 1 bpp `SGDAY*.SVF`. Results, face cross-check and the gate item are in
+`P6-scumm.md` section 5a; screenshots `~/work/tmp/ko-screenshots/scumm-dott-singleday-*.png`. Short form: legible at 2x
+with a 1 px outline + drop in the game's shadow colour, not without it; `^` is a game glyph in DOTT and must stay the
+original; the generated faces are not byte-identical to the shipped `SGDAY*A` (different build pipeline).
+
+## 9. Addendum: revision 2 of the plan (UTF-8 inside the engine, owner decision 2026-11-23)
+
+Section 6's prototype (UTF-8 bundles converted to CP949) is superseded: the engine now holds Korean text as UTF-8 and
+CP949 is converted once at the boundary (`P6-scumm.md` revision 2, section 0.2). Re-measured on the same data without
+`encoding.dat`: MI2 pack, MM, Zak, Indy3, Indy4, MI1 floppy, DOTT play in Korean; the MI2 old-save frames are pixel
+identical to upstream's CP949 path (slot 6 except the cursor); MI1's centred credit lines with the charset glyph 0xFA
+move by 1 px (upstream mis-measures that byte); a new Korean save (`TENC 1`) stops plain 2026.4.0 at the first Korean
+verb. Screenshots `~/work/tmp/ko-screenshots/scumm-utf8-*.png`.
