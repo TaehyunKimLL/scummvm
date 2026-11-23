@@ -101,3 +101,18 @@ written into the log by the next commit.
 - Red (`runs/a11-red`): MM copy `~/work/tmp/p6/data/mmkodir` with `ko/ko.trs`: no `Loaded N entries`. Green (`runs/a11-green`):
   `CP949 body converted to UTF-8, 50116 -> 58803 bytes`, `Loaded 1024 entries`; `scummvm --detect` on the folder reports
   `Maniac Mansion (V2/DOS/Korean)`. 662 tests unchanged (no unit test of detection exists).
+- a11 sha 0433a8ec851.
+
+### a12: developer-data check and `trscheck.py`
+- `test/engines/scumm/korean_trs_data.h` (one test; with `korean-trs/` in the working directory, here
+  `~/work/tmp/p6a-build/korean-trs/` with symlinks to the harness files and `<name>.allow`): 663 tests (N0 + 19). Without the
+  folder: a `TS_WARN` and OK (checked from an empty cwd). **Red first:** with `.allow` absent the test failed for both sets:
+  MI1 UTE `1 of 5348` (line 334: the UTF-8 stage carries a raw 0xFA, the engine gives U+00FA: the plan's "one stray byte") and
+  **MI2 `1 of 8780`, not 8780/8780 as the plan's Python model says**: line 5535 is `Papier-Mâché;` in the UTF-8 file but
+  `Papier-Mache;` in the harness's CP949 stage (CP949 cannot carry the accents, the stage lost them). So both sets get
+  `.allow` = 1; the conversion is right, the CP949 stage is lossy for those 2 characters.
+- `tools/korean/trscheck.py` + `test_trscheck.py` (6 tests, `python3 -I`): census, utf8len, equal, with the engine's rules
+  (escape-aware translation extents, clip at the next entry). Real data: utf8len MM 251, Zak 295 (2 >= 256), Indy3 257,
+  Loom 233, Indy4 337 (42 >= 256): the plan's numbers; MI2 245 and MI1 UTE 239 (plan 161/222: I count escape bytes, which the
+  engine's buffers hold too); none >= 512. census Indy4: 5 unreadable pairs by Python's cp949 (the engine without
+  `encoding.dat` reads 7), 148 charset bytes. `equal` mi2 and mi1ute: 1 line each (above).
