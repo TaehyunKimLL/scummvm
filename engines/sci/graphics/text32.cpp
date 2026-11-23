@@ -952,6 +952,10 @@ void GfxText32::scrollLine(const Common::String &lineText, int numLines, uint8 c
 
 // Check for Korean strings, and use font 1001 to render them
 bool GfxText32::SwitchToFont1001OnKorean(const char *text) {
+	// A UTF-8 (translated) game has no CP949 text: a continuation byte followed by the next
+	// syllable's lead byte would pass the test below and ask for the missing korean.fnt.
+	if (g_sci->getTextMode().utf8())
+		return false;
 	const byte *ptr = (const byte *)text;
 	// Check if the text contains at least one Korean character
 	while (*ptr) {
