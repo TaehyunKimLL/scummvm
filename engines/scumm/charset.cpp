@@ -750,8 +750,8 @@ int CharsetRendererV3::getCharWidth(uint16 chr) const {
 		spacing = _vm->_2byteWidth / 2;
 
 	if (!spacing) {
-		if (_vm->_koreanUtf8 && chr >= (_numChars ? _numChars : 256))
-			return 0;	// U+0080..U+00FF in a 128 glyph charset (_numChars is a byte: 0 is 256)
+		if (_vm->_koreanUtf8 && chr >= 0x80 && chr >= _numChars)
+			return 0;	// U+0080..U+00FF in a 128 glyph charset; an unset count (0) refuses them too
 		spacing = *(_widthTable + chr);
 	}
 
@@ -959,7 +959,7 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	if (chr == '@')
 		return;
 
-	if (_vm->_koreanUtf8 && !is2byte && chr >= (_numChars ? _numChars : 256))
+	if (_vm->_koreanUtf8 && !is2byte && chr >= 0x80 && chr >= _numChars)
 		return;	// U+0080..U+00FF in a 128 glyph charset: nothing to draw
 
 	if (_vm->isScummvmKorTarget()) {
@@ -1050,7 +1050,7 @@ void CharsetRendererV3::drawChar(int chr, Graphics::Surface &s, int x, int y) {
 	int height;
 	int is2byte = (chr > 0xff && _vm->_useCJKMode) ? 1 : 0;
 
-	if (_vm->_koreanUtf8 && !is2byte && chr >= (_numChars ? _numChars : 256))
+	if (_vm->_koreanUtf8 && !is2byte && chr >= 0x80 && chr >= _numChars)
 		return;
 
 	if (_vm->isScummvmKorTarget()) {
