@@ -71,16 +71,18 @@ bool hiResFontKindBuilt(HiResFontKind kind);
 /** @p preferred first (unless auto), then SVF, bitmap, TrueType; kinds the build cannot draw left out. */
 Common::Array<HiResFontKind> hiResFontOrder(HiResFontKind preferred);
 
-/** Bit (1 << target) for clut8, rgb565 and rgb888 when some format of @p formats is that target. */
+/** Bit (1 << target) for clut8, rgb565, rgb555 and rgb888 when some format of @p formats is that target. */
 uint32 hiResTargetsOffered(const Common::List<PixelFormat> &formats);
-/** clut8 for CLUT8, rgb565 for 2 bytes 5-6-5, rgb888 for 4 bytes 8-8-8; auto for anything else. */
+/** clut8 for CLUT8, rgb565 for 2 bytes 5-6-5, rgb555 for 2 bytes 5-5-5 (with or without the alpha bit), rgb888 for 4 bytes
+ *  8-8-8; auto for anything else. */
 HiResRenderTarget hiResTargetOf(const PixelFormat &format);
 
 /**
  * The screen hi-res text draws on: render_target unless auto, else the map's
- * target unless auto, else rgb (rgb888, then rgb565) when a face has coverage,
- * blending is not off and the backend offers it, else clut8. A wanted target
- * the backend does not offer falls back rgb888 -> rgb565 -> clut8 with a note.
+ * target unless auto, else rgb (rgb565, then rgb555, then rgb888: 16 and 15 bit
+ * first) when a face has coverage, blending is not off and the backend offers
+ * it, else clut8. A wanted target the backend does not offer falls back the
+ * same way, ending in clut8, with a note.
  * @p offered: hiResTargetsOffered() bits.
  */
 HiResRenderTarget resolveRenderTarget(const HiResOptions &options, const HiResMap *map, bool anyCoverage, uint32 offered,

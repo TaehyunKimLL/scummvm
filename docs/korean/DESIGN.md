@@ -57,7 +57,7 @@ lazy audio maps, Tremor), and dev tooling (debug socket 2,100 lines in `gui/` + 
 - Map: `HiResFontMap::loadMap` (`font_map.cpp`, 1,998 lines) parses the INI map (`[map] version=2`, `[render]`,
   `[text]`, `[layout]`, `[fonts]`, `[font]`/`[font.N]` with `face=`, `size=`, `cell=`, `align=`, `shift=`,
   `missing=`, `advance=`, `range.<spec>=`, `[load]`, `[preload]`, `[glyphs]`, `[shadow]`, qualifiers
-  `[S:engine]`, `[S:clut8|rgb565|rgb888]`). `compileIdPlan()` (`id_plan.cpp`) makes one `HiResIdPlan` per engine
+  `[S:engine]`, `[S:clut8|rgb]`). `compileIdPlan()` (`id_plan.cpp`) makes one `HiResIdPlan` per engine
   font id. `pickHiResMap()` (`map_pick.cpp`) looks for `HIRESTTF.MAP`, `HIRESVF.MAP`, `HIRESBIT.MAP` in the
   language folder (`ko/`) then the game folder, order TTF -> SVF -> BIT unless `hires_text_font` says otherwise.
 - Layout: `TextLayout::fitLine/breakLines` (`text_layout.cpp`, 831) with `BreakRules` (Hangul word|any,
@@ -293,8 +293,10 @@ frame is sent to the backend. Indices, not colours, so palette fades and cycling
 | SCUMM v2-v6 | `HiResOverlay` = upstream `_textSurface` at `_textSurfaceMultiplier` (the FM-Towns 2x mechanism) + coverage `BandedPlane` | `drawStripToScreen`: keyed composite (CLUT8) or blended band buffer into `_compositeBuf` | VGA 256 / EGA 16 index | strip rects scaled by m; `markPaletteUsersDirty` on cycling |
 | AGI | none: 16x16 stencils into the existing 640x400 display buffer | `drawCharacterOnDisplay` paints fg/bg | EGA 16 | upstream |
 
-Render target: `render_target=auto|clut8|rgb565|rgb888` (kept). `auto` = RGB when the chosen map has a
-coverage face (2 bpp AA) and the backend offers it, else CLUT8. 1-bpp faces look the same on both.
+Render target: `render_target=auto|clut8|rgb565|rgb555|rgb888`. `auto` = RGB when the chosen map has a
+coverage face (2 bpp AA) and the backend offers it, else CLUT8; the RGB format is 16-bit (565) first, then 15-bit
+(555, also XRGB1555), then 32-bit (888). 1-bpp faces look the same on both. Anti-aliased faces are for the RGB
+targets (15/16-bit mandatory); a map keeps CLUT8 on a 1 bpp face with a `[font:clut8]` section.
 
 ### 5.2 Font technology
 
@@ -419,7 +421,7 @@ Keys (ConfMan, engine-neutral; `jamo`'s `sci_hangul_*`/`agi_hangul_*` renamed):
 | `hires_text_font` | auto, svf, bitmap, ttf | auto (svf -> bitmap -> ttf) | `pickHiResMap` |
 | `hires_text_scale` | auto, 1, 2 | auto (2 at 320x200) | engine |
 | `hires_text_blend` | auto, on, off | auto | compositor |
-| `render_target` | auto, clut8, rgb565, rgb888 | auto | engine driver choice |
+| `render_target` | auto, clut8, rgb565, rgb555, rgb888 | auto | engine driver choice |
 | `hires_text_map` | path | - | override of the picked map |
 | `text_encoding` | auto, utf8, cp949 | auto | `TextMode` |
 | `hangul_input`, `hangul_start`, `hangul_builtin` | bool | auto/true/true | event manager |

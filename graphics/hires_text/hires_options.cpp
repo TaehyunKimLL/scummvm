@@ -82,7 +82,7 @@ HiResOptions parseHiResOptions(HiResConfigGetFn get, void *ctx, Common::Array<Co
 	if (get("hires_text_blend", v, ctx) && !HiResFontMap::parseBlend(v, o.blend))
 		bad(warnings, "hires_text_blend", v, "auto, on or off");
 	if (get("render_target", v, ctx) && !HiResFontMap::parseRenderTarget(v, o.target))
-		bad(warnings, "render_target", v, "auto, clut8, rgb565 or rgb888");
+		bad(warnings, "render_target", v, "auto, clut8, rgb565, rgb555 or rgb888");
 	if (get("hangul_break", v, ctx)) {
 		if (v.equalsIgnoreCase("word") || v.equalsIgnoreCase("any")) {
 			o.hangulBreak = v.equalsIgnoreCase("any") ? kHangulBreakAny : kHangulBreakWord;
@@ -143,6 +143,8 @@ HiResRenderTarget hiResTargetOf(const PixelFormat &f) {
 		return kHiResTargetClut8;
 	if (f.bytesPerPixel == 2 && f.rBits() == 5 && f.gBits() == 6 && f.bBits() == 5)
 		return kHiResTargetRgb565;
+	if (f.bytesPerPixel == 2 && f.rBits() == 5 && f.gBits() == 5 && f.bBits() == 5)
+		return kHiResTargetRgb555;	// RGB555 and XRGB1555: the sinks write the colour channels only
 	if (f.bytesPerPixel == 4 && f.rBits() == 8 && f.gBits() == 8 && f.bBits() == 8)
 		return kHiResTargetRgb888;
 	return kHiResTargetAuto;
@@ -171,23 +173,26 @@ HiResRenderTarget resolveRenderTarget(const HiResOptions &options, const HiResMa
 	if (want == kHiResTargetAuto && map && map->targetSet)
 		want = map->target;
 	offered |= 1u << kHiResTargetClut8;
+	// The 16-bit and 15-bit formats come first (DOS VBE offers them; 24/32-bit pixels are secondary).
+	static const HiResRenderTarget kPreference[] = { kHiResTargetRgb565, kHiResTargetRgb555, kHiResTargetRgb888 };
 	if (want == kHiResTargetAuto) {
 		if (!anyCoverage || resolveBlend(options, map) == kHiResBlendOff)
 			return kHiResTargetClut8;
-		if (offered & (1u << kHiResTargetRgb888))
-			return kHiResTargetRgb888;
-		return (offered & (1u << kHiResTargetRgb565)) ? kHiResTargetRgb565 : kHiResTargetClut8;
+		for (uint i = 0; i < ARRAYSIZE(kPreference); ++i)
+			if (offered & (1u << kPreference[i]))
+				return kPreference[i];
+		return kHiResTargetClut8;
 	}
 	if (offered & (1u << want))
 		return want;
 	HiResRenderTarget got = kHiResTargetClut8;
-	if (offered & (1u << kHiResTargetRgb888))
-		got = kHiResTargetRgb888;
-	else if (offered & (1u << kHiResTargetRgb565))
-		got = kHiResTargetRgb565;
-	note = Common::String::format("render_target %s is not offered by this backend; using %s",
-	                              want == kHiResTargetRgb565 ? "rgb565" : "rgb888",
-	                              got == kHiResTargetClut8 ? "clut8" : got == kHiResTargetRgb565 ? "rgb565" : "rgb888");
+	for (uint i = 0; i < ARRAYSIZE(kPreference); ++i)
+		if (offered & (1u << kPreference[i])) {
+			got = kPreference[i];
+			break;
+		}
+	static const char *const names[] = { "auto", "clut8", "rgb565", "rgb888", "rgb555" };
+	note = Common::String::format("render_target %s is not offered by this backend; using %s", names[want], names[got]);
 	return got;
 }
 

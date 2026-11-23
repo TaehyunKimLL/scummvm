@@ -37,7 +37,7 @@ class SeekableReadStream;
 
 namespace Graphics {
 
-enum HiResRenderTarget { kHiResTargetAuto = 0, kHiResTargetClut8, kHiResTargetRgb565, kHiResTargetRgb888 };
+enum HiResRenderTarget { kHiResTargetAuto = 0, kHiResTargetClut8, kHiResTargetRgb565, kHiResTargetRgb888, kHiResTargetRgb555 };
 enum HiResBlend { kHiResBlendAuto = 0, kHiResBlendOn, kHiResBlendOff };
 /** advance=: the face's own advance, the game font's, or the face's cell width. */
 enum HiResAdvance { kHiResAdvanceFont = 0, kHiResAdvanceGame, kHiResAdvanceCell };

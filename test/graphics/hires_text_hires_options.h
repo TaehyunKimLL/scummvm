@@ -91,7 +91,7 @@ public:
 	void test_badValues() {
 		OptionKeys k;
 		k["hires_text_scale"] = "3";
-		k["render_target"] = "rgb555";
+		k["render_target"] = "rgb444";
 		Common::Array<Common::String> w;
 		const Graphics::HiResOptions o = parseOptions(k, w);
 		TS_ASSERT_EQUALS(o.scale, 0);
@@ -132,6 +132,62 @@ public:
 		o = Graphics::HiResOptions();
 		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, &m, true, offered, note), Graphics::kHiResTargetClut8);
 		TS_ASSERT(note.empty());
+	}
+
+	// 15-bit targets (RGB555, XRGB1555) are mandatory for the AA faces: they are a render target like the others, and
+	// auto prefers 16-bit, then 15-bit, then 24/32-bit pixels.
+	void test_rgb555() {
+		Graphics::HiResRenderTarget t;
+		TS_ASSERT(Graphics::HiResFontMap::parseRenderTarget("rgb555", t));
+		TS_ASSERT_EQUALS(t, Graphics::kHiResTargetRgb555);
+		TS_ASSERT(Graphics::HiResFontMap::parseRenderTarget("RGB555", t));
+		TS_ASSERT(!Graphics::HiResFontMap::parseRenderTarget("rgb444", t));
+		TS_ASSERT_EQUALS(Common::String(Graphics::HiResFontMap::targetQualifier(Graphics::kHiResTargetRgb555)), "rgb");
+		TS_ASSERT_EQUALS(Graphics::hiResTargetOf(Graphics::PixelFormat(2, 5, 5, 5, 0, 10, 5, 0, 0)), Graphics::kHiResTargetRgb555);
+		TS_ASSERT_EQUALS(Graphics::hiResTargetOf(Graphics::PixelFormat(2, 5, 5, 5, 1, 10, 5, 0, 15)), Graphics::kHiResTargetRgb555);	// XRGB1555
+		TS_ASSERT_EQUALS(Graphics::hiResTargetOf(Graphics::PixelFormat(2, 5, 5, 5, 0, 0, 5, 10, 0)), Graphics::kHiResTargetRgb555);	// BGR555
+		TS_ASSERT_EQUALS(Graphics::hiResTargetOf(Graphics::PixelFormat(2, 4, 4, 4, 4, 12, 8, 4, 0)), Graphics::kHiResTargetAuto);	// RGBA4444: none
+		TS_ASSERT_EQUALS(Graphics::hiResTargetOf(Graphics::PixelFormat(2, 5, 6, 5, 0, 0, 5, 11, 0)), Graphics::kHiResTargetRgb565);	// BGR565
+
+		Common::Array<Common::String> w;
+		OptionKeys k;
+		k["render_target"] = "rgb555";
+		TS_ASSERT_EQUALS(parseOptions(k, w).target, Graphics::kHiResTargetRgb555);
+		TS_ASSERT(w.empty());
+
+		// a backend offering only 555 (and XRGB1555): auto takes it, CLUT8 stays the answer without coverage
+		Common::List<Graphics::PixelFormat> f555;
+		f555.push_back(Graphics::PixelFormat(2, 5, 5, 5, 1, 10, 5, 0, 15));
+		f555.push_back(Graphics::PixelFormat::createFormatCLUT8());
+		uint32 offered = Graphics::hiResTargetsOffered(f555);
+		TS_ASSERT_EQUALS(offered, (1u << Graphics::kHiResTargetClut8) | (1u << Graphics::kHiResTargetRgb555));
+		Graphics::HiResOptions o;
+		Common::String note;
+		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb555);
+		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, false, offered, note), Graphics::kHiResTargetClut8);
+		// rgb565 asked for, only 555 offered: 555 with a note
+		o.target = Graphics::kHiResTargetRgb565;
+		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb555);
+		TS_ASSERT_EQUALS(note, "render_target rgb565 is not offered by this backend; using rgb555");
+		o.target = Graphics::kHiResTargetRgb555;
+		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb555);
+		TS_ASSERT(note.empty());
+
+		// everything offered: auto prefers 565, then 555, then 888
+		offered = (1u << Graphics::kHiResTargetClut8) | (1u << Graphics::kHiResTargetRgb565) | (1u << Graphics::kHiResTargetRgb555) |
+		          (1u << Graphics::kHiResTargetRgb888);
+		o = Graphics::HiResOptions();
+		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb565);
+		offered &= ~(1u << Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb555);
+		offered &= ~(1u << Graphics::kHiResTargetRgb555);
+		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb888);
+		// an explicit 888 is honoured while it is offered
+		o.target = Graphics::kHiResTargetRgb888;
+		offered |= 1u << Graphics::kHiResTargetRgb565;
+		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb888);
+		TS_ASSERT_EQUALS(Graphics::composeMode(Graphics::kHiResTargetRgb555, Graphics::kHiResBlendAuto), Graphics::TextCompose::kBlend);
+		TS_ASSERT_EQUALS(Graphics::composeMode(Graphics::kHiResTargetRgb555, Graphics::kHiResBlendOff), Graphics::TextCompose::kThreshold);
 	}
 
 	void test_modeAndScale() {

@@ -394,6 +394,7 @@ const char *targetQualifier(HiResRenderTarget target) {
 		return "clut8";
 	case kHiResTargetRgb565:
 	case kHiResTargetRgb888:
+	case kHiResTargetRgb555:
 		return "rgb";
 	default:
 		return "";
@@ -401,8 +402,8 @@ const char *targetQualifier(HiResRenderTarget target) {
 }
 
 bool parseRenderTarget(const Common::String &text, HiResRenderTarget &out) {
-	static const char *const names[] = { "auto", "clut8", "rgb565", "rgb888" };
-	for (int i = 0; i < 4; ++i) {
+	static const char *const names[] = { "auto", "clut8", "rgb565", "rgb888", "rgb555" };
+	for (int i = 0; i < 5; ++i) {
 		if (text.equalsIgnoreCase(names[i])) {
 			out = (HiResRenderTarget)i;
 			return true;
@@ -528,7 +529,7 @@ bool load(Common::SeekableReadStream &stream, const Common::String &name, const 
 				if (parseRenderTarget(kv.value, out.target))
 					out.targetSet = true;
 				else
-					loader.warn(kv.line, "target '" + kv.value + "' is not auto, clut8, rgb565 or rgb888");
+					loader.warn(kv.line, "target '" + kv.value + "' is not auto, clut8, rgb565, rgb555 or rgb888");
 			} else if (kv.key == "blend") {
 				if (parseBlend(kv.value, out.blend))
 					out.blendSet = true;
