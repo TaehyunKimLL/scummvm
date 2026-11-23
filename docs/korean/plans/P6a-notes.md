@@ -82,3 +82,14 @@ written into the log by the next commit.
 - [data] MM pack (kids, START, Escape x2, verb, hover the sign), run `~/work/tmp/p6/runs/a9-mm`: `이게 뭐지? 표지판`
   (`scumm-p6a-mm-sentence-sign.png`), and `표지판 닫기` (object before verb). Two-object lines: UNVERIFIED in play (as the plan).
   The scripted run depends on cutscene timing (two of four attempts clicked before the verbs were live).
+- a9 sha e7a2a161db5.
+
+### a10: saves hold UTF-8
+- Tests `saved_text.h` first: red `engines/scumm/saved_text.h: No such file`; green 662 tests (N0 + 18). Hooks: `saveState()`
+  writes the trailer for a Korean v1-v6 target, `loadState()` reads it and calls `convertLoadedText()`.
+- [data] (a) old CP949 save `monkey2-ko.s02` on mi2cp: `SCUMM: converted 20 text resources of a CP949 save to UTF-8`,
+  `State loaded`, and the frame is **identical** to upstream's load of the same save (`runs/a10-mi2s2` vs `a6-mi2s2-head`,
+  bbox None). (b) autosave after 10 s (`runs/a10-autosave`): gunzipped tail `... 05 00 'TENC' 01`; reloading it
+  (`runs/a10-reload-new`): `State loaded`, no assertion. (c) plain 2026.4.0 (`build-plain`) loading (b)
+  (`runs/a10-reload-plain`): `State loaded`, then `Assertion 'charOffs < 0x14000' failed` at the first Korean verb: **a Korean
+  save of this engine cannot be read by upstream**; for the pack README (H11).

@@ -45,6 +45,7 @@ MODULE_OBJS := \
 	korean_sentence.o \
 	korean_text.o \
 	korean.o \
+	saved_text.o \
 	trs_bundle.o \
 	ksx1001_table.o \
 	macgui/macgui.o \

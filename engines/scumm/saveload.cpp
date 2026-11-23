@@ -38,6 +38,7 @@
 #include "scumm/scumm_v0.h"
 #include "scumm/scumm_v7.h"
 #include "scumm/scumm_v8.h"
+#include "scumm/saved_text.h"
 #include "scumm/sound.h"
 #include "scumm/he/sprite_he.h"
 #include "scumm/verbs.h"
@@ -642,6 +643,9 @@ bool ScummEngine::saveState(Common::SeekableWriteStream *out, bool writeHeader) 
 	Serializer ser(nullptr, out);
 	ser.setVersion(CURRENT_VER);
 	saveLoadWithSerializer(ser);
+	// After the state, where a build without it never reads (saved_text.h). Korean saves only.
+	if (_koreanUtf8)
+		writeSavedTextEncoding(*out, true);
 	return true;
 }
 
@@ -827,7 +831,11 @@ bool ScummEngine::loadState(int slot, bool compat, Common::String &filename) {
 	Serializer ser(in, nullptr);
 	ser.setVersion(hdr.ver);
 	saveLoadWithSerializer(ser);
+	const SavedTextEncoding savedText = readSavedTextEncoding(*in);
 	delete in;
+
+	if (_koreanUtf8)
+		convertLoadedText(savedText);
 
 	// Init NES costume data
 	if (_game.platform == Common::kPlatformNES) {

@@ -23,6 +23,7 @@
 #include "scumm/charset.h"
 #include "scumm/korean_sentence.h"
 #include "scumm/resource.h"
+#include "scumm/saved_text.h"
 #include "scumm/scumm_v2.h"
 #include "scumm/korean_text.h"
 #include "scumm/trs_bundle.h"
@@ -196,6 +197,43 @@ byte *ScummEngine::koreanRefusalGlyph() {
 			if (kQuestion[y * 8 / h] & (0x80 >> (x * 8 / w)))
 				glyph[y * stride + x / 8] |= 0x80 >> (x % 8);
 	return glyph;
+}
+
+void ScummEngine::convertLoadedText(int saved) {
+	// A save of this engine holds UTF-8 (trailer 1). One without the trailer (upstream, the CP949 builds) holds CP949:
+	// every text resource goes through the engine-text boundary, which leaves UTF-8 and ASCII as they are.
+	if (saved == kSavedTextUtf8)
+		return;
+	static const ResType kTextTypes[] = { rtVerb, rtObjectName, rtActorName, rtString };
+	int converted = 0;
+	Common::Array<byte> tmp;
+	for (uint t = 0; t < ARRAYSIZE(kTextTypes); t++) {
+		const ResType type = kTextTypes[t];
+		if (type == rtString && _game.version >= 6)
+			continue;	// a v6 string resource is an array, not text
+		for (ResId idx = 0; idx < _res->_types[type].size(); idx++) {
+			const byte *ptr = _res->_types[type][idx]._address;
+			const uint32 size = _res->_types[type][idx]._size;
+			if (!ptr || !size)
+				continue;
+			if (type == rtVerb && (idx >= _numVerbs || _verbs[idx].type != kTextVerbType))
+				continue;
+			if (textIsUtf8(ptr, ptr + size))
+				continue;
+			tmp.resize(size * 2 + 4);
+			const int len = toEngineText(ptr, size, tmp.begin(), tmp.size());
+			byte *dst = _res->createResource(type, idx, len + 1);
+			memcpy(dst, tmp.begin(), len + 1);
+			converted++;
+		}
+	}
+	if (!textIsUtf8(_charsetBuffer, _charsetBuffer + sizeof(_charsetBuffer))) {
+		byte msg[sizeof(_charsetBuffer)];
+		toEngineText(_charsetBuffer, sizeof(_charsetBuffer), msg, sizeof(msg));
+		memcpy(_charsetBuffer, msg, sizeof(msg));
+		converted++;
+	}
+	debug(1, "SCUMM: converted %d text resources of a CP949 save to UTF-8", converted);
 }
 
 } // End of namespace Scumm

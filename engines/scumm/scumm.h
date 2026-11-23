@@ -633,6 +633,8 @@ protected:
 
 	virtual void loadLanguageBundle();
 	void transcodeLanguageBundle(uint32 bodySize);
+	/** Convert the translated text of a save without the UTF-8 trailer (CP949) to UTF-8 (saved_text.h); @p saved is a SavedTextEncoding. */
+	void convertLoadedText(int saved);
 	void loadCJKFont();
 	void loadKorFont();
 	void setupMusic(int midi);
