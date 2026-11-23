@@ -15,6 +15,7 @@ TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/graphics/svf_face.h \
 	$(srcdir)/test/graphics/svf_golden.h \
 	$(srcdir)/test/graphics/svf_font.h \
+	$(srcdir)/test/graphics/svf_aa.h \
 	$(srcdir)/test/graphics/hires_text_*.h
 TEST_LIBS    :=
 

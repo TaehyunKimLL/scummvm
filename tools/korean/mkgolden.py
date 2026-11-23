@@ -14,15 +14,20 @@ import subprocess
 import sys
 import tempfile
 
+HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SVF = os.path.join(ROOT, "dists", "svf-fonts-open")
 if not os.path.isfile(os.path.join(SVF, "tools", "svfline.py")):
     sys.exit("mkgolden: %s is empty: run git submodule update --init dists/svf-fonts-open" % SVF)
 sys.path.insert(0, os.path.join(SVF, "tools"))
+sys.path.insert(0, HERE)
+import gen_aa_faces  # noqa: E402
 import svfline  # noqa: E402
 
 FIXTURE = os.path.join("test", "graphics", "svf_fixture.h")
 GOLDEN = os.path.join("test", "graphics", "svf_golden_data.h")
+AA_FIXTURE = os.path.join("test", "graphics", "svf_fixture_aa.h")
+AA_GOLDEN = os.path.join("test", "graphics", "svf_golden_aa_data.h")
 
 HEADER = """/* ScummVM - Graphic Adventure Engine
  *
@@ -125,6 +130,126 @@ def golden_h(rev, marks, jamo):
 	return "\n".join(out) + "\n"
 
 
+# ---- the anti-aliased (2 bpp, one 8 bpp) faces generated from TrueType: tools/korean/gen_aa_faces.py -------------------
+
+AA_NAMES = ("NG16P", "NG18P", "NG16L", "NG16JA", "NG16P8")
+# The face table of test/graphics/svf_aa.h: indexes 0..4 are AA_NAMES, 5 the 1 bpp marks face, 6 the 1 bpp jamo face.
+FACE_NAMES = AA_NAMES + ("MARKS", "JAMO1")
+
+MIX = "가한글 똠쀍뷁 ㄱㅏㅣ Ab9,.!e\u0301".encode()
+SHORT = "한똠ㄱA9".encode()
+# (name, faces, text, x, y_baseline, w, h, scale, missing_advance)
+AA_CASES = [
+	("PreOnly", (0,), MIX, 2, 15, 232, 20, (1, 1), 6),
+	("JamoOnly", (3,), MIX, 2, 15, 232, 20, (1, 1), 6),
+	("ChainPJ", (0, 3), MIX, 2, 15, 232, 20, (1, 1), 6),
+	("ChainPJ2x", (0, 3), SHORT, 2, 29, 150, 36, (2, 1), 0),
+	("ChainPJ3by2", (0, 3), SHORT, 2, 22, 112, 28, (3, 2), 0),
+	("ChainJP", (3, 0), MIX, 2, 15, 232, 20, (1, 1), 6),
+	("ChainLPJ", (2, 0, 3), MIX, 2, 15, 232, 20, (1, 1), 6),
+	("ChainMixedBpp", (5, 0, 6), MIX, 2, 15, 232, 20, (1, 1), 6),
+	("ChainSizes", (1, 3), MIX, 2, 17, 248, 22, (1, 1), 6),
+	("ChainSizes2x", (1, 3), SHORT, 2, 33, 176, 40, (2, 1), 0),
+	("ChainSizes3by2", (1, 3), SHORT, 2, 25, 116, 30, (3, 2), 0),
+	("Bpp8", (4, 0), "한글가나Abc123 똠".encode(), 2, 15, 160, 20, (1, 1), 6),
+]
+# Cases that also get RGB565 and RGB888 target goldens (svfline.Target): fg, bg.
+AA_TARGET_CASES = ("ChainPJ", "ChainPJ3by2")
+AA_FG, AA_BG = 0xF0E040, 0x102060
+
+
+def rgb565(c):
+	return (c >> 8 & 0xF800) | (c >> 5 & 0x07E0) | (c >> 3 & 0x001F)
+
+
+def aa_faces(tmp):
+	"""The face files: the generator's, built once per (generator, submodule commit, TTF) into a cache directory (a jamo set
+	takes about 75 s), and the two 1 bpp faces of the other fixture (written by make_faces)."""
+	key = hashlib.sha256()
+	for path in (os.path.join(HERE, "gen_aa_faces.py"), gen_aa_faces.BOLD, gen_aa_faces.REGULAR):
+		key.update(open(path, "rb").read())
+	key.update(commit().encode())
+	cache = os.path.join(os.environ.get("TMPDIR", tempfile.gettempdir()), "svf-aa-faces-" + key.hexdigest()[:16])
+	if not all(os.path.isfile(os.path.join(cache, n + ".SVF")) for n in AA_NAMES):
+		part = cache + ".part"
+		subprocess.run(["rm", "-rf", part], check=True)
+		if subprocess.run([sys.executable, "-I", os.path.join(HERE, "gen_aa_faces.py"), part]).returncode:
+			sys.exit("mkgolden: gen_aa_faces.py failed")
+		subprocess.run(["rm", "-rf", cache], check=True)
+		os.rename(part, cache)
+	return {n: os.path.join(cache, n + ".SVF") for n in AA_NAMES}
+
+
+AA_NOTES = {
+	"NG16P": "precomposed 16x16 2 bpp, NanumGothic Bold 16 px, ASCII and the syllables of gen_aa_faces.FREQUENT",
+	"NG18P": "precomposed 18x18 2 bpp, NanumGothic Bold 18 px (ascent 16), the same code points",
+	"NG16L": "precomposed 16x16 2 bpp Latin and U+0300/U+0301, NanumGothic Regular 16 px",
+	"NG16JA": "jamo set 8x4x4 (844) 16x16 2 bpp, NanumGothic Bold 16 px, jamoset.py --from-ttf --bpp 2 (all 11,172 syllables)",
+	"NG16P8": "precomposed 16x16 8 bpp, NanumGothic Bold 16 px, a few glyphs: the only 8 bpp face (no shipped face has 8 bpp)",
+}
+
+
+def aa_fixture_h(rev, aa):
+	out = [HEADER % rev, "#ifndef TEST_GRAPHICS_SVF_FIXTURE_AA_H", "#define TEST_GRAPHICS_SVF_FIXTURE_AA_H", "",
+	       "#include \"common/scummsys.h\"", "",
+	       "// Faces made from TrueType by tools/korean/gen_aa_faces.py (dists/svf-fonts-open tools, Python -I): font data derived",
+	       "// from NanumGothic, Copyright (c) 2010 NHN Corporation (now Naver), SIL Open Font License 1.1 (LICENSES/COPYING.OFL;",
+	       "// Reserved Font Names: see dists/svf-fonts-open/ttf/nanumgothic/OFL.txt; the faces carry no font name).",
+	       "// NanumGothic-Bold.ttf sha256 %s" % gen_aa_faces.sha(gen_aa_faces.BOLD),
+	       "// NanumGothic-Regular.ttf sha256 %s" % gen_aa_faces.sha(gen_aa_faces.REGULAR), ""]
+	for n in AA_NAMES:
+		data = open(aa[n], "rb").read()
+		out.append("// kSvfAa%s (%d bytes, sha256 %s)" % (n, len(data), hashlib.sha256(data).hexdigest()))
+		out.append("// " + AA_NOTES[n])
+		out.append("static const byte kSvfAa%s[%d] = {" % (n, len(data)))
+		out.append(c_bytes(data))
+		out.append("};")
+		out.append("")
+	out.append("#endif")
+	return "\n".join(out) + "\n"
+
+
+def aa_golden_h(rev, aa, marks, jamo):
+	paths = [aa[n] for n in AA_NAMES] + [marks, jamo]
+	out = [HEADER % rev, "#ifndef TEST_GRAPHICS_SVF_GOLDEN_AA_DATA_H", "#define TEST_GRAPHICS_SVF_GOLDEN_AA_DATA_H", "",
+	       "#include \"common/scummsys.h\"", "",
+	       "// GRAY8 lines of tools/svfline.py over the chains of the faces kSvfAa* and the 1 bpp kSvfFixtureMarks / kSvfFixtureJamo:",
+	       "// Faces are indexes of FACE_NAMES in tools/korean/mkgolden.py (%s)." % ", ".join(FACE_NAMES),
+	       "// One hex byte a pixel, one string a row; the Target rows are RGB565 (little endian) and RGB888 (B G R) bytes,",
+	       "// fg 0x%06X over bg 0x%06X." % (AA_FG, AA_BG), ""]
+	for name, faces, text, x, y, w, h, scale, missing in AA_CASES:
+		chain = [paths[i] for i in faces]
+		places = svfline.placements(svfline.load_chain(chain), text, x, y, svfline.is_mark_default, missing, scale)
+		gray = svfline.draw_gray8(places, w, h)
+		width, asc, desc = svfline.measure(chain, text, missing_advance=missing, scale=scale)
+		p = "kSvfAaGolden" + name
+		out.append("static const char %sText[] = %s;" % (p, c_text(text)))
+		out.append("static const int %sFaces[%d] = { %s };" % (p, len(faces), ", ".join(str(i) for i in faces)))
+		out.append("static const int %sFaceCount = %d;" % (p, len(faces)))
+		out.append("static const int %sX = %d, %sY = %d, %sW = %d, %sH = %d;" % (p, x, p, y, p, w, p, h))
+		out.append("static const int %sScaleNum = %d, %sScaleDen = %d, %sMissing = %d;" % (p, scale[0], p, scale[1], p, missing))
+		out.append("static const int %sWidth = %d, %sAscent = %d, %sDescent = %d;" % (p, width, p, asc, p, desc))
+		out.append("static const char *const %sRows[%d] = {" % (p, h))
+		for r in range(h):
+			out.append("\t\"" + bytes(gray[r * w:(r + 1) * w]).hex() + "\",")
+		out.append("};")
+		if name in AA_TARGET_CASES:
+			for kind, tag in (("rgb565", "Rgb565"), ("rgb888", "Rgb888")):
+				t = svfline.Target(kind, w, h, fg565=rgb565(AA_FG), bg565=rgb565(AA_BG), fg888=AA_FG, bg888=AA_BG)
+				# the background is the target's initial content: fill it, then draw the cells
+				bpx = {"rgb565": rgb565(AA_BG).to_bytes(2, "little"), "rgb888": bytes((AA_BG & 255, AA_BG >> 8 & 255, AA_BG >> 16))}[kind]
+				t.buf[:] = bpx * (w * h)
+				svfline.draw_target(places, t)
+				bpp = 2 if kind == "rgb565" else 3
+				out.append("static const char *const %s%sRows[%d] = {" % (p, tag, h))
+				for r in range(h):
+					out.append("\t\"" + bytes(t.buf[r * t.stride:r * t.stride + w * bpp]).hex() + "\",")
+				out.append("};")
+		out.append("")
+	out.append("#endif")
+	return "\n".join(out) + "\n"
+
+
 def main():
 	ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
 	ap.add_argument("--check", action="store_true", help="compare with the committed files instead of writing them")
@@ -134,6 +259,9 @@ def main():
 	with tempfile.TemporaryDirectory(prefix="mkgolden-") as tmp:
 		marks, jamo = make_faces(tmp)
 		files = {FIXTURE: fixture_h(rev, marks, jamo), GOLDEN: golden_h(rev, marks, jamo)}
+		aa = aa_faces(tmp)
+		files[AA_FIXTURE] = aa_fixture_h(rev, aa)
+		files[AA_GOLDEN] = aa_golden_h(rev, aa, marks, jamo)
 	bad = 0
 	for rel, text in files.items():
 		path = os.path.join(args.root, rel)

@@ -19,6 +19,8 @@ along with our theme files:
  * SourceCodeVariable-Roman.ttf
  * test/graphics/svf_fixture.h (kSvfFixtureJamo: font data derived from Neo Dunggeunmo, Copyright (c) 2017-2021,
    Eunbin Jeong (Dalgona.); a test fixture, not shipped)
+ * test/graphics/svf_fixture_aa.h (kSvfAa*: faces made from NanumGothic Bold and Regular, Copyright (c) 2010 NHN
+   Corporation (now Naver), by tools/korean/gen_aa_faces.py; a test fixture, not shipped)
  * dists/engine-data/hires_text/NEODG16A.SVF (Neo Dunggeunmo jamo face, Copyright (c) 2017-2021,
    Eunbin Jeong (Dalgona.); see dists/engine-data/hires_text/NEODGM.TXT)
 
