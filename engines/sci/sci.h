@@ -438,6 +438,9 @@ private:
 	Common::String _textModeNotes;
 	TextModeInputs textModeInputs(const Common::FSNode &gameDataDir, SciVersion version) const;
 	ScriptStrings _scriptStrings;
+public:
+	Common::HashMap<uint32, bool> _formatWarned; ///< kFormat's once-only diagnostics
+private:
 	SciHiResText *_hiresText;
 	ScriptPatcher *_scriptPatcher; /**< The script patcher */
 	EngineState *_gamestate;

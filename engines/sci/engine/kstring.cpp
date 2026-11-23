@@ -188,7 +188,13 @@ static reg_t strAtUtf8(EngineState *s, SegmentRef &dest_r, reg_t str, uint16 ind
 	const byte *p = (const byte *)text.c_str();
 	if (!write) {
 		if (utf8IndexIsPastEnd(p, index))
-			return make_reg(0, (int)index < dest_r.maxSize ? strAtByte(dest_r, index, false, 0) : 0);
+		{
+			if ((int)index < dest_r.maxSize)
+				return make_reg(0, strAtByte(dest_r, index, false, 0));
+			// as the byte path: the KQ5 0xFFFF case relies on r_acc
+			warning("kStrAt offset %X exceeds maxSize", index);
+			return s->r_acc;
+		}
 		const uint32 at = utf8OffsetOf(p, index);
 		if (at >= text.size())
 			return NULL_REG;
@@ -589,11 +595,12 @@ reg_t kFormat(EngineState *s, int argc, reg_t *argv) {
 	formatImpl(s, argc, argv, false, &english);
 	const uint32 capacity = s->_segMan->stringCapacity(argv[0]);
 	if (!capacity && korean.size() > english.size()) {
-		static Common::HashMap<uint32, bool> warned;
+		Common::HashMap<uint32, bool> &warned = g_sci->_formatWarned;
 		const uint32 once = ((uint32)argv[1].getSegment() << 16) ^ argv[1].getOffset() ^ ((uint32)korean.size() << 8);
 		if (!warned.contains(once)) {
 			warned[once] = true;
-			const ScriptStrings::Key key = g_sci->keyOf(argv[1], g_sci->getKernel()->lookupText(argv[1], 0));
+			// only a heap format has a script string key; a text resource's entry 0 is not it
+			const ScriptStrings::Key key = argv[1].getSegment() ? g_sci->keyOf(argv[1], s->_segMan->getString(argv[1])) : ScriptStrings::Key();
 			warning("kFormat: the Korean result (%u bytes) is longer than the English one (%u bytes) and the buffer at %04x:%04x has no known size "
 			        "(format %04x:%04x, script string %d:%d): it can overrun what follows",
 			        korean.size(), english.size(), PRINT_REG(argv[0]), PRINT_REG(argv[1]), key.isSet() ? key.script : -1, key.isSet() ? key.id : -1);
