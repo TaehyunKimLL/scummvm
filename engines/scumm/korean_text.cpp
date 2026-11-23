@@ -417,6 +417,15 @@ bool legacyCp949Buffer(byte *buf, int size, int &pos) {
 	return true;
 }
 
+bool koreanInsertBreak(byte *str, int &strLength, int at, int capacity) {
+	if (at < 0 || at > strLength || (capacity && strLength + 2 > capacity))
+		return false;
+	memmove(str + at + 1, str + at, strLength - at + 1);
+	str[at] = 0x0D;
+	strLength++;
+	return true;
+}
+
 Common::CodePage koreanEngineCodePage(bool utf8) {
 	return utf8 ? Common::kUtf8 : Common::kWindows949;
 }

@@ -597,7 +597,7 @@ int CharsetRenderer::getStringWidth(int arg, const byte *text) {
 	return width;
 }
 
-void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth) {
+void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth, int capacity) {
 	int lastKoreanLineBreak = -1;
 	int origPos = pos;
 	int lastspace = -1;
@@ -727,9 +727,8 @@ void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth) {
 					lastspace = -1;
 					lastKoreanLineBreak = -1;
 				} else {
-					byte *breakPtr = str + lastKoreanLineBreak;
-					memmove(breakPtr + 1, breakPtr, strLength - lastKoreanLineBreak + 1);
-					str[lastKoreanLineBreak] = 0xD;
+					if (!koreanInsertBreak(str, strLength, lastKoreanLineBreak, capacity))
+						break;	// no room left in the buffer: the rest stays one line
 					curw = 1;
 					pos = lastKoreanLineBreak + 1;
 					lastspace = -1;

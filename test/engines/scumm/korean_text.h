@@ -231,4 +231,29 @@ public:
 		n = Scumm::toEngineText((const byte *)"\xed\x95\x9c\xff", 5, dst, sizeof(dst), nullptr, true);
 		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xed\x95\x9c");
 	}
+
+	void test_korean_line_break_insertion_keeps_the_string() {
+		// Three breaks in one line: the stale length of upstream lost the NUL at the second and a byte more at the third.
+		byte buf[32];
+		memset(buf, 0x55, sizeof(buf));
+		const char *text = "abcdefgh";
+		memcpy(buf, text, 9);
+		int len = 8;
+		TS_ASSERT(Scumm::koreanInsertBreak(buf, len, 2, sizeof(buf)));
+		TS_ASSERT(Scumm::koreanInsertBreak(buf, len, 5, sizeof(buf)));
+		TS_ASSERT(Scumm::koreanInsertBreak(buf, len, 8, sizeof(buf)));
+		TS_ASSERT_EQUALS(len, 11);
+		TS_ASSERT_EQUALS(Common::String((const char *)buf, 12), Common::String("ab\rcd\ref\rgh\0", 12));
+		// No room: nothing changes (the NUL would be pushed out of the buffer).
+		byte tight[10];
+		memcpy(tight, "abcdefgh\0", 10);
+		len = 8;
+		TS_ASSERT(Scumm::koreanInsertBreak(tight, len, 2, sizeof(tight)));
+		TS_ASSERT(!Scumm::koreanInsertBreak(tight, len, 4, sizeof(tight)));
+		TS_ASSERT_EQUALS(len, 9);
+		TS_ASSERT_EQUALS(Common::String((const char *)tight), "ab\rcdefgh");
+		// A position outside the string is refused.
+		TS_ASSERT(!Scumm::koreanInsertBreak(buf, len, -1, sizeof(buf)));
+		TS_ASSERT(!Scumm::koreanInsertBreak(buf, len, 20, sizeof(buf)));
+	}
 };

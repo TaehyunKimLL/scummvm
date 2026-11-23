@@ -102,6 +102,15 @@ bool legacyCp949Resource(const byte *src, uint32 size, Common::Array<byte> &out)
  */
 bool legacyCp949Buffer(byte *buf, int size, int &pos);
 
+/**
+ * Inserts the line break 0x0D before the byte at @p at of the NUL-terminated @p str (@p strLength bytes without the NUL),
+ * moving the rest and its NUL up one byte, and counts it in @p strLength. @p capacity is the size of the buffer from
+ * @p str on (0: unknown); false, nothing changed, when the NUL would not fit. (addLinebreaks() inserts one for every
+ * line of a Korean text that breaks inside a word; upstream copied strLength bytes with a stale length: the NUL was
+ * lost at the second break, a byte more for each further one.)
+ */
+bool koreanInsertBreak(byte *str, int &strLength, int at, int capacity);
+
 /** The code page engine text of a Korean target is in: UTF-8 for v1-v6 (\p utf8), CP949 for The Dig, FT and COMI. */
 Common::CodePage koreanEngineCodePage(bool utf8);
 
