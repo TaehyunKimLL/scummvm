@@ -16,6 +16,7 @@ utf8len: a translation of 512 bytes or more, equal: more differing lines than --
 """
 
 import argparse
+import bisect
 import struct
 import sys
 
@@ -28,15 +29,14 @@ class Bundle:
         self.body = body
         self.entries = entries  # (original offset, translation offset) in file order, relative to the body
         self.bom = body[:3] == BOM
+        self._starts = sorted({o for e in self.entries for o in e})
 
     def starts(self):
-        s = sorted({o for e in self.entries for o in e})
-        return s
+        return self._starts
 
     def text(self, off):
         """The string at off: to its NUL outside an escape, never into the next entry (engine rule)."""
-        starts = self.starts()
-        import bisect
+        starts = self._starts
         i = bisect.bisect_right(starts, off)
         limit = starts[i] if i < len(starts) else len(self.body)
         end = text_end(self.body, off, limit)
@@ -177,7 +177,9 @@ def census(b):
             u, n = cp949_to_utf8(raw)
             unreadable += n
         for ch in chars(u):
-            if 0x80 <= ord(ch) < 0x100:
+            if ch == "\ufffd" and b.bom:
+                unreadable += 1  # a byte of a UTF-8 bundle that starts no character
+            elif 0x80 <= ord(ch) < 0x100:
                 charset += 1
             elif ord(ch) >= 0x100 and _ksx_encode(ch) is None:
                 out_of_font += 1

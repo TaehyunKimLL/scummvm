@@ -92,7 +92,7 @@ public:
 	}
 
 	void test_unterminated_translation_keeps_an_empty_next_entry() {
-		// 안 FF 04 C8 with no NUL, then an empty string at 5 that is an entry of its own: it must not be skipped.
+		// 안 FF 04 C8 with no NUL, then an empty string at 7 that is an entry of its own: it must not be skipped.
 		const byte body[] = { 'a', 0, 0xBE, 0xC8, 0xFF, 0x04, 0xC8, 0, 0 };
 		Common::Array<uint32> orig, trans;
 		orig.push_back(0);
