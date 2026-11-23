@@ -70,7 +70,7 @@ def check(lines):
         room = "any"
         if len(parts) >= 4 and NUM.match(parts[2]) and int(parts[2]) <= 65534:
             room = parts[2]
-        key = (parts[0], parts[1], room)
+        key = (int(parts[0]), int(parts[1]), room if room == "any" else int(room))
         if key in seen:
             problems.append((n, "duplicates line %d (the later line wins)" % seen[key]))
         else:

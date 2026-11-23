@@ -33,6 +33,11 @@ class StrCheckTest(unittest.TestCase):
         self.assertEqual(entries, 2)
         self.assertEqual(problems, [])
 
+    def test_duplicates_by_value(self):
+        # 05/007 and 5/7 are the same key for the engine
+        _, _, problems = strcheck.check([HDR + "\n", "05\t007\tA\n", "5\t7\tB\n"])
+        self.assertTrue(any("duplicates" in t for _, t in problems))
+
     def test_bad_headers(self):
         for line in ("#!format=1 game=a fingerprint=%s engine=sci" % ("0" * 32),
                      "#! format=2 game=a fingerprint=%s engine=sci" % ("0" * 32),
