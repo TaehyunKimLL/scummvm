@@ -178,3 +178,17 @@ written into the log by the next commit.
 6. Extra commits: `textIsUtf8` tightening and `delete[]`.
 7. Test totals: N0 = 644 (plan 637); final N0 + 20 (the plan counts N0 + 16).
 8. The commit of a12 titled TEST also holds `trscheck.py` and its test (staging slip).
+
+## Fix round (reviews of 0c6d8e45ced)
+Findings, verdicts, commits and evidence: `P6a-fixes.md`. Reports: `P6a-review.md`, `reviews/P6a-agy.md`.
+- Tests at the final HEAD: SCUMM-only **677** OK, ASan SCUMM **677** OK, SCUMM+SCI **756** OK, no-engine **644** OK (N0 + 33);
+  mingw `test/runner.exe` built (PE32+, run UNVERIFIED). `sync-svf.sh --check` rc 0, `mkgolden.py --check` rc 0, tools
+  tests OK (`test_trscheck.py` 6). `check-commit-msg.py` ok on every commit of the round, one `Assisted-by: Claude Code`.
+- Runs with the final build (no `encoding.dat`, `~/work/tmp/p6/runs/fz-*`, `fa-*` for ASan): MI2 pack, MM, Zak, Indy3, MM V1
+  English (0 Korean/UTF-8/TENC lines), Indy4, MI1: 0 assertions, 0 `has no glyph`. Legacy CP949 saves: Loom slot 2
+  (`fz-loom2-*`) and DOTT slot 1 (`fz-dott-*`) load to the frames of upstream's load (Loom 2 and DOTT identical; Loom slot 1
+  second frame differs in one 30x30 cursor box), MI2 slot 2 identical (`f2-mi2s2`, 18 resources converted: ASCII and
+  non-text resources are no longer rewritten). The Korean save name repro: `1. 한글 저장` (`f9-sn1`).
+- ASan (`fa-*`): MI2 pack, MI1, MM, Indy3, Zak, Loom and DOTT legacy saves: no report.
+- The first notes' claim "the engine gives U+00FA" for MI1 UTE line 334 held only for the CP949 bundle; the UTF-8 pack's
+  raw 0xFA is now read per character (fix 7).
