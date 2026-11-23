@@ -1183,7 +1183,10 @@ void ScummEngine::drawVerb(int verb, int mode, Common::TextToSpeechManager::Acti
 
 		if (isRtl)
 			vs->curRect.left = _charset->_str.left;
-		vs->curRect.right = pixelXOffset + ((_game.version <= 2) ? MIN<int>(vs->curRect.left + (getResourceSize(rtVerb, verb) - 1) * 8, _screenWidth) : _charset->_str.right);
+		if (_game.version <= 2 && !_koreanUtf8) // v2 draws 8 pixels a byte; UTF-8 verbs are 3 bytes a syllable of 8 pixels
+			vs->curRect.right = pixelXOffset + MIN<int>(vs->curRect.left + (getResourceSize(rtVerb, verb) - 1) * 8, _screenWidth);
+		else
+			vs->curRect.right = pixelXOffset + _charset->_str.right;
 		vs->curRect.bottom = _charset->_str.bottom + pixelYOffset;
 		vs->oldRect = _charset->_str;
 		_charset->_str.left = _charset->_str.right;
