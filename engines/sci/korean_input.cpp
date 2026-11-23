@@ -86,13 +86,22 @@ bool KoreanEditLine::adopt(Common::String &text, uint &cursor, bool hangulMode, 
 		return true;
 	}
 	if (hangulMode && Common::HangulComposer::isJamoKey(text[0])) {
+		const Common::String original = text;
+		const uint originalCursor = cursor;
 		const char first = text[0];
 		text.clear();
 		cursor = 0;
 		_runStart = 0;
 		_composing = true;
 		_hangul.feed(first);
-		return writeRun(text, cursor, maxBytes);
+		if (writeRun(text, cursor, maxBytes))
+			return true;
+		// the first key does not fit: nothing changes, no half-built run
+		text = original;
+		cursor = originalCursor;
+		_hangul.reset();
+		_composing = false;
+		return false;
 	}
 	return false;
 }

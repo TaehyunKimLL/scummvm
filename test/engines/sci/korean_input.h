@@ -127,4 +127,36 @@ public:
 		TS_ASSERT_EQUALS(line.key('s', false, true, 0, text, cursor, 20, false), Sci::KoreanEditLine::kChanged);
 		TS_ASSERT_EQUALS(text, "\xE3\x84\xB4"); // ㄴ without Alt
 	}
+
+	// agy 9(b): a first key that does not fit changes nothing, and a prompt that opens with the
+	// same letter the last line ended as is still taken over.
+	void test_adoptRefusedKeepsTheText() {
+		Sci::KoreanEditLine line;
+		Common::String text = "a";
+		uint cursor = 1;
+		TS_ASSERT(!line.adopt(text, cursor, true, 0, 2)); // ㅁ needs 3 bytes
+		TS_ASSERT_EQUALS(text, "a");
+		TS_ASSERT_EQUALS(cursor, 1u);
+		// the next jamo composes from a clean state, not on a half-built run
+		Common::String t2;
+		uint c2 = 0;
+		TS_ASSERT_EQUALS(line.key('a', false, true, 0, t2, c2, 20), Sci::KoreanEditLine::kChanged);
+		TS_ASSERT_EQUALS(t2, "\xE3\x85\x81"); // ㅁ
+	}
+
+	void test_adoptAfterTheSameLetterLine() {
+		Sci::KoreanEditLine line;
+		Common::String text = "a";
+		uint cursor = 1;
+		TS_ASSERT(!line.adopt(text, cursor, false, 0, 20)); // typed in English mode: stays "a"
+		line.remember(text);
+		// the script draws the next prompt empty, then its first key opens it with "a" again, in Hangul mode
+		Common::String empty;
+		uint c0 = 0;
+		TS_ASSERT(!line.adopt(empty, c0, true, 0, 20));
+		Common::String again = "a";
+		uint c1 = 1;
+		TS_ASSERT(line.adopt(again, c1, true, 0, 20));
+		TS_ASSERT_EQUALS(again, "\xE3\x85\x81");
+	}
 };
