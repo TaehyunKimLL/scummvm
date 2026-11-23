@@ -8,13 +8,14 @@ faces (NEODG16A, the NEODG16G-derived fixture).
 
 Branch `ko-2026.4`, from `4a8b9907b2c`. Commits (oldest first): `4f5c9a9fa36` TEST AA goldens and suite; `a2babee65a9` TEST CLUT8 stamp record and strip dump; `0f5dd9512f6`
 GRAPHICS rgb555 target; `c8abfd7eb05` SCI backend pixel format; `1514a82faf1` TEST 15/16-bit; `92dd7e9ff04` SCI RGB/CLUT8 map pairing and the
-CLUT8 warning; `a4e3435ad26` TOOLS 1 bpp pair face; this DOCS commit.
+CLUT8 warning; `a4e3435ad26` TOOLS 1 bpp pair face; `618d93da62d` DOCS. Review round: `c3e6f4262f6` reviews, `102b6d51512` TOOLS generator, `8cde12f534a` GRAPHICS blend and 1555 alpha, `b7abdf9ba41` GRAPHICS auto order and format pick, `bc0d02723f7` SCI text follows the screen, `f21d5e16ef7` SCI one screen format, then this DOCS commit.
 
-Verification at the last code commit: `make test` SCI build (`~/work/tmp/aa-build`) **723 OK**; ASan build (`~/work/tmp/aa-asan`,
-`--enable-asan`) **723 OK, 0 sanitizer lines**, and the KQ1 `pair` run at rgb565 and rgb555 under the ASan `scummvm` (0 sanitizer
-lines in both logs; status-row sha256 `04e8b1964fcc382b` and `75d5af99face0452`, the same as the normal build); no-engine build
-(`~/work/tmp/aa-noengine`) **644 OK** (the SCI suites are not compiled); `tools/korean/sync-svf.sh --check` rc 0;
-`python3 -I tools/korean/mkgolden.py --check` rc 0 (covers the new goldens and fixtures); `test_k6bake.py`, `test_strcheck.py` OK
+Verification at the last code commit (`f21d5e16ef7`; the review-round fixes are in section 9): `make test` SCI build
+(`~/work/tmp/aa-build`) **727 OK**; ASan build (`~/work/tmp/aa-asan`, `--enable-asan`) **727 OK, 0 sanitizer lines**, and the KQ1
+`pair` run at rgb565 and rgb555 under the ASan `scummvm` (0 sanitizer lines in both logs; the same status-row and message-box
+sha256 as the normal build); SCI + SCI32 build (`~/work/tmp/aa-sci32`) **727 OK**, no warning in the log; no-engine build
+(`~/work/tmp/aa-noengine`) **646 OK** (the SCI suites are not compiled); `tools/korean/sync-svf.sh --check` rc 0;
+`python3 -I tools/korean/mkgolden.py --check` rc 0 (covers the goldens and fixtures); `test_k6bake.py`, `test_strcheck.py` rc 0
 (TMPDIR under `~/work/tmp`). Before this work: 679 SCI / 620 no-engine.
 
 ## 1. The faces (generated from TrueType)
@@ -70,10 +71,12 @@ C targets' RGB565 / RGB555 (little and big endian, bit 15 of fg565 set and clear
   `SvfFont` height/ascent/descent, 3/2 and 2x of them, clipping into a smaller target).
 * The plane keeps the coverage: `drawCoverage` into a `TextPlane` equals the golden for every case (1x, 2x and 3/2 at hi-res scale
   2), with the levels 85 and 170 present (not thresholded) until compositing.
-* Sinks: CLUT8 `kStamp` (170 and 255 survive, 85 does not); `kBlend` on RGB565, RGB555, BGR565, ARGB8888, ABGR8888, XRGB8888,
-  RGBA8888 and `kThreshold`; levels 85 and 170 are strictly between background and text colour in every channel;
-  `presentRect`; `SvfFont` on CLUT8 / RGB565 / RGB555 / ARGB8888 at 1x and 3/2; a mixed 1 bpp + 2 bpp line reaches the plane and
-  the sinks with both coverages; 8 bpp coverage reaches the plane unchanged.
+* Sinks: CLUT8 `kStamp` (170 and 255 survive, 85 does not). `kBlend` and `kThreshold` through `compositeRect`, `presentRect` and
+  `SvfFont` on RGB565, BGR565, RGB555, ARGB1555, RGBA5551, BGR555, XRGB8888, ARGB8888, ABGR8888 and RGBA8888, **every pixel equal to
+  the C renderer's pixel taken from the tools/svfline.py goldens** (Rgb565 / Rgb555 / Rgb888 rows, re-packed into the format's channel
+  shifts, alpha field opaque; the expected value is not computed with the sinks' formula). `SvfFont` is drawn on a transparent
+  surface where the format has alpha, and the text pixels come out opaque, also the faint levels. A mixed 1 bpp + 2 bpp line reaches
+  the plane and the sinks with both coverages; 8 bpp coverage reaches the plane unchanged and through the 16-bit C targets.
 
 ### 2.1 15 and 16 bit (mandatory AA targets)
 
@@ -86,46 +89,80 @@ C targets' RGB565 / RGB555 (little and big endian, bit 15 of fg565 set and clear
 * Quantisation (`test_levelsSurviveQuantisation`, `test_eightBitRampAtFiveBits`): for white on navy, black on white, yellow on blue,
   the golden pair and a low-contrast grey pair, on RGB565, RGB555, XRGB1555 and BGR565, the four levels give four different colours
   and every channel moves monotonically toward the text colour (no banding inversion). The 8 bpp ramp white on black at 5 bits:
-  32 values for each 5-bit channel, 64 for the 565 green, monotonic; **the ScummVM sink blends at 8 bits and `RGBToColor`
-  truncates, so a value is up to 7 below the exact blend; the C renderer's targets blend the 5-bit channels with rounding (error at
-  most 4)**. This is the quantisation data; truncation darkens an AA edge by at most 7/255 per channel and was left as it is.
+  32 values for each 5-bit channel, 64 for the 565 green, monotonic. **Rounding (changed in the review round):** the hi-res text
+  sinks and `SvfFont` blend in the channel widths of the screen format, `(bg * (255 - cov) + fg * cov + 127) / 255` per channel
+  (`TextCompose::blendPixel`), the arithmetic of the C renderer's RGB565/RGB555 targets, so over one background colour the
+  composite equals the C targets byte for byte, for all 256 coverages. The value read back (bit replication) is within 4.1 of 255
+  of the exact blend (half a 5-bit step). Before, the sinks blended at 8 bits and `RGBToColor` truncated: **the earlier text of
+  this section ("up to 7 below", "darkens") was wrong**: measured by the Opus reviewer, that arithmetic differed from the C
+  targets by one LSB in either direction (about 17 % of edge pixels, symmetric, mean 0; 248 reads back as 255, 7 above) and lay
+  within 7.5/255 of the exact blend. The game screen itself is quantised to the screen format first (the driver converts the
+  CLUT8 scaled bitmap to the 15/16-bit composite buffer), then the text is blended over it, which is what the C targets do too;
+  `convertSpan` (frame colour from the palette) cuts the frame colour to the channels first for the same reason.
 * XRGB1555: the alpha bit is set on every pixel the sink writes (also over a transparent pixel), pixels without coverage keep theirs
   (`test_alphaBitOf1555`).
 
-### 2.2 Mutation checks (each was run on a tree with exactly that change and failed the tests named; all reverted)
+### 2.2 Mutation checks (re-run in the review round: each change applied to the worktree alone, the tests rebuilt and run, the file reverted)
 
-| mutation | tests that failed |
+The first record of this table was wrong for four rows (the Opus review reproduced only 3 of 9; the `auto` mutation does not fail
+`test_screenFormatFollowsTheTarget`, the qualifier mutation fails more than 2 tests). Every row below was actually run again; the
+"failed" column is the list the runner printed (existing suites in italics).
+
+| mutation | failed |
 |---|---|
-| `svf_draw.c`: a 2 bpp level becomes 255 ("1 bpp treatment") | AA `test_goldenLines`, `test_fourLevels`, `test_streamedEqualsMapped`, `test_mixedBppLine`, `test_coherence` |
-| `text_compose.cpp`: RGB threshold 128 -> 60 | existing `test_clut8EqualsThreshold`, `test_composeRgb565`; AA `test_rgbSinks`, `test_presentThroughScreen` |
-| `text_compose.h`: stamp threshold 128 -> 60 | existing `test_stamp`, `test_clut8EqualsThreshold`; AA `test_clut8Stamp` |
-| `SvfChain::addFace` inserts at the front (chain order reversed) | 24 suites tests: AA goldens, provenance, extents, sinks, face facts; existing font set / font tests |
-| `svf_has` without the composed-syllable fallback (jamo set does not "have" syllables) | AA goldens, provenance, face facts, sinks; existing font set tests |
-| `svf_draw.c`: RGB555 blend without `+ 127` rounding | AA `test_rgbTargets`, `test_every_case_at_15_and_16_bit` |
-| `hires_options.cpp`: auto prefers 555 over 565 | `test_rgb555`, `test_screenFormatFollowsTheTarget`, `test_aaForRgbAndOneBppForClut8` |
-| `font_map.cpp`: rgb555 is not an `rgb` qualifier | `test_rgb555QualifiesAsRgb`, `test_aaForRgbAndOneBppForClut8` |
-| `hirestext.cpp`: no warning for an AA face on CLUT8 | `test_aaFaceOnClut8IsStampedAndWarnedOnce` |
+| `svf_draw.c`: a 2 bpp level becomes 255 ("1 bpp treatment") | 5: AA `test_goldenLines`, `test_fourLevels`, `test_streamedEqualsMapped`, `test_mixedBppLine`, `test_coherence` |
+| `text_compose.cpp`: RGB threshold 128 -> 60 | 4: *`test_clut8EqualsThreshold`, `test_composeRgb565`*; AA `test_rgbSinks`, `test_presentThroughScreen` |
+| `text_compose.h`: CLUT8 stamp threshold 128 -> 60 | 3: *`test_stamp`, `test_clut8EqualsThreshold`*; AA `test_clut8Stamp` |
+| `SvfChain::addFace` inserts at the front (chain order reversed) | 28: 16 AA tests (goldens, provenance, extents, sinks, face facts ...), 3 SCI hi-res text tests, *2 font set, 3 SvfFont, 4 SvfGolden tests* |
+| `svf_has` without the composed-syllable fallback | the runner aborts on an array assertion in an existing font test after 34 failed tests (AA goldens, provenance, sinks, face facts; *font set, SvfFace, SvfFont, SvfGolden*) |
+| `svf_draw.c`: RGB555 blend without `+ 127` | 2: AA `test_rgbTargets`, `test_every_case_at_15_and_16_bit` |
+| `hires_options.cpp`: auto prefers 565 over 888 | 4: `test_rgb555`, SCI `test_aaForRgbAndOneBppForClut8`, `test_autoPicksByWhatIsOffered`, `test_textFollowsTheScreenItGot` |
+| `hires_options.cpp`: auto prefers 555 over 565 | 2: `test_rgb555`, SCI `test_autoPicksByWhatIsOffered` (**not** `test_screenFormatFollowsTheTarget`: it passes an explicit target; the new test does the auto case) |
+| `font_map.cpp`: rgb555 is not an `rgb` qualifier | 5: `test_rgb555`, `test_rgb555QualifiesAsRgb`, SCI `test_aaForRgbAndOneBppForClut8`, `test_autoPicksByWhatIsOffered`, `test_screenFormatFollowsTheTarget` |
+| `hirestext.cpp`: no CLUT8 warning | 2: SCI `test_aaFaceOnClut8IsStampedAndWarnedOnce`, `test_textFollowsTheScreenItGot` |
+| `hirestext.cpp`: warning every time (no once-guard) | 2: the same two (a second font id warns again) |
+| `text_compose.cpp`: `blendPixel` without `+ 127` (truncating) | 10: AA `test_every_case_at_15_and_16_bit`, `test_rgbSinks`, `test_presentThroughScreen`, `test_svfFontSurfaces`, `test_eightBitRampAtFiveBits`; *`test_composeRgb565`, `test_convertXrgb8888`, SvfFont `test_rgb565`, `test_argb32`, `test_rgb332`* |
+| `svffont.cpp`: alpha blended by coverage (the old 1555 behaviour) | 2: AA `test_svfFontSurfaces` (ARGB1555 / RGBA5551 on a transparent surface), *SvfFont `test_argb32`* |
+| `hires_options.cpp`: `hiResPickScreenFormat` filter inverted | 1: `test_pickScreenFormat` |
+| `hires_options.cpp`: `hiResPickScreenFormat` fallback order 888, 565, 555 -> 888, 555, 565 | 1: `test_pickScreenFormat` |
+| `hirestext.cpp`: `setScreenFormat` ignores the screen | 1: SCI `test_textFollowsTheScreenItGot` |
+| `init.cpp`: `requestRGB` overridden by `wantsRgb()` again | **0: no unit test** (the driver needs a running engine); covered by the documented run in section 9 only |
 
-## 3. Render-target selection: rgb555 (a real item, found by the 15/16-bit requirement)
+## 3. Render-target selection: rgb555 and the screen format (real items, found by the 15/16-bit requirement)
 
 * `render_target` had `auto|clut8|rgb565|rgb888`; a backend offering only 555 or XRGB1555 got CLUT8 although the sinks handle them
-  (P1 review m-4). Added `rgb555` (value, `hiResTargetOf`: a 2 byte 5-5-5 format with or without the alpha bit, either channel order;
-  `rgb` qualifier). `auto` and the fallback for a target the backend does not offer now prefer **565, then 555, then 888**, ending
-  in CLUT8 (it was 888, then 565). Tests: `test_rgb555`, `test_targetFormats`, `test_rgb555QualifiesAsRgb`.
-* **Found while checking "the screen really is 16 bit": `render_target=rgb565` did not choose the screen format.** It only chose
-  how the text is composed; `GfxDefaultDriver::initScreen` called `initGraphics(w, h, nullptr)` for any RGB request, so the screen was
-  whatever the backend started with. Fixed in `c8abfd7eb05`: the driver asks for the backend's formats of the resolved target (the
-  backend's own order, since `initGraphics(list)` takes the first backend format the list has), and logs it at debug level 1:
-  `Hi-res text: screen format RGB565@2 for render target 2`. Tests: `hiResTargetFormat` maps back to its target for every target;
-  `SciHiResText::getScreenFormat()` follows the resolved target.
-* **This host (SDL2 surface backend under Xvfb)**, from the logs of 16 runs: `render_target=rgb565` gives `RGB565@2`;
-  `rgb555` gives `ARGB1555@2` (the backend's XRGB1555 entry: a 15-bit screen); `clut8` gives `CLUT8`. `rgb888` is **not** offered:
-  `SurfaceSdlGraphicsManager::detectSupportedFormats` leaves out formats wider than the current hardware screen, which is 16 bit when
-  the engine starts, so the engine logs `render_target rgb888 is not offered by this backend; using rgb565` and the run is an RGB565
-  run. 32-bit is therefore covered by the unit path only (RGB888/ARGB8888 sinks, `hiResTargetFormat`), not by a game screenshot.
-* DOS (P7): VBE 15/16-bit modes must appear in the DOS backend's `getSupportedFormats()` (RGB555, RGB565 and their order);
-  with that, the selection above needs no change. The AA text path at 15/16 bit costs two blends per pixel in `composeSpan`; its speed
-  on a 386/486 is not measured here (UNVERIFIED).
+  (P1 review m-4). Added `rgb555` (value, `hiResTargetOf`: a 2 byte 5-5-5 format with or without an alpha bit, either channel order;
+  `rgb` qualifier). **`auto` (and the fallback for a target the backend does not offer) prefers 888 where the backend offers it,
+  then 565, then 555, ending in CLUT8** (owner delegate decision in the review round): 15 and 16 bit are required to work and are
+  what is chosen where 32 bit is not offered (DOS VBE, backends without it), but they are not preferred on a 32-bit desktop because
+  they halve the colour levels of the whole VGA picture (a 6-bit DAC level pair merges at 5 bits). Tests: `test_rgb555`,
+  `test_targetFormats`, `test_targetNames`, `test_rgb555QualifiesAsRgb`, `test_autoPicksByWhatIsOffered` (auto with an AA map).
+* **`render_target=rgb565` did not choose the screen format** (found by checking that the screen really is 16 bit; fixed in
+  `c8abfd7eb05`): the driver called `initGraphics(w, h, nullptr)` for any RGB request. The driver now asks the backend for a format
+  of the resolved target and logs it at debug level 1 (`Hi-res text: screen format RGB565@2 for render target rgb565`).
+* **The first fix was itself wrong, found by the retaken runs** (`f21d5e16ef7`): `initGraphics(list)` takes the first BACKEND format
+  the list contains (`engines/engine.cpp findCompatibleFormat`), so a list of the target's formats plus the other RGB formats gave
+  the backend's favourite: `render_target=rgb555` got RGB565 on SDL (log: "the backend gave a rgb565 screen"). The pure function
+  `hiResPickScreenFormat(target, supported, out)` now returns one format: the backend's first of the target, else of the next RGB
+  target (888, 565, 555); the driver passes exactly that format (an empty list, so CLUT8, when no RGB format is offered). The unit
+  test models the backend's rule (`backendGives`): for an SDL-like list the single 555 gives XRGB1555 while a list with 565 in it
+  gives 565; OpenGL-like, 888-only, 555-only, missing-target, no-RGB and CLUT8-only lists are covered.
+* **The text follows the screen it got** (`SciHiResText::setScreenFormat`, called by the driver after `initGraphics`): an RGB text
+  whose screen came out as another RGB format, or as CLUT8, takes the screen's target: the map is loaded again with that target's
+  sections (`[font:clut8]` or `[font:rgb]`), the font sets are dropped, a note is logged, and the AA-on-CLUT8 warning applies when
+  the map has no `[font:clut8]`. A CLUT8 text on an RGB screen (the user's `rgb_rendering`) is left alone.
+* `init.cpp` no longer clears the user's `rgb_rendering` / `palette_mods` when the hi-res text uses 1 bpp faces (it only upgrades the
+  request). No unit test (the driver needs a running engine); run: KQ1 with a 1 bpp-only map and `rgb_rendering=true`, `render_target`
+  unset: `Hi-res text: screen format RGB565@2 for render target clut8` (RGB screen, CLUT8 text); the same map without it:
+  `CLUT8 for render target clut8`.
+* **This host (SDL2 surface backend under Xvfb)**: `rgb565` gives `RGB565@2`; `rgb555` gives `ARGB1555@2` (the backend's XRGB1555: a
+  15-bit screen); `clut8` gives `CLUT8`. `rgb888` is **not** offered: `SurfaceSdlGraphicsManager::detectSupportedFormats` leaves out
+  formats wider than the current hardware screen, which is 16 bit when the engine starts, so the engine logs `render_target rgb888 is
+  not offered by this backend; using rgb565` and the run is an RGB565 run. `auto` therefore also gives RGB565 here. 32 bit is covered
+  by the unit path only (RGB888/ARGB8888 sinks, `hiResPickScreenFormat`), not by a game screenshot.
+* DOS (P7): VBE 15/16-bit modes must appear in the DOS backend's `getSupportedFormats()` (RGB555, RGB565 and their order); with that
+  the selection above needs no change. The blend now costs three multiply-divides per pixel; its speed on a 386/486 is not measured
+  (UNVERIFIED; a lookup table is the obvious step if it matters).
 
 ## 4. Chains of a jamo set and a precomposed face: pairing guidance for maps
 
@@ -174,31 +211,40 @@ face for CLUT8 should be a hand-made bitmap face such as NEODG16A.
 Build `~/work/tmp/aa-build` (`--disable-all-engines --enable-engine=sci --enable-debug --disable-optimizations`), game data
 symlinked from the P3/P4 scratch copies (never in the repository), the generated faces in a scratch `extrapath`
 (`~/work/tmp/aa-games/extra`, `data:NG16P.SVF`), the maps in the game folders' `ko/` (`hires_text_map=ko/aa-<map>.map`). KQ1 (SCI0
-EGA) and LSL1 VGA (256 colours, run as RGB). Pixel formats from the log line above.
+EGA) and LSL1 VGA (256 colours, run as RGB). Pixel formats are from the log line of section 3. The frames were taken in two rounds:
+the first (binary of `618d93da62d`) gave the chain variants listed under "first round"; the review round retook the pair map
+frames with the final binary, the LSL1 frames after the warning box was on screen (the script retakes every 5 s until the yellow
+box is present, with 5 s of quiet before each shot so no "Saved screenshot" toast is on screen) and the KQ1 CLUT8 frame with the
+same room message as the RGB one. All frames named below were viewed.
 
-| run | screen | chain / map | what the screenshots show |
+| run | screen | chain / map | what the screenshot shows |
 |---|---|---|---|
-| KQ1 `pair` rgb565 | RGB565@2 | [NG16P, NG16JA] | status line, message box, parser prompt `입력 / 봐`, menu `파일 행동 속도 소리`: smooth AA, edges blended (5 colours in a text crop against 3 for CLUT8), no clipping, baseline on the game's, cell 16 hi-res px = 8 game px; the box is sized from the text |
-| KQ1 `pair` rgb555 | ARGB1555@2 | same | the same frame; status rows differ from rgb565 in 1,427 of 14,080 pixels (5 bit against 6 bit green quantisation of the edges); legible, no colour fringe, no wrong colour |
-| KQ1 `pair` clut8 | CLUT8 | [NG16J1, neo] by `[font:clut8]` | the 1 bpp pair: hard edges, legible, heavier; picked by the section (log: screen format CLUT8) |
-| KQ1 `pair` rgb888 asked | RGB565@2 | same | `not offered; using rgb565`, pixel-identical status rows to rgb565 (sha256 below) |
-| KQ1 `neo` rgb565 | RGB565@2 | [NEODG16A] | the 1 bpp Neo Dunggeunmo fallback at the same 16 px: crisp, thinner (911 against 1,060 weighted pixels in the line measured in section 6), pixel-font look; the AA NanumGothic is smoother and about 17 % heavier |
-| KQ1 `pairl` rgb565 | RGB565@2 | [NG16L, NG16P, NG16JA] | Latin (`득점: 0 of 158`) also AA, lighter weight (Regular) than the Hangul (Bold) |
-| KQ1 `pairjp` rgb565 | RGB565@2 | [NG16JA, NG16P] | every syllable from the jamo set: same layout, a little lighter |
-| KQ1 `pairs` rgb565 | RGB565@2 | message boxes [NG18P, NG16JA] | 18 px syllables and 16 px jamo-set syllables in one box, box and wrap right; the uneven step (17/15 px) is visible as slightly uneven spacing |
-| KQ1 `pair32` rgb565 | RGB565@2 | 16 px chain at `size=24` | 3/2 scale: larger, smooth text, no clipping in the box |
-| KQ1 `aaonly` clut8 | CLUT8 | [NG16P, NG16JA], no `[font:clut8]` | the defined fallback: stamped at 128, log `an anti-aliased face on a CLUT8 screen is stamped at coverage >= 128; give the map a [font:clut8] section with a 1 bpp face` (once) |
-| LSL1 VGA `pair` rgb555 / rgb565 | ARGB1555@2 / RGB565@2 | [NG16P, NG16JA] | warning box with wrapped text, the age dialog with its six buttons: AA text over the 256-colour picture and the yellow boxes, correct colours (black on yellow, white on black title bars); the mouse cursor covers some text |
-| LSL1 VGA `pair` clut8 | CLUT8 | [NG16J1, neo] | the 1 bpp pair; `는`/`눈` look-alikes in "있는", "에는" |
-| LSL1 VGA `pairl`, `neo` rgb565 | RGB565@2 | three faces; 1 bpp NEODG16A | as KQ1 |
+| KQ1 `pair` rgb565 | RGB565@2 | [NG16P, NG16JA] | `aa-kq1-rgb565-message.png`: the status line `득점: 0 of 158  킹스 퀘스트 I` and the room message `에드워드 왕의 성 바깥에 서 있다. ...` in two lines: smooth AA (5 colours in a text crop, 3 on CLUT8), no clipping, the baseline on the game's, the box sized from the text; `-parser-prompt.png` (`입력`, typed 봐), `-menu.png` (`파일 행동 속도 소리`, `도움말 F1`) |
+| KQ1 `pair` rgb555 | ARGB1555@2 | same | `aa-kq1-rgb555-message.png`: the same frame at 15 bit; the message box differs from rgb565 in 3,498 of its pixels (5-bit against 6-bit green quantisation of the edges and of the box colours); legible, no colour fringe, no wrong colour. The first run asked for rgb555 and got RGB565 (the bug of section 3); the retake shows `ARGB1555@2` |
+| KQ1 `pair` clut8 | CLUT8 | [NG16J1, neo] by `[font:clut8]` | `aa-kq1-clut8-1bpp-pair-message.png`: the same message in the 1 bpp pair: hard edges, legible, heavier; a few syllables look off (성은 reads like 성윤: the threshold-fitted jamo set) |
+| KQ1 `pair` rgb888 asked | RGB565@2 | same | `aa-kq1-rgb888-requested-fell-back-to-rgb565.png`: log `not offered; using rgb565`; status rows identical to the rgb565 run |
+| LSL1 VGA `pair` rgb565 | RGB565@2 | [NG16P, NG16JA] | `aa-lsl1vga-rgb565-warning-box.png` (box with three wrapped lines and the title bar `철갑상어 보건총감의 경고`), `-age-dialog.png` (question and six buttons): AA text over the 256-colour picture and the yellow boxes, black on yellow and white on black correct; the mouse cursor covers some text in one frame |
+| LSL1 VGA `pair` rgb555 | ARGB1555@2 | same | `aa-lsl1vga-rgb555-age-dialog.png`, `-rgb555-warning-box.png`: the same at 15 bit; the whole picture is 15-bit (28,546 pixels of the box region differ from rgb565, picture included) |
+| LSL1 VGA `pair` clut8 | CLUT8 | [NG16J1, neo] | `aa-lsl1vga-clut8-1bpp-pair-warning-box.png`: the 1 bpp pair; `에는` reads 에눈, `있는` 있눈, `있습니다` 있숩니다 |
+| LSL1 VGA `pairl` rgb565 | RGB565@2 | [NG16L, NG16P, NG16JA] | `aa-lsl1vga-rgb565-latin-chain-warning-box.png`: the quotes and colon come from the Latin face, the box width follows its advances |
+| LSL1 VGA `neo` rgb565 | RGB565@2 | [NEODG16A] | `aa-lsl1vga-rgb565-neodgm-1bpp-warning-box.png`: the 1 bpp fallback at the same size: crisp, thinner |
+| English KQ1 | 320x200 CLUT8 | none | `title.png` is 320x200, no `Hi-res text` line in the log: unchanged |
+| KQ1 1 bpp map, `rgb_rendering=true` | RGB565@2, text target clut8 | [NEODG16A] | log `screen format RGB565@2 for render target clut8` (the user's request kept); without the key `CLUT8 for render target clut8` |
+
+First round (binary of `618d93da62d`, same method; the chain variants, not retaken): `aa-kq1-rgb565-neodgm-1bpp-message.png` (NEODG16A
+at the same 16 px against the AA message: crisp and thinner, the AA NanumGothic about 17 % heavier), `-latin-chain-message.png`
+(Latin also AA, lighter than the Hangul), `-jamo-first-message.png` (reversed chain: every syllable from the jamo set), `-18px-message.png`
+(NG18P + NG16JA in one box: the 17 against 15 px step makes the spacing slightly uneven), `-3by2-message.png` (the 16 px chain at `size=24`),
+`-clut8-aa-face-stamped-message.png` (informational: no `[font:clut8]`, stamped at 128, one warning logged).
 
 Syllables in KQ1's `sci-ko.str`: 563 distinct Hangul syllables, 8,038 occurrences; **473 distinct syllables (3,897 occurrences, 48 %)
 are not in NG16P** (it has 103), so every message box shows both faces. No seam is visible at the join in any frame.
-Stable frames (sha256 of the status rows, y 0..21, 640 px, first 16 hex): every rgb565 run whose chain is [NG16P, NG16JA]
-(`pair`, `pair` with rgb888 asked, `pairs`, `pair32`, `aaonly`) `04e8b1964fcc382b`; rgb555 `75d5af99face0452`; CLUT8 pair
-`243d507e788da6c3`; `neo` rgb565 `c86c949eb46372bf`; `pairl` `347b8ce834209438`; `pairjp` `a5a5279336a1aca1`. Message-box frames differ between
-runs (the typed `qhk` and the screenshot hotkey add `ㄴ`, as in P4-notes), so their hashes are not stable.
-Screenshots: `~/work/tmp/ko-screenshots/aa-*.png` (captions name the face, size, recipe and the pixel format).
+Stable frames (sha256 of the status rows, y 0..21, 640 px, first 16 hex; the room-message frame is stable too): rgb565 chain
+[NG16P, NG16JA] status rows `04e8b1964fcc382b`, message box (110,165)-(530,260) `5b1e065b15f8c471` (also in the rgb888-asked run and under
+ASan); rgb555 status rows `75d5af99face0452`, message box `bc9206fc6b8263a0` (also under ASan); CLUT8 pair status rows `243d507e788da6c3`,
+message box `3be2b4f27669b8a8`. **The status-row hashes did not change with the rounding fix** (black on white gives the same 5/6-bit
+values with truncation and with rounding at the levels 85 and 170); the message-box hashes were first recorded after it. Frames with a typed
+`qhk` can show a stray `ㄴ` (the screenshot hotkey leaks its `s` into an open parser line, as in P4-notes), so the prompt frame is not hashed.
 
 ## 6. CLUT8 stamp of AA text (informational only)
 
@@ -242,10 +288,35 @@ section with a 1 bpp face` (`SciHiResText::getFontSet`, 8 lines, `test_aaFaceOnC
 ## 8. Bugs found, undone items
 
 * Found and fixed: `render_target` did not select the screen's pixel format (`c8abfd7eb05`); `rgb555` was not a target and `auto`
-  preferred 888 over the 16/15-bit formats (`0f5dd9512f6`).
+  preferred 888 over the 16/15-bit formats (`0f5dd9512f6`; the 888-first order was restored in the review round); the format list
+  given to `initGraphics` gave the backend's favourite, so rgb555 got RGB565 (`f21d5e16ef7`); the sinks were not the C targets'
+  arithmetic and `SvfFont` made ARGB1555 edges transparent (section 9); the text did not follow a screen that came out as CLUT8 or
+  another RGB format; `init.cpp` cleared the user's `rgb_rendering`.
 * Found, not a defect of the engine: SDL's format list caps at the current hardware depth, so `rgb888` falls back to RGB565 here;
-  a 1 bpp jamo set fitted with `--binarize threshold` (NG16J1) forms some syllables badly.
+  a 1 bpp jamo set fitted with `--binarize threshold` (NG16J1) forms some syllables badly (not usable as the CLUT8 face of a shipped
+  map; NEODG16A is).
 * UNVERIFIED / not done: a game screen at a real 32-bit format (the backend does not offer it here); DOS VBE 15/16-bit modes and
-  speed (P7); mingw build; 8 bpp faces in a game run (the 8 bpp face is a unit fixture only; jamoset cannot make an 8 bpp jamo set);
-  RGB555 with a big-endian layout in ScummVM (PixelFormat has none, only the C targets); SCI32 and other engines (SCI0/1 `default`
-  driver only); the 1 bpp NG16J1 of the CLUT8 side is a generated face, not a fixture.
+  speed (P7); mingw build (not built: no cross toolchain run in this round); 8 bpp faces in a game run (the 8 bpp face is a unit
+  fixture only; jamoset cannot make an 8 bpp jamo set); RGB555 with a big-endian layout in ScummVM (PixelFormat has none, only the C
+  targets); engines other than SCI; the 1 bpp NG16J1 of the CLUT8 side is a generated face, not a fixture; the double
+  quantisation of the CLUT8 scaled bitmap in `UpscaledGfxDriver::updateScreen` (the bitmap is cut to the screen format, then the
+  text is blended over it, as the C targets do; blending against the exact palette colour with `convertSpan` would need a second
+  conversion pass over every updated rectangle and was not done: documented in section 2.1); a lookup table for the blend.
+
+## 9. Review round (2026-11-23): Opus and agy reviews of `618d93da62d`
+
+Reports: `docs/korean/plans/reviews/AA-opus.md`, `reviews/AA-agy.md`. Each agy finding was checked against the code first.
+
+| finding | verdict | fix |
+|---|---|---|
+| R1 (both): three LSL1 screenshots show only the title picture, one file missing, the KQ1 CLUT8 caption does not match, the strip clips a digit | real | frames retaken (section 5, viewed), captions rewritten, the strip is 290 px wide, the claims without an image struck |
+| agy 1 / Opus m-1, m-3: the format list could never match a missing target; the text keeps its RGB target on a CLUT8 screen (no `[font:clut8]`, no warning) | real | `hiResPickScreenFormat` (pure, tested) and `SciHiResText::setScreenFormat` (`f21d5e16ef7`, `bc0d02723f7`); the first list version was itself wrong (section 3) |
+| agy 2: `SvfFont` on ARGB1555 makes faint edge pixels transparent | real (red: `svffont-1555-alpha` mutation fails the new test) | `blendPixel` sets alpha opaque (`8cde12f534a`) |
+| agy 3 / Opus m-2, R3: truncating sinks, false statements | real | channel-width blend equal to the C targets (`8cde12f534a`); the statements in 2.1, `text_compose.h` and the test comments corrected; DESIGN 10 has the rule |
+| agy 7 / Opus: `init.cpp` clears `rgb_rendering` | real | only upgrades (`bc0d02723f7`); run in section 3 |
+| agy 5: the `auto` mutation claim is false, "warned once" untested, the sink checks restate the formula | real | table 2.2 re-run; `test_autoPicksByWhatIsOffered`; once across font ids; sink checks against the svfline goldens |
+| Opus m-4: `auto` prefers 565 over 888 | decision | 888 first again (`b7abdf9ba41`) |
+| agy 6 / Opus m-5: generator hygiene, cache key | real | `102b6d51512` (sys.executable, explicit fontTools error, `--only`, shutil, unique temp directory, tool versions and submodule state in the key) |
+| agy 8, 10: comment, parallel name arrays, include order, copyright note | real | `targetName()`, the include moved up, the comment, the NanumGothic copyright and Reserved Font Names beside the `COPYING.OFL` entry |
+| agy 4 "double quantisation" in `updateScreen` | not changed | section 8 |
+

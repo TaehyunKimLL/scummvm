@@ -294,9 +294,14 @@ frame is sent to the backend. Indices, not colours, so palette fades and cycling
 | AGI | none: 16x16 stencils into the existing 640x400 display buffer | `drawCharacterOnDisplay` paints fg/bg | EGA 16 | upstream |
 
 Render target: `render_target=auto|clut8|rgb565|rgb555|rgb888`. `auto` = RGB when the chosen map has a
-coverage face (2 bpp AA) and the backend offers it, else CLUT8; the RGB format is 16-bit (565) first, then 15-bit
-(555, also XRGB1555), then 32-bit (888). 1-bpp faces look the same on both. Anti-aliased faces are for the RGB
-targets (15/16-bit mandatory); a map keeps CLUT8 on a 1 bpp face with a `[font:clut8]` section.
+coverage face (2 bpp AA) and the backend offers it, else CLUT8; the RGB format is 32-bit (888) where the backend
+offers it, else 16-bit (565), else 15-bit (555, also XRGB1555 and RGBA5551). 15 and 16 bit are required to work
+(DOS VBE, backends without 32 bit) and are what is chosen there; they are not preferred on a 32-bit desktop,
+because they halve the colour levels of the whole VGA picture. The SCI driver asks the backend for the one format
+of the resolved target, else of the next RGB target (`hiResPickScreenFormat`; `initGraphics` takes the first backend format
+its list has, so the list is that one format), and the text follows the screen it got (`SciHiResText::setScreenFormat`: another RGB format, or CLUT8, loads the map's `[font:clut8]`/`[font:rgb]`
+sections again). 1-bpp faces look the same on both. Anti-aliased faces are for the RGB targets (15/16-bit
+mandatory); a map keeps CLUT8 on a 1 bpp face with a `[font:clut8]` section.
 
 ### 5.2 Font technology
 
@@ -523,6 +528,10 @@ Commits may be agent-written with an `Assisted-by:` trailer (owner's rule for th
   test`, then per-game smoke scripts in the harness (headless Xvfb, debug socket): first room screenshot
   (`dump`), a typed Korean command (`key 0 <cp>`), the expected answer text (`wait text "..."`), save/load
   round trip of a Korean save name. Parser: `k16said.py` numbers must not drop below section 6's baselines.
+- RGB composite arithmetic: the hi-res text sinks (`TextCompose::blendPixel`, used by `composeSpan`, `convertSpan` and
+  `SvfFont`) blend in the channel widths of the screen format, `(bg * (255 - cov) + fg * cov + 127) / 255` per channel,
+  the arithmetic of the C renderer's RGB565/RGB555 targets, so over one background colour the ScummVM composite equals
+  the C targets byte for byte (tested against `tools/svfline.py` goldens, for 565, 555, 1555, 5551 and 8-bit formats).
 - Coverage: `facecoverage.py --base-check` in every pack build; `hires_text_log` misses must be zero on the
   smoke paths.
 - DOS: DOSBox-X headless (`xvfb-run dosbox-x -conf X -nopromptfolder -fastlaunch`, `cputype=pentium`) and
