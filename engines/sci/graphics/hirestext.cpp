@@ -34,11 +34,13 @@ namespace Sci {
 
 const char *const SciHiResText::kDefaultMap = "data:hires_text/maps/korean-default.map";
 
-SciHiResText::SciHiResText() : _coverageWarnings(0), _hangulBreakSet(false), _hangulBreak(Graphics::kHangulBreakWord), _active(false), _files(nullptr), _ownFiles(false), _faces(nullptr),
+SciHiResText::SciHiResText() : _coverageWarnings(0), _generation(0), _hangulBreakSet(false), _hangulBreak(Graphics::kHangulBreakWord), _active(false), _files(nullptr), _ownFiles(false), _faces(nullptr),
 	_target(Graphics::kHiResTargetClut8), _blend(Graphics::kHiResBlendAuto) {
 }
 
 SciHiResText::~SciHiResText() {
+	for (uint i = 0; i < _retiredSets.size(); ++i)
+		delete _retiredSets[i];
 	for (Common::HashMap<int, Graphics::HiResFontSet *>::iterator it = _sets.begin(); it != _sets.end(); ++it)
 		delete it->_value;
 	delete _faces;
@@ -111,15 +113,20 @@ void SciHiResText::setScreenFormat(const Graphics::PixelFormat &format, Common::
 	if (!_active)
 		return;
 	const Graphics::HiResRenderTarget got = Graphics::hiResTargetOf(format);
-	// Only an RGB target follows its screen; a CLUT8 text on an RGB screen (the user's rgb_rendering) is composed by the driver.
-	if (got == Graphics::kHiResTargetAuto || got == _target || _target == Graphics::kHiResTargetClut8)
+	// The text follows the screen it got: RGB to another RGB format or CLUT8, and CLUT8 to RGB (render_target=clut8 with the user's
+	// rgb_rendering gives an RGB screen: an AA face is then blended, not thresholded, and no CLUT8 warning is given).
+	if (got == Graphics::kHiResTargetAuto || got == _target)
 		return;
 	notes.push_back(Common::String("the backend gave a ") + Graphics::HiResFontMap::targetName(got) + " screen, not " +
 	                Graphics::HiResFontMap::targetName(_target) + ": the text follows the screen");
 	_target = got;
+	// The old sets are kept: GfxFontHiRes objects of the font cache hold references to them. They are deleted with the object;
+	// the generation tells the cache that its fonts are stale.
 	for (Common::HashMap<int, Graphics::HiResFontSet *>::iterator it = _sets.begin(); it != _sets.end(); ++it)
-		delete it->_value;
+		if (it->_value)
+			_retiredSets.push_back(it->_value);
 	_sets.clear();
+	++_generation;
 	loadTargetSections(notes);
 	_breakRules = _pick.map.layout.apply(Graphics::BreakRules());
 	if (_hangulBreakSet)

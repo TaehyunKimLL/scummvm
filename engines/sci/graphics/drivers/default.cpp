@@ -123,8 +123,9 @@ bool GfxDefaultDriver::initScreen(const Graphics::PixelFormat *srcRGBFormat) {
 	}
 
 	Graphics::PixelFormat format = g_system->getScreenFormat();
-	if (g_sci->getHiResText() && g_sci->getHiResText()->isActive()) {
-		// The text follows the screen it got (another RGB format, or CLUT8 for an RGB request).
+	// A temporary video-format switch (srcRGBFormat, Mac QuickTime movies) must not change the hi-res text; only the game's own screen does.
+	if (!srcRGBFormat && g_sci->getHiResText() && g_sci->getHiResText()->isActive()) {
+		// The text follows the screen it got (another RGB format, CLUT8 for an RGB request, RGB for a CLUT8 text).
 		Common::Array<Common::String> notes;
 		g_sci->getHiResText()->setScreenFormat(format, notes);
 		for (uint i = 0; i < notes.size(); ++i)

@@ -59,6 +59,7 @@ private:
 	GfxPalette *_palette;
 
 	FontCache _cachedFonts;
+	uint _hiresGeneration; ///< SciHiResText::getGeneration() the cached hi-res fonts were built at
 	ViewCache _cachedViews;
 };
 

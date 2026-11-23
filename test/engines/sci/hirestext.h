@@ -176,6 +176,35 @@ public:
 		}
 	}
 
+	// A font built over a set (the SCI font cache keeps them) outlives a screen switch: the old sets are kept, so the font stays
+	// usable (an ASan build reports the use after free of a deleted set), and the generation says the fonts are stale.
+	void test_fontsOutliveTheScreenSwitch() {
+		HiResTest::MemoryFiles files;
+		files.addText("game/ko/HIRESVF.MAP", pairedMap());
+		addAaFaces(files);
+		const uint32 all = allTargets() | (1 << Graphics::kHiResTargetRgb555);
+		Sci::SciHiResText t;
+		Common::Array<Common::String> notes;
+		TS_ASSERT(t.setup(&files, Graphics::HiResOptions(), Common::Path("game"), "ko", all, notes));
+		TS_ASSERT(t.createPlane(320, 200));
+		Common::String drawn;
+		Sci::GfxFontHiRes font(new FakeFont(&drawn), *t.getFontSet(0), t.getPlane());
+		const Graphics::HiResFontSet *before = t.getFontSet(0);
+		const uint generation = t.getGeneration();
+		Common::Array<Common::String> n;
+		t.setScreenFormat(Graphics::PixelFormat::createFormatCLUT8(), n);
+		TS_ASSERT(t.getGeneration() != generation);
+		TS_ASSERT(t.getFontSet(0) != before);	// a new set for the new target
+		// the old font draws through its old set
+		TS_ASSERT(font.getCharWidth(0xAC00) > 0);
+		font.draw(0xAC00, 10, 20, 15, false);
+		TS_ASSERT(!t.getPlane().isEmpty());
+		// the same text on the same screen again changes nothing
+		const uint g2 = t.getGeneration();
+		t.setScreenFormat(Graphics::PixelFormat::createFormatCLUT8(), n);
+		TS_ASSERT_EQUALS(t.getGeneration(), g2);
+	}
+
 	// The backend gave another screen than the text resolved: the text follows it (map sections, font sets, the warning).
 	void test_textFollowsTheScreenItGot() {
 		HiResTest::MemoryFiles files;
@@ -222,16 +251,44 @@ public:
 			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2");
 			TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 1u);
 		}
-		// a CLUT8 text (1 bpp faces, or the user's choice) is left alone on an RGB screen
+		// a CLUT8 text on an RGB screen (render_target=clut8 with the user's rgb_rendering) follows the screen too: the [font:rgb] chain
+		// is blended instead of an AA face being thresholded, and no "CLUT8 screen" warning is given
 		{
 			Sci::SciHiResText t;
 			Graphics::HiResOptions o;
 			o.target = Graphics::kHiResTargetClut8;
 			TS_ASSERT(t.setup(&files, o, Common::Path("game"), "ko", all, notes));
+			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "1");
 			Common::Array<Common::String> n;
 			t.setScreenFormat(Graphics::hiResTargetFormat(Graphics::kHiResTargetRgb565), n);
-			TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetClut8);
+			TS_ASSERT_EQUALS(t.getTarget(), Graphics::kHiResTargetRgb565);
+			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2 1");
+			TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 0u);
+		}
+		// an AA-only map, clut8 asked, an RGB screen got: the face is blended, nothing is said about CLUT8
+		{
+			HiResTest::MemoryFiles f3;
+			f3.addText("game/ko/HIRESVF.MAP", "[map]\nversion=3\n[fonts]\nng=data:aa/NG16P.SVF\nja=data:aa/NG16JA.SVF\n[font]\nface=ng,ja\nsize=16\n");
+			addAaFaces(f3);
+			Sci::SciHiResText t;
+			Graphics::HiResOptions o;
+			o.target = Graphics::kHiResTargetClut8;
+			TS_ASSERT(t.setup(&f3, o, Common::Path("game"), "ko", all, notes));
+			Common::Array<Common::String> n;
+			t.setScreenFormat(Graphics::hiResTargetFormat(Graphics::kHiResTargetRgb565), n);
+			TS_ASSERT(t.wantsRgb());
+			TS_ASSERT_EQUALS(t.getComposeMode(), Graphics::TextCompose::kBlend);
+			TS_ASSERT_EQUALS(chainBpps(t.getFontSet(0)), "2 2");
+			TS_ASSERT_EQUALS(t.coverageOnClut8Warnings(), 0u);
+		}
+		// an unknown screen format (RGBA4444) changes nothing
+		{
+			Sci::SciHiResText t;
+			TS_ASSERT(t.setup(&files, Graphics::HiResOptions(), Common::Path("game"), "ko", all, notes));
+			Common::Array<Common::String> n;
+			t.setScreenFormat(Graphics::PixelFormat(2, 4, 4, 4, 4, 12, 8, 4, 0), n);
 			TS_ASSERT(n.empty());
+			TS_ASSERT_EQUALS(t.getGeneration(), 0u);
 		}
 	}
 

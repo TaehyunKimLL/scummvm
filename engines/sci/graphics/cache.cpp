@@ -37,7 +37,7 @@
 namespace Sci {
 
 GfxCache::GfxCache(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palette)
-	: _resMan(resMan), _screen(screen), _palette(palette) {
+	: _resMan(resMan), _screen(screen), _palette(palette), _hiresGeneration(0) {
 }
 
 GfxCache::~GfxCache() {
@@ -70,6 +70,7 @@ GfxFont *GfxCache::hiResFont(GfxFont *font, GuiResourceId fontId) {
 	SciHiResText *hires = g_sci->getHiResText();
 	if (!hires || !_screen->getTextPlane())
 		return font;
+	_hiresGeneration = hires->getGeneration();
 	// The map names the font resource drawn: lsl1sci's ids carry high bits
 	// that GfxFontFromResource drops (2107 is font 59), and so does this.
 	if (getSciVersion() < SCI_VERSION_2 && !_resMan->testResource(ResourceId(kResourceTypeFont, fontId)))
@@ -80,6 +81,12 @@ GfxFont *GfxCache::hiResFont(GfxFont *font, GuiResourceId fontId) {
 }
 
 GfxFont *GfxCache::getFont(GuiResourceId fontId) {
+	// Hi-res fonts built for another screen target (SciHiResText::setScreenFormat) are stale: build them again.
+	SciHiResText *hires = g_sci->getHiResText();
+	if (hires && hires->getGeneration() != _hiresGeneration) {
+		purgeFontCache();
+		_hiresGeneration = hires->getGeneration();
+	}
 	if (_cachedFonts.size() >= MAX_CACHED_FONTS)
 		purgeFontCache();
 

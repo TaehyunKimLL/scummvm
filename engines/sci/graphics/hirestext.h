@@ -76,9 +76,11 @@ public:
 	/**
 	 * The screen the driver really got from the backend. When the text wanted RGB and the screen's target is another (a
 	 * backend that gave another RGB format, or CLUT8 for an RGB request) the text switches to the screen's target: the map is loaded again
-	 * with that target's sections, the font sets are dropped, a note says so (also in @p notes).
+	 * with that target's sections, the font sets are replaced (the old ones are kept alive, the generation changes), a note says so (also in @p notes).
 	 */
 	void setScreenFormat(const Graphics::PixelFormat &format, Common::Array<Common::String> &notes);
+	/** Changes whenever the font sets were replaced (setScreenFormat): fonts built over the old sets are stale. */
+	uint getGeneration() const { return _generation; }
 	bool wantsRgb() const { return _active && _target != Graphics::kHiResTargetClut8; }
 	Graphics::TextCompose::Mode getComposeMode() const { return Graphics::composeMode(_target, _blend); }
 	const Graphics::HiResPick &getPick() const { return _pick; }
@@ -98,6 +100,8 @@ private:
 	void loadTargetSections(Common::Array<Common::String> &notes);
 
 	uint _coverageWarnings;
+	uint _generation;
+	Common::Array<Graphics::HiResFontSet *> _retiredSets; ///< replaced by setScreenFormat, kept for the fonts built over them
 	bool _hangulBreakSet;
 	Graphics::HangulBreak _hangulBreak;
 	bool _active;
