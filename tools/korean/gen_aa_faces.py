@@ -12,6 +12,7 @@ All faces come from dists/svf-fonts-open (the pinned submodule) and its OFL True
   NG16JA.SVF  jamo set 8x4x4 (layout 844) 16x16 2 bpp, NanumGothic Bold 16 px:   jamoset.py --layout 844 --from-ttf --bpp 2 --check
               (jamoaa.py: exact-area outline coverage, pieces by the 1 bpp fit regions; needs fontTools only, route
               "outline composite"; a full set of all 11,172 syllables, 24,960 bytes)
+  NG16J1.SVF  the 1 bpp pair for CLUT8: jamo set 844, 16x16, jamoset.py --from-ttf --binarize threshold (not a test fixture)
   NG16P8.SVF  precomposed 16x16 8 bpp, the same as NG16P with --bpp 8 (the one 8 bpp face, a few glyphs only: no shipped face has 8 bpp)
 
 The precomposed faces carry only the code points of FREQUENT (and ASCII), so a syllable outside it is drawn by the jamo set
@@ -52,6 +53,10 @@ def commands(out):
 	             "--cell", "16", "--width", "16", "--bpp", "2", "--clip-cell", "--unicode", "0020-007E,0300-0301", "--only-listed"])
 	cmds.append([sys.executable, "-I", os.path.join(TOOLS, "jamoset.py"), "--layout", "844", "--from-ttf", BOLD, "--size", "16",
 	             "--bpp", "2", "--check", "--pylib", pylib(), "-o", os.path.join(out, "NG16JA.SVF")])
+	# the 1 bpp pair of the CLUT8 chain: the same TrueType, the jamo set recipe of docs/recipes.md 3 (exact-area rasteriser,
+	# no FreeType), not a fixture (the tests use the 1 bpp NEODG-derived fixture face)
+	cmds.append([sys.executable, "-I", os.path.join(TOOLS, "jamoset.py"), "--layout", "844", "--from-ttf", BOLD, "--size", "16",
+	             "--binarize", "threshold", "--check", "--pylib", pylib(), "-o", os.path.join(out, "NG16J1.SVF")])
 	return cmds
 
 
