@@ -24,6 +24,8 @@
 #include "common/config-manager.h"
 #include "common/hash-str.h"
 #include "common/hashmap.h"
+#include "common/list.h"
+#include "common/util.h"
 
 #include "graphics/hires_text/hires_options.h"
 
@@ -135,7 +137,7 @@ public:
 	}
 
 	// 15-bit targets (RGB555, XRGB1555) are mandatory for the AA faces: they are a render target like the others, and
-	// auto prefers 16-bit, then 15-bit, then 24/32-bit pixels.
+	// auto prefers 32-bit where it is offered (it keeps the VGA picture's palette), then 16-bit, then 15-bit.
 	void test_rgb555() {
 		Graphics::HiResRenderTarget t;
 		TS_ASSERT(Graphics::HiResFontMap::parseRenderTarget("rgb555", t));
@@ -173,19 +175,22 @@ public:
 		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb555);
 		TS_ASSERT(note.empty());
 
-		// everything offered: auto prefers 565, then 555, then 888
+		// everything offered: auto prefers 888, then 565, then 555
 		offered = (1u << Graphics::kHiResTargetClut8) | (1u << Graphics::kHiResTargetRgb565) | (1u << Graphics::kHiResTargetRgb555) |
 		          (1u << Graphics::kHiResTargetRgb888);
 		o = Graphics::HiResOptions();
+		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb888);
+		offered &= ~(1u << Graphics::kHiResTargetRgb888);
 		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb565);
 		offered &= ~(1u << Graphics::kHiResTargetRgb565);
 		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb555);
-		offered &= ~(1u << Graphics::kHiResTargetRgb555);
-		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb888);
-		// an explicit 888 is honoured while it is offered
-		o.target = Graphics::kHiResTargetRgb888;
+		// an explicit 565 is honoured while it is offered, and an unoffered 888 falls to the same order
 		offered |= 1u << Graphics::kHiResTargetRgb565;
-		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb888);
+		o.target = Graphics::kHiResTargetRgb565;
+		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb565);
+		o.target = Graphics::kHiResTargetRgb888;
+		TS_ASSERT_EQUALS(Graphics::resolveRenderTarget(o, nullptr, true, offered, note), Graphics::kHiResTargetRgb565);
+		TS_ASSERT_EQUALS(note, "render_target rgb888 is not offered by this backend; using rgb565");
 		TS_ASSERT_EQUALS(Graphics::composeMode(Graphics::kHiResTargetRgb555, Graphics::kHiResBlendAuto), Graphics::TextCompose::kBlend);
 		TS_ASSERT_EQUALS(Graphics::composeMode(Graphics::kHiResTargetRgb555, Graphics::kHiResBlendOff), Graphics::TextCompose::kThreshold);
 	}
@@ -206,6 +211,78 @@ public:
 		TS_ASSERT_EQUALS(f555.aBits(), 0);
 		TS_ASSERT_EQUALS(Graphics::hiResTargetFormat(Graphics::kHiResTargetRgb888).bytesPerPixel, 4);
 		TS_ASSERT(Graphics::hiResTargetFormat(Graphics::kHiResTargetAuto).isCLUT8());	// no RGB wanted: the 8-bit screen
+	}
+
+	void test_targetNames() {
+		const Graphics::HiResRenderTarget all[] = { Graphics::kHiResTargetAuto, Graphics::kHiResTargetClut8, Graphics::kHiResTargetRgb565,
+		                                            Graphics::kHiResTargetRgb888, Graphics::kHiResTargetRgb555 };
+		for (uint i = 0; i < ARRAYSIZE(all); ++i) {
+			Graphics::HiResRenderTarget t = Graphics::kHiResTargetRgb888;
+			TS_ASSERT(Graphics::HiResFontMap::parseRenderTarget(Graphics::HiResFontMap::targetName(all[i]), t));
+			TS_ASSERT_EQUALS(t, all[i]);
+		}
+		TS_ASSERT_EQUALS(Common::String(Graphics::HiResFontMap::targetName(Graphics::kHiResTargetRgb555)), "rgb555");
+	}
+
+	static Common::String formatNames(const Common::List<Graphics::PixelFormat> &l) {
+		Common::String s;
+		for (Common::List<Graphics::PixelFormat>::const_iterator it = l.begin(); it != l.end(); ++it)
+			s += Common::String(s.empty() ? "" : " ") + Graphics::HiResFontMap::targetName(Graphics::hiResTargetOf(*it)) +
+			     (it->aBits() ? Common::String::format("/a%u@%u", it->aBits(), it->aShift) : Common::String());
+		return s;
+	}
+
+	// The formats the driver offers initGraphics: the target's first, then the other RGB formats, never CLUT8.
+	void test_screenFormats() {
+		const Graphics::PixelFormat f565(2, 5, 6, 5, 0, 11, 5, 0, 0), f555(2, 5, 5, 5, 0, 10, 5, 0, 0), x1555(2, 5, 5, 5, 1, 10, 5, 0, 15),
+		    rgba5551(2, 5, 5, 5, 1, 11, 6, 1, 0), bgr555(2, 5, 5, 5, 0, 0, 5, 10, 0), rgba8888(4, 8, 8, 8, 8, 24, 16, 8, 0),
+		    argb8888(4, 8, 8, 8, 8, 16, 8, 0, 24), x8888(4, 8, 8, 8, 0, 16, 8, 0, 0), clut8 = Graphics::PixelFormat::createFormatCLUT8(),
+		    rgba4444(2, 4, 4, 4, 4, 12, 8, 4, 0);
+
+		// SDL-like: nothing wider than the 16-bit screen it has, the hardware format first, CLUT8 last
+		Common::List<Graphics::PixelFormat> sdl;
+		sdl.push_back(f565);
+		sdl.push_back(x1555);
+		sdl.push_back(f555);
+		sdl.push_back(rgba4444);
+		sdl.push_back(bgr555);
+		sdl.push_back(clut8);
+		TS_ASSERT_EQUALS(formatNames(Graphics::hiResScreenFormats(Graphics::kHiResTargetRgb565, sdl)), "rgb565 rgb555/a1@15 rgb555 rgb555");
+		TS_ASSERT_EQUALS(formatNames(Graphics::hiResScreenFormats(Graphics::kHiResTargetRgb555, sdl)), "rgb555/a1@15 rgb555 rgb555 rgb565");
+		// 888 asked and not offered: the other RGB formats in the order 565, 555 (the 555 ones keep the backend's order)
+		TS_ASSERT_EQUALS(formatNames(Graphics::hiResScreenFormats(Graphics::kHiResTargetRgb888, sdl)), "rgb565 rgb555/a1@15 rgb555 rgb555");
+		TS_ASSERT_EQUALS(Graphics::hiResScreenFormats(Graphics::kHiResTargetRgb555, sdl).front(), x1555);
+
+		// OpenGL-like: 32-bit first, then 16-bit; RGBA5551 is its 15-bit format
+		Common::List<Graphics::PixelFormat> gl;
+		gl.push_back(rgba8888);
+		gl.push_back(argb8888);
+		gl.push_back(f565);
+		gl.push_back(rgba5551);
+		gl.push_back(rgba4444);
+		gl.push_back(clut8);
+		TS_ASSERT_EQUALS(formatNames(Graphics::hiResScreenFormats(Graphics::kHiResTargetRgb565, gl)), "rgb565 rgb888/a8@0 rgb888/a8@24 rgb555/a1@0");
+		TS_ASSERT_EQUALS(formatNames(Graphics::hiResScreenFormats(Graphics::kHiResTargetRgb888, gl)), "rgb888/a8@0 rgb888/a8@24 rgb565 rgb555/a1@0");
+		TS_ASSERT_EQUALS(formatNames(Graphics::hiResScreenFormats(Graphics::kHiResTargetRgb555, gl)), "rgb555/a1@0 rgb888/a8@0 rgb888/a8@24 rgb565");
+		Common::List<Graphics::PixelFormat> x;
+		x.push_back(x8888);
+		x.push_back(clut8);
+		TS_ASSERT_EQUALS(formatNames(Graphics::hiResScreenFormats(Graphics::kHiResTargetRgb888, x)), "rgb888");
+
+		// the target missing and no other RGB format, or CLUT8 only: empty (initGraphics gives CLUT8)
+		Common::List<Graphics::PixelFormat> only;
+		only.push_back(clut8);
+		TS_ASSERT(Graphics::hiResScreenFormats(Graphics::kHiResTargetRgb565, only).empty());
+		TS_ASSERT(Graphics::hiResScreenFormats(Graphics::kHiResTargetRgb888, Common::List<Graphics::PixelFormat>()).empty());
+		Common::List<Graphics::PixelFormat> noRgb;
+		noRgb.push_back(rgba4444);
+		noRgb.push_back(clut8);
+		TS_ASSERT(Graphics::hiResScreenFormats(Graphics::kHiResTargetRgb565, noRgb).empty());
+		// CLUT8 and auto ask for no RGB screen
+		TS_ASSERT(Graphics::hiResScreenFormats(Graphics::kHiResTargetClut8, sdl).empty());
+		TS_ASSERT(Graphics::hiResScreenFormats(Graphics::kHiResTargetAuto, sdl).empty());
+		// a list that has the target and a backend that offers exactly it: the first format of the list is the target's
+		TS_ASSERT_EQUALS(Graphics::hiResScreenFormats(Graphics::kHiResTargetRgb565, sdl).front(), f565);
 	}
 
 	void test_modeAndScale() {

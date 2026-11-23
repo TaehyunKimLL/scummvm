@@ -156,6 +156,8 @@ HiResFaceRef resolveFace(const Common::String &value, const Common::Path &mapDir
 
 /** The qualifier name of a resolved target: clut8 or rgb (empty for auto). */
 const char *targetQualifier(HiResRenderTarget target);
+/** auto, clut8, rgb565, rgb888 or rgb555: the value of render_target. */
+const char *targetName(HiResRenderTarget target);
 
 bool parseRenderTarget(const Common::String &text, HiResRenderTarget &out);
 bool parseBlend(const Common::String &text, HiResBlend &out);

@@ -22,6 +22,7 @@
 #include "graphics/hires_text/hires_options.h"
 
 #include "common/config-manager.h"
+#include "common/util.h"
 
 namespace Graphics {
 
@@ -144,7 +145,7 @@ HiResRenderTarget hiResTargetOf(const PixelFormat &f) {
 	if (f.bytesPerPixel == 2 && f.rBits() == 5 && f.gBits() == 6 && f.bBits() == 5)
 		return kHiResTargetRgb565;
 	if (f.bytesPerPixel == 2 && f.rBits() == 5 && f.gBits() == 5 && f.bBits() == 5)
-		return kHiResTargetRgb555;	// RGB555 and XRGB1555: the sinks write the colour channels only
+		return kHiResTargetRgb555;	// RGB555, XRGB1555, RGBA5551: the sinks set an alpha bit opaque (bit 15 of XRGB1555, bit 0 of RGBA5551)
 	if (f.bytesPerPixel == 4 && f.rBits() == 8 && f.gBits() == 8 && f.bBits() == 8)
 		return kHiResTargetRgb888;
 	return kHiResTargetAuto;
@@ -161,6 +162,21 @@ PixelFormat hiResTargetFormat(HiResRenderTarget target) {
 	default:
 		return PixelFormat::createFormatCLUT8();
 	}
+}
+
+Common::List<PixelFormat> hiResScreenFormats(HiResRenderTarget target, const Common::List<PixelFormat> &supported) {
+	Common::List<PixelFormat> out;
+	if (target == kHiResTargetClut8 || target == kHiResTargetAuto)
+		return out;
+	const HiResRenderTarget order[] = { target, kHiResTargetRgb888, kHiResTargetRgb565, kHiResTargetRgb555 };
+	for (uint i = 0; i < ARRAYSIZE(order); ++i) {
+		if (i && order[i] == target)
+			continue;
+		for (Common::List<PixelFormat>::const_iterator it = supported.begin(); it != supported.end(); ++it)
+			if (hiResTargetOf(*it) == order[i])
+				out.push_back(*it);
+	}
+	return out;
 }
 
 uint32 hiResTargetsOffered(const Common::List<PixelFormat> &formats) {
@@ -186,8 +202,8 @@ HiResRenderTarget resolveRenderTarget(const HiResOptions &options, const HiResMa
 	if (want == kHiResTargetAuto && map && map->targetSet)
 		want = map->target;
 	offered |= 1u << kHiResTargetClut8;
-	// The 16-bit and 15-bit formats come first (DOS VBE offers them; 24/32-bit pixels are secondary).
-	static const HiResRenderTarget kPreference[] = { kHiResTargetRgb565, kHiResTargetRgb555, kHiResTargetRgb888 };
+	// 32 bit first where offered (it keeps the VGA picture's palette exact); 16 and 15 bit are what DOS VBE offers.
+	static const HiResRenderTarget kPreference[] = { kHiResTargetRgb888, kHiResTargetRgb565, kHiResTargetRgb555 };
 	if (want == kHiResTargetAuto) {
 		if (!anyCoverage || resolveBlend(options, map) == kHiResBlendOff)
 			return kHiResTargetClut8;
@@ -204,8 +220,8 @@ HiResRenderTarget resolveRenderTarget(const HiResOptions &options, const HiResMa
 			got = kPreference[i];
 			break;
 		}
-	static const char *const names[] = { "auto", "clut8", "rgb565", "rgb888", "rgb555" };
-	note = Common::String::format("render_target %s is not offered by this backend; using %s", names[want], names[got]);
+	note = Common::String::format("render_target %s is not offered by this backend; using %s", HiResFontMap::targetName(want),
+	                              HiResFontMap::targetName(got));
 	return got;
 }
 

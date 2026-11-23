@@ -401,11 +401,26 @@ const char *targetQualifier(HiResRenderTarget target) {
 	}
 }
 
+const char *targetName(HiResRenderTarget target) {
+	switch (target) {
+	case kHiResTargetClut8:
+		return "clut8";
+	case kHiResTargetRgb565:
+		return "rgb565";
+	case kHiResTargetRgb888:
+		return "rgb888";
+	case kHiResTargetRgb555:
+		return "rgb555";
+	default:
+		return "auto";
+	}
+}
+
 bool parseRenderTarget(const Common::String &text, HiResRenderTarget &out) {
-	static const char *const names[] = { "auto", "clut8", "rgb565", "rgb888", "rgb555" };
-	for (int i = 0; i < 5; ++i) {
-		if (text.equalsIgnoreCase(names[i])) {
-			out = (HiResRenderTarget)i;
+	const HiResRenderTarget all[] = { kHiResTargetAuto, kHiResTargetClut8, kHiResTargetRgb565, kHiResTargetRgb888, kHiResTargetRgb555 };
+	for (uint i = 0; i < ARRAYSIZE(all); ++i) {
+		if (text.equalsIgnoreCase(targetName(all[i]))) {
+			out = all[i];
 			return true;
 		}
 	}

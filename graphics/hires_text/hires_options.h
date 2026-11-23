@@ -77,15 +77,26 @@ uint32 hiResTargetsOffered(const Common::List<PixelFormat> &formats);
  *  8-8-8; auto for anything else. */
 HiResRenderTarget hiResTargetOf(const PixelFormat &format);
 
+/**
+ * The formats the SCI driver offers initGraphics() for a screen of @p target, from the backend's @p supported list:
+ * first the supported formats that are @p target (in the backend's order), then the other supported RGB formats
+ * (rgb888, rgb565, rgb555 first), never CLUT8. Empty for clut8/auto or when no RGB format is supported (initGraphics then
+ * gives CLUT8). initGraphics takes the first backend format the list has, so a target the backend lacks falls to another
+ * RGB format instead of straight to CLUT8.
+ */
+Common::List<PixelFormat> hiResScreenFormats(HiResRenderTarget target, const Common::List<PixelFormat> &supported);
+
 /** The pixel format a screen of @p target has: CLUT8, RGB565, RGB555 (no alpha bit), XRGB8888; CLUT8 for auto. */
 PixelFormat hiResTargetFormat(HiResRenderTarget target);
 
 /**
  * The screen hi-res text draws on: render_target unless auto, else the map's
- * target unless auto, else rgb (rgb565, then rgb555, then rgb888: 16 and 15 bit
- * first) when a face has coverage, blending is not off and the backend offers
- * it, else clut8. A wanted target the backend does not offer falls back the
- * same way, ending in clut8, with a note.
+ * target unless auto, else rgb (rgb888, then rgb565, then rgb555) when a face has
+ * coverage, blending is not off and the backend offers it, else clut8. 15 and
+ * 16 bit are required to work and are chosen where 32 bit is not offered (DOS
+ * VBE, backends without it); they are not preferred over 32 bit, because they
+ * halve the levels of the whole VGA picture. A wanted target the backend does
+ * not offer falls back the same way, ending in clut8, with a note.
  * @p offered: hiResTargetsOffered() bits.
  */
 HiResRenderTarget resolveRenderTarget(const HiResOptions &options, const HiResMap *map, bool anyCoverage, uint32 offered,
