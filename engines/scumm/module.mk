@@ -42,6 +42,7 @@ MODULE_OBJS := \
 	imuse/drivers/pcspk.o \
 	input.o \
 	ks_check.o \
+	korean_sentence.o \
 	korean_text.o \
 	korean.o \
 	trs_bundle.o \
