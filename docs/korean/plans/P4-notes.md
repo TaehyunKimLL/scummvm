@@ -175,7 +175,7 @@ New driver for interactive runs: `~/work/tmp/p4/sess.sh RUNDIR start|do|shot|sto
 
 ## P4f part 2: Camelot (scratch data `datah/camelot`, runs `~/work/tmp/p4/f4`, decision 10: kept, data available)
 
-- **f4** suite row `CAMELOT` OK (`[korvocab] loaded 5362 Korean words (version 3)`, no header warning). Title picture, then the menu box `카멜롯 게임 선택:` with `인트로 보기` / `새 게임 시작` / `게임 불러오기` (legible, boxed). `새 게임 시작` -> the first text box `전하의 본거지 카멜롯(Camelot)의 평면도입니다. 지체 말고 중대한 사명을 준비하소서, 전하.` (5 lines inside the frame), then Arthur's bedchamber. Frame sha256: map box `...` first text frame `...` see run dir (not recorded beyond the viewing).
+- **f4** suite row `CAMELOT` OK (`[korvocab] loaded 5362 Korean words (version 3)`, no header warning). Title picture, then the menu box `카멜롯 게임 선택:` with `인트로 보기` / `새 게임 시작` / `게임 불러오기` (legible, boxed). `새 게임 시작` -> the first text box `전하의 본거지 카멜롯(Camelot)의 평면도입니다. 지체 말고 중대한 사명을 준비하소서, 전하.` (5 lines inside the frame), then Arthur's bedchamber. Frame sha256: first text frame `3396d4a05efd2ba9...`, bedchamber `9d78adb87187635d...`.
 - **f5 typed command**: the line prompt reads `분부를 내리소서:`; `qhk` (+ a screenshot's stray `s`, see the LB1 finding) -> `"봔"라는 말은 낯익습니다만, 그 뜻하시는 바를 헤아릴 수 없습니다.` (the game's Korean "I do not know that word"); `문을 봐` (`ansdmf qhk`) -> `나무와 쇠로 만든 묵직한 문(door)입니다.` (noun + particle sentence parsed; the `(door)` is in the translation).
   Menus (Escape): `파일 게임 속도 행동 정보` with `저장 F5` / `불러오기 F7` / `다시 시작 F9` / `종료 CTRLQ`, `소리 끔 F2`, `음량... CTRLV`, `일시 정지 CTRLP`, `반복 F3`, and the credits box `카멜롯의 정복 제작진` (Korean headings, English names).
 - **f5 save list (36-byte records, review M2 path on real data)**: two saves with Korean names (`ans` -> `문`, then `rlf` typed in a dialog that starts from the selected entry -> `문길`): files `camelot-ko.001` (name bytes `EB AC B8` = 문) and `camelot-ko.002` (`EB AC B8 EA B8 B8` = 문길), both clean UTF-8. The restore dialog `게임 불러오기` / `불러올 게임을 고르십시오.` lists `문길` and `문`, legible; **the arrow keys move the selection** (Down -> `문`, Up -> `문길`), Return restores the room (viewed). No warning in the log (`cut to`, `grown from`, `longer than`, `non-raw`, `Attempt`: 0).
@@ -184,3 +184,36 @@ New driver for interactive runs: `~/work/tmp/p4/sess.sh RUNDIR start|do|shot|sto
 ## ASan runs (final tree, `~/work/tmp/scummvm2026-p4asan`, `detect_leaks=0`)
 
 QFG2 (the door sequence to Aziza's room, earlier), LSL1 EGA (age dialog, a room, a look), KQ4 (copy protection, credits), LB1 (fingerprint, seat dialog), Camelot (menu, new game, bedchamber, typed line): every log has 0 `AddressSanitizer` / `runtime error` lines. The ASan runs are slower, so the LB1 and KQ4 runs only got to the screens above in the time given.
+
+## P4z acceptance (HEAD of this run, scratch data only)
+
+Builds and tests: `$BLD` (`~/work/tmp/scummvm2026-p4build`) `make test` **679 tests OK** (675 + 3 parser + 1 pack suite); ASan build 679 OK, 0 sanitizer lines; no-engine build (`~/work/tmp/scummvm2026-p2verify`) **620 OK**; SCI32 build (`~/work/tmp/scummvm2026-p4sci32`, `--enable-engine=sci,sci32`) links, 0 warnings in the log; mingw (`~/work/tmp/scummvm2026-p4mingw`, `x86_64-w64-mingw32`, `scummvm.exe` + `test/runner`) builds, 1 pre-existing warning (`audio/mac/halestorm.cpp`, `-Wignored-attributes`, not P4). `sync-svf.sh --check` rc 0, `mkgolden.py --check` rc 0, `test_k6bake.py` 11 OK, `test_strcheck.py` 5 OK.
+Source: `git diff --stat 5741781806a.. -- engines` = the nine engine files of section 3 (170 insertions, 1 deletion); `git diff 5741781806a.. -- engines | grep -c GID_` = 3 (the table rows). Every commit passes `devtools/check-commit-msg.py` and has one `Assisted-by: Claude Code`, no `Co-Authored-By`.
+
+| # | Item | Result |
+|---|---|---|
+| 1 | 679 OK, ASan clean, no-engine 620, SCI32 links | done |
+| 2 | English targets run upstream (no Korean log line) | a8: 7 of 7, 320x200 |
+| 3 | Every pack's tables load with their game's header, no warning | pack suite OK on `datah`; red on shipped packs (v2, no header). **On scratch copies with headers added: harness H1 not done** |
+| 4 | QFG2 Aziza's door with Korean answers | done: `공기` then `아지자` opens the door; red on the P3 binary; negative controls |
+| 5 | QFG1 EGA gargoyle and hut | **partial**: room 29 proved needed (`reads as "erasmus wizard"`), full pass of the gargoyle and the hut (room 22) UNVERIFIED |
+| 6 | LSL1: font 2107 through font 59's set; VGA legible; quiz path | done (a5 log, VGA clut8 == rgb565); quiz path unreachable on the Korean pack, appendix A not applied; finding: look-icon box hides two syllables |
+| 7 | KQ4 menus, parser, save/load | done |
+| 8 | LB1, Camelot parser and save/load; Camelot save list | done (LB1 script 52 scene not reached); Camelot save list clean |
+| 9 | no `cut to` / `longer than` line on the smoke paths | 0 in every run log (so no H9 item) |
+| 10 | first screens clut8 == rgb565 in the text crops | QFG2, QFG1E, LSL1 VGA (whole frame), KQ4 identical apart from the cursor and a random question; LB1/Camelot not compared |
+| 11 | k16said baselines | deferred to `ko/07` |
+| 12 | game maps v3 re-paired to OFL faces | harness H2/H3, not here |
+| 13 | PATCHES.md lists every upstream file touched | a7 |
+
+Checks that ran on scratch copies (headers added by the plan's section 4 loop, tables rebuilt as version 3): every one above. Blocked on harness work: H1 (shipped zips carry no header and v2 word tables), H2/H3 (v3 maps and game faces: every run used the fallback map `korean-default.map` with NEODG16A), H5 (rebuilt zips), H6 (LB1 `en/`), H7 left as is.
+
+## Findings for follow-up (none fixed in P4)
+
+1. LSL1 EGA: a reply box with the look icon hides the first two syllables of its text (script string 100:15); the text rect starts at the icon.
+2. LSL1 (and any game without a word table): the Korean composer is off (`hangul_input` auto), so a Korean save name cannot be typed without an OS IME; `hangul_input=true` untested.
+3. The Alt+S screenshot key reaches the composer in some states (LB1 save dialog, Camelot parser line): an `ㄴ` is typed. Possibly the composer should ignore Alt-modified keys.
+4. QFG1 VGA (not a P4 game) crashes at start with a heap corruption, with the P3 binary too (SCI1.1 hi-res text).
+5. QFG1 EGA gargoyle: the later questions of the three never showed on a screenshot; a full pass is unverified.
+6. The plan's key sequence for 에라스무스 (`dpfktmanta`) is a typo (`dpfktmantm`).
+7. KQ4's intro takes about 7 minutes wall time under Xvfb; LB1's about 5.
