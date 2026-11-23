@@ -308,4 +308,50 @@ public:
 		TS_ASSERT_EQUALS(twelve.size(), 36u);
 		TS_ASSERT_EQUALS(Sci::utf8Truncate(twelve, 36).size(), 33u);
 	}
+
+	// The copy plan of SegManager::strncpy(reg_t, const char *, n): no case may write past the buffer.
+	void test_copyPlan_growsOnlyTheUnboundedCopy() {
+		const Common::String ko("\xEA\xB0\x80\xEB\x82\x98\xEB\x8B\xA4"); // 9 bytes
+		Sci::Utf8CopyPlan a = Sci::utf8CopyPlan(ko, 0xFFFFFFFFU, 4, true);
+		TS_ASSERT_EQUALS(a.growTo, 10u);
+		TS_ASSERT_EQUALS(a.text, ko);
+		TS_ASSERT_EQUALS(a.limit, 10u);
+		TS_ASSERT(!a.cut);
+		// the same text with a finite limit never grows: it is cut to the buffer
+		Sci::Utf8CopyPlan b = Sci::utf8CopyPlan(ko, 100, 4, true);
+		TS_ASSERT_EQUALS(b.growTo, 0u);
+		TS_ASSERT_EQUALS(b.text, "\xEA\xB0\x80");
+		TS_ASSERT(b.cut);
+		TS_ASSERT(b.limit <= 4u);
+		// refusal: the unbounded copy of a buffer that cannot grow is cut too
+		Sci::Utf8CopyPlan c = Sci::utf8CopyPlan(ko, 0xFFFFFFFFU, 7, false);
+		TS_ASSERT_EQUALS(c.growTo, 0u);
+		TS_ASSERT_EQUALS(c.text, "\xEA\xB0\x80\xEB\x82\x98");
+		TS_ASSERT_EQUALS(c.limit, 7u);
+	}
+
+	void test_copyPlan_finiteLimitIsClampedToTheBuffer() {
+		// n far larger than strlen + 1: the zero padding of a limited copy stays inside a 16 byte buffer
+		Sci::Utf8CopyPlan a = Sci::utf8CopyPlan("ab", 1000, 16, true);
+		TS_ASSERT_EQUALS(a.text, "ab");
+		TS_ASSERT_EQUALS(a.limit, 16u);
+		TS_ASSERT_EQUALS(a.growTo, 0u);
+		// size unknown: the limit is the caller's
+		TS_ASSERT_EQUALS(Sci::utf8CopyPlan("ab", 1000, 0, false).limit, 1000u);
+		// a limit that ends inside a syllable rounds down to the one before
+		Sci::Utf8CopyPlan b = Sci::utf8CopyPlan(Common::String("\xEA\xB0\x80\xEB\x82", 5), 5, 100, false);
+		TS_ASSERT_EQUALS(b.text, "\xEA\xB0\x80");
+		TS_ASSERT(b.cut);
+		// a limit that ends on a boundary keeps the text
+		Sci::Utf8CopyPlan c = Sci::utf8CopyPlan("\xEA\xB0\x80", 3, 100, false);
+		TS_ASSERT_EQUALS(c.text, "\xEA\xB0\x80");
+		TS_ASSERT(!c.cut);
+	}
+
+	void test_copyPlan_textThatFitsIsUntouched() {
+		Sci::Utf8CopyPlan a = Sci::utf8CopyPlan("abc", 0xFFFFFFFFU, 4, true);
+		TS_ASSERT_EQUALS(a.growTo, 0u);
+		TS_ASSERT_EQUALS(a.text, "abc");
+		TS_ASSERT_EQUALS(a.limit, 4u);
+	}
 };

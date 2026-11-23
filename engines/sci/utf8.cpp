@@ -169,6 +169,42 @@ Common::String utf8Truncate(const Common::String &text, uint32 capacity) {
 	return Common::String(text.c_str(), end);
 }
 
+// Drop a code point at the end of @p text that its lead byte says is incomplete.
+static Common::String dropIncompleteTail(const Common::String &text) {
+	const uint32 size = text.size();
+	for (uint32 back = 1; back <= 4 && back <= size; ++back) {
+		const byte b = (byte)text[size - back];
+		if ((b & 0xC0) == 0x80)
+			continue; // a continuation byte: look further back
+		const uint32 need = b >= 0xF0 ? 4 : b >= 0xE0 ? 3 : b >= 0xC0 ? 2 : 1;
+		return need > back ? Common::String(text.c_str(), size - back) : text;
+	}
+	return text;
+}
+
+Utf8CopyPlan utf8CopyPlan(const Common::String &text, uint32 n, int32 maxSize, bool growable) {
+	Utf8CopyPlan plan;
+	plan.growTo = 0;
+	plan.cut = false;
+	const bool unbounded = n == 0xFFFFFFFFU;
+	uint32 capacity = maxSize > 0 ? (uint32)maxSize : 0;
+	if (unbounded && growable && capacity && text.size() >= capacity) {
+		plan.growTo = text.size() + 1;
+		capacity = plan.growTo;
+	}
+	plan.text = text;
+	if (capacity && text.size() >= capacity)
+		plan.text = utf8Truncate(text, capacity);
+	else if (!unbounded && text.size() >= n)
+		plan.text = dropIncompleteTail(text);
+	plan.cut = plan.text.size() < text.size();
+	if (unbounded)
+		plan.limit = plan.text.size() + 1;
+	else
+		plan.limit = capacity ? MIN<uint32>(n, capacity) : n;
+	return plan;
+}
+
 Utf8WriteResult utf8ReplaceAt(Common::String &text, uint32 index, uint32 cp, uint32 capacity, uint32 &old) {
 	const byte *p = (const byte *)text.c_str();
 	const uint32 chars = utf8Length(p);

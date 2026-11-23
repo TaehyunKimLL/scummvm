@@ -116,6 +116,26 @@ enum Utf8WriteResult {
  */
 Common::String utf8Truncate(const Common::String &text, uint32 capacity);
 
+/** What a UTF-8 string copy into a buffer does (utf8CopyPlan()). */
+struct Utf8CopyPlan {
+	Common::String text; ///< what is written (then a NUL), whole code points only
+	uint32 limit;        ///< the count to hand the byte copy: it never exceeds the buffer
+	uint32 growTo;       ///< 0, or the size the buffer must grow to first
+	bool cut;            ///< @c text is shorter than the source text asked for
+};
+
+/**
+ * A strncpy of the UTF-8 @p text (already limited to @p n bytes, as
+ * strnlen(src, n) gives) into a buffer of @p maxSize bytes (<= 0: size
+ * unknown, no bound). @p n 0xFFFFFFFF is the unbounded copy (strcpy): only
+ * that one may ask the buffer to grow (@p growable), to hold the whole text.
+ * Any other copy is clamped to the buffer, cut on a code point boundary
+ * where it must be, and a finite @p n that ends inside a code point
+ * is rounded down to the one before. Nothing is ever written past
+ * @p maxSize.
+ */
+Utf8CopyPlan utf8CopyPlan(const Common::String &text, uint32 n, int32 maxSize, bool growable);
+
 /**
  * kStrAt's write on a UTF-8 string: the @p index-th code point becomes
  * @p cp (0 ends the string there), the bytes after it move, so the text

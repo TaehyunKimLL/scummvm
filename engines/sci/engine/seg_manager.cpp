@@ -699,18 +699,24 @@ void SegManager::strncpy(reg_t dest, const char* src, size_t n) {
 		return;
 	}
 
-	if (g_sci && g_sci->getTextMode().utf8() && dest_r.maxSize >= 0 && Common::strnlen(src, n) >= (size_t)dest_r.maxSize &&
-	    growDynmem(dest, Common::strnlen(src, n) + 1))
-		dest_r = dereference(dest);
-
-	Common::String cut;
-	if (g_sci && g_sci->getTextMode().utf8() && dest_r.maxSize > 0 && Common::strnlen(src, n) >= (size_t)dest_r.maxSize) {
-		// A translation longer than the English buffer: cut it on a code
-		// point boundary instead of writing past the buffer.
-		cut = utf8Truncate(Common::String(src, Common::strnlen(src, n)), (uint32)dest_r.maxSize);
-		warning("SegManager::strncpy: \"%s\" cut to %u bytes", src, cut.size());
-		src = cut.c_str();
-		n = cut.size() + 1;
+	Common::String planned;
+	if (g_sci && g_sci->getTextMode().utf8()) {
+		// Grow (the unbounded copy only), clamp and cut: nothing is written past the buffer.
+		const Common::String text(src, Common::strnlen(src, n));
+		const bool growable = dest.getOffset() == 0 && getSegmentType(dest.getSegment()) == SEG_TYPE_DYNMEM;
+		const Utf8CopyPlan plan = utf8CopyPlan(text, (uint32)n, dest_r.maxSize, growable);
+		Utf8CopyPlan use = plan;
+		if (plan.growTo) {
+			if (growDynmem(dest, plan.growTo))
+				dest_r = dereference(dest);
+			else // no growing: what the buffer holds
+				use = utf8CopyPlan(text, (uint32)n, dest_r.maxSize, false);
+		}
+		if (use.cut)
+			warning("SegManager::strncpy: \"%s\" cut to %u bytes", src, use.text.size());
+		planned = use.text;
+		n = use.limit;
+		src = planned.c_str();
 	}
 
 	if (dest_r.isRaw) {
@@ -754,17 +760,27 @@ void SegManager::strncpy(reg_t dest, reg_t src, size_t n) {
 	}
 
 
-	if (src_r.isRaw && g_sci && g_sci->getTextMode().utf8() && src.getSegment() == dest.getSegment() &&
-	    getSegmentType(dest.getSegment()) == SEG_TYPE_DYNMEM) {
+	const bool utf8 = g_sci && g_sci->getTextMode().utf8();
+	if (utf8 && dest_r.isRaw &&
+	    (!src_r.isRaw || (src.getSegment() == dest.getSegment() && getSegmentType(dest.getSegment()) == SEG_TYPE_DYNMEM))) {
 		// The copy may grow the destination's block (growDynmem()), which
-		// moves a source in the same block: copy it out first.
-		const Common::String text((const char *)src_r.raw, Common::strnlen((const char *)src_r.raw, MIN<size_t>(n, src_r.maxSize)));
-		strncpy(dest, text.c_str(), MIN<size_t>(n, text.size() + 1));
-		// strncpy() with a limit pads the rest of it with NULs
-		const SegmentRef grown = dereference(dest);
-		if (n != 0xFFFFFFFFU)
-			for (size_t i = text.size() + 1; i < n && (int)i < grown.maxSize; ++i)
-				grown.raw[i] = 0;
+		// moves a source in the same block, and a stack or locals source
+		// has no NUL-terminated bytes to hand on: copy it out first.
+		Common::String text;
+		if (src_r.isRaw)
+			text = Common::String((const char *)src_r.raw, Common::strnlen((const char *)src_r.raw, MIN<size_t>(n, src_r.maxSize)));
+		else
+			text = getString(src);
+		if (text.size() > n)
+			text = Common::String(text.c_str(), n);
+		// the unbounded copy stays unbounded (it may grow the block)
+		strncpy(dest, text.c_str(), n == 0xFFFFFFFFU ? n : MIN<size_t>(n, text.size() + 1));
+		if (src_r.isRaw && n != 0xFFFFFFFFU) {
+			// strncpy() with a limit pads the rest of it with NULs, inside the block
+			const SegmentRef out = dereference(dest);
+			for (size_t i = Common::strnlen((const char *)out.raw, out.maxSize) + 1; i < n && (int)i < out.maxSize; ++i)
+				out.raw[i] = 0;
+		}
 	} else if (src_r.isRaw) {
 		// raw -> *
 		strncpy(dest, (const char*)src_r.raw, n);
@@ -936,6 +952,9 @@ bool SegManager::growDynmem(reg_t dest, uint32 bytes) {
 		return false;
 	DynMem *mem = (DynMem *)_heap[dest.getSegment()];
 	if (bytes <= mem->_size)
+		return false;
+	// SCI16 addresses a block with a 16-bit offset
+	if (getSciVersion() < SCI_VERSION_2 && bytes > 0xFFFFU)
 		return false;
 	byte *grown = (byte *)realloc(mem->_buf, bytes);
 	if (!grown) {
