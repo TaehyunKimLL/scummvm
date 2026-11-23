@@ -2487,7 +2487,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 					const byte *translatedText = searchTranslatedLine(text, scrpRange, true);
 					if (translatedText) {
 						debug(7, "translateText: Found by heuristic #1");
-						copyTranslatedText(trans_buff, translatedText, transBufferSize);
+						copyTranslatedText(trans_buff, translatedText, transBufferSize, true);
 						return;
 					}
 				}
@@ -2504,7 +2504,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 					const byte *translatedText = searchTranslatedLine(text, scrpRange, true);
 					if (translatedText) {
 						debug(7, "translateText: Found by heuristic #2");
-						copyTranslatedText(trans_buff, translatedText, transBufferSize);
+						copyTranslatedText(trans_buff, translatedText, transBufferSize, true);
 						return;
 					}
 				}
@@ -2515,7 +2515,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 		const byte *translatedText = searchTranslatedLine(text, TranslationRange(0, _numTranslatedLines - 1), false);
 		if (translatedText) {
 			debug(7, "translateText: Found by full search");
-			copyTranslatedText(trans_buff, translatedText, transBufferSize);
+			copyTranslatedText(trans_buff, translatedText, transBufferSize, true);
 			return;
 		}
 

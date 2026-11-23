@@ -215,4 +215,20 @@ public:
 		TS_ASSERT(!Scumm::legacyCp949Buffer(ascii, sizeof(ascii), pos));
 		TS_ASSERT_EQUALS(pos, 1);
 	}
+
+	void test_known_utf8_is_never_read_as_cp949() {
+		// A bundle translation is UTF-8 by declaration: 카 as UTF-8 is EC B9 B4, and the two bytes C4 AB (ī) stay what
+		// they are; for a source of unknown encoding the same two bytes are the CP949 syllable.
+		byte dst[16];
+		int n = Scumm::toEngineText((const byte *)"\xc4\xab", 3, dst, sizeof(dst), nullptr, true);
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xc4\xab");
+		n = Scumm::toEngineText((const byte *)"\xc4\xab", 3, dst, sizeof(dst));
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xec\xb9\xb4");
+		// A stray byte in declared UTF-8 is U+00FA, not a reason to read the line as CP949 (and a cut tail is dropped).
+		n = Scumm::toEngineText((const byte *)"\xed\x95\x9c\xfa\xea\xb8", 7, dst, sizeof(dst), nullptr, true);
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xed\x95\x9c\xc3\xba");
+		// Valid text passes as it is, a truncated escape is dropped.
+		n = Scumm::toEngineText((const byte *)"\xed\x95\x9c\xff", 5, dst, sizeof(dst), nullptr, true);
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xed\x95\x9c");
+	}
 };

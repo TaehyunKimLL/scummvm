@@ -134,7 +134,7 @@ static int textEscape(const byte *p, const byte *end) {
 	return scummEscapeFull(p, end);
 }
 
-bool textIsUtf8(const byte *p, const byte *end) {
+static bool utf8Valid(const byte *p, const byte *end, bool allowWide) {
 	while (p < end && *p) {
 		if (*p == 0xFE && p + 1 < end && p[1] != 1 && p[1] != 2 && p[1] != 3 && p[1] != 8)
 			return false;	// 0xFE with any other code is a CP949 trail byte, not an escape
@@ -150,11 +150,15 @@ bool textIsUtf8(const byte *p, const byte *end) {
 		// A 2-byte character above U+00FF is no engine text: cp949ToUtf8() only makes U+0080..U+00FF of a lone high
 		// byte, and korean.fnt has no glyph for it. Such bytes are a CP949 syllable whose two bytes also form valid
 		// UTF-8 (카 is C4 AB, U+012B) and must be read as CP949.
-		if (cp == 0xFFFFFFFF || (len == 2 && cp > 0xFF))
+		if (cp == 0xFFFFFFFF || (!allowWide && len == 2 && cp > 0xFF))
 			return false;
 		p += len;
 	}
 	return true;
+}
+
+bool textIsUtf8(const byte *p, const byte *end) {
+	return utf8Valid(p, end, false);
 }
 
 void cp949ToUtf8(const byte *src, const byte *end, Common::Array<byte> &out, uint &unmapped, bool keepCutEscape) {
@@ -255,7 +259,7 @@ int cp949PairCount(const byte *p, const byte *end) {
 
 // Text that is UTF-8 apart from a stray byte (the raw 0xFA of one MI1 UTE line) or a cut tail: every valid character
 // is kept, a byte that starts no character is read as the charset glyph U+0080..U+00FF, as cp949ToUtf8() reads one.
-void tolerantUtf8(const byte *p, const byte *end, Common::Array<byte> &out, uint &stray) {
+void tolerantUtf8(const byte *p, const byte *end, Common::Array<byte> &out, uint &stray, bool allowWide) {
 	while (p < end && *p) {
 		const int esc = textEscape(p, end);
 		if (esc < 0)
@@ -268,7 +272,7 @@ void tolerantUtf8(const byte *p, const byte *end, Common::Array<byte> &out, uint
 		}
 		int len;
 		const uint32 cp = decodeUtf8(p, end, len);
-		if (cp == 0xFFFFFFFF || (len == 2 && cp > 0xFF)) {
+		if (cp == 0xFFFFFFFF || (!allowWide && len == 2 && cp > 0xFF)) {
 			if (*p >= 0xC2 && *p <= 0xF4) {
 				// A sequence cut by the end of the text: drop it.
 				const int want = *p >= 0xF0 ? 4 : *p >= 0xE0 ? 3 : 2;
@@ -291,20 +295,27 @@ void tolerantUtf8(const byte *p, const byte *end, Common::Array<byte> &out, uint
 
 } // End of anonymous namespace
 
-int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unmapped) {
+int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unmapped, bool knownUtf8) {
 	if (dstSize <= 0)
 		return 0;
 	const byte *end = scummTextEnd(src, src + srcMax);
 	Common::Array<byte> buf;
 	const byte *text;
 	uint32 len;
-	if (textIsUtf8(src, end)) {
+	if (knownUtf8 && !utf8Valid(src, end, true)) {
+		// Declared UTF-8 (a bundle translation, text the engine converted): never read as CP949.
+		uint stray = 0;
+		tolerantUtf8(src, end, buf, stray, true);
+		debug(1, "Korean text: %u byte(s) of UTF-8 text start no character, read as U+0080..U+00FF", stray);
+		text = buf.begin();
+		len = buf.size();
+	} else if (knownUtf8 || textIsUtf8(src, end)) {
 		text = src;
 		len = end - src;
 	} else if (utf8HangulCount(src, end) > cp949PairCount(src, end)) {
 		// Mostly UTF-8 (more Hangul as UTF-8 than as CP949): one bad byte does not make the whole text CP949.
 		uint stray = 0;
-		tolerantUtf8(src, end, buf, stray);
+		tolerantUtf8(src, end, buf, stray, false);
 		debug(1, "Korean text: %u byte(s) of UTF-8 text start no character, read as U+0080..U+00FF", stray);
 		text = buf.begin();
 		len = buf.size();

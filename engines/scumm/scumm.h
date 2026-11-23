@@ -1810,8 +1810,8 @@ public:
 	bool koreanBreakableAt(const byte *p) const;
 	/** Whether the character just before @p p (not before @p begin) is a Hangul syllable. */
 	bool koreanCharBefore(const byte *begin, const byte *p) const;
-	/** translateText()'s copy: UTF-8 engine text, cut on a character boundary, NUL-terminated. */
-	void copyTranslatedText(byte *dst, const byte *src, int dstSize);
+	/** translateText()'s copy: UTF-8 engine text (@p knownUtf8: a bundle translation, never guessed), cut on a character boundary, NUL-terminated. */
+	void copyTranslatedText(byte *dst, const byte *src, int dstSize, bool knownUtf8 = false);
 	/** The glyph drawn for a character korean.fnt lacks ('?' in the cell). */
 	byte *koreanRefusalGlyph();
 

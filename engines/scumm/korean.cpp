@@ -178,9 +178,9 @@ bool ScummEngine::koreanCharBefore(const byte *begin, const byte *p) const {
 	return s >= begin && koreanBreakableAt(s);
 }
 
-void ScummEngine::copyTranslatedText(byte *dst, const byte *src, int dstSize) {
+void ScummEngine::copyTranslatedText(byte *dst, const byte *src, int dstSize, bool knownUtf8) {
 	if (_koreanUtf8)
-		toEngineText(src, resStrLen(src) + 1, dst, dstSize);
+		toEngineText(src, resStrLen(src) + 1, dst, dstSize, nullptr, knownUtf8);
 	else
 		memcpy(dst, src, MIN<int>(resStrLen(src) + 1, dstSize));
 }

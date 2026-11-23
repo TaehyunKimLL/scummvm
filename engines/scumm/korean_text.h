@@ -81,10 +81,12 @@ void cp949ToUtf8(const byte *src, const byte *end, Common::Array<byte> &out, uin
 /**
  * The engine-text boundary: copies the text at @p src (up to its NUL, escape-aware) into @p dst as UTF-8. Text that is
  * already valid UTF-8 (a translation, a stored resource, ASCII) is copied unchanged, anything else is read as CP949.
- * So calling it twice changes nothing. At most @p dstSize - 1 bytes are written, cut after the last whole character
+ * So calling it twice changes nothing. With @p knownUtf8 (the source is declared UTF-8: a bundle translation, text the
+ * engine converted) nothing is guessed: it is UTF-8, a stray byte is U+0080..U+00FF, never CP949 (the 62 syllables C2/C3 A1-BF
+ * read as valid UTF-8 are only ambiguous for sources of unknown encoding, such as the CP949 data of MI1 and DOTT). At most @p dstSize - 1 bytes are written, cut after the last whole character
  * or escape that fits, then a NUL. Returns the length written.
  */
-int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unmapped = nullptr);
+int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unmapped = nullptr, bool knownUtf8 = false);
 
 /**
  * Text of a save that holds CP949 (no UTF-8 trailer), where the encoding is known and nothing is guessed: true and the
