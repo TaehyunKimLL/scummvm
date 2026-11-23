@@ -127,3 +127,22 @@ New driver for interactive runs: `~/work/tmp/p4/sess.sh RUNDIR start|do|shot|sto
   game's own Korean menu text) rather than a look reply; the parser path itself was proved on QFG2 and KQ4/LB1 runs. `grep -c 'cut to\|grown from\|longer than'` over all
   c-runs: 0.
 - **c2 step 4** k16said: pending `ko/07-debugsocket` (target >= 855 of 956).
+
+## P4d: LSL1 EGA and VGA (scratch data `datah/lsl1ega`, `datah/lsl1vga`; runs `~/work/tmp/p4/d*`)
+
+- **d1** suite rows `LSL1EGA`, `LSL1VGA` OK. Both: the warning box (`철갑상어 보건총감의 경고` / `"레저 수트 래리: 라운지 리저드의 땅에서"에는 일부 어린이에게 부적절할 수 있는 내용이 포함되어 있습니다.`)
+  and the age dialog (`거짓말하지 마세요!`, `그런데 나이가 어떻게 되시나요?`, six buttons `15세 미만 16~18세 19~39세 40~65세 66~99세 100세 초과`, blue hint `TAB 키로 항목을 선택하고 ENTER 키를 누르면 계속합니다.`)
+  legible at 2x on the EGA palette and over the VGA 256-colour picture. Log `Hi-res font set for font 0 / 59 / 1207`, **no id >= 2048** (Task a5 on game data: 2107 draws through 59's set). Age frame sha256: EGA `bc52b1d67ca608f1...`,
+  VGA clut8 `5e378507e9ef80d4...`. **VGA clut8 vs rgb565: the whole 640x400 frame is pixel-identical** (PIL diff 0 px, also the dialog crop 190,140-455,262).
+- **d2 into the game** (EGA): Tab to a button + Return -> `그래, 그러시겠지!` (or `이상하네, 나이가 훨씬 더 들어 보이는데!` for 40~65), then `나이를 확인하기 위해 간단한 문제 다섯 개에 답해 주세요.`, then Return enters Lefty's street
+  directly: **the pack skips the quiz** (SCRIPT.720). `15세 미만` + Return -> `죄송하지만 이 게임은 성인만 플레이할 수 있으며, 미성년자는 성인과 함께해야 합니다. 어른과 함께 돌아와 다시 시도하세요.` An accidental walk into the traffic showed the death
+  dialog fully Korean (`말 그대로 네가 사방에 널렸군!`, `래리, 여기 교통은 정말 살인적이야! 길을 건너려는 생각은 버려!`, buttons `복원 재시작 종료`). Icon bar (pictures: no text). Look icon on the pole sign: `전봇대에 표지판이 붙어 있다.`; on the street: `이곳의 꼴을 보고 있자니, 다음에는 컴퓨터 게임에 돈을 좀 더 쓰는 편이 낫겠다고 생각한다!` (box and wrap correct).
+- **FINDING (layout, EGA): a reply box that carries the look icon hides the first two syllables.** Look at the bar door (script string 100:15, `푹신하게 누벼 놓은 솜씨가 제법이지?`) shows `[eye icon]하게 누벼 놓은 솜씨가 제법이지?` (`푹신` is missing: the icon sits on the text's first 32 px).
+  Measured with a temporary debug line in `GfxText16::Box` (not committed): the text rect is `4,4,144,14` in window coordinates for this box and for icon-less boxes alike (`tw 140`, left aligned, offset 0), i.e. the box is sized from the text width alone and the icon is
+  drawn over the start of the text. Why the English game does not overlap (text indent for the icon in the script's own sizing, or English text short enough) was not established; no English comparison run was made (the English quiz is not skippable). Not fixed: it needs its own investigation (candidate: how the script derives the box width from `kTextSize`
+  plus the icon's `CelWide`, or the text plane cleared where the icon is drawn, P3 task 14). Recommend a follow-up card.
+- **d2 save**: LSL1 EGA/VGA open the game's own Korean control panel from the icon bar's slider icon (`SAVE RESTORE RESTART QUIT PLAY`, `GAME PAUSED`, `DETAIL VOLUME SPEED` are pictures, English; `점수: 0 / 222` is text). With `originalsaveload=true`: save dialog `게임 저장` / `저장 게임의 설명을 입력하세요.` with `저장 삭제 폴더 변경 취소`; restore dialog `게임 복원` / `복원할 저장 게임을 선택하세요.` lists the saved name (`Restore` is a picture).
+  **FINDING (input): the Korean composer is off in LSL1** (typing `ans` gave `ans`, not `문`): `hangul_input` defaults to "the game has Korean parser words" (`event.cpp:165`) and LSL1 has no word table, so without an OS IME a Korean save name cannot be typed. With `hangul_input=true` in the ini it should work (a run with it did not produce a save in the time available: UNVERIFIED). Without `originalsaveload` the VGA game uses the ScummVM save grid (English labels, `New Save`): not checked with Hangul.
+- **d3 palette** (VGA, clut8): the title/warning picture, the warning box, the age dialog and the room follow each other with the yellow boxes in the right colours; no stale text from the previous screen over the next picture (viewed frame by frame, 4 frames). A fade-specific pair was not taken (no fade of text observed).
+- **d4 quiz**: no quiz question is reachable on the Korean pack (skipped by SCRIPT.720); Ctrl+Alt+X on the title and on the age dialog did nothing visible. `grep -c non-raw run.log` = 3 through the title, warning, age dialog, refusal, room, look replies (the three start-up `kReadNumber` warnings). **Appendix A is not applied** (no growth observed); the quiz path itself remains unmeasured. 
+- `grep -c 'cut to\|grown from\|longer than'` over all d-runs: 0. No k16said (no parser).
