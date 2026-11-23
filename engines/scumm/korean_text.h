@@ -50,7 +50,13 @@ uint32 ksx1001CodePoint(byte lead, byte trail);
 /** Bytes of the escape at @p p (0xFF/0xFE + code [+ 2]) clipped to @p end; 0 when @p p is no escape. */
 int scummEscapeLength(const byte *p, const byte *end);
 
-/** The NUL that ends the text at @p s, escapes skipped (an argument byte may be 0), or @p end. */
+/**
+ * Like scummEscapeLength() but strict: 0 when @p p is no escape, -1 when the escape (4 bytes, or 2 for the codes 1, 2, 3, 8)
+ * does not fit before @p end, else its length. A truncated escape must not be copied: its NUL would be read as an argument.
+ */
+int scummEscapeFull(const byte *p, const byte *end);
+
+/** The NUL that ends the text at @p s, a 0xFF escape skipped (its argument byte may be 0; 0xFE is also a CP949 trail byte), or @p end. */
 const byte *scummTextEnd(const byte *s, const byte *end);
 
 /** One strict UTF-8 code point at @p p and its length; 0xFFFFFFFF (length 1) for a byte that starts none. */
@@ -67,9 +73,10 @@ bool textIsUtf8(const byte *p, const byte *end);
  * CP949 [@p src, @p end) to UTF-8, appended to @p out (no NUL), by upstream's rule: escapes (0xFF/0xFE) copied, a
  * lead 0xB0-0xD0 takes the next byte (so a trail 0xFE is no escape), any other byte >= 0x80 is a charset glyph and
  * becomes U+0080..U+00FF. The 2350 syllables come from kKsx1001Hangul; Hanja and extension syllables through
- * encoding.dat when it is there; what cannot be read becomes '?', counted in @p unmapped.
+ * encoding.dat when it is there; what cannot be read becomes '?', counted in @p unmapped. An escape cut by @p end is dropped,
+ * or copied as it is when @p keepCutEscape (a bundle string whose terminator is its last argument).
  */
-void cp949ToUtf8(const byte *src, const byte *end, Common::Array<byte> &out, uint &unmapped);
+void cp949ToUtf8(const byte *src, const byte *end, Common::Array<byte> &out, uint &unmapped, bool keepCutEscape = false);
 
 /**
  * The engine-text boundary: copies the text at @p src (up to its NUL, escape-aware) into @p dst as UTF-8. Text that is

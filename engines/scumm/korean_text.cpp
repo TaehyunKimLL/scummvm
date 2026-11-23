@@ -56,11 +56,21 @@ int scummEscapeLength(const byte *p, const byte *end) {
 	return (int)MIN<ptrdiff_t>(n, end - p);
 }
 
+int scummEscapeFull(const byte *p, const byte *end) {
+	if (p >= end || (*p != 0xFF && *p != 0xFE))
+		return 0;
+	if (p + 1 >= end)
+		return -1;
+	const int n = (p[1] == 1 || p[1] == 2 || p[1] == 3 || p[1] == 8) ? 2 : 4;
+	return (end - p >= n) ? n : -1;
+}
+
 const byte *scummTextEnd(const byte *s, const byte *end) {
+	// Only 0xFF starts an escape here, as in resStrLen(): 0xFE is also the trail byte of 25 CP949 syllables (BC FE),
+	// and a real 0xFE escape (code 1 or 8) never has a 0 argument that could hide the terminator.
 	while (s < end) {
-		const int esc = scummEscapeLength(s, end);
-		if (esc)
-			s += esc;
+		if (*s == 0xFF)
+			s += scummEscapeLength(s, end);
 		else if (*s)
 			s++;
 		else
@@ -116,9 +126,21 @@ void appendUtf8(uint32 cp, Common::Array<byte> &out) {
 	}
 }
 
+// The escape at @p p as engine text has it: 0xFF with any code, 0xFE only with the codes 1, 2, 3, 8 (a line break, ...);
+// any other 0xFE is a lone high byte (it is also the trail byte of 25 CP949 syllables). -1: cut by @p end.
+static int textEscape(const byte *p, const byte *end) {
+	if (*p == 0xFE && p + 1 < end && p[1] != 1 && p[1] != 2 && p[1] != 3 && p[1] != 8)
+		return 0;
+	return scummEscapeFull(p, end);
+}
+
 bool textIsUtf8(const byte *p, const byte *end) {
 	while (p < end && *p) {
-		const int esc = scummEscapeLength(p, end);
+		if (*p == 0xFE && p + 1 < end && p[1] != 1 && p[1] != 2 && p[1] != 3 && p[1] != 8)
+			return false;	// 0xFE with any other code is a CP949 trail byte, not an escape
+		const int esc = scummEscapeFull(p, end);
+		if (esc < 0)
+			return true;	// a truncated escape ends the text (the copy drops it)
 		if (esc) {
 			p += esc;
 			continue;
@@ -135,13 +157,22 @@ bool textIsUtf8(const byte *p, const byte *end) {
 	return true;
 }
 
-void cp949ToUtf8(const byte *src, const byte *end, Common::Array<byte> &out, uint &unmapped) {
+void cp949ToUtf8(const byte *src, const byte *end, Common::Array<byte> &out, uint &unmapped, bool keepCutEscape) {
 	// The pairing rule is upstream's (is2ByteCharacter(): a lead 0xB0-0xD0 takes the next byte, whatever it is);
 	// every other byte >= 0x80 is a glyph of the game's own charset (MI1's 0xFA, say) and becomes U+0080..U+00FF,
 	// which the renderer draws from the charset again. So the 1x picture stays upstream's.
 	const byte *p = src;
 	while (p < end && *p) {
-		const int esc = scummEscapeLength(p, end);
+		// 0xFE is an escape only with the codes 1, 2, 3, 8 (a line break, ...); any other 0xFE is a lone high byte.
+		const int esc = textEscape(p, end);
+		if (esc < 0) {
+			// A truncated escape: its NUL would become an argument for every later reader, so the engine-text boundary
+			// drops it. A bundle string ends that way on purpose (its terminator is the last argument): keep it as it is.
+			if (keepCutEscape)
+				for (; p < end; p++)
+					out.push_back(*p);
+			break;
+		}
 		if (esc) {
 			for (int i = 0; i < esc; i++)
 				out.push_back(p[i]);
@@ -178,6 +209,86 @@ void cp949ToUtf8(const byte *src, const byte *end, Common::Array<byte> &out, uin
 	}
 }
 
+namespace {
+
+int utf8HangulCount(const byte *p, const byte *end) {
+	int n = 0;
+	while (p < end && *p) {
+		const int esc = textEscape(p, end);
+		if (esc < 0)
+			break;
+		if (esc) {
+			p += esc;
+			continue;
+		}
+		int len;
+		const uint32 cp = decodeUtf8(p, end, len);
+		if (cp >= 0xAC00 && cp <= 0xD7A3)
+			n++;
+		p += len;
+	}
+	return n;
+}
+
+int cp949PairCount(const byte *p, const byte *end) {
+	int n = 0;
+	while (p < end && *p) {
+		const int esc = textEscape(p, end);
+		if (esc < 0)
+			break;
+		if (esc) {
+			p += esc;
+			continue;
+		}
+		if (*p >= 0xB0 && *p <= 0xD0 && p + 1 < end && p[1]) {
+			if (ksx1001CodePoint(p[0], p[1]))
+				n++;
+			p += 2;
+		} else {
+			p++;
+		}
+	}
+	return n;
+}
+
+// Text that is UTF-8 apart from a stray byte (the raw 0xFA of one MI1 UTE line) or a cut tail: every valid character
+// is kept, a byte that starts no character is read as the charset glyph U+0080..U+00FF, as cp949ToUtf8() reads one.
+void tolerantUtf8(const byte *p, const byte *end, Common::Array<byte> &out, uint &stray) {
+	while (p < end && *p) {
+		const int esc = textEscape(p, end);
+		if (esc < 0)
+			break;
+		if (esc) {
+			for (int i = 0; i < esc; i++)
+				out.push_back(p[i]);
+			p += esc;
+			continue;
+		}
+		int len;
+		const uint32 cp = decodeUtf8(p, end, len);
+		if (cp == 0xFFFFFFFF || (len == 2 && cp > 0xFF)) {
+			if (*p >= 0xC2 && *p <= 0xF4) {
+				// A sequence cut by the end of the text: drop it.
+				const int want = *p >= 0xF0 ? 4 : *p >= 0xE0 ? 3 : 2;
+				bool cut = end - p < want;
+				for (const byte *q = p + 1; cut && q < end; q++)
+					cut = (*q & 0xC0) == 0x80;
+				if (cut)
+					break;
+			}
+			appendUtf8(*p, out);
+			stray++;
+			p++;
+		} else {
+			for (int i = 0; i < len; i++)
+				out.push_back(p[i]);
+			p += len;
+		}
+	}
+}
+
+} // End of anonymous namespace
+
 int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unmapped) {
 	if (dstSize <= 0)
 		return 0;
@@ -188,6 +299,13 @@ int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unma
 	if (textIsUtf8(src, end)) {
 		text = src;
 		len = end - src;
+	} else if (utf8HangulCount(src, end) > cp949PairCount(src, end)) {
+		// Mostly UTF-8 (more Hangul as UTF-8 than as CP949): one bad byte does not make the whole text CP949.
+		uint stray = 0;
+		tolerantUtf8(src, end, buf, stray);
+		debug(1, "Korean text: %u byte(s) of UTF-8 text start no character, read as U+0080..U+00FF", stray);
+		text = buf.begin();
+		len = buf.size();
 	} else {
 		uint n = 0;
 		cp949ToUtf8(src, end, buf, n);
@@ -196,11 +314,13 @@ int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unma
 		text = buf.begin();
 		len = buf.size();
 	}
-	// Cut after the last whole character or escape that fits, never inside one.
+	// Cut after the last whole character or escape that fits, never inside one; a truncated escape is dropped.
 	uint32 at = 0;
 	const byte *tEnd = text + len;
 	while (at < len) {
-		int n = scummEscapeLength(text + at, tEnd);
+		int n = scummEscapeFull(text + at, tEnd);
+		if (n < 0)
+			break;
 		if (!n)
 			decodeUtf8(text + at, tEnd, n);
 		if ((int)(at + n) > dstSize - 1)

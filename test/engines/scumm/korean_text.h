@@ -85,4 +85,73 @@ public:
 		const Common::U32String name("\xed\x95\x9c\xea\xb8\x80 ok", Common::kUtf8);
 		TS_ASSERT_EQUALS(name.encode(Scumm::koreanEngineCodePage(true)), "\xed\x95\x9c\xea\xb8\x80 ok");
 	}
+
+	void test_truncated_escape_is_dropped() {
+		// A 0xFF at the end, or an escape cut before its arguments, would make the terminating NUL an argument for every
+		// later reader (resStrLen() runs past it). It is dropped.
+		TS_ASSERT_EQUALS(engineText("34\xff"), "34");
+		// The terminator as an escape's last argument (MM's "sound FF 04 C8 00") is a whole escape and stays.
+		TS_ASSERT_EQUALS(engineText("a\xff\x04" "b"), Common::String("a\xff\x04" "b\0", 5));
+		TS_ASSERT_EQUALS(engineText("\xc7\xd1\xfe"), "\xed\x95\x9c");
+		byte dst[16];
+		const byte cut[] = { 'a', 0xFF, 0x04, 0x01, 0 };	// FF 04 needs two arguments, one and the terminator
+		const int n = Scumm::toEngineText(cut, sizeof(cut), dst, sizeof(dst));
+		TS_ASSERT_EQUALS(Scumm::scummTextEnd(dst, dst + n + 1) - dst, n);
+	}
+
+	void test_trail_byte_fe_is_no_escape() {
+		// 원숭이 is BF F8 BC FE C0 CC: BC FE is one syllable, the text ends at its NUL.
+		const byte monkey[] = { 0xBF, 0xF8, 0xBC, 0xFE, 0xC0, 0xCC, 0, 0xAA, 0xBB };
+		byte dst[32];
+		int n = Scumm::toEngineText(monkey, sizeof(monkey), dst, sizeof(dst));
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xec\x9b\x90\xec\x88\xad\xec\x9d\xb4");
+		const byte plank[] = { 0xB4, 0xC0, 0xBD, 0xBC, 0xC7, 0xD1, 0x20, 0xB3, 0xCE, 0xBA, 0xFE, 0xC1, 0xF6, 0, 1, 2, 3 };
+		n = Scumm::toEngineText(plank, sizeof(plank), dst, sizeof(dst));
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xeb\x8a\x90\xec\x8a\xa8\xed\x95\x9c \xeb\x84\x90\xeb\xb9\xa4\xec\xa7\x80");
+		// FE as an escape (a line break, code 1) still passes and still stands in UTF-8 text.
+		TS_ASSERT_EQUALS(engineText("\xed\x95\x9c\xfe\x01\xed\x95\x9c"), "\xed\x95\x9c\xfe\x01\xed\x95\x9c");
+		TS_ASSERT_EQUALS(engineText("\xc7\xd1\xfe\x01\xc7\xd1"), "\xed\x95\x9c\xfe\x01\xed\x95\x9c");
+	}
+
+	void test_one_stray_byte_does_not_make_utf8_text_cp949() {
+		// MI1 UTE line 334 of the UTF-8 pack: a raw 0xFA between UTF-8 words. The valid characters stay, 0xFA is the
+		// charset glyph U+00FA.
+		TS_ASSERT_EQUALS(engineText("\xec\x84\xb8\xec\x9d\xb8\xed\x8a\xb8\xfa\xed\x82\xa4\xec\xb8\xa0(St.\xfa" "Kitts)"),
+		                 "\xec\x84\xb8\xec\x9d\xb8\xed\x8a\xb8\xc3\xba\xed\x82\xa4\xec\xb8\xa0(St.\xc3\xba" "Kitts)");
+		// A cut final sequence is dropped, the rest stays.
+		TS_ASSERT_EQUALS(engineText("\xed\x95\x9c\xea\xb8"), "\xed\x95\x9c");
+		// A CP949 text is still CP949.
+		TS_ASSERT_EQUALS(engineText("\xc7\xd1\xb1\xdb\xfa"), "\xed\x95\x9c\xea\xb8\x80\xc3\xba");
+	}
+
+	void test_boundary_is_idempotent_and_clean_on_hostile_input() {
+		// Every output is engine text that ends cleanly (no truncated escape) and passes unchanged a second time.
+		static const byte kAlphabet[] = { 0xFF, 0xFE, 0x04, 0x01, 0x08, 0x00, 'a', 0xB0, 0xC7, 0xD1, 0xBC, 0xA1, 0xEA, 0xB0, 0x80,
+		                                  0xFA, 0xC3, 0xA9, 0xC4, 0xAB, 0xED, 0x95, 0x9C, 0x20 };
+		uint32 seed = 12345;
+		for (int iter = 0; iter < 20000; iter++) {
+			byte in[14];
+			const int len = 1 + (seed = seed * 1103515245u + 12345u) / 65536 % 12;
+			for (int i = 0; i < len; i++)
+				in[i] = kAlphabet[(seed = seed * 1103515245u + 12345u) / 65536 % sizeof(kAlphabet)];
+			in[len] = 0;
+			byte a[64], b[64];
+			const int na = Scumm::toEngineText(in, len + 1, a, sizeof(a));
+			TS_ASSERT_LESS_THAN(na, (int)sizeof(a));
+			TS_ASSERT_EQUALS(a[na], 0);
+			if (!Scumm::textIsUtf8(a, a + na + 1)) {
+				Common::String hex;
+				for (int i = 0; i < len; i++)
+					hex += Common::String::format("%02x ", in[i]);
+				TS_FAIL(hex.c_str());
+				break;
+			}
+			TS_ASSERT_EQUALS(Scumm::scummTextEnd(a, a + na + 1) - a, na);
+			const int nb = Scumm::toEngineText(a, na + 1, b, sizeof(b));
+			if (nb != na || memcmp(a, b, na)) {
+				TS_FAIL("toEngineText is not idempotent");
+				break;
+			}
+		}
+	}
 };

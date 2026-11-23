@@ -89,7 +89,7 @@ bool convertTrsBodyToUtf8(const byte *body, uint32 size, Common::Array<uint32> &
 		}
 		moved.setVal(pos, out.size());
 		if (isTranslation.contains(pos))
-			cp949ToUtf8(s, e, out, unmapped);
+			cp949ToUtf8(s, e, out, unmapped, true);
 		else
 			for (const byte *q = s; q < e; q++)
 				out.push_back(*q);

@@ -55,8 +55,9 @@ def escape_length(b, p, end):
 
 
 def text_end(b, p, end):
+    # only 0xFF starts an escape here (0xFE is also a CP949 trail byte), as the engine's scummTextEnd()
     while p < end:
-        e = escape_length(b, p, end)
+        e = escape_length(b, p, end) if b[p] == 0xFF else 0
         if e:
             p += e
         elif b[p]:
