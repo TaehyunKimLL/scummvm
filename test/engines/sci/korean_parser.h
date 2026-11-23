@@ -251,7 +251,8 @@ public:
 		Common::Array<uint8> roles;
 		tokens(p, typed, words, roles);
 		p.arrange(words, roles, fallback);
-		TS_ASSERT(words.size() >= 3);
+		// 그에게 (the, to) 문 안을 (door, in) 봐: look, "to the", "in door"
+		TS_ASSERT_EQUALS(groups(words), "70 60 b0 61 20");
 	}
 
 	void test_articleWithParticleThenNounWithParticle() {
@@ -263,8 +264,7 @@ public:
 		Common::Array<uint8> roles;
 		tokens(p, typed, words, roles);
 		p.arrange(words, roles, fallback);
-		TS_ASSERT_EQUALS(groups(words).substr(0, 2), "30");
-		TS_ASSERT(words.size() >= 3);
+		TS_ASSERT_EQUALS(groups(words), "30 60 b0 60 20");
 	}
 
 	// agy 1: a game without a Korean table is never rearranged. "lege schluessel auf tisch" (put key on table)
