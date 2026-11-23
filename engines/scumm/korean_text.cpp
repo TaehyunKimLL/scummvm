@@ -237,6 +237,8 @@ int utf8HangulCount(const byte *p, const byte *end) {
 }
 
 int cp949PairCount(const byte *p, const byte *end) {
+	// KS X 1001 syllables read as CP949 pairs, over the bytes that are no valid multi-byte UTF-8: the continuation bytes of
+	// a UTF-8 syllable are often a valid pair themselves (복 is EB B3 B5, and B3 B5 is 논).
 	int n = 0;
 	while (p < end && *p) {
 		const int esc = textEscape(p, end);
@@ -246,7 +248,11 @@ int cp949PairCount(const byte *p, const byte *end) {
 			p += esc;
 			continue;
 		}
-		if (*p >= 0xB0 && *p <= 0xD0 && p + 1 < end && p[1]) {
+		int len;
+		const uint32 cp = decodeUtf8(p, end, len);
+		if (cp != 0xFFFFFFFF && len > 1) {
+			p += len;
+		} else if (*p >= 0xB0 && *p <= 0xD0 && p + 1 < end && p[1]) {
 			if (ksx1001CodePoint(p[0], p[1]))
 				n++;
 			p += 2;
@@ -259,7 +265,7 @@ int cp949PairCount(const byte *p, const byte *end) {
 
 // Text that is UTF-8 apart from a stray byte (the raw 0xFA of one MI1 UTE line) or a cut tail: every valid character
 // is kept, a byte that starts no character is read as the charset glyph U+0080..U+00FF, as cp949ToUtf8() reads one.
-void tolerantUtf8(const byte *p, const byte *end, Common::Array<byte> &out, uint &stray, bool allowWide) {
+void tolerantUtf8(const byte *p, const byte *end, Common::Array<byte> &out, uint &stray) {
 	while (p < end && *p) {
 		const int esc = textEscape(p, end);
 		if (esc < 0)
@@ -272,7 +278,12 @@ void tolerantUtf8(const byte *p, const byte *end, Common::Array<byte> &out, uint
 		}
 		int len;
 		const uint32 cp = decodeUtf8(p, end, len);
-		if (cp == 0xFFFFFFFF || (!allowWide && len == 2 && cp > 0xFF)) {
+		if (cp != 0xFFFFFFFF && len == 2 && cp > 0xFF) {
+			// A 2-byte character above U+00FF: korean.fnt has no glyph and draws '?', so it is '?' here, which no
+			// reading of the text can mistake for CP949 (the same text passes again unchanged).
+			out.push_back('?');
+			p += len;
+		} else if (cp == 0xFFFFFFFF) {
 			if (*p >= 0xC2 && *p <= 0xF4) {
 				// A sequence cut by the end of the text: drop it.
 				const int want = *p >= 0xF0 ? 4 : *p >= 0xE0 ? 3 : 2;
@@ -302,10 +313,10 @@ int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unma
 	Common::Array<byte> buf;
 	const byte *text;
 	uint32 len;
-	if (knownUtf8 && !utf8Valid(src, end, true)) {
+	if (knownUtf8 && !textIsUtf8(src, end)) {
 		// Declared UTF-8 (a bundle translation, text the engine converted): never read as CP949.
 		uint stray = 0;
-		tolerantUtf8(src, end, buf, stray, true);
+		tolerantUtf8(src, end, buf, stray);
 		debug(1, "Korean text: %u byte(s) of UTF-8 text start no character, read as U+0080..U+00FF", stray);
 		text = buf.begin();
 		len = buf.size();
@@ -315,7 +326,7 @@ int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unma
 	} else if (utf8HangulCount(src, end) > cp949PairCount(src, end)) {
 		// Mostly UTF-8 (more Hangul as UTF-8 than as CP949): one bad byte does not make the whole text CP949.
 		uint stray = 0;
-		tolerantUtf8(src, end, buf, stray, false);
+		tolerantUtf8(src, end, buf, stray);
 		debug(1, "Korean text: %u byte(s) of UTF-8 text start no character, read as U+0080..U+00FF", stray);
 		text = buf.begin();
 		len = buf.size();
@@ -329,7 +340,8 @@ int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unma
 	}
 	// Cut after the last whole character or escape that fits, never inside one; a truncated escape is dropped.
 	const uint32 at = cutOnBoundary(text, len, dstSize - 1);
-	memmove(dst, text, at);
+	if (at)
+		memmove(dst, text, at);
 	dst[at] = 0;
 	return at;
 }
@@ -354,7 +366,7 @@ uint32 cutOnBoundary(const byte *text, uint32 len, int limit) {
 	uint32 at = 0;
 	const byte *tEnd = text + len;
 	while (at < len) {
-		int n = scummEscapeFull(text + at, tEnd);
+		int n = textEscape(text + at, tEnd);
 		if (n < 0)
 			break;
 		if (!n)
@@ -371,11 +383,15 @@ uint32 cutOnBoundary(const byte *text, uint32 len, int limit) {
 bool legacyCp949Resource(const byte *src, uint32 size, Common::Array<byte> &out) {
 	if (!size || src[size - 1] != 0 || cp949TextEnd(src, src + size) != src + size - 1)
 		return false;
+	const byte *limit = src + size - 1;
 	int pairs = 0;
-	for (const byte *p = src; p < src + size - 1;) {
-		if (*p == 0xFF) {
-			p += scummEscapeLength(p, src + size - 1);
-		} else if (*p >= 0xB0 && *p <= 0xD0 && p + 1 < src + size - 1) {
+	for (const byte *p = src; p < limit;) {
+		const int esc = textEscape(p, limit);	// 0xFF with any code, 0xFE with 1, 2, 3, 8
+		if (esc < 0)
+			return false;
+		if (esc) {
+			p += esc;
+		} else if (*p >= 0xB0 && *p <= 0xD0 && p + 1 < limit) {
 			if (ksx1001CodePoint(p[0], p[1]))
 				pairs++;
 			p += 2;
@@ -389,21 +405,29 @@ bool legacyCp949Resource(const byte *src, uint32 size, Common::Array<byte> &out)
 		return false;
 	out.clear();
 	uint unmapped = 0;
-	cp949ToUtf8(src, src + size - 1, out, unmapped);
+	cp949ToUtf8(src, limit, out, unmapped);
 	out.push_back(0);
 	return true;
 }
 
 bool legacyCp949Buffer(byte *buf, int size, int &pos) {
 	const byte *end = cp949TextEnd(buf, buf + size);
-	int pairs = 0;
-	for (const byte *p = buf; p < end; p++) {
-		if (*p >= 0xB0 && *p <= 0xC8 && p + 1 < end && ksx1001CodePoint(p[0], p[1])) {
-			pairs++;
-			p++;
+	// The message buffer is always text: convert it when a byte >= 0x80 stands outside the escapes (a syllable, or a
+	// lone charset glyph such as MI1's 0xFA).
+	bool high = false;
+	for (const byte *p = buf; p < end;) {
+		const int esc = textEscape(p, end);
+		if (esc < 0)
+			break;
+		if (esc) {
+			p += esc;
+			continue;
 		}
+		if (*p >= 0x80)
+			high = true;
+		p += (*p >= 0xB0 && *p <= 0xD0 && p + 1 < end) ? 2 : 1;
 	}
-	if (!pairs)
+	if (!high)
 		return false;
 	Common::Array<byte> text, prefix;
 	uint unmapped = 0;
@@ -412,7 +436,8 @@ bool legacyCp949Buffer(byte *buf, int size, int &pos) {
 	const uint32 n = cutOnBoundary(text.begin(), text.size(), size - 1);
 	const uint32 newPos = MIN<uint32>(prefix.size(), n);
 	memset(buf, 0, size);
-	memcpy(buf, text.begin(), n);
+	if (n)
+		memcpy(buf, text.begin(), n);
 	pos = newPos;
 	return true;
 }
@@ -433,7 +458,7 @@ int koreanCopyChars(const byte *src, int srcSize, int maxChars, byte *dst, int d
 	int at = 0, chars = 0;
 	const byte *p = src;
 	while (p < end && *p) {
-		int n = scummEscapeFull(p, end);
+		int n = textEscape(p, end);
 		if (n < 0)
 			break;
 		const bool isChar = !n;

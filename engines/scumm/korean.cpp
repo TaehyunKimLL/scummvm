@@ -196,7 +196,8 @@ void ScummEngine::convertLoadedText(int saved) {
 	// A save of this engine holds UTF-8 (trailer 1 or 2). One without the trailer (upstream, the CP949 builds) holds
 	// CP949, which is known: no guessing, every text resource is converted as CP949 (legacyCp949Resource()). Only a
 	// resource that is one NUL-terminated string filling its whole size is touched (a v3-v5 string resource may be a
-	// byte array); it never shrinks, UTF-8 text is as long as its CP949 or longer.
+	// byte array); UTF-8 text is as long as its CP949 or longer, except that an unreadable pair becomes
+	// one '?' and a cut escape is dropped (29 of 33437 fuzzed conversions): the resource is re-created at its new size.
 	if (saved == kSavedTextUtf8)
 		return;
 	static const ResType kTextTypes[] = { rtVerb, rtObjectName, rtActorName, rtString };

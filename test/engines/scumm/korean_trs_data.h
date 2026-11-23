@@ -120,6 +120,13 @@ public:
 					differ++;
 				}
 			}
+			// The originals (the lookup keys) are the game's bytes and must come through untouched.
+			uint originalsDiffer = 0;
+			for (uint k = 0; k < cp.originals.size(); k++) {
+				if (text(conv, cp.originals[k]) != text(u8, u8.originals[k]))
+					originalsDiffer++;
+			}
+			TSM_ASSERT_EQUALS(name.c_str(), originalsDiffer, 0u);
 			uint allowed = 0;
 			Common::ScopedPtr<Common::SeekableReadStream> allow(dir.getChild(name + ".allow").createReadStream());
 			if (allow)

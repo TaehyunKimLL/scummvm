@@ -48,7 +48,7 @@ public:
 	void test_fit_never_cuts_a_character() {
 		Scumm::KoreanSentenceParts p;
 		p.verb = KO_GIVE; p.objA = KO_TICKET KO_TICKET KO_TICKET; p.hasA = true;
-		// 4 px a byte; "티켓티켓티켓 주기" = 17 bytes = 68 px; 40 px leaves A two characters + " 주기".
+		// 2 px a byte; "티켓티켓티켓 주기" = 25 bytes = 50 px; 40 px leaves A two characters + " 주기" (19 bytes, 38 px).
 		const Common::String fit = Scumm::fitKoreanSentence(p, 40, bytesWide, nullptr);
 		TS_ASSERT_EQUALS(fit, KO_TICKET KO_TICKET " " KO_GIVE);
 		TS_ASSERT(fit.size() * 2 <= 40);
@@ -74,5 +74,30 @@ public:
 		TS_ASSERT_EQUALS(Scumm::koreanCharLength("\xff\x01"), 1);
 		TS_ASSERT_EQUALS(Scumm::koreanCharLength("\xc3\xa9"), 2);
 		TS_ASSERT_EQUALS(Scumm::koreanCharLength("a"), 1);
+	}
+
+	void test_fit_falls_back_to_cutting_characters() {
+		// Nothing left to shorten (the verb alone is 12 px, one syllable 6): the line is cut on a character, never inside one.
+		Scumm::KoreanSentenceParts p;
+		p.verb = KO_GIVE;
+		TS_ASSERT_EQUALS(Scumm::fitKoreanSentence(p, 12, bytesWide, nullptr), KO_GIVE);
+		TS_ASSERT_EQUALS(Scumm::fitKoreanSentence(p, 8, bytesWide, nullptr), "\xec\xa3\xbc");	// 주: 6 px
+		TS_ASSERT_EQUALS(Scumm::fitKoreanSentence(p, 5, bytesWide, nullptr), "");
+	}
+
+	void test_prepositions_put_the_second_object_first() {
+		Scumm::KoreanSentenceParts p;
+		p.verb = KO_GIVE;
+		p.objA = KO_KEY;
+		p.hasA = true;
+		p.objB = KO_TICKET;
+		p.hasB = true;
+		// prep 0: "<A> <B> <verb>"; prep 1 (in), 3 (on): "<B>에 <A> <verb>"
+		p.prep = 0;
+		TS_ASSERT_EQUALS(Scumm::composeKoreanSentence(p), KO_KEY " " KO_TICKET " " KO_GIVE);
+		p.prep = 1;
+		TS_ASSERT_EQUALS(Scumm::composeKoreanSentence(p), KO_TICKET "\xec\x97\x90 " KO_KEY " " KO_GIVE);
+		p.prep = 3;
+		TS_ASSERT_EQUALS(Scumm::composeKoreanSentence(p), KO_TICKET "\xec\x97\x90 " KO_KEY " " KO_GIVE);
 	}
 };

@@ -29,7 +29,7 @@ namespace Scumm {
 /**
  * The encoding of the translated text a Korean save holds (verbs, object and actor names, strings, the message being
  * printed: what loadPtrToResource() stored). A trailer after the serialized state, where a build without it never
- * reads: tag 'TENC' and one byte, 1 for UTF-8 (the jamo branch's format, kept) or 2 for UTF-8 with the rest of the message buffer. This engine writes 1. A save without a
+ * reads: tag 'TENC' and one byte, 1 for UTF-8 (the jamo branch's format, kept) or 2 for UTF-8 with the rest of the message buffer. This engine writes 2 (kind 1 is still read). A save without a
  * trailer (upstream, the CP949 builds) or with 0 holds CP949 and is converted on load (ScummEngine::convertLoadedText()).
  */
 enum SavedTextEncoding {

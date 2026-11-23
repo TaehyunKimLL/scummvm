@@ -10,6 +10,10 @@ class ScummKoreanTextTestSuite : public CxxTest::TestSuite {
 		return Common::String((const char *)dst, n);
 	}
 
+	static bool textOk(const byte *a, int na) {
+		return Scumm::textIsUtf8(a, a + na + 1) && Scumm::scummTextEnd(a, a + na + 1) - a == na;
+	}
+
 public:
 	void test_ksx1001_table() {
 		TS_ASSERT_EQUALS(Scumm::kKsx1001Hangul[0], 0xAC00);	// 가
@@ -218,10 +222,10 @@ public:
 
 	void test_known_utf8_is_never_read_as_cp949() {
 		// A bundle translation is UTF-8 by declaration: 카 as UTF-8 is EC B9 B4, and the two bytes C4 AB (ī) stay what
-		// they are; for a source of unknown encoding the same two bytes are the CP949 syllable.
+		// they are in the font (a refused character); for a source of unknown encoding the same two bytes are the CP949 syllable.
 		byte dst[16];
 		int n = Scumm::toEngineText((const byte *)"\xc4\xab", 3, dst, sizeof(dst), nullptr, true);
-		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xc4\xab");
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "?");	// ī: no glyph in korean.fnt, '?' as it is drawn
 		n = Scumm::toEngineText((const byte *)"\xc4\xab", 3, dst, sizeof(dst));
 		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xec\xb9\xb4");
 		// A stray byte in declared UTF-8 is U+00FA, not a reason to read the line as CP949 (and a cut tail is dropped).
@@ -273,5 +277,142 @@ public:
 		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "a\xff\x04\x01\x02");
 		n = Scumm::koreanCopyChars(esc, sizeof(esc), 18, dst, 5);
 		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "a");
+	}
+
+	void test_utf8_syllable_with_a_stray_byte_stays_utf8() {
+		// 복 is EB B3 B5, and B3 B5 is also the CP949 syllable 논: the continuation bytes of a UTF-8 syllable are no CP949 pair.
+		byte dst[16];
+		int n = Scumm::toEngineText((const byte *)"\xeb\xb3\xb5\xfa", 5, dst, sizeof(dst));
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xeb\xb3\xb5\xc3\xba");
+		n = Scumm::toEngineText((const byte *)"\xeb\xb3\xb5\xfa", 5, dst, sizeof(dst), nullptr, true);
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xeb\xb3\xb5\xc3\xba");
+		// A wide 2-byte character is '?' in both readings, so that the text passes again unchanged (C4 AB, U+012B).
+		n = Scumm::toEngineText((const byte *)"\xed\x95\x9c\xc4\xab\xfa", 7, dst, sizeof(dst));
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xed\x95\x9c?\xc3\xba");
+		byte again[16];
+		const int m = Scumm::toEngineText(dst, n + 1, again, sizeof(again));
+		TS_ASSERT_EQUALS(Common::String((const char *)again, m), Common::String((const char *)dst, n));
+	}
+
+	void test_both_readings_are_idempotent_and_agree_on_their_output() {
+		// Differential check over random mixes of CP949 syllables, UTF-8 syllables, a wide 2-byte character, stray bytes,
+		// the trail byte 0xFE and escapes, for both modes: the result passes unchanged again in both modes, is always
+		// clean (no truncated escape, valid engine text), and the two modes agree on a text already converted.
+		static const byte *const kTokens[] = {
+			(const byte *)"\xc7\xd1", (const byte *)"\xb1\xdb", (const byte *)"\xbc\xfe", (const byte *)"\xc4\xab",
+			(const byte *)"\xed\x95\x9c", (const byte *)"\xeb\xb3\xb5", (const byte *)"\xea\xb8\x80", (const byte *)"\xc3\xa9",
+			(const byte *)"\xfa", (const byte *)"\x80", (const byte *)"\xed\x95", (const byte *)"\xfe\x01", (const byte *)"\xfe\x08",
+			(const byte *)"\xff\x04\x00\x01", (const byte *)"\xff", (const byte *)"\xfe", (const byte *)"a", (const byte *)" ",
+			(const byte *)"\xb3\xb5", (const byte *)"\xc2\xa1"
+		};
+		uint32 seed = 777;
+		for (int iter = 0; iter < 30000; iter++) {
+			byte in[40];
+			int len = 0;
+			const int tokens = 1 + (seed = seed * 1103515245u + 12345u) / 65536 % 7;
+			for (int k = 0; k < tokens; k++) {
+				const byte *tok = kTokens[(seed = seed * 1103515245u + 12345u) / 65536 % ARRAYSIZE(kTokens)];
+				for (; *tok; tok++)
+					in[len++] = *tok;
+			}
+			in[len] = 0;
+			for (int known = 0; known < 2; known++) {
+				byte a[96], b[96], c[96];
+				const int na = Scumm::toEngineText(in, len + 1, a, sizeof(a), nullptr, known);
+				const int nb = Scumm::toEngineText(a, na + 1, b, sizeof(b), nullptr, false);
+				const int nc = Scumm::toEngineText(a, na + 1, c, sizeof(c), nullptr, true);
+				const bool ok = textOk(a, na) && nb == na && nc == na && !memcmp(a, b, na) && !memcmp(a, c, na);
+				if (!ok) {
+					Common::String hex;
+					for (int i = 0; i < len; i++)
+						hex += Common::String::format("%02x ", in[i]);
+					TS_FAIL(Common::String::format("known=%d: %s", known, hex.c_str()).c_str());
+					return;
+				}
+			}
+		}
+	}
+
+	void test_legacy_resource_matches_an_independent_model() {
+		// CP949 text built from tokens, converted by legacyCp949Resource(), against the UTF-8 built from the same tokens
+		// with appendUtf8() (no shared code with the converter but the table), escapes 0xFF/0xFE and ASCII included.
+		uint32 seed = 4242;
+		for (int iter = 0; iter < 5000; iter++) {
+			Common::Array<byte> in, want;
+			bool syllable = false;
+			const int tokens = 1 + (seed = seed * 1103515245u + 12345u) / 65536 % 8;
+			for (int k = 0; k < tokens; k++) {
+				const int kind = (seed = seed * 1103515245u + 12345u) / 65536 % 5;
+				if (kind <= 1) {
+					const int idx = (seed = seed * 1103515245u + 12345u) / 65536 % 2350;
+					in.push_back(0xB0 + idx / 94);
+					in.push_back(0xA1 + idx % 94);
+					Scumm::appendUtf8(Scumm::kKsx1001Hangul[idx], want);
+					syllable = true;
+				} else if (kind == 2) {
+					const byte e[] = { 0xFE, (byte)((seed >> 8) % 2 ? 1 : 8) };
+					in.push_back(e[0]); in.push_back(e[1]);
+					want.push_back(e[0]); want.push_back(e[1]);
+				} else if (kind == 3) {
+					const byte e[] = { 0xFF, 0x04, (byte)((seed >> 4) & 0x7F), 0x01 };
+					for (int i = 0; i < 4; i++) {
+						in.push_back(e[i]);
+						want.push_back(e[i]);
+					}
+				} else {
+					in.push_back('a' + (seed >> 5) % 26);
+					want.push_back(in.back());
+				}
+			}
+			in.push_back(0);
+			want.push_back(0);
+			Common::Array<byte> out;
+			const bool got = Scumm::legacyCp949Resource(in.begin(), in.size(), out);
+			if (got != syllable || (got && (out.size() != want.size() || memcmp(out.begin(), want.begin(), want.size())))) {
+				TS_FAIL("legacyCp949Resource differs from the model");
+				return;
+			}
+		}
+		// The escape after a syllable does not make the resource binary (MI2 has 382 such escapes).
+		const byte esc[] = { 0xC7, 0xD1, 0xFE, 0x08, 0xB1, 0xDB, 0 };
+		Common::Array<byte> out;
+		TS_ASSERT(Scumm::legacyCp949Resource(esc, sizeof(esc), out));
+		// A message buffer with a lone charset glyph and no Hangul converts too (St.\xfaKitts).
+		byte buf[16] = "St.\xfa" "Kitts";
+		int pos = 0;
+		TS_ASSERT(Scumm::legacyCp949Buffer(buf, sizeof(buf), pos));
+		TS_ASSERT_EQUALS(Common::String((const char *)buf), "St.\xc3\xba" "Kitts");
+	}
+
+	void test_trail_fe_does_not_truncate_names_or_cuts() {
+		// 원숭이 = BF F8 BC FE C0 CC as UTF-8 engine text is plain; as a CP949 trail the FE hides nothing in a cut or a copy.
+		byte dst[32];
+		const byte name[] = "\xec\x9b\x90\xec\x88\xad\xec\x9d\xb4";
+		TS_ASSERT_EQUALS(Scumm::koreanCopyChars(name, sizeof(name), 18, dst, sizeof(dst)), 9);
+		const byte cp[] = { 0xBF, 0xF8, 0xBC, 0xFE, 0xC0, 0xCC, 0 };
+		byte buf[32];
+		memset(buf, 0, sizeof(buf));
+		memcpy(buf, cp, sizeof(cp));
+		int pos = 0;
+		TS_ASSERT(Scumm::legacyCp949Buffer(buf, sizeof(buf), pos));
+		TS_ASSERT_EQUALS(Common::String((const char *)buf), "\xec\x9b\x90\xec\x88\xad\xec\x9d\xb4");
+		int n = Scumm::toEngineText(cp, sizeof(cp), dst, 8);
+		TS_ASSERT_EQUALS(Common::String((const char *)dst, n), "\xec\x9b\x90\xec\x88\xad");
+	}
+
+	void test_conversion_in_place() {
+		// dst == src: a CP949 text converted into its own buffer (UTF-8 is longer) and a UTF-8 text copied onto itself.
+		byte buf[32];
+		memset(buf, 0x55, sizeof(buf));
+		memcpy(buf, "\xc7\xd1\xb1\xdb\0", 5);
+		int n = Scumm::toEngineText(buf, 5, buf, sizeof(buf));
+		TS_ASSERT_EQUALS(Common::String((const char *)buf, n), "\xed\x95\x9c\xea\xb8\x80");
+		TS_ASSERT_EQUALS(buf[n], 0);
+		n = Scumm::toEngineText(buf, n + 1, buf, sizeof(buf));
+		TS_ASSERT_EQUALS(Common::String((const char *)buf, n), "\xed\x95\x9c\xea\xb8\x80");
+		// An empty text writes the NUL only (and no memmove of a null source).
+		byte e[2] = { 0x55, 0x55 };
+		TS_ASSERT_EQUALS(Scumm::toEngineText((const byte *)"", 1, e, sizeof(e)), 0);
+		TS_ASSERT_EQUALS(e[0], 0);
 	}
 };
