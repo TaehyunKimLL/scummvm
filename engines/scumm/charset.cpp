@@ -469,8 +469,12 @@ int CharsetRendererCommon::getFontHeight() const {
 int CharsetRendererClassic::getCharWidth(uint16 chr) const {
 	int spacing = 0;
 
-	if (_vm->_useCJKMode && chr >= 0x80)
+	// Korean UTF-8 text: U+0080..U+00FF is a glyph of the game's charset (measured as drawn); a code point of a Korean
+	// syllable (>= 0x100) is a half cell. A glyph the charset lacks has no width.
+	if (_vm->_useCJKMode && chr >= (_vm->_koreanUtf8 ? 0x100 : 0x80))
 		return _vm->_2byteWidth / 2;
+	if (_vm->_koreanUtf8 && chr >= _numChars)
+		return 0;
 
 	int offs = READ_LE_UINT32(_fontPtr + chr * 4 + 4);
 	if (offs)
@@ -741,11 +745,14 @@ void CharsetRenderer::addLinebreaks(int a, byte *str, int pos, int maxwidth) {
 int CharsetRendererV3::getCharWidth(uint16 chr) const {
 	int spacing = 0;
 
-	if (_vm->_useCJKMode && (chr & 0x80))
+	if (_vm->_useCJKMode && (_vm->_koreanUtf8 ? chr >= 0x100 : (chr & 0x80)))
 		spacing = _vm->_2byteWidth / 2;
 
-	if (!spacing)
+	if (!spacing) {
+		if (_vm->_koreanUtf8 && chr >= (_numChars ? _numChars : 256))
+			return 0;	// U+0080..U+00FF in a 128 glyph charset (_numChars is a byte: 0 is 256)
 		spacing = *(_widthTable + chr);
+	}
 
 	return spacing;
 }
@@ -951,6 +958,9 @@ void CharsetRendererV3::printChar(int chr, bool ignoreCharsetMask) {
 	if (chr == '@')
 		return;
 
+	if (_vm->_koreanUtf8 && !is2byte && chr >= (_numChars ? _numChars : 256))
+		return;	// U+0080..U+00FF in a 128 glyph charset: nothing to draw
+
 	if (_vm->isScummvmKorTarget()) {
 		if (is2byte) {
 			charPtr = _vm->get2byteCharPtr(chr);
@@ -1038,6 +1048,9 @@ void CharsetRendererV3::drawChar(int chr, Graphics::Surface &s, int x, int y) {
 	int width;
 	int height;
 	int is2byte = (chr > 0xff && _vm->_useCJKMode) ? 1 : 0;
+
+	if (_vm->_koreanUtf8 && !is2byte && chr >= (_numChars ? _numChars : 256))
+		return;
 
 	if (_vm->isScummvmKorTarget()) {
 		if (is2byte) {
@@ -1381,6 +1394,9 @@ bool CharsetRendererClassic::prepareDraw(uint16 chr) {
 	} else {
 		setShadowMode(kNoShadowType);
 	}
+
+	if (_vm->_koreanUtf8 && chr >= _numChars)
+		return false;	// U+0080..U+00FF the charset has no glyph for
 
 	uint32 charOffs = READ_LE_UINT32(_fontPtr + chr * 4 + 4);
 	assert(charOffs < 0x14000);
