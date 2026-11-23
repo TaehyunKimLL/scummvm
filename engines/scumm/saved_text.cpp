@@ -27,12 +27,19 @@ namespace Scumm {
 
 static const uint32 kSavedTextTag = MKTAG('T', 'E', 'N', 'C');
 
-void writeSavedTextEncoding(Common::WriteStream &out, bool utf8) {
+void writeSavedTextEncoding(Common::WriteStream &out, bool utf8, const byte *tail) {
 	out.writeUint32BE(kSavedTextTag);
-	out.writeByte(utf8 ? 1 : 0);
+	if (utf8 && tail) {
+		out.writeByte(2);
+		out.write(tail, kSavedTextTailSize);
+	} else {
+		out.writeByte(utf8 ? 1 : 0);
+	}
 }
 
-SavedTextEncoding readSavedTextEncoding(Common::SeekableReadStream &in) {
+SavedTextEncoding readSavedTextEncoding(Common::SeekableReadStream &in, byte *tail, bool *hasTail) {
+	if (hasTail)
+		*hasTail = false;
 	if (in.size() - in.pos() < 5)
 		return kSavedTextUnknown;
 	if (in.readUint32BE() != kSavedTextTag)
@@ -40,6 +47,8 @@ SavedTextEncoding readSavedTextEncoding(Common::SeekableReadStream &in) {
 	const byte v = in.readByte();
 	if (in.err())
 		return kSavedTextUnknown;
+	if (v == 2 && tail && in.size() - in.pos() >= kSavedTextTailSize && in.read(tail, kSavedTextTailSize) == kSavedTextTailSize && hasTail)
+		*hasTail = true;
 	return v ? kSavedTextUtf8 : kSavedTextLegacy;
 }
 

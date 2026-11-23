@@ -35,6 +35,33 @@ public:
 		TS_ASSERT_EQUALS(Scumm::readSavedTextEncoding(in2), Scumm::kSavedTextUnknown);
 	}
 
+	void test_trailer_carries_the_rest_of_the_message_buffer() {
+		byte tail[Scumm::kSavedTextTailSize];
+		for (int i = 0; i < Scumm::kSavedTextTailSize; i++)
+			tail[i] = (byte)(i * 7 + 1);
+		Common::MemoryWriteStreamDynamic out(DisposeAfterUse::YES);
+		Scumm::writeSavedTextEncoding(out, true, tail);
+		TS_ASSERT_EQUALS(out.size(), 5u + Scumm::kSavedTextTailSize);
+		byte got[Scumm::kSavedTextTailSize];
+		bool has = false;
+		Common::MemoryReadStream in(out.getData(), out.size());
+		TS_ASSERT_EQUALS(Scumm::readSavedTextEncoding(in, got, &has), Scumm::kSavedTextUtf8);
+		TS_ASSERT(has);
+		TS_ASSERT_EQUALS(memcmp(got, tail, sizeof(got)), 0);
+		// A kind 1 trailer (written before) loads without a tail; so does a kind 2 cut short.
+		Common::MemoryWriteStreamDynamic old(DisposeAfterUse::YES);
+		Scumm::writeSavedTextEncoding(old, true);
+		Common::MemoryReadStream inOld(old.getData(), old.size());
+		TS_ASSERT_EQUALS(Scumm::readSavedTextEncoding(inOld, got, &has), Scumm::kSavedTextUtf8);
+		TS_ASSERT(!has);
+		Common::MemoryReadStream cut(out.getData(), 5 + 100);
+		TS_ASSERT_EQUALS(Scumm::readSavedTextEncoding(cut, got, &has), Scumm::kSavedTextUtf8);
+		TS_ASSERT(!has);
+		// A reader that wants no tail (the old call) still gets the kind.
+		Common::MemoryReadStream inPlain(out.getData(), out.size());
+		TS_ASSERT_EQUALS(Scumm::readSavedTextEncoding(inPlain), Scumm::kSavedTextUtf8);
+	}
+
 	void test_refusal_index() {
 		// korean.fnt has 2350 glyphs: a code point outside them has no index (the engine draws its '?').
 		TS_ASSERT_EQUALS(Scumm::ksx1001Index(0x3131), -1);	// ㄱ (compatibility jamo)

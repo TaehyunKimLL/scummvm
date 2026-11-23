@@ -29,7 +29,7 @@ namespace Scumm {
 /**
  * The encoding of the translated text a Korean save holds (verbs, object and actor names, strings, the message being
  * printed: what loadPtrToResource() stored). A trailer after the serialized state, where a build without it never
- * reads: tag 'TENC' and one byte, 1 for UTF-8 (the jamo branch's format, kept). This engine writes 1. A save without a
+ * reads: tag 'TENC' and one byte, 1 for UTF-8 (the jamo branch's format, kept) or 2 for UTF-8 with the rest of the message buffer. This engine writes 1. A save without a
  * trailer (upstream, the CP949 builds) or with 0 holds CP949 and is converted on load (ScummEngine::convertLoadedText()).
  */
 enum SavedTextEncoding {
@@ -38,10 +38,21 @@ enum SavedTextEncoding {
 	kSavedTextUtf8 = 1
 };
 
-void writeSavedTextEncoding(Common::WriteStream &out, bool utf8);
+/** The size of the rest of the message buffer a trailer of kind 2 carries (the state itself syncs the first 256 bytes only). */
+enum { kSavedTextTailSize = 256 };
 
-/** The trailer at the stream's position; kSavedTextUnknown without one. */
-SavedTextEncoding readSavedTextEncoding(Common::SeekableReadStream &in);
+/**
+ * Writes the trailer: 'TENC' and 0 (CP949) or 1 (UTF-8). With @p tail (kSavedTextTailSize bytes: _charsetBuffer[256..511])
+ * a UTF-8 trailer is kind 2 and carries them, so a message of 256 bytes or more round-trips (Zak, Indy3 and Indy4 have
+ * such lines as UTF-8); a build that knows only kind 1 reads nothing of it.
+ */
+void writeSavedTextEncoding(Common::WriteStream &out, bool utf8, const byte *tail = nullptr);
+
+/**
+ * The trailer at the stream's position; kSavedTextUnknown without one. Kind 2 gives kSavedTextUtf8 and its @p tail
+ * (kSavedTextTailSize bytes) with *@p hasTail set; kind 1 and a cut kind 2 give no tail.
+ */
+SavedTextEncoding readSavedTextEncoding(Common::SeekableReadStream &in, byte *tail = nullptr, bool *hasTail = nullptr);
 
 } // End of namespace Scumm
 
