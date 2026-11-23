@@ -66,6 +66,11 @@ ifeq ($(ENABLE_SCI), STATIC_PLUGIN)
 	TEST_LIBS += engines/sci/libsci.a graphics/libgraphics.a common/libcommon.a
 endif
 
+ifeq ($(ENABLE_SCUMM), STATIC_PLUGIN)
+	TESTS += $(srcdir)/test/engines/scumm/*.h
+	TEST_LIBS += engines/scumm/libscumm.a common/libcommon.a
+endif
+
 ifeq ($(ENABLE_TWINE), STATIC_PLUGIN)
 	TESTS += $(srcdir)/test/engines/twine/*.h
 	TEST_LIBS += engines/twine/libtwine.a

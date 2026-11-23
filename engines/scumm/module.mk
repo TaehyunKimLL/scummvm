@@ -42,6 +42,8 @@ MODULE_OBJS := \
 	imuse/drivers/pcspk.o \
 	input.o \
 	ks_check.o \
+	korean_text.o \
+	ksx1001_table.o \
 	macgui/macgui.o \
 	macgui/macgui_dialogwindow.o \
 	macgui/macgui_impl.o \
