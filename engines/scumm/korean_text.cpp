@@ -174,4 +174,57 @@ void cp949ToUtf8(const byte *src, const byte *end, Common::Array<byte> &out, uin
 	}
 }
 
+int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unmapped) {
+	if (dstSize <= 0)
+		return 0;
+	const byte *end = scummTextEnd(src, src + srcMax);
+	Common::Array<byte> buf;
+	const byte *text;
+	uint32 len;
+	if (textIsUtf8(src, end)) {
+		text = src;
+		len = end - src;
+	} else {
+		uint n = 0;
+		cp949ToUtf8(src, end, buf, n);
+		if (unmapped)
+			*unmapped += n;
+		text = buf.begin();
+		len = buf.size();
+	}
+	// Cut after the last whole character or escape that fits, never inside one.
+	uint32 at = 0;
+	const byte *tEnd = text + len;
+	while (at < len) {
+		int n = scummEscapeLength(text + at, tEnd);
+		if (!n)
+			decodeUtf8(text + at, tEnd, n);
+		if ((int)(at + n) > dstSize - 1)
+			break;
+		at += n;
+	}
+	memmove(dst, text, at);
+	dst[at] = 0;
+	return at;
+}
+
+int koreanFinalBits(const byte *p, const byte *end) {
+	int bits = 0;
+	while (p < end && *p) {
+		const int esc = scummEscapeLength(p, end);
+		if (esc) {
+			p += esc;
+			continue;
+		}
+		int len;
+		const uint32 cp = decodeUtf8(p, end, len);
+		if (cp >= 0xAC00 && cp <= 0xD7A3) {
+			const int jong = (cp - 0xAC00) % 28;
+			bits = (jong ? 1 : 0) | (jong == 8 ? 2 : 0);
+		}
+		p += len;
+	}
+	return bits;
+}
+
 } // End of namespace Scumm

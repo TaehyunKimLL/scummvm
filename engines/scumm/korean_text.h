@@ -69,6 +69,17 @@ bool textIsUtf8(const byte *p, const byte *end);
  */
 void cp949ToUtf8(const byte *src, const byte *end, Common::Array<byte> &out, uint &unmapped);
 
+/**
+ * The engine-text boundary: copies the text at @p src (up to its NUL, escape-aware) into @p dst as UTF-8. Text that is
+ * already valid UTF-8 (a translation, a stored resource, ASCII) is copied unchanged, anything else is read as CP949.
+ * So calling it twice changes nothing. At most @p dstSize - 1 bytes are written, cut after the last whole character
+ * or escape that fits, then a NUL. Returns the length written.
+ */
+int toEngineText(const byte *src, int srcMax, byte *dst, int dstSize, uint *unmapped = nullptr);
+
+/** The jongsung bits of the last Hangul syllable in [@p p, @p end) (bit 0: a final, bit 1: ㄹ); 0 without one. */
+int koreanFinalBits(const byte *p, const byte *end);
+
 } // End of namespace Scumm
 
 #endif

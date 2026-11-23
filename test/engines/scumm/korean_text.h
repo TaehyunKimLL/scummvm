@@ -4,10 +4,10 @@
 
 // Korean engine text: UTF-8 inside, CP949 converted at the boundary (engines/scumm/korean_text.h).
 class ScummKoreanTextTestSuite : public CxxTest::TestSuite {
-	static Common::String conv(const char *src, uint *unmapped) {
-		Common::Array<byte> out;
-		Scumm::cp949ToUtf8((const byte *)src, (const byte *)src + strlen(src), out, *unmapped);
-		return Common::String((const char *)out.begin(), out.size());
+	static Common::String engineText(const char *src, int dstSize = 256, uint *unmapped = nullptr) {
+		byte dst[256];
+		const int n = Scumm::toEngineText((const byte *)src, strlen(src) + 1, dst, dstSize, unmapped);
+		return Common::String((const char *)dst, n);
 	}
 
 public:
@@ -26,10 +26,33 @@ public:
 	void test_cp949_to_utf8_keeps_escapes() {
 		uint unmapped = 0;
 		// 한 FF 04 xx xx 글: an escape's arguments are not text.
-		TS_ASSERT_EQUALS(conv("\xc7\xd1\xff\x04\xb0\xa1\xb1\xdb", &unmapped), "\xed\x95\x9c\xff\x04\xb0\xa1\xea\xb8\x80");
+		TS_ASSERT_EQUALS(engineText("\xc7\xd1\xff\x04\xb0\xa1\xb1\xdb", 256, &unmapped), "\xed\x95\x9c\xff\x04\xb0\xa1\xea\xb8\x80");
 		// A trail byte 0xFE is part of its syllable (BC FE), FE 01 is an escape.
-		TS_ASSERT_EQUALS(conv("\xbc\xfe\xfe\x01" "a", &unmapped), "\xec\x88\xad\xfe\x01" "a");
+		TS_ASSERT_EQUALS(engineText("\xbc\xfe\xfe\x01" "a", 256, &unmapped), "\xec\x88\xad\xfe\x01" "a");
 		TS_ASSERT_EQUALS(unmapped, 0u);
+	}
+
+	void test_boundary_is_idempotent() {
+		const Common::String once = engineText("\xc7\xd1\xb1\xdb ok");	// 한글 ok
+		TS_ASSERT_EQUALS(once, "\xed\x95\x9c\xea\xb8\x80 ok");
+		TS_ASSERT_EQUALS(engineText(once.c_str()), once);
+		TS_ASSERT_EQUALS(engineText("Give"), "Give");
+	}
+
+	void test_cut_on_a_character() {
+		// 한글 is 6 bytes of UTF-8; a 6-byte buffer holds 5 + NUL: only 한.
+		TS_ASSERT_EQUALS(engineText("\xed\x95\x9c\xea\xb8\x80", 6), "\xed\x95\x9c");
+		// An escape is never cut either: "a" FF 04 xx xx in 5 bytes keeps "a".
+		TS_ASSERT_EQUALS(engineText("a\xff\x04\x01\x02", 5), "a");
+	}
+
+	void test_final_bits() {
+		const byte king[] = "\xec\x99\x95";	// 왕
+		const byte table[] = "\xed\x85\x8c\xec\x9d\xb4\xeb\xb8\x94";	// 테이블
+		const byte key[] = "\xec\x97\xb4\xec\x87\xa0 ab";	// 열쇠 ab
+		TS_ASSERT_EQUALS(Scumm::koreanFinalBits(king, king + sizeof(king)), 1);
+		TS_ASSERT_EQUALS(Scumm::koreanFinalBits(table, table + sizeof(table)), 3);
+		TS_ASSERT_EQUALS(Scumm::koreanFinalBits(key, key + sizeof(key)), 0);
 	}
 
 	void test_utf8_judgement() {
