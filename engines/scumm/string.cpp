@@ -40,6 +40,8 @@
 #include "scumm/scumm_v2.h"
 #include "scumm/scumm_v6.h"
 #include "scumm/scumm_v7.h"
+#include "scumm/korean_text.h"
+#include "scumm/trs_bundle.h"
 #include "scumm/verbs.h"
 #include "scumm/he/sound_he.h"
 
@@ -2337,7 +2339,10 @@ void ScummEngine::loadLanguageBundle() {
 	}
 
 	ScummFile file(this);
-	openFile(file, "korean.trs");
+	Common::Array<Common::Path> names;
+	trsBundleNames(_language, names);
+	for (uint n = 0; n < names.size() && !file.isOpen(); n++)
+		openFile(file, names[n]);
 
 	if (!file.isOpen()) {
 		_existLanguageFile = false;
@@ -2407,6 +2412,9 @@ void ScummEngine::loadLanguageBundle() {
 	file.read(_languageBuffer, size - bodyPos);
 	file.close();
 
+	if (_koreanUtf8 && !trsBodyIsUtf8(_languageBuffer, size - bodyPos))
+		transcodeLanguageBundle(size - bodyPos);	// a CP949 bundle: translations to UTF-8, once
+
 	debug(2, "loadLanguageBundle: Loaded %d entries", _numTranslatedLines);
 }
 
@@ -2472,7 +2480,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 					const byte *translatedText = searchTranslatedLine(text, scrpRange, true);
 					if (translatedText) {
 						debug(7, "translateText: Found by heuristic #1");
-						memcpy(trans_buff, translatedText, MIN<int>(resStrLen(translatedText) + 1, transBufferSize));
+						copyTranslatedText(trans_buff, translatedText, transBufferSize);
 						return;
 					}
 				}
@@ -2489,7 +2497,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 					const byte *translatedText = searchTranslatedLine(text, scrpRange, true);
 					if (translatedText) {
 						debug(7, "translateText: Found by heuristic #2");
-						memcpy(trans_buff, translatedText, MIN<int>(resStrLen(translatedText) + 1, transBufferSize));
+						copyTranslatedText(trans_buff, translatedText, transBufferSize);
 						return;
 					}
 				}
@@ -2500,7 +2508,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 		const byte *translatedText = searchTranslatedLine(text, TranslationRange(0, _numTranslatedLines - 1), false);
 		if (translatedText) {
 			debug(7, "translateText: Found by full search");
-			memcpy(trans_buff, translatedText, MIN<int>(resStrLen(translatedText) + 1, transBufferSize));
+			copyTranslatedText(trans_buff, translatedText, transBufferSize);
 			return;
 		}
 
@@ -2508,7 +2516,7 @@ void ScummEngine::translateText(const byte *text, byte *trans_buff, int transBuf
 	}
 
 	// Default: just copy the string
-	memcpy(trans_buff, text, MIN<int>(resStrLen(text) + 1, transBufferSize));
+	copyTranslatedText(trans_buff, text, transBufferSize);
 }
 
 bool ScummEngine::reverseIfNeeded(const byte *text, byte *reverseBuf, int reverseBufSize) const {

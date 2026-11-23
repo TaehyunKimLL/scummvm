@@ -632,6 +632,7 @@ protected:
 	void setupCostumeRenderer();
 
 	virtual void loadLanguageBundle();
+	void transcodeLanguageBundle(uint32 bodySize);
 	void loadCJKFont();
 	void loadKorFont();
 	void setupMusic(int midi);
@@ -1791,6 +1792,12 @@ public:
 
 	bool isScummvmKorTarget();
 	bool hasLocalizer();
+	/** Whether a .trs translation bundle was loaded (loadLanguageBundle()). */
+	bool hasTranslationBundle() const { return _existLanguageFile; }
+	/** Korean text is UTF-8 inside the engine (v1-v6; korean_text.h). */
+	bool _koreanUtf8 = false;
+	/** translateText()'s copy: UTF-8 engine text, cut on a character boundary, NUL-terminated. */
+	void copyTranslatedText(byte *dst, const byte *src, int dstSize);
 
 //protected:
 	byte *_2byteFontPtr = nullptr;

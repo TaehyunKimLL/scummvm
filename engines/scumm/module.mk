@@ -43,6 +43,7 @@ MODULE_OBJS := \
 	input.o \
 	ks_check.o \
 	korean_text.o \
+	korean.o \
 	trs_bundle.o \
 	ksx1001_table.o \
 	macgui/macgui.o \

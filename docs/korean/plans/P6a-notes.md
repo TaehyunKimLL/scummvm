@@ -28,3 +28,22 @@ written into the log by the next commit.
 
 ### a4: bundle names and the CP949 body
 - Red: `trs_bundle.h: No such file or directory`. Green: 653 (N0 + 9).
+- a4 sha 467b5dc6acf.
+
+### a5: `_koreanUtf8`, the bundle, the boundary in `translateText()`
+- Hooks as appendix A (hunks of loadKorFont, loadLanguageBundle, translateText x4); `korean.cpp` carries
+  `transcodeLanguageBundle` and `copyTranslatedText`. **Appendix A omits the `scumm.h` declarations of `_koreanUtf8`,
+  `hasTranslationBundle()`, `copyTranslatedText()`, `nextCJKChar()` ... (the prototype diff in the plan has only the
+  `transcodeLanguageBundle`/`convertLoadedText` hunk); added from the prototype's scumm.h.** Also the plan's hunk headers
+  have hand-written line counts (`git apply` refuses them; applied with `--recount`).
+- Build: 653 tests (N0 + 9), no warning.
+- [data] without extrapath, run folders `~/work/tmp/p6/runs/a5-*`: MM `50116 -> 58803` (as the plan). **Differences from the
+  plan's numbers**: Zak `87138 -> 101837` (plan 102032), Indy3 `126521 -> 148511` (148571), Indy4 `813252 -> 821296`
+  (821300; 7 unreadable pairs as planned), **MI2cp `738122 -> 747583` (plan 841833)**. The MI2 pack: no conversion line.
+  Drawing is not there yet: Indy4 and MI2cp stop at `charOffs < 0x14000` as expected at this task.
+- **Finding (red for the next commit):** the MI2 gap is real, not noise. The code of appendix B.5 splits the body at every NUL,
+  but a translation can contain a NUL as an escape argument (`FF 0A 00 xx`): the part after that NUL is not converted and
+  stays CP949, and the later boundary judges the whole string as not UTF-8 and reads its UTF-8 head as CP949 (garbage). A
+  Python model of the engine rule (`~/work/tmp/p6a/emu.py`) gives 103708 pairs when a translation runs to its
+  escape-aware end, which is the plan's `+103711`; the NUL split gives 20027. Fixed in the next commit (translations run to
+  their escape-aware end, clipped at the next entry offset, which keeps MM's `sound FF 04 C8 00` working).

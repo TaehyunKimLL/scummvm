@@ -187,6 +187,8 @@ void ScummEngine::loadKorFont() {
 	Common::File fp;
 	int numChar = 2350;
 	_useCJKMode = true;
+	// Korean text is UTF-8 inside the engine (korean_text.h); The Dig/FT/COMI keep their own CP949 path.
+	_koreanUtf8 = (_game.version < 7);
 
 	if (_game.version < 7 || _game.id == GID_FT)
 		_useMultiFont = true;
