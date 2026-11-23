@@ -56,3 +56,18 @@ written into the log by the next commit.
   NUL-split. Extra test `test_translation_stops_at_the_next_entry` and `test_unterminated_translation_keeps_an_empty_next_entry`.
   Green: 656 tests (N0 + 12).
 - Evidence: MI2cp now `738122 -> 841833` and Zak `87138 -> 102032`, exactly the plan's numbers.
+- a5-fix sha 554d303e75f.
+
+### a6 5568643c4fa: read UTF-8 where text is measured, broken and drawn
+- Hooks as appendix A (hunks 0, 2-6, 15, 17-19) + `korean.cpp` (`nextCJKChar`, ... `koreanRefusalGlyph`) + the `scumm.h`
+  declarations (again missing in appendix A). **Deviation:** appendix B.8 still tests `!_hiResText` in `nextCJKChar()`
+  (an S2 line the plan says to drop); removed. 656 tests, no warning.
+- [data] same picture: old save slots 2 and 6 on mi2cp, upstream `build-head` vs this build
+  (`~/work/tmp/p6/runs/a6-mi2s{2,6}-{head,new}`): slot 2 **identical full frame** (bbox None). Slot 6: the text rows
+  (y >= 300) and the top (y < 186) are identical; the only difference is the animated water (bbox 10,186-422,282), i.e.
+  timing of the scene, not text (the plan saw a 30x30 cursor box instead).
+- Smoke, new build, no `encoding.dat`, `~/work/tmp/p6/runs/a6-*` (grid.png per run, viewed): MI2 pack (UTF-8 bundle, no
+  conversion line): `원안 및 디자인 / 론 길버트`, `카리브 해 심연의 스컵 섬`; MM, Zak (`그냥 밤 늦게, 작은 침대에...혼자서...`),
+  Indy3, Indy4 (`프로그래밍 : 론 발드윈`, `목소리 관련 : 에릭 월문더`), Loom, MI1 floppy (credits in Korean), DOTT: 0
+  `Assertion`, 0 `has no glyph`. Bundle sizes: MM 50116 -> 58803, Zak 102032, Indy3 148571, Loom 85771 -> 100614, **Indy4
+  813252 -> 908215** (the plan's 821300 was the NUL-split number; 7 unreadable pairs as planned).

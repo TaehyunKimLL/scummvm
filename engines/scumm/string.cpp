@@ -1906,7 +1906,9 @@ int ScummEngine::convertNameMessage(byte *dst, int dstSize, int var) {
 			int increment = convertMessageToString(ptr, dst, dstSize);
 			// Save the final consonant (jongsung) of the last Korean character
 			// Used by Korean fan translated games (monkey1, monkey2)
-			if (isScummvmKorTarget() && _useCJKMode) {
+			if (_koreanUtf8) {
+				_krStrPost = koreanFinalBits(dst, dst + increment);	// of the name as shown (UTF-8)
+			} else if (isScummvmKorTarget() && _useCJKMode) {
 				_krStrPost = 0;
 				int len = resStrLen(ptr);
 				if (len >= 2) {
@@ -1973,7 +1975,9 @@ int ScummEngine::convertStringMessage(byte *dst, int dstSize, int var) {
 			int increment = convertMessageToString(ptr, dst, dstSize);
 			// Save the final consonant (jongsung) of the last Korean character
 			// Used by Korean fan translated games (monkey1, monkey2)
-			if (isScummvmKorTarget() && _useCJKMode) {
+			if (_koreanUtf8) {
+				_krStrPost = koreanFinalBits(dst, dst + increment);
+			} else if (isScummvmKorTarget() && _useCJKMode) {
 				_krStrPost = 0;
 				for (int i = resStrLen(ptr); i > 1; i--) {
 					byte k1 = ptr[i - 2];
