@@ -26,6 +26,7 @@
 #include "agi/text.h"
 #include "agi/keyboard.h"
 #include "agi/menu.h"
+#include "agi/textcells.h"
 
 namespace Agi {
 
@@ -82,18 +83,21 @@ void GfxMenu::addMenu(const char *menuText) {
 		if (menuEntry->text == " Special ")
 			menuEntry->text = "Special ";
 
-	menuEntry->textLen = menuEntry->text.size();
+	const bool utf8 = _vm->textIsUtf8();
+	menuEntry->textLen = TextCells::cellLen(menuEntry->text.c_str(), utf8);
 
 	if (!_vm->isLanguageRTL()) {
 		// Cut menu name in case menu bar is full
 		// Happens in at least the fan game Get Outta Space Quest
 		// Original interpreter had graphical issues in this case
 		// TODO: this whole code needs to get reworked anyway to support different types of menu bars depending on platform
+		// Cut by cells, never inside a character (a UTF-8 translation).
 		curColumnEnd += menuEntry->textLen;
-		while ((menuEntry->textLen) && (curColumnEnd > 40)) {
-			menuEntry->text.deleteLastChar();
-			menuEntry->textLen--;
-			curColumnEnd--;
+		if (menuEntry->textLen && curColumnEnd > 40) {
+			const int16 keep = MAX<int16>(0, menuEntry->textLen - (curColumnEnd - 40));
+			menuEntry->text = TextCells::clipCells(menuEntry->text.c_str(), keep, utf8);
+			curColumnEnd -= menuEntry->textLen - keep;
+			menuEntry->textLen = keep;
 		}
 	}
 
@@ -130,7 +134,7 @@ void GfxMenu::addMenuItem(const char *menuItemText, uint16 controllerSlot) {
 
 	menuItemEntry->enabled = true;
 	menuItemEntry->text = menuItemText;
-	menuItemEntry->textLen = menuItemEntry->text.size();
+	menuItemEntry->textLen = TextCells::cellLen(menuItemEntry->text.c_str(), _vm->textIsUtf8());
 	menuItemEntry->controllerSlot = controllerSlot;
 
 	// Original interpreter on PC used the length of the first item for drawing
@@ -140,14 +144,17 @@ void GfxMenu::addMenuItem(const char *menuItemText, uint16 controllerSlot) {
 		curMenuEntry->maxItemTextLen = menuItemEntry->textLen;
 	}
 
-	if (curMenuEntry->itemCount == 0) {
+	if (_vm->textIsUtf8() && !_vm->isLanguageRTL()) {
+		// UTF-8 text mode: place the drop-down by its longest item so far
+		// and move the items already added with it, so no item runs past
+		// column 39.
+		_setupMenuItemColumn = TextCells::dropDownColumn(curMenuEntry->column, curMenuEntry->maxItemTextLen, FONT_COLUMN_CHARACTERS);
+		for (uint nr = curMenuEntry->firstItemNr; nr < _itemArray.size(); nr++)
+			_itemArray[nr]->column = _setupMenuItemColumn;
+	} else if (curMenuEntry->itemCount == 0) {
 		if (!_vm->isLanguageRTL()) {
 			// for first menu item of menu calculated column
-			if (menuItemEntry->textLen + curMenuEntry->column < (FONT_COLUMN_CHARACTERS - 1)) {
-				_setupMenuItemColumn = curMenuEntry->column;
-			} else {
-				_setupMenuItemColumn = (FONT_COLUMN_CHARACTERS - 1) - menuItemEntry->textLen;
-			}
+			_setupMenuItemColumn = TextCells::dropDownColumn(curMenuEntry->column, menuItemEntry->textLen, FONT_COLUMN_CHARACTERS);
 		} else {
 			_setupMenuItemColumn = curMenuEntry->column + curMenuEntry->textLen - menuItemEntry->textLen;
 			if (_setupMenuItemColumn < 2)

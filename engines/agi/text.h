@@ -22,7 +22,13 @@
 #ifndef AGI_TEXT_H
 #define AGI_TEXT_H
 
+#include "common/str.h"
+
+
 namespace Agi {
+
+/** stringPrintf()/stringWordWrap() result buffers: 2000 cells of up to 4 bytes (UTF-8 text mode). */
+enum { kTextBufferBytes = 2000 * 4 };
 
 struct TextPos_Struct {
 	int16 row;

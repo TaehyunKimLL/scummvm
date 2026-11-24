@@ -77,3 +77,20 @@ Tasks are committed one by one; the sha of a task is written into the log by the
   `감사합니다.` / `이제 레저 수트를 차려입고 '레저 수트 래리'와 함께 '라운지 리저드의 땅'으로 들어갈 준비를 하세요!`
   in Hangul stencils, wrapped by bytes so the box is narrower than the prototype's: the whole-box comparison with the
   prototype frame is therefore a9's check, not a8's.
+- a8 sha a9c5c2f700a.
+
+### a9: layout in cells
+- Hunks: text.cpp 5 (statusDraw), 28 (stringWordWrap through TextCells, 8000-byte buffer), 29, 30 (stringPrintf: particles,
+  buffer, cut on a character); text.h 0 (the `kTextBufferBytes` enum; the `agi/hangulline.h` include line left for b1/b3),
+  inv.cpp 0-3, menu.cpp 0-4, systemui.cpp 0 (include), 1 (Korean interpreter strings), 8, 9 (button widths). Build 671, 0 warnings.
+  The `SYSTEMUI_SAVEDGAME_DISPLAYTEXT_BYTES` hunks (systemui.h 0/1, systemui.cpp 7) wait for d3.
+- Observation for the review: the `stringPrintf` result buffer is `kTextBufferBytes` (8000) on the byte path too, so
+  upstream's `assert(size < sizeof)` fires at 8000 not 2000 there; no English text is near either limit (the byte path
+  differential tests of a1 cover the wrap; the assert is unreachable for the game texts).
+- Run (`runs/a9`, `hires_text_log=true`): 0 `no face has` lines; thank-you box and Tab inventory are **pixel-identical** to the
+  prototype's frames (`PIL ImageChops`, bbox None); Lefty's frame and the menu differ from the prototype's only inside
+  the animated neon sign / HOTEL sign bbox (144..568 x 16..184, 536..568 x 16..60). Seen: box wrapped in two lines of
+  cells (`이제 레저 수트를 차려입고 '레저 수트 래리'와 함께 / '라운지 리저드의 땅'으로 들어갈 준비를 하세요!`), status
+  `점수:0 / 222` left and `소리:켜짐` right, menu bar `시에라 파일 행동 특별 속도` with the drop-down `래리 소개 / 도움말 <F1> /
+  계산기 / 퍼즐`, inventory `가진 물건:` with the items in columns and `아무 키나 누르면 게임으로 돌아갑니다`.
+  Screenshots `agi-p5a-{box,lefty,menu,inv}.png`.
