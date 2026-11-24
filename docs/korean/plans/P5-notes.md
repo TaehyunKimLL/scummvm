@@ -103,3 +103,7 @@ Tasks are committed one by one; the sha of a task is written into the log by the
   Esc menu, Tab inventory and a typed `look` + Return: **None**/**None**/**None**; `lsl1en` (quiz screen) **None**;
   fan game `AGI Contest 1 Template` first frame **None** (non-empty content bbox 162,160,476,366). Runs `runs/a10-*`.
 - Note: `lsl1en` has the age quiz, so Esc/Tab steps are run on the quiz-skipped pack folder.
+- Cell-conversion differential tests: `test/engines/agi/cell_bounds.h` commit 7f1f0e20f7b (+4 tests: 675).
+
+### b1: the composer line
+- Red: `No rule to make target 'engines/agi/hangulline.o'`. Green: **680** (+5, incl. 50000 random key sequences), 0 warnings.
