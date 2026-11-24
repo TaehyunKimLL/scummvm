@@ -1,12 +1,15 @@
 #!/bin/bash
 # Configure and build one DOS executable out of tree.
-# Usage: backends/platform/dos/build-dos.sh [sci|scumm|agi|bench|play] BUILD_DIR [extra configure args]
+# Usage: backends/platform/dos/build-dos.sh [sci|scumm|agi|bench|play|stage] BUILD_DIR [extra configure args]
 #   sci:   engines/sci (not sci32)                                   -> BUILD_DIR/scummvm.exe (SCI.EXE)
 #   scumm: engines/scumm (not scumm_7_8, he), FLAC + Tremor          -> BUILD_DIR/scummvm.exe (SCUMM.EXE)
 #   agi:   engines/agi                                               -> BUILD_DIR/scummvm.exe (AGI.EXE)
 #   bench: BUILD_DIR/BLEND.EXE, tools/blendbench.cpp linked with BUILD_DIR's text_compose.o (BUILD_DIR must hold a
 #          sci build); the program that times the hi-res text composite on a real PC.
 #   play:  BUILD_DIR/PLAY.EXE, the launcher (launcher/build-play.sh; plain DJGPP, no SDL3).
+#   stage: DIST_DIR (the argument): the engine package from the builds under $DOS_BUILD (sci/ scumm/ agi/ play/, each made
+#          by this script): SCI.EXE SCUMM.EXE AGI.EXE PLAY.EXE CWSDPMI.EXE FLAC.TXT VORBIS.TXT and DATA\ (the engine data under
+#          its DOS names, ENCODING.DAT). The EXEs are stripped. DIST_DIR must be outside the source tree.
 # BUILD_DIR must be outside the source tree. A build directory configured with other flags or another SDL3
 # is configured again (see config_current below). Environment: SDL3_DOS_MIN (the trimmed SDL3 prefix of
 # sdl3-build.txt, default ~/opt/sdl3-dos-min-kbd), DOS_CODECS (SCUMM, default ~/opt/codecs-dos), DOS_MARCH
@@ -14,7 +17,7 @@
 set -e
 edition=sci
 case "$1" in
-	sci|scumm|agi|bench|play) edition="$1"; shift ;;
+	sci|scumm|agi|bench|play|stage) edition="$1"; shift ;;
 esac
 source ~/opt/dos-dev/env.sh
 src="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -27,6 +30,32 @@ shift
 case "$out/" in
 	"$src"/*) echo "build-dos.sh: build outside the source tree" >&2; exit 1 ;;
 esac
+if [ "$edition" = stage ]; then
+	: "${DOS_BUILD:?build-dos.sh stage: set DOS_BUILD to the folder with the sci, scumm, agi and play builds}"
+	codecs="${DOS_CODECS:-$HOME/opt/codecs-dos}"
+	for f in sci/scummvm.exe scumm/scummvm.exe agi/scummvm.exe play/PLAY.EXE; do
+		[ -f "$DOS_BUILD/$f" ] || { echo "build-dos.sh: stage: no $DOS_BUILD/$f (build it first)" >&2; exit 1; }
+	done
+	[ -f "$CWSDPMI_EXE" ] || { echo "build-dos.sh: stage: no CWSDPMI.EXE at $CWSDPMI_EXE" >&2; exit 1; }
+	strip="$DJGPP_PREFIX/bin/i586-pc-msdosdjgpp-strip"
+	# Only what this step writes is replaced, never the rest of the folder.
+	mkdir -p "$out"
+	rm -rf "$out/DATA"
+	rm -f "$out"/{SCI.EXE,SCUMM.EXE,AGI.EXE,PLAY.EXE,CWSDPMI.EXE,FLAC.TXT,VORBIS.TXT}
+	"$strip" -o "$out/SCI.EXE" "$DOS_BUILD/sci/scummvm.exe"
+	"$strip" -o "$out/SCUMM.EXE" "$DOS_BUILD/scumm/scummvm.exe"
+	"$strip" -o "$out/AGI.EXE" "$DOS_BUILD/agi/scummvm.exe"
+	cp "$DOS_BUILD/play/PLAY.EXE" "$out/PLAY.EXE"
+	cp "$CWSDPMI_EXE" "$out/CWSDPMI.EXE"
+	# The codecs' BSD licences ask for their notices next to the program that links them.
+	cp "$codecs/share/licenses/FLAC.TXT" "$out/FLAC.TXT"
+	cat "$codecs/share/licenses/OGG.TXT" "$codecs/share/licenses/TREMOR.TXT" > "$out/VORBIS.TXT"
+	python3 -I "$src/backends/platform/dos/stage-data.py" "$src/dists/engine-data/hires_text=hires_text" "$out/DATA" \
+		--maps "$src"/dists/engine-data/hires_text/maps/*.map
+	cp "$src/dists/engine-data/encoding.dat" "$out/DATA/ENCODING.DAT"
+	(cd "$out" && find . -type f | sort | while read -r f; do printf '%10d  %s\n' "$(wc -c < "$f")" "$f"; done)
+	exit 0
+fi
 if [ "$edition" = play ]; then
 	mkdir -p "$out"
 	"$src/backends/platform/dos/launcher/build-play.sh" "$out/PLAY.EXE"
