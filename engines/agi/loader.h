@@ -36,6 +36,13 @@ public:
 	virtual void init() {}
 
 	/**
+	 * The file of the logic directory (LOGDIR, or the v3 game's <name>DIR):
+	 * what a translation's message keys depend on. Empty where the game has
+	 * no such file (disk images, v1).
+	 */
+	virtual Common::Path logicDirectoryName() const { return Common::Path(); }
+
+	/**
 	 * Loads all AGI directory entries from disk and and populates
 	 * the AgiDir arrays in AgiGame with them.
 	 */
@@ -152,6 +159,7 @@ private:
 public:
 	AgiLoader_v2(AgiEngine *vm) : _hasV3VolumeFormat(false), AgiLoader(vm) {}
 
+	Common::Path logicDirectoryName() const override { return Common::Path(LOGDIR); }
 	int loadDirs() override;
 	uint8 *loadVolumeResource(AgiDir *agid) override;
 	int loadObjects() override;
@@ -168,6 +176,7 @@ public:
 	AgiLoader_v3(AgiEngine *vm) : AgiLoader(vm) {}
 
 	void init() override;
+	Common::Path logicDirectoryName() const override { return Common::Path(_name + DIR_); }
 	int loadDirs() override;
 	uint8 *loadVolumeResource(AgiDir *agid) override;
 	int loadObjects() override;

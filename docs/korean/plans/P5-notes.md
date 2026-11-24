@@ -44,3 +44,18 @@ Tasks are committed one by one; the sha of a task is written into the log by the
 - Hook `detection.cpp` applied whole (5 hunks; same as the prototype's file). Build 671, 0 warnings.
 - Green: `--detect --path=lsl1ko3` lists `.../Korean` first and `.../English` second; `lsl1en` lists English only.
   `language=ko` run on lsl1ko3 reaches the title screen (`agi-p5-a5-language-ko-title.png`: seen the English title, 640x400).
+- a5 sha b9490a63806.
+
+### a6: engine wiring
+- Hunks: agi.h 0,4,6,7 (the `saidscan.h` include line removed until c1/c2; `translateLogicTexts`/`rawLogicMessageCount`
+  are declared here), agi.cpp 0,1,3-8, loader.h 0-2, metaengine.cpp 1 (getLanguage). **Deviations**: `rawLogicMessageCount()`
+  is defined here (same hunk as textModeInputs), the plan lists it under a7; the render-mode/Hercules block (D12) sits in
+  the same hunk as the hi-res text setup and is applied here instead of a8 (nothing draws Hangul before a8; English
+  frames are unaffected as `_hiresText` is null for English targets). Build: 671 tests, 0 warnings.
+- Runs (`--debugflags=text`, `~/work/tmp/p5w/runs/a6-*`): lsl1ko3: `agi-ko.str: 1860 entries`, no warning, `Hi-res text:`
+  notes; lsl1ko (no header): `agi-ko.str has no fingerprint header ... loaded unchecked` + `This game's agi-ko.str header
+  line is: #! format=1 game=lsl1 fingerprint=1d9311bbee31342e76c7570a29d7616d engine=agi`, v2 map refused (korean-default.map
+  used); lsl1ko3bad (digit changed): `was made for another game ... not loaded` + `The ko translation folder has no
+  usable agi-ko.str`.
+- v3 fingerprint (KQ4 AGI, `ko/agi-ko.str` of one comment line): printed `fingerprint=ba58a0d9551a852acefa31e4461f3643`
+  = md5(KQ4DIR + WORDS.TOK) computed independently: `_name + DIR_` works, no fix needed (the plan's UNVERIFIED item closed).

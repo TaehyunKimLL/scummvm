@@ -21,6 +21,9 @@
 
 #include "common/md5.h"
 #include "common/file.h"
+#include "common/fs.h"
+#include "common/ptr.h"
+#include "common/language.h"
 #include "common/memstream.h"
 #include "common/savefile.h"
 #include "common/config-manager.h"
@@ -41,10 +44,14 @@
 #include "agi/detection.h"
 #include "agi/font.h"
 #include "agi/graphics.h"
+#include "agi/hirestext.h"
+#include "common/language_folder.h"
+#include "common/translation_file.h"
 #include "agi/inv.h"
 #include "agi/loader.h"
 #include "agi/sprite.h"
 #include "agi/text.h"
+#include "agi/textcells.h"
 #include "agi/keyboard.h"
 #include "agi/menu.h"
 #include "agi/systemui.h"
@@ -344,6 +351,7 @@ struct GameSettings {
 
 AgiBase::AgiBase(OSystem *syst, const AGIGameDescription *gameDesc) : Engine(syst), _gameDescription(gameDesc) {
 	_noSaveLoadAllowed = false;
+	_hiresText = nullptr;
 
 	_rnd = new Common::RandomSource("agi");
 	_sound = nullptr;
@@ -355,6 +363,15 @@ AgiBase::AgiBase(OSystem *syst, const AGIGameDescription *gameDesc) : Engine(sys
 AgiBase::~AgiBase() {
 	delete _rnd;
 	delete _sound;
+	delete _hiresText;
+}
+
+bool AgiBase::hiresTextActive() const {
+	return _hiresText && _hiresText->isActive();
+}
+
+bool AgiBase::hiresHangulAny() const {
+	return _hiresText && _hiresText->hangulAny();
 }
 
 void AgiBase::initRenderMode() {
@@ -416,6 +433,16 @@ AgiEngine::AgiEngine(OSystem *syst, const AGIGameDescription *gameDesc) : AgiBas
 	syncSoundSettings();
 
 	memset(&_debug, 0, sizeof(struct AgiDebug));
+
+	// The fork's translations (DESIGN.md sections 3, 4): decided once from
+	// the target's language and the game folder; the language folder (ko/)
+	// goes before the game folder in SearchMan, so its files win.
+	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
+	_textMode = decideTextMode(textModeInputs(gameDataDir), _textModeNotes);
+	if (!_textModeNotes.empty())
+		debugC(1, kDebugLevelText, "Text mode: %s", _textModeNotes.c_str());
+	if (_textMode.utf8() && *Common::getLanguageFolderCode(_textMode.language))
+		SearchMan.addSubDirectoryMatching(gameDataDir, Common::getLanguageFolderCode(_textMode.language), 1);
 
 	_game.mouseEnabled = ConfMan.getBool("mousesupport");
 	_game.mouseHidden = !_game.mouseEnabled;
@@ -515,7 +542,36 @@ void AgiEngine::initialize() {
 		}
 	}
 
+	// The text mode decides the screen mode and the render mode (DESIGN.md
+	// section 5.1, AGI row), so the hi-res text is set up before either.
 	initRenderMode();
+
+	if (_textMode.hires) {
+		_hiresText = new AgiHiResText();
+		Common::Array<Common::String> notes;
+		if (!_hiresText->setup(ConfMan.getPath("path"), Common::getLanguageFolderCode(_textMode.language), notes)) {
+			warning("AGI: no hi-res text map or face could be opened; characters AGI's font lacks draw as '?'");
+			delete _hiresText;
+			_hiresText = nullptr;
+		}
+		for (uint i = 0; i < notes.size(); ++i)
+			debugC(1, kDebugLevelText, "Hi-res text: %s", notes[i].c_str());
+		if (_hiresText) {
+			// D3: Korean is drawn in the upscaled PC EGA rendering only, so
+			// every other render mode (VGA too, preflight ruling F11) gives
+			// way to EGA. An AGI256 game keeps the VGA it needs for its
+			// 256-colour pictures.
+			if (_renderMode != Common::kRenderEGA && !(getFeatures() & GF_AGI256)) {
+				warning("AGI: render mode %s is not used with this translation; EGA instead",
+				        Common::getRenderModeDescription(_renderMode));
+				_renderMode = Common::kRenderEGA;
+			}
+			if (ConfMan.getBool("herculesfont")) {
+				warning("AGI: the Hercules font is not used with this translation");
+				ConfMan.setBool("herculesfont", false, Common::ConfigManager::kTransientDomain);
+			}
+		}
+	}
 
 	setDebugger(new Console(this));
 	_words = new Words(this);
@@ -551,7 +607,10 @@ void AgiEngine::initialize() {
 		_loader = new AgiLoader_v3(this);
 	}
 	_loader->init();
-	
+
+	if (textIsUtf8())
+		loadTranslationOverlay();
+
 	// finally set up actual VM opcodes, because we should now have figured out the right AGI version
 	setupOpCodes(getVersion());
 
@@ -573,7 +632,106 @@ void AgiEngine::initialize() {
 		_ttsEncoding = Common::CodePage::kDos850;
 		break;
 	}
+	if (textIsUtf8())
+		_ttsEncoding = Common::CodePage::kUtf8;
 #endif
+}
+
+// Whether @p folder holds a file named @p name, in any case.
+static bool folderHasFile(const Common::FSNode &folder, const Common::String &name) {
+	Common::FSList children;
+	if (!folder.getChildren(children, Common::FSNode::kListFilesOnly))
+		return false;
+	for (uint i = 0; i < children.size(); ++i)
+		if (children[i].getName().equalsIgnoreCase(name))
+			return true;
+	return false;
+}
+
+TextModeInputs AgiEngine::textModeInputs(const Common::FSNode &gameDataDir) const {
+	TextModeInputs in;
+	in.detected = _gameDescription->desc.language;
+	if (ConfMan.hasKey("language"))
+		in.requested = Common::parseLanguage(ConfMan.get("language"));
+	in.koreanText = !ConfMan.hasKey("korean_text") || ConfMan.getBool("korean_text");
+	if (ConfMan.hasKey("text_encoding"))
+		in.textEncoding = ConfMan.get("text_encoding");
+	Common::FSList files;
+	if (in.requested != Common::UNK_LANG && gameDataDir.getChildren(files, Common::FSNode::kListAll)) {
+		const Common::Array<Common::Language> langs = Common::translationFolderLanguages(files, "agi-%s.str");
+		for (uint i = 0; i < langs.size(); ++i)
+			in.translationFolder = in.translationFolder || langs[i] == in.requested;
+		const Common::String table = Common::translationTableName("agi-%s.str", in.requested);
+		const Common::String code = Common::getLanguageFolderCode(in.requested);
+		for (uint i = 0; i < files.size() && !in.stringTable && !table.empty(); ++i) {
+			if (files[i].isDirectory() ? files[i].getName().equalsIgnoreCase(code) : files[i].getName().equalsIgnoreCase(table))
+				in.stringTable = !files[i].isDirectory() || folderHasFile(files[i], table);
+		}
+	}
+	in.hiresText = !ConfMan.hasKey("hires_text") || ConfMan.getBool("hires_text");
+	return in;
+}
+
+// The bytes of @p name through SearchMan, appended to @p out; false when it cannot be read.
+static bool appendFile(const char *name, Common::Array<byte> &out) {
+	Common::File f;
+	if (!f.open(Common::Path(name)))
+		return false;
+	const uint32 size = f.size();
+	const uint32 at = out.size();
+	out.resize(at + size);
+	return f.read(out.data() + at, size) == size;
+}
+
+static Common::String md5Of(const Common::Array<byte> &bytes) {
+	Common::MemoryReadStream s(bytes.data(), bytes.size());
+	return Common::computeStreamMD5AsString(s);
+}
+
+Common::TranslationFileHeader AgiEngine::translationHeader(bool withVocab) const {
+	// DESIGN.md section 4: the md5 of what the keys depend on, the logic
+	// directory (m<logic>:<n> keys) followed by WORDS.TOK; vocab= is the md5
+	// of WORDS.TOK alone (agi-<code>.dat maps Korean words to its groups).
+	Common::TranslationFileHeader h;
+	h.format = 1;
+	h.game = _gameDescription->desc.gameId;
+	h.engine = "agi";
+	Common::Array<byte> dir, words;
+	const Common::Path dirName = _loader ? _loader->logicDirectoryName() : Common::Path();
+	if (dirName.empty() || !appendFile(dirName.toString().c_str(), dir) || !appendFile("words.tok", words))
+		return h; // no fingerprint to compare (disk images, AGI v1): game and engine only
+	Common::Array<byte> both(dir);
+	both.insert_at(both.size(), words);
+	h.fingerprint = md5Of(both);
+	if (withVocab)
+		h.vocab = md5Of(words);
+	return h;
+}
+
+void AgiEngine::loadTranslationOverlay() {
+	const Common::String code = Common::getLanguageFolderCode(_textMode.language);
+	if (code.empty())
+		return;
+	const Common::TranslationFileHeader expected = translationHeader(false);
+	if (_overlay.load(code, expected)) {
+		if (!_overlay.getHeader().present())
+			warning("This game's agi-%s.str header line is: %s", code.c_str(), expected.toString().c_str());
+		debugC(1, kDebugLevelText, "agi-%s.str: %u entries", code.c_str(), _overlay.entryCount());
+	} else if (!_overlay.isPresent()) {
+		warning("The %s translation folder has no usable agi-%s.str: the game's text stays in English", code.c_str(), code.c_str());
+	}
+}
+
+bool AgiEngine::rawLogicMessageCount(int16 logicNr, int &count) {
+	if (logicNr < 0 || logicNr >= MAX_DIRECTORY_ENTRIES || _game.dirLogic[logicNr].offset == _EMPTY)
+		return false;
+	uint8 *data = _loader->loadVolumeResource(&_game.dirLogic[logicNr]);
+	if (!data)
+		return false;
+	const uint16 bytecodeSize = READ_LE_UINT16(data);
+	count = data[2 + bytecodeSize];
+	free(data);
+	return true;
 }
 
 bool AgiEngine::promptIsEnabled() {

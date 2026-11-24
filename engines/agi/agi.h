@@ -44,6 +44,8 @@
 #include "agi/picture.h"
 #include "agi/logic.h"
 #include "agi/sound.h"
+#include "agi/textmode.h"
+#include "agi/translation.h"
 
 namespace Common {
 class RandomSource;
@@ -544,6 +546,7 @@ struct AgiGame {
 
 class AgiLoader;
 class GfxFont;
+class AgiHiResText;
 class GfxMgr;
 class SpritesMgr;
 class InventoryMgr;
@@ -604,6 +607,16 @@ public:
 	Mouse _mouse;
 
 	bool _noSaveLoadAllowed;
+
+	/** How the game's text is held and drawn (agi/textmode.h); decided once at start. */
+	TextMode _textMode;
+	Common::String _textModeNotes;
+	/** A fork translation: every displayed string is UTF-8 and every layout site counts cells (code points). */
+	bool textIsUtf8() const { return _textMode.utf8(); }
+	/** The 16x16 face stencils (TextMode::hires with a map); nullptr otherwise. */
+	AgiHiResText *_hiresText;
+	bool hiresTextActive() const;
+	bool hiresHangulAny() const;
 
 	virtual bool promptIsEnabled() {
 		return false;
@@ -727,6 +740,14 @@ private:
 
 public:
 	Common::Array<AgiObject> _objects;    // objects in the game
+	TextOverlay _overlay;                 // agi-<lang>.str, when the target has one
+	void loadTranslationOverlay();
+	TextModeInputs textModeInputs(const Common::FSNode &gameDataDir) const;
+	/** The fingerprint header the game's agi-<code>.str (and with @p withVocab agi-<code>.dat) must carry. */
+	Common::TranslationFileHeader translationHeader(bool withVocab) const;
+	void translateLogicTexts(int16 logicNr);
+	/** Message count of a logic read straight from its volume (no load); false if absent. */
+	bool rawLogicMessageCount(int16 logicNr, int &count);
 
 	SavedGameSlotIdArray getSavegameSlotIds();
 	bool getSavegameInformation(int16 slotId, Common::String &saveDescription, uint32 &saveDate, uint32 &saveTime, bool &saveIsValid);
