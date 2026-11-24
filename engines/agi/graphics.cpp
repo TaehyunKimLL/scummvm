@@ -1293,6 +1293,8 @@ void GfxMgr::drawCoverageOnDisplay(int16 x, int16 y, const uint16 *rows, byte fo
 				on = !on;
 			if (orPattern & (0x80 >> ((cx >> 1) & 7)))
 				on = true;
+			if (x + cx < 0 || x + cx >= _displayScreenWidth || y + cy < 0 || y + cy >= _displayScreenHeight)
+				continue; // a cell placed partly off the display is clipped, never written outside it
 			putFontPixelOnDisplay(x, y, cx, cy, on ? foreground : background, true);
 		}
 	}

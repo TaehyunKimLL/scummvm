@@ -48,6 +48,16 @@ public:
 	                 const AgiOpCodeEntry *opCodesCond, uint16 logic, Common::Array<SaidSpec> &out);
 };
 
+/**
+ * The message section of a logic resource (@p len bytes at @p data, the length
+ * the loader reports): its 2-byte bytecode size, then after the bytecode a
+ * count byte, three bytes, and one 16-bit offset per message (decodeLogic()).
+ * Both answer false instead of reading past @p len.
+ */
+bool logicMessageCount(const byte *data, uint32 len, int &count);
+/** The offset entry of message @p n (1..count); false when it is not inside the resource. */
+bool logicMessageOffset(const byte *data, uint32 len, int n, uint16 &offset);
+
 } // End of namespace Agi
 
 #endif

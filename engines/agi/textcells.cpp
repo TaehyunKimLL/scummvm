@@ -194,7 +194,7 @@ Common::String savedGameLine(const char *description, int16 slotId, char fill, b
 int16 dropDownColumn(int16 menuColumn, int16 itemCells, int16 screenColumns) {
 	if (itemCells + menuColumn < (screenColumns - 1))
 		return menuColumn;
-	return (screenColumns - 1) - itemCells;
+	return MAX<int16>(1, (screenColumns - 1) - itemCells); // an item as wide as the screen starts at column 1, not off it
 }
 
 static Common::String fold(const char *s) {

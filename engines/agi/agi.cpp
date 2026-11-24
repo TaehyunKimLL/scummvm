@@ -733,10 +733,9 @@ bool AgiEngine::rawLogicMessageCount(int16 logicNr, int &count) {
 	uint8 *data = _loader->loadVolumeResource(&_game.dirLogic[logicNr]);
 	if (!data)
 		return false;
-	const uint16 bytecodeSize = READ_LE_UINT16(data);
-	count = data[2 + bytecodeSize];
+	const bool ok = logicMessageCount(data, _game.dirLogic[logicNr].len, count);
 	free(data);
-	return true;
+	return ok;
 }
 
 bool AgiEngine::promptIsEnabled() {
@@ -1071,7 +1070,9 @@ void AgiEngine::collectSaids(int16 onlyLogic, Common::Array<SaidSpec> &out) {
 		uint8 *data = _loader->loadVolumeResource(&_game.dirLogic[nr]);
 		if (!data)
 			continue;
-		SaidScanner::scan(data + 2, READ_LE_UINT16(data), _opCodes, _opCodesCond, nr, out);
+		const uint32 len = _game.dirLogic[nr].len;
+		if (len >= 2) // the bytecode size a damaged resource names stays inside it
+			SaidScanner::scan(data + 2, MIN<uint32>(READ_LE_UINT16(data), len - 2), _opCodes, _opCodesCond, nr, out);
 		free(data);
 	}
 }

@@ -793,13 +793,13 @@ bool Console::Cmd_KOverlay(int argc, const char **argv) {
 		uint8 *data = _vm->_loader->loadVolumeResource(&_vm->_game.dirLogic[nr]);
 		if (!data)
 			continue;
-		const uint16 size = READ_LE_UINT16(data);
-		const int count = data[2 + size];
-		const int pos = 2 + size;
-		for (int n = 1; n <= count; n++) {
-			const uint16 off = READ_LE_UINT16(data + pos + 3 + (n - 1) * 2);
-			if (off && !_vm->_overlay.message(nr, n))
-				untranslated++;
+		int count = 0;
+		if (logicMessageCount(data, _vm->_game.dirLogic[nr].len, count)) {
+			for (int n = 1; n <= count; n++) {
+				uint16 off = 0;
+				if (logicMessageOffset(data, _vm->_game.dirLogic[nr].len, n, off) && off && !_vm->_overlay.message(nr, n))
+					untranslated++;
+			}
 		}
 		free(data);
 	}

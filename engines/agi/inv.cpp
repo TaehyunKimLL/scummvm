@@ -67,13 +67,13 @@ void InventoryMgr::getPlayerInventory() {
 			if (!_vm->isLanguageRTL()) {
 				if (inventoryEntry.column > 1) {
 					// right side, adjust column accordingly
-					inventoryEntry.column -= MIN<int16>(TextCells::cellLen(inventoryEntry.name, _vm->textIsUtf8()), FONT_COLUMN_CHARACTERS);
+					inventoryEntry.column = MAX<int16>(0, inventoryEntry.column - MIN<int16>(TextCells::cellLen(inventoryEntry.name, _vm->textIsUtf8()), FONT_COLUMN_CHARACTERS));
 				}
 			} else {
 				// mirror the sides
 				if (inventoryEntry.column == 1) {
 					// right side, adjust column accordingly
-					inventoryEntry.column = FONT_COLUMN_CHARACTERS - 1 - MIN<int16>(TextCells::cellLen(inventoryEntry.name, _vm->textIsUtf8()), FONT_COLUMN_CHARACTERS);
+					inventoryEntry.column = MAX<int16>(0, FONT_COLUMN_CHARACTERS - 1 - MIN<int16>(TextCells::cellLen(inventoryEntry.name, _vm->textIsUtf8()), FONT_COLUMN_CHARACTERS));
 				} else {
 					// left side, adjust column accordingly
 					inventoryEntry.column = 1;

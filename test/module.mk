@@ -73,7 +73,7 @@ ifeq ($(ENABLE_AGI), STATIC_PLUGIN)
 	# which agi_test_stubs.o defines and the tests never call.
 	TEST_LIBS += engines/agi/textcells.o engines/agi/textmode.o engines/agi/translation.o \
 		engines/agi/hirestext.o engines/agi/hangulline.o engines/agi/korparse.o \
-		engines/agi/saved_strings.o engines/agi/words.o test/engines/agi/agi_test_stubs.o \
+		engines/agi/saidscan.o engines/agi/saved_strings.o engines/agi/words.o test/engines/agi/agi_test_stubs.o \
 		graphics/libgraphics.a common/libcommon.a
 endif
 

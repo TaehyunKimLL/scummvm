@@ -264,7 +264,7 @@ public:
 	void test_dropDownColumnAndMenuClipEqualUpstream() {
 		for (int col = 0; col < 40; col++) {
 			for (int len = 0; len < 70; len++) {
-				const int16 upstream = (len + col < 39) ? col : (39 - len);
+				const int16 upstream = (len + col < 39) ? col : MAX(1, 39 - len); // upstream's expression, kept on screen
 				TS_ASSERT_EQUALS((int)Agi::TextCells::dropDownColumn((int16)col, (int16)len, 40), (int)upstream);
 			}
 		}

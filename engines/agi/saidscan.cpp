@@ -68,4 +68,25 @@ void SaidScanner::scan(const byte *code, uint32 codeSize, const AgiOpCodeEntry *
 	}
 }
 
+bool logicMessageCount(const byte *data, uint32 len, int &count) {
+	if (!data || len < 2)
+		return false;
+	const uint32 pos = 2 + (uint32)READ_LE_UINT16(data);
+	if (pos >= len)
+		return false;
+	count = data[pos];
+	return true;
+}
+
+bool logicMessageOffset(const byte *data, uint32 len, int n, uint16 &offset) {
+	int count;
+	if (!logicMessageCount(data, len, count) || n < 1 || n > count)
+		return false;
+	const uint32 at = 2 + (uint32)READ_LE_UINT16(data) + 3 + (uint32)(n - 1) * 2;
+	if (at + 1 >= len)
+		return false;
+	offset = READ_LE_UINT16(data + at);
+	return true;
+}
+
 } // End of namespace Agi
