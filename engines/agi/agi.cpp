@@ -161,7 +161,9 @@ int AgiEngine::agiInit() {
 	// note: demos has no words.tok
 	if (ec == errOK)
 		ec = _loader->loadWords();
-	_text->hangulSetup(false);
+	if (ec == errOK && textIsUtf8())
+		_words->loadKoreanTable();
+	_text->hangulSetup(_words->hasKoreanWords());
 
 	// Load logic 0 into memory
 	if (ec == errOK)
@@ -1013,10 +1015,28 @@ const char *AgiGame::getString(int number) {
 
 void AgiGame::setString(int number, const char *str) {
 	if (0 <= number && number <= MAX_STRINGS) {
-		Common::strlcpy(strings[number], str, MAX_STRINGLEN);
+		if (_vm->textIsUtf8()) {
+			// 39 cells, cut on a character boundary.
+			const Common::String clipped = TextCells::clipCells(str, MAX_STRINGLEN - 1, true);
+			Common::strlcpy(strings[number], clipped.c_str(), MAX_STRINGBYTES);
+			stringAnswer[number].clear();
+		} else {
+			Common::strlcpy(strings[number], str, MAX_STRINGLEN);
+		}
 	} else {
 		// Occurs in Groza, number = 150
 		warning("invalid string number: %d, '%s'", number, str);
+	}
+}
+
+void AgiGame::setStringFromMessage(int number, uint16 textIndex) {
+	setString(number, _curLogic->texts[textIndex]);
+	if (!_vm->textIsUtf8() || number < 0 || number > MAX_STRINGS || !_curLogic->rawTexts)
+		return;
+	const char *raw = _curLogic->rawTexts[textIndex];
+	if (raw && raw != _curLogic->texts[textIndex]) {
+		const Common::String english = TextOverlay::legacyToUtf8(raw, Common::kDos850);
+		stringAnswer[number] = TextCells::clipCells(english.c_str(), MAX_STRINGLEN - 1, true);
 	}
 }
 
@@ -1037,6 +1057,20 @@ void AgiGame::setSpeedLevel(byte s) {
 	case 4:
 		_vm->_text->messageBox("Slow speed.");
 		break;
+	}
+}
+
+void AgiEngine::collectSaids(int16 onlyLogic, Common::Array<SaidSpec> &out) {
+	if (getVersion() < 0x2000)
+		return; // v1 said() opcodes differ
+	for (int16 nr = 0; nr < MAX_DIRECTORY_ENTRIES; nr++) {
+		if ((onlyLogic >= 0 && nr != onlyLogic) || _game.dirLogic[nr].offset == _EMPTY)
+			continue;
+		uint8 *data = _loader->loadVolumeResource(&_game.dirLogic[nr]);
+		if (!data)
+			continue;
+		SaidScanner::scan(data + 2, READ_LE_UINT16(data), _opCodes, _opCodesCond, nr, out);
+		free(data);
 	}
 }
 

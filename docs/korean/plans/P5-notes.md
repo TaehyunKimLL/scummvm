@@ -138,3 +138,14 @@ Tasks are committed one by one; the sha of a task is written into the log by the
 ### c1: said() core and candidates
 - Red: `No rule to make target 'engines/agi/korparse.o'`. Green: **691** (N0 + 43; +11: 9 of jamo's, the 200000-pair
   `saidMatches` vs verbatim upstream loop, the 50000-sentence candidate invariants), 0 warnings. `saidscan.{h,cpp}` added to module.mk (console use, c4).
+- c1 sha 1d247cc46bb.
+
+### c2: Words and said()
+- Hunks: words.cpp 0-5, words.h 0-1, op_test.cpp 2-3 (`testSaidSpec`, `compare.strings` with `agiStringsEqual` + answers),
+  op_cmd.cpp 6 (`set.string` through `setStringFromMessage`), agi.h 1-3 and 9 (+ the `saidscan.h` include), agi.cpp 2
+  (`loadKoreanTable`, `hangulSetup(hasKoreanWords())`), 9-10 (`setString`), 11 (`collectSaids`, declared in the same agi.h
+  hunk as `testSaidSpec`, so it lands here instead of c4). Build 691, 0 warnings.
+- Runs (`runs/c2-*`): `[korvocab] loaded 1217 Korean words (version 3) from agi-ko.dat`; composer `술집을 봐` + Return -> the
+  look-at-bar reply in Korean (`agi-p5c-look-bar-reply.png`, viewed: `레프티 술집 밖이다. 네온 몇 개로 이런 광경을 만들 수
+  있다니 놀랍지 않은가?`); English `look at bar` (with `hangul_start=false`; with the composer on, Latin keys are jamo until
+  Han/Yeong is toggled) gives the same box (`agi-p5c-english-look-at-bar.png`).
