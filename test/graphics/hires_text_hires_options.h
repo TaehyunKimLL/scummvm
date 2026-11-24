@@ -115,6 +115,13 @@ public:
 			TS_ASSERT_EQUALS(o.wholeKb, 256);
 			TS_ASSERT_EQUALS(w.size(), 1u);
 		}
+		{	// surrounding blanks are trimmed (an INI value written by hand)
+			OptionKeys kk;
+			Common::Array<Common::String> ww;
+			kk["hires_text_whole_kb"] = "  64 ";
+			TS_ASSERT_EQUALS(parseOptions(kk, ww).wholeKb, 64);
+			TS_ASSERT(ww.empty());
+		}
 		// The ends of the range are values.
 		OptionKeys k;
 		Common::Array<Common::String> w;

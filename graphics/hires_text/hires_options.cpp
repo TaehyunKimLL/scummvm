@@ -99,6 +99,7 @@ HiResOptions parseHiResOptions(HiResConfigGetFn get, void *ctx, Common::Array<Co
 			bad(warnings, "hires_text_log", v, "true or false");
 	}
 	if (get("hires_text_whole_kb", v, ctx)) {
+		v.trim();
 		char *end = nullptr;
 		const long kb = strtol(v.c_str(), &end, 10);
 		if (!v.empty() && end && !*end && kb >= 0 && kb <= 16384)	// SvfFace::kMaxWholeSize is 16 MB
