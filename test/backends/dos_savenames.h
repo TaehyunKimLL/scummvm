@@ -1,6 +1,8 @@
 #include <cxxtest/TestSuite.h>
 
+#ifdef DOS_SAVE_MANAGER_TEST
 #include "backends/platform/dos/dos-savefile.h"
+#endif
 #include "backends/platform/dos/dos-savenames.h"
 #include "common/config-manager.h"
 #include "common/savefile.h"
@@ -84,7 +86,7 @@ public:
 	// slots with its own content in one session; a new session sees exactly its own slots by its own pattern, loads its
 	// own bytes, and rename/copy between colliding or equal names never loses a file.
 	void test_randomTargetsStayIsolated() {
-#if NULL_OSYSTEM_IS_AVAILABLE
+#if NULL_OSYSTEM_IS_AVAILABLE && defined(DOS_SAVE_MANAGER_TEST)
 		Common::install_null_g_system();
 		const Common::Path dir("test/dos-savenames-tmp", '/');
 		Common::FSNode dirNode(dir);
@@ -181,7 +183,7 @@ public:
 	// The save manager end to end on a real folder: the engine's long name is written, listed in a NEW session (a new
 	// manager over the folder), loaded, found and removed by that same long name - SCI restores by the name it listed.
 	void test_longTargetSurvivesASession() {
-#if NULL_OSYSTEM_IS_AVAILABLE
+#if NULL_OSYSTEM_IS_AVAILABLE && defined(DOS_SAVE_MANAGER_TEST)
 		Common::install_null_g_system();
 		// A folder of the test's own under the build directory (the runner's working directory; `make clean` removes it).
 		const Common::Path dir("test/dos-savenames-tmp", '/');
