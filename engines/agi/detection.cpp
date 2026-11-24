@@ -22,7 +22,12 @@
 #include "common/config-manager.h"
 #include "common/system.h"
 #include "common/debug.h"
+#include "common/fs.h"
+#include "common/language.h"
+#include "common/language_folder.h"
 #include "common/md5.h"
+#include "common/ptr.h"
+#include "common/tokenizer.h"
 
 #include "base/plugins.h"
 #include "engines/advancedDetector.h"
@@ -116,6 +121,10 @@ public:
 	ADDetectedGame fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const override;
 
 	ADDetectedGames detectGame(const Common::FSNode &parent, const FileMap &allFiles, Common::Language language, Common::Platform platform, const Common::String &extra, uint32 skipADFlags, bool skipIncomplete) override;
+
+	DetectedGames detectGames(const Common::FSList &fslist, uint32 skipADFlags, bool skipIncomplete) override;
+
+	Common::Error identifyGame(DetectedGame &game, const void **descriptor) override;
 
 private:
 	static void getPotentialDiskImages(const FileMap &allFiles, const char * const *imageExtensions, size_t extensionCount, Common::Array<Common::Path> &imageFiles);
@@ -302,6 +311,82 @@ ADDetectedGame AgiMetaEngineDetection::fallbackDetect(const FileMap &allFilesXXX
 	return ADDetectedGame();
 }
 
+// The languages of the translations in a game folder: a language folder
+// named by its ISO 639-1 code holding agi-<code>.str (the UTF-8 translation
+// table laid over the original resources, agi/translation.cpp) or a hi-res
+// text map, ko\agi-ko.str; or agi-<code>.str in the game folder itself (the
+// packs before the language folders), as SCI's sci-<code>.str. AgiEngine
+// reads that folder first with language=<code>.
+static Common::Array<Common::Language> overlayLanguages(const Common::FSList &fslist) {
+	return Common::translationFolderLanguages(fslist, "agi-%s.str");
+}
+
+// The launcher's Language list offers only the languages a target's GUI
+// options name: add each of the folder's translations to a game's, as SCI
+// does.
+static void allowLanguages(DetectedGame &game, const Common::Array<Common::Language> &languages) {
+	for (uint i = 0; i < languages.size(); ++i) {
+		const Common::String option = getGameGUIOptionsDescriptionLanguage(languages[i]);
+		if (!game.getGUIOptions().contains(option))
+			game.appendGUIOptions(option);
+	}
+}
+
+Common::Error AgiMetaEngineDetection::identifyGame(DetectedGame &game, const void **descriptor) {
+	const Common::Error err = AdvancedMetaEngineDetection::identifyGame(game, descriptor);
+	// Started, the target's GUI options are rewritten from the entry it
+	// matched (AdvancedMetaEngineBase::createInstance()): the folder's
+	// translations go on again, or the Language list would lose them.
+	Common::FSList files;
+	if (err.getCode() == Common::kNoError && ConfMan.hasKey("path") &&
+		Common::FSNode(ConfMan.getPath("path")).getChildren(files, Common::FSNode::kListAll))
+		allowLanguages(game, overlayLanguages(files));
+	return err;
+}
+
+DetectedGames AgiMetaEngineDetection::detectGames(const Common::FSList &fslist, uint32 skipADFlags, bool skipIncomplete) {
+	DetectedGames games = AdvancedMetaEngineDetection::detectGames(fslist, skipADFlags, skipIncomplete);
+
+	// A folder with the original files and an agi-<lang>.str overlay matches
+	// the original's entry only, so the launcher would add it in the shipped
+	// language and the overlay would never load (the engine reads it for the
+	// target's language). Offer the translation too, and first, as SCI does
+	// for sci-<lang>.str; launching it goes through detectGame()'s overlay
+	// rule below.
+	const Common::Array<Common::Language> overlays = overlayLanguages(fslist);
+	const uint matched = games.size();
+	DetectedGames variants;
+	for (uint m = 0; m < overlays.size(); ++m) {
+		for (uint i = 0; i < matched; ++i) {
+			const DetectedGame &game = games[i];
+			if (game.language == overlays[m] || game.hasUnknownFiles)
+				continue;
+			const char *title = game.gameId.c_str();
+			for (const PlainGameDescriptor *pgd = agiGames; pgd->gameId; ++pgd)
+				if (game.gameId.equals(pgd->gameId))
+					title = pgd->description;
+			// A copy keeps the original's support level, matched files and
+			// add-ability; only the language and what follows from it change.
+			DetectedGame variant = game;
+			variant.language = overlays[m];
+			variant.description = DetectedGame(getName(), game.gameId, title, overlays[m], game.platform, game.extra).description;
+			variant.preferredTarget = game.preferredTarget + "-" + Common::getLanguageFolderCode(overlays[m]);
+			// The options are the original's, its language among them: the
+			// variant played in the original's language is the original.
+			variants.push_back(variant);
+		}
+	}
+	// Collected apart and put in front once: inserting while walking the
+	// originals would shift them under the loop.
+	for (uint i = 0; i < variants.size(); ++i)
+		games.insert_at(i, variants[i]);
+	// Every one of them, the originals too, may be played in each of the
+	// folder's translations (allowLanguages()).
+	for (DetectedGame &game : games)
+		allowLanguages(game, overlays);
+	return games;
+}
+
 /**
  * Detection override for handling disk images after file-based detection.
  */
@@ -314,12 +399,31 @@ ADDetectedGames AgiMetaEngineDetection::detectGame(
 	uint32 skipADFlags,
 	bool skipIncomplete) {
 
+	// A target set to another language than the table's (language=ko on an
+	// English game) is a translation overlay, not a different release: when
+	// agi-<lang>.str sits in the game folder or in its language folder
+	// (ko\agi-ko.str), detect without the language filter. The engine reads
+	// the overlay itself (loadTranslationOverlay).
+	Common::Language detectLanguage = language;
+	if (language != Common::UNK_LANG && language != Common::EN_ANY) {
+		const char *code = Common::getLanguageFolderCode(language);
+		const Common::String overlayName = Common::String::format("agi-%s.str", code);
+		bool overlay = allFiles.contains(Common::Path(overlayName, Common::Path::kNoSeparator));
+		if (!overlay && code) {
+			Common::FSDirectory dir(parent);
+			Common::ScopedPtr<Common::FSDirectory> langDir(dir.getSubDirectory(code));
+			overlay = langDir && langDir->hasFile(Common::Path(overlayName));
+		}
+		if (overlay)
+			detectLanguage = Common::UNK_LANG;
+	}
+
 	// Run the file-based detection first, if it finds a match then do not search for disk images.
-	ADDetectedGames matched = AdvancedMetaEngineDetection::detectGame(parent, allFiles, language, platform, extra, skipADFlags, skipIncomplete);
+	ADDetectedGames matched = AdvancedMetaEngineDetection::detectGame(parent, allFiles, detectLanguage, platform, extra, skipADFlags, skipIncomplete);
 
 	// Detect games within PC disk images. This detection will find one game at most.
 	if (matched.empty() &&
-		(language == Common::UNK_LANG || language == Common::EN_ANY) &&
+		(detectLanguage == Common::UNK_LANG || detectLanguage == Common::EN_ANY) &&
 		(platform == Common::kPlatformUnknown || platform == Common::kPlatformDOS)) {
 		ADDetectedGame game = detectPcDiskImageGame(allFiles, skipADFlags);
 		if (game.desc != nullptr) {
@@ -329,7 +433,7 @@ ADDetectedGames AgiMetaEngineDetection::detectGame(
 
 	// Detect games within Apple II disk images. This detection will find one game at most.
 	if (matched.empty() &&
-		(language == Common::UNK_LANG || language == Common::EN_ANY) &&
+		(detectLanguage == Common::UNK_LANG || detectLanguage == Common::EN_ANY) &&
 		(platform == Common::kPlatformUnknown || platform == Common::kPlatformApple2)) {
 		ADDetectedGame game = detectA2DiskImageGame(allFiles, skipADFlags);
 		if (game.desc != nullptr) {

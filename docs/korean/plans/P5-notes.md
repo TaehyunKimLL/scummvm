@@ -38,3 +38,9 @@ Tasks are committed one by one; the sha of a task is written into the log by the
 ### a4: AgiHiResText stencils
 - Red: `No rule to make target 'engines/agi/hirestext.o'`. Green: **671** (N0 + 23), 0 warnings. The exhaustive test covers
   all 11172 syllables against the fixture face drawn through an SvfChain (0 mismatches).
+- a4 sha aa52ffc8892.
+
+### a5: detection of a translation folder
+- Hook `detection.cpp` applied whole (5 hunks; same as the prototype's file). Build 671, 0 warnings.
+- Green: `--detect --path=lsl1ko3` lists `.../Korean` first and `.../English` second; `lsl1en` lists English only.
+  `language=ko` run on lsl1ko3 reaches the title screen (`agi-p5-a5-language-ko-title.png`: seen the English title, 640x400).
