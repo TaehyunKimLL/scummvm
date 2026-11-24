@@ -71,3 +71,26 @@ deviations, evidence.
   `aa-kq1-rgb565-message.png`: status 0, left box 0, right box 0 differing pixels), `dos-p7-b8-clut8-message.png` (`640x400 CLUT8`; status 0, boxes max 3 per channel against Linux). Memory lines:
   rgb565 `engine dpmi_free=8976`, `first-frame 4724 KB`; clut8 first frame 5740 KB. Log also says (as before) that the pack's `HIRESVF.MAP`/`HIRESBIT.MAP` are map version 2 (harness dependency H-2).
 - b9: PATCHES.md rows for every upstream file of section 3 carried so far (`ko/08-dos`).
+
+## P7c: graphics and faces
+
+- c1 (no code): format matrix, run folder `~/work/tmp/p7/run-b8`, KQ1 AA pair map, `qhk`, logs `~/work/tmp/p7/shots/c1-*.log.txt`:
+  | Emulator | render_target | `DOS: mode` | `Hi-res text: screen format` | first-frame free |
+  |---|---|---|---|---:|
+  | X | auto | `640x400 RGB565@2` | `RGB565@2 for render target rgb565` | 4724 KB |
+  | X | rgb555 | `640x400 RGB555@2` | `RGB555@2 for render target rgb555` | 4724 KB |
+  | X | rgb888 | `640x400 RGB888@4` (the backend's format string is `RGB888@4`, not `XRGB8888@4`) | `RGB888@4 for render target rgb888` | 3224 KB |
+  | X | clut8 | `640x400 CLUT8` (b8) | `CLUT8 for render target clut8` | 5740 KB |
+  | X | auto + `dos_force_fallback=true` | `640x480 RGB565@2 (line repeat from 640x400)` | `RGB565@2` | 4624 KB |
+  | Staging | auto and rgb565 | `640x480 RGB565@2 (line repeat from 640x400)` | `RGB565@2` | 4624 KB |
+  Frames viewed: `dos-p7-c1-x-rgb888-message.png`, `dos-p7-c1-staging-linerepeat-message.png` (window scaled to 758x569 by Staging), `dos-p7-c1-x-forced-linerepeat-message.png`,
+  `dos-p7-c1-x-rgb555-message.png`: the same Korean message box in each. rgb888 and the forced fallback were not run in the prototype.
+
+## Checkpoint B (after b9)
+
+- `make test` (`$B/host`): 986 tests OK (N0 770 + k 216). ASan (`$B/asan`, `--enable-asan`, `grep -c fsanitize config.mk` = 3): 986 tests OK, 0 sanitizer lines.
+- Non-DOS diff against the base (`git diff ba0eecee2c4 HEAD --stat -- ':!backends/*/dos' ':!backends/platform/dos' ':!test/backends' ':!docs'`): the files of section 3 only
+  (31 files incl. the new `audio/dosopl.*`, `backends/midi/dos_mpu401.cpp`), each file in PATCHES.md (checked by script).
+- Inertness: Linux `configure` leaves `config.mk` (minus SAVED lines) and `config.h` byte-identical to the base's; every non-DOS hunk is under `DOS_DJGPP`, `__DJGPP__`,
+  `BACKEND=dos`, or a `DISABLE_*`/`AUDIO_RATE_STEREO_INT16_ONLY` define set only by the msdosdjgpp configure block; the only unconditional code is
+  `Audio::Mixer::getOutputLatencyMillis()` (virtual, default 0) and `showDeviceWarning()` in `mididrv.cpp` (the same dialog on non-DOS). Self-read only (no fresh-context reviewer in this run).
