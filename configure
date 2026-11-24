@@ -703,7 +703,7 @@ get_system_exe_extension() {
 	kolibrios | kos32)
 		_exeext=".dll"
 		;;
-	mingw* | *os2-emx)
+	mingw* | *os2-emx | msdosdjgpp)
 		_exeext=".exe"
 		;;
 	mint*)
@@ -2027,6 +2027,11 @@ wii)
 	_host_cpu=powerpc
 	_host_alias=powerpc-eabi
 	;;
+i?86-pc-msdosdjgpp)
+	_host_os=msdosdjgpp
+	_host_cpu=i586
+	_host_alias=$_host
+	;;
 *)
 	if test -n "$_host"; then
 		guessed_host=`$_srcdir/config.sub $_host`
@@ -2560,7 +2565,7 @@ if test "$have_gcc" = yes ; then
 		std_variant=gnu++
 		pedantic=no
 		;;
-	amigaos* | dreamcast | ds | mingw* | mint* | morphos | n64 | ps3 | psp2)
+	amigaos* | dreamcast | ds | mingw* | mint* | morphos | msdosdjgpp | n64 | ps3 | psp2)
 		std_variant=gnu++
 		;;
 	openbsd*)
@@ -3520,6 +3525,15 @@ EOF
 		append_var DEFINES "-DSYSTEM_NOT_SUPPORTING_D_TYPE"
 		append_var DEFINES "-D_GNU_SOURCE"
 		;;
+	msdosdjgpp)
+		# DJGPP's uint32 is unsigned long, so every %u/%x/%d given one warns
+		# (as on MorphOS); Linux builds still check these.
+		append_var CXXFLAGS "-Wno-format"
+		# One section per function, and the link drops those nothing calls:
+		# the whole program sits in a 16 MB machine's memory.
+		append_var CXXFLAGS "-ffunction-sections"
+		append_var LDFLAGS "-Wl,--gc-sections"
+		;;
 	morphos*)
 		if test "$_debug_build" = no; then
 			_optimization_level=-O2
@@ -3877,6 +3891,49 @@ if test -n "$_host"; then
 			_seq_midi=no
 			_timidity=no
 			_ext_neon=yes
+			;;
+		i?86-pc-msdosdjgpp)
+			_backend="dos"
+			_dynamic_modules=no
+			_sdlnet=no
+			_libcurl=no
+			_enet=no
+			_cloud=no
+			_opengl_mode=none
+			_imgui=no
+			_tts=no
+			_discord=no
+			_updates=no
+			_build_scalers=no
+			_build_aspect=no
+			_seq_midi=no
+			# The OPL is the card's own chip (audio/dosopl.cpp); a software
+			# emulator costs more CPU than these machines have.
+			append_var DEFINES "-DDISABLE_DOSBOX_OPL"
+			append_var DEFINES "-DDISABLE_MAME_OPL"
+			_nuked_opl=no
+			# Its mixers (Sound Blaster and null) are stereo, 16-bit.
+			append_var DEFINES "-DAUDIO_RATE_STEREO_INT16_ONLY"
+			# C64 and NES music (SCUMM): not DOS games.
+			_sid_audio=no
+			append_var DEFINES "-DDISABLE_NES_APU"
+			# No detection entry of SCI or SCUMM is inside an installer.
+			append_var DEFINES "-DDISABLE_DETECTION_ARCHIVES"
+			# SCI's Windows AVI and Mac QuickTime movies (KQ6 CD Windows, Mac
+			# games): the DOS versions play SEQ.
+			append_var DEFINES "-DDISABLE_SCI_WINMAC_VIDEO"
+			# Cinepak, MS Video 1, QuickTime RLE/RPZA/SMC: video codecs that
+			# only Windows/Mac data reaches (a BMP or a Mac PICT).
+			append_var DEFINES "-DDISABLE_VIDEO_CODECS"
+			# SCI's FM-Towns and PC-98 music drivers: not DOS games.
+			append_var DEFINES "-DDISABLE_SCI_TOWNS_PC98_MUSIC"
+			# SCI's Mac audio (AIFF tracks, Mac snd resources).
+			append_var DEFINES "-DDISABLE_SCI_MAC_AUDIO"
+			# No --help text (the option list) in the executable.
+			append_var DEFINES "-DDISABLE_HELP_STRINGS"
+			# Detection tables without the games these editions cannot run
+			# (SCI32; SCUMM v7/v8 and HE): engines/*/module.mk generate them.
+			append_var DEFINES "-DDOS_DETECTION_FILTER"
 			;;
 		kos32)
 			# neither pkg-config nor *-config work, so we setup everything manually
@@ -4368,6 +4425,11 @@ case $_backend in
 		append_var INCLUDES '-I$(srcdir)/backends/platform/n64'
 		append_var LIBS "-lpakfs -lframfs -ln64 -ln64utils -lromfs"
 		append_var LIBS "-lm -lstdc++ -lz"
+		;;
+	dos)
+		append_var DEFINES "-DDOS_DJGPP"
+		append_var CXXFLAGS "`pkg-config --cflags sdl3`"
+		append_var LIBS "`pkg-config --static --libs sdl3`"
 		;;
 	null)
 		append_var DEFINES "-DUSE_NULL_DRIVER"
@@ -4868,7 +4930,7 @@ fi
 # Enable 16bit support only for backends which support it
 #
 case $_backend in
-	3ds | android | dc | ds | emscripten | ios7 | kolibrios | maemo | null | opendingux | miyoomini | miyoo | openpandora | psp | psp2 | sailfish | samsungtv | sdl | switch | wii)
+	3ds | android | dc | dos | ds | emscripten | ios7 | kolibrios | maemo | null | opendingux | miyoomini | miyoo | openpandora | psp | psp2 | sailfish | samsungtv | sdl | switch | wii)
 		if test "$_16bit" = auto ; then
 			_16bit=yes
 		else
@@ -4944,7 +5006,7 @@ case $_host_os in
 	amigaos* | dreamcast | ds | gamecube | kolibrios | mingw* | morphos | n64 | ps3 | psp2 | psp | riscos | wii)
 		_posix=no
 		;;
-	3ds | android | beos* | bsd* | cygwin* | darwin* | dragonfly* | freebsd* | gnu* | haiku* | hpux* | iphoneos | irix*| k*bsd*-gnu* | linux* | maemo | mint* | netbsd* | openbsd* | redox* | serenity* | solaris* | sunos* | switch | uclinux*)
+	3ds | android | beos* | bsd* | cygwin* | darwin* | dragonfly* | freebsd* | gnu* | haiku* | hpux* | iphoneos | irix*| k*bsd*-gnu* | linux* | maemo | mint* | netbsd* | openbsd* | redox* | serenity* | solaris* | sunos* | switch | uclinux* | msdosdjgpp)
 		_posix=yes
 		;;
 	os2-emx*)
@@ -4996,6 +5058,12 @@ fi
 case $_host_os in
 	mingw*)
 		# StdioStream just uses _ftelli64
+		;;
+	msdosdjgpp)
+		# DJGPP's fseeko64(SEEK_CUR) seeks from the DOS handle's position,
+		# past whatever stdio has buffered, so every relative seek after
+		# a read lands too far. Plain fseek: files up to 2GB, which no
+		# DOS game comes near.
 		;;
 	*)
 		echo_n "Checking if fseeko with 64-bit off_t is supported... "
