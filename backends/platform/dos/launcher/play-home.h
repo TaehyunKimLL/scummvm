@@ -98,7 +98,7 @@ inline std::string absolutePath(const std::string &cwd, const char *p, DriveCwdF
 	if (Detail::hasDrive(p)) {
 		// "D:" and "D:GAMES" are relative to drive D's own current directory.
 		if (Detail::isSep(p[2]))
-			return p;
+			return Detail::slashed(p);	// "D:\KQ1" with a backslash would reach the engine as one odd component (a punycode path)
 		const char letter = p[0];
 		std::string base;
 		if (Detail::hasDrive(cwd.c_str()) && toupper((unsigned char)cwd[0]) == toupper((unsigned char)letter))
@@ -106,7 +106,7 @@ inline std::string absolutePath(const std::string &cwd, const char *p, DriveCwdF
 		else if (driveCwd)
 			base = driveCwd(letter);
 		if (base.empty())
-			return p;
+			return Detail::slashed(p);
 		if (!p[2])
 			return Detail::slashed(base);
 		if (!Detail::isSep(Detail::lastChar(base)))

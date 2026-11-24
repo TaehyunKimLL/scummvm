@@ -405,11 +405,15 @@ int play(DirGuard &guard, const std::string &home, const std::string &pack, cons
 	std::string gameDir = Play::join(Play::join(pack, "GAMES"), Play::Detail::upper(id));
 	if (!isDir(gameDir))
 		gameDir.clear();
+	// Started from the home folder, GAMES\ID is the profile, not the game: cleared before anything looks in it.
+	if (Play::samePath(pack, home))
+		gameDir.clear();
 
 	// A language the pack has no files for is an error here, before the engine starts.
 	const std::string lang = Play::languageArg(extra);
 	if (!lang.empty()) {
-		const std::vector<std::string> folders = languageFolders(gameDir);
+		// The game folder the engine will get (a --path of the arguments, else GAMES\ID of the pack).
+		const std::vector<std::string> folders = languageFolders(Play::gamePathOf(gameDir, extra));
 		const std::string *packLang = packIni.get(target, "language");
 		const std::string packCode = packLang ? *packLang : std::string();
 		if (!Play::hasLanguage(Play::languageFolderOf(lang), folders, packCode)) {
@@ -421,9 +425,6 @@ int play(DirGuard &guard, const std::string &home, const std::string &pack, cons
 
 	const Play::Ini common = homeCommon(home);
 	Play::Ini user = readIni(p.user);
-	// Started from the home folder, GAMES\ID is the profile: a --path to it would hide the INI's own.
-	if (Play::samePath(pack, home))
-		gameDir.clear();
 	Play::Ini run = Play::mergeRun(packIni, common, user, target);
 	// The game folder the engine gets as --path, also in the target's own domain.
 	Play::setGamePath(run, target, Play::gamePathOf(gameDir, extra));
@@ -501,7 +502,8 @@ int main(int argc, char *argv[]) {
 	std::string home = Play::exeDir(argc > 0 ? argv[0] : nullptr);
 	if (home.empty())
 		home = guard.cwd();
-	home = Play::Detail::slashed(home);
+	// argv[0] may be relative (".\\PLAY", "SUB\\PLAY"): made absolute now, before anything changes directory.
+	home = Play::Detail::slashed(Play::absolutePath(Play::Detail::slashed(guard.cwd()), home.c_str(), driveCwd));
 	const std::string pack = Play::Detail::slashed(guard.cwd());
 
 	bool install = false;
@@ -548,7 +550,9 @@ int main(int argc, char *argv[]) {
 		return setDefaultSound(home, choice);
 	}
 
-	if ((install || sound) && !isDir(p.dir) && !isFile(sample)) {
+	// An ID with neither a profile nor an ID.INI in the current folder is refused before anything is created (a mistyped ID
+	// must not leave an empty GAMES\BADID\SAVES behind).
+	if (!isDir(p.dir) && !isFile(sample)) {
 		fprintf(stderr, "PLAY: run it from the game's folder: %s not found\n", Play::dosPath(sample).c_str());
 		return 1;
 	}

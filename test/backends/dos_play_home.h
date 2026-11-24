@@ -34,7 +34,7 @@ public:
 	}
 
 	void test_absolute_path_keeps_a_full_path() {
-		TS_ASSERT_EQUALS(Play::absolutePath("D:/PACK", "C:\\GAMES\\X"), "C:\\GAMES\\X");
+		TS_ASSERT_EQUALS(Play::absolutePath("D:/PACK", "C:\\GAMES\\X"), "C:/GAMES/X");
 		TS_ASSERT_EQUALS(Play::absolutePath("D:/PACK", "C:/GAMES"), "C:/GAMES");
 	}
 
@@ -339,5 +339,15 @@ public:
 		TS_ASSERT_EQUALS(sci[0], "SCI.EXE");
 		TS_ASSERT_EQUALS(sci[1], "SCUMM.EXE");
 		TS_ASSERT_EQUALS(Play::exesFor("")[0], "SCI.EXE");
+	}
+
+	// A drive-absolute path with backslashes reaches the engine with slashes (backslashes there become one punycode component).
+	void test_absolute_drive_paths_get_slashes() {
+		TS_ASSERT_EQUALS(Play::absolutePath("C:/SCUMMVM", "D:\\KQ1\\GAMES"), "D:/KQ1/GAMES");
+		TS_ASSERT_EQUALS(Play::absolutePath("C:/SCUMMVM", "D:\\"), "D:/");
+		TS_ASSERT_EQUALS(Play::absolutePath("C:/SCUMMVM", "D:/KQ1"), "D:/KQ1");
+		// a relative home (argv[0] ".\\PLAY") made absolute against the cwd
+		TS_ASSERT_EQUALS(Play::absolutePath("C:/SCUMMVM", "SUB"), "C:/SCUMMVM/SUB");
+		TS_ASSERT_EQUALS(Play::absolutePath("C:/SCUMMVM", "."), "C:/SCUMMVM/.");
 	}
 };
