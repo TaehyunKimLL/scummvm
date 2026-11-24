@@ -1,0 +1,104 @@
+From b82beef6c0eb11465d7790cec98ad64afa667cd1 Mon Sep 17 00:00:00 2001
+From: Taehyun Kim <dice.thkim@gmail.com>
+Date: Tue, 24 Nov 2026 02:54:58 +0000
+Subject: [PATCH 15/16] dos: Place the DMA buffer inside one 64 KB page for any
+ length, unlock what was locked
+
+DOS_AllocateDMAMemory() chose the start of the 2*len block or its second
+half, which is only right up to 32 KB; the audio driver may ask for 64 KB.
+It now takes the first of: block start, second half, next page boundary,
+that keeps the region in one physical page, and fails (freeing the block)
+if none does. Exhaustive model over every segment and 177,078,272
+(segment, length) cases: 0 crossing regions, 0 refusals that were avoidable.
+DOS_DisableInterrupts/EnableInterrupts get a "memory" clobber so the compiler
+cannot move accesses across them; DOS_UnlockData undoes DOS_LockData.
+---
+ src/core/dos/SDL_dos.c | 31 ++++++++++++++++++++++++++-----
+ src/core/dos/SDL_dos.h | 10 ++++++++--
+ 2 files changed, 34 insertions(+), 7 deletions(-)
+
+diff --git a/src/core/dos/SDL_dos.c b/src/core/dos/SDL_dos.c
+index cbe07a615..023ad5611 100644
+--- a/src/core/dos/SDL_dos.c
++++ b/src/core/dos/SDL_dos.c
+@@ -79,12 +79,33 @@ void *DOS_AllocateDMAMemory(const int len, _go32_dpmi_seginfo *seginfo)
+         return NULL;
+     }
+ 
+-    // if we're past the end of a page, use the second half of the block.
+-    const uint32_t physical = (seginfo->rm_segment * 16);
+-    if ((physical >> 16) != ((physical + len) >> 16)) {
+-        ptr += len;
++    // Pick a `len`-byte region of the 2*len block that stays inside one 64 KB physical page: the start of the block, the
++    // second half, or the next page boundary, whichever is the first that fits (for len up to 64 KB the first two alone
++    // are not enough). None fits only if the block cannot hold one: fail instead of risking a transfer across a page.
++    const uint32_t physical = (uint32_t)seginfo->rm_segment * 16;
++    const uint32_t up = ((physical + 0xFFFF) & ~0xFFFFu) - physical; // offset of the next page boundary (0 if aligned)
++    const uint32_t offsets[3] = { 0, (uint32_t)len, up };
++    for (int i = 0; i < 3; i++) {
++        const uint32_t off = offsets[i];
++        if (off + (uint32_t)len <= (uint32_t)len * 2 && ((physical + off) >> 16) == ((physical + off + (uint32_t)len - 1) >> 16)) {
++            return ptr + off;
++        }
++    }
++    DOS_FreeConventionalMemory(seginfo);
++    return NULL;
++}
++
++
++void DOS_UnlockRange(void *ptr, size_t size)
++{
++    unsigned long base = 0;
++    if (__dpmi_get_segment_base_address(_my_ds(), &base) == 0) {
++        __dpmi_meminfo mi;
++        mi.handle = 0;
++        mi.address = base + (unsigned long)ptr;
++        mi.size = (unsigned long)size;
++        __dpmi_unlock_linear_region(&mi);
+     }
+-    return ptr;
+ }
+ 
+ void DOS_FreeConventionalMemory(_go32_dpmi_seginfo *seginfo)
+diff --git a/src/core/dos/SDL_dos.h b/src/core/dos/SDL_dos.h
+index d521d8ba1..5345a9ba7 100644
+--- a/src/core/dos/SDL_dos.h
++++ b/src/core/dos/SDL_dos.h
+@@ -114,6 +114,10 @@ SDL_FORCE_INLINE void DOS_OutPort8(Uint16 port, Uint8 v)
+ #define DOS_LockData(var, size) \
+     _go32_dpmi_lock_data((void *)&(var), (size))
+ 
++// Undo DOS_LockData() for the same range (the DPMI host counts locks).
++#define DOS_UnlockData(var, size) \
++    DOS_UnlockRange((void *)&(var), (size))
++
+ // Lock a single variable.
+ #define DOS_LockVariable(var) \
+     DOS_LockData(var, sizeof(var))
+@@ -123,6 +127,8 @@ SDL_FORCE_INLINE void DOS_OutPort8(Uint16 port, Uint8 v)
+ extern "C" {
+ #endif
+ 
++extern void DOS_UnlockRange(void *ptr, size_t size);
++
+ // This uses the "fat DS" trick to convert a physical address to a valid
+ //  C pointer usable from protected mode.
+ SDL_FORCE_INLINE void *DOS_PhysicalToLinear(const Uint32 physical)
+@@ -143,12 +149,12 @@ SDL_FORCE_INLINE int DOS_IRQToVector(int irq)
+ 
+ SDL_FORCE_INLINE void DOS_DisableInterrupts(void)
+ {
+-    __asm__ __volatile__("cli\n");
++    __asm__ __volatile__("cli\n" : : : "memory");
+ }
+ 
+ SDL_FORCE_INLINE void DOS_EnableInterrupts(void)
+ {
+-    __asm__ __volatile__("sti\n");
++    __asm__ __volatile__("sti\n" : : : "memory");
+ }
+ 
+ // Grab a single byte from a segment:offset.
+-- 
+2.43.0
+

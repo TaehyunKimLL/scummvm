@@ -175,7 +175,8 @@ Verdict: port mostly as is; it is the cleanest engine integration on the branch.
 ### 2.5 Everything else
 
 - `backends/platform/dos` + `backends/{graphics,events,timer,mixer,mutex,midi}/dos`: 15.6k lines, nine SDL3
-  patches (`sdl3-build.txt` records SDL commit 1ce4c5bc29), `configure` +119 (`msdosdjgpp` host,
+  patch files holding 14 effective commits (P7: rebased onto upstream SDL `main` at 1362030, `sdl3-build.txt`;
+  release-3.4.20 has no DOS port; the jamo keycode commit and its revert cancel and are dropped), `configure` +119 (`msdosdjgpp` host,
   `--disable-gui`, `--enable-debug-socket`), `PLAY.EXE` launcher, `--set=KEY=VALUE` (`base/set-option.h`).
 - `gui/options.cpp` +157: a four-row block on the Graphics tab (`render_target`, `hires_text`,
   `hires_text_font`, `hires_text_blend`) shown when `MetaEngine::hasHiResText(target)` (the one generic
@@ -432,6 +433,7 @@ Keys (ConfMan, engine-neutral; `jamo`'s `sci_hangul_*`/`agi_hangul_*` renamed):
 | `hangul_input`, `hangul_start`, `hangul_builtin` | bool | auto/true/true | event manager |
 | `hangul_break` | word, any | word | `TextLayout` |
 | `hires_text_log` | bool | false | misses/coverage log |
+| `hires_text_whole_kb` | 0..16384 | 256 (DOS 64) | a face file up to this many KB is read whole, a larger one streamed (P7) |
 
 Surfaces:
 
@@ -454,19 +456,22 @@ Surfaces:
 
 Constraints (from `scummvm-dos-port` memory, verified against `jamo` `backends/platform/dos` and the svf
 benches): target real Pentium-class PC, 16 MB RAM, VBE 1.2+ (2.0 for 16 bpp); DJGPP gcc 12.2 32-bit,
-SDL3 as HAL with nine local patches, cooperative threads, `--disable-gui --disable-translation
+SDL3 as HAL with 14 local patch commits (nine files in `jamo`), cooperative threads, `--disable-gui --disable-translation
 --disable-freetype2`; three EXEs (`SCI.EXE`, `SCUMM.EXE`, `AGI.EXE`) and `PLAY.EXE`.
 
-- Screen: no mode 13h in play; the game runs at 2x in a VESA 640x400 mode (RGB565 if the card has it, else
-  XRGB8888, else 640x480 RGB565 with line repeat; CLUT8 640x400 for 1-bpp maps). The hi-res plane is
+- Screen: no mode 13h in play; the game runs at 2x in a VESA 640x400 mode (P7, decision D-1: the backend offers
+  RGB565, then XRGB1555, then CLUT8, each in 640x400 or through 640x480 with line repeat, and XRGB8888 only when
+  `render_target=rgb888` asks for it; the engine picks the first: RGB565 on `auto`; CLUT8 640x400 for 1-bpp maps). The hi-res plane is
   composited in system RAM and dirty rects are copied to the LFB (`SDL_UpdateWindowSurfaceRects`). The svf
   `INDEXED8`/`RGB565`/`XRGB8888` kinds match these modes directly (`c/ports/dos/svfvesa.c` draws them).
 - Fonts: streamed `svf_open_stream` with 1 KB blocks; a jamo face needs about 8 KB of tables + 64 slots
   (65 KB) for a line of syllables (`c/ports/dos/README.md`); `[preload]` lists warm the cache at load. Budget:
   `jamo` measured 1.26 MB of faces loaded for KQ1 (3.24 MB worst case with caches); streaming brings this to
   well under 0.5 MB. Speed: emulated 486DX2-66 draws a 40-code-point line in 11.9 ms mapped and 12.8 ms streamed
-  warm (`c/bench/MEASUREMENTS.md`, DOS 486 table); a Pentium is several times faster; one dialogue box of
-  four lines is therefore under a frame. The composed-syllable cache (`svf_chain_cache`) is sized to about
+  warm (`c/bench/MEASUREMENTS.md`, DOS 486 table); a Pentium is several times faster; the glyphs of a four-line
+  dialogue box are under a frame, but the RGB composite is not: measured in DOSBox-X (P7), one 400x128 box of
+  a 2 bpp face took 137 ms on a 486DX2-66 preset with the per-pixel blend, 48 ms with the exact table blend
+  (`TextCompose::Blend16`, bit-identical, 2.9x), 19 ms on a Pentium preset (real hardware: unverified, `BLEND.EXE`). The composed-syllable cache (`svf_chain_cache`) is sized to about
   200 slots (16x16 1 bpp: 40 B a slot).
 - Compiled out: GUI (`DISABLE_GUI`), TTF, detection archives, scalers, cloud; the debug socket runs over a
   16550 UART (`gui/debugsocket-dosuart.cpp`, DOSBox-X nullmodem -> TCP).

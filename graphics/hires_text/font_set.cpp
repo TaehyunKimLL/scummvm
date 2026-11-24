@@ -22,6 +22,7 @@
 #include "graphics/hires_text/font_set.h"
 
 #include "common/algorithm.h"
+#include "common/ptr.h"
 #include "common/stream.h"
 #include "common/util.h"
 
@@ -75,6 +76,57 @@ SvfFace *HiResFaceCache::get(const HiResFaceRef &ref, HiResLoadMode mode, Common
 	return face;
 }
 
+void HiResFaceCache::warm(SvfFace *face, const HiResFaceRef &ref, const HiResMap &map, Common::Array<Common::String> &warnings) {
+	// [preload] lists the characters a game draws with a streamed face: reading their glyphs once at load fills the block
+	// cache, so the first dialogue line does not seek the font file glyph by glyph (DESIGN 5.2, 8).
+	if (!face || !face->isStreamed() || _warmed.contains(ref.key()) || !map.preloads.contains(ref.name))
+		return;
+	_warmed[ref.key()] = true;
+	const HiResFaceRef &list = map.preloads[ref.name];
+	const Common::Path path = _files.locate(list);
+	Common::ScopedPtr<Common::SeekableReadStream> s(path.empty() ? nullptr : _files.open(path));
+	if (!s) {
+		warnings.push_back(Common::String::format("preload %s (%s): not found", list.name.c_str(), list.key().c_str()));
+		return;
+	}
+	Common::Array<byte> cell(face->getCellBytes() * 2);	// a composed syllable of a streamed face reads pieces into the second half
+	// Bounded: a list is a few KB of text; a newline-less or huge file must not be read whole into a string, and more
+	// distinct characters than the block cache has slots would evict the first ones listed (the likeliest to be needed).
+	enum { kMaxListBytes = 64 * 1024, kMaxWarmGlyphs = SvfFace::kDefaultSlots };
+	Common::Array<byte> text(kMaxListBytes);
+	const uint32 got = s->read(text.data(), kMaxListBytes);
+	Common::Array<uint32> seen;
+	uint32 i = 0;
+	if (got >= 3 && text[0] == 0xEF && text[1] == 0xBB && text[2] == 0xBF)
+		i = 3;	// a UTF-8 BOM
+	bool comment = false, lineStart = true;
+	for (const char *base = (const char *)text.data(); i < got && seen.size() < kMaxWarmGlyphs;) {
+		const char c = base[i];
+		if (c == '\n' || c == '\r') {
+			comment = false;
+			lineStart = true;
+			++i;
+			continue;
+		}
+		if (lineStart && c == '#')
+			comment = true;
+		lineStart = false;
+		uint32 cp;
+		bool invalid;
+		const int len = decodeUtf8(base + i, base + got, cp, invalid);
+		i += len;
+		if (comment || invalid || Common::find(seen.begin(), seen.end(), cp) != seen.end() || !face->has(cp))
+			continue;
+		seen.push_back(cp);
+		const svf_err err = svf_glyph(face->raw(), cp, cell.data(), cell.size());
+		if (err == SVF_E_IO) {
+			warnings.push_back(Common::String::format("preload %s: read error on face %s, warm-up stopped", list.name.c_str(),
+			                                          ref.name.c_str()));
+			return;
+		}
+	}
+}
+
 HiResFontSet::HiResFontSet() {
 }
 
@@ -107,6 +159,7 @@ bool HiResFontSet::build(const HiResIdPlan &plan, const HiResMap &map, HiResFace
 		for (uint f = 0; f < plan.chains[c].faces.size(); ++f) {
 			const HiResFaceRef &ref = plan.chains[c].faces[f];
 			SvfFace *face = faces.get(ref, map.loadModeFor(ref), warnings);
+			faces.warm(face, ref, map, warnings);
 			if (face && chain->addFace(face))
 				tallest = MAX<int>(tallest, face->getCellHeight());
 		}

@@ -1,0 +1,64 @@
+From 02570a980a9aab788e6987e7fce29044a793b6ef Mon Sep 17 00:00:00 2001
+From: Taehyun Kim <dice.thkim@gmail.com>
+Date: Mon, 5 Oct 2026 02:19:43 +0000
+Subject: [PATCH 10/14] dos: Read the Sound Blaster counters with cli/sti,
+ count from after the open probe
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01429qJytiMpcCADjppM2jV4
+---
+ src/audio/dos/SDL_dosaudio_sb.c | 21 +++++++++++++++------
+ 1 file changed, 15 insertions(+), 6 deletions(-)
+
+diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
+index 9ddf2644e..fc33ec1f7 100644
+--- a/src/audio/dos/SDL_dosaudio_sb.c
++++ b/src/audio/dos/SDL_dosaudio_sb.c
+@@ -272,14 +272,17 @@ extern const int DOS_SBStatsChecked;
+ const int DOS_SBStatsChecked = 1;
+ 
+ /* One reading of the handler's counters, taken with interrupts off: interrupts
+-   so far, how many of them found the ring empty, bytes in the ring now, the
+-   least bytes in it at an interrupt since the last reading with reset_min (-1
+-   if no interrupt came), and bytes per DMA half. */
++   so far, how many of them found the ring empty, bytes in the ring now (write
++   minus read), the least bytes in it at an interrupt since the last reading
++   with reset_min (-1 if no interrupt came; sampled at interrupt entry, before
++   the handler takes its chunk), and bytes per DMA half. All five out-pointers
++   are required (NULL is not accepted). Callers run with interrupts on: the
++   window is a plain cli/sti, as PlayDevice's (popf cannot be relied on to
++   restore IF under a DPMI host). */
+ extern void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avail, int *chunk, int reset_min);
+ void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avail, int *chunk, int reset_min)
+ {
+-    Uint32 flags;
+-    __asm__ __volatile__("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
++    DOS_DisableInterrupts();
+     *irqs = isr_irq_count;
+     *underruns = isr_underruns;
+     *queued = isr_ring_write - isr_ring_read;
+@@ -288,7 +291,7 @@ void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avail, int
+     if (reset_min) {
+         isr_min_avail = 0x7fffffff;
+     }
+-    __asm__ __volatile__("pushl %0; popfl" : : "r"(flags) : "memory");
++    DOS_EnableInterrupts();
+ }
+ 
+ #define SB_PROBE_MS 250
+@@ -629,6 +632,12 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+         return DOSSOUNDBLASTER_OpenFailed(hidden);
+     }
+ 
++    // The probe's interrupts (silence, nothing mixed yet) are not the program's: count from here on.
++    DOS_DisableInterrupts();
++    isr_underruns = 0;
++    isr_min_avail = 0x7fffffff;
++    DOS_EnableInterrupts();
++
+     device->hidden = hidden; // set only once nothing can fail any more
+     SDL_Log("SoundBlaster opened!");
+     return true;
+-- 
+2.43.0
+

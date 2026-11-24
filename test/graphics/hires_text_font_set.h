@@ -174,4 +174,106 @@ public:
 		TS_ASSERT_EQUALS(lines[1].byteStart, 14u);
 		TS_ASSERT_EQUALS(lines[1].width, 16);
 	}
+
+	// [preload] lists the characters a game draws with a streamed face: build() reads their glyphs once, so drawing them
+	// afterwards seeks nothing (the block cache holds them).
+	static const char *preloadMap(bool withPreload) {
+		return withPreload ? "[map]\nversion=3\n"
+		                     "[fonts]\nmarks=data:fixture/MARKS.SVF\njamo=data:fixture/JAMO.SVF\n"
+		                     "[font]\nface=marks,jamo\n"
+		                     "[load]\njamo=stream\n"
+		                     "[preload]\njamo=data:fixture/JAMO.HOT\n"
+		                   : "[map]\nversion=3\n"
+		                     "[fonts]\nmarks=data:fixture/MARKS.SVF\njamo=data:fixture/JAMO.SVF\n"
+		                     "[font]\nface=marks,jamo\n"
+		                     "[load]\njamo=stream\n";
+	}
+	// Builds font 0 of @p text over @p files; returns the jamo face's stream reads after the build.
+	uint32 readsAfterBuild(const char *text, HiResTest::MemoryFiles &files, Graphics::HiResFaceCache &cache,
+	                       Graphics::HiResFontSet &set, Common::Array<Common::String> &w) {
+		Common::MemoryReadStream s((const byte *)text, strlen(text));
+		Graphics::HiResMap map;
+		TS_ASSERT(Graphics::HiResFontMap::load(s, "FIXTURE.MAP", Common::Path("game"), Graphics::HiResMapQualifiers(), map));
+		const Graphics::HiResIdPlan plan = Graphics::compileIdPlan(map, 0, w);
+		TS_ASSERT(set.build(plan, map, cache, w));
+		Graphics::SvfFace *face = cache.get(map.faces["jamo"], Graphics::kHiResLoadStream, w);
+		TS_ASSERT(face && face->isStreamed());
+		return face ? face->getStreamReads() : 0;
+	}
+	uint32 readsNow(Graphics::HiResFaceCache &cache, Common::Array<Common::String> &w) {
+		Graphics::HiResFaceRef ref;
+		ref.data = true;
+		ref.path = Common::Path("fixture/JAMO.SVF");
+		return cache.get(ref, Graphics::kHiResLoadStream, w)->getStreamReads();
+	}
+
+public:
+	void test_preloadWarmsAStreamedFace() {
+		const char hot[] = "# the characters of the game's first scenes\n\xed\x95\x9c\xea\xb8\x80 \xea\xb0\x80\xea\xb0\x81\n";
+		const char text[] = "\xed\x95\x9c\xea\xb8\x80 \xea\xb0\x80\xea\xb0\x81";
+		Common::Array<Common::String> w;
+
+		HiResTest::MemoryFiles coldFiles;
+		Graphics::HiResFaceCache coldCache(coldFiles);
+		Graphics::HiResFontSet cold;
+		const uint32 coldBuild = readsAfterBuild(preloadMap(false), coldFiles, coldCache, cold, w);
+
+		HiResTest::MemoryFiles files;
+		files.addText("data/fixture/JAMO.HOT", hot);
+		Graphics::HiResFaceCache cache(files);
+		Graphics::HiResFontSet set;
+		const uint32 warmBuild = readsAfterBuild(preloadMap(true), files, cache, set, w);
+		TS_ASSERT(w.empty());
+		TS_ASSERT_LESS_THAN(coldBuild, warmBuild);
+
+		Graphics::TextPlane plane;
+		plane.create(200, 40, 1);
+		set.drawText(text, strlen(text), 0, 14, plane, 1);
+		TS_ASSERT_EQUALS(readsNow(cache, w), warmBuild);	// the glyphs were all in the block cache
+
+		cold.drawText(text, strlen(text), 0, 14, plane, 1);
+		TS_ASSERT_LESS_THAN(coldBuild, readsNow(coldCache, w));	// without the list the first line seeks
+	}
+
+	void test_preloadFileMissingIsAWarning() {
+		HiResTest::MemoryFiles files;	// no JAMO.HOT
+		Graphics::HiResFaceCache cache(files);
+		Graphics::HiResFontSet set;
+		Common::Array<Common::String> w;
+		readsAfterBuild(preloadMap(true), files, cache, set, w);
+		TS_ASSERT_EQUALS(w.size(), 1u);
+		TS_ASSERT(w.size() && w[0].contains("preload"));
+	}
+
+	// A UTF-8 BOM before the first line does not hide its first character; a huge newline-less list is read bounded.
+	void test_preloadBomAndBoundedList() {
+		const char text[] = "\xed\x95\x9c\xea\xb8\x80";
+		Common::Array<Common::String> w;
+		HiResTest::MemoryFiles plainFiles;
+		plainFiles.addText("data/fixture/JAMO.HOT", text);
+		Graphics::HiResFaceCache plainCache(plainFiles);
+		Graphics::HiResFontSet plainSet;
+		const uint32 plain = readsAfterBuild(preloadMap(true), plainFiles, plainCache, plainSet, w);
+
+		const char bom[] = "\xef\xbb\xbf\xed\x95\x9c\xea\xb8\x80";
+		HiResTest::MemoryFiles bomFiles;
+		bomFiles.addText("data/fixture/JAMO.HOT", bom);
+		Graphics::HiResFaceCache bomCache(bomFiles);
+		Graphics::HiResFontSet bomSet;
+		TS_ASSERT_EQUALS(readsAfterBuild(preloadMap(true), bomFiles, bomCache, bomSet, w), plain);
+
+		// 300,000 bytes, no newline, over the 64 KB bound: builds, warns nothing, reads no more than the cap allows
+		Common::String big;
+		for (int k = 0; k < 100000; ++k)
+			big += "\xed\x95\x9c";
+		static Common::Array<byte> keep;
+		keep.resize(big.size());
+		memcpy(keep.data(), big.c_str(), big.size());
+		HiResTest::MemoryFiles bigFiles;
+		bigFiles.addBytes("data/fixture/JAMO.HOT", keep.data(), keep.size());
+		Graphics::HiResFaceCache bigCache(bigFiles);
+		Graphics::HiResFontSet bigSet;
+		TS_ASSERT_EQUALS(readsAfterBuild(preloadMap(true), bigFiles, bigCache, bigSet, w), plain);
+		TS_ASSERT(w.empty());
+	}
 };

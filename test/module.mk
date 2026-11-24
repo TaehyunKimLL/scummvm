@@ -19,6 +19,18 @@ TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/graphics/hires_text_*.h
 TEST_LIBS    :=
 
+# The pure parts of the DOS backend (mode choice, cursors, line repeat, the launcher's text
+# handling, ...) run on the host; the DOS build never runs them.
+ifneq ($(BACKEND),dos)
+TESTS += $(srcdir)/test/backends/dos_*.h $(srcdir)/test/base/command_line_set.h
+# dos_savenames.h runs the real save manager over a temporary folder. default-saves.o asks CloudMan with USE_CLOUD, which
+# the runner does not link: there the manager cases are left out (FIXED-BY-READING: no libcurl here to build it).
+ifndef USE_CLOUD
+TEST_LIBS += backends/saves/default/default-saves.o
+DOS_SAVE_TEST_FLAG := -DDOS_SAVE_MANAGER_TEST=1
+endif
+endif
+
 ifdef POSIX
 TEST_LIBS += test/system/null_osystem.o \
 	backends/fs/posix/posix-fs-factory.o \
@@ -92,7 +104,7 @@ TEST_FLAGS   := --runner=StdioPrinter --no-std --no-eh
 TEST_CFLAGS  := $(CFLAGS) -I$(srcdir)/test/cxxtest
 TEST_LDFLAGS := $(LDFLAGS) $(LIBS)
 TEST_CXXFLAGS  := $(filter-out -Wglobal-constructors,$(CXXFLAGS))
-TEST_CXXFLAGS += -Wno-self-assign-overloaded
+TEST_CXXFLAGS += -Wno-self-assign-overloaded $(DOS_SAVE_TEST_FLAG)
 
 ifdef WIN32
 TEST_LDFLAGS := $(filter-out -mwindows,$(TEST_LDFLAGS))
@@ -125,6 +137,7 @@ clean: clean-test
 clean-test:
 	-$(RM) test/runner.cpp test/runner test/engine-data/encoding.dat test/system/null_osystem.o
 	-rmdir test/engine-data
+	-rmdir test/dos-savenames-tmp
 
 test/engine-data/encoding.dat: $(srcdir)/dists/engine-data/encoding.dat
 	$(MKDIR) test/engine-data

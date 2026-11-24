@@ -58,16 +58,52 @@ inline byte blend(byte dst, byte src, byte a) {
  */
 uint32 blendPixel(const PixelFormat &fmt, uint32 dst, byte r, byte g, byte b, byte cov);
 
+/**
+ * blendPixel() on a 2-byte format by table. For one text colour and coverage the blended value of every channel value is
+ * computed once (at most 32 + 64 + 32 entries) and then looked up: three lookups and an OR a pixel instead of three
+ * multiply-divides, which an emulated 486DX2-66 runs at 8.8 us a covered pixel (P7 plan, section 0.3). The result is
+ * blendPixel()'s, bit for bit. Four slots, chosen by coverage >> 6, keep the pairs a line of a 2 bpp face alternates
+ * between (85 and 170); any other coverage only costs a rebuild. Keep one object across the rows of a rectangle.
+ */
+class Blend16 {
+public:
+	/** Whether @p fmt is one Blend16 can tabulate: 2 bytes a pixel, channels of at most 6 bits (loss >= 2) that fit the 16 bits. */
+	static bool supports(const PixelFormat &fmt);
+	/** @p fmt must satisfy supports() (asserted). */
+	explicit Blend16(const PixelFormat &fmt);
+	/** blendPixel(fmt, dst, r, g, b, cov), any @p cov (callers use it for 1..254: 0 is nothing and 255 the colour). */
+	uint16 blend(uint16 dst, byte r, byte g, byte b, byte cov) {
+		Slot &s = _slot[cov >> 6];
+		const uint32 key = (uint32)r << 24 | (uint32)g << 16 | (uint32)b << 8 | cov;
+		if (!s.filled || s.key != key)
+			fill(s, key, r, g, b, cov);
+		return (uint16)(s.r[dst >> _rShift & _rMask] | s.g[dst >> _gShift & _gMask] | s.b[dst >> _bShift & _bMask] | _alpha);
+	}
+
+private:
+	struct Slot {
+		uint32 key;	// r << 24 | g << 16 | b << 8 | cov
+		bool filled;	// false until the first fill: no key value can stand for an empty slot
+		uint16 r[64], g[64], b[64];
+	};
+	void fill(Slot &s, uint32 key, byte r, byte g, byte b, byte cov);
+
+	byte _rShift, _gShift, _bShift, _rLoss, _gLoss, _bLoss;
+	uint16 _rMask, _gMask, _bMask, _alpha;
+	Slot _slot[4];
+};
+
 /** CLUT8: @p dst[i] = @p index[i] where @p coverage[i] >= @p threshold. */
 void stampSpan(byte *dst, const byte *index, const byte *coverage, int n, byte threshold = 128);
 
 /**
  * RGB, over the pixels already in @p dst (2 or 4 bytes a pixel in @p fmt):
  * kThreshold writes the text colour at coverage >= 128, kBlend blends it in
- * by coverage. A pixel without coverage is not touched.
+ * by coverage. A pixel without coverage is not touched. On a 2-byte format kBlend goes through @p table when given
+ * (else one made for this call).
  */
 void composeSpan(byte *dst, const PixelFormat &fmt, const byte *index, const byte *coverage, int n,
-                 const byte *paletteRGB, Mode mode);
+                 const byte *paletteRGB, Mode mode, Blend16 *table = nullptr);
 
 /**
  * RGB from a CLUT8 hi-res frame row: every pixel of @p dst becomes
@@ -76,7 +112,7 @@ void composeSpan(byte *dst, const PixelFormat &fmt, const byte *index, const byt
  * no text on the row.
  */
 void convertSpan(byte *dst, const PixelFormat &fmt, const byte *frame, const byte *index, const byte *coverage, int n,
-                 const byte *paletteRGB, Mode mode);
+                 const byte *paletteRGB, Mode mode, Blend16 *table = nullptr);
 
 /**
  * @p plane over @p dst inside @p rect (hi-res, clipped to both): kStamp on a

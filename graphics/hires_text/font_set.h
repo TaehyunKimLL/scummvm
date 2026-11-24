@@ -61,11 +61,17 @@ public:
 	/** The face @p ref names; nullptr, with one warning, when it cannot be opened. */
 	SvfFace *get(const HiResFaceRef &ref, HiResLoadMode mode, Common::Array<Common::String> &warnings);
 	uint getCount() const { return _faces.size(); }
+	/**
+	 * Reads the glyphs of the characters the map's [preload] lists for @p ref's face name once (a streamed face only), so
+	 * they sit in its block cache before the first line is drawn. A list that cannot be opened is one warning.
+	 */
+	void warm(SvfFace *face, const HiResFaceRef &ref, const HiResMap &map, Common::Array<Common::String> &warnings);
 
 private:
 	HiResFiles &_files;
 	uint32 _wholeLimit;
 	Common::HashMap<Common::String, SvfFace *> _faces; ///< by HiResFaceRef::key(); nullptr: failed
+	Common::HashMap<Common::String, bool> _warmed;     ///< faces whose [preload] list was read
 };
 
 /**

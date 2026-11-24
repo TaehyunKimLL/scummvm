@@ -28,7 +28,7 @@ namespace Graphics {
 
 HiResOptions::HiResOptions()
 	: enabled(true), font(kHiResFontAuto), mapSet(false), scale(0), blend(kHiResBlendAuto), target(kHiResTargetAuto),
-	  hangulBreak(kHangulBreakWord), hangulBreakSet(false), log(false) {
+	  hangulBreak(kHangulBreakWord), hangulBreakSet(false), log(false), wholeKb(256) {
 }
 
 namespace {
@@ -38,7 +38,8 @@ void bad(Common::Array<Common::String> &warnings, const char *key, const Common:
 }
 
 bool confManGet(const char *key, Common::String &value, void *) {
-	if (!ConfMan.hasKey(key))
+	// hasKey() ignores the defaults domain: a platform's registerDefault() (DOS: hires_text_whole_kb) would never be read.
+	if (!ConfMan.hasKey(key) && !ConfMan.hasDefault(key))
 		return false;
 	value = ConfMan.get(key);
 	return true;
@@ -96,6 +97,15 @@ HiResOptions parseHiResOptions(HiResConfigGetFn get, void *ctx, Common::Array<Co
 			o.log = b;
 		else
 			bad(warnings, "hires_text_log", v, "true or false");
+	}
+	if (get("hires_text_whole_kb", v, ctx)) {
+		v.trim();
+		char *end = nullptr;
+		const long kb = strtol(v.c_str(), &end, 10);
+		if (!v.empty() && end && !*end && kb >= 0 && kb <= 16384)	// SvfFace::kMaxWholeSize is 16 MB
+			o.wholeKb = (int)kb;
+		else
+			bad(warnings, "hires_text_whole_kb", v, "a number of KB from 0 to 16384");
 	}
 	return o;
 }

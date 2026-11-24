@@ -30,6 +30,19 @@ PosixIoStream::PosixIoStream(void *handle) :
 }
 
 int64 PosixIoStream::size() const {
+#if defined(__DJGPP__)
+	// DJGPP's fstat() takes some 200 ms under DOSBox (it walks DOS internals
+	// for fields we don't want); SCI asks for a volume's size once per
+	// resource, so opening a game took minutes. Seeking to the end is cheap.
+	// The seek pair of StdioStream::size() clears the end-of-file flag, and a read that hit the end would then not be
+	// reported by eos(): hit the end again (the position of a stream at EOF is its end) to set it back.
+	FILE *const fp = (FILE *)_handle;
+	const bool wasEof = feof(fp) != 0;
+	const int64 n = StdioStream::size();
+	if (wasEof)
+		(void)fgetc(fp);
+	return n;
+#else
 	int fd = fileno((FILE *)_handle);
 	if (fd == -1) {
 		return StdioStream::size();
@@ -43,4 +56,5 @@ int64 PosixIoStream::size() const {
 	}
 
 	return st.st_size;
+#endif
 }

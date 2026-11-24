@@ -1,0 +1,1260 @@
+/* ScummVM - Graphic Adventure Engine
+ *
+ * ScummVM is the legal property of its developers, whose names
+ * are too numerous to list here. Please refer to the COPYRIGHT
+ * file distributed with this source distribution.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+#define FORBIDDEN_SYMBOL_EXCEPTION_FILE
+#define FORBIDDEN_SYMBOL_EXCEPTION_fopen
+#define FORBIDDEN_SYMBOL_EXCEPTION_fclose
+#define FORBIDDEN_SYMBOL_EXCEPTION_stderr
+#define FORBIDDEN_SYMBOL_EXCEPTION_fputs
+#define FORBIDDEN_SYMBOL_EXCEPTION_fwrite
+#define FORBIDDEN_SYMBOL_EXCEPTION_exit
+#define FORBIDDEN_SYMBOL_EXCEPTION_time_h
+#define FORBIDDEN_SYMBOL_EXCEPTION_getenv
+#define FORBIDDEN_SYMBOL_EXCEPTION_setenv
+
+#include "common/scummsys.h"
+
+#if defined(DOS_DJGPP)
+
+#include <ctype.h>
+#include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <crt0.h>
+#include <sys/nearptr.h>
+#include <sys/farptr.h>
+#include <go32.h>
+#include <dpmi.h>
+#include <pc.h>
+#include <SDL3/SDL.h>
+
+#include "backends/platform/dos/dos.h"
+#include "backends/platform/dos/dos-exit.h"
+#include "backends/platform/dos/dos-heap.h"
+#include "backends/platform/dos/dos-irq.h"
+#include "backends/platform/dos/dos-memory.h"
+#include "backends/platform/dos/dos-loading.h"
+#include "backends/platform/dos/dos-silence.h"
+#include "backends/platform/dos/blaster.h"
+#include "common/textconsole.h"
+#include "backends/fs/posix/posix-fs-factory.h"
+#include "backends/mutex/dos/dos-mutex.h"
+#include "backends/platform/dos/dos-savefile.h"
+#include "backends/timer/dos/dos-timer.h"
+#include "backends/events/default/default-events.h"
+#include "backends/events/dos/dos-events.h"
+#include "backends/mixer/dos/dos-audio-stats.h"
+#include "backends/mixer/dos/dos-mixer.h"
+#include "backends/mixer/null/null-mixer.h"
+#include "audio/audiostream.h"
+#include "audio/mixer.h"
+#include "backends/graphics/dos/dos-graphics.h"
+#include "common/config-manager.h"
+#include "common/stream.h"
+#include "common/fs.h"
+#include "base/main.h"
+#include "base/version.h"
+#include "common/language.h"
+#include "common/translation.h"
+#ifdef USE_DEBUG_SOCKET
+#include "gui/debugsocket-dosuart.h"
+// The UART transport's interrupt count (the page-fault selftest asks for it).
+static inline uint32 uartIrqCount() { return GUI::DosUart::irqCount(); }
+#else
+static inline uint32 uartIrqCount() { return 0; }
+#endif
+
+DOS_IRQ_CODE_RANGE(dos);
+
+// ScummVM's call depth is far past DJGPP's 256 KB default stack.
+unsigned _stklen = 1024 * 1024;
+
+// Our own main() does what SDL_RunApp() would, so SDL3's definition of this
+// is not linked. NONMOVE_SBRK keeps the data segment's base fixed as the
+// heap grows (SDL3 keeps near pointers into the framebuffer). Nothing is
+// locked as a whole (no LOCK_MEMORY): under CWSDPMI r7 the interrupt
+// handlers lock what they touch, and the IRQ0 timer runs the timer procs
+// (engine code, heap) only where a page fault is allowed (dos-irq.h,
+// dos-timer.cpp). main() locks everything under any other DPMI host, and
+// the timer does if it cannot read CWSDPMI's interrupt frames.
+// NO_LFN: 8.3 names on every DOS: a Windows 9x box truncates the data: paths as
+// MS-DOS does (stage-data.py writes them so).
+int _crt0_startup_flags = _CRT0_FLAG_NONMOVE_SBRK | _CRT0_FLAG_NO_LFN;
+
+static void flushDeferredLog();
+static void flushDeferredLogAtExit();
+
+namespace DOS {
+
+// "SCI.EXE" or "SCUMM.EXE": whichever main() was invoked as, so the
+// self-test and shared log can name it without an engine #ifdef. Long
+// enough for any 8.3 name plus the terminator.
+static char g_exeName[13] = "SCI.EXE";
+
+void setExeName(const char *argv0) {
+	if (!argv0 || !*argv0)
+		return;
+	const char *base = argv0;
+	for (const char *p = argv0; *p; ++p)
+		if (*p == '/' || *p == '\\')
+			base = p + 1;
+	Common::strlcpy(g_exeName, base, sizeof(g_exeName));
+	for (char *p = g_exeName; *p; ++p)
+		*p = toupper((unsigned char)*p);
+}
+
+const char *exeName() {
+	return g_exeName;
+}
+
+void logMemInfo(const char *phase) {
+	__dpmi_free_mem_info info;
+	MemInfo m = { 0, 0, 0, 0 };
+	if (__dpmi_get_free_memory_information(&info) == 0) {
+		// largest_available_free_block_in_bytes is the only field DPMI
+		// gives us already in bytes; total_number_of_free_pages (what
+		// this client could still get) doubles as both dpmi_free (in
+		// bytes, so it rounds the same way as the largest-block figure)
+		// and phys_free (in its native 4 KB pages, with phys_total).
+		const uint32 freePages = (uint32)info.total_number_of_free_pages;
+		const uint32 freeBytes = (freePages == 0xFFFFFFFF) ? 0xFFFFFFFF : freePages * 4096u;
+		m = memFromPages(freeBytes,
+			(uint32)info.largest_available_free_block_in_bytes,
+			(uint32)info.total_number_of_free_pages,
+			(uint32)info.total_number_of_physical_pages);
+	}
+	if (g_system) {
+		g_system->logMessage(LogMessageType::kInfo, (formatMemInfo(phase, m) + "\n").c_str());
+	}
+	DosTimerManager::logStats();
+	pagefaultSelftestLog();
+}
+
+}
+
+OSystem_DOS::OSystem_DOS() : _eventSource(nullptr), _nullMixer(nullptr), _statsLogMs(0), _statsNextMs(0) {
+	// Runs after the timer's teardown (registered later, run earlier).
+	atexit(flushDeferredLogAtExit);
+	_fsFactory = new POSIXFilesystemFactory();
+}
+
+OSystem_DOS::~OSystem_DOS() {
+	SDL_SetLogOutputFunction(SDL_GetDefaultLogOutputFunction(), nullptr);	// logMessage() goes with us
+	logAudioStats("quit");
+	// The timer first: its interrupt handler runs timer procs that may
+	// use the mixer, which ModularMixerBackend's destructor deletes.
+	DosTimerManager::logStats();
+	DOS::pagefaultSelftestStop();
+	delete _timerManager;
+	_timerManager = nullptr;
+	DOS::exitMark(DOS::kExitMainTimer, "~OSystem_DOS: timer out");
+	delete _eventSource;
+}
+
+// Set once the splash screen has been shown (engines/engine.cpp).
+extern bool splash;
+
+// SDL_Log() writes to stderr, which is the screen: SDL3's Sound Blaster
+// driver says which card it opened, lines that scroll a text screen and
+// land on a graphics one. To the log instead.
+static void SDLCALL sdlLog(void *, int, SDL_LogPriority, const char *message) {
+	// The Sound Blaster SDL3 found, for DOS::soundBlasterClosed().
+	if (!strncmp(message, "SB: port=0x", 11))
+		DOS::noteSoundBlasterConfig((int)strtol(message + 11, nullptr, 16), -1);
+	else if (!strncmp(message, "SB: irq=", 8))
+		DOS::noteSoundBlasterConfig(-1, (int)strtol(message + 8, nullptr, 10));
+	g_system->logMessage(LogMessageType::kInfo, Common::String::format("SDL: %s\n", message).c_str());
+}
+
+void OSystem_DOS::initBackend() {
+	logMessage(LogMessageType::kInfo, Common::String::format(
+		"DOS: %s %s\n", DOS::exeName(), gScummVMFullVersion).c_str());
+	logMessage(LogMessageType::kInfo, Common::String::format(
+		"DOS: %s, %s%s%s\n", DOS::dpmiHost(), DOS::lockedAll() ? "all memory locked" : "interrupt memory locked",
+		DOS::lockedAll() ? ": " : "", DOS::lockedAllWhy()).c_str());
+	if (DOS::fpuEmulated())
+		logMessage(LogMessageType::kInfo,
+			"DOS: no FPU: the built-in emulator stands in (slow); timer procs run on the main thread\n");
+
+	SDL_SetLogOutputFunction(sdlLog, nullptr);
+	SDL_SetHint(SDL_HINT_DOS_ALLOW_DIRECT_FRAMEBUFFER, "1");
+	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
+		error("SDL_Init: %s", SDL_GetError());
+
+	// dos_vsync=off|wait: wait sends each frame in the vertical retrace.
+	// dos_force_fallback=true uses the 640x480 line-repeat mode even when
+	// 640x400 exists (testing). The screen formats offered follow
+	// render_target (DosGraphicsManager::getSupportedFormats()).
+	ConfMan.registerDefault("dos_vsync", "off");
+	ConfMan.registerDefault("dos_force_fallback", false);
+	// dos_frame_buffer=true keeps the game's frame in a buffer of its own,
+	// copied into the window surface (1 MB more at 640x400 true colour),
+	// instead of drawing it into the window surface itself.
+	ConfMan.registerDefault("dos_frame_buffer", false);
+	ConfMan.registerDefault("dos_timer_selftest", false);
+	ConfMan.registerDefault("dos_mixer_selftest", false);
+	// dos_pagefault_selftest=<KB>: a timer proc touches a pageable buffer
+	// of that size (see pagefaultSelftestStart()); -<N>: N% of the free
+	// physical memory at the start; 0 is off.
+	ConfMan.registerDefault("dos_pagefault_selftest", 0);
+	ConfMan.registerDefault("dos_pagefault_selftest_hz", 100);
+	// dos_loading_screen=false: no loading screen (DOS::Loading), the
+	// launcher's mode set at once as before.
+	ConfMan.registerDefault("dos_loading_screen", true);
+	// hires_text_whole_kb: a hi-res face file of at most this many KB is read whole, a larger one streamed.
+	// A streamed precomposed face costs its 30-50 KB tables plus a 65 KB block cache against 100-340 KB
+	// whole; jamo measured the per-seek cost of streaming under DOSBox and chose whole-file reads up to
+	// 512 KB for MI1 talkie fonts: revisit with the acceptance numbers (P7 Task g6).
+	ConfMan.registerDefault("hires_text_whole_kb", 64);
+	// The GUI's two overlay-sized screens (600 KB each at 640x480 RGB565)
+	// are given back while no dialog is open.
+	ConfMan.registerDefault("gui_release_buffers", true);
+	// dos_exit_trace=true: each step of the way out, numbered, on the text
+	// screen's last line and in EXITLOG.TXT (dos-exit.h).
+	ConfMan.registerDefault("dos_exit_trace", false);
+	DOS::exitTraceStart(ConfMan.getBool("dos_exit_trace"));
+	// dos_stats_log=<seconds>: a "DOS: audio" line (the mixer's counters)
+	// that often as well as at quit; 0 logs the quit line only.
+	ConfMan.registerDefault("dos_stats_log", 0);
+	_statsLogMs = (uint32)CLIP(ConfMan.getInt("dos_stats_log"), 0, 3600) * 1000;
+	_statsNextMs = getMillis() + _statsLogMs;
+
+	// ScummVM's splash goes to the overlay, which this backend does not
+	// show yet (it draws nothing), and deciding whether to show it made
+	// GUI::GuiManager parse the builtin theme and scale its fonts: about a
+	// second, then a fixed 0.6 s wait, on the way to every game's first
+	// frame. Engine::initGraphics() skips both once the splash has been
+	// shown. Revisit with the GUI overlay (M4).
+	splash = true;
+
+	// Seed the time a timer proc gets (getTimeAndDate() with interrupts
+	// off) before any timer runs.
+	TimeDate now;
+	getTimeAndDate(now);
+
+	DosGraphicsManager *gfx = new DosGraphicsManager();
+	_graphicsManager = gfx;
+	_eventSource = new DosEventSource(gfx);
+	// After SDL_Init(): that makes uclock()'s first call, which reprograms
+	// the PIT, before the timer sets it to 1 kHz.
+	_timerManager = new DosTimerManager();
+	_eventManager = new DefaultEventManager(this);
+	_savefileManager = new DOS::SaveFileManager("SAVES");
+	_mixerManager = new DosMixerManager();
+	_mixerManager->init();
+	if (!_mixerManager->getMixer()) {
+		// No Sound Blaster: a mixer that plays nothing, mixed from
+		// pollEvent() so sounds still run their course.
+		delete _mixerManager;
+		_nullMixer = new NullMixerManager();
+		_nullMixer->init();
+		_mixerManager = _nullMixer;
+	}
+
+	BaseBackend::initBackend();
+
+	// The command line's target is the active domain by now; without one
+	// (the launcher) there is no game to load.
+	const Common::String target = ConfMan.getActiveDomainName();
+	Common::String title = ConfMan.get("description");
+	if (title.empty())
+		title = target;
+	DOS::Loading::backendReady(_timerManager, title,
+							   Common::parseLanguage(ConfMan.get("language")) == Common::KO_KOR,
+							   ConfMan.getBool("dos_loading_screen") && !target.empty());
+	gfx->setDeferModes(DOS::Loading::stage() == DOS::Loading::kStageText);
+
+	if (ConfMan.getBool("dos_timer_selftest"))
+		timerSelftest();
+	if (ConfMan.getBool("dos_mixer_selftest"))
+		mixerSelftest();
+	if (ConfMan.getInt("dos_pagefault_selftest") != 0)
+		DOS::pagefaultSelftestStart(ConfMan.getInt("dos_pagefault_selftest"),
+			ConfMan.getInt("dos_pagefault_selftest_hz"));
+}
+
+static volatile uint32 g_selftestCalls = 0;
+
+static void selftestProc(void *) {
+	g_selftestCalls++;
+}
+
+// A real-mode INT 1Ch hook for the self-test: the BIOS's INT 8 calls it
+// from inside the chain timerIsr() makes, with interrupts on. It counts
+// whether IRQ0 is masked at the PIC then, as it must be. A real-mode
+// callback must not page-fault: its code and data are locked.
+static volatile uint32 g_int1cCalls = 0;
+static volatile uint32 g_int1cMasked = 0;
+
+static DOS_IRQ_CODE void int1cProbe(_go32_dpmi_registers *) {
+	g_int1cCalls++;
+	if (DOS::irqIn8(0x21) & 0x01)
+		g_int1cMasked++;
+}
+
+// The Sound Blaster's interrupts, counted by a handler chained in front of
+// SDL3's for the self-test.
+static volatile uint32 g_sbIrqs = 0;
+static DOS_IRQ_CODE void sbIrqCount() {
+	g_sbIrqs++;
+}
+
+// The keyboard's, the same way (the page-fault self-test).
+static volatile uint32 g_kbdIrqs = 0;
+static DOS_IRQ_CODE void kbdIrqCount() {
+	g_kbdIrqs++;
+}
+
+// The self-tests' interrupt code (int1cProbe(), sbIrqCount(), kbdIrqCount()), once.
+static void lockSelftestIrqCode() {
+	static bool done = false;
+	if (done)
+		return;
+	done = true;
+	const void *const fns[3] = { (const void *)int1cProbe, (const void *)sbIrqCount, (const void *)kbdIrqCount };
+	DOS::lockIrqCode(dosIrqBegin_dos, dosIrqEnd_dos, fns, ARRAYSIZE(fns), "self-test");
+}
+
+static uint8 cmosRead(uint8 reg) {
+	outportb(0x70, reg);
+	return inportb(0x71);
+}
+
+// The RTC's seconds register, once it is not mid-update: a clock that
+// shares nothing with the PIT.
+static uint8 rtcSeconds() {
+	while (cmosRead(0x0A) & 0x80)
+		;
+	return cmosRead(0x00);
+}
+
+void OSystem_DOS::timerSelftest() {
+	// Three RTC seconds of a 60 Hz timer proc, while the main thread never
+	// yields: it reads a file and takes a mutex over and over. Only a
+	// preemptive timer gets the 180 calls in; getMillis() and the BIOS
+	// tick count must agree with the RTC.
+	Common::SeekableReadStream *f = Common::FSNode(DOS::exeName()).createReadStream();
+	Common::Mutex mutex;
+	byte buf[4096];
+	uint8 s = rtcSeconds();
+	while (rtcSeconds() == s)
+		;
+	s = rtcSeconds();
+	g_selftestCalls = 0;
+	_go32_dpmi_seginfo old1c, probe1c;
+	static _go32_dpmi_registers probeRegs;
+	DOS::lockIrqData(&probeRegs, sizeof(probeRegs));	// the callback's wrapper fills it in
+	DOS::lockIrqData(&g_int1cCalls, sizeof(g_int1cCalls));
+	DOS::lockIrqData(&g_int1cMasked, sizeof(g_int1cMasked));
+	probe1c.pm_offset = (unsigned long)int1cProbe;
+	probe1c.pm_selector = _go32_my_cs();
+	lockSelftestIrqCode();
+	const bool hooked1c = DosTimerManager::installed() &&
+		_go32_dpmi_get_real_mode_interrupt_vector(0x1C, &old1c) == 0 &&
+		_go32_dpmi_allocate_real_mode_callback_iret(&probe1c, &probeRegs) == 0;
+	if (hooked1c)
+		_go32_dpmi_set_real_mode_interrupt_vector(0x1C, &probe1c);
+	getTimerManager()->installTimerProc(selftestProc, 1000000 / 60, nullptr, "dosTimerSelftest");
+	const uint32 m0 = getMillis();
+	const uint32 b0 = _farpeekl(_dos_ds, 0x46C);
+	for (int edges = 0; edges < 3;) {
+		if (f && f->read(buf, sizeof(buf)) < sizeof(buf))
+			f->seek(0);
+		for (int i = 0; i < 100; ++i) {
+			Common::StackLock lock(mutex);
+		}
+		const uint8 now = rtcSeconds();
+		if (now != s) {
+			s = now;
+			edges++;
+		}
+	}
+	const uint32 m1 = getMillis();
+	const uint32 b1 = _farpeekl(_dos_ds, 0x46C);
+	const uint32 calls = g_selftestCalls;
+	getTimerManager()->removeTimerProc(selftestProc);
+	if (hooked1c) {
+		_go32_dpmi_set_real_mode_interrupt_vector(0x1C, &old1c);
+		_go32_dpmi_free_real_mode_callback(&probe1c);
+	}
+	const bool haveFile = f != nullptr;
+	delete f;
+	logMessage(LogMessageType::kInfo, Common::String::format(
+		"DOS: timer selftest 60Hz calls=%u expect=180 getMillis=%u bios=%u%s\n",
+		(uint)calls, (uint)(m1 - m0), (uint)(b1 - b0), haveFile ? "" : " (no file)").c_str());
+	logMessage(LogMessageType::kInfo, Common::String::format(
+		"DOS: timer selftest chain int1c=%u irq0masked=%u%s\n",
+		(uint)g_int1cCalls, (uint)g_int1cMasked, hooked1c ? "" : " (no hook)").c_str());
+
+	// delayMillis() both ways: SDL_Delay() on uclock(), and (under a mutex,
+	// interrupts off) polling the PIT. 20 x 10 ms each.
+	uint32 t0 = getMillis();
+	for (int i = 0; i < 20; ++i)
+		delayMillis(10);
+	const uint32 sdlDelay = getMillis() - t0;
+	t0 = getMillis();
+	for (int i = 0; i < 20; ++i) {
+		Common::StackLock lock(mutex);
+		delayMillis(10);
+	}
+	const uint32 spinDelay = getMillis() - t0;
+	logMessage(LogMessageType::kInfo, Common::String::format(
+		"DOS: timer selftest delayMillis(10)x20 sdl=%u irqoff=%u\n", (uint)sdlDelay, (uint)spinDelay).c_str());
+}
+
+namespace {
+
+// A square wave, mono, at 22050 Hz (so the mixer converts it, as it does
+// a game's sounds): 441 Hz, endless.
+class ToneStream : public Audio::AudioStream {
+public:
+	ToneStream() : _phase(0) {}
+	int readBuffer(int16 *buffer, const int numSamples) override {
+		for (int i = 0; i < numSamples; ++i) {
+			buffer[i] = (_phase < 25) ? 4000 : -4000;
+			if (++_phase == 50)
+				_phase = 0;
+		}
+		return numSamples;
+	}
+	bool isStereo() const override { return false; }
+	int getRate() const override { return 22050; }
+	bool endOfData() const override { return false; }
+private:
+	int _phase;
+};
+
+} // End of anonymous namespace
+
+// A timer proc that waits once, as SCI's MT-32 driver does after a SysEx.
+static const uint kIsrDelayMs = 200;
+static volatile int g_isrDelayState = 0;	// 1 armed, 2 done
+static volatile uint32 g_isrDelayIrqs = 0;
+static volatile uint32 g_isrDelayMillis = 0;
+static void isrDelayProc(void *) {
+	if (g_isrDelayState != 1)
+		return;
+	const uint32 i0 = g_sbIrqs;
+	const uint32 m0 = g_system->getMillis();
+	g_system->delayMillis(kIsrDelayMs);
+	g_isrDelayIrqs = g_sbIrqs - i0;
+	g_isrDelayMillis = g_system->getMillis() - m0;
+	g_isrDelayState = 2;
+}
+
+// Percent of @p msecs spent in SDL_Delay(0), between spans of busy work.
+static uint32 yieldShare(uint32 msecs) {
+	uint32 inYield = 0;
+	const uint32 start = g_system->getMillis();
+	while (g_system->getMillis() - start < msecs) {
+		// Work that does not end on a tick, so the yields start at random
+		// phases of the millisecond count.
+		for (volatile uint32 i = 0; i < 20000; i = i + 1)
+			;
+		const uint32 t = g_system->getMillis();
+		SDL_Delay(0);
+		inYield += g_system->getMillis() - t;
+	}
+	return inYield * 100 / (g_system->getMillis() - start);
+}
+
+void OSystem_DOS::mixerSelftest() {
+	// Three RTC seconds of a tone, the main thread yielding as a game's
+	// would: the frames the Sound Blaster took, per second, must be the
+	// mixer's output rate (expect=). getMillis() over the same seconds
+	// shows whether the mixer's interrupts-off pieces cost the IRQ0 timer
+	// any ticks.
+	if (_nullMixer) {
+		logMessage(LogMessageType::kInfo, "DOS: mixer selftest: no audio device\n");
+		return;
+	}
+	DosMixerManager *mixerManager = (DosMixerManager *)_mixerManager;
+	Audio::Mixer *mixer = mixerManager->getMixer();
+	Audio::SoundHandle handle;
+	mixer->playStream(Audio::Mixer::kPlainSoundType, &handle, new ToneStream());
+	// Let the device's ring fill first.
+	for (int i = 0; i < 50; ++i)
+		delayMillis(10);
+	// The SDL buffers the device takes are dos_audio_frames (4096 by default), too coarse for a
+	// count over three seconds (+-3% at 22050 Hz): the rate is the frames
+	// between the first and the last callback in the window over the time
+	// between them.
+	uint8 s = rtcSeconds();
+	while (rtcSeconds() == s)
+		delayMillis(1);
+	s = rtcSeconds();
+	const uint32 m0 = getMillis();
+	uint32 f0, c0, f1, c1;
+	const uint32 start = mixerManager->framesMixed();
+	while (mixerManager->framesMixed() == start && getMillis() - m0 < 500)
+		delayMillis(1);	// a card that never takes data gives rate=0
+	mixerManager->lastCallback(f0, c0);
+	for (int edges = 0; edges < 3;) {
+		delayMillis(5);
+		const uint8 now = rtcSeconds();
+		if (now != s) {
+			s = now;
+			edges++;
+		}
+	}
+	mixerManager->lastCallback(f1, c1);
+	const uint32 frames = f1 - f0;
+	const uint32 millis = getMillis() - m0;
+	const uint32 rate = (c1 > c0) ? (uint32)((uint64)frames * 1000 / (c1 - c0)) : 0;
+
+	// What the sound costs the game: a main thread that does a span of
+	// busy work and then yields (SDL_Delay(0) runs SDL3's other threads once),
+	// and the share of its time spent in the yields, with the sound
+	// running and then with the device paused. The millisecond count is
+	// coarse, but sampling it is unbiased.
+	const uint32 busyPlaying = yieldShare(2000);
+	mixerManager->suspendAudio();
+	const uint32 busyPaused = yieldShare(2000);
+	mixerManager->resumeAudio();
+
+	// One interrupts-off piece of the callback, timed: 1000 x 256 frames.
+	// The PIC holds back one IRQ0 while a piece runs and delivers it at
+	// the end; a piece that took over 1 ms would lose the ticks after the
+	// first, and the figure would read low. getMillis() over the RTC
+	// seconds above (3000 +- a few) is the check that none were lost.
+	static byte piece[256 * 4];
+	const uint32 t0 = getMillis();
+	for (int i = 0; i < 1000; ++i)
+		((Audio::MixerImpl *)mixer)->mixCallback(piece, sizeof(piece));
+	const uint32 mixMs = getMillis() - t0;
+
+	// delayMillis() from a timer proc, with the tone playing: the Sound
+	// Blaster's interrupts must go on being served (only IRQ0 is held
+	// back), where under a mutex on the main thread -- interrupts off --
+	// none may come in. Counted in front of SDL3's handler.
+	const DOS::BlasterConfig blaster = DOS::parseBlaster(getenv("BLASTER"));
+	const int sbVector = blaster.irq < 8 ? 8 + blaster.irq : 0x70 + blaster.irq - 8;
+	_go32_dpmi_seginfo sbOld, sbChain;
+	sbChain.pm_offset = (unsigned long)sbIrqCount;
+	sbChain.pm_selector = _go32_my_cs();
+	lockSelftestIrqCode();
+	DOS::lockIrqData(&g_sbIrqs, sizeof(g_sbIrqs));
+	_go32_dpmi_get_protected_mode_interrupt_vector(sbVector, &sbOld);
+	const bool chained = _go32_dpmi_chain_protected_mode_interrupt_vector(sbVector, &sbChain) == 0;
+	uint32 isrIrqs = 0, isrMillis = 0, offIrqs = 0;
+	if (chained) {
+		g_isrDelayState = 1;
+		getTimerManager()->installTimerProc(isrDelayProc, 10000, nullptr, "dosIsrDelaySelftest");
+		const uint32 w0 = getMillis();
+		while (g_isrDelayState != 2 && getMillis() - w0 < 2000)
+			delayMillis(5);
+		getTimerManager()->removeTimerProc(isrDelayProc);
+		isrIrqs = g_isrDelayIrqs;
+		isrMillis = g_isrDelayMillis;
+		{
+			Common::Mutex mutex;
+			Common::StackLock lock(mutex);
+			const uint32 i0 = g_sbIrqs;
+			delayMillis(kIsrDelayMs);
+			offIrqs = g_sbIrqs - i0;
+		}
+		_go32_dpmi_set_protected_mode_interrupt_vector(sbVector, &sbOld);
+	}
+	mixer->stopHandle(handle);
+	logMessage(LogMessageType::kInfo, Common::String::format(
+		"DOS: mixer selftest isr-delay %ums sbirq=%u getMillis=%u blocked=%u irqoff-sbirq=%u%s\n",
+		kIsrDelayMs, (uint)isrIrqs, (uint)isrMillis, (uint)DosTimerManager::delaysBlocked(), (uint)offIrqs,
+		chained ? "" : " (no chain)").c_str());
+
+	logMessage(LogMessageType::kInfo, Common::String::format(
+		"DOS: mixer selftest rate=%u expect=%u frames=%u in=%ums getMillis=%u mix256=%uus yield=%u%%/%u%%\n",
+		(uint)rate, mixer->getOutputRate(), (uint)frames, (uint)(c1 - c0), (uint)millis, (uint)mixMs, (uint)busyPlaying, (uint)busyPaused).c_str());
+}
+
+/*
+ * dos_pagefault_selftest=<KB>: page faults in the timer procs, counted.
+ *
+ * Under CWSDPMI the timer procs run from IRQ0, in pageable memory, and a
+ * page fault there is serviced with the interrupt in progress: the paging
+ * I/O goes through DOS and the BIOS with interrupts on, so other IRQs come
+ * in on the way. This makes it happen on purpose and counts it. A timer
+ * proc touches a page of a buffer of that many KB per call, picked at
+ * random: it reads the page's first word (timed with the TSC), checks
+ * every word of the page against the page's stamp and writes a new one.
+ * The buffer is pageable like any other memory: made larger than the free
+ * physical memory (1.5 to 2 times), CWSDPMI's pager keeps sending its
+ * pages out to the swap file, and a page picked at random is out about
+ * as often as the buffer is larger than what stays in. A read slower
+ * than kPfSlowUs is counted as such a page-in, with a histogram of the
+ * read times.
+ *
+ * On a CPU with 4 MB pages (PSE), CWSDPMI r7 maps each 4 MB-aligned
+ * stretch of a memory block that it can back with 4 MB of contiguous
+ * memory as one such page (paging.c getpte()), and never pages those out
+ * (page_out() skips them): a buffer that large is mostly not pageable.
+ * The test is meant for a CPU without PSE (QEMU: -cpu pentium3,-pse).
+ * DPMI 0x0703, discard page contents, would force faults without memory
+ * pressure, but under QEMU CWSDPMI r7 left every page it was asked to
+ * discard mapped, contents and all.
+ * The counts go by where the proc ran: IRQ0, the main thread as a
+ * real-mode call returned, or the event loop. Interrupts that came in
+ * during a fault are counted from the Sound Blaster and the keyboard
+ * (handlers chained in front of SDL3's) and the debug socket's COM port.
+ */
+namespace DOS {
+
+namespace {
+
+const uint32 kPfSlowUs = 30;
+// Read-time histogram bounds, in microseconds.
+const uint32 kPfBins[] = { 1, 3, 10, 30, 100, 1000 };
+const uint kPfBinCount = ARRAYSIZE(kPfBins) + 1;
+const uint32 kPfLogMs = 10000;
+
+struct PfCounts {
+	uint32 touches, faults, faults1ms, maxUs;
+	uint32 bins[kPfBinCount];
+};
+
+struct PfTest {
+	byte *buf;
+	uint32 *stamp;		// what each page should hold
+	uint32 pages;
+	uint32 rng;			// xorshift32: the next page the proc touches
+	uint32 gen;
+	uint32 tscPerUs;	// 0: no TSC, no timing
+	uint32 lastLog;
+	PfCounts ctx[3];	// DosTimerManager::ProcsContext; kProcsNone: the event loop
+	uint32 nestedFaults;	// faults during which another IRQ was served
+	uint32 nestedSb, nestedUart, nestedKbd;
+	uint32 bad;			// a page that did not hold its stamp
+	bool chained, kbdChained;
+	int sbVector;
+	_go32_dpmi_seginfo sbOld, sbChain, kbdOld, kbdChain;
+};
+
+PfTest g_pf;
+bool g_pfOn = false;
+
+// Word i of a page stamped @p stamp.
+inline uint32 pfWord(uint32 stamp, uint32 i) {
+	return stamp ^ (i * 0x9E3779B9u);
+}
+
+void pfStamp(volatile uint32 *p, uint32 stamp) {
+	for (uint32 i = 0; i < 1024; ++i)
+		p[i] = pfWord(stamp, i);
+}
+
+// Whether every word of the page holds @p stamp's.
+bool pfCheck(const volatile uint32 *p, uint32 stamp) {
+	for (uint32 i = 0; i < 1024; ++i)
+		if (p[i] != pfWord(stamp, i))
+			return false;
+	return true;
+}
+
+void pfProc(void *) {
+	PfTest &t = g_pf;
+	const uint ctx = (uint)DosTimerManager::procsContext();
+	t.rng ^= t.rng << 13;
+	t.rng ^= t.rng >> 17;
+	t.rng ^= t.rng << 5;
+	const uint32 idx = t.rng % t.pages;
+	volatile uint32 *p = (volatile uint32 *)(t.buf + idx * 4096);
+	const uint32 sb0 = g_sbIrqs, uart0 = uartIrqCount(), kbd0 = g_kbdIrqs;
+	const uint64 t0 = t.tscPerUs ? DOS::irqRdtsc() : 0;
+	const uint32 v = p[0];
+	const uint64 t1 = t.tscPerUs ? DOS::irqRdtsc() : 0;
+	const uint32 want = t.stamp[idx];
+	PfCounts &c = t.ctx[ctx < 3 ? ctx : 0];
+	if (v != pfWord(want, 0) || !pfCheck(p, want))
+		t.bad++;
+	const uint32 next = ((++t.gen) * 2654435761u) | 1;
+	pfStamp(p, next);
+	t.stamp[idx] = next;
+	c.touches++;
+	if (!t.tscPerUs)
+		return;
+	const uint32 us = (uint32)((t1 - t0) / t.tscPerUs);
+	if (us > c.maxUs)
+		c.maxUs = us;
+	uint bin = 0;
+	while (bin < ARRAYSIZE(kPfBins) && us >= kPfBins[bin])
+		bin++;
+	c.bins[bin]++;
+	if (us < kPfSlowUs)
+		return;
+	c.faults++;
+	if (us >= 1000)
+		c.faults1ms++;
+	const uint32 dsb = g_sbIrqs - sb0, duart = uartIrqCount() - uart0, dkbd = g_kbdIrqs - kbd0;
+	if (dsb || duart || dkbd)
+		t.nestedFaults++;
+	t.nestedSb += dsb;
+	t.nestedUart += duart;
+	t.nestedKbd += dkbd;
+}
+
+} // End of anonymous namespace
+
+void pagefaultSelftestStart(int kb, int hz) {
+	PfTest &t = g_pf;
+	memset(&t, 0, sizeof(t));
+	uint32 freeKb = 0;
+	__dpmi_free_mem_info info;
+	if (__dpmi_get_free_memory_information(&info) == 0 && info.total_number_of_free_pages != 0xFFFFFFFF)
+		freeKb = (uint32)info.total_number_of_free_pages * 4;
+	if (kb < 0)
+		kb = (int)((uint64)freeKb * (uint32)-kb / 100);
+	t.pages = ((uint32)kb * 1024 + 4095) / 4096;
+	if (!t.pages) {
+		g_system->logMessage(LogMessageType::kInfo, Common::String::format(
+			"DOS: pf selftest: an empty buffer (%u KB physical free); not started\n", (uint)freeKb).c_str());
+		return;
+	}
+	t.buf = (byte *)malloc(t.pages * 4096);
+	t.stamp = (uint32 *)calloc(t.pages, sizeof(uint32));
+	if (!t.buf || !t.stamp) {
+		g_system->logMessage(LogMessageType::kInfo, "DOS: pf selftest: no memory for the buffer\n");
+		return;
+	}
+	for (uint32 i = 0; i < t.pages; ++i) {
+		t.stamp[i] = ((++t.gen) * 2654435761u) | 1;
+		pfStamp((volatile uint32 *)(t.buf + i * 4096), t.stamp[i]);
+	}
+	t.rng = 0x2545F491;
+	if (DOS::haveTsc()) {
+		const uint32 m0 = g_system->getMillis();
+		while (g_system->getMillis() == m0)
+			;
+		const uint64 c0 = DOS::irqRdtsc();
+		const uint32 m1 = g_system->getMillis();
+		while (g_system->getMillis() - m1 < 100)
+			;
+		t.tscPerUs = (uint32)((DOS::irqRdtsc() - c0) / 100000);
+		if (!t.tscPerUs)
+			t.tscPerUs = 1;
+	}
+	// The Sound Blaster's interrupts, counted in front of SDL3's handler.
+	const char *blasterEnv = getenv("BLASTER");
+	if (blasterEnv) {
+		const DOS::BlasterConfig blaster = DOS::parseBlaster(blasterEnv);
+		t.sbVector = blaster.irq < 8 ? 8 + blaster.irq : 0x70 + blaster.irq - 8;
+		t.sbChain.pm_offset = (unsigned long)sbIrqCount;
+		t.sbChain.pm_selector = _go32_my_cs();
+		lockSelftestIrqCode();
+		DOS::lockIrqData(&g_sbIrqs, sizeof(g_sbIrqs));
+		_go32_dpmi_get_protected_mode_interrupt_vector(t.sbVector, &t.sbOld);
+		t.chained = _go32_dpmi_chain_protected_mode_interrupt_vector(t.sbVector, &t.sbChain) == 0;
+	}
+	// And the keyboard's (IRQ 1), in front of SDL3's.
+	t.kbdChain.pm_offset = (unsigned long)kbdIrqCount;
+	t.kbdChain.pm_selector = _go32_my_cs();
+	lockSelftestIrqCode();
+	DOS::lockIrqData(&g_kbdIrqs, sizeof(g_kbdIrqs));
+	_go32_dpmi_get_protected_mode_interrupt_vector(9, &t.kbdOld);
+	t.kbdChained = _go32_dpmi_chain_protected_mode_interrupt_vector(9, &t.kbdChain) == 0;
+	t.lastLog = g_system->getMillis();
+	g_pfOn = true;
+	g_system->getTimerManager()->installTimerProc(pfProc, 1000000 / (hz > 0 ? hz : 100), nullptr, "dosPagefaultSelftest");
+	g_system->logMessage(LogMessageType::kInfo, Common::String::format(
+		"DOS: pf selftest: %u pages (%u KB physical free before), %d Hz, random walk, TSC %u/us, sb chain %s, kbd chain %s\n",
+		(uint)t.pages, (uint)freeKb, hz, (uint)t.tscPerUs,
+		t.chained ? "on" : "off", t.kbdChained ? "on" : "off").c_str());
+}
+
+void pagefaultSelftestPoll() {
+	if (!g_pfOn)
+		return;
+	PfTest &t = g_pf;
+	const uint32 now = g_system->getMillis();
+	if (now - t.lastLog >= kPfLogMs) {
+		t.lastLog = now;
+		pagefaultSelftestLog();
+		DosTimerManager::logStats();
+	}
+}
+
+void pagefaultSelftestLog() {
+	if (!g_pfOn)
+		return;
+	// A snapshot, taken with interrupts off: the procs go on running from
+	// IRQ0 while this formats.
+	PfTest t;
+	uint32 sbIrqs, kbdIrqs, uartIrqs;
+	{
+		uint32 flags;
+		__asm__ __volatile__("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
+		memcpy(&t, &g_pf, sizeof(t));
+		sbIrqs = g_sbIrqs;
+		kbdIrqs = g_kbdIrqs;
+		uartIrqs = uartIrqCount();
+		if (flags & 0x200)
+			__asm__ __volatile__("sti" : : : "memory");
+	}
+	static const char *const kWhere[3] = { "loop", "irq0", "call" };
+	Common::String line = "DOS: pf selftest";
+	static const int kOrder[3] = { DosTimerManager::kProcsInIrq0, DosTimerManager::kProcsAfterCall, DosTimerManager::kProcsNone };
+	for (int i = 0; i < 3; ++i) {
+		const int w = kOrder[i];
+		const PfCounts &c = t.ctx[w];
+		// The read times by bin: <1, <3, <10, <30, <100, <1000 us, and more.
+		line += Common::String::format(" %s: touches=%u slow=%u (>=1ms %u) max_us=%u bins=",
+			kWhere[w], (uint)c.touches, (uint)c.faults, (uint)c.faults1ms, (uint)c.maxUs);
+		for (uint b = 0; b < kPfBinCount; ++b)
+			line += Common::String::format("%s%u", b ? "/" : "", (uint)c.bins[b]);
+		line += ";";
+	}
+	line += Common::String::format(" nested faults=%u sb=%u uart=%u kbd=%u; bad=%u; irqs sb=%u uart=%u kbd=%u\n",
+		(uint)t.nestedFaults, (uint)t.nestedSb, (uint)t.nestedUart, (uint)t.nestedKbd, (uint)t.bad,
+		(uint)sbIrqs, (uint)uartIrqs, (uint)kbdIrqs);
+	g_system->logMessage(LogMessageType::kInfo, line.c_str());
+}
+
+void pagefaultSelftestStop() {
+	if (!g_pfOn)
+		return;
+	g_pfOn = false;
+	g_system->getTimerManager()->removeTimerProc(pfProc);
+	// Before SDL3 closes the audio device and puts back the vector it found.
+	if (g_pf.chained) {
+		_go32_dpmi_set_protected_mode_interrupt_vector(g_pf.sbVector, &g_pf.sbOld);
+		g_pf.chained = false;
+	}
+	if (g_pf.kbdChained) {
+		_go32_dpmi_set_protected_mode_interrupt_vector(9, &g_pf.kbdOld);
+		g_pf.kbdChained = false;
+	}
+}
+
+} // End of namespace DOS
+
+bool OSystem_DOS::pollEvent(Common::Event &event) {
+	flushDeferredLog();
+	DOS::pagefaultSelftestPoll();
+	if (_statsLogMs && (int32)(getMillis() - _statsNextMs) >= 0) {
+		_statsNextMs += _statsLogMs;
+		logAudioStats("tick");
+	}
+	// The IRQ0 handler runs the timers; this is the fallback should it
+	// not have gone in, or not be able to.
+	if (DosTimerManager::procsOnMainThread()) {
+		DosTimerManager::noteEventLoopRun();
+		((DefaultTimerManager *)getTimerManager())->checkTimers();
+	}
+	if (_nullMixer)
+		_nullMixer->update(1);
+	const bool got = _eventSource->pollEvent(event);
+	// A key or click that skips the loading screen is not the game's.
+	if (((DosGraphicsManager *)_graphicsManager)->loadingPoll(got, event))
+		return false;
+	return got;
+}
+
+void OSystem_DOS::logAudioStats(const char *phase) {
+	DOS::AudioStats st;
+	if (DOS::audioStats(st))
+		logMessage(LogMessageType::kInfo, Common::String::format("DOS: audio %s %s\n", phase, DOS::formatAudioStats(st).c_str()).c_str());
+}
+
+void OSystem_DOS::engineInit() {
+	DOS::Loading::enter(DOS::kLoadData);
+	((DosGraphicsManager *)_graphicsManager)->engineStarted();
+	DOS::logMemInfo("engine");
+}
+
+void OSystem_DOS::engineDone() {
+	// An engine that stops before its first frame has failed (no game
+	// data, say), and base/main.cpp's error dialog cannot be shown yet:
+	// the loading screen stops and says so, and stays.
+	if (DOS::Loading::stage() != DOS::Loading::kStageOff)
+		DOS::Loading::halt(nullptr);
+	((DosGraphicsManager *)_graphicsManager)->engineStopped();
+}
+
+void OSystem_DOS::setWindowCaption(const Common::U32String &caption) {
+	// base/main.cpp's runGame() names the game once its engine exists
+	// (setupGraphics() names ScummVM before that). GUIErrorMessage()
+	// (engines/engine.cpp) names the window "Error" and shows a dialog
+	// that cannot be shown yet: the loading screen stops and says so.
+	const Common::String name = caption.encode();
+	if (name == gScummVMFullVersion)
+		return;
+	if (caption == _("Error")) {
+		DOS::Loading::halt(nullptr);
+		((DosGraphicsManager *)_graphicsManager)->loadingHalted();
+		return;
+	}
+	DOS::Loading::setTitle(name);
+	DOS::Loading::enter(DOS::kLoadEngine);
+}
+
+Common::MutexInternal *OSystem_DOS::createMutex() {
+	// The IRQ0 handler preempts the main thread (SDL3's own threads only
+	// switch inside SDL calls): a mutex holds interrupts off.
+	return new DosMutexInternal();
+}
+
+uint32 OSystem_DOS::getMillis(bool skipRecord) {
+	// Called from the timer's interrupt handler too (DefaultTimerManager::
+	// handler()): the tick count is one aligned load.
+	if (DosTimerManager::installed())
+		return DosTimerManager::millis();
+	// Before the handler goes in (or if it could not), and after it comes
+	// out: DJGPP's uclock(), which only reads the PIT and the BIOS tick
+	// count. Not SDL_GetTicks(): this may run under a Common::Mutex --
+	// from a mixer channel inside MixerImpl::mixCallback(), say -- and no
+	// SDL call may, as SDL3's DOS mutex turns interrupts on.
+	// DosTimerManager starts its tick count from the same clock, scaled
+	// the same way: UCLOCKS_PER_SEC (1193180) is not a multiple of 1000,
+	// and dividing by 1193 would run 0.015% fast.
+	return (uint32)((uint64)uclock() * 1000 / UCLOCKS_PER_SEC);
+}
+
+void OSystem_DOS::delayMillis(uint msecs) {
+	// With interrupts off -- in a timer proc, or under a mutex -- the tick
+	// count stands still, and SDL_Delay() (which waits on it) would never
+	// return; nor may a timer proc switch SDL3's threads.
+	if (DosTimerManager::installed() && !DosTimerManager::interruptsEnabled()) {
+		// A timer proc (SCI's MT-32 driver waits ~46 ms after a SysEx in
+		// one) waits with only IRQ0 held back, so the other interrupts are
+		// served; under a mutex on the main thread interrupts stay off,
+		// which is what the mutex is for.
+		if (DosTimerManager::inHandler())
+			DosTimerManager::delayInHandler(msecs);
+		else
+			DosTimerManager::spinMillis(msecs);
+		return;
+	}
+	SDL_Delay(msecs);	// also yields to SDL3's cooperative threads
+}
+
+// The last time of day read from DOS, for a caller with interrupts off.
+static TimeDate g_lastTime;
+
+void OSystem_DOS::getTimeAndDate(TimeDate &td, bool skipRecord) const {
+	// DOS's own local time (INT 21h 2Ah/2Ch), not time()/localtime():
+	// DJGPP's tz code keeps its zone state in malloc'd memory and, with no
+	// zoneinfo installed, never sets that state's leap-second count, so
+	// once the heap has been used localtime() applies garbage corrections
+	// and mktime() (and with it time()) returns -1. In ScummVM the clock
+	// then stood still at a made-up time of day - KQ1's title waits for
+	// the seconds to change and never showed its menu. DOS time has no
+	// zone to convert anyway. Read the date on both sides of the time so
+	// a midnight in between is not missed.
+	//
+	// A timer proc (interrupts off) must not call DOS: it gets the last
+	// time read on the main thread (seeded in initBackend()), which is
+	// copied with interrupts off so it is never seen half-written.
+	uint32 flags;
+	if (!DosTimerManager::interruptsEnabled()) {
+		td = g_lastTime;
+		return;
+	}
+	__dpmi_regs d1, t, d2;
+	do {
+		d1.h.ah = 0x2A;
+		__dpmi_int(0x21, &d1);
+		t.h.ah = 0x2C;
+		__dpmi_int(0x21, &t);
+		d2.h.ah = 0x2A;
+		__dpmi_int(0x21, &d2);
+	} while (d1.h.dl != d2.h.dl);
+	td.tm_sec = t.h.dh;
+	td.tm_min = t.h.cl;
+	td.tm_hour = t.h.ch;
+	td.tm_mday = d2.h.dl;
+	td.tm_mon = d2.h.dh - 1;
+	td.tm_year = d2.x.cx - 1900;
+	td.tm_wday = d2.h.al;
+	__asm__ __volatile__("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
+	g_lastTime = td;
+	if (flags & 0x200)
+		__asm__ __volatile__("sti" : : : "memory");
+}
+
+// The synthesizers' silencers (dos-silence.h). Main thread and exit only.
+static const int kMaxSilencers = 4;
+static struct {
+	DOS::SilenceProc proc;
+	void *param;
+} g_silencers[kMaxSilencers];
+
+void DOS::addSilencer(SilenceProc proc, void *param) {
+	for (int i = 0; i < kMaxSilencers; ++i) {
+		if (!g_silencers[i].proc) {
+			g_silencers[i].proc = proc;
+			g_silencers[i].param = param;
+			return;
+		}
+	}
+}
+
+void DOS::removeSilencer(SilenceProc proc, void *param) {
+	for (int i = 0; i < kMaxSilencers; ++i) {
+		if (g_silencers[i].proc == proc && g_silencers[i].param == param)
+			g_silencers[i].proc = nullptr;
+	}
+}
+
+void DOS::silenceAll() {
+	for (int i = 0; i < kMaxSilencers; ++i) {
+		const SilenceProc proc = g_silencers[i].proc;
+		g_silencers[i].proc = nullptr;
+		if (proc)
+			proc(g_silencers[i].param);
+	}
+}
+
+static_assert(DOS::kExitQuitBlaster == DOS::kExitQuitAudio + 1 && DOS::kExitQuitVideo == DOS::kExitQuitAudio + 2 &&
+			  DOS::kExitQuitSdl == DOS::kExitQuitAudio + 3, "quitSdl() numbers its steps from the first");
+static_assert(DOS::kExitFatalBlaster == DOS::kExitFatalAudio + 1 && DOS::kExitFatalVideo == DOS::kExitFatalAudio + 2 &&
+			  DOS::kExitFatalSdl == DOS::kExitFatalAudio + 3, "quitSdl() numbers its steps from the first");
+static_assert(DOS::kExitMainBlaster == DOS::kExitMainAudio + 1 && DOS::kExitMainVideo == DOS::kExitMainAudio + 2 &&
+			  DOS::kExitMainSdl == DOS::kExitMainAudio + 3, "quitSdl() numbers its steps from the first");
+
+// SDL_Quit() in steps, in its own order (audio, then video, then the
+// rest), with a trace mark after each from @p firstStep on; between the
+// audio and the video the Sound Blaster is reset and its IRQ put back as
+// it was (DOS::soundBlasterClosed()).
+static void quitSdl(int firstStep) {
+	SDL_QuitSubSystem(SDL_INIT_AUDIO);
+	DOS::exitMark(firstStep, "SDL audio closed");
+	DOS::soundBlasterClosed();
+	DOS::exitMark(firstStep + 1, "Sound Blaster reset, its IRQ mask back");
+	SDL_QuitSubSystem(SDL_INIT_VIDEO);	// text mode back, keyboard interrupt unhooked
+	DOS::exitMark(firstStep + 2, "SDL video closed: text mode");
+	SDL_Quit();
+	DOS::exitMark(firstStep + 3, "SDL_Quit done");
+}
+
+void OSystem_DOS::quit() {
+	DOS::exitMark(DOS::kExitQuit, "quit()");
+	logAudioStats("quit");
+	DOS::logMemInfo("quit");
+	DOS::exitMark(DOS::kExitQuitMemInfo, "memory logged");
+	DOS::pagefaultSelftestStop();
+	DosTimerManager::shutdown();	// no timer procs while SDL goes away
+	DOS::exitMark(DOS::kExitQuitTimer, "timer out");
+	// exit() skips the engine's shutdown, where the music drivers would
+	// have stopped their notes.
+	DOS::silenceAll();
+	DOS::exitMark(DOS::kExitQuitSilenced, "synthesizers silenced");
+	quitSdl(DOS::kExitQuitAudio);
+	DOS::Loading::teardown();
+	DOS::exitMark(DOS::kExitQuitLoading, "loading screen down");
+	DOS::exitMark(DOS::kExitQuitExit, "exit(0)");
+	exit(0);
+}
+
+// The last error() message, for the text screen fatalError() leaves.
+static char g_lastError[256];
+
+void OSystem_DOS::fatalError() {
+	DOS::exitMark(DOS::kExitFatal, "fatalError()");
+	DosTimerManager::shutdown();
+	DOS::exitMark(DOS::kExitFatalTimer, "timer out");
+	DOS::silenceAll();
+	DOS::exitMark(DOS::kExitFatalSilenced, "synthesizers silenced");
+	quitSdl(DOS::kExitFatalAudio);	// text mode back (cleared), whether a game mode was set or not
+	DOS::Loading::teardown();
+	if (g_lastError[0]) {
+		fputs("ScummVM: ", stderr);
+		fputs(g_lastError, stderr);
+		fputs("See SCUMMVM.LOG.\n", stderr);
+	}
+	DOS::exitMark(DOS::kExitFatalLoading, "loading screen down, error shown");
+	DOS::exitMark(DOS::kExitFatalExit, "exit(1)");
+	exit(1);
+}
+
+// Log text that came in with interrupts off -- from a timer proc, which
+// runs in the IRQ0 handler, or under a Common::Mutex. Writing the file
+// there would be a DOS call, and DOS turns interrupts on: see timerIsr().
+// Nothing here allocates.
+static const uint kDeferredLogSize = 16384;	// a power of two
+static char g_deferredLog[kDeferredLogSize];
+static uint g_deferredHead = 0;		// interrupts off
+static uint g_deferredTail = 0;		// interrupts off
+static uint g_deferredDropped = 0;	// characters
+
+static void appendLog(const char *text, uint len) {
+	FILE *f = fopen("SCUMMVM.LOG", "a");
+	if (f) {
+		fwrite(text, 1, len, f);
+		fclose(f);
+	}
+}
+
+// Interrupts are off. A message that does not fit whole is dropped.
+static void deferLog(const char *message) {
+	const uint len = strlen(message);
+	const uint used = (g_deferredHead - g_deferredTail) & (kDeferredLogSize - 1);
+	if (len > kDeferredLogSize - 1 - used) {
+		g_deferredDropped += len;
+		return;
+	}
+	for (uint i = 0; i < len; ++i)
+		g_deferredLog[(g_deferredHead + i) & (kDeferredLogSize - 1)] = message[i];
+	g_deferredHead = (g_deferredHead + len) & (kDeferredLogSize - 1);
+}
+
+// Writes out whatever deferLog() kept, once interrupts are on.
+static void flushDeferredLog() {
+	if (!DosTimerManager::interruptsEnabled())
+		return;
+	char chunk[512];
+	for (;;) {
+		uint n = 0, dropped = 0;
+		uint32 flags;
+		__asm__ __volatile__("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
+		while (n < sizeof(chunk) && g_deferredTail != g_deferredHead) {
+			chunk[n++] = g_deferredLog[g_deferredTail];
+			g_deferredTail = (g_deferredTail + 1) & (kDeferredLogSize - 1);
+		}
+		if (n == 0) {
+			dropped = g_deferredDropped;
+			g_deferredDropped = 0;
+		}
+		if (flags & 0x200)
+			__asm__ __volatile__("sti" : : : "memory");
+		if (n == 0) {
+			if (dropped) {
+				Common::String note = Common::String::format(
+					"DOS: %u characters of log from interrupt time lost\n", dropped);
+				appendLog(note.c_str(), note.size());
+			}
+			return;
+		}
+		appendLog(chunk, n);
+	}
+}
+
+static void flushDeferredLogAtExit() {
+	DOS::exitMark(DOS::kExitAtexitLog, "atexit: log flush");
+	flushDeferredLog();
+	DOS::exitMark(DOS::kExitAtexitLogDone, "log flushed");
+}
+
+void OSystem_DOS::logMessage(LogMessageType::Type type, const char *message) {
+	if (type == LogMessageType::kError)
+		Common::strlcpy(g_lastError, message, sizeof(g_lastError));
+	// The screen is in a graphics mode; the log is the only place output
+	// can go.
+	if (!DosTimerManager::interruptsEnabled()) {
+		deferLog(message);
+		return;
+	}
+	// Not from interrupt time: halt() reads the same buffer on the main
+	// thread, unlocked.
+	if (type == LogMessageType::kError || type == LogMessageType::kWarning)
+		DOS::Loading::noteWarning(message);
+	flushDeferredLog();
+	appendLog(message, strlen(message));
+}
+
+void OSystem_DOS::addSysArchivesToSearchSet(Common::SearchSet &s, int priority) {
+	Common::FSNode data("DATA");
+	if (data.isDirectory())
+		s.add("dosdata", new Common::FSDirectory(data, 4), priority);
+}
+
+static void loadingTeardownAtExit() {
+	DOS::exitMark(DOS::kExitAtexitLoading, "atexit: loading screen");
+	DOS::Loading::teardown();
+}
+
+// Registered first, so it runs after every other atexit() handler.
+static void atexitDone() {
+	DOS::exitMark(DOS::kExitAtexitDone, "atexit handlers done");
+}
+
+int main(int argc, char *argv[]) {
+	// Before anything allocates: under any DPMI host but CWSDPMI r7 (at
+	// ring 3) this locks the image and the heap as crt0 would have, and
+	// the large blocks.
+	DOS::chooseLockRegime();
+	// Before SDL3 or the timer touch the PIC.
+	DOS::saveIrqMasks();
+	DOS::installExitSignals();
+	atexit(atexitDone);
+
+	// Names this run for the self-test and the shared log (SCI.EXE or
+	// SCUMM.EXE), before anything might log.
+	DOS::setExeName(argc > 0 ? argv[0] : nullptr);
+
+	// Before the first FPU instruction (SDL_Init() has some): without an
+	// FPU or its emulator that would end in a crash dump.
+	if (!DOS::fpuUsable()) {
+		const Common::String msg = Common::String::format(
+			"%s needs a math coprocessor (FPU): a 486DX, a Pentium or later, or a\n"
+			"486SX or 386 with an FPU fitted. Without one it runs, slowly, on its\n"
+			"built-in FPU emulator, but this DPMI host (%s) would not trap FPU\n"
+			"instructions for it. Use CWSDPMI.EXE (the one beside %s). If this\n"
+			"PC has an FPU, remove 387=N from the environment.\n",
+			DOS::exeName(), DOS::dpmiHost(), DOS::exeName());
+		fputs(msg.c_str(), stderr);
+		appendLog(("DOS: " + msg).c_str(), msg.size() + 5);
+		return 1;
+	}
+
+	// Before anything can call stat(), mktime() or localtime(): with TZ
+	// unset and no zoneinfo, DJGPP's time-zone code uses a leap-second
+	// count it never set (see getTimeAndDate()) and walks that many bogus
+	// corrections in every conversion, some 200 ms each at 60000 cycles.
+	// stat() converts file times with it: seconds in all before a game
+	// starts. A zone given in TZ is parsed with no leap seconds. The
+	// clock itself comes from DOS, which has no zone, so UTC changes no
+	// time we show; a TZ the user set is kept.
+	setenv("TZ", "UTC0", 0);
+	tzset();
+
+	// The text loading screen, when the command line starts a game; the
+	// graphics mode waits for the game's (DOS::Loading).
+	DOS::Loading::start(argc, argv);
+	atexit(loadingTeardownAtExit);
+
+	// SDL3's VESA driver maps the framebuffer through the "fat DS" pointer.
+	if (!__djgpp_nearptr_enable()) {
+		fputs("__djgpp_nearptr_enable failed (needs a DPMI host that allows it)\n", stderr);
+		return 1;
+	}
+	dosHeapEnableLargeBlocks();
+	g_system = new OSystem_DOS();
+	int res = scummvm_main(argc, argv);
+	DOS::exitMark(DOS::kExitMainReturned, "scummvm_main returned");
+	g_system->destroy();	// deletes the graphics manager, and with it the window
+	DOS::exitMark(DOS::kExitMainDestroyed, "backend destroyed");
+	quitSdl(DOS::kExitMainAudio);	// text mode back, keyboard interrupt unhooked
+#ifdef DISABLE_GUI
+	// No error dialog in this build: the last error logged (no game named,
+	// a game that would not start) goes on the text screen.
+	DOS::Loading::teardown();
+	if (g_lastError[0]) {
+		fputs("ScummVM: ", stderr);
+		fputs(g_lastError, stderr);
+		fputs("See SCUMMVM.LOG.\n", stderr);
+		if (res == 0)
+			res = 1;
+	}
+#endif
+	DOS::exitMark(DOS::kExitMainLoading, "loading screen down");
+	DOS::exitMark(DOS::kExitMainReturn, "main() returns");
+	return res;
+}
+
+#endif
