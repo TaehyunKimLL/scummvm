@@ -194,3 +194,8 @@ independent-model tests of what the diff changed, run under ASan+UBSan.
   `TMPDIR=~/work/tmp/p5-tmp`; with `~/work/tmp/p5w/tmp` one of them failed on a missing temp parent: environment, not code).
 - Read-through findings: none that needed a fix. Observations recorded above (a9: result buffer assert at 8000 bytes on the
   byte path).
+- Review tests commit 860f4db03e9 (+2: 694 total with the a1 follow-up).
+
+### d1: the string trailer unit
+- Red: `No rule to make target 'engines/agi/saved_strings.o'`. Green: **699** (+5), 0 warnings. `test/module.mk` and
+  `engines/agi/module.mk` now equal the prototype's.
