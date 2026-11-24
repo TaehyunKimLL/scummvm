@@ -155,11 +155,14 @@ MidiDriver_DosMPU::MidiDriver_DosMPU(uint16 base) : _data(base), _status(base + 
 }
 
 void MidiDriver_DosMPU::setTimerCallback(void *timerParam, Common::TimerManager::TimerProc timerProc) {
-	if (timerProc && !_clientProc) {
+	if (timerProc) {
+		// A new callback replaces the old one (the counting proc already installed stays: it calls whichever is current).
+		const bool first = !_clientProc;
 		_clientParam = timerParam;
 		_clientProc = timerProc;
-		MidiDriver_MPU401::setTimerCallback(this, &countingTimerProc);
-	} else if (!timerProc) {
+		if (first)
+			MidiDriver_MPU401::setTimerCallback(this, &countingTimerProc);
+	} else {
 		MidiDriver_MPU401::setTimerCallback(nullptr, nullptr);
 		_clientProc = nullptr;
 	}
@@ -348,9 +351,10 @@ void MidiDriver_DosMPU::sysEx(const byte *msg, uint16 length) {
 	Common::StackLock lock(_mutex);
 	bool ok = sendBytes(&start, 1) && sendBytes(msg, length) && sendBytes(&end, 1);
 	if (_ring) {
-		// Log it as one message: F0 <msg> F7.
+		// Log it as one message: F0 <msg> F7. The length field has 15 bits (bit 15 marks a cut message): a longer
+		// message would carry its length into that flag and desynchronise every later record, so it is not logged.
 		uint32 need = 10 + length + 2;
-		if (kLogRingSize - (_head - _tail) < need) {
+		if (length + 2 >= 0x8000 || kLogRingSize - (_head - _tail) < need) {
 			++_logDropped;
 			return;
 		}
