@@ -24,3 +24,8 @@ Tasks are committed one by one; the sha of a task is written into the log by the
   existed; the plan's `textcells.h: No such file` would come one step later). Green: **653** (N0 + 5).
 - D14.1 mutation (the `if (utf8) wordEndChar = 0;` removed): `Failed 2 of 653`: `fixed > 0u` and `bad == 0u`, found
   9150 != 0 invalid lines; restored.
+
+### a1 996f87e7484 (sha of a1)
+
+### a2: text mode
+- Red: `No rule to make target 'engines/agi/textmode.o'`. Green: **658** (N0 + 10), 0 warnings.

@@ -40,6 +40,7 @@ MODULE_OBJS := \
 	sound_sarien.o \
 	sprite.o \
 	systemui.o \
+	textmode.o \
 	text.o \
 	textcells.o \
 	view.o \
