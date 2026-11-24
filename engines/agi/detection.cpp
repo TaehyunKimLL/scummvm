@@ -406,13 +406,14 @@ ADDetectedGames AgiMetaEngineDetection::detectGame(
 	// the overlay itself (loadTranslationOverlay).
 	Common::Language detectLanguage = language;
 	if (language != Common::UNK_LANG && language != Common::EN_ANY) {
-		const char *code = Common::getLanguageFolderCode(language);
-		const Common::String overlayName = Common::String::format("agi-%s.str", code);
-		bool overlay = allFiles.contains(Common::Path(overlayName, Common::Path::kNoSeparator));
-		if (!overlay && code) {
-			Common::FSDirectory dir(parent);
-			Common::ScopedPtr<Common::FSDirectory> langDir(dir.getSubDirectory(code));
-			overlay = langDir && langDir->hasFile(Common::Path(overlayName));
+		// The same rule detectGames() offers the variant by (a language folder with the table or
+		// a hi-res text map, or the table beside the game), or the launcher adds a target that fails.
+		bool overlay = false;
+		Common::FSList files;
+		if (parent.getChildren(files, Common::FSNode::kListAll)) {
+			const Common::Array<Common::Language> langs = overlayLanguages(files);
+			for (uint i = 0; i < langs.size() && !overlay; ++i)
+				overlay = langs[i] == language;
 		}
 		if (overlay)
 			detectLanguage = Common::UNK_LANG;
