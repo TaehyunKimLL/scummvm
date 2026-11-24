@@ -154,6 +154,7 @@ conf_args=(--host=i586-pc-msdosdjgpp
 if "$src/configure" --help | grep -q -- '--disable-debug-socket'; then
 	conf_args+=(--disable-debug-socket)
 fi
+# (C files need no CFLAGS of their own: the svf C objects take $(CXXFLAGS) minus the C++-only flags, graphics/module.mk.)
 # DOS_MARCH=i486: a 486 build for machines without Pentium instructions (D-4: not the shipped one).
 march_flags=
 case "$DOS_MARCH" in
@@ -189,6 +190,11 @@ config_current() {
 	fi
 	if [ -n "$march_flags" ] && ! grep -q "^SAVED_CXXFLAGS.*$march_flags" config.mk; then
 		echo "build-dos.sh: $out/config.mk lacks $march_flags; configuring again." >&2
+		return 1
+	fi
+	# And the other way: a directory configured for the 486 is not reused for the (default) Pentium build.
+	if [ -z "$march_flags" ] && grep -q '^SAVED_CXXFLAGS.*-march=i486' config.mk; then
+		echo "build-dos.sh: $out/config.mk was configured with DOS_MARCH=i486; configuring again." >&2
 		return 1
 	fi
 	case " $cpp " in
