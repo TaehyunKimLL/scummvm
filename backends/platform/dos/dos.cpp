@@ -219,11 +219,6 @@ void OSystem_DOS::initBackend() {
 	// dos_loading_screen=false: no loading screen (DOS::Loading), the
 	// launcher's mode set at once as before.
 	ConfMan.registerDefault("dos_loading_screen", true);
-	// The engine data staged beside the EXE (stage-data.py: DATA\HIRES_TE\...): a data: face or map is looked for in
-	// DATA, relative to the home folder (PLAY runs the engine from it, as dos.cpp's search set already assumes). The
-	// transient domain, so that it is not written to the INI and a user's own extrapath still comes after it.
-	if (!ConfMan.hasKey("extrapath", Common::ConfigManager::kTransientDomain))
-		ConfMan.setPath("extrapath", Common::Path("DATA", '/'), Common::ConfigManager::kTransientDomain);
 	// hires_text_whole_kb: a hi-res face file of at most this many KB is read whole, a larger one streamed.
 	// A streamed precomposed face costs its 30-50 KB tables plus a 65 KB block cache against 100-340 KB
 	// whole; jamo measured the per-seek cost of streaming under DOSBox and chose whole-file reads up to

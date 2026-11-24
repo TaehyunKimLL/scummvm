@@ -146,7 +146,10 @@ conf_args=(--host=i586-pc-msdosdjgpp
 	"${codec_args[@]}"
 	--disable-theoradec --disable-mpeg2 --disable-faad --disable-a52
 	--disable-freetype2 --disable-fribidi --disable-lua
-	--disable-detection-full --disable-translation --enable-release)
+	--disable-detection-full --disable-translation --enable-release
+	--datadir=DATA)
+# --datadir=DATA: DATA_PATH, the last place a data: face or map is looked for (hires_files.cpp), is the DATA folder of the home
+# the engine runs from (PLAY's rule), so a user's own extrapath comes first and nothing is forced on it.
 # The debug socket's UART transport comes with ko/07-debugsocket: until configure knows the option it is not asked for.
 if "$src/configure" --help | grep -q -- '--disable-debug-socket'; then
 	conf_args+=(--disable-debug-socket)
