@@ -22,6 +22,7 @@
 #include "graphics/hires_text/font_set.h"
 
 #include "common/algorithm.h"
+#include "common/ptr.h"
 #include "common/stream.h"
 #include "common/util.h"
 
@@ -75,6 +76,34 @@ SvfFace *HiResFaceCache::get(const HiResFaceRef &ref, HiResLoadMode mode, Common
 	return face;
 }
 
+void HiResFaceCache::warm(SvfFace *face, const HiResFaceRef &ref, const HiResMap &map, Common::Array<Common::String> &warnings) {
+	// [preload] lists the characters a game draws with a streamed face: reading their glyphs once at load fills the block
+	// cache, so the first dialogue line does not seek the font file glyph by glyph (DESIGN 5.2, 8).
+	if (!face || !face->isStreamed() || _warmed.contains(ref.key()) || !map.preloads.contains(ref.name))
+		return;
+	_warmed[ref.key()] = true;
+	const HiResFaceRef &list = map.preloads[ref.name];
+	const Common::Path path = _files.locate(list);
+	Common::ScopedPtr<Common::SeekableReadStream> s(path.empty() ? nullptr : _files.open(path));
+	if (!s) {
+		warnings.push_back(Common::String::format("preload %s (%s): not found", list.name.c_str(), list.key().c_str()));
+		return;
+	}
+	Common::Array<byte> cell(face->getCellBytes() * 2);	// a composed syllable of a streamed face reads pieces into the second half
+	while (!s->eos() && !s->err()) {
+		const Common::String line = s->readLine();
+		if (line.hasPrefix("#"))
+			continue;
+		for (const char *p = line.c_str(), *end = p + line.size(); p < end;) {
+			uint32 cp;
+			bool invalid;
+			p += decodeUtf8(p, end, cp, invalid);
+			if (!invalid && face->has(cp))
+				svf_glyph(face->raw(), cp, cell.data(), cell.size());
+		}
+	}
+}
+
 HiResFontSet::HiResFontSet() {
 }
 
@@ -107,6 +136,7 @@ bool HiResFontSet::build(const HiResIdPlan &plan, const HiResMap &map, HiResFace
 		for (uint f = 0; f < plan.chains[c].faces.size(); ++f) {
 			const HiResFaceRef &ref = plan.chains[c].faces[f];
 			SvfFace *face = faces.get(ref, map.loadModeFor(ref), warnings);
+			faces.warm(face, ref, map, warnings);
 			if (face && chain->addFace(face))
 				tallest = MAX<int>(tallest, face->getCellHeight());
 		}
