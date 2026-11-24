@@ -149,3 +149,11 @@ Tasks are committed one by one; the sha of a task is written into the log by the
   look-at-bar reply in Korean (`agi-p5c-look-bar-reply.png`, viewed: `레프티 술집 밖이다. 네온 몇 개로 이런 광경을 만들 수
   있다니 놀랍지 않은가?`); English `look at bar` (with `hangul_start=false`; with the composer on, Latin keys are jamo until
   Han/Yeong is toggled) gives the same box (`agi-p5c-english-look-at-bar.png`).
+- c2 sha 742532078f2.
+
+### c3: the LSL1 said() gate on real data
+- `$BLD/korean-packs/{LSL1AGI -> ~/work/tmp/p5/data/lsl1ko3, LSL1AGI-said/{pairs,saids}.tsv}` set up as the plan says.
+- Without the folder: `Warning: korean-packs/LSL1AGI and LSL1AGI-said are not in the working directory: LSL1 said() check
+  skipped`, passes. With it: 778 pairs, **pass 691, partial 23, nomatch 20, unknown 7, order 6, english 31** (= jamo's
+  `said8.txt`). Red: expected pass 692 for one run -> `Expected (pass == 692u), found (691 != 692)`, `Failed 1 of 692`; restored.
+  Build 692 (+1), 0 warnings. Objects `words.o` and `agi_test_stubs.o` are named explicitly, never `libagi.a`.
