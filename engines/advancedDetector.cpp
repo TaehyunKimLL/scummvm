@@ -32,9 +32,11 @@
 #include "common/textconsole.h"
 #include "common/tokenizer.h"
 #include "common/translation.h"
+#ifndef DISABLE_DETECTION_ARCHIVES
 #include "common/compression/clickteam.h"
 #include "common/compression/installshield_cab.h"
 #include "common/compression/installshieldv3_archive.h"
+#endif
 #include "gui/EventRecorder.h"
 #include "gui/gui-manager.h"
 #include "gui/message.h"
@@ -632,6 +634,7 @@ static bool getFilePropertiesIntern(uint md5Bytes, const AdvancedMetaEngineBase:
 		if (!archive) {
 			// Archive not in cache. Find the appropriate type based on the type string,
 			// open the archive, and add it to the cache
+#ifndef DISABLE_DETECTION_ARCHIVES
 			if (archiveType.equals("is")) {
 				// InstallShield (v4 and up)
 				archive = Common::makeInstallShieldArchive(allFiles[archiveName]);
@@ -653,7 +656,9 @@ static bool getFilePropertiesIntern(uint md5Bytes, const AdvancedMetaEngineBase:
 				ADCacheMan.addArchive(allFiles[archiveName], archive);
 				if (!archive)
 					return false;
-			} else {
+			} else
+#endif
+			{
 				debugC(3, kDebugGlobalDetection, "WARNING: Archive type string '%s' not recognized", archiveType.c_str());
 				return false;
 			}
