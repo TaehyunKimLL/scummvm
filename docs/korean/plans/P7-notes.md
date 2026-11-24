@@ -238,3 +238,5 @@ H8 the BATs' `SET` trailing-space quirk (BATs not exercised; PLAY was started fr
 
 The review fixes are listed with evidence in `P7-fixes.md`. Corrections to earlier entries: the exhaustive Blend16 count is 5 x 6 x 254 x 65,536 = 499,384,320 (earlier text said 499,404,800);
 `ee7f90931dc` forced `extrapath=DATA` first in the transient domain, the message said otherwise (fixed by 64d70b37021, DATA is now the last root).
+
+Second review round: see the second half of `P7-fixes.md` (index for wildcard save listings, ring on exclusive pages, IRQ 2 as 9, PLAY-layout memory numbers in the README).

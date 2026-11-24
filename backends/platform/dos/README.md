@@ -90,7 +90,8 @@ backend's own `DOS: memory <phase>` log lines; the GUI is compiled in. Free = `d
 | SCUMM.EXE (5,688,832 B) | Monkey Island 1 Korean, 320x200 8 bpp | 6,672 KB | 6,272 KB |
 | AGI.EXE (3,940,864 B) | AGI Demo (English), 320x200 8 bpp | 10,400 KB | 8,748 KB |
 
-PLAY.EXE is 279,040 B. Every EXE keeps more than 2 MB free at its measured worst
+Started through PLAY.EXE (the layout of the packages; PLAY stays resident, about 290 KB) the same KQ1 5-6-5 run has 4,400-4,412 KB
+free at the first frame: the table above is for the EXE started by itself. PLAY.EXE is 279,040 B. Every EXE keeps more than 2 MB free at its measured worst
 point with the GUI in (the gate for not carrying a GUI-less build: 2,048 KB); the
 cheapest 32-bit case measured, 3,224 KB, is the one asked for with `rgb888`.
 A 5-6-5 or 1-5-5-5 screen costs 1 MB less than 32 bit: the screen and its copy of the

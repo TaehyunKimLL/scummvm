@@ -38,3 +38,32 @@ UNVERIFIED-ON-HARDWARE list), REJECTED (evidence). ScummVM commits are on `ko/p7
 - The SDL3 fixes are two commits (core, audio) rather than one per item: the audio items edit one file and interleave.
 - Item 2 of C (palette) and some hardware items could not be reproduced; see the table.
 - UBSan: the host test runner was rebuilt with `-fsanitize=address,undefined` (`$B/ubsan`).
+
+# Second round (reviews/P7-opus-r2.md, P7-agy-{shared,dos,sdl3}-r2.md)
+
+Memory: not a regression (Opus): 4,720 KB is the EXE started directly, 4,400-4,412 KB is the same run under PLAY.EXE (resident, ~290 KB); the first-round fixes
+changed free memory by +8..+12 KB. The README has both.
+
+| # | Finding | Status | Commit | Evidence |
+|---|---|---|---|---|
+| N1 | wildcard listings lost the hashed saves (SCI file search, QFG1 -> QFG2 import) | VERIFIED-HOST + EMULATOR | 632e52d32e8 | index `SAVEIDX.TXT` (dosname TAB enginename); a listing matches the pattern against engine names; entry valid only if file exists and `dosPattern(engine) == dos name`; torn/corrupt/stale lines dropped; lost index: exact names and concrete long patterns still work (wildcard listings lose engine names: documented limit). Real manager, new session: `*`, `*.sav`, `kq1-ko-*.sav`, `qfg1-*`, `?` patterns, Hangul bytes, deleted/corrupt index, stale entry. DOSBox-X: save under target `kq1-rgb565` writes `KQ1-U6F4.001` + `SAVEIDX.TXT` (`kq1-u6f4.001<TAB>kq1-rgb565.001`), a new session's F7 lists 한글 (`r2-restore.png`). NOT run in an emulator: a real SCI wildcard FindFirst (QFG1/KQ4 packs not driven to that point) |
+| N2 | non-ASCII bytes in the first 4 characters of a mapped name | VERIFIED-HOST | 632e52d32e8 | every non-DOS character becomes `_` before the full-base hash; test: Hangul-led name maps to 12 ASCII characters |
+| N6 | rename/copy of a missing file onto the same name returned true | VERIFIED-HOST | 632e52d32e8 | `exists(old)`; test |
+| 2 | CWSDPMI lock bit per page: unlocking the ring could unlock a shared page | FIXED-BY-READING-ONLY | SDL3 a50037b96 | ring on 4 KB pages (`SDL_aligned_alloc`), whole pages locked/unlocked; other lock pairs: statics locked forever, DMA buffers are conventional memory, ScummVM heap blocks are page aligned and whole-page. Emulators: SB16/open/close unchanged (smoke x4) |
+| 3a | handler left the SB16 mixer index at 0x82 | FIXED-BY-READING-ONLY | a50037b96 | index saved and restored around the status read |
+| 3b | EOI sent while the vector is chained | DEFERRED | - | the normal path already sends the same single EOI and chains to the previous handler (the BIOS IRET stub for an unused line); making it one-EOI-exact needs `_go32_dpmi_allocate_iret_wrapper` instead of chaining in `DOS_HookInterrupt`, shared by the keyboard and timer hooks; no TSR-chained setup to test |
+| 4 | BLASTER I2 ignored | FIXED-BY-READING-ONLY | a50037b96 | taken as IRQ 9 (DOS_HookInterrupt unmasks slave and cascade); documented in the code |
+| 5 | MPU timer callback stores unguarded; test hygiene | VERIFIED-HOST | 72ce4b07d93, e73d9bb6468 | stores under the mutex; registered-default test guarded and its default put back |
+| 6 | lockText result | FIXED-BY-READING-ONLY | 46a5d2523f6 | real result returned |
+| R1 | standalone configure with Tremor lacks VORBIS_REFILL_SAMPLES | VERIFIED-HOST (reading) | 68fd1f8bb81 | defined in the msdosdjgpp block |
+| R2 | agi edition codec check; DOS_MARCH in config_current | FIXED-BY-READING-ONLY | fdbc9903e51 | |
+| R3 | `hires_text_whole_kb` blanks | VERIFIED-HOST | 07460554461 | `" 64 "` test |
+| R4 | DOS_SBGetStats unconditional sti; counters reset at open | FIXED-BY-READING-ONLY | a50037b96 | IF restored; `isr_irq_count` reset |
+
+Triage of the rest of the recommended list (not done this round, with reasons):
+- PLAY.EXE argument/path/profile bugs (drive-absolute `--path=D:\...`, `--language` ordering, relative argv[0], `ensureProfile` timing, remove-before-rename): DEFERRED, not reproduced or fixed; each needs a launcher test (host suites `dos_play_*` exist) and a DOS run.
+- `build-deps.sh` unquoted paths / hardcoded env.sh, unguarded `rm -rf` in the scripts: only the rm of `$out/DATA` in `build-dos.sh` stage exists and is guarded by the outside-source check; the rest DEFERRED.
+- dos_mpu401 sysEx holding cli over the polling loop; `supportedFormats()` ignoring `dos_force_fallback`; palette bounds checks; `KBD_SCRL`; `startsGame()` option values; `g_lastError` under DISABLE_GUI; `fillStats()` interruptsOn(); MPU `portPresent()`/`queryVramWindow()`; `audio/rate.cpp` assert vs error; dead defines: DEFERRED (hardware-flavoured or cosmetic; none reproduced).
+- STDIOSTREAM_NO_ATOMIC_SUPPORT in-place writes on DOS: accepted risk (8.3 FAT cannot create NAME.EXT.tmp; a power loss during a write can truncate SCUMMVM.INI or a save).
+- SDL3 leftovers: `SDL_dosevents.c` volatile/static parser state, probed DMA channel not persisted, `handlers[]` coverage of `RingCopyOut`/`ISR_GetDMAHalf` (both are `DOS_IRQ_CODE`: inside the linker range by construction; `irqcheck` sb range grew 356 -> 468 bytes and reports 0 indirect exits), canary globals/C++ linkage, `CPU_haveCPUID` red zone, `DOS_LockIRQCodeRange`/LTO, non-atomic 16-bit DMA count read (error at most 256 words, harmless against the half-buffer threshold except at the boundary), SB Pro stereo phase: DEFERRED.
+- Opus N4: `--set` beats session-domain keys, and the same key given through `--set` and its own option is hash-order dependent: DOCUMENTED here (use one). N5: an IRQ0 timer proc that grows the sbrk heap reaches DPMI (the sbrk path): KNOWN LIMIT. M6: 8.3 engine data names: RELEASE BLOCKER for LFN-capable DOS, record only (ko/03-sci work item).
