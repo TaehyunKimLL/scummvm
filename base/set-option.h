@@ -48,6 +48,37 @@ inline bool parseSetOption(const char *option, Common::String &key, Common::Stri
 	return true;
 }
 
+/**
+ * Keys --set may not give: they steer the command line itself (the game and command options, the config file), and
+ * --set=game=x would be taken for --game=x by the checks that run before the settings reach ConfMan. A key is compared
+ * as the settings use it, with '-' as '_', in any case.
+ */
+inline bool isControlSetKey(const Common::String &key) {
+	Common::String k(key);
+	k.toLowercase();
+	for (uint i = 0; i < k.size(); ++i)
+		if (k[i] == '-')
+			k.setChar('_', i);
+	static const char *const control[] = {
+		"set", "config", "initial_cfg", "game", "exit", "recursive", "add", "detect", "auto_detect", "list_games",
+		"list_targets", "list_engines", "list_saves", "list_themes", "list_debugflags", "list_audio_devices",
+		"md5", "md5_path", "md5_length", "md5_engine", "path", "target", "version", "help", nullptr
+	};
+	for (const char *const *c = control; *c; ++c)
+		if (k == *c)
+			return true;
+	return false;
+}
+
+/** The key as the settings store it: '-' as '_'. */
+inline Common::String normalizeSetKey(const Common::String &key) {
+	Common::String k(key);
+	for (uint i = 0; i < k.size(); ++i)
+		if (k[i] == '-')
+			k.setChar('_', i);
+	return k;
+}
+
 } // End of namespace Base
 
 #endif

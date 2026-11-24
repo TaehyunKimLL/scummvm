@@ -290,8 +290,8 @@ static void usage(const char *s, ...) {
 	va_end(va);
 
 	printf(USAGE_STRING, s_appName, buf, s_appName, s_appName);
-#else
-	// No usage text in this build, but still say what was wrong.
+#elif defined(DOS_DJGPP)
+	// No usage text in this build, but still say what was wrong (DOS only: other ports without help text stay silent).
 	char buf[STRINGBUFLEN];
 	va_list va;
 
@@ -777,8 +777,10 @@ Common::String parseCommandLine(Common::StringMap &settings, int argc, const cha
 				Common::String key, value;
 				if (!parseSetOption(option, key, value))
 					usage("--set: expected KEY=VALUE, got '%s'", option);
+				if (isControlSetKey(key))
+					usage("--set: '%s' is not a setting (use its own option)", key.c_str());
 				settings.erase("set");
-				settings[key] = value;
+				settings[normalizeSetKey(key)] = value;
 			END_OPTION
 
 			DO_OPTION('i', "initial-cfg")
