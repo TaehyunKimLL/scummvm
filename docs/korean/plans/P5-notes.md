@@ -166,3 +166,31 @@ Tasks are committed one by one; the sha of a task is written into the log by the
   `parse look at bar` -> `#0: look=2 bar=203`. **`parse 술집을 봐` could not be typed**: the SDL console takes ASCII only, the
   Hangul keystrokes of xdotool are dropped (`Usage: parse <sentence>`); the Korean candidate path is covered by the c3
   gate and the c2 run instead. Screenshots `agi-p5c-console-*.png` (viewed).
+- c4 sha 1e3165af88d.
+
+## Checkpoints A and B (taken together after c4)
+
+Method: critical read of the hooks (agi.cpp, graphics.cpp, words.cpp, logic.cpp, menu/inv/status hooks) and randomized
+independent-model tests of what the diff changed, run under ASan+UBSan.
+- **New tests** (commit after this note): `cell_bounds.h` +1 (`test_compareStringsEqualsUpstream`: `agiStringsEqual` vs a
+  verbatim copy of upstream's `testCompareStrings`, 200000 random pairs incl. bytes >= 0x80 and 40-byte clipping) and
+  `analyze_fuzz.h` (30000 random lines through `Words::analyze` with the real LSL1 dictionary and Korean table: ASCII
+  words, known and made-up Hangul tokens, English words with Korean tails, stray bytes, lines cut inside a multibyte
+  sequence, 700-byte lines, in exact-size heap blocks; invariants: pure (same twice), 1..4 candidates, each <= MAX_WORDS,
+  unknownPos points inside the typed words). Count **694** (N0 + 46). The generator is checked to reach both outcomes.
+  - Finding by the test: `unknownPos` can exceed the candidate length when a line has more than `MAX_WORDS` (20) words and
+    the 21st or later is unknown (`typed.resize(MAX_WORDS)` after `unknownPos` was set). Unreachable from the 40-cell
+    prompt (20 one-cell words fill it); upstream's English path writes `_egoWords[]` past 20 there. Not changed; the test
+    states the bound.
+- Builds: AGI normal **694** OK; ASan+UBSan (`p5-asan`, `-fsanitize=address,undefined`; **`-fno-sanitize=vptr` appended to
+  CXXFLAGS in its config.mk**: with vptr checks `words.o` in the test link needs `typeinfo for Agi::AgiBase`, which the
+  stub-only link does not have) **694** OK, 0 sanitizer lines in the tests; agi+sci+scumm (`p5-all`, with the P4 SCI
+  `korean-packs/` links next to the AGI pack: SCI's pack test asserts a pack was seen) **814** OK; no-engine (`p5-none`) **648** OK
+  (AGI tests absent). 0 compiler warnings in all.
+- Real data, ASan binary (`runs/asan1`): box, composer `술집을 봐` + Return -> Korean reply, Esc menu, Tab inventory: **0
+  AddressSanitizer lines**. 3 UBSan lines `global.cpp:111/115/134: load of value 219 ... not a valid value for type 'bool'`
+  (`_veryFirstInitialCycle`, uninitialised upstream member; `global.cpp` is untouched by this branch: pre-existing).
+- `sync-svf.sh --check` OK, `mkgolden.py --check` rc 0, tools tests `test_k6bake/strcheck/trscheck` OK (with
+  `TMPDIR=~/work/tmp/p5-tmp`; with `~/work/tmp/p5w/tmp` one of them failed on a missing temp parent: environment, not code).
+- Read-through findings: none that needed a fix. Observations recorded above (a9: result buffer assert at 8000 bytes on the
+  byte path).

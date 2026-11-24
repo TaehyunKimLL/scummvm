@@ -293,4 +293,66 @@ public:
 			TS_ASSERT_EQUALS((int)myEnd, (int)upEnd);
 		}
 	}
+
+	// compare.strings: agiStringsEqual() is upstream's testCompareStrings()
+	// (op_test.cpp, v2026.4.0: drop space, tab, - . , : ; ! and ', tolower the
+	// rest, strcmp) for every pair of strings of up to 39 bytes.
+	static bool upstreamCompare(const char *s1, const char *s2) {
+		char ms1[40], ms2[40];
+		int j, k, l;
+		Common::strlcpy(ms1, s1, 40);
+		Common::strlcpy(ms2, s2, 40);
+		l = strlen(ms1);
+		for (k = 0, j = 0; k < l; k++) {
+			switch (ms1[k]) {
+			case 0x20: case 0x09: case '-': case '.': case ',': case ':': case ';': case '!': case '\'':
+				break;
+			default:
+				ms1[j++] = tolower(ms1[k]);
+				break;
+			}
+		}
+		ms1[j] = 0;
+		l = strlen(ms2);
+		for (k = 0, j = 0; k < l; k++) {
+			switch (ms2[k]) {
+			case 0x20: case 0x09: case '-': case '.': case ',': case ':': case ';': case '!': case '\'':
+				break;
+			default:
+				ms2[j++] = tolower(ms2[k]);
+				break;
+			}
+		}
+		ms2[j] = 0;
+		return !strcmp(ms1, ms2);
+	}
+
+	void test_compareStringsEqualsUpstream() {
+		static const char alphabet[] = { 'a', 'A', 'b', 'B', 'z', ' ', '\t', '-', '.', ',', ':', ';', '!', '\'', '1', (char)0xE9, (char)0xC9, (char)0xEA, (char)0xB0 };
+		uint same = 0, different = 0;
+		for (int iter = 0; iter < 200000; iter++) {
+			char a[40], b[40];
+			const int la = rnd() % 8, lb = rnd() % 8;
+			for (int i = 0; i < la; i++)
+				a[i] = alphabet[rnd() % ARRAYSIZE(alphabet)];
+			a[la] = 0;
+			if (rnd() % 3 == 0) { // mostly equal up to the dropped characters and case
+				int n = 0;
+				for (int i = 0; i < la && n < 30; i++) {
+					if (rnd() % 4 == 0)
+						b[n++] = ' ';
+					b[n++] = (rnd() % 2) ? (char)toupper((byte)a[i]) : a[i];
+				}
+				b[n] = 0;
+			} else {
+				for (int i = 0; i < lb; i++)
+					b[i] = alphabet[rnd() % ARRAYSIZE(alphabet)];
+				b[lb] = 0;
+			}
+			const bool up = upstreamCompare(a, b);
+			TS_ASSERT_EQUALS(Agi::TextCells::agiStringsEqual(a, b), up);
+			(up ? same : different)++;
+		}
+		TS_ASSERT(same > 5000u && different > 5000u);
+	}
 };
