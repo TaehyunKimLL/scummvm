@@ -248,3 +248,30 @@ independent-model tests of what the diff changed, run under ASan+UBSan.
 - **Review finding F1** (see `P5-fixes.md`): save-name budget 30 vs the 29 bytes `strlcpy` keeps; found by reading `saveGame()`
   against `stringFitsBudget` and reproduced in play (`runs/d3b`); fixed with a red-first test. Also added
   `test_savedGameLineUtf8KeepsItsShape` (20000 random descriptions: valid UTF-8, exactly 31 cells, <= 124 bytes).
+- **F2** (`P5-fixes.md`): English-path byte identity of the `set.simple` description (stale bytes after the NUL in the save
+  file); found by reading the hook against upstream's `strncpy`; red-first test, fixed.
+
+## Final numbers (all on the final tree, 0 compiler warnings in every build)
+- `make test`: AGI debug build **702** (N0 648 + 54: a1 5, a2 5, a3 10, a4 3, b1 5, c1 11, c3 1, d1 5 = the plan's 45, plus the
+  review tests `cell_bounds.h` 8 and `analyze_fuzz.h` 1) OK, with the real-data said() gate;
+  ASan+UBSan (without vptr, see Checkpoints A and B) **702** OK, 0 sanitizer lines; agi+sci+scumm **824** OK (SCI pack links present);
+  no-engine **648** OK (AGI tests absent); mingw (`x86_64-w64-mingw32`, AGI only) `test/runner.exe` links (not run: no wine),
+  its one warning is upstream's `audio/mac/halestorm.cpp`.
+- said() gate: 778 / pass 691 / partial 23 / nomatch 20 / unknown 7 / order 6 / english 31 (`korean-packs/LSL1AGI`).
+- `sync-svf.sh --check`: `graphics/svf matches svf-fonts-open 3d40de8d940f50ed4a28dfc1851fa776a62f42e5`; `mkgolden.py --check` rc 0;
+  tools tests OK; `check-commit-msg.py` OK for the 25 commits, each with exactly one `Assisted-by: Claude Code`, no Co-Authored-By.
+- English identity (final binary vs the unmodified base, `PIL` bbox None): Lefty's frame, Esc menu, Tab inventory, typed
+  `look at bar` reply and the F5 save dialog on the quiz-skipped pack folder; `lsl1en` quiz frame; fan game
+  `AGI Contest 1 Template`; 0 Korean log lines. A save of the Korean session lists and loads in the base build.
+- Final ASan run (`runs/fin-asan*`): box, status, menu, inventory, composer command, OS-IME command, F5/F7 with a Korean name:
+  0 AddressSanitizer lines, 0 `no face has` lines; 3 UBSan lines in upstream's untouched `global.cpp`.
+
+## Not done / not verifiable here
+- Password round trip through a real save (`켄이 보냈다`): the door has no password prompt in this pack (d4).
+- ScummVM GMM save dialog with an OS-IME name (d4); `parse 술집을 봐` typed in the debugger (the SDL console drops Hangul keys).
+- Hardware Han/Yeong key, OS IMEs with a visible pre-edit, DOS (P7), AGI v3 translations (only the v3 fingerprint was checked), TTS output.
+- Handoff of the section 7 harness dependencies (header line in `agi-ko.str`, `agi-ko.dat` as AGIKOR v3, `HIRESBIT.MAP` in map
+  version 3, key names, save notes): listed in `P5-agi.md` section 7; no agentws card was written from this run.
+- Deviations from the plan's task split are listed per task above (a6/a8/a9 hunk moves, b3 before b2, d2 taking one
+  systemui hunk, c2 taking `collectSaids`).
+
