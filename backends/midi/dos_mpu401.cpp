@@ -157,6 +157,8 @@ MidiDriver_DosMPU::MidiDriver_DosMPU(uint16 base) : _data(base), _status(base + 
 void MidiDriver_DosMPU::setTimerCallback(void *timerParam, Common::TimerManager::TimerProc timerProc) {
 	if (timerProc) {
 		// A new callback replaces the old one (the counting proc already installed stays: it calls whichever is current).
+		// The two stores happen under the mutex (interrupts off): IRQ0 must not call the old proc with the new parameter.
+		Common::StackLock lock(_mutex);
 		const bool first = !_clientProc;
 		_clientParam = timerParam;
 		_clientProc = timerProc;
