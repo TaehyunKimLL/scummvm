@@ -54,6 +54,14 @@ enum { kAgiKoreanVerbClass = 0x0001 };
  */
 bool saidMatches(const AgiSentence &words, const uint16 *spec, int nwords);
 
+/**
+ * A said() instruction's words: @p cc is its count byte followed by little
+ * endian words, @p availBytes the bytes the logic holds from there. Fills
+ * @p spec (257 entries, words the logic does not hold read as 0) and returns
+ * the count byte (0 when there is none).
+ */
+int readSaidSpec(const byte *cc, int availBytes, uint16 *spec);
+
 /** The game's group for the English preposition of each KoreanRole; 0 = none or ignored. */
 struct AgiPrepositions {
 	uint16 group[8];

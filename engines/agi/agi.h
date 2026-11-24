@@ -904,7 +904,7 @@ public:
 	bool testObjCenter(uint8 n, uint8 x1, uint8 y1, uint8 x2, uint8 y2);
 	bool testObjInBox(uint8 n, uint8 x1, uint8 y1, uint8 x2, uint8 y2);
 	bool testPosn(uint8 n, uint8 x1, uint8 y1, uint8 x2, uint8 y2);
-	bool testSaid(uint8 nwords, uint8 *cc);
+	bool testSaid(const uint8 *cc, int availBytes);
 	bool testSaidSpec(const uint16 *spec, int nwords);
 	void collectSaids(int16 onlyLogic, Common::Array<SaidSpec> &out);
 	bool testController(uint8 cont);

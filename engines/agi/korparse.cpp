@@ -185,4 +185,16 @@ void buildKoreanCandidates(const AgiSentence &typed, const AgiPrepositions &prep
 		out.resize(4);
 }
 
+int readSaidSpec(const byte *cc, int availBytes, uint16 *spec) {
+	for (int i = 0; i < 257; i++)
+		spec[i] = 0;
+	if (availBytes < 1)
+		return 0;
+	const int nwords = cc[0];
+	const int have = MIN(nwords, (availBytes - 1) / 2);
+	for (int i = 0; i < have; i++)
+		spec[i] = READ_LE_UINT16(cc + 1 + 2 * i);
+	return nwords;
+}
+
 } // End of namespace Agi

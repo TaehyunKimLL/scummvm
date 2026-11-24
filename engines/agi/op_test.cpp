@@ -147,7 +147,8 @@ void condHaveKey(AgiGame *state, AgiEngine *vm, uint8 *p) {
 }
 
 void condSaid(AgiGame *state, AgiEngine *vm, uint8 *p) {
-	state->testResult = vm->testSaid(p[0], p + 1);
+	// only reached outside testIfCode(), which hands the bytecode itself over
+	state->testResult = vm->testSaid(p, 16);
 }
 
 void condSaid1(AgiGame *state, AgiEngine *vm, uint8 *p) {
@@ -293,12 +294,11 @@ bool AgiEngine::testObjRight(uint8 n, uint8 x1, uint8 y1, uint8 x2, uint8 y2) {
 }
 
 // When player has entered something, it is parsed elsewhere
-bool AgiEngine::testSaid(uint8 nwords, uint8 *cc) {
+bool AgiEngine::testSaid(const uint8 *cc, int availBytes) {
 	if (getFlag(VM_FLAG_SAID_ACCEPTED_INPUT) || !getFlag(VM_FLAG_ENTERED_CLI))
 		return false;
-	uint16 spec[256];
-	for (int i = 0; i < nwords; i++)
-		spec[i] = READ_LE_UINT16(cc + 2 * i);
+	uint16 spec[257];
+	const int nwords = readSaidSpec(cc, availBytes, spec);
 	return testSaidSpec(spec, nwords);
 }
 
@@ -369,7 +369,12 @@ bool AgiEngine::testIfCode(int16 logicNr) {
 			// Evaluate the command and skip the rest of the instruction
 			uint8 p[16];
 			memmove(p, (code + ip), 16);
-			_opCodesCond[op].functionPtr(state, this, p);
+			if (_opCodesCond[op].functionPtr == condSaid) {
+				// said() reads its words from the logic itself, never past it
+				state->testResult = testSaid(code + ip, MAX<int>(0, state->_curLogic->size - ip));
+			} else {
+				_opCodesCond[op].functionPtr(state, this, p);
+			}
 			if (state->exitAllLogics) {
 				// required even here, because of at least the timer heuristic
 				// which when triggered waits a bit and processes ScummVM events and user may therefore restore a saved game

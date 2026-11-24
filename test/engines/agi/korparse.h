@@ -280,4 +280,74 @@ public:
 		}
 		TS_ASSERT_EQUALS(bad, 0u);
 	}
+
+	// said() bytecode: count byte, then LE words. readSaidSpec() reads only
+	// what the logic holds (a 16-byte copy of the bytecode was all the old
+	// call chain had; an eager read of 255 words ran past it) and, for a
+	// complete spec, saidMatches() equals upstream's lazy loop reading the
+	// same bytes, for nwords up to 255 and typed lines up to 20 words.
+	void test_saidSpecIsReadWithinTheBytecode() {
+		uint32 seed = 77;
+		uint complete = 0, truncated = 0, differ = 0;
+		for (uint round = 0; round < 100000; round++) {
+			seed = seed * 1103515245u + 12345u;
+			const int nwords = (round % 4 == 0) ? (seed >> 8) % 256 : (seed >> 8) % 12;
+			seed = seed * 1103515245u + 12345u;
+			const bool cut = (seed >> 8) % 3 == 0;
+			const int full = 1 + 2 * nwords;
+			const int avail = cut ? (int)((seed >> 12) % (full + 1)) : full;
+			byte *buf = (byte *)malloc(avail ? avail : 1); // exact size: ASan sees a read past it
+			for (int i = 0; i < avail; i++) {
+				seed = seed * 1103515245u + 12345u;
+				static const uint16 alphabet[] = { 0, 2, 3, 4, 5, 1, 9999 };
+				const uint16 v = alphabet[(seed >> 8) % 7];
+				if (i == 0)
+					buf[0] = (byte)nwords;
+				else
+					buf[i] = (i & 1) ? (byte)(v & 0xFF) : (byte)(v >> 8);
+			}
+			uint16 spec[257];
+			const int n = avail ? Agi::readSaidSpec(buf, avail, spec) : Agi::readSaidSpec(buf, 0, spec);
+			TS_ASSERT_EQUALS(n, avail ? nwords : 0);
+			if (avail >= full && avail) {
+				complete++;
+				seed = seed * 1103515245u + 12345u;
+				const int egoN = (seed >> 8) % 21;
+				uint16 ego[21];
+				Agi::AgiSentence sent;
+				for (int i = 0; i < egoN; i++) {
+					seed = seed * 1103515245u + 12345u;
+					ego[i] = 2 + (seed >> 8) % 4;
+					sent.push_back(w(ego[i]));
+				}
+				// upstream: the loop reading the bytes lazily
+				const byte *cc = buf + 1;
+				int nw = nwords, nn = egoN, z = 0;
+				bool up = true;
+				for (int c = 0; nw && nn; c++, nw--, nn--) {
+					z = READ_LE_UINT16(cc);
+					cc += 2;
+					if (z == 9999)
+						nw = 1;
+					else if (z != 1 && ego[c] != z) {
+						up = false;
+						break;
+					}
+				}
+				if (up && nn && z != 9999)
+					up = false;
+				if (up && nw != 0 && READ_LE_UINT16(cc) != 9999)
+					up = false;
+				if (Agi::saidMatches(sent, spec, n) != up)
+					differ++;
+			} else {
+				truncated++;
+				for (int i = (avail > 0 ? (avail - 1) / 2 : 0); i < n; i++)
+					TS_ASSERT_EQUALS(spec[i], 0u); // what the logic does not hold reads as nothing
+			}
+			free(buf);
+		}
+		TS_ASSERT_EQUALS(differ, 0u);
+		TS_ASSERT(complete > 10000u && truncated > 10000u);
+	}
 };
