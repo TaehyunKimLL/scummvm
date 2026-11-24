@@ -50,3 +50,16 @@ New files never conflict and are not listed.
 | `ko/05-scumm` | `engines/scumm/detection_internal.h`, `scumm.cpp` | `ko.trs` and a `ko/` folder detect a Korean translation; the `ko` folder joins the search path; the multi-font glyph tables are freed with `delete[]` (they are `new byte[]`: an ASan alloc-dealloc-mismatch at every Korean target's exit) | the language folder of a translation; upstreamable fix |
 | `ko/05-scumm` | `engines/scumm/verbs.cpp` | (P6a fixes) a v2 verb's hit box from the drawn width, and the v2 inventory name cut by character, for a Korean UTF-8 target | UTF-8 verbs are 3 bytes a syllable of 8 pixels |
 | `ko/05-scumm` | `engines/scumm/charset.{h,cpp}`, `string.cpp`, `saveload.cpp` | (P6a fixes) `addLinebreaks` takes the buffer capacity and `koreanInsertBreak` keeps the NUL (an upstream bug too); charset glyph widths measured as drawn and bounded by `_numChars`; `getDialogCodePage` is UTF-8 for v1-v6; `_charsetBuffer` zeroed before a load and its second half saved in the TENC trailer (kind 2) | review findings |
+| `ko/08-dos` | `configure` | the `i?86-pc-msdosdjgpp` host (`_backend=dos`, the `DISABLE_*` defines the port needs, `-Wno-format`, `-ffunction-sections` + `--gc-sections`), `dos` in the backend case (`-DDOS_DJGPP`, `pkg-config sdl3`), the 16-bit and POSIX lists, plain `fseek` for DJGPP, `.exe` | the DOS backend and a build that fits a 16 MB machine |
+| `ko/08-dos` | `backends/module.mk` | the null mixer for `dos` as for `null`, `midi/dos_mpu401.o` | a PC without a Sound Blaster, the MPU-401 driver |
+| `ko/08-dos` | `audio/fmopl.cpp` | `kDosOPL` driver, `detect()` returns the hardware chip or no driver (SCI falls back to OPL2), no software OPL on DOS | the OPL chip at 0x388 is used directly |
+| `ko/08-dos` | `audio/adlib.cpp`, `audio/mididrv.cpp` | OPL3 may be a hardware chip on DOS; device warnings go to the log (no dialog on DOS), an `.m4a` track needs FAAD there | no GUI overlay on DOS yet |
+| `ko/08-dos` | `audio/audiostream.cpp`, `audio/rate.cpp` | AAC check; `AUDIO_RATE_STEREO_INT16_ONLY` leaves out the mono and 8-bit converters | code size on DOS |
+| `ko/08-dos` | `audio/mixer.h` | `getOutputLatencyMillis()` (0 by default) | the backend's queued audio, for lip sync |
+| `ko/08-dos` | `audio/module.mk` | `dosopl.o` for `dos`; `DOS_VORBIS_SETUP_CPPFLAGS` for `vorbis.o` | the hardware OPL; SCUMM.EXE's Tremor setup layout (build-dos.sh) |
+| `ko/08-dos` | `base/plugins.cpp` | `LINK_PLUGIN(MPU401)` under `DOS_DJGPP` | the MPU-401 driver |
+| `ko/08-dos` | `image/codecs/codec.cpp` | `DISABLE_VIDEO_CODECS`: Cinepak, MS Video 1, QuickTime RLE/RPZA/SMC report a missing codec | no DOS game reaches them |
+| `ko/08-dos` | `engines/advancedDetector.cpp` | `DISABLE_DETECTION_ARCHIVES`: no InstallShield/Clickteam detection archives | no SCI or SCUMM entry is inside one |
+| `ko/08-dos` | `backends/fs/stdiostream.cpp` | `STDIOSTREAM_NO_ATOMIC_SUPPORT` for `__DJGPP__` | `NAME.EXT.tmp` is no 8.3 name: the INI was never written |
+| `ko/08-dos` | `backends/fs/posix/posix-iostream.cpp` | `PosixIoStream::size()` seeks on DJGPP | DJGPP `fstat()` takes ~200 ms under DOSBox, SCI asks per resource |
+| `ko/08-dos` | `test/module.mk` | `test/backends/dos_*.h` unless `BACKEND=dos` | host tests of the backend's pure parts |
