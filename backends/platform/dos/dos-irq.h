@@ -91,7 +91,7 @@ static inline __attribute__((always_inline)) uint32 irqPeek32(uint16 selector, u
  * as expected, and the whole of .text is locked instead. @p what names
  * the handler in the log.
  */
-void lockIrqCode(const char *begin, const char *end, const void *const *fns, uint count, const char *what);
+bool lockIrqCode(const char *begin, const char *end, const void *const *fns, uint count, const char *what);
 
 /** Locks @p size bytes at @p p; logs a failure. */
 bool lockIrqData(const volatile void *p, uint32 size);

@@ -98,17 +98,20 @@ void lockText() {
 
 } // End of anonymous namespace
 
-void lockIrqCode(const char *begin, const char *end, const void *const *fns, uint count, const char *what) {
+bool lockIrqCode(const char *begin, const char *end, const void *const *fns, uint count, const char *what) {
 	bool inside = begin < end && end - begin < 64 * 1024;
 	for (uint i = 0; inside && i < count; ++i)
 		inside = (const char *)fns[i] > begin && (const char *)fns[i] < end;
 	if (!inside) {
 		warning("DOS: %s's interrupt code is not where it should be; locking all code", what);
 		lockText();
-		return;
+		return true;
 	}
-	if (_go32_dpmi_lock_code(const_cast<char *>(begin), end - begin + 1) != 0)
+	if (_go32_dpmi_lock_code(const_cast<char *>(begin), end - begin + 1) != 0) {
 		warning("DOS: could not lock %s's interrupt code", what);
+		return false;
+	}
+	return true;
 }
 
 bool lockIrqData(const volatile void *p, uint32 size) {

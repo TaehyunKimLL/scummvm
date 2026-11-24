@@ -674,9 +674,16 @@ static bool install() {
 		return true;
 	{
 		const void *const fns[1] = { (const void *)timerIsr };
-		DOS::lockIrqCode(dosIrqBegin_timer, dosIrqEnd_timer, fns, ARRAYSIZE(fns), "IRQ0");
+		// An IRQ0 handler that is not locked would fault in the middle of the interrupt: no timer instead.
+		if (!DOS::lockIrqCode(dosIrqBegin_timer, dosIrqEnd_timer, fns, ARRAYSIZE(fns), "IRQ0")) {
+			warning("DOS: the IRQ0 timer is not installed (its code could not be locked)");
+			return false;
+		}
 	}
-	DOS::lockIrqData(&g_isr, sizeof(g_isr));
+	if (!DOS::lockIrqData(&g_isr, sizeof(g_isr))) {
+		warning("DOS: the IRQ0 timer is not installed (its data could not be locked)");
+		return false;
+	}
 
 	// Its first call reprograms the PIT (mode 2, 65536); make sure that
 	// has happened before ours.
