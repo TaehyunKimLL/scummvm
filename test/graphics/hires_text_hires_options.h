@@ -349,6 +349,19 @@ public:
 		TS_ASSERT_EQUALS(Graphics::resolveScale(o, &m, 320, 200), 2);
 	}
 
+	// A platform's registerDefault() (DOS: hires_text_whole_kb 64) is honoured: hasKey() ignores the defaults domain.
+	void test_registeredDefaultIsRead() {
+		Common::install_null_g_system();
+		ConfMan.registerDefault("hires_text_whole_kb", 64);
+		Common::Array<Common::String> w;
+		TS_ASSERT_EQUALS(Graphics::readHiResOptions(w).wholeKb, 64);
+		ConfMan.set("hires_text_whole_kb", "128", Common::ConfigManager::kTransientDomain);
+		TS_ASSERT_EQUALS(Graphics::readHiResOptions(w).wholeKb, 128);	// a set value still wins
+		ConfMan.removeKey("hires_text_whole_kb", Common::ConfigManager::kTransientDomain);
+		TS_ASSERT(w.empty());
+		Common::uninstall_null_g_system();
+	}
+
 	// The ConfMan path: transient keys are read, a bad one is a warning.
 	void test_readThroughConfMan() {
 		Common::install_null_g_system();

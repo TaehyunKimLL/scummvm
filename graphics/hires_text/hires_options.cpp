@@ -38,7 +38,8 @@ void bad(Common::Array<Common::String> &warnings, const char *key, const Common:
 }
 
 bool confManGet(const char *key, Common::String &value, void *) {
-	if (!ConfMan.hasKey(key))
+	// hasKey() ignores the defaults domain: a platform's registerDefault() (DOS: hires_text_whole_kb) would never be read.
+	if (!ConfMan.hasKey(key) && !ConfMan.hasDefault(key))
 		return false;
 	value = ConfMan.get(key);
 	return true;
