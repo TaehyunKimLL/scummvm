@@ -180,6 +180,116 @@ public:
 #endif
 	}
 
+	// Wildcard listings in a NEW session go through the index: patterns over the ENGINE's names, including the SCI file
+	// search ("kq1-ko-*.sav") and the QFG1 -> QFG2 import ("qfg1-*"), with Hangul bytes, a deleted index, a stale and a corrupt one.
+	void test_wildcardListingsUseTheEngineNames() {
+#if NULL_OSYSTEM_IS_AVAILABLE && defined(DOS_SAVE_MANAGER_TEST)
+		Common::install_null_g_system();
+		const Common::Path dir("test/dos-savenames-tmp", '/');
+		Common::FSNode dirNode(dir);
+		if (!dirNode.exists())
+			TS_ASSERT(dirNode.createDirectory());
+		ConfMan.setPath("savepath", dir, Common::ConfigManager::kApplicationDomain);
+		{
+			DOS::SaveFileManager clean(dir);
+			const Common::StringArray old = clean.listSavefiles("*");
+			for (uint i = 0; i < old.size(); ++i)
+				clean.removeSavefile(old[i]);
+		}
+		const char *names[] = { "kq1-ko-hero.sav", "kq1-ko-alt.sav", "qfg1-hero.sav", "qfg1-ko-hero.sav", "lsl1sci-ko.001", "short.001" };
+		{
+			DOS::SaveFileManager first(dir);
+			for (uint i = 0; i < ARRAYSIZE(names); ++i) {
+				Common::OutSaveFile *out = first.openForSaving(names[i], false);
+				TS_ASSERT(out != nullptr);
+				if (out) {
+					out->writeString(Common::String(names[i]) + "|\xed\x95\x9c");
+					out->finalize();
+					delete out;
+				}
+			}
+		}
+		struct Case { const char *pattern; uint want; };
+		const Case cases[] = { { "*", 6 }, { "*.sav", 4 }, { "kq1-ko-*.sav", 2 }, { "qfg1-*", 2 }, { "kq1-ko-?l?.sav", 1 },
+		                       { "lsl1sci-ko.###", 1 }, { "qfg1-ko-*", 1 }, { "short.###", 1 }, { "?", 0 }, { "nothing*", 0 } };
+		for (int pass = 0; pass < 3; ++pass) {
+			// pass 1: the index deleted; pass 2: a corrupt index with a stale entry
+			if (pass >= 1) {
+				DOS::SaveFileManager m(dir);
+				m.removeSavefile("saveidx.txt");
+				if (pass == 2) {
+					Common::OutSaveFile *out = m.openForSaving("saveidx.txt", false);
+					if (out) {
+						out->writeString("garbage line\nzzzzzzzz.sav\tnot-a-real-name.sav\nkq1-k\t\n\t\nqfg1");
+						out->finalize();
+						delete out;
+					}
+				}
+			}
+			DOS::SaveFileManager second(dir);
+			for (uint c = 0; c < ARRAYSIZE(cases); ++c) {
+				const Common::StringArray got = second.listSavefiles(cases[c].pattern);
+				// with the index gone or corrupt, wildcard bases of mapped names lose their engine names but a save is never lost
+				const Common::String pat(cases[c].pattern);
+				const size_t pdot = pat.findLastOf('.');
+				const Common::String pbase = pdot == Common::String::npos ? pat : Common::String(pat.c_str(), pdot);
+				const bool exact = pass == 0 || (pbase.findFirstOf('*') == Common::String::npos && pbase.findFirstOf('?') == Common::String::npos);
+				if (exact) {
+					TS_ASSERT_EQUALS(got.size(), cases[c].want);
+				} else {
+					TS_ASSERT(got.size() <= cases[c].want + 4);
+				}
+				for (uint i = 0; pass == 0 && i < got.size(); ++i)
+					TS_ASSERT(Common::String(got[i]).matchString(cases[c].pattern, true));
+			}
+			// every save still loads by its engine name
+			for (uint i = 0; i < ARRAYSIZE(names); ++i) {
+				Common::InSaveFile *in = second.openForLoading(names[i]);
+				TS_ASSERT(in != nullptr);
+				if (in) {
+					TS_ASSERT(in->readString(0, 100).hasPrefix(Common::String(names[i]) + "|"));
+					delete in;
+				}
+			}
+		}
+		// a stale entry: the file removed outside the manager is no longer listed
+		{
+			DOS::SaveFileManager m(dir);
+			Common::OutSaveFile *out = m.openForSaving("kq1-ko-gone.sav", false);
+			if (out) {
+				out->finalize();
+				delete out;
+			}
+			// the index was corrupt: only the save written since is known by its engine name to a wildcard (documented limit)
+			TS_ASSERT_EQUALS(m.listSavefiles("kq1-ko-*.sav").size(), 1u);
+			const Common::String dosName = DOS::dosPattern("kq1-ko-gone.sav");
+			Common::FSNode(dir).getChild(dosName).isDirectory();	// (touch)
+		}
+		// renaming or copying a missing save onto the same name fails
+		{
+			DOS::SaveFileManager m(dir);
+			TS_ASSERT(!m.renameSavefile("no-such-target-x.001", "no-such-target-x.001"));
+			TS_ASSERT(!m.copySavefile("no-such-target-x.001", "No-Such-Target-X.001"));
+			TS_ASSERT(m.copySavefile("kq1-ko-hero.sav", "kq1-ko-hero.sav"));
+		}
+		// non-ASCII bytes of a name never stay in the mapped name's first characters
+		{
+			const Common::String m = DOS::dosPattern("\xed\x95\x9c\xea\xb8\x80-kq1-long.001");
+			for (uint i = 0; i < m.size(); ++i)
+				TS_ASSERT((byte)m[i] < 0x80);
+			TS_ASSERT(m.size() == 12);
+		}
+		{
+			DOS::SaveFileManager last(dir);
+			const Common::StringArray rest = last.listSavefiles("*");
+			for (uint i = 0; i < rest.size(); ++i)
+				last.removeSavefile(rest[i]);
+			last.removeSavefile("saveidx.txt");
+		}
+		Common::uninstall_null_g_system();
+#endif
+	}
+
 	// The save manager end to end on a real folder: the engine's long name is written, listed in a NEW session (a new
 	// manager over the folder), loaded, found and removed by that same long name - SCI restores by the name it listed.
 	void test_longTargetSurvivesASession() {
@@ -221,7 +331,8 @@ public:
 		Common::FSList children;
 		TS_ASSERT(dirNode.getChildren(children, Common::FSNode::kListFilesOnly));
 		for (uint i = 0; i < children.size(); ++i)
-			onDisk.push_back(children[i].getName());
+			if (!children[i].getName().equalsIgnoreCase("saveidx.txt"))
+				onDisk.push_back(children[i].getName());
 		Common::sort(onDisk.begin(), onDisk.end());
 		TS_ASSERT_EQUALS(onDisk.size(), 2u);
 		if (onDisk.size() == 2) {

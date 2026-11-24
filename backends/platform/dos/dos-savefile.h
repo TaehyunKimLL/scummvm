@@ -24,6 +24,9 @@
 
 #include "backends/platform/dos/dos-savenames.h"
 #include "backends/saves/default/default-saves.h"
+#include "common/fs.h"
+#include "common/hash-str.h"
+#include "common/hashmap.h"
 #include "common/savefile.h"
 #include "common/stream.h"
 #include "common/system.h"
@@ -90,25 +93,32 @@ private:
 };
 
 /**
- * Saves on an 8.3 disk. The default manager keeps its cache under the names the directory lists (KQ1-RGB5.001) and finds a
- * file only by exactly such a name, while an engine asks by the name it made from the target (kq1-rgb565.001, a target
- * of more than 8 characters): in one session the cache holds the long name just written, in the next a listing, a load
- * and a removal by that name find nothing. So every single-file operation goes to the default manager under the
- * name DOS gives it (dosPattern(): base cut to 8, extension to 3; a short name is untouched), and a listing is made for
- * the cut pattern and given back under the engine's names (engineName()).
+ * Saves on an 8.3 disk. The default manager keeps its cache under the names the directory lists and finds a file only by
+ * exactly such a name, while an engine asks by the name it made from the target (kq1-rgb565.001). Every single-file
+ * operation goes to the default manager under the name DOS gives it (dosPattern(): a long base becomes 4 characters and a
+ * hash, see dos-savenames.h), so targets never share a file.
+ *
+ * A listing must still answer wildcard patterns against the ENGINE's names ("kq1-ko-*.sav", "qfg1-*": SCI's file search
+ * and the QFG1 -> QFG2 import). The hashed name cannot be inverted, so every save written under a mapped name is entered
+ * in SAVEIDX.TXT in the save folder ("dosname<TAB>enginename" lines). The index is advisory: an entry counts only when
+ * its file exists and dosPattern(engine name) is that file's name (a stale, truncated or corrupt line is dropped); a
+ * missing index loses the engine names of wildcard listings only, never a save (exact names still map). It is written
+ * in place on DOS (no rename over an existing file on 8.3 FAT) and atomically where the host has it.
  */
 class SaveFileManager : public DefaultSaveFileManager {
 public:
-	SaveFileManager(const Common::Path &dir) : DefaultSaveFileManager(dir) {}
+	SaveFileManager(const Common::Path &dir) : DefaultSaveFileManager(dir), _indexLoaded(false) {}
 
 	Common::OutSaveFile *openForSaving(const Common::String &filename, bool compress = true) override {
 		// The lookups and the file's creation (FAT: ~30 ms on a P75) are
 		// work of their own: yield on either side of them.
 		g_system->delayMillis(0);
-		Common::OutSaveFile *const sf = DefaultSaveFileManager::openForSaving(dosPattern(filename), compress);
+		const Common::String dos = dosPattern(filename);
+		Common::OutSaveFile *const sf = DefaultSaveFileManager::openForSaving(dos, compress);
 		g_system->delayMillis(0);
 		if (!sf)
 			return nullptr;
+		noteMapping(dos, filename);
 		return new Common::OutSaveFile(new YieldingWriteStream(sf));
 	}
 
@@ -121,7 +131,11 @@ public:
 	}
 
 	bool removeSavefile(const Common::String &filename) override {
-		return DefaultSaveFileManager::removeSavefile(dosPattern(filename));
+		const Common::String dos = dosPattern(filename);
+		const bool ok = DefaultSaveFileManager::removeSavefile(dos);
+		if (ok)
+			forgetMapping(dos);
+		return ok;
 	}
 
 	bool exists(const Common::String &filename) override {
@@ -129,11 +143,11 @@ public:
 	}
 
 	// Two engine names that DOS keeps as one file must never be copied or renamed onto each other: the copy would
-	// truncate the file it reads, and the rename would then remove it. Equal names (any case) are no-ops that
-	// succeed; names that merely collide are refused.
+	// truncate the file it reads, and the rename would then remove it. The same name (any case) is a no-op that
+	// succeeds when the save exists; names that merely collide are refused.
 	bool renameSavefile(const Common::String &oldName, const Common::String &newName, bool compress = true) override {
 		if (oldName.equalsIgnoreCase(newName))
-			return true;
+			return exists(oldName);
 		if (dosPattern(oldName).equalsIgnoreCase(dosPattern(newName)))
 			return false;
 		return DefaultSaveFileManager::renameSavefile(oldName, newName, compress);
@@ -141,21 +155,107 @@ public:
 
 	bool copySavefile(const Common::String &oldName, const Common::String &newName, bool compress = true) override {
 		if (oldName.equalsIgnoreCase(newName))
-			return true;
+			return exists(oldName);
 		if (dosPattern(oldName).equalsIgnoreCase(dosPattern(newName)))
 			return false;
 		return DefaultSaveFileManager::copySavefile(oldName, newName, compress);
 	}
 
 	Common::StringArray listSavefiles(const Common::String &pattern) override {
+		loadIndex();
+		Common::StringArray out;
+		// Every save by its engine name where the index knows it, else as the directory lists it, matched against the
+		// pattern as the engine wrote it.
+		const Common::StringArray all = DefaultSaveFileManager::listSavefiles("*");
+		for (uint i = 0; i < all.size(); ++i) {
+			if (all[i].equalsIgnoreCase(indexName()))
+				continue;
+			Common::String engine = all[i];
+			IndexMap::const_iterator it = _index.find(all[i]);
+			if (it != _index.end() && dosPattern(it->_value).equalsIgnoreCase(all[i]))
+				engine = it->_value;
+			if (engine.matchString(pattern, true))
+				pushUnique(out, engine);
+		}
+		// A save whose index entry is lost is still found by a pattern with a concrete long base, as before.
 		const Common::String dos = dosPattern(pattern);
-		if (dos == pattern)
-			return DefaultSaveFileManager::listSavefiles(pattern);
-		Common::StringArray out = DefaultSaveFileManager::listSavefiles(dos);
-		for (uint i = 0; i < out.size(); ++i)
-			out[i] = engineName(pattern, out[i]);
+		if (dos != pattern) {
+			const Common::StringArray byName = DefaultSaveFileManager::listSavefiles(dos);
+			for (uint i = 0; i < byName.size(); ++i)
+				if (!byName[i].equalsIgnoreCase(indexName()))
+					pushUnique(out, engineName(pattern, byName[i]));
+		}
 		return out;
 	}
+
+private:
+	typedef Common::HashMap<Common::String, Common::String, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> IndexMap;
+	static const char *indexName() { return "saveidx.txt"; }
+
+	static void pushUnique(Common::StringArray &a, const Common::String &s) {
+		for (uint i = 0; i < a.size(); ++i)
+			if (a[i].equalsIgnoreCase(s))
+				return;
+		a.push_back(s);
+	}
+
+	void loadIndex() {
+		if (_indexLoaded)
+			return;
+		_indexLoaded = true;
+		_index.clear();
+		Common::InSaveFile *in = DefaultSaveFileManager::openRawFile(indexName());
+		if (!in)
+			return;
+		while (!in->eos() && !in->err()) {
+			const Common::String line = in->readLine();
+			const size_t tab = line.findFirstOf('\t');
+			if (tab == Common::String::npos || tab == 0 || tab + 1 >= line.size())
+				continue;	// a torn or corrupt line is dropped
+			const Common::String dos(line.c_str(), tab), engine(line.c_str() + tab + 1);
+			if (dosPattern(engine).equalsIgnoreCase(dos))
+				_index[dos] = engine;
+		}
+		delete in;
+	}
+
+	void saveIndex() {
+		const Common::Path path = getSavePath().appendComponent(indexName());
+		Common::WriteStream *w = Common::FSNode(path).createWriteStream(true);
+		if (!w)
+			return;
+		Common::String text;
+		for (IndexMap::const_iterator it = _index.begin(); it != _index.end(); ++it)
+			text += it->_key + "\t" + it->_value + "\n";
+		w->writeString(text);
+		w->finalize();
+		delete w;
+		updateSavefilesList(_noLocked);	// the folder changed under the default manager's cache
+	}
+
+	void noteMapping(const Common::String &dos, const Common::String &engine) {
+		if (dos.equalsIgnoreCase(engine))
+			return;
+		loadIndex();
+		IndexMap::const_iterator it = _index.find(dos);
+		if (it != _index.end() && it->_value == engine)
+			return;
+		_index[dos] = engine;
+		saveIndex();
+	}
+
+	void forgetMapping(const Common::String &dos) {
+		loadIndex();
+		IndexMap::iterator it = _index.find(dos);
+		if (it == _index.end())
+			return;
+		_index.erase(it);
+		saveIndex();
+	}
+
+	IndexMap _index;
+	bool _indexLoaded;
+	Common::StringArray _noLocked;
 };
 
 } // End of namespace DOS

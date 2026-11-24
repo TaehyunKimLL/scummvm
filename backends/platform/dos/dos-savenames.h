@@ -52,8 +52,18 @@ inline bool hasWildcard(const Common::String &s) {
 	return false;
 }
 
+/** A character a DOS 8.3 name can hold (the common, safe set; no high bytes: MS-DOS upper-cases some of them by code page). */
+inline bool isDosChar(char c) {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '!' ||
+	       c == '#' || c == '$' || c == '%' || c == '&' || c == '\'' || c == '(' || c == ')' || c == '{' || c == '}' ||
+	       c == '@' || c == '^' || c == '`' || c == '~';
+}
+
 inline Common::String mappedBase(const Common::String &base) {
-	if (base.size() <= 8 && base.findFirstOf('.') == Common::String::npos)
+	bool plain = base.size() <= 8 && base.findFirstOf('.') == Common::String::npos;
+	for (uint i = 0; plain && i < base.size(); ++i)
+		plain = isDosChar(base[i]);
+	if (plain)
 		return base;
 	uint32 h = 2166136261u;
 	for (uint i = 0; i < base.size(); ++i) {
@@ -65,7 +75,7 @@ inline Common::String mappedBase(const Common::String &base) {
 	static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 	Common::String out;
 	for (uint i = 0; i < 4 && i < base.size(); ++i)
-		out += base[i] == '.' ? '_' : (char)(base[i] >= 'A' && base[i] <= 'Z' ? base[i] - 'A' + 'a' : base[i]);
+		out += !isDosChar(base[i]) ? '_' : (char)(base[i] >= 'A' && base[i] <= 'Z' ? base[i] - 'A' + 'a' : base[i]);
 	h %= 1679616u;
 	out += digits[h / 46656];
 	out += digits[h / 1296 % 36];
