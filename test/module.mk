@@ -23,6 +23,8 @@ TEST_LIBS    :=
 # handling, ...) run on the host; the DOS build never runs them.
 ifneq ($(BACKEND),dos)
 TESTS += $(srcdir)/test/backends/dos_*.h
+# dos_savenames.h runs the real save manager over a temporary folder.
+TEST_LIBS += backends/saves/default/default-saves.o
 endif
 
 ifdef POSIX
@@ -120,6 +122,7 @@ clean: clean-test
 clean-test:
 	-$(RM) test/runner.cpp test/runner test/engine-data/encoding.dat test/system/null_osystem.o
 	-rmdir test/engine-data
+	-rmdir test/dos-savenames-tmp
 
 test/engine-data/encoding.dat: $(srcdir)/dists/engine-data/encoding.dat
 	$(MKDIR) test/engine-data

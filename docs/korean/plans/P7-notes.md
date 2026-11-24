@@ -134,3 +134,11 @@ deviations, evidence.
 - d3: **Alt+x after `qh` typed a jamo on DOS** (보 became 볻-like: a trailing ㅌ; `dos-p7-d2-d3-backspace-shiftq-altx-zoom.png`): the P4 item 3 leak is not a Linux screenshot-key artefact; there is no Alt+S screenshot
   action on DOS and the composer still takes the Alt-modified key. No DOS code change (the key arrives as a normal KEYDOWN with the Alt modifier); the fix belongs to the SCI composer
   (topic `ko/03-sci`: ignore events with Alt/Ctrl in `korean_input`), recorded here as an open item for that topic.
+
+## P7e: memory, 8.3 names, saves (e1, e2, e5, e6 below once SCUMM.EXE/AGI.EXE exist)
+
+- e3: `f328b6d32a2 DOS: Stage engine data under the names DOS gives them`. `test_stage_data.py` (11 cases) red (no `stage-data.py`), then green. Beyond the plan's code: a file that needs a folder's name (or a folder
+  that has a file's name) is refused, nothing is written when any collision is found (it validates first, copies after), `--maps` also checks `[preload]` values, the map is read as `utf-8-sig`, an unnameable
+  `data:` value counts as missing instead of raising. Real use: `python3 -I stage-data.py dists/engine-data/hires_text=hires_text DATA --maps .../*.map` -> `3 files` (NEODGM.TXT, NEODG16A.SVF, MAPS/KOREAN-D.MAP), rc 0.
+  Mutations (base cut to 9, no collision check, extension cut to 4) each turn tests red (7, 3 and 1 failures); NOTE a Python bytecode cache keyed by mtime+size served a stale mutated module once
+  (same-length edit within a second): `PYTHONDONTWRITEBYTECODE=1` for the test runs.

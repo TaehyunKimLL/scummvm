@@ -22,6 +22,7 @@
 #ifndef BACKENDS_PLATFORM_DOS_SAVEFILE_H
 #define BACKENDS_PLATFORM_DOS_SAVEFILE_H
 
+#include "backends/platform/dos/dos-savenames.h"
 #include "backends/saves/default/default-saves.h"
 #include "common/savefile.h"
 #include "common/stream.h"
@@ -88,6 +89,14 @@ private:
 	uint32 _last;
 };
 
+/**
+ * Saves on an 8.3 disk. The default manager keeps its cache under the names the directory lists (KQ1-RGB5.001) and finds a
+ * file only by exactly such a name, while an engine asks by the name it made from the target (kq1-rgb565.001, a target
+ * of more than 8 characters): in one session the cache holds the long name just written, in the next a listing, a load
+ * and a removal by that name find nothing. So every single-file operation goes to the default manager under the
+ * name DOS gives it (dosPattern(): base cut to 8, extension to 3; a short name is untouched), and a listing is made for
+ * the cut pattern and given back under the engine's names (engineName()).
+ */
 class SaveFileManager : public DefaultSaveFileManager {
 public:
 	SaveFileManager(const Common::Path &dir) : DefaultSaveFileManager(dir) {}
@@ -96,11 +105,37 @@ public:
 		// The lookups and the file's creation (FAT: ~30 ms on a P75) are
 		// work of their own: yield on either side of them.
 		g_system->delayMillis(0);
-		Common::OutSaveFile *const sf = DefaultSaveFileManager::openForSaving(filename, compress);
+		Common::OutSaveFile *const sf = DefaultSaveFileManager::openForSaving(dosPattern(filename), compress);
 		g_system->delayMillis(0);
 		if (!sf)
 			return nullptr;
 		return new Common::OutSaveFile(new YieldingWriteStream(sf));
+	}
+
+	Common::InSaveFile *openForLoading(const Common::String &filename) override {
+		return DefaultSaveFileManager::openForLoading(dosPattern(filename));
+	}
+
+	Common::InSaveFile *openRawFile(const Common::String &filename) override {
+		return DefaultSaveFileManager::openRawFile(dosPattern(filename));
+	}
+
+	bool removeSavefile(const Common::String &filename) override {
+		return DefaultSaveFileManager::removeSavefile(dosPattern(filename));
+	}
+
+	bool exists(const Common::String &filename) override {
+		return DefaultSaveFileManager::exists(dosPattern(filename));
+	}
+
+	Common::StringArray listSavefiles(const Common::String &pattern) override {
+		const Common::String dos = dosPattern(pattern);
+		if (dos == pattern)
+			return DefaultSaveFileManager::listSavefiles(pattern);
+		Common::StringArray out = DefaultSaveFileManager::listSavefiles(dos);
+		for (uint i = 0; i < out.size(); ++i)
+			out[i] = engineName(pattern, out[i]);
+		return out;
 	}
 };
 
