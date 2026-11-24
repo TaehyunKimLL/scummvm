@@ -97,7 +97,7 @@ deviations, evidence.
 - c2: `5321b2e1a79 GRAPHICS: Blend hi-res text on 15/16-bit screens by table`. TDD: red = `make test` did not compile (`Blend16` unknown). The plan's two cases plus a
   third (`test_convertSpanEqualsBlendPixel`: `convertSpan` with and without a table, coverage 0/255/partial) are in `test/graphics/hires_text_blend16.h`.
   Green: 989 tests OK. **The exhaustive case is in the suite and runs in 7.0 s at -O0** (`./test/runner HiResTextBlend16TestSuite`): 5 formats (RGB565, RGB555, ARGB1555,
-  RGBA5551, BGR565) x 6 colours x coverage 1..254 x 65,536 pixels = **499,404,800 checks, 0 mismatches**; no colour cut was needed. Mutations (each reverted):
+  RGBA5551, BGR565) x 6 colours x coverage 1..254 x 65,536 pixels = **499,384,320 checks, 0 mismatches**; no colour cut was needed. Mutations (each reverted):
   (a) `+ 126` in the green table -> `test_everyPixelEveryCoverage` found 974,848 mismatches (the plan's prototype: 974,899; my sed changed only the green line of `fill()`) and the
   existing `svf_aa.h` cases failed too; (b) `solid` not refreshed (`lastIndex < 0`) -> `test_composeSpanEqualsBlendPixel` red; (c) `_alpha` left out -> exhaustive 199,753,728 mismatches
   (= the two alpha formats x 6 x 254 x 65,536) plus `svf_aa.h` "format 3/4 blend"; (d) slot by `cov & 3` -> still green (a slot choice cannot change results: the reason no test pins it).
@@ -216,7 +216,7 @@ Conflict 8: MI1 KO on DOS is the S1 picture.
 ## Checkpoints
 
 - Host `make test` (`$B/host`): **1000 tests OK** (N0 770 + DOS suites 216 + Blend16 3 + options 1 + font set 2 + save names 3 + `--set` 5 = 1000: 986 after b7, 989 after c2, 990 c4, 992 c5, 995 e4, 1000 with `--set`); ASan (`$B/asan`, `-fsanitize`): 1000 tests OK, 0 sanitizer lines.
-- Exhaustive Blend16 test in the suite: 499,404,800 checks, 0 mismatches, 7.3 s at -O0; mutations (a) (b) (c) red, (d) green (documented).
+- Exhaustive Blend16 test in the suite: 499,384,320 checks, 0 mismatches, 7.3 s at -O0; mutations (a) (b) (c) red, (d) green (documented).
 - `tools/korean/sync-svf.sh --check`: `sync-svf: graphics/svf matches svf-fonts-open 3d40de8d940f50ed4a28dfc1851fa776a62f42e5`, rc 0. `python3 -I tools/korean/mkgolden.py --check`: no output, rc 0. Tools tests `tools/korean/test_{k6bake,strcheck,trscheck}.py` rc 0; `backends/platform/dos/test_stage_data.py` 11 OK.
 - `devtools/check-commit-msg.py` on all 26 commits of `ba0eecee2c4..HEAD`: 0 bad; each has exactly one `Assisted-by: Claude Code`, no `Co-Authored-By`.
 - Self-read of the diff since checkpoint B (text_compose, font_set warm, hires_options, dos-savefile, stage-data, build-dos.sh, dos.cpp): the Blend16 differential tests (random rows with and without a table, `convertSpan`) are the randomized differential; `compositeRect`/`presentRect`
@@ -233,3 +233,8 @@ The Alt-key leak into the composer (d3) is an open item for `ko/03-sci`. PLAY's 
 H1 real 486/Pentium speed of composite and glyphs (BLEND.EXE and a KQ1 dialogue); H2 VBE mode lists/LFB of real cards and 16 vs 32 bpp flush cost; H3 DAC width at 8 bpp; H4 Sound Blaster variants after the SDL rebase (the smoke gate proved SB16 detection and the timer in both emulators only);
 H5 Han/Yeong (0xF2) and Hanja (0xF1) of a real Korean keyboard (and Hanja has no engine action); H6 8.3 truncation on MS-DOS 6.22/7.1 and in a Windows 9x DOS box (e6 suggests LFN-capable DOS does not truncate); H7 memory with HIMEM/EMM386, CWSDPMI swap, `FILES=`;
 H8 the BATs' `SET` trailing-space quirk (BATs not exercised; PLAY was started from autoexec). U4 Staging has no mapper for the Han/Yeong key.
+
+## Review round (see P7-fixes.md)
+
+The review fixes are listed with evidence in `P7-fixes.md`. Corrections to earlier entries: the exhaustive Blend16 count is 5 x 6 x 254 x 65,536 = 499,384,320 (earlier text said 499,404,800);
+`ee7f90931dc` forced `extrapath=DATA` first in the transient domain, the message said otherwise (fixed by 64d70b37021, DATA is now the last root).

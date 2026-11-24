@@ -5,11 +5,11 @@ libsdl-org/SDL main at 1362030 (2026-11-23, SDL 3.5.0 development). The DOS port
 exists only on main: release-3.4.20 (f00dc919c, 2026-11-03) has no DOS
 port (git ls-tree -r --name-only release-3.4.20 | grep -c /dos/ is 0), so the
 series is pinned on a main commit until a stable release carries the port. The
-14 patches in sdl3/ are `git format-patch 1362030..HEAD` of the series
+16 patches in sdl3/ (the 14 of P7's rebase, then two review fixes: 0015 the DMA region and interrupt clobbers, 0016 the Sound Blaster driver's units, ranges, cursors and close) are `git format-patch 1362030..HEAD` of the series
 (branch dos-p7-1362030 of ~/opt/src/SDL3, here "sdl3/0001-... .. 0014-...") and are applied with git am:
 
   git -C SDL3 checkout 1362030
-  git -C SDL3 am backends/platform/dos/sdl3/*.patch
+  git -C SDL3 am backends/platform/dos/sdl3/*.patch   (model-test.c there: the independent models of the cursors, the DMA region and the time constant; gcc -fsanitize=address,undefined)
 
 They are: the IRQ code check, the CPUID check, the Sound Blaster
 shutdown and open-failure fixes, the DMA channel probe and its
