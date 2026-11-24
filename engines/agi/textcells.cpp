@@ -155,6 +155,12 @@ bool isHangulSyllable(uint32 cp) {
 	return cp >= 0xAC00 && cp <= 0xD7A3;
 }
 
+void copyDescription(char *dst, int size, const char *src, bool utf8) {
+	const Common::String description = clipBytes(src, (int16)(size - 1), utf8);
+	memset(dst, 0, size);
+	memcpy(dst, description.c_str(), description.size());
+}
+
 int utf8Bytes(const uint32 *cells, int16 len) {
 	int bytes = 0;
 	for (int16 i = 0; i < len; i++)

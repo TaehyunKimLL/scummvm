@@ -403,4 +403,30 @@ public:
 		// the generator must reach names at the limit
 		TS_ASSERT(thirty > 20u);
 	}
+
+	// set.simple's automatic save description (op_cmd.cpp): on the byte path the
+	// buffer is upstream's exactly - strncpy(dst, src, size) and a terminator at
+	// the end, so every byte after the text is zero and the save file does not
+	// change - and in UTF-8 it is the same cut on a character boundary.
+	void test_automaticDescriptionIsUpstreamsOnTheBytePath() {
+		for (int iter = 0; iter < 20000; iter++) {
+			const Common::String text = randomText(14, true);
+			char *src = exactCopy(text);
+			char upstream[31], mine[31];
+			for (int i = 0; i < 31; i++)
+				upstream[i] = mine[i] = (char)(1 + rnd() % 255); // stale content of an earlier description
+			strncpy(upstream, src, sizeof(upstream));
+			upstream[sizeof(upstream) - 1] = '\0';
+			Agi::TextCells::copyDescription(mine, sizeof(mine), src, false);
+			TS_ASSERT(memcmp(upstream, mine, sizeof(mine)) == 0);
+
+			Agi::TextCells::copyDescription(mine, sizeof(mine), src, true);
+			TS_ASSERT(Agi::TextCells::isValidUtf8(mine) || !Agi::TextCells::isValidUtf8(src));
+			const Common::String kept = Agi::TextCells::clipBytes(src, 30, true);
+			TS_ASSERT_EQUALS(Common::String(mine), kept);
+			for (uint i = kept.size(); i < sizeof(mine); i++)
+				TS_ASSERT_EQUALS(mine[i], 0);
+			free(src);
+		}
+	}
 };

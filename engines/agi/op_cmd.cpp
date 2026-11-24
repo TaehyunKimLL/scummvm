@@ -971,9 +971,8 @@ void cmdSetSimple(AgiGame *state, AgiEngine *vm, uint8 *parameter) {
 
 	// Try to get description for automatic saves
 	const char *textPtr = state->getString(stringNr);
-	// UTF-8 text mode: whole characters only
-	const Common::String description = TextCells::clipBytes(textPtr, sizeof(state->automaticSaveDescription) - 1, vm->textIsUtf8());
-	Common::strlcpy(state->automaticSaveDescription, description.c_str(), sizeof(state->automaticSaveDescription));
+	// UTF-8 text mode: whole characters only; the bytes after the text stay zero as before
+	TextCells::copyDescription(state->automaticSaveDescription, sizeof(state->automaticSaveDescription), textPtr, vm->textIsUtf8());
 
 	// enable automatic saving if description isn't empty
 	state->automaticSave = (state->automaticSaveDescription[0] != '\0');
