@@ -809,7 +809,7 @@ int AgiEngine::scummVMSaveLoadDialog(bool isSave) {
 		}
 
 		if (desc.size() > 28)
-			desc = Common::String(desc.c_str(), 28);
+			desc = TextCells::clipBytes(desc.c_str(), 28, textIsUtf8());
 	} else {
 		dialog = new GUI::SaveLoadChooser(false);
 		slot = dialog->runModalWithCurrentTarget();

@@ -29,13 +29,15 @@ namespace Agi {
 #define SYSTEMUI_SAVEDGAME_DESCRIPTION_LEN 30
 #define SYSTEMUI_SAVEDGAME_DISPLAYTEXT_LEN 31
 #define SYSTEMUI_SAVEDGAME_DISPLAYTEXT_PREFIX_LEN 3
+// UTF-8 text mode: 31 cells of up to 4 bytes
+#define SYSTEMUI_SAVEDGAME_DISPLAYTEXT_BYTES (SYSTEMUI_SAVEDGAME_DISPLAYTEXT_LEN * 4)
 
 struct SystemUISavedGameEntry {
 	int16 slotId;
 	bool  exists;
 	bool  isValid;
 	char description[SYSTEMUI_SAVEDGAME_DESCRIPTION_LEN + 1]; // actual description
-	char displayText[SYSTEMUI_SAVEDGAME_DISPLAYTEXT_LEN + 1]; // modified description, meant for display purposes only
+	char displayText[SYSTEMUI_SAVEDGAME_DISPLAYTEXT_BYTES + 1]; // modified description, meant for display purposes only
 };
 typedef Common::Array<SystemUISavedGameEntry> SystemUISavedGameArray;
 

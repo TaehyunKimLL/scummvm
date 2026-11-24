@@ -210,3 +210,11 @@ independent-model tests of what the diff changed, run under ASan+UBSan.
   `AGKO` at 44495 of 44550 (a 55-byte trailer at the end), description bytes `eb ac b8` (문, valid UTF-8); F7 lists `01: 문`
   and restores (log: no `broken string trailer`). The unmodified base build (`runs/d2-base`, the file renamed `lsl1-en.001`)
   lists the save (name garbled in its font) and loads it.
+- d2 sha e9bbde926bb.
+
+### d3: Korean save names
+- Hunks: systemui.h 0-1, systemui.cpp 3, 5-7 (hunk 4 was taken by d2), saveload.cpp 6, op_cmd.cpp 2 (the text.cpp budget code came with b3).
+  Build 699, 0 warnings.
+- Data (`runs/d3`): typing `dkssudgktpdy dkssudgktpdy` as the name gives `안녕하세요 안녕하셍` = **28 bytes** (gunzip of the
+  save: `d[4:35]` decodes as UTF-8, version byte 11); the verification box and the F7 list show it
+  (`agi-p5d-save-name-byte-budget.png`, viewed; the list line is cut at its 31 cells).

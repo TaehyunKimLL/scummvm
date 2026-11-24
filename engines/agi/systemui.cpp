@@ -406,7 +406,11 @@ bool SystemUI::askForSaveGameDescription(int16 slotId, Common::String &newDescri
 	}
 
 	_vm->cycleInnerLoopActive(CYCLE_INNERLOOP_GETSTRING);
-	_text->stringEdit(30); // only allow up to 30 characters
+	// The description field is 30 bytes (SAVEDGAME_DESCRIPTION_LEN): a
+	// UTF-8 name is held to that, 10 syllables, not to 30 cells.
+	_text->_inputStringMaxBytes = _vm->textIsUtf8() ? SAVEDGAME_DESCRIPTION_LEN : 0;
+	_text->stringEdit(30);
+	_text->_inputStringMaxBytes = 0;
 
 	_text->charAttrib_Pop();
 	_text->charPos_Pop();
@@ -611,6 +615,13 @@ void SystemUI::createSavedGameDisplayText(char *destDisplayText, const char *act
 	char  slotIdChar[3];
 	int16 actualDescriptionLen = 0;
 
+	if (_vm->textIsUtf8()) {
+		// cells, not bytes: a Korean description is 3 bytes a syllable
+		Common::strlcpy(destDisplayText, TextCells::savedGameLine(actualDescription, slotId, fillUpChar, true).c_str(),
+		                SYSTEMUI_SAVEDGAME_DISPLAYTEXT_BYTES + 1);
+		return;
+	}
+
 	// clear with spaces
 	memset(destDisplayText, fillUpChar, SYSTEMUI_SAVEDGAME_DISPLAYTEXT_LEN);
 
@@ -713,7 +724,7 @@ void SystemUI::readSavedGameSlots(bool filterNonexistant, bool withAutoSaveSlot)
 		savedGameEntry.exists  = true;
 		savedGameEntry.isValid = saveIsValid;
 		memset(savedGameEntry.description, 0, sizeof(savedGameEntry.description));
-		strncpy(savedGameEntry.description, saveDescription.c_str(), SYSTEMUI_SAVEDGAME_DESCRIPTION_LEN);
+		strncpy(savedGameEntry.description, TextCells::clipBytes(saveDescription.c_str(), SYSTEMUI_SAVEDGAME_DESCRIPTION_LEN, _vm->textIsUtf8()).c_str(), SYSTEMUI_SAVEDGAME_DESCRIPTION_LEN);
 		createSavedGameDisplayText(savedGameEntry.displayText, saveDescription.c_str(), curSlotId, true);
 
 		_savedGameArray.push_back(savedGameEntry);
@@ -827,7 +838,7 @@ void SystemUI::drawSavedGameSlotSelector(bool active) {
 }
 
 bool SystemUI::askForSavedGameVerification(const char *verifyText, const char *verifyButton1, const char *verifyButton2, const char *actualDescription, int16 slotId) {
-	char displayDescription[SYSTEMUI_SAVEDGAME_DISPLAYTEXT_LEN + 1];
+	char displayDescription[SYSTEMUI_SAVEDGAME_DISPLAYTEXT_BYTES + 1];
 	Common::String userActionVerify;
 	Common::String savedGameFilename = _vm->getSaveStateName(slotId);
 
