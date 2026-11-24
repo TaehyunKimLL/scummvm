@@ -128,6 +128,25 @@ public:
 		return DefaultSaveFileManager::exists(dosPattern(filename));
 	}
 
+	// Two engine names that DOS keeps as one file must never be copied or renamed onto each other: the copy would
+	// truncate the file it reads, and the rename would then remove it. Equal names (any case) are no-ops that
+	// succeed; names that merely collide are refused.
+	bool renameSavefile(const Common::String &oldName, const Common::String &newName, bool compress = true) override {
+		if (oldName.equalsIgnoreCase(newName))
+			return true;
+		if (dosPattern(oldName).equalsIgnoreCase(dosPattern(newName)))
+			return false;
+		return DefaultSaveFileManager::renameSavefile(oldName, newName, compress);
+	}
+
+	bool copySavefile(const Common::String &oldName, const Common::String &newName, bool compress = true) override {
+		if (oldName.equalsIgnoreCase(newName))
+			return true;
+		if (dosPattern(oldName).equalsIgnoreCase(dosPattern(newName)))
+			return false;
+		return DefaultSaveFileManager::copySavefile(oldName, newName, compress);
+	}
+
 	Common::StringArray listSavefiles(const Common::String &pattern) override {
 		const Common::String dos = dosPattern(pattern);
 		if (dos == pattern)
