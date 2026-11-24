@@ -191,3 +191,45 @@ md5 of every file of D: before and after each run: unchanged (KQ1 15 files, LB1 
   **Not reached: the typed command (`문을 봐`) and save/restore** (the intro to the first prompt needs many timed clicks); U3 stays open for LB1 typing and saves.
 - g4 MI1 KO (pack of `p6/data/mi1`, own `MI1KO.INI` with an S1 target, `engineid=scumm`): PLAY picks SCUMM.EXE; both emulators: credits and the Lookout dialogue in Korean at 320x200 CLUT8 (`dos-p7-g4-*-mi1-montage.png`); first frame 5,960 / 5,956 KB free.
   **Not done: a save with a Korean name through the original save screen** (not attempted).
+
+- g5 memory and timing record (one table; DOSBox-X pentium 60000 cycles, 16 MB; free KB at `first-frame`; EXE sizes stripped):
+  | Game, emulator | EXE | screen | free | notes |
+  |---|---|---|---:|---|
+  | KQ1 AA pair, X | SCI 5,413,376 | RGB565 | 4,720 | first message box within 0.33-0.49 s of Return; loading text phase 1,083 ms (whole) / 1,105 ms (all streamed, 4,344 KB) |
+  | KQ1, X | | RGB555 / CLUT8 / RGB888 | 4,724 / 5,740 / 3,224 | |
+  | KQ1, X forced and Staging | | 640x480 line repeat RGB565 | 4,624 | |
+  | LB1, X and Staging | | CLUT8 | 5,472 | protection screen + two dialogs only |
+  | MI1, X / Staging (PLAY) | SCUMM 5,688,832 | CLUT8 320x200 | 5,960 / 5,956 | direct run 6,272 |
+  | AGI demo, X | AGI 3,940,864 | CLUT8 320x200 | 8,748 | |
+  `BLEND.EXE`: B (Blend16 across rows) 47.68 / 94.94 / 18.96 ms (DX2-66 / DX-33 / Pentium 60000), A (per-pixel blendPixel loop) 119.43 / 237.79 / 47.50 ms. DESIGN 8's faces budget ("well under 0.5 MB"): the KQ1 pair map's faces are whole
+  (12-25 KB each) or, streamed, 8 KB of tables + 64 KB cache per face; whole costs less memory below the 64 KB limit (measured +372 KB for streaming six small faces).
+- g6: DESIGN.md: section 2.5 (14 SDL3 commits, upstream main 1362030, no DOS port in release-3.4.20), section 7 (`hires_text_whole_kb` row), section 8 (14 patch commits, the D-1 screen-format order, the measured composite cost). Section 5.2's `svf_whole_kb`
+  name is left as the design text; the key is `hires_text_whole_kb`.
+
+## Conflicts of section 1 and decisions as answered
+
+D-1: auto = RGB565, then XRGB1555, then CLUT8 (the engine picks the first of what the backend offers); XRGB8888 only for `render_target=rgb888` (tests `dos_modes.h`, runs c1). D-2: staging written (`stage-data.py`), collisions refused, `_CRT0_FLAG_NO_LFN` set;
+**e6 showed an LFN-capable DOS does not truncate, so the LFN premise fails (see e6)**. D-3: gate passed, no GUI-less series. D-4: `-march=pentium` default, `DOS_MARCH=i486` in `build-dos.sh` (not exercised: no 486 build was run). Conflict 3 (mode 13h): Korean targets run at
+VBE 640x400 (the runs), English targets at 320x200 (MI1, AGI). Conflict 5 (debug socket): `--disable-debug-socket` not passed (configure lacks the option), `uart` range optional in `irqcheck.py`. Conflict 7: AGI.EXE builds and runs English only.
+Conflict 8: MI1 KO on DOS is the S1 picture.
+
+## Checkpoints
+
+- Host `make test` (`$B/host`): **1000 tests OK** (N0 770 + DOS suites 216 + Blend16 3 + options 1 + font set 2 + save names 3 + `--set` 5 = 1000: 986 after b7, 989 after c2, 990 c4, 992 c5, 995 e4, 1000 with `--set`); ASan (`$B/asan`, `-fsanitize`): 1000 tests OK, 0 sanitizer lines.
+- Exhaustive Blend16 test in the suite: 499,404,800 checks, 0 mismatches, 7.3 s at -O0; mutations (a) (b) (c) red, (d) green (documented).
+- `tools/korean/sync-svf.sh --check`: `sync-svf: graphics/svf matches svf-fonts-open 3d40de8d940f50ed4a28dfc1851fa776a62f42e5`, rc 0. `python3 -I tools/korean/mkgolden.py --check`: no output, rc 0. Tools tests `tools/korean/test_{k6bake,strcheck,trscheck}.py` rc 0; `backends/platform/dos/test_stage_data.py` 11 OK.
+- `devtools/check-commit-msg.py` on all 26 commits of `ba0eecee2c4..HEAD`: 0 bad; each has exactly one `Assisted-by: Claude Code`, no `Co-Authored-By`.
+- Self-read of the diff since checkpoint B (text_compose, font_set warm, hires_options, dos-savefile, stage-data, build-dos.sh, dos.cpp): the Blend16 differential tests (random rows with and without a table, `convertSpan`) are the randomized differential; `compositeRect`/`presentRect`
+  with a table are exercised only through the DOS game runs (frames 0 differing pixels), not by a host test.
+
+## Not done
+
+P7h (UART debug socket) skipped as instructed. Task e2 not needed. LB1: typed command and save/restore not reached; MI1: Korean-name save through the original save screen not attempted. No fresh-context reviewers for checkpoints A, B, C, E, G (self-read only).
+The staged DATA does not carry the AA pair faces (they came from the prototype's DATA for the KQ1 runs: harness H-2). The pack's version-2 maps (KQ1, LB1) fall back to the engine's default map (H-2).
+The Alt-key leak into the composer (d3) is an open item for `ko/03-sci`. PLAY's `--8bit` is checked; its `--set` and the `--language` of LB1 are exercised only through those runs.
+
+## UNVERIFIED-ON-HARDWARE (all runs above are emulators: DOSBox-X 2026.08.31, DOSBox Staging 0.83)
+
+H1 real 486/Pentium speed of composite and glyphs (BLEND.EXE and a KQ1 dialogue); H2 VBE mode lists/LFB of real cards and 16 vs 32 bpp flush cost; H3 DAC width at 8 bpp; H4 Sound Blaster variants after the SDL rebase (the smoke gate proved SB16 detection and the timer in both emulators only);
+H5 Han/Yeong (0xF2) and Hanja (0xF1) of a real Korean keyboard (and Hanja has no engine action); H6 8.3 truncation on MS-DOS 6.22/7.1 and in a Windows 9x DOS box (e6 suggests LFN-capable DOS does not truncate); H7 memory with HIMEM/EMM386, CWSDPMI swap, `FILES=`;
+H8 the BATs' `SET` trailing-space quirk (BATs not exercised; PLAY was started from autoexec). U4 Staging has no mapper for the Han/Yeong key.
