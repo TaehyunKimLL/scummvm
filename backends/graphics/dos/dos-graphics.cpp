@@ -153,7 +153,7 @@ Common::List<Graphics::PixelFormat> DosGraphicsManager::getSupportedFormats() co
 			warning("DOS: render_target '%s' is not auto, clut8, rgb565, rgb555 or rgb888; using auto", value.c_str());
 		}
 	}
-	return DOS::supportedFormats(_modes, size.w, size.h, cap);
+	return DOS::supportedFormats(_modes, size.w, size.h, cap, ConfMan.getBool("dos_force_fallback"));
 }
 
 void DosGraphicsManager::initSize(uint width, uint height, const Graphics::PixelFormat *format) {

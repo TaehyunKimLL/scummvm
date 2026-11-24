@@ -152,4 +152,20 @@ public:
 		TS_ASSERT_EQUALS(DOS::renderTargetCap(false, "truecolor", invalid), Graphics::kHiResTargetAuto);
 		TS_ASSERT(!invalid);
 	}
+
+	void test_force_fallback_offers_only_what_line_repeat_has() {
+		// 640x400 RGB565 exists and would be exact, but dos_force_fallback=true uses 640x480: DOSBox-X has both, a card
+		// with only the 640x400 mode (and CLUT8) gets CLUT8 alone.
+		const Graphics::PixelFormat clut8 = Graphics::PixelFormat::createFormatCLUT8();
+		const Graphics::PixelFormat both[] = { DOS::rgb565(), DOS::xrgb1555(), clut8 };
+		TS_ASSERT(sameList(DOS::supportedFormats(dosboxX(), 640, 400, Graphics::kHiResTargetAuto, true), both, 3));
+		Common::Array<DOS::VideoMode> only400;
+		const DOS::VideoMode a = { 640, 400, DOS::rgb565() }, b = { 640, 400, clut8 };
+		only400.push_back(a);
+		only400.push_back(b);
+		const Graphics::PixelFormat one565[] = { DOS::rgb565(), clut8 };
+		TS_ASSERT(sameList(DOS::supportedFormats(only400, 640, 400), one565, 2));
+		const Graphics::PixelFormat onlyClut[] = { clut8 };
+		TS_ASSERT(sameList(DOS::supportedFormats(only400, 640, 400, Graphics::kHiResTargetAuto, true), onlyClut, 1));
+	}
 };

@@ -86,10 +86,11 @@ inline ModeChoice chooseMode(const Common::Array<VideoMode> &modes, uint w, uint
  * (Graphics::resolveRenderTarget(): 888, then 565, then 555 of what is
  * offered), so 4-byte XRGB8888 is offered only when @p cap asks for rgb888:
  * on a DOS bus 16 bit costs half the copy, and DESIGN section 8 makes 5-6-5,
- * then 1-5-5-5, the DOS default. clut8 reports CLUT8 alone.
+ * then 1-5-5-5, the DOS default. clut8 reports CLUT8 alone. With @p forceFallback (dos_force_fallback=true) only formats
+ * the 640x480 line-repeat mode has are offered: an exact 640x400 mode does not count, as it will not be used.
  */
 inline Common::List<Graphics::PixelFormat> supportedFormats(const Common::Array<VideoMode> &modes, uint w, uint h,
-															 Graphics::HiResRenderTarget cap = Graphics::kHiResTargetAuto) {
+															 Graphics::HiResRenderTarget cap = Graphics::kHiResTargetAuto, bool forceFallback = false) {
 	Common::Array<Graphics::PixelFormat> order;
 	if (cap == Graphics::kHiResTargetRgb888)
 		order.push_back(xrgb8888());
@@ -99,7 +100,7 @@ inline Common::List<Graphics::PixelFormat> supportedFormats(const Common::Array<
 	}
 	Common::List<Graphics::PixelFormat> out;
 	for (uint i = 0; i < order.size(); ++i)
-		if (chooseMode(modes, w, h, order[i], false).index >= 0)
+		if (chooseMode(modes, w, h, order[i], forceFallback).index >= 0)
 			out.push_back(order[i]);
 	out.push_back(Graphics::PixelFormat::createFormatCLUT8());
 	return out;
