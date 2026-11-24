@@ -51,12 +51,13 @@ struct TextMode {
 /** What decideTextMode() looks at; filled from the descriptor, ConfMan and the game folder. */
 struct TextModeInputs {
 	TextModeInputs() : detected(Common::UNK_LANG), requested(Common::UNK_LANG), koreanText(true),
-		translationFolder(false), stringTable(false), hiresText(true) {}
+		textEncodingOwn(false), translationFolder(false), stringTable(false), hiresText(true) {}
 
 	Common::Language detected;   ///< the detection entry's language
 	Common::Language requested;  ///< the target's language= (UNK_LANG: not set or unknown)
 	bool koreanText;             ///< korean_text ([scummvm] off switch)
 	Common::String textEncoding; ///< text_encoding: auto (or empty), utf8; cp949 is not an AGI encoding
+	bool textEncodingOwn;        ///< text_encoding is set in the target's own section, not only globally
 	bool translationFolder;      ///< the requested language's folder (ko/) holds a translation
 	bool stringTable;            ///< that folder (or the game folder) holds agi-<code>.str
 	bool hiresText;              ///< hires_text

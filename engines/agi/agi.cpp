@@ -659,6 +659,8 @@ TextModeInputs AgiEngine::textModeInputs(const Common::FSNode &gameDataDir) cons
 	in.koreanText = !ConfMan.hasKey("korean_text") || ConfMan.getBool("korean_text");
 	if (ConfMan.hasKey("text_encoding"))
 		in.textEncoding = ConfMan.get("text_encoding");
+	if (ConfMan.getActiveDomain())
+		in.textEncodingOwn = ConfMan.getActiveDomain()->contains("text_encoding");
 	Common::FSList files;
 	if (in.requested != Common::UNK_LANG && gameDataDir.getChildren(files, Common::FSNode::kListAll)) {
 		const Common::Array<Common::Language> langs = Common::translationFolderLanguages(files, "agi-%s.str");

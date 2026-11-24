@@ -54,9 +54,15 @@ TextMode decideTextMode(const TextModeInputs &in, Common::String &notes) {
 	}
 
 	const bool translated = mode.language != in.detected;
-	if (enc == "utf8" || enc == "utf-8")
-		mode.encoding = TextMode::kUtf8;
-	else if (translated && in.stringTable)
+	if (enc == "utf8" || enc == "utf-8") {
+		// A global text_encoding=utf8 (the Korean text switch writes it for every game)
+		// is for games with a translation; a plain game keeps its code page unless
+		// its own section asks.
+		if (in.translationFolder || in.stringTable || in.textEncodingOwn)
+			mode.encoding = TextMode::kUtf8;
+		else
+			notes += "text_encoding=utf8 ignored: no translation for this game and the key is not in its own section; ";
+	} else if (translated && in.stringTable)
 		mode.encoding = TextMode::kUtf8;
 	else if (translated && in.translationFolder) {
 		// A translation folder is a translation even when its table is missing or misspelt.

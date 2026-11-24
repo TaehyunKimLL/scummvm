@@ -73,6 +73,19 @@ public:
 		Agi::TextModeInputs en;
 		en.detected = Common::EN_ANY;
 		en.textEncoding = "utf8";
+		// text_encoding=utf8 written for every game (the global Korean text switch) does not
+		// move a game with no translation off its own code page: no Korean map, no `?`
+		// for the Russian, Hebrew and French fonts' characters
+		Agi::TextMode g = Agi::decideTextMode(en, notes);
+		TS_ASSERT(!g.utf8());
+		TS_ASSERT(!g.hires);
+		TS_ASSERT(notes.contains("text_encoding=utf8 ignored"));
+		// the key in the game's own section is a decision for that game
+		en.textEncodingOwn = true;
 		TS_ASSERT(Agi::decideTextMode(en, notes).utf8());
+		// a game with a translation folder honours it either way
+		in = korean();
+		in.textEncoding = "utf8";
+		TS_ASSERT(Agi::decideTextMode(in, notes).utf8());
 	}
 };
