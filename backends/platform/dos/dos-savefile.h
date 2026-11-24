@@ -114,6 +114,14 @@ public:
 		// work of their own: yield on either side of them.
 		g_system->delayMillis(0);
 		const Common::String dos = dosPattern(filename);
+		// A hash collision: this DOS name already belongs to another target's save (per the index, file present). Refuse
+		// instead of overwriting it.
+		loadIndex();
+		if (indexMapsValidly(dos) && !_index.find(dos)->_value.equalsIgnoreCase(filename) && DefaultSaveFileManager::exists(dos)) {
+			warning("DOS: save name %s would overwrite %s (same DOS name %s): not saved", filename.c_str(),
+			        _index.find(dos)->_value.c_str(), dos.c_str());
+			return nullptr;
+		}
 		Common::OutSaveFile *const sf = DefaultSaveFileManager::openForSaving(dos, compress);
 		g_system->delayMillis(0);
 		if (!sf)
@@ -182,7 +190,7 @@ public:
 		if (dos != pattern) {
 			const Common::StringArray byName = DefaultSaveFileManager::listSavefiles(dos);
 			for (uint i = 0; i < byName.size(); ++i)
-				if (!byName[i].equalsIgnoreCase(indexName()))
+				if (!byName[i].equalsIgnoreCase(indexName()) && !indexMapsValidly(byName[i]))	// those are listed above
 					pushUnique(out, engineName(pattern, byName[i]));
 		}
 		return out;
@@ -191,6 +199,12 @@ public:
 private:
 	typedef Common::HashMap<Common::String, Common::String, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> IndexMap;
 	static const char *indexName() { return "saveidx.txt"; }
+
+	// Whether the index gives @p dos an engine name whose DOS name it really is.
+	bool indexMapsValidly(const Common::String &dos) const {
+		IndexMap::const_iterator it = _index.find(dos);
+		return it != _index.end() && dosPattern(it->_value).equalsIgnoreCase(dos);
+	}
 
 	static void pushUnique(Common::StringArray &a, const Common::String &s) {
 		for (uint i = 0; i < a.size(); ++i)

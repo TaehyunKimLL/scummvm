@@ -290,6 +290,98 @@ public:
 #endif
 	}
 
+	// Extensions longer than 3 characters are cut: "short.save1" and "short.save2" are one DOS name; the listing shows one entry
+	// per save (not also the cut name), and a save whose DOS name the index gives to another engine name is refused.
+	void test_longExtensionsAndCollisionGuard() {
+#if NULL_OSYSTEM_IS_AVAILABLE && defined(DOS_SAVE_MANAGER_TEST)
+		Common::install_null_g_system();
+		const Common::Path dir("test/dos-savenames-tmp", '/');
+		Common::FSNode dirNode(dir);
+		if (!dirNode.exists())
+			TS_ASSERT(dirNode.createDirectory());
+		ConfMan.setPath("savepath", dir, Common::ConfigManager::kApplicationDomain);
+		{
+			DOS::SaveFileManager clean(dir);
+			const Common::StringArray old = clean.listSavefiles("*");
+			for (uint i = 0; i < old.size(); ++i)
+				clean.removeSavefile(old[i]);
+			clean.removeSavefile("saveidx.txt");
+		}
+		{
+			DOS::SaveFileManager m(dir);
+			Common::OutSaveFile *out = m.openForSaving("short.save1", false);
+			TS_ASSERT(out != nullptr);
+			if (out) {
+				out->writeString("one");
+				out->finalize();
+				delete out;
+			}
+			// an index entry is made only for mapped long bases; force one for this DOS name by saving a long target too
+			out = m.openForSaving("longer-target-x.001", false);
+			if (out) {
+				out->finalize();
+				delete out;
+			}
+		}
+		{
+			DOS::SaveFileManager m(dir);
+			const Common::StringArray l = m.listSavefiles("short.save1");
+			TS_ASSERT_EQUALS(l.size(), 1u);
+			TS_ASSERT_EQUALS(m.listSavefiles("*").size(), 2u);
+		}
+		// collision guard with a REAL hash collision: two engine names of one 4-character prefix with the same DOS name
+		Common::String nameA, nameB;
+		{
+			Common::HashMap<Common::String, Common::String> seen;
+			uint32 rs = 4242;
+			for (int i = 0; i < 40000 && nameB.empty(); ++i) {
+				Common::String n("abcd-");
+				for (int k = 0; k < 6; ++k) {
+					rs = rs * 1103515245 + 12345;
+					n += (char)('a' + (rs >> 16) % 26);
+				}
+				n += ".001";
+				const Common::String d = DOS::dosPattern(n);
+				if (seen.contains(d)) {
+					nameA = seen[d];
+					nameB = n;
+				} else {
+					seen[d] = n;
+				}
+			}
+		}
+		TS_ASSERT(!nameB.empty());
+		if (!nameB.empty()) {
+			DOS::SaveFileManager m(dir);
+			Common::OutSaveFile *out = m.openForSaving(nameA, false);
+			TS_ASSERT(out != nullptr);
+			if (out) {
+				out->writeString("A-save-bytes");
+				out->finalize();
+				delete out;
+			}
+			TS_ASSERT(m.openForSaving(nameB, false) == nullptr);	// refused: it would overwrite A
+			DOS::SaveFileManager second(dir);
+			TS_ASSERT(second.openForSaving(nameB, false) == nullptr);	// also in a new session (through the index)
+			Common::InSaveFile *in = second.openForLoading(nameA);
+			TS_ASSERT(in != nullptr);
+			if (in) {
+				TS_ASSERT_EQUALS(in->readString(0, 12), "A-save-bytes");
+				delete in;
+			}
+			TS_ASSERT(second.openForSaving(nameA, false) != nullptr);	// the owner may save again
+		}
+		{
+			DOS::SaveFileManager last(dir);
+			const Common::StringArray rest = last.listSavefiles("*");
+			for (uint i = 0; i < rest.size(); ++i)
+				last.removeSavefile(rest[i]);
+			last.removeSavefile("saveidx.txt");
+		}
+		Common::uninstall_null_g_system();
+#endif
+	}
+
 	// The save manager end to end on a real folder: the engine's long name is written, listed in a NEW session (a new
 	// manager over the folder), loaded, found and removed by that same long name - SCI restores by the name it listed.
 	void test_longTargetSurvivesASession() {
