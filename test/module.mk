@@ -22,7 +22,7 @@ TEST_LIBS    :=
 # The pure parts of the DOS backend (mode choice, cursors, line repeat, the launcher's text
 # handling, ...) run on the host; the DOS build never runs them.
 ifneq ($(BACKEND),dos)
-TESTS += $(srcdir)/test/backends/dos_*.h
+TESTS += $(srcdir)/test/backends/dos_*.h $(srcdir)/test/base/command_line_set.h
 # dos_savenames.h runs the real save manager over a temporary folder.
 TEST_LIBS += backends/saves/default/default-saves.o
 endif
