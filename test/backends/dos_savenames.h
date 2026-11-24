@@ -369,7 +369,9 @@ public:
 				TS_ASSERT_EQUALS(in->readString(0, 12), "A-save-bytes");
 				delete in;
 			}
-			TS_ASSERT(second.openForSaving(nameA, false) != nullptr);	// the owner may save again
+			Common::OutSaveFile *again = second.openForSaving(nameA, false);	// the owner may save again
+			TS_ASSERT(again != nullptr);
+			delete again;
 		}
 		{
 			DOS::SaveFileManager last(dir);
