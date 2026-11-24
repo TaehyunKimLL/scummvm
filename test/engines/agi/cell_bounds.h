@@ -4,6 +4,7 @@
 #include "common/str.h"
 #include "common/util.h"
 
+#include "agi/agi.h"
 #include "agi/textcells.h"
 
 /**
@@ -354,5 +355,52 @@ public:
 			(up ? same : different)++;
 		}
 		TS_ASSERT(same > 5000u && different > 5000u);
+	}
+
+	// SystemUI's save list line in UTF-8: valid UTF-8, "NN:" first, exactly 31
+	// cells (the description cut to 28 and padded), never more than the
+	// 31 * 4 + 1 bytes of the display buffer, and the kept description is a
+	// prefix of the given one.
+	void test_savedGameLineUtf8KeepsItsShape() {
+		for (int iter = 0; iter < 20000; iter++) {
+			const Common::String desc = randomText(45, false);
+			const int slot = 1 + rnd() % 99;
+			char *d = exactCopy(desc);
+			const Common::String line = Agi::TextCells::savedGameLine(d, (int16)slot, ' ', true);
+			TS_ASSERT(Agi::TextCells::isValidUtf8(line.c_str()));
+			TS_ASSERT_EQUALS((int)Agi::TextCells::cellLen(line.c_str(), true), 31);
+			TS_ASSERT(line.size() <= 31u * 4u);
+			TS_ASSERT_EQUALS(line[0], (char)('0' + slot / 10));
+			TS_ASSERT_EQUALS(line[1], (char)('0' + slot % 10));
+			TS_ASSERT_EQUALS(line[2], ':');
+			const Common::String kept = Agi::TextCells::clipCells(d, 28, true);
+			TS_ASSERT(memcmp(line.c_str() + 3, kept.c_str(), kept.size()) == 0);
+			free(d);
+		}
+	}
+
+	// A save name the edit line accepts (utf8Bytes <= SAVEDGAME_DESCRIPTION_BYTES)
+	// must be what saveGame() keeps: it copies the description with
+	// strlcpy(description, text, SAVEDGAME_DESCRIPTION_LEN), which leaves room for
+	// the terminator, so a budget of the whole field cut the last syllable of a
+	// 30-byte name after the player had verified it.
+	void test_saveNameBudgetSurvivesTheDescriptionCopy() {
+		uint thirty = 0;
+		for (int iter = 0; iter < 20000; iter++) {
+			const Common::String name = randomText(12, false);
+			uint32 cells[64];
+			char *s = exactCopy(name);
+			const int16 n = Agi::TextCells::toCells(s, cells, 64, true);
+			free(s);
+			if (Agi::TextCells::utf8Bytes(cells, n) > SAVEDGAME_DESCRIPTION_BYTES)
+				continue; // refused by the edit line
+			char description[SAVEDGAME_DESCRIPTION_LEN + 1];
+			memset(description, 0, sizeof(description));
+			Common::strlcpy(description, Agi::TextCells::fromCells(cells, true).c_str(), SAVEDGAME_DESCRIPTION_LEN);
+			TS_ASSERT_EQUALS(Common::String(description), Agi::TextCells::fromCells(cells, true));
+			thirty += Agi::TextCells::utf8Bytes(cells, n) >= 29;
+		}
+		// the generator must reach names at the limit
+		TS_ASSERT(thirty > 20u);
 	}
 };

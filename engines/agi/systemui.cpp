@@ -408,7 +408,7 @@ bool SystemUI::askForSaveGameDescription(int16 slotId, Common::String &newDescri
 	_vm->cycleInnerLoopActive(CYCLE_INNERLOOP_GETSTRING);
 	// The description field is 30 bytes (SAVEDGAME_DESCRIPTION_LEN): a
 	// UTF-8 name is held to that, 10 syllables, not to 30 cells.
-	_text->_inputStringMaxBytes = _vm->textIsUtf8() ? SAVEDGAME_DESCRIPTION_LEN : 0;
+	_text->_inputStringMaxBytes = _vm->textIsUtf8() ? SAVEDGAME_DESCRIPTION_BYTES : 0;
 	_text->stringEdit(30);
 	_text->_inputStringMaxBytes = 0;
 

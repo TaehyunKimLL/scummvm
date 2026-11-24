@@ -241,3 +241,10 @@ independent-model tests of what the diff changed, run under ASan+UBSan.
   12 digits, `:`/`;`/space separators, TAB/space/none, texts with Hangul, `\n`, lone surrogate bytes) judged by
   `strcheck.check(..., engine="agi")` and by the engine's `TextOverlay::parseLine` in a temporary CxxTest: **0 disagreements**
   (3927 accepted lines).
+- e1 sha d4c52806428.
+
+### e2 and the final review
+- `PATCHES.md`: a `ko/04-agi` block (14 rows covering every upstream file of appendix B).
+- **Review finding F1** (see `P5-fixes.md`): save-name budget 30 vs the 29 bytes `strlcpy` keeps; found by reading `saveGame()`
+  against `stringFitsBudget` and reproduced in play (`runs/d3b`); fixed with a red-first test. Also added
+  `test_savedGameLineUtf8KeepsItsShape` (20000 random descriptions: valid UTF-8, exactly 31 cells, <= 124 bytes).

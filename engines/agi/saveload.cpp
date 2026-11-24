@@ -91,7 +91,7 @@ int AgiEngine::saveGame(const Common::String &fileName, const Common::String &de
 	if (textIsUtf8()) {
 		// A description from ScummVM's save dialog may be any Unicode: cut
 		// it on a character boundary to what strlcpy below keeps.
-		utf8Desc = TextCells::clipBytes(descriptionString.c_str(), SAVEDGAME_DESCRIPTION_LEN - 1, true);
+		utf8Desc = TextCells::clipBytes(descriptionString.c_str(), SAVEDGAME_DESCRIPTION_BYTES, true);
 		descriptionStringC = utf8Desc.c_str();
 	} else if (_game._vm->getLanguage() != Common::HE_ISR) {
 		descriptionStringC = descriptionString.c_str();

@@ -91,6 +91,9 @@ namespace Agi {
 #define MAX_CONTROLLER_KEYMAPPINGS 39
 
 #define SAVEDGAME_DESCRIPTION_LEN 30
+// What a save keeps of a description: saveGame() copies it with strlcpy(..., SAVEDGAME_DESCRIPTION_LEN),
+// which leaves room for the terminator. A UTF-8 name is held to this many bytes while it is typed.
+#define SAVEDGAME_DESCRIPTION_BYTES (SAVEDGAME_DESCRIPTION_LEN - 1)
 
 #define _EMPTY       0xfffff
 #define EGO_OWNED    0xff
