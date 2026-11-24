@@ -187,6 +187,10 @@ config_current() {
 		echo "build-dos.sh: $out/config.mk uses another SDL3 ($pkg); configuring again." >&2
 		return 1
 	fi
+	if [ -n "$march_flags" ] && ! grep -q "^SAVED_CXXFLAGS.*$march_flags" config.mk; then
+		echo "build-dos.sh: $out/config.mk lacks $march_flags; configuring again." >&2
+		return 1
+	fi
 	case " $cpp " in
 		*" $dos_cppflags "*) ;;
 		*) echo "build-dos.sh: $out/config.mk lacks $dos_cppflags; configuring again." >&2; return 1 ;;
@@ -204,8 +208,8 @@ if [ "$edition" = scumm ] && ! { grep -q '^#define USE_FLAC$' config.h && grep -
 	echo "build-dos.sh: configure did not take libFLAC and Tremor from $codecs; not building." >&2
 	exit 1
 fi
-if [ "$edition" = sci ] && grep -qE '^#define USE_(FLAC|TREMOR|VORBIS|MAD)$' config.h; then
-	echo "build-dos.sh: the sci edition must link no codec; not building." >&2
+if [ "$edition" != scumm ] && grep -qE '^#define USE_(FLAC|TREMOR|VORBIS|MAD)$' config.h; then
+	echo "build-dos.sh: the $edition edition must link no codec; not building." >&2
 	exit 1
 fi
 if [ "$edition" = scumm ]; then
