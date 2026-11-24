@@ -121,3 +121,15 @@ Tasks are committed one by one; the sha of a task is written into the log by the
   table load). Build 680, 0 warnings.
 - Run (`runs/b3`, `hangul_input=true`): typed `tnfwlqdmf qh` -> prompt `] 술집을 보` with the syllable being composed inverted
   (`agi-p5-b3-prompt-preedit.png`, viewed).
+- b3 sha 36edd1210b9.
+
+### b2: keys (committed after b3), and b4 (no commit): P5b smoke
+- b2 hunks: keyboard.cpp 0-1, cycle.cpp 0-3, op_test.cpp 0-1 (`condHaveKey`; the `textcells.h` include comes with it),
+  agi.h 5 (`AgiAction`) and 8 (`int processAGIEvents()`), metaengine.cpp 0 and 2 (`initKeymaps`). Build 680, 0 warnings.
+- b4 (runs `runs/b4-*`, `--debugflags=text,input`): composer `tnfwlqdmf qh` -> `술집을 보` with the preedit inverted (b3);
+  OS IME `xdotool type "술집을 봐"` with `hangul_start=false` -> prompt `] 술집을 봐`, log `key 1c220 pressed`
+  (`agi-p5b-osime-typed.png`); `ctrl+space` -> `[key] Han/Yeong -> English`, `r` before gives jamo, after gives `r`
+  (`agi-p5b-toggle-english.png`).
+- **Alt+S (the UNVERIFIED item)**: `alt+s` at the title, in the message box, on an empty prompt and while composing `tn`:
+  ScummVM saves its screenshot (4 `scummvm-lsl1-ko-0000N.png` files, toast visible), the prompt stays empty / `수`, the log
+  shows only keys `0d`, `6e`, `74`: **no `ㄴ` leak, no `73`; not reproduced, no guard added** (`agi-p5b-alt-s-composing.png`).

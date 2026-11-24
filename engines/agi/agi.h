@@ -573,6 +573,12 @@ struct ImageStackElement {
 
 #define KEY_QUEUE_SIZE 16
 
+/** Keymapper custom engine actions. */
+enum AgiAction {
+	kAgiActionNone = 0,
+	kAgiActionHangulToggle = 1
+};
+
 class AgiBase : public ::Engine {
 protected:
 	// Engine API
@@ -825,7 +831,7 @@ public:
 
 public:
 	void decrypt(uint8 *mem, int len);
-	uint16 processAGIEvents();
+	int processAGIEvents();
 	int runGame();
 
 	void newRoom(int16 newRoomNr);

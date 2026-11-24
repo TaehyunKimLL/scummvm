@@ -29,6 +29,11 @@
 #include "graphics/thumbnail.h"
 #include "graphics/surface.h"
 
+#include "backends/keymapper/action.h"
+#include "backends/keymapper/keymapper.h"
+
+#include "common/config-manager.h"
+
 #include "base/plugins.h"
 #include "engines/advancedDetector.h"
 
@@ -255,7 +260,42 @@ public:
 	SaveStateDescriptor querySaveMetaInfos(const char *target, int slot) const override;
 
 	bool hasFeature(MetaEngineFeature f) const override;
+
+	Common::KeymapArray initKeymaps(const char *target) const override;
 };
+
+Common::KeymapArray AgiMetaEngine::initKeymaps(const char *target) const {
+	using namespace Common;
+
+	KeymapArray keymaps = MetaEngine::initKeymaps(target);
+
+	// Korean targets only (DESIGN.md section 6), where the composer can be
+	// used: as SCI's keymap (engines/sci/metaengine.cpp).
+	if (ConfMan.get("language", target) != "ko")
+		return keymaps;
+	bool value;
+	if ((ConfMan.hasKey("hangul_builtin", target) && Common::parseBool(ConfMan.get("hangul_builtin", target), value) && !value) ||
+	    (ConfMan.hasKey("korean_text", target) && Common::parseBool(ConfMan.get("korean_text", target), value) && !value) ||
+	    (ConfMan.hasKey("hangul_input", target) && Common::parseBool(ConfMan.get("hangul_input", target), value) && !value))
+		return keymaps;
+
+	Keymap *hangulKeymap = new Keymap(Keymap::kKeymapTypeGame, "agi-hangul", _("AGI - Korean input"));
+	Action *act = new Action("HANGULTOGGLE", _("Han/Yeong (Korean input on/off)"));
+	act->setCustomEngineActionEvent(Agi::kAgiActionHangulToggle);
+	// SCI's defaults (engines/sci/metaengine.cpp): the dedicated key, what
+	// X11 calls it, the two IME toggles, and two keys Windows' Korean IME
+	// lets through to DOSBox-X.
+	act->addDefaultInputMapping("HANGUL");
+	act->addDefaultInputMapping("RALT");
+	act->addDefaultInputMapping("C+SPACE");
+	act->addDefaultInputMapping("S+SPACE");
+	act->addDefaultInputMapping("SCROLLOCK");
+	act->addDefaultInputMapping("F12");
+	hangulKeymap->addAction(act);
+
+	keymaps.push_back(hangulKeymap);
+	return keymaps;
+}
 
 bool AgiMetaEngine::hasFeature(MetaEngineFeature f) const {
 	return

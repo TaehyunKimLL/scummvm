@@ -129,8 +129,24 @@ void AgiEngine::processScummVMEvents() {
 				_mouse.pos.y = event.mouse.y;
 			}
 			break;
+		case Common::EVENT_CUSTOM_ENGINE_ACTION_START:
+			// Han/Yeong as a keymapper action: it enters the queue as a
+			// pseudo-key above every AGI key, so no script ever sees it.
+			if (event.customType == kAgiActionHangulToggle) {
+				if (_text != nullptr && _text->hangulInputAvailable())
+					keyEnqueue(AGI_KEY_HANGUL_TOGGLE);
+			}
+			break;
 		case Common::EVENT_KEYDOWN:
 			key = event.kbd.ascii;
+			// UTF-8 text mode: text with no key - an OS input method's finished
+			// syllable, Sci::EventManager::isOsImeCharacter()'s test - is one
+			// character of the edit line. Without an overlay it is dropped below,
+			// as it always was (key > 0xFF).
+			if (textIsUtf8() && event.kbd.keycode == Common::KEYCODE_INVALID && event.kbd.ascii >= 0x100) {
+				keyEnqueue(AGI_KEY_CODEPOINT | event.kbd.ascii);
+				break;
+			}
 			if (event.kbd.keycode >= Common::KEYCODE_KP0 && event.kbd.keycode <= Common::KEYCODE_KP9) {
 				if (!(event.kbd.flags & Common::KBD_NUM)) {
 					// HACK: Num-Lock not enabled
@@ -390,6 +406,16 @@ int AgiEngine::doPollKeyboard() {
 		key = getKeypress();
 
 		debugC(3, kDebugLevelInput, "key %02x pressed", key);
+
+		// Han/Yeong (UTF-8 text mode) is handled here, once for every loop
+		// and every wait - the prompt, get.string, message boxes, menus,
+		// the inventory, have.key, waitKey/waitAnyKey - and is never a key
+		// press. D8 (the save name ignores it) is hangulToggle()'s.
+		if (key == AGI_KEY_HANGUL_TOGGLE) {
+			if (_text != nullptr)
+				_text->hangulToggle();
+			key = 0;
+		}
 	}
 
 	return key;
