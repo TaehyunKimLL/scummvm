@@ -125,7 +125,7 @@ refuses two sources that would get the same name. The EXEs start with long file 
 (`_CRT0_FLAG_NO_LFN`). Where DOS truncates names to 8.3 itself (MS-DOS, and DOSBox with
 `lfn=false`), that is what finds the staged data; an LFN-capable DOS (DOSBox-X with `lfn=true`
 and `ver=7.1`) does not truncate a long name it is given and does not find it. Saves of a target
-longer than 8 characters are written under the cut name (`KQ1-RGB5.001`) and listed, loaded and
+longer than 8 characters are written under the cut name (`KQ1-U6F4.001`, the first 4 characters and a hash of the whole name; `SAVEIDX.TXT` maps it back) and listed, loaded and
 removed under the engine's own name.
 
 ## Korean text

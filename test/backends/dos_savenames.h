@@ -15,7 +15,7 @@
 class DosSaveNamesTestSuite : public CxxTest::TestSuite {
 public:
 	void test_mappedNamesAreDistinctPerTarget() {
-		// A long base keeps 5 characters and a hash of the whole base: the shared first 8 characters no longer share a file.
+		// A long base keeps 4 characters and a hash of the whole base: the shared first 8 characters no longer share a file.
 		const Common::String a = DOS::dosPattern("lsl1sci-en.001"), b = DOS::dosPattern("lsl1sci-ko.001");
 		TS_ASSERT(a != b);
 		TS_ASSERT_EQUALS(a.size(), 12u);	// 8 + . + 3
