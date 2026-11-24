@@ -22,6 +22,7 @@
 #include "base/version.h"
 
 #include "agi/agi.h"
+#include "agi/textcells.h"
 #include "agi/inv.h"
 #include "agi/sprite.h"
 #include "agi/text.h"
@@ -1756,8 +1757,11 @@ void cmdWander(AgiGame *state, AgiEngine *vm, uint8 *parameter) {
 void cmdSetGameID(AgiGame *state, AgiEngine *vm, uint8 *parameter) {
 	uint16 textNr = parameter[0];
 
-	if (state->_curLogic->texts && (textNr - 1) <= state->_curLogic->numTexts)
-		Common::strlcpy(state->id, state->_curLogic->texts[textNr - 1], 8);
+	if (state->_curLogic->texts && (textNr - 1) <= state->_curLogic->numTexts) {
+		// the game's own text: a translation never changes the id saves carry
+		const char *const *texts = state->_curLogic->rawTexts ? state->_curLogic->rawTexts : state->_curLogic->texts;
+		Common::strlcpy(state->id, texts[textNr - 1], 8);
+	}
 	else
 		state->id[0] = 0;
 

@@ -59,3 +59,9 @@ Tasks are committed one by one; the sha of a task is written into the log by the
   usable agi-ko.str`.
 - v3 fingerprint (KQ4 AGI, `ko/agi-ko.str` of one comment line): printed `fingerprint=ba58a0d9551a852acefa31e4461f3643`
   = md5(KQ4DIR + WORDS.TOK) computed independently: `_name + DIR_` works, no fix needed (the plan's UNVERIFIED item closed).
+- a6 sha bc34d9b6638.
+
+### a7: messages, object names, view descriptions
+- Hunks: logic.cpp/.h, objects.cpp, sprite.cpp whole; op_cmd.cpp 0 (include) and 3 (`cmdSetGameID` from `rawTexts`).
+  Build 671, 0 warnings. Run (`runs/a7`): log `Game ID: "LLLLL"` (unchanged), Lefty's reached after two Returns
+  (quiz skipped by the pack), English status line (that is a9's).

@@ -20,6 +20,7 @@
  */
 
 #include "agi/agi.h"
+#include "agi/textcells.h"
 
 #include "common/textconsole.h"
 
@@ -72,6 +73,18 @@ int AgiEngine::decodeObjects(uint8 *mem, uint32 flen) {
 		// game Beyond the Titanic 2 (bug #5523).
 		if (_objects[i].name == "?" && _objects[i].location == EGO_OWNED)
 			_objects[i].location = 0;
+
+		// UTF-8 text mode: the translated name, or the game's own in UTF-8.
+		// "?" (the unused object) is never translated.
+		if (textIsUtf8() && _objects[i].name != "?") {
+			const Common::String *t = _overlay.object(i);
+			if (t) {
+				_objects[i].name = *t;
+			} else {
+				if (TextCells::hasHighBytes(_objects[i].name.c_str()))
+					_objects[i].name = TextOverlay::legacyToUtf8(_objects[i].name.c_str(), Common::kDos850);
+			}
+		}
 	}
 	debug(0, "Reading objects: %d objects read.", _game.numObjects);
 
