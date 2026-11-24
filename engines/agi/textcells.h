@@ -1,0 +1,98 @@
+/* ScummVM - Graphic Adventure Engine
+ *
+ * ScummVM is the legal property of its developers, whose names
+ * are too numerous to list here. Please refer to the COPYRIGHT
+ * file distributed with this source distribution.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+#ifndef AGI_TEXTCELLS_H
+#define AGI_TEXTCELLS_H
+
+#include "common/str.h"
+
+namespace Agi {
+
+/**
+ * One character is one cell of AGI's 40x25 text grid (text.cpp advances
+ * one column per character). In UTF-8 text mode a character is a code
+ * point; otherwise it is a byte, as it always was - the Russian, Hebrew and
+ * French fonts have real glyphs at 0x80-0xFF, so `utf8` must come from
+ * AgiBase::textIsUtf8() and nowhere else.
+ *
+ * A malformed UTF-8 sequence (a bad lead or continuation byte, an overlong
+ * form, a surrogate, a value past U+10FFFF) is its first byte, one cell: a translation is
+ * not guaranteed to be valid, and a decoder that ran off a truncated
+ * sequence would swallow the rest of the string.
+ */
+namespace TextCells {
+
+/** True if any byte of text is >= 0x80: the one scan for "is this string not plain ASCII". */
+bool hasHighBytes(const char *text);
+int decode(const char *text, bool utf8, uint32 &cp);
+int16 cellLen(const char *text, bool utf8);
+int16 measure(const char *text, int16 byteLen, bool utf8, int16 maxCells = -1, int16 *bytesForMaxCells = nullptr);
+Common::String clipCells(const char *text, int16 maxCells, bool utf8);
+/** The longest prefix of whole characters that is at most maxBytes bytes. */
+Common::String clipBytes(const char *text, int16 maxBytes, bool utf8);
+Common::String fromCells(const uint32 *cells, bool utf8);
+int16 toCells(const char *text, uint32 *cells, int16 capacity, bool utf8);
+int16 cellCount(const uint32 *cells);
+bool isHangulSyllable(uint32 cp);
+
+/** Every byte of @p text up to its NUL belongs to a well-formed UTF-8 character (decode() never falls back to a byte). */
+bool isValidUtf8(const char *text);
+
+/** The UTF-8 bytes of @p cells[0..len). */
+int utf8Bytes(const uint32 *cells, int16 len);
+
+/**
+ * SystemUI's save list line for @p description: "NN:" then the description,
+ * cut to 28 cells (and on a character boundary), padded with @p fill to 31
+ * cells. As createSavedGameDisplayText() for bytes when @p utf8 is false.
+ */
+Common::String savedGameLine(const char *description, int16 slotId, char fill, bool utf8);
+
+/**
+ * GfxMenu::addMenuItem()'s drop-down item column (left to right languages):
+ * under the menu name, or moved left so that an item of itemCells ends at
+ * column screenColumns - 2 (the box border takes the last column). The
+ * original passes the first item's length; UTF-8 text mode passes the
+ * longest item's, since a translation does not pad its items to the first
+ * one's length.
+ */
+int16 dropDownColumn(int16 menuColumn, int16 itemCells, int16 screenColumns);
+
+/**
+ * compare.strings (op_test.cpp): drop space, tab, - . , : ; ! and the
+ * apostrophe, fold ASCII letters to lower case, compare the rest byte for
+ * byte. Bytes >= 0x80 are never folded (they are Hangul in UTF-8 mode and
+ * the original's tolower() left them alone in the C locale).
+ */
+bool agiStringsEqual(const char *a, const char *b);
+
+/**
+ * TextMgr::stringWordWrap()'s loop, in cells (K5). `hangulAny` is the map's
+ * [layout] hangul=any: a Hangul word that does not fit the rest of a line
+ * fills it and continues on the next instead of moving down whole.
+ */
+void wordWrap(const char *text, int16 maxWidth, bool utf8, bool hangulAny, Common::String &out,
+              int16 &width, int16 &height, bool *truncated = nullptr);
+
+} // End of namespace TextCells
+} // End of namespace Agi
+
+#endif

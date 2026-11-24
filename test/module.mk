@@ -66,6 +66,14 @@ ifeq ($(ENABLE_SCI), STATIC_PLUGIN)
 	TEST_LIBS += engines/sci/libsci.a graphics/libgraphics.a common/libcommon.a
 endif
 
+ifeq ($(ENABLE_AGI), STATIC_PLUGIN)
+	TESTS += $(srcdir)/test/engines/agi/*.h
+	# The Korean units of the AGI engine, named one by one (not libagi.a, so
+	# nothing of the engine is pulled in).
+	TEST_LIBS += engines/agi/textcells.o \
+		graphics/libgraphics.a common/libcommon.a
+endif
+
 ifeq ($(ENABLE_SCUMM), STATIC_PLUGIN)
 	TESTS += $(srcdir)/test/engines/scumm/*.h
 	TEST_LIBS += engines/scumm/libscumm.a common/libcommon.a
