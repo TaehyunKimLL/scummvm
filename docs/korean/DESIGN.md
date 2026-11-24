@@ -571,7 +571,7 @@ resolvers, settings objects), or woven into hot upstream paths (SCUMM `gfx.cpp`,
 
 ## 12. Decisions (resolved by the owner, 2026-11-22)
 
-All twelve open questions of the first draft are answered. The recommended default was taken for every one except
+All twelve open questions of the first draft are answered; decisions 13 and later were added by the owner during implementation. The recommended default was taken for every one except
 where noted. The numbering is kept so earlier references still work.
 
 | # | Decision |
@@ -588,6 +588,12 @@ where noted. The numbering is kept so earlier references still work.
 | 10 | **Drop** the legacy `Text.MAP` / `Text.Res` overlay, the "Korean pack played in another language" handling **and the CP949 in-place patch path (B)**: the `detection_tables.h` entries for LB1 and Camelot that expect CP949 patched into the original resources are not carried over. **LB1 and Camelot are repackaged from their existing translations into the new format** (UTF-8 `text.NNN` / `MESSAGE.MAP`+`RESOURCE.MSG` path C, or the `sci-ko.str` path D, with a fingerprint header). **Camelot is conditional**: if it is cut from P4, so is its work (the banked fonts are not needed on the new path in any case). |
 | 11 | Engine scope this round: SCI0/1, AGI, SCUMM v2-v6 DOS. AGS / Grim / Nancy / Harvester are deferred. |
 | 12 | Upstream: only the candidate list of section 9 is prepared (for human re-authoring); no submission work in this plan. |
+| 13 | **Anti-aliased (AA, 2 / 8 bpp) faces are RGB-only.** CLUT8 targets use 1 bpp faces. 15-bit (RGB555) and 16-bit (RGB565) targets are **required**, not optional. (Owner, 2026-11-23.) |
+| 14 | AA test faces are **generated from TrueType**; both jamo-set and precomposed (조합형 / 완성형) face chains are tested. DOTT tries Single Day Regular as its AA face. |
+| 15 | **All engines hold text as UTF-8 internally, SCUMM included.** CP949 is only an input format, transcoded at the boundary (`translateText()` -> `toEngineText()`); old CP949 saves are converted on load and new saves carry a TENC trailer. This supersedes the CP949 route of decision 6 for SCUMM S1. |
+| 16 | `render_target=auto` picks the pixel format in the order **RGB888 > RGB565 > RGB555**; an explicit `clut8` always wins. A single backend format is passed to `initGraphics`, because it takes the first format of a list. |
+| 17 | DOS: save names are mapped to 8.3 (first four characters plus four base-36 hash digits) with a `SAVEIDX.TXT` index so wildcard listings still match engine names; engine data names in 8.3 (M6) remain a DOS release blocker for LFN-less systems. MMX is allowed **only** inside the text composite (CPUID-gated, scalar exact-table fallback, byte-identical output). |
+| 18 | Implementation reviews run on the Opus lane plus agy and opencode in parallel (agy later set aside as a merge gate); from 2026-11-24 reviews and independent work are launched through the LiteLLM gateway. |
 
 Consequence of decision 10: the old CP949 in-place data of LB1 and Camelot is not read by the new tree. Their
 existing translations are converted by the harness builders (`build_sci_*.py`) into the new packaging, so the
