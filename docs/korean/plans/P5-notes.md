@@ -218,3 +218,15 @@ independent-model tests of what the diff changed, run under ASan+UBSan.
 - Data (`runs/d3`): typing `dkssudgktpdy dkssudgktpdy` as the name gives `안녕하세요 안녕하셍` = **28 bytes** (gunzip of the
   save: `d[4:35]` decodes as UTF-8, version byte 11); the verification box and the F7 list show it
   (`agi-p5d-save-name-byte-budget.png`, viewed; the list line is cut at its 31 cells).
+- d3 sha 343f7a103a9.
+
+### d4 (no commit): P5d smoke
+- `runs/d4c` (`originalsaveload=true`, `hangul_start=false`): save slot 1 outside; Up x25 to the door; typed `open door` (English
+  in the Korean target: box `좋아.`, then the bar inside); save slot 2; F7 slot A -> inside, F7 slot B -> outside, both
+  restores correct (`agi-p5d-restored-{inside,outside}.png`), 0 `broken string trailer` lines.
+- **Not done**: the password `켄이 보냈다` at the door: in this pack `open door` enters Lefty's without a password prompt
+  (the password is a later puzzle), so a `set.string`/`compare.strings` round trip through a real save was not reproduced
+  in play; it rests on the 5 `saved_strings` tests (trailer round trip, cuts, damages), the d2 run (trailer written and
+  read, no `broken` line) and the c3 gate.
+- ScummVM save dialog (`originalsaveload=false`, GMM save) with an OS-IME name: **not run** (the AGI restore list was
+  checked in d2/d3; the `clipBytes` hook of `scummVMSaveLoadDialog` is a one-line change read in the diff).
