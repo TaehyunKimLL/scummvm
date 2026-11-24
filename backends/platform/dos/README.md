@@ -129,17 +129,37 @@ and `ver=7.1`) does not truncate a long name it is given and does not find it. S
 longer than 8 characters are written under the cut name (`KQ1-RGB5.001`) and listed, loaded and
 removed under the engine's own name.
 
+## Korean text
+
+The DOS build carries no Korean logic of its own: the shared hi-res text code draws Korean at 2x into a
+text plane and the backend only says which screen formats it can set. Korean targets run at VESA 640x400
+(a 15/16-bit mode when the card has one, else 640x480 with every row repeated); English targets and
+targets with `hires_text=false` stay at 320x200.
+
+- `render_target=auto|clut8|rgb565|rgb555|rgb888`: the screen the hi-res text is drawn on.
+  `auto` (the default) gives a face with anti-aliasing 5-6-5, then 1-5-5-5, then 8 bpp with the
+  map's 1 bpp face (`[font:clut8]`): 16 bit costs half the copy of 32 bit on a DOS bus and is
+  required to work. 32-bit XRGB8888 is offered only when `render_target=rgb888` asks for it. A
+  target the card cannot set falls back (rgb888 to 565, 565 to 555, then clut8) and says so in the log
+  (`Hi-res text: ...`). Without a 640x400 mode in the format (DOSBox Staging has XRGB8888 and 8 bpp
+  there) 5-6-5 uses the 640x480 line-repeat mode.
+- `hires_text_map=`, `hires_text_font=`, `hires_text_blend=`, `hangul_break=`, `hires_text_log=`: as on the
+  other platforms. A map names its faces `data:NAME.SVF`; the engine looks for them in `extrapath=C:\SCUMMVM\DATA`.
+  The map's `[preload]` lists the characters a streamed face should read once at load (a `.HOT` file).
+- `hires_text_whole_kb=<KB>` (64 on DOS): a face file up to this size is read whole, a larger one streamed.
+  0 streams every face; see Memory and file names.
+- The anti-aliased text is blended into a 15/16-bit screen from tables (exact, bit for bit the same as
+  the arithmetic): about 48 ms for a four-line dialogue box on an emulated 486DX2-66 (137 ms before),
+  19 ms on an emulated Pentium at 60,000 cycles. `BLEND.EXE` (`build-dos.sh bench BUILD_DIR`) times it on a
+  real PC and appends to `BLEND.TXT`.
+- The Han/Yeong key (scancode 0xF2) toggles Hangul input and the Hanja key (0xF1) reaches the engine as
+  KEYCODE_HANJA; both need the patched SDL3 (`sdl3/`). Typing Korean on DOS uses the built-in
+  2-set composer (`qhk` is 봐); there is no OS input method.
+
 ## Settings
 
 In SCUMMVM.INI, `[scummvm]` or a game's section:
 
-- `render_target=auto|clut8|rgb565|rgb888`: the screen hi-res text is drawn
-  on. `auto` (the default) gives a true-colour game 16 bits (5-6-5: half the
-  memory and bus bytes of 32 bits) when the card has 640x400 in 5-6-5; else
-  32 bits when it has 640x400 in 32 bits (drawn straight into the screen,
-  where 5-6-5 would need a 640x480 mode with the rows repeated, and a frame
-  buffer for that); else 5-6-5 at 640x480. `rgb565` and `rgb888` ask for
-  their own format whatever the card has at 640x400.
 - `dos_vsync=off|wait`: wait for the vertical retrace before sending a frame.
 - `dos_force_fallback=true`: use the 640x480 line-repeat mode even when the
   card has 640x400.
@@ -147,3 +167,5 @@ In SCUMMVM.INI, `[scummvm]` or a game's section:
   copied into the screen surface, instead of drawing it into the screen
   surface itself (1 MB more at 640x400 true colour). For a card or driver
   on which the default draws wrongly.
+- `dos_stats_log=<seconds>`: a `DOS: audio` line (the mixer's counters) every so many seconds.
+- `dos_loading_screen=false`: no loading screen.
