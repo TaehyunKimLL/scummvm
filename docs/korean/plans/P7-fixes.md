@@ -67,3 +67,13 @@ Triage of the rest of the recommended list (not done this round, with reasons):
 - STDIOSTREAM_NO_ATOMIC_SUPPORT in-place writes on DOS: accepted risk (8.3 FAT cannot create NAME.EXT.tmp; a power loss during a write can truncate SCUMMVM.INI or a save).
 - SDL3 leftovers: `SDL_dosevents.c` volatile/static parser state, probed DMA channel not persisted, `handlers[]` coverage of `RingCopyOut`/`ISR_GetDMAHalf` (both are `DOS_IRQ_CODE`: inside the linker range by construction; `irqcheck` sb range grew 356 -> 468 bytes and reports 0 indirect exits), canary globals/C++ linkage, `CPU_haveCPUID` red zone, `DOS_LockIRQCodeRange`/LTO, non-atomic 16-bit DMA count read (error at most 256 words, harmless against the half-buffer threshold except at the boundary), SB Pro stereo phase: DEFERRED.
 - Opus N4: `--set` beats session-domain keys, and the same key given through `--set` and its own option is hash-order dependent: DOCUMENTED here (use one). N5: an IRQ0 timer proc that grows the sbrk heap reaches DPMI (the sbrk path): KNOWN LIMIT. M6: 8.3 engine data names: RELEASE BLOCKER for LFN-capable DOS, record only (ko/03-sci work item).
+
+# Third round (agy set aside by the user: items 4 and 5 stay OPEN)
+
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| 1 | patches 0017 missing in `sdl3/` | FIXED | the 0017 file had been written into the SDL3 tree by a relative path, and `git add -A` there had committed copies of 0015/0016 into two SDL3 commits; SDL3 `14371af34` removes them (0018 exported). Verified: `git am` of 0001..0018 on the pinned base `1362030` gives a tree identical to `14371af34` (`git diff` empty) |
+| 2 | `listSavefiles("short.save1")` listed `short.sav` too | VERIFIED-HOST | the concrete-pattern fallback skips names the index maps validly; test with >3-char extensions; mutation (fallback unguarded) red |
+| 3 | hash-collision guard | VERIFIED-HOST | a real collision (two names of one prefix with one DOS name, found by search) is refused by `openForSaving` in the same and in a new session, the owner can still save, A still loads; mutation (guard off) red |
+| 4 | `DOS_MARCH=i486` for C files / toggling not detected | OPEN | not done (agy-only) |
+| 5 | SB16 invalid H must keep the 8-bit D fallback; keyboard ISR state volatile/reset | OPEN | not done (agy-only) |

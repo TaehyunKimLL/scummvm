@@ -1,0 +1,702 @@
+From a50037b9601e956b5c1f6028125405e70069547a Mon Sep 17 00:00:00 2001
+From: Taehyun Kim <dice.thkim@gmail.com>
+Date: Tue, 24 Nov 2026 03:43:21 +0000
+Subject: [PATCH] dos: Give the Sound Blaster ring its own pages, take IRQ 2 as
+ 9, keep the mixer index
+
+- The ring buffer is allocated on 4 KB boundaries in whole pages
+  (SDL_aligned_alloc) and locked/unlocked with that rounded size. The DPMI
+  host keeps one lock bit per page, so unlocking a ring that shared a page with
+  another locked allocation (a thread stack) would have unlocked that too.
+  The other lock pairs: statics are locked and never unlocked, DMA buffers are
+  conventional memory.
+- BLASTER I2 is the slave cascade: it is taken as IRQ 9 (DOS_HookInterrupt
+  unmasks both PIC lines) instead of being ignored.
+- The handler's read of the SB16 interrupt status (mixer register 0x82) saves
+  and restores the mixer index port, so a main-thread mixer access interrupted
+  between its index and data writes does not hit register 0x82.
+- DOS_SBGetStats restores the caller's IF instead of executing sti; the
+  interrupt counter is reset when a device opens.
+
+Assisted-by: Claude Code
+---
+ ...A-buffer-inside-one-64-KB-page-for-a.patch | 104 ++++
+ ...ound-Blaster-driver-units-rates-rang.patch | 448 ++++++++++++++++++
+ src/audio/dos/SDL_dosaudio_sb.c               |  30 +-
+ src/audio/dos/SDL_dosaudio_sb.h               |   1 +
+ 4 files changed, 576 insertions(+), 7 deletions(-)
+ create mode 100644 backends/platform/dos/sdl3/0015-dos-Place-the-DMA-buffer-inside-one-64-KB-page-for-a.patch
+ create mode 100644 backends/platform/dos/sdl3/0016-dos-Harden-the-Sound-Blaster-driver-units-rates-rang.patch
+
+diff --git a/backends/platform/dos/sdl3/0015-dos-Place-the-DMA-buffer-inside-one-64-KB-page-for-a.patch b/backends/platform/dos/sdl3/0015-dos-Place-the-DMA-buffer-inside-one-64-KB-page-for-a.patch
+new file mode 100644
+index 000000000..c381d4bdf
+--- /dev/null
++++ b/backends/platform/dos/sdl3/0015-dos-Place-the-DMA-buffer-inside-one-64-KB-page-for-a.patch
+@@ -0,0 +1,104 @@
++From b82beef6c0eb11465d7790cec98ad64afa667cd1 Mon Sep 17 00:00:00 2001
++From: Taehyun Kim <dice.thkim@gmail.com>
++Date: Tue, 24 Nov 2026 02:54:58 +0000
++Subject: [PATCH] dos: Place the DMA buffer inside one 64 KB page for any
++ length, unlock what was locked
++
++DOS_AllocateDMAMemory() chose the start of the 2*len block or its second
++half, which is only right up to 32 KB; the audio driver may ask for 64 KB.
++It now takes the first of: block start, second half, next page boundary,
++that keeps the region in one physical page, and fails (freeing the block)
++if none does. Exhaustive model over every segment and 177,078,272
++(segment, length) cases: 0 crossing regions, 0 refusals that were avoidable.
++DOS_DisableInterrupts/EnableInterrupts get a "memory" clobber so the compiler
++cannot move accesses across them; DOS_UnlockData undoes DOS_LockData.
++---
++ src/core/dos/SDL_dos.c | 31 ++++++++++++++++++++++++++-----
++ src/core/dos/SDL_dos.h | 10 ++++++++--
++ 2 files changed, 34 insertions(+), 7 deletions(-)
++
++diff --git a/src/core/dos/SDL_dos.c b/src/core/dos/SDL_dos.c
++index cbe07a615..023ad5611 100644
++--- a/src/core/dos/SDL_dos.c
+++++ b/src/core/dos/SDL_dos.c
++@@ -79,12 +79,33 @@ void *DOS_AllocateDMAMemory(const int len, _go32_dpmi_seginfo *seginfo)
++         return NULL;
++     }
++ 
++-    // if we're past the end of a page, use the second half of the block.
++-    const uint32_t physical = (seginfo->rm_segment * 16);
++-    if ((physical >> 16) != ((physical + len) >> 16)) {
++-        ptr += len;
+++    // Pick a `len`-byte region of the 2*len block that stays inside one 64 KB physical page: the start of the block, the
+++    // second half, or the next page boundary, whichever is the first that fits (for len up to 64 KB the first two alone
+++    // are not enough). None fits only if the block cannot hold one: fail instead of risking a transfer across a page.
+++    const uint32_t physical = (uint32_t)seginfo->rm_segment * 16;
+++    const uint32_t up = ((physical + 0xFFFF) & ~0xFFFFu) - physical; // offset of the next page boundary (0 if aligned)
+++    const uint32_t offsets[3] = { 0, (uint32_t)len, up };
+++    for (int i = 0; i < 3; i++) {
+++        const uint32_t off = offsets[i];
+++        if (off + (uint32_t)len <= (uint32_t)len * 2 && ((physical + off) >> 16) == ((physical + off + (uint32_t)len - 1) >> 16)) {
+++            return ptr + off;
+++        }
+++    }
+++    DOS_FreeConventionalMemory(seginfo);
+++    return NULL;
+++}
+++
+++
+++void DOS_UnlockRange(void *ptr, size_t size)
+++{
+++    unsigned long base = 0;
+++    if (__dpmi_get_segment_base_address(_my_ds(), &base) == 0) {
+++        __dpmi_meminfo mi;
+++        mi.handle = 0;
+++        mi.address = base + (unsigned long)ptr;
+++        mi.size = (unsigned long)size;
+++        __dpmi_unlock_linear_region(&mi);
++     }
++-    return ptr;
++ }
++ 
++ void DOS_FreeConventionalMemory(_go32_dpmi_seginfo *seginfo)
++diff --git a/src/core/dos/SDL_dos.h b/src/core/dos/SDL_dos.h
++index d521d8ba1..5345a9ba7 100644
++--- a/src/core/dos/SDL_dos.h
+++++ b/src/core/dos/SDL_dos.h
++@@ -114,6 +114,10 @@ SDL_FORCE_INLINE void DOS_OutPort8(Uint16 port, Uint8 v)
++ #define DOS_LockData(var, size) \
++     _go32_dpmi_lock_data((void *)&(var), (size))
++ 
+++// Undo DOS_LockData() for the same range (the DPMI host counts locks).
+++#define DOS_UnlockData(var, size) \
+++    DOS_UnlockRange((void *)&(var), (size))
+++
++ // Lock a single variable.
++ #define DOS_LockVariable(var) \
++     DOS_LockData(var, sizeof(var))
++@@ -123,6 +127,8 @@ SDL_FORCE_INLINE void DOS_OutPort8(Uint16 port, Uint8 v)
++ extern "C" {
++ #endif
++ 
+++extern void DOS_UnlockRange(void *ptr, size_t size);
+++
++ // This uses the "fat DS" trick to convert a physical address to a valid
++ //  C pointer usable from protected mode.
++ SDL_FORCE_INLINE void *DOS_PhysicalToLinear(const Uint32 physical)
++@@ -143,12 +149,12 @@ SDL_FORCE_INLINE int DOS_IRQToVector(int irq)
++ 
++ SDL_FORCE_INLINE void DOS_DisableInterrupts(void)
++ {
++-    __asm__ __volatile__("cli\n");
+++    __asm__ __volatile__("cli\n" : : : "memory");
++ }
++ 
++ SDL_FORCE_INLINE void DOS_EnableInterrupts(void)
++ {
++-    __asm__ __volatile__("sti\n");
+++    __asm__ __volatile__("sti\n" : : : "memory");
++ }
++ 
++ // Grab a single byte from a segment:offset.
++-- 
++2.43.0
++
+diff --git a/backends/platform/dos/sdl3/0016-dos-Harden-the-Sound-Blaster-driver-units-rates-rang.patch b/backends/platform/dos/sdl3/0016-dos-Harden-the-Sound-Blaster-driver-units-rates-rang.patch
+new file mode 100644
+index 000000000..38b0d55f5
+--- /dev/null
++++ b/backends/platform/dos/sdl3/0016-dos-Harden-the-Sound-Blaster-driver-units-rates-rang.patch
+@@ -0,0 +1,448 @@
++From 35cda100762ae8c9a6ab93f033d5ee849d3bd10b Mon Sep 17 00:00:00 2001
++From: Taehyun Kim <dice.thkim@gmail.com>
++Date: Tue, 24 Nov 2026 02:54:58 +0000
++Subject: [PATCH] dos: Harden the Sound Blaster driver (units, rates, ranges,
++ cursors, close)
++
++- CheckForSoundBlaster and the DSP reset used SDL_DelayPrecise() with
++  microsecond/millisecond counts, but it takes nanoseconds: the 300 ms wait was
++  about 0.3 ms and the 3 us reset pulse 3 ns. Both use real deadlines now (the
++  pulse is 20 us).
++- BLASTER A/I/D/H are range-checked (port 0x200-0x2F0, IRQ 0-15 but 2, DMA
++  8-bit 0/1/3, 16-bit 5-7); a bad value is ignored with a log line.
++- Pre-SB16 time constant is rounded, kept in range (rates below 4 kHz no
++  longer wrap it into high-speed), high-speed needs DSP >= 2.01, and the real
++  rate is reported as the device rate (SB Pro stereo at 22,050 Hz ran 1.4% off
++  after rounding, 3.1% before); SB16 rates clamp to 5000..44100.
++- The SB16 close sends 0xD5/0xD9 (the 16-bit commands) instead of the 8-bit
++  0xDA; a failed open clears the SB Pro stereo bit.
++- Ring cursors are free-running Uint32 with unsigned differences (the int
++  cursors overflowed after about 3.4 hours); the cursors' model test: 4,000,000
++  checks across the wrap, 0 bad. DOS_SBGetStats reads under cli into locals.
++  isr_dma_channel is volatile.
++- The DMA probe first checks whether the configured channel's count register
++  moves (then the IRQ is wrong, nothing is reprogrammed), and reprograms with
++  interrupts off; the remaining risk is documented in the code.
++- The handler ignores an SB16 interrupt that only the MPU-401 raised (mixer
++  status 0x82), and the locked ring is unlocked on close.
++---
++ src/audio/dos/SDL_dosaudio_sb.c | 173 ++++++++++++++++++++++++++------
++ src/audio/dos/SDL_dosaudio_sb.h |   5 +-
++ 2 files changed, 145 insertions(+), 33 deletions(-)
++
++diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
++index 61b510acc..efdcd032f 100644
++--- a/src/audio/dos/SDL_dosaudio_sb.c
+++++ b/src/audio/dos/SDL_dosaudio_sb.c
++@@ -47,7 +47,7 @@ static void ResetSoundBlasterDSP(void)
++     // reset the DSP.
++     const int reset_port = soundblaster_base_port + 0x6;
++     outportb(reset_port, 1);
++-    SDL_DelayPrecise(3000); // wait at least 3 microseconds for hardware to see it.
+++    SDL_DelayPrecise(SDL_US_TO_NS(20)); // the DSP needs the pulse high for at least 3 microseconds (SDL_DelayPrecise takes nanoseconds); 20 leaves margin
++     outportb(reset_port, 0);
++ }
++ 
++@@ -98,20 +98,21 @@ const int DOS_SBRingChunks = RING_BUFFER_CHUNKS;
++ 
++ // ISR-cached copies of device state (avoids chasing heap pointers in IRQ context).
++ static volatile int isr_irq_ack_port = 0;
+++static volatile int isr_mixer_base = 0; // base + 4: the SB16 mixer's index port (data at +1), for the interrupt status register
++ static volatile int isr_irq_count = 0; // interrupts seen, for telling whether the card plays at all
++ static volatile int isr_underruns = 0;          // interrupts that found the ring empty (played silence)
++ static volatile int isr_min_avail = 0x7fffffff; // least ring data at an interrupt since the last reset
++ 
++ // ISR-visible ring buffer state (all memory-locked).
++-static volatile int isr_ring_read = 0;
++-static volatile int isr_ring_write = 0;
+++static volatile Uint32 isr_ring_read = 0;  // free-running byte counts, wrapping at 2^32: differences are exact in unsigned arithmetic
+++static volatile Uint32 isr_ring_write = 0;
++ static int isr_ring_size = 0;         // ring_size (power-of-2 bytes)
++ static int isr_ring_mask = 0;         // ring_size - 1
++ static int isr_chunk_size = 0;        // one DMA half-buffer, in bytes
++ static Uint8 *isr_ring_buffer = NULL; // the ring itself (allocated and locked)
++ static Uint8 *isr_dma_buffer = NULL;  // pointer to the DMA double-buffer
++ static int isr_dma_halfdma = 0;       // half the DMA buffer size, in bytes
++-static int isr_dma_channel = 0;
+++static volatile int isr_dma_channel = 0;
++ static bool isr_is_16bit = false;
++ static Uint8 isr_silence_value = 0;
++ 
++@@ -128,10 +129,10 @@ SDL_FORCE_INLINE void ISR_Fill(Uint8 *dst, Uint8 value, int len)
++ 
++ // Copy `len` bytes from the ring buffer at position `pos` into `dst`,
++ // handling the power-of-2 wrap. All pointers are memory-locked.
++-static DOS_IRQ_CODE void RingCopyOut(Uint8 *dst, int pos, int len)
+++static DOS_IRQ_CODE void RingCopyOut(Uint8 *dst, Uint32 pos, int len)
++ {
++     const int mask = isr_ring_mask;
++-    const int start = pos & mask;
+++    const int start = (int)(pos & (Uint32)mask);
++     const int first = (start + len <= isr_ring_size) ? len : (isr_ring_size - start);
++     ISR_Copy(dst, isr_ring_buffer + start, first);
++     if (first < len) {
++@@ -166,6 +167,17 @@ static DOS_IRQ_CODE Uint8 *ISR_GetDMAHalf(void)
++ // copies. No DPMI, no malloc, no mutex, no FPU.
++ static DOS_IRQ_CODE void SoundBlasterIRQHandler(void)
++ {
+++    // The SB16 shares its IRQ with the MPU-401 (and a spurious IRQ 7/15 can arrive): when the interrupt status register
+++    // (mixer 0x82) says only the MPU-401 asked (bit 2, none of the DSP's bits 0-1), it is not ours: end it and leave
+++    // the card's acknowledge alone. A card whose register reads 0 is treated as ours, as before.
+++    if (isr_is_16bit && isr_mixer_base) {
+++        DOS_OutPort8(isr_mixer_base, 0x82);
+++        const Uint8 st = DOS_InPort8(isr_mixer_base + 1);
+++        if ((st & 0x04) && !(st & 0x03)) {
+++            DOS_EndOfInterrupt(soundblaster_irq);
+++            return;
+++        }
+++    }
++     // Acknowledge hardware first.
++     DOS_InPort8(isr_irq_ack_port);
++     DOS_EndOfInterrupt(soundblaster_irq);
++@@ -174,7 +186,7 @@ static DOS_IRQ_CODE void SoundBlasterIRQHandler(void)
++     Uint8 *dma_dst = ISR_GetDMAHalf();
++ 
++     // How many bytes are available in the ring?
++-    const int avail = isr_ring_write - isr_ring_read; // both are monotonic
+++    const int avail = (int)(Uint32)(isr_ring_write - isr_ring_read); // free-running Uint32 counts: exact across the 2^32 wrap
++     if (avail < isr_min_avail) {
++         isr_min_avail = avail;
++     }
++@@ -217,7 +229,7 @@ static bool DOSSOUNDBLASTER_WaitDevice(SDL_AudioDevice *device)
++         // Available space = size (the fill limit) - (write - read).
++         // ring_write is ours (audio thread only), ring_read is advanced by
++         // the ISR. Read the ISR's copy so we see the latest drain position.
++-        const int used = hidden->ring_write - isr_ring_read;
+++        const int used = (int)(Uint32)(hidden->ring_write - isr_ring_read);
++         if ((size - used) >= hidden->chunk_size) {
++             return true; // room for at least one chunk
++         }
++@@ -236,14 +248,17 @@ static void DOSSOUNDBLASTER_FreeState(struct SDL_PrivateAudioData *hidden)
++     // disable DMA — mask the appropriate DMA channel.
++     if (hidden->dma_buffer) {
++         if (hidden->is_16bit) {
++-            outportb(0xD4, 0x04 | hidden->dma_channel); // mask high DMA channel (channels 5-7)
+++            outportb(0xD4, 0x04 | (hidden->dma_channel & 3)); // mask high DMA channel (channels 5-7: bits 0-1 select)
++         } else {
++             outportb(0x0A, 0x04 | hidden->dma_channel); // mask low DMA channel (channels 0-3)
++         }
++         DOS_FreeConventionalMemory(&hidden->dma_seginfo);
++     }
++ 
++-    // Free ring buffer resources.
+++    // Free ring buffer resources (it was locked: the lock is undone first, or every open would leak a lock count).
+++    if (hidden->ring_locked) {
+++        DOS_UnlockData(*hidden->ring_buffer, hidden->ring_size);
+++    }
++     SDL_free(hidden->ring_buffer);
++     SDL_free(hidden->staging_buffer);
++ 
++@@ -257,6 +272,7 @@ static void DOSSOUNDBLASTER_FreeState(struct SDL_PrivateAudioData *hidden)
++     isr_dma_buffer = NULL;
++     isr_dma_halfdma = 0;
++     isr_irq_ack_port = 0;
+++    isr_mixer_base = 0;
++ 
++     SDL_free(hidden);
++ }
++@@ -264,6 +280,10 @@ static void DOSSOUNDBLASTER_FreeState(struct SDL_PrivateAudioData *hidden)
++ // OpenDevice failed: undo it, so that CloseDevice (which SDL still calls) has nothing left to do.
++ static bool DOSSOUNDBLASTER_OpenFailed(struct SDL_PrivateAudioData *hidden)
++ {
+++    if (!hidden->is_16bit && soundblaster_version >= 3) { // StartPlayback may have set the SB Pro's stereo bit
+++        outportb(soundblaster_base_port + 0x04, 0x0E);
+++        outportb(soundblaster_base_port + 0x05, inportb(soundblaster_base_port + 0x05) & ~0x02);
+++    }
++     DOSSOUNDBLASTER_FreeState(hidden);
++     return false;
++ }
++@@ -292,21 +312,28 @@ const int DOS_SBStatsChecked = 1;
++ extern void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avail, int *chunk, int reset_min);
++ void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avail, int *chunk, int reset_min)
++ {
+++    int l_irqs, l_under, l_queued, l_min, l_chunk;
++     DOS_DisableInterrupts();
++-    *irqs = isr_irq_count;
++-    *underruns = isr_underruns;
++-    *queued = isr_ring_write - isr_ring_read;
++-    *min_avail = (isr_min_avail == 0x7fffffff) ? -1 : isr_min_avail;
++-    *chunk = isr_chunk_size;
+++    l_irqs = isr_irq_count;
+++    l_under = isr_underruns;
+++    l_queued = (int)(Uint32)(isr_ring_write - isr_ring_read);
+++    l_min = (isr_min_avail == 0x7fffffff) ? -1 : isr_min_avail;
+++    l_chunk = isr_chunk_size;
++     if (reset_min) {
++         isr_min_avail = 0x7fffffff;
++     }
++     DOS_EnableInterrupts();
+++    *irqs = l_irqs; // the caller's pointers may be pageable memory: touched with interrupts on
+++    *underruns = l_under;
+++    *queued = l_queued;
+++    *min_avail = l_min;
+++    *chunk = l_chunk;
++ }
++ 
++ #define SB_PROBE_MS 250
++ 
++ static bool CheckForSoundBlaster(void);
+++static void DOSSOUNDBLASTER_TimeConstant(const int channels, const int freq, Uint8 *tc_out, int *real_freq);
++ 
++ // Point the DMA controller at the DMA buffer on `channel` and unmask it.
++ static void DOSSOUNDBLASTER_ProgramDMA(const struct SDL_PrivateAudioData *hidden, const int channel)
++@@ -317,7 +344,7 @@ static void DOSSOUNDBLASTER_ProgramDMA(const struct SDL_PrivateAudioData *hidden
++     if (hidden->is_16bit) {
++         // High DMA (16-bit, channels 5-7): ports in 0xC0-0xDF range, counts in words.
++         const int dma_words = (hidden->dma_buflen / 2) - 1;
++-        outportb(0xD4, 0x04 | channel);                                           // mask the DMA channel
+++        outportb(0xD4, 0x04 | (channel & 3));                                     // mask the DMA channel
++         outportb(0xD6, 0x58 | (channel - 4));                                     // mode: single, read, auto-init
++         static const int high_page_ports[] = { 0, 0, 0, 0, 0, 0x8B, 0x89, 0x8A }; // DMA page register ports for channels 5-7
++         outportb(high_page_ports[channel], physical_page);                        // page to transfer
++@@ -378,8 +405,9 @@ static void DOSSOUNDBLASTER_StartPlayback(const SDL_AudioDevice *device, struct
++         // Time Constant = 256 - (1000000 / (channels * freq))
++         // In stereo mode the SB Pro interleaves L/R samples, so the effective
++         // hardware rate is channels * freq.
++-        const int effective_rate = device->spec.channels * device->spec.freq;
++-        const Uint8 time_constant = (Uint8)(256 - (1000000 / effective_rate));
+++        Uint8 time_constant;
+++        int real_freq;
+++        DOSSOUNDBLASTER_TimeConstant(device->spec.channels, device->spec.freq, &time_constant, &real_freq);
++         WriteSoundBlasterDSP(0x40); // set time constant
++         WriteSoundBlasterDSP(time_constant);
++ 
++@@ -407,7 +435,7 @@ static void DOSSOUNDBLASTER_StartPlayback(const SDL_AudioDevice *device, struct
++         // Normal-speed DMA tops out near 23 kHz (DOSBox-X clamps the time constant
++         // to 212): above that the high-speed command is needed. In high-speed mode
++         // the DSP takes no command but a reset until the transfer is stopped.
++-        hidden->highspeed = (time_constant > 212);
+++        hidden->highspeed = (time_constant > 212) && ((soundblaster_version > 2) || (soundblaster_version == 2 && soundblaster_version_minor >= 1));
++         WriteSoundBlasterDSP(hidden->highspeed ? 0x90 : 0x1C); // 8-bit auto-init DMA playback
++     }
++ }
++@@ -446,11 +474,33 @@ static bool DOSSOUNDBLASTER_RestartOnChannel(const SDL_AudioDevice *device, stru
++     hidden->dma_channel = channel;
++     isr_dma_channel = channel;
++     DOS_EnableInterrupts();
+++    DOS_DisableInterrupts(); // the handler resets the DMA flip-flop: no interrupt in the middle of the register writes
++     DOSSOUNDBLASTER_ProgramDMA(hidden, channel);
+++    DOS_EnableInterrupts();
++     DOSSOUNDBLASTER_StartPlayback(device, hidden);
++     return true;
++ }
++ 
+++// Whether the 8-bit DMA channel's current-count register moves between two readings 5 ms apart: the transfer runs, so the
+++// card and the DMA controller agree and the missing interrupt is the IRQ's fault, not the channel's. The reads are
+++// with interrupts off (the flip-flop is shared with the handler's reads).
+++static bool DOSSOUNDBLASTER_DMACountMoves(const int channel)
+++{
+++    int first, second;
+++    DOS_DisableInterrupts();
+++    outportb(0x0C, 0x00);
+++    first = inportb(channel * 2 + 1);
+++    first |= inportb(channel * 2 + 1) << 8;
+++    DOS_EnableInterrupts();
+++    SDL_DelayPrecise(SDL_MS_TO_NS(5));
+++    DOS_DisableInterrupts();
+++    outportb(0x0C, 0x00);
+++    second = inportb(channel * 2 + 1);
+++    second |= inportb(channel * 2 + 1) << 8;
+++    DOS_EnableInterrupts();
+++    return first != second;
+++}
+++
++ // The first start produced no interrupt. Pre-SB16 cards wired to another 8-bit DMA channel than BLASTER's D
++ // (some PnP and clone chipsets) get a try on each of the other usable channels.
++ static bool DOSSOUNDBLASTER_ProbeDMAChannel(const SDL_AudioDevice *device, struct SDL_PrivateAudioData *hidden)
++@@ -458,7 +508,16 @@ static bool DOSSOUNDBLASTER_ProbeDMAChannel(const SDL_AudioDevice *device, struc
++     const int configured = hidden->dma_channel;
++     const int timeout_ms = DOSSOUNDBLASTER_ProbeTimeoutMS(device, hidden);
++ 
+++    if (!hidden->is_16bit && DOSSOUNDBLASTER_DMACountMoves(configured)) {
+++        // The DMA transfer runs on the configured channel: BLASTER's D is right and the interrupt (BLASTER's I) is what is
+++        // wrong. Reprogramming other channels would only disturb their owners (the floppy-less machine's ECP port, a GUS,
+++        // the second DMA channel of a WSS card): do not probe.
+++        SDL_Log("SB: DMA %d is moving but no interrupt arrives (check BLASTER's I)", configured);
+++        return true;
+++    }
++     if (!hidden->is_16bit) {
+++        // Remaining risk: a candidate channel is reprogrammed (mode, address, count) and left masked; a device that
+++        // was using it, and whose state is not readable from the 8237, is not restored.
++         static const int candidates[] = { 0, 1, 3 }; // 2 is the floppy controller's, 4 cascades the controllers
++         for (int i = 0; i < (int)SDL_arraysize(candidates); i++) {
++             const int channel = candidates[i];
++@@ -483,6 +542,24 @@ static bool DOSSOUNDBLASTER_ProbeDMAChannel(const SDL_AudioDevice *device, struc
++     return true;
++ }
++ 
+++// Pre-SB16 rate: the time constant is 256 - 1000000 / (channels * rate), rounded to the nearest, and the rate the card then
+++// really runs at is 1000000 / (256 - tc) / channels. The hardware rate is kept to what the DSP does: 4 kHz and up; below
+++// 23 kHz (time constant <= 211) normal DMA, above it the high-speed command, which exists only from DSP 2.01.
+++static void DOSSOUNDBLASTER_TimeConstant(const int channels, const int freq, Uint8 *tc_out, int *real_freq)
+++{
+++    const bool highspeed_ok = (soundblaster_version > 2) || (soundblaster_version == 2 && soundblaster_version_minor >= 1);
+++    const int max_hw = highspeed_ok ? 44100 : 23000;
+++    int hw = channels * freq;
+++    hw = SDL_clamp(hw, 4000, max_hw);
+++    int tc = 256 - ((1000000 + (hw / 2)) / hw);
+++    if (!highspeed_ok && tc > 211) {
+++        tc = 211;
+++    }
+++    tc = SDL_clamp(tc, 6, 255);
+++    *tc_out = (Uint8)tc;
+++    *real_freq = (1000000 / (256 - tc)) / channels;
+++}
+++
++ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
++ {
++     const bool is_sb16 = soundblaster_is_sb16;
++@@ -508,8 +585,17 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
++     //   SB 1.x: max ~23 kHz mono
++     //   SB 2.0 (DSP 2.x): max 44100 Hz mono (high-speed), ~23 kHz normal
++     //   SB Pro (DSP 3.x): max 22050 Hz stereo, max 44100 Hz mono
++-    if (!is_sb16 && device->spec.freq > 22050) {
++-        device->spec.freq = 22050; // clamp to safe max for pre-SB16
+++    if (is_sb16) {
+++        device->spec.freq = SDL_clamp(device->spec.freq, 5000, 44100); // DSP command 0x41's range
+++    } else {
+++        if (device->spec.freq > 22050) {
+++            device->spec.freq = 22050; // clamp to safe max for pre-SB16
+++        }
+++        // Report the rate the time constant really gives (SDL then resamples to it), not the one asked for.
+++        Uint8 tc;
+++        int real;
+++        DOSSOUNDBLASTER_TimeConstant(device->spec.channels, device->spec.freq, &tc, &real);
+++        device->spec.freq = real;
++     }
++     device->sample_frames = SDL_GetDefaultSampleFramesFromFreq(device->spec.freq);
++ 
++@@ -557,6 +643,7 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
++ 
++     // Cache the IRQ ack port so the ISR doesn't chase pointers.
++     isr_irq_ack_port = is_sb16 ? (soundblaster_base_port + 0x0F) : (soundblaster_base_port + 0x0E);
+++    isr_mixer_base = is_sb16 ? (soundblaster_base_port + 0x04) : 0;
++ 
++     // Set up the IRQ-driven ring buffer.
++     hidden->chunk_size = device->buffer_size; // one DMA half-buffer
++@@ -611,7 +698,8 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
++     {
++         static const void *const handlers[] = { (const void *)SoundBlasterIRQHandler };
++         bool locked = DOS_LockIRQCode(sb, handlers, SDL_arraysize(handlers));
++-        locked = (DOS_LockData(*hidden->ring_buffer, hidden->ring_size) == 0) && locked;
+++        hidden->ring_locked = (DOS_LockData(*hidden->ring_buffer, hidden->ring_size) == 0);
+++        locked = hidden->ring_locked && locked;
++         locked = (DOS_LockVariable(isr_ring_read) == 0) && locked;
++         locked = (DOS_LockVariable(isr_ring_write) == 0) && locked;
++         locked = (DOS_LockVariable(isr_ring_size) == 0) && locked;
++@@ -624,6 +712,7 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
++         locked = (DOS_LockVariable(isr_is_16bit) == 0) && locked;
++         locked = (DOS_LockVariable(isr_silence_value) == 0) && locked;
++         locked = (DOS_LockVariable(isr_irq_ack_port) == 0) && locked;
+++        locked = (DOS_LockVariable(isr_mixer_base) == 0) && locked;
++         locked = (DOS_LockVariable(isr_irq_count) == 0) && locked;
++         locked = (DOS_LockVariable(isr_underruns) == 0) && locked;
++         locked = (DOS_LockVariable(isr_min_avail) == 0) && locked;
++@@ -672,7 +761,7 @@ static bool DOSSOUNDBLASTER_PlayDevice(SDL_AudioDevice *device, const Uint8 *buf
++ {
++     struct SDL_PrivateAudioData *hidden = device->hidden;
++     const int mask = hidden->ring_size - 1;
++-    const int pos = hidden->ring_write & mask;
+++    const int pos = (int)(hidden->ring_write & (Uint32)mask);
++     const int first = (pos + buffer_size <= hidden->ring_size) ? buffer_size : (hidden->ring_size - pos);
++ 
++     SDL_memcpy(hidden->ring_buffer + pos, buffer, first);
++@@ -697,7 +786,8 @@ static void DOSSOUNDBLASTER_CloseDevice(SDL_AudioDevice *device)
++     if (hidden) {
++         // Disable PCM.
++         if (hidden->is_16bit) {
++-            WriteSoundBlasterDSP(0xDA); // exit 16-bit auto-init DMA
+++            WriteSoundBlasterDSP(0xD5); // halt 16-bit DMA (0xDA is the 8-bit command)
+++            WriteSoundBlasterDSP(0xD9); // exit 16-bit auto-init DMA
++             WriteSoundBlasterDSP(0xD3); // turn off the speaker
++         } else {
++             if (hidden->highspeed) {
++@@ -730,14 +820,16 @@ static bool CheckForSoundBlaster(void)
++     ResetSoundBlasterDSP();
++ 
++     // wait for the DSP to say it's ready.
+++    // May take up to 100 ms to initialize: wait up to 300 ms by the clock (SDL_DelayPrecise takes nanoseconds).
++     bool ready = false;
++-    for (int i = 0; i < 300; i++) { // may take up to 100msecs to initialize. We'll give it 300.
++-        SDL_DelayPrecise(1000);
+++    const Uint64 ready_deadline = SDL_GetTicksNS() + SDL_MS_TO_NS(300);
+++    do {
+++        SDL_DelayPrecise(SDL_US_TO_NS(100));
++         if (ReadSoundBlasterReady()) {
++             ready = true;
++             break;
++         }
++-    }
+++    } while (SDL_GetTicksNS() < ready_deadline);
++ 
++     if (!ready) {
++         return SDL_SetError("No SoundBlaster detected on port 0x%X", soundblaster_base_port); // either no SoundBlaster or it's on a different base port.
++@@ -774,21 +866,40 @@ static bool IsSoundBlasterPresent(void)
++             continue;
++         }
++ 
+++        // Values a card cannot have are ignored (the variable then counts as incomplete or the 8-bit path is used): an
+++        // I/O port is 0x200-0x2F0 in steps of 16, an IRQ 0-15 except 2 (the cascade; IRQ 2 cards report 9), the 8-bit
+++        // DMA channel 0, 1 or 3, the 16-bit one 5, 6 or 7.
++         switch (SDL_toupper(*token)) {
++         case 'A': // Base i/o port (in hex)
++-            soundblaster_base_port = num;
+++            if (num >= 0x200 && num <= 0x2F0 && (num & 0xF) == 0) {
+++                soundblaster_base_port = num;
+++            } else {
+++                SDL_Log("SB: ignoring BLASTER A%X (not an I/O port of a card)", num);
+++            }
++             break;
++ 
++         case 'I': // IRQ
++-            soundblaster_irq = num;
+++            if (num >= 0 && num <= 15 && num != 2) {
+++                soundblaster_irq = num;
+++            } else {
+++                SDL_Log("SB: ignoring BLASTER I%d (not an IRQ a card uses)", num);
+++            }
++             break;
++ 
++         case 'D': // DMA channel
++-            soundblaster_dma_channel = num;
+++            if (num == 0 || num == 1 || num == 3) {
+++                soundblaster_dma_channel = num;
+++            } else {
+++                SDL_Log("SB: ignoring BLASTER D%d (not an 8-bit DMA channel)", num);
+++            }
++             break;
++ 
++         case 'H': // High DMA channel
++-            soundblaster_highdma_channel = num;
+++            if (num >= 5 && num <= 7) {
+++                soundblaster_highdma_channel = num;
+++            } else {
+++                SDL_Log("SB: ignoring BLASTER H%d (not a 16-bit DMA channel)", num);
+++            }
++             break;
++ 
++         // don't care about these.
++diff --git a/src/audio/dos/SDL_dosaudio_sb.h b/src/audio/dos/SDL_dosaudio_sb.h
++index 76f6894eb..981c0e61b 100644
++--- a/src/audio/dos/SDL_dosaudio_sb.h
+++++ b/src/audio/dos/SDL_dosaudio_sb.h
++@@ -37,9 +37,10 @@ struct SDL_PrivateAudioData
++     DOS_InterruptHook interrupt_hook;
++ 
++     // IRQ-driven ring buffer
+++    bool ring_locked;        // the ring was locked with DOS_LockData (unlocked in FreeState)
++     Uint8 *ring_buffer;      // pre-allocated, memory-locked ring buffer
++-    volatile int ring_read;  // read position (advanced by IRQ handler only)
++-    volatile int ring_write; // write position (advanced by audio thread only)
+++    volatile Uint32 ring_read;  // read position, a free-running byte count (advanced by IRQ handler only; wraps at 2^32)
+++    volatile Uint32 ring_write; // write position, a free-running byte count (advanced by audio thread only; wraps at 2^32)
++     int ring_size;           // total ring buffer size (power-of-2, multiple of chunk_size)
++     int chunk_size;          // == device->buffer_size (one DMA half-buffer worth)
++     Uint8 *staging_buffer;   // audio thread writes here, then commits to ring
++-- 
++2.43.0
++
+diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
+index efdcd032f..6136ead97 100644
+--- a/src/audio/dos/SDL_dosaudio_sb.c
++++ b/src/audio/dos/SDL_dosaudio_sb.c
+@@ -171,8 +171,10 @@ static DOS_IRQ_CODE void SoundBlasterIRQHandler(void)
+     // (mixer 0x82) says only the MPU-401 asked (bit 2, none of the DSP's bits 0-1), it is not ours: end it and leave
+     // the card's acknowledge alone. A card whose register reads 0 is treated as ours, as before.
+     if (isr_is_16bit && isr_mixer_base) {
++        const Uint8 saved_index = DOS_InPort8(isr_mixer_base); // a mixer access of the main thread may be between its index and data writes
+         DOS_OutPort8(isr_mixer_base, 0x82);
+         const Uint8 st = DOS_InPort8(isr_mixer_base + 1);
++        DOS_OutPort8(isr_mixer_base, saved_index);
+         if ((st & 0x04) && !(st & 0x03)) {
+             DOS_EndOfInterrupt(soundblaster_irq);
+             return;
+@@ -257,9 +259,9 @@ static void DOSSOUNDBLASTER_FreeState(struct SDL_PrivateAudioData *hidden)
+ 
+     // Free ring buffer resources (it was locked: the lock is undone first, or every open would leak a lock count).
+     if (hidden->ring_locked) {
+-        DOS_UnlockData(*hidden->ring_buffer, hidden->ring_size);
++        DOS_UnlockData(*hidden->ring_buffer, hidden->ring_alloc_size);
+     }
+-    SDL_free(hidden->ring_buffer);
++    SDL_aligned_free(hidden->ring_buffer);
+     SDL_free(hidden->staging_buffer);
+ 
+     // Clear ISR-visible statics.
+@@ -313,7 +315,8 @@ extern void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avai
+ void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avail, int *chunk, int reset_min)
+ {
+     int l_irqs, l_under, l_queued, l_min, l_chunk;
+-    DOS_DisableInterrupts();
++    Uint32 eflags;
++    __asm__ __volatile__("pushfl; popl %0; cli" : "=r"(eflags) : : "memory");
+     l_irqs = isr_irq_count;
+     l_under = isr_underruns;
+     l_queued = (int)(Uint32)(isr_ring_write - isr_ring_read);
+@@ -322,7 +325,9 @@ void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avail, int
+     if (reset_min) {
+         isr_min_avail = 0x7fffffff;
+     }
+-    DOS_EnableInterrupts();
++    if (eflags & 0x200) { // restore the caller's IF, not unconditionally
++        DOS_EnableInterrupts();
++    }
+     *irqs = l_irqs; // the caller's pointers may be pageable memory: touched with interrupts on
+     *underruns = l_under;
+     *queued = l_queued;
+@@ -663,7 +668,14 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+         hidden->ring_size = rs;
+     }
+ 
+-    hidden->ring_buffer = (Uint8 *)SDL_calloc(1, hidden->ring_size);
++    // The ring is locked page by page and unlocked on close: the DPMI host keeps one lock bit per page (CWSDPMI), not a
++    // count, so a ring that shared a page with another locked allocation (a thread stack) would unlock that one too.
++    // It gets pages of its own: 4 KB aligned and a whole number of pages.
++    hidden->ring_alloc_size = (hidden->ring_size + 4095) & ~4095;
++    hidden->ring_buffer = (Uint8 *)SDL_aligned_alloc(4096, hidden->ring_alloc_size);
++    if (hidden->ring_buffer) {
++        SDL_memset(hidden->ring_buffer, 0, hidden->ring_alloc_size);
++    }
+     if (!hidden->ring_buffer) {
+         SDL_SetError("Couldn't allocate ring buffer for IRQ-driven audio");
+         return DOSSOUNDBLASTER_OpenFailed(hidden);
+@@ -681,6 +693,7 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+     isr_ring_buffer = hidden->ring_buffer;
+     isr_ring_read = 0;
+     isr_ring_write = 0;
++    isr_irq_count = 0;
+     isr_underruns = 0;
+     isr_min_avail = 0x7fffffff;
+     isr_ring_size = hidden->ring_size;
+@@ -698,7 +711,7 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+     {
+         static const void *const handlers[] = { (const void *)SoundBlasterIRQHandler };
+         bool locked = DOS_LockIRQCode(sb, handlers, SDL_arraysize(handlers));
+-        hidden->ring_locked = (DOS_LockData(*hidden->ring_buffer, hidden->ring_size) == 0);
++        hidden->ring_locked = (DOS_LockData(*hidden->ring_buffer, hidden->ring_alloc_size) == 0);
+         locked = hidden->ring_locked && locked;
+         locked = (DOS_LockVariable(isr_ring_read) == 0) && locked;
+         locked = (DOS_LockVariable(isr_ring_write) == 0) && locked;
+@@ -879,7 +892,10 @@ static bool IsSoundBlasterPresent(void)
+             break;
+ 
+         case 'I': // IRQ
+-            if (num >= 0 && num <= 15 && num != 2) {
++            if (num == 2) {
++                soundblaster_irq = 9; // IRQ 2 is the slave cascade: the card's line arrives as IRQ 9 (DOS_HookInterrupt unmasks both)
++                SDL_Log("SB: BLASTER I2 taken as IRQ 9");
++            } else if (num >= 0 && num <= 15) {
+                 soundblaster_irq = num;
+             } else {
+                 SDL_Log("SB: ignoring BLASTER I%d (not an IRQ a card uses)", num);
+diff --git a/src/audio/dos/SDL_dosaudio_sb.h b/src/audio/dos/SDL_dosaudio_sb.h
+index 981c0e61b..5f9b10e8d 100644
+--- a/src/audio/dos/SDL_dosaudio_sb.h
++++ b/src/audio/dos/SDL_dosaudio_sb.h
+@@ -37,6 +37,7 @@ struct SDL_PrivateAudioData
+     DOS_InterruptHook interrupt_hook;
+ 
+     // IRQ-driven ring buffer
++    int ring_alloc_size;     // ring_size rounded up to whole 4 KB pages (the ring owns its pages)
+     bool ring_locked;        // the ring was locked with DOS_LockData (unlocked in FreeState)
+     Uint8 *ring_buffer;      // pre-allocated, memory-locked ring buffer
+     volatile Uint32 ring_read;  // read position, a free-running byte count (advanced by IRQ handler only; wraps at 2^32)
+-- 
+2.43.0
+
