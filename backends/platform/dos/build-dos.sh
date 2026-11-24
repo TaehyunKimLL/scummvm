@@ -1,9 +1,11 @@
 #!/bin/bash
 # Configure and build one DOS executable out of tree.
-# Usage: backends/platform/dos/build-dos.sh [sci|scumm|agi] BUILD_DIR [extra configure args]
+# Usage: backends/platform/dos/build-dos.sh [sci|scumm|agi|bench] BUILD_DIR [extra configure args]
 #   sci:   engines/sci (not sci32)                                   -> BUILD_DIR/scummvm.exe (SCI.EXE)
 #   scumm: engines/scumm (not scumm_7_8, he), FLAC + Tremor          -> BUILD_DIR/scummvm.exe (SCUMM.EXE)
 #   agi:   engines/agi                                               -> BUILD_DIR/scummvm.exe (AGI.EXE)
+#   bench: BUILD_DIR/BLEND.EXE, tools/blendbench.cpp linked with BUILD_DIR's text_compose.o (BUILD_DIR must hold a
+#          sci build); the program that times the hi-res text composite on a real PC.
 # BUILD_DIR must be outside the source tree. A build directory configured with other flags or another SDL3
 # is configured again (see config_current below). Environment: SDL3_DOS_MIN (the trimmed SDL3 prefix of
 # sdl3-build.txt, default ~/opt/sdl3-dos-min-kbd), DOS_CODECS (SCUMM, default ~/opt/codecs-dos), DOS_MARCH
@@ -11,7 +13,7 @@
 set -e
 edition=sci
 case "$1" in
-	sci|scumm|agi) edition="$1"; shift ;;
+	sci|scumm|agi|bench) edition="$1"; shift ;;
 esac
 source ~/opt/dos-dev/env.sh
 src="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -24,6 +26,21 @@ shift
 case "$out/" in
 	"$src"/*) echo "build-dos.sh: build outside the source tree" >&2; exit 1 ;;
 esac
+if [ "$edition" = bench ]; then
+	if [ ! -f "$out/config.mk" ] || [ ! -f "$out/graphics/hires_text/text_compose.o" ]; then
+		echo "build-dos.sh: bench needs a built sci edition in $out (build-dos.sh sci $out first)" >&2
+		exit 1
+	fi
+	cd "$out"
+	cat > bench.mk <<MK
+include config.mk
+BLEND.EXE: $src/backends/platform/dos/tools/blendbench.cpp graphics/hires_text/text_compose.o
+	\$(CXX) -DHAVE_CONFIG_H \$(DEFINES) -I$src -I. \$(INCLUDES) \$(CPPFLAGS) \$(CXXFLAGS) -O2 -o \$@ \$^
+MK
+	make -f bench.mk BLEND.EXE
+	echo "build-dos.sh: $out/BLEND.EXE built."
+	exit 0
+fi
 # The faces staged into DATA come from the svf-fonts-open submodule: stop before the long build.
 if [ ! -f "$src/dists/svf-fonts-open/svf/dos/NEODG16A.SVF" ]; then
 	echo "build-dos.sh: the svf-fonts-open submodule (dists/svf-fonts-open) is missing." >&2
