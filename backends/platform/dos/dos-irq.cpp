@@ -91,9 +91,11 @@ bool lockLinear(uintptr offset, uint32 size) {
 	return __dpmi_lock_linear_region(&m) == 0;
 }
 
-void lockText() {
-	if (!lockLinear(kImageStart, (uintptr)etext - kImageStart))
-		warning("DOS: could not lock the program's code");
+bool lockText() {
+	if (lockLinear(kImageStart, (uintptr)etext - kImageStart))
+		return true;
+	warning("DOS: could not lock the program's code");
+	return false;
 }
 
 } // End of anonymous namespace
@@ -104,8 +106,7 @@ bool lockIrqCode(const char *begin, const char *end, const void *const *fns, uin
 		inside = (const char *)fns[i] > begin && (const char *)fns[i] < end;
 	if (!inside) {
 		warning("DOS: %s's interrupt code is not where it should be; locking all code", what);
-		lockText();
-		return true;
+		return lockText();
 	}
 	if (_go32_dpmi_lock_code(const_cast<char *>(begin), end - begin + 1) != 0) {
 		warning("DOS: could not lock %s's interrupt code", what);
