@@ -57,11 +57,11 @@ bool isHangulSyllable(uint32 cp);
 bool isValidUtf8(const char *text);
 
 /**
- * set.simple's automatic save description: @p src cut to @p size - 1 bytes (on a
+ * set.simple's automatic save description: @p src cut to @p maxBytes (< @p size) bytes (on a
  * character boundary in UTF-8) into @p dst, every byte after the text zero, as
  * upstream's strncpy() and terminator leave it.
  */
-void copyDescription(char *dst, int size, const char *src, bool utf8);
+void copyDescription(char *dst, int size, const char *src, bool utf8, int maxBytes);
 
 /** The UTF-8 bytes of @p cells[0..len). */
 int utf8Bytes(const uint32 *cells, int16 len);

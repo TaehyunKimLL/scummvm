@@ -417,16 +417,40 @@ public:
 				upstream[i] = mine[i] = (char)(1 + rnd() % 255); // stale content of an earlier description
 			strncpy(upstream, src, sizeof(upstream));
 			upstream[sizeof(upstream) - 1] = '\0';
-			Agi::TextCells::copyDescription(mine, sizeof(mine), src, false);
+			Agi::TextCells::copyDescription(mine, sizeof(mine), src, false, 30);
 			TS_ASSERT(memcmp(upstream, mine, sizeof(mine)) == 0);
 
-			Agi::TextCells::copyDescription(mine, sizeof(mine), src, true);
+			Agi::TextCells::copyDescription(mine, sizeof(mine), src, true, SAVEDGAME_DESCRIPTION_BYTES);
 			TS_ASSERT(Agi::TextCells::isValidUtf8(mine) || !Agi::TextCells::isValidUtf8(src));
-			const Common::String kept = Agi::TextCells::clipBytes(src, 30, true);
+			const Common::String kept = Agi::TextCells::clipBytes(src, SAVEDGAME_DESCRIPTION_BYTES, true);
 			TS_ASSERT_EQUALS(Common::String(mine), kept);
 			for (uint i = kept.size(); i < sizeof(mine); i++)
 				TS_ASSERT_EQUALS(mine[i], 0);
 			free(src);
+		}
+	}
+
+	// An automatic save finds its slot again by comparing the slot's description
+	// (what saveGame() kept) with set.simple's: for a Korean description of 27 to
+	// 31 bytes the two must be the same string, or every automatic save takes a
+	// new slot. (The byte path keeps upstream's 30 bytes, saved as 29.)
+	void test_automaticDescriptionMatchesTheSavedOne() {
+		for (int bytes = 24; bytes <= 33; bytes++) {
+			Common::String desc;
+			for (int i = 0; i < bytes / 3; i++)
+				desc += "\xEC\xBC\x84";
+			for (int i = 0; i < bytes % 3; i++)
+				desc += 'k';
+			char automatic[31];
+			memset(automatic, 0x55, sizeof(automatic));
+			Agi::TextCells::copyDescription(automatic, sizeof(automatic), desc.c_str(), true, SAVEDGAME_DESCRIPTION_BYTES);
+			// saveGame(): clipBytes(.., BYTES) then strlcpy(description, .., LEN) into the 31-byte field
+			char field[SAVEDGAME_DESCRIPTION_LEN + 1];
+			memset(field, 0, sizeof(field));
+			Common::strlcpy(field, Agi::TextCells::clipBytes(automatic, SAVEDGAME_DESCRIPTION_BYTES, true).c_str(), SAVEDGAME_DESCRIPTION_LEN);
+			TS_ASSERT_EQUALS(Common::String(field), Common::String(automatic));
+			TS_ASSERT(Agi::TextCells::isValidUtf8(automatic));
+			TS_ASSERT_EQUALS(automatic[30], 0);
 		}
 	}
 };

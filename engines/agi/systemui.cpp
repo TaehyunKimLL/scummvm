@@ -726,7 +726,7 @@ void SystemUI::readSavedGameSlots(bool filterNonexistant, bool withAutoSaveSlot)
 		savedGameEntry.exists  = true;
 		savedGameEntry.isValid = saveIsValid;
 		memset(savedGameEntry.description, 0, sizeof(savedGameEntry.description));
-		strncpy(savedGameEntry.description, TextCells::clipBytes(saveDescription.c_str(), SYSTEMUI_SAVEDGAME_DESCRIPTION_LEN, _vm->textIsUtf8()).c_str(), SYSTEMUI_SAVEDGAME_DESCRIPTION_LEN);
+		strncpy(savedGameEntry.description, TextCells::clipBytes(saveDescription.c_str(), _vm->textIsUtf8() ? SAVEDGAME_DESCRIPTION_BYTES : SYSTEMUI_SAVEDGAME_DESCRIPTION_LEN, _vm->textIsUtf8()).c_str(), SYSTEMUI_SAVEDGAME_DESCRIPTION_LEN);
 		createSavedGameDisplayText(savedGameEntry.displayText, saveDescription.c_str(), curSlotId, true);
 
 		_savedGameArray.push_back(savedGameEntry);
