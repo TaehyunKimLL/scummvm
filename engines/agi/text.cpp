@@ -909,7 +909,7 @@ void TextMgr::promptKeyPress(int newKey) {
 
 	if (_optionCommandPromptWindow) {
 		// Forward to command prompt window, using last command
-		if (acceptableInput && !codePoint) {
+		if (acceptableInput) {
 			promptCommandWindow(false, newKey);
 		}
 		return;
@@ -1093,8 +1093,9 @@ void TextMgr::promptClear() {
 void TextMgr::promptRememberForAutoComplete(bool entered) {
 }
 
-void TextMgr::promptCommandWindow(bool recallLastCommand, uint16 newKey) {
+void TextMgr::promptCommandWindow(bool recallLastCommand, int newKey) {
 	Common::String commandText;
+	int pendingKey = 0;
 
 	if (recallLastCommand) {
 		commandText += promptPreviousGetText();
@@ -1104,8 +1105,15 @@ void TextMgr::promptCommandWindow(bool recallLastCommand, uint16 newKey) {
 			// Only add char, when it's not a space.
 			// Original AGI did not filter space, but it makes no sense to start with a space.
 			// Space would get filtered anyway during dictionary parsing.
-			commandText += newKey;
+			if (_vm->textIsUtf8())
+				pendingKey = newKey; // the window's own line takes it: an OS input method's character, or the first jamo of a syllable
+			else
+				commandText += (char)newKey;
 		}
+	}
+	if (pendingKey) {
+		// first in the queue the window's edit loop reads
+		_vm->enqueueKey(pendingKey);
 	}
 
 	if (_systemUI->askForCommand(commandText)) {

@@ -200,7 +200,7 @@ public:
 	void promptClear(); // for AGI1
 	void promptRememberForAutoComplete(bool entered = false); // for auto-completion
 
-	void promptCommandWindow(bool recallLastCommand, uint16 newKey);
+	void promptCommandWindow(bool recallLastCommand, int newKey);
 
 	/** The line as text: UTF-8 in UTF-8 text mode, else the bytes typed. */
 	Common::String promptGetText() const;

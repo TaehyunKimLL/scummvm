@@ -846,6 +846,8 @@ public:
 public:
 	void decrypt(uint8 *mem, int len);
 	int processAGIEvents();
+	/** Puts @p key first in the line the next edit loop reads (the key that opened the command window). */
+	void enqueueKey(int key);
 	int runGame();
 
 	void newRoom(int16 newRoomNr);
