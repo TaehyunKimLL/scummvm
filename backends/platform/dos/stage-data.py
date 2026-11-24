@@ -12,8 +12,9 @@ import re
 import shutil
 import sys
 
-DEVICES = {"CON", "PRN", "AUX", "NUL"} | {"COM%d" % i for i in range(1, 10)} | {"LPT%d" % i for i in range(1, 10)}
+DEVICES = {"CON", "PRN", "AUX", "NUL", "CLOCK$"} | {"COM%d" % i for i in range(1, 10)} | {"LPT%d" % i for i in range(1, 10)}
 VALID = re.compile(r"^[A-Z0-9_\-!#$%&'(){}@^`~]+$")
+VALID_ASCII = re.compile(r"^[\x21-\x7e]+$")
 
 
 class StageError(Exception):
@@ -21,12 +22,20 @@ class StageError(Exception):
 
 
 def dos_name(component):
+    """The 8.3 name DOS gives @p component. The characters are checked BEFORE the cut: a bad one past the 8th or 3rd
+    position (korean-<hangul>.map, a space, '?') must not vanish into the truncation."""
     if component.count(".") > 1:
         raise StageError("%s: more than one dot" % component)
     base, _, ext = component.partition(".")
-    base, ext = base[:8].upper(), ext[:3].upper()
-    if not base or not VALID.match(base) or (ext and not VALID.match(ext)) or base in DEVICES:
+    for part in (base, ext):
+        if part and not VALID_ASCII.match(part):
+            raise StageError("%s: no DOS name (characters DOS does not allow)" % component)
+    base, ext = base.upper(), ext.upper()
+    if not base or not VALID.match(base) or (ext and not VALID.match(ext)):
         raise StageError("%s: no DOS name" % component)
+    base, ext = base[:8], ext[:3]
+    if base in DEVICES:
+        raise StageError("%s: no DOS name (a device)" % component)
     return base + ("." + ext if ext else "")
 
 
@@ -40,10 +49,17 @@ def stage(sources, data_dir):
     origin = {}
     dirs = set()
     for root, prefix in sources:
-        for dirpath, dirnames, files in os.walk(root):
+        if not os.path.isdir(root) or os.path.islink(root):
+            raise StageError("%s: not a folder (or a link)" % root)
+        for dirpath, dirnames, files in os.walk(root, followlinks=False):
             dirnames.sort()
+            for dn in dirnames:
+                if os.path.islink(os.path.join(dirpath, dn)):
+                    raise StageError("%s: a link is not followed" % os.path.join(dirpath, dn))
             for f in sorted(files):
                 src = os.path.join(dirpath, f)
+                if os.path.islink(src):
+                    raise StageError("%s: a link is not followed" % src)
                 rel = os.path.relpath(src, root).replace(os.sep, "/")
                 rel = (prefix + "/" + rel) if prefix else rel
                 d = dos_path(rel)
@@ -74,6 +90,8 @@ def check_maps(data_dir, maps):
         with open(m, encoding="utf-8-sig") as fh:
             for line in fh:
                 line = line.split(";", 1)[0].strip()
+                if line.startswith("#"):
+                    continue
                 if line.startswith("["):
                     section = line.strip("[]").split(":", 1)[0].lower()
                 elif section in ("fonts", "preload") and "=" in line:

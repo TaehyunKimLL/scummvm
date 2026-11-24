@@ -39,6 +39,33 @@ class DosNameTest(unittest.TestCase):
         with self.assertRaises(sd.StageError):
             sd.dos_name("")
 
+    def test_checks_before_the_cut(self):
+        for bad in ("korean-\ud55c\uae00.map", "a b.map", "q?.map", "abcdefgh\u00e9.map", "a.m\u00e9p", "x*.map", "CLOCK$.map", "clock$"):
+            with self.assertRaises(sd.StageError, msg=bad):
+                sd.dos_name(bad)
+        self.assertEqual(sd.dos_name("abcdefghij.mapx"), "ABCDEFGH.MAP")
+
+    def test_random_names_against_a_model(self):
+        import random
+        rnd = random.Random(5)
+        alphabet = "abcXYZ019_-.$ ?\u00e9\ud55c!"
+        accepted = 0
+        for _ in range(20000):
+            name = "".join(rnd.choice(alphabet) for _ in range(rnd.randint(0, 14)))
+            base, _, ext = name.partition(".")
+            ok = (name.count(".") <= 1 and base != "" and all(0x21 <= ord(c) <= 0x7e and c not in "?*" and c in
+                  "abcXYZ019_-$!" for c in base + ext) and base.upper()[:8] not in sd.DEVICES)
+            try:
+                out = sd.dos_name(name)
+            except sd.StageError:
+                self.assertFalse(ok, name)
+                continue
+            self.assertTrue(ok, name)
+            accepted += 1
+            b, _, e = out.partition(".")
+            self.assertTrue(len(b) <= 8 and len(e) <= 3 and out == out.upper(), out)
+        self.assertTrue(accepted > 1000)
+
     def test_dos_path(self):
         self.assertEqual(sd.dos_path("hires_text/maps/korean-default.map"), "HIRES_TE/MAPS/KOREAN-D.MAP")
         self.assertEqual(sd.dos_path("hires_text\\maps\\korean-default.map"), "HIRES_TE/MAPS/KOREAN-D.MAP")
@@ -111,6 +138,23 @@ class StageTest(unittest.TestCase):
         missing = sd.check_maps(data, [m])
         self.assertEqual(len(missing), 1)
         self.assertIn("bigface-long.svf", missing[0])
+
+    def test_missing_and_linked_roots_are_refused(self):
+        with self.assertRaises(sd.StageError):
+            sd.stage([(os.path.join(self.tmp, "nope"), "")], os.path.join(self.tmp, "DATA"))
+        src = os.path.join(self.tmp, "src")
+        write(os.path.join(src, "a.svf"))
+        os.symlink(os.path.join(src, "a.svf"), os.path.join(src, "b.svf"))
+        with self.assertRaises(sd.StageError):
+            sd.stage([(src, "")], os.path.join(self.tmp, "DATA"))
+        self.assertEqual(sd.main(["stage-data.py", os.path.join(self.tmp, "nope"), os.path.join(self.tmp, "D2")]), 1)
+
+    def test_check_maps_hash_comments(self):
+        data = os.path.join(self.tmp, "DATA")
+        m = os.path.join(self.tmp, "x.map")
+        write(m, "# [fonts]\n[fonts]\n# neo=data:hires_text/GONE.SVF\nneo=data:hires_text/GOT.SVF\n")
+        write(os.path.join(data, "HIRES_TE", "GOT.SVF"))
+        self.assertEqual(sd.check_maps(data, [m]), [])
 
     def test_check_maps_ok(self):
         data = os.path.join(self.tmp, "DATA")
