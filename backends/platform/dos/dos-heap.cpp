@@ -28,6 +28,7 @@
 #include <sys/nearptr.h>
 
 #include "backends/platform/dos/dos-heap.h"
+#include "backends/timer/dos/dos-timer.h"
 
 /*
  * The heap, for interrupt handlers.
@@ -94,6 +95,7 @@ const uint32 kPage = 4096;
 bool g_largeOk = false;
 bool g_lockLarge = false;		// lock every large block (DOS::lockAll())
 LargeHeader *g_largeList = nullptr;	// changed with interrupts off
+LargeHeader *g_pendingFree = nullptr;	// blocks freed inside the IRQ0 handler, returned to DPMI by the next large call
 
 inline uint32 heapLock() {
 	uint32 flags;
@@ -112,6 +114,10 @@ LargeHeader *largeHeader(void *ptr) {
 	LargeHeader *h = (LargeHeader *)ptr - 1;
 	if (h->magic != kMagic || h->check != (kMagic ^ h->handle ^ h->size))
 		return nullptr;
+	// The header is in the page of ptr (the offset test above), so reading it is safe; it must also be the DPMI block
+	// it claims to be: its own linear address and a size that fits.
+	if (h->linear != (uint32)((uintptr)h - __djgpp_conventional_base) || h->blockSize != h->size + sizeof(LargeHeader))
+		return nullptr;
 	return h;
 }
 
@@ -123,9 +129,33 @@ bool lockLarge(const LargeHeader *h) {
 	return __dpmi_lock_linear_region(&m) == 0;
 }
 
+// The DPMI host is not re-entrant: a timer proc (the IRQ0 handler) that allocated or freed a block while the main thread
+// was inside a DPMI call would corrupt it. In the handler an allocation takes the sbrk heap instead and a free is
+// queued; the next large call made outside the handler returns the queued blocks.
+inline bool inIrqHandler() {
+	return DosTimerManager::procsContext() == DosTimerManager::kProcsInIrq0;
+}
+
+void releasePending() {
+	for (;;) {
+		const uint32 f = heapLock();
+		LargeHeader *h = g_pendingFree;
+		if (h)
+			g_pendingFree = h->next;
+		heapUnlock(f);
+		if (!h)
+			return;
+		__dpmi_free_memory(h->handle);
+	}
+}
+
 // A block of its own; the DPMI calls run with interrupts as they are: it
 // shares nothing with the sbrk heap.
 void *largeAlloc(size_t size) {
+	if (inIrqHandler())
+		return nullptr;
+	if (g_pendingFree)
+		releasePending();
 	__dpmi_meminfo mi;
 	mi.handle = 0;
 	mi.address = 0;
@@ -158,6 +188,7 @@ void *largeAlloc(size_t size) {
 
 void largeFree(LargeHeader *h) {
 	const uint32 handle = h->handle;
+	const bool deferred = inIrqHandler();
 	const uint32 f = heapLock();
 	if (h->prev)
 		h->prev->next = h->next;
@@ -166,8 +197,16 @@ void largeFree(LargeHeader *h) {
 	if (h->next)
 		h->next->prev = h->prev;
 	h->magic = 0;
+	if (deferred) {
+		h->next = g_pendingFree;
+		g_pendingFree = h;
+	}
 	heapUnlock(f);
+	if (deferred)
+		return;
 	__dpmi_free_memory(handle);
+	if (g_pendingFree)
+		releasePending();
 }
 
 // The sbrk heap, with interrupts off for the bookkeeping only.
