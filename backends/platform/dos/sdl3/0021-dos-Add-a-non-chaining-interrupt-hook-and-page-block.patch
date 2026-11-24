@@ -1,0 +1,162 @@
+From bdf98d5e4b5f98c39a9639883bee1fcb21fa4065 Mon Sep 17 00:00:00 2001
+From: Taehyun Kim <dice.thkim@gmail.com>
+Date: Tue, 24 Nov 2026 08:46:41 +0000
+Subject: [PATCH 21/22] dos: Add a non-chaining interrupt hook and page-block
+ allocation, extern "C" the checks
+
+- DOS_HookInterruptNoChain() installs the handler behind an iret wrapper of
+  its own: the previous handler is not chained to, so a handler that sends the
+  one end-of-interrupt itself no longer gets a second one from a chained
+  previous handler. kbd and timer keep DOS_HookInterrupt.
+- DOS_AllocatePageBlock()/DOS_FreePageBlock(): a locked, zeroed DPMI block of
+  whole pages outside the C heap.
+- DOS_IRQCodeLocked/Checked are declared inside extern "C".
+
+Assisted-by: Claude Code
+---
+ src/core/dos/SDL_dos.c | 67 ++++++++++++++++++++++++++++++++++++++++++
+ src/core/dos/SDL_dos.h | 12 ++++++++
+ 2 files changed, 79 insertions(+)
+
+diff --git a/src/core/dos/SDL_dos.c b/src/core/dos/SDL_dos.c
+index 023ad5611..b572d7a1f 100644
+--- a/src/core/dos/SDL_dos.c
++++ b/src/core/dos/SDL_dos.c
+@@ -96,6 +96,40 @@ void *DOS_AllocateDMAMemory(const int len, _go32_dpmi_seginfo *seginfo)
+ }
+ 
+ 
++// A zeroed block of whole pages of its own, outside the C heap, locked: for memory an interrupt handler reads. Lock bits are
++// per page in CWSDPMI, so memory that shared pages with the heap could not be unlocked without unlocking its neighbours
++// (and the program's own lock-everything mode relies on heap pages staying locked). `*handle` is for DOS_FreePageBlock.
++void *DOS_AllocatePageBlock(size_t size, Uint32 *handle, size_t *rounded)
++{
++    __dpmi_meminfo mi;
++    mi.handle = 0;
++    mi.address = 0;
++    mi.size = (size + 4095) & ~(size_t)4095;
++    if (__dpmi_allocate_memory(&mi) != 0) {
++        return NULL;
++    }
++    if (__dpmi_lock_linear_region(&mi) != 0) {
++        __dpmi_free_memory(mi.handle);
++        return NULL;
++    }
++    __djgpp_nearptr_enable();
++    void *ptr = (void *)(mi.address + __djgpp_conventional_base);
++    SDL_memset(ptr, 0, mi.size);
++    *handle = mi.handle;
++    *rounded = mi.size;
++    return ptr;
++}
++
++void DOS_FreePageBlock(void *ptr, Uint32 handle, size_t size)
++{
++    __dpmi_meminfo mi;
++    mi.handle = handle;
++    mi.address = (unsigned long)ptr - __djgpp_conventional_base;
++    mi.size = size;
++    __dpmi_unlock_linear_region(&mi);
++    __dpmi_free_memory(handle);
++}
++
+ void DOS_UnlockRange(void *ptr, size_t size)
+ {
+     unsigned long base = 0;
+@@ -159,6 +193,33 @@ void DOS_HookInterrupt(int irq, DOS_InterruptHookFn fn, DOS_InterruptHook *hook)
+     }
+ }
+ 
++void DOS_HookInterruptNoChain(int irq, DOS_InterruptHookFn fn, DOS_InterruptHook *hook)
++{
++    SDL_assert(irq >= 0 && irq <= 15);
++    SDL_assert(fn != NULL);
++    SDL_assert(hook != NULL);
++    hook->fn = fn;
++    hook->irq = irq;
++    hook->interrupt_vector = DOS_IRQToVector(irq);
++    hook->irq_handler_seginfo.pm_selector = _go32_my_cs();
++    hook->irq_handler_seginfo.pm_offset = (uint32_t)fn;
++    _go32_dpmi_get_protected_mode_interrupt_vector(hook->interrupt_vector, &hook->original_irq_handler_seginfo);
++    hook->no_chain = true;
++    if (_go32_dpmi_allocate_iret_wrapper(&hook->irq_handler_seginfo) != 0) { // the handler returns to an iret of our own, nothing chained
++        hook->fn = NULL;
++        return;
++    }
++    _go32_dpmi_set_protected_mode_interrupt_vector(hook->interrupt_vector, &hook->irq_handler_seginfo);
++
++    // enable interrupt on the correct PIC
++    if (irq > 7) {
++        outportb(PIC2_DATA, inportb(PIC2_DATA) & ~(1 << (irq - 8))); // unmask on slave PIC
++        outportb(PIC1_DATA, inportb(PIC1_DATA) & ~(1 << 2));         // ensure cascade (IRQ2) is unmasked
++    } else {
++        outportb(PIC1_DATA, inportb(PIC1_DATA) & ~(1 << irq)); // unmask on master PIC
++    }
++}
++
+ void DOS_UnhookInterrupt(DOS_InterruptHook *hook, bool disable_interrupt)
+ {
+     if (!hook || !hook->fn) {
+@@ -178,6 +239,12 @@ void DOS_UnhookInterrupt(DOS_InterruptHook *hook, bool disable_interrupt)
+ 
+     _go32_dpmi_set_protected_mode_interrupt_vector(hook->interrupt_vector, &hook->original_irq_handler_seginfo);
+ 
++    if (hook->no_chain) {
++        _go32_dpmi_free_iret_wrapper(&hook->irq_handler_seginfo); // allocated by _go32_dpmi_allocate_iret_wrapper: safe to free
++        SDL_zerop(hook);
++        return;
++    }
++
+     // Note: _go32_dpmi_chain_protected_mode_interrupt_vector internally
+     // allocates a wrapper, but it is NOT safe to free it with
+     // _go32_dpmi_free_iret_wrapper — that function expects a wrapper
+diff --git a/src/core/dos/SDL_dos.h b/src/core/dos/SDL_dos.h
+index 5345a9ba7..7739fc2f3 100644
+--- a/src/core/dos/SDL_dos.h
++++ b/src/core/dos/SDL_dos.h
+@@ -88,12 +88,18 @@
+ 
+ // Defined (as 1) by this version of SDL, whose handlers lock their code
+ // with DOS_IRQ_CODE: an application that needs that can reference it.
++#ifdef __cplusplus
++extern "C" {
++#endif
+ extern const int DOS_IRQCodeLocked;
+ 
+ // Defined (as 1) by this version of SDL, which also checks that each
+ // handler lies inside its locked range and that the locks took
+ // (DOS_LockIRQCode): an application that needs that can reference it.
+ extern const int DOS_IRQCodeChecked;
++#ifdef __cplusplus
++}
++#endif
+ 
+ // Port I/O for handler code, inlined whatever the optimization level
+ // (djgpp's inportb()/outportb() are extern inline: GCC may call libc's
+@@ -128,6 +134,8 @@ extern "C" {
+ #endif
+ 
+ extern void DOS_UnlockRange(void *ptr, size_t size);
++extern void *DOS_AllocatePageBlock(size_t size, Uint32 *handle, size_t *rounded);
++extern void DOS_FreePageBlock(void *ptr, Uint32 handle, size_t size);
+ 
+ // This uses the "fat DS" trick to convert a physical address to a valid
+ //  C pointer usable from protected mode.
+@@ -208,10 +216,14 @@ typedef struct DOS_InterruptHook
+     int interrupt_vector; // this is the _vector_ number, not the IRQ number!
+     _go32_dpmi_seginfo irq_handler_seginfo;
+     _go32_dpmi_seginfo original_irq_handler_seginfo;
++    bool no_chain; // installed with DOS_HookInterruptNoChain: the handler is the whole interrupt, no previous handler runs
+ 
+ } DOS_InterruptHook;
+ 
+ void DOS_HookInterrupt(int irq, DOS_InterruptHookFn fn, DOS_InterruptHook *hook); // `irq` is the IRQ number, not the interrupt vector number!
++// Like DOS_HookInterrupt, but the previous handler is NOT chained to after `fn`: `fn` must send the one end-of-interrupt
++// itself (a chained previous handler would send a second). For an interrupt line the program owns.
++void DOS_HookInterruptNoChain(int irq, DOS_InterruptHookFn fn, DOS_InterruptHook *hook);
+ void DOS_UnhookInterrupt(DOS_InterruptHook *hook, bool disable_interrupt);
+ 
+ // Ends C function definitions when using C++
+-- 
+2.43.0
+

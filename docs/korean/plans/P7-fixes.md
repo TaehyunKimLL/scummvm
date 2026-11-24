@@ -94,3 +94,21 @@ Triage of the rest of the recommended list (not done this round, with reasons):
 | agy sdl3: double EOI on a chained vector, DMA probe reading the 8237 DREQ bits, `handlers[]`/lock short-circuit, canary globals and `extern "C"`, CPUID red zone, LTO pointer arithmetic, SB Pro stereo phase, 16-bit DMA count tearing | DEFERRED | needs a non-chaining hook or hardware to check; see round-2 triage |
 | agy dos: PLAY.EXE path/argument bugs, `supportedFormats()` vs `dos_force_fallback` | DEFERRED | not reproduced here; each needs its own host test |
 | agy shared: `--set` vs the 14 `sessionSettings` keys, "engine" control key, `$_pkgconfig` in configure, `default-saves.o` gating on POSIX/WIN32 | DEFERRED | none simple to verify on this host |
+
+# agy round 3 (same branch; SDL3 patches 0021, 0022)
+
+| Finding | Status | Evidence |
+|---|---|---|
+| dos #1: the ring (4 KB memalign, in the sbrk heap) unlocked under `DOS::lockAll()` | FIXED-BY-READING + EMULATOR | the ring is now a DPMI page block of its own (`DOS_AllocatePageBlock`, SDL3 974c17702), locked by its allocation and freed on close: no heap page is ever unlocked. SB16/SB Pro/SB2 open (`first interrupt seen`), KQ1 RGB565 frame hashes equal Linux, smoke x4 |
+| dos #3: plain 8.3 save overwritten by a hashed long name | VERIFIED-HOST | existing unindexed file of the DOS name refuses the save; real-manager test; guard-off mutation red |
+| dos #2: PLAY backslash paths | VERIFIED-HOST | `absolutePath` slashes (existing test that wanted the backslash form updated) |
+| dos #2: relative argv[0] home | FIXED-BY-READING | home made absolute before any chdir |
+| dos #2: `--language` order | FIXED-BY-READING | `GAMES\ID` cleared before the check; folders looked up in the `--path` the engine will get. Not run (needs launching the game) |
+| dos #2: bad ID creating GAMES\BADID | VERIFIED-EMULATOR | DOSBox-X: `PLAY BADID x` leaves only `GAMES\KQ1KO` |
+| dos #2: `supportedFormats()` vs `dos_force_fallback` | VERIFIED-HOST | flag passed through; list tests (DOSBox-X-like and 640x400-only) |
+| shared: sdl3-build.txt garbled lines | FIXED | |
+| shared: duplicate BLASTER parser in dos-exit.cpp | FIXED-BY-READING | shared `parseBlaster()`, `g_blasterOpen`, `g_blasterPort` honoured |
+| E: build-deps.sh i586 hardcoded | FIXED-BY-READING | `DOS_MARCH=i486` -> `-march=i486` for FLAC/ogg/Tremor (not run: the codec build downloads sources) |
+| F: double EOI on the SB IRQ | FIXED-BY-READING + EMULATOR | `DOS_HookInterruptNoChain` (iret wrapper, previous handler not chained; kbd/timer unchanged); SB16/Pro/SB2 interrupts arrive. Consequence: an MPU-401 driver sharing the SB16 IRQ no longer sees its interrupt (ScummVM polls the MPU) |
+| F: `handlers[]` coverage, lock short-circuit, `extern "C"`, `DOS_SBGetStats` NULL checks | FIXED-BY-READING | irqcheck sb range 468 -> 724 bytes, 0 indirect exits |
+| F: DMA probe DREQ bits, 0xAA stale byte drain, CPUID red zone, LTO pointer arithmetic, SB Pro stereo phase, 8237 count tearing | DEFERRED | hardware-only or no way to check here |

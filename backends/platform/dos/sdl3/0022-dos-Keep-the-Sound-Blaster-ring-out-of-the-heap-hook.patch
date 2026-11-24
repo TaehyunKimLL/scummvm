@@ -1,0 +1,150 @@
+From 974c177020f6821d7846988543083c9a00d257e2 Mon Sep 17 00:00:00 2001
+From: Taehyun Kim <dice.thkim@gmail.com>
+Date: Tue, 24 Nov 2026 08:46:41 +0000
+Subject: [PATCH 22/22] dos: Keep the Sound Blaster ring out of the heap, hook
+ the IRQ without chaining
+
+- The ring is a DPMI page block of its own, locked by its allocation and
+  returned on close. A ring inside the C heap could not be unlocked without
+  clearing the lock bits of neighbouring heap pages, which the program locks
+  for its timer procs on hosts that need lock-everything.
+- The IRQ is hooked with DOS_HookInterruptNoChain: exactly one EOI per
+  interrupt, also on the MPU-401-only path.
+- handlers[] covers RingCopyOut and ISR_GetDMAHalf, the lock calls stop at the
+  first failure, DOS_SBGetStats refuses NULL pointers.
+
+Assisted-by: Claude Code
+---
+ src/audio/dos/SDL_dosaudio_sb.c | 74 ++++++++++++++++++---------------
+ src/audio/dos/SDL_dosaudio_sb.h |  2 +-
+ 2 files changed, 42 insertions(+), 34 deletions(-)
+
+diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
+index cc85b40eb..5b7bfe2bc 100644
+--- a/src/audio/dos/SDL_dosaudio_sb.c
++++ b/src/audio/dos/SDL_dosaudio_sb.c
+@@ -257,11 +257,10 @@ static void DOSSOUNDBLASTER_FreeState(struct SDL_PrivateAudioData *hidden)
+         DOS_FreeConventionalMemory(&hidden->dma_seginfo);
+     }
+ 
+-    // Free ring buffer resources (it was locked: the lock is undone first, or every open would leak a lock count).
+-    if (hidden->ring_locked) {
+-        DOS_UnlockData(*hidden->ring_buffer, hidden->ring_alloc_size);
++    // The ring is a page block of its own (DOS_AllocatePageBlock): unlocked and returned to the DPMI host.
++    if (hidden->ring_buffer) {
++        DOS_FreePageBlock(hidden->ring_buffer, hidden->ring_handle, hidden->ring_alloc_size);
+     }
+-    SDL_aligned_free(hidden->ring_buffer);
+     SDL_free(hidden->staging_buffer);
+ 
+     // Clear ISR-visible statics.
+@@ -317,6 +316,9 @@ const int DOS_SBStatsChecked = 1;
+ extern void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avail, int *chunk, int reset_min);
+ void DOS_SBGetStats(int *irqs, int *underruns, int *queued, int *min_avail, int *chunk, int reset_min)
+ {
++    if (!irqs || !underruns || !queued || !min_avail || !chunk) {
++        return; // the five out-pointers are required
++    }
+     int l_irqs, l_under, l_queued, l_min, l_chunk;
+     Uint32 eflags;
+     __asm__ __volatile__("pushfl; popl %0; cli" : "=r"(eflags) : : "memory");
+@@ -674,13 +676,13 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+         hidden->ring_size = rs;
+     }
+ 
+-    // The ring is locked page by page and unlocked on close: the DPMI host keeps one lock bit per page (CWSDPMI), not a
+-    // count, so a ring that shared a page with another locked allocation (a thread stack) would unlock that one too.
+-    // It gets pages of its own: 4 KB aligned and a whole number of pages.
+-    hidden->ring_alloc_size = (hidden->ring_size + 4095) & ~4095;
+-    hidden->ring_buffer = (Uint8 *)SDL_aligned_alloc(4096, hidden->ring_alloc_size);
+-    if (hidden->ring_buffer) {
+-        SDL_memset(hidden->ring_buffer, 0, hidden->ring_alloc_size);
++    // The ring is read by the interrupt handler: a DPMI block of whole pages of its own, locked, outside the C heap. Lock bits are
++    // per page (CWSDPMI), so a ring inside the heap could not be unlocked on close without unlocking neighbouring heap pages
++    // (which the program's lock-everything mode keeps locked for its timer procs).
++    {
++        size_t rounded = 0;
++        hidden->ring_buffer = (Uint8 *)DOS_AllocatePageBlock(hidden->ring_size, &hidden->ring_handle, &rounded);
++        hidden->ring_alloc_size = (int)rounded;
+     }
+     if (!hidden->ring_buffer) {
+         SDL_SetError("Couldn't allocate ring buffer for IRQ-driven audio");
+@@ -715,34 +717,40 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+     // A page fault in the handler is fatal when the interrupt came in real
+     // mode: without the locks, no handler.
+     {
+-        static const void *const handlers[] = { (const void *)SoundBlasterIRQHandler };
+-        bool locked = DOS_LockIRQCode(sb, handlers, SDL_arraysize(handlers));
+-        hidden->ring_locked = (DOS_LockData(*hidden->ring_buffer, hidden->ring_alloc_size) == 0);
+-        locked = hidden->ring_locked && locked;
+-        locked = (DOS_LockVariable(isr_ring_read) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_ring_write) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_ring_size) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_ring_mask) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_chunk_size) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_ring_buffer) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_dma_buffer) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_dma_halfdma) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_dma_channel) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_is_16bit) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_silence_value) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_irq_ack_port) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_mixer_base) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_irq_count) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_underruns) == 0) && locked;
+-        locked = (DOS_LockVariable(isr_min_avail) == 0) && locked;
+-        locked = (DOS_LockVariable(soundblaster_irq) == 0) && locked;
++        static const void *const handlers[] = { (const void *)SoundBlasterIRQHandler, (const void *)RingCopyOut, (const void *)ISR_GetDMAHalf };
++        bool locked = DOS_LockIRQCode(sb, handlers, SDL_arraysize(handlers)); // the ring is locked by its allocation
++        // Each lock is tried only while the earlier ones took: after a failure nothing more is locked.
++#define SB_LOCK(v) (locked = locked && (DOS_LockVariable(v) == 0))
++        SB_LOCK(isr_ring_read);
++        SB_LOCK(isr_ring_write);
++        SB_LOCK(isr_ring_size);
++        SB_LOCK(isr_ring_mask);
++        SB_LOCK(isr_chunk_size);
++        SB_LOCK(isr_ring_buffer);
++        SB_LOCK(isr_dma_buffer);
++        SB_LOCK(isr_dma_halfdma);
++        SB_LOCK(isr_dma_channel);
++        SB_LOCK(isr_is_16bit);
++        SB_LOCK(isr_silence_value);
++        SB_LOCK(isr_irq_ack_port);
++        SB_LOCK(isr_mixer_base);
++        SB_LOCK(isr_irq_count);
++        SB_LOCK(isr_underruns);
++        SB_LOCK(isr_min_avail);
++        SB_LOCK(soundblaster_irq);
++#undef SB_LOCK
+         if (!locked) {
+             SDL_SetError("Couldn't lock the Sound Blaster interrupt handler's memory");
+             return DOSSOUNDBLASTER_OpenFailed(hidden);
+         }
+     }
+ 
+-    DOS_HookInterrupt(soundblaster_irq, SoundBlasterIRQHandler, &hidden->interrupt_hook);
++    // Not chained: the handler sends the interrupt's one end-of-interrupt itself (a chained previous handler would send a second).
++    DOS_HookInterruptNoChain(soundblaster_irq, SoundBlasterIRQHandler, &hidden->interrupt_hook);
++    if (!hidden->interrupt_hook.fn) {
++        SDL_SetError("Couldn't install the Sound Blaster interrupt handler");
++        return DOSSOUNDBLASTER_OpenFailed(hidden);
++    }
+ 
+     const int irqs = isr_irq_count;
+     DOSSOUNDBLASTER_StartPlayback(device, hidden);
+diff --git a/src/audio/dos/SDL_dosaudio_sb.h b/src/audio/dos/SDL_dosaudio_sb.h
+index 5f9b10e8d..f29bbb9a3 100644
+--- a/src/audio/dos/SDL_dosaudio_sb.h
++++ b/src/audio/dos/SDL_dosaudio_sb.h
+@@ -38,7 +38,7 @@ struct SDL_PrivateAudioData
+ 
+     // IRQ-driven ring buffer
+     int ring_alloc_size;     // ring_size rounded up to whole 4 KB pages (the ring owns its pages)
+-    bool ring_locked;        // the ring was locked with DOS_LockData (unlocked in FreeState)
++    Uint32 ring_handle;      // the ring's DPMI block (DOS_AllocatePageBlock)
+     Uint8 *ring_buffer;      // pre-allocated, memory-locked ring buffer
+     volatile Uint32 ring_read;  // read position, a free-running byte count (advanced by IRQ handler only; wraps at 2^32)
+     volatile Uint32 ring_write; // write position, a free-running byte count (advanced by audio thread only; wraps at 2^32)
+-- 
+2.43.0
+

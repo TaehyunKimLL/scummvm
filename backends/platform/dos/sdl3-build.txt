@@ -5,7 +5,7 @@ libsdl-org/SDL main at 1362030 (2026-11-23, SDL 3.5.0 development). The DOS port
 exists only on main: release-3.4.20 (f00dc919c, 2026-11-03) has no DOS
 port (git ls-tree -r --name-only release-3.4.20 | grep -c /dos/ is 0), so the
 series is pinned on a main commit until a stable release carries the port. The
-20 patches in sdl3/ (0001-0014 P7's rebase, 0015-0016 review round 1, 0017-0018 round 2 and the removal of stray copies, 0019-0020 the keyboard ISR state and the SB16 8-bit fallback; later ones below) are `git format-patch 1362030..HEAD` of the series
+22 patches in sdl3/ (0001-0014 P7's rebase, 0015-0016 review round 1, 0017-0018 round 2 and the removal of stray copies, 0019-0020 the keyboard ISR state and the SB16 8-bit fallback; 0021 the non-chaining hook and page blocks, 0022 the ring in its own DPMI block and one EOI) are `git format-patch 1362030..HEAD` of the series
 (branch dos-p7-1362030 of ~/opt/src/SDL3, here "sdl3/0001-... .. 00NN-...") and are applied with git am:
 
   git -C SDL3 checkout 1362030
