@@ -70,7 +70,15 @@ uint32 blendPixel(const PixelFormat &fmt, uint32 dst, byte r, byte g, byte b, by
 	return out;
 }
 
+bool Blend16::supports(const PixelFormat &fmt) {
+	if (fmt.bytesPerPixel != 2 || fmt.rLoss < 2 || fmt.gLoss < 2 || fmt.bLoss < 2 || fmt.rLoss > 8 || fmt.gLoss > 8 ||
+	    fmt.bLoss > 8)
+		return false;
+	return fmt.rShift + (8 - fmt.rLoss) <= 16 && fmt.gShift + (8 - fmt.gLoss) <= 16 && fmt.bShift + (8 - fmt.bLoss) <= 16;
+}
+
 Blend16::Blend16(const PixelFormat &fmt) {
+	assert(supports(fmt));
 	_rShift = fmt.rShift;
 	_gShift = fmt.gShift;
 	_bShift = fmt.bShift;
@@ -82,7 +90,7 @@ Blend16::Blend16(const PixelFormat &fmt) {
 	_bMask = (uint16)((1u << (8 - _bLoss)) - 1);
 	_alpha = (uint16)fmt.RGBToColor(0, 0, 0);	// the alpha field, opaque, as blendPixel() sets it
 	for (int i = 0; i < 4; ++i)
-		_slot[i].key = 0;
+		_slot[i].key = 0, _slot[i].filled = false;
 }
 
 void Blend16::fill(Slot &s, uint32 key, byte r, byte g, byte b, byte cov) {
@@ -95,6 +103,7 @@ void Blend16::fill(Slot &s, uint32 key, byte r, byte g, byte b, byte cov) {
 	for (uint32 v = 0; v <= _bMask; ++v)
 		s.b[v] = (uint16)(((v * (255 - cov) + fb * cov + 127) / 255) << _bShift);
 	s.key = key;
+	s.filled = true;
 }
 
 namespace {
@@ -118,7 +127,9 @@ void composeSpan(byte *dst, const PixelFormat &fmt, const byte *index, const byt
                  const byte *paletteRGB, Mode mode, Blend16 *table) {
 	const int bpp = fmt.bytesPerPixel;
 	Common::ScopedPtr<Blend16> own;
-	if (bpp == 2 && mode == kBlend && !table) {
+	if (table && !Blend16::supports(fmt))
+		table = nullptr;
+	if (bpp == 2 && mode == kBlend && !table && Blend16::supports(fmt)) {
 		own.reset(new Blend16(fmt));
 		table = own.get();
 	} else if (bpp != 2) {
@@ -156,7 +167,7 @@ void composeSpan(byte *dst, const PixelFormat &fmt, const byte *index, const byt
 void convertSpan(byte *dst, const PixelFormat &fmt, const byte *frame, const byte *index, const byte *coverage, int n,
                  const byte *paletteRGB, Mode mode, Blend16 *table) {
 	const int bpp = fmt.bytesPerPixel;
-	if (bpp != 2)
+	if (!Blend16::supports(fmt))
 		table = nullptr;
 	for (int i = 0; i < n; ++i, dst += bpp) {
 		const byte *c = paletteRGB + frame[i] * 3;
@@ -176,7 +187,7 @@ bool compositeRect(const TextPlane &plane, const Common::Rect &rect, Surface &ds
 	Common::Rect r(rect);
 	r.clip(Common::Rect(MIN<int>(plane.getWidth(), dst.w), MIN<int>(plane.getHeight(), dst.h)));
 	byte idxScratch[kChunk], covScratch[kChunk];
-	Common::ScopedPtr<Blend16> table(dst.format.bytesPerPixel == 2 && mode == kBlend ? new Blend16(dst.format) : nullptr);
+	Common::ScopedPtr<Blend16> table(Blend16::supports(dst.format) && mode == kBlend ? new Blend16(dst.format) : nullptr);
 	for (int y = r.top; y < r.bottom; ++y) {
 		if (!plane.rowHasText(y))
 			continue;
@@ -203,7 +214,7 @@ bool presentRect(const TextPlane &plane, const Surface &frame, const Common::Rec
 	Common::Rect r(rect);
 	r.clip(Common::Rect(MIN<int>(plane.getWidth(), MIN<int>(frame.w, dst.w)), MIN<int>(plane.getHeight(), MIN<int>(frame.h, dst.h))));
 	byte idxScratch[kChunk], covScratch[kChunk];
-	Common::ScopedPtr<Blend16> table(dst.format.bytesPerPixel == 2 && mode == kBlend ? new Blend16(dst.format) : nullptr);
+	Common::ScopedPtr<Blend16> table(Blend16::supports(dst.format) && mode == kBlend ? new Blend16(dst.format) : nullptr);
 	for (int y = r.top; y < r.bottom; ++y) {
 		for (int x = r.left; x < r.right; x += kChunk) {
 			const int n = MIN<int>(kChunk, r.right - x);

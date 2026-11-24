@@ -100,4 +100,57 @@ public:
 			}
 		}
 	}
+
+	void test_supportsAndGuards() {
+		uint nf;
+		const Graphics::PixelFormat *f = formats(nf);
+		for (uint i = 0; i < nf; ++i)
+			TS_ASSERT(Graphics::TextCompose::Blend16::supports(f[i]));
+		TS_ASSERT(!Graphics::TextCompose::Blend16::supports(Graphics::PixelFormat::createFormatCLUT8()));
+		TS_ASSERT(!Graphics::TextCompose::Blend16::supports(Graphics::PixelFormat(4, 8, 8, 8, 0, 16, 8, 0, 0)));
+		TS_ASSERT(!Graphics::TextCompose::Blend16::supports(Graphics::PixelFormat(2, 8, 8, 8, 0, 0, 0, 0, 0)));
+		// a table asked for an unsupported format is not used by composeSpan: the result is blendPixel's
+		byte pal[768];
+		for (int k = 0; k < 768; ++k)
+			pal[k] = (byte)(k * 7);
+		Graphics::TextCompose::Blend16 table(f[0]);
+		uint32 dst4[8], ref4[8];
+		byte idx[8] = { 1, 2, 3, 4, 5, 6, 7, 8 }, cov[8] = { 0, 1, 90, 128, 200, 254, 255, 77 };
+		const Graphics::PixelFormat f32(4, 8, 8, 8, 0, 16, 8, 0, 0);
+		for (int k = 0; k < 8; ++k)
+			dst4[k] = ref4[k] = 0x112233u * (k + 1);
+		Graphics::TextCompose::composeSpan((byte *)dst4, f32, idx, cov, 8, pal, Graphics::TextCompose::kBlend, &table);
+		for (int k = 0; k < 8; ++k)
+			if (cov[k])
+				ref4[k] = Graphics::TextCompose::blendPixel(f32, ref4[k], pal[idx[k] * 3], pal[idx[k] * 3 + 1], pal[idx[k] * 3 + 2], cov[k]);
+		for (int k = 0; k < 8; ++k)
+			TS_ASSERT_EQUALS(dst4[k], ref4[k]);
+	}
+
+	// The empty-slot sentinel: a fresh table asked for black at coverage 0 and for white at 255 (the extreme keys) must
+	// tabulate, not read an uninitialised slot; every coverage 0..255 over every pixel of 565 equals blendPixel.
+	void test_everyCoverageIncludingTheEnds() {
+		const Graphics::PixelFormat f565(2, 5, 6, 5, 0, 11, 5, 0, 0);
+		uint32 bad = 0;
+		for (uint cov = 0; cov < 256; ++cov) {
+			Graphics::TextCompose::Blend16 table(f565);	// fresh: the first key of every slot is the one asked
+			for (uint32 d = 0; d < 65536; d += 7)
+				if (table.blend((uint16)d, 0, 0, 0, (byte)cov) != (uint16)Graphics::TextCompose::blendPixel(f565, d, 0, 0, 0, (byte)cov) ||
+				    table.blend((uint16)d, 255, 255, 255, (byte)cov) != (uint16)Graphics::TextCompose::blendPixel(f565, d, 255, 255, 255, (byte)cov))
+					++bad;
+		}
+		TS_ASSERT_EQUALS(bad, 0u);
+	}
+
+	// Mutation guard: the slot key must hold green (a table filled for another green must not be reused).
+	void test_keyHoldsEveryChannel() {
+		const Graphics::PixelFormat f565(2, 5, 6, 5, 0, 11, 5, 0, 0);
+		Graphics::TextCompose::Blend16 table(f565);
+		uint32 bad = 0;
+		for (int g = 0; g < 256; g += 5)
+			for (uint32 d = 0; d < 65536; d += 251)
+				if (table.blend((uint16)d, 10, (byte)g, 20, 100) != (uint16)Graphics::TextCompose::blendPixel(f565, d, 10, g, 20, 100))
+					++bad;
+		TS_ASSERT_EQUALS(bad, 0u);
+	}
 };

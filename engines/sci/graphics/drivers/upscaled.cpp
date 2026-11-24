@@ -20,6 +20,7 @@
  */
 
 
+#include "common/ptr.h"
 #include "common/system.h"
 #include "graphics/cursorman.h"
 #include "graphics/hires_text/text_compose.h"
@@ -196,8 +197,9 @@ void UpscaledGfxDriver::compositeText(byte *&buff, int &pitch, int destX, int de
 		pitch = w * _pixelSize;
 	}
 	byte indexRow[640 * 2], coverageRow[640 * 2];
-	// One blend table for the rectangle's rows (a 2-byte screen; it is not used on others).
-	Graphics::TextCompose::Blend16 table(_format);
+	// One blend table for the rectangle's rows, only on a 15/16-bit screen it can tabulate (1.5 KB: not built on others).
+	Common::ScopedPtr<Graphics::TextCompose::Blend16> table(
+		_pixelSize == 2 && Graphics::TextCompose::Blend16::supports(_format) ? new Graphics::TextCompose::Blend16(_format) : nullptr);
 	for (int y = r.top; y < r.bottom; ++y) {
 		const byte *index, *coverage;
 		const int n = MIN<int>(r.width(), ARRAYSIZE(indexRow));
@@ -212,7 +214,7 @@ void UpscaledGfxDriver::compositeText(byte *&buff, int &pitch, int destX, int de
 			Graphics::TextCompose::composeSpan(dst, _format, index, coverage, n, _currentPalette,
 			                                   _textMode == Graphics::TextCompose::kStamp ? Graphics::TextCompose::kThreshold
 			                                                                         : (Graphics::TextCompose::Mode)_textMode,
-			                                   _pixelSize == 2 ? &table : nullptr);
+			                                   table.get());
 	}
 }
 

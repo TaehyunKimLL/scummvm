@@ -67,19 +67,23 @@ uint32 blendPixel(const PixelFormat &fmt, uint32 dst, byte r, byte g, byte b, by
  */
 class Blend16 {
 public:
+	/** Whether @p fmt is one Blend16 can tabulate: 2 bytes a pixel, channels of at most 6 bits (loss >= 2) that fit the 16 bits. */
+	static bool supports(const PixelFormat &fmt);
+	/** @p fmt must satisfy supports() (asserted). */
 	explicit Blend16(const PixelFormat &fmt);
-	/** blendPixel(fmt, dst, r, g, b, cov); @p cov 1..254 (0 and 255 are the caller's: nothing, or the colour). */
+	/** blendPixel(fmt, dst, r, g, b, cov), any @p cov (callers use it for 1..254: 0 is nothing and 255 the colour). */
 	uint16 blend(uint16 dst, byte r, byte g, byte b, byte cov) {
 		Slot &s = _slot[cov >> 6];
 		const uint32 key = (uint32)r << 24 | (uint32)g << 16 | (uint32)b << 8 | cov;
-		if (s.key != key)
+		if (!s.filled || s.key != key)
 			fill(s, key, r, g, b, cov);
 		return (uint16)(s.r[dst >> _rShift & _rMask] | s.g[dst >> _gShift & _gMask] | s.b[dst >> _bShift & _bMask] | _alpha);
 	}
 
 private:
 	struct Slot {
-		uint32 key;	// r << 24 | g << 16 | b << 8 | cov; cov 0 (never asked for) marks an empty slot
+		uint32 key;	// r << 24 | g << 16 | b << 8 | cov
+		bool filled;	// false until the first fill: no key value can stand for an empty slot
 		uint16 r[64], g[64], b[64];
 	};
 	void fill(Slot &s, uint32 key, byte r, byte g, byte b, byte cov);
