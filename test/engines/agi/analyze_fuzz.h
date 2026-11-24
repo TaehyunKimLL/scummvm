@@ -182,9 +182,10 @@ public:
 			}
 			if (a.unknownPos) {
 				withUnknown++;
-				// the unknown word is the last one typed; a line of more than MAX_WORDS
-				// words is cut (unreachable from the 40-cell prompt: 20 one-cell words)
-				TS_ASSERT(a.unknownPos <= a.candidates[0].size() || a.candidates[0].size() == (uint)MAX_WORDS);
+				// the unknown word is the last one kept, so its position is inside the (at most
+				// MAX_WORDS) words of every candidate: a script's "I don't know the word N" reads it
+				TS_ASSERT(a.unknownPos >= 1u && a.unknownPos <= a.candidates[0].size());
+				TS_ASSERT(a.unknownPos <= (uint)MAX_WORDS);
 			} else if (a.candidates[0].size()) {
 				withCandidates++;
 			}

@@ -368,6 +368,10 @@ void Words::parseUsingDictionary(const char *rawUserInput) {
 	uint16 userInputLen = userInput.size();
 	const char *userInputPtr = userInput.c_str();
 	while (userInputPos < userInputLen) {
+		// _egoWords holds MAX_WORDS (a 40-cell prompt cannot reach it; parse.string can)
+		if (wordCount >= MAX_WORDS)
+			break;
+
 		// Skip trailing space
 		if (userInput[userInputPos] == ' ')
 			userInputPos++;
@@ -622,8 +626,16 @@ void Words::analyze(const char *rawUserInput, ParseResult &out) const {
 		}
 		pos += found;
 	}
-	if (typed.size() > MAX_WORDS)
+	if (out.unknownPos && typed.size() > MAX_WORDS) {
+		// The unknown word was recorded last. Only MAX_WORDS words are kept, so it
+		// takes the last place: the script reads its position as a word number.
+		const AgiWord unknown = typed.back();
+		typed.resize(MAX_WORDS - 1);
+		typed.push_back(unknown);
+		out.unknownPos = typed.size();
+	} else if (typed.size() > MAX_WORDS) {
 		typed.resize(MAX_WORDS);
+	}
 	if (sawKorean && !out.unknownPos)
 		buildKoreanCandidates(typed, _preps, MAX_WORDS, out.candidates);
 	else
