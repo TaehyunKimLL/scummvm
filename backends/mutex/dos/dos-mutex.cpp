@@ -42,8 +42,11 @@ bool DosMutexInternal::unlock() {
 	if (g_lockDepth == 0)
 		return false;
 	if (--g_lockDepth == 0) {
-		const uint32 flags = g_savedFlags;
-		__asm__ __volatile__("pushl %0; popfl" : : "r"(flags) : "memory", "cc");
+		// popfl cannot set IF under a DPMI host that runs us with IOPL < CPL (a Windows 9x DOS box, NTVDM, EMM386):
+		// the instruction is ignored there and interrupts stayed off for good. sti is the way the other IRQ locks
+		// (dos-timer.cpp) turn them on again, and only when the caller had them on.
+		if (g_savedFlags & 0x200)
+			__asm__ __volatile__("sti" : : : "memory");
 	}
 	return true;
 }
