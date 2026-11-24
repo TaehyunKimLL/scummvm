@@ -1,6 +1,6 @@
 #!/bin/bash
 # Configure and build one DOS executable out of tree.
-# Usage: backends/platform/dos/build-dos.sh [sci|scumm|agi|bench|play|stage] BUILD_DIR [extra configure args]
+# Usage: backends/platform/dos/build-dos.sh [sci|scumm|agi|bench|mmxbench|play|stage] BUILD_DIR [extra configure args]
 #   sci:   engines/sci (not sci32)                                   -> BUILD_DIR/scummvm.exe (SCI.EXE)
 #   scumm: engines/scumm (not scumm_7_8, he), FLAC + Tremor          -> BUILD_DIR/scummvm.exe (SCUMM.EXE)
 #   agi:   engines/agi                                               -> BUILD_DIR/scummvm.exe (AGI.EXE)
@@ -17,7 +17,7 @@
 set -e
 edition=sci
 case "$1" in
-	sci|scumm|agi|bench|play|stage) edition="$1"; shift ;;
+	sci|scumm|agi|bench|mmxbench|play|stage) edition="$1"; shift ;;
 esac
 source ~/opt/dos-dev/env.sh
 src="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -59,6 +59,21 @@ fi
 if [ "$edition" = play ]; then
 	mkdir -p "$out"
 	"$src/backends/platform/dos/launcher/build-play.sh" "$out/PLAY.EXE"
+	exit 0
+fi
+if [ "$edition" = mmxbench ]; then
+	if [ ! -f "$out/config.mk" ] || [ ! -f "$out/graphics/hires_text/text_compose.o" ]; then
+		echo "build-dos.sh: mmxbench needs a built sci edition in $out (build-dos.sh sci $out first)" >&2
+		exit 1
+	fi
+	cd "$out"
+	cat > mmxbench.mk <<MK
+include config.mk
+MMXB.EXE: $src/backends/platform/dos/tools/mmxbench.cpp graphics/hires_text/text_compose.o
+	\$(CXX) -DHAVE_CONFIG_H \$(DEFINES) -I$src -I. \$(INCLUDES) \$(CPPFLAGS) \$(CXXFLAGS) -O2 -o \$@ \$^
+MK
+	make -f mmxbench.mk MMXB.EXE
+	echo "build-dos.sh: $out/MMXB.EXE built."
 	exit 0
 fi
 if [ "$edition" = bench ]; then
