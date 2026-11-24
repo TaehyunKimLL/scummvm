@@ -65,3 +65,15 @@ Tasks are committed one by one; the sha of a task is written into the log by the
 - Hunks: logic.cpp/.h, objects.cpp, sprite.cpp whole; op_cmd.cpp 0 (include) and 3 (`cmdSetGameID` from `rawTexts`).
   Build 671, 0 warnings. Run (`runs/a7`): log `Game ID: "LLLLL"` (unchanged), Lefty's reached after two Returns
   (quiz skipped by the pack), English status line (that is a9's).
+- a7 sha 42e11b1856e.
+
+### a8: display by code point, Hangul stencils
+- Hunks: graphics.cpp 0-5, graphics.h 0, preagi/preagi.cpp 0 (the render-mode/Hercules block came with a6). **Deviation**:
+  text.cpp hunks 0, 1 (includes) and 4 (`displayText`/`displayCharacter` by code point) and text.h hunk 1
+  (`displayCharacter(uint32,...)`) are applied here, not in a9: without them the box text is walked byte by byte and
+  draws AGI-font squares, so a8 could not be seen working (first run after the graphics hunks: 18 squares per line,
+  `runs/a8/s1.png`). Build 671, 0 warnings.
+- Run (`runs/a8/s1.png`, copied as `agi-p5-a8-thanks-box-byte-wrap.png`): the thank-you box reads
+  `감사합니다.` / `이제 레저 수트를 차려입고 '레저 수트 래리'와 함께 '라운지 리저드의 땅'으로 들어갈 준비를 하세요!`
+  in Hangul stencils, wrapped by bytes so the box is narrower than the prototype's: the whole-box comparison with the
+  prototype frame is therefore a9's check, not a8's.

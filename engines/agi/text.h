@@ -122,7 +122,7 @@ public:
 	void display(int16 textNr, int16 textRow, int16 textColumn);
 	void displayAdjustRTL(int16 textRow, int16 textColumn, char *text, int16 calculatedWidth);
 	void displayText(const char *textPtr, bool disabledLook = false);
-	void displayCharacter(byte character, bool disabledLook = false);
+	void displayCharacter(uint32 character, bool disabledLook = false);
 
 	void displayTextInsideWindow(const char *textPtr, int16 windowRow, int16 windowColumn);
 

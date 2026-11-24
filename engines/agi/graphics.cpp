@@ -29,10 +29,12 @@
 
 #include "agi/agi.h"
 #include "agi/graphics.h"
+#include "agi/hirestext.h"
 #include "agi/mouse_cursor.h"
 #include "agi/palette.h"
 #include "agi/picture.h"
 #include "agi/text.h"
+#include "agi/textcells.h"
 
 namespace Agi {
 
@@ -151,7 +153,7 @@ void GfxMgr::initVideo() {
 		break;
 	}
 
-	if (_font->isFontHires() || forceHires) {
+	if (_font->isFontHires() || forceHires || _vm->hiresTextActive()) {
 		// Upscaling enable
 		_upscaledHires = DISPLAY_UPSCALED_640x400;
 		_displayScreenWidth = 640;
@@ -1157,7 +1159,7 @@ void GfxMgr::drawDisplayRectCGA(int16 x, int16 y, int16 width, int16 height, byt
 /**
  * Draw a character to the display screen using text row and column coordinates
  */
-void GfxMgr::drawCharacter(int16 row, int16 column, byte character, byte foreground, byte background, bool disabledLook) {
+void GfxMgr::drawCharacter(int16 row, int16 column, uint32 character, byte foreground, byte background, bool disabledLook) {
 	int16 x = column;
 	int16 y = row;
 	byte  transformXOR = 0;
@@ -1185,9 +1187,11 @@ void GfxMgr::drawCharacter(int16 row, int16 column, byte character, byte foregro
  * For internal use by SystemUI.
  */
 void GfxMgr::drawStringOnDisplay(int16 x, int16 y, const char *text, byte foregroundColor, byte backgroundColor) {
+	const bool utf8 = _vm->textIsUtf8();
 	while (*text) {
-		drawCharacterOnDisplay(x, y, *text, foregroundColor, backgroundColor);
-		text++;
+		uint32 character;
+		text += TextCells::decode(text, utf8, character);
+		drawCharacterOnDisplay(x, y, character, foregroundColor, backgroundColor);
 		x += _displayFontWidth;
 	}
 }
@@ -1216,7 +1220,28 @@ void GfxMgr::drawStringOnDisplay(int16 x, int16 adjX, int16 y, int16 adjY, const
 /**
  * Draw a character to the display screen using text row and column coordinates
  */
-void GfxMgr::drawCharacterOnDisplay(int16 x, int16 y, const byte character, byte foreground, byte background, byte transformXOR, byte transformOR) {
+void GfxMgr::drawCharacterOnDisplay(int16 x, int16 y, uint32 character, byte foreground, byte background, byte transformXOR, byte transformOR) {
+	// A face draws everything the map does not leave to AGI's own font
+	// (D5: basic Latin stays AGI's, scaled 2x2 as today).
+	if (_vm->_hiresText && _upscaledHires == DISPLAY_UPSCALED_640x400) {
+		uint16 rows[16];
+		if (_vm->_hiresText->glyph(character, rows)) {
+			drawCoverageOnDisplay(x, y, rows, foreground, background, transformXOR, transformOR);
+			return;
+		}
+	}
+
+	// AGI's font has 256 glyphs. In UTF-8 text mode a code point above
+	// ASCII that no face drew (no map, or the map leaves it to AGI's font)
+	// has no glyph there: '?' rather than whatever CP437 has at its low
+	// byte.
+	if (_vm->textIsUtf8()) {
+		if (character >= 0x80)
+			character = '?';
+	} else {
+		character = (byte)character; // the old byte path
+	}
+
 	int16       curX, curY;
 	const byte *fontData;
 	bool        fontIsHires = _font->isFontHires();
@@ -1251,6 +1276,26 @@ void GfxMgr::drawCharacterOnDisplay(int16 x, int16 y, const byte character, byte
 			transformOR ^= 0xFF;
 	}
 
+	copyDisplayRectToScreen(x, y, _displayFontWidth, _displayFontHeight);
+}
+
+/**
+ * A 16x16 face glyph into a 640x400 text cell: foreground where the stencil
+ * is set, background elsewhere, with the same invert (XOR) and greyed-menu
+ * (OR 0x55/0xAA, per 8x8 font row = 2 display rows) looks AGI's font gets.
+ */
+void GfxMgr::drawCoverageOnDisplay(int16 x, int16 y, const uint16 *rows, byte foreground, byte background, byte transformXOR, byte transformOR) {
+	for (int16 cy = 0; cy < 16; cy++) {
+		const byte orPattern = transformOR ? (((cy >> 1) & 1) ? (byte)(transformOR ^ 0xFF) : transformOR) : 0;
+		for (int16 cx = 0; cx < 16; cx++) {
+			bool on = (rows[cy] & (0x8000 >> cx)) != 0;
+			if (transformXOR)
+				on = !on;
+			if (orPattern & (0x80 >> ((cx >> 1) & 7)))
+				on = true;
+			putFontPixelOnDisplay(x, y, cx, cy, on ? foreground : background, true);
+		}
+	}
 	copyDisplayRectToScreen(x, y, _displayFontWidth, _displayFontHeight);
 }
 

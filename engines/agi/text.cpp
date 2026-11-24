@@ -21,11 +21,13 @@
 
 #include "common/config-manager.h"
 #include "common/unicode-bidi.h"
+#include "common/hangul.h"
 #include "agi/agi.h"
 #include "agi/sprite.h"     // for commit_both()
 #include "agi/graphics.h"
 #include "agi/keyboard.h"
 #include "agi/text.h"
+#include "agi/textcells.h"
 #include "agi/systemui.h"
 #include "agi/words.h"
 
@@ -350,19 +352,18 @@ void TextMgr::displayText(const char *textPtr, bool disabledLook) {
 		textPtr = textString.c_str();
 	}
 
+	// One character per cell: a code point in UTF-8 text mode, else a byte
+	// (the Russian, Hebrew and French fonts have glyphs at 0x80-0xFF).
+	const bool utf8 = _vm->textIsUtf8();
 	const char *curTextPtr = textPtr;
-
-	while (1) {
-		byte curCharacter = *curTextPtr;
-		if (!curCharacter)
-			break;
-
-		curTextPtr++;
-		displayCharacter(curCharacter, disabledLook);
+	while (*curTextPtr) {
+		uint32 character;
+		curTextPtr += TextCells::decode(curTextPtr, utf8, character);
+		displayCharacter(character, disabledLook);
 	}
 }
 
-void TextMgr::displayCharacter(byte character, bool disabledLook) {
+void TextMgr::displayCharacter(uint32 character, bool disabledLook) {
 	TextPos_Struct charCurPos;
 
 	charPos_Get(&charCurPos);
