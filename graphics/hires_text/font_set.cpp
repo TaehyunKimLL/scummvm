@@ -90,16 +90,39 @@ void HiResFaceCache::warm(SvfFace *face, const HiResFaceRef &ref, const HiResMap
 		return;
 	}
 	Common::Array<byte> cell(face->getCellBytes() * 2);	// a composed syllable of a streamed face reads pieces into the second half
-	while (!s->eos() && !s->err()) {
-		const Common::String line = s->readLine();
-		if (line.hasPrefix("#"))
+	// Bounded: a list is a few KB of text; a newline-less or huge file must not be read whole into a string, and more
+	// distinct characters than the block cache has slots would evict the first ones listed (the likeliest to be needed).
+	enum { kMaxListBytes = 64 * 1024, kMaxWarmGlyphs = SvfFace::kDefaultSlots };
+	Common::Array<byte> text(kMaxListBytes);
+	const uint32 got = s->read(text.data(), kMaxListBytes);
+	Common::Array<uint32> seen;
+	uint32 i = 0;
+	if (got >= 3 && text[0] == 0xEF && text[1] == 0xBB && text[2] == 0xBF)
+		i = 3;	// a UTF-8 BOM
+	bool comment = false, lineStart = true;
+	for (const char *base = (const char *)text.data(); i < got && seen.size() < kMaxWarmGlyphs;) {
+		const char c = base[i];
+		if (c == '\n' || c == '\r') {
+			comment = false;
+			lineStart = true;
+			++i;
 			continue;
-		for (const char *p = line.c_str(), *end = p + line.size(); p < end;) {
-			uint32 cp;
-			bool invalid;
-			p += decodeUtf8(p, end, cp, invalid);
-			if (!invalid && face->has(cp))
-				svf_glyph(face->raw(), cp, cell.data(), cell.size());
+		}
+		if (lineStart && c == '#')
+			comment = true;
+		lineStart = false;
+		uint32 cp;
+		bool invalid;
+		const int len = decodeUtf8(base + i, base + got, cp, invalid);
+		i += len;
+		if (comment || invalid || Common::find(seen.begin(), seen.end(), cp) != seen.end() || !face->has(cp))
+			continue;
+		seen.push_back(cp);
+		const svf_err err = svf_glyph(face->raw(), cp, cell.data(), cell.size());
+		if (err == SVF_E_IO) {
+			warnings.push_back(Common::String::format("preload %s: read error on face %s, warm-up stopped", list.name.c_str(),
+			                                          ref.name.c_str()));
+			return;
 		}
 	}
 }

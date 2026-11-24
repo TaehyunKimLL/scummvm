@@ -244,4 +244,36 @@ public:
 		TS_ASSERT_EQUALS(w.size(), 1u);
 		TS_ASSERT(w.size() && w[0].contains("preload"));
 	}
+
+	// A UTF-8 BOM before the first line does not hide its first character; a huge newline-less list is read bounded.
+	void test_preloadBomAndBoundedList() {
+		const char text[] = "\xed\x95\x9c\xea\xb8\x80";
+		Common::Array<Common::String> w;
+		HiResTest::MemoryFiles plainFiles;
+		plainFiles.addText("data/fixture/JAMO.HOT", text);
+		Graphics::HiResFaceCache plainCache(plainFiles);
+		Graphics::HiResFontSet plainSet;
+		const uint32 plain = readsAfterBuild(preloadMap(true), plainFiles, plainCache, plainSet, w);
+
+		const char bom[] = "\xef\xbb\xbf\xed\x95\x9c\xea\xb8\x80";
+		HiResTest::MemoryFiles bomFiles;
+		bomFiles.addText("data/fixture/JAMO.HOT", bom);
+		Graphics::HiResFaceCache bomCache(bomFiles);
+		Graphics::HiResFontSet bomSet;
+		TS_ASSERT_EQUALS(readsAfterBuild(preloadMap(true), bomFiles, bomCache, bomSet, w), plain);
+
+		// 300,000 bytes, no newline, over the 64 KB bound: builds, warns nothing, reads no more than the cap allows
+		Common::String big;
+		for (int k = 0; k < 100000; ++k)
+			big += "\xed\x95\x9c";
+		static Common::Array<byte> keep;
+		keep.resize(big.size());
+		memcpy(keep.data(), big.c_str(), big.size());
+		HiResTest::MemoryFiles bigFiles;
+		bigFiles.addBytes("data/fixture/JAMO.HOT", keep.data(), keep.size());
+		Graphics::HiResFaceCache bigCache(bigFiles);
+		Graphics::HiResFontSet bigSet;
+		TS_ASSERT_EQUALS(readsAfterBuild(preloadMap(true), bigFiles, bigCache, bigSet, w), plain);
+		TS_ASSERT(w.empty());
+	}
 };
