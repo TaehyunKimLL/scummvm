@@ -33,3 +33,8 @@ Tasks are committed one by one; the sha of a task is written into the log by the
 
 ### a3: translation table
 - Red: `No rule to make target 'engines/agi/translation.o'`. Green: **668** (N0 + 20), 0 warnings.
+- a3 sha 579f2a776ef.
+
+### a4: AgiHiResText stencils
+- Red: `No rule to make target 'engines/agi/hirestext.o'`. Green: **671** (N0 + 23), 0 warnings. The exhaustive test covers
+  all 11172 syllables against the fixture face drawn through an SvfChain (0 mismatches).

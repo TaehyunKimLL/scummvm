@@ -70,7 +70,7 @@ ifeq ($(ENABLE_AGI), STATIC_PLUGIN)
 	TESTS += $(srcdir)/test/engines/agi/*.h
 	# The Korean units of the AGI engine, named one by one (not libagi.a, so
 	# nothing of the engine is pulled in).
-	TEST_LIBS += engines/agi/textcells.o engines/agi/textmode.o engines/agi/translation.o \
+	TEST_LIBS += engines/agi/textcells.o engines/agi/textmode.o engines/agi/translation.o engines/agi/hirestext.o \
 		graphics/libgraphics.a common/libcommon.a
 endif
 
