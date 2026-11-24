@@ -199,3 +199,14 @@ independent-model tests of what the diff changed, run under ASan+UBSan.
 ### d1: the string trailer unit
 - Red: `No rule to make target 'engines/agi/saved_strings.o'`. Green: **699** (+5), 0 warnings. `test/module.mk` and
   `engines/agi/module.mk` now equal the prototype's.
+- d1 sha d955881bea7.
+
+### d2: save and restore
+- Hunks: saveload.cpp 0-5. **Deviation**: systemui.cpp hunk 4 (`askForSaveGameDescription` reads `stringGetText()` instead of
+  `(char *)_text->_inputString`) is applied here, not in d3: b3's change of `_inputString` to `uint32` cells made the byte cast
+  hand the cell bytes (`38 BB 00 00` for 문) to the description, so every commit from b3 to d2 saved a garbled name
+  (seen in the first d2 run: description bytes `38 bb 00...`, list line `01:8□`). Build 699, 0 warnings.
+- Data (`runs/d2`, `originalsaveload=true`): F5, Enter, composer `ans`, Enter, Enter -> `lsl1-ko.001`; gunzip: `d[35]` = **11**,
+  `AGKO` at 44495 of 44550 (a 55-byte trailer at the end), description bytes `eb ac b8` (문, valid UTF-8); F7 lists `01: 문`
+  and restores (log: no `broken string trailer`). The unmodified base build (`runs/d2-base`, the file renamed `lsl1-en.001`)
+  lists the save (name garbled in its font) and loads it.

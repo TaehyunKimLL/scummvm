@@ -42,6 +42,8 @@
 #include "agi/menu.h"
 #include "agi/systemui.h"
 #include "agi/words.h"
+#include "agi/saved_strings.h"
+#include "agi/textcells.h"
 
 #define SAVEGAME_CURRENT_VERSION 11
 
@@ -85,7 +87,13 @@ int AgiEngine::saveGame(const Common::String &fileName, const Common::String &de
 
 	const char *descriptionStringC;
 	Common::U32String hebDesc;
-	if (_game._vm->getLanguage() != Common::HE_ISR) {
+	Common::String utf8Desc;
+	if (textIsUtf8()) {
+		// A description from ScummVM's save dialog may be any Unicode: cut
+		// it on a character boundary to what strlcpy below keeps.
+		utf8Desc = TextCells::clipBytes(descriptionString.c_str(), SAVEDGAME_DESCRIPTION_LEN - 1, true);
+		descriptionStringC = utf8Desc.c_str();
+	} else if (_game._vm->getLanguage() != Common::HE_ISR) {
 		descriptionStringC = descriptionString.c_str();
 	} else {
 		hebDesc = descriptionString.substr(0, SAVEDGAME_DESCRIPTION_LEN / 2 - 3).decode(Common::kWindows1255);
@@ -215,8 +223,16 @@ int AgiEngine::saveGame(const Common::String &fileName, const Common::String &de
 	out->writeByte(_keyHoldMode);
 
 	// game.ev_keyp
-	for (i = 0; i < MAX_STRINGS; i++)
-		out->write(_game.getString(i), MAX_STRINGLEN);
+	for (i = 0; i < MAX_STRINGS; i++) {
+		if (textIsUtf8()) {
+			// whole characters only; the full strings follow in the trailer
+			char slot[kLegacySlotBytes];
+			legacySlot(_game.getString(i), slot);
+			out->write(slot, MAX_STRINGLEN);
+		} else {
+			out->write(_game.getString(i), MAX_STRINGLEN);
+		}
+	}
 
 	// record info about loaded resources
 	for (i = 0; i < MAX_DIRECTORY_ENTRIES; i++) {
@@ -328,6 +344,10 @@ int AgiEngine::saveGame(const Common::String &fileName, const Common::String &de
 
 	//Write which file number AGIPAL is using (0 if not being used)
 	out->writeSint16BE(_gfx->getAGIPalFileNum());
+
+	// UTF-8 text mode: the whole strings after everything upstream reads
+	if (textIsUtf8())
+		writeSavedStrings(*out, &_game.strings[0][0], MAX_STRINGBYTES, MAX_STRINGS, _game.stringAnswer);
 
 	out->finalize();
 	if (out->err()) {
@@ -567,8 +587,14 @@ int AgiEngine::loadGame(const Common::String &fileName, bool checkId) {
 		}
 	}
 
-	for (i = 0; i < MAX_STRINGS; i++)
+	// No slot may keep a stale English alternative across a restore.
+	for (i = 0; i <= MAX_STRINGS; i++)
+		_game.stringAnswer[i].clear();
+	for (i = 0; i < MAX_STRINGS; i++) {
+		memset(_game.strings[i], 0, MAX_STRINGBYTES);
 		in->read(_game.strings[i], MAX_STRINGLEN);
+		_game.strings[i][MAX_STRINGLEN - 1] = 0;
+	}
 
 	for (i = 0; i < MAX_DIRECTORY_ENTRIES; i++) {
 		if (in->readByte() & RES_LOADED)
@@ -729,6 +755,16 @@ int AgiEngine::loadGame(const Common::String &fileName, bool checkId) {
 	// Load AGIPAL Data
 	if (saveVersion >= 3)
 		_gfx->setAGIPal(in->readSint16BE());
+
+	// UTF-8 text mode: the whole strings of the trailer, else the version 11
+	// table in the game's code page made UTF-8
+	if (textIsUtf8()) {
+		const SavedStringsResult r = readSavedStrings(*in, &_game.strings[0][0], MAX_STRINGBYTES, MAX_STRINGS, _game.stringAnswer);
+		if (r == kSavedStringsBroken)
+			warning("Saved game %s has a broken string trailer: its strings are read from the version 11 table", fileName.c_str());
+		if (r != kSavedStringsRead)
+			convertLegacyStrings(&_game.strings[0][0], MAX_STRINGBYTES, MAX_STRINGS, MAX_STRINGLEN - 1);
+	}
 
 	delete in;
 	debugC(3, kDebugLevelSavegame, "Closed %s", fileName.c_str());

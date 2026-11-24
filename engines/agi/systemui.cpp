@@ -423,12 +423,12 @@ bool SystemUI::askForSaveGameDescription(int16 slotId, Common::String &newDescri
 	}
 
 	// Now verify that the user really wants to do this
-	if (!askForSavedGameVerification(_textSaveGameVerify, _textSaveGameVerifyButton1, _textSaveGameVerifyButton2, (char *)_text->_inputString, slotId)) {
+	if (!askForSavedGameVerification(_textSaveGameVerify, _textSaveGameVerifyButton1, _textSaveGameVerifyButton2, _text->stringGetText().c_str(), slotId)) {
 		return false;
 	}
 
 	newDescription.clear();
-	newDescription += (char *)_text->_inputString;
+	newDescription += _text->stringGetText();
 	return true;
 }
 
