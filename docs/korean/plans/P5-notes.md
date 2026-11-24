@@ -94,3 +94,12 @@ Tasks are committed one by one; the sha of a task is written into the log by the
   `점수:0 / 222` left and `소리:켜짐` right, menu bar `시에라 파일 행동 특별 속도` with the drop-down `래리 소개 / 도움말 <F1> /
   계산기 / 퍼즐`, inventory `가진 물건:` with the items in columns and `아무 키나 누르면 게임으로 돌아갑니다`.
   Screenshots `agi-p5a-{box,lefty,menu,inv}.png`.
+- a9 sha 23ebcb9b84c.
+
+### a10 (no commit): P5a smoke and the English gate
+- Korean: `agi-p5a-{box,lefty,menu,inv}.png` (from the a9 run, captions in `captions.txt`; all four viewed, see a9).
+- English gate, base binary = `~/work/tmp/p5/build-base/scummvm` (unmodified `ko-2026.4`), frames by `xwd` (`PIL ImageChops.difference().getbbox()`):
+  lsl1ko3 without `language=` (Return, Return, 6 s): **None**, 0 `Hi-res text|agi-ko|korvocab` log lines; the same folder's
+  Esc menu, Tab inventory and a typed `look` + Return: **None**/**None**/**None**; `lsl1en` (quiz screen) **None**;
+  fan game `AGI Contest 1 Template` first frame **None** (non-empty content bbox 162,160,476,366). Runs `runs/a10-*`.
+- Note: `lsl1en` has the age quiz, so Esc/Tab steps are run on the quiz-skipped pack folder.

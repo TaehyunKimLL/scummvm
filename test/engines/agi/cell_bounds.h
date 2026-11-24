@@ -1,0 +1,296 @@
+#include <cxxtest/TestSuite.h>
+
+#include "common/scummsys.h"
+#include "common/str.h"
+#include "common/util.h"
+
+#include "agi/textcells.h"
+
+/**
+ * Randomized differential tests of the TextCells conversions against an
+ * independent model (a table-driven RFC 3629 decoder), run for both bounds
+ * of every buffer: the capacity of the destination and the NUL terminator of
+ * the source (a string cut inside a multibyte sequence). Strings live in
+ * heap blocks sized exactly strlen + 1, so a read past the terminator is an
+ * AddressSanitizer report in the sanitizer build.
+ */
+class AgiCellBoundsTestSuite : public CxxTest::TestSuite {
+	uint32 _seed;
+
+	uint32 rnd() {
+		_seed = _seed * 1664525u + 1013904223u;
+		return _seed >> 8;
+	}
+
+	// The model: decode the character at s (NUL terminated), the answer in
+	// bytes (>= 1) and code point; a malformed sequence is its lead byte.
+	static int modelDecode(const byte *s, uint32 &cp) {
+		const byte b = s[0];
+		struct Form {
+			byte lo, hi;
+			int len;
+			uint32 min;
+			byte mask;
+		};
+		static const Form forms[] = {
+			{ 0xC2, 0xDF, 2, 0x80, 0x1F },
+			{ 0xE0, 0xEF, 3, 0x800, 0x0F },
+			{ 0xF0, 0xF4, 4, 0x10000, 0x07 }
+		};
+		cp = b;
+		if (b < 0x80)
+			return 1;
+		for (int f = 0; f < 3; f++) {
+			if (b < forms[f].lo || b > forms[f].hi)
+				continue;
+			uint32 v = b & forms[f].mask;
+			for (int i = 1; i < forms[f].len; i++) {
+				if (s[i] < 0x80 || s[i] > 0xBF)
+					return 1; // includes the NUL: the sequence is cut, the lead byte alone
+				v = (v << 6) | (s[i] & 0x3F);
+			}
+			if (v < forms[f].min || (v >= 0xD800 && v <= 0xDFFF) || v > 0x10FFFF)
+				return 1;
+			cp = v;
+			return forms[f].len;
+		}
+		return 1;
+	}
+
+	static void encode(uint32 cp, Common::String &out) {
+		if (cp < 0x80) {
+			out += (char)cp;
+		} else if (cp < 0x800) {
+			out += (char)(0xC0 | (cp >> 6));
+			out += (char)(0x80 | (cp & 0x3F));
+		} else if (cp < 0x10000) {
+			out += (char)(0xE0 | (cp >> 12));
+			out += (char)(0x80 | ((cp >> 6) & 0x3F));
+			out += (char)(0x80 | (cp & 0x3F));
+		} else {
+			out += (char)(0xF0 | (cp >> 18));
+			out += (char)(0x80 | ((cp >> 12) & 0x3F));
+			out += (char)(0x80 | ((cp >> 6) & 0x3F));
+			out += (char)(0x80 | (cp & 0x3F));
+		}
+	}
+
+	uint32 randomCodePoint() {
+		switch (rnd() % 5) {
+		case 0:
+			return 0x20 + rnd() % 0x5F;
+		case 1:
+			return 0x80 + rnd() % 0x780;
+		case 2:
+			return 0xAC00 + rnd() % 11172;
+		case 3: {
+			uint32 cp = 0x800 + rnd() % 0xF800;
+			return (cp >= 0xD800 && cp <= 0xDFFF) ? 0x3042 : cp;
+		}
+		default:
+			return 0x10000 + rnd() % 0x10000;
+		}
+	}
+
+	// A random text: valid characters and, with @p junk, stray bytes.
+	Common::String randomText(int maxChars, bool junk) {
+		Common::String s;
+		const int n = rnd() % (maxChars + 1);
+		for (int i = 0; i < n; i++) {
+			if (junk && rnd() % 8 == 0)
+				s += (char)(0x80 + rnd() % 0x80);
+			else
+				encode(randomCodePoint(), s);
+		}
+		return s;
+	}
+
+	// An exact-size heap copy (the terminator is the last byte of the block).
+	static char *exactCopy(const Common::String &s) {
+		char *p = (char *)malloc(s.size() + 1);
+		memcpy(p, s.c_str(), s.size() + 1);
+		return p;
+	}
+
+	static bool isEqualModel(const char *text, uint32 *outCps, int &count, int *outBytes = nullptr) {
+		count = 0;
+		const byte *p = (const byte *)text;
+		while (*p) {
+			uint32 cp;
+			const int n = modelDecode(p, cp);
+			if (outCps)
+				outCps[count] = cp;
+			if (outBytes)
+				outBytes[count] = n;
+			count++;
+			p += n;
+		}
+		return true;
+	}
+
+public:
+	void setUp() {
+		_seed = 0x5eed1234;
+	}
+
+	// decode/cellLen/measure/clipCells/clipBytes against the model, on
+	// valid and malformed text, every string also cut at every byte (a cut
+	// inside a multibyte sequence) in an exact-size block.
+	void test_conversionsEqualTheModelAtBothBounds() {
+		static uint32 cps[4000];
+		static int bytes[4000];
+		for (int iter = 0; iter < 4000; iter++) {
+			const Common::String full = randomText(12, iter % 2 == 1);
+			const uint cuts = full.size();
+			for (uint cut = 0; cut <= cuts; cut++) {
+				const Common::String part(full.c_str(), cut);
+				char *s = exactCopy(part);
+				int count;
+				isEqualModel(s, cps, count, bytes);
+
+				TS_ASSERT_EQUALS((int)Agi::TextCells::cellLen(s, true), count);
+				TS_ASSERT_EQUALS((int)Agi::TextCells::cellLen(s, false), (int)part.size());
+
+				int pos = 0;
+				for (int i = 0; i < count; i++) {
+					uint32 cp = 0;
+					const int n = Agi::TextCells::decode(s + pos, true, cp);
+					TS_ASSERT_EQUALS(n, bytes[i]);
+					TS_ASSERT_EQUALS(cp, cps[i]);
+					pos += n;
+				}
+
+				// measure(): the bytes of the first k cells, for every k
+				for (int k = 0; k <= count + 1; k++) {
+					int16 b = -1;
+					const int16 cells = Agi::TextCells::measure(s, (int16)part.size(), true, (int16)k, &b);
+					TS_ASSERT_EQUALS((int)cells, count);
+					int want = 0;
+					for (int i = 0; i < k && i < count; i++)
+						want += bytes[i];
+					if (k > count)
+						want = (int)part.size(); // never reached: the whole text
+					TS_ASSERT_EQUALS((int)b, want);
+				}
+
+				// clipCells(): the first k cells
+				for (int k = 0; k <= count + 1; k++) {
+					int want = 0;
+					for (int i = 0; i < k && i < count; i++)
+						want += bytes[i];
+					const Common::String c = Agi::TextCells::clipCells(s, (int16)k, true);
+					TS_ASSERT_EQUALS((int)c.size(), want);
+					TS_ASSERT(memcmp(c.c_str(), s, want) == 0);
+				}
+
+				// clipBytes(): the longest whole prefix within the budget
+				for (int budget = 0; budget <= (int)part.size() + 2; budget++) {
+					int want = 0;
+					for (int i = 0; i < count && want + bytes[i] <= budget; i++)
+						want += bytes[i];
+					const Common::String c = Agi::TextCells::clipBytes(s, (int16)budget, true);
+					TS_ASSERT_EQUALS((int)c.size(), want);
+					TS_ASSERT(memcmp(c.c_str(), s, want) == 0);
+					// the byte path is a plain cut
+					const Common::String b2 = Agi::TextCells::clipBytes(s, (int16)budget, false);
+					TS_ASSERT_EQUALS((int)b2.size(), MIN<int>(budget, part.size()));
+				}
+				free(s);
+			}
+		}
+	}
+
+	// toCells() holds capacity - 1 cells and a terminator and writes nothing
+	// past capacity; fromCells() inverts it for valid text.
+	void test_toCellsStaysInItsBufferAndRoundTrips() {
+		for (int iter = 0; iter < 20000; iter++) {
+			const Common::String text = randomText(60, false);
+			const int capacity = 1 + rnd() % 64;
+			uint32 buf[64 + 8];
+			for (int i = 0; i < 64 + 8; i++)
+				buf[i] = 0xDEADBEEF;
+			char *s = exactCopy(text);
+			const int16 n = Agi::TextCells::toCells(s, buf, (int16)capacity, true);
+			uint32 cps[400];
+			int count;
+			isEqualModel(s, cps, count);
+			TS_ASSERT_EQUALS((int)n, MIN(count, capacity - 1));
+			TS_ASSERT_EQUALS(buf[n], 0u);
+			for (int i = 0; i < n; i++)
+				TS_ASSERT_EQUALS(buf[i], cps[i]);
+			for (int i = capacity; i < 64 + 8; i++)
+				TS_ASSERT_EQUALS(buf[i], 0xDEADBEEFu);
+			TS_ASSERT_EQUALS((int)Agi::TextCells::cellCount(buf), (int)n);
+
+			// the cells back: the text clipped to n cells
+			const Common::String back = Agi::TextCells::fromCells(buf, true);
+			const Common::String want = Agi::TextCells::clipCells(s, n, true);
+			TS_ASSERT_EQUALS(back, want);
+			TS_ASSERT_EQUALS((int)Agi::TextCells::utf8Bytes(buf, n), (int)back.size());
+			TS_ASSERT(Agi::TextCells::isValidUtf8(back.c_str()));
+			free(s);
+		}
+	}
+
+	// isValidUtf8() is "the model decodes every character from its own bytes
+	// with no fallback", and a cut valid text is invalid exactly when it ends
+	// inside a character.
+	void test_isValidUtf8EqualsTheModel() {
+		for (int iter = 0; iter < 20000; iter++) {
+			const Common::String text = randomText(10, iter % 3 == 0);
+			for (uint cut = 0; cut <= text.size(); cut++) {
+				const Common::String part(text.c_str(), cut);
+				char *s = exactCopy(part);
+				bool ok = true;
+				const byte *p = (const byte *)s;
+				while (*p) {
+					uint32 cp;
+					const int n = modelDecode(p, cp);
+					if (n == 1 && *p >= 0x80) {
+						ok = false;
+						break;
+					}
+					p += n;
+				}
+				TS_ASSERT_EQUALS(Agi::TextCells::isValidUtf8(s), ok);
+				free(s);
+			}
+		}
+	}
+
+	// The menu hooks of a9: dropDownColumn is upstream's two-way expression,
+	// and clipCells on the byte path is upstream's delete-one-at-a-time loop.
+	void test_dropDownColumnAndMenuClipEqualUpstream() {
+		for (int col = 0; col < 40; col++) {
+			for (int len = 0; len < 70; len++) {
+				const int16 upstream = (len + col < 39) ? col : (39 - len);
+				TS_ASSERT_EQUALS((int)Agi::TextCells::dropDownColumn((int16)col, (int16)len, 40), (int)upstream);
+			}
+		}
+		for (int iter = 0; iter < 20000; iter++) {
+			Common::String text = randomText(30, true);
+			int16 textLen = (int16)text.size();
+			int16 curColumnEnd = (int16)(rnd() % 70);
+			// upstream: while (textLen && curColumnEnd > 40) delete the last byte
+			Common::String up = text;
+			int16 upLen = textLen, upEnd = curColumnEnd;
+			while (upLen && upEnd > 40) {
+				up.deleteLastChar();
+				upLen--;
+				upEnd--;
+			}
+			// the hook
+			Common::String mine = text;
+			int16 myLen = textLen, myEnd = curColumnEnd;
+			if (myLen && myEnd > 40) {
+				const int16 keep = MAX<int16>(0, myLen - (myEnd - 40));
+				mine = Agi::TextCells::clipCells(mine.c_str(), keep, false);
+				myEnd -= myLen - keep;
+				myLen = keep;
+			}
+			TS_ASSERT_EQUALS(mine, up);
+			TS_ASSERT_EQUALS((int)myLen, (int)upLen);
+			TS_ASSERT_EQUALS((int)myEnd, (int)upEnd);
+		}
+	}
+};
