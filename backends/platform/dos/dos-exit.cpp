@@ -308,47 +308,51 @@ void stopTimerHardware() {
 }
 
 // A Sound Blaster left in auto-init DMA repeats its last buffer (a drone) after the program dies: reset the DSP and mask
-// the DMA channels the BLASTER variable names (A base, D 8-bit, H 16-bit channel). Port I/O only, no heap, no libc but
-// getenv/strtoul; values outside what a card can have are ignored.
-static void silenceSoundBlaster() {
+// the DMA channels BLASTER names (A base, D 8-bit, H 16-bit channel). BLASTER is parsed once, in installExitSignals(), not
+// in the signal handler (getenv/strtoul are not async-signal-safe); the handler does port I/O only. Values outside what a
+// card can have are ignored.
+static unsigned g_sbBase = 0, g_sbDma8 = 99, g_sbDma16 = 99;
+
+static void parseBlaster() {
 	const char *b = getenv("BLASTER");
 	if (!b)
 		return;
-	unsigned base = 0, dma8 = 99, dma16 = 99;
 	for (const char *p = b; *p;) {
 		while (*p == ' ')
 			++p;
-		const char t = *p >= 'a' && *p <= 'z' ? (char)(*p - 32) : *p;
 		if (!*p)
 			break;
+		const char t = *p >= 'a' && *p <= 'z' ? (char)(*p - 32) : *p;
 		++p;
 		char *end;
 		const unsigned long v = strtoul(p, &end, t == 'A' ? 16 : 10);
-		if (end == p) {
-			while (*p && *p != ' ')
-				++p;
-			continue;
+		if (end != p) {
+			p = end;
+			if (t == 'A')
+				g_sbBase = (unsigned)v;
+			else if (t == 'D')
+				g_sbDma8 = (unsigned)v;
+			else if (t == 'H')
+				g_sbDma16 = (unsigned)v;
 		}
-		p = end;
-		if (t == 'A')
-			base = (unsigned)v;
-		else if (t == 'D')
-			dma8 = (unsigned)v;
-		else if (t == 'H')
-			dma16 = (unsigned)v;
 		while (*p && *p != ' ')
 			++p;
 	}
-	if (base < 0x200 || base > 0x2F0 || (base & 0xF))
+	if (g_sbBase < 0x200 || g_sbBase > 0x2F0 || (g_sbBase & 0xF))
+		g_sbBase = 0;
+}
+
+static void silenceSoundBlaster() {
+	if (!g_sbBase)
 		return;
-	if (dma8 == 0 || dma8 == 1 || dma8 == 3)
-		outportb(0x0A, (unsigned char)(4 | dma8));
-	if (dma16 >= 5 && dma16 <= 7)
-		outportb(0xD4, (unsigned char)(4 | (dma16 - 4)));
-	outportb(base + 6, 1);
+	if (g_sbDma8 == 0 || g_sbDma8 == 1 || g_sbDma8 == 3)
+		outportb(0x0A, (unsigned char)(4 | g_sbDma8));
+	if (g_sbDma16 >= 5 && g_sbDma16 <= 7)
+		outportb(0xD4, (unsigned char)(4 | (g_sbDma16 - 4)));
+	outportb(g_sbBase + 6, 1);
 	for (int i = 0; i < 20; ++i)
-		(void)inportb(base + 6);	// each read of the port is about 1 us on the ISA bus: a reset pulse of > 3 us
-	outportb(base + 6, 0);
+		(void)inportb(g_sbBase + 6);	// each read of the port is about 1 us on the ISA bus: a reset pulse of > 3 us
+	outportb(g_sbBase + 6, 0);
 }
 
 // DJGPP's default action for these (a traceback, then libc's own _exit,
@@ -368,6 +372,7 @@ void fatalSignal(int sig) {
 } // End of anonymous namespace
 
 void installExitSignals() {
+	parseBlaster();
 	// SIGINT is Ctrl-C and Ctrl-Break alike.
 	static const int kSignals[] = { SIGABRT, SIGSEGV, SIGFPE, SIGILL, SIGINT, SIGQUIT };
 	for (uint i = 0; i < ARRAYSIZE(kSignals); ++i)
