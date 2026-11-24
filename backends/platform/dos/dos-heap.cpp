@@ -1,0 +1,298 @@
+/* ScummVM - Graphic Adventure Engine
+ *
+ * ScummVM is the legal property of its developers, whose names
+ * are too numerous to list here. Please refer to the COPYRIGHT
+ * file distributed with this source distribution.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+#include "common/scummsys.h"
+
+#if defined(DOS_DJGPP)
+
+#include <dpmi.h>
+#include <string.h>
+#include <sys/nearptr.h>
+
+#include "backends/platform/dos/dos-heap.h"
+
+/*
+ * The heap, for interrupt handlers.
+ *
+ * The IRQ0 timer runs ScummVM's timer procs preemptively. They touch the
+ * heap (SCI's music callback reads song data and empties its command
+ * queue, freeing memory), so:
+ *
+ * - malloc() must not be reentered: DJGPP's is not reentrant, and the code
+ *   the interrupt came in on may be inside it. The link wraps malloc, free,
+ *   realloc, calloc and memalign (-Wl,--wrap, see module.mk) so malloc's
+ *   own work runs with interrupts off. The large blocks below share no
+ *   state with it; their DPMI calls, copies and clears run with interrupts
+ *   as the caller had them.
+ *
+ * - The heap is pageable (main() sets no _CRT0_FLAG_LOCK_MEMORY under
+ *   CWSDPMI): the timer procs run only in an interrupt that came in
+ *   protected mode, where CWSDPMI services their page faults
+ *   (dos-timer.cpp). Buffers a hardware interrupt handler itself touches
+ *   are locked where they are allocated (dos-irq.h).
+ *
+ * - Blocks of kLargeBlock bytes or more come from DPMI memory blocks of
+ *   their own, outside sbrk(): freeing one gives its memory back at once,
+ *   and it can be locked and unlocked on its own (dosHeapInLargeBlock()).
+ *   They need the near pointer (main() enables it before anything else),
+ *   so until dosHeapEnableLargeBlocks() every block comes from malloc.
+ *
+ * - Whenever the heap is locked as a whole (DOS::lockAll(): the timer
+ *   procs then run from every IRQ0), the large blocks are too: those that
+ *   exist then, and each new one as it is allocated. sbrk() does not see
+ *   them, so _CRT0_FLAG_LOCK_MEMORY alone would leave them pageable; the
+ *   blocks are kept in a list for this.
+ */
+
+extern "C" {
+
+void *__real_malloc(size_t size);
+void __real_free(void *ptr);
+void *__real_realloc(void *ptr, size_t size);
+void *__real_calloc(size_t n, size_t size);
+void *__real_memalign(size_t alignment, size_t size);
+
+}
+
+namespace {
+
+const size_t kLargeBlock = 256 * 1024;
+
+// In front of every large block; its address is page aligned, so the
+// pointer handed out is sizeof(LargeHeader) bytes into a page -- a cheap
+// first test. 32 bytes keep the blocks 16-byte aligned.
+struct LargeHeader {
+	uint32 magic;
+	uint32 handle;
+	uint32 size;		// usable bytes after the header
+	uint32 check;		// magic ^ handle ^ size
+	LargeHeader *next, *prev;	// every live block, for dosHeapLockLargeBlocks()
+	uint32 linear;		// the block's linear address (DPMI's)
+	uint32 blockSize;	// the DPMI block's size, header included
+};
+const uint32 kMagic = 0x4C524745;	// "LRGE"
+const uint32 kPage = 4096;
+
+bool g_largeOk = false;
+bool g_lockLarge = false;		// lock every large block (DOS::lockAll())
+LargeHeader *g_largeList = nullptr;	// changed with interrupts off
+
+inline uint32 heapLock() {
+	uint32 flags;
+	__asm__ __volatile__("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
+	return flags;
+}
+
+inline void heapUnlock(uint32 flags) {
+	if (flags & 0x200)
+		__asm__ __volatile__("sti" : : : "memory");
+}
+
+LargeHeader *largeHeader(void *ptr) {
+	if (!ptr || ((uintptr)ptr & (kPage - 1)) != sizeof(LargeHeader))
+		return nullptr;
+	LargeHeader *h = (LargeHeader *)ptr - 1;
+	if (h->magic != kMagic || h->check != (kMagic ^ h->handle ^ h->size))
+		return nullptr;
+	return h;
+}
+
+bool lockLarge(const LargeHeader *h) {
+	__dpmi_meminfo m;
+	m.handle = 0;
+	m.address = h->linear;
+	m.size = h->blockSize;
+	return __dpmi_lock_linear_region(&m) == 0;
+}
+
+// A block of its own; the DPMI calls run with interrupts as they are: it
+// shares nothing with the sbrk heap.
+void *largeAlloc(size_t size) {
+	__dpmi_meminfo mi;
+	mi.handle = 0;
+	mi.address = 0;
+	mi.size = (size + sizeof(LargeHeader) + kPage - 1) & ~(kPage - 1);
+	if (mi.size < size || __dpmi_allocate_memory(&mi) != 0)
+		return nullptr;
+	LargeHeader *h = (LargeHeader *)(mi.address + __djgpp_conventional_base);
+	h->magic = kMagic;
+	h->handle = mi.handle;
+	h->size = mi.size - sizeof(LargeHeader);
+	h->check = kMagic ^ h->handle ^ h->size;
+	h->linear = mi.address;
+	h->blockSize = mi.size;
+	// Locked before anyone can see it; failing that, the caller takes
+	// the (locked) sbrk heap instead.
+	if (g_lockLarge && !lockLarge(h)) {
+		h->magic = 0;
+		__dpmi_free_memory(mi.handle);
+		return nullptr;
+	}
+	const uint32 f = heapLock();
+	h->prev = nullptr;
+	h->next = g_largeList;
+	if (g_largeList)
+		g_largeList->prev = h;
+	g_largeList = h;
+	heapUnlock(f);
+	return h + 1;
+}
+
+void largeFree(LargeHeader *h) {
+	const uint32 handle = h->handle;
+	const uint32 f = heapLock();
+	if (h->prev)
+		h->prev->next = h->next;
+	else
+		g_largeList = h->next;
+	if (h->next)
+		h->next->prev = h->prev;
+	h->magic = 0;
+	heapUnlock(f);
+	__dpmi_free_memory(handle);
+}
+
+// The sbrk heap, with interrupts off for the bookkeeping only.
+void *smallAlloc(size_t size) {
+	const uint32 f = heapLock();
+	void *p = __real_malloc(size);
+	heapUnlock(f);
+	return p;
+}
+
+} // End of anonymous namespace
+
+void dosHeapEnableLargeBlocks() {
+	g_largeOk = true;
+}
+
+bool dosHeapInLargeBlock(const void *ptr, size_t size) {
+	if (!g_largeOk || !ptr)
+		return false;
+	// A large block's header opens its first page; an aligned allocation
+	// (SDL_aligned_alloc()) starts a little further into that page.
+	const uintptr page = (uintptr)ptr & ~(uintptr)(kPage - 1);
+	LargeHeader *h = largeHeader((void *)(page + sizeof(LargeHeader)));
+	if (!h)
+		return false;
+	const uintptr start = (uintptr)(h + 1);
+	return (uintptr)ptr >= start && (uintptr)ptr - start <= h->size && size <= h->size - ((uintptr)ptr - start);
+}
+
+bool dosHeapLockLargeBlocks(uint32 &blocks, uint32 &bytes) {
+	// From now on largeAlloc() locks each new block itself. Called before
+	// any timer proc runs (DOS::lockAll()), so no block comes or goes
+	// while the list is walked.
+	g_lockLarge = true;
+	bool ok = true;
+	blocks = bytes = 0;
+	for (LargeHeader *h = g_largeList; h; h = h->next) {
+		if (lockLarge(h)) {
+			blocks++;
+			bytes += h->blockSize;
+		} else {
+			ok = false;
+		}
+	}
+	return ok;
+}
+
+void dosHeapStopLockingLargeBlocks() {
+	g_lockLarge = false;
+}
+
+extern "C" {
+
+void *__wrap_malloc(size_t size) {
+	void *p = nullptr;
+	if (g_largeOk && size >= kLargeBlock)
+		p = largeAlloc(size);
+	return p ? p : smallAlloc(size);
+}
+
+void __wrap_free(void *ptr) {
+	if (LargeHeader *h = largeHeader(ptr)) {
+		largeFree(h);
+		return;
+	}
+	const uint32 f = heapLock();
+	__real_free(ptr);
+	heapUnlock(f);
+}
+
+void *__wrap_realloc(void *ptr, size_t size) {
+	LargeHeader *h = largeHeader(ptr);
+	if (!h) {
+		// A small block that grows stays in the sbrk heap: its old size
+		// is malloc's business.
+		const uint32 f = heapLock();
+		void *p = __real_realloc(ptr, size);
+		heapUnlock(f);
+		return p;
+	}
+	if (size == 0) {
+		largeFree(h);
+		return nullptr;
+	}
+	if (size <= h->size)
+		return ptr;
+	void *p = largeAlloc(size);
+	if (!p)
+		p = smallAlloc(size);
+	if (p) {
+		memcpy(p, ptr, h->size);	// interrupts on: the block is ours alone
+		largeFree(h);
+	}
+	return p;
+}
+
+void *__wrap_calloc(size_t n, size_t size) {
+	if (size && n > (size_t)-1 / size)
+		return nullptr;
+	const size_t total = n * size;
+	if (g_largeOk && total >= kLargeBlock) {
+		void *p = largeAlloc(total);
+		if (p) {
+			memset(p, 0, total);
+			return p;
+		}
+	}
+	const uint32 f = heapLock();
+	void *p = __real_calloc(n, size);
+	heapUnlock(f);
+	return p;
+}
+
+void *__wrap_memalign(size_t alignment, size_t size) {
+	void *p = nullptr;
+	if (g_largeOk && size >= kLargeBlock && alignment <= sizeof(LargeHeader))
+		p = largeAlloc(size);
+	if (p)
+		return p;
+	const uint32 f = heapLock();
+	p = __real_memalign(alignment, size);
+	heapUnlock(f);
+	return p;
+}
+
+} // extern "C"
+
+#endif

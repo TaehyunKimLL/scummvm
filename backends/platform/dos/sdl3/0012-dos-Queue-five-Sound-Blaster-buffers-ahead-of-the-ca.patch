@@ -1,0 +1,61 @@
+From c7f1a63af4e14391d9d262c9412ddb2207648c0f Mon Sep 17 00:00:00 2001
+From: Taehyun Kim <dice.thkim@gmail.com>
+Date: Mon, 5 Oct 2026 12:33:52 +0000
+Subject: [PATCH 12/14] dos: Queue five Sound Blaster buffers ahead of the
+ card, not four
+
+The audio thread only runs when the main thread yields, so the ring is
+the longest the main thread may go without yielding. Four 4096-frame
+buffers (372 ms at 44100 Hz) were not enough for the ScummVM DOS port's
+Korean MI1 talkie at P75, whose room entry runs ~460 ms; five (465 ms)
+are. The ring is still allocated at a power of two for the ISR's masks
+(128 KB at 16 KB buffers); the fill stops at RING_BUFFER_CHUNKS, so the
+latency is five buffers, not the allocation. DOS_SBRingChunks tells the
+program the count (and lets it refuse an SDL3 without this change).
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01429qJytiMpcCADjppM2jV4
+---
+ src/audio/dos/SDL_dosaudio_sb.c | 19 +++++++++++++++----
+ 1 file changed, 15 insertions(+), 4 deletions(-)
+
+diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
+index fa96a220a..05553169a 100644
+--- a/src/audio/dos/SDL_dosaudio_sb.c
++++ b/src/audio/dos/SDL_dosaudio_sb.c
+@@ -80,9 +80,20 @@ static Uint8 ReadSoundBlasterDSP(void)
+ // (using the full SDL pipeline with all its allocations and mutexes), and
+ // the ISR just does a memcpy (no SDL calls, no DPMI, no allocator).
+ 
+-// Number of DMA half-buffers that fit in the ring. Must be a power of two.
+-// 4 chunks is ~45 ms at 44100 Hz, enough headroom for 22 fps frame times.
+-#define RING_BUFFER_CHUNKS 4
++// Number of DMA half-buffers the ring holds: what the audio thread queues
++// ahead of the card, so the longest the main thread may go without yielding
++// (4096-frame chunks at 44100 Hz: 93 ms each; 5 hold 465 ms, which a Korean
++// hi-res frame of the MI1 talkie at P75 needs). The ring itself is allocated
++// at the next power of two, which the ISR's masks need; the fill stops at
++// this many chunks, so the latency is this many, not the allocation.
++#ifndef RING_BUFFER_CHUNKS
++#define RING_BUFFER_CHUNKS 5
++#endif
++
++/* The ring's chunk count, for the program to check and log: the ScummVM DOS
++   port refuses (and fails to link against) an SDL3 without it. */
++extern const int DOS_SBRingChunks;
++const int DOS_SBRingChunks = RING_BUFFER_CHUNKS;
+ 
+ // All of the following statics are memory-locked, making them safe to access
+ // from the ISR without risking a page fault or DPMI re-entrance.
+@@ -192,7 +203,7 @@ const int DOS_SBShutdownChecked = 1;
+ static bool DOSSOUNDBLASTER_WaitDevice(SDL_AudioDevice *device)
+ {
+     struct SDL_PrivateAudioData *hidden = device->hidden;
+-    const int size = hidden->ring_size;
++    const int size = hidden->chunk_size * RING_BUFFER_CHUNKS; // the fill limit, not the allocation
+ 
+     // Slow mixing can keep the ring below capacity indefinitely. Yield even
+     // when there is room so the cooperative main thread can process events.
+-- 
+2.43.0
+

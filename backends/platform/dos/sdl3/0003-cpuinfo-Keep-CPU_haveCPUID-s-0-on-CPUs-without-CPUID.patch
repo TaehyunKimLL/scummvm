@@ -1,0 +1,56 @@
+From e97f1f9ced981ac25284ae8a1d9a2ac6704dd8dd Mon Sep 17 00:00:00 2001
+From: Taehyun Kim <dice.thkim@gmail.com>
+Date: Fri, 2 Oct 2026 02:46:41 +0000
+Subject: [PATCH 03/14] cpuinfo: Keep CPU_haveCPUID's 0 on CPUs without CPUID
+
+has_CPUID was an output-only ("=m") operand of the EFLAGS.ID toggle
+check, which stores 1 only when the bit toggles. GCC may then drop the
+initial "has_CPUID = 0" as a dead store (the DJGPP build of
+CPU_calcCPUIDFeatures does), so on a CPU without CPUID the result is an
+uninitialised stack slot, CPUID runs anyway and faults with an invalid
+opcode -- seen on an i486DX2 under SDL_GetSIMDAlignment(). Make it an
+in-out ("+m") operand on i386 and x86-64.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01429qJytiMpcCADjppM2jV4
+---
+ src/cpuinfo/SDL_cpuinfo.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/src/cpuinfo/SDL_cpuinfo.c b/src/cpuinfo/SDL_cpuinfo.c
+index 99818d219..eaa323111 100644
+--- a/src/cpuinfo/SDL_cpuinfo.c
++++ b/src/cpuinfo/SDL_cpuinfo.c
+@@ -136,6 +136,11 @@ static void illegal_instruction(int sig)
+ 
+ static int CPU_haveCPUID(void)
+ {
++    /* The asm below only stores 1 when CPUID exists: has_CPUID is an in-out
++       operand ("+m"), so the compiler keeps the 0 stored here. With "=m" it
++       may drop that store as dead and read an uninitialised stack slot on a
++       CPU without CPUID (a 386 or most 486s), which then runs CPUID and
++       takes an invalid-opcode fault. */
+     int has_CPUID = 0;
+ 
+ /* *INDENT-OFF* */ // clang-format off
+@@ -154,7 +159,7 @@ static int CPU_haveCPUID(void)
+ "        jz      1f                  # Processor=80486                 \n"
+ "        movl    $1,%0               # We have CPUID support           \n"
+ "1:                                                                    \n"
+-    : "=m" (has_CPUID)
++    : "+m" (has_CPUID)
+     :
+     : "%eax", "%ecx"
+     );
+@@ -174,7 +179,7 @@ static int CPU_haveCPUID(void)
+ "        jz      1f                  # Processor=80486                 \n"
+ "        movl    $1,%0               # We have CPUID support           \n"
+ "1:                                                                    \n"
+-    : "=m" (has_CPUID)
++    : "+m" (has_CPUID)
+     :
+     : "%rax", "%rcx"
+     );
+-- 
+2.43.0
+

@@ -1,0 +1,46 @@
+From 2e5ab8dbb286a5a495b0976bb743f0b73bf45b04 Mon Sep 17 00:00:00 2001
+From: Taehyun Kim <dice.thkim@gmail.com>
+Date: Mon, 5 Oct 2026 14:52:32 +0000
+Subject: [PATCH 13/14] dos: Make the Sound Blaster ring's five buffers a plain
+ constant, fix stale ring comments
+
+---
+ src/audio/dos/SDL_dosaudio_sb.c | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
+index 05553169a..61b510acc 100644
+--- a/src/audio/dos/SDL_dosaudio_sb.c
++++ b/src/audio/dos/SDL_dosaudio_sb.c
+@@ -86,9 +86,7 @@ static Uint8 ReadSoundBlasterDSP(void)
+ // hi-res frame of the MI1 talkie at P75 needs). The ring itself is allocated
+ // at the next power of two, which the ISR's masks need; the fill stops at
+ // this many chunks, so the latency is this many, not the allocation.
+-#ifndef RING_BUFFER_CHUNKS
+ #define RING_BUFFER_CHUNKS 5
+-#endif
+ 
+ /* The ring's chunk count, for the program to check and log: the ScummVM DOS
+    port refuses (and fails to link against) an SDL3 without it. */
+@@ -199,7 +197,8 @@ const int DOS_SBShutdownChecked = 1;
+ // Wait until the ring buffer has room for one more chunk.
+ // The audio thread keeps yielding so the game's main thread can run while
+ // we wait. Because the ISR is steadily draining the ring, this only blocks
+-// when the ring is completely full, which is a good problem to have.
++// when RING_BUFFER_CHUNKS chunks are queued (the allocation is larger), which
++// is a good problem to have.
+ static bool DOSSOUNDBLASTER_WaitDevice(SDL_AudioDevice *device)
+ {
+     struct SDL_PrivateAudioData *hidden = device->hidden;
+@@ -215,7 +214,7 @@ static bool DOSSOUNDBLASTER_WaitDevice(SDL_AudioDevice *device)
+         if (SDL_GetAtomicInt(&device->shutdown)) {
+             return true;
+         }
+-        // Available space = ring_size - (write - read).
++        // Available space = size (the fill limit) - (write - read).
+         // ring_write is ours (audio thread only), ring_read is advanced by
+         // the ISR. Read the ISR's copy so we see the latest drain position.
+         const int used = hidden->ring_write - isr_ring_read;
+-- 
+2.43.0
+

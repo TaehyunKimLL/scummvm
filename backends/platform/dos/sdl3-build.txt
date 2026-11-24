@@ -1,0 +1,78 @@
+SDL3 for the DOS build, trimmed to what the port uses.
+
+build-dos.sh links $SDL3_DOS_MIN (default ~/opt/sdl3-dos-min-kbd). Source:
+libsdl-org/SDL main at 1362030 (2026-11-23, SDL 3.5.0 development). The DOS port
+exists only on main: release-3.4.20 (f00dc919c, 2026-11-03) has no DOS
+port (git ls-tree -r --name-only release-3.4.20 | grep -c /dos/ is 0), so the
+series is pinned on a main commit until a stable release carries the port. The
+14 patches in sdl3/ are `git format-patch 1362030..HEAD` of the series
+(branch dos-p7-1362030 of ~/opt/src/SDL3, here "sdl3/0001-... .. 0014-...") and are applied with git am:
+
+  git -C SDL3 checkout 1362030
+  git -C SDL3 am backends/platform/dos/sdl3/*.patch
+
+They are: the IRQ code check, the CPUID check, the Sound Blaster
+shutdown and open-failure fixes, the DMA channel probe and its
+first-interrupt fix, the audio counters (cli/sti window, counting
+from after the open probe), the Sound Blaster Pro high-speed DMA fix,
+the ring of five buffers, and the Han/Yeong and Hanja keys as LANG1/LANG2.
+(jamo's keycode commit and its revert cancelled and are not carried.)
+Without sdl3-cpuid SDL_Init() dies with an invalid opcode on a 486 without
+CPUID; without the shutdown fix a Sound Blaster that sends no interrupts
+(BLASTER's D not the card's DMA channel) hangs the exit; without the
+open-failure fix a Sound Blaster that cannot be opened (an SB16 whose BLASTER
+has no H) kills the program with an exception instead of leaving it without
+digital sound; without the probe a Sound Blaster wired to another 8-bit DMA
+channel than BLASTER's D (the YMF719 under 86Box) plays nothing and nothing
+says why; without the counters the port's audio statistics and lip-sync
+latency have no counters; without the high-speed fix the Sound Blaster Pro
+plays at half rate (nothing checks for it: rebuild SDL3 and delete the build
+directory's scummvm.exe when only libSDL3.a changed); without the ring the
+Korean MI1 talkie underruns at P75.
+build-dos.sh refuses an SDL3 that is not 3.5.0 or lacks any of the eight
+link marks: DOS_IRQCodeChecked, DOS_CPUIDChecked, DOS_SBShutdownChecked,
+DOS_SBOpenFailChecked, DOS_SBProbeChecked, DOS_SBStatsChecked,
+DOS_SBRingChunks, DOS_KbdHangulChecked.
+
+  cmake -S SDL3 -B SDL3/build-dos-min \
+    -DCMAKE_TOOLCHAIN_FILE=build-scripts/i586-pc-msdosdjgpp.cmake \
+    -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF \
+    -DSDL_TEST_LIBRARY=OFF -DSDL_EXAMPLES=OFF -DSDL_LEAN_AND_MEAN=ON \
+    -DSDL_RENDER=OFF -DSDL_GPU=OFF -DSDL_OPENGL=OFF -DSDL_OPENGLES=OFF \
+    -DSDL_JOYSTICK=ON -DSDL_HAPTIC=OFF -DSDL_HIDAPI=OFF -DSDL_SENSOR=OFF -DSDL_VIRTUAL_JOYSTICK=OFF \
+    -DSDL_CAMERA=OFF -DSDL_DUMMYCAMERA=OFF -DSDL_DIALOG=OFF -DSDL_TRAY=OFF -DSDL_POWER=OFF \
+    -DSDL_DISKAUDIO=OFF -DSDL_DUMMYAUDIO=OFF -DSDL_DUMMYVIDEO=OFF -DSDL_OFFSCREEN=OFF \
+    "-DCMAKE_C_FLAGS=-ffunction-sections -DSDL_DISABLE_STB" \
+    -DCMAKE_INSTALL_PREFIX=$HOME/opt/sdl3-dos-min-kbd
+  cmake --build SDL3/build-dos-min && cmake --install SDL3/build-dos-min
+
+(The toolchain file path is relative to the SDL3 source directory: run cmake
+from there, or give it in full.)
+
+What stays: the dosvesa video driver with its window framebuffer (the port
+uses SDL_GetWindowSurface/SDL_UpdateWindowSurfaceRects, never a renderer:
+the driver has CreateWindowFramebuffer, so SDL never asks for one), surfaces,
+palettes, the copy and generic blitters, events, keyboard and mouse, the Sound Blaster
+audio driver and audio streams, timers, threads, hints and logging.
+
+What goes: the 2D renderer and its software backend, GPU, OpenGL, HIDAPI,
+haptic, sensors, camera, dialogs, tray, power, the dummy and disk audio and
+video drivers (demand-only: without a Sound Blaster the port already uses
+its own null mixer), the stb image loader, and with SDL_LEAN_AND_MEAN the
+optimised blitters (SDL_blit_0/1/A/N/auto), RLE colour-key blits and YUV.
+The port never blits through SDL: the framebuffer's direct path
+(SDL_HINT_DOS_ALLOW_DIRECT_FRAMEBUFFER) copies system RAM to VRAM itself;
+SDL's own fallback path and its hardware cursor would still blit, through
+the generic SDL_blit_slow. -ffunction-sections lets the port's
+--gc-sections link drop the rest of what nothing calls.
+
+The joystick stays on: this SDL's DOS platform block adds the DOS joystick
+driver even with SDL_JOYSTICK=OFF, and SDL_joystick.c then wants the dummy
+driver, which is not built (an undefined SDL_DUMMY_JoystickDriver at link).
+
+The full build (cmake without the trimming options of the min build, same source and
+patches) still works: SDL3_DOS_MIN=<its prefix> build-dos.sh ...
+
+Configure a fresh build directory (or delete its CMakeCache.txt) after
+changing the source: SDL_REVISION, the "SDL-3.x.y-<commit>" string in
+SDL.c, is taken at configure time.

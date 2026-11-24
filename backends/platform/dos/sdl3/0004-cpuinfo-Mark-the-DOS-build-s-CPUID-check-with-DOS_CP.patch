@@ -1,0 +1,37 @@
+From ece5dc703a7d9bd3febab774d4efcd56b8e3e55e Mon Sep 17 00:00:00 2001
+From: Taehyun Kim <dice.thkim@gmail.com>
+Date: Fri, 2 Oct 2026 03:53:24 +0000
+Subject: [PATCH 04/14] cpuinfo: Mark the DOS build's CPUID check with
+ DOS_CPUIDChecked
+
+A symbol the ScummVM DOS port looks for (and links against), so that an
+SDL3 built without the in-out has_CPUID - which runs CPUID on a 486 -
+is refused at build time instead of failing on the 486 itself.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01429qJytiMpcCADjppM2jV4
+---
+ src/cpuinfo/SDL_cpuinfo.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/cpuinfo/SDL_cpuinfo.c b/src/cpuinfo/SDL_cpuinfo.c
+index eaa323111..d3fa0eeaa 100644
+--- a/src/cpuinfo/SDL_cpuinfo.c
++++ b/src/cpuinfo/SDL_cpuinfo.c
+@@ -134,6 +134,13 @@ static void illegal_instruction(int sig)
+ }
+ #endif // HAVE_SETJMP
+ 
++#ifdef SDL_PLATFORM_DOS
++/* Marks a build with the in-out has_CPUID below, which a 486 needs: the
++   ScummVM DOS port refuses (and fails to link against) an SDL3 without it. */
++extern const int DOS_CPUIDChecked;
++const int DOS_CPUIDChecked = 1;
++#endif
++
+ static int CPU_haveCPUID(void)
+ {
+     /* The asm below only stores 1 when CPUID exists: has_CPUID is an in-out
+-- 
+2.43.0
+
