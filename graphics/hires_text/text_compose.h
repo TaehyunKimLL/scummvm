@@ -93,6 +93,21 @@ private:
 	Slot _slot[4];
 };
 
+/**
+ * The MMX composite of the 2-byte kBlend (text_compose.cpp): exact arithmetic on 4 pixels at a time, byte-identical to the
+ * table and blendPixel() paths (tests/graphics/hires_text_mmx.h). Compiled only for DOS i386 or with -DHIRES_TEXT_MMX.
+ * mmxSupported(): compiled in and CPUID reports MMX. setUseMMX(true) enables it only if mmxSupported() (returns the
+ * resulting state); the default is off, the scalar table path being the reference. Not thread safe: set it at start-up.
+ */
+bool mmxSupported();
+bool setUseMMX(bool on);
+bool useMMX();
+/**
+ * 1 (default): only runs of coverage 0 / 255 are done 4 at a time (skip / store), partial pixels go through the table: the faster
+ * one in the DOSBox-X Pentium MMX measurements (mmx notes). 0: vector arithmetic on partial blocks too. Both exact.
+ */
+void setMMXMode(int mode);
+
 /** CLUT8: @p dst[i] = @p index[i] where @p coverage[i] >= @p threshold. */
 void stampSpan(byte *dst, const byte *index, const byte *coverage, int n, byte threshold = 128);
 
