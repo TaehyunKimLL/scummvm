@@ -38,6 +38,7 @@
 #include <sys/movedata.h>
 
 #include "backends/platform/dos/dos-exit.h"
+#include "backends/platform/dos/dos-silence.h"
 #include "backends/platform/dos/exit-trace.h"
 #include "backends/platform/dos/blaster.h"
 #include "backends/timer/dos/dos-timer.h"
@@ -306,12 +307,60 @@ void stopTimerHardware() {
 		__asm__ __volatile__("sti" : : : "memory");
 }
 
+// A Sound Blaster left in auto-init DMA repeats its last buffer (a drone) after the program dies: reset the DSP and mask
+// the DMA channels the BLASTER variable names (A base, D 8-bit, H 16-bit channel). Port I/O only, no heap, no libc but
+// getenv/strtoul; values outside what a card can have are ignored.
+static void silenceSoundBlaster() {
+	const char *b = getenv("BLASTER");
+	if (!b)
+		return;
+	unsigned base = 0, dma8 = 99, dma16 = 99;
+	for (const char *p = b; *p;) {
+		while (*p == ' ')
+			++p;
+		const char t = *p >= 'a' && *p <= 'z' ? (char)(*p - 32) : *p;
+		if (!*p)
+			break;
+		++p;
+		char *end;
+		const unsigned long v = strtoul(p, &end, t == 'A' ? 16 : 10);
+		if (end == p) {
+			while (*p && *p != ' ')
+				++p;
+			continue;
+		}
+		p = end;
+		if (t == 'A')
+			base = (unsigned)v;
+		else if (t == 'D')
+			dma8 = (unsigned)v;
+		else if (t == 'H')
+			dma16 = (unsigned)v;
+		while (*p && *p != ' ')
+			++p;
+	}
+	if (base < 0x200 || base > 0x2F0 || (base & 0xF))
+		return;
+	if (dma8 == 0 || dma8 == 1 || dma8 == 3)
+		outportb(0x0A, (unsigned char)(4 | dma8));
+	if (dma16 >= 5 && dma16 <= 7)
+		outportb(0xD4, (unsigned char)(4 | (dma16 - 4)));
+	outportb(base + 6, 1);
+	for (int i = 0; i < 20; ++i)
+		(void)inportb(base + 6);	// each read of the port is about 1 us on the ISA bus: a reset pulse of > 3 us
+	outportb(base + 6, 0);
+}
+
 // DJGPP's default action for these (a traceback, then libc's own _exit,
 // which --wrap does not reach: it is called inside libc) would leave
 // IRQ0 on our handler at 1 kHz. The hardware first, then that action.
 void fatalSignal(int sig) {
 	stopTimerHardware();
-	exitMark(kExitSignal, "fatal signal: timer out, then DJGPP's traceback");
+	// Ctrl-C and a crash leave the sound devices sounding: the OPL and MPU-401 silencers the drivers registered
+	// (port I/O only), then the Sound Blaster. Not the SDL audio shutdown: that is not safe from a signal.
+	silenceAll();
+	silenceSoundBlaster();
+	exitMark(kExitSignal, "fatal signal: timer out, devices silent, then DJGPP's traceback");
 	signal(sig, SIG_DFL);
 	raise(sig);
 }
