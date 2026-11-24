@@ -61,7 +61,10 @@ static const StreamFileFormat STREAM_FILEFORMATS[] = {
 #ifdef USE_MAD
 	{ "MPEG Layer 3", ".mp3",  makeMP3Stream },
 #endif
+#if !defined(DOS_DJGPP) || defined(USE_FAAD)
+	// (DOS: an .m4a track is AAC, which needs faad.)
 	{ "MPEG-4 Audio", ".m4a",  makeQuickTimeStream },
+#endif
 	{ "WAV",          ".wav",  makeWAVStream },
 };
 

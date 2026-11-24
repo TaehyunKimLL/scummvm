@@ -36,8 +36,8 @@ static int g_tick;
 #endif
 
 // Only include OPL3 when we actually have an AdLib emulator builtin, which
-// supports OPL3.
-#if !defined(DISABLE_DOSBOX_OPL) || !defined(DISABLE_NUKED_OPL) || defined(USE_NFM)
+// supports OPL3 (or, on DOS, a hardware OPL that may be an OPL3).
+#if !defined(DISABLE_DOSBOX_OPL) || !defined(DISABLE_NUKED_OPL) || defined(USE_NFM) || defined(DOS_DJGPP)
 #define ENABLE_OPL3
 #endif
 

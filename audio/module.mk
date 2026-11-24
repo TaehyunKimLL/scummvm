@@ -154,6 +154,11 @@ ifdef USE_NFM
 MODULE_OBJS += \
 	nfmopl.o
 endif
+
+ifeq ($(BACKEND),dos)
+MODULE_OBJS += \
+	dosopl.o
+endif
 	
 ifdef USE_VGMTRANS_AUDIO
 MODULE_OBJS += \
@@ -167,6 +172,12 @@ MODULE_OBJS += \
 	soundfont/vgmsamp.o \
 	soundfont/vab/psxspu.o \
 	soundfont/vab/vab.o
+endif
+
+# Only the DOS Tremor build explicitly opts into the private setup layout.
+# build-dos.sh supplies this from the same prefix as libvorbisidec.a.
+ifeq ($(BACKEND),dos)
+audio/decoders/vorbis.o: CPPFLAGS += $(DOS_VORBIS_SETUP_CPPFLAGS)
 endif
 
 # Include common rules

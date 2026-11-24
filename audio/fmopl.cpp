@@ -29,6 +29,10 @@
 	#include "audio/nfmopl.h"
 #endif
 
+#ifdef DOS_DJGPP
+	#include "audio/dosopl.h"
+#endif
+
 #include "audio/softsynth/opl/dosbox.h"
 #include "audio/softsynth/opl/mame.h"
 #include "audio/softsynth/opl/nuked.h"
@@ -59,6 +63,12 @@ OPL *create(Config::OplType type);
 } // End of namespace RetroWaveOPL3
 #endif // ENABLE_RETROWAVE_OPL3
 
+#ifdef DOS_DJGPP
+namespace DosOPL {
+OPL *create(Config::OplType type);
+} // End of namespace DosOPL
+#endif
+
 // Config implementation
 
 enum OplEmulator {
@@ -81,6 +91,9 @@ enum OplEmulator {
 	kNfmStBusIsaVmeSb = 15,
 	kNfmNatfeatsNull = 16
 #endif
+#ifdef DOS_DJGPP
+	,kDosOPL = 19
+#endif
 };
 
 OPL::OPL() {
@@ -96,6 +109,10 @@ OPL::OPL() {
 const Config::EmulatorDescription Config::_drivers[] = {
 	{ "auto", "<default>", kAuto, kFlagOpl2 | kFlagDualOpl2 | kFlagOpl3 },
 	{ "null", _s("None"), kNull, kFlagOpl2 | kFlagDualOpl2 | kFlagOpl3 },
+#ifdef DOS_DJGPP
+	// First, so that auto-detection prefers the real chip when there is one.
+	{ "dosopl", _s("Hardware OPL (DOS)"), kDosOPL, kFlagOpl2 | kFlagDualOpl2 | kFlagOpl3 },
+#endif
 #ifndef DISABLE_MAME_OPL
 	{ "mame", _s("MAME OPL emulator"), kMame, kFlagOpl2 },
 #endif
@@ -193,6 +210,32 @@ Config::DriverId Config::detect(OplType type) {
 	// Detect the first matching emulator
 	drv = -1;
 
+#ifdef DOS_DJGPP
+	// A chip that answers is used or nothing is: software emulation costs
+	// too much CPU on the machines this port runs on. When the chip cannot
+	// serve the type (Dual OPL2 or OPL3 on an OPL2 card), return no driver
+	// so that the engine falls back to OPL2 if it can (SCI does). The price
+	// is that an engine demanding an OPL3 without a fallback gets no music on
+	// an OPL2 card. No emulator is built for DOS (configure).
+	if (DosOPL::OPL::detect(kOpl2)) {
+		if (DosOPL::OPL::detect(type))
+			return kDosOPL;
+		static bool warned = false;
+		if (!warned) {
+			warning("The hardware OPL cannot serve OPL type %d; not using an emulator", type);
+			warned = true;
+		}
+		return -1;
+	}
+	// No chip, and no emulator is built for DOS: say so once (detect()
+	// runs for every device query) and let the engine go without.
+	static bool warnedNoChip = false;
+	if (!warnedNoChip) {
+		warning("No hardware OPL found: no AdLib/OPL music");
+		warnedNoChip = true;
+	}
+	return -1;
+#else
 	for (int i = 2; _drivers[i].name; ++i) {
 		if (_drivers[i].flags & flags) {
 			drv = _drivers[i].id;
@@ -201,6 +244,7 @@ Config::DriverId Config::detect(OplType type) {
 	}
 
 	return drv;
+#endif
 }
 
 OPL *Config::create(OplType type) {
@@ -222,7 +266,10 @@ OPL *Config::create(DriverId driver, OplType type) {
 		// No emulator for the specified OPL chip could
 		// be found, thus stop here.
 		if (driver == -1) {
+#ifndef DOS_DJGPP
+			// (DOS: detect() has said why, once.)
 			warning("No OPL emulator available for type %d", type);
+#endif
 			return nullptr;
 		}
 	}
@@ -267,6 +314,17 @@ OPL *Config::create(DriverId driver, OplType type) {
 #ifdef USE_RETROWAVE
 	case kRWOPL3:
 		return RetroWaveOPL3::create(type);
+#endif
+
+#ifdef DOS_DJGPP
+	case kDosOPL:
+		// Without a chip for this type, return nothing so that the engine
+		// can fall back (e.g. from Dual OPL2 to OPL2).
+		if (!DosOPL::OPL::detect(type)) {
+			warning("No hardware OPL for type %d", type);
+			return nullptr;
+		}
+		return DosOPL::create(type);
 #endif
 
 #ifdef USE_NFM
