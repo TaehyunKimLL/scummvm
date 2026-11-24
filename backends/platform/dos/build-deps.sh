@@ -1,23 +1,18 @@
 #!/bin/bash
-# Build what SCUMM.EXE links for compressed audio, and the host tools the
-# Ultimate Talkie pack script (mkute.py) needs.
-# Usage: backends/platform/dos/build-deps.sh [codecs|host|all]   (default: all)
+# Build what SCUMM.EXE links for compressed audio.
+# Usage: backends/platform/dos/build-deps.sh [codecs]
 #   codecs: libFLAC 1.4.3, libogg 1.3.5 and Tremor (integer Vorbis) for DJGPP,
 #           static, -O2 -march=i586 -mtune=pentium, no asm/SSE -> $DOS_CODECS
 #           (default ~/opt/codecs-dos). build-dos.sh scumm links them.
-#   host:   flac and metaflac 1.4.3 (mkute.py, MI1) and tremor-check (mkute.py
-#           --game mi2 --test-clips: libogg and Tremor for this machine, and
-#           tremor-check.c linked to them) for this machine -> $DOS_FLAC_HOST
-#           (default ~/opt/flac-host).
+# (jamo's host tools for the Ultimate Talkie pack script, mkute.py, are not carried.)
 # Sources come from $DOS_DEPS_SRC (default ~/opt/src/flac-dos); a missing
 # tarball is downloaded. libFLAC and libogg are checked by SHA-256; Tremor has
 # no release, so its tarball must be xiph's tremor at the commit below
 # (git get-tar-commit-id).
 set -e
-what="${1:-all}"
+what="${1:-codecs}"
 src="${DOS_DEPS_SRC:-$HOME/opt/src/flac-dos}"
 codecs="${DOS_CODECS:-$HOME/opt/codecs-dos}"
-host="${DOS_FLAC_HOST:-$HOME/opt/flac-host}"
 here="$(cd "$(dirname "$0")" && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/dos-deps.XXXXXX")"
 trap 'rc=$?; [ $rc = 0 ] && rm -rf "$work"; exit $rc' EXIT
@@ -62,39 +57,6 @@ run_logged() {	# log command...
 		echo "build-deps.sh: failed: $* (log $log, kept)" >&2
 		exit 1
 	fi
-}
-
-build_host() {
-	fetch "$FLAC_TAR" "$FLAC_URL"; check_sha "$FLAC_TAR" "$FLAC_SHA"
-	unpack "$FLAC_TAR" hflac
-	rm -rf "$host"
-	( cd "$work/hflac" &&
-	  run_logged "$work/hflac.log" ./configure --prefix="$host" --disable-shared --enable-static \
-		--disable-ogg --disable-cpplibs --disable-examples --disable-doxygen-docs \
-		--disable-xmms-plugin --disable-thorough-tests --disable-version-from-git &&
-	  run_logged "$work/hflac.log" make -j"$(nproc)" LDFLAGS=-all-static &&	# libtool: plain -static is not enough
-	  run_logged "$work/hflac.log" make install LDFLAGS=-all-static )
-	# libogg and Tremor for this machine (static, in the work dir), and tremor-check
-	fetch "$OGG_TAR" "$OGG_URL"; check_sha "$OGG_TAR" "$OGG_SHA"
-	fetch_tremor
-	unpack "$OGG_TAR" hogg
-	unpack "$TREMOR_TAR" htremor
-	( cd "$work/hogg" &&
-	  run_logged "$work/hogg.log" ./configure --prefix="$work/hinst" --disable-shared --enable-static &&
-	  run_logged "$work/hogg.log" make -j"$(nproc)" &&
-	  run_logged "$work/hogg.log" make install )
-	mkdir -p "$work/hinst/include/tremor"
-	cp "$work/htremor/ivorbiscodec.h" "$work/htremor/ivorbisfile.h" "$work/htremor/config_types.h" \
-		"$work/hinst/include/tremor/"
-	for f in $TREMOR_OBJS; do
-		run_logged "$work/htremor.log" gcc -O2 -DBYTE_ORDER=1234 -DLITTLE_ENDIAN=1234 -DBIG_ENDIAN=4321 \
-			-I"$work/hinst/include" -c "$work/htremor/$f.c" -o "$work/htremor/$f.o"
-	done
-	run_logged "$work/htremor.log" gcc -O2 -Wall -I"$work/hinst/include" "$here/tremor-check.c" \
-		$(for f in $TREMOR_OBJS; do echo "$work/htremor/$f.o"; done) "$work/hinst/lib/libogg.a" \
-		-o "$host/bin/tremor-check"
-	"$host/bin/metaflac" --version
-	echo "tremor-check built: $host/bin/tremor-check"
 }
 
 build_codecs() (
@@ -147,7 +109,5 @@ build_codecs() (
 
 case "$what" in
 	codecs) build_codecs ;;
-	host) build_host ;;
-	all) build_host; build_codecs ;;
-	*) echo "usage: build-deps.sh [codecs|host|all]" >&2; exit 1 ;;
+	*) echo "usage: build-deps.sh [codecs]" >&2; exit 1 ;;
 esac
