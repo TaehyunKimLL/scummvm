@@ -96,14 +96,19 @@ SavedStringsResult readSavedStrings(Common::ReadStream &in, char *table, uint st
 void convertLegacyStrings(char *table, uint stride, uint count, int16 maxCells) {
 	for (uint i = 0; i < count; i++) {
 		char *slot = table + i * stride;
-		if (!TextCells::hasHighBytes(slot))
-			continue;
+		if (!TextCells::hasHighBytes(slot) || TextCells::isValidUtf8(slot))
+			continue; // ASCII, or already UTF-8 (a Korean save written again by an English build)
 		const Common::String u = Common::String(slot).decode(Common::kDos850).encode(Common::kUtf8);
 		const Common::String cells = TextCells::clipCells(u.c_str(), maxCells, true);
 		const Common::String cut = TextCells::clipBytes(cells.c_str(), (int16)(stride - 1), true);
 		memset(slot, 0, stride);
 		memcpy(slot, cut.c_str(), cut.size());
 	}
+}
+
+void finishSavedStrings(SavedStringsResult result, char *table, uint stride, uint count, int16 maxCells) {
+	if (result == kSavedStringsNone)
+		convertLegacyStrings(table, stride, count, maxCells);
 }
 
 } // End of namespace Agi

@@ -762,8 +762,7 @@ int AgiEngine::loadGame(const Common::String &fileName, bool checkId) {
 		const SavedStringsResult r = readSavedStrings(*in, &_game.strings[0][0], MAX_STRINGBYTES, MAX_STRINGS, _game.stringAnswer);
 		if (r == kSavedStringsBroken)
 			warning("Saved game %s has a broken string trailer: its strings are read from the version 11 table", fileName.c_str());
-		if (r != kSavedStringsRead)
-			convertLegacyStrings(&_game.strings[0][0], MAX_STRINGBYTES, MAX_STRINGS, MAX_STRINGLEN - 1);
+		finishSavedStrings(r, &_game.strings[0][0], MAX_STRINGBYTES, MAX_STRINGS, MAX_STRINGLEN - 1);
 	}
 
 	delete in;

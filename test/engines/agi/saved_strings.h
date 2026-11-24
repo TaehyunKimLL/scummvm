@@ -129,4 +129,61 @@ public:
 		TS_ASSERT_EQUALS(Common::String(table), "caf\xC3\xA9");
 		TS_ASSERT_EQUALS(Common::String(table + kStride), "plain");
 	}
+
+	// loadGame()'s tail in UTF-8 text mode (finishSavedStrings): a save whose
+	// version 11 table already holds UTF-8 - a Korean save written again by an
+	// English or unmodified build (no trailer) or with a cut trailer - must not be
+	// re-decoded as CP850 (켄이 보냈다 became ý╝äýØ┤ Ù│┤ÙâêÙïñ); only a code page
+	// table is converted, and only when there is no trailer at all.
+	static Common::String randomSlot(uint32 &seed, bool utf8) {
+		Common::String s;
+		const int n = seed % 14;
+		for (int i = 0; i < n; i++) {
+			seed = seed * 1664525u + 1013904223u;
+			const uint32 pick = (seed >> 8) % 4;
+			if (pick == 0)
+				s += (char)('a' + (seed >> 12) % 26);
+			else if (utf8)
+				s += "\xEC\xBC\x84"; // 켄
+			else
+				s += (char)(0x80 + (seed >> 12) % 0x80);
+		}
+		return s;
+	}
+
+	void test_utf8SlotsSurviveTheLoadPath() {
+		uint32 seed = 5;
+		uint converted = 0, kept = 0;
+		for (int iter = 0; iter < 20000; iter++) {
+			char table[4 * kStride];
+			char before[4 * kStride];
+			memset(table, 0, sizeof(table));
+			bool utf8[4];
+			for (int i = 0; i < 4; i++) {
+				seed = seed * 1664525u + 1013904223u;
+				utf8[i] = (seed >> 8) % 2;
+				Common::strlcpy(table + i * kStride, randomSlot(seed, utf8[i]).c_str(), kStride - 1);
+			}
+			memcpy(before, table, sizeof(table));
+			for (int r = 0; r < 3; r++) {
+				memcpy(table, before, sizeof(table));
+				Agi::finishSavedStrings((Agi::SavedStringsResult)r, table, kStride, 4, 39);
+				for (int i = 0; i < 4; i++) {
+					const char *slot = table + i * kStride;
+					TS_ASSERT_LESS_THAN(strlen(slot), (size_t)kStride);
+					for (uint k = strlen(slot) + 1; k < kStride; k++)
+						TS_ASSERT_EQUALS(slot[k], before[i * kStride + k]); // nothing written past the NUL
+					const bool high = Agi::TextCells::hasHighBytes(before + i * kStride);
+					if (r != Agi::kSavedStringsNone || !high || Agi::TextCells::isValidUtf8(before + i * kStride)) {
+						TS_ASSERT_EQUALS(Common::String(slot), Common::String(before + i * kStride)); // untouched
+						kept += high;
+					} else {
+						TS_ASSERT(Agi::TextCells::isValidUtf8(slot)); // a code page slot became UTF-8
+						converted++;
+					}
+				}
+			}
+		}
+		TS_ASSERT(converted > 1000u && kept > 1000u);
+	}
 };

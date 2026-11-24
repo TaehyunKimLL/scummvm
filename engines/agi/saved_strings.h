@@ -72,6 +72,14 @@ SavedStringsResult readSavedStrings(Common::ReadStream &in, char *table, uint st
  */
 void convertLegacyStrings(char *table, uint stride, uint count, int16 maxCells);
 
+/**
+ * What loadGame() does with the table after readSavedStrings(): a code page
+ * table (no trailer at all) is converted; a table read from the trailer is
+ * final, and a table that already holds UTF-8 (a Korean save written again by
+ * an unmodified build, or one whose trailer is cut) is left as it is.
+ */
+void finishSavedStrings(SavedStringsResult result, char *table, uint stride, uint count, int16 maxCells);
+
 } // End of namespace Agi
 
 #endif
