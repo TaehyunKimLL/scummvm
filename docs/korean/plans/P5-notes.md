@@ -157,3 +157,12 @@ Tasks are committed one by one; the sha of a task is written into the log by the
   skipped`, passes. With it: 778 pairs, **pass 691, partial 23, nomatch 20, unknown 7, order 6, english 31** (= jamo's
   `said8.txt`). Red: expected pass 692 for one run -> `Expected (pass == 692u), found (691 != 692)`, `Failed 1 of 692`; restored.
   Build 692 (+1), 0 warnings. Objects `words.o` and `agi_test_stubs.o` are named explicitly, never `libagi.a`.
+- c3 sha eef3dee78fe.
+
+### c4: console commands
+- Hunks: console.cpp 0-3, console.h 0, agi.h 10 (`getOpCodesCondTable`). Build 692, 0 warnings.
+- GUI debugger (`ctrl+alt+d` under Xvfb): `saids 0` lists indices 0..274 = **275** specs = `grep -c '^0\t' saids.tsv`; `koverlay`:
+  `entries 1860, stale 0, untranslated 63, missing glyphs 0, boxes over 20 lines 1` (`m37:2`);
+  `parse look at bar` -> `#0: look=2 bar=203`. **`parse 술집을 봐` could not be typed**: the SDL console takes ASCII only, the
+  Hangul keystrokes of xdotool are dropped (`Usage: parse <sentence>`); the Korean candidate path is covered by the c3
+  gate and the c2 run instead. Screenshots `agi-p5c-console-*.png` (viewed).

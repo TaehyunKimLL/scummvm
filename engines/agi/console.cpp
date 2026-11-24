@@ -22,12 +22,17 @@
 #include "agi/agi.h"
 #include "agi/opcodes.h"
 #include "agi/graphics.h"
+#include "agi/hirestext.h"
 #include "agi/loader.h"
+#include "agi/textcells.h"
+#include "agi/words.h"
+#include "agi/korparse.h"
 
 #include "agi/preagi/preagi.h"
 #include "agi/preagi/mickey.h"
 #include "agi/preagi/winnie.h"
 
+#include "common/algorithm.h"
 #include "common/file.h"
 
 namespace Agi {
@@ -58,6 +63,10 @@ Console::Console(AgiEngine *vm) : GUI::Debugger() {
 	registerCmd("vmflags",         WRAP_METHOD(Console, Cmd_VmFlags));
 	registerCmd("disableautosave", WRAP_METHOD(Console, Cmd_DisableAutomaticSave));
 	registerCmd("diskdump",        WRAP_METHOD(Console, Cmd_DiskDump));
+	registerCmd("koverlay",        WRAP_METHOD(Console, Cmd_KOverlay));
+	registerCmd("saids",           WRAP_METHOD(Console, Cmd_Saids));
+	registerCmd("parse",           WRAP_METHOD(Console, Cmd_Parse));
+	registerCmd("said",            WRAP_METHOD(Console, Cmd_Said));
 }
 
 bool Console::Cmd_SetVar(int argc, const char **argv) {
@@ -748,6 +757,189 @@ WinnieConsole::WinnieConsole(WinnieEngine *winnie) : GUI::Debugger() {
 bool WinnieConsole::Cmd_CurRoom(int argc, const char **argv) {
 	_winnie->debugCurRoom();
 
+	return true;
+}
+
+bool Console::Cmd_KOverlay(int argc, const char **argv) {
+	if (!_vm->textIsUtf8()) {
+		debugPrintf("no translation overlay (UTF-8 text mode is off)\n");
+		return true;
+	}
+	debugPrintf("entries %u\n", _vm->_overlay.entryCount());
+	Common::Array<TextOverlay::Key> keys;
+	_vm->_overlay.collectKeys(keys);
+	Common::Array<Common::String> stale;
+	for (uint i = 0; i < keys.size(); i++) {
+		const TextOverlay::Key &k = keys[i];
+		bool ok;
+		if (k.kind == TextOverlay::kKeyObject) {
+			ok = k.number < _vm->_game.numObjects;
+		} else if (k.kind == TextOverlay::kKeyView) {
+			ok = k.number < MAX_DIRECTORY_ENTRIES && _vm->_game.dirView[k.number].offset != _EMPTY;
+		} else {
+			int count = 0;
+			ok = _vm->rawLogicMessageCount(k.logic, count) && k.number <= count;
+		}
+		if (!ok)
+			stale.push_back(TextOverlay::keyName(k));
+	}
+	debugPrintf("stale %u\n", stale.size());
+	for (uint i = 0; i < stale.size() && i < 20; i++)
+		debugPrintf("  %s\n", stale[i].c_str());
+	uint untranslated = 0;
+	for (int16 nr = 0; nr < MAX_DIRECTORY_ENTRIES; nr++) {
+		if (_vm->_game.dirLogic[nr].offset == _EMPTY)
+			continue;
+		uint8 *data = _vm->_loader->loadVolumeResource(&_vm->_game.dirLogic[nr]);
+		if (!data)
+			continue;
+		const uint16 size = READ_LE_UINT16(data);
+		const int count = data[2 + size];
+		const int pos = 2 + size;
+		for (int n = 1; n <= count; n++) {
+			const uint16 off = READ_LE_UINT16(data + pos + 3 + (n - 1) * 2);
+			if (off && !_vm->_overlay.message(nr, n))
+				untranslated++;
+		}
+		free(data);
+	}
+	debugPrintf("untranslated %u\n", untranslated);
+
+	// Characters no face can draw, and message boxes that would not fit
+	// (more than 20 wrapped lines at AGI's default box width, 30 cells).
+	Common::Array<uint32> missing;
+	Common::Array<Common::String> tall;
+	for (uint i = 0; i < keys.size(); i++) {
+		const TextOverlay::Key &k = keys[i];
+		const Common::String *t = k.kind == TextOverlay::kKeyObject ? _vm->_overlay.object(k.number)
+		                        : k.kind == TextOverlay::kKeyView   ? _vm->_overlay.view(k.number)
+		                                                            : _vm->_overlay.message(k.logic, k.number);
+		if (!t)
+			continue;
+		for (const char *p = t->c_str(); *p;) {
+			uint32 cp;
+			p += TextCells::decode(p, true, cp);
+			if (cp == '\n' || cp == '\t')
+				continue;
+			uint16 rows[16];
+			const bool ok = cp < 0x80 || (_vm->_hiresText && _vm->_hiresText->glyph(cp, rows));
+			if (!ok && Common::find(missing.begin(), missing.end(), cp) == missing.end())
+				missing.push_back(cp);
+		}
+		if (k.kind != TextOverlay::kKeyObject) {
+			Common::String out;
+			int16 w, h;
+			bool truncated = false;
+			TextCells::wordWrap(t->c_str(), 30, true, _vm->hiresHangulAny(), out, w, h, &truncated);
+			if (truncated || h > 20)
+				tall.push_back(TextOverlay::keyName(k));
+		}
+	}
+	debugPrintf("missing glyphs %u\n", missing.size());
+	for (uint i = 0; i < missing.size() && i < 20; i++)
+		debugPrintf("  U+%04X\n", missing[i]);
+	debugPrintf("boxes over 20 lines %u\n", tall.size());
+	for (uint i = 0; i < tall.size() && i < 20; i++)
+		debugPrintf("  %s\n", tall[i].c_str());
+	return true;
+}
+
+static Common::String joinArgs(int from, int to, const char **argv) {
+	Common::String s;
+	for (int i = from; i < to; i++) {
+		if (i > from)
+			s += ' ';
+		s += argv[i];
+	}
+	return s;
+}
+
+static Common::String describe(const AgiSentence &s) {
+	static const char *const roles[] = { "", "obj", "of", "to", "at", "from", "with", "", "" };
+	Common::String out;
+	for (uint i = 0; i < s.size(); i++) {
+		out += Common::String::format("%s%s=%u", i ? " " : "", s[i].word.c_str(), s[i].id);
+		if (s[i].role)
+			out += Common::String::format("[%s]", roles[MIN<uint>(s[i].role, 8)]);
+		if (s[i].verb)
+			out += "[v]";
+	}
+	return out;
+}
+
+bool Console::Cmd_Saids(int argc, const char **argv) {
+	const int16 only = (argc > 1 && strcmp(argv[1], "*")) ? (int16)atoi(argv[1]) : -1;
+	Common::Array<SaidSpec> specs;
+	_vm->collectSaids(only, specs);
+	for (uint i = 0; i < specs.size(); i++) {
+		Common::String line = Common::String::format("%u %u %u", i, specs[i].logic, specs[i].offset);
+		for (uint k = 0; k < specs[i].words.size(); k++)
+			line += Common::String::format(" %u", specs[i].words[k]);
+		debugPrintf("%s\n", line.c_str());
+	}
+	return true;
+}
+
+bool Console::Cmd_Parse(int argc, const char **argv) {
+	if (argc < 2) {
+		debugPrintf("Usage: %s <sentence>\n", argv[0]);
+		return true;
+	}
+	Words::ParseResult r;
+	_vm->_words->analyze(joinArgs(1, argc, argv).c_str(), r);
+	if (r.unknownPos && !r.candidates.empty() && r.unknownPos <= r.candidates[0].size())
+		debugPrintf("unknown %u %s\n", r.unknownPos, r.candidates[0][r.unknownPos - 1].word.c_str());
+	else if (r.unknownPos)
+		debugPrintf("unknown %u\n", r.unknownPos);
+	for (uint i = 0; i < r.candidates.size(); i++)
+		debugPrintf("#%u: %s\n", i, describe(r.candidates[i]).c_str());
+	return true;
+}
+
+bool Console::Cmd_Said(int argc, const char **argv) {
+	int sep = argc;
+	for (int i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--")) {
+			sep = i;
+			break;
+		}
+	}
+	if (sep < 2) {
+		debugPrintf("Usage: %s <sentence> [-- g1 g2 ...]\n", argv[0]);
+		return true;
+	}
+	Words::ParseResult r;
+	_vm->_words->analyze(joinArgs(1, sep, argv).c_str(), r);
+	if (r.unknownPos) {
+		debugPrintf("unknown %u\n", r.unknownPos);
+		return true;
+	}
+	if (sep < argc) {
+		Common::Array<uint16> spec;
+		for (int i = sep + 1; i < argc; i++)
+			spec.push_back((uint16)atoi(argv[i]));
+		for (uint k = 0; k < r.candidates.size(); k++) {
+			if (saidMatches(r.candidates[k], spec.data(), spec.size())) {
+				debugPrintf("match rank %u\n", k);
+				return true;
+			}
+		}
+		debugPrintf("no match\n");
+		return true;
+	}
+	Common::Array<SaidSpec> specs;
+	_vm->collectSaids(-1, specs);
+	uint matches = 0;
+	for (uint i = 0; i < specs.size(); i++) {
+		for (uint k = 0; k < r.candidates.size(); k++) {
+			if (saidMatches(r.candidates[k], specs[i].words.data(), specs[i].words.size())) {
+				debugPrintf("spec %u logic %u offset %u rank %u\n", i, specs[i].logic, specs[i].offset, k);
+				matches++;
+				break;
+			}
+		}
+	}
+	debugPrintf("matches %u\n", matches);
 	return true;
 }
 

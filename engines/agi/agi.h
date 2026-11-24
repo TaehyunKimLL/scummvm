@@ -1012,6 +1012,7 @@ private:
 
 public:
 	const AgiOpCodeEntry *getOpCodesTable() { return _opCodes; }
+	const AgiOpCodeEntry *getOpCodesCondTable() { return _opCodesCond; }
 
 private:
 	void goldRushClockTimeWorkaround_OnReadVar();
