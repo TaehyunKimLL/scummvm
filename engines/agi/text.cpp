@@ -73,6 +73,7 @@ TextMgr::TextMgr(AgiEngine *vm, Words *words, GfxMgr *gfx) {
 	_inputStringCursorPos = 0;
 	_inputString[0] = 0;
 	_inputStringMaxBytes = 0;
+	_stringPendingKey = 0;
 
 	_hangulInput = false;
 	_hangulMode = false;
@@ -1111,10 +1112,10 @@ void TextMgr::promptCommandWindow(bool recallLastCommand, int newKey) {
 				commandText += (char)newKey;
 		}
 	}
-	if (pendingKey) {
-		// first in the queue the window's edit loop reads
-		_vm->enqueueKey(pendingKey);
-	}
+	// The key that opened the window is the first key of its edit line: handed over
+	// directly, not through the key queue (a burst of typed keys is already in it,
+	// and the key would be put behind them).
+	_stringPendingKey = pendingKey;
 
 	if (_systemUI->askForCommand(commandText)) {
 		if (commandText.size()) {
@@ -1185,11 +1186,17 @@ void TextMgr::stringEdit(int16 stringMaxLen) {
 	_inputStringEntered = false;
 
 	// The composer starts afresh on this line (a run on the prompt is left
-	// as it stands); the save name shows English (D8).
+	// as it stands).
 	_hangulLine.commit(_inputStringCursorPos);
 
 	if (!_vm->isLanguageRTL())
 		inputEditOff();
+
+	if (_stringPendingKey) {
+		const int key = _stringPendingKey;
+		_stringPendingKey = 0;
+		stringKeyPress(key);
+	}
 
 	do {
 		_vm->processAGIEvents();

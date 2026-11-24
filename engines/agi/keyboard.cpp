@@ -398,10 +398,6 @@ void AgiEngine::processScummVMEvents() {
  * It handles console keys and insulates AGI from the console. In the main
  * loop, handle_keys() handles keyboard input and ego movement.
  */
-void AgiEngine::enqueueKey(int key) {
-	keyEnqueue(key);
-}
-
 int AgiEngine::doPollKeyboard() {
 	int key = 0;
 

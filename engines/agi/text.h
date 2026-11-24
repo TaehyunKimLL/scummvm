@@ -221,6 +221,7 @@ public:
 	// Korean typing (UTF-8 text mode): hangul_input (default: a word table is
 	// loaded) and hangul_builtin (default true) switch the built-in composer and
 	// Han/Yeong on; hangul_start (default true) is the first mode. No badge.
+	int _stringPendingKey; // the key that opened the command window: stringEdit() presses it first
 	bool _hangulInput; // composer and Han/Yeong
 	bool _hangulMode;  // Korean (true) or English
 	HangulLine _hangulLine;
