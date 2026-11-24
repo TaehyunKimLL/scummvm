@@ -196,6 +196,8 @@ void UpscaledGfxDriver::compositeText(byte *&buff, int &pitch, int destX, int de
 		pitch = w * _pixelSize;
 	}
 	byte indexRow[640 * 2], coverageRow[640 * 2];
+	// One blend table for the rectangle's rows (a 2-byte screen; it is not used on others).
+	Graphics::TextCompose::Blend16 table(_format);
 	for (int y = r.top; y < r.bottom; ++y) {
 		const byte *index, *coverage;
 		const int n = MIN<int>(r.width(), ARRAYSIZE(indexRow));
@@ -209,7 +211,8 @@ void UpscaledGfxDriver::compositeText(byte *&buff, int &pitch, int destX, int de
 		else
 			Graphics::TextCompose::composeSpan(dst, _format, index, coverage, n, _currentPalette,
 			                                   _textMode == Graphics::TextCompose::kStamp ? Graphics::TextCompose::kThreshold
-			                                                                         : (Graphics::TextCompose::Mode)_textMode);
+			                                                                         : (Graphics::TextCompose::Mode)_textMode,
+			                                   _pixelSize == 2 ? &table : nullptr);
 	}
 }
 
