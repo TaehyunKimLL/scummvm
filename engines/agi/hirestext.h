@@ -77,6 +77,8 @@ public:
 	 * A narrower glyph is centred, the faces' line centred in the cell (shift= moves it down).
 	 */
 	bool glyph(uint32 cp, uint16 rows[16]);
+	/** Whether a face has @p cp (glyph() answers true for a character no face has: it draws the missing box). */
+	bool hasGlyph(uint32 cp) const;
 
 	/** How many times the anti-aliased-face warning was given (0 or 1). */
 	uint coverageWarnings() const { return _coverageWarnings; }

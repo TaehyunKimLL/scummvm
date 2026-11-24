@@ -176,7 +176,12 @@ public:
 	AgiLoader_v3(AgiEngine *vm) : AgiLoader(vm) {}
 
 	void init() override;
-	Common::Path logicDirectoryName() const override { return Common::Path(_name + DIR_); }
+	Common::Path logicDirectoryName() const override {
+		// as loadDirs(): the Amiga directory file is always "dirs"; no name, no file
+		if (_vm->getPlatform() == Common::kPlatformAmiga)
+			return Common::Path("dirs");
+		return _name.empty() ? Common::Path() : Common::Path(_name + DIR_);
+	}
 	int loadDirs() override;
 	uint8 *loadVolumeResource(AgiDir *agid) override;
 	int loadObjects() override;

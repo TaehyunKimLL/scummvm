@@ -218,9 +218,9 @@ public:
 	/** @p cells[0..len) within _inputStringMaxBytes as UTF-8. */
 	bool stringFitsBudget(const uint32 *cells, int16 len) const;
 
-	// Korean typing (UTF-8 text mode). agi_hangul_input puts up the KO/EN
-	// badge (D10); the built-in composer and Han/Yeong also need
-	// agi_hangul_builtin (default true). agi_hangul_start is the first mode.
+	// Korean typing (UTF-8 text mode): hangul_input (default: a word table is
+	// loaded) and hangul_builtin (default true) switch the built-in composer and
+	// Han/Yeong on; hangul_start (default true) is the first mode. No badge.
 	bool _hangulInput; // composer and Han/Yeong
 	bool _hangulMode;  // Korean (true) or English
 	HangulLine _hangulLine;

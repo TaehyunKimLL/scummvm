@@ -118,6 +118,10 @@ bool AgiHiResText::setup(Graphics::HiResFiles *files, const Graphics::HiResOptio
 	return true;
 }
 
+bool AgiHiResText::hasGlyph(uint32 cp) const {
+	return _set && cp >= 0x80 && _set->route(cp) >= 0 && _set->getChain(_set->route(cp))->has(cp);
+}
+
 bool AgiHiResText::glyph(uint32 cp, uint16 rows[16]) {
 	if (!_set || cp < 0x80 || _set->route(cp) < 0)
 		return false;

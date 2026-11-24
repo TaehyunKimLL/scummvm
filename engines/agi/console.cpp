@@ -821,8 +821,7 @@ bool Console::Cmd_KOverlay(int argc, const char **argv) {
 			p += TextCells::decode(p, true, cp);
 			if (cp == '\n' || cp == '\t')
 				continue;
-			uint16 rows[16];
-			const bool ok = cp < 0x80 || (_vm->_hiresText && _vm->_hiresText->glyph(cp, rows));
+			const bool ok = cp < 0x80 || (_vm->_hiresText && _vm->_hiresText->hasGlyph(cp));
 			if (!ok && Common::find(missing.begin(), missing.end(), cp) == missing.end())
 				missing.push_back(cp);
 		}

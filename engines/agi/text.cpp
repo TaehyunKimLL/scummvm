@@ -1187,8 +1187,7 @@ void TextMgr::stringEdit(int16 stringMaxLen) {
 		_vm->processAGIEvents();
 	} while (_vm->cycleInnerLoopIsActive() && !(_vm->shouldQuit() || _vm->_restartGame));
 
-	// The line is closed: its run with it. _inputStringAscii is still set
-	// here (SystemUI clears it), so the badge is put back by mode alone.
+	// The line is closed: its run with it.
 	_hangulLine.reset();
 
 	inputEditOn();

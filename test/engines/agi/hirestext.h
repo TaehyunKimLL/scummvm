@@ -45,6 +45,23 @@ public:
 		TS_ASSERT(t.glyph(0xAC00, rows));
 	}
 
+	// koverlay's "missing glyphs": glyph() draws the missing box for a character
+	// no face has and still answers true, so the check needs hasGlyph().
+	void test_hasGlyphSaysWhatTheFaceHas() {
+		HiResTest::MemoryFiles files;
+		files.addText("game/ko/HIRESBIT.MAP", gameMap());
+		Agi::AgiHiResText t;
+		Common::Array<Common::String> notes;
+		TS_ASSERT(t.setup(&files, Graphics::HiResOptions(), Common::Path("game"), "ko", notes));
+		for (uint32 cp = 0; cp < 0x80; cp++)
+			TS_ASSERT(!t.hasGlyph(cp)); // AGI's own font draws those
+		for (uint32 cp = 0xAC00; cp <= 0xD7A3; cp++)
+			TS_ASSERT(t.hasGlyph(cp));
+		TS_ASSERT(!t.hasGlyph(0x4E00)); // a hanja the fixture lacks: drawn as the box
+		uint16 rows[16];
+		TS_ASSERT(t.glyph(0x4E00, rows)); // and glyph() still answers true for it
+	}
+
 	// Every Hangul syllable: the stencil is the face drawn straight through
 	// the chain at the cell's pen position and cut at coverage 128 (the glue:
 	// centring, baseline, clip, bit order), and has ink.

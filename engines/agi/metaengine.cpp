@@ -32,7 +32,6 @@
 #include "backends/keymapper/action.h"
 #include "backends/keymapper/keymapper.h"
 
-#include "common/config-manager.h"
 
 #include "base/plugins.h"
 #include "engines/advancedDetector.h"
