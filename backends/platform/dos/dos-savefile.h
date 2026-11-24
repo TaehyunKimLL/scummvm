@@ -122,6 +122,12 @@ public:
 			        _index.find(dos)->_value.c_str(), dos.c_str());
 			return nullptr;
 		}
+		// An unindexed file of that DOS name is a plain 8.3 save of a short target ("kq1-u6f4.001"): a long name that hashes
+		// onto it must not overwrite it either.
+		if (!dos.equalsIgnoreCase(filename) && !indexMapsValidly(dos) && DefaultSaveFileManager::exists(dos)) {
+			warning("DOS: save name %s would overwrite the existing save %s: not saved", filename.c_str(), dos.c_str());
+			return nullptr;
+		}
 		Common::OutSaveFile *const sf = DefaultSaveFileManager::openForSaving(dos, compress);
 		g_system->delayMillis(0);
 		if (!sf)

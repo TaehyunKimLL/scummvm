@@ -384,6 +384,58 @@ public:
 #endif
 	}
 
+	// A long name that hashes onto a plain 8.3 save that is not in the index is refused too.
+	void test_longNameDoesNotOverwriteAPlainShortSave() {
+#if NULL_OSYSTEM_IS_AVAILABLE && defined(DOS_SAVE_MANAGER_TEST)
+		Common::install_null_g_system();
+		const Common::Path dir("test/dos-savenames-tmp", '/');
+		Common::FSNode dirNode(dir);
+		if (!dirNode.exists())
+			TS_ASSERT(dirNode.createDirectory());
+		ConfMan.setPath("savepath", dir, Common::ConfigManager::kApplicationDomain);
+		{
+			DOS::SaveFileManager clean(dir);
+			const Common::StringArray old = clean.listSavefiles("*");
+			for (uint i = 0; i < old.size(); ++i)
+				clean.removeSavefile(old[i]);
+			clean.removeSavefile("saveidx.txt");
+		}
+		const Common::String longName = "kq1-rgb565.001";
+		const Common::String plain = DOS::dosPattern(longName);	// kq1-XXXX.001: valid 8.3, so a short target can own it
+		{
+			DOS::SaveFileManager m(dir);
+			Common::OutSaveFile *out = m.openForSaving(plain, false);
+			TS_ASSERT(out != nullptr);
+			if (out) {
+				out->writeString("plain short save");
+				out->finalize();
+				delete out;
+			}
+		}
+		{
+			DOS::SaveFileManager m(dir);
+			TS_ASSERT(m.openForSaving(longName, false) == nullptr);
+			Common::InSaveFile *in = m.openForLoading(plain);
+			TS_ASSERT(in != nullptr);
+			if (in) {
+				TS_ASSERT_EQUALS(in->readString(0, 16), "plain short save");
+				delete in;
+			}
+			Common::OutSaveFile *again = m.openForSaving(plain, false);	// its owner still saves
+			TS_ASSERT(again != nullptr);
+			delete again;
+		}
+		{
+			DOS::SaveFileManager last(dir);
+			const Common::StringArray rest = last.listSavefiles("*");
+			for (uint i = 0; i < rest.size(); ++i)
+				last.removeSavefile(rest[i]);
+			last.removeSavefile("saveidx.txt");
+		}
+		Common::uninstall_null_g_system();
+#endif
+	}
+
 	// The save manager end to end on a real folder: the engine's long name is written, listed in a NEW session (a new
 	// manager over the folder), loaded, found and removed by that same long name - SCI restores by the name it listed.
 	void test_longTargetSurvivesASession() {
