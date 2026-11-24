@@ -47,6 +47,10 @@ RANGES = {
 }
 
 
+# Ranges a build may leave out whole: the UART debug transport exists only with --enable-debug-socket.
+OPTIONAL = {"uart"}
+
+
 def tool(name):
     prefix = os.environ.get("DJGPP_PREFIX", os.path.expanduser("~/opt/djgpp"))
     return os.path.join(prefix, "bin", "i586-pc-msdosdjgpp-" + name)
@@ -80,16 +84,19 @@ def main(exe):
         return 1
     etext = etexts[0]
     problems = []
+    where = {n: a for a, _, n in syms}
     for tag, (handlers, data_ok, exits_ok) in sorted(RANGES.items()):
         r = ranges.get(tag, {})
         if "Begin" not in r or "End" not in r:
+            if tag in OPTIONAL and not any(h in where for h in handlers):
+                print("irqcheck: %s: not in this build" % tag)
+                continue
             problems.append("%s: no range (labels _dosIrqBegin_%s/_dosIrqEnd_%s missing)" % (tag, tag, tag))
             continue
         b, e = r["Begin"], r["End"]
         if not b < e:
             problems.append("%s: empty range [%#x, %#x]" % (tag, b, e))
             continue
-        where = {n: a for a, _, n in syms}
         for h in handlers:
             if h not in where:
                 problems.append("%s: handler %s not in the EXE" % (tag, h))
