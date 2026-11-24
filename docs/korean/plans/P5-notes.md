@@ -230,3 +230,14 @@ independent-model tests of what the diff changed, run under ASan+UBSan.
   read, no `broken` line) and the c3 gate.
 - ScummVM save dialog (`originalsaveload=false`, GMM save) with an OS-IME name: **not run** (the AGI restore list was
   checked in d2/d3; the `clipBytes` hook of `scummVMSaveLoadDialog` is a one-line change read in the diff).
+- d4 note commit ab3be5405cf.
+
+### e1: strcheck.py for AGI tables
+- Red (5 of the 5 new tests failed: `check` read `m0:1` as a bad SCI key; `--engine` unknown). Green: `test_strcheck.py` 11 tests OK
+  (+5: good table, `--engine agi` without header, 12 bad lines each with its message, duplicates by value, files/header
+  incl. a non-UTF-8 text refusing the line). The engine comes from the header's `engine=`, else `--engine`, default `sci`
+  (the SCI path is unchanged).
+- Differential (scratch, not committed): 36692 random lines (prefix m/o/v/q/M/none, numbers incl. leading zeros, 256, 0-padded,
+  12 digits, `:`/`;`/space separators, TAB/space/none, texts with Hangul, `\n`, lone surrogate bytes) judged by
+  `strcheck.check(..., engine="agi")` and by the engine's `TextOverlay::parseLine` in a temporary CxxTest: **0 disagreements**
+  (3927 accepted lines).
