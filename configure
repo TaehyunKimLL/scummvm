@@ -3934,6 +3934,9 @@ if test -n "$_host"; then
 			# Detection tables without the games these editions cannot run
 			# (SCI32; SCUMM v7/v8 and HE): engines/*/module.mk generate them.
 			append_var DEFINES "-DDOS_DETECTION_FILTER"
+			# The Vorbis stream's refill buffer is 1024 samples here (audio/decoders/vorbis.h); dos-mixer.cpp checks every
+			# object has it, so a standalone ./configure with Tremor builds too.
+			append_var DEFINES "-DVORBIS_REFILL_SAMPLES=1024"
 			;;
 		kos32)
 			# neither pkg-config nor *-config work, so we setup everything manually
