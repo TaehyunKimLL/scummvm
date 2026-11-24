@@ -19,6 +19,12 @@ TESTS        := $(srcdir)/test/common/*.h \
 	$(srcdir)/test/graphics/hires_text_*.h
 TEST_LIBS    :=
 
+# The pure parts of the DOS backend (mode choice, cursors, line repeat, the launcher's text
+# handling, ...) run on the host; the DOS build never runs them.
+ifneq ($(BACKEND),dos)
+TESTS += $(srcdir)/test/backends/dos_*.h
+endif
+
 ifdef POSIX
 TEST_LIBS += test/system/null_osystem.o \
 	backends/fs/posix/posix-fs-factory.o \
