@@ -94,3 +94,43 @@ deviations, evidence.
 - Inertness: Linux `configure` leaves `config.mk` (minus SAVED lines) and `config.h` byte-identical to the base's; every non-DOS hunk is under `DOS_DJGPP`, `__DJGPP__`,
   `BACKEND=dos`, or a `DISABLE_*`/`AUDIO_RATE_STEREO_INT16_ONLY` define set only by the msdosdjgpp configure block; the only unconditional code is
   `Audio::Mixer::getOutputLatencyMillis()` (virtual, default 0) and `showDeviceWarning()` in `mididrv.cpp` (the same dialog on non-DOS). Self-read only (no fresh-context reviewer in this run).
+- c2: `5321b2e1a79 GRAPHICS: Blend hi-res text on 15/16-bit screens by table`. TDD: red = `make test` did not compile (`Blend16` unknown). The plan's two cases plus a
+  third (`test_convertSpanEqualsBlendPixel`: `convertSpan` with and without a table, coverage 0/255/partial) are in `test/graphics/hires_text_blend16.h`.
+  Green: 989 tests OK. **The exhaustive case is in the suite and runs in 7.0 s at -O0** (`./test/runner HiResTextBlend16TestSuite`): 5 formats (RGB565, RGB555, ARGB1555,
+  RGBA5551, BGR565) x 6 colours x coverage 1..254 x 65,536 pixels = **499,404,800 checks, 0 mismatches**; no colour cut was needed. Mutations (each reverted):
+  (a) `+ 126` in the green table -> `test_everyPixelEveryCoverage` found 974,848 mismatches (the plan's prototype: 974,899; my sed changed only the green line of `fill()`) and the
+  existing `svf_aa.h` cases failed too; (b) `solid` not refreshed (`lastIndex < 0`) -> `test_composeSpanEqualsBlendPixel` red; (c) `_alpha` left out -> exhaustive 199,753,728 mismatches
+  (= the two alpha formats x 6 x 254 x 65,536) plus `svf_aa.h` "format 3/4 blend"; (d) slot by `cov & 3` -> still green (a slot choice cannot change results: the reason no test pins it).
+- c3: `c378339d73c SCI: Keep one hi-res text blend table per updated rectangle`. DOS rebuild; KQ1 rgb565 frame: status 0, both boxes 0 differing pixels against Linux
+  `aa-kq1-rgb565-message.png` (whole frame differs by the same ~1000 px as before: the river animation and cursor); rgb555: max 1 per channel against Linux `aa-kq1-rgb555-message.png`.
+- c4: `81653bdde1f GRAPHICS: Let hires_text_whole_kb choose whole or streamed faces`. Red: `wholeKb` not a member (compile). Green: 990 tests; cases for the default, `64`, `-1`, `99999`, `abc`, empty,
+  `64k`, `1.5` (one warning each, 256 kept) and the range ends 0 and 16384. KQ1 rgb565 on DOS after the change: status and boxes 0 differing pixels against Linux.
+- c5: `7c63d38e6e4 GRAPHICS: Warm streamed faces from their [preload] lists`. Red: 2 failed tests (`coldBuild < warmBuild` 5 >= 5, reads after drawing 10 != 5, no warning for a missing list);
+  green: 992 tests. Mutation (call to `warm` commented out) -> the same failures. The test uses the streamed `JAMO.SVF` fixture and an in-memory `.HOT`.
+- c6 (no commit; log lines of `-d1`, window frames each ~0.16 s, DOSBox-X pentium 60000 cycles, KQ1 AA pair map, rgb565): first message box after `Return` appears within the 0.33-0.49 s frame
+  window in every run: `hires_text_whole_kb=0` (every face streamed) 4 frames/0.49 s (twice), `=256` 0.49 s (twice): no measurable difference at that resolution. The loading screen's text phase:
+  1105 ms streamed (`=0`) vs 1083 ms whole (`=256`) (+22 ms, +2 %). **Memory at the first frame: 4344 KB free streamed vs 4716 KB whole**: for the AA pair map (faces of 12-25 KB) each
+  streamed face costs its 64 KB block cache, so whole is cheaper in memory too below 64 KB; DOS's default 64 stays right for these maps. (`dos_stats_log=5` not needed: the `DOS: memory`
+  lines carry the numbers.) Frames: `~/work/tmp/p7/shots/tl-x-w{0,256}-*/`.
+- c7: `f0fe2e6f57f DOS: Add a hi-res text blend bench` (`backends/platform/dos/tools/blendbench.cpp`, `build-dos.sh bench BUILD_DIR` -> `BLEND.EXE`, 373,111 B). DOSBox-X, `core=normal`, a 400x128 box,
+  15,487 covered pixels, 10 reps, `equal=1` everywhere:
+  | preset | A blendPixel loop | B Blend16 across rows | C Blend16 per row | plan 0.3 B |
+  |---|---:|---:|---:|---:|
+  | 486 `cycles=fixed 23880` (DX2-66) | 119.43 ms | **47.68 ms** (555: 47.63) | 64.39 ms (555: 61.30) | 47.67 |
+  | 486 `cycles=fixed 12010` (DX-33) | 237.79 ms | **94.94 ms** (94.84) | 128.21 (122.05) | 94.91 |
+  | pentium `cycles=fixed 60000` | 47.50 ms | **18.96 ms** (18.94) | 25.61 (24.38) | 18.96 |
+  B and C equal the plan (within 0.1 %). A is the lean per-pixel `blendPixel` loop kept in the bench file (119 ms DX2-66), leaner than the plan's "current composeSpan" 136.86 ms (that
+  one also read/wrote through the generic `readPixel`/`writePixel` and `putText`): speedup of B over A 2.5x, over the old `composeSpan` 2.9x. Still UNVERIFIED-ON-HARDWARE (H1).
+
+## P7d: input
+
+- d1 (no code): `dos-events.cpp:113-115` maps `SDL_SCANCODE_LANG1` to `KEYCODE_HANGUL` and `LANG2` to `KEYCODE_HANJA` (re-read, unchanged). DOSBox-X mapper file (`~/work/tmp/p7/run-b8/han.map`: letters, digits,
+  Enter, Esc, Backspace, Tab, Space, arrows, **F5, F7** added, `key_kor_hanyong "key 66"`, and `key_kor_hancha "key 67"`: **DOSBox-X's name for the Hanja key is `kor_hancha`**, not
+  `kor_hanja`): run `Right Return sleep:20 F9 sleep:1 F9 sleep:1 F10 sleep:1 type:qhk`: log `Hangul mode off`, `Hangul mode on`; the parser box shows 봐 (`dos-p7-d1-han-yeong-bwa.png`).
+  Hanja: the key reaches `KEYCODE_HANJA`, but SCI has no Hanja action (nothing to log): U4/H5 (Staging has no key mapper for these keys).
+- d2: built-in composer (no OS IME on DOS): `ansdmf qhk` + Return -> the room reply **"이 쇠창살 문은 왕의 성(으로)의 유일한 입구이다."** (the cursor hides two syllables; `dos-p7-d2-door-reply.png`);
+  `qhk` then BackSpace -> 보 (one jamo removed); Shift+q -> the double consonant, shown clipped to the preedit cell (a composer display matter, not compared with Linux here).
+  U5/H5: KEYB KR / Korean layouts change nothing for the composer (it reads US scancodes) - not testable in the emulators.
+- d3: **Alt+x after `qh` typed a jamo on DOS** (보 became 볻-like: a trailing ㅌ; `dos-p7-d2-d3-backspace-shiftq-altx-zoom.png`): the P4 item 3 leak is not a Linux screenshot-key artefact; there is no Alt+S screenshot
+  action on DOS and the composer still takes the Alt-modified key. No DOS code change (the key arrives as a normal KEYDOWN with the Alt modifier); the fix belongs to the SCI composer
+  (topic `ko/03-sci`: ignore events with Alt/Ctrl in `korean_input`), recorded here as an open item for that topic.

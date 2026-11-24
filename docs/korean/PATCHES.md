@@ -63,3 +63,6 @@ New files never conflict and are not listed.
 | `ko/08-dos` | `backends/fs/stdiostream.cpp` | `STDIOSTREAM_NO_ATOMIC_SUPPORT` for `__DJGPP__` | `NAME.EXT.tmp` is no 8.3 name: the INI was never written |
 | `ko/08-dos` | `backends/fs/posix/posix-iostream.cpp` | `PosixIoStream::size()` seeks on DJGPP | DJGPP `fstat()` takes ~200 ms under DOSBox, SCI asks per resource |
 | `ko/08-dos` | `test/module.mk` | `test/backends/dos_*.h` unless `BACKEND=dos` | host tests of the backend's pure parts |
+| `ko/01-core` | `graphics/hires_text/text_compose.{h,cpp}` | (P7) `TextCompose::Blend16`, an exact table-driven 15/16-bit blend; `composeSpan`/`convertSpan` take an optional table and write the colour at coverage 255; `compositeRect`/`presentRect` keep one table per rectangle | the DOS composite cost (486DX2-66: 137 -> 48 ms per dialogue box), bit-identical |
+| `ko/01-core` | `graphics/hires_text/hires_options.{h,cpp}`, `font_set.{h,cpp}` | (P7) `hires_text_whole_kb` (default 256, DOS registers 64); `HiResFaceCache::warm()` reads a streamed face's `[preload]` list | whole or streamed faces by size; the first dialogue line does not seek |
+| `ko/03-sci` | `engines/sci/graphics/drivers/upscaled.cpp`, `engines/sci/graphics/hirestext.cpp` | (P7) one `Blend16` per composited rectangle; `HiResFaceCache` gets `options.wholeKb` | the table across rows; the new key |
