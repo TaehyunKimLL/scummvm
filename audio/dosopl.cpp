@@ -193,15 +193,28 @@ void OPL::reset() {
 	writeReg(0x04, 0x60, true);
 	writeReg(0x04, 0x80, true);
 	if (_opl3) {
+		// Bank 1 is reachable only with NEW (0x105 bit 0) set: set it first and clear it last, after both banks are silent.
+		writeReg(0x105, 1, true);
 		writeReg(0x104, 0, true);
-		writeReg(0x105, 0, true);
 	}
 	writeReg(0x08, 0, true);
 
+	// Datasheet order for each bank: fastest release (the notes die away at once), full attenuation, key off, rhythm off;
+	// then everything else to zero.
 	for (int offset = 0; offset <= (_opl3 ? 0x100 : 0); offset += 0x100) {
-		for (int reg = 0x20; reg <= 0xF5; reg++)
+		for (int reg = 0x80; reg <= 0x95; reg++)
+			writeReg(offset + reg, 0xFF, true);
+		for (int reg = 0x40; reg <= 0x55; reg++)
+			writeReg(offset + reg, 0x3F, true);
+		for (int reg = 0xB0; reg <= 0xB8; reg++)
 			writeReg(offset + reg, 0, true);
+		writeReg(offset + 0xBD, 0, true);
+		for (int reg = 0x20; reg <= 0xF5; reg++)
+			if (!(reg >= 0x40 && reg <= 0x55) && !(reg >= 0x80 && reg <= 0x95) && !(reg >= 0xB0 && reg <= 0xB8) && reg != 0xBD)
+				writeReg(offset + reg, 0, true);
 	}
+	if (_opl3)
+		writeReg(0x105, 0, true);
 
 	initDualOpl2OnOpl3(_type);
 }
