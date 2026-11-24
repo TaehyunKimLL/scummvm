@@ -133,7 +133,11 @@ bool lockLarge(const LargeHeader *h) {
 // was inside a DPMI call would corrupt it. In the handler an allocation takes the sbrk heap instead and a free is
 // queued; the next large call made outside the handler returns the queued blocks.
 inline bool inIrqHandler() {
-	return DosTimerManager::procsContext() == DosTimerManager::kProcsInIrq0;
+	// Any timer proc context (the IRQ0 handler, or procs run as a real-mode call returned) and any caller with interrupts
+	// off: none of them may enter the DPMI host.
+	uint32 flags;
+	__asm__ __volatile__("pushfl; popl %0" : "=r"(flags) : : "memory");
+	return DosTimerManager::procsContext() != DosTimerManager::kProcsNone || !(flags & 0x200);
 }
 
 void releasePending() {
@@ -262,12 +266,16 @@ extern "C" {
 
 void *__wrap_malloc(size_t size) {
 	void *p = nullptr;
+	if (g_pendingFree && !inIrqHandler())	// blocks freed in a timer proc go back to DPMI at the next chance, not the next large call
+		releasePending();
 	if (g_largeOk && size >= kLargeBlock)
 		p = largeAlloc(size);
 	return p ? p : smallAlloc(size);
 }
 
 void __wrap_free(void *ptr) {
+	if (g_pendingFree && !inIrqHandler())
+		releasePending();
 	if (LargeHeader *h = largeHeader(ptr)) {
 		largeFree(h);
 		return;
