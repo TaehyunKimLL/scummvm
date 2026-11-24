@@ -82,6 +82,10 @@ public:
 #define AGI_KEY_PAGE_DOWN   0x5100  // Page Down
 #define AGI_KEY_HOME        0x4700  // Home
 #define AGI_KEY_END         0x4f00  // End *
+// UTF-8 text mode only; above every AGI key code (and outside the uint16 the
+// controller table holds), so neither reaches handleController() or a script.
+#define AGI_KEY_CODEPOINT     0x10000  // | code point: an OS input method's character
+#define AGI_KEY_HANGUL_TOGGLE 0x20000  // the Han/Yeong keymap action
 
 #define AGI_MOUSE_BUTTON_LEFT  0xF101  // Left mouse button
 #define AGI_MOUSE_BUTTON_RIGHT 0xF202  // Right mouse button

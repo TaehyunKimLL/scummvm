@@ -161,6 +161,7 @@ int AgiEngine::agiInit() {
 	// note: demos has no words.tok
 	if (ec == errOK)
 		ec = _loader->loadWords();
+	_text->hangulSetup(false);
 
 	// Load logic 0 into memory
 	if (ec == errOK)

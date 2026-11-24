@@ -24,6 +24,7 @@
 
 #include "common/str.h"
 
+#include "agi/hangulline.h"
 
 namespace Agi {
 
@@ -174,8 +175,10 @@ public:
 	bool  _promptEnabled;
 	int16 _promptRow;
 	int16 _promptCursorPos;
-	byte  _prompt[42];
-	byte  _promptPrevious[42];
+	// One slot is one cell: a code point (a byte without an overlay). The
+	// index is the column, so the 1:1 relation is in the type (K2 45516bb90d5).
+	uint32 _prompt[42];
+	uint32 _promptPrevious[42];
 
 	bool inputGetEditStatus();
 	void inputEditOn();
@@ -190,7 +193,7 @@ public:
 
 	void promptRow_Set(int16 row);
 	int16 promptRow_Get();
-	void promptKeyPress(uint16 newKey);
+	void promptKeyPress(int newKey);
 	void promptCancelLine();
 	void promptEchoLine();
 	void promptRedraw();
@@ -199,19 +202,51 @@ public:
 
 	void promptCommandWindow(bool recallLastCommand, uint16 newKey);
 
+	/** The line as text: UTF-8 in UTF-8 text mode, else the bytes typed. */
+	Common::String promptGetText() const;
+	Common::String promptPreviousGetText() const;
+	void promptSetFromText(const Common::String &text); // cells only; the cursor is left alone
+	Common::String stringGetText() const;
+
 	int16 _inputStringRow;
 	int16 _inputStringColumn;
 	bool  _inputStringEntered;
 	int16 _inputStringMaxLen;
 	int16 _inputStringCursorPos;
-	byte  _inputString[42];
+	uint32 _inputString[42];
+	int16 _inputStringMaxBytes; // UTF-8 text mode: the line's byte budget (the save name's 30-byte field); 0 = none
+	/** @p cells[0..len) within _inputStringMaxBytes as UTF-8. */
+	bool stringFitsBudget(const uint32 *cells, int16 len) const;
+
+	// Korean typing (UTF-8 text mode). agi_hangul_input puts up the KO/EN
+	// badge (D10); the built-in composer and Han/Yeong also need
+	// agi_hangul_builtin (default true). agi_hangul_start is the first mode.
+	bool _hangulInput; // composer and Han/Yeong
+	bool _hangulMode;  // Korean (true) or English
+	HangulLine _hangulLine;
+	bool hangulInputAvailable() const { return _hangulInput; }
+	bool hangulMode() const { return _hangulMode; }
+	uint32 hangulPreedit() const { return (_hangulInput && _hangulMode) ? _hangulLine.preedit() : 0; }
+	void hangulToggle();
+	/** Korean typing from hangul_input/hangul_builtin/hangul_start (DESIGN.md section 7); @p table: agi-ko.dat loaded. */
+	void hangulSetup(bool table);
+	/** Redraw cells[from..newLen) after erasing back from oldLen; the preedit cell inverted. */
+	void redrawInputTail(const uint32 *cells, int16 oldLen, int16 from, int16 newLen);
+	/** End a syllable run on @p cells, redrawing its last cell plainly. */
+	void hangulEndRun(const uint32 *cells, int16 len);
+	/**
+	 * The composer's share of an edit line (the prompt, get.string): a jamo
+	 * key edits the syllable run at the end of @p cells, a backspace edits it
+	 * first while one is being composed. True when @p newKey was consumed.
+	 */
+	bool hangulEditKey(int newKey, uint32 *cells, int16 &cursorPos, int16 maxCells);
 
 	bool stringWasEntered();
 	void stringPos_Get(int16 &row, int16 &column);
 	int16 stringGetMaxLen();
 	void stringSet(const char *text);
 	void stringEdit(int16 stringMaxLen);
-	void stringKeyPress(uint16 newKey);
+	void stringKeyPress(int newKey);
 	void stringRememberForAutoComplete(bool entered = false); // for auto-completion
 
 	char *stringPrintf(const char *originalText);

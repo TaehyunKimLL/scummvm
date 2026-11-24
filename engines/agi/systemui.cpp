@@ -317,7 +317,7 @@ bool SystemUI::askForCommand(Common::String &commandText) {
 	}
 
 	commandText.clear();
-	commandText += (char *)_text->_inputString;
+	commandText += _text->stringGetText();
 	return true;
 }
 

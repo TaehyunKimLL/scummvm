@@ -72,6 +72,10 @@ TextMgr::TextMgr(AgiEngine *vm, Words *words, GfxMgr *gfx) {
 	_inputStringMaxLen = 0;
 	_inputStringCursorPos = 0;
 	_inputString[0] = 0;
+	_inputStringMaxBytes = 0;
+
+	_hangulInput = false;
+	_hangulMode = false;
 
 	configureScreen(2);
 
@@ -89,6 +93,79 @@ TextMgr::~TextMgr() {
 
 void TextMgr::init(SystemUI *systemUI) {
 	_systemUI = systemUI;
+
+}
+
+// A key of DESIGN.md section 7 that may say auto: @p autoValue then.
+static bool autoBoolKey(const char *key, bool autoValue) {
+	bool value;
+	if (!ConfMan.hasKey(key) || ConfMan.get(key).equalsIgnoreCase("auto") || !Common::parseBool(ConfMan.get(key), value))
+		return autoValue;
+	return value;
+}
+
+void TextMgr::hangulSetup(bool table) {
+	// Korean typing: on by default when the game has a Korean word table (as SCI's EventManager).
+	_hangulInput = _vm->textIsUtf8() && autoBoolKey("hangul_input", table) && autoBoolKey("hangul_builtin", true);
+	_hangulMode = _hangulInput && autoBoolKey("hangul_start", true);
+	_hangulLine.reset();
+}
+
+void TextMgr::redrawInputTail(const uint32 *cells, int16 oldLen, int16 from, int16 newLen) {
+	for (int16 i = from; i < oldLen; i++)
+		displayCharacter(0x08);
+	for (int16 i = from; i < newLen; i++) {
+		const bool preedit = (i == newLen - 1) && _hangulLine.preedit() != 0;
+		if (preedit) {
+			charAttrib_Push();
+			charAttrib_Set(_textAttrib.background, _textAttrib.foreground);
+		}
+		displayCharacter(cells[i]);
+		if (preedit)
+			charAttrib_Pop();
+	}
+}
+
+void TextMgr::hangulEndRun(const uint32 *cells, int16 len) {
+	const bool wasComposing = _hangulLine.composing();
+	_hangulLine.commit(len);
+	if (wasComposing && len > 0)
+		redrawInputTail(cells, len, len - 1, len);
+}
+
+bool TextMgr::hangulEditKey(int newKey, uint32 *cells, int16 &cursorPos, int16 maxCells) {
+	const bool jamo = newKey >= 0x20 && newKey < 0x7F && Common::HangulComposer::isJamoKey((char)newKey);
+	if (!jamo && !(newKey == AGI_KEY_BACKSPACE && _hangulLine.composing()))
+		return false;
+
+	const int16 oldLen = cursorPos;
+	const int16 from = _hangulLine.composing() ? _hangulLine.runStart() : oldLen;
+	int16 len = cursorPos;
+	if (jamo)
+		_hangulLine.feed((char)newKey, cells, len, maxCells);
+	else
+		_hangulLine.backspace(cells, len);
+	redrawInputTail(cells, oldLen, MIN<int16>(from, len), len);
+	cursorPos = len;
+	return true;
+}
+
+void TextMgr::hangulToggle() {
+	if (!_hangulInput)
+		return;
+	const bool inString = _vm->cycleInnerLoopIsActive() &&
+		(_vm->_game.cycleInnerLoopType == CYCLE_INNERLOOP_GETSTRING || _vm->_game.cycleInnerLoopType == CYCLE_INNERLOOP_GETNUMBER);
+	uint32 *cells = inString ? _inputString : _prompt;
+	const int16 len = inString ? _inputStringCursorPos : _promptCursorPos;
+	if (_hangulLine.composing() && (inString || _promptEnabled)) {
+		inputEditOn();
+		hangulEndRun(cells, len);
+		inputEditOff();
+	} else {
+		_hangulLine.commit(len);
+	}
+	_hangulMode = !_hangulMode;
+	debugC(1, kDebugLevelInput, "[key] Han/Yeong -> %s", _hangulMode ? "Korean" : "English");
 }
 
 void TextMgr::configureScreen(uint16 gameRow) {
@@ -777,6 +854,7 @@ int16 TextMgr::promptRow_Get() {
 }
 
 void TextMgr::promptReset() {
+	_hangulLine.reset();
 	_promptCursorPos = 0;
 	memset(_prompt, 0, sizeof(_prompt));
 	memset(_promptPrevious, 0, sizeof(_promptPrevious));
@@ -792,34 +870,42 @@ bool TextMgr::promptIsEnabled() {
 	return _promptEnabled;
 }
 
-void TextMgr::promptKeyPress(uint16 newKey) {
+void TextMgr::promptKeyPress(int newKey) {
 	int16 maxChars = 0;
 	int16 scriptsInputLen = _vm->getVar(VM_VAR_MAX_INPUT_CHARACTERS);
+	const bool utf8 = _vm->textIsUtf8();
+	// An OS input method's character (keyboard.cpp) is one cell like a key.
+	const bool codePoint = newKey >= AGI_KEY_CODEPOINT && newKey < AGI_KEY_HANGUL_TOGGLE;
+	const uint32 cell = codePoint ? (uint32)(newKey & 0xFFFF) : (uint32)newKey;
 
 	bool acceptableInput = false;
 
-	// FEATURE: Sierra didn't check for valid characters (filtered out umlauts etc.)
-	// In text-mode this sort of worked at least with the DOS interpreter
-	// but as soon as invalid characters were used in graphics mode they weren't properly shown
-	switch (_vm->getLanguage()) {
-	case Common::RU_RUS:
-	case Common::HE_ISR:
-		if ((newKey >= 0x20) && (newKey <= 0xff))
-			acceptableInput = true;
-		break;
-	case Common::FR_FRA:
-		if ((newKey >= 0x20) && (newKey != 0x5e) && (newKey <= 0xff))
-			acceptableInput = true;
-		break;
-	default:
-		if ((newKey >= 0x20) && (newKey <= 0x7f))
-			acceptableInput = true;
-		break;
+	if (codePoint) {
+		acceptableInput = utf8 && cell >= 0x80;
+	} else {
+		// FEATURE: Sierra didn't check for valid characters (filtered out umlauts etc.)
+		// In text-mode this sort of worked at least with the DOS interpreter
+		// but as soon as invalid characters were used in graphics mode they weren't properly shown
+		switch (_vm->getLanguage()) {
+		case Common::RU_RUS:
+		case Common::HE_ISR:
+			if ((newKey >= 0x20) && (newKey <= 0xff))
+				acceptableInput = true;
+			break;
+		case Common::FR_FRA:
+			if ((newKey >= 0x20) && (newKey != 0x5e) && (newKey <= 0xff))
+				acceptableInput = true;
+			break;
+		default:
+			if ((newKey >= 0x20) && (newKey <= 0x7f))
+				acceptableInput = true;
+			break;
+		}
 	}
 
 	if (_optionCommandPromptWindow) {
 		// Forward to command prompt window, using last command
-		if (acceptableInput) {
+		if (acceptableInput && !codePoint) {
 			promptCommandWindow(false, newKey);
 		}
 		return;
@@ -828,7 +914,7 @@ void TextMgr::promptKeyPress(uint16 newKey) {
 	if (_messageState.dialogue_Open) {
 		maxChars = TEXT_STRING_MAX_SIZE - 4;
 	} else {
-		maxChars = TEXT_STRING_MAX_SIZE - strlen(_vm->_game.getString(0)); // string 0 is the prompt string prefix
+		maxChars = TEXT_STRING_MAX_SIZE - TextCells::cellLen(_vm->_game.getString(0), _vm->textIsUtf8()); // string 0 is the prompt string prefix
 	}
 
 	if (_promptCursorPos)
@@ -838,6 +924,16 @@ void TextMgr::promptKeyPress(uint16 newKey) {
 		maxChars = scriptsInputLen;
 
 	inputEditOn();
+
+	// Built-in Hangul composer (Korean mode): a jamo key edits the syllable
+	// run at the end of the line; backspace edits it first; anything else
+	// ends it as it stands.
+	if (_hangulInput && _hangulMode && hangulEditKey(newKey, _prompt, _promptCursorPos, maxChars)) {
+		promptRememberForAutoComplete();
+		inputEditOff();
+		return;
+	}
+	hangulEndRun(_prompt, _promptCursorPos);
 
 	switch (newKey) {
 	case AGI_KEY_BACKSPACE: {
@@ -860,11 +956,12 @@ void TextMgr::promptKeyPress(uint16 newKey) {
 			promptRememberForAutoComplete(true);
 
 			memcpy(&_promptPrevious, &_prompt, sizeof(_prompt));
+			const Common::String line = promptGetText();
 #ifdef USE_TTS
-			_vm->sayText((char *)&_prompt);
+			_vm->sayText(line);
 #endif
 			// parse text
-			_vm->_words->parseUsingDictionary((char *)&_prompt);
+			_vm->_words->parseUsingDictionary(line.c_str());
 
 			_promptCursorPos = 0;
 			_prompt[0] = 0;
@@ -873,22 +970,40 @@ void TextMgr::promptKeyPress(uint16 newKey) {
 		break;
 	}
 	default:
-		if (maxChars > _promptCursorPos) {
-			if (acceptableInput) {
-				_prompt[_promptCursorPos] = newKey;
-				_promptCursorPos++;
-				_prompt[_promptCursorPos] = 0;
-				displayCharacter(newKey);
-				if (_vm->isLanguageRTL())
-					promptRedraw();
+		if (maxChars > _promptCursorPos && acceptableInput) {
+			_prompt[_promptCursorPos] = cell;
+			_promptCursorPos++;
+			_prompt[_promptCursorPos] = 0;
+			displayCharacter(cell);
+			if (_vm->isLanguageRTL())
+				promptRedraw();
 
-				promptRememberForAutoComplete();
-			}
+			promptRememberForAutoComplete();
 		}
 		break;
 	}
 
 	inputEditOff();
+}
+
+Common::String TextMgr::promptGetText() const {
+	return TextCells::fromCells(_prompt, _vm->textIsUtf8());
+}
+
+Common::String TextMgr::promptPreviousGetText() const {
+	return TextCells::fromCells(_promptPrevious, _vm->textIsUtf8());
+}
+
+void TextMgr::promptSetFromText(const Common::String &text) {
+	TextCells::toCells(text.c_str(), _prompt, ARRAYSIZE(_prompt), _vm->textIsUtf8());
+}
+
+bool TextMgr::stringFitsBudget(const uint32 *cells, int16 len) const {
+	return !_inputStringMaxBytes || TextCells::utf8Bytes(cells, len) <= _inputStringMaxBytes;
+}
+
+Common::String TextMgr::stringGetText() const {
+	return TextCells::fromCells(_inputString, _vm->textIsUtf8());
 }
 
 void TextMgr::promptCancelLine() {
@@ -903,7 +1018,7 @@ void TextMgr::promptCancelLine() {
 }
 
 void TextMgr::promptEchoLine() {
-	int16 previousLen = strlen((char *)_promptPrevious);
+	int16 previousLen = TextCells::cellCount(_promptPrevious);
 
 	if (_optionCommandPromptWindow) {
 		// Forward to command prompt window, using last command
@@ -914,9 +1029,18 @@ void TextMgr::promptEchoLine() {
 	if (_promptCursorPos < previousLen) {
 		inputEditOn();
 
+		// F4: the echo replays the previous line as keys; in Korean mode its
+		// ASCII would be composed into Hangul. Replay in English.
+		const bool hangulMode = _hangulMode;
+		_hangulMode = false;
 		while (_promptPrevious[_promptCursorPos]) {
-			promptKeyPress(_promptPrevious[_promptCursorPos]);
+			const uint32 c = _promptPrevious[_promptCursorPos];
+			const int16 before = _promptCursorPos;
+			promptKeyPress((_vm->textIsUtf8() && c >= 0x80) ? (int)(AGI_KEY_CODEPOINT | c) : (int)c);
+			if (_promptCursorPos == before)
+				break; // refused (budget full): the old loop spun here
 		}
+		_hangulMode = hangulMode;
 		promptRememberForAutoComplete();
 
 		inputEditOff();
@@ -941,12 +1065,12 @@ void TextMgr::promptRedraw() {
 
 		if (!_vm->isLanguageRTL()) {
 			displayText(textPtr);
-			displayText((char *)&_prompt);
+			displayText(promptGetText().c_str());
 			inputEditOff();
 		} else {
-			charPos_Set(_promptRow, FONT_COLUMN_CHARACTERS - 2 - Common::strnlen((const char *)_prompt, FONT_COLUMN_CHARACTERS));
+			charPos_Set(_promptRow, FONT_COLUMN_CHARACTERS - 2 - MIN<int16>(TextCells::cellCount(_prompt), FONT_COLUMN_CHARACTERS));
 			inputEditOff();
-			displayText((char *)&_prompt);
+			displayText(promptGetText().c_str());
 			displayText(textPtr);
 			charPos_Set(_promptRow, FONT_COLUMN_CHARACTERS - 1);
 		}
@@ -969,7 +1093,7 @@ void TextMgr::promptCommandWindow(bool recallLastCommand, uint16 newKey) {
 	Common::String commandText;
 
 	if (recallLastCommand) {
-		commandText += Common::String((char *)_promptPrevious);
+		commandText += promptPreviousGetText();
 	}
 	if (newKey) {
 		if (newKey != ' ') {
@@ -983,11 +1107,11 @@ void TextMgr::promptCommandWindow(bool recallLastCommand, uint16 newKey) {
 	if (_systemUI->askForCommand(commandText)) {
 		if (commandText.size()) {
 			// Something actually was entered?
-			Common::strcpy_s((char *)_prompt, sizeof(_prompt), commandText.c_str());
+			promptSetFromText(commandText);
 			promptRememberForAutoComplete(true);
 			memcpy(&_promptPrevious, &_prompt, sizeof(_prompt));
 			// parse text
-			_vm->_words->parseUsingDictionary((char *)&_prompt);
+			_vm->_words->parseUsingDictionary(promptGetText().c_str());
 
 			_prompt[0] = 0;
 		}
@@ -999,8 +1123,7 @@ bool TextMgr::stringWasEntered() {
 }
 
 void TextMgr::stringSet(const char *text) {
-	strncpy((char *)_inputString, text, sizeof(_inputString));
-	_inputString[sizeof(_inputString) - 1] = 0; // terminator
+	TextCells::toCells(text, _inputString, ARRAYSIZE(_inputString), _vm->textIsUtf8());
 }
 
 void TextMgr::stringPos_Get(int16 &row, int16 &column) {
@@ -1012,7 +1135,7 @@ int16 TextMgr::stringGetMaxLen() {
 }
 
 void TextMgr::stringEdit(int16 stringMaxLen) {
-	int16 inputStringLen = strlen((const char *)_inputString);
+	int16 inputStringLen = TextCells::cellCount(_inputString);
 
 	// Remember current position for predictive dialog
 	_inputStringRow = _textPos.row;
@@ -1040,7 +1163,7 @@ void TextMgr::stringEdit(int16 stringMaxLen) {
 		else
 			charPos_Set(_textPos.row, stringMaxLen + 2 - _inputStringCursorPos);
 		inputEditOff();
-		displayText((const char *)_inputString);
+		displayText(stringGetText().c_str());
 	}
 
 	// should never happen unless there is a coding glitch
@@ -1049,6 +1172,10 @@ void TextMgr::stringEdit(int16 stringMaxLen) {
 	_inputStringMaxLen = stringMaxLen;
 	_inputStringEntered = false;
 
+	// The composer starts afresh on this line (a run on the prompt is left
+	// as it stands); the save name shows English (D8).
+	_hangulLine.commit(_inputStringCursorPos);
+
 	if (!_vm->isLanguageRTL())
 		inputEditOff();
 
@@ -1056,21 +1183,51 @@ void TextMgr::stringEdit(int16 stringMaxLen) {
 		_vm->processAGIEvents();
 	} while (_vm->cycleInnerLoopIsActive() && !(_vm->shouldQuit() || _vm->_restartGame));
 
+	// The line is closed: its run with it. _inputStringAscii is still set
+	// here (SystemUI clears it), so the badge is put back by mode alone.
+	_hangulLine.reset();
+
 	inputEditOn();
 	// Fix deletion of first letter after ENTER.
 	if (_vm->isLanguageRTL()) {
 		for (int i = 0; i < _inputStringCursorPos; i++)
 			displayCharacter(0x08);
 		displayCharacter(' ');
-		displayText((const char *)_inputString);
+		displayText(stringGetText().c_str());
 	}	
 
 	// Forget non-blocking text, user was asked to enter something
 	_vm->nonBlockingText_Forget();
 }
 
-void TextMgr::stringKeyPress(uint16 newKey) {
+void TextMgr::stringKeyPress(int newKey) {
+	const bool utf8 = _vm->textIsUtf8();
+	const bool codePoint = newKey >= AGI_KEY_CODEPOINT && newKey < AGI_KEY_HANGUL_TOGGLE;
+	const uint32 cell = codePoint ? (uint32)(newKey & 0xFFFF) : (uint32)newKey;
+
 	inputEditOn();
+
+	// The composer works for get.string alone: get.num takes digits only.
+	const bool composerHere = _hangulInput && _hangulMode && _vm->_game.cycleInnerLoopType == CYCLE_INNERLOOP_GETSTRING;
+	if (composerHere && _inputStringMaxBytes && newKey >= 0x20 && newKey < 0x7F &&
+	    Common::HangulComposer::isJamoKey((char)newKey)) {
+		// The save name's field is bytes: a jamo that would make the line too long is refused.
+		uint32 trial[ARRAYSIZE(_inputString)];
+		memcpy(trial, _inputString, sizeof(trial));
+		int16 len = _inputStringCursorPos;
+		HangulLine line = _hangulLine;
+		line.feed((char)newKey, trial, len, _inputStringMaxLen);
+		if (!stringFitsBudget(trial, len)) {
+			inputEditOff();
+			return;
+		}
+	}
+	if (composerHere && hangulEditKey(newKey, _inputString, _inputStringCursorPos, _inputStringMaxLen)) {
+		stringRememberForAutoComplete();
+		inputEditOff();
+		return;
+	}
+	hangulEndRun(_inputString, _inputStringCursorPos);
 
 	switch (newKey) {
 	case 0x3:       // ctrl-c
@@ -1094,7 +1251,7 @@ void TextMgr::stringKeyPress(uint16 newKey) {
 					displayCharacter(0x08);
 				displayCharacter(' ');
 				inputEditOff();
-				displayText((const char *)_inputString);
+				displayText(stringGetText().c_str());
 			}
 
 			stringRememberForAutoComplete();
@@ -1107,7 +1264,7 @@ void TextMgr::stringKeyPress(uint16 newKey) {
 
 		_inputStringEntered = true;
 #ifdef USE_TTS
-		_vm->sayText((const char *)_inputString);
+		_vm->sayText(stringGetText());
 #endif
 
 		_vm->cycleInnerLoopInactive(); // exit GetString-loop
@@ -1127,39 +1284,48 @@ void TextMgr::stringKeyPress(uint16 newKey) {
 		if (_inputStringMaxLen > _inputStringCursorPos) {
 			bool acceptableInput = false;
 
-			// FEATURE: Sierra didn't check for valid characters (filtered out umlauts etc.)
-			// In text-mode this sort of worked at least with the DOS interpreter
-			// but as soon as invalid characters were used in graphics mode they weren't properly shown
-			switch (_vm->getLanguage()) {
-			case Common::RU_RUS:
-			case Common::HE_ISR:
-				if ((newKey >= 0x20) && (newKey <= 0xff))
-					acceptableInput = true;
-				break;
-			case Common::FR_FRA:
-				if ((newKey >= 0x20) && (newKey != 0x5e) && (newKey <= 0xff))
-					acceptableInput = true;
-				break;
-			default:
-				if ((newKey >= 0x20) && (newKey <= 0x7f))
-					acceptableInput = true;
-				break;
+			if (codePoint) {
+				acceptableInput = utf8 && cell >= 0x80;
+			} else {
+				// FEATURE: Sierra didn't check for valid characters (filtered out umlauts etc.)
+				switch (_vm->getLanguage()) {
+				case Common::RU_RUS:
+				case Common::HE_ISR:
+					if ((newKey >= 0x20) && (newKey <= 0xff))
+						acceptableInput = true;
+					break;
+				case Common::FR_FRA:
+					if ((newKey >= 0x20) && (newKey != 0x5e) && (newKey <= 0xff))
+						acceptableInput = true;
+					break;
+				default:
+					if ((newKey >= 0x20) && (newKey <= 0x7f))
+						acceptableInput = true;
+					break;
+				}
+			}
+
+			if (acceptableInput && _inputStringMaxBytes) {
+				uint32 trial[ARRAYSIZE(_inputString)];
+				memcpy(trial, _inputString, sizeof(trial));
+				trial[_inputStringCursorPos] = cell;
+				acceptableInput = stringFitsBudget(trial, _inputStringCursorPos + 1);
 			}
 
 			if (acceptableInput) {
-				if ((_vm->_game.cycleInnerLoopType == CYCLE_INNERLOOP_GETSTRING) || ((newKey >= '0') && (newKey <= '9'))) {
+				if ((_vm->_game.cycleInnerLoopType == CYCLE_INNERLOOP_GETSTRING) || ((cell >= '0') && (cell <= '9'))) {
 					// Additionally check for GETNUMBER-mode, if character is a number
 					// Sierra also did not do this
-					_inputString[_inputStringCursorPos] = newKey;
+					_inputString[_inputStringCursorPos] = cell;
 					_inputStringCursorPos++;
 					_inputString[_inputStringCursorPos] = 0;
 					if (!_vm->isLanguageRTL()) {
-						displayCharacter(newKey);
+						displayCharacter(cell);
 					} else {
-						for(int i = 0; i < _inputStringCursorPos ; i++)
+						for (int i = 0; i < _inputStringCursorPos; i++)
 							displayCharacter(0x08);
 						inputEditOff();
-						displayText((const char *)_inputString);
+						displayText(stringGetText().c_str());
 					}
 
 					stringRememberForAutoComplete();

@@ -107,3 +107,17 @@ Tasks are committed one by one; the sha of a task is written into the log by the
 
 ### b1: the composer line
 - Red: `No rule to make target 'engines/agi/hangulline.o'`. Green: **680** (+5, incl. 50000 random key sequences), 0 warnings.
+- b1 sha 38028844b0d.
+
+### b3 (done before b2: the order is swapped) and b2
+- **Deviation (order)**: text.cpp needs `AGI_KEY_CODEPOINT`/`AGI_KEY_HANGUL_TOGGLE` (keyboard.h) and the keyboard/cycle hooks
+  call `TextMgr::hangulInputAvailable()/hangulToggle()/promptKeyPress(int)`, so b2 cannot compile before b3. b3 is
+  committed first (with the keyboard.h macros), b2 second.
+- **Deviation (d3 share)**: text.cpp hunks 24 and 27 (`stringEdit`/`stringKeyPress`) mix the composer with the save-name
+  byte budget (`_inputStringMaxBytes`, `stringFitsBudget`); they are applied whole in b3. The budget stays 0 (inert)
+  until d3 sets it from `askForSaveGameDescription`.
+- b3 hunks: keyboard.h 0; text.h 1-6 (+ the `agi/hangulline.h` include); text.cpp 2, 3, 6-27; op_cmd.cpp 1, 4, 5;
+  systemui.cpp 2; agi.cpp 2 reduced to `_text->hangulSetup(false)` (c2 changes it to `hasKoreanWords()` and adds the
+  table load). Build 680, 0 warnings.
+- Run (`runs/b3`, `hangul_input=true`): typed `tnfwlqdmf qh` -> prompt `] 술집을 보` with the syllable being composed inverted
+  (`agi-p5-b3-prompt-preedit.png`, viewed).
