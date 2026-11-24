@@ -38,7 +38,7 @@ enum HiResFontKind { kHiResFontAuto = 0, kHiResFontSvf, kHiResFontBitmap, kHiRes
 /**
  * The configuration keys of hi-res text read from P1 on (DESIGN section 7):
  * hires_text, hires_text_font, hires_text_map, hires_text_scale,
- * hires_text_blend, render_target, hangul_break, hires_text_log.
+ * hires_text_blend, render_target, hangul_break, hires_text_log, hires_text_whole_kb.
  */
 struct HiResOptions {
 	HiResOptions();
@@ -53,6 +53,7 @@ struct HiResOptions {
 	HangulBreak hangulBreak;       ///< hangul_break (word)
 	bool hangulBreakSet;
 	bool log;                      ///< hires_text_log (false)
+	int wholeKb;                   ///< hires_text_whole_kb (256): a face file of at most this many KB is read whole, a larger one streamed
 };
 
 /** One key lookup: true with @p value when @p key is set. */

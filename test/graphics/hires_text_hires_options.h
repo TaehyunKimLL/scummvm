@@ -63,6 +63,7 @@ public:
 		TS_ASSERT_EQUALS(o.target, Graphics::kHiResTargetAuto);
 		TS_ASSERT(!o.hangulBreakSet);
 		TS_ASSERT(!o.log);
+		TS_ASSERT_EQUALS(o.wholeKb, 256);
 		TS_ASSERT(w.empty());
 	}
 
@@ -76,6 +77,7 @@ public:
 		k["render_target"] = "rgb565";
 		k["hangul_break"] = "any";
 		k["hires_text_log"] = "true";
+		k["hires_text_whole_kb"] = "64";
 		Common::Array<Common::String> w;
 		const Graphics::HiResOptions o = parseOptions(k, w);
 		TS_ASSERT(!o.enabled);
@@ -87,6 +89,7 @@ public:
 		TS_ASSERT_EQUALS(o.target, Graphics::kHiResTargetRgb565);
 		TS_ASSERT_EQUALS(o.hangulBreak, Graphics::kHangulBreakAny);
 		TS_ASSERT(o.log);
+		TS_ASSERT_EQUALS(o.wholeKb, 64);
 		TS_ASSERT(w.empty());
 	}
 
@@ -100,6 +103,26 @@ public:
 		TS_ASSERT_EQUALS(o.target, Graphics::kHiResTargetAuto);
 		TS_ASSERT_EQUALS(w.size(), 2u);
 		TS_ASSERT_EQUALS(w[0], "hires_text_scale '3' is not auto, 1 or 2; ignoring it");
+	}
+
+	void test_wholeKbBadValues() {
+		static const char *const bad[] = { "-1", "99999", "abc", "", "64k", "1.5" };
+		for (uint i = 0; i < ARRAYSIZE(bad); ++i) {
+			OptionKeys k;
+			k["hires_text_whole_kb"] = bad[i];
+			Common::Array<Common::String> w;
+			const Graphics::HiResOptions o = parseOptions(k, w);
+			TS_ASSERT_EQUALS(o.wholeKb, 256);
+			TS_ASSERT_EQUALS(w.size(), 1u);
+		}
+		// The ends of the range are values.
+		OptionKeys k;
+		Common::Array<Common::String> w;
+		k["hires_text_whole_kb"] = "0";
+		TS_ASSERT_EQUALS(parseOptions(k, w).wholeKb, 0);
+		k["hires_text_whole_kb"] = "16384";
+		TS_ASSERT_EQUALS(parseOptions(k, w).wholeKb, 16384);
+		TS_ASSERT(w.empty());
 	}
 
 	void test_fontOrder() {

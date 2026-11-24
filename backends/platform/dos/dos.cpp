@@ -231,6 +231,11 @@ void OSystem_DOS::initBackend() {
 	// dos_loading_screen=false: no loading screen (DOS::Loading), the
 	// launcher's mode set at once as before.
 	ConfMan.registerDefault("dos_loading_screen", true);
+	// hires_text_whole_kb: a hi-res face file of at most this many KB is read whole, a larger one streamed.
+	// A streamed precomposed face costs its 30-50 KB tables plus a 65 KB block cache against 100-340 KB
+	// whole; jamo measured the per-seek cost of streaming under DOSBox and chose whole-file reads up to
+	// 512 KB for MI1 talkie fonts: revisit with the acceptance numbers (P7 Task g6).
+	ConfMan.registerDefault("hires_text_whole_kb", 64);
 	// The GUI's two overlay-sized screens (600 KB each at 640x480 RGB565)
 	// are given back while no dialog is open.
 	ConfMan.registerDefault("gui_release_buffers", true);

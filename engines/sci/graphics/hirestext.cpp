@@ -77,7 +77,7 @@ bool SciHiResText::setup(Graphics::HiResFiles *files, const Graphics::HiResOptio
 			return false;
 		notes.push_back(Common::String("using ") + kDefaultMap);
 	}
-	_faces = new Graphics::HiResFaceCache(*_files);
+	_faces = new Graphics::HiResFaceCache(*_files, (uint32)options.wholeKb * 1024);
 
 	Common::String note;
 	_target = Graphics::resolveRenderTarget(options, &_pick.map, anyCoverageFace(notes), offeredTargets, note);
