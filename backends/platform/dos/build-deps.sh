@@ -2,7 +2,7 @@
 # Build what SCUMM.EXE links for compressed audio.
 # Usage: backends/platform/dos/build-deps.sh [codecs]
 #   codecs: libFLAC 1.4.3, libogg 1.3.5 and Tremor (integer Vorbis) for DJGPP,
-#           static, -O2 -march=i586 -mtune=pentium, no asm/SSE -> $DOS_CODECS
+#           static, -O2 -march=i586 -mtune=pentium (i486 with DOS_MARCH=i486), no asm/SSE -> $DOS_CODECS
 #           (default ~/opt/codecs-dos). build-dos.sh scumm links them.
 # (jamo's host tools for the Ultimate Talkie pack script, mkute.py, are not carried.)
 # Sources come from $DOS_DEPS_SRC (default ~/opt/src/flac-dos); a missing
@@ -26,7 +26,12 @@ OGG_URL=https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.xz
 TREMOR_TAR=tremor.tar.gz
 TREMOR_COMMIT=820fb3237ea81af44c9cc468c8b4e20128e3e5ad
 TREMOR_URL=https://gitlab.xiph.org/xiph/tremor/-/archive/$TREMOR_COMMIT/tremor-$TREMOR_COMMIT.tar.gz
-CFLAGS_DOS="-O2 -march=i586 -mtune=pentium"
+# DOS_MARCH=i486 (build-dos.sh): the codecs a 486 build links are built for the 486 as well.
+case "$DOS_MARCH" in
+	"") CFLAGS_DOS="-O2 -march=i586 -mtune=pentium" ;;
+	i486) CFLAGS_DOS="-O2 -march=i486 -mtune=pentium" ;;
+	*) echo "build-deps.sh: DOS_MARCH is empty or i486" >&2; exit 1 ;;
+esac
 TREMOR_OBJS="block codebook floor0 floor1 info mapping0 mdct registry res012 sharedbook synthesis vorbisfile window"
 
 fetch() {	# tarball url
