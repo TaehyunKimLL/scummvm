@@ -157,7 +157,11 @@ void TextMgr::hangulToggle() {
 		(_vm->_game.cycleInnerLoopType == CYCLE_INNERLOOP_GETSTRING || _vm->_game.cycleInnerLoopType == CYCLE_INNERLOOP_GETNUMBER);
 	uint32 *cells = inString ? _inputString : _prompt;
 	const int16 len = inString ? _inputStringCursorPos : _promptCursorPos;
-	if (_hangulLine.composing() && (inString || _promptEnabled)) {
+	// Redraw the syllable only where its line is on the screen: the get.string
+	// or get.num line, or the prompt with no inner loop (a menu, the inventory,
+	// a message box or the save dialogs draw over it and the cursor is theirs).
+	const bool lineIsShown = inString || (_promptEnabled && !_vm->cycleInnerLoopIsActive());
+	if (_hangulLine.composing() && lineIsShown) {
 		inputEditOn();
 		hangulEndRun(cells, len);
 		inputEditOff();
