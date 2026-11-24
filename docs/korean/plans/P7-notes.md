@@ -142,3 +142,52 @@ deviations, evidence.
   `data:` value counts as missing instead of raising. Real use: `python3 -I stage-data.py dists/engine-data/hires_text=hires_text DATA --maps .../*.map` -> `3 files` (NEODGM.TXT, NEODG16A.SVF, MAPS/KOREAN-D.MAP), rc 0.
   Mutations (base cut to 9, no collision check, extension cut to 4) each turn tests red (7, 3 and 1 failures); NOTE a Python bytecode cache keyed by mtime+size served a stale mutated module once
   (same-length edit within a second): `PYTHONDONTWRITEBYTECODE=1` for the test runs.
+- e4: `19592df25ed DOS: List saves of targets longer than eight characters`. **Deviation from the plan, with evidence.** The plan's `listSavefiles` (engine names from the cache, then the 8.3 files under the engine's names) and
+  "opening, removing and saving need nothing: DOS truncates the long name" is not enough: `DefaultSaveFileManager` finds a file by an exact (case-insensitive) cache key, and in a NEW session the keys are the
+  directory's 8.3 names, so `openForLoading`/`exists`/`removeSavefile("kq1-rgb565.001")` find nothing: the list would show 한글 and the restore of the listed entry would fail. The host test
+  (the real manager over `test/dos-savenames-tmp`, write -> list in a new session -> load -> exists -> remove) turns red for exactly those; so every single-file operation now goes to the base manager under `dosPattern(name)` and a
+  listing is made for the cut pattern and mapped back by `engineName()`. TDD: red 1 (the file was written under the long name on the host), mutations (load/exists unmapped, listing not mapped back) each red; 995 tests green.
+  DOS: red run (`SCI-c5.exe`, new session F7, target `kq1-rgb565`): empty list (`dos-p7-e4-longtarget-restore-list-empty-before.png`); green: the list shows 한글 (`dos-p7-e4-longtarget-restore-list-fixed.png`) and Return restores
+  (`dos-p7-e4-longtarget-restored.png`). Limitation: two targets that share their first 8 characters share a save file (pack ids/targets stay <= 8, H-4).
+- e1 memory gate (DOSBox-X 16 MB, phys_total 14,896 KB; stripped sizes: SCI.EXE 5,413,376, SCUMM.EXE 5,688,832, AGI.EXE 3,940,864, PLAY.EXE 279,040; jamo's GUI-less SCI.EXE was 5,670,989): free `dpmi_free` at `first-frame`:
+  SCI KQ1 5-6-5 4,720 KB, 1-5-5-5 4,724, line repeat 4,624, 8 bpp 5,740, `rgb888` 3,224, 5-6-5 all faces streamed 4,344, LB1 CLUT8 5,472 (Staging 5,472); SCUMM MI1 KO 6,272 (5,960 from the two-zip PLAY run); AGI demo 8,748.
+  `engine` phase: SCI 8,968-8,976, SCUMM 6,672, AGI 10,400. Worst measured point 3,224 KB (asked-for 32 bit) >= 2,048: **D-3 gate passed with the GUI in; Task e2 (GUI-less series) not carried.** Not measured: the quit-time line, a game
+  played for long (the gate is at the measured points the plan names).
+- e2: skipped (the memory gate passed).
+- e5: `92f2d41f141 DOS: Document the memory budget` (README memory section with the numbers above; the Ultimate Talkie/mkute and Vorbis-selftest sections of jamo's README removed: not carried).
+- e6: LFN check, `[dos] lfn=true ver=7.1` in DOSBox-X (confs `run-b8/x-lfn.conf`), KQ1 title: **with `_CRT0_FLAG_NO_LFN` the map is NOT found, and without the flag (a test build, `SCI-lfn.exe`) it is not found either**
+  (`Hi-res text: hires_text_map data:hires_text/maps/korean-default.map: not found`, English-less empty buttons, `e6-lfn-on-flag.png`, `e6-lfn-on-noflag.png`); with `lfn=false` it is found (b8). The plan's premise (the flag makes a Windows 9x
+  box truncate like MS-DOS) does not hold in this emulator: in LFN mode a long name given to the short-name API is not truncated. D-2's staging therefore works where DOS truncates (MS-DOS, LFN off) and not in an LFN-capable DOS box; the
+  real fix is 8.3 engine data names (D-2's alternative, topic `ko/03-sci`: `kDefaultMap`, folder `hires_text/`). README says so. H6 stands (real MS-DOS 6.22/7.1 and a Windows 9x box unverified).
+
+## P7f: EXEs, launcher, packages
+
+- f1: `3d7da5d05a3 DOS: Build the launcher out of tree`: PLAY.EXE 279,040 B (as the plan), `build-dos.sh play $B/play`; `dos_play_*` host suites pass in `make test`.
+- f2: `1c072dd9986 DOS: Build SCUMM.EXE with FLAC and Tremor`: `config.h` has `USE_FLAC`, `USE_TREMOR`, `USE_VORBIS`; irqcheck clean; stripped 5,688,832 B. Carried: `kVorbisRefillSamples` (vorbis.h, vorbis_intern.h), `patches/tremor-chunksize.patch`,
+  `build-deps.sh` trimmed to the codecs (not run: the codecs of `~/opt/codecs-dos` were used). **Not carried (U6 answered): the Vorbis setup cache (`vorbis.cpp` +504, `vorbis.h` +42), `dos-vorbis-selftest.*`, `check-tremor-cache.sh`** (MI2 speech
+  opening speed; the `dos.cpp` selftest keys and the module.mk line went with them). MI1 KO (pack of `~/work/tmp/p6/data/mi1`, S1, no map): credits and the Lookout dialogue in Korean at 320x200 CLUT8
+  (`dos-p7-f2-mi1-credits.png`, `dos-p7-f2-mi1-lookout-dialogue.png`); the title credits frame against the Linux P6a frame `a6-mi1/scummvm-mi1ko-00002.png`: max 4 per channel (6-bit DAC); the Lookout instant has no Linux frame of P6a to compare.
+- f3: AGI.EXE built (3,940,864 B stripped, irqcheck clean), runs the English AGI Demo 2 (detected with `AGI.EXE --add`) at 320x200 CLUT8: Sierra start screen, first frame 8,748 KB free (`dos-p7-f3-agi-demo.png`). No Korean claim.
+  Note: `--add --path=C:\AGIGAME` on the DOS command line stored a punycode path (`xn--CAGIGAME-kaa04dzm`: backslashes are not separators for `--path`); PLAY gives forward-slash paths.
+- f4 (documentation only, in the README): PLAY's real layout (`RUN.INI` made per run from the pack's `ID.INI`, `USER.INI`, `SAVES\`; never copies the pack INI) differs from the plan's text and from jamo's README, which is fixed.
+- f5: `9c4d1ffe3eb DOS: Stage the engine package out of tree`: `DOS_BUILD=$B build-dos.sh stage DIST`: SCI.EXE 5,413,376; SCUMM.EXE 5,688,832; AGI.EXE 3,940,864; PLAY.EXE 279,040; CWSDPMI.EXE 21,325; FLAC.TXT 1,509; VORBIS.TXT 2,932;
+  DATA\ENCODING.DAT 179,670; DATA\HIRES_TE\NEODG16A.SVF 16,408, NEODGM.TXT 2,451, MAPS\KOREAN-D.MAP 647. Refuses an in-tree DIST_DIR; keeps other files of the folder.
+- f6: `987ea3cf94e DOS: Describe the Korean text options of the DOS build`.
+- Two fixes found by the acceptance runs (not in the plan): (1) `ee7f90931dc DOS: Look for engine data in DATA beside the EXE`: a PLAY-made RUN.INI has no `extrapath`, so `data:hires_text/...` was not found
+  (buttons empty on the KQ1 title in the two-zip layout); the backend now adds `DATA` (relative to the home folder) to the transient extrapaths; the search-set entry is named `dosdata` (a "SearchSet::add: archive 'DATA' already present" warning).
+  (2) `48053cbd02e BASE: Add --set=KEY=VALUE for any configuration key`: PLAY's `--8bit`/`--set` pass `--set=` to the engine, which `ko-2026.4` did not know (jamo's `base/commandLine.cpp` hunk + `set-option.h` + its test; `config-load.h` is GUI-less work and not carried).
+  Checked: `PLAY KQ1KO ... --8bit kq1aa` -> `DOS: mode 640x400 CLUT8`.
+
+## P7g: acceptance (scratch runner `~/work/tmp/p7/bin/accept.sh`, not committed: the harness owns acceptance scripts, H-3)
+
+Layout: the staged engine package copied to `C:\SCUMMVM` (+ the six AA pair faces of the prototype's DATA, harness dependency H-2), the game pack mounted read-only as `D:` (`mount d <dir> -ro`), `PLAY --install ID`, then `PLAY ID -d1 --debugflags=Korean [args] target`.
+md5 of every file of D: before and after each run: unchanged (KQ1 15 files, LB1 56, MI1 35).
+
+- g2 KQ1 KO (pack = the P3 pack with the prototype's upper-case `KO\` incl. `AA-PAIR.MAP`; targets `kq1ko` default map, `kq1aa` AA pair rgb565): DOSBox-X: title with Hangul buttons (`dos-p7-g2-x-kq1-title-twozip.png`), `kq1aa`: `DOS: mode 640x400
+  RGB565@2`, `Hi-res text: screen format RGB565@2`, Han/Yeong F9 twice -> `Hangul mode off` / `on`, `qhk` -> room description, **status and both boxes 0 differing pixels against Linux** (`dos-p7-g2-x-kq1-reply.png`); F5 `gksrmf` -> `GAMES\KQ1KO\SAVES\KQ1AA.001`, new
+  session F7 lists 한글, Return restores (`dos-p7-g2-x-kq1-restore-list.png`). DOSBox Staging: `640x480 RGB565@2 (line repeat from 640x400)`, reply frame and restore list (`dos-p7-g2-staging-kq1-*.png`, window 758x569). No Han/Yeong in Staging (U4).
+- g3 LB1 KO (P4-format pack `~/work/tmp/p4-data/lb1/LB1`, `PLAY LB1 --language=ko lb1`): **partial**. Both emulators: the fingerprint screen in Hangul, a click (xdotool mousedown/up; a plain `click` did not register) passes it, the Hangul box 'the curtain is rising', the Hangul
+  question 'have you seen The Colonel's Bequest before?' with 예/아니오 (`dos-p7-g3-x-lb1-*.png`; Staging identical). Mode 640x400 CLUT8, first frame 5,472 KB free. The pack's own `HIRESVF.MAP`/`HIRESBIT.MAP` are map version 2, so the engine's default map draws (H-2).
+  **Not reached: the typed command (`문을 봐`) and save/restore** (the intro to the first prompt needs many timed clicks); U3 stays open for LB1 typing and saves.
+- g4 MI1 KO (pack of `p6/data/mi1`, own `MI1KO.INI` with an S1 target, `engineid=scumm`): PLAY picks SCUMM.EXE; both emulators: credits and the Lookout dialogue in Korean at 320x200 CLUT8 (`dos-p7-g4-*-mi1-montage.png`); first frame 5,960 / 5,956 KB free.
+  **Not done: a save with a Korean name through the original save screen** (not attempted).

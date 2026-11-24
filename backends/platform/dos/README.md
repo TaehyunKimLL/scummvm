@@ -33,28 +33,26 @@ the home, and the current directory is the pack:
 
     D:\> C:\SCUMMVM\PLAY KQ1KO kq1kol
 
-Home:  `C:\SCUMMVM\{SCI.EXE, SCUMM.EXE, AGI.EXE, PLAY.EXE, CWSDPMI.EXE, DATA\}`,
-`DEFAULT.INI` and, per game, `C:\SCUMMVM\GAMES\ID\{SCUMMVM.INI, SAVES\,
-SCUMMVM.LOG, EXITLOG.TXT, SOUND.INI}`.
-Pack:  `GAMES\ID\` (the game's files) and `ID.INI` (a sample SCUMMVM.INI
-without `path=`). Pack ids and targets are at most 8 characters (`kq1kol`,
+Home:  `C:\SCUMMVM\{SCI.EXE, SCUMM.EXE, AGI.EXE, PLAY.EXE, CWSDPMI.EXE, DATA\}` and, per
+game, `C:\SCUMMVM\GAMES\ID\{USER.INI, SAVES\, SCUMMVM.LOG, EXITLOG.TXT}` (RUN.INI only while a game runs).
+Pack:  `GAMES\ID\` (the game's files) and `ID.INI` (the targets, without `path=`). Pack ids and targets are at most 8 characters (`kq1kol`,
 `lb1ko`, `mi1ko`): a longer target name is cut by DOS in its save file names
 (the save manager maps them back, see Memory and file names below, but two
 targets that share their first 8 characters would share a save file).
 
-PLAY makes the profile folder and copies `ID.INI` into it when there is no
-SCUMMVM.INI yet (never over one), picks the EXE by the `engineid=` of the
-target's own section (`agi` -> AGI.EXE; `scumm` -> SCUMM.EXE, then SCI.EXE;
-else SCI.EXE, then SCUMM.EXE; the first `engineid=` of the file when the
-target has none), runs it from the home with `--config`,
-`--savepath` and `--path` naming the profile and the pack, and moves the
-logs into the profile, also when the game ends on a signal. Further
-arguments go to the engine; path options among them are made absolute
-against the pack first. Run from the home folder, PLAY gives no `--path`
-(the INI's own is used). When the profile INI lacks the target's section,
-PLAY says so and does not merge the sample. DOS is back on the drive and
-directory it was started from, and the home drive keeps its own current
-directory, when PLAY ends. Messages name paths with backslashes.
+PLAY reads the pack's `ID.INI` on every run and never copies it: each run writes
+`GAMES\ID\RUN.INI` from it, the common `[scummvm]` of `SCUMMVM.INI` in the home and the
+player's `GAMES\ID\USER.INI`, gives it to the engine with `--config`, `--savepath` and
+`--path` (naming the profile and the pack), keeps what the engine changed in `USER.INI` and
+deletes it; nothing is written to the pack. It picks the EXE by the `engineid=` of the target's
+own section (`agi` -> AGI.EXE; `scumm` -> SCUMM.EXE, then SCI.EXE; else SCI.EXE, then
+SCUMM.EXE; the first `engineid=` of the file when the target has none), runs it from the home,
+and moves the logs into the profile when the game ends, also on a signal. Further arguments go
+to the engine (`-d1 --debugflags=Korean` for the Korean log lines); path options among them are made
+absolute against the pack first. PLAY's own options: `--language=xx`, `--8bit` (an 8-bit screen with the
+8-bit fonts: `--set=render_target=clut8 --set=hires_text_font=bitmap`) and `--set=KEY=VALUE` (any key for
+this run, the engine's own option). DOS is back on the drive and directory it was started from, and the
+home drive keeps its own current directory, when PLAY ends. Messages name paths with backslashes.
 
 - `PLAY --install ID`: only the profile folder and INI.
 - `PLAY --sound=adlib|mt32|gm ID`: sets `music_driver`, `native_mt32` and
