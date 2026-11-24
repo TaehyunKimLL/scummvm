@@ -1,0 +1,69 @@
+From 8ba0dec5a2f7b230a543a9195e3afb9e0f77db76 Mon Sep 17 00:00:00 2001
+From: Taehyun Kim <dice.thkim@gmail.com>
+Date: Tue, 24 Nov 2026 06:23:38 +0000
+Subject: [PATCH 19/20] dos: Make the keyboard ISR state volatile and reset the
+ parser on init
+
+The IRQ1 ring buffer and its cursors are written by the handler and read by
+the main thread: volatile. The scancode parser state (0xE0 prefix, Pause
+sequence, Han/Yeong and Hanja key-down flags) moves to file scope and is reset
+with the ring in DOSVESA_InitKeyboard(), so a second SDL_Init does not begin
+in the middle of a sequence.
+
+Assisted-by: Claude Code
+---
+ src/video/dos/SDL_dosevents.c | 24 ++++++++++++++++--------
+ 1 file changed, 16 insertions(+), 8 deletions(-)
+
+diff --git a/src/video/dos/SDL_dosevents.c b/src/video/dos/SDL_dosevents.c
+index 35123305d..7fdd1ba72 100644
+--- a/src/video/dos/SDL_dosevents.c
++++ b/src/video/dos/SDL_dosevents.c
+@@ -262,9 +262,17 @@ static const SDL_Scancode DOSVESA_ExtendedScancodeMapping[] = { // index is the
+     /* 0x5D */ SDL_SCANCODE_APPLICATION
+ };
+ 
+-static Uint8 keyevents_ringbuffer[256];
+-static int keyevents_head = 0;
+-static int keyevents_tail = 0;
++// Written by the IRQ1 handler, read by the main thread: volatile.
++static volatile Uint8 keyevents_ringbuffer[256];
++static volatile int keyevents_head = 0;
++static volatile int keyevents_tail = 0;
++
++// Scancode parser state, at file scope so DOSVESA_InitKeyboard() can reset it (a second SDL_Init must not start in the middle of
++// an 0xE0 or Pause sequence, or with a Han/Yeong key thought to be down).
++static bool is_extended = false;
++static int pause_sequence_remaining = 0;
++static bool hangul_down = false;
++static bool hanja_down = false;
+ 
+ static void DOSVESA_DrainBIOSKeyboardBuffer(void)
+ {
+@@ -288,11 +296,6 @@ void DOSVESA_PumpEvents(SDL_VideoDevice *device)
+        and anything else that is runnable. */
+     DOS_Yield();
+ 
+-    static bool is_extended = false;
+-    static int pause_sequence_remaining = 0;
+-    static bool hangul_down = false;
+-    static bool hanja_down = false;
+-
+     while (keyevents_head != keyevents_tail) {
+         const Uint8 event = keyevents_ringbuffer[keyevents_tail];
+         keyevents_tail = (keyevents_tail + 1) & (SDL_arraysize(keyevents_ringbuffer) - 1);
+@@ -417,6 +420,11 @@ void DOSVESA_InitKeyboard(SDL_VideoDevice *device)
+ {
+     SDL_VideoData *data = device->internal;
+ 
++    keyevents_head = keyevents_tail = 0;
++    is_extended = false;
++    pause_sequence_remaining = 0;
++    hangul_down = hanja_down = false;
++
+     // Lock ISR code and data to prevent page faults during interrupts. A
+     // page fault in the handler is fatal when the interrupt came in real
+     // mode: without the locks, no handler (and no keyboard).
+-- 
+2.43.0
+

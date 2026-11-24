@@ -77,3 +77,20 @@ Triage of the rest of the recommended list (not done this round, with reasons):
 | 3 | hash-collision guard | VERIFIED-HOST | a real collision (two names of one prefix with one DOS name, found by search) is refused by `openForSaving` in the same and in a new session, the owner can still save, A still loads; mutation (guard off) red |
 | 4 | `DOS_MARCH=i486` for C files / toggling not detected | OPEN | not done (agy-only) |
 | 5 | SB16 invalid H must keep the 8-bit D fallback; keyboard ISR state volatile/reset | OPEN | not done (agy-only) |
+
+# Follow-up on `ko/p7-agy-followup` (agy r2 findings; agy is a gating lane again)
+
+| Finding | Status | Evidence |
+|---|---|---|
+| agy dos #3: `DOS_MARCH=i486` omits CFLAGS | REJECTED (partly) | the svf C objects take `$(CXXFLAGS)` minus C++-only flags (`graphics/module.mk:110`); a `DOS_MARCH=i486` build's `make -n` for `svf_face.o` shows `-march=i486` |
+| agy dos #3: i486 -> Pentium toggle not detected | FIXED-BY-READING | `config_current()` also refuses a directory whose SAVED_CXXFLAGS has `-march=i486` when no march is asked (not run: a toggle run was blocked by the sandbox) |
+| agy sdl3 r1 #3: SB16 with missing/invalid H fails to open | FIXED-BY-READING | DSP 4.x with no `H` plays 8-bit on `D` (SDL3 c9a0e91ee); smoke x4 and KQ1 (SB16 with H) still open `DMA 5` |
+| agy sdl3 r1 #10: keyboard ISR ring/parser state | VERIFIED-EMULATOR | volatile ring and cursors, parser state at file scope and reset in `DOSVESA_InitKeyboard` (SDL3 8ba0dec5a); irqcheck kbd range 36 -> 52 bytes, 0 indirect exits; DOSBox-X: F9 (mapped Han/Yeong) toggles twice and the typed `qhk` frame hashes equal the Linux AA frame |
+| agy sdl3 #2 (r1): bare reset on open, probed DMA channel not kept, stats stale | FIXED-BY-READING | open uses `CheckForSoundBlaster()` (waits 0xAA); probed channel stored; counters cleared on close (SDL3 c9a0e91ee) |
+| agy sdl3 new: patch files committed in SDL3 | ALREADY FIXED | SDL3 14371af34 removed them; `git am` of `sdl3/0001..0020` reproduces SDL3 `c9a0e91ee` exactly (tree diff empty) |
+| agy dos #3 (r2): `inIrqHandler` misses AfterCall/IF=0; `g_pendingFree` waits for a large call | FIXED-BY-READING | any timer-proc context or IF=0 counts; pending blocks are returned on the next malloc/free outside such contexts |
+| agy dos #2 (r2): `getenv`/`strtoul` in the signal handler | FIXED-BY-READING | BLASTER parsed once in `installExitSignals()`; the handler does port I/O only. NOT done: using SDL's probed DMA channel (the handler cannot see SDL's statics) |
+| agy dos #9: stale 8.3 comments | FIXED | README names the hashed save file; test comment says 4 characters |
+| agy sdl3: double EOI on a chained vector, DMA probe reading the 8237 DREQ bits, `handlers[]`/lock short-circuit, canary globals and `extern "C"`, CPUID red zone, LTO pointer arithmetic, SB Pro stereo phase, 16-bit DMA count tearing | DEFERRED | needs a non-chaining hook or hardware to check; see round-2 triage |
+| agy dos: PLAY.EXE path/argument bugs, `supportedFormats()` vs `dos_force_fallback` | DEFERRED | not reproduced here; each needs its own host test |
+| agy shared: `--set` vs the 14 `sessionSettings` keys, "engine" control key, `$_pkgconfig` in configure, `default-saves.o` gating on POSIX/WIN32 | DEFERRED | none simple to verify on this host |

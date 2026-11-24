@@ -1,0 +1,67 @@
+From c9a0e91eed98e84dbe717bc96d4c647ef614388d Mon Sep 17 00:00:00 2001
+From: Taehyun Kim <dice.thkim@gmail.com>
+Date: Tue, 24 Nov 2026 06:23:38 +0000
+Subject: [PATCH 20/20] dos: Fall back to 8-bit on D when an SB16 has no
+ BLASTER H, wait for 0xAA on open
+
+- A DSP 4.x card whose BLASTER has no usable H has no 16-bit DMA channel:
+  it is driven as an 8-bit card on D instead of failing to open.
+- OpenDevice resets the DSP through CheckForSoundBlaster() (waits for 0xAA)
+  instead of a bare reset pulse.
+- The DMA channel the probe found is kept for the next open, and the
+  interrupt statistics are cleared when the device closes.
+
+Assisted-by: Claude Code
+---
+ src/audio/dos/SDL_dosaudio_sb.c | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/src/audio/dos/SDL_dosaudio_sb.c b/src/audio/dos/SDL_dosaudio_sb.c
+index 6136ead97..cc85b40eb 100644
+--- a/src/audio/dos/SDL_dosaudio_sb.c
++++ b/src/audio/dos/SDL_dosaudio_sb.c
+@@ -275,6 +275,9 @@ static void DOSSOUNDBLASTER_FreeState(struct SDL_PrivateAudioData *hidden)
+     isr_dma_halfdma = 0;
+     isr_irq_ack_port = 0;
+     isr_mixer_base = 0;
++    isr_irq_count = 0;
++    isr_underruns = 0;
++    isr_min_avail = 0x7fffffff;
+ 
+     SDL_free(hidden);
+ }
+@@ -535,6 +538,7 @@ static bool DOSSOUNDBLASTER_ProbeDMAChannel(const SDL_AudioDevice *device, struc
+             }
+             if (DOSSOUNDBLASTER_WaitForIRQ(irqs, timeout_ms)) {
+                 SDL_Log("SB: no interrupt on DMA %d, using DMA %d", configured, channel);
++                soundblaster_dma_channel = channel; // the next open starts on the channel that works
+                 return true;
+             }
+         }
+@@ -623,7 +627,9 @@ static bool DOSSOUNDBLASTER_OpenDevice(SDL_AudioDevice *device)
+ 
+     hidden->is_16bit = is_sb16;
+ 
+-    ResetSoundBlasterDSP();
++    if (!CheckForSoundBlaster()) { // reset and wait for the DSP's 0xAA, as at detection
++        return DOSSOUNDBLASTER_OpenFailed(hidden);
++    }
+ 
+     // allocate conventional memory for the DMA buffer.
+     hidden->dma_channel = is_sb16 ? soundblaster_highdma_channel : soundblaster_dma_channel;
+@@ -946,7 +952,11 @@ static bool IsSoundBlasterPresent(void)
+     SDL_Log("SB: dma16=%d", soundblaster_highdma_channel);
+     SDL_Log("SB: version=%d.%d", soundblaster_version, soundblaster_version_minor);
+ 
+-    soundblaster_is_sb16 = !FORCE_SB_8BIT && (soundblaster_version >= 4);
++    // A DSP 4.x card with no usable BLASTER H has no 16-bit DMA channel: it plays 8-bit on D instead of failing to open.
++    soundblaster_is_sb16 = !FORCE_SB_8BIT && (soundblaster_version >= 4) && (soundblaster_highdma_channel >= 0);
++    if (soundblaster_version >= 4 && soundblaster_highdma_channel < 0) {
++        SDL_Log("SB: DSP 4.x but no 16-bit DMA channel (BLASTER H): using 8-bit on D");
++    }
+     soundblaster_silence_value = soundblaster_is_sb16 ? 0x00 : 0x80; // S16LE silence is 0x00, U8 silence is 0x80
+ 
+     return true;
+-- 
+2.43.0
+
