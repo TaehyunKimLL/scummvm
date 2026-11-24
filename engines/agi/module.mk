@@ -43,6 +43,7 @@ MODULE_OBJS := \
 	textmode.o \
 	text.o \
 	textcells.o \
+	translation.o \
 	view.o \
 	words.o \
 	preagi/preagi.o \

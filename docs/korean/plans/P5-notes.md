@@ -29,3 +29,7 @@ Tasks are committed one by one; the sha of a task is written into the log by the
 
 ### a2: text mode
 - Red: `No rule to make target 'engines/agi/textmode.o'`. Green: **658** (N0 + 10), 0 warnings.
+- a2 sha 967203a3412.
+
+### a3: translation table
+- Red: `No rule to make target 'engines/agi/translation.o'`. Green: **668** (N0 + 20), 0 warnings.
