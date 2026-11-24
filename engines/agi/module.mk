@@ -13,6 +13,7 @@ MODULE_OBJS := \
 	hirestext.o \
 	inv.o \
 	keyboard.o \
+	korparse.o \
 	loader.o \
 	loader_a2.o \
 	loader_gal.o \
@@ -32,6 +33,7 @@ MODULE_OBJS := \
 	op_test.o \
 	picture.o \
 	picture_gal.o \
+	saidscan.o \
 	saveload.o \
 	sound.o \
 	sound_2gs.o \

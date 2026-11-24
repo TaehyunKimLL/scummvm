@@ -133,3 +133,8 @@ Tasks are committed one by one; the sha of a task is written into the log by the
 - **Alt+S (the UNVERIFIED item)**: `alt+s` at the title, in the message box, on an empty prompt and while composing `tn`:
   ScummVM saves its screenshot (4 `scummvm-lsl1-ko-0000N.png` files, toast visible), the prompt stays empty / `수`, the log
   shows only keys `0d`, `6e`, `74`: **no `ㄴ` leak, no `73`; not reproduced, no guard added** (`agi-p5b-alt-s-composing.png`).
+- b2 sha 357c95e811d.
+
+### c1: said() core and candidates
+- Red: `No rule to make target 'engines/agi/korparse.o'`. Green: **691** (N0 + 43; +11: 9 of jamo's, the 200000-pair
+  `saidMatches` vs verbatim upstream loop, the 50000-sentence candidate invariants), 0 warnings. `saidscan.{h,cpp}` added to module.mk (console use, c4).
